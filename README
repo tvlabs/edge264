@@ -1,0 +1,45 @@
+The test program takes a byte stream formatted according to Annex B.
+Remove "-lSDL -DDISPLAY" to measure raw decoding performance. Add
+-DDEBUG=1 to pretty print the headers on stdout, -DDEBUG=2 dumps the
+whole CABAC parsing on stderr (for comparison against my patched
+H264_reference_software). There is also a -DFAST_UNALIGNED which I
+added because ffmpeg had it, but so far it always slows the decoding.
+
+$ CC Edge264_test.c -mssse3 -std=gnu99 -lSDL -DDISPLAY
+$ a.out <video.264
+
+This software is in alpha state, and should not be used as a library
+yet. All of the memory structures WILL change consecutively to the
+implementation of frame threading.
+
+It is released early such that some features may benefit to
+implementers of H.265 decoders (compared mostly to ffmpeg's H.264
+decoder):
+
+* The search for start_code and emulation_prevention_three_byte is
+short and faster;
+
+* The functions to read Exponential-Golomb codes, get_ue(ctx, max) and
+get_se(ctx, min, max) are easy to use and suited to the spec;
+
+* Storing samples in 16bit no matter the actual BitDepth simplifies
+the code design a lot and improves the performance of >=9 bit depths
+thanks to shared code paths;
+
+* The access of neighbouring macroblock contexts lets CurrMb, MbAddrA,
+MbAddrB, MbAddrC and MbAddrD be stored sequentially in memory;
+
+* The method of precomputing increments from macroblock neighbours
+relieves many of the branches found in CABAC;
+
+* Prediction samples are passed in SIMD registers across functions,
+such that almost no intermediate results are committed to memory;
+
+* SIMD intrinsics are actually useful versus raw assembly, because
+they give more liberty to improve the algorithms (particularly when
+they require slightly more than 16 registers), also compilation needs
+not be staged and hidden behind a makefile;
+
+* The use of nested switches in Edge264_Intra8x8 spares branches for
+the availability of top-left/top-right samples, and reduces code size
+by sharing most code paths;

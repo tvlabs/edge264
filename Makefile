@@ -24,32 +24,11 @@
 # (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
 # SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #
-# Author: Thibault Raffaillac <traf@kth.se>
-#
 
-#CFLAGS += -mssse3 -std=gnu99 -lSDL -DDISPLAY -2O
+CC ?= gcc
+CFLAGS += -march=native -std=gnu99 -lSDL -DDISPLAY -O2
+DEPS = Edge264.c Edge264_common.h Edge264_CABAC.c Edge264_CABAC_init.c \
+    Edge264_decode.h Edge264_decode_ssse3.c Makefile
 
-ifneq (,$(shell which clang))
-CC = clang
-else
-  ifneq (,$(shell which gcc))
-CC = gcc
-  endif
-endif
-
-CFLAGS += -march=native -std=gnu99 -lSDL -DDISPLAY -O2 -Wall -Wno-unused-variable
-
-ifeq ($(shell uname -s),Darwin)
-CFLAGS += -DDARWIN -I/opt/local/include -L/opt/local/lib
-endif
-
-EDGE_SRCS = Edge264.c Edge264_common.h Edge264_decode.h \
-            Edge264_CABAC.c Edge264_CABAC_init.c Edge264_decode_ssse3.c Makefile
-
-all: edge264
-
-edge264: Edge264_test.c $(EDGE_SRCS)
+edge264_dump: Edge264_dump.c $(DEPS)
 	$(CC) $(CFLAGS) -o $@ $<
-
-test: edge264 test-video.264
-	./edge264 < test-video.264

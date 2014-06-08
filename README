@@ -27,7 +27,7 @@ code paths;
 MbAddrA, MbAddrB, MbAddrC and MbAddrD be stored sequentially in memory;
 * The method of precomputing increments from macroblock neighbours relieves
 many of the branches found in CABAC;
-* Prediction samples are passed in SIMD registers across functions, such that
-almost no intermediate results are committed to memory;
+* Prediction samples are passed in SIMD registers to the transform functions,
+such that almost no intermediate results are committed to memory;
 * A heavy use of nested switches to share tail code paths dramatically reduces
-code size, such that it will fit in L1 cache.
+code size, such that the whole decoding loop will fit in L1 cache.

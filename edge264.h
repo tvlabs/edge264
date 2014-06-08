@@ -50,4 +50,7 @@ typedef struct {
     Edge264_frame DPB[16];
 } Edge264_ctx;
 
+size_t Edge264_find_start_code(const uint8_t *buf, size_t len, unsigned int n);
+const Edge264_frame *Edge264_parse_NAL(Edge264_ctx *e, const uint8_t *buf, size_t len);
+
 #endif

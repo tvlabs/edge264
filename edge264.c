@@ -4,9 +4,7 @@
 /* TODO: Tester sur lint. */
 /* TODO: In Debug mode, initialise each image in plain red. */
 /* TODO: Dimensionner correctement la "safe zone". */
-/* TODO: Si unsigned ne sert qu'à étendre le range, le virer des déclarations. */
 /* TODO: Supprimer FrameSizeInSamples, qui s'il diffère de width*height pose problème. */
-/* TODO: Utiliser signed par défaut, et unsigned lorsque l'overflow est souhaité ? */
 /* TODO: Corriger les valeurs de crop selon ChromaArrayType. */
 /* TODO: Effacer la liste d'images stockées si les caractéristiques du SPS ont changé. */
 /* TODO: Traiter no_output_of_prior_pics_flag, et l'inférer à 1 lorsque la résolution change. */
@@ -15,10 +13,34 @@
 /* TODO: Supprimer les CPB lors d'un end of sequence. */
 /* TODO: A la fin de chaque ligne (même incomplète, cf first_mb_in_slice), le thread appelle un callback. */
 /* TODO: Remplacer les 0x%x par des %#x. */
-
-#include <limits.h>
-#include <stdlib.h>
-#include <string.h>
+/**
+ * Copyright (c) 2013-2014, Celticom / TVLabs
+ * All rights reserved.
+ *
+ * Redistribution and use in source and binary forms, with or without
+ * modification, are permitted provided that the following conditions are met:
+ * 1. Redistributions of source code must retain the above copyright
+ *    notice, this list of conditions and the following disclaimer.
+ * 2. Redistributions in binary form must reproduce the above copyright
+ *    notice, this list of conditions and the following disclaimer in the
+ *    documentation and/or other materials provided with the distribution.
+ * 3. Neither the name of Celticom nor the names of its contributors may be
+ *    used to endorse or promote products derived from this software without
+ *    specific prior written permission.
+ *
+ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+ * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+ * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+ * ARE DISCLAIMED. IN NO EVENT SHALL CELTICOM BE LIABLE FOR ANY DIRECT,
+ * INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
+ * (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
+ * LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND
+ * ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+ * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF
+ * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ *
+ * Author: Thibault Raffaillac <traf@kth.se>
+ */
 
 /**
  * Order of inclusion matters, lower files may use functions and variables from
@@ -31,32 +53,45 @@
  * _ output control: static functions do not appear in the resulting archive,
  *   without having to strip them afterwards.
  */
-#include "H264_common.h"
-#ifdef __SSSE3__
-//#include "H264_deblock_ssse3.c"
-//#include "H264_residual_ssse3.c"
-//#include "H264_intra_ssse3.c"
-//#include "H264_inter_ssse3.c"
-#endif
-//#include "H264_CABAC.c"
+#include "edge264_common.h"
+
+#include <stdlib.h>
+#include <string.h>
 
 
 
-// TODO: Which scan order was used??
-static const uint8_t Default_4x4_Intra[16] __attribute__((aligned(16))) =
-    {6, 13, 20, 28, 13, 20, 28, 32, 20, 28, 32, 37, 28, 32, 37, 42};
-static const uint8_t Default_4x4_Inter[16] __attribute__((aligned(16))) =
-    {10, 14, 20, 24, 14, 20, 24, 27, 20, 24, 27, 30, 24, 27, 30, 34};
-static const uint8_t Default_8x8_Intra[64] __attribute__((aligned(16))) =
-    {6, 10, 13, 16, 18, 23, 25, 27, 10, 11, 16, 18, 23, 25, 27, 29, 13, 16, 18,
-    23, 25, 27, 29, 31, 16, 18, 23, 25, 27, 29, 31, 33, 18, 23, 25, 27, 29, 31,
-    33, 36, 23, 25, 27, 29, 31, 33, 36, 38, 25, 27, 29, 31, 33, 36, 38, 40, 27,
-    29, 31, 33, 36, 38, 40, 42};
-static const uint8_t Default_8x8_Inter[64] __attribute__((aligned(16))) =
-    {9, 13, 15, 17, 19, 21, 22, 24, 13, 13, 17, 19, 21, 22, 24, 25, 15, 17, 19,
-    21, 22, 24, 25, 27, 17, 19, 21, 22, 24, 25, 27, 28, 19, 21, 22, 24, 25, 27,
-    28, 30, 21, 22, 24, 25, 27, 28, 30, 32, 22, 24, 25, 27, 28, 30, 32, 33, 24,
-    25, 27, 28, 30, 32, 33, 35};
+static const uint8_t Default_4x4_Intra[16] __attribute__((aligned)) = {
+     6, 13, 20, 28,
+    13, 20, 28, 32,
+    20, 28, 32, 37,
+    28, 32, 37, 42
+};
+static const uint8_t Default_4x4_Inter[16] __attribute__((aligned)) = {
+    10, 14, 20, 24,
+    14, 20, 24, 27,
+    20, 24, 27, 30,
+    24, 27, 30, 34
+};
+static const uint8_t Default_8x8_Intra[64] __attribute__((aligned)) = {
+     6, 10, 13, 16, 18, 23, 25, 27,
+    10, 11, 16, 18, 23, 25, 27, 29,
+    13, 16, 18, 23, 25, 27, 29, 31,
+    16, 18, 23, 25, 27, 29, 31, 33,
+    18, 23, 25, 27, 29, 31, 33, 36,
+    23, 25, 27, 29, 31, 33, 36, 38,
+    25, 27, 29, 31, 33, 36, 38, 40,
+    27, 29, 31, 33, 36, 38, 40, 42
+};
+static const uint8_t Default_8x8_Inter[64] __attribute__((aligned)) = {
+     9, 13, 15, 17, 19, 21, 22, 24,
+    13, 13, 17, 19, 21, 22, 24, 25,
+    15, 17, 19, 21, 22, 24, 25, 27,
+    17, 19, 21, 22, 24, 25, 27, 28,
+    19, 21, 22, 24, 25, 27, 28, 30,
+    21, 22, 24, 25, 27, 28, 30, 32,
+    22, 24, 25, 27, 28, 30, 32, 33,
+    24, 25, 27, 28, 30, 32, 33, 35
+};
 
 
 
@@ -1091,21 +1126,32 @@ static inline unsigned int H264_parse_SPS_RBSP(Video_ctx *v, Thread_ctx *t)
 
 
 
-/**
- * Parses one NAL unit. The whole buffer is internally duplicated on the CPB
- * for removal of emulation_prevention_three_bytes, and to append a "safe zone"
- * speeding up Exp-Golomb parsing.
- *
- * lim shall not be merged with Bit_ctx to form a SODB_ctx, since it would make
- * a BITSTREAM_OVERFLOW_CHECK option tempting, which in turn would mitigate the
- * need for a "safe zone", whick itself justifies the mandatory CPB memcpy which
- * makes it simplest and smoothes performance.
- */
-unsigned int H264_parse_NAL(Video_ctx *v, const uint8_t *cur,
-    const uint8_t *end)
-{
+/** Find the start of the next 00 00 0n pattern, returning len if none was found. */
+#ifdef __SSSE3__
+size_t Edge264_find_start_code(const uint8_t *buf, size_t len, unsigned int n) {
+    ptrdiff_t chunk = (uint8_t *)((uintptr_t)buf & -sizeof(__m128i)) - buf;
+    for (size_t u = 0; chunk < (ptrdiff_t)len; u = chunk += sizeof(__m128i)) {
+        /* Skip chunks without a zero odd byte. */
+        if ((_mm_movemask_epi8(_mm_cmpeq_epi8(*(__m128i *)(buf + chunk),
+            _mm_setzero_si128())) & 0xaaaa) == 0)
+            continue;
+        size_t lim = umin(chunk + sizeof(__m128i) + 2, len);
+        for (unsigned int start_code = -1; u < lim; u++) {
+            start_code = ((start_code & 0xffff) << 8) | buf[u];
+            if (start_code == n)
+                return u - 2;
+        }
+    }
+    return len;
+}
+#endif
+
+
+
+/** Parses a NAL unit, returning the next frame to output or NULL. */
+const Edge264_frame *Edge264_parse_NAL(Edge264_ctx *e, const uint8_t *buf, size_t len) {
     static const char * const nal_unit_type_names[32] = {
-        [0] = "Unspecified",
+        [0] = "unknown",
         [1] = "Coded slice of a non-IDR picture",
         [2] = "Coded slice data partition A",
         [3] = "Coded slice data partition B",
@@ -1125,141 +1171,62 @@ unsigned int H264_parse_NAL(Video_ctx *v, const uint8_t *cur,
         [19] = "Coded slice of an auxiliary coded picture",
         [20] = "Coded slice extension",
         [21] = "Coded slice extension for depth view components",
-        [22 ... 23] = "unknown",
-        [24 ... 31] = "Unspecified",
+        [22 ... 31] = "unknown",
+    };
+    typedef const Edge264_frame *(*Parser)(Edge264_ctx *, unsigned int);
+    static const Parser parse_nal_unit[32] = {
+        [1] = parse_slice_layer_without_partitioning_rbsp,
+        [5] = parse_slice_layer_without_partitioning_rbsp,
+        [7] = parse_sequence_parameter_set_rbsp,
+        [8] = parse_picture_parameter_set_rbsp,
+        [9] = parse_access_unit_delimiter_rbsp,
+        [10] = parse_end_of_seq_rbsp,
+        [11] = parse_end_of_stream_rbsp,
     };
     
-    /* Read the one-byte NAL header. */
-    if (cur + 1 >= end)
-        return 1 << H264_ERROR_PARSING_BITSTREAM;
-    v->nal_ref_idc = *cur >> 5;
-    v->nal_unit_type = *cur & 0x1f;
-    
-    /* Wait for a thread context to become available. */
-    pthread_mutex_lock(&v->lock);
-    int idx = MAX_THREADS;
-    while (idx == MAX_THREADS) {
-        for (idx = 0; idx < MAX_THREADS && v->threads[idx].target != NULL; idx++)
-            continue;
-        if (idx == MAX_THREADS)
-            pthread_cond_wait(&v->thread_available, &v->lock);
+    /* Allocate the CPB. */
+    if (len == 0)
+        return NULL;
+    len = umin(len, 36000000); // 240000 * 1200 / 8
+    const unsigned int suffix_size = 128;
+    size_t CPB_size = len - 1 + suffix_size;
+    if (e->CPB_size < CPB_size) {
+        e->CPB_size = CPB_size;
+        if (e->CPB != NULL)
+            free(e->CPB);
+        e->CPB = malloc(CPB_size);
+        if (e->CPB == NULL)
+            return NULL;
     }
-    Thread_ctx *t = &v->threads[idx];
-    pthread_mutex_unlock(&v->lock);
     
-    /* Prepare the CPB. */
-    const int safety_size = 8;
-    uintptr_t size = end - ++cur + safety_size;
-    if (size > 36000000 + safety_size) { // 240000 * 1200 * 8
-        size = 36000000 + safety_size;
-        end = cur + 36000000;
+    /* Copy the CPB while removing every emulation_prevention_three_byte. */
+    uint8_t *dst = r->CPB;
+    unsigned int u = 2;
+    while (u < len) {
+        unsigned int copy = Edge264_find_start_code(buf + u, len - u, 3);
+        memcpy(dst, buf + u, copy + 2 * (copy < len - u));
+        dst += copy + 2;
+        u += copy + 3;
     }
-    if (size > t->CPB_size) {
-        t->CPB_size = size;
-        if (t->CPB.buf != NULL)
-            free((uintptr_t *)t->CPB.buf);
-        t->CPB.buf = malloc(size);
-        if (t->CPB.buf == NULL)
-            return 1 << H264_ERROR_NO_MEMORY;
-    }
-    t->CPB.shift = 0;
+    dst -= 3; // Skips one cabac_zero_word as a side-effect
     
-    /* Seek and remove each emulation_prevention_three_byte. */
-    uint8_t *dst = (uint8_t *)t->CPB.buf;
-    const uintptr_t *wlim = (uintptr_t *)((uintptr_t)(end - 2) & -sizeof(*wlim));
-    const uint8_t *src = cur;
-    while (cur < end - 2) {
-        const uintptr_t *p = (uintptr_t *)((uintptr_t)cur & -sizeof(*p)) + 1;
-        const uint8_t *blim = ((uint8_t *)p < end - 2) ? (uint8_t *)p : end - 2;
-        for (unsigned int u = (cur[0] << 8) | cur[1]; cur < blim; cur++) {
-            if ((u = ((u & 0xffff) << 8) | cur[2]) == 0x000003) {
-                memcpy(dst, src, cur + 2 - src);
-                dst += cur + 2 - src;
-                src = cur + 3; // incrementing cur would break u!
-            }
-        }
-        
-        /* Skip words without a zero odd byte (from Bit Twiddling Hacks). */
-        const uintptr_t ones = htobe(0x0001000100010001);
-        const uintptr_t negs = htobe(0x0080008000800080);
-        while (p < wlim && ((*p - ones) & ~*p & negs) == 0)
-            p++;
-        cur = (uint8_t *)p;
-    }
-    memcpy(dst, src, end - src);
-    dst += end - src - 1;
-    
-    /* Skip any cabac_zero_word, delimit the SODB and append the "safe zone". */
+    /* Trim every cabac_zero_word, delimit the SODB, and append the safety suffix. */
     while (*dst == 0)
-        dst -= 2;
-    t->lim = 8 * (dst - (uint8_t *)t->CPB.buf) + 7 - __builtin_ctz(*dst);
-    memset(dst + 1, 0xff, safety_size);
+        dst--;
+    unsigned int lim = 8 * (dst - r->CPB) + 7 - __builtin_ctz(*dst);
+    memset(dst + 1, 0xff, suffix_size);
     
-    /* Execute the relevant parser. */
+    /* Read the one-byte NAL header and branch on nal_unit_type. */
+    e->nal_ref_idc = *buf >> 5;
+    e->nal_unit_type = *buf & 0x1f;
     printf("<ul class=\"frame\">\n"
         "<li>nal_ref_idc: <code>%u</code></li>\n"
         "<li%s>nal_unit_type: <code>%u (%s)</code></li>\n",
-        v->nal_ref_idc,
-        red_if((0xfffffe5d >> v->nal_unit_type) & 1), v->nal_unit_type, nal_unit_type_names[v->nal_unit_type]);
-    unsigned int error_flags = 0;
-    switch (v->nal_unit_type) {
-    case 5:
-        v->prevAbsFrameNum = 0;
-        v->prevPicOrderCnt = 0;
-    case 1:
-        error_flags = H264_parse_slice_RBSP(v, t);
-        break;
-    case 7:
-        error_flags = H264_parse_SPS_RBSP(v, t);
-        break;
-    case 8:
-        error_flags = H264_parse_PPS_RBSP(v, t);
-        break;
-    }
-    if (error_flags != 0)
-        printf("<li style=\"color: red\">Error 0x%x</li>\n", error_flags);
+        e->nal_ref_idc,
+        red_if(parse_nal_unit[e->nal_unit_type] == NULL), e->nal_unit_type, nal_unit_type_names[e->nal_unit_type]);
+    const Edge264_frame *output = NULL;
+    if (parse_nal_unit[e->nal_unit_type] != NULL)
+        output = parse_nal_unit[e->nal_unit_type](e, lim);
     printf("</ul>\n");
-    return error_flags;
-}
-
-
-
-/**
- * Parses one NAL unit from a H.264 stream formatted according to Annex B, and
- * updates the buf pointer.
- */
-unsigned int H264_parse_annexB_stream(Video_ctx *v, const uint8_t **buf,
-    const uint8_t *end)
-{
-    /* Find the start of the NAL unit. */
-    const uint8_t *cur = *buf;
-    while (cur < end && *cur == 0x00)
-        cur++;
-    unsigned int error_flags = 0;
-    if (cur < end - 2) {
-        const uintptr_t *wlim = (uintptr_t *)((uintptr_t)(end - 2) & -sizeof(*wlim));
-        const uint8_t *nal = ++cur;
-        for (;;) {
-            /* Search for the 00n pattern, n<=1, until cur is aligned. */
-            unsigned int u = (cur[0] << 8) | cur[1];
-            const uintptr_t *p = (uintptr_t *)((uintptr_t)cur & -sizeof(*p)) + 1;
-            const uint8_t *blim = ((uint8_t *)p < end - 2) ? (uint8_t *)p : end - 2;
-            while (cur < blim && (u = ((u & 0xffff) << 8) | cur[2]) > 0x000001)
-                cur++;
-            if (cur != (uint8_t *)p)
-                break;
-            
-            /* Skip words without a zero odd byte (from Bit Twiddling Hacks). */
-            const uintptr_t ones = htobe(0x0001000100010001);
-            const uintptr_t negs = htobe(0x0080008000800080);
-            while (p < wlim && ((*p - ones) & ~*p & negs) == 0)
-                p++;
-            cur = (uint8_t *)p;
-        }
-        
-        /* cur points to the first byte after rbsp_trailing_bits(). */
-        error_flags = H264_parse_NAL(v, nal, (cur < end - 2) ? cur : end);
-    }
-    *buf = cur + 2;
-    return error_flags;
+    return output;
 }

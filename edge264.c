@@ -449,34 +449,81 @@ static inline unsigned int H264_parse_slice_RBSP(Video_ctx *v, Thread_ctx *t)
 
 
 
-/**
- * Dedicated function to parse scaling_list().
- */
-static void H264_parse_scaling_list(Bit_ctx *b, uint8_t *weightScale, int num,
-    const uint8_t *fallback, const uint8_t *def, const int *invScan)
+/** Returns the last shift value. */
+static unsigned int parse_scaling_lists(Edge264_parameter_set *p,
+    const uint8_t *CPB, unsigned int shift, unsigned int transform_8x8_mode_flag)
 {
-    typedef struct { uint8_t q[16]; } v16qi __attribute__((aligned(16)));
-    const v16qi *src;
-    int nextScale;
-    if (!get_u1(b) || (src = (const v16qi *)def, nextScale = 8 + get_se(b, -128, 127)) == 0) {
-        for (int i = 0; i < num; i++)
-            ((v16qi *)weightScale)[i] = src[i];
-    } else {
-        const int *end = invScan + num * 16;
-        int lastScale = 0;
-        while (nextScale != 0) {
-            weightScale[*invScan++] = lastScale = nextScale;
-            if (invScan == end)
-                break;
-            nextScale += get_se(b, -128, 127);
+    typedef struct { uint8_t q[16]; } v16qi __attribute__((aligned));
+    const v16qi *src = (v16qi *)&p->weightScale4x4[0]
+    const v16qi *def = (v16qi *)Default_4x4_Intra;
+    for (int nextScale, i = 0; i < 6; i++) {
+        printf("<li>weightScale4x4[%u]: <code>", i);
+        if (i == 3) {
+            src = (v16qi *)&p->weightScale4x4[3];
+            def = Default_4x4_Inter;
         }
-        while (invScan < end)
-            weightScale[*invScan++] = lastScale;
+        const char *str = (i % 3 == 0) ? "existing" : "weightScale4x4[%u]";
+        if (!get_u1(CPB, &shift) || !(src = def, str = "default",
+            nextScale = 8 + get_se(CPB, &shift, -128, 127))) {
+            ((v16qi *)p->weightScale4x4)[i] = *src;
+            printf(str, i - 1);
+        } else {
+            for (int lastScale = nextScale, j = 0; j < 15; j++) {
+                p->weightScale4x4[i][invScan4x4[0][j]] = lastScale;
+                if (nextScale != 0)
+                    lastScale = nextScale, nextScale += get_se(CPB, &shift, -128, 127);
+            }
+            p->weightScale4x4[i][15] = lastScale; // TODO: invScan4x4[0][15] ?
+            for (unsigned int j = 0; j < 16; j++)
+                printf(" %u", p->weightScale4x4[i][j]);
+        }
+        src = (v16qi *)&s.weightScale4x4[i];
+        printf("</code></li>\n");
     }
-    printf("<li>weightScale: <code>");
-    for (int i = 0; i < num * 16; i++)
-        printf(" %u", weightScale[i]);
-    printf("</code></li>\n");
+    
+    if (transform_8x8_mode_flag) {
+        typedef struct { uint8_t q[64]; } v64qi __attribute__((aligned));
+        const v64qi *intra = (v64qi *)&p->weightScale8x8[0];
+        const v64qi *inter = (v64qi *)&p->weightScale8x8[1];
+        for (int nextScale, i = 0; i < (p->chroma_format_idc != 3 ? 2 : 6); i += 2) {
+            printf("<li>weightScale8x8[%u]: <code>", i);
+            const char *str = (i == 0) ? "existing" : "weightScale8x8[%u]";
+            if (!get_u1(CPB, &shift) || !(intra = Default_8x8_Intra,
+                str = "default", nextScale = 8 + get_se(CPB, &shift, -128, 127))) {
+                ((v64qi *)p->weightScale8x8)[i] = *intra;
+                printf(str, i - 2);
+            } else {
+                for (int lastScale = nextScale, j = 0; j < 63; j++) {
+                    p->weightScale8x8[i][invScan8x8[0][j]] = lastScale;
+                    if (nextScale != 0)
+                        lastScale = nextScale, nextScale += get_se(CPB, &shift, -128, 127);
+                }
+                p->weightScale8x8[i][63] = lastScale;
+                for (unsigned int j = 0; j < 64; j++)
+                    printf(" %u", p->weightScale8x8[i][j]);
+            }
+            intra = (v64qi *)&p->weightScale8x8[i];
+            printf("</code></li>\n<li>weightScale8x8[%u]: <code>", i + 1);
+            str = (i == 0) ? "existing" : "weightScale8x8[%u]";
+            if (!get_u1(CPB, &shift) || !(inter = Default_8x8_Inter,
+                str = "default", nextScale = 8 + get_se(CPB, &shift, -128, 127))) {
+                ((v64qi *)p->weightScale8x8)[i] = *inter;
+                printf(str, i - 1);
+            } else {
+                for (int lastScale = nextScale, j = 0; j < 63; j++) {
+                    p->weightScale8x8[i + 1][invScan8x8[0][j]] = lastScale;
+                    if (nextScale != 0)
+                        lastScale = nextScale, nextScale += get_se(CPB, &shift, -128, 127);
+                }
+                p->weightScale8x8[i + 1][63] = lastScale;
+                for (unsigned int j = 0; j < 64; j++)
+                    printf(" %u", p->weightScale8x8[i + 1][j]);
+            }
+            inter = (v64qi *)&p->weightScale8x8[i + 1];
+            printf("</code></li>\n");
+        }
+    }
+    return shift;
 }
 
 
@@ -862,6 +909,10 @@ static const Edge264_frame *parse_seq_parameter_set_rbsp(Edge264_ctx *e, unsigne
         memset(s.weightScale4x4, 16, sizeof(s.weightScale4x4));
         memset(s.weightScale8x8, 16, sizeof(s.weightScale8x8));
     } else {
+        memcpy(s.weightScale4x4[0], Default_4x4_Intra, 16);
+        memcpy(s.weightScale4x4[3], Default_4x4_Inter, 16);
+        memcpy(s.weightScale8x8[0], Default_8x8_Intra, 64);
+        memcpy(s.weightScale8x8[1], Default_8x8_Inter, 64);
         shift = parse_scaling_lists(&s, e->CPB, shift, 1);
     }
     s.log2_max_frame_num = get_ue(e->CPB, &shift, 12) + 4;

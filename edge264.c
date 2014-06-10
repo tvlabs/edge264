@@ -482,45 +482,77 @@ static void H264_parse_scaling_list(Bit_ctx *b, uint8_t *weightScale, int num,
 
 
 /**
- * Interprets and saves a PPS RBSP for the current sequence. Returns 0 if the
- * PPS and all of its features can be decoded.
+ * Parses the PPS into a copy of the current SPS, and returns NULL.
  */
-static inline unsigned int H264_parse_PPS_RBSP(Video_ctx *v, Thread_ctx *t)
-{
-    unsigned int pic_parameter_set_id = get_ue(&t->CPB, 255);
-    v->error_flags |= (pic_parameter_set_id >= 4) <<
-        H264_UNSUPPORTED_MORE_THAN_FOUR_PPS;
-    unsigned int seq_parameter_set_id = get_ue(&t->CPB, 31);
-    v->error_flags |= (seq_parameter_set_id != 0) << H264_UNSUPPORTED_MULTIPLE_SPS;
+static const Edge264_frame *parse_pic_parameter_set_rbsp(Edge264_ctx *e, unsigned int lim) {
+    static const char * const slice_group_map_type_names[7] = {"interleaved",
+        "dispersed", "foreground with left-over", "box-out", "raster scan",
+        "wipe", "explicit"};
+    
+    Edge264_parameter_set p = e->SPS;
+    unsigned int shift = 0;
+    unsigned int pic_parameter_set_id = get_ue(e->CPB, &shift, 255);
+    unsigned int seq_parameter_set_id = get_ue(e->CPB, &shift, 31);
+    p.entropy_coding_mode_flag = get_u1(e->CPB, &shift);
+    p.bottom_field_pic_order_in_frame_present_flag = get_u1(e->CPB, &shift);
+    unsigned int num_slice_groups = get_ue(e->CPB, &shift, 7) + 1;
     printf("<li%s>pic_parameter_set_id: <code>%u</code></li>\n"
-        "<li%s>seq_parameter_set_id: <code>%u</code></li>\n",
-        red_if(pic_parameter_set_id >= 4), pic_parameter_set_id,
-        red_if(seq_parameter_set_id != 0), seq_parameter_set_id);
-    if (v->error_flags != 0)
-        return v->error_flags;
-    PPS_ctx *p = &v->PPSs[pic_parameter_set_id];
-    p->entropy_coding_mode_flag = get_u1(&t->CPB);
-    p->bottom_field_pic_order_in_frame_present_flag = get_u1(&t->CPB);
-    unsigned int num_slice_groups = get_ue(&t->CPB, 7) + 1;
-    v->error_flags |= (num_slice_groups > 1) << H264_UNSUPPORTED_FMO_ASO;
-    p->num_ref_idx_l0_default_active = get_ue(&t->CPB, 31) + 1;
-    p->num_ref_idx_l1_default_active = get_ue(&t->CPB, 31) + 1;
-    unsigned int weighted_pred = get_uv(&t->CPB, 3);
-    p->weighted_pred_flag = weighted_pred >> 2;
-    p->weighted_bipred_idc = weighted_pred & 0x3;
-    p->pic_init_qp = get_se(&t->CPB, -62, 25) + 26;
-    unsigned int pic_init_qs = get_se(&t->CPB, -26, 25) + 26;
-    p->chroma_qp_index_offset = get_se(&t->CPB, -12, 12);
-    p->second_chroma_qp_index_offset = p->chroma_qp_index_offset;
-    p->deblocking_filter_control_present_flag = get_u1(&t->CPB);
-    p->constrained_intra_pred_flag = get_u1(&t->CPB);
-    unsigned int redundant_pic_cnt_present_flag = get_u1(&t->CPB);
-    v->error_flags |= redundant_pic_cnt_present_flag
-        << H264_UNSUPPORTED_REDUNDANT_SLICES;
-    printf("<li>entropy_coding_mode_flag: <code>%x</code></li>\n"
+        "<li%s>seq_parameter_set_id: <code>%u</code></li>\n"
+        "<li>entropy_coding_mode_flag: <code>%x</code></li>\n"
         "<li>bottom_field_pic_order_in_frame_present_flag: <code>%x</code></li>\n"
-        "<li%s>num_slice_groups: <code>%u</code></li>\n"
-        "<li>num_ref_idx_l0_default_active: <code>%u</code></li>\n"
+        "<li%s>num_slice_groups: <code>%u</code></li>\n",
+        red_if(pic_parameter_set_id >= 4), pic_parameter_set_id,
+        red_if(seq_parameter_set_id != 0), seq_parameter_set_id,
+        p.entropy_coding_mode_flag,
+        p.bottom_field_pic_order_in_frame_present_flag,
+        red_if(num_slice_groups > 1), num_slice_groups);
+    if (num_slice_groups > 1) {
+        unsigned int slice_group_map_type = get_ue(e->CPB, &shift, 6);
+        printf("<li>slice_group_map_type: <code>%u (%s)</code></li>\n",
+            slice_group_map_type, slice_group_map_type_names[slice_group_map_type]);
+        switch (slice_group_map_type) {
+        case 0:
+            for (unsigned int iGroup = 0; iGroup < num_slice_groups; iGroup++) {
+                unsigned int run_length = get_raw_ue(e->CPB, &shift, 36863) + 1;
+                printf("<li>run_length[%u]: <code>%u</code></li>\n",
+                    iGroup, run_length);
+            }
+            break;
+        case 2:
+            for (unsigned int iGroup = 0; iGroup < num_slice_groups; iGroup++) {
+                unsigned int top_left = get_raw_ue(e->CPB, &shift, 36863);
+                unsigned int bottom_right = get_raw_ue(e->CPB, &shift, 36863);
+                printf("<li>top_left[%u]: <code>%u</code></li>\n"
+                    "<li>bottom_right[%u]: <code>%u</code></li>\n",
+                    iGroup, top_left,
+                    iGroup, bottom_right);
+            }
+            break;
+        case 3 ... 5: {
+            unsigned int slice_group_change_direction_flag = get_u1(e->CPB, &shift);
+            unsigned int SliceGroupChangeRate = get_raw_ue(e->CPB, &shift, 36863) + 1;
+            printf("<li>slice_group_change_direction_flag: <code>%x</code></li>\n"
+                "<li>SliceGroupChangeRate: <code>%u</code></li>\n",
+                slice_group_change_direction_flag,
+                SliceGroupChangeRate);
+            } break;
+        case 6:
+            shift = umin(shift + (get_raw_ue(e->CPB, &shift, 36863) + 1) *
+                (WORD_BIT - __builtin_clz(num_slice_groups - 1)), lim);
+            break;
+        }
+    }
+    p.num_ref_idx_active[0] = get_ue(e->CPB, &shift, 31) + 1;
+    p.num_ref_idx_active[1] = get_ue(e->CPB, &shift, 31) + 1;
+    p.weighted_pred = get_uv(e->CPB, &shift, 3);
+    p.QP_Y = get_se(e->CPB, &shift, -62, 25) + 26;
+    unsigned int pic_init_qs = get_se(e->CPB, &shift, -26, 25) + 26;
+    p.second_chroma_qp_index_offset = p.chroma_qp_index_offset =
+        get_se(e->CPB, &shift, -12, 12);
+    p.deblocking_filter_control_present_flag = get_u1(e->CPB, &shift);
+    p.constrained_intra_pred_flag = get_u1(e->CPB, &shift);
+    p.redundant_pic_cnt_present_flag = get_u1(e->CPB, &shift);
+    printf("<li>num_ref_idx_l0_default_active: <code>%u</code></li>\n"
         "<li>num_ref_idx_l1_default_active: <code>%u</code></li>\n"
         "<li>weighted_pred_flag: <code>%x</code></li>\n"
         "<li>weighted_bipred_idc: <code>%u</code></li>\n"
@@ -529,104 +561,62 @@ static inline unsigned int H264_parse_PPS_RBSP(Video_ctx *v, Thread_ctx *t)
         "<li>chroma_qp_index_offset: <code>%d</code></li>\n"
         "<li>deblocking_filter_control_present_flag: <code>%x</code></li>\n"
         "<li>constrained_intra_pred_flag: <code>%x</code></li>\n"
-        "<li%s>redundant_pic_cnt_present_flag: <code>%x</code></li>\n",
-        p->entropy_coding_mode_flag,
-        p->bottom_field_pic_order_in_frame_present_flag,
-        red_if(num_slice_groups > 1), num_slice_groups,
-        p->num_ref_idx_l0_default_active,
-        p->num_ref_idx_l1_default_active,
-        p->weighted_pred_flag,
-        p->weighted_bipred_idc,
-        p->pic_init_qp,
+        "<li>redundant_pic_cnt_present_flag: <code>%x</code></li>\n",
+        p.num_ref_idx_active[0],
+        p.num_ref_idx_active[1],
+        p.weighted_pred >> 2,
+        p.weighted_pred & 0x3,
+        p.QP_Y,
         pic_init_qs,
-        p->chroma_qp_index_offset,
-        p->deblocking_filter_control_present_flag,
-        p->constrained_intra_pred_flag,
-        red_if(redundant_pic_cnt_present_flag), redundant_pic_cnt_present_flag);
-    p->transform_8x8_mode_flag = 0;
-    unsigned int pic_scaling_matrix_present_flag = 0;
-    if (t->CPB.shift < t->lim) {
-        p->transform_8x8_mode_flag = get_u1(&t->CPB);
-        pic_scaling_matrix_present_flag = get_u1(&t->CPB);
-        printf("<li>transform_8x8_mode_flag: <code>%x</code></li>\n"
-            "<li>pic_scaling_matrix_present_flag: <code>%x</code></li>\n",
-            p->transform_8x8_mode_flag,
-            pic_scaling_matrix_present_flag);
-        if (pic_scaling_matrix_present_flag) {
-            printf("<ul>\n");
-            H264_parse_scaling_list(&t->CPB, p->weightScale4x4[0], 1,
-                v->weightScale4x4[0], Default_4x4_Intra, invScan4x4[0]);
-            H264_parse_scaling_list(&t->CPB, p->weightScale4x4[1], 1,
-                p->weightScale4x4[0], Default_4x4_Intra, invScan4x4[0]);
-            H264_parse_scaling_list(&t->CPB, p->weightScale4x4[2], 1,
-                p->weightScale4x4[1], Default_4x4_Intra, invScan4x4[0]);
-            H264_parse_scaling_list(&t->CPB, p->weightScale4x4[3], 1,
-                v->weightScale4x4[3], Default_4x4_Inter, invScan4x4[0]);
-            H264_parse_scaling_list(&t->CPB, p->weightScale4x4[4], 1,
-                p->weightScale4x4[3], Default_4x4_Inter, invScan4x4[0]);
-            H264_parse_scaling_list(&t->CPB, p->weightScale4x4[5], 1,
-                p->weightScale4x4[4], Default_4x4_Inter, invScan4x4[0]);
-            if (p->transform_8x8_mode_flag) {
-                H264_parse_scaling_list(&t->CPB, p->weightScale8x8[0], 4,
-                    v->weightScale8x8[0], Default_4x4_Intra, invScan8x8[0]);
-                H264_parse_scaling_list(&t->CPB, p->weightScale8x8[1], 4,
-                    v->weightScale8x8[1], Default_4x4_Inter, invScan8x8[0]);
-                if (v->ChromaArrayType == 3) {
-                    H264_parse_scaling_list(&t->CPB, p->weightScale8x8[2], 4,
-                        p->weightScale8x8[0], Default_4x4_Intra, invScan8x8[0]);
-                    H264_parse_scaling_list(&t->CPB, p->weightScale8x8[3], 4,
-                        p->weightScale8x8[1], Default_4x4_Inter, invScan8x8[0]);
-                    H264_parse_scaling_list(&t->CPB, p->weightScale8x8[4], 4,
-                        p->weightScale8x8[2], Default_4x4_Intra, invScan8x8[0]);
-                    H264_parse_scaling_list(&t->CPB, p->weightScale8x8[5], 4,
-                        p->weightScale8x8[3], Default_4x4_Inter, invScan8x8[0]);
-                }
-            }
-            printf("</ul>\n");
-        }
-        p->second_chroma_qp_index_offset = get_se(&t->CPB, -12, 12);
+        p.chroma_qp_index_offset,
+        p.deblocking_filter_control_present_flag,
+        p.constrained_intra_pred_flag,
+        p.redundant_pic_cnt_present_flag);
+    if (shift < lim) {
+        p.transform_8x8_mode_flag = get_u1(e->CPB, &shift);
+        printf("<li>transform_8x8_mode_flag: <code>%x</code></li>\n",
+            p.transform_8x8_mode_flag);
+        if (get_u1(e->CPB, &shift))
+            shift = parse_scaling_lists(&p, e->CPB, shift, p.transform_8x8_mode_flag);
+        p.second_chroma_qp_index_offset = get_se(e->CPB, &shift, -12, 12);
         printf("<li>second_chroma_qp_index_offset: <code>%d</code></li>\n",
-            p->second_chroma_qp_index_offset);
+            p.second_chroma_qp_index_offset);
     }
-    if (!pic_scaling_matrix_present_flag) {
-        memcpy(p->weightScale4x4, v->weightScale4x4, sizeof(p->weightScale4x4));
-        memcpy(p->weightScale8x8, v->weightScale8x8, sizeof(p->weightScale8x8));
-    }
-    v->error_flags |= (t->CPB.shift != t->lim) << H264_ERROR_PARSING_BITSTREAM;
-    return v->error_flags;
+    
+    /* The test for seq_parameter_set_id must happen before any use of SPS data. */
+    if (shift == lim && pic_parameter_set_id < 4 && seq_parameter_set_id == 0 &&
+        num_slice_groups == 1 && e->DPB[0].image != NULL)
+        e->PPSs[pic_parameter_set_id] = p;
+    return NULL;
 }
 
 
 
-/**
- * Dedicated function to parse hrd_parameters().
- */
-static inline void H264_parse_hrd_parameters(Bit_ctx *b)
-{
-    unsigned int cpb_cnt = get_ue(b, 31) + 1;
-    unsigned int scale = get_uv(b, 8);
-    unsigned int bit_rate_scale = scale >> 4;
-    unsigned int cpb_size_scale = scale & 0xf;
+/** Returns the last shift value. */
+static unsigned int parse_hrd_parameters(const uint8_t *CPB, unsigned int shift) {
+    unsigned int cpb_cnt = get_ue(CPB, &shift, 31) + 1;
+    unsigned int bit_rate_scale = get_uv(CPB, &shift, 4);
+    unsigned int cpb_size_scale = get_uv(CPB, &shift, 4);
     printf("<li>cpb_cnt: <code>%u</code></li>\n"
         "<li>bit_rate_scale: <code>%u</code></li>\n"
         "<li>cpb_size_scale: <code>%u</code></li>\n",
         cpb_cnt,
         bit_rate_scale,
         cpb_size_scale);
-    do {
-        unsigned int bit_rate_value = get_ue(b, 4294967294) + 1;
-        unsigned int cpb_size_value = get_ue(b, 4294967294) + 1;
-        unsigned int cbr_flag = get_u1(b);
+    for (unsigned int i = 0; i < cpb_cnt; i++) {
+        unsigned int bit_rate_value = get_ue(CPB, &shift, 4294967294) + 1;
+        unsigned int cpb_size_value = get_ue(CPB, &shift, 4294967294) + 1;
+        unsigned int cbr_flag = get_u1(CPB, &shift);
         printf("<ul>\n"
-            "<li>bit_rate_value: <code>%u</code></li>\n"
-            "<li>cpb_size_value: <code>%u</code></li>\n"
-            "<li>cbr_flag: <code>%x</code></li>\n"
+            "<li>bit_rate_value[%u]: <code>%u</code></li>\n"
+            "<li>cpb_size_value[%u]: <code>%u</code></li>\n"
+            "<li>cbr_flag[%u]: <code>%x</code></li>\n"
             "</ul>\n",
-            bit_rate_value,
-            cpb_size_value,
-            cbr_flag);
-    } while (--cpb_cnt != 0);
-    unsigned int delays = get_uv(b, 20);
+            i, bit_rate_value,
+            i, cpb_size_value,
+            i, cbr_flag);
+    }
+    unsigned int delays = get_uv(CPB, &shift, 20);
     unsigned int initial_cpb_removal_delay_length = (delays >> 15) + 1;
     unsigned int cpb_removal_delay_length = ((delays >> 10) & 0x1f) + 1;
     unsigned int dpb_output_delay_length = ((delays >> 5) & 0x1f) + 1;
@@ -639,45 +629,19 @@ static inline void H264_parse_hrd_parameters(Bit_ctx *b)
         cpb_removal_delay_length,
         dpb_output_delay_length,
         time_offset_length);
+    return shift;
 }
 
 
 
-/**
- * Dedicated function to parse vui_parameters(), for readability.
- */
-static inline void H264_parse_vui_parameters(Bit_ctx *b)
-{
-    static const char * const aspect_ratio_idc_names[256] = {
-        [0] = "Unspecified",
-        [1] = "1:1",
-        [2] = "12:11",
-        [3] = "10:11",
-        [4] = "16:11",
-        [5] = "40:33",
-        [6] = "24:11",
-        [7] = "20:11",
-        [8] = "32:11",
-        [9] = "80:33",
-        [10] = "18:11",
-        [11] = "15:11",
-        [12] = "64:33",
-        [13] = "160:99",
-        [14] = "4:3",
-        [15] = "3:2",
-        [16] = "2:1",
-        [17 ... 254] = "unknown",
-        [255] = "Extended_SAR",
-    };
-    static const char * const video_format_names[8] = {
-        [0] = "Component",
-        [1] = "PAL",
-        [2] = "NTSC",
-        [3] = "SECAM",
-        [4] = "MAC",
-        [5] = "Unspecified video format",
-        [6 ... 7] = "unknown",
-    };
+/** Returns the last shift value. */
+static unsigned int parse_vui_parameters(const uint8_t *CPB, unsigned int shift) {
+    static const unsigned int ratio2sar[256] = {0, 0x00010001, 0x000c000b,
+        0x000a000b, 0x0010000b, 0x00280021, 0x0018000b, 0x0014000b, 0x0020000b,
+        0x00500021, 0x0012000b, 0x000f000b, 0x00400021, 0x00a00063, 0x00040003,
+        0x00030002, 0x00020001};
+    static const char * const video_format_names[8] = {"Component", "PAL",
+        "NTSC", "SECAM", "MAC", [5 ... 7] = "Unspecified"};
     static const char * const colour_primaries_names[256] = {
         [0] = "unknown",
         [1] = "green(0.300,0.600) blue(0.150,0.060) red(0.640,0.330) whiteD65(0.3127,0.3290)",
@@ -723,46 +687,33 @@ static inline void H264_parse_vui_parameters(Bit_ctx *b)
         [11 ... 255] = "unknown",
     };
     
-    unsigned int aspect_ratio_info_present_flag = get_u1(b);
-    printf("<li>aspect_ratio_info_present_flag: <code>%x</code></li>\n",
-        aspect_ratio_info_present_flag);
-    if (aspect_ratio_info_present_flag) {
-        unsigned int aspect_ratio_idc = get_uv(b, 8);
-        printf("<li>aspect_ratio_idc: <code>%u (%s)</code></li>\n",
-            aspect_ratio_idc, aspect_ratio_idc_names[aspect_ratio_idc]);
-        if (aspect_ratio_idc == 255) {
-            unsigned int sar = get_uv(b, 32);
-            unsigned int sar_width = sar >> 16;
-            unsigned int sar_height = sar & 0xffff;
-            printf("<li>sar_width: <code>%u</code></li>\n"
-                "<li>sar_height: <code>%u</code></li>\n",
-                sar_width,
-                sar_height);
-        }
+    if (get_u1(CPB, &shift)) {
+        unsigned int aspect_ratio_idc = get_uv(CPB, &shift, 8);
+        unsigned int sar = ratio2sar[aspect_ratio_idc];
+        if (aspect_ratio_idc == 255)
+            sar = get_uv(CPB, &shift, 32);
+        unsigned int sar_width = sar >> 16;
+        unsigned int sar_height = sar & 0xffff;
+        printf("<li>aspect_ratio: <code>%u (%u:%u)</code></li>\n",
+            aspect_ratio_idc, sar_width, sar_height);
     }
-    unsigned int overscan_info_present_flag = get_u1(b);
-    printf("<li>overscan_info_present_flag: <code>%x</code></li>\n",
-        overscan_info_present_flag);
-    if (overscan_info_present_flag) {
-        unsigned int overscan_appropriate_flag = get_u1(b);
+    if (get_u1(CPB, &shift)) {
+        unsigned int overscan_appropriate_flag = get_u1(CPB, &shift);
         printf("<li>overscan_appropriate_flag: <code>%x</code></li>\n",
             overscan_appropriate_flag);
     }
-    unsigned int video_signal_type_present_flag = get_u1(b);
+    unsigned int video_signal_type_present_flag = get_u1(CPB, &shift);
     printf("<li>video_signal_type_present_flag: <code>%x</code></li>\n",
         video_signal_type_present_flag);
-    if (video_signal_type_present_flag) {
-        unsigned int video_format = get_uv(b, 3);
-        unsigned int video_full_range_flag = get_u1(b);
-        unsigned int colour_description_present_flag = get_u1(b);
+    if (get_u1(CPB, &shift)) {
+        unsigned int video_format = get_uv(CPB, &shift, 3);
+        unsigned int video_full_range_flag = get_u1(CPB, &shift);
         printf("<li>video_format: <code>%u (%s)</code></li>\n"
-            "<li>video_full_range_flag: <code>%x</code></li>\n"
-            "<li>colour_description_present_flag: <code>%x</code></li>\n",
+            "<li>video_full_range_flag: <code>%x</code></li>\n",
             video_format, video_format_names[video_format],
-            video_full_range_flag,
-            colour_description_present_flag);
-        if (colour_description_present_flag) {
-            unsigned int desc = get_uv(b, 24);
+            video_full_range_flag);
+        if (get_u1(CPB, &shift)) {
+            unsigned int desc = get_uv(CPB, &shift, 24);
             unsigned int colour_primaries = desc >> 16;
             unsigned int transfer_characteristics = (desc >> 8) & 0xff;
             unsigned int matrix_coefficients = desc & 0xff;
@@ -774,24 +725,18 @@ static inline void H264_parse_vui_parameters(Bit_ctx *b)
                 matrix_coefficients, matrix_coefficients_names[matrix_coefficients]);
         }
     }
-    unsigned int chroma_loc_info_present_flag = get_u1(b);
-    printf("<li>chroma_loc_info_present_flag: <code>%x</code></li>\n",
-        chroma_loc_info_present_flag);
-    if (chroma_loc_info_present_flag) {
-        unsigned int chroma_sample_loc_type_top_field = get_ue(b, 5);
-        unsigned int chroma_sample_loc_type_bottom_field = get_ue(b, 5);
+    if (get_u1(CPB, &shift)) {
+        unsigned int chroma_sample_loc_type_top_field = get_ue(CPB, &shift, 5);
+        unsigned int chroma_sample_loc_type_bottom_field = get_ue(CPB, &shift, 5);
         printf("<li>chroma_sample_loc_type_top_field: <code>%x</code></li>\n"
             "<li>chroma_sample_loc_type_bottom_field: <code>%x</code></li>\n",
             chroma_sample_loc_type_top_field,
             chroma_sample_loc_type_bottom_field);
     }
-    unsigned int timing_info_present_flag = get_u1(b);
-    printf("<li>timing_info_present_flag: <code>%x</code></li>\n",
-        timing_info_present_flag);
-    if (timing_info_present_flag) {
-        unsigned int num_units_in_tick = get_uv(b, 32);
-        unsigned int time_scale = get_uv(b, 32);
-        unsigned int fixed_frame_rate_flag = get_u1(b);
+    if (get_u1(CPB, &shift)) {
+        unsigned int num_units_in_tick = get_uv(CPB, &shift, 32);
+        unsigned int time_scale = get_uv(CPB, &shift, 32);
+        unsigned int fixed_frame_rate_flag = get_u1(CPB, &shift);
         printf("<li>num_units_in_tick: <code>%u</code></li>\n"
             "<li>time_scale: <code>%u</code></li>\n"
             "<li>fixed_frame_rate_flag: <code>%x</code></li>\n",
@@ -799,35 +744,28 @@ static inline void H264_parse_vui_parameters(Bit_ctx *b)
             time_scale,
             fixed_frame_rate_flag);
     }
-    unsigned int nal_hrd_parameters_present_flag = get_u1(b);
-    printf("<li>nal_hrd_parameters_present_flag: <code>%x</code></li>\n",
-        nal_hrd_parameters_present_flag);
+    unsigned int nal_hrd_parameters_present_flag = get_u1(CPB, &shift);
     if (nal_hrd_parameters_present_flag)
-        H264_parse_hrd_parameters(b);
-    unsigned int vcl_hrd_parameters_present_flag = get_u1(b);
-    printf("<li>vcl_hrd_parameters_present_flag: <code>%x</code></li>\n",
-        vcl_hrd_parameters_present_flag);
+        shift = parse_hrd_parameters(CPB, shift);
+    unsigned int vcl_hrd_parameters_present_flag = get_u1(CPB, &shift);
     if (vcl_hrd_parameters_present_flag)
-        H264_parse_hrd_parameters(b);
+        shift = parse_hrd_parameters(CPB, shift);
     if (nal_hrd_parameters_present_flag || vcl_hrd_parameters_present_flag) {
-        unsigned int low_delay_hrd_flag = get_u1(b);
+        unsigned int low_delay_hrd_flag = get_u1(CPB, &shift);
         printf("<li>low_delay_hrd_flag: <code>%x</code></li>\n",
             low_delay_hrd_flag);
     }
-    unsigned int pic_struct_present_flag = get_u1(b);
-    unsigned int bitstream_restriction_flag = get_u1(b);
-    printf("<li>pic_struct_present_flag: <code>%x</code></li>\n"
-        "<li>bitstream_restriction_flag: <code>%x</code></li>\n",
-        pic_struct_present_flag,
-        bitstream_restriction_flag);
-    if (bitstream_restriction_flag) {
-        unsigned int motion_vectors_over_pic_boundaries_flag = get_u1(b);
-        unsigned int max_bytes_per_pic_denom = get_ue(b, 16);
-        unsigned int max_bits_per_mb_denom = get_ue(b, 16);
-        unsigned int log2_max_mv_length_horizontal = get_ue(b, 5);
-        unsigned int log2_max_mv_length_vertical = get_ue(b, 16);
-        unsigned int max_num_reorder_frames = get_ue(b, 16);
-        unsigned int max_dec_frame_buffering = get_ue(b, 16);
+    unsigned int pic_struct_present_flag = get_u1(CPB, &shift);
+    printf("<li>pic_struct_present_flag: <code>%x</code></li>\n",
+        pic_struct_present_flag);
+    if (get_u1(CPB, &shift)) {
+        unsigned int motion_vectors_over_pic_boundaries_flag = get_u1(CPB, &shift);
+        unsigned int max_bytes_per_pic_denom = get_ue(CPB, &shift, 16);
+        unsigned int max_bits_per_mb_denom = get_ue(CPB, &shift, 16);
+        unsigned int log2_max_mv_length_horizontal = get_ue(CPB, &shift, 5);
+        unsigned int log2_max_mv_length_vertical = get_ue(CPB, &shift, 16);
+        unsigned int max_num_reorder_frames = get_ue(CPB, &shift, 16);
+        unsigned int max_dec_frame_buffering = get_ue(CPB, &shift, 16);
         printf("<li>motion_vectors_over_pic_boundaries_flag: <code>%x</code></li>\n"
             "<li>max_bytes_per_pic_denom: <code>%u</code></li>\n"
             "<li>max_bits_per_mb_denom: <code>%u</code></li>\n"
@@ -843,23 +781,15 @@ static inline void H264_parse_vui_parameters(Bit_ctx *b)
             max_num_reorder_frames,
             max_dec_frame_buffering);
     }
+    return shift;
 }
 
 
 
 /**
- * Interprets and saves a SPS RBSP for the current sequence. Returns 0 if the
- * SPS and all of its features can be decoded (unsupported features are coloured
- * red in the trace output), pursue the decoding at your own risk!
- * Transmission errors receive no special care: considering the size of an SPS
- * they will most likely affect slices.
- * On-the-fly changes to chroma format, bit depth, max_num_ref_frames or
- * resolution cause the DPB to be flushed. To display the delayed frames before
- * the new SPS one should issue end-of-sequence NAL units until no output frame
- * is returned.
+ * Parses the SPS into a Edge264_parameter_set structure, and returns NULL.
  */
-static inline unsigned int H264_parse_SPS_RBSP(Video_ctx *v, Thread_ctx *t)
-{
+static const Edge264_frame *parse_seq_parameter_set_rbsp(Edge264_ctx *e, unsigned int lim) {
     static const char * const profile_idc_names[256] = {
         [44] = "CAVLC 4:4:4 Intra",
         [66] = "Baseline",
@@ -875,27 +805,15 @@ static inline unsigned int H264_parse_SPS_RBSP(Video_ctx *v, Thread_ctx *t)
         [138] = "Multiview Depth High",
         [244] = "High 4:4:4 Predictive",
     };
-    static const char * const chroma_format_idc_names[31] = {
-        [0] = "4:0:0",
-        [1] = "4:2:0",
-        [2] = "4:2:2",
-        [3] = "4:4:4",
-        [4 ... 30] = "unknown",
-    };
+    static const char * const chroma_format_idc_names[4] = {"4:0:0", "4:2:0", "4:2:2", "4:4:4"};
     
-    unsigned int profile_idc = ((uint8_t *)t->CPB.buf)[0];
-    v->error_flags = (profile_idc == 66 || profile_idc == 88) <<
-        H264_UNSUPPORTED_PROFILE_BASELINE_EXTENDED;
-    unsigned int constraint_set_flags = ((uint8_t *)t->CPB.buf)[1];
-    unsigned int constraint_set0_flag = constraint_set_flags >> 7;
-    unsigned int constraint_set1_flag = (constraint_set_flags >> 6) & 1;
-    unsigned int constraint_set2_flag = (constraint_set_flags >> 5) & 1;
-    unsigned int constraint_set3_flag = (constraint_set_flags >> 4) & 1;
-    unsigned int constraint_set4_flag = (constraint_set_flags >> 3) & 1;
-    unsigned int constraint_set5_flag = (constraint_set_flags >> 2) & 1;
-    unsigned int level_idc = ((uint8_t *)t->CPB.buf)[2];
-    t->CPB.shift = 24;
-    unsigned int seq_parameter_set_id = get_ue(&t->CPB, 31);
+    Edge264_parameter_set s = {0};
+    s.BitDepth[0] = s.BitDepth[1] = s.BitDepth[2] = 8;
+    unsigned int profile_idc = e->CPB[0];
+    unsigned int constraint_set_flags = e->CPB[1];
+    unsigned int level_idc = e->CPB[2];
+    unsigned int shift = 24;
+    unsigned int seq_parameter_set_id = get_ue(e->CPB, &shift, 31);
     printf("<li>profile_idc: <code>%u (%s)</code></li>\n"
         "<li>constraint_set0_flag: <code>%x</code></li>\n"
         "<li>constraint_set1_flag: <code>%x</code></li>\n"
@@ -903,225 +821,157 @@ static inline unsigned int H264_parse_SPS_RBSP(Video_ctx *v, Thread_ctx *t)
         "<li>constraint_set3_flag: <code>%x</code></li>\n"
         "<li>constraint_set4_flag: <code>%x</code></li>\n"
         "<li>constraint_set5_flag: <code>%x</code></li>\n"
-        "<li>level_idc: <code>%u</code></li>\n"
+        "<li>level_idc: <code>%f</code></li>\n"
         "<li%s>seq_parameter_set_id: <code>%u</code></li>\n",
         profile_idc, profile_idc_names[profile_idc],
-        constraint_set0_flag,
-        constraint_set1_flag,
-        constraint_set2_flag,
-        constraint_set3_flag,
-        constraint_set4_flag,
-        constraint_set5_flag,
-        level_idc,
+        constraint_set_flags >> 7,
+        (constraint_set_flag >> 6) & 1,
+        (constraint_set_flag >> 5) & 1,
+        (constraint_set_flag >> 4) & 1,
+        (constraint_set_flag >> 3) & 1,
+        (constraint_set_flag >> 2) & 1,
+        (float)level_idc / 10,
         red_if(seq_parameter_set_id != 0), seq_parameter_set_id);
-    if (seq_parameter_set_id != 0)
-        return v->error_flags |= 1 << H264_UNSUPPORTED_MULTIPLE_SPS;
-    unsigned int ChromaArrayType = 1;
-    unsigned int BitDepth_Y = 8;
-    unsigned int BitDepth_C = 8;
-    v->qpprime_y_zero_transform_bypass_flag = 0;
     unsigned int seq_scaling_matrix_present_flag = 0;
     if (profile_idc != 66 && profile_idc != 77 && profile_idc != 88) {
-        ChromaArrayType = get_ue(&t->CPB, 3);
+        s.ChromaArrayType = s.chroma_format_idc = get_ue(e->CPB, &shift, 3);
         printf("<li>chroma_format_idc: <code>%u (%s)</code></li>\n",
-            ChromaArrayType, chroma_format_idc_names[ChromaArrayType]);
-        if (ChromaArrayType == 3) { // Fix ChromaArrayType
-            unsigned int separate_colour_plane_flag = get_u1(&t->CPB);
-            v->error_flags |= separate_colour_plane_flag <<
-                H264_UNSUPPORTED_SEPARATE_COLOUR_PLANES;
-            printf("<li%s>separate_colour_plane_flag: <code>%x</code></li>\n",
-                red_if(separate_colour_plane_flag), separate_colour_plane_flag);
+            s.chroma_format_idc, chroma_format_idc_names[s.chroma_format_idc]);
+        if (s.chroma_format_idc == 3) {
+            s.separate_colour_plane_flag = get_u1(e->CPB, &shift);
+            s.ChromaArrayType &= s.separate_colour_plane_flag - 1;
+            printf("<li>separate_colour_plane_flag: <code>%x</code></li>\n",
+                s.separate_colour_plane_flag);
         }
-        BitDepth_Y = get_ue(&t->CPB, 6) + 8;
-        BitDepth_C = get_ue(&t->CPB, 6) + 8;
-        v->qpprime_y_zero_transform_bypass_flag = get_u1(&t->CPB);
-        unsigned int seq_scaling_matrix_present_flag = get_u1(&t->CPB);
-        printf("<li>bit_depth_luma: <code>%u</code></li>\n"
-            "<li>bit_depth_chroma: <code>%u</code></li>\n"
+        s.BitDepth[0] = get_ue(e->CPB, &shift, 6);
+        s.BitDepth[1] = s.BitDepth[2] = get_ue(e->CPB, &shift, 6);
+        s.QpBdOffset_Y = 6 * (s.BitDepth[0] - 8);
+        s.QpBdOffset_C = 6 * (s.BitDepth[1] - 8);
+        s.qpprime_y_zero_transform_bypass_flag = get_ue(e->CPB, &shift);
+        seq_scaling_matrix_present_flag = get_u1(&t->CPB);
+        printf("<li>BitDepth<sub>Y</sub>: <code>%u</code></li>\n"
+            "<li>BitDepth<sub>C</sub>: <code>%u</code></li>\n"
             "<li>qpprime_y_zero_transform_bypass_flag: <code>%x</code></li>\n"
             "<li>seq_scaling_matrix_present_flag: <code>%x</code></li>\n",
-            BitDepth_Y,
-            BitDepth_C,
-            v->qpprime_y_zero_transform_bypass_flag,
+            s.BitDepth[0],
+            s.BitDepth[1],
+            s.qpprime_y_zero_transform_bypass_flag,
             seq_scaling_matrix_present_flag);
     }
-    unsigned int reinit = ChromaArrayType != v->ChromaArrayType |
-        BitDepth_Y != v->BitDepth_Y | BitDepth_C != v->BitDepth_C;
-    v->ChromaArrayType = ChromaArrayType;
-    v->BitDepth_Y = BitDepth_Y;
-    v->BitDepth_C = BitDepth_C;
     if (!seq_scaling_matrix_present_flag) {
-        memset(v->weightScale4x4, 16, sizeof(v->weightScale4x4));
-        memset(v->weightScale8x8, 16, sizeof(v->weightScale8x8));
+        memset(s.weightScale4x4, 16, sizeof(s.weightScale4x4));
+        memset(s.weightScale8x8, 16, sizeof(s.weightScale8x8));
     } else {
-        printf("<ul>\n");
-        H264_parse_scaling_list(&t->CPB, v->weightScale4x4[0], 1,
-            Default_4x4_Intra, Default_4x4_Intra, invScan4x4[0]);
-        H264_parse_scaling_list(&t->CPB, v->weightScale4x4[1], 1,
-            v->weightScale4x4[0], Default_4x4_Intra, invScan4x4[0]);
-        H264_parse_scaling_list(&t->CPB, v->weightScale4x4[2], 1,
-            v->weightScale4x4[1], Default_4x4_Intra, invScan4x4[0]);
-        H264_parse_scaling_list(&t->CPB, v->weightScale4x4[3], 1,
-            Default_4x4_Inter, Default_4x4_Inter, invScan4x4[0]);
-        H264_parse_scaling_list(&t->CPB, v->weightScale4x4[4], 1,
-            v->weightScale4x4[3], Default_4x4_Inter, invScan4x4[0]);
-        H264_parse_scaling_list(&t->CPB, v->weightScale4x4[5], 1,
-            v->weightScale4x4[4], Default_4x4_Inter, invScan4x4[0]);
-        H264_parse_scaling_list(&t->CPB, v->weightScale8x8[0], 4,
-            Default_8x8_Intra, Default_4x4_Intra, invScan8x8[0]);
-        H264_parse_scaling_list(&t->CPB, v->weightScale8x8[1], 4,
-            Default_8x8_Inter, Default_4x4_Inter, invScan8x8[0]);
-        if (v->ChromaArrayType == 3) {
-            H264_parse_scaling_list(&t->CPB, v->weightScale8x8[2], 4,
-                v->weightScale8x8[0], Default_4x4_Intra, invScan8x8[0]);
-            H264_parse_scaling_list(&t->CPB, v->weightScale8x8[3], 4,
-                v->weightScale8x8[1], Default_4x4_Inter, invScan8x8[0]);
-            H264_parse_scaling_list(&t->CPB, v->weightScale8x8[4], 4,
-                v->weightScale8x8[2], Default_4x4_Intra, invScan8x8[0]);
-            H264_parse_scaling_list(&t->CPB, v->weightScale8x8[5], 4,
-                v->weightScale8x8[3], Default_4x4_Inter, invScan8x8[0]);
-        }
-        printf("</ul>\n");
+        shift = parse_scaling_lists(&s, e->CPB, shift, 1);
     }
-    v->log2_max_frame_num = get_ue(&t->CPB, 12) + 4;
-    v->pic_order_cnt_type = get_ue(&t->CPB, 2);
-    printf("<li>max_frame_num: <code>%u</code></li>\n"
+    s.log2_max_frame_num = get_ue(e->CPB, &shift, 12) + 4;
+    s.pic_order_cnt_type = get_ue(e->CPB, &shift, 2);
+    printf("<li>log2_max_frame_num: <code>%u</code></li>\n"
         "<li>pic_order_cnt_type: <code>%u</code></li>\n",
-        1 << v->log2_max_frame_num,
-        v->pic_order_cnt_type);
-    if (v->pic_order_cnt_type == 0) {
-        v->log2_max_pic_order_cnt_lsb = get_ue(&t->CPB, 12) + 4;
-        printf("<li>max_pic_order_cnt_lsb: <code>%u</code></li>\n",
-            1 << v->log2_max_pic_order_cnt_lsb);
-    } else if (v->pic_order_cnt_type == 1) {
-        v->delta_pic_order_always_zero_flag = get_u1(&t->CPB);
-        v->offset_for_non_ref_pic = get_se(&t->CPB, -2147483647, 2147483647);
-        v->offset_for_top_to_bottom_field = get_se(&t->CPB, -2147483647, 2147483647);
-        v->num_ref_frames_in_pic_order_cnt_cycle = get_ue(&t->CPB, 255);
+        s.log2_max_frame_num,
+        s.pic_order_cnt_type);
+    if (s.pic_order_cnt_type == 0) {
+        s.log2_max_pic_order_cnt_lsb = get_ue(e->CPB, &shift, 12) + 4;
+        printf("<li>log2_max_pic_order_cnt_lsb: <code>%u</code></li>\n",
+            s.log2_max_pic_order_cnt_lsb);
+    } else if (s.pic_order_cnt_type == 1) {
+        s.delta_pic_order_always_zero_flag = get_u1(e->CPB, &shift);
+        s.offset_for_non_ref_pic = get_se(e->CPB, &shift, -2147483647, 2147483647);
+        s.offset_for_top_to_bottom_field = get_se(e->CPB, &shift, -2147483647, 2147483647);
+        s.num_ref_frames_in_pic_order_cnt_cycle = get_ue(e->CPB, &shift, 255);
         printf("<li>delta_pic_order_always_zero_flag: <code>%x</code></li>\n"
             "<li>offset_for_non_ref_pic: <code>%d</code></li>\n"
             "<li>offset_for_top_to_bottom: <code>%d</code></li>\n"
-            "<li>num_ref_frames_in_pic_order_cnt_cycle: <code>%u</code></li>\n"
-            "<ul>\n",
-            v->delta_pic_order_always_zero_flag,
-            v->offset_for_non_ref_pic,
-            v->offset_for_top_to_bottom_field,
-            v->num_ref_frames_in_pic_order_cnt_cycle);
-        for (int i = 0, delta = 0; i < v->num_ref_frames_in_pic_order_cnt_cycle; i++) {
-            int offset_for_ref_frame = get_se(&t->CPB, -2147483647, 2147483647);
-            v->PicOrderCntDeltas[i] = delta += offset_for_ref_frame;
-            printf("<li>offset_for_ref_frame: <code>%d</code></li>\n",
-                offset_for_ref_frame);
-        }
-        printf("</ul>\n");
+            "<li>num_ref_frames_in_pic_order_cnt_cycle: <code>%u</code></li>\n",
+            s.delta_pic_order_always_zero_flag,
+            s.offset_for_non_ref_pic,
+            s.offset_for_top_to_bottom_field,
+            s.num_ref_frames_in_pic_order_cnt_cycle);
     }
-    unsigned int max_num_ref_frames = get_ue(&t->CPB, 16);
-    reinit |= max_num_ref_frames != v->max_num_ref_frames;
-    v->max_num_ref_frames = max_num_ref_frames;
-    unsigned int gaps_in_frame_num_value_allowed_flag = get_u1(&t->CPB);
-    unsigned int pic_width_in_mbs = get_ue(&t->CPB, 543) + 1;
-    unsigned int pic_height_in_map_units = get_ue(&t->CPB, 543) + 1;
-    v->frame_mbs_only_flag = get_u1(&t->CPB);
-    unsigned int FrameHeightInMbs = pic_height_in_map_units <<
-        (v->frame_mbs_only_flag ^ 1);
-    if (FrameHeightInMbs > 543)
-        FrameHeightInMbs = 543;
-    unsigned int FrameSizeInMbs = pic_width_in_mbs * FrameHeightInMbs;
-    if (FrameSizeInMbs > 36864) {
-        FrameHeightInMbs = 36864 / pic_width_in_mbs;
-        FrameSizeInMbs = pic_width_in_mbs * FrameHeightInMbs;
+    printf("<ul>\n");
+    int32_t PicOrderCntDeltas[256];
+    for (int i = 0, delta = 0; i < s.num_ref_frames_in_pic_order_cnt_cycle; i++) {
+        int offset_for_ref_frame = get_se(e->CPB, &shift, -2147483647, 2147483647);
+        PicOrderCntDeltas[i] = delta += offset_for_ref_frame;
+        printf("<li>PicOrderCntDeltas[%u]: <code>%d</code></li>\n",
+            i, PicOrderCntDeltas[i]);
     }
-    unsigned int width = pic_width_in_mbs * 16;
-    unsigned int height = FrameHeightInMbs * 16;
-    reinit |= width != v->width | height != v->height;
-    v->width = width;
-    v->height = height;
+    printf("</ul>\n");
+    s.max_num_ref_frames = get_ue(e->CPB, &shift, 16);
+    s.gaps_in_frame_num_value_allowed_flag = get_u1(e->CPB, &shift);
+    s.width = (get_ue(e->CPB, &shift, 543) + 1) * 16;
+    unsigned int pic_height_in_map_units = get_raw_ue(e->CPB, &shift, 543) + 1;
+    s.frame_mbs_only_flag = get_u1(e->CPB, &shift);
+    s.height = umin(pic_height_in_map_units << (s.frame_mbs_only_flag ^ 1), 543) * 16;
     printf("<li>max_num_ref_frames: <code>%u</code></li>\n"
         "<li>gaps_in_frame_num_value_allowed_flag: <code>%x</code></li>\n"
-        "<li>pic_width_in_mbs: <code>%u</code></li>\n"
-        "<li>pic_height_in_map_units: <code>%u</code></li>\n"
+        "<li>width: <code>%u</code></li>\n"
+        "<li>height: <code>%u</code></li>\n"
         "<li>frame_mbs_only_flag: <code>%x</code></li>\n",
         v->max_num_ref_frames,
         gaps_in_frame_num_value_allowed_flag,
-        pic_width_in_mbs,
-        pic_height_in_map_units,
-        v->frame_mbs_only_flag);
-    v->mb_adaptive_frame_field_flag = 0;
-    if (v->frame_mbs_only_flag == 0) {
-        v->mb_adaptive_frame_field_flag = get_u1(&t->CPB);
+        s.width,
+        s.height,
+        s.frame_mbs_only_flag);
+    if (s.frame_mbs_only_flag == 0) {
+        s.mb_adaptive_frame_field_flag = get_u1(e->CPB, &shift);
         printf("<li>mb_adaptive_frame_field_flag: <code>%x</code></li>\n",
-            v->mb_adaptive_frame_field_flag);
+            s.mb_adaptive_frame_field_flag);
     }
-    v->direct_8x8_inference_flag = get_u1(&t->CPB);
-    unsigned int frame_cropping_flag = get_u1(&t->CPB);
-    printf("<li>direct_8x8_inference_flag: <code>%x</code></li>\n"
-        "<li>frame_cropping_flag: <code>%x</code></li>\n",
-        v->direct_8x8_inference_flag,
-        frame_cropping_flag);
-    v->frame_crop_left_offset = v->frame_crop_right_offset =
-        v->frame_crop_top_offset = v->frame_crop_bottom_offset = 0;
-    if (frame_cropping_flag) {
-        unsigned int shiftX = v->ChromaArrayType == 1 | v->ChromaArrayType == 2;
-        unsigned int shiftY = (v->frame_mbs_only_flag ^ 1) +
-            (v->ChromaArrayType == 1);
-        v->frame_crop_left_offset = get_ue(&t->CPB, 8687) << shiftX;
-        v->frame_crop_right_offset = get_ue(&t->CPB, 8687) << shiftX;
-        v->frame_crop_top_offset = get_ue(&t->CPB, 8687) << shiftY;
-        v->frame_crop_bottom_offset = get_ue(&t->CPB, 8687) << shiftY;
+    s.direct_8x8_inference_flag = get_u1(e->CPB, &shift);
+    printf("<li>direct_8x8_inference_flag: <code>%x</code></li>\n",
+        s.direct_8x8_inference_flag);
+    if (get_u1(e->CPB, &shift)) {
+        unsigned int shiftX = (s.ChromaArrayType == 1 | s.ChromaArrayType == 2);
+        unsigned int shiftY = (s.ChromaArrayType == 1) + (s.frame_mbs_only_flag ^ 1);
+        unsigned int limX = (s.width - 1) >> shiftX << shiftX;
+        unsigned int limY = (s.height - 1) >> shiftY << shiftY;
+        s.frame_crop_left_offset = umin(get_raw_ue(e->CPB, &shift, 8687) << shiftX, limX);
+        s.frame_crop_right_offset = umin(get_raw_ue(e->CPB, &shift, 8687) << shiftX, limX - s.frame_crop_left_offset);
+        s.frame_crop_top_offset = umin(get_raw_ue(e->CPB, &shift, 8687) << shiftY, limY);
+        s.frame_crop_bottom_offset = umin(get_raw_ue(e->CPB, &shift, 8687) << shiftY, limY - s.frame_crop_top_offset);
         printf("<li>frame_crop_left_offset: <code>%u</code></li>\n"
             "<li>frame_crop_right_offset: <code>%u</code></li>\n"
             "<li>frame_crop_top_offset: <code>%u</code></li>\n"
             "<li>frame_crop_bottom_offset: <code>%u</code></li>\n",
-            v->frame_crop_left_offset >> shiftX,
-            v->frame_crop_right_offset >> shiftX,
-            v->frame_crop_top_offset >> shiftY,
-            v->frame_crop_bottom_offset >> shiftY);
+            s.frame_crop_left_offset,
+            s.frame_crop_right_offset,
+            s.frame_crop_top_offset,
+            s.frame_crop_bottom_offset);
     }
-    unsigned int vui_parameters_present_flag = get_u1(&t->CPB);
-    printf("<li>vui_parameters_present_flag: <code>%x</code></li>\n",
-        vui_parameters_present_flag);
-    if (vui_parameters_present_flag)
+    if (get_u1(e->CPB, &shift))
         H264_parse_vui_parameters(&t->CPB);
-    v->error_flags |= (t->CPB.shift != t->lim) << H264_ERROR_PARSING_BITSTREAM;
     
-    /* When the frame characteristics changed, clear the internal state. */
-    if (reinit) {
-        pthread_mutex_lock(&v->lock);
-        for (int i = 0; i < MAX_THREADS; i++) {
-            if (v->threads[i].CPB.buf != NULL) {
-                while (v->threads[i].target != NULL)
-                    pthread_cond_wait(&v->threads[i].update_target, &v->lock);
-                free((uintptr_t *)v->threads[i].CPB.buf);
-                v->threads[i].CPB.buf = NULL;
-                v->threads[i].CPB_size = 0;
-            }
-        }
-        pthread_mutex_unlock(&v->lock);
-        if (v->DPB == NULL) {
-            v->lock = (pthread_mutex_t)PTHREAD_MUTEX_INITIALIZER;
-            v->thread_available = (pthread_cond_t)PTHREAD_COND_INITIALIZER;
-        } else {
-            free(v->DPB);
-            v->DPB = NULL;
-        }
-        unsigned int luma_size = FrameSizeInMbs * 256 * sizeof(uint16_t);
-        unsigned int chroma_size = FrameSizeInMbs * 64 * sizeof(uint16_t) *
-            (1 << v->ChromaArrayType >> 1) * (v->ChromaArrayType > 0);
-        unsigned int frame_size = luma_size + 2 * chroma_size +
-            FrameSizeInMbs * sizeof(Macroblock_motion);
-        unsigned int size = (v->max_num_ref_frames + MAX_THREADS) * frame_size;
-        if (posix_memalign((void **)&v->DPB, 32, size) != 0)
-            v->error_flags |= 1 << H264_ERROR_NO_MEMORY;
-        for (int i = 0; i < v->max_num_ref_frames + MAX_THREADS; i++) {
-            v->frames[i].planes[0] = v->DPB + frame_size * i;
-            v->frames[i].planes[1] = (void *)v->frames[i].planes[0] + luma_size;
-            v->frames[i].planes[2] = (void *)v->frames[i].planes[1] + chroma_size;
-            v->frames[i].motion_matrix = (void *)v->frames[i].planes[2] + chroma_size;
-            v->frames[i].FieldOrderCnt[0] = v->frames[i].FieldOrderCnt[1] = INT32_MIN;
-            v->frames[i].used_for_reference = 0;
-        }
+    /* Clear e->CPB and reallocate the DPB when the image format changes. */
+    s.image_offsets[1] = s.width * s.height;
+    if (image_offsets[1] > 9437184) {
+        s.height = 9437184 / s.width;
+        s.image_offsets[1] = s.width * s.height;
     }
-    return v->error_flags;
+    unsigned int FrameSizeInSamples_C = s.image_offsets[1] / 4 *
+        (1 << s.ChromaArrayType >> 1);
+    s.image_offsets[2] = s.image_offsets[1] + FrameSizeInSamples_C;
+    s.image_offsets[3] = s.image_offsets[2] + FrameSizeInSamples_C;
+    if ((s.chroma_format_idc ^ e->SPS.chroma_format_idc) | (s.width ^ e->SPS.width) |
+        (s.height ^ e->SPS.height) | (s.max_num_ref_frames ^ e->SPS.max_num_ref_frames) |
+        (s.BitDepth[0] ^ e->SPS.BitDepth[0]) | (s.BitDepth[1] ^ e->SPS.BitDepth[1])) {
+        free(e->CPB);
+        e->CPB = NULL;
+        e->CPB_size = 0;
+        if (e->DPB[0].image != NULL)
+            free(e->DPB[0].image);
+        size_t s = s.image_offsets[3] + s.image_offsets[1] / 256 * sizeof(Edge264_global_mb);
+        void *p = malloc((s.max_num_ref_frames + 1) * s);
+        for (unsigned int i = 0; i <= s.max_num_ref_frames; i++) {
+            e->DPB[i].image = p + i * s;
+            e->DPB[i].mbs = (Edge264_global_mb *)(e->DPB[i].image + s.image_offsets[3]);
+            e->DPB[i].FieldOrderCnt[0] = e->DPB[i].FieldOrderCnt[1] = INT32_MIN;
+        }
+        memset(e->PPSs, 0, sizeof(e->PPSs));
+    }
+    e->SPS = s;
+    memcpy(e->PicOrderCntDeltas, PicOrderCntDeltas, 4 * s.num_ref_frames_in_pic_order_cnt_cycle);
+    return NULL;
 }
 
 
@@ -1177,8 +1027,8 @@ const Edge264_frame *Edge264_parse_NAL(Edge264_ctx *e, const uint8_t *buf, size_
     static const Parser parse_nal_unit[32] = {
         [1] = parse_slice_layer_without_partitioning_rbsp,
         [5] = parse_slice_layer_without_partitioning_rbsp,
-        [7] = parse_sequence_parameter_set_rbsp,
-        [8] = parse_picture_parameter_set_rbsp,
+        [7] = parse_seq_parameter_set_rbsp,
+        [8] = parse_pic_parameter_set_rbsp,
         [9] = parse_access_unit_delimiter_rbsp,
         [10] = parse_end_of_seq_rbsp,
         [11] = parse_end_of_stream_rbsp,
@@ -1210,7 +1060,7 @@ const Edge264_frame *Edge264_parse_NAL(Edge264_ctx *e, const uint8_t *buf, size_
     }
     dst -= 3; // Skips one cabac_zero_word as a side-effect
     
-    /* Trim every cabac_zero_word, delimit the SODB, and append the safety suffix. */
+    /* Trim trailing zeros, delimit the SODB, and append the safety suffix. */
     while (*dst == 0)
         dst--;
     unsigned int lim = 8 * (dst - r->CPB) + 7 - __builtin_ctz(*dst);

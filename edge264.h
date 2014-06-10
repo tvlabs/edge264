@@ -31,7 +31,45 @@
 #include <stdint.h>
 
 typedef struct {
-    
+    unsigned int chroma_format_idc:2;
+    unsigned int ChromaArrayType:2;
+    unsigned int separate_colour_plane_flag:1;
+    unsigned int QpBdOffset_Y:6;
+    unsigned int QpBdOffset_C:6;
+    unsigned int qpprime_y_zero_transform_bypass_flag:1;
+    unsigned int log2_max_frame_num:5;
+    unsigned int pic_order_cnt_type:2;
+    unsigned int log2_max_pic_order_cnt_lsb:5;
+    unsigned int delta_pic_order_always_zero_flag:1; // pic_order_cnt_type==1
+    unsigned int max_num_ref_frames:5;
+    unsigned int gaps_in_frame_num_value_allowed_flag:1;
+    unsigned int frame_mbs_only_flag:1;
+    unsigned int mb_adaptive_frame_field_flag:1;
+    unsigned int direct_8x8_inference_flag:1;
+    unsigned int entropy_coding_mode_flag:1;
+    unsigned int bottom_field_pic_order_in_frame_present_flag:1;
+    unsigned int weighted_pred:3;
+    int chroma_qp_index_offset:5;
+    unsigned int deblocking_filter_control_present_flag:1;
+    unsigned int constrained_intra_pred_flag:1;
+    unsigned int redundant_pic_cnt_present_flag:1;
+    unsigned int transform_8x8_mode_flag:1;
+    int second_chroma_qp_index_offset:5;
+    uint8_t BitDepth[3]; // 4 significant bits
+    uint8_t num_ref_frames_in_pic_order_cnt_cycle; // pic_order_cnt_type==1
+    uint8_t num_ref_idx_active[2]; // 4 significant bits each
+    uint8_t QP_Y; // 7 significant bits
+    uint16_t width; // in luma samples, 14 significant bits
+    uint16_t height;
+    uint32_t image_offsets[4]; // in samples, 26 significant bits
+    uint16_t frame_crop_left_offset; // in luma samples
+    uint16_t frame_crop_right_offset; // in luma samples
+    uint16_t frame_crop_top_offset; // in luma samples
+    uint16_t frame_crop_bottom_offset; // in luma samples
+    int32_t offset_for_non_ref_pic; // pic_order_cnt_type==1
+    int32_t offset_for_top_to_bottom_field; // pic_order_cnt_type==1
+    uint8_t weightScale4x4[6][16] __attribute__((aligned));
+    uint8_t weightScale8x8[6][64] __attribute__((aligned));
 } Edge264_parameter_set;
 typedef struct {
     
@@ -39,7 +77,6 @@ typedef struct {
 typedef struct {
     uint16_t *image;
     Edge264_global_mb *mbs;
-    unsigned int needed_for_output:1;
     int32_t FieldOrderCnt[2];
 } Edge264_frame;
 typedef struct {
@@ -47,6 +84,7 @@ typedef struct {
     unsigned int CPB_size; // in bytes, 26 significant bits
     Edge264_parameter_set SPS;
     Edge264_parameter_set PPSs[4];
+    int32_t PicOrderCntDeltas[256]; // pic_order_cnt_type==1
     Edge264_frame DPB[16];
 } Edge264_ctx;
 

@@ -1,4 +1,5 @@
 /**
+ * Copyright (c) 2013-2014, Celticom / TVLabs
  * Copyright (c) 2014 Thibault Raffaillac <traf@kth.se>
  * All rights reserved.
  *
@@ -9,15 +10,15 @@
  * 2. Redistributions in binary form must reproduce the above copyright
  *    notice, this list of conditions and the following disclaimer in the
  *    documentation and/or other materials provided with the distribution.
- * 3. Neither the name of Celticom nor the names of its contributors may be
- *    used to endorse or promote products derived from this software without
- *    specific prior written permission.
+ * 3. Neither the name of the copyright holders nor the names of their
+ *    contributors may be used to endorse or promote products derived from this
+ *    software without specific prior written permission.
  *
  * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
  * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
  * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
- * ARE DISCLAIMED. IN NO EVENT SHALL CELTICOM BE LIABLE FOR ANY DIRECT,
- * INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
+ * ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDERS BE LIABLE FOR ANY
+ * DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
  * (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
  * LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND
  * ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
@@ -61,7 +62,6 @@ typedef struct {
     uint8_t QP_Y; // 7 significant bits
     uint16_t width; // in luma samples, 14 significant bits
     uint16_t height;
-    uint32_t image_offsets[4]; // in samples, 26 significant bits
     uint16_t frame_crop_left_offset; // in luma samples
     uint16_t frame_crop_right_offset; // in luma samples
     uint16_t frame_crop_top_offset; // in luma samples
@@ -75,20 +75,31 @@ typedef struct {
     
 } Edge264_global_mb;
 typedef struct {
-    uint16_t *image;
+    uint16_t *planes[3];
     Edge264_global_mb *mbs;
-    int32_t FieldOrderCnt[2];
-} Edge264_frame;
+    uint32_t PicNum; // FrameNum * 2 + bottom_field_flag
+    int32_t PicOrderCnt[2];
+    uint16_t blank_mbs;
+} Edge264_picture;
 typedef struct {
     uint8_t *CPB;
-    unsigned int CPB_size; // in bytes, 26 significant bits
+    unsigned int CPB_size; // 26 significant bits
+    uint16_t nal_ref_idc:2;
+    uint16_t nal_unit_type:5;
+    uint16_t currPic:5;
+    uint16_t currField:1;
+    uint16_t currRef:2; // 1-short term, 2-long term
+    uint16_t output_flags;
+    uint32_t short_term_fields;
+    uint32_t long_term_fields;
+    int32_t prevPicOrderCnt;
     Edge264_parameter_set SPS;
     Edge264_parameter_set PPSs[4];
     int32_t PicOrderCntDeltas[256]; // pic_order_cnt_type==1
-    Edge264_frame DPB[16];
+    Edge264_picture DPB[32]; // 0..15 = frames/top fields, 16..31 = bottom fields
 } Edge264_ctx;
 
 size_t Edge264_find_start_code(const uint8_t *buf, size_t len, unsigned int n);
-const Edge264_frame *Edge264_parse_NAL(Edge264_ctx *e, const uint8_t *buf, size_t len);
+const Edge264_picture *Edge264_parse_NAL(Edge264_ctx *e, const uint8_t *buf, size_t len);
 
 #endif

@@ -1,5 +1,6 @@
 /**
  * Copyright (c) 2013-2014, Celticom / TVLabs
+ * Copyright (c) 2014 Thibault Raffaillac <traf@kth.se>
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -9,22 +10,20 @@
  * 2. Redistributions in binary form must reproduce the above copyright
  *    notice, this list of conditions and the following disclaimer in the
  *    documentation and/or other materials provided with the distribution.
- * 3. Neither the name of Celticom nor the names of its contributors may be
- *    used to endorse or promote products derived from this software without
- *    specific prior written permission.
+ * 3. Neither the name of the copyright holders nor the names of their
+ *    contributors may be used to endorse or promote products derived from this
+ *    software without specific prior written permission.
  *
  * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
  * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
  * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
- * ARE DISCLAIMED. IN NO EVENT SHALL CELTICOM BE LIABLE FOR ANY DIRECT,
- * INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
+ * ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDERS BE LIABLE FOR ANY
+ * DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
  * (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
  * LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND
  * ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF
  * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Author: Thibault Raffaillac <traf@kth.se>
  */
 #ifndef EDGE264_COMMON_H
 #define EDGE264_COMMON_H
@@ -95,10 +94,23 @@ static inline __m128i _mm_mullo_epi32(__m128i a, __m128i b) {
 #endif
 #endif
 
-static inline long min(long a, long b) { return (a < b) ? a : b; }
-static inline long max(long a, long b) { return (a > b) ? a : b; }
-static inline unsigned long umin(unsigned long a, unsigned long b) { return (a < b) ? a : b; }
-static inline unsigned long umax(unsigned long a, unsigned long b) { return (a > b) ? a : b; }
+#include "edge264.h"
+
+
+
+typedef struct {
+    Edge264_picture currPic;
+    unsigned int mb_x:10;
+    unsigned int mb_y:10;
+    unsigned int slice_type:2;
+    unsigned int field_pic_flag:1;
+    unsigned int direct_spatial_mv_pred_flag:1;
+    unsigned int cabac_init_idc:2;
+    unsigned int FilterOffsetA:5;
+    unsigned int FilterOffsetB:5;
+    Edge264_parameter_set p;
+    Edge264_picture *RefPicList[2][32];
+} Edge264_slice;
 
 
 
@@ -121,13 +133,20 @@ static const int invScan8x8[2][64] = {
 
 
 
+static inline long min(long a, long b) { return (a < b) ? a : b; }
+static inline long max(long a, long b) { return (a > b) ? a : b; }
+static inline unsigned long umin(unsigned long a, unsigned long b) { return (a < b) ? a : b; }
+static inline unsigned long umax(unsigned long a, unsigned long b) { return (a > b) ? a : b; }
+
+
+
 /**
  * Read Exp-Golomb codes and bit sequences.
  *
  * upper and lower are the bounds allowed by the spec, which get_ue and get_se
  * use both as hints to choose the fastest input routine, and as clipping
  * parameters such that values are always bounded no matter the input code.
- * To keep the routines branchless upper and lower shall always be constants.
+ * To keep the routines branchless, upper and lower shall always be constants.
  * Use min/max with get_raw_ue/get_raw_se to apply variable bounds.
  *
  * Since the validity of the read pointer is never checked, there must be a

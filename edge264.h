@@ -75,7 +75,7 @@ typedef struct {
     
 } Edge264_global_mb;
 typedef struct {
-    uint16_t *planes[3];
+    uint8_t *planes[3];
     Edge264_global_mb *mbs;
     uint32_t PicNum; // FrameNum * 2 + bottom_field_flag
     int32_t PicOrderCnt[2];

@@ -109,6 +109,8 @@ typedef struct {
     unsigned int FilterOffsetA:5;
     unsigned int FilterOffsetB:5;
     Edge264_parameter_set p;
+    uint16_t weights[3][32][2];
+    uint16_t offsets[3][32][2];
     Edge264_picture *RefPicList[2][32];
 } Edge264_slice;
 

@@ -96,7 +96,7 @@ static const uint8_t Default_8x8_Inter[64] __attribute__((aligned)) = {
 
 
 /**
- * Computes the Picture Order Count (8.2.1), and returns the CPB position.
+ * Computes the Picture Order Count (8.2.1).
  *
  * Computation of every POC type differs from the (overly complex) spec:
  * _ for type 0, PicOrderCntMsb and pic_order_cnt_lsb are never stored separate;
@@ -104,59 +104,59 @@ static const uint8_t Default_8x8_Inter[64] __attribute__((aligned)) = {
  *   stored together in absFrameNum. Also, the prefix sums for
  *   offset_for_ref_frame are precomputed in PicOrderCntDeltas.
  */
-static unsigned int parse_pic_order_cnt(Edge264_slice *s, const uint8_t *CPB,
-    unsigned int shift, int prevPicOrderCnt, unsigned int nal_ref_idc)
+static unsigned int parse_pic_order_cnt(int PicOrderCnt[2], const Edge264_ctx *e,
+    const Edge264_slice *s, unsigned int shift)
 {
     if (s->p.pic_order_cnt_type == 0) {
-        int MaxPicOrderCntLsb = 1 << v->log2_max_pic_order_cnt_lsb;
-        s->currPic.FieldOrderCnt[0] = (prevPicOrderCnt & -MaxPicOrderCntLsb) |
-            get_uv(CPB, &shift, s->p.log2_max_pic_order_cnt_lsb);
-        if (s->currPic.FieldOrderCnt[0] - prevPicOrderCnt <= -MaxPicOrderCntLsb / 2)
-            s->currPic.FieldOrderCnt[0] += MaxPicOrderCntLsb;
-        if (s->currPic.FieldOrderCnt[0] - prevPicOrderCnt > MaxPicOrderCntLsb / 2)
-            s->currPic.FieldOrderCnt[0] -= MaxPicOrderCntLsb;
-        s->currPic.FieldOrderCnt[1] = s->currPic.FieldOrderCnt[0];
+        int MaxPicOrderCntLsb = 1 << s->p.log2_max_pic_order_cnt_lsb;
+        PicOrderCnt[0] = (e->prevPicOrderCnt & -MaxPicOrderCntLsb) |
+            get_uv(e->CPB, &shift, s->p.log2_max_pic_order_cnt_lsb);
+        if (PicOrderCnt[0] - e->prevPicOrderCnt <= -MaxPicOrderCntLsb / 2)
+            PicOrderCnt[0] += MaxPicOrderCntLsb;
+        if (PicOrderCnt[0] - e->prevPicOrderCnt > MaxPicOrderCntLsb / 2)
+            PicOrderCnt[0] -= MaxPicOrderCntLsb;
+        PicOrderCnt[1] = PicOrderCnt[0];
         if (s->p.bottom_field_pic_order_in_frame_present_flag && !s->field_pic_flag)
-            s->currPic.FieldOrderCnt[1] += get_raw_se(CPB, &shift, -2147483647, 2147483647);
+            PicOrderCnt[1] += get_raw_se(e->CPB, &shift, -2147483647, 2147483647);
     } else if (s->p.pic_order_cnt_type == 1) {
-        s->currPic.FieldOrderCnt[0] = (nal_ref_idc == 0) ? s->p.offset_for_non_ref_pic : 0;
-        unsigned int absFrameNum = s->currPic.FrameNum - (nal_ref_idc == 0);
+        PicOrderCnt[0] = (e->nal_ref_idc == 0) ? s->p.offset_for_non_ref_pic : 0;
+        unsigned int absFrameNum = s->currPic.PicNum / 2 - (e->nal_ref_idc == 0);
         if (s->p.num_ref_frames_in_pic_order_cnt_cycle != 0) {
-            s->currPic.FieldOrderCnt[0] += (absFrameNum / s->p.num_ref_frames_in_pic_order_cnt_cycle) *
-                v->PicOrderCntDeltas[v->num_ref_frames_in_pic_order_cnt_cycle] +
-                v->PicOrderCntDeltas[absFrameNum % s->p.num_ref_frames_in_pic_order_cnt_cycle];
+            PicOrderCnt[0] += (absFrameNum / s->p.num_ref_frames_in_pic_order_cnt_cycle) *
+                e->PicOrderCntDeltas[s->p.num_ref_frames_in_pic_order_cnt_cycle] +
+                e->PicOrderCntDeltas[absFrameNum % s->p.num_ref_frames_in_pic_order_cnt_cycle];
         }
-        s->currPic.FieldOrderCnt[1 ^ s->currPic.PicNum & 1] = s->currPic.FieldOrderCnt[0] +
-            s->p.offset_for_top_to_bottom_field;
+        PicOrderCnt[~s->currPic.PicNum & 1] = PicOrderCnt[0] + s->p.offset_for_top_to_bottom_field;
         if (!s->p.delta_pic_order_always_zero_flag) {
-            s->currPic.FieldOrderCnt[0] += get_raw_se(CPB, &shift, -2147483647, 2147483647);
+            PicOrderCnt[0] += get_raw_se(e->CPB, &shift, -2147483647, 2147483647);
             if (s->p.bottom_field_pic_order_in_frame_present_flag && !s->field_pic_flag)
-                s->currPic.FieldOrderCnt[1] += get_raw_se(CPB, &shift, -2147483647, 2147483647);
+                PicOrderCnt[1] += get_raw_se(e->CPB, &shift, -2147483647, 2147483647);
         }
     } else if (s->p.pic_order_cnt_type == 2) {
-        s->currPic.FieldOrderCnt[0] = s->currPic.FieldOrderCnt[1] =
-            (s->currPic.PicNum & -2) - (nal_ref_idc == 0);
+        PicOrderCnt[0] = PicOrderCnt[1] = (s->currPic.PicNum & -2) - (e->nal_ref_idc == 0);
     }
+    
     if (!s->bottom_field_flag)
-        printf("<li>TopFieldOrderCnt: <code>%d</code></li>\n", s->currPic.FieldOrderCnt[0]);
+        printf("<li>TopFieldOrderCnt: <code>%d</code></li>\n", PicOrderCnt[0]);
     if (!s->field_pic_flag || (s->currPic.PicNum & 1))
-        printf("<li>BottomFieldOrderCnt: <code>%d</code></li>\n", s->currPic.FieldOrderCnt[s->field_pic_flag ^ 1]);
+        printf("<li>BottomFieldOrderCnt: <code>%d</code></li>\n", PicOrderCnt[s->field_pic_flag ^ 1]);
     return shift;
 }
 
 
 
 /**
- * Fills and updates the reference picture lists (8.2.4), and returns the CPB
- * position.
+ * Creates and updates the reference picture lists (8.2.4).
+ * Any missing reference yields a NULL entry.
  */
 static unsigned int parse_ref_pic_list_modification(Edge264_slice *s,
-    const Edge264_ctx *e, unsigned int shift)
+    const Edge264_ctx *e, unsigned int shift, unsigned int short_term_fields,
+    unsigned int long_term_fields)
 {
     /* Create the two initial lists of reference frames. */
-    unsigned int st_refs = (s->field_pic_flag) ?
-        (e->short_term_fields >> 16) | (e->short_term_fields & 0xffff) :
-        (e->short_term_fields >> 16) & -e->short_term_fields & 0xffff);
+    unsigned int st_refs = 0x55555555 & (s->field_pic_flag ?
+        short_term_fields >> 1 | short_term_fields :
+        short_term_fields >> 1 & short_term_fields);
     unsigned int num = 0;
     if (s->slice_type == 0) {
         while (st_refs != 0) {
@@ -174,9 +174,9 @@ static unsigned int parse_ref_pic_list_modification(Edge264_slice *s,
             int next, PicOrderCnt = INT32_MIN;
             for (unsigned int r = st_refs; r != 0; r &= r - 1) {
                 unsigned int i = __builtin_ctz(r);
-                if (e->DPB[i].PicOrderCnt[0] < s->currPic.PicOrderCnt[0] &&
-                    e->DPB[i].PicOrderCnt[0] > PicOrderCnt)
-                    PicOrderCnt = e->DPB[next = i].PicOrderCnt[0];
+                if (e->DPB[i].PicOrderCnt < s->currPic.PicOrderCnt &&
+                    e->DPB[i].PicOrderCnt > PicOrderCnt)
+                    PicOrderCnt = e->DPB[next = i].PicOrderCnt;
             }
             if (PicOrderCnt == INT32_MIN)
                 break;
@@ -188,9 +188,9 @@ static unsigned int parse_ref_pic_list_modification(Edge264_slice *s,
             int next, PicOrderCnt = INT32_MAX;
             for (unsigned int r = st_refs; r != 0; r &= r - 1) {
                 unsigned int i = __builtin_ctz(r);
-                if (e->DPB[i].PicOrderCnt[0] > s->currPic.PicOrderCnt[0] &&
-                    e->DPB[i].PicOrderCnt[0] < PicOrderCnt)
-                    PicOrderCnt = e->DPB[next = i].PicOrderCnt[0];
+                if (e->DPB[i].PicOrderCnt > s->currPic.PicOrderCnt &&
+                    e->DPB[i].PicOrderCnt < PicOrderCnt)
+                    PicOrderCnt = e->DPB[next = i].PicOrderCnt;
             }
             if (PicOrderCnt == INT32_MAX)
                 break;
@@ -201,15 +201,15 @@ static unsigned int parse_ref_pic_list_modification(Edge264_slice *s,
             s->RefPicList[1][(i < mid) ? i + num - mid : i - mid] = s->RefPicList[0][i];
     }
     unsigned int num_st = num;
-    unsigned int lt_refs = (s->field_pic_flag) ?
-        (e->long_term_fields >> 16) | (e->long_term_fields & 0xffff) :
-        (e->long_term_fields >> 16) & (e->long_term_fields & 0xffff);
+    unsigned int lt_refs = 0x55555555 & (s->field_pic_flag ?
+        long_term_fields >> 1 | long_term_fields :
+        long_term_fields >> 1 & long_term_fields);
     while (lt_refs != 0) {
-        unsigned int next, PicNum = UINT_MAX;
+        unsigned int next, LongTermPicNum = UINT_MAX;
         for (unsigned int r = lt_refs; r != 0; r &= r - 1) {
             unsigned int i = __builtin_ctz(r);
-            if (e->DPB[i].PicNum < PicNum)
-                PicNum = e->DPB[next = i].PicNum;
+            if (e->DPB[i].LongTermPicNum < LongTermPicNum)
+                LongTermPicNum = e->DPB[next = i].LongTermPicNum;
         }
         s->RefPicList[0][num++] = s->RefPicList[1][num] = &e->DPB[next];
         lt_refs ^= 1 << next;
@@ -218,54 +218,58 @@ static unsigned int parse_ref_pic_list_modification(Edge264_slice *s,
     /* When decoding a field, extract a list of fields from each list of frames. */
     for (unsigned int l = 0; s->field_pic_flag && l <= s->slice_type; l++) {
         const Edge264_picture *refFrameList[16] = (Edge264_picture*[16])s->RefPicList[l];
-        unsigned int refs = e->short_term_fields;
+        unsigned int refs = short_term_fields;
         unsigned int parity = s->currPic.PicNum & 1;
         unsigned int lim = num_st;
         unsigned int i = 0, j = 0, k = 0;
         while (i < num) {
             if (i == lim) {
-                refs = e->long_term_fields;
+                refs = long_term_fields;
                 parity = s->currPic.PicNum & 1;
                 lim = num;
                 num_st = k;
             }
-            while (i < lim && (refs & 1 << (refFrameList[i] + 16 * parity - e->DPB)))
+            while (i < lim && (refs & 1 << (refFrameList[i] + parity - e->DPB)))
                 i++;
             if (i < lim)
-                s->RefPicList[l][k++] = refFrameList[i] + 16 * parity;
+                s->RefPicList[l][k++] = refFrameList[i] + parity;
             if (j < lim)
                 parity ^= 1, i ^= j, j ^= i, i ^= j; // swap
         }
         num = k;
     }
-    s->num_ref_idx_active[0] = umin(s->num_ref_idx_active[0], num);
-    s->num_ref_idx_active[1] = umin(s->num_ref_idx_active[1], num);
     
     /* Parse the ref_pic_list_modification() instructions. */
-    unsigned int top_field_flag = s->field_pic_flag & (s->currPic.PicNum ^ 1);
+    unsigned int top_field_flag = s->field_pic_flag & ~s->currPic.PicNum;
     for (unsigned int l = 0; l <= s->slice_type; l++) {
         if (!get_u1(e->CPB, &shift))
             continue;
-        const Edge264_picture *refPicList[32] = (Edge264_picture*[32])s->RefPicList[l];
         unsigned int picNumLX = s->currPic.PicNum ^ top_field_flag;
         for (unsigned int modification_of_pic_nums_idc, refIdxLX = 0;
             (modification_of_pic_nums_idc = get_raw_ue(e->CPB, &shift, 3)) < 3 &&
-            refIdxLX < num; refIdxLX++) {
-            unsigned int pic_num = get_raw_ue(e->CPB, &shift, 131071) <<
-                (s->field_pic_flag ^ 1);
-            unsigned int i = num, lim = num_st;
+            refIdxLX < s->p.num_ref_idx_active[l]; refIdxLX++) {
+            unsigned int pic_num = get_raw_ue(e->CPB, &shift, 131071) << !s->field_pic_flag;
+            unsigned int r;
             if (modification_of_pic_nums_idc < 2) {
-                pic_num = picNumLX += (pic_num ^ (modification_of_pic_nums_idc - 1)) -
+                picNumLX += (pic_num ^ (modification_of_pic_nums_idc - 1)) -
                     (modification_of_pic_nums_idc - 1); // conditionally negate
-                i = num_st;
-                lim = 0;
+                for (r = short_term_fields; r != 0 && e->DPB[__builtin_ctz(r)].PicNum !=
+                    (picNumLX ^ top_field_flag); r &= r - 1);
+            } else {
+                for (r = long_term_fields; r != 0 && e->DPB[__builtin_ctz(r)].LongTermPicNum !=
+                    (pic_num ^ top_field_flag); r &= r - 1);
             }
-            while (i-- > lim && (refPicList[i]->PicNum ^ top_field_flag) != pic_num);
-            unsigned int j = (i >= refIdxLX && i < s->num_ref_idx_active[l]) ?
-                i : s->num_ref_idx_active[l];
-            while (j-- > refIdxLX)
-                s->RefPicList[l][j + 1] = s->RefPicList[l][j];
-            s->RefPicList[l][refIdxLX] = refPicList[i];
+            const Edge264_picture *p = (r != 0) ? e->DPB + __builtin_ctz(r) : NULL, *q;
+            for (unsigned int i = refIdxLX; i < s->p.num_ref_idx_active[l] &&
+                (q = s->RefPicList[l][i]) != p; i++)
+                s->RefPicList[l][i] = p, p = q;
+        }
+    }
+    
+    for (unsigned int l = 0; l <= s->slice_type; l++) {
+        for (unsigned int i = 0; i < s->p.num_ref_idx_active[l]; i++) {
+            printf("<li>RefPicList%x[%u]: <code>%u</code></li>\n",
+                l, i, (s->RefPicList[l][i] != NULL) ? s->RefPicList[l][i]->PicNum >> s->p.frame_mbs_only_flag : UINT_MAX);
         }
     }
     return shift;
@@ -273,7 +277,9 @@ static unsigned int parse_ref_pic_list_modification(Edge264_slice *s,
 
 
 
-/** Stores the pre-shifted weights and offsets and returns a CPB position. */
+/**
+ * Stores the pre-shifted weights and offsets (7.4.3.2).
+ */
 static unsigned int parse_pred_weight_table(Edge264_slice *s, const uint8_t *CPB,
     unsigned int lim)
 {
@@ -311,32 +317,53 @@ static unsigned int parse_pred_weight_table(Edge264_slice *s, const uint8_t *CPB
 
 
 /**
- * Dedicated function to parse dec_ref_pic_marking().
+ * Updates the reference fields flags and returns the CPB position.
+ * Considering the low probability that a random input modifies the reference
+ * flags at this point, execution needs not be deferred to a later time.
  */
-static void H264_parse_dec_ref_pic_marking(Bit_ctx *b, const Video_ctx *v)
+static unsigned int parse_dec_ref_pic_marking(Edge264_ctx *e, Edge264_slice *s,
+    unsigned int *long_term_reference_flag, unsigned int lim)
 {
-    if (v->nal_unit_type == 5) {
-        unsigned int no_output_of_prior_pics_flag = get_u1(b);
-        unsigned int long_term_reference_flag = get_u1(b);
+    /* TODO: Commit currRef before parsing the reference marking instructions. */
+    if (e->nal_unit_type == 5) {
+        /* This flag is ignored as prior pictures are always output if possible. */
+        unsigned int no_output_of_prior_pics_flag = get_u1(e->CPB, &shift);
+        *long_term_reference_flag = get_u1(e->CPB, &shift);
         printf("<li>no_output_of_prior_pics_flag: <code>%x</code></li>\n"
-            "<li%s>long_term_reference_flag: <code>%x</code></li>\n",
+            "<li>long_term_reference_flag: <code>%x</code></li>\n",
             no_output_of_prior_pics_flag,
-            red_if(long_term_reference_flag), long_term_reference_flag);
-    } else {
-        unsigned int adaptive_ref_pic_marking_mode_flag = get_u1(b);
-        printf("<li>adaptive_ref_pic_marking_mode_flag: <code>%x</code></li>\n",
-            adaptive_ref_pic_marking_mode_flag);
-        if (adaptive_ref_pic_marking_mode_flag) {
-            printf("<ul>\n");
-            unsigned int memory_management_control_operation;
-            while ((memory_management_control_operation = get_ue(b, 6)) != 0) {
-                unsigned int difference_of_pic_nums = get_ue(b, 131071) + 1;
-                printf("<li%s>difference_of_pic_nums: <code>%u</code></li>\n",
-                    red_if(memory_management_control_operation != 1), difference_of_pic_nums);
+            *long_term_reference_flag);
+    } else if (get_u1(e->CPB, &shift)) {
+        unsigned int top_field_flag = s->field_pic_flag & ~s->currPic.PicNum;
+        for (unsigned int memory_management_control_operation, i = 0; i < 16 &&
+            (memory_management_control_operation = get_raw_ue(e->CPB, &shift, 6)) != 0; i++) {
+            if (memory_management_control_operation <= 3) {
+                unsigned int pic_num = get_raw_ue(e->CPB, &shift, 131071) <<
+                    !s->field_pic_flag; // FIXME: +1 ??
+                unsigned int refs = e->long_term_fields;
+                if (memory_management_control_operation != 2) {
+                    pic_num = (s->currPic.PicNum ^ top_field_flag) - pic_num;
+                    refs = e->short_term_fields;
+                }
+                pic_num ^= top_field_flag;
+                while (refs != 0 && e->DPB[__builtin_ctz(refs)].PicNum != pic_num)
+                    refs &= refs - 1;
+                if (refs != 0) {
+                    unsigned int i = __builtin_ctz(refs);
+                    unsigned int mask = 3 >> s->field_pic_flag << i;
+                    *(memory_management_control_operation != 2 ? &e->short_term_fields :
+                        &e->long_term_fields) &= ~mask;
+                    if (memory_management_control_operation == 3) {
+                        e->long_term_fields |= mask;
+                        e->DPB[i].PicNum = e->DPB[i].PicNum & 1 | (2 * get_ue(e->CPB, &shift, 16));
+                        if (!s->field_pic_flag)
+                            e->DPB[i + 1].PicNum = e->DPB[i].PicNum | 1;
+                    }
+                }
             }
-            printf("</ul>\n");
         }
     }
+    return shift;
 }
 
 
@@ -385,7 +412,10 @@ static const Edge264_picture *parse_slice_layer_without_partitioning_rbsp(Edge26
         unsigned int idr_pic_id = get_ue(e->CPB, &shift, 65535);
         printf("<li>idr_pic_id: <code>%u</code></li>\n", idr_pic_id);
     }
-    shift = parse_pic_order_cnt(&s, e->CPB, shift, e->prevPicOrderCnt, e->nal_ref_idc);
+    int PicOrderCnt[2];
+    shift = parse_pic_order_cnt(PicOrderCnt, &s, e, shift);
+    s.currPic.PicOrderCnt = (s.field_pic_flag || PicOrderCnt[0] < PicOrderCnt[1]) ?
+        PicOrderCnt[0] : PicOrderCnt[1];
     unsigned int redundant_pic_cnt = 0;
     if (s.p.redundant_pic_cnt_present_flag) {
         redundant_pic_cnt = get_ue(e->CPB, &shift, 127);
@@ -446,11 +476,11 @@ static const Edge264_picture *parse_end_of_seq_rbsp(Edge264_ctx *e, unsigned int
     Edge264_picture *output = NULL;
     if (lim == 0) {
         for (int f = e->output_flags, PicOrderCnt = INT32_MAX; f != 0; f &= f - 1) {
-            if (e->DPB[__builtin_ctz(f)].PicOrderCnt < PicOrderCnt)
-                PicOrderCnt = (output = &e->DPB[__builtin_ctz(f)])->PicOrderCnt;
+            if (e->DPB[2 * __builtin_ctz(f)].PicOrderCnt < PicOrderCnt)
+                PicOrderCnt = (output = &e->DPB[2 * __builtin_ctz(f)])->PicOrderCnt;
         }
         if (output != NULL)
-            e->output_flags ^= 1 << (output - e->DPB);
+            e->output_flags ^= 1 << ((output - e->DPB) / 2);
         else
             parse_end_of_stream_rbsp(e, 0);
     }
@@ -1030,13 +1060,14 @@ static const Edge264_picture *parse_seq_parameter_set_rbsp(Edge264_ctx *e, unsig
         size_t pic = plane_Y + 2 * plane_C + s.width * s.height * sizeof(Edge264_global_mb);
         uint8_t *p = malloc((s.max_num_ref_frames + 1) * pic);
         for (unsigned int i = 0; i <= s.max_num_ref_frames; i++) {
-            e->DPB[i].planes[0] = p + i * pic;
-            e->DPB[16 + i].planes[0] = e->DPB[i].planes[0] + stride_Y;
-            e->DPB[i].planes[1] = e->DPB[i].planes[0] + plane_Y;
-            e->DPB[16 + i].planes[1] = e->DPB[i].planes[1] + stride_C;
-            e->DPB[i].planes[2] = e->DPB[i].planes[1] + plane_C;
-            e->DPB[16 + i].planes[2] = e->DPB[i].planes[2] + stride_C;
-            e->DPB[i].mbs = (Edge264_global_mb *)(e->DPB[i].planes[2] + plane_C);
+            e->DPB[2 * i].planes[0] = p + i * pic;
+            e->DPB[2 * i + 1].planes[0] = e->DPB[2 * i].planes[0] + stride_Y;
+            e->DPB[2 * i].planes[1] = e->DPB[i].planes[0] + plane_Y;
+            e->DPB[2 * i + 1].planes[1] = e->DPB[2 * i].planes[1] + stride_C;
+            e->DPB[2 * i].planes[2] = e->DPB[i].planes[1] + plane_C;
+            e->DPB[2 * i + 1].planes[2] = e->DPB[2 * i].planes[2] + stride_C;
+            e->DPB[2 * i].mbs = (Edge264_global_mb *)(e->DPB[2 * i].planes[2] + plane_C);
+            e->DPB[2 * i + 1].mbs = e->DPB[2 * i].mbs + s.width / 16;
         }
     }
     e->SPS = s;

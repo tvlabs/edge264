@@ -77,26 +77,28 @@ typedef struct {
 typedef struct {
     uint8_t *planes[3];
     Edge264_global_mb *mbs;
-    uint32_t PicNum; // FrameNum * 2 + bottom_field_flag
-    int32_t PicOrderCnt[2];
-    uint16_t blank_mbs;
+    int32_t PicOrderCnt;
+    uint32_t PicNum;
+    unsigned int grey_mbs:19;
+    unsigned int LongTermPicNum:5;
 } Edge264_picture;
 typedef struct {
     uint8_t *CPB;
-    unsigned int CPB_size; // 26 significant bits
-    uint16_t nal_ref_idc:2;
-    uint16_t nal_unit_type:5;
-    uint16_t currPic:5;
-    uint16_t currField:1;
-    uint16_t currRef:2; // 1-short term, 2-long term
-    uint16_t output_flags;
+    uint32_t CPB_size; // 26 significant bits
+    unsigned int nal_ref_idc:2;
+    unsigned int nal_unit_type:5;
+    unsigned int currPic:5;
+    unsigned int currField:1;
+    uint32_t output_flags; // targets the top field of each frame
     uint32_t short_term_fields;
     uint32_t long_term_fields;
+    uint32_t short_term_next; // replaces short_term_fields when all slices of currPic are decoded (8.2.5.1)
+    uint32_t long_term_next;
     int32_t prevPicOrderCnt;
     Edge264_parameter_set SPS;
     Edge264_parameter_set PPSs[4];
     int32_t PicOrderCntDeltas[256]; // pic_order_cnt_type==1
-    Edge264_picture DPB[32]; // 0..15 = frames/top fields, 16..31 = bottom fields
+    Edge264_picture DPB[32]; // two entries top/bottom per frame
 } Edge264_ctx;
 
 size_t Edge264_find_start_code(const uint8_t *buf, size_t len, unsigned int n);

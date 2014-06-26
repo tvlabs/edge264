@@ -147,11 +147,11 @@ static unsigned int parse_pic_order_cnt(int PicOrderCnt[2], const Edge264_ctx *e
 
 /**
  * Creates and updates the reference picture lists (8.2.4).
- * Any missing reference yields a NULL entry.
+ * grey_pic is set for any non-existing entry.
  */
 static unsigned int parse_ref_pic_list_modification(Edge264_slice *s,
-    const Edge264_ctx *e, unsigned int shift, unsigned int short_term_fields,
-    unsigned int long_term_fields)
+    const Edge264_picture *grey_pic, const Edge264_ctx *e, unsigned int shift,
+    unsigned int short_term_fields, unsigned int long_term_fields)
 {
     /* Create the two initial lists of reference frames. */
     unsigned int st_refs = 0x55555555 & (s->field_pic_flag ?
@@ -169,7 +169,7 @@ static unsigned int parse_ref_pic_list_modification(Edge264_slice *s,
             s->RefPicList[0][num++] = &e->DPB[next];
             st_refs ^= 1 << next;
         }
-    } else if (s->slice_type == 1) {
+    } else {
         while (st_refs != 0) {
             int next, PicOrderCnt = INT32_MIN;
             for (unsigned int r = st_refs; r != 0; r &= r - 1) {
@@ -239,37 +239,56 @@ static unsigned int parse_ref_pic_list_modification(Edge264_slice *s,
         num = k;
     }
     
-    /* Parse the ref_pic_list_modification() instructions. */
+    /* Review each RefPicList along with ref_pic_list_modification() instructions. */
     unsigned int top_field_flag = s->field_pic_flag & ~s->currPic.PicNum;
     for (unsigned int l = 0; l <= s->slice_type; l++) {
-        if (!get_u1(e->CPB, &shift))
-            continue;
+        unsigned int modification_of_pic_nums_idc = get_u1(e->CPB, &shift) ? 0 : 3;
         unsigned int picNumLX = s->currPic.PicNum ^ top_field_flag;
-        for (unsigned int modification_of_pic_nums_idc, refIdxLX = 0;
-            (modification_of_pic_nums_idc = get_raw_ue(e->CPB, &shift, 3)) < 3 &&
-            refIdxLX < s->p.num_ref_idx_active[l]; refIdxLX++) {
-            unsigned int pic_num = get_raw_ue(e->CPB, &shift, 131071) << !s->field_pic_flag;
-            unsigned int r;
-            if (modification_of_pic_nums_idc < 2) {
-                picNumLX += (pic_num ^ (modification_of_pic_nums_idc - 1)) -
-                    (modification_of_pic_nums_idc - 1); // conditionally negate
-                for (r = short_term_fields; r != 0 && e->DPB[__builtin_ctz(r)].PicNum !=
-                    (picNumLX ^ top_field_flag); r &= r - 1);
-            } else {
-                for (r = long_term_fields; r != 0 && e->DPB[__builtin_ctz(r)].LongTermPicNum !=
-                    (pic_num ^ top_field_flag); r &= r - 1);
+        for (unsigned int refIdxLX = 0; refIdxLX < s->p.num_ref_idx_active[l]; refIdxLX++) {
+            const Edge264_picture *p = s->RefPicList[l][i];
+            if (modification_of_pic_nums_idc < 3) {
+                modification_of_pic_nums_idc = get_raw_ue(e->CPB, &shift, 3);
+                unsigned int pic_num = get_raw_ue(e->CPB, &shift, 131071) << !s->field_pic_flag;
+                unsigned int r;
+                if (modification_of_pic_nums_idc < 2) {
+                    picNumLX += (pic_num ^ (modification_of_pic_nums_idc - 1)) -
+                        (modification_of_pic_nums_idc - 1); // conditionally negate
+                    for (r = short_term_fields; r != 0 && e->DPB[__builtin_ctz(r)].PicNum !=
+                        (picNumLX ^ top_field_flag); r &= r - 1);
+                } else {
+                    for (r = long_term_fields; r != 0 && e->DPB[__builtin_ctz(r)].LongTermPicNum !=
+                        (pic_num ^ top_field_flag); r &= r - 1);
+                }
+                p = (r != 0) ? e->DPB + __builtin_ctz(r) : NULL;
             }
-            const Edge264_picture *p = (r != 0) ? e->DPB + __builtin_ctz(r) : NULL, *q;
+            
+            /* Insert p at position refIdxLX in RefPicList[l]. */
+            const Edge264_picture *old, *new = p;
             for (unsigned int i = refIdxLX; i < s->p.num_ref_idx_active[l] &&
-                (q = s->RefPicList[l][i]) != p; i++)
-                s->RefPicList[l][i] = p, p = q;
-        }
-    }
-    
-    for (unsigned int l = 0; l <= s->slice_type; l++) {
-        for (unsigned int i = 0; i < s->p.num_ref_idx_active[l]; i++) {
-            printf("<li>RefPicList%x[%u]: <code>%u</code></li>\n",
-                l, i, (s->RefPicList[l][i] != NULL) ? s->RefPicList[l][i]->PicNum >> s->p.frame_mbs_only_flag : UINT_MAX);
+                (old = s->RefPicList[l][i]) != p; i++)
+                s->RefPicList[l][i] = new, new = old;
+            
+            /* Generate a non-existing picture for any NULL reference. */
+            if (p == NULL && (s->RefPicList[l][refIdxLX] = *grey_pic) == NULL) {
+                unsigned int avail = (0x55555555 >> (30 - 2 * s->p.max_num_ref_frames)) &
+                    ~(short_term_fields | long_term_fields | e->output_flags);
+                if (avail == 0) {
+                    *grey_pic = e->DPB;
+                    for (unsigned int PicNum = UINT_MAX, r = short_term_fields; r != 0; r &= r - 1) {
+                        if (e->DPB[__builtin_ctz(r)].PicNum <= PicNum)
+                            PicNum = (*grey_pic = e->DPB + __builtin_ctz(r))->PicNum;
+                    }
+                }
+                while (avail != 0 && (*grey_pic = e->DPB + __builtin_ctz(avail))
+                    ->grey_mbs != s->p.width * s->p.height / 256)
+                    avail &= avail - 1;
+                s->RefPicList[l][refIdxLX] = *grey_pic;
+            }
+            
+            const char *str = (s->RefPicList[l][refIdxLX] == *grey_pic) ?
+                "<li>RefPicList%x[%u]: <code>non-existing</code></li>\n" :
+                "<li>RefPicList%x[%u]: <code>%u</code></li>\n";
+            printf(str, l, i, s->RefPicList[l][i]->PicNum);
         }
     }
     return shift;
@@ -317,49 +336,72 @@ static unsigned int parse_pred_weight_table(Edge264_slice *s, const uint8_t *CPB
 
 
 /**
- * Updates the reference fields flags and returns the CPB position.
- * Considering the low probability that a random input modifies the reference
- * flags at this point, execution needs not be deferred to a later time.
+ * Updates the reference fields flags and optionally sets a long_term_pic_num.
  */
-static unsigned int parse_dec_ref_pic_marking(Edge264_ctx *e, Edge264_slice *s,
-    unsigned int *long_term_reference_flag, unsigned int lim)
+static unsigned int parse_dec_ref_pic_marking(unsigned int *short_term_fields,
+    unsigned int *long_term_fields, int *long_term_pic_num, const Edge264_ctx *e,
+    const Edge264_slice *s, unsigned int lim)
 {
-    /* TODO: Commit currRef before parsing the reference marking instructions. */
     if (e->nal_unit_type == 5) {
         /* This flag is ignored as prior pictures are always output if possible. */
         unsigned int no_output_of_prior_pics_flag = get_u1(e->CPB, &shift);
-        *long_term_reference_flag = get_u1(e->CPB, &shift);
+        *long_term_pic_num = get_u1(e->CPB, &shift) - 1;
         printf("<li>no_output_of_prior_pics_flag: <code>%x</code></li>\n"
             "<li>long_term_reference_flag: <code>%x</code></li>\n",
             no_output_of_prior_pics_flag,
-            *long_term_reference_flag);
+            *long_term_pic_num + 1);
     } else if (get_u1(e->CPB, &shift)) {
         unsigned int top_field_flag = s->field_pic_flag & ~s->currPic.PicNum;
+        unsigned int mask = 3 >> s->field_pic_flag;
         for (unsigned int memory_management_control_operation, i = 0; i < 16 &&
             (memory_management_control_operation = get_raw_ue(e->CPB, &shift, 6)) != 0; i++) {
-            if (memory_management_control_operation <= 3) {
-                unsigned int pic_num = get_raw_ue(e->CPB, &shift, 131071) <<
-                    !s->field_pic_flag; // FIXME: +1 ??
-                unsigned int refs = e->long_term_fields;
-                if (memory_management_control_operation != 2) {
-                    pic_num = (s->currPic.PicNum ^ top_field_flag) - pic_num;
-                    refs = e->short_term_fields;
-                }
-                pic_num ^= top_field_flag;
-                while (refs != 0 && e->DPB[__builtin_ctz(refs)].PicNum != pic_num)
-                    refs &= refs - 1;
-                if (refs != 0) {
-                    unsigned int i = __builtin_ctz(refs);
-                    unsigned int mask = 3 >> s->field_pic_flag << i;
-                    *(memory_management_control_operation != 2 ? &e->short_term_fields :
-                        &e->long_term_fields) &= ~mask;
-                    if (memory_management_control_operation == 3) {
-                        e->long_term_fields |= mask;
-                        e->DPB[i].PicNum = e->DPB[i].PicNum & 1 | (2 * get_ue(e->CPB, &shift, 16));
+            if (memory_management_control_operation == 1 || memory_management_control_operation == 3) {
+                unsigned int PicNum = ((s->currPic.PicNum ^ top_field_flag) -
+                    ((get_raw_ue(e->CPB, &shift, 131071) + 1) << !s->field_pic_flag)) ^
+                    top_field_flag;
+                unsigned int r = *short_term_fields, j;
+                while (r != 0 && e->DPB[j = __builtin_ctz(r)].PicNum != PicNum)
+                    r &= r - 1;
+                if (r != 0)
+                    *short_term_fields &= ~(mask << j);
+                if (memory_management_control_operation == 3) {
+                    unsigned int LongTermPicNum = get_ue(e->CPB, &shift, 14) << 1;
+                    if (r != 0) {
+                        *long_term_fields |= mask << j;
+                        e->DPB[j].LongTermPicNum = LongTermPicNum + j % 2;
                         if (!s->field_pic_flag)
-                            e->DPB[i + 1].PicNum = e->DPB[i].PicNum | 1;
+                            e->DPB[j + 1].LongTermPicNum = LongTermPicNum + 1;
                     }
+                    printf("<li>PicNum %u -> LongTermPicNum %u</li>\n",
+                        PicNum, LongTermPicNum + s->currPic.PicNum % 2);
+                } else printf("<li>PicNum %u -> unused for reference</li>\n", PicNum);
+            } else if (memory_management_control_operation == 2) {
+                unsigned int LongTermPicNum = (get_ue(e->CPB, &shift, 29) <<
+                    !s->field_pic_flag) ^ top_field_flag;
+                unsigned int r = *long_term_fields, j;
+                while (r != 0 && e->DPB[j = __builtin_ctz(r)].LongTermPicNum != LongTermPicNum)
+                    r &= r - 1;
+                if (r != 0)
+                    *long_term_fields &= ~(mask << j);
+                printf("<li>LongTermPicNum %u -> unused for reference</li>\n",
+                    LongTermPicNum);
+            } else if (memory_management_control_operation == 4) {
+                unsigned int max_long_term_pic_num_plus1 = 2 * get_raw_ue(e->CPB, &shift, 15);
+                for (unsigned int r = *long_term_fields; r != 0; r &= r - 1) {
+                    unsigned int j = __builtin_ctz(r);
+                    if (e->DPB[j].LongTermPicNum >= max_long_term_pic_num_plus1)
+                        *long_term_fields &= ~(1 << j);
                 }
+                printf("<li>LongTermPicNum %u and above -> unused for reference</li>\n",
+                    max_long_term_pic_num_plus1);
+            } else if (memory_management_control_operation == 5) {
+                *short_term_fields = *long_term_fields = 0;
+                printf("<li>All references -> unused for reference</li>\n");
+            } else if (memory_management_control_operation == 6) {
+                *long_term_pic_num = (get_ue(e->CPB, &shift, 14) << 1) |
+                    (s->currPic.PicNum & 1);
+                printf("<li>Current PicNum %u -> LongTermPicNum %u</li>\n",
+                    s->currPic.PicNum, *long_term_pic_num);
             }
         }
     }
@@ -414,8 +456,10 @@ static const Edge264_picture *parse_slice_layer_without_partitioning_rbsp(Edge26
     }
     int PicOrderCnt[2];
     shift = parse_pic_order_cnt(PicOrderCnt, &s, e, shift);
-    s.currPic.PicOrderCnt = (s.field_pic_flag || PicOrderCnt[0] < PicOrderCnt[1]) ?
-        PicOrderCnt[0] : PicOrderCnt[1];
+    unsigned int short_term_fields = (PicOrderCnt[0] != e->DPB[e->currPic].PicOrderCnt) ?
+        e->short_term_next : e->short_term_fields;
+    unsigned int long_term_fields = (PicOrderCnt[0] != e->DPB[e->currPic].PicOrderCnt) ?
+        e->long_term_next : e->long_term_fields;
     unsigned int redundant_pic_cnt = 0;
     if (s.p.redundant_pic_cnt_present_flag) {
         redundant_pic_cnt = get_ue(e->CPB, &shift, 127);
@@ -427,14 +471,16 @@ static const Edge264_picture *parse_slice_layer_without_partitioning_rbsp(Edge26
         printf("<li>direct_spatial_mv_pred_flag: <code>%x</code></li>\n",
             s.direct_spatial_mv_pred_flag);
     }
-    if (s.slice_type < 2 && get_u1(e->CPB, &shift)) {
-        for (unsigned int l = 0; l <= s.slice_type; l++) {
-            s.p.num_ref_idx_active[l] = get_ue(e->CPB, &shift, 31) + 1;
-            printf("<li>num_ref_idx_l%x_active: <code>%u</code></li>\n",
-                s.p.num_ref_idx_active[l]);
+    if (s.slice_type < 2) {
+        if (get_u1(e->CPB, &shift)) {
+            for (unsigned int l = 0; l <= s.slice_type; l++) {
+                s.p.num_ref_idx_active[l] = get_ue(e->CPB, &shift, 31) + 1;
+                printf("<li>num_ref_idx_l%x_active: <code>%u</code></li>\n",
+                    s.p.num_ref_idx_active[l]);
+            }
         }
+        shift = parse_ref_pic_list_modification(&s, e, shift);
     }
-    shift = parse_ref_pic_list_modification(&s, e, shift);
     if ((s.p.weighted_pred << (2 * s.slice_type)) & 0xc)
         shift = parse_pred_weight_table(&s, e->CPB, shift);
     if (e->nal_ref_idc != 0)

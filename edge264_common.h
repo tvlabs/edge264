@@ -99,17 +99,19 @@ static inline __m128i _mm_mullo_epi32(__m128i a, __m128i b) {
 
 
 typedef struct {
+    const Edge264_picture *DPB;
     Edge264_picture currPic;
     unsigned int mb_x:10;
     unsigned int mb_y:10;
     unsigned int slice_type:2;
     unsigned int field_pic_flag:1;
+    unsigned int bottom_field_flag:1;
     unsigned int direct_spatial_mv_pred_flag:1;
     unsigned int cabac_init_idc:2;
     unsigned int FilterOffsetA:5;
     unsigned int FilterOffsetB:5;
     Edge264_parameter_set p;
-    Edge264_picture *RefPicList[2][32];
+    uint8_t RefPicList[2][32];
     uint16_t weights[3][32][2];
     uint16_t offsets[3][32][2];
 } Edge264_slice;

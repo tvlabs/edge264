@@ -43,6 +43,8 @@ typedef struct {
     unsigned int log2_max_pic_order_cnt_lsb:5;
     unsigned int delta_pic_order_always_zero_flag:1; // pic_order_cnt_type==1
     unsigned int max_num_ref_frames:5;
+    unsigned int max_num_reorder_frames:5;
+    unsigned int max_dec_frame_buffering:5;
     unsigned int gaps_in_frame_num_value_allowed_flag:1;
     unsigned int frame_mbs_only_flag:1;
     unsigned int mb_adaptive_frame_field_flag:1;
@@ -73,32 +75,29 @@ typedef struct {
 } Edge264_parameter_set;
 typedef struct {
     
-} Edge264_global_mb;
+} Edge264_global_mb __attribute__((aligned(64)));
 typedef struct {
     uint8_t *planes[3];
     Edge264_global_mb *mbs;
     int32_t PicOrderCnt;
     uint32_t FrameNum;
     unsigned int LongTermFrameIdx:4;
-    unsigned int grey_mbs:19;
+    //unsigned int decoded_mbs:19; uncomment for frame threading
 } Edge264_picture;
 typedef struct {
     uint8_t *CPB;
     uint32_t CPB_size; // 26 significant bits
     unsigned int nal_ref_idc:2;
     unsigned int nal_unit_type:5;
-    unsigned int currPic:5;
-    unsigned int currField:1;
-    uint32_t output_flags; // targets the top field of each frame
-    uint32_t short_term_fields;
-    uint32_t long_term_fields;
-    uint32_t short_term_next; // replaces short_term_fields when all slices of currPic are decoded (8.2.5.1)
-    uint32_t long_term_next;
+    unsigned int currPic:6;
+    uint16_t output_flags;
+    uint16_t reference_flags[2];
+    uint16_t long_term_flags;
     int32_t prevPicOrderCnt;
     Edge264_parameter_set SPS;
     Edge264_parameter_set PPSs[4];
     int32_t PicOrderCntDeltas[256]; // pic_order_cnt_type==1
-    Edge264_picture DPB[32]; // two entries top/bottom per frame
+    Edge264_picture DPB[34]; // two entries top/bottom per frame
 } Edge264_ctx;
 
 size_t Edge264_find_start_code(const uint8_t *buf, size_t len, unsigned int n);

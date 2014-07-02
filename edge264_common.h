@@ -98,26 +98,6 @@ static inline __m128i _mm_mullo_epi32(__m128i a, __m128i b) {
 
 
 
-typedef struct {
-    const Edge264_picture *DPB;
-    Edge264_picture currPic;
-    unsigned int mb_x:10;
-    unsigned int mb_y:10;
-    unsigned int slice_type:2;
-    unsigned int field_pic_flag:1;
-    unsigned int bottom_field_flag:1;
-    unsigned int direct_spatial_mv_pred_flag:1;
-    unsigned int cabac_init_idc:2;
-    unsigned int FilterOffsetA:5;
-    unsigned int FilterOffsetB:5;
-    Edge264_parameter_set p;
-    uint8_t RefPicList[2][32];
-    uint16_t weights[3][32][2];
-    uint16_t offsets[3][32][2];
-} Edge264_slice;
-
-
-
 static const int invBlock4x4[16] =
     {0, 1, 4, 5, 2, 3, 6, 7, 8, 9, 12, 13, 10, 11, 14, 15};
 static const int invScan4x4[2][16] = {
@@ -149,8 +129,8 @@ static inline unsigned long umax(unsigned long a, unsigned long b) { return (a >
  *
  * upper and lower are the bounds allowed by the spec, which get_ue and get_se
  * use both as hints to choose the fastest input routine, and as clipping
- * parameters such that values are always bounded no matter the input code.
- * To keep the routines branchless, upper and lower shall always be constants.
+ * parameters such that values are always bounded no matter the input stream.
+ * To keep your code branchless, upper and lower shall always be constants.
  * Use min/max with get_raw_ue/get_raw_se to apply variable bounds.
  *
  * Since the validity of the read pointer is never checked, there must be a
@@ -190,7 +170,7 @@ static inline __attribute__((always_inline)) int get_raw_se(const uint8_t *CPB, 
     unsigned int codeNum = get_raw_ue(CPB, shift, umax(-lower * 2, upper * 2 - 1));
     int abs = (codeNum + 1) / 2;
     int sign = (codeNum % 2) - 1;
-    return (abs ^ sign) - sign;
+    return (abs ^ sign) - sign; // conditionally negate
 }
 
 static inline __attribute__((always_inline)) int get_se(const uint8_t *CPB, unsigned int *shift, int lower, int upper) {
@@ -210,5 +190,35 @@ static inline __attribute__((always_inline)) unsigned int get_u1(const uint8_t *
     *shift += 1;
     return buf & 1;
 }
+
+
+
+typedef struct {
+    unsigned long codIRange;
+    unsigned long codIOffset;
+    const uint8_t *CPB;
+    unsigned int shift;
+    unsigned int lim;
+} CABAC_ctx;
+
+
+
+typedef struct {
+    CABAC_ctx c;
+    Edge264_picture p;
+    const Edge264_picture *DPB;
+    unsigned int mb_x:10;
+    unsigned int mb_y:10;
+    unsigned int slice_type:2;
+    unsigned int field_pic_flag:1;
+    unsigned int direct_spatial_mv_pred_flag:1;
+    unsigned int cabac_init_idc:2;
+    unsigned int FilterOffsetA:5;
+    unsigned int FilterOffsetB:5;
+    Edge264_parameter_set ps;
+    uint8_t RefPicList[2][32];
+    uint16_t weights[3][32][2];
+    uint16_t offsets[3][32][2];
+} Edge264_slice;
 
 #endif

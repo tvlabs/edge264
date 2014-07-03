@@ -211,12 +211,13 @@ typedef struct {
     unsigned int mb_y:10;
     unsigned int slice_type:2;
     unsigned int field_pic_flag:1;
+    unsigned int bottom_field_flag:1;
     unsigned int direct_spatial_mv_pred_flag:1;
     unsigned int cabac_init_idc:2;
     unsigned int FilterOffsetA:5;
     unsigned int FilterOffsetB:5;
     Edge264_parameter_set ps;
-    uint8_t RefPicList[2][32];
+    int8_t RefPicList[2][32] __attribute__((aligned));
     uint16_t weights[3][32][2];
     uint16_t offsets[3][32][2];
 } Edge264_slice;

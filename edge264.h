@@ -80,9 +80,8 @@ typedef struct {
     uint8_t *planes[3];
     Edge264_global_mb *mbs;
     int32_t PicOrderCnt;
-    uint32_t FrameNum;
+    int32_t FrameNum;
     unsigned int LongTermFrameIdx:4;
-    //unsigned int decoded_mbs:19; uncomment for frame threading
 } Edge264_picture;
 typedef struct {
     uint8_t *CPB;

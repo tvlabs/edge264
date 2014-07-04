@@ -45,7 +45,6 @@ typedef struct {
     unsigned int max_num_ref_frames:5;
     unsigned int max_num_reorder_frames:5;
     unsigned int max_dec_frame_buffering:5;
-    unsigned int gaps_in_frame_num_value_allowed_flag:1;
     unsigned int frame_mbs_only_flag:1;
     unsigned int mb_adaptive_frame_field_flag:1;
     unsigned int direct_8x8_inference_flag:1;
@@ -55,7 +54,6 @@ typedef struct {
     int chroma_qp_index_offset:5;
     unsigned int deblocking_filter_control_present_flag:1;
     unsigned int constrained_intra_pred_flag:1;
-    unsigned int redundant_pic_cnt_present_flag:1;
     unsigned int transform_8x8_mode_flag:1;
     int second_chroma_qp_index_offset:5;
     uint8_t BitDepth[3]; // 4 significant bits
@@ -89,9 +87,9 @@ typedef struct {
     unsigned int nal_ref_idc:2;
     unsigned int nal_unit_type:5;
     unsigned int currPic:6;
-    uint16_t output_flags;
     uint16_t reference_flags[2];
     uint16_t long_term_flags;
+    uint16_t output_flags;
     int32_t prevPicOrderCnt;
     Edge264_parameter_set SPS;
     Edge264_parameter_set PPSs[4];

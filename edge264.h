@@ -73,7 +73,7 @@ typedef struct {
 } Edge264_parameter_set;
 typedef struct {
     
-} Edge264_global_mb __attribute__((aligned(64)));
+} Edge264_global_mb;
 typedef struct {
     uint8_t *planes[3];
     Edge264_global_mb *mbs;
@@ -87,14 +87,14 @@ typedef struct {
     unsigned int nal_ref_idc:2;
     unsigned int nal_unit_type:5;
     unsigned int currPic:6;
-    uint16_t reference_flags[2];
-    uint16_t long_term_flags;
-    uint16_t output_flags;
     int32_t prevPicOrderCnt;
+    uint32_t reference_flags[2];
+    uint32_t long_term_flags;
+    uint32_t output_flags;
+    Edge264_picture DPB[34]; // two entries top/bottom per frame
     Edge264_parameter_set SPS;
     Edge264_parameter_set PPSs[4];
     int32_t PicOrderCntDeltas[256]; // pic_order_cnt_type==1
-    Edge264_picture DPB[34]; // two entries top/bottom per frame
 } Edge264_ctx;
 
 size_t Edge264_find_start_code(const uint8_t *buf, size_t len, unsigned int n);

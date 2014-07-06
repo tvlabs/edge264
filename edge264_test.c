@@ -39,7 +39,7 @@ int main() {
     fstat(0, &st);
     const uint8_t *file = mmap(NULL, st.st_size, PROT_READ, MAP_SHARED, 0, 0);
     assert(file!=MAP_FAILED);
-    setvbuf(stdout, NULL, _IONBF, BUFSIZ);
+    //setvbuf(stdout, NULL, _IONBF, BUFSIZ);
     
     /* Parse and dump the file to HTML. */
     printf("<!doctype html>\n"

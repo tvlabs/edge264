@@ -13,6 +13,7 @@
 /* TODO: Supprimer les CPB lors d'un end of sequence. */
 /* TODO: A la fin de chaque ligne (même incomplète, cf first_mb_in_slice), le thread appelle un callback. */
 /* TODO: Remplacer les 0x%x par des %#x. */
+/* TODO: Retenter frame_num sur 16 bits. */
 
 /**
  * Copyright (c) 2013-2014, Celticom / TVLabs
@@ -253,11 +254,13 @@ static inline void parse_ref_pic_list_modification(Edge264_slice *s, Edge264_ctx
     
     /* Review each RefPicList along with ref_pic_list_modification() instructions. */
     int grey_pic = -1;
+    unsigned int MaxPicNum = 1 << (s->ps.log2_max_frame_num + s->field_pic_flag);
+    unsigned int CurrPicNum = (s->p.FrameNum << s->field_pic_flag) | s->field_pic_flag;
     for (unsigned int l = 0; l <= s->slice_type; l++) {
         unsigned int modification_of_pic_nums_idc = 3;
         if (get_u1(e->CPB, &s->c.shift))
             modification_of_pic_nums_idc = get_raw_ue(e->CPB, &s->c.shift, 3);
-        unsigned int picNumLX = (s->p.FrameNum << s->field_pic_flag) | s->field_pic_flag;
+        unsigned int picNumLX = CurrPicNum;
         for (unsigned int refIdxLX = 0; refIdxLX < s->ps.num_ref_idx_active[l]; refIdxLX++) {
             int pic = s->RefPicList[l][refIdxLX];
             int FrameNum = -1;
@@ -265,6 +268,10 @@ static inline void parse_ref_pic_list_modification(Edge264_slice *s, Edge264_ctx
                 picNumLX += ((get_raw_ue(e->CPB, &s->c.shift, 131071) + 1) ^
                     (modification_of_pic_nums_idc - 1)) -
                     (modification_of_pic_nums_idc - 1); // conditionally negate
+                if (picNumLX + MaxPicNum <= CurrPicNum)
+                    picNumLX += MaxPicNum;
+                if (picNumLX > CurrPicNum)
+                    picNumLX -= MaxPicNum;
                 FrameNum = picNumLX >> s->field_pic_flag;
                 unsigned int r = e->reference_flags[s->field_pic_flag &
                     (s->bottom_field_flag ^ ~picNumLX)] & ~e->long_term_flags;
@@ -553,6 +560,7 @@ printf("<br/>\n");
     if (e->nal_unit_type == 5) {
         unsigned int idr_pic_id = get_ue(e->CPB, &s.c.shift, 65535);
         printf("<li>idr_pic_id: <code>%u</code></li>\n", idr_pic_id);
+        e->prevPicOrderCnt += 1 << s.ps.log2_max_pic_order_cnt_lsb;
     }
     parse_pic_order_cnt(&s, e);
     if (s.slice_type == 1) {

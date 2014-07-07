@@ -58,7 +58,7 @@ typedef struct {
     int second_chroma_qp_index_offset:5;
     uint8_t BitDepth[3]; // 4 significant bits
     uint8_t num_ref_frames_in_pic_order_cnt_cycle; // pic_order_cnt_type==1
-    uint8_t num_ref_idx_active[2]; // 4 significant bits each
+    uint8_t num_ref_idx_active[2]; // 6 significant bits each
     uint8_t QP_Y; // 7 significant bits
     uint16_t width; // in luma samples, 14 significant bits
     uint16_t height;

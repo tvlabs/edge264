@@ -158,6 +158,7 @@ static inline void parse_pic_order_cnt(Edge264_slice *s, Edge264_ctx *e) {
  * Creates and updates the reference picture lists (8.2.4).
  * If any entry is non-existing, a grey short-term reference frame is created
  * with both PicOrderCnt fields at INT32_MAX, and the highest missing FrameNum.
+ * Consumes at most 130 set bits from the safety zone.
  */
 static inline void parse_ref_pic_list_modification(Edge264_slice *s, Edge264_ctx *e) {
     /* Create the two initial lists of reference frames. */
@@ -342,6 +343,7 @@ static inline void parse_ref_pic_list_modification(Edge264_slice *s, Edge264_ctx
 
 /**
  * Stores the pre-shifted weights and offsets (7.4.3.2).
+ * Consumes at most 514 set bits from the safety zone.
  */
 static inline void parse_pred_weight_table(Edge264_slice *s, const Edge264_ctx *e) {
     unsigned int luma_shift = 7 - get_ue(e->CPB, &s->c.shift, 7);
@@ -493,6 +495,7 @@ printf("<br/>\n");
     Edge264_slice s = {.c.CPB = e->CPB, .c.lim = lim, .DPB = e->DPB};
     unsigned int first_mb_in_slice = get_ue(e->CPB, &s.c.shift, 36863);
     s.slice_type = get_ue(e->CPB, &s.c.shift, 9) % 5;
+    /* When lim is reached here, shift will overflow for at most 698 set bits. */
     unsigned int pic_parameter_set_id = get_ue(e->CPB, &s.c.shift, 255);
     printf("<li%s>first_mb_in_slice: <code>%u</code></li>\n"
         "<li%s>slice_type: <code>%u (%s)</code></li>\n"
@@ -864,6 +867,7 @@ static const Edge264_picture *parse_pic_parameter_set_rbsp(Edge264_ctx *e, unsig
         p.transform_8x8_mode_flag = get_u1(e->CPB, &shift);
         printf("<li>transform_8x8_mode_flag: <code>%x</code></li>\n",
             p.transform_8x8_mode_flag);
+        /* When lim is reached here, shift will overflow for at most 492 set bits. */
         if (get_u1(e->CPB, &shift))
             shift = parse_scaling_lists(&p, e->CPB, shift, p.transform_8x8_mode_flag);
         p.second_chroma_qp_index_offset = get_se(e->CPB, &shift, -12, 12);
@@ -930,6 +934,7 @@ static unsigned int parse_hrd_parameters(const uint8_t *CPB, unsigned int shift)
 
 /**
  * Extracts a few useful fields for the current parameter set.
+ * Consumes 218 set bits in the safety zone.
  */
 static unsigned int parse_vui_parameters(Edge264_parameter_set *s,
     const uint8_t *CPB, unsigned int shift)
@@ -1130,6 +1135,7 @@ static const Edge264_picture *parse_seq_parameter_set_rbsp(Edge264_ctx *e, unsig
         s.ChromaArrayType = s.chroma_format_idc = get_ue(e->CPB, &shift, 3);
         printf("<li>chroma_format_idc: <code>%u (%s)</code></li>\n",
             s.chroma_format_idc, chroma_format_idc_names[s.chroma_format_idc]);
+        /* When lim is reached here, shift will overflow for at most 736 set bits. */
         if (s.chroma_format_idc == 3) {
             s.separate_colour_plane_flag = get_u1(e->CPB, &shift);
             s.ChromaArrayType &= s.separate_colour_plane_flag - 1;
@@ -1345,7 +1351,7 @@ const Edge264_picture *Edge264_parse_NAL(Edge264_ctx *e, const uint8_t *buf, siz
     if (len == 0)
         return NULL;
     len = umin(len, 36000000); // level 5.2
-    const unsigned int suffix_size = 128;
+    const unsigned int suffix_size = 92; // largest shift overflow for a SPS
     size_t CPB_size = len - 1 + suffix_size;
     if (e->CPB_size < CPB_size) {
         e->CPB_size = CPB_size;

@@ -13,7 +13,7 @@
 /* TODO: Supprimer les CPB lors d'un end of sequence. */
 /* TODO: A la fin de chaque ligne (même incomplète, cf first_mb_in_slice), le thread appelle un callback. */
 /* TODO: Remplacer les 0x%x par des %#x. */
-/* TODO: Retenter frame_num sur 16 bits. */
+/* TODO: Stocker mb_x/y en int enlève-t-il le AND contre l'overflow? */
 
 /**
  * Copyright (c) 2013-2014, Celticom / TVLabs
@@ -55,6 +55,7 @@
  *   without having to strip them afterwards.
  */
 #include "edge264_common.h"
+#include "edge264_cabac.c"
 
 #include <stdlib.h>
 #include <string.h>
@@ -480,19 +481,23 @@ static inline void parse_dec_ref_pic_marking(Edge264_slice *s, Edge264_ctx *e) {
  * CAVLC/CABAC_parse_slice_data(). The next picture to be output is returned.
  *
  * Contrary to SPSs and PPSs, slice_header() has no explicit size to detect an
- * error with high probability, thus the context is updated directly instead of
- * through local copies.
- * Sliced pictures are currently unsupported, because one may have to start
- * decoding the next picture to be sure the current one is complete, thus
- * requiring an oversized DPB.
+ * error with high probability and revert changes, thus the main context is
+ * directly updated with no particular protection.
+ * Sliced pictures are unsupported, because the pull API model used here would
+ * require an additional DPB slot (when the last slice is missing for example).
  */
 static const Edge264_picture *parse_slice_layer_without_partitioning_rbsp(Edge264_ctx *e, unsigned int lim) {
     static const char * const slice_type_names[5] = {"P", "B", "I", "SP", "SI"};
     
 for (unsigned int u = 0; u < 20; u++) printf("%02x ", e->CPB[u]);
 printf("<br/>\n");
-    /* s gets a copy of the parameter_set, useful for multi-threading. */
-    Edge264_slice s = {.c.CPB = e->CPB, .c.lim = lim, .DPB = e->DPB};
+    /* Declare the VLA first to keep s at a fixed stack position. */
+    Edge264_macroblock mbs[(e->SPS.height / 16 + e->SPS.width / 16 + 2) <<
+        e->SPS.mb_adaptive_frame_field_flag];
+    for (unsigned int i = 0; i < sizeof(mbs) / sizeof(*mbs); i++)
+        mbs[i] = void_mb;
+    Edge264_slice s = {.c.CPB = e->CPB, .c.lim = lim, .DPB = e->DPB, .init = void_mb};
+    
     unsigned int first_mb_in_slice = get_ue(e->CPB, &s.c.shift, 36863);
     s.slice_type = get_ue(e->CPB, &s.c.shift, 9) % 5;
     /* When lim is reached here, shift will overflow for at most 698 set bits. */
@@ -535,6 +540,7 @@ printf("<br/>\n");
                 s.bottom_field_flag);
         }
     }
+    s.MbaffFrameFlag = s.ps.mb_adaptive_frame_field_flag & ~s.field_pic_flag;
     
     /* Select a DPB slot. */
     if (!s.field_pic_flag || e->DPB[e->currPic].PicOrderCnt != INT32_MAX ||
@@ -601,8 +607,6 @@ printf("<br/>\n");
         }
     }
     
-if (s.ps.entropy_coding_mode_flag && (~e->CPB[s.c.shift / 8] << (1 + (s.c.shift - 1) % 8) & 0xff) != 0)
-printf("<li style=\"color: red\">Bitstream overflow (%u)</li>\n", s.c.shift);
 for (unsigned int u = 0; u <= s.ps.max_dec_frame_buffering; u++) {
 printf("<li>DPB[%u]: <code>", u);
 if (e->reference_flags[0] & 1 << u) printf("top-reference(%d) ", e->DPB[2 * u].FrameNum);
@@ -610,6 +614,9 @@ if (e->reference_flags[1] & 1 << u) printf("bottom-reference(%d) ", e->DPB[2 * u
 if (min(e->DPB[2 * u].PicOrderCnt, e->DPB[2 * u + 1].PicOrderCnt) == INT32_MAX) printf("grey");
 if (e->output_flags & 1 << u) printf("displayable(%d,%d)", e->DPB[2 * u].PicOrderCnt, e->DPB[2 * u + 1].PicOrderCnt);
 printf("</code></li>\n"); }
+    
+    if (s.ps.entropy_coding_mode_flag)
+        CABAC_parse_slice_data(&s, &mbs[s.ps.height / 16 << s.MbaffFrameFlag]);
     
     /* Select an image for output. */
     int output, first = INT32_MAX;

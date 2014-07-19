@@ -631,12 +631,12 @@ int main()
     /* Now print to a C source file. */
     printf("#include <stdint.h>\n"
         "\n"
-        "/* cabac_init_idc==3 for I frames. */\n"
-        "static const uint8_t Edge264_CABAC_init[52][4][1024] = {{{");
+        "/* cabac_init_idc==0 for I frames. */\n"
+        "static const uint8_t CABAC_init[52][4][1024] = {{{");
     for (int QP = 0; QP < 52; QP++) {
         for (int cabac_init_idc = 0; cabac_init_idc < 4; cabac_init_idc++) {
             for (int i = 0; i < 1024; i++)
-                printf("%s0x%02x,", (i % 12) ? " " : "\n    ", CABAC_init[QP][cabac_init_idc][i]);
+                printf("%s0x%02x,", (i % 12) ? " " : "\n    ", CABAC_init[QP][(cabac_init_idc + 3) % 4][i]);
             printf((cabac_init_idc < 3) ? "\n    }, {" : (QP < 51) ? "\n    }}, {{" : "\n}}};\n");
         }
     }

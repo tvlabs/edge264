@@ -52,10 +52,10 @@ typedef struct {
     unsigned int bottom_field_pic_order_in_frame_present_flag:1;
     unsigned int weighted_pred:3;
     int chroma_qp_index_offset:5;
+    int second_chroma_qp_index_offset:5;
     unsigned int deblocking_filter_control_present_flag:1;
     unsigned int constrained_intra_pred_flag:1;
     unsigned int transform_8x8_mode_flag:1;
-    int second_chroma_qp_index_offset:5;
     uint8_t BitDepth[3]; // 4 significant bits
     uint8_t num_ref_frames_in_pic_order_cnt_cycle; // pic_order_cnt_type==1
     uint8_t num_ref_idx_active[2]; // 6 significant bits each

@@ -210,8 +210,7 @@ typedef struct {
 } CABAC_ctx;
 
 static inline void renorm(CABAC_ctx *c, unsigned int v) {
-    assert(LONG_BIT-__builtin_clzl(c->codIRange)<v);
-    v -= LONG_BIT - __builtin_clzl(c->codIRange);
+    assert(v>0&&v<LONG_BIT);
     unsigned long buf = 0;
     if (c->shift < c->lim) {
         unsigned long msb = beswapl(((unsigned long *)c->CPB)[c->shift / LONG_BIT]);
@@ -291,23 +290,35 @@ static unsigned int get_ae(CABAC_ctx *c, uint8_t *state) {
 
 
 typedef struct {
+    unsigned int mb_skip_flag:1;
+    unsigned int mb_field_decoding_flag:1;
+} Edge264_macroblock;
+typedef struct {
     CABAC_ctx c;
+    Edge264_macroblock m, init, A, D, B, C;
     Edge264_picture p;
-    const Edge264_picture *DPB;
     unsigned int mb_x:10;
     unsigned int mb_y:10;
     unsigned int slice_type:2;
     unsigned int field_pic_flag:1;
     unsigned int bottom_field_flag:1;
+    unsigned int MbaffFrameFlag:1;
     unsigned int direct_spatial_mv_pred_flag:1;
     unsigned int cabac_init_idc:2;
     unsigned int disable_deblocking_filter_idc:2;
     int FilterOffsetA:5;
     int FilterOffsetB:5;
     Edge264_parameter_set ps;
+    uint8_t s[1024];
+    const Edge264_picture *DPB;
     int8_t RefPicList[2][32] __attribute__((aligned));
     int16_t weights[3][32][2];
     int16_t offsets[3][32][2];
 } Edge264_slice;
+
+static const Edge264_macroblock void_mb = {
+    .mb_skip_flag = 1,
+    .mb_field_decoding_flag = 0,
+};
 
 #endif

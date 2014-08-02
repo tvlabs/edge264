@@ -14,6 +14,7 @@
 /* TODO: A la fin de chaque ligne (même incomplète, cf first_mb_in_slice), le thread appelle un callback. */
 /* TODO: Remplacer les 0x%x par des %#x. */
 /* TODO: Stocker mb_x/y en int enlève-t-il le AND contre l'overflow? */
+/* TODO: Essayer de remplacer refIdx=-1 par refIdx=63. */
 
 /**
  * Copyright (c) 2013-2014, Celticom / TVLabs
@@ -156,10 +157,11 @@ static inline void parse_pic_order_cnt(Edge264_slice *s, Edge264_ctx *e) {
 
 
 /**
- * Creates and updates the reference picture lists (8.2.4).
+ * Initialises and updates the reference picture lists (8.2.4).
+ *
  * If any entry is non-existing, a grey short-term reference frame is created
  * with both PicOrderCnt fields at INT32_MAX, and the highest missing FrameNum.
- * Consumes at most 130 set bits from the safety zone.
+ * The parsing consumes at most 130 set bits.
  */
 static inline void parse_ref_pic_list_modification(Edge264_slice *s, Edge264_ctx *e) {
     /* Create the two initial lists of reference frames. */
@@ -344,7 +346,7 @@ static inline void parse_ref_pic_list_modification(Edge264_slice *s, Edge264_ctx
 
 /**
  * Stores the pre-shifted weights and offsets (7.4.3.2).
- * Consumes at most 514 set bits from the safety zone.
+ * The parsing consumes at most 514 set bits.
  */
 static inline void parse_pred_weight_table(Edge264_slice *s, const Edge264_ctx *e) {
     unsigned int luma_shift = 7 - get_ue(e->CPB, &s->c.shift, 7);
@@ -685,9 +687,11 @@ static const Edge264_picture *parse_access_unit_delimiter_rbsp(Edge264_ctx *e, u
 
 
 /**
- * Parses the scaling lists into p->weightScaleNxN. Fall-back rule sets at
- * indices 0, 3, 6 and 7 are applied by keeping the existing list, so they
- * shall be initialised with Default scaling lists at the very first call.
+ * Parses the scaling lists into p->weightScaleNxN (7.3.2.1 and Table 7-2).
+ *
+ * Fall-back rules for indices 0, 3, 6 and 7 are applied by keeping the
+ * existing list, so they must be initialised with Default scaling lists at
+ * the very first call.
  */
 static unsigned int parse_scaling_lists(Edge264_parameter_set *p,
     const uint8_t *CPB, unsigned int shift, unsigned int transform_8x8_mode_flag)
@@ -1317,7 +1321,7 @@ size_t Edge264_find_start_code(const uint8_t *buf, size_t len, unsigned int n) {
 
 /**
  * Copies the NAL unit while trimming every emulation_prevention_three_byte,
- * then parses the payload and return the next picture to output.
+ * then parses the payload and returns the next picture to output.
  */
 const Edge264_picture *Edge264_parse_NAL(Edge264_ctx *e, const uint8_t *buf, size_t len) {
     static const char * const nal_unit_type_names[32] = {

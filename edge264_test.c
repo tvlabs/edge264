@@ -52,6 +52,7 @@ int main() {
         const Edge264_picture *p = Edge264_parse_NAL(&e, file + i, len);
         if (p != NULL)
             printf("<p>Output picture %d</p>\n", p->PicOrderCnt);
+break;
     }
     printf("</body>\n"
         "</html>\n");

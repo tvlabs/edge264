@@ -28,12 +28,12 @@
 #ifndef EDGE264_COMMON_H
 #define EDGE264_COMMON_H
 
-#if DEBUG >= 1
-#include <stdio.h>
-static inline const char *red_if(int cond) { return (cond) ? " style=\"color: red\"" : ""; }
-#else
+#if !DEBUG
 #define printf(...) ((void)0)
 #define NDEBUG 1
+#else
+#include <stdio.h>
+static inline const char *red_if(int cond) { return (cond) ? " style=\"color: red\"" : ""; }
 #endif
 #if DEBUG != 2
 #define fprintf(...) ((void)0)
@@ -289,14 +289,53 @@ static unsigned int get_ae(CABAC_ctx *c, uint8_t *state) {
 
 
 
+/**
+ * In 9.3.3.1.1, ctxIdxInc is always the result of flagA+flagB or flagA+2*flagB,
+ * so we can compute all in parallel with flagsA+flagsB+(flagsB&twice).
+ *
+ * Edges for 4x4 and 8x8 blocks are stored in checkerboard patterns, where left
+ * and top are always contiguous:
+ *                29 13 26 10        5 6 7 8
+ *   7 3       28|12 25  9 22      3|4 5 6 7
+ * 6|2 5  and  11|24  8 20  5  or  2|3 4 5 6  for Intra4x4PredMode
+ * 1|4 0       23| 7 19  4 17      1|2 3 4 5
+ *              6|18  3 16  0      0|1 2 3 4
+ */
+typedef union {
+    struct {
+        uint32_t mb_skip_flag:2;
+        uint32_t mb_field_decoding_flag:2;
+        uint32_t mb_type_I:2;
+        uint32_t mb_type_B:2;
+        uint32_t intra_chroma_pred_mode_non_zero:2;
+        uint32_t transform_size_8x8_flag:2;
+        uint32_t CodedBlockPatternChromaDC:2;
+        uint32_t CodedBlockPatternChromaAC:2;
+        uint32_t coded_block_flag_16x16:6;
+    };
+    uint32_t flags;
+} Edge264_mb_flags;
+typedef union {
+    struct {
+        uint8_t Intra4x4PredMode[9];
+        uint8_t CodedBlockPatternLuma __attribute__((packed));
+        uint8_t refIdx_non_zero[2] __attribute__((packed));
+        uint8_t coded_block_flag_8x8[3];
+        uint16_t coded_block_flag_4x4[3];
+    };
+    uint64_t edges[3];
+} Edge264_mb_edges;
 typedef struct {
-    unsigned int mb_skip_flag:1;
-    unsigned int mb_field_decoding_flag:1;
+    Edge264_mb_edges e;
+    Edge264_mb_flags f;
+    int16_t mv_edge[2][7][2]; // bottom and right motion vectors
+    int8_t refIdx[2][4];
 } Edge264_macroblock;
 typedef struct {
     CABAC_ctx c;
-    Edge264_macroblock m, init, A, D, B, C;
     Edge264_picture p;
+    Edge264_mb_edges e;
+    Edge264_mb_flags f, ctxIdxInc, init;
     unsigned int mb_x:10;
     unsigned int mb_y:10;
     unsigned int slice_type:2;
@@ -308,17 +347,19 @@ typedef struct {
     unsigned int disable_deblocking_filter_idc:2;
     int FilterOffsetA:5;
     int FilterOffsetB:5;
-    Edge264_parameter_set ps;
-    uint8_t s[1024];
     const Edge264_picture *DPB;
     int8_t RefPicList[2][32] __attribute__((aligned));
     int16_t weights[3][32][2];
     int16_t offsets[3][32][2];
+    int8_t refIdx[2][4];
+    int16_t mv_cache[2][5][8][2]; // [X][row in 1..4][col in 2..5]
+    Edge264_parameter_set ps;
+    uint8_t s[1024];
 } Edge264_slice;
 
 static const Edge264_macroblock void_mb = {
-    .mb_skip_flag = 1,
-    .mb_field_decoding_flag = 0,
+    .f.mb_skip_flag = 1,
+    .f.mb_field_decoding_flag = 0,
 };
 
 #endif

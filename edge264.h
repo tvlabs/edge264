@@ -72,11 +72,9 @@ typedef struct {
     uint8_t weightScale8x8[6][64] __attribute__((aligned));
 } Edge264_parameter_set;
 typedef struct {
-    
-} Edge264_global_mb;
-typedef struct {
     uint8_t *planes[3];
-    Edge264_global_mb *mbs;
+    int8_t (*refs)[4] __attribute__((aligned)); // one int8_t[4] per macroblock
+    int16_t (*mvs)[16][2] __attribute__((aligned)); // one int16_t[16][2] per mb
     int32_t PicOrderCnt;
     int32_t FrameNum;
     unsigned int LongTermFrameIdx:4;

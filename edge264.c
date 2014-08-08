@@ -15,6 +15,8 @@
 /* TODO: Remplacer les 0x%x par des %#x. */
 /* TODO: Stocker mb_x/y en int enlève-t-il le AND contre l'overflow? */
 /* TODO: Essayer de remplacer refIdx=-1 par refIdx=63. */
+/* TODO: Add the masking for num_ref_idx_active_lX. */
+/* TODO: List all the builtins used in edge264_common.h. */
 
 /**
  * Copyright (c) 2013-2014, Celticom / TVLabs

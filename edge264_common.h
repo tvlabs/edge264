@@ -185,8 +185,8 @@ static inline __attribute__((always_inline)) unsigned int get_uv(const uint8_t *
     return buf >> (32 - v);
 }
 
-static inline __attribute__((always_inline)) unsigned int get_u1(const uint8_t *CPB, unsigned int * restrict shift) {
-    unsigned int buf = CPB[*shift / 8] >> (7 - *shift % 8);
+static inline __attribute__((always_inline)) int get_u1(const uint8_t *CPB, unsigned int * restrict shift) {
+    int buf = CPB[*shift / 8] >> (7 - *shift % 8);
     *shift += 1;
     return buf & 1;
 }
@@ -202,8 +202,8 @@ static inline __attribute__((always_inline)) unsigned int get_u1(const uint8_t *
  * yielding the original values.
  */
 typedef struct {
-    long codIRange;
-    long codIOffset;
+    unsigned long codIRange;
+    unsigned long codIOffset;
     const uint8_t *CPB;
     unsigned int shift;
     unsigned int lim;
@@ -222,14 +222,7 @@ static inline void renorm(CABAC_ctx *c, unsigned int v) {
     c->shift += v;
 }
 
-static inline int get_bypass(CABAC_ctx *c) {
-    c->codIRange >>= 1;
-    long binVal = ~(c->codIOffset - c->codIRange) >> (LONG_BIT - 1);
-    c->codIOffset -= c->codIRange & binVal;
-    return -binVal;
-}
-
-static unsigned int get_ae(CABAC_ctx *c, uint8_t *state) {
+static inline int get_ae(CABAC_ctx *c, uint8_t *state) {
     static const int rangeTabLPS[4 * 64] = {
         128, 128, 128, 123, 116, 111, 105, 100, 95, 90, 85, 81, 77, 73, 69, 66,
         62, 59, 56, 53, 51, 48, 46, 43, 41, 39, 37, 35, 33, 32, 30, 29, 27, 26,
@@ -275,16 +268,23 @@ static unsigned int get_ae(CABAC_ctx *c, uint8_t *state) {
     
     unsigned int shift = LONG_BIT - 9 - __builtin_clzl(c->codIRange);
     unsigned int idx = (c->codIRange >> shift) & 0xc0;
-    long codIRangeLPS = (long)rangeTabLPS[idx | (*state >> 1)] << shift;
-    long codIRangeMPS = c->codIRange - codIRangeLPS;
-    long lps_mask = ~(c->codIOffset - codIRangeMPS) >> (LONG_BIT - 1);
+    unsigned long codIRangeLPS = (long)rangeTabLPS[idx | (*state >> 1)] << shift;
+    unsigned long codIRangeMPS = c->codIRange - codIRangeLPS;
+    unsigned long lps_mask = (long)~(c->codIOffset - codIRangeMPS) >> (LONG_BIT - 1);
     c->codIRange = codIRangeMPS ^ ((codIRangeMPS ^ codIRangeLPS) & lps_mask);
     c->codIOffset -= codIRangeMPS & lps_mask;
-    int tmp = *state ^ (int)lps_mask;
+    int xor = *state ^ (int)lps_mask;
+    *state = transIdx[128 + xor];
     if (__builtin_expect(c->codIRange < 256, 0))
-        renorm(c, LONG_BIT - 1);
-    *state = transIdx[128 + tmp];
-    return tmp & 1;
+        renorm(c, __builtin_clzl(c->codIRange) - 1);
+    return xor & 1;
+}
+
+static inline __attribute__((always_inline)) int get_bypass(CABAC_ctx *c) {
+    c->codIRange >>= 1;
+    long negVal = (long)~(c->codIOffset - c->codIRange) >> (LONG_BIT - 1);
+    c->codIOffset -= c->codIRange & negVal;
+    return -negVal;
 }
 
 
@@ -293,13 +293,13 @@ static unsigned int get_ae(CABAC_ctx *c, uint8_t *state) {
  * In 9.3.3.1.1, ctxIdxInc is always the result of flagA+flagB or flagA+2*flagB,
  * so we can compute all in parallel with flagsA+flagsB+(flagsB&twice).
  *
- * Edges for 4x4 and 8x8 blocks are stored in checkerboard patterns, where left
- * and top are always contiguous:
+ * Variables for 4x4 and 8x8 blocks are stored in checkerboard patterns, where
+ * left and top are always contiguous:
  *                29 13 26 10        5 6 7 8
  *   7 3       28|12 25  9 22      3|4 5 6 7
- * 6|2 5  and  11|24  8 20  5  or  2|3 4 5 6  for Intra4x4PredMode
- * 1|4 0       23| 7 19  4 17      1|2 3 4 5
- *              6|18  3 16  0      0|1 2 3 4
+ * 6|2 5  and  11|24  8 21  5  or  2|3 4 5 6  for Intra4x4PredMode
+ * 1|4 0       23| 7 20  4 17      1|2 3 4 5
+ *              6|19  3 16  0      0|1 2 3 4
  */
 typedef union {
     struct {
@@ -319,7 +319,7 @@ typedef union {
     struct {
         uint8_t Intra4x4PredMode[9];
         uint8_t CodedBlockPatternLuma __attribute__((packed));
-        uint8_t refIdx_non_zero[2] __attribute__((packed));
+        uint16_t ref_idx_nz __attribute__((packed));
         uint8_t coded_block_flag_8x8[3];
         uint16_t coded_block_flag_4x4[3];
     };
@@ -351,12 +351,21 @@ typedef struct {
     int8_t RefPicList[2][32] __attribute__((aligned));
     int16_t weights[3][32][2];
     int16_t offsets[3][32][2];
-    int8_t refIdx[2][4];
-    int16_t mv_cache[2][5][8][2]; // [X][row in 1..4][col in 2..5]
+    int8_t refIdx[8];
+    int16_t mv[32][2];
     Edge264_parameter_set ps;
     uint8_t s[1024];
 } Edge264_slice;
 
+static const int bit8x8[8] = {2, 5, 4, 0, 10, 13, 12, 8}; // TODO: Replace with uint32_t >> 4 * n
+static const int left8x8[8] = {6, 2, 1, 4, 14, 10, 9, 12};
+static const int bit4x4[32] = {12, 25, 24, 8, 9, 22, 21, 5, 7, 20, 19, 3, 4,
+    17, 16, 0, 44, 57, 56, 40, 41, 54, 53, 37, 39, 52, 51, 35, 36, 49, 48, 32};
+static const int left4x4[32] = {28, 12, 11, 24, 25, 9, 8, 20, 23, 7, 6, 18, 19,
+    4, 3, 16, 60, 44, 43, 56, 57, 41, 40, 52, 55, 39, 38, 50, 51, 36, 35, 48};
+static const int mv_cache_pos[32] = {10, 11, 18, 19, 12, 13, 20, 21, 26, 27,
+    34, 35, 28, 29, 36, 37, 50, 51, 58, 59, 52, 53, 60, 61, 66, 67, 74, 75, 68,
+    69, 76, 77};
 static const Edge264_macroblock void_mb = {
     .f.mb_skip_flag = 1,
     .f.mb_field_decoding_flag = 0,

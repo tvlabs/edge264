@@ -67,6 +67,8 @@ void CABAC_parse_macroblock_layer(Edge264_slice *s) {
                 size = (2 * bin1 + bin2 + 3) % 4;
                 ref_idx_present = 0x153f >> (4 * size) & 15;
                 mvd_present = 0x0001010100110000 >> (16 * size) & 0xffff;
+                
+                /* Parsing for sub_mb_type in P slices. */
                 for (unsigned int mbPartIdx = 0; size == 0 && mbPartIdx < 4; mbPartIdx++) {
                     unsigned int sub_mb_type = 0;
                     while (get_ae(&s->c, &s->s[21 + sub_mb_type]) == sub_mb_type % 2 &&
@@ -91,6 +93,8 @@ void CABAC_parse_macroblock_layer(Edge264_slice *s) {
                 size = 0x1000999b00066666 >> (2 * str) & 3;
                 ref_idx_present = str2ref_idx_present[str];
                 mvd_present = str2mvd_present[str];
+                
+                /* Parsing for sub_mb_type in B slices. */
                 for (unsigned int mbPartIdx = 0; str == 15 && mbPartIdx < 4; mbPartIdx++) {
                     if (get_ae(&s->c, &s->s[36]))
                         continue;
@@ -112,8 +116,72 @@ void CABAC_parse_macroblock_layer(Edge264_slice *s) {
             }
         }
     }
+    
     if (slice_type == 2) {
         
+    } else if (mvd_present != 0) {
+        struct { uint16_t A:5, B:5, C:5; } mv_pos[32];
+        
+        /* Parsing for ref_idx_lX in P/B slices. */
+        for (; ref_idx_present != 0; ref_idx_present &= ref_idx_present - 1) {
+            unsigned int i = __builtin_ctz(ref_idx_present);
+            unsigned int ctxIdxInc = s->e.ref_idx_nz >> left8x8[i] & 3;
+            s->refIdx[i] = 0;
+            while (get_ae(&s->c, &s->s[54 + ctxIdxInc]))
+                ctxIdxInc = umin(4 + s->refIdx[i]++, 5);
+            s->e.ref_idx_nz |= (s->refIdx[i] > 0) << bit8x8[i];
+        }
+        
+        /* Parsing for mvd_lX in P/B slices. */
+        do {
+            unsigned int i = __builtin_ctz(mvd_present) & 0x1c;
+            unsigned int sub_mvd_present = (0xf << i) & mvd_present;
+            mvd_present ^= sub_mvd_present;
+            do {
+                unsigned int j = __builtin_ctz(sub_mvd_present);
+                for (unsigned int compIdx = 0; compIdx < 2; compIdx++) {
+                    unsigned int absMvdComp;
+                    unsigned int ctxIdxInc = (absMvdComp >= 3) + (absMvdComp > 32);
+                    int mvd = 0;
+                    while (mvd < 9 && get_ae(&s->c, &s->s[40 + 7 * compIdx + ctxIdxInc]))
+                        ctxIdxInc = umin(3 + mvd++, 6);
+                    
+                    /* The bypass process is actually a binary division! */
+                    if (mvd == 9) {
+                        renorm(&s->c, __builtin_clzl(s->c.codIRange));
+                        uint16_t codIRange = s->c.codIRange >> (LONG_BIT - 9);
+                        uint32_t codIOffset = s->c.codIOffset >> (LONG_BIT - 32);
+                        uint32_t quo = codIOffset / codIRange;
+                        uint32_t rem = codIOffset % codIRange;
+                        unsigned int k = __builtin_clz(~quo << 9);
+                        quo = quo << (k + 9) >> (k + 9);
+                        int pos = 19 - 2 * k;
+                        
+                        /* If the Exp-Golomb code would exceed 23 bits, refill quo. */
+                        if (__builtin_expect(pos < 0, 0)) {
+                            s->c.codIOffset = quo * codIRange + rem;
+                            renorm(&s->c, k);
+                            codIOffset = s->c.codIOffset >> (LONG_BIT - 32);
+                            quo = codIOffset / codIRange;
+                            rem = codIOffset % codIRange;
+                            pos += k;
+                        }
+                        mvd = 8 + (quo >> pos) + (8 << k);
+                        s->c.codIRange = (unsigned long)codIRange << (LONG_BIT - 32 + pos);
+                        s->c.codIOffset = (quo & ((1 << pos) - 1)) * codIRange + rem;
+                    }
+                    
+                    int a = s->mv[mv_pos[j].A][compIdx];
+                    int b = s->mv[mv_pos[j].B][compIdx];
+                    int c = s->mv[mv_pos[j].C][compIdx];
+                    int mvp = max(min(max(a, b), c), min(a, b));
+                    
+                }
+            } while ((sub_mvd_present &= sub_mvd_present - 1) != 0);
+        } while (mvd_present != 0);
+        if (size & 1) {
+            
+        }
     }
 }
 
@@ -149,8 +217,8 @@ static inline void CABAC_parse_slice_data(Edge264_slice *s, Edge264_macroblock *
                 s->ctxIdxInc.flags = m[-1].f.flags + m[1].f.flags +
                     (m[1].f.flags & twice.flags);
                 if (s->slice_type < 2) {
-                    s->f.mb_skip_flag = get_ae(&s->c, &s->s[13 +
-                        13 * s->slice_type - s->ctxIdxInc.mb_skip_flag]);
+                    s->f.mb_skip_flag = get_ae(&s->c, &s->s[13 + 13 * s->slice_type -
+                        s->ctxIdxInc.mb_skip_flag]);
                     fprintf(stderr, "mb_skip_flag: %x\n", s->f.mb_skip_flag);
                 }
             } else {

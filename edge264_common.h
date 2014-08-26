@@ -310,13 +310,12 @@ static inline __attribute__((always_inline)) int get_bypass(CABAC_ctx *c) {
  * 1|2 3 4 5
  * 0|1 2 3 4
  *
- * The storage pattern for the motion vector cache is a raster-scan array of
- * stride 6, where A, B and C have fixed relative positions (-1,-6,-5):
- *   B B B B C
- * A . . . . x
- * A . . . . x
- * A . . . . x
- * A . . . .
+ * The storage pattern for motion vectors uses block-scan order:
+ *     0  1  4  5  6
+ *  3| 0  1  4  5
+ *  2| 2  3  6  7
+ * 11| 8  9 12 13
+ * 10|10 11 14 15
  */
 typedef union {
     struct {
@@ -374,7 +373,7 @@ typedef struct {
     int16_t offsets[3][32][2];
     int8_t refIdx[8], refIdxA[8], refIdxB[8], refIdxC[8];
     uint8_t mvd_flags[8];
-    int16_t mv_cache[112];
+    int16_t mv[64];
     Edge264_parameter_set ps;
     uint8_t s[1024];
 } Edge264_slice;
@@ -392,6 +391,8 @@ static const uint8_t mv4x4[64] = {24, 32, 72, 80, 26, 34, 74, 82, 25, 33, 73,
     81, 27, 35, 75, 83, 28, 36, 76, 84, 30, 38, 78, 86, 29, 37, 77, 85, 31, 39,
     79, 87, 48, 56, 96, 104, 50, 58, 98, 106, 49, 57, 97, 105, 51, 59, 99, 107,
     52, 60, 100, 108, 54, 62, 102, 110, 53, 61, 101, 109, 56, 64, 104, 112};
+static const uint8_t bit8x8[8] = {6, 2, 1, 4, 14, 10, 9, 12};
+static const uint8_t left8x8[8] = {2, 5, 4, 0, 10, 13, 12, 8};
 static const Edge264_macroblock void_mb = {
     .f.mb_skip_flag = 1,
     .f.mb_field_decoding_flag = 0,

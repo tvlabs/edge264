@@ -17,6 +17,7 @@
 /* TODO: Essayer de remplacer refIdx=-1 par refIdx=63. */
 /* TODO: Add the masking for num_ref_idx_active_lX. */
 /* TODO: List all the builtins used in edge264_common.h. */
+/* TODO: Put codIRange and codIOffset in global register variables. */
 
 /**
  * Copyright (c) 2013-2014, Celticom / TVLabs

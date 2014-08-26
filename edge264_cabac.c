@@ -38,6 +38,7 @@ static inline void CABAC_parse_P_mb_type(Edge264_slice *s,
     if (s->f.mb_skip_flag & 1) {
         memset(s->refIdx, 0, 4);
         memset(s->e.absMvdComp, 0, 36);
+        // TODO
     } else if (get_ae(&s->c, &s->s[14])) {
         *slice_type = 2;
     } else {
@@ -71,7 +72,7 @@ static inline void CABAC_parse_B_mb_type(Edge264_slice *s,
     
     if (s->f.mb_skip_flag & 1 || !get_ae(&s->c, &s->s[27 + s->ctxIdxInc.mb_type_B])) {
         s->f.mb_type_B = 1;
-        
+        // TODO
     } else if (!get_ae(&s->c, &s->s[30])) {
         unsigned int bin2 = get_ae(&s->c, &s->s[32]);
         *Pred_LX = 1 << (4 * bin2);
@@ -108,57 +109,35 @@ static inline void CABAC_parse_B_mb_type(Edge264_slice *s,
 
 /**
  * Parses all ref_idx_lX and mvd_lX.
- *
- * Though the standard makes it look like a branchful hell, motion vector
- * prediction (8.4.1.3) is actually pretty void:
- * _ You can match all prediction cases to Median(A,B,C) by varying C. Indeed,
- *   Median(A,B,A)==A and Median(A,B,B)==B.
- * _ Prediction from C only ever happens for 8x16 partitioning, which we handle
- *   by replacing B's motion vector with C's.
- * _ 8.4.1.3.1-1 is only applicable to subMbPartIdx==0. For subMbPartIdx==1 it
- *   is achieved through the second clause.
- * _ 8.4.1.3.1-2 is only applicable to subMbPartIdx==0/1, and can only result
- *   in prediction from A.
  */
-void CABAC_parse_inter_mb_pred(Edge264_slice *s, unsigned int size,
+static inline void CABAC_parse_inter_mb_pred(Edge264_slice *s, unsigned int size,
     unsigned int Pred_LX)
 {
     /* Parsing for ref_idx_lX in P/B slices. */
     for (unsigned int f = Pred_LX; f != 0; f &= f - 1) {
         unsigned int i = __builtin_ctz(f);
-        unsigned int left8x8 = 0x8cda0452 >> (4 * i) & 15;
-        unsigned int ctxIdxInc = s->e.ref_idx_nz >> left8x8 & 3;
+        unsigned int ctxIdxInc = s->e.ref_idx_nz >> left8x8[i] & 3;
         s->refIdx[i] = 0;
         while (get_ae(&s->c, &s->s[54 + ctxIdxInc]))
             ctxIdxInc = umin(4 + s->refIdx[i]++, 5);
-        unsigned int bit8x8 = 0xc9ae4126 >> (4 * i) & 15;
-        s->e.ref_idx_nz |= (s->refIdx[i] > 0) << bit8x8;
+        s->e.ref_idx_nz |= (s->refIdx[i] > 0) << bit8x8[i];
     }
     
-    /* Compute the relative positions of C to every sub-partition in parallel. */
+    /* TODO: Compute the relative positions of all (A,B,C) in parallel. */
+    int8_t posA[64] __attribute__((aligned(8))) = {
+        8, -12, 8, -12, 8, -12, 8, -12, 8, -12, 8, -12, 8, -12, 8, -12,
+        -4, -4, -4, -4, -4, -4, -4, -4, -4, -4, -4, -4, -4, -4, -4, -4,
+        4, -12, 4, -12, 4, -12, 4, -12, 4, -12, 4, -12, 4, -12, 4, -12,
+        -4, -4, -4, -4, -4, -4, -4, -4, -4, -4, -4, -4, -4, -4, -4, -4,
+    };
+    int8_t posB[64] __attribute__((aligned(8)));
     int8_t posC[64] __attribute__((aligned(8)));
     typedef int8_t v8qi __attribute__((vector_size(8)));
-    static const v8qi size2C[4] = {{-4, -4, -4, -7, -4, -4, -4, -7},
-        {-1, -4, 0, 0, -1, -4, 0, 0}, {-6, 0, -1, 0, -6, 0, -1, 0},
-        {-2, 0, 0, 0, -2, 0, 0, 0}};
-    v8qi refIdx = *(v8qi *)s->refIdx;
-    v8qi eqA0 = (refIdx == *(v8qi *)s->refIdxA) & (refIdx != *(v8qi *)s->refIdxB);
-    if (!(s->ctxIdxInc.available & 2))
-        eqA0 |= (v8qi){-1, -1, 0, 0, -1, -1, 0, 0};
-    v8qi eqA1 = (refIdx != *(v8qi *)s->refIdxB) & (refIdx != *(v8qi *)s->refIdxC);
-    v8qi width4 = (*(v8qi *)s->mvd_flags & 4) == 4;
-    v8qi *p = (v8qi *)posC;
-    p[0] = p[1] = size2C[size] ^ ((size2C[size] ^ 5) & width4 | eqA0;
-    p[2] = p[3] = (v8qi){-5, -5, -5, -7, -5, -5, -5, -7} | eqA1;
-    p[4] = p[5] = -7 - width4 - width4;
-    p[6] = p[7] = (v8qi){-7, -7, -7, -7, -7, -7, -7, -7};
-    if (size == 1)
-        ((uint64_t *)s->mv_cache)[2] = ((uint64_t *)s->mv_cache)[4];
     
     /* Parsing for mvd_lX in P/B slices. */
     for (unsigned int f = Pred_LX; f != 0; f &= f - 1) {
         unsigned int mbPartIdx = __builtin_ctz(f);
-        for (unsigned int g = mvd_flags[mbPartIdx]; g != 0; g &= g - 1) {
+        for (unsigned int g = s->mvd_flags[mbPartIdx]; g != 0; g &= g - 1) {
             unsigned int compIdx = 8 * mbPartIdx + __builtin_ctz(g);
             unsigned int sum = s->e.absMvdComp[edge4x4[compIdx] - 1] +
                 s->e.absMvdComp[edge4x4[compIdx] + 1];
@@ -174,7 +153,7 @@ void CABAC_parse_inter_mb_pred(Edge264_slice *s, unsigned int size,
                 uint32_t codIOffset = s->c.codIOffset >> (LONG_BIT - 32);
                 uint32_t quo = codIOffset / codIRange;
                 uint32_t rem = codIOffset % codIRange;
-                unsigned int k = __builtin_clz(~quo << 9); // TODO: incorrect si WORD_BIT>32
+                unsigned int k = __builtin_clz(~quo << 9) - WORD_BIT + 32;
                 quo = quo << (k + 9) >> (k + 9);
                 int pos = 19 - 2 * k;
                 
@@ -200,15 +179,32 @@ void CABAC_parse_inter_mb_pred(Edge264_slice *s, unsigned int size,
             }
             
             /* Add the predicted median motion vector. */
-            int a = s->mv[compIdx + pos[compIdx].A];
-            int b = s->mv[compIdx + pos[compIdx].B];
-            int c = s->mv[compIdx + pos[compIdx].C];
-            int median = max(min(max(a, b), c), min(a, b));
-            s->mv[compIdx] = mvd + (predA >> compIdx & 1 ? a : median);
+            int a = s->mv[compIdx + posA[compIdx]];
+            int b = s->mv[compIdx + posB[compIdx]];
+            int c = s->mv[compIdx + posC[compIdx]];
+            s->mv[compIdx] = mvd + max(min(max(a, b), c), min(a, b));
         }
     }
-    if (size & 1) {
-        
+}
+
+
+
+void CABAC_parse_coded_block_pattern(Edge264_slice *s) {
+    /* Luma prefix. */
+    for (unsigned int luma8x8BlkIdx = 0; luma8x8BlkIdx < 4; luma8x8BlkIdx++) {
+        unsigned int ctxIdxInc = s->e.CodedBlockPatternLuma >> left8x8[luma8x8BlkIdx] & 3;
+        s->e.CodedBlockPatternLuma |= get_ae(&s->c, &s->s[73 + ctxIdxInc]) <<
+            bit8x8[luma8x8BlkIdx];
+    }
+    
+    /* Chroma suffix. */
+    if (s->ps.ChromaArrayType == 1 || s->ps.ChromaArrayType == 2) {
+        s->f.CodedBlockPatternChromaDC = get_ae(&s->c, &s->s[77 +
+            s->ctxIdxInc.CodedBlockPatternChromaDC]);
+        if (s->f.CodedBlockPatternChromaDC) {
+            s->f.CodedBlockPatternChromaAC = get_ae(&s->c, &s->s[81 +
+                s->ctxIdxInc.CodedBlockPatternChromaAC]);
+        }
     }
 }
 
@@ -264,12 +260,11 @@ void CABAC_parse_slice_data(Edge264_slice *s, Edge264_macroblock *mbs) {
                     *(uint64_t *)s->refIdxC = *(uint64_t *)m[2].refIdx;
                     memcpy(s->e.absMvdComp, m[-1].e.absMvdComp + 16, 16);
                     memcpy(s->e.absMvdComp + 20, m[1].e.absMvdComp + 4, 16);
-                    ((uint64_t *)s->mv_cache)[23] = ((uint64_t *)m[-1].mv_edge)[3];
-                    ((uint64_t *)s->mv_cache)[17] = ((uint64_t *)m[-1].mv_edge)[4];
-                    ((uint64_t *)s->mv_cache)[11] = ((uint64_t *)m[-1].mv_edge)[5];
-                    ((uint64_t *)s->mv_cache)[5] = ((uint64_t *)m[-1].mv_edge)[6];
-                    memcpy(s->mv_cache, m[1].mv_edge, 32);
-                    ((uint64_t *)s->mv_cache)[4] = ((uint64_t *)m[2].mv_edge)[0];
+                    memcpy(s->mv, m[1].mv_edge, 16);
+                    memcpy(s->mv + 8, m[-1].mv_edge + 20, 16);
+                    memcpy(s->mv + 16, m[1].mv_edge + 8, 16);
+                    memcpy(s->mv + 24, m[2].mv_edge, 8);
+                    memcpy(s->mv + 40, m[-1].mv_edge + 12, 16);
                     s->f.mb_skip_flag = get_ae(&s->c, &s->s[13 + 13 * s->slice_type -
                         s->ctxIdxInc.mb_skip_flag]);
                     fprintf(stderr, "mb_skip_flag: %x\n", s->f.mb_skip_flag);
@@ -320,6 +315,7 @@ void CABAC_parse_slice_data(Edge264_slice *s, Edge264_macroblock *mbs) {
                 
             } else if (Pred_LX != 0) {
                 CABAC_parse_inter_mb_pred(s, size, Pred_LX);
+                
             }
             
             //CABAC_parse_macroblock_layer(s);

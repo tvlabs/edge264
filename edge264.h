@@ -74,7 +74,7 @@ typedef struct {
 typedef struct {
     uint8_t *planes[3];
     int8_t (*refs)[4] __attribute__((aligned)); // one int8_t[4] per macroblock
-    int16_t (*mvs)[16][2] __attribute__((aligned)); // one int16_t[16][2] per mb
+    int16_t (*mvs)[32] __attribute__((aligned)); // one int16_t[32] per mb
     int32_t PicOrderCnt;
     int32_t FrameNum;
     unsigned int LongTermFrameIdx:4;

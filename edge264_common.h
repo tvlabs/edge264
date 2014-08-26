@@ -293,16 +293,34 @@ static inline __attribute__((always_inline)) int get_bypass(CABAC_ctx *c) {
  * In 9.3.3.1.1, ctxIdxInc is always the result of flagA+flagB or flagA+2*flagB,
  * so we can compute all in parallel with flagsA+flagsB+(flagsB&twice).
  *
- * Variables for 4x4 and 8x8 blocks are stored in checkerboard patterns, where
- * left and top are always contiguous:
- *                29 13 26 10        5 6 7 8
- *   7 3       28|12 25  9 22      3|4 5 6 7
- * 6|2 5  and  11|24  8 21  5  or  2|3 4 5 6  for Intra4x4PredMode
- * 1|4 0       23| 7 20  4 17      1|2 3 4 5
- *              6|19  3 16  0      0|1 2 3 4
+ * The storage patterns for flags in 8x8 and 4x4 blocks keep left and top
+ * always contiguous (for ctxIdxInc), and allow initialisation from top/left
+ * macroblocks with single shifts:
+ *                29 13 26 10
+ *   7 3       28|12 25  9 22
+ * 6|2 5  and  11|24  8 21  5
+ * 1|4 0       23| 7 20  4 17
+ *              6|19  3 16  0
+ *
+ * The storage pattern for absMvdComp and Intra4x4PredMode keeps every
+ * sub-partition contiguous with its left and top:
+ *   5 6 7 8
+ * 3|4 5 6 7
+ * 2|3 4 5 6
+ * 1|2 3 4 5
+ * 0|1 2 3 4
+ *
+ * The storage pattern for the motion vector cache is a raster-scan array of
+ * stride 6, where A, B and C have fixed relative positions (-1,-6,-5):
+ *   B B B B C
+ * A . . . . x
+ * A . . . . x
+ * A . . . . x
+ * A . . . .
  */
 typedef union {
     struct {
+        uint32_t available:2;
         uint32_t mb_skip_flag:2;
         uint32_t mb_field_decoding_flag:2;
         uint32_t mb_type_I:2;
@@ -315,21 +333,24 @@ typedef union {
     };
     uint32_t flags;
 } Edge264_mb_flags;
-typedef union {
-    struct {
-        uint8_t Intra4x4PredMode[9];
-        uint8_t CodedBlockPatternLuma __attribute__((packed));
-        uint16_t ref_idx_nz __attribute__((packed));
-        uint8_t coded_block_flag_8x8[3];
-        uint16_t coded_block_flag_4x4[3];
+typedef struct {
+    uint8_t absMvdComp[36];
+    uint32_t coded_block_flag_4x4[3];
+    union {
+        struct {
+            uint32_t coded_block_flag_8x8;
+            uint16_t ref_idx_nz;
+            uint8_t CodedBlockPatternLuma;
+            uint8_t Intra4x4PredMode[9]; // put here to spare memory
+        } __attribute__((packed));
+        uint64_t flags8x8;
     };
-    uint64_t edges[3];
 } Edge264_mb_edges;
 typedef struct {
+    int16_t mv_edge[28] __attribute__((aligned)); // bottom and right motion vectors
+    int8_t refIdx[8];
     Edge264_mb_edges e;
     Edge264_mb_flags f;
-    int16_t mv_edge[2][7][2]; // bottom and right motion vectors
-    int8_t refIdx[2][4];
 } Edge264_macroblock;
 typedef struct {
     CABAC_ctx c;
@@ -351,21 +372,26 @@ typedef struct {
     int8_t RefPicList[2][32] __attribute__((aligned));
     int16_t weights[3][32][2];
     int16_t offsets[3][32][2];
-    int8_t refIdx[8];
-    int16_t mv[32][2];
+    int8_t refIdx[8], refIdxA[8], refIdxB[8], refIdxC[8];
+    uint8_t mvd_flags[8];
+    int16_t mv_cache[112];
     Edge264_parameter_set ps;
     uint8_t s[1024];
 } Edge264_slice;
 
-static const int bit8x8[8] = {2, 5, 4, 0, 10, 13, 12, 8}; // TODO: Replace with uint32_t >> 4 * n
-static const int left8x8[8] = {6, 2, 1, 4, 14, 10, 9, 12};
-static const int bit4x4[32] = {12, 25, 24, 8, 9, 22, 21, 5, 7, 20, 19, 3, 4,
+static const uint8_t bit4x4[32] = {12, 25, 24, 8, 9, 22, 21, 5, 7, 20, 19, 3, 4,
     17, 16, 0, 44, 57, 56, 40, 41, 54, 53, 37, 39, 52, 51, 35, 36, 49, 48, 32};
-static const int left4x4[32] = {28, 12, 11, 24, 25, 9, 8, 20, 23, 7, 6, 18, 19,
-    4, 3, 16, 60, 44, 43, 56, 57, 41, 40, 52, 55, 39, 38, 50, 51, 36, 35, 48};
-static const int mv_cache_pos[32] = {10, 11, 18, 19, 12, 13, 20, 21, 26, 27,
-    34, 35, 28, 29, 36, 37, 50, 51, 58, 59, 52, 53, 60, 61, 66, 67, 74, 75, 68,
-    69, 76, 77};
+static const uint8_t left4x4[32] = {28, 12, 11, 24, 25, 9, 8, 20, 23, 7, 6, 18,
+    19, 4, 3, 16, 60, 44, 43, 56, 57, 41, 40, 52, 55, 39, 38, 50, 51, 36, 35, 48};
+static const uint8_t edge4x4[16] = {4, 5, 3, 4, 6, 7, 5, 6, 2, 3, 1, 2, 4, 5, 3, 4};
+static const uint8_t mvd4x4[64] = {16, 24, 8, 16, 18, 26, 10, 18, 17, 25, 9, 17,
+    19, 27, 11, 19, 20, 28, 12, 20, 22, 30, 14, 22, 21, 29, 13, 21, 23, 31, 15,
+    23, 12, 20, 4, 12, 14, 22, 6, 14, 13, 21, 5, 13, 15, 23, 7, 15, 16, 24, 8,
+    16, 18, 26, 10, 18, 17, 25, 9, 17, 19, 27, 11, 19};
+static const uint8_t mv4x4[64] = {24, 32, 72, 80, 26, 34, 74, 82, 25, 33, 73,
+    81, 27, 35, 75, 83, 28, 36, 76, 84, 30, 38, 78, 86, 29, 37, 77, 85, 31, 39,
+    79, 87, 48, 56, 96, 104, 50, 58, 98, 106, 49, 57, 97, 105, 51, 59, 99, 107,
+    52, 60, 100, 108, 54, 62, 102, 110, 53, 61, 101, 109, 56, 64, 104, 112};
 static const Edge264_macroblock void_mb = {
     .f.mb_skip_flag = 1,
     .f.mb_field_decoding_flag = 0,

@@ -289,37 +289,9 @@ static inline __attribute__((always_inline)) int get_bypass(CABAC_ctx *c) {
 
 
 
-/**
- * In 9.3.3.1.1, ctxIdxInc is always the result of flagA+flagB or flagA+2*flagB,
- * so we can compute all in parallel with flagsA+flagsB+(flagsB&twice).
- *
- * The storage patterns for flags in 8x8 and 4x4 blocks keep left and top
- * always contiguous (for ctxIdxInc), and allow initialisation from top/left
- * macroblocks with single shifts:
- *                29 13 26 10
- *   7 3       28|12 25  9 22
- * 6|2 5  and  11|24  8 21  5
- * 1|4 0       23| 7 20  4 17
- *              6|19  3 16  0
- *
- * The storage pattern for absMvdComp and Intra4x4PredMode keeps every
- * sub-partition contiguous with its left and top:
- *   5 6 7 8
- * 3|4 5 6 7
- * 2|3 4 5 6
- * 1|2 3 4 5
- * 0|1 2 3 4
- *
- * The storage pattern for motion vectors uses block-scan order:
- *     0  1  4  5  6
- *  3| 0  1  4  5
- *  2| 2  3  6  7
- * 11| 8  9 12 13
- * 10|10 11 14 15
- */
 typedef union {
     struct {
-        uint32_t available:2;
+        uint32_t unavailable:2;
         uint32_t mb_skip_flag:2;
         uint32_t mb_field_decoding_flag:2;
         uint32_t mb_type_I:2;
@@ -373,7 +345,7 @@ typedef struct {
     int16_t offsets[3][32][2];
     int8_t refIdx[8], refIdxA[8], refIdxB[8], refIdxC[8];
     uint8_t mvd_flags[8];
-    int16_t mv[64];
+    int16_t mv[64]; // [LX][mbPartIdx][subMbPartIdx][compIdx]
     Edge264_parameter_set ps;
     uint8_t s[1024];
 } Edge264_slice;
@@ -394,6 +366,7 @@ static const uint8_t mv4x4[64] = {24, 32, 72, 80, 26, 34, 74, 82, 25, 33, 73,
 static const uint8_t bit8x8[8] = {6, 2, 1, 4, 14, 10, 9, 12};
 static const uint8_t left8x8[8] = {2, 5, 4, 0, 10, 13, 12, 8};
 static const Edge264_macroblock void_mb = {
+    .f.unavailable = 1,
     .f.mb_skip_flag = 1,
     .f.mb_field_decoding_flag = 0,
 };

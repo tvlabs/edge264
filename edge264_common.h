@@ -289,6 +289,34 @@ static inline __attribute__((always_inline)) int get_bypass(CABAC_ctx *c) {
 
 
 
+/**
+ * In 9.3.3.1.1, ctxIdxInc is always the result of flagA+flagB or flagA+2*flagB,
+ * so we can compute all in parallel with flagsA+flagsB+(flagsB&twice).
+ *
+ * The storage patterns for flags in 8x8 and 4x4 blocks keep left and top
+ * always contiguous (for ctxIdxInc), and allow initialisation from top/left
+ * macroblocks with single shifts:
+ *                29 13 26 10
+ *   7 3       28|12 25  9 22
+ * 6|2 5  and  11|24  8 21  5
+ * 1|4 0       23| 7 20  4 17
+ *              6|19  3 16  0
+ *
+ * The storage pattern for absMvdComp and Intra4x4PredMode keeps every
+ * sub-partition contiguous with its left and top:
+ *   5 6 7 8
+ * 3|4 5 6 7
+ * 2|3 4 5 6
+ * 1|2 3 4 5
+ * 0|1 2 3 4
+ *
+ * The storage pattern for motion vectors uses block-scan order:
+ *     0  1  4  5  6
+ *  3| 0  1  4  5
+ *  2| 2  3  6  7
+ * 11| 8  9 12 13
+ * 10|10 11 14 15
+ */
 typedef union {
     struct {
         uint32_t unavailable:2;
@@ -339,13 +367,14 @@ typedef struct {
     unsigned int disable_deblocking_filter_idc:2;
     int FilterOffsetA:5;
     int FilterOffsetB:5;
+    int8_t refIdxC_16x16[2];
     const Edge264_picture *DPB;
     int8_t RefPicList[2][32] __attribute__((aligned));
     int16_t weights[3][32][2];
     int16_t offsets[3][32][2];
     int8_t refIdx[8], refIdxA[8], refIdxB[8], refIdxC[8];
     uint8_t mvd_flags[8];
-    int16_t mv[64]; // [LX][mbPartIdx][subMbPartIdx][compIdx]
+    int16_t mv[128]; // [LX][luma4x4BlkIdx][compIdx], second half is for top-left edge
     Edge264_parameter_set ps;
     uint8_t s[1024];
 } Edge264_slice;
@@ -369,6 +398,47 @@ static const Edge264_macroblock void_mb = {
     .f.unavailable = 1,
     .f.mb_skip_flag = 1,
     .f.mb_field_decoding_flag = 0,
+    .f.mb_type_B = 0,
 };
+
+
+
+static inline void pred_P_Skip(Edge264_slice *s)
+{
+    *(uint32_t *)s->refIdx = 0;
+    memset(s->e.absMvdComp, 0, 36); // TODO: Replace with 9 iterations?
+    int mv = (median(s->mv[6], s->mv[0], s->mv[12]) & 0xffff) |
+        (median(s->mv[7], s->mv[1], s->mv[13]) << 16);
+    if (s->ctxIdxInc.unavailable)
+        mv = 0;
+    if (s->refIdxA[0] == 0) {
+        if (s->refIdxB[0] != 0 && s->refIdxC_16x16[0] != 0 || ((uint32_t *)s->mv)[3] == 0)
+            mv = ((uint32_t *)s->mv)[3];
+    } else if (s->refIdxB[0] == 0) {
+        if (s->refIdxC_16x16[0] != 0 || ((uint32_t *)s->mv)[0] == 0)
+            mv = ((uint32_t *)s->mv)[0];
+    } else if (s->refIdxC_16x16[0] == 0) {
+        mv = ((uint32_t *)s->mv)[6];
+    }
+    typedef int32_t v16si __attribute__((vector_size(64)));
+    *(v16si *)s->mv = mv;
+}
+
+
+
+static inline void pred_B_Skip(Edge264_slice *s)
+{
+    
+    if (s->direct_spatial_mv_pred_flag) {
+        int refIdxL0 = umin(s->refIdxA[0], umin(s->refIdxB[0], s->refIdxC_16x16[0]));
+        int refIdxL1 = umin(s->refIdxA[4], umin(s->refIdxB[4], s->refIdxC_16x16[1]));
+        int mvL0 = 0, mvL1 = 0;
+        
+    } else {
+        
+    }
+}
+
+
 
 #endif

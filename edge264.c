@@ -490,7 +490,8 @@ static inline void parse_dec_ref_pic_marking(Edge264_slice *s, Edge264_ctx *e) {
  * error with high probability and revert changes, thus the main context is
  * directly updated with no particular protection.
  * Sliced pictures are unsupported, because the pull API model used here would
- * require an additional DPB slot (when the last slice is missing for example).
+ * require an additional DPB slot (when the last slice of a picture is missing,
+ * for example).
  */
 static const Edge264_picture *parse_slice_layer_without_partitioning_rbsp(Edge264_ctx *e, unsigned int lim) {
     static const char * const slice_type_names[5] = {"P", "B", "I", "SP", "SI"};

@@ -269,6 +269,7 @@ void CABAC_parse_slice_data(Edge264_slice *s, Edge264_macroblock *mbs)
     renorm(&s->c, LONG_BIT - 1);
     s->c.codIRange = 510L << (LONG_BIT - 10);
     memcpy(s->s, CABAC_init[max(s->ps.QP_Y, 0)][s->cabac_init_idc], 1024);
+    s->init.mb_type_B = 1;
     
     unsigned int end_of_slice_flag = 0;
     while (!end_of_slice_flag && s->mb_y < s->ps.height / 16 >> s->field_pic_flag) {
@@ -283,31 +284,17 @@ void CABAC_parse_slice_data(Edge264_slice *s, Edge264_macroblock *mbs)
             if (s->slice_type != 2) {
                 if (s->slice_type == 0) {
                     if (s->f.mb_skip_flag & 1) {
-                        *(uint32_t *)s->refIdx = 0;
-                        memset(s->e.absMvdComp, 0, 36); // TODO: Replace with 9 iterations?
-                        int mv = (median(s->mv[6], s->mv[0], s->mv[12]) & 0xffff) |;
-                            (median(s->mv[7], s->mv[1], s->mv[13]) << 16);
-                        if (s->refIdxA[0] == 0) {
-                            if (s->refIdxB[0] != 0 && s->refIdxC[0] != 0 ||
-                                ((uint32_t *)s->mv)[3] == 0)
-                                mv = ((uint32_t *)s->mv)[3];
-                        } else if (s->refIdxB[0] == 0) {
-                            if (s->refIdxC[0] != 0 || ((uint32_t *)s->mv)[0] == 0)
-                                mv = ((uint32_t *)s->mv)[0];
-                        } else if (s->refIdxC[0] == 0) {
-                            mv = ((uint32_t *)s->mv)[6];
-                        }
-                        ((uint32_t *)s->mv)[0] = mv;
+                        pred_P_Skip(s);
                     } else if (get_ae(&s->c, &s->s[14])) {
                         goto intra_prediction;
                     } else {
                         unsigned int bin1 = get_ae(&s->c, &s->s[15]);
                         unsigned int bin2 = get_ae(&s->c, &s->s[16 + bin1]);
-                        *size = (2 * bin1 + bin2 + 3) % 4;
-                        *Pred_LX = 0x153f >> (*size * 4) & 15;
+                        size = (2 * bin1 + bin2 + 3) % 4;
+                        Pred_LX = 0x153f >> (*size * 4) & 15;
         
                         /* Parsing for sub_mb_type in P slices. */
-                        for (unsigned int mbPartIdx = 0; *size == 0 && mbPartIdx < 4; mbPartIdx++) {
+                        for (unsigned int mbPartIdx = 0; size == 0 && mbPartIdx < 4; mbPartIdx++) {
                             unsigned int sub_mb_type = 0;
                             while (get_ae(&s->c, &s->s[21 + sub_mb_type]) == sub_mb_type % 2 &&
                                 ++sub_mb_type < 3);
@@ -316,18 +303,20 @@ void CABAC_parse_slice_data(Edge264_slice *s, Edge264_macroblock *mbs)
                     }
                 } else {
                     if (s->f.mb_skip_flag & 1 || !get_ae(&s->c, &s->s[27 + s->ctxIdxInc.mb_type_B])) {
-                        s->f.mb_type_B = 1;
-                        // TODO
+                        s->f.mb_type_B = 0;
+                        pred_B_Skip(s);
                     } else if (!get_ae(&s->c, &s->s[30])) {
                         unsigned int bin2 = get_ae(&s->c, &s->s[32]);
-                        *Pred_LX = 1 << (4 * bin2);
+                        Pred_LX = 1 << (4 * bin2);
                     } else {
                         unsigned int str = 1;
                         while ((uint64_t)0x1f00ffff >> str & 1)
                             str += str + get_ae(&s->c, &s->s[30 + umin(str, 2)]);
+                        if (str == 13)
+                            goto intra_prediction;
                         str ^= str >> 1 & 16; // [48..57] -> [0..9]
-                        *size = 0x1000999b00066666 >> (2 * str) & 3;
-                        *Pred_LX = str2Pred_LX[str];
+                        size = 0x1000999b00066666 >> (2 * str) & 3;
+                        Pred_LX = str2Pred_LX[str];
         
                         /* Parsing for sub_mb_type in B slices. */
                         for (unsigned int mbPartIdx = 0; str == 15 && mbPartIdx < 4; mbPartIdx++) {
@@ -335,22 +324,22 @@ void CABAC_parse_slice_data(Edge264_slice *s, Edge264_macroblock *mbs)
                                 continue;
                             if (!get_ae(&s->c, &s->s[37])) {
                                 unsigned int idx = 4 * get_ae(&s->c, &s->s[39]) + mbPartIdx;
-                                *Pred_LX += 1 << idx;
+                                Pred_LX += 1 << idx;
                             } else {
                                 unsigned int sub = 1;
                                 while (0xc0ff >> sub & 1)
                                     sub += sub + get_ae(&s->c, &s->s[37 + umin(sub, 2)]);
                                 sub ^= sub >> 1 & 8; // [24..27] -> [0..3]
-                                *Pred_LX += sub2Pred_LX[sub] << mbPartIdx;
+                                Pred_LX += sub2Pred_LX[sub] << mbPartIdx;
                                 s->mvd_flags[mbPartIdx] = s->mvd_flags[4 + mbPartIdx] = sub2mvd_flags[sub];
                             }
                         }
-                        if (str == 13)
-                            *slice_type = 2;
                     }
                 }
+                CABAC_parse_inter_mb_pred(s, size, Pred_LX);
             } else {
                 intra_prediction:
+                
             }
             
             

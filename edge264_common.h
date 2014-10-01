@@ -367,7 +367,9 @@ typedef struct {
     unsigned int disable_deblocking_filter_idc:2;
     int FilterOffsetA:5;
     int FilterOffsetB:5;
+    unsigned int inter_size:2; // 0=8x8, 1=8x16, 2=16x8, 3=16x16
     int8_t refIdxC_16x16[2];
+    uint8_t Pred_LX;
     const Edge264_picture *DPB;
     int8_t RefPicList[2][32] __attribute__((aligned));
     int16_t weights[3][32][2];

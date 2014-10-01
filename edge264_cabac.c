@@ -272,13 +272,9 @@ void CABAC_parse_slice_data(Edge264_slice *s, Edge264_macroblock *mbs)
     s->init.mb_type_B = 1;
     
     unsigned int end_of_slice_flag = 0;
-    while (!end_of_slice_flag && s->mb_y < s->ps.height / 16 >> s->field_pic_flag) {
-        while (s->mb_x < s->ps.width / 16 << s->MbaffFrameFlag && !end_of_slice_flag) {
-            fprintf(stderr, "******* POC=%d MB=%u *******\n", s->p.PicOrderCnt,
-                (s->mb_y * s->ps.width / 16 << s->MbaffFrameFlag) + s->mb_x);
+    while (!end_of_slice_flag && s->mb_y < s->ps.height / 16) {
+        while (s->mb_x < s->ps.width / 16 && !end_of_slice_flag) {
             CABAC_parse_init(s);
-            unsigned int size = 3; // 0=8x8, 1=8x16, 2=16x8, 3=16x16
-            unsigned int Pred_LX = 0; // 8 significant bits
             
             /* mb_type */
             if (s->slice_type != 2) {
@@ -360,12 +356,18 @@ void CABAC_parse_slice_data(Edge264_slice *s, Edge264_macroblock *mbs)
                 
             }
             
-            //CABAC_parse_macroblock_layer(s);
-            mbs[s->mb_x - s->mb_y].f = s->f;
-            if ((~s->MbaffFrameFlag | s->mb_x++) & 1) {
+            /* Store the macroblock values and parse end_of_slice_flag. */
+            Edge264_macroblock *m = mbs + (s->mb_x << s->MbaffFrameFlag) - s->mb_y;
+            m->f = s->f;
+            if (!s->MbaffFrameFlag) {
+                s->mb_x++;
                 end_of_slice_flag = get_ae(&s->c, &s->s[276]);
-                fprintf(stderr, "end_of_slice_flag: %x\n", end_of_slice_flag);
+            } else if (s->mb_y++ & 1) {
+                s->mb_y -= 2;
+                s->mb_x++;
+                end_of_slice_flag = get_ae(&s->c, &s->s[276]);
             }
+            fprintf(stderr, "end_of_slice_flag: %x\n", end_of_slice_flag);
         }
         s->init.mb_field_decoding_flag = mbs[-s->mb_y].f.mb_field_decoding_flag;
         mbs[s->mb_x - s->mb_y] = mbs[s->mb_x - s->mb_y + 1] = void_mb;

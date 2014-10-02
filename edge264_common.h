@@ -121,6 +121,7 @@ static inline long min(long a, long b) { return (a < b) ? a : b; }
 static inline long max(long a, long b) { return (a > b) ? a : b; }
 static inline unsigned long umin(unsigned long a, unsigned long b) { return (a < b) ? a : b; }
 static inline unsigned long umax(unsigned long a, unsigned long b) { return (a > b) ? a : b; }
+static inline int median(int a, int b, int c) { return max(min(max(a, b), c), min(a, b)); }
 
 
 
@@ -309,13 +310,6 @@ static inline __attribute__((always_inline)) int get_bypass(CABAC_ctx *c) {
  * 2|3 4 5 6
  * 1|2 3 4 5
  * 0|1 2 3 4
- *
- * The storage pattern for motion vectors uses block-scan order:
- *     0  1  4  5  6
- *  3| 0  1  4  5
- *  2| 2  3  6  7
- * 11| 8  9 12 13
- * 10|10 11 14 15
  */
 typedef union {
     struct {
@@ -335,6 +329,8 @@ typedef union {
 typedef struct {
     uint8_t absMvdComp[36];
     uint32_t coded_block_flag_4x4[3];
+    int8_t refIdx[8];
+    Edge264_mb_flags f;
     union {
         struct {
             uint32_t coded_block_flag_8x8;
@@ -345,12 +341,6 @@ typedef struct {
         uint64_t flags8x8;
     };
 } Edge264_mb_edges;
-typedef struct {
-    int16_t mv_edge[28] __attribute__((aligned)); // bottom and right motion vectors
-    int8_t refIdx[8];
-    Edge264_mb_edges e;
-    Edge264_mb_flags f;
-} Edge264_macroblock;
 typedef struct {
     CABAC_ctx c;
     Edge264_picture p;
@@ -374,9 +364,8 @@ typedef struct {
     int8_t RefPicList[2][32] __attribute__((aligned));
     int16_t weights[3][32][2];
     int16_t offsets[3][32][2];
-    int8_t refIdx[8], refIdxA[8], refIdxB[8], refIdxC[8];
     uint8_t mvd_flags[8];
-    int16_t mv[128]; // [LX][luma4x4BlkIdx][compIdx], second half is for top-left edge
+    uint16_t *mv; // circular buffer of [LX][luma4x4BlkIdx][compIdx] macroblocks
     Edge264_parameter_set ps;
     uint8_t s[1024];
 } Edge264_slice;
@@ -405,25 +394,37 @@ static const Edge264_macroblock void_mb = {
 
 
 
-static inline void pred_P_Skip(Edge264_slice *s)
+static inline void pred_P_Skip(Edge264_slice *s, Edge264_macroblock *m)
 {
-    *(uint32_t *)s->refIdx = 0;
-    memset(s->e.absMvdComp, 0, 36); // TODO: Replace with 9 iterations?
-    int mv = (median(s->mv[6], s->mv[0], s->mv[12]) & 0xffff) |
-        (median(s->mv[7], s->mv[1], s->mv[13]) << 16);
+    typedef int16_t v2hi __attribute__((vector_size(4)));
+    typedef int32_t v16si __attribute__((vector_size(64)));
+    int refIdxA, refIdxB, refIdxC, posC, mv;
+    if (!s->MbaffFrameFlag) {
+        refIdxA = m[-1].refIdx[1];
+        refIdxB = m[2].refIdx[2];
+        refIdxC = (m[3].f.unavailable) ? m[1].refIdx[3] : m[3].refIdx[2];
+        posC = (m[3].f.unavailable) ? 94 : 212;
+        mv = (int32_t)(v2hi){median(s->mv[-54], s->mv[148], s->mv[posC]),
+            median(s->mv[-53], s->mv[149], s->mv[posC + 1])};
+    } else {
+        
+    }
     if (s->ctxIdxInc.unavailable)
         mv = 0;
-    if (s->refIdxA[0] == 0) {
-        if (s->refIdxB[0] != 0 && s->refIdxC_16x16[0] != 0 || ((uint32_t *)s->mv)[3] == 0)
-            mv = ((uint32_t *)s->mv)[3];
-    } else if (s->refIdxB[0] == 0) {
-        if (s->refIdxC_16x16[0] != 0 || ((uint32_t *)s->mv)[0] == 0)
-            mv = ((uint32_t *)s->mv)[0];
-    } else if (s->refIdxC_16x16[0] == 0) {
-        mv = ((uint32_t *)s->mv)[6];
+    if (refIdxA == 0) {
+        if (*(int32_t *)(s->mv - 54) == 0 || refIdxB != 0 && refIdxC != 0)
+            mv = *(int32_t *)(s->mv - 54);
+    } else if (refIdxB == 0) {
+        if (*(int32_t *)(s->mv + 148) == 0 || refIdxC != 0)
+            mv = *(int32_t *)(s->mv + 148);
+    } else if (refIdxC == 0) {
+        mv = *(int32_t *)(s->mv + posC);
     }
-    typedef int32_t v16si __attribute__((vector_size(64)));
-    *(v16si *)s->mv = mv;
+    ((v16si *)s->mv)[0] = {mv, mv, mv, mv, mv, mv, mv, mv, mv, mv, mv, mv, mv, mv, mv, mv};
+    ((v16si *)s->mv)[1] = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+    ((uint32_t *)m->refIdx)[0] = 0;
+    ((uint32_t *)m->refIdx)[1] = -1;
+    memset(s->e.absMvdComp, 0, 36); // TODO: Replace with 9 iterations?
 }
 
 

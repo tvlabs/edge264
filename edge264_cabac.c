@@ -215,7 +215,7 @@ static inline void CABAC_parse_inter_mb_pred(Edge264_slice *s, unsigned int size
             int a = s->mv[compIdx + posA[compIdx]];
             int b = s->mv[compIdx + posB[compIdx]];
             int c = s->mv[compIdx + posC[compIdx]];
-            s->mv[compIdx] = mvd + max(min(max(a, b), c), min(a, b));
+            s->mv[compIdx] = mvd + median(a, b, c);
         }
     }
 }
@@ -250,7 +250,7 @@ static inline void CABAC_parse_coded_block_pattern(Edge264_slice *s) {
 
 
 
-void CABAC_parse_slice_data(Edge264_slice *s, Edge264_macroblock *mbs)
+static inline void CABAC_parse_mb_type(Edge264_slice *s, Edge264_macroblock *m)
 {
     static const uint8_t str2Pred_LX[32] = {0x45, 0x23, 0x54, 0x32, 0x15, 0x13,
         0x51, 0x31, 0x55, 0x33, 0, 0, 0, 0, 0, 0, 0x11, 0x05, 0x03, 0x50, 0x30,
@@ -260,6 +260,72 @@ void CABAC_parse_slice_data(Edge264_slice *s, Edge264_macroblock *mbs)
     static const uint8_t sub2mvd_flags[16] = {0x0f, 0x33, 0x0f, 0xff, 0, 0, 0, 0,
         0x03, 0x33, 0x0f, 0x33, 0, 0, 0xff, 0xff};
     
+    if (s->slice_type != 2) {
+        if (s->slice_type == 0) {
+            if (s->f.mb_skip_flag & 1) {
+                pred_P_Skip(s, m);
+            } else if (get_ae(&s->c, &s->s[14])) {
+                goto intra_prediction;
+            } else {
+                unsigned int bin1 = get_ae(&s->c, &s->s[15]);
+                unsigned int bin2 = get_ae(&s->c, &s->s[16 + bin1]);
+                s->inter_size = (2 * bin1 + bin2 + 3) % 4;
+                s->Pred_LX = 0x153f >> (s->inter_size * 4) & 15;
+
+                /* Parsing for sub_mb_type in P slices. */
+                for (unsigned int mbPartIdx = 0; s->inter_size == 0 && mbPartIdx < 4; mbPartIdx++) {
+                    unsigned int sub_mb_type = 0;
+                    while (get_ae(&s->c, &s->s[21 + sub_mb_type]) == sub_mb_type % 2 &&
+                        ++sub_mb_type < 3);
+                    s->mvd_flags[mbPartIdx] = 0xff0f3303 >> (8 * sub_mb_type) & 0xff;
+                }
+            }
+        } else {
+            pred_B_Skip(s, m);
+            if (s->f.mb_skip_flag & 1 || !get_ae(&s->c, &s->s[27 + s->ctxIdxInc.mb_type_B])) {
+                s->f.mb_type_B = 0;
+            } else if (!get_ae(&s->c, &s->s[30])) {
+                unsigned int bin2 = get_ae(&s->c, &s->s[32]);
+                s->Pred_LX = 1 << (4 * bin2);
+            } else {
+                unsigned int str = 1;
+                while ((uint64_t)0x1f00ffff >> str & 1)
+                    str += str + get_ae(&s->c, &s->s[30 + umin(str, 2)]);
+                if (str == 13)
+                    goto intra_prediction;
+                str ^= str >> 1 & 16; // [48..57] -> [0..9]
+                s->inter_size = 0x1000999b00066666 >> (2 * str) & 3;
+                s->Pred_LX = str2Pred_LX[str];
+
+                /* Parsing for sub_mb_type in B slices. */
+                for (unsigned int mbPartIdx = 0; str == 15 && mbPartIdx < 4; mbPartIdx++) {
+                    if (get_ae(&s->c, &s->s[36]))
+                        continue;
+                    if (!get_ae(&s->c, &s->s[37])) {
+                        unsigned int idx = 4 * get_ae(&s->c, &s->s[39]) + mbPartIdx;
+                        s->Pred_LX += 1 << idx;
+                    } else {
+                        unsigned int sub = 1;
+                        while (0xc0ff >> sub & 1)
+                            sub += sub + get_ae(&s->c, &s->s[37 + umin(sub, 2)]);
+                        sub ^= sub >> 1 & 8; // [24..27] -> [0..3]
+                        s->Pred_LX += sub2Pred_LX[sub] << mbPartIdx;
+                        s->mvd_flags[mbPartIdx] = s->mvd_flags[4 + mbPartIdx] = sub2mvd_flags[sub];
+                    }
+                }
+            }
+        }
+        CABAC_parse_inter_mb_pred(s, m);
+    } else {
+        intra_prediction:
+        
+    }
+}
+
+
+
+void CABAC_parse_slice_data(Edge264_slice *s, Edge264_macroblock *m)
+{
     /* cabac_alignment_one_bit is useful to detect header parsing errors. */
     if ((~s->c.CPB[s->c.shift / 8] << (1 + (s->c.shift - 1) % 8) & 0xff) != 0)
         printf("<li style=\"color: red\">Erroneous slice header (%u bits)</li>\n", s->c.shift);
@@ -274,91 +340,12 @@ void CABAC_parse_slice_data(Edge264_slice *s, Edge264_macroblock *mbs)
     unsigned int end_of_slice_flag = 0;
     while (!end_of_slice_flag && s->mb_y < s->ps.height / 16) {
         while (s->mb_x < s->ps.width / 16 && !end_of_slice_flag) {
-            CABAC_parse_init(s);
+            CABAC_parse_init(s, m);
+            CABAC_parse_mb_type(s, m);
             
-            /* mb_type */
-            if (s->slice_type != 2) {
-                if (s->slice_type == 0) {
-                    if (s->f.mb_skip_flag & 1) {
-                        pred_P_Skip(s);
-                    } else if (get_ae(&s->c, &s->s[14])) {
-                        goto intra_prediction;
-                    } else {
-                        unsigned int bin1 = get_ae(&s->c, &s->s[15]);
-                        unsigned int bin2 = get_ae(&s->c, &s->s[16 + bin1]);
-                        size = (2 * bin1 + bin2 + 3) % 4;
-                        Pred_LX = 0x153f >> (*size * 4) & 15;
-        
-                        /* Parsing for sub_mb_type in P slices. */
-                        for (unsigned int mbPartIdx = 0; size == 0 && mbPartIdx < 4; mbPartIdx++) {
-                            unsigned int sub_mb_type = 0;
-                            while (get_ae(&s->c, &s->s[21 + sub_mb_type]) == sub_mb_type % 2 &&
-                                ++sub_mb_type < 3);
-                            s->mvd_flags[mbPartIdx] = 0xff0f3303 >> (8 * sub_mb_type) & 0xff;
-                        }
-                    }
-                } else {
-                    if (s->f.mb_skip_flag & 1 || !get_ae(&s->c, &s->s[27 + s->ctxIdxInc.mb_type_B])) {
-                        s->f.mb_type_B = 0;
-                        pred_B_Skip(s);
-                    } else if (!get_ae(&s->c, &s->s[30])) {
-                        unsigned int bin2 = get_ae(&s->c, &s->s[32]);
-                        Pred_LX = 1 << (4 * bin2);
-                    } else {
-                        unsigned int str = 1;
-                        while ((uint64_t)0x1f00ffff >> str & 1)
-                            str += str + get_ae(&s->c, &s->s[30 + umin(str, 2)]);
-                        if (str == 13)
-                            goto intra_prediction;
-                        str ^= str >> 1 & 16; // [48..57] -> [0..9]
-                        size = 0x1000999b00066666 >> (2 * str) & 3;
-                        Pred_LX = str2Pred_LX[str];
-        
-                        /* Parsing for sub_mb_type in B slices. */
-                        for (unsigned int mbPartIdx = 0; str == 15 && mbPartIdx < 4; mbPartIdx++) {
-                            if (get_ae(&s->c, &s->s[36]))
-                                continue;
-                            if (!get_ae(&s->c, &s->s[37])) {
-                                unsigned int idx = 4 * get_ae(&s->c, &s->s[39]) + mbPartIdx;
-                                Pred_LX += 1 << idx;
-                            } else {
-                                unsigned int sub = 1;
-                                while (0xc0ff >> sub & 1)
-                                    sub += sub + get_ae(&s->c, &s->s[37 + umin(sub, 2)]);
-                                sub ^= sub >> 1 & 8; // [24..27] -> [0..3]
-                                Pred_LX += sub2Pred_LX[sub] << mbPartIdx;
-                                s->mvd_flags[mbPartIdx] = s->mvd_flags[4 + mbPartIdx] = sub2mvd_flags[sub];
-                            }
-                        }
-                    }
-                }
-                CABAC_parse_inter_mb_pred(s, size, Pred_LX);
-            } else {
-                intra_prediction:
-                
-            }
-            
-            
-            
-            
-            /* Parse the prediction part of the macroblock. */
-            if (slice_type != 2) {
-                if (slice_type == 0)
-                    CABAC_parse_P_mb_type(s, &slice_type, &size, &Pred_LX);
-                else
-                    CABAC_parse_B_mb_type(s, &slice_type, &size, &Pred_LX);
-            }
-            if (slice_type == 2) {
-                
-            } else if (Pred_LX != 0) {
-                CABAC_parse_inter_mb_pred(s, size, Pred_LX);
-                CABAC_parse_coded_block_pattern(s);
-                
-            }
-            
-            /* Store the macroblock values and parse end_of_slice_flag. */
-            Edge264_macroblock *m = mbs + (s->mb_x << s->MbaffFrameFlag) - s->mb_y;
-            m->f = s->f;
+            /* Increment the macroblock address and parse end_of_slice_flag. */
+            m++->f = s->f;
+            s->mv += 64;
             if (!s->MbaffFrameFlag) {
                 s->mb_x++;
                 end_of_slice_flag = get_ae(&s->c, &s->s[276]);
@@ -369,8 +356,19 @@ void CABAC_parse_slice_data(Edge264_slice *s, Edge264_macroblock *mbs)
             }
             fprintf(stderr, "end_of_slice_flag: %x\n", end_of_slice_flag);
         }
-        s->init.mb_field_decoding_flag = mbs[-s->mb_y].f.mb_field_decoding_flag;
-        mbs[s->mb_x - s->mb_y] = mbs[s->mb_x - s->mb_y + 1] = void_mb;
-        s->mb_y += 1 + s->MbaffFrameFlag;
+        *m = mb_void;
+        s->mb_x = 0;
+        if (!s->MbaffFrameFlag) {
+            m -= s->ps.width / 16 + 2;
+            mv -= 64 * (s->ps.width / 16 + 2);
+            s->mb_y += 1 + s->field_pic_flag;
+            s->init.mb_field_decoding_flag = m[2].f.mb_field_decoding_flag;
+        } else {
+            m[1] = mb_void;
+            m -= s->ps.width / 8 + 4;
+            mv -= 64 * (s->ps.width / 8 + 4);
+            s->mb_y += 2;
+            s->init.mb_field_decoding_flag = m[4].f.mb_field_decoding_flag;
+        }
     }
 }

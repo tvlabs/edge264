@@ -19,6 +19,7 @@
 /* TODO: List all the builtins used in edge264_common.h. */
 /* TODO: Put codIRange and codIOffset in global register variables. */
 /* TODO: Try ffs instead of clz. */
+/* TODO: Essayer de remplacer m->f. par s->f. et une copie en fin de macrobloc. */
 
 /**
  * Copyright (c) 2013-2014, Celticom / TVLabs

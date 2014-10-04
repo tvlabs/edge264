@@ -290,27 +290,6 @@ static inline __attribute__((always_inline)) int get_bypass(CABAC_ctx *c) {
 
 
 
-/**
- * In 9.3.3.1.1, ctxIdxInc is always the result of flagA+flagB or flagA+2*flagB,
- * so we can compute all in parallel with flagsA+flagsB+(flagsB&twice).
- *
- * The storage patterns for flags in 8x8 and 4x4 blocks keep left and top
- * always contiguous (for ctxIdxInc), and allow initialisation from top/left
- * macroblocks with single shifts:
- *                29 13 26 10
- *   7 3       28|12 25  9 22
- * 6|2 5  and  11|24  8 21  5
- * 1|4 0       23| 7 20  4 17
- *              6|19  3 16  0
- *
- * The storage pattern for absMvdComp and Intra4x4PredMode keeps every
- * sub-partition contiguous with its left and top:
- *   5 6 7 8
- * 3|4 5 6 7
- * 2|3 4 5 6
- * 1|2 3 4 5
- * 0|1 2 3 4
- */
 typedef union {
     struct {
         uint32_t unavailable:2;
@@ -340,12 +319,11 @@ typedef struct {
         } __attribute__((packed));
         uint64_t flags8x8;
     };
-} Edge264_mb_edges;
+} Edge264_macroblock;
 typedef struct {
     CABAC_ctx c;
     Edge264_picture p;
-    Edge264_mb_edges e;
-    Edge264_mb_flags f, ctxIdxInc, init;
+    Edge264_mb_flags ctxIdxInc, init;
     unsigned int mb_x:10;
     unsigned int mb_y:10;
     unsigned int slice_type:2;
@@ -358,7 +336,6 @@ typedef struct {
     int FilterOffsetA:5;
     int FilterOffsetB:5;
     unsigned int inter_size:2; // 0=8x8, 1=8x16, 2=16x8, 3=16x16
-    int8_t refIdxC_16x16[2];
     uint8_t Pred_LX;
     const Edge264_picture *DPB;
     int8_t RefPicList[2][32] __attribute__((aligned));
@@ -398,7 +375,6 @@ static inline void pred_P_Skip(Edge264_slice *s, Edge264_macroblock *m)
 {
     typedef int16_t v2hi __attribute__((vector_size(4)));
     typedef int32_t v16si __attribute__((vector_size(64)));
-    int refIdxA, refIdxB, refIdxC, posC, mv;
     if (!s->MbaffFrameFlag) {
         refIdxA = m[-1].refIdx[1];
         refIdxB = m[2].refIdx[2];
@@ -420,8 +396,8 @@ static inline void pred_P_Skip(Edge264_slice *s, Edge264_macroblock *m)
     } else if (refIdxC == 0) {
         mv = *(int32_t *)(s->mv + posC);
     }
-    ((v16si *)s->mv)[0] = {mv, mv, mv, mv, mv, mv, mv, mv, mv, mv, mv, mv, mv, mv, mv, mv};
-    ((v16si *)s->mv)[1] = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+    ((v16si *)s->mv)[0] = (v16si){mv, mv, mv, mv, mv, mv, mv, mv, mv, mv, mv, mv, mv, mv, mv, mv};
+    ((v16si *)s->mv)[1] = (v16si){0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
     ((uint32_t *)m->refIdx)[0] = 0;
     ((uint32_t *)m->refIdx)[1] = -1;
     memset(s->e.absMvdComp, 0, 36); // TODO: Replace with 9 iterations?

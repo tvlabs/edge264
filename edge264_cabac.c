@@ -33,9 +33,6 @@ static const uint8_t CABAC_init[52][4][1024];
 
 
 /**
- * Parses mb_skip_flag and mb_field_decoding_flag, and loads the neighbouring
- * values.
- *
  * In 9.3.3.1.1, ctxIdxInc is always the result of flagA+flagB or flagA+2*flagB,
  * so we can compute all in parallel with flagsA+flagsB+(flagsB&twice).
  *
@@ -55,15 +52,8 @@ static const uint8_t CABAC_init[52][4][1024];
  * 2|3 4 5 6
  * 1|2 3 4 5
  * 0|1 2 3 4
- *
- * The storage pattern for motion vectors uses block-scan order:
- *     0  1  4  5  6
- *  3| 0  1  4  5
- *  2| 2  3  6  7
- * 11| 8  9 12 13
- * 10|10 11 14 15
  */
-static inline void CABAC_parse_init(Edge264_slice *s)
+static inline void CABAC_parse_init(Edge264_slice *s, Edge264_macroblock *m)
 {
     static const Edge264_mb_flags twice = {
         .available = 1,
@@ -72,35 +62,58 @@ static inline void CABAC_parse_init(Edge264_slice *s)
         .coded_block_flag_16x16 = 0x15,
     };
     
-    *(uint64_t *)s->mvd_flags = 0x0303030303030303;
-    Edge264_macroblock *m = &mbs[s->mb_x - s->mb_y];
     if (!s->MbaffFrameFlag) {
-        s->f = s->init;
-        s->ctxIdxInc.flags = m[-1].f.flags + m[1].f.flags + (m[1].f.flags & twice.flags);
-        memcpy(s->e.Intra4x4PredMode, m[-1].e.Intra4x4PredMode + 4, 4);
-        memcpy(s->e.Intra4x4PredMode + 5, m[1].e.Intra4x4PredMode + 1, 4);
+        m->f = s->init;
+        s->ctxIdxInc.flags = m[-1].f.flags + m[2].f.flags + (m[2].f.flags & twice.flags);
+        memcpy(m->Intra4x4PredMode, m[-1].Intra4x4PredMode + 4, 4);
+        memcpy(m->Intra4x4PredMode + 5, m[2].Intra4x4PredMode + 1, 4);
         for (unsigned int iYCbCr = 0; iYCbCr < 3; iYCbCr++) {
-            s->e.coded_block_flag_4x4[iYCbCr] =
-                ((m[-1].e.coded_block_flag_4x4[iYCbCr] & 0x00420021) << 6) |
-                ((m[1].e.coded_block_flag_4x4[iYCbCr] & 0x00090009) << 10);
+            m->coded_block_flag_4x4[iYCbCr] =
+                ((m[-1].coded_block_flag_4x4[iYCbCr] & 0x00420021) << 6) |
+                ((m[2].coded_block_flag_4x4[iYCbCr] & 0x00090009) << 10);
         }
-        s->e.flags8x8 = ((m[-1].e.flags8x8 & 0x2121212121212121) << 1) |
-            ((m[1].e.flags8x8 & 0x1111111111111111) << 3);
-        *(uint64_t *)s->refIdx = -1;
-        if (slice_type != 2) {
-            *(uint64_t *)s->refIdxA = *(uint64_t *)m[-1].refIdx;
-            *(uint64_t *)s->refIdxB = *(uint64_t *)m[1].refIdx;
-            *(uint64_t *)s->refIdxC = *(uint64_t *)m[2].refIdx;
+        m->flags8x8 = ((m[-1].flags8x8 & 0x2121212121212121) << 1) |
+            ((m[2].flags8x8 & 0x1111111111111111) << 3);
+        *(uint64_t *)m->refIdx = -1;
+        if (s->slice_type != 2) {
+            *(uint64_t *)s->mvd_flags = 0x0303030303030303;
             memcpy(s->e.absMvdComp, m[-1].e.absMvdComp + 16, 16);
-            memcpy(s->e.absMvdComp + 20, m[1].e.absMvdComp + 4, 16);
-            memcpy(s->mv, m[1].mv_edge, 16);
-            memcpy(s->mv + 8, m[-1].mv_edge + 20, 16);
-            memcpy(s->mv + 16, m[1].mv_edge + 8, 16);
-            memcpy(s->mv + 24, m[2].mv_edge, 8);
-            memcpy(s->mv + 40, m[-1].mv_edge + 12, 16);
-            s->f.mb_skip_flag = get_ae(&s->c, &s->s[13 + 13 * s->slice_type -
+            memcpy(s->e.absMvdComp + 20, m[2].e.absMvdComp + 4, 16);
+            m->f.mb_skip_flag = get_ae(&s->c, &s->s[13 + 13 * s->slice_type -
                 s->ctxIdxInc.mb_skip_flag]);
-            fprintf(stderr, "mb_skip_flag: %x\n", s->f.mb_skip_flag);
+            fprintf(stderr, "mb_skip_flag: %x\n", m->f.mb_skip_flag);
+            
+            /* It is architecturally simplest to initialise with P/B_Skip here. */
+            int refIdxL0A = m[-1].refIdx[1];
+            int refIdxL1A = m[-1].refIdx[5];
+            int refIdxL0B = m[2].refIdx[2];
+            int refIdxL1B = m[2].refIdx[6];
+            int refIdxL0C = (m[3].f.unavailable) ? m[1].refIdx[3] : m[3].refIdx[2];
+            int refIdxL1C = (m[3].f.unavailable) ? m[1].refIdx[7] : m[3].refIdx[6];
+            int16_t *mvC = s->mv + (m[3].f.unavailable ? 94 : 212);
+            if (s->slice_type == 0) {
+                typedef int16_t v2hi __attribute__((vector_size(4)));
+                int32_t mv = (v2hi){median(s->mv[-54], s->mv[148], mvC[0]),
+                    median(s->mv[-53], s->mv[149], mvC[1])};
+                if (s->ctxIdxInc.unavailable)
+                    mv = 0;
+                if (refIdxL0A == 0) {
+                    if (*(int32_t *)(s->mv - 54) == 0 || refIdxL0B != 0 && refIdxL0C != 0)
+                        mv = *(int32_t *)(s->mv - 54);
+                } else if (refIdxL0B == 0) {
+                    if (*(int32_t *)(s->mv + 148) == 0 || refIdxL0C != 0)
+                        mv = *(int32_t *)(s->mv + 148);
+                } else if (refIdxL0C == 0) {
+                    mv = *(int32_t *)mvC;
+                }
+                typedef int32_t v16si __attribute__((vector_size(64)));
+                ((v16si *)s->mv)[0] = (v16si){mv, mv, mv, mv, mv, mv, mv, mv, mv, mv, mv, mv, mv, mv, mv, mv};
+                ((v16si *)s->mv)[1] = (v16si){0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+                ((uint32_t *)m->refIdx)[0] = 0;
+                ((uint32_t *)m->refIdx)[1] = -1;
+            } else {
+                
+            }
         }
     } else {
         /* This part was INCREDIBLY hard to come up with (9.3.3.1.1.1). */
@@ -263,7 +276,7 @@ static inline void CABAC_parse_mb_type(Edge264_slice *s, Edge264_macroblock *m)
     if (s->slice_type != 2) {
         if (s->slice_type == 0) {
             if (s->f.mb_skip_flag & 1) {
-                pred_P_Skip(s, m);
+                memset(s->e.absMvdComp, 0, 36); // TODO: Replace with 9 iterations?
             } else if (get_ae(&s->c, &s->s[14])) {
                 goto intra_prediction;
             } else {
@@ -340,11 +353,15 @@ void CABAC_parse_slice_data(Edge264_slice *s, Edge264_macroblock *m)
     unsigned int end_of_slice_flag = 0;
     while (!end_of_slice_flag && s->mb_y < s->ps.height / 16) {
         while (s->mb_x < s->ps.width / 16 && !end_of_slice_flag) {
+            
+            /* These variables have short live ranges so are declared local. */
+            int refIdxA, refIdxB, refIdxC, posC, mvp; // 
+            
             CABAC_parse_init(s, m);
             CABAC_parse_mb_type(s, m);
             
             /* Increment the macroblock address and parse end_of_slice_flag. */
-            m++->f = s->f;
+            m++;
             s->mv += 64;
             if (!s->MbaffFrameFlag) {
                 s->mb_x++;

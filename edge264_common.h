@@ -72,6 +72,10 @@ static inline const char *red_if(int cond) { return (cond) ? " style=\"color: re
 #define beswapl beswap64
 #endif
 
+#ifndef __clang__
+#define __builtin_shufflevector(a, b, ...) __builtin_shuffle(a, b, (typeof(a)){__VA_ARGS__})
+#endif
+
 #ifdef __SSSE3__
 #define _mm_movpi64_pi64 _mm_movpi64_epi64
 #ifdef __SSE4_1__
@@ -335,6 +339,7 @@ typedef struct {
     unsigned int disable_deblocking_filter_idc:2;
     int FilterOffsetA:5;
     int FilterOffsetB:5;
+    unsigned int col_long_term:1; // for spatial direct mv prediction
     unsigned int inter_size:2; // 0=8x8, 1=8x16, 2=16x8, 3=16x16
     uint8_t Pred_LX;
     const Edge264_picture *DPB;

@@ -84,33 +84,82 @@ static inline void CABAC_parse_init(Edge264_slice *s, Edge264_macroblock *m)
             fprintf(stderr, "mb_skip_flag: %x\n", m->f.mb_skip_flag);
             
             /* It is architecturally simplest to initialise with P/B_Skip here. */
+            typedef int16_t v2hi __attribute__((vector_size(4)));
             int refIdxL0A = m[-1].refIdx[1];
             int refIdxL1A = m[-1].refIdx[5];
+            v2hi mvL0A = *(v2hi *)(s->mv - 54);
+            v2hi mvL1A = *(v2hi *)(s->mv - 22);
             int refIdxL0B = m[2].refIdx[2];
             int refIdxL1B = m[2].refIdx[6];
+            v2hi mvL0B = *(v2hi *)(s->mv + 148);
+            v2hi mvL1B = *(v2hi *)(s->mv + 180);
             int refIdxL0C = (m[3].f.unavailable) ? m[1].refIdx[3] : m[3].refIdx[2];
             int refIdxL1C = (m[3].f.unavailable) ? m[1].refIdx[7] : m[3].refIdx[6];
-            int16_t *mvC = s->mv + (m[3].f.unavailable ? 94 : 212);
+            v2hi mvL0C = *(v2hi *)(s->mv + (m[3].f.unavailable ? 94 : 212));
+            v2hi mvL1C = *(v2hi *)(s->mv + (m[3].f.unavailable ? 126 : 244));
             if (s->slice_type == 0) {
-                typedef int16_t v2hi __attribute__((vector_size(4)));
-                int32_t mv = (v2hi){median(s->mv[-54], s->mv[148], mvC[0]),
-                    median(s->mv[-53], s->mv[149], mvC[1])};
+                int32_t mv = (v2hi){median(mvL0A[0], mvL0B[0], mvL0C[0]),
+                    median(mvL0A[1], mvL0B[1], mvL0C[1])};
                 if (s->ctxIdxInc.unavailable)
                     mv = 0;
                 if (refIdxL0A == 0) {
-                    if (*(int32_t *)(s->mv - 54) == 0 || refIdxL0B != 0 && refIdxL0C != 0)
-                        mv = *(int32_t *)(s->mv - 54);
+                    if ((int32_t)mvL0A == 0 || refIdxL0B != 0 && refIdxL0C != 0)
+                        mv = mvL0A;
                 } else if (refIdxL0B == 0) {
-                    if (*(int32_t *)(s->mv + 148) == 0 || refIdxL0C != 0)
-                        mv = *(int32_t *)(s->mv + 148);
+                    if ((int32_t)mvL0B == 0 || refIdxL0C != 0)
+                        mv = mvL0B;
                 } else if (refIdxL0C == 0) {
-                    mv = *(int32_t *)mvC;
+                    mv = mvL0C;
                 }
                 typedef int32_t v16si __attribute__((vector_size(64)));
                 ((v16si *)s->mv)[0] = (v16si){mv, mv, mv, mv, mv, mv, mv, mv, mv, mv, mv, mv, mv, mv, mv, mv};
                 ((v16si *)s->mv)[1] = (v16si){0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
-                ((uint32_t *)m->refIdx)[0] = 0;
-                ((uint32_t *)m->refIdx)[1] = -1;
+                ((int32_t *)m->refIdx)[0] = 0;
+                ((int32_t *)m->refIdx)[1] = -1;
+            } else if (s->direct_spatial_mv_pred_flag) {
+                /* MinPositive is umin. Also since refIdxLX equals one of A/B/C,
+                   we initialise mvLX to the same of A/B/C (8.4.1.3.1-2). */
+                int refIdxL0 = ((unsigned)refIdxL0B < (unsigned)refIdxL0C) ? refIdxL0B : refIdxL0C;
+                int32_t mvL0 = ((unsigned)refIdxL0B < (unsigned)refIdxL0C) ? mvL0B : mvL0C;
+                refIdxL0 = ((unsigned)refIdxL0A < (unsigned)refIdxL0) ? refIdxL0A : refIdxL0;
+                mvL0 = ((unsigned)refIdxL0A < (unsigned)refIdxL0) ? mvL0A : mvL0;
+                int refIdxL1 = ((unsigned)refIdxL1B < (unsigned)refIdxL1C) ? refIdxL1B : refIdxL1C;
+                int32_t mvL1 = ((unsigned)refIdxL1B < (unsigned)refIdxL1C) ? mvL1B : mvL1C;
+                refIdxL1 = ((unsigned)refIdxL1A < (unsigned)refIdxL1) ? refIdxL1A : refIdxL1;
+                mvL1 = ((unsigned)refIdxL1A < (unsigned)refIdxL1) ? mvL1A : mvL1;
+                
+                /* When another one of A/B/C equals refIdxLX, fallback to median. */
+                if (refIdxL0 >= 0 && (refIdxL0 == refIdxL0A) +
+                    (refIdxL0 == refIdxL0B) + (refIdxL0 == refIdxL0C) > 1) {
+                    mvL0 = (v2hi){median(mvL0A[0], mvL0B[0], mvL0C[0]),
+                        median(mvL0A[1], mvL0B[1], mvL0C[1])};
+                }
+                if (refIdxL1 >= 0 && (refIdxL1 == refIdxL1A) +
+                    (refIdxL1 == refIdxL1B) + (refIdxL1 == refIdxL1C) > 1) {
+                    mvL1 = (v2hi){median(mvL1A[0], mvL1B[0], mvL1C[0]),
+                        median(mvL1A[1], mvL1B[1], mvL1C[1])};
+                }
+                
+                /* Direct Zero Prediction already has both mvLX zeroed. */
+                if (refIdxL0 < 0 && refIdxL1 < 0)
+                    refIdxL0 = refIdxL1 = 0;
+                ((uint32_t)m->refIdx)[0] = (refIdxL0 & 0xff) * 0x01010101;
+                ((uint32_t)m->refIdx)[1] = (refIdxL1 & 0xff) * 0x01010101;
+                
+                /* colZeroFlag is applied by ANDing mvLX to zero when mvCol[X]
+                   lie in the range -1 to 1. */
+                typedef int32_t v4si __attribute__((vector_size(16)));
+                static const v4si low = {-1}, up = {1};
+                v4si v0 = {mvL0, mvL0, mvL0, mvL0};
+                v4si v1 = {mvL1, mvL1, mvL1, mvL1};
+                for (unsigned int i = 0; i < 4; i++) {
+                    v4si nz = (((v4si *)mvCol)[i] < low) | (((v4si *)mvCol)[i] > up);
+                    nz |= __builtin_shufflevector(nz, nz, 1, 0, 3, 2, 5, 4, 7, 6);
+                    int mask0 = s->col_long_term | refIdxL0 | refIdxCol[i];
+                    int mask1 = s->col_long_term | refIdxL1 | refIdxCol[i];
+                    ((v4si *)s->mv)[mbPartIdx] = (mask0 == 0) ? v0 & nz : v0;
+                    ((v4si *)s->mv)[mbPartIdx + 4] = (mask1 == 0) ? v1 & nz : v1;
+                }
             } else {
                 
             }

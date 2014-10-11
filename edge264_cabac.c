@@ -62,6 +62,7 @@ static inline void CABAC_parse_init(Edge264_slice *s, Edge264_macroblock *m)
         .coded_block_flag_16x16 = 0x15,
     };
     
+    /* This should be the sole Mbaff branch in the whole CABAC loop. */
     if (!s->MbaffFrameFlag) {
         m->f = s->init;
         s->ctxIdxInc.flags = m[-1].f.flags + m[2].f.flags + (m[2].f.flags & twice.flags);
@@ -98,6 +99,7 @@ static inline void CABAC_parse_init(Edge264_slice *s, Edge264_macroblock *m)
             v2hi mvL0C = *(v2hi *)(s->mv + (m[3].f.unavailable ? 94 : 212));
             v2hi mvL1C = *(v2hi *)(s->mv + (m[3].f.unavailable ? 126 : 244));
             if (s->slice_type == 0) {
+                /* 8.4.1.1 - P_Skip motion prediction. */
                 int32_t mv = (v2hi){median(mvL0A[0], mvL0B[0], mvL0C[0]),
                     median(mvL0A[1], mvL0B[1], mvL0C[1])};
                 if (s->ctxIdxInc.unavailable)
@@ -143,25 +145,31 @@ static inline void CABAC_parse_init(Edge264_slice *s, Edge264_macroblock *m)
                 /* Direct Zero Prediction already has both mvLX zeroed. */
                 if (refIdxL0 < 0 && refIdxL1 < 0)
                     refIdxL0 = refIdxL1 = 0;
-                ((uint32_t)m->refIdx)[0] = (refIdxL0 & 0xff) * 0x01010101;
-                ((uint32_t)m->refIdx)[1] = (refIdxL1 & 0xff) * 0x01010101;
+                ((uint32_t *)m->refIdx)[0] = (refIdxL0 & 0xff) * 0x01010101;
+                ((uint32_t *)m->refIdx)[1] = (refIdxL1 & 0xff) * 0x01010101;
                 
                 /* colZeroFlag is applied by ANDing mvLX to zero when mvCol[X]
                    lie in the range -1 to 1. */
                 typedef int32_t v4si __attribute__((vector_size(16)));
-                static const v4si low = {-1}, up = {1};
+                static const v4si low = {-1, -1, -1, -1}, up = {1, 1, 1, 1}; // FIXME: v8si!
                 v4si v0 = {mvL0, mvL0, mvL0, mvL0};
                 v4si v1 = {mvL1, mvL1, mvL1, mvL1};
                 for (unsigned int i = 0; i < 4; i++) {
                     v4si nz = (((v4si *)mvCol)[i] < low) | (((v4si *)mvCol)[i] > up);
                     nz |= __builtin_shufflevector(nz, nz, 1, 0, 3, 2, 5, 4, 7, 6);
-                    int mask0 = s->col_long_term | refIdxL0 | refIdxCol[i];
-                    int mask1 = s->col_long_term | refIdxL1 | refIdxCol[i];
-                    ((v4si *)s->mv)[mbPartIdx] = (mask0 == 0) ? v0 & nz : v0;
-                    ((v4si *)s->mv)[mbPartIdx + 4] = (mask1 == 0) ? v1 & nz : v1;
+                    int or0 = s->col_long_term | refIdxL0 | (refPicCol[i] - s->refPicCol0);
+                    int or1 = s->col_long_term | refIdxL1 | (refIdxCol[i] - s->refPicCol0);
+                    ((v4si *)s->mv)[i] = (or0 == 0) ? v0 & nz : v0;
+                    ((v4si *)s->mv)[i + 4] = (or1 == 0) ? v1 & nz : v1;
                 }
             } else {
-                
+                /* Temporal motion prediction is incredibly simple actually. */
+                ((uint32_t *)m->refIdx)[1] = 0;
+                for (unsigned int i = 0; i < 4; i++) {
+                    m->refIdx[i] = s->MapColToList0[1 + refPicCol[i]];
+                    mvL0[i] = temporal_scale(mvCol[i], s->DistScaleFactor[1 + refPicCol[i]]);
+                    mvL1[i] = mvL0[i] - mvCol[i];
+                }
             }
         }
     } else {

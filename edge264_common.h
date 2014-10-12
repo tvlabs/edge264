@@ -312,7 +312,7 @@ typedef union {
 typedef struct {
     uint8_t absMvdComp[36];
     uint32_t coded_block_flag_4x4[3];
-    int8_t refIdx[8];
+    int8_t refIdx[8] __attribute__((aligned));
     Edge264_mb_flags f;
     union {
         struct {
@@ -347,7 +347,7 @@ typedef struct {
     int8_t RefPicList[2][32] __attribute__((aligned));
     int16_t weights[3][32][2];
     int16_t offsets[3][32][2];
-    uint8_t mvd_flags[8];
+    uint8_t mvd_flags[8] __attribute__((aligned));
     uint16_t *mv; // circular buffer of [LX][luma4x4BlkIdx][compIdx] macroblocks
     Edge264_parameter_set ps;
     uint8_t s[1024];
@@ -374,55 +374,6 @@ static const Edge264_macroblock void_mb = {
     .f.mb_field_decoding_flag = 0,
     .f.mb_type_B = 0,
 };
-
-
-
-static inline void pred_P_Skip(Edge264_slice *s, Edge264_macroblock *m)
-{
-    typedef int16_t v2hi __attribute__((vector_size(4)));
-    typedef int32_t v16si __attribute__((vector_size(64)));
-    if (!s->MbaffFrameFlag) {
-        refIdxA = m[-1].refIdx[1];
-        refIdxB = m[2].refIdx[2];
-        refIdxC = (m[3].f.unavailable) ? m[1].refIdx[3] : m[3].refIdx[2];
-        posC = (m[3].f.unavailable) ? 94 : 212;
-        mv = (int32_t)(v2hi){median(s->mv[-54], s->mv[148], s->mv[posC]),
-            median(s->mv[-53], s->mv[149], s->mv[posC + 1])};
-    } else {
-        
-    }
-    if (s->ctxIdxInc.unavailable)
-        mv = 0;
-    if (refIdxA == 0) {
-        if (*(int32_t *)(s->mv - 54) == 0 || refIdxB != 0 && refIdxC != 0)
-            mv = *(int32_t *)(s->mv - 54);
-    } else if (refIdxB == 0) {
-        if (*(int32_t *)(s->mv + 148) == 0 || refIdxC != 0)
-            mv = *(int32_t *)(s->mv + 148);
-    } else if (refIdxC == 0) {
-        mv = *(int32_t *)(s->mv + posC);
-    }
-    ((v16si *)s->mv)[0] = (v16si){mv, mv, mv, mv, mv, mv, mv, mv, mv, mv, mv, mv, mv, mv, mv, mv};
-    ((v16si *)s->mv)[1] = (v16si){0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
-    ((uint32_t *)m->refIdx)[0] = 0;
-    ((uint32_t *)m->refIdx)[1] = -1;
-    memset(s->e.absMvdComp, 0, 36); // TODO: Replace with 9 iterations?
-}
-
-
-
-static inline void pred_B_Skip(Edge264_slice *s)
-{
-    
-    if (s->direct_spatial_mv_pred_flag) {
-        int refIdxL0 = umin(s->refIdxA[0], umin(s->refIdxB[0], s->refIdxC_16x16[0]));
-        int refIdxL1 = umin(s->refIdxA[4], umin(s->refIdxB[4], s->refIdxC_16x16[1]));
-        int mvL0 = 0, mvL1 = 0;
-        
-    } else {
-        
-    }
-}
 
 
 

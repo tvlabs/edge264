@@ -328,11 +328,10 @@ typedef struct {
     CABAC_ctx c;
     Edge264_picture p;
     Edge264_mb_flags ctxIdxInc, init;
-    unsigned int mb_x:10;
-    unsigned int mb_y:10;
+    uint16_t x; // in luma samples, 14 significant bits
+    uint16_t y;
+    uint32_t CurrMbAddr; // always follows Mbaff scan, 19 significant bits
     unsigned int slice_type:2;
-    unsigned int field_pic_flag:1;
-    unsigned int bottom_field_flag:1;
     unsigned int MbaffFrameFlag:1;
     unsigned int direct_spatial_mv_pred_flag:1;
     unsigned int cabac_init_idc:2;
@@ -341,7 +340,7 @@ typedef struct {
     int FilterOffsetB:5;
     unsigned int col_long_term:1; // for spatial direct mv prediction
     unsigned int inter_size:2; // 0=8x8, 1=8x16, 2=16x8, 3=16x16
-    uint8_t Pred_LX;
+    uint8_t Pred_LX; // [LX][mbPartIdx] bitfield
     int8_t refPicCol0;
     const Edge264_picture *DPB;
     int8_t RefPicList[2][32] __attribute__((aligned));

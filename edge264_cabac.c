@@ -62,9 +62,14 @@ static inline void CABAC_parse_init(Edge264_slice *s, Edge264_macroblock *m)
         .coded_block_flag_16x16 = 0x15,
     };
     
-    /* This should be the sole Mbaff branch in the whole CABAC loop. */
+    /* The first block initialises with the A/B/C/D neighbours. */
+    typedef int16_t v2hi __attribute__((vector_size(4)));
+    v2hi mvL0A, mvL1A, mvL0B, mvL1B, mvL0C, mvL1C;
+    int refIdxL0A, refIdxL1A, refIdxL0B, refIdxL1B, refIdxL0C, refIdxL1C;
     if (!s->MbaffFrameFlag) {
         m->f = s->init;
+        
+        /* m being a circular buffer, A/B/C/D is m[-1/2/3/1]. */
         s->ctxIdxInc.flags = m[-1].f.flags + m[2].f.flags + (m[2].f.flags & twice.flags);
         memcpy(m->Intra4x4PredMode, m[-1].Intra4x4PredMode + 4, 4);
         memcpy(m->Intra4x4PredMode + 5, m[2].Intra4x4PredMode + 1, 4);
@@ -84,93 +89,19 @@ static inline void CABAC_parse_init(Edge264_slice *s, Edge264_macroblock *m)
                 s->ctxIdxInc.mb_skip_flag]);
             fprintf(stderr, "mb_skip_flag: %x\n", m->f.mb_skip_flag);
             
-            /* It is architecturally simplest to initialise with P/B_Skip here. */
-            typedef int16_t v2hi __attribute__((vector_size(4)));
-            int refIdxL0A = m[-1].refIdx[1];
-            int refIdxL1A = m[-1].refIdx[5];
-            v2hi mvL0A = *(v2hi *)(s->mv - 54);
-            v2hi mvL1A = *(v2hi *)(s->mv - 22);
-            int refIdxL0B = m[2].refIdx[2];
-            int refIdxL1B = m[2].refIdx[6];
-            v2hi mvL0B = *(v2hi *)(s->mv + 148);
-            v2hi mvL1B = *(v2hi *)(s->mv + 180);
-            int refIdxL0C = (m[3].f.unavailable) ? m[1].refIdx[3] : m[3].refIdx[2];
-            int refIdxL1C = (m[3].f.unavailable) ? m[1].refIdx[7] : m[3].refIdx[6];
-            v2hi mvL0C = *(v2hi *)(s->mv + (m[3].f.unavailable ? 94 : 212));
-            v2hi mvL1C = *(v2hi *)(s->mv + (m[3].f.unavailable ? 126 : 244));
-            if (s->slice_type == 0) {
-                /* 8.4.1.1 - P_Skip motion prediction. */
-                int32_t mv = (v2hi){median(mvL0A[0], mvL0B[0], mvL0C[0]),
-                    median(mvL0A[1], mvL0B[1], mvL0C[1])};
-                if (s->ctxIdxInc.unavailable)
-                    mv = 0;
-                if (refIdxL0A == 0) {
-                    if ((int32_t)mvL0A == 0 || refIdxL0B != 0 && refIdxL0C != 0)
-                        mv = mvL0A;
-                } else if (refIdxL0B == 0) {
-                    if ((int32_t)mvL0B == 0 || refIdxL0C != 0)
-                        mv = mvL0B;
-                } else if (refIdxL0C == 0) {
-                    mv = mvL0C;
-                }
-                typedef int32_t v16si __attribute__((vector_size(64)));
-                ((v16si *)s->mv)[0] = (v16si){mv, mv, mv, mv, mv, mv, mv, mv, mv, mv, mv, mv, mv, mv, mv, mv};
-                ((v16si *)s->mv)[1] = (v16si){0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
-                ((int32_t *)m->refIdx)[0] = 0;
-                ((int32_t *)m->refIdx)[1] = -1;
-            } else if (s->direct_spatial_mv_pred_flag) {
-                /* MinPositive is umin. Also since refIdxLX equals one of A/B/C,
-                   we initialise mvLX to the same of A/B/C (8.4.1.3.1-2). */
-                int refIdxL0 = ((unsigned)refIdxL0B < (unsigned)refIdxL0C) ? refIdxL0B : refIdxL0C;
-                int32_t mvL0 = ((unsigned)refIdxL0B < (unsigned)refIdxL0C) ? mvL0B : mvL0C;
-                refIdxL0 = ((unsigned)refIdxL0A < (unsigned)refIdxL0) ? refIdxL0A : refIdxL0;
-                mvL0 = ((unsigned)refIdxL0A < (unsigned)refIdxL0) ? mvL0A : mvL0;
-                int refIdxL1 = ((unsigned)refIdxL1B < (unsigned)refIdxL1C) ? refIdxL1B : refIdxL1C;
-                int32_t mvL1 = ((unsigned)refIdxL1B < (unsigned)refIdxL1C) ? mvL1B : mvL1C;
-                refIdxL1 = ((unsigned)refIdxL1A < (unsigned)refIdxL1) ? refIdxL1A : refIdxL1;
-                mvL1 = ((unsigned)refIdxL1A < (unsigned)refIdxL1) ? mvL1A : mvL1;
-                
-                /* When another one of A/B/C equals refIdxLX, fallback to median. */
-                if (refIdxL0 >= 0 && (refIdxL0 == refIdxL0A) +
-                    (refIdxL0 == refIdxL0B) + (refIdxL0 == refIdxL0C) > 1) {
-                    mvL0 = (v2hi){median(mvL0A[0], mvL0B[0], mvL0C[0]),
-                        median(mvL0A[1], mvL0B[1], mvL0C[1])};
-                }
-                if (refIdxL1 >= 0 && (refIdxL1 == refIdxL1A) +
-                    (refIdxL1 == refIdxL1B) + (refIdxL1 == refIdxL1C) > 1) {
-                    mvL1 = (v2hi){median(mvL1A[0], mvL1B[0], mvL1C[0]),
-                        median(mvL1A[1], mvL1B[1], mvL1C[1])};
-                }
-                
-                /* Direct Zero Prediction already has both mvLX zeroed. */
-                if (refIdxL0 < 0 && refIdxL1 < 0)
-                    refIdxL0 = refIdxL1 = 0;
-                ((uint32_t *)m->refIdx)[0] = (refIdxL0 & 0xff) * 0x01010101;
-                ((uint32_t *)m->refIdx)[1] = (refIdxL1 & 0xff) * 0x01010101;
-                
-                /* colZeroFlag is applied by ANDing mvLX to zero when mvCol[X]
-                   lie in the range -1 to 1. */
-                typedef int32_t v4si __attribute__((vector_size(16)));
-                static const v4si low = {-1, -1, -1, -1}, up = {1, 1, 1, 1}; // FIXME: v8si!
-                v4si v0 = {mvL0, mvL0, mvL0, mvL0};
-                v4si v1 = {mvL1, mvL1, mvL1, mvL1};
-                for (unsigned int i = 0; i < 4; i++) {
-                    v4si nz = (((v4si *)mvCol)[i] < low) | (((v4si *)mvCol)[i] > up);
-                    nz |= __builtin_shufflevector(nz, nz, 1, 0, 3, 2, 5, 4, 7, 6);
-                    int or0 = s->col_long_term | refIdxL0 | (refPicCol[i] - s->refPicCol0);
-                    int or1 = s->col_long_term | refIdxL1 | (refIdxCol[i] - s->refPicCol0);
-                    ((v4si *)s->mv)[i] = (or0 == 0) ? v0 & nz : v0;
-                    ((v4si *)s->mv)[i + 4] = (or1 == 0) ? v1 & nz : v1;
-                }
-            } else {
-                /* Temporal motion prediction is incredibly simple actually. */
-                ((uint32_t *)m->refIdx)[1] = 0;
-                for (unsigned int i = 0; i < 4; i++) {
-                    m->refIdx[i] = s->MapColToList0[1 + refPicCol[i]];
-                    mvL0[i] = temporal_scale(mvCol[i], s->DistScaleFactor[1 + refPicCol[i]]);
-                    mvL1[i] = mvL0[i] - mvCol[i];
-                }
-            }
+            /* Fill the registers with values for P/B_Skip below. */
+            refIdxL0A = m[-1].refIdx[1];
+            refIdxL1A = m[-1].refIdx[5];
+            mvL0A = *(v2hi *)(s->mv - 54);
+            mvL1A = *(v2hi *)(s->mv - 22);
+            refIdxL0B = m[2].refIdx[2];
+            refIdxL1B = m[2].refIdx[6];
+            mvL0B = *(v2hi *)(s->mv + 148);
+            mvL1B = *(v2hi *)(s->mv + 180);
+            refIdxL0C = (m[3].f.unavailable) ? m[1].refIdx[3] : m[3].refIdx[2];
+            refIdxL1C = (m[3].f.unavailable) ? m[1].refIdx[7] : m[3].refIdx[6];
+            mvL0C = *(v2hi *)(s->mv + (m[3].f.unavailable ? 94 : 212));
+            mvL1C = *(v2hi *)(s->mv + (m[3].f.unavailable ? 126 : 244));
         }
     } else {
         /* This part was INCREDIBLY hard to come up with (9.3.3.1.1.1). */
@@ -205,6 +136,123 @@ static inline void CABAC_parse_init(Edge264_slice *s, Edge264_macroblock *m)
             s->C = (s->m.mb_field_decoding_flag) ? m[4] : s->init;
             s->D = m[(s->m.mb_field_decoding_flag) ? 0 : -3 + s->A.mb_field_decoding_flag];
         }*/
+    }
+    
+    /* Initialise refPicCol and mvCol with the temporal co-located neighbour. */
+    if (s->slice_type != 2) {
+        typedef int16_t v8hi __attribute__((vector_size(16)));
+        typedef uint64_t v2lu __attribute__((vector_size(16)));
+        static const v8hi vertical = {0, -1, 0, -1, 0, -1, 0, -1};
+        v8hi mvCol0, mvCol1, mvCol2, mvCol3;
+        unsigned int u = *(int32_t *)(s->refPicCol + 4 * s->CurrMbAddr);
+        unsigned int fieldDecodingFlagX = u & 1;
+        unsigned int refPicCol = u >> 1;
+        if (m->f.mb_field_decoding_flag == fieldDecodingFlagX) { // One_To_One
+            mvCol0 = *(v8hi *)(s->mvCol + 32 * s->CurrMbAddr);
+            mvCol1 = *(v8hi *)(s->mvCol + 32 * s->CurrMbAddr + 8);
+            mvCol2 = *(v8hi *)(s->mvCol + 32 * s->CurrMbAddr + 16);
+            mvCol3 = *(v8hi *)(s->mvCol + 32 * s->CurrMbAddr + 24);
+        } else if (fieldDecodingFlagX == 0) { // Frm_To_Fld
+            v2lu *v = (v2lu *)(s->mvCol + 32 * (s->CurrMbAddr & -2));
+            mvCol0 = (v8hi)__builtin_shufflevector(v[0], v[2], 0, 2);
+            mvCol1 = (v8hi)__builtin_shufflevector(v[1], v[3], 0, 2);
+            mvCol2 = (v8hi)__builtin_shufflevector(v[4], v[6], 0, 2);
+            mvCol3 = (v8hi)__builtin_shufflevector(v[5], v[7], 0, 2);
+            if (!s->direct_spatial_mv_pred_flag) {
+                static const v8hi one = {1, 1, 1, 1, 1, 1, 1, 1};
+                mvCol0 = (mvCol0 & ~vertical) | ((mvCol0 >> one) & vertical);
+                mvCol1 = (mvCol1 & ~vertical) | ((mvCol1 >> one) & vertical);
+                mvCol2 = (mvCol2 & ~vertical) | ((mvCol2 >> one) & vertical);
+                mvCol3 = (mvCol3 & ~vertical) | ((mvCol3 >> one) & vertical);
+            }
+        } else { // Fld_To_Frm
+            v2lu *v = (v2lu *)(s->mvCol + 32 * (s->CurrMbAddr + s->firstRefPicL1) -
+                16 * (s->CurrMbAddr & 1));
+            mvCol0 = __builtin_shufflevector(v[0], v[0], 0, 0);
+            mvCol1 = __builtin_shufflevector(v[1], v[1], 0, 0);
+            mvCol2 = __builtin_shufflevector(v[0], v[0], 1, 1);
+            mvCol3 = __builtin_shufflevector(v[1], v[1], 1, 1);
+            if (!s->direct_spatial_mv_pred_flag) {
+                mvCol0 += mvCol0 & mask;
+                mvCol1 += mvCol1 & mask;
+                mvCol2 += mvCol2 & mask;
+                mvCol3 += mvCol3 & mask;
+        }
+    
+        /* It is architecturally simplest to initialise with P/B_Skip here. */
+        if (s->slice_type == 0) {
+            /* 8.4.1.1 - P_Skip motion prediction. */
+            int32_t mv = (v2hi){median(mvL0A[0], mvL0B[0], mvL0C[0]),
+                median(mvL0A[1], mvL0B[1], mvL0C[1])};
+            if (s->ctxIdxInc.unavailable)
+                mv = 0;
+            if (refIdxL0A == 0) {
+                if ((int32_t)mvL0A == 0 || refIdxL0B != 0 && refIdxL0C != 0)
+                    mv = mvL0A;
+            } else if (refIdxL0B == 0) {
+                if ((int32_t)mvL0B == 0 || refIdxL0C != 0)
+                    mv = mvL0B;
+            } else if (refIdxL0C == 0) {
+                mv = mvL0C;
+            }
+            typedef int32_t v16si __attribute__((vector_size(64)));
+            ((v16si *)s->mv)[0] = (v16si){mv, mv, mv, mv, mv, mv, mv, mv, mv, mv, mv, mv, mv, mv, mv, mv};
+            ((v16si *)s->mv)[1] = (v16si){0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+            ((int32_t *)m->refIdx)[0] = 0;
+            ((int32_t *)m->refIdx)[1] = -1;
+        } else if (s->direct_spatial_mv_pred_flag) {
+            /* MinPositive is umin. Also since refIdxLX equals one of A/B/C,
+               we initialise mvLX to the same of A/B/C (8.4.1.3.1-2). */
+            int refIdxL0 = ((unsigned)refIdxL0B < (unsigned)refIdxL0C) ? refIdxL0B : refIdxL0C;
+            int32_t mvL0 = ((unsigned)refIdxL0B < (unsigned)refIdxL0C) ? mvL0B : mvL0C;
+            refIdxL0 = ((unsigned)refIdxL0A < (unsigned)refIdxL0) ? refIdxL0A : refIdxL0;
+            mvL0 = ((unsigned)refIdxL0A < (unsigned)refIdxL0) ? mvL0A : mvL0;
+            int refIdxL1 = ((unsigned)refIdxL1B < (unsigned)refIdxL1C) ? refIdxL1B : refIdxL1C;
+            int32_t mvL1 = ((unsigned)refIdxL1B < (unsigned)refIdxL1C) ? mvL1B : mvL1C;
+            refIdxL1 = ((unsigned)refIdxL1A < (unsigned)refIdxL1) ? refIdxL1A : refIdxL1;
+            mvL1 = ((unsigned)refIdxL1A < (unsigned)refIdxL1) ? mvL1A : mvL1;
+        
+            /* When another one of A/B/C equals refIdxLX, fallback to median. */
+            if (refIdxL0 >= 0 && (refIdxL0 == refIdxL0A) +
+                (refIdxL0 == refIdxL0B) + (refIdxL0 == refIdxL0C) > 1) {
+                mvL0 = (v2hi){median(mvL0A[0], mvL0B[0], mvL0C[0]),
+                    median(mvL0A[1], mvL0B[1], mvL0C[1])};
+            }
+            if (refIdxL1 >= 0 && (refIdxL1 == refIdxL1A) +
+                (refIdxL1 == refIdxL1B) + (refIdxL1 == refIdxL1C) > 1) {
+                mvL1 = (v2hi){median(mvL1A[0], mvL1B[0], mvL1C[0]),
+                    median(mvL1A[1], mvL1B[1], mvL1C[1])};
+            }
+        
+            /* Direct Zero Prediction already has both mvLX zeroed. */
+            if (refIdxL0 < 0 && refIdxL1 < 0)
+                refIdxL0 = refIdxL1 = 0;
+            ((uint32_t *)m->refIdx)[0] = (refIdxL0 & 0xff) * 0x01010101;
+            ((uint32_t *)m->refIdx)[1] = (refIdxL1 & 0xff) * 0x01010101;
+        
+            /* colZeroFlag is applied by ANDing mvLX to zero when mvCol[X]
+               lie in the range -1 to 1. */
+            typedef int32_t v4si __attribute__((vector_size(16)));
+            static const v4si low = {-1, -1, -1, -1}, up = {1, 1, 1, 1}; // FIXME: v8si!
+            v4si v0 = {mvL0, mvL0, mvL0, mvL0};
+            v4si v1 = {mvL1, mvL1, mvL1, mvL1};
+            for (unsigned int i = 0; i < 4; i++) {
+                v4si nz = (((v4si *)mvCol)[i] < low) | (((v4si *)mvCol)[i] > up);
+                nz |= __builtin_shufflevector(nz, nz, 1, 0, 3, 2, 5, 4, 7, 6);
+                int or0 = s->col_long_term | refIdxL0 | (refPicCol[i] - s->refPicCol0);
+                int or1 = s->col_long_term | refIdxL1 | (refIdxCol[i] - s->refPicCol0);
+                ((v4si *)s->mv)[i] = (or0 == 0) ? v0 & nz : v0;
+                ((v4si *)s->mv)[i + 4] = (or1 == 0) ? v1 & nz : v1;
+            }
+        } else {
+            /* Temporal motion prediction is incredibly simple actually. */
+            ((uint32_t *)m->refIdx)[1] = 0;
+            for (unsigned int i = 0; i < 4; i++) {
+                m->refIdx[i] = s->MapColToList0[1 + refPicCol[i]];
+                mvL0[i] = temporal_scale(mvCol[i], s->DistScaleFactor[1 + refPicCol[i]]);
+                mvL1[i] = mvL0[i] - mvCol[i];
+            }
+        }
     }
 }
 

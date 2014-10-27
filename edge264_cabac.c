@@ -62,51 +62,15 @@ static inline void CABAC_parse_init(Edge264_slice *s, Edge264_macroblock *m)
         .coded_block_flag_16x16 = 0x15,
     };
     
-    /* The first block initialises with the A/B/C/D neighbours. */
+    /* The first block initialises m with the A/B/C/D neighbours. */
     typedef int16_t v2hi __attribute__((vector_size(4)));
     v2hi mvL0A, mvL1A, mvL0B, mvL1B, mvL0C, mvL1C;
     int refIdxL0A, refIdxL1A, refIdxL0B, refIdxL1B, refIdxL0C, refIdxL1C;
-    if (!s->MbaffFrameFlag) {
-        m->f = s->init;
-        
-        /* m being a circular buffer, A/B/C/D is m[-1/2/3/1]. */
-        s->ctxIdxInc.flags = m[-1].f.flags + m[2].f.flags + (m[2].f.flags & twice.flags);
-        memcpy(m->Intra4x4PredMode, m[-1].Intra4x4PredMode + 4, 4);
-        memcpy(m->Intra4x4PredMode + 5, m[2].Intra4x4PredMode + 1, 4);
-        for (unsigned int iYCbCr = 0; iYCbCr < 3; iYCbCr++) {
-            m->coded_block_flag_4x4[iYCbCr] =
-                ((m[-1].coded_block_flag_4x4[iYCbCr] & 0x00420021) << 6) |
-                ((m[2].coded_block_flag_4x4[iYCbCr] & 0x00090009) << 10);
-        }
-        m->flags8x8 = ((m[-1].flags8x8 & 0x2121212121212121) << 1) |
-            ((m[2].flags8x8 & 0x1111111111111111) << 3);
-        *(uint64_t *)m->refIdx = -1;
-        if (s->slice_type != 2) {
-            *(uint64_t *)s->mvd_flags = 0x0303030303030303;
-            memcpy(s->e.absMvdComp, m[-1].e.absMvdComp + 16, 16);
-            memcpy(s->e.absMvdComp + 20, m[2].e.absMvdComp + 4, 16);
-            m->f.mb_skip_flag = get_ae(&s->c, &s->s[13 + 13 * s->slice_type -
-                s->ctxIdxInc.mb_skip_flag]);
-            fprintf(stderr, "mb_skip_flag: %x\n", m->f.mb_skip_flag);
-            
-            /* Fill the registers with values for P/B_Skip below. */
-            refIdxL0A = m[-1].refIdx[1];
-            refIdxL1A = m[-1].refIdx[5];
-            mvL0A = *(v2hi *)(s->mv - 54);
-            mvL1A = *(v2hi *)(s->mv - 22);
-            refIdxL0B = m[2].refIdx[2];
-            refIdxL1B = m[2].refIdx[6];
-            mvL0B = *(v2hi *)(s->mv + 148);
-            mvL1B = *(v2hi *)(s->mv + 180);
-            refIdxL0C = (m[3].f.unavailable) ? m[1].refIdx[3] : m[3].refIdx[2];
-            refIdxL1C = (m[3].f.unavailable) ? m[1].refIdx[7] : m[3].refIdx[6];
-            mvL0C = *(v2hi *)(s->mv + (m[3].f.unavailable ? 94 : 212));
-            mvL1C = *(v2hi *)(s->mv + (m[3].f.unavailable ? 126 : 244));
-        }
-    } else {
-        /* This part was INCREDIBLY hard to come up with (9.3.3.1.1.1). */
+    m->f = s->init;
+    
+    /* This part was INCREDIBLY hard to come up with (9.3.3.1.1.1). */
+    if (__builtin_expect(s->MbaffFrameFlag, 0)) {
         /*unsigned int prevMbSkipped = s->f.mb_skip_flag;
-        s->f = s->init;
         unsigned int topA = s->f.mb_field_decoding_flag ^ m[-2].f.mb_field_decoding_flag;
         s->A = m[-2 - (s->mb_x & topA)];
         s->B = m[(s->mb_x & 1) ? -1 + 3 * s->f.mb_field_decoding_flag :
@@ -136,122 +100,188 @@ static inline void CABAC_parse_init(Edge264_slice *s, Edge264_macroblock *m)
             s->C = (s->m.mb_field_decoding_flag) ? m[4] : s->init;
             s->D = m[(s->m.mb_field_decoding_flag) ? 0 : -3 + s->A.mb_field_decoding_flag];
         }*/
+        
+    /* m being in a circular buffer, A/B/C/D is m[-1/2/3/1]. */
+    } else {
+        s->ctxIdxInc.flags = m[-1].f.flags + m[2].f.flags + (m[2].f.flags & twice.flags);
+        memcpy(m->Intra4x4PredMode, m[-1].Intra4x4PredMode + 4, 4);
+        memcpy(m->Intra4x4PredMode + 5, m[2].Intra4x4PredMode + 1, 4);
+        for (unsigned int iYCbCr = 0; iYCbCr < 3; iYCbCr++) {
+            m->coded_block_flag_4x4[iYCbCr] =
+                ((m[-1].coded_block_flag_4x4[iYCbCr] & 0x00420021) << 6) |
+                ((m[2].coded_block_flag_4x4[iYCbCr] & 0x00090009) << 10);
+        }
+        m->flags8x8 = ((m[-1].flags8x8 & 0x2121212121212121) << 1) |
+            ((m[2].flags8x8 & 0x1111111111111111) << 3);
+        *(uint64_t *)m->refIdx = -1;
+        if (s->slice_type < 2) {
+            *(uint64_t *)s->mvd_flags = 0x0303030303030303;
+            memcpy(s->e.absMvdComp, m[-1].e.absMvdComp + 16, 16);
+            memcpy(s->e.absMvdComp + 20, m[2].e.absMvdComp + 4, 16);
+            m->f.mb_skip_flag = get_ae(&s->c, &s->s[13 + 13 * s->slice_type -
+                s->ctxIdxInc.mb_skip_flag]);
+            fprintf(stderr, "mb_skip_flag: %x\n", m->f.mb_skip_flag);
+            
+            /* Fill the registers with values for P/B_Skip below. */
+            refIdxL0A = m[-1].refIdx[1];
+            refIdxL1A = m[-1].refIdx[5];
+            mvL0A = *(v2hi *)(s->mv - 54);
+            mvL1A = *(v2hi *)(s->mv - 22);
+            refIdxL0B = m[2].refIdx[2];
+            refIdxL1B = m[2].refIdx[6];
+            mvL0B = *(v2hi *)(s->mv + 148);
+            mvL1B = *(v2hi *)(s->mv + 180);
+            refIdxL0C = (m[3].f.unavailable) ? m[1].refIdx[3] : m[3].refIdx[2];
+            refIdxL1C = (m[3].f.unavailable) ? m[1].refIdx[7] : m[3].refIdx[6];
+            mvL0C = *(v2hi *)(s->mv + (m[3].f.unavailable ? 94 : 212));
+            mvL1C = *(v2hi *)(s->mv + (m[3].f.unavailable ? 126 : 244));
+        }
     }
     
-    /* Initialise refPicCol and mvCol with the temporal co-located neighbour. */
-    if (s->slice_type != 2) {
+    /* 8.4.1.1 - P_Skip initialisation. */
+    if (s->slice_type == 0) {
+        int32_t mv = (v2hi){median(mvL0A[0], mvL0B[0], mvL0C[0]),
+            median(mvL0A[1], mvL0B[1], mvL0C[1])};
+        if (s->ctxIdxInc.unavailable)
+            mv = (v2hi){0, 0};
+        if (refIdxL0A == 0) {
+            if ((int32_t)mvL0A == 0 || refIdxL0B != 0 && refIdxL0C != 0)
+                mv = (int32_t)mvL0A;
+        } else if (refIdxL0B == 0) {
+            if ((int32_t)mvL0B == 0 || refIdxL0C != 0)
+                mv = (int32_t)mvL0B;
+        } else if (refIdxL0C == 0) {
+            mv = (int32_t)mvL0C;
+        }
+        typedef int32_t v16si __attribute__((vector_size(64)));
+        ((v16si *)s->mv)[0] = (v16si){mv, mv, mv, mv, mv, mv, mv, mv, mv, mv, mv, mv, mv, mv, mv, mv};
+        ((v16si *)s->mv)[1] = (v16si){0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+        ((int32_t *)m->refIdx)[0] = 0;
+        ((int32_t *)m->refIdx)[1] = -1;
+        
+    /* 8.4.1.2 - B_Skip initialisation. */
+    } else if (s->slice_type == 1) {
+        typedef int8_t v4qi __attribute__((vector_size(4)));
         typedef int16_t v8hi __attribute__((vector_size(16)));
-        typedef uint64_t v2lu __attribute__((vector_size(16)));
+        typedef int64_t v2li __attribute__((vector_size(16)));
         static const v8hi vertical = {0, -1, 0, -1, 0, -1, 0, -1};
-        v8hi mvCol0, mvCol1, mvCol2, mvCol3;
-        unsigned int u = *(int32_t *)(s->refPicCol + 4 * s->CurrMbAddr);
+        static const v8hi one = {1, 1, 1, 1, 1, 1, 1, 1};
+        static const v8hi neg = {-1, -1, -1, -1, -1, -1, -1, -1};
+        unsigned int u = ((int32_t *)s->refPicCol)[s->CurrMbAddr];
         unsigned int fieldDecodingFlagX = u & 1;
-        unsigned int refPicCol = u >> 1;
+        v4qi refPicCol = (v4qi)(u >> 1);
+        v8hi mvCol0, mvCol1, mvCol2, mvCol3;
+        
+        /* 8.4.1.2.1 - Load mvCol into vector registers. */
         if (m->f.mb_field_decoding_flag == fieldDecodingFlagX) { // One_To_One
             mvCol0 = *(v8hi *)(s->mvCol + 32 * s->CurrMbAddr);
             mvCol1 = *(v8hi *)(s->mvCol + 32 * s->CurrMbAddr + 8);
             mvCol2 = *(v8hi *)(s->mvCol + 32 * s->CurrMbAddr + 16);
             mvCol3 = *(v8hi *)(s->mvCol + 32 * s->CurrMbAddr + 24);
         } else if (fieldDecodingFlagX == 0) { // Frm_To_Fld
-            v2lu *v = (v2lu *)(s->mvCol + 32 * (s->CurrMbAddr & -2));
+            int32_t top = ((int32_t *)s->refPicCol)[s->CurrMbAddr & -2] >> 1;
+            int32_t bot = ((int32_t *)s->refPicCol)[(s->CurrMbAddr & -2) + 1] >> 1;
+            refPicCol = (v4qi)__builtin_shufflevector((v2hi)top, (v2hi)bot, 0, 2);
+            v2li *v = (v2li *)(s->mvCol + 32 * (s->CurrMbAddr & -2));
             mvCol0 = (v8hi)__builtin_shufflevector(v[0], v[2], 0, 2);
             mvCol1 = (v8hi)__builtin_shufflevector(v[1], v[3], 0, 2);
             mvCol2 = (v8hi)__builtin_shufflevector(v[4], v[6], 0, 2);
             mvCol3 = (v8hi)__builtin_shufflevector(v[5], v[7], 0, 2);
             if (!s->direct_spatial_mv_pred_flag) {
-                static const v8hi one = {1, 1, 1, 1, 1, 1, 1, 1};
                 mvCol0 = (mvCol0 & ~vertical) | ((mvCol0 >> one) & vertical);
                 mvCol1 = (mvCol1 & ~vertical) | ((mvCol1 >> one) & vertical);
                 mvCol2 = (mvCol2 & ~vertical) | ((mvCol2 >> one) & vertical);
                 mvCol3 = (mvCol3 & ~vertical) | ((mvCol3 >> one) & vertical);
             }
         } else { // Fld_To_Frm
-            v2lu *v = (v2lu *)(s->mvCol + 32 * (s->CurrMbAddr + s->firstRefPicL1) -
-                16 * (s->CurrMbAddr & 1));
+            unsigned int u = 2 * (s->CurrMbAddr + s->firstRefPicL1) - (s->CurrMbAddr & 1);
+            int16_t r = ((int16_t *)s->refPicCol)[u] >> 1;
+            refPicCol = (v4qi)(v2hi){r, r};
+            v2li *v = (v2li *)(s->mvCol + 16 * u);
             mvCol0 = __builtin_shufflevector(v[0], v[0], 0, 0);
             mvCol1 = __builtin_shufflevector(v[1], v[1], 0, 0);
             mvCol2 = __builtin_shufflevector(v[0], v[0], 1, 1);
             mvCol3 = __builtin_shufflevector(v[1], v[1], 1, 1);
             if (!s->direct_spatial_mv_pred_flag) {
-                mvCol0 += mvCol0 & mask;
-                mvCol1 += mvCol1 & mask;
-                mvCol2 += mvCol2 & mask;
-                mvCol3 += mvCol3 & mask;
-        }
-    
-        /* It is architecturally simplest to initialise with P/B_Skip here. */
-        if (s->slice_type == 0) {
-            /* 8.4.1.1 - P_Skip motion prediction. */
-            int32_t mv = (v2hi){median(mvL0A[0], mvL0B[0], mvL0C[0]),
-                median(mvL0A[1], mvL0B[1], mvL0C[1])};
-            if (s->ctxIdxInc.unavailable)
-                mv = 0;
-            if (refIdxL0A == 0) {
-                if ((int32_t)mvL0A == 0 || refIdxL0B != 0 && refIdxL0C != 0)
-                    mv = mvL0A;
-            } else if (refIdxL0B == 0) {
-                if ((int32_t)mvL0B == 0 || refIdxL0C != 0)
-                    mv = mvL0B;
-            } else if (refIdxL0C == 0) {
-                mv = mvL0C;
+                mvCol0 += mvCol0 & vertical;
+                mvCol1 += mvCol1 & vertical;
+                mvCol2 += mvCol2 & vertical;
+                mvCol3 += mvCol3 & vertical;
             }
-            typedef int32_t v16si __attribute__((vector_size(64)));
-            ((v16si *)s->mv)[0] = (v16si){mv, mv, mv, mv, mv, mv, mv, mv, mv, mv, mv, mv, mv, mv, mv, mv};
-            ((v16si *)s->mv)[1] = (v16si){0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
-            ((int32_t *)m->refIdx)[0] = 0;
-            ((int32_t *)m->refIdx)[1] = -1;
-        } else if (s->direct_spatial_mv_pred_flag) {
-            /* MinPositive is umin. Also since refIdxLX equals one of A/B/C,
-               we initialise mvLX to the same of A/B/C (8.4.1.3.1-2). */
-            int refIdxL0 = ((unsigned)refIdxL0B < (unsigned)refIdxL0C) ? refIdxL0B : refIdxL0C;
-            int32_t mvL0 = ((unsigned)refIdxL0B < (unsigned)refIdxL0C) ? mvL0B : mvL0C;
-            refIdxL0 = ((unsigned)refIdxL0A < (unsigned)refIdxL0) ? refIdxL0A : refIdxL0;
-            mvL0 = ((unsigned)refIdxL0A < (unsigned)refIdxL0) ? mvL0A : mvL0;
-            int refIdxL1 = ((unsigned)refIdxL1B < (unsigned)refIdxL1C) ? refIdxL1B : refIdxL1C;
-            int32_t mvL1 = ((unsigned)refIdxL1B < (unsigned)refIdxL1C) ? mvL1B : mvL1C;
-            refIdxL1 = ((unsigned)refIdxL1A < (unsigned)refIdxL1) ? refIdxL1A : refIdxL1;
-            mvL1 = ((unsigned)refIdxL1A < (unsigned)refIdxL1) ? mvL1A : mvL1;
+        }
         
+        /* 8.4.1.2.2 - Spatial motion prediction. */
+        if (s->direct_spatial_mv_pred_flag) {
+            
+            /* refIdxLX equals one of A/B/C, so initialise mvLX the same way (8.4.1.3.1). */
+            int refIdxL0 = (unsigned)refIdxL0B < (unsigned)refIdxL0C ? refIdxL0B : refIdxL0C;
+            int32_t mvL0 = (int32_t)((unsigned)refIdxL0B < (unsigned)refIdxL0C) ? mvL0B : mvL0C);
+            refIdxL0 = (unsigned)refIdxL0A < (unsigned)refIdxL0 ? refIdxL0A : refIdxL0;
+            mvL0 = (int32_t)((unsigned)refIdxL0A < (unsigned)refIdxL0 ? mvL0A : mvL0);
+            int refIdxL1 = (unsigned)refIdxL1B < (unsigned)refIdxL1C ? refIdxL1B : refIdxL1C;
+            int32_t mvL1 = (int32_t)((unsigned)refIdxL1B < (unsigned)refIdxL1C ? mvL1B : mvL1C);
+            refIdxL1 = (unsigned)refIdxL1A < (unsigned)refIdxL1 ? refIdxL1A : refIdxL1;
+            mvL1 = (int32_t)((unsigned)refIdxL1A < (unsigned)refIdxL1 ? mvL1A : mvL1);
+            
             /* When another one of A/B/C equals refIdxLX, fallback to median. */
             if (refIdxL0 >= 0 && (refIdxL0 == refIdxL0A) +
                 (refIdxL0 == refIdxL0B) + (refIdxL0 == refIdxL0C) > 1) {
-                mvL0 = (v2hi){median(mvL0A[0], mvL0B[0], mvL0C[0]),
+                mvL0 = (int32_t)(v2hi){median(mvL0A[0], mvL0B[0], mvL0C[0]),
                     median(mvL0A[1], mvL0B[1], mvL0C[1])};
             }
             if (refIdxL1 >= 0 && (refIdxL1 == refIdxL1A) +
                 (refIdxL1 == refIdxL1B) + (refIdxL1 == refIdxL1C) > 1) {
-                mvL1 = (v2hi){median(mvL1A[0], mvL1B[0], mvL1C[0]),
+                mvL1 = (int32_t)(v2hi){median(mvL1A[0], mvL1B[0], mvL1C[0]),
                     median(mvL1A[1], mvL1B[1], mvL1C[1])};
             }
-        
+            
             /* Direct Zero Prediction already has both mvLX zeroed. */
             if (refIdxL0 < 0 && refIdxL1 < 0)
                 refIdxL0 = refIdxL1 = 0;
-            ((uint32_t *)m->refIdx)[0] = (refIdxL0 & 0xff) * 0x01010101;
-            ((uint32_t *)m->refIdx)[1] = (refIdxL1 & 0xff) * 0x01010101;
-        
-            /* colZeroFlag is applied by ANDing mvLX to zero when mvCol[X]
-               lie in the range -1 to 1. */
+            ((uint32_t *)m->refIdx)[0] = refIdxL0 = (refIdxL0 & 0xff) * 0x01010101;
+            ((uint32_t *)m->refIdx)[1] = refIdxL1 = (refIdxL1 & 0xff) * 0x01010101;
+            
+            /* It is most convenient to use the opposite of colZeroFlag. */
             typedef int32_t v4si __attribute__((vector_size(16)));
-            static const v4si low = {-1, -1, -1, -1}, up = {1, 1, 1, 1}; // FIXME: v8si!
-            v4si v0 = {mvL0, mvL0, mvL0, mvL0};
-            v4si v1 = {mvL1, mvL1, mvL1, mvL1};
-            for (unsigned int i = 0; i < 4; i++) {
-                v4si nz = (((v4si *)mvCol)[i] < low) | (((v4si *)mvCol)[i] > up);
-                nz |= __builtin_shufflevector(nz, nz, 1, 0, 3, 2, 5, 4, 7, 6);
-                int or0 = s->col_long_term | refIdxL0 | (refPicCol[i] - s->refPicCol0);
-                int or1 = s->col_long_term | refIdxL1 | (refIdxCol[i] - s->refPicCol0);
-                ((v4si *)s->mv)[i] = (or0 == 0) ? v0 & nz : v0;
-                ((v4si *)s->mv)[i + 4] = (or1 == 0) ? v1 & nz : v1;
-            }
+            v8hi v0 = (v8si)(v4si){mvL0, mvL0, mvL0, mvL0};
+            v8hi v1 = (v8si)(v4si){mvL1, mvL1, mvL1, mvL1};
+            v4qi refIdxCol_nz = refPicCol ^ (v4qi)s->refPicCol0;
+            v4qi colNonZeroFlag0 = refIdxCol_nz | (v4qi)refIdxL0;
+            v4qi colNonZeroFlag1 = refIdxCol_nz | (v4qi)refIdxL1;
+            
+            /* Looping here would leave the possibility of spilling mvCol. */
+            v8hi nz0 = (mvCol0 < neg) | (mvCol0 > one);
+            v8hi nz1 = (mvCol1 < neg) | (mvCol1 > one);
+            v8hi nz2 = (mvCol2 < neg) | (mvCol2 > one);
+            v8hi nz3 = (mvCol3 < neg) | (mvCol3 > one);
+            nz0 |= __builtin_shufflevector(nz0, nz0, 1, 0, 3, 2, 5, 4, 7, 6);
+            nz1 |= __builtin_shufflevector(nz1, nz1, 1, 0, 3, 2, 5, 4, 7, 6);
+            nz2 |= __builtin_shufflevector(nz2, nz2, 1, 0, 3, 2, 5, 4, 7, 6);
+            nz3 |= __builtin_shufflevector(nz3, nz3, 1, 0, 3, 2, 5, 4, 7, 6);
+            ((v8hi *)s->mv)[0] = (colNonZeroFlag0[0]) ? v0 : v0 & nz0;
+            ((v8hi *)s->mv)[1] = (colNonZeroFlag0[1]) ? v0 : v0 & nz1;
+            ((v8hi *)s->mv)[2] = (colNonZeroFlag0[2]) ? v0 : v0 & nz2;
+            ((v8hi *)s->mv)[3] = (colNonZeroFlag0[3]) ? v0 : v0 & nz3;
+            ((v8hi *)s->mv)[4] = (colNonZeroFlag1[0]) ? v1 : v1 & nz0;
+            ((v8hi *)s->mv)[5] = (colNonZeroFlag1[1]) ? v1 : v1 & nz1;
+            ((v8hi *)s->mv)[6] = (colNonZeroFlag1[2]) ? v1 : v1 & nz2;
+            ((v8hi *)s->mv)[7] = (colNonZeroFlag1[3]) ? v1 : v1 & nz3;
+            
+        /* 8.4.1.2.3 - Temporal motion prediction. */
         } else {
-            /* Temporal motion prediction is incredibly simple actually. */
             ((uint32_t *)m->refIdx)[1] = 0;
-            for (unsigned int i = 0; i < 4; i++) {
-                m->refIdx[i] = s->MapColToList0[1 + refPicCol[i]];
-                mvL0[i] = temporal_scale(mvCol[i], s->DistScaleFactor[1 + refPicCol[i]]);
-                mvL1[i] = mvL0[i] - mvCol[i];
-            }
+            m->refIdx[0] = s->MapColToList0[1 + refPicCol[0]];
+            m->refIdx[1] = s->MapColToList0[1 + refPicCol[1]];
+            m->refIdx[2] = s->MapColToList0[1 + refPicCol[2]];
+            m->refIdx[3] = s->MapColToList0[1 + refPicCol[3]];
+            ((v8hi *)s->mv)[0] = temporal_scale(mvCol0, s->DistScaleFactor[1 + refPicCol[0]]);
+            ((v8hi *)s->mv)[1] = temporal_scale(mvCol1, s->DistScaleFactor[1 + refPicCol[1]]);
+            ((v8hi *)s->mv)[2] = temporal_scale(mvCol2, s->DistScaleFactor[1 + refPicCol[2]]);
+            ((v8hi *)s->mv)[3] = temporal_scale(mvCol3, s->DistScaleFactor[1 + refPicCol[3]]);
+            ((v8hi *)s->mv)[4] = ((v8hi *)s->mv)[0] - mvCol0;
+            ((v8hi *)s->mv)[5] = ((v8hi *)s->mv)[1] - mvCol1;
+            ((v8hi *)s->mv)[6] = ((v8hi *)s->mv)[2] - mvCol2;
+            ((v8hi *)s->mv)[7] = ((v8hi *)s->mv)[3] - mvCol3;
         }
     }
 }

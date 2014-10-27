@@ -30,4 +30,7 @@ many of the branches found in CABAC;
 * Prediction samples are passed in SIMD registers to the transform functions,
 such that almost no intermediate results are committed to memory;
 * A heavy use of nested switches to share tail code paths dramatically reduces
-code size, such that the whole decoding loop will fit in L1 cache.
+code size, such that the whole decoding loop will fit in L1 cache;
+* edge264 is not a bitstream validator, so there is neither logging nor explicit
+detection of parsing errors;
+* error concealment greys areas based on error probability.

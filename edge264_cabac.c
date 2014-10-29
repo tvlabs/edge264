@@ -62,7 +62,6 @@ static inline void CABAC_parse_init(Edge264_slice *s, Edge264_macroblock *m)
         .coded_block_flag_16x16 = 0x15,
     };
     
-    /* The first block initialises m with the A/B/C/D neighbours. */
     typedef int16_t v2hi __attribute__((vector_size(4)));
     v2hi mvL0A, mvL1A, mvL0B, mvL1B, mvL0C, mvL1C;
     int refIdxL0A, refIdxL1A, refIdxL0B, refIdxL1B, refIdxL0C, refIdxL1C;
@@ -164,6 +163,7 @@ static inline void CABAC_parse_init(Edge264_slice *s, Edge264_macroblock *m)
         typedef int8_t v4qi __attribute__((vector_size(4)));
         typedef int16_t v8hi __attribute__((vector_size(16)));
         typedef int64_t v2li __attribute__((vector_size(16)));
+        static const v8hi horizontal = {-1, 0, -1, 0, -1, 0, -1, 0};
         static const v8hi vertical = {0, -1, 0, -1, 0, -1, 0, -1};
         static const v8hi one = {1, 1, 1, 1, 1, 1, 1, 1};
         static const v8hi neg = {-1, -1, -1, -1, -1, -1, -1, -1};
@@ -188,10 +188,10 @@ static inline void CABAC_parse_init(Edge264_slice *s, Edge264_macroblock *m)
             mvCol2 = (v8hi)__builtin_shufflevector(v[4], v[6], 0, 2);
             mvCol3 = (v8hi)__builtin_shufflevector(v[5], v[7], 0, 2);
             if (!s->direct_spatial_mv_pred_flag) {
-                mvCol0 = (mvCol0 & ~vertical) | ((mvCol0 >> one) & vertical);
-                mvCol1 = (mvCol1 & ~vertical) | ((mvCol1 >> one) & vertical);
-                mvCol2 = (mvCol2 & ~vertical) | ((mvCol2 >> one) & vertical);
-                mvCol3 = (mvCol3 & ~vertical) | ((mvCol3 >> one) & vertical);
+                mvCol0 = (mvCol0 & horizontal) | ((mvCol0 >> one) & vertical);
+                mvCol1 = (mvCol1 & horizontal) | ((mvCol1 >> one) & vertical);
+                mvCol2 = (mvCol2 & horizontal) | ((mvCol2 >> one) & vertical);
+                mvCol3 = (mvCol3 & horizontal) | ((mvCol3 >> one) & vertical);
             }
         } else { // Fld_To_Frm
             unsigned int u = 2 * (s->CurrMbAddr + s->firstRefPicL1) - (s->CurrMbAddr & 1);
@@ -249,7 +249,7 @@ static inline void CABAC_parse_init(Edge264_slice *s, Edge264_macroblock *m)
             v4qi colNonZeroFlag0 = refIdxCol_nz | (v4qi)refIdxL0;
             v4qi colNonZeroFlag1 = refIdxCol_nz | (v4qi)refIdxL1;
             
-            /* Looping here would leave the possibility of spilling mvCol. */
+            /* We rather unroll than hope the compiler will do. */
             v8hi nz0 = (mvCol0 < neg) | (mvCol0 > one);
             v8hi nz1 = (mvCol1 < neg) | (mvCol1 > one);
             v8hi nz2 = (mvCol2 < neg) | (mvCol2 > one);
@@ -291,17 +291,17 @@ static inline void CABAC_parse_init(Edge264_slice *s, Edge264_macroblock *m)
 /**
  * Parses all ref_idx_lX and mvd_lX.
  */
-static inline void CABAC_parse_inter_mb_pred(Edge264_slice *s, unsigned int size,
-    unsigned int Pred_LX)
+static inline void CABAC_parse_inter_mb_pred(Edge264_slice *s,
+    Edge264_macroblock *m, unsigned int Pred_LX, uint8_t mvd_flags[4])
 {
     /* Parsing for ref_idx_lX in P/B slices. */
-    for (unsigned int f = Pred_LX; f != 0; f &= f - 1) {
+    for (unsigned int f = Pred_LX & s->ref_idx_mask; f != 0; f &= f - 1) {
         unsigned int i = __builtin_ctz(f);
-        unsigned int ctxIdxInc = s->e.ref_idx_nz >> left8x8[i] & 3;
-        s->refIdx[i] = 0;
+        unsigned int ctxIdxInc = (m->ref_idx_nz >> left8x8[i]) & 3;
+        m->refIdx[i] = 0;
         while (get_ae(&s->c, &s->s[54 + ctxIdxInc]))
-            ctxIdxInc = umin(4 + s->refIdx[i]++, 5);
-        s->e.ref_idx_nz |= (s->refIdx[i] > 0) << bit8x8[i];
+            ctxIdxInc = umin(4 + m->refIdx[i]++, 5);
+        m->ref_idx_nz |= (m->refIdx[i] > 0) << bit8x8[i];
     }
     
     /* TODO: Compute the relative positions of all (A,B,C) in parallel. */
@@ -400,70 +400,70 @@ static inline void CABAC_parse_coded_block_pattern(Edge264_slice *s) {
 
 static inline void CABAC_parse_mb_type(Edge264_slice *s, Edge264_macroblock *m)
 {
-    static const uint8_t str2Pred_LX[32] = {0x45, 0x23, 0x54, 0x32, 0x15, 0x13,
-        0x51, 0x31, 0x55, 0x33, 0, 0, 0, 0, 0, 0, 0x11, 0x05, 0x03, 0x50, 0x30,
-        0x41, 0x21, 0x14, 0, 0, 0, 0, 0, 0, 0x12, 0};
-    static const uint8_t sub2Pred_LX[16] = {0x10, 0x11, 0x11, 0x01, 0, 0, 0, 0,
-        0x11, 0x01, 0x01, 0x10, 0, 0, 0x10, 0x11};
-    static const uint8_t sub2mvd_flags[16] = {0x0f, 0x33, 0x0f, 0xff, 0, 0, 0, 0,
-        0x03, 0x33, 0x0f, 0x33, 0, 0, 0xff, 0xff};
+    static const uint8_t P2Pred_LX[2][2] = {0x01, 0x0f, 0x03, 0x05};
+    static const uint8_t p2mvd_flags[4] = {0x03, 0x33, 0x0f, 0xff};
+    static const uint8_t B2Pred_LX[42] = {0x11, 0x05, 0x03, 0x50, 0x30, 0x41,
+        0x21, 0x14, 0, 0, 0, 0, 0, 0, 0x12, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0x45, 0x23, 0x54, 0x32, 0x15, 0x13, 0x51, 0x31, 0x55, 0x33};
+    static const uint8_t b2Pred_LX[20] = {0x11, 0x01, 0x01, 0x10, 0, 0,
+        0x10, 0x11, 0, 0, 0, 0, 0, 0, 0, 0, 0x10, 0x11, 0x11, 0x01};
+    static const uint8_t b2mvd_flags[20] = {0x03, 0x33, 0x0f, 0x33, 0, 0,
+        0xff, 0xff, 0, 0, 0, 0, 0, 0, 0, 0, 0x0f, 0x33, 0x0f, 0xff};
     
+    uint8_t mvd_flags[4] = {3, 3, 3, 3}; // [subMbPartIdx][compIdx] bitfields
+    unsigned int Pred_LX = 0; // [LX][mbPartIdx] bitfield
     if (s->slice_type != 2) {
         if (s->slice_type == 0) {
             if (s->f.mb_skip_flag & 1) {
-                memset(s->e.absMvdComp, 0, 36); // TODO: Replace with 9 iterations?
+                memset(s->e.absMvdComp, 0, 36);
             } else if (get_ae(&s->c, &s->s[14])) {
                 goto intra_prediction;
             } else {
                 unsigned int bin1 = get_ae(&s->c, &s->s[15]);
                 unsigned int bin2 = get_ae(&s->c, &s->s[16 + bin1]);
-                s->inter_size = (2 * bin1 + bin2 + 3) % 4;
-                s->Pred_LX = 0x153f >> (s->inter_size * 4) & 15;
-
+                Pred_LX = P2Pred_LX[bin1][bin2];
+                
                 /* Parsing for sub_mb_type in P slices. */
-                for (unsigned int mbPartIdx = 0; s->inter_size == 0 && mbPartIdx < 4; mbPartIdx++) {
+                for (unsigned int mbPartIdx = 0; s->Pred_LX == 0x0f && mbPartIdx < 4; mbPartIdx++) {
                     unsigned int sub_mb_type = 0;
                     while (get_ae(&s->c, &s->s[21 + sub_mb_type]) == sub_mb_type % 2 &&
                         ++sub_mb_type < 3);
-                    s->mvd_flags[mbPartIdx] = 0xff0f3303 >> (8 * sub_mb_type) & 0xff;
+                    mvd_flags[mbPartIdx] = p2mvd_flags[sub_mb_type];
                 }
             }
         } else {
-            pred_B_Skip(s, m);
             if (s->f.mb_skip_flag & 1 || !get_ae(&s->c, &s->s[27 + s->ctxIdxInc.mb_type_B])) {
                 s->f.mb_type_B = 0;
             } else if (!get_ae(&s->c, &s->s[30])) {
                 unsigned int bin2 = get_ae(&s->c, &s->s[32]);
-                s->Pred_LX = 1 << (4 * bin2);
+                Pred_LX = 1 << (4 * bin2);
             } else {
                 unsigned int str = 1;
                 while ((uint64_t)0x1f00ffff >> str & 1)
                     str += str + get_ae(&s->c, &s->s[30 + umin(str, 2)]);
-                if (str == 13)
+                if (str == 29)
                     goto intra_prediction;
-                str ^= str >> 1 & 16; // [48..57] -> [0..9]
-                s->inter_size = 0x1000999b00066666 >> (2 * str) & 3;
-                s->Pred_LX = str2Pred_LX[str];
-
+                Pred_LX = (B2Pred_LX - 16)[str];
+                
                 /* Parsing for sub_mb_type in B slices. */
-                for (unsigned int mbPartIdx = 0; str == 15 && mbPartIdx < 4; mbPartIdx++) {
-                    if (get_ae(&s->c, &s->s[36]))
-                        continue;
-                    if (!get_ae(&s->c, &s->s[37])) {
-                        unsigned int idx = 4 * get_ae(&s->c, &s->s[39]) + mbPartIdx;
-                        s->Pred_LX += 1 << idx;
+                // TODO: Try to move the hack here
+                for (unsigned int mbPartIdx = 0; str == 31 && mbPartIdx < 4; mbPartIdx++) {
+                    if (!get_ae(&s->c, &s->s[36])) {
+                        Pred_LX += 1 << 8; // tiny hack to prevent later mv copy
+                    } else if (!get_ae(&s->c, &s->s[37])) {
+                        unsigned int bin2 = get_ae(&s->c, &s->s[39]);
+                        Pred_LX += 1 << (4 * bin2 + mbPartIdx);
                     } else {
                         unsigned int sub = 1;
                         while (0xc0ff >> sub & 1)
                             sub += sub + get_ae(&s->c, &s->s[37 + umin(sub, 2)]);
-                        sub ^= sub >> 1 & 8; // [24..27] -> [0..3]
-                        s->Pred_LX += sub2Pred_LX[sub] << mbPartIdx;
-                        s->mvd_flags[mbPartIdx] = s->mvd_flags[4 + mbPartIdx] = sub2mvd_flags[sub];
+                        Pred_LX += (b2Pred_LX - 8)[sub] << mbPartIdx;
+                        mvd_flags[mbPartIdx] = (b2mvd_flags - 8)[sub];
                     }
                 }
             }
         }
-        CABAC_parse_inter_mb_pred(s, m);
+        CABAC_parse_inter_mb_pred(s, m, Pred_LX, mvd_flags);
     } else {
         intra_prediction:
         
@@ -488,10 +488,6 @@ void CABAC_parse_slice_data(Edge264_slice *s, Edge264_macroblock *m)
     unsigned int end_of_slice_flag = 0;
     while (!end_of_slice_flag && s->mb_y < s->ps.height / 16) {
         while (s->mb_x < s->ps.width / 16 && !end_of_slice_flag) {
-            
-            /* These variables have short live ranges so are declared local. */
-            int refIdxA, refIdxB, refIdxC, posC, mvp; // 
-            
             CABAC_parse_init(s, m);
             CABAC_parse_mb_type(s, m);
             

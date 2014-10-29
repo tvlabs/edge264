@@ -228,7 +228,7 @@ static inline void renorm(CABAC_ctx *c, unsigned int v) {
 }
 
 static inline int get_ae(CABAC_ctx *c, uint8_t *state) {
-    static const int rangeTabLPS[4 * 64] = {
+    static const uint8_t rangeTabLPS[4 * 64] = {
         128, 128, 128, 123, 116, 111, 105, 100, 95, 90, 85, 81, 77, 73, 69, 66,
         62, 59, 56, 53, 51, 48, 46, 43, 41, 39, 37, 35, 33, 32, 30, 29, 27, 26,
         24, 23, 22, 21, 20, 19, 18, 17, 16, 15, 14, 14, 13, 12, 12, 11, 11, 10,
@@ -246,7 +246,7 @@ static inline int get_ae(CABAC_ctx *c, uint8_t *state) {
         48, 45, 43, 41, 39, 37, 35, 33, 31, 30, 28, 27, 25, 24, 23, 22, 21, 20,
         19, 18, 17, 16, 15, 14, 14, 13, 12, 12, 11, 11, 10, 9, 2,
     };
-    static const int transIdx[2 * 128] = {
+    static const uint8_t transIdx[2 * 128] = {
         0x7f, 0x7e, 0x4d, 0x4c, 0x4d, 0x4c, 0x4b, 0x4a, 0x4b, 0x4a, 0x4b, 0x4a,
         0x49, 0x48, 0x49, 0x48, 0x49, 0x48, 0x47, 0x46, 0x47, 0x46, 0x47, 0x46,
         0x45, 0x44, 0x45, 0x44, 0x43, 0x42, 0x43, 0x42, 0x43, 0x42, 0x41, 0x40,
@@ -279,7 +279,7 @@ static inline int get_ae(CABAC_ctx *c, uint8_t *state) {
     c->codIRange = codIRangeMPS ^ ((codIRangeMPS ^ codIRangeLPS) & lps_mask);
     c->codIOffset -= codIRangeMPS & lps_mask;
     int xor = *state ^ (int)lps_mask;
-    *state = transIdx[128 + xor];
+    *state = (transIdx + 128)[xor];
     if (__builtin_expect(c->codIRange < 256, 0))
         renorm(c, __builtin_clzl(c->codIRange) - 1);
     return xor & 1;
@@ -331,6 +331,7 @@ typedef struct {
     uint16_t x; // in luma samples, 14 significant bits
     uint16_t y;
     uint32_t CurrMbAddr; // always follows Mbaff scan, 19 significant bits
+    uint16_t *mv; // circular buffer of [LX][luma4x4BlkIdx][compIdx] macroblocks
     unsigned int slice_type:2;
     unsigned int MbaffFrameFlag:1;
     unsigned int direct_spatial_mv_pred_flag:1;
@@ -338,15 +339,12 @@ typedef struct {
     unsigned int disable_deblocking_filter_idc:2;
     int FilterOffsetA:5;
     int FilterOffsetB:5;
-    unsigned int inter_size:2; // 0=8x8, 1=8x16, 2=16x8, 3=16x16
-    uint8_t Pred_LX; // [LX][mbPartIdx] bitfield
+    unsigned int ref_idx_mask:8;
     uint32_t refPicCol0;
     const Edge264_picture *DPB;
     int8_t RefPicList[2][32] __attribute__((aligned));
     int16_t weights[3][32][2];
     int16_t offsets[3][32][2];
-    uint8_t mvd_flags[8] __attribute__((aligned));
-    uint16_t *mv; // circular buffer of [LX][luma4x4BlkIdx][compIdx] macroblocks
     Edge264_parameter_set ps;
     uint8_t s[1024];
 } Edge264_slice;

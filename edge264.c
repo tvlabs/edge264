@@ -593,9 +593,9 @@ printf("<br/>\n");
                 s.ps.num_ref_idx_active[l] = get_ue(e->CPB, &s.c.shift, 31) + 1;
         }
         parse_ref_pic_list_modification(&s, e);
+        if ((s.ps.weighted_pred << (2 * s.slice_type)) & 4)
+            parse_pred_weight_table(&s, e);
     }
-    if ((s.ps.weighted_pred << (2 * s.slice_type)) & 4)
-        parse_pred_weight_table(&s, e);
     if (e->nal_ref_idc != 0)
         parse_dec_ref_pic_marking(&s, e);
     if (s.ps.entropy_coding_mode_flag && s.slice_type != 2) {

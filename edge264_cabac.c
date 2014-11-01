@@ -304,24 +304,29 @@ static inline void CABAC_parse_inter_mb_pred(Edge264_slice *s,
         m->ref_idx_nz |= (m->refIdx[i] > 0) << bit8x8[i];
     }
     
-    /* TODO: Compute the relative positions of all (A,B,C) in parallel. */
-    int8_t posA[64] __attribute__((aligned(8))) = {
-        8, -12, 8, -12, 8, -12, 8, -12, 8, -12, 8, -12, 8, -12, 8, -12,
-        -4, -4, -4, -4, -4, -4, -4, -4, -4, -4, -4, -4, -4, -4, -4, -4,
-        4, -12, 4, -12, 4, -12, 4, -12, 4, -12, 4, -12, 4, -12, 4, -12,
-        -4, -4, -4, -4, -4, -4, -4, -4, -4, -4, -4, -4, -4, -4, -4, -4,
-    };
-    int8_t posB[64] __attribute__((aligned(8)));
-    int8_t posC[64] __attribute__((aligned(8)));
+    /* Compute the relative positions of all (A,B,C) in parallel. */
     typedef int8_t v8qi __attribute__((vector_size(8)));
+    int8_t posA[32];
+    int8_t posB[32];
+    int8_t posC[32];
+    if (__builtin_expect(s->MbaffFrameFlag, 0)) {
+        
+    } else {
+        v8qi refIdx = *(v8qi *)m->refIdx;
+        v8qi refIdxA = __builtin_shufflevector(refIdx, *(v8qi *)m[-1].refIdx,
+            9, 0, 11, 2, 13, 4, 15, 6);
+        v8qi refIdxB = *(v8qi *)m[2].refIdx;
+        
+    }
     
     /* Parsing for mvd_lX in P/B slices. */
+    typedef int32_t v4si __attribute__((vector_size(16)));
     for (unsigned int f = Pred_LX; f != 0; f &= f - 1) {
-        unsigned int mbPartIdx = __builtin_ctz(f);
-        for (unsigned int g = s->mvd_flags[mbPartIdx]; g != 0; g &= g - 1) {
-            unsigned int compIdx = 8 * mbPartIdx + __builtin_ctz(g);
-            unsigned int sum = s->e.absMvdComp[edge4x4[compIdx] - 1] +
-                s->e.absMvdComp[edge4x4[compIdx] + 1];
+        unsigned int i = __builtin_ctz(f);
+        for (uint64_t g = mvd_flags[i % 4] << (i * 8); g != 0; g &= g - 1) {
+            unsigned int compIdx = ctz64(g);
+            unsigned int e = edge4x4[compIdx];
+            unsigned int sum = m->absMvdComp[e - 1] + m->absMvdComp[e + 1];
             unsigned int ctxIdxInc = (sum >= 3) + (sum > 32);
             int mvd = 0;
             while (mvd < 9 && get_ae(&s->c, &s->s[(compIdx & 1 ? 47 : 40) + ctxIdxInc]))
@@ -351,7 +356,7 @@ static inline void CABAC_parse_inter_mb_pred(Edge264_slice *s,
                 s->c.codIRange = (unsigned long)codIRange << (LONG_BIT - 32 + pos);
                 s->c.codIOffset = (quo & ((1 << pos) - 1)) * codIRange + rem;
             }
-            s->e.absMvdComp[edge4x4[compIdx]] = umin(mvd, 66);
+            m->absMvdComp[e] = umin(mvd, 66);
             if (mvd > 0) {
                 int mvd_sign_flag = get_bypass(&s->c);
                 mvd = (mvd ^ -mvd_sign_flag) + mvd_sign_flag;
@@ -360,11 +365,34 @@ static inline void CABAC_parse_inter_mb_pred(Edge264_slice *s,
             }
             
             /* Add the predicted median motion vector. */
-            int a = s->mv[compIdx + posA[compIdx]];
-            int b = s->mv[compIdx + posB[compIdx]];
-            int c = s->mv[compIdx + posC[compIdx]];
+            int a = s->mv[compIdx + 2 * posA[compIdx / 2]];
+            int b = s->mv[compIdx + 2 * posB[compIdx / 2]];
+            int c = s->mv[compIdx + 2 * posC[compIdx / 2]];
             s->mv[compIdx] = mvd + median(a, b, c);
         }
+        
+        /* Intermediate copies for 8x8, 4x8 and 8x4 blocks. */
+        v4si v = ((v4si *)s->mv)[i];
+        if (!(mvd_flags[i % 4] & 0xcc))
+            v = __builtin_shufflevector(v, v, 0, 0, 2, 2);
+        if (!(mvd_flags[i % 4] & 0xf0))
+            v = __builtin_shufflevector(v, v, 0, 1, 0, 1);
+        ((v4si *)s->mv)[i] = v;
+    }
+    
+    /* Final copies for 16x16, 8x16 and 16x8 blocks. */
+    unsigned int pattern = (Pred_LX >> 4) | (Pred_LX & 0xf);
+    if (!(pattern & 0x1a)) {
+        ((v4si *)s->mv)[1] = ((v4si *)s->mv)[0];
+        ((v4si *)s->mv)[3] = ((v4si *)s->mv)[2];
+        ((v4si *)s->mv)[5] = ((v4si *)s->mv)[4];
+        ((v4si *)s->mv)[7] = ((v4si *)s->mv)[6];
+    }
+    if (!(pattern & 0x1c)) {
+        ((v4si *)s->mv)[2] = ((v4si *)s->mv)[0];
+        ((v4si *)s->mv)[3] = ((v4si *)s->mv)[1];
+        ((v4si *)s->mv)[6] = ((v4si *)s->mv)[4];
+        ((v4si *)s->mv)[7] = ((v4si *)s->mv)[5];
     }
 }
 
@@ -449,7 +477,7 @@ static inline void CABAC_parse_mb_type(Edge264_slice *s, Edge264_macroblock *m)
                 // TODO: Try to move the hack here
                 for (unsigned int mbPartIdx = 0; str == 31 && mbPartIdx < 4; mbPartIdx++) {
                     if (!get_ae(&s->c, &s->s[36])) {
-                        Pred_LX += 1 << 8; // tiny hack to prevent later mv copy
+                        Pred_LX += 1 << 8; // hack to prevent misinterpretation as 16x16
                     } else if (!get_ae(&s->c, &s->s[37])) {
                         unsigned int bin2 = get_ae(&s->c, &s->s[39]);
                         Pred_LX += 1 << (4 * bin2 + mbPartIdx);

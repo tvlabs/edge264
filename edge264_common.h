@@ -57,6 +57,7 @@ static inline const char *red_if(int cond) { return (cond) ? " style=\"color: re
 
 #if ULLONG_MAX == 18446744073709551615U
 #define clz64 __builtin_clzll
+#define ctz64 __builtin_ctzll
 #endif
 
 #if __BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__

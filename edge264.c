@@ -22,6 +22,7 @@
 /* TODO: Essayer de remplacer m->f. par s->f. et une copie en fin de macrobloc. */
 /* TODO: Make slice_type local if GCC cannot merge the (slice_type!=2) tests. */
 /* TODO: 128 dans pshufb insère 0 !!! */
+/* TODO: Mbaff must update ref_idx_mask each time it decodes mb_field_decoding_flag. */
 
 /**
  * Copyright (c) 2013-2014, Celticom / TVLabs

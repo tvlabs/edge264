@@ -270,14 +270,14 @@ static inline void CABAC_parse_init(Edge264_slice *s, Edge264_macroblock *m)
         /* 8.4.1.2.3 - Temporal motion prediction. */
         } else {
             ((uint32_t *)m->refIdx)[1] = 0;
-            m->refIdx[0] = s->MapColToList0[1 + refPicCol[0]];
-            m->refIdx[1] = s->MapColToList0[1 + refPicCol[1]];
-            m->refIdx[2] = s->MapColToList0[1 + refPicCol[2]];
-            m->refIdx[3] = s->MapColToList0[1 + refPicCol[3]];
-            ((v8hi *)s->mv)[0] = temporal_scale(mvCol0, s->DistScaleFactor[1 + refPicCol[0]]);
-            ((v8hi *)s->mv)[1] = temporal_scale(mvCol1, s->DistScaleFactor[1 + refPicCol[1]]);
-            ((v8hi *)s->mv)[2] = temporal_scale(mvCol2, s->DistScaleFactor[1 + refPicCol[2]]);
-            ((v8hi *)s->mv)[3] = temporal_scale(mvCol3, s->DistScaleFactor[1 + refPicCol[3]]);
+            m->refIdx[0] = (s->MapColToList0 + 1)[refPicCol[0]];
+            m->refIdx[1] = (s->MapColToList0 + 1)[refPicCol[1]];
+            m->refIdx[2] = (s->MapColToList0 + 1)[refPicCol[2]];
+            m->refIdx[3] = (s->MapColToList0 + 1)[refPicCol[3]];
+            ((v8hi *)s->mv)[0] = temporal_scale(mvCol0, (s->DistScaleFactor + 1)[refPicCol[0]]);
+            ((v8hi *)s->mv)[1] = temporal_scale(mvCol1, (s->DistScaleFactor + 1)[refPicCol[1]]);
+            ((v8hi *)s->mv)[2] = temporal_scale(mvCol2, (s->DistScaleFactor + 1)[refPicCol[2]]);
+            ((v8hi *)s->mv)[3] = temporal_scale(mvCol3, (s->DistScaleFactor + 1)[refPicCol[3]]);
             ((v8hi *)s->mv)[4] = ((v8hi *)s->mv)[0] - mvCol0;
             ((v8hi *)s->mv)[5] = ((v8hi *)s->mv)[1] - mvCol1;
             ((v8hi *)s->mv)[6] = ((v8hi *)s->mv)[2] - mvCol2;
@@ -292,7 +292,7 @@ static inline void CABAC_parse_init(Edge264_slice *s, Edge264_macroblock *m)
  * Parses all ref_idx_lX and mvd_lX.
  */
 static inline void CABAC_parse_inter_mb_pred(Edge264_slice *s,
-    Edge264_macroblock *m, unsigned int Pred_LX, uint8_t mvd_flags[4])
+    Edge264_macroblock *m, unsigned int Pred_LX, const uint8_t mvd_flags[4])
 {
     /* Parsing for ref_idx_lX in P/B slices. */
     for (unsigned int f = Pred_LX & s->ref_idx_mask; f != 0; f &= f - 1) {
@@ -305,8 +305,39 @@ static inline void CABAC_parse_inter_mb_pred(Edge264_slice *s,
     }
     
     /* Compute the relative positions of all (A,B,C) in parallel. */
+    typedef int64_t v2li __attribute__((vector_size(16)));
+    typedef int8_t v16qi __attribute__((vector_size(16)));
+    int8_t posA[32] __attribute__((aligned)) = {-27, -3, -27, -3, -27, -3, -27, -3,
+        -1, -1, -1, -1, -1, -1, -1, -1, -27, -3, -27, -3, -27, -3, -27, -3,
+        -1, -1, -1, -1, -1, -1, -1, -1};
+    int8_t posB[32] __attribute__((aligned)) = {74, 74, -6, -6, 74, 74, -6, -6,
+        74, 74, -6, -6, 74, 74, -6, -6, -2, -2, -2, -2, -2, -2, -2, -2,
+        -2, -2, -2, -2, -2, -2, -2, -2};
+    int8_t posC[32] __attribute__((aligned)) = {};
+    if (__builtin_expect(s->MbaffFrameFlag, 0)) {
+        
+    } else {
+        v16qi refIdx = (v16qi)(v2li){*(int64_t *)m->refIdx, *(int64_t *)m->refIdx};
+        v16qi refIdxAB = (v16qi)(v2li){*(int64_t *)m[-1].refIdx, *(int64_t *)m[2].refIdx};
+        v16qi refIdxC = (v16qi)(v2li){*(int64_t *)m[3].refIdx, *(int64_t *)m->refIdx};
+        refIdxAB = __builtin_shufflevector(refIdxAB, refIdxC,
+            1, 24, 3, 26, 5, 28, 7, 30, 10, 11, 24, 25, 14, 15, 28, 29);
+        refIdxC = __builtin_shufflevector(refIdxAB, refIdxC,
+            11, 18, 25, 24, 15, 22, 29, 28, 24, 25, 26, 27, 28, 29, 30, 31);
+        v16qi eqAB = (refIdx == refIdxAB);
+        v16qi eqC = (refIdx == refIdxC);
+        v16qi posA = {-27, -3, -27, -3, -27, -3, -27, -3, -1, -1, -1, -1, -1, -1, -1, -1};
+        v16qi posB0 = {74, 74, -6, -6, 74, 74, -6, -6, 74, 74, -6, -6, 74, 74, -6, -6};
+        v16qi posB1 = {-2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2};
+        v16qi posC0 = {75, 75, -5, -5, 75, 75, -5, -5, 77, 101, -3, -7, 77, 101, -3, -7};
+        v16qi posC1 = {-1, -1, -1, -1, -1, -1, -1, -1, -3, -3, -3, -3, -3, -3, -3, -3};
+        
+    }
+    
+    
+    
     typedef int8_t v8qi __attribute__((vector_size(8)));
-    int8_t posA[32];
+    int8_t posA[32]; // [subMbPartIdx][LX][mbPartIdx] !!!
     int8_t posB[32];
     int8_t posC[32];
     if (__builtin_expect(s->MbaffFrameFlag, 0)) {
@@ -315,7 +346,10 @@ static inline void CABAC_parse_inter_mb_pred(Edge264_slice *s,
         v8qi refIdx = *(v8qi *)m->refIdx;
         v8qi refIdxA = __builtin_shufflevector(refIdx, *(v8qi *)m[-1].refIdx,
             9, 0, 11, 2, 13, 4, 15, 6);
-        v8qi refIdxB = *(v8qi *)m[2].refIdx;
+        v8qi refIdxB = __builtin_shufflevector(refIdx, *(v8qi *)m[2].refIdx,
+            10, 11, 0, 1, 14, 15, 4, 5);
+        v8qi refIdxC = __builtin_shufflevector(refIdxB, *(v8qi *)m[3].refIdx,
+            1, 10, 3, 2, 5, 14, 7, 6);
         
     }
     
@@ -325,8 +359,8 @@ static inline void CABAC_parse_inter_mb_pred(Edge264_slice *s,
         unsigned int i = __builtin_ctz(f);
         for (uint64_t g = mvd_flags[i % 4] << (i * 8); g != 0; g &= g - 1) {
             unsigned int compIdx = ctz64(g);
-            unsigned int e = edge4x4[compIdx];
-            unsigned int sum = m->absMvdComp[e - 1] + m->absMvdComp[e + 1];
+            unsigned int e = mv2edge[compIdx];
+            unsigned int sum = m->absMvdComp[e - 4] + m->absMvdComp[e + 4];
             unsigned int ctxIdxInc = (sum >= 3) + (sum > 32);
             int mvd = 0;
             while (mvd < 9 && get_ae(&s->c, &s->s[(compIdx & 1 ? 47 : 40) + ctxIdxInc]))
@@ -474,7 +508,7 @@ static inline void CABAC_parse_mb_type(Edge264_slice *s, Edge264_macroblock *m)
                 Pred_LX = (B2Pred_LX - 16)[str];
                 
                 /* Parsing for sub_mb_type in B slices. */
-                // TODO: Try to move the hack here
+                // TODO: Try moving the hack here
                 for (unsigned int mbPartIdx = 0; str == 31 && mbPartIdx < 4; mbPartIdx++) {
                     if (!get_ae(&s->c, &s->s[36])) {
                         Pred_LX += 1 << 8; // hack to prevent misinterpretation as 16x16

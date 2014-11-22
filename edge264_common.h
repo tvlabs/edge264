@@ -97,6 +97,8 @@ static inline __m128i _mm_mullo_epi32(__m128i a, __m128i b) {
     return _mm_shuffle_epi32((__m128i)x4, _MM_SHUFFLE(3, 1, 2, 0));
 }
 #endif
+#else
+#error "Add -mssse3 or more recent"
 #endif
 
 #include "edge264.h"

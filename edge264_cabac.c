@@ -290,6 +290,7 @@ static inline void CABAC_parse_init(Edge264_slice *s, Edge264_macroblock *m)
 
 /**
  * Parses all ref_idx_lX and mvd_lX.
+ * TODO: Appliquer le 16x8 et 8x16 à refIdx aussi !
  */
 static inline void CABAC_parse_inter_mb_pred(Edge264_slice *s,
     Edge264_macroblock *m, unsigned int Pred_LX, const uint8_t mvd_flags[4])
@@ -304,57 +305,64 @@ static inline void CABAC_parse_inter_mb_pred(Edge264_slice *s,
         m->ref_idx_nz |= (m->refIdx[i] > 0) << bit8x8[i];
     }
     
-    /* Compute the relative positions of all (A,B,C) in parallel. */
-    typedef int64_t v2li __attribute__((vector_size(16)));
-    typedef int8_t v16qi __attribute__((vector_size(16)));
-    int8_t posA[32] __attribute__((aligned)) = {-27, -3, -27, -3, -27, -3, -27, -3,
-        -1, -1, -1, -1, -1, -1, -1, -1, -27, -3, -27, -3, -27, -3, -27, -3,
-        -1, -1, -1, -1, -1, -1, -1, -1};
-    int8_t posB[32] __attribute__((aligned)) = {74, 74, -6, -6, 74, 74, -6, -6,
-        74, 74, -6, -6, 74, 74, -6, -6, -2, -2, -2, -2, -2, -2, -2, -2,
-        -2, -2, -2, -2, -2, -2, -2, -2};
-    int8_t posC[32] __attribute__((aligned)) = {};
-    if (__builtin_expect(s->MbaffFrameFlag, 0)) {
-        
-    } else {
-        v16qi refIdx = (v16qi)(v2li){*(int64_t *)m->refIdx, *(int64_t *)m->refIdx};
-        v16qi refIdxAB = (v16qi)(v2li){*(int64_t *)m[-1].refIdx, *(int64_t *)m[2].refIdx};
-        v16qi refIdxC = (v16qi)(v2li){*(int64_t *)m[3].refIdx, *(int64_t *)m->refIdx};
-        refIdxAB = __builtin_shufflevector(refIdxAB, refIdxC,
-            1, 24, 3, 26, 5, 28, 7, 30, 10, 11, 24, 25, 14, 15, 28, 29);
-        refIdxC = __builtin_shufflevector(refIdxAB, refIdxC,
-            11, 18, 25, 24, 15, 22, 29, 28, 24, 25, 26, 27, 28, 29, 30, 31);
-        v16qi eqAB = (refIdx == refIdxAB);
-        v16qi eqC = (refIdx == refIdxC);
-        v16qi posA = {-27, -3, -27, -3, -27, -3, -27, -3, -1, -1, -1, -1, -1, -1, -1, -1};
-        v16qi posB0 = {74, 74, -6, -6, 74, 74, -6, -6, 74, 74, -6, -6, 74, 74, -6, -6};
-        v16qi posB1 = {-2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2};
-        v16qi posC0 = {75, 75, -5, -5, 75, 75, -5, -5, 77, 101, -3, -7, 77, 101, -3, -7};
-        v16qi posC1 = {-1, -1, -1, -1, -1, -1, -1, -1, -3, -3, -3, -3, -3, -3, -3, -3};
-        
-    }
-    
-    
-    
+    /* Compute the relative positions of all A/B/C motion vectors in parallel. */
     typedef int8_t v8qi __attribute__((vector_size(8)));
-    int8_t posA[32]; // [subMbPartIdx][LX][mbPartIdx] !!!
-    int8_t posB[32];
-    int8_t posC[32];
+    typedef int64_t v2li __attribute__((vector_size(16)));
+    typedef int32_t v4si __attribute__((vector_size(16)));
+    typedef int8_t v16qi __attribute__((vector_size(16)));
     if (__builtin_expect(s->MbaffFrameFlag, 0)) {
         
     } else {
-        v8qi refIdx = *(v8qi *)m->refIdx;
-        v8qi refIdxA = __builtin_shufflevector(refIdx, *(v8qi *)m[-1].refIdx,
-            9, 0, 11, 2, 13, 4, 15, 6);
-        v8qi refIdxB = __builtin_shufflevector(refIdx, *(v8qi *)m[2].refIdx,
-            10, 11, 0, 1, 14, 15, 4, 5);
-        v8qi refIdxC = __builtin_shufflevector(refIdxB, *(v8qi *)m[3].refIdx,
-            1, 10, 3, 2, 5, 14, 7, 6);
+        /* Compare the refIdx vector with each refIdxA/B/C vector. */
+        v16qi refIdx = (v16qi)(v2li){*(int64_t *)m->refIdx, *(int64_t *)m->refIdx};
+        v16qi refIdxA = (v16qi)(v2li){*(int64_t *)m[-1].refIdx, *(int64_t *)m->refIdx};
+        v16qi refIdxBC = (v16qi)(v2li){*(int64_t *)m[2].refIdx, *(int64_t *)m[3]refIdx};
+        refIdxBC = __builtin_shufflevector(refIdxA, refIdxBC,
+            18, 19, 8, 9, 22, 23, 12, 13, 19, 26, 9, 8, 23, 30, 13, 12);
+        refIdxA = __builtin_shufflevector(refIdxA, refIdxA,
+            1, 8, 3, 10, 5, 12, 7, 14, 8, 9, 10, 11, 12, 13, 14, 15);
+        v2li eqA = (v2li)(refIdx == refIdxA);
+        v2li eqBC = (v2li)(refIdx == refIdxBC);
+        
+        /* Compute the masks to override the median positions with A/B/C. */
+        v2li neqBC = ~eqBC;
+        v2li part_BC = eqBC & ~__builtin_shufflevector(eqA, eqA, 0, 0);
+        v2li sub0_A = eqA & neqBC;
+        v2li neqC = __builtin_shufflevector(neqBC, neqBC, 1, -1);
+        v2li sub01_A = sub0_A & __builtin_shufflevector(eqA, neqBC, 1, 2);
+        v2li part_A = sub0_A & neqC;
+        v2li part_B = part_BC & neqC;
+        v2li part_C = __builtin_shufflevector(part_BC, part_BC, 1, -1) & neqBC;
+        
+        /* Initialise posC for 4xN and 8xN partitions. */
+        v16qi posC4xN = {75, 75, -5, -5, 75, 75, -5, -5, -1, -1, -1, -1, -1, -1, -1, -1};
+        v16qi posC8xN = {78, 102, -2, -9, 78, 102, -2, -9, -29, -5, -29, -5, -29, -5, -29, -5};
+        v16qi posc = {77, 101, -3, -7, 77, 101, -3, -7, -3, -3, -3, -3, -3, -3, -3, -3};
+        if (m[2].f.unavailable & 1) {
+            
+            posC4xN[0] = posC4xN[4] = posC8xN[0] = posC8xN[4] = (m[1].f.unavailable & 1) ? -27 : 63;
+            posC4xN[1] = posC4xN[5] = -3;
+            posc[0] = posc[4] = -1;
+        }
+        if (m[3].f.unavailable & 1) {
+            posC8xN[1] = posC8xN[5] = (m[2].f.unavailable & 1) ? -3 : 71;
+            posc[1] = posc[5] = (m[2].f.unavailable & 1) ? -1 : 73;
+        }
+        
+        uint32_t is8xN = ~*(uint32_t *)mvd_flags & 0xc0c0c0c0;
+        v16qi sel4xN = ((v16qi)(v4si){is8xN, is8xN, 0, 0} == (v16qi){});
+        
+        v16qi mvA = {-27, -3, -27, -3, -27, -3, -27, -3, -1, -1, -1, -1, -1, -1, -1, -1};
+        v16qi mvB = {74, 74, -6, -6, 74, 74, -6, -6, 74, 74, -6, -6, 74, 74, -6, -6};
+        v16qi mvb = {-2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2};
+        v16qi mvC = {75, 75, -5, -5, 75, 75, -5, -5, -1, -1, -1, -1, -1, -1, -1, -1};
+        v16qi mvc = {77, 101, -3, -7, 77, 101, -3, -7, -3, -3, -3, -3, -3, -3, -3, -3};
+        v16qi selA = ~eqBC & (v16qi)__builtin_shufflevector((v2li)eqA, (v2li)~eqBC, 0, 2);
+        v16qi posB = (mvA & selA) | (mvB & ~selA);
         
     }
     
     /* Parsing for mvd_lX in P/B slices. */
-    typedef int32_t v4si __attribute__((vector_size(16)));
     for (unsigned int f = Pred_LX; f != 0; f &= f - 1) {
         unsigned int i = __builtin_ctz(f);
         for (uint64_t g = mvd_flags[i % 4] << (i * 8); g != 0; g &= g - 1) {

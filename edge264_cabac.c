@@ -306,13 +306,33 @@ static inline void CABAC_parse_inter_mb_pred(Edge264_slice *s,
     }
     
     /* Compute the relative positions of all A/B/C motion vectors in parallel. */
-    typedef int8_t v8qi __attribute__((vector_size(8)));
     typedef int64_t v2li __attribute__((vector_size(16)));
     typedef int32_t v4si __attribute__((vector_size(16)));
     typedef int8_t v16qi __attribute__((vector_size(16)));
     if (__builtin_expect(s->MbaffFrameFlag, 0)) {
         
     } else {
+        static const int8_t C4x4[8][16] __attribute__((aligned(16))) = {
+            {75, 75, -5, -5, 75, 75, -5, -5, 77, 101, -3, -7, 77, 101, -3, -7},
+            {75, 75, -5, -5, 75, 75, -5, -5, 77, 101, -3, -7, 77, 101, -3, -7},
+            {63, -3, -5, -5, 63, -3, -5, -5, -1, 101, -3, -7, -1, 101, -3, -7},
+            {-27, -3, -5, -5, -27, -3, -5, -5, -1, 101, -3, -7, -1, 101, -3, -7},
+            {75, 75, -5, -5, 75, 75, -5, -5, 77, 73, -3, -7, 77, 73, -3, -7},
+            {75, 75, -5, -5, 75, 75, -5, -5, 77, 73, -3, -7, 77, 73, -3, -7},
+            {63, -3, -5, -5, 63, -3, -5, -5, -1, -1, -3, -7, -1, -1, -3, -7},
+            {-27, -3, -5, -5, -27, -3, -5, -5, -1, -1, -3, -7, -1, -1, -3, -7},
+        };
+        static const int8_t C8x8[8][16] __attribute__((aligned(16))) = {
+            {78, 102, -2, -9, 78, 102, -2, -9, -29, -5, -29, -5, -29, -5, -29, -5},
+            {78, 102, -2, -9, 78, 102, -2, -9, -29, -5, -29, -5, -29, -5, -29, -5},
+            {63, 102, -2, -9, 63, 102, -2, -9, -29, -5, -29, -5, -29, -5, -29, -5},
+            {-27, 102, -2, -9, -27, 102, -2, -9, -29, -5, -29, -5, -29, -5, -29, -5},
+            {78, 71, -2, -9, 78, 71, -2, -9, -29, -5, -29, -5, -29, -5, -29, -5},
+            {78, 71, -2, -9, 78, 71, -2, -9, -29, -5, -29, -5, -29, -5, -29, -5},
+            {63, -3, -2, -9, 63, -3, -2, -9, -29, -5, -29, -5, -29, -5, -29, -5},
+            {-27, -3, -2, -9, -27, -3, -2, -9, -29, -5, -29, -5, -29, -5, -29, -5},
+        };
+        
         /* Compare the refIdx vector with each refIdxA/B/C vector. */
         v16qi refIdx = (v16qi)(v2li){*(int64_t *)m->refIdx, *(int64_t *)m->refIdx};
         v16qi refIdxA = (v16qi)(v2li){*(int64_t *)m[-1].refIdx, *(int64_t *)m->refIdx};
@@ -321,45 +341,38 @@ static inline void CABAC_parse_inter_mb_pred(Edge264_slice *s,
             18, 19, 8, 9, 22, 23, 12, 13, 19, 26, 9, 8, 23, 30, 13, 12);
         refIdxA = __builtin_shufflevector(refIdxA, refIdxA,
             1, 8, 3, 10, 5, 12, 7, 14, 8, 9, 10, 11, 12, 13, 14, 15);
-        v2li eqA = (v2li)(refIdx == refIdxA);
-        v2li eqBC = (v2li)(refIdx == refIdxBC);
+        v16qi eqA = (refIdx == refIdxA);
+        v16qi eqBC = (refIdx == refIdxBC);
         
         /* Compute the masks to override the median positions with A/B/C. */
-        v2li neqBC = ~eqBC;
-        v2li part_BC = eqBC & ~__builtin_shufflevector(eqA, eqA, 0, 0);
-        v2li sub0_A = eqA & neqBC;
-        v2li neqC = __builtin_shufflevector(neqBC, neqBC, 1, -1);
-        v2li sub01_A = sub0_A & __builtin_shufflevector(eqA, neqBC, 1, 2);
-        v2li part_A = sub0_A & neqC;
-        v2li part_B = part_BC & neqC;
-        v2li part_C = __builtin_shufflevector(part_BC, part_BC, 1, -1) & neqBC;
+        v16qi neqBC = ~eqBC;
+        v16qi mask_BC = eqBC & ~(v16qi)__builtin_shufflevector((v2li)eqA, (v2li)eqA, 0, 0);
+        v16qi mask_aa = eqA & neqBC;
+        v16qi neqC = (v16qi)__builtin_shufflevector((v2li)neqBC, (v2li){}, 1, 3);
+        v16qi mask_AA = mask_aa & (v16qi)__builtin_shufflevector((v2li)eqA, (v2li)neqBC, 1, 2);
+        v16qi mask_A = mask_aa & neqC;
+        v16qi mask_B = mask_BC & neqC;
+        v16qi mask_C = (v16qi)__builtin_shufflevector((v2li)mask_BC, (v2li){}, 1, 3) & neqBC;
+        uint32_t is4xN = *(uint32_t *)mvd_flags & 0x0c0c0c0c;
+        v16qi mask_8xN = ((v16qi)(v4si){is4xN, is4xN, is4xN, is4xN} == (v16qi){});
         
-        /* Initialise posC for 4xN and 8xN partitions. */
-        v16qi posC4xN = {75, 75, -5, -5, 75, 75, -5, -5, -1, -1, -1, -1, -1, -1, -1, -1};
-        v16qi posC8xN = {78, 102, -2, -9, 78, 102, -2, -9, -29, -5, -29, -5, -29, -5, -29, -5};
-        v16qi posc = {77, 101, -3, -7, 77, 101, -3, -7, -3, -3, -3, -3, -3, -3, -3, -3};
-        if (m[2].f.unavailable & 1) {
-            
-            posC4xN[0] = posC4xN[4] = posC8xN[0] = posC8xN[4] = (m[1].f.unavailable & 1) ? -27 : 63;
-            posC4xN[1] = posC4xN[5] = -3;
-            posc[0] = posc[4] = -1;
-        }
-        if (m[3].f.unavailable & 1) {
-            posC8xN[1] = posC8xN[5] = (m[2].f.unavailable & 1) ? -3 : 71;
-            posc[1] = posc[5] = (m[2].f.unavailable & 1) ? -1 : 73;
-        }
-        
-        uint32_t is8xN = ~*(uint32_t *)mvd_flags & 0xc0c0c0c0;
-        v16qi sel4xN = ((v16qi)(v4si){is8xN, is8xN, 0, 0} == (v16qi){});
-        
-        v16qi mvA = {-27, -3, -27, -3, -27, -3, -27, -3, -1, -1, -1, -1, -1, -1, -1, -1};
-        v16qi mvB = {74, 74, -6, -6, 74, 74, -6, -6, 74, 74, -6, -6, 74, 74, -6, -6};
-        v16qi mvb = {-2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2};
-        v16qi mvC = {75, 75, -5, -5, 75, 75, -5, -5, -1, -1, -1, -1, -1, -1, -1, -1};
-        v16qi mvc = {77, 101, -3, -7, 77, 101, -3, -7, -3, -3, -3, -3, -3, -3, -3, -3};
-        v16qi selA = ~eqBC & (v16qi)__builtin_shufflevector((v2li)eqA, (v2li)~eqBC, 0, 2);
-        v16qi posB = (mvA & selA) | (mvB & ~selA);
-        
+        /* Initialise posB/C for 8x8/8x4/4x8/4x4 partitions. */
+        unsigned int idx = m[1].f.unavailable + 2 * m[2].f.unavailable + 4 * m[3].f.unavailable;
+        v16qi lA = {-27, -3, -27, -3, -27, -3, -27, -3, -27, -3, -27, -3, -27, -3, -27, -3};
+        v16qi rA = {-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1};
+        v16qi tA = (v16qi)__builtin_shufflevector((v2li)lA, (v2li)rA, 0, 2);
+        v16qi rB = {74, 74, -6, -6, 74, 74, -6, -6, -2, -2, -2, -2, -2, -2, -2, -2};
+        v16qi lB = (v16qi)vector_select(vector_select(rB, lA, mask_A & mask_8xN),
+            ((v16qi *)C8x8)[idx], mask_C & mask_8xN);
+        v16qi tC = (v16qi)vector_select(((v16qi *)C4x4)[idx], tA, mask_AA);
+        v16qi bC = {-1, -1, -1, -1, -1, -1, -1, -1, -3, -3, -3, -3, -3, -3, -3, -3};
+        v16qi lC = (v16qi)vector_select((v16qi)__builtin_shufflevector((v2li)tC, (v2li)bC, 0, 2),
+            vector_select(((v16qi *)C8x8)[idx], rB, mask_B), mask_8xN);
+        v16qi rC = (v16qi)__builtin_shufflevector((v2li)tC, (v2li)bC, 1, 3);
+        ((v16qi *)posB)[0] = __builtin_shufflevector(lB, rB, 0, 16, 8, 24, 1, 17, 9, 25, 2, 18, 10, 26, 3, 19, 11, 27);
+        ((v16qi *)posB)[1] = __builtin_shufflevector(lB, rB, 4, 20, 12, 28, 5, 21, 13, 29, 6, 22, 14, 30, 7, 23, 15, 31);
+        ((v16qi *)posC)[0] = __builtin_shufflevector(lC, rC, 0, 16, 8, 24, 1, 17, 9, 25, 2, 18, 10, 26, 3, 19, 11, 27);
+        ((v16qi *)posC)[1] = __builtin_shufflevector(lC, rC, 4, 20, 12, 28, 5, 21, 13, 29, 6, 22, 14, 30, 7, 23, 15, 31);
     }
     
     /* Parsing for mvd_lX in P/B slices. */

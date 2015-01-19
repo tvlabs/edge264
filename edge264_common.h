@@ -29,14 +29,14 @@
 #define EDGE264_COMMON_H
 
 #if !DEBUG
-#define printf(...) ((void)0)
+#define printf(...)
 #define NDEBUG 1
 #else
 #include <stdio.h>
 static inline const char *red_if(int cond) { return (cond) ? " style=\"color: red\"" : ""; }
 #endif
 #if DEBUG != 2
-#define fprintf(...) ((void)0)
+#define fprintf(...)
 #endif
 
 #include <assert.h>
@@ -81,10 +81,12 @@ static inline const char *red_if(int cond) { return (cond) ? " style=\"color: re
 #define _mm_movpi64_pi64 _mm_movpi64_epi64
 #ifdef __SSE4_1__
 #include <smmintrin.h>
+#define vector_select(f, t, mask) _mm_blendv_epi8((__m128i)(f), (__m128i)(t), (__m128i)(mask))
 #else
 #include <tmmintrin.h>
 #define _mm_extract_epi32(a, i) \
     _mm_cvtsi128_si32(_mm_shuffle_epi32(a, _MM_SHUFFLE(i, i, i, i)))
+#define vector_select(f, t, mask) (((t) & (mask)) | ((f) & ~(mask)))
 static inline __m128i _mm_packus_epi32(__m128i a, __m128i b) {
     return _mm_max_epi16(_mm_packs_epi32(a, b), _mm_setzero_si128());
 }
@@ -185,7 +187,7 @@ static inline __attribute__((always_inline)) int get_se(const uint8_t *CPB, unsi
     return min(max(get_raw_se(CPB, shift, lower, upper), lower), upper);
 }
 
-static inline __attribute__((always_inline)) unsigned int get_uv(const uint8_t *CPB, unsigned int * restrict shift, unsigned int v) {
+static inline __attribute__((always_inline)) unsigned int get_uv(const uint8_t *CPB, unsigned int *shift, unsigned int v) {
     unsigned int msb = beswap32(((uint32_t *)CPB)[*shift / 32]);
     unsigned int lsb = beswap32(((uint32_t *)CPB)[(*shift + 31) / 32]);
     uint32_t buf = (msb << (*shift % 32)) | (lsb >> (-*shift % 32));
@@ -193,8 +195,8 @@ static inline __attribute__((always_inline)) unsigned int get_uv(const uint8_t *
     return buf >> (32 - v);
 }
 
-static inline __attribute__((always_inline)) int get_u1(const uint8_t *CPB, unsigned int * restrict shift) {
-    int buf = CPB[*shift / 8] >> (7 - *shift % 8);
+static inline __attribute__((always_inline)) _Bool get_u1(const uint8_t *CPB, unsigned int *shift) {
+    unsigned int buf = CPB[*shift / 8] >> (7 - *shift % 8);
     *shift += 1;
     return buf & 1;
 }
@@ -230,7 +232,7 @@ static inline void renorm(CABAC_ctx *c, unsigned int v) {
     c->shift += v;
 }
 
-static inline int get_ae(CABAC_ctx *c, uint8_t *state) {
+static inline _Bool get_ae(CABAC_ctx *c, uint8_t *state) {
     static const uint8_t rangeTabLPS[4 * 64] = {
         128, 128, 128, 123, 116, 111, 105, 100, 95, 90, 85, 81, 77, 73, 69, 66,
         62, 59, 56, 53, 51, 48, 46, 43, 41, 39, 37, 35, 33, 32, 30, 29, 27, 26,
@@ -288,7 +290,7 @@ static inline int get_ae(CABAC_ctx *c, uint8_t *state) {
     return xor & 1;
 }
 
-static inline __attribute__((always_inline)) int get_bypass(CABAC_ctx *c) {
+static inline __attribute__((always_inline)) _Bool get_bypass(CABAC_ctx *c) {
     c->codIRange >>= 1;
     long negVal = (long)~(c->codIOffset - c->codIRange) >> (LONG_BIT - 1);
     c->codIOffset -= c->codIRange & negVal;
@@ -329,27 +331,32 @@ typedef struct {
 } Edge264_macroblock;
 typedef struct {
     CABAC_ctx c;
-    Edge264_picture p;
-    Edge264_mb_flags ctxIdxInc, init;
+    Edge264_mb_flags ctxIdxInc;
     uint16_t x; // in luma samples, 14 significant bits
     uint16_t y;
     uint32_t CurrMbAddr; // always follows Mbaff scan, 19 significant bits
-    uint16_t *mv; // circular buffer of [LX][luma4x4BlkIdx][compIdx] macroblocks
     unsigned int slice_type:2;
+    unsigned int field_pic_flag:1;
     unsigned int MbaffFrameFlag:1;
     unsigned int direct_spatial_mv_pred_flag:1;
     unsigned int cabac_init_idc:2;
     unsigned int disable_deblocking_filter_idc:2;
     int FilterOffsetA:5;
     int FilterOffsetB:5;
+    unsigned int firstRefPicL1:1;
     unsigned int ref_idx_mask:8;
-    uint32_t refPicCol0;
-    const Edge264_picture *DPB;
-    int8_t RefPicList[2][32] __attribute__((aligned));
+    uint64_t ref_parity;
+    int16_t *mv; // circular buffer of [LX][luma4x4BlkIdx][compIdx] macroblocks
+    const int32_t *refIdxCol;
+    const int16_t *mvCol;
+    uint8_t s[1024] __attribute__((aligned));
+    Edge264_parameter_set ps;
+    Edge264_picture p;
+    uint8_t MapColToList0[130]; // [bottomFieldFlagCol][refIdxCol]
+    int16_t DistScaleFactor[3][32]; // [top/bottom/frame][refIdxL0]
     int16_t weights[3][32][2];
     int16_t offsets[3][32][2];
-    Edge264_parameter_set ps;
-    uint8_t s[1024];
+    int8_t implicit_weights[3][32][32]; // -w_1C[top/bottom/frame][refIdxL0][refIdxL1]
 } Edge264_slice;
 
 static const uint8_t mv2edge[64] = {16, 17, 20, 21, 12, 13, 16, 17, 24, 25, 28,

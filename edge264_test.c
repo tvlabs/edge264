@@ -37,8 +37,8 @@ int main() {
     /* Memory-map the whole file. */
     struct stat st;
     fstat(0, &st);
-    const uint8_t *file = mmap(NULL, st.st_size, PROT_READ, MAP_SHARED, 0, 0);
-    assert(file!=MAP_FAILED);
+    const uint8_t *r = mmap(NULL, st.st_size, PROT_READ, MAP_SHARED, 0, 0);
+    assert(r!=MAP_FAILED);
     //setvbuf(stdout, NULL, _IONBF, BUFSIZ);
     
     /* Parse and dump the file to HTML. */
@@ -47,9 +47,10 @@ int main() {
         "<head><meta charset=\"UTF-8\"/><title>Edge264 test</title></head>\n"
         "<body>\n");
     Edge264_ctx e = {0};
-    for (size_t len, i = 4; i < st.st_size; i += len + 3) {
-        len = Edge264_find_start_code(file + i, st.st_size - i, 1);
-        const Edge264_picture *p = Edge264_parse_NAL(&e, file + i, len);
+    const uint8_t *next, *end = r + st.st_size;
+    for (r += 4; r < end; r = next + 3) {
+        next = Edge264_find_start_code(r, end, 1);
+        const Edge264_picture *p = Edge264_parse_NAL(&e, r, next);
         if (p != NULL)
             printf("<p>Output picture %d</p>\n", p->PicOrderCnt);
 break;

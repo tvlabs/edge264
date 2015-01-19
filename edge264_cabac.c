@@ -65,7 +65,7 @@ static inline void CABAC_parse_init(Edge264_slice *s, Edge264_macroblock *m)
     typedef int16_t v2hi __attribute__((vector_size(4)));
     v2hi mvL0A, mvL1A, mvL0B, mvL1B, mvL0C, mvL1C;
     int refIdxL0A, refIdxL1A, refIdxL0B, refIdxL1B, refIdxL0C, refIdxL1C;
-    m->f = s->init;
+    m->f = 0;
     
     /* This part was INCREDIBLY hard to come up with (9.3.3.1.1.1). */
     if (__builtin_expect(s->MbaffFrameFlag, 0)) {
@@ -114,7 +114,6 @@ static inline void CABAC_parse_init(Edge264_slice *s, Edge264_macroblock *m)
             ((m[2].flags8x8 & 0x1111111111111111) << 3);
         *(uint64_t *)m->refIdx = -1;
         if (s->slice_type < 2) {
-            *(uint64_t *)s->mvd_flags = 0x0303030303030303;
             memcpy(s->e.absMvdComp, m[-1].e.absMvdComp + 16, 16);
             memcpy(s->e.absMvdComp + 20, m[2].e.absMvdComp + 4, 16);
             m->f.mb_skip_flag = get_ae(&s->c, &s->s[13 + 13 * s->slice_type -
@@ -274,10 +273,11 @@ static inline void CABAC_parse_init(Edge264_slice *s, Edge264_macroblock *m)
             m->refIdx[1] = (s->MapColToList0 + 1)[refPicCol[1]];
             m->refIdx[2] = (s->MapColToList0 + 1)[refPicCol[2]];
             m->refIdx[3] = (s->MapColToList0 + 1)[refPicCol[3]];
-            ((v8hi *)s->mv)[0] = temporal_scale(mvCol0, (s->DistScaleFactor + 1)[refPicCol[0]]);
-            ((v8hi *)s->mv)[1] = temporal_scale(mvCol1, (s->DistScaleFactor + 1)[refPicCol[1]]);
-            ((v8hi *)s->mv)[2] = temporal_scale(mvCol2, (s->DistScaleFactor + 1)[refPicCol[2]]);
-            ((v8hi *)s->mv)[3] = temporal_scale(mvCol3, (s->DistScaleFactor + 1)[refPicCol[3]]);
+            const int16_t *DistScaleFactor = &s->DistScaleFactor[s->CurrMbAddr & 1];
+            ((v8hi *)s->mv)[0] = temporal_scale(mvCol0, DistScaleFactor[m->refIdx[0]]);
+            ((v8hi *)s->mv)[1] = temporal_scale(mvCol1, DistScaleFactor[m->refIdx[1]]);
+            ((v8hi *)s->mv)[2] = temporal_scale(mvCol2, DistScaleFactor[m->refIdx[2]]);
+            ((v8hi *)s->mv)[3] = temporal_scale(mvCol3, DistScaleFactor[m->refIdx[3]]);
             ((v8hi *)s->mv)[4] = ((v8hi *)s->mv)[0] - mvCol0;
             ((v8hi *)s->mv)[5] = ((v8hi *)s->mv)[1] - mvCol1;
             ((v8hi *)s->mv)[6] = ((v8hi *)s->mv)[2] - mvCol2;
@@ -555,7 +555,7 @@ static inline void CABAC_parse_mb_type(Edge264_slice *s, Edge264_macroblock *m)
 
 
 
-void CABAC_parse_slice_data(Edge264_slice *s, Edge264_macroblock *m)
+__attribute__((noinline)) void CABAC_parse_slice_data(Edge264_slice s, Edge264_macroblock *m)
 {
     /* cabac_alignment_one_bit is useful to detect header parsing errors. */
     if ((~s->c.CPB[s->c.shift / 8] << (1 + (s->c.shift - 1) % 8) & 0xff) != 0)

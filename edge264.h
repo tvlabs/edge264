@@ -32,36 +32,37 @@
 #include <stdint.h>
 
 typedef struct {
-    unsigned int chroma_format_idc:2;
-    unsigned int ChromaArrayType:2;
-    unsigned int separate_colour_plane_flag:1;
-    unsigned int QpBdOffset_Y:6;
-    unsigned int QpBdOffset_C:6;
-    unsigned int qpprime_y_zero_transform_bypass_flag:1;
-    unsigned int log2_max_frame_num:5;
-    unsigned int pic_order_cnt_type:2;
-    unsigned int log2_max_pic_order_cnt_lsb:5;
-    unsigned int delta_pic_order_always_zero_flag:1; // pic_order_cnt_type==1
-    unsigned int max_num_ref_frames:5;
-    unsigned int max_num_reorder_frames:5;
-    unsigned int max_dec_frame_buffering:5;
-    unsigned int frame_mbs_only_flag:1;
-    unsigned int mb_adaptive_frame_field_flag:1;
-    unsigned int direct_8x8_inference_flag:1;
-    unsigned int entropy_coding_mode_flag:1;
-    unsigned int bottom_field_pic_order_in_frame_present_flag:1;
-    unsigned int weighted_pred:3;
-    int chroma_qp_index_offset:5;
-    int second_chroma_qp_index_offset:5;
-    unsigned int deblocking_filter_control_present_flag:1;
-    unsigned int constrained_intra_pred_flag:1;
-    unsigned int transform_8x8_mode_flag:1;
+    unsigned long chroma_format_idc:2;
+    unsigned long ChromaArrayType:2;
+    unsigned long separate_colour_plane_flag:1;
+    unsigned long QpBdOffset_Y:6;
+    unsigned long QpBdOffset_C:6;
+    unsigned long qpprime_y_zero_transform_bypass_flag:1;
+    unsigned long log2_max_frame_num:5;
+    unsigned long pic_order_cnt_type:2;
+    unsigned long log2_max_pic_order_cnt_lsb:5;
+    unsigned long delta_pic_order_always_zero_flag:1; // pic_order_cnt_type==1
+    unsigned long max_num_ref_frames:5;
+    unsigned long max_num_reorder_frames:5;
+    unsigned long frame_mbs_only_flag:1;
+    unsigned long mb_adaptive_frame_field_flag:1;
+    unsigned long direct_8x8_inference_flag:1;
+    unsigned long entropy_coding_mode_flag:1;
+    unsigned long bottom_field_pic_order_in_frame_present_flag:1;
+    unsigned long weighted_pred:3;
+    long chroma_qp_index_offset:5;
+    long second_chroma_qp_index_offset:5;
+    unsigned long deblocking_filter_control_present_flag:1;
+    unsigned long constrained_intra_pred_flag:1;
+    unsigned long transform_8x8_mode_flag:1;
     uint8_t BitDepth[3]; // 4 significant bits
-    uint8_t num_ref_frames_in_pic_order_cnt_cycle; // pic_order_cnt_type==1
-    uint8_t num_ref_idx_active[2]; // 6 significant bits each
-    uint8_t QP_Y; // 7 significant bits
+    uint8_t max_dec_frame_buffering; // 5 significant bits
     uint16_t width; // in luma samples, 14 significant bits
     uint16_t height;
+    uint16_t stride[3]; // in bytes, 15 significant bits
+    uint8_t num_ref_idx_active[2]; // 6 significant bits each
+    uint8_t num_ref_frames_in_pic_order_cnt_cycle; // pic_order_cnt_type==1
+    uint8_t QP_Y; // 7 significant bits
     uint16_t frame_crop_left_offset; // in luma samples
     uint16_t frame_crop_right_offset; // in luma samples
     uint16_t frame_crop_top_offset; // in luma samples
@@ -71,20 +72,19 @@ typedef struct {
     uint8_t weightScale4x4[6][16] __attribute__((aligned));
     uint8_t weightScale8x8[6][64] __attribute__((aligned));
 } Edge264_parameter_set;
-typedef struct {
+typedef struct Edge264_picture {
     uint8_t *planes[3];
-    int8_t (*refs)[4] __attribute__((aligned)); // one int8_t[4] per macroblock
-    int16_t (*mvs)[32] __attribute__((aligned)); // one int16_t[32] per mb
+    int16_t *mv; // storage for direct motion prediction, one aligned int16_t[32] per mb
+    int32_t *refIdx; // one int8_t[4] per macroblock
     int32_t PicOrderCnt;
     int32_t FrameNum;
-    unsigned int LongTermFrameIdx:4;
+    unsigned int LongTermFrameIdx; // 4 significant bits
+    const struct Edge264_picture *RefPicList[64] __attribute__((aligned));
 } Edge264_picture;
 typedef struct {
     uint8_t *CPB;
-    uint32_t CPB_size; // 26 significant bits
-    unsigned int nal_ref_idc:2;
-    unsigned int nal_unit_type:5;
-    unsigned int currPic:6;
+    uint32_t currPic:6; // previous picture in decoding order
+    uint32_t CPB_size:26;
     int32_t prevPicOrderCnt;
     uint32_t reference_flags[2];
     uint32_t long_term_flags;
@@ -95,7 +95,7 @@ typedef struct {
     int32_t PicOrderCntDeltas[256]; // pic_order_cnt_type==1
 } Edge264_ctx;
 
-size_t Edge264_find_start_code(const uint8_t *buf, size_t len, unsigned int n);
-const Edge264_picture *Edge264_parse_NAL(Edge264_ctx *e, const uint8_t *buf, size_t len);
+const uint8_t *Edge264_find_start_code(const uint8_t *buf, const uint8_t *end, unsigned int n);
+const Edge264_picture *Edge264_parse_NAL(Edge264_ctx *e, const uint8_t *buf, const uint8_t *end);
 
 #endif

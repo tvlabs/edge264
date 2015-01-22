@@ -62,7 +62,7 @@ typedef struct {
     uint16_t stride[3]; // in bytes, 15 significant bits
     uint8_t num_ref_idx_active[2]; // 6 significant bits each
     uint8_t num_ref_frames_in_pic_order_cnt_cycle; // pic_order_cnt_type==1
-    uint8_t QP_Y; // 7 significant bits
+    int8_t QP_Y; // 7 significant bits
     uint16_t frame_crop_left_offset; // in luma samples
     uint16_t frame_crop_right_offset; // in luma samples
     uint16_t frame_crop_top_offset; // in luma samples
@@ -72,14 +72,17 @@ typedef struct {
     uint8_t weightScale4x4[6][16] __attribute__((aligned));
     uint8_t weightScale8x8[6][64] __attribute__((aligned));
 } Edge264_parameter_set;
-typedef struct Edge264_picture {
+typedef struct {
+    int32_t refPic;
+    uint32_t mb_field_decoding_flag:1;
+} Edge264_persistent_mb;
+typedef struct {
     uint8_t *planes[3];
-    int16_t *mv; // storage for direct motion prediction, one aligned int16_t[32] per mb
-    int32_t *refIdx; // one int8_t[4] per macroblock
+    int16_t *mvs; // storage for direct motion prediction, one aligned int16_t[32] per mb
+    Edge264_persistent_mb *mbs; // for use in cross-slice deblocking and direct prediction
     int32_t PicOrderCnt;
     int32_t FrameNum;
     unsigned int LongTermFrameIdx; // 4 significant bits
-    const struct Edge264_picture *RefPicList[64] __attribute__((aligned));
 } Edge264_picture;
 typedef struct {
     uint8_t *CPB;

@@ -149,7 +149,6 @@ static inline int median(int a, int b, int c) { return max(min(max(a, b), c), mi
  * more than 63 bits.
  */
 static inline __attribute__((always_inline)) unsigned int get_raw_ue(const uint8_t *CPB, unsigned int *shift, unsigned int upper) {
-    assert(upper<4294967295);
     unsigned int leadingZeroBits, res;
     if (upper <= 31) {
         uint16_t buf = ((CPB[*shift / 8] << 8) | CPB[*shift / 8 + 1]) << (*shift % 8);
@@ -161,7 +160,7 @@ static inline __attribute__((always_inline)) unsigned int get_raw_ue(const uint8
         uint32_t buf = (msb << (*shift % 32)) | (lsb >> (-*shift % 32));
         leadingZeroBits = __builtin_clz(buf | 0x00010000) - WORD_BIT + 32;
         res = buf >> (32 - (2 * leadingZeroBits + 1));
-    } else {
+    } else { // spec consciously uses upper<4294967295
         uint64_t msb = beswap64(((uint64_t *)CPB)[*shift / 64]);
         uint64_t lsb = beswap64(((uint64_t *)CPB)[(*shift + 63) / 64]);
         uint64_t buf = (msb << (*shift % 64)) | (lsb >> (-*shift % 64));
@@ -215,8 +214,8 @@ typedef struct {
     unsigned long codIRange;
     unsigned long codIOffset;
     const uint8_t *CPB;
-    unsigned int shift;
-    unsigned int lim;
+    uint32_t shift;
+    uint32_t lim;
 } CABAC_ctx;
 
 static inline void renorm(CABAC_ctx *c, unsigned int v) {
@@ -345,14 +344,15 @@ typedef struct {
     int FilterOffsetB:5;
     unsigned int firstRefPicL1:1;
     unsigned int ref_idx_mask:8;
-    uint64_t ref_parity;
-    int16_t *mv; // circular buffer of [LX][luma4x4BlkIdx][compIdx] macroblocks
-    const int32_t *refIdxCol;
+    int16_t *mvs; // circular buffer of [LX][luma4x4BlkIdx][compIdx] macroblocks
     const int16_t *mvCol;
+    const Edge264_persistent_mb *mbCol;
+    const Edge264_picture *DPB;
     uint8_t s[1024] __attribute__((aligned));
     Edge264_parameter_set ps;
     Edge264_picture p;
-    uint8_t MapColToList0[130]; // [bottomFieldFlagCol][refIdxCol]
+    uint8_t RefPicList[2][32];
+    uint8_t MapPicToList0[35]; // [1 + refPic]
     int16_t DistScaleFactor[3][32]; // [top/bottom/frame][refIdxL0]
     int16_t weights[3][32][2];
     int16_t offsets[3][32][2];

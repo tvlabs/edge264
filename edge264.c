@@ -103,15 +103,14 @@ static inline int parse_pic_order_cnt(Edge264_slice *s, Edge264_ctx *e) {
             s->p.PicOrderCnt += MaxPicOrderCntLsb;
         if (s->p.PicOrderCnt - e->prevPicOrderCnt > MaxPicOrderCntLsb / 2)
             s->p.PicOrderCnt -= MaxPicOrderCntLsb;
-        if (nal_ref_idc != 0)
-            e->prevPicOrderCnt = s->p.PicOrderCnt;
         if (!s->field_pic_flag) {
             OtherFieldOrderCnt = s->p.PicOrderCnt;
             if (s->ps.bottom_field_pic_order_in_frame_present_flag)
                 OtherFieldOrderCnt += get_raw_se(e->CPB, &s->c.shift, -2147483647, 2147483647);
         }
     } else if (s->ps.pic_order_cnt_type == 1) {
-        s->p.PicOrderCnt = (nal_ref_idc == 0) ? s->ps.offset_for_non_ref_pic : 0;
+        s->p.PicOrderCnt = (nal_ref_idc != 0) ? e->prevPicOrderCnt :
+            s->ps.offset_for_non_ref_pic + e->prevPicOrderCnt;
         unsigned int absFrameNum = s->p.FrameNum - (nal_ref_idc == 0);
         if (s->ps.num_ref_frames_in_pic_order_cnt_cycle != 0) {
             s->p.PicOrderCnt += (absFrameNum / s->ps.num_ref_frames_in_pic_order_cnt_cycle) *
@@ -128,8 +127,12 @@ static inline int parse_pic_order_cnt(Edge264_slice *s, Edge264_ctx *e) {
                 OtherFieldOrderCnt += get_raw_se(e->CPB, &s->c.shift, -2147483647, 2147483647);
         }
     } else if (s->ps.pic_order_cnt_type == 2) {
-        s->p.PicOrderCnt = OtherFieldOrderCnt = 2 * s->p.FrameNum - (nal_ref_idc == 0);
+        s->p.PicOrderCnt = e->prevPicOrderCnt + 2 * s->p.FrameNum - (nal_ref_idc == 0);
+        if (!s->field_pic_flag)
+            OtherFieldOrderCnt = s->p.PicOrderCnt;
     }
+    if (nal_ref_idc != 0)
+        e->prevPicOrderCnt = s->p.PicOrderCnt;
     
     if (!s->CurrMbAddr)
         printf("<li>TopFieldOrderCnt: <code>%d</code></li>\n", s->p.PicOrderCnt);
@@ -263,6 +266,7 @@ static inline void parse_ref_pic_list_modification(Edge264_slice *s, const Edge2
     for (unsigned int l = 0; l <= s->slice_type; l++) {
         if (!get_u1(e->CPB, &s->c.shift))
             continue;
+printf("<li>Yay!</li>\n");
         unsigned int picNumLX = CurrPicNum;
         unsigned int refIdxLX = 0;
         unsigned int modification_of_pic_nums_idc;
@@ -304,7 +308,7 @@ static inline void parse_ref_pic_list_modification(Edge264_slice *s, const Edge2
             }
             
             printf("<li>RefPicList%x[%u]: <code>%d</code></li>\n",
-                l, refIdxLX, s->RefPicList[l][refIdxLX]->PicOrderCnt);
+                l, refIdxLX, e->DPB[s->RefPicList[l][refIdxLX]].PicOrderCnt);
             refIdxLX += 2 - s->field_pic_flag;
         }
     }
@@ -430,8 +434,7 @@ static inline void parse_pred_weight_table(Edge264_slice *s, const Edge264_ctx *
  * Updates the reference flags by adaptive memory control marking process (8.2.5).
  */
 static inline void parse_dec_ref_pic_marking(Edge264_slice *s, Edge264_ctx *e) {
-    unsigned int nal_unit_type = *e->CPB & 0x1f;
-    if (nal_unit_type == 5) {
+    if (e->CPB[0] % 32 == 5) {
         /* This flag is ignored as prior pictures are always output if possible. */
         unsigned int no_output_of_prior_pics_flag = get_u1(e->CPB, &s->c.shift);
         unsigned int long_term_reference_flag = get_u1(e->CPB, &s->c.shift);
@@ -439,7 +442,6 @@ static inline void parse_dec_ref_pic_marking(Edge264_slice *s, Edge264_ctx *e) {
             "<li>long_term_reference_flag: <code>%x</code></li>\n",
             red_if(no_output_of_prior_pics_flag), no_output_of_prior_pics_flag,
             long_term_reference_flag);
-        e->reference_flags[0] = e->reference_flags[1] = 0;
         e->long_term_flags = long_term_reference_flag << (e->currPic / 2);
         Edge264_picture *p = e->DPB + 2 * (e->currPic / 2);
         p[0].LongTermFrameIdx = p[1].LongTermFrameIdx = 0;
@@ -502,6 +504,8 @@ static inline void parse_dec_ref_pic_marking(Edge264_slice *s, Edge264_ctx *e) {
                     max_long_term_frame_idx_plus1);
             } else if (memory_management_control_operation == 5) {
                 e->reference_flags[0] = e->reference_flags[1] = e->long_term_flags = 0;
+                e->DPB[e->currPic].FrameNum = 0;
+                e->prevPicOrderCnt += 1 << s->ps.log2_max_pic_order_cnt_lsb;
                 printf("<li>All references → unused for reference</li>\n");
             } else if (memory_management_control_operation == 6) {
                 e->long_term_flags |= 1 << (e->currPic / 2);
@@ -545,26 +549,34 @@ printf("<br/>\n");
     Edge264_slice s = {.c.CPB = e->CPB, .c.shift = 8, .c.lim = lim, .DPB = e->DPB};
     
     unsigned int first_mb_in_slice = get_ue(e->CPB, &s.c.shift, 36863);
-    s.slice_type = get_ue(e->CPB, &s.c.shift, 9) % 5;
+    unsigned int slice_type = get_ue(e->CPB, &s.c.shift, 9);
+    s.slice_type = (slice_type < 5) ? slice_type : slice_type - 5;
     /* When lim is reached here, shift will overflow for at most 698 set bits. */
     unsigned int pic_parameter_set_id = get_ue(e->CPB, &s.c.shift, 255);
     printf("<li%s>first_mb_in_slice: <code>%u</code></li>\n"
         "<li%s>slice_type: <code>%u (%s)</code></li>\n"
         "<li%s>pic_parameter_set_id: <code>%u</code></li>\n",
         red_if(first_mb_in_slice > 0), first_mb_in_slice,
-        red_if(s.slice_type > 2), s.slice_type, slice_type_names[s.slice_type],
+        red_if(s.slice_type > 2), slice_type, slice_type_names[s.slice_type],
         red_if(pic_parameter_set_id >= 4 || e->PPSs[pic_parameter_set_id].num_ref_idx_active[0] == 0), pic_parameter_set_id);
     if (first_mb_in_slice > 0 || s.slice_type > 2 || pic_parameter_set_id >= 4 ||
-        s.c.shift > 13 || e->PPSs[pic_parameter_set_id].num_ref_idx_active[0] == 0)
+        e->PPSs[pic_parameter_set_id].num_ref_idx_active[0] == 0)
         return NULL;
     s.ps = e->PPSs[pic_parameter_set_id];
+    
+    /* Storing a copy of nal_unit_type in e would really be unnecessary. */
+    if (e->CPB[0] % 32 == 5) {
+        e->reference_flags[0] = e->reference_flags[1] = e->long_term_flags = 0;
+        e->DPB[e->currPic].FrameNum = 0;
+        e->prevPicOrderCnt += 1 << s.ps.log2_max_pic_order_cnt_lsb;
+    }
     
     /* We always compute an absolute FrameNum, to simplify later operations. */
     unsigned int frame_num = get_uv(e->CPB, &s.c.shift, s.ps.log2_max_frame_num);
     unsigned int MaxFrameNum = 1 << s.ps.log2_max_frame_num;
     unsigned int prevAbsFrameNum = e->DPB[e->currPic].FrameNum;
-    unsigned int PrevRefFrameNum = prevAbsFrameNum -
-        ((e->reference_flags[0] | e->reference_flags[1]) & (1 << (e->currPic / 2)) ? 0 : 1);
+    unsigned int PrevRefFrameNum = prevAbsFrameNum - 1 +
+        (((e->reference_flags[0] | e->reference_flags[1]) >> (e->currPic / 2)) & 1);
     s.p.FrameNum = (prevAbsFrameNum & -MaxFrameNum) + frame_num;
     if (s.p.FrameNum < prevAbsFrameNum)
         s.p.FrameNum += MaxFrameNum;
@@ -586,12 +598,9 @@ printf("<br/>\n");
     Edge264_macroblock *m = &mbs[circular_pos];
     s.mvs = &mvs[64 * circular_pos];
     
-    /* Storing a copy of nal_unit_type in e would really be unnecessary. */
-    unsigned int nal_unit_type = *e->CPB & 0x1f;
-    if (nal_unit_type == 5) {
+    if (e->CPB[0] % 32 == 5) {
         unsigned int idr_pic_id = get_ue(e->CPB, &s.c.shift, 65535);
         printf("<li>idr_pic_id: <code>%u</code></li>\n", idr_pic_id);
-        e->prevPicOrderCnt += 1 << s.ps.log2_max_pic_order_cnt_lsb;
     }
     unsigned int OtherFieldOrderCnt = parse_pic_order_cnt(&s, e);
     if (s.slice_type == 1) {
@@ -617,6 +626,7 @@ printf("<br/>\n");
     unsigned int refs = s.field_pic_flag ? e->reference_flags[0] | e->reference_flags[1] :
         e->reference_flags[0] & e->reference_flags[1];
     if ((s.slice_type < 2 && refs == 0) || s.p.FrameNum != PrevRefFrameNum + 1) {
+abort();
         e->reference_flags[0] |= 1 << (e->currPic / 2);
         e->reference_flags[1] |= 1 << (e->currPic / 2);
     }
@@ -638,7 +648,7 @@ printf("<br/>\n");
             e->reference_flags[1] &= ~(1 << (e->currPic / 2));
         }
         e->output_flags |= 1 << (e->currPic / 2);
-        e->DPB[e->currPic + 1].PicOrderCnt = OtherFieldOrderCnt;
+        e->DPB[e->currPic + 1].PicOrderCnt = OtherFieldOrderCnt; // FIXME
         e->DPB[e->currPic + 1].FrameNum = s.p.FrameNum;
         e->currPic += s.CurrMbAddr;
     }
@@ -727,7 +737,7 @@ static const Edge264_picture *parse_end_of_stream(Edge264_ctx *e, unsigned int l
 static const Edge264_picture *parse_end_of_seq(Edge264_ctx *e, unsigned int lim) {
     if (lim == 8) {
         e->reference_flags[0] = e->reference_flags[1] = e->long_term_flags = 0;
-        e->prevPicOrderCnt += 32768;
+        e->prevPicOrderCnt += 1 << e->SPS.log2_max_pic_order_cnt_lsb;
     }
     return NULL;
 }
@@ -1134,8 +1144,7 @@ static unsigned int parse_vui_parameters(Edge264_parameter_set *s,
         unsigned int log2_max_mv_length_horizontal = get_ue(CPB, &shift, 5);
         unsigned int log2_max_mv_length_vertical = get_ue(CPB, &shift, 16);
         s->max_num_reorder_frames = get_ue(CPB, &shift, 16);
-        s->max_dec_frame_buffering = max(get_ue(CPB, &shift, 16),
-            max(s->max_num_ref_frames, s->max_num_reorder_frames));
+        s->max_dec_frame_buffering = get_ue(CPB, &shift, 16);
         printf("<li>motion_vectors_over_pic_boundaries_flag: <code>%x</code></li>\n"
             "<li>max_bytes_per_pic_denom: <code>%u</code></li>\n"
             "<li>max_bits_per_mb_denom: <code>%u</code></li>\n"
@@ -1179,9 +1188,9 @@ static const Edge264_picture *parse_seq_parameter_set(Edge264_ctx *e, unsigned i
     
     Edge264_parameter_set s = {0};
     s.BitDepth[0] = s.BitDepth[1] = s.BitDepth[2] = 8;
-    unsigned int profile_idc = e->CPB[0];
-    unsigned int constraint_set_flags = e->CPB[1];
-    unsigned int level_idc = e->CPB[2];
+    unsigned int profile_idc = e->CPB[1];
+    unsigned int constraint_set_flags = e->CPB[2];
+    unsigned int level_idc = e->CPB[3];
     unsigned int shift = 32;
     unsigned int seq_parameter_set_id = get_ue(e->CPB, &shift, 31);
     printf("<li>profile_idc: <code>%u (%s)</code></li>\n"
@@ -1245,6 +1254,7 @@ static const Edge264_picture *parse_seq_parameter_set(Edge264_ctx *e, unsigned i
         "<li>pic_order_cnt_type: <code>%u</code></li>\n",
         s.log2_max_frame_num,
         s.pic_order_cnt_type);
+    s.log2_max_pic_order_cnt_lsb = 1;
     if (s.pic_order_cnt_type == 0) {
         s.log2_max_pic_order_cnt_lsb = get_ue(e->CPB, &shift, 12) + 4;
         printf("<li>log2_max_pic_order_cnt_lsb: <code>%u</code></li>\n",
@@ -1254,6 +1264,7 @@ static const Edge264_picture *parse_seq_parameter_set(Edge264_ctx *e, unsigned i
         s.offset_for_non_ref_pic = get_se(e->CPB, &shift, -2147483647, 2147483647);
         s.offset_for_top_to_bottom_field = get_se(e->CPB, &shift, -2147483647, 2147483647);
         s.num_ref_frames_in_pic_order_cnt_cycle = get_ue(e->CPB, &shift, 255);
+        s.log2_max_pic_order_cnt_lsb = 16;
         printf("<li>delta_pic_order_always_zero_flag: <code>%x</code></li>\n"
             "<li>offset_for_non_ref_pic: <code>%d</code></li>\n"
             "<li>offset_for_top_to_bottom: <code>%d</code></li>\n"
@@ -1273,8 +1284,8 @@ static const Edge264_picture *parse_seq_parameter_set(Edge264_ctx *e, unsigned i
             i, PicOrderCntDeltas[i]);
     }
     printf("</ul>\n");
-    s.max_num_ref_frames = s.max_num_reorder_frames = get_ue(e->CPB, &shift, 16);
-    s.max_dec_frame_buffering = min(s.max_num_ref_frames + 1, 16);
+    s.max_dec_frame_buffering = s.max_num_ref_frames = s.max_num_reorder_frames =
+        get_ue(e->CPB, &shift, 16);
     unsigned int gaps_in_frame_num_value_allowed_flag = get_u1(e->CPB, &shift);
     /* For compatibility with CoreAVC's 8100x8100, the 5.2 limit on mbs is not enforced. */
     s.width = (get_ue(e->CPB, &shift, 543) + 1) * 16;

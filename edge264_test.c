@@ -39,7 +39,7 @@ int main() {
     fstat(0, &st);
     const uint8_t *r = mmap(NULL, st.st_size, PROT_READ, MAP_SHARED, 0, 0);
     assert(r!=MAP_FAILED);
-    //setvbuf(stdout, NULL, _IONBF, BUFSIZ);
+    setvbuf(stdout, NULL, _IONBF, BUFSIZ);
     
     /* Parse and dump the file to HTML. */
     printf("<!doctype html>\n"
@@ -53,7 +53,6 @@ int main() {
         const Edge264_picture *p = Edge264_parse_NAL(&e, r, next);
         if (p != NULL)
             printf("<p>Output picture %d</p>\n", p->PicOrderCnt);
-break;
     }
     printf("</body>\n"
         "</html>\n");

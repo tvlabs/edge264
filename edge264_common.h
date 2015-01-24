@@ -28,12 +28,12 @@
 #ifndef EDGE264_COMMON_H
 #define EDGE264_COMMON_H
 
-#if !DEBUG
-#define printf(...)
-#define NDEBUG 1
-#else
+#if DEBUG
 #include <stdio.h>
 static inline const char *red_if(int cond) { return (cond) ? " style=\"color: red\"" : ""; }
+#else
+#define printf(...)
+#define NDEBUG 1
 #endif
 #if DEBUG != 2
 #define fprintf(...)
@@ -351,7 +351,7 @@ typedef struct {
     uint8_t s[1024] __attribute__((aligned));
     Edge264_parameter_set ps;
     Edge264_picture p;
-    uint8_t RefPicList[2][32];
+    uint8_t RefPicList[2][32] __attribute__((aligned));
     uint8_t MapPicToList0[35]; // [1 + refPic]
     int16_t DistScaleFactor[3][32]; // [top/bottom/frame][refIdxL0]
     int16_t weights[3][32][2];

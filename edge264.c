@@ -1,5 +1,4 @@
 /* TODO: Test with lint. */
-/* TODO: Mbaff must update ref_idx_mask each time it decodes mb_field_decoding_flag. */
 
 /**
  * Copyright (c) 2013-2014, Celticom / TVLabs
@@ -262,15 +261,14 @@ static inline void parse_ref_pic_list_modification(Edge264_slice *s, const Edge2
     
     /* Parse the ref_pic_list_modification() instructions. */
     unsigned int MaxPicNum = 1 << (s->ps.log2_max_frame_num + s->field_pic_flag);
-    unsigned int CurrPicNum = s->field_pic_flag ? s->p.FrameNum : 2 * s->p.FrameNum + 1;
+    unsigned int CurrPicNum = s->field_pic_flag ? 2 * s->p.FrameNum + 1 : s->p.FrameNum;
     for (unsigned int l = 0; l <= s->slice_type; l++) {
-        if (!get_u1(e->CPB, &s->c.shift))
-            continue;
-printf("<li>Yay!</li>\n");
+        unsigned int ref_pic_list_modification_flag = get_u1(e->CPB, &s->c.shift);
         unsigned int picNumLX = CurrPicNum;
         unsigned int refIdxLX = 0;
         unsigned int modification_of_pic_nums_idc;
-        while ((modification_of_pic_nums_idc = get_raw_ue(e->CPB, &s->c.shift, 3)) < 3 && refIdxLX < 32) {
+        while (ref_pic_list_modification_flag && (modification_of_pic_nums_idc =
+            get_raw_ue(e->CPB, &s->c.shift, 3)) < 3 && refIdxLX < 32) {
             unsigned int pic = s->RefPicList[l][0];
             unsigned int FrameNum = 0;
             if (modification_of_pic_nums_idc != 2) {
@@ -282,12 +280,13 @@ printf("<li>Yay!</li>\n");
                 if (picNumLX > CurrPicNum)
                     picNumLX -= MaxPicNum;
                 FrameNum = picNumLX >> s->field_pic_flag;
-                unsigned int r = e->reference_flags[s->CurrMbAddr ^ ~picNumLX] &
+                unsigned int r = e->reference_flags[s->CurrMbAddr ^ ~picNumLX & 1] &
                     ~e->long_term_flags;
                 while (r != 0 && e->DPB[2 * __builtin_ctz(r)].FrameNum != FrameNum)
                     r &= r - 1;
                 if (r != 0)
                     pic = 2 * __builtin_ctz(r);
+else abort();
             } else {
                 unsigned int long_term_pic_num = get_raw_ue(e->CPB, &s->c.shift, 14);
                 unsigned int LongTermFrameIdx = long_term_pic_num >> s->field_pic_flag;
@@ -306,11 +305,11 @@ printf("<li>Yay!</li>\n");
                 s->RefPicList[l][i] = new;
                 new = old;
             }
-            
-            printf("<li>RefPicList%x[%u]: <code>%d</code></li>\n",
-                l, refIdxLX, e->DPB[s->RefPicList[l][refIdxLX]].PicOrderCnt);
             refIdxLX += 2 - s->field_pic_flag;
         }
+        
+        for (unsigned int i = 0; i < s->ps.num_ref_idx_active[l]; i++)
+            printf("<li>RefPicList%x[%u]: <code>%d</code></li>\n", l, i, e->DPB[s->RefPicList[l][i << !s->field_pic_flag]].PicOrderCnt);
     }
     
     /* MapPicToList0[0]==0 is for refPicCol<0. */
@@ -575,13 +574,11 @@ printf("<br/>\n");
     unsigned int frame_num = get_uv(e->CPB, &s.c.shift, s.ps.log2_max_frame_num);
     unsigned int MaxFrameNum = 1 << s.ps.log2_max_frame_num;
     unsigned int prevAbsFrameNum = e->DPB[e->currPic].FrameNum;
-    unsigned int PrevRefFrameNum = prevAbsFrameNum - 1 +
-        (((e->reference_flags[0] | e->reference_flags[1]) >> (e->currPic / 2)) & 1);
     s.p.FrameNum = (prevAbsFrameNum & -MaxFrameNum) + frame_num;
     if (s.p.FrameNum < prevAbsFrameNum)
         s.p.FrameNum += MaxFrameNum;
     printf("<li%s>FrameNum: <code>%u</code></li>\n",
-        red_if(s.p.FrameNum != PrevRefFrameNum + 1), s.p.FrameNum);
+        red_if(s.p.FrameNum > prevAbsFrameNum + 1), s.p.FrameNum);
     
     /* bottom_field_flag is CurrMbAddr&1 thanks to the Mbaff raster scan. */
     if (!s.ps.frame_mbs_only_flag) {
@@ -625,7 +622,7 @@ printf("<br/>\n");
     /* Use the last decoded picture for reference when at least one is missing. */
     unsigned int refs = s.field_pic_flag ? e->reference_flags[0] | e->reference_flags[1] :
         e->reference_flags[0] & e->reference_flags[1];
-    if ((s.slice_type < 2 && refs == 0) || s.p.FrameNum != PrevRefFrameNum + 1) {
+    if ((s.slice_type < 2 && refs == 0) || s.p.FrameNum > prevAbsFrameNum + 1) {
 abort();
         e->reference_flags[0] |= 1 << (e->currPic / 2);
         e->reference_flags[1] |= 1 << (e->currPic / 2);

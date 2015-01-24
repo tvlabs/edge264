@@ -1,3 +1,5 @@
+/* TODO: Mbaff must update ref_idx_mask each time it decodes mb_field_decoding_flag. */
+
 /**
  * Copyright (c) 2013-2014, Celticom / TVLabs
  * Copyright (c) 2014 Thibault Raffaillac <traf@kth.se>

@@ -1,3 +1,5 @@
+/* TODO: Strided loads with pinsw ? */
+
 #include "H264_common.h"
 
 void decode_Residual4x4(Decode_ctx *, Part_ctx *, __m128i, __m128i);

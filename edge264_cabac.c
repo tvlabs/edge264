@@ -2,7 +2,7 @@
 
 /**
  * Copyright (c) 2013-2014, Celticom / TVLabs
- * Copyright (c) 2014 Thibault Raffaillac <traf@kth.se>
+ * Copyright (c) 2014-2015 Thibault Raffaillac <traf@kth.se>
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without

@@ -1,6 +1,6 @@
 /**
  * Copyright (c) 2013-2014, Celticom / TVLabs
- * Copyright (c) 2014 Thibault Raffaillac <traf@kth.se>
+ * Copyright (c) 2014-2015 Thibault Raffaillac <traf@kth.se>
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -33,6 +33,10 @@
 #define DEBUG 2
 #include "edge264.c"
 
+void print_frame(const Edge264_picture *p) {
+    printf("<li style='color:red'>Output %ld</li>\n", min(p->PicOrderCnt, p[1].PicOrderCnt));
+}
+
 int main() {
     /* Memory-map the whole file. */
     struct stat st;
@@ -46,13 +50,11 @@ int main() {
         "<html>\n"
         "<head><meta charset=\"UTF-8\"/><title>Edge264 test</title></head>\n"
         "<body>\n");
-    Edge264_ctx e = {0};
+    Edge264_ctx e = {.output_frame = print_frame};
     const uint8_t *next, *end = r + st.st_size;
     for (r += 4; r < end; r = next + 3) {
         next = Edge264_find_start_code(r, end, 1);
-        const Edge264_picture *p = Edge264_parse_NAL(&e, r, next);
-        if (p != NULL)
-            printf("<p>Output picture %d</p>\n", p->PicOrderCnt);
+        Edge264_parse_NAL(&e, r, next - r);
     }
     printf("</body>\n"
         "</html>\n");

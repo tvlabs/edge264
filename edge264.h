@@ -1,6 +1,6 @@
 /**
  * Copyright (c) 2013-2014, Celticom / TVLabs
- * Copyright (c) 2014 Thibault Raffaillac <traf@kth.se>
+ * Copyright (c) 2014-2015 Thibault Raffaillac <traf@kth.se>
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -56,7 +56,6 @@ typedef struct {
     unsigned long constrained_intra_pred_flag:1;
     unsigned long transform_8x8_mode_flag:1;
     uint8_t BitDepth[3]; // 4 significant bits
-    uint8_t max_dec_frame_buffering; // 5 significant bits
     uint16_t width; // in luma samples, 14 significant bits
     uint16_t height;
     uint16_t stride[3]; // in bytes, 15 significant bits
@@ -89,9 +88,10 @@ typedef struct {
     uint32_t currPic:6; // previous picture in decoding order
     uint32_t CPB_size:26;
     int32_t prevPicOrderCnt;
+    uint32_t output_flags;
     uint32_t reference_flags[2];
     uint32_t long_term_flags;
-    uint32_t output_flags;
+    void (*output_frame)(const Edge264_picture[2]);
     Edge264_picture DPB[34]; // two entries top/bottom per frame
     Edge264_parameter_set SPS;
     Edge264_parameter_set PPSs[4];
@@ -99,6 +99,6 @@ typedef struct {
 } Edge264_ctx;
 
 const uint8_t *Edge264_find_start_code(const uint8_t *buf, const uint8_t *end, unsigned int n);
-const Edge264_picture *Edge264_parse_NAL(Edge264_ctx *e, const uint8_t *buf, const uint8_t *end);
+void Edge264_parse_NAL(Edge264_ctx *e, const uint8_t *buf, size_t len);
 
 #endif

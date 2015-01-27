@@ -1,6 +1,6 @@
 /**
  * Copyright (c) 2013-2014, Celticom / TVLabs
- * Copyright (c) 2014 Thibault Raffaillac <traf@kth.se>
+ * Copyright (c) 2014-2015 Thibault Raffaillac <traf@kth.se>
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -331,11 +331,11 @@ typedef struct {
 typedef struct {
     CABAC_ctx c;
     Edge264_mb_flags ctxIdxInc;
-    uint16_t x; // in luma samples, 14 significant bits
-    uint16_t y;
-    uint32_t CurrMbAddr; // always follows Mbaff scan, 19 significant bits
+    uint16_t mb_x; // 10 significant bits
+    uint16_t mb_y;
     unsigned int slice_type:2;
     unsigned int field_pic_flag:1;
+    unsigned int bottom_field_flag:1;
     unsigned int MbaffFrameFlag:1;
     unsigned int direct_spatial_mv_pred_flag:1;
     unsigned int cabac_init_idc:2;

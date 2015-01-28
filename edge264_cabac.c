@@ -559,49 +559,31 @@ static inline void CABAC_parse_mb_type(Edge264_slice *s, Edge264_macroblock *m)
 
 __attribute__((noinline)) void CABAC_parse_slice_data(Edge264_slice s, Edge264_macroblock *m)
 {
-    /* cabac_alignment_one_bit is useful to detect header parsing errors. */
-    if ((~s->c.CPB[s->c.shift / 8] << (1 + (s->c.shift - 1) % 8) & 0xff) != 0)
-        printf("<li style=\"color: red\">Erroneous slice header (%u bits)</li>\n", s->c.shift);
-    s->c.shift = (s->c.shift + 7) & -8;
-    
     /* Initialise the CABAC engine. */
-    renorm(&s->c, LONG_BIT - 1);
-    s->c.codIRange = 510L << (LONG_BIT - 10);
-    memcpy(s->s, CABAC_init[max(s->ps.QP_Y, 0)][s->cabac_init_idc], 1024);
-    s->init.mb_type_B = 1;
+    renorm(&s.c, LONG_BIT - 1);
+    s.c.codIRange = 510L << (LONG_BIT - 10);
+    memcpy(s.s, CABAC_init[max(s.ps.QP_Y, 0)][s.cabac_init_idc], 1024);
     
-    unsigned int end_of_slice_flag = 0;
-    while (!end_of_slice_flag && s->mb_y < s->ps.height / 16) {
-        while (s->mb_x < s->ps.width / 16 && !end_of_slice_flag) {
-            CABAC_parse_init(s, m);
-            CABAC_parse_mb_type(s, m);
-            
-            /* Increment the macroblock address and parse end_of_slice_flag. */
-            m++;
-            s->mv += 64;
-            if (!s->MbaffFrameFlag) {
-                s->mb_x++;
-                end_of_slice_flag = get_ae(&s->c, &s->s[276]);
-            } else if (s->mb_y++ & 1) {
-                s->mb_y -= 2;
-                s->mb_x++;
-                end_of_slice_flag = get_ae(&s->c, &s->s[276]);
+    /* Initialise with the test for cabac_alignment_one_bit. */
+    unsigned int end_of_slice_flag = ~s.c.CPB[s.c.shift / 8] << (1 + (s.c.shift - 1) % 8) & 0xff;
+    s.c.shift = (s.c.shift + 7) & -8;
+    while (!end_of_slice_flag && s.mb_y < s.ps.height / 16) {
+        CABAC_parse_init(&s, m);
+        CABAC_parse_mb_type(&s, m);
+        
+        /* Increment the macroblock address and parse end_of_slice_flag. */
+        m++;
+        s.mv += 64;
+        if (!s.MbaffFrameFlag || (s.mb_y ^= 1) % 2 != 0)
+            end_of_slice_flag = get_ae(&s.c, &s.s[276]);
+            if (++s.mb_x == s.ps.width / 16) {
+                s.mb_x = 0;
+                s.mb_y += 1 + (s.MbaffFrameFlag || s.field_pic_flag);
+                *m = (Edge264_macroblock){0};
+                unsigned int offset = (s.ps.width / 16 + 2) << s.MbaffFrameFlag;
+                m -= offset;
+                s.mvs -= 64 * offset;
             }
-            fprintf(stderr, "end_of_slice_flag: %x\n", end_of_slice_flag);
-        }
-        *m = mb_void;
-        s->mb_x = 0;
-        if (!s->MbaffFrameFlag) {
-            m -= s->ps.width / 16 + 2;
-            mv -= 64 * (s->ps.width / 16 + 2);
-            s->mb_y += 1 + s->field_pic_flag;
-            s->init.mb_field_decoding_flag = m[2].f.mb_field_decoding_flag;
-        } else {
-            m[1] = mb_void;
-            m -= s->ps.width / 8 + 4;
-            mv -= 64 * (s->ps.width / 8 + 4);
-            s->mb_y += 2;
-            s->init.mb_field_decoding_flag = m[4].f.mb_field_decoding_flag;
         }
     }
 }

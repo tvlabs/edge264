@@ -327,7 +327,7 @@ typedef struct {
         } __attribute__((packed));
         uint64_t flags8x8;
     };
-} Edge264_macroblock;
+} __attribute__((aligned)) Edge264_macroblock;
 typedef struct {
     CABAC_ctx c;
     Edge264_mb_flags ctxIdxInc;

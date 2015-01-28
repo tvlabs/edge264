@@ -694,8 +694,6 @@ if (e->reference_flags[1] & 1 << u) printf("bottom-reference(%d) ", e->DPB[2 * u
 if (min(e->DPB[2 * u].PicOrderCnt, e->DPB[2 * u + 1].PicOrderCnt) == INT32_MAX) printf("grey");
 if (e->output_flags & 1 << u) printf("displayable(%d,%d)", e->DPB[2 * u].PicOrderCnt, e->DPB[2 * u + 1].PicOrderCnt);
 printf("</code></li>\n"); }
-if ((~s.c.CPB[s.c.shift / 8] << (1 + (s.c.shift - 1) % 8) & 0xff) != 0)
-printf("<li style=\"color: red\">Erroneous slice header (%u bits)</li>\n", s.c.shift);
     
     //CABAC_parse_slice_data(s, m);
 }

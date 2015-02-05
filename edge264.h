@@ -72,8 +72,8 @@ typedef struct {
     uint8_t weightScale8x8[6][64] __attribute__((aligned));
 } Edge264_parameter_set;
 typedef struct {
-    int32_t refPic;
-    uint32_t mb_field_decoding_flag:1;
+    uint8_t refPic[4];
+    uint32_t fieldDecodingFlag:1;
 } Edge264_persistent_mb;
 typedef struct {
     uint8_t *planes[3];

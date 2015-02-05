@@ -28,14 +28,13 @@
 #ifndef EDGE264_COMMON_H
 #define EDGE264_COMMON_H
 
-#if DEBUG
+#if TRACE
 #include <stdio.h>
 static inline const char *red_if(int cond) { return (cond) ? " style=\"color: red\"" : ""; }
 #else
 #define printf(...)
-#define NDEBUG 1
 #endif
-#if DEBUG != 2
+#if TRACE != 2
 #define fprintf(...)
 #endif
 
@@ -84,9 +83,13 @@ static inline const char *red_if(int cond) { return (cond) ? " style=\"color: re
 #define vector_select(f, t, mask) _mm_blendv_epi8((__m128i)(f), (__m128i)(t), (__m128i)(mask))
 #else
 #include <tmmintrin.h>
+#define vector_select(f, t, mask) (((t) & (mask)) | ((f) & ~(mask)))
+#define temporal_scale(mvCol, DistScaleFactor) \
+    _mm_mulhrs_epi16(_mm_set1_epi16(DistScaleFactor), _mm_slli_epi16((__m128i)mvCol, 2))
+#define mv_is_zero(mvCol) \
+    _mm_cmpeq_epi32(_mm_srli_epi16(_mm_abs_epi16((__m128i)mvCol), 1), _mm_setzero_si128())
 #define _mm_extract_epi32(a, i) \
     _mm_cvtsi128_si32(_mm_shuffle_epi32(a, _MM_SHUFFLE(i, i, i, i)))
-#define vector_select(f, t, mask) (((t) & (mask)) | ((f) & ~(mask)))
 static inline __m128i _mm_packus_epi32(__m128i a, __m128i b) {
     return _mm_max_epi16(_mm_packs_epi32(a, b), _mm_setzero_si128());
 }
@@ -231,7 +234,7 @@ static inline void renorm(CABAC_ctx *c, unsigned int v) {
     c->shift += v;
 }
 
-static inline _Bool get_ae(CABAC_ctx *c, uint8_t *state) {
+static __attribute__((noinline)) _Bool get_ae(CABAC_ctx *c, uint8_t *state) {
     static const uint8_t rangeTabLPS[4 * 64] = {
         128, 128, 128, 123, 116, 111, 105, 100, 95, 90, 85, 81, 77, 73, 69, 66,
         62, 59, 56, 53, 51, 48, 46, 43, 41, 39, 37, 35, 33, 32, 30, 29, 27, 26,
@@ -300,9 +303,9 @@ static inline __attribute__((always_inline)) _Bool get_bypass(CABAC_ctx *c) {
 
 typedef union {
     struct {
+        uint32_t mb_field_decoding_flag:2;
         uint32_t unavailable:2;
         uint32_t mb_skip_flag:2;
-        uint32_t mb_field_decoding_flag:2;
         uint32_t mb_type_I:2;
         uint32_t mb_type_B:2;
         uint32_t intra_chroma_pred_mode_non_zero:2;
@@ -343,6 +346,7 @@ typedef struct {
     int FilterOffsetA:5;
     int FilterOffsetB:5;
     unsigned int firstRefPicL1:1;
+    unsigned int col_short_term:1;
     unsigned int ref_idx_mask:8;
     int16_t *mvs; // circular buffer of [LX][luma4x4BlkIdx][compIdx] macroblocks
     const int16_t *mvCol;

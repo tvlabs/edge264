@@ -1,3 +1,4 @@
+/* TODO: Improve the start_code search. */
 /* TODO: Test with lint. */
 
 /**
@@ -314,9 +315,9 @@ static inline void parse_ref_pic_list_modification(Edge264_slice *s, const Edge2
     /* MapPicToList0[0]==0 is for refPicCol<0. */
     for (unsigned int refIdxL0 = 32; refIdxL0-- > 0; )
         s->MapPicToList0[s->RefPicList[0][refIdxL0]] = refIdxL0;
-    const Edge264_picture *colPic = e->DPB + s->RefPicList[1][0];
-    s->mbCol = colPic->mbs;
-    s->mvCol = colPic->mvs;
+    s->mbCol = e->DPB[s->RefPicList[1][0]].mbs;
+    s->mvCol = e->DPB[s->RefPicList[1][0]].mvs;
+    s->col_short_term = ~e->long_term_flags >> (s->RefPicList[1][0] / 2) & 1;
 }
 
 
@@ -354,7 +355,7 @@ static inline void parse_pred_weight_table(Edge264_slice *s, const Edge264_ctx *
                 }
                 s->implicit_weights[2][2 * refIdxL0][2 * refIdxL1] = -w_1C;
             }
-            s->DistScaleFactor[2][2 * refIdxL0] = DistScaleFactor;
+            s->DistScaleFactor[2][2 * refIdxL0] = DistScaleFactor << 5;
         }
     }
     
@@ -384,8 +385,8 @@ static inline void parse_pred_weight_table(Edge264_slice *s, const Edge264_ctx *
             s->implicit_weights[s->bottom_field_flag][refIdxL0][refIdxL1] = -w_1C;
             s->implicit_weights[s->bottom_field_flag ^ 1][refIdxL0][refIdxL1] = -W_1C;
         }
-        s->DistScaleFactor[s->bottom_field_flag][refIdxL0] = DistScaleFactor0;
-        s->DistScaleFactor[s->bottom_field_flag ^ 1][refIdxL0] = DistScaleFactor1;
+        s->DistScaleFactor[s->bottom_field_flag][refIdxL0] = DistScaleFactor0 << 5;
+        s->DistScaleFactor[s->bottom_field_flag ^ 1][refIdxL0] = DistScaleFactor1 << 5;
     }
     
     /* Parse explicit weights/offsets. */

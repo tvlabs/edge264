@@ -506,7 +506,7 @@ static inline void parse_dec_ref_pic_marking(Edge264_slice *s, Edge264_ctx *e) {
                     max_long_term_frame_idx_plus1);
             } else if (memory_management_control_operation == 5) {
                 e->reference_flags[0] = e->reference_flags[1] = e->long_term_flags = 0;
-                e->prevPicOrderCnt += 1 << s->ps.log2_max_pic_order_cnt_lsb;
+                e->prevPicOrderCnt += 1 << (s->ps.log2_max_pic_order_cnt_lsb - 1);
                 printf("<li>All references → unused for reference</li>\n");
             } else if (memory_management_control_operation == 6) {
                 e->long_term_flags |= 1 << (e->currPic / 2);
@@ -581,7 +581,7 @@ printf("<br/>\n");
     /* Storing a copy of nal_unit_type in e would really be unnecessary. */
     if (e->CPB[0] % 32 == 5) {
         e->reference_flags[0] = e->reference_flags[1] = e->long_term_flags = 0;
-        e->prevPicOrderCnt += 1 << s.ps.log2_max_pic_order_cnt_lsb;
+        e->prevPicOrderCnt += 1 << (s.ps.log2_max_pic_order_cnt_lsb - 1);
     }
     
     /* We always compute an absolute FrameNum, to simplify later operations. */
@@ -730,7 +730,7 @@ static void parse_end_of_stream(Edge264_ctx *e, unsigned int lim) {
 static void parse_end_of_seq(Edge264_ctx *e, unsigned int lim) {
     if (lim == 8) {
         e->reference_flags[0] = e->reference_flags[1] = e->long_term_flags = 0;
-        e->prevPicOrderCnt += 1 << e->SPS.log2_max_pic_order_cnt_lsb;
+        e->prevPicOrderCnt += 32768;
         e->DPB[e->currPic].FrameNum++;
     }
 }

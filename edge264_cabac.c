@@ -128,8 +128,9 @@ static inline unsigned CABAC_init_inter(Edge264_slice *s, Edge264_macroblock *m)
     /* Initialise with Direct motion prediction and parse mb_type. */
     if (s->slice_type == 0) {
         if (m->f.mb_skip_flag) {
-            CABAC_init_P_Skip(s, m, refIdxA, refIdxB, refIdxC, mvA, mvB, mvC);
+            init_P_Skip(s, m, refIdxA, refIdxB, refIdxC, mvA, mvB, mvC);
             memset(m->absMvdComp, 0, 36);
+            return 0;
         } else if (get_ae(&s->c, s->s + 14)) {
             return 17;
         } else {
@@ -146,9 +147,10 @@ static inline unsigned CABAC_init_inter(Edge264_slice *s, Edge264_macroblock *m)
             }
         }
     } else {
-        CABAC_init_B_Direct(s, m, refIdxA, refIdxB, refIdxC, mvA, mvB, mvC);
+        init_B_Direct(s, m, refIdxA, refIdxB, refIdxC, mvA, mvB, mvC);
         if (m->f.mb_skip_flag || !get_ae(&s->c, s->s + 29 - s->ctxIdxInc.mb_type_B_Direct)) {
             m->f.mb_type_B_Direct = 1;
+            return 0;
         } else if (!get_ae(&s->c, s->s + 30)) {
             unsigned bin2 = get_ae(&s->c, s->s + 32);
             Pred_LX = 1 << (4 * bin2);
@@ -183,6 +185,50 @@ static inline unsigned CABAC_init_inter(Edge264_slice *s, Edge264_macroblock *m)
 
 
 
+void CABAC_parse_intra_mb_pred(Edge264_slice *s, Edge264_macroblock *m, unsigned ctxIdx) {
+    if (!get_ae(&s->c, s->s + ctxIdx)) { // I_NxN
+        m->f.mb_type_I_NxN = 1;
+        if (s->ps.transform_8x8_mode_flag)
+            m->f.transform_size_8x8_flag = get_ae(&s->c, s->s + 399 + s->ctxIdxInc.transform_size_8x8_flag);
+        
+        /* Priority is given to code size, so no duplicate loop. */
+        for (unsigned luma4x4BlkIdx = 0; luma4x4BlkIdx < 16; ) {
+            unsigned e = edge4x4[luma4x4BlkIdx];
+            int intraPredModeA = (m->Intra4x4PredMode + 1)[e];
+            int intraPredModeB = (m->Intra4x4PredMode - 1)[e];
+            unsigned IntraPredMode = abs(min(intraPredModeA, intraPredModeB));
+            if (!(get_ae(&s->c, s->s + 68))) {
+                unsigned rem_intra_pred_mode = get_ae(&s->c, s->s + 69);
+                rem_intra_pred_mode += get_ae(&s->c, s->s + 69) * 2;
+                rem_intra_pred_mode += get_ae(&s->c, s->s + 69) * 4;
+                IntraPredMode = rem_intra_pred_mode + (rem_intra_pred_mode >= IntraPredMode);
+            }
+            m->Intra4x4PredMode[e] = s->PredMode[luma4x4BlkIdx++] = IntraPredMode;
+            if (m->f.transform_size_8x8_flag)
+                (m->Intra4x4PredMode - 1)[e] = (m->Intra4x4PredMode + 1)[e] = IntraPredMode, luma4x4BlkIdx += 3;
+        }
+        
+    } else if (!get_ae(&s->c, s->s + 276)) { // Intra_16x16
+        m->CodedBlockPatternLuma = -get_ae(&s->c, s->s + umax(ctxIdx + 1, 6));
+        m->f.CodedBlockPatternChromaDC = get_ae(&s->c, s->s + umax(ctxIdx + 2, 7));
+        if (m->f.CodedBlockPatternChromaDC)
+            m->f.CodedBlockPatternChromaAC = get_ae(&s->c, s->s + umax(ctxIdx + 2, 8));
+        unsigned Intra16x16PredMode = get_ae(&s->c, s->s + umax(ctxIdx + 3, 9)) << 1;
+        Intra16x16PredMode += get_ae(&s->c, s->s + umax(ctxIdx + 3, 10));
+        
+    } else { // I_PCM
+        m->f.CodedBlockPatternChromaDC = 1;
+        m->f.CodedBlockPatternChromaAC = 1;
+        m->f.coded_block_flag_16x16 = 0x15;
+        m->coded_block_flag_8x8 = m->coded_block_flag_4x4[0] =
+            m->coded_block_flag_4x4[1] = m->coded_block_flag_4x4[2] = -1;
+        s->c.shift = (s->c.shift - (LONG_BIT - 9 - __builtin_clzl(s->c.codIRange)) + 7) & -8;
+        
+    }
+}
+
+
+
 __attribute__((noinline)) void CABAC_parse_slice_data(Edge264_slice s, Edge264_macroblock *m)
 {
     /* Initialise the CABAC engine. */
@@ -196,22 +242,8 @@ __attribute__((noinline)) void CABAC_parse_slice_data(Edge264_slice s, Edge264_m
     while (!end_of_slice_flag && s.mb_y < (unsigned)s.ps.height / 16) {
         m->f.flags = 0;
         unsigned ctxIdx = CABAC_init_inter(&s, m);
-        if (ctxIdx != 0) {
-            if (!get_ae(&s.c, s.s + ctxIdx)) { // I_NxN
-                m->f.mb_type_I_NxN = 1;
-                
-            } else if (!get_ae(&s.c, s.s + 276)) { // Intra_16x16
-                m->CodedBlockPatternLuma = get_ae(&s.c, s.s + umax(ctxIdx + 1, 6)) * 0x35;
-                m->f.CodedBlockPatternChromaDC = get_ae(&s.c, s.s + umax(ctxIdx + 2, 7));
-                if (m->f.CodedBlockPatternChromaDC)
-                    m->f.CodedBlockPatternChromaAC = get_ae(&s.c, s.s + umax(ctxIdx + 2, 8));
-                unsigned Intra16x16PredMode = get_ae(&s.c, s.s + umax(ctxIdx + 3, 9)) << 1;
-                Intra16x16PredMode += get_ae(&s.c, s.s + umax(ctxIdx + 3, 10));
-                
-            } else { // I_PCM
-                
-            }
-        }
+        if (ctxIdx != 0)
+            CABAC_parse_intra_mb_pred(&s, m, ctxIdx);
         
         /* Increment the macroblock address and parse end_of_slice_flag. */
         m++;

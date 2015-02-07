@@ -330,8 +330,8 @@ typedef union {
         uint32_t mb_skip_flag:2;
         uint32_t mb_type_I_NxN:2;
         uint32_t mb_type_B_Direct:2;
-        uint32_t intra_chroma_pred_mode_non_zero:2;
         uint32_t transform_size_8x8_flag:2;
+        uint32_t intra_chroma_pred_mode_non_zero:2;
         uint32_t CodedBlockPatternChromaDC:2;
         uint32_t CodedBlockPatternChromaAC:2;
         uint32_t coded_block_flag_16x16:6;
@@ -348,7 +348,7 @@ typedef struct {
             uint32_t coded_block_flag_8x8;
             uint16_t ref_idx_nz;
             uint8_t CodedBlockPatternLuma;
-            uint8_t Intra4x4PredMode[9]; // put here to spare memory
+            int8_t Intra4x4PredMode[9]; // put here to spare memory
         } __attribute__((packed));
         uint64_t flags8x8;
     };
@@ -370,6 +370,7 @@ typedef struct {
     unsigned int firstRefPicL1:1;
     unsigned int col_short_term:1;
     unsigned int ref_idx_mask:8;
+    uint8_t PredMode[48];
     int16_t *mvs; // circular buffer of [LX][luma4x4BlkIdx][compIdx] macroblocks
     const int16_t *mvCol;
     const Edge264_persistent_mb *mbCol;
@@ -395,12 +396,14 @@ static const uint8_t left4x4[32] = {28, 12, 11, 24, 25, 9, 8, 20, 23, 7, 6, 18,
     19, 4, 3, 16, 60, 44, 43, 56, 57, 41, 40, 52, 55, 39, 38, 50, 51, 36, 35, 48};
 static const uint8_t bit8x8[8] = {6, 2, 1, 4, 14, 10, 9, 12};
 static const uint8_t left8x8[8] = {2, 5, 4, 0, 10, 13, 12, 8};
+static const uint8_t edge4x4[16] = {4, 5, 3, 4, 6, 7, 5, 6, 2, 3, 1, 2, 4, 5, 3, 4};
 static const Edge264_macroblock void_mb = {
+    .f.mb_field_decoding_flag = 0,
     .f.unavailable = 1,
     .f.mb_skip_flag = 1,
-    .f.mb_field_decoding_flag = 0,
-    .f.mb_type_B_Direct = 1,
     .f.mb_type_I_NxN = 1,
+    .f.mb_type_B_Direct = 1,
+    .f.transform_size_8x8_flag = 0,
 };
 
 
@@ -409,7 +412,7 @@ static const Edge264_macroblock void_mb = {
  * Initialise motion vectors and references with direct prediction (8.4.1.1).
  * Inputs are pointers to refIdxL0N and mvL0N.
  */
-static inline void CABAC_init_P_Skip(Edge264_slice *s, Edge264_macroblock *m,
+static inline void init_P_Skip(Edge264_slice *s, Edge264_macroblock *m,
     const int8_t *refIdxA, const int8_t *refIdxB, const int8_t *refIdxC,
     const int16_t *mvA, const int16_t *mvB, const int16_t *mvC)
 {
@@ -440,7 +443,7 @@ static inline void CABAC_init_P_Skip(Edge264_slice *s, Edge264_macroblock *m,
  * Inputs are pointers to refIdxL0N and mvL0N, which yield refIdxL1N and mvL1N
  * with fixed offsets.
  */
-static inline void CABAC_init_B_Direct(Edge264_slice *s, Edge264_macroblock *m,
+static inline void init_B_Direct(Edge264_slice *s, Edge264_macroblock *m,
     const int8_t *refIdxA, const int8_t *refIdxB, const int8_t *refIdxC,
     const int16_t *mvA, const int16_t *mvB, const int16_t *mvC)
 {

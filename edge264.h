@@ -42,7 +42,6 @@ typedef struct {
     unsigned long pic_order_cnt_type:2;
     unsigned long log2_max_pic_order_cnt_lsb:5;
     unsigned long delta_pic_order_always_zero_flag:1; // pic_order_cnt_type==1
-    unsigned long max_num_ref_frames:5;
     unsigned long max_num_reorder_frames:5;
     unsigned long frame_mbs_only_flag:1;
     unsigned long mb_adaptive_frame_field_flag:1;
@@ -56,6 +55,7 @@ typedef struct {
     unsigned long constrained_intra_pred_flag:1;
     unsigned long transform_8x8_mode_flag:1;
     uint8_t BitDepth[3]; // 4 significant bits
+    uint8_t max_num_ref_frames; // forms a uint64_t with its neighbours
     uint16_t width; // in luma samples, 14 significant bits
     uint16_t height;
     uint16_t stride[3]; // in bytes, 15 significant bits

@@ -28,6 +28,10 @@
 #ifndef EDGE264_COMMON_H
 #define EDGE264_COMMON_H
 
+#include <assert.h>
+#include <limits.h>
+#include <string.h>
+
 #if TRACE
 #include <stdio.h>
 static inline const char *red_if(int cond) { return (cond) ? " style=\"color: red\"" : ""; }
@@ -37,10 +41,6 @@ static inline const char *red_if(int cond) { return (cond) ? " style=\"color: re
 #if TRACE != 2
 #define fprintf(...)
 #endif
-
-#include <assert.h>
-#include <limits.h>
-#include <string.h>
 
 #ifndef WORD_BIT
 #if INT_MAX == 2147483647
@@ -325,7 +325,7 @@ static inline __attribute__((always_inline)) _Bool get_bypass(CABAC_ctx *c) {
  */
 typedef union {
     struct {
-        uint32_t mb_field_decoding_flag:2;
+        uint32_t mb_field_decoding_flag:2; // put first to match Edge264_persistent_mb::fieldDecodingFlag
         uint32_t unavailable:2;
         uint32_t mb_skip_flag:2;
         uint32_t mb_type_I_NxN:2;
@@ -339,10 +339,8 @@ typedef union {
     uint32_t flags;
 } Edge264_mb_flags;
 typedef struct {
-    uint8_t absMvdComp[36];
-    uint32_t coded_block_flag_4x4[3];
-    int8_t refIdx[8] __attribute__((aligned));
     Edge264_mb_flags f;
+    uint32_t coded_block_flag_4x4[3];
     union {
         struct {
             uint32_t coded_block_flag_8x8;
@@ -352,6 +350,9 @@ typedef struct {
         } __attribute__((packed));
         uint64_t flags8x8;
     };
+    int8_t refIdx[8];
+    int16_t mvs[40];
+    uint8_t absMvdComp[36];
 } __attribute__((aligned)) Edge264_macroblock;
 typedef struct {
     CABAC_ctx c;
@@ -370,6 +371,8 @@ typedef struct {
     unsigned int firstRefPicL1:1;
     unsigned int col_short_term:1;
     unsigned int ref_idx_mask:8;
+    uint8_t mvd_flags[4];
+    uint8_t Pred_LX;
     uint8_t PredMode[48];
     int16_t *mvs; // circular buffer of [LX][luma4x4BlkIdx][compIdx] macroblocks
     const int16_t *mvCol;
@@ -412,7 +415,7 @@ static const Edge264_macroblock void_mb = {
  * Initialise motion vectors and references with direct prediction (8.4.1.1).
  * Inputs are pointers to refIdxL0N and mvL0N.
  */
-static inline void init_P_Skip(Edge264_slice *s, Edge264_macroblock *m,
+static __attribute__((noinline)) void init_P_Skip(Edge264_slice *s, Edge264_macroblock *m,
     const int8_t *refIdxA, const int8_t *refIdxB, const int8_t *refIdxC,
     const int16_t *mvA, const int16_t *mvB, const int16_t *mvC)
 {
@@ -443,7 +446,7 @@ static inline void init_P_Skip(Edge264_slice *s, Edge264_macroblock *m,
  * Inputs are pointers to refIdxL0N and mvL0N, which yield refIdxL1N and mvL1N
  * with fixed offsets.
  */
-static inline void init_B_Direct(Edge264_slice *s, Edge264_macroblock *m,
+static __attribute__((noinline)) void init_B_Direct(Edge264_slice *s, Edge264_macroblock *m,
     const int8_t *refIdxA, const int8_t *refIdxB, const int8_t *refIdxC,
     const int16_t *mvA, const int16_t *mvB, const int16_t *mvC)
 {

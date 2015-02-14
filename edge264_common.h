@@ -73,22 +73,45 @@ static inline const char *red_if(int cond) { return (cond) ? " style=\"color: re
 #define beswapl beswap64
 #endif
 
+static inline int min(int a, int b) { return (a < b) ? a : b; }
+static inline int max(int a, int b) { return (a > b) ? a : b; }
+static inline unsigned umin(unsigned a, unsigned b) { return (a < b) ? a : b; }
+static inline unsigned umax(unsigned a, unsigned b) { return (a > b) ? a : b; }
+static inline int median(int a, int b, int c) { return max(min(max(a, b), c), min(a, b)); }
+
+
+
+/**
+ * Vector extensions are required mainly for P_Skip/B_Direct initialisation and
+ * fast copying through union-type punning.
+ */
+typedef int8_t v16qi __attribute__((vector_size(16)));
+typedef int16_t v8hi __attribute__((vector_size(16)));
+typedef int32_t v4si __attribute__((vector_size(16)));
+typedef int64_t v2li __attribute__((vector_size(16)));
+typedef uint8_t v16qu __attribute__((vector_size(16)));
+typedef uint16_t v8hu __attribute__((vector_size(16)));
+typedef uint32_t v4su __attribute__((vector_size(16)));
+typedef uint64_t v2lu __attribute__((vector_size(16)));
+
 #ifndef __clang__
 #define __builtin_shufflevector(a, b, ...) __builtin_shuffle(a, b, (typeof(a)){__VA_ARGS__})
 #endif
 
 #ifdef __SSSE3__
 #define _mm_movpi64_pi64 _mm_movpi64_epi64
+#include <tmmintrin.h>
+static inline v8hi mv_is_zero(v8hi mvCol) {
+    return (v8hi)_mm_cmpeq_epi32(_mm_srli_epi16(_mm_abs_epi16((__m128i)mvCol), 1), _mm_setzero_si128());
+}
+static inline v8hi temporal_scale(v8hi mvCol, int16_t DistScaleFactor) {
+    return (v8hi)_mm_mulhrs_epi16(_mm_set1_epi16(DistScaleFactor), _mm_slli_epi16((__m128i)mvCol, 2));
+}
 #ifdef __SSE4_1__
 #include <smmintrin.h>
 #define vector_select(f, t, mask) _mm_blendv_epi8((__m128i)(f), (__m128i)(t), (__m128i)(mask))
 #else
-#include <tmmintrin.h>
 #define vector_select(f, t, mask) (((t) & (mask)) | ((f) & ~(mask)))
-#define temporal_scale(mvCol, DistScaleFactor) \
-    _mm_mulhrs_epi16(_mm_set1_epi16(DistScaleFactor), _mm_slli_epi16((__m128i)mvCol, 2))
-#define mv_is_zero(mvCol) \
-    _mm_cmpeq_epi32(_mm_srli_epi16(_mm_abs_epi16((__m128i)mvCol), 1), _mm_setzero_si128())
 #define _mm_extract_epi32(a, i) \
     _mm_cvtsi128_si32(_mm_shuffle_epi32(a, _MM_SHUFFLE(i, i, i, i)))
 static inline __m128i _mm_packus_epi32(__m128i a, __m128i b) {
@@ -130,14 +153,6 @@ static const int invScan8x8[2][64] = {
 
 
 
-static inline long min(long a, long b) { return (a < b) ? a : b; }
-static inline long max(long a, long b) { return (a > b) ? a : b; }
-static inline unsigned long umin(unsigned long a, unsigned long b) { return (a < b) ? a : b; }
-static inline unsigned long umax(unsigned long a, unsigned long b) { return (a > b) ? a : b; }
-static inline int median(int a, int b, int c) { return max(min(max(a, b), c), min(a, b)); }
-
-
-
 /**
  * Read Exp-Golomb codes and bit sequences.
  *
@@ -152,15 +167,15 @@ static inline int median(int a, int b, int c) { return max(min(max(a, b), c), mi
  * to get_ue will consume only one bit. In other circumstances it never consumes
  * more than 63 bits.
  */
-static inline __attribute__((always_inline)) unsigned int get_raw_ue(const uint8_t *CPB, unsigned int *shift, unsigned int upper) {
-    unsigned int leadingZeroBits, res;
+static inline __attribute__((always_inline)) unsigned get_raw_ue(const uint8_t *CPB, unsigned *shift, unsigned upper) {
+    unsigned leadingZeroBits, res;
     if (upper <= 31) {
         uint16_t buf = ((CPB[*shift / 8] << 8) | CPB[*shift / 8 + 1]) << (*shift % 8);
         leadingZeroBits = __builtin_clz(buf | 0x0400) - WORD_BIT + 16;
         res = buf >> (16 - (2 * leadingZeroBits + 1));
     } else if (upper <= 65534) {
-        unsigned int msb = beswap32(((uint32_t *)CPB)[*shift / 32]);
-        unsigned int lsb = beswap32(((uint32_t *)CPB)[(*shift + 31) / 32]);
+        unsigned msb = beswap32(((uint32_t *)CPB)[*shift / 32]);
+        unsigned lsb = beswap32(((uint32_t *)CPB)[(*shift + 31) / 32]);
         uint32_t buf = (msb << (*shift % 32)) | (lsb >> (-*shift % 32));
         leadingZeroBits = __builtin_clz(buf | 0x00010000) - WORD_BIT + 32;
         res = buf >> (32 - (2 * leadingZeroBits + 1));
@@ -175,31 +190,31 @@ static inline __attribute__((always_inline)) unsigned int get_raw_ue(const uint8
     return res - 1;
 }
 
-static inline __attribute__((always_inline)) unsigned int get_ue(const uint8_t *CPB, unsigned int *shift, unsigned int upper) {
+static inline __attribute__((always_inline)) unsigned get_ue(const uint8_t *CPB, unsigned *shift, unsigned upper) {
     return umin(get_raw_ue(CPB, shift, upper), upper);
 }
 
-static inline __attribute__((always_inline)) int get_raw_se(const uint8_t *CPB, unsigned int *shift, int lower, int upper) {
-    unsigned int codeNum = get_raw_ue(CPB, shift, umax(-lower * 2, upper * 2 - 1));
+static inline __attribute__((always_inline)) int get_raw_se(const uint8_t *CPB, unsigned *shift, int lower, int upper) {
+    unsigned codeNum = get_raw_ue(CPB, shift, umax(-lower * 2, upper * 2 - 1));
     int abs = (codeNum + 1) / 2;
     int sign = (codeNum % 2) - 1;
     return (abs ^ sign) - sign; // conditionally negate
 }
 
-static inline __attribute__((always_inline)) int get_se(const uint8_t *CPB, unsigned int *shift, int lower, int upper) {
+static inline __attribute__((always_inline)) int get_se(const uint8_t *CPB, unsigned *shift, int lower, int upper) {
     return min(max(get_raw_se(CPB, shift, lower, upper), lower), upper);
 }
 
-static inline __attribute__((always_inline)) unsigned int get_uv(const uint8_t *CPB, unsigned int *shift, unsigned int v) {
-    unsigned int msb = beswap32(((uint32_t *)CPB)[*shift / 32]);
-    unsigned int lsb = beswap32(((uint32_t *)CPB)[(*shift + 31) / 32]);
+static inline __attribute__((always_inline)) unsigned get_uv(const uint8_t *CPB, unsigned *shift, unsigned v) {
+    unsigned msb = beswap32(((uint32_t *)CPB)[*shift / 32]);
+    unsigned lsb = beswap32(((uint32_t *)CPB)[(*shift + 31) / 32]);
     uint32_t buf = (msb << (*shift % 32)) | (lsb >> (-*shift % 32));
     *shift += v;
     return buf >> (32 - v);
 }
 
-static inline __attribute__((always_inline)) _Bool get_u1(const uint8_t *CPB, unsigned int *shift) {
-    unsigned int buf = CPB[*shift / 8] >> (7 - *shift % 8);
+static inline __attribute__((always_inline)) _Bool get_u1(const uint8_t *CPB, unsigned *shift) {
+    unsigned buf = CPB[*shift / 8] >> (7 - *shift % 8);
     *shift += 1;
     return buf & 1;
 }
@@ -222,7 +237,7 @@ typedef struct {
     uint32_t lim;
 } CABAC_ctx;
 
-static inline void renorm(CABAC_ctx *c, unsigned int v) {
+static inline void renorm(CABAC_ctx *c, unsigned v) {
     assert(v>0&&v<LONG_BIT);
     unsigned long buf = 0;
     if (c->shift < c->lim) {
@@ -279,8 +294,8 @@ static __attribute__((noinline)) _Bool get_ae(CABAC_ctx *c, uint8_t *state) {
         0x7a, 0x7b, 0x7c, 0x7d, 0x7c, 0x7d, 0x7e, 0x7f,
     };
     
-    unsigned int shift = LONG_BIT - 9 - __builtin_clzl(c->codIRange);
-    unsigned int idx = (c->codIRange >> shift) & 0xc0;
+    unsigned shift = LONG_BIT - 9 - __builtin_clzl(c->codIRange);
+    unsigned idx = (c->codIRange >> shift) & 0xc0;
     unsigned long codIRangeLPS = (long)rangeTabLPS[idx | (*state >> 1)] << shift;
     unsigned long codIRangeMPS = c->codIRange - codIRangeLPS;
     unsigned long lps_mask = (long)~(c->codIOffset - codIRangeMPS) >> (LONG_BIT - 1);
@@ -315,7 +330,7 @@ static inline __attribute__((always_inline)) _Bool get_bypass(CABAC_ctx *c) {
  * 1|4 0       23| 7 20  4 17
  *              6|19  3 16  0
  *
- * The storage pattern for absMvdComp and Intra4x4PredMode keeps every
+ * The storage pattern for mvs, absMvdComp and Intra4x4PredMode keeps every
  * sub-partition contiguous with its left and top:
  *   5 6 7 8
  * 3|4 5 6 7
@@ -323,64 +338,56 @@ static inline __attribute__((always_inline)) _Bool get_bypass(CABAC_ctx *c) {
  * 1|2 3 4 5
  * 0|1 2 3 4
  */
-typedef union {
-    struct {
-        uint32_t mb_field_decoding_flag:2; // put first to match Edge264_persistent_mb::fieldDecodingFlag
-        uint32_t unavailable:2;
-        uint32_t mb_skip_flag:2;
-        uint32_t mb_type_I_NxN:2;
-        uint32_t mb_type_B_Direct:2;
-        uint32_t transform_size_8x8_flag:2;
-        uint32_t intra_chroma_pred_mode_non_zero:2;
-        uint32_t CodedBlockPatternChromaDC:2;
-        uint32_t CodedBlockPatternChromaAC:2;
-        uint32_t coded_block_flag_16x16:6;
-    };
-    uint32_t flags;
-} Edge264_mb_flags;
+typedef union { struct {
+    uint32_t mb_field_decoding_flag:2; // put first to match Edge264_persistent_mb::fieldDecodingFlag
+    uint32_t unavailable:2;
+    uint32_t mb_skip_flag:2;
+    uint32_t mb_type_I_NxN:2;
+    uint32_t mb_type_B_Direct:2;
+    uint32_t transform_size_8x8_flag:2;
+    uint32_t intra_chroma_pred_mode_non_zero:2;
+    uint32_t CodedBlockPatternChromaDC:2;
+    uint32_t CodedBlockPatternChromaAC:2;
+    uint32_t coded_block_flag_16x16:6;
+}; uint32_t flags; } Edge264_mb_flags;
 typedef struct {
     Edge264_mb_flags f;
     uint32_t coded_block_flag_4x4[3];
-    union {
-        struct {
-            uint32_t coded_block_flag_8x8;
-            uint16_t ref_idx_nz;
-            uint8_t CodedBlockPatternLuma;
-            int8_t Intra4x4PredMode[9]; // put here to spare memory
-        } __attribute__((packed));
-        uint64_t flags8x8;
-    };
-    int8_t refIdx[8];
-    int16_t mvs[40];
-    uint8_t absMvdComp[36];
+    union { struct {
+        uint32_t coded_block_flag_8x8;
+        uint16_t ref_idx_nz;
+        uint8_t CodedBlockPatternLuma;
+    }; uint64_t flags8x8; };
+    union { int8_t refIdx[8]; uint32_t refIdx_s[2]; uint64_t refIdx_l; };
+    union { int16_t mvEdge[40]; uint32_t mvEdge_s[20]; v8hi mvEdge_v[5]; };
+    union { uint8_t absMvdComp[36]; uint32_t absMvdComp_s[9]; v16qu absMvdComp_v[2]; };
+    int8_t Intra4x4PredMode[9];
 } __attribute__((aligned)) Edge264_macroblock;
 typedef struct {
     CABAC_ctx c;
     Edge264_mb_flags ctxIdxInc;
     uint16_t mb_x; // 10 significant bits
     uint16_t mb_y;
-    unsigned int slice_type:2;
-    unsigned int field_pic_flag:1;
-    unsigned int bottom_field_flag:1;
-    unsigned int MbaffFrameFlag:1;
-    unsigned int direct_spatial_mv_pred_flag:1;
-    unsigned int cabac_init_idc:2;
-    unsigned int disable_deblocking_filter_idc:2;
+    unsigned slice_type:2;
+    unsigned field_pic_flag:1;
+    unsigned bottom_field_flag:1;
+    unsigned MbaffFrameFlag:1;
+    unsigned direct_spatial_mv_pred_flag:1;
+    unsigned cabac_init_idc:2;
+    unsigned disable_deblocking_filter_idc:2;
     int FilterOffsetA:5;
     int FilterOffsetB:5;
-    unsigned int firstRefPicL1:1;
-    unsigned int col_short_term:1;
-    unsigned int ref_idx_mask:8;
-    uint8_t mvd_flags[4];
-    uint8_t Pred_LX;
-    uint8_t PredMode[48];
-    int16_t *mvs; // circular buffer of [LX][luma4x4BlkIdx][compIdx] macroblocks
-    const int16_t *mvCol;
+    unsigned firstRefPicL1:1;
+    unsigned col_short_term:1;
+    unsigned ref_idx_mask:8;
+    const v8hi *mvCol;
     const Edge264_persistent_mb *mbCol;
     const Edge264_picture *DPB;
-    uint8_t s[1024] __attribute__((aligned));
+    uint8_t s[1024];
     Edge264_parameter_set ps;
     Edge264_picture p;
+    uint8_t PredMode[48];
+    union { int16_t mvs[64]; v8hi mvs_v[8]; };
     uint8_t RefPicList[2][32] __attribute__((aligned));
     uint8_t MapPicToList0[35]; // [1 + refPic]
     int16_t DistScaleFactor[3][32]; // [top/bottom/frame][refIdxL0]
@@ -393,13 +400,13 @@ static const uint8_t mv2edge[64] = {16, 17, 20, 21, 12, 13, 16, 17, 24, 25, 28,
     29, 20, 21, 24, 25, 8, 9, 12, 13, 4, 5, 8, 9, 16, 17, 20, 21, 12, 13, 16,
     17, 18, 19, 22, 23, 14, 15, 18, 19, 26, 27, 30, 31, 22, 23, 26, 27, 10, 11,
     14, 15, 6, 7, 10, 11, 18, 19, 22, 23, 14, 15, 18, 19};
+static const uint8_t intra2edge[16] = {4, 5, 3, 4, 6, 7, 5, 6, 2, 3, 1, 2, 4, 5, 3, 4};
 static const uint8_t bit4x4[32] = {12, 25, 24, 8, 9, 22, 21, 5, 7, 20, 19, 3, 4,
     17, 16, 0, 44, 57, 56, 40, 41, 54, 53, 37, 39, 52, 51, 35, 36, 49, 48, 32};
 static const uint8_t left4x4[32] = {28, 12, 11, 24, 25, 9, 8, 20, 23, 7, 6, 18,
     19, 4, 3, 16, 60, 44, 43, 56, 57, 41, 40, 52, 55, 39, 38, 50, 51, 36, 35, 48};
 static const uint8_t bit8x8[8] = {6, 2, 1, 4, 14, 10, 9, 12};
 static const uint8_t left8x8[8] = {2, 5, 4, 0, 10, 13, 12, 8};
-static const uint8_t edge4x4[16] = {4, 5, 3, 4, 6, 7, 5, 6, 2, 3, 1, 2, 4, 5, 3, 4};
 static const Edge264_macroblock void_mb = {
     .f.mb_field_decoding_flag = 0,
     .f.unavailable = 1,
@@ -413,30 +420,27 @@ static const Edge264_macroblock void_mb = {
 
 /**
  * Initialise motion vectors and references with direct prediction (8.4.1.1).
- * Inputs are pointers to refIdxL0N and mvL0N.
+ * Inputs are pointers to refIdxL0N.
  */
 static __attribute__((noinline)) void init_P_Skip(Edge264_slice *s, Edge264_macroblock *m,
-    const int8_t *refIdxA, const int8_t *refIdxB, const int8_t *refIdxC,
-    const int16_t *mvA, const int16_t *mvB, const int16_t *mvC)
+    const int8_t *refIdxA, const int8_t *refIdxB, const int8_t *refIdxC)
 {
-    typedef int16_t v2hi __attribute__((vector_size(4)));
-    typedef int32_t v4si __attribute__((vector_size(16)));
-    
-    int mv = *(int32_t *)mvC;
+    union { uint32_t s; int16_t h[2]; } mv = {.s = m->mvEdge_s[18]};
     if (refIdxB[0] == 0)
-        mv = *(int32_t *)mvB;
+        mv.s = m->mvEdge_s[10];
     if (refIdxA[0] == 0)
-        mv = *(int32_t *)mvA;
+        mv.s = m->mvEdge_s[6];
     unsigned eq = (refIdxC[0] == 0) + (refIdxB[0] == 0) + (refIdxA[0] == 0);
-    if (eq == 0 || (eq > 1 && mv != 0))
-        mv = (int)(v2hi){median(mvA[0], mvB[0], mvC[0]), median(mvA[1], mvB[1], mvC[1])};
+    if (eq == 0 || (eq > 1 && mv.s != 0)) {
+        mv.h[0] = median(m->mvEdge[12], m->mvEdge[20], m->mvEdge[36]);
+        mv.h[1] = median(m->mvEdge[13], m->mvEdge[21], m->mvEdge[37]);
+    }
     if (s->ctxIdxInc.unavailable)
-        mv = 0;
-    v4si *mvs = (v4si *)s->mvs, v = {mv, mv, mv, mv};
-    mvs[0] = mvs[1] = mvs[2] = mvs[3] = v;
-    mvs[4] = mvs[5] = mvs[6] = mvs[7] = (v4si){0};
-    memset(m->refIdx, 0, 4);
-    memset(m->refIdx + 4, -1, 4);
+        mv.s = 0;
+    s->mvs_v[0] = s->mvs_v[1] = s->mvs_v[2] = s->mvs_v[3] = (v8hi)(v4su){mv.s, mv.s, mv.s, mv.s};
+    s->mvs_v[4] = s->mvs_v[5] = s->mvs_v[6] = s->mvs_v[7] = (v8hi){};
+    m->refIdx_s[0] = 0;
+    m->refIdx_s[1] = -1;
 }
 
 
@@ -446,49 +450,48 @@ static __attribute__((noinline)) void init_P_Skip(Edge264_slice *s, Edge264_macr
  * Inputs are pointers to refIdxL0N and mvL0N, which yield refIdxL1N and mvL1N
  * with fixed offsets.
  */
-static __attribute__((noinline)) void init_B_Direct(Edge264_slice *s, Edge264_macroblock *m,
-    const int8_t *refIdxA, const int8_t *refIdxB, const int8_t *refIdxC,
-    const int16_t *mvA, const int16_t *mvB, const int16_t *mvC)
+void init_B_Direct(Edge264_slice *s, Edge264_macroblock *m,
+    const int8_t *refIdxA, const int8_t *refIdxB, const int8_t *refIdxC)
 {
-    typedef int16_t v8hi __attribute__((vector_size(16)));
-    typedef int64_t v2li __attribute__((vector_size(16)));
+    typedef int16_t v2hi __attribute__((vector_size(4)));
     static const v8hi vertical = {0, -1, 0, -1, 0, -1, 0, -1};
     static const v8hi one = {1, 1, 1, 1, 1, 1, 1, 1};
     
     /* 8.4.1.2.1 - Load mvCol into vector registers. */
-    unsigned CurrMbAddr = (unsigned)s->ps.width / 16 * s->mb_y + s->mb_x;
+    unsigned PicWidthInMbs = (unsigned)s->ps.width / 16;
+    unsigned CurrMbAddr = PicWidthInMbs * s->mb_y + s->mb_x;
     const Edge264_persistent_mb *mbCol = &s->mbCol[CurrMbAddr];
     const uint8_t *refCol01, *refCol23;
     v8hi mvCol0, mvCol1, mvCol2, mvCol3;
     if (m->f.mb_field_decoding_flag == mbCol->fieldDecodingFlag) { // One_To_One
         refCol01 = mbCol->refPic;
         refCol23 = mbCol->refPic + 2;
-        const v8hi *v = (v8hi *)&s->mvCol[CurrMbAddr * 32];
+        const v8hi *v = (v8hi *)((uintptr_t)s->mvCol + CurrMbAddr * 64);
         mvCol0 = v[0];
         mvCol1 = v[1];
         mvCol2 = v[2];
         mvCol3 = v[3];
     } else if (m->f.mb_field_decoding_flag) { // Frm_To_Fld
-        unsigned top = (unsigned)s->ps.width / 16 * (s->mb_y & -2u) + s->mb_x;
-        unsigned bot = (unsigned)s->ps.width / 16 * (s->mb_y | 1u) + s->mb_x;
+        unsigned top = PicWidthInMbs * (s->mb_y & -2u) + s->mb_x;
+        unsigned bot = PicWidthInMbs * (s->mb_y | 1u) + s->mb_x;
         refCol01 = s->mbCol[top].refPic;
         refCol23 = s->mbCol[bot].refPic;
-        const v2li *t = (v2li *)&s->mvCol[top * 32];
-        const v2li *b = (v2li *)&s->mvCol[bot * 32];
+        const v2li *t = (v2li *)((uintptr_t)s->mvCol + top * 64);
+        const v2li *b = (v2li *)((uintptr_t)s->mvCol + bot * 64);
         mvCol0 = (v8hi)__builtin_shufflevector(t[0], t[2], 0, 2);
         mvCol1 = (v8hi)__builtin_shufflevector(t[1], t[3], 0, 2);
         mvCol2 = (v8hi)__builtin_shufflevector(b[4], b[6], 0, 2);
         mvCol3 = (v8hi)__builtin_shufflevector(b[5], b[7], 0, 2);
         if (!s->direct_spatial_mv_pred_flag) {
-            mvCol0 -= ((mvCol0 - (mvCol0 > (v8hi){0})) >> one) & vertical;
-            mvCol1 -= ((mvCol1 - (mvCol1 > (v8hi){0})) >> one) & vertical;
-            mvCol2 -= ((mvCol2 - (mvCol2 > (v8hi){0})) >> one) & vertical;
-            mvCol3 -= ((mvCol3 - (mvCol3 > (v8hi){0})) >> one) & vertical;
+            mvCol0 -= ((mvCol0 - (mvCol0 > (v8hi){})) >> one) & vertical;
+            mvCol1 -= ((mvCol1 - (mvCol1 > (v8hi){})) >> one) & vertical;
+            mvCol2 -= ((mvCol2 - (mvCol2 > (v8hi){})) >> one) & vertical;
+            mvCol3 -= ((mvCol3 - (mvCol3 > (v8hi){})) >> one) & vertical;
         }
     } else { // Fld_To_Frm
-        CurrMbAddr = (unsigned)s->ps.width / 16 * ((s->mb_y & -2u) | s->firstRefPicL1) + s->mb_x;
+        CurrMbAddr = PicWidthInMbs * ((s->mb_y & -2u) | s->firstRefPicL1) + s->mb_x;
         refCol01 = refCol23 = s->mbCol[CurrMbAddr].refPic + (s->mb_y & 1u) * 2;
-        const uint64_t *v = (uint64_t *)&s->mvCol[CurrMbAddr * 32 + (s->mb_y & 1u) * 16];
+        const uint64_t *v = (uint64_t *)((uintptr_t)s->mvCol + CurrMbAddr * 64 + (s->mb_y & 1u) * 32);
         mvCol0 = (v8hi)(v2li){v[0], v[0]};
         mvCol1 = (v8hi)(v2li){v[2], v[2]};
         mvCol2 = (v8hi)(v2li){v[1], v[1]};
@@ -504,64 +507,69 @@ static __attribute__((noinline)) void init_B_Direct(Edge264_slice *s, Edge264_ma
     /* 8.4.1.2.2 - Spatial motion prediction. */
     if (s->direct_spatial_mv_pred_flag) {
         
-        /* refIdxLX equals one of A/B/C, so initialise mvLX the same way (8.4.1.3.1). */
+        /* refIdxL0 equals one of A/B/C, so initialise mvL0 the same way (8.4.1.3.1). */
         int refIdxL0A = refIdxA[0], refIdxL0B = refIdxB[0], refIdxL0C = refIdxC[0];
-        int refIdxL1A = refIdxA[4], refIdxL1B = refIdxB[4], refIdxL1C = refIdxC[4];
-        int mvL0 = (unsigned)refIdxL0B < refIdxL0C ? ((int32_t *)mvB)[0] : ((int32_t *)mvC)[0];
-        int mvL1 = (unsigned)refIdxL1B < refIdxL1C ? ((int32_t *)mvB)[16] : ((int32_t *)mvC)[16];
+        union { uint32_t s; int16_t h[2]; } mvL0 =
+            {.s = (unsigned)refIdxL0B < refIdxL0C ? m->mvEdge_s[10] : m->mvEdge_s[18]};
         int refIdxL0 = (unsigned)refIdxL0B < refIdxL0C ? refIdxL0B : refIdxL0C;
-        int refIdxL1 = (unsigned)refIdxL1B < refIdxL1C ? refIdxL1B : refIdxL1C;
-        mvL0 = (unsigned)refIdxL0A < refIdxL0 ? ((int32_t *)mvA)[0] : mvL0;
-        mvL1 = (unsigned)refIdxL1A < refIdxL1 ? ((int32_t *)mvA)[16] : mvL1;
+        mvL0.s = (unsigned)refIdxL0A < refIdxL0 ? m->mvEdge_s[6] : mvL0.s;
         refIdxL0 = (unsigned)refIdxL0A < refIdxL0 ? refIdxL0A : refIdxL0;
-        refIdxL1 = (unsigned)refIdxL1A < refIdxL1 ? refIdxL1A : refIdxL1;
         
-        /* When another one of A/B/C equals refIdxLX, fallback to median. */
-        typedef int16_t v2hi __attribute__((vector_size(4)));
-        if ((refIdxL0 == refIdxL0A) + (refIdxL0 == refIdxL0B) + (refIdxL0 == refIdxL0C) > 1)
-            mvL0 = (int)(v2hi){median(mvA[0], mvB[0], mvC[0]), median(mvA[1], mvB[1], mvC[1])};
-        if ((refIdxL1 == refIdxL1A) + (refIdxL1 == refIdxL1B) + (refIdxL1 == refIdxL1C) > 1)
-            mvL1 = (int)(v2hi){median(mvA[32], mvB[32], mvC[32]), median(mvA[33], mvB[33], mvC[33])};
+        /* When another one of A/B/C equals refIdxL0, fallback to median. */
+        if ((refIdxL0 == refIdxL0A) + (refIdxL0 == refIdxL0B) + (refIdxL0 == refIdxL0C) > 1) {
+            mvL0.h[0] = median(m->mvEdge[12], m->mvEdge[20], m->mvEdge[36]);
+            mvL0.h[1] = median(m->mvEdge[13], m->mvEdge[21], m->mvEdge[37]);
+        }
+        
+        /* Same for L1. */
+        int refIdxL1A = refIdxA[4], refIdxL1B = refIdxB[4], refIdxL1C = refIdxC[4];
+        union { uint32_t s; int16_t h[2]; } mvL1 =
+            {.s = (unsigned)refIdxL1B < refIdxL1C ? m->mvEdge_s[11] : m->mvEdge_s[19]};
+        int refIdxL1 = (unsigned)refIdxL1B < refIdxL1C ? refIdxL1B : refIdxL1C;
+        mvL1.s = (unsigned)refIdxL1A < refIdxL1 ? m->mvEdge_s[7] : mvL1.s;
+        refIdxL1 = (unsigned)refIdxL1A < refIdxL1 ? refIdxL1A : refIdxL1;
+        if ((refIdxL1 == refIdxL1A) + (refIdxL1 == refIdxL1B) + (refIdxL1 == refIdxL1C) > 1) {
+            mvL1.h[0] = median(m->mvEdge[14], m->mvEdge[22], m->mvEdge[38]);
+            mvL1.h[1] = median(m->mvEdge[15], m->mvEdge[23], m->mvEdge[39]);
+        }
         
         /* Direct Zero Prediction already has both mvLX zeroed. */
         if (refIdxL0 < 0 && refIdxL1 < 0)
             refIdxL0 = refIdxL1 = 0;
-        memset(m->refIdx, refIdxL0, 4);
-        memset(m->refIdx + 4, refIdxL1, 4);
+        m->refIdx_s[0] = refIdxL0 * 0x01010101;
+        m->refIdx_s[1] = refIdxL1 * 0x01010101;
         
         /* mv_is_zero encapsulates the intrinsic for abs which is essential here. */
         unsigned mask = s->col_short_term << 7;
-        v8hi colZero0 = (refCol01[0] & mask) ? (v8hi)mv_is_zero(mvCol0) : (v8hi){0};
-        v8hi colZero1 = (refCol01[1] & mask) ? (v8hi)mv_is_zero(mvCol1) : (v8hi){0};
-        v8hi colZero2 = (refCol23[0] & mask) ? (v8hi)mv_is_zero(mvCol2) : (v8hi){0};
-        v8hi colZero3 = (refCol23[1] & mask) ? (v8hi)mv_is_zero(mvCol3) : (v8hi){0};
+        v8hi colZero0 = (refCol01[0] & mask) ? mv_is_zero(mvCol0) : (v8hi){};
+        v8hi colZero1 = (refCol01[1] & mask) ? mv_is_zero(mvCol1) : (v8hi){};
+        v8hi colZero2 = (refCol23[0] & mask) ? mv_is_zero(mvCol2) : (v8hi){};
+        v8hi colZero3 = (refCol23[1] & mask) ? mv_is_zero(mvCol3) : (v8hi){};
         
         typedef int32_t v4si __attribute__((vector_size(16)));
-        v8hi *v = (v8hi *)s->mvs;
-        v[0] = v[1] = v[2] = v[3] = (v8hi)(v4si){mvL0, mvL0, mvL0, mvL0};
-        v[4] = v[5] = v[6] = v[7] = (v8hi)(v4si){mvL1, mvL1, mvL1, mvL1};
+        s->mvs_v[0] = s->mvs_v[1] = s->mvs_v[2] = s->mvs_v[3] = (v8hi)(v4si){mvL0.s, mvL0.s, mvL0.s, mvL0.s};
+        s->mvs_v[4] = s->mvs_v[5] = s->mvs_v[6] = s->mvs_v[7] = (v8hi)(v4si){mvL1.s, mvL1.s, mvL1.s, mvL1.s};
         if (refIdxL0 == 0)
-            v[0] &= ~colZero0, v[1] &= ~colZero1, v[2] &= ~colZero2, v[3] &= ~colZero3;
+            s->mvs_v[0] &= ~colZero0, s->mvs_v[1] &= ~colZero1, s->mvs_v[2] &= ~colZero2, s->mvs_v[3] &= ~colZero3;
         if (refIdxL1 == 0)
-            v[4] &= ~colZero0, v[5] &= ~colZero1, v[6] &= ~colZero2, v[7] &= ~colZero3;
+            s->mvs_v[4] &= ~colZero0, s->mvs_v[5] &= ~colZero1, s->mvs_v[6] &= ~colZero2, s->mvs_v[7] &= ~colZero3;
     
     /* 8.4.1.2.3 - Temporal motion prediction. */
     } else {
-        memset(m->refIdx + 4, 0, 4);
+        m->refIdx_s[1] = 0;
         m->refIdx[0] = (s->MapPicToList0 + 1)[refCol01[0] & 0x7fu];
         m->refIdx[1] = (s->MapPicToList0 + 1)[refCol01[1] & 0x7fu];
         m->refIdx[2] = (s->MapPicToList0 + 1)[refCol23[0] & 0x7fu];
         m->refIdx[3] = (s->MapPicToList0 + 1)[refCol23[1] & 0x7fu];
         const int16_t *DistScaleFactor = s->DistScaleFactor[m->f.mb_field_decoding_flag ? s->mb_y & 1 : 2];
-        v8hi *v = (v8hi *)s->mvs;
-        v[0] = (v8hi)temporal_scale(mvCol0, DistScaleFactor[m->refIdx[0]]);
-        v[1] = (v8hi)temporal_scale(mvCol1, DistScaleFactor[m->refIdx[1]]);
-        v[2] = (v8hi)temporal_scale(mvCol2, DistScaleFactor[m->refIdx[2]]);
-        v[3] = (v8hi)temporal_scale(mvCol3, DistScaleFactor[m->refIdx[3]]);
-        v[4] = v[0] - mvCol0;
-        v[5] = v[1] - mvCol1;
-        v[6] = v[2] - mvCol2;
-        v[7] = v[3] - mvCol3;
+        s->mvs_v[0] = temporal_scale(mvCol0, DistScaleFactor[m->refIdx[0]]);
+        s->mvs_v[1] = temporal_scale(mvCol1, DistScaleFactor[m->refIdx[1]]);
+        s->mvs_v[2] = temporal_scale(mvCol2, DistScaleFactor[m->refIdx[2]]);
+        s->mvs_v[3] = temporal_scale(mvCol3, DistScaleFactor[m->refIdx[3]]);
+        s->mvs_v[4] = s->mvs_v[0] - mvCol0;
+        s->mvs_v[5] = s->mvs_v[1] - mvCol1;
+        s->mvs_v[6] = s->mvs_v[2] - mvCol2;
+        s->mvs_v[7] = s->mvs_v[3] - mvCol3;
     }
 }
 

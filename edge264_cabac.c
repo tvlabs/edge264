@@ -38,6 +38,10 @@ int CABAC_parse_inter_mb_pred(Edge264_slice *s, Edge264_macroblock *m);
 static __attribute__((noinline)) int CABAC_parse_intra_mb_pred(Edge264_slice *s,
     Edge264_macroblock *m, unsigned ctxIdx)
 {
+    for (unsigned i = 0; i < 32; i++)
+        m->mvEdge[i] = 0;
+    for (unsigned i = 0; i < 32; i++)
+        m->absMvdComp[i] = 0;
     if (!get_ae(&s->c, s->s + ctxIdx)) { // I_NxN
         m->f.mb_type_I_NxN = 1;
         if (s->ps.transform_8x8_mode_flag)
@@ -101,7 +105,8 @@ static int CABAC_parse_inter_mb_type(Edge264_slice *s, Edge264_macroblock *m,
     if (s->slice_type == 0) {
         if (m->f.mb_skip_flag) {
             init_P_Skip(s, m, refIdxA, refIdxB, refIdxC, mvA, mvB, mvC);
-            memset(m->absMvdComp, 0, 36);
+            for (unsigned i = 0; i < 32; i++)
+                m->absMvdComp[i] = 0;
         } else if (get_ae(&s->c, s->s + 14)) {
             return CABAC_parse_intra_mb_pred(s, m, 17);
         } else {
@@ -177,6 +182,7 @@ __attribute__((noinline)) void CABAC_parse_slice_data(Edge264_slice *s, Edge264_
     if (!s->MbaffFrameFlag) {
         for (;;) {
             fprintf(stderr, "\n********** %u **********\n", s->ps.width / 16 * s->mb_y + s->mb_x);
+            m->f.flags = 0;
             s->ctxIdxInc.flags = m[-1].f.flags + m[2].f.flags + (m[2].f.flags & twice.flags);
             memcpy(m->Intra4x4PredMode, m[-1].Intra4x4PredMode + 4, 4);
             memcpy(m->Intra4x4PredMode + 5, m[2].Intra4x4PredMode + 1, 4);
@@ -188,9 +194,14 @@ __attribute__((noinline)) void CABAC_parse_slice_data(Edge264_slice *s, Edge264_
                 ((m[2].coded_block_flag_4x4[2] & 0x00090009) << 10);
             m->flags8x8 = ((m[-1].flags8x8 & 0x2121212121212121) << 1) |
                 ((m[2].flags8x8 & 0x1111111111111111) << 3);
+            m->refIdx_l = -1;
             if (s->slice_type > 1) {
                 CABAC_parse_intra_mb_pred(s, m, 5 - s->ctxIdxInc.mb_type_I_NxN);
             } else {
+                memcpy(m->mvEdge, m[-1].mvEdge + 16, 32);
+                memcpy(m->mvEdge + 16, m[1].mvEdge + 16, 8);
+                memcpy(m->mvEdge + 20, m[2].mvEdge + 4, 32);
+                memcpy(m->mvEdge + 36, m[3].mvEdge + 4, 8);
                 memcpy(m->absMvdComp, m[-1].absMvdComp + 16, 16);
                 memcpy(m->absMvdComp + 20, m[2].absMvdComp + 4, 16);
                 m->f.mb_skip_flag = get_ae(&s->c, s->s + 13 + 13 * s->slice_type -
@@ -208,7 +219,7 @@ __attribute__((noinline)) void CABAC_parse_slice_data(Edge264_slice *s, Edge264_
             m++;
             if (++s->mb_x == s->ps.width / 16) {
                 s->mb_x = 0;
-                *m = (Edge264_macroblock){0};
+                *m = void_mb;
                 m -= s->ps.width / 16 + 2;
                 if ((s->mb_y += 1 + s->field_pic_flag) >= s->ps.height / 16)
                     break;

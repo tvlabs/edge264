@@ -167,6 +167,7 @@ __attribute__((noinline)) void CABAC_parse_slice_data(Edge264_slice *s, Edge264_
         .CodedBlockPatternChromaAC = 1,
         .coded_block_flag_16x16 = 0x15,
     };
+    static const Edge264_mb_flags unavail = {.unavailable = 1};
     
     /* cabac_alignment_one_bit shall be tested later for error concealment. */
     if ((~s->c.CPB[s->c.shift / 8] << (1 + (s->c.shift - 1) % 8) & 0xff) != 0)
@@ -182,34 +183,55 @@ __attribute__((noinline)) void CABAC_parse_slice_data(Edge264_slice *s, Edge264_
     if (!s->MbaffFrameFlag) {
         for (;;) {
             fprintf(stderr, "\n********** %u **********\n", s->ps.width / 16 * s->mb_y + s->mb_x);
+            
+            /* m being a circular buffer, A/B/C/D is m[-1/1/2/0]. */
+            unsigned ctxIdxInc = m[-1].f.flags + m[1].f.flags + (m[1].f.flags & twice.flags) +
+                (m[2].f.flags & unavail.flags) * 4 + (m[0].f.flags & unavail.flags) * 8;
+            unsigned IntraA = m[-1].Intra4x4PredMode_s[1], IntraB;
+            memcpy(&IntraB, m[1].Intra4x4PredMode + 1, 4);
+            unsigned cbf0 = ((m[-1].coded_block_flag_4x4[0] & 0x00420021) << 6) |
+                ((m[1].coded_block_flag_4x4[0] & 0x00090009) << 10);
+            unsigned cbf1 = ((m[-1].coded_block_flag_4x4[1] & 0x00420021) << 6) |
+                ((m[1].coded_block_flag_4x4[1] & 0x00090009) << 10);
+            unsigned cbf2 = ((m[-1].coded_block_flag_4x4[2] & 0x00420021) << 6) |
+                ((m[1].coded_block_flag_4x4[2] & 0x00090009) << 10);
+            uint64_t flags8x8 = ((m[-1].flags8x8 & 0x2121212121212121) << 1) |
+                ((m[1].flags8x8 & 0x1111111111111111) << 3);
+            
+            /* Splitting reads and writes lets compilers make the best of pipelining. */
             m->f.flags = 0;
-            s->ctxIdxInc.flags = m[-1].f.flags + m[2].f.flags + (m[2].f.flags & twice.flags);
-            memcpy(m->Intra4x4PredMode, m[-1].Intra4x4PredMode + 4, 4);
-            memcpy(m->Intra4x4PredMode + 5, m[2].Intra4x4PredMode + 1, 4);
-            m->coded_block_flag_4x4[0] = ((m[-1].coded_block_flag_4x4[0] & 0x00420021) << 6) |
-                ((m[2].coded_block_flag_4x4[0] & 0x00090009) << 10);
-            m->coded_block_flag_4x4[1] = ((m[-1].coded_block_flag_4x4[1] & 0x00420021) << 6) |
-                ((m[2].coded_block_flag_4x4[1] & 0x00090009) << 10);
-            m->coded_block_flag_4x4[2] = ((m[-1].coded_block_flag_4x4[2] & 0x00420021) << 6) |
-                ((m[2].coded_block_flag_4x4[2] & 0x00090009) << 10);
-            m->flags8x8 = ((m[-1].flags8x8 & 0x2121212121212121) << 1) |
-                ((m[2].flags8x8 & 0x1111111111111111) << 3);
-            m->refIdx_l = -1;
+            s->ctxIdxInc.flags = ctxIdxInc;
+            m->Intra4x4PredMode_s[0] = IntraA;
+            memcpy(m->Intra4x4PredMode + 5, &IntraB, 4);
+            m->coded_block_flag_4x4[0] = cbf0;
+            m->coded_block_flag_4x4[1] = cbf1;
+            m->coded_block_flag_4x4[2] = cbf2;
+            m->flags8x8 = flags8x8;
+            
+            /* P/B slices have some more initialisation. */
             if (s->slice_type > 1) {
                 CABAC_parse_intra_mb_pred(s, m, 5 - s->ctxIdxInc.mb_type_I_NxN);
             } else {
-                memcpy(m->mvEdge, m[-1].mvEdge + 16, 32);
-                memcpy(m->mvEdge + 16, m[1].mvEdge + 16, 8);
-                memcpy(m->mvEdge + 20, m[2].mvEdge + 4, 32);
-                memcpy(m->mvEdge + 36, m[3].mvEdge + 4, 8);
-                memcpy(m->absMvdComp, m[-1].absMvdComp + 16, 16);
-                memcpy(m->absMvdComp + 20, m[2].absMvdComp + 4, 16);
-                m->f.mb_skip_flag = get_ae(&s->c, s->s + 13 + 13 * s->slice_type -
+                v8hi mvEdge01 = m[-1].mvEdge_v[2], mvEdge23 = m[-1].mvEdge_v[3],
+                    mvEdge45 = (v8hi)(v2li){m[0].mvEdge_l[4], m[1].mvEdge_l[1]},
+                    mvEdge67 = m[1].mvEdge_v[1],
+                    mvEdge89 = (v8hi)(v2li){m[1].mvEdge_l[4], m[2].mvEdge_l[1]};
+                v16qu absMvdCompA = m[-1].absMvdComp_v[1], absMvdCompB;
+                memcpy(&absMvdCompB, m[1].absMvdComp + 4, 16);
+                
+                /* At this point we do not apply any unavailability rules from 8.4.1.3 */
+                m->refIdx_l = -1;
+                m->mvEdge_v[0] = mvEdge01;
+                m->mvEdge_v[1] = mvEdge23;
+                m->mvEdge_v[2] = mvEdge45;
+                m->mvEdge_v[3] = mvEdge67;
+                m->mvEdge_v[4] = mvEdge89;
+                m->absMvdComp_v[0] = absMvdCompA;
+                memcpy(m->absMvdComp + 20, &absMvdCompB, 16);
+                unsigned mb_skip_flag = get_ae(&s->c, s->s + 13 + 13 * s->slice_type -
                     s->ctxIdxInc.mb_skip_flag);
-                fprintf(stderr, "mb_skip_flag: %x\n", m->f.mb_skip_flag);
-                CABAC_parse_inter_mb_type(s, m, m[-1].refIdx + 1, m[2].refIdx + 2,
-                    (m[3].f.unavailable) ? m[1].refIdx + 3 : m[3].refIdx + 2,
-                    s->mvs - 54, s->mvs + 148, s->mvs + (m[3].f.unavailable ? 94 : 212));
+                fprintf(stderr, "mb_skip_flag: %x\n", mb_skip_flag);
+                CABAC_parse_inter_mb_type(s, m, mb_skip_flag);
             }
             
             unsigned end_of_slice_flag = get_ae(&s->c, s->s + 276);

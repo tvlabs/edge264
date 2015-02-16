@@ -30,6 +30,7 @@
 
 #include <assert.h>
 #include <limits.h>
+#include <stdint.h>
 #include <string.h>
 
 #if TRACE
@@ -340,7 +341,7 @@ static inline __attribute__((always_inline)) _Bool get_bypass(CABAC_ctx *c) {
  */
 typedef union { struct {
     uint32_t mb_field_decoding_flag:2; // put first to match Edge264_persistent_mb::fieldDecodingFlag
-    uint32_t unavailable:2;
+    uint32_t unavailable:4;
     uint32_t mb_skip_flag:2;
     uint32_t mb_type_I_NxN:2;
     uint32_t mb_type_B_Direct:2;
@@ -359,9 +360,9 @@ typedef struct {
         uint8_t CodedBlockPatternLuma;
     }; uint64_t flags8x8; };
     union { int8_t refIdx[8]; uint32_t refIdx_s[2]; uint64_t refIdx_l; };
-    union { int16_t mvEdge[40]; uint32_t mvEdge_s[20]; v8hi mvEdge_v[5]; };
-    union { uint8_t absMvdComp[36]; uint32_t absMvdComp_s[9]; v16qu absMvdComp_v[2]; };
-    int8_t Intra4x4PredMode[9];
+    union { int16_t mvEdge[40]; uint32_t mvEdge_s[20]; uint64_t mvEdge_l[10]; v8hi mvEdge_v[5]; };
+    union { uint8_t absMvdComp[36]; v16qu absMvdComp_v[2]; };
+    union { int8_t Intra4x4PredMode[9]; uint32_t Intra4x4PredMode_s[2]; };
 } __attribute__((aligned)) Edge264_macroblock;
 typedef struct {
     CABAC_ctx c;
@@ -450,7 +451,7 @@ static __attribute__((noinline)) void init_P_Skip(Edge264_slice *s, Edge264_macr
  * Inputs are pointers to refIdxL0N and mvL0N, which yield refIdxL1N and mvL1N
  * with fixed offsets.
  */
-void init_B_Direct(Edge264_slice *s, Edge264_macroblock *m,
+static __attribute__((noinline)) void init_B_Direct(Edge264_slice *s, Edge264_macroblock *m,
     const int8_t *refIdxA, const int8_t *refIdxB, const int8_t *refIdxC)
 {
     typedef int16_t v2hi __attribute__((vector_size(4)));

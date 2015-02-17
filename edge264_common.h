@@ -214,7 +214,7 @@ static inline __attribute__((always_inline)) unsigned get_uv(const uint8_t *CPB,
     return buf >> (32 - v);
 }
 
-static inline __attribute__((always_inline)) _Bool get_u1(const uint8_t *CPB, unsigned *shift) {
+static inline __attribute__((always_inline)) unsigned get_u1(const uint8_t *CPB, unsigned *shift) {
     unsigned buf = CPB[*shift / 8] >> (7 - *shift % 8);
     *shift += 1;
     return buf & 1;
@@ -251,7 +251,7 @@ static inline void renorm(CABAC_ctx *c, unsigned v) {
     c->shift += v;
 }
 
-static __attribute__((noinline)) _Bool get_ae(CABAC_ctx *c, uint8_t *state) {
+static __attribute__((noinline)) unsigned get_ae(CABAC_ctx *c, uint8_t *state) {
     static const uint8_t rangeTabLPS[4 * 64] = {
         128, 128, 128, 123, 116, 111, 105, 100, 95, 90, 85, 81, 77, 73, 69, 66,
         62, 59, 56, 53, 51, 48, 46, 43, 41, 39, 37, 35, 33, 32, 30, 29, 27, 26,
@@ -309,7 +309,7 @@ static __attribute__((noinline)) _Bool get_ae(CABAC_ctx *c, uint8_t *state) {
     return xor & 1;
 }
 
-static inline __attribute__((always_inline)) _Bool get_bypass(CABAC_ctx *c) {
+static inline __attribute__((always_inline)) unsigned get_bypass(CABAC_ctx *c) {
     c->codIRange >>= 1;
     long negVal = (long)~(c->codIOffset - c->codIRange) >> (LONG_BIT - 1);
     c->codIOffset -= c->codIRange & negVal;
@@ -358,17 +358,17 @@ typedef struct {
         uint32_t coded_block_flag_8x8;
         uint16_t ref_idx_nz;
         uint8_t CodedBlockPatternLuma;
-    }; uint64_t flags8x8; };
+        int8_t Intra4x4PredMode[9]; // put here to spare memory
+    }; struct { uint64_t flags8x8; uint32_t Intra4x4PredMode_s[2]; }; };
     union { int8_t refIdx[8]; uint32_t refIdx_s[2]; uint64_t refIdx_l; };
-    union { int16_t mvEdge[40]; uint32_t mvEdge_s[20]; uint64_t mvEdge_l[10]; v8hi mvEdge_v[5]; };
     union { uint8_t absMvdComp[36]; v16qu absMvdComp_v[2]; };
-    union { int8_t Intra4x4PredMode[9]; uint32_t Intra4x4PredMode_s[2]; };
-} __attribute__((aligned)) Edge264_macroblock;
+} Edge264_macroblock;
 typedef struct {
     CABAC_ctx c;
     Edge264_mb_flags ctxIdxInc;
     uint16_t mb_x; // 10 significant bits
     uint16_t mb_y;
+    union { int16_t *mvs; v8hi *mvs_v; }; // circular buffer on macroblocks
     unsigned slice_type:2;
     unsigned field_pic_flag:1;
     unsigned bottom_field_flag:1;
@@ -387,8 +387,8 @@ typedef struct {
     uint8_t s[1024];
     Edge264_parameter_set ps;
     Edge264_picture p;
-    uint8_t PredMode[48];
-    union { int16_t mvs[64]; v8hi mvs_v[8]; };
+    union { uint8_t PredMode[48]; v16qu PredMode_v[3]; };
+    union { uint64_t refIdxN[4]; v16qi refIdxNN[2]; };
     uint8_t RefPicList[2][32] __attribute__((aligned));
     uint8_t MapPicToList0[35]; // [1 + refPic]
     int16_t DistScaleFactor[3][32]; // [top/bottom/frame][refIdxL0]
@@ -423,6 +423,7 @@ static const Edge264_macroblock void_mb = {
  * Initialise motion vectors and references with direct prediction (8.4.1.1).
  * Inputs are pointers to refIdxL0N.
  */
+#if 0
 static __attribute__((noinline)) void init_P_Skip(Edge264_slice *s, Edge264_macroblock *m,
     const int8_t *refIdxA, const int8_t *refIdxB, const int8_t *refIdxC)
 {
@@ -573,6 +574,7 @@ static __attribute__((noinline)) void init_B_Direct(Edge264_slice *s, Edge264_ma
         s->mvs_v[7] = s->mvs_v[3] - mvCol3;
     }
 }
+#endif
 
 
 

@@ -88,73 +88,91 @@ static __attribute__((noinline)) int CABAC_parse_intra_mb_pred(Edge264_slice *s,
 
 
 static int CABAC_parse_inter_mb_type(Edge264_slice *s, Edge264_macroblock *m,
-    const int8_t *refIdxA, const int8_t *refIdxB, const int8_t *refIdxC,
-    const int16_t *mvA, const int16_t *mvB, const int16_t *mvC)
+    unsigned mb_skip_flag)
 {
-    static const uint8_t P2Pred_LX[2][2] = {0x01, 0x0f, 0x03, 0x05};
-    static const uint8_t p2mvd_flags[4] = {0x03, 0x33, 0x0f, 0xff};
-    static const uint8_t B2Pred_LX[42] = {0x11, 0x05, 0x03, 0x50, 0x30, 0x41,
-        0x21, 0x14, 0, 0, 0, 0, 0, 0, 0x12, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        0, 0, 0, 0, 0, 0x45, 0x23, 0x54, 0x32, 0x15, 0x13, 0x51, 0x31, 0x55, 0x33};
-    static const uint8_t b2Pred_LX[20] = {0x11, 0x01, 0x01, 0x10, 0, 0,
-        0x10, 0x11, 0, 0, 0, 0, 0, 0, 0, 0, 0x10, 0x11, 0x11, 0x01};
-    static const uint8_t b2mvd_flags[20] = {0x03, 0x33, 0x0f, 0x33, 0, 0,
-        0xff, 0xff, 0, 0, 0, 0, 0, 0, 0, 0, 0x0f, 0x33, 0x0f, 0xff};
+    static const uint32_t P2flags[4] = {0x00000003, 0, 0x00000303, 0x00030003};
+    static const uint8_t B2mb_type[26] = {3, 4, 5, 6, 7, 8, 9, 10, 1, 2, 0, 0,
+        0, 0, 11, 22, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21};
+    static const uint64_t B2flags[26] = {0x0000000300000003, 0x0000000000030003,
+        0x0000000000000303, 0x0003000300000000, 0x0000030300000000, 0x0003000000000003,
+        0x0000030000000003, 0x0000000300030000, 0x0000000000000003, 0x0000000300000000,
+        0, 0, 0, 0, 0x0000000300000300, 0, 0x0003000000030003, 0x0000030000000303,
+        0x0003000300030000, 0x0000030300000300, 0x0000000300030003, 0x0000000300000303,
+        0x0003000300000003, 0x0000030300000003, 0x0003000300030003, 0x0000030300000303};
+    static const uint8_t b2sub_mb_type[13] = {3, 4, 5, 6, 1, 2, 11, 12, 7, 8, 9, 10, 0};
+    static const uint64_t b2flags[13] = {0x0300000003, 0x0000000033, 0x000000000f,
+        0x3300000000, 0x0000000003, 0x0300000000, 0xff00000000, 0xff000000ff,
+        0x0f00000000, 0x3300000033, 0x0f0000000f, 0x00000000ff, 0};
     
     /* Initialise with Direct motion prediction, then parse mb_type. */
+    uint64_t flags = 0;
     if (s->slice_type == 0) {
-        if (m->f.mb_skip_flag) {
-            init_P_Skip(s, m, refIdxA, refIdxB, refIdxC, mvA, mvB, mvC);
-            for (unsigned i = 0; i < 32; i++)
-                m->absMvdComp[i] = 0;
+        if (mb_skip_flag) {
+            //init_P_Skip(s, m);
+            m->f.mb_skip_flag |= 1;
+            m->absMvdComp_v[0] = m->absMvdComp_v[1] = (v16qu){};
+            return 0;
         } else if (get_ae(&s->c, s->s + 14)) {
             return CABAC_parse_intra_mb_pred(s, m, 17);
-        } else {
-            unsigned bin1 = get_ae(&s->c, s->s + 15);
-            unsigned bin2 = get_ae(&s->c, s->s + 16 + bin1);
-            s->Pred_LX = P2Pred_LX[bin1][bin2];
-            
-            /* Parsing for sub_mb_type in P slices-> */
-            for (unsigned mbPartIdx = 0; s->Pred_LX == 0x0f && mbPartIdx < 4; mbPartIdx++) {
-                unsigned sub_mb_type = 0;
-                while (get_ae(&s->c, s->s + 21 + sub_mb_type) == sub_mb_type % 2 &&
-                    ++sub_mb_type < 3);
-                s->mvd_flags[mbPartIdx] = p2mvd_flags[sub_mb_type];
-            }
+        }
+        
+        /* Are these few lines worth a function? :) */
+        unsigned str = get_ae(&s->c, s->s + 15);
+        str += str + get_ae(&s->c, s->s + 16 + str);
+        fprintf(stderr, "mb_type: %u\n", (4 - str) % 4);
+        flags = P2flags[str];
+        
+        /* Parsing for sub_mb_type in P slices. */
+        for (unsigned i = 0; str == 1 && i < 32; i += 8) {
+            unsigned f = get_ae(&s->c, s->s + 21) ? 0x03 :
+                !get_ae(&s->c, s->s + 22) ? 0x33 :
+                get_ae(&s->c, s->s + 23) ? 0x0f : 0xff;
+            fprintf(stderr, "sub_mb_type: %c\n",
+                (f == 0x03) ? '0' : (f == 0x33) ? '1' : (f == 0x0f) ? '2' : '3');
+            flags += f << i;
         }
     } else {
-        init_B_Direct(s, m, refIdxA, refIdxB, refIdxC, mvA, mvB, mvC);
-        if (m->f.mb_skip_flag || !get_ae(&s->c, s->s + 29 - s->ctxIdxInc.mb_type_B_Direct)) {
-            m->f.mb_type_B_Direct = 1;
-        } else if (!get_ae(&s->c, s->s + 30)) {
-            unsigned bin2 = get_ae(&s->c, s->s + 32);
-            s->Pred_LX = 1 << (4 * bin2);
-        } else {
-            unsigned str = 1;
-            while ((uint64_t)0x1f00ffff >> str & 1)
-                str += str + get_ae(&s->c, s->s + 30 + umin(str, 2));
-            if (str == 29)
-                return CABAC_parse_intra_mb_pred(s, m, 32);
-            s->Pred_LX = (B2Pred_LX - 16)[str];
-            
-            /* Parsing for sub_mb_type in B slices-> */
-            for (unsigned mbPartIdx = 0; str == 31 && mbPartIdx < 4; mbPartIdx++) {
-                if (!get_ae(&s->c, s->s + 36)) {
-                    s->Pred_LX += 1 << 8; // hack to prevent misinterpretation as 16x16
-                } else if (!get_ae(&s->c, s->s + 37)) {
-                    unsigned bin2 = get_ae(&s->c, s->s + 39);
-                    s->Pred_LX += 1 << (4 * bin2 + mbPartIdx);
-                } else {
-                    unsigned sub = 1;
-                    while (0xc0ff >> sub & 1)
-                        sub += sub + get_ae(&s->c, s->s + 37 + umin(sub, 2));
-                    s->Pred_LX += (b2Pred_LX - 8)[sub] << mbPartIdx;
-                    s->mvd_flags[mbPartIdx] = (b2mvd_flags - 8)[sub];
+        //init_B_Direct(s, m, refIdxA, refIdxB, refIdxC, mvA, mvB, mvC);
+        if ((mb_skip_flag && (m->f.mb_skip_flag |= 1)) ||
+            !get_ae(&s->c, s->s + 29 - s->ctxIdxInc.mb_type_B_Direct)) {
+            if (!mb_skip_flag)
+                fprintf(stderr, "mb_type: 0\n");
+            m->f.mb_type_B_Direct |= 1;
+            return 0;
+        }
+        
+        /* Most important here is the minimal number of conditional branches. */
+        unsigned str = 4;
+        if (!get_ae(&s->c, s->s + 30) ||
+            (str = get_ae(&s->c, s->s + 31) * 8,
+            str += get_ae(&s->c, s->s + 32) * 4,
+            str += get_ae(&s->c, s->s + 32) * 2,
+            str += get_ae(&s->c, s->s + 32), str - 8 < 5))
+        {
+            str += str + get_ae(&s->c, s->s + 32);
+        }
+        if (str == 13)
+            return CABAC_parse_intra_mb_pred(s, m, 32);
+        fprintf(stderr, "mb_type: %u\n", B2mb_type[str]);
+        flags = B2flags[str];
+        
+        /* Parsing for sub_mb_type in B slices. */
+        for (unsigned i = 0; str == 15 && i < 32; i += 8) {
+            unsigned sub = 12;
+            if (get_ae(&s->c, s->s + 36)) {
+                if ((sub = 2, !get_ae(&s->c, s->s + 37)) ||
+                    (sub = get_ae(&s->c, s->s + 38) * 4,
+                    sub += get_ae(&s->c, s->s + 39) * 2,
+                    sub += get_ae(&s->c, s->s + 39), sub - 4 < 2))
+                {
+                    sub += sub + get_ae(&s->c, s->s + 39);
                 }
             }
+            fprintf(stderr, "sub_mb_type: %u\n", b2sub_mb_type[sub]);
+            flags += b2flags[sub] << i;
         }
     }
-    return CABAC_parse_inter_mb_pred(s, m);
+    return CABAC_parse_inter_mb_pred(s, m, flags);
 }
 
 
@@ -212,20 +230,15 @@ __attribute__((noinline)) void CABAC_parse_slice_data(Edge264_slice *s, Edge264_
             if (s->slice_type > 1) {
                 CABAC_parse_intra_mb_pred(s, m, 5 - s->ctxIdxInc.mb_type_I_NxN);
             } else {
-                v8hi mvEdge01 = m[-1].mvEdge_v[2], mvEdge23 = m[-1].mvEdge_v[3],
-                    mvEdge45 = (v8hi)(v2li){m[0].mvEdge_l[4], m[1].mvEdge_l[1]},
-                    mvEdge67 = m[1].mvEdge_v[1],
-                    mvEdge89 = (v8hi)(v2li){m[1].mvEdge_l[4], m[2].mvEdge_l[1]};
+                v16qi refIdxAB = (v16qi)(v2li){m[-1].refIdx_l, m[1].refIdx_l},
+                    refIdxCD = (v16qi)(v2li){m[2].refIdx_l, m[0].refIdx_l};
                 v16qu absMvdCompA = m[-1].absMvdComp_v[1], absMvdCompB;
                 memcpy(&absMvdCompB, m[1].absMvdComp + 4, 16);
                 
-                /* At this point we do not apply any unavailability rules from 8.4.1.3 */
+                /* At this point we do not apply any unavailability rule from 8.4.1.3 */
+                s->refIdxNN[0] = refIdxAB;
+                s->refIdxNN[1] = refIdxCD;
                 m->refIdx_l = -1;
-                m->mvEdge_v[0] = mvEdge01;
-                m->mvEdge_v[1] = mvEdge23;
-                m->mvEdge_v[2] = mvEdge45;
-                m->mvEdge_v[3] = mvEdge67;
-                m->mvEdge_v[4] = mvEdge89;
                 m->absMvdComp_v[0] = absMvdCompA;
                 memcpy(m->absMvdComp + 20, &absMvdCompB, 16);
                 unsigned mb_skip_flag = get_ae(&s->c, s->s + 13 + 13 * s->slice_type -

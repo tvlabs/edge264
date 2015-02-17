@@ -1,6 +1,7 @@
 /* TODO: Improve the start_code search. */
 /* TODO: Test with lint. */
 /* TODO: Replace pointer type punning with unions. */
+/* TODO: Apply the min/max long update. */
 
 /**
  * Copyright (c) 2013-2014, Celticom / TVLabs

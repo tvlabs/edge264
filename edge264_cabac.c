@@ -31,23 +31,22 @@
 #include "edge264_common.h"
 static const uint8_t CABAC_init[52][4][1024];
 
-int CABAC_parse_inter_mb_pred(Edge264_slice *s, Edge264_macroblock *m);
+int CABAC_parse_inter_mb_pred(Edge264_slice *s, Edge264_macroblock *m, unsigned);
 
 
 
 static __attribute__((noinline)) int CABAC_parse_intra_mb_pred(Edge264_slice *s,
     Edge264_macroblock *m, unsigned ctxIdx)
 {
-    for (unsigned i = 0; i < 32; i++)
-        m->mvEdge[i] = 0;
-    for (unsigned i = 0; i < 32; i++)
-        m->absMvdComp[i] = 0;
+    m->absMvdComp_v[0] = m->absMvdComp_v[1] = (v16qu){};
+    ((v8hi *)s->p.mvs)[0] = ((v8hi *)s->p.mvs)[1] = ((v8hi *)s->p.mvs)[2] =
+        ((v8hi *)s->p.mvs)[3] = (v8hi){}; // p.mvs is always v8hi so this type-punning is safe
     if (!get_ae(&s->c, s->s + ctxIdx)) { // I_NxN
-        m->f.mb_type_I_NxN = 1;
+        m->f.mb_type_I_NxN |= 1;
         if (s->ps.transform_8x8_mode_flag)
-            m->f.transform_size_8x8_flag = get_ae(&s->c, s->s + 399 + s->ctxIdxInc.transform_size_8x8_flag);
+            m->f.transform_size_8x8_flag |= get_ae(&s->c, s->s + 399 + s->ctxIdxInc.transform_size_8x8_flag);
         for (unsigned luma4x4BlkIdx = 0; luma4x4BlkIdx < 16; ) {
-            unsigned e = edge4x4[luma4x4BlkIdx];
+            unsigned e = intra2edge[luma4x4BlkIdx];
             int intraPredModeA = (m->Intra4x4PredMode + 1)[e];
             int intraPredModeB = (m->Intra4x4PredMode - 1)[e];
             unsigned IntraPredMode = abs(min(intraPredModeA, intraPredModeB));
@@ -87,8 +86,7 @@ static __attribute__((noinline)) int CABAC_parse_intra_mb_pred(Edge264_slice *s,
 
 
 
-static int CABAC_parse_inter_mb_type(Edge264_slice *s, Edge264_macroblock *m,
-    unsigned mb_skip_flag)
+static int CABAC_parse_inter_mb_type(Edge264_slice *s, Edge264_macroblock *m)
 {
     static const uint32_t P2flags[4] = {0x00000003, 0, 0x00000303, 0x00030003};
     static const uint8_t B2mb_type[26] = {3, 4, 5, 6, 7, 8, 9, 10, 1, 2, 0, 0,
@@ -107,12 +105,13 @@ static int CABAC_parse_inter_mb_type(Edge264_slice *s, Edge264_macroblock *m,
     /* Initialise with Direct motion prediction, then parse mb_type. */
     uint64_t flags = 0;
     if (s->slice_type == 0) {
-        if (mb_skip_flag) {
+        if (m->f.mb_skip_flag) {
             //init_P_Skip(s, m);
-            m->f.mb_skip_flag |= 1;
             m->absMvdComp_v[0] = m->absMvdComp_v[1] = (v16qu){};
             return 0;
         } else if (get_ae(&s->c, s->s + 14)) {
+            s->mvs_v[0] = s->mvs_v[1] = s->mvs_v[2] = s->mvs_v[3] = s->mvs_v[4] =
+                s->mvs_v[5] = s->mvs_v[6] = s->mvs_v[7] = (v8hi){};
             return CABAC_parse_intra_mb_pred(s, m, 17);
         }
         
@@ -133,11 +132,11 @@ static int CABAC_parse_inter_mb_type(Edge264_slice *s, Edge264_macroblock *m,
         }
     } else {
         //init_B_Direct(s, m, refIdxA, refIdxB, refIdxC, mvA, mvB, mvC);
-        if ((mb_skip_flag && (m->f.mb_skip_flag |= 1)) ||
-            !get_ae(&s->c, s->s + 29 - s->ctxIdxInc.mb_type_B_Direct)) {
-            if (!mb_skip_flag)
+        if (m->f.mb_skip_flag || !get_ae(&s->c, s->s + 29 - s->ctxIdxInc.mb_type_B_Direct)) {
+            if (!m->f.mb_skip_flag)
                 fprintf(stderr, "mb_type: 0\n");
             m->f.mb_type_B_Direct |= 1;
+            m->absMvdComp_v[0] = m->absMvdComp_v[1] = (v16qu){};
             return 0;
         }
         
@@ -151,8 +150,11 @@ static int CABAC_parse_inter_mb_type(Edge264_slice *s, Edge264_macroblock *m,
         {
             str += str + get_ae(&s->c, s->s + 32);
         }
-        if (str == 13)
+        if (str == 13) {
+            s->mvs_v[0] = s->mvs_v[1] = s->mvs_v[2] = s->mvs_v[3] = s->mvs_v[4] =
+                s->mvs_v[5] = s->mvs_v[6] = s->mvs_v[7] = (v8hi){};
             return CABAC_parse_intra_mb_pred(s, m, 32);
+        }
         fprintf(stderr, "mb_type: %u\n", B2mb_type[str]);
         flags = B2flags[str];
         
@@ -241,21 +243,25 @@ __attribute__((noinline)) void CABAC_parse_slice_data(Edge264_slice *s, Edge264_
                 m->refIdx_l = -1;
                 m->absMvdComp_v[0] = absMvdCompA;
                 memcpy(m->absMvdComp + 20, &absMvdCompB, 16);
-                unsigned mb_skip_flag = get_ae(&s->c, s->s + 13 + 13 * s->slice_type -
+                m->f.mb_skip_flag |= get_ae(&s->c, s->s + 13 + 13 * s->slice_type -
                     s->ctxIdxInc.mb_skip_flag);
-                fprintf(stderr, "mb_skip_flag: %x\n", mb_skip_flag);
-                CABAC_parse_inter_mb_type(s, m, mb_skip_flag);
+                fprintf(stderr, "mb_skip_flag: %x\n", m->f.mb_skip_flag);
+                CABAC_parse_inter_mb_type(s, m);
             }
             
+            /* The loop condition is really easier to express with breaks. */
             unsigned end_of_slice_flag = get_ae(&s->c, s->s + 276);
             fprintf(stderr, "end_of_slice_flag: %x\n", end_of_slice_flag);
             if (end_of_slice_flag)
                 break;
             m++;
-            if (++s->mb_x == s->ps.width / 16) {
+            s->mvs += 64;
+            unsigned PicWidthInMbs = s->ps.width / 16;
+            if (++s->mb_x == PicWidthInMbs) {
                 s->mb_x = 0;
                 *m = void_mb;
-                m -= s->ps.width / 16 + 2;
+                m -= PicWidthInMbs + 1;
+                s->mvs -= (PicWidthInMbs + 2) * 64; // different circular buffer length
                 if ((s->mb_y += 1 + s->field_pic_flag) >= s->ps.height / 16)
                     break;
             }

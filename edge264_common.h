@@ -442,7 +442,6 @@ static __attribute__((noinline)) void init_P_Skip(Edge264_slice *s, Edge264_macr
     s->mvs_v[0] = s->mvs_v[1] = s->mvs_v[2] = s->mvs_v[3] = (v8hi)(v4su){mv.s, mv.s, mv.s, mv.s};
     s->mvs_v[4] = s->mvs_v[5] = s->mvs_v[6] = s->mvs_v[7] = (v8hi){};
     m->refIdx_s[0] = 0;
-    m->refIdx_s[1] = -1;
 }
 
 
@@ -542,7 +541,7 @@ static __attribute__((noinline)) void init_B_Direct(Edge264_slice *s, Edge264_ma
         m->refIdx_s[1] = refIdxL1 * 0x01010101;
         
         /* mv_is_zero encapsulates the intrinsic for abs which is essential here. */
-        unsigned mask = s->col_short_term << 7;
+        unsigned mask = s->col_short_term << 7; // FIXME: Revert bit order to keep sign!
         v8hi colZero0 = (refCol01[0] & mask) ? mv_is_zero(mvCol0) : (v8hi){};
         v8hi colZero1 = (refCol01[1] & mask) ? mv_is_zero(mvCol1) : (v8hi){};
         v8hi colZero2 = (refCol23[0] & mask) ? mv_is_zero(mvCol2) : (v8hi){};

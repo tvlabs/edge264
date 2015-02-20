@@ -100,6 +100,8 @@ typedef uint64_t v2lu __attribute__((vector_size(16)));
 #endif
 
 #ifdef __SSSE3__
+#define REG_S "ebp"
+#define REG_M "ebx"
 #define _mm_movpi64_pi64 _mm_movpi64_epi64
 #include <tmmintrin.h>
 static inline v8hi mv_is_zero(v8hi mvCol) {
@@ -240,7 +242,7 @@ typedef struct {
 
 static inline void renorm(CABAC_ctx *c, unsigned v) {
     assert(v>0&&v<LONG_BIT);
-    unsigned long buf = 0;
+    unsigned long buf = -1; // favors codIOffset >= codIRange, thus binVal = !valMPS
     if (c->shift < c->lim) {
         unsigned long msb = beswapl(((unsigned long *)c->CPB)[c->shift / LONG_BIT]);
         unsigned long lsb = beswapl(((unsigned long *)c->CPB)[(c->shift + LONG_BIT - 1) / LONG_BIT]);
@@ -251,7 +253,7 @@ static inline void renorm(CABAC_ctx *c, unsigned v) {
     c->shift += v;
 }
 
-static __attribute__((noinline)) unsigned get_ae(CABAC_ctx *c, uint8_t *state) {
+static inline unsigned get_ae(CABAC_ctx *c, uint8_t *state) {
     static const uint8_t rangeTabLPS[4 * 64] = {
         128, 128, 128, 123, 116, 111, 105, 100, 95, 90, 85, 81, 77, 73, 69, 66,
         62, 59, 56, 53, 51, 48, 46, 43, 41, 39, 37, 35, 33, 32, 30, 29, 27, 26,
@@ -380,7 +382,7 @@ typedef struct {
     int FilterOffsetB:5;
     unsigned firstRefPicL1:1;
     unsigned col_short_term:1;
-    unsigned ref_idx_mask:8;
+    uint64_t ref_idx_mask;
     const v8hi *mvCol;
     const Edge264_persistent_mb *mbCol;
     const Edge264_picture *DPB;

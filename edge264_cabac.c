@@ -1,5 +1,5 @@
 /* TODO: Mbaff must update ref_idx_mask each time it decodes mb_field_decoding_flag. */
-/* TODO: Beware that signed division cannot be vectorised as a shift. */
+/* TODO: Beware that signed division cannot be vectorised as a mere shift. */
 
 /**
  * Copyright (c) 2013-2014, Celticom / TVLabs
@@ -31,29 +31,59 @@
 #include "edge264_common.h"
 static const uint8_t CABAC_init[52][4][1024];
 
-int CABAC_parse_inter_mb_pred(Edge264_slice *s, Edge264_macroblock *m, unsigned);
+/* Global Register Variables are a blessing since we make a lot of function calls. */
+#ifndef __clang__
+register Edge264_slice *s asm(REG_S);
+register Edge264_macroblock *m asm(REG_M);
+#else
+static __thread Edge264_slice *s;
+static __thread Edge264_macroblock *m;
+#endif
+
+static __attribute__((noinline)) unsigned CABAC_get_ae(unsigned ctxIdx) {
+    return get_ae(&s->c, s->s + ctxIdx);
+}
 
 
 
-static __attribute__((noinline)) int CABAC_parse_intra_mb_pred(Edge264_slice *s,
-    Edge264_macroblock *m, unsigned ctxIdx)
-{
+static __attribute__((noinline)) int CABAC_parse_inter_mb_pred(uint64_t flags) {
+    /* Parsing for ref_idx_lX in P/B slices. */
+    for (uint64_t f = flags & s->ref_idx_mask; f != 0; ) {
+        unsigned ctz = __builtin_ctz(f);
+        f &= ~((uint64_t)0xff << ctz);
+        unsigned i = ctz / 8, ctxIdxInc = (m->ref_idx_nz >> left8x8[i]) & 3, refIdx = 0;
+        
+        /* This cannot loop forever since binVal would oscillate past the end of the RBSP. */
+        while (CABAC_get_ae(54 + ctxIdxInc))
+            refIdx++, ctxIdxInc = ctxIdxInc / 4 + 4; // cool trick from ffmpeg
+        m->ref_idx_nz |= (refIdx > 0) << bit8x8[i];
+        m->refIdx[i] = refIdx;
+    }
+    
+    /* Compute the relative positions of all A/B/C motion vectors in parallel. */
+    
+    return 0;
+}
+
+
+
+static __attribute__((noinline)) int CABAC_parse_intra_mb_pred(unsigned ctxIdx) {
     m->absMvdComp_v[0] = m->absMvdComp_v[1] = (v16qu){};
-    ((v8hi *)s->p.mvs)[0] = ((v8hi *)s->p.mvs)[1] = ((v8hi *)s->p.mvs)[2] =
-        ((v8hi *)s->p.mvs)[3] = (v8hi){}; // p.mvs is always v8hi so this type-punning is safe
-    if (!get_ae(&s->c, s->s + ctxIdx)) { // I_NxN
+    v8hi *mvCol = (v8hi *)s->p.mvs; // p.mvs is always v8hi so this type-punning is safe
+    mvCol[0] = mvCol[1] = mvCol[2] = mvCol[3] = (v8hi){};
+    if (!CABAC_get_ae(ctxIdx)) { // I_NxN
         m->f.mb_type_I_NxN |= 1;
         if (s->ps.transform_8x8_mode_flag)
-            m->f.transform_size_8x8_flag |= get_ae(&s->c, s->s + 399 + s->ctxIdxInc.transform_size_8x8_flag);
+            m->f.transform_size_8x8_flag |= CABAC_get_ae(399 + s->ctxIdxInc.transform_size_8x8_flag);
         for (unsigned luma4x4BlkIdx = 0; luma4x4BlkIdx < 16; ) {
             unsigned e = intra2edge[luma4x4BlkIdx];
             int intraPredModeA = (m->Intra4x4PredMode + 1)[e];
             int intraPredModeB = (m->Intra4x4PredMode - 1)[e];
             unsigned IntraPredMode = abs(min(intraPredModeA, intraPredModeB));
-            if (!(get_ae(&s->c, s->s + 68))) {
-                unsigned rem_intra_pred_mode = get_ae(&s->c, s->s + 69);
-                rem_intra_pred_mode += get_ae(&s->c, s->s + 69) * 2;
-                rem_intra_pred_mode += get_ae(&s->c, s->s + 69) * 4;
+            if (!(CABAC_get_ae(68))) {
+                unsigned rem_intra_pred_mode = CABAC_get_ae(69);
+                rem_intra_pred_mode += CABAC_get_ae(69) * 2;
+                rem_intra_pred_mode += CABAC_get_ae(69) * 4;
                 IntraPredMode = rem_intra_pred_mode + (rem_intra_pred_mode >= IntraPredMode);
             }
             m->Intra4x4PredMode[e] = s->PredMode[luma4x4BlkIdx++] = IntraPredMode;
@@ -61,13 +91,13 @@ static __attribute__((noinline)) int CABAC_parse_intra_mb_pred(Edge264_slice *s,
                 (m->Intra4x4PredMode - 1)[e] = (m->Intra4x4PredMode + 1)[e] = IntraPredMode, luma4x4BlkIdx += 3;
         }
         
-    } else if (!get_ae(&s->c, s->s + 276)) { // Intra_16x16
-        m->CodedBlockPatternLuma = -get_ae(&s->c, s->s + umax(ctxIdx + 1, 6));
-        m->f.CodedBlockPatternChromaDC = get_ae(&s->c, s->s + umax(ctxIdx + 2, 7));
+    } else if (!CABAC_get_ae(276)) { // Intra_16x16
+        m->CodedBlockPatternLuma = -CABAC_get_ae(umax(ctxIdx + 1, 6));
+        m->f.CodedBlockPatternChromaDC = CABAC_get_ae(umax(ctxIdx + 2, 7));
         if (m->f.CodedBlockPatternChromaDC)
-            m->f.CodedBlockPatternChromaAC = get_ae(&s->c, s->s + umax(ctxIdx + 2, 8));
-        unsigned Intra16x16PredMode = get_ae(&s->c, s->s + umax(ctxIdx + 3, 9)) << 1;
-        Intra16x16PredMode += get_ae(&s->c, s->s + umax(ctxIdx + 3, 10));
+            m->f.CodedBlockPatternChromaAC = CABAC_get_ae(umax(ctxIdx + 2, 8));
+        unsigned Intra16x16PredMode = CABAC_get_ae(umax(ctxIdx + 3, 9)) << 1;
+        Intra16x16PredMode += CABAC_get_ae(umax(ctxIdx + 3, 10));
         
     } else { // I_PCM
         m->f.CodedBlockPatternChromaDC = 1;
@@ -86,8 +116,7 @@ static __attribute__((noinline)) int CABAC_parse_intra_mb_pred(Edge264_slice *s,
 
 
 
-static int CABAC_parse_inter_mb_type(Edge264_slice *s, Edge264_macroblock *m)
-{
+static __attribute__((noinline)) int CABAC_parse_inter_mb_type() {
     static const uint32_t P2flags[4] = {0x00000003, 0, 0x00000303, 0x00030003};
     static const uint8_t B2mb_type[26] = {3, 4, 5, 6, 7, 8, 9, 10, 1, 2, 0, 0,
         0, 0, 11, 22, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21};
@@ -109,30 +138,30 @@ static int CABAC_parse_inter_mb_type(Edge264_slice *s, Edge264_macroblock *m)
             //init_P_Skip(s, m);
             m->absMvdComp_v[0] = m->absMvdComp_v[1] = (v16qu){};
             return 0;
-        } else if (get_ae(&s->c, s->s + 14)) {
-            s->mvs_v[0] = s->mvs_v[1] = s->mvs_v[2] = s->mvs_v[3] = s->mvs_v[4] =
-                s->mvs_v[5] = s->mvs_v[6] = s->mvs_v[7] = (v8hi){};
-            return CABAC_parse_intra_mb_pred(s, m, 17);
+        } else if (CABAC_get_ae(14)) {
+            v8hi *mvs_v = s->mvs_v;
+            mvs_v[0] = mvs_v[1] = mvs_v[2] = mvs_v[3] = mvs_v[4] = mvs_v[5] = mvs_v[6] = mvs_v[7] = (v8hi){};
+            return CABAC_parse_intra_mb_pred(17);
         }
         
         /* Are these few lines worth a function? :) */
-        unsigned str = get_ae(&s->c, s->s + 15);
-        str += str + get_ae(&s->c, s->s + 16 + str);
+        unsigned str = CABAC_get_ae(15);
+        str += str + CABAC_get_ae(16 + str);
         fprintf(stderr, "mb_type: %u\n", (4 - str) % 4);
         flags = P2flags[str];
         
         /* Parsing for sub_mb_type in P slices. */
         for (unsigned i = 0; str == 1 && i < 32; i += 8) {
-            unsigned f = get_ae(&s->c, s->s + 21) ? 0x03 :
-                !get_ae(&s->c, s->s + 22) ? 0x33 :
-                get_ae(&s->c, s->s + 23) ? 0x0f : 0xff;
+            unsigned f = CABAC_get_ae(21) ? 0x03 :
+                !CABAC_get_ae(22) ? 0x33 :
+                CABAC_get_ae(23) ? 0x0f : 0xff;
             fprintf(stderr, "sub_mb_type: %c\n",
                 (f == 0x03) ? '0' : (f == 0x33) ? '1' : (f == 0x0f) ? '2' : '3');
             flags += f << i;
         }
     } else {
         //init_B_Direct(s, m, refIdxA, refIdxB, refIdxC, mvA, mvB, mvC);
-        if (m->f.mb_skip_flag || !get_ae(&s->c, s->s + 29 - s->ctxIdxInc.mb_type_B_Direct)) {
+        if (m->f.mb_skip_flag || !CABAC_get_ae(29 - s->ctxIdxInc.mb_type_B_Direct)) {
             if (!m->f.mb_skip_flag)
                 fprintf(stderr, "mb_type: 0\n");
             m->f.mb_type_B_Direct |= 1;
@@ -142,18 +171,18 @@ static int CABAC_parse_inter_mb_type(Edge264_slice *s, Edge264_macroblock *m)
         
         /* Most important here is the minimal number of conditional branches. */
         unsigned str = 4;
-        if (!get_ae(&s->c, s->s + 30) ||
-            (str = get_ae(&s->c, s->s + 31) * 8,
-            str += get_ae(&s->c, s->s + 32) * 4,
-            str += get_ae(&s->c, s->s + 32) * 2,
-            str += get_ae(&s->c, s->s + 32), str - 8 < 5))
+        if (!CABAC_get_ae(30) ||
+            (str = CABAC_get_ae(31) * 8,
+            str += CABAC_get_ae(32) * 4,
+            str += CABAC_get_ae(32) * 2,
+            str += CABAC_get_ae(32), str - 8 < 5))
         {
-            str += str + get_ae(&s->c, s->s + 32);
+            str += str + CABAC_get_ae(32);
         }
         if (str == 13) {
-            s->mvs_v[0] = s->mvs_v[1] = s->mvs_v[2] = s->mvs_v[3] = s->mvs_v[4] =
-                s->mvs_v[5] = s->mvs_v[6] = s->mvs_v[7] = (v8hi){};
-            return CABAC_parse_intra_mb_pred(s, m, 32);
+            v8hi *mvs_v = s->mvs_v;
+            mvs_v[0] = mvs_v[1] = mvs_v[2] = mvs_v[3] = mvs_v[4] = mvs_v[5] = mvs_v[6] = mvs_v[7] = (v8hi){};
+            return CABAC_parse_intra_mb_pred(32);
         }
         fprintf(stderr, "mb_type: %u\n", B2mb_type[str]);
         flags = B2flags[str];
@@ -161,25 +190,26 @@ static int CABAC_parse_inter_mb_type(Edge264_slice *s, Edge264_macroblock *m)
         /* Parsing for sub_mb_type in B slices. */
         for (unsigned i = 0; str == 15 && i < 32; i += 8) {
             unsigned sub = 12;
-            if (get_ae(&s->c, s->s + 36)) {
-                if ((sub = 2, !get_ae(&s->c, s->s + 37)) ||
-                    (sub = get_ae(&s->c, s->s + 38) * 4,
-                    sub += get_ae(&s->c, s->s + 39) * 2,
-                    sub += get_ae(&s->c, s->s + 39), sub - 4 < 2))
+            if (CABAC_get_ae(36)) {
+                if ((sub = 2, !CABAC_get_ae(37)) ||
+                    (sub = CABAC_get_ae(38) * 4,
+                    sub += CABAC_get_ae(39) * 2,
+                    sub += CABAC_get_ae(39), sub - 4 < 2))
                 {
-                    sub += sub + get_ae(&s->c, s->s + 39);
+                    sub += sub + CABAC_get_ae(39);
                 }
             }
             fprintf(stderr, "sub_mb_type: %u\n", b2sub_mb_type[sub]);
             flags += b2flags[sub] << i;
         }
     }
-    return CABAC_parse_inter_mb_pred(s, m, flags);
+    return CABAC_parse_inter_mb_pred(flags);
 }
 
 
 
-__attribute__((noinline)) void CABAC_parse_slice_data(Edge264_slice *s, Edge264_macroblock *m)
+__attribute__((noinline)) void CABAC_parse_slice_data(Edge264_slice *_s,
+    Edge264_macroblock *_m)
 {
     static const Edge264_mb_flags twice = {
         .unavailable = 1,
@@ -188,6 +218,9 @@ __attribute__((noinline)) void CABAC_parse_slice_data(Edge264_slice *s, Edge264_
         .coded_block_flag_16x16 = 0x15,
     };
     static const Edge264_mb_flags unavail = {.unavailable = 1};
+    void *old_s = s, *old_m = m;
+    s = _s;
+    m = _m;
     
     /* cabac_alignment_one_bit shall be tested later for error concealment. */
     if ((~s->c.CPB[s->c.shift / 8] << (1 + (s->c.shift - 1) % 8) & 0xff) != 0)
@@ -230,7 +263,7 @@ __attribute__((noinline)) void CABAC_parse_slice_data(Edge264_slice *s, Edge264_
             
             /* P/B slices have some more initialisation. */
             if (s->slice_type > 1) {
-                CABAC_parse_intra_mb_pred(s, m, 5 - s->ctxIdxInc.mb_type_I_NxN);
+                CABAC_parse_intra_mb_pred(5 - s->ctxIdxInc.mb_type_I_NxN);
             } else {
                 v16qi refIdxAB = (v16qi)(v2li){m[-1].refIdx_l, m[1].refIdx_l},
                     refIdxCD = (v16qi)(v2li){m[2].refIdx_l, m[0].refIdx_l};
@@ -243,14 +276,14 @@ __attribute__((noinline)) void CABAC_parse_slice_data(Edge264_slice *s, Edge264_
                 m->refIdx_l = -1;
                 m->absMvdComp_v[0] = absMvdCompA;
                 memcpy(m->absMvdComp + 20, &absMvdCompB, 16);
-                m->f.mb_skip_flag |= get_ae(&s->c, s->s + 13 + 13 * s->slice_type -
+                m->f.mb_skip_flag |= CABAC_get_ae(13 + 13 * s->slice_type -
                     s->ctxIdxInc.mb_skip_flag);
                 fprintf(stderr, "mb_skip_flag: %x\n", m->f.mb_skip_flag);
-                CABAC_parse_inter_mb_type(s, m);
+                CABAC_parse_inter_mb_type();
             }
             
             /* The loop condition is really easier to express with breaks. */
-            unsigned end_of_slice_flag = get_ae(&s->c, s->s + 276);
+            unsigned end_of_slice_flag = CABAC_get_ae(276);
             fprintf(stderr, "end_of_slice_flag: %x\n", end_of_slice_flag);
             if (end_of_slice_flag)
                 break;
@@ -267,4 +300,6 @@ __attribute__((noinline)) void CABAC_parse_slice_data(Edge264_slice *s, Edge264_
             }
         }
     }
+    s = old_s;
+    m = old_m;
 }

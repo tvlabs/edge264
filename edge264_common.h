@@ -110,6 +110,9 @@ static inline v8hi mv_is_zero(v8hi mvCol) {
 static inline v8hi temporal_scale(v8hi mvCol, int16_t DistScaleFactor) {
     return (v8hi)_mm_mulhrs_epi16(_mm_set1_epi16(DistScaleFactor), _mm_slli_epi16((__m128i)mvCol, 2));
 }
+static inline v16qi byte_shuffle(v16qi a, v16qi mask) {
+    return (v16qi)_mm_shuffle_epi8((__m128i)a, (__m128i)mask);
+}
 #ifdef __SSE4_1__
 #include <smmintrin.h>
 #define vector_select(f, t, mask) _mm_blendv_epi8((__m128i)(f), (__m128i)(t), (__m128i)(mask))
@@ -390,7 +393,8 @@ typedef struct {
     Edge264_parameter_set ps;
     Edge264_picture p;
     union { uint8_t PredMode[48]; v16qu PredMode_v[3]; };
-    union { uint64_t refIdxN[4]; v16qi refIdxNN[2]; };
+    union { struct { uint64_t refIdxA, refIdxDBC; }; v16qi refIdxN; };
+    v16qi posA, posB, posC_4xN[8], posC_8xN[8]; // initial relative mv positions
     uint8_t RefPicList[2][32] __attribute__((aligned));
     uint8_t MapPicToList0[35]; // [1 + refPic]
     int16_t DistScaleFactor[3][32]; // [top/bottom/frame][refIdxL0]

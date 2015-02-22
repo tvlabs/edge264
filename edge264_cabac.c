@@ -1,5 +1,6 @@
 /* TODO: Mbaff must update ref_idx_mask each time it decodes mb_field_decoding_flag. */
 /* TODO: Beware that signed division cannot be vectorised as a mere shift. */
+/* TODO: Apply the update of mvs pointers at each macroblock. */
 
 /**
  * Copyright (c) 2013-2014, Celticom / TVLabs
@@ -47,11 +48,24 @@ static __attribute__((noinline)) unsigned CABAC_get_ae(unsigned ctxIdx) {
 
 
 static __attribute__((noinline)) int CABAC_parse_inter_mb_pred(uint64_t flags) {
+    static const v16qi shufC_4x4[4] = {
+        {1, 2, 8, 9, 5, 6, 12, 13, 2, 3, 9, 9, 6, 7, 13, 13},
+        {0, 1, 8, 9, 4, 5, 12, 13, 1, 3, 9, 9, 5, 7, 13, 13},
+        {1, 2, 8, 9, 5, 6, 12, 13, 2, 2, 9, 9, 6, 6, 13, 13},
+        {0, 1, 8, 9, 4, 5, 12, 13, 1, 2, 9, 9, 5, 6, 13, 13},
+    };
+    static const v16qi shufC_8x8[4] = {
+        {2, 3, 9, 8, 6, 7, 13, 12, 8, 9, 10, 11, 12, 13, 14, 15},
+        {0, 3, 9, 8, 4, 7, 13, 12, 8, 9, 10, 11, 12, 13, 14, 15},
+        {2, 1, 9, 8, 6, 5, 13, 12, 8, 9, 10, 11, 12, 13, 14, 15},
+        {0, 1, 9, 8, 4, 5, 13, 12, 8, 9, 10, 11, 12, 13, 14, 15},
+    };
+    
     /* Parsing for ref_idx_lX in P/B slices. */
     for (uint64_t f = flags & s->ref_idx_mask; f != 0; ) {
-        unsigned ctz = __builtin_ctz(f);
+        unsigned ctz = __builtin_ctz(f), i = ctz / 8;
         f &= ~((uint64_t)0xff << ctz);
-        unsigned i = ctz / 8, ctxIdxInc = (m->ref_idx_nz >> left8x8[i]) & 3, refIdx = 0;
+        unsigned ctxIdxInc = (m->ref_idx_nz >> left8x8[i]) & 3, refIdx = 0;
         
         /* This cannot loop forever since binVal would oscillate past the end of the RBSP. */
         while (CABAC_get_ae(54 + ctxIdxInc))
@@ -60,8 +74,53 @@ static __attribute__((noinline)) int CABAC_parse_inter_mb_pred(uint64_t flags) {
         m->refIdx[i] = refIdx;
     }
     
-    /* Compute the relative positions of all A/B/C motion vectors in parallel. */
+    /* Compute refIdxA/B/C for subMbPart==0 (lower vector) and 1 (upper vector).
+       2 and 3 are irrelevant since they have no influence in 8.4.1.3.1 */
+    unsigned is4xN = (unsigned)(flags >> 32 | flags) & 0x0c0c0c0c;
+    unsigned unavailBCD = (m->f.unavailable & 0xe) << 3;
+    unsigned unavailBC = unavailBCD & 0x30;
+    v16qi refIdx = (v16qi)(v2li){m->refIdx_l, m->refIdx_l};
+    v16qi refIdx8xN = (v16qi)(v4su){is4xN, is4xN, is4xN, is4xN} == (v16qi){};
+    v16qi top = (v16qi)__builtin_shufflevector((v2li)s->refIdxN, (v2li)refIdx, 1, 3);
+    v16qi refIdxC_4xN = byte_shuffle(top, *(v16qi *)((intptr_t)shufC_4x4 + unavailBC));
+    v16qi refIdxC_8xN = byte_shuffle(top, *(v16qi *)((intptr_t)shufC_8x8 + unavailBC));
+    v16qi refIdxA = __builtin_shufflevector(s->refIdxN, refIdx, 1, 16, 3, 18, 5, 20, 7, 22, 16, 17, 18, 19, 20, 21, 22, 23);
+    v16qi refIdxB = __builtin_shufflevector(top, top, 1, 2, 8, 9, 4, 5, 12, 13, 1, 2, 8, 9, 4, 5, 12, 13);
+    v16qi refIdxC = vector_select(refIdxC_4xN, refIdxC_8xN, refIdx8xN);
     
+    /* Prepare the masks overriding median vector positions according to rule 2
+       of 8.4.1.3.1 (rule 1 is applied when fetching initial positions below). */
+    v16qi eqA = (refIdx == refIdxA);
+    v16qi eqB = (refIdx == refIdxB);
+    v16qi eqC = (refIdx == refIdxC);
+    v16qi maskA = eqA & ~(eqB | eqC);
+    v16qi maskB = eqB & ~(eqA | eqC);
+    v16qi maskC = eqC & ~(eqA | eqB);
+    v16qi maskA_L0 = __builtin_shufflevector(maskA, (v16qi){}, 0, 8, 16, 24, 1, 9, 17, 25, 2, 10, 18, 26, 3, 11, 19, 27);
+    v16qi maskA_L1 = __builtin_shufflevector(maskA, (v16qi){}, 4, 12, 20, 28, 5, 13, 21, 29, 6, 14, 22, 30, 7, 15, 23, 31);
+    v16qi maskB_L0 = __builtin_shufflevector(maskB, (v16qi){}, 0, 8, 16, 24, 1, 9, 17, 25, 2, 10, 18, 26, 3, 11, 19, 27);
+    v16qi maskB_L1 = __builtin_shufflevector(maskB, (v16qi){}, 4, 12, 20, 28, 5, 13, 21, 29, 6, 14, 22, 30, 7, 15, 23, 31);
+    v16qi maskC_L0 = __builtin_shufflevector(maskC, (v16qi){}, 0, 8, 16, 24, 1, 9, 17, 25, 2, 10, 18, 26, 3, 11, 19, 27);
+    v16qi maskC_L1 = __builtin_shufflevector(maskC, (v16qi){}, 4, 12, 20, 28, 5, 13, 21, 29, 6, 14, 22, 30, 7, 15, 23, 31);
+    
+    /* Load the initial neighbouring mv positions. */
+    v16qi pos8xN = __builtin_shufflevector(refIdx8xN, refIdx8xN, 0, 0, 0, 0, 1, 1, 1, 1, 2, 2, 2, 2, 3, 3, 3, 3);
+    v16qi initC_4xN = *(v16qi *)((uintptr_t)s->posC_4xN + unavailBCD);
+    v16qi initC_8xN = *(v16qi *)((uintptr_t)s->posC_8xN + unavailBCD);
+    v16qi initA = s->posA;
+    v16qi initB = s->posB;
+    v16qi initC = vector_select(initC_4xN, initC_8xN, pos8xN);
+    
+    /* Update and store the median mv positions. */
+    union { int8_t q[32]; v16qi v[2]; } posA, posB, posC;
+    posA.v[0] = vector_select(initA, initB, maskB_L0);
+    posA.v[1] = vector_select(initA, initB, maskB_L1);
+    posB.v[0] = vector_select(initB, initC, maskC_L0);
+    posB.v[1] = vector_select(initB, initC, maskC_L1);
+    posC.v[0] = vector_select(initC, initA, maskA_L0);
+    posC.v[1] = vector_select(initC, initA, maskA_L1);
+    
+    s->refIdxN = posA.v[0] + posA.v[1] + posB.v[0] + posB.v[1] + posC.v[0] + posC.v[1];
     return 0;
 }
 
@@ -139,8 +198,8 @@ static __attribute__((noinline)) int CABAC_parse_inter_mb_type() {
             m->absMvdComp_v[0] = m->absMvdComp_v[1] = (v16qu){};
             return 0;
         } else if (CABAC_get_ae(14)) {
-            v8hi *mvs_v = s->mvs_v;
-            mvs_v[0] = mvs_v[1] = mvs_v[2] = mvs_v[3] = mvs_v[4] = mvs_v[5] = mvs_v[6] = mvs_v[7] = (v8hi){};
+            v8hi *v = s->mvs_v;
+            v[0] = v[1] = v[2] = v[3] = v[4] = v[5] = v[6] = v[7] = (v8hi){};
             return CABAC_parse_intra_mb_pred(17);
         }
         
@@ -180,8 +239,8 @@ static __attribute__((noinline)) int CABAC_parse_inter_mb_type() {
             str += str + CABAC_get_ae(32);
         }
         if (str == 13) {
-            v8hi *mvs_v = s->mvs_v;
-            mvs_v[0] = mvs_v[1] = mvs_v[2] = mvs_v[3] = mvs_v[4] = mvs_v[5] = mvs_v[6] = mvs_v[7] = (v8hi){};
+            v8hi *v = s->mvs_v;
+            v[0] = v[1] = v[2] = v[3] = v[4] = v[5] = v[6] = v[7] = (v8hi){};
             return CABAC_parse_intra_mb_pred(32);
         }
         fprintf(stderr, "mb_type: %u\n", B2mb_type[str]);
@@ -232,8 +291,26 @@ __attribute__((noinline)) void CABAC_parse_slice_data(Edge264_slice *_s,
     s->c.codIRange = 510L << (LONG_BIT - 10);
     memcpy(s->s, CABAC_init[max(s->ps.QP_Y, 0)][s->cabac_init_idc], 1024);
     
-    /* Mbaff shares all of the above functions except the initialisation code below. */
+    /* Mbaff shares all of the above functions except all of the code below. */
     if (!s->MbaffFrameFlag) {
+        s->posA = (v16qi){-27, -1, -27, -1, -3, -1, -3, -1, -27, -1, -27, -1, -3, -1, -3, -1};
+        s->posB = (v16qi){74, 74, -2, -2, 74, 74, -2, -2, -6, -6, -2, -2, -6, -6, -2, -2};
+        s->posC_4xN[0] = (v16qi){ 75, 77, -1, -3, 75, 101, -1, -3, -5, -3, -1, -3, -5, -7, -1, -3};
+        s->posC_4xN[1] = (v16qi){ 47, -1, -1, -3, -3, 101, -1, -3, -5, -3, -1, -3, -5, -7, -1, -3};
+        s->posC_4xN[2] = (v16qi){ 75, 77, -1, -3, 75,  73, -1, -3, -5, -3, -1, -3, -5, -7, -1, -3};
+        s->posC_4xN[3] = (v16qi){ 47, -1, -1, -3, -3,  -1, -1, -3, -5, -3, -1, -3, -5, -7, -1, -3};
+        s->posC_4xN[4] = (v16qi){ 75, 77, -1, -3, 75, 101, -1, -3, -5, -3, -1, -3, -5, -7, -1, -3};
+        s->posC_4xN[5] = (v16qi){-27, -1, -1, -3, -3, 101, -1, -3, -5, -3, -1, -3, -5, -7, -1, -3};
+        s->posC_4xN[6] = (v16qi){ 75, 77, -1, -3, 75,  73, -1, -3, -5, -3, -1, -3, -5, -7, -1, -3};
+        s->posC_4xN[7] = (v16qi){-27, -1, -1, -3, -3,  -1, -1, -3, -5, -3, -1, -3, -5, -7, -1, -3};
+        s->posC_8xN[0] = (v16qi){ 78, 77, -29, -3, 102, 101, -5, -3, -2, -3, -29, -3, -9, -7, -5, -3};
+        s->posC_8xN[1] = (v16qi){ 47, -1, -29, -3, 102, 101, -5, -3, -2, -3, -29, -3, -9, -7, -5, -3};
+        s->posC_8xN[2] = (v16qi){ 78, 77, -29, -3,  71,  73, -5, -3, -2, -3, -29, -3, -9, -7, -5, -3};
+        s->posC_8xN[3] = (v16qi){ 47, -1, -29, -3,  -3,  -1, -5, -3, -2, -3, -29, -3, -9, -7, -5, -3};
+        s->posC_8xN[4] = (v16qi){ 78, 77, -29, -3, 102, 101, -5, -3, -2, -3, -29, -3, -9, -7, -5, -3};
+        s->posC_8xN[5] = (v16qi){-27, -1, -29, -3, 102, 101, -5, -3, -2, -3, -29, -3, -9, -7, -5, -3};
+        s->posC_8xN[6] = (v16qi){ 78, 77, -29, -3,  71,  73, -5, -3, -2, -3, -29, -3, -9, -7, -5, -3};
+        s->posC_8xN[7] = (v16qi){-27, -1, -29, -3,  -3,  -1, -5, -3, -2, -3, -29, -3, -9, -7, -5, -3};
         for (;;) {
             fprintf(stderr, "\n********** %u **********\n", s->ps.width / 16 * s->mb_y + s->mb_x);
             
@@ -251,7 +328,7 @@ __attribute__((noinline)) void CABAC_parse_slice_data(Edge264_slice *_s,
             uint64_t flags8x8 = ((m[-1].flags8x8 & 0x2121212121212121) << 1) |
                 ((m[1].flags8x8 & 0x1111111111111111) << 3);
             
-            /* Splitting reads and writes lets compilers make the best of pipelining. */
+            /* Splitting reads and writes lets compilers perform better with pipelining. */
             m->f.flags = 0;
             s->ctxIdxInc.flags = ctxIdxInc;
             m->Intra4x4PredMode_s[0] = IntraA;
@@ -265,14 +342,15 @@ __attribute__((noinline)) void CABAC_parse_slice_data(Edge264_slice *_s,
             if (s->slice_type > 1) {
                 CABAC_parse_intra_mb_pred(5 - s->ctxIdxInc.mb_type_I_NxN);
             } else {
-                v16qi refIdxAB = (v16qi)(v2li){m[-1].refIdx_l, m[1].refIdx_l},
-                    refIdxCD = (v16qi)(v2li){m[2].refIdx_l, m[0].refIdx_l};
+                v16qi refIdxAB = (v16qi)(v2li){m[-1].refIdx_l, m[1].refIdx_l};
+                v16qi refIdxCD = (v16qi)(v2li){m[2].refIdx_l, m[0].refIdx_l};
+                v16qi refIdxN = __builtin_shufflevector(refIdxAB, refIdxCD,
+                    0, 1, 2, 3, 4, 5, 6, 7, 27, 10, 11, 18, 31, 14, 15, 22);
                 v16qu absMvdCompA = m[-1].absMvdComp_v[1], absMvdCompB;
                 memcpy(&absMvdCompB, m[1].absMvdComp + 4, 16);
                 
                 /* At this point we do not apply any unavailability rule from 8.4.1.3 */
-                s->refIdxNN[0] = refIdxAB;
-                s->refIdxNN[1] = refIdxCD;
+                s->refIdxN = refIdxN;
                 m->refIdx_l = -1;
                 m->absMvdComp_v[0] = absMvdCompA;
                 memcpy(m->absMvdComp + 20, &absMvdCompB, 16);

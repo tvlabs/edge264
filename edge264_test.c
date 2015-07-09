@@ -30,33 +30,33 @@
 #include <sys/stat.h>
 #include <sys/types.h>
 
-#define DEBUG 2
+#define TRACE 2
 #include "edge264.c"
 
 void print_frame(const Edge264_picture *p) {
-    printf("<li style='color:red'>Output %ld</li>\n", min(p[0].PicOrderCnt, p[1].PicOrderCnt));
+	printf("<li style='color:red'>Output %d</li>\n", min(p[0].PicOrderCnt, p[1].PicOrderCnt));
 }
 
 int main() {
-    /* Memory-map the whole file. */
-    struct stat st;
-    fstat(0, &st);
-    const uint8_t *r = mmap(NULL, st.st_size, PROT_READ, MAP_SHARED, 0, 0);
-    assert(r!=MAP_FAILED);
-    setvbuf(stdout, NULL, _IONBF, BUFSIZ);
-    
-    /* Parse and dump the file to HTML. */
-    printf("<!doctype html>\n"
-        "<html>\n"
-        "<head><meta charset=\"UTF-8\"/><title>Edge264 test</title></head>\n"
-        "<body>\n");
-    Edge264_ctx e = {.output_frame = print_frame};
-    const uint8_t *next, *end = r + st.st_size;
-    for (r += 4; r < end; r = next + 3) {
-        next = Edge264_find_start_code(r, end, 1);
-        Edge264_parse_NAL(&e, r, next - r);
-    }
-    printf("</body>\n"
-        "</html>\n");
-    return 0;
+	/* Memory-map the whole file. */
+	struct stat st;
+	fstat(0, &st);
+	const uint8_t *r = mmap(NULL, st.st_size, PROT_READ, MAP_SHARED, 0, 0);
+	assert(r!=MAP_FAILED);
+	setvbuf(stdout, NULL, _IONBF, BUFSIZ);
+	
+	/* Parse and dump the file to HTML. */
+	printf("<!doctype html>\n"
+		"<html>\n"
+		"<head><meta charset=\"UTF-8\"/><title>Edge264 test</title></head>\n"
+		"<body>\n");
+	Edge264_ctx e = {.output_frame = print_frame};
+	const uint8_t *next, *end = r + st.st_size;
+	for (r += 4; r < end; r = next + 3) {
+		next = Edge264_find_start_code(r, end, 1);
+		Edge264_decode_NAL(&e, r, next - r);
+	}
+	printf("</body>\n"
+		"</html>\n");
+	return 0;
 }

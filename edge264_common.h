@@ -101,8 +101,7 @@ typedef uint64_t v2lu __attribute__((vector_size(16)));
 #endif
 
 #ifdef __SSSE3__
-#define REG_S "ebp"
-#define REG_F "ebx"
+#define REG_S "ebx"
 #define _mm_movpi64_pi64 _mm_movpi64_epi64
 #include <tmmintrin.h>
 static inline v8hi mv_is_zero(v8hi mvCol) {
@@ -340,8 +339,8 @@ static inline __attribute__((always_inline)) unsigned get_bypass(CABAC_ctx *c) {
  * The storage patterns for refIdx, mvs, absMvdComp and Intra4x4PredMode keep
  * A/B/C/D at fixed relative positions, while forming circural buffers with the
  * bottom edges:
- *            31|32 33 34 35 36     3|4 5 6 7
- *  7|8 9     23|24 25 26 27        2|3 4 5 6
+ *            31 32 33 34 35 36       4 5 6 7
+ *    8 9     23|24 25 26 27        2|3 4 5 6
  *  3|4 5  ,  15|16 17 18 19   and  1|2 3 4 5
  * -1|0 1      7| 8  9 10 11        0|1 2 3 4
  *            -1| 0  1  2  3       -1|0 1 2 3
@@ -357,9 +356,9 @@ typedef union { struct {
 	uint32_t CodedBlockPatternChromaDC:2;
 	uint32_t CodedBlockPatternChromaAC:2;
 	uint32_t coded_block_flag_16x16:6;
-}; uint32_t s; } Edge264_pack;
+}; uint32_t s; } Edge264_bits;
 typedef struct {
-	Edge264_pack p;
+	Edge264_bits b;
 	uint32_t coded_block_flag_4x4[3];
 	union { struct {
 		uint32_t coded_block_flag_8x8;
@@ -369,15 +368,10 @@ typedef struct {
 } Edge264_flags;
 typedef struct {
 	CABAC_ctx c;
-	Edge264_pack ctxIdxInc;
+	Edge264_bits b;
+	Edge264_bits ctxIdxInc;
 	uint16_t x; // 14 significant bits
 	uint16_t y;
-	union { int8_t *Intra4x4PredMode; uint32_t *Intra4x4PredMode_s; };
-	union { int8_t *refIdx; uint32_t *refIdx_s; };
-	union { int16_t *mvs; v8hi *mvs_v; };
-	union { uint8_t *absMvdComp; v16qu *absMvdComp_v; };
-	union { const int16_t *mvCol; const uint64_t *mvCol_l; const v8hi *mvCol_v; };
-	const Edge264_macroblock *mbCol;
 	unsigned slice_type:2;
 	unsigned field_pic_flag:1;
 	unsigned bottom_field_flag:1;
@@ -389,10 +383,17 @@ typedef struct {
 	int FilterOffsetB:5;
 	unsigned firstRefPicL1:1;
 	unsigned col_short_term:1;
-	uint64_t ref_idx_mask;
-	const Edge264_picture *DPB;
-	union { uint8_t IntraPredMode[16]; v16qu IntraPredMode_v; };
 	Edge264_picture p;
+	Edge264_flags *flags;
+	union { int8_t *Intra4x4PredMode; uint32_t *Intra4x4PredMode_s; };
+	union { int8_t *refIdx; uint32_t *refIdx_s; };
+	union { int16_t *mvs; v8hi *mvs_v; };
+	union { uint8_t *absMvdComp; v16qu *absMvdComp_v; };
+	union { const int16_t *mvCol; const uint64_t *mvCol_l; const v8hi *mvCol_v; };
+	const Edge264_macroblock *mbCol;
+	const Edge264_picture *DPB;
+	uint64_t ref_idx_mask;
+	union { uint8_t IntraPredMode[16]; v16qu IntraPredMode_v; };
 	Edge264_parameter_set ps;
 	uint8_t s[1024];
 	uint8_t RefPicList[2][32] __attribute__((aligned));
@@ -414,13 +415,13 @@ static const uint8_t left4x4[32] = {28, 12, 11, 24, 25, 9, 8, 20, 23, 7, 6, 18,
 	19, 4, 3, 16, 60, 44, 43, 56, 57, 41, 40, 52, 55, 39, 38, 50, 51, 36, 35, 48};
 static const uint8_t bit8x8[8] = {6, 2, 1, 4, 14, 10, 9, 12};
 static const uint8_t left8x8[8] = {2, 5, 4, 0, 10, 13, 12, 8};
-static const Edge264_flags void_mb = {
-	.p.mb_field_decoding_flag = 0,
-	.p.unavailable = 1,
-	.p.mb_skip_flag = 1,
-	.p.mb_type_I_NxN = 1,
-	.p.mb_type_B_Direct = 1,
-	.p.transform_size_8x8_flag = 0,
+static const Edge264_flags void_flags = {
+	.b.mb_field_decoding_flag = 0,
+	.b.unavailable = 5,
+	.b.mb_skip_flag = 1,
+	.b.mb_type_I_NxN = 1,
+	.b.mb_type_B_Direct = 1,
+	.b.transform_size_8x8_flag = 0,
 };
 
 

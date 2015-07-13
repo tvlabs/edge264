@@ -1,36 +1,28 @@
-The test program takes a byte stream formatted according to Annex B.
-Remove "-lSDL -DDISPLAY" to measure raw decoding performance.
-Add -DDEBUG=1 to pretty print the headers on stdout, -DDEBUG=2 dumps the whole
-CABAC parsing on stderr (for comparison against my patched reference software).
-There is also a -DFAST_UNALIGNED which I added because ffmpeg has it, but so
-far it always slows the decoding.
+The test program takes a byte stream formatted according to Annex B, and pretty
+prints the headers found.
 
-$ CC edge264_dump.c -mssse3 -std=gnu99 -lSDL -DDISPLAY
-$ a.out <video.264
+$ CC edge264_text.c -mssse3 -std=gnu99 -O2
+$ ./a.out <video.264 >headers.html
 
 
 
-This software is in alpha state, and should not be used as a library yet. All
-of the memory structures WILL change consecutively to the implementation of
-frame threading.
+This software is in alpha state, and should not be used as a library yet.
+I am working hard to reach a stable version as soon as possible :)
 
-It is released early such that some features may benefit to
-implementers of H.265 decoders (compared mostly to ffmpeg's H.264 decoder):
-* A very simple function for searching start codes;
-* A faster CABAC engine;
-* An Exp-Golomb API with defined bounds, get_ue(ctx, max) and
-get_se(ctx, min, max);
-* Storing samples in 16bit no matter the actual BitDepth simplifies the code
-design a lot and improves the performance of >=9 bit depths thanks to shared
-code paths;
-* Storage of neighbouring macroblock contexts in a circular buffer lets CurrMb,
-MbAddrA, MbAddrB, MbAddrC and MbAddrD be stored sequentially in memory;
-* The method of precomputing increments from macroblock neighbours relieves
-many of the branches found in CABAC;
-* Prediction samples are passed in SIMD registers to the transform functions,
-such that almost no intermediate results are committed to memory;
-* A heavy use of nested switches to share tail code paths dramatically reduces
-code size, such that the whole decoding loop will fit in L1 cache;
-* edge264 is not a bitstream validator, so there is neither logging nor explicit
-detection of parsing errors;
-* error concealment greys areas based on error probability.
+Some of its interesting features:
+* Minimalistic API (2 functions)
+* The initial search for start codes is fully vectorised
+* Faster CABAC decoding by using wider register ranges for codIOffset/codIRange
+* A general overflow-protection mechanism based on inserting set bits past the
+  RBSP
+* Full usage of GCC's vector extensions (mainly for copying aligned blocks of
+  data and decoding pixel values, but also in LOTS of unexpected areas :)
+* Neighbouring values from MbAddrA/B/C/D are stored in circular buffers,
+  yielding excellent cache locality along with low run-time memory use
+* CABAC increments from neighbouring flags are precomputed with specific bit
+  storage patterns, saving many branches
+* A Global Register Variable is used for the slice context, for the joy of GCC
+* Prediction samples are passed to residual decoding through SIMD registers,
+  saving intermediate memory stores
+* A heavily refined branching architecture, such that the whole decoding loop
+  fits in L1 cache (less than 32k, small fragmentation)

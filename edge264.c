@@ -29,7 +29,7 @@
  */
 
 #include "edge264_common.h"
-void CABAC_parse_slice_data(Edge264_slice *s);
+void CABAC_parse_slice_data(Edge264_slice *);
 
 
 

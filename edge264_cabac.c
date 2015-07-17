@@ -1,6 +1,7 @@
-/* TODO: Mbaff must update ref_idx_mask each time it decodes mb_field_decoding_flag. */
-/* TODO: Beware that signed division cannot be vectorised as a mere shift. */
-/* TODO: Apply the update of mvs pointers at each macroblock. */
+// TODO: Mbaff must update ref_idx_mask each time it decodes mb_field_decoding_flag.
+// TODO: Beware that signed division cannot be vectorised as a mere shift.
+// TODO: Apply the update of mvs pointers at each macroblock.
+// TODO: Try to remove s->IntraPredMode
 
 /**
  * Copyright (c) 2013-2014, Celticom / TVLabs
@@ -40,8 +41,145 @@ register Edge264_slice *s asm(REG_S);
 static __thread Edge264_slice *s;
 #endif
 
-static __attribute__((noinline)) unsigned CABAC_get_ae(unsigned ctxIdx) {
-	return get_ae(&s->c, s->s + ctxIdx);
+
+
+/**
+ * Read CABAC bins (9.3.3.2).
+ *
+ * In the spec, codIRange belongs to [256..510] (ninth bit set) and codIOffset
+ * is strictly less (9 significant bits). In the functions below, they cover
+ * the full range of a register, a shift right by LONG_BIT-9-clz(codIRange)
+ * yielding the original values.
+ */
+static __attribute__((noinline)) unsigned renorm(unsigned v, unsigned binVal) {
+	assert(v>0&&v<LONG_BIT);
+	unsigned long buf = -1; // favors codIOffset >= codIRange, thus binVal = !valMPS
+	if (s->shift < s->lim) {
+		unsigned long msb = beswapl(((unsigned long *)s->CPB)[s->shift / LONG_BIT]);
+		unsigned long lsb = beswapl(((unsigned long *)s->CPB)[(s->shift + LONG_BIT - 1) / LONG_BIT]);
+		buf = (msb << s->shift % LONG_BIT) | (lsb >> -s->shift % LONG_BIT);
+	}
+	s->codIRange <<= v;
+	s->codIOffset = (s->codIOffset << v) | (buf >> (LONG_BIT - v));
+	s->shift += v;
+	return binVal; // Allows tail call from get_ae
+}
+
+static __attribute__((noinline)) unsigned get_ae(unsigned ctxIdx) {
+	static const uint8_t rangeTabLPS[64 * 4] = {
+		128, 176, 208, 240, 128, 167, 197, 227, 128, 158, 187, 216, 123, 150, 178, 205,
+		116, 142, 169, 195, 111, 135, 160, 185, 105, 128, 152, 175, 100, 122, 144, 166,
+		 95, 116, 137, 158,  90, 110, 130, 150,  85, 104, 123, 142,  81,  99, 117, 135,
+		 77,  94, 111, 128,  73,  89, 105, 122,  69,  85, 100, 116,  66,  80,  95, 110,
+		 62,  76,  90, 104,  59,  72,  86,  99,  56,  69,  81,  94,  53,  65,  77,  89,
+		 51,  62,  73,  85,  48,  59,  69,  80,  46,  56,  66,  76,  43,  53,  63,  72,
+		 41,  50,  59,  69,  39,  48,  56,  65,  37,  45,  54,  62,  35,  43,  51,  59,
+		 33,  41,  48,  56,  32,  39,  46,  53,  30,  37,  43,  50,  29,  35,  41,  48,
+		 27,  33,  39,  45,  26,  31,  37,  43,  24,  30,  35,  41,  23,  28,  33,  39,
+		 22,  27,  32,  37,  21,  26,  30,  35,  20,  24,  29,  33,  19,  23,  27,  31,
+		 18,  22,  26,  30,  17,  21,  25,  28,  16,  20,  23,  27,  15,  19,  22,  25,
+		 14,  18,  21,  24,  14,  17,  20,  23,  13,  16,  19,  22,  12,  15,  18,  21,
+		 12,  14,  17,  20,  11,  14,  16,  19,  11,  13,  15,  18,  10,  12,  15,  17,
+		 10,  12,  14,  16,   9,  11,  13,  15,   9,  11,  12,  14,   8,  10,  12,  14,
+		  8,   9,  11,  13,   7,   9,  11,  12,   7,   9,  10,  12,   7,   8,  10,  11,
+		  6,   8,   9,  11,   6,   7,   9,  10,   6,   7,   8,   9,   2,   2,   2,   2,
+	};
+	static const uint8_t transIdx[256] = {
+		  4,   5, 253, 252,   8,   9, 153, 152,  12,  13, 153, 152,  16,  17, 149, 148,
+		 20,  21, 149, 148,  24,  25, 149, 148,  28,  29, 145, 144,  32,  33, 145, 144,
+		 36,  37, 145, 144,  40,  41, 141, 140,  44,  45, 141, 140,  48,  49, 141, 140,
+		 52,  53, 137, 136,  56,  57, 137, 136,  60,  61, 133, 132,  64,  65, 133, 132,
+		 68,  69, 133, 132,  72,  73, 129, 128,  76,  77, 129, 128,  80,  81, 125, 124,
+		 84,  85, 121, 120,  88,  89, 121, 120,  92,  93, 121, 120,  96,  97, 117, 116,
+		100, 101, 117, 116, 104, 105, 113, 112, 108, 109, 109, 108, 112, 113, 109, 108,
+		116, 117, 105, 104, 120, 121, 105, 104, 124, 125, 101, 100, 128, 129,  97,  96,
+		132, 133,  97,  96, 136, 137,  93,  92, 140, 141,  89,  88, 144, 145,  89,  88,
+		148, 149,  85,  84, 152, 153,  85,  84, 156, 157,  77,  76, 160, 161,  77,  76,
+		164, 165,  73,  72, 168, 169,  73,  72, 172, 173,  65,  64, 176, 177,  65,  64,
+		180, 181,  61,  60, 184, 185,  61,  60, 188, 189,  53,  52, 192, 193,  53,  52,
+		196, 197,  49,  48, 200, 201,  45,  44, 204, 205,  45,  44, 208, 209,  37,  36,
+		212, 213,  37,  36, 216, 217,  33,  32, 220, 221,  29,  28, 224, 225,  25,  24,
+		228, 229,  21,  20, 232, 233,  17,  16, 236, 237,  17,  16, 240, 241,   9,   8,
+		244, 245,   9,   8, 248, 249,   5,   4, 248, 249,   1,   0, 252, 253,   0,   1,
+	};
+	
+	unsigned shift = LONG_BIT - 3 - __builtin_clzl(s->codIRange);
+	unsigned long codIRangeLPS = (long)(rangeTabLPS - 4)[(s->s[ctxIdx] & -4) + (s->codIRange >> shift)] << (shift - 6);
+	unsigned long codIRangeMPS = s->codIRange - codIRangeLPS;
+	unsigned u = (s->codIOffset >= codIRangeMPS) ? s->s[ctxIdx] ^ 255 : s->s[ctxIdx];
+	unsigned long codIRange = (s->codIOffset >= codIRangeMPS) ? codIRangeLPS : codIRangeMPS;
+	unsigned long codIOffset = (s->codIOffset >= codIRangeMPS) ? s->codIOffset - codIRangeMPS : s->codIOffset;
+	s->s[ctxIdx] = transIdx[u];
+	s->codIRange = codIRange;
+	s->codIOffset = codIOffset;
+	unsigned binVal = u & 1;
+	if (__builtin_expect(s->codIRange < 256, 0))
+		return renorm(__builtin_clzl(s->codIRange) - 1, binVal);
+	return binVal;
+}
+
+
+
+/**
+ * This function parses a sequence of coeff_abs_level_minus1/coeff_sign_flag
+ * pairs, and stores each at the right position given by the scan array.
+ *
+ * Bypass bits can be extracted all at once using a binary division (!!).
+ * coeff_abs_level expects at most 2^(7+14), i.e 43 bits, so we use two 32bit
+ * divisions (second one being executed for long codes only).
+ */
+void CABAC_parse_residual_coeffs(uint64_t significant_coeff_flags,
+	uint8_t *scan, unsigned ctxIdxOffset)
+{
+	unsigned ctxIdx0 = ctxIdxOffset + 1;
+	unsigned ctxIdx1 = ctxIdxOffset + 5;
+	while (significant_coeff_flags != 0) {
+		int coeff_level = 1;
+		unsigned ctxIdx = ctxIdx0;
+		while (coeff_level < 15 && get_ae(ctxIdx))
+			coeff_level++, ctxIdx = ctxIdx1;
+		
+		// Unsigned division uses one extra bit, so the first renorm is correct.
+		if (coeff_level >= 15) {
+			renorm(__builtin_clzl(s->codIRange), 0); // Hardcore!!!
+			uint32_t codIRange = s->codIRange >> (LONG_BIT - 9);
+			uint32_t codIOffset = s->codIOffset >> (LONG_BIT - 32);
+			uint32_t quo = codIOffset / codIRange;
+			uint32_t rem = codIOffset % codIRange;
+			
+			// 32bit/9bit division yields 23 bypass bits
+			unsigned k = __builtin_clz(~(quo << 9)) - WORD_BIT + 32;
+			unsigned shift = 9 + k;
+			if (__builtin_expect(k > 11, 0)) { // At k==11, code length is 23 bits
+				s->codIRange = (unsigned long)codIRange << (LONG_BIT - 32);
+				s->codIOffset = (LONG_BIT == 32) ? rem :
+					(uint32_t)s->codIOffset | (unsigned long)rem << 32;
+				renorm(21, 0); // We consume 21 bits and keep 11 in quo as msb
+				codIOffset = s->codIOffset >> (LONG_BIT - 32);
+				quo = codIOffset / codIRange + (quo << 21);
+				rem = codIOffset % codIRange;
+				shift = k - 12;
+			}
+			
+			// Return the unconsumed bypass bits to codIOffset, and compute coeff_level
+			codIOffset = (quo & -1U >> (1 + shift + k)) * codIRange + rem;
+			s->codIRange = (unsigned long)codIRange << (LONG_BIT - 31 + shift + k);
+			s->codIOffset = (LONG_BIT == 32) ? codIOffset :
+				(uint32_t)s->codIOffset | (unsigned long)codIOffset << 32;
+			coeff_level = (quo << shift >> (31 - k)) + 16;
+		}
+		static const uint8_t trans[5][2] = {0, 0, 2, 0, 3, 0, 4, 0, 4, 0};
+		ctxIdx0 = ctxIdxOffset + trans[ctxIdx0 - ctxIdxOffset][coeff_level > 1];
+		ctxIdx1 = umin(ctxIdx1 + (coeff_level > 1), ctxIdxOffset + 4 - (ctxIdxOffset == 257));
+		
+		// Parse coeff_sign_flag
+		renorm(__builtin_clzl(s->codIRange), 0);
+		s->codIRange >>= 1;
+		coeff_level = (s->codIOffset >= s->codIRange) ? -coeff_level : coeff_level;
+		s->codIOffset = (s->codIOffset >= s->codIRange) ? s->codIOffset - s->codIRange : s->codIOffset;
+		s->residual_block[scan[__builtin_ctzll(significant_coeff_flags)]] = coeff_level;
+		significant_coeff_flags &= significant_coeff_flags - 1;
+	}
 }
 
 
@@ -84,7 +222,7 @@ static __attribute__((noinline)) unsigned CABAC_get_ae(unsigned ctxIdx) {
 		unsigned ctxIdxInc = (f->ref_idx_nz >> left8x8[i]) & 3, refIdx = 0;
 		
 		// This cannot loop forever since binVal would oscillate past the end of the RBSP.
-		while (CABAC_get_ae(54 + ctxIdxInc))
+		while (get_ae(54 + ctxIdxInc))
 			refIdx++, ctxIdxInc = ctxIdxInc / 4 + 4; // cool trick from ffmpeg
 		f->ref_idx_nz |= (refIdx > 0) << bit8x8[i];
 		f->refIdx[i] = refIdx;
@@ -136,20 +274,20 @@ static __attribute__((noinline)) unsigned CABAC_get_ae(unsigned ctxIdx) {
 static __attribute__((noinline)) int CABAC_parse_intra_mb_pred(unsigned ctxIdx) {
 	v8hi *mvCol = (v8hi *)s->p.mvs; // p.mvs is always v8hi so this type-punning is safe
 	mvCol[0] = mvCol[1] = mvCol[2] = mvCol[3] = (v8hi){};
-	if (!CABAC_get_ae(ctxIdx)) { // I_NxN
+	if (!get_ae(ctxIdx)) { // I_NxN
 		fprintf(stderr, (ctxIdx == 17) ? "mb_type: 5\n" : (ctxIdx == 32) ? "mb_type: 23\n" : "mb_type: 0\n");
 		s->b.mb_type_I_NxN |= 1;
 		if (s->ps.transform_8x8_mode_flag) {
-			s->b.transform_size_8x8_flag |= CABAC_get_ae(399 + s->ctxIdxInc.transform_size_8x8_flag);
+			s->b.transform_size_8x8_flag |= get_ae(399 + s->ctxIdxInc.transform_size_8x8_flag);
 			fprintf(stderr, "transform_size_8x8_flag: %x\n", s->b.transform_size_8x8_flag);
 		}
 		for (unsigned luma4x4BlkIdx = 0; luma4x4BlkIdx < 16; ) {
 			int8_t *edge = s->Intra4x4PredMode + intra2edge[luma4x4BlkIdx];
 			unsigned IntraPredMode = abs(min(edge[-1], edge[1]));
-			if (!CABAC_get_ae(68)) {
-				unsigned rem_intra_pred_mode = CABAC_get_ae(69);
-				rem_intra_pred_mode += CABAC_get_ae(69) * 2;
-				rem_intra_pred_mode += CABAC_get_ae(69) * 4;
+			if (!get_ae(68)) {
+				unsigned rem_intra_pred_mode = get_ae(69);
+				rem_intra_pred_mode += get_ae(69) * 2;
+				rem_intra_pred_mode += get_ae(69) * 4;
 				IntraPredMode = rem_intra_pred_mode + (rem_intra_pred_mode >= IntraPredMode);
 				fprintf("intra_pred_mode: %u\n", IntraPredMode);
 			}
@@ -158,28 +296,29 @@ static __attribute__((noinline)) int CABAC_parse_intra_mb_pred(unsigned ctxIdx) 
 				edge[-1] = edge[1] = IntraPredMode, luma4x4BlkIdx += 3;
 		}
 		
-	} else if (!CABAC_get_ae(276)) { // Intra_16x16
-		s->flags->CodedBlockPatternLuma = -CABAC_get_ae(umax(ctxIdx + 1, 6));
-		s->b.CodedBlockPatternChromaDC = CABAC_get_ae(umax(ctxIdx + 2, 7));
+	} else if (!get_ae(276)) { // Intra_16x16
+		s->flags->CodedBlockPatternLuma = -get_ae(umax(ctxIdx + 1, 6));
+		s->b.CodedBlockPatternChromaDC = get_ae(umax(ctxIdx + 2, 7));
 		if (s->b.CodedBlockPatternChromaDC)
-			s->b.CodedBlockPatternChromaAC = CABAC_get_ae(umax(ctxIdx + 2, 8));
-		unsigned Intra16x16PredMode = CABAC_get_ae(umax(ctxIdx + 3, 9)) << 1;
-		Intra16x16PredMode += CABAC_get_ae(umax(ctxIdx + 3, 10));
+			s->b.CodedBlockPatternChromaAC = get_ae(umax(ctxIdx + 2, 8));
+		unsigned Intra16x16PredMode = get_ae(umax(ctxIdx + 3, 9)) << 1;
+		Intra16x16PredMode += get_ae(umax(ctxIdx + 3, 10));
 		fprintf(stderr, "mb_type: %u\n", 12 * -s->flags->CodedBlockPatternLuma +
 			4 * (s->b.CodedBlockPatternChromaDC + s->b.CodedBlockPatternChromaAC) +
 			Intra16x16PredMode + 1);
 		
 	} else { // I_PCM
+		fprintf(stderr, "mb_type: 25\n");
 		s->b.CodedBlockPatternChromaDC = 1;
 		s->b.CodedBlockPatternChromaAC = 1;
 		s->b.coded_block_flag_16x16 = 0x15;
 		s->flags->coded_block_flag_8x8 = s->flags->coded_block_flag_4x4[0] =
 			s->flags->coded_block_flag_4x4[1] = s->flags->coded_block_flag_4x4[2] = -1;
-		s->c.shift = (s->c.shift - (LONG_BIT - 9 - __builtin_clzl(s->c.codIRange)) + 7) & -8;
+		s->shift = (s->shift - (LONG_BIT - 9 - __builtin_clzl(s->codIRange)) + 7) & -8;
 		for (unsigned i = 0; i < 256; i++)
-			get_uv(s->c.CPB, &s->c.shift, s->ps.BitDepth[0]);
+			get_uv(s->CPB, &s->shift, s->ps.BitDepth[0]);
 		for (unsigned i = 0; i < (1 << s->ps.ChromaArrayType >> 1) * 128; i++)
-			get_uv(s->c.CPB, &s->c.shift, s->ps.BitDepth[1]);
+			get_uv(s->CPB, &s->shift, s->ps.BitDepth[1]);
 	}
 	return 0;
 }
@@ -207,29 +346,29 @@ static __attribute__((noinline)) int CABAC_parse_inter_mb_type() {
 		if (s->b.mb_skip_flag) {
 			//init_P_Skip();
 			return 0;
-		} else if (CABAC_get_ae(14)) {
+		} else if (get_ae(14)) {
 			v8hi *v = s->mvs_v;
 			v[0] = v[1] = v[4] = v[5] = v[8] = v[9] = v[12] = v[13] = (v8hi){};
 			return CABAC_parse_intra_mb_pred(17);
 		}
 		
 		// Are these few lines worth a function? :)
-		unsigned str = CABAC_get_ae(15);
-		str += str + CABAC_get_ae(16 + str);
+		unsigned str = get_ae(15);
+		str += str + get_ae(16 + str);
 		fprintf(stderr, "mb_type: %u\n", (4 - str) % 4);
 		flags = P2flags[str];
 		
 		// Parsing for sub_mb_type in P slices.
 		for (unsigned i = 0; str == 1 && i < 32; i += 8) {
-			unsigned f = CABAC_get_ae(21) ? 0x03 :
-				!CABAC_get_ae(22) ? 0x33 :
-				CABAC_get_ae(23) ? 0x0f : 0xff;
+			unsigned f = get_ae(21) ? 0x03 :
+				!get_ae(22) ? 0x33 :
+				get_ae(23) ? 0x0f : 0xff;
 			fprintf(stderr, "sub_mb_type: %c\n", (f == 0x03) ? '0' : (f == 0x33) ? '1' : (f == 0x0f) ? '2' : '3');
 			flags += f << i;
 		}
 	} else {
 		//init_B_Direct();
-		if (s->b.mb_skip_flag || !CABAC_get_ae(29 - s->ctxIdxInc.mb_type_B_Direct)) {
+		if (s->b.mb_skip_flag || !get_ae(29 - s->ctxIdxInc.mb_type_B_Direct)) {
 			if (!s->b.mb_skip_flag)
 				fprintf(stderr, "mb_type: 0\n");
 			s->b.mb_type_B_Direct |= 1;
@@ -238,13 +377,13 @@ static __attribute__((noinline)) int CABAC_parse_inter_mb_type() {
 		
 		// Most important here is the minimal number of conditional branches.
 		unsigned str = 4;
-		if (!CABAC_get_ae(30) ||
-			(str = CABAC_get_ae(31) * 8,
-			str += CABAC_get_ae(32) * 4,
-			str += CABAC_get_ae(32) * 2,
-			str += CABAC_get_ae(32), str - 8 < 5))
+		if (!get_ae(30) ||
+			(str = get_ae(31) * 8,
+			str += get_ae(32) * 4,
+			str += get_ae(32) * 2,
+			str += get_ae(32), str - 8 < 5))
 		{
-			str += str + CABAC_get_ae(32);
+			str += str + get_ae(32);
 		}
 		if (str == 13) {
 			v8hi *v = s->mvs_v;
@@ -257,13 +396,13 @@ static __attribute__((noinline)) int CABAC_parse_inter_mb_type() {
 		// Parsing for sub_mb_type in B slices.
 		for (unsigned i = 0; str == 15 && i < 32; i += 8) {
 			unsigned sub = 12;
-			if (CABAC_get_ae(36)) {
-				if ((sub = 2, !CABAC_get_ae(37)) ||
-					(sub = CABAC_get_ae(38) * 4,
-					sub += CABAC_get_ae(39) * 2,
-					sub += CABAC_get_ae(39), sub - 4 < 2))
+			if (get_ae(36)) {
+				if ((sub = 2, !get_ae(37)) ||
+					(sub = get_ae(38) * 4,
+					sub += get_ae(39) * 2,
+					sub += get_ae(39), sub - 4 < 2))
 				{
-					sub += sub + CABAC_get_ae(39);
+					sub += sub + get_ae(39);
 				}
 			}
 			fprintf(stderr, "sub_mb_type: %u\n", b2sub_mb_type[sub]);
@@ -288,13 +427,13 @@ void CABAC_parse_slice_data(Edge264_slice *_s)
 	s = _s;
 	
 	// cabac_alignment_one_bit shall be tested later for error concealment.
-	if ((~s->c.CPB[s->c.shift / 8] << (1 + (s->c.shift - 1) % 8) & 0xff) != 0)
-		printf("<li style=\"color: red\">Erroneous slice header (%u bits)</li>\n", s->c.shift);
-	s->c.shift = (s->c.shift + 7) & -8;
+	if ((~s->CPB[s->shift / 8] << (1 + (s->shift - 1) % 8) & 0xff) != 0)
+		printf("<li style=\"color: red\">Erroneous slice header (%u bits)</li>\n", s->shift);
+	s->shift = (s->shift + 7) & -8;
 	
 	// Initialise the CABAC engine.
-	renorm(&s->c, LONG_BIT - 1);
-	s->c.codIRange = 510L << (LONG_BIT - 10);
+	renorm(LONG_BIT - 1, 0);
+	s->codIRange = 510L << (LONG_BIT - 10);
 	memcpy(s->s, CABAC_init[max(s->ps.QP_Y, 0)][s->cabac_init_idc], 1024);
 	
 	// Mbaff shares all of the above functions except the code below.
@@ -347,14 +486,14 @@ void CABAC_parse_slice_data(Edge264_slice *_s)
 				s->refIdx_s[0] = s->refIdx_s[2] = -1;
 				v16qu *v = s->absMvdComp_v;
 				v[0] = v[2] = v[4] = v[6] = (v16qu){};
-				s->b.mb_skip_flag |= CABAC_get_ae(13 + 13 * s->slice_type -
+				s->b.mb_skip_flag |= get_ae(13 + 13 * s->slice_type -
 					s->ctxIdxInc.mb_skip_flag);
 				fprintf(stderr, "mb_skip_flag: %x\n", s->b.mb_skip_flag);
 				CABAC_parse_inter_mb_type();
 			}
 			
 			// The loop condition is really easier to express with breaks.
-			unsigned end_of_slice_flag = CABAC_get_ae(276);
+			unsigned end_of_slice_flag = get_ae(276);
 			fprintf(stderr, "end_of_slice_flag: %x\n", end_of_slice_flag);
 			if (end_of_slice_flag)
 				break;

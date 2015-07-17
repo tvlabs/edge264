@@ -228,102 +228,6 @@ static inline __attribute__((always_inline)) unsigned get_u1(const uint8_t *CPB,
 
 
 /**
- * Read CABAC bins (9.3.3.2).
- *
- * In the spec, codIRange belongs to [256..510] (ninth bit set) and codIOffset
- * is strictly less (9 significant bits). In the functions below, they cover
- * the full range of a register, a shift right by LONG_BIT-9-clz(codIRange)
- * yielding the original values.
- */
-typedef struct {
-	unsigned long codIRange;
-	unsigned long codIOffset;
-	const uint8_t *CPB;
-	uint32_t shift;
-	uint32_t lim;
-} CABAC_ctx;
-
-static inline void renorm(CABAC_ctx *c, unsigned v) {
-	assert(v>0&&v<LONG_BIT);
-	unsigned long buf = -1; // favors codIOffset >= codIRange, thus binVal = !valMPS
-	if (c->shift < c->lim) {
-		unsigned long msb = beswapl(((unsigned long *)c->CPB)[c->shift / LONG_BIT]);
-		unsigned long lsb = beswapl(((unsigned long *)c->CPB)[(c->shift + LONG_BIT - 1) / LONG_BIT]);
-		buf = (msb << c->shift % LONG_BIT) | (lsb >> -c->shift % LONG_BIT);
-	}
-	c->codIRange <<= v;
-	c->codIOffset = (c->codIOffset << v) | (buf >> (LONG_BIT - v));
-	c->shift += v;
-}
-
-static inline unsigned get_ae(CABAC_ctx *c, uint8_t *state) {
-	static const uint8_t rangeTabLPS[4 * 64] = {
-		128, 128, 128, 123, 116, 111, 105, 100, 95, 90, 85, 81, 77, 73, 69, 66,
-		62, 59, 56, 53, 51, 48, 46, 43, 41, 39, 37, 35, 33, 32, 30, 29, 27, 26,
-		24, 23, 22, 21, 20, 19, 18, 17, 16, 15, 14, 14, 13, 12, 12, 11, 11, 10,
-		10, 9, 9, 8, 8, 7, 7, 7, 6, 6, 6, 2,
-		176, 167, 158, 150, 142, 135, 128, 122, 116, 110, 104, 99, 94, 89, 85,
-		80, 76, 72, 69, 65, 62, 59, 56, 53, 50, 48, 45, 43, 41, 39, 37, 35, 33,
-		31, 30, 28, 27, 26, 24, 23, 22, 21, 20, 19, 18, 17, 16, 15, 14, 14, 13,
-		12, 12, 11, 11, 10, 9, 9, 9, 8, 8, 7, 7, 2,
-		208, 197, 187, 178, 169, 160, 152, 144, 137, 130, 123, 117, 111, 105,
-		100, 95, 90, 86, 81, 77, 73, 69, 66, 63, 59, 56, 54, 51, 48, 46, 43, 41,
-		39, 37, 35, 33, 32, 30, 29, 27, 26, 25, 23, 22, 21, 20, 19, 18, 17, 16,
-		15, 15, 14, 13, 12, 12, 11, 11, 10, 10, 9, 9, 8, 2,
-		240, 227, 216, 205, 195, 185, 175, 166, 158, 150, 142, 135, 128, 122,
-		116, 110, 104, 99, 94, 89, 85, 80, 76, 72, 69, 65, 62, 59, 56, 53, 50,
-		48, 45, 43, 41, 39, 37, 35, 33, 31, 30, 28, 27, 25, 24, 23, 22, 21, 20,
-		19, 18, 17, 16, 15, 14, 14, 13, 12, 12, 11, 11, 10, 9, 2,
-	};
-	static const uint8_t transIdx[2 * 128] = {
-		0x7f, 0x7e, 0x4d, 0x4c, 0x4d, 0x4c, 0x4b, 0x4a, 0x4b, 0x4a, 0x4b, 0x4a,
-		0x49, 0x48, 0x49, 0x48, 0x49, 0x48, 0x47, 0x46, 0x47, 0x46, 0x47, 0x46,
-		0x45, 0x44, 0x45, 0x44, 0x43, 0x42, 0x43, 0x42, 0x43, 0x42, 0x41, 0x40,
-		0x41, 0x40, 0x3f, 0x3e, 0x3d, 0x3c, 0x3d, 0x3c, 0x3d, 0x3c, 0x3b, 0x3a,
-		0x3b, 0x3a, 0x39, 0x38, 0x37, 0x36, 0x37, 0x36, 0x35, 0x34, 0x35, 0x34,
-		0x33, 0x32, 0x31, 0x30, 0x31, 0x30, 0x2f, 0x2e, 0x2d, 0x2c, 0x2d, 0x2c,
-		0x2b, 0x2a, 0x2b, 0x2a, 0x27, 0x26, 0x27, 0x26, 0x25, 0x24, 0x25, 0x24,
-		0x21, 0x20, 0x21, 0x20, 0x1f, 0x1e, 0x1f, 0x1e, 0x1b, 0x1a, 0x1b, 0x1a,
-		0x19, 0x18, 0x17, 0x16, 0x17, 0x16, 0x13, 0x12, 0x13, 0x12, 0x11, 0x10,
-		0x0f, 0x0e, 0x0d, 0x0c, 0x0b, 0x0a, 0x09, 0x08, 0x09, 0x08, 0x05, 0x04,
-		0x05, 0x04, 0x03, 0x02, 0x01, 0x00, 0x00, 0x01,
-		0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d,
-		0x0e, 0x0f, 0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x18, 0x19,
-		0x1a, 0x1b, 0x1c, 0x1d, 0x1e, 0x1f, 0x20, 0x21, 0x22, 0x23, 0x24, 0x25,
-		0x26, 0x27, 0x28, 0x29, 0x2a, 0x2b, 0x2c, 0x2d, 0x2e, 0x2f, 0x30, 0x31,
-		0x32, 0x33, 0x34, 0x35, 0x36, 0x37, 0x38, 0x39, 0x3a, 0x3b, 0x3c, 0x3d,
-		0x3e, 0x3f, 0x40, 0x41, 0x42, 0x43, 0x44, 0x45, 0x46, 0x47, 0x48, 0x49,
-		0x4a, 0x4b, 0x4c, 0x4d, 0x4e, 0x4f, 0x50, 0x51, 0x52, 0x53, 0x54, 0x55,
-		0x56, 0x57, 0x58, 0x59, 0x5a, 0x5b, 0x5c, 0x5d, 0x5e, 0x5f, 0x60, 0x61,
-		0x62, 0x63, 0x64, 0x65, 0x66, 0x67, 0x68, 0x69, 0x6a, 0x6b, 0x6c, 0x6d,
-		0x6e, 0x6f, 0x70, 0x71, 0x72, 0x73, 0x74, 0x75, 0x76, 0x77, 0x78, 0x79,
-		0x7a, 0x7b, 0x7c, 0x7d, 0x7c, 0x7d, 0x7e, 0x7f,
-	};
-	
-	unsigned shift = LONG_BIT - 9 - __builtin_clzl(c->codIRange);
-	unsigned idx = (c->codIRange >> shift) & 0xc0;
-	unsigned long codIRangeLPS = (long)rangeTabLPS[idx | (*state >> 1)] << shift;
-	unsigned long codIRangeMPS = c->codIRange - codIRangeLPS;
-	unsigned long lps_mask = (long)~(c->codIOffset - codIRangeMPS) >> (LONG_BIT - 1);
-	c->codIRange = codIRangeMPS ^ ((codIRangeMPS ^ codIRangeLPS) & lps_mask);
-	c->codIOffset -= codIRangeMPS & lps_mask;
-	int xor = *state ^ (int)lps_mask;
-	*state = (transIdx + 128)[xor];
-	if (__builtin_expect(c->codIRange < 256, 0))
-		renorm(c, __builtin_clzl(c->codIRange) - 1);
-	return xor & 1;
-}
-
-static inline __attribute__((always_inline)) unsigned get_bypass(CABAC_ctx *c) {
-	c->codIRange >>= 1;
-	long negVal = (long)~(c->codIOffset - c->codIRange) >> (LONG_BIT - 1);
-	c->codIOffset -= c->codIRange & negVal;
-	return -negVal;
-}
-
-
-
-/**
  * In 9.3.3.1.1, ctxIdxInc is always the result of flagA+flagB or flagA+2*flagB,
  * so we can pack them and compute all in parallel with flagsA+flagsB+(flagsB&twice).
  *
@@ -367,7 +271,11 @@ typedef struct {
 	}; uint64_t l; };
 } Edge264_flags;
 typedef struct {
-	CABAC_ctx c;
+	unsigned long codIRange;
+	unsigned long codIOffset;
+	const uint8_t *CPB;
+	uint32_t shift;
+	uint32_t lim;
 	Edge264_bits b;
 	Edge264_bits ctxIdxInc;
 	uint16_t x; // 14 significant bits
@@ -394,6 +302,7 @@ typedef struct {
 	const Edge264_picture *DPB;
 	uint64_t ref_idx_mask;
 	union { uint8_t IntraPredMode[16]; v16qu IntraPredMode_v; };
+	int32_t residual_block[16];
 	Edge264_parameter_set ps;
 	uint8_t s[1024];
 	uint8_t RefPicList[2][32] __attribute__((aligned));

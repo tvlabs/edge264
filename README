@@ -20,8 +20,8 @@ Some of its interesting features:
 * Neighbouring values from MbAddrA/B/C/D are stored in circular buffers,
   yielding excellent cache locality along with low run-time memory use
 * CABAC increments from neighbouring flags are precomputed with specific bit
-  storage patterns, saving many branches
-* A Global Register Variable is used for the slice context, for the joy of GCC
+  storage patterns, saving tons of branches
+* The slice context is stored in a Global Register Variable, for the joy of GCC
 * Prediction samples are passed to residual decoding through SIMD registers,
   saving intermediate memory stores
 * A heavily refined branching architecture, such that the whole decoding loop

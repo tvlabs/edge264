@@ -276,10 +276,11 @@ typedef struct {
 	const uint8_t *CPB;
 	uint32_t shift;
 	uint32_t lim;
-	Edge264_bits b;
+	Edge264_flags f;
 	Edge264_bits ctxIdxInc;
 	uint16_t x; // 14 significant bits
 	uint16_t y;
+	uint8_t intra_chroma_pred_mode;
 	unsigned slice_type:2;
 	unsigned field_pic_flag:1;
 	unsigned bottom_field_flag:1;

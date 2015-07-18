@@ -170,7 +170,7 @@ void CABAC_parse_residual_coeffs(uint64_t significant_coeff_flags,
 		}
 		static const uint8_t trans[5][2] = {0, 0, 2, 0, 3, 0, 4, 0, 4, 0};
 		ctxIdx0 = ctxIdxOffset + trans[ctxIdx0 - ctxIdxOffset][coeff_level > 1];
-		ctxIdx1 = umin(ctxIdx1 + (coeff_level > 1), ctxIdxOffset + 4 - (ctxIdxOffset == 257));
+		ctxIdx1 = umin(ctxIdx1 + (coeff_level > 1), ctxIdxOffset + 9 - (ctxIdxOffset == 257));
 		
 		// Parse coeff_sign_flag
 		renorm(__builtin_clzl(s->codIRange), 0);
@@ -180,6 +180,45 @@ void CABAC_parse_residual_coeffs(uint64_t significant_coeff_flags,
 		s->residual_block[scan[__builtin_ctzll(significant_coeff_flags)]] = coeff_level;
 		significant_coeff_flags &= significant_coeff_flags - 1;
 	}
+}
+
+
+
+static void CABAC_parse_intra_pred_mode() {
+	if (s->ps.ChromaArrayType == 1 || s->ps.ChromaArrayType == 2) {
+		unsigned ctxIdx = 64 + s->ctxIdxInc.intra_chroma_pred_mode_non_zero;
+		unsigned intra_chroma_pred_mode = 0;
+		while (intra_chroma_pred_mode < 3 && get_ae(ctxIdx))
+			intra_chroma_pred_mode++, ctxIdx = 67;
+		s->f.b.intra_chroma_pred_mode_non_zero |= (intra_chroma_pred_mode > 0);
+		s->intra_chroma_pred_mode = intra_chroma_pred_mode;
+		fprintf(stderr, "intra_chroma_pred_mode: %u\n", intra_chroma_pred_mode);
+	}
+}
+
+
+
+static void CABAC_parse_coded_block_pattern() {
+	// Luma prefix
+	s->f.CodedBlockPatternLuma |= get_ae(73 + (s->f.CodedBlockPatternLuma >> 6 & 3)) << 2;
+	s->f.CodedBlockPatternLuma |= get_ae(73 + (s->f.CodedBlockPatternLuma >> 2 & 3)) << 5;
+	s->f.CodedBlockPatternLuma |= get_ae(73 + (s->f.CodedBlockPatternLuma >> 1 & 3)) << 4;
+	s->f.CodedBlockPatternLuma |= get_ae(73 + (s->f.CodedBlockPatternLuma >> 4 & 3)) << 0;
+	
+	// Chroma suffix
+	if (s->ps.ChromaArrayType == 1 || s->ps.ChromaArrayType == 2) {
+		unsigned CodedBlockPatternChromaDC = get_ae(77 + s->ctxIdxInc.CodedBlockPatternChromaDC);
+		unsigned CodedBlockPatternChromaAC = 0;
+		if (CodedBlockPatternChromaDC)
+			CodedBlockPatternChromaAC = get_ae(81 + s->ctxIdxInc.CodedBlockPatternChromaAC);
+		s->f.b.CodedBlockPatternChromaDC |= CodedBlockPatternChromaDC;
+		s->f.b.CodedBlockPatternChromaAC |= CodedBlockPatternChromaAC;
+	}
+	
+	fprintf(stderr, "coded_block_pattern: %u\n",
+		(s->f.CodedBlockPatternLuma >> 2 & 1) * 1 + (s->f.CodedBlockPatternLuma >> 5 & 1) * 2 +
+		(s->f.CodedBlockPatternLuma >> 4 & 1) * 4 + (s->f.CodedBlockPatternLuma >> 0 & 1) * 8 +
+		(s->f.b.CodedBlockPatternChromaDC + s->f.b.CodedBlockPatternChromaAC) * 16);
 }
 
 
@@ -276,10 +315,10 @@ static __attribute__((noinline)) int CABAC_parse_intra_mb_pred(unsigned ctxIdx) 
 	mvCol[0] = mvCol[1] = mvCol[2] = mvCol[3] = (v8hi){};
 	if (!get_ae(ctxIdx)) { // I_NxN
 		fprintf(stderr, (ctxIdx == 17) ? "mb_type: 5\n" : (ctxIdx == 32) ? "mb_type: 23\n" : "mb_type: 0\n");
-		s->b.mb_type_I_NxN |= 1;
+		s->f.b.mb_type_I_NxN |= 1;
 		if (s->ps.transform_8x8_mode_flag) {
-			s->b.transform_size_8x8_flag |= get_ae(399 + s->ctxIdxInc.transform_size_8x8_flag);
-			fprintf(stderr, "transform_size_8x8_flag: %x\n", s->b.transform_size_8x8_flag);
+			s->f.b.transform_size_8x8_flag |= get_ae(399 + s->ctxIdxInc.transform_size_8x8_flag);
+			fprintf(stderr, "transform_size_8x8_flag: %x\n", s->f.b.transform_size_8x8_flag);
 		}
 		for (unsigned luma4x4BlkIdx = 0; luma4x4BlkIdx < 16; ) {
 			int8_t *edge = s->Intra4x4PredMode + intra2edge[luma4x4BlkIdx];
@@ -292,26 +331,29 @@ static __attribute__((noinline)) int CABAC_parse_intra_mb_pred(unsigned ctxIdx) 
 				fprintf("intra_pred_mode: %u\n", IntraPredMode);
 			}
 			edge[0] = s->IntraPredMode[luma4x4BlkIdx++] = IntraPredMode;
-			if (s->b.transform_size_8x8_flag)
+			if (s->f.b.transform_size_8x8_flag)
 				edge[-1] = edge[1] = IntraPredMode, luma4x4BlkIdx += 3;
 		}
+		CABAC_parse_intra_pred_mode();
+		CABAC_parse_coded_block_pattern();
 		
 	} else if (!get_ae(276)) { // Intra_16x16
 		s->flags->CodedBlockPatternLuma = -get_ae(umax(ctxIdx + 1, 6));
-		s->b.CodedBlockPatternChromaDC = get_ae(umax(ctxIdx + 2, 7));
-		if (s->b.CodedBlockPatternChromaDC)
-			s->b.CodedBlockPatternChromaAC = get_ae(umax(ctxIdx + 2, 8));
+		s->f.b.CodedBlockPatternChromaDC = get_ae(umax(ctxIdx + 2, 7));
+		if (s->f.b.CodedBlockPatternChromaDC)
+			s->f.b.CodedBlockPatternChromaAC = get_ae(umax(ctxIdx + 2, 8));
 		unsigned Intra16x16PredMode = get_ae(umax(ctxIdx + 3, 9)) << 1;
 		Intra16x16PredMode += get_ae(umax(ctxIdx + 3, 10));
 		fprintf(stderr, "mb_type: %u\n", 12 * -s->flags->CodedBlockPatternLuma +
-			4 * (s->b.CodedBlockPatternChromaDC + s->b.CodedBlockPatternChromaAC) +
+			4 * (s->f.b.CodedBlockPatternChromaDC + s->f.b.CodedBlockPatternChromaAC) +
 			Intra16x16PredMode + 1);
+		CABAC_parse_intra_pred_mode();
 		
 	} else { // I_PCM
 		fprintf(stderr, "mb_type: 25\n");
-		s->b.CodedBlockPatternChromaDC = 1;
-		s->b.CodedBlockPatternChromaAC = 1;
-		s->b.coded_block_flag_16x16 = 0x15;
+		s->f.b.CodedBlockPatternChromaDC = 1;
+		s->f.b.CodedBlockPatternChromaAC = 1;
+		s->f.b.coded_block_flag_16x16 = 0x15;
 		s->flags->coded_block_flag_8x8 = s->flags->coded_block_flag_4x4[0] =
 			s->flags->coded_block_flag_4x4[1] = s->flags->coded_block_flag_4x4[2] = -1;
 		s->shift = (s->shift - (LONG_BIT - 9 - __builtin_clzl(s->codIRange)) + 7) & -8;
@@ -343,7 +385,7 @@ static __attribute__((noinline)) int CABAC_parse_inter_mb_type() {
 	// Initialise with Direct motion prediction, then parse mb_type.
 	uint64_t flags = 0;
 	if (s->slice_type == 0) {
-		if (s->b.mb_skip_flag) {
+		if (s->f.b.mb_skip_flag) {
 			//init_P_Skip();
 			return 0;
 		} else if (get_ae(14)) {
@@ -368,10 +410,10 @@ static __attribute__((noinline)) int CABAC_parse_inter_mb_type() {
 		}
 	} else {
 		//init_B_Direct();
-		if (s->b.mb_skip_flag || !get_ae(29 - s->ctxIdxInc.mb_type_B_Direct)) {
-			if (!s->b.mb_skip_flag)
+		if (s->f.b.mb_skip_flag || !get_ae(29 - s->ctxIdxInc.mb_type_B_Direct)) {
+			if (!s->f.b.mb_skip_flag)
 				fprintf(stderr, "mb_type: 0\n");
-			s->b.mb_type_B_Direct |= 1;
+			s->f.b.mb_type_B_Direct |= 1;
 			return 0;
 		}
 		
@@ -474,10 +516,10 @@ void CABAC_parse_slice_data(Edge264_slice *_s)
 				((s->flags[0].l & 0x1111111111111111) << 3);
 			
 			// Splitting writes from reads lets compilers perform better with pipelining.
-			s->b.s = 0;
+			memcpy(&s->f, &cbf, 16);
+			s->f.l = l;
+			s->f.b.s = 0;
 			s->ctxIdxInc.s = ctxIdxInc;
-			memcpy(s->flags, &cbf, 16);
-			s->flags->l = l;
 			
 			// P/B slices have some more initialisation.
 			if (s->slice_type > 1) {
@@ -486,9 +528,9 @@ void CABAC_parse_slice_data(Edge264_slice *_s)
 				s->refIdx_s[0] = s->refIdx_s[2] = -1;
 				v16qu *v = s->absMvdComp_v;
 				v[0] = v[2] = v[4] = v[6] = (v16qu){};
-				s->b.mb_skip_flag |= get_ae(13 + 13 * s->slice_type -
+				s->f.b.mb_skip_flag |= get_ae(13 + 13 * s->slice_type -
 					s->ctxIdxInc.mb_skip_flag);
-				fprintf(stderr, "mb_skip_flag: %x\n", s->b.mb_skip_flag);
+				fprintf(stderr, "mb_skip_flag: %x\n", s->f.b.mb_skip_flag);
 				CABAC_parse_inter_mb_type();
 			}
 			
@@ -497,7 +539,7 @@ void CABAC_parse_slice_data(Edge264_slice *_s)
 			fprintf(stderr, "end_of_slice_flag: %x\n", end_of_slice_flag);
 			if (end_of_slice_flag)
 				break;
-			s->flags++->b.s = s->b.s;
+			*s->flags++ = s->f;
 			int8_t *Intra4x4PredMode = s->Intra4x4PredMode + 4;
 			int8_t *refIdx = s->refIdx + 4;
 			int16_t *mvs = s->mvs + 16;

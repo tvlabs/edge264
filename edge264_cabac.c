@@ -34,7 +34,7 @@
 #include "edge264_common.h"
 static const uint8_t CABAC_init[52][4][1024];
 
-// Global Register Variables are a blessing since we make a lot of function calls.
+// This Global Register Variable is a blessing since we make a lot of function calls.
 #ifndef __clang__
 register Edge264_slice *s asm(REG_S);
 #else
@@ -223,6 +223,25 @@ static void CABAC_parse_coded_block_pattern() {
 
 
 
+static void CABAC_parse_mb_qp_delta() {
+	if ((s->f.CodedBlockPatternLuma & 35 || s->f.b.CodedBlockPatternChromaDC) &&
+		get_ae(60 + s->mb_qp_delta_non_zero)) {
+		s->mb_qp_delta_non_zero = 1;
+		unsigned count = 1, ctxIdx = 62;
+		while (count < 89 && get_ae(ctxIdx))
+			count++, ctxIdx = 63;
+		int mb_qp_delta = (count & 1) ? count / 2 + 1 : -(count / 2);
+		int QP = s->ps.QP_Y + mb_qp_delta;
+		s->ps.QP_Y = (QP < -s->ps.QpBdOffset_Y) ? QP + 52 + s->ps.QpBdOffset_Y :
+			(QP >= 52) ? QP - (52 + s->ps.QpBdOffset_Y) : QP;
+		fprintf(stderr, "mb_qp_delta: %d\n", mb_qp_delta);
+	} else {
+		s->mb_qp_delta_non_zero = 0;
+	}
+}
+
+
+
 /*static __attribute__((noinline)) int CABAC_parse_inter_mb_pred(uint64_t mask) {
 	static const v16qi shufC_4xN[4] = {
 		{8, 10, 0, 2, 9, 11, 1, 3, 10, 12, 2, 2, 11, 13, 3, 3},
@@ -315,11 +334,17 @@ static __attribute__((noinline)) int CABAC_parse_intra_mb_pred(unsigned ctxIdx) 
 	mvCol[0] = mvCol[1] = mvCol[2] = mvCol[3] = (v8hi){};
 	if (!get_ae(ctxIdx)) { // I_NxN
 		fprintf(stderr, (ctxIdx == 17) ? "mb_type: 5\n" : (ctxIdx == 32) ? "mb_type: 23\n" : "mb_type: 0\n");
-		s->f.b.mb_type_I_NxN |= 1;
+		
+		// ORing a zeroed flag is always faster!
+		unsigned transform_size_8x8_flag = 0;
 		if (s->ps.transform_8x8_mode_flag) {
-			s->f.b.transform_size_8x8_flag |= get_ae(399 + s->ctxIdxInc.transform_size_8x8_flag);
-			fprintf(stderr, "transform_size_8x8_flag: %x\n", s->f.b.transform_size_8x8_flag);
+			transform_size_8x8_flag = get_ae(399 + s->ctxIdxInc.transform_size_8x8_flag);
+			fprintf(stderr, "transform_size_8x8_flag: %x\n", transform_size_8x8_flag);
 		}
+		s->f.b.transform_size_8x8_flag |= transform_size_8x8_flag;
+		s->f.b.mb_type_I_NxN |= 1;
+		
+		// The overall code is much lighter with 4x4/8x8 sharing this portion.
 		for (unsigned luma4x4BlkIdx = 0; luma4x4BlkIdx < 16; ) {
 			int8_t *edge = s->Intra4x4PredMode + intra2edge[luma4x4BlkIdx];
 			unsigned IntraPredMode = abs(min(edge[-1], edge[1]));
@@ -330,21 +355,28 @@ static __attribute__((noinline)) int CABAC_parse_intra_mb_pred(unsigned ctxIdx) 
 				IntraPredMode = rem_intra_pred_mode + (rem_intra_pred_mode >= IntraPredMode);
 				fprintf("intra_pred_mode: %u\n", IntraPredMode);
 			}
-			edge[0] = s->IntraPredMode[luma4x4BlkIdx++] = IntraPredMode;
+			edge[0] = s->PredMode[luma4x4BlkIdx++] = IntraPredMode;
 			if (s->f.b.transform_size_8x8_flag)
 				edge[-1] = edge[1] = IntraPredMode, luma4x4BlkIdx += 3;
 		}
 		CABAC_parse_intra_pred_mode();
 		CABAC_parse_coded_block_pattern();
+		CABAC_parse_mb_qp_delta();
 		
+		// At this point sharing the code paths would become too complex
+		if (s->f.b.transform_size_8x8_flag) {
+			
+		} else {
+			
+		}
 	} else if (!get_ae(276)) { // Intra_16x16
-		s->flags->CodedBlockPatternLuma = -get_ae(umax(ctxIdx + 1, 6));
+		s->f.CodedBlockPatternLuma = -get_ae(umax(ctxIdx + 1, 6));
 		s->f.b.CodedBlockPatternChromaDC = get_ae(umax(ctxIdx + 2, 7));
 		if (s->f.b.CodedBlockPatternChromaDC)
 			s->f.b.CodedBlockPatternChromaAC = get_ae(umax(ctxIdx + 2, 8));
 		unsigned Intra16x16PredMode = get_ae(umax(ctxIdx + 3, 9)) << 1;
 		Intra16x16PredMode += get_ae(umax(ctxIdx + 3, 10));
-		fprintf(stderr, "mb_type: %u\n", 12 * -s->flags->CodedBlockPatternLuma +
+		fprintf(stderr, "mb_type: %u\n", 12 * -s->f.CodedBlockPatternLuma +
 			4 * (s->f.b.CodedBlockPatternChromaDC + s->f.b.CodedBlockPatternChromaAC) +
 			Intra16x16PredMode + 1);
 		CABAC_parse_intra_pred_mode();
@@ -354,8 +386,9 @@ static __attribute__((noinline)) int CABAC_parse_intra_mb_pred(unsigned ctxIdx) 
 		s->f.b.CodedBlockPatternChromaDC = 1;
 		s->f.b.CodedBlockPatternChromaAC = 1;
 		s->f.b.coded_block_flag_16x16 = 0x15;
-		s->flags->coded_block_flag_8x8 = s->flags->coded_block_flag_4x4[0] =
-			s->flags->coded_block_flag_4x4[1] = s->flags->coded_block_flag_4x4[2] = -1;
+		s->f.coded_block_flag_8x8 = s->f.coded_block_flag_4x4[0] =
+			s->f.coded_block_flag_4x4[1] = s->f.coded_block_flag_4x4[2] = -1;
+		s->mb_qp_delta_non_zero = 0;
 		s->shift = (s->shift - (LONG_BIT - 9 - __builtin_clzl(s->codIRange)) + 7) & -8;
 		for (unsigned i = 0; i < 256; i++)
 			get_uv(s->CPB, &s->shift, s->ps.BitDepth[0]);

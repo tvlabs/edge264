@@ -1,7 +1,7 @@
 // TODO: Mbaff must update ref_idx_mask each time it decodes mb_field_decoding_flag.
 // TODO: Beware that signed division cannot be vectorised as a mere shift.
 // TODO: Apply the update of mvs pointers at each macroblock.
-// TODO: Try to remove s->IntraPredMode
+// TODO: Try to remove s->PredMode
 
 /**
  * Copyright (c) 2013-2014, Celticom / TVLabs
@@ -128,11 +128,9 @@ static __attribute__((noinline)) unsigned get_ae(unsigned ctxIdx) {
  * coeff_abs_level expects at most 2^(7+14), i.e 43 bits, so we use two 32bit
  * divisions (second one being executed for long codes only).
  */
-void CABAC_parse_residual_coeffs(uint64_t significant_coeff_flags,
-	uint8_t *scan, unsigned ctxIdxOffset)
-{
-	unsigned ctxIdx0 = ctxIdxOffset + 1;
-	unsigned ctxIdx1 = ctxIdxOffset + 5;
+static __attribute__((noinline)) void parse_residual_coeffs(uint64_t significant_coeff_flags) {
+	unsigned ctxIdx0 = s->ctxIdxOffsets[3] + 1;
+	unsigned ctxIdx1 = s->ctxIdxOffsets[3] + 5;
 	while (significant_coeff_flags != 0) {
 		int coeff_level = 1;
 		unsigned ctxIdx = ctxIdx0;
@@ -169,22 +167,88 @@ void CABAC_parse_residual_coeffs(uint64_t significant_coeff_flags,
 			coeff_level = (quo << shift >> (31 - k)) + 16;
 		}
 		static const uint8_t trans[5][2] = {0, 0, 2, 0, 3, 0, 4, 0, 4, 0};
-		ctxIdx0 = ctxIdxOffset + trans[ctxIdx0 - ctxIdxOffset][coeff_level > 1];
-		ctxIdx1 = umin(ctxIdx1 + (coeff_level > 1), ctxIdxOffset + 9 - (ctxIdxOffset == 257));
+		ctxIdx0 = s->ctxIdxOffsets[3] + trans[ctxIdx0 - s->ctxIdxOffsets[3]][coeff_level > 1];
+		ctxIdx1 = umin(ctxIdx1 + (coeff_level > 1), s->ctxIdxOffsets[3] + 9 - (s->ctxIdxOffsets[3] == 257));
 		
 		// Parse coeff_sign_flag
 		renorm(__builtin_clzl(s->codIRange), 0);
 		s->codIRange >>= 1;
 		coeff_level = (s->codIOffset >= s->codIRange) ? -coeff_level : coeff_level;
 		s->codIOffset = (s->codIOffset >= s->codIRange) ? s->codIOffset - s->codIRange : s->codIOffset;
-		s->residual_block[scan[__builtin_ctzll(significant_coeff_flags)]] = coeff_level;
-		significant_coeff_flags &= significant_coeff_flags - 1;
+		unsigned i = 63 - __builtin_clzll(significant_coeff_flags);
+		s->residual_block[s->scan[i]] = coeff_level;
+		significant_coeff_flags &= ~(1 << i);
 	}
 }
 
 
 
-static void CABAC_parse_intra_pred_mode() {
+static const uint16_t ctxIdxOffsets_4x4[3][2][4] = {
+	{{93, 134, 195, 247}, {93, 306, 367, 247}},
+	{{468, 528, 616, 972}, {468, 805, 893, 972}},
+	{{480, 557, 645, 1002}, {480, 849, 937, 1002}},
+};
+
+static __attribute__((noinline)) void parse_residual_block_4x4(unsigned luma4x4BlkIdx) {
+	if (get_ae(s->ctxIdxOffsets[0] + (s->coded_block_flag >> left_4x4[luma4x4BlkIdx] & 3))) {
+		s->coded_block_flag |= 1 << bit_4x4[luma4x4BlkIdx];
+		unsigned significant_coeff_flags = 0, i;
+		for (i = 0; i < 15; i++) {
+			if (get_ae(s->ctxIdxOffsets[1] + i)) {
+				significant_coeff_flags |= 1 << i;
+				if (get_ae(s->ctxIdxOffsets[2] + i))
+					break;
+			}
+		}
+		significant_coeff_flags |= 1 << i;
+		parse_residual_coeffs(significant_coeff_flags);
+	}
+}
+
+
+
+static const uint16_t ctxIdxOffsets_8x8[3][2][4] = {
+	{{1012, 402, 417, 426}, {1012, 436, 451, 426}},
+	{{1016, 660, 690, 708}, {1016, 675, 699, 708}},
+	{{1020, 718, 748, 766}, {1020, 733, 757, 766}},
+};
+
+static __attribute__((noinline)) void parse_residual_block_8x8(unsigned luma8x8BlkIdx) {
+	static const uint8_t ctxIdxInc[3][64] = {
+		{0,  1,  2,  3,  4,  5,  5, 4,  4,  3,  3,  4,  4,  4,  5,  5,
+		 4,  4,  4,  4,  3,  3,  6, 7,  7,  7,  8,  9, 10,  9,  8,  7,
+		 7,  6, 11, 12, 13, 11,  6, 7,  8,  9, 14, 10,  9,  8,  6, 11,
+		12, 13, 11,  6,  9, 14, 10, 9, 11, 12, 13, 11, 14, 10, 12},
+		{0,  1,  1,  2,  2,  3,  3,  4,  5,  6,  7,  7,  7,  8,  4,  5,
+		 6,  9, 10, 10,  8, 11, 12, 11,  9,  9, 10, 10,  8, 11, 12, 11,
+		 9,  9, 10, 10,  8, 11, 12, 11,  9,  9, 10, 10,  8, 13, 13,  9,
+		 9, 10, 10,  8, 13, 13,  9,  9, 10, 10, 14, 14, 14, 14, 14},
+		{0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+		 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2,
+		 3, 3, 3, 3, 3, 3, 3, 3, 4, 4, 4, 4, 4, 4, 4, 4,
+		 5, 5, 5, 5, 6, 6, 6, 6, 7, 7, 7, 7, 8, 8, 8},
+	};
+	
+	if (s->ps.ChromaArrayType != 3 || get_ae(s->ctxIdxOffsets[0] + (s->coded_block_flag >> left_8x8[luma8x8BlkIdx] & 3))) {
+		s->coded_block_flag |= 1 << bit_8x8[luma8x8BlkIdx];
+		const uint8_t *ctxIdxInc0 = ctxIdxInc[s->f.b.mb_field_decoding_flag];
+		uint64_t significant_coeff_flags = 0;
+		unsigned i;
+		for (i = 0; i < 63; i++) {
+			if (get_ae(s->ctxIdxOffsets[1] + ctxIdxInc0[i])) {
+				significant_coeff_flags |= 1 << i;
+				if (get_ae(s->ctxIdxOffsets[2] + ctxIdxInc[2][i]))
+					break;
+			}
+		}
+		significant_coeff_flags |= 1 << i;
+		parse_residual_coeffs(significant_coeff_flags);
+	}
+}
+
+
+
+static __attribute__((noinline)) void parse_intra_pred_mode() {
 	if (s->ps.ChromaArrayType == 1 || s->ps.ChromaArrayType == 2) {
 		unsigned ctxIdx = 64 + s->ctxIdxInc.intra_chroma_pred_mode_non_zero;
 		unsigned intra_chroma_pred_mode = 0;
@@ -198,12 +262,14 @@ static void CABAC_parse_intra_pred_mode() {
 
 
 
-static void CABAC_parse_coded_block_pattern() {
+static __attribute__((noinline)) void parse_coded_block_pattern() {
 	// Luma prefix
-	s->f.CodedBlockPatternLuma |= get_ae(73 + (s->f.CodedBlockPatternLuma >> 6 & 3)) << 2;
-	s->f.CodedBlockPatternLuma |= get_ae(73 + (s->f.CodedBlockPatternLuma >> 2 & 3)) << 5;
-	s->f.CodedBlockPatternLuma |= get_ae(73 + (s->f.CodedBlockPatternLuma >> 1 & 3)) << 4;
-	s->f.CodedBlockPatternLuma |= get_ae(73 + (s->f.CodedBlockPatternLuma >> 4 & 3)) << 0;
+	unsigned CodedBlockPatternLuma = s->f.CodedBlockPatternLuma;
+	CodedBlockPatternLuma |= get_ae(73 + (CodedBlockPatternLuma >> left_8x8[0] & 3)) << bit_8x8[0];
+	CodedBlockPatternLuma |= get_ae(73 + (CodedBlockPatternLuma >> left_8x8[1] & 3)) << bit_8x8[1];
+	CodedBlockPatternLuma |= get_ae(73 + (CodedBlockPatternLuma >> left_8x8[2] & 3)) << bit_8x8[2];
+	CodedBlockPatternLuma |= get_ae(73 + (CodedBlockPatternLuma >> left_8x8[3] & 3)) << bit_8x8[3];
+	s->f.CodedBlockPatternLuma = CodedBlockPatternLuma;
 	
 	// Chroma suffix
 	if (s->ps.ChromaArrayType == 1 || s->ps.ChromaArrayType == 2) {
@@ -223,7 +289,7 @@ static void CABAC_parse_coded_block_pattern() {
 
 
 
-static void CABAC_parse_mb_qp_delta() {
+static __attribute__((noinline)) void parse_mb_qp_delta() {
 	if ((s->f.CodedBlockPatternLuma & 35 || s->f.b.CodedBlockPatternChromaDC) &&
 		get_ae(60 + s->mb_qp_delta_non_zero)) {
 		s->mb_qp_delta_non_zero = 1;
@@ -242,7 +308,7 @@ static void CABAC_parse_mb_qp_delta() {
 
 
 
-/*static __attribute__((noinline)) int CABAC_parse_inter_mb_pred(uint64_t mask) {
+/*static __attribute__((noinline)) int parse_inter_mb_pred(uint64_t mask) {
 	static const v16qi shufC_4xN[4] = {
 		{8, 10, 0, 2, 9, 11, 1, 3, 10, 12, 2, 2, 11, 13, 3, 3},
 		{6,  8, 0, 2, 7,  9, 1, 3,  8, 12, 2, 2,  9, 13, 3, 3},
@@ -277,7 +343,7 @@ static void CABAC_parse_mb_qp_delta() {
 	for (uint64_t m = mask & s->ref_idx_mask; m != 0; ) {
 		unsigned ctz = __builtin_ctz(m), i = ctz / 8;
 		m &= ~((uint64_t)0xff << ctz);
-		unsigned ctxIdxInc = (f->ref_idx_nz >> left8x8[i]) & 3, refIdx = 0;
+		unsigned ctxIdxInc = (f->ref_idx_nz >> left_8x8[i]) & 3, refIdx = 0;
 		
 		// This cannot loop forever since binVal would oscillate past the end of the RBSP.
 		while (get_ae(54 + ctxIdxInc))
@@ -329,7 +395,7 @@ static void CABAC_parse_mb_qp_delta() {
 
 
 
-static __attribute__((noinline)) int CABAC_parse_intra_mb_pred(unsigned ctxIdx) {
+static __attribute__((noinline)) int parse_intra_mb_pred(unsigned ctxIdx) {
 	v8hi *mvCol = (v8hi *)s->p.mvs; // p.mvs is always v8hi so this type-punning is safe
 	mvCol[0] = mvCol[1] = mvCol[2] = mvCol[3] = (v8hi){};
 	if (!get_ae(ctxIdx)) { // I_NxN
@@ -359,15 +425,41 @@ static __attribute__((noinline)) int CABAC_parse_intra_mb_pred(unsigned ctxIdx) 
 			if (s->f.b.transform_size_8x8_flag)
 				edge[-1] = edge[1] = IntraPredMode, luma4x4BlkIdx += 3;
 		}
-		CABAC_parse_intra_pred_mode();
-		CABAC_parse_coded_block_pattern();
-		CABAC_parse_mb_qp_delta();
+		parse_intra_pred_mode();
+		parse_coded_block_pattern();
+		parse_mb_qp_delta();
 		
 		// At this point sharing the code paths would become too complex
 		if (s->f.b.transform_size_8x8_flag) {
-			
+			s->scan = scan_8x8[s->f.b.mb_field_decoding_flag];
+			s->coded_block_flag = s->f.coded_block_flag_8x8;
+			for (unsigned luma8x8BlkIdx = 0; luma8x8BlkIdx < 12; ) {
+				memcpy(s->ctxIdxOffsets, ctxIdxOffsets_8x8[0][luma8x8BlkIdx / 2 + s->f.b.mb_field_decoding_flag], 8);
+				do {
+					if (s->f.CodedBlockPatternLuma & 1 << bit_8x8[luma8x8BlkIdx % 4])
+						parse_residual_block_8x8(luma8x8BlkIdx);
+				} while (++luma8x8BlkIdx % 4 != 0);
+				if (s->ps.ChromaArrayType != 3)
+					break;
+			}
+			s->f.coded_block_flag_8x8 = s->coded_block_flag;
 		} else {
-			
+			s->scan = scan_4x4[s->f.b.mb_field_decoding_flag];
+			for (unsigned iYCbCr = 0; iYCbCr < 3; iYCbCr++) {
+				memcpy(s->ctxIdxOffsets, ctxIdxOffsets_4x4[iYCbCr][s->f.b.mb_field_decoding_flag], 8);
+				s->coded_block_flag = s->f.coded_block_flag_4x4[iYCbCr];
+				for (unsigned luma8x8BlkIdx = 0; luma8x8BlkIdx < 4; luma8x8BlkIdx++) {
+					if (s->f.CodedBlockPatternLuma & 1 << bit_8x8[luma8x8BlkIdx]) {
+						parse_residual_block_4x4(luma8x8BlkIdx * 4);
+						parse_residual_block_4x4(luma8x8BlkIdx * 4 + 1);
+						parse_residual_block_4x4(luma8x8BlkIdx * 4 + 2);
+						parse_residual_block_4x4(luma8x8BlkIdx * 4 + 3);
+					}
+				}
+				s->f.coded_block_flag_4x4[iYCbCr] = s->coded_block_flag;
+				if (s->ps.ChromaArrayType != 3)
+					break;
+			}
 		}
 	} else if (!get_ae(276)) { // Intra_16x16
 		s->f.CodedBlockPatternLuma = -get_ae(umax(ctxIdx + 1, 6));
@@ -379,7 +471,7 @@ static __attribute__((noinline)) int CABAC_parse_intra_mb_pred(unsigned ctxIdx) 
 		fprintf(stderr, "mb_type: %u\n", 12 * -s->f.CodedBlockPatternLuma +
 			4 * (s->f.b.CodedBlockPatternChromaDC + s->f.b.CodedBlockPatternChromaAC) +
 			Intra16x16PredMode + 1);
-		CABAC_parse_intra_pred_mode();
+		parse_intra_pred_mode();
 		
 	} else { // I_PCM
 		fprintf(stderr, "mb_type: 25\n");
@@ -400,7 +492,7 @@ static __attribute__((noinline)) int CABAC_parse_intra_mb_pred(unsigned ctxIdx) 
 
 
 
-static __attribute__((noinline)) int CABAC_parse_inter_mb_type() {
+static __attribute__((noinline)) int parse_inter_mb_type() {
 	static const uint32_t P2flags[4] = {0x00000003, 0, 0x00000303, 0x00030003};
 	static const uint8_t B2mb_type[26] = {3, 4, 5, 6, 7, 8, 9, 10, 1, 2, 0, 0,
 		0, 0, 11, 22, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21};
@@ -424,7 +516,7 @@ static __attribute__((noinline)) int CABAC_parse_inter_mb_type() {
 		} else if (get_ae(14)) {
 			v8hi *v = s->mvs_v;
 			v[0] = v[1] = v[4] = v[5] = v[8] = v[9] = v[12] = v[13] = (v8hi){};
-			return CABAC_parse_intra_mb_pred(17);
+			return parse_intra_mb_pred(17);
 		}
 		
 		// Are these few lines worth a function? :)
@@ -463,7 +555,7 @@ static __attribute__((noinline)) int CABAC_parse_inter_mb_type() {
 		if (str == 13) {
 			v8hi *v = s->mvs_v;
 			v[0] = v[1] = v[4] = v[5] = v[8] = v[9] = v[12] = v[13] = (v8hi){};
-			return CABAC_parse_intra_mb_pred(32);
+			return parse_intra_mb_pred(32);
 		}
 		fprintf(stderr, "mb_type: %u\n", B2mb_type[str]);
 		flags = B2flags[str];
@@ -484,7 +576,7 @@ static __attribute__((noinline)) int CABAC_parse_inter_mb_type() {
 			flags += b2flags[sub] << i;
 		}
 	}
-	return CABAC_parse_inter_mb_pred(flags);
+	return parse_inter_mb_pred(flags);
 }
 
 
@@ -556,7 +648,7 @@ void CABAC_parse_slice_data(Edge264_slice *_s)
 			
 			// P/B slices have some more initialisation.
 			if (s->slice_type > 1) {
-				CABAC_parse_intra_mb_pred(5 - s->ctxIdxInc.mb_type_I_NxN);
+				parse_intra_mb_pred(5 - s->ctxIdxInc.mb_type_I_NxN);
 			} else {
 				s->refIdx_s[0] = s->refIdx_s[2] = -1;
 				v16qu *v = s->absMvdComp_v;
@@ -564,7 +656,7 @@ void CABAC_parse_slice_data(Edge264_slice *_s)
 				s->f.b.mb_skip_flag |= get_ae(13 + 13 * s->slice_type -
 					s->ctxIdxInc.mb_skip_flag);
 				fprintf(stderr, "mb_skip_flag: %x\n", s->f.b.mb_skip_flag);
-				CABAC_parse_inter_mb_type();
+				parse_inter_mb_type();
 			}
 			
 			// The loop condition is really easier to express with breaks.

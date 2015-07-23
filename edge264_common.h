@@ -140,13 +140,13 @@ static inline __m128i _mm_mullo_epi32(__m128i a, __m128i b) {
 
 
 
-static const int invBlock4x4[16] =
+static const uint8_t block_4x4[16] =
 	{0, 1, 4, 5, 2, 3, 6, 7, 8, 9, 12, 13, 10, 11, 14, 15};
-static const int invScan4x4[2][16] = {
+static const uint8_t scan_4x4[2][16] = {
 	{0, 4, 1, 2, 5, 8, 12, 9, 6, 3, 7, 10, 13, 14, 11, 15},
 	{0, 1, 4, 2, 3, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15},
 };
-static const int invScan8x8[2][64] = {
+static const uint8_t scan_8x8[2][64] = {
 	{0, 8, 1, 2, 9, 16, 24, 17, 10, 3, 4, 11, 18, 25, 32, 40, 33, 26, 19, 12, 5,
 	6, 13, 20, 27, 34, 41, 48, 56, 49, 42, 35, 28, 21, 14, 7, 15, 22, 29, 36,
 	43, 50, 57, 58, 51, 44, 37, 30, 23, 31, 38, 45, 52, 59, 60, 53, 46, 39, 47,
@@ -202,9 +202,7 @@ static inline __attribute__((always_inline)) unsigned get_ue(const uint8_t *CPB,
 
 static inline __attribute__((always_inline)) int get_raw_se(const uint8_t *CPB, unsigned *shift, int lower, int upper) {
 	unsigned codeNum = get_raw_ue(CPB, shift, umax(-lower * 2, upper * 2 - 1));
-	int abs = (codeNum + 1) / 2;
-	int sign = (codeNum % 2) - 1;
-	return (abs ^ sign) - sign; // conditionally negate
+	return (codeNum & 1) ? codeNum / 2 + 1 : -(codeNum / 2);
 }
 
 static inline __attribute__((always_inline)) int get_se(const uint8_t *CPB, unsigned *shift, int lower, int upper) {
@@ -271,15 +269,7 @@ typedef struct {
 	}; uint64_t l; };
 } Edge264_flags;
 typedef struct {
-	unsigned long codIRange;
-	unsigned long codIOffset;
-	const uint8_t *CPB;
-	uint32_t shift;
-	uint32_t lim;
-	Edge264_flags f;
-	Edge264_bits ctxIdxInc;
-	uint16_t x; // 14 significant bits
-	uint16_t y;
+	// Bitfields come first since they represent most accesses
 	uint32_t intra_chroma_pred_mode:8;
 	uint32_t mb_qp_delta_non_zero:1;
 	uint32_t slice_type:2;
@@ -293,7 +283,28 @@ typedef struct {
 	int32_t FilterOffsetB:5;
 	uint32_t firstRefPicL1:1;
 	uint32_t col_short_term:1;
-	Edge264_picture p;
+	Edge264_flags f;
+	Edge264_bits ctxIdxInc;
+	Edge264_parameter_set ps;
+	
+	// CABAC stuff
+	unsigned long codIRange;
+	unsigned long codIOffset;
+	const uint8_t *CPB;
+	uint32_t shift;
+	uint32_t lim;
+	
+	// Cache variables (usually results of nasty optimisations, so should be few :)
+	uint32_t coded_block_flag;
+	uint64_t ref_idx_mask;
+	uint16_t ctxIdxOffsets[4];
+	const uint8_t *scan;
+	union { uint8_t PredMode[16]; v16qu PredMode_v; };
+	int32_t residual_block[16];
+	
+	// Macroblock context variables
+	uint16_t x; // 14 significant bits
+	uint16_t y;
 	Edge264_flags *flags;
 	union { int8_t *Intra4x4PredMode; uint32_t *Intra4x4PredMode_s; };
 	union { int8_t *refIdx; uint32_t *refIdx_s; };
@@ -302,10 +313,9 @@ typedef struct {
 	union { const int16_t *mvCol; const uint64_t *mvCol_l; const v8hi *mvCol_v; };
 	const Edge264_macroblock *mbCol;
 	const Edge264_picture *DPB;
-	uint64_t ref_idx_mask;
-	union { uint8_t PredMode[16]; v16qu PredMode_v; };
-	int32_t residual_block[16];
-	Edge264_parameter_set ps;
+	Edge264_picture p;
+	
+	// Large stuff
 	uint8_t s[1024];
 	uint8_t RefPicList[2][32] __attribute__((aligned));
 	uint8_t MapPicToList0[35]; // [1 + refPic]
@@ -320,12 +330,12 @@ static const uint8_t mv2edge[64] = {16, 17, 20, 21, 12, 13, 16, 17, 24, 25, 28,
 	17, 18, 19, 22, 23, 14, 15, 18, 19, 26, 27, 30, 31, 22, 23, 26, 27, 10, 11,
 	14, 15, 6, 7, 10, 11, 18, 19, 22, 23, 14, 15, 18, 19};
 static const uint8_t intra2edge[16] = {4, 5, 3, 4, 6, 7, 5, 6, 2, 3, 1, 2, 4, 5, 3, 4};
-static const uint8_t bit4x4[32] = {12, 25, 24, 8, 9, 22, 21, 5, 7, 20, 19, 3, 4,
+static const uint8_t bit_4x4[32] = {12, 25, 24, 8, 9, 22, 21, 5, 7, 20, 19, 3, 4,
 	17, 16, 0, 44, 57, 56, 40, 41, 54, 53, 37, 39, 52, 51, 35, 36, 49, 48, 32};
-static const uint8_t left4x4[32] = {28, 12, 11, 24, 25, 9, 8, 20, 23, 7, 6, 18,
+static const uint8_t left_4x4[32] = {28, 12, 11, 24, 25, 9, 8, 20, 23, 7, 6, 18,
 	19, 4, 3, 16, 60, 44, 43, 56, 57, 41, 40, 52, 55, 39, 38, 50, 51, 36, 35, 48};
-static const uint8_t bit8x8[8] = {6, 2, 1, 4, 14, 10, 9, 12};
-static const uint8_t left8x8[8] = {2, 5, 4, 0, 10, 13, 12, 8};
+static const uint8_t bit_8x8[12] = {6, 2, 1, 4, 14, 10, 9, 12, 22, 18, 17, 20};
+static const uint8_t left_8x8[12] = {2, 5, 4, 0, 10, 13, 12, 8, 18, 21, 20, 16};
 static const Edge264_flags void_flags = {
 	.b.mb_field_decoding_flag = 0,
 	.b.unavailable = 5,

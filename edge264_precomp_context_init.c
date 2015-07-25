@@ -560,7 +560,7 @@ typedef struct { int8_t m, n; } Pair;
 
 int main()
 {
-	/* Fill the initialisation table. */
+	// Fill the initialisation table.
 	Pair init[4][1024] = {0};
 	for (int i = 0; i < 11; i++)
 		init[0][i] = init[1][i] = init[2][i] = init[3][i] = (Pair){Table12[0][i], Table12[1][i]};
@@ -615,30 +615,13 @@ int main()
 			init[cabac_init_idc][1012 + i] = (Pair){Table33[i % 6][i / 6][1 + (cabac_init_idc + 1) % 4 * 2], Table33[i % 6][i / 6][2 + (cabac_init_idc + 1) % 4 * 2]};
 	}
 	
-	/* Compute the CABAC_init table. */
-	uint8_t CABAC_init[52][4][1024];
-	for (int QP = 0; QP < 52; QP++) {
-		for (int cabac_init_idc = 0; cabac_init_idc < 4; cabac_init_idc++) {
-			for (int i = 0; i < 1024; i++) {
-				int preClip = ((init[cabac_init_idc][i].m * QP) >> 4) + init[cabac_init_idc][i].n;
-				int preCtxState = (preClip < 1) ? 1 : (preClip > 126) ? 126 : preClip;
-				CABAC_init[QP][cabac_init_idc][i] = (preCtxState <= 63) ? (63 - preCtxState) << 1 : ((preCtxState - 64) << 1 | 1);
-			}
-			CABAC_init[QP][cabac_init_idc][276] = 63 << 1;
-		}
-	}
-	
-	/* Now print to a C source file. */
-	printf("#include <stdint.h>\n"
-		"\n"
-		"/* cabac_init_idc==0 for I frames. */\n"
-		"static const uint8_t CABAC_init[52][4][1024] = {{{");
-	for (int QP = 0; QP < 52; QP++) {
-		for (int cabac_init_idc = 0; cabac_init_idc < 4; cabac_init_idc++) {
-			for (int i = 0; i < 1024; i++)
-				printf("%s0x%02x,", (i % 12) ? " " : "\n\t", CABAC_init[QP][(cabac_init_idc + 3) % 4][i]);
-			printf((cabac_init_idc < 3) ? "\n\t}, {" : (QP < 51) ? "\n\t}}, {{" : "\n}}};\n");
-		}
+	// Now print the {m,n} pairs
+	printf("// cabac_init_idc==3 for I frames.\n"
+		"static const int8_t context_init[4][1024][2] = {{");
+	for (unsigned cabac_init_idc = 1; cabac_init_idc < 5; cabac_init_idc++) {
+		for (unsigned i = 0; i < 1024; i++)
+			printf("%s{% 4d,% 4d},", (i % 6) ? " " : "\n\t", init[cabac_init_idc % 4][i].m, init[cabac_init_idc % 4][i].n);
+		printf((cabac_init_idc < 4) ? "\n\t}, {" : "\n}};\n");
 	}
 	return 0;
 }

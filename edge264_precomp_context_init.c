@@ -617,7 +617,7 @@ int main()
 	
 	// Now print the {m,n} pairs
 	printf("// cabac_init_idc==3 for I frames.\n"
-		"static const int8_t context_init[4][1024][2] = {{");
+		"static const int8_t context_init[4][1024][2] __attribute__((aligned(16))) = {{");
 	for (unsigned cabac_init_idc = 1; cabac_init_idc < 5; cabac_init_idc++) {
 		for (unsigned i = 0; i < 1024; i++)
 			printf("%s{% 4d,% 4d},", (i % 6) ? " " : "\n\t", init[cabac_init_idc % 4][i].m, init[cabac_init_idc % 4][i].n);

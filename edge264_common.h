@@ -318,6 +318,9 @@ static const uint8_t left_4x4[32] = {28, 12, 11, 24, 25, 9, 8, 20, 23, 7, 6, 18,
 	19, 4, 3, 16, 60, 44, 43, 56, 57, 41, 40, 52, 55, 39, 38, 50, 51, 36, 35, 48};
 static const uint8_t bit_8x8[12] = {6, 2, 1, 4, 14, 10, 9, 12, 22, 18, 17, 20};
 static const uint8_t left_8x8[12] = {2, 5, 4, 0, 10, 13, 12, 8, 18, 21, 20, 16};
+static const uint8_t bit_chroma[8] = {4, 8, 7, 11, 10, 14, 13, 17};
+static const uint8_t left_chroma[8] = {0, 4, 3, 7, 6, 10, 9, 13};
+
 static const Edge264_flags void_flags = {
 	.b.mb_field_decoding_flag = 0,
 	.b.unavailable = 5,

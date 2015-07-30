@@ -853,6 +853,8 @@ static const union { uint16_t h[4]; uint64_t l; } ctxIdxOffsets_8x8[3][2] = {
 };
 static const union { uint16_t h[4]; uint64_t l; } ctxIdxOffsets_chromaDC[2] =
 	{{{97, 149, 210, 257}}, {{97, 321, 382, 257}}}; // ctxBlockCat==3
+static const union { uint16_t h[4]; uint64_t l; } ctxIdxOffsets_chromaAC[2] =
+	{{{101, 151, 212, 266}}, {{101, 323, 384, 266}}}; // ctxBlockCat==4
 
 static const v16qu sig_inc_4x4 = {0, 14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1, 0};
 static const v16qu sig_inc_8x8[2][4] = {{
@@ -971,7 +973,7 @@ static __attribute__((noinline)) void parse_residual_block(unsigned endIdx)
 }
 
 static __attribute__((noinline)) void parse_4x4_residual_block(unsigned luma4x4BlkIdx) {
-	s->residual_block_v[0] = s->residual_block_v[1] = s->residual_block_v[2] = s->residual_block_v[3] = (v4si){};
+	s->residual_block_v[3] = s->residual_block_v[2] = s->residual_block_v[1] = s->residual_block_v[0] = (v4si){};
 	if ((s->f.CodedBlockPatternLuma & 1 << bit_8x8[luma4x4BlkIdx / 4]) &&
 		get_ae(s->ctxIdxOffsets[0] + (s->f.coded_block_flag_4x4[0] >> left_4x4[luma4x4BlkIdx] & 3)))
 	{
@@ -1007,6 +1009,18 @@ static __attribute__((noinline)) void parse_chromaDC_residual_blocks() {
 			s->scan_l = scan_chromaDC[1][s->ps.ChromaArrayType / 2].l;
 			parse_residual_block(s->ps.ChromaArrayType * 4 - 1);
 		}
+	}
+}
+
+static __attribute__((noinline)) void parse_chromaAC_residual_block(unsigned iYCbCr, unsigned luma4x4BlkIdx) {
+	unsigned DC = s->residual_block[8 + iYCbCr * 8 + luma4x4BlkIdx];
+	s->residual_block_v[3] = s->residual_block_v[2] = s->residual_block_v[1] = s->residual_block_v[0] = (v4si){};
+	s->residual_block[0] = DC;
+	if (s->f.b.CodedBlockPatternChromaAC &&
+		get_ae(s->ctxIdxOffsets[0] + (s->f.coded_block_flag_4x4[iYCbCr] >> left_chroma[luma4x4BlkIdx] & 3)))
+	{
+		s->f.coded_block_flag_4x4[iYCbCr] |= 1 << bit_chroma[luma4x4BlkIdx];
+		parse_residual_block(14);
 	}
 }
 
@@ -1176,7 +1190,13 @@ static __attribute__((noinline)) int parse_intra_mb_pred(unsigned ctxIdx) {
 	// Parsing of intra chroma blocks is common to I_NxN and Intra_16x16
 	if (s->ps.ChromaArrayType == 1 || s->ps.ChromaArrayType == 2) {
 		parse_chromaDC_residual_blocks();
-		
+		s->sig_inc_v[0] = s->last_inc_v[0] = sig_inc_4x4;
+		s->scan_v[0] = scan_4x4[s->f.b.mb_field_decoding_flag];
+		s->ctxIdxOffsets_l = ctxIdxOffsets_chromaAC[s->f.b.mb_field_decoding_flag].l;
+		for (unsigned iYCbCr = 1; iYCbCr < 3; iYCbCr++) {
+			for (unsigned luma4x4BlkIdx = 0; luma4x4BlkIdx < s->ps.ChromaArrayType * 4; luma4x4BlkIdx++)
+				parse_chromaAC_residual_block(iYCbCr, luma4x4BlkIdx);
+		}
 	}
 	return 0;
 }

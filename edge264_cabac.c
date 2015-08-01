@@ -38,7 +38,7 @@ int parse_inter_mb_pred(uint64_t);
 #ifndef __clang__
 register Edge264_slice *s asm(REG_S);
 #else
-static __thread Edge264_slice *s;
+static Edge264_slice *s;
 #endif
 
 // cabac_init_idc==3 for I frames.
@@ -851,6 +851,16 @@ static const union { uint16_t h[4]; uint64_t l; } ctxIdxOffsets_8x8[3][2] = {
 	{{{1016, 660, 690, 708}}, {{1016, 675, 699, 708}}}, // ctxBlockCat==9
 	{{{1020, 718, 748, 766}}, {{1020, 733, 757, 766}}}, // ctxBlockCat==13
 };
+static const union { uint16_t h[4]; uint64_t l; } ctxIdxOffsets_16x16DC[3][2] = {
+	{{{85, 105, 166, 227}}, {{85, 277, 338, 227}}}, // ctxBlockCat==0
+	{{{460, 484, 572, 952}}, {{460, 776, 864, 952}}}, // ctxBlockCat==6
+	{{{472, 528, 616, 982}}, {{472, 820, 908, 982}}}, // ctxBlockCat==10
+};
+static const union { uint16_t h[4]; uint64_t l; } ctxIdxOffsets_16x16AC[3][2] = {
+	{{{89, 119, 180, 237}}, {{89, 291, 352, 237}}}, // ctxBlockCat==1
+	{{{464, 498, 586, 962}}, {{464, 790, 878, 962}}}, // ctxBlockCat==7
+	{{{476, 542, 630, 992}}, {{476, 834, 922, 992}}}, // ctxBlockCat==11
+};
 static const union { uint16_t h[4]; uint64_t l; } ctxIdxOffsets_chromaDC[2] =
 	{{{97, 149, 210, 257}}, {{97, 321, 382, 257}}}; // ctxBlockCat==3
 static const union { uint16_t h[4]; uint64_t l; } ctxIdxOffsets_chromaAC[2] =
@@ -972,6 +982,12 @@ static __attribute__((noinline)) void parse_residual_block(unsigned endIdx)
 	} while ((significant_coeff_flags &= significant_coeff_flags - 1) != 0);
 }
 
+
+
+/**
+ * These functions act as tiny prologues for parse_residual_block, to account
+ * for the variations in CodedBlockPattern and parsing of coded_block_flag.
+ */
 static __attribute__((noinline)) void parse_4x4_residual_block(unsigned luma4x4BlkIdx) {
 	s->residual_block_v[3] = s->residual_block_v[2] = s->residual_block_v[1] = s->residual_block_v[0] = (v4si){};
 	if ((s->f.CodedBlockPatternLuma & 1 << bit_8x8[luma4x4BlkIdx / 4]) &&
@@ -990,6 +1006,26 @@ static __attribute__((noinline)) void parse_8x8_residual_block(unsigned luma8x8B
 	{
 		s->f.coded_block_flag_8x8 |= 1 << bit_8x8[luma8x8BlkIdx];
 		parse_residual_block(63);
+	}
+}
+
+static void parse_16x16DC_residual_block(unsigned iYCbCr) {
+	s->residual_block_v[7] = s->residual_block_v[6] = s->residual_block_v[5] = s->residual_block_v[4] = (v4si){};
+	if (get_ae(s->ctxIdxOffsets[0] + (s->ctxIdxInc.coded_block_flag_16x16 >> (2 * iYCbCr) & 3))) {
+		s->f.b.coded_block_flag_16x16 |= 1 << (2 * iYCbCr);
+		parse_residual_block(15);
+	}
+}
+
+static void parse_16x16AC_residual_block(unsigned luma4x4BlkIdx) {
+	unsigned DC = s->residual_block[16 + luma4x4BlkIdx];
+	s->residual_block_v[3] = s->residual_block_v[2] = s->residual_block_v[1] = s->residual_block_v[0] = (v4si){};
+	s->residual_block[0] = DC;
+	if ((s->f.CodedBlockPatternLuma & 1 << bit_8x8[luma4x4BlkIdx / 4]) &&
+		get_ae(s->ctxIdxOffsets[0] + (s->f.coded_block_flag_4x4[0] >> left_4x4[luma4x4BlkIdx] & 3)))
+	{
+		s->f.coded_block_flag_4x4[0] |= 1 << bit_4x4[luma4x4BlkIdx];
+		parse_residual_block(14);
 	}
 }
 
@@ -1012,14 +1048,14 @@ static __attribute__((noinline)) void parse_chromaDC_residual_blocks() {
 	}
 }
 
-static __attribute__((noinline)) void parse_chromaAC_residual_block(unsigned iYCbCr, unsigned luma4x4BlkIdx) {
-	unsigned DC = s->residual_block[8 + iYCbCr * 8 + luma4x4BlkIdx];
+static __attribute__((noinline)) void parse_chromaAC_residual_block(unsigned luma4x4BlkIdx) {
+	unsigned DC = s->residual_block[16 + luma4x4BlkIdx];
 	s->residual_block_v[3] = s->residual_block_v[2] = s->residual_block_v[1] = s->residual_block_v[0] = (v4si){};
 	s->residual_block[0] = DC;
 	if (s->f.b.CodedBlockPatternChromaAC &&
-		get_ae(s->ctxIdxOffsets[0] + (s->f.coded_block_flag_4x4[iYCbCr] >> left_chroma[luma4x4BlkIdx] & 3)))
+		get_ae(s->ctxIdxOffsets[0] + (s->f.coded_block_flag_4x4[1] >> left_chroma[luma4x4BlkIdx] & 3)))
 	{
-		s->f.coded_block_flag_4x4[iYCbCr] |= 1 << bit_chroma[luma4x4BlkIdx];
+		s->f.coded_block_flag_4x4[1] |= 1 << bit_chroma[luma4x4BlkIdx];
 		parse_residual_block(14);
 	}
 }
@@ -1088,7 +1124,7 @@ static __attribute__((noinline)) void parse_intra_pred_mode() {
 
 /**
  * Parse mb_type at the Intra suffix for I/P/B frames, then mb_pred, and branch
- * to parsing the residual coefficients and decoding the macroblock (9.3.3.1.1).
+ * to parsing and decoding each residual sub-block (9.3.3.1.1).
  */
 static __attribute__((noinline)) int parse_intra_mb_pred(unsigned ctxIdx) {
 	v8hi *mvCol = (v8hi *)s->p.mvs; // p.mvs is always v8hi so this type-punning is safe
@@ -1097,15 +1133,13 @@ static __attribute__((noinline)) int parse_intra_mb_pred(unsigned ctxIdx) {
 	// I_NxN
 	if (!get_ae(ctxIdx)) {
 		fprintf(stderr, (ctxIdx == 17) ? "mb_type: 5\n" : (ctxIdx == 32) ? "mb_type: 23\n" : "mb_type: 0\n");
-		unsigned transform_size_8x8_flag = 0;
 		if (s->ps.transform_8x8_mode_flag) {
-			transform_size_8x8_flag = get_ae(399 + s->ctxIdxInc.transform_size_8x8_flag);
-			fprintf(stderr, "transform_size_8x8_flag: %x\n", transform_size_8x8_flag);
+			s->f.b.transform_size_8x8_flag |= get_ae(399 + s->ctxIdxInc.transform_size_8x8_flag);
+			fprintf(stderr, "transform_size_8x8_flag: %x\n", s->f.b.transform_size_8x8_flag);
 		}
-		s->f.b.transform_size_8x8_flag |= transform_size_8x8_flag;
 		s->f.b.mb_type_I_NxN |= 1;
 		
-		// The overall code is much lighter with 4x4/8x8 sharing this portion.
+		// Overall code is much lighter with 4x4/8x8 sharing the parsing of IntraPredMode.
 		for (unsigned luma4x4BlkIdx = 0; luma4x4BlkIdx < 16; ) {
 			int8_t *edge = s->Intra4x4PredMode + intra2edge[luma4x4BlkIdx];
 			unsigned IntraPredMode = abs(min(edge[-1], edge[1]));
@@ -1124,27 +1158,12 @@ static __attribute__((noinline)) int parse_intra_mb_pred(unsigned ctxIdx) {
 		parse_coded_block_pattern();
 		parse_mb_qp_delta();
 		
-		// At this point sharing the 4x4/8x8 code paths would become too complex
-		if (s->f.b.transform_size_8x8_flag) {
-			const v16qu *p = sig_inc_8x8[s->f.b.mb_field_decoding_flag];
-			const v16qu *r = scan_8x8[s->f.b.mb_field_decoding_flag];
-			for (unsigned i = 0; i < 4; i++) {
-				v16qu a = p[i], b = last_inc_8x8[i], c = r[i];
-				s->sig_inc_v[i] = a;
-				s->last_inc_v[i] = b;
-				s->scan_v[i] = c;
-			}
-			for (unsigned iYCbCr = 0; iYCbCr < 3; iYCbCr++) {
-				s->ctxIdxOffsets_l = ctxIdxOffsets_8x8[iYCbCr][s->f.b.mb_field_decoding_flag].l;
-				for (unsigned luma8x8BlkIdx = 0; luma8x8BlkIdx < 4; luma8x8BlkIdx++)
-					parse_8x8_residual_block(iYCbCr * 4 + luma8x8BlkIdx);
-				if (s->ps.ChromaArrayType != 3)
-					break;
-			}
-		} else {
+		// Intra_4x4
+		if (!s->f.b.transform_size_8x8_flag) {
 			s->sig_inc_v[0] = s->last_inc_v[0] = sig_inc_4x4;
 			s->scan_v[0] = scan_4x4[s->f.b.mb_field_decoding_flag];
-			for (unsigned iYCbCr = 0; iYCbCr < 3; iYCbCr++) {
+			unsigned iYCbCr = s->colour_plane_id;
+			do {
 				s->ctxIdxOffsets_l = ctxIdxOffsets_4x4[iYCbCr][s->f.b.mb_field_decoding_flag].l;
 				for (unsigned luma4x4BlkIdx = 0; luma4x4BlkIdx < 16; luma4x4BlkIdx++)
 					parse_4x4_residual_block(luma4x4BlkIdx);
@@ -1154,7 +1173,24 @@ static __attribute__((noinline)) int parse_intra_mb_pred(unsigned ctxIdx) {
 				s->f.coded_block_flag_4x4[0] = s->f.coded_block_flag_4x4[1];
 				s->f.coded_block_flag_4x4[1] = s->f.coded_block_flag_4x4[2];
 				s->f.coded_block_flag_4x4[2] = cbf;
+			} while (++iYCbCr < 3);
+			
+		// Intra_8x8
+		} else {
+			const v16qu *p = sig_inc_8x8[s->f.b.mb_field_decoding_flag];
+			const v16qu *r = scan_8x8[s->f.b.mb_field_decoding_flag];
+			for (unsigned i = 0; i < 4; i++) {
+				v16qu a = p[i], b = last_inc_8x8[i], c = r[i];
+				s->sig_inc_v[i] = a;
+				s->last_inc_v[i] = b;
+				s->scan_v[i] = c;
 			}
+			unsigned iYCbCr = s->colour_plane_id;
+			do {
+				s->ctxIdxOffsets_l = ctxIdxOffsets_8x8[iYCbCr][s->f.b.mb_field_decoding_flag].l;
+				for (unsigned luma8x8BlkIdx = 0; luma8x8BlkIdx < 4; luma8x8BlkIdx++)
+					parse_8x8_residual_block(iYCbCr * 4 + luma8x8BlkIdx);
+			} while (s->ps.ChromaArrayType != 3 && ++iYCbCr < 3);
 		}
 	
 	// Intra_16x16
@@ -1169,6 +1205,25 @@ static __attribute__((noinline)) int parse_intra_mb_pred(unsigned ctxIdx) {
 			4 * (s->f.b.CodedBlockPatternChromaDC + s->f.b.CodedBlockPatternChromaAC) +
 			Intra16x16PredMode + 1);
 		parse_intra_pred_mode();
+		parse_mb_qp_delta();
+		
+		// Thanks to the reverse order in significant_coeff_flags, we can reuse 4x4 stuff.
+		unsigned iYCbCr = s->colour_plane_id;
+		s->sig_inc_v[0] = s->last_inc_v[0] = sig_inc_4x4;
+		s->scan_v[0] = scan_4x4[s->f.b.mb_field_decoding_flag];
+		do {
+			s->ctxIdxOffsets_l = ctxIdxOffsets_16x16DC[iYCbCr][s->f.b.mb_field_decoding_flag].l;
+			parse_16x16DC_residual_block(iYCbCr);
+			s->ctxIdxOffsets_l = ctxIdxOffsets_16x16AC[iYCbCr][s->f.b.mb_field_decoding_flag].l;
+			for (unsigned luma4x4BlkIdx = 0; luma4x4BlkIdx < 16; luma4x4BlkIdx++)
+				parse_16x16AC_residual_block(luma4x4BlkIdx);
+			if (s->ps.ChromaArrayType != 3)
+				break;
+			unsigned cbf = s->f.coded_block_flag_4x4[0];
+			s->f.coded_block_flag_4x4[0] = s->f.coded_block_flag_4x4[1];
+			s->f.coded_block_flag_4x4[1] = s->f.coded_block_flag_4x4[2];
+			s->f.coded_block_flag_4x4[2] = cbf;
+		} while (++iYCbCr < 3);
 		
 	// I_PCM
 	} else {
@@ -1187,15 +1242,22 @@ static __attribute__((noinline)) int parse_intra_mb_pred(unsigned ctxIdx) {
 		return 0;
 	}
 	
-	// Parsing of intra chroma blocks is common to I_NxN and Intra_16x16
+	// Intra_Chroma (common to I_NxN and Intra_16x16)
 	if (s->ps.ChromaArrayType == 1 || s->ps.ChromaArrayType == 2) {
 		parse_chromaDC_residual_blocks();
 		s->sig_inc_v[0] = s->last_inc_v[0] = sig_inc_4x4;
 		s->scan_v[0] = scan_4x4[s->f.b.mb_field_decoding_flag];
 		s->ctxIdxOffsets_l = ctxIdxOffsets_chromaAC[s->f.b.mb_field_decoding_flag].l;
-		for (unsigned iYCbCr = 1; iYCbCr < 3; iYCbCr++) {
-			for (unsigned luma4x4BlkIdx = 0; luma4x4BlkIdx < s->ps.ChromaArrayType * 4; luma4x4BlkIdx++)
-				parse_chromaAC_residual_block(iYCbCr, luma4x4BlkIdx);
+		for (unsigned iCbCr = 0; iCbCr < 2; iCbCr++) {
+			for (unsigned luma4x4BlkIdx = 0; luma4x4BlkIdx < 4; luma4x4BlkIdx++)
+				parse_chromaAC_residual_block(iCbCr * 8 + luma4x4BlkIdx);
+			if (s->ps.ChromaArrayType == 2) {
+				for (unsigned luma4x4BlkIdx = 4; luma4x4BlkIdx < 8; luma4x4BlkIdx++)
+					parse_chromaAC_residual_block(iCbCr * 8 + luma4x4BlkIdx);
+			}
+			unsigned cbf = s->f.coded_block_flag_4x4[1];
+			s->f.coded_block_flag_4x4[1] = s->f.coded_block_flag_4x4[2];
+			s->f.coded_block_flag_4x4[2] = cbf;
 		}
 	}
 	return 0;

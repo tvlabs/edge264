@@ -250,9 +250,15 @@ typedef struct {
 	}; uint64_t l; };
 } Edge264_flags;
 typedef struct {
-	// Bitfields come first since they represent most accesses
-	uint32_t intra_chroma_pred_mode:8;
-	uint32_t mb_qp_delta_non_zero:1;
+	// Parsing context
+	unsigned long codIRange;
+	unsigned long codIOffset;
+	const uint8_t *CPB;
+	uint32_t shift;
+	uint32_t lim;
+	
+	// Bitfields come next since they represent most accesses
+	uint32_t colour_plane_id:2;
 	uint32_t slice_type:2;
 	uint32_t field_pic_flag:1;
 	uint32_t bottom_field_flag:1;
@@ -264,16 +270,11 @@ typedef struct {
 	int32_t FilterOffsetB:5;
 	uint32_t firstRefPicL1:1;
 	uint32_t col_short_term:1;
+	uint32_t intra_chroma_pred_mode:2;
+	uint32_t mb_qp_delta_non_zero:1;
 	Edge264_bits ctxIdxInc;
 	Edge264_flags f;
 	Edge264_parameter_set ps;
-	
-	// CABAC stuff
-	unsigned long codIRange;
-	unsigned long codIOffset;
-	const uint8_t *CPB;
-	uint32_t shift;
-	uint32_t lim;
 	
 	// Cache variables (usually results of nasty optimisations, so should be few :)
 	uint64_t ref_idx_mask;
@@ -318,8 +319,8 @@ static const uint8_t left_4x4[32] = {28, 12, 11, 24, 25, 9, 8, 20, 23, 7, 6, 18,
 	19, 4, 3, 16, 60, 44, 43, 56, 57, 41, 40, 52, 55, 39, 38, 50, 51, 36, 35, 48};
 static const uint8_t bit_8x8[12] = {6, 2, 1, 4, 14, 10, 9, 12, 22, 18, 17, 20};
 static const uint8_t left_8x8[12] = {2, 5, 4, 0, 10, 13, 12, 8, 18, 21, 20, 16};
-static const uint8_t bit_chroma[8] = {4, 8, 7, 11, 10, 14, 13, 17};
-static const uint8_t left_chroma[8] = {0, 4, 3, 7, 6, 10, 9, 13};
+static const uint8_t bit_chroma[16] = {4, 8, 7, 11, 10, 14, 13, 17, 4, 8, 7, 11, 10, 14, 13, 17};
+static const uint8_t left_chroma[16] = {0, 4, 3, 7, 6, 10, 9, 13, 0, 4, 3, 7, 6, 10, 9, 13};
 
 static const Edge264_flags void_flags = {
 	.b.mb_field_decoding_flag = 0,

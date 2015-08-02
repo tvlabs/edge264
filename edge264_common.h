@@ -210,14 +210,14 @@ static inline __attribute__((always_inline)) unsigned get_u1(const uint8_t *CPB,
  * In 9.3.3.1.1, ctxIdxInc is always the result of flagA+flagB or flagA+2*flagB,
  * so we can pack them and compute all in parallel with flagsA+flagsB+(flagsB&twice).
  *
- * The storage patterns for flags in 8x8 and 4x4 blocks keep left and top
+ * The storage patterns for flags in 8x8/4x4/chroma blocks keep left and top
  * always contiguous (for ctxIdxInc), and allow initialisation from top/left
  * macroblocks with single shifts:
- *                29 13 26 10
- *   7 3       28|12 25  9 22
- * 6|2 5  and  11|24  8 21  5
- * 1|4 0       23| 7 20  4 17
- *              6|19  3 16  0
+ *               1  5  9 14          14 12
+ *   7 3      0| 4  8 13 20       13|11  9
+ * 6|2 5  ,   3| 7 12 19 23  and  10| 8  6
+ * 1|4 0      6|11 18 22 26        7| 5  3
+ *           10|17 21 25 30        4| 2  0
  *
  * The storage patterns for refIdx, mvs, absMvdComp and Intra4x4PredMode keep
  * A/B/C/D at fixed relative positions, while forming circural buffers with the
@@ -313,14 +313,12 @@ static const uint8_t mv2edge[64] = {16, 17, 20, 21, 12, 13, 16, 17, 24, 25, 28,
 	17, 18, 19, 22, 23, 14, 15, 18, 19, 26, 27, 30, 31, 22, 23, 26, 27, 10, 11,
 	14, 15, 6, 7, 10, 11, 18, 19, 22, 23, 14, 15, 18, 19};
 static const uint8_t intra2edge[16] = {4, 5, 3, 4, 6, 7, 5, 6, 2, 3, 1, 2, 4, 5, 3, 4};
-static const uint8_t bit_4x4[32] = {12, 25, 24, 8, 9, 22, 21, 5, 7, 20, 19, 3, 4,
-	17, 16, 0, 44, 57, 56, 40, 41, 54, 53, 37, 39, 52, 51, 35, 36, 49, 48, 32};
-static const uint8_t left_4x4[32] = {28, 12, 11, 24, 25, 9, 8, 20, 23, 7, 6, 18,
-	19, 4, 3, 16, 60, 44, 43, 56, 57, 41, 40, 52, 55, 39, 38, 50, 51, 36, 35, 48};
+static const uint8_t bit_4x4[16] = {4, 8, 7, 12, 13, 20, 19, 23, 11, 18, 17, 21, 22, 26, 25, 30};
+static const uint8_t left_4x4[16] = {0, 4, 3, 7, 8, 13, 12, 19, 6, 11, 10, 17, 18, 22, 21, 25};
 static const uint8_t bit_8x8[12] = {6, 2, 1, 4, 14, 10, 9, 12, 22, 18, 17, 20};
 static const uint8_t left_8x8[12] = {2, 5, 4, 0, 10, 13, 12, 8, 18, 21, 20, 16};
-static const uint8_t bit_chroma[16] = {4, 8, 7, 11, 10, 14, 13, 17, 4, 8, 7, 11, 10, 14, 13, 17};
-static const uint8_t left_chroma[16] = {0, 4, 3, 7, 6, 10, 9, 13, 0, 4, 3, 7, 6, 10, 9, 13};
+static const uint8_t bit_chroma[16] = {11, 9, 8, 6, 5, 3, 2, 0, 27, 25, 24, 22, 21, 19, 18, 16};
+static const uint8_t left_chroma[16] = {13, 11, 10, 8, 7, 5, 4, 2, 29, 27, 26, 24, 23, 21, 20, 18};
 
 static const Edge264_flags void_flags = {
 	.b.mb_field_decoding_flag = 0,

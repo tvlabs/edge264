@@ -1005,6 +1005,8 @@ static __attribute__((noinline)) void parse_8x8_residual_block(unsigned luma8x8B
 		get_ae(s->ctxIdxOffsets[0] + (s->f.coded_block_flag_8x8 >> left_8x8[luma8x8BlkIdx] & 3))))
 	{
 		s->f.coded_block_flag_8x8 |= 1 << bit_8x8[luma8x8BlkIdx];
+		unsigned luma4x4BlkIdx = luma8x8BlkIdx % 4 * 4 + 3;
+		s->f.coded_block_flag_4x4[0] |= 1 << bit_4x4[luma4x4BlkIdx] | 3 << left_4x4[luma4x4BlkIdx];
 		parse_residual_block(63);
 	}
 }
@@ -1154,44 +1156,42 @@ static __attribute__((noinline)) int parse_intra_mb_pred(unsigned ctxIdx) {
 			if (s->f.b.transform_size_8x8_flag)
 				edge[-1] = edge[1] = IntraPredMode, luma4x4BlkIdx += 3;
 		}
+		
 		parse_intra_pred_mode();
 		parse_coded_block_pattern();
 		parse_mb_qp_delta();
-		
-		// Intra_4x4
-		if (!s->f.b.transform_size_8x8_flag) {
-			s->sig_inc_v[0] = s->last_inc_v[0] = sig_inc_4x4;
-			s->scan_v[0] = scan_4x4[s->f.b.mb_field_decoding_flag];
-			unsigned iYCbCr = s->colour_plane_id;
-			do {
+		unsigned iYCbCr = s->colour_plane_id;
+		do {
+			
+			// Intra_4x4
+			if (!s->f.b.transform_size_8x8_flag) {
 				s->ctxIdxOffsets_l = ctxIdxOffsets_4x4[iYCbCr][s->f.b.mb_field_decoding_flag].l;
+				s->scan_v[0] = scan_4x4[s->f.b.mb_field_decoding_flag];
+				s->sig_inc_v[0] = s->last_inc_v[0] = sig_inc_4x4;
 				for (unsigned luma4x4BlkIdx = 0; luma4x4BlkIdx < 16; luma4x4BlkIdx++)
 					parse_4x4_residual_block(luma4x4BlkIdx);
-				if (s->ps.ChromaArrayType != 3)
-					break;
-				unsigned cbf = s->f.coded_block_flag_4x4[0];
-				s->f.coded_block_flag_4x4[0] = s->f.coded_block_flag_4x4[1];
-				s->f.coded_block_flag_4x4[1] = s->f.coded_block_flag_4x4[2];
-				s->f.coded_block_flag_4x4[2] = cbf;
-			} while (++iYCbCr < 3);
 			
-		// Intra_8x8
-		} else {
-			const v16qu *p = sig_inc_8x8[s->f.b.mb_field_decoding_flag];
-			const v16qu *r = scan_8x8[s->f.b.mb_field_decoding_flag];
-			for (unsigned i = 0; i < 4; i++) {
-				v16qu a = p[i], b = last_inc_8x8[i], c = r[i];
-				s->sig_inc_v[i] = a;
-				s->last_inc_v[i] = b;
-				s->scan_v[i] = c;
-			}
-			unsigned iYCbCr = s->colour_plane_id;
-			do {
+			// Intra_8x8
+			} else {
 				s->ctxIdxOffsets_l = ctxIdxOffsets_8x8[iYCbCr][s->f.b.mb_field_decoding_flag].l;
+				const v16qu *p = sig_inc_8x8[s->f.b.mb_field_decoding_flag];
+				const v16qu *r = scan_8x8[s->f.b.mb_field_decoding_flag];
+				for (unsigned i = 0; i < 4; i++) {
+					v16qu a = p[i], b = last_inc_8x8[i], c = r[i];
+					s->sig_inc_v[i] = a;
+					s->last_inc_v[i] = b;
+					s->scan_v[i] = c;
+				}
 				for (unsigned luma8x8BlkIdx = 0; luma8x8BlkIdx < 4; luma8x8BlkIdx++)
 					parse_8x8_residual_block(iYCbCr * 4 + luma8x8BlkIdx);
-			} while (s->ps.ChromaArrayType != 3 && ++iYCbCr < 3);
-		}
+			}
+			if (s->ps.ChromaArrayType != 3)
+				break;
+			unsigned cbf = s->f.coded_block_flag_4x4[0];
+			s->f.coded_block_flag_4x4[0] = s->f.coded_block_flag_4x4[1];
+			s->f.coded_block_flag_4x4[1] = s->f.coded_block_flag_4x4[2];
+			s->f.coded_block_flag_4x4[2] = cbf;
+		} while (++iYCbCr < 3);
 	
 	// Intra_16x16
 	} else if (!get_ae(276)) {
@@ -1454,7 +1454,7 @@ void CABAC_parse_slice_data(Edge264_slice *_s)
 	Edge264_slice *old_s = s;
 	s = _s;
 	
-	// cabac_alignment_one_bit shall be tested later for error concealment.
+	// cabac_alignment_one_bit shall be tested in the future for error concealment.
 	if ((~s->CPB[s->shift / 8] << (1 + (s->shift - 1) % 8) & 0xff) != 0)
 		printf("<li style=\"color: red\">Erroneous slice header (%u bits)</li>\n", s->shift);
 	s->shift = (s->shift + 7) & -8;
@@ -1491,21 +1491,27 @@ void CABAC_parse_slice_data(Edge264_slice *_s)
 		
 		for (;;) {
 			fprintf(stderr, "\n********** %u **********\n", s->ps.width * s->y / 256 + s->x / 16);
-			v4su cbfA, cbfB;
-			memcpy(&cbfA, s->flags - 1, 16);
-			memcpy(&cbfB, s->flags, 16);
 			unsigned ctxIdxInc = s->flags[-1].b.s + s->flags[0].b.s +
 				(s->flags[0].b.s & twice.s) + (s->flags[1].b.s & unavail.s) * 4;
-			v4su cbf = ((cbfA & (v4su){0x420021, 0x420021, 0x420021, 0x420021}) << (v4su){6, 6, 6, 6}) |
-				((cbfB & (v4su){0x90009, 0x90009, 0x90009, 0x90009}) << (v4su){10, 10, 10, 10});
+			unsigned cbf0 = (s->flags[-1].coded_block_flag_4x4[0] >> 20 & 0x0449) |
+				(s->flags[0].coded_block_flag_4x4[0] >> 16 & 0x4222);
+			unsigned cbf1 = (s->flags[-1].coded_block_flag_4x4[1] & 0x02490249) << 4 |
+				(s->flags[0].coded_block_flag_4x4[1] << (6 * s->ps.ChromaArrayType) & 0x50005000);
+			if (s->ps.ChromaArrayType == 3) {
+				cbf1 = (s->flags[-1].coded_block_flag_4x4[1] >> 20 & 0x0449) |
+					(s->flags[0].coded_block_flag_4x4[1] >> 16 & 0x4222);
+				s->f.coded_block_flag_4x4[2] = (s->flags[-1].coded_block_flag_4x4[2] >> 20 & 0x0449) |
+					(s->flags[0].coded_block_flag_4x4[2] >> 16 & 0x4222);
+			}
 			uint64_t l = ((s->flags[-1].l & 0x2121212121212121) << 1) |
 				((s->flags[0].l & 0x1111111111111111) << 3);
 			
 			// Splitting writes from reads lets compilers perform better with pipelining.
-			memcpy(&s->f, &cbf, 16);
-			s->f.l = l;
-			s->f.b.s = 0;
 			s->ctxIdxInc.s = ctxIdxInc;
+			s->f.b.s = 0;
+			s->f.coded_block_flag_4x4[0] = cbf0;
+			s->f.coded_block_flag_4x4[1] = cbf1;
+			s->f.l = l;
 			
 			// P/B slices have some more initialisation.
 			if (s->slice_type > 1) {

@@ -210,14 +210,13 @@ static inline __attribute__((always_inline)) unsigned get_u1(const uint8_t *CPB,
  * In 9.3.3.1.1, ctxIdxInc is always the result of flagA+flagB or flagA+2*flagB,
  * so we can pack them and compute all in parallel with flagsA+flagsB+(flagsB&twice).
  *
- * The storage patterns for flags in 8x8/4x4/chroma blocks keep left and top
- * always contiguous (for ctxIdxInc), and allow initialisation from top/left
- * macroblocks with single shifts:
- *               1  5  9 14          14 12
- *   7 3      0| 4  8 13 20       13|11  9
- * 6|2 5  ,   3| 7 12 19 23  and  10| 8  6
- * 1|4 0      6|11 18 22 26        7| 5  3
- *           10|17 21 25 30        4| 2  0
+ * Likewise, CodedBlockPatternLuma and coded_block_flags are packed in bitfields
+ * with left and top always contiguous:
+ *    23 11 17  5                      13  6
+ * 22|10 16  4 21         7 3       12| 5 11
+ *  9|15  3 20  8       6|2 5        4|10  3
+ * 14| 2 19  7 13       1|4 0        9| 2  8
+ *  1|18  6 12  0                    1| 7  0
  *
  * The storage patterns for refIdx, mvs, absMvdComp and Intra4x4PredMode keep
  * A/B/C/D at fixed relative positions, while forming circural buffers with the
@@ -230,7 +229,6 @@ static inline __attribute__((always_inline)) unsigned get_u1(const uint8_t *CPB,
  */
 typedef union { struct {
 	uint32_t mb_field_decoding_flag:2; // put first to match Edge264_macroblock.fieldDecodingFlag
-	uint32_t unavailable:4;
 	uint32_t mb_skip_flag:2;
 	uint32_t mb_type_I_NxN:2;
 	uint32_t mb_type_B_Direct:2;
@@ -238,17 +236,14 @@ typedef union { struct {
 	uint32_t intra_chroma_pred_mode_non_zero:2;
 	uint32_t CodedBlockPatternChromaDC:2;
 	uint32_t CodedBlockPatternChromaAC:2;
-	uint32_t coded_block_flag_16x16:6;
+	uint32_t coded_block_flags_16x16:6;
+	uint32_t unavailable:2; // uses 4 bits in ctxIdxInc, to store A/B/C/D unavailability
+	uint32_t CodedBlockPatternLuma:8; // unused in ctxIdxInc
 }; uint32_t s; } Edge264_bits;
-typedef struct {
+typedef union { struct {
 	Edge264_bits b;
-	uint32_t coded_block_flag_4x4[3];
-	union { struct {
-		uint32_t coded_block_flag_8x8;
-		uint16_t ref_idx_nz;
-		uint8_t CodedBlockPatternLuma;
-	}; uint64_t l; };
-} Edge264_flags;
+	uint32_t coded_block_flags[3];
+}; v4si v; } Edge264_flags;
 typedef struct {
 	// Parsing context
 	unsigned long codIRange;
@@ -277,6 +272,7 @@ typedef struct {
 	Edge264_parameter_set ps;
 	
 	// Cache variables (usually results of nasty optimisations, so should be few :)
+	v4si cbf_maskA, cbf_maskB;
 	uint64_t ref_idx_mask;
 	union { uint16_t ctxIdxOffsets[4]; uint64_t ctxIdxOffsets_l; }; // {cbf,sig_flag,last_sig_flag,coeff_abs}
 	union { uint8_t PredMode[16]; v16qu PredMode_v; };
@@ -288,7 +284,7 @@ typedef struct {
 	// Macroblock context variables
 	uint16_t x; // 14 significant bits
 	uint16_t y;
-	Edge264_flags *flags;
+	union { uint32_t *flags; v4si *flags_v; };
 	union { int8_t *Intra4x4PredMode; uint32_t *Intra4x4PredMode_s; };
 	union { int8_t *refIdx; uint32_t *refIdx_s; };
 	union { int16_t *mvs; v8hi *mvs_v; };
@@ -313,21 +309,11 @@ static const uint8_t mv2edge[64] = {16, 17, 20, 21, 12, 13, 16, 17, 24, 25, 28,
 	17, 18, 19, 22, 23, 14, 15, 18, 19, 26, 27, 30, 31, 22, 23, 26, 27, 10, 11,
 	14, 15, 6, 7, 10, 11, 18, 19, 22, 23, 14, 15, 18, 19};
 static const uint8_t intra2edge[16] = {4, 5, 3, 4, 6, 7, 5, 6, 2, 3, 1, 2, 4, 5, 3, 4};
-static const uint8_t bit_4x4[16] = {4, 8, 7, 12, 13, 20, 19, 23, 11, 18, 17, 21, 22, 26, 25, 30};
-static const uint8_t left_4x4[16] = {0, 4, 3, 7, 8, 13, 12, 19, 6, 11, 10, 17, 18, 22, 21, 25};
-static const uint8_t bit_8x8[12] = {6, 2, 1, 4, 14, 10, 9, 12, 22, 18, 17, 20};
-static const uint8_t left_8x8[12] = {2, 5, 4, 0, 10, 13, 12, 8, 18, 21, 20, 16};
-static const uint8_t bit_chroma[16] = {11, 9, 8, 6, 5, 3, 2, 0, 27, 25, 24, 22, 21, 19, 18, 16};
+static const uint8_t bit_4x4[16] = {10, 16, 15, 3, 4, 21, 20, 8, 2, 19, 18, 6, 7, 13, 12, 0};
+static const uint8_t left_4x4[16] = {22, 10, 9, 15, 16, 4, 3, 20, 14, 2, 1, 18, 19, 7, 6, 12};
+static const uint8_t bit_8x8[4] = {26, 29, 28, 24};
+static const uint8_t left_8x8[4] = {30, 26, 25, 28};
 static const uint8_t left_chroma[16] = {13, 11, 10, 8, 7, 5, 4, 2, 29, 27, 26, 24, 23, 21, 20, 18};
-
-static const Edge264_flags void_flags = {
-	.b.mb_field_decoding_flag = 0,
-	.b.unavailable = 5,
-	.b.mb_skip_flag = 1,
-	.b.mb_type_I_NxN = 1,
-	.b.mb_type_B_Direct = 1,
-	.b.transform_size_8x8_flag = 0,
-};
 
 
 

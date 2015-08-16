@@ -30,7 +30,6 @@
 #include <sys/stat.h>
 #include <sys/types.h>
 
-#define TRACE 2
 #include "edge264.c"
 
 void print_frame(const Edge264_picture *p) {

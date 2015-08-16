@@ -564,7 +564,7 @@ int main()
 	Pair init[4][1024] = {0};
 	for (int i = 0; i < 11; i++)
 		init[0][i] = init[1][i] = init[2][i] = init[3][i] = (Pair){Table12[0][i], Table12[1][i]};
-	for (int cabac_init_idc = 0; cabac_init_idc < 3; cabac_init_idc++) {
+	for (int cabac_init_idc = 1; cabac_init_idc < 4; cabac_init_idc++) {
 		for (int i = 0; i < 13; i++)
 			init[cabac_init_idc][11 + i] = (Pair){Table13[cabac_init_idc][0][i], Table13[cabac_init_idc][1][i]};
 		for (int i = 0; i < 16; i++)
@@ -574,45 +574,45 @@ int main()
 	}
 	for (int cabac_init_idc = 0; cabac_init_idc < 4; cabac_init_idc++) {
 		for (int i = 0; i < 6; i++)
-			init[cabac_init_idc][54 + i] = (Pair){Table16[(1 + cabac_init_idc) % 4][0][i], Table16[(1 + cabac_init_idc) % 4][1][i]};
+			init[cabac_init_idc][54 + i] = (Pair){Table16[cabac_init_idc][0][i], Table16[cabac_init_idc][1][i]};
 		for (int i = 0; i < 3; i++)
-			init[cabac_init_idc][399 + i] = (Pair){Table16[(1 + cabac_init_idc) % 4][0][6 + i], Table16[(1 + cabac_init_idc) % 4][1][6 + i]};
+			init[cabac_init_idc][399 + i] = (Pair){Table16[cabac_init_idc][0][6 + i], Table16[cabac_init_idc][1][6 + i]};
 	}
 	for (int i = 0; i < 10; i++)
 		init[0][60 + i] = init[1][60 + i] = init[2][60 + i] = init[3][60 + i] = (Pair){Table17[0][i], Table17[1][i]};
 	for (int cabac_init_idc = 0; cabac_init_idc < 4; cabac_init_idc++) {
 		for (int i = 0; i < 35; i++)
-			init[cabac_init_idc][70 + i] = (Pair){Table18[i % 18][i / 18][1 + (cabac_init_idc + 1) % 4 * 2], Table18[i % 18][i / 18][2 + (cabac_init_idc + 1) % 4 * 2]};
+			init[cabac_init_idc][70 + i] = (Pair){Table18[i % 18][i / 18][1 + cabac_init_idc * 2], Table18[i % 18][i / 18][2 + cabac_init_idc * 2]};
 		for (int i = 0; i < 61; i++)
-			init[cabac_init_idc][105 + i] = (Pair){Table19[i % 31][i / 31][1 + (cabac_init_idc + 1) % 4 * 2], Table19[i % 31][i / 31][2 + (cabac_init_idc + 1) % 4 * 2]};
+			init[cabac_init_idc][105 + i] = (Pair){Table19[i % 31][i / 31][1 + cabac_init_idc * 2], Table19[i % 31][i / 31][2 + cabac_init_idc * 2]};
 		for (int i = 0; i < 61; i++)
-			init[cabac_init_idc][166 + i] = (Pair){Table20[i % 31][i / 31][1 + (cabac_init_idc + 1) % 4 * 2], Table20[i % 31][i / 31][2 + (cabac_init_idc + 1) % 4 * 2]};
+			init[cabac_init_idc][166 + i] = (Pair){Table20[i % 31][i / 31][1 + cabac_init_idc * 2], Table20[i % 31][i / 31][2 + cabac_init_idc * 2]};
 		for (int i = 0; i < 49; i++)
-			init[cabac_init_idc][227 + i] = (Pair){Table21[i % 25][i / 25][1 + (cabac_init_idc + 1) % 4 * 2], Table21[i % 25][i / 25][2 + (cabac_init_idc + 1) % 4 * 2]};
+			init[cabac_init_idc][227 + i] = (Pair){Table21[i % 25][i / 25][1 + cabac_init_idc * 2], Table21[i % 25][i / 25][2 + cabac_init_idc * 2]};
 		for (int i = 0; i < 61; i++)
-			init[cabac_init_idc][277 + i] = (Pair){Table22[i % 31][i / 31][1 + (cabac_init_idc + 1) % 4 * 2], Table22[i % 31][i / 31][2 + (cabac_init_idc + 1) % 4 * 2]};
+			init[cabac_init_idc][277 + i] = (Pair){Table22[i % 31][i / 31][1 + cabac_init_idc * 2], Table22[i % 31][i / 31][2 + cabac_init_idc * 2]};
 		for (int i = 0; i < 61; i++)
-			init[cabac_init_idc][338 + i] = (Pair){Table23[i % 31][i / 31][1 + (cabac_init_idc + 1) % 4 * 2], Table23[i % 31][i / 31][2 + (cabac_init_idc + 1) % 4 * 2]};
+			init[cabac_init_idc][338 + i] = (Pair){Table23[i % 31][i / 31][1 + cabac_init_idc * 2], Table23[i % 31][i / 31][2 + cabac_init_idc * 2]};
 		for (int i = 0; i < 58; i++)
-			init[cabac_init_idc][402 + i] = (Pair){Table24[i % 29][i / 29][1 + (cabac_init_idc + 1) % 4 * 2], Table24[i % 29][i / 29][2 + (cabac_init_idc + 1) % 4 * 2]};
+			init[cabac_init_idc][402 + i] = (Pair){Table24[i % 29][i / 29][1 + cabac_init_idc * 2], Table24[i % 29][i / 29][2 + cabac_init_idc * 2]};
 		for (int i = 0; i < 24; i++)
-			init[cabac_init_idc][460 + i] = (Pair){Table25[i % 12][i / 12][1 + (cabac_init_idc + 1) % 4 * 2], Table25[i % 12][i / 12][2 + (cabac_init_idc + 1) % 4 * 2]};
+			init[cabac_init_idc][460 + i] = (Pair){Table25[i % 12][i / 12][1 + cabac_init_idc * 2], Table25[i % 12][i / 12][2 + cabac_init_idc * 2]};
 		for (int i = 0; i < 88; i++)
-			init[cabac_init_idc][484 + i] = (Pair){Table26[i % 44][i / 44][1 + (cabac_init_idc + 1) % 4 * 2], Table26[i % 44][i / 44][2 + (cabac_init_idc + 1) % 4 * 2]};
+			init[cabac_init_idc][484 + i] = (Pair){Table26[i % 44][i / 44][1 + cabac_init_idc * 2], Table26[i % 44][i / 44][2 + cabac_init_idc * 2]};
 		for (int i = 0; i < 88; i++)
-			init[cabac_init_idc][572 + i] = (Pair){Table27[i % 44][i / 44][1 + (cabac_init_idc + 1) % 4 * 2], Table27[i % 44][i / 44][2 + (cabac_init_idc + 1) % 4 * 2]};
+			init[cabac_init_idc][572 + i] = (Pair){Table27[i % 44][i / 44][1 + cabac_init_idc * 2], Table27[i % 44][i / 44][2 + cabac_init_idc * 2]};
 		for (int i = 0; i < 58; i++)
-			init[cabac_init_idc][660 + i] = (Pair){Table28[i % 29][i / 29][1 + (cabac_init_idc + 1) % 4 * 2], Table28[i % 29][i / 29][2 + (cabac_init_idc + 1) % 4 * 2]};
+			init[cabac_init_idc][660 + i] = (Pair){Table28[i % 29][i / 29][1 + cabac_init_idc * 2], Table28[i % 29][i / 29][2 + cabac_init_idc * 2]};
 		for (int i = 0; i < 58; i++)
-			init[cabac_init_idc][718 + i] = (Pair){Table29[i % 29][i / 29][1 + (cabac_init_idc + 1) % 4 * 2], Table29[i % 29][i / 29][2 + (cabac_init_idc + 1) % 4 * 2]};
+			init[cabac_init_idc][718 + i] = (Pair){Table29[i % 29][i / 29][1 + cabac_init_idc * 2], Table29[i % 29][i / 29][2 + cabac_init_idc * 2]};
 		for (int i = 0; i < 88; i++)
-			init[cabac_init_idc][776 + i] = (Pair){Table30[i % 44][i / 44][1 + (cabac_init_idc + 1) % 4 * 2], Table30[i % 44][i / 44][2 + (cabac_init_idc + 1) % 4 * 2]};
+			init[cabac_init_idc][776 + i] = (Pair){Table30[i % 44][i / 44][1 + cabac_init_idc * 2], Table30[i % 44][i / 44][2 + cabac_init_idc * 2]};
 		for (int i = 0; i < 88; i++)
-			init[cabac_init_idc][864 + i] = (Pair){Table31[i % 44][i / 44][1 + (cabac_init_idc + 1) % 4 * 2], Table31[i % 44][i / 44][2 + (cabac_init_idc + 1) % 4 * 2]};
+			init[cabac_init_idc][864 + i] = (Pair){Table31[i % 44][i / 44][1 + cabac_init_idc * 2], Table31[i % 44][i / 44][2 + cabac_init_idc * 2]};
 		for (int i = 0; i < 60; i++)
-			init[cabac_init_idc][952 + i] = (Pair){Table32[i % 30][i / 30][1 + (cabac_init_idc + 1) % 4 * 2], Table32[i % 30][i / 30][2 + (cabac_init_idc + 1) % 4 * 2]};
+			init[cabac_init_idc][952 + i] = (Pair){Table32[i % 30][i / 30][1 + cabac_init_idc * 2], Table32[i % 30][i / 30][2 + cabac_init_idc * 2]};
 		for (int i = 0; i < 12; i++)
-			init[cabac_init_idc][1012 + i] = (Pair){Table33[i % 6][i / 6][1 + (cabac_init_idc + 1) % 4 * 2], Table33[i % 6][i / 6][2 + (cabac_init_idc + 1) % 4 * 2]};
+			init[cabac_init_idc][1012 + i] = (Pair){Table33[i % 6][i / 6][1 + cabac_init_idc * 2], Table33[i % 6][i / 6][2 + cabac_init_idc * 2]};
 	}
 	
 	// Now print the {m,n} pairs

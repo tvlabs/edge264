@@ -755,6 +755,7 @@ static void init_context_variables() {
 		__m128i shift = _mm_add_epi8(pStateIdx, pStateIdx);
 		*dst = _mm_add_epi8(_mm_add_epi8(shift, shift), _mm_add_epi8(mask, _mm_set1_epi8(1)));
 	}
+	s->s[276] = 252;
 }
 #endif
 
@@ -826,8 +827,8 @@ static __attribute__((noinline)) unsigned get_ae(unsigned ctxIdx) {
 	unsigned u = (s->codIOffset >= codIRangeMPS) ? s->s[ctxIdx] ^ 255 : s->s[ctxIdx];
 	unsigned long codIRange = (s->codIOffset >= codIRangeMPS) ? codIRangeLPS : codIRangeMPS;
 	unsigned long codIOffset = (s->codIOffset >= codIRangeMPS) ? s->codIOffset - codIRangeMPS : s->codIOffset;
-	fprintf(stderr, "%lu/%lu[%u]: (%u,%x)->(%u,%x)\n",
-		s->codIOffset >> (shift - 6), s->codIRange >> (shift - 6), ctxIdx,
+	fprintf(stderr, "%lu/%lu: (%u,%x)->(%u,%x)\n",
+		s->codIOffset >> (shift - 6), s->codIRange >> (shift - 6),
 		s->s[ctxIdx] >> 2, s->s[ctxIdx] & 1, transIdx[u] >> 2, transIdx[u] & 1);
 	s->s[ctxIdx] = transIdx[u];
 	s->codIRange = codIRange;
@@ -982,27 +983,23 @@ static __attribute__((noinline)) void parse_residual_block(unsigned endIdx)
 		s->codIOffset = (s->codIOffset >= s->codIRange) ? s->codIOffset - s->codIRange : s->codIOffset;
 		unsigned i = __builtin_ctzll(significant_coeff_flags);
 		s->residual_block[s->scan[i]] = coeff_level;
+		
+		// Approximates the reference software way of printing residual blocks.
+		fprintf(stderr, (s->ctxIdxOffsets[0] == 93) ? "Luma4x4: %d\n" :
+			(s->ctxIdxOffsets[0] == 468) ? "Cb4x4: %d\n" :
+			(s->ctxIdxOffsets[0] == 480) ? "Cr4x4: %d\n" :
+			(s->ctxIdxOffsets[0] == 1012) ? "Luma8x8: %d\n" :
+			(s->ctxIdxOffsets[0] == 1016) ? "Cb8x8: %d\n" :
+			(s->ctxIdxOffsets[0] == 1020) ? "Cr8x8: %d\n" :
+			(s->ctxIdxOffsets[0] == 85) ? "Luma16x16: %d\n" :
+			(s->ctxIdxOffsets[0] == 460) ? "Cb16x16: %d\n" :
+			(s->ctxIdxOffsets[0] == 472) ? "Cr16x16: %d\n" :
+			(s->ctxIdxOffsets[0] == 89) ? "Luma4x4: %d\n" :
+			(s->ctxIdxOffsets[0] == 464) ? "Cb4x4: %d\n" :
+			(s->ctxIdxOffsets[0] == 476) ? "Cr4x4: %d\n" :
+			(s->ctxIdxOffsets[0] == 97) ? "ChromaDC: %d\n" :
+			"ChromaAC: %d\n", s->residual_block[s->scan[i]]);
 	} while ((significant_coeff_flags &= significant_coeff_flags - 1) != 0);
-	
-	// Approximates the reference software way of printing residual blocks.
-	for (unsigned i = (s->f.b.transform_size_8x8_flag ? 64 : 16), j = 0; i-- > 0; j++) {
-		if (s->residual_block[s->scan[i]] != 0) {
-			fprintf(stderr, (s->ctxIdxOffsets[0] == 93) ? "Luma4x4[%u]: %d\n" :
-				(s->ctxIdxOffsets[0] == 468) ? "Cb4x4[%u]: %d\n" :
-				(s->ctxIdxOffsets[0] == 480) ? "Cr4x4[%u]: %d\n" :
-				(s->ctxIdxOffsets[0] == 1012) ? "Luma8x8[%u]: %d\n" :
-				(s->ctxIdxOffsets[0] == 1016) ? "Cb8x8[%u]: %d\n" :
-				(s->ctxIdxOffsets[0] == 1020) ? "Cr8x8[%u]: %d\n" :
-				(s->ctxIdxOffsets[0] == 85) ? "Luma16x16[%u]: %d\n" :
-				(s->ctxIdxOffsets[0] == 460) ? "Cb16x16[%u]: %d\n" :
-				(s->ctxIdxOffsets[0] == 472) ? "Cr16x16[%u]: %d\n" :
-				(s->ctxIdxOffsets[0] == 89) ? "Luma4x4[%u]: %d\n" :
-				(s->ctxIdxOffsets[0] == 464) ? "Cb4x4[%u]: %d\n" :
-				(s->ctxIdxOffsets[0] == 476) ? "Cr4x4[%u]: %d\n" :
-				(s->ctxIdxOffsets[0] == 97) ? "ChromaDC[%u]: %d\n" :
-				"ChromaAC[%u]: %d\n", j, s->residual_block[s->scan[i]]);
-		}
-	}
 }
 
 
@@ -1076,10 +1073,11 @@ static __attribute__((noinline)) void parse_chromaAC_residual_block(unsigned lum
 	unsigned DC = s->residual_block[16 + luma4x4BlkIdx];
 	s->residual_block_v[3] = s->residual_block_v[2] = s->residual_block_v[1] = s->residual_block_v[0] = (v4si){};
 	s->residual_block[0] = DC;
+	uint8_t left = left_chroma[luma4x4BlkIdx];
 	if (s->f.b.CodedBlockPatternChromaAC &&
-		get_ae(s->ctxIdxOffsets[0] + (s->f.coded_block_flags[1] >> left_chroma[luma4x4BlkIdx] & 3)))
+		get_ae(s->ctxIdxOffsets[0] + (s->f.coded_block_flags[1] >> left & 3)))
 	{
-		s->f.coded_block_flags[1] |= 1 << left_chroma[luma4x4BlkIdx] >> 4; // TODO: Optimise
+		s->f.coded_block_flags[1] |= 1 << left >> 2;
 		parse_residual_block(14);
 	}
 }
@@ -1091,19 +1089,21 @@ static __attribute__((noinline)) void parse_chromaAC_residual_block(unsigned lum
  * but doing so usually makes them produce much heavier code!
  */
 static __attribute__((noinline)) void parse_mb_qp_delta() {
-	if ((s->f.b.CodedBlockPatternLuma & 35 || s->f.b.CodedBlockPatternChromaDC) &&
-		get_ae(60 + s->mb_qp_delta_non_zero)) {
-		s->mb_qp_delta_non_zero = 1;
-		unsigned count = 1, ctxIdx = 62;
-		while (count < 89 && get_ae(ctxIdx))
-			count++, ctxIdx = 63;
-		int mb_qp_delta = (count & 1) ? count / 2 + 1 : -(count / 2);
-		int QP = s->ps.QP_Y + mb_qp_delta;
-		s->ps.QP_Y = (QP < -s->ps.QpBdOffset_Y) ? QP + 52 + s->ps.QpBdOffset_Y :
-			(QP >= 52) ? QP - (52 + s->ps.QpBdOffset_Y) : QP;
+	unsigned ctxIdxInc = s->mb_qp_delta_non_zero;
+	s->mb_qp_delta_non_zero = 0;
+	if (s->f.b.s & (Edge264_bits){.CodedBlockPatternChromaDC = 1, .CodedBlockPatternLuma = 0x35}.s) {
+		int mb_qp_delta = 0;
+		if (get_ae(60 + ctxIdxInc)) {
+			s->mb_qp_delta_non_zero |= 1;
+			unsigned count = 1, ctxIdx = 62;
+			while (count < 89 && get_ae(ctxIdx))
+				count++, ctxIdx = 63;
+			mb_qp_delta = (count & 1) ? count / 2 + 1 : -(count / 2);
+			int QP = s->ps.QP_Y + mb_qp_delta;
+			s->ps.QP_Y = (QP < -s->ps.QpBdOffset_Y) ? QP + 52 + s->ps.QpBdOffset_Y :
+				(QP >= 52) ? QP - (52 + s->ps.QpBdOffset_Y) : QP;
+		}
 		fprintf(stderr, "mb_qp_delta: %d\n", mb_qp_delta);
-	} else {
-		s->mb_qp_delta_non_zero = 0;
 	}
 }
 

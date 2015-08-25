@@ -32,7 +32,6 @@
  */
 
 #include "edge264_common.h"
-int parse_inter_mb_pred(uint64_t mask) {return 0;}
 
 // This Global Register Variable is a blessing since we make a lot of function calls.
 #ifndef __clang__
@@ -952,7 +951,7 @@ static __attribute__((noinline)) void parse_residual_block(unsigned endIdx)
 			uint32_t rem = codIOffset % codIRange;
 			
 			// 32bit/9bit division yields 23 bypass bits.
-			unsigned k = __builtin_clz(~(quo << 9)) - WORD_BIT + 32;
+			unsigned k = 32 - WORD_BIT + __builtin_clz(~(quo << 9));
 			unsigned shift = 9 + k;
 			if (__builtin_expect(k > 11, 0)) { // At k==11, code length is 23 bits.
 				s->codIRange = (unsigned long)codIRange << (LONG_BIT - 32);
@@ -967,7 +966,7 @@ static __attribute__((noinline)) void parse_residual_block(unsigned endIdx)
 			
 			// Return the unconsumed bypass bits to codIOffset, and compute coeff_level.
 			codIOffset = (-1U >> (1 + shift + k) & quo) * codIRange + rem;
-			s->codIRange = (unsigned long)codIRange << (LONG_BIT - 31 + shift + k);
+			s->codIRange = (unsigned long)codIRange << (LONG_BIT - 1 - shift - k);
 			s->codIOffset = (LONG_BIT == 32) ? codIOffset :
 				(uint32_t)s->codIOffset | (unsigned long)codIOffset << 32;
 			coeff_level = 14 + (1 << k) + (quo << shift >> (31 - k));
@@ -984,7 +983,7 @@ static __attribute__((noinline)) void parse_residual_block(unsigned endIdx)
 		unsigned i = __builtin_ctzll(significant_coeff_flags);
 		s->residual_block[s->scan[i]] = coeff_level;
 		
-		// Approximates the reference software way of printing residual blocks.
+		// Though not very efficient, this gets optimised out easily :)
 		fprintf(stderr, (s->ctxIdxOffsets[0] == 93) ? "Luma4x4: %d\n" :
 			(s->ctxIdxOffsets[0] == 468) ? "Cb4x4: %d\n" :
 			(s->ctxIdxOffsets[0] == 480) ? "Cr4x4: %d\n" :
@@ -1019,7 +1018,7 @@ static __attribute__((noinline)) void parse_4x4_residual_block(unsigned luma4x4B
 }
 
 static __attribute__((noinline)) void parse_8x8_residual_block(unsigned luma8x8BlkIdx) {
-	static const uint32_t cbf[4] = {0x04018408, 0x20300110, 0x100c0044, 0x010030810};
+	static const uint32_t cbf[4] = {0x04018408, 0x20300110, 0x100c0044, 0x01003081};
 	for (unsigned i = 0; i < 16; i++)
 		s->residual_block_v[i] = (v4si){};
 	if ((s->f.b.s & 1 << bit_8x8[luma8x8BlkIdx]) && (s->ps.ChromaArrayType != 3 ||
@@ -1033,7 +1032,7 @@ static __attribute__((noinline)) void parse_8x8_residual_block(unsigned luma8x8B
 static void parse_16x16DC_residual_block(unsigned iYCbCr) {
 	s->residual_block_v[7] = s->residual_block_v[6] = s->residual_block_v[5] = s->residual_block_v[4] = (v4si){};
 	if (get_ae(s->ctxIdxOffsets[0] + (s->ctxIdxInc.coded_block_flags_16x16 >> (2 * iYCbCr) & 3))) {
-		s->ctxIdxInc.coded_block_flags_16x16 |= 1 << (iYCbCr * 2);
+		s->f.b.coded_block_flags_16x16 |= 1 << (iYCbCr * 2);
 		parse_residual_block(15);
 	}
 }
@@ -1085,13 +1084,13 @@ static __attribute__((noinline)) void parse_chromaAC_residual_block(unsigned lum
 
 
 /**
- * These three small helper functions should certainly be inlined by compilers,
- * but doing so usually makes them produce much heavier code!
+ * These three helper functions should certainly be inlined by compilers, but
+ * doing so usually makes them produce much heavier code!
  */
-static __attribute__((noinline)) void parse_mb_qp_delta() {
+static __attribute__((noinline)) void parse_mb_qp_delta(unsigned bits) {
 	unsigned ctxIdxInc = s->mb_qp_delta_non_zero;
 	s->mb_qp_delta_non_zero = 0;
-	if (s->f.b.s & (Edge264_bits){.CodedBlockPatternChromaDC = 1, .CodedBlockPatternLuma = 0x35}.s) {
+	if (bits & (Edge264_bits){.CodedBlockPatternChromaDC = 1, .CodedBlockPatternLuma = 0x35}.s) {
 		int mb_qp_delta = 0;
 		if (get_ae(60 + ctxIdxInc)) {
 			s->mb_qp_delta_non_zero |= 1;
@@ -1166,8 +1165,8 @@ static __attribute__((noinline)) int parse_intra_mb_pred(unsigned ctxIdx) {
 		
 		// Overall code is much lighter with 4x4/8x8 sharing the parsing of IntraPredMode.
 		for (unsigned luma4x4BlkIdx = 0; luma4x4BlkIdx < 16; ) {
-			int8_t *edge = s->Intra4x4PredMode + intra2edge[luma4x4BlkIdx];
-			unsigned IntraPredMode = abs(min(edge[-1], edge[1]));
+			int8_t *pos = s->Intra4x4PredMode + intra_pos[luma4x4BlkIdx];
+			unsigned IntraPredMode = abs(min(pos[-1], pos[1]));
 			if (!get_ae(68)) {
 				unsigned rem_intra_pred_mode = get_ae(69);
 				rem_intra_pred_mode += get_ae(69) * 2;
@@ -1177,14 +1176,14 @@ static __attribute__((noinline)) int parse_intra_mb_pred(unsigned ctxIdx) {
 			} else {
 				fprintf(stderr, "intra_pred_mode: -1\n");
 			}
-			edge[0] = s->PredMode[luma4x4BlkIdx++] = IntraPredMode;
+			pos[0] = s->PredMode[luma4x4BlkIdx++] = IntraPredMode;
 			if (s->f.b.transform_size_8x8_flag)
-				edge[-1] = edge[1] = IntraPredMode, luma4x4BlkIdx += 3;
+				pos[-1] = pos[1] = IntraPredMode, luma4x4BlkIdx += 3;
 		}
 		
 		parse_intra_pred_mode();
 		parse_coded_block_pattern();
-		parse_mb_qp_delta();
+		parse_mb_qp_delta(s->f.b.s);
 		unsigned iYCbCr = s->colour_plane_id;
 		do {
 			if (!s->f.b.transform_size_8x8_flag) { // Intra_4x4
@@ -1219,11 +1218,11 @@ static __attribute__((noinline)) int parse_intra_mb_pred(unsigned ctxIdx) {
 			s->f.b.CodedBlockPatternChromaAC |= get_ae(umax(ctxIdx + 2, 8));
 		unsigned Intra16x16PredMode = get_ae(umax(ctxIdx + 3, 9)) << 1;
 		Intra16x16PredMode += get_ae(umax(ctxIdx + 3, 10));
-		fprintf(stderr, "mb_type: %u\n", (12 & s->f.b.CodedBlockPatternLuma) +
+		fprintf(stderr, "mb_type: %u\n", 12 * (s->f.b.CodedBlockPatternLuma & 1) +
 			4 * (s->f.b.CodedBlockPatternChromaDC + s->f.b.CodedBlockPatternChromaAC) +
 			Intra16x16PredMode + 1);
 		parse_intra_pred_mode();
-		parse_mb_qp_delta();
+		parse_mb_qp_delta(-1);
 		
 		// Thanks to the reverse order in significant_coeff_flags, we can reuse 4x4 stuff.
 		unsigned iYCbCr = s->colour_plane_id;
@@ -1280,7 +1279,7 @@ static __attribute__((noinline)) int parse_intra_mb_pred(unsigned ctxIdx) {
 
 
 
-/*static __attribute__((noinline)) int parse_inter_mb_pred(uint64_t mask) {
+static __attribute__((noinline)) int parse_inter_mb_pred(uint64_t mask) {
 	static const v16qi shufC_4xN[4] = {
 		{8, 10, 0, 2, 9, 11, 1, 3, 10, 12, 2, 2, 11, 13, 3, 3},
 		{6,  8, 0, 2, 7,  9, 1, 3,  8, 12, 2, 2,  9, 13, 3, 3},
@@ -1293,7 +1292,7 @@ static __attribute__((noinline)) int parse_intra_mb_pred(unsigned ctxIdx) {
 		{10,  8, 2, 0, 11,  9, 3, 1, -1, -1, -1, -1, -1, -1, -1, -1},
 		{ 6,  8, 2, 0,  7,  9, 3, 1, -1, -1, -1, -1, -1, -1, -1, -1},
 	};
-	static const v16qi initC_4xN[8] = {
+	static const v16qi mvC01_4xN[8] = {
 		{19, 19, 19, 19, 19, 19, 19, 19, 19, 19, 19, 15, 19, 19, 19, 15},
 		{15, -1, 19, 19, 15, -1, 19, 19, -1, 19, 19, 15, -1, 19, 19, 15},
 		{19, 19, 19, 19, 19, 19, 19, 19, 19, 15, 19, 15, 19, 15, 19, 15},
@@ -1303,67 +1302,75 @@ static __attribute__((noinline)) int parse_intra_mb_pred(unsigned ctxIdx) {
 		{19, 19, 19, 19, 19, 19, 19, 19, 19, 15, 19, 15, 19, 15, 19, 15},
 		{-1, -1, 19, 19, -1, -1, 19, 19, -1, -1, 19, 15, -1, -1, 19, 15},
 	};
-	static const v16qi initC_8xN[8] = {
+	static const v16qi mvC01_8xN[8] = {
 		{21, 21, 21, 15, 21, 21, 21, 15, 0, 0, 0, 0, 0, 0, 0, 0},
 		{15, 21, 21, 15, 15, 21, 21, 15, 0, 0, 0, 0, 0, 0, 0, 0},
 		{21, 15, 21, 15, 21, 15, 21, 15, 0, 0, 0, 0, 0, 0, 0, 0},
 		{15, -1, 21, 15, 15, -1, 21, 15, 0, 0, 0, 0, 0, 0, 0, 0},
-		{
+		{21, 21, 21, 15, 21, 21, 21, 15, 0, 0, 0, 0, 0, 0, 0, 0},
+		{-1, 21, 21, 15, -1, 21, 21, 15, 0, 0, 0, 0, 0, 0, 0, 0},
+		{21, 15, 21, 15, 21, 15, 21, 15, 0, 0, 0, 0, 0, 0, 0, 0},
+		{-1, -1, 21, 15, -1, -1, 21, 15, 0, 0, 0, 0, 0, 0, 0, 0},
 	};
 	
 	// Parsing for ref_idx_lX in P/B slices.
-	for (uint64_t m = mask & s->ref_idx_mask; m != 0; ) {
-		unsigned ctz = __builtin_ctz(m), i = ctz / 8;
-		m &= ~((uint64_t)0xff << ctz);
-		unsigned ctxIdxInc = (f->ref_idx_nz >> left_8x8[i]) & 3, refIdx = 0;
+	for (uint64_t m = mask & s->ref_idx_mask; m != 0; m &= m - 1) {
+		int8_t *pos = s->refIdx + ref_pos[__builtin_ctz(m) / 8];
+		unsigned ctxIdxInc = (pos[-2] > 0) + (pos[8] > 0) * 2, refIdx = 0;
 		
 		// This cannot loop forever since binVal would oscillate past the end of the RBSP.
 		while (get_ae(54 + ctxIdxInc))
 			refIdx++, ctxIdxInc = ctxIdxInc / 4 + 4; // cool trick from ffmpeg
-		f->ref_idx_nz |= (refIdx > 0) << bit8x8[i];
-		f->refIdx[i] = refIdx;
+		*pos = refIdx;
 	}
 	
 	// Compute refIdxA/B/C for subMbPart==0 (lower vector) and 1 (upper vector).
 	// 2 and 3 only need refIdxA which is the same anyway.
 	unsigned mask4xN = (unsigned)(mask >> 32 | mask) & 0x0c0c0c0c;
-	unsigned unavailBCD = (f->p.unavailable & 0xe) << 3;
-	unsigned unavailBC = unavailBCD & 0x30;
-	v16qi bot, top;
-	memcpy(&bot, s->refIdx_s - 1, 16);
+	v16qi left, top;
+	memcpy(&left, s->refIdx_s - 1, 16);
 	memcpy(&top, s->refIdx_s + 2, 16);
 	v16qi is8xN = (v16qi)(v4su){mask4xN, mask4xN, mask4xN, mask4xN} == (v16qi){};
-	v16qi refIdxC_4xN = byte_shuffle(top, *(v16qi *)((intptr_t)shufC_4xN + unavailBC));
-	v16qi refIdxC_8xN = byte_shuffle(top, *(v16qi *)((intptr_t)shufC_8xN + unavailBC));
-	v16qi refIdx = __builtin_shufflevector(bot, bot, 12, 14, 4, 6, 13, 15, 5, 7, 12, 14, 4, 6, 13, 15, 5, 7);
-	v16qi refIdxA = __builtin_shufflevector(bot, bot, 10, 12, 2, 4, 11, 13, 3, 5, 12, 14, 4, 6, 13, 15, 5, 7);
+	v16qi refIdxC_4xN = byte_shuffle(top, shufC_4xN[s->ctxIdxInc.s >> 23 & 3]);
+	v16qi refIdxC_8xN = byte_shuffle(top, shufC_8xN[s->ctxIdxInc.s >> 23 & 3]);
+	v16qi refIdx = __builtin_shufflevector(left, left, 12, 14, 4, 6, 13, 15, 5, 7, 12, 14, 4, 6, 13, 15, 5, 7);
+	v16qi refIdxA = __builtin_shufflevector(left, left, 10, 12, 2, 4, 11, 13, 3, 5, 12, 14, 4, 6, 13, 15, 5, 7);
 	v16qi refIdxB = __builtin_shufflevector(top, top, 8, 10, 0, 2, 9, 11, 1, 3, 8, 10, 0, 2, 9, 11, 1, 3);
 	v16qi refIdxC = vector_select(refIdxC_4xN, refIdxC_8xN, is8xN);
 	
-	// Load the initial neighbouring mv positions while applying 8.4.1.3.1-1
-	v16qi topC_4xN = *(v16qi *)((uintptr_t)initC_4xN + unavailBCD);
-	v16qi topC_8xN = *(v16qi *)((uintptr_t)initC_8xN + unavailBCD);
-	v16qi botC_4xN = {18, 18, 18, 18, 18, 18, 18, 18, 14, 14, 14, 14, 14, 14, 14, 14};
-	v16qi botC_8xN = {14, 14, 14, 14, 14, 14, 14, 14, 0, 0, 0, 0, 0, 0, 0, 0};
-	v16qi topA = {-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1};
-	v16qi topB = {17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17};
-	v16qi topC = vector_select(topC_4xN, topC_8xN, is8xN);
-	
-	// Now combine the two sets of vectors to apply 8.4.1.3.1-2
+	// With the same index order, compute relative mvC positions (see 8.4.1.3.1-1 and 8.4.1.3.2-3).
+	// The lowest bit enables direct prediction instead of median (8.4.1.3.1-2).
 	v16qi eqA = (refIdx == refIdxA);
 	v16qi eqB = (refIdx == refIdxB);
 	v16qi eqC = (refIdx == refIdxC);
-	v16qi med = (eqA + eqB + eqC == topA); // topA==-1
-	v16qi v = vector_select(topA, topB, eqB);
-	v16qi w = vector_select(v, topC, eqC);
-	v16qi x = vector_select(w, topC + topA, med);
-	v16qi botC = vector_select(botC_4xN, vector_select(topB, botC_8xN, eqA), is8xN);
+	v16qi mvA = {-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1};
+	v16qi mvB = {17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17};
+	v16qi mvC01 = vector_select(mvC01_4xN[s->ctxIdxInc.s >> 23], mvC01_8xN[s->ctxIdxInc.s >> 23], is8xN);
+	v16qi direct = (eqA + eqB + eqC == mvA); // mvA==-1
+	mvC01 = vector_select(vector_select(mvB | eqA, mvC01, eqC), mvC01 + mvA, direct);
+	v16qi mvC23_4xN = {18, 18, 18, 18, 18, 18, 18, 18, 14, 14, 14, 14, 14, 14, 14, 14};
+	v16qi mvC23_8xN = {14, 14, 14, 14, 14, 14, 14, 14, 0, 0, 0, 0, 0, 0, 0, 0};
+	v16qi mvC23 = vector_select(mvC23_4xN, vector_select(mvB, mvC23_8xN, eqA), is8xN);
 	
-	// Shuffle back these positions to z-scan parsing order and store them.
-	union { int8_t q[32]; v16qi v[2]; } posC;
-	posC.v[0] = __builtin_shufflevector(x, botC, 0, 8, 16, 24, 1, 9, 17, 25, 2, 10, 18, 26, 3, 11, 19, 27);
-	posC.v[1] = __builtin_shufflevector(x, botC, 4, 12, 20, 28, 5, 13, 21, 29, 6, 14, 22, 30, 7, 15, 23, 31);
-}*/
+	// Shuffle these positions to actual mv parsing order and store them.
+	union { int8_t q[32]; v16qi v[2]; } mvC;
+	mvC.v[0] = __builtin_shufflevector(mvC01, mvC23, 0, 8, 16, 24, 1, 9, 17, 25, 2, 10, 18, 26, 3, 11, 19, 27);
+	mvC.v[1] = __builtin_shufflevector(mvC01, mvC23, 4, 12, 20, 28, 5, 13, 21, 29, 6, 14, 22, 30, 7, 15, 23, 31);
+	
+	// Parsing for mvd_lX in P/B slices.
+	do {
+		unsigned compIdx = __builtin_ctzll(mask);
+		unsigned pos = mv_pos[compIdx];
+		unsigned ctxBase = (compIdx & 1) ? 49 : 42;
+		unsigned sum = s->absMvdComp[pos - 4] + s->absMvdComp[pos + 4];
+		unsigned ctxIdx = ctxBase - ((sum - 3) >> (WORD_BIT - 1)) - ((sum - 33) >> (WORD_BIT - 1));
+		int mvd = 0;
+		while (mvd < 9 && get_ae(ctxIdx))
+			ctxIdx = ctxBase + umin(++mvd, 4);
+		
+	} while (mask &= mask - 1);
+	return 0;
+}
 
 
 
@@ -1403,9 +1410,7 @@ static __attribute__((noinline)) int parse_inter_mb_type()
 		
 		// Parsing for sub_mb_type in P slices.
 		for (unsigned i = 0; str == 1 && i < 32; i += 8) {
-			unsigned f = get_ae(21) ? 0x03 :
-				!get_ae(22) ? 0x33 :
-				get_ae(23) ? 0x0f : 0xff;
+			unsigned f = get_ae(21) ? 0x03 : !get_ae(22) ? 0x33 : get_ae(23) ? 0x0f : 0xff;
 			fprintf(stderr, "sub_mb_type: %c\n", (f == 0x03) ? '0' : (f == 0x33) ? '1' : (f == 0x0f) ? '2' : '3');
 			flags += f << i;
 		}
@@ -1420,11 +1425,10 @@ static __attribute__((noinline)) int parse_inter_mb_type()
 		
 		// Most important here is the minimal number of conditional branches.
 		unsigned str = 4;
-		if (!get_ae(30) ||
-			(str = get_ae(31) * 8,
-			str += get_ae(32) * 4,
-			str += get_ae(32) * 2,
-			str += get_ae(32), str - 8 < 5))
+		if (!get_ae(30) || (str = get_ae(31),
+			str += str + get_ae(32),
+			str += str + get_ae(32),
+			str += str + get_ae(32), str - 8 < 5))
 		{
 			str += str + get_ae(32);
 		}
@@ -1440,10 +1444,10 @@ static __attribute__((noinline)) int parse_inter_mb_type()
 		for (unsigned i = 0; str == 15 && i < 32; i += 8) {
 			unsigned sub = 12;
 			if (get_ae(36)) {
-				if ((sub = 2, !get_ae(37)) ||
-					(sub = get_ae(38) * 4,
-					sub += get_ae(39) * 2,
-					sub += get_ae(39), sub - 4 < 2))
+				sub = 2;
+				if (!get_ae(37) || (sub = get_ae(38),
+					sub += sub + get_ae(39),
+					sub += sub + get_ae(39), sub - 4 < 2))
 				{
 					sub += sub + get_ae(39);
 				}
@@ -1487,6 +1491,7 @@ void CABAC_parse_slice_data(Edge264_slice *_s)
 	
 	// Mbaff shares all of the above functions except the code below.
 	if (!s->MbaffFrameFlag) {
+		s->ctxIdxInc.unavailable |= 2;
 		s->cbf_maskA = (v4si){0, 0x42404202, 0x42404202, 0x42404202};
 		s->cbf_maskB = (v4si){0, 0x88820820, 0x88820820, 0x88820820};
 		if (s->ps.ChromaArrayType != 3)
@@ -1500,7 +1505,6 @@ void CABAC_parse_slice_data(Edge264_slice *_s)
 		v4si flags[PicWidthInMbs + 2];
 		for (unsigned u = 0; u < PicWidthInMbs + 2; u++)
 			flags[u] = unavail_mb.v;
-		s->ctxIdxInc.unavailable |= 2;
 		s->flags_v = &flags[mb_x + 1];
 		uint32_t Intra4x4PredMode_s[mb_y + PicWidthInMbs + 2];
 		memset(Intra4x4PredMode_s, -2, sizeof(Intra4x4PredMode_s));
@@ -1545,12 +1549,11 @@ void CABAC_parse_slice_data(Edge264_slice *_s)
 			fprintf(stderr, "end_of_slice_flag: %x\n", end_of_slice_flag);
 			if (end_of_slice_flag)
 				break;
-			
 			*s->flags_v++ = s->f.v;
 			s->Intra4x4PredMode += 4;
-			s->refIdx_s += 4;
+			s->refIdx += 4;
 			s->mvs += 16;
-			s->absMvdComp_v += 16;
+			s->absMvdComp += 16;
 			s->p.mvs += 32;
 			s->p.mbs++;
 			s->x += 16;

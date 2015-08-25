@@ -34,7 +34,6 @@
 
 void print_frame(const Edge264_picture *p) {
 	printf("<li style='color:red'>Output %d</li>\n", min(p[0].PicOrderCnt, p[1].PicOrderCnt));
-	exit(0);
 }
 
 int main() {
@@ -43,7 +42,6 @@ int main() {
 	fstat(0, &st);
 	const uint8_t *r = mmap(NULL, st.st_size, PROT_READ, MAP_SHARED, 0, 0);
 	assert(r!=MAP_FAILED);
-	setvbuf(stdout, NULL, _IONBF, BUFSIZ);
 	
 	/* Parse and dump the file to HTML. */
 	printf("<!doctype html>\n"

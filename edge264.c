@@ -610,8 +610,8 @@ printf("<br/>\n");
 					l, s.ps.num_ref_idx_active[l]);
 			}
 		}
-		s.ref_idx_mask = (s.ps.num_ref_idx_active[0] > 1 ? 0xf : 0) |
-			(s.ps.num_ref_idx_active[1] > 1 ? 0xf0 : 0);
+		s.ref_idx_mask = (s.ps.num_ref_idx_active[0] > 1 ? 0x01010101 : 0) |
+			(uint64_t)(s.ps.num_ref_idx_active[1] > 1 ? 0x01010101 : 0) << 32;
 		parse_ref_pic_list_modification(&s, e);
 		parse_pred_weight_table(&s, e, OtherFieldOrderCnt);
 	}

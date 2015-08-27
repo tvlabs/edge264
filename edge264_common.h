@@ -46,6 +46,9 @@ static inline const char *red_if(int cond) { return (cond) ? " style=\"color: re
 #define fprintf(...)
 #endif
 
+
+
+// These constants may not be defined on all platforms, and do NOT deserve a config script.
 #ifndef WORD_BIT
 #if INT_MAX == 2147483647
 #define WORD_BIT 32
@@ -59,36 +62,25 @@ static inline const char *red_if(int cond) { return (cond) ? " style=\"color: re
 #endif
 #endif
 
-#if ULLONG_MAX == 18446744073709551615U
+#if INT_MAX == 2147483647
+#define clz32 __builtin_clz
+#define ctz32 __builtin_ctz
+#endif
+#if LLONG_MAX == 9223372036854775807
 #define clz64 __builtin_clzll
 #define ctz64 __builtin_ctzll
 #endif
 
 #if __BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__
-#define beswap32 __builtin_bswap32
-#define beswap64 __builtin_bswap64
-#elif __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
-#define beswap32(x) (x)
-#define beswap64(x) (x)
-#endif
-#if LONG_BIT == 32
-#define beswapl beswap32
-#elif LONG_BIT == 64
-#define beswapl beswap64
+#define big_endian32 __builtin_bswap32
+#define big_endian64 __builtin_bswap64
+#elif __BYTE_ORDER__ == __ORDER_BIG_ENDIAN_
+#define big_endian32(x) (x)
+#define big_endian64(x) (x)
 #endif
 
-static inline int min(int a, int b) { return (a < b) ? a : b; }
-static inline int max(int a, int b) { return (a > b) ? a : b; }
-static inline unsigned umin(unsigned a, unsigned b) { return (a < b) ? a : b; }
-static inline unsigned umax(unsigned a, unsigned b) { return (a > b) ? a : b; }
-static inline int median(int a, int b, int c) { return max(min(max(a, b), c), min(a, b)); }
 
 
-
-/**
- * Vector extensions are required mainly for P_Skip/B_Direct initialisation and
- * fast copying through union-type punning.
- */
 typedef int8_t v16qi __attribute__((vector_size(16)));
 typedef int16_t v8hi __attribute__((vector_size(16)));
 typedef int32_t v4si __attribute__((vector_size(16)));
@@ -120,89 +112,10 @@ static inline v16qi byte_shuffle(v16qi a, v16qi mask) {
 #define vector_select(f, t, mask) _mm_blendv_epi8((__m128i)(f), (__m128i)(t), (__m128i)(mask))
 #else
 #define vector_select(f, t, mask) (((t) & (mask)) | ((f) & ~(mask)))
-#define _mm_extract_epi32(a, i) \
-	_mm_cvtsi128_si32(_mm_shuffle_epi32(a, _MM_SHUFFLE(i, i, i, i)))
-static inline __m128i _mm_packus_epi32(__m128i a, __m128i b) {
-	return _mm_max_epi16(_mm_packs_epi32(a, b), _mm_setzero_si128());
-}
-static inline __m128i _mm_mullo_epi32(__m128i a, __m128i b) {
-	__m128i x0 = _mm_shuffle_epi32(a, _MM_SHUFFLE(0, 3, 0, 1));
-	__m128i x1 = _mm_shuffle_epi32(b, _MM_SHUFFLE(0, 3, 0, 1));
-	__m128i x2 = _mm_mul_epu32(a, b);
-	__m128i x3 = _mm_mul_epu32(x0, x1);
-	__m128 x4 = _mm_shuffle_ps((__m128)x2, (__m128)x3, _MM_SHUFFLE(2, 0, 2, 0));
-	return _mm_shuffle_epi32((__m128i)x4, _MM_SHUFFLE(3, 1, 2, 0));
-}
 #endif
 #else
 #error "Add -mssse3 or more recent"
 #endif
-
-
-
-/**
- * Read Exp-Golomb codes and bit sequences.
- *
- * upper and lower are the bounds allowed by the spec, which get_ue and get_se
- * use both as hints to choose the fastest input routine, and as clipping
- * parameters such that values are always bounded no matter the input stream.
- * To keep your code branchless, upper and lower shall always be constants.
- * Use min/max with get_raw_ue/get_raw_se to apply variable bounds.
- *
- * Since the validity of the read pointer is never checked, there must be a
- * "safe zone" filled with 0xff bytes past the input buffer, in which every call
- * to get_ue will consume only one bit. In other circumstances it never consumes
- * more than 63 bits.
- */
-static inline __attribute__((always_inline)) unsigned get_raw_ue(const uint8_t *CPB, unsigned *shift, unsigned upper) {
-	unsigned leadingZeroBits, res;
-	if (upper <= 31) {
-		uint16_t buf = ((CPB[*shift / 8] << 8) | CPB[*shift / 8 + 1]) << (*shift % 8);
-		leadingZeroBits = __builtin_clz(buf | 0x0400) - WORD_BIT + 16;
-		res = buf >> (16 - (2 * leadingZeroBits + 1));
-	} else if (upper <= 65534) {
-		unsigned msb = beswap32(((uint32_t *)CPB)[*shift / 32]);
-		unsigned lsb = beswap32(((uint32_t *)CPB)[(*shift + 31) / 32]);
-		uint32_t buf = (msb << (*shift % 32)) | (lsb >> (-*shift % 32));
-		leadingZeroBits = __builtin_clz(buf | 0x00010000) - WORD_BIT + 32;
-		res = buf >> (32 - (2 * leadingZeroBits + 1));
-	} else { // spec consciously uses upper<4294967295
-		uint64_t msb = beswap64(((uint64_t *)CPB)[*shift / 64]);
-		uint64_t lsb = beswap64(((uint64_t *)CPB)[(*shift + 63) / 64]);
-		uint64_t buf = (msb << (*shift % 64)) | (lsb >> (-*shift % 64));
-		leadingZeroBits = clz64(buf | 0x0000000100000000);
-		res = buf >> (64 - (2 * leadingZeroBits + 1));
-	}
-	*shift += 2 * leadingZeroBits + 1;
-	return res - 1;
-}
-
-static inline __attribute__((always_inline)) unsigned get_ue(const uint8_t *CPB, unsigned *shift, unsigned upper) {
-	return umin(get_raw_ue(CPB, shift, upper), upper);
-}
-
-static inline __attribute__((always_inline)) int get_raw_se(const uint8_t *CPB, unsigned *shift, int lower, int upper) {
-	unsigned codeNum = get_raw_ue(CPB, shift, umax(-lower * 2, upper * 2 - 1));
-	return (codeNum & 1) ? codeNum / 2 + 1 : -(codeNum / 2);
-}
-
-static inline __attribute__((always_inline)) int get_se(const uint8_t *CPB, unsigned *shift, int lower, int upper) {
-	return min(max(get_raw_se(CPB, shift, lower, upper), lower), upper);
-}
-
-static inline __attribute__((always_inline)) unsigned get_uv(const uint8_t *CPB, unsigned *shift, unsigned v) {
-	unsigned msb = beswap32(((uint32_t *)CPB)[*shift / 32]);
-	unsigned lsb = beswap32(((uint32_t *)CPB)[(*shift + 31) / 32]);
-	uint32_t buf = (msb << (*shift % 32)) | (lsb >> (-*shift % 32));
-	*shift += v;
-	return buf >> (32 - v);
-}
-
-static inline __attribute__((always_inline)) unsigned get_u1(const uint8_t *CPB, unsigned *shift) {
-	unsigned buf = CPB[*shift / 8] >> (7 - *shift % 8);
-	*shift += 1;
-	return buf & 1;
-}
 
 
 
@@ -248,7 +161,7 @@ typedef struct {
 	// Parsing context
 	unsigned long codIRange;
 	unsigned long codIOffset;
-	const uint8_t *CPB;
+	union { const uint32_t * restrict CPB; const uint64_t * restrict CPB_l; };
 	uint32_t shift;
 	uint32_t lim;
 	
@@ -315,6 +228,158 @@ static const uint8_t left_4x4[16] = {22, 10, 9, 15, 16, 4, 3, 20, 14, 2, 1, 18, 
 static const uint8_t bit_8x8[4] = {26, 29, 28, 24};
 static const uint8_t left_8x8[4] = {30, 26, 25, 28};
 static const uint8_t left_chroma[16] = {13, 11, 10, 8, 7, 5, 4, 2, 29, 27, 26, 24, 23, 21, 20, 18};
+
+
+
+// This Global Register Variable is a blessing since we make a lot of function calls.
+#ifndef __clang__
+register Edge264_slice *s asm(REG_S);
+#else
+static __thread Edge264_slice *s;
+#endif
+
+
+
+static inline int min(int a, int b) { return (a < b) ? a : b; }
+static inline int max(int a, int b) { return (a > b) ? a : b; }
+static inline unsigned umin(unsigned a, unsigned b) { return (a < b) ? a : b; }
+static inline unsigned umax(unsigned a, unsigned b) { return (a > b) ? a : b; }
+static inline int median(int a, int b, int c) { return max(min(max(a, b), c), min(a, b)); }
+
+
+
+/**
+ * Read Exp-Golomb codes and bit sequences.
+ *
+ * upper and lower are the bounds allowed by the spec, which get_ue and get_se
+ * use both as hints to choose the fastest input routine, and as clipping
+ * parameters such that values are always bounded no matter the input stream.
+ * To keep your code branchless, upper and lower shall always be constants.
+ * Use min/max with get_ue_N/map_se to apply variable bounds.
+ *
+ * Since the validity of the read pointer is never checked, there must be a
+ * "safe zone" after the RBSP filled with 0xff bytes, in which every call to
+ * get_ue will consume only one bit. In other circumstances it never consumes
+ * more than 63 bits.
+ */
+static unsigned get_u1() {
+	uint32_t buf = big_endian32(s->CPB[s->shift / 32]);
+	return buf << (s->shift++ % 32) >> 31;
+}
+static unsigned get_uv(unsigned v) {
+	uint64_t u;
+	memcpy(&u, s->CPB + s->shift / 32, 8);
+	uint32_t buf = big_endian64(u) << (s->shift % 32) >> 32;
+	s->shift += v;
+	return buf >> (32 - v);
+}
+// Parses Exp-Golomb codes up to 2^16-2
+static __attribute__((noinline)) unsigned get_ue_16() {
+	uint64_t u;
+	memcpy(&u, s->CPB + s->shift / 32, 8);
+	uint32_t buf = big_endian64(u) << (s->shift % 32) >> 32;
+	unsigned v = clz32(buf | 1 << 16) * 2 + 1;
+	s->shift += v;
+	return (buf >> (32 - v)) - 1;
+}
+// Parses Exp-Golomb codes up to 2^32-2
+static __attribute__((noinline)) unsigned get_ue_32() {
+	uint64_t u;
+	memcpy(&u, s->CPB + s->shift / 32, 8);
+	uint32_t buf = big_endian64(u) << (s->shift % 32) >> 32;
+	unsigned leadingZeroBits = clz32(buf | 1);
+	s->shift += leadingZeroBits;
+	return get_uv(leadingZeroBits + 1) - 1;
+}
+static inline __attribute__((always_inline)) unsigned get_ue(unsigned upper) { return umin((upper <= 65534) ? get_ue_16() : get_ue_32(), upper); }
+static inline __attribute__((always_inline)) int map_se(unsigned codeNum) { return (codeNum & 1) ? codeNum / 2 + 1 : -(codeNum / 2); }
+static inline __attribute__((always_inline)) int get_se(int lower, int upper) { return min(max(map_se((lower >= -32767 && upper <= 32767) ? get_ue_16() : get_ue_32()), lower), upper); }
+
+
+
+/**
+ * Read CABAC bins (9.3.3.2).
+ *
+ * In the spec, codIRange belongs to [256..510] (ninth bit set) and codIOffset
+ * is strictly less (9 significant bits). In the functions below, they cover
+ * the full range of a register, a shift right by LONG_BIT-9-clz(codIRange)
+ * yielding the original values.
+ */
+static __attribute__((noinline)) unsigned renorm(unsigned v, unsigned binVal) {
+	assert(v>0&&v<LONG_BIT);
+	unsigned long buf = -1; // favors codIOffset >= codIRange, thus binVal = !valMPS
+	if (s->shift < s->lim) {
+#if LONG_BIT == 32
+		uint64_t u;
+		memcpy(&u, s->CPB + s->shift / 32, 8);
+		buf = big_endian64(u) << (s->shift % 32) >> 32;
+#elif LONG_BIT == 64
+		__int128 u = (__int128)big_endian64(s->CPB_l[s->shift / 64]) << 64 |
+			big_endian64((s->CPB_l + 1)[s->shift / 64]);
+		buf = u << (s->shift % 64) >> 64;
+#endif
+	}
+	s->codIRange <<= v;
+	s->codIOffset = (s->codIOffset << v) | (buf >> (LONG_BIT - v));
+	s->shift += v;
+	return binVal; // Allows tail call from get_ae
+}
+
+static __attribute__((noinline)) unsigned get_ae(unsigned ctxIdx) {
+	static const uint8_t rangeTabLPS[64 * 4] = {
+		128, 176, 208, 240, 128, 167, 197, 227, 128, 158, 187, 216, 123, 150, 178, 205,
+		116, 142, 169, 195, 111, 135, 160, 185, 105, 128, 152, 175, 100, 122, 144, 166,
+		 95, 116, 137, 158,  90, 110, 130, 150,  85, 104, 123, 142,  81,  99, 117, 135,
+		 77,  94, 111, 128,  73,  89, 105, 122,  69,  85, 100, 116,  66,  80,  95, 110,
+		 62,  76,  90, 104,  59,  72,  86,  99,  56,  69,  81,  94,  53,  65,  77,  89,
+		 51,  62,  73,  85,  48,  59,  69,  80,  46,  56,  66,  76,  43,  53,  63,  72,
+		 41,  50,  59,  69,  39,  48,  56,  65,  37,  45,  54,  62,  35,  43,  51,  59,
+		 33,  41,  48,  56,  32,  39,  46,  53,  30,  37,  43,  50,  29,  35,  41,  48,
+		 27,  33,  39,  45,  26,  31,  37,  43,  24,  30,  35,  41,  23,  28,  33,  39,
+		 22,  27,  32,  37,  21,  26,  30,  35,  20,  24,  29,  33,  19,  23,  27,  31,
+		 18,  22,  26,  30,  17,  21,  25,  28,  16,  20,  23,  27,  15,  19,  22,  25,
+		 14,  18,  21,  24,  14,  17,  20,  23,  13,  16,  19,  22,  12,  15,  18,  21,
+		 12,  14,  17,  20,  11,  14,  16,  19,  11,  13,  15,  18,  10,  12,  15,  17,
+		 10,  12,  14,  16,   9,  11,  13,  15,   9,  11,  12,  14,   8,  10,  12,  14,
+		  8,   9,  11,  13,   7,   9,  11,  12,   7,   9,  10,  12,   7,   8,  10,  11,
+		  6,   8,   9,  11,   6,   7,   9,  10,   6,   7,   8,   9,   2,   2,   2,   2,
+	};
+	static const uint8_t transIdx[256] = {
+		  4,   5, 253, 252,   8,   9, 153, 152,  12,  13, 153, 152,  16,  17, 149, 148,
+		 20,  21, 149, 148,  24,  25, 149, 148,  28,  29, 145, 144,  32,  33, 145, 144,
+		 36,  37, 145, 144,  40,  41, 141, 140,  44,  45, 141, 140,  48,  49, 141, 140,
+		 52,  53, 137, 136,  56,  57, 137, 136,  60,  61, 133, 132,  64,  65, 133, 132,
+		 68,  69, 133, 132,  72,  73, 129, 128,  76,  77, 129, 128,  80,  81, 125, 124,
+		 84,  85, 121, 120,  88,  89, 121, 120,  92,  93, 121, 120,  96,  97, 117, 116,
+		100, 101, 117, 116, 104, 105, 113, 112, 108, 109, 109, 108, 112, 113, 109, 108,
+		116, 117, 105, 104, 120, 121, 105, 104, 124, 125, 101, 100, 128, 129,  97,  96,
+		132, 133,  97,  96, 136, 137,  93,  92, 140, 141,  89,  88, 144, 145,  89,  88,
+		148, 149,  85,  84, 152, 153,  85,  84, 156, 157,  77,  76, 160, 161,  77,  76,
+		164, 165,  73,  72, 168, 169,  73,  72, 172, 173,  65,  64, 176, 177,  65,  64,
+		180, 181,  61,  60, 184, 185,  61,  60, 188, 189,  53,  52, 192, 193,  53,  52,
+		196, 197,  49,  48, 200, 201,  45,  44, 204, 205,  45,  44, 208, 209,  37,  36,
+		212, 213,  37,  36, 216, 217,  33,  32, 220, 221,  29,  28, 224, 225,  25,  24,
+		228, 229,  21,  20, 232, 233,  17,  16, 236, 237,  17,  16, 240, 241,   9,   8,
+		244, 245,   9,   8, 248, 249,   5,   4, 248, 249,   1,   0, 252, 253,   0,   1,
+	};
+	
+	unsigned shift = LONG_BIT - 3 - __builtin_clzl(s->codIRange);
+	unsigned long codIRangeLPS = (long)(rangeTabLPS - 4)[(s->s[ctxIdx] & -4) + (s->codIRange >> shift)] << (shift - 6);
+	unsigned long codIRangeMPS = s->codIRange - codIRangeLPS;
+	unsigned u = (s->codIOffset >= codIRangeMPS) ? s->s[ctxIdx] ^ 255 : s->s[ctxIdx];
+	unsigned long codIRange = (s->codIOffset >= codIRangeMPS) ? codIRangeLPS : codIRangeMPS;
+	unsigned long codIOffset = (s->codIOffset >= codIRangeMPS) ? s->codIOffset - codIRangeMPS : s->codIOffset;
+	fprintf(stderr, "%lu/%lu: (%u,%x)->(%u,%x)\n",
+		s->codIOffset >> (shift - 6), s->codIRange >> (shift - 6),
+		s->s[ctxIdx] >> 2, s->s[ctxIdx] & 1, transIdx[u] >> 2, transIdx[u] & 1);
+	s->s[ctxIdx] = transIdx[u];
+	s->codIRange = codIRange;
+	s->codIOffset = codIOffset;
+	unsigned binVal = u & 1;
+	if (__builtin_expect(s->codIRange < 256, 0))
+		return renorm(__builtin_clzl(s->codIRange) - 1, binVal);
+	return binVal;
+}
 
 
 

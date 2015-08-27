@@ -33,13 +33,6 @@
 
 #include "edge264_common.h"
 
-// This Global Register Variable is a blessing since we make a lot of function calls.
-#ifndef __clang__
-register Edge264_slice *s asm(REG_S);
-#else
-static __thread Edge264_slice *s;
-#endif
-
 // cabac_init_idc==0 for I frames.
 static const int8_t context_init[4][1024][2] __attribute__((aligned(16))) = {{
 	{  20, -15}, {   2,  54}, {   3,  74}, {  20, -15}, {   2,  54}, {   3,  74},
@@ -757,86 +750,6 @@ static void init_context_variables() {
 	s->s[276] = 252;
 }
 #endif
-
-
-
-/**
- * Read CABAC bins (9.3.3.2).
- *
- * In the spec, codIRange belongs to [256..510] (ninth bit set) and codIOffset
- * is strictly less (9 significant bits). In the functions below, they cover
- * the full range of a register, a shift right by LONG_BIT-9-clz(codIRange)
- * yielding the original values.
- */
-static __attribute__((noinline)) unsigned renorm(unsigned v, unsigned binVal) {
-	assert(v>0&&v<LONG_BIT);
-	unsigned long buf = -1; // favors codIOffset >= codIRange, thus binVal = !valMPS
-	if (s->shift < s->lim) {
-		unsigned long msb = beswapl(((unsigned long *)s->CPB)[s->shift / LONG_BIT]);
-		unsigned long lsb = beswapl(((unsigned long *)s->CPB)[(s->shift + LONG_BIT - 1) / LONG_BIT]);
-		buf = (msb << s->shift % LONG_BIT) | (lsb >> -s->shift % LONG_BIT);
-	}
-	s->codIRange <<= v;
-	s->codIOffset = (s->codIOffset << v) | (buf >> (LONG_BIT - v));
-	s->shift += v;
-	return binVal; // Allows tail call from get_ae
-}
-
-static __attribute__((noinline)) unsigned get_ae(unsigned ctxIdx) {
-	static const uint8_t rangeTabLPS[64 * 4] = {
-		128, 176, 208, 240, 128, 167, 197, 227, 128, 158, 187, 216, 123, 150, 178, 205,
-		116, 142, 169, 195, 111, 135, 160, 185, 105, 128, 152, 175, 100, 122, 144, 166,
-		 95, 116, 137, 158,  90, 110, 130, 150,  85, 104, 123, 142,  81,  99, 117, 135,
-		 77,  94, 111, 128,  73,  89, 105, 122,  69,  85, 100, 116,  66,  80,  95, 110,
-		 62,  76,  90, 104,  59,  72,  86,  99,  56,  69,  81,  94,  53,  65,  77,  89,
-		 51,  62,  73,  85,  48,  59,  69,  80,  46,  56,  66,  76,  43,  53,  63,  72,
-		 41,  50,  59,  69,  39,  48,  56,  65,  37,  45,  54,  62,  35,  43,  51,  59,
-		 33,  41,  48,  56,  32,  39,  46,  53,  30,  37,  43,  50,  29,  35,  41,  48,
-		 27,  33,  39,  45,  26,  31,  37,  43,  24,  30,  35,  41,  23,  28,  33,  39,
-		 22,  27,  32,  37,  21,  26,  30,  35,  20,  24,  29,  33,  19,  23,  27,  31,
-		 18,  22,  26,  30,  17,  21,  25,  28,  16,  20,  23,  27,  15,  19,  22,  25,
-		 14,  18,  21,  24,  14,  17,  20,  23,  13,  16,  19,  22,  12,  15,  18,  21,
-		 12,  14,  17,  20,  11,  14,  16,  19,  11,  13,  15,  18,  10,  12,  15,  17,
-		 10,  12,  14,  16,   9,  11,  13,  15,   9,  11,  12,  14,   8,  10,  12,  14,
-		  8,   9,  11,  13,   7,   9,  11,  12,   7,   9,  10,  12,   7,   8,  10,  11,
-		  6,   8,   9,  11,   6,   7,   9,  10,   6,   7,   8,   9,   2,   2,   2,   2,
-	};
-	static const uint8_t transIdx[256] = {
-		  4,   5, 253, 252,   8,   9, 153, 152,  12,  13, 153, 152,  16,  17, 149, 148,
-		 20,  21, 149, 148,  24,  25, 149, 148,  28,  29, 145, 144,  32,  33, 145, 144,
-		 36,  37, 145, 144,  40,  41, 141, 140,  44,  45, 141, 140,  48,  49, 141, 140,
-		 52,  53, 137, 136,  56,  57, 137, 136,  60,  61, 133, 132,  64,  65, 133, 132,
-		 68,  69, 133, 132,  72,  73, 129, 128,  76,  77, 129, 128,  80,  81, 125, 124,
-		 84,  85, 121, 120,  88,  89, 121, 120,  92,  93, 121, 120,  96,  97, 117, 116,
-		100, 101, 117, 116, 104, 105, 113, 112, 108, 109, 109, 108, 112, 113, 109, 108,
-		116, 117, 105, 104, 120, 121, 105, 104, 124, 125, 101, 100, 128, 129,  97,  96,
-		132, 133,  97,  96, 136, 137,  93,  92, 140, 141,  89,  88, 144, 145,  89,  88,
-		148, 149,  85,  84, 152, 153,  85,  84, 156, 157,  77,  76, 160, 161,  77,  76,
-		164, 165,  73,  72, 168, 169,  73,  72, 172, 173,  65,  64, 176, 177,  65,  64,
-		180, 181,  61,  60, 184, 185,  61,  60, 188, 189,  53,  52, 192, 193,  53,  52,
-		196, 197,  49,  48, 200, 201,  45,  44, 204, 205,  45,  44, 208, 209,  37,  36,
-		212, 213,  37,  36, 216, 217,  33,  32, 220, 221,  29,  28, 224, 225,  25,  24,
-		228, 229,  21,  20, 232, 233,  17,  16, 236, 237,  17,  16, 240, 241,   9,   8,
-		244, 245,   9,   8, 248, 249,   5,   4, 248, 249,   1,   0, 252, 253,   0,   1,
-	};
-	
-	unsigned shift = LONG_BIT - 3 - __builtin_clzl(s->codIRange);
-	unsigned long codIRangeLPS = (long)(rangeTabLPS - 4)[(s->s[ctxIdx] & -4) + (s->codIRange >> shift)] << (shift - 6);
-	unsigned long codIRangeMPS = s->codIRange - codIRangeLPS;
-	unsigned u = (s->codIOffset >= codIRangeMPS) ? s->s[ctxIdx] ^ 255 : s->s[ctxIdx];
-	unsigned long codIRange = (s->codIOffset >= codIRangeMPS) ? codIRangeLPS : codIRangeMPS;
-	unsigned long codIOffset = (s->codIOffset >= codIRangeMPS) ? s->codIOffset - codIRangeMPS : s->codIOffset;
-	fprintf(stderr, "%lu/%lu: (%u,%x)->(%u,%x)\n",
-		s->codIOffset >> (shift - 6), s->codIRange >> (shift - 6),
-		s->s[ctxIdx] >> 2, s->s[ctxIdx] & 1, transIdx[u] >> 2, transIdx[u] & 1);
-	s->s[ctxIdx] = transIdx[u];
-	s->codIRange = codIRange;
-	s->codIOffset = codIOffset;
-	unsigned binVal = u & 1;
-	if (__builtin_expect(s->codIRange < 256, 0))
-		return renorm(__builtin_clzl(s->codIRange) - 1, binVal);
-	return binVal;
-}
 
 
 

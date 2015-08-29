@@ -1166,9 +1166,9 @@ static __attribute__((noinline)) int parse_intra_mb_pred(unsigned ctxIdx) {
 		s->mb_qp_delta_non_zero = 0;
 		s->shift = (s->shift - (LONG_BIT - 9 - __builtin_clzl(s->codIRange)) + 7) & -8;
 		for (unsigned i = 0; i < 256; i++)
-			get_uv(s->CPB, &s->shift, s->ps.BitDepth[0]);
+			get_uv(s->ps.BitDepth[0]);
 		for (unsigned i = 0; i < (1 << s->ps.ChromaArrayType >> 1) * 128; i++)
-			get_uv(s->CPB, &s->shift, s->ps.BitDepth[1]);
+			get_uv(s->ps.BitDepth[1]);
 		return 0;
 	}
 	
@@ -1374,7 +1374,7 @@ static __attribute__((noinline)) int parse_inter_mb_type()
 
 
 
-void CABAC_parse_slice_data(Edge264_slice *_s)
+void CABAC_parse_slice_data()
 {
 	static const Edge264_flags unavail_mb = {
 		.b.mb_skip_flag = 1,
@@ -1389,8 +1389,6 @@ void CABAC_parse_slice_data(Edge264_slice *_s)
 		.coded_block_flags_16x16 = 0x15,
 		.unavailable = 1,
 	};
-	Edge264_slice *old_s = s;
-	s = _s;
 	
 	// cabac_alignment_one_bit shall be tested in the future for error concealment.
 	if ((~s->CPB[s->shift / 8] << (1 + (s->shift - 1) % 8) & 0xff) != 0)
@@ -1483,5 +1481,4 @@ void CABAC_parse_slice_data(Edge264_slice *_s)
 			}
 		}
 	}
-	s = old_s;
 }

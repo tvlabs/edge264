@@ -68,7 +68,7 @@ typedef struct {
 	uint16_t frame_crop_bottom_offset; // in luma samples
 	int32_t offset_for_non_ref_pic; // pic_order_cnt_type==1
 	int32_t offset_for_top_to_bottom_field; // pic_order_cnt_type==1
-	uint8_t weightScale4x4[6][16] __attribute__((aligned));
+	uint8_t weightScale4x4[6][16] __attribute__((aligned(16)));
 	uint8_t weightScale8x8[6][64] __attribute__((aligned));
 } Edge264_parameter_set;
 typedef struct {

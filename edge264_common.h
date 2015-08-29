@@ -40,10 +40,10 @@
 #include <stdio.h>
 static inline const char *red_if(int cond) { return (cond) ? " style=\"color: red\"" : ""; }
 #else
-#define printf(...)
+#define printf(...) ((void)0)
 #endif
 #if TRACE != 2
-#define fprintf(...)
+#define fprintf(...) ((void)0)
 #endif
 
 
@@ -109,7 +109,7 @@ static inline v16qi byte_shuffle(v16qi a, v16qi mask) {
 }
 #ifdef __SSE4_1__
 #include <smmintrin.h>
-#define vector_select(f, t, mask) _mm_blendv_epi8((__m128i)(f), (__m128i)(t), (__m128i)(mask))
+#define vector_select(f, t, mask) (typeof(f))_mm_blendv_epi8((__m128i)(f), (__m128i)(t), (__m128i)(mask))
 #else
 #define vector_select(f, t, mask) (((t) & (mask)) | ((f) & ~(mask)))
 #endif
@@ -159,11 +159,11 @@ typedef union { struct {
 }; v4si v; } Edge264_flags;
 typedef struct {
 	// Parsing context
-	unsigned long codIRange;
-	unsigned long codIOffset;
 	union { const uint32_t * restrict CPB; const uint64_t * restrict CPB_l; };
 	uint32_t shift;
 	uint32_t lim;
+	unsigned long codIRange;
+	unsigned long codIOffset;
 	
 	// Bitfields come next since they represent most accesses
 	uint32_t colour_plane_id:2;
@@ -274,7 +274,7 @@ static unsigned get_uv(unsigned v) {
 	return buf >> (32 - v);
 }
 // Parses Exp-Golomb codes up to 2^16-2
-static __attribute__((noinline)) unsigned get_ue_16() {
+static __attribute__((noinline)) unsigned get_ue16() {
 	uint64_t u;
 	memcpy(&u, s->CPB + s->shift / 32, 8);
 	uint32_t buf = big_endian64(u) << (s->shift % 32) >> 32;
@@ -283,7 +283,7 @@ static __attribute__((noinline)) unsigned get_ue_16() {
 	return (buf >> (32 - v)) - 1;
 }
 // Parses Exp-Golomb codes up to 2^32-2
-static __attribute__((noinline)) unsigned get_ue_32() {
+static __attribute__((noinline)) unsigned get_ue32() {
 	uint64_t u;
 	memcpy(&u, s->CPB + s->shift / 32, 8);
 	uint32_t buf = big_endian64(u) << (s->shift % 32) >> 32;
@@ -291,9 +291,9 @@ static __attribute__((noinline)) unsigned get_ue_32() {
 	s->shift += leadingZeroBits;
 	return get_uv(leadingZeroBits + 1) - 1;
 }
-static inline __attribute__((always_inline)) unsigned get_ue(unsigned upper) { return umin((upper <= 65534) ? get_ue_16() : get_ue_32(), upper); }
+static inline __attribute__((always_inline)) unsigned get_ue(unsigned upper) { return umin((upper <= 65534) ? get_ue16() : get_ue32(), upper); }
 static inline __attribute__((always_inline)) int map_se(unsigned codeNum) { return (codeNum & 1) ? codeNum / 2 + 1 : -(codeNum / 2); }
-static inline __attribute__((always_inline)) int get_se(int lower, int upper) { return min(max(map_se((lower >= -32767 && upper <= 32767) ? get_ue_16() : get_ue_32()), lower), upper); }
+static inline __attribute__((always_inline)) int get_se(int lower, int upper) { return min(max(map_se((lower >= -32767 && upper <= 32767) ? get_ue16() : get_ue32()), lower), upper); }
 
 
 

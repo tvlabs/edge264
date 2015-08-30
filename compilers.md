@@ -1,6 +1,13 @@
 Deficiencies found in compilers
 ================================
 
+Global Register Variables
+-------------------------
+
+Bypassing the register allocator to keep the context pointer in a single register. Though reluctant to use it initially, this has proven to be extremely efficient. Both gcc and clang had the nasty tendency to spill this pointer to stack in almost every function, though it is constantly in use. This also removes the first argument from *every single function* in `edge264_cabac.c`. As a virtuous side-effect, it also made me pack some previously-split structures into this single context, reducing the number of live pointers and parameters even further.
+
+**Supported** by gcc (though it forbids ebp sometimes), **unsupported** by clang. This is the sole reason for gcc outperforming clang in my benchmarks :)
+
 Support for nested switches
 ---------------------------
 
@@ -33,6 +40,6 @@ case 2 .. 4:
 
 The inner switches must merge their branch tables with the outermost one, such that only the first table-jump is conditional, the rest being straight jumps down towards the tree root.
 
-I use this technique in edge264 to dispatch the decoding of Intra prediction samples (see edge264_decode.c). An alternative would be to put each leaf in a single function, create a call-table, and branch to the root with tail calls (which are optimised into simple jumps). However I need to pass 8 vectors between these functions, which cannot fit in registers.
+I use this technique in edge264 to dispatch the decoding of Intra prediction samples (see `edge264_intra_ssse3.c`). An alternative is to put each leaf in a single function, create a call-table, and branch to the root with tail calls (which are optimised into simple jumps), but here I need to pass 8 vectors, which would not fit in registers for any call convention.
 
-**Unsupported** by gcc while **supported** by clang.
+**Unsupported** by gcc, **supported** by clang.

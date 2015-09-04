@@ -762,7 +762,7 @@ static void parse_scaling_lists()
 	do {
 		const v16qu *d8x8 = Default_8x8_Intra;
 		do {
-			printf("<li>weightScale8x8[%u]: <code>", ((uint8_t *)w8x8 - s->ps.weightScale8x8) / 64);
+			printf("<li>weightScale8x8[%u]: <code>", ((uint8_t *)w8x8 - s->ps.weightScale8x8[0]) / 64);
 			const char *str = ((uint8_t *)w8x8 < s->ps.weightScale8x8[2]) ? "existing" : "weightScale8x8[%u]";
 			const v16qu *src = v8x8;
 			uint8_t nextScale;
@@ -771,7 +771,7 @@ static void parse_scaling_lists()
 				w8x8[1] = src[1];
 				w8x8[2] = src[2];
 				w8x8[3] = src[3];
-				printf(str, ((uint8_t *)w8x8 - s->ps.weightScale8x8) / 64 - 2);
+				printf(str, ((uint8_t *)w8x8 - s->ps.weightScale8x8[0]) / 64 - 2);
 			} else {
 				uint8_t lastScale = nextScale;
 				unsigned j = 0;

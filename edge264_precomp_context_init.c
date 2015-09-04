@@ -564,13 +564,13 @@ int main()
 	Pair init[4][1024] = {0};
 	for (int i = 0; i < 11; i++)
 		init[0][i] = init[1][i] = init[2][i] = init[3][i] = (Pair){Table12[0][i], Table12[1][i]};
-	for (int cabac_init_idc = 1; cabac_init_idc < 4; cabac_init_idc++) {
+	for (int cabac_init_idc = 0; cabac_init_idc < 3; cabac_init_idc++) {
 		for (int i = 0; i < 13; i++)
-			init[cabac_init_idc][11 + i] = (Pair){Table13[cabac_init_idc][0][i], Table13[cabac_init_idc][1][i]};
+			init[cabac_init_idc + 1][11 + i] = (Pair){Table13[cabac_init_idc][0][i], Table13[cabac_init_idc][1][i]};
 		for (int i = 0; i < 16; i++)
-			init[cabac_init_idc][24 + i] = (Pair){Table14[cabac_init_idc][0][i], Table14[cabac_init_idc][1][i]};
+			init[cabac_init_idc + 1][24 + i] = (Pair){Table14[cabac_init_idc][0][i], Table14[cabac_init_idc][1][i]};
 		for (int i = 0; i < 14; i++)
-			init[cabac_init_idc][40 + i] = (Pair){Table15[cabac_init_idc][0][i], Table15[cabac_init_idc][1][i]};
+			init[cabac_init_idc + 1][40 + i] = (Pair){Table15[cabac_init_idc][0][i], Table15[cabac_init_idc][1][i]};
 	}
 	for (int cabac_init_idc = 0; cabac_init_idc < 4; cabac_init_idc++) {
 		for (int i = 0; i < 6; i++)

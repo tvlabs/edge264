@@ -44,6 +44,8 @@ static inline const char *red_if(int cond) { return (cond) ? " style=\"color: re
 #endif
 #if TRACE != 2
 #define fprintf(...) ((void)0)
+#else
+#define fprintf(...) if (s->p.FrameNum == 1) fprintf(__VA_ARGS__)
 #endif
 
 
@@ -235,7 +237,7 @@ static const uint8_t left_chroma[16] = {13, 11, 10, 8, 7, 5, 4, 2, 29, 27, 26, 2
 #ifndef __clang__
 register Edge264_slice *s asm(REG_S);
 #else
-static __thread Edge264_slice *s;
+__thread Edge264_slice *s;
 #endif
 
 
@@ -255,7 +257,7 @@ static inline int median(int a, int b, int c) { return max(min(max(a, b), c), mi
  * use both as hints to choose the fastest input routine, and as clipping
  * parameters such that values are always bounded no matter the input stream.
  * To keep your code branchless, upper and lower shall always be constants.
- * Use min/max with get_ue_N/map_se to apply variable bounds.
+ * Use min/max with get_ueN/map_se to apply variable bounds.
  *
  * Since the validity of the read pointer is never checked, there must be a
  * "safe zone" after the RBSP filled with 0xff bytes, in which every call to
@@ -369,8 +371,8 @@ static __attribute__((noinline)) unsigned get_ae(unsigned ctxIdx) {
 	unsigned u = (s->codIOffset >= codIRangeMPS) ? s->s[ctxIdx] ^ 255 : s->s[ctxIdx];
 	unsigned long codIRange = (s->codIOffset >= codIRangeMPS) ? codIRangeLPS : codIRangeMPS;
 	unsigned long codIOffset = (s->codIOffset >= codIRangeMPS) ? s->codIOffset - codIRangeMPS : s->codIOffset;
-	fprintf(stderr, "%lu/%lu: (%u,%x)->(%u,%x)\n",
-		s->codIOffset >> (shift - 6), s->codIRange >> (shift - 6),
+	fprintf(stderr, "%lu/%lu[%u]: (%u,%x)->(%u,%x)\n",
+		s->codIOffset >> (shift - 6), s->codIRange >> (shift - 6), ctxIdx,
 		s->s[ctxIdx] >> 2, s->s[ctxIdx] & 1, transIdx[u] >> 2, transIdx[u] & 1);
 	s->s[ctxIdx] = transIdx[u];
 	s->codIRange = codIRange;

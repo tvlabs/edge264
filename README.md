@@ -42,12 +42,12 @@ The test program takes a raw Annex-B bitstream and prints out the parsing data:
 `make`
 `./edge264_test <video.264 >headers.html 2>dump.txt`
 
-Main characteristics:
+Improvements versus existing decoders:
 * Minimalistic API (2 functions)
-* Inserting set bits past the RBSP allows removing most overflow checks when parsing headers
-* A new CABAC core representation yields less renormalisations and allows batch-decoding bypass bits
+* A general overflow protection mechanism for headers, based on inserting set bits past the RBSP
+* A new CABAC core representation yields fewer costly renormalisations and allows batch-decoding bypass bits
 * Neighbouring flags are stored with compact bit patterns, while precomputing ctxIdx increments for CABAC
-* Neighbouring values are stored in circular buffers, yielding excellent cache locality along with low runtime memory use
+* Neighbouring values are stored in circular buffers, giving excellent cache locality along with low runtime memory use
 * Storing the context pointer in a Global Register Variable makes a huge difference, because each function gets one less parameter to pass, and register allocators are not that good anyway :)
 * 8-14 bit samples decoding all share a single code path without macros (i.e. all use 14 bit code, with only a branch for the fast 8 bit DCT), which makes maintenance fairly easy
 * Extensive use of gcc's vector extensions, for portable decoding of samples indeed, but also for manually copying chunks of data, and in lots of unexpected areas :)

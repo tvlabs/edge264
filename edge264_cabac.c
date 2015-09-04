@@ -208,14 +208,14 @@ static const int8_t context_init[4][1024][2] __attribute__((aligned(16))) = {{
 	{  -3,  70}, {  -8,  93}, { -10,  90}, { -30, 127},
 	}, {
 	{  20, -15}, {   2,  54}, {   3,  74}, {  20, -15}, {   2,  54}, {   3,  74},
-	{ -28, 127}, { -23, 104}, {  -6,  53}, {  -1,  54}, {   7,  51}, {  22,  25},
-	{  34,   0}, {  16,   0}, {  -2,   9}, {   4,  41}, { -29, 118}, {   2,  65},
-	{  -6,  71}, { -13,  79}, {   5,  52}, {   9,  50}, {  -3,  70}, {  10,  54},
-	{  26,  34}, {  19,  22}, {  40,   0}, {  57,   2}, {  41,  36}, {  26,  69},
-	{ -45, 127}, { -15, 101}, {  -4,  76}, {  -6,  71}, { -13,  79}, {   5,  52},
-	{   6,  69}, { -13,  90}, {   0,  52}, {   8,  43}, {  -2,  69}, {  -5,  82},
-	{ -10,  96}, {   2,  59}, {   2,  75}, {  -3,  87}, {  -3, 100}, {   1,  56},
-	{  -3,  74}, {  -6,  85}, {   0,  59}, {  -3,  81}, {  -7,  86}, {  -5,  95},
+	{ -28, 127}, { -23, 104}, {  -6,  53}, {  -1,  54}, {   7,  51}, {  23,  33},
+	{  23,   2}, {  21,   0}, {   1,   9}, {   0,  49}, { -37, 118}, {   5,  57},
+	{ -13,  78}, { -11,  65}, {   1,  62}, {  12,  49}, {  -4,  73}, {  17,  50},
+	{  18,  64}, {   9,  43}, {  29,   0}, {  26,  67}, {  16,  90}, {   9, 104},
+	{ -46, 127}, { -20, 104}, {   1,  67}, { -13,  78}, { -11,  65}, {   1,  62},
+	{  -6,  86}, { -17,  95}, {  -6,  61}, {   9,  45}, {  -3,  69}, {  -6,  81},
+	{ -11,  96}, {   6,  55}, {   7,  67}, {  -5,  86}, {   2,  88}, {   0,  58},
+	{  -3,  76}, { -10,  94}, {   5,  54}, {   4,  69}, {  -3,  81}, {   0,  88},
 	{  -7,  67}, {  -5,  74}, {  -4,  74}, {  -5,  80}, {  -7,  72}, {   1,  58},
 	{   0,  41}, {   0,  63}, {   0,  63}, {   0,  63}, {  -9,  83}, {   4,  86},
 	{   0,  97}, {  -7,  72}, {  13,  41}, {   3,  62}, {   0,  45}, {  -4,  78},
@@ -380,14 +380,14 @@ static const int8_t context_init[4][1024][2] __attribute__((aligned(16))) = {{
 	{  -3,  74}, {  -9,  92}, {  -8,  87}, { -23, 126},
 	}, {
 	{  20, -15}, {   2,  54}, {   3,  74}, {  20, -15}, {   2,  54}, {   3,  74},
-	{ -28, 127}, { -23, 104}, {  -6,  53}, {  -1,  54}, {   7,  51}, {  29,  16},
-	{  25,   0}, {  14,   0}, { -10,  51}, {  -3,  62}, { -27,  99}, {  26,  16},
-	{  -4,  85}, { -24, 102}, {   5,  57}, {   6,  57}, { -17,  73}, {  14,  57},
-	{  20,  40}, {  20,  10}, {  29,   0}, {  54,   0}, {  37,  42}, {  12,  97},
-	{ -32, 127}, { -22, 117}, {  -2,  74}, {  -4,  85}, { -24, 102}, {   5,  57},
-	{  -6,  93}, { -14,  88}, {  -6,  44}, {   4,  55}, { -11,  89}, { -15, 103},
-	{ -21, 116}, {  19,  57}, {  20,  58}, {   4,  84}, {   6,  96}, {   1,  63},
-	{  -5,  85}, { -13, 106}, {   5,  63}, {   6,  75}, {  -3,  90}, {  -1, 101},
+	{ -28, 127}, { -23, 104}, {  -6,  53}, {  -1,  54}, {   7,  51}, {  22,  25},
+	{  34,   0}, {  16,   0}, {  -2,   9}, {   4,  41}, { -29, 118}, {   2,  65},
+	{  -6,  71}, { -13,  79}, {   5,  52}, {   9,  50}, {  -3,  70}, {  10,  54},
+	{  26,  34}, {  19,  22}, {  40,   0}, {  57,   2}, {  41,  36}, {  26,  69},
+	{ -45, 127}, { -15, 101}, {  -4,  76}, {  -6,  71}, { -13,  79}, {   5,  52},
+	{   6,  69}, { -13,  90}, {   0,  52}, {   8,  43}, {  -2,  69}, {  -5,  82},
+	{ -10,  96}, {   2,  59}, {   2,  75}, {  -3,  87}, {  -3, 100}, {   1,  56},
+	{  -3,  74}, {  -6,  85}, {   0,  59}, {  -3,  81}, {  -7,  86}, {  -5,  95},
 	{  -1,  66}, {  -1,  77}, {   1,  70}, {  -2,  86}, {  -5,  72}, {   0,  61},
 	{   0,  41}, {   0,  63}, {   0,  63}, {   0,  63}, {  -9,  83}, {   4,  86},
 	{   0,  97}, {  -7,  72}, {  13,  41}, {   3,  62}, {  13,  15}, {   7,  51},
@@ -552,14 +552,14 @@ static const int8_t context_init[4][1024][2] __attribute__((aligned(16))) = {{
 	{  -2,  73}, { -12, 104}, {  -9,  91}, { -31, 127},
 	}, {
 	{  20, -15}, {   2,  54}, {   3,  74}, {  20, -15}, {   2,  54}, {   3,  74},
-	{ -28, 127}, { -23, 104}, {  -6,  53}, {  -1,  54}, {   7,  51}, {   0,   1},
-	{   0,  -6}, {  18, -17}, {   9,  -6}, {  29,   9}, {  26,  64}, {  16,  43},
-	{   9,   0}, { -46,  67}, { -20,  90}, {   1, 104}, { -13, 127}, { -11, 104},
-	{  -3,  96}, {  -6,  55}, { -11,  67}, {   6,  86}, {   7,  88}, {  -5,  58},
-	{   2,  76}, {   0,  94}, {  -3,  54}, { -10,  69}, {   5,  81}, {   4,  88},
-	{  -3,  -2}, {   0,  -5}, {  69, -10}, {  81,   2}, {   0,   0}, {   0,  21},
-	{   0,  31}, {   0,  50}, {   0,  -7}, {   0,  -5}, {  31,  -4}, {  31,  -5},
-	{  25,  -7}, {   0,   1}, {   0,  12}, {   0,  11}, {   0,  14}, {   0,  67},
+	{ -28, 127}, { -23, 104}, {  -6,  53}, {  -1,  54}, {   7,  51}, {  29,  16},
+	{  25,   0}, {  14,   0}, { -10,  51}, {  -3,  62}, { -27,  99}, {  26,  16},
+	{  -4,  85}, { -24, 102}, {   5,  57}, {   6,  57}, { -17,  73}, {  14,  57},
+	{  20,  40}, {  20,  10}, {  29,   0}, {  54,   0}, {  37,  42}, {  12,  97},
+	{ -32, 127}, { -22, 117}, {  -2,  74}, {  -4,  85}, { -24, 102}, {   5,  57},
+	{  -6,  93}, { -14,  88}, {  -6,  44}, {   4,  55}, { -11,  89}, { -15, 103},
+	{ -21, 116}, {  19,  57}, {  20,  58}, {   4,  84}, {   6,  96}, {   1,  63},
+	{  -5,  85}, { -13, 106}, {   5,  63}, {   6,  75}, {  -3,  90}, {  -1, 101},
 	{   3,  55}, {  -4,  79}, {  -2,  75}, { -12,  97}, {  -7,  50}, {   1,  60},
 	{   0,  41}, {   0,  63}, {   0,  63}, {   0,  63}, {  -9,  83}, {   4,  86},
 	{   0,  97}, {  -7,  72}, {  13,  41}, {   3,  62}, {   7,  34}, {  -9,  88},
@@ -858,28 +858,28 @@ static __attribute__((noinline)) void parse_residual_block(unsigned endIdx)
 		// Unsigned division uses one extra bit, so the first renorm is correct.
 		if (coeff_level >= 15) {
 			renorm(__builtin_clzl(s->codIRange), 0); // Hardcore!!!
-			uint32_t codIRange = s->codIRange >> (LONG_BIT - 9);
+			uint16_t codIRange = s->codIRange >> (LONG_BIT - 9);
 			uint32_t codIOffset = s->codIOffset >> (LONG_BIT - 32);
 			uint32_t quo = codIOffset / codIRange;
 			uint32_t rem = codIOffset % codIRange;
 			
 			// 32bit/9bit division yields 23 bypass bits.
-			unsigned k = 32 - WORD_BIT + __builtin_clz(~(quo << 9));
+			unsigned k = clz32(~(quo << 9));
 			unsigned shift = 9 + k;
-			if (__builtin_expect(k > 11, 0)) { // At k==11, code length is 23 bits.
+			if (__builtin_expect(k >= 12, 0)) { // At k==11, code length is 23 bits.
 				s->codIRange = (unsigned long)codIRange << (LONG_BIT - 32);
 				s->codIOffset = (LONG_BIT == 32) ? rem :
 					(uint32_t)s->codIOffset | (unsigned long)rem << 32;
-				renorm(21, 0); // We consume 21 bits and keep 11 in quo as msb.
+				renorm(21, 0); // Next division will yield 21 bypass bits...
 				codIOffset = s->codIOffset >> (LONG_BIT - 32);
-				quo = codIOffset / codIRange + (quo << 21);
+				quo = codIOffset / codIRange + (quo << 21); // ... such that we keep 11 as msb.
 				rem = codIOffset % codIRange;
-				shift = k - 12;
+				shift -= 21;
 			}
 			
 			// Return the unconsumed bypass bits to codIOffset, and compute coeff_level.
-			codIOffset = (-1U >> (1 + shift + k) & quo) * codIRange + rem;
-			s->codIRange = (unsigned long)codIRange << (LONG_BIT - 1 - shift - k);
+			codIOffset = ((uint32_t)-1 >> 1 >> (shift + k) & quo) * codIRange + rem;
+			s->codIRange = (unsigned long)codIRange << (LONG_BIT - 1 - (shift + k));
 			s->codIOffset = (LONG_BIT == 32) ? codIOffset :
 				(uint32_t)s->codIOffset | (unsigned long)codIOffset << 32;
 			coeff_level = 14 + (1 << k) + (quo << shift >> (31 - k));
@@ -889,7 +889,8 @@ static __attribute__((noinline)) void parse_residual_block(unsigned endIdx)
 		ctxIdx1 = umin(ctxIdx1 + (coeff_level > 1), s->ctxIdxOffsets[3] + 9 - (s->ctxIdxOffsets[3] == 257));
 		
 		// Parse coeff_sign_flag.
-		renorm(__builtin_clzl(s->codIRange), 0); // TODO: conditional renorm instead?
+		if (__builtin_expect(s->codIRange < 512, 0))
+			renorm(__builtin_clzl(s->codIRange), 0);
 		s->codIRange >>= 1;
 		coeff_level = (s->codIOffset >= s->codIRange) ? -coeff_level : coeff_level;
 		s->codIOffset = (s->codIOffset >= s->codIRange) ? s->codIOffset - s->codIRange : s->codIOffset;
@@ -1275,13 +1276,63 @@ static __attribute__((noinline)) int parse_inter_mb_pred(uint64_t mask) {
 		unsigned compIdx = __builtin_ctzll(mask);
 		unsigned pos = mv_pos[compIdx];
 		unsigned ctxBase = (compIdx & 1) ? 49 : 42;
-		unsigned sum = s->absMvdComp[pos - 4] + s->absMvdComp[pos + 4];
+		unsigned sum = (s->absMvdComp - 4)[pos] + (s->absMvdComp + 32)[pos];
 		unsigned ctxIdx = ctxBase - ((sum - 3) >> (WORD_BIT - 1)) - ((sum - 33) >> (WORD_BIT - 1));
 		int mvd = 0;
 		while (mvd < 9 && get_ae(ctxIdx))
 			ctxIdx = ctxBase + umin(++mvd, 4);
 		
+		// Once again, we use unsigned division to read all bypass bits.
+		if (mvd >= 9) {
+			renorm(__builtin_clzl(s->codIRange), 0);
+			uint16_t codIRange = s->codIRange >> (LONG_BIT - 9);
+			uint32_t codIOffset = s->codIOffset >> (LONG_BIT - 32);
+			uint32_t quo = codIOffset / codIRange;
+			uint32_t rem = codIOffset % codIRange;
+			
+			// 32bit/9bit division yields 23 bypass bits.
+			unsigned k = 3 + clz32(~(quo << 9));
+			unsigned shift = 6 + k;
+			if (__builtin_expect(k >= 13, 0)) { // At k==12, code length is 22 bits.
+				s->codIRange = (unsigned long)codIRange << (LONG_BIT - 32);
+				s->codIOffset = (LONG_BIT == 32) ? rem :
+					(uint32_t)s->codIOffset | (unsigned long)rem << 32;
+				renorm(19, 0); // Next division will yield 19 bypass bits...
+				codIOffset = s->codIOffset >> (LONG_BIT - 32);
+				quo = codIOffset / codIRange + (quo << 19); // ... such that we keep 13 as msb.
+				rem = codIOffset % codIRange;
+				shift -= 19;
+			}
+			
+			// Return the unconsumed bypass bits to codIOffset, and compute mvd.
+			codIOffset = ((uint32_t)-1 >> 1 >> (shift + k) & quo) * codIRange + rem;
+			s->codIRange = (unsigned long)codIRange << (LONG_BIT - 1 - (shift + k));
+			s->codIOffset = (LONG_BIT == 32) ? codIOffset :
+				(uint32_t)s->codIOffset | (unsigned long)codIOffset << 32;
+			mvd = 1 + (1 << k) + (quo << shift >> (31 - k));
+		}
+		s->absMvdComp[pos] = umin(mvd, 66);
+		
+		// Parse the sign flag.
+		if (mvd > 0) {
+			if (__builtin_expect(s->codIRange < 512, 0))
+				renorm(__builtin_clzl(s->codIRange), 0);
+			s->codIRange >>= 1;
+			mvd = (s->codIOffset >= s->codIRange) ? -mvd : mvd;
+			s->codIOffset = (s->codIOffset >= s->codIRange) ? s->codIOffset - s->codIRange : s->codIOffset;
+		}
+		
+		// Add the predicted motion vector.
+		int16_t *mv = s->mvs + pos;
+		int posC = mvC.q[compIdx / 2];
+		int mvp = mv[posC << 1 & -4];
+		if (!(posC & 1))
+			mvp = median(mv[-4], mv[32], mvp);
+		*mv = mvp + mvd;
 	} while (mask &= mask - 1);
+	
+	parse_coded_block_pattern();
+	
 	return 0;
 }
 
@@ -1391,7 +1442,7 @@ void CABAC_parse_slice_data()
 	};
 	
 	// cabac_alignment_one_bit shall be tested in the future for error concealment.
-	if ((~s->CPB[s->shift / 8] << (1 + (s->shift - 1) % 8) & 0xff) != 0)
+	if ((~(uint8_t)(s->CPB)[s->shift / 8] << (1 + (s->shift - 1) % 8) & 0xff) != 0)
 		printf("<li style=\"color: red\">Erroneous slice header (%u bits)</li>\n", s->shift);
 	s->shift = (s->shift + 7) & -8;
 	
@@ -1430,17 +1481,17 @@ void CABAC_parse_slice_data()
 		memset(absMvdComp_v, 0, sizeof(absMvdComp_v));
 		s->absMvdComp_v = &absMvdComp_v[mb_y * 8 + mb_x + 1];
 		
-		for (;;) {
+		do {
 			fprintf(stderr, "\n********** %u **********\n", s->ps.width * s->y / 256 + s->x / 16);
 			s->f.v = (s->flags_v[-1] << (v4si){1, 1, 1, 1} & (v4si){0x42000000, 0x42404202, 0x42404202, 0x42404202}) |
 				(s->flags_v[0] << (v4si){3, 3, 3, 3} & (v4si){0x88000000, 0x88000000, 0x88000000, 0x88000000}) |
 				(s->flags_v[0] << (v4si){5, 5, 5, 5} & (v4si){0, 0x820820, 0x820820, 0x820820});
 			if (s->ps.ChromaArrayType != 3) {
-				s->f.coded_block_flags[1] = (s->flags[-2] << 4 & 0x24902490) +
+				s->f.coded_block_flags[1] = (s->flags[-2] << 4 & 0x24902490) |
 					(s->flags[2] << (s->ps.ChromaArrayType * 6) & 0x50005000);
 			}
-			s->ctxIdxInc.s = (s->flags[-4] & 0xffffff) + s->flags[0] + (s->flags[0] & twice.s) +
-				((s->flags[4] & 0x400000) | (s->ctxIdxInc.s & 0x800000)) * 4;
+			s->ctxIdxInc.s = ((s->flags[-4] + s->flags[0] + (s->flags[0] & twice.s)) & 0xffffff) |
+				((s->flags[4] & 0x400000) | (s->ctxIdxInc.s & 0x800000)) << 2;
 			
 			// P/B slices have some more initialisation.
 			if (s->slice_type > 1) {
@@ -1455,11 +1506,7 @@ void CABAC_parse_slice_data()
 				parse_inter_mb_type();
 			}
 			
-			// The loop condition is really easier to express with breaks.
-			unsigned end_of_slice_flag = get_ae(276);
-			fprintf(stderr, "end_of_slice_flag: %x\n", end_of_slice_flag);
-			if (end_of_slice_flag)
-				break;
+			// Move all pointers to the next macroblock
 			*s->flags_v++ = s->f.v;
 			s->Intra4x4PredMode += 4;
 			s->refIdx += 4;
@@ -1469,6 +1516,7 @@ void CABAC_parse_slice_data()
 			s->p.mbs++;
 			s->x += 16;
 			
+			// Have we reached the end of a line?
 			if (s->x == s->ps.width) {
 				s->flags -= s->ps.width / 4;
 				s->Intra4x4PredMode -= s->ps.width / 4 + 4;
@@ -1479,6 +1527,6 @@ void CABAC_parse_slice_data()
 				if ((s->y += 16) >= s->ps.height >> s->field_pic_flag)
 					break;
 			}
-		}
+		} while (!get_ae(276));
 	}
 }

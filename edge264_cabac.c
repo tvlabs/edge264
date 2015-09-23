@@ -1134,7 +1134,7 @@ static __attribute__((noinline)) int parse_intra_mb_pred(unsigned ctxIdx) {
 		Intra16x16PredMode += get_ae(umax(ctxIdx + 3, 10));
 		fprintf(stderr, "mb_type: %u\n", 12 * (s->f.b.CodedBlockPatternLuma & 1) +
 			4 * (s->f.b.CodedBlockPatternChromaDC + s->f.b.CodedBlockPatternChromaAC) +
-			Intra16x16PredMode + 1);
+			Intra16x16PredMode + (ctxIdx == 17 ? 6 : ctxIdx == 32 ? 24 : 1));
 		parse_intra_pred_mode();
 		parse_mb_qp_delta(-1);
 		
@@ -1229,13 +1229,15 @@ static __attribute__((noinline)) int parse_inter_mb_pred(uint64_t mask) {
 	
 	// Parsing for ref_idx_lX in P/B slices.
 	for (uint64_t m = mask & s->ref_idx_mask; m != 0; m &= m - 1) {
-		int8_t *pos = s->refIdx + ref_pos[__builtin_ctz(m) / 8];
-		unsigned ctxIdxInc = (pos[-2] > 0) + (pos[8] > 0) * 2, refIdx = 0;
+		int8_t *pos = s->refIdx + ref_pos[ctz64(m) / 8];
+		unsigned ctxIdxInc = (pos[-2] > 0) + (pos[8] > 0) * 2;
+		unsigned refIdx = 0;
 		
 		// This cannot loop forever since binVal would oscillate past the end of the RBSP.
 		while (get_ae(54 + ctxIdxInc))
 			refIdx++, ctxIdxInc = ctxIdxInc / 4 + 4; // cool trick from ffmpeg
 		*pos = refIdx;
+		fprintf(stderr, "ref_idx_l%x: %u\n", ctz64(m) / 32, refIdx);
 	}
 	
 	// Compute refIdxA/B/C for subMbPart==0 (lower vector) and 1 (upper vector).
@@ -1272,8 +1274,9 @@ static __attribute__((noinline)) int parse_inter_mb_pred(uint64_t mask) {
 	mvC.v[1] = __builtin_shufflevector(mvC01, mvC23, 4, 12, 20, 28, 5, 13, 21, 29, 6, 14, 22, 30, 7, 15, 23, 31);
 	
 	// Parsing for mvd_lX in P/B slices.
+	uint64_t m = mask;
 	do {
-		unsigned compIdx = __builtin_ctzll(mask);
+		unsigned compIdx = ctz64(m);
 		unsigned pos = mv_pos[compIdx];
 		unsigned ctxBase = (compIdx & 1) ? 49 : 42;
 		unsigned sum = (s->absMvdComp - 4)[pos] + (s->absMvdComp + 32)[pos];
@@ -1329,10 +1332,10 @@ static __attribute__((noinline)) int parse_inter_mb_pred(uint64_t mask) {
 		if (!(posC & 1))
 			mvp = median(mv[-4], mv[32], mvp);
 		*mv = mvp + mvd;
-	} while (mask &= mask - 1);
+		fprintf(stderr, "mvd_l%x: %d\n", ctz64(m) / 32, mvd);
+	} while (m &= m - 1);
 	
 	parse_coded_block_pattern();
-	
 	return 0;
 }
 

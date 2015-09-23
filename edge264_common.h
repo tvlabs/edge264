@@ -371,8 +371,8 @@ static __attribute__((noinline)) unsigned get_ae(unsigned ctxIdx) {
 	unsigned u = (s->codIOffset >= codIRangeMPS) ? s->s[ctxIdx] ^ 255 : s->s[ctxIdx];
 	unsigned long codIRange = (s->codIOffset >= codIRangeMPS) ? codIRangeLPS : codIRangeMPS;
 	unsigned long codIOffset = (s->codIOffset >= codIRangeMPS) ? s->codIOffset - codIRangeMPS : s->codIOffset;
-	fprintf(stderr, "%lu/%lu[%u]: (%u,%x)->(%u,%x)\n",
-		s->codIOffset >> (shift - 6), s->codIRange >> (shift - 6), ctxIdx,
+	fprintf(stderr, "%lu/%lu: (%u,%x)->(%u,%x)\n",
+		s->codIOffset >> (shift - 6), s->codIRange >> (shift - 6),
 		s->s[ctxIdx] >> 2, s->s[ctxIdx] & 1, transIdx[u] >> 2, transIdx[u] & 1);
 	s->s[ctxIdx] = transIdx[u];
 	s->codIRange = codIRange;

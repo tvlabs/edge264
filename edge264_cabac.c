@@ -2,6 +2,7 @@
 // TODO: Beware that signed division cannot be vectorised as a mere shift.
 // TODO: Apply the update of mvs pointers at each macroblock.
 // TODO: Try to remove s->PredMode
+// TODO: Remove all uses of bare unsigned/int in favor of fixed sizes.
 
 /**
  * Copyright (c) 2013-2014, Celticom / TVLabs
@@ -889,8 +890,6 @@ static __attribute__((noinline)) void parse_residual_block(unsigned endIdx)
 		ctxIdx1 = umin(ctxIdx1 + (coeff_level > 1), s->ctxIdxOffsets[3] + 9 - (s->ctxIdxOffsets[3] == 257));
 		
 		// Parse coeff_sign_flag.
-		if (__builtin_expect(s->codIRange < 512, 0))
-			renorm(__builtin_clzl(s->codIRange), 0);
 		s->codIRange >>= 1;
 		coeff_level = (s->codIOffset >= s->codIRange) ? -coeff_level : coeff_level;
 		s->codIOffset = (s->codIOffset >= s->codIRange) ? s->codIOffset - s->codIRange : s->codIOffset;
@@ -1042,7 +1041,7 @@ static __attribute__((noinline)) void parse_coded_block_pattern() {
 		(s->f.b.CodedBlockPatternChromaDC + s->f.b.CodedBlockPatternChromaAC) * 16);
 }
 
-static __attribute__((noinline)) void parse_intra_pred_mode() {
+static __attribute__((noinline)) void parse_intra_chroma_pred_mode() {
 	if (s->ps.ChromaArrayType == 1 || s->ps.ChromaArrayType == 2) {
 		unsigned ctxIdx = 64 + s->ctxIdxInc.intra_chroma_pred_mode_non_zero;
 		unsigned intra_chroma_pred_mode = 0;
@@ -1095,7 +1094,7 @@ static __attribute__((noinline)) int parse_intra_mb_pred(unsigned ctxIdx) {
 				pos[-1] = pos[1] = IntraPredMode, luma4x4BlkIdx += 3;
 		}
 		
-		parse_intra_pred_mode();
+		parse_intra_chroma_pred_mode();
 		parse_coded_block_pattern();
 		parse_mb_qp_delta(s->f.b.s);
 		unsigned iYCbCr = s->colour_plane_id;
@@ -1135,10 +1134,10 @@ static __attribute__((noinline)) int parse_intra_mb_pred(unsigned ctxIdx) {
 		fprintf(stderr, "mb_type: %u\n", 12 * (s->f.b.CodedBlockPatternLuma & 1) +
 			4 * (s->f.b.CodedBlockPatternChromaDC + s->f.b.CodedBlockPatternChromaAC) +
 			Intra16x16PredMode + (ctxIdx == 17 ? 6 : ctxIdx == 32 ? 24 : 1));
-		parse_intra_pred_mode();
+		parse_intra_chroma_pred_mode();
 		parse_mb_qp_delta(-1);
 		
-		// Thanks to the reverse order in significant_coeff_flags, we can reuse 4x4 stuff.
+		// Thanks to the reverse order in significant_coeff_flags, we can reuse 4x4 data.
 		unsigned iYCbCr = s->colour_plane_id;
 		s->sig_inc_v[0] = s->last_inc_v[0] = sig_inc_4x4;
 		s->scan_v[0] = scan_4x4[s->f.b.mb_field_decoding_flag];
@@ -1193,7 +1192,71 @@ static __attribute__((noinline)) int parse_intra_mb_pred(unsigned ctxIdx) {
 
 
 
-static __attribute__((noinline)) int parse_inter_mb_pred(uint64_t mask) {
+static void parse_inter_mvd(unsigned idx, unsigned ctxBase) {
+	int pos = mv_pos[idx];
+	unsigned sum = s->absMvdComp[pos - 4] + s->absMvdComp[pos + 32];
+	unsigned ctxIdx = ctxBase - ((sum - 3) >> (WORD_BIT - 1)) - ((sum - 33) >> (WORD_BIT - 1));
+	int mvd = 0;
+	while (mvd < 9 && get_ae(ctxIdx))
+		ctxIdx = ctxBase + umin(++mvd, 4);
+	
+	// Once again, we use unsigned division to read all bypass bits.
+	if (mvd >= 9) {
+		renorm(__builtin_clzl(s->codIRange), 0);
+		uint16_t codIRange = s->codIRange >> (LONG_BIT - 9);
+		uint32_t codIOffset = s->codIOffset >> (LONG_BIT - 32);
+		uint32_t quo = codIOffset / codIRange;
+		uint32_t rem = codIOffset % codIRange;
+		
+		// 32bit/9bit division yields 23 bypass bits.
+		unsigned k = 3 + clz32(~(quo << 9));
+		unsigned shift = 6 + k;
+		if (__builtin_expect(k >= 13, 0)) { // At k==12, code length is 22 bits.
+			s->codIRange = (unsigned long)codIRange << (LONG_BIT - 32);
+			s->codIOffset = (LONG_BIT == 32) ? rem :
+				(uint32_t)s->codIOffset | (unsigned long)rem << 32;
+			renorm(19, 0); // Next division will yield 19 bypass bits...
+			codIOffset = s->codIOffset >> (LONG_BIT - 32);
+			quo = codIOffset / codIRange + (quo << 19); // ... such that we keep 13 as msb.
+			rem = codIOffset % codIRange;
+			shift -= 19;
+		}
+		
+		// Return the unconsumed bypass bits to codIOffset, and compute mvd.
+		codIOffset = ((uint32_t)-1 >> 1 >> (shift + k) & quo) * codIRange + rem;
+		s->codIRange = (unsigned long)codIRange << (LONG_BIT - 1 - (shift + k));
+		s->codIOffset = (LONG_BIT == 32) ? codIOffset :
+			(uint32_t)s->codIOffset | (unsigned long)codIOffset << 32;
+		mvd = 1 + (1 << k) + (quo << shift >> (31 - k));
+	}
+	s->absMvdComp[pos] = umin(mvd, 66);
+	
+	// Parse the sign flag.
+	if (mvd > 0) {
+		s->codIRange >>= 1;
+		mvd = (s->codIOffset >= s->codIRange) ? -mvd : mvd;
+		s->codIOffset = (s->codIOffset >= s->codIRange) ? s->codIOffset - s->codIRange : s->codIOffset;
+	}
+	
+	// Assembly-wise this is very ugly, but I could not find better overall.
+	int16_t *mvs = s->mvs + pos;
+	int posC = mvC.q[compIdx / 2];
+	int mvp = mvs[posC << 1 & -4];
+	if (!(posC & 1))
+		mvp = median(mvs[-4], mvs[32], mvp);
+	int mv = mvp + mvd;
+	*mvs = mv;
+	
+	// Intermediate copies for 8x8, 4x8 and 8x4 blocks.
+	s->mvs[pos | 4] = mv;
+	s->mvs[pos & 95] = mv;
+	s->mvs[(pos | 4) & 95] = mv;
+	fprintf(stderr, "mvd_l%x: %d\n", compIdx / 32, mvd);
+}
+
+
+
+static __attribute__((noinline)) int parse_inter_pred() {
 	static const v16qi shufC_4xN[4] = {
 		{8, 10, 0, 2, 9, 11, 1, 3, 10, 12, 2, 2, 11, 13, 3, 3},
 		{6,  8, 0, 2, 7,  9, 1, 3,  8, 12, 2, 2,  9, 13, 3, 3},
@@ -1228,8 +1291,8 @@ static __attribute__((noinline)) int parse_inter_mb_pred(uint64_t mask) {
 	};
 	
 	// Parsing for ref_idx_lX in P/B slices.
-	for (uint64_t m = mask & s->ref_idx_mask; m != 0; m &= m - 1) {
-		int8_t *pos = s->refIdx + ref_pos[ctz64(m) / 8];
+	for (uint32_t f = s->mvd_flags & s->ref_idx_mask; f != 0; f &= f - 1) {
+		int8_t *pos = s->refIdx + ref_pos[ctz32(f) / 4];
 		unsigned ctxIdxInc = (pos[-2] > 0) + (pos[8] > 0) * 2;
 		unsigned refIdx = 0;
 		
@@ -1237,157 +1300,125 @@ static __attribute__((noinline)) int parse_inter_mb_pred(uint64_t mask) {
 		while (get_ae(54 + ctxIdxInc))
 			refIdx++, ctxIdxInc = ctxIdxInc / 4 + 4; // cool trick from ffmpeg
 		*pos = refIdx;
-		fprintf(stderr, "ref_idx_l%x: %u\n", ctz64(m) / 32, refIdx);
+		fprintf(stderr, "ref_idx_l%x: %u\n", ctz32(f) / 16, refIdx);
 	}
 	
-	// Compute refIdxA/B/C for subMbPart==0 (lower vector) and 1 (upper vector).
-	// 2 and 3 only need refIdxA which is the same anyway.
-	unsigned mask4xN = (unsigned)(mask >> 32 | mask) & 0x0c0c0c0c;
-	v16qi left, top;
-	memcpy(&left, s->refIdx_s - 1, 16);
-	memcpy(&top, s->refIdx_s + 2, 16);
-	v16qi is8xN = (v16qi)(v4su){mask4xN, mask4xN, mask4xN, mask4xN} == (v16qi){};
-	v16qi refIdxC_4xN = byte_shuffle(top, shufC_4xN[s->ctxIdxInc.s >> 23 & 3]);
-	v16qi refIdxC_8xN = byte_shuffle(top, shufC_8xN[s->ctxIdxInc.s >> 23 & 3]);
-	v16qi refIdx = __builtin_shufflevector(left, left, 12, 14, 4, 6, 13, 15, 5, 7, 12, 14, 4, 6, 13, 15, 5, 7);
-	v16qi refIdxA = __builtin_shufflevector(left, left, 10, 12, 2, 4, 11, 13, 3, 5, 12, 14, 4, 6, 13, 15, 5, 7);
-	v16qi refIdxB = __builtin_shufflevector(top, top, 8, 10, 0, 2, 9, 11, 1, 3, 8, 10, 0, 2, 9, 11, 1, 3);
-	v16qi refIdxC = vector_select(refIdxC_4xN, refIdxC_8xN, is8xN);
+	// Initialise all relative mvC positions using vector code (8.4.1.3).
+	uint32_t mask = (uint16_t)s->mvd_flags | s->mvd_flags >> 16;
+	if (mask == 0x0011) { // 8x16 special case
+		s->mvC[0] = s->mvC[16] = -1; // odd values invoke direct prediction over median.
+		s->mvC[8] = s->mvC[24] = (s->ctxIdxInc.s >> 24 & 1) ? 15 : 21;
+	} else if (mask == 0x0101) { // 16x8 special case
+		s->mvC[0] = s->mvC[16] = 17;
+		s->mvC[8] = s->mvC[24] = -1;
+	} else {
+		// Compute refIdxA/B/C for subMbPart==0 (lower vector) and 1 (upper vector).
+		// 2 and 3 need only refIdxA which is the same anyway.
+		unsigned mask4xN = mask & 0x2222;
+		v16qi left, top;
+		memcpy(&left, s->refIdx_s - 1, 16); // unaligned accesses
+		memcpy(&top, s->refIdx_s + 2, 16);
+		v16qi is8xN = (v16qi)(v4su){mask4xN, mask4xN, mask4xN, mask4xN} == (v16qi){};
+		v16qi refIdxC_4xN = byte_shuffle(top, shufC_4xN[s->ctxIdxInc.s >> 23 & 3]);
+		v16qi refIdxC_8xN = byte_shuffle(top, shufC_8xN[s->ctxIdxInc.s >> 23 & 3]);
+		v16qi refIdx = __builtin_shufflevector(left, left, 12, 14, 4, 6, 13, 15, 5, 7, 12, 14, 4, 6, 13, 15, 5, 7);
+		v16qi refIdxA = __builtin_shufflevector(left, left, 10, 12, 2, 4, 11, 13, 3, 5, 12, 14, 4, 6, 13, 15, 5, 7);
+		v16qi refIdxB = __builtin_shufflevector(top, top, 8, 10, 0, 2, 9, 11, 1, 3, 8, 10, 0, 2, 9, 11, 1, 3);
+		v16qi refIdxC = vector_select(refIdxC_4xN, refIdxC_8xN, is8xN);
 	
-	// With the same index order, compute relative mvC positions (see 8.4.1.3.1-1 and 8.4.1.3.2-3).
-	// The lowest bit enables direct prediction instead of median (8.4.1.3.1-2).
-	v16qi eqA = (refIdx == refIdxA);
-	v16qi eqB = (refIdx == refIdxB);
-	v16qi eqC = (refIdx == refIdxC);
-	v16qi mvA = {-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1};
-	v16qi mvB = {17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17};
-	v16qi mvC01 = vector_select(mvC01_4xN[s->ctxIdxInc.s >> 23], mvC01_8xN[s->ctxIdxInc.s >> 23], is8xN);
-	v16qi direct = (eqA + eqB + eqC == mvA); // mvA==-1
-	mvC01 = vector_select(vector_select(mvB | eqA, mvC01, eqC), mvC01 + mvA, direct);
-	v16qi mvC23_4xN = {18, 18, 18, 18, 18, 18, 18, 18, 14, 14, 14, 14, 14, 14, 14, 14};
-	v16qi mvC23_8xN = {14, 14, 14, 14, 14, 14, 14, 14, 0, 0, 0, 0, 0, 0, 0, 0};
-	v16qi mvC23 = vector_select(mvC23_4xN, vector_select(mvB, mvC23_8xN, eqA), is8xN);
+		// With the same index order, compute relative mvC positions (see 8.4.1.3.1-1 and 8.4.1.3.2-3).
+		// The lowest bit enables direct prediction instead of median (8.4.1.3.1-2).
+		v16qi eqA = (refIdx == refIdxA);
+		v16qi eqB = (refIdx == refIdxB);
+		v16qi eqC = (refIdx == refIdxC);
+		v16qi mvA = {-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1};
+		v16qi mvB = {17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17};
+		v16qi mvC01 = vector_select(mvC01_4xN[s->ctxIdxInc.s >> 23], mvC01_8xN[s->ctxIdxInc.s >> 23], is8xN);
+		v16qi direct = (eqA + eqB + eqC == mvA); // mvA==-1
+		mvC01 = vector_select(vector_select(mvB | eqA, mvC01, eqC), mvC01 + mvA, direct);
+		v16qi mvC23_4xN = {18, 18, 18, 18, 18, 18, 18, 18, 14, 14, 14, 14, 14, 14, 14, 14};
+		v16qi mvC23_8xN = {14, 14, 14, 14, 14, 14, 14, 14, 0, 0, 0, 0, 0, 0, 0, 0};
+		v16qi mvC23 = vector_select(mvC23_4xN, vector_select(mvB, mvC23_8xN, eqA), is8xN);
 	
-	// Shuffle these positions to actual mv parsing order and store them.
-	union { int8_t q[32]; v16qi v[2]; } mvC;
-	mvC.v[0] = __builtin_shufflevector(mvC01, mvC23, 0, 8, 16, 24, 1, 9, 17, 25, 2, 10, 18, 26, 3, 11, 19, 27);
-	mvC.v[1] = __builtin_shufflevector(mvC01, mvC23, 4, 12, 20, 28, 5, 13, 21, 29, 6, 14, 22, 30, 7, 15, 23, 31);
+		// Shuffle these positions to actual mv parsing order and store them.
+		s->mvC_v[0] = __builtin_shufflevector(mvC01, mvC23, 0, 8, 16, 24, 1, 9, 17, 25, 2, 10, 18, 26, 3, 11, 19, 27);
+		s->mvC_v[1] = __builtin_shufflevector(mvC01, mvC23, 4, 12, 20, 28, 5, 13, 21, 29, 6, 14, 22, 30, 7, 15, 23, 31);
+	}
 	
 	// Parsing for mvd_lX in P/B slices.
-	uint64_t m = mask;
+	uint32_t f = s->mvd_flags;
 	do {
-		unsigned compIdx = ctz64(m);
-		unsigned pos = mv_pos[compIdx];
-		unsigned ctxBase = (compIdx & 1) ? 49 : 42;
-		unsigned sum = (s->absMvdComp - 4)[pos] + (s->absMvdComp + 32)[pos];
-		unsigned ctxIdx = ctxBase - ((sum - 3) >> (WORD_BIT - 1)) - ((sum - 33) >> (WORD_BIT - 1));
-		int mvd = 0;
-		while (mvd < 9 && get_ae(ctxIdx))
-			ctxIdx = ctxBase + umin(++mvd, 4);
-		
-		// Once again, we use unsigned division to read all bypass bits.
-		if (mvd >= 9) {
-			renorm(__builtin_clzl(s->codIRange), 0);
-			uint16_t codIRange = s->codIRange >> (LONG_BIT - 9);
-			uint32_t codIOffset = s->codIOffset >> (LONG_BIT - 32);
-			uint32_t quo = codIOffset / codIRange;
-			uint32_t rem = codIOffset % codIRange;
-			
-			// 32bit/9bit division yields 23 bypass bits.
-			unsigned k = 3 + clz32(~(quo << 9));
-			unsigned shift = 6 + k;
-			if (__builtin_expect(k >= 13, 0)) { // At k==12, code length is 22 bits.
-				s->codIRange = (unsigned long)codIRange << (LONG_BIT - 32);
-				s->codIOffset = (LONG_BIT == 32) ? rem :
-					(uint32_t)s->codIOffset | (unsigned long)rem << 32;
-				renorm(19, 0); // Next division will yield 19 bypass bits...
-				codIOffset = s->codIOffset >> (LONG_BIT - 32);
-				quo = codIOffset / codIRange + (quo << 19); // ... such that we keep 13 as msb.
-				rem = codIOffset % codIRange;
-				shift -= 19;
-			}
-			
-			// Return the unconsumed bypass bits to codIOffset, and compute mvd.
-			codIOffset = ((uint32_t)-1 >> 1 >> (shift + k) & quo) * codIRange + rem;
-			s->codIRange = (unsigned long)codIRange << (LONG_BIT - 1 - (shift + k));
-			s->codIOffset = (LONG_BIT == 32) ? codIOffset :
-				(uint32_t)s->codIOffset | (unsigned long)codIOffset << 32;
-			mvd = 1 + (1 << k) + (quo << shift >> (31 - k));
-		}
-		s->absMvdComp[pos] = umin(mvd, 66);
-		
-		// Parse the sign flag.
-		if (mvd > 0) {
-			if (__builtin_expect(s->codIRange < 512, 0))
-				renorm(__builtin_clzl(s->codIRange), 0);
-			s->codIRange >>= 1;
-			mvd = (s->codIOffset >= s->codIRange) ? -mvd : mvd;
-			s->codIOffset = (s->codIOffset >= s->codIRange) ? s->codIOffset - s->codIRange : s->codIOffset;
-		}
-		
-		// Add the predicted motion vector.
-		int16_t *mv = s->mvs + pos;
-		int posC = mvC.q[compIdx / 2];
-		int mvp = mv[posC << 1 & -4];
-		if (!(posC & 1))
-			mvp = median(mv[-4], mv[32], mvp);
-		*mv = mvp + mvd;
-		fprintf(stderr, "mvd_l%x: %d\n", ctz64(m) / 32, mvd);
-	} while (m &= m - 1);
+		unsigned idx = 2 * ctz32(f);
+		parse_mv(idx, 42);
+		parse_mv(idx + 1, 49);
+	} while (mask &= mask - 1);
+	
+	// Final copies for 16x16, 8x16 and 16x8 blocks.
 	
 	parse_coded_block_pattern();
+	if (s->f.CodedBlockPatternLuma && s->ps.transform_8x8_mode_flag && !(fold & 0xeeeee)) {
+		s->f.b.transform_size_8x8_flag |= get_ae(399 + s->ctxIdxInc.transform_size_8x8_flag);
+		fprintf(stderr, "transform_size_8x8_flag: %x\n", s->f.b.transform_size_8x8_flag);
+	}
 	return 0;
 }
 
 
 
-static __attribute__((noinline)) int parse_inter_mb_type()
+static __attribute__((noinline)) int parse_inter_mb()
 {
-	static const uint32_t P2flags[4] = {0x00000003, 0, 0x00000303, 0x00030003};
+	static const uint16_t P2flags[4] = {0x0001, 0, 0x0011, 0x0101};
+	static const uint32_t B2flags[26] = {0x00010001, 0x00000101, 0x00000011, 0x01010000,
+		0x00110000, 0x01000001, 0x00100001, 0x00010100, 0x00000001, 0x00010000,
+		0, 0, 0, 0, 0x00010010, 0, 0x01000101, 0x00100011, 0x01010100, 0x00110010,
+		0x00010101, 0x00010011, 0x01010001, 0x00110001, 0x01010101, 0x00110011};
+	static const uint32_t b2flags[13] = {0x10001, 0x00005, 0x00003, 0x50000, 0x00001,
+		0x10000, 0xf0000, 0xf000f, 0x30000, 0x50005, 0x30003, 0x0000f, 0};
 	static const uint8_t B2mb_type[26] = {3, 4, 5, 6, 7, 8, 9, 10, 1, 2, 0, 0,
 		0, 0, 11, 22, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21};
-	static const uint64_t B2flags[26] = {0x0000000300000003, 0x0000000000030003,
-		0x0000000000000303, 0x0003000300000000, 0x0000030300000000, 0x0003000000000003,
-		0x0000030000000003, 0x0000000300030000, 0x0000000000000003, 0x0000000300000000,
-		0, 0, 0, 0, 0x0000000300000300, 0, 0x0003000000030003, 0x0000030000000303,
-		0x0003000300030000, 0x0000030300000300, 0x0000000300030003, 0x0000000300000303,
-		0x0003000300000003, 0x0000030300000003, 0x0003000300030003, 0x0000030300000303};
 	static const uint8_t b2sub_mb_type[13] = {3, 4, 5, 6, 1, 2, 11, 12, 7, 8, 9, 10, 0};
-	static const uint64_t b2flags[13] = {0x0300000003, 0x0000000033, 0x000000000f,
-		0x3300000000, 0x0000000003, 0x0300000000, 0xff00000000, 0xff000000ff,
-		0x0f00000000, 0x3300000033, 0x0f0000000f, 0x00000000ff, 0};
 	
 	// Initialise with Direct motion prediction, then parse mb_type.
-	uint64_t flags = 0;
 	if (s->slice_type == 0) {
 		if (s->f.b.mb_skip_flag) {
 			//init_P_Skip();
-			return 0;
+			return parse_inter_residual();
 		} else if (get_ae(14)) {
 			v8hi *v = s->mvs_v;
 			v[0] = v[1] = v[4] = v[5] = v[8] = v[9] = v[12] = v[13] = (v8hi){};
-			return parse_intra_mb_pred(17);
+			return parse_intra_mb(17);
 		}
 		
 		// Are these few lines worth a function? :)
 		unsigned str = get_ae(15);
 		str += str + get_ae(16 + str);
 		fprintf(stderr, "mb_type: %u\n", (4 - str) % 4);
-		flags = P2flags[str];
+		unsigned flags = P2flags[str];
 		
 		// Parsing for sub_mb_type in P slices.
-		for (unsigned i = 0; str == 1 && i < 32; i += 8) {
-			unsigned f = get_ae(21) ? 0x03 : !get_ae(22) ? 0x33 : get_ae(23) ? 0x0f : 0xff;
-			fprintf(stderr, "sub_mb_type: %c\n", (f == 0x03) ? '0' : (f == 0x33) ? '1' : (f == 0x0f) ? '2' : '3');
-			flags += f << i;
+		for (unsigned i = 0; str == 1 && i < 16; i += 4) {
+			unsigned f = get_ae(21) ? 1 : !get_ae(22) ? 5 : get_ae(23) ? 3 : 15;
+			fprintf(stderr, "sub_mb_type: %c\n", (f == 1) ? '0' : (f == 5) ? '1' : (f == 3) ? '2' : '3');
+			flags |= f << i;
 		}
+		s->mvd_flags = flags;
 	} else {
 		//init_B_Direct();
-		if (s->f.b.mb_skip_flag || !get_ae(29 - s->ctxIdxInc.mb_type_B_Direct)) {
-			if (!s->f.b.mb_skip_flag)
-				fprintf(stderr, "mb_type: 0\n");
+		if (s->f.b.mb_skip_flag) {
 			s->f.b.mb_type_B_Direct |= 1;
-			return 0;
+			return parse_inter_residual();
+			
+		// B_Direct_16x16
+		} else if (!get_ae(29 - s->ctxIdxInc.mb_type_B_Direct)) {
+			fprintf(stderr, "mb_type: 0\n");
+			parse_coded_block_pattern();
+			if (s->f.CodedBlockPatternLuma && s->ps.transform_8x8_mode_flag && s->ps.direct_8x8_inference_flag) {
+				s->f.b.transform_size_8x8_flag |= get_ae(399 + s->ctxIdxInc.transform_size_8x8_flag);
+				fprintf(stderr, "transform_size_8x8_flag: %x\n", s->f.b.transform_size_8x8_flag);
+			}
+			s->f.b.mb_type_B_Direct |= 1; // TODO: Try moving below?
+			parse_mb_qp_delta(s->f.b.s);
+			return parse_inter_residual();
 		}
 		
 		// Most important here is the minimal number of conditional branches.
@@ -1405,12 +1436,14 @@ static __attribute__((noinline)) int parse_inter_mb_type()
 			return parse_intra_mb_pred(32);
 		}
 		fprintf(stderr, "mb_type: %u\n", B2mb_type[str]);
-		flags = B2flags[str];
+		uint64_t flags = B2flags[str];
 		
 		// Parsing for sub_mb_type in B slices.
-		for (unsigned i = 0; str == 15 && i < 32; i += 8) {
+		for (unsigned i = 0; str == 15 && i < 16; i += 4) {
 			unsigned sub = 12;
-			if (get_ae(36)) {
+			if (!get_ae(36)) {
+				flags |= (s->ps.direct_8x8_inference_flag) ? 0x100000000 : 0x200000000;
+			} else {
 				sub = 2;
 				if (!get_ae(37) || (sub = get_ae(38),
 					sub += sub + get_ae(39),
@@ -1418,12 +1451,13 @@ static __attribute__((noinline)) int parse_inter_mb_type()
 				{
 					sub += sub + get_ae(39);
 				}
+				flags |= b2flags[sub] << i;
 			}
 			fprintf(stderr, "sub_mb_type: %u\n", b2sub_mb_type[sub]);
-			flags += b2flags[sub] << i;
 		}
+		s->mvd_flags = flags;
 	}
-	return parse_inter_mb_pred(flags);
+	return parse_inter_pred();
 }
 
 
@@ -1498,7 +1532,7 @@ void CABAC_parse_slice_data()
 			
 			// P/B slices have some more initialisation.
 			if (s->slice_type > 1) {
-				parse_intra_mb_pred(5 - s->ctxIdxInc.mb_type_I_NxN);
+				parse_intra_mb(5 - s->ctxIdxInc.mb_type_I_NxN);
 			} else {
 				s->refIdx_s[0] = s->refIdx_s[2] = -1;
 				v16qu *v = s->absMvdComp_v;
@@ -1506,10 +1540,10 @@ void CABAC_parse_slice_data()
 				s->f.b.mb_skip_flag |= get_ae(13 + 13 * s->slice_type -
 					s->ctxIdxInc.mb_skip_flag);
 				fprintf(stderr, "mb_skip_flag: %x\n", s->f.b.mb_skip_flag);
-				parse_inter_mb_type();
+				parse_inter_mb();
 			}
 			
-			// Move all pointers to the next macroblock
+			// Point to the next macroblock
 			*s->flags_v++ = s->f.v;
 			s->Intra4x4PredMode += 4;
 			s->refIdx += 4;

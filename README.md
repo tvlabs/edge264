@@ -38,9 +38,11 @@ Technical details
 edge264 is built and tested with gcc/clang, is thread-safe, supports 32/64 bit architectures, and requires 128 bit SIMD support. Thanks to the use of portable vector extensions, new architectures can be added simply by providing code for a few tricky functions in edge264_common.h (with Intel SSSE3 implemented so far).
 
 The test program takes a raw Annex-B bitstream and prints out the parsing data:
-`ffmpeg -i video.mp4 -vcodec copy -bsf h264_mp4toannexb -an video.264` (optional, converts from MP4 format)
-`make`
-`./edge264_test <video.264 >headers.html 2>dump.txt`
+```
+ffmpeg -i video.mp4 -vcodec copy -bsf h264_mp4toannexb -an video.264` (optional, converts from MP4 format)
+make
+./edge264_test <video.264 >headers.html 2>dump.txt
+```
 
 Improvements versus existing decoders:
 * Minimalistic API (2 functions)

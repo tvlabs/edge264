@@ -50,7 +50,7 @@ static inline const char *red_if(int cond) { return (cond) ? " style=\"color: re
 
 
 
-// These constants may not be defined on all platforms, and do NOT deserve a config script.
+// These constants may not be defined on all platforms, but do NOT deserve a config script.
 #ifndef WORD_BIT
 #if INT_MAX == 2147483647
 #define WORD_BIT 32
@@ -188,13 +188,15 @@ typedef struct {
 	
 	// Cache variables (usually results of nasty optimisations, so should be few :)
 	v4si cbf_maskA, cbf_maskB;
-	uint64_t ref_idx_mask;
+	uint64_t mvd_flags;
+	union { int8_t mvC[32]; v16qi mvC_v[2]; };
 	union { uint16_t ctxIdxOffsets[4]; uint64_t ctxIdxOffsets_l; }; // {cbf,sig_flag,last_sig_flag,coeff_abs}
 	union { uint8_t PredMode[16]; v16qu PredMode_v; };
 	union { uint8_t sig_inc[64]; uint64_t sig_inc_l; v16qu sig_inc_v[4]; };
 	union { uint8_t last_inc[64]; uint64_t last_inc_l; v16qu last_inc_v[4]; };
 	union { uint8_t scan[64]; uint64_t scan_l; v16qu scan_v[4]; };
 	union { int32_t residual_block[64]; v4si residual_block_v[16]; };
+	uint32_t ref_idx_mask;
 	
 	// Macroblock context variables
 	uint16_t x; // 14 significant bits
@@ -365,21 +367,23 @@ static __attribute__((noinline)) unsigned get_ae(unsigned ctxIdx) {
 		244, 245,   9,   8, 248, 249,   5,   4, 248, 249,   1,   0, 252, 253,   0,   1,
 	};
 	
-	unsigned shift = LONG_BIT - 3 - __builtin_clzl(s->codIRange);
-	unsigned long codIRangeLPS = (long)(rangeTabLPS - 4)[(s->s[ctxIdx] & -4) + (s->codIRange >> shift)] << (shift - 6);
-	unsigned long codIRangeMPS = s->codIRange - codIRangeLPS;
-	unsigned u = (s->codIOffset >= codIRangeMPS) ? s->s[ctxIdx] ^ 255 : s->s[ctxIdx];
-	unsigned long codIRange = (s->codIOffset >= codIRangeMPS) ? codIRangeLPS : codIRangeMPS;
-	unsigned long codIOffset = (s->codIOffset >= codIRangeMPS) ? s->codIOffset - codIRangeMPS : s->codIOffset;
-	fprintf(stderr, "%lu/%lu: (%u,%x)->(%u,%x)\n",
-		s->codIOffset >> (shift - 6), s->codIRange >> (shift - 6),
-		s->s[ctxIdx] >> 2, s->s[ctxIdx] & 1, transIdx[u] >> 2, transIdx[u] & 1);
-	s->s[ctxIdx] = transIdx[u];
+	fprintf(stderr, "%lu/%lu: (%u,%x)", s->codIOffset, s->codIRange, s->s[ctxIdx] >> 2, s->s[ctxIdx] & 1);
+	unsigned long codIRange = s->codIRange;
+	unsigned state = s->s[ctxIdx];
+	unsigned shift = LONG_BIT - 3 - __builtin_clzl(codIRange);
+	unsigned long codIRangeLPS = (long)(rangeTabLPS - 4)[(state & -4) + (codIRange >> shift)] << (shift - 6);
+	codIRange -= codIRangeLPS;
+	if (s->codIOffset >= codIRange) {
+		state ^= 255;
+		s->codIOffset = s->codIOffset - codIRange;
+		codIRange = codIRangeLPS;
+	}
 	s->codIRange = codIRange;
-	s->codIOffset = codIOffset;
-	unsigned binVal = u & 1;
-	if (__builtin_expect(s->codIRange < 256, 0))
-		return renorm(__builtin_clzl(s->codIRange) - 1, binVal);
+	s->s[ctxIdx] = transIdx[state];
+	fprintf(stderr, "->(%u,%x)\n", s->s[ctxIdx] >> 2, s->s[ctxIdx] & 1);
+	unsigned binVal = state & 1;
+	if (__builtin_expect(codIRange < 512, 0)) // 256*2 allows parsing an extra coeff_sign_flag without renorm.
+		return renorm(__builtin_clzl(codIRange) - 1, binVal);
 	return binVal;
 }
 

@@ -28,6 +28,7 @@
  * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
+#include "edge264_common.h"
 #include "edge264_cabac.c"
 
 
@@ -591,8 +592,8 @@ static void parse_slice_layer_without_partitioning(Edge264_ctx *e)
 					l, s->ps.num_ref_idx_active[l]);
 			}
 		}
-		s->ref_idx_mask = (s->ps.num_ref_idx_active[0] > 1 ? 0x01010101 : 0) |
-			(uint64_t)(s->ps.num_ref_idx_active[1] > 1 ? 0x01010101 : 0) << 32;
+		s->ref_idx_mask = (s->ps.num_ref_idx_active[0] > 1 ? 0x1111 : 0) |
+			(s->ps.num_ref_idx_active[1] > 1 ? 0x11110000 : 0);
 		
 		// Use the last decoded picture for reference when at least one is missing.
 		unsigned refs = s->field_pic_flag ? e->reference_flags[0] | e->reference_flags[1] :
@@ -762,7 +763,7 @@ static void parse_scaling_lists()
 	do {
 		const v16qu *d8x8 = Default_8x8_Intra;
 		do {
-			printf("<li>weightScale8x8[%u]: <code>", ((uint8_t *)w8x8 - s->ps.weightScale8x8[0]) / 64);
+			printf("<li>weightScale8x8[%lu]: <code>", ((uint8_t *)w8x8 - s->ps.weightScale8x8[0]) / 64);
 			const char *str = ((uint8_t *)w8x8 < s->ps.weightScale8x8[2]) ? "existing" : "weightScale8x8[%u]";
 			const v16qu *src = v8x8;
 			uint8_t nextScale;

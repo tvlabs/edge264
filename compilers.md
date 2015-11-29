@@ -4,7 +4,7 @@ Deficiencies found in compilers
 Global Register Variables
 -------------------------
 
-Bypassing the register allocator to keep the context pointer in a single register. Though reluctant to use it initially, this has proven very beneficial. Both gcc and clang had the nasty tendency to spill this pointer to stack in almost every function, though it is constantly in use. Turning it into a global value removes the first argument from *every single function* in `edge264_cabac.c`, and as a virtuous side-effect tends to aggregate all previously-split structures into a single context, reducing the number of live pointers and parameters even further.
+Bypassing the register allocator to keep the context pointer in its own register. Though reluctant to use it initially, this has proven very beneficial. Both gcc and clang had the nasty tendency to spill this pointer to stack in almost every function, though it is constantly in use. Turning it into a global value removes the first argument from *every single function* in `edge264_cabac.c`, and as a virtuous side-effect tends to aggregate all previously-split structures into a single context, reducing the number of live pointers and parameters even further.
 
 **Supported** by gcc, **unsupported** by clang.
 

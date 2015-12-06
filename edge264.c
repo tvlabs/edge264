@@ -1414,4 +1414,5 @@ void Edge264_decode_NAL(Edge264_ctx *e, const uint8_t *buf, size_t len)
 	if (s->shift != s->lim)
 		printf("<li style=\"color: red\">Bitstream overflow (%d bits)</li>\n", s->shift - s->lim);
 	printf("</ul>\n");
+	s = old_s;
 }

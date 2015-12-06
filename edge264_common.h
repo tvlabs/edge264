@@ -154,11 +154,7 @@ typedef union { struct {
 	uint32_t coded_block_flags_16x16:6;
 	uint32_t unavailable:2; // uses 4 bits in ctxIdxInc, to store A/B/C/D unavailability
 	uint32_t CodedBlockPatternLuma:8; // unused in ctxIdxInc
-}; uint32_t s; } Edge264_bits;
-typedef union { struct {
-	Edge264_bits b;
-	uint32_t coded_block_flags[3];
-}; v4si v; } Edge264_flags;
+}; uint32_t s; } Edge264_flags;
 typedef struct {
 	// Parsing context
 	union { const uint32_t * restrict CPB; const uint64_t * restrict CPB_l; };
@@ -182,8 +178,8 @@ typedef struct {
 	uint32_t col_short_term:1;
 	uint32_t intra_chroma_pred_mode:2;
 	uint32_t mb_qp_delta_non_zero:1;
-	Edge264_bits ctxIdxInc;
-	Edge264_flags f;
+	Edge264_flags ctxIdxInc;
+	union { struct { Edge264_flags f; uint32_t coded_block_flags[3]; }; v4su f_v; };
 	Edge264_parameter_set ps;
 	
 	// Cache variables (usually results of nasty optimisations, so should be few :)
@@ -201,7 +197,7 @@ typedef struct {
 	// Macroblock context variables
 	uint16_t x; // 14 significant bits
 	uint16_t y;
-	union { uint32_t *flags; v4si *flags_v; };
+	union { uint32_t *flags; v4su *flags_v; };
 	union { int8_t *Intra4x4PredMode; uint32_t *Intra4x4PredMode_s; };
 	union { int8_t *refIdx; uint32_t *refIdx_s; };
 	union { int16_t *mvs; v8hi *mvs_v; };
@@ -222,10 +218,8 @@ typedef struct {
 } Edge264_slice;
 
 static const uint8_t ref_pos[8] = {8, 10, 0, 2, 9, 11, 1, 3};
-static const uint8_t mv_pos[64] = {96, 97, 100, 101, 64, 65, 68, 69, 104, 105,
-	108, 109, 72, 73, 76, 77, 32, 33, 36, 37, 0, 1, 4, 5, 40, 41, 44, 45, 8, 9,
-	12, 13, 98, 99, 102, 103, 66, 67, 70, 71, 106, 107, 110, 111, 74, 75, 78,
-	79, 34, 35, 38, 39, 2, 3, 6, 7, 42, 43, 46, 47, 10, 11, 14, 15};
+static const uint8_t mv_pos[32] = {96, 100, 64, 68, 104, 108, 72, 76, 32, 36, 0, 4,
+	40, 44, 8, 12, 98, 102, 66, 70, 106, 110, 74, 78, 34, 38, 2, 6, 42, 46, 10, 14};
 static const uint8_t intra_pos[16] = {4, 5, 3, 4, 6, 7, 5, 6, 2, 3, 1, 2, 4, 5, 3, 4};
 static const uint8_t bit_4x4[16] = {10, 16, 15, 3, 4, 21, 20, 8, 2, 19, 18, 6, 7, 13, 12, 0};
 static const uint8_t left_4x4[16] = {22, 10, 9, 15, 16, 4, 3, 20, 14, 2, 1, 18, 19, 7, 6, 12};

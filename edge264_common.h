@@ -136,11 +136,11 @@ static inline v16qi byte_shuffle(v16qi a, v16qi mask) {
  * The storage patterns for refIdx, mvs, absMvdComp and Intra4x4PredMode keep
  * A/B/C/D at fixed relative positions, while forming circural buffers with the
  * bottom edges:
- *            31 32 33 34 35 36       4 5 6 7
- *    8 9     23|24 25 26 27        2|3 4 5 6
- *  3|4 5  ,  15|16 17 18 19   and  1|2 3 4 5
- * -1|0 1      7| 8  9 10 11        0|1 2 3 4
- *            -1| 0  1  2  3       -1|0 1 2 3
+ *            31 32 33 34 35 36        16 17 18 19
+ *    8 9     23|24 25 26 27        11|12 13 14 15
+ *  3|4 5  ,  15|16 17 18 19   and   7| 8  9 10 11
+ * -1|0 1      7| 8  9 10 11         3| 4  5  6  7
+ *            -1| 0  1  2  3        -1| 0  1  2  3
  */
 typedef union { struct {
 	uint32_t mb_field_decoding_flag:2; // put first to match Edge264_macroblock.fieldDecodingFlag
@@ -157,7 +157,8 @@ typedef union { struct {
 }; uint32_t s; } Edge264_flags;
 typedef struct {
 	// Parsing context
-	union { const uint32_t * restrict CPB; const uint64_t * restrict CPB_l; };
+	const uint32_t * restrict CPB; // aligned by 16 actually
+	const Edge264_picture *DPB;
 	uint32_t shift;
 	uint32_t lim;
 	unsigned long codIRange;
@@ -184,31 +185,29 @@ typedef struct {
 	
 	// Cache variables (usually results of nasty optimisations, so should be few :)
 	v4si cbf_maskA, cbf_maskB;
-	uint64_t mvd_flags;
 	union { int8_t mvC[32]; v16qi mvC_v[2]; };
 	union { uint16_t ctxIdxOffsets[4]; uint64_t ctxIdxOffsets_l; }; // {cbf,sig_flag,last_sig_flag,coeff_abs}
-	union { uint8_t PredMode[16]; v16qu PredMode_v; };
 	union { uint8_t sig_inc[64]; uint64_t sig_inc_l; v16qu sig_inc_v[4]; };
 	union { uint8_t last_inc[64]; uint64_t last_inc_l; v16qu last_inc_v[4]; };
 	union { uint8_t scan[64]; uint64_t scan_l; v16qu scan_v[4]; };
 	union { int32_t residual_block[64]; v4si residual_block_v[16]; };
+	uint32_t mvd_flags;
+	uint32_t mvd_fold;
 	uint32_t ref_idx_mask;
 	
 	// Macroblock context variables
 	uint16_t x; // 14 significant bits
 	uint16_t y;
-	union { uint32_t *flags; v4su *flags_v; };
-	union { int8_t *Intra4x4PredMode; uint32_t *Intra4x4PredMode_s; };
-	union { int8_t *refIdx; uint32_t *refIdx_s; };
-	union { int16_t *mvs; v8hi *mvs_v; };
-	union { uint8_t *absMvdComp; v16qu *absMvdComp_v; };
-	union { const int16_t *mvCol; const uint64_t *mvCol_l; const v8hi *mvCol_v; };
+	v4su *flags;
+	v8hi *mvs;
+	v8hi *mvCol;
+	v16qu *absMvdComp;
+	union { int8_t q; uint32_t s; } *Intra4x4PredMode, *refIdx;
 	const Edge264_macroblock *mbCol;
-	const Edge264_picture *DPB;
 	Edge264_picture p;
 	
 	// Large stuff
-	uint8_t s[1024];
+	v16qu s[64];
 	uint8_t RefPicList[2][32] __attribute__((aligned));
 	uint8_t MapPicToList0[35]; // [1 + refPic]
 	int16_t DistScaleFactor[3][32]; // [top/bottom/frame][refIdxL0]
@@ -312,8 +311,8 @@ static __attribute__((noinline)) unsigned renorm(unsigned v, unsigned binVal) {
 		memcpy(&u, s->CPB + s->shift / 32, 8);
 		buf = big_endian64(u) << (s->shift % 32) >> 32;
 #elif LONG_BIT == 64
-		__int128 u = (__int128)big_endian64(s->CPB_l[s->shift / 64]) << 64 |
-			big_endian64((s->CPB_l + 1)[s->shift / 64]);
+		__int128 u = (__int128)big_endian64(*((uint64_t*)s->CPB + s->shift / 64)) << 64 |
+			big_endian64(*((uint64_t*)s->CPB + 1 + s->shift / 64));
 		buf = u << (s->shift % 64) >> 64;
 #endif
 	}
@@ -361,9 +360,9 @@ static __attribute__((noinline)) unsigned get_ae(unsigned ctxIdx) {
 		244, 245,   9,   8, 248, 249,   5,   4, 248, 249,   1,   0, 252, 253,   0,   1,
 	};
 	
-	fprintf(stderr, "%lu/%lu: (%u,%x)", s->codIOffset, s->codIRange, s->s[ctxIdx] >> 2, s->s[ctxIdx] & 1);
+	fprintf(stderr, "%lu/%lu: (%u,%x)", s->codIOffset, s->codIRange, ((uint8_t*)s->s)[ctxIdx] >> 2, ((uint8_t*)s->s)[ctxIdx] & 1);
 	unsigned long codIRange = s->codIRange;
-	unsigned state = s->s[ctxIdx];
+	unsigned state = ((uint8_t*)s->s)[ctxIdx];
 	unsigned shift = LONG_BIT - 3 - __builtin_clzl(codIRange);
 	unsigned long codIRangeLPS = (long)(rangeTabLPS - 4)[(state & -4) + (codIRange >> shift)] << (shift - 6);
 	codIRange -= codIRangeLPS;
@@ -373,8 +372,8 @@ static __attribute__((noinline)) unsigned get_ae(unsigned ctxIdx) {
 		codIRange = codIRangeLPS;
 	}
 	s->codIRange = codIRange;
-	s->s[ctxIdx] = transIdx[state];
-	fprintf(stderr, "->(%u,%x)\n", s->s[ctxIdx] >> 2, s->s[ctxIdx] & 1);
+	((uint8_t*)s->s)[ctxIdx] = transIdx[state];
+	fprintf(stderr, "->(%u,%x)\n", ((uint8_t*)s->s)[ctxIdx] >> 2, ((uint8_t*)s->s)[ctxIdx] & 1);
 	unsigned binVal = state & 1;
 	if (__builtin_expect(codIRange < 512, 0)) // 256*2 allows parsing an extra coeff_sign_flag without renorm.
 		return renorm(__builtin_clzl(codIRange) - 1, binVal);

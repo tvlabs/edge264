@@ -1411,8 +1411,8 @@ void Edge264_decode_NAL(Edge264_ctx *e, const uint8_t *buf, size_t len)
 		red_if(parse_nal_unit[nal_unit_type] == NULL), nal_unit_type, nal_unit_type_names[nal_unit_type]);
 	if (parse_nal_unit[nal_unit_type] != NULL)
 		parse_nal_unit[nal_unit_type](e);
-	if (s->shift != s->lim)
-		printf("<li style=\"color: red\">Bitstream overflow (%d bits)</li>\n", s->shift - s->lim);
+	if ((nal_unit_type > 5 && s->shift != s->lim) || s->shift < s->lim)
+		printf("<li style=\"color: red\">trailing_bits mismatch (%u / %u)</li>\n", s->shift, s->lim);
 	printf("</ul>\n");
 	s = old_s;
 }

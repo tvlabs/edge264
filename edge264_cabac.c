@@ -1,7 +1,6 @@
 // TODO: Mbaff must update ref_idx_mask each time it decodes mb_field_decoding_flag.
 // TODO: Beware that signed division cannot be vectorised as a mere shift.
 // TODO: Apply the update of mvs pointers at each macroblock.
-// TODO: Try to remove s->PredMode
 // TODO: Remove all uses of bare unsigned/int in favor of fixed sizes.
 
 /**
@@ -1012,41 +1011,45 @@ static __attribute__((noinline)) int parse_chroma_residual() {
 	static const union { uint16_t h[4]; uint64_t l; } ctxIdxOffsets_chromaAC[2] =
 		{{{101, 151, 212, 266}}, {{101, 323, 384, 266}}}; // ctxBlockCat==4
 	
-	if (s->ps.ChromaArrayType == 1 || s->ps.ChromaArrayType == 2) {
+	int is422 = s->ps.ChromaArrayType - 1;
+	if (is422 == 0 || is422 == 1) {
 		for (int i = 0; i < 8; i++)
 			s->residual_block_v[i] = (v4si){};
 		s->ctxIdxOffsets_l = ctxIdxOffsets_chromaDC[s->f.mb_field_decoding_flag].l;
-		s->sig_inc_l = s->last_inc_l = sig_inc_chromaDC[s->ps.ChromaArrayType >> 1].l;
+		s->sig_inc_l = s->last_inc_l = sig_inc_chromaDC[is422].l;
 		s->f_v = __builtin_shufflevector(s->f_v, s->f_v, 0, 2, 1, 3);
 		
 		// One 2x2 or 2x4 DC block for the Cb component
-		s->scan_l = scan_chromaDC[0][s->ps.ChromaArrayType >> 1].l;
-		unsigned coded_block_flag_Cb = s->f.CodedBlockPatternChromaDC &&
-			get_ae(s->ctxIdxOffsets[0] + (s->ctxIdxInc.coded_block_flags_16x16 >> 2 & 3));
+		s->scan_l = scan_chromaDC[0][is422].l;
+		unsigned coded_block_flag_Cb = 0;
+		if (s->f.CodedBlockPatternChromaDC)
+			coded_block_flag_Cb = get_ae(s->ctxIdxOffsets[0] + (s->ctxIdxInc.coded_block_flags_16x16 >> 2 & 3));
 		s->f.coded_block_flags_16x16 |= coded_block_flag_Cb << 2;
-		parse_residual_block(coded_block_flag_Cb << 14, s->ps.ChromaArrayType * 4 - 1);
+		parse_residual_block(coded_block_flag_Cb << 1, is422 * 4 + 3);
 		
 		// Another 2x2/2x4 DC block for the Cr component
-		s->scan_l = scan_chromaDC[1][s->ps.ChromaArrayType >> 1].l;
-		unsigned coded_block_flag_Cr = s->f.CodedBlockPatternChromaDC &&
-			get_ae(s->ctxIdxOffsets[0] + (s->ctxIdxInc.coded_block_flags_16x16 >> 4 & 3));
+		s->scan_l = scan_chromaDC[1][is422].l;
+		unsigned coded_block_flag_Cr = 0;
+		if (s->f.CodedBlockPatternChromaDC)
+			coded_block_flag_Cr = get_ae(s->ctxIdxOffsets[0] + (s->ctxIdxInc.coded_block_flags_16x16 >> 4 & 3));
 		s->f.coded_block_flags_16x16 |= coded_block_flag_Cr << 4;
-		parse_residual_block(coded_block_flag_Cr << 14, s->ps.ChromaArrayType * 4 - 1);
+		parse_residual_block(coded_block_flag_Cr << 1, is422 * 4 + 3);
 		
 		// Eight or sixteen 4x4 AC blocks for the Cb/Cr components
 		s->sig_inc_v[0] = s->last_inc_v[0] = sig_inc_4x4;
 		s->scan_v[0] = scan_4x4[s->f.mb_field_decoding_flag];
 		s->ctxIdxOffsets_l = ctxIdxOffsets_chromaAC[s->f.mb_field_decoding_flag].l;
-		for (int iCbCr = 0; iCbCr < 2; iCbCr++) {
-			for (int luma4x4BlkIdx = 0; luma4x4BlkIdx < s->ps.ChromaArrayType * 4; luma4x4BlkIdx++) {
-				int32_t DC = s->residual_block[16 + luma4x4BlkIdx];
-				s->residual_block_v[3] = s->residual_block_v[2] = s->residual_block_v[1] = s->residual_block_v[0] = (v4si){};
-				s->residual_block[0] = DC;
-				uint8_t shift = left_chroma[luma4x4BlkIdx];
-				unsigned coded_block_flag = s->f.CodedBlockPatternChromaAC &&
-					get_ae(s->ctxIdxOffsets[0] + (s->coded_block_flags[1] >> shift & 3)) << shift >> 2;
-				parse_residual_block(coded_block_flag, 14);
-			}
+		for (int luma4x4BlkIdx = 0, lim = 12 + is422 * 4; luma4x4BlkIdx < lim; luma4x4BlkIdx++) {
+			if ((luma4x4BlkIdx & lim) == 4)
+				luma4x4BlkIdx = 8;
+			int32_t DC = s->residual_block[16 + luma4x4BlkIdx];
+			s->residual_block_v[3] = s->residual_block_v[2] = s->residual_block_v[1] = s->residual_block_v[0] = (v4si){};
+			s->residual_block[0] = DC;
+			uint8_t shift = left_chroma[luma4x4BlkIdx];
+			unsigned coded_block_flag = 0;
+			if (s->f.CodedBlockPatternChromaAC)
+				coded_block_flag = get_ae(s->ctxIdxOffsets[0] + (s->coded_block_flags[0] >> shift & 3)) << shift >> 2;
+			parse_residual_block(coded_block_flag, 14);
 		}
 		s->f_v = __builtin_shufflevector(s->f_v, s->f_v, 0, 2, 1, 3);
 	}
@@ -1086,8 +1089,9 @@ static __attribute__((noinline)) int parse_Intra16x16_residual() {
 			int32_t DC = s->residual_block[16 + luma4x4BlkIdx];
 			s->residual_block_v[3] = s->residual_block_v[2] = s->residual_block_v[1] = s->residual_block_v[0] = (v4si){};
 			s->residual_block[0] = DC;
-			unsigned coded_block_flag = (s->f.s & 1 << bit_8x8[luma4x4BlkIdx >> 2]) &&
-				get_ae(s->ctxIdxOffsets[0] + (s->coded_block_flags[0] >> left_4x4[luma4x4BlkIdx] & 3)) << bit_4x4[luma4x4BlkIdx];
+			unsigned coded_block_flag = 0;
+			if (s->f.s & 1 << bit_8x8[luma4x4BlkIdx >> 2])
+				coded_block_flag = get_ae(s->ctxIdxOffsets[0] + (s->coded_block_flags[0] >> left_4x4[luma4x4BlkIdx] & 3)) << bit_4x4[luma4x4BlkIdx];
 			parse_residual_block(coded_block_flag, 14);
 		}
 		
@@ -1123,8 +1127,9 @@ static __attribute__((noinline)) int parse_NxN_residual() {
 			s->sig_inc_v[0] = s->last_inc_v[0] = sig_inc_4x4;
 			for (int luma4x4BlkIdx = 0; luma4x4BlkIdx < 16; luma4x4BlkIdx++) {
 				s->residual_block_v[3] = s->residual_block_v[2] = s->residual_block_v[1] = s->residual_block_v[0] = (v4si){};
-				unsigned coded_block_flag = (s->f.s & 1 << bit_8x8[luma4x4BlkIdx >> 2]) &&
-					get_ae(s->ctxIdxOffsets[0] + (s->coded_block_flags[0] >> left_4x4[luma4x4BlkIdx] & 3)) << bit_4x4[luma4x4BlkIdx];
+				unsigned coded_block_flag = 0;
+				if (s->f.s & 1 << bit_8x8[luma4x4BlkIdx >> 2])
+					coded_block_flag = get_ae(s->ctxIdxOffsets[0] + (s->coded_block_flags[0] >> left_4x4[luma4x4BlkIdx] & 3)) << bit_4x4[luma4x4BlkIdx];
 				parse_residual_block(coded_block_flag, 15);
 			}
 		
@@ -1142,8 +1147,12 @@ static __attribute__((noinline)) int parse_NxN_residual() {
 			for (int luma8x8BlkIdx = 0; luma8x8BlkIdx < 4; luma8x8BlkIdx++) {
 				for (int i = 0; i < 16; i++)
 					s->residual_block_v[i] = (v4si){};
-				unsigned coded_block_flag = ((s->f.s & 1 << bit_8x8[luma8x8BlkIdx]) && (s->ps.ChromaArrayType != 3 ||
-					get_ae(s->ctxIdxOffsets[0] + (s->coded_block_flags[0] >> left_8x8[luma8x8BlkIdx] & 3)))) * cbf_8x8[luma8x8BlkIdx];
+				unsigned coded_block_flag = 0;
+				if (s->f.s & 1 << bit_8x8[luma8x8BlkIdx]) {
+					coded_block_flag = cbf_8x8[luma8x8BlkIdx];
+					if (s->ps.ChromaArrayType == 3)
+						coded_block_flag *= get_ae(s->ctxIdxOffsets[0] + (s->coded_block_flags[0] >> left_8x8[luma8x8BlkIdx] & 3));
+				}
 				parse_residual_block(coded_block_flag, 63);
 			}
 		}
@@ -1262,7 +1271,7 @@ static __attribute__((noinline)) int parse_inter_pred() {
 		mv->h[1] = mvp_y + parse_mvd(pos + 1, 49);
 	
 		// Intermediate copies for 8x8, 4x8 and 8x4 blocks.
-		uint16_t *absMvdComp = (uint16_t *)s->absMvdComp + pos;
+		uint16_t *absMvdComp = (uint16_t *)((uint8_t *)s->absMvdComp + pos);
 		uintptr_t u = (uintptr_t)s->mvs + (pos & 95) * 2, v = (uintptr_t)s->absMvdComp + (pos & 95);
 		*(uint32_t *)u = *(uint32_t *)(u | 8) = *(uint32_t *)((uintptr_t)mv | 8) = mv->s;
 		*(uint16_t *)v = *(uint16_t *)(v | 4) = *(uint16_t *)((uintptr_t)absMvdComp | 4) = *absMvdComp;
@@ -1283,7 +1292,7 @@ static __attribute__((noinline)) int parse_inter_pred() {
 		s->absMvdComp[4] = s->absMvdComp[6] = (v16qu)__builtin_shufflevector((v2lu)s->absMvdComp[4], (v2lu){}, 0, 0);
 	}
 	
-	if (!(s->mvd_fold & 0xeeeee) && s->f.CodedBlockPatternLuma && s->ps.transform_8x8_mode_flag) {
+	if (!(s->mvd_fold & 0xeeeee) && (s->f.CodedBlockPatternLuma & 0x35) && s->ps.transform_8x8_mode_flag) {
 		s->f.transform_size_8x8_flag |= get_ae(399 + s->ctxIdxInc.transform_size_8x8_flag);
 		fprintf(stderr, "transform_size_8x8_flag: %x\n", s->f.transform_size_8x8_flag);
 	}
@@ -1499,7 +1508,7 @@ __attribute__((noinline)) void CABAC_parse_slice_data()
 	};
 	
 	// cabac_alignment_one_bit shall be tested in the future for error concealment.
-	if ((~(uint8_t)(s->CPB)[s->shift / 8] << (1 + (s->shift - 1) % 8) & 0xff) != 0)
+	if ((~((uint8_t*)s->CPB)[s->shift / 8] << (1 + (s->shift - 1) % 8) & 0xff) != 0)
 		printf("<li style=\"color: red\">Erroneous slice header (%u bits)</li>\n", s->shift);
 	s->shift = (s->shift + 7) & -8;
 	

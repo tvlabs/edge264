@@ -127,11 +127,11 @@ static inline v16qi byte_shuffle(v16qi a, v16qi mask) {
  *
  * Likewise, CodedBlockPatternLuma and coded_block_flags are packed in bitfields
  * with left and top always contiguous:
- *    23 11 17  5                      13  6
- * 22|10 16  4 21         7 3       12| 5 11
- *  9|15  3 20  8       6|2 5        4|10  3
- * 14| 2 19  7 13       1|4 0        9| 2  8
- *  1|18  6 12  0                    1| 7  0
+ *    23 11 17  5                      14 12
+ * 22|10 16  4 21         7 3       13|11  9
+ *  9|15  3 20  8       6|2 5       10| 8  6
+ * 14| 2 19  7 13       1|4 0        7| 5  3
+ *  1|18  6 12  0                    4| 2  0
  *
  * The storage patterns for refIdx, mvs, absMvdComp and Intra4x4PredMode keep
  * A/B/C/D at fixed relative positions, while forming circural buffers with the
@@ -360,7 +360,7 @@ static __attribute__((noinline)) unsigned get_ae(unsigned ctxIdx) {
 		244, 245,   9,   8, 248, 249,   5,   4, 248, 249,   1,   0, 252, 253,   0,   1,
 	};
 	
-	fprintf(stderr, "%lu/%lu: (%u,%x)", s->codIOffset, s->codIRange, ((uint8_t*)s->s)[ctxIdx] >> 2, ((uint8_t*)s->s)[ctxIdx] & 1);
+	fprintf(stderr, "%lu/%lu: (%u,%x)", s->codIOffset >> (LONG_BIT - 9 - __builtin_clzl(s->codIRange)), s->codIRange >> (LONG_BIT - 9 - __builtin_clzl(s->codIRange)), ((uint8_t*)s->s)[ctxIdx] >> 2, ((uint8_t*)s->s)[ctxIdx] & 1);
 	unsigned long codIRange = s->codIRange;
 	unsigned state = ((uint8_t*)s->s)[ctxIdx];
 	unsigned shift = LONG_BIT - 3 - __builtin_clzl(codIRange);

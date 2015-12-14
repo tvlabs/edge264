@@ -1206,8 +1206,8 @@ static __attribute__((noinline)) int parse_inter_pred() {
 	};
 	
 	// Parsing for ref_idx_lX in P/B slices.
-	for (uint32_t f = s->mvd_flags & s->ref_idx_mask; f != 0; f &= f - 1) {
-		int8_t *pos = &s->refIdx->q + ref_pos[ctz32(f) / 4];
+	for (unsigned f = s->mvd_flags & s->ref_idx_mask; f != 0; f &= f - 1) {
+		int8_t *pos = &s->refIdx->q + ref_pos[__builtin_ctz(f) / 4];
 		unsigned ctxIdxInc = (pos[-2] > 0) + (pos[8] > 0) * 2;
 		unsigned refIdx = 0;
 		
@@ -1280,12 +1280,15 @@ static __attribute__((noinline)) int parse_inter_pred() {
 	parse_coded_block_pattern();
 	
 	// Final copies for 16x16, 8x16 and 16x8 blocks.
-	if (!(s->mvd_fold & 0xfff00)) {
+	if (!(s->mvd_fold & 0xfff00)) { // 8x16
+		s->refIdx[0].s = s->refIdx[2].s;
 		s->mvs[0] = s->mvs[4] = s->mvs[8];
 		s->mvs[1] = s->mvs[5] = s->mvs[9];
 		s->absMvdComp[0] = s->absMvdComp[2] = s->absMvdComp[4];
 	}
-	if (!(s->mvd_fold & 0xff0f0)) {
+	if (!(s->mvd_fold & 0xff0f0)) { // 16x8
+		s->refIdx[0].h[1] = s->refIdx[0].h[0];
+		s->refIdx[2].h[1] = s->refIdx[2].h[0];
 		s->mvs[1] = s->mvs[5] = s->mvs[0];
 		s->mvs[9] = s->mvs[13] = s->mvs[8];
 		s->absMvdComp[0] = s->absMvdComp[2] = (v16qu)__builtin_shufflevector((v2lu)s->absMvdComp[0], (v2lu){}, 0, 0);
@@ -1435,7 +1438,7 @@ static __attribute__((noinline)) int parse_inter_mb()
 		} else if (!get_ae(29 - s->ctxIdxInc.mb_type_B_Direct)) {
 			fprintf(stderr, "mb_type: 0\n");
 			parse_coded_block_pattern();
-			if (s->f.CodedBlockPatternLuma && s->ps.transform_8x8_mode_flag && s->ps.direct_8x8_inference_flag) {
+			if ((s->f.CodedBlockPatternLuma & 0x35) && s->ps.transform_8x8_mode_flag && s->ps.direct_8x8_inference_flag) {
 				s->f.transform_size_8x8_flag |= get_ae(399 + s->ctxIdxInc.transform_size_8x8_flag);
 				fprintf(stderr, "transform_size_8x8_flag: %x\n", s->f.transform_size_8x8_flag);
 			}

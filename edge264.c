@@ -441,7 +441,7 @@ static void parse_dec_ref_pic_marking(Edge264_ctx *e)
 						if (!s->field_pic_flag)
 							e->reference_flags[1] ^= 1 << j;
 					}
-					printf("<li>FrameNum %u ? unused for reference</li>\n", FrameNum);
+					printf("<li>FrameNum %u -> unused for reference</li>\n", FrameNum);
 				} else {
 					unsigned long_term_frame_idx = get_ue(15);
 					if (r != 0) {
@@ -449,7 +449,7 @@ static void parse_dec_ref_pic_marking(Edge264_ctx *e)
 						e->DPB[2 * j].LongTermFrameIdx = e->DPB[2 * j + 1].LongTermFrameIdx =
 							long_term_frame_idx;
 					}
-					printf("<li>FrameNum %u ? LongTermFrameIdx %u</li>\n", FrameNum, long_term_frame_idx);
+					printf("<li>FrameNum %u -> LongTermFrameIdx %u</li>\n", FrameNum, long_term_frame_idx);
 				}
 			} else if (memory_management_control_operation == 2) {
 				unsigned long_term_pic_num = get_ue16();
@@ -465,7 +465,7 @@ static void parse_dec_ref_pic_marking(Edge264_ctx *e)
 					if (!(e->reference_flags[!bottom] & 1 << j))
 						e->long_term_flags ^= 1 << j;
 				}
-				printf("<li>LongTermFrameIdx %u ? unused for reference</li>\n",
+				printf("<li>LongTermFrameIdx %u -> unused for reference</li>\n",
 					LongTermFrameIdx);
 			} else if (memory_management_control_operation == 4) {
 				unsigned max_long_term_frame_idx_plus1 = get_ue16();
@@ -477,17 +477,17 @@ static void parse_dec_ref_pic_marking(Edge264_ctx *e)
 						e->reference_flags[1] &= ~(1 << j);
 					}
 				}
-				printf("<li>LongTermFrameIdx %u and above ? unused for reference</li>\n",
+				printf("<li>LongTermFrameIdx %u and above -> unused for reference</li>\n",
 					max_long_term_frame_idx_plus1);
 			} else if (memory_management_control_operation == 5) {
 				e->reference_flags[0] = e->reference_flags[1] = e->long_term_flags = 0;
 				e->prevPicOrderCnt += 1 << (s->ps.log2_max_pic_order_cnt_lsb - 1);
-				printf("<li>All references ? unused for reference</li>\n");
+				printf("<li>All references -> unused for reference</li>\n");
 			} else if (memory_management_control_operation == 6) {
 				e->long_term_flags |= 1 << (e->currPic / 2);
 				Edge264_picture *p = e->DPB + 2 * (e->currPic / 2);
 				p[0].LongTermFrameIdx = p[1].LongTermFrameIdx = get_ue(15);
-				printf("<li>Current FrameNum %u ? LongTermFrameIdx %u</li>\n",
+				printf("<li>Current FrameNum %u -> LongTermFrameIdx %u</li>\n",
 					s->p.FrameNum, p->LongTermFrameIdx);
 			}
 		}

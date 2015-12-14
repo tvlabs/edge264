@@ -45,7 +45,7 @@ static inline const char *red_if(int cond) { return (cond) ? " style=\"color: re
 #if TRACE != 2
 #define fprintf(...) ((void)0)
 #else
-#define fprintf(...) if (s->p.FrameNum == 1) fprintf(__VA_ARGS__)
+#define fprintf(...) if (s->p.FrameNum <= 2) fprintf(__VA_ARGS__)
 #endif
 
 
@@ -202,7 +202,7 @@ typedef struct {
 	v8hi *mvs;
 	v8hi *mvCol;
 	v16qu *absMvdComp;
-	union { int8_t q; uint32_t s; } *Intra4x4PredMode, *refIdx;
+	union { int8_t q; uint16_t h[2]; uint32_t s; } *Intra4x4PredMode, *refIdx;
 	const Edge264_macroblock *mbCol;
 	Edge264_picture p;
 	

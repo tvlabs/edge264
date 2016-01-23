@@ -36,7 +36,7 @@
 
 #include "edge264.h"
 
-#if TRACE
+#if TRACE > 0
 #include <stdio.h>
 static inline const char *red_if(int cond) { return (cond) ? " style=\"color: red\"" : ""; }
 #else
@@ -50,18 +50,15 @@ static inline const char *red_if(int cond) { return (cond) ? " style=\"color: re
 
 
 
-// These constants may not be defined on all platforms, but do NOT deserve a config script.
 #ifndef WORD_BIT
 #if INT_MAX == 2147483647
 #define WORD_BIT 32
 #endif
 #endif
-#ifndef LONG_BIT
-#if LONG_MAX == 2147483647
-#define LONG_BIT 32
-#elif LONG_MAX == 9223372036854775807
-#define LONG_BIT 64
-#endif
+#if SIZE_MAX == 4294967295U
+#define SIZE_BIT 32
+#elif SIZE_MAX == 18446744073709551615U
+#define SIZE_BIT 64
 #endif
 
 #if INT_MAX == 2147483647
@@ -161,8 +158,8 @@ typedef struct {
 	const Edge264_picture *DPB;
 	uint32_t shift;
 	uint32_t lim;
-	unsigned long codIRange;
-	unsigned long codIOffset;
+	size_t codIRange;
+	size_t codIOffset;
 	
 	// Bitfields come next since they represent most accesses
 	uint32_t colour_plane_id:2;
@@ -196,8 +193,8 @@ typedef struct {
 	uint32_t ref_idx_mask;
 	
 	// Macroblock context variables
-	uint16_t x; // 14 significant bits
-	uint16_t y;
+	int16_t x; // 14 significant bits
+	int16_t y;
 	v4su *flags;
 	v8hi *mvs;
 	v8hi *mvCol;
@@ -208,18 +205,18 @@ typedef struct {
 	
 	// Large stuff
 	v16qu s[64];
-	uint8_t RefPicList[2][32] __attribute__((aligned));
-	uint8_t MapPicToList0[35]; // [1 + refPic]
+	int8_t RefPicList[2][32] __attribute__((aligned));
+	int8_t MapPicToList0[35]; // [1 + refPic]
 	int16_t DistScaleFactor[3][32]; // [top/bottom/frame][refIdxL0]
 	int16_t weights[3][32][2];
 	int16_t offsets[3][32][2];
 	int8_t implicit_weights[3][32][32]; // -w_1C[top/bottom/frame][refIdxL0][refIdxL1]
 } Edge264_slice;
 
-static const uint8_t ref_pos[8] = {8, 10, 0, 2, 9, 11, 1, 3};
-static const uint8_t mv_pos[32] = {96, 100, 64, 68, 104, 108, 72, 76, 32, 36, 0, 4,
+static const int8_t ref_pos[8] = {8, 10, 0, 2, 9, 11, 1, 3};
+static const int8_t mv_pos[32] = {96, 100, 64, 68, 104, 108, 72, 76, 32, 36, 0, 4,
 	40, 44, 8, 12, 98, 102, 66, 70, 106, 110, 74, 78, 34, 38, 2, 6, 42, 46, 10, 14};
-static const uint8_t intra_pos[16] = {4, 5, 3, 4, 6, 7, 5, 6, 2, 3, 1, 2, 4, 5, 3, 4};
+static const int8_t intra_pos[16] = {4, 5, 3, 4, 6, 7, 5, 6, 2, 3, 1, 2, 4, 5, 3, 4};
 static const uint8_t bit_4x4[16] = {10, 16, 15, 3, 4, 21, 20, 8, 2, 19, 18, 6, 7, 13, 12, 0};
 static const uint8_t left_4x4[16] = {22, 10, 9, 15, 16, 4, 3, 20, 14, 2, 1, 18, 19, 7, 6, 12};
 static const uint8_t bit_8x8[4] = {26, 29, 28, 24};
@@ -299,25 +296,25 @@ static inline __attribute__((always_inline)) int get_se(int lower, int upper) { 
  *
  * In the spec, codIRange belongs to [256..510] (ninth bit set) and codIOffset
  * is strictly less (9 significant bits). In the functions below, they cover
- * the full range of a register, a shift right by LONG_BIT-9-clz(codIRange)
+ * the full range of a register, a shift right by SIZE_BIT-9-clz(codIRange)
  * yielding the original values.
  */
 static __attribute__((noinline)) unsigned renorm(unsigned v, unsigned binVal) {
-	assert(v>0&&v<LONG_BIT);
-	unsigned long buf = -1; // favors codIOffset >= codIRange, thus binVal = !valMPS
+	assert(v>0&&v<SIZE_BIT);
+	size_t buf = -1; // favors codIOffset >= codIRange, thus binVal = !valMPS
 	if (s->shift < s->lim) {
-#if LONG_BIT == 32
+#if SIZE_BIT == 32
 		uint64_t u;
 		memcpy(&u, s->CPB + s->shift / 32, 8);
 		buf = big_endian64(u) << (s->shift % 32) >> 32;
-#elif LONG_BIT == 64
+#elif SIZE_BIT == 64
 		__int128 u = (__int128)big_endian64(*((uint64_t*)s->CPB + s->shift / 64)) << 64 |
 			big_endian64(*((uint64_t*)s->CPB + 1 + s->shift / 64));
 		buf = u << (s->shift % 64) >> 64;
 #endif
 	}
 	s->codIRange <<= v;
-	s->codIOffset = (s->codIOffset << v) | (buf >> (LONG_BIT - v));
+	s->codIOffset = (s->codIOffset << v) | (buf >> (SIZE_BIT - v));
 	s->shift += v;
 	return binVal; // Allows tail call from get_ae
 }
@@ -360,11 +357,11 @@ static __attribute__((noinline)) unsigned get_ae(unsigned ctxIdx) {
 		244, 245,   9,   8, 248, 249,   5,   4, 248, 249,   1,   0, 252, 253,   0,   1,
 	};
 	
-	fprintf(stderr, "%lu/%lu: (%u,%x)", s->codIOffset >> (LONG_BIT - 9 - __builtin_clzl(s->codIRange)), s->codIRange >> (LONG_BIT - 9 - __builtin_clzl(s->codIRange)), ((uint8_t*)s->s)[ctxIdx] >> 2, ((uint8_t*)s->s)[ctxIdx] & 1);
-	unsigned long codIRange = s->codIRange;
-	unsigned state = ((uint8_t*)s->s)[ctxIdx];
-	unsigned shift = LONG_BIT - 3 - __builtin_clzl(codIRange);
-	unsigned long codIRangeLPS = (long)(rangeTabLPS - 4)[(state & -4) + (codIRange >> shift)] << (shift - 6);
+	fprintf(stderr, "%lu/%lu: (%u,%x)", s->codIOffset >> (SIZE_BIT - 9 - __builtin_clzl(s->codIRange)), s->codIRange >> (SIZE_BIT - 9 - __builtin_clzl(s->codIRange)), ((uint8_t*)s->s)[ctxIdx] >> 2, ((uint8_t*)s->s)[ctxIdx] & 1);
+	size_t codIRange = s->codIRange;
+	unsigned state = ((uint8_t *)s->s)[ctxIdx];
+	unsigned shift = SIZE_BIT - 3 - __builtin_clzl(codIRange);
+	size_t codIRangeLPS = (size_t)(rangeTabLPS - 4)[(state & -4) + (codIRange >> shift)] << (shift - 6);
 	codIRange -= codIRangeLPS;
 	if (s->codIOffset >= codIRange) {
 		state ^= 255;
@@ -372,8 +369,8 @@ static __attribute__((noinline)) unsigned get_ae(unsigned ctxIdx) {
 		codIRange = codIRangeLPS;
 	}
 	s->codIRange = codIRange;
-	((uint8_t*)s->s)[ctxIdx] = transIdx[state];
-	fprintf(stderr, "->(%u,%x)\n", ((uint8_t*)s->s)[ctxIdx] >> 2, ((uint8_t*)s->s)[ctxIdx] & 1);
+	((uint8_t *)s->s)[ctxIdx] = transIdx[state];
+	fprintf(stderr, "->(%u,%x)\n", ((uint8_t *)s->s)[ctxIdx] >> 2, ((uint8_t *)s->s)[ctxIdx] & 1);
 	unsigned binVal = state & 1;
 	if (__builtin_expect(codIRange < 512, 0)) // 256*2 allows parsing an extra coeff_sign_flag without renorm.
 		return renorm(__builtin_clzl(codIRange) - 1, binVal);

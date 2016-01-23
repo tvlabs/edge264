@@ -804,8 +804,7 @@ static void init_context_variables() {
  * coeff_abs_level expects at most 2^(7+14), i.e 43 bits, so we use two 32bit
  * divisions (second one being executed for long codes only).
  */
-static __attribute__((noinline)) int parse_residual_block(unsigned coded_block_flag,
-	unsigned endIdx)
+static __attribute__((noinline)) int parse_residual_block(unsigned coded_block_flag, int endIdx)
 {
 	if (coded_block_flag) {
 		s->coded_block_flags[0] |= coded_block_flag;
@@ -822,31 +821,30 @@ static __attribute__((noinline)) int parse_residual_block(unsigned coded_block_f
 		significant_coeff_flags |= 1ULL << endIdx;
 	
 		// Now loop on set bits to parse all non-zero coefficients.
-		unsigned ctxIdx0 = s->ctxIdxOffsets[3] + 1;
-		unsigned ctxIdx1 = s->ctxIdxOffsets[3] + 5;
+		int ctxIdx0 = s->ctxIdxOffsets[3] + 1;
+		int ctxIdx1 = s->ctxIdxOffsets[3] + 5;
 		do {
 			int coeff_level = 1;
-			unsigned ctxIdx = ctxIdx0;
+			int ctxIdx = ctxIdx0;
 			while (coeff_level < 15 && get_ae(ctxIdx))
 				coeff_level++, ctxIdx = ctxIdx1;
 		
 			// Unsigned division uses one extra bit, so the first renorm is correct.
 			if (coeff_level >= 15) {
 				renorm(__builtin_clzl(s->codIRange), 0); // Hardcore!!!
-				uint16_t codIRange = s->codIRange >> (LONG_BIT - 9);
-				uint32_t codIOffset = s->codIOffset >> (LONG_BIT - 32);
+				uint16_t codIRange = s->codIRange >> (SIZE_BIT - 9);
+				uint32_t codIOffset = s->codIOffset >> (SIZE_BIT - 32);
 				uint32_t quo = codIOffset / codIRange;
 				uint32_t rem = codIOffset % codIRange;
 			
 				// 32bit/9bit division yields 23 bypass bits.
-				unsigned k = clz32(~(quo << 9));
+				int k = clz32(~(quo << 9));
 				unsigned shift = 9 + k;
 				if (__builtin_expect(k >= 12, 0)) { // At k==11, code length is 23 bits.
-					s->codIRange = (unsigned long)codIRange << (LONG_BIT - 32);
-					s->codIOffset = (LONG_BIT == 32) ? rem :
-						(uint32_t)s->codIOffset | (unsigned long)rem << 32;
+					s->codIRange = (size_t)codIRange << (SIZE_BIT - 32);
+					s->codIOffset = (SIZE_BIT == 32) ? rem : (uint32_t)s->codIOffset | (size_t)rem << 32;
 					renorm(21, 0); // Next division will yield 21 bypass bits...
-					codIOffset = s->codIOffset >> (LONG_BIT - 32);
+					codIOffset = s->codIOffset >> (SIZE_BIT - 32);
 					quo = codIOffset / codIRange + (quo << 21); // ... such that we keep 11 as msb.
 					rem = codIOffset % codIRange;
 					shift -= 21;
@@ -854,9 +852,8 @@ static __attribute__((noinline)) int parse_residual_block(unsigned coded_block_f
 			
 				// Return the unconsumed bypass bits to codIOffset, and compute coeff_level.
 				codIOffset = ((uint32_t)-1 >> 1 >> (shift + k) & quo) * codIRange + rem;
-				s->codIRange = (unsigned long)codIRange << (LONG_BIT - 1 - (shift + k));
-				s->codIOffset = (LONG_BIT == 32) ? codIOffset :
-					(uint32_t)s->codIOffset | (unsigned long)codIOffset << 32;
+				s->codIRange = (size_t)codIRange << (SIZE_BIT - 1 - (shift + k));
+				s->codIOffset = (SIZE_BIT == 32) ? codIOffset : (uint32_t)s->codIOffset | (size_t)codIOffset << 32;
 				coeff_level = 14 + (1 << k) + (quo << shift >> (31 - k));
 			}
 			static const uint8_t trans[5][2] = {{0, 0}, {2, 0}, {3, 0}, {4, 0}, {4, 0}};
@@ -867,7 +864,7 @@ static __attribute__((noinline)) int parse_residual_block(unsigned coded_block_f
 			s->codIRange >>= 1;
 			coeff_level = (s->codIOffset >= s->codIRange) ? -coeff_level : coeff_level;
 			s->codIOffset = (s->codIOffset >= s->codIRange) ? s->codIOffset - s->codIRange : s->codIOffset;
-			unsigned i = __builtin_ctzll(significant_coeff_flags);
+			int i = __builtin_ctzll(significant_coeff_flags);
 			s->residual_block[s->scan[i]] = coeff_level;
 		
 			// Though not very efficient, this gets optimised out easily :)
@@ -896,9 +893,9 @@ static __attribute__((noinline)) int parse_residual_block(unsigned coded_block_f
  * This function parses one mvd_lX symbol, using the same binary division trick
  * as above to read all bypass bits at once.
  */
-static __attribute__((noinline)) int parse_mvd(int pos, unsigned ctxBase) {
-	unsigned sum = ((uint8_t*)s->absMvdComp)[pos - 4] + ((uint8_t*)s->absMvdComp)[pos + 32];
-	unsigned ctxIdx = ctxBase - ((sum - 3) >> (WORD_BIT - 1)) - ((sum - 33) >> (WORD_BIT - 1));
+static __attribute__((noinline)) int parse_mvd(int pos, int ctxBase) {
+	int sum = ((uint8_t *)s->absMvdComp)[pos - 4] + ((uint8_t *)s->absMvdComp)[pos + 32];
+	int ctxIdx = ctxBase - ((sum - 3) >> (WORD_BIT - 1)) - ((sum - 33) >> (WORD_BIT - 1));
 	int mvd = 0;
 	while (mvd < 9 && get_ae(ctxIdx))
 		ctxIdx = ctxBase + umin(++mvd, 4);
@@ -906,20 +903,19 @@ static __attribute__((noinline)) int parse_mvd(int pos, unsigned ctxBase) {
 	// Once again, we use unsigned division to read all bypass bits.
 	if (mvd >= 9) {
 		renorm(__builtin_clzl(s->codIRange), 0);
-		uint16_t codIRange = s->codIRange >> (LONG_BIT - 9);
-		uint32_t codIOffset = s->codIOffset >> (LONG_BIT - 32);
+		uint16_t codIRange = s->codIRange >> (SIZE_BIT - 9);
+		uint32_t codIOffset = s->codIOffset >> (SIZE_BIT - 32);
 		uint32_t quo = codIOffset / codIRange;
 		uint32_t rem = codIOffset % codIRange;
 		
 		// 32bit/9bit division yields 23 bypass bits.
-		unsigned k = 3 + clz32(~(quo << 9));
+		int k = 3 + clz32(~(quo << 9));
 		unsigned shift = 6 + k;
 		if (__builtin_expect(k >= 13, 0)) { // At k==12, code length is 22 bits.
-			s->codIRange = (unsigned long)codIRange << (LONG_BIT - 32);
-			s->codIOffset = (LONG_BIT == 32) ? rem :
-				(uint32_t)s->codIOffset | (unsigned long)rem << 32;
+			s->codIRange = (size_t)codIRange << (SIZE_BIT - 32);
+			s->codIOffset = (SIZE_BIT == 32) ? rem : (uint32_t)s->codIOffset | (size_t)rem << 32;
 			renorm(19, 0); // Next division will yield 19 bypass bits...
-			codIOffset = s->codIOffset >> (LONG_BIT - 32);
+			codIOffset = s->codIOffset >> (SIZE_BIT - 32);
 			quo = codIOffset / codIRange + (quo << 19); // ... such that we keep 13 as msb.
 			rem = codIOffset % codIRange;
 			shift -= 19;
@@ -927,12 +923,11 @@ static __attribute__((noinline)) int parse_mvd(int pos, unsigned ctxBase) {
 		
 		// Return the unconsumed bypass bits to codIOffset, and compute mvd.
 		codIOffset = ((uint32_t)-1 >> 1 >> (shift + k) & quo) * codIRange + rem;
-		s->codIRange = (unsigned long)codIRange << (LONG_BIT - 1 - (shift + k));
-		s->codIOffset = (LONG_BIT == 32) ? codIOffset :
-			(uint32_t)s->codIOffset | (unsigned long)codIOffset << 32;
+		s->codIRange = (size_t)codIRange << (SIZE_BIT - 1 - (shift + k));
+		s->codIOffset = (SIZE_BIT == 32) ? codIOffset : (uint32_t)s->codIOffset | (size_t)codIOffset << 32;
 		mvd = 1 + (1 << k) + (quo << shift >> (31 - k));
 	}
-	((uint8_t*)s->absMvdComp)[pos] = umin(mvd, 66);
+	((uint8_t *)s->absMvdComp)[pos] = umin(mvd, 66);
 	
 	// Parse the sign flag.
 	if (mvd > 0) {
@@ -951,19 +946,20 @@ static __attribute__((noinline)) int parse_mvd(int pos, unsigned ctxBase) {
  * doing so usually makes them produce much heavier code!
  */
 static __attribute__((noinline)) void parse_mb_qp_delta(unsigned bits) {
-	unsigned ctxIdxInc = s->mb_qp_delta_non_zero;
+	int ctxIdxInc = s->mb_qp_delta_non_zero;
 	s->mb_qp_delta_non_zero = 0;
 	if (bits & (Edge264_flags){.CodedBlockPatternChromaDC = 1, .CodedBlockPatternLuma = 0x35}.s) {
 		int mb_qp_delta = 0;
 		if (get_ae(60 + ctxIdxInc)) {
 			s->mb_qp_delta_non_zero |= 1;
-			unsigned count = 1, ctxIdx = 62;
+			int count = 1, ctxIdx = 62;
 			while (count < 89 && get_ae(ctxIdx))
 				count++, ctxIdx = 63;
 			mb_qp_delta = (count & 1) ? count / 2 + 1 : -(count / 2);
 			int QP = s->ps.QP_Y + mb_qp_delta;
-			s->ps.QP_Y = (QP < -s->ps.QpBdOffset_Y) ? QP + 52 + s->ps.QpBdOffset_Y :
-				(QP >= 52) ? QP - (52 + s->ps.QpBdOffset_Y) : QP;
+			int QpBdOffset_Y = (s->ps.BitDepth[0] - 8) * 6;
+			s->ps.QP_Y = (QP < -QpBdOffset_Y) ? QP + 52 + QpBdOffset_Y :
+				(QP >= 52) ? QP - (52 + QpBdOffset_Y) : QP;
 		}
 		fprintf(stderr, "mb_qp_delta: %d\n", mb_qp_delta);
 	}
@@ -993,8 +989,8 @@ static __attribute__((noinline)) void parse_coded_block_pattern() {
 
 static __attribute__((noinline)) void parse_intra_chroma_pred_mode() {
 	if (s->ps.ChromaArrayType == 1 || s->ps.ChromaArrayType == 2) {
-		unsigned ctxIdx = 64 + s->ctxIdxInc.intra_chroma_pred_mode_non_zero;
-		unsigned intra_chroma_pred_mode = 0;
+		int ctxIdx = 64 + s->ctxIdxInc.intra_chroma_pred_mode_non_zero;
+		int intra_chroma_pred_mode = 0;
 		while (intra_chroma_pred_mode < 3 && get_ae(ctxIdx))
 			intra_chroma_pred_mode++, ctxIdx = 67;
 		s->f.intra_chroma_pred_mode_non_zero |= (intra_chroma_pred_mode > 0);
@@ -1042,7 +1038,7 @@ static __attribute__((noinline)) int parse_chroma_residual() {
 		for (int luma4x4BlkIdx = 0, lim = 12 + is422 * 4; luma4x4BlkIdx < lim; luma4x4BlkIdx++) {
 			if ((luma4x4BlkIdx & lim) == 4)
 				luma4x4BlkIdx = 8;
-			int32_t DC = s->residual_block[16 + luma4x4BlkIdx];
+			int DC = s->residual_block[16 + luma4x4BlkIdx];
 			s->residual_block_v[3] = s->residual_block_v[2] = s->residual_block_v[1] = s->residual_block_v[0] = (v4si){};
 			s->residual_block[0] = DC;
 			uint8_t shift = left_chroma[luma4x4BlkIdx];
@@ -1086,7 +1082,7 @@ static __attribute__((noinline)) int parse_Intra16x16_residual() {
 		// Sixteen 4x4 AC blocks
 		s->ctxIdxOffsets_l = ctxIdxOffsets_16x16AC[iYCbCr][s->f.mb_field_decoding_flag].l;
 		for (int luma4x4BlkIdx = 0; luma4x4BlkIdx < 16; luma4x4BlkIdx++) {
-			int32_t DC = s->residual_block[16 + luma4x4BlkIdx];
+			int DC = s->residual_block[16 + luma4x4BlkIdx];
 			s->residual_block_v[3] = s->residual_block_v[2] = s->residual_block_v[1] = s->residual_block_v[0] = (v4si){};
 			s->residual_block[0] = DC;
 			unsigned coded_block_flag = 0;
@@ -1208,8 +1204,8 @@ static __attribute__((noinline)) int parse_inter_pred() {
 	// Parsing for ref_idx_lX in P/B slices.
 	for (unsigned f = s->mvd_flags & s->ref_idx_mask; f != 0; f &= f - 1) {
 		int8_t *pos = &s->refIdx->q + ref_pos[__builtin_ctz(f) / 4];
-		unsigned ctxIdxInc = (pos[-2] > 0) + (pos[8] > 0) * 2;
-		unsigned refIdx = 0;
+		int ctxIdxInc = (pos[-2] > 0) + (pos[8] > 0) * 2;
+		int refIdx = 0;
 		
 		// This cannot loop forever since binVal would oscillate past the end of the RBSP.
 		while (get_ae(54 + ctxIdxInc))
@@ -1310,7 +1306,7 @@ static __attribute__((noinline)) int parse_inter_pred() {
  * coded_block_pattern (from function) for the current Intra macroblock.
  * It proceeds to residual decoding through tail call.
  */
-static __attribute__((noinline)) int parse_intra_mb(unsigned ctxIdx) {
+static __attribute__((noinline)) int parse_intra_mb(int ctxIdx) {
 	v8hi *mvCol = (v8hi *)s->p.mvs; // p.mvs is always v8hi so this type-punning is safe
 	mvCol[0] = mvCol[1] = mvCol[2] = mvCol[3] = (v8hi){};
 	if (s->ctxIdxInc.unavailable & 1)
@@ -1328,11 +1324,11 @@ static __attribute__((noinline)) int parse_intra_mb(unsigned ctxIdx) {
 		s->f.mb_type_I_NxN |= 1;
 		
 		// Overall code is much lighter with 4x4/8x8 sharing the parsing of IntraPredMode.
-		for (unsigned luma4x4BlkIdx = 0; luma4x4BlkIdx < 16; ) {
+		for (int luma4x4BlkIdx = 0; luma4x4BlkIdx < 16; ) {
 			int8_t *pos = &s->Intra4x4PredMode->q + intra_pos[luma4x4BlkIdx++];
-			unsigned IntraPredMode = abs(min(pos[-1], pos[1]));
+			int IntraPredMode = abs(min(pos[-1], pos[1]));
 			if (!get_ae(68)) {
-				unsigned rem_intra_pred_mode = get_ae(69);
+				int rem_intra_pred_mode = get_ae(69);
 				rem_intra_pred_mode += get_ae(69) * 2;
 				rem_intra_pred_mode += get_ae(69) * 4;
 				fprintf(stderr, "intra_pred_mode: %u\n", rem_intra_pred_mode);
@@ -1355,7 +1351,7 @@ static __attribute__((noinline)) int parse_intra_mb(unsigned ctxIdx) {
 		s->f.CodedBlockPatternChromaDC |= get_ae(umax(ctxIdx + 2, 7));
 		if (s->f.CodedBlockPatternChromaDC)
 			s->f.CodedBlockPatternChromaAC |= get_ae(umax(ctxIdx + 2, 8));
-		unsigned Intra16x16PredMode = get_ae(umax(ctxIdx + 3, 9)) << 1;
+		int Intra16x16PredMode = get_ae(umax(ctxIdx + 3, 9)) << 1;
 		Intra16x16PredMode += get_ae(umax(ctxIdx + 3, 10));
 		fprintf(stderr, "mb_type: %u\n", 12 * (s->f.CodedBlockPatternLuma & 1) +
 			4 * (s->f.CodedBlockPatternChromaDC + s->f.CodedBlockPatternChromaAC) +
@@ -1375,10 +1371,10 @@ static __attribute__((noinline)) int parse_intra_mb(unsigned ctxIdx) {
 		fprintf(stderr, "mb_type: 25\n");
 		s->f_v = (v4su){flags_PCM.s, -1, -1, -1};
 		s->mb_qp_delta_non_zero = 0;
-		s->shift = (s->shift - (LONG_BIT - 9 - __builtin_clzl(s->codIRange)) + 7) & -8;
-		for (unsigned i = 0; i < 256; i++)
+		s->shift = (s->shift - (SIZE_BIT - 9 - __builtin_clzl(s->codIRange)) + 7) & -8;
+		for (int i = 0; i < 256; i++)
 			get_uv(s->ps.BitDepth[0]);
-		for (unsigned i = 0; i < (1 << s->ps.ChromaArrayType >> 1) * 128; i++)
+		for (int i = 0; i < (1 << s->ps.ChromaArrayType >> 1) * 128; i++)
 			get_uv(s->ps.BitDepth[1]);
 		return 0;
 	}
@@ -1416,13 +1412,13 @@ static __attribute__((noinline)) int parse_inter_mb()
 		}
 		
 		// Are these few lines worth a function? :)
-		unsigned str = get_ae(15);
+		int str = get_ae(15);
 		str += str + get_ae(16 + str);
 		fprintf(stderr, "mb_type: %u\n", (4 - str) % 4);
 		unsigned flags = P2flags[str];
 		
 		// Parsing for sub_mb_type in P slices.
-		for (unsigned i = 0; str == 1 && i < 16; i += 4) {
+		for (int i = 0; str == 1 && i < 16; i += 4) {
 			unsigned f = get_ae(21) ? 1 : !get_ae(22) ? 5 : get_ae(23) ? 3 : 15;
 			fprintf(stderr, "sub_mb_type: %c\n", (f == 1) ? '0' : (f == 5) ? '1' : (f == 3) ? '2' : '3');
 			flags |= f << i;
@@ -1447,7 +1443,7 @@ static __attribute__((noinline)) int parse_inter_mb()
 		}
 		
 		// Most important here is the minimal number of conditional branches.
-		unsigned str = 4;
+		int str = 4;
 		if (!get_ae(30) || (str = get_ae(31),
 			str += str + get_ae(32),
 			str += str + get_ae(32),
@@ -1465,8 +1461,8 @@ static __attribute__((noinline)) int parse_inter_mb()
 		unsigned flags = B2flags[str];
 		
 		// Parsing for sub_mb_type in B slices.
-		for (unsigned i = 0; str == 15 && i < 16; i += 4) {
-			unsigned sub = 12;
+		for (int i = 0; str == 15 && i < 16; i += 4) {
+			int sub = 12;
 			if (!get_ae(36)) {
 				s->mvd_fold = (s->ps.direct_8x8_inference_flag) ? 0x10000 : 0x20000;
 			} else {
@@ -1516,8 +1512,8 @@ __attribute__((noinline)) void CABAC_parse_slice_data()
 	s->shift = (s->shift + 7) & -8;
 	
 	// Initialise the CABAC engine.
-	renorm(LONG_BIT - 1, 0);
-	s->codIRange = 510L << (LONG_BIT - 10);
+	renorm(SIZE_BIT - 1, 0);
+	s->codIRange = 510L << (SIZE_BIT - 10);
 	init_context_variables();
 	
 	// Mbaff shares all of the above functions except the code below.
@@ -1534,7 +1530,7 @@ __attribute__((noinline)) void CABAC_parse_slice_data()
 		
 		// Create the circular buffers and position their pointers.
 		v4su flags[PicWidthInMbs + 2];
-		for (unsigned u = 0; u < PicWidthInMbs + 2; u++)
+		for (int u = 0; u < PicWidthInMbs + 2; u++)
 			flags[u] = (v4su){unavail_mb.s, 0, 0, 0};
 		s->flags = &flags[mb_x + 1];
 		uint32_t Intra4x4PredMode[mb_y * 4 + PicWidthInMbs + 5];

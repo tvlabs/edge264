@@ -856,9 +856,9 @@ static __attribute__((noinline)) int parse_residual_block(unsigned coded_block_f
 				s->codIOffset = (SIZE_BIT == 32) ? codIOffset : (uint32_t)s->codIOffset | (size_t)codIOffset << 32;
 				coeff_level = 14 + (1 << k) + (quo << shift >> (31 - k));
 			}
-			static const uint8_t trans[5][2] = {{0, 0}, {2, 0}, {3, 0}, {4, 0}, {4, 0}};
+			static const int8_t trans[5][2] = {{0, 0}, {2, 0}, {3, 0}, {4, 0}, {4, 0}};
 			ctxIdx0 = s->ctxIdxOffsets[3] + trans[ctxIdx0 - s->ctxIdxOffsets[3]][coeff_level > 1];
-			ctxIdx1 = umin(ctxIdx1 + (coeff_level > 1), s->ctxIdxOffsets[3] + 9 - (s->ctxIdxOffsets[3] == 257));
+			ctxIdx1 = min(ctxIdx1 + (coeff_level > 1), s->ctxIdxOffsets[3] + 9 - (s->ctxIdxOffsets[3] == 257));
 		
 			// Parse coeff_sign_flag.
 			s->codIRange >>= 1;
@@ -895,10 +895,10 @@ static __attribute__((noinline)) int parse_residual_block(unsigned coded_block_f
  */
 static __attribute__((noinline)) int parse_mvd(int pos, int ctxBase) {
 	int sum = ((uint8_t *)s->absMvdComp)[pos - 4] + ((uint8_t *)s->absMvdComp)[pos + 32];
-	int ctxIdx = ctxBase - ((sum - 3) >> (WORD_BIT - 1)) - ((sum - 33) >> (WORD_BIT - 1));
+	int ctxIdx = ctxBase + ((sum - 3) >> (WORD_BIT - 1)) + ((sum - 33) >> (WORD_BIT - 1));
 	int mvd = 0;
 	while (mvd < 9 && get_ae(ctxIdx))
-		ctxIdx = ctxBase + umin(++mvd, 4);
+		ctxIdx = ctxBase + min(++mvd, 4);
 	
 	// Once again, we use unsigned division to read all bypass bits.
 	if (mvd >= 9) {
@@ -927,7 +927,7 @@ static __attribute__((noinline)) int parse_mvd(int pos, int ctxBase) {
 		s->codIOffset = (SIZE_BIT == 32) ? codIOffset : (uint32_t)s->codIOffset | (size_t)codIOffset << 32;
 		mvd = 1 + (1 << k) + (quo << shift >> (31 - k));
 	}
-	((uint8_t *)s->absMvdComp)[pos] = umin(mvd, 66);
+	((uint8_t *)s->absMvdComp)[pos] = min(mvd, 66);
 	
 	// Parse the sign flag.
 	if (mvd > 0) {
@@ -1347,12 +1347,12 @@ static __attribute__((noinline)) int parse_intra_mb(int ctxIdx) {
 	
 	// Intra_16x16
 	} else if (!get_ae(276)) {
-		s->f.CodedBlockPatternLuma |= -get_ae(umax(ctxIdx + 1, 6));
-		s->f.CodedBlockPatternChromaDC |= get_ae(umax(ctxIdx + 2, 7));
+		s->f.CodedBlockPatternLuma |= -get_ae(max(ctxIdx + 1, 6));
+		s->f.CodedBlockPatternChromaDC |= get_ae(max(ctxIdx + 2, 7));
 		if (s->f.CodedBlockPatternChromaDC)
-			s->f.CodedBlockPatternChromaAC |= get_ae(umax(ctxIdx + 2, 8));
-		int Intra16x16PredMode = get_ae(umax(ctxIdx + 3, 9)) << 1;
-		Intra16x16PredMode += get_ae(umax(ctxIdx + 3, 10));
+			s->f.CodedBlockPatternChromaAC |= get_ae(max(ctxIdx + 2, 8));
+		int Intra16x16PredMode = get_ae(max(ctxIdx + 3, 9)) << 1;
+		Intra16x16PredMode += get_ae(max(ctxIdx + 3, 10));
 		fprintf(stderr, "mb_type: %u\n", 12 * (s->f.CodedBlockPatternLuma & 1) +
 			4 * (s->f.CodedBlockPatternChromaDC + s->f.CodedBlockPatternChromaAC) +
 			Intra16x16PredMode + (ctxIdx == 17 ? 6 : ctxIdx == 32 ? 24 : 1));
@@ -1447,7 +1447,7 @@ static __attribute__((noinline)) int parse_inter_mb()
 		if (!get_ae(30) || (str = get_ae(31),
 			str += str + get_ae(32),
 			str += str + get_ae(32),
-			str += str + get_ae(32), str - 8 < 5))
+			str += str + get_ae(32), str - 8 < 5u))
 		{
 			str += str + get_ae(32);
 		}
@@ -1469,7 +1469,7 @@ static __attribute__((noinline)) int parse_inter_mb()
 				sub = 2;
 				if (!get_ae(37) || (sub = get_ae(38),
 					sub += sub + get_ae(39),
-					sub += sub + get_ae(39), sub - 4 < 2))
+					sub += sub + get_ae(39), sub - 4 < 2u))
 				{
 					sub += sub + get_ae(39);
 				}

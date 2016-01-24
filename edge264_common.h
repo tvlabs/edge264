@@ -319,7 +319,7 @@ static __attribute__((noinline)) unsigned renorm(unsigned v, unsigned binVal) {
 	return binVal; // Allows tail call from get_ae
 }
 
-static __attribute__((noinline)) unsigned get_ae(unsigned ctxIdx) {
+static __attribute__((noinline)) unsigned get_ae(int ctxIdx) {
 	static const uint8_t rangeTabLPS[64 * 4] = {
 		128, 176, 208, 240, 128, 167, 197, 227, 128, 158, 187, 216, 123, 150, 178, 205,
 		116, 142, 169, 195, 111, 135, 160, 185, 105, 128, 152, 175, 100, 122, 144, 166,
@@ -361,7 +361,8 @@ static __attribute__((noinline)) unsigned get_ae(unsigned ctxIdx) {
 	size_t codIRange = s->codIRange;
 	unsigned state = ((uint8_t *)s->s)[ctxIdx];
 	unsigned shift = SIZE_BIT - 3 - __builtin_clzl(codIRange);
-	size_t codIRangeLPS = (size_t)(rangeTabLPS - 4)[(state & -4) + (codIRange >> shift)] << (shift - 6);
+	int idx = (state & -4) + (codIRange >> shift);
+	size_t codIRangeLPS = (size_t)(rangeTabLPS - 4)[idx] << (shift - 6);
 	codIRange -= codIRangeLPS;
 	if (s->codIOffset >= codIRange) {
 		state ^= 255;

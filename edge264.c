@@ -1407,7 +1407,7 @@ void Edge264_decode_NAL(Edge264_ctx *e, const uint8_t *buf, size_t len)
 	if (parse_nal_unit[nal_unit_type] != NULL)
 		parse_nal_unit[nal_unit_type](e);
 	if ((nal_unit_type > 5 && s->shift != s->lim) || s->shift < s->lim)
-		printf("<li style=\"color: red\">trailing_bits mismatch (%u / %u)</li>\n", s->shift, s->lim);
+		printf("<li style=\"color: red\">RBSP size mismatch (%u / %u bits)</li>\n", s->shift, s->lim);
 	printf("</ul>\n");
 	s = old_s;
 }

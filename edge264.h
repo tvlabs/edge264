@@ -97,7 +97,7 @@ typedef struct {
 	int32_t PicOrderCntDeltas[256]; // pic_order_cnt_type==1
 } Edge264_ctx;
 
-const uint8_t *Edge264_find_start_code(const uint8_t *buf, const uint8_t *end, unsigned int n);
+const uint8_t *Edge264_find_start_code(const uint8_t *CPB, const uint8_t *end, unsigned int n);
 void Edge264_decode_NAL(Edge264_ctx *e, const uint8_t *buf, size_t len);
 
 #endif

@@ -39,7 +39,7 @@ edge264 is built and tested with gcc/clang, is thread-safe, supports 32/64 bit a
 
 The test program takes a raw Annex-B bitstream and prints out the parsing data:
 ```
-ffmpeg -i video.mp4 -vcodec copy -bsf h264_mp4toannexb -an video.264` (optional, converts from MP4 format)
+ffmpeg -i video.mp4 -vcodec copy -bsf h264_mp4toannexb -an video.264 (optional, converts from MP4 format)
 make
 ./edge264_test <video.264 >headers.html 2>dump.txt
 ```

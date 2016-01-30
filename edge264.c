@@ -2,7 +2,7 @@
 
 /**
  * Copyright (c) 2013-2014, Celticom / TVLabs
- * Copyright (c) 2014-2015 Thibault Raffaillac <traf@kth.se>
+ * Copyright (c) 2014-2016 Thibault Raffaillac <traf@kth.se>
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -736,11 +736,11 @@ static void parse_scaling_lists()
 		v16qu v4x4 = *w4x4;
 		const char *str = "unchanged";
 		do {
-			printf("<li>weightScale4x4[%lu]: <code>", w4x4 - (v16qu *)s->ps.weightScale4x4);
+			printf("<li>weightScale4x4[%tu]: <code>", (uint8_t(*)[16])w4x4 - s->ps.weightScale4x4);
 			*w4x4 = v4x4;
 			uint8_t nextScale;
 			if (!get_u1() || !(*w4x4 = d4x4, str = "default", nextScale = 8 + get_se(-128, 127))) {
-				printf(str, w4x4 - (v16qu *)s->ps.weightScale4x4 - 1);
+				printf(str, (uint8_t(*)[16])w4x4 - s->ps.weightScale4x4 - 1);
 			} else {
 				uint8_t lastScale = nextScale;
 				int j = 0;
@@ -750,7 +750,7 @@ static void parse_scaling_lists()
 				}
 			}
 			printf("</code></li>\n");
-			str = "weightScale4x4[%u]";
+			str = "weightScale4x4[%tu]";
 			v4x4 = *w4x4++;
 		} while (w4x4 != (v16qu *)s->ps.weightScale4x4[3] && w4x4 != (v16qu *)s->ps.weightScale4x4[6]);
 		d4x4 = Default_4x4_Inter;
@@ -763,8 +763,8 @@ static void parse_scaling_lists()
 	do {
 		const v16qu *d8x8 = Default_8x8_Intra;
 		do {
-			printf("<li>weightScale8x8[%lu]: <code>", ((uint8_t *)w8x8 - s->ps.weightScale8x8[0]) / 64);
-			const char *str = ((uint8_t *)w8x8 < s->ps.weightScale8x8[2]) ? "existing" : "weightScale8x8[%lu]";
+			printf("<li>weightScale8x8[%tu]: <code>", (uint8_t(*)[64])w8x8 - s->ps.weightScale8x8);
+			const char *str = ((uint8_t *)w8x8 < s->ps.weightScale8x8[2]) ? "existing" : "weightScale8x8[%tu]";
 			const v16qu *src = v8x8;
 			uint8_t nextScale;
 			if (!get_u1() || (src = d8x8, str = "default", nextScale = 8 + get_se(-128, 127))) {
@@ -1298,28 +1298,6 @@ static void parse_seq_parameter_set(Edge264_ctx *e)
 	e->SPS = s->ps;
 	memcpy(e->PicOrderCntDeltas, PicOrderCntDeltas, 4 * (s->ps.num_ref_frames_in_pic_order_cnt_cycle + 1));
 }
-
-
-
-/** Find the start of the next 00 00 0n pattern, returning end if none was found. */
-#ifdef __SSSE3__
-const uint8_t *Edge264_find_start_code(const uint8_t *buf, const uint8_t *end,
-	unsigned n)
-{
-	const __m128i *chunk = (__m128i *)((uintptr_t)buf & -sizeof(*chunk));
-	for (; buf < end; buf = (uint8_t *)chunk) {
-		if ((_mm_movemask_epi8(_mm_cmpeq_epi8(*chunk++, _mm_setzero_si128())) & 0xaaaa) != 0) {
-			const uint8_t *lim = ((uint8_t *)chunk + 2 < end) ? (uint8_t *)chunk + 2 : end;
-			for (unsigned start_code = -1; buf < lim; buf++) {
-				start_code = ((start_code & 0xffff) << 8) | *buf;
-				if (start_code == n)
-					return buf - 2;
-			}
-		}
-	}
-	return end;
-}
-#endif
 
 
 

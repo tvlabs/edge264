@@ -1,6 +1,6 @@
 /**
  * Copyright (c) 2013-2014, Celticom / TVLabs
- * Copyright (c) 2014-2015 Thibault Raffaillac <traf@kth.se>
+ * Copyright (c) 2014-2016 Thibault Raffaillac <traf@kth.se>
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -28,7 +28,6 @@
 #ifndef EDGE264_COMMON_H
 #define EDGE264_COMMON_H
 
-#include <assert.h>
 #include <limits.h>
 #include <stdint.h>
 #include <stdlib.h>
@@ -45,75 +44,37 @@ static inline const char *red_if(int cond) { return (cond) ? " style=\"color: re
 #if TRACE != 2
 #define fprintf(...) ((void)0)
 #else
-#define fprintf(...) if (s->p.FrameNum <= 2) fprintf(__VA_ARGS__)
+#define fprintf(...) fprintf(__VA_ARGS__)
 #endif
 
 
-
-#ifndef WORD_BIT
-#if INT_MAX == 2147483647
-#define WORD_BIT 32
-#endif
-#endif
-#if SIZE_MAX == 4294967295U
-#define SIZE_BIT 32
-#elif SIZE_MAX == 18446744073709551615U
-#define SIZE_BIT 64
-#endif
-
-#if INT_MAX == 2147483647
-#define clz32 __builtin_clz
-#define ctz32 __builtin_ctz
-#endif
-#if LLONG_MAX == 9223372036854775807
-#define clz64 __builtin_clzll
-#define ctz64 __builtin_ctzll
-#endif
 
 #if __BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__
 #define big_endian32 __builtin_bswap32
 #define big_endian64 __builtin_bswap64
-#elif __BYTE_ORDER__ == __ORDER_BIG_ENDIAN_
+#elif __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
 #define big_endian32(x) (x)
 #define big_endian64(x) (x)
 #endif
 
-
-
-typedef int8_t v16qi __attribute__((vector_size(16)));
-typedef int16_t v8hi __attribute__((vector_size(16)));
-typedef int32_t v4si __attribute__((vector_size(16)));
-typedef int64_t v2li __attribute__((vector_size(16)));
-typedef uint8_t v16qu __attribute__((vector_size(16)));
-typedef uint16_t v8hu __attribute__((vector_size(16)));
-typedef uint32_t v4su __attribute__((vector_size(16)));
-typedef uint64_t v2lu __attribute__((vector_size(16)));
-
-#ifndef __clang__
-#define __builtin_shufflevector(a, b, ...) __builtin_shuffle(a, b, (typeof(a)){__VA_ARGS__})
+#if UINT_MAX == 4294967295U && ULLONG_MAX == 18446744073709551615U
+#define clz32 __builtin_clz
+#define ctz32 __builtin_ctz
+#define clz64 __builtin_clzll
+#define ctz64 __builtin_ctzll
+#ifndef WORD_BIT
+#define WORD_BIT 32
+#endif
 #endif
 
-#ifdef __SSSE3__
-#define REG_S "ebx"
-#define _mm_movpi64_pi64 _mm_movpi64_epi64
-#include <tmmintrin.h>
-static inline v8hi mv_is_zero(v8hi mvCol) {
-	return (v8hi)_mm_cmpeq_epi32(_mm_srli_epi16(_mm_abs_epi16((__m128i)mvCol), 1), _mm_setzero_si128());
-}
-static inline v8hi temporal_scale(v8hi mvCol, int16_t DistScaleFactor) {
-	return (v8hi)_mm_mulhrs_epi16(_mm_set1_epi16(DistScaleFactor), _mm_slli_epi16((__m128i)mvCol, 2));
-}
-static inline v16qi byte_shuffle(v16qi a, v16qi mask) {
-	return (v16qi)_mm_shuffle_epi8((__m128i)a, (__m128i)mask);
-}
-#ifdef __SSE4_1__
-#include <smmintrin.h>
-#define vector_select(f, t, mask) (typeof(f))_mm_blendv_epi8((__m128i)(f), (__m128i)(t), (__m128i)(mask))
-#else
-#define vector_select(f, t, mask) (((t) & (mask)) | ((f) & ~(mask)))
-#endif
-#else
-#error "Add -mssse3 or more recent"
+#if SIZE_MAX == 4294967295U
+#define SIZE_BIT 32
+#define big_endian big_endian32
+#define clz clz32
+#elif SIZE_MAX == 18446744073709551615U
+#define SIZE_BIT 64
+#define big_endian big_endian64
+#define clz clz64
 #endif
 
 
@@ -139,6 +100,14 @@ static inline v16qi byte_shuffle(v16qi a, v16qi mask) {
  * -1|0 1      7| 8  9 10 11         3| 4  5  6  7
  *            -1| 0  1  2  3        -1| 0  1  2  3
  */
+typedef int8_t v16qi __attribute__((vector_size(16)));
+typedef int16_t v8hi __attribute__((vector_size(16)));
+typedef int32_t v4si __attribute__((vector_size(16)));
+typedef int64_t v2li __attribute__((vector_size(16)));
+typedef uint8_t v16qu __attribute__((vector_size(16)));
+typedef uint16_t v8hu __attribute__((vector_size(16)));
+typedef uint32_t v4su __attribute__((vector_size(16)));
+typedef uint64_t v2lu __attribute__((vector_size(16)));
 typedef union { struct {
 	uint32_t mb_field_decoding_flag:2; // put first to match Edge264_macroblock.fieldDecodingFlag
 	uint32_t mb_skip_flag:2;
@@ -156,6 +125,11 @@ typedef struct {
 	// Parsing context
 	const uint32_t * restrict CPB; // aligned by 16 actually
 	const Edge264_picture *DPB;
+#if SIZE_BIT == 32
+	uint64_t RBSP;
+#elif SIZE_BIT == 64
+	unsigned __int128 RBSP;
+#endif
 	uint32_t shift;
 	uint32_t lim;
 	size_t codIRange;
@@ -204,7 +178,7 @@ typedef struct {
 	Edge264_picture p;
 	
 	// Large stuff
-	v16qu s[64];
+	v16qu states[64];
 	int8_t RefPicList[2][32] __attribute__((aligned));
 	int8_t MapPicToList0[35]; // [1 + refPic]
 	int16_t DistScaleFactor[3][32]; // [top/bottom/frame][refIdxL0]
@@ -227,6 +201,9 @@ static const uint8_t left_chroma[16] = {13, 11, 10, 8, 7, 5, 4, 2, 29, 27, 26, 2
 
 // This Global Register Variable is a blessing since we make a lot of function calls.
 #ifndef __clang__
+#ifdef __SSSE3__
+#define REG_S "ebx"
+#endif
 register Edge264_slice *s asm(REG_S);
 #else
 __thread Edge264_slice *s;
@@ -239,6 +216,97 @@ static inline int max(int a, int b) { return (a > b) ? a : b; }
 static inline unsigned umin(unsigned a, unsigned b) { return (a < b) ? a : b; }
 static inline unsigned umax(unsigned a, unsigned b) { return (a > b) ? a : b; }
 static inline int median(int a, int b, int c) { return max(min(max(a, b), c), min(a, b)); }
+
+
+
+#ifdef __SSSE3__
+#define _mm_movpi64_pi64 _mm_movpi64_epi64
+#include <tmmintrin.h>
+static inline v8hi mv_is_zero(v8hi mvCol) {
+	return (v8hi)_mm_cmpeq_epi32(_mm_srli_epi16(_mm_abs_epi16((__m128i)mvCol), 1), _mm_setzero_si128());
+}
+static inline v8hi temporal_scale(v8hi mvCol, int16_t DistScaleFactor) {
+	return (v8hi)_mm_mulhrs_epi16(_mm_set1_epi16(DistScaleFactor), _mm_slli_epi16((__m128i)mvCol, 2));
+}
+static inline v16qi byte_shuffle(v16qi a, v16qi mask) {
+	return (v16qi)_mm_shuffle_epi8((__m128i)a, (__m128i)mask);
+}
+static __attribute__((noinline)) unsigned refill(unsigned shift, unsigned ret) {
+	typedef size_t v16u __attribute__((vector_size(16)));
+	static const v16qi shuf[8] = {
+		{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 15},
+		{0, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 15},
+		{0, 1, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 15},
+		{0, 1, 2, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 15},
+		{0, 1, 2, 3, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 15},
+		{0, 1, 2, 3, 4, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 15},
+		{0, 1, 2, 3, 4, 5, 7, 8, 9, 10, 11, 12, 13, 14, 15, 15},
+		{0, 1, 2, 3, 4, 5, 6, 8, 9, 10, 11, 12, 13, 14, 15, 15},
+	};
+	
+	if (shift >= SIZE_BIT) {
+		const uint8_t *CPB = s->CPB;
+		shift -= SIZE_BIT;
+		
+		// read the next bytes into both scalar and vector registers
+		__m128i x;
+		memcpy(&x, CPB - 2, 16);
+		size_t bits;
+		memcpy(&bits, CPB, sizeof(size_t));
+		bits = big_endian(bits);
+		
+		// ignore words without a zero odd byte
+		unsigned mask = _mm_movemask_epi8(_mm_cmpeq_epi8(x, _mm_setzero_si128()));
+		if (mask & (SIZE_BIT == 32 ? 0xa : 0xaa)) {
+			x = _mm_srli_si128(x, 2);
+			mask &= mask >> 1 & ~_mm_movemask_epi8(_mm_adds_epu8(x, _mm_set1_epi8(124)));
+			
+			// iterate on and remove every emulation_prevention_three_byte
+			while (mask & (SIZE_BIT == 32 ? 0xf : 0xff)) {
+				int i = __builtin_ctz(mask);
+				x = _mm_shuffle_epi8(x, (__m128i)shuf[i]);
+				bits = big_endian(((v16u)x)[0]);
+				mask = (mask & (mask - 1)) >> 1;
+				if (CPB++[i] <= 1) {
+					CPB += i - 11;
+					break;
+				}
+			}
+		}
+		s->CPB = CPB + 8;
+		s->RBSP = s->RBSP << SIZE_BIT | bits;
+	}
+	s->shift = shift;
+	return ret;
+}
+const uint8_t *Edge264_find_start_code(const uint8_t *CPB, const uint8_t *end, unsigned n) {
+	const __m128i v0 = _mm_setzero_si128();
+	const __m128i vn = _mm_set1_epi8(n);
+	const __m128i *p = (__m128i *)((uintptr_t)CPB & -16);
+	unsigned z = (_mm_movemask_epi8(_mm_cmpeq_epi8(*p, v0)) & -1u << ((uintptr_t)CPB & 15)) << 2, c;
+	
+	// no heuristic here since we are limited by memory bandwidth anyway
+	while (!(c = z & z >> 1 & _mm_movemask_epi8(_mm_cmpeq_epi8(*p, vn)))) {
+		if (++p >= (__m128i *)end)
+			return (uint8_t *)end;
+		z = z >> 16 | _mm_movemask_epi8(_mm_cmpeq_epi8(*p, v0)) << 2;
+	}
+	const uint8_t *res = (uint8_t *)p - 2 + __builtin_ctz(c);
+	return (res < end) ? res : end;
+}
+#ifdef __SSE4_1__
+#include <smmintrin.h>
+#define vector_select(f, t, mask) (typeof(f))_mm_blendv_epi8((__m128i)(f), (__m128i)(t), (__m128i)(mask))
+#else
+#define vector_select(f, t, mask) (((t) & (mask)) | ((f) & ~(mask)))
+#endif
+#else
+#error "Add -mssse3 or more recent"
+#endif
+
+#ifndef __clang__
+#define __builtin_shufflevector(a, b, ...) __builtin_shuffle(a, b, (typeof(a)){__VA_ARGS__})
+#endif
 
 
 
@@ -300,7 +368,7 @@ static inline __attribute__((always_inline)) int get_se(int lower, int upper) { 
  * yielding the original values.
  */
 static __attribute__((noinline)) unsigned renorm(unsigned v, unsigned binVal) {
-	assert(v>0&&v<SIZE_BIT);
+	fprintf(stderr, "renorm(%u)\n", v);
 	size_t buf = -1; // favors codIOffset >= codIRange, thus binVal = !valMPS
 	if (s->shift < s->lim) {
 #if SIZE_BIT == 32
@@ -357,9 +425,9 @@ static __attribute__((noinline)) unsigned get_ae(int ctxIdx) {
 		244, 245,   9,   8, 248, 249,   5,   4, 248, 249,   1,   0, 252, 253,   0,   1,
 	};
 	
-	fprintf(stderr, "%lu/%lu: (%u,%x)", s->codIOffset >> (SIZE_BIT - 9 - __builtin_clzl(s->codIRange)), s->codIRange >> (SIZE_BIT - 9 - __builtin_clzl(s->codIRange)), ((uint8_t*)s->s)[ctxIdx] >> 2, ((uint8_t*)s->s)[ctxIdx] & 1);
+	fprintf(stderr, "%zu/%zu: (%u,%x)", s->codIOffset >> (SIZE_BIT - 9 - __builtin_clzl(s->codIRange)), s->codIRange >> (SIZE_BIT - 9 - __builtin_clzl(s->codIRange)), ((uint8_t*)s->states)[ctxIdx] >> 2, ((uint8_t*)s->states)[ctxIdx] & 1);
 	size_t codIRange = s->codIRange;
-	unsigned state = ((uint8_t *)s->s)[ctxIdx];
+	unsigned state = ((uint8_t *)s->states)[ctxIdx];
 	unsigned shift = SIZE_BIT - 3 - __builtin_clzl(codIRange);
 	int idx = (state & -4) + (codIRange >> shift);
 	size_t codIRangeLPS = (size_t)(rangeTabLPS - 4)[idx] << (shift - 6);
@@ -370,8 +438,8 @@ static __attribute__((noinline)) unsigned get_ae(int ctxIdx) {
 		codIRange = codIRangeLPS;
 	}
 	s->codIRange = codIRange;
-	((uint8_t *)s->s)[ctxIdx] = transIdx[state];
-	fprintf(stderr, "->(%u,%x)\n", ((uint8_t *)s->s)[ctxIdx] >> 2, ((uint8_t *)s->s)[ctxIdx] & 1);
+	((uint8_t *)s->states)[ctxIdx] = transIdx[state];
+	fprintf(stderr, "->(%u,%x)\n", ((uint8_t *)s->states)[ctxIdx] >> 2, ((uint8_t *)s->states)[ctxIdx] & 1);
 	unsigned binVal = state & 1;
 	if (__builtin_expect(codIRange < 512, 0)) // 256*2 allows parsing an extra coeff_sign_flag without renorm.
 		return renorm(__builtin_clzl(codIRange) - 1, binVal);

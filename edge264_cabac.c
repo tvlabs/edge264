@@ -5,7 +5,7 @@
 
 /**
  * Copyright (c) 2013-2014, Celticom / TVLabs
- * Copyright (c) 2014-2015 Thibault Raffaillac <traf@kth.se>
+ * Copyright (c) 2014-2016 Thibault Raffaillac <traf@kth.se>
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -780,7 +780,7 @@ static const union { uint8_t q[8]; uint64_t l; } scan_chromaDC[2][2] = {
 static void init_context_variables() {
 	__m128i mul = _mm_set1_epi16(max(s->ps.QP_Y, 0) + 4096);
 	const __m128i *src = (__m128i *)context_init[s->cabac_init_idc];
-	for (__m128i *dst = (__m128i*)s->s; dst < (__m128i*)s->s + 64; dst++, src += 2) {
+	for (__m128i *dst = (__m128i*)s->states; dst < (__m128i*)s->states + 64; dst++, src += 2) {
 		__m128i sum0 = _mm_srai_epi16(_mm_maddubs_epi16(mul, src[0]), 4);
 		__m128i sum1 = _mm_srai_epi16(_mm_maddubs_epi16(mul, src[1]), 4);
 		__m128i min = _mm_min_epu8(_mm_packus_epi16(sum0, sum1), _mm_set1_epi8(126));
@@ -790,7 +790,7 @@ static void init_context_variables() {
 		__m128i shift = _mm_add_epi8(pStateIdx, pStateIdx);
 		*dst = _mm_add_epi8(_mm_add_epi8(shift, shift), _mm_add_epi8(mask, _mm_set1_epi8(1)));
 	}
-	((uint8_t*)s->s)[276] = 252;
+	((uint8_t*)s->states)[276] = 252;
 }
 #endif
 
@@ -864,7 +864,7 @@ static __attribute__((noinline)) int parse_residual_block(unsigned coded_block_f
 			s->codIRange >>= 1;
 			coeff_level = (s->codIOffset >= s->codIRange) ? -coeff_level : coeff_level;
 			s->codIOffset = (s->codIOffset >= s->codIRange) ? s->codIOffset - s->codIRange : s->codIOffset;
-			int i = __builtin_ctzll(significant_coeff_flags);
+			int i = ctz64(significant_coeff_flags);
 			s->residual_block[s->scan[i]] = coeff_level;
 		
 			// Though not very efficient, this gets optimised out easily :)
@@ -1307,8 +1307,8 @@ static __attribute__((noinline)) int parse_inter_pred() {
  * It proceeds to residual decoding through tail call.
  */
 static __attribute__((noinline)) int parse_intra_mb(int ctxIdx) {
-	v8hi *mvCol = (v8hi *)s->p.mvs; // p.mvs is always v8hi so this type-punning is safe
-	mvCol[0] = mvCol[1] = mvCol[2] = mvCol[3] = (v8hi){};
+	//v8hi *mvCol = (v8hi *)s->p.mvs; // p.mvs is always v8hi so this type-punning is safe
+	//mvCol[0] = mvCol[1] = mvCol[2] = mvCol[3] = (v8hi){};
 	if (s->ctxIdxInc.unavailable & 1)
 		s->ctxIdxInc.coded_block_flags_16x16 |= 0x15, s->f_v |= s->cbf_maskA;
 	if (s->ctxIdxInc.unavailable & 2)

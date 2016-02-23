@@ -831,7 +831,7 @@ static __attribute__((noinline)) int parse_residual_block(unsigned coded_block_f
 		
 			// Unsigned division uses one extra bit, so the first renorm is correct.
 			if (coeff_level >= 15) {
-				renorm(__builtin_clzl(s->codIRange), 0); // Hardcore!!!
+				renorm(0, 0); // Hardcore!!!
 				uint16_t codIRange = s->codIRange >> (SIZE_BIT - 9);
 				uint32_t codIOffset = s->codIOffset >> (SIZE_BIT - 32);
 				uint32_t quo = codIOffset / codIRange;
@@ -843,7 +843,7 @@ static __attribute__((noinline)) int parse_residual_block(unsigned coded_block_f
 				if (__builtin_expect(k >= 12, 0)) { // At k==11, code length is 23 bits.
 					s->codIRange = (size_t)codIRange << (SIZE_BIT - 32);
 					s->codIOffset = (SIZE_BIT == 32) ? rem : (uint32_t)s->codIOffset | (size_t)rem << 32;
-					renorm(21, 0); // Next division will yield 21 bypass bits...
+					renorm(2, 0); // Next division will yield 21 bypass bits...
 					codIOffset = s->codIOffset >> (SIZE_BIT - 32);
 					quo = codIOffset / codIRange + (quo << 21); // ... such that we keep 11 as msb.
 					rem = codIOffset % codIRange;
@@ -902,7 +902,7 @@ static __attribute__((noinline)) int parse_mvd(int pos, int ctxBase) {
 	
 	// Once again, we use unsigned division to read all bypass bits.
 	if (mvd >= 9) {
-		renorm(__builtin_clzl(s->codIRange), 0);
+		renorm(0, 0);
 		uint16_t codIRange = s->codIRange >> (SIZE_BIT - 9);
 		uint32_t codIOffset = s->codIOffset >> (SIZE_BIT - 32);
 		uint32_t quo = codIOffset / codIRange;
@@ -914,7 +914,7 @@ static __attribute__((noinline)) int parse_mvd(int pos, int ctxBase) {
 		if (__builtin_expect(k >= 13, 0)) { // At k==12, code length is 22 bits.
 			s->codIRange = (size_t)codIRange << (SIZE_BIT - 32);
 			s->codIOffset = (SIZE_BIT == 32) ? rem : (uint32_t)s->codIOffset | (size_t)rem << 32;
-			renorm(19, 0); // Next division will yield 19 bypass bits...
+			renorm(4, 0); // Next division will yield 19 bypass bits...
 			codIOffset = s->codIOffset >> (SIZE_BIT - 32);
 			quo = codIOffset / codIRange + (quo << 19); // ... such that we keep 13 as msb.
 			rem = codIOffset % codIRange;
@@ -1326,7 +1326,7 @@ static __attribute__((noinline)) int parse_intra_mb(int ctxIdx) {
 		// Overall code is much lighter with 4x4/8x8 sharing the parsing of IntraPredMode.
 		for (int luma4x4BlkIdx = 0; luma4x4BlkIdx < 16; ) {
 			int8_t *pos = &s->Intra4x4PredMode->q + intra_pos[luma4x4BlkIdx++];
-			int IntraPredMode = abs(min(pos[-1], pos[1]));
+			int IntraPredMode = llabs(min(pos[-1], pos[1]));
 			if (!get_ae(68)) {
 				int rem_intra_pred_mode = get_ae(69);
 				rem_intra_pred_mode += get_ae(69) * 2;
@@ -1371,7 +1371,7 @@ static __attribute__((noinline)) int parse_intra_mb(int ctxIdx) {
 		fprintf(stderr, "mb_type: 25\n");
 		s->f_v = (v4su){flags_PCM.s, -1, -1, -1};
 		s->mb_qp_delta_non_zero = 0;
-		s->shift = (s->shift - (SIZE_BIT - 9 - __builtin_clzl(s->codIRange)) + 7) & -8;
+		refill((s->shift - (SIZE_BIT - 9 - __builtin_clzl(s->codIRange)) + 7) & -8, 0);
 		for (int i = 0; i < 256; i++)
 			get_uv(s->ps.BitDepth[0]);
 		for (int i = 0; i < (1 << s->ps.ChromaArrayType >> 1) * 128; i++)
@@ -1507,13 +1507,13 @@ __attribute__((noinline)) void CABAC_parse_slice_data()
 	};
 	
 	// cabac_alignment_one_bit shall be tested in the future for error concealment.
-	if ((~((uint8_t*)s->CPB)[s->shift / 8] << (1 + (s->shift - 1) % 8) & 0xff) != 0)
-		printf("<li style=\"color: red\">Erroneous slice header (%u bits)</li>\n", s->shift);
-	s->shift = (s->shift + 7) & -8;
+	//if ((~((uint8_t*)s->CPB)[s->shift / 8] << (1 + (s->shift - 1) % 8) & 0xff) != 0)
+		//printf("<li style=\"color: red\">Erroneous slice header (%u bits)</li>\n", s->shift);
+	refill((s->shift + 7) & -8, 0);
 	
 	// Initialise the CABAC engine.
-	renorm(SIZE_BIT - 1, 0);
-	s->codIRange = 510L << (SIZE_BIT - 10);
+	s->codIRange = (size_t)255 << (SIZE_BIT - 9);
+	s->codIOffset = get_uv(SIZE_BIT - 1);
 	init_context_variables();
 	
 	// Mbaff shares all of the above functions except the code below.

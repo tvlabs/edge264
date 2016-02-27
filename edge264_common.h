@@ -125,11 +125,7 @@ typedef struct {
 	// parsing context
 	const uint8_t *CPB;
 	const uint8_t *end;
-#if SIZE_BIT == 32
-	uint64_t RBSP;
-#elif SIZE_BIT == 64
-	unsigned __int128 RBSP;
-#endif
+	size_t RBSP[2];
 	size_t codIRange;
 	size_t codIOffset;
 	const Edge264_picture *DPB;
@@ -191,14 +187,14 @@ typedef struct {
 
 
 
-// This Global Register Variable is a blessing since we make a lot of function calls.
+// This Global Register Variable is a blessing since we use s everywhere!
 #ifndef __clang__
 #ifdef __SSSE3__
 #define REG_S "ebx"
 #endif
 register Edge264_slice *s asm(REG_S);
 #else
-__thread Edge264_slice *s;
+static __thread Edge264_slice *s;
 #endif
 
 
@@ -215,11 +211,11 @@ static const uint8_t left_chroma[16] = {13, 11, 10, 8, 7, 5, 4, 2, 29, 27, 26, 2
 
 
 
-static inline ssize_t min(ssize_t a, ssize_t b) { return (a < b) ? a : b; }
-static inline ssize_t max(ssize_t a, ssize_t b) { return (a > b) ? a : b; }
-static inline size_t umin(size_t a, size_t b) { return (a < b) ? a : b; }
-static inline size_t umax(size_t a, size_t b) { return (a > b) ? a : b; }
-static inline size_t median(size_t a, size_t b, size_t c) { return max(min(max(a, b), c), min(a, b)); }
+static inline int min(int a, int b) { return (a < b) ? a : b; }
+static inline int max(int a, int b) { return (a > b) ? a : b; }
+static inline unsigned umin(unsigned a, unsigned b) { return (a < b) ? a : b; }
+static inline unsigned umax(unsigned a, unsigned b) { return (a > b) ? a : b; }
+static inline int median(int a, int b, int c) { return max(min(max(a, b), c), min(a, b)); }
 
 
 
@@ -248,6 +244,10 @@ static inline v8hi temporal_scale(v8hi mvCol, int16_t DistScaleFactor) {
 static inline v16qi byte_shuffle(v16qi a, v16qi mask) {
 	return (v16qi)_mm_shuffle_epi8((__m128i)a, (__m128i)mask);
 }
+static inline size_t lsd(size_t a, size_t b, unsigned shift) {
+	__asm__("shld %%cl, %1, %0" : "+rm" (a) : "r" (b), "c" (shift));
+	return a;
+}
 static __attribute__((noinline)) size_t refill(unsigned shift, size_t ret) {
 	typedef size_t v16u __attribute__((vector_size(16)));
 	static const v16qi shuf[8] = {
@@ -267,6 +267,7 @@ static __attribute__((noinline)) size_t refill(unsigned shift, size_t ret) {
 		__m128i x;
 		size_t bits;
 		const uint8_t *CPB = s->CPB;
+		s->RBSP[0] = s->RBSP[1];
 		if (CPB <= s->end - 16) {
 			x = _mm_loadu_si128((__m128i *)(CPB - 2));
 			memcpy(&bits, CPB, sizeof(size_t));
@@ -286,15 +287,13 @@ static __attribute__((noinline)) size_t refill(unsigned shift, size_t ret) {
 			mask &= mask >> 1 & _mm_movemask_epi8(_mm_cmpeq_epi8(x, _mm_set1_epi8(3)));
 			
 			// iterate on and remove every emulation_prevention_three_byte
-			while (mask & (SIZE_BIT == 32 ? 0xf : 0xff)) {
+			for (; mask & (SIZE_BIT == 32 ? 0xf : 0xff); mask = (mask & (mask - 1)) >> 1, CPB++) {
 				int i = __builtin_ctz(mask);
 				x = _mm_shuffle_epi8(x, (__m128i)shuf[i]);
 				bits = big_endian(((v16u)x)[0]);
-				CPB++;
-				mask = (mask & (mask - 1)) >> 1;
 			}
 		}
-		s->RBSP = s->RBSP << SIZE_BIT | bits;
+		s->RBSP[1] = bits;
 		s->CPB = CPB;
 	}
 	s->shift = shift;
@@ -333,28 +332,22 @@ const uint8_t *Edge264_find_start_code(const uint8_t *CPB, const uint8_t *end, u
  * parameters such that values are always bounded no matter the input stream.
  * To keep your code branchless, upper and lower shall always be constants.
  * Use min/max with get_ueN/map_se to apply variable bounds.
- *
- * Since the validity of the read pointer is never checked, there must be a
- * "safe zone" after the RBSP filled with 0xff bytes, in which every call to
- * get_ue will consume only one bit. In other circumstances it never consumes
- * more than 63 bits.
  */
 static size_t get_u1() {
-	size_t bits = s->RBSP >> SIZE_BIT;
-	return refill(s->shift + 1, bits << s->shift >> (SIZE_BIT - 1));
+	return refill(s->shift + 1, s->RBSP[0] << s->shift >> (SIZE_BIT - 1));
 }
 static __attribute__((noinline)) size_t get_uv(unsigned v) {
-	size_t bits = s->RBSP << (s->shift % SIZE_BIT) >> SIZE_BIT;
+	size_t bits = lsd(s->RBSP[0], s->RBSP[1], s->shift);
 	return refill(s->shift + v, bits >> (SIZE_BIT - v));
 }
 static __attribute__((noinline)) size_t get_ue16() { // Parses Exp-Golomb codes up to 2^16-2
-	size_t bits = s->RBSP << (s->shift % SIZE_BIT) >> SIZE_BIT;
+	size_t bits = lsd(s->RBSP[0], s->RBSP[1], s->shift);
 	unsigned v = clz(bits | (size_t)1 << (SIZE_BIT / 2)) * 2 + 1;
 	return refill(s->shift + v, (bits >> (SIZE_BIT - v)) - 1);
 }
 #if SIZE_BIT == 32
 static __attribute__((noinline)) size_t get_ue32() { // Parses Exp-Golomb codes up to 2^32-2
-	size_t bits = s->RBSP << (s->shift % SIZE_BIT) >> SIZE_BIT;
+	size_t bits = lsd(s->RBSP[0], s->RBSP[1], s->shift);
 	unsigned leadingZeroBits = clz(bits | 1);
 	refill(s->shift + leadingZeroBits, 0);
 	return get_uv(leadingZeroBits + 1) - 1;
@@ -362,9 +355,9 @@ static __attribute__((noinline)) size_t get_ue32() { // Parses Exp-Golomb codes 
 #else
 #define get_ue32 get_ue16
 #endif
-static inline __attribute__((always_inline)) size_t get_ue(size_t upper) { return umin((upper <= 65534) ? get_ue16() : get_ue32(), upper); }
-static inline __attribute__((always_inline)) ssize_t map_se(size_t codeNum) { return (codeNum & 1) ? codeNum / 2 + 1 : -(codeNum / 2); }
-static inline __attribute__((always_inline)) ssize_t get_se(ssize_t lower, ssize_t upper) { return min(max(map_se((lower >= -32767 && upper <= 32767) ? get_ue16() : get_ue32()), lower), upper); }
+static inline __attribute__((always_inline)) unsigned get_ue(unsigned upper) { return umin((upper <= 65534) ? get_ue16() : get_ue32(), upper); }
+static inline __attribute__((always_inline)) int map_se(unsigned codeNum) { return (codeNum & 1) ? codeNum / 2 + 1 : -(codeNum / 2); }
+static inline __attribute__((always_inline)) int get_se(int lower, int upper) { return min(max(map_se((lower >= -32767 && upper <= 32767) ? get_ue16() : get_ue32()), lower), upper); }
 
 
 
@@ -376,9 +369,9 @@ static inline __attribute__((always_inline)) ssize_t get_se(ssize_t lower, ssize
  * the full range of a register, a shift right by SIZE_BIT-9-clz(codIRange)
  * yielding the original values.
  */
-static __attribute__((noinline)) size_t renorm(unsigned ceil, size_t binVal) {
+static __attribute__((noinline)) size_t renorm(int ceil, size_t binVal) {
 	unsigned v = clz(s->codIRange) - ceil;
-	size_t bits = s->RBSP << (s->shift % SIZE_BIT) >> SIZE_BIT;
+	size_t bits = lsd(s->RBSP[0], s->RBSP[1], s->shift);
 	s->codIRange <<= v;
 	s->codIOffset = (s->codIOffset << v) | (bits >> (SIZE_BIT - v));
 	return refill(s->shift + v, binVal);
@@ -421,11 +414,11 @@ static __attribute__((noinline)) size_t get_ae(int ctxIdx) {
 		244, 245,   9,   8, 248, 249,   5,   4, 248, 249,   1,   0, 252, 253,   0,   1,
 	};
 	
-	fprintf(stderr, "%zu/%zu: (%u,%x)", s->codIOffset >> (SIZE_BIT - 9 - __builtin_clzl(s->codIRange)), s->codIRange >> (SIZE_BIT - 9 - __builtin_clzl(s->codIRange)), ((uint8_t*)s->states)[ctxIdx] >> 2, ((uint8_t*)s->states)[ctxIdx] & 1);
 	size_t codIRange = s->codIRange;
-	unsigned state = ((uint8_t *)s->states)[ctxIdx];
-	unsigned shift = SIZE_BIT - 3 - __builtin_clzl(codIRange);
-	int idx = (state & -4) + (codIRange >> shift);
+	ssize_t state = ((uint8_t *)s->states)[ctxIdx];
+	unsigned shift = SIZE_BIT - 3 - clz(codIRange);
+	fprintf(stderr, "%llu/%llu: (%u,%x)", (unsigned long long)s->codIOffset >> (shift - 6), (unsigned long long)codIRange >> (shift - 6), (int)state >> 2, (int)state & 1);
+	ssize_t idx = (state & -4) + (codIRange >> shift);
 	size_t codIRangeLPS = (size_t)(rangeTabLPS - 4)[idx] << (shift - 6);
 	codIRange -= codIRangeLPS;
 	if (s->codIOffset >= codIRange) {
@@ -435,8 +428,8 @@ static __attribute__((noinline)) size_t get_ae(int ctxIdx) {
 	}
 	s->codIRange = codIRange;
 	((uint8_t *)s->states)[ctxIdx] = transIdx[state];
-	fprintf(stderr, "->(%u,%x)\n", ((uint8_t *)s->states)[ctxIdx] >> 2, ((uint8_t *)s->states)[ctxIdx] & 1);
-	unsigned binVal = state & 1;
+	fprintf(stderr, "->(%u,%x)\n", transIdx[state] >> 2, transIdx[state] & 1);
+	size_t binVal = state & 1;
 	if (__builtin_expect(codIRange < 512, 0)) // 256*2 allows parsing an extra coeff_sign_flag without renorm.
 		return renorm(1, binVal);
 	return binVal;

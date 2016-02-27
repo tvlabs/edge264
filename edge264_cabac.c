@@ -941,11 +941,7 @@ static __attribute__((noinline)) int parse_mvd(int pos, int ctxBase) {
 
 
 
-/**
- * These three helper functions should certainly be inlined by compilers, but
- * doing so usually makes them produce much heavier code!
- */
-static __attribute__((noinline)) void parse_mb_qp_delta(unsigned bits) {
+static void parse_mb_qp_delta(unsigned bits) {
 	int ctxIdxInc = s->mb_qp_delta_non_zero;
 	s->mb_qp_delta_non_zero = 0;
 	if (bits & (Edge264_flags){.CodedBlockPatternChromaDC = 1, .CodedBlockPatternLuma = 0x35}.s) {
@@ -965,7 +961,9 @@ static __attribute__((noinline)) void parse_mb_qp_delta(unsigned bits) {
 	}
 }
 
-static __attribute__((noinline)) void parse_coded_block_pattern() {
+
+
+static void parse_coded_block_pattern() {
 	// Luma prefix
 	unsigned CodedBlockPatternLuma = s->f.s;
 	CodedBlockPatternLuma |= get_ae(76 - (CodedBlockPatternLuma >> left_8x8[0] & 3)) << bit_8x8[0];
@@ -987,7 +985,9 @@ static __attribute__((noinline)) void parse_coded_block_pattern() {
 		(s->f.CodedBlockPatternChromaDC + s->f.CodedBlockPatternChromaAC) * 16);
 }
 
-static __attribute__((noinline)) void parse_intra_chroma_pred_mode() {
+
+
+static void parse_intra_chroma_pred_mode() {
 	if (s->ps.ChromaArrayType == 1 || s->ps.ChromaArrayType == 2) {
 		int ctxIdx = 64 + s->ctxIdxInc.intra_chroma_pred_mode_non_zero;
 		int intra_chroma_pred_mode = 0;
@@ -1211,7 +1211,7 @@ static __attribute__((noinline)) int parse_inter_pred() {
 		while (get_ae(54 + ctxIdxInc))
 			refIdx++, ctxIdxInc = ctxIdxInc / 4 + 4; // cool trick from ffmpeg
 		*pos = refIdx;
-		fprintf(stderr, "ref_idx_l%x: %u\n", ctz32(f) / 16, refIdx);
+		fprintf(stderr, "ref_idx_l%x: %u\n", __builtin_ctz(f) / 16, refIdx);
 	}
 	
 	// Initialise all relative mvC positions using vector code (8.4.1.3).
@@ -1326,7 +1326,7 @@ static __attribute__((noinline)) int parse_intra_mb(int ctxIdx) {
 		// Overall code is much lighter with 4x4/8x8 sharing the parsing of IntraPredMode.
 		for (int luma4x4BlkIdx = 0; luma4x4BlkIdx < 16; ) {
 			int8_t *pos = &s->Intra4x4PredMode->q + intra_pos[luma4x4BlkIdx++];
-			int IntraPredMode = llabs(min(pos[-1], pos[1]));
+			int IntraPredMode = abs(min(pos[-1], pos[1]));
 			if (!get_ae(68)) {
 				int rem_intra_pred_mode = get_ae(69);
 				rem_intra_pred_mode += get_ae(69) * 2;
@@ -1371,7 +1371,7 @@ static __attribute__((noinline)) int parse_intra_mb(int ctxIdx) {
 		fprintf(stderr, "mb_type: 25\n");
 		s->f_v = (v4su){flags_PCM.s, -1, -1, -1};
 		s->mb_qp_delta_non_zero = 0;
-		refill((s->shift - (SIZE_BIT - 9 - __builtin_clzl(s->codIRange)) + 7) & -8, 0);
+		refill((s->shift - (SIZE_BIT - 9 - clz(s->codIRange)) + 7) & -8, 0);
 		for (int i = 0; i < 256; i++)
 			get_uv(s->ps.BitDepth[0]);
 		for (int i = 0; i < (1 << s->ps.ChromaArrayType >> 1) * 128; i++)

@@ -531,7 +531,7 @@ static const uint8_t *parse_slice_layer_without_partitioning(Edge264_ctx *e,
 	s->nal_ref_flag = (*CPB & 0xe0) != 0;
 	s->IdrPicFlag = (*CPB & 0x1f) == 5;
 	s->CPB = CPB + 3;
-	s->RBSP = CPB[1] << 8 | CPB[2];
+	s->RBSP[1] = CPB[1] << 8 | CPB[2];
 	refill(SIZE_BIT * 2 - 16, 0);
 	int first_mb_in_slice = get_ue(294849);
 	int slice_type = get_ue(9);
@@ -813,7 +813,7 @@ static const uint8_t *parse_pic_parameter_set(Edge264_ctx *e,
 		"wipe", "explicit"};
 	
 	s->CPB = CPB + 3;
-	s->RBSP = CPB[1] << 8 | CPB[2];
+	s->RBSP[1] = CPB[1] << 8 | CPB[2];
 	refill(SIZE_BIT * 2 - 16, 0);
 	int pic_parameter_set_id = get_ue(255);
 	int seq_parameter_set_id = get_ue(31);
@@ -903,7 +903,7 @@ static const uint8_t *parse_pic_parameter_set(Edge264_ctx *e,
 		s->ps.deblocking_filter_control_present_flag,
 		s->ps.constrained_intra_pred_flag,
 		red_if(redundant_pic_cnt_present_flag), redundant_pic_cnt_present_flag);
-	if ((size_t)(s->RBSP << (s->shift % SIZE_BIT) >> SIZE_BIT) >> 24 != 0x800000) {
+	if (lsd(s->RBSP[0], s->RBSP[1], s->shift) >> (SIZE_BIT - 24) != 0x800000) {
 		s->ps.transform_8x8_mode_flag = get_u1();
 		printf("<li>transform_8x8_mode_flag: <code>%x</code></li>\n",
 			s->ps.transform_8x8_mode_flag);
@@ -1144,7 +1144,7 @@ static const uint8_t *parse_seq_parameter_set(Edge264_ctx *e,
 	// initialise only the parsing context and parameter set
 	s->CPB = CPB + 6;
 	s->end = end;
-	s->RBSP = CPB[4] << 8 | CPB[5];
+	s->RBSP[1] = CPB[4] << 8 | CPB[5];
 	refill(SIZE_BIT * 2 - 16, 0);
 	s->ps = (Edge264_parameter_set){.chroma_format_idc = 1, .ChromaArrayType = 1, .transform_8x8_mode_flag = 1};
 	s->ps.BitDepth[0] = s->ps.BitDepth[1] = s->ps.BitDepth[2] = 8;

@@ -28,7 +28,6 @@
 #ifndef EDGE264_H
 #define EDGE264_H
 
-#include <stddef.h>
 #include <stdint.h>
 
 typedef struct {
@@ -97,7 +96,7 @@ typedef struct {
 	int32_t PicOrderCntDeltas[256]; // pic_order_cnt_type==1
 } Edge264_ctx;
 
-const uint8_t *Edge264_find_start_code(const uint8_t *CPB, const uint8_t *end, unsigned int n);
+const uint8_t *Edge264_find_start_code(const uint8_t *CPB, const uint8_t *end, unsigned n);
 const uint8_t *Edge264_decode_NAL(const uint8_t *CPB, const uint8_t *end, Edge264_ctx *e);
 
 #endif

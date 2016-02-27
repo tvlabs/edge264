@@ -35,7 +35,7 @@ Planned features
 Technical details
 -----------------
 
-edge264 is built and tested with gcc/clang, is thread-safe, supports 32/64 bit architectures, and requires 128 bit SIMD support. Thanks to the use of portable vector extensions, new architectures can be added simply by providing code for a few tricky functions in edge264_common.h (with Intel SSSE3 implemented so far).
+edge264 is built and tested with gcc/clang, is thread-safe, supports 32/64 bit architectures, and requires 128 bit SIMD support. Thanks to the use of gcc's portable vector extensions, new architectures can be added simply by providing code for a few tricky functions in edge264_common.h (with Intel SSSE3 implemented so far).
 
 The test program takes a raw Annex-B bitstream and prints out the parsing data:
 ```
@@ -46,7 +46,7 @@ make
 
 Improvements versus existing decoders:
 * Minimalistic API (2 functions)
-* A general overflow protection mechanism for headers, based on inserting set bits past the RBSP
+* emulation_prevention_three_bytes are removed on the fly using vector code, without the need to copy to an intermediate buffer
 * A new CABAC core representation yields fewer costly renormalisations and allows batch-decoding bypass bits
 * Neighbouring flags are stored with compact bit patterns, while precomputing ctxIdx increments for CABAC
 * Neighbouring values are stored in circular buffers, giving excellent cache locality along with low runtime memory use

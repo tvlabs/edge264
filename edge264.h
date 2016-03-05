@@ -82,14 +82,13 @@ typedef struct {
 	unsigned int LongTermFrameIdx; // 4 significant bits
 } Edge264_picture;
 typedef struct {
-	uint8_t *CPB;
-	uint32_t currPic:6; // previous picture in decoding order
-	uint32_t CPB_size:26;
+	uint32_t currPic; // previous picture in decoding order
 	int32_t prevPicOrderCnt;
 	uint32_t output_flags;
 	uint32_t reference_flags[2];
 	uint32_t long_term_flags;
 	void (*output_frame)(const Edge264_picture[2]);
+	uint16_t FrameNum[16] __attribute__((aligned(16)));
 	Edge264_picture DPB[34]; // two entries top/bottom per frame
 	Edge264_parameter_set SPS;
 	Edge264_parameter_set PPSs[4];

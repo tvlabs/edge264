@@ -108,19 +108,24 @@ typedef uint8_t v16qu __attribute__((vector_size(16)));
 typedef uint16_t v8hu __attribute__((vector_size(16)));
 typedef uint32_t v4su __attribute__((vector_size(16)));
 typedef uint64_t v2lu __attribute__((vector_size(16)));
-typedef union { struct {
-	uint32_t mb_field_decoding_flag:2; // put first to match Edge264_macroblock.fieldDecodingFlag
-	uint32_t mb_skip_flag:2;
-	uint32_t mb_type_I_NxN:2;
-	uint32_t mb_type_B_Direct:2;
-	uint32_t transform_size_8x8_flag:2;
-	uint32_t intra_chroma_pred_mode_non_zero:2;
-	uint32_t CodedBlockPatternChromaDC:2;
-	uint32_t CodedBlockPatternChromaAC:2;
-	uint32_t coded_block_flags_16x16:6;
-	uint32_t unavailable:2; // uses 4 bits in ctxIdxInc, to store A/B/C/D unavailability
-	uint32_t CodedBlockPatternLuma:8; // unused in ctxIdxInc
-}; uint32_t s; } Edge264_flags;
+
+typedef union {
+	struct {
+		uint32_t mb_field_decoding_flag:2; // put first to match Edge264_macroblock.fieldDecodingFlag
+		uint32_t mb_skip_flag:2;
+		uint32_t mb_type_I_NxN:2;
+		uint32_t mb_type_B_Direct:2;
+		uint32_t transform_size_8x8_flag:2;
+		uint32_t intra_chroma_pred_mode_non_zero:2;
+		uint32_t CodedBlockPatternChromaDC:2;
+		uint32_t CodedBlockPatternChromaAC:2;
+		uint32_t coded_block_flags_16x16:6;
+		uint32_t unavailable:2; // uses 4 bits in ctxIdxInc, to store A/B/C/D unavailability
+		uint32_t CodedBlockPatternLuma:8; // unused in ctxIdxInc
+	};
+	uint32_t s;
+} Edge264_flags;
+
 typedef struct {
 	// parsing context
 	const uint8_t *CPB;
@@ -148,6 +153,7 @@ typedef struct {
 	uint32_t col_short_term:1;
 	uint32_t intra_chroma_pred_mode:2;
 	uint32_t mb_qp_delta_non_zero:1;
+	uint16_t frame_num;
 	Edge264_flags ctxIdxInc;
 	union { struct { Edge264_flags f; uint32_t coded_block_flags[3]; }; v4su f_v; };
 	Edge264_parameter_set ps;
@@ -417,7 +423,7 @@ static __attribute__((noinline)) size_t get_ae(int ctxIdx) {
 	size_t codIRange = s->codIRange;
 	ssize_t state = ((uint8_t *)s->states)[ctxIdx];
 	unsigned shift = SIZE_BIT - 3 - clz(codIRange);
-	fprintf(stderr, "%llu/%llu: (%u,%x)", (unsigned long long)s->codIOffset >> (shift - 6), (unsigned long long)codIRange >> (shift - 6), (int)state >> 2, (int)state & 1);
+	fprintf(stderr, "%u/%u: (%u,%x)", (int)(s->codIOffset >> (shift - 6)), (int)(codIRange >> (shift - 6)), (int)state >> 2, (int)state & 1);
 	ssize_t idx = (state & -4) + (codIRange >> shift);
 	size_t codIRangeLPS = (size_t)(rangeTabLPS - 4)[idx] << (shift - 6);
 	codIRange -= codIRangeLPS;

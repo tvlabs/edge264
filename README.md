@@ -8,7 +8,7 @@ Supported features
 ------------------
 
 * Any resolution from 1x1 to 8688x8688
-* 4:0:0, 4:2:0, 4:2:2 and 4:4:4 (including separate colour planes)
+* 4:0:0, 4:2:0, 4:2:2 and 4:4:4
 * 8-14 bit-depth (with possibility of different luma/chroma depths)
 * CABAC only (but very optimised!)
 * I/P/B frames
@@ -26,7 +26,7 @@ Planned features
 * deblocking
 * MBaff frames
 * 3D support
-* Slices
+* Slices (and separate colour planes)
 * Error concealment
 * CAVLC
 * Slice multi-threading

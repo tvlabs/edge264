@@ -25,6 +25,7 @@
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF
  * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
+
 #ifndef EDGE264_COMMON_H
 #define EDGE264_COMMON_H
 
@@ -35,16 +36,17 @@
 
 #include "edge264.h"
 
+
 #if TRACE > 0
 #include <stdio.h>
 static inline const char *red_if(int cond) { return (cond) ? " style=\"color: red\"" : ""; }
 #else
 #define printf(...) ((void)0)
 #endif
-#if TRACE != 2
-#define fprintf(...) ((void)0)
+#if TRACE == 2
+#define fprintf(...) fprintf(__VA_ARGS__)
 #else
-#define fprintf(...) if (s->p.FrameNum == 0) fprintf(__VA_ARGS__)
+#define fprintf(...) ((void)0)
 #endif
 
 
@@ -133,14 +135,13 @@ typedef struct {
 	size_t RBSP[2];
 	size_t codIRange;
 	size_t codIOffset;
-	const Edge264_picture *DPB;
 	uint32_t shift;
 	
 	// bitfields come next since they represent most accesses
 	uint32_t nal_ref_flag:1;
 	uint32_t IdrPicFlag:1;
 	uint32_t colour_plane_id:2;
-	uint32_t slice_type:2;
+	uint32_t slice_type:3;
 	uint32_t field_pic_flag:1;
 	uint32_t bottom_field_flag:1;
 	uint32_t MbaffFrameFlag:1;
@@ -153,7 +154,8 @@ typedef struct {
 	uint32_t col_short_term:1;
 	uint32_t intra_chroma_pred_mode:2;
 	uint32_t mb_qp_delta_non_zero:1;
-	uint16_t frame_num;
+	int32_t TopFieldOrderCnt;
+	int32_t BottomFieldOrderCnt;
 	Edge264_flags ctxIdxInc;
 	union { struct { Edge264_flags f; uint32_t coded_block_flags[3]; }; v4su f_v; };
 	Edge264_parameter_set ps;
@@ -170,16 +172,16 @@ typedef struct {
 	uint32_t mvd_fold;
 	uint32_t ref_idx_mask;
 	
-	// macroblock context variables
+	// context pointers
 	int16_t x; // 14 significant bits
 	int16_t y;
 	v4su *flags;
 	v8hi *mvs;
-	v8hi *mvCol;
 	v16qu *absMvdComp;
-	union { int8_t q; uint16_t h[2]; uint32_t s; } *Intra4x4PredMode, *refIdx;
-	const Edge264_macroblock *mbCol;
-	Edge264_picture p;
+	union { int8_t q; uint16_t h[2]; uint32_t s; } *Intra4x4PredMode;
+	union { int8_t q; uint16_t h[2]; uint32_t s; } *refIdx;
+	const v8hi *mvCol;
+	const uint8_t *mbCol;
 	
 	// large stuff
 	v16qu states[64];
@@ -196,9 +198,8 @@ typedef struct {
 // This Global Register Variable is a blessing since we use s everywhere!
 #ifndef __clang__
 #ifdef __SSSE3__
-#define REG_S "ebx"
+register Edge264_slice *s asm("ebx");
 #endif
-register Edge264_slice *s asm(REG_S);
 #else
 static __thread Edge264_slice *s;
 #endif
@@ -229,10 +230,10 @@ static inline int median(int a, int b, int c) { return max(min(max(a, b), c), mi
 #define _mm_movpi64_pi64 _mm_movpi64_epi64
 #ifdef __SSE4_1__
 #include <smmintrin.h>
-#define vector_select(f, t, mask) (typeof(f))_mm_blendv_epi8((__m128i)(f), (__m128i)(t), (__m128i)(mask))
+#define vector_select(mask, t, f) (typeof(f))_mm_blendv_epi8((__m128i)(f), (__m128i)(t), (__m128i)(mask))
 #else
 #include <tmmintrin.h>
-#define vector_select(f, t, mask) (((t) & (mask)) | ((f) & ~(mask)))
+#define vector_select(mask, t, f) (((t) & (mask)) | ((f) & ~(mask)))
 #endif
 static inline __m128i _mm_srl_si128(__m128i m, int count) {
 	static const uint8_t SMask[32] __attribute__((aligned(32))) = {

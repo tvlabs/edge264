@@ -801,8 +801,8 @@ static void init_context_variables() {
  * sequence of coeff_abs_level_minus1/coeff_sign_flag pairs (9.3.2.3).
  *
  * Bypass bits can be extracted all at once using a binary division (!!).
- * coeff_abs_level expects at most 2^(7+14), i.e 43 bits, so we use two 32bit
- * divisions (second one being executed for long codes only).
+ * coeff_abs_level expects at most 2^(7+14), i.e 43 bits as Exp-Golomb, so we
+ * use two 32bit divisions (second one being executed for long codes only).
  */
 static __attribute__((noinline)) int parse_residual_block(unsigned coded_block_flag, int endIdx)
 {
@@ -1490,7 +1490,7 @@ static __attribute__((noinline)) int parse_inter_mb()
  * macroblocks of a slice, setting their neighbouring data and calling
  * parse_inter/intra_mb for each one.
  */
-__attribute__((noinline)) void CABAC_parse_slice_data()
+__attribute__((noinline)) int CABAC_parse_slice_data()
 {
 	static const Edge264_flags unavail_mb = {
 		.mb_skip_flag = 1,
@@ -1577,8 +1577,6 @@ __attribute__((noinline)) void CABAC_parse_slice_data()
 			s->refIdx++;
 			s->mvs += 2;
 			s->absMvdComp++;
-			s->p.mvs += 32;
-			s->p.mbs++;
 			s->x += 16;
 			
 			// Have we reached the end of a line?
@@ -1591,8 +1589,9 @@ __attribute__((noinline)) void CABAC_parse_slice_data()
 				s->absMvdComp -= PicWidthInMbs + 8;
 				s->x = 0;
 				if ((s->y += 16) >= s->ps.height >> s->field_pic_flag)
-					break;
+					return PicWidthInMbs * s->y >> 4;
 			}
 		} while (!get_ae(276));
 	}
+	exit(1);
 }

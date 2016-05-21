@@ -33,8 +33,8 @@
 
 #include "edge264.c"
 
-void print_frame(const Edge264_picture *p) {
-	printf("<li style='color:red'>Output %d</li>\n", min(p[0].PicOrderCnt, p[1].PicOrderCnt));
+void print_frame(int i) {
+	printf("<li style='color:red'>Output %d</li>\n", i);
 }
 
 int main() {

@@ -60,40 +60,33 @@ typedef struct {
 	int8_t QP_Y; // 7 significant bits
 	int8_t chroma_qp_index_offset; // 5 significant bits
 	int8_t second_chroma_qp_index_offset; // 5 significant bits
+	int16_t offset_for_non_ref_pic; // pic_order_cnt_type==1
+	int16_t offset_for_top_to_bottom_field; // pic_order_cnt_type==1
 	int16_t frame_crop_left_offset; // in luma samples
 	int16_t frame_crop_right_offset; // in luma samples
 	int16_t frame_crop_top_offset; // in luma samples
 	int16_t frame_crop_bottom_offset; // in luma samples
-	int32_t offset_for_non_ref_pic; // pic_order_cnt_type==1
-	int32_t offset_for_top_to_bottom_field; // pic_order_cnt_type==1
 	uint8_t weightScale4x4[6][16] __attribute__((aligned(16)));
 	uint8_t weightScale8x8[6][64] __attribute__((aligned(16)));
 } Edge264_parameter_set;
+
 typedef struct {
-	uint8_t refPic[4];
-	uint32_t fieldDecodingFlag:1;
-} Edge264_macroblock;
-typedef struct {
-	uint8_t *planes[3];
-	int16_t *mvs; // storage for direct motion prediction, one aligned int16_t[32] per mb
-	Edge264_macroblock *mbs; // for use in cross-slice deblocking and direct prediction
-	int32_t PicOrderCnt;
-	int32_t FrameNum;
-	unsigned int LongTermFrameIdx; // 4 significant bits
-} Edge264_picture;
-typedef struct {
-	uint32_t currPic; // previous picture in decoding order
+	void (*output_frame)(int);
+	uint8_t *DPB;
+	int8_t currPic; // last picture in decoding order
+	int32_t prevFrameNum;
 	int32_t prevPicOrderCnt;
-	uint32_t output_flags;
-	uint32_t reference_flags[2];
-	uint32_t long_term_flags;
-	void (*output_frame)(const Edge264_picture[2]);
-	uint16_t FrameNum[16] __attribute__((aligned(16)));
-	Edge264_picture DPB[34]; // two entries top/bottom per frame
+	uint32_t reference_flags; // lower/higher half for top/bottom fields
+	uint16_t long_term_flags;
+	uint16_t output_flags;
+	int32_t remaining_mbs;
+	int32_t FrameNum[16];
+	int32_t FieldOrderCnt[32]; // lower/higher half for top/bottom fields
 	Edge264_parameter_set SPS;
 	Edge264_parameter_set PPSs[4];
-	int32_t PicOrderCntDeltas[256]; // pic_order_cnt_type==1
+	int16_t PicOrderCntDeltas[256]; // pic_order_cnt_type==1
 } Edge264_ctx;
+
 
 const uint8_t *Edge264_find_start_code(const uint8_t *CPB, const uint8_t *end, unsigned n);
 const uint8_t *Edge264_decode_NAL(const uint8_t *CPB, const uint8_t *end, Edge264_ctx *e);

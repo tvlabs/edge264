@@ -138,7 +138,7 @@ typedef struct {
 	uint32_t shift;
 	
 	// bitfields come next since they represent most accesses
-	uint32_t nal_ref_flag:1;
+	uint32_t non_ref_flag:1;
 	uint32_t IdrPicFlag:1;
 	uint32_t colour_plane_id:2;
 	uint32_t slice_type:3;
@@ -159,8 +159,9 @@ typedef struct {
 	Edge264_flags ctxIdxInc;
 	union { struct { Edge264_flags f; uint32_t coded_block_flags[3]; }; v4su f_v; };
 	Edge264_parameter_set ps;
+	Edge264_snapshot s;
 	
-	// cache variables (usually results of nasty optimisations, so should be few :)
+	// cache variables - usually results of nasty optimisations, so should be few :)
 	v4si cbf_maskA, cbf_maskB;
 	union { int8_t mvC[32]; v16qi mvC_v[2]; };
 	union { uint16_t ctxIdxOffsets[4]; uint64_t ctxIdxOffsets_l; }; // {cbf,sig_flag,last_sig_flag,coeff_abs}
@@ -191,17 +192,17 @@ typedef struct {
 	int16_t weights[3][32][2];
 	int16_t offsets[3][32][2];
 	int8_t implicit_weights[3][32][32]; // -w_1C[top/bottom/frame][refIdxL0][refIdxL1]
-} Edge264_slice;
+} Edge264_ctx;
 
 
 
 // This Global Register Variable is a blessing since we use s everywhere!
 #ifndef __clang__
 #ifdef __SSSE3__
-register Edge264_slice *s asm("ebx");
+register Edge264_ctx *ctx asm("ebx");
 #endif
 #else
-static __thread Edge264_slice *s;
+static __thread Edge264_ctx *ctx;
 #endif
 
 
@@ -251,9 +252,9 @@ static inline v8hi temporal_scale(v8hi mvCol, int16_t DistScaleFactor) {
 static inline v16qi byte_shuffle(v16qi a, v16qi mask) {
 	return (v16qi)_mm_shuffle_epi8((__m128i)a, (__m128i)mask);
 }
-static inline size_t lsd(size_t a, size_t b, unsigned shift) {
-	__asm__("shld %%cl, %1, %0" : "+rm" (a) : "r" (b), "c" (shift));
-	return a;
+static inline size_t lsd(size_t msb, size_t lsb, unsigned shift) {
+	__asm__("shld %%cl, %1, %0" : "+rm" (msb) : "r" (lsb), "c" (shift));
+	return msb;
 }
 static __attribute__((noinline)) size_t refill(unsigned shift, size_t ret) {
 	typedef size_t v16u __attribute__((vector_size(16)));
@@ -273,18 +274,18 @@ static __attribute__((noinline)) size_t refill(unsigned shift, size_t ret) {
 		shift -= SIZE_BIT;
 		__m128i x;
 		size_t bits;
-		const uint8_t *CPB = s->CPB;
-		s->RBSP[0] = s->RBSP[1];
-		if (CPB <= s->end - 16) {
+		const uint8_t *CPB = ctx->CPB;
+		ctx->RBSP[0] = ctx->RBSP[1];
+		if (CPB <= ctx->end - 16) {
 			x = _mm_loadu_si128((__m128i *)(CPB - 2));
 			memcpy(&bits, CPB, sizeof(size_t));
 			bits = big_endian(bits);
 			CPB += sizeof(size_t);
 		} else {
-			x = _mm_srl_si128(_mm_loadu_si128((__m128i *)(s->end - 16)), CPB - (s->end - 16));
+			x = _mm_srl_si128(_mm_loadu_si128((__m128i *)(ctx->end - 16)), CPB - (ctx->end - 16));
 			bits = big_endian(((v16u)x)[0]);
 			CPB += sizeof(size_t);
-			CPB = CPB < s->end ? CPB : s->end;
+			CPB = CPB < ctx->end ? CPB : ctx->end;
 		}
 		
 		// ignore words without a zero odd byte
@@ -300,22 +301,23 @@ static __attribute__((noinline)) size_t refill(unsigned shift, size_t ret) {
 				bits = big_endian(((v16u)x)[0]);
 			}
 		}
-		s->RBSP[1] = bits;
-		s->CPB = CPB;
+		ctx->RBSP[1] = bits;
+		ctx->CPB = CPB;
 	}
-	s->shift = shift;
+	ctx->shift = shift;
 	return ret;
 }
-const uint8_t *Edge264_find_start_code(const uint8_t *CPB, const uint8_t *end, unsigned n) {
+const uint8_t *Edge264_find_start_code(int n, const uint8_t *CPB, size_t len) {
 	const __m128i v0 = _mm_setzero_si128();
 	const __m128i vn = _mm_set1_epi8(n);
 	const __m128i *p = (__m128i *)((uintptr_t)CPB & -16);
+	const uint8_t *end = CPB + len;
 	unsigned z = (_mm_movemask_epi8(_mm_cmpeq_epi8(*p, v0)) & -1u << ((uintptr_t)CPB & 15)) << 2, c;
 	
 	// no heuristic here since we are limited by memory bandwidth anyway
 	while (!(c = z & z >> 1 & _mm_movemask_epi8(_mm_cmpeq_epi8(*p, vn)))) {
 		if (++p >= (__m128i *)end)
-			return (uint8_t *)end;
+			return end;
 		z = z >> 16 | _mm_movemask_epi8(_mm_cmpeq_epi8(*p, v0)) << 2;
 	}
 	const uint8_t *res = (uint8_t *)p + 1 + __builtin_ctz(c);
@@ -341,22 +343,22 @@ const uint8_t *Edge264_find_start_code(const uint8_t *CPB, const uint8_t *end, u
  * Use min/max with get_ueN/map_se to apply variable bounds.
  */
 static size_t get_u1() {
-	return refill(s->shift + 1, s->RBSP[0] << s->shift >> (SIZE_BIT - 1));
+	return refill(ctx->shift + 1, ctx->RBSP[0] << ctx->shift >> (SIZE_BIT - 1));
 }
 static __attribute__((noinline)) size_t get_uv(unsigned v) {
-	size_t bits = lsd(s->RBSP[0], s->RBSP[1], s->shift);
-	return refill(s->shift + v, bits >> (SIZE_BIT - v));
+	size_t bits = lsd(ctx->RBSP[0], ctx->RBSP[1], ctx->shift);
+	return refill(ctx->shift + v, bits >> (SIZE_BIT - v));
 }
 static __attribute__((noinline)) size_t get_ue16() { // Parses Exp-Golomb codes up to 2^16-2
-	size_t bits = lsd(s->RBSP[0], s->RBSP[1], s->shift);
+	size_t bits = lsd(ctx->RBSP[0], ctx->RBSP[1], ctx->shift);
 	unsigned v = clz(bits | (size_t)1 << (SIZE_BIT / 2)) * 2 + 1;
-	return refill(s->shift + v, (bits >> (SIZE_BIT - v)) - 1);
+	return refill(ctx->shift + v, (bits >> (SIZE_BIT - v)) - 1);
 }
 #if SIZE_BIT == 32
 static __attribute__((noinline)) size_t get_ue32() { // Parses Exp-Golomb codes up to 2^32-2
-	size_t bits = lsd(s->RBSP[0], s->RBSP[1], s->shift);
+	size_t bits = lsd(ctx->RBSP[0], ctx->RBSP[1], ctx->shift);
 	unsigned leadingZeroBits = clz(bits | 1);
-	refill(s->shift + leadingZeroBits, 0);
+	refill(ctx->shift + leadingZeroBits, 0);
 	return get_uv(leadingZeroBits + 1) - 1;
 }
 #else
@@ -377,11 +379,11 @@ static inline __attribute__((always_inline)) int get_se(int lower, int upper) { 
  * yielding the original values.
  */
 static __attribute__((noinline)) size_t renorm(int ceil, size_t binVal) {
-	unsigned v = clz(s->codIRange) - ceil;
-	size_t bits = lsd(s->RBSP[0], s->RBSP[1], s->shift);
-	s->codIRange <<= v;
-	s->codIOffset = (s->codIOffset << v) | (bits >> (SIZE_BIT - v));
-	return refill(s->shift + v, binVal);
+	unsigned v = clz(ctx->codIRange) - ceil;
+	size_t bits = lsd(ctx->RBSP[0], ctx->RBSP[1], ctx->shift);
+	ctx->codIRange <<= v;
+	ctx->codIOffset = (ctx->codIOffset << v) | (bits >> (SIZE_BIT - v));
+	return refill(ctx->shift + v, binVal);
 }
 static __attribute__((noinline)) size_t get_ae(int ctxIdx) {
 	static const uint8_t rangeTabLPS[64 * 4] = {
@@ -421,20 +423,20 @@ static __attribute__((noinline)) size_t get_ae(int ctxIdx) {
 		244, 245,   9,   8, 248, 249,   5,   4, 248, 249,   1,   0, 252, 253,   0,   1,
 	};
 	
-	size_t codIRange = s->codIRange;
-	ssize_t state = ((uint8_t *)s->states)[ctxIdx];
+	size_t codIRange = ctx->codIRange;
+	ssize_t state = ((uint8_t *)ctx->states)[ctxIdx];
 	unsigned shift = SIZE_BIT - 3 - clz(codIRange);
-	fprintf(stderr, "%u/%u: (%u,%x)", (int)(s->codIOffset >> (shift - 6)), (int)(codIRange >> (shift - 6)), (int)state >> 2, (int)state & 1);
+	fprintf(stderr, "%u/%u: (%u,%x)", (int)(ctx->codIOffset >> (shift - 6)), (int)(codIRange >> (shift - 6)), (int)state >> 2, (int)state & 1);
 	ssize_t idx = (state & -4) + (codIRange >> shift);
 	size_t codIRangeLPS = (size_t)(rangeTabLPS - 4)[idx] << (shift - 6);
 	codIRange -= codIRangeLPS;
-	if (s->codIOffset >= codIRange) {
+	if (ctx->codIOffset >= codIRange) {
 		state ^= 255;
-		s->codIOffset = s->codIOffset - codIRange;
+		ctx->codIOffset = ctx->codIOffset - codIRange;
 		codIRange = codIRangeLPS;
 	}
-	s->codIRange = codIRange;
-	((uint8_t *)s->states)[ctxIdx] = transIdx[state];
+	ctx->codIRange = codIRange;
+	((uint8_t *)ctx->states)[ctxIdx] = transIdx[state];
 	fprintf(stderr, "->(%u,%x)\n", transIdx[state] >> 2, transIdx[state] & 1);
 	size_t binVal = state & 1;
 	if (__builtin_expect(codIRange < 512, 0)) // 256*2 allows parsing an extra coeff_sign_flag without renorm.
@@ -449,7 +451,7 @@ static __attribute__((noinline)) size_t get_ae(int ctxIdx) {
  * Inputs are pointers to refIdxL0N.
  */
 #if 0
-static __attribute__((noinline)) void init_P_Skip(Edge264_slice *s, Edge264_flags *m,
+static __attribute__((noinline)) void init_P_Skip(Edge264_ctx *s, Edge264_flags *m,
 	const int8_t *refIdxA, const int8_t *refIdxB, const int8_t *refIdxC)
 {
 	union { uint32_t s; int16_t h[2]; } mv = {.s = m->mvEdge_s[18]};
@@ -462,10 +464,10 @@ static __attribute__((noinline)) void init_P_Skip(Edge264_slice *s, Edge264_flag
 		mv.h[0] = median(m->mvEdge[12], m->mvEdge[20], m->mvEdge[36]);
 		mv.h[1] = median(m->mvEdge[13], m->mvEdge[21], m->mvEdge[37]);
 	}
-	if (s->ctxIdxInc.unavailable)
+	if (ctx->ctxIdxInc.unavailable)
 		mv.s = 0;
-	s->mvs_v[0] = s->mvs_v[1] = s->mvs_v[2] = s->mvs_v[3] = (v8hi)(v4su){mv.s, mv.s, mv.s, mv.s};
-	s->mvs_v[4] = s->mvs_v[5] = s->mvs_v[6] = s->mvs_v[7] = (v8hi){};
+	ctx->mvs_v[0] = ctx->mvs_v[1] = ctx->mvs_v[2] = ctx->mvs_v[3] = (v8hi)(v4su){mv.s, mv.s, mv.s, mv.s};
+	ctx->mvs_v[4] = ctx->mvs_v[5] = ctx->mvs_v[6] = ctx->mvs_v[7] = (v8hi){};
 	m->refIdx_s[0] = 0;
 }
 
@@ -476,7 +478,7 @@ static __attribute__((noinline)) void init_P_Skip(Edge264_slice *s, Edge264_flag
  * Inputs are pointers to refIdxL0N and mvL0N, which yield refIdxL1N and mvL1N
  * with fixed offsets.
  */
-static __attribute__((noinline)) void init_B_Direct(Edge264_slice *s, Edge264_flags *m,
+static __attribute__((noinline)) void init_B_Direct(Edge264_ctx *s, Edge264_flags *m,
 	const int8_t *refIdxA, const int8_t *refIdxB, const int8_t *refIdxC)
 {
 	typedef int16_t v2hi __attribute__((vector_size(4)));
@@ -484,45 +486,45 @@ static __attribute__((noinline)) void init_B_Direct(Edge264_slice *s, Edge264_fl
 	static const v8hi one = {1, 1, 1, 1, 1, 1, 1, 1};
 	
 	/* 8.4.1.2.1 - Load mvCol into vector registers. */
-	unsigned PicWidthInMbs = (unsigned)s->ps.width / 16;
-	unsigned CurrMbAddr = PicWidthInMbs * s->mb_y + s->mb_x;
-	const Edge264_macroblock *mbCol = &s->mbCol[CurrMbAddr];
+	unsigned PicWidthInMbs = (unsigned)ctx->ps.width / 16;
+	unsigned CurrMbAddr = PicWidthInMbs * ctx->mb_y + ctx->mb_x;
+	const Edge264_macroblock *mbCol = &ctx->mbCol[CurrMbAddr];
 	const uint8_t *refCol01, *refCol23;
 	v8hi mvCol0, mvCol1, mvCol2, mvCol3;
 	if (m->f.mb_field_decoding_flag == mbCol->fieldDecodingFlag) { // One_To_One
 		refCol01 = mbCol->refPic;
 		refCol23 = mbCol->refPic + 2;
-		const v8hi *v = (v8hi *)((uintptr_t)s->mvCol + CurrMbAddr * 64);
+		const v8hi *v = (v8hi *)((uintptr_t)ctx->mvCol + CurrMbAddr * 64);
 		mvCol0 = v[0];
 		mvCol1 = v[1];
 		mvCol2 = v[2];
 		mvCol3 = v[3];
 	} else if (m->f.mb_field_decoding_flag) { // Frm_To_Fld
-		unsigned top = PicWidthInMbs * (s->mb_y & -2u) + s->mb_x;
-		unsigned bot = PicWidthInMbs * (s->mb_y | 1u) + s->mb_x;
-		refCol01 = s->mbCol[top].refPic;
-		refCol23 = s->mbCol[bot].refPic;
-		const v2li *t = (v2li *)((uintptr_t)s->mvCol + top * 64);
-		const v2li *b = (v2li *)((uintptr_t)s->mvCol + bot * 64);
+		unsigned top = PicWidthInMbs * (ctx->mb_y & -2u) + ctx->mb_x;
+		unsigned bot = PicWidthInMbs * (ctx->mb_y | 1u) + ctx->mb_x;
+		refCol01 = ctx->mbCol[top].refPic;
+		refCol23 = ctx->mbCol[bot].refPic;
+		const v2li *t = (v2li *)((uintptr_t)ctx->mvCol + top * 64);
+		const v2li *b = (v2li *)((uintptr_t)ctx->mvCol + bot * 64);
 		mvCol0 = (v8hi)__builtin_shufflevector(t[0], t[2], 0, 2);
 		mvCol1 = (v8hi)__builtin_shufflevector(t[1], t[3], 0, 2);
 		mvCol2 = (v8hi)__builtin_shufflevector(b[4], b[6], 0, 2);
 		mvCol3 = (v8hi)__builtin_shufflevector(b[5], b[7], 0, 2);
-		if (!s->direct_spatial_mv_pred_flag) {
+		if (!ctx->direct_spatial_mv_pred_flag) {
 			mvCol0 -= ((mvCol0 - (mvCol0 > (v8hi){})) >> one) & vertical;
 			mvCol1 -= ((mvCol1 - (mvCol1 > (v8hi){})) >> one) & vertical;
 			mvCol2 -= ((mvCol2 - (mvCol2 > (v8hi){})) >> one) & vertical;
 			mvCol3 -= ((mvCol3 - (mvCol3 > (v8hi){})) >> one) & vertical;
 		}
 	} else { // Fld_To_Frm
-		CurrMbAddr = PicWidthInMbs * ((s->mb_y & -2u) | s->firstRefPicL1) + s->mb_x;
-		refCol01 = refCol23 = s->mbCol[CurrMbAddr].refPic + (s->mb_y & 1u) * 2;
-		const uint64_t *v = (uint64_t *)((uintptr_t)s->mvCol + CurrMbAddr * 64 + (s->mb_y & 1u) * 32);
+		CurrMbAddr = PicWidthInMbs * ((ctx->mb_y & -2u) | ctx->firstRefPicL1) + ctx->mb_x;
+		refCol01 = refCol23 = ctx->mbCol[CurrMbAddr].refPic + (ctx->mb_y & 1u) * 2;
+		const uint64_t *v = (uint64_t *)((uintptr_t)ctx->mvCol + CurrMbAddr * 64 + (ctx->mb_y & 1u) * 32);
 		mvCol0 = (v8hi)(v2li){v[0], v[0]};
 		mvCol1 = (v8hi)(v2li){v[2], v[2]};
 		mvCol2 = (v8hi)(v2li){v[1], v[1]};
 		mvCol3 = (v8hi)(v2li){v[3], v[3]};
-		if (!s->direct_spatial_mv_pred_flag) {
+		if (!ctx->direct_spatial_mv_pred_flag) {
 			mvCol0 += mvCol0 & vertical;
 			mvCol1 += mvCol1 & vertical;
 			mvCol2 += mvCol2 & vertical;
@@ -531,7 +533,7 @@ static __attribute__((noinline)) void init_B_Direct(Edge264_slice *s, Edge264_fl
 	}
 
 	/* 8.4.1.2.2 - Spatial motion prediction. */
-	if (s->direct_spatial_mv_pred_flag) {
+	if (ctx->direct_spatial_mv_pred_flag) {
 		
 		/* refIdxL0 equals one of A/B/C, so initialise mvL0 the same way (8.4.1.3.1). */
 		int refIdxL0A = refIdxA[0], refIdxL0B = refIdxB[0], refIdxL0C = refIdxC[0];
@@ -566,36 +568,36 @@ static __attribute__((noinline)) void init_B_Direct(Edge264_slice *s, Edge264_fl
 		m->refIdx_s[1] = refIdxL1 * 0x01010101;
 		
 		/* mv_is_zero encapsulates the intrinsic for abs which is essential here. */
-		unsigned mask = s->col_short_term << 7; // FIXME: Revert bit order to keep sign!
+		unsigned mask = ctx->col_short_term << 7; // FIXME: Revert bit order to keep sign!
 		v8hi colZero0 = (refCol01[0] & mask) ? mv_is_zero(mvCol0) : (v8hi){};
 		v8hi colZero1 = (refCol01[1] & mask) ? mv_is_zero(mvCol1) : (v8hi){};
 		v8hi colZero2 = (refCol23[0] & mask) ? mv_is_zero(mvCol2) : (v8hi){};
 		v8hi colZero3 = (refCol23[1] & mask) ? mv_is_zero(mvCol3) : (v8hi){};
 		
 		typedef int32_t v4si __attribute__((vector_size(16)));
-		s->mvs_v[0] = s->mvs_v[1] = s->mvs_v[2] = s->mvs_v[3] = (v8hi)(v4si){mvL0.s, mvL0.s, mvL0.s, mvL0.s};
-		s->mvs_v[4] = s->mvs_v[5] = s->mvs_v[6] = s->mvs_v[7] = (v8hi)(v4si){mvL1.s, mvL1.s, mvL1.s, mvL1.s};
+		ctx->mvs_v[0] = ctx->mvs_v[1] = ctx->mvs_v[2] = ctx->mvs_v[3] = (v8hi)(v4si){mvL0.s, mvL0.s, mvL0.s, mvL0.s};
+		ctx->mvs_v[4] = ctx->mvs_v[5] = ctx->mvs_v[6] = ctx->mvs_v[7] = (v8hi)(v4si){mvL1.s, mvL1.s, mvL1.s, mvL1.s};
 		if (refIdxL0 == 0)
-			s->mvs_v[0] &= ~colZero0, s->mvs_v[1] &= ~colZero1, s->mvs_v[2] &= ~colZero2, s->mvs_v[3] &= ~colZero3;
+			ctx->mvs_v[0] &= ~colZero0, ctx->mvs_v[1] &= ~colZero1, ctx->mvs_v[2] &= ~colZero2, ctx->mvs_v[3] &= ~colZero3;
 		if (refIdxL1 == 0)
-			s->mvs_v[4] &= ~colZero0, s->mvs_v[5] &= ~colZero1, s->mvs_v[6] &= ~colZero2, s->mvs_v[7] &= ~colZero3;
+			ctx->mvs_v[4] &= ~colZero0, ctx->mvs_v[5] &= ~colZero1, ctx->mvs_v[6] &= ~colZero2, ctx->mvs_v[7] &= ~colZero3;
 	
 	/* 8.4.1.2.3 - Temporal motion prediction. */
 	} else {
 		m->refIdx_s[1] = 0;
-		m->refIdx[0] = (s->MapPicToList0 + 1)[refCol01[0] & 0x7fu];
-		m->refIdx[1] = (s->MapPicToList0 + 1)[refCol01[1] & 0x7fu];
-		m->refIdx[2] = (s->MapPicToList0 + 1)[refCol23[0] & 0x7fu];
-		m->refIdx[3] = (s->MapPicToList0 + 1)[refCol23[1] & 0x7fu];
-		const int16_t *DistScaleFactor = s->DistScaleFactor[m->f.mb_field_decoding_flag ? s->mb_y & 1 : 2];
-		s->mvs_v[0] = temporal_scale(mvCol0, DistScaleFactor[m->refIdx[0]]);
-		s->mvs_v[1] = temporal_scale(mvCol1, DistScaleFactor[m->refIdx[1]]);
-		s->mvs_v[2] = temporal_scale(mvCol2, DistScaleFactor[m->refIdx[2]]);
-		s->mvs_v[3] = temporal_scale(mvCol3, DistScaleFactor[m->refIdx[3]]);
-		s->mvs_v[4] = s->mvs_v[0] - mvCol0;
-		s->mvs_v[5] = s->mvs_v[1] - mvCol1;
-		s->mvs_v[6] = s->mvs_v[2] - mvCol2;
-		s->mvs_v[7] = s->mvs_v[3] - mvCol3;
+		m->refIdx[0] = (ctx->MapPicToList0 + 1)[refCol01[0] & 0x7fu];
+		m->refIdx[1] = (ctx->MapPicToList0 + 1)[refCol01[1] & 0x7fu];
+		m->refIdx[2] = (ctx->MapPicToList0 + 1)[refCol23[0] & 0x7fu];
+		m->refIdx[3] = (ctx->MapPicToList0 + 1)[refCol23[1] & 0x7fu];
+		const int16_t *DistScaleFactor = ctx->DistScaleFactor[m->f.mb_field_decoding_flag ? ctx->mb_y & 1 : 2];
+		ctx->mvs_v[0] = temporal_scale(mvCol0, DistScaleFactor[m->refIdx[0]]);
+		ctx->mvs_v[1] = temporal_scale(mvCol1, DistScaleFactor[m->refIdx[1]]);
+		ctx->mvs_v[2] = temporal_scale(mvCol2, DistScaleFactor[m->refIdx[2]]);
+		ctx->mvs_v[3] = temporal_scale(mvCol3, DistScaleFactor[m->refIdx[3]]);
+		ctx->mvs_v[4] = ctx->mvs_v[0] - mvCol0;
+		ctx->mvs_v[5] = ctx->mvs_v[1] - mvCol1;
+		ctx->mvs_v[6] = ctx->mvs_v[2] - mvCol2;
+		ctx->mvs_v[7] = ctx->mvs_v[3] - mvCol3;
 	}
 }
 #endif

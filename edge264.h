@@ -71,24 +71,30 @@ typedef struct {
 } Edge264_parameter_set;
 
 typedef struct {
-	void (*output_frame)(int);
-	uint8_t *DPB;
 	int8_t currPic; // last picture in decoding order
+	int8_t no_output_of_prior_pics_flag; // 1 significant bit
+	uint16_t long_term_flags;
+	uint32_t reference_flags; // lower/higher half for top/bottom fields
+	int32_t remaining_mbs;
 	int32_t prevFrameNum;
 	int32_t prevPicOrderCnt;
-	uint32_t reference_flags; // lower/higher half for top/bottom fields
-	uint16_t long_term_flags;
-	uint16_t output_flags;
-	int32_t remaining_mbs;
 	int32_t FrameNum[16];
+} Edge264_snapshot;
+
+typedef struct {
+	void (*output_frame)(int);
+	uint8_t *DPB;
+	int8_t error;
+	uint16_t output_flags;
 	int32_t FieldOrderCnt[32]; // lower/higher half for top/bottom fields
+	Edge264_snapshot now;
 	Edge264_parameter_set SPS;
 	Edge264_parameter_set PPSs[4];
 	int16_t PicOrderCntDeltas[256]; // pic_order_cnt_type==1
-} Edge264_ctx;
+} Edge264_stream;
 
 
-const uint8_t *Edge264_find_start_code(const uint8_t *CPB, const uint8_t *end, unsigned n);
-const uint8_t *Edge264_decode_NAL(const uint8_t *CPB, const uint8_t *end, Edge264_ctx *e);
+const uint8_t *Edge264_find_start_code(int n, const uint8_t *CPB, size_t len);
+const uint8_t *Edge264_decode_NAL(Edge264_stream *e, const uint8_t *CPB, size_t len);
 
 #endif

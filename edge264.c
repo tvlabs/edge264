@@ -5,6 +5,9 @@
 // TODO: Consider storing RefPicList in field mode after implementing MBAFF
 // TODO: Switch to RefPicList[l * 32 + i] if it later speeds up the decoder loop
 // TODO: Put codIOffset and codIRange in GRVs for 16-regs architectures
+// TODO: Remove unions in Edge264_ctx?
+// TODO: Switch to 17-frames storage if actual clips use it
+// TODO: Save shift in each get_u..
 
 /**
  * Copyright (c) 2013-2014, Celticom / TVLabs
@@ -77,13 +80,13 @@ static const v16qu Default_8x8_Inter[4] = {
 /**
  * Initialises and updates the reference picture lists (8.2.4).
  */
-static void parse_ref_pic_list_modification(const Edge264_ctx *e)
+static void parse_ref_pic_list_modification(const Edge264_stream *e)
 {
 	// sort the initial list of frames
-	const int32_t *values = (s->slice_type == 0) ? e->FrameNum : e->FieldOrderCnt;
-	unsigned offset = (s->slice_type == 0) ? e->prevFrameNum : s->TopFieldOrderCnt;
-	uint16_t top = e->reference_flags, bot = e->reference_flags >> 16;
-	unsigned refs = (s->field_pic_flag) ? top | bot : top & bot;
+	const int32_t *values = (ctx->slice_type == 0) ? ctx->s.FrameNum : e->FieldOrderCnt;
+	unsigned offset = (ctx->slice_type == 0) ? ctx->s.prevFrameNum : ctx->TopFieldOrderCnt;
+	uint16_t top = ctx->s.reference_flags, bot = ctx->s.reference_flags >> 16;
+	unsigned refs = (ctx->field_pic_flag) ? top | bot : top & bot;
 	int count[3] = {}, next = 0;
 	do {
 		int best = INT_MAX;
@@ -92,30 +95,30 @@ static void parse_ref_pic_list_modification(const Edge264_ctx *e)
 			int i = __builtin_ctz(r);
 			int diff = values[i] - offset;
 			int ShortTermNum = (diff <= 0) ? -diff : 0x8000 + diff;
-			int LongTermFrameNum = e->FrameNum[i] + 0x10000;
-			int v = (e->long_term_flags & 1 << i) ? LongTermFrameNum : ShortTermNum;
+			int LongTermFrameNum = ctx->s.FrameNum[i] + 0x10000;
+			int v = (ctx->s.long_term_flags & 1 << i) ? LongTermFrameNum : ShortTermNum;
 			if (best > v)
 				best = v, next = i;
 		} while (r &= r - 1);
-		s->RefPicList[0][count[0] + count[1] + count[2]] = next;
+		ctx->RefPicList[0][count[0] + count[1] + count[2]] = next;
 		count[best >> 15]++;
 	} while (refs ^= 1 << next);
 	for (int i = 0; i < 16; i++)
-		s->RefPicList[1][(i < count[0]) ? i + count[1] : (i < count[0] + count[1]) ? i - count[0] : i] = s->RefPicList[0][i];
+		ctx->RefPicList[1][(i < count[0]) ? i + count[1] : (i < count[0] + count[1]) ? i - count[0] : i] = ctx->RefPicList[0][i];
 	
 	// When decoding a field, extract a list of fields from each list of frames.
-	for (int l = 0; s->field_pic_flag && l <= s->slice_type; l++) {
+	for (int l = 0; ctx->field_pic_flag && l <= ctx->slice_type; l++) {
 		static const v16qi v16 = {16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16};
-		v16qi v = ((v16qi *)s->RefPicList[l])[0];
+		v16qi v = ((v16qi *)ctx->RefPicList[l])[0];
 		v16qi RefPicList[2] = {v, v + v16};
 		int lim = count[0] + count[1], tot = lim + count[2], n = 0;
-		int i = s->bottom_field_flag << 4, j = i ^ 16, k;
+		int i = ctx->bottom_field_flag << 4, j = i ^ 16, k;
 		do {
 			if ((i & 15) >= lim)
-				i = (s->bottom_field_flag << 4) + lim, j = i ^ 16, lim = tot;
+				i = (ctx->bottom_field_flag << 4) + lim, j = i ^ 16, lim = tot;
 			int pic = ((int8_t *)RefPicList)[i++];
-			if (e->reference_flags & 1 << pic) {
-				s->RefPicList[l][n++] = pic;
+			if (ctx->s.reference_flags & 1 << pic) {
+				ctx->RefPicList[l][n++] = pic;
 				if ((j & 15) < lim)
 					k = i, i = j, j = k; // swap
 			}
@@ -123,14 +126,14 @@ static void parse_ref_pic_list_modification(const Edge264_ctx *e)
 	}
 	
 	// RefPicList0==RefPicList1 can be reduced to testing only the first slot.
-	if (s->RefPicList[0][0] == s->RefPicList[1][0] && count[0] + count[1] + count[2] > 1) {
-		s->RefPicList[1][0] = s->RefPicList[0][1];
-		s->RefPicList[1][1] = s->RefPicList[0][0];
+	if (ctx->RefPicList[0][0] == ctx->RefPicList[1][0] && count[0] + count[1] + count[2] > 1) {
+		ctx->RefPicList[1][0] = ctx->RefPicList[0][1];
+		ctx->RefPicList[1][1] = ctx->RefPicList[0][0];
 	}
 	
 	// parse the ref_pic_list_modification() instructions
-	for (int l = 0; l <= s->slice_type; l++) {
-		unsigned picNumLX = (s->field_pic_flag) ? e->prevFrameNum * 2 + 1 : e->prevFrameNum;
+	for (int l = 0; l <= ctx->slice_type; l++) {
+		unsigned picNumLX = (ctx->field_pic_flag) ? ctx->s.prevFrameNum * 2 + 1 : ctx->s.prevFrameNum;
 		int modification_of_pic_nums_idc;
 		
 		// Let's not waste some precious indentation space...
@@ -139,40 +142,40 @@ static void parse_ref_pic_list_modification(const Edge264_ctx *e)
 		{
 			int num = get_ue32();
 			unsigned MaskFrameNum = -1;
-			unsigned r = e->long_term_flags;
+			unsigned r = ctx->s.long_term_flags;
 			if (modification_of_pic_nums_idc < 2) {
 				num = picNumLX = (modification_of_pic_nums_idc == 0) ? picNumLX - (num + 1) : picNumLX + (num + 1);
-				MaskFrameNum = (1 << s->ps.log2_max_frame_num) - 1;
+				MaskFrameNum = (1 << ctx->ps.log2_max_frame_num) - 1;
 				r = ~r;
 			}
 			
 			// LongTerm and ShortTerm share this same picture search.
-			unsigned FrameNum = MaskFrameNum & (s->field_pic_flag ? num >> 1 : num);
-			int pic = ((num & 1) ^ s->bottom_field_flag) << 4;
-			r &= (pic) ? e->reference_flags : e->reference_flags >> 16;
+			unsigned FrameNum = MaskFrameNum & (ctx->field_pic_flag ? num >> 1 : num);
+			int pic = ((num & 1) ^ ctx->bottom_field_flag) << 4;
+			r &= (pic) ? ctx->s.reference_flags : ctx->s.reference_flags >> 16;
 			do {
 				int i = __builtin_ctz(r);
-				if ((e->FrameNum[i] & MaskFrameNum) == FrameNum)
+				if ((ctx->s.FrameNum[i] & MaskFrameNum) == FrameNum)
 					pic += i; // can only happen once, since each FrameNum is unique
 			} while (r &= r - 1);
 			
 			// insert pic at position refIdx in RefPicList
 			int old, new = pic;
-			for (int i = refIdx; i < 32 && (old = s->RefPicList[l][i]) != pic; i++)
-				s->RefPicList[l][i] = new, new = old;
+			for (int i = refIdx; i < 32 && (old = ctx->RefPicList[l][i]) != pic; i++)
+				ctx->RefPicList[l][i] = new, new = old;
 		}
 		
-		for (int i = 0; i < s->ps.num_ref_idx_active[l]; i++)
-			printf("<li>RefPicList%x[%u]: <code>%u %s</code></li>\n", l, i, e->FieldOrderCnt[s->RefPicList[l][i]], (s->RefPicList[l][i] >> 4) ? "bot" : "top");
+		for (int i = 0; i < ctx->ps.num_ref_idx_active[l]; i++)
+			printf("<li>RefPicList%x[%u]: <code>%u %s</code></li>\n", l, i, e->FieldOrderCnt[ctx->RefPicList[l][i]], (ctx->RefPicList[l][i] >> 4) ? "bot" : "top");
 	}
 	
 	// initialisations for the colocated reference picture
-	s->MapPicToList0[0] = 0; // when refPicCol == -1
+	ctx->MapPicToList0[0] = 0; // when refPicCol == -1
 	for (int refIdxL0 = 0; refIdxL0 < 32; refIdxL0++)
-		s->MapPicToList0[1 + s->RefPicList[0][refIdxL0]] = refIdxL0;
-	s->mbCol = NULL; // FIXME
-	s->mvCol = NULL;
-	s->col_short_term = ~e->long_term_flags >> (s->RefPicList[1][0] & 15) & 1;
+		ctx->MapPicToList0[1 + ctx->RefPicList[0][refIdxL0]] = refIdxL0;
+	ctx->mbCol = NULL; // FIXME
+	ctx->mvCol = NULL;
+	ctx->col_short_term = ~ctx->s.long_term_flags >> (ctx->RefPicList[1][0] & 15) & 1;
 }
 
 
@@ -180,21 +183,21 @@ static void parse_ref_pic_list_modification(const Edge264_ctx *e)
 /**
  * Stores the pre-shifted weights and offsets (7.4.3.2).
  */
-static void parse_pred_weight_table(Edge264_ctx *e)
+static void parse_pred_weight_table(Edge264_stream *e)
 {
 	/*// Initialise implicit_weights and DistScaleFactor for frames.
-	if (s->slice_type == 1 && !s->field_pic_flag) {
-		int PicOrderCnt = min(s->TopFieldOrderCnt, s->BottomFieldOrderCnt);
-		int topAbsDiffPOC = abs(e->FieldOrderCnt[s->RefPicList[1][0]] - PicOrderCnt);
-		int bottomAbsDiffPOC = abs(e->FieldOrderCnt[s->RefPicList[1][1] - PicOrderCnt);
-		s->firstRefPicL1 = (topAbsDiffPOC >= bottomAbsDiffPOC);
-		for (int refIdxL0 = 0; refIdxL0 < s->ps.num_ref_idx_active[0]; refIdxL0++) {
-			int pic0 = s->RefPicList[0][2 * refIdxL0];
+	if (ctx->slice_type == 1 && !ctx->field_pic_flag) {
+		int PicOrderCnt = min(ctx->TopFieldOrderCnt, ctx->BottomFieldOrderCnt);
+		int topAbsDiffPOC = abs(e->FieldOrderCnt[ctx->RefPicList[1][0]] - PicOrderCnt);
+		int bottomAbsDiffPOC = abs(e->FieldOrderCnt[ctx->RefPicList[1][1] - PicOrderCnt);
+		ctx->firstRefPicL1 = (topAbsDiffPOC >= bottomAbsDiffPOC);
+		for (int refIdxL0 = 0; refIdxL0 < ctx->ps.num_ref_idx_active[0]; refIdxL0++) {
+			int pic0 = ctx->RefPicList[0][2 * refIdxL0];
 			int PicOrderCnt0 = min(pic0->PicOrderCnt, pic0[1].PicOrderCnt);
 			int tb = min(max(PicOrderCnt - PicOrderCnt0, -128), 127);
 			int DistScaleFactor = 0;
-			for (int refIdxL1 = s->ps.num_ref_idx_active[1]; refIdxL1-- > 0; ) {
-				const Edge264_picture *pic1 = s->DPB + s->RefPicList[1][2 * refIdxL1];
+			for (int refIdxL1 = ctx->ps.num_ref_idx_active[1]; refIdxL1-- > 0; ) {
+				const Edge264_picture *pic1 = ctx->DPB + ctx->RefPicList[1][2 * refIdxL1];
 				int PicOrderCnt1 = min(pic1->PicOrderCnt, pic1[1].PicOrderCnt);
 				int td = min(max(PicOrderCnt1 - PicOrderCnt0, -128), 127);
 				DistScaleFactor = 256;
@@ -206,22 +209,22 @@ static void parse_pred_weight_table(Edge264_ctx *e)
 						(DistScaleFactor >> 2) >= -64 && (DistScaleFactor >> 2) <= 128)
 						w_1C = DistScaleFactor >> 2;
 				}
-				s->implicit_weights[2][2 * refIdxL0][2 * refIdxL1] = -w_1C;
+				ctx->implicit_weights[2][2 * refIdxL0][2 * refIdxL1] = -w_1C;
 			}
-			s->DistScaleFactor[2][2 * refIdxL0] = DistScaleFactor << 5;
+			ctx->DistScaleFactor[2][2 * refIdxL0] = DistScaleFactor << 5;
 		}
 	}
 	
 	// Initialise the same for fields.
-	if (s->slice_type == 1 && (s->field_pic_flag || s->MbaffFrameFlag))
-		for (int refIdxL0 = s->ps.num_ref_idx_active[0] << s->MbaffFrameFlag; refIdxL0-- > 0; )
+	if (ctx->slice_type == 1 && (ctx->field_pic_flag || ctx->MbaffFrameFlag))
+		for (int refIdxL0 = ctx->ps.num_ref_idx_active[0] << ctx->MbaffFrameFlag; refIdxL0-- > 0; )
 	{
-		const Edge264_picture *pic0 = s->DPB + s->RefPicList[0][refIdxL0];
-		int tb0 = min(max(s->p.PicOrderCnt - pic0->PicOrderCnt, -128), 127);
+		const Edge264_picture *pic0 = ctx->DPB + ctx->RefPicList[0][refIdxL0];
+		int tb0 = min(max(ctx->p.PicOrderCnt - pic0->PicOrderCnt, -128), 127);
 		int tb1 = min(max(OtherFieldOrderCnt - pic0->PicOrderCnt, -128), 127);
 		int DistScaleFactor0 = 0, DistScaleFactor1 = 0;
-		for (int refIdxL1 = s->ps.num_ref_idx_active[1] << s->MbaffFrameFlag; refIdxL1-- > 0; ) {
-			const Edge264_picture *pic1 = s->DPB + s->RefPicList[1][refIdxL1];
+		for (int refIdxL1 = ctx->ps.num_ref_idx_active[1] << ctx->MbaffFrameFlag; refIdxL1-- > 0; ) {
+			const Edge264_picture *pic1 = ctx->DPB + ctx->RefPicList[1][refIdxL1];
 			int td = min(max(pic1->PicOrderCnt - pic0->PicOrderCnt, -128), 127);
 			DistScaleFactor0 = DistScaleFactor1 = 256;
 			int w_1C = 32, W_1C = 32;
@@ -236,38 +239,38 @@ static void parse_pred_weight_table(Edge264_ctx *e)
 						W_1C = DistScaleFactor1 >> 2;
 				}
 			}
-			s->implicit_weights[s->bottom_field_flag][refIdxL0][refIdxL1] = -w_1C;
-			s->implicit_weights[s->bottom_field_flag ^ 1][refIdxL0][refIdxL1] = -W_1C;
+			ctx->implicit_weights[ctx->bottom_field_flag][refIdxL0][refIdxL1] = -w_1C;
+			ctx->implicit_weights[ctx->bottom_field_flag ^ 1][refIdxL0][refIdxL1] = -W_1C;
 		}
-		s->DistScaleFactor[s->bottom_field_flag][refIdxL0] = DistScaleFactor0 << 5;
-		s->DistScaleFactor[s->bottom_field_flag ^ 1][refIdxL0] = DistScaleFactor1 << 5;
+		ctx->DistScaleFactor[ctx->bottom_field_flag][refIdxL0] = DistScaleFactor0 << 5;
+		ctx->DistScaleFactor[ctx->bottom_field_flag ^ 1][refIdxL0] = DistScaleFactor1 << 5;
 	}*/
 	
 	// Parse explicit weights/offsets.
-	if ((s->slice_type == 0 && s->ps.weighted_pred & 4) ||
-		(s->slice_type == 1 && s->ps.weighted_pred & 1)) {
+	if ((ctx->slice_type == 0 && ctx->ps.weighted_pred & 4) ||
+		(ctx->slice_type == 1 && ctx->ps.weighted_pred & 1)) {
 		unsigned luma_shift = 7 - get_ue(7);
-		unsigned chroma_shift = (s->ps.ChromaArrayType != 0) ? 7 - get_ue(7) : 0;
-		for (int l = 0; l <= s->slice_type; l++) {
-			for (int i = 0; i < s->ps.num_ref_idx_active[l]; i++) {
-				s->weights[0][i][l] = 1 << 7;
+		unsigned chroma_shift = (ctx->ps.ChromaArrayType != 0) ? 7 - get_ue(7) : 0;
+		for (int l = 0; l <= ctx->slice_type; l++) {
+			for (int i = 0; i < ctx->ps.num_ref_idx_active[l]; i++) {
+				ctx->weights[0][i][l] = 1 << 7;
 				if (get_u1()) {
-					s->weights[0][i][l] = get_se(-128, 127) << luma_shift;
-					s->offsets[0][i][l] = get_se(-128, 127) << (s->ps.BitDepth[0] - 8);
+					ctx->weights[0][i][l] = get_se(-128, 127) << luma_shift;
+					ctx->offsets[0][i][l] = get_se(-128, 127) << (ctx->ps.BitDepth[0] - 8);
 					printf("<li>luma_weight_l%x[%u]: <code>%.2f</code></li>\n"
 						"<li>luma_offset_l%x[%u]: <code>%d</code></li>\n",
-						l, i, (double)s->weights[0][i][l] / 128,
-						l, i, s->offsets[0][i][l]);
+						l, i, (double)ctx->weights[0][i][l] / 128,
+						l, i, ctx->offsets[0][i][l]);
 				}
-				s->weights[1][i][l] = s->weights[2][i][l] = 1 << 7;
-				if (s->ps.ChromaArrayType != 0 && get_u1()) {
+				ctx->weights[1][i][l] = ctx->weights[2][i][l] = 1 << 7;
+				if (ctx->ps.ChromaArrayType != 0 && get_u1()) {
 					for (int j = 1; j < 3; j++) {
-						s->weights[j][i][l] = get_se(-128, 127) << chroma_shift;
-						s->offsets[j][i][l] = get_se(-128, 127) << (s->ps.BitDepth[1] - 8);
+						ctx->weights[j][i][l] = get_se(-128, 127) << chroma_shift;
+						ctx->offsets[j][i][l] = get_se(-128, 127) << (ctx->ps.BitDepth[1] - 8);
 						printf("<li>chroma_weight_l%x[%u][%x]: <code>%.2f</code></li>\n"
 							"<li>chroma_offset_l%x[%u][%x]: <code>%d</code></li>\n",
-							l, i, j - 1, (double)s->weights[j][i][l] / 128,
-							l, i, j - 1,s->offsets[j][i][l]);
+							l, i, j - 1, (double)ctx->weights[j][i][l] / 128,
+							l, i, j - 1,ctx->offsets[j][i][l]);
 					}
 				}
 			}
@@ -281,21 +284,19 @@ static void parse_pred_weight_table(Edge264_ctx *e)
  * Updates the reference flags by adaptive memory control or sliding window
  * marking process (8.2.5).
  */
-static void parse_dec_ref_pic_marking(Edge264_ctx *e)
+static void parse_dec_ref_pic_marking()
 {
 	int memory_management_control_operation;
 	int i = 32;
-	if (s->IdrPicFlag) {
-		int no_output_of_prior_pics_flag = get_u1();
-		if (no_output_of_prior_pics_flag)
-			e->output_flags = e->prevPicOrderCnt = 0;
+	if (ctx->IdrPicFlag) {
+		ctx->s.no_output_of_prior_pics_flag = get_u1();
 		int long_term_reference_flag = get_u1();
-		e->long_term_flags = long_term_reference_flag << e->currPic;
+		ctx->s.long_term_flags = long_term_reference_flag << ctx->s.currPic;
 		if (long_term_reference_flag)
-			e->FrameNum[e->currPic] = 0;
-		printf("<li%s>no_output_of_prior_pics_flag: <code>%x</code></li>\n"
+			ctx->s.FrameNum[ctx->s.currPic] = 0;
+		printf("<li>no_output_of_prior_pics_flag: <code>%x</code></li>\n"
 			"<li>long_term_reference_flag: <code>%x</code></li>\n",
-			red_if(no_output_of_prior_pics_flag), no_output_of_prior_pics_flag,
+			ctx->s.no_output_of_prior_pics_flag,
 			long_term_reference_flag);
 	
 	// 8.2.5.4 - Adaptive memory control marking process.
@@ -304,67 +305,67 @@ static void parse_dec_ref_pic_marking(Edge264_ctx *e)
 	{
 		if (memory_management_control_operation == 4) {
 			int max_long_term_frame_idx = get_ue16() - 1;
-			for (unsigned r = e->long_term_flags; r != 0; r &= r - 1) {
+			for (unsigned r = ctx->s.long_term_flags; r != 0; r &= r - 1) {
 				int j = __builtin_ctz(r);
-				if (e->FrameNum[j] > max_long_term_frame_idx)
-					e->reference_flags &= ~(0x10001 << j), e->long_term_flags ^= 1 << j;
+				if (ctx->s.FrameNum[j] > max_long_term_frame_idx)
+					ctx->s.reference_flags &= ~(0x10001 << j), ctx->s.long_term_flags ^= 1 << j;
 			}
 			printf("<li>Above LongTermFrameIdx %u -> unused for reference</li>\n", max_long_term_frame_idx);
 			continue;
 		} else if (memory_management_control_operation == 5) {
-			e->reference_flags = e->long_term_flags = 0;
+			ctx->s.reference_flags = ctx->s.long_term_flags = 0;
 			printf("<li>All references -> unused for reference</li>\n");
 			continue;
 		} else if (memory_management_control_operation == 6) {
-			e->long_term_flags |= 1 << e->currPic;
-			e->FrameNum[e->currPic] = get_ue16();
-			printf("<li>Current picture -> LongTermFrameIdx %u</li>\n", e->FrameNum[e->currPic]);
+			ctx->s.long_term_flags |= 1 << ctx->s.currPic;
+			ctx->s.FrameNum[ctx->s.currPic] = get_ue16();
+			printf("<li>Current picture -> LongTermFrameIdx %u</li>\n", ctx->s.FrameNum[ctx->s.currPic]);
 			continue;
 		}
 		
 		// The remaining three operations share the search for FrameNum.
 		int pic_num = get_ue16();
-		int bottom = ((pic_num & 1) ^ s->bottom_field_flag) << 4;
-		int LongTermFrameNum = (s->field_pic_flag) ? pic_num >> 1 : pic_num;
+		int bottom = ((pic_num & 1) ^ ctx->bottom_field_flag) << 4;
+		int LongTermFrameNum = (ctx->field_pic_flag) ? pic_num >> 1 : pic_num;
 		unsigned r = (memory_management_control_operation != 2 ?
-			~e->long_term_flags : e->long_term_flags) & e->reference_flags >> bottom & 0xffff;
+			~ctx->s.long_term_flags : ctx->s.long_term_flags) & ctx->s.reference_flags >> bottom & 0xffff;
 		int FrameNum = (memory_management_control_operation != 2) ?
-			e->prevFrameNum - 1 - LongTermFrameNum : LongTermFrameNum;
-		int j = e->currPic;
-		while (r != 0 && e->FrameNum[j = __builtin_ctz(r)] != FrameNum)
+			ctx->s.prevFrameNum - 1 - LongTermFrameNum : LongTermFrameNum;
+		int j = ctx->s.currPic;
+		while (r != 0 && ctx->s.FrameNum[j = __builtin_ctz(r)] != FrameNum)
 			r &= r - 1;
 		unsigned full = 0x10001 << j;
-		unsigned mask = s->field_pic_flag ? 1 << (bottom + j) : full;
+		unsigned mask = ctx->field_pic_flag ? 1 << (bottom + j) : full;
 		if (memory_management_control_operation == 1) {
-			e->reference_flags &= ~mask;
+			ctx->s.reference_flags &= ~mask;
 			printf("<li>FrameNum %u -> unused for reference</li>\n", FrameNum);
 		} else if (memory_management_control_operation == 2) {
-			e->reference_flags &= ~mask;
-			if (!(e->reference_flags & full))
-				e->long_term_flags &= ~full;
+			ctx->s.reference_flags &= ~mask;
+			if (!(ctx->s.reference_flags & full))
+				ctx->s.long_term_flags &= ~full;
 			printf("<li>LongTermFrameIdx %u -> unused for reference</li>\n", FrameNum);
 		} else if (memory_management_control_operation == 3) {
-			e->FrameNum[j] = get_ue(15);
-			e->long_term_flags |= full;
-			printf("<li>FrameNum %u -> LongTermFrameIdx %u</li>\n", FrameNum, e->FrameNum[j]);
+			ctx->s.FrameNum[j] = get_ue(15);
+			ctx->s.long_term_flags |= full;
+			printf("<li>FrameNum %u -> LongTermFrameIdx %u</li>\n", FrameNum, ctx->s.FrameNum[j]);
 		}
 	}
 	
 	// 8.2.5.3 - Sliding window marking process
-	unsigned r = (uint16_t)e->reference_flags | e->reference_flags >> 16;
-	if (__builtin_popcount(r) > s->ps.max_num_ref_frames) {
-		r ^= e->long_term_flags;
+	unsigned r = (uint16_t)ctx->s.reference_flags | ctx->s.reference_flags >> 16;
+	if (__builtin_popcount(r) > ctx->ps.max_num_ref_frames) {
+		r ^= ctx->s.long_term_flags;
 		int best = INT_MAX;
 		int next = 0;
 		do {
 			int i = __builtin_ctz(r);
-			if (best > e->FrameNum[i])
-				best = e->FrameNum[next = i];
+			if (best > ctx->s.FrameNum[i])
+				best = ctx->s.FrameNum[next = i];
 		} while (r &= r - 1);
-		e->reference_flags &= ~(0x10001 << best);
+		ctx->s.reference_flags &= ~(0x10001 << best);
 	}
 	
-	e->reference_flags |= (!s->field_pic_flag ? 0x10001 : s->bottom_field_flag ? 0x1000 : 1) << e->currPic;
+	ctx->s.reference_flags |= (!ctx->field_pic_flag ? 0x10001 : ctx->bottom_field_flag ? 0x1000 : 1) << ctx->s.currPic;
 }
 
 
@@ -373,7 +374,7 @@ static void parse_dec_ref_pic_marking(Edge264_ctx *e)
  * This function is dedicated to the bumping process specified in C.4.4, which
  * outputs pictures until a free DPB slot is found.
  */
-static __attribute__((noinline)) void bump_pictures(Edge264_ctx *e) {
+static __attribute__((noinline)) void bump_pictures(Edge264_stream *e) {
 	while (1) {
 		unsigned o = e->output_flags;
 		int best = INT_MAX, output = 0, num = 0;
@@ -382,8 +383,8 @@ static __attribute__((noinline)) void bump_pictures(Edge264_ctx *e) {
 			if (best > e->FieldOrderCnt[i])
 				best = e->FieldOrderCnt[output = i];
 		} while (num++, o &= o - 1);
-		if (num <= s->ps.max_num_reorder_frames &&
-			((uint16_t)e->reference_flags | e->reference_flags >> 16 | e->output_flags) != 0)
+		if (num <= ctx->ps.max_num_reorder_frames &&
+			((uint16_t)ctx->s.reference_flags | ctx->s.reference_flags >> 16 | e->output_flags) != 0)
 			break;
 		e->output_flags ^= 1 << output;
 		if (e->output_frame != NULL)
@@ -398,187 +399,195 @@ static __attribute__((noinline)) void bump_pictures(Edge264_ctx *e) {
  * the DPB and initialising slice data for further decoding. Pictures are output
  * through bumping.
  *
- * Contrary to SPSs and PPSs, slice_header() has no explicit trailing_bits() to
- * detect errors with high probability and revert changes, thus the main context
- * is directly updated with no particular protection.
+ * As with parameter sets, parsing the slice header updates a local snapshot
+ * structure, which is committed once cabac_alignement_one_bit is found.
  */
-static const uint8_t *parse_slice_layer_without_partitioning(Edge264_ctx *e,
-	const uint8_t *CPB, const uint8_t *end)
+static const uint8_t *parse_slice_layer_without_partitioning(Edge264_stream *e,
+	int nal_ref_idc, int nal_unit_type)
 {
 	static const char * const slice_type_names[5] = {"P", "B", "I", "SP", "SI"};
-	
-	// Zero-setting should not be necessary and will be amended in the future.
-	memset(s, 0, sizeof(*s));
-	s->nal_ref_flag = (*CPB & 0xe0) != 0;
-	s->IdrPicFlag = (*CPB & 0x1f) == 5;
-	s->CPB = CPB + 3;
-	s->RBSP[1] = CPB[1] << 8 | CPB[2];
-	refill(SIZE_BIT * 2 - 16, 0);
+	ctx->non_ref_flag = (nal_ref_idc == 0);
+	ctx->IdrPicFlag = (nal_unit_type == 5);
 	
 	// We correctly input these values to better display them... in red.
 	int first_mb_in_slice = get_ue(294848);
 	int slice_type = get_ue(9);
-	s->slice_type = (slice_type < 5) ? slice_type : slice_type - 5;
+	ctx->slice_type = (slice_type < 5) ? slice_type : slice_type - 5;
 	int pic_parameter_set_id = get_ue(255);
 	printf("<li%s>first_mb_in_slice: <code>%u</code></li>\n"
 		"<li%s>slice_type: <code>%u (%s)</code></li>\n"
 		"<li%s>pic_parameter_set_id: <code>%u</code></li>\n",
 		red_if(first_mb_in_slice > 0), first_mb_in_slice,
-		red_if(s->slice_type > 2), slice_type, slice_type_names[s->slice_type],
+		red_if(ctx->slice_type > 2), slice_type, slice_type_names[ctx->slice_type],
 		red_if(pic_parameter_set_id >= 4 || e->PPSs[pic_parameter_set_id].num_ref_idx_active[0] == 0), pic_parameter_set_id);
 	
-	if (first_mb_in_slice > 0 || s->slice_type > 2 || pic_parameter_set_id >= 4 ||
+	// check that the requested PPS was initialised
+	if (first_mb_in_slice > 0 || ctx->slice_type > 2 || pic_parameter_set_id >= 4 ||
 		e->PPSs[pic_parameter_set_id].num_ref_idx_active[0] == 0)
+	{
+		e->error = -1;
 		return NULL;
-	s->ps = e->PPSs[pic_parameter_set_id];
+	}
+	ctx->ps = e->PPSs[pic_parameter_set_id];
+	ctx->s = e->now;
 	
 	// Computing an absolute FrameNum simplifies further code.
-	unsigned relFrameNum = get_uv(s->ps.log2_max_frame_num) - e->prevFrameNum;
-	e->prevFrameNum += relFrameNum & ~(-1u << s->ps.log2_max_frame_num);
-	printf("<li>frame_num: <code>%u</code></li>\n", e->prevFrameNum);
+	unsigned relFrameNum = get_uv(ctx->ps.log2_max_frame_num) - ctx->s.prevFrameNum;
+	ctx->s.prevFrameNum += relFrameNum & ~(-1u << ctx->ps.log2_max_frame_num);
+	printf("<li>frame_num: <code>%u</code></li>\n", ctx->s.prevFrameNum);
 	
 	// This comment is just here to segment the code, glad you read it :)
-	if (!s->ps.frame_mbs_only_flag) {
-		s->field_pic_flag = get_u1();
-		printf("<li>field_pic_flag: <code>%x</code></li>\n", s->field_pic_flag);
-		if (s->field_pic_flag) {
-			s->bottom_field_flag = get_u1();
+	if (!ctx->ps.frame_mbs_only_flag) {
+		ctx->field_pic_flag = get_u1();
+		printf("<li>field_pic_flag: <code>%x</code></li>\n", ctx->field_pic_flag);
+		if (ctx->field_pic_flag) {
+			ctx->bottom_field_flag = get_u1();
 			printf("<li>bottom_field_flag: <code>%x</code></li>\n",
-				s->bottom_field_flag);
+				ctx->bottom_field_flag);
 		}
 	}
-	s->MbaffFrameFlag = s->ps.mb_adaptive_frame_field_flag & ~s->field_pic_flag;
+	ctx->MbaffFrameFlag = ctx->ps.mb_adaptive_frame_field_flag & ~ctx->field_pic_flag;
 	
 	// I did not get the point of idr_pic_id yet.
-	if (s->IdrPicFlag) {
-		e->reference_flags = e->long_term_flags = e->prevFrameNum = 0;
+	if (ctx->IdrPicFlag) {
+		ctx->s.reference_flags = ctx->s.long_term_flags = ctx->s.prevFrameNum = 0;
 		int idr_pic_id = get_ue(65535);
 		printf("<li>idr_pic_id: <code>%u</code></li>\n", idr_pic_id);
 	}
 	
 	// Compute Top/BottomFieldOrderCnt (8.2.1).
-	s->TopFieldOrderCnt = s->BottomFieldOrderCnt = e->prevFrameNum * 2 - (s->nal_ref_flag == 0);
-	if (s->ps.pic_order_cnt_type == 0) {
-		unsigned shift = WORD_BIT - s->ps.log2_max_pic_order_cnt_lsb;
-		int diff = get_uv(s->ps.log2_max_pic_order_cnt_lsb) - e->prevPicOrderCnt;
-		unsigned PicOrderCnt = e->prevPicOrderCnt + (diff << shift >> shift);
-		s->TopFieldOrderCnt = PicOrderCnt;
-		s->BottomFieldOrderCnt = (!s->field_pic_flag && s->ps.bottom_field_pic_order_in_frame_present_flag) ?
+	ctx->TopFieldOrderCnt = ctx->BottomFieldOrderCnt = ctx->s.prevFrameNum * 2 - ctx->non_ref_flag;
+	if (ctx->ps.pic_order_cnt_type == 0) {
+		unsigned shift = WORD_BIT - ctx->ps.log2_max_pic_order_cnt_lsb;
+		int diff = get_uv(ctx->ps.log2_max_pic_order_cnt_lsb) - ctx->s.prevPicOrderCnt;
+		unsigned PicOrderCnt = ctx->s.prevPicOrderCnt + (diff << shift >> shift);
+		ctx->TopFieldOrderCnt = PicOrderCnt;
+		ctx->BottomFieldOrderCnt = (!ctx->field_pic_flag && ctx->ps.bottom_field_pic_order_in_frame_present_flag) ?
 			PicOrderCnt + map_se(get_ue32()) : PicOrderCnt;
-		if (s->nal_ref_flag)
-			e->prevPicOrderCnt = PicOrderCnt;
-	} else if (s->ps.pic_order_cnt_type == 1) {
-		unsigned absFrameNum = e->prevFrameNum - (s->nal_ref_flag == 0);
-		unsigned expectedPicOrderCnt = (s->nal_ref_flag == 0) ? s->ps.offset_for_non_ref_pic : 0;
-		if (s->ps.num_ref_frames_in_pic_order_cnt_cycle != 0) {
-			expectedPicOrderCnt += (absFrameNum / s->ps.num_ref_frames_in_pic_order_cnt_cycle) *
-				e->PicOrderCntDeltas[s->ps.num_ref_frames_in_pic_order_cnt_cycle] +
-				e->PicOrderCntDeltas[absFrameNum % s->ps.num_ref_frames_in_pic_order_cnt_cycle];
+		if (!ctx->non_ref_flag)
+			ctx->s.prevPicOrderCnt = PicOrderCnt;
+	} else if (ctx->ps.pic_order_cnt_type == 1) {
+		unsigned absFrameNum = ctx->s.prevFrameNum - ctx->non_ref_flag;
+		unsigned expectedPicOrderCnt = (ctx->non_ref_flag) ? ctx->ps.offset_for_non_ref_pic : 0;
+		if (ctx->ps.num_ref_frames_in_pic_order_cnt_cycle != 0) {
+			expectedPicOrderCnt += (absFrameNum / ctx->ps.num_ref_frames_in_pic_order_cnt_cycle) *
+				e->PicOrderCntDeltas[ctx->ps.num_ref_frames_in_pic_order_cnt_cycle] +
+				e->PicOrderCntDeltas[absFrameNum % ctx->ps.num_ref_frames_in_pic_order_cnt_cycle];
 		}
-		s->TopFieldOrderCnt = s->BottomFieldOrderCnt = expectedPicOrderCnt;
-		if (!s->ps.delta_pic_order_always_zero_flag) {
-			s->TopFieldOrderCnt = expectedPicOrderCnt += map_se(get_ue32());
-			s->BottomFieldOrderCnt = (!s->field_pic_flag && s->ps.bottom_field_pic_order_in_frame_present_flag) ?
+		ctx->TopFieldOrderCnt = ctx->BottomFieldOrderCnt = expectedPicOrderCnt;
+		if (!ctx->ps.delta_pic_order_always_zero_flag) {
+			ctx->TopFieldOrderCnt = expectedPicOrderCnt += map_se(get_ue32());
+			ctx->BottomFieldOrderCnt = (!ctx->field_pic_flag && ctx->ps.bottom_field_pic_order_in_frame_present_flag) ?
 				expectedPicOrderCnt + map_se(get_ue32()) : expectedPicOrderCnt;
 		}
 	}
-	printf("<li>pic_order_cnt: <code>%u</code></li>\n", min(s->TopFieldOrderCnt, s->BottomFieldOrderCnt));
+	printf("<li>pic_order_cnt: <code>%u</code></li>\n", min(ctx->TopFieldOrderCnt, ctx->BottomFieldOrderCnt));
 	
 	// That could be optimised into fast bit tests, but no compiler knows it :)
-	if (s->slice_type == 0 || s->slice_type == 1) {
-		if (s->slice_type == 1) {
-			s->direct_spatial_mv_pred_flag = get_u1();
+	if (ctx->slice_type == 0 || ctx->slice_type == 1) {
+		if (ctx->slice_type == 1) {
+			ctx->direct_spatial_mv_pred_flag = get_u1();
 			printf("<li>direct_spatial_mv_pred_flag: <code>%x</code></li>\n",
-				s->direct_spatial_mv_pred_flag);
+				ctx->direct_spatial_mv_pred_flag);
 		}
 		
 		// Use the last decoded picture for reference when at least one is missing.
-		uint16_t top = e->reference_flags, bot = e->reference_flags >> 16;
-		unsigned refs = (s->field_pic_flag) ? top | bot : top & bot;
+		uint16_t top = ctx->s.reference_flags, bot = ctx->s.reference_flags >> 16;
+		unsigned refs = (ctx->field_pic_flag) ? top | bot : top & bot;
 		if (refs == 0)
-			e->reference_flags |= 0x10001 << e->currPic;
+			ctx->s.reference_flags |= 0x10001 << ctx->s.currPic;
 		
 		// num_ref_idx_active_override_flag
 		if (get_u1()) {
-			for (int l = 0; l <= s->slice_type; l++) {
-				s->ps.num_ref_idx_active[l] = get_ue(31) + 1;
+			for (int l = 0; l <= ctx->slice_type; l++) {
+				ctx->ps.num_ref_idx_active[l] = get_ue(31) + 1;
 				printf("<li>num_ref_idx_l%x_active: <code>%u</code></li>\n",
-					l, s->ps.num_ref_idx_active[l]);
+					l, ctx->ps.num_ref_idx_active[l]);
 			}
 		}
-		s->ref_idx_mask = (s->ps.num_ref_idx_active[0] > 1 ? 0x1111 : 0) |
-			(s->ps.num_ref_idx_active[1] > 1 ? 0x11110000 : 0);
+		ctx->ref_idx_mask = (ctx->ps.num_ref_idx_active[0] > 1 ? 0x1111 : 0) |
+			(ctx->ps.num_ref_idx_active[1] > 1 ? 0x11110000 : 0);
 		parse_ref_pic_list_modification(e);
 		parse_pred_weight_table(e);
 	}
 	
 	// Without slices we can assume previous picture was complete, so don't need bumping.
-	if (e->remaining_mbs == 0) {
-		unsigned avail = ~((uint16_t)e->reference_flags | e->reference_flags >> 16 | e->output_flags);
-		e->currPic = __builtin_ctz(avail | 1 << 15);
-		e->output_flags |= 1 << e->currPic;
-		e->remaining_mbs = s->ps.width * s->ps.height >> 8;
-		e->FrameNum[e->currPic] = e->prevFrameNum;
+	if (ctx->s.remaining_mbs == 0) {
+		unsigned avail = ~((uint16_t)ctx->s.reference_flags | ctx->s.reference_flags >> 16 | e->output_flags);
+		ctx->s.currPic = __builtin_ctz(avail | 1 << 15);
+		ctx->s.remaining_mbs = ctx->ps.width * ctx->ps.height >> 8;
+		ctx->s.FrameNum[ctx->s.currPic] = ctx->s.prevFrameNum;
 	}
-	e->FieldOrderCnt[(s->bottom_field_flag) ? e->currPic + 16 : e->currPic] = s->TopFieldOrderCnt;
-	if (!s->field_pic_flag)
-		e->FieldOrderCnt[16 + e->currPic] = s->BottomFieldOrderCnt;
 	
-	// not much to say in this comment either (though there is intention!)
-	if (s->nal_ref_flag)
-		parse_dec_ref_pic_marking(e);
-	if (s->ps.entropy_coding_mode_flag && s->slice_type != 2) {
-		s->cabac_init_idc = 1 + get_ue(2);
-		printf("<li>cabac_init_idc: <code>%u</code></li>\n", s->cabac_init_idc - 1);
+	// not much to say in this comment either (though intention there is!)
+	if (!ctx->non_ref_flag)
+		parse_dec_ref_pic_marking();
+	if (ctx->ps.entropy_coding_mode_flag && ctx->slice_type != 2) {
+		ctx->cabac_init_idc = 1 + get_ue(2);
+		printf("<li>cabac_init_idc: <code>%u</code></li>\n", ctx->cabac_init_idc - 1);
 	}
-	s->ps.QP_Y = min(max(s->ps.QP_Y + map_se(get_ue16()), -6 * ((int)s->ps.BitDepth[0] - 8)), 51);
-	printf("<li>SliceQP<sub>Y</sub>: <code>%d</code></li>\n", s->ps.QP_Y);
+	ctx->ps.QP_Y = min(max(ctx->ps.QP_Y + map_se(get_ue16()), -6 * ((int)ctx->ps.BitDepth[0] - 8)), 51);
+	printf("<li>SliceQP<sub>Y</sub>: <code>%d</code></li>\n", ctx->ps.QP_Y);
 	
 	// Loop filter is not enabled, though not yet implemented.
-	if (s->ps.deblocking_filter_control_present_flag) {
-		s->disable_deblocking_filter_idc = get_ue(2);
-		if (s->disable_deblocking_filter_idc != 1) {
-			s->FilterOffsetA = get_se(-6, 6) * 2;
-			s->FilterOffsetB = get_se(-6, 6) * 2;
+	if (ctx->ps.deblocking_filter_control_present_flag) {
+		ctx->disable_deblocking_filter_idc = get_ue(2);
+		if (ctx->disable_deblocking_filter_idc != 1) {
+			ctx->FilterOffsetA = get_se(-6, 6) * 2;
+			ctx->FilterOffsetB = get_se(-6, 6) * 2;
 			printf("<li>FilterOffsetA: <code>%d</code></li>\n"
 				"<li>FilterOffsetB: <code>%d</code></li>\n",
-				s->FilterOffsetA,
-				s->FilterOffsetB);
+				ctx->FilterOffsetA,
+				ctx->FilterOffsetB);
 		}
 	}
 	
-	if (s->ps.entropy_coding_mode_flag)
-		e->remaining_mbs -= CABAC_parse_slice_data();
+	// cabac_alignment_one_bit gives a good probability to catch random errors.
+	if (ctx->ps.entropy_coding_mode_flag) {
+		unsigned alignment = ctx->shift & 7;
+		if (alignment != 0 && get_uv(8 - alignment) != 0xff >> alignment) {
+			e->error = -1;
+			return NULL;
+		}
+		CABAC_parse_slice_data();
+	}
+	e->now = ctx->s;
 	
 	// without slices, we always get a complete picture, so can bump almost every time
-	if (e->remaining_mbs == 0)
+	e->FieldOrderCnt[(ctx->bottom_field_flag) ? ctx->s.currPic + 16 : ctx->s.currPic] = ctx->TopFieldOrderCnt;
+	if (!ctx->field_pic_flag)
+		e->FieldOrderCnt[16 + ctx->s.currPic] = ctx->BottomFieldOrderCnt;
+	if (ctx->s.remaining_mbs == 0) {
+		e->output_flags = (ctx->s.no_output_of_prior_pics_flag) ? 0 : e->output_flags | 1 << ctx->s.currPic;
 		bump_pictures(e);
+	}
 	
 	// CPB pointer might have gone far if 000003000003000003... bytes follow,
 	// so we backtrack to a point that is 100% behind next start code.
-	return CPB - 22;
+	return ctx->CPB - 22;
 }
 
 
 
-/** Used for end_of_seq too, deallocates the picture buffer, then resets e. */
-static const uint8_t *parse_end_of_stream(Edge264_ctx *e, const uint8_t *CPB, const uint8_t *end) {
+/** Deallocates the picture buffer, then resets e. */
+static const uint8_t *parse_end_of_stream(Edge264_stream *e, int nal_ref_idc, int nal_unit_type) {
 	if (e->DPB != NULL)
 		free(e->DPB);
 	memset(e, 0, sizeof(*e));
-	return CPB;
+	return NULL;
 }
 
 
 
 /** Access Unit Delimiters are ignored to avoid depending on their occurence. */
-static const uint8_t *parse_access_unit_delimiter(Edge264_ctx *e, const uint8_t *CPB, const uint8_t *end) {
+static const uint8_t *parse_access_unit_delimiter(Edge264_stream *e, int nal_ref_idc, int nal_unit_type) {
 	static const char * const primary_pic_type_names[8] = {"I", "P, I",
 		"P, B, I", "SI", "SP, SI", "I, SI", "P, I, SP, SI", "P, B, I, SP, SI"};
-	int primary_pic_type = CPB[1] >> 5;
+	int primary_pic_type = get_uv(3) >> 5;
 	printf("<li>primary_pic_type: <code>%u (%s)</code></li>\n",
 		primary_pic_type, primary_pic_type_names[primary_pic_type]);
-	return CPB; // Some streams omit the rbsp_trailing_bits, but that's fine.
+	// Some streams omit the rbsp_trailing_bits, but that's fine.
+	return NULL;
 }
 
 
@@ -602,16 +611,16 @@ static void parse_scaling_lists()
 	
 	// The 4x4 scaling lists are small enough to fit a vector register.
 	v16qu d4x4 = Default_4x4_Intra;
-	v16qu *w4x4 = (v16qu *)s->ps.weightScale4x4;
+	v16qu *w4x4 = (v16qu *)ctx->ps.weightScale4x4;
 	do {
 		v16qu v4x4 = *w4x4;
 		const char *str = "unchanged";
 		do {
-			printf("<li>weightScale4x4[%tu]: <code>", (uint8_t(*)[16])w4x4 - s->ps.weightScale4x4);
+			printf("<li>weightScale4x4[%tu]: <code>", (uint8_t(*)[16])w4x4 - ctx->ps.weightScale4x4);
 			*w4x4 = v4x4;
 			uint8_t nextScale;
 			if (!get_u1() || !(*w4x4 = d4x4, str = "default", nextScale = 8 + get_se(-128, 127))) {
-				printf(str, (uint8_t(*)[16])w4x4 - s->ps.weightScale4x4 - 1);
+				printf(str, (uint8_t(*)[16])w4x4 - ctx->ps.weightScale4x4 - 1);
 			} else {
 				uint8_t lastScale = nextScale;
 				int j = 0;
@@ -623,20 +632,20 @@ static void parse_scaling_lists()
 			printf("</code></li>\n");
 			str = "weightScale4x4[%tu]";
 			v4x4 = *w4x4++;
-		} while (w4x4 != (v16qu *)s->ps.weightScale4x4[3] && w4x4 != (v16qu *)s->ps.weightScale4x4[6]);
+		} while (w4x4 != (v16qu *)ctx->ps.weightScale4x4[3] && w4x4 != (v16qu *)ctx->ps.weightScale4x4[6]);
 		d4x4 = Default_4x4_Inter;
-	} while (w4x4 != (v16qu *)s->ps.weightScale4x4[6]);
+	} while (w4x4 != (v16qu *)ctx->ps.weightScale4x4[6]);
 	
 	// For 8x8 scaling lists, we only pass pointers around.
-	if (!s->ps.transform_8x8_mode_flag)
+	if (!ctx->ps.transform_8x8_mode_flag)
 		return;
-	v16qu *w8x8 = (v16qu *)s->ps.weightScale8x8;
+	v16qu *w8x8 = (v16qu *)ctx->ps.weightScale8x8;
 	const v16qu *v8x8 = w8x8;
 	do {
 		const v16qu *d8x8 = Default_8x8_Intra;
 		do {
-			printf("<li>weightScale8x8[%tu]: <code>", (uint8_t(*)[64])w8x8 - s->ps.weightScale8x8);
-			const char *str = ((uint8_t *)w8x8 < s->ps.weightScale8x8[2]) ? "existing" : "weightScale8x8[%tu]";
+			printf("<li>weightScale8x8[%tu]: <code>", (uint8_t(*)[64])w8x8 - ctx->ps.weightScale8x8);
+			const char *str = ((uint8_t *)w8x8 < ctx->ps.weightScale8x8[2]) ? "existing" : "weightScale8x8[%tu]";
 			const v16qu *src = v8x8;
 			uint8_t nextScale;
 			if (!get_u1() || (src = d8x8, str = "default", nextScale = 8 + get_se(-128, 127))) {
@@ -644,7 +653,7 @@ static void parse_scaling_lists()
 				w8x8[1] = src[1];
 				w8x8[2] = src[2];
 				w8x8[3] = src[3];
-				printf(str, (uint8_t(*)[64])src - s->ps.weightScale8x8);
+				printf(str, (uint8_t(*)[64])src - ctx->ps.weightScale8x8);
 			} else {
 				uint8_t lastScale = nextScale;
 				int j = 0;
@@ -656,9 +665,9 @@ static void parse_scaling_lists()
 			printf("</code></li>\n");
 			d8x8 = Default_8x8_Inter;
 			w8x8 += 4;
-		} while (((uint8_t *)w8x8 - s->ps.weightScale8x8[0]) & 64);
+		} while (((uint8_t *)w8x8 - ctx->ps.weightScale8x8[0]) & 64);
 		v8x8 = w8x8 - 8;
-	} while (s->ps.chroma_format_idc == 3 && w8x8 < (v16qu *)s->ps.weightScale8x8[6]);
+	} while (ctx->ps.chroma_format_idc == 3 && w8x8 < (v16qu *)ctx->ps.weightScale8x8[6]);
 }
 
 
@@ -674,23 +683,19 @@ static void parse_scaling_lists()
  * _ Skipping unavailable mbs while decoding a slice messes with the storage of
  *   neighbouring macroblocks as a cirbular buffer.
  */
-static const uint8_t *parse_pic_parameter_set(Edge264_ctx *e,
-	const uint8_t *CPB, const uint8_t *end)
+static const uint8_t *parse_pic_parameter_set(Edge264_stream *e, int nal_ref_idc,
+	int nal_unit_type)
 {
 	static const char * const slice_group_map_type_names[7] = {"interleaved",
 		"dispersed", "foreground with left-over", "box-out", "raster scan",
 		"wipe", "explicit"};
 	
-	// initialise the parsing context
-	s->CPB = CPB + 3;
-	s->RBSP[1] = CPB[1] << 8 | CPB[2];
-	refill(SIZE_BIT * 2 - 16, 0);
-	
 	// Actual streams never use more than 4 PPSs (I, P, B, b).
+	ctx->ps = e->SPS;
 	int pic_parameter_set_id = get_ue(255);
 	int seq_parameter_set_id = get_ue(31);
-	s->ps.entropy_coding_mode_flag = get_u1();
-	s->ps.bottom_field_pic_order_in_frame_present_flag = get_u1();
+	ctx->ps.entropy_coding_mode_flag = get_u1();
+	ctx->ps.bottom_field_pic_order_in_frame_present_flag = get_u1();
 	int num_slice_groups = get_ue(7) + 1;
 	printf("<li%s>pic_parameter_set_id: <code>%u</code></li>\n"
 		"<li%s>seq_parameter_set_id: <code>%u</code></li>\n"
@@ -699,8 +704,8 @@ static const uint8_t *parse_pic_parameter_set(Edge264_ctx *e,
 		"<li%s>num_slice_groups: <code>%u</code></li>\n",
 		red_if(pic_parameter_set_id >= 4), pic_parameter_set_id,
 		red_if(seq_parameter_set_id != 0), seq_parameter_set_id,
-		red_if(!s->ps.entropy_coding_mode_flag), s->ps.entropy_coding_mode_flag,
-		s->ps.bottom_field_pic_order_in_frame_present_flag,
+		red_if(!ctx->ps.entropy_coding_mode_flag), ctx->ps.entropy_coding_mode_flag,
+		ctx->ps.bottom_field_pic_order_in_frame_present_flag,
 		red_if(num_slice_groups > 1), num_slice_groups);
 	
 	// Let's be nice enough to print the headers for unsupported stuff.
@@ -736,7 +741,7 @@ static const uint8_t *parse_pic_parameter_set(Edge264_ctx *e,
 			} break;
 		case 6: {
 			get_ue32(); // pic_size_in_map_units
-			int PicSizeInMapUnits = s->ps.width * s->ps.height << s->ps.frame_mbs_only_flag >> 9;
+			int PicSizeInMapUnits = ctx->ps.width * ctx->ps.height << ctx->ps.frame_mbs_only_flag >> 9;
 			printf("<li>slice_group_ids: <code>");
 			for (int i = 0; i < PicSizeInMapUnits; i++) {
 				int slice_group_id = get_uv(WORD_BIT - __builtin_clz(num_slice_groups - 1));
@@ -748,14 +753,14 @@ static const uint8_t *parse_pic_parameter_set(Edge264_ctx *e,
 	}
 	
 	// (num_ref_idx_active[0] != 0) is used as indicator that the PPS is initialised.
-	s->ps.num_ref_idx_active[0] = get_ue(31) + 1;
-	s->ps.num_ref_idx_active[1] = get_ue(31) + 1;
-	s->ps.weighted_pred = get_uv(3);
-	s->ps.QP_Y = get_se(-62, 25) + 26;
+	ctx->ps.num_ref_idx_active[0] = get_ue(31) + 1;
+	ctx->ps.num_ref_idx_active[1] = get_ue(31) + 1;
+	ctx->ps.weighted_pred = get_uv(3);
+	ctx->ps.QP_Y = get_se(-62, 25) + 26;
 	int pic_init_qs = get_se(-26, 25) + 26;
-	s->ps.second_chroma_qp_index_offset = s->ps.chroma_qp_index_offset = get_se(-12, 12);
-	s->ps.deblocking_filter_control_present_flag = get_u1();
-	s->ps.constrained_intra_pred_flag = get_u1();
+	ctx->ps.second_chroma_qp_index_offset = ctx->ps.chroma_qp_index_offset = get_se(-12, 12);
+	ctx->ps.deblocking_filter_control_present_flag = get_u1();
+	ctx->ps.constrained_intra_pred_flag = get_u1();
 	int redundant_pic_cnt_present_flag = get_u1();
 	printf("<li>num_ref_idx_l0_default_active: <code>%u</code></li>\n"
 		"<li>num_ref_idx_l1_default_active: <code>%u</code></li>\n"
@@ -767,42 +772,41 @@ static const uint8_t *parse_pic_parameter_set(Edge264_ctx *e,
 		"<li>deblocking_filter_control_present_flag: <code>%x</code></li>\n"
 		"<li>constrained_intra_pred_flag: <code>%x</code></li>\n"
 		"<li%s>redundant_pic_cnt_present_flag: <code>%x</code></li>\n",
-		s->ps.num_ref_idx_active[0],
-		s->ps.num_ref_idx_active[1],
-		s->ps.weighted_pred >> 2,
-		s->ps.weighted_pred & 0x3,
-		s->ps.QP_Y,
+		ctx->ps.num_ref_idx_active[0],
+		ctx->ps.num_ref_idx_active[1],
+		ctx->ps.weighted_pred >> 2,
+		ctx->ps.weighted_pred & 0x3,
+		ctx->ps.QP_Y,
 		pic_init_qs,
-		s->ps.chroma_qp_index_offset,
-		s->ps.deblocking_filter_control_present_flag,
-		s->ps.constrained_intra_pred_flag,
+		ctx->ps.chroma_qp_index_offset,
+		ctx->ps.deblocking_filter_control_present_flag,
+		ctx->ps.constrained_intra_pred_flag,
 		red_if(redundant_pic_cnt_present_flag), redundant_pic_cnt_present_flag);
-	s->ps.transform_8x8_mode_flag = 0;
+	ctx->ps.transform_8x8_mode_flag = 0;
 	
 	// short for peek-24-bits-without-having-to-define-a-one-use-function
-	if (lsd(s->RBSP[0], s->RBSP[1], s->shift) >> (SIZE_BIT - 24) != 0x800000) {
-		s->ps.transform_8x8_mode_flag = get_u1();
+	if (lsd(ctx->RBSP[0], ctx->RBSP[1], ctx->shift) >> (SIZE_BIT - 24) != 0x800000) {
+		ctx->ps.transform_8x8_mode_flag = get_u1();
 		printf("<li>transform_8x8_mode_flag: <code>%x</code></li>\n",
-			s->ps.transform_8x8_mode_flag);
+			ctx->ps.transform_8x8_mode_flag);
 		if (get_u1())
 			parse_scaling_lists();
-		s->ps.second_chroma_qp_index_offset = get_se(-12, 12);
+		ctx->ps.second_chroma_qp_index_offset = get_se(-12, 12);
 		printf("<li>second_chroma_qp_index_offset: <code>%d</code></li>\n",
-			s->ps.second_chroma_qp_index_offset);
+			ctx->ps.second_chroma_qp_index_offset);
 	}
 	
 	// seq_parameter_set_id was ignored so far as long as no SPS data was read.
-	if (get_uv(24) != 0x800000 || pic_parameter_set_id >= 4 || seq_parameter_set_id > 0 || e->DPB == NULL)
-		return NULL;
-	
-	// If this PPS is acceptable but unsupported, invalidate it!
-	e->PPSs[pic_parameter_set_id] = *(!redundant_pic_cnt_present_flag &&
-		num_slice_groups == 1 && s->ps.entropy_coding_mode_flag ? &s->ps :
-		&(Edge264_parameter_set){});
-	
-	// CPB pointer might have gone far if following NAL is xx000003000003000003...
-	// so we backtrack to a point that is 100% behind next start code.
-	return s->CPB - 26;
+	if (get_uv(24) != 0x800000 || pic_parameter_set_id >= 4 || seq_parameter_set_id > 0 || e->DPB == NULL) {
+		e->error = -1;
+	} else {
+		Edge264_parameter_set *p = &ctx->ps;
+		// If this PPS is acceptable but unsupported, invalidate it!
+		if (redundant_pic_cnt_present_flag || num_slice_groups > 1 || !ctx->ps.entropy_coding_mode_flag)
+			e->error = -1, p = &(Edge264_parameter_set){};
+		e->PPSs[pic_parameter_set_id] = *p;
+	}
+	return NULL;
 }
 
 
@@ -977,7 +981,7 @@ static void parse_vui_parameters()
 		int max_bits_per_mb_denom = get_ue(16);
 		int log2_max_mv_length_horizontal = get_ue(16);
 		int log2_max_mv_length_vertical = get_ue(16);
-		s->ps.max_num_reorder_frames = min(get_ue16(), s->ps.max_num_ref_frames);
+		ctx->ps.max_num_reorder_frames = min(get_ue16(), ctx->ps.max_num_ref_frames);
 		int max_dec_frame_buffering = get_ue(16);
 		printf("<li>motion_vectors_over_pic_boundaries_flag: <code>%x</code></li>\n"
 			"<li>max_bytes_per_pic_denom: <code>%u</code></li>\n"
@@ -991,7 +995,7 @@ static void parse_vui_parameters()
 			max_bits_per_mb_denom,
 			1 << log2_max_mv_length_horizontal,
 			1 << log2_max_mv_length_vertical,
-			s->ps.max_num_reorder_frames,
+			ctx->ps.max_num_reorder_frames,
 			max_dec_frame_buffering);
 	}
 }
@@ -1002,8 +1006,8 @@ static void parse_vui_parameters()
  * Parses the SPS into a Edge264_parameter_set structure, then saves it if a
  * rbsp_trailing_bits pattern follows.
  */
-static const uint8_t *parse_seq_parameter_set(Edge264_ctx *e,
-	const uint8_t *CPB, const uint8_t *end)
+static const uint8_t *parse_seq_parameter_set(Edge264_stream *e, int nal_ref_idc,
+	int nal_unit_type)
 {
 	static const char * const profile_idc_names[256] = {
 		[44] = "CAVLC 4:4:4 Intra",
@@ -1022,17 +1026,10 @@ static const uint8_t *parse_seq_parameter_set(Edge264_ctx *e,
 	};
 	static const char * const chroma_format_idc_names[4] = {"4:0:0", "4:2:0", "4:2:2", "4:4:4"};
 	
-	// initialise the parsing context and parameter set
-	s->CPB = CPB + 6;
-	s->end = end;
-	s->RBSP[1] = CPB[4] << 8 | CPB[5];
-	refill(SIZE_BIT * 2 - 16, 0);
-	s->ps = (Edge264_parameter_set){}; // should be optional
-	
 	// Without error codes, unsupported profiles are silently ignored.
-	int profile_idc = CPB[1];
-	unsigned constraint_set_flags = CPB[2];
-	int level_idc = CPB[3];
+	int profile_idc = get_uv(8);
+	unsigned constraint_set_flags = get_uv(8);
+	int level_idc = get_uv(8);
 	int seq_parameter_set_id = get_ue(31);
 	printf("<li>profile_idc: <code>%u (%s)</code></li>\n"
 		"<li>constraint_set0_flag: <code>%x</code></li>\n"
@@ -1054,39 +1051,39 @@ static const uint8_t *parse_seq_parameter_set(Edge264_ctx *e,
 		red_if(seq_parameter_set_id != 0), seq_parameter_set_id);
 	
 	// At this level in code, assigning bitfields is preferred over ORing them.
-	s->ps.chroma_format_idc = s->ps.ChromaArrayType = 1;
-	s->ps.BitDepth[0] = s->ps.BitDepth[1] = s->ps.BitDepth[2] = 8;
+	ctx->ps.chroma_format_idc = ctx->ps.ChromaArrayType = 1;
+	ctx->ps.BitDepth[0] = ctx->ps.BitDepth[1] = ctx->ps.BitDepth[2] = 8;
 	int seq_scaling_matrix_present_flag = 0;
 	if (profile_idc != 66 && profile_idc != 77 && profile_idc != 88) {
-		s->ps.ChromaArrayType = s->ps.chroma_format_idc = get_ue(3);
+		ctx->ps.ChromaArrayType = ctx->ps.chroma_format_idc = get_ue(3);
 		printf("<li>chroma_format_idc: <code>%u (%s)</code></li>\n",
-			s->ps.chroma_format_idc, chroma_format_idc_names[s->ps.chroma_format_idc]);
+			ctx->ps.chroma_format_idc, chroma_format_idc_names[ctx->ps.chroma_format_idc]);
 		
 		// Separate colour planes will be supported with slices, so code should need minimal changes
-		if (s->ps.chroma_format_idc == 3) {
-			s->ps.separate_colour_plane_flag = get_u1();
-			s->ps.ChromaArrayType &= s->ps.separate_colour_plane_flag - 1;
+		if (ctx->ps.chroma_format_idc == 3) {
+			ctx->ps.separate_colour_plane_flag = get_u1();
+			ctx->ps.ChromaArrayType &= ctx->ps.separate_colour_plane_flag - 1;
 			printf("<li%s>separate_colour_plane_flag: <code>%x</code></li>\n",
-				red_if(s->ps.separate_colour_plane_flag), s->ps.separate_colour_plane_flag);
+				red_if(ctx->ps.separate_colour_plane_flag), ctx->ps.separate_colour_plane_flag);
 		}
 		
 		// Separate bit sizes are not hard to implement, thus supported.
-		s->ps.BitDepth[0] = 8 + get_ue(6);
-		s->ps.BitDepth[1] = s->ps.BitDepth[2] = 8 + get_ue(6);
-		s->ps.qpprime_y_zero_transform_bypass_flag = get_u1();
+		ctx->ps.BitDepth[0] = 8 + get_ue(6);
+		ctx->ps.BitDepth[1] = ctx->ps.BitDepth[2] = 8 + get_ue(6);
+		ctx->ps.qpprime_y_zero_transform_bypass_flag = get_u1();
 		seq_scaling_matrix_present_flag = get_u1();
 		printf("<li>BitDepth<sub>Y</sub>: <code>%u</code></li>\n"
 			"<li>BitDepth<sub>C</sub>: <code>%u</code></li>\n"
 			"<li>qpprime_y_zero_transform_bypass_flag: <code>%x</code></li>\n"
 			"<li>seq_scaling_matrix_present_flag: <code>%x</code></li>\n",
-			s->ps.BitDepth[0],
-			s->ps.BitDepth[1],
-			s->ps.qpprime_y_zero_transform_bypass_flag,
+			ctx->ps.BitDepth[0],
+			ctx->ps.BitDepth[1],
+			ctx->ps.qpprime_y_zero_transform_bypass_flag,
 			seq_scaling_matrix_present_flag);
 	}
 	
 	// first occurence of useful vector code
-	v16qu *w = (v16qu *)s->ps.weightScale4x4;
+	v16qu *w = (v16qu *)ctx->ps.weightScale4x4;
 	if (!seq_scaling_matrix_present_flag) {
 		v16qu Flat_16 = {16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16};
 		for (int i = 0; i < 30; i++)
@@ -1102,38 +1099,38 @@ static const uint8_t *parse_seq_parameter_set(Edge264_ctx *e,
 	}
 	
 	// I like to decorate every block with a comment.
-	s->ps.log2_max_frame_num = get_ue(12) + 4;
-	s->ps.pic_order_cnt_type = get_ue(2);
+	ctx->ps.log2_max_frame_num = get_ue(12) + 4;
+	ctx->ps.pic_order_cnt_type = get_ue(2);
 	printf("<li>log2_max_frame_num: <code>%u</code></li>\n"
 		"<li>pic_order_cnt_type: <code>%u</code></li>\n",
-		s->ps.log2_max_frame_num,
-		s->ps.pic_order_cnt_type);
+		ctx->ps.log2_max_frame_num,
+		ctx->ps.pic_order_cnt_type);
 	
 	// This one will make excep... err
 	int16_t PicOrderCntDeltas[256];
-	s->ps.log2_max_pic_order_cnt_lsb = 16;
-	if (s->ps.pic_order_cnt_type == 0) {
-		s->ps.log2_max_pic_order_cnt_lsb = get_ue(12) + 4;
+	ctx->ps.log2_max_pic_order_cnt_lsb = 16;
+	if (ctx->ps.pic_order_cnt_type == 0) {
+		ctx->ps.log2_max_pic_order_cnt_lsb = get_ue(12) + 4;
 		printf("<li>log2_max_pic_order_cnt_lsb: <code>%u</code></li>\n",
-			s->ps.log2_max_pic_order_cnt_lsb);
+			ctx->ps.log2_max_pic_order_cnt_lsb);
 	
 	// clearly one of the spec's useless bits (and a waste of time to implement)
-	} else if (s->ps.pic_order_cnt_type == 1) {
-		s->ps.delta_pic_order_always_zero_flag = get_u1();
-		s->ps.offset_for_non_ref_pic = map_se(get_ue32());
-		s->ps.offset_for_top_to_bottom_field = map_se(get_ue32());
-		s->ps.num_ref_frames_in_pic_order_cnt_cycle = get_ue(255);
+	} else if (ctx->ps.pic_order_cnt_type == 1) {
+		ctx->ps.delta_pic_order_always_zero_flag = get_u1();
+		ctx->ps.offset_for_non_ref_pic = map_se(get_ue32());
+		ctx->ps.offset_for_top_to_bottom_field = map_se(get_ue32());
+		ctx->ps.num_ref_frames_in_pic_order_cnt_cycle = get_ue(255);
 		printf("<li>delta_pic_order_always_zero_flag: <code>%x</code></li>\n"
 			"<li>offset_for_non_ref_pic: <code>%d</code></li>\n"
 			"<li>offset_for_top_to_bottom: <code>%d</code></li>\n"
 			"<li>num_ref_frames_in_pic_order_cnt_cycle: <code>%u</code></li>\n"
 			"<ul>\n",
-			s->ps.delta_pic_order_always_zero_flag,
-			s->ps.offset_for_non_ref_pic,
-			s->ps.offset_for_top_to_bottom_field,
-			s->ps.num_ref_frames_in_pic_order_cnt_cycle);
+			ctx->ps.delta_pic_order_always_zero_flag,
+			ctx->ps.offset_for_non_ref_pic,
+			ctx->ps.offset_for_top_to_bottom_field,
+			ctx->ps.num_ref_frames_in_pic_order_cnt_cycle);
 		PicOrderCntDeltas[0] = 0;
-		for (int i = 1, delta = 0; i <= s->ps.num_ref_frames_in_pic_order_cnt_cycle; i++) {
+		for (int i = 1, delta = 0; i <= ctx->ps.num_ref_frames_in_pic_order_cnt_cycle; i++) {
 			int offset_for_ref_frame = map_se(get_ue32());
 			PicOrderCntDeltas[i] = delta += offset_for_ref_frame;
 			printf("<li>PicOrderCntDeltas[%u]: <code>%d</code></li>\n",
@@ -1143,67 +1140,69 @@ static const uint8_t *parse_seq_parameter_set(Edge264_ctx *e,
 	}
 	
 	// For compatibility with CoreAVC's 8100x8100, the MaxFS limit is not enforced.
-	s->ps.max_num_ref_frames = s->ps.max_num_reorder_frames = get_ue(16);
+	ctx->ps.max_num_ref_frames = ctx->ps.max_num_reorder_frames = get_ue(16);
 	int gaps_in_frame_num_value_allowed_flag = get_u1();
-	s->ps.width = (get_ue(543) + 1) << 4;
+	ctx->ps.width = (get_ue(543) + 1) << 4;
 	// An offset might be added if 2048-wide videos actually suffer from cache alignment.
-	s->ps.stride_Y = s->ps.width << ((s->ps.BitDepth[0] - 1) >> 3);
-	int width_C = (s->ps.chroma_format_idc == 0) ? 0 : s->ps.width << ((s->ps.BitDepth[1] - 1) >> 3);
-	s->ps.stride_C = (s->ps.chroma_format_idc == 3) ? width_C : width_C >> 1;
+	ctx->ps.stride_Y = ctx->ps.width << ((ctx->ps.BitDepth[0] - 1) >> 3);
+	int width_C = (ctx->ps.chroma_format_idc == 0) ? 0 : ctx->ps.width << ((ctx->ps.BitDepth[1] - 1) >> 3);
+	ctx->ps.stride_C = (ctx->ps.chroma_format_idc == 3) ? width_C : width_C >> 1;
 	int pic_height_in_map_units = get_ue16() + 1;
-	s->ps.frame_mbs_only_flag = get_u1();
-	s->ps.height = min((s->ps.frame_mbs_only_flag) ? pic_height_in_map_units :
+	ctx->ps.frame_mbs_only_flag = get_u1();
+	ctx->ps.height = min((ctx->ps.frame_mbs_only_flag) ? pic_height_in_map_units :
 		pic_height_in_map_units << 1, 543) << 4;
 	printf("<li>max_num_ref_frames: <code>%u</code></li>\n"
 		"<li>gaps_in_frame_num_value_allowed_flag: <code>%x</code></li>\n"
 		"<li>width: <code>%u</code></li>\n"
 		"<li>height: <code>%u</code></li>\n"
 		"<li>frame_mbs_only_flag: <code>%x</code></li>\n",
-		s->ps.max_num_ref_frames,
+		ctx->ps.max_num_ref_frames,
 		gaps_in_frame_num_value_allowed_flag,
-		s->ps.width,
-		s->ps.height,
-		s->ps.frame_mbs_only_flag);
+		ctx->ps.width,
+		ctx->ps.height,
+		ctx->ps.frame_mbs_only_flag);
 	
 	// Evil has a name...
-	if (s->ps.frame_mbs_only_flag == 0) {
-		s->ps.mb_adaptive_frame_field_flag = get_u1();
+	if (ctx->ps.frame_mbs_only_flag == 0) {
+		ctx->ps.mb_adaptive_frame_field_flag = get_u1();
 		printf("<li>mb_adaptive_frame_field_flag: <code>%x</code></li>\n",
-			s->ps.mb_adaptive_frame_field_flag);
+			ctx->ps.mb_adaptive_frame_field_flag);
 	}
-	s->ps.direct_8x8_inference_flag = get_u1();
+	ctx->ps.direct_8x8_inference_flag = get_u1();
 	printf("<li>direct_8x8_inference_flag: <code>%x</code></li>\n",
-		s->ps.direct_8x8_inference_flag);
+		ctx->ps.direct_8x8_inference_flag);
 	
 	// frame_cropping_flag
 	if (get_u1()) {
-		unsigned shiftX = (s->ps.ChromaArrayType == 1) | (s->ps.ChromaArrayType == 2);
-		unsigned shiftY = (s->ps.ChromaArrayType == 1) + (s->ps.frame_mbs_only_flag ^ 1);
-		int limX = (s->ps.width - 1) >> shiftX << shiftX;
-		int limY = (s->ps.height - 1) >> shiftY << shiftY;
-		s->ps.frame_crop_left_offset = min(get_ue16() << shiftX, limX);
-		s->ps.frame_crop_right_offset = min(get_ue16() << shiftX, limX - s->ps.frame_crop_left_offset);
-		s->ps.frame_crop_top_offset = min(get_ue16() << shiftY, limY);
-		s->ps.frame_crop_bottom_offset = min(get_ue16() << shiftY, limY - s->ps.frame_crop_top_offset);
+		unsigned shiftX = (ctx->ps.ChromaArrayType == 1) | (ctx->ps.ChromaArrayType == 2);
+		unsigned shiftY = (ctx->ps.ChromaArrayType == 1) + (ctx->ps.frame_mbs_only_flag ^ 1);
+		int limX = (ctx->ps.width - 1) >> shiftX << shiftX;
+		int limY = (ctx->ps.height - 1) >> shiftY << shiftY;
+		ctx->ps.frame_crop_left_offset = min(get_ue16() << shiftX, limX);
+		ctx->ps.frame_crop_right_offset = min(get_ue16() << shiftX, limX - ctx->ps.frame_crop_left_offset);
+		ctx->ps.frame_crop_top_offset = min(get_ue16() << shiftY, limY);
+		ctx->ps.frame_crop_bottom_offset = min(get_ue16() << shiftY, limY - ctx->ps.frame_crop_top_offset);
 		printf("<li>frame_crop_left_offset: <code>%u</code></li>\n"
 			"<li>frame_crop_right_offset: <code>%u</code></li>\n"
 			"<li>frame_crop_top_offset: <code>%u</code></li>\n"
 			"<li>frame_crop_bottom_offset: <code>%u</code></li>\n",
-			s->ps.frame_crop_left_offset,
-			s->ps.frame_crop_right_offset,
-			s->ps.frame_crop_top_offset,
-			s->ps.frame_crop_bottom_offset);
+			ctx->ps.frame_crop_left_offset,
+			ctx->ps.frame_crop_right_offset,
+			ctx->ps.frame_crop_top_offset,
+			ctx->ps.frame_crop_bottom_offset);
 	}
 	if (get_u1())
 		parse_vui_parameters();
-	if (get_uv(24) != 0x800000 || seq_parameter_set_id > 0 || s->ps.separate_colour_plane_flag)
+	if (get_uv(24) != 0x800000 || seq_parameter_set_id > 0 || ctx->ps.separate_colour_plane_flag) {
+		e->error = -1;
 		return NULL;
+	}
 	
 	// Reallocate the DPB when the image format changes.
-	if (s->ps.chroma_format_idc != e->SPS.chroma_format_idc || memcmp(&s->ps, &e->SPS, 8) != 0) {
-		int PicSizeInMbs = s->ps.width * s->ps.height >> 8;
-		int pixY = s->ps.stride_Y * s->ps.height;
-		int pixC = s->ps.stride_C * (s->ps.chroma_format_idc < 2 ? s->ps.height : s->ps.height << 1);
+	if (ctx->ps.chroma_format_idc != e->SPS.chroma_format_idc || memcmp(&ctx->ps, &e->SPS, 8) != 0) {
+		int PicSizeInMbs = ctx->ps.width * ctx->ps.height >> 8;
+		int pixY = ctx->ps.stride_Y * ctx->ps.height;
+		int pixC = ctx->ps.stride_C * (ctx->ps.chroma_format_idc < 2 ? ctx->ps.height : ctx->ps.height << 1);
 		int mvs = PicSizeInMbs << 6;
 		int refs = PicSizeInMbs << 2;
 		int flags = PicSizeInMbs;
@@ -1213,14 +1212,11 @@ static const uint8_t *parse_seq_parameter_set(Edge264_ctx *e,
 			free(e->DPB);
 			memset(e, 0, sizeof(*e));
 		}
-		e->DPB = malloc((pixY + pixC + mvs + refs + flags) * (s->ps.max_num_ref_frames + 1));
+		e->DPB = malloc(((pixY + pixC + mvs + refs + flags + 15) & -16) * (ctx->ps.max_num_ref_frames + 1));
 	}
-	e->SPS = s->ps;
-	memcpy(e->PicOrderCntDeltas, PicOrderCntDeltas, (s->ps.num_ref_frames_in_pic_order_cnt_cycle + 1) << 2);
-	
-	// CPB pointer might have gone far if following NAL is xx000003000003000003...
-	// so we backtrack to a point that is 100% behind next start code.
-	return s->CPB - 26;
+	e->SPS = ctx->ps;
+	memcpy(e->PicOrderCntDeltas, PicOrderCntDeltas, (ctx->ps.num_ref_frames_in_pic_order_cnt_cycle + 1) << 2);
+	return NULL;
 }
 
 
@@ -1229,7 +1225,7 @@ static const uint8_t *parse_seq_parameter_set(Edge264_ctx *e,
  * This function allocates a decoding context on stack and branches to the
  * handler given by nal_unit_type.
  */
- const uint8_t *Edge264_decode_NAL(const uint8_t *CPB, const uint8_t *end, Edge264_ctx *e)
+const uint8_t *Edge264_decode_NAL(Edge264_stream *e, const uint8_t *CPB, size_t len)
 {
 	static const char * const nal_unit_type_names[32] = {
 		[0] = "unknown",
@@ -1242,7 +1238,7 @@ static const uint8_t *parse_seq_parameter_set(Edge264_ctx *e,
 		[7] = "Sequence parameter set",
 		[8] = "Picture parameter set",
 		[9] = "Access unit delimiter",
-		[10] = "End of sequence",
+		[10] = "End of sequence", // reserved for future use
 		[11] = "End of stream",
 		[12] = "Filler data",
 		[13] = "Sequence parameter set extension",
@@ -1254,14 +1250,13 @@ static const uint8_t *parse_seq_parameter_set(Edge264_ctx *e,
 		[21] = "Coded slice extension for depth view components",
 		[22 ... 31] = "unknown",
 	};
-	typedef const uint8_t *(*Parser)(Edge264_ctx *, const uint8_t *, const uint8_t *);
+	typedef const uint8_t *(*Parser)(Edge264_stream *, int, int);
 	static const Parser parse_nal_unit[32] = {
 		[1] = parse_slice_layer_without_partitioning,
 		[5] = parse_slice_layer_without_partitioning,
 		[7] = parse_seq_parameter_set,
 		[8] = parse_pic_parameter_set,
 		[9] = parse_access_unit_delimiter,
-		[10] = parse_end_of_stream,
 		[11] = parse_end_of_stream,
 	};
 	
@@ -1274,17 +1269,26 @@ static const uint8_t *parse_seq_parameter_set(Edge264_ctx *e,
 		nal_ref_idc,
 		red_if(parse_nal_unit[nal_unit_type] == NULL), nal_unit_type, nal_unit_type_names[nal_unit_type]);
 	
-	// decoding context and branching on nal_unit_type
-	Edge264_slice *old = s, slice;
-	s = &slice;
+	// allocate and initialise the decoding context
+	Edge264_ctx *old = ctx, context;
+	ctx = &context;
+	memset(ctx, 0, sizeof(Edge264_ctx)); // should not be necessary
+	ctx->CPB = CPB + 3;
+	ctx->end = CPB + len;
+	ctx->RBSP[1] = CPB[1] << 8 | CPB[2];
+	refill(SIZE_BIT * 2 - 16, 0);
+	
+	// branching on nal_unit_type
 	if (parse_nal_unit[nal_unit_type] != NULL) {
-		const uint8_t *res = parse_nal_unit[nal_unit_type](e, CPB, end);
-		if (res == NULL)
+		const uint8_t *ret = parse_nal_unit[nal_unit_type](e, nal_ref_idc, nal_unit_type);
+		CPB = (CPB > ret) ? CPB : ret;
+		if (e->error != 0)
 			printf("<li style=\"color: red\">Erroneous NAL unit</li>\n");
-		CPB = (res > CPB) ? res : CPB;
 	}
-	s = old;
 	printf("</ul>\n");
-	return Edge264_find_start_code(CPB, end, 1);
+	
+	// finish with a little tail call :)
+	len = ctx->end - CPB;
+	ctx = old;
+	return Edge264_find_start_code(1, CPB, len);
 }
-

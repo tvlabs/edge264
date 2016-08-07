@@ -46,6 +46,7 @@ int main() {
 	assert(start!=MAP_FAILED);
 	
 	// parse and dump the file to HTML
+	setbuf(stdout, NULL);
 	printf("<!doctype html>\n"
 		"<html>\n"
 		"<head><meta charset=\"UTF-8\"/><title>Edge264 test</title></head>\n"

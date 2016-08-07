@@ -4,10 +4,10 @@
 // TODO: Study the value of max_dec_frame_buffering vs max_num_ref_frames in clips
 // TODO: Consider storing RefPicList in field mode after implementing MBAFF
 // TODO: Switch to RefPicList[l * 32 + i] if it later speeds up the decoder loop
-// TODO: Put codIOffset and codIRange in GRVs for 16-regs architectures
 // TODO: Remove unions in Edge264_ctx?
 // TODO: Switch to 17-frames storage if actual clips use it
-// TODO: Save shift in each get_u..
+// TODO: Move get_ae to cabac.c and fill past rbsp with -1
+// TODO: Optimise is422 in cabac.c
 
 /**
  * Copyright (c) 2013-2014, Celticom / TVLabs
@@ -79,6 +79,10 @@ static const v16qu Default_8x8_Inter[4] = {
 
 /**
  * Initialises and updates the reference picture lists (8.2.4).
+ *
+ * Both initialisation and parsing of ref_pic_list_modification are fit into a
+ * single function to foster code reduction and compactness. Performance is not
+ * crucial here.
  */
 static void parse_ref_pic_list_modification(const Edge264_stream *e)
 {
@@ -88,6 +92,8 @@ static void parse_ref_pic_list_modification(const Edge264_stream *e)
 	uint16_t top = ctx->s.reference_flags, bot = ctx->s.reference_flags >> 16;
 	unsigned refs = (ctx->field_pic_flag) ? top | bot : top & bot;
 	int count[3] = {}, next = 0;
+	
+	// This single loop sorts all short and long term references at once.
 	do {
 		int best = INT_MAX;
 		unsigned r = refs;
@@ -113,6 +119,8 @@ static void parse_ref_pic_list_modification(const Edge264_stream *e)
 		v16qi RefPicList[2] = {v, v + v16};
 		int lim = count[0] + count[1], tot = lim + count[2], n = 0;
 		int i = ctx->bottom_field_flag << 4, j = i ^ 16, k;
+		
+		// probably not the most readable portion, yet otherwise needs a hella code
 		do {
 			if ((i & 15) >= lim)
 				i = (ctx->bottom_field_flag << 4) + lim, j = i ^ 16, lim = tot;
@@ -336,6 +344,7 @@ static void parse_dec_ref_pic_marking()
 			r &= r - 1;
 		unsigned full = 0x10001 << j;
 		unsigned mask = ctx->field_pic_flag ? 1 << (bottom + j) : full;
+		
 		if (memory_management_control_operation == 1) {
 			ctx->s.reference_flags &= ~mask;
 			printf("<li>FrameNum %u -> unused for reference</li>\n", FrameNum);
@@ -376,15 +385,14 @@ static void parse_dec_ref_pic_marking()
  */
 static __attribute__((noinline)) void bump_pictures(Edge264_stream *e) {
 	while (1) {
-		unsigned o = e->output_flags;
 		int best = INT_MAX, output = 0, num = 0;
-		do {
+		for (unsigned o = e->output_flags; o != 0; o &= o - 1, num++) {
 			int i = __builtin_ctz(o);
 			if (best > e->FieldOrderCnt[i])
 				best = e->FieldOrderCnt[output = i];
-		} while (num++, o &= o - 1);
-		if (num <= ctx->ps.max_num_reorder_frames &&
-			((uint16_t)ctx->s.reference_flags | ctx->s.reference_flags >> 16 | e->output_flags) != 0)
+		}
+		if (num <= ctx->ps.max_num_reorder_frames && // FIXME
+			((uint16_t)ctx->s.reference_flags | ctx->s.reference_flags >> 16 | e->output_flags) != 0xffff)
 			break;
 		e->output_flags ^= 1 << output;
 		if (e->output_frame != NULL)
@@ -410,7 +418,7 @@ static const uint8_t *parse_slice_layer_without_partitioning(Edge264_stream *e,
 	ctx->IdrPicFlag = (nal_unit_type == 5);
 	
 	// We correctly input these values to better display them... in red.
-	int first_mb_in_slice = get_ue(294848);
+	int first_mb_in_slice = get_ue(543 * 543 - 1);
 	int slice_type = get_ue(9);
 	ctx->slice_type = (slice_type < 5) ? slice_type : slice_type - 5;
 	int pic_parameter_set_id = get_ue(255);
@@ -558,7 +566,7 @@ static const uint8_t *parse_slice_layer_without_partitioning(Edge264_stream *e,
 	if (!ctx->field_pic_flag)
 		e->FieldOrderCnt[16 + ctx->s.currPic] = ctx->BottomFieldOrderCnt;
 	if (ctx->s.remaining_mbs == 0) {
-		e->output_flags = (ctx->s.no_output_of_prior_pics_flag) ? 0 : e->output_flags | 1 << ctx->s.currPic;
+		e->output_flags = (ctx->s.no_output_of_prior_pics_flag ? 0 : e->output_flags) | 1 << ctx->s.currPic;
 		bump_pictures(e);
 	}
 	
@@ -1272,7 +1280,7 @@ const uint8_t *Edge264_decode_NAL(Edge264_stream *e, const uint8_t *CPB, size_t 
 	// allocate and initialise the decoding context
 	Edge264_ctx *old = ctx, context;
 	ctx = &context;
-	memset(ctx, 0, sizeof(Edge264_ctx)); // should not be necessary
+	memset(ctx, 0, sizeof(Edge264_ctx)); // should be removed in the future
 	ctx->CPB = CPB + 3;
 	ctx->end = CPB + len;
 	ctx->RBSP[1] = CPB[1] << 8 | CPB[2];

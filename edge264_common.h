@@ -102,6 +102,7 @@ static inline const char *red_if(int cond) { return (cond) ? " style=\"color: re
  * -1|0 1      7| 8  9 10 11         3| 4  5  6  7
  *            -1| 0  1  2  3        -1| 0  1  2  3
  */
+typedef int16_t v4hi __attribute__((vector_size(8)));
 typedef int8_t v16qi __attribute__((vector_size(16)));
 typedef int16_t v8hi __attribute__((vector_size(16)));
 typedef int32_t v4si __attribute__((vector_size(16)));
@@ -133,8 +134,8 @@ typedef struct {
 	const uint8_t *CPB;
 	const uint8_t *end;
 	size_t RBSP[2];
-	size_t codIRange;
-	size_t codIOffset;
+	size_t range;
+	size_t offset;
 	uint32_t shift;
 	
 	// bitfields come next since they represent most accesses
@@ -164,7 +165,7 @@ typedef struct {
 	// cache variables - usually results of nasty optimisations, so should be few :)
 	v4si cbf_maskA, cbf_maskB;
 	union { int8_t mvC[32]; v16qi mvC_v[2]; };
-	union { uint16_t ctxIdxOffsets[4]; uint64_t ctxIdxOffsets_l; }; // {cbf,sig_flag,last_sig_flag,coeff_abs}
+	union { int16_t ctxIdxOffsets[4]; v4hi ctxIdxOffsets_l; }; // {cbf,sig_flag,last_sig_flag,coeff_abs}
 	union { uint8_t sig_inc[64]; uint64_t sig_inc_l; v16qu sig_inc_v[4]; };
 	union { uint8_t last_inc[64]; uint64_t last_inc_l; v16qu last_inc_v[4]; };
 	union { uint8_t scan[64]; uint64_t scan_l; v16qu scan_v[4]; };
@@ -196,13 +197,22 @@ typedef struct {
 
 
 
-// This Global Register Variable is a blessing since we use s everywhere!
+// These Global Register Variables are a blessing as we use ctx and get_ae everywhere!
 #ifndef __clang__
 #ifdef __SSSE3__
 register Edge264_ctx *ctx asm("ebx");
+#if SIZE_BIT == 64
+register size_t codIRange asm("r14");
+register size_t codIOffset asm("r15");
+#else
+#define codIRange ctx->range
+#define codIOffset ctx->offset
+#endif
 #endif
 #else
 static __thread Edge264_ctx *ctx;
+#define codIRange ctx->range
+#define codIOffset ctx->offset
 #endif
 
 
@@ -256,7 +266,7 @@ static inline size_t lsd(size_t msb, size_t lsb, unsigned shift) {
 	__asm__("shld %%cl, %1, %0" : "+rm" (msb) : "r" (lsb), "c" (shift));
 	return msb;
 }
-static __attribute__((noinline)) size_t refill(unsigned shift, size_t ret) {
+static __attribute__((noinline)) size_t refill(int shift, size_t ret) {
 	typedef size_t v16u __attribute__((vector_size(16)));
 	static const v16qi shuf[8] = {
 		{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 15},
@@ -270,12 +280,13 @@ static __attribute__((noinline)) size_t refill(unsigned shift, size_t ret) {
 	};
 	
 	// when shift overflows, read the next few bytes in both scalar and vector registers
-	if (shift >= SIZE_BIT) {
-		shift -= SIZE_BIT;
+	ctx->shift = shift;
+	if ((shift -= SIZE_BIT) >= 0) {
 		__m128i x;
 		size_t bits;
 		const uint8_t *CPB = ctx->CPB;
 		ctx->RBSP[0] = ctx->RBSP[1];
+		ctx->shift = shift;
 		if (CPB <= ctx->end - 16) {
 			x = _mm_loadu_si128((__m128i *)(CPB - 2));
 			memcpy(&bits, CPB, sizeof(size_t));
@@ -304,7 +315,6 @@ static __attribute__((noinline)) size_t refill(unsigned shift, size_t ret) {
 		ctx->RBSP[1] = bits;
 		ctx->CPB = CPB;
 	}
-	ctx->shift = shift;
 	return ret;
 }
 const uint8_t *Edge264_find_start_code(int n, const uint8_t *CPB, size_t len) {
@@ -342,7 +352,7 @@ const uint8_t *Edge264_find_start_code(int n, const uint8_t *CPB, size_t len) {
  * To keep your code branchless, upper and lower shall always be constants.
  * Use min/max with get_ueN/map_se to apply variable bounds.
  */
-static size_t get_u1() {
+static __attribute__((noinline)) size_t get_u1() {
 	return refill(ctx->shift + 1, ctx->RBSP[0] << ctx->shift >> (SIZE_BIT - 1));
 }
 static __attribute__((noinline)) size_t get_uv(unsigned v) {
@@ -379,10 +389,10 @@ static inline __attribute__((always_inline)) int get_se(int lower, int upper) { 
  * yielding the original values.
  */
 static __attribute__((noinline)) size_t renorm(int ceil, size_t binVal) {
-	unsigned v = clz(ctx->codIRange) - ceil;
+	unsigned v = clz(codIRange) - ceil;
 	size_t bits = lsd(ctx->RBSP[0], ctx->RBSP[1], ctx->shift);
-	ctx->codIRange <<= v;
-	ctx->codIOffset = (ctx->codIOffset << v) | (bits >> (SIZE_BIT - v));
+	codIRange <<= v;
+	codIOffset = (codIOffset << v) | (bits >> (SIZE_BIT - v));
 	return refill(ctx->shift + v, binVal);
 }
 static __attribute__((noinline)) size_t get_ae(int ctxIdx) {
@@ -423,19 +433,17 @@ static __attribute__((noinline)) size_t get_ae(int ctxIdx) {
 		244, 245,   9,   8, 248, 249,   5,   4, 248, 249,   1,   0, 252, 253,   0,   1,
 	};
 	
-	size_t codIRange = ctx->codIRange;
 	ssize_t state = ((uint8_t *)ctx->states)[ctxIdx];
 	unsigned shift = SIZE_BIT - 3 - clz(codIRange);
-	fprintf(stderr, "%u/%u: (%u,%x)", (int)(ctx->codIOffset >> (shift - 6)), (int)(codIRange >> (shift - 6)), (int)state >> 2, (int)state & 1);
+	fprintf(stderr, "%u/%u: (%u,%x)", (int)(codIOffset >> (shift - 6)), (int)(codIRange >> (shift - 6)), (int)state >> 2, (int)state & 1);
 	ssize_t idx = (state & -4) + (codIRange >> shift);
 	size_t codIRangeLPS = (size_t)(rangeTabLPS - 4)[idx] << (shift - 6);
 	codIRange -= codIRangeLPS;
-	if (ctx->codIOffset >= codIRange) {
+	if (codIOffset >= codIRange) {
 		state ^= 255;
-		ctx->codIOffset = ctx->codIOffset - codIRange;
+		codIOffset -= codIRange;
 		codIRange = codIRangeLPS;
 	}
-	ctx->codIRange = codIRange;
 	((uint8_t *)ctx->states)[ctxIdx] = transIdx[state];
 	fprintf(stderr, "->(%u,%x)\n", transIdx[state] >> 2, transIdx[state] & 1);
 	size_t binVal = state & 1;

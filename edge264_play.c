@@ -6,10 +6,6 @@
 
 #include "edge264.h"
 
-#ifndef TRACE
-#define printf(...) ((void)0)
-#endif
-
 void print_frame(int i) {}
 
 int main() {
@@ -21,15 +17,20 @@ int main() {
 	assert(start!=MAP_FAILED);
 	
 	// parse and dump the file to HTML
+#ifdef TRACE
+	setbuf(stdout, NULL);
 	printf("<!doctype html>\n"
 		"<html>\n"
-		"<head><meta charset=\"UTF-8\"/><title>Edge264 test</title></head>\n"
+		"<head><meta charset=\"UTF-8\"/><title>NAL headers</title></head>\n"
 		"<body>\n");
+#endif
 	Edge264_stream e = {.output_frame = print_frame};
 	for (const uint8_t *r = start + 4; r < end; ) {
 		r = Edge264_decode_NAL(&e, r, end - r);
 	}
+#ifdef TRACE
 	printf("</body>\n"
 		"</html>\n");
+#endif
 	return 0;
 }

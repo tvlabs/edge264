@@ -1567,7 +1567,7 @@ __attribute__((noinline)) void CABAC_parse_slice_data()
 			}
 			
 			// Point to the next macroblock
-			ctx->s.remaining_mbs--;
+			ctx->s.decoded_mbs++;
 			*ctx->flags++ = ctx->f_v;
 			ctx->Intra4x4PredMode++;
 			ctx->refIdx++;

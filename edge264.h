@@ -75,7 +75,7 @@ typedef struct {
 	int8_t no_output_of_prior_pics_flag; // 1 significant bit
 	uint16_t long_term_flags;
 	uint32_t reference_flags; // lower/higher half for top/bottom fields
-	int32_t remaining_mbs;
+	int32_t decoded_mbs;
 	int32_t prevFrameNum;
 	int32_t prevPicOrderCnt;
 	int32_t FrameNum[16];

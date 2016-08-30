@@ -8,6 +8,7 @@
 // TODO: Switch to 17-frames storage if actual clips use it
 // TODO: Move get_ae to cabac.c and fill past rbsp with -1
 // TODO: Optimise is422 in cabac.c
+// TODO: Detect rbsp_slice_trailing_bits
 
 #include "edge264_common.h"
 #include "edge264_cabac.c"
@@ -92,7 +93,7 @@ static void parse_ref_pic_list_modification(const Edge264_stream *e)
 		int lim = count[0] + count[1], tot = lim + count[2], n = 0;
 		int i = ctx->bottom_field_flag << 4, j = i ^ 16, k;
 		
-		// probably not the most readable portion, yet otherwise needs a hella code
+		// probably not the most readable portion, yet otherwise needs a lotta code
 		do {
 			if ((i & 15) >= lim)
 				i = (ctx->bottom_field_flag << 4) + lim, j = i ^ 16, lim = tot;
@@ -334,37 +335,38 @@ static void parse_dec_ref_pic_marking()
 	
 	// 8.2.5.3 - Sliding window marking process
 	unsigned r = (uint16_t)ctx->s.reference_flags | ctx->s.reference_flags >> 16;
-	if (__builtin_popcount(r) > ctx->ps.max_num_ref_frames) {
-		r ^= ctx->s.long_term_flags;
+	if (__builtin_popcount(r) >= ctx->ps.max_num_ref_frames) {
 		int best = INT_MAX;
 		int next = 0;
-		do {
+		for (r ^= ctx->s.long_term_flags; r != 0; r &= r - 1) {
 			int i = __builtin_ctz(r);
 			if (best > ctx->s.FrameNum[i])
 				best = ctx->s.FrameNum[next = i];
-		} while (r &= r - 1);
-		ctx->s.reference_flags &= ~(0x10001 << best);
+		}
+		ctx->s.reference_flags &= ~(0x10001 << next);
 	}
-	
 	ctx->s.reference_flags |= (!ctx->field_pic_flag ? 0x10001 : ctx->bottom_field_flag ? 0x1000 : 1) << ctx->s.currPic;
 }
 
 
 
 /**
- * This function is dedicated to the bumping process specified in C.4.4, which
- * outputs pictures until a free DPB slot is found.
+ * This function outputs pictures until a free DPB slot is found (C.4.4).
  */
 static __attribute__((noinline)) void bump_pictures(Edge264_stream *e) {
+	ctx->s.decoded_mbs = 0;
 	while (1) {
-		int best = INT_MAX, output = 0, num = 0;
+		int best = INT_MAX;
+		int output = 0;
+		int num = 0;
 		for (unsigned o = e->output_flags; o != 0; o &= o - 1, num++) {
 			int i = __builtin_ctz(o);
 			if (best > e->FieldOrderCnt[i])
 				best = e->FieldOrderCnt[output = i];
 		}
-		if (num <= ctx->ps.max_num_reorder_frames && // FIXME
-			((uint16_t)ctx->s.reference_flags | ctx->s.reference_flags >> 16 | e->output_flags) != 0xffff)
+		unsigned r = ctx->s.reference_flags;
+		ctx->s.currPic = __builtin_ctz(~(uint16_t)(r | r >> 16 | e->output_flags));
+		if (num <= ctx->ps.max_num_reorder_frames && ctx->s.currPic <= ctx->ps.max_num_ref_frames)
 			break;
 		e->output_flags ^= 1 << output;
 		if (e->output_frame != NULL)
@@ -413,7 +415,8 @@ static const uint8_t *parse_slice_layer_without_partitioning(Edge264_stream *e,
 	
 	// Computing an absolute FrameNum simplifies further code.
 	unsigned relFrameNum = get_uv(ctx->ps.log2_max_frame_num) - ctx->s.prevFrameNum;
-	ctx->s.prevFrameNum += relFrameNum & ~(-1u << ctx->ps.log2_max_frame_num);
+	ctx->s.FrameNum[ctx->s.currPic] =
+		ctx->s.prevFrameNum += relFrameNum & ~(-1u << ctx->ps.log2_max_frame_num);
 	printf("<li>frame_num: <code>%u</code></li>\n", ctx->s.prevFrameNum);
 	
 	// This comment is just here to segment the code, glad you read it :)
@@ -491,14 +494,6 @@ static const uint8_t *parse_slice_layer_without_partitioning(Edge264_stream *e,
 		parse_pred_weight_table(e);
 	}
 	
-	// Without slices we can assume previous picture was complete, so don't need bumping.
-	if (ctx->s.remaining_mbs == 0) {
-		unsigned avail = ~((uint16_t)ctx->s.reference_flags | ctx->s.reference_flags >> 16 | e->output_flags);
-		ctx->s.currPic = __builtin_ctz(avail | 1 << 15);
-		ctx->s.remaining_mbs = ctx->ps.width * ctx->ps.height >> 8;
-		ctx->s.FrameNum[ctx->s.currPic] = ctx->s.prevFrameNum;
-	}
-	
 	// not much to say in this comment either (though intention there is!)
 	if (!ctx->non_ref_flag)
 		parse_dec_ref_pic_marking();
@@ -509,7 +504,7 @@ static const uint8_t *parse_slice_layer_without_partitioning(Edge264_stream *e,
 	ctx->ps.QP_Y = min(max(ctx->ps.QP_Y + map_se(get_ue16()), -6 * ((int)ctx->ps.BitDepth[0] - 8)), 51);
 	printf("<li>SliceQP<sub>Y</sub>: <code>%d</code></li>\n", ctx->ps.QP_Y);
 	
-	// Loop filter is not enabled, though not yet implemented.
+	// Loop filter is yet to be implemented.
 	if (ctx->ps.deblocking_filter_control_present_flag) {
 		ctx->disable_deblocking_filter_idc = get_ue(2);
 		if (ctx->disable_deblocking_filter_idc != 1) {
@@ -531,13 +526,13 @@ static const uint8_t *parse_slice_layer_without_partitioning(Edge264_stream *e,
 		}
 		CABAC_parse_slice_data();
 	}
-	e->now = ctx->s;
 	
-	// without slices, we always get a complete picture, so can bump almost every time
+	// wait until after decoding is complete to apply context changes
+	e->now = ctx->s;
 	e->FieldOrderCnt[(ctx->bottom_field_flag) ? ctx->s.currPic + 16 : ctx->s.currPic] = ctx->TopFieldOrderCnt;
 	if (!ctx->field_pic_flag)
 		e->FieldOrderCnt[16 + ctx->s.currPic] = ctx->BottomFieldOrderCnt;
-	if (ctx->s.remaining_mbs == 0) {
+	if (ctx->s.decoded_mbs >= ctx->ps.width * ctx->ps.height >> 8) {
 		e->output_flags = (ctx->s.no_output_of_prior_pics_flag ? 0 : e->output_flags) | 1 << ctx->s.currPic;
 		bump_pictures(e);
 	}

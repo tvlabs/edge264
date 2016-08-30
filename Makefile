@@ -6,7 +6,9 @@
 
 CFLAGS += -std=gnu99 -march=native -O2
 
-ifneq ($(TRACE),)
+ifeq ($(TRACE),)
+	SUFFIX = .$(CC)
+else
 	CFLAGS += -DTRACE=$(TRACE)
 	SUFFIX = .dbg$(TRACE)
 endif
@@ -15,5 +17,5 @@ edge264$(SUFFIX).o: edge264.c edge264.h edge264_common.h edge264_cabac.c edge264
 	$(CC) -o edge264$(SUFFIX).o -c $(CFLAGS) edge264.c
 	$(CC) -o edge264_play$(SUFFIX) $(CFLAGS) edge264_play.c edge264$(SUFFIX).o
 ifeq ($(TRACE),)
-	$(CC) -o edge264_test $(CFLAGS) edge264_test.c edge264.o
+	$(CC) -o edge264_test$(SUFFIX) $(CFLAGS) edge264_test.c edge264$(SUFFIX).o
 endif

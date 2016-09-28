@@ -2,6 +2,8 @@
 // TODO: Optimise _mm_set_epi64?
 // TODO: Add 1px unused line atop the first picture to avoid testing forbidden reads
 // TODO: uninline loads?
+// TODO: Make 4x4 two-pass too, and gather all _mm_setzero_si128()
+// TODO: Decrement p before all!
 
 #include "edge264_common.h"
 
@@ -271,8 +273,8 @@ static inline void decode_DiagonalDownLeft8x8(__m128i top, __m128i right, __m128
 }
 
 static inline void decode_DiagonalDownRight8x8(__m128i bot, __m128i left, __m128i top, __m128i *p0, __m128i *p1, __m128i *p2, __m128i *p3, __m128i *p4, __m128i *p5, __m128i *p6, __m128i *p7) {
-	__m128i x0 = _mm_alignr_epi8(top, left, 12);
-	__m128i x1 = _mm_alignr_epi8(top, left, 14);
+	__m128i x0 = _mm_alignr_epi8(top, left, 14);
+	__m128i x1 = _mm_alignr_epi8(top, left, 12);
 	__m128i x2 = _mm_slli_si128(left, 2);
 	__m128i x3 = _mm_alignr_epi8(left, bot, 12);
 	__m128i x4 = lowpass(top, x0, x1);
@@ -287,96 +289,83 @@ static inline void decode_DiagonalDownRight8x8(__m128i bot, __m128i left, __m128
 	*p7 = _mm_alignr_epi8(x4, x5, 2);
 }
 
-static inline void decode_Intra8x8_Vertical_Right(__m128i *p0, __m128i *p1,
-	__m128i *p2, __m128i *p3, __m128i *p4, __m128i *p5, __m128i *p6,
-	__m128i *p7, __m128i left_top, __m128i top)
-{
-	__m128i v0 = _mm_alignr_epi8(top, left_top, 12);
-	__m128i v1 = _mm_alignr_epi8(top, left_top, 14);
-	__m128i v2 = _mm_avg_epu16(_mm_srli_epi16(_mm_add_epi16(v0, top), 1), v1);
-	__m128i v3 = _mm_avg_epu16(v1, top);
-	__m128i v4 = _mm_slli_si128(left_top, 2);
-	__m128i v5 = _mm_shuffle_epi32(left_top, _MM_SHUFFLE(2, 1, 0, 0));
-	__m128i v6 = _mm_avg_epu16(_mm_srli_epi16(_mm_add_epi16(v5, left_top), 1), v4);
-	*p0 = v3;
-	*p1 = v2;
-	*p2 = v3 = _mm_alignr_epi8(v3, v6, 14);
-	*p3 = v2 = _mm_alignr_epi8(v2, v6 = _mm_slli_si128(v6, 2), 14);
-	*p4 = v3 = _mm_alignr_epi8(v3, v6 = _mm_slli_si128(v6, 2), 14);
-	*p5 = v2 = _mm_alignr_epi8(v2, v6 = _mm_slli_si128(v6, 2), 14);
-	*p6 = _mm_alignr_epi8(v3, v6 = _mm_slli_si128(v6, 2), 14);
-	*p7 = _mm_alignr_epi8(v2, _mm_slli_si128(v6, 2), 14);
+static inline void decode_VerticalRight8x8(__m128i left, __m128i top, __m128i *p0, __m128i *p1, __m128i *p2, __m128i *p3, __m128i *p4, __m128i *p5, __m128i *p6, __m128i *p7) {
+	__m128i x0 = _mm_alignr_epi8(top, left, 14);
+	__m128i x1 = _mm_alignr_epi8(top, left, 12);
+	__m128i x2 = _mm_slli_si128(left, 2);
+	__m128i x3 = _mm_shuffle_epi32(left, _MM_SHUFFLE(2, 1, 0, 0));
+	__m128i x4 = _mm_avg_epu16(top, x0);
+	__m128i x5 = lowpass(top, x0, x1);
+	__m128i x6 = lowpass(left, x2, x3);
+	*p0 = x4;
+	*p1 = x5;
+	*p2 = x4 = _mm_alignr_epi8(x4, x6, 14);
+	*p3 = x5 = _mm_alignr_epi8(x5, x6 = _mm_slli_si128(x6, 2), 14);
+	*p4 = x4 = _mm_alignr_epi8(x4, x6 = _mm_slli_si128(x6, 2), 14);
+	*p5 = x5 = _mm_alignr_epi8(x5, x6 = _mm_slli_si128(x6, 2), 14);
+	*p6 = _mm_alignr_epi8(x4, x6 = _mm_slli_si128(x6, 2), 14);
+	*p7 = _mm_alignr_epi8(x5, _mm_slli_si128(x6, 2), 14);
 }
 
-static inline void decode_Intra8x8_Horizontal_Down(__m128i *p0, __m128i *p1,
-	__m128i *p2, __m128i *p3, __m128i *p4, __m128i *p5, __m128i *p6,
-	__m128i *p7, __m128i left, __m128i top_left)
-{
-	__m128i v0 = _mm_alignr_epi8(top_left, left, 2);
-	__m128i v1 = _mm_alignr_epi8(top_left, left, 4);
-	__m128i v2 = _mm_avg_epu16(_mm_srli_epi16(_mm_add_epi16(v1, left), 1), v0);
-	__m128i v3 = _mm_avg_epu16(left, v0);
-	__m128i v4 = _mm_unpacklo_epi16(v3, v2);
-	__m128i v5 = _mm_unpackhi_epi16(v3, v2);
-	__m128i v6 = _mm_srli_si128(top_left, 2);
-	__m128i v7 = _mm_shuffle_epi32(top_left, _MM_SHUFFLE(3, 3, 2, 1));
-	__m128i v8 = _mm_avg_epu16(_mm_srli_epi16(_mm_add_epi16(v7, top_left), 1), v6);
-	*p0 = _mm_alignr_epi8(v8, v5, 12);
-	*p1 = _mm_alignr_epi8(v8, v5, 8);
-	*p2 = _mm_alignr_epi8(v8, v5, 4);
-	*p3 = v5;
-	*p4 = _mm_alignr_epi8(v5, v4, 12);
-	*p5 = _mm_alignr_epi8(v5, v4, 8);
-	*p6 = _mm_alignr_epi8(v5, v4, 4);
-	*p7 = v4;
+static inline void decode_HorizontalDown8x8(__m128i left, __m128i top, __m128i *p0, __m128i *p1, __m128i *p2, __m128i *p3, __m128i *p4, __m128i *p5, __m128i *p6, __m128i *p7) {
+	__m128i x0 = _mm_alignr_epi8(top, left, 2);
+	__m128i x1 = _mm_alignr_epi8(top, left, 4);
+	__m128i x2 = _mm_srli_si128(top, 2);
+	__m128i x3 = _mm_shuffle_epi32(top, _MM_SHUFFLE(3, 3, 2, 1));
+	__m128i x4 = _mm_avg_epu16(left, x0);
+	__m128i x5 = lowpass(left, x0, x1);
+	__m128i x6 = lowpass(top, x2, x3);
+	__m128i x7 = _mm_unpackhi_epi16(x4, x5);
+	__m128i x8 = _mm_unpacklo_epi16(x4, x5);
+	*p0 = _mm_alignr_epi8(x6, x7, 12);
+	*p1 = _mm_alignr_epi8(x6, x7, 8);
+	*p2 = _mm_alignr_epi8(x6, x7, 4);
+	*p3 = x7;
+	*p4 = _mm_alignr_epi8(x7, x8, 12);
+	*p5 = _mm_alignr_epi8(x7, x8, 8);
+	*p6 = _mm_alignr_epi8(x7, x8, 4);
+	*p7 = x8;
 }
 
-static inline void decode_Intra8x8_Vertical_Left(__m128i *p0, __m128i *p1,
-	__m128i *p2, __m128i *p3, __m128i *p4, __m128i *p5, __m128i *p6,
-	__m128i *p7, __m128i top, __m128i top_right)
-{
-	__m128i v0 = _mm_alignr_epi8(top_right, top, 2);
-	__m128i v1 = _mm_alignr_epi8(top_right, top, 4);
-	__m128i v2 = _mm_avg_epu16(_mm_srli_epi16(_mm_add_epi16(v1, top), 1), v0);
-	__m128i v3 = _mm_avg_epu16(top, v0);
-	__m128i v4 = _mm_srli_si128(top_right, 2);
-	__m128i v5 = _mm_shuffle_epi32(top_right, _MM_SHUFFLE(3, 3, 2, 1));
-	__m128i v6 = _mm_avg_epu16(_mm_srli_epi16(_mm_add_epi16(v5, top_right), 1), v4);
-	__m128i v7 = _mm_avg_epu16(top_right, v4);
-	*p0 = v3;
-	*p1 = v2;
-	*p2 = _mm_alignr_epi8(v7, v3, 2);
-	*p3 = _mm_alignr_epi8(v6, v2, 2);
-	*p4 = _mm_alignr_epi8(v7, v3, 4);
-	*p5 = _mm_alignr_epi8(v6, v2, 4);
-	*p6 = _mm_alignr_epi8(v7, v3, 6);
-	*p7 = _mm_alignr_epi8(v6, v2, 6);
+static inline void decode_VerticalLeft8x8(__m128i top, __m128i right, __m128i *p0, __m128i *p1, __m128i *p2, __m128i *p3, __m128i *p4, __m128i *p5, __m128i *p6, __m128i *p7) {
+	__m128i x0 = _mm_alignr_epi8(right, top, 2);
+	__m128i x1 = _mm_alignr_epi8(right, top, 4);
+	__m128i x2 = _mm_srli_si128(right, 2);
+	__m128i x3 = _mm_shuffle_epi32(right, _MM_SHUFFLE(3, 3, 2, 1));
+	__m128i x4 = _mm_avg_epu16(top, x0);
+	__m128i x5 = _mm_avg_epu16(right, x2);
+	__m128i x6 = lowpass(top, x0, x1);
+	__m128i x7 = lowpass(right, x2, x3);
+	*p0 = x4;
+	*p1 = x6;
+	*p2 = _mm_alignr_epi8(x5, x4, 2);
+	*p3 = _mm_alignr_epi8(x7, x6, 2);
+	*p4 = _mm_alignr_epi8(x5, x4, 4);
+	*p5 = _mm_alignr_epi8(x7, x6, 4);
+	*p6 = _mm_alignr_epi8(x5, x4, 6);
+	*p7 = _mm_alignr_epi8(x7, x6, 6);
 }
 
-static inline void decode_Intra8x8_Horizontal_Up(__m128i *p0, __m128i *p1,
-	__m128i *p2, __m128i *p3, __m128i *p4, __m128i *p5, __m128i *p6,
-	__m128i *p7, __m128i left)
-{
-	__m128i v0 = _mm_shufflehi_epi16(_mm_srli_si128(left, 2), _MM_SHUFFLE(2, 2, 1, 0));
-	__m128i v1 = _mm_shufflehi_epi16(_mm_shuffle_epi32(left,
-		_MM_SHUFFLE(3, 3, 2, 1)), _MM_SHUFFLE(1, 1, 1, 0));
-	__m128i v2 = _mm_avg_epu16(_mm_srli_epi16(_mm_add_epi16(v1, left), 1), v0);
-	__m128i v3 = _mm_avg_epu16(v0, left);
-	__m128i v4 = _mm_unpacklo_epi16(v3, v2);
-	__m128i v5 = _mm_unpackhi_epi16(v3, v2);
-	*p0 = v4;
-	*p1 = _mm_alignr_epi8(v5, v4, 4);
-	*p2 = _mm_alignr_epi8(v5, v4, 8);
-	*p3 = _mm_alignr_epi8(v5, v4, 12);
-	*p4 = v5;
-	*p5 = _mm_shuffle_epi32(v5, _MM_SHUFFLE(3, 3, 2, 1));
-	*p6 = _mm_shuffle_epi32(v5, _MM_SHUFFLE(3, 3, 3, 2));
-	*p7 = _mm_shuffle_epi32(v5, _MM_SHUFFLE(3, 3, 3, 3));
+static inline void decode_HorizontalUp8x8(__m128i left, __m128i *p0, __m128i *p1, __m128i *p2, __m128i *p3, __m128i *p4, __m128i *p5, __m128i *p6, __m128i *p7) {
+	__m128i x0 = _mm_shufflehi_epi16(_mm_srli_si128(left, 2), _MM_SHUFFLE(2, 2, 1, 0));
+	__m128i x1 = _mm_shufflehi_epi16(_mm_shuffle_epi32(left, _MM_SHUFFLE(3, 3, 2, 1)), _MM_SHUFFLE(1, 1, 1, 0));
+	__m128i x2 = _mm_avg_epu16(left, x0);
+	__m128i x3 = lowpass(left, x0, x1);
+	__m128i x4 = _mm_unpacklo_epi16(x2, x3);
+	__m128i x5 = _mm_unpackhi_epi16(x2, x3);
+	*p0 = x4;
+	*p1 = _mm_alignr_epi8(x5, x4, 4);
+	*p2 = _mm_alignr_epi8(x5, x4, 8);
+	*p3 = _mm_alignr_epi8(x5, x4, 12);
+	*p4 = x5;
+	*p5 = _mm_shuffle_epi32(x5, _MM_SHUFFLE(3, 3, 2, 1));
+	*p6 = _mm_shuffle_epi32(x5, _MM_SHUFFLE(3, 3, 3, 2));
+	*p7 = _mm_shuffle_epi32(x5, _MM_SHUFFLE(3, 3, 3, 3));
 }
 
 
 
-enum Luma4x4_modes {
+enum {
 	VERTICAL_4x4,
 	HORIZONTAL_4x4,
 	DC_4x4,
@@ -391,9 +380,7 @@ enum Luma4x4_modes {
 	VERTICAL_LEFT_4x4,
 	VERTICAL_LEFT_C_4x4,
 	HORIZONTAL_UP_4x4,
-};
-
-enum Luma8x8_modes {
+	
 	VERTICAL_8x8,
 	VERTICAL_C_8x8,
 	VERTICAL_D_8x8,
@@ -431,10 +418,12 @@ enum Luma8x8_modes {
 
 
 int decode_8bit(int mode, uint8_t *p, size_t stride) {
-	__m128i x0, x1, p0, p1, p2, p3, p4, p5, p6, p7;
+	__m128i zero = _mm_setzero_si128();
+	__m128i x0, x1, x2, p0, p1, p2, p3, p4, p5, p6, p7;
 	__m64 m0, m1, m2;
 	
 	switch (mode) {
+	// Intra4x4 modes
 	case VERTICAL_4x4:
 		return decode_Vertical4x4_8bit(p, stride);
 	case HORIZONTAL_4x4:
@@ -491,6 +480,34 @@ int decode_8bit(int mode, uint8_t *p, size_t stride) {
 		return decode_Residual4x4_8bit(p0, p1);
 	case HORIZONTAL_UP_4x4:
 		return decode_HorizontalUp4x4_8bit(p, stride);
+	
+	// Intra8x8 modes
+	case VERTICAL_8x8 ... VERTICAL_CD_8x8:
+		switch (mode) {
+		case VERTICAL_8x8:
+			x0 = _mm_unpacklo_epi8(_mm_cvtsi64_si128(*(int64_t *)(p - stride + 1)), zero);
+			x1 = _mm_unpacklo_epi8(_mm_cvtsi64_si128(*(int64_t *)(p - stride - 1)), zero);
+			break;
+		case VERTICAL_C_8x8:
+			x0 = _mm_unpacklo_epi8(_mm_cvtsi64_si128(*(int64_t *)(p - stride + 1)), zero);
+			x1 = _mm_unpacklo_epi8(_mm_cvtsi64_si128(*(int64_t *)(p - stride - 1)), zero);
+			x0 = _mm_shufflehi_epi16(x0, _MM_SHUFFLE(2, 2, 1, 0));
+			break;
+		case VERTICAL_D_8x8:
+			x0 = _mm_unpacklo_epi8(_mm_cvtsi64_si128(*(int64_t *)(p - stride + 1)), zero);
+			x1 = _mm_unpacklo_epi8(_mm_cvtsi64_si128(*(int64_t *)(p - stride - 1)), zero);
+			x1 = _mm_shufflehi_epi16(x1, _MM_SHUFFLE(3, 2, 1, 1));
+			break;
+		case VERTICAL_CD_8x8:
+			x0 = _mm_unpacklo_epi8(_mm_cvtsi64_si128(*(int64_t *)(p - stride + 1)), zero);
+			x1 = _mm_unpacklo_epi8(_mm_cvtsi64_si128(*(int64_t *)(p - stride - 1)), zero);
+			x0 = _mm_shufflehi_epi16(x0, _MM_SHUFFLE(2, 2, 1, 0));
+			x1 = _mm_shufflehi_epi16(x1, _MM_SHUFFLE(3, 2, 1, 1));
+			break;
+		}
+		x2 = _mm_unpacklo_epi8(_mm_cvtsi64_si128(*(int64_t *)(p - stride)), zero);
+		decode_Vertical8x8(lowpass(x0, x2, x1), &p0, &p1, &p2, &p3, &p4, &p5, &p6, &p7);
+		return decode_Residual8x8_8bit(p0, p1, p2, p3, p4, p5, p6, p7);
 	}
 	return 0;
 }

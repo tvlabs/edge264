@@ -68,11 +68,11 @@ static inline const char *red_if(int cond) { return (cond) ? " style=\"color: re
  * The storage patterns for refIdx, mvs, absMvdComp and Intra4x4PredMode keep
  * A/B/C/D at fixed relative positions, while forming circural buffers with the
  * bottom edges:
- *            31 32 33 34 35 36        16 17 18 19
- *    8 9     23|24 25 26 27        11|12 13 14 15
- *  3|4 5  ,  15|16 17 18 19   and   7| 8  9 10 11
- * -1|0 1      7| 8  9 10 11         3| 4  5  6  7
- *            -1| 0  1  2  3        -1| 0  1  2  3
+ *            31 32 33 34 35 36      4 5 6 7
+ *    8 9     23|24 25 26 27       2|3 4 5 6
+ *  3|4 5  ,  15|16 17 18 19  and  1|2 3 4 5
+ * -1|0 1      7| 8  9 10 11       0|1 2 3 4
+ *            -1| 0  1  2  3      -1|0 1 2 3
  */
 typedef int16_t v4hi __attribute__((vector_size(8)));
 typedef int8_t v16qi __attribute__((vector_size(16)));
@@ -135,16 +135,18 @@ typedef struct {
 	Edge264_snapshot s;
 	
 	// cache variables - usually results of nasty optimisations, so should be few :)
+	uint8_t BlkIdx;
+	uint32_t mvd_flags;
+	uint32_t mvd_fold;
+	uint32_t ref_idx_mask;
 	v4si cbf_maskA, cbf_maskB;
+	union { int8_t PredMode[48]; v16qi PredMode_v[3]; };
 	union { int8_t mvC[32]; v16qi mvC_v[2]; };
 	union { int16_t ctxIdxOffsets[4]; v4hi ctxIdxOffsets_l; }; // {cbf,sig_flag,last_sig_flag,coeff_abs}
 	union { uint8_t sig_inc[64]; uint64_t sig_inc_l; v16qu sig_inc_v[4]; };
 	union { uint8_t last_inc[64]; uint64_t last_inc_l; v16qu last_inc_v[4]; };
 	union { uint8_t scan[64]; uint64_t scan_l; v16qu scan_v[4]; };
 	union { int32_t residual_block[64]; v4si residual_block_v[16]; };
-	uint32_t mvd_flags;
-	uint32_t mvd_fold;
-	uint32_t ref_idx_mask;
 	
 	// context pointers
 	int16_t x; // 14 significant bits
@@ -152,7 +154,7 @@ typedef struct {
 	v4su *flags;
 	v8hi *mvs;
 	v16qu *absMvdComp;
-	union { int8_t q; uint16_t h[2]; uint32_t s; } *Intra4x4PredMode;
+	uint32_t *Intra4x4PredMode;
 	union { int8_t q; uint16_t h[2]; uint32_t s; } *refIdx;
 	const v8hi *mvCol;
 	const uint8_t *mbCol;
@@ -192,12 +194,118 @@ static __thread Edge264_ctx *ctx;
 static const int8_t ref_pos[8] = {8, 10, 0, 2, 9, 11, 1, 3};
 static const int8_t mv_pos[32] = {96, 100, 64, 68, 104, 108, 72, 76, 32, 36, 0, 4,
 	40, 44, 8, 12, 98, 102, 66, 70, 106, 110, 74, 78, 34, 38, 2, 6, 42, 46, 10, 14};
-static const int8_t intra_pos[16] = {4, 5, 3, 4, 6, 7, 5, 6, 2, 3, 1, 2, 4, 5, 3, 4};
+static const int8_t intra_pos[16] = {3, 4, 2, 3, 5, 6, 4, 5, 1, 2, 0, 1, 3, 4, 2, 3};
 static const uint8_t bit_4x4[16] = {10, 16, 15, 3, 4, 21, 20, 8, 2, 19, 18, 6, 7, 13, 12, 0};
 static const uint8_t left_4x4[16] = {22, 10, 9, 15, 16, 4, 3, 20, 14, 2, 1, 18, 19, 7, 6, 12};
 static const uint8_t bit_8x8[4] = {26, 29, 28, 24};
 static const uint8_t left_8x8[4] = {30, 26, 25, 28};
 static const uint8_t left_chroma[16] = {13, 11, 10, 8, 7, 5, 4, 2, 29, 27, 26, 24, 23, 21, 20, 18};
+
+
+
+/**
+ * block_unavailability[BlkIdx][unavail] yields the unavailability of
+ * neighbouring 4x4 blocks from unavailability of neighbouring macroblocks.
+ * TODO: 8x8 version!
+ */
+static const int8_t block_unavailability[16][16] = {
+	{ 0,  1,  6,  7,  0,  1,  6,  7,  8,  9, 14, 15,  8,  9, 14, 15},
+	{ 0,  0, 14, 14,  0,  0, 14, 14,  0,  0, 14, 14,  0,  0, 14, 14},
+	{ 0,  9,  0,  9,  0,  9,  0,  9,  0,  9,  0,  9,  0,  9,  0,  9},
+	{ 4,  4,  4,  4,  4,  4,  4,  4,  4,  4,  4,  4,  4,  4,  4,  4},
+	{ 0,  0, 14, 14,  0,  0, 14, 14,  0,  0, 14, 14,  0,  0, 14, 14},
+	{ 0,  0, 10, 10,  4,  4, 14, 14,  0,  0, 10, 10,  4,  4, 14, 14},
+	{ 0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0},
+	{ 4,  4,  4,  4,  4,  4,  4,  4,  4,  4,  4,  4,  4,  4,  4,  4},
+	{ 0,  9,  0,  9,  0,  9,  0,  9,  0,  9,  0,  9,  0,  9,  0,  9},
+	{ 0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0},
+	{ 0,  9,  0,  9,  0,  9,  0,  9,  0,  9,  0,  9,  0,  9,  0,  9},
+	{ 4,  4,  4,  4,  4,  4,  4,  4,  4,  4,  4,  4,  4,  4,  4,  4},
+	{ 0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0},
+	{ 4,  4,  4,  4,  4,  4,  4,  4,  4,  4,  4,  4,  4,  4,  4,  4},
+	{ 0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0},
+	{ 4,  4,  4,  4,  4,  4,  4,  4,  4,  4,  4,  4,  4,  4,  4,  4},
+};
+
+
+
+/**
+ * intra_modes[IntraPredMode][unavail] yield the prediction branch from
+ * unavailability of neighbouring blocks.
+ */
+enum PredModes {
+	VERTICAL_4x4,
+	HORIZONTAL_4x4,
+	DC_4x4,
+	DIAGONAL_DOWN_LEFT_4x4,
+	DIAGONAL_DOWN_RIGHT_4x4,
+	VERTICAL_RIGHT_4x4,
+	HORIZONTAL_DOWN_4x4,
+	VERTICAL_LEFT_4x4,
+	HORIZONTAL_UP_4x4,
+	
+	VERTICAL_8x8,
+	HORIZONTAL_8x8,
+	DC_8x8,
+	DIAGONAL_DOWN_LEFT_8x8,
+	DIAGONAL_DOWN_RIGHT_8x8,
+	VERTICAL_RIGHT_8x8,
+	HORIZONTAL_DOWN_8x8,
+	VERTICAL_LEFT_8x8,
+	HORIZONTAL_UP_8x8,
+	
+	DC_A_4x4,
+	DC_B_4x4,
+	DC_AB_4x4,
+	DIAGONAL_DOWN_LEFT_C_4x4,
+	VERTICAL_LEFT_C_4x4,
+	
+	VERTICAL_C_8x8,
+	VERTICAL_D_8x8,
+	VERTICAL_CD_8x8,
+	HORIZONTAL_D_8x8,
+	DC_C_8x8,
+	DC_D_8x8,
+	DC_CD_8x8,
+	DC_A_8x8,
+	DC_AC_8x8,
+	DC_AD_8x8,
+	DC_ACD_8x8,
+	DC_B_8x8,
+	DC_BD_8x8,
+	DC_AB_8x8,
+	DIAGONAL_DOWN_LEFT_C_8x8,
+	DIAGONAL_DOWN_LEFT_D_8x8,
+	DIAGONAL_DOWN_LEFT_CD_8x8,
+	DIAGONAL_DOWN_RIGHT_C_8x8,
+	VERTICAL_RIGHT_C_8x8,
+	VERTICAL_LEFT_C_8x8,
+	VERTICAL_LEFT_D_8x8,
+	VERTICAL_LEFT_CD_8x8,
+	HORIZONTAL_UP_D_8x8,
+};
+static const int8_t intra4x4_modes[9][16] = {
+	{VERTICAL_4x4, VERTICAL_4x4, 0, 0, VERTICAL_4x4, VERTICAL_4x4, 0, 0, VERTICAL_4x4, VERTICAL_4x4, 0, 0, VERTICAL_4x4, VERTICAL_4x4, 0, 0},
+	{HORIZONTAL_4x4, 0, HORIZONTAL_4x4, 0, HORIZONTAL_4x4, 0, HORIZONTAL_4x4, 0, HORIZONTAL_4x4, 0, HORIZONTAL_4x4, 0, HORIZONTAL_4x4, 0, HORIZONTAL_4x4, 0},
+	{DC_4x4, DC_A_4x4, DC_B_4x4, DC_AB_4x4, DC_4x4, DC_A_4x4, DC_B_4x4, DC_AB_4x4, DC_4x4, DC_A_4x4, DC_B_4x4, DC_AB_4x4, DC_4x4, DC_A_4x4, DC_B_4x4, DC_AB_4x4},
+	{DIAGONAL_DOWN_LEFT_4x4, DIAGONAL_DOWN_LEFT_4x4, 0, 0, DIAGONAL_DOWN_LEFT_C_4x4, DIAGONAL_DOWN_LEFT_C_4x4, 0, 0, DIAGONAL_DOWN_LEFT_4x4, DIAGONAL_DOWN_LEFT_4x4, 0, 0, DIAGONAL_DOWN_LEFT_C_4x4, DIAGONAL_DOWN_LEFT_C_4x4, 0, 0},
+	{DIAGONAL_DOWN_RIGHT_4x4, 0, 0, 0, DIAGONAL_DOWN_RIGHT_4x4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
+	{VERTICAL_RIGHT_4x4, 0, 0, 0, VERTICAL_RIGHT_4x4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
+	{HORIZONTAL_DOWN_4x4, 0, 0, 0, HORIZONTAL_DOWN_4x4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
+	{VERTICAL_LEFT_4x4, VERTICAL_LEFT_4x4, 0, 0, VERTICAL_LEFT_C_4x4, VERTICAL_LEFT_C_4x4, 0, 0, VERTICAL_LEFT_4x4, VERTICAL_LEFT_4x4, 0, 0, VERTICAL_LEFT_C_4x4, VERTICAL_LEFT_C_4x4, 0, 0},
+	{HORIZONTAL_UP_4x4, 0, HORIZONTAL_UP_4x4, 0, HORIZONTAL_UP_4x4, 0, HORIZONTAL_UP_4x4, 0, HORIZONTAL_UP_4x4, 0, HORIZONTAL_UP_4x4, 0, HORIZONTAL_UP_4x4, 0, HORIZONTAL_UP_4x4, 0},
+};
+static const int8_t intra8x8_modes[9][16] = {
+	{VERTICAL_8x8, VERTICAL_8x8, 0, 0, VERTICAL_C_8x8, VERTICAL_C_8x8, 0, 0, VERTICAL_D_8x8, VERTICAL_D_8x8, 0, 0, VERTICAL_CD_8x8, VERTICAL_CD_8x8, 0, 0},
+	{HORIZONTAL_8x8, 0, HORIZONTAL_8x8, 0, HORIZONTAL_8x8, 0, HORIZONTAL_8x8, 0, HORIZONTAL_D_8x8, 0, HORIZONTAL_D_8x8, 0, HORIZONTAL_D_8x8, 0, HORIZONTAL_D_8x8, 0},
+	{DC_8x8, DC_A_8x8, DC_B_8x8, DC_AB_8x8, DC_C_8x8, DC_AC_8x8, DC_B_8x8, DC_AB_8x8, DC_D_8x8, DC_AD_8x8, DC_BD_8x8, DC_AB_8x8, DC_CD_8x8, DC_ACD_8x8, DC_BD_8x8, DC_AB_8x8},
+	{DIAGONAL_DOWN_LEFT_8x8, DIAGONAL_DOWN_LEFT_8x8, 0, 0, DIAGONAL_DOWN_LEFT_C_8x8, DIAGONAL_DOWN_LEFT_C_8x8, 0, 0, DIAGONAL_DOWN_LEFT_D_8x8, DIAGONAL_DOWN_LEFT_D_8x8, 0, 0, DIAGONAL_DOWN_LEFT_CD_8x8, DIAGONAL_DOWN_LEFT_CD_8x8, 0, 0},
+	{DIAGONAL_DOWN_RIGHT_8x8, 0, 0, 0, DIAGONAL_DOWN_RIGHT_C_8x8, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
+	{VERTICAL_RIGHT_8x8, 0, 0, 0, VERTICAL_RIGHT_C_8x8, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
+	{HORIZONTAL_DOWN_8x8, 0, 0, 0, HORIZONTAL_DOWN_8x8, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
+	{VERTICAL_LEFT_8x8, VERTICAL_LEFT_8x8, 0, 0, VERTICAL_LEFT_C_8x8, VERTICAL_LEFT_C_8x8, 0, 0, VERTICAL_LEFT_D_8x8, VERTICAL_LEFT_D_8x8, 0, 0, VERTICAL_LEFT_CD_8x8, VERTICAL_LEFT_CD_8x8, 0, 0},
+	{HORIZONTAL_UP_8x8, 0, HORIZONTAL_UP_8x8, 0, HORIZONTAL_UP_8x8, 0, HORIZONTAL_UP_8x8, 0, HORIZONTAL_UP_D_8x8, 0, HORIZONTAL_UP_D_8x8, 0, HORIZONTAL_UP_D_8x8, 0, HORIZONTAL_UP_D_8x8, 0},
+};
 
 
 

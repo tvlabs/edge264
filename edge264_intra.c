@@ -341,66 +341,12 @@ static int decode_HorizontalUp8x8(__m128i btfel, __m128i pot) {
 
 
 
-enum {
-	VERTICAL_4x4,
-	HORIZONTAL_4x4,
-	DC_4x4,
-	DIAGONAL_DOWN_LEFT_4x4,
-	DIAGONAL_DOWN_RIGHT_4x4,
-	VERTICAL_RIGHT_4x4,
-	HORIZONTAL_DOWN_4x4,
-	VERTICAL_LEFT_4x4,
-	HORIZONTAL_UP_4x4,
-	
-	VERTICAL_8x8,
-	HORIZONTAL_8x8,
-	DC_8x8,
-	DIAGONAL_DOWN_LEFT_8x8,
-	DIAGONAL_DOWN_RIGHT_8x8,
-	VERTICAL_RIGHT_8x8,
-	HORIZONTAL_DOWN_8x8,
-	VERTICAL_LEFT_8x8,
-	HORIZONTAL_UP_8x8,
-	
-	DC_A_4x4,
-	DC_B_4x4,
-	DC_AB_4x4,
-	DIAGONAL_DOWN_LEFT_C_4x4,
-	VERTICAL_LEFT_C_4x4,
-	
-	VERTICAL_C_8x8,
-	VERTICAL_D_8x8,
-	VERTICAL_CD_8x8,
-	HORIZONTAL_D_8x8,
-	DC_C_8x8,
-	DC_D_8x8,
-	DC_CD_8x8,
-	DC_A_8x8,
-	DC_AC_8x8,
-	DC_AD_8x8,
-	DC_ACD_8x8,
-	DC_B_8x8,
-	DC_BD_8x8,
-	DC_AB_8x8,
-	DIAGONAL_DOWN_LEFT_C_8x8,
-	DIAGONAL_DOWN_LEFT_D_8x8,
-	DIAGONAL_DOWN_LEFT_CD_8x8,
-	DIAGONAL_DOWN_RIGHT_C_8x8,
-	VERTICAL_RIGHT_C_8x8,
-	VERTICAL_LEFT_C_8x8,
-	VERTICAL_LEFT_D_8x8,
-	VERTICAL_LEFT_CD_8x8,
-	HORIZONTAL_UP_D_8x8,
-};
-
-
-
-int decode_8bit(int mode, uint8_t *p, size_t stride, __m128i zero) {
+static __attribute__((noinline)) int decode_8bit(int BitDepth, int mode, uint8_t *p, size_t stride, __m128i zero) {
 	static const v16qi shufC = {0, -1, 1, -1, 2, -1, 3, -1, 3, -1, 3, -1, 3, -1, 3, -1};
 	__m64 m0, m1, m2, m3, m4;
 	__m128i x0, x1, x2, x3, x4;
 	
-    __builtin_expect(mode <= HORIZONTAL_UP_8x8, 1);
+	__builtin_expect(mode <= HORIZONTAL_UP_8x8, 1);
 	switch (mode) {
 	
 	// Intra4x4 modes
@@ -658,11 +604,11 @@ int decode_8bit(int mode, uint8_t *p, size_t stride, __m128i zero) {
 
 
 
-int decode_16bit(int mode, int BitDepth, uint8_t *p, size_t stride) {
+static __attribute__((noinline)) int decode_16bit(int BitDepth, int mode, uint8_t *p, size_t stride, __m128i zero) {
 	__m64 m0, m1, m2, m3, m4, m5;
 	__m128i x0, x1, x2, x3, x4, x5;
 	
-    __builtin_expect(mode <= HORIZONTAL_UP_8x8, 1);
+	__builtin_expect(mode <= HORIZONTAL_UP_8x8, 1);
 	switch (mode) {
 	
 	// Intra4x4 modes
@@ -916,4 +862,12 @@ int decode_16bit(int mode, int BitDepth, uint8_t *p, size_t stride) {
 		return decode_HorizontalUp8x8(x4, x5);
 	}
 	return 0;
+}
+
+
+
+static inline int decode_samples() {
+	int BitDepth = ctx->BitDepth;
+	int mode = ctx->PredMode[ctx->BlkIdx]
+	return (BitDepth == 8 ? decode_8bit : decode_16bit)(BitDepth, mode, p, stride, _mm_setzero_si128());
 }

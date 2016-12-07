@@ -2,8 +2,10 @@
 // TODO: Beware that signed division cannot be vectorised as a mere shift.
 // TODO: Apply the update of mvs pointers at each macroblock.
 // TODO: Remove all uses of bare unsigned/int in favor of fixed sizes.
+// TODO: Find a place to set Intra4x4PredMode to 2/-2 when Inter predicting
 
 #include "edge264_common.h"
+//#include "edge264_intra.c"
 
 // cabac_init_idc==0 for I frames.
 static const int8_t context_init[4][1024][2] __attribute__((aligned(16))) = {{
@@ -830,7 +832,7 @@ static __attribute__((noinline)) int parse_residual_block(unsigned coded_block_f
 				coeff_level = 14 + (1 << k) + (quo << shift >> (31 - k));
 			}
 			
-			// not the brightest part of spec (9.3.3.1.3), yet I did my best
+			// not the brightest part of spec (9.3.3.1.3), I did my best
 			static const int8_t trans[5] = {0, 2, 3, 4, 4};
 			int last_sig_offset = ctx->ctxIdxOffsets[3];
 			int ctxIdxInc = trans[ctxIdx0 - last_sig_offset];
@@ -1303,6 +1305,14 @@ static __attribute__((noinline)) int parse_inter_pred() {
  * intraNxN_pred stuff, intra_chroma_pred_mode (from function), PCM stuff, and
  * coded_block_pattern (from function) for the current Intra macroblock.
  * It proceeds to residual decoding through tail call.
+ *
+ * The prediction mode is stored twice in ctx:
+ * _ Intra4x4PredMode, circular buffer for neighbouring values. The special
+ *   value -2 is used by Inter blocks with constrained_intra_pred_flag, to
+ *   apply the dcPredModePredictedFlag.
+ * _ PredMode, for the late decoding of samples. It has a wider range of values
+ *   to account for unavailability of neighbouring blocks, Intra chroma and
+ *   Inter prediction.
  */
 static __attribute__((noinline)) int parse_intra_mb(int ctxIdx) {
 	//v8hi *mvCol = (v8hi *)ctx->p.mvs; // p.mvs is always v8hi so this type-punning is safe
@@ -1322,8 +1332,8 @@ static __attribute__((noinline)) int parse_intra_mb(int ctxIdx) {
 		ctx->f.mb_type_I_NxN |= 1;
 		
 		// Overall code is much lighter with 4x4/8x8 sharing the parsing of IntraPredMode.
-		for (int luma4x4BlkIdx = 0; luma4x4BlkIdx < 16; ) {
-			int8_t *pos = &ctx->Intra4x4PredMode->q + intra_pos[luma4x4BlkIdx++];
+		for (int i = 0; i < 16; i++) {
+			int8_t *pos = (int8_t *)ctx->Intra4x4PredMode + intra_pos[i];
 			int IntraPredMode = abs(min(pos[-1], pos[1]));
 			if (!get_ae(68)) {
 				int rem_intra_pred_mode = get_ae(69);
@@ -1334,10 +1344,20 @@ static __attribute__((noinline)) int parse_intra_mb(int ctxIdx) {
 			} else {
 				fprintf(stderr, "intra_pred_mode: -1\n");
 			}
+			
+			// This is where 4x4/8x8 differ.
+			// TODO: Swap dimensions to optimize
+			int unavail4x4 = block_unavailability[i][ctx->ctxIdxInc.unavailable];
+			int unavail8x8 = block_unavailability[i + i / 4][ctx->ctxIdxInc.unavailable];
 			pos[0] = IntraPredMode;
-			if (ctx->f.transform_size_8x8_flag)
-				pos[-1] = pos[1] = IntraPredMode, luma4x4BlkIdx += 3;
+			ctx->PredMode[i] = intra4x4_modes[IntraPredMode][unavail4x4];
+			if (!ctx->f.transform_size_8x8_flag)
+				continue;
+			pos[-1] = pos[1] = IntraPredMode;
+			ctx->PredMode[i] = intra8x8_modes[IntraPredMode][unavail8x8];
+			i += 3;
 		}
+		ctx->PredMode_v[1] = ctx->PredMode_v[2] = ctx->PredMode_v[0];
 		
 		parse_intra_chroma_pred_mode();
 		parse_coded_block_pattern();
@@ -1528,9 +1548,9 @@ __attribute__((noinline)) void CABAC_parse_slice_data()
 		for (int u = 0; u < PicWidthInMbs + 2; u++)
 			flags[u] = (v4su){unavail_mb.s, 0, 0, 0};
 		ctx->flags = &flags[mb_x + 1];
-		uint32_t Intra4x4PredMode[mb_y * 4 + PicWidthInMbs + 5];
+		uint32_t Intra4x4PredMode[mb_y + PicWidthInMbs + 2];
 		memset(Intra4x4PredMode, -2, sizeof(Intra4x4PredMode));
-		ctx->Intra4x4PredMode = (void*)&Intra4x4PredMode[mb_y * 4 + mb_x + 1];
+		ctx->Intra4x4PredMode = &Intra4x4PredMode[mb_y + mb_x + 1];
 		uint32_t refIdx[mb_y * 4 + PicWidthInMbs + 6];
 		memset(refIdx, -1, sizeof(refIdx));
 		ctx->refIdx = (void*)&refIdx[mb_y * 4 + mb_x + 1];
@@ -1579,7 +1599,7 @@ __attribute__((noinline)) void CABAC_parse_slice_data()
 			if (ctx->x == ctx->ps.width) {
 				PicWidthInMbs = ctx->ps.width / 16;
 				ctx->flags -= PicWidthInMbs;
-				ctx->Intra4x4PredMode -= PicWidthInMbs + 4;
+				ctx->Intra4x4PredMode -= PicWidthInMbs + 1;
 				ctx->refIdx -= PicWidthInMbs + 4;
 				ctx->mvs -= PicWidthInMbs * 2 + 16;
 				ctx->absMvdComp -= PicWidthInMbs + 8;

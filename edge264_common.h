@@ -113,10 +113,10 @@ typedef struct {
 	// bitfields come next since they represent most accesses
 	uint32_t non_ref_flag:1;
 	uint32_t IdrPicFlag:1;
-	uint32_t colour_plane_id:2;
-	uint32_t slice_type:3;
 	uint32_t field_pic_flag:1;
 	uint32_t bottom_field_flag:1;
+	uint32_t colour_plane_id:2;
+	uint32_t slice_type:3;
 	uint32_t MbaffFrameFlag:1;
 	uint32_t direct_spatial_mv_pred_flag:1;
 	uint32_t cabac_init_idc:2;
@@ -204,27 +204,26 @@ static const uint8_t left_chroma[16] = {13, 11, 10, 8, 7, 5, 4, 2, 29, 27, 26, 2
 
 
 /**
- * block_unavailability[BlkIdx][unavail] yields the unavailability of
+ * block_unavailability[unavail][BlkIdx] yields the unavailability of
  * neighbouring 4x4 blocks from unavailability of neighbouring macroblocks.
- * TODO: 8x8 version!
  */
 static const int8_t block_unavailability[16][16] = {
-	{ 0,  1,  6,  7,  0,  1,  6,  7,  8,  9, 14, 15,  8,  9, 14, 15},
-	{ 0,  0, 14, 14,  0,  0, 14, 14,  0,  0, 14, 14,  0,  0, 14, 14},
-	{ 0,  9,  0,  9,  0,  9,  0,  9,  0,  9,  0,  9,  0,  9,  0,  9},
-	{ 4,  4,  4,  4,  4,  4,  4,  4,  4,  4,  4,  4,  4,  4,  4,  4},
-	{ 0,  0, 14, 14,  0,  0, 14, 14,  0,  0, 14, 14,  0,  0, 14, 14},
-	{ 0,  0, 10, 10,  4,  4, 14, 14,  0,  0, 10, 10,  4,  4, 14, 14},
-	{ 0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0},
-	{ 4,  4,  4,  4,  4,  4,  4,  4,  4,  4,  4,  4,  4,  4,  4,  4},
-	{ 0,  9,  0,  9,  0,  9,  0,  9,  0,  9,  0,  9,  0,  9,  0,  9},
-	{ 0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0},
-	{ 0,  9,  0,  9,  0,  9,  0,  9,  0,  9,  0,  9,  0,  9,  0,  9},
-	{ 4,  4,  4,  4,  4,  4,  4,  4,  4,  4,  4,  4,  4,  4,  4,  4},
-	{ 0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0},
-	{ 4,  4,  4,  4,  4,  4,  4,  4,  4,  4,  4,  4,  4,  4,  4,  4},
-	{ 0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0},
-	{ 4,  4,  4,  4,  4,  4,  4,  4,  4,  4,  4,  4,  4,  4,  4,  4},
+	{ 0,  0,  0,  4,  0,  0,  0,  4,  0,  0,  0,  4,  0,  4,  0,  4},
+	{ 1,  0,  9,  4,  0,  0,  0,  4,  9,  0,  9,  4,  0,  4,  0,  4},
+	{ 6, 14,  0,  4, 14, 10,  0,  4,  0,  0,  0,  4,  0,  4,  0,  4},
+	{ 7, 14,  9,  4, 14, 10,  0,  4,  9,  0,  9,  4,  0,  4,  0,  4},
+	{ 0,  0,  0,  4,  0,  4,  0,  4,  0,  0,  0,  4,  0,  4,  0,  4},
+	{ 1,  0,  9,  4,  0,  4,  0,  4,  9,  0,  9,  4,  0,  4,  0,  4},
+	{ 6, 14,  0,  4, 14, 14,  0,  4,  0,  0,  0,  4,  0,  4,  0,  4},
+	{ 7, 14,  9,  4, 14, 14,  0,  4,  9,  0,  9,  4,  0,  4,  0,  4},
+	{ 8,  0,  0,  4,  0,  0,  0,  4,  0,  0,  0,  4,  0,  4,  0,  4},
+	{ 9,  0,  9,  4,  0,  0,  0,  4,  9,  0,  9,  4,  0,  4,  0,  4},
+	{14, 14,  0,  4, 14, 10,  0,  4,  0,  0,  0,  4,  0,  4,  0,  4},
+	{15, 14,  9,  4, 14, 10,  0,  4,  9,  0,  9,  4,  0,  4,  0,  4},
+	{ 8,  0,  0,  4,  0,  4,  0,  4,  0,  0,  0,  4,  0,  4,  0,  4},
+	{ 9,  0,  9,  4,  0,  4,  0,  4,  9,  0,  9,  4,  0,  4,  0,  4},
+	{14, 14,  0,  4, 14, 14,  0,  4,  0,  0,  0,  4,  0,  4,  0,  4},
+	{15, 14,  9,  4, 14, 14,  0,  4,  9,  0,  9,  4,  0,  4,  0,  4},
 };
 
 
@@ -234,7 +233,7 @@ static const int8_t block_unavailability[16][16] = {
  * unavailability of neighbouring blocks.
  */
 enum PredModes {
-	VERTICAL_4x4,
+	VERTICAL_4x4 = 1,
 	HORIZONTAL_4x4,
 	DC_4x4,
 	DIAGONAL_DOWN_LEFT_4x4,

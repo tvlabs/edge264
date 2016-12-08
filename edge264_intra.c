@@ -867,7 +867,8 @@ static __attribute__((noinline)) int decode_16bit(int BitDepth, int mode, uint8_
 
 
 static inline int decode_samples() {
-	int BitDepth = ctx->BitDepth;
-	int mode = ctx->PredMode[ctx->BlkIdx]
+	int BlkIdx = ctx->BlkIdx;
+	int BitDepth = ctx->ps.BitDepth[BlkIdx];
+	int mode = ctx->PredMode[ctx->BlkIdx];
 	return (BitDepth == 8 ? decode_8bit : decode_16bit)(BitDepth, mode, p, stride, _mm_setzero_si128());
 }

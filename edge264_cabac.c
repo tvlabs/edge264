@@ -1114,35 +1114,40 @@ static __attribute__((noinline)) int parse_NxN_residual() {
 	static const uint32_t cbf_8x8[4] = {0x04018408, 0x20300110, 0x100c0044, 0x01003081};
 	
 	parse_mb_qp_delta(ctx->f.s);
-	int iYCbCr = ctx->colour_plane_id;
+	ctx->BlkIdx = ctx->colour_plane_id << 4;
 	do {
+		int mb_field_decoding_flag = ctx->f.mb_field_decoding_flag;
+		
 		// Sixteen 4x4 residual blocks?
 		if (!ctx->f.transform_size_8x8_flag) {
-			ctx->ctxIdxOffsets_l = ctxIdxOffsets_4x4[iYCbCr][ctx->f.mb_field_decoding_flag];
-			ctx->scan_v[0] = scan_4x4[ctx->f.mb_field_decoding_flag];
+			ctx->ctxIdxOffsets_l = ctxIdxOffsets_4x4[ctx->BlkIdx >> 4][mb_field_decoding_flag];
+			ctx->scan_v[0] = scan_4x4[mb_field_decoding_flag];
 			ctx->sig_inc_v[0] = ctx->last_inc_v[0] = sig_inc_4x4;
-			for (int luma4x4BlkIdx = 0; luma4x4BlkIdx < 16; luma4x4BlkIdx++) {
+			
+			do {
 				ctx->residual_block_v[3] = ctx->residual_block_v[2] = ctx->residual_block_v[1] = ctx->residual_block_v[0] = (v4si){};
 				unsigned coded_block_flag = 0;
-				if (ctx->f.s & 1 << bit_8x8[luma4x4BlkIdx >> 2])
-					coded_block_flag = get_ae(ctx->ctxIdxOffsets[0] + (ctx->coded_block_flags[0] >> left_4x4[luma4x4BlkIdx] & 3)) << bit_4x4[luma4x4BlkIdx];
+				if (ctx->f.s & 1 << bit_8x8[ctx->BlkIdx >> 2])
+					coded_block_flag = get_ae(ctx->ctxIdxOffsets[0] + (ctx->coded_block_flags[0] >> left_4x4[ctx->BlkIdx] & 3)) << bit_4x4[ctx->BlkIdx];
 				parse_residual_block(coded_block_flag, 15);
-			}
+			} while (++ctx->BlkIdx & 15);
 		
 		// Or four 8x8 residual blocks :)
 		} else {
-			ctx->ctxIdxOffsets_l = ctxIdxOffsets_8x8[iYCbCr][ctx->f.mb_field_decoding_flag];
-			const v16qu *p = sig_inc_8x8[ctx->f.mb_field_decoding_flag];
-			const v16qu *r = scan_8x8[ctx->f.mb_field_decoding_flag];
+			ctx->ctxIdxOffsets_l = ctxIdxOffsets_8x8[ctx->BlkIdx >> 4][mb_field_decoding_flag];
+			const v16qu *p = sig_inc_8x8[mb_field_decoding_flag];
+			const v16qu *r = scan_8x8[mb_field_decoding_flag];
 			for (int i = 0; i < 4; i++) {
 				v16qu a = p[i], b = last_inc_8x8[i], c = r[i];
 				ctx->sig_inc_v[i] = a;
 				ctx->last_inc_v[i] = b;
 				ctx->scan_v[i] = c;
 			}
-			for (int luma8x8BlkIdx = 0; luma8x8BlkIdx < 4; luma8x8BlkIdx++) {
+			
+			do {
 				for (int i = 0; i < 16; i++)
 					ctx->residual_block_v[i] = (v4si){};
+				int luma8x8BlkIdx = ctx->BlkIdx >> 2;
 				unsigned coded_block_flag = 0;
 				if (ctx->f.s & 1 << bit_8x8[luma8x8BlkIdx]) {
 					coded_block_flag = cbf_8x8[luma8x8BlkIdx];
@@ -1150,13 +1155,13 @@ static __attribute__((noinline)) int parse_NxN_residual() {
 						coded_block_flag *= get_ae(ctx->ctxIdxOffsets[0] + (ctx->coded_block_flags[0] >> left_8x8[luma8x8BlkIdx] & 3));
 				}
 				parse_residual_block(coded_block_flag, 63);
-			}
+			} while ((ctx->BlkIdx += 4) & 15);
 		}
 		
 		if (ctx->ps.ChromaArrayType != 3)
 			return parse_chroma_residual();
 		ctx->f_v = __builtin_shufflevector(ctx->f_v, ctx->f_v, 0, 2, 3, 1);
-	} while (++iYCbCr < 3);
+	} while (ctx->BlkIdx < 48);
 	return 0;
 }
 
@@ -1309,10 +1314,10 @@ static __attribute__((noinline)) int parse_inter_pred() {
  * The prediction mode is stored twice in ctx:
  * _ Intra4x4PredMode, circular buffer for neighbouring values. The special
  *   value -2 is used by Inter blocks with constrained_intra_pred_flag, to
- *   apply the dcPredModePredictedFlag.
+ *   apply dcPredModePredictedFlag.
  * _ PredMode, for the late decoding of samples. It has a wider range of values
- *   to account for unavailability of neighbouring blocks, Intra chroma and
- *   Inter prediction.
+ *   to account for unavailability of neighbouring blocks, Intra chroma modes
+ *   and Inter prediction.
  */
 static __attribute__((noinline)) int parse_intra_mb(int ctxIdx) {
 	//v8hi *mvCol = (v8hi *)ctx->p.mvs; // p.mvs is always v8hi so this type-punning is safe
@@ -1346,15 +1351,13 @@ static __attribute__((noinline)) int parse_intra_mb(int ctxIdx) {
 			}
 			
 			// This is where 4x4/8x8 differ.
-			// TODO: Swap dimensions to optimize
-			int unavail4x4 = block_unavailability[i][ctx->ctxIdxInc.unavailable];
-			int unavail8x8 = block_unavailability[i + i / 4][ctx->ctxIdxInc.unavailable];
 			pos[0] = IntraPredMode;
-			ctx->PredMode[i] = intra4x4_modes[IntraPredMode][unavail4x4];
+			const int8_t *unavail = block_unavailability[ctx->ctxIdxInc.unavailable];
+			ctx->PredMode[i] = intra4x4_modes[IntraPredMode][unavail[i]];
 			if (!ctx->f.transform_size_8x8_flag)
 				continue;
 			pos[-1] = pos[1] = IntraPredMode;
-			ctx->PredMode[i] = intra8x8_modes[IntraPredMode][unavail8x8];
+			ctx->PredMode[i] = intra8x8_modes[IntraPredMode][unavail[i + (i >> 2)]];
 			i += 3;
 		}
 		ctx->PredMode_v[1] = ctx->PredMode_v[2] = ctx->PredMode_v[0];

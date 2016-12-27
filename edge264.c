@@ -237,7 +237,7 @@ static void parse_pred_weight_table(Edge264_stream *e)
 				ctx->weights[0][i][l] = 1 << 7;
 				if (get_u1()) {
 					ctx->weights[0][i][l] = get_se(-128, 127) << luma_shift;
-					ctx->offsets[0][i][l] = get_se(-128, 127) << (ctx->ps.BitDepth[0] - 8);
+					ctx->offsets[0][i][l] = get_se(-128, 127) << (ctx->ps.BitDepth_Y - 8);
 					printf("<li>luma_weight_l%x[%u]: <code>%.2f</code></li>\n"
 						"<li>luma_offset_l%x[%u]: <code>%d</code></li>\n",
 						l, i, (double)ctx->weights[0][i][l] / 128,
@@ -247,7 +247,7 @@ static void parse_pred_weight_table(Edge264_stream *e)
 				if (ctx->ps.ChromaArrayType != 0 && get_u1()) {
 					for (int j = 1; j < 3; j++) {
 						ctx->weights[j][i][l] = get_se(-128, 127) << chroma_shift;
-						ctx->offsets[j][i][l] = get_se(-128, 127) << (ctx->ps.BitDepth[1] - 8);
+						ctx->offsets[j][i][l] = get_se(-128, 127) << (ctx->ps.BitDepth_C - 8);
 						printf("<li>chroma_weight_l%x[%u][%x]: <code>%.2f</code></li>\n"
 							"<li>chroma_offset_l%x[%u][%x]: <code>%d</code></li>\n",
 							l, i, j - 1, (double)ctx->weights[j][i][l] / 128,
@@ -501,7 +501,7 @@ static const uint8_t *parse_slice_layer_without_partitioning(Edge264_stream *e,
 		ctx->cabac_init_idc = 1 + get_ue(2);
 		printf("<li>cabac_init_idc: <code>%u</code></li>\n", ctx->cabac_init_idc - 1);
 	}
-	ctx->ps.QP_Y = min(max(ctx->ps.QP_Y + map_se(get_ue16()), -6 * ((int)ctx->ps.BitDepth[0] - 8)), 51);
+	ctx->ps.QP_Y = min(max(ctx->ps.QP_Y + map_se(get_ue16()), -6 * ((int)ctx->ps.BitDepth_Y - 8)), 51);
 	printf("<li>SliceQP<sub>Y</sub>: <code>%d</code></li>\n", ctx->ps.QP_Y);
 	
 	// Loop filter is yet to be implemented.
@@ -1027,7 +1027,7 @@ static const uint8_t *parse_seq_parameter_set(Edge264_stream *e, int nal_ref_idc
 	
 	// At this level in code, assigning bitfields is preferred over ORing them.
 	ctx->ps.chroma_format_idc = ctx->ps.ChromaArrayType = 1;
-	ctx->ps.BitDepth[0] = ctx->ps.BitDepth[1] = ctx->ps.BitDepth[2] = 8;
+	ctx->ps.BitDepth_Y = ctx->ps.BitDepth_C = 8;
 	int seq_scaling_matrix_present_flag = 0;
 	if (profile_idc != 66 && profile_idc != 77 && profile_idc != 88) {
 		ctx->ps.ChromaArrayType = ctx->ps.chroma_format_idc = get_ue(3);
@@ -1043,16 +1043,16 @@ static const uint8_t *parse_seq_parameter_set(Edge264_stream *e, int nal_ref_idc
 		}
 		
 		// Separate bit sizes are not hard to implement, thus supported.
-		ctx->ps.BitDepth[0] = 8 + get_ue(6);
-		ctx->ps.BitDepth[1] = ctx->ps.BitDepth[2] = 8 + get_ue(6);
+		ctx->ps.BitDepth_Y = 8 + get_ue(6);
+		ctx->ps.BitDepth_C = 8 + get_ue(6);
 		ctx->ps.qpprime_y_zero_transform_bypass_flag = get_u1();
 		seq_scaling_matrix_present_flag = get_u1();
 		printf("<li>BitDepth<sub>Y</sub>: <code>%u</code></li>\n"
 			"<li>BitDepth<sub>C</sub>: <code>%u</code></li>\n"
 			"<li>qpprime_y_zero_transform_bypass_flag: <code>%x</code></li>\n"
 			"<li>seq_scaling_matrix_present_flag: <code>%x</code></li>\n",
-			ctx->ps.BitDepth[0],
-			ctx->ps.BitDepth[1],
+			ctx->ps.BitDepth_Y,
+			ctx->ps.BitDepth_C,
 			ctx->ps.qpprime_y_zero_transform_bypass_flag,
 			seq_scaling_matrix_present_flag);
 	}
@@ -1119,8 +1119,8 @@ static const uint8_t *parse_seq_parameter_set(Edge264_stream *e, int nal_ref_idc
 	int gaps_in_frame_num_value_allowed_flag = get_u1();
 	ctx->ps.width = (get_ue(543) + 1) << 4;
 	// An offset might be added if 2048-wide videos actually suffer from cache alignment.
-	ctx->ps.stride_Y = ctx->ps.width << ((ctx->ps.BitDepth[0] - 1) >> 3);
-	int width_C = (ctx->ps.chroma_format_idc == 0) ? 0 : ctx->ps.width << ((ctx->ps.BitDepth[1] - 1) >> 3);
+	ctx->ps.stride_Y = ctx->ps.width << ((ctx->ps.BitDepth_Y - 1) >> 3);
+	int width_C = (ctx->ps.chroma_format_idc == 0) ? 0 : ctx->ps.width << ((ctx->ps.BitDepth_C - 1) >> 3);
 	ctx->ps.stride_C = (ctx->ps.chroma_format_idc == 3) ? width_C : width_C >> 1;
 	int pic_height_in_map_units = get_ue16() + 1;
 	ctx->ps.frame_mbs_only_flag = get_u1();

@@ -31,7 +31,8 @@
 #include <stdint.h>
 
 typedef struct {
-	int8_t BitDepth[3]; // 4 significant bits
+	int8_t BitDepth_Y; // 4 significant bits
+	int8_t BitDepth_C;
 	int8_t max_num_ref_frames;
 	int16_t width; // in luma samples, 14 significant bits
 	int16_t height;

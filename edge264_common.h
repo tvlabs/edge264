@@ -135,7 +135,9 @@ typedef struct {
 	Edge264_snapshot s;
 	
 	// cache variables - usually results of nasty optimisations, so should be few :)
-	uint8_t BlkIdx;
+	int8_t BlkIdx;
+	int8_t BitDepth;
+	int16_t stride;
 	uint32_t mvd_flags;
 	uint32_t mvd_fold;
 	uint32_t ref_idx_mask;
@@ -147,6 +149,7 @@ typedef struct {
 	union { uint8_t last_inc[64]; uint64_t last_inc_l; v16qu last_inc_v[4]; };
 	union { uint8_t scan[64]; uint64_t scan_l; v16qu scan_v[4]; };
 	union { int32_t residual_block[64]; v4si residual_block_v[16]; };
+	int32_t plane_offsets[48];
 	
 	// context pointers
 	int16_t x; // 14 significant bits
@@ -158,6 +161,7 @@ typedef struct {
 	union { int8_t q; uint16_t h[2]; uint32_t s; } *refIdx;
 	const v8hi *mvCol;
 	const uint8_t *mbCol;
+	uint8_t *planes[3];
 	
 	// large stuff
 	v16qu states[64];

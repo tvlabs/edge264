@@ -941,7 +941,7 @@ static __attribute__((noinline)) void parse_mb_qp_delta(unsigned bits) {
 				count++, ctxIdx = 63;
 			mb_qp_delta = map_se(count);
 			int QP = ctx->ps.QP_Y + mb_qp_delta;
-			int QpBdOffset_Y = (ctx->ps.BitDepth[0] - 8) * 6;
+			int QpBdOffset_Y = (ctx->ps.BitDepth_Y - 8) * 6;
 			ctx->ps.QP_Y = (QP < -QpBdOffset_Y) ? QP + 52 + QpBdOffset_Y :
 				(QP >= 52) ? QP - (52 + QpBdOffset_Y) : QP;
 		}
@@ -1100,6 +1100,11 @@ static __attribute__((noinline)) int parse_Intra16x16_residual() {
 
 
 
+/**
+ * This block is dedicated to the parsing of Intra_NxN and Inter_NxN, since they
+ * share much in common. Only a short branch lets Inter mode cache prediction
+ * samples ahead of decoding.
+ */
 static __attribute__((noinline)) int parse_NxN_residual() {
 	static const v4hi ctxIdxOffsets_4x4[3][2] = {
 		{{93, 134, 195, 247}, {93, 306, 367, 247}}, // ctxBlockCat==2
@@ -1114,16 +1119,19 @@ static __attribute__((noinline)) int parse_NxN_residual() {
 	static const uint32_t cbf_8x8[4] = {0x04018408, 0x20300110, 0x100c0044, 0x01003081};
 	
 	parse_mb_qp_delta(ctx->f.s);
+	
+	// next few blocks will share many parameters, so we cache a LOT of them 
+	ctx->BitDepth = ctx->ps.BitDepth_Y;
+	ctx->stride = ctx->ps.stride_Y;
 	ctx->BlkIdx = ctx->colour_plane_id << 4;
 	do {
 		int mb_field_decoding_flag = ctx->f.mb_field_decoding_flag;
-		
-		// Sixteen 4x4 residual blocks?
 		if (!ctx->f.transform_size_8x8_flag) {
 			ctx->ctxIdxOffsets_l = ctxIdxOffsets_4x4[ctx->BlkIdx >> 4][mb_field_decoding_flag];
 			ctx->scan_v[0] = scan_4x4[mb_field_decoding_flag];
 			ctx->sig_inc_v[0] = ctx->last_inc_v[0] = sig_inc_4x4;
 			
+			// we decode each residual block right after parsing to keep a single loop
 			do {
 				ctx->residual_block_v[3] = ctx->residual_block_v[2] = ctx->residual_block_v[1] = ctx->residual_block_v[0] = (v4si){};
 				unsigned coded_block_flag = 0;
@@ -1131,19 +1139,19 @@ static __attribute__((noinline)) int parse_NxN_residual() {
 					coded_block_flag = get_ae(ctx->ctxIdxOffsets[0] + (ctx->coded_block_flags[0] >> left_4x4[ctx->BlkIdx] & 3)) << bit_4x4[ctx->BlkIdx];
 				parse_residual_block(coded_block_flag, 15);
 			} while (++ctx->BlkIdx & 15);
-		
-		// Or four 8x8 residual blocks :)
 		} else {
+			
+			// These intermediate variables mean less dependence on compiler optimisations.
 			ctx->ctxIdxOffsets_l = ctxIdxOffsets_8x8[ctx->BlkIdx >> 4][mb_field_decoding_flag];
 			const v16qu *p = sig_inc_8x8[mb_field_decoding_flag];
 			const v16qu *r = scan_8x8[mb_field_decoding_flag];
 			for (int i = 0; i < 4; i++) {
-				v16qu a = p[i], b = last_inc_8x8[i], c = r[i];
-				ctx->sig_inc_v[i] = a;
-				ctx->last_inc_v[i] = b;
-				ctx->scan_v[i] = c;
+				ctx->sig_inc_v[i] = p[i];
+				ctx->last_inc_v[i] = last_inc_8x8[i];
+				ctx->scan_v[i] = r[i];
 			}
 			
+			// I'm not quite sure how to best code the ChromaArrayType bypass condition.
 			do {
 				for (int i = 0; i < 16; i++)
 					ctx->residual_block_v[i] = (v4si){};
@@ -1152,15 +1160,18 @@ static __attribute__((noinline)) int parse_NxN_residual() {
 				if (ctx->f.s & 1 << bit_8x8[luma8x8BlkIdx]) {
 					coded_block_flag = cbf_8x8[luma8x8BlkIdx];
 					if (ctx->ps.ChromaArrayType == 3)
-						coded_block_flag *= get_ae(ctx->ctxIdxOffsets[0] + (ctx->coded_block_flags[0] >> left_8x8[luma8x8BlkIdx] & 3));
+						coded_block_flag &= -get_ae(ctx->ctxIdxOffsets[0] + (ctx->coded_block_flags[0] >> left_8x8[luma8x8BlkIdx] & 3));
 				}
 				parse_residual_block(coded_block_flag, 63);
 			} while ((ctx->BlkIdx += 4) & 15);
 		}
 		
+		// nice optimisation for 4:4:4 modes
 		if (ctx->ps.ChromaArrayType != 3)
 			return parse_chroma_residual();
 		ctx->f_v = __builtin_shufflevector(ctx->f_v, ctx->f_v, 0, 2, 3, 1);
+		ctx->BitDepth = ctx->ps.BitDepth_C;
+		ctx->stride = ctx->ps.stride_C;
 	} while (ctx->BlkIdx < 48);
 	return 0;
 }
@@ -1394,9 +1405,9 @@ static __attribute__((noinline)) int parse_intra_mb(int ctxIdx) {
 		ctx->mb_qp_delta_non_zero = 0;
 		refill((ctx->shift - (SIZE_BIT - 9 - clz(codIRange)) + 7) & -8, 0);
 		for (int i = 0; i < 256; i++)
-			get_uv(ctx->ps.BitDepth[0]);
+			get_uv(ctx->ps.BitDepth_Y);
 		for (int i = 0; i < (1 << ctx->ps.ChromaArrayType >> 1) * 128; i++)
-			get_uv(ctx->ps.BitDepth[1]);
+			get_uv(ctx->ps.BitDepth_C);
 		return 0;
 	}
 }
@@ -1527,7 +1538,7 @@ __attribute__((noinline)) void CABAC_parse_slice_data()
 		.unavailable = 1,
 	};
 	
-	// Initialise the CABAC engine.
+	// initialise the CABAC engine
 	ctx->range = codIRange;
 	ctx->offset = codIOffset;
 	codIRange = (size_t)255 << (SIZE_BIT - 9);
@@ -1596,6 +1607,9 @@ __attribute__((noinline)) void CABAC_parse_slice_data()
 			ctx->refIdx++;
 			ctx->mvs += 2;
 			ctx->absMvdComp++;
+			ctx->planes[0] += ctx->plane_offsets[4] * 2;
+			ctx->planes[2] += ctx->plane_offsets[20] * 2;
+			ctx->planes[2] += ctx->plane_offsets[20] * 2;
 			ctx->x += 16;
 			
 			// Have we reached the end of a line?
@@ -1606,6 +1620,9 @@ __attribute__((noinline)) void CABAC_parse_slice_data()
 				ctx->refIdx -= PicWidthInMbs + 4;
 				ctx->mvs -= PicWidthInMbs * 2 + 16;
 				ctx->absMvdComp -= PicWidthInMbs + 8;
+				ctx->planes[0] += ctx->ps.stride_Y << 4;
+				ctx->planes[1] += ctx->ps.stride_C << 4;
+				ctx->planes[2] += ctx->ps.stride_C << 4;
 				ctx->x = 0;
 				if ((ctx->y += 16) >= ctx->ps.height >> ctx->field_pic_flag)
 					break;

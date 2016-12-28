@@ -517,6 +517,19 @@ static const uint8_t *parse_slice_layer_without_partitioning(Edge264_stream *e,
 		}
 	}
 	
+	// some last common initialisation before the actual decoding
+	int pixel_Y = ctx->ps.BitDepth_Y > 8;
+	int pixel_C = ctx->ps.BitDepth_C > 8;
+	for (int i = 0; i < 16; i++) {
+		int x = (i << 2 & 4) | (i << 1 & 8);
+		int y = (i << 1 & 4) | (i & 8);
+		ctx->plane_offsets[i] = y * e->stride_Y + (x << pixel_Y);
+		ctx->plane_offsets[16 + i] = ctx->plane_offsets[32 + i] = y * e->stride_C + (x << pixel_C);
+	}
+	ctx->planes[0] = &e->DPB[ctx->s.currPic * e->frame_size];
+	ctx->planes[1] = ctx->planes[0] + e->plane_Y;
+	ctx->planes[2] = ctx->planes[1] + e->plane_C;
+	
 	// cabac_alignment_one_bit gives a good probability to catch random errors.
 	if (ctx->ps.entropy_coding_mode_flag) {
 		unsigned alignment = ctx->shift & 7;
@@ -1001,7 +1014,7 @@ static const uint8_t *parse_seq_parameter_set(Edge264_stream *e, int nal_ref_idc
 	};
 	static const char * const chroma_format_idc_names[4] = {"4:0:0", "4:2:0", "4:2:2", "4:4:4"};
 	
-	// Without error codes, unsupported profiles are silently ignored.
+	// Profiles are annoyingly complicated, thus ignored.
 	int profile_idc = get_uv(8);
 	unsigned constraint_set_flags = get_uv(8);
 	int level_idc = get_uv(8);
@@ -1025,24 +1038,26 @@ static const uint8_t *parse_seq_parameter_set(Edge264_stream *e, int nal_ref_idc
 		(double)level_idc / 10,
 		red_if(seq_parameter_set_id != 0), seq_parameter_set_id);
 	
-	// At this level in code, assigning bitfields is preferred over ORing them.
-	ctx->ps.chroma_format_idc = ctx->ps.ChromaArrayType = 1;
-	ctx->ps.BitDepth_Y = ctx->ps.BitDepth_C = 8;
+	// These writes could be merged, but this is too early in code to hard-code them.
+	ctx->ps.chroma_format_idc = 1;
+	ctx->ps.ChromaArrayType = 1;
+	ctx->ps.BitDepth_Y = 8;
+	ctx->ps.BitDepth_C = 8;
 	int seq_scaling_matrix_present_flag = 0;
 	if (profile_idc != 66 && profile_idc != 77 && profile_idc != 88) {
 		ctx->ps.ChromaArrayType = ctx->ps.chroma_format_idc = get_ue(3);
 		printf("<li>chroma_format_idc: <code>%u (%s)</code></li>\n",
 			ctx->ps.chroma_format_idc, chroma_format_idc_names[ctx->ps.chroma_format_idc]);
 		
-		// Separate colour planes will be supported with slices, so code should need minimal changes
+		// Separate colour planes will be supported with slices, so code should need minimal changes.
 		if (ctx->ps.chroma_format_idc == 3) {
-			ctx->ps.separate_colour_plane_flag = get_u1();
-			ctx->ps.ChromaArrayType &= ctx->ps.separate_colour_plane_flag - 1;
+			int separate_colour_plane_flag = get_u1();
+			ctx->ps.ChromaArrayType = separate_colour_plane_flag ? 0 : 3;
 			printf("<li%s>separate_colour_plane_flag: <code>%x</code></li>\n",
-				red_if(ctx->ps.separate_colour_plane_flag), ctx->ps.separate_colour_plane_flag);
+				red_if(separate_colour_plane_flag), separate_colour_plane_flag);
 		}
 		
-		// Separate bit sizes are not hard to implement, thus supported.
+		// Separate bit sizes are not too hard to implement, thus supported.
 		ctx->ps.BitDepth_Y = 8 + get_ue(6);
 		ctx->ps.BitDepth_C = 8 + get_ue(6);
 		ctx->ps.qpprime_y_zero_transform_bypass_flag = get_u1();
@@ -1118,10 +1133,6 @@ static const uint8_t *parse_seq_parameter_set(Edge264_stream *e, int nal_ref_idc
 	ctx->ps.max_num_ref_frames = ctx->ps.max_num_reorder_frames = get_ue(16);
 	int gaps_in_frame_num_value_allowed_flag = get_u1();
 	ctx->ps.width = (get_ue(543) + 1) << 4;
-	// An offset might be added if 2048-wide videos actually suffer from cache alignment.
-	ctx->ps.stride_Y = ctx->ps.width << ((ctx->ps.BitDepth_Y - 1) >> 3);
-	int width_C = (ctx->ps.chroma_format_idc == 0) ? 0 : ctx->ps.width << ((ctx->ps.BitDepth_C - 1) >> 3);
-	ctx->ps.stride_C = (ctx->ps.chroma_format_idc == 3) ? width_C : width_C >> 1;
 	int pic_height_in_map_units = get_ue16() + 1;
 	ctx->ps.frame_mbs_only_flag = get_u1();
 	ctx->ps.height = min((ctx->ps.frame_mbs_only_flag) ? pic_height_in_map_units :
@@ -1168,26 +1179,30 @@ static const uint8_t *parse_seq_parameter_set(Edge264_stream *e, int nal_ref_idc
 	}
 	if (get_u1())
 		parse_vui_parameters();
-	if (get_uv(24) != 0x800000 || seq_parameter_set_id > 0 || ctx->ps.separate_colour_plane_flag) {
+	if (get_uv(24) != 0x800000 || seq_parameter_set_id > 0 || ctx->ps.chroma_format_idc != ctx->ps.ChromaArrayType) {
 		e->error = -1;
 		return NULL;
 	}
 	
 	// Reallocate the DPB when the image format changes.
-	if (ctx->ps.chroma_format_idc != e->SPS.chroma_format_idc || memcmp(&ctx->ps, &e->SPS, 8) != 0) {
-		int PicSizeInMbs = ctx->ps.width * ctx->ps.height >> 8;
-		int pixY = ctx->ps.stride_Y * ctx->ps.height;
-		int pixC = ctx->ps.stride_C * (ctx->ps.chroma_format_idc < 2 ? ctx->ps.height : ctx->ps.height << 1);
-		int mvs = PicSizeInMbs << 6;
-		int refs = PicSizeInMbs << 2;
-		int flags = PicSizeInMbs;
-		
-		// (DPB != NULL) is used as indicator that the SPS is initialised.
+	if (memcmp(&ctx->ps, &e->SPS, 8) != 0) {
 		if (e->DPB != NULL) {
 			free(e->DPB);
 			memset(e, 0, sizeof(*e));
 		}
-		e->DPB = malloc(((pixY + pixC + mvs + refs + flags + 15) & -16) * (ctx->ps.max_num_ref_frames + 1));
+		int width_Y = ctx->ps.width;
+		int width_C = ctx->ps.chroma_format_idc == 0 ? 0 : ctx->ps.chroma_format_idc == 3 ? width_Y : width_Y >> 1;
+		int height_Y = ctx->ps.height;
+		int height_C = ctx->ps.chroma_format_idc < 2 ? height_Y >> 1 : height_Y;
+		int PicSizeInMbs = width_Y * height_Y >> 8;
+		
+		// An offset might be added if 2048-wide videos actually suffer from cache alignment.
+		e->stride_Y = ctx->ps.BitDepth_Y == 8 ? width_Y : width_Y * 2;
+		e->stride_C = ctx->ps.BitDepth_C == 8 ? width_C : width_C * 2;
+		e->plane_Y = e->stride_Y * height_Y;
+		e->plane_C = e->stride_C * height_C;
+		e->frame_size = (e->plane_Y + e->plane_C * 2 + PicSizeInMbs * 69 + 15) & -16;
+		e->DPB = malloc(1);//e->frame_size * (ctx->ps.max_num_ref_frames + 1));
 	}
 	e->SPS = ctx->ps;
 	memcpy(e->PicOrderCntDeltas, PicOrderCntDeltas, (ctx->ps.num_ref_frames_in_pic_order_cnt_cycle + 1) << 2);
@@ -1245,9 +1260,10 @@ const uint8_t *Edge264_decode_NAL(Edge264_stream *e, const uint8_t *CPB, size_t 
 		red_if(parse_nal_unit[nal_unit_type] == NULL), nal_unit_type, nal_unit_type_names[nal_unit_type]);
 	
 	// allocate and initialise the decoding context
-	Edge264_ctx *old = ctx, context;
+	Edge264_ctx *old = ctx, context = {}; // zeroing should be removed eventually
 	ctx = &context;
-	memset(ctx, 0, sizeof(Edge264_ctx)); // should be removed in the future
+	ctx->range = codIRange;
+	ctx->offset = codIOffset;
 	ctx->CPB = CPB + 3;
 	ctx->end = CPB + len;
 	ctx->RBSP[1] = CPB[1] << 8 | CPB[2];
@@ -1264,6 +1280,8 @@ const uint8_t *Edge264_decode_NAL(Edge264_stream *e, const uint8_t *CPB, size_t 
 	
 	// finish with a little tail call :)
 	len = ctx->end - CPB;
+	codIRange = ctx->range;
+	codIOffset = ctx->offset;
 	ctx = old;
 	return Edge264_find_start_code(1, CPB, len);
 }

@@ -31,31 +31,31 @@
 #include <stdint.h>
 
 typedef struct {
+	// The first 8 bytes define the frame buffer size and format.
+	int8_t chroma_format_idc; // 2 significant bits
 	int8_t BitDepth_Y; // 4 significant bits
 	int8_t BitDepth_C;
-	int8_t max_num_ref_frames;
+	int8_t max_num_ref_frames; // 5 significant bits
 	int16_t width; // in luma samples, 14 significant bits
 	int16_t height;
-	int16_t stride_Y; // in bytes, 15 significant bits
-	int16_t stride_C;
-	uint32_t chroma_format_idc:2;
-	uint32_t separate_colour_plane_flag:1;
-	uint32_t ChromaArrayType:2;
-	uint32_t qpprime_y_zero_transform_bypass_flag:1;
-	uint32_t pic_order_cnt_type:2;
-	uint32_t delta_pic_order_always_zero_flag:1; // pic_order_cnt_type==1
-	uint32_t frame_mbs_only_flag:1;
-	uint32_t mb_adaptive_frame_field_flag:1;
-	uint32_t direct_8x8_inference_flag:1;
-	uint32_t entropy_coding_mode_flag:1;
-	uint32_t bottom_field_pic_order_in_frame_present_flag:1;
-	uint32_t weighted_pred:3;
-	uint32_t deblocking_filter_control_present_flag:1;
-	uint32_t constrained_intra_pred_flag:1;
-	uint32_t transform_8x8_mode_flag:1;
-	uint32_t num_ref_frames_in_pic_order_cnt_cycle:8; // pic_order_cnt_type==1
+	
+	// The rest is internal stuff.
+	uint16_t qpprime_y_zero_transform_bypass_flag:1;
+	uint16_t pic_order_cnt_type:2;
+	uint16_t delta_pic_order_always_zero_flag:1; // pic_order_cnt_type==1
+	uint16_t frame_mbs_only_flag:1;
+	uint16_t mb_adaptive_frame_field_flag:1;
+	uint16_t direct_8x8_inference_flag:1;
+	uint16_t entropy_coding_mode_flag:1;
+	uint16_t bottom_field_pic_order_in_frame_present_flag:1;
+	uint16_t weighted_pred:3;
+	uint16_t deblocking_filter_control_present_flag:1;
+	uint16_t constrained_intra_pred_flag:1;
+	uint16_t transform_8x8_mode_flag:1;
+	int8_t ChromaArrayType; // 2 significant bits
 	int8_t log2_max_frame_num; // 5 significant bits
 	int8_t log2_max_pic_order_cnt_lsb; // 5 significant bits, pic_order_cnt_type==0
+	int8_t num_ref_frames_in_pic_order_cnt_cycle; // pic_order_cnt_type==1
 	int8_t max_num_reorder_frames; // 5 significant bits
 	int8_t num_ref_idx_active[2]; // 6 significant bits
 	int8_t QP_Y; // 7 significant bits
@@ -83,10 +83,15 @@ typedef struct {
 } Edge264_snapshot;
 
 typedef struct {
-	void (*output_frame)(int);
 	uint8_t *DPB;
+	void (*output_frame)(int);
 	int8_t error;
 	uint16_t output_flags;
+	int16_t stride_Y;
+	int16_t stride_C;
+	int32_t plane_Y;
+	int32_t plane_C;
+	int32_t frame_size;
 	int32_t FieldOrderCnt[32]; // lower/higher half for top/bottom fields
 	Edge264_snapshot now;
 	Edge264_parameter_set SPS;

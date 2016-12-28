@@ -744,33 +744,6 @@ static const union { uint8_t q[8]; uint64_t l; } scan_chromaDC[2][2] = {
 
 
 /**
- * Set the initial values for CABAC states using vector code (9.3.1.1).
- *
- * Considering the bottleneck of memory access, this is probably just as fast
- * as copying from precomputed values. Please refrain from providing a default,
- * unoptimised version.
- */
-#ifdef __SSSE3__
-static void init_context_variables() {
-	__m128i mul = _mm_set1_epi16(max(ctx->ps.QP_Y, 0) + 4096);
-	const __m128i *src = (__m128i *)context_init[ctx->cabac_init_idc];
-	for (__m128i *dst = (__m128i*)ctx->states; dst < (__m128i*)ctx->states + 64; dst++, src += 2) {
-		__m128i sum0 = _mm_srai_epi16(_mm_maddubs_epi16(mul, src[0]), 4);
-		__m128i sum1 = _mm_srai_epi16(_mm_maddubs_epi16(mul, src[1]), 4);
-		__m128i min = _mm_min_epu8(_mm_packus_epi16(sum0, sum1), _mm_set1_epi8(126));
-		__m128i mask = _mm_cmpgt_epi8(_mm_set1_epi8(64), min);
-		__m128i preCtxState = _mm_max_epu8(min, _mm_set1_epi8(1));
-		__m128i pStateIdx = _mm_xor_si128(preCtxState, mask);
-		__m128i shift = _mm_add_epi8(pStateIdx, pStateIdx);
-		*dst = _mm_add_epi8(_mm_add_epi8(shift, shift), _mm_add_epi8(mask, _mm_set1_epi8(1)));
-	}
-	((uint8_t*)ctx->states)[276] = 252;
-}
-#endif
-
-
-
-/**
  * This function parses a group of significant_flags, then the corresponding
  * sequence of coeff_abs_level_minus1/coeff_sign_flag pairs (9.3.2.3).
  *
@@ -1122,7 +1095,7 @@ static __attribute__((noinline)) int parse_NxN_residual() {
 	
 	// next few blocks will share many parameters, so we cache a LOT of them 
 	ctx->BitDepth = ctx->ps.BitDepth_Y;
-	ctx->stride = ctx->ps.stride_Y;
+	ctx->stride = ctx->plane_offsets[2] >> 2;
 	ctx->BlkIdx = ctx->colour_plane_id << 4;
 	do {
 		int mb_field_decoding_flag = ctx->f.mb_field_decoding_flag;
@@ -1171,7 +1144,7 @@ static __attribute__((noinline)) int parse_NxN_residual() {
 			return parse_chroma_residual();
 		ctx->f_v = __builtin_shufflevector(ctx->f_v, ctx->f_v, 0, 2, 3, 1);
 		ctx->BitDepth = ctx->ps.BitDepth_C;
-		ctx->stride = ctx->ps.stride_C;
+		ctx->stride = ctx->plane_offsets[18] >> 2;
 	} while (ctx->BlkIdx < 48);
 	return 0;
 }
@@ -1522,7 +1495,7 @@ static __attribute__((noinline)) int parse_inter_mb()
  * macroblocks of a slice, setting their neighbouring data and calling
  * parse_inter/intra_mb for each one.
  */
-__attribute__((noinline)) void CABAC_parse_slice_data()
+static __attribute__((noinline)) int PAFF_parse_slice_data()
 {
 	static const Edge264_flags unavail_mb = {
 		.mb_skip_flag = 1,
@@ -1538,97 +1511,119 @@ __attribute__((noinline)) void CABAC_parse_slice_data()
 		.unavailable = 1,
 	};
 	
-	// initialise the CABAC engine
-	ctx->range = codIRange;
-	ctx->offset = codIOffset;
+	// I cannot be sure where to put this initialisation until CAVLC is implemented
+	ctx->ctxIdxInc.unavailable |= 2;
+	ctx->cbf_maskA = (v4si){0, 0x42404202, 0x42404202, 0x42404202};
+	ctx->cbf_maskB = (v4si){0, 0x88820820, 0x88820820, 0x88820820};
+	if (ctx->ps.ChromaArrayType != 3)
+		ctx->cbf_maskA[2] = 0x24902490, ctx->cbf_maskB[2] = 0x50005000;
+	int PicHeightInMbs = ctx->ps.height / 16 >> ctx->field_pic_flag;
+	int PicWidthInMbs = ctx->ps.width / 16;
+	int mb_y = PicHeightInMbs - 1 - ctx->y / 16;
+	int mb_x = ctx->x / 16;
+	
+	// Create the circular buffers and position their pointers.
+	v4su flags[PicWidthInMbs + 2];
+	for (int u = 0; u < PicWidthInMbs + 2; u++)
+		flags[u] = (v4su){unavail_mb.s, 0, 0, 0};
+	ctx->flags = &flags[mb_x + 1];
+	uint32_t Intra4x4PredMode[mb_y + PicWidthInMbs + 2];
+	memset(Intra4x4PredMode, -2, sizeof(Intra4x4PredMode));
+	ctx->Intra4x4PredMode = &Intra4x4PredMode[mb_y + mb_x + 1];
+	uint32_t refIdx[mb_y * 4 + PicWidthInMbs + 6];
+	memset(refIdx, -1, sizeof(refIdx));
+	ctx->refIdx = (void*)&refIdx[mb_y * 4 + mb_x + 1];
+	v8hi mvs[mb_y * 16 + PicWidthInMbs * 2 + 18];
+	memset(mvs, 0, sizeof(mvs));
+	ctx->mvs = &mvs[mb_y * 16 + mb_x * 2 + 1];
+	v16qu absMvdComp[mb_y * 8 + PicWidthInMbs + 9];
+	memset(absMvdComp, 0, sizeof(absMvdComp));
+	ctx->absMvdComp = &absMvdComp[mb_y * 8 + mb_x + 1];
+	
+	// This outer loop is the differentiator between MBAFF and PAFF.
+	do {
+		fprintf(stderr, "\n********** %u **********\n", ctx->ps.width * ctx->y / 256 + ctx->x / 16);
+		ctx->f_v = (ctx->flags[-1] << (v4su){1, 1, 1, 1} & (v4su){0x42000000, 0x42404202, 0x42404202, 0x42404202}) |
+		(ctx->flags[0] << (v4su){3, 3, 3, 3} & (v4su){0x88000000, 0x88000000, 0x88000000, 0x88000000}) |
+		(ctx->flags[0] << (v4su){5, 5, 5, 5} & (v4su){0, 0x820820, 0x820820, 0x820820});
+		if (ctx->ps.ChromaArrayType != 3) {
+			ctx->coded_block_flags[1] = (ctx->flags[-1][2] << 4 & 0x24902490) |
+			(ctx->flags[0][2] << (ctx->ps.ChromaArrayType * 6) & 0x50005000);
+		}
+		ctx->ctxIdxInc.s = ((ctx->flags[-1][0] + ctx->flags[0][0] + (ctx->flags[0][0] & twice.s)) & 0xffffff) |
+		((ctx->flags[1][0] & 0x400000) | (ctx->ctxIdxInc.s & 0x800000)) << 2;
+		
+		// P/B slices have some more initialisation.
+		if (ctx->slice_type > 1) {
+			parse_intra_mb(5 - ctx->ctxIdxInc.mb_type_I_NxN);
+		} else {
+			ctx->refIdx[0].s = ctx->refIdx[2].s = -1;
+			v16qu *v = ctx->absMvdComp;
+			v[0] = v[2] = v[4] = v[6] = (v16qu){};
+			ctx->f.mb_skip_flag |= get_ae(13 + 13 * ctx->slice_type - ctx->ctxIdxInc.mb_skip_flag);
+			fprintf(stderr, "mb_skip_flag: %x\n", ctx->f.mb_skip_flag);
+			parse_inter_mb();
+		}
+		
+		// Point to the next macroblock
+		ctx->s.decoded_mbs++;
+		*ctx->flags++ = ctx->f_v;
+		ctx->Intra4x4PredMode++;
+		ctx->refIdx++;
+		ctx->mvs += 2;
+		ctx->absMvdComp++;
+		ctx->planes[0] += ctx->plane_offsets[4] * 2;
+		ctx->planes[2] += ctx->plane_offsets[20] * 2;
+		ctx->planes[2] += ctx->plane_offsets[20] * 2;
+		ctx->x += 16;
+		
+		// Have we reached the end of a line?
+		if (ctx->x == ctx->ps.width) {
+			PicWidthInMbs = ctx->ps.width / 16;
+			ctx->flags -= PicWidthInMbs;
+			ctx->Intra4x4PredMode -= PicWidthInMbs + 1;
+			ctx->refIdx -= PicWidthInMbs + 4;
+			ctx->mvs -= PicWidthInMbs * 2 + 16;
+			ctx->absMvdComp -= PicWidthInMbs + 8;
+			ctx->planes[0] += ctx->plane_offsets[8] * 2;
+			ctx->planes[1] += ctx->plane_offsets[8] * 2;
+			ctx->planes[2] += ctx->plane_offsets[8] * 2;
+			ctx->x = 0;
+			if ((ctx->y += 16) >= ctx->ps.height >> ctx->field_pic_flag)
+				break;
+		}
+	} while (!get_ae(276));
+	return 0;
+}
+
+
+
+/**
+ * Initialise the CABAC decoding engine and set the initial context values using
+ * vector code (9.3.1.1).
+ *
+ * Considering the bottleneck of memory access, this is probably just as fast
+ * as copying from precomputed values. Please refrain from providing a default,
+ * unoptimised version.
+ */
+__attribute__((noinline)) int CABAC_parse_slice_data() {
 	codIRange = (size_t)255 << (SIZE_BIT - 9);
 	codIOffset = get_uv(SIZE_BIT - 1);
-	init_context_variables();
 	
-	// Mbaff shares all of the above functions except the code below.
-	if (!ctx->MbaffFrameFlag) {
-		ctx->ctxIdxInc.unavailable |= 2;
-		ctx->cbf_maskA = (v4si){0, 0x42404202, 0x42404202, 0x42404202};
-		ctx->cbf_maskB = (v4si){0, 0x88820820, 0x88820820, 0x88820820};
-		if (ctx->ps.ChromaArrayType != 3)
-			ctx->cbf_maskA[2] = 0x24902490, ctx->cbf_maskB[2] = 0x50005000;
-		int PicHeightInMbs = ctx->ps.height / 16 >> ctx->field_pic_flag;
-		int PicWidthInMbs = ctx->ps.width / 16;
-		int mb_y = PicHeightInMbs - 1 - ctx->y / 16;
-		int mb_x = ctx->x / 16;
-		
-		// Create the circular buffers and position their pointers.
-		v4su flags[PicWidthInMbs + 2];
-		for (int u = 0; u < PicWidthInMbs + 2; u++)
-			flags[u] = (v4su){unavail_mb.s, 0, 0, 0};
-		ctx->flags = &flags[mb_x + 1];
-		uint32_t Intra4x4PredMode[mb_y + PicWidthInMbs + 2];
-		memset(Intra4x4PredMode, -2, sizeof(Intra4x4PredMode));
-		ctx->Intra4x4PredMode = &Intra4x4PredMode[mb_y + mb_x + 1];
-		uint32_t refIdx[mb_y * 4 + PicWidthInMbs + 6];
-		memset(refIdx, -1, sizeof(refIdx));
-		ctx->refIdx = (void*)&refIdx[mb_y * 4 + mb_x + 1];
-		v8hi mvs[mb_y * 16 + PicWidthInMbs * 2 + 18];
-		memset(mvs, 0, sizeof(mvs));
-		ctx->mvs = &mvs[mb_y * 16 + mb_x * 2 + 1];
-		v16qu absMvdComp[mb_y * 8 + PicWidthInMbs + 9];
-		memset(absMvdComp, 0, sizeof(absMvdComp));
-		ctx->absMvdComp = &absMvdComp[mb_y * 8 + mb_x + 1];
-		
-		do {
-			fprintf(stderr, "\n********** %u **********\n", ctx->ps.width * ctx->y / 256 + ctx->x / 16);
-			ctx->f_v = (ctx->flags[-1] << (v4su){1, 1, 1, 1} & (v4su){0x42000000, 0x42404202, 0x42404202, 0x42404202}) |
-				(ctx->flags[0] << (v4su){3, 3, 3, 3} & (v4su){0x88000000, 0x88000000, 0x88000000, 0x88000000}) |
-				(ctx->flags[0] << (v4su){5, 5, 5, 5} & (v4su){0, 0x820820, 0x820820, 0x820820});
-			if (ctx->ps.ChromaArrayType != 3) {
-				ctx->coded_block_flags[1] = (ctx->flags[-1][2] << 4 & 0x24902490) |
-					(ctx->flags[0][2] << (ctx->ps.ChromaArrayType * 6) & 0x50005000);
-			}
-			ctx->ctxIdxInc.s = ((ctx->flags[-1][0] + ctx->flags[0][0] + (ctx->flags[0][0] & twice.s)) & 0xffffff) |
-				((ctx->flags[1][0] & 0x400000) | (ctx->ctxIdxInc.s & 0x800000)) << 2;
-			
-			// P/B slices have some more initialisation.
-			if (ctx->slice_type > 1) {
-				parse_intra_mb(5 - ctx->ctxIdxInc.mb_type_I_NxN);
-			} else {
-				ctx->refIdx[0].s = ctx->refIdx[2].s = -1;
-				v16qu *v = ctx->absMvdComp;
-				v[0] = v[2] = v[4] = v[6] = (v16qu){};
-				ctx->f.mb_skip_flag |= get_ae(13 + 13 * ctx->slice_type -
-					ctx->ctxIdxInc.mb_skip_flag);
-				fprintf(stderr, "mb_skip_flag: %x\n", ctx->f.mb_skip_flag);
-				parse_inter_mb();
-			}
-			
-			// Point to the next macroblock
-			ctx->s.decoded_mbs++;
-			*ctx->flags++ = ctx->f_v;
-			ctx->Intra4x4PredMode++;
-			ctx->refIdx++;
-			ctx->mvs += 2;
-			ctx->absMvdComp++;
-			ctx->planes[0] += ctx->plane_offsets[4] * 2;
-			ctx->planes[2] += ctx->plane_offsets[20] * 2;
-			ctx->planes[2] += ctx->plane_offsets[20] * 2;
-			ctx->x += 16;
-			
-			// Have we reached the end of a line?
-			if (ctx->x == ctx->ps.width) {
-				PicWidthInMbs = ctx->ps.width / 16;
-				ctx->flags -= PicWidthInMbs;
-				ctx->Intra4x4PredMode -= PicWidthInMbs + 1;
-				ctx->refIdx -= PicWidthInMbs + 4;
-				ctx->mvs -= PicWidthInMbs * 2 + 16;
-				ctx->absMvdComp -= PicWidthInMbs + 8;
-				ctx->planes[0] += ctx->ps.stride_Y << 4;
-				ctx->planes[1] += ctx->ps.stride_C << 4;
-				ctx->planes[2] += ctx->ps.stride_C << 4;
-				ctx->x = 0;
-				if ((ctx->y += 16) >= ctx->ps.height >> ctx->field_pic_flag)
-					break;
-			}
-		} while (!get_ae(276));
+#ifdef __SSSE3__
+	__m128i mul = _mm_set1_epi16(max(ctx->ps.QP_Y, 0) + 4096);
+	const __m128i *src = (__m128i *)context_init[ctx->cabac_init_idc];
+	for (__m128i *dst = (__m128i*)ctx->states; dst < (__m128i*)ctx->states + 64; dst++, src += 2) {
+		__m128i sum0 = _mm_srai_epi16(_mm_maddubs_epi16(mul, src[0]), 4);
+		__m128i sum1 = _mm_srai_epi16(_mm_maddubs_epi16(mul, src[1]), 4);
+		__m128i min = _mm_min_epu8(_mm_packus_epi16(sum0, sum1), _mm_set1_epi8(126));
+		__m128i mask = _mm_cmpgt_epi8(_mm_set1_epi8(64), min);
+		__m128i preCtxState = _mm_max_epu8(min, _mm_set1_epi8(1));
+		__m128i pStateIdx = _mm_xor_si128(preCtxState, mask);
+		__m128i shift = _mm_add_epi8(pStateIdx, pStateIdx);
+		*dst = _mm_add_epi8(_mm_add_epi8(shift, shift), _mm_add_epi8(mask, _mm_set1_epi8(1)));
 	}
-	codIRange = ctx->range;
-	codIOffset = ctx->offset;
+#endif
+	((uint8_t*)ctx->states)[276] = 252;
+	return ctx->MbaffFrameFlag ? 0 : PAFF_parse_slice_data();
 }

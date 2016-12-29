@@ -135,6 +135,7 @@ typedef struct {
 	Edge264_snapshot s;
 	
 	// cache variables - usually results of nasty optimisations, so should be few :)
+	uint8_t *plane;
 	int8_t BlkIdx;
 	int8_t BitDepth;
 	int16_t stride;
@@ -148,7 +149,8 @@ typedef struct {
 	union { uint8_t sig_inc[64]; uint64_t sig_inc_l; v16qu sig_inc_v[4]; };
 	union { uint8_t last_inc[64]; uint64_t last_inc_l; v16qu last_inc_v[4]; };
 	union { uint8_t scan[64]; uint64_t scan_l; v16qu scan_v[4]; };
-	union { int32_t residual_block[64]; v4si residual_block_v[16]; };
+	v4si residual_block[16];
+	v4si LevelScale[16];
 	int32_t plane_offsets[48];
 	
 	// context pointers
@@ -328,6 +330,14 @@ static inline int median(int a, int b, int c) { return max(min(max(a, b), c), mi
 #else
 #include <tmmintrin.h>
 #define vector_select(mask, t, f) (((t) & (mask)) | ((f) & ~(mask)))
+static inline __m128i _mm_mullo_epi32(__m128i a, __m128i b) {
+	__m128i c = _mm_shuffle_epi32(a, _MM_SHUFFLE(0, 3, 0, 1));
+	__m128i d = _mm_shuffle_epi32(b, _MM_SHUFFLE(0, 3, 0, 1));
+	__m128i e = _mm_mul_epu32(a, b);
+	__m128i f = _mm_mul_epu32(c, d);
+	__m128 g = _mm_shuffle_ps((__m128)e, (__m128)f, _MM_SHUFFLE(2, 0, 2, 0));
+	return _mm_shuffle_epi32((__m128i)g, _MM_SHUFFLE(3, 1, 2, 0));
+}
 #endif
 static inline __m128i _mm_srl_si128(__m128i m, int count) {
 	static const uint8_t SMask[32] __attribute__((aligned(32))) = {

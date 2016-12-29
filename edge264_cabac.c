@@ -5,7 +5,6 @@
 // TODO: Find a place to set Intra4x4PredMode to 2/-2 when Inter predicting
 
 #include "edge264_common.h"
-//#include "edge264_intra.c"
 
 // cabac_init_idc==0 for I frames.
 static const int8_t context_init[4][1024][2] __attribute__((aligned(16))) = {{
@@ -836,7 +835,7 @@ static __attribute__((noinline)) int parse_residual_block(unsigned coded_block_f
 				"ChromaAC: %d\n", ctx->residual_block[ctx->scan[i]]);
 		} while ((significant_coeff_flags &= significant_coeff_flags - 1) != 0);
 	}
-	return 0;
+	return decode_samples();
 }
 
 
@@ -1075,8 +1074,8 @@ static __attribute__((noinline)) int parse_Intra16x16_residual() {
 
 /**
  * This block is dedicated to the parsing of Intra_NxN and Inter_NxN, since they
- * share much in common. Only a short branch lets Inter mode cache prediction
- * samples ahead of decoding.
+ * share much in common. There is only a short branch for caching Inter
+ * prediction samples.
  */
 static __attribute__((noinline)) int parse_NxN_residual() {
 	static const v4hi ctxIdxOffsets_4x4[3][2] = {
@@ -1093,7 +1092,8 @@ static __attribute__((noinline)) int parse_NxN_residual() {
 	
 	parse_mb_qp_delta(ctx->f.s);
 	
-	// next few blocks will share many parameters, so we cache a LOT of them 
+	// next few blocks will share many parameters, so we cache a LOT of them
+	ctx->plane = ctx->planes[0];
 	ctx->BitDepth = ctx->ps.BitDepth_Y;
 	ctx->stride = ctx->plane_offsets[2] >> 2;
 	ctx->BlkIdx = ctx->colour_plane_id << 4;
@@ -1145,6 +1145,7 @@ static __attribute__((noinline)) int parse_NxN_residual() {
 		ctx->f_v = __builtin_shufflevector(ctx->f_v, ctx->f_v, 0, 2, 3, 1);
 		ctx->BitDepth = ctx->ps.BitDepth_C;
 		ctx->stride = ctx->plane_offsets[18] >> 2;
+		ctx->plane = ctx->planes[ctx->BlkIdx >> 4];
 	} while (ctx->BlkIdx < 48);
 	return 0;
 }

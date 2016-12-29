@@ -48,8 +48,8 @@ static inline __m128i lowpass(__m128i left, __m128i mid, __m128i right) {
 
 
 /**
- * Intra_4x4 decoding is short enough that one can maintain both 8/16bit
- * versions, 16bit being the reference since it does not require unpacking.
+ * For Intra_4x4 we share as much code as possible among 8/16bit, making two
+ * separate functions only when the algorithms are too different.
  */
 static int decode_Horizontal4x4_8bit(uint8_t *p, size_t stride) {
 	static const v16qi shuf = {3, -1, 3, -1, 3, -1, 3, -1, -1, 11, -1, 11, -1, 11, -1, 11};
@@ -166,8 +166,8 @@ static int decode_HorizontalUp4x4_16bit(uint8_t *p, size_t stride) {
 
 
 /**
- * Intra_8x8 filtering is a separate stage requiring all samples be converted
- * to 16bit, so the rest of the code is common to all sizes.
+ * Intra_8x8 has wide functions and many variations of the same prediction
+ * modes, so we focus even more on shared code rather than performance.
  */
 static int decode_Vertical8x8(__m128i topr, __m128i topm, __m128i topl) {
 	__m128i x0 = lowpass(topr, topm, topl);
@@ -869,7 +869,8 @@ static __attribute__((noinline)) int decode_16bit(int BitDepth, int mode, uint8_
 static inline int decode_samples() {
 	int BlkIdx = ctx->BlkIdx;
 	int BitDepth = ctx->BitDepth;
-	uint8_t *p = ctx->planes[BlkIdx >> 4] + ctx->plane_offsets[BlkIdx];
+	int stride = ctx->stride;
+	uint8_t *p = ctx->plane + ctx->plane_offsets[BlkIdx] - stride;
 	return (BitDepth == 8 ? decode_8bit : decode_16bit)
-		(BitDepth, ctx->PredMode[BlkIdx], p, ctx->stride, _mm_setzero_si128());
+		(BitDepth, ctx->PredMode[BlkIdx], p, stride, _mm_setzero_si128());
 }

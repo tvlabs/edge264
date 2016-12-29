@@ -11,6 +11,9 @@
 // TODO: Detect rbsp_slice_trailing_bits
 
 #include "edge264_common.h"
+#ifdef __SSSE3__
+#include "edge264_intra.c"
+#endif
 #include "edge264_cabac.c"
 
 
@@ -382,7 +385,7 @@ static __attribute__((noinline)) void bump_pictures(Edge264_stream *e) {
  * through bumping.
  *
  * As with parameter sets, parsing the slice header updates a local snapshot
- * structure, which is committed once cabac_alignement_one_bit is found.
+ * structure, which is committed once the entire slice is decoded.
  */
 static const uint8_t *parse_slice_layer_without_partitioning(Edge264_stream *e,
 	int nal_ref_idc, int nal_unit_type)
@@ -801,7 +804,7 @@ static const uint8_t *parse_pic_parameter_set(Edge264_stream *e, int nal_ref_idc
 
 /**
  * For the sake of implementation simplicity, the responsibility for timing
- * management is left to the parent library, hence any HRD data is ignored.
+ * management is left to demuxing libraries, hence any HRD data is ignored.
  */
 static void parse_hrd_parameters() {
 	int cpb_cnt = get_ue(31) + 1;
@@ -1038,7 +1041,7 @@ static const uint8_t *parse_seq_parameter_set(Edge264_stream *e, int nal_ref_idc
 		(double)level_idc / 10,
 		red_if(seq_parameter_set_id != 0), seq_parameter_set_id);
 	
-	// These writes could be merged, but this is too early in code to hard-code them.
+	// These writes could be merged, but this is not the right place to hard-code them.
 	ctx->ps.chroma_format_idc = 1;
 	ctx->ps.ChromaArrayType = 1;
 	ctx->ps.BitDepth_Y = 8;
@@ -1202,7 +1205,7 @@ static const uint8_t *parse_seq_parameter_set(Edge264_stream *e, int nal_ref_idc
 		e->plane_Y = e->stride_Y * height_Y;
 		e->plane_C = e->stride_C * height_C;
 		e->frame_size = (e->plane_Y + e->plane_C * 2 + PicSizeInMbs * 69 + 15) & -16;
-		e->DPB = malloc(1);//e->frame_size * (ctx->ps.max_num_ref_frames + 1));
+		e->DPB = malloc(e->frame_size * (ctx->ps.max_num_ref_frames + 1));
 	}
 	e->SPS = ctx->ps;
 	memcpy(e->PicOrderCntDeltas, PicOrderCntDeltas, (ctx->ps.num_ref_frames_in_pic_order_cnt_cycle + 1) << 2);

@@ -177,23 +177,39 @@ typedef struct {
 
 
 
-// These Global Register Variables are a blessing as we use ctx and get_ae everywhere!
+// Global Register Variables are a blessing as we use ctx everywhere!
 #ifndef __clang__
 #ifdef __SSSE3__
 register Edge264_ctx *ctx asm("ebx");
-#if SIZE_BIT == 64
-register size_t codIRange asm("r14");
-register size_t codIOffset asm("r15");
-#else
-#define codIRange ctx->range
-#define codIOffset ctx->offset
-#endif
 #endif
 #else
 static __thread Edge264_ctx *ctx;
-#define codIRange ctx->range
-#define codIOffset ctx->offset
 #endif
+
+
+
+static inline int min(int a, int b) { return (a < b) ? a : b; }
+static inline int max(int a, int b) { return (a > b) ? a : b; }
+static inline unsigned umin(unsigned a, unsigned b) { return (a < b) ? a : b; }
+static inline unsigned umax(unsigned a, unsigned b) { return (a > b) ? a : b; }
+static inline int median(int a, int b, int c) { return max(min(max(a, b), c), min(a, b)); }
+
+size_t refill(int, size_t);
+size_t get_u1();
+size_t get_uv(unsigned);
+size_t get_ue16();
+#if SIZE_BIT == 32
+size_t get_ue32();
+#else
+#define get_ue32 get_ue16
+#endif
+static inline __attribute__((always_inline)) unsigned get_ue(unsigned upper) { return umin((upper <= 65534) ? get_ue16() : get_ue32(), upper); }
+static inline __attribute__((always_inline)) int map_se(unsigned codeNum) { return (codeNum & 1) ? codeNum / 2 + 1 : -(codeNum / 2); }
+static inline __attribute__((always_inline)) int get_se(int lower, int upper) { return min(max(map_se((lower >= -32767 && upper <= 32767) ? get_ue16() : get_ue32()), lower), upper); }
+
+int CABAC_parse_slice_data();
+
+int decode_samples();
 
 
 
@@ -314,14 +330,6 @@ static const int8_t intra8x8_modes[9][16] = {
 
 
 
-static inline int min(int a, int b) { return (a < b) ? a : b; }
-static inline int max(int a, int b) { return (a > b) ? a : b; }
-static inline unsigned umin(unsigned a, unsigned b) { return (a < b) ? a : b; }
-static inline unsigned umax(unsigned a, unsigned b) { return (a > b) ? a : b; }
-static inline int median(int a, int b, int c) { return max(min(max(a, b), c), min(a, b)); }
-
-
-
 #ifdef __SSSE3__
 #define _mm_movpi64_pi64 _mm_movpi64_epi64
 #ifdef __SSE4_1__
@@ -359,73 +367,6 @@ static inline size_t lsd(size_t msb, size_t lsb, unsigned shift) {
 	__asm__("shld %%cl, %1, %0" : "+rm" (msb) : "r" (lsb), "c" (shift));
 	return msb;
 }
-static __attribute__((noinline)) size_t refill(int shift, size_t ret) {
-	typedef size_t v16u __attribute__((vector_size(16)));
-	static const v16qi shuf[8] = {
-		{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 15},
-		{0, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 15},
-		{0, 1, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 15},
-		{0, 1, 2, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 15},
-		{0, 1, 2, 3, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 15},
-		{0, 1, 2, 3, 4, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 15},
-		{0, 1, 2, 3, 4, 5, 7, 8, 9, 10, 11, 12, 13, 14, 15, 15},
-		{0, 1, 2, 3, 4, 5, 6, 8, 9, 10, 11, 12, 13, 14, 15, 15},
-	};
-	
-	// when shift overflows, read the next few bytes in both scalar and vector registers
-	ctx->shift = shift;
-	if ((shift -= SIZE_BIT) >= 0) {
-		__m128i x;
-		size_t bits;
-		const uint8_t *CPB = ctx->CPB;
-		ctx->RBSP[0] = ctx->RBSP[1];
-		ctx->shift = shift;
-		if (CPB <= ctx->end - 16) {
-			x = _mm_loadu_si128((__m128i *)(CPB - 2));
-			memcpy(&bits, CPB, sizeof(size_t));
-			bits = big_endian(bits);
-			CPB += sizeof(size_t);
-		} else {
-			x = _mm_srl_si128(_mm_loadu_si128((__m128i *)(ctx->end - 16)), CPB - (ctx->end - 16));
-			bits = big_endian(((v16u)x)[0]);
-			CPB += sizeof(size_t);
-			CPB = CPB < ctx->end ? CPB : ctx->end;
-		}
-		
-		// ignore words without a zero odd byte
-		unsigned mask = _mm_movemask_epi8(_mm_cmpeq_epi8(x, _mm_setzero_si128()));
-		if (mask & (SIZE_BIT == 32 ? 0xa : 0xaa)) {
-			x = _mm_srli_si128(x, 2);
-			mask &= mask >> 1 & _mm_movemask_epi8(_mm_cmpeq_epi8(x, _mm_set1_epi8(3)));
-			
-			// iterate on and remove every emulation_prevention_three_byte
-			for (; mask & (SIZE_BIT == 32 ? 0xf : 0xff); mask = (mask & (mask - 1)) >> 1, CPB++) {
-				int i = __builtin_ctz(mask);
-				x = _mm_shuffle_epi8(x, (__m128i)shuf[i]);
-				bits = big_endian(((v16u)x)[0]);
-			}
-		}
-		ctx->RBSP[1] = bits;
-		ctx->CPB = CPB;
-	}
-	return ret;
-}
-const uint8_t *Edge264_find_start_code(int n, const uint8_t *CPB, size_t len) {
-	const __m128i v0 = _mm_setzero_si128();
-	const __m128i vn = _mm_set1_epi8(n);
-	const __m128i *p = (__m128i *)((uintptr_t)CPB & -16);
-	const uint8_t *end = CPB + len;
-	unsigned z = (_mm_movemask_epi8(_mm_cmpeq_epi8(*p, v0)) & -1u << ((uintptr_t)CPB & 15)) << 2, c;
-	
-	// no heuristic here since we are limited by memory bandwidth anyway
-	while (!(c = z & z >> 1 & _mm_movemask_epi8(_mm_cmpeq_epi8(*p, vn)))) {
-		if (++p >= (__m128i *)end)
-			return end;
-		z = z >> 16 | _mm_movemask_epi8(_mm_cmpeq_epi8(*p, v0)) << 2;
-	}
-	const uint8_t *res = (uint8_t *)p + 1 + __builtin_ctz(c);
-	return (res < end) ? res : end;
-}
 #else
 #error "Add -mssse3 or more recent"
 #endif
@@ -433,117 +374,6 @@ const uint8_t *Edge264_find_start_code(int n, const uint8_t *CPB, size_t len) {
 #ifndef __clang__
 #define __builtin_shufflevector(a, b, ...) __builtin_shuffle(a, b, (typeof(a)){__VA_ARGS__})
 #endif
-
-
-
-/**
- * Read Exp-Golomb codes and bit sequences.
- *
- * upper and lower are the bounds allowed by the spec, which get_ue and get_se
- * use both as hints to choose the fastest input routine, and as clipping
- * parameters such that values are always bounded no matter the input stream.
- * To keep your code branchless, upper and lower shall always be constants.
- * Use min/max with get_ueN/map_se to apply variable bounds.
- */
-static __attribute__((noinline)) size_t get_u1() {
-	return refill(ctx->shift + 1, ctx->RBSP[0] << ctx->shift >> (SIZE_BIT - 1));
-}
-static __attribute__((noinline)) size_t get_uv(unsigned v) {
-	size_t bits = lsd(ctx->RBSP[0], ctx->RBSP[1], ctx->shift);
-	return refill(ctx->shift + v, bits >> (SIZE_BIT - v));
-}
-static __attribute__((noinline)) size_t get_ue16() { // Parses Exp-Golomb codes up to 2^16-2
-	size_t bits = lsd(ctx->RBSP[0], ctx->RBSP[1], ctx->shift);
-	unsigned v = clz(bits | (size_t)1 << (SIZE_BIT / 2)) * 2 + 1;
-	return refill(ctx->shift + v, (bits >> (SIZE_BIT - v)) - 1);
-}
-#if SIZE_BIT == 32
-static __attribute__((noinline)) size_t get_ue32() { // Parses Exp-Golomb codes up to 2^32-2
-	size_t bits = lsd(ctx->RBSP[0], ctx->RBSP[1], ctx->shift);
-	unsigned leadingZeroBits = clz(bits | 1);
-	refill(ctx->shift + leadingZeroBits, 0);
-	return get_uv(leadingZeroBits + 1) - 1;
-}
-#else
-#define get_ue32 get_ue16
-#endif
-static inline __attribute__((always_inline)) unsigned get_ue(unsigned upper) { return umin((upper <= 65534) ? get_ue16() : get_ue32(), upper); }
-static inline __attribute__((always_inline)) int map_se(unsigned codeNum) { return (codeNum & 1) ? codeNum / 2 + 1 : -(codeNum / 2); }
-static inline __attribute__((always_inline)) int get_se(int lower, int upper) { return min(max(map_se((lower >= -32767 && upper <= 32767) ? get_ue16() : get_ue32()), lower), upper); }
-
-
-
-/**
- * Read CABAC bins (9.3.3.2).
- *
- * In the spec, codIRange belongs to [256..510] (ninth bit set) and codIOffset
- * is strictly less (9 significant bits). In the functions below, they cover
- * the full range of a register, a shift right by SIZE_BIT-9-clz(codIRange)
- * yielding the original values.
- */
-static __attribute__((noinline)) size_t renorm(int ceil, size_t binVal) {
-	unsigned v = clz(codIRange) - ceil;
-	size_t bits = lsd(ctx->RBSP[0], ctx->RBSP[1], ctx->shift);
-	codIRange <<= v;
-	codIOffset = (codIOffset << v) | (bits >> (SIZE_BIT - v));
-	return refill(ctx->shift + v, binVal);
-}
-static __attribute__((noinline)) size_t get_ae(int ctxIdx) {
-	static const uint8_t rangeTabLPS[64 * 4] = {
-		128, 176, 208, 240, 128, 167, 197, 227, 128, 158, 187, 216, 123, 150, 178, 205,
-		116, 142, 169, 195, 111, 135, 160, 185, 105, 128, 152, 175, 100, 122, 144, 166,
-		 95, 116, 137, 158,  90, 110, 130, 150,  85, 104, 123, 142,  81,  99, 117, 135,
-		 77,  94, 111, 128,  73,  89, 105, 122,  69,  85, 100, 116,  66,  80,  95, 110,
-		 62,  76,  90, 104,  59,  72,  86,  99,  56,  69,  81,  94,  53,  65,  77,  89,
-		 51,  62,  73,  85,  48,  59,  69,  80,  46,  56,  66,  76,  43,  53,  63,  72,
-		 41,  50,  59,  69,  39,  48,  56,  65,  37,  45,  54,  62,  35,  43,  51,  59,
-		 33,  41,  48,  56,  32,  39,  46,  53,  30,  37,  43,  50,  29,  35,  41,  48,
-		 27,  33,  39,  45,  26,  31,  37,  43,  24,  30,  35,  41,  23,  28,  33,  39,
-		 22,  27,  32,  37,  21,  26,  30,  35,  20,  24,  29,  33,  19,  23,  27,  31,
-		 18,  22,  26,  30,  17,  21,  25,  28,  16,  20,  23,  27,  15,  19,  22,  25,
-		 14,  18,  21,  24,  14,  17,  20,  23,  13,  16,  19,  22,  12,  15,  18,  21,
-		 12,  14,  17,  20,  11,  14,  16,  19,  11,  13,  15,  18,  10,  12,  15,  17,
-		 10,  12,  14,  16,   9,  11,  13,  15,   9,  11,  12,  14,   8,  10,  12,  14,
-		  8,   9,  11,  13,   7,   9,  11,  12,   7,   9,  10,  12,   7,   8,  10,  11,
-		  6,   8,   9,  11,   6,   7,   9,  10,   6,   7,   8,   9,   2,   2,   2,   2,
-	};
-	static const uint8_t transIdx[256] = {
-		  4,   5, 253, 252,   8,   9, 153, 152,  12,  13, 153, 152,  16,  17, 149, 148,
-		 20,  21, 149, 148,  24,  25, 149, 148,  28,  29, 145, 144,  32,  33, 145, 144,
-		 36,  37, 145, 144,  40,  41, 141, 140,  44,  45, 141, 140,  48,  49, 141, 140,
-		 52,  53, 137, 136,  56,  57, 137, 136,  60,  61, 133, 132,  64,  65, 133, 132,
-		 68,  69, 133, 132,  72,  73, 129, 128,  76,  77, 129, 128,  80,  81, 125, 124,
-		 84,  85, 121, 120,  88,  89, 121, 120,  92,  93, 121, 120,  96,  97, 117, 116,
-		100, 101, 117, 116, 104, 105, 113, 112, 108, 109, 109, 108, 112, 113, 109, 108,
-		116, 117, 105, 104, 120, 121, 105, 104, 124, 125, 101, 100, 128, 129,  97,  96,
-		132, 133,  97,  96, 136, 137,  93,  92, 140, 141,  89,  88, 144, 145,  89,  88,
-		148, 149,  85,  84, 152, 153,  85,  84, 156, 157,  77,  76, 160, 161,  77,  76,
-		164, 165,  73,  72, 168, 169,  73,  72, 172, 173,  65,  64, 176, 177,  65,  64,
-		180, 181,  61,  60, 184, 185,  61,  60, 188, 189,  53,  52, 192, 193,  53,  52,
-		196, 197,  49,  48, 200, 201,  45,  44, 204, 205,  45,  44, 208, 209,  37,  36,
-		212, 213,  37,  36, 216, 217,  33,  32, 220, 221,  29,  28, 224, 225,  25,  24,
-		228, 229,  21,  20, 232, 233,  17,  16, 236, 237,  17,  16, 240, 241,   9,   8,
-		244, 245,   9,   8, 248, 249,   5,   4, 248, 249,   1,   0, 252, 253,   0,   1,
-	};
-	
-	ssize_t state = ((uint8_t *)ctx->states)[ctxIdx];
-	unsigned shift = SIZE_BIT - 3 - clz(codIRange);
-	fprintf(stderr, "%u/%u: (%u,%x)", (int)(codIOffset >> (shift - 6)), (int)(codIRange >> (shift - 6)), (int)state >> 2, (int)state & 1);
-	ssize_t idx = (state & -4) + (codIRange >> shift);
-	size_t codIRangeLPS = (size_t)(rangeTabLPS - 4)[idx] << (shift - 6);
-	codIRange -= codIRangeLPS;
-	if (codIOffset >= codIRange) {
-		state ^= 255;
-		codIOffset -= codIRange;
-		codIRange = codIRangeLPS;
-	}
-	((uint8_t *)ctx->states)[ctxIdx] = transIdx[state];
-	fprintf(stderr, "->(%u,%x)\n", transIdx[state] >> 2, transIdx[state] & 1);
-	size_t binVal = state & 1;
-	if (__builtin_expect(codIRange < 512, 0)) // 256*2 allows parsing an extra coeff_sign_flag without renorm.
-		return renorm(1, binVal);
-	return binVal;
-}
 
 
 

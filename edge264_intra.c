@@ -341,7 +341,7 @@ static int decode_HorizontalUp8x8(__m128i btfel, __m128i pot) {
 
 
 
-static __attribute__((noinline)) int decode_8bit(int BitDepth, int mode, uint8_t *p, size_t stride, __m128i zero) {
+static __attribute__((noinline)) int decode_8bit(uint8_t *p, size_t stride, int mode, int BitDepth, __m128i zero) {
 	static const v16qi shufC = {0, -1, 1, -1, 2, -1, 3, -1, 3, -1, 3, -1, 3, -1, 3, -1};
 	__m64 m0, m1, m2, m3, m4;
 	__m128i x0, x1, x2, x3, x4;
@@ -604,7 +604,7 @@ static __attribute__((noinline)) int decode_8bit(int BitDepth, int mode, uint8_t
 
 
 
-static __attribute__((noinline)) int decode_16bit(int BitDepth, int mode, uint8_t *p, size_t stride, __m128i zero) {
+static __attribute__((noinline)) int decode_16bit(uint8_t *p, size_t stride, int mode, int BitDepth, __m128i zero) {
 	__m64 m0, m1, m2, m3, m4, m5;
 	__m128i x0, x1, x2, x3, x4, x5;
 	
@@ -866,11 +866,11 @@ static __attribute__((noinline)) int decode_16bit(int BitDepth, int mode, uint8_
 
 
 
-static inline int decode_samples() {
+int decode_samples() {
 	int BlkIdx = ctx->BlkIdx;
 	int BitDepth = ctx->BitDepth;
-	int stride = ctx->stride;
+	size_t stride = ctx->stride;
 	uint8_t *p = ctx->plane + ctx->plane_offsets[BlkIdx] - stride;
 	return (BitDepth == 8 ? decode_8bit : decode_16bit)
-		(BitDepth, ctx->PredMode[BlkIdx], p, stride, _mm_setzero_si128());
+		(p, stride, ctx->PredMode[BlkIdx], BitDepth, _mm_setzero_si128());
 }

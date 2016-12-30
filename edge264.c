@@ -11,7 +11,9 @@
 // TODO: Detect rbsp_slice_trailing_bits
 
 #include "edge264_common.h"
+#include "edge264_golomb.c"
 #ifdef __SSSE3__
+#include "edge264_residual_ssse3.c"
 #include "edge264_intra.c"
 #endif
 #include "edge264_cabac.c"
@@ -50,6 +52,27 @@ static const v16qu Default_8x8_Inter[4] = {
 	{22, 24, 25, 27, 28, 30, 32, 33,
 	 24, 25, 27, 28, 30, 32, 33, 35}
 };
+
+
+
+#ifdef __SSSE3__
+const uint8_t *Edge264_find_start_code(int n, const uint8_t *CPB, size_t len) {
+	const __m128i v0 = _mm_setzero_si128();
+	const __m128i vn = _mm_set1_epi8(n);
+	const __m128i *p = (__m128i *)((uintptr_t)CPB & -16);
+	const uint8_t *end = CPB + len;
+	unsigned z = (_mm_movemask_epi8(_mm_cmpeq_epi8(*p, v0)) & -1u << ((uintptr_t)CPB & 15)) << 2, c;
+	
+	// no heuristic here since we are limited by memory bandwidth anyway
+	while (!(c = z & z >> 1 & _mm_movemask_epi8(_mm_cmpeq_epi8(*p, vn)))) {
+		if (++p >= (__m128i *)end)
+			return end;
+		z = z >> 16 | _mm_movemask_epi8(_mm_cmpeq_epi8(*p, v0)) << 2;
+	}
+	const uint8_t *res = (uint8_t *)p + 1 + __builtin_ctz(c);
+	return (res < end) ? res : end;
+}
+#endif
 
 
 
@@ -1265,8 +1288,6 @@ const uint8_t *Edge264_decode_NAL(Edge264_stream *e, const uint8_t *CPB, size_t 
 	// allocate and initialise the decoding context
 	Edge264_ctx *old = ctx, context = {}; // zeroing should be removed eventually
 	ctx = &context;
-	ctx->range = codIRange;
-	ctx->offset = codIOffset;
 	ctx->CPB = CPB + 3;
 	ctx->end = CPB + len;
 	ctx->RBSP[1] = CPB[1] << 8 | CPB[2];
@@ -1283,8 +1304,6 @@ const uint8_t *Edge264_decode_NAL(Edge264_stream *e, const uint8_t *CPB, size_t 
 	
 	// finish with a little tail call :)
 	len = ctx->end - CPB;
-	codIRange = ctx->range;
-	codIOffset = ctx->offset;
 	ctx = old;
 	return Edge264_find_start_code(1, CPB, len);
 }

@@ -742,6 +742,92 @@ static const union { uint8_t q[8]; uint64_t l; } scan_chromaDC[2][2] = {
 
 
 
+#if !defined(__clang__) && defined(__SSSE3__) && SIZE_BIT == 64
+register size_t codIRange asm("r14");
+register size_t codIOffset asm("r15");
+#else
+#define codIRange ctx->range
+#define codIOffset ctx->offset
+#endif
+
+
+
+/**
+ * Read CABAC bins (9.3.3.2).
+ *
+ * In the spec, codIRange belongs to [256..510] (ninth bit set) and codIOffset
+ * is strictly less (9 significant bits). In the functions below, they cover
+ * the full range of a register, a shift right by SIZE_BIT-9-clz(codIRange)
+ * yielding the original values.
+ */
+static __attribute__((noinline)) size_t renorm(int ceil, size_t binVal) {
+	unsigned v = clz(codIRange) - ceil;
+	size_t bits = lsd(ctx->RBSP[0], ctx->RBSP[1], ctx->shift);
+	codIRange <<= v;
+	codIOffset = (codIOffset << v) | (bits >> (SIZE_BIT - v));
+	return refill(ctx->shift + v, binVal);
+}
+
+static __attribute__((noinline)) size_t get_ae(int ctxIdx)
+{
+	static const uint8_t rangeTabLPS[64 * 4] = {
+		128, 176, 208, 240, 128, 167, 197, 227, 128, 158, 187, 216, 123, 150, 178, 205,
+		116, 142, 169, 195, 111, 135, 160, 185, 105, 128, 152, 175, 100, 122, 144, 166,
+		 95, 116, 137, 158,  90, 110, 130, 150,  85, 104, 123, 142,  81,  99, 117, 135,
+		 77,  94, 111, 128,  73,  89, 105, 122,  69,  85, 100, 116,  66,  80,  95, 110,
+		 62,  76,  90, 104,  59,  72,  86,  99,  56,  69,  81,  94,  53,  65,  77,  89,
+		 51,  62,  73,  85,  48,  59,  69,  80,  46,  56,  66,  76,  43,  53,  63,  72,
+		 41,  50,  59,  69,  39,  48,  56,  65,  37,  45,  54,  62,  35,  43,  51,  59,
+		 33,  41,  48,  56,  32,  39,  46,  53,  30,  37,  43,  50,  29,  35,  41,  48,
+		 27,  33,  39,  45,  26,  31,  37,  43,  24,  30,  35,  41,  23,  28,  33,  39,
+		 22,  27,  32,  37,  21,  26,  30,  35,  20,  24,  29,  33,  19,  23,  27,  31,
+		 18,  22,  26,  30,  17,  21,  25,  28,  16,  20,  23,  27,  15,  19,  22,  25,
+		 14,  18,  21,  24,  14,  17,  20,  23,  13,  16,  19,  22,  12,  15,  18,  21,
+		 12,  14,  17,  20,  11,  14,  16,  19,  11,  13,  15,  18,  10,  12,  15,  17,
+		 10,  12,  14,  16,   9,  11,  13,  15,   9,  11,  12,  14,   8,  10,  12,  14,
+		  8,   9,  11,  13,   7,   9,  11,  12,   7,   9,  10,  12,   7,   8,  10,  11,
+		  6,   8,   9,  11,   6,   7,   9,  10,   6,   7,   8,   9,   2,   2,   2,   2,
+	};
+	static const uint8_t transIdx[256] = {
+		  4,   5, 253, 252,   8,   9, 153, 152,  12,  13, 153, 152,  16,  17, 149, 148,
+		 20,  21, 149, 148,  24,  25, 149, 148,  28,  29, 145, 144,  32,  33, 145, 144,
+		 36,  37, 145, 144,  40,  41, 141, 140,  44,  45, 141, 140,  48,  49, 141, 140,
+		 52,  53, 137, 136,  56,  57, 137, 136,  60,  61, 133, 132,  64,  65, 133, 132,
+		 68,  69, 133, 132,  72,  73, 129, 128,  76,  77, 129, 128,  80,  81, 125, 124,
+		 84,  85, 121, 120,  88,  89, 121, 120,  92,  93, 121, 120,  96,  97, 117, 116,
+		100, 101, 117, 116, 104, 105, 113, 112, 108, 109, 109, 108, 112, 113, 109, 108,
+		116, 117, 105, 104, 120, 121, 105, 104, 124, 125, 101, 100, 128, 129,  97,  96,
+		132, 133,  97,  96, 136, 137,  93,  92, 140, 141,  89,  88, 144, 145,  89,  88,
+		148, 149,  85,  84, 152, 153,  85,  84, 156, 157,  77,  76, 160, 161,  77,  76,
+		164, 165,  73,  72, 168, 169,  73,  72, 172, 173,  65,  64, 176, 177,  65,  64,
+		180, 181,  61,  60, 184, 185,  61,  60, 188, 189,  53,  52, 192, 193,  53,  52,
+		196, 197,  49,  48, 200, 201,  45,  44, 204, 205,  45,  44, 208, 209,  37,  36,
+		212, 213,  37,  36, 216, 217,  33,  32, 220, 221,  29,  28, 224, 225,  25,  24,
+		228, 229,  21,  20, 232, 233,  17,  16, 236, 237,  17,  16, 240, 241,   9,   8,
+		244, 245,   9,   8, 248, 249,   5,   4, 248, 249,   1,   0, 252, 253,   0,   1,
+	};
+	
+	ssize_t state = ((uint8_t *)ctx->states)[ctxIdx];
+	unsigned shift = SIZE_BIT - 3 - clz(codIRange);
+	fprintf(stderr, "%u/%u: (%u,%x)", (int)(codIOffset >> (shift - 6)), (int)(codIRange >> (shift - 6)), (int)state >> 2, (int)state & 1);
+	ssize_t idx = (state & -4) + (codIRange >> shift);
+	size_t codIRangeLPS = (size_t)(rangeTabLPS - 4)[idx] << (shift - 6);
+	codIRange -= codIRangeLPS;
+	if (codIOffset >= codIRange) {
+		state ^= 255;
+		codIOffset -= codIRange;
+		codIRange = codIRangeLPS;
+	}
+	((uint8_t *)ctx->states)[ctxIdx] = transIdx[state];
+	fprintf(stderr, "->(%u,%x)\n", transIdx[state] >> 2, transIdx[state] & 1);
+	size_t binVal = state & 1;
+	if (__builtin_expect(codIRange < 512, 0)) // 256*2 allows parsing an extra coeff_sign_flag without renorm.
+		return renorm(1, binVal);
+	return binVal;
+}
+
+
+
 /**
  * This function parses a group of significant_flags, then the corresponding
  * sequence of coeff_abs_level_minus1/coeff_sign_flag pairs (9.3.2.3).
@@ -816,7 +902,7 @@ static __attribute__((noinline)) int parse_residual_block(unsigned coded_block_f
 			coeff_level = (codIOffset >= codIRange) ? -coeff_level : coeff_level;
 			codIOffset = (codIOffset >= codIRange) ? codIOffset - codIRange : codIOffset;
 			int i = ctz64(significant_coeff_flags);
-			ctx->residual_block[ctx->scan[i]] = coeff_level;
+			((int32_t *)ctx->residual_block)[ctx->scan[i]] = coeff_level;
 		
 			// Though not very efficient, this gets optimised out easily :)
 			fprintf(stderr, (ctx->ctxIdxOffsets[0] == 93) ? "Luma4x4: %d\n" :
@@ -982,7 +1068,7 @@ static __attribute__((noinline)) int parse_chroma_residual() {
 	int is422 = ctx->ps.ChromaArrayType - 1;
 	if (is422 == 0 || is422 == 1) {
 		for (int i = 0; i < 8; i++)
-			ctx->residual_block_v[i] = (v4si){};
+			ctx->residual_block[i] = (v4si){};
 		ctx->ctxIdxOffsets_l = ctxIdxOffsets_chromaDC[ctx->f.mb_field_decoding_flag];
 		ctx->sig_inc_l = ctx->last_inc_l = sig_inc_chromaDC[is422].l;
 		ctx->f_v = __builtin_shufflevector(ctx->f_v, ctx->f_v, 0, 2, 1, 3);
@@ -1010,9 +1096,9 @@ static __attribute__((noinline)) int parse_chroma_residual() {
 		for (int luma4x4BlkIdx = 0, lim = 12 + is422 * 4; luma4x4BlkIdx < lim; luma4x4BlkIdx++) {
 			if ((luma4x4BlkIdx & lim) == 4)
 				luma4x4BlkIdx = 8;
-			int DC = ctx->residual_block[16 + luma4x4BlkIdx];
-			ctx->residual_block_v[3] = ctx->residual_block_v[2] = ctx->residual_block_v[1] = ctx->residual_block_v[0] = (v4si){};
-			ctx->residual_block[0] = DC;
+			int DC = ((int32_t *)ctx->residual_block)[16 + luma4x4BlkIdx];
+			ctx->residual_block[3] = ctx->residual_block[2] = ctx->residual_block[1] = ctx->residual_block[0] = (v4si){};
+			((int32_t *)ctx->residual_block)[0] = DC;
 			uint8_t shift = left_chroma[luma4x4BlkIdx];
 			unsigned coded_block_flag = 0;
 			if (ctx->f.CodedBlockPatternChromaAC)
@@ -1046,7 +1132,7 @@ static __attribute__((noinline)) int parse_Intra16x16_residual() {
 	do {
 		// One 4x4 DC block
 		ctx->ctxIdxOffsets_l = ctxIdxOffsets_16x16DC[iYCbCr][ctx->f.mb_field_decoding_flag];
-		ctx->residual_block_v[7] = ctx->residual_block_v[6] = ctx->residual_block_v[5] = ctx->residual_block_v[4] = (v4si){};
+		ctx->residual_block[7] = ctx->residual_block[6] = ctx->residual_block[5] = ctx->residual_block[4] = (v4si){};
 		unsigned coded_block_flag_DC = get_ae(ctx->ctxIdxOffsets[0] + (ctx->ctxIdxInc.coded_block_flags_16x16 >> (iYCbCr * 2) & 3));
 		ctx->f.coded_block_flags_16x16 |= coded_block_flag_DC << (iYCbCr * 2);
 		parse_residual_block(coded_block_flag_DC << 25, 15);
@@ -1054,9 +1140,9 @@ static __attribute__((noinline)) int parse_Intra16x16_residual() {
 		// Sixteen 4x4 AC blocks
 		ctx->ctxIdxOffsets_l = ctxIdxOffsets_16x16AC[iYCbCr][ctx->f.mb_field_decoding_flag];
 		for (int luma4x4BlkIdx = 0; luma4x4BlkIdx < 16; luma4x4BlkIdx++) {
-			int DC = ctx->residual_block[16 + luma4x4BlkIdx];
-			ctx->residual_block_v[3] = ctx->residual_block_v[2] = ctx->residual_block_v[1] = ctx->residual_block_v[0] = (v4si){};
-			ctx->residual_block[0] = DC;
+			int DC = ((int32_t *)ctx->residual_block)[16 + luma4x4BlkIdx];
+			ctx->residual_block[3] = ctx->residual_block[2] = ctx->residual_block[1] = ctx->residual_block[0] = (v4si){};
+			((int32_t *)ctx->residual_block)[0] = DC;
 			unsigned coded_block_flag = 0;
 			if (ctx->f.s & 1 << bit_8x8[luma4x4BlkIdx >> 2])
 				coded_block_flag = get_ae(ctx->ctxIdxOffsets[0] + (ctx->coded_block_flags[0] >> left_4x4[luma4x4BlkIdx] & 3)) << bit_4x4[luma4x4BlkIdx];
@@ -1106,7 +1192,7 @@ static __attribute__((noinline)) int parse_NxN_residual() {
 			
 			// we decode each residual block right after parsing to keep a single loop
 			do {
-				ctx->residual_block_v[3] = ctx->residual_block_v[2] = ctx->residual_block_v[1] = ctx->residual_block_v[0] = (v4si){};
+				ctx->residual_block[3] = ctx->residual_block[2] = ctx->residual_block[1] = ctx->residual_block[0] = (v4si){};
 				unsigned coded_block_flag = 0;
 				if (ctx->f.s & 1 << bit_8x8[ctx->BlkIdx >> 2])
 					coded_block_flag = get_ae(ctx->ctxIdxOffsets[0] + (ctx->coded_block_flags[0] >> left_4x4[ctx->BlkIdx] & 3)) << bit_4x4[ctx->BlkIdx];
@@ -1127,7 +1213,7 @@ static __attribute__((noinline)) int parse_NxN_residual() {
 			// I'm not quite sure how to best code the ChromaArrayType bypass condition.
 			do {
 				for (int i = 0; i < 16; i++)
-					ctx->residual_block_v[i] = (v4si){};
+					ctx->residual_block[i] = (v4si){};
 				int luma8x8BlkIdx = ctx->BlkIdx >> 2;
 				unsigned coded_block_flag = 0;
 				if (ctx->f.s & 1 << bit_8x8[luma8x8BlkIdx]) {
@@ -1594,6 +1680,19 @@ static __attribute__((noinline)) int PAFF_parse_slice_data()
 				break;
 		}
 	} while (!get_ae(276));
+	
+	// restore the registers
+	codIRange = ctx->range;
+	codIOffset = ctx->offset;
+	return 0;
+}
+
+
+
+static __attribute__((noinline)) int MBAFF_parse_slice_data() {
+	// restore the registers
+	codIRange = ctx->range;
+	codIOffset = ctx->offset;
 	return 0;
 }
 
@@ -1607,7 +1706,11 @@ static __attribute__((noinline)) int PAFF_parse_slice_data()
  * as copying from precomputed values. Please refrain from providing a default,
  * unoptimised version.
  */
-__attribute__((noinline)) int CABAC_parse_slice_data() {
+int CABAC_parse_slice_data()
+{
+	// backup and initialise the registers
+	ctx->range = codIRange;
+	ctx->offset = codIOffset;
 	codIRange = (size_t)255 << (SIZE_BIT - 9);
 	codIOffset = get_uv(SIZE_BIT - 1);
 	
@@ -1626,5 +1729,5 @@ __attribute__((noinline)) int CABAC_parse_slice_data() {
 	}
 #endif
 	((uint8_t*)ctx->states)[276] = 252;
-	return ctx->MbaffFrameFlag ? 0 : PAFF_parse_slice_data();
+	return ctx->MbaffFrameFlag ? MBAFF_parse_slice_data() : PAFF_parse_slice_data();
 }

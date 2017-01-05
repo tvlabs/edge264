@@ -3,6 +3,8 @@
 // TODO: Apply the update of mvs pointers at each macroblock.
 // TODO: Remove all uses of bare unsigned/int in favor of fixed sizes.
 // TODO: Find a place to set Intra4x4PredMode to 2/-2 when Inter predicting
+// TODO: Optimise the update of each circular buffer pointer.
+// TODO: Store BitDepth vector bounds rather than itself?
 
 #include "edge264_common.h"
 

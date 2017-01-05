@@ -149,6 +149,7 @@ typedef struct {
 	union { uint8_t sig_inc[64]; uint64_t sig_inc_l; v16qu sig_inc_v[4]; };
 	union { uint8_t last_inc[64]; uint64_t last_inc_l; v16qu last_inc_v[4]; };
 	union { uint8_t scan[64]; uint64_t scan_l; v16qu scan_v[4]; };
+	v8hi pred_buffer[17]; // temporary storage for prediction samples
 	v4si residual_block[16];
 	v4si LevelScale[16];
 	int32_t plane_offsets[48];
@@ -255,7 +256,7 @@ static const int8_t block_unavailability[16][16] = {
  * unavailability of neighbouring blocks.
  */
 enum PredModes {
-	VERTICAL_4x4 = 1,
+	VERTICAL_4x4 = 1, // FIXME: Starting at zero makes test segfault
 	HORIZONTAL_4x4,
 	DC_4x4,
 	DIAGONAL_DOWN_LEFT_4x4,
@@ -304,6 +305,8 @@ enum PredModes {
 	VERTICAL_LEFT_D_8x8,
 	VERTICAL_LEFT_CD_8x8,
 	HORIZONTAL_UP_D_8x8,
+	
+	PLANE_16x16,
 };
 static const int8_t intra4x4_modes[9][16] = {
 	{VERTICAL_4x4, VERTICAL_4x4, 0, 0, VERTICAL_4x4, VERTICAL_4x4, 0, 0, VERTICAL_4x4, VERTICAL_4x4, 0, 0, VERTICAL_4x4, VERTICAL_4x4, 0, 0},
@@ -345,6 +348,10 @@ static inline __m128i _mm_mullo_epi32(__m128i a, __m128i b) {
 	__m128i f = _mm_mul_epu32(c, d);
 	__m128 g = _mm_shuffle_ps((__m128)e, (__m128)f, _MM_SHUFFLE(2, 0, 2, 0));
 	return _mm_shuffle_epi32((__m128i)g, _MM_SHUFFLE(3, 1, 2, 0));
+}
+// not striclty equivalent but sufficient for 14bit results
+static inline __m128i _mm_packus_epi32(__m128i a, __m128i b) {
+	return _mm_max_epi16(_mm_packs_epi32(a, b), _mm_setzero_si128());
 }
 #endif
 static inline __m128i _mm_srl_si128(__m128i m, int count) {

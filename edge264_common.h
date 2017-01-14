@@ -137,11 +137,11 @@ typedef struct {
 	// cache variables - usually results of nasty optimisations, so should be few :)
 	uint8_t *plane;
 	int8_t BlkIdx;
-	int8_t BitDepth;
 	int16_t stride;
 	uint32_t mvd_flags;
 	uint32_t mvd_fold;
 	uint32_t ref_idx_mask;
+	v8hi clip_Y, clip_C, clip; // vectors of maximum sample values
 	v4si cbf_maskA, cbf_maskB;
 	union { int8_t PredMode[48]; v16qi PredMode_v[3]; };
 	union { int8_t mvC[32]; v16qi mvC_v[2]; };

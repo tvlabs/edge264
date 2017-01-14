@@ -1182,7 +1182,7 @@ static __attribute__((noinline)) int parse_NxN_residual() {
 	
 	// next few blocks will share many parameters, so we cache a LOT of them
 	ctx->plane = ctx->planes[0];
-	ctx->BitDepth = ctx->ps.BitDepth_Y;
+	ctx->clip = ctx->clip_Y;
 	ctx->stride = ctx->plane_offsets[2] >> 2;
 	ctx->BlkIdx = ctx->colour_plane_id << 4;
 	do {
@@ -1231,7 +1231,7 @@ static __attribute__((noinline)) int parse_NxN_residual() {
 		if (ctx->ps.ChromaArrayType != 3)
 			return parse_chroma_residual();
 		ctx->f_v = __builtin_shufflevector(ctx->f_v, ctx->f_v, 0, 2, 3, 1);
-		ctx->BitDepth = ctx->ps.BitDepth_C;
+		ctx->clip = ctx->clip_C;
 		ctx->stride = ctx->plane_offsets[18] >> 2;
 		ctx->plane = ctx->planes[ctx->BlkIdx >> 4];
 	} while (ctx->BlkIdx < 48);
@@ -1606,6 +1606,10 @@ static __attribute__((noinline)) int PAFF_parse_slice_data()
 	ctx->cbf_maskB = (v4si){0, 0x88820820, 0x88820820, 0x88820820};
 	if (ctx->ps.ChromaArrayType != 3)
 		ctx->cbf_maskA[2] = 0x24902490, ctx->cbf_maskB[2] = 0x50005000;
+	int cY = (1 << ctx->ps.BitDepth_Y) - 1;
+	int cC = (1 << ctx->ps.BitDepth_C) - 1;
+	ctx->clip_Y = (v8hi){cY, cY, cY, cY, cY, cY, cY, cY};
+	ctx->clip_C = (v8hi){cC, cC, cC, cC, cC, cC, cC, cC};
 	int PicHeightInMbs = ctx->ps.height / 16 >> ctx->field_pic_flag;
 	int PicWidthInMbs = ctx->ps.width / 16;
 	int mb_y = PicHeightInMbs - 1 - ctx->y / 16;

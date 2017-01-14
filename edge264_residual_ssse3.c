@@ -1,14 +1,5 @@
 #include "edge264_common.h"
 
-static const v8hi bounds[6] = {
-	{0x01ff, 0x01ff, 0x01ff, 0x01ff, 0x01ff, 0x01ff, 0x01ff, 0x01ff},
-	{0x03ff, 0x03ff, 0x03ff, 0x03ff, 0x03ff, 0x03ff, 0x03ff, 0x03ff},
-	{0x07ff, 0x07ff, 0x07ff, 0x07ff, 0x07ff, 0x07ff, 0x07ff, 0x07ff},
-	{0x0fff, 0x0fff, 0x0fff, 0x0fff, 0x0fff, 0x0fff, 0x0fff, 0x0fff},
-	{0x1fff, 0x1fff, 0x1fff, 0x1fff, 0x1fff, 0x1fff, 0x1fff, 0x1fff},
-	{0x3fff, 0x3fff, 0x3fff, 0x3fff, 0x3fff, 0x3fff, 0x3fff, 0x3fff},
-};
-
 
 
 /**
@@ -68,7 +59,7 @@ __attribute__((noinline)) int decode_Residual4x4(__m128i p0, __m128i p1)
 	// storage
 	uint8_t *p = ctx->plane + ctx->plane_offsets[ctx->BlkIdx];
 	size_t stride = ctx->stride;
-	if (__builtin_expect(ctx->BitDepth == 8, 1)) {
+	if (__builtin_expect(*(int16_t *)&ctx->clip == 255, 1)) {
 		v4si u = (v4si)_mm_packus_epi16(x4, x5);
 		*(int32_t *)(p + stride * 0) = u[0];
 		*(int32_t *)(p + stride * 1) = u[1];
@@ -76,7 +67,7 @@ __attribute__((noinline)) int decode_Residual4x4(__m128i p0, __m128i p1)
 		*(int32_t *)(p + stride * 3) = u[3];
 	} else {
 		__m128i zero = _mm_setzero_si128();
-		__m128i clip = (__m128i)bounds[ctx->BitDepth - 9];
+		__m128i clip = (__m128i)ctx->clip;
 		v2li u0 = (v2li)_mm_min_epi16(_mm_max_epi16(x4, zero), clip);
 		v2li u1 = (v2li)_mm_min_epi16(_mm_max_epi16(x5, zero), clip);
 		*(int64_t *)(p + stride * 0) = u0[0];
@@ -119,7 +110,7 @@ __attribute__((noinline)) int decode_Residual8x8(__m128i p0, __m128i p1,
 	// The 8bit version can hold the whole transform in registers.
 	uint8_t *p = ctx->plane + ctx->plane_offsets[ctx->BlkIdx];
 	size_t stride = ctx->stride;
-	if (__builtin_expect(ctx->BitDepth == 8, 1)) {
+	if (__builtin_expect(*(int16_t *)&ctx->clip == 255, 1)) {
 		d0 = _mm_packs_epi32(d0, d8);
 		d1 = _mm_packs_epi32(d1, d9);
 		d2 = _mm_packs_epi32(d2, dA);
@@ -303,7 +294,7 @@ __attribute__((noinline)) int decode_Residual8x8(__m128i p0, __m128i p1,
 		
 		// addition to predicted values, clipping and storage
 		__m128i zero = _mm_setzero_si128();
-		__m128i clip = (__m128i)bounds[ctx->BitDepth - 9];
+		__m128i clip = (__m128i)ctx->clip;
 		__m128i u0 = _mm_min_epi16(_mm_max_epi16(_mm_adds_epi16(r0, p0), zero), clip);
 		__m128i u1 = _mm_min_epi16(_mm_max_epi16(_mm_adds_epi16(r1, p1), zero), clip);
 		__m128i u2 = _mm_min_epi16(_mm_max_epi16(_mm_adds_epi16(r2, p2), zero), clip);

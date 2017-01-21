@@ -11,14 +11,11 @@
  */
 __attribute__((noinline)) int decode_Residual4x4(__m128i p0, __m128i p1)
 {
-	// scaling
-	const __m128i *c = (__m128i *)ctx->residual_block;
-	const __m128i *s = (__m128i *)ctx->LevelScale;
-	__m128i s8 = _mm_set1_epi32(8);
-	__m128i d0 = _mm_srai_epi32(_mm_add_epi32(_mm_mullo_epi32(c[0], s[0]), s8), 4);
-	__m128i d1 = _mm_srai_epi32(_mm_add_epi32(_mm_mullo_epi32(c[1], s[1]), s8), 4);
-	__m128i d2 = _mm_srai_epi32(_mm_add_epi32(_mm_mullo_epi32(c[2], s[2]), s8), 4);
-	__m128i d3 = _mm_srai_epi32(_mm_add_epi32(_mm_mullo_epi32(c[3], s[3]), s8), 4);
+	// loading
+	__m128i d0 = (__m128i)ctx->d[0];
+	__m128i d1 = (__m128i)ctx->d[1];
+	__m128i d2 = (__m128i)ctx->d[2];
+	__m128i d3 = (__m128i)ctx->d[3];
 	
 	// horizontal 1D transform
 	__m128i e0 = _mm_add_epi32(d0, d2);
@@ -86,26 +83,23 @@ __attribute__((noinline)) int decode_Residual4x4(__m128i p0, __m128i p1)
 __attribute__((noinline)) int decode_Residual8x8(__m128i p0, __m128i p1,
 	__m128i p2, __m128i p3, __m128i p4, __m128i p5, __m128i p6, __m128i p7)
 {
-	// scaling (if only pmulhrsw had variable shift...)
-	const __m128i s32 = _mm_set1_epi32(32);
-	const __m128i *c = (__m128i *)ctx->residual_block;
-	const __m128i *s = (__m128i *)ctx->LevelScale;
-	__m128i d8 = _mm_srai_epi32(_mm_add_epi32(_mm_mullo_epi32(c[1], s[1]), s32), 6);
-	__m128i d9 = _mm_srai_epi32(_mm_add_epi32(_mm_mullo_epi32(c[3], s[3]), s32), 6);
-	__m128i dA = _mm_srai_epi32(_mm_add_epi32(_mm_mullo_epi32(c[5], s[5]), s32), 6);
-	__m128i dB = _mm_srai_epi32(_mm_add_epi32(_mm_mullo_epi32(c[7], s[7]), s32), 6);
-	__m128i dC = _mm_srai_epi32(_mm_add_epi32(_mm_mullo_epi32(c[9], s[9]), s32), 6);
-	__m128i dD = _mm_srai_epi32(_mm_add_epi32(_mm_mullo_epi32(c[11], s[11]), s32), 6);
-	__m128i dE = _mm_srai_epi32(_mm_add_epi32(_mm_mullo_epi32(c[13], s[13]), s32), 6);
-	__m128i dF = _mm_srai_epi32(_mm_add_epi32(_mm_mullo_epi32(c[15], s[15]), s32), 6);
-	__m128i d0 = _mm_srai_epi32(_mm_add_epi32(_mm_mullo_epi32(c[0], s[0]), s32), 6);
-	__m128i d1 = _mm_srai_epi32(_mm_add_epi32(_mm_mullo_epi32(c[2], s[2]), s32), 6);
-	__m128i d2 = _mm_srai_epi32(_mm_add_epi32(_mm_mullo_epi32(c[4], s[4]), s32), 6);
-	__m128i d3 = _mm_srai_epi32(_mm_add_epi32(_mm_mullo_epi32(c[6], s[6]), s32), 6);
-	__m128i d4 = _mm_srai_epi32(_mm_add_epi32(_mm_mullo_epi32(c[8], s[8]), s32), 6);
-	__m128i d5 = _mm_srai_epi32(_mm_add_epi32(_mm_mullo_epi32(c[10], s[10]), s32), 6);
-	__m128i d6 = _mm_srai_epi32(_mm_add_epi32(_mm_mullo_epi32(c[12], s[12]), s32), 6);
-	__m128i d7 = _mm_srai_epi32(_mm_add_epi32(_mm_mullo_epi32(c[14], s[14]), s32), 6);
+	// loading
+	__m128i d8 = (__m128i)ctx->d[1];
+	__m128i d9 = (__m128i)ctx->d[3];
+	__m128i dA = (__m128i)ctx->d[5];
+	__m128i dB = (__m128i)ctx->d[7];
+	__m128i dC = (__m128i)ctx->d[9];
+	__m128i dD = (__m128i)ctx->d[11];
+	__m128i dE = (__m128i)ctx->d[13];
+	__m128i dF = (__m128i)ctx->d[15];
+	__m128i d0 = (__m128i)ctx->d[0];
+	__m128i d1 = (__m128i)ctx->d[2];
+	__m128i d2 = (__m128i)ctx->d[4];
+	__m128i d3 = (__m128i)ctx->d[6];
+	__m128i d4 = (__m128i)ctx->d[8];
+	__m128i d5 = (__m128i)ctx->d[10];
+	__m128i d6 = (__m128i)ctx->d[12];
+	__m128i d7 = (__m128i)ctx->d[14];
 	
 	// The 8bit version can hold the whole transform in registers.
 	uint8_t *p = ctx->plane + ctx->plane_offsets[ctx->BlkIdx];
@@ -264,7 +258,7 @@ __attribute__((noinline)) int decode_Residual8x8(__m128i p0, __m128i p1,
 			__m128i x5 = _mm_unpacklo_epi32(dE, dF);
 			__m128i x6 = _mm_unpackhi_epi32(dC, dD);
 			__m128i x7 = _mm_unpackhi_epi32(dE, dF);
-			d8 = _mm_add_epi32(_mm_unpacklo_epi64(x0, x1), s32);
+			d8 = _mm_add_epi32(_mm_unpacklo_epi64(x0, x1), _mm_set1_epi32(32));
 			d9 = _mm_unpackhi_epi64(x0, x1);
 			dA = _mm_unpacklo_epi64(x2, x3);
 			dB = _mm_unpackhi_epi64(x2, x3);
@@ -272,7 +266,7 @@ __attribute__((noinline)) int decode_Residual8x8(__m128i p0, __m128i p1,
 			dD = _mm_unpackhi_epi64(x8, x9);
 			dE = _mm_unpacklo_epi64(xA, xB);
 			dF = _mm_unpackhi_epi64(xA, xB);
-			d0 = _mm_add_epi32(_mm_unpacklo_epi64(x4, x5), s32);
+			d0 = _mm_add_epi32(_mm_unpacklo_epi64(x4, x5), _mm_set1_epi32(32));
 			d1 = _mm_unpackhi_epi64(x4, x5);
 			d2 = _mm_unpacklo_epi64(x6, x7);
 			d3 = _mm_unpackhi_epi64(x6, x7);

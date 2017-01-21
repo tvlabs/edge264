@@ -891,6 +891,8 @@ static __attribute__((noinline)) int parse_residual_block(unsigned coded_block_f
 				codIOffset = (SIZE_BIT == 32) ? mul : (uint32_t)codIOffset | mul << 32;
 				coeff_level = 14 + (1 << k) + (quo << shift >> (31 - k));
 			}
+			int scan = ctx->scan[ctz64(significant_coeff_flags)];
+			coeff_level = (coeff_level * ((uint32_t *)ctx->LevelScale)[scan] + 32) >> 6;
 			
 			// not the brightest part of spec (9.3.3.1.3), I did my best
 			static const int8_t trans[5] = {0, 2, 3, 4, 4};
@@ -899,12 +901,11 @@ static __attribute__((noinline)) int parse_residual_block(unsigned coded_block_f
 			ctxIdx0 = last_sig_offset + (coeff_level > 1 ? 0 : ctxIdxInc);
 			ctxIdx1 = min(ctxIdx1 + (coeff_level > 1), (last_sig_offset == 257 ? last_sig_offset + 8 : last_sig_offset + 9));
 		
-			// Parse coeff_sign_flag.
+			// parse coeff_sign_flag
 			codIRange >>= 1;
 			coeff_level = (codIOffset >= codIRange) ? -coeff_level : coeff_level;
 			codIOffset = (codIOffset >= codIRange) ? codIOffset - codIRange : codIOffset;
-			int i = ctz64(significant_coeff_flags);
-			((int32_t *)ctx->residual_block)[ctx->scan[i]] = coeff_level;
+			((int32_t *)ctx->d)[scan] = coeff_level;
 		
 			// Though not very efficient, this gets optimised out easily :)
 			fprintf(stderr, (ctx->ctxIdxOffsets[0] == 93) ? "Luma4x4: %d\n" :
@@ -920,7 +921,7 @@ static __attribute__((noinline)) int parse_residual_block(unsigned coded_block_f
 				(ctx->ctxIdxOffsets[0] == 464) ? "Cb4x4: %d\n" :
 				(ctx->ctxIdxOffsets[0] == 476) ? "Cr4x4: %d\n" :
 				(ctx->ctxIdxOffsets[0] == 97) ? "ChromaDC: %d\n" :
-				"ChromaAC: %d\n", ctx->residual_block[ctx->scan[i]]);
+				"ChromaAC: %d\n", ctx->d[scan]);
 		} while ((significant_coeff_flags &= significant_coeff_flags - 1) != 0);
 	}
 	return decode_samples();
@@ -1070,7 +1071,7 @@ static __attribute__((noinline)) int parse_chroma_residual() {
 	int is422 = ctx->ps.ChromaArrayType - 1;
 	if (is422 == 0 || is422 == 1) {
 		for (int i = 0; i < 8; i++)
-			ctx->residual_block[i] = (v4si){};
+			ctx->d[i] = (v4si){};
 		ctx->ctxIdxOffsets_l = ctxIdxOffsets_chromaDC[ctx->f.mb_field_decoding_flag];
 		ctx->sig_inc_l = ctx->last_inc_l = sig_inc_chromaDC[is422].l;
 		ctx->f_v = __builtin_shufflevector(ctx->f_v, ctx->f_v, 0, 2, 1, 3);
@@ -1098,9 +1099,9 @@ static __attribute__((noinline)) int parse_chroma_residual() {
 		for (int luma4x4BlkIdx = 0, lim = 12 + is422 * 4; luma4x4BlkIdx < lim; luma4x4BlkIdx++) {
 			if ((luma4x4BlkIdx & lim) == 4)
 				luma4x4BlkIdx = 8;
-			int DC = ((int32_t *)ctx->residual_block)[16 + luma4x4BlkIdx];
-			ctx->residual_block[3] = ctx->residual_block[2] = ctx->residual_block[1] = ctx->residual_block[0] = (v4si){};
-			((int32_t *)ctx->residual_block)[0] = DC;
+			int DC = ((int32_t *)ctx->d)[16 + luma4x4BlkIdx];
+			ctx->d[3] = ctx->d[2] = ctx->d[1] = ctx->d[0] = (v4si){};
+			((int32_t *)ctx->d)[0] = DC;
 			uint8_t shift = left_chroma[luma4x4BlkIdx];
 			unsigned coded_block_flag = 0;
 			if (ctx->f.CodedBlockPatternChromaAC)
@@ -1134,7 +1135,7 @@ static __attribute__((noinline)) int parse_Intra16x16_residual() {
 	do {
 		// One 4x4 DC block
 		ctx->ctxIdxOffsets_l = ctxIdxOffsets_16x16DC[iYCbCr][ctx->f.mb_field_decoding_flag];
-		ctx->residual_block[7] = ctx->residual_block[6] = ctx->residual_block[5] = ctx->residual_block[4] = (v4si){};
+		ctx->d[7] = ctx->d[6] = ctx->d[5] = ctx->d[4] = (v4si){};
 		unsigned coded_block_flag_DC = get_ae(ctx->ctxIdxOffsets[0] + (ctx->ctxIdxInc.coded_block_flags_16x16 >> (iYCbCr * 2) & 3));
 		ctx->f.coded_block_flags_16x16 |= coded_block_flag_DC << (iYCbCr * 2);
 		parse_residual_block(coded_block_flag_DC << 25, 15);
@@ -1142,9 +1143,9 @@ static __attribute__((noinline)) int parse_Intra16x16_residual() {
 		// Sixteen 4x4 AC blocks
 		ctx->ctxIdxOffsets_l = ctxIdxOffsets_16x16AC[iYCbCr][ctx->f.mb_field_decoding_flag];
 		for (int luma4x4BlkIdx = 0; luma4x4BlkIdx < 16; luma4x4BlkIdx++) {
-			int DC = ((int32_t *)ctx->residual_block)[16 + luma4x4BlkIdx];
-			ctx->residual_block[3] = ctx->residual_block[2] = ctx->residual_block[1] = ctx->residual_block[0] = (v4si){};
-			((int32_t *)ctx->residual_block)[0] = DC;
+			int DC = ((int32_t *)ctx->d)[16 + luma4x4BlkIdx];
+			ctx->d[3] = ctx->d[2] = ctx->d[1] = ctx->d[0] = (v4si){};
+			((int32_t *)ctx->d)[0] = DC;
 			unsigned coded_block_flag = 0;
 			if (ctx->f.s & 1 << bit_8x8[luma4x4BlkIdx >> 2])
 				coded_block_flag = get_ae(ctx->ctxIdxOffsets[0] + (ctx->coded_block_flags[0] >> left_4x4[luma4x4BlkIdx] & 3)) << bit_4x4[luma4x4BlkIdx];
@@ -1194,7 +1195,7 @@ static __attribute__((noinline)) int parse_NxN_residual() {
 			
 			// we decode each residual block right after parsing to keep a single loop
 			do {
-				ctx->residual_block[3] = ctx->residual_block[2] = ctx->residual_block[1] = ctx->residual_block[0] = (v4si){};
+				ctx->d[3] = ctx->d[2] = ctx->d[1] = ctx->d[0] = (v4si){};
 				unsigned coded_block_flag = 0;
 				if (ctx->f.s & 1 << bit_8x8[ctx->BlkIdx >> 2])
 					coded_block_flag = get_ae(ctx->ctxIdxOffsets[0] + (ctx->coded_block_flags[0] >> left_4x4[ctx->BlkIdx] & 3)) << bit_4x4[ctx->BlkIdx];
@@ -1215,7 +1216,7 @@ static __attribute__((noinline)) int parse_NxN_residual() {
 			// I'm not quite sure how to best code the ChromaArrayType bypass condition.
 			do {
 				for (int i = 0; i < 16; i++)
-					ctx->residual_block[i] = (v4si){};
+					ctx->d[i] = (v4si){};
 				int luma8x8BlkIdx = ctx->BlkIdx >> 2;
 				unsigned coded_block_flag = 0;
 				if (ctx->f.s & 1 << bit_8x8[luma8x8BlkIdx]) {

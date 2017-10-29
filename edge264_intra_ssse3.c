@@ -16,11 +16,12 @@
 
 int decode_Residual4x4(__m128i, __m128i);
 int decode_Residual8x8(__m128i, __m128i, __m128i, __m128i, __m128i, __m128i, __m128i, __m128i);
+int decode_ResidualDC4x4();
 
 static inline void print_v8hi(__m128i x) {
 	for (int i = 0; i < 8; i++)
 		printf("%3d ", ((v8hi)x)[i]);
-	putchar('\n');
+	printf("\n");
 }
 
 /**
@@ -356,8 +357,17 @@ static int decode_HorizontalUp8x8(__m128i btfel, __m128i pot) {
 
 /**
  * Intra_16x16 and Chroma modes
- * TODO: Set a clip vector instead of BitDepth
  */
+static int predict_Horizontal16x16_8bit(uint8_t *p, size_t stride, uint8_t *q, uint8_t *r) {
+	__m64 m0 = _mm_unpackhi_pi8(*(__m64 *)(p + stride * 1 - 8), *(__m64 *)(p              - 8));
+	__m64 m1 = _mm_unpackhi_pi8(*(__m64 *)(q              - 8), *(__m64 *)(p + stride * 2 - 8));
+	__m64 m2 = _mm_unpackhi_pi8(*(__m64 *)(q + stride * 2 - 8), *(__m64 *)(p + stride * 4 - 8));
+	__m64 m3 = _mm_unpackhi_pi8(*(__m64 *)(q + stride * 4 - 8), *(__m64 *)(r              - 8));
+	__m64 m4 = _mm_unpackhi_pi32(_mm_unpackhi_pi16(m3, m2), _mm_unpackhi_pi16(m1, m0));
+	__m128i x0 = _mm_unpackhi_epi8(*(__m128i *)(p + stride * 1 - 16), *(__m128i *)(p + stride * 2 - 16));
+	
+}
+
 static int predict_Plane16x16_8bit(uint8_t *p, size_t stride)
 {
 	static const v16qi mul0 = {-1, -2, -3, -4, -5, -6, -7, -8, -8, -7, -6, -5, -4, -3, -2, -1};
@@ -447,6 +457,7 @@ static int predict_Plane16x16_16bit(uint8_t *p, size_t stride)
 	static const v4si s32 = {32, 32, 32, 32};
 	
 	// load all neighbouring samples
+	// TODO: Adopt p/q/r/s convention
 	int p15 = ((int16_t *)p)[15];
 	__m128i t0 = _mm_loadu_si128((__m128i *)(p - 2));
 	__m128i t1 = _mm_shuffle_epi8(*(__m128i *)(p + 16), (__m128i)inv);
@@ -732,14 +743,13 @@ static int predict_Plane8x8_16bit(uint8_t *p, size_t stride)
 
 
 static __attribute__((noinline)) int decode_8bit(uint8_t *p, size_t stride,
-	uint8_t *q, uint8_t *r, int mode, __m128i zero)
+	uint8_t *q, uint8_t *r, int BlkIdx, __m128i zero)
 {
 	static const v16qi shufC = {0, -1, 1, -1, 2, -1, 3, -1, 3, -1, 3, -1, 3, -1, 3, -1};
 	__m64 m0, m1, m2, m3, m4;
 	__m128i x0, x1, x2, x3, x4, x5, x6;
 	
-	__builtin_expect(mode <= HORIZONTAL_UP_8x8, 1);
-	switch (mode) {
+	switch (ctx->PredMode[BlkIdx]) {
 	
 	// Intra4x4 modes
 	case VERTICAL_4x4:
@@ -836,7 +846,7 @@ static __attribute__((noinline)) int decode_8bit(uint8_t *p, size_t stride,
 		x4 = load8_8bit(p, stride, q, r, zero);
 		x5 = _mm_alignr_epi8(x4, x0, 14);
 		x6 = _mm_alignr_epi8(x5, x0, 14);
-		switch (mode) {
+		switch (ctx->PredMode[BlkIdx]) {
 		case DC_C_8x8:
 			x1 = _mm_shufflehi_epi16(x1, _MM_SHUFFLE(2, 2, 1, 0));
 			break;
@@ -978,27 +988,49 @@ static __attribute__((noinline)) int decode_8bit(uint8_t *p, size_t stride,
 		return decode_HorizontalUp8x8(x0, x1);
 	
 	// Intra16x16 and chroma modes
+	case PREDICT_VERTICAL_16x16:
+		x0 = _mm_unpacklo_epi8(*(__m128i *)p, zero);
+		x1 = _mm_unpackhi_epi8(*(__m128i *)p, zero);
+		ctx->pred_buffer[0] = ctx->pred_buffer[2] = ctx->pred_buffer[8] = ctx->pred_buffer[10] =
+			(v8hi)_mm_unpacklo_epi64(x0, x0);
+		ctx->pred_buffer[1] = ctx->pred_buffer[3] = ctx->pred_buffer[9] = ctx->pred_buffer[11] =
+			(v8hi)_mm_unpackhi_epi64(x0, x0);
+		ctx->pred_buffer[4] = ctx->pred_buffer[6] = ctx->pred_buffer[12] = ctx->pred_buffer[14] =
+			(v8hi)_mm_unpacklo_epi64(x1, x1);
+		ctx->pred_buffer[5] = ctx->pred_buffer[7] = ctx->pred_buffer[13] = ctx->pred_buffer[15] =
+			(v8hi)_mm_unpackhi_epi64(x1, x1);
+		return decode_ResidualDC4x4();
+	
+	case PREDICT_HORIZONTAL_16x16:
+		return predict_Horizontal16x16_8bit(p, stride, q, r);
+	
+	case VERTICAL_16x16:
+	case HORIZONTAL_16x16:
+		x0 = (__m128i)ctx->pred_buffer[BlkIdx];
+		return decode_Residual4x4(x0, x0);
+	case DC_16x16:
+		x0 = (__m128i)ctx->pred_buffer[0];
+		return decode_Residual4x4(x0, x0);
 	case PLANE_16x16:
-		x0 = (__m128i)ctx->pred_buffer[ctx->BlkIdx];
+		x0 = (__m128i)ctx->pred_buffer[BlkIdx];
 		x1 = _mm_add_epi16(x0, (__m128i)ctx->pred_buffer[16]);
 		x2 = _mm_packus_epi16(_mm_srai_epi16(x0, 5), _mm_srai_epi16(x1, 5));
 		x3 = _mm_unpacklo_epi8(x2, zero);
 		x4 = _mm_unpackhi_epi8(x2, zero);
 		return decode_Residual4x4(x3, x4);
 	}
-	return 0;
+	return -1;
 }
 
 
 
 static __attribute__((noinline)) int decode_16bit(uint8_t *p, size_t stride,
-	uint8_t *q, uint8_t *r, int mode, __m128i zero)
+	uint8_t *q, uint8_t *r, int BlkIdx, __m128i zero)
 {
 	__m64 m0, m1, m2, m3, m4, m5;
 	__m128i x0, x1, x2, x3, x4, x5, x6;
 	
-	__builtin_expect(mode <= HORIZONTAL_UP_8x8, 1);
-	switch (mode) {
+	switch (ctx->PredMode[BlkIdx]) {
 	
 	// Intra4x4 modes
 	case VERTICAL_4x4:
@@ -1090,7 +1122,7 @@ static __attribute__((noinline)) int decode_16bit(uint8_t *p, size_t stride,
 		x4 = load8_16bit(p, stride, q, r);
 		x5 = _mm_alignr_epi8(x4, x0, 14);
 		x6 = _mm_alignr_epi8(x5, x0, 14);
-		switch (mode) {
+		switch (ctx->PredMode[BlkIdx]) {
 		case DC_C_8x8:
 			x1 = _mm_shufflehi_epi16(x1, _MM_SHUFFLE(2, 2, 1, 0));
 			break;
@@ -1240,15 +1272,15 @@ static __attribute__((noinline)) int decode_16bit(uint8_t *p, size_t stride,
 		x6 = _mm_min_epi16(_mm_packus_epi32(_mm_srai_epi32(x3, 5), _mm_srai_epi32(x4, 5)), (__m128i)ctx->clip);
 		return decode_Residual4x4(x5, x6);
 	}
-	return 0;
+	return -1;
 }
 
 
 
-inline int decode_samples() {
+int decode_samples() {
 	int BlkIdx = ctx->BlkIdx;
 	size_t stride = ctx->stride;
 	uint8_t *p = ctx->plane + ctx->plane_offsets[BlkIdx] - stride;
 	return (*(int16_t *)&ctx->clip == 255 ? decode_8bit : decode_16bit)
-		(p, stride, p + stride * 3, p + stride * 6, ctx->PredMode[BlkIdx], _mm_setzero_si128());
+		(p, stride, p + stride * 3, p + stride * 6, BlkIdx, _mm_setzero_si128());
 }

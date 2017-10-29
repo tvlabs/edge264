@@ -151,7 +151,7 @@ typedef struct {
 	union { uint8_t scan[64]; uint64_t scan_l; v16qu scan_v[4]; };
 	v8hi pred_buffer[17]; // temporary storage for prediction samples
 	v4si LevelScale[16];
-	v4si d[16]; // scaled residual coefficients
+	union { int32_t d[64]; v4si d_v[16]; }; // scaled residual coefficients
 	int32_t plane_offsets[48];
 	
 	// context pointers
@@ -207,10 +207,6 @@ size_t get_ue32();
 static inline __attribute__((always_inline)) unsigned get_ue(unsigned upper) { return umin((upper <= 65534) ? get_ue16() : get_ue32(), upper); }
 static inline __attribute__((always_inline)) int map_se(unsigned codeNum) { return (codeNum & 1) ? codeNum / 2 + 1 : -(codeNum / 2); }
 static inline __attribute__((always_inline)) int get_se(int lower, int upper) { return min(max(map_se((lower >= -32767 && upper <= 32767) ? get_ue16() : get_ue32()), lower), upper); }
-
-int CABAC_parse_slice_data();
-
-int decode_samples();
 
 
 
@@ -306,6 +302,14 @@ enum PredModes {
 	VERTICAL_LEFT_CD_8x8,
 	HORIZONTAL_UP_D_8x8,
 	
+	PREDICT_VERTICAL_16x16,
+	PREDICT_HORIZONTAL_16x16,
+	PREDICT_DC_16x16,
+	PREDICT_PLANE_16x16,
+	
+	VERTICAL_16x16,
+	HORIZONTAL_16x16,
+	DC_16x16,
 	PLANE_16x16,
 };
 static const int8_t intra4x4_modes[9][16] = {
@@ -349,7 +353,7 @@ static inline __m128i _mm_mullo_epi32(__m128i a, __m128i b) {
 	__m128 g = _mm_shuffle_ps((__m128)e, (__m128)f, _MM_SHUFFLE(2, 0, 2, 0));
 	return _mm_shuffle_epi32((__m128i)g, _MM_SHUFFLE(3, 1, 2, 0));
 }
-// not striclty equivalent but sufficient for 14bit results
+// not strictly equivalent but sufficient for 14bit results
 static inline __m128i _mm_packus_epi32(__m128i a, __m128i b) {
 	return _mm_max_epi16(_mm_packs_epi32(a, b), _mm_setzero_si128());
 }

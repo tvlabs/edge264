@@ -14,7 +14,7 @@
 #include "edge264_golomb.c"
 #ifdef __SSSE3__
 #include "edge264_residual_ssse3.c"
-#include "edge264_intra.c"
+#include "edge264_intra_ssse3.c"
 #endif
 #include "edge264_cabac.c"
 
@@ -418,7 +418,7 @@ static const uint8_t *parse_slice_layer_without_partitioning(Edge264_stream *e,
 	ctx->IdrPicFlag = (nal_unit_type == 5);
 	
 	// We correctly input these values to better display them... in red.
-	int first_mb_in_slice = get_ue(543 * 543 - 1);
+	int first_mb_in_slice = get_ue(139263);
 	int slice_type = get_ue(9);
 	ctx->slice_type = (slice_type < 5) ? slice_type : slice_type - 5;
 	int pic_parameter_set_id = get_ue(255);
@@ -471,8 +471,9 @@ static const uint8_t *parse_slice_layer_without_partitioning(Edge264_stream *e,
 		int diff = get_uv(ctx->ps.log2_max_pic_order_cnt_lsb) - ctx->s.prevPicOrderCnt;
 		unsigned PicOrderCnt = ctx->s.prevPicOrderCnt + (diff << shift >> shift);
 		ctx->TopFieldOrderCnt = PicOrderCnt;
-		ctx->BottomFieldOrderCnt = (!ctx->field_pic_flag && ctx->ps.bottom_field_pic_order_in_frame_present_flag) ?
-			PicOrderCnt + map_se(get_ue32()) : PicOrderCnt;
+		ctx->BottomFieldOrderCnt = PicOrderCnt;
+		if (!ctx->field_pic_flag && ctx->ps.bottom_field_pic_order_in_frame_present_flag)
+			ctx->BottomFieldOrderCnt = PicOrderCnt + map_se(get_ue32());
 		if (!ctx->non_ref_flag)
 			ctx->s.prevPicOrderCnt = PicOrderCnt;
 	} else if (ctx->ps.pic_order_cnt_type == 1) {
@@ -692,7 +693,7 @@ static void parse_scaling_lists()
  *
  * Slice groups are not supported because:
  * _ The sixth group requires a per-PPS storage of mapUnitToSliceGroupMap, with
- *   an upper size of 543^2 bytes, though a slice group needs 3 bits at most;
+ *   an upper size of 1055^2 bytes, though a slice group needs 3 bits at most;
  * _ Groups 3-5 ignore the PPS's mapUnitToSliceGroupMap, and use 1 bit per mb;
  * _ Skipping unavailable mbs while decoding a slice messes with the storage of
  *   neighbouring macroblocks as a cirbular buffer.
@@ -810,7 +811,7 @@ static const uint8_t *parse_pic_parameter_set(Edge264_stream *e, int nal_ref_idc
 			ctx->ps.second_chroma_qp_index_offset);
 	}
 	
-	// seq_parameter_set_id was ignored so far as long as no SPS data was read.
+	// seq_parameter_set_id was ignored so far since no SPS data was read.
 	if (get_uv(24) != 0x800000 || pic_parameter_set_id >= 4 || seq_parameter_set_id > 0 || e->DPB == NULL) {
 		e->error = -1;
 	} else {
@@ -1064,7 +1065,7 @@ static const uint8_t *parse_seq_parameter_set(Edge264_stream *e, int nal_ref_idc
 		(double)level_idc / 10,
 		red_if(seq_parameter_set_id != 0), seq_parameter_set_id);
 	
-	// These writes could be merged, but this is not the right place to hard-code them.
+	// These writes could be merged, I hope the compiler can do that...
 	ctx->ps.chroma_format_idc = 1;
 	ctx->ps.ChromaArrayType = 1;
 	ctx->ps.BitDepth_Y = 8;
@@ -1155,14 +1156,15 @@ static const uint8_t *parse_seq_parameter_set(Edge264_stream *e, int nal_ref_idc
 		printf("</ul>\n");
 	}
 	
-	// For compatibility with CoreAVC's 8100x8100, the MaxFS limit is not enforced.
+	// Updated for level 6.2.
 	ctx->ps.max_num_ref_frames = ctx->ps.max_num_reorder_frames = get_ue(16);
 	int gaps_in_frame_num_value_allowed_flag = get_u1();
-	ctx->ps.width = (get_ue(543) + 1) << 4;
+	unsigned pic_width_in_mbs = get_ue(1054) + 1;
 	int pic_height_in_map_units = get_ue16() + 1;
 	ctx->ps.frame_mbs_only_flag = get_u1();
+	ctx->ps.width = pic_width_in_mbs << 4;
 	ctx->ps.height = min((ctx->ps.frame_mbs_only_flag) ? pic_height_in_map_units :
-		pic_height_in_map_units << 1, 543) << 4;
+		pic_height_in_map_units << 1, 139264 / pic_width_in_mbs) << 4;
 	printf("<li>max_num_ref_frames: <code>%u</code></li>\n"
 		"<li>gaps_in_frame_num_value_allowed_flag: <code>%x</code></li>\n"
 		"<li>width: <code>%u</code></li>\n"
@@ -1222,7 +1224,7 @@ static const uint8_t *parse_seq_parameter_set(Edge264_stream *e, int nal_ref_idc
 		int height_C = ctx->ps.chroma_format_idc < 2 ? height_Y >> 1 : height_Y;
 		int PicSizeInMbs = width_Y * height_Y >> 8;
 		
-		// An offset might be added if 2048-wide videos actually suffer from cache alignment.
+		// An offset might be added if cache alignment has a significant impact on some videos.
 		e->stride_Y = ctx->ps.BitDepth_Y == 8 ? width_Y : width_Y * 2;
 		e->stride_C = ctx->ps.BitDepth_C == 8 ? width_C : width_C * 2;
 		e->plane_Y = e->stride_Y * height_Y;

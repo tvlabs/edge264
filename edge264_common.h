@@ -79,6 +79,7 @@ typedef int8_t v16qi __attribute__((vector_size(16)));
 typedef int16_t v8hi __attribute__((vector_size(16)));
 typedef int32_t v4si __attribute__((vector_size(16)));
 typedef int64_t v2li __attribute__((vector_size(16)));
+typedef int32_t v8si __attribute__((vector_size(32)));
 typedef uint8_t v16qu __attribute__((vector_size(16)));
 typedef uint16_t v8hu __attribute__((vector_size(16)));
 typedef uint32_t v4su __attribute__((vector_size(16)));
@@ -151,7 +152,7 @@ typedef struct {
 	union { uint8_t scan[64]; uint64_t scan_l; v16qu scan_v[4]; };
 	v8hi pred_buffer[17]; // temporary storage for prediction samples
 	v4si LevelScale[16];
-	union { int32_t d[64]; v4si d_v[16]; }; // scaled residual coefficients
+	union { int32_t d[64]; v4si d_v[16]; v8si d_V[8]; }; // scaled residual coefficients
 	int32_t plane_offsets[48];
 	
 	// context pointers

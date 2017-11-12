@@ -9,7 +9,7 @@
  * speedup. Also the implementation matches the spec's pseudocode, avoiding
  * minor optimisations which would make it harder to understand.
  */
-__attribute__((noinline)) int decode_Residual4x4(__m128i p0, __m128i p1)
+static __attribute__((noinline)) int decode_Residual4x4(__m128i p0, __m128i p1)
 {
 	// loading
 	__m128i d0 = (__m128i)ctx->d_v[0];
@@ -80,7 +80,7 @@ __attribute__((noinline)) int decode_Residual4x4(__m128i p0, __m128i p1)
 /**
  * Inverse 8x8 transform
  */
-__attribute__((noinline)) int decode_Residual8x8_8bit(__m128i p0, __m128i p1,
+static __attribute__((noinline)) int decode_Residual8x8_8bit(__m128i p0, __m128i p1,
 	__m128i p2, __m128i p3, __m128i p4, __m128i p5, __m128i p6, __m128i p7)
 {
 	// loading
@@ -180,7 +180,7 @@ __attribute__((noinline)) int decode_Residual8x8_8bit(__m128i p0, __m128i p1,
 }
 
 #ifndef __AVX2__
-__attribute__((noinline)) int decode_Residual8x8(__m128i p0, __m128i p1,
+static __attribute__((noinline)) int decode_Residual8x8(__m128i p0, __m128i p1,
 	__m128i p2, __m128i p3, __m128i p4, __m128i p5, __m128i p6, __m128i p7)
 {
 	if (__builtin_expect(*(int16_t *)&ctx->clip == 255, 1))
@@ -319,7 +319,7 @@ __attribute__((noinline)) int decode_Residual8x8(__m128i p0, __m128i p1,
 	return 0;
 }
 #else
-__attribute__((noinline)) int decode_Residual8x8(__m128i p0, __m128i p1,
+static __attribute__((noinline)) int decode_Residual8x8(__m128i p0, __m128i p1,
 	__m128i p2, __m128i p3, __m128i p4, __m128i p5, __m128i p6, __m128i p7)
 {
 	if (__builtin_expect(*(int16_t *)&ctx->clip == 255, 1))
@@ -427,3 +427,12 @@ __attribute__((noinline)) int decode_Residual8x8(__m128i p0, __m128i p1,
 	return 0;
 }
 #endif
+
+
+
+/**
+ * DC coefficients transform
+ */
+static __attribute__((noinline)) int decode_ResidualDC4x4() {
+	return 0;
+}

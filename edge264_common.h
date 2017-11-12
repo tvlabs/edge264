@@ -306,6 +306,7 @@ enum PredModes {
 	DC_16x16,
 	DC_16x16_A,
 	DC_16x16_B,
+	DC_16x16_AB,
 	PLANE_16x16,
 	VERTICAL_4x4_BUFFERED,
 	HORIZONTAL_4x4_BUFFERED,
@@ -365,6 +366,7 @@ enum PredModes {
 	DC_16x16_16_BIT,
 	DC_16x16_A_16_BIT,
 	DC_16x16_B_16_BIT,
+	DC_16x16_AB_16_BIT,
 	PLANE_16x16_16_BIT,
 	PLANE_4x4_BUFFERED_16_BIT,
 };
@@ -394,7 +396,6 @@ static const int8_t intra8x8_modes[9][16] = {
 
 
 #ifdef __SSSE3__
-#define _mm_movpi64_pi64 _mm_movpi64_epi64
 #include <tmmintrin.h>
 #ifdef __SSE4_1__
 #include <smmintrin.h>
@@ -441,6 +442,14 @@ static inline size_t lsd(size_t msb, size_t lsb, unsigned shift) {
 	__asm__("shld %%cl, %1, %0" : "+rm" (msb) : "r" (lsb), "c" (shift));
 	return msb;
 }
+// fixing GCC's defect
+#if defined(__GNUC__) && !defined(__clang__)
+static inline __m128i _mm_movpi64_epi64(__m64 a) {
+	__m128i b;
+	__asm__("movq2dq %1, %0" : "=x" (b) : "y" (a));
+	return b;
+}
+#endif // __GNUC__
 #else
 #error "Add -mssse3 or more recent"
 #endif

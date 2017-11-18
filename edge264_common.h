@@ -144,7 +144,7 @@ typedef struct {
 	uint32_t ref_idx_mask;
 	v8hi clip_Y, clip_C, clip; // vectors of maximum sample values
 	v4si cbf_maskA, cbf_maskB;
-	union { int8_t PredMode[48]; v16qi PredMode_v[3]; };
+	union { uint8_t PredMode[48]; v16qu PredMode_v[3]; };
 	union { int8_t mvC[32]; v16qi mvC_v[2]; };
 	union { int16_t ctxIdxOffsets[4]; v4hi ctxIdxOffsets_l; }; // {cbf,sig_flag,last_sig_flag,coeff_abs}
 	union { uint8_t sig_inc[64]; uint64_t sig_inc_l; v16qu sig_inc_v[4]; };
@@ -308,6 +308,28 @@ enum PredModes {
 	DC_16x16_B,
 	DC_16x16_AB,
 	PLANE_16x16,
+	CHROMA_DC_8x8,
+	CHROMA_DC_8x8_Ab,
+	CHROMA_DC_8x8_At,
+	CHROMA_DC_8x8_A,
+	CHROMA_DC_8x8_B,
+	CHROMA_DC_8x8_AbB,
+	CHROMA_DC_8x8_AtB,
+	CHROMA_DC_8x8_AB,
+	CHROMA_VERTICAL_8x8,
+	CHROMA_HORIZONTAL_8x8,
+	CHROMA_PLANE_8x8,
+	CHROMA_DC_8x16,
+	CHROMA_DC_8x16_Ab,
+	CHROMA_DC_8x16_At,
+	CHROMA_DC_8x16_A,
+	CHROMA_DC_8x16_B,
+	CHROMA_DC_8x16_AbB,
+	CHROMA_DC_8x16_AtB,
+	CHROMA_DC_8x16_AB,
+	CHROMA_VERTICAL_8x16,
+	CHROMA_HORIZONTAL_8x16,
+	CHROMA_PLANE_8x16,
 	VERTICAL_4x4_BUFFERED,
 	HORIZONTAL_4x4_BUFFERED,
 	DC_4x4_BUFFERED,
@@ -368,6 +390,28 @@ enum PredModes {
 	DC_16x16_B_16_BIT,
 	DC_16x16_AB_16_BIT,
 	PLANE_16x16_16_BIT,
+	CHROMA_DC_8x8_16_BIT,
+	CHROMA_DC_8x8_Ab_16_BIT,
+	CHROMA_DC_8x8_At_16_BIT,
+	CHROMA_DC_8x8_A_16_BIT,
+	CHROMA_DC_8x8_B_16_BIT,
+	CHROMA_DC_8x8_AbB_16_BIT,
+	CHROMA_DC_8x8_AtB_16_BIT,
+	CHROMA_DC_8x8_AB_16_BIT,
+	CHROMA_VERTICAL_8x8_16_BIT,
+	CHROMA_HORIZONTAL_8x8_16_BIT,
+	CHROMA_PLANE_8x8_16_BIT,
+	CHROMA_DC_8x16_16_BIT,
+	CHROMA_DC_8x16_Ab_16_BIT,
+	CHROMA_DC_8x16_At_16_BIT,
+	CHROMA_DC_8x16_A_16_BIT,
+	CHROMA_DC_8x16_B_16_BIT,
+	CHROMA_DC_8x16_AbB_16_BIT,
+	CHROMA_DC_8x16_AtB_16_BIT,
+	CHROMA_DC_8x16_AB_16_BIT,
+	CHROMA_VERTICAL_8x16_16_BIT,
+	CHROMA_HORIZONTAL_8x16_16_BIT,
+	CHROMA_PLANE_8x16_16_BIT,
 	PLANE_4x4_BUFFERED_16_BIT,
 };
 static const int8_t intra4x4_modes[9][16] = {

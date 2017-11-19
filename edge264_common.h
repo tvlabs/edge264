@@ -153,7 +153,7 @@ typedef struct {
 	v8hi pred_buffer[17]; // temporary storage for prediction samples
 	v4si LevelScale[16];
 	union { int32_t d[64]; v4si d_v[16]; v8si d_V[8]; }; // scaled residual coefficients
-	int32_t plane_offsets[48];
+	union { int32_t plane_offsets[48]; v4si plane_offsets_v[12]; };
 	
 	// context pointers
 	int16_t x; // 14 significant bits

@@ -1,3 +1,5 @@
+// TODO: Remove all bitfields which are not flags in tests
+// TODO: Make Edge264_flags a v16qu
 #ifndef EDGE264_COMMON_H
 #define EDGE264_COMMON_H
 
@@ -110,50 +112,50 @@ typedef struct {
 	size_t range;
 	size_t offset;
 	uint32_t shift;
-	
-	// bitfields come next since they represent most accesses
-	uint32_t non_ref_flag:1;
-	uint32_t IdrPicFlag:1;
-	uint32_t field_pic_flag:1;
-	uint32_t bottom_field_flag:1;
-	uint32_t colour_plane_id:2;
-	uint32_t slice_type:3;
-	uint32_t MbaffFrameFlag:1;
-	uint32_t direct_spatial_mv_pred_flag:1;
-	uint32_t cabac_init_idc:2;
-	uint32_t disable_deblocking_filter_idc:2;
-	int32_t FilterOffsetA:5;
-	int32_t FilterOffsetB:5;
-	uint32_t firstRefPicL1:1;
-	uint32_t col_short_term:1;
-	uint32_t intra_chroma_pred_mode:2;
-	uint32_t mb_qp_delta_non_zero:1;
-	int32_t TopFieldOrderCnt;
-	int32_t BottomFieldOrderCnt;
 	Edge264_flags ctxIdxInc;
 	union { struct { Edge264_flags f; uint32_t coded_block_flags[3]; }; v4su f_v; };
+	
+	// bitfields and constants
+	uint16_t non_ref_flag:1; // TODO: remove if unnecessary after Inter is done
+	uint16_t IdrPicFlag:1;
+	uint16_t field_pic_flag:1;
+	uint16_t bottom_field_flag:1;
+	uint16_t MbaffFrameFlag:1;
+	uint16_t direct_spatial_mv_pred_flag:1;
+	uint16_t disable_deblocking_filter_idc:2;
+	uint16_t firstRefPicL1:1;
+	uint16_t col_short_term:1;
+	uint16_t mb_qp_delta_non_zero:1;
+	int8_t slice_type; // 3 significant bits
+	int8_t colour_plane_id; // 2 significant bits
+	int8_t FilterOffsetA; // 5 significant bits
+	int8_t FilterOffsetB;
+	int32_t TopFieldOrderCnt;
+	int32_t BottomFieldOrderCnt;
 	Edge264_parameter_set ps;
 	Edge264_snapshot s;
 	
-	// cache variables - usually results of nasty optimisations, so should be few :)
-	uint8_t *plane;
+	// context variables
+	int8_t intra_chroma_pred_mode; // 2 significant bits
 	int8_t BlkIdx;
-	int16_t stride;
+	int8_t mbIsInterFlag;
+	uint16_t stride;
 	uint32_t mvd_flags;
 	uint32_t mvd_fold;
 	uint32_t ref_idx_mask;
-	v8hi clip_Y, clip_C, clip; // vectors of maximum sample values
+	uint8_t *plane;
 	v4si cbf_maskA, cbf_maskB;
-	union { uint8_t PredMode[48]; v16qu PredMode_v[3]; };
+	v8hi clip_Y, clip_C, clip; // vectors of maximum sample values
 	union { int8_t mvC[32]; v16qi mvC_v[2]; };
 	union { int16_t ctxIdxOffsets[4]; v4hi ctxIdxOffsets_l; }; // {cbf,sig_flag,last_sig_flag,coeff_abs}
 	union { uint8_t sig_inc[64]; uint64_t sig_inc_l; v16qu sig_inc_v[4]; };
 	union { uint8_t last_inc[64]; uint64_t last_inc_l; v16qu last_inc_v[4]; };
 	union { uint8_t scan[64]; uint64_t scan_l; v16qu scan_v[4]; };
-	v8hi pred_buffer[17]; // temporary storage for prediction samples
-	v4si LevelScale[16];
-	union { int32_t d[64]; v4si d_v[16]; v8si d_V[8]; }; // scaled residual coefficients
+	union { uint32_t LevelScale[64]; v4su LevelScale_v[16]; };
 	union { int32_t plane_offsets[48]; v4si plane_offsets_v[12]; };
+	union { uint8_t PredMode[48]; v16qu PredMode_v[3]; };
+	union { uint16_t pred_buffer[136]; v8hi pred_buffer_v[17]; }; // temporary storage for prediction samples
+	union { int32_t d[64]; v4si d_v[16]; v8si d_V[8]; }; // scaled residual coefficients
 	
 	// context pointers
 	int16_t x; // 14 significant bits
@@ -175,6 +177,7 @@ typedef struct {
 	int16_t weights[3][32][2];
 	int16_t offsets[3][32][2];
 	int8_t implicit_weights[3][32][32]; // -w_1C[top/bottom/frame][refIdxL0][refIdxL1]
+	V4su flags[1057];
 } Edge264_ctx;
 
 
@@ -457,6 +460,12 @@ static inline __m128i _mm_mullo_epi32(__m128i a, __m128i b) {
 // not strictly equivalent but sufficient for 14bit results
 static inline __m128i _mm_packus_epi32(__m128i a, __m128i b) {
 	return _mm_max_epi16(_mm_packs_epi32(a, b), _mm_setzero_si128());
+}
+static inline __m128i _mm_cvtepu8_epi16(__m128i a) {
+	return _mm_unpacklo_epi8(a, _mm_setzero_si128());
+}
+static inline __m128i _mm_cvtepu16_epi32(__m128i a) {
+	return _mm_unpacklo_epi16(a, _mm_setzero_si128());
 }
 #endif // __SSE4_1__
 #ifdef __AVX2__

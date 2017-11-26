@@ -5,6 +5,7 @@
 // TODO: Find a place to set Intra4x4PredMode to 2/-2 when Inter predicting
 // TODO: Optimise the update of each circular buffer pointer.
 // TODO: Store BitDepth vector bounds rather than itself?
+// TODO: Reverse order of scan, because it is confusing
 
 #include "edge264_common.h"
 
@@ -723,23 +724,22 @@ static const union { uint8_t q[8]; uint64_t l; } sig_inc_chromaDC[2] =
 	{{{0, 2, 1, 0}}, {{0, 2, 2, 2, 1, 1, 0, 0}}};
 
 static const v16qu scan_4x4[2] = {
-	{15, 11, 14, 13, 10, 7, 3, 6, 9, 12, 8, 5, 2, 1, 4, 0},
-	{15, 14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 3, 2, 4, 1, 0},
+	{0, 4, 1, 2, 5, 8, 12, 9, 6, 3, 7, 10, 13, 14, 11, 15},
+	{0, 1, 4, 2, 3, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15},
 };
 static const v16qu scan_8x8[2][4] = {{
-	{63, 55, 62, 61, 54, 47, 39, 46, 53, 60, 59, 52, 45, 38, 31, 23},
-	{30, 37, 44, 51, 58, 57, 50, 43, 36, 29, 22, 15,  7, 14, 21, 28},
-	{35, 42, 49, 56, 48, 41, 34, 27, 20, 13,  6,  5, 12, 19, 26, 33},
-	{40, 32, 25, 18, 11,  4,  3, 10, 17, 24, 16,  9,  2,  1,  8,  0},
+	{ 0,  8,  1,  2,  9, 16, 24, 17, 10,  3,  4, 11, 18, 25, 32, 40},
+	{33, 26, 19, 12,  5,  6, 13, 20, 27, 34, 41, 48, 56, 49, 42, 35},
+	{28, 21, 14,  7, 15, 22, 29, 36, 43, 50, 57, 58, 51, 44, 37, 30},
+	{23, 31, 38, 45, 52, 59, 60, 53, 46, 39, 47, 54, 61, 62, 55, 63},
 	}, {
-	{63, 62, 61, 60, 59, 58, 55, 54, 53, 52, 57, 56, 51, 47, 46, 45},
-	{44, 50, 49, 43, 39, 38, 37, 36, 42, 48, 41, 35, 31, 30, 29, 28},
-	{34, 40, 33, 27, 23, 22, 21, 20, 26, 32, 25, 19, 15, 14, 13, 18},
-	{24, 17, 12,  7,  6,  5, 11, 16, 10,  4,  3,  9,  8,  2,  1,  0},
+	{ 0,  1,  2,  8,  9,  3,  4, 10, 16, 11,  5,  6,  7, 12, 17, 24},
+	{18, 13, 14, 15, 19, 25, 32, 26, 20, 21, 22, 23, 27, 33, 40, 34},
+	{28, 29, 30, 31, 35, 41, 48, 42, 36, 37, 38, 39, 43, 49, 50, 44},
+	{45, 46, 47, 51, 56, 57, 52, 53, 54, 55, 58, 59, 60, 61, 62, 63},
 }};
-static const union { uint8_t q[8]; uint64_t l; } scan_chromaDC[2][2] = {
-	{{{3, 2, 1, 0}}, {{ 7,  5,  3,  6,  4, 1,  2, 0}}},
-	{{{7, 6, 5, 4}}, {{15, 13, 11, 14, 12, 9, 10, 8}}},
+static const union { uint8_t q[8]; uint64_t l; } scan_chromaDC[2] = {
+	{0, 1, 2, 3}, {0, 2, 1, 4, 6, 3, 5, 7},
 };
 
 
@@ -891,8 +891,8 @@ static __attribute__((noinline)) int parse_residual_block(unsigned coded_block_f
 				codIOffset = (SIZE_BIT == 32) ? mul : (uint32_t)codIOffset | mul << 32;
 				coeff_level = 14 + (1 << k) + (quo << shift >> (31 - k));
 			}
-			int scan = ctx->scan[ctz64(significant_coeff_flags)];
-			coeff_level = (coeff_level * ((uint32_t *)ctx->LevelScale)[scan] + 32) >> 6;
+			int idx = ctz64(significant_coeff_flags);
+			coeff_level = (coeff_level * ctx->LevelScale[idx] + 32) >> 6;
 			
 			// not the brightest part of spec (9.3.3.1.3), I did my best
 			static const int8_t trans[5] = {0, 2, 3, 4, 4};
@@ -905,7 +905,7 @@ static __attribute__((noinline)) int parse_residual_block(unsigned coded_block_f
 			codIRange >>= 1;
 			coeff_level = (codIOffset >= codIRange) ? -coeff_level : coeff_level;
 			codIOffset = (codIOffset >= codIRange) ? codIOffset - codIRange : codIOffset;
-			ctx->d[scan] = coeff_level;
+			ctx->d[ctx->scan[idx]] = coeff_level;
 		
 			// Though not very efficient, this gets optimised out easily :)
 			fprintf(stderr, (ctx->ctxIdxOffsets[0] == 93) ? "Luma4x4: %d\n" :
@@ -1078,7 +1078,7 @@ static __attribute__((noinline)) int parse_chroma_residual() {
 		ctx->f_v = __builtin_shufflevector(ctx->f_v, ctx->f_v, 0, 2, 1, 3);
 		
 		// One 2x2 or 2x4 DC block for the Cb component
-		ctx->scan_l = scan_chromaDC[0][is422].l;
+		ctx->scan_l = scan_chromaDC[is422].l;
 		unsigned coded_block_flag_Cb = 0;
 		if (ctx->f.CodedBlockPatternChromaDC)
 			coded_block_flag_Cb = get_ae(ctx->ctxIdxOffsets[0] + (ctx->ctxIdxInc.coded_block_flags_16x16 >> 2 & 3));
@@ -1086,7 +1086,7 @@ static __attribute__((noinline)) int parse_chroma_residual() {
 		parse_residual_block(coded_block_flag_Cb << 1, is422 * 4 + 3);
 		
 		// Another 2x2/2x4 DC block for the Cr component
-		ctx->scan_l = scan_chromaDC[1][is422].l;
+		ctx->scan_l = scan_chromaDC[is422].l;
 		unsigned coded_block_flag_Cr = 0;
 		if (ctx->f.CodedBlockPatternChromaDC)
 			coded_block_flag_Cr = get_ae(ctx->ctxIdxOffsets[0] + (ctx->ctxIdxInc.coded_block_flags_16x16 >> 4 & 3));
@@ -1601,7 +1601,7 @@ static __attribute__((noinline)) int PAFF_parse_slice_data()
 		.unavailable = 1,
 	};
 	
-	// I cannot be sure where to put this initialisation until CAVLC is implemented
+	// I am unsure where to put this until MbAFF and CAVLC are implemented.
 	ctx->ctxIdxInc.unavailable |= 2;
 	ctx->cbf_maskA = (v4si){0, 0x42404202, 0x42404202, 0x42404202};
 	ctx->cbf_maskB = (v4si){0, 0x88820820, 0x88820820, 0x88820820};
@@ -1683,47 +1683,30 @@ static __attribute__((noinline)) int PAFF_parse_slice_data()
 			ctx->planes[1] += ctx->plane_offsets[8] * 2;
 			ctx->planes[2] += ctx->plane_offsets[8] * 2;
 			ctx->x = 0;
-			if ((ctx->y += 16) >= ctx->ps.height >> ctx->field_pic_flag)
+			if ((ctx->y += 16) >= (ctx->field_pic_flag ? ctx->ps.height >> 2 : ctx->ps.height))
 				break;
 		}
 	} while (!get_ae(276));
-	
-	// restore the registers
-	codIRange = ctx->range;
-	codIOffset = ctx->offset;
-	return 0;
-}
-
-
-
-static __attribute__((noinline)) int MBAFF_parse_slice_data() {
-	// restore the registers
-	codIRange = ctx->range;
-	codIOffset = ctx->offset;
 	return 0;
 }
 
 
 
 /**
- * Initialise the CABAC decoding engine and set the initial context values using
- * vector code (9.3.1.1).
+ * Initialise the CABAC decoding engine and set the initial context values
+ * using vector code (9.3.1.1).
  *
  * Considering the bottleneck of memory access, this is probably just as fast
  * as copying from precomputed values. Please refrain from providing a default,
  * unoptimised version.
  */
-int CABAC_parse_slice_data()
-{
-	// backup and initialise the registers
-	ctx->range = codIRange;
-	ctx->offset = codIOffset;
+#ifdef __SSSE3__
+static inline int CABAC_parse_slice_data(int cabac_init_idc) {
 	codIRange = (size_t)255 << (SIZE_BIT - 9);
 	codIOffset = get_uv(SIZE_BIT - 1);
 	
-#ifdef __SSSE3__
 	__m128i mul = _mm_set1_epi16(max(ctx->ps.QP_Y, 0) + 4096);
-	const __m128i *src = (__m128i *)context_init[ctx->cabac_init_idc];
+	const __m128i *src = (__m128i *)context_init[cabac_init_idc];
 	for (__m128i *dst = (__m128i*)ctx->states; dst < (__m128i*)ctx->states + 64; dst++, src += 2) {
 		__m128i sum0 = _mm_srai_epi16(_mm_maddubs_epi16(mul, src[0]), 4);
 		__m128i sum1 = _mm_srai_epi16(_mm_maddubs_epi16(mul, src[1]), 4);
@@ -1734,7 +1717,7 @@ int CABAC_parse_slice_data()
 		__m128i shift = _mm_add_epi8(pStateIdx, pStateIdx);
 		*dst = _mm_add_epi8(_mm_add_epi8(shift, shift), _mm_add_epi8(mask, _mm_set1_epi8(1)));
 	}
-#endif
 	((uint8_t*)ctx->states)[276] = 252;
-	return ctx->MbaffFrameFlag ? MBAFF_parse_slice_data() : PAFF_parse_slice_data();
+	return ctx->MbaffFrameFlag ? 0 : PAFF_parse_slice_data();
 }
+#endif

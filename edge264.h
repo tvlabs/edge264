@@ -36,8 +36,8 @@ typedef struct {
 	int8_t BitDepth_Y; // 4 significant bits
 	int8_t BitDepth_C;
 	int8_t max_num_ref_frames; // 5 significant bits
-	uint16_t width; // in luma samples
-	uint16_t height;
+	int16_t width; // in luma samples, 15 significant bits
+	int16_t height;
 	
 	// The rest is internal stuff.
 	uint16_t qpprime_y_zero_transform_bypass_flag:1;
@@ -48,7 +48,8 @@ typedef struct {
 	uint16_t direct_8x8_inference_flag:1;
 	uint16_t entropy_coding_mode_flag:1;
 	uint16_t bottom_field_pic_order_in_frame_present_flag:1;
-	uint16_t weighted_pred:3;
+	uint16_t weighted_pred_flag:1;
+	uint16_t weighted_bipred_idc:2;
 	uint16_t deblocking_filter_control_present_flag:1;
 	uint16_t constrained_intra_pred_flag:1;
 	uint16_t transform_8x8_mode_flag:1;

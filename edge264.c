@@ -20,37 +20,19 @@
 
 
 
-static const v16qu Default_4x4_Intra = {
-	 6, 13, 20, 28,
-	13, 20, 28, 32,
-	20, 28, 32, 37,
-	28, 32, 37, 42
-};
-static const v16qu Default_4x4_Inter = {
-	10, 14, 20, 24,
-	14, 20, 24, 27,
-	20, 24, 27, 30,
-	24, 27, 30, 34
-};
+static const v16qu Default_4x4_Intra = {6, 13, 13, 20, 20, 20, 28, 28, 28, 28, 32, 32, 32, 37, 37, 42};
+static const v16qu Default_4x4_Inter = {10, 14, 14, 20, 20, 20, 24, 24, 24, 24, 27, 27, 27, 30, 30, 34};
 static const v16qu Default_8x8_Intra[4] = {
-	{ 6, 10, 13, 16, 18, 23, 25, 27,
-	 10, 11, 16, 18, 23, 25, 27, 29},
-	{13, 16, 18, 23, 25, 27, 29, 31,
-	 16, 18, 23, 25, 27, 29, 31, 33},
-	{18, 23, 25, 27, 29, 31, 33, 36,
-	 23, 25, 27, 29, 31, 33, 36, 38},
-	{25, 27, 29, 31, 33, 36, 38, 40,
-	 27, 29, 31, 33, 36, 38, 40, 42}
+	{6, 10, 10, 13, 11, 13, 16, 16, 16, 16, 18, 18, 18, 18, 18, 23},
+	{23, 23, 23, 23, 23, 25, 25, 25, 25, 25, 25, 25, 27, 27, 27, 27},
+	{27, 27, 27, 27, 29, 29, 29, 29, 29, 29, 29, 31, 31, 31, 31, 31},
+	{31, 33, 33, 33, 33, 33, 36, 36, 36, 36, 38, 38, 38, 40, 40, 42},
 };
 static const v16qu Default_8x8_Inter[4] = {
-	{ 9, 13, 15, 17, 19, 21, 22, 24,
-	 13, 13, 17, 19, 21, 22, 24, 25},
-	{15, 17, 19, 21, 22, 24, 25, 27,
-	 17, 19, 21, 22, 24, 25, 27, 28},
-	{19, 21, 22, 24, 25, 27, 28, 30,
-	 21, 22, 24, 25, 27, 28, 30, 32},
-	{22, 24, 25, 27, 28, 30, 32, 33,
-	 24, 25, 27, 28, 30, 32, 33, 35}
+	{9, 13, 13, 15, 13, 15, 17, 17, 17, 17, 19, 19, 19, 19, 19, 21},
+	{21, 21, 21, 21, 21, 22, 22, 22, 22, 22, 22, 22, 24, 24, 24, 24},
+	{24, 24, 24, 24, 25, 25, 25, 25, 25, 25, 25, 27, 27, 27, 27, 27},
+	{27, 28, 28, 28, 28, 28, 30, 30, 30, 30, 32, 32, 32, 33, 33, 35},
 };
 
 
@@ -254,8 +236,8 @@ static void parse_pred_weight_table(Edge264_stream *e)
 	}*/
 	
 	// Parse explicit weights/offsets.
-	if ((ctx->slice_type == 0 && ctx->ps.weighted_pred & 4) ||
-		(ctx->slice_type == 1 && ctx->ps.weighted_pred & 1)) {
+	if ((ctx->slice_type == 0 && ctx->ps.weighted_pred_flag) ||
+		(ctx->slice_type == 1 && ctx->ps.weighted_bipred_idc == 1)) {
 		unsigned luma_shift = 7 - get_ue(7);
 		unsigned chroma_shift = (ctx->ps.ChromaArrayType != 0) ? 7 - get_ue(7) : 0;
 		for (int l = 0; l <= ctx->slice_type; l++) {
@@ -524,9 +506,10 @@ static const uint8_t *parse_slice_layer_without_partitioning(Edge264_stream *e,
 	// not much to say in this comment either (though intention there is!)
 	if (!ctx->non_ref_flag)
 		parse_dec_ref_pic_marking();
+	int cabac_init_idc = 0;
 	if (ctx->ps.entropy_coding_mode_flag && ctx->slice_type != 2) {
-		ctx->cabac_init_idc = 1 + get_ue(2);
-		printf("<li>cabac_init_idc: <code>%u</code></li>\n", ctx->cabac_init_idc - 1);
+		cabac_init_idc = 1 + get_ue(2);
+		printf("<li>cabac_init_idc: <code>%u</code></li>\n", cabac_init_idc - 1);
 	}
 	ctx->ps.QP_Y = min(max(ctx->ps.QP_Y + map_se(get_ue16()), -6 * ((int)ctx->ps.BitDepth_Y - 8)), 51);
 	printf("<li>SliceQP<sub>Y</sub>: <code>%d</code></li>\n", ctx->ps.QP_Y);
@@ -564,7 +547,7 @@ static const uint8_t *parse_slice_layer_without_partitioning(Edge264_stream *e,
 			e->error = -1;
 			return NULL;
 		}
-		CABAC_parse_slice_data();
+		CABAC_parse_slice_data(cabac_init_idc);
 	}
 	
 	// wait until after decoding is complete to apply context changes
@@ -616,14 +599,6 @@ static const uint8_t *parse_access_unit_delimiter(Edge264_stream *e, int nal_ref
  */
 static void parse_scaling_lists()
 {
-	static const uint8_t scan_4x4[16] =
-		{0,  4,  1,  2,  5,  8, 12,  9,  6,  3,  7, 10, 13, 14, 11, 15};
-	static const uint8_t scan_8x8[64] =
-		{0,  8,  1,  2,  9, 16, 24, 17, 10,  3,  4, 11, 18, 25, 32, 40,
-		33, 26, 19, 12,  5,  6, 13, 20, 27, 34, 41, 48, 56, 49, 42, 35,
-		28, 21, 14,  7, 15, 22, 29, 36, 43, 50, 57, 58, 51, 44, 37, 30,
-		23, 31, 38, 45, 52, 59, 60, 53, 46, 39, 47, 54, 61, 62, 55, 63};
-	
 	// The 4x4 scaling lists are small enough to fit a vector register.
 	v16qu d4x4 = Default_4x4_Intra;
 	v16qu *w4x4 = (v16qu *)ctx->ps.weightScale4x4;
@@ -639,7 +614,7 @@ static void parse_scaling_lists()
 			} else {
 				uint8_t lastScale = nextScale;
 				int j = 0;
-				while (((uint8_t *)w4x4)[scan_4x4[j]] = lastScale, printf(" %u", lastScale), ++j < 16) {
+				while (((uint8_t *)w4x4)[j] = lastScale, printf(" %u", lastScale), ++j < 16) {
 					if (nextScale != 0)
 						lastScale = nextScale, nextScale += get_se(-128, 127);
 				}
@@ -672,7 +647,7 @@ static void parse_scaling_lists()
 			} else {
 				uint8_t lastScale = nextScale;
 				int j = 0;
-				while (((uint8_t *)w8x8)[scan_8x8[j]] = lastScale, printf(" %u", lastScale), ++j < 64) {
+				while (((uint8_t *)w8x8)[j] = lastScale, printf(" %u", lastScale), ++j < 64) {
 					if (nextScale != 0)
 						lastScale = nextScale, nextScale += get_se(-128, 127);
 				}
@@ -770,7 +745,8 @@ static const uint8_t *parse_pic_parameter_set(Edge264_stream *e, int nal_ref_idc
 	// (num_ref_idx_active[0] != 0) is used as indicator that the PPS is initialised.
 	ctx->ps.num_ref_idx_active[0] = get_ue(31) + 1;
 	ctx->ps.num_ref_idx_active[1] = get_ue(31) + 1;
-	ctx->ps.weighted_pred = get_uv(3);
+	ctx->ps.weighted_pred_flag = get_u1();
+	ctx->ps.weighted_bipred_idc = get_uv(2);
 	ctx->ps.QP_Y = get_se(-62, 25) + 26;
 	int pic_init_qs = get_se(-26, 25) + 26;
 	ctx->ps.second_chroma_qp_index_offset = ctx->ps.chroma_qp_index_offset = get_se(-12, 12);
@@ -789,8 +765,8 @@ static const uint8_t *parse_pic_parameter_set(Edge264_stream *e, int nal_ref_idc
 		"<li%s>redundant_pic_cnt_present_flag: <code>%x</code></li>\n",
 		ctx->ps.num_ref_idx_active[0],
 		ctx->ps.num_ref_idx_active[1],
-		ctx->ps.weighted_pred >> 2,
-		ctx->ps.weighted_pred & 0x3,
+		ctx->ps.weighted_pred_flag,
+		ctx->ps.weighted_bipred_idc,
 		ctx->ps.QP_Y,
 		pic_init_qs,
 		ctx->ps.chroma_qp_index_offset,
@@ -1287,9 +1263,12 @@ const uint8_t *Edge264_decode_NAL(Edge264_stream *e, const uint8_t *CPB, size_t 
 		nal_ref_idc,
 		red_if(parse_nal_unit[nal_unit_type] == NULL), nal_unit_type, nal_unit_type_names[nal_unit_type]);
 	
-	// allocate and initialise the decoding context
-	Edge264_ctx *old = ctx, context = {}; // zeroing should be removed eventually
+	// allocate the decoding context and backup registers
+	Edge264_ctx *old = ctx, context;
 	ctx = &context;
+	memset(ctx, -1, sizeof(*ctx));
+	ctx->range = codIRange;
+	ctx->offset = codIOffset;
 	ctx->CPB = CPB + 3;
 	ctx->end = CPB + len;
 	ctx->RBSP[1] = CPB[1] << 8 | CPB[2];
@@ -1304,8 +1283,10 @@ const uint8_t *Edge264_decode_NAL(Edge264_stream *e, const uint8_t *CPB, size_t 
 	}
 	printf("</ul>\n");
 	
-	// finish with a little tail call :)
+	// restore registers and finish with a little tail call :)
 	len = ctx->end - CPB;
+	codIRange = ctx->range;
+	codIOffset = ctx->offset;
 	ctx = old;
 	return Edge264_find_start_code(1, CPB, len);
 }

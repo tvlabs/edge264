@@ -737,7 +737,7 @@ static int decode_ChromaPlane8x16(__m128i top, __m128i leftt, __m128i leftb) {
 	__m128i b = _mm_unpacklo_epi64(x4, x4);
 	__m128i c = _mm_unpackhi_epi64(x4, x4);
 	
-	// compute and store the first row of prediction vectors
+	// compute the first row of prediction vectors
 	ctx->pred_buffer_v[16] = (v8hi)c;
 	__m128i x6 = _mm_sub_epi32(_mm_add_epi32(a, c), _mm_slli_epi32(c, 3)); // a - c * 7 + 16
 	__m128i x7 = _mm_add_epi32(b, _mm_slli_si128(b, 4));
@@ -745,6 +745,14 @@ static int decode_ChromaPlane8x16(__m128i top, __m128i leftt, __m128i leftb) {
 	__m128i p1 = _mm_add_epi32(x6, x8);
 	__m128i p0 = _mm_sub_epi32(p1, _mm_shuffle_epi32(x8, _MM_SHUFFLE(3, 3, 3, 3)));
 	__m128i c2 = _mm_slli_epi32(c, 2);
+	
+	// 8bit mode can use the same add-and-store sequence
+	if (ctx->ps.BitDepth_C == 8) {
+		ctx->pred_buffer_v[16] = (v8hi)_mm_slli_epi16(_mm_packs_epi32(c, c));
+		p0 = _mm_packs_epi32(p0, _mm_add_epi32(p0, c));
+		p1 = _mm_packs_epi32(p1, _mm_add_epi32(p1, c));
+		c2 = _mm_packs_epi32(c2, c2);
+	}
 	ctx->pred_buffer_v[0] = (v8hi)p0;
 	ctx->pred_buffer_v[1] = (v8hi)p1;
 	ctx->pred_buffer_v[2] = (v8hi)(p0 = _mm_add_epi32(p0, c2));
@@ -760,9 +768,9 @@ static int decode_ChromaPlane8x16(__m128i top, __m128i leftt, __m128i leftb) {
 
 /**
  * This function has been redesigned many times because of many constraints.
- * The ideal architecture here is a tree where a switch starts to the leaves,
- * and we jump down the tree to share code among subsections, finishing with
- * residual decoding at the root.
+ * The ideal architecture here is a tree where a unique switch starts at the
+ * leaves, and we jump down the tree to share code among subsections,
+ * finishing with residual decoding at the root.
  *
  * The problems are:
  * _ The prologue must be minimal for the performance of Intra4x4 modes, so
@@ -770,7 +778,7 @@ static int decode_ChromaPlane8x16(__m128i top, __m128i leftt, __m128i leftb) {
  * _ clang does not support collapsing nested switches into a single one,
  *   leaving only the possibility to implement the tree with functions.
  * _ Functions incur some overhead, even with tail calls, because of stack
- *   management and the impossibility to do near/short jumps.
+ *   management and the impossibility to turn tail calls into near/short jumps.
  * _ Readability limits the size of the main function.
  */
 int decode_switch(size_t stride, ssize_t nstride, uint8_t *p, __m128i zero, int BlkIdx) {
@@ -1114,12 +1122,15 @@ int decode_switch(size_t stride, ssize_t nstride, uint8_t *p, __m128i zero, int 
 		x4 = _mm_unpackhi_epi8(x2, zero);
 		return decode_ChromaPlane8x16(x1, x3, x4);
 	case VERTICAL_4x4_BUFFERED:
+	case VERTICAL_4x4_BUFFERED_16_BIT:
 		x0 = (__m128i)ctx->pred_buffer_v[BlkIdx];
 		return decode_Residual4x4(x0, x0);
 	case HORIZONTAL_4x4_BUFFERED:
+	case HORIZONTAL_4x4_BUFFERED_16_BIT:
 		x0 = (__m128i)ctx->pred_buffer_v[BlkIdx];
 		return decode_Residual4x4(_mm_unpacklo_epi32(x0, x0), _mm_unpackhi_epi32(x0, x0));
 	case DC_4x4_BUFFERED:
+	case DC_4x4_BUFFERED_16_BIT:
 		x0 = (__m128i)ctx->pred_buffer_v[0];
 		return decode_Residual4x4(x0, x0);
 	case PLANE_4x4_BUFFERED:

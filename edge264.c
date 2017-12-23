@@ -23,13 +23,13 @@
 static const v16qu Default_4x4_Intra = {6, 13, 13, 20, 20, 20, 28, 28, 28, 28, 32, 32, 32, 37, 37, 42};
 static const v16qu Default_4x4_Inter = {10, 14, 14, 20, 20, 20, 24, 24, 24, 24, 27, 27, 27, 30, 30, 34};
 static const v16qu Default_8x8_Intra[4] = {
-	{6, 10, 10, 13, 11, 13, 16, 16, 16, 16, 18, 18, 18, 18, 18, 23},
+	{ 6, 10, 10, 13, 11, 13, 16, 16, 16, 16, 18, 18, 18, 18, 18, 23},
 	{23, 23, 23, 23, 23, 25, 25, 25, 25, 25, 25, 25, 27, 27, 27, 27},
 	{27, 27, 27, 27, 29, 29, 29, 29, 29, 29, 29, 31, 31, 31, 31, 31},
 	{31, 33, 33, 33, 33, 33, 36, 36, 36, 36, 38, 38, 38, 40, 40, 42},
 };
 static const v16qu Default_8x8_Inter[4] = {
-	{9, 13, 13, 15, 13, 15, 17, 17, 17, 17, 19, 19, 19, 19, 19, 21},
+	{ 9, 13, 13, 15, 13, 15, 17, 17, 17, 17, 19, 19, 19, 19, 19, 21},
 	{21, 21, 21, 21, 21, 22, 22, 22, 22, 22, 22, 22, 24, 24, 24, 24},
 	{24, 24, 24, 24, 25, 25, 25, 25, 25, 25, 25, 27, 27, 27, 27, 27},
 	{27, 28, 28, 28, 28, 28, 30, 30, 30, 30, 32, 32, 32, 33, 33, 35},
@@ -39,17 +39,17 @@ static const v16qu Default_8x8_Inter[4] = {
 
 #ifdef __SSSE3__
 const uint8_t *Edge264_find_start_code(int n, const uint8_t *CPB, size_t len) {
-	const __m128i v0 = _mm_setzero_si128();
-	const __m128i vn = _mm_set1_epi8(n);
+	const __m128i zero = _mm_setzero_si128();
+	const __m128i xN = _mm_set1_epi8(n);
 	const __m128i *p = (__m128i *)((uintptr_t)CPB & -16);
 	const uint8_t *end = CPB + len;
-	unsigned z = (_mm_movemask_epi8(_mm_cmpeq_epi8(*p, v0)) & -1u << ((uintptr_t)CPB & 15)) << 2, c;
+	unsigned z = (_mm_movemask_epi8(_mm_cmpeq_epi8(*p, zero)) & -1u << ((uintptr_t)CPB & 15)) << 2, c;
 	
 	// no heuristic here since we are limited by memory bandwidth anyway
-	while (!(c = z & z >> 1 & _mm_movemask_epi8(_mm_cmpeq_epi8(*p, vn)))) {
+	while (!(c = z & z >> 1 & _mm_movemask_epi8(_mm_cmpeq_epi8(*p, xN)))) {
 		if (++p >= (__m128i *)end)
 			return end;
-		z = z >> 16 | _mm_movemask_epi8(_mm_cmpeq_epi8(*p, v0)) << 2;
+		z = z >> 16 | _mm_movemask_epi8(_mm_cmpeq_epi8(*p, zero)) << 2;
 	}
 	const uint8_t *res = (uint8_t *)p + 1 + __builtin_ctz(c);
 	return (res < end) ? res : end;
@@ -359,6 +359,67 @@ static void parse_dec_ref_pic_marking()
 
 
 /**
+ * This function sets the context pointers to the frame about to be decoded,
+ * and fills the context caches with useful values.
+ */
+static void initialise_decoding_context(Edge264_stream *e)
+{
+	ctx->x = 0;
+	ctx->y = 0;
+	ctx->planes[0] = e->DPB + ctx->s.currPic * e->frame_size;
+	ctx->planes[1] = ctx->planes[0] + e->plane_Y;
+	ctx->planes[2] = ctx->planes[1] + e->plane_C;
+	mb = (Edge264_macroblock *)(ctx->planes[2] + e->plane_C);
+	
+	int cY = (1 << ctx->ps.BitDepth_Y) - 1;
+	int cC = (1 << ctx->ps.BitDepth_C) - 1;
+	ctx->clip_Y = (v8hi){cY, cY, cY, cY, cY, cY, cY, cY};
+	ctx->clip_C = (v8hi){cC, cC, cC, cC, cC, cC, cC, cC};
+	
+	int offsetA = sizeof(*ctx->mb);
+	ctx->A4x4_v[0] = (v8hi){5 - offsetA, 0, 7 - offsetA, 2, 1, 4, 3, 6};
+	ctx->A4x4_v[1] = (v8hi){13 - offsetA, 8, 15 - offsetA, 10, 9, 12, 11, 14};
+	ctx->A4x4_v[2] = ctx->A4x4_v[0] + 16;
+	ctx->A4x4_v[3] = ctx->A4x4_v[1] + 16;
+	ctx->A4x4_v[4] = ctx->A4x4_v[2] + 16;
+	ctx->A4x4_v[5] = ctx->A4x4_v[3] + 16;
+	
+	int offsetB = (ctx->ps.width / 16 + 1) * sizeof(*ctx->mb);
+	ctx->B4x4_v[0] = (v4si){10 - offsetB, 11 - offsetB, 0, 1};
+	ctx->B4x4_v[1] = (v4si){14 - offsetB, 15 - offsetB, 4, 5};
+	ctx->B4x4_v[2] = (v4si){2, 3, 8, 9};
+	ctx->B4x4_v[3] = (v4si){6, 7, 12, 13};
+	ctx->B4x4_v[4] = ctx->B4x4_v[0] + 16;
+	ctx->B4x4_v[5] = ctx->B4x4_v[1] + 16;
+	ctx->B4x4_v[6] = ctx->B4x4_v[2] + 16;
+	ctx->B4x4_v[7] = ctx->B4x4_v[3] + 16;
+	ctx->B4x4_v[8] = ctx->B4x4_v[4] + 16;
+	ctx->B4x4_v[9] = ctx->B4x4_v[5] + 16;
+	ctx->B4x4_v[10] = ctx->B4x4_v[6] + 16;
+	ctx->B4x4_v[11] = ctx->B4x4_v[7] + 16;
+	
+	ctx->A8x8_v[0] = (v4hi){1 - sizeof(*ctx->mb), 0, 3 - sizeof(*ctx->mb), 2};
+	ctx->A8x8_v[1] = ctx->A8x8_v[0] + 4;
+	ctx->A8x8_v[2] = ctx->A8x8_v[1] + 4;
+	
+	ctx->B8x8_v[0] = (v4si){2 - offsetB, 3 - offsetB, 0, 1};
+	ctx->B8x8_v[1] = ctx->B8x8_v[0] + 4;
+	ctx->B8x8_v[2] = ctx->B8x8_v[1] + 4;
+	
+	int pixel_Y = ctx->ps.BitDepth_Y > 8;
+	int pixel_C = ctx->ps.BitDepth_C > 8;
+	for (int i = 0; i < 16; i++) { // FIXME for ChromaArrayType == 1 or 2
+		int x = (i << 2 & 4) | (i << 1 & 8);
+		int y = (i << 1 & 4) | (i & 8);
+		ctx->plane_offsets[i] = y * e->stride_Y + (pixel_Y ? x * 2 : x);
+		ctx->plane_offsets[16 + i] =
+		ctx->plane_offsets[32 + i] = y * e->stride_C + (pixel_C ? x * 2 : x);
+	}
+}
+
+
+
+/**
  * This function outputs pictures until a free DPB slot is found (C.4.4).
  */
 static __attribute__((noinline)) void bump_pictures(Edge264_stream *e) {
@@ -527,18 +588,7 @@ static const uint8_t *parse_slice_layer_without_partitioning(Edge264_stream *e,
 		}
 	}
 	
-	// some last common initialisation before the actual decoding
-	int pixel_Y = ctx->ps.BitDepth_Y > 8;
-	int pixel_C = ctx->ps.BitDepth_C > 8;
-	for (int i = 0; i < 16; i++) {
-		int x = (i << 2 & 4) | (i << 1 & 8);
-		int y = (i << 1 & 4) | (i & 8);
-		ctx->plane_offsets[i] = y * e->stride_Y + (x << pixel_Y);
-		ctx->plane_offsets[16 + i] = ctx->plane_offsets[32 + i] = y * e->stride_C + (x << pixel_C);
-	}
-	ctx->planes[0] = &e->DPB[ctx->s.currPic * e->frame_size];
-	ctx->planes[1] = ctx->planes[0] + e->plane_Y;
-	ctx->planes[2] = ctx->planes[1] + e->plane_C;
+	initialise_decoding_context(e);
 	
 	// cabac_alignment_one_bit gives a good probability to catch random errors.
 	if (ctx->ps.entropy_coding_mode_flag) {
@@ -1016,6 +1066,18 @@ static const uint8_t *parse_seq_parameter_set(Edge264_stream *e, int nal_ref_idc
 		[244] = "High 4:4:4 Predictive",
 	};
 	static const char * const chroma_format_idc_names[4] = {"4:0:0", "4:2:0", "4:2:2", "4:4:4"};
+	static const Edge264_macroblock unavail_mb = {
+		.f.unavailable = 1,
+		.f.mb_skip_flag = 1,
+		.f.mb_type_I_NxN = 1,
+		.f.mb_type_B_Direct = 1,
+		.f.coded_block_flags_16x16 = {1, 1, 1},
+		.refIdx = {-1, -1, -1, -1},
+		.Intra4x4PredMode = {-2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2},
+		.CodedBlockPatternLuma = {1, 1, 1, 1},
+		.coded_block_flags_8x8 = {1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1},
+		.coded_block_flags_4x4 = {1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1},
+	};
 	
 	// Profiles are annoyingly complicated, thus ignored.
 	int profile_idc = get_uv(8);
@@ -1188,16 +1250,19 @@ static const uint8_t *parse_seq_parameter_set(Edge264_stream *e, int nal_ref_idc
 		return NULL;
 	}
 	
-	// Reallocate the DPB when the image format changes.
+	// reallocate the DPB when the image format changes
 	if (memcmp(&ctx->ps, &e->SPS, 8) != 0) {
 		if (e->DPB != NULL) {
 			free(e->DPB);
 			memset(e, 0, sizeof(*e));
 		}
+		
+		// some basic variables first
 		int width_Y = ctx->ps.width;
 		int width_C = ctx->ps.chroma_format_idc == 0 ? 0 : ctx->ps.chroma_format_idc == 3 ? width_Y : width_Y >> 1;
 		int height_Y = ctx->ps.height;
 		int height_C = ctx->ps.chroma_format_idc < 2 ? height_Y >> 1 : height_Y;
+		int PicWidthInMbs = width_Y >> 4;
 		int PicSizeInMbs = width_Y * height_Y >> 8;
 		
 		// An offset might be added if cache alignment has a significant impact on some videos.
@@ -1205,8 +1270,21 @@ static const uint8_t *parse_seq_parameter_set(Edge264_stream *e, int nal_ref_idc
 		e->stride_C = ctx->ps.BitDepth_C == 8 ? width_C : width_C * 2;
 		e->plane_Y = e->stride_Y * height_Y;
 		e->plane_C = e->stride_C * height_C;
-		e->frame_size = (e->plane_Y + e->plane_C * 2 + PicSizeInMbs * 69 + 15) & -16;
+		
+		// Each picture in the DPB is three planes and a group of macroblocks
+		e->frame_size = (e->plane_Y + e->plane_C * 2 + (PicWidthInMbs + 1) *
+			(PicHeightInMbs + 1) * sizeof(Edge264_macroblock) + 15) & -16;
 		e->DPB = malloc(e->frame_size * (ctx->ps.max_num_ref_frames + 1));
+		
+		// initialise the unavailable macroblocks
+		for (int i = 0; i <= ctx->ps.max_num_ref_frames; i++) {
+			uint8_t *p = e->DPB;
+			for (int j = 0; j <= PicWidthInMbs; j++)
+				((Edge264_macroblock *)p)[j] = unavail_mb;
+			for (int j = 1; j <= PicHeightInMbs; j++)
+				((Edge264_macroblock *)p)[j * (PicWidthInMbs + 1)] = unavail_mb;
+			p += e->frame_size;
+		}
 	}
 	e->SPS = ctx->ps;
 	memcpy(e->PicOrderCntDeltas, PicOrderCntDeltas, (ctx->ps.num_ref_frames_in_pic_order_cnt_cycle + 1) << 2);
@@ -1267,6 +1345,7 @@ const uint8_t *Edge264_decode_NAL(Edge264_stream *e, const uint8_t *CPB, size_t 
 	Edge264_ctx *old = ctx, context;
 	ctx = &context;
 	memset(ctx, -1, sizeof(*ctx));
+	ctx->macroblock = mb;
 	ctx->range = codIRange;
 	ctx->offset = codIOffset;
 	ctx->CPB = CPB + 3;
@@ -1285,6 +1364,7 @@ const uint8_t *Edge264_decode_NAL(Edge264_stream *e, const uint8_t *CPB, size_t 
 	
 	// restore registers and finish with a little tail call :)
 	len = ctx->end - CPB;
+	mb = ctx->macroblock;
 	codIRange = ctx->range;
 	codIOffset = ctx->offset;
 	ctx = old;

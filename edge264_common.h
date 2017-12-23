@@ -1,5 +1,6 @@
 // TODO: Remove all bitfields which are not flags in tests
 // TODO: Make Edge264_flags a v16qu
+// TODO: Store mvs in order, access neighbours with a table initialized with strides
 #ifndef EDGE264_COMMON_H
 #define EDGE264_COMMON_H
 
@@ -53,29 +54,7 @@ static inline const char *red_if(int cond) { return (cond) ? " style=\"color: re
 #endif
 #endif
 
-
-
-/**
- * In 9.3.3.1.1, ctxIdxInc is always the result of flagA+flagB or flagA+2*flagB,
- * so we can pack them and compute all in parallel with flagsA+flagsB+(flagsB&twice).
- *
- * Likewise, CodedBlockPatternLuma and coded_block_flags are packed in bitfields
- * with left and top always contiguous:
- *    23 11 17  5                      14 12
- * 22|10 16  4 21         7 3       13|11  9
- *  9|15  3 20  8       6|2 5       10| 8  6
- * 14| 2 19  7 13       1|4 0        7| 5  3
- *  1|18  6 12  0                    4| 2  0
- *
- * The storage patterns for refIdx, mvs, absMvdComp and Intra4x4PredMode keep
- * A/B/C/D at fixed relative positions, while forming circural buffers with the
- * bottom edges:
- *            31 32 33 34 35 36      4 5 6 7
- *    8 9     23|24 25 26 27       2|3 4 5 6
- *  3|4 5  ,  15|16 17 18 19  and  1|2 3 4 5
- * -1|0 1      7| 8  9 10 11       0|1 2 3 4
- *            -1| 0  1  2  3      -1|0 1 2 3
- */
+typedef int8_t v8qi __attribute__((vector_size(8)));
 typedef int16_t v4hi __attribute__((vector_size(8)));
 typedef int8_t v16qi __attribute__((vector_size(16)));
 typedef int16_t v8hi __attribute__((vector_size(16)));
@@ -87,33 +66,72 @@ typedef uint16_t v8hu __attribute__((vector_size(16)));
 typedef uint32_t v4su __attribute__((vector_size(16)));
 typedef uint64_t v2lu __attribute__((vector_size(16)));
 
+
+
+/**
+ * In 9.3.3.1.1, ctxIdxInc is always the result of flagA+flagB or flagA+2*flagB,
+ * so we pack macroblock flags together to allow adding them in parallel with
+ * flagsA + flagsB + (flagsB & twice).
+ */
 typedef union {
 	struct {
-		uint32_t mb_field_decoding_flag:2; // put first to match Edge264_macroblock.fieldDecodingFlag
-		uint32_t mb_skip_flag:2;
-		uint32_t mb_type_I_NxN:2;
-		uint32_t mb_type_B_Direct:2;
-		uint32_t transform_size_8x8_flag:2;
-		uint32_t intra_chroma_pred_mode_non_zero:2;
-		uint32_t CodedBlockPatternChromaDC:2;
-		uint32_t CodedBlockPatternChromaAC:2;
-		uint32_t coded_block_flags_16x16:6;
-		uint32_t unavailable:2; // uses 4 bits in ctxIdxInc, to store A/B/C/D unavailability
-		uint32_t CodedBlockPatternLuma:8; // unused in ctxIdxInc
+		int8_t unavailable;
+		int8_t mb_field_decoding_flag;
+		int8_t mb_skip_flag;
+		int8_t mb_type_I_NxN;
+		int8_t mb_type_B_Direct;
+		int8_t transform_size_8x8_flag;
+		int8_t intra_chroma_pred_mode_non_zero;
+		int8_t CodedBlockPatternChromaDC;
+		int8_t CodedBlockPatternChromaAC;
+		int8_t coded_block_flags_16x16[3];
+		int8_t mbIsInterFlag;
 	};
-	uint32_t s;
+	v16qi v;
 } Edge264_flags;
 
+
+
+/**
+ * Although we waste some space by storing some neighbouring values for more
+ * than their lifespans, packing everything in a single structure is arguably
+ * the simplest to maintain. Arrays of precomputed neighbouring offsets spare
+ * the use of local caches, thus minimising memory writes.
+ */
 typedef struct {
+	int16_t mvs[32];
+	Edge264_flags f;
+	int8_t refIdx[4];
+	int8_t absMvdComp[32];
+	int8_t Intra4x4PredMode[16];
+	union { int8_t CodedBlockPatternLuma[4]; int32_t CodedBlockPatternLuma_s; };
+	union { int8_t coded_block_flags_8x8[12]; v16qi coded_block_flags_8x8_v; };
+	union { int8_t coded_block_flags_4x4[48]; int32_t coded_block_flags_4x4_s[12]; v16qi coded_block_flags_4x4_v[3]; };
+} Edge264_macroblock;
+
+
+
+/**
+ * This structure stores the entire decoder state during its operation, such
+ * that we can dedicate a single register to point to it.
+ */
+typedef struct
+{
 	// parsing context
 	const uint8_t *CPB;
 	const uint8_t *end;
 	size_t RBSP[2];
 	size_t range;
 	size_t offset;
-	uint32_t shift;
-	Edge264_flags ctxIdxInc;
-	union { struct { Edge264_flags f; uint32_t coded_block_flags[3]; }; v4su f_v; };
+	int8_t shift;
+	int8_t BlkIdx;
+	uint16_t stride;
+	int16_t x; // 14 significant bits
+	int16_t y;
+	uint8_t *planes[3];
+	Edge264_flags inc;
+	Edge264_macroblock *macroblock;
+	Edge264_macroblock *mbCol;
 	
 	// bitfields and constants
 	uint16_t non_ref_flag:1; // TODO: remove if unnecessary after Inter is done
@@ -125,7 +143,7 @@ typedef struct {
 	uint16_t disable_deblocking_filter_idc:2;
 	uint16_t firstRefPicL1:1;
 	uint16_t col_short_term:1;
-	uint16_t mb_qp_delta_non_zero:1;
+	int8_t mb_qp_delta_non_zero;
 	int8_t slice_type; // 3 significant bits
 	int8_t colour_plane_id; // 2 significant bits
 	int8_t FilterOffsetA; // 5 significant bits
@@ -135,60 +153,54 @@ typedef struct {
 	Edge264_parameter_set ps;
 	Edge264_snapshot s;
 	
-	// context variables
-	int8_t intra_chroma_pred_mode; // 2 significant bits
-	int8_t BlkIdx;
-	int8_t mbIsInterFlag;
-	uint16_t stride;
+	// context caches
 	uint32_t mvd_flags;
 	uint32_t mvd_fold;
 	uint32_t ref_idx_mask;
 	uint8_t *plane;
-	v4si cbf_maskA, cbf_maskB;
-	v8hi clip_Y, clip_C, clip; // vectors of maximum sample values
+	v8hi clip, clip_Y, clip_C; // vectors of maximum sample values
+	union { int16_t A4x4[48]; v8hi A4x4_v[6]; };
+	union { int32_t B4x4[48]; v4si B4x4_v[12]; };
+	union { int16_t A8x8[12]; v4hi A8x8_v[3]; };
+	union { int32_t B8x8[12]; v4si B8x8_v[3]; };
+	union { int8_t unavail[16]; v16qi unavail_v; }; // unavailability of neighbouring A/B/C/D blocks
 	union { int8_t mvC[32]; v16qi mvC_v[2]; };
 	union { int16_t ctxIdxOffsets[4]; v4hi ctxIdxOffsets_l; }; // {cbf,sig_flag,last_sig_flag,coeff_abs}
-	union { uint8_t sig_inc[64]; uint64_t sig_inc_l; v16qu sig_inc_v[4]; };
-	union { uint8_t last_inc[64]; uint64_t last_inc_l; v16qu last_inc_v[4]; };
-	union { uint8_t scan[64]; uint64_t scan_l; v16qu scan_v[4]; };
+	union { int8_t sig_inc[64]; uint64_t sig_inc_l; v16qi sig_inc_v[4]; };
+	union { int8_t last_inc[64]; uint64_t last_inc_l; v16qi last_inc_v[4]; };
+	union { int8_t scan[64]; v8qi scan_l; v16qi scan_v[4]; };
 	union { uint32_t LevelScale[64]; v4su LevelScale_v[16]; };
 	union { int32_t plane_offsets[48]; v4si plane_offsets_v[12]; };
 	union { uint8_t PredMode[48]; v16qu PredMode_v[3]; };
-	union { uint16_t pred_buffer[136]; v8hi pred_buffer_v[17]; }; // temporary storage for prediction samples
+	union { int16_t pred_buffer[136]; v8hi pred_buffer_v[17]; }; // temporary storage for prediction samples
 	union { int32_t d[64]; v4si d_v[16]; v8si d_V[8]; }; // scaled residual coefficients
 	
-	// context pointers
-	int16_t x; // 14 significant bits
-	int16_t y;
-	v4su *flags;
-	v8hi *mvs;
-	v16qu *absMvdComp;
-	uint32_t *Intra4x4PredMode;
-	union { int8_t q; uint16_t h[2]; uint32_t s; } *refIdx;
-	const v8hi *mvCol;
-	const uint8_t *mbCol;
-	uint8_t *planes[3];
-	
 	// large stuff
-	v16qu states[64];
+	v16qu cabac[64];
 	int8_t RefPicList[2][32] __attribute__((aligned));
 	int8_t MapPicToList0[35]; // [1 + refPic]
 	int16_t DistScaleFactor[3][32]; // [top/bottom/frame][refIdxL0]
 	int16_t weights[3][32][2];
 	int16_t offsets[3][32][2];
 	int8_t implicit_weights[3][32][32]; // -w_1C[top/bottom/frame][refIdxL0][refIdxL1]
-	V4su flags[1057];
 } Edge264_ctx;
 
 
 
-// Global Register Variables are a blessing as we use ctx everywhere!
-#ifndef __clang__
-#ifdef __SSSE3__
+// Global Register Variables are a blessing since we need context everywhere!
+#if defined(__SSSE3__) && !defined(__clang__)
 register Edge264_ctx *ctx asm("ebx");
-#endif
 #else
 static __thread Edge264_ctx *ctx;
+#endif
+#if defined(__SSSE3__) && !defined(__clang__) && SIZE_BIT == 64
+register Edge264_macroblock *mb asm("r13");
+register size_t codIRange asm("r14");
+register size_t codIOffset asm("r15");
+#else
+#define mb ctx->macroblock
+#define codIRange ctx->range
+#define codIOffset ctx->offset
 #endif
 
 
@@ -217,37 +229,11 @@ static inline __attribute__((always_inline)) int get_se(int lower, int upper) { 
 static const int8_t ref_pos[8] = {8, 10, 0, 2, 9, 11, 1, 3};
 static const int8_t mv_pos[32] = {96, 100, 64, 68, 104, 108, 72, 76, 32, 36, 0, 4,
 	40, 44, 8, 12, 98, 102, 66, 70, 106, 110, 74, 78, 34, 38, 2, 6, 42, 46, 10, 14};
-static const int8_t intra_pos[16] = {3, 4, 2, 3, 5, 6, 4, 5, 1, 2, 0, 1, 3, 4, 2, 3};
 static const uint8_t bit_4x4[16] = {10, 16, 15, 3, 4, 21, 20, 8, 2, 19, 18, 6, 7, 13, 12, 0};
 static const uint8_t left_4x4[16] = {22, 10, 9, 15, 16, 4, 3, 20, 14, 2, 1, 18, 19, 7, 6, 12};
 static const uint8_t bit_8x8[4] = {26, 29, 28, 24};
 static const uint8_t left_8x8[4] = {30, 26, 25, 28};
 static const uint8_t left_chroma[16] = {13, 11, 10, 8, 7, 5, 4, 2, 29, 27, 26, 24, 23, 21, 20, 18};
-
-
-
-/**
- * block_unavailability[unavail][BlkIdx] yields the unavailability of
- * neighbouring 4x4 blocks from unavailability of neighbouring macroblocks.
- */
-static const int8_t block_unavailability[16][16] = {
-	{ 0,  0,  0,  4,  0,  0,  0,  4,  0,  0,  0,  4,  0,  4,  0,  4},
-	{ 1,  0,  9,  4,  0,  0,  0,  4,  9,  0,  9,  4,  0,  4,  0,  4},
-	{ 6, 14,  0,  4, 14, 10,  0,  4,  0,  0,  0,  4,  0,  4,  0,  4},
-	{ 7, 14,  9,  4, 14, 10,  0,  4,  9,  0,  9,  4,  0,  4,  0,  4},
-	{ 0,  0,  0,  4,  0,  4,  0,  4,  0,  0,  0,  4,  0,  4,  0,  4},
-	{ 1,  0,  9,  4,  0,  4,  0,  4,  9,  0,  9,  4,  0,  4,  0,  4},
-	{ 6, 14,  0,  4, 14, 14,  0,  4,  0,  0,  0,  4,  0,  4,  0,  4},
-	{ 7, 14,  9,  4, 14, 14,  0,  4,  9,  0,  9,  4,  0,  4,  0,  4},
-	{ 8,  0,  0,  4,  0,  0,  0,  4,  0,  0,  0,  4,  0,  4,  0,  4},
-	{ 9,  0,  9,  4,  0,  0,  0,  4,  9,  0,  9,  4,  0,  4,  0,  4},
-	{14, 14,  0,  4, 14, 10,  0,  4,  0,  0,  0,  4,  0,  4,  0,  4},
-	{15, 14,  9,  4, 14, 10,  0,  4,  9,  0,  9,  4,  0,  4,  0,  4},
-	{ 8,  0,  0,  4,  0,  4,  0,  4,  0,  0,  0,  4,  0,  4,  0,  4},
-	{ 9,  0,  9,  4,  0,  4,  0,  4,  9,  0,  9,  4,  0,  4,  0,  4},
-	{14, 14,  0,  4, 14, 14,  0,  4,  0,  0,  0,  4,  0,  4,  0,  4},
-	{15, 14,  9,  4, 14, 14,  0,  4,  9,  0,  9,  4,  0,  4,  0,  4},
-};
 
 
 
@@ -307,36 +293,36 @@ enum PredModes {
 	VERTICAL_16x16,
 	HORIZONTAL_16x16,
 	DC_16x16,
-	DC_16x16_A,
-	DC_16x16_B,
-	DC_16x16_AB,
 	PLANE_16x16,
-	CHROMA_DC_8x8,
-	CHROMA_DC_8x8_Ab,
-	CHROMA_DC_8x8_At,
-	CHROMA_DC_8x8_A,
-	CHROMA_DC_8x8_B,
-	CHROMA_DC_8x8_AbB,
-	CHROMA_DC_8x8_AtB,
-	CHROMA_DC_8x8_AB,
 	CHROMA_VERTICAL_8x8,
 	CHROMA_HORIZONTAL_8x8,
+	CHROMA_DC_8x8,
 	CHROMA_PLANE_8x8,
-	CHROMA_DC_8x16,
-	CHROMA_DC_8x16_Ab,
-	CHROMA_DC_8x16_At,
-	CHROMA_DC_8x16_A,
-	CHROMA_DC_8x16_B,
-	CHROMA_DC_8x16_AbB,
-	CHROMA_DC_8x16_AtB,
-	CHROMA_DC_8x16_AB,
 	CHROMA_VERTICAL_8x16,
 	CHROMA_HORIZONTAL_8x16,
+	CHROMA_DC_8x16,
 	CHROMA_PLANE_8x16,
 	VERTICAL_4x4_BUFFERED,
 	HORIZONTAL_4x4_BUFFERED,
 	DC_4x4_BUFFERED,
 	PLANE_4x4_BUFFERED,
+	DC_16x16_A,
+	DC_16x16_B,
+	DC_16x16_AB,
+	CHROMA_DC_8x8_A,
+	CHROMA_DC_8x8_B,
+	CHROMA_DC_8x8_AB,
+	CHROMA_DC_8x8_Ab,
+	CHROMA_DC_8x8_At,
+	CHROMA_DC_8x8_AbB,
+	CHROMA_DC_8x8_AtB,
+	CHROMA_DC_8x16_A,
+	CHROMA_DC_8x16_B,
+	CHROMA_DC_8x16_AB,
+	CHROMA_DC_8x16_Ab,
+	CHROMA_DC_8x16_At,
+	CHROMA_DC_8x16_AbB,
+	CHROMA_DC_8x16_AtB,
 	
 	VERTICAL_4x4_16_BIT,
 	HORIZONTAL_4x4_16_BIT,
@@ -389,33 +375,36 @@ enum PredModes {
 	VERTICAL_16x16_16_BIT,
 	HORIZONTAL_16x16_16_BIT,
 	DC_16x16_16_BIT,
+	PLANE_16x16_16_BIT,
+	CHROMA_VERTICAL_8x8_16_BIT,
+	CHROMA_HORIZONTAL_8x8_16_BIT,
+	CHROMA_DC_8x8_16_BIT,
+	CHROMA_PLANE_8x8_16_BIT,
+	CHROMA_VERTICAL_8x16_16_BIT,
+	CHROMA_HORIZONTAL_8x16_16_BIT,
+	CHROMA_DC_8x16_16_BIT,
+	CHROMA_PLANE_8x16_16_BIT,
+	VERTICAL_4x4_BUFFERED_16_BIT,
+	HORIZONTAL_4x4_BUFFERED_16_BIT,
+	DC_4x4_BUFFERED_16_BIT,
+	PLANE_4x4_BUFFERED_16_BIT,
 	DC_16x16_A_16_BIT,
 	DC_16x16_B_16_BIT,
 	DC_16x16_AB_16_BIT,
-	PLANE_16x16_16_BIT,
-	CHROMA_DC_8x8_16_BIT,
-	CHROMA_DC_8x8_Ab_16_BIT,
-	CHROMA_DC_8x8_At_16_BIT,
 	CHROMA_DC_8x8_A_16_BIT,
 	CHROMA_DC_8x8_B_16_BIT,
+	CHROMA_DC_8x8_AB_16_BIT,
+	CHROMA_DC_8x8_Ab_16_BIT,
+	CHROMA_DC_8x8_At_16_BIT,
 	CHROMA_DC_8x8_AbB_16_BIT,
 	CHROMA_DC_8x8_AtB_16_BIT,
-	CHROMA_DC_8x8_AB_16_BIT,
-	CHROMA_VERTICAL_8x8_16_BIT,
-	CHROMA_HORIZONTAL_8x8_16_BIT,
-	CHROMA_PLANE_8x8_16_BIT,
-	CHROMA_DC_8x16_16_BIT,
-	CHROMA_DC_8x16_Ab_16_BIT,
-	CHROMA_DC_8x16_At_16_BIT,
 	CHROMA_DC_8x16_A_16_BIT,
 	CHROMA_DC_8x16_B_16_BIT,
+	CHROMA_DC_8x16_AB_16_BIT,
+	CHROMA_DC_8x16_Ab_16_BIT,
+	CHROMA_DC_8x16_At_16_BIT,
 	CHROMA_DC_8x16_AbB_16_BIT,
 	CHROMA_DC_8x16_AtB_16_BIT,
-	CHROMA_DC_8x16_AB_16_BIT,
-	CHROMA_VERTICAL_8x16_16_BIT,
-	CHROMA_HORIZONTAL_8x16_16_BIT,
-	CHROMA_PLANE_8x16_16_BIT,
-	PLANE_4x4_BUFFERED_16_BIT,
 };
 static const int8_t intra4x4_modes[9][16] = {
 	{VERTICAL_4x4, VERTICAL_4x4, 0, 0, VERTICAL_4x4, VERTICAL_4x4, 0, 0, VERTICAL_4x4, VERTICAL_4x4, 0, 0, VERTICAL_4x4, VERTICAL_4x4, 0, 0},
@@ -531,7 +520,7 @@ static __attribute__((noinline)) void init_P_Skip(Edge264_ctx *s, Edge264_flags 
 		mv.h[0] = median(m->mvEdge[12], m->mvEdge[20], m->mvEdge[36]);
 		mv.h[1] = median(m->mvEdge[13], m->mvEdge[21], m->mvEdge[37]);
 	}
-	if (ctx->ctxIdxInc.unavailable)
+	if (ctx->inc.unavailable)
 		mv.s = 0;
 	ctx->mvs_v[0] = ctx->mvs_v[1] = ctx->mvs_v[2] = ctx->mvs_v[3] = (v8hi)(v4su){mv.s, mv.s, mv.s, mv.s};
 	ctx->mvs_v[4] = ctx->mvs_v[5] = ctx->mvs_v[6] = ctx->mvs_v[7] = (v8hi){};

@@ -83,9 +83,10 @@ typedef struct {
 	int32_t FrameNum[16];
 } Edge264_snapshot;
 
-typedef struct {
+typedef struct Edge264_stream {
 	uint8_t *DPB;
-	void (*output_frame)(int);
+	int (*output_frame)(struct Edge264_stream*, int);
+	void *user;
 	int8_t error;
 	uint16_t output_flags;
 	int16_t stride_Y;

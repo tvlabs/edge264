@@ -741,8 +741,8 @@ static const v16qu scan_8x8[2][4] = {{
 	{24, 17, 12,  7,  6,  5, 11, 16, 10,  4,  3,  9,  8,  2,  1,  0},
 }};
 static const v8qi scan_chromaDC[2][2] = {
-	{{3, 2, 1, 0}, { 7,  5,  3,  6,  4, 1,  2, 0}},
-	{{7, 6, 5, 4}, {15, 13, 11, 14, 12, 9, 10, 8}},
+	{{19, 18, 17, 16}, {23, 21, 19, 22, 20, 17, 18, 16}},
+	{{23, 22, 21, 20}, {31, 29, 27, 30, 28, 25, 26, 24}},
 };
 static const v4hi ctxIdxOffsets_16x16DC[3][2] = {
 	{{85, 105, 166, 227}, {85, 277, 338, 227}}, // ctxBlockCat==0
@@ -909,8 +909,8 @@ static __attribute__((noinline)) int parse_residual_block(unsigned coded_block_f
 			codIOffset = (SIZE_BIT == 32) ? mul : (uint32_t)codIOffset | mul << 32;
 			coeff_level = 14 + (1 << k) + (quo << shift >> (31 - k));
 		}
-		int idx = ctz64(significant_coeff_flags);
-		coeff_level = (coeff_level * ctx->LevelScale[idx] + 32) >> 6;
+		int scan = ctx->scan[ctz64(significant_coeff_flags)];
+		coeff_level = (coeff_level * ctx->LevelScale[scan] + 32) >> 6;
 		
 		// not the brightest part of spec (9.3.3.1.3), I did my best
 		static const int8_t trans[5] = {0, 2, 3, 4, 4};
@@ -923,7 +923,7 @@ static __attribute__((noinline)) int parse_residual_block(unsigned coded_block_f
 		codIRange >>= 1;
 		coeff_level = (codIOffset >= codIRange) ? -coeff_level : coeff_level;
 		codIOffset = (codIOffset >= codIRange) ? codIOffset - codIRange : codIOffset;
-		ctx->d[ctx->scan[idx]] = coeff_level;
+		ctx->d[scan] = coeff_level;
 	
 		// Though not very efficient, this gets optimised out easily :)
 		fprintf(stderr, (ctx->ctxIdxOffsets[0] == 93) ? "Luma4x4: %d\n" :
@@ -1002,31 +1002,42 @@ static __attribute__((noinline)) int parse_mvd(int pos, int ctxBase) {
 /**
  * As its name says, parses mb_qp_delta (9.3.2.7 and 9.3.3.1.1.5).
  *
- * bits should contain the values in coded_block_pattern as stored in mb->f.s,
- * such that Intra16x16 can request unconditional parsing by passing -1.
+ * cond should contain the values in coded_block_pattern as stored in mb,
+ * such that Intra16x16 can request unconditional parsing by passing 1.
  */
-static __attribute__((noinline)) void parse_mb_qp_delta(unsigned bits) {
+static __attribute__((noinline)) void parse_mb_qp_delta(unsigned cond) {
+	static const int QP_C[100] = {-36, -35, -34, -33, -32, -31, -30, -29, -28,
+		-27, -26, -25, -24, -23, -22, -21, -20, -19, -18, -17, -16, -15, -14,
+		-13, -12, -11, -10, -9, -8, -7, -6, -5, -4, -3, -2, -1, 0, 1, 2, 3, 4,
+		5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23,
+		24, 25, 26, 27, 28, 29, 29, 30, 31, 32, 32, 33, 34, 34, 35, 35, 36, 36,
+		37, 37, 37, 38, 38, 38, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39,
+		39, 39, 39, 39};
 	// TODO: Put initialisation for neighbouring Inter/Intra cbf values here
 	
-	int ctxIdxInc = ctx->mb_qp_delta_non_zero;
-	ctx->mb_qp_delta_non_zero = 0;
-	if (bits & (Edge264_flags){.CodedBlockPatternChromaDC = 1, .CodedBlockPatternLuma = 0x35}.s) {
-		int mb_qp_delta = 0;
-		if (get_ae(60 + ctxIdxInc)) {
-			ctx->mb_qp_delta_non_zero = 1;
-			
-			// cannot loop forever since binVal will oscillate past end of RBSP
-			int count = 1, ctxIdx = 62;
-			while (get_ae(ctxIdx))
-				count++, ctxIdx = 63;
-			mb_qp_delta = map_se(count);
-			int QP = ctx->ps.QP_Y + mb_qp_delta;
-			int QpBdOffset_Y = (ctx->ps.BitDepth_Y - 8) * 6;
-			ctx->ps.QP_Y = (QP < -QpBdOffset_Y) ? QP + 52 + QpBdOffset_Y :
-				(QP >= 52) ? QP - (52 + QpBdOffset_Y) : QP;
-		}
-		fprintf(stderr, "mb_qp_delta: %d\n", mb_qp_delta);
+	int mb_qp_delta = 0;
+	ctx->mb_qp_delta_non_zero = cond && get_ae(60 + ctx->mb_qp_delta_non_zero);
+	if (ctx->mb_qp_delta_non_zero) {
+		
+		// cannot loop forever since binVal will oscillate past end of RBSP
+		int count = 1, ctxIdx = 62;
+		while (get_ae(ctxIdx))
+			count++, ctxIdx = 63;
+		mb_qp_delta = map_se(count);
+		int QP = ctx->ps.QP_Y + mb_qp_delta;
+		int QpBdOffset_Y = (ctx->ps.BitDepth_Y - 8) * 6;
+		ctx->ps.QP_Y = (QP < -QpBdOffset_Y) ? QP + 52 + QpBdOffset_Y :
+			(QP >= 52) ? QP - (52 + QpBdOffset_Y) : QP;
 	}
+	
+	// deduce this macroblock's QP values
+	int QpBdOffset_C = (ctx->ps.BitDepth_C - 8) * 6;
+	int QP_Cb = ctx->ps.QP_Y + ctx->ps.chroma_qp_index_offset;
+	int QP_Cr = ctx->ps.QP_Y + ctx->ps.second_chroma_qp_index_offset;
+	mb->QP[0] = ctx->ps.QP_Y;
+	mb->QP[1] = QP_C[clip3(-QpBdOffset_C, 51, QP_Cb)];
+	mb->QP[2] = QP_C[clip3(-QpBdOffset_C, 51, QP_Cr)];
+	fprintf(stderr, "mb_qp_delta: %d\n", mb_qp_delta);
 }
 
 
@@ -1069,22 +1080,24 @@ static __attribute__((noinline)) void parse_intra_chroma_pred_mode()
 	int type = ctx->ps.ChromaArrayType;
 	if (type == 1 || type == 2) {
 		int ctxIdx = 64 + ctx->inc.intra_chroma_pred_mode_non_zero;
-		int intra_chroma_pred_mode = 0;
-		while (intra_chroma_pred_mode <3 && get_ae(ctxIdx))
-			intra_chroma_pred_mode++, ctxIdx = 67;
-		mb->f.intra_chroma_pred_mode_non_zero = (intra_chroma_pred_mode > 0);
+		int mode = 0;
+		while (mode <3 && get_ae(ctxIdx))
+			mode++, ctxIdx = 67;
+		mb->f.intra_chroma_pred_mode_non_zero = (mode > 0);
 		
 		// prepare the right decoding modes
-		static int8_t reorder[4] = {2, 0, 1, 3};
-		int base = ctx->ps.BitDepth_C == 8 ? VERTICAL_4x4_BUFFERED : VERTICAL_4x4_BUFFERED_16_BIT;
-		int i = base + reorder[intra_chroma_pred_mode];
+		static uint8_t dc[4] = {DC_CHROMA_8x8, VERTICAL_CHROMA_8x8, HORIZONTAL_CHROMA_8x8, PLANE_CHROMA_8x8};
+		static uint8_t ac[4] = {VERTICAL_4x4_BUFFERED, VERTICAL_4x4_BUFFERED, HORIZONTAL_4x4_BUFFERED, PLANE_4x4_BUFFERED};
+		int depth = ctx->ps.BitDepth_C == 8 ? 0 : VERTICAL_4x4_16_BIT;
+		int i = depth + ac[mode];
+		int dc420 = depth + dc[mode] + (mode == 0 ? ctx->inc.unavailable : 0);
 		ctx->PredMode_v[1] = (v16qu){i, i, i, i, i, i, i, i, i, i, i, i, i, i, i, i};
 		if (type == 1)
-			ctx->PredMode[16] = ctx->PredMode[20] = i + 6 + (ctx->inc.unavailable ?: -14);
+			ctx->PredMode[16] = ctx->PredMode[20] = dc420;
 		else
-			ctx->PredMode[16] = ctx->PredMode[24] = i + 13 + (ctx->inc.unavailable ?: -17);
+			ctx->PredMode[16] = ctx->PredMode[24] = dc420 + 11;
 		
-		fprintf(stderr, "intra_chroma_pred_mode: %u\n", intra_chroma_pred_mode);
+		fprintf(stderr, "intra_chroma_pred_mode: %u\n", mode);
 	}
 }
 
@@ -1093,18 +1106,25 @@ static __attribute__((noinline)) void parse_intra_chroma_pred_mode()
 /**
  * Parsing for chroma 4:2:2 and 4:2:0 is put in a separate function to be
  * tail-called from parse_NxN_residual and parse_Intra16x16_residual.
+ *
+ * Compared with the rest of this decoder, the next three parse_X_residual
+ * functions are highly imperfect and need further thoughts.
  */
 static __attribute__((noinline)) int parse_chroma_residual()
 {
 	int is422 = ctx->ps.ChromaArrayType - 1;
 	if (is422 < 0)
 		return 0;
+	
+	// Both DC blocks will be stored in ctx->d[16..31]
+	ctx->LevelScale_v[4] = ctx->LevelScale_v[5] = ctx->LevelScale_v[6] =
+		ctx->LevelScale_v[7] = (v4su){1, 1, 1, 1};
+	ctx->d_v[4] = ctx->d_v[5] = ctx->d_v[6] = ctx->d_v[7] = (v4si){};
 	ctx->ctxIdxOffsets_l = ctxIdxOffsets_chromaDC[mb->f.mb_field_decoding_flag];
 	ctx->sig_inc_l = ctx->last_inc_l = sig_inc_chromaDC[is422];
 	
 	// One 2x2 or 2x4 DC block for the Cb component
-	ctx->scan_l = scan_chromaDC[is422];
-	ctx->d_v[0] = ctx->d_v[1] = ctx->d_v[2] = ctx->d_v[3] = (v4si){};
+	ctx->scan_l = scan_chromaDC[0][is422];
 	int coded_block_flag_Cb = 0;
 	if (mb->f.CodedBlockPatternChromaDC) {
 		coded_block_flag_Cb = get_ae(ctx->ctxIdxOffsets[0] +
@@ -1116,8 +1136,7 @@ static __attribute__((noinline)) int parse_chroma_residual()
 	
 	// Another 2x2/2x4 DC block for the Cr component
 	ctx->BlkIdx = 20 + is422 * 4;
-	ctx->scan_l = scan_chromaDC[is422];
-	ctx->d_v[0] = ctx->d_v[1] = ctx->d_v[2] = ctx->d_v[3] = (v4si){};
+	ctx->scan_l = scan_chromaDC[1][is422];
 	int coded_block_flag_Cr = 0;
 	if (mb->f.CodedBlockPatternChromaDC) {
 		coded_block_flag_Cr = get_ae(ctx->ctxIdxOffsets[0] +
@@ -1128,13 +1147,16 @@ static __attribute__((noinline)) int parse_chroma_residual()
 	ctx->PredMode[ctx->BlkIdx] = ctx->PredMode[ctx->BlkIdx + 1];
 	
 	// Eight or sixteen 4x4 AC blocks for the Cb/Cr components
+	compute_LevelScale4x4(1);
 	ctx->sig_inc_v[0] = ctx->last_inc_v[0] = sig_inc_4x4;
 	ctx->scan_v[0] = scan_4x4[mb->f.mb_field_decoding_flag];
 	ctx->ctxIdxOffsets_l = ctxIdxOffsets_chromaAC[mb->f.mb_field_decoding_flag];
 	for (ctx->BlkIdx = 16; ctx->BlkIdx < 24 + is422 * 8; ctx->BlkIdx++) {
-		ctx->d_v[3] = ctx->d_v[2] = ctx->d_v[1] = ctx->d_v[0] = (v4si){};
-		ctx->d[0] = ctx->d[16 + ctx->BlkIdx];
+		ctx->d_v[0] = ctx->d_v[1] = ctx->d_v[2] = ctx->d_v[3] = (v4si){};
+		if (ctx->BlkIdx == 20 + is422 * 4)
+			compute_LevelScale4x4(2);
 		
+		ctx->d[0] = ctx->d[16 + ctx->BlkIdx];
 		int coded_block_flag = 0;
 		if (mb->f.CodedBlockPatternChromaAC) {
 			coded_block_flag = get_ae(ctx->ctxIdxOffsets[0] +
@@ -1155,7 +1177,7 @@ static __attribute__((noinline)) int parse_chroma_residual()
  */
 static __attribute__((noinline)) int parse_Intra16x16_residual()
 {
-	parse_mb_qp_delta();
+	parse_mb_qp_delta(1);
 	
 	// Thanks to the reverse order in significant_coeff_flags, we can reuse 4x4 data.
 	int mb_field_decoding_flag = mb->f.mb_field_decoding_flag;
@@ -1165,6 +1187,8 @@ static __attribute__((noinline)) int parse_Intra16x16_residual()
 	do {
 		// One 4x4 DC block
 		ctx->BlkIdx = iYCbCr << 4;
+		ctx->LevelScale_v[0] = ctx->LevelScale_v[1] = ctx->LevelScale_v[2] =
+			ctx->LevelScale_v[3] = (v4su){1, 1, 1, 1};
 		ctx->d_v[0] = ctx->d_v[1] = ctx->d_v[2] = ctx->d_v[3] = (v4si){};
 		ctx->ctxIdxOffsets_l = ctxIdxOffsets_16x16DC[iYCbCr][mb_field_decoding_flag];
 		mb->f.coded_block_flags_16x16[iYCbCr] = get_ae(ctx->ctxIdxOffsets[0] +
@@ -1207,10 +1231,7 @@ static __attribute__((noinline)) int parse_Intra16x16_residual()
  */
 static __attribute__((noinline)) int parse_NxN_residual()
 {
-	if (mb->f.CodedBlockPatternChromaDC || mb->CodedBlockPatternLuma_s)
-		parse_mb_qp_delta();
-	else
-		ctx->mb_qp_delta_non_zero = 0;
+	parse_mb_qp_delta(mb->f.CodedBlockPatternChromaDC | mb->CodedBlockPatternLuma_s);
 	
 	// next few blocks will share many parameters, so we cache a LOT of them
 	ctx->plane = ctx->planes[0];
@@ -1224,6 +1245,7 @@ static __attribute__((noinline)) int parse_NxN_residual()
 			ctx->ctxIdxOffsets_l = ctxIdxOffsets_4x4[iYCbCr][mb_field_decoding_flag];
 			ctx->scan_v[0] = scan_4x4[mb_field_decoding_flag];
 			ctx->sig_inc_v[0] = ctx->last_inc_v[0] = sig_inc_4x4;
+			compute_LevelScale4x4(iYCbCr);
 			
 			// Decoding directly follows parsing to avoid duplicate loops.
 			do {
@@ -1247,6 +1269,7 @@ static __attribute__((noinline)) int parse_NxN_residual()
 				ctx->last_inc_v[i] = last_inc_8x8[i];
 				ctx->scan_v[i] = r[i];
 			}
+			compute_LevelScale8x8(iYCbCr);
 			
 			do {
 				for (int i = 0; i < 16; i++)
@@ -1453,6 +1476,12 @@ static inline int parse_intraNxN_pred_mode(int intraMxMPredModeA, int intraMxMPr
  */
 static __attribute__((noinline)) int parse_intra_mb(int ctxIdx)
 {
+	static const v16qu v16bit = {
+		VERTICAL_4x4_16_BIT, VERTICAL_4x4_16_BIT, VERTICAL_4x4_16_BIT, VERTICAL_4x4_16_BIT,
+		VERTICAL_4x4_16_BIT, VERTICAL_4x4_16_BIT, VERTICAL_4x4_16_BIT, VERTICAL_4x4_16_BIT,
+		VERTICAL_4x4_16_BIT, VERTICAL_4x4_16_BIT, VERTICAL_4x4_16_BIT, VERTICAL_4x4_16_BIT,
+		VERTICAL_4x4_16_BIT, VERTICAL_4x4_16_BIT, VERTICAL_4x4_16_BIT, VERTICAL_4x4_16_BIT,
+	};
 	static const Edge264_flags flags_PCM = {
 		.CodedBlockPatternChromaDC = 1,
 		.CodedBlockPatternChromaAC = 1,
@@ -1486,8 +1515,13 @@ static __attribute__((noinline)) int parse_intra_mb(int ctxIdx)
 				ctx->PredMode[i] = intra8x8_modes[p[i]][ctx->unavail[i]];
 			}
 		}
-		// FIXME 16bit
-		ctx->PredMode_v[1] = ctx->PredMode_v[2] = ctx->PredMode_v[0];
+		
+		v16qu modes = ctx->PredMode_v[0];
+		if (ctx->ps.BitDepth_Y > 8)
+			ctx->PredMode_v[0] = modes + v16bit;
+		if (ctx->ps.BitDepth_C > 8)
+			modes += v16bit;
+		ctx->PredMode_v[1] = ctx->PredMode_v[2] = modes;
 		
 		parse_intra_chroma_pred_mode();
 		parse_coded_block_pattern();
@@ -1506,11 +1540,11 @@ static __attribute__((noinline)) int parse_intra_mb(int ctxIdx)
 		// prepare the decoding modes
 		int y = mode + (ctx->ps.BitDepth_Y == 8 ? VERTICAL_4x4_BUFFERED : VERTICAL_4x4_BUFFERED_16_BIT);
 		ctx->PredMode_v[0] = (v16qu){y, y, y, y, y, y, y, y, y, y, y, y, y, y, y, y};
-		ctx->PredMode[0] = y + 3 + (ctx->inc.unavailable ?: -15);
+		ctx->PredMode[0] = y - 26 + (ctx->inc.unavailable ?: -3);
 		if (ctx->ps.ChromaArrayType == 3) {
 			int c = mode + (ctx->ps.BitDepth_C == 8 ? VERTICAL_4x4_BUFFERED : VERTICAL_4x4_BUFFERED_16_BIT);
 			ctx->PredMode_v[1] = ctx->PredMode_v[2] = (v16qu){c, c, c, c, c, c, c, c, c, c, c, c, c, c, c, c};
-			ctx->PredMode[16] = ctx->PredMode[32] = c + 3 + (ctx->inc.unavailable ?: -15);
+			ctx->PredMode[16] = ctx->PredMode[32] = c - 26 + (ctx->inc.unavailable ?: -3);
 		}
 		
 		fprintf(stderr, "mb_type: %u\n", mb->CodedBlockPatternLuma[0] * 12 +

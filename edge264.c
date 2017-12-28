@@ -9,6 +9,7 @@
 // TODO: Move get_ae to cabac.c and fill past rbsp with -1
 // TODO: Optimise is422 in cabac.c
 // TODO: Detect rbsp_slice_trailing_bits
+// TODO: Drop the support of differing BitDepths if no Conformance streams test it
 
 #include "edge264_common.h"
 #include "edge264_golomb.c"
@@ -439,7 +440,7 @@ static __attribute__((noinline)) void bump_pictures(Edge264_stream *e) {
 			break;
 		e->output_flags ^= 1 << output;
 		if (e->output_frame != NULL)
-			e->output_frame(output);
+			e->error = e->output_frame(output);
 	}
 }
 

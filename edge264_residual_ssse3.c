@@ -1,68 +1,38 @@
 #include "edge264_common.h"
 
-static const v16qu normAdjust4x4[2][6] = {
-	10, 13, 13, 10, 16, 10, 13, 13, 13, 13, 16, 10, 16, 13, 13, 16,
-	11, 14, 14, 11, 18, 11, 14, 14, 14, 14, 18, 11, 18, 14, 14, 18,
-	13, 16, 16, 13, 20, 13, 16, 16, 16, 16, 20, 13, 20, 16, 16, 20,
-	14, 18, 18, 14, 23, 14, 18, 18, 18, 18, 23, 14, 23, 18, 18, 23,
-	16, 20, 20, 16, 25, 16, 20, 20, 20, 20, 25, 16, 25, 20, 20, 25,
-	18, 23, 23, 18, 29, 18, 23, 23, 23, 23, 29, 18, 29, 23, 23, 29,
-	10, 13, 13, 10, 13, 16, 13, 16, 10, 13, 10, 13, 13, 16, 13, 16,
-	11, 14, 14, 11, 14, 18, 14, 18, 11, 14, 11, 14, 14, 18, 14, 18,
-	13, 16, 16, 13, 16, 20, 16, 20, 13, 16, 13, 16, 16, 20, 16, 20,
-	14, 18, 18, 14, 18, 23, 18, 23, 14, 18, 14, 18, 18, 23, 18, 23,
-	16, 20, 20, 16, 20, 25, 20, 25, 16, 20, 16, 20, 20, 25, 20, 25,
-	18, 23, 23, 18, 23, 29, 23, 29, 18, 23, 18, 23, 23, 29, 23, 29,
+static const v16qi normAdjust4x4[6] = {
+	10, 13, 10, 13, 13, 16, 13, 16, 10, 13, 10, 13, 13, 16, 13, 16,
+	11, 14, 11, 14, 14, 18, 14, 18, 11, 14, 11, 14, 14, 18, 14, 18,
+	13, 16, 13, 16, 16, 20, 16, 20, 13, 16, 13, 16, 16, 20, 16, 20,
+	14, 18, 14, 18, 18, 23, 18, 23, 14, 18, 14, 18, 18, 23, 18, 23,
+	16, 20, 16, 20, 20, 25, 20, 25, 16, 20, 16, 20, 20, 25, 20, 25,
+	18, 23, 18, 23, 23, 29, 23, 29, 18, 23, 18, 23, 23, 29, 23, 29,
 };
-static const v16qu normAdjust8x8[2][6][4] = {
-	20, 19, 19, 25, 18, 25, 19, 24, 24, 19, 20, 18, 32, 18, 20, 19,
-	19, 24, 24, 19, 19, 25, 18, 25, 18, 25, 18, 25, 19, 24, 24, 19,
-	19, 24, 24, 19, 18, 32, 18, 20, 18, 32, 18, 24, 24, 19, 19, 24,
-	24, 18, 25, 18, 25, 18, 19, 24, 24, 19, 18, 32, 18, 24, 24, 18,
-	22, 21, 21, 28, 19, 28, 21, 26, 26, 21, 22, 19, 35, 19, 22, 21,
-	21, 26, 26, 21, 21, 28, 19, 28, 19, 28, 19, 28, 21, 26, 26, 21,
-	21, 26, 26, 21, 19, 35, 19, 22, 19, 35, 19, 26, 26, 21, 21, 26,
-	26, 19, 28, 19, 28, 19, 21, 26, 26, 21, 19, 35, 19, 26, 26, 19,
-	26, 24, 24, 33, 23, 33, 24, 31, 31, 24, 26, 23, 42, 23, 26, 24,
-	24, 31, 31, 24, 24, 33, 23, 33, 23, 33, 23, 33, 24, 31, 31, 24,
-	24, 31, 31, 24, 23, 42, 23, 26, 23, 42, 23, 31, 31, 24, 24, 31,
-	31, 23, 33, 23, 33, 23, 24, 31, 31, 24, 23, 42, 23, 31, 31, 23,
-	28, 26, 26, 35, 25, 35, 26, 33, 33, 26, 28, 25, 45, 25, 28, 26,
-	26, 33, 33, 26, 26, 35, 25, 35, 25, 35, 25, 35, 26, 33, 33, 26,
-	26, 33, 33, 26, 25, 45, 25, 28, 25, 45, 25, 33, 33, 26, 26, 33,
-	33, 25, 35, 25, 35, 25, 26, 33, 33, 26, 25, 45, 25, 33, 33, 25,
-	32, 30, 30, 40, 28, 40, 30, 38, 38, 30, 32, 28, 51, 28, 32, 30,
-	30, 38, 38, 30, 30, 40, 28, 40, 28, 40, 28, 40, 30, 38, 38, 30,
-	30, 38, 38, 30, 28, 51, 28, 32, 28, 51, 28, 38, 38, 30, 30, 38,
-	38, 28, 40, 28, 40, 28, 30, 38, 38, 30, 28, 51, 28, 38, 38, 28,
-	36, 34, 34, 46, 32, 46, 34, 43, 43, 34, 36, 32, 58, 32, 36, 34,
-	34, 43, 43, 34, 34, 46, 32, 46, 32, 46, 32, 46, 34, 43, 43, 34,
-	34, 43, 43, 34, 32, 58, 32, 36, 32, 58, 32, 43, 43, 34, 34, 43,
-	43, 32, 46, 32, 46, 32, 34, 43, 43, 34, 32, 58, 32, 43, 43, 32,
-	20, 19, 25, 19, 18, 19, 20, 24, 25, 18, 19, 25, 19, 19, 24, 19,
-	32, 18, 24, 18, 24, 18, 20, 24, 25, 24, 32, 24, 18, 19, 19, 25,
-	19, 18, 24, 18, 19, 18, 25, 24, 20, 19, 25, 19, 18, 24, 32, 19,
-	18, 24, 18, 24, 19, 18, 25, 24, 32, 24, 24, 18, 19, 18, 24, 18,
-	22, 21, 28, 21, 19, 21, 22, 26, 28, 19, 21, 28, 21, 21, 26, 21,
-	35, 19, 26, 19, 26, 19, 22, 26, 28, 26, 35, 26, 19, 21, 21, 28,
-	21, 19, 26, 19, 21, 19, 28, 26, 22, 21, 28, 21, 19, 26, 35, 21,
-	19, 26, 19, 26, 21, 19, 28, 26, 35, 26, 26, 19, 21, 19, 26, 19,
-	26, 24, 33, 24, 23, 24, 26, 31, 33, 23, 24, 33, 24, 24, 31, 24,
-	42, 23, 31, 23, 31, 23, 26, 31, 33, 31, 42, 31, 23, 24, 24, 33,
-	24, 23, 31, 23, 24, 23, 33, 31, 26, 24, 33, 24, 23, 31, 42, 24,
-	23, 31, 23, 31, 24, 23, 33, 31, 42, 31, 31, 23, 24, 23, 31, 23,
-	28, 26, 35, 26, 25, 26, 28, 33, 35, 25, 26, 35, 26, 26, 33, 26,
-	45, 25, 33, 25, 33, 25, 28, 33, 35, 33, 45, 33, 25, 26, 26, 35,
-	26, 25, 33, 25, 26, 25, 35, 33, 28, 26, 35, 26, 25, 33, 45, 26,
-	25, 33, 25, 33, 26, 25, 35, 33, 45, 33, 33, 25, 26, 25, 33, 25,
-	32, 30, 40, 30, 28, 30, 32, 38, 40, 28, 30, 40, 30, 30, 38, 30,
-	51, 28, 38, 28, 38, 28, 32, 38, 40, 38, 51, 38, 28, 30, 30, 40,
-	30, 28, 38, 28, 30, 28, 40, 38, 32, 30, 40, 30, 28, 38, 51, 30,
-	28, 38, 28, 38, 30, 28, 40, 38, 51, 38, 38, 28, 30, 28, 38, 28,
-	36, 34, 46, 34, 32, 34, 36, 43, 46, 32, 34, 46, 34, 34, 43, 34,
-	58, 32, 43, 32, 43, 32, 36, 43, 46, 43, 58, 43, 32, 34, 34, 46,
-	34, 32, 43, 32, 34, 32, 46, 43, 36, 34, 46, 34, 32, 43, 58, 34,
-	32, 43, 32, 43, 34, 32, 46, 43, 58, 43, 43, 32, 34, 32, 43, 32,
+static const v16qi normAdjust8x8[6][4] = {
+	20, 19, 25, 19, 20, 19, 25, 19, 19, 18, 24, 18, 19, 18, 24, 18,
+	25, 24, 32, 24, 25, 24, 32, 24, 19, 18, 24, 18, 19, 18, 24, 18,
+	20, 19, 25, 19, 20, 19, 25, 19, 19, 18, 24, 18, 19, 18, 24, 18,
+	25, 24, 32, 24, 25, 24, 32, 24, 19, 18, 24, 18, 19, 18, 24, 18,
+	22, 21, 28, 21, 22, 21, 28, 21, 21, 19, 26, 19, 21, 19, 26, 19,
+	28, 26, 35, 26, 28, 26, 35, 26, 21, 19, 26, 19, 21, 19, 26, 19,
+	22, 21, 28, 21, 22, 21, 28, 21, 21, 19, 26, 19, 21, 19, 26, 19,
+	28, 26, 35, 26, 28, 26, 35, 26, 21, 19, 26, 19, 21, 19, 26, 19,
+	26, 24, 33, 24, 26, 24, 33, 24, 24, 23, 31, 23, 24, 23, 31, 23,
+	33, 31, 42, 31, 33, 31, 42, 31, 24, 23, 31, 23, 24, 23, 31, 23,
+	26, 24, 33, 24, 26, 24, 33, 24, 24, 23, 31, 23, 24, 23, 31, 23,
+	33, 31, 42, 31, 33, 31, 42, 31, 24, 23, 31, 23, 24, 23, 31, 23,
+	28, 26, 35, 26, 28, 26, 35, 26, 26, 25, 33, 25, 26, 25, 33, 25,
+	35, 33, 45, 33, 35, 33, 45, 33, 26, 25, 33, 25, 26, 25, 33, 25,
+	28, 26, 35, 26, 28, 26, 35, 26, 26, 25, 33, 25, 26, 25, 33, 25,
+	35, 33, 45, 33, 35, 33, 45, 33, 26, 25, 33, 25, 26, 25, 33, 25,
+	32, 30, 40, 30, 32, 30, 40, 30, 30, 28, 38, 28, 30, 28, 38, 28,
+	40, 38, 51, 38, 40, 38, 51, 38, 30, 28, 38, 28, 30, 28, 38, 28,
+	32, 30, 40, 30, 32, 30, 40, 30, 30, 28, 38, 28, 30, 28, 38, 28,
+	40, 38, 51, 38, 40, 38, 51, 38, 30, 28, 38, 28, 30, 28, 38, 28,
+	36, 34, 46, 34, 36, 34, 46, 34, 34, 32, 43, 32, 34, 32, 43, 32,
+	46, 43, 58, 43, 46, 43, 58, 43, 34, 32, 43, 32, 34, 32, 43, 32,
+	36, 34, 46, 34, 36, 34, 46, 34, 34, 32, 43, 32, 34, 32, 43, 32,
+	46, 43, 58, 43, 46, 43, 58, 43, 34, 32, 43, 32, 34, 32, 43, 32,
 };
 
 
@@ -71,31 +41,34 @@ static const v16qu normAdjust8x8[2][6][4] = {
  * These functions are not executed often enough to justify maintaining AVX2
  * versions.
  */
-static __attribute__((noinline)) void compute_LevelScale4x4(int iYCbCr, int qP) {
-	__m128i nA = (__m128i)normAdjust4x4[ctx->f.mb_field_decoding_flag][ctx->ps.QP_Y % 6];
+static __attribute__((noinline)) void compute_LevelScale4x4(int iYCbCr) {
+	// This part is very unsatisfactory and will have to be optimised some day.
+	int BitDepth = (iYCbCr == 0) ? ctx->ps.BitDepth_Y : ctx->ps.BitDepth_C;
 	__m128i zero = _mm_setzero_si128();
-	__m128i w = ((__m128i *)ctx->ps.weightScale4x4)[iYCbCr + ctx->mbIsInterFlag * 3];
+	__m128i shift = _mm_cvtsi32_si128((unsigned)mb->QP[iYCbCr] / 6 + BitDepth - 8);
+	__m128i nA = (__m128i)normAdjust4x4[(unsigned)mb->QP[iYCbCr] % 6];
+	__m128i w = ((__m128i *)ctx->ps.weightScale4x4)[iYCbCr + mb->f.mbIsInterFlag * 3];
 	__m128i x0 = _mm_mullo_epi16(_mm_unpacklo_epi8(w, zero), _mm_unpacklo_epi8(nA, zero));
 	__m128i x1 = _mm_mullo_epi16(_mm_unpackhi_epi8(w, zero), _mm_unpackhi_epi8(nA, zero));
-	__m128i x2 = _mm_cvtsi32_si128(ctx->ps.QP_Y / 6);
-	ctx->LevelScale_v[0] = (v4su)_mm_sll_epi32(_mm_unpacklo_epi16(x0, zero), x2);
-	ctx->LevelScale_v[1] = (v4su)_mm_sll_epi32(_mm_unpackhi_epi16(x0, zero), x2);
-	ctx->LevelScale_v[2] = (v4su)_mm_sll_epi32(_mm_unpacklo_epi16(x1, zero), x2);
-	ctx->LevelScale_v[3] = (v4su)_mm_sll_epi32(_mm_unpackhi_epi16(x1, zero), x2);
+	ctx->LevelScale_v[0] = (v4su)_mm_sll_epi32(_mm_unpacklo_epi16(x0, zero), shift);
+	ctx->LevelScale_v[1] = (v4su)_mm_sll_epi32(_mm_unpackhi_epi16(x0, zero), shift);
+	ctx->LevelScale_v[2] = (v4su)_mm_sll_epi32(_mm_unpacklo_epi16(x1, zero), shift);
+	ctx->LevelScale_v[3] = (v4su)_mm_sll_epi32(_mm_unpackhi_epi16(x1, zero), shift);
 }
 
-static inline void compute_LevelScale8x8(int iYCbCr, int qP) {
+static inline void compute_LevelScale8x8(int iYCbCr) {
+	int BitDepth = (iYCbCr == 0) ? ctx->ps.BitDepth_Y : ctx->ps.BitDepth_C;
 	__m128i zero = _mm_setzero_si128();
-	__m128i *w = (__m128i *)ctx->ps.weightScale8x8[iYCbCr * 2 + ctx->mbIsInterFlag];
-	__m128i *nA = (__m128i *)normAdjust8x8[ctx->f.mb_field_decoding_flag][ctx->ps.QP_Y % 6];
+	__m128i shift = _mm_cvtsi32_si128((unsigned)mb->QP[iYCbCr] / 6 + BitDepth - 8);
+	__m128i *nA = (__m128i *)normAdjust8x8[(unsigned)mb->QP[iYCbCr] % 6];
+	__m128i *w = (__m128i *)ctx->ps.weightScale8x8[iYCbCr * 2 + mb->f.mbIsInterFlag];
 	for (int i = 0; i < 4; i++) {
 		__m128i x0 = _mm_mullo_epi16(_mm_unpacklo_epi8(w[i], zero), _mm_unpacklo_epi8(nA[i], zero));
 		__m128i x1 = _mm_mullo_epi16(_mm_unpacklo_epi8(w[i], zero), _mm_unpacklo_epi8(nA[i], zero));
-		__m128i x2 = _mm_cvtsi32_si128(ctx->ps.QP_Y / 6);
-		ctx->LevelScale_v[i * 4 + 0] = (v4su)_mm_sll_epi32(_mm_unpacklo_epi16(x0, zero), x2);
-		ctx->LevelScale_v[i * 4 + 1] = (v4su)_mm_sll_epi32(_mm_unpackhi_epi16(x0, zero), x2);
-		ctx->LevelScale_v[i * 4 + 2] = (v4su)_mm_sll_epi32(_mm_unpacklo_epi16(x1, zero), x2);
-		ctx->LevelScale_v[i * 4 + 3] = (v4su)_mm_sll_epi32(_mm_unpackhi_epi16(x1, zero), x2);
+		ctx->LevelScale_v[i * 4 + 0] = (v4su)_mm_sll_epi32(_mm_unpacklo_epi16(x0, zero), shift);
+		ctx->LevelScale_v[i * 4 + 1] = (v4su)_mm_sll_epi32(_mm_unpackhi_epi16(x0, zero), shift);
+		ctx->LevelScale_v[i * 4 + 2] = (v4su)_mm_sll_epi32(_mm_unpacklo_epi16(x1, zero), shift);
+		ctx->LevelScale_v[i * 4 + 3] = (v4su)_mm_sll_epi32(_mm_unpackhi_epi16(x1, zero), shift);
 	}
 }
 
@@ -533,6 +506,8 @@ static __attribute__((noinline)) int decode_Residual8x8(__m128i p0, __m128i p1,
  * DC coefficients transform
  */
 static __attribute__((noinline)) int decode_ResidualDC4x4() {
+	compute_LevelScale4x4(ctx->BlkIdx >> 4);
+	
 	// loading
 	__m128i c0 = (__m128i)ctx->d_v[0];
 	__m128i c1 = (__m128i)ctx->d_v[1];
@@ -569,8 +544,8 @@ static __attribute__((noinline)) int decode_ResidualDC4x4() {
 	__m128i f2 = _mm_sub_epi32(xI, xJ);
 	__m128i f3 = _mm_add_epi32(xI, xJ);
 	
-	/* Scaling and storing */
-	__m128i s = _mm_set1_epi32(LevelScale[0]);
+	// scaling and storing
+	__m128i s = _mm_set1_epi32(ctx->LevelScale[0]);
 	__m128i s32 = _mm_set1_epi32(32);
 	__m128i dc0 = _mm_srai_epi32(_mm_add_epi32(_mm_mullo_epi32(f0, s), s32), 6);
 	__m128i dc1 = _mm_srai_epi32(_mm_add_epi32(_mm_mullo_epi32(f1, s), s32), 6);
@@ -584,33 +559,42 @@ static __attribute__((noinline)) int decode_ResidualDC4x4() {
 }
 
 static __attribute__((noinline)) int decode_ResidualDC2x2() {
-	int i0 = ctx->d[0] + ctx->d[2];
-	int i1 = ctx->d[1] + ctx->d[3];
-	int i2 = ctx->d[0] - ctx->d[2];
-	int i3 = ctx->d[1] - ctx->d[3];
-	ctx->d[16] = ((i0 + i1) * LevelScale[0]) >> 5;
-	ctx->d[17] = ((i0 - i1) * LevelScale[0]) >> 5;
-	ctx->d[18] = ((i2 + i3) * LevelScale[0]) >> 5;
-	ctx->d[19] = ((i2 - i3) * LevelScale[0]) >> 5;
+	int iYCbCr = (ctx->BlkIdx - 12) >> 2;
+	int32_t *d = ctx->d + ctx->BlkIdx;
+	unsigned qP = mb->QP[iYCbCr];
+	int w = ctx->ps.weightScale4x4[iYCbCr + mb->f.mbIsInterFlag * 3][0];
+	int nA = normAdjust4x4[qP % 6][0];
+	unsigned LevelScale = (w * nA) << (qP / 6 + ctx->ps.BitDepth_C - 8);
+	int i0 = d[0] + d[2];
+	int i1 = d[1] + d[3];
+	int i2 = d[0] - d[2];
+	int i3 = d[1] - d[3];
+	d[0] = ((i0 + i1) * LevelScale) >> 5;
+	d[1] = ((i0 - i1) * LevelScale) >> 5;
+	d[2] = ((i2 + i3) * LevelScale) >> 5;
+	d[3] = ((i2 - i3) * LevelScale) >> 5;
 	return 0;
 }
 
 static __attribute__((noinline)) int decode_ResidualDC2x4() {
-	__m128i x0 = _mm_add_epi32(ctx->d_v[0], ctx->d_v[1]); // {c00+c20, c01+c21, c10+c30, c11+c31}
-	__m128i x1 = _mm_sub_epi32(ctx->d_v[0], ctx->d_v[1]); // {c00-c20, c01-c21, c10-c30, c11-c31}
+	int iYCbCr = (ctx->BlkIdx - 8) >> 3;
+	unsigned qP_DC = mb->QP[iYCbCr] + 3;
+	int w = ctx->ps.weightScale4x4[iYCbCr + mb->f.mbIsInterFlag * 3][0];
+	int nA = normAdjust4x4[qP_DC % 6][0];
+	__m128i *d = (__m128i *)ctx->d_v + 2 + iYCbCr * 2;
+	__m128i x0 = _mm_add_epi32(d[0], d[1]); // {c00+c20, c01+c21, c10+c30, c11+c31}
+	__m128i x1 = _mm_sub_epi32(d[0], d[1]); // {c00-c20, c01-c21, c10-c30, c11-c31}
 	__m128i x2 = _mm_unpacklo_epi64(x0, x1); // {c00+c20, c01+c21, c00-c20, c01-c21}
 	__m128i x3 = _mm_unpackhi_epi64(x0, x1); // {c10+c30, c11+c31, c10-c30, c11-c31}
 	__m128i x4 = _mm_add_epi32(x2, x3); // {d00, d01, d10, d11}
 	__m128i x5 = _mm_sub_epi32(x2, x3); // {d30, d31, d20, d21}
 	__m128i x6 = _mm_hadd_epi32(x4, x5); // {f00, f10, f30, f20}
 	__m128i x7 = _mm_hsub_epi32(x4, x5); // {f01, f11, f31, f21}
-	int w = ctx->ps.weightScale4x4[(ctx->BlkIdx >> 4) + ctx->mbIsInterFlag * 3][0];
-	int nA = normAdjust4x4[ctx->f.mb_field_decoding_flag][(ctx->QP_C + 3) % 6][0];
-	__m128i s = _mm_set1_epi32(w * nA);
+	__m128i s = _mm_set1_epi32((w * nA) << (qP_DC / 6 + ctx->ps.BitDepth_C - 8));
 	__m128i s32 = _mm_set1_epi32(32);
 	__m128i dc0 = _mm_srai_epi32(_mm_add_epi32(_mm_mullo_epi32(x6, s), s32), 6);
 	__m128i dc1 = _mm_srai_epi32(_mm_add_epi32(_mm_mullo_epi32(x6, s), s32), 6);
-	ctx->d_v[4] = (v4si)_mm_unpacklo_epi32(dc0, dc1);
-	ctx->d_v[5] = (v4si)_mm_shuffle_epi32(_mm_unpackhi_epi64(dc0, dc1), _MM_SHUFFLE(2, 0, 3, 1));
+	d[0] = _mm_unpacklo_epi32(dc0, dc1);
+	d[1] = _mm_shuffle_epi32(_mm_unpackhi_epi64(dc0, dc1), _MM_SHUFFLE(2, 0, 3, 1));
 	return 0;
 }

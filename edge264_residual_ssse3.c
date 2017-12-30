@@ -593,7 +593,7 @@ static __attribute__((noinline)) int decode_ResidualDC2x4() {
 	__m128i s = _mm_set1_epi32((w * nA) << (qP_DC / 6 + ctx->ps.BitDepth_C - 8));
 	__m128i s32 = _mm_set1_epi32(32);
 	__m128i dc0 = _mm_srai_epi32(_mm_add_epi32(_mm_mullo_epi32(x6, s), s32), 6);
-	__m128i dc1 = _mm_srai_epi32(_mm_add_epi32(_mm_mullo_epi32(x6, s), s32), 6);
+	__m128i dc1 = _mm_srai_epi32(_mm_add_epi32(_mm_mullo_epi32(x7, s), s32), 6);
 	d[0] = _mm_unpacklo_epi32(dc0, dc1);
 	d[1] = _mm_shuffle_epi32(_mm_unpackhi_epi64(dc0, dc1), _MM_SHUFFLE(2, 0, 3, 1));
 	return 0;

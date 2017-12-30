@@ -164,7 +164,6 @@ static void parse_ref_pic_list_modification(const Edge264_stream *e)
 	for (int refIdxL0 = 0; refIdxL0 < 32; refIdxL0++)
 		ctx->MapPicToList0[1 + ctx->RefPicList[0][refIdxL0]] = refIdxL0;
 	ctx->mbCol = NULL; // FIXME
-	ctx->mvCol = NULL;
 	ctx->col_short_term = ~ctx->s.long_term_flags >> (ctx->RefPicList[1][0] & 15) & 1;
 }
 
@@ -377,35 +376,39 @@ static void initialise_decoding_context(Edge264_stream *e)
 	ctx->clip_Y = (v8hi){cY, cY, cY, cY, cY, cY, cY, cY};
 	ctx->clip_C = (v8hi){cC, cC, cC, cC, cC, cC, cC, cC};
 	
-	int offsetA = sizeof(*ctx->mb);
+	int offsetA = sizeof(*mb);
+	v8hi h16 = {16, 16, 16, 16, 16, 16, 16, 16};
 	ctx->A4x4_v[0] = (v8hi){5 - offsetA, 0, 7 - offsetA, 2, 1, 4, 3, 6};
 	ctx->A4x4_v[1] = (v8hi){13 - offsetA, 8, 15 - offsetA, 10, 9, 12, 11, 14};
-	ctx->A4x4_v[2] = ctx->A4x4_v[0] + 16;
-	ctx->A4x4_v[3] = ctx->A4x4_v[1] + 16;
-	ctx->A4x4_v[4] = ctx->A4x4_v[2] + 16;
-	ctx->A4x4_v[5] = ctx->A4x4_v[3] + 16;
+	ctx->A4x4_v[2] = ctx->A4x4_v[0] + h16;
+	ctx->A4x4_v[3] = ctx->A4x4_v[1] + h16;
+	ctx->A4x4_v[4] = ctx->A4x4_v[2] + h16;
+	ctx->A4x4_v[5] = ctx->A4x4_v[3] + h16;
 	
-	int offsetB = (ctx->ps.width / 16 + 1) * sizeof(*ctx->mb);
+	int offsetB = (ctx->ps.width / 16 + 1) * sizeof(*mb);
+	v4si s16 = {16, 16, 16, 16};
 	ctx->B4x4_v[0] = (v4si){10 - offsetB, 11 - offsetB, 0, 1};
 	ctx->B4x4_v[1] = (v4si){14 - offsetB, 15 - offsetB, 4, 5};
 	ctx->B4x4_v[2] = (v4si){2, 3, 8, 9};
 	ctx->B4x4_v[3] = (v4si){6, 7, 12, 13};
-	ctx->B4x4_v[4] = ctx->B4x4_v[0] + 16;
-	ctx->B4x4_v[5] = ctx->B4x4_v[1] + 16;
-	ctx->B4x4_v[6] = ctx->B4x4_v[2] + 16;
-	ctx->B4x4_v[7] = ctx->B4x4_v[3] + 16;
-	ctx->B4x4_v[8] = ctx->B4x4_v[4] + 16;
-	ctx->B4x4_v[9] = ctx->B4x4_v[5] + 16;
-	ctx->B4x4_v[10] = ctx->B4x4_v[6] + 16;
-	ctx->B4x4_v[11] = ctx->B4x4_v[7] + 16;
+	ctx->B4x4_v[4] = ctx->B4x4_v[0] + s16;
+	ctx->B4x4_v[5] = ctx->B4x4_v[1] + s16;
+	ctx->B4x4_v[6] = ctx->B4x4_v[2] + s16;
+	ctx->B4x4_v[7] = ctx->B4x4_v[3] + s16;
+	ctx->B4x4_v[8] = ctx->B4x4_v[4] + s16;
+	ctx->B4x4_v[9] = ctx->B4x4_v[5] + s16;
+	ctx->B4x4_v[10] = ctx->B4x4_v[6] + s16;
+	ctx->B4x4_v[11] = ctx->B4x4_v[7] + s16;
 	
-	ctx->A8x8_v[0] = (v4hi){1 - sizeof(*ctx->mb), 0, 3 - sizeof(*ctx->mb), 2};
-	ctx->A8x8_v[1] = ctx->A8x8_v[0] + 4;
-	ctx->A8x8_v[2] = ctx->A8x8_v[1] + 4;
+	v4hi h4 = {4, 4, 4, 4};
+	ctx->A8x8_v[0] = (v4hi){1 - (int)sizeof(*mb), 0, 3 - (int)sizeof(*mb), 2};
+	ctx->A8x8_v[1] = ctx->A8x8_v[0] + h4;
+	ctx->A8x8_v[2] = ctx->A8x8_v[1] + h4;
 	
+	v4si s4 = {4, 4, 4, 4};
 	ctx->B8x8_v[0] = (v4si){2 - offsetB, 3 - offsetB, 0, 1};
-	ctx->B8x8_v[1] = ctx->B8x8_v[0] + 4;
-	ctx->B8x8_v[2] = ctx->B8x8_v[1] + 4;
+	ctx->B8x8_v[1] = ctx->B8x8_v[0] + s4;
+	ctx->B8x8_v[2] = ctx->B8x8_v[1] + s4;
 	
 	int pixel_Y = ctx->ps.BitDepth_Y > 8;
 	int pixel_C = ctx->ps.BitDepth_C > 8;
@@ -440,7 +443,7 @@ static __attribute__((noinline)) void bump_pictures(Edge264_stream *e) {
 			break;
 		e->output_flags ^= 1 << output;
 		if (e->output_frame != NULL)
-			e->error = e->output_frame(output);
+			e->error = e->output_frame(e, output);
 	}
 }
 
@@ -1264,7 +1267,7 @@ static const uint8_t *parse_seq_parameter_set(Edge264_stream *e, int nal_ref_idc
 		int height_Y = ctx->ps.height;
 		int height_C = ctx->ps.chroma_format_idc < 2 ? height_Y >> 1 : height_Y;
 		int PicWidthInMbs = width_Y >> 4;
-		int PicSizeInMbs = width_Y * height_Y >> 8;
+		int PicHeightInMbs = height_Y >> 8;
 		
 		// An offset might be added if cache alignment has a significant impact on some videos.
 		e->stride_Y = ctx->ps.BitDepth_Y == 8 ? width_Y : width_Y * 2;

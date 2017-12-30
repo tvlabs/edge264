@@ -86,14 +86,15 @@ int main() {
 	DIR *dir = opendir(".");
 	assert(dir!=NULL);
 	while ((entry = readdir(dir))) {
-		const char *ext = strrchr(entry->d_name, '.') + 1;
-		if (*(int *)ext != *(int *)"264")
+		char *ext = strrchr(entry->d_name, '.');
+		if (*(int *)ext != *(int *)".264")
 			continue;
 		
 		// open the clip file and the corresponding yuv file
 		int clip = open(entry->d_name, O_RDONLY);
-		memcpy(ext, "yuv", 4);
+		memcpy(ext, ".yuv", 4);
 		int yuv = open(entry->d_name, O_RDONLY);
+		*ext = 0;
 		if (clip < 0 || yuv < 0) {
 			fprintf(stderr, "open(%s) failed: ", entry->d_name);
 			perror(NULL);
@@ -102,17 +103,17 @@ int main() {
 		
 		// memory-map the two files
 		fstat(clip, &stC);
-		const uint8_t *cpb = mmap(NULL, stC.st_size, PROT_READ, MAP_SHARED, clip, 0);
-		const uint8_t *end = cpb + stC.st_size;
+		uint8_t *cpb = mmap(NULL, stC.st_size, PROT_READ, MAP_SHARED, clip, 0);
+		uint8_t *end = cpb + stC.st_size;
 		fstat(yuv, &stD);
-		const uint8_t *dpb = mmap(NULL, stD.st_size, PROT_READ, MAP_SHARED, yuv, 0);
+		uint8_t *dpb = mmap(NULL, stD.st_size, PROT_READ, MAP_SHARED, yuv, 0);
 		assert(cpb!=MAP_FAILED&&dpb!=MAP_FAILED);
-		e.private = dpb;
+		e.user = dpb;
 		
 		// parse the file and FAIL on any error
 		for (const uint8_t *r = cpb + 4; e.error == 0 && r < end; )
 			r = Edge264_decode_NAL(&e, r, end - r);
-		printf("%s: %s" RESET, entry->d_name, e.error < 0 ? RED "FAIL" :
+		printf("%s: %s\n" RESET, entry->d_name, e.error < 0 ? RED "FAIL" :
 			e.error > 0 ? YELLOW "UNSUPPORTED" : GREEN "PASS");
 		
 		// close everything

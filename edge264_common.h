@@ -99,12 +99,12 @@ typedef union {
  * the use of local caches, thus minimising memory writes.
  */
 typedef struct {
-	int16_t mvs[32];
 	Edge264_flags f;
-	int8_t refIdx[4];
-	int8_t absMvdComp[32];
-	int8_t Intra4x4PredMode[16];
 	int8_t QP[3];
+	int8_t Intra4x4PredMode[16];
+	union { int16_t mvs[64]; v8hi mvs_v[8]; };
+	union { int8_t refIdx[8]; v8qi refIdx_v; };
+	union { int8_t absMvdComp[32]; v16qi absMvdComp_v[2]; };
 	union { int8_t CodedBlockPatternLuma[4]; int32_t CodedBlockPatternLuma_s; };
 	union { int8_t coded_block_flags_8x8[12]; v16qi coded_block_flags_8x8_v; };
 	union { int8_t coded_block_flags_4x4[48]; int32_t coded_block_flags_4x4_s[12]; v16qi coded_block_flags_4x4_v[3]; };
@@ -137,7 +137,6 @@ typedef struct
 	// bitfields and constants
 	uint16_t non_ref_flag:1; // TODO: remove if unnecessary after Inter is done
 	uint16_t IdrPicFlag:1;
-	uint16_t field_pic_flag:1;
 	uint16_t bottom_field_flag:1;
 	uint16_t MbaffFrameFlag:1;
 	uint16_t direct_spatial_mv_pred_flag:1;
@@ -147,6 +146,7 @@ typedef struct
 	int8_t mb_qp_delta_non_zero;
 	int8_t slice_type; // 3 significant bits
 	int8_t colour_plane_id; // 2 significant bits
+	int8_t field_pic_flag;
 	int8_t FilterOffsetA; // 5 significant bits
 	int8_t FilterOffsetB;
 	int32_t TopFieldOrderCnt;
@@ -160,15 +160,18 @@ typedef struct
 	uint32_t ref_idx_mask;
 	uint8_t *plane;
 	v8hi clip, clip_Y, clip_C; // vectors of maximum sample values
+	union { int8_t unavail[16]; v16qi unavail_v; }; // unavailability of neighbouring A/B/C/D blocks
 	union { int16_t A4x4[48]; v8hi A4x4_v[6]; };
 	union { int32_t B4x4[48]; v4si B4x4_v[12]; };
 	union { int16_t A8x8[12]; v4hi A8x8_v[3]; };
 	union { int32_t B8x8[12]; v4si B8x8_v[3]; };
-	union { int8_t unavail[16]; v16qi unavail_v; }; // unavailability of neighbouring A/B/C/D blocks
-	union { int8_t mvC[32]; v16qi mvC_v[2]; };
+	union { int32_t C8x8[8]; v4si C8x8_v[2]; };
+	union { int16_t mvA[32]; v8hi mvA_v[4]; };
+	union { int32_t mvB[32]; v4si mvB_v[8]; };
+	union { int32_t mvC[32]; v4si mvC_v[8]; };
 	union { int16_t ctxIdxOffsets[4]; v4hi ctxIdxOffsets_l; }; // {cbf,sig_flag,last_sig_flag,coeff_abs}
-	union { int8_t sig_inc[64]; uint64_t sig_inc_l; v16qi sig_inc_v[4]; };
-	union { int8_t last_inc[64]; uint64_t last_inc_l; v16qi last_inc_v[4]; };
+	union { int8_t sig_inc[64]; v8qi sig_inc_l; v16qi sig_inc_v[4]; };
+	union { int8_t last_inc[64]; v8qi last_inc_l; v16qi last_inc_v[4]; };
 	union { int8_t scan[64]; v8qi scan_l; v16qi scan_v[4]; };
 	union { uint32_t LevelScale[64]; v4su LevelScale_v[16]; };
 	union { int32_t plane_offsets[48]; v4si plane_offsets_v[12]; };
@@ -228,21 +231,6 @@ static inline __attribute__((always_inline)) int get_se(int lower, int upper) { 
 
 
 
-static const int8_t ref_pos[8] = {8, 10, 0, 2, 9, 11, 1, 3};
-static const int8_t mv_pos[32] = {96, 100, 64, 68, 104, 108, 72, 76, 32, 36, 0, 4,
-	40, 44, 8, 12, 98, 102, 66, 70, 106, 110, 74, 78, 34, 38, 2, 6, 42, 46, 10, 14};
-static const uint8_t bit_4x4[16] = {10, 16, 15, 3, 4, 21, 20, 8, 2, 19, 18, 6, 7, 13, 12, 0};
-static const uint8_t left_4x4[16] = {22, 10, 9, 15, 16, 4, 3, 20, 14, 2, 1, 18, 19, 7, 6, 12};
-static const uint8_t bit_8x8[4] = {26, 29, 28, 24};
-static const uint8_t left_8x8[4] = {30, 26, 25, 28};
-static const uint8_t left_chroma[16] = {13, 11, 10, 8, 7, 5, 4, 2, 29, 27, 26, 24, 23, 21, 20, 18};
-
-
-
-/**
- * intra_modes[IntraPredMode][unavail] yield the prediction branch from
- * unavailability of neighbouring blocks.
- */
 enum PredModes {
 	VERTICAL_4x4,
 	HORIZONTAL_4x4,
@@ -408,6 +396,11 @@ enum PredModes {
 	DC_4x4_BUFFERED_16_BIT,
 	PLANE_4x4_BUFFERED_16_BIT,
 };
+
+/**
+ * intra_modes[IntraPredMode][unavail] yield the prediction switch entry from
+ * unavailability of neighbouring blocks.
+ */
 static const int8_t intra4x4_modes[9][16] = {
 	{VERTICAL_4x4, VERTICAL_4x4, 0, 0, VERTICAL_4x4, VERTICAL_4x4, 0, 0, VERTICAL_4x4, VERTICAL_4x4, 0, 0, VERTICAL_4x4, VERTICAL_4x4, 0, 0},
 	{HORIZONTAL_4x4, 0, HORIZONTAL_4x4, 0, HORIZONTAL_4x4, 0, HORIZONTAL_4x4, 0, HORIZONTAL_4x4, 0, HORIZONTAL_4x4, 0, HORIZONTAL_4x4, 0, HORIZONTAL_4x4, 0},

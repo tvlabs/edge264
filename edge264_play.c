@@ -6,7 +6,7 @@
 
 #include "edge264.h"
 
-void print_frame(int i) {}
+int print_frame(Edge264_stream *e, int i) { return 0; }
 
 int main() {
 	// memory-map the whole file

@@ -5,11 +5,13 @@
 // TODO: Consider storing RefPicList in field mode after implementing MBAFF
 // TODO: Switch to RefPicList[l * 32 + i] if it later speeds up the decoder loop
 // TODO: Remove unions in Edge264_ctx?
-// TODO: Switch to 17-frames storage if actual clips use it
+// TODO: Switch to 17-frames storage (SERIOUSLY)
 // TODO: Move get_ae to cabac.c and fill past rbsp with -1
 // TODO: Optimise is422 in cabac.c
 // TODO: Detect rbsp_slice_trailing_bits
 // TODO: Drop the support of differing BitDepths if no Conformance streams test it
+// TODO: Test removing Edge264_context from register when decoder works
+// TODO: Consider removing Edge264_snapshot for simplicity
 
 #include "edge264_common.h"
 #include "edge264_golomb.c"
@@ -369,7 +371,7 @@ static void initialise_decoding_context(Edge264_stream *e)
 	ctx->planes[0] = e->DPB + ctx->s.currPic * e->frame_size;
 	ctx->planes[1] = ctx->planes[0] + e->plane_Y;
 	ctx->planes[2] = ctx->planes[1] + e->plane_C;
-	mb = (Edge264_macroblock *)(ctx->planes[2] + e->plane_C);
+	mb = (Edge264_macroblock *)(ctx->planes[2] + e->plane_C + (ctx->ps.width / 16 + 2) * sizeof(*mb));
 	
 	int cY = (1 << ctx->ps.BitDepth_Y) - 1;
 	int cC = (1 << ctx->ps.BitDepth_C) - 1;
@@ -469,6 +471,7 @@ static const uint8_t *parse_slice_layer_without_partitioning(Edge264_stream *e,
 	int slice_type = get_ue(9);
 	ctx->slice_type = (slice_type < 5) ? slice_type : slice_type - 5;
 	int pic_parameter_set_id = get_ue(255);
+	ctx->colour_plane_id = 0;
 	printf("<li%s>first_mb_in_slice: <code>%u</code></li>\n"
 		"<li%s>slice_type: <code>%u (%s)</code></li>\n"
 		"<li%s>pic_parameter_set_id: <code>%u</code></li>\n",
@@ -476,13 +479,15 @@ static const uint8_t *parse_slice_layer_without_partitioning(Edge264_stream *e,
 		red_if(ctx->slice_type > 2), slice_type, slice_type_names[ctx->slice_type],
 		red_if(pic_parameter_set_id >= 4 || e->PPSs[pic_parameter_set_id].num_ref_idx_active[0] == 0), pic_parameter_set_id);
 	
-	// check that the requested PPS was initialised
-	if (first_mb_in_slice > 0 || ctx->slice_type > 2 || pic_parameter_set_id >= 4 ||
-		e->PPSs[pic_parameter_set_id].num_ref_idx_active[0] == 0)
-	{
+	// check that the requested PPS was initialised and is supported
+	if (e->PPSs[pic_parameter_set_id].num_ref_idx_active[0] == 0) {
 		e->error = -1;
 		return NULL;
+	} else if (first_mb_in_slice > 0 || ctx->slice_type > 2 || pic_parameter_set_id >= 4) {
+		e->error = 1;
+		return NULL;
 	}
+	
 	ctx->ps = e->PPSs[pic_parameter_set_id];
 	ctx->s = e->now;
 	
@@ -493,6 +498,7 @@ static const uint8_t *parse_slice_layer_without_partitioning(Edge264_stream *e,
 	printf("<li>frame_num: <code>%u</code></li>\n", ctx->s.prevFrameNum);
 	
 	// This comment is just here to segment the code, glad you read it :)
+	ctx->field_pic_flag = 0;
 	if (!ctx->ps.frame_mbs_only_flag) {
 		ctx->field_pic_flag = get_u1();
 		printf("<li>field_pic_flag: <code>%x</code></li>\n", ctx->field_pic_flag);
@@ -603,6 +609,8 @@ static const uint8_t *parse_slice_layer_without_partitioning(Edge264_stream *e,
 		}
 		CABAC_parse_slice_data(cabac_init_idc);
 	}
+	if (get_uv(24) != 0x800000)
+		e->error = -1;
 	
 	// wait until after decoding is complete to apply context changes
 	e->now = ctx->s;
@@ -842,14 +850,13 @@ static const uint8_t *parse_pic_parameter_set(Edge264_stream *e, int nal_ref_idc
 	}
 	
 	// seq_parameter_set_id was ignored so far since no SPS data was read.
-	if (get_uv(24) != 0x800000 || pic_parameter_set_id >= 4 || seq_parameter_set_id > 0 || e->DPB == NULL) {
+	if (get_uv(24) != 0x800000 || e->DPB == NULL) {
 		e->error = -1;
+	} else if (pic_parameter_set_id >= 4 || seq_parameter_set_id > 0 ||
+		redundant_pic_cnt_present_flag || num_slice_groups > 1 || !ctx->ps.entropy_coding_mode_flag) {
+		e->error = 1;
 	} else {
-		Edge264_parameter_set *p = &ctx->ps;
-		// If this PPS is acceptable but unsupported, invalidate it!
-		if (redundant_pic_cnt_present_flag || num_slice_groups > 1 || !ctx->ps.entropy_coding_mode_flag)
-			e->error = -1, p = &(Edge264_parameter_set){};
-		e->PPSs[pic_parameter_set_id] = *p;
+		e->PPSs[pic_parameter_set_id] = ctx->ps;
 	}
 	return NULL;
 }
@@ -1107,7 +1114,6 @@ static const uint8_t *parse_seq_parameter_set(Edge264_stream *e, int nal_ref_idc
 		(double)level_idc / 10,
 		red_if(seq_parameter_set_id != 0), seq_parameter_set_id);
 	
-	// These writes could be merged, I hope the compiler can do that...
 	ctx->ps.chroma_format_idc = 1;
 	ctx->ps.ChromaArrayType = 1;
 	ctx->ps.BitDepth_Y = 8;
@@ -1219,6 +1225,7 @@ static const uint8_t *parse_seq_parameter_set(Edge264_stream *e, int nal_ref_idc
 		ctx->ps.frame_mbs_only_flag);
 	
 	// Evil has a name...
+	ctx->ps.mb_adaptive_frame_field_flag = 0;
 	if (ctx->ps.frame_mbs_only_flag == 0) {
 		ctx->ps.mb_adaptive_frame_field_flag = get_u1();
 		printf("<li>mb_adaptive_frame_field_flag: <code>%x</code></li>\n",
@@ -1249,8 +1256,11 @@ static const uint8_t *parse_seq_parameter_set(Edge264_stream *e, int nal_ref_idc
 	}
 	if (get_u1())
 		parse_vui_parameters();
-	if (get_uv(24) != 0x800000 || seq_parameter_set_id > 0 || ctx->ps.chroma_format_idc != ctx->ps.ChromaArrayType) {
+	if (get_uv(24) != 0x800000) {
 		e->error = -1;
+		return NULL;
+	} else if (seq_parameter_set_id > 0 || ctx->ps.chroma_format_idc != ctx->ps.ChromaArrayType) {
+		e->error = 1;
 		return NULL;
 	}
 	
@@ -1267,7 +1277,7 @@ static const uint8_t *parse_seq_parameter_set(Edge264_stream *e, int nal_ref_idc
 		int height_Y = ctx->ps.height;
 		int height_C = ctx->ps.chroma_format_idc < 2 ? height_Y >> 1 : height_Y;
 		int PicWidthInMbs = width_Y >> 4;
-		int PicHeightInMbs = height_Y >> 8;
+		int PicHeightInMbs = height_Y >> 4;
 		
 		// An offset might be added if cache alignment has a significant impact on some videos.
 		e->stride_Y = ctx->ps.BitDepth_Y == 8 ? width_Y : width_Y * 2;
@@ -1282,12 +1292,11 @@ static const uint8_t *parse_seq_parameter_set(Edge264_stream *e, int nal_ref_idc
 		
 		// initialise the unavailable macroblocks
 		for (int i = 0; i <= ctx->ps.max_num_ref_frames; i++) {
-			uint8_t *p = e->DPB;
+			Edge264_macroblock *m = (Edge264_macroblock *)(e->DPB + i * e->frame_size + e->plane_Y + e->plane_C * 2);
 			for (int j = 0; j <= PicWidthInMbs; j++)
-				((Edge264_macroblock *)p)[j] = unavail_mb;
+				m[j] = unavail_mb;
 			for (int j = 1; j <= PicHeightInMbs; j++)
-				((Edge264_macroblock *)p)[j * (PicWidthInMbs + 1)] = unavail_mb;
-			p += e->frame_size;
+				m[j * (PicWidthInMbs + 1)] = unavail_mb;
 		}
 	}
 	e->SPS = ctx->ps;
@@ -1314,7 +1323,7 @@ const uint8_t *Edge264_decode_NAL(Edge264_stream *e, const uint8_t *CPB, size_t 
 		[7] = "Sequence parameter set",
 		[8] = "Picture parameter set",
 		[9] = "Access unit delimiter",
-		[10] = "End of sequence", // reserved for future use
+		[10] = "End of sequence", // may be used in the future
 		[11] = "End of stream",
 		[12] = "Filler data",
 		[13] = "Sequence parameter set extension",
@@ -1358,10 +1367,12 @@ const uint8_t *Edge264_decode_NAL(Edge264_stream *e, const uint8_t *CPB, size_t 
 	refill(SIZE_BIT * 2 - 16, 0);
 	
 	// branching on nal_unit_type
-	if (parse_nal_unit[nal_unit_type] != NULL) {
+	if (parse_nal_unit[nal_unit_type] != NULL && (e->error == 0 || nal_unit_type == 11)) {
 		const uint8_t *ret = parse_nal_unit[nal_unit_type](e, nal_ref_idc, nal_unit_type);
 		CPB = (CPB > ret) ? CPB : ret;
-		if (e->error != 0)
+		if (e->error > 0)
+			printf("<li style=\"color: red\">Unsupported stream</li>\n");
+		if (e->error < 0)
 			printf("<li style=\"color: red\">Erroneous NAL unit</li>\n");
 	}
 	printf("</ul>\n");

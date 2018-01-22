@@ -1,9 +1,30 @@
+/**
+ * Read Exp-Golomb codes and bit sequences.
+ *
+ * These critical functions are designed to contain minimal numbers of branches
+ * and memory writes. Several approaches were considered:
+ * _ Removing all emulation_prevention_three_bytes beforehand to an intermediate
+ *   buffer, then making 1~3 aligned reads depending on expected code size.
+ *   The first part incurs some complexity for the buffer management, but then
+ *   the second part is simple and branchless.
+ * _ The same as above but with unaligned reads, to make 1 read for small codes
+ *   (which are the most frequent). This part is frustrating, because it adds
+ *   complexity while still being useful.
+ * _ Removing emulation_prevention_three_bytes on the fly to a size_t[2] buffer,
+ *   and putting the refill code in a tail call. This approach incurs a branch
+ *   in the refill function, but has been the simplest to maintain so far.
+ * _ The same as above but with a single size_t buffer. This approach prevented
+ *   refilling in a tail call, and generally needed more code.
+ * _ Putting shift in a Global Register Variable, since it is often written to.
+ *   However, it is hardly used in CABAC parsing, so would have to share a GRV
+ *   with codIRange/codIOffset, yielding ugly code for little benefit.
+ */
 #include "edge264_common.h"
 
 
-
 #ifdef __SSSE3__
-size_t refill(int shift, size_t ret) {
+size_t refill(int shift, size_t ret)
+{
 	typedef size_t v16u __attribute__((vector_size(16)));
 	static const v16qi shuf[8] = {
 		{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 15},
@@ -58,29 +79,25 @@ size_t refill(int shift, size_t ret) {
 
 
 
-/**
- * Read Exp-Golomb codes and bit sequences.
- *
- * upper and lower are the bounds allowed by the spec, which get_ue and get_se
- * use both as hints to choose the fastest input routine, and as clipping
- * parameters such that values are always bounded no matter the input stream.
- * To keep your code branchless, upper and lower shall always be constants.
- * Use min/max with get_ueN/map_se to apply variable bounds.
- */
 __attribute__((noinline)) size_t get_u1() {
 	return refill(ctx->shift + 1, ctx->RBSP[0] << ctx->shift >> (SIZE_BIT - 1));
 }
+
 __attribute__((noinline)) size_t get_uv(unsigned v) {
 	size_t bits = lsd(ctx->RBSP[0], ctx->RBSP[1], ctx->shift);
 	return refill(ctx->shift + v, bits >> (SIZE_BIT - v));
 }
-__attribute__((noinline)) size_t get_ue16() { // Parses Exp-Golomb codes up to 2^16-2
+
+// Parses Exp-Golomb codes up to 2^16-2
+__attribute__((noinline)) size_t get_ue16() {
 	size_t bits = lsd(ctx->RBSP[0], ctx->RBSP[1], ctx->shift);
 	unsigned v = clz(bits | (size_t)1 << (SIZE_BIT / 2)) * 2 + 1;
 	return refill(ctx->shift + v, (bits >> (SIZE_BIT - v)) - 1);
 }
+
+// Parses Exp-Golomb codes up to 2^32-2
 #if SIZE_BIT == 32
-__attribute__((noinline)) size_t get_ue32() { // Parses Exp-Golomb codes up to 2^32-2
+__attribute__((noinline)) size_t get_ue32() {
 	size_t bits = lsd(ctx->RBSP[0], ctx->RBSP[1], ctx->shift);
 	unsigned leadingZeroBits = clz(bits | 1);
 	refill(ctx->shift + leadingZeroBits, 0);

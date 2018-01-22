@@ -7,6 +7,7 @@
 // TODO: Store BitDepth vector bounds rather than itself?
 // TODO: Reverse order of scan, because it is confusing
 // TODO: Use transformBypass when coded_block_flag == 0
+// FIXME: A4x4 is still wrong for chroma cbf, but would be incompatible with absMvdComp
 
 #include "edge264_common.h"
 
@@ -859,18 +860,19 @@ static __attribute__((noinline)) int parse_residual_block(unsigned coded_block_f
 {
 	// Sharing this test here should limit branch predictor cache pressure.
 	if (!coded_block_flag)
-		return decode_samples();
+		return 0; // decode_samples();
 		
 	// Storage of significant_coeff_flags is reversed compared to the spec.
 	uint64_t significant_coeff_flags = 0;
+	int i = endIdx;
 	do {
-		if (get_ae(ctx->ctxIdxOffsets[1] + ctx->sig_inc[endIdx])) {
-			significant_coeff_flags |= 1ULL << endIdx;
-			if (get_ae(ctx->ctxIdxOffsets[2] + ctx->last_inc[endIdx]))
+		if (get_ae(ctx->ctxIdxOffsets[1] + ctx->sig_inc[i])) {
+			significant_coeff_flags |= 1ULL << i;
+			if (get_ae(ctx->ctxIdxOffsets[2] + ctx->last_inc[i]))
 				break;
 		}
-	} while (--endIdx > 0);
-	significant_coeff_flags |= 1ULL << endIdx;
+	} while (--i > 0);
+	significant_coeff_flags |= 1ULL << i;
 
 	// Now loop on set bits to parse all non-zero coefficients.
 	int ctxIdx0 = ctx->ctxIdxOffsets[3] + 1;
@@ -910,7 +912,7 @@ static __attribute__((noinline)) int parse_residual_block(unsigned coded_block_f
 			coeff_level = 14 + (1 << k) + (quo << shift >> (31 - k));
 		}
 		int scan = ctx->scan[ctz64(significant_coeff_flags)];
-		coeff_level = (coeff_level * ctx->LevelScale[scan] + 32) >> 6;
+		int d = (coeff_level * ctx->LevelScale[scan] + 32) >> 6;
 		
 		// not the brightest part of spec (9.3.3.1.3), I did my best
 		static const int8_t trans[5] = {0, 2, 3, 4, 4};
@@ -921,27 +923,14 @@ static __attribute__((noinline)) int parse_residual_block(unsigned coded_block_f
 	
 		// parse coeff_sign_flag
 		codIRange >>= 1;
-		coeff_level = (codIOffset >= codIRange) ? -coeff_level : coeff_level;
+		d = (codIOffset >= codIRange) ? -d : d;
 		codIOffset = (codIOffset >= codIRange) ? codIOffset - codIRange : codIOffset;
-		ctx->d[scan] = coeff_level;
+		ctx->d[scan] = d;
 	
 		// Though not very efficient, this gets optimised out easily :)
-		fprintf(stderr, (ctx->ctxIdxOffsets[0] == 93) ? "Luma4x4: %d\n" :
-			(ctx->ctxIdxOffsets[0] == 468) ? "Cb4x4: %d\n" :
-			(ctx->ctxIdxOffsets[0] == 480) ? "Cr4x4: %d\n" :
-			(ctx->ctxIdxOffsets[0] == 1012) ? "Luma8x8: %d\n" :
-			(ctx->ctxIdxOffsets[0] == 1016) ? "Cb8x8: %d\n" :
-			(ctx->ctxIdxOffsets[0] == 1020) ? "Cr8x8: %d\n" :
-			(ctx->ctxIdxOffsets[0] == 85) ? "Luma16x16: %d\n" :
-			(ctx->ctxIdxOffsets[0] == 460) ? "Cb16x16: %d\n" :
-			(ctx->ctxIdxOffsets[0] == 472) ? "Cr16x16: %d\n" :
-			(ctx->ctxIdxOffsets[0] == 89) ? "Luma4x4: %d\n" :
-			(ctx->ctxIdxOffsets[0] == 464) ? "Cb4x4: %d\n" :
-			(ctx->ctxIdxOffsets[0] == 476) ? "Cr4x4: %d\n" :
-			(ctx->ctxIdxOffsets[0] == 97) ? "ChromaDC: %d\n" :
-			"ChromaAC: %d\n", ctx->d[scan]);
+		fprintf(stderr, "coeffLevel[%d]: %d\n", endIdx - ctz64(significant_coeff_flags), d < 0 ? -coeff_level : coeff_level);
 	} while ((significant_coeff_flags &= significant_coeff_flags - 1) != 0);
-	return decode_samples();
+	return 0;
 }
 
 
@@ -1035,8 +1024,8 @@ static __attribute__((noinline)) void parse_mb_qp_delta(unsigned cond) {
 	int QP_Cb = ctx->ps.QP_Y + ctx->ps.chroma_qp_index_offset;
 	int QP_Cr = ctx->ps.QP_Y + ctx->ps.second_chroma_qp_index_offset;
 	mb->QP[0] = ctx->ps.QP_Y;
-	mb->QP[1] = QP_C[clip3(-QpBdOffset_C, 51, QP_Cb)];
-	mb->QP[2] = QP_C[clip3(-QpBdOffset_C, 51, QP_Cr)];
+	mb->QP[1] = QP_C[36 + clip3(-QpBdOffset_C, 51, QP_Cb)];
+	mb->QP[2] = QP_C[36 + clip3(-QpBdOffset_C, 51, QP_Cr)];
 	fprintf(stderr, "mb_qp_delta: %d\n", mb_qp_delta);
 }
 
@@ -1118,7 +1107,7 @@ static __attribute__((noinline)) int parse_chroma_residual()
 	
 	// Both DC blocks will be stored in ctx->d[16..31]
 	ctx->LevelScale_v[4] = ctx->LevelScale_v[5] = ctx->LevelScale_v[6] =
-		ctx->LevelScale_v[7] = (v4su){1, 1, 1, 1};
+		ctx->LevelScale_v[7] = (v4su){64, 64, 64, 64};
 	ctx->d_v[4] = ctx->d_v[5] = ctx->d_v[6] = ctx->d_v[7] = (v4si){};
 	ctx->ctxIdxOffsets_l = ctxIdxOffsets_chromaDC[mb->f.mb_field_decoding_flag];
 	ctx->sig_inc_l = ctx->last_inc_l = sig_inc_chromaDC[is422];
@@ -1152,6 +1141,7 @@ static __attribute__((noinline)) int parse_chroma_residual()
 	ctx->scan_v[0] = scan_4x4[mb->f.mb_field_decoding_flag];
 	ctx->ctxIdxOffsets_l = ctxIdxOffsets_chromaAC[mb->f.mb_field_decoding_flag];
 	for (ctx->BlkIdx = 16; ctx->BlkIdx < 24 + is422 * 8; ctx->BlkIdx++) {
+		fprintf(stderr, "BlkIdx=%d, ", ctx->BlkIdx);
 		ctx->d_v[0] = ctx->d_v[1] = ctx->d_v[2] = ctx->d_v[3] = (v4si){};
 		if (ctx->BlkIdx == 20 + is422 * 4)
 			compute_LevelScale4x4(2);
@@ -1188,7 +1178,7 @@ static __attribute__((noinline)) int parse_Intra16x16_residual()
 		// One 4x4 DC block
 		ctx->BlkIdx = iYCbCr << 4;
 		ctx->LevelScale_v[0] = ctx->LevelScale_v[1] = ctx->LevelScale_v[2] =
-			ctx->LevelScale_v[3] = (v4su){1, 1, 1, 1};
+			ctx->LevelScale_v[3] = (v4su){64, 64, 64, 64};
 		ctx->d_v[0] = ctx->d_v[1] = ctx->d_v[2] = ctx->d_v[3] = (v4si){};
 		ctx->ctxIdxOffsets_l = ctxIdxOffsets_16x16DC[iYCbCr][mb_field_decoding_flag];
 		mb->f.coded_block_flags_16x16[iYCbCr] = get_ae(ctx->ctxIdxOffsets[0] +
@@ -1605,7 +1595,17 @@ static __attribute__((noinline)) int parse_intra_mb(int ctxIdx)
 			(v16qi){1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1};
 		ctx->mb_qp_delta_non_zero = 0;
 		
-		refill((ctx->shift - (SIZE_BIT - 9 - clz(codIRange)) + 7) & -8, 0);
+		// reclaim all but two bits from codIOffset, and skip pcm_alignment_zero_bit
+		ctx->shift = (ctx->shift - (SIZE_BIT - clz(codIRange) - 2) + 7) & -8;
+		while (ctx->shift < 0) {
+			ctx->shift += 8;
+			ctx->RBSP[1] = lsd(ctx->RBSP[0], ctx->RBSP[1], SIZE_BIT - 8);
+			ctx->RBSP[0] = lsd(codIOffset, ctx->RBSP[0], SIZE_BIT - 8);
+			int32_t i;
+			memcpy(&i, ctx->CPB - 4, 4);
+			ctx->CPB -= 1 + ((big_endian32(i) >> 8) == 3);
+		}
+		
 		for (int i = 0; i < 256; i++)
 			get_uv(ctx->ps.BitDepth_Y);
 		for (int i = 0; i < (1 << ctx->ps.ChromaArrayType >> 1) * 128; i++)
@@ -1738,6 +1738,7 @@ static __attribute__((noinline)) int PAFF_parse_slice_data()
 		{ 7, 14,  9,  4, 14, 10,  0,  4,  9,  0,  9,  4,  0,  4,  0,  4},
 	};
 	
+	ctx->mb_qp_delta_non_zero = 0;
 	do {
 		fprintf(stderr, "\n********** %u **********\n", ctx->ps.width * ctx->y / 256 + ctx->x / 16);
 		Edge264_macroblock *mbB = mb - (ctx->ps.width >> 4) - 1;
@@ -1756,7 +1757,7 @@ static __attribute__((noinline)) int PAFF_parse_slice_data()
 			ctx->unavail[0] |= 8;
 		
 		// P/B slices have some more initialisation.
-		if (ctx->slice_type > 1) {
+		if (ctx->slice_type == 2) {
 			parse_intra_mb(5 - ctx->inc.mb_type_I_NxN);
 		} else {
 			mb->f.mb_skip_flag = get_ae(13 + 13 * ctx->slice_type - ctx->inc.mb_skip_flag);
@@ -1764,7 +1765,7 @@ static __attribute__((noinline)) int PAFF_parse_slice_data()
 			parse_inter_mb();
 		}
 		
-		// Point to the next macroblock
+		// point to the next macroblock
 		mb++;
 		ctx->planes[0] += ctx->plane_offsets[1] * 4;
 		ctx->planes[1] += ctx->plane_offsets[17] * 4;
@@ -1782,6 +1783,17 @@ static __attribute__((noinline)) int PAFF_parse_slice_data()
 				break;
 		}
 	} while (!get_ae(276));
+	
+	// reclaim all but one bit of codIOffset to get back to rbsp_trailing_bits
+	ctx->shift -= (SIZE_BIT - clz(codIRange) - 1);
+	while (ctx->shift < 0) {
+		ctx->shift += 8;
+		ctx->RBSP[1] = lsd(ctx->RBSP[0], ctx->RBSP[1], SIZE_BIT - 8);
+		ctx->RBSP[0] = lsd(codIOffset, ctx->RBSP[0], SIZE_BIT - 8);
+		int32_t i;
+		memcpy(&i, ctx->CPB - 4, 4);
+		ctx->CPB -= 1 + ((big_endian32(i) >> 8) == 3);
+	}
 	return 0;
 }
 

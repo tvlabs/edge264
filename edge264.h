@@ -87,7 +87,7 @@ typedef struct Edge264_stream {
 	uint8_t *DPB;
 	int (*output_frame)(struct Edge264_stream*, int);
 	void *user;
-	int8_t error;
+	int8_t error; // -1=decoding error, 1=unsupported stream
 	uint16_t output_flags;
 	int16_t stride_Y;
 	int16_t stride_C;

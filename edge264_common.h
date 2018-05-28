@@ -166,6 +166,8 @@ typedef struct
 	union { int16_t A8x8[12]; v4hi A8x8_v[3]; };
 	union { int32_t B8x8[12]; v4si B8x8_v[3]; };
 	union { int32_t C8x8[8]; v4si C8x8_v[2]; };
+	union { int16_t cbf_chromaA[16]; v8hi cbf_chromaA_v[2]; };
+	union { int32_t cbf_chromaB[16]; v4si cbf_chromaB_v[4]; };
 	union { int16_t mvA[32]; v8hi mvA_v[4]; };
 	union { int32_t mvB[32]; v4si mvB_v[8]; };
 	union { int32_t mvC[32]; v4si mvC_v[8]; };

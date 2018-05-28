@@ -1150,8 +1150,8 @@ static __attribute__((noinline)) int parse_chroma_residual()
 		int coded_block_flag = 0;
 		if (mb->f.CodedBlockPatternChromaAC) {
 			coded_block_flag = get_ae(ctx->ctxIdxOffsets[0] +
-				mb->coded_block_flags_4x4[ctx->A4x4[ctx->BlkIdx]] +
-				mb->coded_block_flags_4x4[ctx->B4x4[ctx->BlkIdx]] * 2);
+				mb->coded_block_flags_4x4[ctx->cbf_chromaA[ctx->BlkIdx - 16]] +
+				mb->coded_block_flags_4x4[ctx->cbf_chromaB[ctx->BlkIdx - 16]] * 2);
 		}
 		mb->coded_block_flags_4x4[ctx->BlkIdx] = coded_block_flag;
 		parse_residual_block(coded_block_flag, 14);

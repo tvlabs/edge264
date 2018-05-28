@@ -7,7 +7,7 @@ This is an experimental software decoder for the H.264 video codec, written from
 Supported features
 ------------------
 
-* Any resolution WxH with 1 ≤ (W,H) ≤ 16880 and 1 ≤ WxH ≤ 2228224
+* Any resolution WxH with 1 ≤ (W,H) ≤ 16880 and 1 ≤ WxH ≤ 2228224 (level 6.2)
 * 4:0:0, 4:2:0, 4:2:2 and 4:4:4
 * 8-14 bit-depth (with possibility of different luma/chroma depths)
 * CABAC only (but very optimised!)
@@ -40,9 +40,9 @@ edge264 is built and tested with gcc/clang, is thread-safe, supports 32/64 bit a
 
 The test program takes a raw Annex-B bitstream and prints out the parsing data:
 ```
-ffmpeg -i video.mp4 -vcodec copy -bsf h264_mp4toannexb -an video.264 (optional, converts from MP4 format)
-make
-./edge264_test <video.264 >headers.html 2>dump.txt
+$ ffmpeg -i video.mp4 -vcodec copy -bsf h264_mp4toannexb -an video.264 (optional, converts from MP4 format)
+$ make CC=gcc-7 TRACE=1
+$ ./edge264_play <video.264 >headers.html
 ```
 
 Improvements found so far:

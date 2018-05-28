@@ -11,7 +11,7 @@
 // TODO: Detect rbsp_slice_trailing_bits
 // TODO: Drop the support of differing BitDepths if no Conformance streams test it
 // TODO: Test removing Edge264_context from register when decoder works
-// TODO: Consider removing Edge264_snapshot for simplicity
+// TODO: Consider removing Edge264_snapshot for simplicity after finishing Inter
 
 #include "edge264_common.h"
 #include "edge264_golomb.c"
@@ -411,6 +411,16 @@ static void initialise_decoding_context(Edge264_stream *e)
 	ctx->B8x8_v[0] = (v4si){2 - offsetB, 3 - offsetB, 0, 1};
 	ctx->B8x8_v[1] = ctx->B8x8_v[0] + s4;
 	ctx->B8x8_v[2] = ctx->B8x8_v[1] + s4;
+	
+	v8hi h8 = {8, 8, 8, 8, 8, 8, 8, 8};
+	ctx->cbf_chromaA_v[0] = (v8hi){17 - offsetA, 16, 19 - offsetA, 18, 21 - offsetA, 20, 23 - offsetA, 22};
+	ctx->cbf_chromaA_v[1] = ctx->cbf_chromaA_v[0] + h8;
+	
+	int is422 = ctx->ps.ChromaArrayType - 1;
+	ctx->cbf_chromaB_v[0] = (v4si){18 - offsetB, 19 - offsetB, 16, 17};
+	ctx->cbf_chromaB_v[1] = (v4si){is422 ? 18 : 22 - offsetB, is422 ? 19 : 23 - offsetB, 20, 21};
+	ctx->cbf_chromaB_v[2] = (v4si){26 - offsetB, 27 - offsetB, 24, 25};
+	ctx->cbf_chromaB_v[3] = (v4si){26, 27, 28, 29};
 	
 	int pixel_Y = ctx->ps.BitDepth_Y > 8;
 	int pixel_C = ctx->ps.BitDepth_C > 8;

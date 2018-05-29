@@ -25,7 +25,9 @@ int main() {
 		"<body>\n");
 #endif
 	Edge264_stream e = {.output_frame = print_frame};
-	for (const uint8_t *r = start + 4; r < end && e.now.reference_flags == 0; ) {
+	int count = 0;
+	for (const uint8_t *r = start + 4; r < end; ) {
+		count += (*r & 0x1F) <= 5;
 		r = Edge264_decode_NAL(&e, r, end - r);
 	}
 #ifdef TRACE

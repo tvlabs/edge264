@@ -619,7 +619,10 @@ static const uint8_t *parse_slice_layer_without_partitioning(Edge264_stream *e,
 		}
 		CABAC_parse_slice_data(cabac_init_idc);
 	}
-	if (get_uv(24) != 0x800000)
+	
+	// I've got some occurences of missing rbsp_stop_one_bit in conformance streams
+	ctx->shift++;
+	if (get_uv(23) != 0)
 		e->error = -1;
 	
 	// wait until after decoding is complete to apply context changes

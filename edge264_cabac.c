@@ -1141,7 +1141,7 @@ static __attribute__((noinline)) int parse_chroma_residual()
 	ctx->scan_v[0] = scan_4x4[mb->f.mb_field_decoding_flag];
 	ctx->ctxIdxOffsets_l = ctxIdxOffsets_chromaAC[mb->f.mb_field_decoding_flag];
 	for (ctx->BlkIdx = 16; ctx->BlkIdx < 24 + is422 * 8; ctx->BlkIdx++) {
-		fprintf(stderr, "BlkIdx=%d, ", ctx->BlkIdx);
+		//fprintf(stderr, "BlkIdx=%d, ", ctx->BlkIdx);
 		ctx->d_v[0] = ctx->d_v[1] = ctx->d_v[2] = ctx->d_v[3] = (v4si){};
 		if (ctx->BlkIdx == 20 + is422 * 4)
 			compute_LevelScale4x4(2);
@@ -1596,11 +1596,13 @@ static __attribute__((noinline)) int parse_intra_mb(int ctxIdx)
 		ctx->mb_qp_delta_non_zero = 0;
 		
 		// reclaim all but two bits from codIOffset, and skip pcm_alignment_zero_bit
+		codIOffset >>= ctx->shift;
 		ctx->shift = (ctx->shift - (SIZE_BIT - clz(codIRange) - 2) + 7) & -8;
 		while (ctx->shift < 0) {
 			ctx->shift += 8;
 			ctx->RBSP[1] = lsd(ctx->RBSP[0], ctx->RBSP[1], SIZE_BIT - 8);
 			ctx->RBSP[0] = lsd(codIOffset, ctx->RBSP[0], SIZE_BIT - 8);
+			codIOffset >>= 8;
 			int32_t i;
 			memcpy(&i, ctx->CPB - 4, 4);
 			ctx->CPB -= 1 + ((big_endian32(i) >> 8) == 3);
@@ -1739,7 +1741,7 @@ static __attribute__((noinline)) int PAFF_parse_slice_data()
 	};
 	
 	ctx->mb_qp_delta_non_zero = 0;
-	do {
+	while (1) {
 		fprintf(stderr, "\n********** %u **********\n", ctx->ps.width * ctx->y / 256 + ctx->x / 16);
 		Edge264_macroblock *mbB = mb - (ctx->ps.width >> 4) - 1;
 		v16qi flagsA = mb[-1].f.v;
@@ -1765,31 +1767,38 @@ static __attribute__((noinline)) int PAFF_parse_slice_data()
 			parse_inter_mb();
 		}
 		
+		// break on end_of_slice_flag
+		int end_of_slice_flag = get_ae(276);
+		fprintf(stderr, "end_of_slice_flag: %x\n", end_of_slice_flag);
+		if (end_of_slice_flag)
+			break;
+		
 		// point to the next macroblock
 		mb++;
 		ctx->planes[0] += ctx->plane_offsets[1] * 4;
 		ctx->planes[1] += ctx->plane_offsets[17] * 4;
 		ctx->planes[2] += ctx->plane_offsets[17] * 4;
-		ctx->x += 16;
+		if ((ctx->x += 16) < ctx->ps.width)
+			continue;
 		
-		// Have we reached the end of a line?
-		if (ctx->x == ctx->ps.width) {
-			mb++;
-			ctx->planes[0] += ctx->plane_offsets[2] * 4;
-			ctx->planes[1] += ctx->plane_offsets[18] * 4;
-			ctx->planes[2] += ctx->plane_offsets[18] * 4;
-			ctx->x = 0;
-			if ((ctx->y += 16) >= (ctx->field_pic_flag ? ctx->ps.height >> 2 : ctx->ps.height))
-				break;
-		}
-	} while (!get_ae(276));
+		// reaching the end of a line
+		mb++;
+		ctx->planes[0] += ctx->plane_offsets[2] * 4;
+		ctx->planes[1] += ctx->plane_offsets[18] * 4;
+		ctx->planes[2] += ctx->plane_offsets[18] * 4;
+		ctx->x = 0;
+		if ((ctx->y += 16) >= (ctx->field_pic_flag ? ctx->ps.height >> 2 : ctx->ps.height))
+			break;
+	}
 	
 	// reclaim all but one bit of codIOffset to get back to rbsp_trailing_bits
+	codIOffset >>= ctx->shift;
 	ctx->shift -= (SIZE_BIT - clz(codIRange) - 1);
 	while (ctx->shift < 0) {
 		ctx->shift += 8;
 		ctx->RBSP[1] = lsd(ctx->RBSP[0], ctx->RBSP[1], SIZE_BIT - 8);
 		ctx->RBSP[0] = lsd(codIOffset, ctx->RBSP[0], SIZE_BIT - 8);
+		codIOffset >>= 8;
 		int32_t i;
 		memcpy(&i, ctx->CPB - 4, 4);
 		ctx->CPB -= 1 + ((big_endian32(i) >> 8) == 3);

@@ -453,7 +453,7 @@ static __attribute__((noinline)) void bump_pictures(Edge264_stream *e) {
 		}
 		unsigned r = e->reference_flags;
 		e->currPic = __builtin_ctz(~(uint16_t)(r | r >> 16 | e->output_flags));
-		if (num <= ctx->ps.max_num_reorder_frames && e->currPic <= ctx->ps.max_num_ref_frames)
+		if (num <= ctx->ps.max_dec_frame_buffering && e->currPic <= ctx->ps.max_dec_frame_buffering)
 			break;
 		e->output_flags ^= 1 << output;
 		if (e->output_frame != NULL)
@@ -1047,8 +1047,8 @@ static void parse_vui_parameters()
 		int max_bits_per_mb_denom = get_ue(16);
 		int log2_max_mv_length_horizontal = get_ue(16);
 		int log2_max_mv_length_vertical = get_ue(16);
-		ctx->ps.max_num_reorder_frames = min(get_ue16(), ctx->ps.max_num_ref_frames);
-		int max_dec_frame_buffering = get_ue(16);
+		int max_num_reorder_frames = get_ue(16);
+		ctx->ps.max_dec_frame_buffering = max(get_ue(16), ctx->ps.max_num_ref_frames);
 		printf("<li>motion_vectors_over_pic_boundaries_flag: <code>%x</code></li>\n"
 			"<li>max_bytes_per_pic_denom: <code>%u</code></li>\n"
 			"<li>max_bits_per_mb_denom: <code>%u</code></li>\n"
@@ -1061,8 +1061,8 @@ static void parse_vui_parameters()
 			max_bits_per_mb_denom,
 			1 << log2_max_mv_length_horizontal,
 			1 << log2_max_mv_length_vertical,
-			ctx->ps.max_num_reorder_frames,
-			max_dec_frame_buffering);
+			max_num_reorder_frames,
+			ctx->ps.max_dec_frame_buffering);
 	}
 }
 
@@ -1218,8 +1218,9 @@ static const uint8_t *parse_seq_parameter_set(Edge264_stream *e, int nal_ref_idc
 		printf("</ul>\n");
 	}
 	
-	// Updated for level 6.2.
-	ctx->ps.max_num_ref_frames = ctx->ps.max_num_reorder_frames = get_ue(16);
+	// Spec says (E.2.1) max_dec_frame_buffering should default to 16,
+	// I prefer a low-delay value, which weird streams are expected to override
+	ctx->ps.max_num_ref_frames = ctx->ps.max_dec_frame_buffering = get_ue(16);
 	int gaps_in_frame_num_value_allowed_flag = get_u1();
 	unsigned pic_width_in_mbs = get_ue(1054) + 1;
 	int pic_height_in_map_units = get_ue16() + 1;
@@ -1302,10 +1303,10 @@ static const uint8_t *parse_seq_parameter_set(Edge264_stream *e, int nal_ref_idc
 		// Each picture in the DPB is three planes and a group of macroblocks
 		e->frame_size = (e->plane_Y + e->plane_C * 2 + (PicWidthInMbs + 1) *
 			(PicHeightInMbs + 1) * sizeof(Edge264_macroblock) + 15) & -16;
-		e->DPB = malloc(e->frame_size * (ctx->ps.max_num_ref_frames + 1));
+		e->DPB = malloc(e->frame_size * (ctx->ps.max_dec_frame_buffering + 1));
 		
 		// initialise the unavailable macroblocks
-		for (int i = 0; i <= ctx->ps.max_num_ref_frames; i++) {
+		for (int i = 0; i <= ctx->ps.max_dec_frame_buffering; i++) {
 			Edge264_macroblock *m = (Edge264_macroblock *)(e->DPB + i * e->frame_size + e->plane_Y + e->plane_C * 2);
 			for (int j = 0; j <= PicWidthInMbs; j++)
 				m[j] = unavail_mb;

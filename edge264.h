@@ -35,7 +35,7 @@ typedef struct {
 	int8_t chroma_format_idc; // 2 significant bits
 	int8_t BitDepth_Y; // 4 significant bits
 	int8_t BitDepth_C;
-	int8_t max_num_ref_frames; // 5 significant bits
+	int8_t max_dec_frame_buffering; // 5 significant bits
 	int16_t width; // in luma samples, 15 significant bits
 	int16_t height;
 	
@@ -56,8 +56,8 @@ typedef struct {
 	int8_t ChromaArrayType; // 2 significant bits
 	int8_t log2_max_frame_num; // 5 significant bits
 	int8_t log2_max_pic_order_cnt_lsb; // 5 significant bits, pic_order_cnt_type==0
+	int8_t max_num_ref_frames; // 5 significant bits
 	int8_t num_ref_frames_in_pic_order_cnt_cycle; // pic_order_cnt_type==1
-	int8_t max_num_reorder_frames; // 5 significant bits
 	int8_t num_ref_idx_active[2]; // 6 significant bits
 	int8_t QP_Y; // 7 significant bits
 	int8_t chroma_qp_index_offset; // 5 significant bits

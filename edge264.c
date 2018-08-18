@@ -75,7 +75,8 @@ static void parse_ref_pic_list_modification(const Edge264_stream *e)
 	unsigned offset = (ctx->slice_type == 0) ? e->prevFrameNum : ctx->TopFieldOrderCnt;
 	uint16_t top = e->reference_flags, bot = e->reference_flags >> 16;
 	unsigned refs = (ctx->field_pic_flag) ? top | bot : top & bot;
-	int count[3] = {}, next = 0;
+	int count[3] = {}; // number of refs before/after/long
+	int next = 0;
 	
 	// This single loop sorts all short and long term references at once.
 	do {
@@ -84,15 +85,17 @@ static void parse_ref_pic_list_modification(const Edge264_stream *e)
 		do {
 			int i = __builtin_ctz(r);
 			int diff = values[i] - offset;
-			int ShortTermNum = (diff <= 0) ? -diff : 0x8000 + diff;
-			int LongTermFrameNum = e->FrameNum[i] + 0x10000;
+			int ShortTermNum = (diff <= 0) ? -diff : 0x10000 + diff;
+			int LongTermFrameNum = e->FrameNum[i] + 0x20000;
 			int v = (e->long_term_flags & 1 << i) ? LongTermFrameNum : ShortTermNum;
 			if (best > v)
 				best = v, next = i;
 		} while (r &= r - 1);
 		ctx->RefPicList[0][count[0] + count[1] + count[2]] = next;
-		count[best >> 15]++;
+		count[best >> 16]++;
 	} while (refs ^= 1 << next);
+	
+	// Fill RefPicListL1 by swapping before/after references
 	for (int i = 0; i < 16; i++)
 		ctx->RefPicList[1][(i < count[0]) ? i + count[1] : (i < count[0] + count[1]) ? i - count[0] : i] = ctx->RefPicList[0][i];
 	
@@ -441,7 +444,6 @@ static void initialise_decoding_context(Edge264_stream *e)
  * This function outputs pictures until a free DPB slot is found (C.4.4).
  */
 static __attribute__((noinline)) void bump_pictures(Edge264_stream *e) {
-	e->decoded_mbs = 0;
 	while (1) {
 		int best = INT_MAX;
 		int output = 0;
@@ -645,9 +647,17 @@ static const uint8_t *parse_slice_layer_without_partitioning(Edge264_stream *e,
 
 /** Deallocates the picture buffer, then resets e. */
 static const uint8_t *parse_end_of_stream(Edge264_stream *e, int nal_ref_idc, int nal_unit_type) {
-	if (e->DPB != NULL)
+	if (e->DPB != NULL) {
 		free(e->DPB);
-	memset(e, 0, sizeof(*e));
+		e->DPB = NULL;
+		e->error = 0;
+		e->currPic = 0;
+		e->output_flags = 0;
+		e->reference_flags = 0;
+		e->long_term_flags = 0;
+		e->prevFrameNum = 0;
+		e->prevPicOrderCnt = 0;
+	}
 	return NULL;
 }
 
@@ -851,7 +861,7 @@ static const uint8_t *parse_pic_parameter_set(Edge264_stream *e, int nal_ref_idc
 		red_if(redundant_pic_cnt_present_flag), redundant_pic_cnt_present_flag);
 	ctx->ps.transform_8x8_mode_flag = 0;
 	
-	// short for peek-24-bits-without-having-to-define-a-one-use-function
+	// short for peek-24-bits-without-having-to-define-a-single-use-function
 	if (lsd(ctx->RBSP[0], ctx->RBSP[1], ctx->shift) >> (SIZE_BIT - 24) != 0x800000) {
 		ctx->ps.transform_8x8_mode_flag = get_u1();
 		printf("<li>transform_8x8_mode_flag: <code>%x</code></li>\n",
@@ -1048,7 +1058,7 @@ static void parse_vui_parameters()
 		int log2_max_mv_length_horizontal = get_ue(16);
 		int log2_max_mv_length_vertical = get_ue(16);
 		int max_num_reorder_frames = get_ue(16);
-		ctx->ps.max_dec_frame_buffering = max(get_ue(16), ctx->ps.max_num_ref_frames);
+		ctx->ps.max_dec_frame_buffering = max(get_ue(15), ctx->ps.max_num_ref_frames);
 		printf("<li>motion_vectors_over_pic_boundaries_flag: <code>%x</code></li>\n"
 			"<li>max_bytes_per_pic_denom: <code>%u</code></li>\n"
 			"<li>max_bits_per_mb_denom: <code>%u</code></li>\n"
@@ -1132,6 +1142,7 @@ static const uint8_t *parse_seq_parameter_set(Edge264_stream *e, int nal_ref_idc
 	ctx->ps.ChromaArrayType = 1;
 	ctx->ps.BitDepth_Y = 8;
 	ctx->ps.BitDepth_C = 8;
+	ctx->ps.qpprime_y_zero_transform_bypass_flag = 0;
 	int seq_scaling_matrix_present_flag = 0;
 	if (profile_idc != 66 && profile_idc != 77 && profile_idc != 88) {
 		ctx->ps.ChromaArrayType = ctx->ps.chroma_format_idc = get_ue(3);
@@ -1220,7 +1231,7 @@ static const uint8_t *parse_seq_parameter_set(Edge264_stream *e, int nal_ref_idc
 	
 	// Spec says (E.2.1) max_dec_frame_buffering should default to 16,
 	// I prefer a low-delay value, which weird streams are expected to override
-	ctx->ps.max_num_ref_frames = ctx->ps.max_dec_frame_buffering = get_ue(16);
+	ctx->ps.max_num_ref_frames = ctx->ps.max_dec_frame_buffering = get_ue(15);
 	int gaps_in_frame_num_value_allowed_flag = get_u1();
 	unsigned pic_width_in_mbs = get_ue(1054) + 1;
 	int pic_height_in_map_units = get_ue16() + 1;
@@ -1251,6 +1262,10 @@ static const uint8_t *parse_seq_parameter_set(Edge264_stream *e, int nal_ref_idc
 		ctx->ps.direct_8x8_inference_flag);
 	
 	// frame_cropping_flag
+	ctx->ps.frame_crop_left_offset = 0;
+	ctx->ps.frame_crop_right_offset = 0;
+	ctx->ps.frame_crop_top_offset = 0;
+	ctx->ps.frame_crop_bottom_offset = 0;
 	if (get_u1()) {
 		unsigned shiftX = (ctx->ps.ChromaArrayType == 1) | (ctx->ps.ChromaArrayType == 2);
 		unsigned shiftY = (ctx->ps.ChromaArrayType == 1) + (ctx->ps.frame_mbs_only_flag ^ 1);
@@ -1281,10 +1296,7 @@ static const uint8_t *parse_seq_parameter_set(Edge264_stream *e, int nal_ref_idc
 	
 	// reallocate the DPB when the image format changes
 	if (memcmp(&ctx->ps, &e->SPS, 8) != 0) {
-		if (e->DPB != NULL) {
-			free(e->DPB);
-			memset(e, 0, sizeof(*e));
-		}
+		parse_end_of_stream(e, 0, 0);
 		
 		// some basic variables first
 		int width_Y = ctx->ps.width;
@@ -1382,6 +1394,7 @@ const uint8_t *Edge264_decode_NAL(Edge264_stream *e, const uint8_t *CPB, size_t 
 	refill(SIZE_BIT * 2 - 16, 0);
 	
 	// branching on nal_unit_type
+	check_stream(e);
 	if (parse_nal_unit[nal_unit_type] != NULL && (e->error == 0 || nal_unit_type == 11)) {
 		const uint8_t *ret = parse_nal_unit[nal_unit_type](e, nal_ref_idc, nal_unit_type);
 		CPB = (CPB > ret) ? CPB : ret;

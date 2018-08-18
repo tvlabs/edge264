@@ -26,22 +26,28 @@ Planned features
 * Constrained Intra prediction mode
 * 3D support
 * Separate colour planes
-* Slice multi-threading
+* Frame multi-threading
 * MBaff frames
-* Slices (and separate colour planes)
 * Error concealment
 * CAVLC
+
+
+Unsupported features
+--------------------
+* Slices (and separate colour planes)
+* SI/SP slices
+* Redundant pictures
 
 
 Technical details
 -----------------
 
-edge264 is built and tested with gcc/clang, is thread-safe, supports 32/64 bit architectures, and requires 128 bit SIMD support. gcc is highly recommended though (about 2x faster), mostly because clang does not support Global Register Variables.
+edge264 is built and tested with gcc/clang, supports 32/64 bit architectures, and requires 128 bit SIMD support. gcc is highly recommended though (about 2x faster), mostly because clang does not support Global Register Variables.
 
 The test program takes a raw Annex-B bitstream and prints out the parsing data:
 ```
 $ ffmpeg -i video.mp4 -vcodec copy -bsf h264_mp4toannexb -an video.264 (optional, converts from MP4 format)
-$ make CC=gcc-7 TRACE=1
+$ make CC=gcc-8 TRACE=1
 $ ./edge264_play <video.264 >headers.html
 ```
 

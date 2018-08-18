@@ -57,7 +57,7 @@ typedef struct {
 	int8_t log2_max_frame_num; // 5 significant bits
 	int8_t log2_max_pic_order_cnt_lsb; // 5 significant bits, pic_order_cnt_type==0
 	int8_t max_num_ref_frames; // 5 significant bits
-	int8_t num_ref_frames_in_pic_order_cnt_cycle; // pic_order_cnt_type==1
+	uint8_t num_ref_frames_in_pic_order_cnt_cycle; // pic_order_cnt_type==1
 	int8_t num_ref_idx_active[2]; // 6 significant bits
 	int8_t QP_Y; // 7 significant bits
 	int8_t chroma_qp_index_offset; // 5 significant bits
@@ -77,17 +77,15 @@ typedef struct Edge264_stream {
 	int (*output_frame)(struct Edge264_stream*, int);
 	void *user;
 	int8_t error; // -1=decoding error, 1=unsupported stream
-	int8_t currPic; // index of last picture in decoding order
-	int8_t no_output_of_prior_pics_flag; // 1 significant bit
+	int8_t currPic; // index of next available DPB slot
 	int16_t stride_Y;
 	int16_t stride_C;
 	int32_t plane_Y;
 	int32_t plane_C;
 	int32_t frame_size;
 	uint16_t output_flags;
-	uint16_t long_term_flags;
 	uint32_t reference_flags; // lower/higher half for top/bottom fields
-	int32_t decoded_mbs;
+	uint16_t long_term_flags;
 	int32_t prevFrameNum;
 	int32_t prevPicOrderCnt;
 	int32_t FrameNum[16];

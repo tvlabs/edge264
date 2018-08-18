@@ -137,7 +137,7 @@ int main() {
 	// memory-map the whole file
 	struct stat st;
 	fstat(0, &st);
-	const uint8_t *start = mmap(NULL, st.st_size, PROT_READ, MAP_SHARED, 0, 0);
+	uint8_t *start = mmap(NULL, st.st_size, PROT_READ, MAP_SHARED, 0, 0);
 	const uint8_t *end = start + st.st_size;
 	assert(start!=MAP_FAILED);
 	
@@ -159,5 +159,10 @@ int main() {
 	printf("</body>\n"
 		"</html>\n");
 #endif
+	
+	// cleanup everything
+	munmap(start, st.st_size);
+	glfwTerminate();
+	printf("SHIT!\n");
 	return 0;
 }

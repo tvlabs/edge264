@@ -12,47 +12,6 @@
 #include "edge264.h"
 
 
-#ifdef TRACE
-#include <stdio.h>
-static inline const char *red_if(int cond) { return (cond) ? " style=\"color: red\"" : ""; }
-#else
-#define printf(...) ((void)0)
-#endif
-#if TRACE == 2
-#define fprintf(...) fprintf(__VA_ARGS__)
-#else
-#define fprintf(...) ((void)0)
-#endif
-
-
-
-#if __BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__
-#define big_endian32 __builtin_bswap32
-#define big_endian64 __builtin_bswap64
-#elif __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
-#define big_endian32(x) (x)
-#define big_endian64(x) (x)
-#endif
-
-#if SIZE_MAX == 4294967295U
-#define SIZE_BIT 32
-#define big_endian big_endian32
-#define clz clz32
-#elif SIZE_MAX == 18446744073709551615U
-#define SIZE_BIT 64
-#define big_endian big_endian64
-#define clz clz64
-#endif
-
-#if UINT_MAX == 4294967295U && ULLONG_MAX == 18446744073709551615U
-#define clz32 __builtin_clz
-#define ctz32 __builtin_ctz
-#define clz64 __builtin_clzll
-#define ctz64 __builtin_ctzll
-#ifndef WORD_BIT
-#define WORD_BIT 32
-#endif
-#endif
 
 typedef int8_t v8qi __attribute__((vector_size(8)));
 typedef int16_t v4hi __attribute__((vector_size(8)));
@@ -206,6 +165,50 @@ register size_t codIOffset asm("r15");
 #define mb ctx->macroblock
 #define codIRange ctx->range
 #define codIOffset ctx->offset
+#endif
+
+
+
+#ifdef TRACE
+#include <stdio.h>
+#include "edge264_predicates.c"
+static inline const char *red_if(int cond) { return (cond) ? " style='color:red'" : ""; }
+#else
+#define printf(...) ((void)0)
+#define check_stream(e) ((void)0)
+#endif
+#if TRACE == 2
+#define fprintf(...) fprintf(__VA_ARGS__)
+#else
+#define fprintf(...) ((void)0)
+#endif
+
+#if __BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__
+#define big_endian32 __builtin_bswap32
+#define big_endian64 __builtin_bswap64
+#elif __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+#define big_endian32(x) (x)
+#define big_endian64(x) (x)
+#endif
+
+#if SIZE_MAX == 4294967295U
+#define SIZE_BIT 32
+#define big_endian big_endian32
+#define clz clz32
+#elif SIZE_MAX == 18446744073709551615U
+#define SIZE_BIT 64
+#define big_endian big_endian64
+#define clz clz64
+#endif
+
+#if UINT_MAX == 4294967295U && ULLONG_MAX == 18446744073709551615U
+#define clz32 __builtin_clz
+#define ctz32 __builtin_ctz
+#define clz64 __builtin_clzll
+#define ctz64 __builtin_ctzll
+#ifndef WORD_BIT
+#define WORD_BIT 32
+#endif
 #endif
 
 

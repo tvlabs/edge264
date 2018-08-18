@@ -509,6 +509,7 @@ static const uint8_t *parse_slice_layer_without_partitioning(Edge264_stream *e,
 	
 	// This comment is just here to segment the code, glad you read it :)
 	ctx->field_pic_flag = 0;
+	ctx->bottom_field_flag = 0;
 	if (!ctx->ps.frame_mbs_only_flag) {
 		ctx->field_pic_flag = get_u1();
 		printf("<li>field_pic_flag: <code>%x</code></li>\n", ctx->field_pic_flag);
@@ -622,18 +623,20 @@ static const uint8_t *parse_slice_layer_without_partitioning(Edge264_stream *e,
 	
 	// I've got some occurences of missing rbsp_stop_one_bit in conformance streams
 	ctx->shift++;
-	if (get_uv(23) != 0)
+	if (get_uv(23) != 0) {
 		e->error = -1;
+		return NULL;
+	}
 	
 	// wait until after decoding is complete to apply context changes
-	e->now = ctx->s;
 	e->FieldOrderCnt[(ctx->bottom_field_flag) ? ctx->s.currPic + 16 : ctx->s.currPic] = ctx->TopFieldOrderCnt;
 	if (!ctx->field_pic_flag)
 		e->FieldOrderCnt[16 + ctx->s.currPic] = ctx->BottomFieldOrderCnt;
-	if (ctx->s.decoded_mbs >= ctx->ps.width * ctx->ps.height >> 8) {
+	if (ctx->s.decoded_mbs >= (ctx->ps.width * ctx->ps.height) >> 8) {
 		e->output_flags = (ctx->s.no_output_of_prior_pics_flag ? 0 : e->output_flags) | 1 << ctx->s.currPic;
 		bump_pictures(e);
 	}
+	e->now = ctx->s;
 	
 	// CPB pointer might have gone far if 000003000003000003... bytes follow,
 	// so we backtrack to a point that is 100% behind next start code.

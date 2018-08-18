@@ -489,7 +489,7 @@ static inline __m128i _mm_movpi64_epi64(__m64 a) {
 	return b;
 }
 #endif // __GNUC__
-#else
+#else // !__SSSE3__
 #error "Add -mssse3 or more recent"
 #endif
 

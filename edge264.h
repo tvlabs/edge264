@@ -72,30 +72,26 @@ typedef struct {
 	uint8_t weightScale8x8[6][64] __attribute__((aligned(16)));
 } Edge264_parameter_set;
 
-typedef struct {
+typedef struct Edge264_stream {
+	uint8_t *DPB;
+	int (*output_frame)(struct Edge264_stream*, int);
+	void *user;
+	int8_t error; // -1=decoding error, 1=unsupported stream
 	int8_t currPic; // index of last picture in decoding order
 	int8_t no_output_of_prior_pics_flag; // 1 significant bit
+	int16_t stride_Y;
+	int16_t stride_C;
+	int32_t plane_Y;
+	int32_t plane_C;
+	int32_t frame_size;
+	uint16_t output_flags;
 	uint16_t long_term_flags;
 	uint32_t reference_flags; // lower/higher half for top/bottom fields
 	int32_t decoded_mbs;
 	int32_t prevFrameNum;
 	int32_t prevPicOrderCnt;
 	int32_t FrameNum[16];
-} Edge264_snapshot;
-
-typedef struct Edge264_stream {
-	uint8_t *DPB;
-	int (*output_frame)(struct Edge264_stream*, int);
-	void *user;
-	int8_t error; // -1=decoding error, 1=unsupported stream
-	uint16_t output_flags;
-	int16_t stride_Y;
-	int16_t stride_C;
-	int32_t plane_Y;
-	int32_t plane_C;
-	int32_t frame_size;
 	int32_t FieldOrderCnt[32]; // lower/higher half for top/bottom fields
-	Edge264_snapshot now;
 	Edge264_parameter_set SPS;
 	Edge264_parameter_set PPSs[4];
 	int16_t PicOrderCntDeltas[256]; // pic_order_cnt_type==1

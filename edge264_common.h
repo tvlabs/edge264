@@ -152,7 +152,6 @@ typedef struct
 	int32_t TopFieldOrderCnt;
 	int32_t BottomFieldOrderCnt;
 	Edge264_parameter_set ps;
-	Edge264_snapshot s;
 	
 	// context caches
 	uint32_t mvd_flags;

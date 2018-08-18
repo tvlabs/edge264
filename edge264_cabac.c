@@ -860,7 +860,7 @@ static __attribute__((noinline)) int parse_residual_block(unsigned coded_block_f
 {
 	// Sharing this test here should limit branch predictor cache pressure.
 	if (!coded_block_flag)
-		return decode_samples();
+		return 0;//decode_samples();
 		
 	// Storage of significant_coeff_flags is reversed compared to the spec.
 	uint64_t significant_coeff_flags = 0;
@@ -931,7 +931,7 @@ static __attribute__((noinline)) int parse_residual_block(unsigned coded_block_f
 		fprintf(stderr, "coeffLevel[%d]: %d\n", endIdx - ctz64(significant_coeff_flags), d < 0 ? -coeff_level : coeff_level);
 	} while ((significant_coeff_flags &= significant_coeff_flags - 1) != 0);
 	fprintf(stderr, "decoding!\n");
-	return decode_samples();
+	return 0;//decode_samples();
 }
 
 
@@ -1767,7 +1767,6 @@ static __attribute__((noinline)) int PAFF_parse_slice_data()
 			fprintf(stderr, "mb_skip_flag: %x\n", mb->f.mb_skip_flag);
 			parse_inter_mb();
 		}
-		ctx->s.decoded_mbs++;
 		
 		// break on end_of_slice_flag
 		int end_of_slice_flag = get_ae(276);

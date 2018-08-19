@@ -645,10 +645,10 @@ static const uint8_t *parse_slice_layer_without_partitioning(Edge264_stream *e,
 
 /** Deallocates the picture buffer, then resets e. */
 static const uint8_t *parse_end_of_stream(Edge264_stream *e, int nal_ref_idc, int nal_unit_type) {
+	e->error = 0;
 	if (e->DPB != NULL) {
 		free(e->DPB);
 		e->DPB = NULL;
-		e->error = 0;
 		e->currPic = 0;
 		e->output_flags = 0;
 		e->reference_flags = 0;
@@ -1325,7 +1325,8 @@ static const uint8_t *parse_seq_parameter_set(Edge264_stream *e, int nal_ref_idc
 		}
 	}
 	e->SPS = ctx->ps;
-	memcpy(e->PicOrderCntDeltas, PicOrderCntDeltas, (ctx->ps.num_ref_frames_in_pic_order_cnt_cycle + 1) * sizeof(*PicOrderCntDeltas));
+	if (ctx->ps.pic_order_cnt_type == 1)
+		memcpy(e->PicOrderCntDeltas, PicOrderCntDeltas, (ctx->ps.num_ref_frames_in_pic_order_cnt_cycle + 1) * sizeof(*PicOrderCntDeltas));
 	return NULL;
 }
 

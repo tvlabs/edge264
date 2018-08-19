@@ -630,10 +630,8 @@ static const uint8_t *parse_slice_layer_without_partitioning(Edge264_stream *e,
 	
 	// I've got some occurences of missing rbsp_stop_one_bit in conformance streams
 	ctx->shift++;
-	if (get_uv(23) != 0) {
+	if (get_uv(23) != 0)
 		e->error = -1;
-		return NULL;
-	}
 	
 	// wait until after decoding is complete to bump pictures
 	bump_pictures(e);
@@ -1327,7 +1325,7 @@ static const uint8_t *parse_seq_parameter_set(Edge264_stream *e, int nal_ref_idc
 		}
 	}
 	e->SPS = ctx->ps;
-	memcpy(e->PicOrderCntDeltas, PicOrderCntDeltas, (ctx->ps.num_ref_frames_in_pic_order_cnt_cycle + 1) << 2);
+	memcpy(e->PicOrderCntDeltas, PicOrderCntDeltas, (ctx->ps.num_ref_frames_in_pic_order_cnt_cycle + 1) * sizeof(*PicOrderCntDeltas));
 	return NULL;
 }
 

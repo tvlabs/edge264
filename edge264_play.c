@@ -163,6 +163,5 @@ int main() {
 	// cleanup everything
 	munmap(start, st.st_size);
 	glfwTerminate();
-	printf("SHIT!\n");
 	return 0;
 }

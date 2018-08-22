@@ -27,7 +27,7 @@ static int check_macroblock(const uint8_t *p, const uint8_t *q, int MbWidth, int
 	// print a xor dump of the macroblock in case of mismatch
 	for (int base = 0; base < MbHeight * stride; base += stride) {
 		for (int offset = base; offset < base + MbWidth; offset++)
-			printf("%02x", p[offset] ^ q[offset]);
+			printf("%02x ", p[offset] ^ q[offset]);
 		putchar('\n');
 	}
 	return -1;
@@ -44,7 +44,7 @@ static int check_frame(Edge264_stream *e, int idx) {
 	int base = 0;
 	
 	// check the luma plane
-	while (base < e->plane_Y) {
+	while (base < e->plane_size_Y) {
 		for (int offset = base; offset < base + e->stride_Y; offset += MbStrideY) {
 			if (check_macroblock(p + offset, e->user + offset, MbStrideY, 16, e->stride_Y))
 				return -1;
@@ -53,7 +53,7 @@ static int check_frame(Edge264_stream *e, int idx) {
 	}
 	
 	// check the Cb plane
-	while (base < e->plane_Y + e->plane_C) {
+	while (base < e->plane_size_Y + e->plane_size_C) {
 		for (int offset = base; offset < base + e->stride_C; offset += MbStrideC) {
 			if (check_macroblock(p + offset, e->user + offset, MbStrideC, MbHeightC, e->stride_C))
 				return -1;
@@ -62,7 +62,7 @@ static int check_frame(Edge264_stream *e, int idx) {
 	}
 	
 	// check the Cr plane
-	while (base < e->plane_Y + e->plane_C * 2) {
+	while (base < e->plane_size_Y + e->plane_size_C * 2) {
 		for (int offset = base; offset < base + e->stride_C; offset += MbStrideC) {
 			if (check_macroblock(p + offset, e->user + offset, MbStrideC, MbHeightC, e->stride_C))
 				return -1;

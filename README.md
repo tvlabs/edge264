@@ -7,7 +7,7 @@ This is an experimental software decoder for the H.264 video codec, written from
 Supported features
 ------------------
 
-* Any resolution WxH with 1 ≤ (W,H) ≤ 16880 and 1 ≤ WxH ≤ 2228224 (level 6.2)
+* Any resolution from 1x1 up to 8K UHD (level 6.2)
 * 4:0:0, 4:2:0, 4:2:2 and 4:4:4
 * 8-14 bit-depth (with possibility of different luma/chroma depths)
 * CABAC only (but very optimised!)
@@ -24,9 +24,8 @@ Planned features
 * Deblocking
 * Transform-bypass for macroblocks with QP==0
 * Constrained Intra prediction mode
+* Thread-safety and frame-multithreading (to let multithreaded encoders decode/encode each frame on the same thread)
 * 3D support
-* Separate colour planes
-* Frame multi-threading
 * MBaff frames
 * Error concealment
 * CAVLC

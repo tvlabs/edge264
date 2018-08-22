@@ -80,8 +80,8 @@ typedef struct Edge264_stream {
 	int8_t currPic; // index of next available DPB slot
 	int16_t stride_Y;
 	int16_t stride_C;
-	int32_t plane_Y;
-	int32_t plane_C;
+	int32_t plane_size_Y;
+	int32_t plane_size_C;
 	int32_t frame_size;
 	uint16_t output_flags;
 	uint32_t reference_flags; // lower/higher half for top/bottom fields

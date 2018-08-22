@@ -30,16 +30,17 @@ int print_frame(Edge264_stream *e, int i) {
 	glClear(GL_COLOR_BUFFER_BIT);
 	glVertexAttribPointer(0, 4, GL_FLOAT, GL_FALSE, 0, 0);
 	const uint8_t* p = e->DPB + i * e->frame_size;
-	printf("DPB=%p, frame_size=%d\n", e->DPB, e->frame_size);
+	int widthC = e->SPS.chroma_format_idc < 3 ? e->SPS.width >> 1 : e->SPS.width;
+	int heightC = e->SPS.chroma_format_idc < 2 ? e->SPS.height >> 1 : e->SPS.height;
 	glActiveTexture(GL_TEXTURE0);
 	glBindTexture(GL_TEXTURE_2D, textures[0]);
 	glTexImage2D(GL_TEXTURE_2D, 0, GL_LUMINANCE, e->SPS.width, e->SPS.height, 0, GL_LUMINANCE, e->SPS.BitDepth_Y == 8 ? GL_UNSIGNED_BYTE : GL_UNSIGNED_SHORT, p);
 	glActiveTexture(GL_TEXTURE1);
 	glBindTexture(GL_TEXTURE_2D, textures[1]);
-	glTexImage2D(GL_TEXTURE_2D, 0, GL_LUMINANCE, e->SPS.width, e->SPS.height, 0, GL_LUMINANCE, e->SPS.BitDepth_C == 8 ? GL_UNSIGNED_BYTE : GL_UNSIGNED_SHORT, p + e->plane_Y);
+	glTexImage2D(GL_TEXTURE_2D, 0, GL_LUMINANCE, widthC, heightC, 0, GL_LUMINANCE, e->SPS.BitDepth_C == 8 ? GL_UNSIGNED_BYTE : GL_UNSIGNED_SHORT, p + e->plane_size_Y);
 	glActiveTexture(GL_TEXTURE2);
 	glBindTexture(GL_TEXTURE_2D, textures[2]);
-	glTexImage2D(GL_TEXTURE_2D, 0, GL_LUMINANCE, e->SPS.width, e->SPS.height, 0, GL_LUMINANCE, e->SPS.BitDepth_C == 8 ? GL_UNSIGNED_BYTE : GL_UNSIGNED_SHORT, p + e->plane_Y + e->plane_C);
+	glTexImage2D(GL_TEXTURE_2D, 0, GL_LUMINANCE, widthC, heightC, 0, GL_LUMINANCE, e->SPS.BitDepth_C == 8 ? GL_UNSIGNED_BYTE : GL_UNSIGNED_SHORT, p + e->plane_size_Y + e->plane_size_C);
 	glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
 	glfwSwapBuffers(window);
 	

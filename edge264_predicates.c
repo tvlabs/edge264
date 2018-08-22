@@ -3,7 +3,15 @@
  * at key moments in the program.
  */
 
-#define predicate(test) if (!(test)) printf("<li style='color:red'>Predicate failed: " #test "</li>\n");
+static int failed_predicates;
+#define predicate(test) do { \
+	if (!(test)) { \
+		printf("<li style='color:red'>Predicate failed: " #test "</li>\n"); \
+		if (++failed_predicates >= 20) \
+			exit(0); \
+	} \
+} while (0)
+
 
 static void check_parameter_set(const Edge264_parameter_set *ps) {
 	predicate(ps->chroma_format_idc >= 0 && ps->chroma_format_idc <= 3);
@@ -32,6 +40,7 @@ static void check_parameter_set(const Edge264_parameter_set *ps) {
 	}
 }
 
+
 static void check_stream(const Edge264_stream *e) {
 	if (e->DPB == NULL) {
 		predicate(e->error == 0 && e->currPic == 0 && e->output_flags == 0 && e->reference_flags == 0 && e->long_term_flags == 0 && e->prevFrameNum == 0 && e->prevPicOrderCnt == 0);
@@ -43,9 +52,9 @@ static void check_stream(const Edge264_stream *e) {
 	predicate(!(e->reference_flags & 0x10001 << e->currPic));
 	predicate(e->stride_Y == (e->SPS.BitDepth_Y == 8 ? e->SPS.width : e->SPS.width << 1));
 	predicate(e->stride_C == (e->SPS.chroma_format_idc == 0 ? 0 : e->SPS.chroma_format_idc < 3 ? e->SPS.width >> 1 : e->SPS.width) << (e->SPS.BitDepth_C > 8));
-	predicate(e->plane_Y == e->stride_Y * e->SPS.height);
-	predicate(e->plane_C == e->stride_C * (e->SPS.chroma_format_idc >= 2 ? e->SPS.height : e->SPS.height >> 1));
-	predicate(e->frame_size == e->plane_Y + e->plane_C * 2 + (e->SPS.width + 16) * (e->SPS.height + 16) / 256 * sizeof(Edge264_macroblock));
+	predicate(e->plane_size_Y == e->stride_Y * e->SPS.height);
+	predicate(e->plane_size_C == e->stride_C * (e->SPS.chroma_format_idc >= 2 ? e->SPS.height : e->SPS.height >> 1));
+	predicate(e->frame_size == e->plane_size_Y + e->plane_size_C * 2 + (e->SPS.width + 16) * (e->SPS.height + 16) / 256 * sizeof(Edge264_macroblock));
 	unsigned refs = (e->reference_flags & 0xffff) | e->reference_flags >> 16;
 	predicate(__builtin_popcount(refs) <= e->SPS.max_num_ref_frames);
 	predicate(__builtin_popcount(e->output_flags | refs) <= e->SPS.max_dec_frame_buffering);
@@ -56,3 +65,80 @@ static void check_stream(const Edge264_stream *e) {
 			check_parameter_set(&e->PPSs[i]);
 	}
 }
+
+
+
+enum {
+	LOOP_START_LABEL,
+	RESIDUAL_DC_LABEL,
+	RESIDUAL_4x4_LABEL,
+	RESIDUAL_8x8_LABEL,
+	RESIDUAL_CB_DC_LABEL,
+	RESIDUAL_CR_DC_LABEL,
+	RESIDUAL_CHROMA_LABEL,
+};
+
+static void check_ctx(int label) {
+	const Edge264_stream *e = ctx->e;
+	Edge264_macroblock *mbB = mb - (ctx->ps.width >> 4) - 1;
+	
+	predicate(ctx->CPB <= ctx->end);
+	predicate(codIRange >= 256 && codIRange > codIOffset);
+	predicate(ctx->shift >= 0 && ctx->shift < SIZE_BIT);
+	switch (label) {
+	case RESIDUAL_DC_LABEL: predicate(ctx->BlkIdx == 0 || (ctx->ps.ChromaArrayType == 3 && (ctx->BlkIdx == 16 || ctx->BlkIdx == 32))); break;
+	case RESIDUAL_8x8_LABEL: predicate((ctx->BlkIdx & 3) == 0); // FALLTHROUGH
+	case RESIDUAL_4x4_LABEL: predicate(ctx->BlkIdx >= 0 && ctx->BlkIdx < (ctx->ps.ChromaArrayType < 3 ? 16 : 48)); break;
+	case RESIDUAL_CB_DC_LABEL: predicate(ctx->BlkIdx == 16); break;
+	case RESIDUAL_CR_DC_LABEL: predicate(ctx->BlkIdx == (ctx->ps.ChromaArrayType == 1 ? 20 : 24)); break;
+	case RESIDUAL_CHROMA_LABEL: predicate(ctx->BlkIdx >= 16 && ctx->BlkIdx < (ctx->ps.ChromaArrayType == 1 ? 24 : 32)); break;
+	}
+	if (label >= RESIDUAL_DC_LABEL && label < RESIDUAL_CB_DC_LABEL && ctx->BlkIdx < 16)
+		predicate(ctx->stride == (ctx->ps.BitDepth_Y == 8 ? ctx->ps.width : ctx->ps.width << 1));
+	else if (label >= RESIDUAL_DC_LABEL)
+		predicate(ctx->stride == (ctx->ps.ChromaArrayType == 0 ? 0 : ctx->ps.ChromaArrayType < 3 ? ctx->ps.width >> 1 : ctx->ps.width) << (ctx->ps.BitDepth_C > 8));
+	predicate(ctx->x >= 0 && ctx->x < ctx->ps.width && (ctx->x & 15) == 0);
+	predicate(ctx->y >= 0 && ctx->y < ctx->ps.height && (ctx->y & 15) == 0);
+	predicate(ctx->plane_Y == e->DPB + e->frame_size * e->currPic + ctx->y * e->stride_Y + ctx->x);
+	predicate(ctx->plane_Cb == e->DPB + e->frame_size * e->currPic + e->plane_size_Y + (ctx->ps.ChromaArrayType > 1 ? ctx->y : ctx->y >> 1) * e->stride_C + (ctx->x >> 4) * ctx->col_offset_C);
+	
+	for (int i = 0; label > LOOP_START_LABEL && i < 16; i++)
+		predicate(ctx->inc.v[i] == mb[-1].f.v[i] + (mbB->f.v[i] << flags_twice.v[i]));
+	for (int i = 0; i < 16; i++)
+		predicate(mb->f.v[i] >= 0 && mb->f.v[i] <= 1);
+	if (label > LOOP_START_LABEL)
+		predicate(mb->f.unavailable == 0 && (ctx->x == 0 ^ mb[-1].f.unavailable == 0) && (ctx->y == 0 ^ mbB->f.unavailable == 0));
+	if (label > LOOP_START_LABEL)
+		predicate(mb->f.mb_field_decoding_flag == ctx->field_pic_flag);
+	predicate(ctx->slice_type < 2 || (mb->f.mb_skip_flag == 0 && mb->f.mb_type_B_Direct == 0));
+	predicate(mb->f.mb_skip_flag + mb->f.mb_type_I_NxN + mb->f.mb_type_B_Direct <= 1);
+	predicate(ctx->ps.transform_8x8_mode_flag || mb->f.transform_size_8x8_flag == 0);
+	predicate(mb->f.CodedBlockPatternChromaAC == 0 || mb->f.CodedBlockPatternChromaDC == 1);
+	predicate((mb->f.mb_skip_flag == 0 && mb->f.mb_type_B_Direct == 0) || mb->f.mbIsInterFlag == 1);
+	predicate(mb->f.mb_type_I_NxN == 0 || mb->f.mbIsInterFlag == 0);
+	
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

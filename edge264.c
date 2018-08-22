@@ -12,6 +12,8 @@
 // TODO: Drop the support of differing BitDepths if no Conformance streams test it
 // TODO: Test removing Edge264_context from register when decoder works
 // TODO: Consider removing Edge264_snapshot for simplicity after finishing Inter
+// TODO: Redesign the API to store the CPB in the stream, allowing sequential decoding from multiple threads
+// TODO: Can we relieve the complexity of pixel size computing with arrays?
 
 #include "edge264_common.h"
 #include "edge264_golomb.c"
@@ -373,10 +375,12 @@ static void initialise_decoding_context(Edge264_stream *e)
 {
 	ctx->x = 0;
 	ctx->y = 0;
-	ctx->planes[0] = e->DPB + e->currPic * e->frame_size;
-	ctx->planes[1] = ctx->planes[0] + e->plane_Y;
-	ctx->planes[2] = ctx->planes[1] + e->plane_C;
-	mb = (Edge264_macroblock *)(ctx->planes[2] + e->plane_C + (ctx->ps.width / 16 + 2) * sizeof(*mb));
+	ctx->plane_Y = e->DPB + e->currPic * e->frame_size;
+	ctx->plane_Cb = ctx->plane_Y + e->plane_size_Y;
+	int MbWidthC = ctx->ps.ChromaArrayType < 3 ? 8 : 16;
+	ctx->col_offset_C = ctx->ps.BitDepth_C == 8 ? MbWidthC : MbWidthC * 2;
+	ctx->row_offset_C = ctx->ps.ChromaArrayType == 1 ? e->stride_C * 7 : e->stride_C * 15;
+	mb = (Edge264_macroblock *)(ctx->plane_Cb + e->plane_size_C * 2 + (ctx->ps.width / 16 + 2) * sizeof(*mb));
 	
 	int cY = (1 << ctx->ps.BitDepth_Y) - 1;
 	int cC = (1 << ctx->ps.BitDepth_C) - 1;
@@ -427,14 +431,20 @@ static void initialise_decoding_context(Edge264_stream *e)
 	ctx->cbf_chromaB_v[2] = (v4si){26 - offsetB, 27 - offsetB, 24, 25};
 	ctx->cbf_chromaB_v[3] = (v4si){26, 27, 28, 29};
 	
-	int pixel_Y = ctx->ps.BitDepth_Y > 8;
-	int pixel_C = ctx->ps.BitDepth_C > 8;
 	for (int i = 0; i < 16; i++) { // FIXME for ChromaArrayType == 1 or 2
 		int x = (i << 2 & 4) | (i << 1 & 8);
 		int y = (i << 1 & 4) | (i & 8);
-		ctx->plane_offsets[i] = y * e->stride_Y + (pixel_Y ? x * 2 : x);
-		ctx->plane_offsets[16 + i] =
-		ctx->plane_offsets[32 + i] = y * e->stride_C + (pixel_C ? x * 2 : x);
+		ctx->plane_offsets[i] = y * e->stride_Y + (ctx->ps.BitDepth_Y == 8 ? x : x * 2);
+		if (ctx->ps.ChromaArrayType == 3) {
+			ctx->plane_offsets[16 + i] = y * e->stride_C + (ctx->ps.BitDepth_C == 8 ? x : x * 2);
+			ctx->plane_offsets[32 + i] = ctx->plane_offsets[16 + i] + e->plane_size_C;
+		}
+	}
+	for (int i = 0; ctx->ps.ChromaArrayType < 3 && i < ctx->ps.ChromaArrayType * 4; i++) {
+		int x = i << 2 & 4;
+		int y = i << 1 & 12;
+		ctx->plane_offsets[16 + i] = y * e->stride_C + (ctx->ps.BitDepth_C == 8 ? x : x * 2);
+		ctx->plane_offsets[16 + ctx->ps.ChromaArrayType * 4 + i] = ctx->plane_offsets[16 + i] + e->plane_size_C;
 	}
 }
 
@@ -625,6 +635,7 @@ static const uint8_t *parse_slice_layer_without_partitioning(Edge264_stream *e,
 			e->error = -1;
 			return NULL;
 		}
+		ctx->e = e;
 		CABAC_parse_slice_data(cabac_init_idc);
 	}
 	
@@ -1307,17 +1318,17 @@ static const uint8_t *parse_seq_parameter_set(Edge264_stream *e, int nal_ref_idc
 		// An offset might be added if cache alignment has a significant impact on some videos.
 		e->stride_Y = ctx->ps.BitDepth_Y == 8 ? width_Y : width_Y * 2;
 		e->stride_C = ctx->ps.BitDepth_C == 8 ? width_C : width_C * 2;
-		e->plane_Y = e->stride_Y * height_Y;
-		e->plane_C = e->stride_C * height_C;
+		e->plane_size_Y = e->stride_Y * height_Y;
+		e->plane_size_C = e->stride_C * height_C;
 		
 		// Each picture in the DPB is three planes and a group of macroblocks
-		e->frame_size = (e->plane_Y + e->plane_C * 2 + (PicWidthInMbs + 1) *
+		e->frame_size = (e->plane_size_Y + e->plane_size_C * 2 + (PicWidthInMbs + 1) *
 			(PicHeightInMbs + 1) * sizeof(Edge264_macroblock) + 15) & -16;
 		e->DPB = malloc(e->frame_size * (ctx->ps.max_dec_frame_buffering + 1));
 		
 		// initialise the unavailable macroblocks
 		for (int i = 0; i <= ctx->ps.max_dec_frame_buffering; i++) {
-			Edge264_macroblock *m = (Edge264_macroblock *)(e->DPB + i * e->frame_size + e->plane_Y + e->plane_C * 2);
+			Edge264_macroblock *m = (Edge264_macroblock *)(e->DPB + i * e->frame_size + e->plane_size_Y + e->plane_size_C * 2);
 			for (int j = 0; j <= PicWidthInMbs; j++)
 				m[j] = unavail_mb;
 			for (int j = 1; j <= PicHeightInMbs; j++)

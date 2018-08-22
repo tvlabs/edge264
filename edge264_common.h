@@ -48,6 +48,12 @@ typedef union {
 	};
 	v16qi v;
 } Edge264_flags;
+static const Edge264_flags flags_twice = {
+	.unavailable = 1,
+	.CodedBlockPatternChromaDC = 1,
+	.CodedBlockPatternChromaAC = 1,
+	.coded_block_flags_16x16 = {1, 1, 1},
+};
 
 
 
@@ -88,10 +94,12 @@ typedef struct
 	uint16_t stride;
 	int16_t x; // 14 significant bits
 	int16_t y;
-	uint8_t *planes[3];
+	uint8_t *plane_Y;
+	uint8_t *plane_Cb; // plane_Cr is a fixed offset away from this pointer
 	Edge264_flags inc;
 	Edge264_macroblock *macroblock;
 	Edge264_macroblock *mbCol;
+	Edge264_stream *e; // for debugging
 	
 	// bitfields and constants
 	uint16_t non_ref_flag:1; // TODO: remove if unnecessary after Inter is done
@@ -117,6 +125,8 @@ typedef struct
 	uint32_t mvd_fold;
 	uint32_t ref_idx_mask;
 	uint8_t *plane;
+	int8_t col_offset_C;
+	int32_t row_offset_C;
 	v8hi clip, clip_Y, clip_C; // vectors of maximum sample values
 	union { int8_t unavail[16]; v16qi unavail_v; }; // unavailability of neighbouring A/B/C/D blocks
 	union { int16_t A4x4[48]; v8hi A4x4_v[6]; };
@@ -169,20 +179,6 @@ register size_t codIOffset asm("r15");
 
 
 
-#ifdef TRACE
-#include <stdio.h>
-#include "edge264_predicates.c"
-static inline const char *red_if(int cond) { return (cond) ? " style='color:red'" : ""; }
-#else
-#define printf(...) ((void)0)
-#define check_stream(e) ((void)0)
-#endif
-#if TRACE == 2
-#define fprintf(...) fprintf(__VA_ARGS__)
-#else
-#define fprintf(...) ((void)0)
-#endif
-
 #if __BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__
 #define big_endian32 __builtin_bswap32
 #define big_endian64 __builtin_bswap64
@@ -212,6 +208,21 @@ static inline const char *red_if(int cond) { return (cond) ? " style='color:red'
 #endif
 
 
+
+#ifdef TRACE
+#include <stdio.h>
+#include "edge264_predicates.c"
+static inline const char *red_if(int cond) { return (cond) ? " style='color:red'" : ""; }
+#else
+#define printf(...) ((void)0)
+#define check_stream(e) ((void)0)
+#define check_ctx(label) ((void)0)
+#endif
+#if TRACE == 2
+#define fprintf(...) fprintf(__VA_ARGS__)
+#else
+#define fprintf(...) ((void)0)
+#endif
 
 static inline int min(int a, int b) { return (a < b) ? a : b; }
 static inline int max(int a, int b) { return (a > b) ? a : b; }

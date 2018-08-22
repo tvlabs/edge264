@@ -1121,6 +1121,7 @@ static __attribute__((noinline)) int parse_chroma_residual()
 			ctx->inc.coded_block_flags_16x16[1]);
 		mb->f.coded_block_flags_16x16[1] = coded_block_flag_Cb;
 	}
+	check_ctx(RESIDUAL_CB_DC_LABEL);
 	parse_residual_block(coded_block_flag_Cb, is422 * 4 + 3);
 	ctx->PredMode[16] = ctx->PredMode[17];
 	
@@ -1133,6 +1134,7 @@ static __attribute__((noinline)) int parse_chroma_residual()
 			ctx->inc.coded_block_flags_16x16[2]);
 		mb->f.coded_block_flags_16x16[2] = coded_block_flag_Cr;
 	}
+	check_ctx(RESIDUAL_CR_DC_LABEL);
 	parse_residual_block(coded_block_flag_Cr, is422 * 4 + 3);
 	ctx->PredMode[ctx->BlkIdx] = ctx->PredMode[ctx->BlkIdx + 1];
 	
@@ -1155,6 +1157,7 @@ static __attribute__((noinline)) int parse_chroma_residual()
 				mb->coded_block_flags_4x4[ctx->cbf_chromaB[ctx->BlkIdx - 16]] * 2);
 		}
 		mb->coded_block_flags_4x4[ctx->BlkIdx] = coded_block_flag;
+		check_ctx(RESIDUAL_CHROMA_LABEL);
 		parse_residual_block(coded_block_flag, 14);
 	}
 	return 0;
@@ -1172,18 +1175,22 @@ static __attribute__((noinline)) int parse_Intra16x16_residual()
 	
 	// Thanks to the reverse order in significant_coeff_flags, we can reuse 4x4 data.
 	int mb_field_decoding_flag = mb->f.mb_field_decoding_flag;
+	ctx->plane = ctx->plane_Y;
+	ctx->stride = ctx->plane_offsets[2] >> 2;
+	ctx->clip = ctx->clip_C;
 	ctx->sig_inc_v[0] = ctx->last_inc_v[0] = sig_inc_4x4;
 	ctx->scan_v[0] = scan_4x4[mb_field_decoding_flag];
-	int iYCbCr = ctx->colour_plane_id;
+	ctx->BlkIdx = ctx->colour_plane_id << 4;
 	do {
 		// One 4x4 DC block
-		ctx->BlkIdx = iYCbCr << 4;
+		int iYCbCr = ctx->BlkIdx >> 4;
 		ctx->LevelScale_v[0] = ctx->LevelScale_v[1] = ctx->LevelScale_v[2] =
 			ctx->LevelScale_v[3] = (v4su){64, 64, 64, 64};
 		ctx->d_v[0] = ctx->d_v[1] = ctx->d_v[2] = ctx->d_v[3] = (v4si){};
 		ctx->ctxIdxOffsets_l = ctxIdxOffsets_16x16DC[iYCbCr][mb_field_decoding_flag];
 		mb->f.coded_block_flags_16x16[iYCbCr] = get_ae(ctx->ctxIdxOffsets[0] +
 			ctx->inc.coded_block_flags_16x16[iYCbCr]);
+		check_ctx(RESIDUAL_DC_LABEL);
 		parse_residual_block(mb->f.coded_block_flags_16x16[iYCbCr], 15);
 		
 		// Sixteen 4x4 AC blocks
@@ -1199,17 +1206,18 @@ static __attribute__((noinline)) int parse_Intra16x16_residual()
 					mb->coded_block_flags_4x4[ctx->B4x4[ctx->BlkIdx]] * 2);
 			}
 			mb->coded_block_flags_4x4[ctx->BlkIdx] = coded_block_flag;
+			check_ctx(RESIDUAL_4x4_LABEL);
 			parse_residual_block(coded_block_flag, 14);
 		// not a loop-predictor-friendly condition, but would it make a difference?
 		} while (++ctx->BlkIdx & 15);
 		
 		// nice optimisation for 4:4:4 modes
-		ctx->clip = ctx->clip_C;
+		ctx->plane = ctx->plane_Cb;
 		ctx->stride = ctx->plane_offsets[18] >> 2;
-		ctx->plane = ctx->planes[iYCbCr];
+		ctx->clip = ctx->clip_C;
 		if (ctx->ps.ChromaArrayType <3)
 			return parse_chroma_residual();
-	} while (++iYCbCr <3);
+	} while (ctx->BlkIdx < 48);
 	return 0;
 }
 
@@ -1225,12 +1233,12 @@ static __attribute__((noinline)) int parse_NxN_residual()
 	parse_mb_qp_delta(mb->f.CodedBlockPatternChromaDC | mb->CodedBlockPatternLuma_s);
 	
 	// next few blocks will share many parameters, so we cache a LOT of them
-	ctx->plane = ctx->planes[0];
-	ctx->clip = ctx->clip_Y;
+	ctx->plane = ctx->plane_Y;
 	ctx->stride = ctx->plane_offsets[2] >> 2;
-	int iYCbCr = ctx->colour_plane_id;
+	ctx->clip = ctx->clip_Y;
+	ctx->BlkIdx = ctx->colour_plane_id << 4;
 	do {
-		ctx->BlkIdx = iYCbCr << 4;
+		int iYCbCr = ctx->BlkIdx >> 4;
 		int mb_field_decoding_flag = mb->f.mb_field_decoding_flag;
 		if (!mb->f.transform_size_8x8_flag) {
 			ctx->ctxIdxOffsets_l = ctxIdxOffsets_4x4[iYCbCr][mb_field_decoding_flag];
@@ -1248,6 +1256,7 @@ static __attribute__((noinline)) int parse_NxN_residual()
 						mb->coded_block_flags_4x4[ctx->B4x4[ctx->BlkIdx]] * 2);
 				}
 				mb->coded_block_flags_4x4[ctx->BlkIdx] = coded_block_flag;
+				check_ctx(RESIDUAL_4x4_LABEL);
 				parse_residual_block(coded_block_flag, 15);
 			} while (++ctx->BlkIdx & 15);
 		} else {
@@ -1274,17 +1283,18 @@ static __attribute__((noinline)) int parse_NxN_residual()
 				}
 				mb->coded_block_flags_8x8[luma8x8BlkIdx] = coded_block_flag;
 				mb->coded_block_flags_4x4_s[luma8x8BlkIdx] = coded_block_flag ? 0x01010101 : 0;
+				check_ctx(RESIDUAL_8x8_LABEL);
 				parse_residual_block(coded_block_flag, 63);
 			} while ((ctx->BlkIdx += 4) & 15);
 		}
 		
 		// nice optimisation for 4:4:4 modes
-		ctx->clip = ctx->clip_C;
+		ctx->plane = ctx->plane_Cb;
 		ctx->stride = ctx->plane_offsets[18] >> 2;
-		ctx->plane = ctx->planes[iYCbCr];
+		ctx->clip = ctx->clip_C;
 		if (ctx->ps.ChromaArrayType <3)
 			return parse_chroma_residual();
-	} while (++iYCbCr < 3);
+	} while (ctx->BlkIdx < 48);
 	return 0;
 }
 
@@ -1728,12 +1738,6 @@ static __attribute__((noinline)) int parse_inter_mb()
  */
 static __attribute__((noinline)) int PAFF_parse_slice_data()
 {
-	static const Edge264_flags twice = {
-		.unavailable = 1,
-		.CodedBlockPatternChromaDC = 1,
-		.CodedBlockPatternChromaAC = 1,
-		.coded_block_flags_16x16 = {1, 1, 1},
-	};
 	static const v16qi block_unavailability[4] = {
 		{ 0,  0,  0,  4,  0,  0,  0,  4,  0,  0,  0,  4,  0,  4,  0,  4},
 		{ 1,  0,  9,  4,  0,  0,  0,  4,  9,  0,  9,  4,  0,  4,  0,  4},
@@ -1744,10 +1748,11 @@ static __attribute__((noinline)) int PAFF_parse_slice_data()
 	ctx->mb_qp_delta_non_zero = 0;
 	while (1) {
 		fprintf(stderr, "\n********** %u **********\n", ctx->ps.width * ctx->y / 256 + ctx->x / 16);
+		check_ctx(LOOP_START_LABEL);
 		Edge264_macroblock *mbB = mb - (ctx->ps.width >> 4) - 1;
 		v16qi flagsA = mb[-1].f.v;
 		v16qi flagsB = mbB->f.v;
-		ctx->inc.v = flagsA + flagsB + (flagsB & twice.v);
+		ctx->inc.v = flagsA + flagsB + (flagsB & flags_twice.v);
 		mb->f.v = (v16qi){};
 		mb->coded_block_flags_8x8_v = (v16qi){};
 		mb->f.mb_field_decoding_flag = ctx->field_pic_flag;
@@ -1776,17 +1781,15 @@ static __attribute__((noinline)) int PAFF_parse_slice_data()
 		
 		// point to the next macroblock
 		mb++;
-		ctx->planes[0] += ctx->plane_offsets[1] * 4;
-		ctx->planes[1] += ctx->plane_offsets[17] * 4;
-		ctx->planes[2] += ctx->plane_offsets[17] * 4;
+		ctx->plane_Y += ctx->plane_offsets[1] * 4;
+		ctx->plane_Cb += ctx->col_offset_C;
 		if ((ctx->x += 16) < ctx->ps.width)
 			continue;
 		
 		// reaching the end of a line
 		mb++;
-		ctx->planes[0] += ctx->plane_offsets[2] * 4;
-		ctx->planes[1] += ctx->plane_offsets[18] * 4;
-		ctx->planes[2] += ctx->plane_offsets[18] * 4;
+		ctx->plane_Y += ctx->plane_offsets[10] + (ctx->plane_offsets[10] >> 2);
+		ctx->plane_Cb += ctx->row_offset_C;
 		ctx->x = 0;
 		if ((ctx->y += 16) >= (ctx->field_pic_flag ? ctx->ps.height >> 2 : ctx->ps.height))
 			break;

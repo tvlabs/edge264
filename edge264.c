@@ -614,6 +614,8 @@ static const uint8_t *parse_slice_layer_without_partitioning(Edge264_stream *e,
 	printf("<li>SliceQP<sub>Y</sub>: <code>%d</code></li>\n", ctx->ps.QP_Y);
 	
 	// Loop filter is yet to be implemented.
+	ctx->FilterOffsetA = 0;
+	ctx->FilterOffsetB = 0;
 	if (ctx->ps.deblocking_filter_control_present_flag) {
 		ctx->disable_deblocking_filter_idc = get_ue(2);
 		if (ctx->disable_deblocking_filter_idc != 1) {

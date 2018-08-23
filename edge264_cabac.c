@@ -1005,6 +1005,7 @@ static __attribute__((noinline)) void parse_mb_qp_delta(unsigned cond) {
 		39, 39, 39, 39};
 	// TODO: Put initialisation for neighbouring Inter/Intra cbf values here
 	
+	check_ctx(RESIDUAL_QP_LABEL);
 	int mb_qp_delta = 0;
 	ctx->mb_qp_delta_non_zero = cond && get_ae(60 + ctx->mb_qp_delta_non_zero);
 	if (ctx->mb_qp_delta_non_zero) {
@@ -1039,6 +1040,7 @@ static __attribute__((noinline)) void parse_mb_qp_delta(unsigned cond) {
  * paths, thus put in a non-inlined function.
  */
 static __attribute__((noinline)) void parse_coded_block_pattern() {
+	check_ctx(RESIDUAL_CBP_LABEL);
 	// Luma prefix
 	for (int i = 0; i < 4; i++)
 		mb->CodedBlockPatternLuma[i] = get_ae(-(-76 + mb->CodedBlockPatternLuma[ctx->A8x8[i]] + mb->CodedBlockPatternLuma[ctx->B8x8[i]] * 2));
@@ -1067,6 +1069,7 @@ static __attribute__((noinline)) void parse_coded_block_pattern() {
 static __attribute__((noinline)) void parse_intra_chroma_pred_mode()
 {
 	// Do not optimise too hard to keep the code understandable here.
+	check_ctx(INTRA_CHROMA_LABEL);
 	int type = ctx->ps.ChromaArrayType;
 	if (type == 1 || type == 2) {
 		int ctxIdx = 64 + ctx->inc.intra_chroma_pred_mode_non_zero;
@@ -1529,6 +1532,7 @@ static __attribute__((noinline)) int parse_intra_mb(int ctxIdx)
 		.CodedBlockPatternChromaAC = 1,
 		.coded_block_flags_16x16 = {1, 1, 1},
 	};
+	check_ctx(INTRA_MB_LABEL);
 	
 	// I_NxN
 	if (!get_ae(ctxIdx)) {

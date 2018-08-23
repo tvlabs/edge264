@@ -3,13 +3,16 @@
  * at key moments in the program.
  */
 
-static int failed_predicates;
+static void predicate_fail(int label, const char *test) {
+	printf("<li style='color:red'>Predicate failed (%d): %s</li>\n", label, test);
+	static int num;
+	if (++num >= 20)
+		exit(0);
+}
+
 #define predicate(test) do { \
-	if (!(test)) { \
-		printf("<li style='color:red'>Predicate failed: " #test "</li>\n"); \
-		if (++failed_predicates >= 20) \
-			exit(0); \
-	} \
+	if (!(test)) \
+		predicate_fail(-1, #test); \
 } while (0)
 
 
@@ -33,6 +36,8 @@ static void check_parameter_set(const Edge264_parameter_set *ps) {
 	predicate(ps->frame_crop_left_offset >= 0 && ps->frame_crop_right_offset >= 0 && ps->frame_crop_top_offset >= 0 && ps->frame_crop_bottom_offset >= 0);
 	predicate(ps->width - ps->frame_crop_left_offset - ps->frame_crop_right_offset >= 1);
 	predicate(ps->height - ps->frame_crop_top_offset - ps->frame_crop_bottom_offset >= 1);
+	
+	// Is it also a valid PPS?
 	if (ps->num_ref_idx_active[0] > 0) {
 		predicate(ps->weighted_bipred_idc != 3);
 		predicate(ps->num_ref_idx_active[0] <= 32 && ps->num_ref_idx_active[1] <= 32);
@@ -67,9 +72,19 @@ static void check_stream(const Edge264_stream *e) {
 }
 
 
+#undef predicate
+#define predicate(test) do { \
+	if (!(test)) \
+		predicate_fail(label, #test); \
+} while (0)
+
 
 enum {
 	LOOP_START_LABEL,
+	INTRA_MB_LABEL,
+	INTRA_CHROMA_LABEL,
+	RESIDUAL_CBP_LABEL,
+	RESIDUAL_QP_LABEL,
 	RESIDUAL_DC_LABEL,
 	RESIDUAL_4x4_LABEL,
 	RESIDUAL_8x8_LABEL,
@@ -116,6 +131,45 @@ static void check_ctx(int label) {
 	predicate(mb->f.CodedBlockPatternChromaAC == 0 || mb->f.CodedBlockPatternChromaDC == 1);
 	predicate((mb->f.mb_skip_flag == 0 && mb->f.mb_type_B_Direct == 0) || mb->f.mbIsInterFlag == 1);
 	predicate(mb->f.mb_type_I_NxN == 0 || mb->f.mbIsInterFlag == 0);
+	
+	predicate(ctx->ps.QP_Y >= -6 * (ctx->ps.BitDepth_Y - 8) && ctx->ps.QP_Y <= 51);
+	if (label > RESIDUAL_QP_LABEL) {
+		predicate(mb->QP[0] == ctx->ps.QP_Y);
+		predicate(mb->QP[1] >= -6 * (ctx->ps.BitDepth_C - 8) && mb->QP[1] <= 39);
+		predicate(mb->QP[2] >= -6 * (ctx->ps.BitDepth_C - 8) && mb->QP[2] <= 39);
+	}
+	for (int i = 0; label == INTRA_CHROMA_LABEL && i < 16; i++)
+		predicate(mb->Intra4x4PredMode[i] >= 0 && mb->Intra4x4PredMode[i] < 16);
+	for (int i = 0; label > RESIDUAL_CBP_LABEL && i < 4; i++)
+		predicate(mb->CodedBlockPatternLuma[i] == 0 || mb->CodedBlockPatternLuma[i] == 1);
+	for (int i = 0; i < 12; i++) {
+		if (label <= RESIDUAL_8x8_LABEL)
+			predicate(mb->coded_block_flags_8x8[i] == 0);
+		else
+			predicate(mb->f.transform_size_8x8_flag || mb->coded_block_flags_8x8[i] == 0);
+	}
+	
+	predicate(ctx->ps.frame_mbs_only_flag == 0 || ctx->field_pic_flag == 0);
+	predicate(ctx->field_pic_flag == 1 || ctx->bottom_field_flag == 0);
+	predicate(ctx->MbaffFrameFlag == 0);
+	predicate(ctx->disable_deblocking_filter_idc >= 0 && ctx->disable_deblocking_filter_idc <= 2);
+	predicate(ctx->slice_type >= 0 && ctx->slice_type <= 2);
+	predicate(ctx->colour_plane_id == 0);
+	predicate(ctx->FilterOffsetA >= -12 && ctx->FilterOffsetA <= 12);
+	predicate(ctx->FilterOffsetB >= -12 && ctx->FilterOffsetB <= 12);
+	predicate(ctx->mb_qp_delta_non_zero == 0 || ctx->mb_qp_delta_non_zero == 1);
+	predicate(ctx->col_offset_C == 8 << ((ctx->ps.ChromaArrayType == 3) + (ctx->ps.BitDepth_C > 8)));
+	predicate(ctx->row_offset_C == e->stride_C * (ctx->ps.ChromaArrayType == 1 ? 7 : 15));
+	predicate(ctx->ps.bottom_field_pic_order_in_frame_present_flag == 1 || ctx->TopFieldOrderCnt == ctx->BottomFieldOrderCnt);
+	check_parameter_set(&ctx->ps);
+	
+	if (label >= RESIDUAL_CB_DC_LABEL) {
+		predicate(ctx->plane == ctx->plane_Cb);
+		predicate(memcmp(&ctx->clip, &ctx->clip_C, 16) == 0);
+	} else if (label >= RESIDUAL_DC_LABEL) {
+		predicate(ctx->plane == ctx->plane_Y);
+		predicate(memcmp(&ctx->clip, &ctx->clip_Y, 16) == 0);
+	}
 	
 }
 

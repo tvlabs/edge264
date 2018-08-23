@@ -104,18 +104,20 @@ typedef struct
 	// bitfields and constants
 	uint16_t non_ref_flag:1; // TODO: remove if unnecessary after Inter is done
 	uint16_t IdrPicFlag:1;
+	uint16_t field_pic_flag:1;
 	uint16_t bottom_field_flag:1;
 	uint16_t MbaffFrameFlag:1;
 	uint16_t direct_spatial_mv_pred_flag:1;
 	uint16_t disable_deblocking_filter_idc:2;
 	uint16_t firstRefPicL1:1;
 	uint16_t col_short_term:1;
-	int8_t mb_qp_delta_non_zero;
 	int8_t slice_type; // 3 significant bits
 	int8_t colour_plane_id; // 2 significant bits
-	int8_t field_pic_flag;
 	int8_t FilterOffsetA; // 5 significant bits
 	int8_t FilterOffsetB;
+	int8_t mb_qp_delta_non_zero;
+	int8_t col_offset_C;
+	int32_t row_offset_C;
 	int32_t TopFieldOrderCnt;
 	int32_t BottomFieldOrderCnt;
 	Edge264_parameter_set ps;
@@ -125,8 +127,6 @@ typedef struct
 	uint32_t mvd_fold;
 	uint32_t ref_idx_mask;
 	uint8_t *plane;
-	int8_t col_offset_C;
-	int32_t row_offset_C;
 	v8hi clip, clip_Y, clip_C; // vectors of maximum sample values
 	union { int8_t unavail[16]; v16qi unavail_v; }; // unavailability of neighbouring A/B/C/D blocks
 	union { int16_t A4x4[48]; v8hi A4x4_v[6]; };

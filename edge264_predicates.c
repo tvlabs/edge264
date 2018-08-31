@@ -171,6 +171,24 @@ static void check_ctx(int label) {
 		predicate(memcmp(&ctx->clip, &ctx->clip_Y, 16) == 0);
 	}
 	
+	if (label > LOOP_START_LABEL) {
+		predicate(ctx->unavail[0] == (mb[-1].f.unavailable | mbB->f.unavailable << 1 | mbB->f.unavailable << 2 | mbB[-1].f.unavailable << 3));
+		predicate(ctx->unavail[1] == mbB->f.unavailable * 14);
+		predicate(ctx->unavail[2] == mb[-1].f.unavailable * 9);
+		predicate(ctx->unavail[3] == 4);
+		predicate(ctx->unavail[4] == mbB->f.unavailable * 14);
+		predicate(ctx->unavail[5] == (mbB->f.unavailable << 1 | mbB[1].f.unavailable << 2 | mbB->f.unavailable << 3));
+		predicate(ctx->unavail[6] == 0);
+		predicate(ctx->unavail[7] == 4);
+		predicate(ctx->unavail[8] == mb[-1].f.unavailable * 9);
+		predicate(ctx->unavail[9] == 0);
+		predicate(ctx->unavail[10] == mb[-1].f.unavailable * 9);
+		predicate(ctx->unavail[11] == 4);
+		predicate(ctx->unavail[12] == 0);
+		predicate(ctx->unavail[13] == 4);
+		predicate(ctx->unavail[14] == 0);
+		predicate(ctx->unavail[15] == 4);
+	}
 }
 
 

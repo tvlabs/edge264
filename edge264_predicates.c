@@ -189,6 +189,15 @@ static void check_ctx(int label) {
 		predicate(ctx->unavail[14] == 0);
 		predicate(ctx->unavail[15] == 4);
 	}
+	
+	static int A4x4[16] = {-5, 0, -7, 2, 1, 4, 3, 6, -13, 8, -15, 10, 9, 12, 11, 14};
+	static int B4x4[16] = {-10, -11, 0, 1, -14, -15, 4, 5, 2, 3, 8, 9, 6, 7, 12, 13};
+	for (int i = 0; i < 16; i++) {
+		int offsetB = (ctx->ps.width / 16 + 1) * sizeof(*mb);
+		predicate(ctx->Intra4x4PredMode_A[i] == (A4x4[i] >= 0 ? A4x4[i] : -sizeof(*mb) - A4x4[i]));
+		predicate(ctx->Intra4x4PredMode_B[i] == (B4x4[i] >= 0 ? B4x4[i] : -offsetB - B4x4[i]));
+		
+	}
 }
 
 

@@ -1486,9 +1486,11 @@ static __attribute__((noinline)) int parse_inter_pred()
  * Parses prev_intraNxN_pred_mode_flag and rem_intraNxN_pred_mode, and returns
  * the given intra_pred_mode (7.3.5.1, 7.4.5.1, 8.3.1.1 and table 9-34).
  */
-static inline int parse_intraNxN_pred_mode(int intraMxMPredModeA, int intraMxMPredModeB)
+static __attribute__((noinline)) int parse_intraNxN_pred_mode(int luma4x4BlkIdx)
 {
 	// dcPredModePredictedFlag is enforced by putting -2
+	int intraMxMPredModeA = mb_i8[offsetof(Edge264_macroblock, Intra4x4PredMode) + ctx->Intra4x4PredMode_A[luma4x4BlkIdx]];
+	int intraMxMPredModeB = mb_i8[offsetof(Edge264_macroblock, Intra4x4PredMode) + ctx->Intra4x4PredMode_B[luma4x4BlkIdx]];
 	int mode = abs(min(intraMxMPredModeA, intraMxMPredModeB));
 	if (!get_ae(68)) {
 		int rem_intra_pred_mode = get_ae(69);
@@ -1549,16 +1551,14 @@ static __attribute__((noinline)) int parse_intra_mb(int ctxIdx)
 		
 		if (mb->f.transform_size_8x8_flag) {
 			for (int i = 0; i < 4; i++) {
-				int8_t *p = mb->Intra4x4PredMode;
-				int mode = parse_intraNxN_pred_mode(p[ctx->A4x4[i * 4]], p[ctx->B4x4[i * 4]]);
-				p[i * 4 + 1] = p[i * 4 + 2] = p[i * 4 + 3] = mode;
+				int mode = parse_intraNxN_pred_mode(i * 4);
+				mb->Intra4x4PredMode[i * 4 + 1] = mb->Intra4x4PredMode[i * 4 + 2] = mb->Intra4x4PredMode[i * 4 + 3] = mode;
 				ctx->PredMode[i * 4] = intra8x8_modes[mode][ctx->unavail[i * 5]];
 			}
 		} else {
 			for (int i = 0; i < 16; i++) {
-				int8_t *p = mb->Intra4x4PredMode;
-				p[i] = parse_intraNxN_pred_mode(p[ctx->A4x4[i]], p[ctx->B4x4[i]]);
-				ctx->PredMode[i] = intra8x8_modes[p[i]][ctx->unavail[i]];
+				mb->Intra4x4PredMode[i] = parse_intraNxN_pred_mode(i);
+				ctx->PredMode[i] = intra4x4_modes[mb->Intra4x4PredMode[i]][ctx->unavail[i]];
 			}
 		}
 		

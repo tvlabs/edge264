@@ -388,7 +388,16 @@ static void initialise_decoding_context(Edge264_stream *e)
 	ctx->clip_C = (v8hi){cC, cC, cC, cC, cC, cC, cC, cC};
 	
 	int offsetA = sizeof(*mb);
+	int offsetB = (ctx->ps.width / 16 + 1) * sizeof(*mb);
 	v8hi h16 = {16, 16, 16, 16, 16, 16, 16, 16};
+	ctx->A4x4_i8[0] = (v8hi){5 - offsetA, 0, 7 - offsetA, 2, 1, 4, 3, 6};
+	ctx->A4x4_i8[1] = (v8hi){13 - offsetA, 8, 15 - offsetA, 10, 9, 12, 11, 14};
+	ctx->B4x4_i8[0] = (v4si){10 - offsetB, 11 - offsetB, 0, 1};
+	ctx->B4x4_i8[1] = (v4si){14 - offsetB, 15 - offsetB, 4, 5};
+	ctx->B4x4_i8[2] = (v4si){2, 3, 8, 9};
+	ctx->B4x4_i8[3] = (v4si){6, 7, 12, 13};
+	
+	
 	ctx->A4x4_v[0] = (v8hi){5 - offsetA, 0, 7 - offsetA, 2, 1, 4, 3, 6};
 	ctx->A4x4_v[1] = (v8hi){13 - offsetA, 8, 15 - offsetA, 10, 9, 12, 11, 14};
 	ctx->A4x4_v[2] = ctx->A4x4_v[0] + h16;
@@ -396,7 +405,6 @@ static void initialise_decoding_context(Edge264_stream *e)
 	ctx->A4x4_v[4] = ctx->A4x4_v[2] + h16;
 	ctx->A4x4_v[5] = ctx->A4x4_v[3] + h16;
 	
-	int offsetB = (ctx->ps.width / 16 + 1) * sizeof(*mb);
 	v4si s16 = {16, 16, 16, 16};
 	ctx->B4x4_v[0] = (v4si){10 - offsetB, 11 - offsetB, 0, 1};
 	ctx->B4x4_v[1] = (v4si){14 - offsetB, 15 - offsetB, 4, 5};
@@ -1397,9 +1405,9 @@ const uint8_t *Edge264_decode_NAL(Edge264_stream *e, const uint8_t *CPB, size_t 
 	Edge264_ctx *old = ctx, context;
 	ctx = &context;
 	memset(ctx, -1, sizeof(*ctx));
-	ctx->macroblock = mb;
-	ctx->range = codIRange;
-	ctx->offset = codIOffset;
+	ctx->_mb = mb;
+	ctx->_codIRange = codIRange;
+	ctx->_codIOffset = codIOffset;
 	ctx->CPB = CPB + 3;
 	ctx->end = CPB + len;
 	ctx->RBSP[1] = CPB[1] << 8 | CPB[2];
@@ -1419,9 +1427,9 @@ const uint8_t *Edge264_decode_NAL(Edge264_stream *e, const uint8_t *CPB, size_t 
 	
 	// restore registers and finish with a little tail call :)
 	len = ctx->end - CPB;
-	mb = ctx->macroblock;
-	codIRange = ctx->range;
-	codIOffset = ctx->offset;
+	mb = ctx->_mb;
+	codIRange = ctx->_codIRange;
+	codIOffset = ctx->_codIOffset;
 	ctx = old;
 	return Edge264_find_start_code(1, CPB, len);
 }

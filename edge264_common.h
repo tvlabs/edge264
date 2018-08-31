@@ -5,6 +5,7 @@
 #define EDGE264_COMMON_H
 
 #include <limits.h>
+#include <stddef.h>
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
@@ -87,8 +88,8 @@ typedef struct
 	const uint8_t *CPB;
 	const uint8_t *end;
 	size_t RBSP[2];
-	size_t range;
-	size_t offset;
+	size_t _codIRange;
+	size_t _codIOffset;
 	int8_t shift;
 	int8_t BlkIdx;
 	uint16_t stride;
@@ -97,7 +98,7 @@ typedef struct
 	uint8_t *plane_Y;
 	uint8_t *plane_Cb; // plane_Cr is a fixed offset away from this pointer
 	Edge264_flags inc;
-	Edge264_macroblock *macroblock;
+	union { Edge264_macroblock *_mb; int8_t *_mb_i8; int16_t *_mb_i16; };
 	Edge264_macroblock *mbCol;
 	Edge264_stream *e; // for debugging
 	
@@ -149,6 +150,10 @@ typedef struct
 	union { int16_t pred_buffer[136]; v8hi pred_buffer_v[17]; }; // temporary storage for prediction samples
 	union { int32_t d[64]; v4si d_v[16]; v8si d_V[8]; }; // scaled residual coefficients
 	
+	// macroblock offsets (relative to the first element of each array)
+	union { int16_t Intra4x4PredMode_A[16]; v8hi A4x4_i8[2]; };
+	union { int32_t Intra4x4PredMode_B[16]; v4si B4x4_i8[4]; };
+	
 	// large stuff
 	v16qu cabac[64];
 	int8_t RefPicList[2][32] __attribute__((aligned));
@@ -169,12 +174,16 @@ static __thread Edge264_ctx *ctx;
 #endif
 #if defined(__SSSE3__) && !defined(__clang__) && SIZE_BIT == 64
 register Edge264_macroblock *mb asm("r13");
+register int8_t *mb_i8 asm("r13");
+register int16_t *mb_i16 asm("r13");
 register size_t codIRange asm("r14");
 register size_t codIOffset asm("r15");
 #else
-#define mb ctx->macroblock
-#define codIRange ctx->range
-#define codIOffset ctx->offset
+#define mb ctx->_mb
+#define mb_i8 ctx->_mb_i8
+#define mb_i16 ctx->_mb_i16
+#define codIRange ctx->_codIRange
+#define codIOffset ctx->_codIOffset
 #endif
 
 

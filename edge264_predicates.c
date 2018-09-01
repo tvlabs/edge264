@@ -192,10 +192,17 @@ static void check_ctx(int label) {
 	
 	static int A4x4[16] = {-5, 0, -7, 2, 1, 4, 3, 6, -13, 8, -15, 10, 9, 12, 11, 14};
 	static int B4x4[16] = {-10, -11, 0, 1, -14, -15, 4, 5, 2, 3, 8, 9, 6, 7, 12, 13};
+	static int A8x8[4] = {-1, 0, -3, 2};
+	static int B8x8[4] = {-2, -3, 0, 1};
+	int offsetB = (ctx->ps.width / 16 + 1) * sizeof(*mb);
 	for (int i = 0; i < 16; i++) {
-		int offsetB = (ctx->ps.width / 16 + 1) * sizeof(*mb);
 		predicate(ctx->Intra4x4PredMode_A[i] == (A4x4[i] >= 0 ? A4x4[i] : -sizeof(*mb) - A4x4[i]));
 		predicate(ctx->Intra4x4PredMode_B[i] == (B4x4[i] >= 0 ? B4x4[i] : -offsetB - B4x4[i]));
+		
+	}
+	for (int i = 0; i < 4; i++) {
+		predicate(ctx->CodedBlockPatternLuma_A[i] == (A8x8[i] >= 0 ? A8x8[i] : -sizeof(*mb) - A8x8[i]));
+		predicate(ctx->CodedBlockPatternLuma_B[i] == (B8x8[i] >= 0 ? B8x8[i] : -offsetB - B8x8[i]));
 		
 	}
 }

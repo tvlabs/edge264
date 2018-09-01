@@ -153,6 +153,8 @@ typedef struct
 	// macroblock offsets (relative to the first element of each array)
 	union { int16_t Intra4x4PredMode_A[16]; v8hi A4x4_i8[2]; };
 	union { int32_t Intra4x4PredMode_B[16]; v4si B4x4_i8[4]; };
+	union { int16_t CodedBlockPatternLuma_A[4]; v4hi A8x8_i8; };
+	union { int32_t CodedBlockPatternLuma_B[4]; v4si B8x8_i8; };
 	
 	// large stuff
 	v16qu cabac[64];

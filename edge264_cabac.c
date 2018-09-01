@@ -1042,8 +1042,11 @@ static __attribute__((noinline)) void parse_mb_qp_delta(unsigned cond) {
 static __attribute__((noinline)) void parse_coded_block_pattern() {
 	check_ctx(RESIDUAL_CBP_LABEL);
 	// Luma prefix
-	for (int i = 0; i < 4; i++)
-		mb->CodedBlockPatternLuma[i] = get_ae(-(-76 + mb->CodedBlockPatternLuma[ctx->A8x8[i]] + mb->CodedBlockPatternLuma[ctx->B8x8[i]] * 2));
+	for (int i = 0; i < 4; i++) {
+		int cbpA = mb_i8[offsetof(Edge264_macroblock, CodedBlockPatternLuma) + ctx->CodedBlockPatternLuma_A[i]];
+		int cbpB = mb_i8[offsetof(Edge264_macroblock, CodedBlockPatternLuma) + ctx->CodedBlockPatternLuma_B[i]];
+		mb->CodedBlockPatternLuma[i] = get_ae(-(-76 + cbpA + cbpB * 2));
+	}
 	
 	// Chroma suffix
 	if (ctx->ps.ChromaArrayType == 1 || ctx->ps.ChromaArrayType == 2) {

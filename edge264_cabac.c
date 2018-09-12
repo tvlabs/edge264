@@ -1043,7 +1043,7 @@ static __attribute__((noinline)) void parse_coded_block_pattern() {
 	check_ctx(RESIDUAL_CBP_LABEL);
 	// Luma prefix
 	for (int i = 0; i < 4; i++) {
-		int cbpA = mb_i8[offsetof(Edge264_macroblock, CodedBlockPatternLuma) + ctx->CodedBlockPatternLuma_A[i]];
+		int cbpA = mb_i8[offsetof(Edge264_macroblock, CodedBlockPatternLuma) + CodedBlockPatternLuma_A[i]];
 		int cbpB = mb_i8[offsetof(Edge264_macroblock, CodedBlockPatternLuma) + ctx->CodedBlockPatternLuma_B[i]];
 		mb->CodedBlockPatternLuma[i] = get_ae(-(-76 + cbpA + cbpB * 2));
 	}
@@ -1492,7 +1492,7 @@ static __attribute__((noinline)) int parse_inter_pred()
 static __attribute__((noinline)) int parse_intraNxN_pred_mode(int luma4x4BlkIdx)
 {
 	// dcPredModePredictedFlag is enforced by putting -2
-	int intraMxMPredModeA = mb_i8[offsetof(Edge264_macroblock, Intra4x4PredMode) + ctx->Intra4x4PredMode_A[luma4x4BlkIdx]];
+	int intraMxMPredModeA = mb_i8[offsetof(Edge264_macroblock, Intra4x4PredMode) + Intra4x4PredMode_A[luma4x4BlkIdx]];
 	int intraMxMPredModeB = mb_i8[offsetof(Edge264_macroblock, Intra4x4PredMode) + ctx->Intra4x4PredMode_B[luma4x4BlkIdx]];
 	int mode = abs(min(intraMxMPredModeA, intraMxMPredModeB));
 	if (!get_ae(68)) {

@@ -151,9 +151,7 @@ typedef struct
 	union { int32_t d[64]; v4si d_v[16]; v8si d_V[8]; }; // scaled residual coefficients
 	
 	// macroblock offsets (relative to the first element of each array)
-	union { int16_t Intra4x4PredMode_A[16]; v8hi A4x4_i8[2]; };
 	union { int32_t Intra4x4PredMode_B[16]; v4si B4x4_i8[4]; };
-	union { int16_t CodedBlockPatternLuma_A[4]; v4hi A8x8_i8; };
 	union { int32_t CodedBlockPatternLuma_B[4]; v4si B8x8_i8; };
 	
 	// large stuff
@@ -254,6 +252,83 @@ size_t get_ue32();
 static inline __attribute__((always_inline)) unsigned get_ue(unsigned upper) { return umin((upper <= 65534) ? get_ue16() : get_ue32(), upper); }
 static inline __attribute__((always_inline)) int map_se(unsigned codeNum) { return (codeNum & 1) ? codeNum / 2 + 1 : -(codeNum / 2); }
 static inline __attribute__((always_inline)) int get_se(int lower, int upper) { return min(max(map_se((lower >= -32767 && upper <= 32767) ? get_ue16() : get_ue32()), lower), upper); }
+
+
+
+#ifdef __SSSE3__
+#include <tmmintrin.h>
+#ifdef __SSE4_1__
+#include <smmintrin.h>
+#define vector_select(mask, t, f) (typeof(f))_mm_blendv_epi8((__m128i)(f), (__m128i)(t), (__m128i)(mask))
+#else
+#define vector_select(mask, t, f) (((t) & (mask)) | ((f) & ~(mask)))
+static inline __m128i _mm_mullo_epi32(__m128i a, __m128i b) {
+	__m128i c = _mm_shuffle_epi32(a, _MM_SHUFFLE(0, 3, 0, 1));
+	__m128i d = _mm_shuffle_epi32(b, _MM_SHUFFLE(0, 3, 0, 1));
+	__m128i e = _mm_mul_epu32(a, b);
+	__m128i f = _mm_mul_epu32(c, d);
+	__m128 g = _mm_shuffle_ps((__m128)e, (__m128)f, _MM_SHUFFLE(2, 0, 2, 0));
+	return _mm_shuffle_epi32((__m128i)g, _MM_SHUFFLE(3, 1, 2, 0));
+}
+// not strictly equivalent but sufficient for 14bit results
+static inline __m128i _mm_packus_epi32(__m128i a, __m128i b) {
+	return _mm_max_epi16(_mm_packs_epi32(a, b), _mm_setzero_si128());
+}
+static inline __m128i _mm_cvtepu8_epi16(__m128i a) {
+	return _mm_unpacklo_epi8(a, _mm_setzero_si128());
+}
+static inline __m128i _mm_cvtepu16_epi32(__m128i a) {
+	return _mm_unpacklo_epi16(a, _mm_setzero_si128());
+}
+#endif // __SSE4_1__
+#ifdef __AVX2__
+#include <immintrin.h>
+#else
+static inline __m128i _mm_broadcastw_epi16(__m128i a) {
+	return _mm_shuffle_epi32(_mm_shufflelo_epi16(a, _MM_SHUFFLE(0, 0, 0, 0)), _MM_SHUFFLE(1, 0, 1, 0));
+}
+#endif // __AVX2__
+static inline __m128i _mm_srl_si128(__m128i m, int count) {
+	static const uint8_t SMask[32] __attribute__((aligned(32))) = {
+		 0,  1,  2,  3,  4,  5,  6,  7,  8,  9, 10, 11, 12, 13, 14, 15,
+		-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
+	};
+	return _mm_shuffle_epi8(m, _mm_loadu_si128((__m128i *)(SMask + count)));
+}
+static inline v8hi mv_is_zero(v8hi mvCol) {
+	return (v8hi)_mm_cmpeq_epi32(_mm_srli_epi16(_mm_abs_epi16((__m128i)mvCol), 1), _mm_setzero_si128());
+}
+static inline v8hi temporal_scale(v8hi mvCol, int16_t DistScaleFactor) {
+	return (v8hi)_mm_mulhrs_epi16(_mm_set1_epi16(DistScaleFactor), _mm_slli_epi16((__m128i)mvCol, 2));
+}
+static inline v16qi byte_shuffle(v16qi a, v16qi mask) {
+	return (v16qi)_mm_shuffle_epi8((__m128i)a, (__m128i)mask);
+}
+static inline size_t lsd(size_t msb, size_t lsb, unsigned shift) {
+	__asm__("shld %%cl, %1, %0" : "+rm" (msb) : "r" (lsb), "c" (shift));
+	return msb;
+}
+// fixing GCC's defect
+#if defined(__GNUC__) && !defined(__clang__)
+static inline __m128i _mm_movpi64_epi64(__m64 a) {
+	__m128i b;
+	__asm__("movq2dq %1, %0" : "=x" (b) : "y" (a));
+	return b;
+}
+#endif // __GNUC__
+#else // !__SSSE3__
+#error "Add -mssse3 or more recent"
+#endif
+
+#ifndef __clang__
+#define __builtin_shufflevector(a, b, ...) __builtin_shuffle(a, b, (typeof(a)){__VA_ARGS__})
+#endif
+
+
+
+// neighbouring offsets relative to first element
+static int16_t Intra4x4PredMode_A[16] = {5 - (int)sizeof(*mb), 0, 7 - (int)sizeof(*mb), 2, 1, 4, 3, 6, 13 - (int)sizeof(*mb), 8, 15 - (int)sizeof(*mb), 10, 9, 12, 11, 14};
+static int16_t CodedBlockPatternLuma_A[4] = {1 - (int)sizeof(*mb), 0, 3 - (int)sizeof(*mb), 2};
 
 
 
@@ -449,77 +524,6 @@ static const int8_t intra8x8_modes[9][16] = {
 	{VERTICAL_LEFT_8x8, VERTICAL_LEFT_8x8, 0, 0, VERTICAL_LEFT_8x8_C, VERTICAL_LEFT_8x8_C, 0, 0, VERTICAL_LEFT_8x8_D, VERTICAL_LEFT_8x8_D, 0, 0, VERTICAL_LEFT_8x8_CD, VERTICAL_LEFT_8x8_CD, 0, 0},
 	{HORIZONTAL_UP_8x8, 0, HORIZONTAL_UP_8x8, 0, HORIZONTAL_UP_8x8, 0, HORIZONTAL_UP_8x8, 0, HORIZONTAL_UP_8x8_D, 0, HORIZONTAL_UP_8x8_D, 0, HORIZONTAL_UP_8x8_D, 0, HORIZONTAL_UP_8x8_D, 0},
 };
-
-
-
-#ifdef __SSSE3__
-#include <tmmintrin.h>
-#ifdef __SSE4_1__
-#include <smmintrin.h>
-#define vector_select(mask, t, f) (typeof(f))_mm_blendv_epi8((__m128i)(f), (__m128i)(t), (__m128i)(mask))
-#else
-#define vector_select(mask, t, f) (((t) & (mask)) | ((f) & ~(mask)))
-static inline __m128i _mm_mullo_epi32(__m128i a, __m128i b) {
-	__m128i c = _mm_shuffle_epi32(a, _MM_SHUFFLE(0, 3, 0, 1));
-	__m128i d = _mm_shuffle_epi32(b, _MM_SHUFFLE(0, 3, 0, 1));
-	__m128i e = _mm_mul_epu32(a, b);
-	__m128i f = _mm_mul_epu32(c, d);
-	__m128 g = _mm_shuffle_ps((__m128)e, (__m128)f, _MM_SHUFFLE(2, 0, 2, 0));
-	return _mm_shuffle_epi32((__m128i)g, _MM_SHUFFLE(3, 1, 2, 0));
-}
-// not strictly equivalent but sufficient for 14bit results
-static inline __m128i _mm_packus_epi32(__m128i a, __m128i b) {
-	return _mm_max_epi16(_mm_packs_epi32(a, b), _mm_setzero_si128());
-}
-static inline __m128i _mm_cvtepu8_epi16(__m128i a) {
-	return _mm_unpacklo_epi8(a, _mm_setzero_si128());
-}
-static inline __m128i _mm_cvtepu16_epi32(__m128i a) {
-	return _mm_unpacklo_epi16(a, _mm_setzero_si128());
-}
-#endif // __SSE4_1__
-#ifdef __AVX2__
-#include <immintrin.h>
-#else
-static inline __m128i _mm_broadcastw_epi16(__m128i a) {
-	return _mm_shuffle_epi32(_mm_shufflelo_epi16(a, _MM_SHUFFLE(0, 0, 0, 0)), _MM_SHUFFLE(1, 0, 1, 0));
-}
-#endif // __AVX2__
-static inline __m128i _mm_srl_si128(__m128i m, int count) {
-	static const uint8_t SMask[32] __attribute__((aligned(32))) = {
-		 0,  1,  2,  3,  4,  5,  6,  7,  8,  9, 10, 11, 12, 13, 14, 15,
-		-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
-	};
-	return _mm_shuffle_epi8(m, _mm_loadu_si128((__m128i *)(SMask + count)));
-}
-static inline v8hi mv_is_zero(v8hi mvCol) {
-	return (v8hi)_mm_cmpeq_epi32(_mm_srli_epi16(_mm_abs_epi16((__m128i)mvCol), 1), _mm_setzero_si128());
-}
-static inline v8hi temporal_scale(v8hi mvCol, int16_t DistScaleFactor) {
-	return (v8hi)_mm_mulhrs_epi16(_mm_set1_epi16(DistScaleFactor), _mm_slli_epi16((__m128i)mvCol, 2));
-}
-static inline v16qi byte_shuffle(v16qi a, v16qi mask) {
-	return (v16qi)_mm_shuffle_epi8((__m128i)a, (__m128i)mask);
-}
-static inline size_t lsd(size_t msb, size_t lsb, unsigned shift) {
-	__asm__("shld %%cl, %1, %0" : "+rm" (msb) : "r" (lsb), "c" (shift));
-	return msb;
-}
-// fixing GCC's defect
-#if defined(__GNUC__) && !defined(__clang__)
-static inline __m128i _mm_movpi64_epi64(__m64 a) {
-	__m128i b;
-	__asm__("movq2dq %1, %0" : "=x" (b) : "y" (a));
-	return b;
-}
-#endif // __GNUC__
-#else // !__SSSE3__
-#error "Add -mssse3 or more recent"
-#endif
-
-#ifndef __clang__
-#define __builtin_shufflevector(a, b, ...) __builtin_shuffle(a, b, (typeof(a)){__VA_ARGS__})
-#endif
 
 
 

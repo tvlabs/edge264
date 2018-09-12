@@ -196,13 +196,15 @@ static void check_ctx(int label) {
 	static int B8x8[4] = {-2, -3, 0, 1};
 	int offsetB = (ctx->ps.width / 16 + 1) * sizeof(*mb);
 	for (int i = 0; i < 16; i++) {
-		predicate(ctx->Intra4x4PredMode_A[i] == (A4x4[i] >= 0 ? A4x4[i] : -sizeof(*mb) - A4x4[i]));
 		predicate(ctx->Intra4x4PredMode_B[i] == (B4x4[i] >= 0 ? B4x4[i] : -offsetB - B4x4[i]));
+		// predicate(ctx->coded_block_flags_4x4_A[i] == (A4x4[i] >= 0 ? A4x4[i] : -sizeof(*mb) - A4x4[i]));
+		// predicate(ctx->coded_block_flags_4x4_B[i] == (B4x4[i] >= 0 ? B4x4[i] : -offsetB - B4x4[i]));
 		
 	}
 	for (int i = 0; i < 4; i++) {
-		predicate(ctx->CodedBlockPatternLuma_A[i] == (A8x8[i] >= 0 ? A8x8[i] : -sizeof(*mb) - A8x8[i]));
 		predicate(ctx->CodedBlockPatternLuma_B[i] == (B8x8[i] >= 0 ? B8x8[i] : -offsetB - B8x8[i]));
+		// predicate(ctx->coded_block_flags_8x8_A[i] == (A8x8[i] >= 0 ? A8x8[i] : -sizeof(*mb) - A8x8[i]));
+		// predicate(ctx->coded_block_flags_8x8_B[i] == (B8x8[i] >= 0 ? B8x8[i] : -offsetB - B8x8[i]));
 		
 	}
 }

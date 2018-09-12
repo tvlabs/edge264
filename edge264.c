@@ -390,13 +390,10 @@ static void initialise_decoding_context(Edge264_stream *e)
 	int offsetA = sizeof(*mb);
 	int offsetB = (ctx->ps.width / 16 + 1) * sizeof(*mb);
 	v8hi h16 = {16, 16, 16, 16, 16, 16, 16, 16};
-	ctx->A4x4_i8[0] = (v8hi){5 - offsetA, 0, 7 - offsetA, 2, 1, 4, 3, 6};
-	ctx->A4x4_i8[1] = (v8hi){13 - offsetA, 8, 15 - offsetA, 10, 9, 12, 11, 14};
 	ctx->B4x4_i8[0] = (v4si){10 - offsetB, 11 - offsetB, 0, 1};
 	ctx->B4x4_i8[1] = (v4si){14 - offsetB, 15 - offsetB, 4, 5};
 	ctx->B4x4_i8[2] = (v4si){2, 3, 8, 9};
 	ctx->B4x4_i8[3] = (v4si){6, 7, 12, 13};
-	ctx->A8x8_i8 = (v4hi){1 - offsetA, 0, 3 - offsetA, 2};
 	ctx->B8x8_i8 = (v4si){2 - offsetB, 3 - offsetB, 0, 1};
 	
 	

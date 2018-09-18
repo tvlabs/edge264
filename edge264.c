@@ -389,56 +389,39 @@ static void initialise_decoding_context(Edge264_stream *e)
 	
 	int offsetA = sizeof(*mb);
 	int offsetB = (ctx->ps.width / 16 + 1) * sizeof(*mb);
-	v8hi h16 = {16, 16, 16, 16, 16, 16, 16, 16};
-	ctx->B4x4_i8[0] = (v4si){10 - offsetB, 11 - offsetB, 0, 1};
-	ctx->B4x4_i8[1] = (v4si){14 - offsetB, 15 - offsetB, 4, 5};
-	ctx->B4x4_i8[2] = (v4si){2, 3, 8, 9};
-	ctx->B4x4_i8[3] = (v4si){6, 7, 12, 13};
-	ctx->B8x8_i8 = (v4si){2 - offsetB, 3 - offsetB, 0, 1};
+	ctx->A4x4_8[0] = (v8hi){5 - offsetA, 0, 7 - offsetA, 2, 1, 4, 3, 6};
+	ctx->A4x4_8[1] = (v8hi){13 - offsetA, 8, 15 - offsetA, 10, 9, 12, 11, 14};
+	ctx->B4x4_8[0] = (v4si){10 - offsetB, 11 - offsetB, 0, 1};
+	ctx->B4x4_8[1] = (v4si){14 - offsetB, 15 - offsetB, 4, 5};
+	ctx->B4x4_8[2] = (v4si){2, 3, 8, 9};
+	ctx->B4x4_8[3] = (v4si){6, 7, 12, 13};
+	ctx->A8x8_8[0] = (v4hi){1 - offsetA, 0, 3 - offsetA, 2};
+	ctx->B8x8_8[0] = (v4si){2 - offsetB, 3 - offsetB, 0, 1};
+	if (ctx->ps.ChromaArrayType == 1) {
+		ctx->A4x4_8[2] = (v8hi){17 - offsetA, 16, 19 - offsetA, 18, 21 - offsetA, 20, 23 - offsetA, 22};
+		ctx->B4x4_8[4] = (v4si){18 - offsetB, 19 - offsetB, 16, 17};
+		ctx->B4x4_8[5] = (v4si){22 - offsetB, 23 - offsetB, 20, 21};
+	} else if (ctx->ps.ChromaArrayType == 2) {
+		ctx->A4x4_8[2] = (v8hi){17 - offsetA, 16, 19 - offsetA, 18, 21 - offsetA, 20, 23 - offsetA, 22};
+		ctx->A4x4_8[3] = (v8hi){25 - offsetA, 24, 27 - offsetA, 26, 29 - offsetA, 28, 31 - offsetA, 30};
+		ctx->B4x4_8[4] = (v4si){22 - offsetB, 23 - offsetB, 16, 17};
+		ctx->B4x4_8[5] = (v4si){18, 19, 20, 21};
+		ctx->B4x4_8[6] = (v4si){30 - offsetB, 31 - offsetB, 24, 25};
+		ctx->B4x4_8[7] = (v4si){26, 27, 28, 29};
+	} else if (ctx->ps.ChromaArrayType == 3) {
+		v8hi h16 = {16, 16, 16, 16, 16, 16, 16, 16};
+		for (int i = 2; i < 6; i++)
+			ctx->A4x4_8[i] = ctx->A4x4_8[i - 2] + h16;
+		v4si s16 = {16, 16, 16, 16};
+		for (int i = 4; i < 12; i++)
+			ctx->B4x4_8[i] = ctx->B4x4_8[i - 4] + s16;
+		ctx->A8x8_8[1] = (v4hi){5 - offsetA, 4, 7 - offsetA, 6};
+		ctx->A8x8_8[2] = (v4hi){9 - offsetA, 8, 11 - offsetA, 10};
+		ctx->B8x8_8[1] = (v4si){6 - offsetB, 7 - offsetB, 4, 5};
+		ctx->B8x8_8[2] = (v4si){10 - offsetB, 11 - offsetB, 8, 9};
+	}
 	
-	
-	ctx->A4x4_v[0] = (v8hi){5 - offsetA, 0, 7 - offsetA, 2, 1, 4, 3, 6};
-	ctx->A4x4_v[1] = (v8hi){13 - offsetA, 8, 15 - offsetA, 10, 9, 12, 11, 14};
-	ctx->A4x4_v[2] = ctx->A4x4_v[0] + h16;
-	ctx->A4x4_v[3] = ctx->A4x4_v[1] + h16;
-	ctx->A4x4_v[4] = ctx->A4x4_v[2] + h16;
-	ctx->A4x4_v[5] = ctx->A4x4_v[3] + h16;
-	
-	v4si s16 = {16, 16, 16, 16};
-	ctx->B4x4_v[0] = (v4si){10 - offsetB, 11 - offsetB, 0, 1};
-	ctx->B4x4_v[1] = (v4si){14 - offsetB, 15 - offsetB, 4, 5};
-	ctx->B4x4_v[2] = (v4si){2, 3, 8, 9};
-	ctx->B4x4_v[3] = (v4si){6, 7, 12, 13};
-	ctx->B4x4_v[4] = ctx->B4x4_v[0] + s16;
-	ctx->B4x4_v[5] = ctx->B4x4_v[1] + s16;
-	ctx->B4x4_v[6] = ctx->B4x4_v[2] + s16;
-	ctx->B4x4_v[7] = ctx->B4x4_v[3] + s16;
-	ctx->B4x4_v[8] = ctx->B4x4_v[4] + s16;
-	ctx->B4x4_v[9] = ctx->B4x4_v[5] + s16;
-	ctx->B4x4_v[10] = ctx->B4x4_v[6] + s16;
-	ctx->B4x4_v[11] = ctx->B4x4_v[7] + s16;
-	
-	v4hi h4 = {4, 4, 4, 4};
-	ctx->A8x8_v[0] = (v4hi){1 - (int)sizeof(*mb), 0, 3 - (int)sizeof(*mb), 2};
-	ctx->A8x8_v[1] = ctx->A8x8_v[0] + h4;
-	ctx->A8x8_v[2] = ctx->A8x8_v[1] + h4;
-	
-	v4si s4 = {4, 4, 4, 4};
-	ctx->B8x8_v[0] = (v4si){2 - offsetB, 3 - offsetB, 0, 1};
-	ctx->B8x8_v[1] = ctx->B8x8_v[0] + s4;
-	ctx->B8x8_v[2] = ctx->B8x8_v[1] + s4;
-	
-	v8hi h8 = {8, 8, 8, 8, 8, 8, 8, 8};
-	ctx->cbf_chromaA_v[0] = (v8hi){17 - offsetA, 16, 19 - offsetA, 18, 21 - offsetA, 20, 23 - offsetA, 22};
-	ctx->cbf_chromaA_v[1] = ctx->cbf_chromaA_v[0] + h8;
-	
-	int is422 = ctx->ps.ChromaArrayType - 1;
-	ctx->cbf_chromaB_v[0] = (v4si){18 - offsetB, 19 - offsetB, 16, 17};
-	ctx->cbf_chromaB_v[1] = (v4si){is422 ? 18 : 22 - offsetB, is422 ? 19 : 23 - offsetB, 20, 21};
-	ctx->cbf_chromaB_v[2] = (v4si){26 - offsetB, 27 - offsetB, 24, 25};
-	ctx->cbf_chromaB_v[3] = (v4si){26, 27, 28, 29};
-	
-	for (int i = 0; i < 16; i++) { // FIXME for ChromaArrayType == 1 or 2
+	for (int i = 0; i < 16; i++) {
 		int x = (i << 2 & 4) | (i << 1 & 8);
 		int y = (i << 1 & 4) | (i & 8);
 		ctx->plane_offsets[i] = y * e->stride_Y + (ctx->ps.BitDepth_Y == 8 ? x : x * 2);
@@ -453,6 +436,16 @@ static void initialise_decoding_context(Edge264_stream *e)
 		ctx->plane_offsets[16 + i] = y * e->stride_C + (ctx->ps.BitDepth_C == 8 ? x : x * 2);
 		ctx->plane_offsets[16 + ctx->ps.ChromaArrayType * 4 + i] = ctx->plane_offsets[16 + i] + e->plane_size_C;
 	}
+	
+	// code to be revised with Inter pred
+	v4hi h4 = {4, 4, 4, 4};
+	ctx->A8x8_v[0] = (v4hi){1 - (int)sizeof(*mb), 0, 3 - (int)sizeof(*mb), 2};
+	ctx->A8x8_v[1] = ctx->A8x8_v[0] + h4;
+	ctx->A8x8_v[2] = ctx->A8x8_v[1] + h4;
+	v4si s4 = {4, 4, 4, 4};
+	ctx->B8x8_v[0] = (v4si){2 - offsetB, 3 - offsetB, 0, 1};
+	ctx->B8x8_v[1] = ctx->B8x8_v[0] + s4;
+	ctx->B8x8_v[2] = ctx->B8x8_v[1] + s4;
 }
 
 

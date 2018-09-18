@@ -190,22 +190,43 @@ static void check_ctx(int label) {
 		predicate(ctx->unavail[15] == 4);
 	}
 	
-	static int A4x4[16] = {-5, 0, -7, 2, 1, 4, 3, 6, -13, 8, -15, 10, 9, 12, 11, 14};
+	static int A4x4[16] = {5 - (int)sizeof(*mb), 0, 7 - (int)sizeof(*mb), 2, 1, 4, 3, 6, 13 - (int)sizeof(*mb), 8, 15 - (int)sizeof(*mb), 10, 9, 12, 11, 14};
+	static int A4x4_C[3][32] = {
+		{17 - (int)sizeof(*mb), 16, 19 - (int)sizeof(*mb), 18, 21 - (int)sizeof(*mb), 20, 23 - (int)sizeof(*mb), 22},
+		{17 - (int)sizeof(*mb), 16, 19 - (int)sizeof(*mb), 18, 21 - (int)sizeof(*mb), 20, 23 - (int)sizeof(*mb), 22, 25 - (int)sizeof(*mb), 24, 27 - (int)sizeof(*mb), 26, 29 - (int)sizeof(*mb), 28, 31 - (int)sizeof(*mb), 30},
+		{21 - (int)sizeof(*mb), 16, 23 - (int)sizeof(*mb), 18, 17, 20, 19, 22, 29 - (int)sizeof(*mb), 24, 31 - (int)sizeof(*mb), 26, 25, 28, 27, 30, 37 - (int)sizeof(*mb), 32, 39 - (int)sizeof(*mb), 34, 33, 36, 35, 38, 45 - (int)sizeof(*mb), 40, 47 - (int)sizeof(*mb), 42, 41, 44, 43, 46},
+	};
 	static int B4x4[16] = {-10, -11, 0, 1, -14, -15, 4, 5, 2, 3, 8, 9, 6, 7, 12, 13};
-	static int A8x8[4] = {-1, 0, -3, 2};
-	static int B8x8[4] = {-2, -3, 0, 1};
-	int offsetB = (ctx->ps.width / 16 + 1) * sizeof(*mb);
+	static int B4x4_C[3][32] = {
+		{-18, -19, 16, 17, -22, -23, 20, 21},
+		{-22, -23, 16, 17, 18, 19, 20, 21, -30, -31, 24, 25, 26, 27, 28, 29},
+		{-26, -27, 16, 17, -30, -31, 20, 21, 18, 19, 24, 25, 22, 23, 28, 29, -42, -43, 32, 33, -46, -47, 36, 37, 34, 35, 40, 41, 38, 39, 44, 45},
+	};
+	static int A8x8[12] = {1 - (int)sizeof(*mb), 0, 3 - (int)sizeof(*mb), 2, 5 - (int)sizeof(*mb), 4, 7 - (int)sizeof(*mb), 6};
+	static int B8x8[12] = {-2, -3, 0, 1, -6, -7, 4, 5, -10, -11, 8, 9};
+	int offsetB = -(ctx->ps.width / 16 + 1) * sizeof(*mb);
 	for (int i = 0; i < 16; i++) {
-		predicate(ctx->Intra4x4PredMode_B[i] == (B4x4[i] >= 0 ? B4x4[i] : -offsetB - B4x4[i]));
-		// predicate(ctx->coded_block_flags_4x4_A[i] == (A4x4[i] >= 0 ? A4x4[i] : -sizeof(*mb) - A4x4[i]));
-		// predicate(ctx->coded_block_flags_4x4_B[i] == (B4x4[i] >= 0 ? B4x4[i] : -offsetB - B4x4[i]));
-		
+		predicate(ctx->Intra4x4PredMode_A[i] == A4x4[i]);
+		predicate(ctx->Intra4x4PredMode_B[i] == (B4x4[i] >= 0 ? B4x4[i] : offsetB - B4x4[i]));
+		predicate(ctx->coded_block_flags_4x4_A[i] == A4x4[i]);
+		predicate(ctx->coded_block_flags_4x4_B[i] == (B4x4[i] >= 0 ? B4x4[i] : offsetB - B4x4[i]));
+	}
+	for (int i = 0; i < 4 << ctx->ps.ChromaArrayType; i++) {
+		predicate(ctx->coded_block_flags_4x4_A[16 + i] == A4x4_C[ctx->ps.ChromaArrayType - 1][i]);
+		int B = B4x4_C[ctx->ps.ChromaArrayType - 1][i];
+		predicate(ctx->coded_block_flags_4x4_B[16 + i] == (B >= 0 ? B : offsetB - B));
 	}
 	for (int i = 0; i < 4; i++) {
-		predicate(ctx->CodedBlockPatternLuma_B[i] == (B8x8[i] >= 0 ? B8x8[i] : -offsetB - B8x8[i]));
-		// predicate(ctx->coded_block_flags_8x8_A[i] == (A8x8[i] >= 0 ? A8x8[i] : -sizeof(*mb) - A8x8[i]));
-		// predicate(ctx->coded_block_flags_8x8_B[i] == (B8x8[i] >= 0 ? B8x8[i] : -offsetB - B8x8[i]));
-		
+		predicate(ctx->CodedBlockPatternLuma_A[i] == A8x8[i]);
+		predicate(ctx->CodedBlockPatternLuma_B[i] == (B8x8[i] >= 0 ? B8x8[i] : offsetB - B8x8[i]));
+		predicate(ctx->coded_block_flags_8x8_A[i] == A8x8[i]);
+		predicate(ctx->coded_block_flags_8x8_B[i] == (B8x8[i] >= 0 ? B8x8[i] : offsetB - B8x8[i]));
+		if (ctx->ps.ChromaArrayType == 3) {
+			predicate(ctx->coded_block_flags_8x8_A[4 + i] == A8x8[4 + i]);
+			predicate(ctx->coded_block_flags_8x8_A[8 + i] == A8x8[8 + i]);
+			predicate(ctx->coded_block_flags_8x8_B[4 + i] == (B8x8[4 + i] >= 0 ? B8x8[4 + i] : offsetB - B8x8[4 + i]));
+			predicate(ctx->coded_block_flags_8x8_B[8 + i] == (B8x8[8 + i] >= 0 ? B8x8[8 + i] : offsetB - B8x8[8 + i]));
+		}
 	}
 }
 

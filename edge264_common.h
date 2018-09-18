@@ -2,6 +2,7 @@
 // TODO: Make Edge264_flags a v16qu
 // TODO: Store mvs in order, access neighbours with a table initialized with strides
 // TODO: When implementing inter pred, split mb storage to reduce offsets to bytes
+
 #ifndef EDGE264_COMMON_H
 #define EDGE264_COMMON_H
 
@@ -131,13 +132,9 @@ typedef struct
 	uint8_t *plane;
 	v8hi clip, clip_Y, clip_C; // vectors of maximum sample values
 	union { int8_t unavail[16]; v16qi unavail_v; }; // unavailability of neighbouring A/B/C/D blocks
-	union { int16_t A4x4[48]; v8hi A4x4_v[6]; };
-	union { int32_t B4x4[48]; v4si B4x4_v[12]; };
 	union { int16_t A8x8[12]; v4hi A8x8_v[3]; };
 	union { int32_t B8x8[12]; v4si B8x8_v[3]; };
 	union { int32_t C8x8[8]; v4si C8x8_v[2]; };
-	union { int16_t cbf_chromaA[16]; v8hi cbf_chromaA_v[2]; };
-	union { int32_t cbf_chromaB[16]; v4si cbf_chromaB_v[4]; };
 	union { int16_t mvA[32]; v8hi mvA_v[4]; };
 	union { int32_t mvB[32]; v4si mvB_v[8]; };
 	union { int32_t mvC[32]; v4si mvC_v[8]; };
@@ -152,8 +149,10 @@ typedef struct
 	union { int32_t d[64]; v4si d_v[16]; v8si d_V[8]; }; // scaled residual coefficients
 	
 	// macroblock offsets (relative to the first element of each array)
-	union { int32_t Intra4x4PredMode_B[16]; v4si B4x4_i8[4]; };
-	union { int32_t CodedBlockPatternLuma_B[4]; v4si B8x8_i8; };
+	union { int16_t coded_block_flags_4x4_A[48]; int16_t Intra4x4PredMode_A[16]; v8hi A4x4_8[6]; };
+	union { int32_t coded_block_flags_4x4_B[48]; int32_t Intra4x4PredMode_B[16]; v4si B4x4_8[12]; };
+	union { int16_t coded_block_flags_8x8_A[12]; int16_t CodedBlockPatternLuma_A[4]; v4hi A8x8_8[3]; };
+	union { int32_t coded_block_flags_8x8_B[12]; int32_t CodedBlockPatternLuma_B[4]; v4si B8x8_8[3]; };
 	
 	// large stuff
 	v16qu cabac[64];
@@ -324,12 +323,6 @@ static inline __m128i _mm_movpi64_epi64(__m64 a) {
 #ifndef __clang__
 #define __builtin_shufflevector(a, b, ...) __builtin_shuffle(a, b, (typeof(a)){__VA_ARGS__})
 #endif
-
-
-
-// neighbouring offsets relative to first element
-static int16_t Intra4x4PredMode_A[16] = {5 - (int)sizeof(*mb), 0, 7 - (int)sizeof(*mb), 2, 1, 4, 3, 6, 13 - (int)sizeof(*mb), 8, 15 - (int)sizeof(*mb), 10, 9, 12, 11, 14};
-static int16_t CodedBlockPatternLuma_A[4] = {1 - (int)sizeof(*mb), 0, 3 - (int)sizeof(*mb), 2};
 
 
 

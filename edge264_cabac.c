@@ -941,7 +941,7 @@ static __attribute__((noinline)) int parse_residual_block(unsigned coded_block_f
  * as above to read all bypass bits at once.
  */
 static __attribute__((noinline)) int parse_mvd(int pos, int ctxBase) {
-	int sum = mb->absMvdComp[ctx->A4x4[pos]] + mb->absMvdComp[ctx->B4x4[pos]];
+	int sum = 0; //mb->absMvdComp[ctx->A4x4[pos]] + mb->absMvdComp[ctx->B4x4[pos]];
 	int ctxIdx = ctxBase + (sum >= 3) + (sum > 32);
 	int mvd = 0;
 	while (mvd < 9 && get_ae(ctxIdx))
@@ -1043,7 +1043,7 @@ static __attribute__((noinline)) void parse_coded_block_pattern() {
 	check_ctx(RESIDUAL_CBP_LABEL);
 	// Luma prefix
 	for (int i = 0; i < 4; i++) {
-		int cbpA = mb_i8[offsetof(Edge264_macroblock, CodedBlockPatternLuma) + CodedBlockPatternLuma_A[i]];
+		int cbpA = mb_i8[offsetof(Edge264_macroblock, CodedBlockPatternLuma) + ctx->CodedBlockPatternLuma_A[i]];
 		int cbpB = mb_i8[offsetof(Edge264_macroblock, CodedBlockPatternLuma) + ctx->CodedBlockPatternLuma_B[i]];
 		mb->CodedBlockPatternLuma[i] = get_ae(-(-76 + cbpA + cbpB * 2));
 	}
@@ -1158,9 +1158,9 @@ static __attribute__((noinline)) int parse_chroma_residual()
 		ctx->d[0] = ctx->d[16 + ctx->BlkIdx];
 		int coded_block_flag = 0;
 		if (mb->f.CodedBlockPatternChromaAC) {
-			coded_block_flag = get_ae(ctx->ctxIdxOffsets[0] +
-				mb->coded_block_flags_4x4[ctx->cbf_chromaA[ctx->BlkIdx - 16]] +
-				mb->coded_block_flags_4x4[ctx->cbf_chromaB[ctx->BlkIdx - 16]] * 2);
+			int cbfA = mb_i8[offsetof(Edge264_macroblock, coded_block_flags_4x4) + ctx->coded_block_flags_4x4_A[ctx->BlkIdx]];
+			int cbfB = mb_i8[offsetof(Edge264_macroblock, coded_block_flags_4x4) + ctx->coded_block_flags_4x4_B[ctx->BlkIdx]];
+			coded_block_flag = get_ae(ctx->ctxIdxOffsets[0] + cbfA + cbfB * 2);
 		}
 		mb->coded_block_flags_4x4[ctx->BlkIdx] = coded_block_flag;
 		check_ctx(RESIDUAL_CHROMA_LABEL);
@@ -1207,9 +1207,9 @@ static __attribute__((noinline)) int parse_Intra16x16_residual()
 			ctx->d[0] = ctx->d[16 + (ctx->BlkIdx & 15)];
 			int coded_block_flag = 0;
 			if (mb->CodedBlockPatternLuma[ctx->BlkIdx >> 2]) {
-				coded_block_flag = get_ae(ctx->ctxIdxOffsets[0] +
-					mb->coded_block_flags_4x4[ctx->A4x4[ctx->BlkIdx]] +
-					mb->coded_block_flags_4x4[ctx->B4x4[ctx->BlkIdx]] * 2);
+				int cbfA = mb_i8[offsetof(Edge264_macroblock, coded_block_flags_4x4) + ctx->coded_block_flags_4x4_A[ctx->BlkIdx]];
+				int cbfB = mb_i8[offsetof(Edge264_macroblock, coded_block_flags_4x4) + ctx->coded_block_flags_4x4_B[ctx->BlkIdx]];
+				coded_block_flag = get_ae(ctx->ctxIdxOffsets[0] + cbfA + cbfB * 2);
 			}
 			mb->coded_block_flags_4x4[ctx->BlkIdx] = coded_block_flag;
 			check_ctx(RESIDUAL_4x4_LABEL);
@@ -1257,9 +1257,9 @@ static __attribute__((noinline)) int parse_NxN_residual()
 				ctx->d_v[0] = ctx->d_v[1] = ctx->d_v[2] = ctx->d_v[3] = (v4si){};
 				int coded_block_flag = 0;
 				if (mb->CodedBlockPatternLuma[ctx->BlkIdx >> 2]) {
-					coded_block_flag = get_ae(ctx->ctxIdxOffsets[0] +
-						mb->coded_block_flags_4x4[ctx->A4x4[ctx->BlkIdx]] +
-						mb->coded_block_flags_4x4[ctx->B4x4[ctx->BlkIdx]] * 2);
+					int cbfA = mb_i8[offsetof(Edge264_macroblock, coded_block_flags_4x4) + ctx->coded_block_flags_4x4_A[ctx->BlkIdx]];
+					int cbfB = mb_i8[offsetof(Edge264_macroblock, coded_block_flags_4x4) + ctx->coded_block_flags_4x4_B[ctx->BlkIdx]];
+					coded_block_flag = get_ae(ctx->ctxIdxOffsets[0] + cbfA + cbfB * 2);
 				}
 				mb->coded_block_flags_4x4[ctx->BlkIdx] = coded_block_flag;
 				check_ctx(RESIDUAL_4x4_LABEL);
@@ -1283,9 +1283,9 @@ static __attribute__((noinline)) int parse_NxN_residual()
 				int luma8x8BlkIdx = ctx->BlkIdx >> 2;
 				int coded_block_flag = mb->CodedBlockPatternLuma[luma8x8BlkIdx & 3];
 				if (coded_block_flag && ctx->ps.ChromaArrayType == 3) {
-					coded_block_flag = get_ae(ctx->ctxIdxOffsets[0] +
-						mb->coded_block_flags_8x8[ctx->A8x8[luma8x8BlkIdx]] +
-						mb->coded_block_flags_8x8[ctx->B8x8[luma8x8BlkIdx]] * 2);
+					int cbfA = mb_i8[offsetof(Edge264_macroblock, coded_block_flags_8x8) + ctx->coded_block_flags_8x8_A[luma8x8BlkIdx]];
+					int cbfB = mb_i8[offsetof(Edge264_macroblock, coded_block_flags_8x8) + ctx->coded_block_flags_8x8_B[luma8x8BlkIdx]];
+					coded_block_flag = get_ae(ctx->ctxIdxOffsets[0] + cbfA + cbfB * 2);
 				}
 				mb->coded_block_flags_8x8[luma8x8BlkIdx] = coded_block_flag;
 				mb->coded_block_flags_4x4_s[luma8x8BlkIdx] = coded_block_flag ? 0x01010101 : 0;
@@ -1492,7 +1492,7 @@ static __attribute__((noinline)) int parse_inter_pred()
 static __attribute__((noinline)) int parse_intraNxN_pred_mode(int luma4x4BlkIdx)
 {
 	// dcPredModePredictedFlag is enforced by putting -2
-	int intraMxMPredModeA = mb_i8[offsetof(Edge264_macroblock, Intra4x4PredMode) + Intra4x4PredMode_A[luma4x4BlkIdx]];
+	int intraMxMPredModeA = mb_i8[offsetof(Edge264_macroblock, Intra4x4PredMode) + ctx->Intra4x4PredMode_A[luma4x4BlkIdx]];
 	int intraMxMPredModeB = mb_i8[offsetof(Edge264_macroblock, Intra4x4PredMode) + ctx->Intra4x4PredMode_B[luma4x4BlkIdx]];
 	int mode = abs(min(intraMxMPredModeA, intraMxMPredModeB));
 	if (!get_ae(68)) {

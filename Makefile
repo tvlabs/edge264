@@ -20,3 +20,7 @@ edge264$(SUFFIX).o: edge264.c edge264.h edge264_common.h edge264_golomb.c edge26
 ifeq ($(TRACE),)
 	$(CC) -o edge264_test$(SUFFIX) $(CFLAGS) edge264_test.c edge264$(SUFFIX).o
 endif
+
+.PHONY: clean
+clean:
+	rm edge264-*.o edge264_play-* edge264_test-*

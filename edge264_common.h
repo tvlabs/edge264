@@ -1,6 +1,7 @@
 // TODO: Remove all bitfields which are not flags in tests
 // TODO: Make Edge264_flags a v16qu
 // TODO: Store mvs in order, access neighbours with a table initialized with strides
+// TODO: When implementing inter pred, split mb storage to reduce offsets to bytes
 #ifndef EDGE264_COMMON_H
 #define EDGE264_COMMON_H
 

@@ -11,6 +11,15 @@
 
 #include "edge264_common.h"
 
+static void block() {
+	for (int y = 0; y < 16; y++) {
+		for (int x = 0; x < 16; x++)
+			fprintf(stderr, "%02x ", ctx->plane_Y[y * ctx->ps.width + x]);
+		fprintf(stderr, "\n");
+	}
+	fprintf(stderr, "\n");
+}
+
 // cabac_init_idc==0 for I frames.
 static const int8_t context_init[4][1024][2] __attribute__((aligned(16))) = {{
 	{  20, -15}, {   2,  54}, {   3,  74}, {  20, -15}, {   2,  54}, {   3,  74},
@@ -860,7 +869,7 @@ static __attribute__((noinline)) int parse_residual_block(unsigned coded_block_f
 {
 	// Sharing this test here should limit branch predictor cache pressure.
 	if (!coded_block_flag)
-		return 0;//decode_samples();
+		return decode_samples();
 		
 	// Storage of significant_coeff_flags is reversed compared to the spec.
 	uint64_t significant_coeff_flags = 0;
@@ -930,8 +939,7 @@ static __attribute__((noinline)) int parse_residual_block(unsigned coded_block_f
 		// Though not very efficient, this gets optimised out easily :)
 		fprintf(stderr, "coeffLevel[%d]: %d\n", endIdx - ctz64(significant_coeff_flags), d < 0 ? -coeff_level : coeff_level);
 	} while ((significant_coeff_flags &= significant_coeff_flags - 1) != 0);
-	fprintf(stderr, "decoding!\n");
-	return 0;//decode_samples();
+	return decode_samples();
 }
 
 
@@ -1754,7 +1762,7 @@ static __attribute__((noinline)) int PAFF_parse_slice_data()
 	
 	ctx->mb_qp_delta_non_zero = 0;
 	while (1) {
-		fprintf(stderr, "\n********** %u **********\n", ctx->ps.width * ctx->y / 256 + ctx->x / 16);
+		fprintf(stderr, "********** %u **********\n", ctx->ps.width * ctx->y / 256 + ctx->x / 16);
 		check_ctx(LOOP_START_LABEL);
 		Edge264_macroblock *mbB = mb - (ctx->ps.width >> 4) - 1;
 		v16qi flagsA = mb[-1].f.v;
@@ -1782,7 +1790,7 @@ static __attribute__((noinline)) int PAFF_parse_slice_data()
 		
 		// break on end_of_slice_flag
 		int end_of_slice_flag = get_ae(276);
-		fprintf(stderr, "end_of_slice_flag: %x\n", end_of_slice_flag);
+		fprintf(stderr, "end_of_slice_flag: %x\n\n", end_of_slice_flag);
 		if (end_of_slice_flag)
 			break;
 		

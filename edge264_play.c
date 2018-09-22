@@ -1,3 +1,8 @@
+/**
+ * Plays the file given as stdin in a bare window.
+ * If an optional reference yuv file is provided as argument, it will be
+ * checked against each frame for strict conformance.
+ */
 #include <assert.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -44,12 +49,15 @@ int print_frame(Edge264_stream *e, int i) {
 	glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
 	glfwSwapBuffers(window);
 	
-	// is user closing the window?
+	// Is user closing the window?
 	glfwPollEvents();
 	if (glfwWindowShouldClose(window)) {
 		glfwTerminate();
 		exit(0);
 	}
+	
+	// Does this frame match the reference?
+	
 	return 0;
 }
 

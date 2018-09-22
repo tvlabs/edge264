@@ -1,0 +1,7 @@
+*
+!.gitignore
+!edge264*.c
+!edge264*.h
+!LICENSE_BSD.txt
+!Makefile
+!*.md

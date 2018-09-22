@@ -73,10 +73,14 @@ typedef struct {
 } Edge264_parameter_set;
 
 typedef struct Edge264_stream {
-	uint8_t *DPB;
+	// These four fields must be set prior to decoding
+	const uint8_t *CPB;
+	const uint8_t *end;
 	int (*output_frame)(struct Edge264_stream*, int);
-	void *user;
-	int8_t error; // -1=decoding error, 1=unsupported stream
+	void *user; // optional
+	
+	uint8_t *DPB;
+	int8_t ret; // -2=error, -1=unsupported, otherwise output
 	int8_t currPic; // index of next available DPB slot
 	int16_t stride_Y;
 	int16_t stride_C;
@@ -96,7 +100,8 @@ typedef struct Edge264_stream {
 } Edge264_stream;
 
 
-const uint8_t *Edge264_find_start_code(int n, const uint8_t *CPB, size_t len);
-const uint8_t *Edge264_decode_NAL(Edge264_stream *e, const uint8_t *CPB, size_t len);
+const uint8_t *Edge264_find_start_code(int n, const uint8_t *CPB, const uint8_t *end);
+int Edge264_decode_NAL(Edge264_stream *e);
+int Edge264_reset(Edge264_stream *e);
 
 #endif

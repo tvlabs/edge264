@@ -30,7 +30,7 @@ static int check_macroblock(const uint8_t *p, const uint8_t *q, int MbWidth, int
 			printf("%02x ", p[offset] ^ q[offset]);
 		putchar('\n');
 	}
-	return -1;
+	return -2;
 }
 
 
@@ -47,7 +47,7 @@ static int check_frame(Edge264_stream *e, int idx) {
 	while (base < e->plane_size_Y) {
 		for (int offset = base; offset < base + e->stride_Y; offset += MbStrideY) {
 			if (check_macroblock(p + offset, e->user + offset, MbStrideY, 16, e->stride_Y))
-				return -1;
+				return -2;
 		}
 		base += e->stride_Y * 16;
 	}
@@ -56,7 +56,7 @@ static int check_frame(Edge264_stream *e, int idx) {
 	while (base < e->plane_size_Y + e->plane_size_C) {
 		for (int offset = base; offset < base + e->stride_C; offset += MbStrideC) {
 			if (check_macroblock(p + offset, e->user + offset, MbStrideC, MbHeightC, e->stride_C))
-				return -1;
+				return -2;
 		}
 		base += e->stride_C * MbHeightC;
 	}
@@ -65,7 +65,7 @@ static int check_frame(Edge264_stream *e, int idx) {
 	while (base < e->plane_size_Y + e->plane_size_C * 2) {
 		for (int offset = base; offset < base + e->stride_C; offset += MbStrideC) {
 			if (check_macroblock(p + offset, e->user + offset, MbStrideC, MbHeightC, e->stride_C))
-				return -1;
+				return -2;
 		}
 		base += e->stride_C * MbHeightC;
 	}
@@ -104,20 +104,20 @@ int main() {
 		// memory-map the two files
 		fstat(clip, &stC);
 		uint8_t *cpb = mmap(NULL, stC.st_size, PROT_READ, MAP_SHARED, clip, 0);
-		uint8_t *end = cpb + stC.st_size;
 		fstat(yuv, &stD);
 		uint8_t *dpb = mmap(NULL, stD.st_size, PROT_READ, MAP_SHARED, yuv, 0);
 		assert(cpb!=MAP_FAILED&&dpb!=MAP_FAILED);
+		e.CPB = cpb + 4;
+		e.end = cpb + stC.st_size;
 		e.user = dpb;
 		
 		// parse the file and FAIL on any error
-		for (const uint8_t *r = cpb + 4; e.error == 0 && r < end; )
-			r = Edge264_decode_NAL(&e, r, end - r);
-		printf("%s: %s\n" RESET, entry->d_name, e.error < 0 ? RED "FAIL" :
-			e.error > 0 ? YELLOW "UNSUPPORTED" : GREEN "PASS");
+		while (Edge264_decode_NAL(&e) >= 0 && e.CPB < e.end);
+		printf("%s: %s\n" RESET, entry->d_name, e.ret == -2 ? RED "FAIL" :
+			e.ret == -1 ? YELLOW "UNSUPPORTED" : GREEN "PASS");
 		
 		// close everything
-		Edge264_decode_NAL(&e, (uint8_t[]){11}, 1);
+		Edge264_reset(&e);
 		munmap(cpb, stC.st_size);
 		munmap(dpb, stD.st_size);
 		close(clip);

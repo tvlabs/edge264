@@ -9,7 +9,7 @@
  *   the second part is simple and branchless.
  * _ The same as above but with unaligned reads, to make 1 read for small codes
  *   (which are the most frequent). This part is frustrating, because it adds
- *   complexity while still being useful.
+ *   complexity but is still useful.
  * _ Removing emulation_prevention_three_bytes on the fly to a size_t[2] buffer,
  *   and putting the refill code in a tail call. This approach incurs a branch
  *   in the refill function, but has been the simplest to maintain so far.
@@ -49,29 +49,34 @@ size_t refill(int shift, size_t ret)
 			x = _mm_loadu_si128((__m128i *)(CPB - 2));
 			memcpy(&bits, CPB, sizeof(size_t));
 			bits = big_endian(bits);
-			CPB += sizeof(size_t);
 		} else {
 			x = _mm_srl_si128(_mm_loadu_si128((__m128i *)(ctx->end - 16)), CPB - (ctx->end - 16));
 			bits = big_endian(((v16u)x)[0]);
-			CPB += sizeof(size_t);
-			CPB = CPB < ctx->end ? CPB : ctx->end;
+			CPB = CPB < ctx->end - sizeof(size_t) ? CPB : ctx->end - sizeof(size_t);
 		}
 		
 		// ignore words without a zero odd byte
+		// FIXME: faster without pre-test?
 		unsigned mask = _mm_movemask_epi8(_mm_cmpeq_epi8(x, _mm_setzero_si128()));
 		if (mask & (SIZE_BIT == 32 ? 0xa : 0xaa)) {
 			x = _mm_srli_si128(x, 2);
-			mask &= mask >> 1 & _mm_movemask_epi8(_mm_cmpeq_epi8(x, _mm_set1_epi8(3)));
+			mask &= mask >> 1 & _mm_movemask_epi8(_mm_cmpgt_epi8(_mm_set1_epi8(4), x));
 			
 			// iterate on and remove every emulation_prevention_three_byte
 			for (; mask & (SIZE_BIT == 32 ? 0xf : 0xff); mask = (mask & (mask - 1)) >> 1, CPB++) {
 				int i = __builtin_ctz(mask);
+				
+				// for a start code, stop at the last byte
+				if (CPB[i] < 3) {
+					CPB += i - sizeof(size_t);
+					break;
+				}
 				x = _mm_shuffle_epi8(x, (__m128i)shuf[i]);
 				bits = big_endian(((v16u)x)[0]);
 			}
 		}
 		ctx->RBSP[1] = bits;
-		ctx->CPB = CPB;
+		ctx->CPB = CPB + sizeof(size_t);
 	}
 	return ret;
 }

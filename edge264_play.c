@@ -147,7 +147,6 @@ int main() {
 	struct stat st;
 	fstat(0, &st);
 	uint8_t *start = mmap(NULL, st.st_size, PROT_READ, MAP_SHARED, 0, 0);
-	const uint8_t *end = start + st.st_size;
 	assert(start!=MAP_FAILED);
 	
 	// parse and dump the file to HTML
@@ -158,11 +157,14 @@ int main() {
 		"<head><meta charset=\"UTF-8\"/><title>NAL headers</title></head>\n"
 		"<body>\n");
 #endif
-	Edge264_stream e = {.output_frame = print_frame};
+	Edge264_stream e = {
+		.CPB = start + 4,
+		.end = start + st.st_size,
+		.output_frame = print_frame
+	};
 	int count = 0;
-	for (const uint8_t *r = start + 4; r < end; ) {
-		count += (*r & 0x1F) <= 5;
-		r = Edge264_decode_NAL(&e, r, end - r);
+	while (Edge264_decode_NAL(&e) >= 0 && e.CPB < e.end) {
+		count += (*e.CPB & 0x1F) <= 5;
 	}
 #ifdef TRACE
 	printf("</body>\n"

@@ -42,17 +42,22 @@ static const v16qu Default_8x8_Inter[4] = {
 
 
 
+/**
+ * This function scans memory for the three-byte 00n pattern, and returns
+ * a pointer to the first following byte.
+ *
+ * It uses aligned reads, but won't overread past 16-byte boundaries.
+ */
 #ifdef __SSSE3__
-const uint8_t *Edge264_find_start_code(int n, const uint8_t *CPB, size_t len) {
+const uint8_t *Edge264_find_start_code(int n, const uint8_t *CPB, const uint8_t *end) {
 	const __m128i zero = _mm_setzero_si128();
 	const __m128i xN = _mm_set1_epi8(n);
 	const __m128i *p = (__m128i *)((uintptr_t)CPB & -16);
-	const uint8_t *end = CPB + len;
 	unsigned z = (_mm_movemask_epi8(_mm_cmpeq_epi8(*p, zero)) & -1u << ((uintptr_t)CPB & 15)) << 2, c;
 	
 	// no heuristic here since we are limited by memory bandwidth anyway
 	while (!(c = z & z >> 1 & _mm_movemask_epi8(_mm_cmpeq_epi8(*p, xN)))) {
-		if (++p >= (__m128i *)end)
+		if ((uint8_t *)++p >= end)
 			return end;
 		z = z >> 16 | _mm_movemask_epi8(_mm_cmpeq_epi8(*p, zero)) << 2;
 	}
@@ -60,6 +65,24 @@ const uint8_t *Edge264_find_start_code(int n, const uint8_t *CPB, size_t len) {
 	return (res < end) ? res : end;
 }
 #endif
+
+
+
+/** Deallocates the picture buffer, then resets e. */
+int Edge264_reset(Edge264_stream *e) {
+	if (e->DPB != NULL) {
+		free(e->DPB);
+		e->DPB = NULL;
+		e->currPic = 0;
+		e->output_flags = 0;
+		e->reference_flags = 0;
+		e->long_term_flags = 0;
+		e->prevFrameNum = 0;
+		e->prevPicOrderCnt = 0;
+	}
+	e->ret = 0;
+	return 0;
+}
 
 
 
@@ -453,24 +476,25 @@ static void initialise_decoding_context(Edge264_stream *e)
 /**
  * This function outputs pictures until a free DPB slot is found (C.4.4).
  */
-static __attribute__((noinline)) void bump_pictures(Edge264_stream *e) {
+static __attribute__((noinline)) int bump_pictures(Edge264_stream *e) {
+	int output = 16;
 	while (1) {
+		unsigned r = e->reference_flags;
+		unsigned o = e->output_flags;
+		e->currPic = __builtin_ctz(~(uint16_t)(r | r >> 16 | o));
+		if (__builtin_popcount(o) <= ctx->ps.max_dec_frame_buffering && e->currPic <= ctx->ps.max_dec_frame_buffering)
+			break;
 		int best = INT_MAX;
-		int output = 0;
-		int num = 0;
-		for (unsigned o = e->output_flags; o != 0; o &= o - 1, num++) {
+		for (; o != 0; o &= o - 1) {
 			int i = __builtin_ctz(o);
 			if (best > e->FieldOrderCnt[i])
 				best = e->FieldOrderCnt[output = i];
 		}
-		unsigned r = e->reference_flags;
-		e->currPic = __builtin_ctz(~(uint16_t)(r | r >> 16 | e->output_flags));
-		if (num <= ctx->ps.max_dec_frame_buffering && e->currPic <= ctx->ps.max_dec_frame_buffering)
-			break;
 		e->output_flags ^= 1 << output;
 		if (e->output_frame != NULL)
-			e->error = e->output_frame(e, output);
+			e->ret = e->output_frame(e, output);
 	}
+	return output;
 }
 
 
@@ -479,16 +503,10 @@ static __attribute__((noinline)) void bump_pictures(Edge264_stream *e) {
  * This function matches slice_header() in 7.3.3, which it parses while updating
  * the DPB and initialising slice data for further decoding. Pictures are output
  * through bumping.
- *
- * As with parameter sets, parsing the slice header updates a local snapshot
- * structure, which is committed once the entire slice is decoded.
  */
-static const uint8_t *parse_slice_layer_without_partitioning(Edge264_stream *e,
-	int nal_ref_idc, int nal_unit_type)
+static int parse_slice_layer_without_partitioning(Edge264_stream *e)
 {
 	static const char * const slice_type_names[5] = {"P", "B", "I", "SP", "SI"};
-	ctx->non_ref_flag = (nal_ref_idc == 0);
-	ctx->IdrPicFlag = (nal_unit_type == 5);
 	
 	// We correctly input these values to better display them... in red.
 	int first_mb_in_slice = get_ue(139263);
@@ -504,13 +522,10 @@ static const uint8_t *parse_slice_layer_without_partitioning(Edge264_stream *e,
 		red_if(pic_parameter_set_id >= 4 || e->PPSs[pic_parameter_set_id].num_ref_idx_active[0] == 0), pic_parameter_set_id);
 	
 	// check that the requested PPS was initialised and is supported
-	if (e->PPSs[pic_parameter_set_id].num_ref_idx_active[0] == 0) {
-		e->error = -1;
-		return NULL;
-	} else if (first_mb_in_slice > 0 || ctx->slice_type > 2 || pic_parameter_set_id >= 4) {
-		e->error = 1;
-		return NULL;
-	}
+	if (e->PPSs[pic_parameter_set_id].num_ref_idx_active[0] == 0)
+		return -2;
+	if (first_mb_in_slice > 0 || ctx->slice_type > 2 || pic_parameter_set_id >= 4)
+		return -1;
 	
 	ctx->ps = e->PPSs[pic_parameter_set_id];
 	
@@ -633,10 +648,8 @@ static const uint8_t *parse_slice_layer_without_partitioning(Edge264_stream *e,
 	// cabac_alignment_one_bit gives a good probability to catch random errors.
 	if (ctx->ps.entropy_coding_mode_flag) {
 		unsigned alignment = ctx->shift & 7;
-		if (alignment != 0 && get_uv(8 - alignment) != 0xff >> alignment) {
-			e->error = -1;
-			return NULL;
-		}
+		if (alignment != 0 && get_uv(8 - alignment) != 0xff >> alignment)
+			return -2;
 		ctx->e = e;
 		CABAC_parse_slice_data(cabac_init_idc);
 	}
@@ -644,45 +657,23 @@ static const uint8_t *parse_slice_layer_without_partitioning(Edge264_stream *e,
 	// I've got some occurences of missing rbsp_stop_one_bit in conformance streams
 	ctx->shift++;
 	if (get_uv(23) != 0)
-		e->error = -1;
+		return -2;
 	
 	// wait until after decoding is complete to bump pictures
-	bump_pictures(e);
-	
-	// CPB pointer might have gone far if 000003000003000003... bytes follow,
-	// so we backtrack to a point that is 100% behind next start code.
-	return ctx->CPB - 22;
-}
-
-
-
-/** Deallocates the picture buffer, then resets e. */
-static const uint8_t *parse_end_of_stream(Edge264_stream *e, int nal_ref_idc, int nal_unit_type) {
-	e->error = 0;
-	if (e->DPB != NULL) {
-		free(e->DPB);
-		e->DPB = NULL;
-		e->currPic = 0;
-		e->output_flags = 0;
-		e->reference_flags = 0;
-		e->long_term_flags = 0;
-		e->prevFrameNum = 0;
-		e->prevPicOrderCnt = 0;
-	}
-	return NULL;
+	return bump_pictures(e);
 }
 
 
 
 /** Access Unit Delimiters are ignored to avoid depending on their occurence. */
-static const uint8_t *parse_access_unit_delimiter(Edge264_stream *e, int nal_ref_idc, int nal_unit_type) {
+static int parse_access_unit_delimiter(Edge264_stream *e) {
 	static const char * const primary_pic_type_names[8] = {"I", "P, I",
 		"P, B, I", "SI", "SP, SI", "I, SI", "P, I, SP, SI", "P, B, I, SP, SI"};
 	int primary_pic_type = get_uv(3) >> 5;
 	printf("<li>primary_pic_type: <code>%u (%s)</code></li>\n",
 		primary_pic_type, primary_pic_type_names[primary_pic_type]);
 	// Some streams omit the rbsp_trailing_bits, but that's fine.
-	return NULL;
+	return 0;
 }
 
 
@@ -770,8 +761,7 @@ static void parse_scaling_lists()
  * _ Skipping unavailable mbs while decoding a slice messes with the storage of
  *   neighbouring macroblocks as a cirbular buffer.
  */
-static const uint8_t *parse_pic_parameter_set(Edge264_stream *e, int nal_ref_idc,
-	int nal_unit_type)
+static int parse_pic_parameter_set(Edge264_stream *e)
 {
 	static const char * const slice_group_map_type_names[7] = {"interleaved",
 		"dispersed", "foreground with left-over", "box-out", "raster scan",
@@ -885,15 +875,13 @@ static const uint8_t *parse_pic_parameter_set(Edge264_stream *e, int nal_ref_idc
 	}
 	
 	// seq_parameter_set_id was ignored so far since no SPS data was read.
-	if (get_uv(24) != 0x800000 || e->DPB == NULL) {
-		e->error = -1;
-	} else if (pic_parameter_set_id >= 4 || seq_parameter_set_id > 0 ||
-		redundant_pic_cnt_present_flag || num_slice_groups > 1 || !ctx->ps.entropy_coding_mode_flag) {
-		e->error = 1;
-	} else {
-		e->PPSs[pic_parameter_set_id] = ctx->ps;
-	}
-	return NULL;
+	if (get_uv(24) != 0x800000 || e->DPB == NULL)
+		return -2;
+	if (pic_parameter_set_id >= 4 || seq_parameter_set_id > 0 ||
+		redundant_pic_cnt_present_flag || num_slice_groups > 1 || !ctx->ps.entropy_coding_mode_flag)
+		return -1;
+	e->PPSs[pic_parameter_set_id] = ctx->ps;
+	return 0;
 }
 
 
@@ -1093,8 +1081,7 @@ static void parse_vui_parameters()
  * Parses the SPS into a Edge264_parameter_set structure, then saves it if a
  * rbsp_trailing_bits pattern follows.
  */
-static const uint8_t *parse_seq_parameter_set(Edge264_stream *e, int nal_ref_idc,
-	int nal_unit_type)
+static int parse_seq_parameter_set(Edge264_stream *e)
 {
 	static const char * const profile_idc_names[256] = {
 		[44] = "CAVLC 4:4:4 Intra",
@@ -1297,17 +1284,14 @@ static const uint8_t *parse_seq_parameter_set(Edge264_stream *e, int nal_ref_idc
 	}
 	if (get_u1())
 		parse_vui_parameters();
-	if (get_uv(24) != 0x800000) {
-		e->error = -1;
-		return NULL;
-	} else if (seq_parameter_set_id > 0 || ctx->ps.chroma_format_idc != ctx->ps.ChromaArrayType) {
-		e->error = 1;
-		return NULL;
-	}
+	if (get_uv(24) != 0x800000)
+		return -2;
+	if (seq_parameter_set_id > 0 || ctx->ps.chroma_format_idc != ctx->ps.ChromaArrayType)
+		return -1;
 	
 	// reallocate the DPB when the image format changes
 	if (memcmp(&ctx->ps, &e->SPS, 8) != 0) {
-		parse_end_of_stream(e, 0, 0);
+		Edge264_reset(e);
 		
 		// some basic variables first
 		int width_Y = ctx->ps.width;
@@ -1340,7 +1324,7 @@ static const uint8_t *parse_seq_parameter_set(Edge264_stream *e, int nal_ref_idc
 	e->SPS = ctx->ps;
 	if (ctx->ps.pic_order_cnt_type == 1)
 		memcpy(e->PicOrderCntDeltas, PicOrderCntDeltas, (ctx->ps.num_ref_frames_in_pic_order_cnt_cycle + 1) * sizeof(*PicOrderCntDeltas));
-	return NULL;
+	return 0;
 }
 
 
@@ -1349,7 +1333,7 @@ static const uint8_t *parse_seq_parameter_set(Edge264_stream *e, int nal_ref_idc
  * This function allocates a decoding context on stack and branches to the
  * handler given by nal_unit_type.
  */
-const uint8_t *Edge264_decode_NAL(Edge264_stream *e, const uint8_t *CPB, size_t len)
+int Edge264_decode_NAL(Edge264_stream *e)
 {
 	static const char * const nal_unit_type_names[32] = {
 		[0] = "unknown",
@@ -1374,54 +1358,55 @@ const uint8_t *Edge264_decode_NAL(Edge264_stream *e, const uint8_t *CPB, size_t 
 		[21] = "Coded slice extension for depth view components",
 		[22 ... 31] = "unknown",
 	};
-	typedef const uint8_t *(*Parser)(Edge264_stream *, int, int);
+	typedef int (*Parser)(Edge264_stream *);
 	static const Parser parse_nal_unit[32] = {
 		[1] = parse_slice_layer_without_partitioning,
 		[5] = parse_slice_layer_without_partitioning,
 		[7] = parse_seq_parameter_set,
 		[8] = parse_pic_parameter_set,
 		[9] = parse_access_unit_delimiter,
-		[11] = parse_end_of_stream,
+		[11] = Edge264_reset,
 	};
 	
-	// beware we're parsing a NAL header :)
-	unsigned nal_ref_idc = *CPB >> 5;
-	unsigned nal_unit_type = *CPB & 0x1f;
-	printf("<ul class=\"frame\">\n"
-		"<li>nal_ref_idc: <code>%u</code></li>\n"
-		"<li%s>nal_unit_type: <code>%u (%s)</code></li>\n",
-		nal_ref_idc,
-		red_if(parse_nal_unit[nal_unit_type] == NULL), nal_unit_type, nal_unit_type_names[nal_unit_type]);
-	
 	// allocate the decoding context and backup registers
+	check_stream(e);
 	Edge264_ctx *old = ctx, context;
 	ctx = &context;
 	memset(ctx, -1, sizeof(*ctx));
 	ctx->_mb = mb;
 	ctx->_codIRange = codIRange;
 	ctx->_codIOffset = codIOffset;
-	ctx->CPB = CPB + 3;
-	ctx->end = CPB + len;
-	ctx->RBSP[1] = CPB[1] << 8 | CPB[2];
-	refill(SIZE_BIT * 2 - 16, 0);
+	ctx->RBSP[1] = e->CPB[0];
+	ctx->CPB = e->CPB + 1;
+	ctx->end = e->end;
+	refill(SIZE_BIT * 2 - 8, 0);
+	
+	// beware we're parsing a NAL header :)
+	unsigned nal_ref_idc = get_uv(3);
+	unsigned nal_unit_type = get_uv(5);
+	ctx->non_ref_flag = (nal_ref_idc == 0);
+	ctx->IdrPicFlag = (nal_unit_type == 5);
+	printf("<ul class=\"frame\">\n"
+		"<li>nal_ref_idc: <code>%u</code></li>\n"
+		"<li%s>nal_unit_type: <code>%u (%s)</code></li>\n",
+		nal_ref_idc,
+		red_if(parse_nal_unit[nal_unit_type] == NULL), nal_unit_type, nal_unit_type_names[nal_unit_type]);
 	
 	// branching on nal_unit_type
-	check_stream(e);
-	if (parse_nal_unit[nal_unit_type] != NULL && (e->error == 0 || nal_unit_type == 11)) {
-		const uint8_t *ret = parse_nal_unit[nal_unit_type](e, nal_ref_idc, nal_unit_type);
-		CPB = (CPB > ret) ? CPB : ret;
-		if (e->error > 0)
+	if (parse_nal_unit[nal_unit_type] != NULL && (e->ret >= 0 || nal_unit_type == 11)) {
+		e->ret = parse_nal_unit[nal_unit_type](e);
+		if (e->ret == -1)
 			printf("<li style=\"color: red\">Unsupported stream</li>\n");
-		if (e->error < 0)
+		if (e->ret == -2)
 			printf("<li style=\"color: red\">Erroneous NAL unit</li>\n");
 	}
 	printf("</ul>\n");
 	
-	// restore registers and finish with a little tail call :)
-	len = ctx->end - CPB;
+	// restore registers and point to next NAL unit
 	mb = ctx->_mb;
 	codIRange = ctx->_codIRange;
 	codIOffset = ctx->_codIOffset;
 	ctx = old;
-	return Edge264_find_start_code(1, CPB, len);
+	e->CPB = Edge264_find_start_code(1, ctx->CPB - 2, ctx->end);
+	return e->ret;
 }

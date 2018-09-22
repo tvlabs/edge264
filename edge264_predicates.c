@@ -51,7 +51,7 @@ static void check_stream(const Edge264_stream *e) {
 		predicate(e->error == 0 && e->currPic == 0 && e->output_flags == 0 && e->reference_flags == 0 && e->long_term_flags == 0 && e->prevFrameNum == 0 && e->prevPicOrderCnt == 0);
 		return;
 	}
-	predicate(e->error >= -1 && e->error <= 1);
+	predicate(e->error >= -2 && e->error <= 16);
 	predicate(e->currPic >= 0 && e->currPic <= 15);
 	predicate(!(e->output_flags & 1 << e->currPic));
 	predicate(!(e->reference_flags & 0x10001 << e->currPic));

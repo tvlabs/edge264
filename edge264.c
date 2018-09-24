@@ -650,14 +650,10 @@ static int parse_slice_layer_without_partitioning(Edge264_stream *e)
 		unsigned alignment = ctx->shift & 7;
 		if (alignment != 0 && get_uv(8 - alignment) != 0xff >> alignment)
 			return -2;
+		printf("<li>Step!</li>\n");
 		ctx->e = e;
 		CABAC_parse_slice_data(cabac_init_idc);
 	}
-	
-	// I've got some occurences of missing rbsp_stop_one_bit in conformance streams
-	ctx->shift++;
-	if (get_uv(23) != 0)
-		return -2;
 	
 	// wait until after decoding is complete to bump pictures
 	return bump_pictures(e);
@@ -1369,6 +1365,8 @@ int Edge264_decode_NAL(Edge264_stream *e)
 	};
 	
 	// allocate the decoding context and backup registers
+	if (e->CPB >= e->end)
+		return e->ret = -2;
 	check_stream(e);
 	Edge264_ctx *old = ctx, context;
 	ctx = &context;

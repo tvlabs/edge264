@@ -1809,19 +1809,6 @@ static __attribute__((noinline)) int PAFF_parse_slice_data()
 		if ((ctx->y += 16) >= (ctx->field_pic_flag ? ctx->ps.height >> 2 : ctx->ps.height))
 			break;
 	}
-	
-	// reclaim all but one bit of codIOffset to get back to rbsp_trailing_bits
-	codIOffset >>= ctx->shift;
-	ctx->shift -= (SIZE_BIT - clz(codIRange) - 1);
-	while (ctx->shift < 0) {
-		ctx->shift += 8;
-		ctx->RBSP[1] = lsd(ctx->RBSP[0], ctx->RBSP[1], SIZE_BIT - 8);
-		ctx->RBSP[0] = lsd(codIOffset, ctx->RBSP[0], SIZE_BIT - 8);
-		codIOffset >>= 8;
-		int32_t i;
-		memcpy(&i, ctx->CPB - 4, 4);
-		ctx->CPB -= 1 + ((big_endian32(i) >> 8) == 3);
-	}
 	return 0;
 }
 

@@ -48,10 +48,10 @@ static void check_parameter_set(const Edge264_parameter_set *ps) {
 
 static void check_stream(const Edge264_stream *e) {
 	if (e->DPB == NULL) {
-		predicate(e->error == 0 && e->currPic == 0 && e->output_flags == 0 && e->reference_flags == 0 && e->long_term_flags == 0 && e->prevFrameNum == 0 && e->prevPicOrderCnt == 0);
+		predicate(e->ret >= 0 && e->currPic == 0 && e->output_flags == 0 && e->reference_flags == 0 && e->long_term_flags == 0 && e->prevFrameNum == 0 && e->prevPicOrderCnt == 0);
 		return;
 	}
-	predicate(e->error >= -2 && e->error <= 16);
+	predicate(e->ret >= -2 && e->ret <= 16);
 	predicate(e->currPic >= 0 && e->currPic <= 15);
 	predicate(!(e->output_flags & 1 << e->currPic));
 	predicate(!(e->reference_flags & 0x10001 << e->currPic));

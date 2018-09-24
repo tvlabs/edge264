@@ -227,9 +227,7 @@ static inline const char *red_if(int cond) { return (cond) ? " style='color:red'
 #define check_stream(e) ((void)0)
 #define check_ctx(label) ((void)0)
 #endif
-#if TRACE == 2
-#define fprintf(...) fprintf(__VA_ARGS__)
-#else
+#if TRACE < 2
 #define fprintf(...) ((void)0)
 #endif
 

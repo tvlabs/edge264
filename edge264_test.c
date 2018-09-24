@@ -16,60 +16,9 @@
 #define RESET  "\x1b[0m"
 
 
-// compares two squares of pixels
-static int check_macroblock(const uint8_t *p, const uint8_t *q, int MbWidth, int MbHeight, int stride) {
-	int invalid = 0;
-	for (int base = 0; base < MbHeight * stride; base += stride)
-		invalid |= memcmp(p + base, q + base, MbWidth);
-	if (invalid == 0)
-		return 0;
-	
-	// print a xor dump of the macroblock in case of mismatch
-	for (int base = 0; base < MbHeight * stride; base += stride) {
-		for (int offset = base; offset < base + MbWidth; offset++)
-			printf("%02x ", p[offset] ^ q[offset]);
-		putchar('\n');
-	}
-	return -2;
-}
-
-
-// callback function used to compare the decoded frame with the reference
 static int check_frame(Edge264_stream *e, int idx) {
-	const uint8_t *p = e->DPB + idx * e->frame_size;
-	int MbStrideY = e->SPS.BitDepth_Y == 8 ? 16 : 32;
-	int MbWidthC = e->SPS.chroma_format_idc < 3 ? 8 : 16;
-	int MbStrideC = e->SPS.BitDepth_C == 8 ? MbWidthC : MbWidthC * 2;
-	int MbHeightC = e->SPS.chroma_format_idc < 2 ? 8 : 16;
-	int base = 0;
-	
-	// check the luma plane
-	while (base < e->plane_size_Y) {
-		for (int offset = base; offset < base + e->stride_Y; offset += MbStrideY) {
-			if (check_macroblock(p + offset, e->user + offset, MbStrideY, 16, e->stride_Y))
-				return -2;
-		}
-		base += e->stride_Y * 16;
-	}
-	
-	// check the Cb plane
-	while (base < e->plane_size_Y + e->plane_size_C) {
-		for (int offset = base; offset < base + e->stride_C; offset += MbStrideC) {
-			if (check_macroblock(p + offset, e->user + offset, MbStrideC, MbHeightC, e->stride_C))
-				return -2;
-		}
-		base += e->stride_C * MbHeightC;
-	}
-	
-	// check the Cr plane
-	while (base < e->plane_size_Y + e->plane_size_C * 2) {
-		for (int offset = base; offset < base + e->stride_C; offset += MbStrideC) {
-			if (check_macroblock(p + offset, e->user + offset, MbStrideC, MbHeightC, e->stride_C))
-				return -2;
-		}
-		base += e->stride_C * MbHeightC;
-	}
-	
+	if (Edge264_validate_frame(e, e->DPB + e->frame_size * idx, e->user))
+		return -2;
 	e->user += e->frame_size;
 	return 0;
 }

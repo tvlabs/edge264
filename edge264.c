@@ -11,8 +11,6 @@
 // TODO: Detect rbsp_slice_trailing_bits
 // TODO: Drop the support of differing BitDepths if no Conformance streams test it
 // TODO: Test removing Edge264_context from register when decoder works
-// TODO: Consider removing Edge264_snapshot for simplicity after finishing Inter
-// TODO: Redesign the API to store the CPB in the stream, allowing sequential decoding from multiple threads
 // TODO: Can we relieve the complexity of pixel size computing with arrays?
 
 #include "edge264_common.h"
@@ -39,50 +37,6 @@ static const v16qu Default_8x8_Inter[4] = {
 	{24, 24, 24, 24, 25, 25, 25, 25, 25, 25, 25, 27, 27, 27, 27, 27},
 	{27, 28, 28, 28, 28, 28, 30, 30, 30, 30, 32, 32, 32, 33, 33, 35},
 };
-
-
-
-/**
- * This function scans memory for the three-byte 00n pattern, and returns
- * a pointer to the first following byte.
- *
- * It uses aligned reads, but won't overread past 16-byte boundaries.
- */
-#ifdef __SSSE3__
-const uint8_t *Edge264_find_start_code(int n, const uint8_t *CPB, const uint8_t *end) {
-	const __m128i zero = _mm_setzero_si128();
-	const __m128i xN = _mm_set1_epi8(n);
-	const __m128i *p = (__m128i *)((uintptr_t)CPB & -16);
-	unsigned z = (_mm_movemask_epi8(_mm_cmpeq_epi8(*p, zero)) & -1u << ((uintptr_t)CPB & 15)) << 2, c;
-	
-	// no heuristic here since we are limited by memory bandwidth anyway
-	while (!(c = z & z >> 1 & _mm_movemask_epi8(_mm_cmpeq_epi8(*p, xN)))) {
-		if ((uint8_t *)++p >= end)
-			return end;
-		z = z >> 16 | _mm_movemask_epi8(_mm_cmpeq_epi8(*p, zero)) << 2;
-	}
-	const uint8_t *res = (uint8_t *)p + 1 + __builtin_ctz(c);
-	return (res < end) ? res : end;
-}
-#endif
-
-
-
-/** Deallocates the picture buffer, then resets e. */
-int Edge264_reset(Edge264_stream *e) {
-	if (e->DPB != NULL) {
-		free(e->DPB);
-		e->DPB = NULL;
-		e->currPic = 0;
-		e->output_flags = 0;
-		e->reference_flags = 0;
-		e->long_term_flags = 0;
-		e->prevFrameNum = 0;
-		e->prevPicOrderCnt = 0;
-	}
-	e->ret = 0;
-	return 0;
-}
 
 
 
@@ -650,7 +604,6 @@ static int parse_slice_layer_without_partitioning(Edge264_stream *e)
 		unsigned alignment = ctx->shift & 7;
 		if (alignment != 0 && get_uv(8 - alignment) != 0xff >> alignment)
 			return -2;
-		printf("<li>Step!</li>\n");
 		ctx->e = e;
 		CABAC_parse_slice_data(cabac_init_idc);
 	}
@@ -661,14 +614,16 @@ static int parse_slice_layer_without_partitioning(Edge264_stream *e)
 
 
 
-/** Access Unit Delimiters are ignored to avoid depending on their occurence. */
+/**
+ * Access Unit Delimiters are ignored to avoid depending on their occurence.
+ */
 static int parse_access_unit_delimiter(Edge264_stream *e) {
 	static const char * const primary_pic_type_names[8] = {"I", "P, I",
 		"P, B, I", "SI", "SP, SI", "I, SI", "P, I, SP, SI", "P, B, I, SP, SI"};
 	int primary_pic_type = get_uv(3) >> 5;
 	printf("<li>primary_pic_type: <code>%u (%s)</code></li>\n",
 		primary_pic_type, primary_pic_type_names[primary_pic_type]);
-	// Some streams omit the rbsp_trailing_bits, but that's fine.
+	// Some streams omit the rbsp_trailing_bits here, but that's fine.
 	return 0;
 }
 
@@ -1224,7 +1179,7 @@ static int parse_seq_parameter_set(Edge264_stream *e)
 	}
 	
 	// Spec says (E.2.1) max_dec_frame_buffering should default to 16,
-	// I prefer a low-delay value, which weird streams are expected to override
+	// I prefer a low-latency value, which weird streams are expected to override
 	ctx->ps.max_num_ref_frames = ctx->ps.max_dec_frame_buffering = get_ue(15);
 	int gaps_in_frame_num_value_allowed_flag = get_u1();
 	unsigned pic_width_in_mbs = get_ue(1054) + 1;
@@ -1320,6 +1275,104 @@ static int parse_seq_parameter_set(Edge264_stream *e)
 	e->SPS = ctx->ps;
 	if (ctx->ps.pic_order_cnt_type == 1)
 		memcpy(e->PicOrderCntDeltas, PicOrderCntDeltas, (ctx->ps.num_ref_frames_in_pic_order_cnt_cycle + 1) * sizeof(*PicOrderCntDeltas));
+	return 0;
+}
+
+
+
+/**
+ * Utility function for comparing two squares of pixels.
+ */
+static int check_macroblock(const uint8_t *p, const uint8_t *q, int MbStride, int MbHeight, int stride) {
+	int invalid = 0;
+	for (int base = 0; base < MbHeight * stride; base += stride)
+		invalid |= memcmp(p + base, q + base, MbStride);
+	if (invalid == 0)
+		return 0;
+	
+	// print the two blocks side by side in case of mismatch
+	printf("<li><pre>");
+	for (int base = 0; base < MbHeight * stride; base += stride) {
+		for (int offset = base; offset < base + MbStride; offset++)
+			printf("%x%x", p[offset] & 0xf, p[offset] >> 4);
+		printf("\t");
+		for (int offset = base; offset < base + MbStride; offset++)
+			printf("%x%x", q[offset] & 0xf, q[offset] >> 4);
+		printf("\n");
+	}
+	printf("</pre></li>\n");
+	return -2;
+}
+
+
+
+/**
+ * Utility function for validating a frame macroblock by macroblock against
+ * a reference frame.
+ */
+int Edge264_validate_frame(const Edge264_stream *e, const uint8_t *frame, const uint8_t *ref) {
+	int MbStrideY = e->SPS.BitDepth_Y == 8 ? 16 : 32;
+	int MbWidthC = e->SPS.chroma_format_idc < 3 ? 8 : 16;
+	int MbStrideC = e->SPS.BitDepth_C == 8 ? MbWidthC : MbWidthC * 2;
+	int MbHeightC = e->SPS.chroma_format_idc < 2 ? 8 : 16;
+	
+	for (int row = 0; row < e->SPS.height >> 4; row++) {
+		for (int col = 0; col < e->SPS.width >> 4; col++) {
+			int offsetY = row * 16 * e->stride_Y + col * MbStrideY;
+			int offsetCb = e->plane_size_Y + row * MbHeightC * e->stride_C + col * MbStrideC;
+			int offsetCr = e->plane_size_C + offsetCb;
+			if (check_macroblock(frame + offsetY, ref + offsetY, MbStrideY, 16, e->stride_Y) ||
+				check_macroblock(frame + offsetCb, ref + offsetCb, MbStrideC, MbHeightC, e->stride_C) ||
+				check_macroblock(frame + offsetCr, ref + offsetCr, MbStrideC, MbHeightC, e->stride_C))
+				return -2;
+		}
+	}
+	return 0;
+}
+
+
+
+/**
+ * This function scans memory for the three-byte 00n pattern, and returns
+ * a pointer to the first following byte.
+ *
+ * It uses aligned reads, but won't overread past 16-byte boundaries.
+ */
+#ifdef __SSSE3__
+const uint8_t *Edge264_find_start_code(int n, const uint8_t *CPB, const uint8_t *end) {
+	const __m128i zero = _mm_setzero_si128();
+	const __m128i xN = _mm_set1_epi8(n);
+	const __m128i *p = (__m128i *)((uintptr_t)CPB & -16);
+	unsigned z = (_mm_movemask_epi8(_mm_cmpeq_epi8(*p, zero)) & -1u << ((uintptr_t)CPB & 15)) << 2, c;
+	
+	// no heuristic here since we are limited by memory bandwidth anyway
+	while (!(c = z & z >> 1 & _mm_movemask_epi8(_mm_cmpeq_epi8(*p, xN)))) {
+		if ((uint8_t *)++p >= end)
+			return end;
+		z = z >> 16 | _mm_movemask_epi8(_mm_cmpeq_epi8(*p, zero)) << 2;
+	}
+	const uint8_t *res = (uint8_t *)p + 1 + __builtin_ctz(c);
+	return (res < end) ? res : end;
+}
+#endif
+
+
+
+/**
+ * Deallocates the picture buffer, then resets e.
+ */
+int Edge264_reset(Edge264_stream *e) {
+	if (e->DPB != NULL) {
+		free(e->DPB);
+		e->DPB = NULL;
+		e->currPic = 0;
+		e->output_flags = 0;
+		e->reference_flags = 0;
+		e->long_term_flags = 0;
+		e->prevFrameNum = 0;
+		e->prevPicOrderCnt = 0;
+	}
+	e->ret = 0;
 	return 0;
 }
 

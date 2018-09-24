@@ -4,8 +4,10 @@
  * checked against each frame for strict conformance.
  */
 #include <assert.h>
+#include <fcntl.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <unistd.h>
 #include <sys/mman.h>
 #include <sys/stat.h>
 #include <sys/types.h>
@@ -57,13 +59,22 @@ int print_frame(Edge264_stream *e, int i) {
 	}
 	
 	// Does this frame match the reference?
-	
+	// TODO: Recode to print more useful information (row/col)
+	if (e->user != NULL) {
+		if (Edge264_validate_frame(e, p, e->user)) {
+			while (!glfwWindowShouldClose(window))
+				glfwWaitEvents();
+			glfwTerminate();
+			exit(0);
+		}
+		e->user += e->frame_size;
+	}
 	return 0;
 }
 
 
 
-int main() {
+int main(int argc, char *argv[]) {
 	static const char* vsource =
 		"attribute vec4 aCoord;"
 		"varying vec2 vTex;"
@@ -102,7 +113,6 @@ int main() {
 	glClearColor(0.5, 0.5, 0.5, 1);
 	glDisable(GL_DEPTH_TEST);
 	glEnable(GL_MULTISAMPLE);
-	puts("initialization done");
 	
 	// compile and link the shaders
 	unsigned program = glCreateProgram();
@@ -121,14 +131,12 @@ int main() {
 	glUniform1i(glGetUniformLocation(program, "texY"), 0);
 	glUniform1i(glGetUniformLocation(program, "texCb"), 1);
 	glUniform1i(glGetUniformLocation(program, "texCr"), 2);
-	puts("shaders compiled");
 	
 	// load a dummy quad
 	unsigned vbo;
 	glGenBuffers(1, &vbo);
 	glBindBuffer(GL_ARRAY_BUFFER, vbo);
 	glBufferData(GL_ARRAY_BUFFER, sizeof(quad), quad, GL_STATIC_DRAW);
-	puts("quad loaded");
 	
 	// setup texture units
 	glGenTextures(3, textures);
@@ -141,13 +149,29 @@ int main() {
 	glBindTexture(GL_TEXTURE_2D, textures[2]);
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
-	puts("texture units setup");
 	
 	// memory-map the whole file
-	struct stat st;
-	fstat(0, &st);
-	uint8_t *start = mmap(NULL, st.st_size, PROT_READ, MAP_SHARED, 0, 0);
-	assert(start!=MAP_FAILED);
+	struct stat stC;
+	fstat(0, &stC);
+	uint8_t *cpb = mmap(NULL, stC.st_size, PROT_READ, MAP_SHARED, 0, 0);
+	assert(cpb!=MAP_FAILED);
+	Edge264_stream e = {
+		.CPB = cpb + 4,
+		.end = cpb + stC.st_size,
+		.output_frame = print_frame
+	};
+	
+	// memory-map the optional yuv reference file
+	int yuv = -1;
+	struct stat stD;
+	uint8_t *dpb = NULL;
+	if (argc == 2) {
+		int yuv = open(argv[1], O_RDONLY);
+		fstat(yuv, &stD);
+		dpb = mmap(NULL, stD.st_size, PROT_READ, MAP_SHARED, yuv, 0);
+		assert(dpb!=NULL);
+		e.user = dpb;
+	}
 	
 	// parse and dump the file to HTML
 #ifdef TRACE
@@ -157,11 +181,6 @@ int main() {
 		"<head><meta charset=\"UTF-8\"/><title>NAL headers</title></head>\n"
 		"<body>\n");
 #endif
-	Edge264_stream e = {
-		.CPB = start + 4,
-		.end = start + st.st_size,
-		.output_frame = print_frame
-	};
 	int count = 0;
 	while (Edge264_decode_NAL(&e) >= 0 && e.CPB < e.end) {
 		count += (*e.CPB & 0x1F) <= 5;
@@ -172,7 +191,11 @@ int main() {
 #endif
 	
 	// cleanup everything
-	munmap(start, st.st_size);
+	munmap(cpb, stC.st_size);
+	if (dpb != NULL)
+		munmap(dpb, stD.st_size);
+	if (yuv >= 0)
+		close(yuv);
 	glfwTerminate();
 	return 0;
 }

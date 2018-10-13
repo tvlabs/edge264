@@ -15,15 +15,14 @@
  *   in the refill function, but has been the simplest to maintain so far.
  * _ The same as above but with a single size_t buffer. This approach prevented
  *   refilling in a tail call, and generally needed more code.
- * _ Putting shift in a Global Register Variable, since it is often written to.
- *   However, it is hardly used in CABAC parsing, so would have to share a GRV
- *   with codIRange/codIOffset, yielding ugly code for little benefit.
+ * _ The same as above but replacing shift by a trailing set bit in the buffer.
+ *   This approach makes the fastest reads, but a cumbersome refill.
  */
 #include "edge264_common.h"
 
 
 #ifdef __SSSE3__
-size_t refill(int shift, size_t ret)
+__attribute__((noinline)) size_t refill(int shift, size_t ret)
 {
 	typedef size_t v16u __attribute__((vector_size(16)));
 	static const v16qi shuf[8] = {
@@ -37,47 +36,36 @@ size_t refill(int shift, size_t ret)
 		{0, 1, 2, 3, 4, 5, 6, 8, 9, 10, 11, 12, 13, 14, 15, 15},
 	};
 	
-	// when shift overflows, read the next few bytes in both scalar and vector registers
+	// check for shift overflow
 	ctx->shift = shift;
-	if ((shift -= SIZE_BIT) >= 0) {
-		__m128i x;
-		size_t bits;
-		const uint8_t *CPB = ctx->CPB;
-		ctx->RBSP[0] = ctx->RBSP[1];
-		ctx->shift = shift;
-		if (CPB <= ctx->end - 16) {
-			x = _mm_loadu_si128((__m128i *)(CPB - 2));
-			memcpy(&bits, CPB, sizeof(size_t));
-			bits = big_endian(bits);
-		} else {
-			x = _mm_srl_si128(_mm_loadu_si128((__m128i *)(ctx->end - 16)), CPB - (ctx->end - 16));
-			bits = big_endian(((v16u)x)[0]);
-			CPB = CPB < ctx->end - sizeof(size_t) ? CPB : ctx->end - sizeof(size_t);
-		}
+	if (__builtin_expect((shift -= SIZE_BIT) < 0, 1))
+		return ret;
+	ctx->shift = shift;
+	
+	// load 16 bytes and detect escape sequences
+	const uint8_t *CPB = ctx->CPB;
+	__m128i x = (CPB <= ctx->end - 14) ?
+		_mm_loadu_si128((__m128i *)(CPB - 2)) :
+		_mm_srl_si128(_mm_loadu_si128((__m128i *)(ctx->end - 16)), CPB - (ctx->end - 14));
+	ctx->RBSP[0] = ctx->RBSP[1];
+	unsigned eptb = _mm_movemask_epi8(_mm_cmpeq_epi8(x, _mm_setzero_si128()));
+	x = _mm_srli_si128(x, 2);
+	eptb &= eptb >> 1 & _mm_movemask_epi8(_mm_cmpgt_epi8(_mm_set1_epi8(4), x));
+	
+	// iterate on and remove every emulation_prevention_three_byte
+	for (; eptb & (SIZE_BIT == 32 ? 0xf : 0xff); CPB++, eptb = (eptb & (eptb - 1)) >> 1) {
+		int i = __builtin_ctz(eptb);
 		
-		// ignore words without a zero odd byte
-		// FIXME: faster without pre-test?
-		unsigned mask = _mm_movemask_epi8(_mm_cmpeq_epi8(x, _mm_setzero_si128()));
-		if (mask & (SIZE_BIT == 32 ? 0xa : 0xaa)) {
-			x = _mm_srli_si128(x, 2);
-			mask &= mask >> 1 & _mm_movemask_epi8(_mm_cmpgt_epi8(_mm_set1_epi8(4), x));
-			
-			// iterate on and remove every emulation_prevention_three_byte
-			for (; mask & (SIZE_BIT == 32 ? 0xf : 0xff); mask = (mask & (mask - 1)) >> 1, CPB++) {
-				int i = __builtin_ctz(mask);
-				
-				// for a start code, stop at the last byte
-				if (CPB[i] < 3) {
-					CPB += i - sizeof(size_t);
-					break;
-				}
-				x = _mm_shuffle_epi8(x, (__m128i)shuf[i]);
-				bits = big_endian(((v16u)x)[0]);
-			}
+		// for a start code, stop at the last byte
+		if (CPB[i] <3) {
+			CPB += i - sizeof(size_t);
+			break;
 		}
-		ctx->RBSP[1] = bits;
-		ctx->CPB = CPB + sizeof(size_t);
+		x = _mm_shuffle_epi8(x, (__m128i)shuf[i]);
 	}
+	CPB += sizeof(size_t);
+	ctx->RBSP[1] = big_endian(((v16u)x)[0]); // FIXME: faster way than going through regs?
+	ctx->CPB = CPB < ctx->end ? CPB : ctx->end;
 	return ret;
 }
 #endif

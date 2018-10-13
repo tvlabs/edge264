@@ -1427,6 +1427,7 @@ int Edge264_decode_NAL(Edge264_stream *e)
 	ctx->_mb = mb;
 	ctx->_codIRange = codIRange;
 	ctx->_codIOffset = codIOffset;
+	// FIXME: read two bytes to prevent reading before buffer in refill
 	ctx->RBSP[1] = e->CPB[0];
 	ctx->CPB = e->CPB + 1;
 	ctx->end = e->end;

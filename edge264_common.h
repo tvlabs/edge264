@@ -90,6 +90,7 @@ typedef struct
 	const uint8_t *CPB;
 	const uint8_t *end;
 	size_t RBSP[2];
+	uint64_t test;
 	size_t _codIRange;
 	size_t _codIOffset;
 	int8_t shift;
@@ -100,7 +101,7 @@ typedef struct
 	uint8_t *plane_Y;
 	uint8_t *plane_Cb; // plane_Cr is a fixed offset away from this pointer
 	Edge264_flags inc;
-	union { Edge264_macroblock *_mb; int8_t *_mb_i8; int16_t *_mb_i16; };
+	Edge264_macroblock *_mb;
 	Edge264_macroblock *mbCol;
 	Edge264_stream *e; // for debugging
 	
@@ -166,28 +167,6 @@ typedef struct
 
 
 
-// Global Register Variables are a blessing since we need context everywhere!
-#if defined(__SSSE3__) && !defined(__clang__)
-register Edge264_ctx *ctx asm("ebx");
-#else
-static __thread Edge264_ctx *ctx;
-#endif
-#if defined(__SSSE3__) && !defined(__clang__) && SIZE_BIT == 64
-register Edge264_macroblock *mb asm("r13");
-register int8_t *mb_i8 asm("r13");
-register int16_t *mb_i16 asm("r13");
-register size_t codIRange asm("r14");
-register size_t codIOffset asm("r15");
-#else
-#define mb ctx->_mb
-#define mb_i8 ctx->_mb_i8
-#define mb_i16 ctx->_mb_i16
-#define codIRange ctx->_codIRange
-#define codIOffset ctx->_codIOffset
-#endif
-
-
-
 #if __BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__
 #define big_endian32 __builtin_bswap32
 #define big_endian64 __builtin_bswap64
@@ -200,10 +179,12 @@ register size_t codIOffset asm("r15");
 #define SIZE_BIT 32
 #define big_endian big_endian32
 #define clz clz32
+#define ctz ctz32
 #elif SIZE_MAX == 18446744073709551615U
 #define SIZE_BIT 64
 #define big_endian big_endian64
 #define clz clz64
+#define ctz ctz64
 #endif
 
 #if UINT_MAX == 4294967295U && ULLONG_MAX == 18446744073709551615U
@@ -214,6 +195,24 @@ register size_t codIOffset asm("r15");
 #ifndef WORD_BIT
 #define WORD_BIT 32
 #endif
+#endif
+
+
+
+// Global Register Variables are a blessing since we need context everywhere!
+#if defined(__SSSE3__) && !defined(__clang__)
+register Edge264_ctx *ctx asm("ebx");
+#else
+static __thread Edge264_ctx *ctx;
+#endif
+#if defined(__SSSE3__) && !defined(__clang__) && SIZE_BIT == 64
+register Edge264_macroblock *mb asm("r13");
+register size_t codIRange asm("r14");
+register size_t codIOffset asm("r15");
+#else
+#define mb ctx->_mb
+#define codIRange ctx->_codIRange
+#define codIOffset ctx->_codIOffset
 #endif
 
 
@@ -305,6 +304,10 @@ static inline v16qi byte_shuffle(v16qi a, v16qi mask) {
 static inline size_t lsd(size_t msb, size_t lsb, unsigned shift) {
 	__asm__("shld %%cl, %1, %0" : "+rm" (msb) : "r" (lsb), "c" (shift));
 	return msb;
+}
+static inline size_t rsd(size_t msb, size_t lsb, unsigned shift) {
+	__asm__("shrd %%cl, %1, %0" : "+rm" (lsb) : "r" (msb), "c" (shift));
+	return lsb;
 }
 // fixing GCC's defect
 #if defined(__GNUC__) && !defined(__clang__)

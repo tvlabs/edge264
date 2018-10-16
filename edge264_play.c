@@ -7,6 +7,7 @@
 #include <fcntl.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include <unistd.h>
 #include <sys/mman.h>
 #include <sys/stat.h>
@@ -17,14 +18,64 @@
 
 #include "edge264.h"
 
+#ifndef TRACE
+#define printf(...) ((void)0)
+#endif
+
 static GLFWwindow *window;
 static unsigned textures[3];
 
 
 
-int print_frame(Edge264_stream *e, int i) {
-	printf("print frame %d\n", i);
+static int check_frame(const Edge264_stream *e, const uint8_t *frame, const uint8_t *ref)
+{
+	int MbStrideY = e->SPS.BitDepth_Y == 8 ? 16 : 32;
+	int MbWidthC = e->SPS.chroma_format_idc < 3 ? 8 : 16;
+	int MbStrideC = e->SPS.BitDepth_C == 8 ? MbWidthC : MbWidthC * 2;
+	int MbHeightC = e->SPS.chroma_format_idc < 2 ? 8 : 16;
 	
+	for (int row = 0; row < e->SPS.height >> 4; row++) {
+		for (int col = 0; col < e->SPS.width >> 4; col++) {
+			int MbStride = MbStrideY;
+			int MbHeight = 16;
+			int stride = e->stride_Y;
+			int plane = 0;
+			for (int iYCbCr = 0; iYCbCr < 3; iYCbCr++) {
+				int offset = plane + row * MbHeight * stride + col * MbStride;
+				const uint8_t *p = frame + offset;
+				const uint8_t *q = ref + offset;
+				
+				int invalid = 0;
+				for (int base = 0; base < MbHeight * stride; base += stride)
+					invalid |= memcmp(p + base, q + base, MbStride);
+				if (invalid) {
+					printf("<li style='color:red'>Erroneous macroblock (row %d, column %d, %s plane):<pre>\n", row, col, (iYCbCr == 0) ? "Luma" : (iYCbCr == 1) ? "Cb" : "Cr");
+					for (int base = 0; base < MbHeight * stride; base += stride) {
+						for (int offset = base; offset < base + MbStride; offset++)
+							printf("%3d ", p[offset]);
+						printf("\t");
+						for (int offset = base; offset < base + MbStride; offset++)
+							printf("%3d ", q[offset]);
+						printf("\n");
+					}
+					printf("</pre></li>\n");
+					return -2;
+				}
+				
+				MbStride = MbStrideC;
+				MbHeight = MbHeightC;
+				stride = e->stride_C;
+				plane += (iYCbCr == 0) ? e->plane_size_Y : e->plane_size_C;
+			}
+		}
+	}
+	return 0;
+}
+
+
+
+int print_frame(Edge264_stream *e, int i)
+{
 	// resize the window if necessary
 	int w, h;
 	glfwGetWindowSize(window, &w, &h);
@@ -59,9 +110,8 @@ int print_frame(Edge264_stream *e, int i) {
 	}
 	
 	// Does this frame match the reference?
-	// TODO: Recode to print more useful information (row/col)
 	if (e->user != NULL) {
-		if (Edge264_validate_frame(e, p, e->user)) {
+		if (check_frame(e, p, e->user)) {
 			while (!glfwWindowShouldClose(window))
 				glfwWaitEvents();
 			glfwTerminate();
@@ -74,7 +124,8 @@ int print_frame(Edge264_stream *e, int i) {
 
 
 
-int main(int argc, char *argv[]) {
+int main(int argc, char *argv[])
+{
 	static const char* vsource =
 		"attribute vec4 aCoord;"
 		"varying vec2 vTex;"
@@ -174,21 +225,17 @@ int main(int argc, char *argv[]) {
 	}
 	
 	// parse and dump the file to HTML
-#ifdef TRACE
 	setbuf(stdout, NULL);
 	printf("<!doctype html>\n"
 		"<html>\n"
 		"<head><meta charset=\"UTF-8\"/><title>NAL headers</title></head>\n"
 		"<body>\n");
-#endif
 	int count = 0;
 	while (Edge264_decode_NAL(&e) >= 0 && e.CPB < e.end) {
 		count += (*e.CPB & 0x1F) <= 5;
 	}
-#ifdef TRACE
 	printf("</body>\n"
 		"</html>\n");
-#endif
 	
 	// cleanup everything
 	munmap(cpb, stC.st_size);

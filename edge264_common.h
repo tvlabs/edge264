@@ -22,11 +22,11 @@ typedef int8_t v16qi __attribute__((vector_size(16)));
 typedef int16_t v8hi __attribute__((vector_size(16)));
 typedef int32_t v4si __attribute__((vector_size(16)));
 typedef int64_t v2li __attribute__((vector_size(16)));
-typedef int32_t v8si __attribute__((vector_size(32)));
 typedef uint8_t v16qu __attribute__((vector_size(16)));
 typedef uint16_t v8hu __attribute__((vector_size(16)));
 typedef uint32_t v4su __attribute__((vector_size(16)));
 typedef uint64_t v2lu __attribute__((vector_size(16)));
+typedef int32_t v8si __attribute__((vector_size(32)));
 
 
 
@@ -304,10 +304,6 @@ static inline v16qi byte_shuffle(v16qi a, v16qi mask) {
 static inline size_t lsd(size_t msb, size_t lsb, unsigned shift) {
 	__asm__("shld %%cl, %1, %0" : "+rm" (msb) : "r" (lsb), "c" (shift));
 	return msb;
-}
-static inline size_t rsd(size_t msb, size_t lsb, unsigned shift) {
-	__asm__("shrd %%cl, %1, %0" : "+rm" (lsb) : "r" (msb), "c" (shift));
-	return lsb;
 }
 // fixing GCC's defect
 #if defined(__GNUC__) && !defined(__clang__)

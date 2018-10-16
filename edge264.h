@@ -101,7 +101,6 @@ typedef struct Edge264_stream {
 
 
 const uint8_t *Edge264_find_start_code(int n, const uint8_t *CPB, const uint8_t *end);
-int Edge264_validate_frame(const Edge264_stream *e, const uint8_t *frame, const uint8_t *ref);
 int Edge264_decode_NAL(Edge264_stream *e);
 int Edge264_reset(Edge264_stream *e);
 

@@ -1027,6 +1027,7 @@ static __attribute__((noinline)) void parse_mb_qp_delta(unsigned cond) {
 		int QpBdOffset_Y = (ctx->ps.BitDepth_Y - 8) * 6;
 		ctx->ps.QP_Y = (QP < -QpBdOffset_Y) ? QP + 52 + QpBdOffset_Y :
 			(QP >= 52) ? QP - (52 + QpBdOffset_Y) : QP;
+		fprintf(stderr, "mb_qp_delta: %d\n", mb_qp_delta);
 	}
 	
 	// deduce this macroblock's QP values
@@ -1036,7 +1037,6 @@ static __attribute__((noinline)) void parse_mb_qp_delta(unsigned cond) {
 	mb->QP[0] = ctx->ps.QP_Y;
 	mb->QP[1] = QP_C[36 + clip3(-QpBdOffset_C, 51, QP_Cb)];
 	mb->QP[2] = QP_C[36 + clip3(-QpBdOffset_C, 51, QP_Cr)];
-	fprintf(stderr, "mb_qp_delta: %d\n", mb_qp_delta);
 }
 
 
@@ -1663,6 +1663,7 @@ static __attribute__((noinline)) int parse_inter_mb()
 	static const uint8_t b2sub_mb_type[13] = {3, 4, 5, 6, 1, 2, 11, 12, 7, 8, 9, 10, 0};
 	
 	// Initialise with Direct motion prediction, then parse mb_type.
+	mb->f.mbIsInterFlag = 1;
 	if (ctx->slice_type == 0) {
 		if (mb->f.mb_skip_flag) {
 			//init_P_Skip();
@@ -1670,6 +1671,7 @@ static __attribute__((noinline)) int parse_inter_mb()
 		} else if (get_ae(14)) {
 			v8hi *v = mb->mvs_v;
 			v[0] = v[1] = v[2] = v[3] = v[4] = v[5] = v[6] = v[7] = (v8hi){};
+			mb->f.mbIsInterFlag = 0;
 			return parse_intra_mb(17);
 		}
 		
@@ -1806,7 +1808,7 @@ static __attribute__((noinline)) int PAFF_parse_slice_data()
 		ctx->plane_Y += ctx->plane_offsets[10] + (ctx->plane_offsets[10] >> 2);
 		ctx->plane_Cb += ctx->row_offset_C;
 		ctx->x = 0;
-		if ((ctx->y += 16) >= (ctx->field_pic_flag ? ctx->ps.height >> 2 : ctx->ps.height))
+		if ((ctx->y += 16) >= (ctx->field_pic_flag ? ctx->ps.height >> 1 : ctx->ps.height))
 			break;
 	}
 	return 0;

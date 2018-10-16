@@ -583,6 +583,7 @@ static int parse_slice_layer_without_partitioning(Edge264_stream *e)
 	printf("<li>SliceQP<sub>Y</sub>: <code>%d</code></li>\n", ctx->ps.QP_Y);
 	
 	// Loop filter is yet to be implemented.
+	ctx->disable_deblocking_filter_idc = 0;
 	ctx->FilterOffsetA = 0;
 	ctx->FilterOffsetB = 0;
 	if (ctx->ps.deblocking_filter_control_present_flag) {
@@ -1281,58 +1282,6 @@ static int parse_seq_parameter_set(Edge264_stream *e)
 
 
 /**
- * Utility function for comparing two squares of pixels.
- */
-static int check_macroblock(const uint8_t *p, const uint8_t *q, int MbStride, int MbHeight, int stride) {
-	int invalid = 0;
-	for (int base = 0; base < MbHeight * stride; base += stride)
-		invalid |= memcmp(p + base, q + base, MbStride);
-	if (invalid == 0)
-		return 0;
-	
-	// print the two blocks side by side in case of mismatch
-	printf("<li><pre>");
-	for (int base = 0; base < MbHeight * stride; base += stride) {
-		for (int offset = base; offset < base + MbStride; offset++)
-			printf("%x%x", p[offset] & 0xf, p[offset] >> 4);
-		printf("\t");
-		for (int offset = base; offset < base + MbStride; offset++)
-			printf("%x%x", q[offset] & 0xf, q[offset] >> 4);
-		printf("\n");
-	}
-	printf("</pre></li>\n");
-	return -2;
-}
-
-
-
-/**
- * Utility function for validating a frame macroblock by macroblock against
- * a reference frame.
- */
-int Edge264_validate_frame(const Edge264_stream *e, const uint8_t *frame, const uint8_t *ref) {
-	int MbStrideY = e->SPS.BitDepth_Y == 8 ? 16 : 32;
-	int MbWidthC = e->SPS.chroma_format_idc < 3 ? 8 : 16;
-	int MbStrideC = e->SPS.BitDepth_C == 8 ? MbWidthC : MbWidthC * 2;
-	int MbHeightC = e->SPS.chroma_format_idc < 2 ? 8 : 16;
-	
-	for (int row = 0; row < e->SPS.height >> 4; row++) {
-		for (int col = 0; col < e->SPS.width >> 4; col++) {
-			int offsetY = row * 16 * e->stride_Y + col * MbStrideY;
-			int offsetCb = e->plane_size_Y + row * MbHeightC * e->stride_C + col * MbStrideC;
-			int offsetCr = e->plane_size_C + offsetCb;
-			if (check_macroblock(frame + offsetY, ref + offsetY, MbStrideY, 16, e->stride_Y) ||
-				check_macroblock(frame + offsetCb, ref + offsetCb, MbStrideC, MbHeightC, e->stride_C) ||
-				check_macroblock(frame + offsetCr, ref + offsetCr, MbStrideC, MbHeightC, e->stride_C))
-				return -2;
-		}
-	}
-	return 0;
-}
-
-
-
-/**
  * This function scans memory for the three-byte 00n pattern, and returns
  * a pointer to the first following byte.
  *
@@ -1427,15 +1376,14 @@ int Edge264_decode_NAL(Edge264_stream *e)
 	ctx->_mb = mb;
 	ctx->_codIRange = codIRange;
 	ctx->_codIOffset = codIOffset;
-	// FIXME: read two bytes to prevent reading before buffer in refill
-	ctx->RBSP[1] = e->CPB[0];
-	ctx->CPB = e->CPB + 1;
+	ctx->RBSP[1] = e->CPB[1];
+	ctx->CPB = e->CPB + 2; // remember refill reads 2 bytes before
 	ctx->end = e->end;
 	refill(SIZE_BIT * 2 - 8, 0);
 	
 	// beware we're parsing a NAL header :)
-	unsigned nal_ref_idc = get_uv(3);
-	unsigned nal_unit_type = get_uv(5);
+	unsigned nal_ref_idc = *e->CPB >> 5;
+	unsigned nal_unit_type = *e->CPB & 0x1f;
 	ctx->non_ref_flag = (nal_ref_idc == 0);
 	ctx->IdrPicFlag = (nal_unit_type == 5);
 	printf("<ul class=\"frame\">\n"
@@ -1458,7 +1406,7 @@ int Edge264_decode_NAL(Edge264_stream *e)
 	mb = ctx->_mb;
 	codIRange = ctx->_codIRange;
 	codIOffset = ctx->_codIOffset;
-	ctx = old;
 	e->CPB = Edge264_find_start_code(1, ctx->CPB - 2, ctx->end);
+	ctx = old;
 	return e->ret;
 }

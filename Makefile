@@ -4,13 +4,13 @@
 # 1 - Prints NAL headers to stdout
 # 2 - Also prints decoded symbols to stderr (VERY LARGE)
 
-CFLAGS += -std=gnu99 -march=native -O2
+override CFLAGS += -std=gnu99 -march=native -O2
 LIBS = -lglfw -framework OpenGL
 
 ifeq ($(TRACE),)
 	SUFFIX = -$(CC)
 else
-	CFLAGS += -DTRACE=$(TRACE)
+	override CFLAGS += -DTRACE=$(TRACE)
 	SUFFIX = -dbg$(TRACE)
 endif
 

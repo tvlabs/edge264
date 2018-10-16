@@ -24,7 +24,7 @@
 #ifdef __SSSE3__
 __attribute__((noinline)) size_t refill(int shift, size_t ret)
 {
-	typedef size_t v16u __attribute__((vector_size(16)));
+typedef size_t v16u __attribute__((vector_size(16)));
 	static const v16qi shuf[8] = {
 		{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 15},
 		{0, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 15},
@@ -47,10 +47,10 @@ __attribute__((noinline)) size_t refill(int shift, size_t ret)
 	__m128i x = (CPB <= ctx->end - 14) ?
 		_mm_loadu_si128((__m128i *)(CPB - 2)) :
 		_mm_srl_si128(_mm_loadu_si128((__m128i *)(ctx->end - 16)), CPB - (ctx->end - 14));
-	ctx->RBSP[0] = ctx->RBSP[1];
-	unsigned eptb = _mm_movemask_epi8(_mm_cmpeq_epi8(x, _mm_setzero_si128()));
+	__m128i zero = _mm_setzero_si128();
+	unsigned eptb = _mm_movemask_epi8(_mm_cmpeq_epi8(x, zero));
 	x = _mm_srli_si128(x, 2);
-	eptb &= eptb >> 1 & _mm_movemask_epi8(_mm_cmpgt_epi8(_mm_set1_epi8(4), x));
+	eptb &= eptb >> 1 & _mm_movemask_epi8(_mm_cmpeq_epi8(_mm_and_si128(x, _mm_set1_epi8(-4)), zero));
 	
 	// iterate on and remove every emulation_prevention_three_byte
 	for (; eptb & (SIZE_BIT == 32 ? 0xf : 0xff); CPB++, eptb = (eptb & (eptb - 1)) >> 1) {
@@ -64,7 +64,8 @@ __attribute__((noinline)) size_t refill(int shift, size_t ret)
 		x = _mm_shuffle_epi8(x, (__m128i)shuf[i]);
 	}
 	CPB += sizeof(size_t);
-	ctx->RBSP[1] = big_endian(((v16u)x)[0]); // FIXME: faster way than going through regs?
+	ctx->RBSP[0] = ctx->RBSP[1];
+	ctx->RBSP[1] = big_endian(((v16u)x)[0]);
 	ctx->CPB = CPB < ctx->end ? CPB : ctx->end;
 	return ret;
 }

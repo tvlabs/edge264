@@ -922,6 +922,7 @@ static __attribute__((noinline)) int parse_residual_block(unsigned coded_block_f
 		}
 		int scan = ctx->scan[ctz64(significant_coeff_flags)];
 		int d = (coeff_level * ctx->LevelScale[scan] + 32) >> 6;
+		printf("<li>i=%d, scan=%d, scale=%d</li>\n", ctz64(significant_coeff_flags), scan, ctx->LevelScale[scan]);
 		
 		// not the brightest part of spec (9.3.3.1.3), I did my best
 		static const int8_t trans[5] = {0, 2, 3, 4, 4};

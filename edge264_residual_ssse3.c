@@ -73,6 +73,18 @@ static inline void compute_LevelScale8x8(int iYCbCr) {
 }
 
 
+static void print_v8hi(v8hi v) {
+	printf("<li><code>");
+	for (int i = 0; i < 8; i++)
+		printf("%03d ", v[i]);
+	printf("</li></code>\n");
+}
+static void print_v4si(v4si v) {
+	printf("<li><code>");
+	for (int i = 0; i < 4; i++)
+		printf("%05d ", v[i]);
+	printf("</li></code>\n");
+}
 
 /**
  * Inverse 4x4 transform
@@ -88,6 +100,13 @@ static __attribute__((noinline)) int decode_Residual4x4(__m128i p0, __m128i p1)
 	__m128i d1 = (__m128i)ctx->d_v[1];
 	__m128i d2 = (__m128i)ctx->d_v[2];
 	__m128i d3 = (__m128i)ctx->d_v[3];
+	print_v8hi((v8hi)p0);
+	print_v8hi((v8hi)p1);
+	print_v4si((v4si)d0);
+	print_v4si((v4si)d1);
+	print_v4si((v4si)d2);
+	print_v4si((v4si)d3);
+	exit(0);
 	
 	// horizontal 1D transform
 	__m128i e0 = _mm_add_epi32(d0, d2);

@@ -146,9 +146,9 @@ int main(int argc, char *argv[])
 			" 1.596027, -0.812968,  0.000000, 0.0,"
 			"-0.870787,  0.529591, -1.081390, 1.0);"
 		"void main() {"
-			"float Y = texture2D(texY, vTexCoord).r;"
-			"float Cb = texture2D(texCb, vTexCoord).r;"
-			"float Cr = texture2D(texCr, vTexCoord).r;"
+			"float Y = texture2D(texY, vTex).r;"
+			"float Cb = texture2D(texCb, vTex).r;"
+			"float Cr = texture2D(texCr, vTex).r;"
 			"gl_FragColor = YCbCr_RGB * vec4(Y, Cb, Cr, 1.0);"
 		"}";
 	static const float quad[16] = {

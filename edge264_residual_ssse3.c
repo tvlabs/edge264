@@ -34,6 +34,24 @@ static const v16qi normAdjust8x8[6][4] = {
 	36, 34, 46, 34, 36, 34, 46, 34, 34, 32, 43, 32, 34, 32, 43, 32,
 	46, 43, 58, 43, 46, 43, 58, 43, 34, 32, 43, 32, 34, 32, 43, 32,
 };
+static void print_v16qi(v16qi v) {
+	printf("<li><code>");
+	for (int i = 0; i < 16; i++)
+		printf("%03d ", v[i]);
+	printf("</code></li>\n");
+}
+static void print_v8hi(v8hi v) {
+	printf("<li><code>");
+	for (int i = 0; i < 8; i++)
+		printf("%03d ", v[i]);
+	printf("</code></li>\n");
+}
+static void print_v4si(v4si v) {
+	printf("<li><code>");
+	for (int i = 0; i < 4; i++)
+		printf("%05d ", v[i]);
+	printf("</code></li>\n");
+}
 
 
 
@@ -45,15 +63,15 @@ static __attribute__((noinline)) void compute_LevelScale4x4(int iYCbCr) {
 	// This part is very unsatisfactory and will have to be optimised some day.
 	int BitDepth = (iYCbCr == 0) ? ctx->ps.BitDepth_Y : ctx->ps.BitDepth_C;
 	__m128i zero = _mm_setzero_si128();
-	__m128i shift = _mm_cvtsi32_si128((unsigned)mb->QP[iYCbCr] / 6 + BitDepth - 8);
+	__m128i shift = _mm_cvtsi32_si128((unsigned)mb->QP[iYCbCr] / 6 + BitDepth - 6);
 	__m128i nA = (__m128i)normAdjust4x4[(unsigned)mb->QP[iYCbCr] % 6];
 	__m128i w = ((__m128i *)ctx->ps.weightScale4x4)[iYCbCr + mb->f.mbIsInterFlag * 3];
 	__m128i x0 = _mm_mullo_epi16(_mm_unpacklo_epi8(w, zero), _mm_unpacklo_epi8(nA, zero));
 	__m128i x1 = _mm_mullo_epi16(_mm_unpackhi_epi8(w, zero), _mm_unpackhi_epi8(nA, zero));
-	ctx->LevelScale_v[0] = (v4su)_mm_sll_epi32(_mm_unpacklo_epi16(x0, zero), shift);
-	ctx->LevelScale_v[1] = (v4su)_mm_sll_epi32(_mm_unpackhi_epi16(x0, zero), shift);
-	ctx->LevelScale_v[2] = (v4su)_mm_sll_epi32(_mm_unpacklo_epi16(x1, zero), shift);
-	ctx->LevelScale_v[3] = (v4su)_mm_sll_epi32(_mm_unpackhi_epi16(x1, zero), shift);
+	ctx->LevelScale_v[0] = (v4si)_mm_sll_epi32(_mm_unpacklo_epi16(x0, zero), shift);
+	ctx->LevelScale_v[1] = (v4si)_mm_sll_epi32(_mm_unpackhi_epi16(x0, zero), shift);
+	ctx->LevelScale_v[2] = (v4si)_mm_sll_epi32(_mm_unpacklo_epi16(x1, zero), shift);
+	ctx->LevelScale_v[3] = (v4si)_mm_sll_epi32(_mm_unpackhi_epi16(x1, zero), shift);
 }
 
 static inline void compute_LevelScale8x8(int iYCbCr) {
@@ -65,26 +83,14 @@ static inline void compute_LevelScale8x8(int iYCbCr) {
 	for (int i = 0; i < 4; i++) {
 		__m128i x0 = _mm_mullo_epi16(_mm_unpacklo_epi8(w[i], zero), _mm_unpacklo_epi8(nA[i], zero));
 		__m128i x1 = _mm_mullo_epi16(_mm_unpacklo_epi8(w[i], zero), _mm_unpacklo_epi8(nA[i], zero));
-		ctx->LevelScale_v[i * 4 + 0] = (v4su)_mm_sll_epi32(_mm_unpacklo_epi16(x0, zero), shift);
-		ctx->LevelScale_v[i * 4 + 1] = (v4su)_mm_sll_epi32(_mm_unpackhi_epi16(x0, zero), shift);
-		ctx->LevelScale_v[i * 4 + 2] = (v4su)_mm_sll_epi32(_mm_unpacklo_epi16(x1, zero), shift);
-		ctx->LevelScale_v[i * 4 + 3] = (v4su)_mm_sll_epi32(_mm_unpackhi_epi16(x1, zero), shift);
+		ctx->LevelScale_v[i * 4 + 0] = (v4si)_mm_sll_epi32(_mm_unpacklo_epi16(x0, zero), shift);
+		ctx->LevelScale_v[i * 4 + 1] = (v4si)_mm_sll_epi32(_mm_unpackhi_epi16(x0, zero), shift);
+		ctx->LevelScale_v[i * 4 + 2] = (v4si)_mm_sll_epi32(_mm_unpacklo_epi16(x1, zero), shift);
+		ctx->LevelScale_v[i * 4 + 3] = (v4si)_mm_sll_epi32(_mm_unpackhi_epi16(x1, zero), shift);
 	}
 }
 
 
-static void print_v8hi(v8hi v) {
-	printf("<li><code>");
-	for (int i = 0; i < 8; i++)
-		printf("%03d ", v[i]);
-	printf("</li></code>\n");
-}
-static void print_v4si(v4si v) {
-	printf("<li><code>");
-	for (int i = 0; i < 4; i++)
-		printf("%05d ", v[i]);
-	printf("</li></code>\n");
-}
 
 /**
  * Inverse 4x4 transform
@@ -100,13 +106,6 @@ static __attribute__((noinline)) int decode_Residual4x4(__m128i p0, __m128i p1)
 	__m128i d1 = (__m128i)ctx->d_v[1];
 	__m128i d2 = (__m128i)ctx->d_v[2];
 	__m128i d3 = (__m128i)ctx->d_v[3];
-	print_v8hi((v8hi)p0);
-	print_v8hi((v8hi)p1);
-	print_v4si((v4si)d0);
-	print_v4si((v4si)d1);
-	print_v4si((v4si)d2);
-	print_v4si((v4si)d3);
-	exit(0);
 	
 	// horizontal 1D transform
 	__m128i e0 = _mm_add_epi32(d0, d2);

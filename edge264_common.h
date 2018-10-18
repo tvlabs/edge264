@@ -143,7 +143,7 @@ typedef struct
 	union { int8_t sig_inc[64]; v8qi sig_inc_l; v16qi sig_inc_v[4]; };
 	union { int8_t last_inc[64]; v8qi last_inc_l; v16qi last_inc_v[4]; };
 	union { int8_t scan[64]; v8qi scan_l; v16qi scan_v[4]; };
-	union { uint32_t LevelScale[64]; v4su LevelScale_v[16]; };
+	union { int32_t LevelScale[64]; v4si LevelScale_v[16]; };
 	union { int32_t plane_offsets[48]; v4si plane_offsets_v[12]; };
 	union { uint8_t PredMode[48]; v16qu PredMode_v[3]; };
 	union { int16_t pred_buffer[136]; v8hi pred_buffer_v[17]; }; // temporary storage for prediction samples

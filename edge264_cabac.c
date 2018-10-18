@@ -714,46 +714,47 @@ static const int8_t context_init[4][1024][2] __attribute__((aligned(16))) = {{
 
 
 static const v16qi sig_inc_4x4 =
-	{0, 14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1, 0};
+	{0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15};
 static const v16qi sig_inc_8x8[2][4] = {{
-	{ 0, 12, 10, 14, 11, 13, 12, 11,  9, 10, 14,  9,  6, 11, 13, 12},
-	{11,  6,  8,  9, 10, 14,  9,  8,  7,  6, 11, 13, 12, 11,  6,  7},
-	{ 7,  8,  9, 10,  9,  8,  7,  7,  7,  6,  3,  3,  4,  4,  4,  4},
-	{ 5,  5,  4,  4,  4,  3,  3,  4,  4,  5,  5,  4,  3,  2,  1,  0},
+	{ 0,  1,  2,  3,  4,  5,  5,  4,  4,  3,  3,  4,  4,  4,  5,  5},
+	{ 4,  4,  4,  4,  3,  3,  6,  7,  7,  7,  8,  9, 10,  9,  8,  7},
+	{ 7,  6, 11, 12, 13, 11,  6,  7,  8,  9, 14, 10,  9,  8,  6, 11},
+	{12, 13, 11,  6,  9, 14, 10,  9, 11, 12, 13, 11, 14, 10, 12,  0},
 	}, {
-	{ 0, 14, 14, 14, 14, 14, 10, 10,  9,  9, 13, 13,  8, 10, 10,  9},
-	{ 9, 13, 13,  8, 10, 10,  9,  9, 11, 12, 11,  8, 10, 10,  9,  9},
-	{11, 12, 11,  8, 10, 10,  9,  9, 11, 12, 11,  8, 10, 10,  9,  6},
-	{ 5,  4,  8,  7,  7,  7,  6,  5,  4,  3,  3,  2,  2,  1,  1,  0},
+	{ 0,  1,  1,  2,  2,  3,  3,  4,  5,  6,  7,  7,  7,  8,  4,  5},
+	{ 6,  9, 10, 10,  8, 11, 12, 11,  9,  9, 10, 10,  8, 11, 12, 11},
+	{ 9,  9, 10, 10,  8, 11, 12, 11,  9,  9, 10, 10,  8, 13, 13,  9},
+	{ 9, 10, 10,  8, 13, 13,  9,  9, 10, 10, 14, 14, 14, 14, 14,  0},
 }};
 static const v16qi last_inc_8x8[4] = {
-	{0, 8, 8, 8, 7, 7, 7, 7, 6, 6, 6, 6, 5, 5, 5, 5},
-	{4, 4, 4, 4, 4, 4, 4, 4, 3, 3, 3, 3, 3, 3, 3, 3},
+	{0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1},
 	{2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2},
-	{1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0},
+	{3, 3, 3, 3, 3, 3, 3, 3, 4, 4, 4, 4, 4, 4, 4, 4},
+	{5, 5, 5, 5, 6, 6, 6, 6, 7, 7, 7, 7, 8, 8, 8, 8},
 };
 static const v8qi sig_inc_chromaDC[2] =
-	{{0, 2, 1, 0}, {0, 2, 2, 2, 1, 1, 0, 0}};
+	{{0, 1, 2, 0}, {0, 0, 1, 1, 2, 2, 2, 0}};
 
 static const v16qi scan_4x4[2] = {
-	{15, 11, 14, 13, 10, 7, 3, 6, 9, 12, 8, 5, 2, 1, 4, 0},
-	{15, 14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 3, 2, 4, 1, 0},
+	{0, 4, 1, 2, 5, 8, 12, 9, 6, 3, 7, 10, 13, 14, 11, 15},
+	{0, 1, 4, 2, 3, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15},
 };
 static const v16qi scan_8x8[2][4] = {{
-	{63, 55, 62, 61, 54, 47, 39, 46, 53, 60, 59, 52, 45, 38, 31, 23},
-	{30, 37, 44, 51, 58, 57, 50, 43, 36, 29, 22, 15,  7, 14, 21, 28},
-	{35, 42, 49, 56, 48, 41, 34, 27, 20, 13,  6,  5, 12, 19, 26, 33},
-	{40, 32, 25, 18, 11,  4,  3, 10, 17, 24, 16,  9,  2,  1,  8,  0},
+	{ 0,  8,  1,  2,  9, 16, 24, 17, 10,  3,  4, 11, 18, 25, 32, 40},
+	{33, 26, 19, 12,  5,  6, 13, 20, 27, 34, 41, 48, 56, 49, 42, 35},
+	{28, 21, 14,  7, 15, 22, 29, 36, 43, 50, 57, 58, 51, 44, 37, 30},
+	{23, 31, 38, 45, 52, 59, 60, 53, 46, 39, 47, 54, 61, 62, 55, 63},
 	}, {
-	{63, 62, 61, 60, 59, 58, 55, 54, 53, 52, 57, 56, 51, 47, 46, 45},
-	{44, 50, 49, 43, 39, 38, 37, 36, 42, 48, 41, 35, 31, 30, 29, 28},
-	{34, 40, 33, 27, 23, 22, 21, 20, 26, 32, 25, 19, 15, 14, 13, 18},
-	{24, 17, 12,  7,  6,  5, 11, 16, 10,  4,  3,  9,  8,  2,  1,  0},
+	{ 0,  1,  2,  8,  9,  3,  4, 10, 16, 11,  5,  6,  7, 12, 17, 24},
+	{18, 13, 14, 15, 19, 25, 32, 26, 20, 21, 22, 23, 27, 33, 40, 34},
+	{28, 29, 30, 31, 35, 41, 48, 42, 36, 37, 38, 39, 43, 49, 50, 44},
+	{45, 46, 47, 51, 56, 57, 52, 53, 54, 55, 58, 59, 60, 61, 62, 63},
 }};
 static const v8qi scan_chromaDC[2][2] = {
-	{{19, 18, 17, 16}, {23, 21, 19, 22, 20, 17, 18, 16}},
-	{{23, 22, 21, 20}, {31, 29, 27, 30, 28, 25, 26, 24}},
+	{{16, 17, 18, 19}, {16, 18, 17, 20, 22, 19, 21, 23}},
+	{{20, 21, 22, 23}, {24, 26, 25, 28, 30, 27, 29, 31}},
 };
+
 static const v4hi ctxIdxOffsets_16x16DC[3][2] = {
 	{{85, 105, 166, 227}, {85, 277, 338, 227}}, // ctxBlockCat==0
 	{{460, 484, 572, 952}, {460, 776, 864, 952}}, // ctxBlockCat==6
@@ -865,23 +866,23 @@ static __attribute__((noinline)) size_t get_ae(int ctxIdx)
  * coeff_abs_level expects at most 2^(7+14), i.e 43 bits as Exp-Golomb, so we
  * use two 32bit divisions (second one being executed for long codes only).
  */
-static __attribute__((noinline)) int parse_residual_block(unsigned coded_block_flag, int endIdx)
+static __attribute__((noinline)) int parse_residual_block(unsigned coded_block_flag, int startIdx, int endIdx)
 {
 	// Sharing this test here should limit branch predictor cache pressure.
 	if (!coded_block_flag)
 		return decode_samples();
 		
-	// Storage of significant_coeff_flags is reversed compared to the spec.
+	// significant_coeff_flags are stored as a bit mask
 	uint64_t significant_coeff_flags = 0;
-	int i = endIdx;
+	int i = startIdx;
 	do {
 		if (get_ae(ctx->ctxIdxOffsets[1] + ctx->sig_inc[i])) {
-			significant_coeff_flags |= 1ULL << i;
+			significant_coeff_flags |= (uint64_t)1 << i;
 			if (get_ae(ctx->ctxIdxOffsets[2] + ctx->last_inc[i]))
 				break;
 		}
-	} while (--i > 0);
-	significant_coeff_flags |= 1ULL << i;
+	} while (++i < endIdx);
+	significant_coeff_flags |= (uint64_t)1 << i;
 
 	// Now loop on set bits to parse all non-zero coefficients.
 	int ctxIdx0 = ctx->ctxIdxOffsets[3] + 1;
@@ -920,9 +921,6 @@ static __attribute__((noinline)) int parse_residual_block(unsigned coded_block_f
 			codIOffset = (SIZE_BIT == 32) ? mul : (uint32_t)codIOffset | mul << 32;
 			coeff_level = 14 + (1 << k) + (quo << shift >> (31 - k));
 		}
-		int scan = ctx->scan[ctz64(significant_coeff_flags)];
-		int d = (coeff_level * ctx->LevelScale[scan] + 32) >> 6;
-		printf("<li>i=%d, scan=%d, scale=%d</li>\n", ctz64(significant_coeff_flags), scan, ctx->LevelScale[scan]);
 		
 		// not the brightest part of spec (9.3.3.1.3), I did my best
 		static const int8_t trans[5] = {0, 2, 3, 4, 4};
@@ -933,13 +931,16 @@ static __attribute__((noinline)) int parse_residual_block(unsigned coded_block_f
 	
 		// parse coeff_sign_flag
 		codIRange >>= 1;
-		d = (codIOffset >= codIRange) ? -d : d;
+		int c = (codIOffset >= codIRange) ? -coeff_level : coeff_level;
 		codIOffset = (codIOffset >= codIRange) ? codIOffset - codIRange : codIOffset;
-		ctx->d[scan] = d;
-	
-		// Though not very efficient, this gets optimised out easily :)
-		fprintf(stderr, "coeffLevel[%d]: %d\n", endIdx - ctz64(significant_coeff_flags), d < 0 ? -coeff_level : coeff_level);
-	} while ((significant_coeff_flags &= significant_coeff_flags - 1) != 0);
+		
+		// scale and store
+		int i = 63 - clz64(significant_coeff_flags);
+		int scan = ctx->scan[i];
+		ctx->d[scan] = (c * ctx->LevelScale[scan] + 32) >> 6;
+		significant_coeff_flags &= ~((uint64_t)1 << i);
+		fprintf(stderr, "coeffLevel[%d]: %d\n", i, c);
+	} while (significant_coeff_flags != 0);
 	return decode_samples();
 }
 
@@ -1123,7 +1124,7 @@ static __attribute__((noinline)) int parse_chroma_residual()
 	
 	// Both DC blocks will be stored in ctx->d[16..31]
 	ctx->LevelScale_v[4] = ctx->LevelScale_v[5] = ctx->LevelScale_v[6] =
-		ctx->LevelScale_v[7] = (v4su){64, 64, 64, 64};
+		ctx->LevelScale_v[7] = (v4si){64, 64, 64, 64};
 	ctx->d_v[4] = ctx->d_v[5] = ctx->d_v[6] = ctx->d_v[7] = (v4si){};
 	ctx->ctxIdxOffsets_l = ctxIdxOffsets_chromaDC[mb->f.mb_field_decoding_flag];
 	ctx->sig_inc_l = ctx->last_inc_l = sig_inc_chromaDC[is422];
@@ -1137,7 +1138,7 @@ static __attribute__((noinline)) int parse_chroma_residual()
 		mb->f.coded_block_flags_16x16[1] = coded_block_flag_Cb;
 	}
 	check_ctx(RESIDUAL_CB_DC_LABEL);
-	parse_residual_block(coded_block_flag_Cb, is422 * 4 + 3);
+	parse_residual_block(coded_block_flag_Cb, 0, is422 * 4 + 3);
 	ctx->PredMode[16] = ctx->PredMode[17];
 	
 	// Another 2x2/2x4 DC block for the Cr component
@@ -1150,7 +1151,7 @@ static __attribute__((noinline)) int parse_chroma_residual()
 		mb->f.coded_block_flags_16x16[2] = coded_block_flag_Cr;
 	}
 	check_ctx(RESIDUAL_CR_DC_LABEL);
-	parse_residual_block(coded_block_flag_Cr, is422 * 4 + 3);
+	parse_residual_block(coded_block_flag_Cr, 0, is422 * 4 + 3);
 	ctx->PredMode[ctx->BlkIdx] = ctx->PredMode[ctx->BlkIdx + 1];
 	
 	// Eight or sixteen 4x4 AC blocks for the Cb/Cr components
@@ -1173,7 +1174,7 @@ static __attribute__((noinline)) int parse_chroma_residual()
 		}
 		mb->coded_block_flags_4x4[ctx->BlkIdx] = coded_block_flag;
 		check_ctx(RESIDUAL_CHROMA_LABEL);
-		parse_residual_block(coded_block_flag, 14);
+		parse_residual_block(coded_block_flag, 1, 15);
 	}
 	return 0;
 }
@@ -1200,13 +1201,13 @@ static __attribute__((noinline)) int parse_Intra16x16_residual()
 		// One 4x4 DC block
 		int iYCbCr = ctx->BlkIdx >> 4;
 		ctx->LevelScale_v[0] = ctx->LevelScale_v[1] = ctx->LevelScale_v[2] =
-			ctx->LevelScale_v[3] = (v4su){64, 64, 64, 64};
+			ctx->LevelScale_v[3] = (v4si){64, 64, 64, 64};
 		ctx->d_v[0] = ctx->d_v[1] = ctx->d_v[2] = ctx->d_v[3] = (v4si){};
 		ctx->ctxIdxOffsets_l = ctxIdxOffsets_16x16DC[iYCbCr][mb_field_decoding_flag];
 		mb->f.coded_block_flags_16x16[iYCbCr] = get_ae(ctx->ctxIdxOffsets[0] +
 			ctx->inc.coded_block_flags_16x16[iYCbCr]);
 		check_ctx(RESIDUAL_DC_LABEL);
-		parse_residual_block(mb->f.coded_block_flags_16x16[iYCbCr], 15);
+		parse_residual_block(mb->f.coded_block_flags_16x16[iYCbCr], 0, 15);
 		
 		// Sixteen 4x4 AC blocks
 		ctx->ctxIdxOffsets_l = ctxIdxOffsets_16x16AC[iYCbCr][mb_field_decoding_flag];
@@ -1222,7 +1223,7 @@ static __attribute__((noinline)) int parse_Intra16x16_residual()
 			}
 			mb->coded_block_flags_4x4[ctx->BlkIdx] = coded_block_flag;
 			check_ctx(RESIDUAL_4x4_LABEL);
-			parse_residual_block(coded_block_flag, 14);
+			parse_residual_block(coded_block_flag, 1, 15);
 		// not a loop-predictor-friendly condition, but would it make a difference?
 		} while (++ctx->BlkIdx & 15);
 		
@@ -1272,7 +1273,7 @@ static __attribute__((noinline)) int parse_NxN_residual()
 				}
 				mb->coded_block_flags_4x4[ctx->BlkIdx] = coded_block_flag;
 				check_ctx(RESIDUAL_4x4_LABEL);
-				parse_residual_block(coded_block_flag, 15);
+				parse_residual_block(coded_block_flag, 0, 15);
 			} while (++ctx->BlkIdx & 15);
 		} else {
 			
@@ -1299,7 +1300,7 @@ static __attribute__((noinline)) int parse_NxN_residual()
 				mb->coded_block_flags_8x8[luma8x8BlkIdx] = coded_block_flag;
 				mb->coded_block_flags_4x4_s[luma8x8BlkIdx] = coded_block_flag ? 0x01010101 : 0;
 				check_ctx(RESIDUAL_8x8_LABEL);
-				parse_residual_block(coded_block_flag, 63);
+				parse_residual_block(coded_block_flag, 0, 63);
 			} while ((ctx->BlkIdx += 4) & 15);
 		}
 		

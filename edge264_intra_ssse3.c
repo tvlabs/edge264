@@ -775,11 +775,11 @@ static int decode_ChromaPlane8x16(__m128i top, __m128i leftt, __m128i leftb) {
  * The problems are:
  * _ The prologue must be minimal for the performance of Intra4x4 modes, so
  *   code common to other modes has to be duplicated or put in functions.
- * _ clang does not support collapsing nested switches into a single one,
- *   leaving only the possibility to implement the tree with functions.
+ * _ gcc does not support collapsing nested switches into a single one,
+ *   leaving only the possibility to duplicate some code.
  * _ Functions incur some overhead, even with tail calls, because of stack
- *   management and the impossibility to turn tail calls into near/short jumps.
- * _ Readability limits the size of the main function.
+ *   management.
+ * _ Readability should limit the size of the main function.
  */
 int decode_switch(size_t stride, ssize_t nstride, uint8_t *p, __m128i zero, int BlkIdx) {
 	static const v16qi C8_8bit = {7, 8, 9, 10, 11, 12, 13, 14, 15, 15, -1, -1, -1, -1, -1, -1};

@@ -43,11 +43,10 @@ Technical details
 
 edge264 is built and tested with gcc/clang, supports 32/64 bit architectures, and requires 128 bit SIMD support. gcc is highly recommended though (about 2x faster), mostly because clang does not support Global Register Variables.
 
-The test program takes a raw Annex-B bitstream and prints out the parsing data:
 ```
 $ ffmpeg -i video.mp4 -vcodec copy -bsf h264_mp4toannexb -an video.264 (optional, converts from MP4 format)
-$ make CC=gcc-8 TRACE=1
-$ ./edge264_play <video.264 >headers.html
+$ make CC=gcc-8
+$ ./edge264_play-gcc-8 <video.264 >headers.html
 ```
 
 Improvements found so far:

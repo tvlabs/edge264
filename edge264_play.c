@@ -1,8 +1,9 @@
 /**
- * Plays the file given as stdin in a bare window.
- * If an optional reference yuv file is provided as argument, it will be
- * checked against each frame for strict conformance.
+ * Plays the file given as first argument in a bare window.
+ * If an optional reference yuv file is also provided, it will be checked
+ * against each frame for strict conformance.
  */
+
 #include <assert.h>
 #include <fcntl.h>
 #include <stdio.h>
@@ -13,7 +14,6 @@
 #include <sys/stat.h>
 #include <sys/types.h>
 
-#define GLFW_INCLUDE_ES2
 #include <GLFW/glfw3.h>
 
 #include "edge264.h"
@@ -157,6 +157,44 @@ int main(int argc, char *argv[])
 		 1.0,  1.0, 1.0, 0.0,
 		 1.0, -1.0, 1.0, 1.0};
 	
+	// print help if called with -h, --help, or no argument
+	if (argc < 2 || strcmp(argv[1], "--help") == 0 || strcmp(argv[1], "-h") == 0) {
+		fprintf(stdout, "Usage: %s video.264 [video.yuv]\n", argv[0]);
+		return 0;
+	}
+	
+	// memory-map the input file
+	int fd = open(argv[1], O_RDONLY);
+	if (fd < 0) {
+		perror(argv[1]);
+		return 0;
+	}
+	struct stat stC;
+	fstat(fd, &stC);
+	uint8_t *cpb = mmap(NULL, stC.st_size, PROT_READ, MAP_SHARED, fd, 0);
+	assert(cpb!=MAP_FAILED);
+	Edge264_stream e = {
+		.CPB = cpb + 4,
+		.end = cpb + stC.st_size,
+		.output_frame = print_frame
+	};
+	
+	// memory-map the optional yuv reference file
+	int yuv = -1;
+	struct stat stD;
+	uint8_t *dpb = NULL;
+	if (argc >= 3) {
+		yuv = open(argv[2], O_RDONLY);
+		if (yuv < 0) {
+			perror(argv[2]);
+			return 0;
+		}
+		fstat(yuv, &stD);
+		dpb = mmap(NULL, stD.st_size, PROT_READ, MAP_SHARED, yuv, 0);
+		assert(dpb!=NULL);
+		e.user = dpb;
+	}
+	
 	// initialize OpenGL with GLFW
 	glfwInit();
 	glfwWindowHint(GLFW_VISIBLE, GLFW_FALSE);
@@ -203,29 +241,6 @@ int main(int argc, char *argv[])
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
 	
-	// memory-map the whole file
-	struct stat stC;
-	fstat(0, &stC);
-	uint8_t *cpb = mmap(NULL, stC.st_size, PROT_READ, MAP_SHARED, 0, 0);
-	assert(cpb!=MAP_FAILED);
-	Edge264_stream e = {
-		.CPB = cpb + 4,
-		.end = cpb + stC.st_size,
-		.output_frame = print_frame
-	};
-	
-	// memory-map the optional yuv reference file
-	int yuv = -1;
-	struct stat stD;
-	uint8_t *dpb = NULL;
-	if (argc == 2) {
-		int yuv = open(argv[1], O_RDONLY);
-		fstat(yuv, &stD);
-		dpb = mmap(NULL, stD.st_size, PROT_READ, MAP_SHARED, yuv, 0);
-		assert(dpb!=NULL);
-		e.user = dpb;
-	}
-	
 	// parse and dump the file to HTML
 	setbuf(stdout, NULL);
 	printf("<!doctype html>\n"
@@ -241,10 +256,11 @@ int main(int argc, char *argv[])
 	
 	// cleanup everything
 	munmap(cpb, stC.st_size);
-	if (dpb != NULL)
+	close(fd);
+	if (yuv >= 0) {
 		munmap(dpb, stD.st_size);
-	if (yuv >= 0)
 		close(yuv);
+	}
 	glfwTerminate();
 	return 0;
 }

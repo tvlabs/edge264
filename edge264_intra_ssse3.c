@@ -1,3 +1,17 @@
+/**
+ * Intra decoding involves so many shuffling tricks that it is better expressed
+ * as native code, where each architecture can give its best.
+ * Compilers do a pretty decent job if vector code is contained in not-too-big
+ * functions, and it makes it easier to check that they did not screw a thing.
+ * 
+ * Choosing between the different possibilities of a same function is tricky,
+ * in general I favor in order:
+ * _ the fastest code, obviously (http://www.agner.org/optimize/#manual_instr_tab),
+ * _ a short dependency chain (instructions are pipelined in parallel),
+ * _ smaller code+data (avoid excessive use of pshufb),
+ * _ readable code (helped by Intel's astounding instrinsics naming...).
+ */
+
 // TODO: Add testing of borders from ctx
 // TODO: Optimise _mm_set_epi64?
 // TODO: Add 1px unused line atop the first picture to avoid testing forbidden reads
@@ -13,17 +27,6 @@
 // TODO: Try to replace loaded constants with computable ones
 // TODO: Change convention to left-to-top-right arguments
 // TODO: DC does not need avg(255) -> 128
-/**
- * Intra decoding involves so many shuffling tricks that it is better expressed
- * as native intrinsics, where each architecture can give its best.
- *
- * Choosing between the different possibilities of a same function is tricky,
- * in general I favor in order:
- * _ the fastest code, obviously (http://www.agner.org/optimize/#manual_instr_tab),
- * _ a short dependency chain (instructions are pipelined in parallel),
- * _ smaller code+data (avoid excessive use of pshufb),
- * _ readable code (helped by Intel's astounding instrinsics naming...).
- */
 
 #include "edge264_common.h"
 

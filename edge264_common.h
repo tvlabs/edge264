@@ -2,6 +2,7 @@
 // TODO: Make Edge264_flags a v16qu
 // TODO: Store mvs in order, access neighbours with a table initialized with strides
 // TODO: When implementing inter pred, split mb storage to reduce offsets to bytes
+// TODO: Use epb with fomit-frame-pointer to save 1byte per ctx access, and email GCC if error prevents it
 
 #ifndef EDGE264_COMMON_H
 #define EDGE264_COMMON_H

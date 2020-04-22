@@ -1,16 +1,14 @@
-# CC should be gcc, for the sake of optimal performance
-#
 # TRACE:
 # 1 - Prints NAL headers to stdout
 # 2 - Also prints decoded symbols to stderr (VERY LARGE)
 
-override CFLAGS += -std=gnu99 -march=native -O2
+override CFLAGS := -std=gnu99 -march=native -O2 $(CFLAGS)
 LIBS = -lglfw -framework OpenGL
 
 ifeq ($(TRACE),)
 	SUFFIX = -$(CC)
 else
-	override CFLAGS += -DTRACE=$(TRACE)
+	override CFLAGS := -DTRACE=$(TRACE) $(CFLAGS)
 	SUFFIX = -dbg$(TRACE)
 endif
 

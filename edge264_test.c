@@ -61,8 +61,9 @@ int main() {
 		e.user = dpb;
 		
 		// parse the file and FAIL on any error
+		printf("%s: ", entry->d_name);
 		while (Edge264_decode_NAL(&e) >= 0 && e.CPB < e.end);
-		printf("%s: %s\n" RESET, entry->d_name, e.ret == -2 ? RED "FAIL" :
+		printf("%s\n" RESET, e.ret == -2 ? RED "FAIL" :
 			e.ret == -1 ? YELLOW "UNSUPPORTED" : GREEN "PASS");
 		
 		// close everything

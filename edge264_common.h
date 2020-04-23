@@ -95,7 +95,7 @@ typedef struct
 	size_t _codIRange;
 	size_t _codIOffset;
 	int8_t shift;
-	int8_t BlkIdx;
+	int8_t BlkIdx; // index of current AC block (for PredMode), in order Y/Cb/Cr and without gaps
 	uint16_t stride;
 	int16_t x; // 14 significant bits
 	int16_t y;

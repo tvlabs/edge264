@@ -1,3 +1,5 @@
+// TODO: Add shortcut for DC only blocks
+
 #include "edge264_common.h"
 
 static const v16qi normAdjust4x4[6] = {
@@ -577,16 +579,16 @@ static __attribute__((noinline)) int decode_ResidualDC4x4() {
 }
 
 static __attribute__((noinline)) int decode_ResidualDC2x2() {
-	int iYCbCr = (ctx->BlkIdx - 12) >> 2;
-	int32_t *d = ctx->d + ctx->BlkIdx;
+	int iYCbCr = (ctx->BlkIdx - 12) >> 2; // BlkIdx is 16 or 20
 	unsigned qP = mb->QP[iYCbCr];
 	int w = ctx->ps.weightScale4x4[iYCbCr + mb->f.mbIsInterFlag * 3][0];
 	int nA = normAdjust4x4[qP % 6][0];
 	unsigned LevelScale = (w * nA) << (qP / 6 + ctx->ps.BitDepth_C - 8);
-	int i0 = d[0] + d[2];
-	int i1 = d[1] + d[3];
-	int i2 = d[0] - d[2];
-	int i3 = d[1] - d[3];
+	int i0 = ctx->d[0] + ctx->d[2];
+	int i1 = ctx->d[1] + ctx->d[3];
+	int i2 = ctx->d[0] - ctx->d[2];
+	int i3 = ctx->d[1] - ctx->d[3];
+	int32_t *d = ctx->d + ctx->BlkIdx;
 	d[0] = ((i0 + i1) * LevelScale) >> 5;
 	d[1] = ((i0 - i1) * LevelScale) >> 5;
 	d[2] = ((i2 + i3) * LevelScale) >> 5;
@@ -595,23 +597,25 @@ static __attribute__((noinline)) int decode_ResidualDC2x2() {
 }
 
 static __attribute__((noinline)) int decode_ResidualDC2x4() {
-	int iYCbCr = (ctx->BlkIdx - 8) >> 3;
+	int iYCbCr = (ctx->BlkIdx - 8) >> 3; // BlkIdx is 16 or 24
 	unsigned qP_DC = mb->QP[iYCbCr] + 3;
 	int w = ctx->ps.weightScale4x4[iYCbCr + mb->f.mbIsInterFlag * 3][0];
 	int nA = normAdjust4x4[qP_DC % 6][0];
-	__m128i *d = (__m128i *)ctx->d_v + 2 + iYCbCr * 2;
-	__m128i x0 = _mm_add_epi32(d[0], d[1]); // {c00+c20, c01+c21, c10+c30, c11+c31}
-	__m128i x1 = _mm_sub_epi32(d[0], d[1]); // {c00-c20, c01-c21, c10-c30, c11-c31}
-	__m128i x2 = _mm_unpacklo_epi64(x0, x1); // {c00+c20, c01+c21, c00-c20, c01-c21}
-	__m128i x3 = _mm_unpackhi_epi64(x0, x1); // {c10+c30, c11+c31, c10-c30, c11-c31}
-	__m128i x4 = _mm_add_epi32(x2, x3); // {d00, d01, d10, d11}
-	__m128i x5 = _mm_sub_epi32(x2, x3); // {d30, d31, d20, d21}
-	__m128i x6 = _mm_hadd_epi32(x4, x5); // {f00, f10, f30, f20}
-	__m128i x7 = _mm_hsub_epi32(x4, x5); // {f01, f11, f31, f21}
+	__m128i x0 = (__m128i)ctx->d_v[0]; // {c00, c01, c10, c11} as per 8.5.11.1
+	__m128i x1 = (__m128i)ctx->d_v[1]; // {c20, c21, c30, c31}
+	__m128i x2 = _mm_add_epi32(x0, x1); // {c00+c20, c01+c21, c10+c30, c11+c31}
+	__m128i x3 = _mm_sub_epi32(x0, x1); // {c00-c20, c01-c21, c10-c30, c11-c31}
+	__m128i x4 = _mm_unpacklo_epi64(x2, x3); // {c00+c20, c01+c21, c00-c20, c01-c21}
+	__m128i x5 = _mm_unpackhi_epi64(x2, x3); // {c10+c30, c11+c31, c10-c30, c11-c31}
+	__m128i x6 = _mm_add_epi32(x4, x5); // {d00, d01, d10, d11}
+	__m128i x7 = _mm_sub_epi32(x4, x5); // {d30, d31, d20, d21}
+	__m128i x8 = _mm_hadd_epi32(x6, x7); // {f00, f10, f30, f20}
+	__m128i x9 = _mm_hsub_epi32(x6, x7); // {f01, f11, f31, f21}
 	__m128i s = _mm_set1_epi32((w * nA) << (qP_DC / 6 + ctx->ps.BitDepth_C - 8));
 	__m128i s32 = _mm_set1_epi32(32);
-	__m128i dc0 = _mm_srai_epi32(_mm_add_epi32(_mm_mullo_epi32(x6, s), s32), 6);
-	__m128i dc1 = _mm_srai_epi32(_mm_add_epi32(_mm_mullo_epi32(x7, s), s32), 6);
+	__m128i dc0 = _mm_srai_epi32(_mm_add_epi32(_mm_mullo_epi32(x8, s), s32), 6);
+	__m128i dc1 = _mm_srai_epi32(_mm_add_epi32(_mm_mullo_epi32(x9, s), s32), 6);
+	__m128i *d = (__m128i *)ctx->d_v + 2 + iYCbCr * 2;
 	d[0] = _mm_unpacklo_epi32(dc0, dc1);
 	d[1] = _mm_shuffle_epi32(_mm_unpackhi_epi64(dc0, dc1), _MM_SHUFFLE(2, 0, 3, 1));
 	return 0;

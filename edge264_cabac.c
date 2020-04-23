@@ -750,10 +750,8 @@ static const v16qi scan_8x8[2][4] = {{
 	{28, 29, 30, 31, 35, 41, 48, 42, 36, 37, 38, 39, 43, 49, 50, 44},
 	{45, 46, 47, 51, 56, 57, 52, 53, 54, 55, 58, 59, 60, 61, 62, 63},
 }};
-static const v8qi scan_chromaDC[2][2] = {
-	{{16, 17, 18, 19}, {16, 18, 17, 20, 22, 19, 21, 23}},
-	{{20, 21, 22, 23}, {24, 26, 25, 28, 30, 27, 29, 31}},
-};
+static const v8qi scan_chromaDC[2] =
+	{{0, 1, 2, 3}, {0, 2, 1, 4, 6, 3, 5, 7}};
 
 static const v4hi ctxIdxOffsets_16x16DC[3][2] = {
 	{{85, 105, 166, 227}, {85, 277, 338, 227}}, // ctxBlockCat==0
@@ -839,7 +837,7 @@ static __attribute__((noinline)) size_t get_ae(int ctxIdx)
 	
 	ssize_t state = ((uint8_t *)ctx->cabac)[ctxIdx];
 	unsigned shift = SIZE_BIT - 3 - clz(codIRange);
-	fprintf(stderr, "%u/%u: (%u,%x)", (int)(codIOffset >> (shift - 6)), (int)(codIRange >> (shift - 6)), (int)state >> 2, (int)state & 1);
+	// fprintf(stderr, "%u/%u: (%u,%x)", (int)(codIOffset >> (shift - 6)), (int)(codIRange >> (shift - 6)), (int)state >> 2, (int)state & 1);
 	ssize_t idx = (state & -4) + (codIRange >> shift);
 	size_t codIRangeLPS = (size_t)(rangeTabLPS - 4)[idx] << (shift - 6);
 	codIRange -= codIRangeLPS;
@@ -849,7 +847,7 @@ static __attribute__((noinline)) size_t get_ae(int ctxIdx)
 		codIRange = codIRangeLPS;
 	}
 	((uint8_t *)ctx->cabac)[ctxIdx] = transIdx[state];
-	fprintf(stderr, "->(%u,%x)\n", transIdx[state] >> 2, transIdx[state] & 1);
+	// fprintf(stderr, "->(%u,%x)\n", transIdx[state] >> 2, transIdx[state] & 1);
 	size_t binVal = state & 1;
 	if (__builtin_expect(codIRange < 512, 0)) // 256*2 allows parsing an extra coeff_sign_flag without renorm.
 		return renorm(1, binVal);
@@ -871,7 +869,7 @@ static __attribute__((noinline)) int parse_residual_block(unsigned coded_block_f
 	// Sharing this test here should limit branch predictor cache pressure.
 	if (!coded_block_flag)
 		return decode_samples();
-		
+	
 	// significant_coeff_flags are stored as a bit mask
 	uint64_t significant_coeff_flags = 0;
 	int i = startIdx;
@@ -1091,7 +1089,7 @@ static __attribute__((noinline)) void parse_intra_chroma_pred_mode()
 			mode++, ctxIdx = 67;
 		mb->f.intra_chroma_pred_mode_non_zero = (mode > 0);
 		
-		// prepare the right decoding modes
+		// ac[0]==VERTICAL_4x4_BUFFERED reuses the buffering mode of Intra16x16
 		static uint8_t dc[4] = {DC_CHROMA_8x8, VERTICAL_CHROMA_8x8, HORIZONTAL_CHROMA_8x8, PLANE_CHROMA_8x8};
 		static uint8_t ac[4] = {VERTICAL_4x4_BUFFERED, VERTICAL_4x4_BUFFERED, HORIZONTAL_4x4_BUFFERED, PLANE_4x4_BUFFERED};
 		int depth = ctx->ps.BitDepth_C == 8 ? 0 : VERTICAL_4x4_16_BIT;
@@ -1112,9 +1110,6 @@ static __attribute__((noinline)) void parse_intra_chroma_pred_mode()
 /**
  * Parsing for chroma 4:2:2 and 4:2:0 is put in a separate function to be
  * tail-called from parse_NxN_residual and parse_Intra16x16_residual.
- *
- * Compared with the rest of this decoder, the next three parse_X_residual
- * functions are highly imperfect and need further thoughts.
  */
 static __attribute__((noinline)) int parse_chroma_residual()
 {
@@ -1122,15 +1117,14 @@ static __attribute__((noinline)) int parse_chroma_residual()
 	if (is422 < 0)
 		return 0;
 	
-	// Both DC blocks will be stored in ctx->d[16..31]
-	ctx->LevelScale_v[4] = ctx->LevelScale_v[5] = ctx->LevelScale_v[6] =
-		ctx->LevelScale_v[7] = (v4si){64, 64, 64, 64};
-	ctx->d_v[4] = ctx->d_v[5] = ctx->d_v[6] = ctx->d_v[7] = (v4si){};
+	// As in Intra16x16, DC blocks are parsed to ctx->d[0..7], then transformed to ctx->d[16..31]
+	ctx->LevelScale_v[0] = ctx->LevelScale_v[1] = (v4si){64, 64, 64, 64};
 	ctx->ctxIdxOffsets_l = ctxIdxOffsets_chromaDC[mb->f.mb_field_decoding_flag];
 	ctx->sig_inc_l = ctx->last_inc_l = sig_inc_chromaDC[is422];
+	ctx->scan_l = scan_chromaDC[is422];
 	
 	// One 2x2 or 2x4 DC block for the Cb component
-	ctx->scan_l = scan_chromaDC[0][is422];
+	ctx->d_v[0] = ctx->d_v[1] = (v4si){};
 	int coded_block_flag_Cb = 0;
 	if (mb->f.CodedBlockPatternChromaDC) {
 		coded_block_flag_Cb = get_ae(ctx->ctxIdxOffsets[0] +
@@ -1143,7 +1137,7 @@ static __attribute__((noinline)) int parse_chroma_residual()
 	
 	// Another 2x2/2x4 DC block for the Cr component
 	ctx->BlkIdx = 20 + is422 * 4;
-	ctx->scan_l = scan_chromaDC[1][is422];
+	ctx->d_v[0] = ctx->d_v[1] = (v4si){};
 	int coded_block_flag_Cr = 0;
 	if (mb->f.CodedBlockPatternChromaDC) {
 		coded_block_flag_Cr = get_ae(ctx->ctxIdxOffsets[0] +
@@ -1160,7 +1154,7 @@ static __attribute__((noinline)) int parse_chroma_residual()
 	ctx->scan_v[0] = scan_4x4[mb->f.mb_field_decoding_flag];
 	ctx->ctxIdxOffsets_l = ctxIdxOffsets_chromaAC[mb->f.mb_field_decoding_flag];
 	for (ctx->BlkIdx = 16; ctx->BlkIdx < 24 + is422 * 8; ctx->BlkIdx++) {
-		//fprintf(stderr, "BlkIdx=%d, ", ctx->BlkIdx);
+		// fprintf(stderr, "BlkIdx=%d, ", ctx->BlkIdx);
 		ctx->d_v[0] = ctx->d_v[1] = ctx->d_v[2] = ctx->d_v[3] = (v4si){};
 		if (ctx->BlkIdx == 20 + is422 * 4)
 			compute_LevelScale4x4(2);
@@ -1189,7 +1183,7 @@ static __attribute__((noinline)) int parse_Intra16x16_residual()
 {
 	parse_mb_qp_delta(1);
 	
-	// Thanks to the reverse order in significant_coeff_flags, we can reuse 4x4 data.
+	// Both AC and DC coefficients are initially parsed to ctx->d[0..15]
 	int mb_field_decoding_flag = mb->f.mb_field_decoding_flag;
 	ctx->plane = ctx->plane_Y;
 	ctx->stride = ctx->plane_offsets[2] >> 2;
@@ -1198,7 +1192,7 @@ static __attribute__((noinline)) int parse_Intra16x16_residual()
 	ctx->scan_v[0] = scan_4x4[mb_field_decoding_flag];
 	ctx->BlkIdx = ctx->colour_plane_id << 4;
 	do {
-		// One 4x4 DC block
+		// Parse a DC block, then transform it to ctx->d[16..31]
 		int iYCbCr = ctx->BlkIdx >> 4;
 		ctx->LevelScale_v[0] = ctx->LevelScale_v[1] = ctx->LevelScale_v[2] =
 			ctx->LevelScale_v[3] = (v4si){64, 64, 64, 64};
@@ -1209,7 +1203,7 @@ static __attribute__((noinline)) int parse_Intra16x16_residual()
 		check_ctx(RESIDUAL_DC_LABEL);
 		parse_residual_block(mb->f.coded_block_flags_16x16[iYCbCr], 0, 15);
 		
-		// Sixteen 4x4 AC blocks
+		// All AC blocks pick a DC coeff, then go to ctx->d[1..15]
 		ctx->ctxIdxOffsets_l = ctxIdxOffsets_16x16AC[iYCbCr][mb_field_decoding_flag];
 		ctx->PredMode[ctx->BlkIdx] = ctx->PredMode[ctx->BlkIdx + 1];
 		do {
@@ -1228,7 +1222,7 @@ static __attribute__((noinline)) int parse_Intra16x16_residual()
 		} while (++ctx->BlkIdx & 15);
 		
 		// nice optimisation for 4:4:4 modes
-		ctx->plane = ctx->plane_Cb;
+		ctx->plane = ctx->plane_Cb; // not a bug, plane offsets include Cr offset
 		ctx->stride = ctx->plane_offsets[18] >> 2;
 		ctx->clip = ctx->clip_C;
 		if (ctx->ps.ChromaArrayType <3)
@@ -1241,8 +1235,7 @@ static __attribute__((noinline)) int parse_Intra16x16_residual()
 
 /**
  * This block is dedicated to the parsing of Intra_NxN and Inter_NxN, since
- * they share much in common. There will be only a short branch for caching
- * Inter prediction samples.
+ * they share much in common.
  */
 static __attribute__((noinline)) int parse_NxN_residual()
 {
@@ -1305,7 +1298,7 @@ static __attribute__((noinline)) int parse_NxN_residual()
 		}
 		
 		// nice optimisation for 4:4:4 modes
-		ctx->plane = ctx->plane_Cb;
+		ctx->plane = ctx->plane_Cb; // not a bug, plane offsets include Cr offset
 		ctx->stride = ctx->plane_offsets[18] >> 2;
 		ctx->clip = ctx->clip_C;
 		if (ctx->ps.ChromaArrayType <3)
@@ -1320,12 +1313,12 @@ static __attribute__((noinline)) int parse_NxN_residual()
  * This function parses the syntax elements ref_idx_lX, mvd_lX (from function),
  * coded_block_pattern (from function), transform_size_8x8_flag, and branches to
  * residual decoding through tail call.
+ *
+ * FIXME: Non functional, should be reworked
  */
 static __attribute__((noinline)) int parse_inter_pred()
 {
 	int8_t eq_masks[32]; // refIdx ?= (1)refIdxA, (2)refIdxB, (4)refIdxC
-	
-	// FIXME: update C8x8 for refIdxC
 	
 	// parsing for ref_idx_lX in P/B slices
 	for (unsigned f = ctx->mvd_flags & ctx->ref_idx_mask; f != 0; f &= f - 1) {

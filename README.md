@@ -21,14 +21,14 @@ Supported features
 Planned features
 ----------------
 
-* Deblocking
-* P/B frames
+* Deblocking (work in progress)
+* P/B frames (parsing already implemented)
 * Transform-bypass for macroblocks with QP==0
 * Constrained Intra prediction mode
 * Slices (and separate colour planes)
 * Thread-safety and slice-multithreading (to let multithreaded encoders decode/encode each frame on the same thread)
 * 3D support
-* MBaff frames
+* MBaff frames (some decoding already implemented)
 * Error concealment
 * CAVLC
 
@@ -44,7 +44,7 @@ $ make CC=gcc-9 # Clang has the nasty tendency to alias gcc
 $ ./edge264_play-gcc-9 video.264
 ```
 
-When debugging, the make flag `TRACE=1` enables printing NAL headers to stdout in HTML format, and `TRACE=2` add the dumping of decoded symbols to stderr (*very large*). I usually compare its output with that of a modified version of the [official](https://avc.hhi.fraunhofer.de/) JM decoder. On the set of official AVCv1 bitstreams, files `CAQP1_Sony_B`, `CANL1_TOSHIBA_G`, `CABA1_Sony_D`, `CAPCM1_Sand_E`, `CAPCMNL1_Sand_E`, `CANL1_SVA_B` and `CABA1_SVA_B` are known to decode successfully, albeit with visual artefacts.
+When debugging, the make flag `TRACE=1` enables printing NAL headers to stdout in HTML format, and `TRACE=2` adds the dumping of decoded symbols to stderr (*very large*). I usually compare its output with that of a modified version of the [official](https://avc.hhi.fraunhofer.de/) JM decoder. On the set of official AVCv1 conformance bitstreams, files `CAQP1_Sony_B`, `CANL1_TOSHIBA_G`, `CABA1_Sony_D`, `CAPCM1_Sand_E`, `CAPCMNL1_Sand_E`, `CANL1_SVA_B` and `CABA1_SVA_B` are known to decode successfully, albeit with visual artefacts.
 
 A test program is also provided, that browses files in a `conformance` directory, decoding each `<video>.264` and comparing its output with the pair `<video>.yuv`. At the moment it counts a PASS if the video decodes without errors (skipping comparison to reference result), since deblocking is not implemented yet.
 

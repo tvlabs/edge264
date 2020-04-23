@@ -48,7 +48,7 @@ static int check_frame(const Edge264_stream *e, const uint8_t *frame, const uint
 				int invalid = 0;
 				for (int base = 0; base < MbHeight * stride; base += stride)
 					invalid |= memcmp(p + base, q + base, MbStride);
-				if (invalid) {
+				if (invalid && iYCbCr > 0) {
 					printf("</ul>\n"
 						"<ul>\n"
 						"<li style='color:red'>Erroneous macroblock (row %d, column %d, %s plane):<pre>\n", row, col, (iYCbCr == 0) ? "Luma" : (iYCbCr == 1) ? "Cb" : "Cr");
@@ -245,7 +245,7 @@ int main(int argc, char *argv[])
 	setbuf(stdout, NULL);
 	printf("<!doctype html>\n"
 		"<html>\n"
-		"<head><meta charset=\"UTF-8\"/><title>NAL headers</title></head>\n"
+		"<head><title>NAL headers</title></head>\n"
 		"<body>\n");
 	int count = 0;
 	while (Edge264_decode_NAL(&e) >= 0 && e.CPB < e.end) {

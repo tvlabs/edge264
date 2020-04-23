@@ -1386,7 +1386,7 @@ int Edge264_decode_NAL(Edge264_stream *e)
 	unsigned nal_unit_type = *e->CPB & 0x1f;
 	ctx->non_ref_flag = (nal_ref_idc == 0);
 	ctx->IdrPicFlag = (nal_unit_type == 5);
-	printf("<ul class=\"frame\">\n"
+	printf("<ul>\n"
 		"<li>nal_ref_idc: <code>%u</code></li>\n"
 		"<li%s>nal_unit_type: <code>%u (%s)</code></li>\n",
 		nal_ref_idc,

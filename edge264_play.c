@@ -14,6 +14,7 @@
 #include <sys/stat.h>
 #include <sys/types.h>
 
+#define GL_SILENCE_DEPRECATION // for macOS 10.14 and later
 #include <GLFW/glfw3.h>
 
 #include "edge264.h"

@@ -837,7 +837,7 @@ static __attribute__((noinline)) size_t get_ae(int ctxIdx)
 	
 	ssize_t state = ((uint8_t *)ctx->cabac)[ctxIdx];
 	unsigned shift = SIZE_BIT - 3 - clz(codIRange);
-	// fprintf(stderr, "%u/%u: (%u,%x)", (int)(codIOffset >> (shift - 6)), (int)(codIRange >> (shift - 6)), (int)state >> 2, (int)state & 1);
+	fprintf(stderr, "%u/%u: (%u,%x)", (int)(codIOffset >> (shift - 6)), (int)(codIRange >> (shift - 6)), (int)state >> 2, (int)state & 1);
 	ssize_t idx = (state & -4) + (codIRange >> shift);
 	size_t codIRangeLPS = (size_t)(rangeTabLPS - 4)[idx] << (shift - 6);
 	codIRange -= codIRangeLPS;
@@ -847,7 +847,7 @@ static __attribute__((noinline)) size_t get_ae(int ctxIdx)
 		codIRange = codIRangeLPS;
 	}
 	((uint8_t *)ctx->cabac)[ctxIdx] = transIdx[state];
-	// fprintf(stderr, "->(%u,%x)\n", transIdx[state] >> 2, transIdx[state] & 1);
+	fprintf(stderr, "->(%u,%x)\n", transIdx[state] >> 2, transIdx[state] & 1);
 	size_t binVal = state & 1;
 	if (__builtin_expect(codIRange < 512, 0)) // 256*2 allows parsing an extra coeff_sign_flag without renorm.
 		return renorm(1, binVal);
@@ -881,7 +881,7 @@ static __attribute__((noinline)) int parse_residual_block(unsigned coded_block_f
 		}
 	} while (++i < endIdx);
 	significant_coeff_flags |= (uint64_t)1 << i;
-
+	
 	// Now loop on set bits to parse all non-zero coefficients.
 	int ctxIdx0 = ctx->ctxIdxOffsets[3] + 1;
 	int ctxIdx1 = ctx->ctxIdxOffsets[3] + 5;
@@ -937,7 +937,7 @@ static __attribute__((noinline)) int parse_residual_block(unsigned coded_block_f
 		int scan = ctx->scan[i];
 		ctx->d[scan] = (c * ctx->LevelScale[scan] + 32) >> 6;
 		significant_coeff_flags &= ~((uint64_t)1 << i);
-		fprintf(stderr, "coeffLevel[%d]: %d\n", i, c);
+		fprintf(stderr, "coeffLevel[%d]: %d\n", i - startIdx, c);
 	} while (significant_coeff_flags != 0);
 	return decode_samples();
 }

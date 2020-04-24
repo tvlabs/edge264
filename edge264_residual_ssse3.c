@@ -581,9 +581,9 @@ static __attribute__((noinline)) int decode_ResidualDC4x4() {
 static __attribute__((noinline)) int decode_ResidualDC2x2() {
 	int iYCbCr = (ctx->BlkIdx - 12) >> 2; // BlkIdx is 16 or 20
 	unsigned qP = mb->QP[iYCbCr];
-	int w = ctx->ps.weightScale4x4[iYCbCr + mb->f.mbIsInterFlag * 3][0];
-	int nA = normAdjust4x4[qP % 6][0];
-	unsigned LevelScale = (w * nA) << (qP / 6 + ctx->ps.BitDepth_C - 8);
+	unsigned w = ctx->ps.weightScale4x4[iYCbCr + mb->f.mbIsInterFlag * 3][0];
+	unsigned nA = normAdjust4x4[qP % 6][0];
+	int LevelScale = (w * nA) << (qP / 6 + ctx->ps.BitDepth_C - 8);
 	int i0 = ctx->d[0] + ctx->d[2];
 	int i1 = ctx->d[1] + ctx->d[3];
 	int i2 = ctx->d[0] - ctx->d[2];

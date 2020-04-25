@@ -1092,9 +1092,9 @@ static __attribute__((noinline)) void parse_intra_chroma_pred_mode()
 		// ac[0]==VERTICAL_4x4_BUFFERED reuses the buffering mode of Intra16x16
 		static uint8_t dc[4] = {DC_CHROMA_8x8, VERTICAL_CHROMA_8x8, HORIZONTAL_CHROMA_8x8, PLANE_CHROMA_8x8};
 		static uint8_t ac[4] = {VERTICAL_4x4_BUFFERED, VERTICAL_4x4_BUFFERED, HORIZONTAL_4x4_BUFFERED, PLANE_4x4_BUFFERED};
-		int depth = ctx->ps.BitDepth_C == 8 ? 0 : VERTICAL_4x4_16_BIT;
+		int depth = (ctx->ps.BitDepth_C == 8) ? 0 : VERTICAL_4x4_16_BIT;
 		int i = depth + ac[mode];
-		int dc420 = depth + dc[mode] + (mode == 0 ? ctx->inc.unavailable : 0);
+		int dc420 = depth + dc[mode] + ctx->inc.unavailable;
 		ctx->PredMode_v[1] = (v16qu){i, i, i, i, i, i, i, i, i, i, i, i, i, i, i, i};
 		if (type == 1)
 			ctx->PredMode[16] = ctx->PredMode[20] = dc420;
@@ -1529,12 +1529,6 @@ static __attribute__((noinline)) int parse_intraNxN_pred_mode(int luma4x4BlkIdx)
  */
 static __attribute__((noinline)) int parse_intra_mb(int ctxIdx)
 {
-	static const v16qu v16bit = {
-		VERTICAL_4x4_16_BIT, VERTICAL_4x4_16_BIT, VERTICAL_4x4_16_BIT, VERTICAL_4x4_16_BIT,
-		VERTICAL_4x4_16_BIT, VERTICAL_4x4_16_BIT, VERTICAL_4x4_16_BIT, VERTICAL_4x4_16_BIT,
-		VERTICAL_4x4_16_BIT, VERTICAL_4x4_16_BIT, VERTICAL_4x4_16_BIT, VERTICAL_4x4_16_BIT,
-		VERTICAL_4x4_16_BIT, VERTICAL_4x4_16_BIT, VERTICAL_4x4_16_BIT, VERTICAL_4x4_16_BIT,
-	};
 	static const Edge264_flags flags_PCM = {
 		.CodedBlockPatternChromaDC = 1,
 		.CodedBlockPatternChromaAC = 1,
@@ -1559,21 +1553,15 @@ static __attribute__((noinline)) int parse_intra_mb(int ctxIdx)
 			for (int i = 0; i < 4; i++) {
 				int mode = parse_intraNxN_pred_mode(i * 4);
 				mb->Intra4x4PredMode[i * 4 + 1] = mb->Intra4x4PredMode[i * 4 + 2] = mb->Intra4x4PredMode[i * 4 + 3] = mode;
-				ctx->PredMode[i * 4] = intra8x8_modes[mode][ctx->unavail[i * 5]];
+				ctx->PredMode[i * 4] = ctx->intra8x8_modes[mode][ctx->unavail[i * 5]];
 			}
 		} else {
 			for (int i = 0; i < 16; i++) {
 				mb->Intra4x4PredMode[i] = parse_intraNxN_pred_mode(i);
-				ctx->PredMode[i] = intra4x4_modes[mb->Intra4x4PredMode[i]][ctx->unavail[i]];
+				ctx->PredMode[i] = ctx->intra4x4_modes[mb->Intra4x4PredMode[i]][ctx->unavail[i]];
 			}
 		}
-		
-		v16qu modes = ctx->PredMode_v[0];
-		if (ctx->ps.BitDepth_Y > 8)
-			ctx->PredMode_v[0] = modes + v16bit;
-		if (ctx->ps.BitDepth_C > 8)
-			modes += v16bit;
-		ctx->PredMode_v[1] = ctx->PredMode_v[2] = modes;
+		ctx->PredMode_v[1] = ctx->PredMode_v[2] = ctx->PredMode_v[0] + ctx->pred_offset_C;
 		
 		parse_intra_chroma_pred_mode();
 		parse_coded_block_pattern();
@@ -1590,14 +1578,11 @@ static __attribute__((noinline)) int parse_intra_mb(int ctxIdx)
 		mode += get_ae(max(ctxIdx + 3, 10));
 		
 		// prepare the decoding modes
-		int y = mode + (ctx->ps.BitDepth_Y == 8 ? VERTICAL_4x4_BUFFERED : VERTICAL_4x4_BUFFERED_16_BIT);
-		ctx->PredMode_v[0] = (v16qu){y, y, y, y, y, y, y, y, y, y, y, y, y, y, y, y};
-		ctx->PredMode[0] = y - 26 + (ctx->inc.unavailable ?: -3);
-		if (ctx->ps.ChromaArrayType == 3) {
-			int c = mode + (ctx->ps.BitDepth_C == 8 ? VERTICAL_4x4_BUFFERED : VERTICAL_4x4_BUFFERED_16_BIT);
-			ctx->PredMode_v[1] = ctx->PredMode_v[2] = (v16qu){c, c, c, c, c, c, c, c, c, c, c, c, c, c, c, c};
-			ctx->PredMode[16] = ctx->PredMode[32] = c - 26 + (ctx->inc.unavailable ?: -3);
-		}
+		int base = ctx->intra4x4_modes[0][0] - VERTICAL_4x4 + mode;
+		int p = base + VERTICAL_4x4_BUFFERED;
+		ctx->PredMode_v[0] = (v16qu){p, p, p, p, p, p, p, p, p, p, p, p, p, p, p, p};
+		ctx->PredMode[0] = base + ctx->inc.unavailable + (mode <3 ? VERTICAL_16x16 : PLANE_16x16);
+		ctx->PredMode_v[1] = ctx->PredMode_v[2] = ctx->PredMode_v[0] + ctx->pred_offset_C;
 		
 		fprintf(stderr, "mb_type: %u\n", mb->CodedBlockPatternLuma[0] * 12 +
 			(mb->f.CodedBlockPatternChromaDC + mb->f.CodedBlockPatternChromaAC) * 4 +

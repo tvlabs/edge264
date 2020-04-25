@@ -42,6 +42,12 @@ static void print_v16qi(v16qi v) {
 		printf("%03d ", v[i]);
 	printf("</code></li>\n");
 }
+static void print_v16qu(v16qu v) {
+	printf("<li><code>");
+	for (int i = 0; i < 16; i++)
+		printf("%03d ", v[i]);
+	printf("</code></li>\n");
+}
 static void print_v8hi(v8hi v) {
 	printf("<li><code>");
 	for (int i = 0; i < 8; i++)

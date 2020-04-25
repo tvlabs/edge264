@@ -133,6 +133,7 @@ typedef struct
 	uint32_t ref_idx_mask;
 	uint8_t *plane;
 	v8hi clip, clip_Y, clip_C; // vectors of maximum sample values
+	v16qu pred_offset_C; // offset on PredMode from Y to Cb/Cr
 	union { int8_t unavail[16]; v16qi unavail_v; }; // unavailability of neighbouring A/B/C/D blocks
 	union { int16_t A8x8[12]; v4hi A8x8_v[3]; };
 	union { int32_t B8x8[12]; v4si B8x8_v[3]; };
@@ -146,6 +147,8 @@ typedef struct
 	union { int8_t scan[64]; v8qi scan_l; v16qi scan_v[4]; };
 	union { int32_t LevelScale[64]; v4si LevelScale_v[16]; };
 	union { int32_t plane_offsets[48]; v4si plane_offsets_v[12]; };
+	union { uint8_t intra4x4_modes[9][16]; v16qu intra4x4_modes_v[9]; };
+	union { uint8_t intra8x8_modes[9][16]; v16qu intra8x8_modes_v[9]; };
 	union { uint8_t PredMode[48]; v16qu PredMode_v[3]; };
 	union { int16_t pred_buffer[136]; v8hi pred_buffer_v[17]; }; // temporary storage for prediction samples
 	union { int32_t d[64]; v4si d_v[16]; v8si d_V[8]; }; // scaled residual coefficients
@@ -340,7 +343,7 @@ enum PredModes {
 	VERTICAL_LEFT_4x4_C,
 	HORIZONTAL_UP_4x4,
 	
-	VERTICAL_8x8,
+	VERTICAL_8x8, // 14
 	VERTICAL_8x8_C,
 	VERTICAL_8x8_D,
 	VERTICAL_8x8_CD,
@@ -373,13 +376,13 @@ enum PredModes {
 	HORIZONTAL_UP_8x8,
 	HORIZONTAL_UP_8x8_D,
 	
-	VERTICAL_16x16,
+	VERTICAL_16x16, // 46
 	HORIZONTAL_16x16,
 	DC_16x16,
-	PLANE_16x16,
 	DC_16x16_A,
 	DC_16x16_B,
 	DC_16x16_AB,
+	PLANE_16x16,
 	DC_CHROMA_8x8,
 	DC_CHROMA_8x8_A,
 	DC_CHROMA_8x8_B,
@@ -407,7 +410,7 @@ enum PredModes {
 	DC_4x4_BUFFERED,
 	PLANE_4x4_BUFFERED,
 	
-	VERTICAL_4x4_16_BIT,
+	VERTICAL_4x4_16_BIT, // 79
 	HORIZONTAL_4x4_16_BIT,
 	DC_4x4_16_BIT,
 	DC_4x4_A_16_BIT,
@@ -422,7 +425,7 @@ enum PredModes {
 	VERTICAL_LEFT_4x4_C_16_BIT,
 	HORIZONTAL_UP_4x4_16_BIT,
 	
-	VERTICAL_8x8_16_BIT,
+	VERTICAL_8x8_16_BIT, // 93
 	VERTICAL_8x8_C_16_BIT,
 	VERTICAL_8x8_D_16_BIT,
 	VERTICAL_8x8_CD_16_BIT,
@@ -455,13 +458,13 @@ enum PredModes {
 	HORIZONTAL_UP_8x8_16_BIT,
 	HORIZONTAL_UP_8x8_D_16_BIT,
 	
-	VERTICAL_16x16_16_BIT,
+	VERTICAL_16x16_16_BIT, // 125
 	HORIZONTAL_16x16_16_BIT,
 	DC_16x16_16_BIT,
-	PLANE_16x16_16_BIT,
 	DC_16x16_A_16_BIT,
 	DC_16x16_B_16_BIT,
 	DC_16x16_AB_16_BIT,
+	PLANE_16x16_16_BIT,
 	DC_CHROMA_8x8_16_BIT,
 	DC_CHROMA_8x8_A_16_BIT,
 	DC_CHROMA_8x8_B_16_BIT,
@@ -488,33 +491,6 @@ enum PredModes {
 	HORIZONTAL_4x4_BUFFERED_16_BIT,
 	DC_4x4_BUFFERED_16_BIT,
 	PLANE_4x4_BUFFERED_16_BIT,
-};
-
-/**
- * intra_modes[IntraPredMode][unavail] yield the prediction switch entry from
- * unavailability of neighbouring blocks.
- */
-static const int8_t intra4x4_modes[9][16] = {
-	{VERTICAL_4x4, VERTICAL_4x4, 0, 0, VERTICAL_4x4, VERTICAL_4x4, 0, 0, VERTICAL_4x4, VERTICAL_4x4, 0, 0, VERTICAL_4x4, VERTICAL_4x4, 0, 0},
-	{HORIZONTAL_4x4, 0, HORIZONTAL_4x4, 0, HORIZONTAL_4x4, 0, HORIZONTAL_4x4, 0, HORIZONTAL_4x4, 0, HORIZONTAL_4x4, 0, HORIZONTAL_4x4, 0, HORIZONTAL_4x4, 0},
-	{DC_4x4, DC_4x4_A, DC_4x4_B, DC_4x4_AB, DC_4x4, DC_4x4_A, DC_4x4_B, DC_4x4_AB, DC_4x4, DC_4x4_A, DC_4x4_B, DC_4x4_AB, DC_4x4, DC_4x4_A, DC_4x4_B, DC_4x4_AB},
-	{DIAGONAL_DOWN_LEFT_4x4, DIAGONAL_DOWN_LEFT_4x4, 0, 0, DIAGONAL_DOWN_LEFT_4x4_C, DIAGONAL_DOWN_LEFT_4x4_C, 0, 0, DIAGONAL_DOWN_LEFT_4x4, DIAGONAL_DOWN_LEFT_4x4, 0, 0, DIAGONAL_DOWN_LEFT_4x4_C, DIAGONAL_DOWN_LEFT_4x4_C, 0, 0},
-	{DIAGONAL_DOWN_RIGHT_4x4, 0, 0, 0, DIAGONAL_DOWN_RIGHT_4x4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
-	{VERTICAL_RIGHT_4x4, 0, 0, 0, VERTICAL_RIGHT_4x4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
-	{HORIZONTAL_DOWN_4x4, 0, 0, 0, HORIZONTAL_DOWN_4x4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
-	{VERTICAL_LEFT_4x4, VERTICAL_LEFT_4x4, 0, 0, VERTICAL_LEFT_4x4_C, VERTICAL_LEFT_4x4_C, 0, 0, VERTICAL_LEFT_4x4, VERTICAL_LEFT_4x4, 0, 0, VERTICAL_LEFT_4x4_C, VERTICAL_LEFT_4x4_C, 0, 0},
-	{HORIZONTAL_UP_4x4, 0, HORIZONTAL_UP_4x4, 0, HORIZONTAL_UP_4x4, 0, HORIZONTAL_UP_4x4, 0, HORIZONTAL_UP_4x4, 0, HORIZONTAL_UP_4x4, 0, HORIZONTAL_UP_4x4, 0, HORIZONTAL_UP_4x4, 0},
-};
-static const int8_t intra8x8_modes[9][16] = {
-	{VERTICAL_8x8, VERTICAL_8x8, 0, 0, VERTICAL_8x8_C, VERTICAL_8x8_C, 0, 0, VERTICAL_8x8_D, VERTICAL_8x8_D, 0, 0, VERTICAL_8x8_CD, VERTICAL_8x8_CD, 0, 0},
-	{HORIZONTAL_8x8, 0, HORIZONTAL_8x8, 0, HORIZONTAL_8x8, 0, HORIZONTAL_8x8, 0, HORIZONTAL_8x8_D, 0, HORIZONTAL_8x8_D, 0, HORIZONTAL_8x8_D, 0, HORIZONTAL_8x8_D, 0},
-	{DC_8x8, DC_8x8_A, DC_8x8_B, DC_8x8_AB, DC_8x8_C, DC_8x8_AC, DC_8x8_B, DC_8x8_AB, DC_8x8_D, DC_8x8_AD, DC_8x8_BD, DC_8x8_AB, DC_8x8_CD, DC_8x8_ACD, DC_8x8_BD, DC_8x8_AB},
-	{DIAGONAL_DOWN_LEFT_8x8, DIAGONAL_DOWN_LEFT_8x8, 0, 0, DIAGONAL_DOWN_LEFT_8x8_C, DIAGONAL_DOWN_LEFT_8x8_C, 0, 0, DIAGONAL_DOWN_LEFT_8x8_D, DIAGONAL_DOWN_LEFT_8x8_D, 0, 0, DIAGONAL_DOWN_LEFT_8x8_CD, DIAGONAL_DOWN_LEFT_8x8_CD, 0, 0},
-	{DIAGONAL_DOWN_RIGHT_8x8, 0, 0, 0, DIAGONAL_DOWN_RIGHT_8x8_C, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
-	{VERTICAL_RIGHT_8x8, 0, 0, 0, VERTICAL_RIGHT_8x8_C, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
-	{HORIZONTAL_DOWN_8x8, 0, 0, 0, HORIZONTAL_DOWN_8x8, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
-	{VERTICAL_LEFT_8x8, VERTICAL_LEFT_8x8, 0, 0, VERTICAL_LEFT_8x8_C, VERTICAL_LEFT_8x8_C, 0, 0, VERTICAL_LEFT_8x8_D, VERTICAL_LEFT_8x8_D, 0, 0, VERTICAL_LEFT_8x8_CD, VERTICAL_LEFT_8x8_CD, 0, 0},
-	{HORIZONTAL_UP_8x8, 0, HORIZONTAL_UP_8x8, 0, HORIZONTAL_UP_8x8, 0, HORIZONTAL_UP_8x8, 0, HORIZONTAL_UP_8x8_D, 0, HORIZONTAL_UP_8x8_D, 0, HORIZONTAL_UP_8x8_D, 0, HORIZONTAL_UP_8x8_D, 0},
 };
 
 

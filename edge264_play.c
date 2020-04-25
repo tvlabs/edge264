@@ -49,7 +49,7 @@ static int check_frame(const Edge264_stream *e, const uint8_t *frame, const uint
 				int invalid = 0;
 				for (int base = 0; base < MbHeight * stride; base += stride)
 					invalid |= memcmp(p + base, q + base, MbStride);
-				if (invalid && iYCbCr > 0) {
+				if (invalid && iYCbCr == 0 && col == 2) {
 					printf("</ul>\n"
 						"<ul>\n"
 						"<li style='color:red'>Erroneous macroblock (row %d, column %d, %s plane):<pre>\n", row, col, (iYCbCr == 0) ? "Luma" : (iYCbCr == 1) ? "Cb" : "Cr");

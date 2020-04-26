@@ -735,6 +735,7 @@ static const v16qi last_inc_8x8[4] = {
 static const v8qi sig_inc_chromaDC[2] =
 	{{0, 1, 2, 0}, {0, 0, 1, 1, 2, 2, 2, 0}};
 
+// transposed scan tables
 static const v16qi scan_4x4[2] = {
 	{0, 4, 1, 2, 5, 8, 12, 9, 6, 3, 7, 10, 13, 14, 11, 15},
 	{0, 1, 4, 2, 3, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15},
@@ -934,8 +935,8 @@ static __attribute__((noinline)) int parse_residual_block(unsigned coded_block_f
 		
 		// scale and store
 		int i = 63 - clz64(significant_coeff_flags);
-		int scan = ctx->scan[i];
-		ctx->d[scan] = (c * ctx->LevelScale[scan] + 32) >> 6;
+		int scan = ctx->scan[i]; // beware, scan is transposed already
+		ctx->d[scan] = (c * ctx->LevelScale[scan] + 32) >> 6; // cannot overflow since spec says result is 22 bits
 		significant_coeff_flags &= ~((uint64_t)1 << i);
 		fprintf(stderr, "coeffLevel[%d]: %d\n", i - startIdx, c);
 	} while (significant_coeff_flags != 0);

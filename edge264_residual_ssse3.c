@@ -71,7 +71,7 @@ static __attribute__((noinline)) void compute_LevelScale4x4(int iYCbCr) {
 	// This part is very unsatisfactory and will have to be optimised some day.
 	int BitDepth = (iYCbCr == 0) ? ctx->ps.BitDepth_Y : ctx->ps.BitDepth_C;
 	__m128i zero = _mm_setzero_si128();
-	__m128i shift = _mm_cvtsi32_si128((unsigned)mb->QP[iYCbCr] / 6 + BitDepth - 6);
+	__m128i shift = _mm_cvtsi32_si128((unsigned)mb->QP[iYCbCr] / 6 + BitDepth - 6); // QP' / 6 + 2
 	__m128i nA = (__m128i)normAdjust4x4[(unsigned)mb->QP[iYCbCr] % 6];
 	__m128i w = ((__m128i *)ctx->ps.weightScale4x4)[iYCbCr + mb->f.mbIsInterFlag * 3];
 	__m128i x0 = _mm_mullo_epi16(_mm_unpacklo_epi8(w, zero), _mm_unpacklo_epi8(nA, zero));
@@ -572,11 +572,11 @@ static __attribute__((noinline)) int decode_ResidualDC4x4() {
 	
 	// scaling and storing
 	__m128i s = _mm_set1_epi32(ctx->LevelScale[0]);
-	__m128i s32 = _mm_set1_epi32(32);
-	__m128i dc0 = _mm_srai_epi32(_mm_add_epi32(_mm_mullo_epi32(f0, s), s32), 6);
-	__m128i dc1 = _mm_srai_epi32(_mm_add_epi32(_mm_mullo_epi32(f1, s), s32), 6);
-	__m128i dc2 = _mm_srai_epi32(_mm_add_epi32(_mm_mullo_epi32(f2, s), s32), 6);
-	__m128i dc3 = _mm_srai_epi32(_mm_add_epi32(_mm_mullo_epi32(f3, s), s32), 6);
+	__m128i s128 = _mm_set1_epi32(128);
+	__m128i dc0 = _mm_srai_epi32(_mm_add_epi32(_mm_mullo_epi32(f0, s), s128), 8);
+	__m128i dc1 = _mm_srai_epi32(_mm_add_epi32(_mm_mullo_epi32(f1, s), s128), 8);
+	__m128i dc2 = _mm_srai_epi32(_mm_add_epi32(_mm_mullo_epi32(f2, s), s128), 8);
+	__m128i dc3 = _mm_srai_epi32(_mm_add_epi32(_mm_mullo_epi32(f3, s), s128), 8);
 	ctx->d_v[4] = (v4si)_mm_unpacklo_epi64(dc0, dc1);
 	ctx->d_v[5] = (v4si)_mm_unpackhi_epi64(dc0, dc1);
 	ctx->d_v[6] = (v4si)_mm_unpacklo_epi64(dc2, dc3);

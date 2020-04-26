@@ -1574,9 +1574,13 @@ static __attribute__((noinline)) int parse_intra_mb(int ctxIdx)
 		mb->f.CodedBlockPatternChromaDC = get_ae(max(ctxIdx + 2, 7));
 		if (mb->f.CodedBlockPatternChromaDC)
 			mb->f.CodedBlockPatternChromaAC = get_ae(max(ctxIdx + 2, 8));
-		
 		int mode = get_ae(max(ctxIdx + 3, 9)) << 1;
 		mode += get_ae(max(ctxIdx + 3, 10));
+		fprintf(stderr, "mb_type: %u\n", mb->CodedBlockPatternLuma[0] * 12 +
+			(mb->f.CodedBlockPatternChromaDC + mb->f.CodedBlockPatternChromaAC) * 4 +
+			mode + (ctxIdx == 17 ? 6 : ctxIdx == 32 ? 24 : 1));
+		
+		mb->Intra4x4PredMode_v = (v16qi){2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2};
 		
 		// prepare the decoding modes
 		int base = ctx->intra4x4_modes[0][0] - VERTICAL_4x4 + mode;
@@ -1585,17 +1589,15 @@ static __attribute__((noinline)) int parse_intra_mb(int ctxIdx)
 		ctx->PredMode[0] = base + ctx->inc.unavailable + (mode <3 ? VERTICAL_16x16 : PLANE_16x16);
 		ctx->PredMode_v[1] = ctx->PredMode_v[2] = ctx->PredMode_v[0] + ctx->pred_offset_C;
 		
-		fprintf(stderr, "mb_type: %u\n", mb->CodedBlockPatternLuma[0] * 12 +
-			(mb->f.CodedBlockPatternChromaDC + mb->f.CodedBlockPatternChromaAC) * 4 +
-			mode + (ctxIdx == 17 ? 6 : ctxIdx == 32 ? 24 : 1));
-		
 		parse_intra_chroma_pred_mode();
 		return parse_Intra16x16_residual();
 		
 	// I_PCM
 	} else {
 		fprintf(stderr, "mb_type: 25\n");
+		
 		mb->f.v |= flags_PCM.v;
+		mb->Intra4x4PredMode_v = (v16qi){2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2};
 		mb->CodedBlockPatternLuma_s = 0x01010101;
 		mb->coded_block_flags_8x8_v = mb->coded_block_flags_4x4_v[0] =
 			mb->coded_block_flags_4x4_v[1] = mb->coded_block_flags_4x4_v[2] =

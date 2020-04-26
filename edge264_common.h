@@ -70,7 +70,7 @@ static const Edge264_flags flags_twice = {
 typedef struct {
 	Edge264_flags f;
 	int8_t QP[3];
-	int8_t Intra4x4PredMode[16];
+	union { int8_t Intra4x4PredMode[16]; v16qi Intra4x4PredMode_v; };
 	union { int16_t mvs[64]; v8hi mvs_v[8]; };
 	union { int8_t refIdx[8]; v8qi refIdx_v; };
 	union { int8_t absMvdComp[32]; v16qi absMvdComp_v[2]; };

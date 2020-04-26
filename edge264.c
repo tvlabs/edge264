@@ -611,9 +611,9 @@ static int parse_slice_layer_without_partitioning(Edge264_stream *e)
 	}
 	
 	// not much to say in this comment either (though intention there is!)
-	e->output_flags |= 1 << e->currPic;
 	if (!ctx->non_ref_flag)
 		parse_dec_ref_pic_marking(e);
+	e->output_flags |= 1 << e->currPic;
 	int cabac_init_idc = 0;
 	if (ctx->ps.entropy_coding_mode_flag && ctx->slice_type != 2) {
 		cabac_init_idc = 1 + get_ue(2);
@@ -628,6 +628,8 @@ static int parse_slice_layer_without_partitioning(Edge264_stream *e)
 	ctx->FilterOffsetB = 0;
 	if (ctx->ps.deblocking_filter_control_present_flag) {
 		ctx->disable_deblocking_filter_idc = get_ue(2);
+		printf("<li>disable_deblocking_filter_idc: <code>%d</code></li>\n",
+			ctx->disable_deblocking_filter_idc);
 		if (ctx->disable_deblocking_filter_idc != 1) {
 			ctx->FilterOffsetA = get_se(-6, 6) * 2;
 			ctx->FilterOffsetB = get_se(-6, 6) * 2;

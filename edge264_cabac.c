@@ -1583,10 +1583,10 @@ static __attribute__((noinline)) int parse_intra_mb(int ctxIdx)
 		mb->Intra4x4PredMode_v = (v16qi){2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2};
 		
 		// prepare the decoding modes
-		int base = ctx->intra4x4_modes[0][0] - VERTICAL_4x4 + mode;
-		int p = base + VERTICAL_4x4_BUFFERED;
+		int depth = ctx->intra4x4_modes[0][0] - VERTICAL_4x4;
+		int p = depth + VERTICAL_4x4_BUFFERED + mode;
 		ctx->PredMode_v[0] = (v16qu){p, p, p, p, p, p, p, p, p, p, p, p, p, p, p, p};
-		ctx->PredMode[0] = base + ctx->inc.unavailable + (mode <3 ? VERTICAL_16x16 : PLANE_16x16);
+		ctx->PredMode[0] = depth + (mode <3 ? VERTICAL_16x16 + mode : PLANE_16x16) + ctx->inc.unavailable;
 		ctx->PredMode_v[1] = ctx->PredMode_v[2] = ctx->PredMode_v[0] + ctx->pred_offset_C;
 		
 		parse_intra_chroma_pred_mode();

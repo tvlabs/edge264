@@ -3,7 +3,15 @@
 # 2 - Also prints decoded symbols to stderr (VERY LARGE)
 
 override CFLAGS := -std=gnu99 -march=native -O2 $(CFLAGS)
-LIBS = -lglfw -framework OpenGL
+
+ifeq ($(OS),)
+	OS := $(shell uname)
+endif
+ifeq ($(OS),Darwin)
+	LIBS = -lglfw -framework OpenGL
+else
+	LIBS = -lglfw -lgl
+endif
 
 ifeq ($(TRACE),)
 	SUFFIX = -$(CC)

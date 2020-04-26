@@ -829,7 +829,7 @@ static __attribute__((noinline)) int decode_switch(size_t stride, ssize_t nstrid
 		return decode_DC4x4_8bit(zero, _mm_movpi64_epi64(m2));
 	case DC_4x4_AB:
 	case DC_4x4_AB_16_BIT:
-		x0 = _mm_avg_epu16(zero, (__m128i)ctx->clip);
+		x0 = _mm_avg_epu16(zero, (__m128i)ctx->clip_v);
 		return decode_Residual4x4(x0, x0);
 	case DIAGONAL_DOWN_LEFT_4x4:
 		x0 = _mm_unpacklo_epi8(_mm_loadl_epi64((__m128i *)(p + nstride * 2)), zero);
@@ -937,7 +937,7 @@ static __attribute__((noinline)) int decode_switch(size_t stride, ssize_t nstrid
 		return decode_DC8x8_8bit(x0, x0);
 	case DC_8x8_AB:
 	case DC_8x8_AB_16_BIT:
-		x0 = _mm_avg_epu16(zero, (__m128i)ctx->clip);
+		x0 = _mm_avg_epu16(zero, (__m128i)ctx->clip_v);
 		return decode_Residual8x8(x0, x0, x0, x0, x0, x0, x0, x0);
 	case DIAGONAL_DOWN_LEFT_8x8:
 		x0 = _mm_unpacklo_epi8(_mm_loadl_epi64((__m128i *)(p + nstride * 2)), zero);
@@ -1026,7 +1026,7 @@ static __attribute__((noinline)) int decode_switch(size_t stride, ssize_t nstrid
 		return decode_DC16x16_8bit(x0, x0);
 	case DC_16x16_AB:
 	case DC_16x16_AB_16_BIT:
-		buf[0] = _mm_avg_epu16(zero, (__m128i)ctx->clip);
+		buf[0] = _mm_avg_epu16(zero, (__m128i)ctx->clip_v);
 		return decode_ResidualDC4x4();
 	case PLANE_16x16:
 		x0 = *(__m128i *)(p + nstride * 2);
@@ -1049,7 +1049,7 @@ static __attribute__((noinline)) int decode_switch(size_t stride, ssize_t nstrid
 		return decode_ChromaDC8x8_8bit(x1, x2);
 	case DC_CHROMA_8x8_AB:
 	case DC_CHROMA_8x8_AB_16_BIT:
-		buf[0] = buf[1] = buf[2] = buf[3] = _mm_avg_epu16(zero, (__m128i)ctx->clip);
+		buf[0] = buf[1] = buf[2] = buf[3] = _mm_avg_epu16(zero, (__m128i)ctx->clip_v);
 		return decode_ResidualDC2x2();
 	case DC_CHROMA_8x8_Ab:
 		x0 = load8_left_8bit(stride, nstride, p, _mm_loadl_epi64((__m128i *)(p + nstride * 2)));
@@ -1106,7 +1106,7 @@ static __attribute__((noinline)) int decode_switch(size_t stride, ssize_t nstrid
 	case DC_CHROMA_8x16_AB:
 	case DC_CHROMA_8x16_AB_16_BIT:
 		buf[0] = buf[1] = buf[2] = buf[3] = buf[4] = buf[5] = buf[6] = buf[7] =
-			_mm_avg_epu16(zero, (__m128i)ctx->clip);
+			_mm_avg_epu16(zero, (__m128i)ctx->clip_v);
 		return decode_ResidualDC2x4();
 	case DC_CHROMA_8x16_Ab:
 		x0 = _mm_loadl_epi64((__m128i *)(p + nstride * 2));
@@ -1411,11 +1411,11 @@ static __attribute__((noinline)) int decode_switch(size_t stride, ssize_t nstrid
 		return decode_ChromaDC8x8_16bit(x0, x1, _mm_unpackhi_epi64(x0, x1));
 	case DC_CHROMA_8x8_AbB_16_BIT:
 		x0 = load8_left_16bit(stride, nstride, p);
-		x1 = _mm_unpacklo_epi64(x0, _mm_avg_epu16(_mm_setzero_si128(), (__m128i)ctx->clip));
+		x1 = _mm_unpacklo_epi64(x0, _mm_avg_epu16(_mm_setzero_si128(), (__m128i)ctx->clip_v));
 		return decode_ChromaDC8x8_16bit(x1, x1, x1);
 	case DC_CHROMA_8x8_AtB_16_BIT:
 		x0 = load8_left_16bit(stride, nstride, p);
-		x1 = _mm_unpackhi_epi64(_mm_avg_epu16(_mm_setzero_si128(), (__m128i)ctx->clip), x0);
+		x1 = _mm_unpackhi_epi64(_mm_avg_epu16(_mm_setzero_si128(), (__m128i)ctx->clip_v), x0);
 		return decode_ChromaDC8x8_16bit(x1, x1, x1);
 	case VERTICAL_CHROMA_8x8_16_BIT:
 		x0 = *(__m128i *)(p + nstride * 2);
@@ -1459,11 +1459,11 @@ static __attribute__((noinline)) int decode_switch(size_t stride, ssize_t nstrid
 		return decode_ChromaDC8x16_16bit(x0, x0, x2, x3, _mm_shuffle_epi32(x0, _MM_SHUFFLE(1, 0, 3, 2)), x3);
 	case DC_CHROMA_8x16_AbB_16_BIT:
 		x1 = load16_left_16bit(stride, nstride, p);
-		x3 = _mm_avg_epu16(_mm_setzero_si128(), (__m128i)ctx->clip);
+		x3 = _mm_avg_epu16(_mm_setzero_si128(), (__m128i)ctx->clip_v);
 		return decode_ChromaDC8x16_16bit(x1, x1, x3, x3, x1, x3);
 	case DC_CHROMA_8x16_AtB_16_BIT:
 		load16_left_16bit(stride, nstride, p);
-		x1 = _mm_avg_epu16(_mm_setzero_si128(), (__m128i)ctx->clip);
+		x1 = _mm_avg_epu16(_mm_setzero_si128(), (__m128i)ctx->clip_v);
 		x3 = (__m128i)ctx->pred_buffer_v[0];
 		return decode_ChromaDC8x16_16bit(x1, x1, x3, x3, x1, x3);
 	case VERTICAL_CHROMA_8x16_16_BIT:
@@ -1484,8 +1484,8 @@ static __attribute__((noinline)) int decode_switch(size_t stride, ssize_t nstrid
 		x2 = _mm_add_epi32(x1, x0);
 		x3 = _mm_add_epi32(x2, x0);
 		x4 = _mm_add_epi32(x3, x0);
-		x5 = _mm_min_epi16(_mm_packus_epi32(_mm_srai_epi32(x1, 5), _mm_srai_epi32(x2, 5)), (__m128i)ctx->clip);
-		x6 = _mm_min_epi16(_mm_packus_epi32(_mm_srai_epi32(x3, 5), _mm_srai_epi32(x4, 5)), (__m128i)ctx->clip);
+		x5 = _mm_min_epi16(_mm_packus_epi32(_mm_srai_epi32(x1, 5), _mm_srai_epi32(x2, 5)), (__m128i)ctx->clip_v);
+		x6 = _mm_min_epi16(_mm_packus_epi32(_mm_srai_epi32(x3, 5), _mm_srai_epi32(x4, 5)), (__m128i)ctx->clip_v);
 		return decode_Residual4x4(x5, x6);
 	
 	default:

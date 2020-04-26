@@ -154,7 +154,7 @@ static __attribute__((noinline)) int decode_Residual4x4(__m128i p0, __m128i p1)
 	// storage
 	uint8_t *p = ctx->plane + ctx->plane_offsets[ctx->BlkIdx];
 	size_t stride = ctx->stride;
-	if (__builtin_expect(*(int16_t *)&ctx->clip == 255, 1)) {
+	if (__builtin_expect(ctx->clip == 255, 1)) {
 		v4si u = (v4si)_mm_packus_epi16(x4, x5);
 		*(int32_t *)(p + stride * 0) = u[0];
 		*(int32_t *)(p + stride * 1) = u[1];
@@ -162,7 +162,7 @@ static __attribute__((noinline)) int decode_Residual4x4(__m128i p0, __m128i p1)
 		*(int32_t *)(p + stride * 3) = u[3];
 	} else {
 		__m128i zero = _mm_setzero_si128();
-		__m128i clip = (__m128i)ctx->clip;
+		__m128i clip = (__m128i)ctx->clip_v;
 		v2li u0 = (v2li)_mm_min_epi16(_mm_max_epi16(x4, zero), clip);
 		v2li u1 = (v2li)_mm_min_epi16(_mm_max_epi16(x5, zero), clip);
 		*(int64_t *)(p + stride * 0) = u0[0];
@@ -281,7 +281,7 @@ static __attribute__((noinline)) int decode_Residual8x8_8bit(__m128i p0, __m128i
 static __attribute__((noinline)) int decode_Residual8x8(__m128i p0, __m128i p1,
 	__m128i p2, __m128i p3, __m128i p4, __m128i p5, __m128i p6, __m128i p7)
 {
-	if (__builtin_expect(*(int16_t *)&ctx->clip == 255, 1))
+	if (__builtin_expect(ctx->clip == 255, 1))
 		return decode_Residual8x8_8bit(p0, p1, p2, p3, p4, p5, p6, p7);
 	__m256i q0 = _mm256_insertf128_si256(_mm256_castsi128_si256(p0), p1, 1);
 	__m256i q1 = _mm256_insertf128_si256(_mm256_castsi128_si256(p2), p3, 1);
@@ -366,7 +366,7 @@ static __attribute__((noinline)) int decode_Residual8x8(__m128i p0, __m128i p1,
 	__m256i x2 = _mm256_adds_epi16(_mm256_permute4x64_epi64(r2, _MM_SHUFFLE(3, 1, 2, 0)), q2);
 	__m256i x3 = _mm256_adds_epi16(_mm256_permute4x64_epi64(r3, _MM_SHUFFLE(3, 1, 2, 0)), q3);
 	__m256i zero = _mm256_setzero_si256();
-	__m256i clip = _mm256_broadcastsi128_si256((__m128i)ctx->clip);
+	__m256i clip = _mm256_broadcastsi128_si256((__m128i)ctx->clip_v);
 	__m256i u0 = _mm256_min_epi16(_mm256_max_epi16(x0, zero), clip);
 	__m256i u1 = _mm256_min_epi16(_mm256_max_epi16(x1, zero), clip);
 	__m256i u2 = _mm256_min_epi16(_mm256_max_epi16(x2, zero), clip);
@@ -389,7 +389,7 @@ static __attribute__((noinline)) int decode_Residual8x8(__m128i p0, __m128i p1,
 static __attribute__((noinline)) int decode_Residual8x8(__m128i p0, __m128i p1,
 	__m128i p2, __m128i p3, __m128i p4, __m128i p5, __m128i p6, __m128i p7)
 {
-	if (__builtin_expect(*(int16_t *)&ctx->clip == 255, 1))
+	if (__builtin_expect(ctx->clip == 255, 1))
 		return decode_Residual8x8_8bit(p0, p1, p2, p3, p4, p5, p6, p7);
 	
 	// load half of samples
@@ -501,7 +501,7 @@ static __attribute__((noinline)) int decode_Residual8x8(__m128i p0, __m128i p1,
 	__m128i r6 = _mm_packs_epi32(_mm_srai_epi32((__m128i)ctx->d_v[12], 6), _mm_srai_epi32(d6, 6));
 	__m128i r7 = _mm_packs_epi32(_mm_srai_epi32((__m128i)ctx->d_v[14], 6), _mm_srai_epi32(d7, 6));
 	__m128i zero = _mm_setzero_si128();
-	__m128i clip = (__m128i)ctx->clip;
+	__m128i clip = (__m128i)ctx->clip_v;
 	__m128i u0 = _mm_min_epi16(_mm_max_epi16(_mm_adds_epi16(r0, p0), zero), clip);
 	__m128i u1 = _mm_min_epi16(_mm_max_epi16(_mm_adds_epi16(r1, p1), zero), clip);
 	__m128i u2 = _mm_min_epi16(_mm_max_epi16(_mm_adds_epi16(r2, p2), zero), clip);

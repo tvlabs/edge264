@@ -165,10 +165,10 @@ static void check_ctx(int label) {
 	
 	if (label >= RESIDUAL_CB_DC_LABEL) {
 		predicate(ctx->plane == ctx->plane_Cb);
-		predicate(memcmp(&ctx->clip, &ctx->clip_C, 16) == 0);
+		predicate(memcmp(&ctx->clip_v, &ctx->clip_C, 16) == 0);
 	} else if (label >= RESIDUAL_DC_LABEL) {
 		predicate(ctx->plane == ctx->plane_Y);
-		predicate(memcmp(&ctx->clip, &ctx->clip_Y, 16) == 0);
+		predicate(memcmp(&ctx->clip_v, &ctx->clip_Y, 16) == 0);
 	}
 	
 	if (label > LOOP_START_LABEL) {

@@ -215,7 +215,7 @@ int main() {
 	for (int i = -1; i < 16; i++)
 		q[i - 32] = 16322 + i * 4;
 	ctx->plane = p;
-	ctx->clip = (v8hi){16383, 16383, 16383, 16383, 16383, 16383, 16383, 16383},
+	ctx->clip_v = (v8hi){16383, 16383, 16383, 16383, 16383, 16383, 16383, 16383},
 	ctx->stride = 64;
 	ctx->plane_offsets_v[0] += ctx->plane_offsets_v[0];
 	ctx->plane_offsets_v[1] = (v4si){16, 24, 272, 280};

@@ -132,8 +132,9 @@ typedef struct
 	uint32_t mvd_fold;
 	uint32_t ref_idx_mask;
 	uint8_t *plane;
-	v8hi clip, clip_Y, clip_C; // vectors of maximum sample values
 	v16qu pred_offset_C; // offset on PredMode from Y to Cb/Cr
+	v8hi clip_Y, clip_C; // vectors of maximum sample values
+	union { int16_t clip; v8hi clip_v; };
 	union { int8_t unavail[16]; v16qi unavail_v; }; // unavailability of neighbouring A/B/C/D blocks
 	union { int16_t A8x8[12]; v4hi A8x8_v[3]; };
 	union { int32_t B8x8[12]; v4si B8x8_v[3]; };

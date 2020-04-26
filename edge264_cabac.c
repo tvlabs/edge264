@@ -938,7 +938,7 @@ static __attribute__((noinline)) int parse_residual_block(unsigned coded_block_f
 		int scan = ctx->scan[i]; // beware, scan is transposed already
 		ctx->d[scan] = (c * ctx->LevelScale[scan] + 32) >> 6; // cannot overflow since spec says result is 22 bits
 		significant_coeff_flags &= ~((uint64_t)1 << i);
-		fprintf(stderr, "coeffLevel[%d]: %d\n", i - startIdx, c);
+		fprintf(stderr, "coeffLevel[%d](%d): %d\n", i - startIdx, ctx->BlkIdx, c);
 	} while (significant_coeff_flags != 0);
 	return decode_samples();
 }
@@ -1122,7 +1122,7 @@ static __attribute__((noinline)) int parse_Intra16x16_residual()
 	int mb_field_decoding_flag = mb->f.mb_field_decoding_flag;
 	ctx->plane = ctx->plane_Y;
 	ctx->stride = ctx->plane_offsets[2] >> 2;
-	ctx->clip = ctx->clip_C;
+	ctx->clip_v = ctx->clip_C;
 	ctx->sig_inc_v[0] = ctx->last_inc_v[0] = sig_inc_4x4;
 	ctx->scan_v[0] = scan_4x4[mb_field_decoding_flag];
 	ctx->BlkIdx = ctx->colour_plane_id << 4;
@@ -1159,7 +1159,7 @@ static __attribute__((noinline)) int parse_Intra16x16_residual()
 		// nice optimisation for 4:4:4 modes
 		ctx->plane = ctx->plane_Cb; // not a bug, plane offsets include Cr offset
 		ctx->stride = ctx->plane_offsets[18] >> 2;
-		ctx->clip = ctx->clip_C;
+		ctx->clip_v = ctx->clip_C;
 		if (ctx->ps.ChromaArrayType <3)
 			return parse_chroma_residual();
 	} while (ctx->BlkIdx < 48);
@@ -1179,7 +1179,7 @@ static __attribute__((noinline)) int parse_NxN_residual()
 	// next few blocks will share many parameters, so we cache a LOT of them
 	ctx->plane = ctx->plane_Y;
 	ctx->stride = ctx->plane_offsets[2] >> 2;
-	ctx->clip = ctx->clip_Y;
+	ctx->clip_v = ctx->clip_Y;
 	ctx->BlkIdx = ctx->colour_plane_id << 4;
 	do {
 		int iYCbCr = ctx->BlkIdx >> 4;
@@ -1235,7 +1235,7 @@ static __attribute__((noinline)) int parse_NxN_residual()
 		// nice optimisation for 4:4:4 modes
 		ctx->plane = ctx->plane_Cb; // not a bug, plane offsets include Cr offset
 		ctx->stride = ctx->plane_offsets[18] >> 2;
-		ctx->clip = ctx->clip_C;
+		ctx->clip_v = ctx->clip_C;
 		if (ctx->ps.ChromaArrayType <3)
 			return parse_chroma_residual();
 	} while (ctx->BlkIdx < 48);

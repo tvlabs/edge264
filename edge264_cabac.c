@@ -1043,72 +1043,6 @@ static __attribute__((noinline)) void parse_mb_qp_delta(unsigned cond) {
 
 
 /**
- * Parses CodedBlockPatternLuma/Chroma (9.3.2.6 and 9.3.3.1.1.4).
- *
- * As with mb_qp_delta, coded_block_pattern is parsed in two distinct code
- * paths, thus put in a non-inlined function.
- */
-static __attribute__((noinline)) void parse_coded_block_pattern() {
-	check_ctx(RESIDUAL_CBP_LABEL);
-	// Luma prefix
-	for (int i = 0; i < 4; i++) {
-		int cbpA = ((int8_t *)mb)[offsetof(Edge264_macroblock, CodedBlockPatternLuma) + ctx->CodedBlockPatternLuma_A[i]];
-		int cbpB = ((int8_t *)mb)[offsetof(Edge264_macroblock, CodedBlockPatternLuma) + ctx->CodedBlockPatternLuma_B[i]];
-		mb->CodedBlockPatternLuma[i] = get_ae(-(-76 + cbpA + cbpB * 2));
-	}
-	
-	// Chroma suffix
-	if (ctx->ps.ChromaArrayType == 1 || ctx->ps.ChromaArrayType == 2) {
-		mb->f.CodedBlockPatternChromaDC = get_ae(77 + ctx->inc.CodedBlockPatternChromaDC);
-		if (mb->f.CodedBlockPatternChromaDC)
-			mb->f.CodedBlockPatternChromaAC = get_ae(81 + ctx->inc.CodedBlockPatternChromaAC);
-	}
-	
-	fprintf(stderr, "coded_block_pattern: %u\n",
-		mb->CodedBlockPatternLuma[0] * 1 + mb->CodedBlockPatternLuma[1] * 2 +
-		mb->CodedBlockPatternLuma[2] * 4 + mb->CodedBlockPatternLuma[3] * 8 +
-		(mb->f.CodedBlockPatternChromaDC + mb->f.CodedBlockPatternChromaAC) * 16);
-}
-
-
-
-/**
- * Parses intra_chroma_pred_mode (9.3.2.2 and 9.3.3.1.1.8).
- *
- * As with mb_qp_delta and coded_block_pattern, experience shows allowing
- * compilers to inline this function makes them produce slower&heavier code.
- */
-static __attribute__((noinline)) void parse_intra_chroma_pred_mode()
-{
-	// Do not optimise too hard to keep the code understandable here.
-	check_ctx(INTRA_CHROMA_LABEL);
-	int type = ctx->ps.ChromaArrayType;
-	if (type == 1 || type == 2) {
-		int ctxIdx = 64 + ctx->inc.intra_chroma_pred_mode_non_zero;
-		int mode = 0;
-		while (mode <3 && get_ae(ctxIdx))
-			mode++, ctxIdx = 67;
-		mb->f.intra_chroma_pred_mode_non_zero = (mode > 0);
-		
-		// ac[0]==VERTICAL_4x4_BUFFERED reuses the buffering mode of Intra16x16
-		static uint8_t dc[4] = {DC_CHROMA_8x8, VERTICAL_CHROMA_8x8, HORIZONTAL_CHROMA_8x8, PLANE_CHROMA_8x8};
-		static uint8_t ac[4] = {VERTICAL_4x4_BUFFERED, VERTICAL_4x4_BUFFERED, HORIZONTAL_4x4_BUFFERED, PLANE_4x4_BUFFERED};
-		int depth = (ctx->ps.BitDepth_C == 8) ? 0 : VERTICAL_4x4_16_BIT;
-		int i = depth + ac[mode];
-		int dc420 = depth + dc[mode] + ctx->inc.unavailable;
-		ctx->PredMode_v[1] = (v16qu){i, i, i, i, i, i, i, i, i, i, i, i, i, i, i, i};
-		if (type == 1)
-			ctx->PredMode[16] = ctx->PredMode[20] = dc420;
-		else
-			ctx->PredMode[16] = ctx->PredMode[24] = dc420 + 11;
-		
-		fprintf(stderr, "intra_chroma_pred_mode: %u\n", mode);
-	}
-}
-
-
-
-/**
  * Parsing for chroma 4:2:2 and 4:2:0 is put in a separate function to be
  * tail-called from parse_NxN_residual and parse_Intra16x16_residual.
  */
@@ -1311,6 +1245,36 @@ static __attribute__((noinline)) int parse_NxN_residual()
 
 
 /**
+ * Parses CodedBlockPatternLuma/Chroma (9.3.2.6 and 9.3.3.1.1.4).
+ *
+ * As with mb_qp_delta, coded_block_pattern is parsed in two distinct code
+ * paths, thus put in a non-inlined function.
+ */
+static __attribute__((noinline)) void parse_coded_block_pattern() {
+	check_ctx(RESIDUAL_CBP_LABEL);
+	// Luma prefix
+	for (int i = 0; i < 4; i++) {
+		int cbpA = ((int8_t *)mb)[offsetof(Edge264_macroblock, CodedBlockPatternLuma) + ctx->CodedBlockPatternLuma_A[i]];
+		int cbpB = ((int8_t *)mb)[offsetof(Edge264_macroblock, CodedBlockPatternLuma) + ctx->CodedBlockPatternLuma_B[i]];
+		mb->CodedBlockPatternLuma[i] = get_ae(-(-76 + cbpA + cbpB * 2));
+	}
+	
+	// Chroma suffix
+	if (ctx->ps.ChromaArrayType == 1 || ctx->ps.ChromaArrayType == 2) {
+		mb->f.CodedBlockPatternChromaDC = get_ae(77 + ctx->inc.CodedBlockPatternChromaDC);
+		if (mb->f.CodedBlockPatternChromaDC)
+			mb->f.CodedBlockPatternChromaAC = get_ae(81 + ctx->inc.CodedBlockPatternChromaAC);
+	}
+	
+	fprintf(stderr, "coded_block_pattern: %u\n",
+		mb->CodedBlockPatternLuma[0] * 1 + mb->CodedBlockPatternLuma[1] * 2 +
+		mb->CodedBlockPatternLuma[2] * 4 + mb->CodedBlockPatternLuma[3] * 8 +
+		(mb->f.CodedBlockPatternChromaDC + mb->f.CodedBlockPatternChromaAC) * 16);
+}
+
+
+
+/**
  * This function parses the syntax elements ref_idx_lX, mvd_lX (from function),
  * coded_block_pattern (from function), transform_size_8x8_flag, and branches to
  * residual decoding through tail call.
@@ -1485,6 +1449,42 @@ static __attribute__((noinline)) int parse_inter_pred()
 		fprintf(stderr, "transform_size_8x8_flag: %x\n", mb->f.transform_size_8x8_flag);
 	}
 	return parse_NxN_residual();
+}
+
+
+
+/**
+ * Parses intra_chroma_pred_mode (9.3.2.2 and 9.3.3.1.1.8).
+ *
+ * As with mb_qp_delta and coded_block_pattern, experience shows allowing
+ * compilers to inline this function makes them produce slower&heavier code.
+ */
+static __attribute__((noinline)) void parse_intra_chroma_pred_mode()
+{
+	// Do not optimise too hard to keep the code understandable here.
+	check_ctx(INTRA_CHROMA_LABEL);
+	int type = ctx->ps.ChromaArrayType;
+	if (type == 1 || type == 2) {
+		int ctxIdx = 64 + ctx->inc.intra_chroma_pred_mode_non_zero;
+		int mode = 0;
+		while (mode <3 && get_ae(ctxIdx))
+			mode++, ctxIdx = 67;
+		mb->f.intra_chroma_pred_mode_non_zero = (mode > 0);
+		fprintf(stderr, "intra_chroma_pred_mode: %u\n", mode);
+		
+		// ac[0]==VERTICAL_4x4_BUFFERED reuses the buffering mode of Intra16x16
+		static uint8_t dc[4] = {DC_CHROMA_8x8, HORIZONTAL_CHROMA_8x8, VERTICAL_CHROMA_8x8, PLANE_CHROMA_8x8};
+		static uint8_t ac[4] = {VERTICAL_4x4_BUFFERED, HORIZONTAL_4x4_BUFFERED, VERTICAL_4x4_BUFFERED, PLANE_4x4_BUFFERED};
+		int depth = (ctx->ps.BitDepth_C == 8) ? 0 : VERTICAL_4x4_16_BIT;
+		int i = depth + ac[mode];
+		int dc420 = depth + dc[mode] + (mode == 0 ? ctx->inc.unavailable : 0);
+		ctx->PredMode_v[1] = (v16qu){i, i, i, i, i, i, i, i, i, i, i, i, i, i, i, i};
+		if (type == 1)
+			ctx->PredMode[16] = ctx->PredMode[20] = dc420;
+		else
+			ctx->PredMode[16] = ctx->PredMode[24] = dc420 + 11;
+		
+	}
 }
 
 

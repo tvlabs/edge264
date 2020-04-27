@@ -624,13 +624,13 @@ static int decode_ChromaPlane8x8_8bit(size_t stride, ssize_t nstride, uint8_t *p
 	__m128i VH = _mm_add_epi16(x2, _mm_shufflelo_epi16(x2, _MM_SHUFFLE(2, 3, 0, 1)));
 	__m128i x3 = _mm_add_epi16(VH, _mm_srai_epi16(VH, 4)); // (17 * VH) >> 4
 	__m128i x4 = _mm_srai_epi16(_mm_sub_epi16(x3, _mm_set1_epi16(-1)), 1); // (17 * VH + 16) >> 5
-	__m128i a = _mm_set1_epi16((p[nstride * 2 + 7] + q[stride * 2 - 1] + 1) * 16);
+	__m128i a = _mm_set1_epi16((p[nstride * 2 + 7] + q[stride * 2 - 1] + 1) * 16); // a + 16
 	__m128i b = _mm_shuffle_epi32(x4, _MM_SHUFFLE(1, 1, 1, 1));
 	__m128i c = _mm_shuffle_epi32(x4, _MM_SHUFFLE(0, 0, 0, 0));
 	
 	// compute and store the first row of prediction vectors
 	__m128i c1 = _mm_slli_epi16(c, 1);
-	ctx->pred_buffer_v[16] = (v8hi)c1;
+	ctx->pred_buffer_v[17] = (v8hi)c1;
 	__m128i x5 = _mm_sub_epi16(_mm_sub_epi16(a, c), c1); // a - c * 3 + 16
 	__m128i x6 = _mm_add_epi16(_mm_mullo_epi16(b, (__m128i)mul1), x5);
 	__m128i x7 = _mm_add_epi16(x6, c);
@@ -664,7 +664,7 @@ static int decode_ChromaPlane8x8_16bit(size_t stride, ssize_t nstride, uint8_t *
 	__m128i c = _mm_unpackhi_epi64(x8, x8);
 	
 	// compute and store the first row of prediction vectors
-	ctx->pred_buffer_v[16] = (v8hi)c;
+	ctx->pred_buffer_v[17] = (v8hi)c;
 	__m128i c2 = _mm_slli_epi32(c, 2);
 	__m128i x9 = _mm_sub_epi32(_mm_add_epi32(a, c), c2); // a - c * 3 + 16
 	__m128i xA = _mm_add_epi32(b, _mm_slli_si128(b, 4));
@@ -745,7 +745,7 @@ static int decode_ChromaPlane8x16(__m128i top, __m128i leftt, __m128i leftb) {
 	__m128i c = _mm_unpackhi_epi64(x4, x4);
 	
 	// compute the first row of prediction vectors
-	ctx->pred_buffer_v[16] = (v8hi)c;
+	ctx->pred_buffer_v[17] = (v8hi)c;
 	__m128i x6 = _mm_sub_epi32(_mm_add_epi32(a, c), _mm_slli_epi32(c, 3)); // a - c * 7 + 16
 	__m128i x7 = _mm_add_epi32(b, _mm_slli_si128(b, 4));
 	__m128i x8 = _mm_add_epi32(x7, _mm_slli_si128(x7, 8));

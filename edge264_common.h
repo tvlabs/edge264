@@ -151,7 +151,7 @@ typedef struct
 	union { uint8_t intra4x4_modes[9][16]; v16qu intra4x4_modes_v[9]; };
 	union { uint8_t intra8x8_modes[9][16]; v16qu intra8x8_modes_v[9]; };
 	union { uint8_t PredMode[48]; v16qu PredMode_v[3]; };
-	union { int16_t pred_buffer[136]; v8hi pred_buffer_v[17]; }; // temporary storage for prediction samples
+	union { int16_t pred_buffer[144]; v8hi pred_buffer_v[18]; }; // temporary storage for prediction samples
 	union { int32_t d[64]; v4si d_v[16]; v8si d_V[8]; }; // scaled residual coefficients
 	
 	// macroblock offsets (relative to the first element of each array)

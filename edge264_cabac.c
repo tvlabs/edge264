@@ -1069,6 +1069,7 @@ static __attribute__((noinline)) int parse_chroma_residual()
 	check_ctx(RESIDUAL_CB_DC_LABEL);
 	parse_residual_block(coded_block_flag_Cb, 0, is422 * 4 + 3);
 	ctx->PredMode[16] = ctx->PredMode[17];
+	ctx->pred_buffer_v[16] = ctx->pred_buffer_v[17]; // backup for CHROMA_NxN_BUFFERED
 	
 	// Another 2x2/2x4 DC block for the Cr component
 	ctx->BlkIdx = 20 + is422 * 4;
@@ -1104,6 +1105,7 @@ static __attribute__((noinline)) int parse_chroma_residual()
 		mb->coded_block_flags_4x4[ctx->BlkIdx] = coded_block_flag;
 		check_ctx(RESIDUAL_CHROMA_LABEL);
 		parse_residual_block(coded_block_flag, 1, 15);
+		ctx->pred_buffer_v[16] = ctx->pred_buffer_v[17];
 	}
 	return 0;
 }
@@ -1482,8 +1484,7 @@ static __attribute__((noinline)) void parse_intra_chroma_pred_mode()
 		if (type == 1)
 			ctx->PredMode[16] = ctx->PredMode[20] = dc420;
 		else
-			ctx->PredMode[16] = ctx->PredMode[24] = dc420 + 11;
-		
+			ctx->PredMode[16] = ctx->PredMode[24] = dc420 + (DC_CHROMA_8x16 - DC_CHROMA_8x8);
 	}
 }
 

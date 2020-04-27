@@ -1092,8 +1092,10 @@ static __attribute__((noinline)) int parse_chroma_residual()
 	for (ctx->BlkIdx = 16; ctx->BlkIdx < 24 + is422 * 8; ctx->BlkIdx++) {
 		// fprintf(stderr, "BlkIdx=%d, ", ctx->BlkIdx);
 		ctx->d_v[0] = ctx->d_v[1] = ctx->d_v[2] = ctx->d_v[3] = (v4si){};
-		if (ctx->BlkIdx == 20 + is422 * 4)
+		if (ctx->BlkIdx == 20 + is422 * 4) {
+			ctx->pred_buffer_v[16] = ctx->pred_buffer_v[17];
 			compute_LevelScale4x4(2);
+		}
 		
 		ctx->d[0] = ctx->d[ctx->BlkIdx];
 		int coded_block_flag = 0;
@@ -1105,7 +1107,6 @@ static __attribute__((noinline)) int parse_chroma_residual()
 		mb->coded_block_flags_4x4[ctx->BlkIdx] = coded_block_flag;
 		check_ctx(RESIDUAL_CHROMA_LABEL);
 		parse_residual_block(coded_block_flag, 1, 15);
-		ctx->pred_buffer_v[16] = ctx->pred_buffer_v[17];
 	}
 	return 0;
 }

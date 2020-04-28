@@ -72,6 +72,9 @@ static int check_frame(const Edge264_stream *e, const uint8_t *frame, const uint
 			}
 		}
 	}
+	printf("</ul>\n"
+		"<ul>\n"
+		"<li style='color:green'>Correct output frame</li>\n");
 	return 0;
 }
 
@@ -120,7 +123,7 @@ int print_frame(Edge264_stream *e, int i)
 			glfwTerminate();
 			exit(0);
 		}
-		e->user += e->frame_size;
+		e->user += e->plane_size_Y + e->plane_size_C * 2;
 	}
 	return 0;
 }

@@ -519,7 +519,7 @@ static int parse_slice_layer_without_partitioning(Edge264_stream *e)
 	// check that the requested PPS was initialised and is supported
 	if (e->PPSs[pic_parameter_set_id].num_ref_idx_active[0] == 0)
 		return -2;
-	if (first_mb_in_slice > 0 || ctx->slice_type > 2 || pic_parameter_set_id >= 4)
+	if (first_mb_in_slice > 0 || ctx->slice_type != 2 || pic_parameter_set_id >= 4)
 		return -1;
 	
 	ctx->ps = e->PPSs[pic_parameter_set_id];

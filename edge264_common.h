@@ -87,14 +87,13 @@ typedef struct {
  */
 typedef struct
 {
-	// parsing context
+	// core context
 	const uint8_t *CPB;
 	const uint8_t *end;
 	size_t RBSP[2];
-	uint64_t test;
 	size_t _codIRange;
 	size_t _codIOffset;
-	int8_t shift;
+	int8_t shift; // strictly less than SIZE_BIT
 	int8_t BlkIdx; // index of current AC block (for PredMode), in order Y/Cb/Cr and without gaps
 	uint16_t stride;
 	int16_t x; // 14 significant bits
@@ -106,7 +105,7 @@ typedef struct
 	Edge264_macroblock *mbCol;
 	Edge264_stream *e; // for debugging
 	
-	// bitfields and constants
+	// slice headers
 	uint16_t non_ref_flag:1; // TODO: remove if unnecessary after Inter is done
 	uint16_t IdrPicFlag:1;
 	uint16_t field_pic_flag:1;

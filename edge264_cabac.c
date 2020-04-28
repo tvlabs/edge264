@@ -11,15 +11,6 @@
 
 #include "edge264_common.h"
 
-static void block() {
-	for (int y = 0; y < 16; y++) {
-		for (int x = 0; x < 16; x++)
-			fprintf(stderr, "%02x ", ctx->plane_Y[y * ctx->ps.width + x]);
-		fprintf(stderr, "\n");
-	}
-	fprintf(stderr, "\n");
-}
-
 // cabac_init_idc==0 for I frames.
 static const int8_t context_init[4][1024][2] __attribute__((aligned(16))) = {{
 	{  20, -15}, {   2,  54}, {   3,  74}, {  20, -15}, {   2,  54}, {   3,  74},
@@ -1090,7 +1081,6 @@ static __attribute__((noinline)) int parse_chroma_residual()
 	ctx->scan_v[0] = scan_4x4[mb->f.mb_field_decoding_flag];
 	ctx->ctxIdxOffsets_l = ctxIdxOffsets_chromaAC[mb->f.mb_field_decoding_flag];
 	for (ctx->BlkIdx = 16; ctx->BlkIdx < 24 + is422 * 8; ctx->BlkIdx++) {
-		// fprintf(stderr, "BlkIdx=%d, ", ctx->BlkIdx);
 		ctx->d_v[0] = ctx->d_v[1] = ctx->d_v[2] = ctx->d_v[3] = (v4si){};
 		if (ctx->BlkIdx == 20 + is422 * 4) {
 			ctx->pred_buffer_v[16] = ctx->pred_buffer_v[17];
@@ -1620,10 +1610,40 @@ static __attribute__((noinline)) int parse_intra_mb(int ctxIdx)
 			ctx->CPB -= 1 + ((big_endian32(i) >> 8) == 3);
 		}
 		
-		for (int i = 0; i < 256; i++)
-			get_uv(ctx->ps.BitDepth_Y);
-		for (int i = 0; i < (1 << ctx->ps.ChromaArrayType >> 1) * 128; i++)
-			get_uv(ctx->ps.BitDepth_C);
+		// PCM is so rare that it should be compact rather than fast
+		uint8_t *p = ctx->plane_Y;
+		for (int y = 16; y-- > 0; p += ctx->plane_offsets[2] >> 2) {
+			for (int x = 0; x < 16; x++) {
+				if (ctx->ps.BitDepth_Y == 8)
+					p[x] = get_uv(8);
+				else
+					((uint16_t *)p)[x] = get_uv(ctx->ps.BitDepth_Y);
+			}
+		}
+		p = ctx->plane_Cb;
+		int MbWidthC = (ctx->ps.ChromaArrayType < 3) ? 8 : 16;
+		static int8_t MbHeightC[4] = {0, 8, 16, 16};
+		for (int y = MbHeightC[ctx->ps.ChromaArrayType]; y-- > 0; p += ctx->plane_offsets[18] >> 2) {
+			for (int x = 0; x < MbWidthC; x++) {
+				if (ctx->ps.BitDepth_Y == 8)
+					p[x] = get_uv(8);
+				else
+					((uint16_t *)p)[x] = get_uv(ctx->ps.BitDepth_Y);
+			}
+		}
+		p = ctx->plane_Cb + ctx->plane_offsets[16 + ctx->ps.ChromaArrayType * 4];
+		for (int y = MbHeightC[ctx->ps.ChromaArrayType]; y-- > 0; p += ctx->plane_offsets[18] >> 2) {
+			for (int x = 0; x < MbWidthC; x++) {
+				if (ctx->ps.BitDepth_Y == 8)
+					p[x] = get_uv(8);
+				else
+					((uint16_t *)p)[x] = get_uv(ctx->ps.BitDepth_Y);
+			}
+		}
+		
+		// reinitialize CABAC
+		codIRange = (size_t)255 << (SIZE_BIT - 9);
+		codIOffset = get_uv(SIZE_BIT - 1);
 		return 0;
 	}
 }

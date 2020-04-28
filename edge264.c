@@ -12,6 +12,7 @@
 // TODO: Drop the support of differing BitDepths if no Conformance streams test it
 // TODO: Test removing Edge264_context from register when decoder works
 // TODO: Can we relieve the complexity of pixel size computing with arrays?
+// TODO: Add a Edge264_frame structure, to simplify the API and internal accesses to strides&stuff
 
 #include "edge264_common.h"
 #include "edge264_golomb.c"

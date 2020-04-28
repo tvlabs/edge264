@@ -90,14 +90,14 @@ __attribute__((noinline)) size_t get_uv(unsigned v) {
 	return refill(ctx->shift + v, bits >> (SIZE_BIT - v));
 }
 
-// Parses Exp-Golomb codes up to 2^16-2
+// Parses one Exp-Golomb code in one read, up to 2^16-2 (2^32-2 on 64bit machines)
 __attribute__((noinline)) size_t get_ue16() {
 	size_t bits = lsd(ctx->RBSP[0], ctx->RBSP[1], ctx->shift);
 	unsigned v = clz(bits | (size_t)1 << (SIZE_BIT / 2)) * 2 + 1;
 	return refill(ctx->shift + v, (bits >> (SIZE_BIT - v)) - 1);
 }
 
-// Parses Exp-Golomb codes up to 2^32-2
+// Parses one Exp-Golomb code in two reads, up to 2^32-2 (useless on 64bit machines)
 #if SIZE_BIT == 32
 __attribute__((noinline)) size_t get_ue32() {
 	size_t bits = lsd(ctx->RBSP[0], ctx->RBSP[1], ctx->shift);

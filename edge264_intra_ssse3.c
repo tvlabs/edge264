@@ -492,7 +492,7 @@ static int decode_Plane16x16_8bit(__m128i top, __m128i tl, __m128i left) {
 	__m128i HV = _mm_sub_epi16(_mm_hadd_epi16(x3, x3), _mm_slli_epi16(tl, 3)); // HHVVHHVV, 15 significant bits
 	__m128i x4 = _mm_add_epi16(HV, _mm_srai_epi16(HV, 2)); // (5 * HV) >> 2
 	__m128i x5 = _mm_srai_epi16(_mm_add_epi16(x4, _mm_set1_epi16(8)), 4); // (5 * HV + 32) >> 6
-	__m128i x6 = _mm_add_epi16(_mm_unpackhi_epi8(top, zero), _mm_unpackhi_epi8(left, zero));
+	__m128i x6 = _mm_add_epi16(_mm_srli_si128(top, 15), _mm_srli_si128(left, 15));
 	__m128i a = _mm_slli_epi16(_mm_sub_epi16(_mm_broadcastw_epi16(x6), _mm_set1_epi16(-1)), 4);
 	__m128i b = _mm_shuffle_epi32(x5, _MM_SHUFFLE(0, 0, 0, 0));
 	__m128i c = _mm_shuffle_epi32(x5, _MM_SHUFFLE(1, 1, 1, 1));

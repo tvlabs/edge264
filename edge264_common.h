@@ -84,6 +84,8 @@ typedef struct {
 /**
  * This structure stores the entire decoder state during its operation, such
  * that we can dedicate a single register to point to it.
+ * It is separate with Edge264_stream, to distinguish state that lives during
+ * a single frame, from state that spans multiple frames.
  */
 typedef struct
 {

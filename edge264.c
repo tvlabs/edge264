@@ -1324,12 +1324,6 @@ static int parse_seq_parameter_set(Edge264_stream *e)
 
 
 
-/**
- * This function scans memory for the three-byte 00n pattern, and returns
- * a pointer to the first following byte.
- *
- * It uses aligned reads, but won't overread past 16-byte boundaries.
- */
 #ifdef __SSSE3__
 const uint8_t *Edge264_find_start_code(int n, const uint8_t *CPB, const uint8_t *end) {
 	const __m128i zero = _mm_setzero_si128();
@@ -1350,30 +1344,15 @@ const uint8_t *Edge264_find_start_code(int n, const uint8_t *CPB, const uint8_t 
 
 
 
-/**
- * Deallocates the picture buffer, then resets e.
- */
 int Edge264_reset(Edge264_stream *e) {
-	if (e->DPB != NULL) {
+	if (e->DPB != NULL)
 		free(e->DPB);
-		e->DPB = NULL;
-		e->currPic = 0;
-		e->output_flags = 0;
-		e->reference_flags = 0;
-		e->long_term_flags = 0;
-		e->prevFrameNum = 0;
-		e->prevPicOrderCnt = 0;
-	}
-	e->ret = 0;
+	memset((void *)e + offsetof(Edge264_stream, DPB), 0, sizeof(*e) - offsetof(Edge264_stream, DPB));
 	return 0;
 }
 
 
 
-/**
- * This function allocates a decoding context on stack and branches to the
- * handler given by nal_unit_type.
- */
 int Edge264_decode_NAL(Edge264_stream *e)
 {
 	static const char * const nal_unit_type_names[32] = {
@@ -1388,7 +1367,7 @@ int Edge264_decode_NAL(Edge264_stream *e)
 		[8] = "Picture parameter set",
 		[9] = "Access unit delimiter",
 		[10] = "End of sequence", // may be used in the future
-		[11] = "End of stream",
+		[11] = "End of stream", // not tested
 		[12] = "Filler data",
 		[13] = "Sequence parameter set extension",
 		[14] = "Prefix NAL unit",

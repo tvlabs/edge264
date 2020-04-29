@@ -72,6 +72,7 @@ typedef struct {
 	uint8_t weightScale8x8[6][64] __attribute__((aligned(16)));
 } Edge264_parameter_set;
 
+
 typedef struct Edge264_stream {
 	// These four fields must be set prior to decoding
 	const uint8_t *CPB;
@@ -79,7 +80,7 @@ typedef struct Edge264_stream {
 	int (*output_frame)(struct Edge264_stream*, int);
 	void *user; // optional
 	
-	uint8_t *DPB;
+	uint8_t *DPB; // NULL before the first SPS is decoded
 	int8_t ret; // -2=error, -1=unsupported, 0~15=output, 16=continue
 	int8_t currPic; // index of next available DPB slot
 	int16_t stride_Y;
@@ -96,12 +97,33 @@ typedef struct Edge264_stream {
 	int32_t FieldOrderCnt[32]; // lower/higher half for top/bottom fields
 	Edge264_parameter_set SPS;
 	Edge264_parameter_set PPSs[4];
-	int16_t PicOrderCntDeltas[256]; // pic_order_cnt_type==1
+	int16_t PicOrderCntDeltas[256]; // too big to fit in Edge264_parameter_set
 } Edge264_stream;
 
 
+/**
+ * Scans memory for the next three-byte 00n pattern, and returns a pointer to
+ * the first following byte (or end if no pattern was found).
+ * Reads memory in 16-bytes chunks.
+ */
 const uint8_t *Edge264_find_start_code(int n, const uint8_t *CPB, const uint8_t *end);
+
+
+/**
+ * Decodes one NAL unit, then increments its CPB pointer to the next one.
+ * output_frame will be called after decoding if a frame is ready for output.
+ * Note that it may output a buffered frame rather than the one just decoded
+ * (determined by encoder), and may also output several frames after one NAL.
+ * Returns -2 on error, -1 on unsupported stream, and 0 on success. Negative
+ * codes are sticky until next reset.
+ */
 int Edge264_decode_NAL(Edge264_stream *e);
+
+
+/**
+ * Deallocates all buffers, keeps CPB/end/output_frame/user, and zeroes the
+ * rest of the structure (safer for maintenance of future variables).
+ */
 int Edge264_reset(Edge264_stream *e);
 
 #endif

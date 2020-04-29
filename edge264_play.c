@@ -178,7 +178,7 @@ int main(int argc, char *argv[])
 	uint8_t *cpb = mmap(NULL, stC.st_size, PROT_READ, MAP_SHARED, fd, 0);
 	assert(cpb!=MAP_FAILED);
 	Edge264_stream e = {
-		.CPB = cpb + 4,
+		.CPB = cpb + 3 + (cpb[2] == 0),
 		.end = cpb + stC.st_size,
 		.output_frame = print_frame
 	};

@@ -56,7 +56,7 @@ int main() {
 		fstat(yuv, &stD);
 		uint8_t *dpb = mmap(NULL, stD.st_size, PROT_READ, MAP_SHARED, yuv, 0);
 		assert(cpb!=MAP_FAILED&&dpb!=MAP_FAILED);
-		e.CPB = cpb + 4;
+		e.CPB = cpb + 3 + (cpb[2] == 0);
 		e.end = cpb + stC.st_size;
 		e.user = dpb;
 		

@@ -44,7 +44,7 @@ $ make CC=gcc-9 # Clang has the nasty tendency to alias gcc
 $ ./edge264_play-gcc-9 video.264
 ```
 
-When debugging, the make flag `TRACE=1` enables printing NAL headers to stdout in HTML format, and `TRACE=2` adds the dumping of decoded symbols to stderr (*very large*). I usually compare its output with that of a modified version of the [official](https://avc.hhi.fraunhofer.de/) JM decoder. On the set of official AVCv1 conformance bitstreams, files `CANL1_Sony_E`, `CANL1_SVA_B`, `CANL1_TOSHIBA_G`, `CANL2_SVA_B`, `CAPCMNL1_Sand_E` are known to decode perfectly, and `CAQP1_Sony_B`, `CAMA1_Sony_C`, `CABA1_Sony_D`, `CAPCM1_Sand_E`, `CABA1_SVA_B` decode with artefacts (mostly due to lack of deblock filter).
+When debugging, the make flag `TRACE=1` enables printing NAL headers to stdout in HTML format, and `TRACE=2` adds the dumping of decoded symbols to stderr (*very large*). I usually compare its output with that of a modified version of the [official](https://avc.hhi.fraunhofer.de/) JM decoder. On the set of official AVCv1 conformance bitstreams, files `CANL1_Sony_E`, `CANL1_SVA_B`, `CANL1_TOSHIBA_G`, `CANL2_SVA_B`, `CAPCMNL1_Sand_E` are known to decode perfectly (the rest using yet unsupported features).
 
 A test program is also provided, that browses files in a `conformance` directory, decoding each `<video>.264` and comparing its output with the pair `<video>.yuv`. At the moment it counts a PASS if the video decodes without errors (skipping comparison to reference result), since deblocking is not implemented yet.
 

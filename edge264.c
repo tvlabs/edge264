@@ -640,6 +640,8 @@ static int parse_slice_layer_without_partitioning(Edge264_stream *e)
 				ctx->FilterOffsetB);
 		}
 	}
+	if (ctx->disable_deblocking_filter_idc != 1)
+		return -1;
 	
 	initialise_decoding_context(e);
 	

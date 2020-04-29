@@ -60,7 +60,7 @@ int main() {
 		e.end = cpb + stC.st_size;
 		e.user = dpb;
 		
-		// parse the file and FAIL on any error
+		// decode the entire file and FAIL on any error
 		printf("%s: ", entry->d_name);
 		while (Edge264_decode_NAL(&e) >= 0 && e.CPB < e.end);
 		printf("%s\n" RESET, e.ret == -2 ? RED "FAIL" :

@@ -81,7 +81,7 @@ typedef struct Edge264_stream {
 	void *user; // optional
 	
 	uint8_t *DPB; // NULL before the first SPS is decoded
-	int8_t ret; // -2=error, -1=unsupported, 0~15=output, 16=continue
+	int8_t ret; // -2=error, -1=unsupported, 0=OK
 	int8_t currPic; // index of next available DPB slot
 	int16_t stride_Y;
 	int16_t stride_C;

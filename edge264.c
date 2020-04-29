@@ -472,14 +472,14 @@ static void initialise_decoding_context(Edge264_stream *e)
  * This function outputs pictures until a free DPB slot is found (C.4.4).
  */
 static __attribute__((noinline)) int bump_pictures(Edge264_stream *e) {
-	int output = 16;
-	while (1) {
+	int ret = 0;
+	while (ret == 0) {
 		unsigned r = e->reference_flags;
 		unsigned o = e->output_flags;
 		e->currPic = __builtin_ctz(~(uint16_t)(r | r >> 16 | o));
 		if (__builtin_popcount(o) <= ctx->ps.max_dec_frame_buffering && e->currPic <= ctx->ps.max_dec_frame_buffering)
 			break;
-		int best = INT_MAX;
+		int output = 16, best = INT_MAX;
 		for (; o != 0; o &= o - 1) {
 			int i = __builtin_ctz(o);
 			if (best > e->FieldOrderCnt[i])
@@ -487,9 +487,9 @@ static __attribute__((noinline)) int bump_pictures(Edge264_stream *e) {
 		}
 		e->output_flags ^= 1 << output;
 		if (e->output_frame != NULL)
-			e->ret = e->output_frame(e, output);
+			ret = e->output_frame(e, output);
 	}
-	return output;
+	return ret;
 }
 
 

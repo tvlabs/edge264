@@ -1,18 +1,15 @@
-// TODO: Test with lint.
-// TODO: Deoptimise and comment!
-// TODO: Fix all unsigned " / " and " * " operations
-// TODO: Study the value of max_dec_frame_buffering vs max_num_ref_frames in clips
-// TODO: Consider storing RefPicList in field mode after implementing MBAFF
-// TODO: Switch to RefPicList[l * 32 + i] if it later speeds up the decoder loop
-// TODO: Remove unions in Edge264_ctx?
-// TODO: Switch to 17-frames storage (SERIOUSLY)
-// TODO: Move get_ae to cabac.c and fill past rbsp with -1
-// TODO: Optimise is422 in cabac.c
-// TODO: Detect rbsp_slice_trailing_bits
-// TODO: Drop the support of differing BitDepths if no Conformance streams test it
-// TODO: Test removing Edge264_context from register when decoder works
-// TODO: Can we relieve the complexity of pixel size computing with arrays?
-// TODO: Add a Edge264_frame structure, to simplify the API and internal accesses to strides&stuff
+/** TODOs:
+ * _ put PicOrderCntDeltas inside Edge264_parameter_set to ease future extensions
+ * _ switch to SDL which is likely to have a more stable future support than GLFW
+ * _ upgrade DPB storage size to 17, by simply doubling reference and output flags sizes
+ * _ max_num_reorder_frames is zero in some conditions, reintroduce it with correct value to lower latency of some streams
+ * _ make neighbouring reads use a union in mb
+ * _ if possible, make the second half of AbsMvdComp_A/B alias the first of A/B4x4_8
+ * _ after implementing transformBypass, add a shortcut for DC-only blocks
+ * _ after implementing P/B and MBAFF, optimize away array accesses of is422 and mb->f.mb_field_decoding_flag
+ * _ after implementing P/B and MBAFF, consider splitting decode_samples into NxN, 16x16 and chroma, making parse_residual_block a regular function, including intraNxN_modes inside the switch of decode_NxN, and removing many copies for AC->DC PredMode
+ * _ try using epb for context pointer, and email GCC when it fails
+ */
 
 #include "edge264_common.h"
 #include "edge264_golomb.c"
@@ -650,8 +647,8 @@ static int parse_slice_layer_without_partitioning(Edge264_stream *e)
 		unsigned alignment = ctx->shift & 7;
 		if (alignment != 0 && get_uv(8 - alignment) != 0xff >> alignment)
 			return -2;
-		ctx->e = e;
 		CABAC_parse_slice_data(cabac_init_idc);
+		// I'd rather display a portion of image than nothing, so do not test errors here
 	}
 	
 	// wait until after decoding is complete to bump pictures

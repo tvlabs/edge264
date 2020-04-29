@@ -1,14 +1,3 @@
-// TODO: Mbaff must update ref_idx_mask each time it decodes mb_field_decoding_flag.
-// TODO: Beware that signed division cannot be vectorised as a mere shift.
-// TODO: Apply the update of mvs pointers at each macroblock.
-// TODO: Remove all uses of bare unsigned/int in favor of fixed sizes.
-// TODO: Find a place to set Intra4x4PredMode to 2/-2 when Inter predicting
-// TODO: Optimise the update of each circular buffer pointer.
-// TODO: Store BitDepth vector bounds rather than itself?
-// TODO: Reverse order of scan, because it is confusing
-// TODO: Use transformBypass when coded_block_flag == 0
-// FIXME: A4x4 is still wrong for chroma cbf, but would be incompatible with absMvdComp
-
 #include "edge264_common.h"
 
 // cabac_init_idc==0 for I frames.

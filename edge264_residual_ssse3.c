@@ -1,5 +1,3 @@
-// TODO: Add shortcut for DC only blocks
-
 #include "edge264_common.h"
 
 static const v16qi normAdjust4x4[6] = {

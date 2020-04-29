@@ -12,22 +12,6 @@
  * _ readable code (helped by Intel's astounding instrinsics naming...).
  */
 
-// TODO: Add testing of borders from ctx
-// TODO: Optimise _mm_set_epi64?
-// TODO: Add 1px unused line atop the first picture to avoid testing forbidden reads
-// TODO: uninline loads?
-// TODO: Make 4x4 two-pass too, and gather all _mm_setzero_si128()
-// TODO: Decrement p before all!
-// TODO: Compare execution times as inline vs noinline
-// TODO: Reorder enums to separate hot&cold paths
-// TODO: Reorder instructions to put load8_up0_8bit last whenever possible
-// TODO: Fix _mm_movpi64_epi64 with GCC
-// TODO: load8 function calls force many stack spills!
-// TODO: Review functions for a last optimisation pass against HADD
-// TODO: Try to replace loaded constants with computable ones
-// TODO: Change convention to left-to-top-right arguments
-// TODO: DC does not need avg(255) -> 128
-
 #include "edge264_common.h"
 
 static int decode_Residual4x4(__m128i, __m128i);

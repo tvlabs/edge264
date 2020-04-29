@@ -1,8 +1,6 @@
-// TODO: Remove all bitfields which are not flags in tests
-// TODO: Make Edge264_flags a v16qu
-// TODO: Store mvs in order, access neighbours with a table initialized with strides
-// TODO: When implementing inter pred, split mb storage to reduce offsets to bytes
-// TODO: Use epb with fomit-frame-pointer to save 1byte per ctx access, and email GCC if error prevents it
+/**
+ * Every file should be compilable on its own by including this one.
+ */
 
 #ifndef EDGE264_COMMON_H
 #define EDGE264_COMMON_H
@@ -105,7 +103,6 @@ typedef struct
 	Edge264_flags inc;
 	Edge264_macroblock *_mb;
 	Edge264_macroblock *mbCol;
-	Edge264_stream *e; // for debugging
 	
 	// slice headers
 	uint16_t non_ref_flag:1; // TODO: remove if unnecessary after Inter is done
@@ -114,11 +111,11 @@ typedef struct
 	uint16_t bottom_field_flag:1;
 	uint16_t MbaffFrameFlag:1;
 	uint16_t direct_spatial_mv_pred_flag:1;
-	uint16_t disable_deblocking_filter_idc:2;
 	uint16_t firstRefPicL1:1;
 	uint16_t col_short_term:1;
 	int8_t slice_type; // 3 significant bits
 	int8_t colour_plane_id; // 2 significant bits
+	int8_t disable_deblocking_filter_idc; // 2 significant bits
 	int8_t FilterOffsetA; // 5 significant bits
 	int8_t FilterOffsetB;
 	int8_t mb_qp_delta_non_zero;

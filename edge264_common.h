@@ -103,6 +103,7 @@ typedef struct
 	Edge264_flags inc;
 	Edge264_macroblock *_mb;
 	Edge264_macroblock *mbCol;
+	Edge264_stream *e; // for TRACE>0
 	
 	// slice headers
 	uint16_t non_ref_flag:1; // TODO: remove if unnecessary after Inter is done

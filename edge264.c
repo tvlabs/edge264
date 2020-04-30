@@ -1400,6 +1400,7 @@ int Edge264_decode_NAL(Edge264_stream *e)
 	ctx->RBSP[1] = e->CPB[1];
 	ctx->CPB = e->CPB + 2; // remember refill reads 2 bytes before
 	ctx->end = e->end;
+	ctx->e = e;
 	refill(SIZE_BIT * 2 - 8, 0);
 	
 	// beware we're parsing a NAL header :)

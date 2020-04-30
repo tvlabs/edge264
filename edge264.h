@@ -75,13 +75,13 @@ typedef struct {
 
 typedef struct Edge264_stream {
 	// These four fields must be set prior to decoding
-	const uint8_t *CPB;
+	const uint8_t *CPB; // should point to a NAL unit (skip the 001 prefix)
 	const uint8_t *end;
 	int (*output_frame)(struct Edge264_stream*, int);
 	void *user; // optional
 	
 	uint8_t *DPB; // NULL before the first SPS is decoded
-	int8_t ret; // -2=error, -1=unsupported, 0=OK
+	int8_t ret; // 0=OK, -1=unsupported, -2=error
 	int8_t currPic; // index of next available DPB slot
 	int16_t stride_Y;
 	int16_t stride_C;
@@ -114,8 +114,8 @@ const uint8_t *Edge264_find_start_code(int n, const uint8_t *CPB, const uint8_t 
  * output_frame will be called after decoding if a frame is ready for output.
  * Note that it may output a buffered frame rather than the one just decoded
  * (determined by encoder), and may also output several frames after one NAL.
- * Returns -2 on error, -1 on unsupported stream, and 0 on success. Negative
- * codes are sticky until next reset.
+ * Returns 0 on success, 1 on end of stream, -1 on unsupported stream, and -2
+ * on error. Negative codes are sticky until next reset.
  */
 int Edge264_decode_NAL(Edge264_stream *e);
 

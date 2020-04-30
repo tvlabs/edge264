@@ -209,7 +209,7 @@ register Edge264_ctx *ctx asm("ebx");
 static __thread Edge264_ctx *ctx;
 #endif
 #if defined(__SSSE3__) && !defined(__clang__) && SIZE_BIT == 64
-register Edge264_macroblock *mb asm("r13");
+register Edge264_macroblock *mb asm("r13"); // always use callee-saved registers
 register size_t codIRange asm("r14");
 register size_t codIOffset asm("r15");
 #else

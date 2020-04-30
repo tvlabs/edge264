@@ -251,10 +251,7 @@ int main(int argc, char *argv[])
 		"<html>\n"
 		"<head><title>NAL headers</title></head>\n"
 		"<body>\n");
-	int count = 0;
-	while (Edge264_decode_NAL(&e) >= 0 && e.CPB < e.end) {
-		count += (*e.CPB & 0x1F) <= 5;
-	}
+	while (Edge264_decode_NAL(&e) == 0);
 	printf("</body>\n"
 		"</html>\n");
 	

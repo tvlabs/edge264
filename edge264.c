@@ -1,6 +1,6 @@
 /** TODOs:
  * _ put PicOrderCntDeltas inside Edge264_parameter_set to ease future extensions
- * _ switch to SDL which is likely to have a more stable future support than GLFW
+ * _ switch to SDL which is likely to have a more stable future support than GLFW, with an option to play without display
  * _ upgrade DPB storage size to 17, by simply doubling reference and output flags sizes
  * _ max_num_reorder_frames is zero in some conditions, reintroduce it with correct value to lower latency of some streams
  * _ make neighbouring reads use a union in mb
@@ -673,7 +673,7 @@ static int parse_access_unit_delimiter(Edge264_stream *e) {
 
 
 /**
- * Parses the scaling lists into p->weightScaleNxN (7.3.2.1 and Table 7-2).
+ * Parses the scaling lists into ctx->ps.weightScaleNxN (7.3.2.1 and Table 7-2).
  *
  * Fall-back rules for indices 0, 3, 6 and 7 are applied by keeping the
  * existing list, so they must be initialised with Default scaling lists at
@@ -1389,7 +1389,7 @@ int Edge264_decode_NAL(Edge264_stream *e)
 	
 	// allocate the decoding context and backup registers
 	if (e->CPB >= e->end)
-		return e->ret = -2;
+		return 1;
 	check_stream(e);
 	Edge264_ctx *old = ctx, context;
 	ctx = &context;
@@ -1429,5 +1429,5 @@ int Edge264_decode_NAL(Edge264_stream *e)
 	codIOffset = ctx->_codIOffset;
 	e->CPB = Edge264_find_start_code(1, ctx->CPB - 2, ctx->end);
 	ctx = old;
-	return e->ret;
+	return (e->CPB >= e->end && e->ret >= 0) ? 1 : e->ret;
 }

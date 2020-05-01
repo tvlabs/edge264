@@ -161,7 +161,7 @@ typedef struct
 	
 	// large stuff
 	v16qu cabac[64];
-	int8_t RefPicList[2][32] __attribute__((aligned));
+	union { int8_t RefPicList[2][32]; v16qi RefPicList_v[4]; };
 	int8_t MapPicToList0[35]; // [1 + refPic]
 	int16_t DistScaleFactor[3][32]; // [top/bottom/frame][refIdxL0]
 	int16_t weights[3][32][2];

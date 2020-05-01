@@ -57,6 +57,7 @@ typedef struct {
 	int8_t log2_max_frame_num; // 5 significant bits
 	int8_t log2_max_pic_order_cnt_lsb; // 5 significant bits, pic_order_cnt_type==0
 	int8_t max_num_ref_frames; // 5 significant bits
+	int8_t max_num_reorder_frames; // 5 significant bits
 	uint8_t num_ref_frames_in_pic_order_cnt_cycle; // pic_order_cnt_type==1
 	int8_t num_ref_idx_active[2]; // 6 significant bits
 	int8_t QP_Y; // 7 significant bits

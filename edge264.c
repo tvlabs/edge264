@@ -1,14 +1,14 @@
 /** TODOs:
- * _ put PicOrderCntDeltas inside Edge264_parameter_set to ease future extensions
  * _ switch to SDL which is likely to have a more stable future support than GLFW, with an option to play without display
  * _ upgrade DPB storage size to 17, by simply doubling reference and output flags sizes
- * _ max_num_reorder_frames is zero in some conditions, reintroduce it with correct value to lower latency of some streams
+ * _ when resetting a stream, bump all pictures
  * _ make neighbouring reads use a union in mb
  * _ if possible, make the second half of AbsMvdComp_A/B alias the first of A/B4x4_8
  * _ after implementing transformBypass, add a shortcut for DC-only blocks
  * _ after implementing P/B and MBAFF, optimize away array accesses of is422 and mb->f.mb_field_decoding_flag
  * _ after implementing P/B and MBAFF, consider splitting decode_samples into NxN, 16x16 and chroma, making parse_residual_block a regular function, including intraNxN_modes inside the switch of decode_NxN, and removing many copies for AC->DC PredMode
  * _ try using epb for context pointer, and email GCC when it fails
+ * _ update the tables of names for profiles and NAL types
  */
 
 #include "edge264_common.h"
@@ -110,7 +110,7 @@ static void parse_ref_pic_list_modification(const Edge264_stream *e)
 	// When decoding a field, extract a list of fields from each list of frames.
 	for (int l = 0; ctx->field_pic_flag && l <= ctx->slice_type; l++) {
 		static const v16qi v16 = {16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16};
-		v16qi v = ((v16qi *)ctx->RefPicList[l])[0];
+		v16qi v = ctx->RefPicList_v[l * 2];
 		v16qi RefPicList[2] = {v, v + v16};
 		int lim = count[0] + count[1], tot = lim + count[2], n = 0;
 		int i = ctx->bottom_field_flag << 4, j = i ^ 16, k;
@@ -119,7 +119,7 @@ static void parse_ref_pic_list_modification(const Edge264_stream *e)
 		do {
 			if ((i & 15) >= lim)
 				i = (ctx->bottom_field_flag << 4) + lim, j = i ^ 16, lim = tot;
-			int pic = ((int8_t *)RefPicList)[i++];
+			int pic = ((int8_t *)RefPicList)[i++]; // FIXME unions
 			if (e->reference_flags & 1 << pic) {
 				ctx->RefPicList[l][n++] = pic;
 				if ((j & 15) < lim)
@@ -474,7 +474,7 @@ static __attribute__((noinline)) int bump_pictures(Edge264_stream *e) {
 		unsigned r = e->reference_flags;
 		unsigned o = e->output_flags;
 		e->currPic = __builtin_ctz(~(uint16_t)(r | r >> 16 | o));
-		if (__builtin_popcount(o) <= ctx->ps.max_dec_frame_buffering && e->currPic <= ctx->ps.max_dec_frame_buffering)
+		if (__builtin_popcount(o) <= ctx->ps.max_num_reorder_frames && e->currPic <= ctx->ps.max_dec_frame_buffering)
 			break;
 		int output = 16, best = INT_MAX;
 		for (; o != 0; o &= o - 1) {
@@ -683,7 +683,7 @@ static void parse_scaling_lists()
 {
 	// The 4x4 scaling lists are small enough to fit a vector register.
 	v16qu d4x4 = Default_4x4_Intra;
-	v16qu *w4x4 = (v16qu *)ctx->ps.weightScale4x4;
+	v16qu *w4x4 = (v16qu *)ctx->ps.weightScale4x4; // acceptable, we never access it as uint8_t here
 	do {
 		v16qu v4x4 = *w4x4;
 		const char *str = "unchanged";
@@ -1050,8 +1050,10 @@ static void parse_vui_parameters()
 		int max_bits_per_mb_denom = get_ue(16);
 		int log2_max_mv_length_horizontal = get_ue(16);
 		int log2_max_mv_length_vertical = get_ue(16);
-		int max_num_reorder_frames = get_ue(16);
-		ctx->ps.max_dec_frame_buffering = max(get_ue(15), ctx->ps.max_num_ref_frames);
+		ctx->ps.max_num_reorder_frames = get_ue(16);
+		// FIXME: increase bound when upgrading to 17-frames DPB
+		ctx->ps.max_dec_frame_buffering = max(get_ue(15),
+			max(ctx->ps.max_num_ref_frames, ctx->ps.max_num_reorder_frames));
 		printf("<li>motion_vectors_over_pic_boundaries_flag: <code>%x</code></li>\n"
 			"<li>max_bytes_per_pic_denom: <code>%u</code></li>\n"
 			"<li>max_bits_per_mb_denom: <code>%u</code></li>\n"
@@ -1064,7 +1066,7 @@ static void parse_vui_parameters()
 			max_bits_per_mb_denom,
 			1 << log2_max_mv_length_horizontal,
 			1 << log2_max_mv_length_vertical,
-			max_num_reorder_frames,
+			ctx->ps.max_num_reorder_frames,
 			ctx->ps.max_dec_frame_buffering);
 	}
 }
@@ -1106,9 +1108,9 @@ static int parse_seq_parameter_set(Edge264_stream *e)
 		.coded_block_flags_4x4 = {1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1},
 	};
 	
-	// Profiles are annoyingly complicated, thus ignored.
+	// Profiles are only useful to initialize max_num_reorder_frames/max_dec_frame_buffering.
 	int profile_idc = get_uv(8);
-	unsigned constraint_set_flags = get_uv(8);
+	int constraint_set_flags = get_uv(8);
 	int level_idc = get_uv(8);
 	int seq_parameter_set_id = get_ue(31);
 	printf("<li>profile_idc: <code>%u (%s)</code></li>\n"
@@ -1221,9 +1223,15 @@ static int parse_seq_parameter_set(Edge264_stream *e)
 		printf("</ul>\n");
 	}
 	
-	// Spec says (E.2.1) max_dec_frame_buffering should default to 16,
-	// I prefer a low-latency value, which weird streams are expected to override
-	ctx->ps.max_num_ref_frames = ctx->ps.max_dec_frame_buffering = get_ue(15);
+	// We use lower default values than spec (E.2.1), that would fail for
+	// streams reordering non-reference frames (unlikely)
+	ctx->ps.max_num_ref_frames = get_ue(15);
+	ctx->ps.max_num_reorder_frames = ctx->ps.max_dec_frame_buffering =
+		((profile_idc == 44 || profile_idc == 86 || profile_idc == 100 ||
+		profile_idc == 110 || profile_idc == 122 || profile_idc == 244) &&
+		(constraint_set_flags & 1 << 4)) ? 0 : ctx->ps.max_num_ref_frames;
+	
+	// We don't store pic_width/height_in_mbs to avoid cluttering structs
 	int gaps_in_frame_num_value_allowed_flag = get_u1();
 	unsigned pic_width_in_mbs = get_ue(1054) + 1;
 	int pic_height_in_map_units = get_ue16() + 1;

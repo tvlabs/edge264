@@ -125,6 +125,7 @@ int Edge264_decode_NAL(Edge264_stream *e);
  * Outputs all remaining pictures, then deallocates all buffers and zeroes the
  * entire structure except CPB/end/output_frame/user. Returns the sticky error
  * code (before clearing it).
+ * To end quickly without outputs, clear output_frame before the call.
  * This function is called automatically on a End of stream NAL unit.
  */
 int Edge264_end_stream(Edge264_stream *e);

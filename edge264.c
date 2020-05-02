@@ -1,15 +1,15 @@
 /** TODOs:
  * _ switch to SDL which is likely to have a more stable future support than GLFW, with an option to play without display
- * _ Handle no_output_of_prior_pics_flag as in C.2.3
- * _ upgrade DPB storage size to 17, by simply doubling reference and output flags sizes
- * _ when resetting a stream, bump all pictures
  * _ make neighbouring reads use a union in mb
  * _ if possible, make the second half of AbsMvdComp_A/B alias the first of A/B4x4_8
+ * _ update the tables of names for profiles and NAL types
+ * _ upgrade DPB storage size to 17, by simply doubling reference and output flags sizes
+ * _ backup output/ref flags and FrameNum and restore then on bad slice_header
+ * _ try using epb for context pointer, and email GCC when it fails
  * _ after implementing transformBypass, add a shortcut for DC-only blocks
  * _ after implementing P/B and MBAFF, optimize away array accesses of is422 and mb->f.mb_field_decoding_flag
  * _ after implementing P/B and MBAFF, consider splitting decode_samples into NxN, 16x16 and chroma, making parse_residual_block a regular function, including intraNxN_modes inside the switch of decode_NxN, and removing many copies for AC->DC PredMode
- * _ try using epb for context pointer, and email GCC when it fails
- * _ update the tables of names for profiles and NAL types
+ * _ after implementing Error Concealment, determine if ret should be sticky or not
  */
 
 #include "edge264_common.h"
@@ -1299,7 +1299,7 @@ static int parse_seq_parameter_set(Edge264_stream *e)
 	
 	// reallocate the DPB when the image format changes
 	if (memcmp(&ctx->ps, &e->SPS, 8) != 0) {
-		Edge264_end_stream(e);
+		Edge264_end_stream(e); // This will output all pending pictures
 		
 		// some basic variables first
 		int width_Y = ctx->ps.width;

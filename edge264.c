@@ -45,6 +45,126 @@ static const v16qu Default_8x8_Inter[4] = {
 
 
 /**
+ * This function sets the context pointers to the frame about to be decoded,
+ * and fills the context caches with useful values.
+ */
+static void initialise_decoding_context(Edge264_stream *e)
+{
+	/**
+	 * IntraNxN_modes[IntraNxNPredMode][unavail] yield the prediction switch entry
+	 * from unavailability of neighbouring blocks.
+	 * They are copied in ctx to precompute the bit depth offset.
+	 */
+	static const v16qu Intra4x4_modes[9] = {
+		{VERTICAL_4x4, VERTICAL_4x4, 0, 0, VERTICAL_4x4, VERTICAL_4x4, 0, 0, VERTICAL_4x4, VERTICAL_4x4, 0, 0, VERTICAL_4x4, VERTICAL_4x4, 0, 0},
+		{HORIZONTAL_4x4, 0, HORIZONTAL_4x4, 0, HORIZONTAL_4x4, 0, HORIZONTAL_4x4, 0, HORIZONTAL_4x4, 0, HORIZONTAL_4x4, 0, HORIZONTAL_4x4, 0, HORIZONTAL_4x4, 0},
+		{DC_4x4, DC_4x4_A, DC_4x4_B, DC_4x4_AB, DC_4x4, DC_4x4_A, DC_4x4_B, DC_4x4_AB, DC_4x4, DC_4x4_A, DC_4x4_B, DC_4x4_AB, DC_4x4, DC_4x4_A, DC_4x4_B, DC_4x4_AB},
+		{DIAGONAL_DOWN_LEFT_4x4, DIAGONAL_DOWN_LEFT_4x4, 0, 0, DIAGONAL_DOWN_LEFT_4x4_C, DIAGONAL_DOWN_LEFT_4x4_C, 0, 0, DIAGONAL_DOWN_LEFT_4x4, DIAGONAL_DOWN_LEFT_4x4, 0, 0, DIAGONAL_DOWN_LEFT_4x4_C, DIAGONAL_DOWN_LEFT_4x4_C, 0, 0},
+		{DIAGONAL_DOWN_RIGHT_4x4, 0, 0, 0, DIAGONAL_DOWN_RIGHT_4x4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
+		{VERTICAL_RIGHT_4x4, 0, 0, 0, VERTICAL_RIGHT_4x4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
+		{HORIZONTAL_DOWN_4x4, 0, 0, 0, HORIZONTAL_DOWN_4x4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
+		{VERTICAL_LEFT_4x4, VERTICAL_LEFT_4x4, 0, 0, VERTICAL_LEFT_4x4_C, VERTICAL_LEFT_4x4_C, 0, 0, VERTICAL_LEFT_4x4, VERTICAL_LEFT_4x4, 0, 0, VERTICAL_LEFT_4x4_C, VERTICAL_LEFT_4x4_C, 0, 0},
+		{HORIZONTAL_UP_4x4, 0, HORIZONTAL_UP_4x4, 0, HORIZONTAL_UP_4x4, 0, HORIZONTAL_UP_4x4, 0, HORIZONTAL_UP_4x4, 0, HORIZONTAL_UP_4x4, 0, HORIZONTAL_UP_4x4, 0, HORIZONTAL_UP_4x4, 0},
+	};
+	static const v16qu Intra8x8_modes[9] = {
+		{VERTICAL_8x8, VERTICAL_8x8, 0, 0, VERTICAL_8x8_C, VERTICAL_8x8_C, 0, 0, VERTICAL_8x8_D, VERTICAL_8x8_D, 0, 0, VERTICAL_8x8_CD, VERTICAL_8x8_CD, 0, 0},
+		{HORIZONTAL_8x8, 0, HORIZONTAL_8x8, 0, HORIZONTAL_8x8, 0, HORIZONTAL_8x8, 0, HORIZONTAL_8x8_D, 0, HORIZONTAL_8x8_D, 0, HORIZONTAL_8x8_D, 0, HORIZONTAL_8x8_D, 0},
+		{DC_8x8, DC_8x8_A, DC_8x8_B, DC_8x8_AB, DC_8x8_C, DC_8x8_AC, DC_8x8_B, DC_8x8_AB, DC_8x8_D, DC_8x8_AD, DC_8x8_BD, DC_8x8_AB, DC_8x8_CD, DC_8x8_ACD, DC_8x8_BD, DC_8x8_AB},
+		{DIAGONAL_DOWN_LEFT_8x8, DIAGONAL_DOWN_LEFT_8x8, 0, 0, DIAGONAL_DOWN_LEFT_8x8_C, DIAGONAL_DOWN_LEFT_8x8_C, 0, 0, DIAGONAL_DOWN_LEFT_8x8_D, DIAGONAL_DOWN_LEFT_8x8_D, 0, 0, DIAGONAL_DOWN_LEFT_8x8_CD, DIAGONAL_DOWN_LEFT_8x8_CD, 0, 0},
+		{DIAGONAL_DOWN_RIGHT_8x8, 0, 0, 0, DIAGONAL_DOWN_RIGHT_8x8_C, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
+		{VERTICAL_RIGHT_8x8, 0, 0, 0, VERTICAL_RIGHT_8x8_C, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
+		{HORIZONTAL_DOWN_8x8, 0, 0, 0, HORIZONTAL_DOWN_8x8, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
+		{VERTICAL_LEFT_8x8, VERTICAL_LEFT_8x8, 0, 0, VERTICAL_LEFT_8x8_C, VERTICAL_LEFT_8x8_C, 0, 0, VERTICAL_LEFT_8x8_D, VERTICAL_LEFT_8x8_D, 0, 0, VERTICAL_LEFT_8x8_CD, VERTICAL_LEFT_8x8_CD, 0, 0},
+		{HORIZONTAL_UP_8x8, 0, HORIZONTAL_UP_8x8, 0, HORIZONTAL_UP_8x8, 0, HORIZONTAL_UP_8x8, 0, HORIZONTAL_UP_8x8_D, 0, HORIZONTAL_UP_8x8_D, 0, HORIZONTAL_UP_8x8_D, 0, HORIZONTAL_UP_8x8_D, 0},
+	};
+	
+	ctx->x = 0;
+	ctx->y = 0;
+	ctx->plane_Y = e->DPB + e->currPic * e->frame_size;
+	ctx->plane_Cb = ctx->plane_Y + e->plane_size_Y;
+	int MbWidthC = ctx->ps.ChromaArrayType < 3 ? 8 : 16;
+	ctx->col_offset_C = ctx->ps.BitDepth_C == 8 ? MbWidthC : MbWidthC * 2;
+	ctx->row_offset_C = ctx->ps.ChromaArrayType == 1 ? e->stride_C * 7 : e->stride_C * 15;
+	mb = (Edge264_macroblock *)(ctx->plane_Cb + e->plane_size_C * 2 + (ctx->ps.width / 16 + 2) * sizeof(*mb));
+	
+	int cY = (1 << ctx->ps.BitDepth_Y) - 1;
+	int cC = (1 << ctx->ps.BitDepth_C) - 1;
+	ctx->clip_Y = (v8hi){cY, cY, cY, cY, cY, cY, cY, cY};
+	ctx->clip_C = (v8hi){cC, cC, cC, cC, cC, cC, cC, cC};
+	
+	int offsetA = sizeof(*mb);
+	int offsetB = (ctx->ps.width / 16 + 1) * sizeof(*mb);
+	ctx->A4x4_8[0] = (v8hi){5 - offsetA, 0, 7 - offsetA, 2, 1, 4, 3, 6};
+	ctx->A4x4_8[1] = (v8hi){13 - offsetA, 8, 15 - offsetA, 10, 9, 12, 11, 14};
+	ctx->B4x4_8[0] = (v4si){10 - offsetB, 11 - offsetB, 0, 1};
+	ctx->B4x4_8[1] = (v4si){14 - offsetB, 15 - offsetB, 4, 5};
+	ctx->B4x4_8[2] = (v4si){2, 3, 8, 9};
+	ctx->B4x4_8[3] = (v4si){6, 7, 12, 13};
+	ctx->A8x8_8[0] = (v4hi){1 - offsetA, 0, 3 - offsetA, 2};
+	ctx->B8x8_8[0] = (v4si){2 - offsetB, 3 - offsetB, 0, 1};
+	if (ctx->ps.ChromaArrayType == 1) {
+		ctx->A4x4_8[2] = (v8hi){17 - offsetA, 16, 19 - offsetA, 18, 21 - offsetA, 20, 23 - offsetA, 22};
+		ctx->B4x4_8[4] = (v4si){18 - offsetB, 19 - offsetB, 16, 17};
+		ctx->B4x4_8[5] = (v4si){22 - offsetB, 23 - offsetB, 20, 21};
+	} else if (ctx->ps.ChromaArrayType == 2) {
+		ctx->A4x4_8[2] = (v8hi){17 - offsetA, 16, 19 - offsetA, 18, 21 - offsetA, 20, 23 - offsetA, 22};
+		ctx->A4x4_8[3] = (v8hi){25 - offsetA, 24, 27 - offsetA, 26, 29 - offsetA, 28, 31 - offsetA, 30};
+		ctx->B4x4_8[4] = (v4si){22 - offsetB, 23 - offsetB, 16, 17};
+		ctx->B4x4_8[5] = (v4si){18, 19, 20, 21};
+		ctx->B4x4_8[6] = (v4si){30 - offsetB, 31 - offsetB, 24, 25};
+		ctx->B4x4_8[7] = (v4si){26, 27, 28, 29};
+	} else if (ctx->ps.ChromaArrayType == 3) {
+		v8hi h16 = {16, 16, 16, 16, 16, 16, 16, 16};
+		for (int i = 2; i < 6; i++)
+			ctx->A4x4_8[i] = ctx->A4x4_8[i - 2] + h16;
+		v4si s16 = {16, 16, 16, 16};
+		for (int i = 4; i < 12; i++)
+			ctx->B4x4_8[i] = ctx->B4x4_8[i - 4] + s16;
+		ctx->A8x8_8[1] = (v4hi){5 - offsetA, 4, 7 - offsetA, 6};
+		ctx->A8x8_8[2] = (v4hi){9 - offsetA, 8, 11 - offsetA, 10};
+		ctx->B8x8_8[1] = (v4si){6 - offsetB, 7 - offsetB, 4, 5};
+		ctx->B8x8_8[2] = (v4si){10 - offsetB, 11 - offsetB, 8, 9};
+	}
+	
+	for (int i = 0; i < 16; i++) {
+		int x = (i << 2 & 4) | (i << 1 & 8);
+		int y = (i << 1 & 4) | (i & 8);
+		ctx->plane_offsets[i] = y * e->stride_Y + (ctx->ps.BitDepth_Y == 8 ? x : x * 2);
+		if (ctx->ps.ChromaArrayType == 3) {
+			ctx->plane_offsets[16 + i] = y * e->stride_C + (ctx->ps.BitDepth_C == 8 ? x : x * 2);
+			ctx->plane_offsets[32 + i] = ctx->plane_offsets[16 + i] + e->plane_size_C;
+		}
+	}
+	for (int i = 0; ctx->ps.ChromaArrayType < 3 && i < ctx->ps.ChromaArrayType * 4; i++) {
+		int x = i << 2 & 4;
+		int y = i << 1 & 12;
+		ctx->plane_offsets[16 + i] = y * e->stride_C + (ctx->ps.BitDepth_C == 8 ? x : x * 2);
+		ctx->plane_offsets[16 + ctx->ps.ChromaArrayType * 4 + i] = ctx->plane_offsets[16 + i] + e->plane_size_C;
+	}
+	
+	int p = (ctx->ps.BitDepth_Y == 8) ? 0 : VERTICAL_4x4_16_BIT;
+	int q = (ctx->ps.BitDepth_C == 8 ? 0 : VERTICAL_4x4_16_BIT) - p;
+	v16qu pred_offset = (v16qu){p, p, p, p, p, p, p, p, p, p, p, p, p, p, p, p};
+	ctx->pred_offset_C = (v16qu){q, q, q, q, q, q, q, q, q, q, q, q, q, q, q, q};
+	for (int i = 0; i < 9; i++) {
+		ctx->intra4x4_modes_v[i] = Intra4x4_modes[i] + pred_offset;
+		ctx->intra8x8_modes_v[i] = Intra8x8_modes[i] + pred_offset;
+	}
+	
+	// code to be revised with Inter pred
+	v4hi h4 = {4, 4, 4, 4};
+	ctx->A8x8_v[0] = (v4hi){1 - (int)sizeof(*mb), 0, 3 - (int)sizeof(*mb), 2};
+	ctx->A8x8_v[1] = ctx->A8x8_v[0] + h4;
+	ctx->A8x8_v[2] = ctx->A8x8_v[1] + h4;
+	v4si s4 = {4, 4, 4, 4};
+	ctx->B8x8_v[0] = (v4si){2 - offsetB, 3 - offsetB, 0, 1};
+	ctx->B8x8_v[1] = ctx->B8x8_v[0] + s4;
+	ctx->B8x8_v[2] = ctx->B8x8_v[1] + s4;
+}
+
+
+
+/**
  * Initialises and updates the reference picture lists (8.2.4).
  *
  * Both initialisation and parsing of ref_pic_list_modification are fit into a
@@ -349,126 +469,6 @@ static void parse_dec_ref_pic_marking(Edge264_stream *e)
 
 
 /**
- * This function sets the context pointers to the frame about to be decoded,
- * and fills the context caches with useful values.
- */
-static void initialise_decoding_context(Edge264_stream *e)
-{
-	/**
-	 * IntraNxN_modes[IntraNxNPredMode][unavail] yield the prediction switch entry
-	 * from unavailability of neighbouring blocks.
-	 * They are copied in ctx to precompute the bit depth offset.
-	 */
-	static const v16qu Intra4x4_modes[9] = {
-		{VERTICAL_4x4, VERTICAL_4x4, 0, 0, VERTICAL_4x4, VERTICAL_4x4, 0, 0, VERTICAL_4x4, VERTICAL_4x4, 0, 0, VERTICAL_4x4, VERTICAL_4x4, 0, 0},
-		{HORIZONTAL_4x4, 0, HORIZONTAL_4x4, 0, HORIZONTAL_4x4, 0, HORIZONTAL_4x4, 0, HORIZONTAL_4x4, 0, HORIZONTAL_4x4, 0, HORIZONTAL_4x4, 0, HORIZONTAL_4x4, 0},
-		{DC_4x4, DC_4x4_A, DC_4x4_B, DC_4x4_AB, DC_4x4, DC_4x4_A, DC_4x4_B, DC_4x4_AB, DC_4x4, DC_4x4_A, DC_4x4_B, DC_4x4_AB, DC_4x4, DC_4x4_A, DC_4x4_B, DC_4x4_AB},
-		{DIAGONAL_DOWN_LEFT_4x4, DIAGONAL_DOWN_LEFT_4x4, 0, 0, DIAGONAL_DOWN_LEFT_4x4_C, DIAGONAL_DOWN_LEFT_4x4_C, 0, 0, DIAGONAL_DOWN_LEFT_4x4, DIAGONAL_DOWN_LEFT_4x4, 0, 0, DIAGONAL_DOWN_LEFT_4x4_C, DIAGONAL_DOWN_LEFT_4x4_C, 0, 0},
-		{DIAGONAL_DOWN_RIGHT_4x4, 0, 0, 0, DIAGONAL_DOWN_RIGHT_4x4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
-		{VERTICAL_RIGHT_4x4, 0, 0, 0, VERTICAL_RIGHT_4x4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
-		{HORIZONTAL_DOWN_4x4, 0, 0, 0, HORIZONTAL_DOWN_4x4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
-		{VERTICAL_LEFT_4x4, VERTICAL_LEFT_4x4, 0, 0, VERTICAL_LEFT_4x4_C, VERTICAL_LEFT_4x4_C, 0, 0, VERTICAL_LEFT_4x4, VERTICAL_LEFT_4x4, 0, 0, VERTICAL_LEFT_4x4_C, VERTICAL_LEFT_4x4_C, 0, 0},
-		{HORIZONTAL_UP_4x4, 0, HORIZONTAL_UP_4x4, 0, HORIZONTAL_UP_4x4, 0, HORIZONTAL_UP_4x4, 0, HORIZONTAL_UP_4x4, 0, HORIZONTAL_UP_4x4, 0, HORIZONTAL_UP_4x4, 0, HORIZONTAL_UP_4x4, 0},
-	};
-	static const v16qu Intra8x8_modes[9] = {
-		{VERTICAL_8x8, VERTICAL_8x8, 0, 0, VERTICAL_8x8_C, VERTICAL_8x8_C, 0, 0, VERTICAL_8x8_D, VERTICAL_8x8_D, 0, 0, VERTICAL_8x8_CD, VERTICAL_8x8_CD, 0, 0},
-		{HORIZONTAL_8x8, 0, HORIZONTAL_8x8, 0, HORIZONTAL_8x8, 0, HORIZONTAL_8x8, 0, HORIZONTAL_8x8_D, 0, HORIZONTAL_8x8_D, 0, HORIZONTAL_8x8_D, 0, HORIZONTAL_8x8_D, 0},
-		{DC_8x8, DC_8x8_A, DC_8x8_B, DC_8x8_AB, DC_8x8_C, DC_8x8_AC, DC_8x8_B, DC_8x8_AB, DC_8x8_D, DC_8x8_AD, DC_8x8_BD, DC_8x8_AB, DC_8x8_CD, DC_8x8_ACD, DC_8x8_BD, DC_8x8_AB},
-		{DIAGONAL_DOWN_LEFT_8x8, DIAGONAL_DOWN_LEFT_8x8, 0, 0, DIAGONAL_DOWN_LEFT_8x8_C, DIAGONAL_DOWN_LEFT_8x8_C, 0, 0, DIAGONAL_DOWN_LEFT_8x8_D, DIAGONAL_DOWN_LEFT_8x8_D, 0, 0, DIAGONAL_DOWN_LEFT_8x8_CD, DIAGONAL_DOWN_LEFT_8x8_CD, 0, 0},
-		{DIAGONAL_DOWN_RIGHT_8x8, 0, 0, 0, DIAGONAL_DOWN_RIGHT_8x8_C, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
-		{VERTICAL_RIGHT_8x8, 0, 0, 0, VERTICAL_RIGHT_8x8_C, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
-		{HORIZONTAL_DOWN_8x8, 0, 0, 0, HORIZONTAL_DOWN_8x8, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
-		{VERTICAL_LEFT_8x8, VERTICAL_LEFT_8x8, 0, 0, VERTICAL_LEFT_8x8_C, VERTICAL_LEFT_8x8_C, 0, 0, VERTICAL_LEFT_8x8_D, VERTICAL_LEFT_8x8_D, 0, 0, VERTICAL_LEFT_8x8_CD, VERTICAL_LEFT_8x8_CD, 0, 0},
-		{HORIZONTAL_UP_8x8, 0, HORIZONTAL_UP_8x8, 0, HORIZONTAL_UP_8x8, 0, HORIZONTAL_UP_8x8, 0, HORIZONTAL_UP_8x8_D, 0, HORIZONTAL_UP_8x8_D, 0, HORIZONTAL_UP_8x8_D, 0, HORIZONTAL_UP_8x8_D, 0},
-	};
-	
-	ctx->x = 0;
-	ctx->y = 0;
-	ctx->plane_Y = e->DPB + e->currPic * e->frame_size;
-	ctx->plane_Cb = ctx->plane_Y + e->plane_size_Y;
-	int MbWidthC = ctx->ps.ChromaArrayType < 3 ? 8 : 16;
-	ctx->col_offset_C = ctx->ps.BitDepth_C == 8 ? MbWidthC : MbWidthC * 2;
-	ctx->row_offset_C = ctx->ps.ChromaArrayType == 1 ? e->stride_C * 7 : e->stride_C * 15;
-	mb = (Edge264_macroblock *)(ctx->plane_Cb + e->plane_size_C * 2 + (ctx->ps.width / 16 + 2) * sizeof(*mb));
-	
-	int cY = (1 << ctx->ps.BitDepth_Y) - 1;
-	int cC = (1 << ctx->ps.BitDepth_C) - 1;
-	ctx->clip_Y = (v8hi){cY, cY, cY, cY, cY, cY, cY, cY};
-	ctx->clip_C = (v8hi){cC, cC, cC, cC, cC, cC, cC, cC};
-	
-	int offsetA = sizeof(*mb);
-	int offsetB = (ctx->ps.width / 16 + 1) * sizeof(*mb);
-	ctx->A4x4_8[0] = (v8hi){5 - offsetA, 0, 7 - offsetA, 2, 1, 4, 3, 6};
-	ctx->A4x4_8[1] = (v8hi){13 - offsetA, 8, 15 - offsetA, 10, 9, 12, 11, 14};
-	ctx->B4x4_8[0] = (v4si){10 - offsetB, 11 - offsetB, 0, 1};
-	ctx->B4x4_8[1] = (v4si){14 - offsetB, 15 - offsetB, 4, 5};
-	ctx->B4x4_8[2] = (v4si){2, 3, 8, 9};
-	ctx->B4x4_8[3] = (v4si){6, 7, 12, 13};
-	ctx->A8x8_8[0] = (v4hi){1 - offsetA, 0, 3 - offsetA, 2};
-	ctx->B8x8_8[0] = (v4si){2 - offsetB, 3 - offsetB, 0, 1};
-	if (ctx->ps.ChromaArrayType == 1) {
-		ctx->A4x4_8[2] = (v8hi){17 - offsetA, 16, 19 - offsetA, 18, 21 - offsetA, 20, 23 - offsetA, 22};
-		ctx->B4x4_8[4] = (v4si){18 - offsetB, 19 - offsetB, 16, 17};
-		ctx->B4x4_8[5] = (v4si){22 - offsetB, 23 - offsetB, 20, 21};
-	} else if (ctx->ps.ChromaArrayType == 2) {
-		ctx->A4x4_8[2] = (v8hi){17 - offsetA, 16, 19 - offsetA, 18, 21 - offsetA, 20, 23 - offsetA, 22};
-		ctx->A4x4_8[3] = (v8hi){25 - offsetA, 24, 27 - offsetA, 26, 29 - offsetA, 28, 31 - offsetA, 30};
-		ctx->B4x4_8[4] = (v4si){22 - offsetB, 23 - offsetB, 16, 17};
-		ctx->B4x4_8[5] = (v4si){18, 19, 20, 21};
-		ctx->B4x4_8[6] = (v4si){30 - offsetB, 31 - offsetB, 24, 25};
-		ctx->B4x4_8[7] = (v4si){26, 27, 28, 29};
-	} else if (ctx->ps.ChromaArrayType == 3) {
-		v8hi h16 = {16, 16, 16, 16, 16, 16, 16, 16};
-		for (int i = 2; i < 6; i++)
-			ctx->A4x4_8[i] = ctx->A4x4_8[i - 2] + h16;
-		v4si s16 = {16, 16, 16, 16};
-		for (int i = 4; i < 12; i++)
-			ctx->B4x4_8[i] = ctx->B4x4_8[i - 4] + s16;
-		ctx->A8x8_8[1] = (v4hi){5 - offsetA, 4, 7 - offsetA, 6};
-		ctx->A8x8_8[2] = (v4hi){9 - offsetA, 8, 11 - offsetA, 10};
-		ctx->B8x8_8[1] = (v4si){6 - offsetB, 7 - offsetB, 4, 5};
-		ctx->B8x8_8[2] = (v4si){10 - offsetB, 11 - offsetB, 8, 9};
-	}
-	
-	for (int i = 0; i < 16; i++) {
-		int x = (i << 2 & 4) | (i << 1 & 8);
-		int y = (i << 1 & 4) | (i & 8);
-		ctx->plane_offsets[i] = y * e->stride_Y + (ctx->ps.BitDepth_Y == 8 ? x : x * 2);
-		if (ctx->ps.ChromaArrayType == 3) {
-			ctx->plane_offsets[16 + i] = y * e->stride_C + (ctx->ps.BitDepth_C == 8 ? x : x * 2);
-			ctx->plane_offsets[32 + i] = ctx->plane_offsets[16 + i] + e->plane_size_C;
-		}
-	}
-	for (int i = 0; ctx->ps.ChromaArrayType < 3 && i < ctx->ps.ChromaArrayType * 4; i++) {
-		int x = i << 2 & 4;
-		int y = i << 1 & 12;
-		ctx->plane_offsets[16 + i] = y * e->stride_C + (ctx->ps.BitDepth_C == 8 ? x : x * 2);
-		ctx->plane_offsets[16 + ctx->ps.ChromaArrayType * 4 + i] = ctx->plane_offsets[16 + i] + e->plane_size_C;
-	}
-	
-	int p = (ctx->ps.BitDepth_Y == 8) ? 0 : VERTICAL_4x4_16_BIT;
-	int q = (ctx->ps.BitDepth_C == 8 ? 0 : VERTICAL_4x4_16_BIT) - p;
-	v16qu pred_offset = (v16qu){p, p, p, p, p, p, p, p, p, p, p, p, p, p, p, p};
-	ctx->pred_offset_C = (v16qu){q, q, q, q, q, q, q, q, q, q, q, q, q, q, q, q};
-	for (int i = 0; i < 9; i++) {
-		ctx->intra4x4_modes_v[i] = Intra4x4_modes[i] + pred_offset;
-		ctx->intra8x8_modes_v[i] = Intra8x8_modes[i] + pred_offset;
-	}
-	
-	// code to be revised with Inter pred
-	v4hi h4 = {4, 4, 4, 4};
-	ctx->A8x8_v[0] = (v4hi){1 - (int)sizeof(*mb), 0, 3 - (int)sizeof(*mb), 2};
-	ctx->A8x8_v[1] = ctx->A8x8_v[0] + h4;
-	ctx->A8x8_v[2] = ctx->A8x8_v[1] + h4;
-	v4si s4 = {4, 4, 4, 4};
-	ctx->B8x8_v[0] = (v4si){2 - offsetB, 3 - offsetB, 0, 1};
-	ctx->B8x8_v[1] = ctx->B8x8_v[0] + s4;
-	ctx->B8x8_v[2] = ctx->B8x8_v[1] + s4;
-}
-
-
-
-/**
  * This function outputs pictures until at most max_num_reorder_frames remain,
  * and until it can set currPic to an empty slot less than or equal to
  * max_dec_frame_buffering (C.2.3).
@@ -513,20 +513,18 @@ static int parse_slice_layer_without_partitioning(Edge264_stream *e)
 	int slice_type = get_ue(9);
 	ctx->slice_type = (slice_type < 5) ? slice_type : slice_type - 5;
 	int pic_parameter_set_id = get_ue(255);
-	ctx->colour_plane_id = 0;
 	printf("<li%s>first_mb_in_slice: <code>%u</code></li>\n"
 		"<li%s>slice_type: <code>%u (%s)</code></li>\n"
 		"<li%s>pic_parameter_set_id: <code>%u</code></li>\n",
 		red_if(first_mb_in_slice > 0), first_mb_in_slice,
-		red_if(ctx->slice_type > 2), slice_type, slice_type_names[ctx->slice_type],
+		red_if(ctx->slice_type != 2), slice_type, slice_type_names[ctx->slice_type],
 		red_if(pic_parameter_set_id >= 4 || e->PPSs[pic_parameter_set_id].num_ref_idx_active[0] == 0), pic_parameter_set_id);
 	
 	// check that the requested PPS was initialised and is supported
+	if (pic_parameter_set_id >= 4)
+		return -1;
 	if (e->PPSs[pic_parameter_set_id].num_ref_idx_active[0] == 0)
 		return -2;
-	if (first_mb_in_slice > 0 || ctx->slice_type != 2 || pic_parameter_set_id >= 4)
-		return -1;
-	
 	ctx->ps = e->PPSs[pic_parameter_set_id];
 	
 	// Computing an absolute FrameNum simplifies further code.
@@ -535,7 +533,7 @@ static int parse_slice_layer_without_partitioning(Edge264_stream *e)
 		e->prevFrameNum += relFrameNum & ~(-1u << ctx->ps.log2_max_frame_num);
 	printf("<li>frame_num: <code>%u</code></li>\n", e->prevFrameNum);
 	
-	// This comment is just here to segment the code, glad you read it :)
+	// As long as PAFF/MBAFF are unsupported, this code won't execute (but is still kept).
 	ctx->field_pic_flag = 0;
 	ctx->bottom_field_flag = 0;
 	if (!ctx->ps.frame_mbs_only_flag) {
@@ -634,8 +632,8 @@ static int parse_slice_layer_without_partitioning(Edge264_stream *e)
 	ctx->FilterOffsetB = 0;
 	if (ctx->ps.deblocking_filter_control_present_flag) {
 		ctx->disable_deblocking_filter_idc = get_ue(2);
-		printf("<li>disable_deblocking_filter_idc: <code>%d</code></li>\n",
-			ctx->disable_deblocking_filter_idc);
+		printf("<li%s>disable_deblocking_filter_idc: <code>%d</code></li>\n",
+			red_if(ctx->disable_deblocking_filter_idc != 1), ctx->disable_deblocking_filter_idc);
 		if (ctx->disable_deblocking_filter_idc != 1) {
 			ctx->FilterOffsetA = get_se(-6, 6) * 2;
 			ctx->FilterOffsetB = get_se(-6, 6) * 2;
@@ -645,9 +643,10 @@ static int parse_slice_layer_without_partitioning(Edge264_stream *e)
 				ctx->FilterOffsetB);
 		}
 	}
-	if (ctx->disable_deblocking_filter_idc != 1)
-		return -1;
 	
+	// If we have the guts to decode this frame, fill ctx with useful values.
+	if (first_mb_in_slice > 0 || ctx->slice_type != 2 || ctx->disable_deblocking_filter_idc != 1)
+		return -1;
 	initialise_decoding_context(e);
 	
 	// cabac_alignment_one_bit gives a good probability to catch random errors.
@@ -856,7 +855,7 @@ static int parse_pic_parameter_set(Edge264_stream *e)
 		"<li>pic_init_qs: <code>%u</code></li>\n"
 		"<li>chroma_qp_index_offset: <code>%d</code></li>\n"
 		"<li>deblocking_filter_control_present_flag: <code>%x</code></li>\n"
-		"<li>constrained_intra_pred_flag: <code>%x</code></li>\n"
+		"<li%s>constrained_intra_pred_flag: <code>%x</code></li>\n"
 		"<li%s>redundant_pic_cnt_present_flag: <code>%x</code></li>\n",
 		ctx->ps.num_ref_idx_active[0],
 		ctx->ps.num_ref_idx_active[1],
@@ -866,7 +865,7 @@ static int parse_pic_parameter_set(Edge264_stream *e)
 		pic_init_qs,
 		ctx->ps.chroma_qp_index_offset,
 		ctx->ps.deblocking_filter_control_present_flag,
-		ctx->ps.constrained_intra_pred_flag,
+		red_if(ctx->ps.constrained_intra_pred_flag), ctx->ps.constrained_intra_pred_flag,
 		red_if(redundant_pic_cnt_present_flag), redundant_pic_cnt_present_flag);
 	ctx->ps.transform_8x8_mode_flag = 0;
 	
@@ -886,7 +885,8 @@ static int parse_pic_parameter_set(Edge264_stream *e)
 	if (get_uv(24) != 0x800000 || e->DPB == NULL)
 		return -2;
 	if (pic_parameter_set_id >= 4 || seq_parameter_set_id > 0 ||
-		redundant_pic_cnt_present_flag || num_slice_groups > 1 || !ctx->ps.entropy_coding_mode_flag)
+		!ctx->ps.entropy_coding_mode_flag || num_slice_groups > 1 ||
+		ctx->ps.constrained_intra_pred_flag || redundant_pic_cnt_present_flag)
 		return -1;
 	e->PPSs[pic_parameter_set_id] = ctx->ps;
 	return 0;
@@ -1172,11 +1172,11 @@ static int parse_seq_parameter_set(Edge264_stream *e)
 		seq_scaling_matrix_present_flag = get_u1();
 		printf("<li>BitDepth<sub>Y</sub>: <code>%u</code></li>\n"
 			"<li>BitDepth<sub>C</sub>: <code>%u</code></li>\n"
-			"<li>qpprime_y_zero_transform_bypass_flag: <code>%x</code></li>\n"
+			"<li%s>qpprime_y_zero_transform_bypass_flag: <code>%x</code></li>\n"
 			"<li>seq_scaling_matrix_present_flag: <code>%x</code></li>\n",
 			ctx->ps.BitDepth_Y,
 			ctx->ps.BitDepth_C,
-			ctx->ps.qpprime_y_zero_transform_bypass_flag,
+			red_if(ctx->ps.qpprime_y_zero_transform_bypass_flag), ctx->ps.qpprime_y_zero_transform_bypass_flag,
 			seq_scaling_matrix_present_flag);
 	}
 	
@@ -1185,6 +1185,8 @@ static int parse_seq_parameter_set(Edge264_stream *e)
 		v16qu Flat_16 = {16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16};
 		for (int i = 0; i < 6; i++)
 			((v16qu *)ctx->ps.weightScale4x4)[i] = Flat_16;
+		for (int i = 0; i < 24; i++)
+			((v16qu *)ctx->ps.weightScale8x8)[i] = Flat_16;
 	} else {
 		((v16qu *)ctx->ps.weightScale4x4)[0] = Default_4x4_Intra;
 		((v16qu *)ctx->ps.weightScale4x4)[3] = Default_4x4_Inter;
@@ -1257,12 +1259,12 @@ static int parse_seq_parameter_set(Edge264_stream *e)
 		"<li>gaps_in_frame_num_value_allowed_flag: <code>%x</code></li>\n"
 		"<li>width: <code>%u</code></li>\n"
 		"<li>height: <code>%u</code></li>\n"
-		"<li>frame_mbs_only_flag: <code>%x</code></li>\n",
+		"<li%s>frame_mbs_only_flag: <code>%x</code></li>\n",
 		ctx->ps.max_num_ref_frames,
 		gaps_in_frame_num_value_allowed_flag,
 		ctx->ps.width,
 		ctx->ps.height,
-		ctx->ps.frame_mbs_only_flag);
+		red_if(!ctx->ps.frame_mbs_only_flag), ctx->ps.frame_mbs_only_flag);
 	
 	// Evil has a name...
 	ctx->ps.mb_adaptive_frame_field_flag = 0;
@@ -1302,7 +1304,8 @@ static int parse_seq_parameter_set(Edge264_stream *e)
 		parse_vui_parameters();
 	if (get_uv(24) != 0x800000)
 		return -2;
-	if (seq_parameter_set_id > 0 || ctx->ps.chroma_format_idc != ctx->ps.ChromaArrayType)
+	if (seq_parameter_set_id > 0 || ctx->ps.chroma_format_idc != ctx->ps.ChromaArrayType ||
+		ctx->ps.qpprime_y_zero_transform_bypass_flag || !ctx->ps.frame_mbs_only_flag)
 		return -1;
 	
 	// reallocate the DPB when the image format changes

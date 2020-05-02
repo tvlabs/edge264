@@ -115,7 +115,6 @@ typedef struct
 	uint16_t firstRefPicL1:1;
 	uint16_t col_short_term:1;
 	int8_t slice_type; // 3 significant bits
-	int8_t colour_plane_id; // 2 significant bits
 	int8_t disable_deblocking_filter_idc; // 2 significant bits
 	int8_t FilterOffsetA; // 5 significant bits
 	int8_t FilterOffsetB;

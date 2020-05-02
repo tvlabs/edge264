@@ -1107,7 +1107,7 @@ static __attribute__((noinline)) int parse_Intra16x16_residual()
 	ctx->clip_v = ctx->clip_C;
 	ctx->sig_inc_v[0] = ctx->last_inc_v[0] = sig_inc_4x4;
 	ctx->scan_v[0] = scan_4x4[mb_field_decoding_flag];
-	ctx->BlkIdx = ctx->colour_plane_id << 4;
+	ctx->BlkIdx = 0;
 	do {
 		// Parse a DC block, then transform it to ctx->d[16..31]
 		int iYCbCr = ctx->BlkIdx >> 4;
@@ -1162,7 +1162,7 @@ static __attribute__((noinline)) int parse_NxN_residual()
 	ctx->plane = ctx->plane_Y;
 	ctx->stride = ctx->plane_offsets[2] >> 2;
 	ctx->clip_v = ctx->clip_Y;
-	ctx->BlkIdx = ctx->colour_plane_id << 4;
+	ctx->BlkIdx = 0;
 	do {
 		int iYCbCr = ctx->BlkIdx >> 4;
 		int mb_field_decoding_flag = mb->f.mb_field_decoding_flag;

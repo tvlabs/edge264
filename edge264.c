@@ -25,8 +25,10 @@
 /**
  * Default scaling matrices (tables 7-3 and 7-4).
  */
-static const v16qu Default_4x4_Intra = {6, 13, 13, 20, 20, 20, 28, 28, 28, 28, 32, 32, 32, 37, 37, 42};
-static const v16qu Default_4x4_Inter = {10, 14, 14, 20, 20, 20, 24, 24, 24, 24, 27, 27, 27, 30, 30, 34};
+static const v16qu Default_4x4_Intra =
+	{6, 13, 13, 20, 20, 20, 28, 28, 28, 28, 32, 32, 32, 37, 37, 42};
+static const v16qu Default_4x4_Inter =
+	{10, 14, 14, 20, 20, 20, 24, 24, 24, 24, 27, 27, 27, 30, 30, 34};
 static const v16qu Default_8x8_Intra[4] = {
 	{ 6, 10, 10, 13, 11, 13, 16, 16, 16, 16, 18, 18, 18, 18, 18, 23},
 	{23, 23, 23, 23, 23, 25, 25, 25, 25, 25, 25, 25, 27, 27, 27, 27},
@@ -38,34 +40,6 @@ static const v16qu Default_8x8_Inter[4] = {
 	{21, 21, 21, 21, 21, 22, 22, 22, 22, 22, 22, 22, 24, 24, 24, 24},
 	{24, 24, 24, 24, 25, 25, 25, 25, 25, 25, 25, 27, 27, 27, 27, 27},
 	{27, 28, 28, 28, 28, 28, 30, 30, 30, 30, 32, 32, 32, 33, 33, 35},
-};
-
-/**
- * IntraNxN_modes[IntraNxNPredMode][unavail] yield the prediction switch entry
- * from unavailability of neighbouring blocks.
- * They are copied in ctx to precompute the bit depth offset.
- */
-static const v16qu Intra4x4_modes[9] = {
-	{VERTICAL_4x4, VERTICAL_4x4, 0, 0, VERTICAL_4x4, VERTICAL_4x4, 0, 0, VERTICAL_4x4, VERTICAL_4x4, 0, 0, VERTICAL_4x4, VERTICAL_4x4, 0, 0},
-	{HORIZONTAL_4x4, 0, HORIZONTAL_4x4, 0, HORIZONTAL_4x4, 0, HORIZONTAL_4x4, 0, HORIZONTAL_4x4, 0, HORIZONTAL_4x4, 0, HORIZONTAL_4x4, 0, HORIZONTAL_4x4, 0},
-	{DC_4x4, DC_4x4_A, DC_4x4_B, DC_4x4_AB, DC_4x4, DC_4x4_A, DC_4x4_B, DC_4x4_AB, DC_4x4, DC_4x4_A, DC_4x4_B, DC_4x4_AB, DC_4x4, DC_4x4_A, DC_4x4_B, DC_4x4_AB},
-	{DIAGONAL_DOWN_LEFT_4x4, DIAGONAL_DOWN_LEFT_4x4, 0, 0, DIAGONAL_DOWN_LEFT_4x4_C, DIAGONAL_DOWN_LEFT_4x4_C, 0, 0, DIAGONAL_DOWN_LEFT_4x4, DIAGONAL_DOWN_LEFT_4x4, 0, 0, DIAGONAL_DOWN_LEFT_4x4_C, DIAGONAL_DOWN_LEFT_4x4_C, 0, 0},
-	{DIAGONAL_DOWN_RIGHT_4x4, 0, 0, 0, DIAGONAL_DOWN_RIGHT_4x4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
-	{VERTICAL_RIGHT_4x4, 0, 0, 0, VERTICAL_RIGHT_4x4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
-	{HORIZONTAL_DOWN_4x4, 0, 0, 0, HORIZONTAL_DOWN_4x4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
-	{VERTICAL_LEFT_4x4, VERTICAL_LEFT_4x4, 0, 0, VERTICAL_LEFT_4x4_C, VERTICAL_LEFT_4x4_C, 0, 0, VERTICAL_LEFT_4x4, VERTICAL_LEFT_4x4, 0, 0, VERTICAL_LEFT_4x4_C, VERTICAL_LEFT_4x4_C, 0, 0},
-	{HORIZONTAL_UP_4x4, 0, HORIZONTAL_UP_4x4, 0, HORIZONTAL_UP_4x4, 0, HORIZONTAL_UP_4x4, 0, HORIZONTAL_UP_4x4, 0, HORIZONTAL_UP_4x4, 0, HORIZONTAL_UP_4x4, 0, HORIZONTAL_UP_4x4, 0},
-};
-static const v16qu Intra8x8_modes[9] = {
-	{VERTICAL_8x8, VERTICAL_8x8, 0, 0, VERTICAL_8x8_C, VERTICAL_8x8_C, 0, 0, VERTICAL_8x8_D, VERTICAL_8x8_D, 0, 0, VERTICAL_8x8_CD, VERTICAL_8x8_CD, 0, 0},
-	{HORIZONTAL_8x8, 0, HORIZONTAL_8x8, 0, HORIZONTAL_8x8, 0, HORIZONTAL_8x8, 0, HORIZONTAL_8x8_D, 0, HORIZONTAL_8x8_D, 0, HORIZONTAL_8x8_D, 0, HORIZONTAL_8x8_D, 0},
-	{DC_8x8, DC_8x8_A, DC_8x8_B, DC_8x8_AB, DC_8x8_C, DC_8x8_AC, DC_8x8_B, DC_8x8_AB, DC_8x8_D, DC_8x8_AD, DC_8x8_BD, DC_8x8_AB, DC_8x8_CD, DC_8x8_ACD, DC_8x8_BD, DC_8x8_AB},
-	{DIAGONAL_DOWN_LEFT_8x8, DIAGONAL_DOWN_LEFT_8x8, 0, 0, DIAGONAL_DOWN_LEFT_8x8_C, DIAGONAL_DOWN_LEFT_8x8_C, 0, 0, DIAGONAL_DOWN_LEFT_8x8_D, DIAGONAL_DOWN_LEFT_8x8_D, 0, 0, DIAGONAL_DOWN_LEFT_8x8_CD, DIAGONAL_DOWN_LEFT_8x8_CD, 0, 0},
-	{DIAGONAL_DOWN_RIGHT_8x8, 0, 0, 0, DIAGONAL_DOWN_RIGHT_8x8_C, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
-	{VERTICAL_RIGHT_8x8, 0, 0, 0, VERTICAL_RIGHT_8x8_C, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
-	{HORIZONTAL_DOWN_8x8, 0, 0, 0, HORIZONTAL_DOWN_8x8, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
-	{VERTICAL_LEFT_8x8, VERTICAL_LEFT_8x8, 0, 0, VERTICAL_LEFT_8x8_C, VERTICAL_LEFT_8x8_C, 0, 0, VERTICAL_LEFT_8x8_D, VERTICAL_LEFT_8x8_D, 0, 0, VERTICAL_LEFT_8x8_CD, VERTICAL_LEFT_8x8_CD, 0, 0},
-	{HORIZONTAL_UP_8x8, 0, HORIZONTAL_UP_8x8, 0, HORIZONTAL_UP_8x8, 0, HORIZONTAL_UP_8x8, 0, HORIZONTAL_UP_8x8_D, 0, HORIZONTAL_UP_8x8_D, 0, HORIZONTAL_UP_8x8_D, 0, HORIZONTAL_UP_8x8_D, 0},
 };
 
 
@@ -380,6 +354,34 @@ static void parse_dec_ref_pic_marking(Edge264_stream *e)
  */
 static void initialise_decoding_context(Edge264_stream *e)
 {
+	/**
+	 * IntraNxN_modes[IntraNxNPredMode][unavail] yield the prediction switch entry
+	 * from unavailability of neighbouring blocks.
+	 * They are copied in ctx to precompute the bit depth offset.
+	 */
+	static const v16qu Intra4x4_modes[9] = {
+		{VERTICAL_4x4, VERTICAL_4x4, 0, 0, VERTICAL_4x4, VERTICAL_4x4, 0, 0, VERTICAL_4x4, VERTICAL_4x4, 0, 0, VERTICAL_4x4, VERTICAL_4x4, 0, 0},
+		{HORIZONTAL_4x4, 0, HORIZONTAL_4x4, 0, HORIZONTAL_4x4, 0, HORIZONTAL_4x4, 0, HORIZONTAL_4x4, 0, HORIZONTAL_4x4, 0, HORIZONTAL_4x4, 0, HORIZONTAL_4x4, 0},
+		{DC_4x4, DC_4x4_A, DC_4x4_B, DC_4x4_AB, DC_4x4, DC_4x4_A, DC_4x4_B, DC_4x4_AB, DC_4x4, DC_4x4_A, DC_4x4_B, DC_4x4_AB, DC_4x4, DC_4x4_A, DC_4x4_B, DC_4x4_AB},
+		{DIAGONAL_DOWN_LEFT_4x4, DIAGONAL_DOWN_LEFT_4x4, 0, 0, DIAGONAL_DOWN_LEFT_4x4_C, DIAGONAL_DOWN_LEFT_4x4_C, 0, 0, DIAGONAL_DOWN_LEFT_4x4, DIAGONAL_DOWN_LEFT_4x4, 0, 0, DIAGONAL_DOWN_LEFT_4x4_C, DIAGONAL_DOWN_LEFT_4x4_C, 0, 0},
+		{DIAGONAL_DOWN_RIGHT_4x4, 0, 0, 0, DIAGONAL_DOWN_RIGHT_4x4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
+		{VERTICAL_RIGHT_4x4, 0, 0, 0, VERTICAL_RIGHT_4x4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
+		{HORIZONTAL_DOWN_4x4, 0, 0, 0, HORIZONTAL_DOWN_4x4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
+		{VERTICAL_LEFT_4x4, VERTICAL_LEFT_4x4, 0, 0, VERTICAL_LEFT_4x4_C, VERTICAL_LEFT_4x4_C, 0, 0, VERTICAL_LEFT_4x4, VERTICAL_LEFT_4x4, 0, 0, VERTICAL_LEFT_4x4_C, VERTICAL_LEFT_4x4_C, 0, 0},
+		{HORIZONTAL_UP_4x4, 0, HORIZONTAL_UP_4x4, 0, HORIZONTAL_UP_4x4, 0, HORIZONTAL_UP_4x4, 0, HORIZONTAL_UP_4x4, 0, HORIZONTAL_UP_4x4, 0, HORIZONTAL_UP_4x4, 0, HORIZONTAL_UP_4x4, 0},
+	};
+	static const v16qu Intra8x8_modes[9] = {
+		{VERTICAL_8x8, VERTICAL_8x8, 0, 0, VERTICAL_8x8_C, VERTICAL_8x8_C, 0, 0, VERTICAL_8x8_D, VERTICAL_8x8_D, 0, 0, VERTICAL_8x8_CD, VERTICAL_8x8_CD, 0, 0},
+		{HORIZONTAL_8x8, 0, HORIZONTAL_8x8, 0, HORIZONTAL_8x8, 0, HORIZONTAL_8x8, 0, HORIZONTAL_8x8_D, 0, HORIZONTAL_8x8_D, 0, HORIZONTAL_8x8_D, 0, HORIZONTAL_8x8_D, 0},
+		{DC_8x8, DC_8x8_A, DC_8x8_B, DC_8x8_AB, DC_8x8_C, DC_8x8_AC, DC_8x8_B, DC_8x8_AB, DC_8x8_D, DC_8x8_AD, DC_8x8_BD, DC_8x8_AB, DC_8x8_CD, DC_8x8_ACD, DC_8x8_BD, DC_8x8_AB},
+		{DIAGONAL_DOWN_LEFT_8x8, DIAGONAL_DOWN_LEFT_8x8, 0, 0, DIAGONAL_DOWN_LEFT_8x8_C, DIAGONAL_DOWN_LEFT_8x8_C, 0, 0, DIAGONAL_DOWN_LEFT_8x8_D, DIAGONAL_DOWN_LEFT_8x8_D, 0, 0, DIAGONAL_DOWN_LEFT_8x8_CD, DIAGONAL_DOWN_LEFT_8x8_CD, 0, 0},
+		{DIAGONAL_DOWN_RIGHT_8x8, 0, 0, 0, DIAGONAL_DOWN_RIGHT_8x8_C, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
+		{VERTICAL_RIGHT_8x8, 0, 0, 0, VERTICAL_RIGHT_8x8_C, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
+		{HORIZONTAL_DOWN_8x8, 0, 0, 0, HORIZONTAL_DOWN_8x8, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
+		{VERTICAL_LEFT_8x8, VERTICAL_LEFT_8x8, 0, 0, VERTICAL_LEFT_8x8_C, VERTICAL_LEFT_8x8_C, 0, 0, VERTICAL_LEFT_8x8_D, VERTICAL_LEFT_8x8_D, 0, 0, VERTICAL_LEFT_8x8_CD, VERTICAL_LEFT_8x8_CD, 0, 0},
+		{HORIZONTAL_UP_8x8, 0, HORIZONTAL_UP_8x8, 0, HORIZONTAL_UP_8x8, 0, HORIZONTAL_UP_8x8, 0, HORIZONTAL_UP_8x8_D, 0, HORIZONTAL_UP_8x8_D, 0, HORIZONTAL_UP_8x8_D, 0, HORIZONTAL_UP_8x8_D, 0},
+	};
+	
 	ctx->x = 0;
 	ctx->y = 0;
 	ctx->plane_Y = e->DPB + e->currPic * e->frame_size;
@@ -684,68 +686,74 @@ static int parse_access_unit_delimiter(Edge264_stream *e) {
  * Fall-back rules for indices 0, 3, 6 and 7 are applied by keeping the
  * existing list, so they must be initialised with Default scaling lists at
  * the very first call.
+ * While we did not include unions with vectors in edge264.h (to make it work
+ * with more compilers), we use direct vector indexing to alias without casts.
+ * The downside is clang handles it poorly, but this is not critical here.
  */
 static void parse_scaling_lists()
 {
-	// The 4x4 scaling lists are small enough to fit a vector register.
-	v16qu d4x4 = Default_4x4_Intra;
-	v16qu *w4x4 = (v16qu *)ctx->ps.weightScale4x4; // acceptable, we never access it as uint8_t here
-	do {
-		v16qu v4x4 = *w4x4;
-		const char *str = "unchanged";
-		do {
-			printf("<li>weightScale4x4[%tu]: <code>", (uint8_t(*)[16])w4x4 - ctx->ps.weightScale4x4);
-			*w4x4 = v4x4;
-			uint8_t nextScale;
-			if (!get_u1() || !(*w4x4 = d4x4, str = "default", nextScale = 8 + get_se(-128, 127))) {
-				printf(str, (uint8_t(*)[16])w4x4 - ctx->ps.weightScale4x4 - 1);
+	// Using vectors is fast and more readable than uint8_t pointers with memcpy.
+	v16qu *w4x4 = (v16qu *)ctx->ps.weightScale4x4; // safe as we never alias with uint8_t in this function
+	v16qu fb4x4 = *w4x4; // fall-back
+	v16qu d4x4 = Default_4x4_Intra; // for useDefaultScalingMatrixFlag
+	for (int i = 0; i < 6; i++, w4x4++) {
+		printf("<li>weightScale4x4[%d]: <code>", i);
+		if (i == 3) {
+			fb4x4 = *w4x4;
+			d4x4 = Default_4x4_Inter;
+		}
+		if (!get_u1()) {
+			*w4x4 = fb4x4;
+			printf((i % 3 == 0) ? "fallback (unchanged)" : "fallback (previous)");
+		} else {
+			unsigned nextScale = 8 + get_se(-128, 127);
+			if (nextScale == 0) {
+				*w4x4 = fb4x4 = d4x4;
+				printf("default");
 			} else {
-				uint8_t lastScale = nextScale;
-				int j = 0;
-				while (((uint8_t *)w4x4)[j] = lastScale, printf(" %u", lastScale), ++j < 16) {
-					if (nextScale != 0)
-						lastScale = nextScale, nextScale += get_se(-128, 127);
+				for (unsigned j = 0, lastScale = nextScale;;) {
+					(*w4x4)[j] = lastScale; // clang handles this poorly
+					if (++j >= 16)
+						break;
+					if (nextScale != 0) {
+						lastScale = nextScale;
+						nextScale += get_se(-128, 127); // modulo 256 happens at storage
+					}
 				}
+				fb4x4 = *w4x4;
 			}
-			printf("</code></li>\n");
-			str = "weightScale4x4[%tu]";
-			v4x4 = *w4x4++;
-		} while (w4x4 != (v16qu *)ctx->ps.weightScale4x4[3] && w4x4 != (v16qu *)ctx->ps.weightScale4x4[6]);
-		d4x4 = Default_4x4_Inter;
-	} while (w4x4 != (v16qu *)ctx->ps.weightScale4x4[6]);
+		}
+		printf("</code></li>\n");
+	}
 	
-	// For 8x8 scaling lists, we only pass pointers around.
+	// For 8x8 scaling lists, we really have no better choice than memcpy.
 	if (!ctx->ps.transform_8x8_mode_flag)
 		return;
-	v16qu *w8x8 = (v16qu *)ctx->ps.weightScale8x8;
-	const v16qu *v8x8 = w8x8;
-	do {
-		const v16qu *d8x8 = Default_8x8_Intra;
-		do {
-			printf("<li>weightScale8x8[%tu]: <code>", (uint8_t(*)[64])w8x8 - ctx->ps.weightScale8x8);
-			const char *str = ((uint8_t *)w8x8 < ctx->ps.weightScale8x8[2]) ? "existing" : "weightScale8x8[%tu]";
-			const v16qu *src = v8x8;
-			uint8_t nextScale;
-			if (!get_u1() || (src = d8x8, str = "default", nextScale = 8 + get_se(-128, 127))) {
-				w8x8[0] = src[0];
-				w8x8[1] = src[1];
-				w8x8[2] = src[2];
-				w8x8[3] = src[3];
-				printf(str, (uint8_t(*)[64])src - ctx->ps.weightScale8x8);
+	for (int i = 0; i < (ctx->ps.chroma_format_idc == 3 ? 6 : 2); i++) {
+		printf("<li>weightScale8x8[%d]: <code>", i);
+		if (!get_u1()) {
+			if (i >= 2)
+				memcpy(ctx->ps.weightScale8x8[i], ctx->ps.weightScale8x8[i - 2], 64);
+			printf((i < 2) ? "fallback (unchanged)" : "fallback (previous)");
+		} else {
+			unsigned nextScale = 8 + get_se(-128, 127);
+			if (nextScale == 0) {
+				memcpy(ctx->ps.weightScale8x8[i], (i % 2 == 0) ? Default_8x8_Intra : Default_8x8_Inter, 64);
+				printf("default");
 			} else {
-				uint8_t lastScale = nextScale;
-				int j = 0;
-				while (((uint8_t *)w8x8)[j] = lastScale, printf(" %u", lastScale), ++j < 64) {
-					if (nextScale != 0)
-						lastScale = nextScale, nextScale += get_se(-128, 127);
+				for (unsigned j = 0, lastScale = nextScale;;) {
+					ctx->ps.weightScale8x8[i][j] = lastScale; // modulo 256 happens here
+					if (++j >= 64)
+						break;
+					if (nextScale != 0) {
+						lastScale = nextScale;
+						nextScale += get_se(-128, 127);
+					}
 				}
 			}
-			printf("</code></li>\n");
-			d8x8 = Default_8x8_Inter;
-			w8x8 += 4;
-		} while (((uint8_t *)w8x8 - ctx->ps.weightScale8x8[0]) & 64);
-		v8x8 = w8x8 - 8;
-	} while (ctx->ps.chroma_format_idc == 3 && w8x8 < (v16qu *)ctx->ps.weightScale8x8[6]);
+		}
+		printf("</code></li>\n");
+	}
 }
 
 
@@ -1172,19 +1180,19 @@ static int parse_seq_parameter_set(Edge264_stream *e)
 			seq_scaling_matrix_present_flag);
 	}
 	
-	// first occurence of useful vector code
-	v16qu *w = (v16qu *)ctx->ps.weightScale4x4;
+	// These casts are safe as we don't alias the same memory with uint8_t here.
 	if (!seq_scaling_matrix_present_flag) {
 		v16qu Flat_16 = {16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16};
-		for (int i = 0; i < 30; i++)
-			w[i] = Flat_16;
+		for (int i = 0; i < 6; i++)
+			((v16qu *)ctx->ps.weightScale4x4)[i] = Flat_16;
 	} else {
-		w[0] = Default_4x4_Intra;
-		w[3] = Default_4x4_Inter;
+		((v16qu *)ctx->ps.weightScale4x4)[0] = Default_4x4_Intra;
+		((v16qu *)ctx->ps.weightScale4x4)[3] = Default_4x4_Inter;
 		for (int i = 0; i < 4; i++) {
-			w[6 + i] = Default_8x8_Intra[i];
-			w[10 + i] = Default_8x8_Inter[i];
+			((v16qu *)ctx->ps.weightScale8x8)[i] = Default_8x8_Intra[i]; // scaling list 6
+			((v16qu *)ctx->ps.weightScale8x8)[4 + i] = Default_8x8_Inter[i]; // scaling list 7
 		}
+		ctx->ps.transform_8x8_mode_flag = 1;
 		parse_scaling_lists();
 	}
 	

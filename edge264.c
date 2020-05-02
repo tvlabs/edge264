@@ -1,5 +1,6 @@
 /** TODOs:
  * _ switch to SDL which is likely to have a more stable future support than GLFW, with an option to play without display
+ * _ Handle no_output_of_prior_pics_flag as in C.2.3
  * _ upgrade DPB storage size to 17, by simply doubling reference and output flags sizes
  * _ when resetting a stream, bump all pictures
  * _ make neighbouring reads use a union in mb
@@ -466,15 +467,20 @@ static void initialise_decoding_context(Edge264_stream *e)
 
 
 /**
- * This function outputs pictures until a free DPB slot is found (C.4.4).
+ * This function outputs pictures until at most max_num_reorder_frames remain,
+ * and until it can set currPic to an empty slot less than or equal to
+ * max_dec_frame_buffering (C.2.3).
+ * Called by end_stream to output all pictures, so ctx must not be used.
  */
-static __attribute__((noinline)) int bump_pictures(Edge264_stream *e) {
+static __attribute__((noinline)) int bump_pictures(Edge264_stream *e,
+	int max_num_reorder_frames, int max_dec_frame_buffering)
+{
 	int ret = 0;
 	while (ret == 0) {
 		unsigned r = e->reference_flags;
 		unsigned o = e->output_flags;
 		e->currPic = __builtin_ctz(~(uint16_t)(r | r >> 16 | o));
-		if (__builtin_popcount(o) <= ctx->ps.max_num_reorder_frames && e->currPic <= ctx->ps.max_dec_frame_buffering)
+		if (__builtin_popcount(o) <= max_num_reorder_frames && e->currPic <= max_dec_frame_buffering)
 			break;
 		int output = 16, best = INT_MAX;
 		for (; o != 0; o &= o - 1) {
@@ -652,7 +658,7 @@ static int parse_slice_layer_without_partitioning(Edge264_stream *e)
 	}
 	
 	// wait until after decoding is complete to bump pictures
-	return bump_pictures(e);
+	return bump_pictures(e, ctx->ps.max_num_reorder_frames, ctx->ps.max_dec_frame_buffering);
 }
 
 
@@ -1293,7 +1299,7 @@ static int parse_seq_parameter_set(Edge264_stream *e)
 	
 	// reallocate the DPB when the image format changes
 	if (memcmp(&ctx->ps, &e->SPS, 8) != 0) {
-		Edge264_reset(e);
+		Edge264_end_stream(e);
 		
 		// some basic variables first
 		int width_Y = ctx->ps.width;
@@ -1351,11 +1357,16 @@ const uint8_t *Edge264_find_start_code(int n, const uint8_t *CPB, const uint8_t 
 
 
 
-int Edge264_reset(Edge264_stream *e) {
-	if (e->DPB != NULL)
+int Edge264_end_stream(Edge264_stream *e) {
+	int ret = e->ret;
+	if (e->DPB != NULL) {
+		if (ret == 0)
+			bump_pictures(e, 0, 15); // FIXME: increase when upgrading to 17-frames DPB
 		free(e->DPB);
+	}
+	// resetting the structure is safer for maintenance of future variables
 	memset((void *)e + offsetof(Edge264_stream, DPB), 0, sizeof(*e) - offsetof(Edge264_stream, DPB));
-	return 0;
+	return ret;
 }
 
 
@@ -1373,8 +1384,8 @@ int Edge264_decode_NAL(Edge264_stream *e)
 		[7] = "Sequence parameter set",
 		[8] = "Picture parameter set",
 		[9] = "Access unit delimiter",
-		[10] = "End of sequence", // may be used in the future
-		[11] = "End of stream", // not tested
+		[10] = "End of sequence",
+		[11] = "End of stream",
 		[12] = "Filler data",
 		[13] = "Sequence parameter set extension",
 		[14] = "Prefix NAL unit",
@@ -1392,7 +1403,7 @@ int Edge264_decode_NAL(Edge264_stream *e)
 		[7] = parse_seq_parameter_set,
 		[8] = parse_pic_parameter_set,
 		[9] = parse_access_unit_delimiter,
-		[11] = Edge264_reset,
+		[11] = Edge264_end_stream,
 	};
 	
 	// allocate the decoding context and backup registers

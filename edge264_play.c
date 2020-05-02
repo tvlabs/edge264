@@ -252,6 +252,7 @@ int main(int argc, char *argv[])
 		"<head><title>NAL headers</title></head>\n"
 		"<body>\n");
 	while (Edge264_decode_NAL(&e) == 0);
+	Edge264_end_stream(&e);
 	printf("</body>\n"
 		"</html>\n");
 	

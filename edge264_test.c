@@ -25,6 +25,7 @@ static int check_frame(Edge264_stream *e, int idx) {
 
 
 int main() {
+	int counts[3] = {0, 0, 0};
 	struct dirent *entry;
 	struct stat stC, stD;
 	Edge264_stream e = {.output_frame = check_frame};
@@ -64,6 +65,7 @@ int main() {
 		printf("%s: ", entry->d_name);
 		while (Edge264_decode_NAL(&e) == 0);
 		int ret = Edge264_end_stream(&e);
+		counts[-ret]++;
 		printf("%s\n" RESET, ret == -2 ? RED "FAIL" : ret == -1 ? YELLOW "UNSUPPORTED" : GREEN "PASS");
 		
 		// close everything
@@ -73,5 +75,7 @@ int main() {
 		close(yuv);
 	}
 	closedir(dir);
+	printf("\n%d " GREEN "PASS" RESET ", %d " YELLOW "UNSUPPORTED" RESET ", %d " RED "FAIL" RESET "\n",
+		counts[0], counts[1], counts[2]);
 	return 0;
 }

@@ -154,7 +154,6 @@ static void check_ctx(int label) {
 	predicate(ctx->MbaffFrameFlag == 0);
 	predicate(ctx->disable_deblocking_filter_idc >= 0 && ctx->disable_deblocking_filter_idc <= 2);
 	predicate(ctx->slice_type >= 0 && ctx->slice_type <= 2);
-	predicate(ctx->colour_plane_id == 0);
 	predicate(ctx->FilterOffsetA >= -12 && ctx->FilterOffsetA <= 12);
 	predicate(ctx->FilterOffsetB >= -12 && ctx->FilterOffsetB <= 12);
 	predicate(ctx->mb_qp_delta_non_zero == 0 || ctx->mb_qp_delta_non_zero == 1);

@@ -1,3 +1,8 @@
+/** TODOs:
+ * _ Find a way to reduce the amount of copies in Inter8x8
+ * _ After finishing inter, reorder V/H (H preferably last) to allow compilers to merge most tail portions
+ */
+
 #include "edge264_common.h"
 
 int decode_Residual4x4(__m128i, __m128i);
@@ -7,7 +12,8 @@ int decode_ResidualDC4x4();
 int decode_ResidualDC2x2();
 int decode_ResidualDC2x4();
 int luma4x4_qpel28(__m128i, __m128i, __m128i, __m128i, __m128i, __m128i);
-int ponderation(__m128i, __m128i);
+int ponderation_4x4(__m128i, __m128i);
+int ponderation_8x8(__m128i, __m128i, __m128i, __m128i, __m128i, __m128i, __m128i, __m128i);
 
 
 
@@ -206,19 +212,19 @@ __attribute__((noinline)) int luma4x4_8bit(__m128i zero, size_t stride,
 		__m128i x3 = _mm_cvtsi32_si128(*(int *)(q + nstride    ));
 		__m128i m22 = _mm_unpacklo_epi8(_mm_unpacklo_epi32(x0, x1), zero);
 		__m128i m42 = _mm_unpacklo_epi8(_mm_unpacklo_epi32(x2, x3), zero);
-		return ponderation(m22, m42); }
+		return ponderation_4x4(m22, m42); }
 	case 2: {
 		ctx->pred_buffer_v[0] = ctx->pred_buffer_v[1] = (v8hi)zero;
 		luma4x4_H_8bit(zero, stride, nstride, p, q);
-		return ponderation((__m128i)ctx->pred_buffer_v[0], (__m128i)ctx->pred_buffer_v[1]); }
+		return ponderation_4x4((__m128i)ctx->pred_buffer_v[0], (__m128i)ctx->pred_buffer_v[1]); }
 	case 8: {
 		ctx->pred_buffer_v[0] = ctx->pred_buffer_v[1] = (v8hi)zero;
 		luma4x4_V_8bit(zero, stride, nstride, p, q);
-		return ponderation((__m128i)ctx->pred_buffer_v[0], (__m128i)ctx->pred_buffer_v[1]); }
+		return ponderation_4x4((__m128i)ctx->pred_buffer_v[0], (__m128i)ctx->pred_buffer_v[1]); }
 	case 10: {
 		ctx->pred_buffer_v[0] = ctx->pred_buffer_v[1] = (v8hi)zero;
 		luma4x4_HV_8bit(zero, stride, nstride, p, q);
-		return ponderation((__m128i)ctx->pred_buffer_v[0], (__m128i)ctx->pred_buffer_v[1]); }
+		return ponderation_4x4((__m128i)ctx->pred_buffer_v[0], (__m128i)ctx->pred_buffer_v[1]); }
 	
 	case 1: {
 		__m128i x0 = _mm_cvtsi32_si128(*(int *)(p              ));
@@ -231,7 +237,7 @@ __attribute__((noinline)) int luma4x4_8bit(__m128i zero, size_t stride,
 		zero = _mm_setzero_si128();
 		__m128i p0 = _mm_avg_epu16((__m128i)ctx->pred_buffer_v[0], zero);
 		__m128i p1 = _mm_avg_epu16((__m128i)ctx->pred_buffer_v[1], zero);
-		return ponderation(p0, p1); }
+		return ponderation_4x4(p0, p1); }
 	case 3: {
 		__m128i x0 = _mm_cvtsi32_si128(*(int *)(p               + 1));
 		__m128i x1 = _mm_cvtsi32_si128(*(int *)(p +  stride     + 1));
@@ -243,7 +249,7 @@ __attribute__((noinline)) int luma4x4_8bit(__m128i zero, size_t stride,
 		zero = _mm_setzero_si128();
 		__m128i p0 = _mm_avg_epu16((__m128i)ctx->pred_buffer_v[0], zero);
 		__m128i p1 = _mm_avg_epu16((__m128i)ctx->pred_buffer_v[1], zero);
-		return ponderation(p0, p1); }
+		return ponderation_4x4(p0, p1); }
 	case 4: {
 		__m128i x0 = _mm_cvtsi32_si128(*(int *)(p              ));
 		__m128i x1 = _mm_cvtsi32_si128(*(int *)(p +  stride    ));
@@ -255,7 +261,7 @@ __attribute__((noinline)) int luma4x4_8bit(__m128i zero, size_t stride,
 		zero = _mm_setzero_si128();
 		__m128i p0 = _mm_avg_epu16((__m128i)ctx->pred_buffer_v[0], zero);
 		__m128i p1 = _mm_avg_epu16((__m128i)ctx->pred_buffer_v[1], zero);
-		return ponderation(p0, p1); }
+		return ponderation_4x4(p0, p1); }
 	case 12: {
 		__m128i x0 = _mm_cvtsi32_si128(*(int *)(p +  stride    ));
 		__m128i x1 = _mm_cvtsi32_si128(*(int *)(p +  stride * 2));
@@ -267,7 +273,7 @@ __attribute__((noinline)) int luma4x4_8bit(__m128i zero, size_t stride,
 		zero = _mm_setzero_si128();
 		__m128i p0 = _mm_avg_epu16((__m128i)ctx->pred_buffer_v[0], zero);
 		__m128i p1 = _mm_avg_epu16((__m128i)ctx->pred_buffer_v[1], zero);
-		return ponderation(p0, p1); }
+		return ponderation_4x4(p0, p1); }
 	
 	case 5: {
 		ctx->pred_buffer_v[0] = ctx->pred_buffer_v[1] = (v8hi)zero;
@@ -277,7 +283,7 @@ __attribute__((noinline)) int luma4x4_8bit(__m128i zero, size_t stride,
 		zero = _mm_setzero_si128();
 		__m128i p0 = _mm_avg_epu16((__m128i)ctx->pred_buffer_v[0], zero);
 		__m128i p1 = _mm_avg_epu16((__m128i)ctx->pred_buffer_v[1], zero);
-		return ponderation(p0, p1); }
+		return ponderation_4x4(p0, p1); }
 	case 7: {
 		ctx->pred_buffer_v[0] = ctx->pred_buffer_v[1] = (v8hi)zero;
 		luma4x4_H_8bit(zero, stride, nstride, p, q);
@@ -286,7 +292,7 @@ __attribute__((noinline)) int luma4x4_8bit(__m128i zero, size_t stride,
 		zero = _mm_setzero_si128();
 		__m128i p0 = _mm_avg_epu16((__m128i)ctx->pred_buffer_v[0], zero);
 		__m128i p1 = _mm_avg_epu16((__m128i)ctx->pred_buffer_v[1], zero);
-		return ponderation(p0, p1); }
+		return ponderation_4x4(p0, p1); }
 	case 13: {
 		ctx->pred_buffer_v[0] = ctx->pred_buffer_v[1] = (v8hi)zero;
 		luma4x4_V_8bit(zero, stride, nstride, p, q);
@@ -295,7 +301,7 @@ __attribute__((noinline)) int luma4x4_8bit(__m128i zero, size_t stride,
 		zero = _mm_setzero_si128();
 		__m128i p0 = _mm_avg_epu16((__m128i)ctx->pred_buffer_v[0], zero);
 		__m128i p1 = _mm_avg_epu16((__m128i)ctx->pred_buffer_v[1], zero);
-		return ponderation(p0, p1); }
+		return ponderation_4x4(p0, p1); }
 	case 15: {
 		ctx->pred_buffer_v[0] = ctx->pred_buffer_v[1] = (v8hi)zero;
 		luma4x4_V_8bit(zero, stride, nstride, p + 1, q + 1);
@@ -304,7 +310,7 @@ __attribute__((noinline)) int luma4x4_8bit(__m128i zero, size_t stride,
 		zero = _mm_setzero_si128();
 		__m128i p0 = _mm_avg_epu16((__m128i)ctx->pred_buffer_v[0], zero);
 		__m128i p1 = _mm_avg_epu16((__m128i)ctx->pred_buffer_v[1], zero);
-		return ponderation(p0, p1); }
+		return ponderation_4x4(p0, p1); }
 	
 	case 6: {
 		ctx->pred_buffer_v[0] = ctx->pred_buffer_v[1] = (v8hi)zero;
@@ -314,7 +320,7 @@ __attribute__((noinline)) int luma4x4_8bit(__m128i zero, size_t stride,
 		zero = _mm_setzero_si128();
 		__m128i p0 = _mm_avg_epu16((__m128i)ctx->pred_buffer_v[0], zero);
 		__m128i p1 = _mm_avg_epu16((__m128i)ctx->pred_buffer_v[1], zero);
-		return ponderation(p0, p1); }
+		return ponderation_4x4(p0, p1); }
 	case 9: {
 		ctx->pred_buffer_v[0] = ctx->pred_buffer_v[1] = (v8hi)zero;
 		luma4x4_HV_8bit(zero, stride, nstride, p, q);
@@ -323,7 +329,7 @@ __attribute__((noinline)) int luma4x4_8bit(__m128i zero, size_t stride,
 		zero = _mm_setzero_si128();
 		__m128i p0 = _mm_avg_epu16((__m128i)ctx->pred_buffer_v[0], zero);
 		__m128i p1 = _mm_avg_epu16((__m128i)ctx->pred_buffer_v[1], zero);
-		return ponderation(p0, p1); }
+		return ponderation_4x4(p0, p1); }
 	case 11: {
 		ctx->pred_buffer_v[0] = ctx->pred_buffer_v[1] = (v8hi)zero;
 		luma4x4_HV_8bit(zero, stride, nstride, p, q);
@@ -332,7 +338,7 @@ __attribute__((noinline)) int luma4x4_8bit(__m128i zero, size_t stride,
 		zero = _mm_setzero_si128();
 		__m128i p0 = _mm_avg_epu16((__m128i)ctx->pred_buffer_v[0], zero);
 		__m128i p1 = _mm_avg_epu16((__m128i)ctx->pred_buffer_v[1], zero);
-		return ponderation(p0, p1); }
+		return ponderation_4x4(p0, p1); }
 	case 14: {
 		ctx->pred_buffer_v[0] = ctx->pred_buffer_v[1] = (v8hi)zero;
 		luma4x4_HV_8bit(zero, stride, nstride, p, q);
@@ -341,7 +347,7 @@ __attribute__((noinline)) int luma4x4_8bit(__m128i zero, size_t stride,
 		zero = _mm_setzero_si128();
 		__m128i p0 = _mm_avg_epu16((__m128i)ctx->pred_buffer_v[0], zero);
 		__m128i p1 = _mm_avg_epu16((__m128i)ctx->pred_buffer_v[1], zero);
-		return ponderation(p0, p1); }
+		return ponderation_4x4(p0, p1); }
 	
 	default:
 		__builtin_unreachable();
@@ -353,10 +359,9 @@ __attribute__((noinline)) int luma4x4_8bit(__m128i zero, size_t stride,
 /**
  * Inter 8x8 prediction takes one (or two) 13x13 matrices and yields a 16bit
  * 8x8 result. This is simpler than 4x4 since each register is a 8x1 line,
- * so it needs less shuffling. The drawback of writing results to pred_buffer
- * actually allows us to put all of the code in loops.
+ * so it needs less shuffling.
  */
-__attribute__((noinline)) void luma8x8_H_8bit(__m128i zero, size_t stride,
+static __attribute__((noinline)) void luma8x8_H_8bit(__m128i zero, size_t stride,
 	ssize_t nstride, uint8_t *p)
 {
 	p -= 2;
@@ -373,7 +378,7 @@ __attribute__((noinline)) void luma8x8_H_8bit(__m128i zero, size_t stride,
 	}
 }
 
-__attribute__((noinline)) void luma8x8_V_8bit(__m128i zero, size_t stride,
+static __attribute__((noinline)) void luma8x8_V_8bit(__m128i zero, size_t stride,
 	ssize_t nstride, uint8_t *p)
 {
 	__m128i l00 = _mm_unpacklo_epi8(_mm_loadl_epi64((__m128i *)(p + nstride * 2)), zero);
@@ -391,7 +396,7 @@ __attribute__((noinline)) void luma8x8_V_8bit(__m128i zero, size_t stride,
 	}
 }
 
-__attribute__((noinline)) void luma8x8_HV_8bit(__m128i zero, size_t stride,
+static __attribute__((noinline)) void luma8x8_HV_8bit(__m128i zero, size_t stride,
 	ssize_t nstride, uint8_t *p)
 {
 	p -= 2;
@@ -434,12 +439,254 @@ __attribute__((noinline)) void luma8x8_HV_8bit(__m128i zero, size_t stride,
 }
 
 __attribute__((noinline)) int luma8x8_8bit(__m128i zero, size_t stride,
-	ssize_t nstride, uint8_t *p, uint8_t *q, int qpel)
+	ssize_t nstride, uint8_t *restrict p, uint8_t *restrict q,
+	uint8_t *restrict r, int qpel)
 {
 	// branch on fractional position (8.4.2.2.1)
 	switch (qpel) {
 	case 0: {
-		
+		__m128i l22 = _mm_unpacklo_epi8(_mm_loadl_epi64((__m128i *)(p              )), zero);
+		__m128i l32 = _mm_unpacklo_epi8(_mm_loadl_epi64((__m128i *)(p +  stride    )), zero);
+		__m128i l42 = _mm_unpacklo_epi8(_mm_loadl_epi64((__m128i *)(p +  stride * 2)), zero);
+		__m128i l52 = _mm_unpacklo_epi8(_mm_loadl_epi64((__m128i *)(q + nstride    )), zero);
+		__m128i l62 = _mm_unpacklo_epi8(_mm_loadl_epi64((__m128i *)(q              )), zero);
+		__m128i l72 = _mm_unpacklo_epi8(_mm_loadl_epi64((__m128i *)(q +  stride    )), zero);
+		__m128i l82 = _mm_unpacklo_epi8(_mm_loadl_epi64((__m128i *)(q +  stride * 2)), zero);
+		__m128i l92 = _mm_unpacklo_epi8(_mm_loadl_epi64((__m128i *)(r + nstride    )), zero);
+		return ponderation_8x8(l22, l32, l42, l52, l62, l72, l82, l92); }
+	case 2: {
+		ctx->pred_buffer_v[0] = ctx->pred_buffer_v[1] = ctx->pred_buffer_v[2] = ctx->pred_buffer_v[3] =
+			ctx->pred_buffer_v[4] = ctx->pred_buffer_v[5] = ctx->pred_buffer_v[6] = ctx->pred_buffer_v[7] = (v8hi)zero;
+		luma8x8_H_8bit(zero, stride, nstride, p);
+		return ponderation_8x8((__m128i)ctx->pred_buffer_v[0], (__m128i)ctx->pred_buffer_v[1],
+			(__m128i)ctx->pred_buffer_v[2], (__m128i)ctx->pred_buffer_v[3], (__m128i)ctx->pred_buffer_v[4],
+			(__m128i)ctx->pred_buffer_v[5], (__m128i)ctx->pred_buffer_v[6], (__m128i)ctx->pred_buffer_v[7]); }
+	case 8: {
+		ctx->pred_buffer_v[0] = ctx->pred_buffer_v[1] = ctx->pred_buffer_v[2] = ctx->pred_buffer_v[3] =
+			ctx->pred_buffer_v[4] = ctx->pred_buffer_v[5] = ctx->pred_buffer_v[6] = ctx->pred_buffer_v[7] = (v8hi)zero;
+		luma8x8_V_8bit(zero, stride, nstride, p);
+		return ponderation_8x8((__m128i)ctx->pred_buffer_v[0], (__m128i)ctx->pred_buffer_v[1],
+			(__m128i)ctx->pred_buffer_v[2], (__m128i)ctx->pred_buffer_v[3], (__m128i)ctx->pred_buffer_v[4],
+			(__m128i)ctx->pred_buffer_v[5], (__m128i)ctx->pred_buffer_v[6], (__m128i)ctx->pred_buffer_v[7]); }
+	case 10: {
+		ctx->pred_buffer_v[0] = ctx->pred_buffer_v[1] = ctx->pred_buffer_v[2] = ctx->pred_buffer_v[3] =
+			ctx->pred_buffer_v[4] = ctx->pred_buffer_v[5] = ctx->pred_buffer_v[6] = ctx->pred_buffer_v[7] = (v8hi)zero;
+		luma8x8_HV_8bit(zero, stride, nstride, p);
+		return ponderation_8x8((__m128i)ctx->pred_buffer_v[0], (__m128i)ctx->pred_buffer_v[1],
+			(__m128i)ctx->pred_buffer_v[2], (__m128i)ctx->pred_buffer_v[3], (__m128i)ctx->pred_buffer_v[4],
+			(__m128i)ctx->pred_buffer_v[5], (__m128i)ctx->pred_buffer_v[6], (__m128i)ctx->pred_buffer_v[7]); }
+	
+	case 1: {
+		ctx->pred_buffer_v[0] = (v8hi)_mm_unpacklo_epi8(_mm_loadl_epi64((__m128i *)(p              )), zero);
+		ctx->pred_buffer_v[1] = (v8hi)_mm_unpacklo_epi8(_mm_loadl_epi64((__m128i *)(p +  stride    )), zero);
+		ctx->pred_buffer_v[2] = (v8hi)_mm_unpacklo_epi8(_mm_loadl_epi64((__m128i *)(p +  stride * 2)), zero);
+		ctx->pred_buffer_v[3] = (v8hi)_mm_unpacklo_epi8(_mm_loadl_epi64((__m128i *)(q + nstride    )), zero);
+		ctx->pred_buffer_v[4] = (v8hi)_mm_unpacklo_epi8(_mm_loadl_epi64((__m128i *)(q              )), zero);
+		ctx->pred_buffer_v[5] = (v8hi)_mm_unpacklo_epi8(_mm_loadl_epi64((__m128i *)(q +  stride    )), zero);
+		ctx->pred_buffer_v[6] = (v8hi)_mm_unpacklo_epi8(_mm_loadl_epi64((__m128i *)(q +  stride * 2)), zero);
+		ctx->pred_buffer_v[7] = (v8hi)_mm_unpacklo_epi8(_mm_loadl_epi64((__m128i *)(r + nstride    )), zero);
+		luma8x8_H_8bit(zero, stride, nstride, p);
+		zero = _mm_setzero_si128();
+		__m128i p0 = _mm_avg_epu16((__m128i)ctx->pred_buffer_v[0], zero);
+		__m128i p1 = _mm_avg_epu16((__m128i)ctx->pred_buffer_v[1], zero);
+		__m128i p2 = _mm_avg_epu16((__m128i)ctx->pred_buffer_v[2], zero);
+		__m128i p3 = _mm_avg_epu16((__m128i)ctx->pred_buffer_v[3], zero);
+		__m128i p4 = _mm_avg_epu16((__m128i)ctx->pred_buffer_v[4], zero);
+		__m128i p5 = _mm_avg_epu16((__m128i)ctx->pred_buffer_v[5], zero);
+		__m128i p6 = _mm_avg_epu16((__m128i)ctx->pred_buffer_v[6], zero);
+		__m128i p7 = _mm_avg_epu16((__m128i)ctx->pred_buffer_v[7], zero);
+		return ponderation_8x8(p0, p1, p2, p3, p4, p5, p6, p7); }
+	case 3: {
+		ctx->pred_buffer_v[0] = (v8hi)_mm_unpacklo_epi8(_mm_loadl_epi64((__m128i *)(p               + 1)), zero);
+		ctx->pred_buffer_v[1] = (v8hi)_mm_unpacklo_epi8(_mm_loadl_epi64((__m128i *)(p +  stride     + 1)), zero);
+		ctx->pred_buffer_v[2] = (v8hi)_mm_unpacklo_epi8(_mm_loadl_epi64((__m128i *)(p +  stride * 2 + 1)), zero);
+		ctx->pred_buffer_v[3] = (v8hi)_mm_unpacklo_epi8(_mm_loadl_epi64((__m128i *)(q + nstride     + 1)), zero);
+		ctx->pred_buffer_v[4] = (v8hi)_mm_unpacklo_epi8(_mm_loadl_epi64((__m128i *)(q               + 1)), zero);
+		ctx->pred_buffer_v[5] = (v8hi)_mm_unpacklo_epi8(_mm_loadl_epi64((__m128i *)(q +  stride     + 1)), zero);
+		ctx->pred_buffer_v[6] = (v8hi)_mm_unpacklo_epi8(_mm_loadl_epi64((__m128i *)(q +  stride * 2 + 1)), zero);
+		ctx->pred_buffer_v[7] = (v8hi)_mm_unpacklo_epi8(_mm_loadl_epi64((__m128i *)(r + nstride     + 1)), zero);
+		luma8x8_H_8bit(zero, stride, nstride, p);
+		zero = _mm_setzero_si128();
+		__m128i p0 = _mm_avg_epu16((__m128i)ctx->pred_buffer_v[0], zero);
+		__m128i p1 = _mm_avg_epu16((__m128i)ctx->pred_buffer_v[1], zero);
+		__m128i p2 = _mm_avg_epu16((__m128i)ctx->pred_buffer_v[2], zero);
+		__m128i p3 = _mm_avg_epu16((__m128i)ctx->pred_buffer_v[3], zero);
+		__m128i p4 = _mm_avg_epu16((__m128i)ctx->pred_buffer_v[4], zero);
+		__m128i p5 = _mm_avg_epu16((__m128i)ctx->pred_buffer_v[5], zero);
+		__m128i p6 = _mm_avg_epu16((__m128i)ctx->pred_buffer_v[6], zero);
+		__m128i p7 = _mm_avg_epu16((__m128i)ctx->pred_buffer_v[7], zero);
+		return ponderation_8x8(p0, p1, p2, p3, p4, p5, p6, p7); }
+	case 4: {
+		ctx->pred_buffer_v[0] = (v8hi)_mm_unpacklo_epi8(_mm_loadl_epi64((__m128i *)(p              )), zero);
+		ctx->pred_buffer_v[1] = (v8hi)_mm_unpacklo_epi8(_mm_loadl_epi64((__m128i *)(p +  stride    )), zero);
+		ctx->pred_buffer_v[2] = (v8hi)_mm_unpacklo_epi8(_mm_loadl_epi64((__m128i *)(p +  stride * 2)), zero);
+		ctx->pred_buffer_v[3] = (v8hi)_mm_unpacklo_epi8(_mm_loadl_epi64((__m128i *)(q + nstride    )), zero);
+		ctx->pred_buffer_v[4] = (v8hi)_mm_unpacklo_epi8(_mm_loadl_epi64((__m128i *)(q              )), zero);
+		ctx->pred_buffer_v[5] = (v8hi)_mm_unpacklo_epi8(_mm_loadl_epi64((__m128i *)(q +  stride    )), zero);
+		ctx->pred_buffer_v[6] = (v8hi)_mm_unpacklo_epi8(_mm_loadl_epi64((__m128i *)(q +  stride * 2)), zero);
+		ctx->pred_buffer_v[7] = (v8hi)_mm_unpacklo_epi8(_mm_loadl_epi64((__m128i *)(r + nstride    )), zero);
+		luma8x8_V_8bit(zero, stride, nstride, p);
+		zero = _mm_setzero_si128();
+		__m128i p0 = _mm_avg_epu16((__m128i)ctx->pred_buffer_v[0], zero);
+		__m128i p1 = _mm_avg_epu16((__m128i)ctx->pred_buffer_v[1], zero);
+		__m128i p2 = _mm_avg_epu16((__m128i)ctx->pred_buffer_v[2], zero);
+		__m128i p3 = _mm_avg_epu16((__m128i)ctx->pred_buffer_v[3], zero);
+		__m128i p4 = _mm_avg_epu16((__m128i)ctx->pred_buffer_v[4], zero);
+		__m128i p5 = _mm_avg_epu16((__m128i)ctx->pred_buffer_v[5], zero);
+		__m128i p6 = _mm_avg_epu16((__m128i)ctx->pred_buffer_v[6], zero);
+		__m128i p7 = _mm_avg_epu16((__m128i)ctx->pred_buffer_v[7], zero);
+		return ponderation_8x8(p0, p1, p2, p3, p4, p5, p6, p7); }
+	case 12: {
+		ctx->pred_buffer_v[0] = (v8hi)_mm_unpacklo_epi8(_mm_loadl_epi64((__m128i *)(p +  stride    )), zero);
+		ctx->pred_buffer_v[1] = (v8hi)_mm_unpacklo_epi8(_mm_loadl_epi64((__m128i *)(p +  stride * 2)), zero);
+		ctx->pred_buffer_v[2] = (v8hi)_mm_unpacklo_epi8(_mm_loadl_epi64((__m128i *)(q + nstride    )), zero);
+		ctx->pred_buffer_v[3] = (v8hi)_mm_unpacklo_epi8(_mm_loadl_epi64((__m128i *)(q              )), zero);
+		ctx->pred_buffer_v[4] = (v8hi)_mm_unpacklo_epi8(_mm_loadl_epi64((__m128i *)(q +  stride    )), zero);
+		ctx->pred_buffer_v[5] = (v8hi)_mm_unpacklo_epi8(_mm_loadl_epi64((__m128i *)(q +  stride * 2)), zero);
+		ctx->pred_buffer_v[6] = (v8hi)_mm_unpacklo_epi8(_mm_loadl_epi64((__m128i *)(r + nstride    )), zero);
+		ctx->pred_buffer_v[7] = (v8hi)_mm_unpacklo_epi8(_mm_loadl_epi64((__m128i *)(r              )), zero);
+		luma8x8_V_8bit(zero, stride, nstride, p);
+		zero = _mm_setzero_si128();
+		__m128i p0 = _mm_avg_epu16((__m128i)ctx->pred_buffer_v[0], zero);
+		__m128i p1 = _mm_avg_epu16((__m128i)ctx->pred_buffer_v[1], zero);
+		__m128i p2 = _mm_avg_epu16((__m128i)ctx->pred_buffer_v[2], zero);
+		__m128i p3 = _mm_avg_epu16((__m128i)ctx->pred_buffer_v[3], zero);
+		__m128i p4 = _mm_avg_epu16((__m128i)ctx->pred_buffer_v[4], zero);
+		__m128i p5 = _mm_avg_epu16((__m128i)ctx->pred_buffer_v[5], zero);
+		__m128i p6 = _mm_avg_epu16((__m128i)ctx->pred_buffer_v[6], zero);
+		__m128i p7 = _mm_avg_epu16((__m128i)ctx->pred_buffer_v[7], zero);
+		return ponderation_8x8(p0, p1, p2, p3, p4, p5, p6, p7); }
+	
+	case 5: {
+		ctx->pred_buffer_v[0] = ctx->pred_buffer_v[1] = ctx->pred_buffer_v[2] = ctx->pred_buffer_v[3] =
+			ctx->pred_buffer_v[4] = ctx->pred_buffer_v[5] = ctx->pred_buffer_v[6] = ctx->pred_buffer_v[7] = (v8hi)zero;
+		luma8x8_V_8bit(zero, stride, nstride, p);
+		stride = ctx->stride;
+		luma8x8_H_8bit(_mm_setzero_si128(), stride, -stride, ctx->plane);
+		zero = _mm_setzero_si128();
+		__m128i p0 = _mm_avg_epu16((__m128i)ctx->pred_buffer_v[0], zero);
+		__m128i p1 = _mm_avg_epu16((__m128i)ctx->pred_buffer_v[1], zero);
+		__m128i p2 = _mm_avg_epu16((__m128i)ctx->pred_buffer_v[2], zero);
+		__m128i p3 = _mm_avg_epu16((__m128i)ctx->pred_buffer_v[3], zero);
+		__m128i p4 = _mm_avg_epu16((__m128i)ctx->pred_buffer_v[4], zero);
+		__m128i p5 = _mm_avg_epu16((__m128i)ctx->pred_buffer_v[5], zero);
+		__m128i p6 = _mm_avg_epu16((__m128i)ctx->pred_buffer_v[6], zero);
+		__m128i p7 = _mm_avg_epu16((__m128i)ctx->pred_buffer_v[7], zero);
+		return ponderation_8x8(p0, p1, p2, p3, p4, p5, p6, p7); }
+	case 7: {
+		ctx->pred_buffer_v[0] = ctx->pred_buffer_v[1] = ctx->pred_buffer_v[2] = ctx->pred_buffer_v[3] =
+			ctx->pred_buffer_v[4] = ctx->pred_buffer_v[5] = ctx->pred_buffer_v[6] = ctx->pred_buffer_v[7] = (v8hi)zero;
+		luma8x8_V_8bit(zero, stride, nstride, p + 1);
+		stride = ctx->stride;
+		luma8x8_H_8bit(_mm_setzero_si128(), stride, -stride, ctx->plane);
+		zero = _mm_setzero_si128();
+		__m128i p0 = _mm_avg_epu16((__m128i)ctx->pred_buffer_v[0], zero);
+		__m128i p1 = _mm_avg_epu16((__m128i)ctx->pred_buffer_v[1], zero);
+		__m128i p2 = _mm_avg_epu16((__m128i)ctx->pred_buffer_v[2], zero);
+		__m128i p3 = _mm_avg_epu16((__m128i)ctx->pred_buffer_v[3], zero);
+		__m128i p4 = _mm_avg_epu16((__m128i)ctx->pred_buffer_v[4], zero);
+		__m128i p5 = _mm_avg_epu16((__m128i)ctx->pred_buffer_v[5], zero);
+		__m128i p6 = _mm_avg_epu16((__m128i)ctx->pred_buffer_v[6], zero);
+		__m128i p7 = _mm_avg_epu16((__m128i)ctx->pred_buffer_v[7], zero);
+		return ponderation_8x8(p0, p1, p2, p3, p4, p5, p6, p7); }
+	case 13: {
+		ctx->pred_buffer_v[0] = ctx->pred_buffer_v[1] = ctx->pred_buffer_v[2] = ctx->pred_buffer_v[3] =
+			ctx->pred_buffer_v[4] = ctx->pred_buffer_v[5] = ctx->pred_buffer_v[6] = ctx->pred_buffer_v[7] = (v8hi)zero;
+		luma8x8_V_8bit(zero, stride, nstride, p);
+		stride = ctx->stride;
+		luma8x8_H_8bit(_mm_setzero_si128(), stride, -stride, ctx->plane + stride);
+		zero = _mm_setzero_si128();
+		__m128i p0 = _mm_avg_epu16((__m128i)ctx->pred_buffer_v[0], zero);
+		__m128i p1 = _mm_avg_epu16((__m128i)ctx->pred_buffer_v[1], zero);
+		__m128i p2 = _mm_avg_epu16((__m128i)ctx->pred_buffer_v[2], zero);
+		__m128i p3 = _mm_avg_epu16((__m128i)ctx->pred_buffer_v[3], zero);
+		__m128i p4 = _mm_avg_epu16((__m128i)ctx->pred_buffer_v[4], zero);
+		__m128i p5 = _mm_avg_epu16((__m128i)ctx->pred_buffer_v[5], zero);
+		__m128i p6 = _mm_avg_epu16((__m128i)ctx->pred_buffer_v[6], zero);
+		__m128i p7 = _mm_avg_epu16((__m128i)ctx->pred_buffer_v[7], zero);
+		return ponderation_8x8(p0, p1, p2, p3, p4, p5, p6, p7); }
+	case 15: {
+		ctx->pred_buffer_v[0] = ctx->pred_buffer_v[1] = ctx->pred_buffer_v[2] = ctx->pred_buffer_v[3] =
+			ctx->pred_buffer_v[4] = ctx->pred_buffer_v[5] = ctx->pred_buffer_v[6] = ctx->pred_buffer_v[7] = (v8hi)zero;
+		luma8x8_V_8bit(zero, stride, nstride, p + 1);
+		stride = ctx->stride;
+		luma8x8_H_8bit(_mm_setzero_si128(), stride, -stride, ctx->plane + stride);
+		zero = _mm_setzero_si128();
+		__m128i p0 = _mm_avg_epu16((__m128i)ctx->pred_buffer_v[0], zero);
+		__m128i p1 = _mm_avg_epu16((__m128i)ctx->pred_buffer_v[1], zero);
+		__m128i p2 = _mm_avg_epu16((__m128i)ctx->pred_buffer_v[2], zero);
+		__m128i p3 = _mm_avg_epu16((__m128i)ctx->pred_buffer_v[3], zero);
+		__m128i p4 = _mm_avg_epu16((__m128i)ctx->pred_buffer_v[4], zero);
+		__m128i p5 = _mm_avg_epu16((__m128i)ctx->pred_buffer_v[5], zero);
+		__m128i p6 = _mm_avg_epu16((__m128i)ctx->pred_buffer_v[6], zero);
+		__m128i p7 = _mm_avg_epu16((__m128i)ctx->pred_buffer_v[7], zero);
+		return ponderation_8x8(p0, p1, p2, p3, p4, p5, p6, p7); }
+	
+	case 6: {
+		ctx->pred_buffer_v[0] = ctx->pred_buffer_v[1] = ctx->pred_buffer_v[2] = ctx->pred_buffer_v[3] =
+			ctx->pred_buffer_v[4] = ctx->pred_buffer_v[5] = ctx->pred_buffer_v[6] = ctx->pred_buffer_v[7] = (v8hi)zero;
+		luma8x8_H_8bit(zero, stride, nstride, p);
+		stride = ctx->stride;
+		luma8x8_HV_8bit(_mm_setzero_si128(), stride, -stride, ctx->plane);
+		zero = _mm_setzero_si128();
+		__m128i p0 = _mm_avg_epu16((__m128i)ctx->pred_buffer_v[0], zero);
+		__m128i p1 = _mm_avg_epu16((__m128i)ctx->pred_buffer_v[1], zero);
+		__m128i p2 = _mm_avg_epu16((__m128i)ctx->pred_buffer_v[2], zero);
+		__m128i p3 = _mm_avg_epu16((__m128i)ctx->pred_buffer_v[3], zero);
+		__m128i p4 = _mm_avg_epu16((__m128i)ctx->pred_buffer_v[4], zero);
+		__m128i p5 = _mm_avg_epu16((__m128i)ctx->pred_buffer_v[5], zero);
+		__m128i p6 = _mm_avg_epu16((__m128i)ctx->pred_buffer_v[6], zero);
+		__m128i p7 = _mm_avg_epu16((__m128i)ctx->pred_buffer_v[7], zero);
+		return ponderation_8x8(p0, p1, p2, p3, p4, p5, p6, p7); }
+	case 9: {
+		ctx->pred_buffer_v[0] = ctx->pred_buffer_v[1] = ctx->pred_buffer_v[2] = ctx->pred_buffer_v[3] =
+			ctx->pred_buffer_v[4] = ctx->pred_buffer_v[5] = ctx->pred_buffer_v[6] = ctx->pred_buffer_v[7] = (v8hi)zero;
+		luma8x8_V_8bit(zero, stride, nstride, p);
+		stride = ctx->stride;
+		luma8x8_HV_8bit(_mm_setzero_si128(), stride, -stride, ctx->plane);
+		zero = _mm_setzero_si128();
+		__m128i p0 = _mm_avg_epu16((__m128i)ctx->pred_buffer_v[0], zero);
+		__m128i p1 = _mm_avg_epu16((__m128i)ctx->pred_buffer_v[1], zero);
+		__m128i p2 = _mm_avg_epu16((__m128i)ctx->pred_buffer_v[2], zero);
+		__m128i p3 = _mm_avg_epu16((__m128i)ctx->pred_buffer_v[3], zero);
+		__m128i p4 = _mm_avg_epu16((__m128i)ctx->pred_buffer_v[4], zero);
+		__m128i p5 = _mm_avg_epu16((__m128i)ctx->pred_buffer_v[5], zero);
+		__m128i p6 = _mm_avg_epu16((__m128i)ctx->pred_buffer_v[6], zero);
+		__m128i p7 = _mm_avg_epu16((__m128i)ctx->pred_buffer_v[7], zero);
+		return ponderation_8x8(p0, p1, p2, p3, p4, p5, p6, p7); }
+	case 11: {
+		ctx->pred_buffer_v[0] = ctx->pred_buffer_v[1] = ctx->pred_buffer_v[2] = ctx->pred_buffer_v[3] =
+			ctx->pred_buffer_v[4] = ctx->pred_buffer_v[5] = ctx->pred_buffer_v[6] = ctx->pred_buffer_v[7] = (v8hi)zero;
+		luma8x8_V_8bit(zero, stride, nstride, p + 1);
+		stride = ctx->stride;
+		luma8x8_HV_8bit(_mm_setzero_si128(), stride, -stride, ctx->plane);
+		zero = _mm_setzero_si128();
+		__m128i p0 = _mm_avg_epu16((__m128i)ctx->pred_buffer_v[0], zero);
+		__m128i p1 = _mm_avg_epu16((__m128i)ctx->pred_buffer_v[1], zero);
+		__m128i p2 = _mm_avg_epu16((__m128i)ctx->pred_buffer_v[2], zero);
+		__m128i p3 = _mm_avg_epu16((__m128i)ctx->pred_buffer_v[3], zero);
+		__m128i p4 = _mm_avg_epu16((__m128i)ctx->pred_buffer_v[4], zero);
+		__m128i p5 = _mm_avg_epu16((__m128i)ctx->pred_buffer_v[5], zero);
+		__m128i p6 = _mm_avg_epu16((__m128i)ctx->pred_buffer_v[6], zero);
+		__m128i p7 = _mm_avg_epu16((__m128i)ctx->pred_buffer_v[7], zero);
+		return ponderation_8x8(p0, p1, p2, p3, p4, p5, p6, p7); }
+	case 14: {
+		ctx->pred_buffer_v[0] = ctx->pred_buffer_v[1] = ctx->pred_buffer_v[2] = ctx->pred_buffer_v[3] =
+			ctx->pred_buffer_v[4] = ctx->pred_buffer_v[5] = ctx->pred_buffer_v[6] = ctx->pred_buffer_v[7] = (v8hi)zero;
+		luma8x8_H_8bit(zero, stride, nstride, p + stride);
+		stride = ctx->stride;
+		luma8x8_HV_8bit(_mm_setzero_si128(), stride, -stride, ctx->plane);
+		zero = _mm_setzero_si128();
+		__m128i p0 = _mm_avg_epu16((__m128i)ctx->pred_buffer_v[0], zero);
+		__m128i p1 = _mm_avg_epu16((__m128i)ctx->pred_buffer_v[1], zero);
+		__m128i p2 = _mm_avg_epu16((__m128i)ctx->pred_buffer_v[2], zero);
+		__m128i p3 = _mm_avg_epu16((__m128i)ctx->pred_buffer_v[3], zero);
+		__m128i p4 = _mm_avg_epu16((__m128i)ctx->pred_buffer_v[4], zero);
+		__m128i p5 = _mm_avg_epu16((__m128i)ctx->pred_buffer_v[5], zero);
+		__m128i p6 = _mm_avg_epu16((__m128i)ctx->pred_buffer_v[6], zero);
+		__m128i p7 = _mm_avg_epu16((__m128i)ctx->pred_buffer_v[7], zero);
+		return ponderation_8x8(p0, p1, p2, p3, p4, p5, p6, p7); }
+	
 	default:
 		__builtin_unreachable();
 	}

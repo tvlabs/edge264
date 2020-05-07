@@ -89,8 +89,8 @@ static inline __attribute__((always_inline)) __m128i filter_36tap2_8bit(__m128i 
  *   result. This approach still contained a LOT of pshufps, so I eventually
  *   chose the vertical first.
  */
-static __attribute__((noinline)) void luma4x4_H_8bit(size_t stride,
-	ssize_t nstride, uint8_t *p, uint8_t *q, __m128i zero)
+static __attribute__((noinline)) void luma4x4_H_8bit(__m128i zero,
+	size_t stride, ssize_t nstride, uint8_t *p, uint8_t *q)
 {
 	__m128i l00 = _mm_unpacklo_epi8(_mm_loadl_epi64((__m128i *)(p - 2)), zero);
 	__m128i l01 = _mm_unpacklo_epi8(_mm_loadl_epi64((__m128i *)(p - 1)), zero);
@@ -116,8 +116,8 @@ static __attribute__((noinline)) void luma4x4_H_8bit(size_t stride,
 	ctx->pred_buffer_v[1] += (v8hi)filter_6tap(m20, m21, m22, m23, m24, m25, zero);
 }
 
-static __attribute__((noinline)) void luma4x4_V_8bit(size_t stride,
-	ssize_t nstride, uint8_t *p, uint8_t *q, __m128i zero)
+static __attribute__((noinline)) void luma4x4_V_8bit(__m128i zero,
+	size_t stride, ssize_t nstride, uint8_t *p, uint8_t *q)
 {
 	__m128i x0 = _mm_cvtsi32_si128(*(int *)(p + nstride * 2));
 	__m128i x1 = _mm_cvtsi32_si128(*(int *)(p + nstride    ));
@@ -140,8 +140,8 @@ static __attribute__((noinline)) void luma4x4_V_8bit(size_t stride,
 	ctx->pred_buffer_v[1] += (v8hi)filter_6tap(m20, m30, m40, m50, m60, m70, zero);
 }
 
-static __attribute__((noinline)) void luma4x4_HV_8bit(size_t stride, ssize_t nstride,
-	uint8_t *p, uint8_t *q, __m128i zero)
+static __attribute__((noinline)) void luma4x4_HV_8bit(__m128i zero,
+	size_t stride, ssize_t nstride, uint8_t *p, uint8_t *q)
 {
 	__m128i l00 = _mm_unpacklo_epi8(_mm_loadl_epi64((__m128i *)(p + nstride * 2 - 2)), zero);
 	__m128i l10 = _mm_unpacklo_epi8(_mm_loadl_epi64((__m128i *)(p + nstride     - 2)), zero);
@@ -189,11 +189,96 @@ static __attribute__((noinline)) void luma4x4_HV_8bit(size_t stride, ssize_t nst
 
 
 /**
+ * Inter 8x8 prediction takes one (or two) 13x13 matrices and yields a 16bit
+ * 8x8 result. This is simpler than 4x4 since each register is a 8x1 line,
+ * so it does less shuffling. The drawback of writing results to pred_buffer
+ * actually allows us to put all of the code in loops.
+ */
+__attribute__((noinline)) void luma8x8_H_8bit(__m128i zero, size_t stride,
+	ssize_t nstride, uint8_t *p)
+{
+	p -= 2;
+	for (int i = 0; i < 8; i++, p += stride) {
+		__m128i x0 = _mm_lddqu_si128((__m128i *)p);
+		__m128i l00 = _mm_unpacklo_epi8(x0, zero);
+		__m128i l08 = _mm_unpackhi_epi8(x0, zero);
+		__m128i l01 = _mm_alignr_epi8(l08, l00, 2);
+		__m128i l02 = _mm_alignr_epi8(l08, l00, 4);
+		__m128i l03 = _mm_alignr_epi8(l08, l00, 6);
+		__m128i l04 = _mm_alignr_epi8(l08, l00, 8);
+		__m128i l05 = _mm_alignr_epi8(l08, l00, 10);
+		ctx->pred_buffer_v[i] += (v8hi)filter_6tap(l00, l01, l02, l03, l04, l05, zero);
+	}
+}
+
+__attribute__((noinline)) void luma8x8_V_8bit(__m128i zero, size_t stride,
+	ssize_t nstride, uint8_t *p)
+{
+	__m128i l00 = _mm_unpacklo_epi8(_mm_loadl_epi64((__m128i *)(p + nstride * 2)), zero);
+	__m128i l10 = _mm_unpacklo_epi8(_mm_loadl_epi64((__m128i *)(p + nstride    )), zero);
+	__m128i l20 = _mm_unpacklo_epi8(_mm_loadl_epi64((__m128i *)(p              )), zero);
+	__m128i l30 = _mm_unpacklo_epi8(_mm_loadl_epi64((__m128i *)(p +  stride    )), zero);
+	__m128i l40 = _mm_unpacklo_epi8(_mm_loadl_epi64((__m128i *)(p +  stride * 2)), zero);
+	p += stride * 2;
+	// unrolling this would just waste too much cache space
+	for (int i = 0; i < 8; i++) {
+		p += stride;
+		__m128i l50 = _mm_unpacklo_epi8(_mm_loadl_epi64((__m128i *)p), zero);
+		ctx->pred_buffer_v[i] += (v8hi)filter_6tap(l00, l10, l20, l30, l40, l50, zero);
+		l00 = l10, l10 = l20, l20 = l30, l30 = l40, l40 = l50;
+	}
+}
+
+__attribute__((noinline)) void luma8x8_HV_8bit(__m128i zero, size_t stride,
+	ssize_t nstride, uint8_t *p)
+{
+	p -= 2;
+	__m128i x0 = _mm_lddqu_si128((__m128i *)(p + nstride * 2));
+	__m128i x1 = _mm_lddqu_si128((__m128i *)(p + nstride    ));
+	__m128i x2 = _mm_lddqu_si128((__m128i *)(p              ));
+	__m128i x3 = _mm_lddqu_si128((__m128i *)(p +  stride    ));
+	__m128i x4 = _mm_lddqu_si128((__m128i *)(p +  stride * 2));
+	__m128i l00 = _mm_unpacklo_epi8(x0, zero);
+	__m128i l08 = _mm_unpackhi_epi8(x0, zero);
+	__m128i l10 = _mm_unpacklo_epi8(x1, zero);
+	__m128i l18 = _mm_unpackhi_epi8(x1, zero);
+	__m128i l20 = _mm_unpacklo_epi8(x2, zero);
+	__m128i l28 = _mm_unpackhi_epi8(x2, zero);
+	__m128i l30 = _mm_unpacklo_epi8(x3, zero);
+	__m128i l38 = _mm_unpackhi_epi8(x3, zero);
+	__m128i l40 = _mm_unpacklo_epi8(x4, zero);
+	__m128i l48 = _mm_unpackhi_epi8(x4, zero);
+	p += stride * 2;
+	// high register pressure here, but still wicked code!
+	for (int i = 0; i < 8; i++) {
+		p += stride;
+		__m128i x5 = _mm_lddqu_si128((__m128i *)p);
+		__m128i l50 = _mm_unpacklo_epi8(x5, zero);
+		__m128i l58 = _mm_unpackhi_epi8(x5, zero);
+		__m128i c0 = filter_36tap1_8bit(l00, l10, l20, l30, l40, l50);
+		__m128i c8 = filter_36tap1_8bit(l08, l18, l28, l38, l48, l58);
+		__m128i c1 = _mm_alignr_epi8(c8, c0, 2);
+		__m128i c2 = _mm_alignr_epi8(c8, c0, 4);
+		__m128i c3 = _mm_alignr_epi8(c8, c0, 6);
+		__m128i c4 = _mm_alignr_epi8(c8, c0, 8);
+		__m128i c5 = _mm_alignr_epi8(c8, c0, 10);
+		ctx->pred_buffer_v[i] += (v8hi)filter_36tap2_8bit(c0, c1, c2, c3, c4, c5, zero);
+		l00 = l10, l08 = l18;
+		l10 = l20, l18 = l28;
+		l20 = l30, l28 = l38;
+		l30 = l40, l38 = l48;
+		l40 = l50, l48 = l58;
+	}
+}
+
+
+
+/**
  * The impossibility for functions to return all of p0/p1/stride/nstride/p/q
  * forces us to reload them after each function call.
  */
-__attribute__((noinline)) int luma4x4_8bit(size_t stride,
-	ssize_t nstride, uint8_t *p, uint8_t *q, int qpel, __m128i zero)
+__attribute__((noinline)) int luma4x4_8bit(__m128i zero, size_t stride,
+	ssize_t nstride, uint8_t *p, uint8_t *q, int qpel)
 {
 	// branch on fractional position (8.4.2.2.1)
 	switch (qpel) {
@@ -207,15 +292,15 @@ __attribute__((noinline)) int luma4x4_8bit(size_t stride,
 		return ponderation(m22, m42); }
 	case 2: {
 		ctx->pred_buffer_v[0] = ctx->pred_buffer_v[1] = (v8hi)zero;
-		luma4x4_H_8bit(stride, nstride, p, q, zero);
+		luma4x4_H_8bit(zero, stride, nstride, p, q);
 		return ponderation((__m128i)ctx->pred_buffer_v[0], (__m128i)ctx->pred_buffer_v[1]); }
 	case 8: {
 		ctx->pred_buffer_v[0] = ctx->pred_buffer_v[1] = (v8hi)zero;
-		luma4x4_V_8bit(stride, nstride, p, q, zero);
+		luma4x4_V_8bit(zero, stride, nstride, p, q);
 		return ponderation((__m128i)ctx->pred_buffer_v[0], (__m128i)ctx->pred_buffer_v[1]); }
 	case 10: {
 		ctx->pred_buffer_v[0] = ctx->pred_buffer_v[1] = (v8hi)zero;
-		luma4x4_HV_8bit(stride, nstride, p, q, zero);
+		luma4x4_HV_8bit(zero, stride, nstride, p, q);
 		return ponderation((__m128i)ctx->pred_buffer_v[0], (__m128i)ctx->pred_buffer_v[1]); }
 	
 	case 1: {
@@ -225,7 +310,7 @@ __attribute__((noinline)) int luma4x4_8bit(size_t stride,
 		__m128i x3 = _mm_cvtsi32_si128(*(int *)(q + nstride    ));
 		ctx->pred_buffer_v[0] = (v8hi)_mm_unpacklo_epi8(_mm_unpacklo_epi32(x0, x1), zero);
 		ctx->pred_buffer_v[1] = (v8hi)_mm_unpacklo_epi8(_mm_unpacklo_epi32(x2, x3), zero);
-		luma4x4_H_8bit(stride, nstride, p, q, zero);
+		luma4x4_H_8bit(zero, stride, nstride, p, q);
 		zero = _mm_setzero_si128();
 		__m128i p0 = _mm_avg_epu16((__m128i)ctx->pred_buffer_v[0], zero);
 		__m128i p1 = _mm_avg_epu16((__m128i)ctx->pred_buffer_v[1], zero);
@@ -237,7 +322,7 @@ __attribute__((noinline)) int luma4x4_8bit(size_t stride,
 		__m128i x3 = _mm_cvtsi32_si128(*(int *)(q + nstride     + 1));
 		ctx->pred_buffer_v[0] = (v8hi)_mm_unpacklo_epi8(_mm_unpacklo_epi32(x0, x1), zero);
 		ctx->pred_buffer_v[1] = (v8hi)_mm_unpacklo_epi8(_mm_unpacklo_epi32(x2, x3), zero);
-		luma4x4_H_8bit(stride, nstride, p + 1, q + 1, zero);
+		luma4x4_H_8bit(zero, stride, nstride, p + 1, q + 1);
 		zero = _mm_setzero_si128();
 		__m128i p0 = _mm_avg_epu16((__m128i)ctx->pred_buffer_v[0], zero);
 		__m128i p1 = _mm_avg_epu16((__m128i)ctx->pred_buffer_v[1], zero);
@@ -249,7 +334,7 @@ __attribute__((noinline)) int luma4x4_8bit(size_t stride,
 		__m128i x3 = _mm_cvtsi32_si128(*(int *)(q + nstride    ));
 		ctx->pred_buffer_v[0] = (v8hi)_mm_unpacklo_epi8(_mm_unpacklo_epi32(x0, x1), zero);
 		ctx->pred_buffer_v[1] = (v8hi)_mm_unpacklo_epi8(_mm_unpacklo_epi32(x2, x3), zero);
-		luma4x4_V_8bit(stride, nstride, p, q, zero);
+		luma4x4_V_8bit(zero, stride, nstride, p, q);
 		zero = _mm_setzero_si128();
 		__m128i p0 = _mm_avg_epu16((__m128i)ctx->pred_buffer_v[0], zero);
 		__m128i p1 = _mm_avg_epu16((__m128i)ctx->pred_buffer_v[1], zero);
@@ -261,7 +346,7 @@ __attribute__((noinline)) int luma4x4_8bit(size_t stride,
 		__m128i x3 = _mm_cvtsi32_si128(*(int *)(q              ));
 		ctx->pred_buffer_v[0] = (v8hi)_mm_unpacklo_epi8(_mm_unpacklo_epi32(x0, x1), zero);
 		ctx->pred_buffer_v[1] = (v8hi)_mm_unpacklo_epi8(_mm_unpacklo_epi32(x2, x3), zero);
-		luma4x4_V_8bit(stride, nstride, p, q, zero);
+		luma4x4_V_8bit(zero, stride, nstride, p, q);
 		zero = _mm_setzero_si128();
 		__m128i p0 = _mm_avg_epu16((__m128i)ctx->pred_buffer_v[0], zero);
 		__m128i p1 = _mm_avg_epu16((__m128i)ctx->pred_buffer_v[1], zero);
@@ -269,36 +354,36 @@ __attribute__((noinline)) int luma4x4_8bit(size_t stride,
 	
 	case 5: {
 		ctx->pred_buffer_v[0] = ctx->pred_buffer_v[1] = (v8hi)zero;
-		luma4x4_H_8bit(stride, nstride, p, q, zero);
+		luma4x4_H_8bit(zero, stride, nstride, p, q);
 		stride = ctx->stride;
-		luma4x4_V_8bit(stride, -stride, ctx->plane, ctx->plane + stride * 4, _mm_setzero_si128());
+		luma4x4_V_8bit(_mm_setzero_si128(), stride, -stride, ctx->plane, ctx->plane + stride * 4);
 		zero = _mm_setzero_si128();
 		__m128i p0 = _mm_avg_epu16((__m128i)ctx->pred_buffer_v[0], zero);
 		__m128i p1 = _mm_avg_epu16((__m128i)ctx->pred_buffer_v[1], zero);
 		return ponderation(p0, p1); }
 	case 7: {
 		ctx->pred_buffer_v[0] = ctx->pred_buffer_v[1] = (v8hi)zero;
-		luma4x4_H_8bit(stride, nstride, p, q, zero);
+		luma4x4_H_8bit(zero, stride, nstride, p, q);
 		stride = ctx->stride;
-		luma4x4_V_8bit(stride, -stride, ctx->plane + 1, ctx->plane + stride * 4 + 1, _mm_setzero_si128());
+		luma4x4_V_8bit(_mm_setzero_si128(), stride, -stride, ctx->plane + 1, ctx->plane + stride * 4 + 1);
 		zero = _mm_setzero_si128();
 		__m128i p0 = _mm_avg_epu16((__m128i)ctx->pred_buffer_v[0], zero);
 		__m128i p1 = _mm_avg_epu16((__m128i)ctx->pred_buffer_v[1], zero);
 		return ponderation(p0, p1); }
 	case 13: {
 		ctx->pred_buffer_v[0] = ctx->pred_buffer_v[1] = (v8hi)zero;
-		luma4x4_V_8bit(stride, nstride, p, q, zero);
+		luma4x4_V_8bit(zero, stride, nstride, p, q);
 		stride = ctx->stride;
-		luma4x4_H_8bit(stride, -stride, ctx->plane + stride, ctx->plane + stride * 5, _mm_setzero_si128());
+		luma4x4_H_8bit(_mm_setzero_si128(), stride, -stride, ctx->plane + stride, ctx->plane + stride * 5);
 		zero = _mm_setzero_si128();
 		__m128i p0 = _mm_avg_epu16((__m128i)ctx->pred_buffer_v[0], zero);
 		__m128i p1 = _mm_avg_epu16((__m128i)ctx->pred_buffer_v[1], zero);
 		return ponderation(p0, p1); }
 	case 15: {
 		ctx->pred_buffer_v[0] = ctx->pred_buffer_v[1] = (v8hi)zero;
-		luma4x4_V_8bit(stride, nstride, p + 1, q + 1, zero);
+		luma4x4_V_8bit(zero, stride, nstride, p + 1, q + 1);
 		stride = ctx->stride;
-		luma4x4_H_8bit(stride, -stride, ctx->plane + stride, ctx->plane + stride * 5, _mm_setzero_si128());
+		luma4x4_H_8bit(_mm_setzero_si128(), stride, -stride, ctx->plane + stride, ctx->plane + stride * 5);
 		zero = _mm_setzero_si128();
 		__m128i p0 = _mm_avg_epu16((__m128i)ctx->pred_buffer_v[0], zero);
 		__m128i p1 = _mm_avg_epu16((__m128i)ctx->pred_buffer_v[1], zero);
@@ -306,36 +391,36 @@ __attribute__((noinline)) int luma4x4_8bit(size_t stride,
 	
 	case 6: {
 		ctx->pred_buffer_v[0] = ctx->pred_buffer_v[1] = (v8hi)zero;
-		luma4x4_HV_8bit(stride, nstride, p, q, zero);
+		luma4x4_HV_8bit(zero, stride, nstride, p, q);
 		stride = ctx->stride;
-		luma4x4_H_8bit(stride, -stride, ctx->plane, ctx->plane + stride * 4, _mm_setzero_si128());
+		luma4x4_H_8bit(_mm_setzero_si128(), stride, -stride, ctx->plane, ctx->plane + stride * 4);
 		zero = _mm_setzero_si128();
 		__m128i p0 = _mm_avg_epu16((__m128i)ctx->pred_buffer_v[0], zero);
 		__m128i p1 = _mm_avg_epu16((__m128i)ctx->pred_buffer_v[1], zero);
 		return ponderation(p0, p1); }
 	case 9: {
 		ctx->pred_buffer_v[0] = ctx->pred_buffer_v[1] = (v8hi)zero;
-		luma4x4_HV_8bit(stride, nstride, p, q, zero);
+		luma4x4_HV_8bit(zero, stride, nstride, p, q);
 		stride = ctx->stride;
-		luma4x4_V_8bit(stride, -stride, ctx->plane, ctx->plane + stride * 4, _mm_setzero_si128());
+		luma4x4_V_8bit(_mm_setzero_si128(), stride, -stride, ctx->plane, ctx->plane + stride * 4);
 		zero = _mm_setzero_si128();
 		__m128i p0 = _mm_avg_epu16((__m128i)ctx->pred_buffer_v[0], zero);
 		__m128i p1 = _mm_avg_epu16((__m128i)ctx->pred_buffer_v[1], zero);
 		return ponderation(p0, p1); }
 	case 11: {
 		ctx->pred_buffer_v[0] = ctx->pred_buffer_v[1] = (v8hi)zero;
-		luma4x4_HV_8bit(stride, nstride, p, q, zero);
+		luma4x4_HV_8bit(zero, stride, nstride, p, q);
 		stride = ctx->stride;
-		luma4x4_V_8bit(stride, -stride, ctx->plane + 1, ctx->plane + stride * 4 + 1, _mm_setzero_si128());
+		luma4x4_V_8bit(_mm_setzero_si128(), stride, -stride, ctx->plane + 1, ctx->plane + stride * 4 + 1);
 		zero = _mm_setzero_si128();
 		__m128i p0 = _mm_avg_epu16((__m128i)ctx->pred_buffer_v[0], zero);
 		__m128i p1 = _mm_avg_epu16((__m128i)ctx->pred_buffer_v[1], zero);
 		return ponderation(p0, p1); }
 	case 14: {
 		ctx->pred_buffer_v[0] = ctx->pred_buffer_v[1] = (v8hi)zero;
-		luma4x4_HV_8bit(stride, nstride, p, q, zero);
+		luma4x4_HV_8bit(zero, stride, nstride, p, q);
 		stride = ctx->stride;
-		luma4x4_H_8bit(stride, -stride, ctx->plane + stride, ctx->plane + stride * 5, _mm_setzero_si128());
+		luma4x4_H_8bit(_mm_setzero_si128(), stride, -stride, ctx->plane + stride, ctx->plane + stride * 5);
 		zero = _mm_setzero_si128();
 		__m128i p0 = _mm_avg_epu16((__m128i)ctx->pred_buffer_v[0], zero);
 		__m128i p1 = _mm_avg_epu16((__m128i)ctx->pred_buffer_v[1], zero);

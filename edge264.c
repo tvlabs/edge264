@@ -1,6 +1,7 @@
 /** TODOs:
  * _ switch to SDL which is likely to have a more stable future support than GLFW, with an option to play without display
  * _ make neighbouring reads use a union in mb
+ * _ use a macro to define and call functions, to let clang pass ctx/mb in arguments
  * _ if possible, make the second half of AbsMvdComp_A/B alias the first of A/B4x4_8
  * _ update the tables of names for profiles and NAL types
  * _ upgrade DPB storage size to 17, by simply doubling reference and output flags sizes

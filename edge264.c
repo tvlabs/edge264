@@ -8,6 +8,7 @@
  * _ upgrade DPB storage size to 17, by simply doubling reference and output flags sizes
  * _ backup output/ref flags and FrameNum and restore then on bad slice_header
  * _ try using epb for context pointer, and email GCC when it fails
+ * _ after implementing deblocking, define a function(a, zero) to switch to pmovsxbw (_mm_cvtepi8_epi16)
  * _ after implementing transformBypass, add a shortcut for DC-only blocks
  * _ after implementing P/B and MBAFF, optimize away array accesses of is422 and mb->f.mb_field_decoding_flag
  * _ after implementing P/B and MBAFF, consider splitting decode_samples into NxN, 16x16 and chroma, making parse_residual_block a regular function, including intraNxN_modes inside the switch of decode_NxN, and removing many copies for AC->DC PredMode

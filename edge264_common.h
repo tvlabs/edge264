@@ -260,7 +260,10 @@ static inline __attribute__((always_inline)) int get_se(int lower, int upper) { 
 #ifdef __SSE4_1__
 #include <smmintrin.h>
 #define vector_select(mask, t, f) (typeof(f))_mm_blendv_epi8((__m128i)(f), (__m128i)(t), (__m128i)(mask))
-#else
+static inline __m128i load_epu8_epi16(uint8_t *p, __m128i zero) {
+	return _mm_cvtepu8_epi16(_mm_loadl_epi64((__m128i *)p));
+}
+#else // !__SSE4_1__
 #define vector_select(mask, t, f) (((t) & (mask)) | ((f) & ~(mask)))
 static inline __m128i _mm_mullo_epi32(__m128i a, __m128i b) {
 	__m128i c = _mm_shuffle_epi32(a, _MM_SHUFFLE(0, 3, 0, 1));
@@ -274,16 +277,13 @@ static inline __m128i _mm_mullo_epi32(__m128i a, __m128i b) {
 static inline __m128i _mm_packus_epi32(__m128i a, __m128i b) {
 	return _mm_max_epi16(_mm_packs_epi32(a, b), _mm_setzero_si128());
 }
-static inline __m128i _mm_cvtepu8_epi16(__m128i a) {
-	return _mm_unpacklo_epi8(a, _mm_setzero_si128());
-}
-static inline __m128i _mm_cvtepu16_epi32(__m128i a) {
-	return _mm_unpacklo_epi16(a, _mm_setzero_si128());
+static inline __m128i load_epu8_epi16(uint8_t *p, __m128i zero) {
+	return _mm_unpacklo_epi8(_mm_loadl_epi64((__m128i *)p), zero);
 }
 #endif // __SSE4_1__
 #ifdef __AVX2__
 #include <immintrin.h>
-#else
+#else // !__AVX2__
 static inline __m128i _mm_broadcastw_epi16(__m128i a) {
 	return _mm_shuffle_epi32(_mm_shufflelo_epi16(a, _MM_SHUFFLE(0, 0, 0, 0)), _MM_SHUFFLE(1, 0, 1, 0));
 }

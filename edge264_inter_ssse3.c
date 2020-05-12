@@ -2,6 +2,8 @@
 // TODO: Add pmadd weighting in the functions
 // TODO: initialize zero in each function since clang prefers
 // TODO: add support for pmovzxwb
+// TODO: stop using lddqu (very slow on Atom and a bit slower in all)
+// TODO: in filter_36tapD_8bit, see if we can remove the last shift right by more aggressive previous shifts
 
 #include "edge264_common.h"
 
@@ -58,9 +60,8 @@ static inline __attribute__((always_inline)) __m128i filter_36tapU_8bit(
 	__m128i a = _mm_add_epi16(x0, x5);
 	__m128i b = _mm_add_epi16(x1, x4);
 	__m128i c = _mm_add_epi16(x2, x3);
-	__m128i x6 = _mm_sub_epi16(a, b);
-	__m128i x7 = _mm_sub_epi16(b, c);
-	return _mm_add_epi16(x6, _mm_slli_epi16(_mm_sub_epi16(_mm_slli_epi16(c, 2), x7), 2));
+	__m128i x6 = _mm_sub_epi16(_mm_slli_epi16(c, 2), b); // c*4-b
+	return _mm_add_epi16(a, _mm_add_epi16(x6, _mm_slli_epi16(x6, 2))); // a+(c*4-b)*5
 }
 
 static inline __attribute__((always_inline)) __m128i filter_36tapU_scalar(
@@ -135,7 +136,7 @@ static inline __attribute__((always_inline)) __m128i packus_6tapD_8bit(
  * of code. The same goes for filter_6tap, which would force all live registers
  * on stack if not inlined. Although I_HATE_MACROS, they are very useful here
  * to reduce 16 (big) functions down to 7. This is a lot of code, but all qpel
- * 4x4 interpolations are done in registers without sub-functions!
+ * 4x4 interpolations are done in registers without intermediate steps!
  */
 int inter4x4_qpel00_8bit(__m128i zero, size_t stride, ssize_t nstride, uint8_t *p, uint8_t *q) {
 	__m128i s22 = _mm_cvtsi32_si128(*(int *)(p              ));
@@ -902,3 +903,120 @@ INTER16x16_QPEL_31_33(qpel33, 3, B, 1)
 
 INTER16x16_QPEL_21_23(qpel21, packus_6tapD_8bit(v02, v0A, vh, zero))
 INTER16x16_QPEL_21_23(qpel23, packus_6tapD_8bit(v03, v0B, vh, zero))
+
+#define INTER16x16_QPEL_12_22_32(QPEL, P)\
+	int inter16x16_ ## QPEL ## _8bit(__m128i zero, size_t stride, ssize_t nstride, uint8_t *p, size_t dstStride, __m128i *dst) {\
+		__m128i d00 = _mm_lddqu_si128((__m128i *)(p + nstride * 2 - 2));\
+		__m128i l0D = _mm_unpacklo_epi8(_mm_loadl_epi64((__m128i *)(p + nstride * 2 + 11)), zero);\
+		__m128i l00 = _mm_unpacklo_epi8(d00, zero);\
+		__m128i l08 = _mm_unpackhi_epi8(d00, zero);\
+		__m128i l0G = _mm_srli_si128(l0D, 6);\
+		__m128i l01 = _mm_alignr_epi8(l08, l00, 2);\
+		__m128i l02 = _mm_alignr_epi8(l08, l00, 4);\
+		__m128i l03 = _mm_alignr_epi8(l08, l00, 6);\
+		__m128i l04 = _mm_alignr_epi8(l08, l00, 8);\
+		__m128i l05 = _mm_alignr_epi8(l08, l00, 10);\
+		__m128i l09 = _mm_alignr_epi8(l0G, l08, 2);\
+		__m128i l0A = _mm_alignr_epi8(l0G, l08, 4);\
+		__m128i l0B = _mm_alignr_epi8(l0G, l08, 6);\
+		__m128i l0C = _mm_alignr_epi8(l0G, l08, 8);\
+		__m128i h00 = filter_36tapU_8bit(l00, l01, l02, l03, l04, l05);\
+		__m128i h08 = filter_36tapU_8bit(l08, l09, l0A, l0B, l0C, l0D);\
+		__m128i d10 = _mm_lddqu_si128((__m128i *)(p + nstride - 2));\
+		__m128i l1D = _mm_unpacklo_epi8(_mm_loadl_epi64((__m128i *)(p + nstride + 11)), zero);\
+		__m128i l10 = _mm_unpacklo_epi8(d10, zero);\
+		__m128i l18 = _mm_unpackhi_epi8(d10, zero);\
+		__m128i l1G = _mm_srli_si128(l1D, 6);\
+		__m128i l11 = _mm_alignr_epi8(l18, l10, 2);\
+		__m128i l12 = _mm_alignr_epi8(l18, l10, 4);\
+		__m128i l13 = _mm_alignr_epi8(l18, l10, 6);\
+		__m128i l14 = _mm_alignr_epi8(l18, l10, 8);\
+		__m128i l15 = _mm_alignr_epi8(l18, l10, 10);\
+		__m128i l19 = _mm_alignr_epi8(l1G, l18, 2);\
+		__m128i l1A = _mm_alignr_epi8(l1G, l18, 4);\
+		__m128i l1B = _mm_alignr_epi8(l1G, l18, 6);\
+		__m128i l1C = _mm_alignr_epi8(l1G, l18, 8);\
+		__m128i h10 = filter_36tapU_8bit(l10, l11, l12, l13, l14, l15);\
+		__m128i h18 = filter_36tapU_8bit(l18, l19, l1A, l1B, l1C, l1D);\
+		__m128i d20 = _mm_lddqu_si128((__m128i *)(p - 2));\
+		__m128i l2D = _mm_unpacklo_epi8(_mm_loadl_epi64((__m128i *)(p + 11)), zero);\
+		__m128i l20 = _mm_unpacklo_epi8(d20, zero);\
+		__m128i l28 = _mm_unpackhi_epi8(d20, zero);\
+		__m128i l2G = _mm_srli_si128(l2D, 6);\
+		__m128i l21 = _mm_alignr_epi8(l28, l20, 2);\
+		__m128i l22 = _mm_alignr_epi8(l28, l20, 4);\
+		__m128i l23 = _mm_alignr_epi8(l28, l20, 6);\
+		__m128i l24 = _mm_alignr_epi8(l28, l20, 8);\
+		__m128i l25 = _mm_alignr_epi8(l28, l20, 10);\
+		__m128i l29 = _mm_alignr_epi8(l2G, l28, 2);\
+		__m128i l2A = _mm_alignr_epi8(l2G, l28, 4);\
+		__m128i l2B = _mm_alignr_epi8(l2G, l28, 6);\
+		__m128i l2C = _mm_alignr_epi8(l2G, l28, 8);\
+		__m128i h20 = filter_36tapU_8bit(l20, l21, l22, l23, l24, l25);\
+		__m128i h28 = filter_36tapU_8bit(l28, l29, l2A, l2B, l2C, l2D);\
+		__m128i d30 = _mm_lddqu_si128((__m128i *)(p + stride - 2));\
+		__m128i l3D = _mm_unpacklo_epi8(_mm_loadl_epi64((__m128i *)(p + stride + 11)), zero);\
+		__m128i l30 = _mm_unpacklo_epi8(d30, zero);\
+		__m128i l38 = _mm_unpackhi_epi8(d30, zero);\
+		__m128i l3G = _mm_srli_si128(l3D, 6);\
+		__m128i l31 = _mm_alignr_epi8(l38, l30, 2);\
+		__m128i l32 = _mm_alignr_epi8(l38, l30, 4);\
+		__m128i l33 = _mm_alignr_epi8(l38, l30, 6);\
+		__m128i l34 = _mm_alignr_epi8(l38, l30, 8);\
+		__m128i l35 = _mm_alignr_epi8(l38, l30, 10);\
+		__m128i l39 = _mm_alignr_epi8(l3G, l38, 2);\
+		__m128i l3A = _mm_alignr_epi8(l3G, l38, 4);\
+		__m128i l3B = _mm_alignr_epi8(l3G, l38, 6);\
+		__m128i l3C = _mm_alignr_epi8(l3G, l38, 8);\
+		__m128i h30 = filter_36tapU_8bit(l30, l31, l32, l33, l34, l35);\
+		__m128i h38 = filter_36tapU_8bit(l38, l39, l3A, l3B, l3C, l3D);\
+		__m128i d40 = _mm_lddqu_si128((__m128i *)(p + stride * 2 - 2));\
+		__m128i l4D = _mm_unpacklo_epi8(_mm_loadl_epi64((__m128i *)(p + stride * 2 + 11)), zero);\
+		__m128i l40 = _mm_unpacklo_epi8(d40, zero);\
+		__m128i l48 = _mm_unpackhi_epi8(d40, zero);\
+		__m128i l4G = _mm_srli_si128(l4D, 6);\
+		__m128i l41 = _mm_alignr_epi8(l48, l40, 2);\
+		__m128i l42 = _mm_alignr_epi8(l48, l40, 4);\
+		__m128i l43 = _mm_alignr_epi8(l48, l40, 6);\
+		__m128i l44 = _mm_alignr_epi8(l48, l40, 8);\
+		__m128i l45 = _mm_alignr_epi8(l48, l40, 10);\
+		__m128i l49 = _mm_alignr_epi8(l4G, l48, 2);\
+		__m128i l4A = _mm_alignr_epi8(l4G, l48, 4);\
+		__m128i l4B = _mm_alignr_epi8(l4G, l48, 6);\
+		__m128i l4C = _mm_alignr_epi8(l4G, l48, 8);\
+		__m128i h40 = filter_36tapU_8bit(l40, l41, l42, l43, l44, l45);\
+		__m128i h48 = filter_36tapU_8bit(l48, l49, l4A, l4B, l4C, l4D);\
+		for (int i = 0; i < 16; i++, dst += dstStride) {\
+			p += stride;\
+			__m128i d50 = _mm_lddqu_si128((__m128i *)(p + nstride * 2 - 2));\
+			__m128i l5D = _mm_unpacklo_epi8(_mm_loadl_epi64((__m128i *)(p + nstride * 2 + 11)), zero);\
+			__m128i l50 = _mm_unpacklo_epi8(d50, zero);\
+			__m128i l58 = _mm_unpackhi_epi8(d50, zero);\
+			__m128i l5G = _mm_srli_si128(l5D, 6);\
+			__m128i l51 = _mm_alignr_epi8(l58, l50, 2);\
+			__m128i l52 = _mm_alignr_epi8(l58, l50, 4);\
+			__m128i l53 = _mm_alignr_epi8(l58, l50, 6);\
+			__m128i l54 = _mm_alignr_epi8(l58, l50, 8);\
+			__m128i l55 = _mm_alignr_epi8(l58, l50, 10);\
+			__m128i l59 = _mm_alignr_epi8(l5G, l58, 2);\
+			__m128i l5A = _mm_alignr_epi8(l5G, l58, 4);\
+			__m128i l5B = _mm_alignr_epi8(l5G, l58, 6);\
+			__m128i l5C = _mm_alignr_epi8(l5G, l58, 8);\
+			__m128i h50 = filter_36tapU_8bit(l50, l51, l52, l53, l54, l55);\
+			__m128i h58 = filter_36tapU_8bit(l58, l59, l5A, l5B, l5C, l5D);\
+			__m128i hv0 = filter_36tapD_8bit(h00, h10, h20, h30, h40, h50, zero);\
+			__m128i hv1 = filter_36tapD_8bit(h08, h18, h28, h38, h48, h58, zero);\
+			__m128i hv = _mm_packus_epi16(hv0, hv1);\
+			*(__m128i *)dst = P;\
+			h00 = h10, h08 = h18;\
+			h10 = h20, h18 = h28;\
+			h20 = h30, h28 = h38;\
+			h30 = h40, h38 = h48;\
+			h40 = h50, h48 = h58;\
+		}\
+		return ponderation_16x16();\
+	}\
+
+INTER16x16_QPEL_12_22_32(qpel12, packus_6tapD_8bit(h20, h28, hv, zero))
+INTER16x16_QPEL_12_22_32(qpel22, hv)
+INTER16x16_QPEL_12_22_32(qpel32, packus_6tapD_8bit(h30, h38, hv, zero))

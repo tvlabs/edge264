@@ -5,6 +5,7 @@
 // TODO: in filter_36tapD_8bit, see if we can remove the last shift right by more aggressive previous shifts
 // TODO: allow reads past buffer on condition that 16 bytes are allocated past buffer ?
 // TODO: optimize INTER4x4_QPEL_21_22_23
+// TODO: see if there are many unpacklo(.., zero) that need a function for movzx
 
 #include "edge264_common.h"
 
@@ -21,6 +22,11 @@ int ponderation_16x16();
 
 
 
+/**
+ * Loading 8x1 and 4x2 matrices is critical and deserves specific tricks.
+ * Beware we are doing unaligned loads here and count on processors to succeed
+ * silently, this has not yet been tested on AMD chips.
+ */
 #ifdef __SSE4_1__
 static inline __m128i load8x1_8bit(uint8_t *p, __m128i zero) {
 	return _mm_cvtepu8_epi16(_mm_loadu_si64(p));
@@ -302,23 +308,28 @@ INTER4x4_QPEL_31_33(qpel33, 3, 1)
 		__m128i l60 = load8x1_8bit(q               - 2, zero);\
 		__m128i l70 = load8x1_8bit(q +  stride     - 2, zero);\
 		__m128i l80 = load8x1_8bit(q +  stride * 2 - 2, zero);\
-		int q08 = p[nstride * 2 + 6];\
-		int q18 = p[nstride     + 6];\
-		int q28 = p[              6];\
-		int q38 = p[ stride     + 6];\
-		int q48 = p[ stride * 2 + 6];\
-		int q58 = q[nstride     + 6];\
-		int q68 = q[              6];\
-		int q78 = q[ stride     + 6];\
-		int q88 = q[ stride * 2 + 6];\
+		__m128i c88 = _mm_set_epi8(q[ stride     + 6], q[              6],\
+			q[nstride     + 6], p[ stride * 2 + 6], p[ stride     + 6],\
+			p[              6], p[nstride     + 6], p[nstride * 2 + 6],\
+			0, 0, 0, 0, 0, 0, 0, q[ stride * 2 + 6]);\
+		__m128i c08 = _mm_unpackhi_epi8(c88, zero);\
+		__m128i c18 = _mm_srli_si128(c08, 2);\
+		__m128i c28 = _mm_srli_si128(c08, 4);\
+		__m128i c38 = _mm_srli_si128(c08, 6);\
+		__m128i c48 = _mm_srli_si128(c08, 8);\
+		__m128i c58 = _mm_alignr_epi8(c88, c08, 10);\
 		__m128i x00 = filter_36tapU_8bit(l00, l10, l20, l30, l40, l50);\
-		__m128i x01 = _mm_alignr_epi8(filter_36tapU_scalar(q08, q18, q28, q38, q48, q58), x00, 2);\
 		__m128i x10 = filter_36tapU_8bit(l10, l20, l30, l40, l50, l60);\
-		__m128i x11 = _mm_alignr_epi8(filter_36tapU_scalar(q18, q28, q38, q48, q58, q68), x10, 2);\
 		__m128i x20 = filter_36tapU_8bit(l20, l30, l40, l50, l60, l70);\
-		__m128i x21 = _mm_alignr_epi8(filter_36tapU_scalar(q28, q38, q48, q58, q68, q78), x20, 2);\
 		__m128i x30 = filter_36tapU_8bit(l30, l40, l50, l60, l70, l80);\
-		__m128i x31 = _mm_alignr_epi8(filter_36tapU_scalar(q38, q48, q58, q68, q78, q88), x30, 2);\
+		__m128i x08 = filter_36tapU_8bit(c08, c18, c28, c38, c48, c58);\
+		__m128i x01 = _mm_alignr_epi8(x08, x00, 2);\
+		__m128i x18 = _mm_srli_si128(x08, 2);\
+		__m128i x11 = _mm_alignr_epi8(x18, x10, 2);\
+		__m128i x28 = _mm_srli_si128(x18, 2);\
+		__m128i x21 = _mm_alignr_epi8(x28, x20, 2);\
+		__m128i x38 = _mm_srli_si128(x28, 2);\
+		__m128i x31 = _mm_alignr_epi8(x38, x30, 2);\
 		__m128i y00 = (__m128i)_mm_shuffle_ps((__m128)x00, (__m128)x10, _MM_SHUFFLE(1, 0, 1, 0));\
 		__m128i y01 = (__m128i)_mm_shuffle_ps((__m128)x01, (__m128)x11, _MM_SHUFFLE(1, 0, 1, 0));\
 		__m128i y02 = (__m128i)_mm_shuffle_ps((__m128)x00, (__m128)x10, _MM_SHUFFLE(2, 1, 2, 1));\

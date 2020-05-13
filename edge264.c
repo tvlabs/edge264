@@ -785,12 +785,12 @@ static int parse_pic_parameter_set(Edge264_stream *e)
 	ctx->ps.bottom_field_pic_order_in_frame_present_flag = get_u1();
 	int num_slice_groups = get_ue(7) + 1;
 	printf("<li%s>pic_parameter_set_id: <code>%u</code></li>\n"
-		"<li%s>seq_parameter_set_id: <code>%u</code></li>\n"
+		"<li>seq_parameter_set_id: <code>%u</code></li>\n"
 		"<li%s>entropy_coding_mode_flag: <code>%x</code></li>\n"
 		"<li>bottom_field_pic_order_in_frame_present_flag: <code>%x</code></li>\n"
 		"<li%s>num_slice_groups: <code>%u</code></li>\n",
 		red_if(pic_parameter_set_id >= 4), pic_parameter_set_id,
-		red_if(seq_parameter_set_id != 0), seq_parameter_set_id,
+		seq_parameter_set_id,
 		red_if(!ctx->ps.entropy_coding_mode_flag), ctx->ps.entropy_coding_mode_flag,
 		ctx->ps.bottom_field_pic_order_in_frame_present_flag,
 		red_if(num_slice_groups > 1), num_slice_groups);
@@ -887,9 +887,9 @@ static int parse_pic_parameter_set(Edge264_stream *e)
 	// seq_parameter_set_id was ignored so far since no SPS data was read.
 	if (get_uv(24) != 0x800000 || e->DPB == NULL)
 		return -2;
-	if (pic_parameter_set_id >= 4 || seq_parameter_set_id > 0 ||
-		!ctx->ps.entropy_coding_mode_flag || num_slice_groups > 1 ||
-		ctx->ps.constrained_intra_pred_flag || redundant_pic_cnt_present_flag)
+	if (pic_parameter_set_id >= 4 || !ctx->ps.entropy_coding_mode_flag ||
+		num_slice_groups > 1 || ctx->ps.constrained_intra_pred_flag ||
+		redundant_pic_cnt_present_flag)
 		return -1;
 	e->PPSs[pic_parameter_set_id] = ctx->ps;
 	return 0;
@@ -1129,7 +1129,7 @@ static int parse_seq_parameter_set(Edge264_stream *e)
 	int profile_idc = get_uv(8);
 	int constraint_set_flags = get_uv(8);
 	int level_idc = get_uv(8);
-	int seq_parameter_set_id = get_ue(31);
+	int seq_parameter_set_id = get_ue(31); // ignored until useful cases arise
 	printf("<li>profile_idc: <code>%u (%s)</code></li>\n"
 		"<li>constraint_set0_flag: <code>%x</code></li>\n"
 		"<li>constraint_set1_flag: <code>%x</code></li>\n"
@@ -1138,7 +1138,7 @@ static int parse_seq_parameter_set(Edge264_stream *e)
 		"<li>constraint_set4_flag: <code>%x</code></li>\n"
 		"<li>constraint_set5_flag: <code>%x</code></li>\n"
 		"<li>level_idc: <code>%f</code></li>\n"
-		"<li%s>seq_parameter_set_id: <code>%u</code></li>\n",
+		"<li>seq_parameter_set_id: <code>%u</code></li>\n",
 		profile_idc, profile_idc_names[profile_idc],
 		constraint_set_flags >> 7,
 		(constraint_set_flags >> 6) & 1,
@@ -1147,7 +1147,7 @@ static int parse_seq_parameter_set(Edge264_stream *e)
 		(constraint_set_flags >> 3) & 1,
 		(constraint_set_flags >> 2) & 1,
 		(double)level_idc / 10,
-		red_if(seq_parameter_set_id != 0), seq_parameter_set_id);
+		seq_parameter_set_id);
 	
 	ctx->ps.chroma_format_idc = 1;
 	ctx->ps.ChromaArrayType = 1;
@@ -1307,7 +1307,7 @@ static int parse_seq_parameter_set(Edge264_stream *e)
 		parse_vui_parameters();
 	if (get_uv(24) != 0x800000)
 		return -2;
-	if (seq_parameter_set_id > 0 || ctx->ps.chroma_format_idc != ctx->ps.ChromaArrayType ||
+	if (ctx->ps.chroma_format_idc != ctx->ps.ChromaArrayType ||
 		ctx->ps.qpprime_y_zero_transform_bypass_flag || !ctx->ps.frame_mbs_only_flag)
 		return -1;
 	

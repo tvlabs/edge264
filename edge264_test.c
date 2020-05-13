@@ -13,6 +13,7 @@
 #define RED    "\x1b[31m"
 #define GREEN  "\x1b[32m"
 #define YELLOW "\x1b[33m"
+#define BLUE   "\x1b[34m"
 #define RESET  "\x1b[0m"
 
 
@@ -25,7 +26,7 @@ static int check_frame(Edge264_stream *e, int idx) {
 
 
 int main() {
-	int counts[3] = {0, 0, 0};
+	int counts[4] = {0, 0, 0, 0};
 	struct dirent *entry;
 	struct stat stC, stD;
 	Edge264_stream e = {.output_frame = check_frame};
@@ -66,7 +67,7 @@ int main() {
 		while (Edge264_decode_NAL(&e) == 0);
 		int ret = Edge264_end_stream(&e);
 		counts[-ret]++;
-		printf("%s\n" RESET, ret == -2 ? RED "FAIL" : ret == -1 ? YELLOW "UNSUPPORTED" : GREEN "PASS");
+		printf("%s\n" RESET, ret == -1 ? YELLOW "UNSUPPORTED" : ret == -2 ? RED "FAIL" : ret == -3 ? BLUE "FLAGGED" : GREEN "PASS");
 		
 		// close everything
 		munmap(cpb, stC.st_size);
@@ -75,7 +76,10 @@ int main() {
 		close(yuv);
 	}
 	closedir(dir);
-	printf("\n%d " GREEN "PASS" RESET ", %d " YELLOW "UNSUPPORTED" RESET ", %d " RED "FAIL" RESET "\n",
+	putchar('\n');
+	if (counts[3] > 0)
+		printf("%d " BLUE "FLAGGED" RESET ", ", counts[3]);
+	printf("%d " GREEN "PASS" RESET ", %d " YELLOW "UNSUPPORTED" RESET ", %d " RED "FAIL" RESET "\n",
 		counts[0], counts[1], counts[2]);
 	return 0;
 }

@@ -1,8 +1,4 @@
-// TODO: Reload values from memory in 8x8 to prevent spills
-// TODO: Add pmadd weighting in the functions
-// TODO: in filter_36tapD_8bit, see if we can remove the last shift right by more aggressive previous shifts
-// TODO: allow reads past buffer on condition that 16 bytes are allocated past buffer ?
-// TODO: see if there are many unpacklo(.., zero) that need a function for movzx
+// TODO: Add pmaddubsw weighting in the functions
 
 #include "edge264_common.h"
 
@@ -86,13 +82,6 @@ static inline __attribute__((always_inline)) __m128i filter_36tapU_8bit(
 	__m128i c = _mm_add_epi16(x2, x3);
 	__m128i x6 = _mm_sub_epi16(_mm_slli_epi16(c, 2), b); // c*4-b
 	return _mm_add_epi16(_mm_add_epi16(a, x6), _mm_slli_epi16(x6, 2)); // a+(c*4-b)*5
-}
-
-static inline __attribute__((always_inline)) __m128i filter_36tapU_scalar(
-	int s0, int s1, int s2, int s3, int s4, int s5)
-{
-	// GCC and clang do an amazing job at optimizing this already
-	return _mm_cvtsi32_si128((s0+s5) - (s1+s4) * 5 - (s2+s3) * 20);
 }
 
 static inline __attribute__((always_inline)) __m128i filter_36tapD_8bit(__m128i x0,

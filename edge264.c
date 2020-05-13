@@ -517,20 +517,20 @@ static int parse_slice_layer_without_partitioning(Edge264_stream *e)
 	ctx->slice_type = (slice_type < 5) ? slice_type : slice_type - 5;
 	int pic_parameter_set_id = get_ue(255);
 	printf("<li%s>first_mb_in_slice: <code>%u</code></li>\n"
-		"<li%s>slice_type: <code>%u (%s)</code></li>\n"
+		"<li>slice_type: <code>%u (%s)</code></li>\n"
 		"<li%s>pic_parameter_set_id: <code>%u</code></li>\n",
 		red_if(first_mb_in_slice > 0), first_mb_in_slice,
-		red_if(ctx->slice_type != 2), slice_type, slice_type_names[ctx->slice_type],
+		red_if(ctx->slice_type > 2), slice_type, slice_type_names[ctx->slice_type],
 		red_if(pic_parameter_set_id >= 4 || e->PPSs[pic_parameter_set_id].num_ref_idx_active[0] == 0), pic_parameter_set_id);
 	
-	// check that the requested PPS was initialised and is supported
-	if (pic_parameter_set_id >= 4)
-		return -1;
-	if (e->PPSs[pic_parameter_set_id].num_ref_idx_active[0] == 0)
+	// If pic_parameter_set_id>=4 then it cannot have been initialized before, thus is erroneous.
+	if (pic_parameter_set_id >= 4 || e->PPSs[pic_parameter_set_id].num_ref_idx_active[0] == 0)
 		return -2;
+	if (ctx->slice_type > 2)
+		return -1;
 	ctx->ps = e->PPSs[pic_parameter_set_id];
 	
-	// Computing an absolute FrameNum simplifies further code.
+	// Gaps in frame_num are currently ignored until implementing Error Concealment.
 	unsigned relFrameNum = get_uv(ctx->ps.log2_max_frame_num) - e->prevFrameNum;
 	e->FrameNum[e->currPic] =
 		e->prevFrameNum += relFrameNum & ~(-1u << ctx->ps.log2_max_frame_num);
@@ -597,12 +597,6 @@ static int parse_slice_layer_without_partitioning(Edge264_stream *e)
 				ctx->direct_spatial_mv_pred_flag);
 		}
 		
-		// Use the last decoded picture for reference when at least one is missing.
-		uint16_t top = e->reference_flags, bot = e->reference_flags >> 16;
-		unsigned refs = (ctx->field_pic_flag) ? top | bot : top & bot;
-		if (refs == 0)
-			e->reference_flags |= 0x10001 << e->currPic;
-		
 		// num_ref_idx_active_override_flag
 		if (get_u1()) {
 			for (int l = 0; l <= ctx->slice_type; l++) {
@@ -648,7 +642,7 @@ static int parse_slice_layer_without_partitioning(Edge264_stream *e)
 	}
 	
 	// If we have the guts to decode this frame, fill ctx with useful values.
-	if (first_mb_in_slice > 0 || ctx->slice_type != 2 || ctx->disable_deblocking_filter_idc != 1)
+	if (first_mb_in_slice > 0 || ctx->disable_deblocking_filter_idc != 1)
 		return -1;
 	initialise_decoding_context(e);
 	

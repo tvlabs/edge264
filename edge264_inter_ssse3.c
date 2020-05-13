@@ -1,6 +1,5 @@
 // TODO: Reload values from memory in 8x8 to prevent spills
 // TODO: Add pmadd weighting in the functions
-// TODO: initialize zero in each function since clang prefers
 // TODO: in filter_36tapD_8bit, see if we can remove the last shift right by more aggressive previous shifts
 // TODO: allow reads past buffer on condition that 16 bytes are allocated past buffer ?
 // TODO: see if there are many unpacklo(.., zero) that need a function for movzx
@@ -163,14 +162,16 @@ static inline __attribute__((always_inline)) __m128i packus_6tapD_8bit(
  * to reduce 16 (big) functions down to 7. This is a lot of code, but all qpel
  * 4x4 interpolations are done in registers without intermediate steps!
  */
-int inter4x4_qpel00_8bit(__m128i zero, size_t stride, ssize_t nstride, uint8_t *p, uint8_t *q) {
+int inter4x4_qpel00_8bit(size_t stride, ssize_t nstride, uint8_t *p, uint8_t *q) {
+	__m128i zero = _mm_setzero_si128();
 	__m128i m22 = load4x2_8bit(p             , p +  stride, zero);
 	__m128i m42 = load4x2_8bit(p + stride * 2, q + nstride, zero);
 	return ponderation_4x4(m22, m42);
 }
 
 #define INTER4x4_QPEL_01_02_03(QPEL, P0, P1)\
-	int inter4x4_ ## QPEL ## _8bit(__m128i zero, size_t stride, ssize_t nstride, uint8_t *p, uint8_t *q) {\
+	int inter4x4_ ## QPEL ## _8bit(size_t stride, ssize_t nstride, uint8_t *p, uint8_t *q) {\
+		__m128i zero = _mm_setzero_si128();\
 		__m128i l20 = load8x1_8bit(p               - 2, zero);\
 		__m128i l21 = load8x1_8bit(p               - 1, zero);\
 		__m128i l30 = load8x1_8bit(p +  stride     - 2, zero);\
@@ -201,7 +202,8 @@ INTER4x4_QPEL_01_02_03(qpel02, h0, h1)
 INTER4x4_QPEL_01_02_03(qpel03, _mm_avg_epu16(h0, m23), _mm_avg_epu16(h1, m43))
 
 #define INTER4x4_QPEL_10_20_30(QPEL, P0, P1)\
-	int inter4x4_ ## QPEL ## _8bit(__m128i zero, size_t stride, ssize_t nstride, uint8_t *p, uint8_t *q) {\
+	int inter4x4_ ## QPEL ## _8bit(size_t stride, ssize_t nstride, uint8_t *p, uint8_t *q) {\
+		__m128i zero = _mm_setzero_si128();\
 		__m128i m02 = load4x2_8bit(p + nstride * 2, p + nstride    , zero);\
 		__m128i m22 = load4x2_8bit(p              , p +  stride    , zero);\
 		__m128i m42 = load4x2_8bit(p +  stride * 2, q + nstride    , zero);\
@@ -220,7 +222,8 @@ INTER4x4_QPEL_10_20_30(qpel20, v0, v1)
 INTER4x4_QPEL_10_20_30(qpel30, _mm_avg_epu16(v0, m32), _mm_avg_epu16(v1, m52))
 
 #define INTER4x4_QPEL_11_13(QPEL, C, OFFSET)\
-	int inter4x4_ ## QPEL ## _8bit(__m128i zero, size_t stride, ssize_t nstride, uint8_t *p, uint8_t *q) {\
+	int inter4x4_ ## QPEL ## _8bit(size_t stride, ssize_t nstride, uint8_t *p, uint8_t *q) {\
+		__m128i zero = _mm_setzero_si128();\
 		__m128i l20 = load8x1_8bit(p               - 2, zero);\
 		__m128i l21 = load8x1_8bit(p               - 1, zero);\
 		__m128i l30 = load8x1_8bit(p +  stride     - 2, zero);\
@@ -258,7 +261,8 @@ INTER4x4_QPEL_11_13(qpel11, 2, 0)
 INTER4x4_QPEL_11_13(qpel13, 3, 1)
 
 #define INTER4x4_QPEL_31_33(QPEL, C, OFFSET)\
-	int inter4x4_ ## QPEL ## _8bit(__m128i zero, size_t stride, ssize_t nstride, uint8_t *p, uint8_t *q) {\
+	int inter4x4_ ## QPEL ## _8bit(size_t stride, ssize_t nstride, uint8_t *p, uint8_t *q) {\
+		__m128i zero = _mm_setzero_si128();\
 		__m128i l30 = load8x1_8bit(p +  stride     - 2, zero);\
 		__m128i l31 = load8x1_8bit(p +  stride     - 1, zero);\
 		__m128i l40 = load8x1_8bit(p +  stride * 2 - 2, zero);\
@@ -296,7 +300,8 @@ INTER4x4_QPEL_31_33(qpel31, 2, 0)
 INTER4x4_QPEL_31_33(qpel33, 3, 1)
 
 #define INTER4x4_QPEL_21_22_23(QPEL, P0, P1)\
-	int inter4x4_ ## QPEL ## _8bit(__m128i zero, size_t stride, ssize_t nstride, uint8_t *p, uint8_t *q) {\
+	int inter4x4_ ## QPEL ## _8bit(size_t stride, ssize_t nstride, uint8_t *p, uint8_t *q) {\
+		__m128i zero = _mm_setzero_si128();\
 		__m128i l00 = load8x1_8bit(p + nstride * 2 - 2, zero);\
 		__m128i l10 = load8x1_8bit(p + nstride     - 2, zero);\
 		__m128i l20 = load8x1_8bit(p               - 2, zero);\
@@ -350,7 +355,8 @@ INTER4x4_QPEL_21_22_23(qpel22, vh0, vh1)
 INTER4x4_QPEL_21_22_23(qpel23, avg_6tapD_8bit(y03, vh0, zero), avg_6tapD_8bit(y23, vh1, zero))
 
 #define INTER4x4_QPEL_12_32(QPEL, P0, P1)\
-	int inter4x4_ ## QPEL ## _8bit(__m128i zero, size_t stride, ssize_t nstride, uint8_t *p, uint8_t *q) {\
+	int inter4x4_ ## QPEL ## _8bit(size_t stride, ssize_t nstride, uint8_t *p, uint8_t *q) {\
+		__m128i zero = _mm_setzero_si128();\
 		__m128i l00 = load8x1_8bit(p + nstride * 2 - 2, zero);\
 		__m128i l01 = load8x1_8bit(p + nstride * 2 - 1, zero);\
 		__m128i l10 = load8x1_8bit(p + nstride     - 2, zero);\
@@ -423,7 +429,8 @@ INTER4x4_QPEL_12_32(qpel32, x30, x50)
  * needs less shuffling. Unrolling would mean a lot of copy/paste and code,
  * thus we use loops and leave it to compilers to decide (they do a bit at O3).
  */
-int inter8x8_qpel00_8bit(__m128i zero, size_t stride, ssize_t nstride, uint8_t *p, __m128i *dst) {
+int inter8x8_qpel00_8bit(size_t stride, ssize_t nstride, uint8_t *p, __m128i *dst) {
+	__m128i zero = _mm_setzero_si128();
 	uint8_t *q = p + stride * 4;
 	dst[0] = load8x1_8bit(p              , zero);
 	dst[1] = load8x1_8bit(p +  stride    , zero);
@@ -437,7 +444,8 @@ int inter8x8_qpel00_8bit(__m128i zero, size_t stride, ssize_t nstride, uint8_t *
 }
 
 #define INTER8x8_QPEL_01_02_03(QPEL, P)\
-	int inter8x8_ ## QPEL ## _8bit(__m128i zero, size_t stride, ssize_t nstride, uint8_t *p, __m128i *dst) {\
+	int inter8x8_ ## QPEL ## _8bit(size_t stride, ssize_t nstride, uint8_t *p, __m128i *dst) {\
+		__m128i zero = _mm_setzero_si128();\
 		for (int i = 0; i < 8; i++, p += stride) {\
 			__m128i l05 = load8x1_8bit(p + 3, zero);\
 			__m128i l00 = load8x1_8bit(p - 2, zero);\
@@ -457,7 +465,8 @@ INTER8x8_QPEL_01_02_03(qpel02, h)
 INTER8x8_QPEL_01_02_03(qpel03, _mm_avg_epu16(h, l03))
 
 #define INTER8x8_QPEL_10_20_30(QPEL, P)\
-	int inter8x8_ ## QPEL ## _8bit(__m128i zero, size_t stride, ssize_t nstride, uint8_t *p, __m128i *dst) {\
+	int inter8x8_ ## QPEL ## _8bit(size_t stride, ssize_t nstride, uint8_t *p, __m128i *dst) {\
+		__m128i zero = _mm_setzero_si128();\
 		__m128i l00 = load8x1_8bit(p + nstride * 2, zero);\
 		__m128i l10 = load8x1_8bit(p + nstride    , zero);\
 		__m128i l20 = load8x1_8bit(p              , zero);\
@@ -478,7 +487,8 @@ INTER8x8_QPEL_10_20_30(qpel20, v)
 INTER8x8_QPEL_10_20_30(qpel30, _mm_avg_epu16(v, l30))
 
 #define INTER8x8_QPEL_11_31(QPEL, R)\
-	int inter8x8_ ## QPEL ## _8bit(__m128i zero, size_t stride, ssize_t nstride, uint8_t *p, __m128i *dst) {\
+	int inter8x8_ ## QPEL ## _8bit(size_t stride, ssize_t nstride, uint8_t *p, __m128i *dst) {\
+		__m128i zero = _mm_setzero_si128();\
 		__m128i shuf2 = (__m128i)(v16qi){2, -1, 3, -1, 4, -1, 5, -1, 6, -1, 7, -1, 11, -1, 12, -1};\
 		__m128i shufA = (__m128i)(v16qi){13, -1, 14, -1, 15, -1, -1, -1, -1, -1, -1, -1, 0, -1, 1, -1};\
 		__m128i l02 = load8x1_8bit(p + nstride * 2, zero);\
@@ -518,7 +528,8 @@ INTER8x8_QPEL_11_31(qpel11, 2)
 INTER8x8_QPEL_11_31(qpel31, 3)
 
 #define INTER8x8_QPEL_13_33(QPEL, R)\
-	int inter8x8_ ## QPEL ## _8bit(__m128i zero, size_t stride, ssize_t nstride, uint8_t *p, __m128i *dst) {\
+	int inter8x8_ ## QPEL ## _8bit(size_t stride, ssize_t nstride, uint8_t *p, __m128i *dst) {\
+		__m128i zero = _mm_setzero_si128();\
 		__m128i shuf3 = (__m128i)(v16qi){3, -1, 4, -1, 5, -1, 6, -1, 7, -1, 11, -1, 12, -1, 13, -1};\
 		__m128i shufB = (__m128i)(v16qi){14, -1, 15, -1, -1, -1, -1, -1, -1, -1, 0, -1, 1, -1, 2, -1};\
 		__m128i l03 = load8x1_8bit(p + nstride * 2 + 1, zero);\
@@ -558,7 +569,8 @@ INTER8x8_QPEL_13_33(qpel13, 2)
 INTER8x8_QPEL_13_33(qpel33, 3)
 
 #define INTER8x8_QPEL_21_23(QPEL, P)\
-	int inter8x8_ ## QPEL ## _8bit(__m128i zero, size_t stride, ssize_t nstride, uint8_t *p, __m128i *dst) {\
+	int inter8x8_ ## QPEL ## _8bit(size_t stride, ssize_t nstride, uint8_t *p, __m128i *dst) {\
+		__m128i zero = _mm_setzero_si128();\
 		__m128i l00 = load8x1_8bit(p + nstride * 2 - 2, zero);\
 		__m128i l05 = load8x1_8bit(p + nstride * 2 + 3, zero);\
 		__m128i l10 = load8x1_8bit(p + nstride     - 2, zero);\
@@ -595,7 +607,8 @@ INTER8x8_QPEL_21_23(qpel21, avg_6tapD_8bit(x02, vh, zero))
 INTER8x8_QPEL_21_23(qpel23, avg_6tapD_8bit(x03, vh, zero))
 
 #define INTER8x8_QPEL_12_22_32(QPEL, P)\
-	int inter8x8_ ## QPEL ## _8bit(__m128i zero, size_t stride, ssize_t nstride, uint8_t *p, __m128i *dst) {\
+	int inter8x8_ ## QPEL ## _8bit(size_t stride, ssize_t nstride, uint8_t *p, __m128i *dst) {\
+		__m128i zero = _mm_setzero_si128();\
 		__m128i l05 = load8x1_8bit(p + nstride * 2 + 3, zero);\
 		__m128i l00 = load8x1_8bit(p + nstride * 2 - 2, zero);\
 		__m128i l08 = _mm_srli_si128(l05, 6);\
@@ -667,7 +680,7 @@ INTER8x8_QPEL_12_22_32(qpel32, avg_6tapD_8bit(x30, hv, zero))
  * Here more than previous code, we are confronted with very high register
  * pressure and will rather reload values from memory than keeping them live.
  */
-int inter16x16_qpel00_8bit(__m128i zero, size_t stride, ssize_t nstride, uint8_t *p, size_t dstStride, __m128i *dst) {
+int inter16x16_qpel00_8bit(size_t stride, ssize_t nstride, uint8_t *p, size_t dstStride, __m128i *dst) {
 	ssize_t nStride = -dstStride;
 	*(__m128i *)(dst                ) = _mm_lddqu_si128((__m128i *)(p              ));
 	*(__m128i *)(dst + dstStride    ) = _mm_lddqu_si128((__m128i *)(p +  stride    ));
@@ -695,7 +708,8 @@ int inter16x16_qpel00_8bit(__m128i zero, size_t stride, ssize_t nstride, uint8_t
 }
 
 #define INTER16x16_QPEL_01_02_03(QPEL, P)\
-	int inter16x16_ ## QPEL ## _8bit(__m128i zero, size_t stride, ssize_t nstride, uint8_t *p, size_t dstStride, __m128i *dst) {\
+	int inter16x16_ ## QPEL ## _8bit(size_t stride, ssize_t nstride, uint8_t *p, size_t dstStride, __m128i *dst) {\
+		__m128i zero = _mm_setzero_si128();\
 		for (int i = 0; i < 16; i++, p += stride, dst += dstStride) {\
 			__m128i d00 = _mm_lddqu_si128((__m128i *)(p - 2));\
 			__m128i l0D = load8x1_8bit(p + 11, zero);\
@@ -724,7 +738,8 @@ INTER16x16_QPEL_01_02_03(qpel02, h)
 INTER16x16_QPEL_01_02_03(qpel03, _mm_avg_epu8(h, _mm_lddqu_si128((__m128i *)(p + 1))))
 
 #define INTER16x16_QPEL_10_20_30(QPEL, P)\
-	int inter16x16_ ## QPEL ## _8bit(__m128i zero, size_t stride, ssize_t nstride, uint8_t *p, size_t dstStride, __m128i *dst) {\
+	int inter16x16_ ## QPEL ## _8bit(size_t stride, ssize_t nstride, uint8_t *p, size_t dstStride, __m128i *dst) {\
+		__m128i zero = _mm_setzero_si128();\
 		__m128i d00 = _mm_lddqu_si128((__m128i *)(p + nstride * 2));\
 		__m128i d10 = _mm_lddqu_si128((__m128i *)(p + nstride    ));\
 		__m128i d20 = _mm_lddqu_si128((__m128i *)(p              ));\
@@ -763,7 +778,8 @@ INTER16x16_QPEL_10_20_30(qpel20, v)
 INTER16x16_QPEL_10_20_30(qpel30, _mm_avg_epu8(v, _mm_lddqu_si128((__m128i *)(p + stride))))
 
 #define INTER16x16_QPEL_11_13(QPEL, R, S, OFFSET)\
-	int inter16x16_ ## QPEL ## _8bit(__m128i zero, size_t stride, ssize_t nstride, uint8_t *p, size_t dstStride, __m128i *dst) {\
+	int inter16x16_ ## QPEL ## _8bit(size_t stride, ssize_t nstride, uint8_t *p, size_t dstStride, __m128i *dst) {\
+		__m128i zero = _mm_setzero_si128();\
 		__m128i d0##R = _mm_lddqu_si128((__m128i *)(p + nstride * 2 + OFFSET));\
 		__m128i d1##R = _mm_lddqu_si128((__m128i *)(p + nstride     + OFFSET));\
 		__m128i l0##R = _mm_unpacklo_epi8(d0##R, zero);\
@@ -811,7 +827,8 @@ INTER16x16_QPEL_11_13(qpel11, 2, A, 0)
 INTER16x16_QPEL_11_13(qpel13, 3, B, 1)
 
 #define INTER16x16_QPEL_31_33(QPEL, R, S, OFFSET)\
-	int inter16x16_ ## QPEL ## _8bit(__m128i zero, size_t stride, ssize_t nstride, uint8_t *p, size_t dstStride, __m128i *dst) {\
+	int inter16x16_ ## QPEL ## _8bit(size_t stride, ssize_t nstride, uint8_t *p, size_t dstStride, __m128i *dst) {\
+		__m128i zero = _mm_setzero_si128();\
 		__m128i d0##R = _mm_lddqu_si128((__m128i *)(p + nstride * 2 + OFFSET));\
 		__m128i d1##R = _mm_lddqu_si128((__m128i *)(p + nstride     + OFFSET));\
 		__m128i d2##R = _mm_lddqu_si128((__m128i *)(p               + OFFSET));\
@@ -860,7 +877,8 @@ INTER16x16_QPEL_31_33(qpel31, 2, A, 0)
 INTER16x16_QPEL_31_33(qpel33, 3, B, 1)
 
 #define INTER16x16_QPEL_21_23(QPEL, P)\
-	int inter16x16_ ## QPEL ## _8bit(__m128i zero, size_t stride, ssize_t nstride, uint8_t *p, size_t dstStride, __m128i *dst) {\
+	int inter16x16_ ## QPEL ## _8bit(size_t stride, ssize_t nstride, uint8_t *p, size_t dstStride, __m128i *dst) {\
+		__m128i zero = _mm_setzero_si128();\
 		for (int i = 0; i < 16; i++, dst += dstStride) {\
 			__m128i d00 = _mm_lddqu_si128((__m128i *)(p + nstride * 2 - 2));\
 			__m128i l0D = load8x1_8bit(p + nstride * 2 + 11, zero);\
@@ -913,7 +931,8 @@ INTER16x16_QPEL_21_23(qpel23, packus_6tapD_8bit(v03, v0B, vh, zero))
 
 // with an array on stack or a preliminary loop, both compilers get crazy
 #define INTER16x16_QPEL_12_22_32(QPEL, P)\
-	int inter16x16_ ## QPEL ## _8bit(__m128i zero, size_t stride, ssize_t nstride, uint8_t *p, size_t dstStride, __m128i *dst) {\
+	int inter16x16_ ## QPEL ## _8bit(size_t stride, ssize_t nstride, uint8_t *p, size_t dstStride, __m128i *dst) {\
+		__m128i zero = _mm_setzero_si128();\
 		__m128i d00 = _mm_lddqu_si128((__m128i *)(p + nstride * 2 - 2));\
 		__m128i l0D = load8x1_8bit(p + nstride * 2 + 11, zero);\
 		__m128i l00 = _mm_unpacklo_epi8(d00, zero);\

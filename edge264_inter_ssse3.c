@@ -1,10 +1,8 @@
 // TODO: Reload values from memory in 8x8 to prevent spills
 // TODO: Add pmadd weighting in the functions
 // TODO: initialize zero in each function since clang prefers
-// TODO: stop using lddqu (very slow on Atom and a bit slower in all)
 // TODO: in filter_36tapD_8bit, see if we can remove the last shift right by more aggressive previous shifts
 // TODO: allow reads past buffer on condition that 16 bytes are allocated past buffer ?
-// TODO: optimize INTER4x4_QPEL_21_22_23
 // TODO: see if there are many unpacklo(.., zero) that need a function for movzx
 
 #include "edge264_common.h"
@@ -729,9 +727,9 @@ INTER16x16_QPEL_01_02_03(qpel03, _mm_avg_epu8(h, _mm_lddqu_si128((__m128i *)(p +
 	int inter16x16_ ## QPEL ## _8bit(__m128i zero, size_t stride, ssize_t nstride, uint8_t *p, size_t dstStride, __m128i *dst) {\
 		__m128i d00 = _mm_lddqu_si128((__m128i *)(p + nstride * 2));\
 		__m128i d10 = _mm_lddqu_si128((__m128i *)(p + nstride    ));\
-		__m128i d20 = _mm_lddqu_si128((__m128i *)(p + nstride * 2));\
-		__m128i d30 = _mm_lddqu_si128((__m128i *)(p + nstride * 2));\
-		__m128i d40 = _mm_lddqu_si128((__m128i *)(p + nstride * 2));\
+		__m128i d20 = _mm_lddqu_si128((__m128i *)(p              ));\
+		__m128i d30 = _mm_lddqu_si128((__m128i *)(p +  stride    ));\
+		__m128i d40 = _mm_lddqu_si128((__m128i *)(p +  stride * 2));\
 		__m128i l00 = _mm_unpacklo_epi8(d00, zero);\
 		__m128i l08 = _mm_unpackhi_epi8(d00, zero);\
 		__m128i l10 = _mm_unpacklo_epi8(d10, zero);\
@@ -913,6 +911,7 @@ INTER16x16_QPEL_31_33(qpel33, 3, B, 1)
 INTER16x16_QPEL_21_23(qpel21, packus_6tapD_8bit(v02, v0A, vh, zero))
 INTER16x16_QPEL_21_23(qpel23, packus_6tapD_8bit(v03, v0B, vh, zero))
 
+// with an array on stack or a preliminary loop, both compilers get crazy
 #define INTER16x16_QPEL_12_22_32(QPEL, P)\
 	int inter16x16_ ## QPEL ## _8bit(__m128i zero, size_t stride, ssize_t nstride, uint8_t *p, size_t dstStride, __m128i *dst) {\
 		__m128i d00 = _mm_lddqu_si128((__m128i *)(p + nstride * 2 - 2));\

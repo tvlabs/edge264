@@ -275,6 +275,7 @@ static void parse_ref_pic_list_modification(const Edge264_stream *e)
 	for (int refIdxL0 = 0; refIdxL0 < 32; refIdxL0++)
 		ctx->MapPicToList0[1 + ctx->RefPicList[0][refIdxL0]] = refIdxL0;
 	ctx->mbCol = NULL; // FIXME
+	// FIXME: Fail if less reference frames than required
 	ctx->col_short_term = ~e->long_term_flags >> (ctx->RefPicList[1][0] & 15) & 1;
 }
 

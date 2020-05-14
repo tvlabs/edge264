@@ -87,85 +87,88 @@ typedef struct {
  */
 typedef struct
 {
-	// core context
-	const uint8_t *CPB;
-	const uint8_t *end;
-	size_t RBSP[2];
-	size_t _codIRange;
-	size_t _codIOffset;
-	int8_t shift; // strictly less than SIZE_BIT
-	int8_t BlkIdx; // index of current AC block (for PredMode), in order Y/Cb/Cr and without gaps
-	uint16_t stride;
-	int16_t x; // 14 significant bits
-	int16_t y;
-	uint8_t *plane_Y;
-	uint8_t *plane_Cb; // plane_Cr is a fixed offset away from this pointer
-	Edge264_flags inc;
-	Edge264_macroblock *_mb;
-	Edge264_macroblock *mbCol;
-	Edge264_stream *e; // for TRACE>0
-	
-	// slice headers
-	uint16_t non_ref_flag:1; // TODO: remove if unnecessary after Inter is done
-	uint16_t IdrPicFlag:1;
-	uint16_t field_pic_flag:1;
-	uint16_t bottom_field_flag:1;
-	uint16_t MbaffFrameFlag:1;
-	uint16_t direct_spatial_mv_pred_flag:1;
-	uint16_t firstRefPicL1:1;
-	uint16_t col_short_term:1;
+	// small variables and slice header
+	Edge264_flags inc; // increments for CABAC indices of macroblock syntax elements
+	uint8_t non_ref_flag:1; // TODO: remove if unnecessary after Inter is done
+	uint8_t IdrPicFlag:1;
+	uint8_t field_pic_flag:1;
+	uint8_t bottom_field_flag:1;
+	uint8_t MbaffFrameFlag:1;
+	uint8_t direct_spatial_mv_pred_flag:1;
+	uint8_t firstRefPicL1:1;
+	uint8_t col_short_term:1;
 	int8_t slice_type; // 3 significant bits
 	int8_t disable_deblocking_filter_idc; // 2 significant bits
 	int8_t FilterOffsetA; // 5 significant bits
 	int8_t FilterOffsetB;
 	int8_t mb_qp_delta_non_zero;
 	int8_t col_offset_C;
-	int32_t row_offset_C;
 	int32_t TopFieldOrderCnt;
 	int32_t BottomFieldOrderCnt;
 	Edge264_parameter_set ps;
 	
-	// context caches
+	// parsing context
+	const uint8_t *CPB; // memory address of next bytes to load in the RBSP
+	const uint8_t *end;
+	size_t RBSP[2];
+	size_t _codIRange; // backup storage when not in a Global Register
+	size_t _codIOffset;
+	int8_t shift; // index of next input bit in RBSP, strictly less than SIZE_BIT
+	int8_t BlkIdx; // index of current AC block (for PredMode), in order Y/Cb/Cr and without gaps
+	int16_t x; // 14 significant bits
+	int16_t y;
+	uint16_t stride;
+	int32_t row_offset_C; // memory offset to increment plane_Cb at the end of a row
+	uint8_t *plane;
+	uint8_t *plane_Y;
+	uint8_t *plane_Cb; // plane_Cr is a fixed offset away from this pointer
+	Edge264_macroblock *_mb; // backup storage when not in a Global Register
+	Edge264_stream *e; // for predicates at TRACE>0
+	v8hi clip_Y; // vector of maximum sample values
+	v8hi clip_C;
+	union { int16_t clip; v8hi clip_v; };
+	union { int8_t unavail[16]; v16qi unavail_v; }; // unavailability of neighbouring A/B/C/D blocks
+	union { int32_t plane_offsets[48]; v4si plane_offsets_v[12]; }; // memory offsets for BlkIdx
+	v16qu cabac[64]; // FIXME: use a union!
+	
+	// neighbouring offsets (relative to the start of each array in mb)
+	union { int16_t coded_block_flags_4x4_A[48]; int16_t Intra4x4PredMode_A[16]; v8hi A4x4_8[6]; };
+	union { int32_t coded_block_flags_4x4_B[48]; int32_t Intra4x4PredMode_B[16]; v4si B4x4_8[12]; };
+	union { int16_t coded_block_flags_8x8_A[12]; int16_t CodedBlockPatternLuma_A[4]; v4hi A8x8_8[3]; };
+	union { int32_t coded_block_flags_8x8_B[12]; int32_t CodedBlockPatternLuma_B[4]; v4si B8x8_8[3]; };
+	
+	// Intra context
+	v16qu pred_offset_C; // BitDepth offset on PredMode from Y to Cb/Cr
+	union { uint8_t intra4x4_modes[9][16]; v16qu intra4x4_modes_v[9]; };
+	union { uint8_t intra8x8_modes[9][16]; v16qu intra8x8_modes_v[9]; };
+	union { uint8_t PredMode[48]; v16qu PredMode_v[3]; };
+	union { int16_t pred_buffer[144]; v8hi pred_buffer_v[18]; }; // temporary storage for prediction samples
+	
+	// Inter context
 	uint32_t mvd_flags;
 	uint32_t mvd_fold;
 	uint32_t ref_idx_mask;
-	uint8_t *plane;
-	v16qu pred_offset_C; // offset on PredMode from Y to Cb/Cr
-	v8hi clip_Y, clip_C; // vectors of maximum sample values
-	union { int16_t clip; v8hi clip_v; };
-	union { int8_t unavail[16]; v16qi unavail_v; }; // unavailability of neighbouring A/B/C/D blocks
+	Edge264_macroblock *mbCol;
 	union { int16_t A8x8[12]; v4hi A8x8_v[3]; };
 	union { int32_t B8x8[12]; v4si B8x8_v[3]; };
 	union { int32_t C8x8[8]; v4si C8x8_v[2]; };
 	union { int16_t mvA[32]; v8hi mvA_v[4]; };
 	union { int32_t mvB[32]; v4si mvB_v[8]; };
 	union { int32_t mvC[32]; v4si mvC_v[8]; };
-	union { int16_t ctxIdxOffsets[4]; v4hi ctxIdxOffsets_l; }; // {cbf,sig_flag,last_sig_flag,coeff_abs}
-	union { int8_t sig_inc[64]; v8qi sig_inc_l; v16qi sig_inc_v[4]; };
-	union { int8_t last_inc[64]; v8qi last_inc_l; v16qi last_inc_v[4]; };
-	union { int8_t scan[64]; v8qi scan_l; v16qi scan_v[4]; };
-	union { int32_t LevelScale[64]; v4si LevelScale_v[16]; };
-	union { int32_t plane_offsets[48]; v4si plane_offsets_v[12]; };
-	union { uint8_t intra4x4_modes[9][16]; v16qu intra4x4_modes_v[9]; };
-	union { uint8_t intra8x8_modes[9][16]; v16qu intra8x8_modes_v[9]; };
-	union { uint8_t PredMode[48]; v16qu PredMode_v[3]; };
-	union { int16_t pred_buffer[144]; v8hi pred_buffer_v[18]; }; // temporary storage for prediction samples
-	union { int32_t d[64]; v4si d_v[16]; v8si d_V[8]; }; // scaled residual coefficients
-	
-	// macroblock offsets (relative to the first element of each array)
-	union { int16_t coded_block_flags_4x4_A[48]; int16_t Intra4x4PredMode_A[16]; v8hi A4x4_8[6]; };
-	union { int32_t coded_block_flags_4x4_B[48]; int32_t Intra4x4PredMode_B[16]; v4si B4x4_8[12]; };
-	union { int16_t coded_block_flags_8x8_A[12]; int16_t CodedBlockPatternLuma_A[4]; v4hi A8x8_8[3]; };
-	union { int32_t coded_block_flags_8x8_B[12]; int32_t CodedBlockPatternLuma_B[4]; v4si B8x8_8[3]; };
-	
-	// large stuff
-	v16qu cabac[64];
 	union { int8_t RefPicList[2][32]; v16qi RefPicList_v[4]; };
 	int8_t MapPicToList0[35]; // [1 + refPic]
 	int16_t DistScaleFactor[3][32]; // [top/bottom/frame][refIdxL0]
 	int16_t weights[3][32][2];
 	int16_t offsets[3][32][2];
 	int8_t implicit_weights[3][32][32]; // -w_1C[top/bottom/frame][refIdxL0][refIdxL1]
+	
+	// Residuals context
+	union { int16_t ctxIdxOffsets[4]; v4hi ctxIdxOffsets_l; }; // {cbf,sig_flag,last_sig_flag,coeff_abs}
+	union { int8_t sig_inc[64]; v8qi sig_inc_l; v16qi sig_inc_v[4]; };
+	union { int8_t last_inc[64]; v8qi last_inc_l; v16qi last_inc_v[4]; };
+	union { int8_t scan[64]; v8qi scan_l; v16qi scan_v[4]; };
+	union { int32_t LevelScale[64]; v4si LevelScale_v[16]; };
+	union { int32_t d[64]; v4si d_v[16]; v8si d_V[8]; }; // scaled residual coefficients
 } Edge264_ctx;
 
 

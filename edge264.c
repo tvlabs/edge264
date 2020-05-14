@@ -176,13 +176,14 @@ static void initialise_decoding_context(Edge264_stream *e)
  */
 static void parse_ref_pic_list_modification(const Edge264_stream *e)
 {
-	// sort the initial list of frames
+	// For P we sort on FrameNum, for B we sort on PicOrderCnt.
 	const int32_t *values = (ctx->slice_type == 0) ? e->FrameNum : e->FieldOrderCnt;
-	unsigned offset = (ctx->slice_type == 0) ? e->prevFrameNum : ctx->TopFieldOrderCnt;
+	unsigned pic_value = (ctx->slice_type == 0) ? e->prevFrameNum : ctx->TopFieldOrderCnt;
 	uint16_t top = e->reference_flags, bot = e->reference_flags >> 16;
 	unsigned refs = (ctx->field_pic_flag) ? top | bot : top & bot;
 	int count[3] = {}; // number of refs before/after/long
 	int next = 0;
+	int num = 0;
 	
 	// This single loop sorts all short and long term references at once.
 	do {
@@ -190,44 +191,64 @@ static void parse_ref_pic_list_modification(const Edge264_stream *e)
 		unsigned r = refs;
 		do {
 			int i = __builtin_ctz(r);
-			int diff = values[i] - offset;
+			int diff = values[i] - pic_value;
 			int ShortTermNum = (diff <= 0) ? -diff : 0x10000 + diff;
 			int LongTermFrameNum = e->FrameNum[i] + 0x20000;
 			int v = (e->long_term_flags & 1 << i) ? LongTermFrameNum : ShortTermNum;
-			if (best > v)
+			if (v < best)
 				best = v, next = i;
 		} while (r &= r - 1);
-		ctx->RefPicList[0][count[0] + count[1] + count[2]] = next;
+		ctx->RefPicList[0][num++] = next;
 		count[best >> 16]++;
 	} while (refs ^= 1 << next);
 	
 	// Fill RefPicListL1 by swapping before/after references
-	for (int i = 0; i < 16; i++)
-		ctx->RefPicList[1][(i < count[0]) ? i + count[1] : (i < count[0] + count[1]) ? i - count[0] : i] = ctx->RefPicList[0][i];
+	for (int src = 0; src < 16; src++) {
+		int dst = (src < count[0]) ? src + count[1] :
+			(src < count[0] + count[1]) ? src - count[0] : src;
+		ctx->RefPicList[1][dst] = ctx->RefPicList[0][src];
+	}
 	
 	// When decoding a field, extract a list of fields from each list of frames.
+	union { int8_t q[32]; v16qi v[2]; } RefFrameList;
 	for (int l = 0; ctx->field_pic_flag && l <= ctx->slice_type; l++) {
-		static const v16qi v16 = {16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16};
 		v16qi v = ctx->RefPicList_v[l * 2];
-		v16qi RefPicList[2] = {v, v + v16};
-		int lim = count[0] + count[1], tot = lim + count[2], n = 0;
-		int i = ctx->bottom_field_flag << 4, j = i ^ 16, k;
+		RefFrameList.v[0] = v;
+		RefFrameList.v[1] = v + (v16qi){16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16};
+		num = 0;
+		int i = ctx->bottom_field_flag << 4; // first parity to check
+		int j = i ^ 16; // other parity to alternate
+		int lim_i = i + count[0] + count[1]; // set a first limit to short term frames
+		int lim_j = j + count[0] + count[1]; // don't init with XOR as there can be 16 refs!
+		int tot = count[0] + count[1] + count[2]; // ... then long term
 		
-		// probably not the most readable portion, yet otherwise needs a lotta code
-		do {
-			if ((i & 15) >= lim)
-				i = (ctx->bottom_field_flag << 4) + lim, j = i ^ 16, lim = tot;
-			int pic = ((int8_t *)RefPicList)[i++]; // FIXME unions
-			if (e->reference_flags & 1 << pic) {
-				ctx->RefPicList[l][n++] = pic;
-				if ((j & 15) < lim)
-					k = i, i = j, j = k; // swap
+		// probably not the most readable portion, yet otherwise needs a lot of code
+		for (int k;;) {
+			if (i >= lim_i) {
+				if (j < lim_j) { // i reached limit but not j, swap them
+					k = i, i = j, j = k;
+					k = lim_i, lim_i = lim_j, lim_j = k;
+				} else if (min(lim_i, lim_j) < tot) { // end of short term refs, go for long
+					int parity = ctx->bottom_field_flag << 4;
+					i = (ctx->bottom_field_flag << 4) + count[0] + count[1];
+					j = i ^ 16;
+					lim_i = i + count[2];
+					lim_j = j + count[2];
+				} else break; // end of long term refs, break
 			}
-		} while ((i & 15) < tot);
+			int pic = RefFrameList.q[i++];
+			if (e->reference_flags & 1 << pic) {
+				ctx->RefPicList[l][num++] = pic;
+				if (j < lim_j) { // swap parity if we have not emptied other parity yet
+					k = i, i = j, j = k;
+					k = lim_i, lim_i = lim_j, lim_j = k;
+				}
+			}
+		}
 	}
 	
 	// RefPicList0==RefPicList1 can be reduced to testing only the first slot.
-	if (ctx->RefPicList[0][0] == ctx->RefPicList[1][0] && count[0] + count[1] + count[2] > 1) {
+	if (num > 1 && memcmp(ctx->RefPicList[0], ctx->RefPicList[1], 32) == 0) {
 		ctx->RefPicList[1][0] = ctx->RefPicList[0][1];
 		ctx->RefPicList[1][1] = ctx->RefPicList[0][0];
 	}
@@ -643,6 +664,7 @@ static int parse_slice_layer_without_partitioning(Edge264_stream *e)
 	}
 	
 	// If we have the guts to decode this frame, fill ctx with useful values.
+	// FIXME: check that we have enough ref frames
 	if (first_mb_in_slice > 0 || ctx->disable_deblocking_filter_idc != 1)
 		return -1;
 	initialise_decoding_context(e);

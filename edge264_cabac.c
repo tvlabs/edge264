@@ -816,7 +816,7 @@ static __attribute__((noinline)) size_t get_ae(int ctxIdx)
 		244, 245,   9,   8, 248, 249,   5,   4, 248, 249,   1,   0, 252, 253,   0,   1,
 	};
 	
-	ssize_t state = ((uint8_t *)ctx->cabac)[ctxIdx];
+	ssize_t state = ctx->cabac[ctxIdx];
 	unsigned shift = SIZE_BIT - 3 - clz(codIRange);
 	// fprintf(stderr, "%u/%u: (%u,%x)", (int)(codIOffset >> (shift - 6)), (int)(codIRange >> (shift - 6)), (int)state >> 2, (int)state & 1);
 	ssize_t idx = (state & -4) + (codIRange >> shift);
@@ -827,7 +827,7 @@ static __attribute__((noinline)) size_t get_ae(int ctxIdx)
 		codIOffset -= codIRange;
 		codIRange = codIRangeLPS;
 	}
-	((uint8_t *)ctx->cabac)[ctxIdx] = transIdx[state];
+	ctx->cabac[ctxIdx] = transIdx[state];
 	// fprintf(stderr, "->(%u,%x)\n", transIdx[state] >> 2, transIdx[state] & 1);
 	size_t binVal = state & 1;
 	if (__builtin_expect(codIRange < 512, 0)) // 256*2 allows parsing an extra coeff_sign_flag without renorm.
@@ -1826,7 +1826,7 @@ static inline int CABAC_parse_slice_data(int cabac_init_idc) {
 	
 	__m128i mul = _mm_set1_epi16(max(ctx->ps.QP_Y, 0) + 4096);
 	const __m128i *src = (__m128i *)context_init[cabac_init_idc];
-	for (__m128i *dst = (__m128i*)ctx->cabac; dst < (__m128i*)ctx->cabac + 64; dst++, src += 2) {
+	for (v16qu *dst = ctx->cabac_v; dst < ctx->cabac_v + 64; dst++, src += 2) {
 		__m128i sum0 = _mm_srai_epi16(_mm_maddubs_epi16(mul, src[0]), 4);
 		__m128i sum1 = _mm_srai_epi16(_mm_maddubs_epi16(mul, src[1]), 4);
 		__m128i min = _mm_min_epu8(_mm_packus_epi16(sum0, sum1), _mm_set1_epi8(126));
@@ -1834,9 +1834,9 @@ static inline int CABAC_parse_slice_data(int cabac_init_idc) {
 		__m128i preCtxState = _mm_max_epu8(min, _mm_set1_epi8(1));
 		__m128i pStateIdx = _mm_xor_si128(preCtxState, mask);
 		__m128i shift = _mm_add_epi8(pStateIdx, pStateIdx);
-		*dst = _mm_add_epi8(_mm_add_epi8(shift, shift), _mm_add_epi8(mask, _mm_set1_epi8(1)));
+		*dst = (v16qu)_mm_add_epi8(_mm_add_epi8(shift, shift), _mm_add_epi8(mask, _mm_set1_epi8(1)));
 	}
-	((uint8_t*)ctx->cabac)[276] = 252;
+	ctx->cabac[276] = 252;
 	return ctx->MbaffFrameFlag ? 0 : PAFF_parse_slice_data();
 }
 #endif

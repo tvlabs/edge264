@@ -129,7 +129,7 @@ typedef struct
 	union { int16_t clip; v8hi clip_v; };
 	union { int8_t unavail[16]; v16qi unavail_v; }; // unavailability of neighbouring A/B/C/D blocks
 	union { int32_t plane_offsets[48]; v4si plane_offsets_v[12]; }; // memory offsets for BlkIdx
-	v16qu cabac[64]; // FIXME: use a union!
+	union { uint8_t cabac[1024]; v16qu cabac_v[64]; };
 	
 	// neighbouring offsets (relative to the start of each array in mb)
 	union { int16_t coded_block_flags_4x4_A[48]; int16_t Intra4x4PredMode_A[16]; v8hi A4x4_8[6]; };

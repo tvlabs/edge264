@@ -154,15 +154,21 @@ static void initialise_decoding_context(Edge264_stream *e)
 		ctx->intra8x8_modes_v[i] = Intra8x8_modes[i] + pred_offset;
 	}
 	
-	// code to be revised with Inter pred
-	v4hi h4 = {4, 4, 4, 4};
-	ctx->A8x8_v[0] = (v4hi){1 - (int)sizeof(*mb), 0, 3 - (int)sizeof(*mb), 2};
-	ctx->A8x8_v[1] = ctx->A8x8_v[0] + h4;
-	ctx->A8x8_v[2] = ctx->A8x8_v[1] + h4;
-	v4si s4 = {4, 4, 4, 4};
-	ctx->B8x8_v[0] = (v4si){2 - offsetB, 3 - offsetB, 0, 1};
-	ctx->B8x8_v[1] = ctx->B8x8_v[0] + s4;
-	ctx->B8x8_v[2] = ctx->B8x8_v[1] + s4;
+	// P/B slices
+	if (ctx->slice_type < 2) {
+		ctx->ref_idx_mask = (ctx->ps.num_ref_idx_active[0] > 1 ? 0x1111 : 0) |
+			(ctx->ps.num_ref_idx_active[1] > 1 ? 0x11110000 : 0);
+		ctx->col_short_term = ~e->long_term_flags >> (ctx->RefPicList[1][0] & 15) & 1;
+		
+		v4hi h4 = {4, 4, 4, 4};
+		ctx->A8x8_v[0] = (v4hi){1 - (int)sizeof(*mb), 0, 3 - (int)sizeof(*mb), 2};
+		ctx->A8x8_v[1] = ctx->A8x8_v[0] + h4;
+		ctx->A8x8_v[2] = ctx->A8x8_v[1] + h4;
+		v4si s4 = {4, 4, 4, 4};
+		ctx->B8x8_v[0] = (v4si){2 - offsetB, 3 - offsetB, 0, 1};
+		ctx->B8x8_v[1] = ctx->B8x8_v[0] + s4;
+		ctx->B8x8_v[2] = ctx->B8x8_v[1] + s4;
+	}
 }
 
 
@@ -179,17 +185,16 @@ static void parse_ref_pic_list_modification(const Edge264_stream *e)
 	// For P we sort on FrameNum, for B we sort on PicOrderCnt.
 	const int32_t *values = (ctx->slice_type == 0) ? e->FrameNum : e->FieldOrderCnt;
 	unsigned pic_value = (ctx->slice_type == 0) ? e->prevFrameNum : ctx->TopFieldOrderCnt;
-	uint16_t top = e->reference_flags, bot = e->reference_flags >> 16;
-	unsigned refs = (ctx->field_pic_flag) ? top | bot : top & bot;
-	int count[3] = {}; // number of refs before/after/long
-	int next = 0;
-	int num = 0;
+	uint16_t t = e->reference_flags;
+	uint16_t b = e->reference_flags >> 16;
+	int count[3] = {0, 0, 0}; // number of refs before/after/long
+	int size = 0;
 	
 	// This single loop sorts all short and long term references at once.
-	do {
+	for (unsigned refs = (ctx->field_pic_flag) ? t | b : t & b; refs; ) {
+		int next = 0;
 		int best = INT_MAX;
-		unsigned r = refs;
-		do {
+		for (unsigned r = refs; r; r &= r - 1) {
 			int i = __builtin_ctz(r);
 			int diff = values[i] - pic_value;
 			int ShortTermNum = (diff <= 0) ? -diff : 0x10000 + diff;
@@ -197,13 +202,14 @@ static void parse_ref_pic_list_modification(const Edge264_stream *e)
 			int v = (e->long_term_flags & 1 << i) ? LongTermFrameNum : ShortTermNum;
 			if (v < best)
 				best = v, next = i;
-		} while (r &= r - 1);
-		ctx->RefPicList[0][num++] = next;
+		}
+		ctx->RefPicList[0][size++] = next;
 		count[best >> 16]++;
-	} while (refs ^= 1 << next);
+		refs ^= 1 << next;
+	}
 	
 	// Fill RefPicListL1 by swapping before/after references
-	for (int src = 0; src < 16; src++) {
+	for (int src = 0; src < size; src++) {
 		int dst = (src < count[0]) ? src + count[1] :
 			(src < count[0] + count[1]) ? src - count[0] : src;
 		ctx->RefPicList[1][dst] = ctx->RefPicList[0][src];
@@ -215,7 +221,7 @@ static void parse_ref_pic_list_modification(const Edge264_stream *e)
 		v16qi v = ctx->RefPicList_v[l * 2];
 		RefFrameList.v[0] = v;
 		RefFrameList.v[1] = v + (v16qi){16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16};
-		num = 0;
+		size = 0;
 		int i = ctx->bottom_field_flag << 4; // first parity to check
 		int j = i ^ 16; // other parity to alternate
 		int lim_i = i + count[0] + count[1]; // set a first limit to short term frames
@@ -238,7 +244,7 @@ static void parse_ref_pic_list_modification(const Edge264_stream *e)
 			}
 			int pic = RefFrameList.q[i++];
 			if (e->reference_flags & 1 << pic) {
-				ctx->RefPicList[l][num++] = pic;
+				ctx->RefPicList[l][size++] = pic;
 				if (j < lim_j) { // swap parity if we have not emptied other parity yet
 					k = i, i = j, j = k;
 					k = lim_i, lim_i = lim_j, lim_j = k;
@@ -247,8 +253,8 @@ static void parse_ref_pic_list_modification(const Edge264_stream *e)
 		}
 	}
 	
-	// RefPicList0==RefPicList1 can be reduced to testing only the first slot.
-	if (num > 1 && memcmp(ctx->RefPicList[0], ctx->RefPicList[1], 32) == 0) {
+	// Swap the two first slots of RefPicListL1 if equal with RefPicListL0.
+	if (size > 1 && memcmp(ctx->RefPicList[0], ctx->RefPicList[1], 32) == 0) {
 		ctx->RefPicList[1][0] = ctx->RefPicList[0][1];
 		ctx->RefPicList[1][1] = ctx->RefPicList[0][0];
 	}
@@ -264,40 +270,40 @@ static void parse_ref_pic_list_modification(const Edge264_stream *e)
 		{
 			int num = get_ue32();
 			unsigned MaskFrameNum = -1;
-			unsigned r = e->long_term_flags;
+			unsigned short_long = e->long_term_flags * 0x00010001;
+			unsigned parity = ctx->bottom_field_flag ? 0xffff0000u : 0xffff;
 			if (modification_of_pic_nums_idc < 2) {
-				num = picNumLX = (modification_of_pic_nums_idc == 0) ? picNumLX - (num + 1) : picNumLX + (num + 1);
+				num = (modification_of_pic_nums_idc == 0) ? picNumLX - (num + 1) : picNumLX + (num + 1);
+				picNumLX = num;
 				MaskFrameNum = (1 << ctx->ps.log2_max_frame_num) - 1;
-				r = ~r;
+				short_long = ~short_long;
 			}
 			
 			// LongTerm and ShortTerm share this same picture search.
 			unsigned FrameNum = MaskFrameNum & (ctx->field_pic_flag ? num >> 1 : num);
-			int pic = ((num & 1) ^ ctx->bottom_field_flag) << 4;
-			r &= (pic) ? e->reference_flags : e->reference_flags >> 16;
-			do {
-				int i = __builtin_ctz(r);
-				if ((e->FrameNum[i] & MaskFrameNum) == FrameNum)
-					pic += i; // can only happen once, since each FrameNum is unique
-			} while (r &= r - 1);
-			
-			// insert pic at position refIdx in RefPicList
-			int old, new = pic;
-			for (int i = refIdx; i < 32 && (old = ctx->RefPicList[l][i]) != pic; i++)
-				ctx->RefPicList[l][i] = new, new = old;
+			for (unsigned r = e->reference_flags & short_long & parity; r; r &= r - 1) {
+				int pic = __builtin_ctz(r);
+				if ((e->FrameNum[pic & 15] & MaskFrameNum) == FrameNum) {
+					// initialization placed pic exactly once in RefPicList, so shift it down to refIdx position
+					int buf = pic;
+					int cIdx = refIdx;
+					do {
+						int swap = ctx->RefPicList[l][cIdx];
+						ctx->RefPicList[l][cIdx] = buf;
+						buf = swap;
+					} while (++cIdx < size && buf != pic);
+					break;
+				}
+			}
 		}
 		
-		for (int i = 0; i < ctx->ps.num_ref_idx_active[l]; i++)
-			printf("<li>RefPicList%x[%u]: <code>%u %s</code></li>\n", l, i, e->FieldOrderCnt[ctx->RefPicList[l][i]], (ctx->RefPicList[l][i] >> 4) ? "bot" : "top");
+		printf("<li>RefPicList%x: <code>", l);
+		for (int i = 0; i < ctx->ps.num_ref_idx_active[l]; i++) {
+			printf("%u%s ", e->FieldOrderCnt[ctx->RefPicList[l][i]],
+				(!ctx->field_pic_flag) ? "" : (ctx->RefPicList[l][i] >= 16) ? "(bot)" : "(top)");
+		}
+		printf("</code></li>\n");
 	}
-	
-	// initialisations for the colocated reference picture
-	ctx->MapPicToList0[0] = 0; // when refPicCol == -1
-	for (int refIdxL0 = 0; refIdxL0 < 32; refIdxL0++)
-		ctx->MapPicToList0[1 + ctx->RefPicList[0][refIdxL0]] = refIdxL0;
-	ctx->mbCol = NULL; // FIXME
-	// FIXME: Fail if less reference frames than required
-	ctx->col_short_term = ~e->long_term_flags >> (ctx->RefPicList[1][0] & 15) & 1;
 }
 
 
@@ -539,7 +545,7 @@ static int parse_slice_layer_without_partitioning(Edge264_stream *e)
 	ctx->slice_type = (slice_type < 5) ? slice_type : slice_type - 5;
 	int pic_parameter_set_id = get_ue(255);
 	printf("<li%s>first_mb_in_slice: <code>%u</code></li>\n"
-		"<li>slice_type: <code>%u (%s)</code></li>\n"
+		"<li%s>slice_type: <code>%u (%s)</code></li>\n"
 		"<li%s>pic_parameter_set_id: <code>%u</code></li>\n",
 		red_if(first_mb_in_slice > 0), first_mb_in_slice,
 		red_if(ctx->slice_type > 2), slice_type, slice_type_names[ctx->slice_type],
@@ -627,9 +633,14 @@ static int parse_slice_layer_without_partitioning(Edge264_stream *e)
 					l, ctx->ps.num_ref_idx_active[l]);
 			}
 		}
-		ctx->ref_idx_mask = (ctx->ps.num_ref_idx_active[0] > 1 ? 0x1111 : 0) |
-			(ctx->ps.num_ref_idx_active[1] > 1 ? 0x11110000 : 0);
+		
+		ctx->RefPicList[0][ctx->ps.num_ref_idx_active[0] - 1] = -1;
+		ctx->RefPicList[1][ctx->ps.num_ref_idx_active[1] - 1] = -1;
 		parse_ref_pic_list_modification(e);
+		if (ctx->RefPicList[0][ctx->ps.num_ref_idx_active[0] - 1] < 0 || (ctx->slice_type == 1 &&
+			ctx->RefPicList[1][ctx->ps.num_ref_idx_active[1] - 1] < 0))
+			return -2;
+		
 		parse_pred_weight_table(e);
 	}
 	

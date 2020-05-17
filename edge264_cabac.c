@@ -1646,7 +1646,7 @@ static __attribute__((noinline)) int parse_intra_mb(int ctxIdx)
  */
 static __attribute__((noinline)) int parse_inter_mb()
 {
-	static const uint16_t P2flags[4] = {0x0001, 0, 0x0011, 0x0101};
+	static const uint16_t P2flags[4] = {0x0001, 0, 0x0011, 0x0101}; // FIXME: number of entries
 	static const uint32_t B2flags[26] = {0x00010001, 0x00000101, 0x00000011, 0x01010000,
 		0x00110000, 0x01000001, 0x00100001, 0x00010100, 0x00000001, 0x00010000,
 		0, 0, 0, 0, 0x00010010, 0, 0x01000101, 0x00100011, 0x01010100, 0x00110010,

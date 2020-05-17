@@ -7,12 +7,12 @@
  * _ update the tables of names for profiles and NAL types
  * _ upgrade DPB storage size to 17, by simply doubling reference and output flags sizes
  * _ backup output/ref flags and FrameNum and restore then on bad slice_header
+ * _ make ret non sticky to allow partial decodes during implementation
  * _ try using epb for context pointer, and email GCC when it fails
  * _ after implementing deblocking, define a function(a, zero) to switch to pmovsxbw (_mm_cvtepi8_epi16)
  * _ after implementing transformBypass, add a shortcut for DC-only blocks
  * _ after implementing P/B and MBAFF, optimize away array accesses of is422 and mb->f.mb_field_decoding_flag
  * _ after implementing P/B and MBAFF, consider splitting decode_samples into NxN, 16x16 and chroma, making parse_residual_block a regular function, including intraNxN_modes inside the switch of decode_NxN, and removing many copies for AC->DC PredMode
- * _ after implementing Error Concealment, determine if ret should be sticky or not
  */
 
 #include "edge264_common.h"
@@ -272,7 +272,7 @@ static void parse_ref_pic_list_modification(const Edge264_stream *e)
 			int num = get_ue32();
 			unsigned MaskFrameNum = -1;
 			unsigned short_long = e->long_term_flags * 0x00010001;
-			unsigned parity = ctx->bottom_field_flag ? 0xffff0000u : 0xffff;
+			unsigned parity = ctx->bottom_field_flag ? 0xffff0000u : 0xffff; // FIXME: FrameNum % 2 ?
 			if (modification_of_pic_nums_idc < 2) {
 				num = (modification_of_pic_nums_idc == 0) ? picNumLX - (num + 1) : picNumLX + (num + 1);
 				picNumLX = num;
@@ -475,29 +475,29 @@ static void parse_dec_ref_pic_marking(Edge264_stream *e)
 		
 		// The remaining three operations share the search for FrameNum.
 		int pic_num = get_ue16();
-		int bottom = ((pic_num & 1) ^ ctx->bottom_field_flag) << 4;
 		int LongTermFrameNum = (ctx->field_pic_flag) ? pic_num >> 1 : pic_num;
-		unsigned r = (memory_management_control_operation != 2 ?
-			~e->long_term_flags : e->long_term_flags) & e->reference_flags >> bottom & 0xffff;
 		int FrameNum = (memory_management_control_operation != 2) ?
 			e->prevFrameNum - 1 - LongTermFrameNum : LongTermFrameNum;
+		int parity = ((pic_num & ctx->field_pic_flag) ^ ctx->bottom_field_flag) << 4;
+		unsigned r = (uint16_t)(e->reference_flags >> parity) &
+			(memory_management_control_operation != 2 ? ~e->long_term_flags : e->long_term_flags);
 		int j = e->currPic;
 		while (r != 0 && e->FrameNum[j = __builtin_ctz(r)] != FrameNum)
 			r &= r - 1;
-		unsigned full = 0x10001 << j;
-		unsigned mask = ctx->field_pic_flag ? 1 << (bottom + j) : full;
+		unsigned frame = 0x10001 << j;
+		unsigned pic = ctx->field_pic_flag ? 1 << (parity + j) : frame;
 		
 		if (memory_management_control_operation == 1) {
-			e->reference_flags &= ~mask;
+			e->reference_flags &= ~pic;
 			printf("<li>FrameNum %u -> unused for reference</li>\n", FrameNum);
 		} else if (memory_management_control_operation == 2) {
-			e->reference_flags &= ~mask;
-			if (!(e->reference_flags & full))
-				e->long_term_flags &= ~full;
+			e->reference_flags &= ~pic;
+			if (!(e->reference_flags & frame))
+				e->long_term_flags &= ~frame;
 			printf("<li>LongTermFrameIdx %u -> unused for reference</li>\n", FrameNum);
 		} else if (memory_management_control_operation == 3) {
 			e->FrameNum[j] = get_ue(15);
-			e->long_term_flags |= full;
+			e->long_term_flags |= frame;
 			printf("<li>FrameNum %u -> LongTermFrameIdx %u</li>\n", FrameNum, e->FrameNum[j]);
 		}
 	}
@@ -514,7 +514,7 @@ static void parse_dec_ref_pic_marking(Edge264_stream *e)
 		}
 		e->reference_flags &= ~(0x10001 << next);
 	}
-	e->reference_flags |= (!ctx->field_pic_flag ? 0x10001 : ctx->bottom_field_flag ? 0x1000 : 1) << e->currPic;
+	e->reference_flags |= (!ctx->field_pic_flag ? 0x10001 : ctx->bottom_field_flag ? 0x10000 : 1) << e->currPic;
 }
 
 

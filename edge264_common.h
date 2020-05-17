@@ -98,6 +98,8 @@ typedef struct
 	uint8_t firstRefPicL1:1;
 	uint8_t col_short_term:1;
 	int8_t slice_type; // 3 significant bits
+	int8_t luma_log2_weight_denom; // 3 significant bits
+	int8_t chroma_log2_weight_denom; // 3 significant bits
 	int8_t disable_deblocking_filter_idc; // 2 significant bits
 	int8_t FilterOffsetA; // 5 significant bits
 	int8_t FilterOffsetB;
@@ -158,9 +160,8 @@ typedef struct
 	union { int8_t RefPicList[2][32]; v16qi RefPicList_v[4]; };
 	int8_t MapPicToList0[35]; // [1 + refPic]
 	int16_t DistScaleFactor[3][32]; // [top/bottom/frame][refIdxL0]
-	int16_t weights[3][32][2];
-	int16_t offsets[3][32][2];
-	int8_t implicit_weights[3][32][32]; // -w_1C[top/bottom/frame][refIdxL0][refIdxL1]
+	union { int8_t implicit_weights[2][32][32]; v16qi implicit_weights_v[2][32][2]; }; // w1 for [top/bottom][ref0][ref1]
+	int8_t weights_offsets[32][2][4][2]; // [RefIdx][LX][iYCbCr][weight/offset]
 	
 	// Residuals context
 	union { int16_t ctxIdxOffsets[4]; v4hi ctxIdxOffsets_l; }; // {cbf,sig_flag,last_sig_flag,coeff_abs}

@@ -179,6 +179,7 @@ static void initialise_decoding_context(Edge264_stream *e)
  * Both initialisation and parsing of ref_pic_list_modification are fit into a
  * single function to foster code reduction and compactness. Performance is not
  * crucial here.
+ * For Mbaff, RefPicList should be stored as fields.
  */
 static void parse_ref_pic_list_modification(const Edge264_stream *e)
 {
@@ -309,10 +310,60 @@ static void parse_ref_pic_list_modification(const Edge264_stream *e)
 
 
 /**
- * Stores the pre-shifted weights and offsets (7.4.3.2).
+ * Parses coefficients for weighted sample prediction (7.4.3.2 and 8.4.2.3).
+ *
+ * As a reminder, predicted Inter samples from 1/2 refs are weighted with one
+ * of three modes depending on (slice_type, num_refs, weighted_flag/idc):
+ * _ (P, 0, 1) -> default
+ * _ (P, 1, 1) -> explicit
+ * _ (B, 0, 1) -> default
+ * _ (B, 0, 2) -> default
+ * _ (B, 1, 1) -> explicit
+ * _ (B, 1, 2) -> explicit
+ * _ (B, 2, 1) -> default
+ * _ (B, 2, 2) -> implicit
  */
 static void parse_pred_weight_table(Edge264_stream *e)
 {
+	// further tests will depend only on weighted_bipred_idc
+	if (ctx->slice_type == 0)
+		ctx->ps.weighted_bipred_idc = ctx->ps.weighted_pred_flag;
+	
+	// parse explicit weights/offsets
+	if (ctx->ps.weighted_bipred_idc == 1) {
+		ctx->luma_log2_weight_denom = get_ue(7);
+		ctx->chroma_log2_weight_denom = 0;
+		if (ctx->ps.ChromaArrayType != 0)
+			ctx->chroma_log2_weight_denom = get_ue(7);
+		for (int l = 0; l <= ctx->slice_type; l++) {
+			for (int i = 0; i < ctx->ps.num_ref_idx_active[l]; i++) {
+				ctx->weights_offsets[i][l][0][0] = 1 << ctx->luma_log2_weight_denom;
+				ctx->weights_offsets[i][l][0][1] = 0;
+				ctx->weights_offsets[i][l][1][0] = 1 << ctx->chroma_log2_weight_denom;
+				ctx->weights_offsets[i][l][1][1] = 0;
+				ctx->weights_offsets[i][l][2][0] = 1 << ctx->chroma_log2_weight_denom;
+				ctx->weights_offsets[i][l][2][1] = 0;
+				if (get_u1()) {
+					ctx->weights_offsets[i][l][0][0] = get_se(-128, 127);
+					ctx->weights_offsets[i][l][0][1] = get_se(-128, 127);
+				}
+				if (ctx->ps.ChromaArrayType != 0 && get_u1()) {
+					ctx->weights_offsets[i][l][1][0] = get_se(-128, 127);
+					ctx->weights_offsets[i][l][1][1] = get_se(-128, 127);
+					ctx->weights_offsets[i][l][2][0] = get_se(-128, 127);
+					ctx->weights_offsets[i][l][2][1] = get_se(-128, 127);
+				}
+				printf((ctx->ps.ChromaArrayType == 0) ? "<li>Prediction weights for RefPicList%x[%u]: <code>Y*%d>>%u+%d</code></li>\n" :
+					"<li>Prediction weights for RefPicList%x[%u]: <code>Y*%d>>%u+%d, Cb*%d>>%u+%d, Cr*%d>>%u+%d</code></li>\n", l, i,
+					ctx->weights_offsets[i][l][0][0], ctx->luma_log2_weight_denom, ctx->weights_offsets[i][l][0][1] << (ctx->ps.BitDepth_Y - 8),
+					ctx->weights_offsets[i][l][1][0], ctx->chroma_log2_weight_denom, ctx->weights_offsets[i][l][1][1] << (ctx->ps.BitDepth_C - 8),
+					ctx->weights_offsets[i][l][2][0], ctx->chroma_log2_weight_denom, ctx->weights_offsets[i][l][2][1] << (ctx->ps.BitDepth_C - 8));
+			}
+		}
+	}
+	
+	
+	
 	/*// Initialise implicit_weights and DistScaleFactor for frames.
 	if (ctx->slice_type == 1 && !ctx->field_pic_flag) {
 		int PicOrderCnt = min(ctx->TopFieldOrderCnt, ctx->BottomFieldOrderCnt);
@@ -373,37 +424,6 @@ static void parse_pred_weight_table(Edge264_stream *e)
 		ctx->DistScaleFactor[ctx->bottom_field_flag][refIdxL0] = DistScaleFactor0 << 5;
 		ctx->DistScaleFactor[ctx->bottom_field_flag ^ 1][refIdxL0] = DistScaleFactor1 << 5;
 	}*/
-	
-	// Parse explicit weights/offsets.
-	if ((ctx->slice_type == 0 && ctx->ps.weighted_pred_flag) ||
-		(ctx->slice_type == 1 && ctx->ps.weighted_bipred_idc == 1)) {
-		unsigned luma_shift = 7 - get_ue(7);
-		unsigned chroma_shift = (ctx->ps.ChromaArrayType != 0) ? 7 - get_ue(7) : 0;
-		for (int l = 0; l <= ctx->slice_type; l++) {
-			for (int i = 0; i < ctx->ps.num_ref_idx_active[l]; i++) {
-				ctx->weights[0][i][l] = 1 << 7;
-				if (get_u1()) {
-					ctx->weights[0][i][l] = get_se(-128, 127) << luma_shift;
-					ctx->offsets[0][i][l] = get_se(-128, 127) << (ctx->ps.BitDepth_Y - 8);
-					printf("<li>luma_weight_l%x[%u]: <code>%.2f</code></li>\n"
-						"<li>luma_offset_l%x[%u]: <code>%d</code></li>\n",
-						l, i, (double)ctx->weights[0][i][l] / 128,
-						l, i, ctx->offsets[0][i][l]);
-				}
-				ctx->weights[1][i][l] = ctx->weights[2][i][l] = 1 << 7;
-				if (ctx->ps.ChromaArrayType != 0 && get_u1()) {
-					for (int j = 1; j < 3; j++) {
-						ctx->weights[j][i][l] = get_se(-128, 127) << chroma_shift;
-						ctx->offsets[j][i][l] = get_se(-128, 127) << (ctx->ps.BitDepth_C - 8);
-						printf("<li>chroma_weight_l%x[%u][%x]: <code>%.2f</code></li>\n"
-							"<li>chroma_offset_l%x[%u][%x]: <code>%d</code></li>\n",
-							l, i, j - 1, (double)ctx->weights[j][i][l] / 128,
-							l, i, j - 1,ctx->offsets[j][i][l]);
-					}
-				}
-			}
-		}
-	}
 }
 
 

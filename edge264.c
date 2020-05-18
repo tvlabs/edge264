@@ -160,6 +160,14 @@ static void initialise_decoding_context(Edge264_stream *e)
 			(ctx->ps.num_ref_idx_active[1] > 1 ? 0x11110000 : 0);
 		ctx->col_short_term = ~e->long_term_flags >> (ctx->RefPicList[1][0] & 15) & 1;
 		
+		// initialize plane pointer for all references
+		for (int l = 0; l < ctx->slice_type; l++) {
+			for (int i = 0; i < ctx->ps.num_ref_idx_active[l]; i++) {
+				ctx->ref_planes[l][i] = e->DPB + (ctx->RefPicList[l][i] & 15) * e->frame_size;
+			}
+		}
+		
+		// FIXME: review when implementing A/B/C inference rules
 		v4hi h4 = {4, 4, 4, 4};
 		ctx->A8x8_v[0] = (v4hi){1 - (int)sizeof(*mb), 0, 3 - (int)sizeof(*mb), 2};
 		ctx->A8x8_v[1] = ctx->A8x8_v[0] + h4;

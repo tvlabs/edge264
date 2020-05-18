@@ -158,6 +158,7 @@ typedef struct
 	union { int32_t mvB[32]; v4si mvB_v[8]; };
 	union { int32_t mvC[32]; v4si mvC_v[8]; };
 	union { int8_t RefPicList[2][32]; v16qi RefPicList_v[4]; };
+	uint8_t *ref_planes[2][32];
 	int8_t MapPicToList0[35]; // [1 + refPic]
 	int16_t DistScaleFactor[3][32]; // [top/bottom/frame][refIdxL0]
 	union { int8_t implicit_weights[2][32][32]; v16qi implicit_weights_v[2][32][2]; }; // w1 for [top/bottom][ref0][ref1]

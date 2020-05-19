@@ -1,6 +1,7 @@
 /** TODOs:
  * _ switch to SDL which is likely to have a more stable future support than GLFW, with an option to play without display
  * _ decode_Residual8x8 spills all pN on stack, pass them in pred_buffer_v instead
+ * _ reduce maximum resolution to store neighbouring offsets in smaller arrays
  * _ make neighbouring reads use a union in mb
  * _ use a macro to define and call functions, to let clang pass ctx/mb in arguments
  * _ if possible, make the second half of AbsMvdComp_A/B alias the first of A/B4x4_8
@@ -160,7 +161,7 @@ static void initialise_decoding_context(Edge264_stream *e)
 			(ctx->ps.num_ref_idx_active[1] > 1 ? 0x11110000 : 0);
 		ctx->col_short_term = ~e->long_term_flags >> (ctx->RefPicList[1][0] & 15) & 1;
 		
-		// initialize plane pointer for all references
+		// initialize plane pointers for all references
 		for (int l = 0; l < ctx->slice_type; l++) {
 			for (int i = 0; i < ctx->ps.num_ref_idx_active[l]; i++) {
 				ctx->ref_planes[l][i] = e->DPB + (ctx->RefPicList[l][i] & 15) * e->frame_size;
@@ -187,7 +188,7 @@ static void initialise_decoding_context(Edge264_stream *e)
  * Both initialisation and parsing of ref_pic_list_modification are fit into a
  * single function to foster code reduction and compactness. Performance is not
  * crucial here.
- * For Mbaff, RefPicList should be stored as fields.
+ * FIXME: For Mbaff, RefPicList should be stored as fields.
  */
 static void parse_ref_pic_list_modification(const Edge264_stream *e)
 {
@@ -714,7 +715,7 @@ static int parse_slice_layer_without_partitioning(Edge264_stream *e)
 		if (alignment != 0 && get_uv(8 - alignment) != 0xff >> alignment)
 			return -2;
 		CABAC_parse_slice_data(cabac_init_idc);
-		// I'd rather display a portion of image than nothing, so do not test errors here
+		// I'd rather display a portion of image than nothing, so do not test errors here yet
 	}
 	
 	// wait until after decoding is complete to bump pictures

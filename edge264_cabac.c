@@ -1258,8 +1258,19 @@ static __attribute__((noinline)) void parse_coded_block_pattern() {
 
 /**
  * This function parses the syntax elements ref_idx_lX, mvd_lX (from function),
- * coded_block_pattern (from function), transform_size_8x8_flag, and branches to
- * residual decoding through tail call.
+ * coded_block_pattern (from function), and transform_size_8x8_flag for an
+ * Inter macroblock, then branches to residual decoding through tail call.
+ *
+ * For motion vector prediction, here is a summary of the rules:
+ * _ unavailable A/B/C blocks count as mv=0
+ * _ if C is unavailable, replace it with D
+ * _ if B and C/D are unavailable, replace them with A
+ * _ if only one of refIdxA/B/C is equal to refIdx, predict mv from it
+ * _ otherwise predict mv as median(mvA, mvB, mvC)
+ *
+ * Since all refIdx are parsed before all mvd, we compare them all at once
+ * using SIMD and apply the above rules by modifying the relative offsets for
+ * A/B/C.
  *
  * FIXME: Non functional, should be reworked
  */
@@ -1643,6 +1654,25 @@ static __attribute__((noinline)) int parse_intra_mb(int ctxIdx)
  * This function parses the syntax elements mb_type and sub_mb_type for the
  * current macroblock in a P/B slice, then branches to further decoding
  * (parse_intra_mb/parse_inter_pred/parse_NxN_residual) through tail calls.
+ *
+ * We distinguish three kinds of partitions: P/B_NxN, P/B_Skip, B_Direct_16x16.
+ *
+ * For P/B_NxN, we create a 32bit mask indexed by LX*16+BlkIdx. Each set bit
+ * indicates a mvd pair will be parsed for the corresponding block. We obtain
+ * a mask for parsing refIdx by masking every 4th bit.
+ * Each mvd pair may cover a 4x4, 4x8, 8x4, 8x8, 8x16, 16x8 or 16x16 block.
+ * While we do not keep mb_type, we will duplicate each parsed mvd pair to all
+ * covered 4x4 blocks. So we provide a storage mask for each 4x4 position, that
+ * indicates which other positions it will write to. It makes 4 vector writes
+ * per mvd pair, but then the code is simple and branchless.
+ * Finally, B_Direct_8x8 just triggers full Direct_16x16 initialization
+ * beforehand, with proper unset bits in mvd_mask.
+ *
+ * For P/B_Skip, we initialize all mb variables for neighbours, then we provide
+ * a dedicated loop to fill samples without initializing residuals.
+ *
+ * For B_Direct_16x16, we initialize refIdx and mvs and jump directly to
+ * parse_NxN_residual.
  */
 static __attribute__((noinline)) int parse_inter_mb()
 {
@@ -1659,7 +1689,7 @@ static __attribute__((noinline)) int parse_inter_mb()
 	
 	// Initialise with Direct motion prediction, then parse mb_type.
 	mb->f.mbIsInterFlag = 1;
-	if (ctx->slice_type == 0) {
+	if (ctx->slice_type == 0) { // FIXME: slice_type was loaded in parse_slice_data and is wasted here
 		if (mb->f.mb_skip_flag) {
 			//init_P_Skip();
 			return parse_NxN_residual();

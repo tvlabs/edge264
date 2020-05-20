@@ -870,7 +870,8 @@ static __attribute__((noinline)) int decode_switch(size_t stride, ssize_t nstrid
 		x2 = _mm_shufflelo_epi16(_mm_slli_si128(x0, 2), _MM_SHUFFLE(3, 2, 1, 1));
 		return decode_Vertical8x8(x1, x0, x2);
 	case HORIZONTAL_8x8:
-		return decode_Horizontal8x8(filter8_left_8bit(stride, nstride, p, zero, nstride * 2));
+		nstride *= 2;
+		// PASSTHROUGH
 	case HORIZONTAL_8x8_D:
 		return decode_Horizontal8x8(filter8_left_8bit(stride, nstride, p, zero, nstride));
 	case DC_8x8:
@@ -914,8 +915,8 @@ static __attribute__((noinline)) int decode_switch(size_t stride, ssize_t nstrid
 		x3 = lowpass(x1, x0, x2);
 		return decode_DC8x8_8bit(x3, x3);
 	case DC_8x8_B:
-		x0 = filter8_left_8bit(stride, nstride, p, zero, nstride * 2);
-		return decode_DC8x8_8bit(x0, x0);
+		nstride *= 2;
+		// PASSTHROUGH
 	case DC_8x8_BD:
 		x0 = filter8_left_8bit(stride, nstride, p, zero, nstride);
 		return decode_DC8x8_8bit(x0, x0);
@@ -984,7 +985,8 @@ static __attribute__((noinline)) int decode_switch(size_t stride, ssize_t nstrid
 		x2 = _mm_shufflelo_epi16(_mm_slli_si128(x0, 2), _MM_SHUFFLE(3, 2, 1, 1));
 		return decode_VerticalLeft8x8(x1, x0, x2);
 	case HORIZONTAL_UP_8x8:
-		return decode_HorizontalUp8x8(filter8_left_8bit(stride, nstride, p, zero, nstride * 2));
+		nstride *= 2;
+		// PASSTHROUGH
 	case HORIZONTAL_UP_8x8_D:
 		return decode_HorizontalUp8x8(filter8_left_8bit(stride, nstride, p, zero, nstride));
 	
@@ -1226,7 +1228,8 @@ static __attribute__((noinline)) int decode_switch(size_t stride, ssize_t nstrid
 		x2 = _mm_shufflelo_epi16(_mm_slli_si128(x0, 2), _MM_SHUFFLE(3, 2, 1, 1));
 		return decode_Vertical8x8(x1, x0, x2);
 	case HORIZONTAL_8x8_16_BIT:
-		return decode_Horizontal8x8(filter8_left_16bit(stride, nstride, p, nstride * 2));
+		nstride *= 2;
+		// PASSTHROUGH
 	case HORIZONTAL_8x8_D_16_BIT:
 		return decode_Horizontal8x8(filter8_left_16bit(stride, nstride, p, nstride));
 	case DC_8x8_16_BIT:
@@ -1274,8 +1277,8 @@ static __attribute__((noinline)) int decode_switch(size_t stride, ssize_t nstrid
 		x3 = lowpass(x1, x0, x2);
 		return decode_DC8x8_16bit(x3, x3);
 	case DC_8x8_B_16_BIT:
-		x0 = filter8_left_16bit(stride, nstride, p, nstride * 2);
-		return decode_DC8x8_16bit(x0, x0);
+		nstride *= 2;
+		// PASSTHROUGH
 	case DC_8x8_BD_16_BIT:
 		x0 = filter8_left_16bit(stride, nstride, p, nstride);
 		return decode_DC8x8_16bit(x0, x0);
@@ -1345,7 +1348,8 @@ static __attribute__((noinline)) int decode_switch(size_t stride, ssize_t nstrid
 		x2 = _mm_shufflelo_epi16(_mm_slli_si128(x0, 2), _MM_SHUFFLE(3, 2, 1, 1));
 		return decode_VerticalLeft8x8(x1, x0, x2);
 	case HORIZONTAL_UP_8x8_16_BIT:
-		return decode_HorizontalUp8x8(filter8_left_16bit(stride, nstride, p, nstride * 2));
+		nstride *= 2;
+		// PASSTHROUGH
 	case HORIZONTAL_UP_8x8_D_16_BIT:
 		return decode_HorizontalUp8x8(filter8_left_16bit(stride, nstride, p, nstride));
 	

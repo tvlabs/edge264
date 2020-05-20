@@ -1,6 +1,7 @@
 /** TODOs:
  * _ switch to SDL which is likely to have a more stable future support than GLFW, with an option to play without display
- * _ decode_Residual8x8 spills all pN on stack, pass them in pred_buffer_v instead
+ * _ separate Intra pred in Intra4x4/8x8/16x16 functions to be able to pass more adapted common arguments to each
+ * _ decode_Residual8x8 spills all pN on stack, provide 2 interfaces (one passing them in registers and one in samples memory)
  * _ reduce maximum resolution to store neighbouring offsets in smaller arrays
  * _ make neighbouring reads use a union in mb
  * _ use a macro to define and call functions, to let clang pass ctx/mb in arguments

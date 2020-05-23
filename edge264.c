@@ -1,7 +1,5 @@
 /** TODOs:
  * _ switch to SDL which is likely to have a more stable future support than GLFW, with an option to play without display
- * _ add a AC_flag variable to indicate whether IDCT should be computed
- * _ after implementing transformBypass, add a shortcut for DC-only blocks
  * _ decode_Residual8x8 spills all pN on stack, provide 2 interfaces (one passing them in registers and one in samples memory)
  * _ reduce maximum resolution to store neighbouring offsets in smaller arrays
  * _ make neighbouring reads use a union in mb

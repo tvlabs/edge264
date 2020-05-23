@@ -862,6 +862,7 @@ static __attribute__((noinline)) int parse_residual_block(unsigned coded_block_f
 		}
 	} while (++i < endIdx);
 	significant_coeff_flags |= (uint64_t)1 << i;
+	ctx->significant_coeff_flags = significant_coeff_flags;
 	
 	// Now loop on set bits to parse all non-zero coefficients.
 	int ctxIdx0 = ctx->ctxIdxOffsets[3] + 1;
@@ -1070,13 +1071,11 @@ static __attribute__((noinline)) int parse_chroma_residual()
 	ctx->scan_v[0] = scan_4x4[mb->f.mb_field_decoding_flag];
 	ctx->ctxIdxOffsets_l = ctxIdxOffsets_chromaAC[mb->f.mb_field_decoding_flag];
 	for (ctx->BlkIdx = 16; ctx->BlkIdx < 24 + is422 * 8; ctx->BlkIdx++) {
-		memset(ctx->d, 0, 64);
 		if (ctx->BlkIdx == 20 + is422 * 4) {
 			ctx->pred_buffer_v[16] = ctx->pred_buffer_v[17];
 			compute_LevelScale4x4(2);
 		}
 		
-		ctx->d[0] = ctx->d[ctx->BlkIdx];
 		int coded_block_flag = 0;
 		if (mb->f.CodedBlockPatternChromaAC) {
 			int cbfA = ((int8_t *)mb)[offsetof(Edge264_macroblock, coded_block_flags_4x4) + ctx->coded_block_flags_4x4_A[ctx->BlkIdx]];
@@ -1084,6 +1083,9 @@ static __attribute__((noinline)) int parse_chroma_residual()
 			coded_block_flag = get_ae(ctx->ctxIdxOffsets[0] + cbfA + cbfB * 2);
 		}
 		mb->coded_block_flags_4x4[ctx->BlkIdx] = coded_block_flag;
+		memset(ctx->d, 0, 64);
+		ctx->d[0] = ctx->d[ctx->BlkIdx];
+		ctx->significant_coeff_flags = 1;
 		check_ctx(RESIDUAL_CHROMA_LABEL);
 		parse_residual_block(coded_block_flag, 1, 15);
 	}
@@ -1124,8 +1126,6 @@ static __attribute__((noinline)) int parse_Intra16x16_residual()
 		ctx->ctxIdxOffsets_l = ctxIdxOffsets_16x16AC[iYCbCr][mb_field_decoding_flag];
 		ctx->PredMode[ctx->BlkIdx] = ctx->PredMode[ctx->BlkIdx + 1];
 		do {
-			memset(ctx->d, 0, 64);
-			ctx->d[0] = ctx->d[16 + (ctx->BlkIdx & 15)];
 			int coded_block_flag = 0;
 			if (mb->CodedBlockPatternLuma[ctx->BlkIdx >> 2]) {
 				int cbfA = ((int8_t *)mb)[offsetof(Edge264_macroblock, coded_block_flags_4x4) + ctx->coded_block_flags_4x4_A[ctx->BlkIdx]];
@@ -1133,6 +1133,9 @@ static __attribute__((noinline)) int parse_Intra16x16_residual()
 				coded_block_flag = get_ae(ctx->ctxIdxOffsets[0] + cbfA + cbfB * 2);
 			}
 			mb->coded_block_flags_4x4[ctx->BlkIdx] = coded_block_flag;
+			memset(ctx->d, 0, 64);
+			ctx->d[0] = ctx->d[16 + (ctx->BlkIdx & 15)];
+			ctx->significant_coeff_flags = 1;
 			check_ctx(RESIDUAL_4x4_LABEL);
 			parse_residual_block(coded_block_flag, 1, 15);
 		// not a loop-predictor-friendly condition, but would it make a difference?
@@ -1174,7 +1177,6 @@ static __attribute__((noinline)) int parse_NxN_residual()
 			
 			// Decoding directly follows parsing to avoid duplicate loops.
 			do {
-				memset(ctx->d, 0, 64);
 				int coded_block_flag = 0;
 				if (mb->CodedBlockPatternLuma[ctx->BlkIdx >> 2]) {
 					int cbfA = ((int8_t *)mb)[offsetof(Edge264_macroblock, coded_block_flags_4x4) + ctx->coded_block_flags_4x4_A[ctx->BlkIdx]];
@@ -1182,6 +1184,8 @@ static __attribute__((noinline)) int parse_NxN_residual()
 					coded_block_flag = get_ae(ctx->ctxIdxOffsets[0] + cbfA + cbfB * 2);
 				}
 				mb->coded_block_flags_4x4[ctx->BlkIdx] = coded_block_flag;
+				memset(ctx->d, 0, 64);
+				ctx->significant_coeff_flags = 0;
 				check_ctx(RESIDUAL_4x4_LABEL);
 				parse_residual_block(coded_block_flag, 0, 15);
 			} while (++ctx->BlkIdx & 15);
@@ -1198,7 +1202,6 @@ static __attribute__((noinline)) int parse_NxN_residual()
 			compute_LevelScale8x8(iYCbCr);
 			
 			do {
-				memset(ctx->d, 0, 256);
 				int luma8x8BlkIdx = ctx->BlkIdx >> 2;
 				int coded_block_flag = mb->CodedBlockPatternLuma[luma8x8BlkIdx & 3];
 				if (coded_block_flag && ctx->ps.ChromaArrayType == 3) {
@@ -1208,6 +1211,8 @@ static __attribute__((noinline)) int parse_NxN_residual()
 				}
 				mb->coded_block_flags_8x8[luma8x8BlkIdx] = coded_block_flag;
 				mb->coded_block_flags_4x4_s[luma8x8BlkIdx] = coded_block_flag ? 0x01010101 : 0;
+				memset(ctx->d, 0, 256);
+				ctx->significant_coeff_flags = 0;
 				check_ctx(RESIDUAL_8x8_LABEL);
 				parse_residual_block(coded_block_flag, 0, 63);
 			} while ((ctx->BlkIdx += 4) & 15);

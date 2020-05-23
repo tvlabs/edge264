@@ -165,6 +165,7 @@ typedef struct
 	int8_t weights_offsets[32][2][4][2]; // [RefIdx][LX][iYCbCr][weight/offset]
 	
 	// Residuals context
+	uint64_t significant_coeff_flags; // used to determine if DC decoding can be used (faster)
 	union { int16_t ctxIdxOffsets[4]; v4hi ctxIdxOffsets_l; }; // {cbf,sig_flag,last_sig_flag,coeff_abs}
 	union { int8_t sig_inc[64]; v8qi sig_inc_l; v16qi sig_inc_v[4]; };
 	union { int8_t last_inc[64]; v8qi last_inc_l; v16qi last_inc_v[4]; };

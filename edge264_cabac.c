@@ -1039,7 +1039,7 @@ static __attribute__((noinline)) int parse_chroma_residual()
 	ctx->scan_l = scan_chromaDC[is422];
 	
 	// One 2x2 or 2x4 DC block for the Cb component
-	ctx->d_v[0] = ctx->d_v[1] = (v4si){};
+	memset(ctx->d, 0, 32);
 	int coded_block_flag_Cb = 0;
 	if (mb->f.CodedBlockPatternChromaDC) {
 		coded_block_flag_Cb = get_ae(ctx->ctxIdxOffsets[0] +
@@ -1053,7 +1053,7 @@ static __attribute__((noinline)) int parse_chroma_residual()
 	
 	// Another 2x2/2x4 DC block for the Cr component
 	ctx->BlkIdx = 20 + is422 * 4;
-	ctx->d_v[0] = ctx->d_v[1] = (v4si){};
+	memset(ctx->d, 0, 32);
 	int coded_block_flag_Cr = 0;
 	if (mb->f.CodedBlockPatternChromaDC) {
 		coded_block_flag_Cr = get_ae(ctx->ctxIdxOffsets[0] +
@@ -1070,7 +1070,7 @@ static __attribute__((noinline)) int parse_chroma_residual()
 	ctx->scan_v[0] = scan_4x4[mb->f.mb_field_decoding_flag];
 	ctx->ctxIdxOffsets_l = ctxIdxOffsets_chromaAC[mb->f.mb_field_decoding_flag];
 	for (ctx->BlkIdx = 16; ctx->BlkIdx < 24 + is422 * 8; ctx->BlkIdx++) {
-		ctx->d_v[0] = ctx->d_v[1] = ctx->d_v[2] = ctx->d_v[3] = (v4si){};
+		memset(ctx->d, 0, 64);
 		if (ctx->BlkIdx == 20 + is422 * 4) {
 			ctx->pred_buffer_v[16] = ctx->pred_buffer_v[17];
 			compute_LevelScale4x4(2);
@@ -1113,7 +1113,7 @@ static __attribute__((noinline)) int parse_Intra16x16_residual()
 		int iYCbCr = ctx->BlkIdx >> 4;
 		ctx->LevelScale_v[0] = ctx->LevelScale_v[1] = ctx->LevelScale_v[2] =
 			ctx->LevelScale_v[3] = (v4si){64, 64, 64, 64};
-		ctx->d_v[0] = ctx->d_v[1] = ctx->d_v[2] = ctx->d_v[3] = (v4si){};
+		memset(ctx->d, 0, 64);
 		ctx->ctxIdxOffsets_l = ctxIdxOffsets_16x16DC[iYCbCr][mb_field_decoding_flag];
 		mb->f.coded_block_flags_16x16[iYCbCr] = get_ae(ctx->ctxIdxOffsets[0] +
 			ctx->inc.coded_block_flags_16x16[iYCbCr]);
@@ -1124,7 +1124,7 @@ static __attribute__((noinline)) int parse_Intra16x16_residual()
 		ctx->ctxIdxOffsets_l = ctxIdxOffsets_16x16AC[iYCbCr][mb_field_decoding_flag];
 		ctx->PredMode[ctx->BlkIdx] = ctx->PredMode[ctx->BlkIdx + 1];
 		do {
-			ctx->d_v[0] = ctx->d_v[1] = ctx->d_v[2] = ctx->d_v[3] = (v4si){};
+			memset(ctx->d, 0, 64);
 			ctx->d[0] = ctx->d[16 + (ctx->BlkIdx & 15)];
 			int coded_block_flag = 0;
 			if (mb->CodedBlockPatternLuma[ctx->BlkIdx >> 2]) {
@@ -1174,7 +1174,7 @@ static __attribute__((noinline)) int parse_NxN_residual()
 			
 			// Decoding directly follows parsing to avoid duplicate loops.
 			do {
-				ctx->d_v[0] = ctx->d_v[1] = ctx->d_v[2] = ctx->d_v[3] = (v4si){};
+				memset(ctx->d, 0, 64);
 				int coded_block_flag = 0;
 				if (mb->CodedBlockPatternLuma[ctx->BlkIdx >> 2]) {
 					int cbfA = ((int8_t *)mb)[offsetof(Edge264_macroblock, coded_block_flags_4x4) + ctx->coded_block_flags_4x4_A[ctx->BlkIdx]];
@@ -1198,8 +1198,7 @@ static __attribute__((noinline)) int parse_NxN_residual()
 			compute_LevelScale8x8(iYCbCr);
 			
 			do {
-				for (int i = 0; i < 16; i++)
-					ctx->d_v[i] = (v4si){};
+				memset(ctx->d, 0, 256);
 				int luma8x8BlkIdx = ctx->BlkIdx >> 2;
 				int coded_block_flag = mb->CodedBlockPatternLuma[luma8x8BlkIdx & 3];
 				if (coded_block_flag && ctx->ps.ChromaArrayType == 3) {

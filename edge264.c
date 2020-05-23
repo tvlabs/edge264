@@ -1,6 +1,7 @@
 /** TODOs:
  * _ switch to SDL which is likely to have a more stable future support than GLFW, with an option to play without display
- * _ separate Intra pred in Intra4x4/8x8/16x16 functions to be able to pass more adapted common arguments to each
+ * _ add a AC_flag variable to indicate whether IDCT should be computed
+ * _ after implementing transformBypass, add a shortcut for DC-only blocks
  * _ decode_Residual8x8 spills all pN on stack, provide 2 interfaces (one passing them in registers and one in samples memory)
  * _ reduce maximum resolution to store neighbouring offsets in smaller arrays
  * _ make neighbouring reads use a union in mb
@@ -12,7 +13,6 @@
  * _ make ret non sticky to allow partial decodes during implementation
  * _ try using epb for context pointer, and email GCC when it fails
  * _ after implementing deblocking, define a function(a, zero) to switch to pmovsxbw (_mm_cvtepi8_epi16)
- * _ after implementing transformBypass, add a shortcut for DC-only blocks
  * _ after implementing P/B and MBAFF, optimize away array accesses of is422 and mb->f.mb_field_decoding_flag
  * _ after implementing P/B and MBAFF, consider splitting decode_samples into NxN, 16x16 and chroma, making parse_residual_block a regular function, including intraNxN_modes inside the switch of decode_NxN, and removing many copies for AC->DC PredMode
  */

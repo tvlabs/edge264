@@ -189,9 +189,17 @@ static __attribute__((noinline)) int decode_Residual8x8_8bit(__m128i p0, __m128i
 	__m128i p2, __m128i p3, __m128i p4, __m128i p5, __m128i p6, __m128i p7)
 {
 	// shortcut for blocks without AC coefficients
-	__m128i r0, r1, r2, r3, r4, r5, r6, r7;
+	__m128i s0, s1, s2, s3, s4, s5, s6, s7;
 	if (__builtin_expect(ctx->significant_coeff_flags <= 1, 1)) {
-		r0 = r1 = r2 = r3 = r4 = r5 = r6 = r7 = _mm_set1_epi16((ctx->d[0] + 32) >> 6);
+		__m128i DC = _mm_set1_epi16((ctx->d[0] + 32) >> 6);
+		s0 = _mm_adds_epi16(p0, DC);
+		s1 = _mm_adds_epi16(p1, DC);
+		s2 = _mm_adds_epi16(p2, DC);
+		s3 = _mm_adds_epi16(p3, DC);
+		s4 = _mm_adds_epi16(p4, DC);
+		s5 = _mm_adds_epi16(p5, DC);
+		s6 = _mm_adds_epi16(p6, DC);
+		s7 = _mm_adds_epi16(p7, DC);
 	} else {
 		
 		// loading
@@ -262,22 +270,22 @@ static __attribute__((noinline)) int decode_Residual8x8_8bit(__m128i p0, __m128i
 			d7 = _mm_unpackhi_epi64(xE, xF);
 		}
 		
-		// final residual values
-		r0 = _mm_srai_epi16(d0, 6);
-		r1 = _mm_srai_epi16(d1, 6);
-		r2 = _mm_srai_epi16(d2, 6);
-		r3 = _mm_srai_epi16(d3, 6);
-		r4 = _mm_srai_epi16(d4, 6);
-		r5 = _mm_srai_epi16(d5, 6);
-		r6 = _mm_srai_epi16(d6, 6);
-		r7 = _mm_srai_epi16(d7, 6);
+		// final residual values and addition to predicted samples
+		s0 = _mm_adds_epi16(_mm_srai_epi16(d0, 6), p0);
+		s1 = _mm_adds_epi16(_mm_srai_epi16(d1, 6), p1);
+		s2 = _mm_adds_epi16(_mm_srai_epi16(d2, 6), p2);
+		s3 = _mm_adds_epi16(_mm_srai_epi16(d3, 6), p3);
+		s4 = _mm_adds_epi16(_mm_srai_epi16(d4, 6), p4);
+		s5 = _mm_adds_epi16(_mm_srai_epi16(d5, 6), p5);
+		s6 = _mm_adds_epi16(_mm_srai_epi16(d6, 6), p6);
+		s7 = _mm_adds_epi16(_mm_srai_epi16(d7, 6), p7);
 	}
 	
-	// addition to predicted samples and storage
-	v2li u0 = (v2li)_mm_packus_epi16(_mm_adds_epi16(r0, p0), _mm_adds_epi16(r1, p1));
-	v2li u1 = (v2li)_mm_packus_epi16(_mm_adds_epi16(r2, p2), _mm_adds_epi16(r3, p3));
-	v2li u2 = (v2li)_mm_packus_epi16(_mm_adds_epi16(r4, p4), _mm_adds_epi16(r5, p5));
-	v2li u3 = (v2li)_mm_packus_epi16(_mm_adds_epi16(r6, p6), _mm_adds_epi16(r7, p7));
+	// storage
+	v2li u0 = (v2li)_mm_packus_epi16(s0, s1);
+	v2li u1 = (v2li)_mm_packus_epi16(s2, s3);
+	v2li u2 = (v2li)_mm_packus_epi16(s4, s5);
+	v2li u3 = (v2li)_mm_packus_epi16(s6, s7);
 	uint8_t *p = ctx->plane + ctx->plane_offsets[ctx->BlkIdx];
 	size_t stride = ctx->stride;
 	*(int64_t *)(p + stride * 0) = u0[0];

@@ -266,6 +266,12 @@ static inline __attribute__((always_inline)) int get_se(int lower, int upper) { 
 #ifdef __SSE4_1__
 #include <smmintrin.h>
 #define vector_select(mask, t, f) (typeof(f))_mm_blendv_epi8((__m128i)(f), (__m128i)(t), (__m128i)(mask))
+static inline __m128i load8x1_8bit(uint8_t *p, __m128i zero) {
+	return _mm_cvtepu8_epi16(_mm_loadu_si64(p));
+}
+static inline __m128i load4x2_8bit(uint8_t *r0, uint8_t *r1, __m128i zero) {
+	return _mm_cvtepu8_epi16(_mm_insert_epi32(_mm_cvtsi32_si128(*(int *)r0), *(int *)r1, 1));
+}
 #else // !__SSE4_1__
 #define vector_select(mask, t, f) (((t) & (mask)) | ((f) & ~(mask)))
 static inline __m128i _mm_mullo_epi32(__m128i a, __m128i b) {
@@ -280,7 +286,16 @@ static inline __m128i _mm_mullo_epi32(__m128i a, __m128i b) {
 static inline __m128i _mm_packus_epi32(__m128i a, __m128i b) {
 	return _mm_max_epi16(_mm_packs_epi32(a, b), _mm_setzero_si128());
 }
+static inline __m128i load8x1_8bit(uint8_t *p, __m128i zero) {
+	return _mm_unpacklo_epi8(_mm_loadu_si64(p), zero);
+}
+static inline __m128i load4x2_8bit(uint8_t *r0, uint8_t *r1, __m128i zero) {
+	__m128i x0 = _mm_cvtsi32_si128(*(int *)r0); // beware unaligned load
+	__m128i x1 = _mm_cvtsi32_si128(*(int *)r1);
+	return _mm_unpacklo_epi8(_mm_unpacklo_epi32(x0, x1), zero);
+}
 #endif // __SSE4_1__
+
 #ifdef __AVX2__
 #include <immintrin.h>
 #else // !__AVX2__

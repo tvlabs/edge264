@@ -16,31 +16,6 @@ int ponderation_16x16();
 
 
 /**
- * Loading 8x1 and 4x2 matrices is critical and deserves specific tricks.
- * Beware we are doing unaligned loads here and count on processors to succeed
- * silently, this has not yet been tested on AMD chips.
- */
-#ifdef __SSE4_1__
-static inline __m128i load8x1_8bit(uint8_t *p, __m128i zero) {
-	return _mm_cvtepu8_epi16(_mm_loadu_si64(p));
-}
-static inline __m128i load4x2_8bit(uint8_t *r0, uint8_t *r1, __m128i zero) {
-	return _mm_cvtepu8_epi16(_mm_insert_epi32(_mm_cvtsi32_si128(*(int *)r0), *(int *)r1, 1));
-}
-#else
-static inline __m128i load8x1_8bit(uint8_t *p, __m128i zero) {
-	return _mm_unpacklo_epi8(_mm_loadu_si64(p), zero);
-}
-static inline __m128i load4x2_8bit(uint8_t *r0, uint8_t *r1, __m128i zero) {
-	__m128i x0 = _mm_cvtsi32_si128(*(int *)r0);
-	__m128i x1 = _mm_cvtsi32_si128(*(int *)r1);
-	return _mm_unpacklo_epi8(_mm_unpacklo_epi32(x0, x1), zero);
-}
-#endif
-
-
-
-/**
  * This function sums opposite pairs of values, and computes (a-5b+20c+16)/32,
  * clipped to [0;sample_max].
  * The sum is actually computed as (((a-b)/4-(b-c))/4+c+1)/2, the last shift

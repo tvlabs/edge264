@@ -184,11 +184,18 @@ static __attribute__((noinline)) int decode_Residual4x4(__m128i p0, __m128i p1)
 
 /**
  * Inverse 8x8 transform
+ *
+ * 8/16bit versions are kept separate since the first is noticeably faster
+ * when AVX is not available.
+ * For each one, two entry points are provided. The first (for Intra) passes
+ * predicted samples in registers, and the second (for Inter) passes them in
+ * place in memory.
  */
-static __attribute__((noinline)) int decode_Residual8x8_8bit(__m128i p0, __m128i p1,
-	__m128i p2, __m128i p3, __m128i p4, __m128i p5, __m128i p6, __m128i p7)
+static __attribute__((noinline)) int decode_Residual8x8_8bit(__m128i p0,
+	__m128i p1, __m128i p2, __m128i p3, __m128i p4, __m128i p5, __m128i p6,
+	__m128i p7)
 {
-	// shortcut for blocks without AC coefficients
+	// blocks without AC coefficients can get away with a few adds
 	__m128i s0, s1, s2, s3, s4, s5, s6, s7;
 	if (__builtin_expect(ctx->significant_coeff_flags <= 1, 1)) {
 		__m128i DC = _mm_set1_epi16((ctx->d[0] + 32) >> 6);
@@ -271,6 +278,7 @@ static __attribute__((noinline)) int decode_Residual8x8_8bit(__m128i p0, __m128i
 		}
 		
 		// final residual values and addition to predicted samples
+		__m128i zero = _mm_setzero_si128();
 		s0 = _mm_adds_epi16(_mm_srai_epi16(d0, 6), p0);
 		s1 = _mm_adds_epi16(_mm_srai_epi16(d1, 6), p1);
 		s2 = _mm_adds_epi16(_mm_srai_epi16(d2, 6), p2);
@@ -282,22 +290,47 @@ static __attribute__((noinline)) int decode_Residual8x8_8bit(__m128i p0, __m128i
 	}
 	
 	// storage
+	size_t stride = ctx->stride;
+	ssize_t nstride = -stride;
+	uint8_t *p = ctx->plane + ctx->plane_offsets[ctx->BlkIdx] + stride;
+	uint8_t *q = p + stride * 4;
 	v2li u0 = (v2li)_mm_packus_epi16(s0, s1);
 	v2li u1 = (v2li)_mm_packus_epi16(s2, s3);
 	v2li u2 = (v2li)_mm_packus_epi16(s4, s5);
 	v2li u3 = (v2li)_mm_packus_epi16(s6, s7);
-	uint8_t *p = ctx->plane + ctx->plane_offsets[ctx->BlkIdx];
-	size_t stride = ctx->stride;
-	*(int64_t *)(p + stride * 0) = u0[0];
-	*(int64_t *)(p + stride * 1) = u0[1];
-	*(int64_t *)(p + stride * 2) = u1[0];
-	*(int64_t *)(p + stride * 3) = u1[1];
-	*(int64_t *)(p + stride * 4) = u2[0];
-	*(int64_t *)(p + stride * 5) = u2[1];
-	*(int64_t *)(p + stride * 6) = u3[0];
-	*(int64_t *)(p + stride * 7) = u3[1];
+	*(int64_t *)(p + nstride    ) = u0[0];
+	*(int64_t *)(p              ) = u0[1];
+	*(int64_t *)(p +  stride    ) = u1[0];
+	*(int64_t *)(p +  stride * 2) = u1[1];
+	*(int64_t *)(q + nstride    ) = u2[0];
+	*(int64_t *)(q              ) = u2[1];
+	*(int64_t *)(q +  stride    ) = u3[0];
+	*(int64_t *)(q +  stride * 2) = u3[1];
 	return 0;
 }
+
+static __attribute__((noinline)) int decode_Residual8x8_noargs_8bit()
+{
+	// blocks without residuals can exit here since predicted samples are in place
+	if (__builtin_expect(ctx->significant_coeff_flags == 0, 1))
+		return 0;
+	
+	size_t stride = ctx->stride;
+	ssize_t nstride = -stride;
+	uint8_t *p = ctx->plane + ctx->plane_offsets[ctx->BlkIdx] + stride;
+	uint8_t *q = p + stride * 4;
+	__m128i zero = _mm_setzero_si128();
+	__m128i p0 = load8x1_8bit(p + nstride    , zero);
+	__m128i p1 = load8x1_8bit(p              , zero);
+	__m128i p2 = load8x1_8bit(p +  stride    , zero);
+	__m128i p3 = load8x1_8bit(p +  stride * 2, zero);
+	__m128i p4 = load8x1_8bit(q + nstride    , zero);
+	__m128i p5 = load8x1_8bit(q              , zero);
+	__m128i p6 = load8x1_8bit(q +  stride    , zero);
+	__m128i p7 = load8x1_8bit(q +  stride * 2, zero);
+	return decode_Residual8x8_8bit(p0, p1, p2, p3, p4, p5, p6, p7);
+}
+
 
 #ifdef __AVX2__
 static __attribute__((noinline)) int decode_Residual8x8(__m128i p0, __m128i p1,
@@ -423,7 +456,7 @@ static __attribute__((noinline)) int decode_Residual8x8(__m128i p0, __m128i p1,
 	__m128i p2, __m128i p3, __m128i p4, __m128i p5, __m128i p6, __m128i p7)
 {
 	if (__builtin_expect(ctx->clip == 255, 1))
-		return decode_Residual8x8_8bit(p0, p1, p2, p3, p4, p5, p6, p7);
+		return decode_Residual8x8_regs_8bit(p0, p1, p2, p3, p4, p5, p6, p7);
 	
 	// shortcut for blocks without AC coefficients
 	__m128i r0, r1, r2, r3, r4, r5, r6, r7;

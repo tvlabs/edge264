@@ -821,7 +821,7 @@ static void parse_scaling_lists()
  *
  * Slice groups are not supported because:
  * _ The sixth group requires a per-PPS storage of mapUnitToSliceGroupMap, with
- *   an upper size of 1055^2 bytes, though a slice group needs 3 bits at most;
+ *   an upper size of 512^2 bytes, though a slice group needs 3 bits at most;
  * _ Groups 3-5 ignore the PPS's mapUnitToSliceGroupMap, and use 1 bit per mb;
  * _ Skipping unavailable mbs while decoding a slice messes with the storage of
  *   neighbouring macroblocks as a cirbular buffer.
@@ -1307,12 +1307,12 @@ static int parse_seq_parameter_set(Edge264_stream *e)
 	
 	// We don't store pic_width/height_in_mbs to avoid cluttering structs
 	int gaps_in_frame_num_value_allowed_flag = get_u1();
-	unsigned pic_width_in_mbs = get_ue(1054) + 1;
-	int pic_height_in_map_units = get_ue16() + 1;
+	unsigned pic_width_in_mbs = get_ue(511) + 1;
+	int pic_height_in_map_units = get_ue(511) + 1;
 	ctx->ps.frame_mbs_only_flag = get_u1();
 	ctx->ps.width = pic_width_in_mbs << 4;
-	ctx->ps.height = min((ctx->ps.frame_mbs_only_flag) ? pic_height_in_map_units :
-		pic_height_in_map_units << 1, 139264 / pic_width_in_mbs) << 4;
+	ctx->ps.height = (ctx->ps.frame_mbs_only_flag) ? pic_height_in_map_units << 4 :
+		pic_height_in_map_units << 5;
 	printf("<li>max_num_ref_frames: <code>%u</code></li>\n"
 		"<li>gaps_in_frame_num_value_allowed_flag: <code>%x</code></li>\n"
 		"<li>width: <code>%u</code></li>\n"

@@ -36,7 +36,7 @@ typedef struct {
 	int8_t BitDepth_Y; // 4 significant bits
 	int8_t BitDepth_C;
 	int8_t max_dec_frame_buffering; // 5 significant bits
-	int16_t width; // in luma samples, 15 significant bits
+	int16_t width; // in luma samples, at most 8192
 	int16_t height;
 	
 	// The rest is internal stuff.
@@ -84,7 +84,7 @@ typedef struct Edge264_stream {
 	uint8_t *DPB; // NULL before the first SPS is decoded
 	int8_t ret; // 0=OK, -1=unsupported, -2=error
 	int8_t currPic; // index of next available DPB slot
-	int16_t stride_Y;
+	int16_t stride_Y; // 15 significant bits
 	int16_t stride_C;
 	int32_t plane_size_Y;
 	int32_t plane_size_C;

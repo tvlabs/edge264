@@ -119,7 +119,7 @@ typedef struct
 	int8_t BlkIdx; // index of current AC block (for PredMode), in order Y/Cb/Cr and without gaps
 	int16_t x; // 14 significant bits
 	int16_t y;
-	uint16_t stride;
+	uint16_t stride; // 16 significant bits (for 8K, 16bit depth, field pic)
 	int32_t row_offset_C; // memory offset to increment plane_Cb at the end of a row
 	uint8_t *plane;
 	uint8_t *plane_Y;

@@ -68,13 +68,13 @@ static const Edge264_flags flags_twice = {
 typedef struct {
 	Edge264_flags f;
 	int8_t QP[3];
-	union { int8_t Intra4x4PredMode[16]; v16qi Intra4x4PredMode_v; };
-	union { int16_t mvs[64]; v8hi mvs_v[8]; };
-	union { int8_t refIdx[8]; v8qi refIdx_v; };
-	union { int8_t absMvdComp[32]; v16qi absMvdComp_v[2]; };
 	union { int8_t CodedBlockPatternLuma[4]; int32_t CodedBlockPatternLuma_s; };
+	union { int8_t refIdx[8]; v8qi refIdx_v; };
+	union { int8_t Intra4x4PredMode[16]; v16qi Intra4x4PredMode_v; };
 	union { int8_t coded_block_flags_8x8[12]; v16qi coded_block_flags_8x8_v; };
 	union { int8_t coded_block_flags_4x4[48]; int32_t coded_block_flags_4x4_s[12]; v16qi coded_block_flags_4x4_v[3]; };
+	union { int8_t absMvdComp[32]; v16qi absMvdComp_v[2]; };
+	union { int16_t mvs[64]; v8hi mvs_v[8]; };
 } Edge264_macroblock;
 
 

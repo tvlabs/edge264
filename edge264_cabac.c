@@ -1524,7 +1524,7 @@ static __attribute__((noinline)) int parse_intraNxN_pred_mode(int luma4x4BlkIdx)
  *   to account for unavailability of neighbouring blocks, Intra chroma modes
  *   and Inter prediction.
  */
-static __attribute__((noinline)) int parse_intra_mb(int ctxIdx)
+static __attribute__((noinline)) int parse_I_mb(int ctxIdx)
 {
 	static const Edge264_flags flags_PCM = {
 		.CodedBlockPatternChromaDC = 1,
@@ -1532,6 +1532,7 @@ static __attribute__((noinline)) int parse_intra_mb(int ctxIdx)
 		.coded_block_flags_16x16 = {1, 1, 1},
 	};
 	check_ctx(INTRA_MB_LABEL);
+	mb->f.mbIsInterFlag = 0;
 	
 	// I_NxN
 	if (!get_ae(ctxIdx)) {
@@ -1655,9 +1656,9 @@ static __attribute__((noinline)) int parse_intra_mb(int ctxIdx)
 
 
 /**
- * This function parses the syntax elements mb_type and sub_mb_type for the
- * current macroblock in a P/B slice, then branches to further decoding
- * (parse_intra_mb/parse_inter_pred/parse_NxN_residual) through tail calls.
+ * These functions parse the syntax elements mb_type and sub_mb_type for the
+ * current macroblock in a P/B slice, then branch to further decoding
+ * (parse_I_mb/parse_inter_pred/parse_NxN_residual) through tail calls.
  *
  * We distinguish three kinds of partitions: P/B_NxN, P/B_Skip, B_Direct_16x16.
  *
@@ -1678,9 +1679,38 @@ static __attribute__((noinline)) int parse_intra_mb(int ctxIdx)
  * For B_Direct_16x16, we initialize refIdx and mvs and jump directly to
  * parse_NxN_residual.
  */
-static __attribute__((noinline)) int parse_inter_mb()
+static __attribute__((noinline)) int parse_P_mb()
 {
-	static const uint16_t P2flags[4] = {0x0001, 0, 0x0011, 0x0101}; // FIXME: number of entries
+	static const uint16_t P2flags[4] = {0x0001, 0x0000, 0x0011, 0x0101};
+	
+	mb->f.mbIsInterFlag = 1;
+	mb->f.mb_skip_flag = get_ae(13 - ctx->inc.mb_skip_flag);
+	fprintf(stderr, "mb_skip_flag: %x\n", mb->f.mb_skip_flag);
+	if (mb->f.mb_skip_flag) {
+		
+		return 0;
+	} else if (get_ae(14)) {
+		return parse_I_mb(17);
+	}
+	
+	// Are these few lines worth a function? :)
+	int str = get_ae(15);
+	str += str + get_ae(16 + str);
+	fprintf(stderr, "mb_type: %u\n", (4 - str) % 4);
+	unsigned flags = P2flags[str];
+	
+	// Parsing for sub_mb_type in P slices.
+	for (int i = 0; str == 1 && i < 16; i += 4) {
+		unsigned f = get_ae(21) ? 1 : !get_ae(22) ? 5 : get_ae(23) ? 3 : 15;
+		fprintf(stderr, "sub_mb_type: %c\n", (f == 1) ? '0' : (f == 5) ? '1' : (f == 3) ? '2' : '3');
+		flags |= f << i;
+	}
+	ctx->mvd_flags = ctx->mvd_fold = flags;
+	return parse_inter_pred();
+}
+
+static __attribute__((noinline)) int parse_B_mb()
+{
 	static const uint32_t B2flags[26] = {0x00010001, 0x00000101, 0x00000011, 0x01010000,
 		0x00110000, 0x01000001, 0x00100001, 0x00010100, 0x00000001, 0x00010000,
 		0, 0, 0, 0, 0x00010010, 0, 0x01000101, 0x00100011, 0x01010100, 0x00110010,
@@ -1691,88 +1721,62 @@ static __attribute__((noinline)) int parse_inter_mb()
 		0, 0, 11, 22, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21};
 	static const uint8_t b2sub_mb_type[13] = {3, 4, 5, 6, 1, 2, 11, 12, 7, 8, 9, 10, 0};
 	
-	// Initialise with Direct motion prediction, then parse mb_type.
 	mb->f.mbIsInterFlag = 1;
-	if (ctx->slice_type == 0) { // FIXME: slice_type was loaded in parse_slice_data and is wasted here
-		if (mb->f.mb_skip_flag) {
-			//init_P_Skip();
-			return parse_NxN_residual();
-		} else if (get_ae(14)) {
-			v8hi *v = mb->mvs_v;
-			v[0] = v[1] = v[2] = v[3] = v[4] = v[5] = v[6] = v[7] = (v8hi){};
-			mb->f.mbIsInterFlag = 0;
-			return parse_intra_mb(17);
-		}
+	mb->f.mb_skip_flag = get_ae(26 - ctx->inc.mb_skip_flag);
+	fprintf(stderr, "mb_skip_flag: %x\n", mb->f.mb_skip_flag);
+	if (mb->f.mb_skip_flag) {
+		mb->f.mb_type_B_Direct = 1;
+		return parse_NxN_residual();
 		
-		// Are these few lines worth a function? :)
-		int str = get_ae(15);
-		str += str + get_ae(16 + str);
-		fprintf(stderr, "mb_type: %u\n", (4 - str) % 4);
-		unsigned flags = P2flags[str];
-		
-		// Parsing for sub_mb_type in P slices.
-		for (int i = 0; str == 1 && i < 16; i += 4) {
-			unsigned f = get_ae(21) ? 1 : !get_ae(22) ? 5 : get_ae(23) ? 3 : 15;
-			fprintf(stderr, "sub_mb_type: %c\n", (f == 1) ? '0' : (f == 5) ? '1' : (f == 3) ? '2' : '3');
-			flags |= f << i;
+	// B_Direct_16x16
+	} else if (!get_ae(29 - ctx->inc.mb_type_B_Direct)) {
+		fprintf(stderr, "mb_type: 0\n");
+		parse_coded_block_pattern();
+		if (mb->CodedBlockPatternLuma_s && ctx->ps.transform_8x8_mode_flag && ctx->ps.direct_8x8_inference_flag) {
+			mb->f.transform_size_8x8_flag = get_ae(399 + ctx->inc.transform_size_8x8_flag);
+			fprintf(stderr, "transform_size_8x8_flag: %x\n", mb->f.transform_size_8x8_flag);
 		}
-		ctx->mvd_flags = ctx->mvd_fold = flags;
-	} else {
-		//init_B_Direct();
-		if (mb->f.mb_skip_flag) {
-			mb->f.mb_type_B_Direct = 1;
-			return parse_NxN_residual();
-			
-		// B_Direct_16x16
-		} else if (!get_ae(29 - ctx->inc.mb_type_B_Direct)) {
-			fprintf(stderr, "mb_type: 0\n");
-			parse_coded_block_pattern();
-			if (mb->CodedBlockPatternLuma_s && ctx->ps.transform_8x8_mode_flag && ctx->ps.direct_8x8_inference_flag) {
-				mb->f.transform_size_8x8_flag = get_ae(399 + ctx->inc.transform_size_8x8_flag);
-				fprintf(stderr, "transform_size_8x8_flag: %x\n", mb->f.transform_size_8x8_flag);
-			}
-			mb->f.mb_type_B_Direct = 1;
-			return parse_NxN_residual();
-		}
-		
-		// Most important here is the minimal number of conditional branches.
-		int str = 4;
-		if (!get_ae(30) || (str = get_ae(31),
-			str += str + get_ae(32),
-			str += str + get_ae(32),
-			str += str + get_ae(32), str - 8 < 5u))
-		{
-			str += str + get_ae(32);
-		}
-		if (str == 13) {
-			v8hi *v = mb->mvs_v;
-			v[0] = v[1] = v[2] = v[3] = v[4] = v[5] = v[6] = v[7] = (v8hi){};
-			return parse_intra_mb(32);
-		}
-		fprintf(stderr, "mb_type: %u\n", B2mb_type[str]);
-		ctx->mvd_fold = 0;
-		unsigned flags = B2flags[str];
-		
-		// Parsing for sub_mb_type in B slices.
-		for (int i = 0; str == 15 && i < 16; i += 4) {
-			int sub = 12;
-			if (!get_ae(36)) {
-				ctx->mvd_fold = (ctx->ps.direct_8x8_inference_flag) ? 0x10000 : 0x20000;
-			} else {
-				sub = 2;
-				if (!get_ae(37) || (sub = get_ae(38),
-					sub += sub + get_ae(39),
-					sub += sub + get_ae(39), sub - 4 < 2u))
-				{
-					sub += sub + get_ae(39);
-				}
-				flags |= b2flags[sub] << i;
-			}
-			fprintf(stderr, "sub_mb_type: %u\n", b2sub_mb_type[sub]);
-		}
-		ctx->mvd_flags = flags;
-		ctx->mvd_fold |= (uint16_t)flags | flags >> 16;
+		mb->f.mb_type_B_Direct = 1;
+		return parse_NxN_residual();
 	}
+	
+	// Most important here is the minimal number of conditional branches.
+	int str = 4;
+	if (!get_ae(30) || (str = get_ae(31),
+		str += str + get_ae(32),
+		str += str + get_ae(32),
+		str += str + get_ae(32), str - 8 < 5u))
+	{
+		str += str + get_ae(32);
+	}
+	if (str == 13) {
+		v8hi *v = mb->mvs_v;
+		v[0] = v[1] = v[2] = v[3] = v[4] = v[5] = v[6] = v[7] = (v8hi){};
+		return parse_I_mb(32);
+	}
+	fprintf(stderr, "mb_type: %u\n", B2mb_type[str]);
+	ctx->mvd_fold = 0;
+	unsigned flags = B2flags[str];
+	
+	// Parsing for sub_mb_type in B slices.
+	for (int i = 0; str == 15 && i < 16; i += 4) {
+		int sub = 12;
+		if (!get_ae(36)) {
+			ctx->mvd_fold = (ctx->ps.direct_8x8_inference_flag) ? 0x10000 : 0x20000;
+		} else {
+			sub = 2;
+			if (!get_ae(37) || (sub = get_ae(38),
+				sub += sub + get_ae(39),
+				sub += sub + get_ae(39), sub - 4 < 2u))
+			{
+				sub += sub + get_ae(39);
+			}
+			flags |= b2flags[sub] << i;
+		}
+		fprintf(stderr, "sub_mb_type: %u\n", b2sub_mb_type[sub]);
+	}
+	ctx->mvd_flags = flags;
+	ctx->mvd_fold |= (uint16_t)flags | flags >> 16;
 	return parse_inter_pred();
 }
 
@@ -1810,14 +1814,13 @@ static __attribute__((noinline)) int PAFF_parse_slice_data()
 		if (mbB[-1].f.unavailable)
 			ctx->unavail[0] |= 8;
 		
-		// P/B slices have some more initialisation.
-		if (ctx->slice_type == 2) {
-			parse_intra_mb(5 - ctx->inc.mb_type_I_NxN);
-		} else {
-			mb->f.mb_skip_flag = get_ae(13 + 13 * ctx->slice_type - ctx->inc.mb_skip_flag);
-			fprintf(stderr, "mb_skip_flag: %x\n", mb->f.mb_skip_flag);
-			parse_inter_mb();
-		}
+		// could we push this test outside the loop without complex code?
+		if (ctx->slice_type == 0)
+			parse_P_mb();
+		else if (ctx->slice_type == 1)
+			parse_B_mb();
+		else
+			parse_I_mb(5 - ctx->inc.mb_type_I_NxN);
 		
 		// break on end_of_slice_flag
 		int end_of_slice_flag = get_ae(276);

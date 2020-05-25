@@ -1076,10 +1076,11 @@ static __attribute__((noinline)) int parse_chroma_residual()
 			compute_LevelScale4x4(2);
 		}
 		
+		// neighbouring access uses pointer arithmetic to avoid bounds checks
 		int coded_block_flag = 0;
 		if (mb->f.CodedBlockPatternChromaAC) {
-			int cbfA = ((int8_t *)mb)[offsetof(Edge264_macroblock, coded_block_flags_4x4) + ctx->coded_block_flags_4x4_A[ctx->BlkIdx]];
-			int cbfB = ((int8_t *)mb)[offsetof(Edge264_macroblock, coded_block_flags_4x4) + ctx->coded_block_flags_4x4_B[ctx->BlkIdx]];
+			int cbfA = *(mb->coded_block_flags_4x4 + ctx->coded_block_flags_4x4_A[ctx->BlkIdx]);
+			int cbfB = *(mb->coded_block_flags_4x4 + ctx->coded_block_flags_4x4_B[ctx->BlkIdx]);
 			coded_block_flag = get_ae(ctx->ctxIdxOffsets[0] + cbfA + cbfB * 2);
 		}
 		mb->coded_block_flags_4x4[ctx->BlkIdx] = coded_block_flag;
@@ -1128,8 +1129,8 @@ static __attribute__((noinline)) int parse_Intra16x16_residual()
 		do {
 			int coded_block_flag = 0;
 			if (mb->CodedBlockPatternLuma[ctx->BlkIdx >> 2]) {
-				int cbfA = ((int8_t *)mb)[offsetof(Edge264_macroblock, coded_block_flags_4x4) + ctx->coded_block_flags_4x4_A[ctx->BlkIdx]];
-				int cbfB = ((int8_t *)mb)[offsetof(Edge264_macroblock, coded_block_flags_4x4) + ctx->coded_block_flags_4x4_B[ctx->BlkIdx]];
+				int cbfA = *(mb->coded_block_flags_4x4 + ctx->coded_block_flags_4x4_A[ctx->BlkIdx]);
+				int cbfB = *(mb->coded_block_flags_4x4 + ctx->coded_block_flags_4x4_B[ctx->BlkIdx]);
 				coded_block_flag = get_ae(ctx->ctxIdxOffsets[0] + cbfA + cbfB * 2);
 			}
 			mb->coded_block_flags_4x4[ctx->BlkIdx] = coded_block_flag;
@@ -1179,8 +1180,8 @@ static __attribute__((noinline)) int parse_NxN_residual()
 			do {
 				int coded_block_flag = 0;
 				if (mb->CodedBlockPatternLuma[ctx->BlkIdx >> 2]) {
-					int cbfA = ((int8_t *)mb)[offsetof(Edge264_macroblock, coded_block_flags_4x4) + ctx->coded_block_flags_4x4_A[ctx->BlkIdx]];
-					int cbfB = ((int8_t *)mb)[offsetof(Edge264_macroblock, coded_block_flags_4x4) + ctx->coded_block_flags_4x4_B[ctx->BlkIdx]];
+					int cbfA = *(mb->coded_block_flags_4x4 + ctx->coded_block_flags_4x4_A[ctx->BlkIdx]);
+					int cbfB = *(mb->coded_block_flags_4x4 + ctx->coded_block_flags_4x4_B[ctx->BlkIdx]);
 					coded_block_flag = get_ae(ctx->ctxIdxOffsets[0] + cbfA + cbfB * 2);
 				}
 				mb->coded_block_flags_4x4[ctx->BlkIdx] = coded_block_flag;
@@ -1205,8 +1206,8 @@ static __attribute__((noinline)) int parse_NxN_residual()
 				int luma8x8BlkIdx = ctx->BlkIdx >> 2;
 				int coded_block_flag = mb->CodedBlockPatternLuma[luma8x8BlkIdx & 3];
 				if (coded_block_flag && ctx->ps.ChromaArrayType == 3) {
-					int cbfA = ((int8_t *)mb)[offsetof(Edge264_macroblock, coded_block_flags_8x8) + ctx->coded_block_flags_8x8_A[luma8x8BlkIdx]];
-					int cbfB = ((int8_t *)mb)[offsetof(Edge264_macroblock, coded_block_flags_8x8) + ctx->coded_block_flags_8x8_B[luma8x8BlkIdx]];
+					int cbfA = *(mb->coded_block_flags_8x8 + ctx->coded_block_flags_8x8_A[luma8x8BlkIdx]);
+					int cbfB = *(mb->coded_block_flags_8x8 + ctx->coded_block_flags_8x8_B[luma8x8BlkIdx]);
 					coded_block_flag = get_ae(ctx->ctxIdxOffsets[0] + cbfA + cbfB * 2);
 				}
 				mb->coded_block_flags_8x8[luma8x8BlkIdx] = coded_block_flag;
@@ -1240,8 +1241,8 @@ static __attribute__((noinline)) void parse_coded_block_pattern() {
 	check_ctx(RESIDUAL_CBP_LABEL);
 	// Luma prefix
 	for (int i = 0; i < 4; i++) {
-		int cbpA = ((int8_t *)mb)[offsetof(Edge264_macroblock, CodedBlockPatternLuma) + ctx->CodedBlockPatternLuma_A[i]];
-		int cbpB = ((int8_t *)mb)[offsetof(Edge264_macroblock, CodedBlockPatternLuma) + ctx->CodedBlockPatternLuma_B[i]];
+		int cbpA = *(mb->CodedBlockPatternLuma + ctx->CodedBlockPatternLuma_A[i]);
+		int cbpB = *(mb->CodedBlockPatternLuma + ctx->CodedBlockPatternLuma_B[i]);
 		mb->CodedBlockPatternLuma[i] = get_ae(-(-76 + cbpA + cbpB * 2));
 	}
 	
@@ -1492,8 +1493,8 @@ static __attribute__((noinline)) void parse_intra_chroma_pred_mode()
 static __attribute__((noinline)) int parse_intraNxN_pred_mode(int luma4x4BlkIdx)
 {
 	// dcPredModePredictedFlag is enforced by putting -2
-	int intraMxMPredModeA = ((int8_t *)mb)[offsetof(Edge264_macroblock, Intra4x4PredMode) + ctx->Intra4x4PredMode_A[luma4x4BlkIdx]];
-	int intraMxMPredModeB = ((int8_t *)mb)[offsetof(Edge264_macroblock, Intra4x4PredMode) + ctx->Intra4x4PredMode_B[luma4x4BlkIdx]];
+	int intraMxMPredModeA = *(mb->Intra4x4PredMode + ctx->Intra4x4PredMode_A[luma4x4BlkIdx]);
+	int intraMxMPredModeB = *(mb->Intra4x4PredMode + ctx->Intra4x4PredMode_B[luma4x4BlkIdx]);
 	int mode = abs(min(intraMxMPredModeA, intraMxMPredModeB));
 	if (!get_ae(68)) {
 		int rem_intra_pred_mode = get_ae(69);

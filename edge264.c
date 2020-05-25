@@ -1,7 +1,5 @@
 /** TODOs:
  * _ switch to SDL which is likely to have a more stable future support than GLFW, with an option to play without display
- * _ reduce maximum resolution to store neighbouring offsets in smaller arrays
- * _ make neighbouring reads use a union in mb
  * _ use a macro to define and call functions, to let clang pass ctx/mb in arguments
  * _ if possible, make the second half of AbsMvdComp_A/B alias the first of A/B4x4_8bit
  * _ update the tables of names for profiles and NAL types

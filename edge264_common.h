@@ -217,8 +217,17 @@ typedef struct
 // Global Register Variables are a blessing since we need context everywhere!
 #if defined(__SSSE3__) && !defined(__clang__)
 register Edge264_ctx *ctx asm("ebx");
+#define SET_CTX(p) Edge264_ctx *old = ctx; ctx = p
+#define RESET_CTX() ctx = old
+#define FUNC(f, ...) f(__VA_ARGS__)
+#define CALL(f, ...) f(__VA_ARGS__)
+#define JUMP(f, ...) f(__VA_ARGS__); return
 #else
-static __thread Edge264_ctx *ctx;
+#define SET_CTX(p) Edge264_ctx *ctx = p
+#define RESET_CTX()
+#define FUNC(f, ...) f(Edge264_ctx *ctx, ## __VA_ARGS__)
+#define CALL(f, ...) f(ctx, ## __VA_ARGS__)
+#define JUMP(f, ...) f(ctx, ## __VA_ARGS__); return
 #endif
 #if defined(__SSSE3__) && !defined(__clang__) && SIZE_BIT == 64
 register Edge264_macroblock *mb asm("r13"); // always use callee-saved registers
@@ -239,7 +248,7 @@ static inline const char *red_if(int cond) { return (cond) ? " style='color:red'
 #else
 #define printf(...) ((void)0)
 #define check_stream(e) ((void)0)
-#define check_ctx(label) ((void)0)
+#define check_ctx(...) ((void)0)
 #endif
 #if TRACE < 2
 #define fprintf(...) ((void)0)
@@ -252,18 +261,18 @@ static inline unsigned umin(unsigned a, unsigned b) { return (a < b) ? a : b; }
 static inline unsigned umax(unsigned a, unsigned b) { return (a > b) ? a : b; }
 static inline int median(int a, int b, int c) { return max(min(max(a, b), c), min(a, b)); }
 
-size_t refill(int, size_t);
-size_t get_u1();
-size_t get_uv(unsigned);
-size_t get_ue16();
+static size_t FUNC(refill, int, size_t);
+static size_t FUNC(get_u1);
+static size_t FUNC(get_uv, unsigned);
+static size_t FUNC(get_ue16);
 #if SIZE_BIT == 32
-size_t get_ue32();
+static size_t FUNC(get_ue32);
 #else
 #define get_ue32 get_ue16
 #endif
-static inline __attribute__((always_inline)) unsigned get_ue(unsigned upper) { return umin((upper <= 65534) ? get_ue16() : get_ue32(), upper); }
-static inline __attribute__((always_inline)) int map_se(unsigned codeNum) { return (codeNum & 1) ? codeNum / 2 + 1 : -(codeNum / 2); }
-static inline __attribute__((always_inline)) int get_se(int lower, int upper) { return min(max(map_se((lower >= -32767 && upper <= 32767) ? get_ue16() : get_ue32()), lower), upper); }
+static inline unsigned FUNC(get_ue, unsigned upper) { return umin((upper <= 65534) ? CALL(get_ue16) : CALL(get_ue32), upper); }
+static inline int map_se(unsigned codeNum) { return (codeNum & 1) ? codeNum / 2 + 1 : -(codeNum / 2); }
+static inline int FUNC(get_se, int lower, int upper) { return min(max(map_se((lower >= -32767 && upper <= 32767) ? CALL(get_ue16) : CALL(get_ue32)), lower), upper); }
 
 
 

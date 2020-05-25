@@ -65,7 +65,7 @@ static void print_v4si(v4si v) {
  * These functions are not executed often enough to justify maintaining AVX2
  * versions.
  */
-static __attribute__((noinline)) void compute_LevelScale4x4(int iYCbCr) {
+static __attribute__((noinline)) void FUNC(compute_LevelScale4x4, int iYCbCr) {
 	// This part is very unsatisfactory and will have to be optimised some day.
 	int BitDepth = (iYCbCr == 0) ? ctx->ps.BitDepth_Y : ctx->ps.BitDepth_C;
 	__m128i zero = _mm_setzero_si128();
@@ -80,7 +80,7 @@ static __attribute__((noinline)) void compute_LevelScale4x4(int iYCbCr) {
 	ctx->LevelScale_v[3] = (v4si)_mm_sll_epi32(_mm_unpackhi_epi16(x1, zero), shift);
 }
 
-static inline void compute_LevelScale8x8(int iYCbCr) {
+static inline void FUNC(compute_LevelScale8x8, int iYCbCr) {
 	int BitDepth = (iYCbCr == 0) ? ctx->ps.BitDepth_Y : ctx->ps.BitDepth_C;
 	__m128i zero = _mm_setzero_si128();
 	__m128i shift = _mm_cvtsi32_si128((unsigned)mb->QP[iYCbCr] / 6 + BitDepth - 8);
@@ -105,7 +105,7 @@ static inline void compute_LevelScale8x8(int iYCbCr) {
  * speedup. Also the implementation matches the spec's pseudocode, avoiding
  * minor optimisations which would make it harder to understand.
  */
-static __attribute__((noinline)) int decode_Residual4x4(__m128i p0, __m128i p1)
+static __attribute__((noinline)) int FUNC(decode_Residual4x4, __m128i p0, __m128i p1)
 {
 	// shortcut for blocks without AC coefficients
 	__m128i x4, x5;
@@ -191,7 +191,7 @@ static __attribute__((noinline)) int decode_Residual4x4(__m128i p0, __m128i p1)
  * predicted samples in registers, and the second (for Inter) passes them in
  * place in memory.
  */
-static __attribute__((noinline)) int decode_Residual8x8_8bit(__m128i p0,
+static __attribute__((noinline)) int FUNC(decode_Residual8x8_8bit, __m128i p0,
 	__m128i p1, __m128i p2, __m128i p3, __m128i p4, __m128i p5, __m128i p6,
 	__m128i p7)
 {
@@ -309,7 +309,7 @@ static __attribute__((noinline)) int decode_Residual8x8_8bit(__m128i p0,
 	return 0;
 }
 
-static __attribute__((noinline)) int decode_Residual8x8_noargs_8bit()
+static __attribute__((noinline)) int FUNC(decode_Residual8x8_noargs_8bit)
 {
 	// blocks without residuals can exit here since predicted samples are in place
 	if (__builtin_expect(ctx->significant_coeff_flags == 0, 1))
@@ -328,16 +328,16 @@ static __attribute__((noinline)) int decode_Residual8x8_noargs_8bit()
 	__m128i p5 = load8x1_8bit(q              , zero);
 	__m128i p6 = load8x1_8bit(q +  stride    , zero);
 	__m128i p7 = load8x1_8bit(q +  stride * 2, zero);
-	return decode_Residual8x8_8bit(p0, p1, p2, p3, p4, p5, p6, p7);
+	return CALL(decode_Residual8x8_8bit, p0, p1, p2, p3, p4, p5, p6, p7);
 }
 
 
 #ifdef __AVX2__
-static __attribute__((noinline)) int decode_Residual8x8(__m128i p0, __m128i p1,
+static __attribute__((noinline)) int FUNC(decode_Residual8x8, __m128i p0, __m128i p1,
 	__m128i p2, __m128i p3, __m128i p4, __m128i p5, __m128i p6, __m128i p7)
 {
 	if (__builtin_expect(ctx->clip == 255, 1))
-		return decode_Residual8x8_8bit(p0, p1, p2, p3, p4, p5, p6, p7);
+		return CALL(decode_Residual8x8_8bit, p0, p1, p2, p3, p4, p5, p6, p7);
 	
 	// compression of predicted samples
 	__m256i q0 = _mm256_insertf128_si256(_mm256_castsi128_si256(p0), p1, 1);
@@ -452,7 +452,7 @@ static __attribute__((noinline)) int decode_Residual8x8(__m128i p0, __m128i p1,
 	return 0;
 }
 #else // !defined(__AVX2__)
-static __attribute__((noinline)) int decode_Residual8x8(__m128i p0, __m128i p1,
+static __attribute__((noinline)) int FUNC(decode_Residual8x8, __m128i p0, __m128i p1,
 	__m128i p2, __m128i p3, __m128i p4, __m128i p5, __m128i p6, __m128i p7)
 {
 	if (__builtin_expect(ctx->clip == 255, 1))
@@ -606,8 +606,8 @@ static __attribute__((noinline)) int decode_Residual8x8(__m128i p0, __m128i p1,
 /**
  * DC coefficients transform
  */
-static __attribute__((noinline)) int decode_ResidualDC4x4() {
-	compute_LevelScale4x4(ctx->BlkIdx >> 4);
+static __attribute__((noinline)) int FUNC(decode_ResidualDC4x4) {
+	CALL(compute_LevelScale4x4, ctx->BlkIdx >> 4);
 	
 	// loading
 	__m128i c0 = (__m128i)ctx->d_v[0];
@@ -659,7 +659,7 @@ static __attribute__((noinline)) int decode_ResidualDC4x4() {
 	return 0;
 }
 
-static __attribute__((noinline)) int decode_ResidualDC2x2() {
+static __attribute__((noinline)) int FUNC(decode_ResidualDC2x2) {
 	int iYCbCr = (ctx->BlkIdx - 12) >> 2; // BlkIdx is 16 or 20
 	unsigned qP = mb->QP[iYCbCr];
 	unsigned w = ctx->ps.weightScale4x4[iYCbCr + mb->f.mbIsInterFlag * 3][0];
@@ -677,7 +677,7 @@ static __attribute__((noinline)) int decode_ResidualDC2x2() {
 	return 0;
 }
 
-static __attribute__((noinline)) int decode_ResidualDC2x4() {
+static __attribute__((noinline)) int FUNC(decode_ResidualDC2x4) {
 	int iYCbCr = (ctx->BlkIdx - 8) >> 3; // BlkIdx is 16 or 24
 	unsigned qP_DC = mb->QP[iYCbCr] + 3;
 	int w = ctx->ps.weightScale4x4[iYCbCr + mb->f.mbIsInterFlag * 3][0];

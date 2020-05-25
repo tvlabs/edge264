@@ -769,15 +769,15 @@ static const v4hi ctxIdxOffsets_8x8[3][2] = {
  * the full range of a register, a shift right by SIZE_BIT-9-clz(codIRange)
  * yielding the original values.
  */
-static __attribute__((noinline)) size_t renorm(int ceil, size_t binVal) {
+static __attribute__((noinline)) size_t FUNC(renorm, int ceil, size_t binVal) {
 	unsigned v = clz(codIRange) - ceil;
 	size_t bits = lsd(ctx->RBSP[0], ctx->RBSP[1], ctx->shift);
 	codIRange <<= v;
 	codIOffset = (codIOffset << v) | (bits >> (SIZE_BIT - v));
-	return refill(ctx->shift + v, binVal);
+	return CALL(refill, ctx->shift + v, binVal);
 }
 
-static __attribute__((noinline)) size_t get_ae(int ctxIdx)
+static __attribute__((noinline)) size_t FUNC(get_ae, int ctxIdx)
 {
 	static const uint8_t rangeTabLPS[64 * 4] = {
 		128, 176, 208, 240, 128, 167, 197, 227, 128, 158, 187, 216, 123, 150, 178, 205,
@@ -831,7 +831,7 @@ static __attribute__((noinline)) size_t get_ae(int ctxIdx)
 	// fprintf(stderr, "->(%u,%x)\n", transIdx[state] >> 2, transIdx[state] & 1);
 	size_t binVal = state & 1;
 	if (__builtin_expect(codIRange < 512, 0)) // 256*2 allows parsing an extra coeff_sign_flag without renorm.
-		return renorm(1, binVal);
+		return CALL(renorm, 1, binVal);
 	return binVal;
 }
 
@@ -845,19 +845,19 @@ static __attribute__((noinline)) size_t get_ae(int ctxIdx)
  * coeff_abs_level expects at most 2^(7+14), i.e 43 bits as Exp-Golomb, so we
  * use two 32bit divisions (second one being executed for long codes only).
  */
-static __attribute__((noinline)) int parse_residual_block(unsigned coded_block_flag, int startIdx, int endIdx)
+static __attribute__((noinline)) int FUNC(parse_residual_block, unsigned coded_block_flag, int startIdx, int endIdx)
 {
 	// Sharing this test here should limit branch predictor cache pressure.
 	if (!coded_block_flag)
-		return decode_samples();
+		return CALL(decode_samples);
 	
 	// significant_coeff_flags are stored as a bit mask
 	uint64_t significant_coeff_flags = 0;
 	int i = startIdx;
 	do {
-		if (get_ae(ctx->ctxIdxOffsets[1] + ctx->sig_inc[i])) {
+		if (CALL(get_ae, ctx->ctxIdxOffsets[1] + ctx->sig_inc[i])) {
 			significant_coeff_flags |= (uint64_t)1 << i;
-			if (get_ae(ctx->ctxIdxOffsets[2] + ctx->last_inc[i]))
+			if (CALL(get_ae, ctx->ctxIdxOffsets[2] + ctx->last_inc[i]))
 				break;
 		}
 	} while (++i < endIdx);
@@ -870,12 +870,12 @@ static __attribute__((noinline)) int parse_residual_block(unsigned coded_block_f
 	do {
 		int coeff_level = 1;
 		int ctxIdx = ctxIdx0;
-		while (coeff_level < 15 && get_ae(ctxIdx))
+		while (coeff_level < 15 && CALL(get_ae, ctxIdx))
 			coeff_level++, ctxIdx = ctxIdx1;
 	
 		// Unsigned division uses one extra bit, so the first renorm is correct.
 		if (coeff_level >= 15) {
-			renorm(0, 0); // Hardcore!!!
+			CALL(renorm, 0, 0); // Hardcore!!!
 			codIRange >>= SIZE_BIT - 9;
 			uint32_t num = codIOffset >> (SIZE_BIT - 32);
 			uint32_t quo = num / (uint32_t)codIRange;
@@ -887,7 +887,7 @@ static __attribute__((noinline)) int parse_residual_block(unsigned coded_block_f
 			if (__builtin_expect(k >= 12, 0)) { // At k==11, code length is 23 bits.
 				codIRange <<= SIZE_BIT - 32;
 				codIOffset = (SIZE_BIT == 32) ? rem : (uint32_t)codIOffset | (size_t)rem << 32;
-				renorm(2, 0); // Next division will yield 21 bypass bits...
+				CALL(renorm, 2, 0); // Next division will yield 21 bypass bits...
 				codIRange >>= SIZE_BIT - 11;
 				num = codIOffset >> (SIZE_BIT - 32);
 				quo = num / (uint32_t)codIRange + (quo << 21); // ... such that we keep 11 as msb.
@@ -921,7 +921,7 @@ static __attribute__((noinline)) int parse_residual_block(unsigned coded_block_f
 		significant_coeff_flags &= ~((uint64_t)1 << i);
 		fprintf(stderr, "coeffLevel[%d](%d): %d\n", i - startIdx, ctx->BlkIdx, c);
 	} while (significant_coeff_flags != 0);
-	return decode_samples();
+	return CALL(decode_samples);
 }
 
 
@@ -930,16 +930,16 @@ static __attribute__((noinline)) int parse_residual_block(unsigned coded_block_f
  * This function parses one mvd_lX symbol, using the same binary division trick
  * as above to read all bypass bits at once.
  */
-static __attribute__((noinline)) int parse_mvd(int pos, int ctxBase) {
+static __attribute__((noinline)) int FUNC(parse_mvd, int pos, int ctxBase) {
 	int sum = 0; //mb->absMvdComp[ctx->A4x4[pos]] + mb->absMvdComp[ctx->B4x4[pos]];
 	int ctxIdx = ctxBase + (sum >= 3) + (sum > 32);
 	int mvd = 0;
-	while (mvd < 9 && get_ae(ctxIdx))
+	while (mvd < 9 && CALL(get_ae, ctxIdx))
 		ctxIdx = ctxBase + min(++mvd, 4);
 	
 	// Once again, we use unsigned division to read all bypass bits.
 	if (mvd >= 9) {
-		renorm(0, 0);
+		CALL(renorm, 0, 0);
 		codIRange >>= SIZE_BIT - 9;
 		uint32_t num = codIOffset >> (SIZE_BIT - 32);
 		uint32_t quo = num / (uint32_t)codIRange;
@@ -951,7 +951,7 @@ static __attribute__((noinline)) int parse_mvd(int pos, int ctxBase) {
 		if (__builtin_expect(k >= 13, 0)) { // At k==12, code length is 22 bits.
 			codIRange <<= (SIZE_BIT - 32);
 			codIOffset = (SIZE_BIT == 32) ? rem : (uint32_t)codIOffset | (size_t)rem << 32;
-			renorm(4, 0); // Next division will yield 19 bypass bits...
+			CALL(renorm, 4, 0); // Next division will yield 19 bypass bits...
 			codIRange >>= SIZE_BIT - 13;
 			num = codIOffset >> (SIZE_BIT - 32);
 			quo = num / (uint32_t)codIRange + (quo << 19); // ... such that we keep 13 as msb.
@@ -985,7 +985,7 @@ static __attribute__((noinline)) int parse_mvd(int pos, int ctxBase) {
  * cond should contain the values in coded_block_pattern as stored in mb,
  * such that Intra16x16 can request unconditional parsing by passing 1.
  */
-static __attribute__((noinline)) void parse_mb_qp_delta(unsigned cond) {
+static __attribute__((noinline)) void FUNC(parse_mb_qp_delta, unsigned cond) {
 	static const int QP_C[100] = {-36, -35, -34, -33, -32, -31, -30, -29, -28,
 		-27, -26, -25, -24, -23, -22, -21, -20, -19, -18, -17, -16, -15, -14,
 		-13, -12, -11, -10, -9, -8, -7, -6, -5, -4, -3, -2, -1, 0, 1, 2, 3, 4,
@@ -995,14 +995,14 @@ static __attribute__((noinline)) void parse_mb_qp_delta(unsigned cond) {
 		39, 39, 39, 39};
 	// TODO: Put initialisation for neighbouring Inter/Intra cbf values here
 	
-	check_ctx(RESIDUAL_QP_LABEL);
+	CALL(check_ctx, RESIDUAL_QP_LABEL);
 	int mb_qp_delta = 0;
-	ctx->mb_qp_delta_non_zero = cond && get_ae(60 + ctx->mb_qp_delta_non_zero);
+	ctx->mb_qp_delta_non_zero = cond && CALL(get_ae, 60 + ctx->mb_qp_delta_non_zero);
 	if (ctx->mb_qp_delta_non_zero) {
 		
 		// cannot loop forever since binVal will oscillate past end of RBSP
 		int count = 1, ctxIdx = 62;
-		while (get_ae(ctxIdx))
+		while (CALL(get_ae, ctxIdx))
 			count++, ctxIdx = 63;
 		mb_qp_delta = map_se(count);
 		int QP = ctx->ps.QP_Y + mb_qp_delta;
@@ -1027,7 +1027,7 @@ static __attribute__((noinline)) void parse_mb_qp_delta(unsigned cond) {
  * Parsing for chroma 4:2:2 and 4:2:0 is put in a separate function to be
  * tail-called from parse_NxN_residual and parse_Intra16x16_residual.
  */
-static __attribute__((noinline)) int parse_chroma_residual()
+static __attribute__((noinline)) int FUNC(parse_chroma_residual)
 {
 	int is422 = ctx->ps.ChromaArrayType - 1;
 	if (is422 < 0)
@@ -1043,12 +1043,12 @@ static __attribute__((noinline)) int parse_chroma_residual()
 	memset(ctx->d, 0, 32);
 	int coded_block_flag_Cb = 0;
 	if (mb->f.CodedBlockPatternChromaDC) {
-		coded_block_flag_Cb = get_ae(ctx->ctxIdxOffsets[0] +
+		coded_block_flag_Cb = CALL(get_ae, ctx->ctxIdxOffsets[0] +
 			ctx->inc.coded_block_flags_16x16[1]);
 		mb->f.coded_block_flags_16x16[1] = coded_block_flag_Cb;
 	}
-	check_ctx(RESIDUAL_CB_DC_LABEL);
-	parse_residual_block(coded_block_flag_Cb, 0, is422 * 4 + 3);
+	CALL(check_ctx, RESIDUAL_CB_DC_LABEL);
+	CALL(parse_residual_block, coded_block_flag_Cb, 0, is422 * 4 + 3);
 	ctx->PredMode[16] = ctx->PredMode[17];
 	ctx->pred_buffer_v[16] = ctx->pred_buffer_v[17]; // backup for CHROMA_NxN_BUFFERED
 	
@@ -1057,23 +1057,23 @@ static __attribute__((noinline)) int parse_chroma_residual()
 	memset(ctx->d, 0, 32);
 	int coded_block_flag_Cr = 0;
 	if (mb->f.CodedBlockPatternChromaDC) {
-		coded_block_flag_Cr = get_ae(ctx->ctxIdxOffsets[0] +
+		coded_block_flag_Cr = CALL(get_ae, ctx->ctxIdxOffsets[0] +
 			ctx->inc.coded_block_flags_16x16[2]);
 		mb->f.coded_block_flags_16x16[2] = coded_block_flag_Cr;
 	}
-	check_ctx(RESIDUAL_CR_DC_LABEL);
-	parse_residual_block(coded_block_flag_Cr, 0, is422 * 4 + 3);
+	CALL(check_ctx, RESIDUAL_CR_DC_LABEL);
+	CALL(parse_residual_block, coded_block_flag_Cr, 0, is422 * 4 + 3);
 	ctx->PredMode[ctx->BlkIdx] = ctx->PredMode[ctx->BlkIdx + 1];
 	
 	// Eight or sixteen 4x4 AC blocks for the Cb/Cr components
-	compute_LevelScale4x4(1);
+	CALL(compute_LevelScale4x4, 1);
 	ctx->sig_inc_v[0] = ctx->last_inc_v[0] = sig_inc_4x4;
 	ctx->scan_v[0] = scan_4x4[mb->f.mb_field_decoding_flag];
 	ctx->ctxIdxOffsets_l = ctxIdxOffsets_chromaAC[mb->f.mb_field_decoding_flag];
 	for (ctx->BlkIdx = 16; ctx->BlkIdx < 24 + is422 * 8; ctx->BlkIdx++) {
 		if (ctx->BlkIdx == 20 + is422 * 4) {
 			ctx->pred_buffer_v[16] = ctx->pred_buffer_v[17];
-			compute_LevelScale4x4(2);
+			CALL(compute_LevelScale4x4, 2);
 		}
 		
 		// neighbouring access uses pointer arithmetic to avoid bounds checks
@@ -1081,14 +1081,14 @@ static __attribute__((noinline)) int parse_chroma_residual()
 		if (mb->f.CodedBlockPatternChromaAC) {
 			int cbfA = *(mb->coded_block_flags_4x4 + ctx->coded_block_flags_4x4_A[ctx->BlkIdx]);
 			int cbfB = *(mb->coded_block_flags_4x4 + ctx->coded_block_flags_4x4_B[ctx->BlkIdx]);
-			coded_block_flag = get_ae(ctx->ctxIdxOffsets[0] + cbfA + cbfB * 2);
+			coded_block_flag = CALL(get_ae, ctx->ctxIdxOffsets[0] + cbfA + cbfB * 2);
 		}
 		mb->coded_block_flags_4x4[ctx->BlkIdx] = coded_block_flag;
 		memset(ctx->d, 0, 64);
 		ctx->d[0] = ctx->d[ctx->BlkIdx];
 		ctx->significant_coeff_flags = 1;
-		check_ctx(RESIDUAL_CHROMA_LABEL);
-		parse_residual_block(coded_block_flag, 1, 15);
+		CALL(check_ctx, RESIDUAL_CHROMA_LABEL);
+		CALL(parse_residual_block, coded_block_flag, 1, 15);
 	}
 	return 0;
 }
@@ -1099,9 +1099,9 @@ static __attribute__((noinline)) int parse_chroma_residual()
  * Intra16x16 residual blocks have so many differences with Intra4x4 that they
  * deserve their own function.
  */
-static __attribute__((noinline)) int parse_Intra16x16_residual()
+static __attribute__((noinline)) int FUNC(parse_Intra16x16_residual)
 {
-	parse_mb_qp_delta(1);
+	CALL(parse_mb_qp_delta, 1);
 	
 	// Both AC and DC coefficients are initially parsed to ctx->d[0..15]
 	int mb_field_decoding_flag = mb->f.mb_field_decoding_flag;
@@ -1118,10 +1118,10 @@ static __attribute__((noinline)) int parse_Intra16x16_residual()
 			ctx->LevelScale_v[3] = (v4si){64, 64, 64, 64};
 		memset(ctx->d, 0, 64);
 		ctx->ctxIdxOffsets_l = ctxIdxOffsets_16x16DC[iYCbCr][mb_field_decoding_flag];
-		mb->f.coded_block_flags_16x16[iYCbCr] = get_ae(ctx->ctxIdxOffsets[0] +
+		mb->f.coded_block_flags_16x16[iYCbCr] = CALL(get_ae, ctx->ctxIdxOffsets[0] +
 			ctx->inc.coded_block_flags_16x16[iYCbCr]);
-		check_ctx(RESIDUAL_DC_LABEL);
-		parse_residual_block(mb->f.coded_block_flags_16x16[iYCbCr], 0, 15);
+		CALL(check_ctx, RESIDUAL_DC_LABEL);
+		CALL(parse_residual_block, mb->f.coded_block_flags_16x16[iYCbCr], 0, 15);
 		
 		// All AC blocks pick a DC coeff, then go to ctx->d[1..15]
 		ctx->ctxIdxOffsets_l = ctxIdxOffsets_16x16AC[iYCbCr][mb_field_decoding_flag];
@@ -1131,14 +1131,14 @@ static __attribute__((noinline)) int parse_Intra16x16_residual()
 			if (mb->CodedBlockPatternLuma[ctx->BlkIdx >> 2]) {
 				int cbfA = *(mb->coded_block_flags_4x4 + ctx->coded_block_flags_4x4_A[ctx->BlkIdx]);
 				int cbfB = *(mb->coded_block_flags_4x4 + ctx->coded_block_flags_4x4_B[ctx->BlkIdx]);
-				coded_block_flag = get_ae(ctx->ctxIdxOffsets[0] + cbfA + cbfB * 2);
+				coded_block_flag = CALL(get_ae, ctx->ctxIdxOffsets[0] + cbfA + cbfB * 2);
 			}
 			mb->coded_block_flags_4x4[ctx->BlkIdx] = coded_block_flag;
 			memset(ctx->d, 0, 64);
 			ctx->d[0] = ctx->d[16 + (ctx->BlkIdx & 15)];
 			ctx->significant_coeff_flags = 1;
-			check_ctx(RESIDUAL_4x4_LABEL);
-			parse_residual_block(coded_block_flag, 1, 15);
+			CALL(check_ctx, RESIDUAL_4x4_LABEL);
+			CALL(parse_residual_block, coded_block_flag, 1, 15);
 		// not a loop-predictor-friendly condition, but would it make a difference?
 		} while (++ctx->BlkIdx & 15);
 		
@@ -1147,7 +1147,7 @@ static __attribute__((noinline)) int parse_Intra16x16_residual()
 		ctx->stride = ctx->plane_offsets[18] >> 2;
 		ctx->clip_v = ctx->clip_C;
 		if (ctx->ps.ChromaArrayType <3)
-			return parse_chroma_residual();
+			return CALL(parse_chroma_residual);
 	} while (ctx->BlkIdx < 48);
 	return 0;
 }
@@ -1158,9 +1158,9 @@ static __attribute__((noinline)) int parse_Intra16x16_residual()
  * This block is dedicated to the parsing of Intra_NxN and Inter_NxN, since
  * they share much in common.
  */
-static __attribute__((noinline)) int parse_NxN_residual()
+static __attribute__((noinline)) int FUNC(parse_NxN_residual)
 {
-	parse_mb_qp_delta(mb->f.CodedBlockPatternChromaDC | mb->CodedBlockPatternLuma_s);
+	CALL(parse_mb_qp_delta, mb->f.CodedBlockPatternChromaDC | mb->CodedBlockPatternLuma_s);
 	
 	// next few blocks will share many parameters, so we cache a LOT of them
 	ctx->plane = ctx->plane_Y;
@@ -1174,7 +1174,7 @@ static __attribute__((noinline)) int parse_NxN_residual()
 			ctx->ctxIdxOffsets_l = ctxIdxOffsets_4x4[iYCbCr][mb_field_decoding_flag];
 			ctx->scan_v[0] = scan_4x4[mb_field_decoding_flag];
 			ctx->sig_inc_v[0] = ctx->last_inc_v[0] = sig_inc_4x4;
-			compute_LevelScale4x4(iYCbCr);
+			CALL(compute_LevelScale4x4, iYCbCr);
 			
 			// Decoding directly follows parsing to avoid duplicate loops.
 			do {
@@ -1182,13 +1182,13 @@ static __attribute__((noinline)) int parse_NxN_residual()
 				if (mb->CodedBlockPatternLuma[ctx->BlkIdx >> 2]) {
 					int cbfA = *(mb->coded_block_flags_4x4 + ctx->coded_block_flags_4x4_A[ctx->BlkIdx]);
 					int cbfB = *(mb->coded_block_flags_4x4 + ctx->coded_block_flags_4x4_B[ctx->BlkIdx]);
-					coded_block_flag = get_ae(ctx->ctxIdxOffsets[0] + cbfA + cbfB * 2);
+					coded_block_flag = CALL(get_ae, ctx->ctxIdxOffsets[0] + cbfA + cbfB * 2);
 				}
 				mb->coded_block_flags_4x4[ctx->BlkIdx] = coded_block_flag;
 				memset(ctx->d, 0, 64);
 				ctx->significant_coeff_flags = 0;
-				check_ctx(RESIDUAL_4x4_LABEL);
-				parse_residual_block(coded_block_flag, 0, 15);
+				CALL(check_ctx, RESIDUAL_4x4_LABEL);
+				CALL(parse_residual_block, coded_block_flag, 0, 15);
 			} while (++ctx->BlkIdx & 15);
 		} else {
 			
@@ -1200,7 +1200,7 @@ static __attribute__((noinline)) int parse_NxN_residual()
 				ctx->last_inc_v[i] = last_inc_8x8[i];
 				ctx->scan_v[i] = r[i];
 			}
-			compute_LevelScale8x8(iYCbCr);
+			CALL(compute_LevelScale8x8, iYCbCr);
 			
 			do {
 				int luma8x8BlkIdx = ctx->BlkIdx >> 2;
@@ -1208,14 +1208,14 @@ static __attribute__((noinline)) int parse_NxN_residual()
 				if (coded_block_flag && ctx->ps.ChromaArrayType == 3) {
 					int cbfA = *(mb->coded_block_flags_8x8 + ctx->coded_block_flags_8x8_A[luma8x8BlkIdx]);
 					int cbfB = *(mb->coded_block_flags_8x8 + ctx->coded_block_flags_8x8_B[luma8x8BlkIdx]);
-					coded_block_flag = get_ae(ctx->ctxIdxOffsets[0] + cbfA + cbfB * 2);
+					coded_block_flag = CALL(get_ae, ctx->ctxIdxOffsets[0] + cbfA + cbfB * 2);
 				}
 				mb->coded_block_flags_8x8[luma8x8BlkIdx] = coded_block_flag;
 				mb->coded_block_flags_4x4_s[luma8x8BlkIdx] = coded_block_flag ? 0x01010101 : 0;
 				memset(ctx->d, 0, 256);
 				ctx->significant_coeff_flags = 0;
-				check_ctx(RESIDUAL_8x8_LABEL);
-				parse_residual_block(coded_block_flag, 0, 63);
+				CALL(check_ctx, RESIDUAL_8x8_LABEL);
+				CALL(parse_residual_block, coded_block_flag, 0, 63);
 			} while ((ctx->BlkIdx += 4) & 15);
 		}
 		
@@ -1224,7 +1224,7 @@ static __attribute__((noinline)) int parse_NxN_residual()
 		ctx->stride = ctx->plane_offsets[18] >> 2;
 		ctx->clip_v = ctx->clip_C;
 		if (ctx->ps.ChromaArrayType <3)
-			return parse_chroma_residual();
+			return CALL(parse_chroma_residual);
 	} while (ctx->BlkIdx < 48);
 	return 0;
 }
@@ -1237,20 +1237,20 @@ static __attribute__((noinline)) int parse_NxN_residual()
  * As with mb_qp_delta, coded_block_pattern is parsed in two distinct code
  * paths, thus put in a non-inlined function.
  */
-static __attribute__((noinline)) void parse_coded_block_pattern() {
-	check_ctx(RESIDUAL_CBP_LABEL);
+static __attribute__((noinline)) void FUNC(parse_coded_block_pattern) {
+	CALL(check_ctx, RESIDUAL_CBP_LABEL);
 	// Luma prefix
 	for (int i = 0; i < 4; i++) {
 		int cbpA = *(mb->CodedBlockPatternLuma + ctx->CodedBlockPatternLuma_A[i]);
 		int cbpB = *(mb->CodedBlockPatternLuma + ctx->CodedBlockPatternLuma_B[i]);
-		mb->CodedBlockPatternLuma[i] = get_ae(-(-76 + cbpA + cbpB * 2));
+		mb->CodedBlockPatternLuma[i] = CALL(get_ae, -(-76 + cbpA + cbpB * 2));
 	}
 	
 	// Chroma suffix
 	if (ctx->ps.ChromaArrayType == 1 || ctx->ps.ChromaArrayType == 2) {
-		mb->f.CodedBlockPatternChromaDC = get_ae(77 + ctx->inc.CodedBlockPatternChromaDC);
+		mb->f.CodedBlockPatternChromaDC = CALL(get_ae, 77 + ctx->inc.CodedBlockPatternChromaDC);
 		if (mb->f.CodedBlockPatternChromaDC)
-			mb->f.CodedBlockPatternChromaAC = get_ae(81 + ctx->inc.CodedBlockPatternChromaAC);
+			mb->f.CodedBlockPatternChromaAC = CALL(get_ae, 81 + ctx->inc.CodedBlockPatternChromaAC);
 	}
 	
 	fprintf(stderr, "coded_block_pattern: %u\n",
@@ -1279,7 +1279,7 @@ static __attribute__((noinline)) void parse_coded_block_pattern() {
  *
  * FIXME: Non functional, should be reworked
  */
-static __attribute__((noinline)) int parse_inter_pred()
+static __attribute__((noinline)) int FUNC(parse_inter_pred)
 {
 	int8_t eq_masks[32]; // refIdx ?= (1)refIdxA, (2)refIdxB, (4)refIdxC
 	
@@ -1293,7 +1293,7 @@ static __attribute__((noinline)) int parse_inter_pred()
 		int refIdx = 0;
 		
 		// This cannot loop forever since binVal would oscillate past the end of the RBSP.
-		while (get_ae(54 + ctxIdxInc))
+		while (CALL(get_ae, 54 + ctxIdxInc))
 			refIdx++, ctxIdxInc = ctxIdxInc / 4 + 4; // cool trick from ffmpeg
 		mb->refIdx[i] = refIdx;
 		fprintf(stderr, "ref_idx_l%x: %u\n", i >> 2, refIdx);
@@ -1410,13 +1410,13 @@ static __attribute__((noinline)) int parse_inter_pred()
 		
 		// These additional writes are the price for unifying 4xN/8xN/16xN.
 		int j = i * 2;
-		int mv_x = mvp_x + parse_mvd(j, 40);
-		int mv_y = mvp_y + parse_mvd(j + 1, 47);
+		int mv_x = mvp_x + CALL(parse_mvd, j, 40);
+		int mv_y = mvp_y + CALL(parse_mvd, j + 1, 47);
 		mb->mvs[j] = mb->mvs[j | 2] = mb->mvs[j | 4] = mb->mvs[j | 6] = mv_x;
 		mb->mvs[j + 1] = mb->mvs[j | 3] = mb->mvs[j | 5] = mb->mvs[j | 7] = mv_y;
 	} while (ctx->mvd_flags &= ctx->mvd_flags - 1);
 	
-	parse_coded_block_pattern();
+	CALL(parse_coded_block_pattern);
 	
 	// final copies for 16x16, 8x16 and 16x8 blocks
 	if (!(ctx->mvd_fold & 0xfff00)) { // 8x16
@@ -1443,10 +1443,10 @@ static __attribute__((noinline)) int parse_inter_pred()
 	}
 	
 	if (!(ctx->mvd_fold & 0xeeeee) && mb->CodedBlockPatternLuma_s && ctx->ps.transform_8x8_mode_flag) {
-		mb->f.transform_size_8x8_flag = get_ae(399 + ctx->inc.transform_size_8x8_flag);
+		mb->f.transform_size_8x8_flag = CALL(get_ae, 399 + ctx->inc.transform_size_8x8_flag);
 		fprintf(stderr, "transform_size_8x8_flag: %x\n", mb->f.transform_size_8x8_flag);
 	}
-	return parse_NxN_residual();
+	return CALL(parse_NxN_residual);
 }
 
 
@@ -1457,15 +1457,15 @@ static __attribute__((noinline)) int parse_inter_pred()
  * As with mb_qp_delta and coded_block_pattern, experience shows allowing
  * compilers to inline this function makes them produce slower&heavier code.
  */
-static __attribute__((noinline)) void parse_intra_chroma_pred_mode()
+static __attribute__((noinline)) void FUNC(parse_intra_chroma_pred_mode)
 {
 	// Do not optimise too hard to keep the code understandable here.
-	check_ctx(INTRA_CHROMA_LABEL);
+	CALL(check_ctx, INTRA_CHROMA_LABEL);
 	int type = ctx->ps.ChromaArrayType;
 	if (type == 1 || type == 2) {
 		int ctxIdx = 64 + ctx->inc.intra_chroma_pred_mode_non_zero;
 		int mode = 0;
-		while (mode <3 && get_ae(ctxIdx))
+		while (mode <3 && CALL(get_ae, ctxIdx))
 			mode++, ctxIdx = 67;
 		mb->f.intra_chroma_pred_mode_non_zero = (mode > 0);
 		fprintf(stderr, "intra_chroma_pred_mode: %u\n", mode);
@@ -1490,16 +1490,16 @@ static __attribute__((noinline)) void parse_intra_chroma_pred_mode()
  * Parses prev_intraNxN_pred_mode_flag and rem_intraNxN_pred_mode, and returns
  * the given intra_pred_mode (7.3.5.1, 7.4.5.1, 8.3.1.1 and table 9-34).
  */
-static __attribute__((noinline)) int parse_intraNxN_pred_mode(int luma4x4BlkIdx)
+static __attribute__((noinline)) int FUNC(parse_intraNxN_pred_mode, int luma4x4BlkIdx)
 {
 	// dcPredModePredictedFlag is enforced by putting -2
 	int intraMxMPredModeA = *(mb->Intra4x4PredMode + ctx->Intra4x4PredMode_A[luma4x4BlkIdx]);
 	int intraMxMPredModeB = *(mb->Intra4x4PredMode + ctx->Intra4x4PredMode_B[luma4x4BlkIdx]);
 	int mode = abs(min(intraMxMPredModeA, intraMxMPredModeB));
-	if (!get_ae(68)) {
-		int rem_intra_pred_mode = get_ae(69);
-		rem_intra_pred_mode += get_ae(69) * 2;
-		rem_intra_pred_mode += get_ae(69) * 4;
+	if (!CALL(get_ae, 68)) {
+		int rem_intra_pred_mode = CALL(get_ae, 69);
+		rem_intra_pred_mode += CALL(get_ae, 69) * 2;
+		rem_intra_pred_mode += CALL(get_ae, 69) * 4;
 		fprintf(stderr, "rem_intra_pred_mode: %u\n", rem_intra_pred_mode);
 		mode = rem_intra_pred_mode + (rem_intra_pred_mode >= mode);
 	} else {
@@ -1525,18 +1525,18 @@ static __attribute__((noinline)) int parse_intraNxN_pred_mode(int luma4x4BlkIdx)
  *   to account for unavailability of neighbouring blocks, Intra chroma modes
  *   and Inter prediction.
  */
-static __attribute__((noinline)) int parse_I_mb(int ctxIdx)
+static __attribute__((noinline)) int FUNC(parse_I_mb, int ctxIdx)
 {
 	static const Edge264_flags flags_PCM = {
 		.CodedBlockPatternChromaDC = 1,
 		.CodedBlockPatternChromaAC = 1,
 		.coded_block_flags_16x16 = {1, 1, 1},
 	};
-	check_ctx(INTRA_MB_LABEL);
+	CALL(check_ctx, INTRA_MB_LABEL);
 	mb->f.mbIsInterFlag = 0;
 	
 	// I_NxN
-	if (!get_ae(ctxIdx)) {
+	if (!CALL(get_ae, ctxIdx)) {
 		mb->f.mb_type_I_NxN = 1;
 		fprintf(stderr, (ctxIdx == 17) ? "mb_type: 5\n" : // in P slice
 		                (ctxIdx == 32) ? "mb_type: 23\n" : // in B slice
@@ -1544,36 +1544,36 @@ static __attribute__((noinline)) int parse_I_mb(int ctxIdx)
 		
 		// 7.3.5, 7.4.5, 9.3.3.1.1.10 and table 9-34
 		if (ctx->ps.transform_8x8_mode_flag) {
-			mb->f.transform_size_8x8_flag = get_ae(399 + ctx->inc.transform_size_8x8_flag);
+			mb->f.transform_size_8x8_flag = CALL(get_ae, 399 + ctx->inc.transform_size_8x8_flag);
 			fprintf(stderr, "transform_size_8x8_flag: %x\n", mb->f.transform_size_8x8_flag);
 		}
 		
 		if (mb->f.transform_size_8x8_flag) {
 			for (int i = 0; i < 4; i++) {
-				int mode = parse_intraNxN_pred_mode(i * 4);
+				int mode = CALL(parse_intraNxN_pred_mode, i * 4);
 				mb->Intra4x4PredMode[i * 4 + 1] = mb->Intra4x4PredMode[i * 4 + 2] = mb->Intra4x4PredMode[i * 4 + 3] = mode;
 				ctx->PredMode[i * 4] = ctx->intra8x8_modes[mode][ctx->unavail[i * 5]];
 			}
 		} else {
 			for (int i = 0; i < 16; i++) {
-				mb->Intra4x4PredMode[i] = parse_intraNxN_pred_mode(i);
+				mb->Intra4x4PredMode[i] = CALL(parse_intraNxN_pred_mode, i);
 				ctx->PredMode[i] = ctx->intra4x4_modes[mb->Intra4x4PredMode[i]][ctx->unavail[i]];
 			}
 		}
 		ctx->PredMode_v[1] = ctx->PredMode_v[2] = ctx->PredMode_v[0] + ctx->pred_offset_C;
 		
-		parse_intra_chroma_pred_mode();
-		parse_coded_block_pattern();
-		return parse_NxN_residual();
+		CALL(parse_intra_chroma_pred_mode);
+		CALL(parse_coded_block_pattern);
+		return CALL(parse_NxN_residual);
 	
 	// Intra_16x16
-	} else if (!get_ae(276)) {
-		mb->CodedBlockPatternLuma_s = get_ae(max(ctxIdx + 1, 6)) ? 0x01010101 : 0;
-		mb->f.CodedBlockPatternChromaDC = get_ae(max(ctxIdx + 2, 7));
+	} else if (!CALL(get_ae, 276)) {
+		mb->CodedBlockPatternLuma_s = CALL(get_ae, max(ctxIdx + 1, 6)) ? 0x01010101 : 0;
+		mb->f.CodedBlockPatternChromaDC = CALL(get_ae, max(ctxIdx + 2, 7));
 		if (mb->f.CodedBlockPatternChromaDC)
-			mb->f.CodedBlockPatternChromaAC = get_ae(max(ctxIdx + 2, 8));
-		int mode = get_ae(max(ctxIdx + 3, 9)) << 1;
-		mode += get_ae(max(ctxIdx + 3, 10));
+			mb->f.CodedBlockPatternChromaAC = CALL(get_ae, max(ctxIdx + 2, 8));
+		int mode = CALL(get_ae, max(ctxIdx + 3, 9)) << 1;
+		mode += CALL(get_ae, max(ctxIdx + 3, 10));
 		fprintf(stderr, "mb_type: %u\n", mb->CodedBlockPatternLuma[0] * 12 +
 			(mb->f.CodedBlockPatternChromaDC + mb->f.CodedBlockPatternChromaAC) * 4 +
 			mode + (ctxIdx == 17 ? 6 : ctxIdx == 32 ? 24 : 1));
@@ -1588,8 +1588,8 @@ static __attribute__((noinline)) int parse_I_mb(int ctxIdx)
 		ctx->PredMode[0] = depth + dc[mode] + (mode == 2 ? ctx->inc.unavailable : 0);
 		ctx->PredMode_v[1] = ctx->PredMode_v[2] = ctx->PredMode_v[0] + ctx->pred_offset_C;
 		
-		parse_intra_chroma_pred_mode();
-		return parse_Intra16x16_residual();
+		CALL(parse_intra_chroma_pred_mode);
+		return CALL(parse_Intra16x16_residual);
 		
 	// I_PCM
 	} else {
@@ -1621,9 +1621,9 @@ static __attribute__((noinline)) int parse_I_mb(int ctxIdx)
 		for (int y = 16; y-- > 0; p += ctx->plane_offsets[2] >> 2) {
 			for (int x = 0; x < 16; x++) {
 				if (ctx->ps.BitDepth_Y == 8)
-					p[x] = get_uv(8);
+					p[x] = CALL(get_uv, 8);
 				else
-					((uint16_t *)p)[x] = get_uv(ctx->ps.BitDepth_Y);
+					((uint16_t *)p)[x] = CALL(get_uv, ctx->ps.BitDepth_Y);
 			}
 		}
 		p = ctx->plane_Cb;
@@ -1632,24 +1632,24 @@ static __attribute__((noinline)) int parse_I_mb(int ctxIdx)
 		for (int y = MbHeightC[ctx->ps.ChromaArrayType]; y-- > 0; p += ctx->plane_offsets[18] >> 2) {
 			for (int x = 0; x < MbWidthC; x++) {
 				if (ctx->ps.BitDepth_Y == 8)
-					p[x] = get_uv(8);
+					p[x] = CALL(get_uv, 8);
 				else
-					((uint16_t *)p)[x] = get_uv(ctx->ps.BitDepth_Y);
+					((uint16_t *)p)[x] = CALL(get_uv, ctx->ps.BitDepth_Y);
 			}
 		}
 		p = ctx->plane_Cb + ctx->plane_offsets[16 + ctx->ps.ChromaArrayType * 4];
 		for (int y = MbHeightC[ctx->ps.ChromaArrayType]; y-- > 0; p += ctx->plane_offsets[18] >> 2) {
 			for (int x = 0; x < MbWidthC; x++) {
 				if (ctx->ps.BitDepth_Y == 8)
-					p[x] = get_uv(8);
+					p[x] = CALL(get_uv, 8);
 				else
-					((uint16_t *)p)[x] = get_uv(ctx->ps.BitDepth_Y);
+					((uint16_t *)p)[x] = CALL(get_uv, ctx->ps.BitDepth_Y);
 			}
 		}
 		
 		// reinitialize CABAC
 		codIRange = (size_t)255 << (SIZE_BIT - 9);
-		codIOffset = get_uv(SIZE_BIT - 1);
+		codIOffset = CALL(get_uv, SIZE_BIT - 1);
 		return 0;
 	}
 }
@@ -1680,39 +1680,39 @@ static __attribute__((noinline)) int parse_I_mb(int ctxIdx)
  * For B_Direct_16x16, we initialize refIdx and mvs and jump directly to
  * parse_NxN_residual.
  */
-static __attribute__((noinline)) int parse_P_mb()
+static __attribute__((noinline)) int FUNC(parse_P_mb)
 {
 	static const uint16_t P2flags[4] = {0x0001, 0x0000, 0x0011, 0x0101};
 	
 	mb->f.mbIsInterFlag = 1;
-	mb->f.mb_skip_flag = get_ae(13 - ctx->inc.mb_skip_flag);
+	mb->f.mb_skip_flag = CALL(get_ae, 13 - ctx->inc.mb_skip_flag);
 	fprintf(stderr, "mb_skip_flag: %x\n", mb->f.mb_skip_flag);
 	if (mb->f.mb_skip_flag) {
 		mb->refIdx_v = (v8qi){0, 0, 0, 0, -1, -1, -1, -1};
 		memset(mb->mvs + 32, 0, 64);
 		// TODO: infer mvL0
 		return 0;
-	} else if (get_ae(14)) {
-		return parse_I_mb(17);
+	} else if (CALL(get_ae, 14)) {
+		return CALL(parse_I_mb, 17);
 	}
 	
 	// Are these few lines worth a function? :)
-	int str = get_ae(15);
-	str += str + get_ae(16 + str);
+	int str = CALL(get_ae, 15);
+	str += str + CALL(get_ae, 16 + str);
 	fprintf(stderr, "mb_type: %u\n", (4 - str) % 4);
 	unsigned flags = P2flags[str];
 	
 	// Parsing for sub_mb_type in P slices.
 	for (int i = 0; str == 1 && i < 16; i += 4) {
-		unsigned f = get_ae(21) ? 1 : !get_ae(22) ? 5 : get_ae(23) ? 3 : 15;
+		unsigned f = CALL(get_ae, 21) ? 1 : !CALL(get_ae, 22) ? 5 : CALL(get_ae, 23) ? 3 : 15;
 		fprintf(stderr, "sub_mb_type: %c\n", (f == 1) ? '0' : (f == 5) ? '1' : (f == 3) ? '2' : '3');
 		flags |= f << i;
 	}
 	ctx->mvd_flags = ctx->mvd_fold = flags;
-	return parse_inter_pred();
+	return CALL(parse_inter_pred);
 }
 
-static __attribute__((noinline)) int parse_B_mb()
+static __attribute__((noinline)) int FUNC(parse_B_mb)
 {
 	static const uint32_t B2flags[26] = {0x00010001, 0x00000101, 0x00000011, 0x01010000,
 		0x00110000, 0x01000001, 0x00100001, 0x00010100, 0x00000001, 0x00010000,
@@ -1725,37 +1725,37 @@ static __attribute__((noinline)) int parse_B_mb()
 	static const uint8_t b2sub_mb_type[13] = {3, 4, 5, 6, 1, 2, 11, 12, 7, 8, 9, 10, 0};
 	
 	mb->f.mbIsInterFlag = 1;
-	mb->f.mb_skip_flag = get_ae(26 - ctx->inc.mb_skip_flag);
+	mb->f.mb_skip_flag = CALL(get_ae, 26 - ctx->inc.mb_skip_flag);
 	fprintf(stderr, "mb_skip_flag: %x\n", mb->f.mb_skip_flag);
 	if (mb->f.mb_skip_flag) {
 		mb->f.mb_type_B_Direct = 1;
-		return parse_NxN_residual();
+		return CALL(parse_NxN_residual);
 		
 	// B_Direct_16x16
-	} else if (!get_ae(29 - ctx->inc.mb_type_B_Direct)) {
+	} else if (!CALL(get_ae, 29 - ctx->inc.mb_type_B_Direct)) {
 		fprintf(stderr, "mb_type: 0\n");
-		parse_coded_block_pattern();
+		CALL(parse_coded_block_pattern);
 		if (mb->CodedBlockPatternLuma_s && ctx->ps.transform_8x8_mode_flag && ctx->ps.direct_8x8_inference_flag) {
-			mb->f.transform_size_8x8_flag = get_ae(399 + ctx->inc.transform_size_8x8_flag);
+			mb->f.transform_size_8x8_flag = CALL(get_ae, 399 + ctx->inc.transform_size_8x8_flag);
 			fprintf(stderr, "transform_size_8x8_flag: %x\n", mb->f.transform_size_8x8_flag);
 		}
 		mb->f.mb_type_B_Direct = 1;
-		return parse_NxN_residual();
+		return CALL(parse_NxN_residual);
 	}
 	
 	// Most important here is the minimal number of conditional branches.
 	int str = 4;
-	if (!get_ae(30) || (str = get_ae(31),
-		str += str + get_ae(32),
-		str += str + get_ae(32),
-		str += str + get_ae(32), str - 8 < 5u))
+	if (!CALL(get_ae, 30) || (str = CALL(get_ae, 31),
+		str += str + CALL(get_ae, 32),
+		str += str + CALL(get_ae, 32),
+		str += str + CALL(get_ae, 32), str - 8 < 5u))
 	{
-		str += str + get_ae(32);
+		str += str + CALL(get_ae, 32);
 	}
 	if (str == 13) {
 		v8hi *v = mb->mvs_v;
 		v[0] = v[1] = v[2] = v[3] = v[4] = v[5] = v[6] = v[7] = (v8hi){};
-		return parse_I_mb(32);
+		return CALL(parse_I_mb, 32);
 	}
 	fprintf(stderr, "mb_type: %u\n", B2mb_type[str]);
 	ctx->mvd_fold = 0;
@@ -1764,15 +1764,15 @@ static __attribute__((noinline)) int parse_B_mb()
 	// Parsing for sub_mb_type in B slices.
 	for (int i = 0; str == 15 && i < 16; i += 4) {
 		int sub = 12;
-		if (!get_ae(36)) {
+		if (!CALL(get_ae, 36)) {
 			ctx->mvd_fold = (ctx->ps.direct_8x8_inference_flag) ? 0x10000 : 0x20000;
 		} else {
 			sub = 2;
-			if (!get_ae(37) || (sub = get_ae(38),
-				sub += sub + get_ae(39),
-				sub += sub + get_ae(39), sub - 4 < 2u))
+			if (!CALL(get_ae, 37) || (sub = CALL(get_ae, 38),
+				sub += sub + CALL(get_ae, 39),
+				sub += sub + CALL(get_ae, 39), sub - 4 < 2u))
 			{
-				sub += sub + get_ae(39);
+				sub += sub + CALL(get_ae, 39);
 			}
 			flags |= b2flags[sub] << i;
 		}
@@ -1780,7 +1780,7 @@ static __attribute__((noinline)) int parse_B_mb()
 	}
 	ctx->mvd_flags = flags;
 	ctx->mvd_fold |= (uint16_t)flags | flags >> 16;
-	return parse_inter_pred();
+	return CALL(parse_inter_pred);
 }
 
 
@@ -1789,7 +1789,7 @@ static __attribute__((noinline)) int parse_B_mb()
  * This function loops through the macroblocks of a slice, initialising their
  * data and calling parse_inter/intra_mb for each one.
  */
-static __attribute__((noinline)) int PAFF_parse_slice_data()
+static __attribute__((noinline)) int FUNC(PAFF_parse_slice_data)
 {
 	static const v16qi block_unavailability[4] = {
 		{ 0,  0,  0,  4,  0,  0,  0,  4,  0,  0,  0,  4,  0,  4,  0,  4},
@@ -1801,7 +1801,7 @@ static __attribute__((noinline)) int PAFF_parse_slice_data()
 	ctx->mb_qp_delta_non_zero = 0;
 	while (1) {
 		fprintf(stderr, "********** %u **********\n", ctx->ps.width * ctx->y / 256 + ctx->x / 16);
-		check_ctx(LOOP_START_LABEL);
+		CALL(check_ctx, LOOP_START_LABEL);
 		Edge264_macroblock *mbB = mb - (ctx->ps.width >> 4) - 1;
 		v16qi flagsA = mb[-1].f.v;
 		v16qi flagsB = mbB->f.v;
@@ -1819,14 +1819,14 @@ static __attribute__((noinline)) int PAFF_parse_slice_data()
 		
 		// could we push this test outside the loop without complex code?
 		if (ctx->slice_type == 0)
-			parse_P_mb();
+			CALL(parse_P_mb);
 		else if (ctx->slice_type == 1)
-			parse_B_mb();
+			CALL(parse_B_mb);
 		else
-			parse_I_mb(5 - ctx->inc.mb_type_I_NxN);
+			CALL(parse_I_mb, 5 - ctx->inc.mb_type_I_NxN);
 		
 		// break on end_of_slice_flag
-		int end_of_slice_flag = get_ae(276);
+		int end_of_slice_flag = CALL(get_ae, 276);
 		fprintf(stderr, "end_of_slice_flag: %x\n\n", end_of_slice_flag);
 		if (end_of_slice_flag)
 			break;
@@ -1860,9 +1860,9 @@ static __attribute__((noinline)) int PAFF_parse_slice_data()
  * unoptimised version.
  */
 #ifdef __SSSE3__
-static inline int CABAC_parse_slice_data(int cabac_init_idc) {
+static inline int FUNC(CABAC_parse_slice_data, int cabac_init_idc) {
 	codIRange = (size_t)255 << (SIZE_BIT - 9);
-	codIOffset = get_uv(SIZE_BIT - 1);
+	codIOffset = CALL(get_uv, SIZE_BIT - 1);
 	
 	__m128i mul = _mm_set1_epi16(max(ctx->ps.QP_Y, 0) + 4096);
 	const __m128i *src = (__m128i *)context_init[cabac_init_idc];
@@ -1877,6 +1877,6 @@ static inline int CABAC_parse_slice_data(int cabac_init_idc) {
 		*dst = (v16qu)_mm_add_epi8(_mm_add_epi8(shift, shift), _mm_add_epi8(mask, _mm_set1_epi8(1)));
 	}
 	ctx->cabac[276] = 252;
-	return ctx->MbaffFrameFlag ? 0 : PAFF_parse_slice_data();
+	return ctx->MbaffFrameFlag ? 0 : CALL(PAFF_parse_slice_data);
 }
 #endif

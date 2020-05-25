@@ -93,7 +93,7 @@ enum {
 	RESIDUAL_CHROMA_LABEL,
 };
 
-static void check_ctx(int label) {
+static void FUNC(check_ctx, int label) {
 	const Edge264_stream *e = ctx->e;
 	Edge264_macroblock *mbB = mb - (ctx->ps.width >> 4) - 1;
 	

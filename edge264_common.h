@@ -74,7 +74,7 @@ typedef struct {
 	union { int8_t coded_block_flags_8x8[12]; v16qi coded_block_flags_8x8_v; };
 	union { int8_t coded_block_flags_4x4[48]; int32_t coded_block_flags_4x4_s[12]; v16qi coded_block_flags_4x4_v[3]; };
 	union { int8_t absMvdComp[32]; v16qi absMvdComp_v[2]; };
-	union { int16_t mvs[64]; v8hi mvs_v[8]; };
+	union { int16_t mvs[64]; int32_t mvs_s[32]; v8hi mvs_v[8]; };
 } Edge264_macroblock;
 
 
@@ -134,10 +134,16 @@ typedef struct
 	union { uint8_t cabac[1024]; v16qu cabac_v[64]; };
 	
 	// neighbouring offsets (relative to the start of each array in mb)
-	union { int16_t coded_block_flags_4x4_A[48]; int16_t Intra4x4PredMode_A[16]; v8hi A4x4_8[6]; };
-	union { int32_t coded_block_flags_4x4_B[48]; int32_t Intra4x4PredMode_B[16]; v4si B4x4_8[12]; };
-	union { int16_t coded_block_flags_8x8_A[12]; int16_t CodedBlockPatternLuma_A[4]; v4hi A8x8_8[3]; };
-	union { int32_t coded_block_flags_8x8_B[12]; int32_t CodedBlockPatternLuma_B[4]; v4si B8x8_8[3]; };
+	union { int16_t coded_block_flags_4x4_A[48]; int16_t Intra4x4PredMode_A[16]; v8hi A4x4_8bit[6]; };
+	union { int32_t coded_block_flags_4x4_B[48]; int32_t Intra4x4PredMode_B[16]; v4si B4x4_8bit[12]; };
+	union { int16_t coded_block_flags_8x8_A[12]; int16_t CodedBlockPatternLuma_A[4]; v4hi A8x8_8bit[3]; };
+	union { int32_t coded_block_flags_8x8_B[12]; int32_t CodedBlockPatternLuma_B[4]; v4si B8x8_8bit[3]; };
+	int16_t refIdx_A[32]; // indexed by mvd_flags bits
+	int32_t refIdx_B[32];
+	int32_t refIdx_C[32];
+	int16_t mvs_A[32];
+	int32_t mvs_B[32];
+	int32_t mvs_C[32];
 	
 	// Intra context
 	v16qu pred_offset_C; // BitDepth offset on PredMode from Y to Cb/Cr

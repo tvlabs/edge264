@@ -1687,7 +1687,9 @@ static __attribute__((noinline)) int parse_P_mb()
 	mb->f.mb_skip_flag = get_ae(13 - ctx->inc.mb_skip_flag);
 	fprintf(stderr, "mb_skip_flag: %x\n", mb->f.mb_skip_flag);
 	if (mb->f.mb_skip_flag) {
-		
+		mb->refIdx_v = (v8qi){0, 0, 0, 0, -1, -1, -1, -1};
+		memset(mb->mvs + 32, 0, 64);
+		// TODO: infer mvL0
 		return 0;
 	} else if (get_ae(14)) {
 		return parse_I_mb(17);

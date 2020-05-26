@@ -215,7 +215,12 @@ typedef struct
 
 
 
-// Global Register Variables are a blessing since we need context everywhere!
+/**
+ * Macro-ed function defs/calls allow removing ctx from args and keeping it in
+ * a Global Register Variable if permitted by the compiler. On my machine the
+ * speed gain is negligible, but the binary is noticeably smaller.
+ * Storing codIRange/Offset in registers also gives a big performance gain.
+ */
 #if defined(__SSSE3__) && !defined(__clang__)
 register Edge264_ctx *ctx asm("ebx");
 #define SET_CTX(p) Edge264_ctx *old = ctx; ctx = p
@@ -230,12 +235,11 @@ register Edge264_ctx *ctx asm("ebx");
 #define CALL(f, ...) f(ctx, ## __VA_ARGS__)
 #define JUMP(f, ...) {f(ctx, ## __VA_ARGS__); return;}
 #endif
+#define mb ctx->_mb
 #if defined(__SSSE3__) && !defined(__clang__) && SIZE_BIT == 64
-register Edge264_macroblock *mb asm("r13"); // always use callee-saved registers
 register size_t codIRange asm("r14");
 register size_t codIOffset asm("r15");
 #else
-#define mb ctx->_mb
 #define codIRange ctx->_codIRange
 #define codIOffset ctx->_codIOffset
 #endif

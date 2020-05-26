@@ -81,7 +81,7 @@ typedef struct {
 
 /**
  * This structure stores the entire decoder state during its operation, such
- * that we can dedicate a single register to point to it.
+ * that we can dedicate a single pointer for it.
  * It is separate with Edge264_stream, to distinguish state that lives during
  * a single frame, from state that spans multiple frames.
  */
@@ -119,7 +119,7 @@ typedef struct
 	int8_t BlkIdx; // index of current AC block (for PredMode), in order Y/Cb/Cr and without gaps
 	int16_t x; // 14 significant bits
 	int16_t y;
-	uint16_t stride; // 16 significant bits (for 8K, 16bit depth, field pic)
+	uint16_t stride; // 16 significant bits (at 8K, 16bit depth, field pic)
 	int32_t row_offset_C; // memory offset to increment plane_Cb at the end of a row
 	uint8_t *plane;
 	uint8_t *plane_Y;
@@ -138,9 +138,10 @@ typedef struct
 	union { int32_t coded_block_flags_4x4_B[48]; int32_t Intra4x4PredMode_B[16]; v4si B4x4_8bit[12]; };
 	union { int16_t coded_block_flags_8x8_A[12]; int16_t CodedBlockPatternLuma_A[4]; v4hi A8x8_8bit[3]; };
 	union { int32_t coded_block_flags_8x8_B[12]; int32_t CodedBlockPatternLuma_B[4]; v4si B8x8_8bit[3]; };
-	int16_t refIdx_A[32]; // indexed by mvd_flags bits
-	int32_t refIdx_B[32];
-	int32_t refIdx_C[32];
+	int16_t refIdx_A[8];
+	int32_t refIdx_B[8];
+	int32_t refIdx_C;
+	int32_t refIdx_D;
 	int16_t mvs_A[32];
 	int32_t mvs_B[32];
 	int32_t mvs_C[32];

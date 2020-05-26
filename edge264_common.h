@@ -222,13 +222,13 @@ register Edge264_ctx *ctx asm("ebx");
 #define RESET_CTX() ctx = old
 #define FUNC(f, ...) f(__VA_ARGS__)
 #define CALL(f, ...) f(__VA_ARGS__)
-#define JUMP(f, ...) f(__VA_ARGS__); return
+#define JUMP(f, ...) {f(__VA_ARGS__); return;}
 #else
 #define SET_CTX(p) Edge264_ctx *ctx = p
 #define RESET_CTX()
 #define FUNC(f, ...) f(Edge264_ctx *ctx, ## __VA_ARGS__)
 #define CALL(f, ...) f(ctx, ## __VA_ARGS__)
-#define JUMP(f, ...) f(ctx, ## __VA_ARGS__); return
+#define JUMP(f, ...) {f(ctx, ## __VA_ARGS__); return;}
 #endif
 #if defined(__SSSE3__) && !defined(__clang__) && SIZE_BIT == 64
 register Edge264_macroblock *mb asm("r13"); // always use callee-saved registers

@@ -845,11 +845,11 @@ static __attribute__((noinline)) size_t FUNC(get_ae, int ctxIdx)
  * coeff_abs_level expects at most 2^(7+14), i.e 43 bits as Exp-Golomb, so we
  * use two 32bit divisions (second one being executed for long codes only).
  */
-static __attribute__((noinline)) int FUNC(parse_residual_block, unsigned coded_block_flag, int startIdx, int endIdx)
+static __attribute__((noinline)) void FUNC(parse_residual_block, unsigned coded_block_flag, int startIdx, int endIdx)
 {
 	// Sharing this test here should limit branch predictor cache pressure.
 	if (!coded_block_flag)
-		return CALL(decode_samples);
+		JUMP(decode_samples);
 	
 	// significant_coeff_flags are stored as a bit mask
 	uint64_t significant_coeff_flags = 0;
@@ -921,7 +921,7 @@ static __attribute__((noinline)) int FUNC(parse_residual_block, unsigned coded_b
 		significant_coeff_flags &= ~((uint64_t)1 << i);
 		fprintf(stderr, "coeffLevel[%d](%d): %d\n", i - startIdx, ctx->BlkIdx, c);
 	} while (significant_coeff_flags != 0);
-	return CALL(decode_samples);
+	JUMP(decode_samples);
 }
 
 
@@ -1792,7 +1792,7 @@ static __attribute__((noinline)) void FUNC(parse_B_mb)
  * This function loops through the macroblocks of a slice, initialising their
  * data and calling parse_inter/intra_mb for each one.
  */
-static __attribute__((noinline)) int FUNC(PAFF_parse_slice_data)
+static __attribute__((noinline)) void FUNC(PAFF_parse_slice_data)
 {
 	static const v16qi block_unavailability[4] = {
 		{ 0,  0,  0,  4,  0,  0,  0,  4,  0,  0,  0,  4,  0,  4,  0,  4},
@@ -1849,7 +1849,6 @@ static __attribute__((noinline)) int FUNC(PAFF_parse_slice_data)
 		if ((ctx->y += 16) >= (ctx->field_pic_flag ? ctx->ps.height >> 1 : ctx->ps.height))
 			break;
 	}
-	return 0;
 }
 
 
@@ -1863,7 +1862,7 @@ static __attribute__((noinline)) int FUNC(PAFF_parse_slice_data)
  * unoptimised version.
  */
 #ifdef __SSSE3__
-static inline int FUNC(CABAC_parse_slice_data, int cabac_init_idc) {
+static inline void FUNC(CABAC_parse_slice_data, int cabac_init_idc) {
 	codIRange = (size_t)255 << (SIZE_BIT - 9);
 	codIOffset = CALL(get_uv, SIZE_BIT - 1);
 	
@@ -1880,6 +1879,7 @@ static inline int FUNC(CABAC_parse_slice_data, int cabac_init_idc) {
 		*dst = (v16qu)_mm_add_epi8(_mm_add_epi8(shift, shift), _mm_add_epi8(mask, _mm_set1_epi8(1)));
 	}
 	ctx->cabac[276] = 252;
-	return ctx->MbaffFrameFlag ? 0 : CALL(PAFF_parse_slice_data);
+	if (!ctx->MbaffFrameFlag)
+		CALL(PAFF_parse_slice_data);
 }
 #endif

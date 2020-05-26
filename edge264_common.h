@@ -261,12 +261,12 @@ static inline unsigned umin(unsigned a, unsigned b) { return (a < b) ? a : b; }
 static inline unsigned umax(unsigned a, unsigned b) { return (a > b) ? a : b; }
 static inline int median(int a, int b, int c) { return max(min(max(a, b), c), min(a, b)); }
 
-static size_t FUNC(refill, int, size_t);
-static size_t FUNC(get_u1);
-static size_t FUNC(get_uv, unsigned);
-static size_t FUNC(get_ue16);
+size_t FUNC(refill, int, size_t); // not static to allow compiling files individually
+size_t FUNC(get_u1);
+size_t FUNC(get_uv, unsigned);
+size_t FUNC(get_ue16);
 #if SIZE_BIT == 32
-static size_t FUNC(get_ue32);
+size_t FUNC(get_ue32);
 #else
 #define get_ue32 get_ue16
 #endif

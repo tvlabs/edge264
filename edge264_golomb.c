@@ -30,7 +30,7 @@
 
 
 #ifdef __SSSE3__
-static __attribute__((noinline)) size_t FUNC(refill, int shift, size_t ret)
+__attribute__((noinline)) size_t FUNC(refill, int shift, size_t ret)
 {
 typedef size_t v16u __attribute__((vector_size(16)));
 	static const v16qi shuf[8] = {
@@ -81,17 +81,17 @@ typedef size_t v16u __attribute__((vector_size(16)));
 
 
 
-static __attribute__((noinline)) size_t FUNC(get_u1) {
+__attribute__((noinline)) size_t FUNC(get_u1) {
 	return CALL(refill, ctx->shift + 1, ctx->RBSP[0] << ctx->shift >> (SIZE_BIT - 1));
 }
 
-static __attribute__((noinline)) size_t FUNC(get_uv, unsigned v) {
+__attribute__((noinline)) size_t FUNC(get_uv, unsigned v) {
 	size_t bits = lsd(ctx->RBSP[0], ctx->RBSP[1], ctx->shift);
 	return CALL(refill, ctx->shift + v, bits >> (SIZE_BIT - v));
 }
 
 // Parses one Exp-Golomb code in one read, up to 2^16-2 (2^32-2 on 64bit machines)
-static __attribute__((noinline)) size_t FUNC(get_ue16) {
+__attribute__((noinline)) size_t FUNC(get_ue16) {
 	size_t bits = lsd(ctx->RBSP[0], ctx->RBSP[1], ctx->shift);
 	unsigned v = clz(bits | (size_t)1 << (SIZE_BIT / 2)) * 2 + 1;
 	return CALL(refill, ctx->shift + v, (bits >> (SIZE_BIT - v)) - 1);
@@ -99,7 +99,7 @@ static __attribute__((noinline)) size_t FUNC(get_ue16) {
 
 // Parses one Exp-Golomb code in two reads, up to 2^32-2 (useless on 64bit machines)
 #if SIZE_BIT == 32
-static __attribute__((noinline)) size_t FUNC(get_ue32) {
+__attribute__((noinline)) size_t FUNC(get_ue32) {
 	size_t bits = lsd(ctx->RBSP[0], ctx->RBSP[1], ctx->shift);
 	unsigned leadingZeroBits = clz(bits | 1);
 	CALL(refill, ctx->shift + leadingZeroBits, 0);

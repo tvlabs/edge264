@@ -36,12 +36,12 @@ Planned features
 Technical details
 -----------------
 
-edge264 is built and tested with GNU GCC and LLVM Clang, supports 32/64 bit architectures, and requires 128 bit SIMD support. GCC is recommended though, because from my frequent analyses of output assembly it made generally better decisions on vector code, and because Clang does not support Global Register Variables. GLFW3 development headers should be installed to compile `edge264_play`.
+edge264 is built and tested with GNU GCC and LLVM Clang, supports 32/64 bit architectures, and requires 128 bit SIMD support. GCC generally makes slightly faster code thanks to the support of Global Register Variables. GLFW3 development headers should be installed to compile `edge264_play`.
 
 ```sh
 $ ffmpeg -i video.mp4 -vcodec copy -bsf h264_mp4toannexb -an video.264 # optional, converts from MP4 format
-$ make CC=gcc-9 # Clang has the nasty tendency to alias gcc
-$ ./edge264_play-gcc-9 video.264
+$ make
+$ ./edge264_play-cc video.264
 ```
 
 When debugging, the make flag `TRACE=1` enables printing NAL headers to stdout in HTML format, and `TRACE=2` adds the dumping of decoded symbols to stderr (*very large*). I usually compare its output with that of a modified version of the [official](https://avc.hhi.fraunhofer.de/) JM decoder. On the set of official AVCv1 conformance bitstreams, files `CANL1_Sony_E`, `CANL1_SVA_B`, `CANL1_TOSHIBA_G`, `CANL2_SVA_B`, `CAPCMNL1_Sand_E` are known to decode perfectly (the rest using yet unsupported features).
@@ -61,14 +61,14 @@ Key takeaways
 * Functions [`get_ue` and `get_se`](edge264_common.h#L241) for reading Exp-Golomb codes take min/max values as parameters, to select their backend function at compile-time, and ease the modification of backend functions without rewriting front function calls.
 * Error detection is performed once per NAL unit by [looking for `rbsp_trailing_bits`](edge264.c#L1239) at the end (_very high_ probability of error here if the stream was corrupted before), and all parsing functions silently clamp their input values to expected min/max values instead of adding a conditional exit branch. I discussed this decision in details in [A case about parsing errors](https://traffaillac.github.io/parsing.html).
 * Improvements on the [CABAC](edge264_cabac.c#L785) core representation yields fewer costly renormalisations and allow [batch-decoding bypass bits](edge264_cabac.c#L861).
-* The [context pointer](edge264_common.h#L203) is stored in a Global Register Variable (along with more parsing context for machines with 16+ registers), reducing the pressure on register allocators, and generally improving code size and speed.
+* CABAC [context variables](edge264_common.h#L203) are stored in two Global Register Variables if allowed by compiler, reducing reads and writes into the *very frequent* `get_ae` function.
 * The decoding paths for 8-14 bit samples are [shared wherever possible](edge264_intra_ssse3.c#L772) (i.e. using 14 bit code, with branches when reading and storing in memory), which eases maintenance of the high bit depth code.
-* The overall architecture is carefully designed as a forward pipeline, using tail calls to pass execution between [code blocks](edge264_cabac.c) (search for `return` statements), minimizing branches to reduce pressure on branch caches. Also the whole decoding loop should fit in L1 cache (\~32k, small fragmentation).
+* The overall architecture is carefully designed as a forward pipeline, using tail calls to pass execution between [code blocks](edge264_cabac.c) (search for `return` statements), minimizing branches to reduce pressure on prediction caches, and yielding a small binary file (<100k).
 * The entire decoding stage is organised as a [tree-like branching structure](edge264_intra_ssse3.c#L772) (from leaves to root), with a single `switch` at the top for selecting prediction mode, then unconditional merges to residual modes.
 * Residual decoding is executed [directly after prediction](edge264_intra_ssse3.c#L291), to keep predicted samples in vector registers (and at worst spill some of them on the stack).
 * The decoding of a 4x4 or 8x8 block is executed [directly after parsing](edge264_cabac.c#L944) its residual coefficients (rather than after parsing an entire 16x16 macroblock), to store less temporary data and thus reduce cache usage.
 * The [context structures](edge264_common.h#L84) use as few variables as possible, to limit the internal dependencies and make them easier to read and maintain.
-* Macroblock values are stored in `Edge264_macroblock` structures, and neighboring block values are retrieved [using memory offsets](edge264.c#L367) _into_ the neighboring structures, allowing a single context pointer for the current macroblock instead of many arrays. Although a nasty C trick, it also spares the use of intermediate neighboring tables, reducing memory writes and cache usage.
+* Macroblock values are stored in `Edge264_macroblock` structures, and neighboring block values are retrieved [using memory offsets](edge264.c#L367) _into_ the neighboring structures, allowing a single context pointer for the current macroblock instead of many arrays. Although a non-standard C trick, it also spares the use of intermediate neighboring tables, reducing memory writes and cache usage.
 * Loops on bit masks (with `__builtin_ctz(mask)` and `mask &= mask - 1`) are used to conditionally parse [`ref_idx_lX`](edge264_cabac.c#L1331), [`mvd_lX`](edge264_cabac.c#L1437) and [residual coefficients](edge264_cabac.c#L938) without branches, reducing the overall number of branch mispredictions.
-* Using C intrinsics instead of assembly code simplifies the build process, and lets the compiler handle register moves and spills. It makes the code more readable by aligning sequences of identical instructions, rather than interspacing them with moves. This is especially useful when designing complex kernels maximizing the use of registers, to avoid micro-managing spills on the stack (ex. [8x8 DCT](edge264_residual_ssse3.c#L173)).
+* Using C intrinsics instead of assembly code simplifies the build process, and lets the compiler handle register moves and spills. It makes the code more readable by aligning sequences of identical instructions, rather than interspacing them with moves. This is especially useful when designing complex kernels maximizing the use of registers, to avoid micro-managing spills on the stack (ex. [8x8 IDCT](edge264_residual_ssse3.c#L173)).
 * Extensive use of GCC's vector extensions, mostly for [copying chunks of data](edge264.c#L640), but also in lots of [unexpected areas](edge264_cabac.c#L1465) :)

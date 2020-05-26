@@ -1266,18 +1266,25 @@ static __attribute__((noinline)) void FUNC(parse_coded_block_pattern) {
  * coded_block_pattern (from function), and transform_size_8x8_flag for an
  * Inter macroblock, then branches to residual decoding through tail call.
  *
- * For motion vector prediction, here is a summary of the rules:
- * _ unavailable A/B/C blocks count as mv=0
+ * Motion vector prediction is one of the hardest parts to decode (8.4.1.3),
+ * here is a summary of the rules:
+ * _ A/B/C/D are 4x4 blocks on pixels at relative positions (-1,0)/(0,-1)/(W,-1)/(-1,-1)
+ * _ unavailable A/B/C/D blocks count as mv=0
  * _ if C is unavailable, replace it with D
- * _ if B and C/D are unavailable, replace them with A
+ * _ if both B and D are unavailable, replace B and C with A
  * _ if only one of refIdxA/B/C is equal to refIdx, predict mv from it
  * _ otherwise predict mv as median(mvA, mvB, mvC)
  *
- * Since all refIdx are parsed before all mvd, we compare them all at once
- * using SIMD and apply the above rules by modifying the relative offsets for
- * A/B/C.
- *
- * FIXME: Non functional, should be reworked
+ * Since we get all refIdx before all mvd, we compare them all at once using
+ * SIMD. Neighbouring values are initially packed into two L0/L1 v16qi:
+ * 6 7 8 9
+ * 5|0 1|
+ * 4|2 3|
+ * Then they are reshuffled with three A/B/C shuffle vectors taking into
+ * account block widths and unavailabilities. These (nightmarish) vectors are
+ * constructed during the parsing of mb_type.
+ * Finally, the following formula is computed for each 4x4 block:
+ * (refIdx==refIdxA) + (refIdx==refIdxB) * 2 + (refIdx==refIdxC) * 4
  */
 static __attribute__((noinline)) int FUNC(parse_inter_pred)
 {

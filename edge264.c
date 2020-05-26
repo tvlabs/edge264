@@ -1,13 +1,11 @@
 /** TODOs:
  * _ switch to SDL which is likely to have a more stable future support than GLFW, with an option to play without display
- * _ use a macro to define and call functions, to let clang pass ctx/mb in arguments
  * _ if possible, make the second half of AbsMvdComp_A/B alias the first of A/B4x4_8bit
  * _ update the tables of names for profiles and NAL types
  * _ upgrade DPB storage size to 17, by simply doubling reference and output flags sizes
  * _ backup output/ref flags and FrameNum and restore then on bad slice_header
  * _ make ret non sticky to allow partial decodes during implementation
  * _ try using epb for context pointer, and email GCC when it fails
- * _ after implementing deblocking, define a function(a, zero) to switch to pmovsxbw (_mm_cvtepi8_epi16)
  * _ after implementing P/B and MBAFF, optimize away array accesses of is422 and mb->f.mb_field_decoding_flag
  * _ after implementing P/B and MBAFF, consider splitting decode_samples into NxN, 16x16 and chroma, making parse_residual_block a regular function, including intraNxN_modes inside the switch of decode_NxN, and removing many copies for AC->DC PredMode
  */
@@ -163,16 +161,6 @@ static void FUNC(initialise_decoding_context, Edge264_stream *e)
 				ctx->ref_planes[l][i] = e->DPB + (ctx->RefPicList[l][i] & 15) * e->frame_size;
 			}
 		}
-		
-		// FIXME: review when implementing A/B/C inference rules
-		v4hi h4 = {4, 4, 4, 4};
-		ctx->A8x8_v[0] = (v4hi){1 - (int)sizeof(*mb), 0, 3 - (int)sizeof(*mb), 2};
-		ctx->A8x8_v[1] = ctx->A8x8_v[0] + h4;
-		ctx->A8x8_v[2] = ctx->A8x8_v[1] + h4;
-		v4si s4 = {4, 4, 4, 4};
-		ctx->B8x8_v[0] = (v4si){2 - offsetB, 3 - offsetB, 0, 1};
-		ctx->B8x8_v[1] = ctx->B8x8_v[0] + s4;
-		ctx->B8x8_v[2] = ctx->B8x8_v[1] + s4;
 	}
 }
 

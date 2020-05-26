@@ -69,7 +69,7 @@ typedef struct {
 	Edge264_flags f;
 	int8_t QP[3];
 	union { int8_t CodedBlockPatternLuma[4]; int32_t CodedBlockPatternLuma_s; };
-	union { int8_t refIdx[8]; v8qi refIdx_v; };
+	union { int8_t refIdx[8]; int32_t refIdx_s[2]; v8qi refIdx_v; };
 	union { int8_t Intra4x4PredMode[16]; v16qi Intra4x4PredMode_v; };
 	union { int8_t coded_block_flags_8x8[12]; v16qi coded_block_flags_8x8_v; };
 	union { int8_t coded_block_flags_4x4[48]; int32_t coded_block_flags_4x4_s[12]; v16qi coded_block_flags_4x4_v[3]; };
@@ -140,8 +140,12 @@ typedef struct
 	union { int32_t coded_block_flags_8x8_B[12]; int32_t CodedBlockPatternLuma_B[4]; v4si B8x8_8bit[3]; };
 	int16_t refIdx_A[8];
 	int32_t refIdx_B[8];
-	int32_t refIdx_C;
-	int32_t refIdx_D;
+	int32_t refIdx_C; // offset to mbC->refIdx[3]
+	int32_t refIdx_D; // offset to mbD->refIdx[2]
+	union { int8_t refIdx4x4_A[16]; v16qi refIdx4x4_A_v; }; // shuffle vector for parse_inter_pred
+	union { int8_t refIdx4x4_B[16]; v16qi refIdx4x4_B_v; };
+	union { int8_t refIdx4x4_C[16]; v16qi refIdx4x4_C_v; };
+	union { int8_t refIdx4x4_eq[32]; v16qi refIdx4x4_eq_v[2]; };
 	int16_t mvs_A[32];
 	int32_t mvs_B[32];
 	int32_t mvs_C[32];
@@ -158,12 +162,6 @@ typedef struct
 	uint32_t mvd_fold;
 	uint32_t ref_idx_mask;
 	Edge264_macroblock *mbCol;
-	union { int16_t A8x8[12]; v4hi A8x8_v[3]; };
-	union { int32_t B8x8[12]; v4si B8x8_v[3]; };
-	union { int32_t C8x8[8]; v4si C8x8_v[2]; };
-	union { int16_t mvA[32]; v8hi mvA_v[4]; };
-	union { int32_t mvB[32]; v4si mvB_v[8]; };
-	union { int32_t mvC[32]; v4si mvC_v[8]; };
 	union { int8_t RefPicList[2][32]; v16qi RefPicList_v[4]; };
 	uint8_t *ref_planes[2][32];
 	int8_t MapPicToList0[35]; // [1 + refPic]

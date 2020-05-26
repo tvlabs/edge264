@@ -1283,16 +1283,13 @@ static __attribute__((noinline)) void FUNC(parse_coded_block_pattern) {
  * Finally, the following formula is computed for each 4x4 block:
  * (refIdx==refIdxA) + (refIdx==refIdxB) * 2 + (refIdx==refIdxC) * 4
  */
-static __attribute__((noinline)) void FUNC(parse_inter_pred)
+__attribute__((noinline)) void FUNC(parse_inter_pred)
 {
-	int8_t eq_masks[32]; // refIdx ?= (1)refIdxA, (2)refIdxB, (4)refIdxC
-	
 	// parsing for ref_idx_lX in P/B slices
 	for (unsigned f = ctx->mvd_flags & ctx->ref_idx_mask; f != 0; f &= f - 1) {
 		int i = __builtin_ctz(f) >> 2;
-		int refIdxA = mb->refIdx[ctx->A8x8[i]];
-		int refIdxB = mb->refIdx[ctx->B8x8[i]];
-		int refIdxC = mb->refIdx[ctx->C8x8[i]];
+		int refIdxA = *(mb->refIdx + ctx->refIdx_A[i]);
+		int refIdxB = *(mb->refIdx + ctx->refIdx_B[i]);
 		int ctxIdxInc = (refIdxA > 0) + (refIdxB > 0) * 2;
 		int refIdx = 0;
 		
@@ -1301,115 +1298,53 @@ static __attribute__((noinline)) void FUNC(parse_inter_pred)
 			refIdx++, ctxIdxInc = ctxIdxInc / 4 + 4; // cool trick from ffmpeg
 		mb->refIdx[i] = refIdx;
 		fprintf(stderr, "ref_idx_l%x: %u\n", i >> 2, refIdx);
-		
-		// apply 8.4.1.3.1 while we have fresh copies of refIdxA/B/C
-		int sub = (i & 3) * 4 + 1;
-		int mask = (refIdx == refIdxA) + (refIdx == refIdxB) * 2 + (refIdx == refIdxC) * 4;
-		if (ctx->mvd_fold & 1 << sub) { // 4x8 or 4x4
-			eq_masks[i * 4] = (ctx->unavail[sub] & 2) || (mask & 3) == 1 ? 1 : 0;
-			eq_masks[i * 4 + 1] = mask | 1;
-			eq_masks[i * 4 + 2] = 0; // don't care, will be median anyway
-			eq_masks[i * 4 + 3] = 0;
-		} else { // 8x4 or 8x8
-			eq_masks[i * 4] = mask;
-			eq_masks[i * 4 + 2] = (mask & 1) ? 0 : 2;
-		}
 	}
 	
-	// compute mvC for each kinds of blocks (UGLY, should be simplified)
-	int unavail = ctx->unavail[5];
-	if (ctx->mvd_fold == 0x0001) { // 16x16
-		ctx->mvC[0] = (unavail & 4) ? ctx->mvB[5] - sizeof(*mb) / 2 : ctx->mvB[0] + sizeof(*mb) / 2;
-		ctx->mvC[16] = ctx->mvC[0] + 32;
-		
-	} else if (ctx->mvd_fold == 0x0011) { // 8x16
-		ctx->mvC[0] = (unavail & 2) ? ctx->mvB[5] - sizeof(*mb) / 2 : ctx->mvB[4];
-		ctx->mvC[4] = (unavail & 4) ? ctx->mvB[1] : ctx->mvB[0] + sizeof(*mb);
-		ctx->mvC[16] = ctx->mvC[0] + 32;
-		ctx->mvC[20] = ctx->mvC[4] + 32;
-		eq_masks[0] = eq_masks[16] = 1;
-		eq_masks[4] = eq_masks[20] = 4;
-		
-	} else if (ctx->mvd_fold == 0x0101) { // 16x8
-		ctx->mvC[0] = (unavail & 4) ? ctx->mvB[5] - sizeof(*mb) / 2 : ctx->mvB[0] + sizeof(*mb) / 2;
-		ctx->mvC[8] = ctx->mvB[2];
-		ctx->mvC[16] = ctx->mvC[0] + 32;
-		ctx->mvC[24] = ctx->mvB[2] + 32;
-		eq_masks[0] = eq_masks[16] = 2;
-		eq_masks[8] = eq_masks[24] = 1;
-		
-	} else { // 8x8
-		if (ctx->mvd_fold & 1 << 1) {
-			ctx->mvC[0] = (unavail & 2) ? ctx->mvB[5] - sizeof(*mb) / 2 : ctx->mvB[1];
-			ctx->mvC[1] = (unavail & 2) ? ctx->mvB[0] : ctx->mvB[4];
-			ctx->mvC[2] = 2;
-			ctx->mvC[16] = ctx->mvC[0] + 32;
-			ctx->mvC[17] = ctx->mvC[1] + 32;
-			ctx->mvC[18] = 34;
-		} else {
-			ctx->mvC[0] = (unavail & 2) ? ctx->mvB[5] - sizeof(*mb) / 2 : ctx->mvB[4];
-			ctx->mvC[2] = ctx->mvA[0];
-			ctx->mvC[16] = ctx->mvC[0] + 32;
-			ctx->mvC[18] = ctx->mvA[0] + 32;
-		}
-		
-		if (ctx->mvd_fold & 1 << 5) {
-			ctx->mvC[4] = (unavail & 2) ? ctx->mvB[1] : ctx->mvB[5];
-			ctx->mvC[5] = (unavail & 4) ? ctx->mvB[4] : ctx->mvB[0] + sizeof(*mb) / 2;
-			ctx->mvC[6] = 10;
-			ctx->mvC[20] = ctx->mvC[4] + 32;
-			ctx->mvC[21] = ctx->mvC[5] + 32;
-			ctx->mvC[22] = 42;
-		} else {
-			ctx->mvC[4] = (unavail & 3) ? ctx->mvB[1] : ctx->mvB[0] + sizeof(*mb) / 2;
-			ctx->mvC[6] = 2;
-			ctx->mvC[20] = ctx->mvC[4] + 32;
-			ctx->mvC[22] = 34;
-		}
-		
-		if (ctx->mvd_fold & 1 << 9) {
-			ctx->mvC[8] = 6;
-			ctx->mvC[10] = 18;
-			ctx->mvC[24] = 38;
-			ctx->mvC[26] = 50;
-		} else {
-			ctx->mvC[8] = 12;
-			ctx->mvC[10] = ctx->mvA[8];
-			ctx->mvC[24] = 44;
-			ctx->mvC[26] = ctx->mvA[8] + 32;
-		}
-		
-		if (ctx->mvd_fold & 1 << 13) {
-			ctx->mvC[12] = 14;
-			ctx->mvC[14] = 26;
-			ctx->mvC[28] = 46;
-			ctx->mvC[30] = 58;
-		} else {
-			ctx->mvC[12] = 6;
-			ctx->mvC[14] = 18;
-			ctx->mvC[28] = 38;
-			ctx->mvC[30] = 50;
-		}
-	}
+	// load neighbouring refIdx values
+	v16qi ABCD0 = (v16qi){0, 0, 0, 0, *(mb->refIdx + ctx->refIdx_A[2]),
+		*(mb->refIdx + ctx->refIdx_A[0]), *(mb->refIdx + ctx->refIdx_D),
+		*(mb->refIdx + ctx->refIdx_B[0]), *(mb->refIdx + ctx->refIdx_B[1]),
+		*(mb->refIdx + ctx->refIdx_C), 0, 0, 0, 0, 0, 0};
+	v16qi ABCD1 = (v16qi){0, 0, 0, 0, *(mb->refIdx + ctx->refIdx_A[6]),
+		*(mb->refIdx + ctx->refIdx_A[4]), *(mb->refIdx + ctx->refIdx_D + 4),
+		*(mb->refIdx + ctx->refIdx_B[4]), *(mb->refIdx + ctx->refIdx_B[5]),
+		*(mb->refIdx + ctx->refIdx_C + 4), 0, 0, 0, 0, 0, 0};
+	memcpy(&ABCD0, mb->refIdx_s, 4);
+	memcpy(&ABCD1, mb->refIdx_s + 1, 4);
+	
+	// shuffle them to get neighbouring 4x4 A/B/C values
+	v16qi refIdxL0 = __builtin_shufflevector(ABCD0, ABCD0, 0, 0, 0, 0, 1, 1, 1, 1, 2, 2, 2, 2, 3, 3, 3, 3);
+	v16qi refIdxL1 = __builtin_shufflevector(ABCD1, ABCD1, 0, 0, 0, 0, 1, 1, 1, 1, 2, 2, 2, 2, 3, 3, 3, 3);
+	v16qi refIdxL0A = byte_shuffle(ABCD0, ctx->refIdx4x4_A_v);
+	v16qi refIdxL1A = byte_shuffle(ABCD1, ctx->refIdx4x4_A_v);
+	v16qi refIdxL0B = byte_shuffle(ABCD0, ctx->refIdx4x4_B_v);
+	v16qi refIdxL1B = byte_shuffle(ABCD1, ctx->refIdx4x4_B_v);
+	v16qi refIdxL0C = byte_shuffle(ABCD0, ctx->refIdx4x4_C_v);
+	v16qi refIdxL1C = byte_shuffle(ABCD1, ctx->refIdx4x4_C_v);
+	
+	// compare them and store equality formula
+	ctx->refIdx4x4_eq_v[0] = -(((((refIdxL0==refIdxL0C) << 1) + (refIdxL0==refIdxL0B)) << 1) + (refIdxL0==refIdxL0A));
+	ctx->refIdx4x4_eq_v[1] = -(((((refIdxL1==refIdxL1C) << 1) + (refIdxL1==refIdxL1B)) << 1) + (refIdxL1==refIdxL1A));
 	
 	// parsing mvd components in pairs, to minimise branches
 	do {
 		int i = ctz32(ctx->mvd_flags);
-		int mvA_x = mb->mvs[ctx->mvA[i]];
-		int mvA_y = mb->mvs[ctx->mvA[i] + 1];
-		int mvB_x = mb->mvs[ctx->mvB[i]];
-		int mvB_y = mb->mvs[ctx->mvB[i] + 1];
-		int mvC_x = mb->mvs[ctx->mvC[i]];
-		int mvC_y = mb->mvs[ctx->mvC[i] + 1];
+		int mvA_x = *(mb->mvs + ctx->mvs_A[i]);
+		int mvA_y = *(mb->mvs + ctx->mvs_A[i] + 1);
+		int mvB_x = *(mb->mvs + ctx->mvs_B[i]);
+		int mvB_y = *(mb->mvs + ctx->mvs_B[i] + 1);
+		int mvC_x = *(mb->mvs + ctx->mvs_C[i]);
+		int mvC_y = *(mb->mvs + ctx->mvs_C[i] + 1);
 		
 		// This branch is unavoidable if we don't want to mess with mvA/B addresses too.
 		int mvp_x, mvp_y;
-		if (__builtin_popcount(eq_masks[i]) != 1) {
+		int eq = ctx->refIdx4x4_eq[i];
+		if (__builtin_expect(0xe9 >> eq & 1, 1)) {
 			mvp_x = median(mvA_x, mvB_x, mvC_x);
 			mvp_y = median(mvA_y, mvB_y, mvC_y);
 		} else {
-			mvp_x = (eq_masks[i] == 1) ? mvA_x : (eq_masks[i] == 2) ? mvB_x : mvC_x;
-			mvp_y = (eq_masks[i] == 1) ? mvA_y : (eq_masks[i] == 2) ? mvB_y : mvC_y;
+			mvp_x = (eq == 1) ? mvA_x : (eq == 2) ? mvB_x : mvC_x;
+			mvp_y = (eq == 1) ? mvA_y : (eq == 2) ? mvB_y : mvC_y;
 		}
 		
 		// These additional writes are the price for unifying 4xN/8xN/16xN.

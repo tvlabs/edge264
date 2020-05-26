@@ -1027,11 +1027,11 @@ static __attribute__((noinline)) void FUNC(parse_mb_qp_delta, unsigned cond) {
  * Parsing for chroma 4:2:2 and 4:2:0 is put in a separate function to be
  * tail-called from parse_NxN_residual and parse_Intra16x16_residual.
  */
-static __attribute__((noinline)) int FUNC(parse_chroma_residual)
+static __attribute__((noinline)) void FUNC(parse_chroma_residual)
 {
 	int is422 = ctx->ps.ChromaArrayType - 1;
 	if (is422 < 0)
-		return 0;
+		return;
 	
 	// As in Intra16x16, DC blocks are parsed to ctx->d[0..7], then transformed to ctx->d[16..31]
 	ctx->LevelScale_v[0] = ctx->LevelScale_v[1] = (v4si){64, 64, 64, 64};
@@ -1090,7 +1090,6 @@ static __attribute__((noinline)) int FUNC(parse_chroma_residual)
 		CALL(check_ctx, RESIDUAL_CHROMA_LABEL);
 		CALL(parse_residual_block, coded_block_flag, 1, 15);
 	}
-	return 0;
 }
 
 
@@ -1099,7 +1098,7 @@ static __attribute__((noinline)) int FUNC(parse_chroma_residual)
  * Intra16x16 residual blocks have so many differences with Intra4x4 that they
  * deserve their own function.
  */
-static __attribute__((noinline)) int FUNC(parse_Intra16x16_residual)
+static __attribute__((noinline)) void FUNC(parse_Intra16x16_residual)
 {
 	CALL(parse_mb_qp_delta, 1);
 	
@@ -1147,9 +1146,8 @@ static __attribute__((noinline)) int FUNC(parse_Intra16x16_residual)
 		ctx->stride = ctx->plane_offsets[18] >> 2;
 		ctx->clip_v = ctx->clip_C;
 		if (ctx->ps.ChromaArrayType <3)
-			return CALL(parse_chroma_residual);
+			JUMP(parse_chroma_residual);
 	} while (ctx->BlkIdx < 48);
-	return 0;
 }
 
 
@@ -1158,7 +1156,7 @@ static __attribute__((noinline)) int FUNC(parse_Intra16x16_residual)
  * This block is dedicated to the parsing of Intra_NxN and Inter_NxN, since
  * they share much in common.
  */
-static __attribute__((noinline)) int FUNC(parse_NxN_residual)
+static __attribute__((noinline)) void FUNC(parse_NxN_residual)
 {
 	CALL(parse_mb_qp_delta, mb->f.CodedBlockPatternChromaDC | mb->CodedBlockPatternLuma_s);
 	
@@ -1224,9 +1222,8 @@ static __attribute__((noinline)) int FUNC(parse_NxN_residual)
 		ctx->stride = ctx->plane_offsets[18] >> 2;
 		ctx->clip_v = ctx->clip_C;
 		if (ctx->ps.ChromaArrayType <3)
-			return CALL(parse_chroma_residual);
+			JUMP(parse_chroma_residual);
 	} while (ctx->BlkIdx < 48);
-	return 0;
 }
 
 
@@ -1286,7 +1283,7 @@ static __attribute__((noinline)) void FUNC(parse_coded_block_pattern) {
  * Finally, the following formula is computed for each 4x4 block:
  * (refIdx==refIdxA) + (refIdx==refIdxB) * 2 + (refIdx==refIdxC) * 4
  */
-static __attribute__((noinline)) int FUNC(parse_inter_pred)
+static __attribute__((noinline)) void FUNC(parse_inter_pred)
 {
 	int8_t eq_masks[32]; // refIdx ?= (1)refIdxA, (2)refIdxB, (4)refIdxC
 	
@@ -1453,7 +1450,7 @@ static __attribute__((noinline)) int FUNC(parse_inter_pred)
 		mb->f.transform_size_8x8_flag = CALL(get_ae, 399 + ctx->inc.transform_size_8x8_flag);
 		fprintf(stderr, "transform_size_8x8_flag: %x\n", mb->f.transform_size_8x8_flag);
 	}
-	return CALL(parse_NxN_residual);
+	JUMP(parse_NxN_residual);
 }
 
 
@@ -1532,7 +1529,7 @@ static __attribute__((noinline)) int FUNC(parse_intraNxN_pred_mode, int luma4x4B
  *   to account for unavailability of neighbouring blocks, Intra chroma modes
  *   and Inter prediction.
  */
-static __attribute__((noinline)) int FUNC(parse_I_mb, int ctxIdx)
+static __attribute__((noinline)) void FUNC(parse_I_mb, int ctxIdx)
 {
 	static const Edge264_flags flags_PCM = {
 		.CodedBlockPatternChromaDC = 1,
@@ -1571,7 +1568,7 @@ static __attribute__((noinline)) int FUNC(parse_I_mb, int ctxIdx)
 		
 		CALL(parse_intra_chroma_pred_mode);
 		CALL(parse_coded_block_pattern);
-		return CALL(parse_NxN_residual);
+		JUMP(parse_NxN_residual);
 	
 	// Intra_16x16
 	} else if (!CALL(get_ae, 276)) {
@@ -1596,7 +1593,7 @@ static __attribute__((noinline)) int FUNC(parse_I_mb, int ctxIdx)
 		ctx->PredMode_v[1] = ctx->PredMode_v[2] = ctx->PredMode_v[0] + ctx->pred_offset_C;
 		
 		CALL(parse_intra_chroma_pred_mode);
-		return CALL(parse_Intra16x16_residual);
+		JUMP(parse_Intra16x16_residual);
 		
 	// I_PCM
 	} else {
@@ -1657,7 +1654,6 @@ static __attribute__((noinline)) int FUNC(parse_I_mb, int ctxIdx)
 		// reinitialize CABAC
 		codIRange = (size_t)255 << (SIZE_BIT - 9);
 		codIOffset = CALL(get_uv, SIZE_BIT - 1);
-		return 0;
 	}
 }
 
@@ -1687,7 +1683,7 @@ static __attribute__((noinline)) int FUNC(parse_I_mb, int ctxIdx)
  * For B_Direct_16x16, we initialize refIdx and mvs and jump directly to
  * parse_NxN_residual.
  */
-static __attribute__((noinline)) int FUNC(parse_P_mb)
+static __attribute__((noinline)) void FUNC(parse_P_mb)
 {
 	static const uint16_t P2flags[4] = {0x0001, 0x0000, 0x0011, 0x0101};
 	
@@ -1698,9 +1694,9 @@ static __attribute__((noinline)) int FUNC(parse_P_mb)
 		mb->refIdx_v = (v8qi){0, 0, 0, 0, -1, -1, -1, -1};
 		memset(mb->mvs + 32, 0, 64);
 		// TODO: infer mvL0
-		return 0;
+		return;
 	} else if (CALL(get_ae, 14)) {
-		return CALL(parse_I_mb, 17);
+		JUMP(parse_I_mb, 17);
 	}
 	
 	// Are these few lines worth a function? :)
@@ -1716,10 +1712,10 @@ static __attribute__((noinline)) int FUNC(parse_P_mb)
 		flags |= f << i;
 	}
 	ctx->mvd_flags = ctx->mvd_fold = flags;
-	return CALL(parse_inter_pred);
+	JUMP(parse_inter_pred);
 }
 
-static __attribute__((noinline)) int FUNC(parse_B_mb)
+static __attribute__((noinline)) void FUNC(parse_B_mb)
 {
 	static const uint32_t B2flags[26] = {0x00010001, 0x00000101, 0x00000011, 0x01010000,
 		0x00110000, 0x01000001, 0x00100001, 0x00010100, 0x00000001, 0x00010000,
@@ -1736,7 +1732,7 @@ static __attribute__((noinline)) int FUNC(parse_B_mb)
 	fprintf(stderr, "mb_skip_flag: %x\n", mb->f.mb_skip_flag);
 	if (mb->f.mb_skip_flag) {
 		mb->f.mb_type_B_Direct = 1;
-		return CALL(parse_NxN_residual);
+		JUMP(parse_NxN_residual);
 		
 	// B_Direct_16x16
 	} else if (!CALL(get_ae, 29 - ctx->inc.mb_type_B_Direct)) {
@@ -1747,7 +1743,7 @@ static __attribute__((noinline)) int FUNC(parse_B_mb)
 			fprintf(stderr, "transform_size_8x8_flag: %x\n", mb->f.transform_size_8x8_flag);
 		}
 		mb->f.mb_type_B_Direct = 1;
-		return CALL(parse_NxN_residual);
+		JUMP(parse_NxN_residual);
 	}
 	
 	// Most important here is the minimal number of conditional branches.
@@ -1762,7 +1758,7 @@ static __attribute__((noinline)) int FUNC(parse_B_mb)
 	if (str == 13) {
 		v8hi *v = mb->mvs_v;
 		v[0] = v[1] = v[2] = v[3] = v[4] = v[5] = v[6] = v[7] = (v8hi){};
-		return CALL(parse_I_mb, 32);
+		JUMP(parse_I_mb, 32);
 	}
 	fprintf(stderr, "mb_type: %u\n", B2mb_type[str]);
 	ctx->mvd_fold = 0;
@@ -1787,7 +1783,7 @@ static __attribute__((noinline)) int FUNC(parse_B_mb)
 	}
 	ctx->mvd_flags = flags;
 	ctx->mvd_fold |= (uint16_t)flags | flags >> 16;
-	return CALL(parse_inter_pred);
+	JUMP(parse_inter_pred);
 }
 
 

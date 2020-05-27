@@ -26,6 +26,8 @@ typedef uint16_t v8hu __attribute__((vector_size(16)));
 typedef uint32_t v4su __attribute__((vector_size(16)));
 typedef uint64_t v2lu __attribute__((vector_size(16)));
 typedef int32_t v8si __attribute__((vector_size(32)));
+typedef int16_t v16hi __attribute__((vector_size(32)));
+typedef int16_t v32hi __attribute__((vector_size(64)));
 
 
 
@@ -68,13 +70,13 @@ static const Edge264_flags flags_twice = {
 typedef struct {
 	Edge264_flags f;
 	int8_t QP[3];
-	union { int8_t CodedBlockPatternLuma[4]; int32_t CodedBlockPatternLuma_s; };
-	union { int8_t refIdx[8]; int32_t refIdx_s[2]; v8qi refIdx_v; };
-	union { int8_t Intra4x4PredMode[16]; v16qi Intra4x4PredMode_v; };
-	union { int8_t coded_block_flags_8x8[12]; v16qi coded_block_flags_8x8_v; };
-	union { int8_t coded_block_flags_4x4[48]; int32_t coded_block_flags_4x4_s[12]; v16qi coded_block_flags_4x4_v[3]; };
-	union { int8_t absMvdComp[32]; v16qi absMvdComp_v[2]; };
-	union { int16_t mvs[64]; int32_t mvs_s[32]; v8hi mvs_v[8]; };
+	union { int8_t CodedBlockPatternLuma[4]; int32_t CodedBlockPatternLuma_s; }; // [i8x8]
+	union { int8_t refIdx[8]; int32_t refIdx_s[2]; v8qi refIdx_l; }; // [LX][i8x8]
+	union { int8_t Intra4x4PredMode[16]; v16qi Intra4x4PredMode_v; }; // [i4x4]
+	union { int8_t coded_block_flags_8x8[12]; v16qi coded_block_flags_8x8_v; }; // [iYCbCr][i8x8]
+	union { int8_t coded_block_flags_4x4[48]; int32_t coded_block_flags_4x4_s[12]; v16qi coded_block_flags_4x4_v[3]; }; // [iYCbCr][i4x4]
+	union { int8_t absMvdComp[64]; v16qi absMvdComp_v[4]; }; // [compIdx][LX][i4x4]
+	union { int16_t mvs[64]; v8hi mvs_v[8]; }; // [LX][i4x4][compIdx]
 } Edge264_macroblock;
 
 
@@ -134,18 +136,12 @@ typedef struct
 	union { uint8_t cabac[1024]; v16qu cabac_v[64]; };
 	
 	// neighbouring offsets (relative to the start of each array in mb)
-	union { int16_t coded_block_flags_4x4_A[48]; int16_t Intra4x4PredMode_A[16]; v8hi A4x4_8bit[6]; };
-	union { int32_t coded_block_flags_4x4_B[48]; int32_t Intra4x4PredMode_B[16]; v4si B4x4_8bit[12]; };
-	union { int16_t coded_block_flags_8x8_A[12]; int16_t CodedBlockPatternLuma_A[4]; v4hi A8x8_8bit[3]; };
-	union { int32_t coded_block_flags_8x8_B[12]; int32_t CodedBlockPatternLuma_B[4]; v4si B8x8_8bit[3]; };
-	int16_t refIdx_A[8];
-	int32_t refIdx_B[8];
+	union { int16_t coded_block_flags_4x4_A[48]; int16_t Intra4x4PredMode_A[16]; int16_t absMvdComp_A[16]; v8hi A4x4_8bit[6]; };
+	union { int32_t coded_block_flags_4x4_B[48]; int32_t Intra4x4PredMode_B[16]; int32_t absMvdComp_B[16]; v4si B4x4_8bit[12]; };
+	union { int16_t coded_block_flags_8x8_A[12]; int16_t CodedBlockPatternLuma_A[4]; int16_t refIdx_A[4]; v4hi A8x8_8bit[3]; };
+	union { int32_t coded_block_flags_8x8_B[12]; int32_t CodedBlockPatternLuma_B[4]; int32_t refIdx_B[4]; v4si B8x8_8bit[3]; };
 	int32_t refIdx_C; // offset to mbC->refIdx[3]
 	int32_t refIdx_D; // offset to mbD->refIdx[2]
-	union { int8_t refIdx4x4_A[16]; v16qi refIdx4x4_A_v; }; // shuffle vector for parse_inter_pred
-	union { int8_t refIdx4x4_B[16]; v16qi refIdx4x4_B_v; };
-	union { int8_t refIdx4x4_C[16]; v16qi refIdx4x4_C_v; };
-	union { int8_t refIdx4x4_eq[32]; v16qi refIdx4x4_eq_v[2]; };
 	int16_t mvs_A[32];
 	int32_t mvs_B[32];
 	int32_t mvs_C[32];
@@ -164,6 +160,12 @@ typedef struct
 	Edge264_macroblock *mbCol;
 	union { int8_t RefPicList[2][32]; v16qi RefPicList_v[4]; };
 	uint8_t *ref_planes[2][32];
+	union { uint32_t refIdx_broadcast[4]; v16qi refIdx_broadcast_v; };
+	v16qi mvs_broadcast[16];
+	union { int8_t refIdx4x4_A[16]; v16qi refIdx4x4_A_v; }; // shuffle vector for mv prediction
+	union { int8_t refIdx4x4_B[16]; v16qi refIdx4x4_B_v; };
+	union { int8_t refIdx4x4_C[16]; v16qi refIdx4x4_C_v; };
+	union { int8_t refIdx4x4_eq[32]; v16qi refIdx4x4_eq_v[2]; };
 	int8_t MapPicToList0[35]; // [1 + refPic]
 	int16_t DistScaleFactor[3][32]; // [top/bottom/frame][refIdxL0]
 	union { int8_t implicit_weights[2][32][32]; v16qi implicit_weights_v[2][32][2]; }; // w1 for [top/bottom][ref0][ref1]

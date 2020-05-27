@@ -931,7 +931,9 @@ static __attribute__((noinline)) void FUNC(parse_residual_block, unsigned coded_
  * as above to read all bypass bits at once.
  */
 static __attribute__((noinline)) int FUNC(parse_mvd, int pos, int ctxBase) {
-	int sum = 0; //mb->absMvdComp[ctx->A4x4[pos]] + mb->absMvdComp[ctx->B4x4[pos]];
+	int absMvdCompA = *(mb->absMvdComp + (pos & 48) + ctx->absMvdComp_A[pos & 15]);
+	int absMvdCompB = *(mb->absMvdComp + (pos & 48) + ctx->absMvdComp_B[pos & 15]);
+	int sum = absMvdCompA + absMvdCompB;
 	int ctxIdx = ctxBase + (sum >= 3) + (sum > 32);
 	int mvd = 0;
 	while (mvd < 9 && CALL(get_ae, ctxIdx))
@@ -965,7 +967,11 @@ static __attribute__((noinline)) int FUNC(parse_mvd, int pos, int ctxBase) {
 		codIOffset = (SIZE_BIT == 32) ? mul : (uint32_t)codIOffset | mul << 32;
 		mvd = 1 + (1 << k) + (quo << shift >> (31 - k));
 	}
-	mb->absMvdComp[pos] = min(mvd, 66);
+	
+	// Intel mask_broadcast could be used here but is too minor to justify the added complexity
+	int a = min(mvd, 66);
+	v16qi absMvdComp = {a, a, a, a, a, a, a, a, a, a, a, a, a, a, a, a};
+	mb->absMvdComp_v[pos >> 4] |= absMvdComp & ctx->mvs_broadcast[pos & 15];
 	
 	// Parse the sign flag.
 	if (mvd > 0) {
@@ -1288,15 +1294,15 @@ __attribute__((noinline)) void FUNC(parse_inter_pred)
 	// parsing for ref_idx_lX in P/B slices
 	for (unsigned f = ctx->mvd_flags & ctx->ref_idx_mask; f != 0; f &= f - 1) {
 		int i = __builtin_ctz(f) >> 2;
-		int refIdxA = *(mb->refIdx + ctx->refIdx_A[i]);
-		int refIdxB = *(mb->refIdx + ctx->refIdx_B[i]);
+		int refIdxA = *(mb->refIdx + (i & 4) + ctx->refIdx_A[i & 3]);
+		int refIdxB = *(mb->refIdx + (i & 4) + ctx->refIdx_B[i & 3]);
 		int ctxIdxInc = (refIdxA > 0) + (refIdxB > 0) * 2;
 		int refIdx = 0;
 		
 		// This cannot loop forever since binVal would oscillate past the end of the RBSP.
 		while (CALL(get_ae, 54 + ctxIdxInc))
 			refIdx++, ctxIdxInc = ctxIdxInc / 4 + 4; // cool trick from ffmpeg
-		mb->refIdx[i] = refIdx;
+		mb->refIdx_s[i >> 2] |= refIdx * ctx->refIdx_broadcast[i & 3];
 		fprintf(stderr, "ref_idx_l%x: %u\n", i >> 2, refIdx);
 	}
 	
@@ -1305,10 +1311,10 @@ __attribute__((noinline)) void FUNC(parse_inter_pred)
 		*(mb->refIdx + ctx->refIdx_A[0]), *(mb->refIdx + ctx->refIdx_D),
 		*(mb->refIdx + ctx->refIdx_B[0]), *(mb->refIdx + ctx->refIdx_B[1]),
 		*(mb->refIdx + ctx->refIdx_C), 0, 0, 0, 0, 0, 0};
-	v16qi ABCD1 = (v16qi){0, 0, 0, 0, *(mb->refIdx + ctx->refIdx_A[6]),
-		*(mb->refIdx + ctx->refIdx_A[4]), *(mb->refIdx + ctx->refIdx_D + 4),
-		*(mb->refIdx + ctx->refIdx_B[4]), *(mb->refIdx + ctx->refIdx_B[5]),
-		*(mb->refIdx + ctx->refIdx_C + 4), 0, 0, 0, 0, 0, 0};
+	v16qi ABCD1 = (v16qi){0, 0, 0, 0, *(mb->refIdx + 4 + ctx->refIdx_A[2]),
+		*(mb->refIdx + 4 + ctx->refIdx_A[0]), *(mb->refIdx + 4 + ctx->refIdx_D),
+		*(mb->refIdx + 4 + ctx->refIdx_B[0]), *(mb->refIdx + 4 + ctx->refIdx_B[1]),
+		*(mb->refIdx + 4 + ctx->refIdx_C), 0, 0, 0, 0, 0, 0};
 	memcpy(&ABCD0, mb->refIdx_s, 4);
 	memcpy(&ABCD1, mb->refIdx_s + 1, 4);
 	
@@ -1326,60 +1332,41 @@ __attribute__((noinline)) void FUNC(parse_inter_pred)
 	ctx->refIdx4x4_eq_v[0] = -(((((refIdxL0==refIdxL0C) << 1) + (refIdxL0==refIdxL0B)) << 1) + (refIdxL0==refIdxL0A));
 	ctx->refIdx4x4_eq_v[1] = -(((((refIdxL1==refIdxL1C) << 1) + (refIdxL1==refIdxL1B)) << 1) + (refIdxL1==refIdxL1A));
 	
-	// parsing mvd components in pairs, to minimise branches
+	// parsing mvd components in pairs, to reduce branches
 	do {
 		int i = ctz32(ctx->mvd_flags);
-		int mvA_x = *(mb->mvs + ctx->mvs_A[i]);
-		int mvA_y = *(mb->mvs + ctx->mvs_A[i] + 1);
-		int mvB_x = *(mb->mvs + ctx->mvs_B[i]);
-		int mvB_y = *(mb->mvs + ctx->mvs_B[i] + 1);
-		int mvC_x = *(mb->mvs + ctx->mvs_C[i]);
-		int mvC_y = *(mb->mvs + ctx->mvs_C[i] + 1);
+		int x = CALL(parse_mvd, i, 40);
+		int y = CALL(parse_mvd, i + 32, 47);
+		
+		// load neighbouring motion vectors and equality mask
+		int xA = *(mb->mvs + ctx->mvs_A[i]);
+		int yA = *(mb->mvs + ctx->mvs_A[i] + 1);
+		int xB = *(mb->mvs + ctx->mvs_B[i]);
+		int yB = *(mb->mvs + ctx->mvs_B[i] + 1);
+		int xC = *(mb->mvs + ctx->mvs_C[i]);
+		int yC = *(mb->mvs + ctx->mvs_C[i] + 1);
+		int eq = ctx->refIdx4x4_eq[i];
 		
 		// This branch is unavoidable if we don't want to mess with mvA/B addresses too.
-		int mvp_x, mvp_y;
-		int eq = ctx->refIdx4x4_eq[i];
 		if (__builtin_expect(0xe9 >> eq & 1, 1)) {
-			mvp_x = median(mvA_x, mvB_x, mvC_x);
-			mvp_y = median(mvA_y, mvB_y, mvC_y);
+			x += median(xA, xB, xC);
+			y += median(yA, yB, yC);
 		} else {
-			mvp_x = (eq == 1) ? mvA_x : (eq == 2) ? mvB_x : mvC_x;
-			mvp_y = (eq == 1) ? mvA_y : (eq == 2) ? mvB_y : mvC_y;
+			x += (eq == 1) ? xA : (eq == 2) ? xB : xC;
+			y += (eq == 1) ? yA : (eq == 2) ? yB : yC;
 		}
 		
-		// These additional writes are the price for unifying 4xN/8xN/16xN.
-		int j = i * 2;
-		int mv_x = mvp_x + CALL(parse_mvd, j, 40);
-		int mv_y = mvp_y + CALL(parse_mvd, j + 1, 47);
-		mb->mvs[j] = mb->mvs[j | 2] = mb->mvs[j | 4] = mb->mvs[j | 6] = mv_x;
-		mb->mvs[j + 1] = mb->mvs[j | 3] = mb->mvs[j | 5] = mb->mvs[j | 7] = mv_y;
+		// This could possibly be optimized for AVX-2 and AVX-512.
+		int xy = ((union {int16_t h[2]; int32_t s;}){.h = {x, y}}).s; // compilers will shift with correct endianness
+		v8hi mvs_xy = (v8hi)(v4si){xy, xy, xy, xy};
+		v16qi mask = ctx->mvs_broadcast[i & 15];
+		mb->mvs_v[(i >> 4 << 2) + 0] |= mvs_xy & (v8hi)__builtin_shufflevector(mask, mask, 0, 0, 0, 0, 1, 1, 1, 1, 2, 2, 2, 2, 3, 3, 3, 3);
+		mb->mvs_v[(i >> 4 << 2) + 1] |= mvs_xy & (v8hi)__builtin_shufflevector(mask, mask, 4, 4, 4, 4, 5, 5, 5, 5, 6, 6, 6, 6, 7, 7, 7, 7);
+		mb->mvs_v[(i >> 4 << 2) + 2] |= mvs_xy & (v8hi)__builtin_shufflevector(mask, mask, 8, 8, 8, 8, 9, 9, 9, 9, 10, 10, 10, 10, 11, 11, 11, 11);
+		mb->mvs_v[(i >> 4 << 2) + 3] |= mvs_xy & (v8hi)__builtin_shufflevector(mask, mask, 12, 12, 12, 12, 13, 13, 13, 13, 14, 14, 14, 14, 15, 15, 15, 15);
 	} while (ctx->mvd_flags &= ctx->mvd_flags - 1);
 	
 	CALL(parse_coded_block_pattern);
-	
-	// final copies for 16x16, 8x16 and 16x8 blocks
-	if (!(ctx->mvd_fold & 0xfff00)) { // 8x16
-		mb->refIdx_v = __builtin_shufflevector(mb->refIdx_v, mb->refIdx_v, 0, 1, 0, 1, 4, 5, 4, 5);
-		mb->mvs_v[2] = mb->mvs_v[0];
-		mb->mvs_v[3] = mb->mvs_v[1];
-		mb->mvs_v[6] = mb->mvs_v[4];
-		mb->mvs_v[7] = mb->mvs_v[5];
-		mb->absMvdComp_v[0] = (v16qi)__builtin_shufflevector((v4si)mb->absMvdComp_v[0],
-			(v4si)mb->absMvdComp_v[0], 0, 1, 0, 1);
-		mb->absMvdComp_v[1] = (v16qi)__builtin_shufflevector((v4si)mb->absMvdComp_v[1],
-			(v4si)mb->absMvdComp_v[1], 0, 1, 0, 1);
-	}
-	if (!(ctx->mvd_fold & 0xff0f0)) { // 16x8
-		mb->refIdx_v = __builtin_shufflevector(mb->refIdx_v, mb->refIdx_v, 0, 0, 2, 2, 4, 4, 6, 6);
-		mb->mvs_v[1] = mb->mvs_v[0];
-		mb->mvs_v[3] = mb->mvs_v[2];
-		mb->mvs_v[5] = mb->mvs_v[4];
-		mb->mvs_v[7] = mb->mvs_v[6];
-		mb->absMvdComp_v[0] = (v16qi)__builtin_shufflevector((v4si)mb->absMvdComp_v[0],
-			(v4si)mb->absMvdComp_v[0], 0, 0, 2, 2);
-		mb->absMvdComp_v[1] = (v16qi)__builtin_shufflevector((v4si)mb->absMvdComp_v[1],
-			(v4si)mb->absMvdComp_v[1], 0, 0, 2, 2);
-	}
 	
 	if (!(ctx->mvd_fold & 0xeeeee) && mb->CodedBlockPatternLuma_s && ctx->ps.transform_8x8_mode_flag) {
 		mb->f.transform_size_8x8_flag = CALL(get_ae, 399 + ctx->inc.transform_size_8x8_flag);
@@ -1626,7 +1613,7 @@ static __attribute__((noinline)) void FUNC(parse_P_mb)
 	mb->f.mb_skip_flag = CALL(get_ae, 13 - ctx->inc.mb_skip_flag);
 	fprintf(stderr, "mb_skip_flag: %x\n", mb->f.mb_skip_flag);
 	if (mb->f.mb_skip_flag) {
-		mb->refIdx_v = (v8qi){0, 0, 0, 0, -1, -1, -1, -1};
+		mb->refIdx_l = (v8qi){0, 0, 0, 0, -1, -1, -1, -1};
 		memset(mb->mvs + 32, 0, 64);
 		// TODO: infer mvL0
 		return;

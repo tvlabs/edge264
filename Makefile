@@ -2,7 +2,7 @@
 # 1 - Prints NAL headers to stdout
 # 2 - Also prints decoded symbols to stderr (VERY LARGE)
 
-override CFLAGS := -std=gnu99 -march=native -O2 $(CFLAGS)
+override CFLAGS := -std=gnu99 -march=native -O2 $(CFLAGS) `pkg-config glfw3 --cflags --libs`
 
 ifeq ($(OS),)
 	OS := $(shell uname)

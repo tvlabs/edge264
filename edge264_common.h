@@ -155,7 +155,7 @@ typedef struct
 	
 	// Inter context
 	uint32_t mvd_flags;
-	uint32_t mvd_fold;
+	int8_t transform_8x8_mode_flag;
 	uint32_t ref_idx_mask;
 	Edge264_macroblock *mbCol;
 	union { int8_t RefPicList[2][32]; v16qi RefPicList_v[4]; };

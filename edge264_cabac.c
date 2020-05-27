@@ -1368,7 +1368,7 @@ __attribute__((noinline)) void FUNC(parse_inter_pred)
 	
 	CALL(parse_coded_block_pattern);
 	
-	if (!(ctx->mvd_fold & 0xeeeee) && mb->CodedBlockPatternLuma_s && ctx->ps.transform_8x8_mode_flag) {
+	if (mb->CodedBlockPatternLuma_s && ctx->transform_8x8_mode_flag) {
 		mb->f.transform_size_8x8_flag = CALL(get_ae, 399 + ctx->inc.transform_size_8x8_flag);
 		fprintf(stderr, "transform_size_8x8_flag: %x\n", mb->f.transform_size_8x8_flag);
 	}
@@ -1583,8 +1583,9 @@ static __attribute__((noinline)) void FUNC(parse_I_mb, int ctxIdx)
 
 /**
  * These functions parse the syntax elements mb_type and sub_mb_type for the
- * current macroblock in a P/B slice, then branch to further decoding
- * (parse_I_mb/parse_inter_pred/parse_NxN_residual) through tail calls.
+ * current macroblock in a P/B slice, and initialize mvd_flags,
+ * transform_8x8_mode_flag, refIdx_broadcast, mvs_broadcast and
+ * refIdx4x4_A/B/C before jumping to parse_inter_pred (or parse_I_mb).
  *
  * We distinguish three kinds of partitions: P/B_NxN, P/B_Skip, B_Direct_16x16.
  *
@@ -1593,9 +1594,9 @@ static __attribute__((noinline)) void FUNC(parse_I_mb, int ctxIdx)
  * a mask for parsing refIdx by masking every 4th bit.
  * Each mvd pair may cover a 4x4, 4x8, 8x4, 8x8, 8x16, 16x8 or 16x16 block.
  * While we do not keep mb_type, we will duplicate each parsed mvd pair to all
- * covered 4x4 blocks. So we provide a storage mask for each 4x4 position, that
- * indicates which other positions it will write to. It makes 4 vector writes
- * per mvd pair, but then the code is simple and branchless.
+ * covered 4x4 blocks. So we provide a broadcase mask for each 4x4 position,
+ * that indicates which other positions it will write to. It makes 4 vector
+ * writes per mvd pair, but then the code is simple and branchless.
  * Finally, B_Direct_8x8 just triggers full Direct_16x16 initialization
  * beforehand, with proper unset bits in mvd_mask.
  *
@@ -1608,6 +1609,12 @@ static __attribute__((noinline)) void FUNC(parse_I_mb, int ctxIdx)
 static __attribute__((noinline)) void FUNC(parse_P_mb)
 {
 	static const uint16_t P2flags[4] = {0x0001, 0x0000, 0x0011, 0x0101};
+	static const v16qi P2refIdx_broadcast[4] = {
+		{1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
+		{1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1},
+		{1, 0, 1, 0, 0, 1, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0},
+		{1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 0, 0, 0, 0},
+	};
 	
 	mb->f.mbIsInterFlag = 1;
 	mb->f.mb_skip_flag = CALL(get_ae, 13 - ctx->inc.mb_skip_flag);
@@ -1621,11 +1628,13 @@ static __attribute__((noinline)) void FUNC(parse_P_mb)
 		JUMP(parse_I_mb, 17);
 	}
 	
-	// Are these few lines worth a function? :)
+	// 0 = 16x16, 1 = 8x8, 2 = 8x16, 3 = 16x8
 	int str = CALL(get_ae, 15);
 	str += str + CALL(get_ae, 16 + str);
 	fprintf(stderr, "mb_type: %u\n", (4 - str) % 4);
 	unsigned flags = P2flags[str];
+	ctx->transform_8x8_mode_flag = ctx->ps.transform_8x8_mode_flag;
+	ctx->refIdx_broadcast_v = P2refIdx_broadcast[str];
 	
 	// Parsing for sub_mb_type in P slices.
 	for (int i = 0; str == 1 && i < 16; i += 4) {
@@ -1633,7 +1642,7 @@ static __attribute__((noinline)) void FUNC(parse_P_mb)
 		fprintf(stderr, "sub_mb_type: %c\n", (f == 1) ? '0' : (f == 5) ? '1' : (f == 3) ? '2' : '3');
 		flags |= f << i;
 	}
-	ctx->mvd_flags = ctx->mvd_fold = flags;
+	ctx->mvd_flags = flags;
 	JUMP(parse_inter_pred);
 }
 
@@ -1683,14 +1692,13 @@ static __attribute__((noinline)) void FUNC(parse_B_mb)
 		JUMP(parse_I_mb, 32);
 	}
 	fprintf(stderr, "mb_type: %u\n", B2mb_type[str]);
-	ctx->mvd_fold = 0;
 	unsigned flags = B2flags[str];
 	
 	// Parsing for sub_mb_type in B slices.
 	for (int i = 0; str == 15 && i < 16; i += 4) {
 		int sub = 12;
 		if (!CALL(get_ae, 36)) {
-			ctx->mvd_fold = (ctx->ps.direct_8x8_inference_flag) ? 0x10000 : 0x20000;
+			
 		} else {
 			sub = 2;
 			if (!CALL(get_ae, 37) || (sub = CALL(get_ae, 38),
@@ -1704,7 +1712,6 @@ static __attribute__((noinline)) void FUNC(parse_B_mb)
 		fprintf(stderr, "sub_mb_type: %u\n", b2sub_mb_type[sub]);
 	}
 	ctx->mvd_flags = flags;
-	ctx->mvd_fold |= (uint16_t)flags | flags >> 16;
 	JUMP(parse_inter_pred);
 }
 

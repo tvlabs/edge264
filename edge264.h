@@ -45,23 +45,23 @@ typedef struct {
 	uint16_t delta_pic_order_always_zero_flag:1; // pic_order_cnt_type==1
 	uint16_t frame_mbs_only_flag:1;
 	uint16_t mb_adaptive_frame_field_flag:1;
-	uint16_t direct_8x8_inference_flag:1;
 	uint16_t entropy_coding_mode_flag:1;
 	uint16_t bottom_field_pic_order_in_frame_present_flag:1;
 	uint16_t weighted_pred_flag:1;
 	uint16_t deblocking_filter_control_present_flag:1;
 	uint16_t constrained_intra_pred_flag:1;
-	uint16_t transform_8x8_mode_flag:1;
 	int8_t ChromaArrayType; // 2 significant bits
 	int8_t log2_max_frame_num; // 5 significant bits
 	int8_t log2_max_pic_order_cnt_lsb; // 5 significant bits, pic_order_cnt_type==0
+	uint8_t num_ref_frames_in_pic_order_cnt_cycle; // pic_order_cnt_type==1
 	int8_t max_num_ref_frames; // 5 significant bits
 	int8_t max_num_reorder_frames; // 5 significant bits
-	uint8_t num_ref_frames_in_pic_order_cnt_cycle; // pic_order_cnt_type==1
+	int8_t direct_8x8_inference_flag; // 1 significant bit
 	int8_t num_ref_idx_active[2]; // 6 significant bits
 	int8_t weighted_bipred_idc; // 2 significant bits
 	int8_t QP_Y; // 7 significant bits
 	int8_t chroma_qp_index_offset; // 5 significant bits
+	int8_t transform_8x8_mode_flag; // 1 significant bit
 	int8_t second_chroma_qp_index_offset; // 5 significant bits
 	int16_t offset_for_non_ref_pic; // pic_order_cnt_type==1
 	int16_t offset_for_top_to_bottom_field; // pic_order_cnt_type==1

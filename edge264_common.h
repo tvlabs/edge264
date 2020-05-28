@@ -15,6 +15,7 @@
 
 
 
+typedef int8_t v4qi __attribute__((vector_size(4)));
 typedef int8_t v8qi __attribute__((vector_size(8)));
 typedef int16_t v4hi __attribute__((vector_size(8)));
 typedef int8_t v16qi __attribute__((vector_size(16)));
@@ -153,13 +154,14 @@ typedef struct
 	union { int16_t pred_buffer[144]; v8hi pred_buffer_v[18]; }; // temporary storage for prediction samples
 	
 	// Inter context
+	v4qi test;
 	uint32_t mvd_flags;
 	int8_t transform_8x8_mode_flag;
 	uint32_t ref_idx_mask;
 	Edge264_macroblock *mbCol;
 	union { int8_t RefPicList[2][32]; v16qi RefPicList_v[4]; };
 	uint8_t *ref_planes[2][32];
-	union { int8_t refIdx_shuffle[8]; v8qi refIdx_shuffle_l; }; // shuffle vector for refIdx storage
+	union { int8_t refIdx_shuffle[8]; int32_t refIdx_shuffle_s[2]; v8qi refIdx_shuffle_l; }; // shuffle vector for refIdx storage
 	union { int8_t mvs_shuffle[16]; int32_t mvs_shuffle_s[4]; v16qi mvs_shuffle_v; }; // shuffle vector for mvs/absMvdComp storage
 	union { int8_t refIdx4x4_A[16]; v16qi refIdx4x4_A_v; }; // shuffle vector for mv prediction
 	union { int8_t refIdx4x4_B[16]; v16qi refIdx4x4_B_v; };

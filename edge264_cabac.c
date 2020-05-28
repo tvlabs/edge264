@@ -1605,9 +1605,11 @@ static __attribute__((noinline)) void FUNC(parse_I_mb, int ctxIdx)
  * For B_Direct_16x16, we initialize refIdx and mvs and jump directly to
  * parse_NxN_residual.
  */
-static __attribute__((noinline)) void FUNC(parse_P_mb)
+ __attribute__((noinline)) void FUNC(parse_P_mb)
 {
-	static const uint16_t P2flags[4] = {0x0001, 0x0000, 0x0011, 0x0101};
+	static const uint16_t P2flags[4] = {0x0001, 0x1111, 0x0011, 0x0101};
+	static const union { int8_t q[4]; int32_t s; } P2shuf[4] = {
+		{0, 0, 0, 0}, {0, 1, 2, 3}, {0, 1, 0, 1}, {0, 0, 2, 2}};
 	
 	mb->f.mbIsInterFlag = 1;
 	mb->f.mb_skip_flag = CALL(get_ae, 13 - ctx->inc.mb_skip_flag);
@@ -1627,10 +1629,24 @@ static __attribute__((noinline)) void FUNC(parse_P_mb)
 	fprintf(stderr, "mb_type: %u\n", (4 - str) % 4);
 	unsigned flags = P2flags[str];
 	ctx->transform_8x8_mode_flag = ctx->ps.transform_8x8_mode_flag;
+	ctx->refIdx_shuffle_s[0] = P2shuf[str].s;
+	v16qi v = (v16qi)(v4si){P2shuf[str].s << 2};
+	ctx->mvs_shuffle_v = __builtin_shufflevector(v, v, 0, 0, 0, 0, 1, 1, 1, 1, 2, 2, 2, 2, 3, 3, 3, 3);
 	
 	// Parsing for sub_mb_type in P slices.
-	for (int i = 0; str == 1 && i < 16; i += 4) {
-		unsigned f = CALL(get_ae, 21) ? 1 : !CALL(get_ae, 22) ? 5 : CALL(get_ae, 23) ? 3 : 15;
+	for (int i = 0, f; str == 1 && i < 16; i += 4) {
+		if (CALL(get_ae, 21)) { // 8x8
+			f = 1;
+		} else if (ctx->transform_8x8_mode_flag = 0, !CALL(get_ae, 22)) { // 8x4
+			f = 5;
+			ctx->mvs_shuffle_s[i >> 2] = i * 0x01010101 + (int32_t)(v4qi){0, 0, 2, 2};
+		} else if (CALL(get_ae, 23)) { // 4x8
+			f = 3;
+			ctx->mvs_shuffle_s[i >> 2] = i * 0x01010101 + (int32_t)(v4qi){0, 1, 0, 1};
+		} else { // 4x4
+			f = 15;
+			ctx->mvs_shuffle_s[i >> 2] = i * 0x01010101 + (int32_t)(v4qi){0, 1, 2, 3};
+		}
 		fprintf(stderr, "sub_mb_type: %c\n", (f == 1) ? '0' : (f == 5) ? '1' : (f == 3) ? '2' : '3');
 		flags |= f << i;
 	}

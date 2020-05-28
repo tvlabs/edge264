@@ -25,9 +25,8 @@ typedef uint8_t v16qu __attribute__((vector_size(16)));
 typedef uint16_t v8hu __attribute__((vector_size(16)));
 typedef uint32_t v4su __attribute__((vector_size(16)));
 typedef uint64_t v2lu __attribute__((vector_size(16)));
-typedef int32_t v8si __attribute__((vector_size(32)));
-typedef int16_t v16hi __attribute__((vector_size(32)));
-typedef int16_t v32hi __attribute__((vector_size(64)));
+typedef int32_t v8si __attribute__((vector_size(32))); // for alignment of ctx->d
+typedef int16_t v16hi __attribute__((vector_size(32))); // for larger mask-storage of mvs
 
 
 
@@ -76,7 +75,7 @@ typedef struct {
 	union { int8_t coded_block_flags_8x8[12]; v16qi coded_block_flags_8x8_v; }; // [iYCbCr][i8x8]
 	union { int8_t coded_block_flags_4x4[48]; int32_t coded_block_flags_4x4_s[12]; v16qi coded_block_flags_4x4_v[3]; }; // [iYCbCr][i4x4]
 	union { int8_t absMvdComp[64]; v16qi absMvdComp_v[4]; }; // [compIdx][LX][i4x4]
-	union { int16_t mvs[64]; v8hi mvs_v[8]; }; // [LX][i4x4][compIdx]
+	union { int16_t mvs[64]; v8hi mvs_v[8]; v16hi mvs_V[4]; }; // [compIdx][LX][i4x4]
 } Edge264_macroblock;
 
 
@@ -160,8 +159,8 @@ typedef struct
 	Edge264_macroblock *mbCol;
 	union { int8_t RefPicList[2][32]; v16qi RefPicList_v[4]; };
 	uint8_t *ref_planes[2][32];
-	union { uint32_t refIdx_broadcast[4]; v16qi refIdx_broadcast_v; };
-	v16qi mvs_broadcast[16];
+	union { int8_t refIdx_shuffle[8]; v8qi refIdx_shuffle_l; }; // shuffle vector for refIdx storage
+	union { int8_t mvs_shuffle[16]; int32_t mvs_shuffle_s[4]; v16qi mvs_shuffle_v; }; // shuffle vector for mvs/absMvdComp storage
 	union { int8_t refIdx4x4_A[16]; v16qi refIdx4x4_A_v; }; // shuffle vector for mv prediction
 	union { int8_t refIdx4x4_B[16]; v16qi refIdx4x4_B_v; };
 	union { int8_t refIdx4x4_C[16]; v16qi refIdx4x4_C_v; };

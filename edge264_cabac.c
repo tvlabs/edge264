@@ -968,10 +968,9 @@ static __attribute__((noinline)) int FUNC(parse_mvd, int pos, int ctxBase) {
 		mvd = 1 + (1 << k) + (quo << shift >> (31 - k));
 	}
 	
-	// Intel mask_broadcast could be used here but is too minor to justify the added complexity
-	int a = min(mvd, 66);
-	v16qi absMvdComp = {a, a, a, a, a, a, a, a, a, a, a, a, a, a, a, a};
-	mb->absMvdComp_v[pos >> 4] |= absMvdComp & ctx->mvs_broadcast[pos & 15];
+	// This will stall a few cycles due to failed store forwarding but is simple to read.
+	mb->absMvdComp[pos] = min(mvd, 66);
+	mb->absMvdComp_v[pos >> 4] = byte_shuffle(mb->absMvdComp_v[pos >> 4], ctx->mvs_shuffle_v);
 	
 	// Parse the sign flag.
 	if (mvd > 0) {
@@ -1289,7 +1288,7 @@ static __attribute__((noinline)) void FUNC(parse_coded_block_pattern) {
  * Finally, the following formula is computed for each 4x4 block:
  * (refIdx==refIdxA) + (refIdx==refIdxB) * 2 + (refIdx==refIdxC) * 4
  */
-__attribute__((noinline)) void FUNC(parse_inter_pred)
+static __attribute__((noinline)) void FUNC(parse_inter_pred)
 {
 	// parsing for ref_idx_lX in P/B slices
 	for (unsigned f = ctx->mvd_flags & ctx->ref_idx_mask; f != 0; f &= f - 1) {
@@ -1302,7 +1301,8 @@ __attribute__((noinline)) void FUNC(parse_inter_pred)
 		// This cannot loop forever since binVal would oscillate past the end of the RBSP.
 		while (CALL(get_ae, 54 + ctxIdxInc))
 			refIdx++, ctxIdxInc = ctxIdxInc / 4 + 4; // cool trick from ffmpeg
-		mb->refIdx_s[i >> 2] |= refIdx * ctx->refIdx_broadcast[i & 3];
+		mb->refIdx_l |= (ctx->refIdx_shuffle_l == (v8qi){i, i, i, i, i, i, i, i}) & 
+			(v8qi){refIdx, refIdx, refIdx, refIdx, refIdx, refIdx, refIdx, refIdx};
 		fprintf(stderr, "ref_idx_l%x: %u\n", i >> 2, refIdx);
 	}
 	
@@ -1319,8 +1319,6 @@ __attribute__((noinline)) void FUNC(parse_inter_pred)
 	memcpy(&ABCD1, mb->refIdx_s + 1, 4);
 	
 	// shuffle them to get neighbouring 4x4 A/B/C values
-	v16qi refIdxL0 = __builtin_shufflevector(ABCD0, ABCD0, 0, 0, 0, 0, 1, 1, 1, 1, 2, 2, 2, 2, 3, 3, 3, 3);
-	v16qi refIdxL1 = __builtin_shufflevector(ABCD1, ABCD1, 0, 0, 0, 0, 1, 1, 1, 1, 2, 2, 2, 2, 3, 3, 3, 3);
 	v16qi refIdxL0A = byte_shuffle(ABCD0, ctx->refIdx4x4_A_v);
 	v16qi refIdxL1A = byte_shuffle(ABCD1, ctx->refIdx4x4_A_v);
 	v16qi refIdxL0B = byte_shuffle(ABCD0, ctx->refIdx4x4_B_v);
@@ -1329,6 +1327,8 @@ __attribute__((noinline)) void FUNC(parse_inter_pred)
 	v16qi refIdxL1C = byte_shuffle(ABCD1, ctx->refIdx4x4_C_v);
 	
 	// compare them and store equality formula
+	v16qi refIdxL0 = __builtin_shufflevector(ABCD0, ABCD0, 0, 0, 0, 0, 1, 1, 1, 1, 2, 2, 2, 2, 3, 3, 3, 3);
+	v16qi refIdxL1 = __builtin_shufflevector(ABCD1, ABCD1, 0, 0, 0, 0, 1, 1, 1, 1, 2, 2, 2, 2, 3, 3, 3, 3);
 	ctx->refIdx4x4_eq_v[0] = -(((((refIdxL0==refIdxL0C) << 1) + (refIdxL0==refIdxL0B)) << 1) + (refIdxL0==refIdxL0A));
 	ctx->refIdx4x4_eq_v[1] = -(((((refIdxL1==refIdxL1C) << 1) + (refIdxL1==refIdxL1B)) << 1) + (refIdxL1==refIdxL1A));
 	
@@ -1356,14 +1356,13 @@ __attribute__((noinline)) void FUNC(parse_inter_pred)
 			y += (eq == 1) ? yA : (eq == 2) ? yB : yC;
 		}
 		
-		// This could possibly be optimized for AVX-2 and AVX-512.
-		int xy = ((union {int16_t h[2]; int32_t s;}){.h = {x, y}}).s; // compilers will shift with correct endianness
-		v8hi mvs_xy = (v8hi)(v4si){xy, xy, xy, xy};
-		v16qi mask = ctx->mvs_broadcast[i & 15];
-		mb->mvs_v[(i >> 4 << 2) + 0] |= mvs_xy & (v8hi)__builtin_shufflevector(mask, mask, 0, 0, 0, 0, 1, 1, 1, 1, 2, 2, 2, 2, 3, 3, 3, 3);
-		mb->mvs_v[(i >> 4 << 2) + 1] |= mvs_xy & (v8hi)__builtin_shufflevector(mask, mask, 4, 4, 4, 4, 5, 5, 5, 5, 6, 6, 6, 6, 7, 7, 7, 7);
-		mb->mvs_v[(i >> 4 << 2) + 2] |= mvs_xy & (v8hi)__builtin_shufflevector(mask, mask, 8, 8, 8, 8, 9, 9, 9, 9, 10, 10, 10, 10, 11, 11, 11, 11);
-		mb->mvs_v[(i >> 4 << 2) + 3] |= mvs_xy & (v8hi)__builtin_shufflevector(mask, mask, 12, 12, 12, 12, 13, 13, 13, 13, 14, 14, 14, 14, 15, 15, 15, 15);
+		// 32-bytes stores (GCC and Clang do a decent fallback for 16-bytes)
+		int i4x4 = i & 15;
+		int lx = i >> 4;
+		v16qi vi4x4 = {i4x4, i4x4, i4x4, i4x4, i4x4, i4x4, i4x4, i4x4, i4x4, i4x4, i4x4, i4x4, i4x4, i4x4, i4x4, i4x4};
+		v16hi mask = __builtin_convertvector(ctx->mvs_shuffle_v == vi4x4, v16hi);
+		mb->mvs_V[0 + lx] |= mask & (v16hi){x, x, x, x, x, x, x, x, x, x, x, x, x, x, x, x};
+		mb->mvs_V[2 + lx] |= mask & (v16hi){y, y, y, y, y, y, y, y, y, y, y, y, y, y, y, y};
 	} while (ctx->mvd_flags &= ctx->mvd_flags - 1);
 	
 	CALL(parse_coded_block_pattern);
@@ -1583,9 +1582,9 @@ static __attribute__((noinline)) void FUNC(parse_I_mb, int ctxIdx)
 
 /**
  * These functions parse the syntax elements mb_type and sub_mb_type for the
- * current macroblock in a P/B slice, and initialize mvd_flags,
- * transform_8x8_mode_flag, refIdx_broadcast, mvs_broadcast and
- * refIdx4x4_A/B/C before jumping to parse_inter_pred (or parse_I_mb).
+ * current macroblock in a P or B slice, and initialize mvd_flags,
+ * transform_8x8_mode_flag, refIdx_shuffle, mvs_shuffle and refIdx4x4_A/B/C
+ * before jumping to parse_inter_pred (or parse_I_mb).
  *
  * We distinguish three kinds of partitions: P/B_NxN, P/B_Skip, B_Direct_16x16.
  *
@@ -1594,9 +1593,9 @@ static __attribute__((noinline)) void FUNC(parse_I_mb, int ctxIdx)
  * a mask for parsing refIdx by masking every 4th bit.
  * Each mvd pair may cover a 4x4, 4x8, 8x4, 8x8, 8x16, 16x8 or 16x16 block.
  * While we do not keep mb_type, we will duplicate each parsed mvd pair to all
- * covered 4x4 blocks. So we provide a broadcase mask for each 4x4 position,
- * that indicates which other positions it will write to. It makes 4 vector
- * writes per mvd pair, but then the code is simple and branchless.
+ * covered 4x4 blocks. So we provide a shuffle mask for each 4x4 position, that
+ * indicates where it takes its value. It overwrites all mvs for each mvd pair,
+ * but then the code is simple and branchless.
  * Finally, B_Direct_8x8 just triggers full Direct_16x16 initialization
  * beforehand, with proper unset bits in mvd_mask.
  *
@@ -1609,12 +1608,6 @@ static __attribute__((noinline)) void FUNC(parse_I_mb, int ctxIdx)
 static __attribute__((noinline)) void FUNC(parse_P_mb)
 {
 	static const uint16_t P2flags[4] = {0x0001, 0x0000, 0x0011, 0x0101};
-	static const v16qi P2refIdx_broadcast[4] = {
-		{1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
-		{1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1},
-		{1, 0, 1, 0, 0, 1, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0},
-		{1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 0, 0, 0, 0},
-	};
 	
 	mb->f.mbIsInterFlag = 1;
 	mb->f.mb_skip_flag = CALL(get_ae, 13 - ctx->inc.mb_skip_flag);
@@ -1634,7 +1627,6 @@ static __attribute__((noinline)) void FUNC(parse_P_mb)
 	fprintf(stderr, "mb_type: %u\n", (4 - str) % 4);
 	unsigned flags = P2flags[str];
 	ctx->transform_8x8_mode_flag = ctx->ps.transform_8x8_mode_flag;
-	ctx->refIdx_broadcast_v = P2refIdx_broadcast[str];
 	
 	// Parsing for sub_mb_type in P slices.
 	for (int i = 0; str == 1 && i < 16; i += 4) {

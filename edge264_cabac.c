@@ -1273,8 +1273,9 @@ static __attribute__((noinline)) void FUNC(parse_coded_block_pattern) {
  * _ A/B/C/D are 4x4 blocks on pixels at relative positions (-1,0)/(0,-1)/(W,-1)/(-1,-1)
  * _ unavailable A/B/C/D blocks count as mv=0
  * _ if C is unavailable, replace it with D
- * _ if both B and D are unavailable, replace B and C with A
- * _ if only one of refIdxA/B/C is equal to refIdx, predict mv from it
+ * _ for 8x16 and 16x8, predict from (A,C) and (B,A)
+ * _ otherwise if both B and D are unavailable, replace B and C with A
+ * _ then if only one of refIdxA/B/C is equal to refIdx, predict mv from it
  * _ otherwise predict mv as median(mvA, mvB, mvC)
  *
  * Since we get all refIdx before all mvd, we compare them all at once using
@@ -1307,28 +1308,28 @@ static __attribute__((noinline)) void FUNC(parse_inter_pred)
 	}
 	
 	// load neighbouring refIdx values
-	v16qi ABCD0 = (v16qi){0, 0, 0, 0, *(mb->refIdx + ctx->refIdx_A[2]),
+	v4si v0 = (v4si)(v16qi){0, 0, 0, 0, *(mb->refIdx + ctx->refIdx_A[2]),
 		*(mb->refIdx + ctx->refIdx_A[0]), *(mb->refIdx + ctx->refIdx_D),
 		*(mb->refIdx + ctx->refIdx_B[0]), *(mb->refIdx + ctx->refIdx_B[1]),
 		*(mb->refIdx + ctx->refIdx_C), 0, 0, 0, 0, 0, 0};
-	v16qi ABCD1 = (v16qi){0, 0, 0, 0, *(mb->refIdx + 4 + ctx->refIdx_A[2]),
+	v4si v1 = (v4si)(v16qi){0, 0, 0, 0, *(mb->refIdx + 4 + ctx->refIdx_A[2]),
 		*(mb->refIdx + 4 + ctx->refIdx_A[0]), *(mb->refIdx + 4 + ctx->refIdx_D),
 		*(mb->refIdx + 4 + ctx->refIdx_B[0]), *(mb->refIdx + 4 + ctx->refIdx_B[1]),
 		*(mb->refIdx + 4 + ctx->refIdx_C), 0, 0, 0, 0, 0, 0};
-	memcpy(&ABCD0, mb->refIdx_s, 4);
-	memcpy(&ABCD1, mb->refIdx_s + 1, 4);
+	v0[0] = mb->refIdx_s[0];
+	v1[0] = mb->refIdx_s[1];
 	
 	// shuffle them to get neighbouring 4x4 A/B/C values
-	v16qi refIdxL0A = byte_shuffle(ABCD0, ctx->refIdx4x4_A_v);
-	v16qi refIdxL1A = byte_shuffle(ABCD1, ctx->refIdx4x4_A_v);
-	v16qi refIdxL0B = byte_shuffle(ABCD0, ctx->refIdx4x4_B_v);
-	v16qi refIdxL1B = byte_shuffle(ABCD1, ctx->refIdx4x4_B_v);
-	v16qi refIdxL0C = byte_shuffle(ABCD0, ctx->refIdx4x4_C_v);
-	v16qi refIdxL1C = byte_shuffle(ABCD1, ctx->refIdx4x4_C_v);
+	v16qi refIdxL0A = byte_shuffle((v16qi)v0, ctx->refIdx4x4_A_v);
+	v16qi refIdxL1A = byte_shuffle((v16qi)v1, ctx->refIdx4x4_A_v);
+	v16qi refIdxL0B = byte_shuffle((v16qi)v0, ctx->refIdx4x4_B_v);
+	v16qi refIdxL1B = byte_shuffle((v16qi)v1, ctx->refIdx4x4_B_v);
+	v16qi refIdxL0C = byte_shuffle((v16qi)v0, ctx->refIdx4x4_C_v);
+	v16qi refIdxL1C = byte_shuffle((v16qi)v1, ctx->refIdx4x4_C_v);
 	
 	// compare them and store equality formula
-	v16qi refIdxL0 = __builtin_shufflevector(ABCD0, ABCD0, 0, 0, 0, 0, 1, 1, 1, 1, 2, 2, 2, 2, 3, 3, 3, 3);
-	v16qi refIdxL1 = __builtin_shufflevector(ABCD1, ABCD1, 0, 0, 0, 0, 1, 1, 1, 1, 2, 2, 2, 2, 3, 3, 3, 3);
+	v16qi refIdxL0 = __builtin_shufflevector((v16qi)v0, (v16qi)v0, 0, 0, 0, 0, 1, 1, 1, 1, 2, 2, 2, 2, 3, 3, 3, 3);
+	v16qi refIdxL1 = __builtin_shufflevector((v16qi)v1, (v16qi)v1, 0, 0, 0, 0, 1, 1, 1, 1, 2, 2, 2, 2, 3, 3, 3, 3);
 	ctx->refIdx4x4_eq_v[0] = -(((((refIdxL0==refIdxL0C) << 1) + (refIdxL0==refIdxL0B)) << 1) + (refIdxL0==refIdxL0A));
 	ctx->refIdx4x4_eq_v[1] = -(((((refIdxL1==refIdxL1C) << 1) + (refIdxL1==refIdxL1B)) << 1) + (refIdxL1==refIdxL1A));
 	

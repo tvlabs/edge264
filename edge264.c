@@ -1,6 +1,6 @@
 /** TODOs:
  * _ switch to SDL which is likely to have a more stable future support than GLFW, with an option to play without display
- * _ if possible, make the second half of AbsMvdComp_A/B alias the first of A/B4x4_8bit
+ * _ make ref_idx a separate function, and 4 distinct 8x8/8x16/16x8/16x16 functions as prologs to parse_mvds
  * _ update the tables of names for profiles and NAL types
  * _ upgrade DPB storage size to 17, by simply doubling reference and output flags sizes
  * _ backup output/ref flags and FrameNum and restore then on bad slice_header

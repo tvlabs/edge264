@@ -1264,7 +1264,32 @@ static __attribute__((noinline)) void FUNC(parse_coded_block_pattern) {
 
 
 /**
- * This function parses the syntax elements ref_idx_lX, mvd_lX (from function),
+ * Parses ref_idx_lx (9.3.3.1.1.6).
+ *
+ * There are 4 code paths (8x8, 8x16, 16x8, 16x16) with different treatments
+ * after parsing ref_idx, so we put it in a function to spare a branch after.
+ */
+static __attribute__((noinline)) void FUNC(parse_ref_idx)
+{
+	for (unsigned f = ctx->mvd_flags & ctx->ref_idx_mask; f != 0; f &= f - 1) {
+		int i = __builtin_ctz(f) >> 2;
+		int refIdxA = *(mb->refIdx + (i & 4) + ctx->refIdx_A[i & 3]);
+		int refIdxB = *(mb->refIdx + (i & 4) + ctx->refIdx_B[i & 3]);
+		int ctxIdxInc = (refIdxA > 0) + (refIdxB > 0) * 2;
+		int refIdx = 0;
+		
+		// This cannot loop forever since binVal would oscillate past the end of the RBSP.
+		while (CALL(get_ae, 54 + ctxIdxInc))
+			refIdx++, ctxIdxInc = ctxIdxInc / 4 + 4; // cool trick from ffmpeg
+		mb->refIdx[i] = refIdx;
+		fprintf(stderr, "ref_idx_l%x: %u\n", i >> 2, refIdx);
+	}
+}
+
+
+
+/**
+ * This function parses the syntax elements mvd_lX (from function),
  * coded_block_pattern (from function), and transform_size_8x8_flag for an
  * Inter macroblock, then branches to residual decoding through tail call.
  *
@@ -1289,50 +1314,8 @@ static __attribute__((noinline)) void FUNC(parse_coded_block_pattern) {
  * Finally, the following formula is computed for each 4x4 block:
  * (refIdx==refIdxA) + (refIdx==refIdxB) * 2 + (refIdx==refIdxC) * 4
  */
-static __attribute__((noinline)) void FUNC(parse_inter_pred)
+static __attribute__((noinline)) void FUNC(parse_mvs)
 {
-	// parsing for ref_idx_lX in P/B slices
-	for (unsigned f = ctx->mvd_flags & ctx->ref_idx_mask; f != 0; f &= f - 1) {
-		int i = __builtin_ctz(f) >> 2;
-		int refIdxA = *(mb->refIdx + (i & 4) + ctx->refIdx_A[i & 3]);
-		int refIdxB = *(mb->refIdx + (i & 4) + ctx->refIdx_B[i & 3]);
-		int ctxIdxInc = (refIdxA > 0) + (refIdxB > 0) * 2;
-		int refIdx = 0;
-		
-		// This cannot loop forever since binVal would oscillate past the end of the RBSP.
-		while (CALL(get_ae, 54 + ctxIdxInc))
-			refIdx++, ctxIdxInc = ctxIdxInc / 4 + 4; // cool trick from ffmpeg
-		mb->refIdx_l |= (ctx->refIdx_shuffle_l == (v8qi){i, i, i, i, i, i, i, i}) & 
-			(v8qi){refIdx, refIdx, refIdx, refIdx, refIdx, refIdx, refIdx, refIdx};
-		fprintf(stderr, "ref_idx_l%x: %u\n", i >> 2, refIdx);
-	}
-	
-	// load neighbouring refIdx values
-	v4si v0 = (v4si)(v16qi){0, 0, 0, 0, *(mb->refIdx + ctx->refIdx_A[2]),
-		*(mb->refIdx + ctx->refIdx_A[0]), *(mb->refIdx + ctx->refIdx_D),
-		*(mb->refIdx + ctx->refIdx_B[0]), *(mb->refIdx + ctx->refIdx_B[1]),
-		*(mb->refIdx + ctx->refIdx_C), 0, 0, 0, 0, 0, 0};
-	v4si v1 = (v4si)(v16qi){0, 0, 0, 0, *(mb->refIdx + 4 + ctx->refIdx_A[2]),
-		*(mb->refIdx + 4 + ctx->refIdx_A[0]), *(mb->refIdx + 4 + ctx->refIdx_D),
-		*(mb->refIdx + 4 + ctx->refIdx_B[0]), *(mb->refIdx + 4 + ctx->refIdx_B[1]),
-		*(mb->refIdx + 4 + ctx->refIdx_C), 0, 0, 0, 0, 0, 0};
-	v0[0] = mb->refIdx_s[0];
-	v1[0] = mb->refIdx_s[1];
-	
-	// shuffle them to get neighbouring 4x4 A/B/C values
-	v16qi refIdxL0A = byte_shuffle((v16qi)v0, ctx->refIdx4x4_A_v);
-	v16qi refIdxL1A = byte_shuffle((v16qi)v1, ctx->refIdx4x4_A_v);
-	v16qi refIdxL0B = byte_shuffle((v16qi)v0, ctx->refIdx4x4_B_v);
-	v16qi refIdxL1B = byte_shuffle((v16qi)v1, ctx->refIdx4x4_B_v);
-	v16qi refIdxL0C = byte_shuffle((v16qi)v0, ctx->refIdx4x4_C_v);
-	v16qi refIdxL1C = byte_shuffle((v16qi)v1, ctx->refIdx4x4_C_v);
-	
-	// compare them and store equality formula
-	v16qi refIdxL0 = __builtin_shufflevector((v16qi)v0, (v16qi)v0, 0, 0, 0, 0, 1, 1, 1, 1, 2, 2, 2, 2, 3, 3, 3, 3);
-	v16qi refIdxL1 = __builtin_shufflevector((v16qi)v1, (v16qi)v1, 0, 0, 0, 0, 1, 1, 1, 1, 2, 2, 2, 2, 3, 3, 3, 3);
-	ctx->refIdx4x4_eq_v[0] = -(((((refIdxL0==refIdxL0C) << 1) + (refIdxL0==refIdxL0B)) << 1) + (refIdxL0==refIdxL0A));
-	ctx->refIdx4x4_eq_v[1] = -(((((refIdxL1==refIdxL1C) << 1) + (refIdxL1==refIdxL1B)) << 1) + (refIdxL1==refIdxL1A));
-	
 	// parsing mvd components in pairs, to reduce branches
 	do {
 		int i = ctz32(ctx->mvd_flags);
@@ -1606,17 +1589,17 @@ static __attribute__((noinline)) void FUNC(parse_I_mb, int ctxIdx)
  * For B_Direct_16x16, we initialize refIdx and mvs and jump directly to
  * parse_NxN_residual.
  */
- __attribute__((noinline)) void FUNC(parse_P_mb)
+static __attribute__((noinline)) void FUNC(parse_P_mb)
 {
-	static const uint16_t P2flags[4] = {0x0001, 0x1111, 0x0011, 0x0101};
-	static const union { int8_t q[4]; int32_t s; } P2shuf[4] = {
-		{0, 0, 0, 0}, {0, 1, 2, 3}, {0, 1, 0, 1}, {0, 0, 2, 2}};
-	
+	// common initializations
+	ctx->transform_8x8_mode_flag = ctx->ps.transform_8x8_mode_flag;
 	mb->f.mbIsInterFlag = 1;
+	mb->refIdx_l = (v8qi){0, 0, 0, 0, -1, -1, -1, -1};
+	
+	// shortcut for P_Skip
 	mb->f.mb_skip_flag = CALL(get_ae, 13 - ctx->inc.mb_skip_flag);
 	fprintf(stderr, "mb_skip_flag: %x\n", mb->f.mb_skip_flag);
 	if (mb->f.mb_skip_flag) {
-		mb->refIdx_l = (v8qi){0, 0, 0, 0, -1, -1, -1, -1};
 		memset(mb->mvs + 32, 0, 64);
 		// TODO: infer mvL0
 		return;
@@ -1624,18 +1607,37 @@ static __attribute__((noinline)) void FUNC(parse_I_mb, int ctxIdx)
 		JUMP(parse_I_mb, 17);
 	}
 	
-	// 0 = 16x16, 1 = 8x8, 2 = 8x16, 3 = 16x8
-	int str = CALL(get_ae, 15);
-	str += str + CALL(get_ae, 16 + str);
-	fprintf(stderr, "mb_type: %u\n", (4 - str) % 4);
-	unsigned flags = P2flags[str];
-	ctx->transform_8x8_mode_flag = ctx->ps.transform_8x8_mode_flag;
-	ctx->refIdx_shuffle_s[0] = P2shuf[str].s;
-	v16qi v = (v16qi)(v4si){P2shuf[str].s << 2};
-	ctx->mvs_shuffle_v = __builtin_shufflevector(v, v, 0, 0, 0, 0, 1, 1, 1, 1, 2, 2, 2, 2, 3, 3, 3, 3);
+	// initializations and jumps for mb_type
+	if (!CALL(get_ae, 15)) {
+		if (!CALL(get_ae, 16)) { // 16x16
+			ctx->mvd_flags = 0x0001;
+			fprintf(stderr, "mb_type: 0\n");
+			CALL(parse_ref_idx);
+			// TODO: infer refIdx4x4_eq
+			mb->refIdx_l = __builtin_shufflevector(mb->refIdx_l, mb->refIdx_l, 0, 0, 0, 0, 4, 4, 4, 4);
+			ctx->mvs_shuffle_v = (v16qi){0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+			JUMP(parse_mvs);
+		} // else 8x8
+	} else if (!CALL(get_ae, 17)) { // 8x16
+		ctx->mvd_flags = 0x0011;
+		fprintf(stderr, "mb_type: 2\n");
+		CALL(parse_ref_idx);
+		mb->refIdx_l = __builtin_shufflevector(mb->refIdx_l, mb->refIdx_l, 0, 1, 0, 1, 4, 5, 4, 5);
+		ctx->mvs_shuffle_v = (v16qi){0, 0, 0, 0, 4, 4, 4, 4, 0, 0, 0, 0, 4, 4, 4, 4};
+		JUMP(parse_mvs);
+	} else { // 16x8
+		ctx->mvd_flags = 0x0101;
+		fprintf(stderr, "mb_type: 1\n");
+		CALL(parse_ref_idx);
+		mb->refIdx_l = __builtin_shufflevector(mb->refIdx_l, mb->refIdx_l, 0, 0, 2, 2, 4, 4, 6, 6);
+		ctx->mvs_shuffle_v = (v16qi){0, 0, 0, 0, 0, 0, 0, 0, 8, 8, 8, 8, 8, 8, 8, 8};
+		JUMP(parse_mvs);
+	}
+	unsigned flags = 0x1111;
+	fprintf(stderr, "mb_type: 3\n");
 	
-	// Parsing for sub_mb_type in P slices.
-	for (int i = 0, f; str == 1 && i < 16; i += 4) {
+	// initializations and jumps for sub_mb_type
+	for (int i = 0, f; i < 16; i += 4) {
 		if (CALL(get_ae, 21)) { // 8x8
 			f = 1;
 		} else if (ctx->transform_8x8_mode_flag = 0, !CALL(get_ae, 22)) { // 8x4
@@ -1652,7 +1654,34 @@ static __attribute__((noinline)) void FUNC(parse_I_mb, int ctxIdx)
 		flags |= f << i;
 	}
 	ctx->mvd_flags = flags;
-	JUMP(parse_inter_pred);
+	CALL(parse_ref_idx);
+	
+	// load neighbouring refIdx values
+	v4si v0 = (v4si)(v16qi){0, 0, 0, 0, *(mb->refIdx + ctx->refIdx_A[2]),
+		*(mb->refIdx + ctx->refIdx_A[0]), *(mb->refIdx + ctx->refIdx_D),
+		*(mb->refIdx + ctx->refIdx_B[0]), *(mb->refIdx + ctx->refIdx_B[1]),
+		*(mb->refIdx + ctx->refIdx_C), 0, 0, 0, 0, 0, 0};
+	v4si v1 = (v4si)(v16qi){0, 0, 0, 0, *(mb->refIdx + 4 + ctx->refIdx_A[2]),
+		*(mb->refIdx + 4 + ctx->refIdx_A[0]), *(mb->refIdx + 4 + ctx->refIdx_D),
+		*(mb->refIdx + 4 + ctx->refIdx_B[0]), *(mb->refIdx + 4 + ctx->refIdx_B[1]),
+		*(mb->refIdx + 4 + ctx->refIdx_C), 0, 0, 0, 0, 0, 0};
+	v0[0] = mb->refIdx_s[0];
+	v1[0] = mb->refIdx_s[1];
+	
+	// shuffle them to get neighbouring 4x4 A/B/C values
+	v16qi refIdxL0A = byte_shuffle((v16qi)v0, ctx->refIdx4x4_A_v);
+	v16qi refIdxL1A = byte_shuffle((v16qi)v1, ctx->refIdx4x4_A_v);
+	v16qi refIdxL0B = byte_shuffle((v16qi)v0, ctx->refIdx4x4_B_v);
+	v16qi refIdxL1B = byte_shuffle((v16qi)v1, ctx->refIdx4x4_B_v);
+	v16qi refIdxL0C = byte_shuffle((v16qi)v0, ctx->refIdx4x4_C_v);
+	v16qi refIdxL1C = byte_shuffle((v16qi)v1, ctx->refIdx4x4_C_v);
+	
+	// compare them and store equality formula
+	v16qi refIdxL0 = __builtin_shufflevector((v16qi)v0, (v16qi)v0, 0, 0, 0, 0, 1, 1, 1, 1, 2, 2, 2, 2, 3, 3, 3, 3);
+	v16qi refIdxL1 = __builtin_shufflevector((v16qi)v1, (v16qi)v1, 0, 0, 0, 0, 1, 1, 1, 1, 2, 2, 2, 2, 3, 3, 3, 3);
+	ctx->refIdx4x4_eq_v[0] = -(((((refIdxL0==refIdxL0C) << 1) + (refIdxL0==refIdxL0B)) << 1) + (refIdxL0==refIdxL0A));
+	ctx->refIdx4x4_eq_v[1] = -(((((refIdxL1==refIdxL1C) << 1) + (refIdxL1==refIdxL1B)) << 1) + (refIdxL1==refIdxL1A));
+	JUMP(parse_mvs);
 }
 
 static __attribute__((noinline)) void FUNC(parse_B_mb)
@@ -1721,7 +1750,7 @@ static __attribute__((noinline)) void FUNC(parse_B_mb)
 		fprintf(stderr, "sub_mb_type: %u\n", b2sub_mb_type[sub]);
 	}
 	ctx->mvd_flags = flags;
-	JUMP(parse_inter_pred);
+	return;
 }
 
 
@@ -1758,7 +1787,7 @@ static __attribute__((noinline)) void FUNC(PAFF_parse_slice_data)
 		if (mbB[-1].f.unavailable)
 			ctx->unavail[0] |= 8;
 		
-		// could we push this test outside the loop without complex code?
+		// Would it actually help to push this test outside the loop?
 		if (ctx->slice_type == 0)
 			CALL(parse_P_mb);
 		else if (ctx->slice_type == 1)

@@ -1299,15 +1299,15 @@ static __attribute__((noinline)) void FUNC(parse_ref_idx)
  * _ unavailable A/B/C/D blocks count as mv=0
  * _ if C is unavailable, replace it with D
  * _ for 8x16 and 16x8, predict from (A,C) and (B,A)
- * _ otherwise if both B and D are unavailable, replace B and C with A
+ * _ otherwise if B, C and D are unavailable, replace B and C with A
  * _ then if only one of refIdxA/B/C is equal to refIdx, predict mv from it
  * _ otherwise predict mv as median(mvA, mvB, mvC)
  *
  * Since we get all refIdx before all mvd, we compare them all at once using
  * SIMD. Neighbouring values are initially packed into two L0/L1 v16qi:
- * 6 7 8 9
- * 5|0 1|
- * 4|2 3|
+ *  1  2  3  4
+ *  5| 6  7|
+ *  9|10 11|
  * Then they are reshuffled with three A/B/C shuffle vectors taking into
  * account block widths and unavailabilities. These (nightmarish) vectors are
  * constructed during the parsing of mb_type.
@@ -1589,8 +1589,15 @@ static __attribute__((noinline)) void FUNC(parse_I_mb, int ctxIdx)
  * For B_Direct_16x16, we initialize refIdx and mvs and jump directly to
  * parse_NxN_residual.
  */
-static __attribute__((noinline)) void FUNC(parse_P_mb)
+ __attribute__((noinline)) void FUNC(parse_P_mb)
 {
+	static const int32_t refIdx4x4_base[4] = {0x06060606, 0x07070707, 0x0A0A0A0A, 0x0B0B0B0B};
+	static const v4qi refIdx4x4_inc[8] = {
+		{-4, -3, 0, 0}, {-3, -16, -1, -16}, // B and C available
+		{-5, -3, 0, 0}, {-3, -16, -1, -16}, // B unavailable, C available
+		{-4, -4, 0, 0}, {-5, -16, -1, -16}, // B available, C unavailable
+		{-5, -4, 0, 0}, {-5, -16, -1, -16}}; // B and C unavailable
+	
 	// common initializations
 	ctx->transform_8x8_mode_flag = ctx->ps.transform_8x8_mode_flag;
 	mb->f.mbIsInterFlag = 1;
@@ -1613,8 +1620,14 @@ static __attribute__((noinline)) void FUNC(parse_P_mb)
 			ctx->mvd_flags = 0x0001;
 			fprintf(stderr, "mb_type: 0\n");
 			CALL(parse_ref_idx);
-			// TODO: infer refIdx4x4_eq
 			mb->refIdx_l = __builtin_shufflevector(mb->refIdx_l, mb->refIdx_l, 0, 0, 0, 0, 4, 4, 4, 4);
+			int refIdx = mb->refIdx[0];
+			int refIdxA = *(mb->refIdx + ctx->refIdx_A[0]);
+			int refIdxB = *(mb->refIdx + ctx->refIdx_B[0]);
+			int refIdxC = *(mb->refIdx + (ctx->unavail[5] & 4 ? ctx->refIdx_D : ctx->refIdx_C));
+			ctx->refIdx4x4_eq[0] = (refIdxB >= 0 || refIdxC >= 0) ?
+				(refIdx==refIdxA) + (refIdx==refIdxB) * 2 + (refIdx==refIdxC) * 4 : 0x1;
+			// FIXME: mvs_C
 			ctx->mvs_shuffle_v = (v16qi){0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
 			JUMP(parse_mvs);
 		} // else 8x8
@@ -1623,6 +1636,9 @@ static __attribute__((noinline)) void FUNC(parse_P_mb)
 		fprintf(stderr, "mb_type: 2\n");
 		CALL(parse_ref_idx);
 		mb->refIdx_l = __builtin_shufflevector(mb->refIdx_l, mb->refIdx_l, 0, 1, 0, 1, 4, 5, 4, 5);
+		ctx->refIdx4x4_eq[0] = 0x1;
+		ctx->refIdx4x4_eq[4] = 0x4;
+		// FIXME: mvs_C
 		ctx->mvs_shuffle_v = (v16qi){0, 0, 0, 0, 4, 4, 4, 4, 0, 0, 0, 0, 4, 4, 4, 4};
 		JUMP(parse_mvs);
 	} else { // 16x8
@@ -1630,57 +1646,56 @@ static __attribute__((noinline)) void FUNC(parse_P_mb)
 		fprintf(stderr, "mb_type: 1\n");
 		CALL(parse_ref_idx);
 		mb->refIdx_l = __builtin_shufflevector(mb->refIdx_l, mb->refIdx_l, 0, 0, 2, 2, 4, 4, 6, 6);
+		ctx->refIdx4x4_eq[0] = 0x2;
+		ctx->refIdx4x4_eq[8] = 0x1;
 		ctx->mvs_shuffle_v = (v16qi){0, 0, 0, 0, 0, 0, 0, 0, 8, 8, 8, 8, 8, 8, 8, 8};
 		JUMP(parse_mvs);
 	}
-	unsigned flags = 0x1111;
 	fprintf(stderr, "mb_type: 3\n");
 	
 	// initializations and jumps for sub_mb_type
-	for (int i = 0, f; i < 16; i += 4) {
+	unsigned flags = 0;
+	for (int i8x8 = 0, f, w, s; i8x8 < 4; i8x8++) {
+		int i4x4 = i8x8 * 4;
 		if (CALL(get_ae, 21)) { // 8x8
 			f = 1;
+			w = 1;
+			s = 0;
 		} else if (ctx->transform_8x8_mode_flag = 0, !CALL(get_ae, 22)) { // 8x4
 			f = 5;
-			ctx->mvs_shuffle_s[i >> 2] = i * 0x01010101 + (int32_t)(v4qi){0, 0, 2, 2};
+			w = 1;
+			s = (int32_t)(v4qi){0, 0, 2, 2};
 		} else if (CALL(get_ae, 23)) { // 4x8
 			f = 3;
-			ctx->mvs_shuffle_s[i >> 2] = i * 0x01010101 + (int32_t)(v4qi){0, 1, 0, 1};
+			w = 0;
+			s = (int32_t)(v4qi){0, 1, 0, 1};
 		} else { // 4x4
 			f = 15;
-			ctx->mvs_shuffle_s[i >> 2] = i * 0x01010101 + (int32_t)(v4qi){0, 1, 2, 3};
+			w = 0;
+			s = (int32_t)(v4qi){0, 1, 2, 3};
 		}
 		fprintf(stderr, "sub_mb_type: %c\n", (f == 1) ? '0' : (f == 5) ? '1' : (f == 3) ? '2' : '3');
-		flags |= f << i;
+		flags |= f << i4x4;
+		int unavailBC = ctx->unavail[i4x4 + 1] & 0x6;
+		ctx->refIdx4x4_C_s[i8x8] = refIdx4x4_base[i8x8] + (int32_t)refIdx4x4_inc[unavailBC + w];
+		ctx->mvs_shuffle_s[i8x8] = i4x4 * 0x01010101 + s;
 	}
 	ctx->mvd_flags = flags;
 	CALL(parse_ref_idx);
 	
-	// load neighbouring refIdx values
-	v4si v0 = (v4si)(v16qi){0, 0, 0, 0, *(mb->refIdx + ctx->refIdx_A[2]),
-		*(mb->refIdx + ctx->refIdx_A[0]), *(mb->refIdx + ctx->refIdx_D),
-		*(mb->refIdx + ctx->refIdx_B[0]), *(mb->refIdx + ctx->refIdx_B[1]),
-		*(mb->refIdx + ctx->refIdx_C), 0, 0, 0, 0, 0, 0};
-	v4si v1 = (v4si)(v16qi){0, 0, 0, 0, *(mb->refIdx + 4 + ctx->refIdx_A[2]),
-		*(mb->refIdx + 4 + ctx->refIdx_A[0]), *(mb->refIdx + 4 + ctx->refIdx_D),
-		*(mb->refIdx + 4 + ctx->refIdx_B[0]), *(mb->refIdx + 4 + ctx->refIdx_B[1]),
-		*(mb->refIdx + 4 + ctx->refIdx_C), 0, 0, 0, 0, 0, 0};
-	v0[0] = mb->refIdx_s[0];
-	v1[0] = mb->refIdx_s[1];
-	
-	// shuffle them to get neighbouring 4x4 A/B/C values
-	v16qi refIdxL0A = byte_shuffle((v16qi)v0, ctx->refIdx4x4_A_v);
-	v16qi refIdxL1A = byte_shuffle((v16qi)v1, ctx->refIdx4x4_A_v);
-	v16qi refIdxL0B = byte_shuffle((v16qi)v0, ctx->refIdx4x4_B_v);
-	v16qi refIdxL1B = byte_shuffle((v16qi)v1, ctx->refIdx4x4_B_v);
-	v16qi refIdxL0C = byte_shuffle((v16qi)v0, ctx->refIdx4x4_C_v);
-	v16qi refIdxL1C = byte_shuffle((v16qi)v1, ctx->refIdx4x4_C_v);
+	// load neighbouring refIdx values to compute mvpred directions
+	v16qi neighbours = {0, *(mb->refIdx + ctx->refIdx_D), *(mb->refIdx + ctx->refIdx_B[0]),
+		*(mb->refIdx + ctx->refIdx_B[1]), *(mb->refIdx + ctx->refIdx_C),
+		*(mb->refIdx + ctx->refIdx_A[0]), mb->refIdx[0], mb->refIdx[1], 0,
+		*(mb->refIdx + ctx->refIdx_A[2]), mb->refIdx[2], mb->refIdx[3]};
+	v16qi refIdxA = byte_shuffle(neighbours, ctx->refIdx4x4_A_v);
+	v16qi refIdxB = byte_shuffle(neighbours, ctx->refIdx4x4_B_v);
+	v16qi refIdxC = byte_shuffle(neighbours, ctx->refIdx4x4_C_v);
 	
 	// compare them and store equality formula
-	v16qi refIdxL0 = __builtin_shufflevector((v16qi)v0, (v16qi)v0, 0, 0, 0, 0, 1, 1, 1, 1, 2, 2, 2, 2, 3, 3, 3, 3);
-	v16qi refIdxL1 = __builtin_shufflevector((v16qi)v1, (v16qi)v1, 0, 0, 0, 0, 1, 1, 1, 1, 2, 2, 2, 2, 3, 3, 3, 3);
-	ctx->refIdx4x4_eq_v[0] = -(((((refIdxL0==refIdxL0C) << 1) + (refIdxL0==refIdxL0B)) << 1) + (refIdxL0==refIdxL0A));
-	ctx->refIdx4x4_eq_v[1] = -(((((refIdxL1==refIdxL1C) << 1) + (refIdxL1==refIdxL1B)) << 1) + (refIdxL1==refIdxL1A));
+	v16qi refIdx = __builtin_shufflevector(neighbours, neighbours, 6, 6, 6, 6, 7, 7, 7, 7, 10, 10, 10, 10, 11, 11, 11, 11);
+	v16qi sum = ((((refIdx==refIdxC) << 1) + (refIdx==refIdxB)) << 1) + (refIdx==refIdxA);
+	ctx->refIdx4x4_eq_v[0] = -(sum | (refIdxB<(v16qi){} & refIdxC<(v16qi){})); // if B and C are unavailable, then sum is 0 or 1
 	JUMP(parse_mvs);
 }
 

@@ -142,9 +142,12 @@ typedef struct
 	union { int32_t coded_block_flags_8x8_B[12]; int32_t CodedBlockPatternLuma_B[4]; int32_t refIdx_B[4]; v4si B8x8_8bit[3]; };
 	int32_t refIdx_C; // offset to mbC->refIdx[3]
 	int32_t refIdx_D; // offset to mbD->refIdx[2]
-	int16_t mvs_A[32];
-	int32_t mvs_B[32];
-	int32_t mvs_C[32];
+	union { int32_t refIdx4x4_A_s[16]; v16qi refIdx4x4_A_v; }; // shuffle vector for mv prediction
+	union { int32_t refIdx4x4_B_s[16]; v16qi refIdx4x4_B_v; };
+	union { int32_t refIdx4x4_C_s[16]; v16qi refIdx4x4_C_v; }; // updated per-mb
+	int16_t mvs_A[16];
+	int32_t mvs_B[16];
+	int32_t mvs_C[16]; // updated per-mb to account for block size and D-override
 	
 	// Intra context
 	v16qu pred_offset_C; // BitDepth offset on PredMode from Y to Cb/Cr
@@ -162,9 +165,6 @@ typedef struct
 	union { int8_t RefPicList[2][32]; v16qi RefPicList_v[4]; };
 	uint8_t *ref_planes[2][32];
 	union { int32_t mvs_shuffle_s[4]; v16qi mvs_shuffle_v; }; // shuffle vector for mvs/absMvdComp storage
-	union { int8_t refIdx4x4_A[16]; v16qi refIdx4x4_A_v; }; // shuffle vector for mv prediction
-	union { int8_t refIdx4x4_B[16]; v16qi refIdx4x4_B_v; };
-	union { int8_t refIdx4x4_C[16]; v16qi refIdx4x4_C_v; };
 	union { int8_t refIdx4x4_eq[32]; v16qi refIdx4x4_eq_v[2]; };
 	int8_t MapPicToList0[35]; // [1 + refPic]
 	int16_t DistScaleFactor[3][32]; // [top/bottom/frame][refIdxL0]

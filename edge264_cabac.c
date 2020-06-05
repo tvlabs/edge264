@@ -1296,23 +1296,15 @@ static __attribute__((noinline)) void FUNC(parse_ref_idx)
  * Motion vector prediction is one of the hardest parts to decode (8.4.1.3),
  * here is a summary of the rules:
  * _ A/B/C/D are 4x4 blocks on pixels at relative positions (-1,0)/(0,-1)/(W,-1)/(-1,-1)
- * _ unavailable A/B/C/D blocks count as mv=0
+ * _ unavailable A/B/C/D blocks count as refIdx=-1 and mv=0
  * _ if C is unavailable, replace it with D
  * _ for 8x16 and 16x8, predict from (A,C) and (B,A)
  * _ otherwise if B, C and D are unavailable, replace B and C with A
  * _ then if only one of refIdxA/B/C is equal to refIdx, predict mv from it
  * _ otherwise predict mv as median(mvA, mvB, mvC)
  *
- * Since we get all refIdx before all mvd, we compare them all at once using
- * SIMD. Neighbouring values are initially packed into two L0/L1 v16qi:
- *  1  2  3  4
- *  5| 6  7|
- *  9|10 11|
- * Then they are reshuffled with three A/B/C shuffle vectors taking into
- * account block widths and unavailabilities. These (nightmarish) vectors are
- * constructed during the parsing of mb_type.
- * Finally, the following formula is computed for each 4x4 block:
- * (refIdx==refIdxA) + (refIdx==refIdxB) * 2 + (refIdx==refIdxC) * 4
+ * In this function, refIdx4x4_eq covers rules 1~5 already, so we only need to
+ * switch on values of each equality mask to determine predicted mvs.
  */
 static __attribute__((noinline)) void FUNC(parse_mvs)
 {
@@ -1565,29 +1557,34 @@ static __attribute__((noinline)) void FUNC(parse_I_mb, int ctxIdx)
 
 
 /**
- * These functions parse the syntax elements mb_type and sub_mb_type for the
- * current macroblock in a P or B slice, and initialize mvd_flags,
- * transform_8x8_mode_flag, refIdx_shuffle, mvs_shuffle and refIdx4x4_A/B/C
- * before jumping to parse_inter_pred (or parse_I_mb).
+ * These functions parse the syntax elements mb_type, sub_mb_type and ref_idx
+ * (from function) for the current macroblock in a P or B slice, and initialize
+ * mvd_flags, mvs_shuffle, transform_8x8_mode_flag and refIdx4x4_eq, before
+ * jumping to further decoding.
  *
- * We distinguish three kinds of partitions: P/B_NxN, P/B_Skip, B_Direct_16x16.
+ * mvd_flags is a 32bit mask indexed by LX*16+BlkIdx. Each set bit indicates a
+ * mvd pair should be parsed for the corresponding block index. We obtain a
+ * mask for parsing refIdx by masking every 4th bit.
  *
- * For P/B_NxN, we create a 32bit mask indexed by LX*16+BlkIdx. Each set bit
- * indicates a mvd pair will be parsed for the corresponding block. We obtain
- * a mask for parsing refIdx by masking every 4th bit.
  * Each mvd pair may cover a 4x4, 4x8, 8x4, 8x8, 8x16, 16x8 or 16x16 block.
  * While we do not keep mb_type, we will duplicate each parsed mvd pair to all
- * covered 4x4 blocks. So we provide a shuffle mask for each 4x4 position, that
- * indicates where it takes its value. It overwrites all mvs for each mvd pair,
- * but then the code is simple and branchless.
- * Finally, B_Direct_8x8 just triggers full Direct_16x16 initialization
- * beforehand, with proper unset bits in mvd_mask.
+ * covered 4x4 blocks. So we provide a shuffle mask (mvd_shuffle) for each 4x4
+ * position, that indicates where it takes its value. It overwrites all mvs for
+ * each mvd pair, but then the code is simple and branchless.
  *
- * For P/B_Skip, we initialize all mb variables for neighbours, then we provide
- * a dedicated loop to fill samples without initializing residuals.
+ * transform_8x8_mode_flag is initialized with a copy of its value in ctx->ps,
+ * then modified during mb_type parsing to account for the complex conditions
+ * in 7.3.5.
  *
- * For B_Direct_16x16, we initialize refIdx and mvs and jump directly to
- * parse_NxN_residual.
+ * refIdx4x4_eq stores the result of comparing refIdx with refIdxA/B/C for each
+ * 4x4 block: (refIdx==refIdxA) + (refIdx==refIdxB)*2 + (refIdx==refIdxC)*4.
+ * They are used in parse_mvs to compute the origins of predicted mvs.
+ * For partitions smaller than or equal to 8x8, they are computed in parallel
+ * with vector code, first by loading refIdx neighbours in a single v16qi
+ *  1  2  3  4
+ *  5| 6  7|
+ *  9|10 11|
+ * then by shuffling it with variable masks to infer refIdxA/B/C.
  */
  __attribute__((noinline)) void FUNC(parse_P_mb)
 {
@@ -1603,7 +1600,7 @@ static __attribute__((noinline)) void FUNC(parse_I_mb, int ctxIdx)
 	mb->f.mbIsInterFlag = 1;
 	mb->refIdx_l = (v8qi){0, 0, 0, 0, -1, -1, -1, -1};
 	
-	// shortcut for P_Skip
+	// shortcuts for P_Skip and Intra
 	mb->f.mb_skip_flag = CALL(get_ae, 13 - ctx->inc.mb_skip_flag);
 	fprintf(stderr, "mb_skip_flag: %x\n", mb->f.mb_skip_flag);
 	if (mb->f.mb_skip_flag) {

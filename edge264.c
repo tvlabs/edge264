@@ -567,7 +567,7 @@ static int FUNC(parse_slice_layer_without_partitioning, Edge264_stream *e)
 	// If pic_parameter_set_id>=4 then it cannot have been initialized before, thus is erroneous.
 	if (pic_parameter_set_id >= 4 || e->PPSs[pic_parameter_set_id].num_ref_idx_active[0] == 0)
 		return -2;
-	if (ctx->slice_type != 2)
+	if (ctx->slice_type != 0 && ctx->slice_type != 2)
 		return -1;
 	ctx->ps = e->PPSs[pic_parameter_set_id];
 	

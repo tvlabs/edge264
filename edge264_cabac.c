@@ -818,7 +818,8 @@ static __attribute__((noinline)) size_t FUNC(get_ae, int ctxIdx)
 	
 	ssize_t state = ctx->cabac[ctxIdx];
 	unsigned shift = SIZE_BIT - 3 - clz(codIRange);
-	// fprintf(stderr, "%u/%u: (%u,%x)", (int)(codIOffset >> (shift - 6)), (int)(codIRange >> (shift - 6)), (int)state >> 2, (int)state & 1);
+	fprintf(stderr, "%u/%u: (%u,%x)", (int)(codIOffset >> (shift - 6)), (int)(codIRange >> (shift - 6)), (int)state >> 2, (int)state & 1);
+	// fprintf(stderr, "%u/%u[%d]: (%u,%x)", (int)(codIOffset >> (shift - 6)), (int)(codIRange >> (shift - 6)), ctxIdx, (int)state >> 2, (int)state & 1);
 	ssize_t idx = (state & -4) + (codIRange >> shift);
 	size_t codIRangeLPS = (size_t)(rangeTabLPS - 4)[idx] << (shift - 6);
 	codIRange -= codIRangeLPS;
@@ -828,7 +829,7 @@ static __attribute__((noinline)) size_t FUNC(get_ae, int ctxIdx)
 		codIRange = codIRangeLPS;
 	}
 	ctx->cabac[ctxIdx] = transIdx[state];
-	// fprintf(stderr, "->(%u,%x)\n", transIdx[state] >> 2, transIdx[state] & 1);
+	fprintf(stderr, "->(%u,%x)\n", transIdx[state] >> 2, transIdx[state] & 1);
 	size_t binVal = state & 1;
 	if (__builtin_expect(codIRange < 512, 0)) // 256*2 allows parsing an extra coeff_sign_flag without renorm.
 		return CALL(renorm, 1, binVal);
@@ -919,7 +920,8 @@ static __attribute__((noinline)) void FUNC(parse_residual_block, unsigned coded_
 		int scan = ctx->scan[i]; // beware, scan is transposed already
 		ctx->d[scan] = (c * ctx->LevelScale[scan] + 32) >> 6; // cannot overflow since spec says result is 22 bits
 		significant_coeff_flags &= ~((uint64_t)1 << i);
-		fprintf(stderr, "coeffLevel[%d](%d): %d\n", i - startIdx, ctx->BlkIdx, c);
+		fprintf(stderr, "coeffLevel[%d]: %d\n", i - startIdx, c);
+		// fprintf(stderr, "coeffLevel[%d](%d): %d\n", i - startIdx, ctx->BlkIdx, c);
 	} while (significant_coeff_flags != 0);
 	JUMP(decode_samples);
 }
@@ -936,8 +938,9 @@ static __attribute__((noinline)) int FUNC(parse_mvd, int pos, int ctxBase) {
 	int sum = absMvdCompA + absMvdCompB;
 	int ctxIdx = ctxBase + (sum >= 3) + (sum > 32);
 	int mvd = 0;
+	ctxBase += 3;
 	while (mvd < 9 && CALL(get_ae, ctxIdx))
-		ctxIdx = ctxBase + min(++mvd, 4);
+		ctxIdx = ctxBase + min(mvd++, 3);
 	
 	// Once again, we use unsigned division to read all bypass bits.
 	if (mvd >= 9) {
@@ -978,7 +981,8 @@ static __attribute__((noinline)) int FUNC(parse_mvd, int pos, int ctxBase) {
 		mvd = (codIOffset >= codIRange) ? -mvd : mvd;
 		codIOffset = (codIOffset >= codIRange) ? codIOffset - codIRange : codIOffset;
 	}
-	fprintf(stderr, "mvd_l%x: %d\n", pos >> 1 & 1, mvd);
+	fprintf(stderr, "mvd: %d\n", mvd);
+	// fprintf(stderr, "mvd_l%x: %d\n", pos >> 1 & 1, mvd);
 	return mvd;
 }
 

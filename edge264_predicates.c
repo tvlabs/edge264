@@ -22,14 +22,15 @@ static void check_parameter_set(const Edge264_parameter_set *ps) {
 	predicate(ps->BitDepth_Y >= 8 && ps->BitDepth_Y <= 14);
 	predicate(ps->BitDepth_C >= 8 && ps->BitDepth_C <= 14);
 	predicate(ps->max_dec_frame_buffering >= 0 && ps->max_dec_frame_buffering <= 15);
-	predicate(ps->width >= 16 && ps->width <= 16880);
-	predicate(ps->height >= 16 && ps->height <= 16880);
-	predicate(ps->width * ps->height / 256 <= 696320);
+	predicate(ps->width >= 16 && ps->width <= 8192);
+	predicate(ps->height >= 16 && ps->height <= 8192);
 	predicate(ps->pic_order_cnt_type != 3);
-	predicate(ps->ChromaArrayType == ps->ChromaArrayType);
+	predicate(ps->ChromaArrayType == ps->chroma_format_idc || (ps->ChromaArrayType == 0 && ps->chroma_format_idc == 3));
 	predicate(ps->log2_max_frame_num >= 4 && ps->log2_max_frame_num <= 16);
 	predicate(ps->pic_order_cnt_type != 0 || (ps->log2_max_pic_order_cnt_lsb >= 4 && ps->log2_max_pic_order_cnt_lsb <= 16));
 	predicate(ps->max_num_ref_frames >= 0 && ps->max_num_ref_frames <= ps->max_dec_frame_buffering);
+	predicate(ps->max_num_reorder_frames >= 0 && ps->max_num_reorder_frames <= ps->max_dec_frame_buffering);
+	predicate(ps->direct_8x8_inference_flag == 0 || ps->direct_8x8_inference_flag == 1);
 	predicate(ps->num_ref_frames_in_pic_order_cnt_cycle >= 0 && ps->num_ref_frames_in_pic_order_cnt_cycle <= 255);
 	predicate(ps->chroma_qp_index_offset >= -12 && ps->chroma_qp_index_offset <= 12);
 	predicate(ps->second_chroma_qp_index_offset >= -12 && ps->second_chroma_qp_index_offset <= 12);
@@ -42,26 +43,29 @@ static void check_parameter_set(const Edge264_parameter_set *ps) {
 		predicate(ps->weighted_bipred_idc != 3);
 		predicate(ps->num_ref_idx_active[0] <= 32 && ps->num_ref_idx_active[1] <= 32);
 		predicate(ps->QP_Y >= -6 * (ps->BitDepth_Y - 8) && ps->QP_Y <= 51);
+		predicate(ps->transform_8x8_mode_flag == 0 || ps->transform_8x8_mode_flag == 1);
 	}
 }
 
 
 static void check_stream(const Edge264_stream *e) {
+	predicate(e->CPB < e->end);
 	if (e->DPB == NULL) {
-		predicate(e->ret >= 0 && e->currPic == 0 && e->output_flags == 0 && e->reference_flags == 0 && e->long_term_flags == 0 && e->prevFrameNum == 0 && e->prevPicOrderCnt == 0);
+		predicate(e->ret == 0 && e->currPic == 0 && e->output_flags == 0 && e->reference_flags == 0 && e->long_term_flags == 0 && e->prevFrameNum == 0 && e->prevPicOrderCnt == 0);
 		return;
 	}
-	predicate(e->ret >= -2 && e->ret <= 16);
+	predicate(e->ret >= -2 && e->ret <= 0);
 	predicate(e->currPic >= 0 && e->currPic <= 15);
-	predicate(!(e->output_flags & 1 << e->currPic));
-	predicate(!(e->reference_flags & 0x10001 << e->currPic));
 	predicate(e->stride_Y == (e->SPS.BitDepth_Y == 8 ? e->SPS.width : e->SPS.width << 1));
 	predicate(e->stride_C == (e->SPS.chroma_format_idc == 0 ? 0 : e->SPS.chroma_format_idc < 3 ? e->SPS.width >> 1 : e->SPS.width) << (e->SPS.BitDepth_C > 8));
 	predicate(e->plane_size_Y == e->stride_Y * e->SPS.height);
 	predicate(e->plane_size_C == e->stride_C * (e->SPS.chroma_format_idc >= 2 ? e->SPS.height : e->SPS.height >> 1));
 	predicate(e->frame_size == e->plane_size_Y + e->plane_size_C * 2 + (e->SPS.width + 16) * (e->SPS.height + 16) / 256 * sizeof(Edge264_macroblock));
+	predicate(!(e->output_flags & 1 << e->currPic));
+	predicate(!(e->reference_flags & 0x10001 << e->currPic));
 	unsigned refs = (e->reference_flags & 0xffff) | e->reference_flags >> 16;
 	predicate(__builtin_popcount(refs) <= e->SPS.max_num_ref_frames);
+	predicate(__builtin_popcount(e->output_flags) <= e->SPS.max_num_reorder_frames);
 	predicate(__builtin_popcount(e->output_flags | refs) <= e->SPS.max_dec_frame_buffering);
 	predicate((e->long_term_flags & refs) == e->long_term_flags);
 	check_parameter_set(&e->SPS);

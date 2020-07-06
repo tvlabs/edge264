@@ -1,6 +1,12 @@
 #include "edge264_common.h"
 
-static const v16qi normAdjust4x4[6] = {
+
+
+/**
+ * These functions are not executed often enough to justify maintaining AVX2
+ * versions.
+ */
+static const v16qi normAdjust4x4[6] = { // shared with decode_ResidualDC2x4
 	10, 13, 10, 13, 13, 16, 13, 16, 10, 13, 10, 13, 13, 16, 13, 16,
 	11, 14, 11, 14, 14, 18, 14, 18, 11, 14, 11, 14, 14, 18, 14, 18,
 	13, 16, 13, 16, 16, 20, 16, 20, 13, 16, 13, 16, 16, 20, 16, 20,
@@ -8,64 +14,8 @@ static const v16qi normAdjust4x4[6] = {
 	16, 20, 16, 20, 20, 25, 20, 25, 16, 20, 16, 20, 20, 25, 20, 25,
 	18, 23, 18, 23, 23, 29, 23, 29, 18, 23, 18, 23, 23, 29, 23, 29,
 };
-static const v16qi normAdjust8x8[6][4] = {
-	20, 19, 25, 19, 20, 19, 25, 19, 19, 18, 24, 18, 19, 18, 24, 18,
-	25, 24, 32, 24, 25, 24, 32, 24, 19, 18, 24, 18, 19, 18, 24, 18,
-	20, 19, 25, 19, 20, 19, 25, 19, 19, 18, 24, 18, 19, 18, 24, 18,
-	25, 24, 32, 24, 25, 24, 32, 24, 19, 18, 24, 18, 19, 18, 24, 18,
-	22, 21, 28, 21, 22, 21, 28, 21, 21, 19, 26, 19, 21, 19, 26, 19,
-	28, 26, 35, 26, 28, 26, 35, 26, 21, 19, 26, 19, 21, 19, 26, 19,
-	22, 21, 28, 21, 22, 21, 28, 21, 21, 19, 26, 19, 21, 19, 26, 19,
-	28, 26, 35, 26, 28, 26, 35, 26, 21, 19, 26, 19, 21, 19, 26, 19,
-	26, 24, 33, 24, 26, 24, 33, 24, 24, 23, 31, 23, 24, 23, 31, 23,
-	33, 31, 42, 31, 33, 31, 42, 31, 24, 23, 31, 23, 24, 23, 31, 23,
-	26, 24, 33, 24, 26, 24, 33, 24, 24, 23, 31, 23, 24, 23, 31, 23,
-	33, 31, 42, 31, 33, 31, 42, 31, 24, 23, 31, 23, 24, 23, 31, 23,
-	28, 26, 35, 26, 28, 26, 35, 26, 26, 25, 33, 25, 26, 25, 33, 25,
-	35, 33, 45, 33, 35, 33, 45, 33, 26, 25, 33, 25, 26, 25, 33, 25,
-	28, 26, 35, 26, 28, 26, 35, 26, 26, 25, 33, 25, 26, 25, 33, 25,
-	35, 33, 45, 33, 35, 33, 45, 33, 26, 25, 33, 25, 26, 25, 33, 25,
-	32, 30, 40, 30, 32, 30, 40, 30, 30, 28, 38, 28, 30, 28, 38, 28,
-	40, 38, 51, 38, 40, 38, 51, 38, 30, 28, 38, 28, 30, 28, 38, 28,
-	32, 30, 40, 30, 32, 30, 40, 30, 30, 28, 38, 28, 30, 28, 38, 28,
-	40, 38, 51, 38, 40, 38, 51, 38, 30, 28, 38, 28, 30, 28, 38, 28,
-	36, 34, 46, 34, 36, 34, 46, 34, 34, 32, 43, 32, 34, 32, 43, 32,
-	46, 43, 58, 43, 46, 43, 58, 43, 34, 32, 43, 32, 34, 32, 43, 32,
-	36, 34, 46, 34, 36, 34, 46, 34, 34, 32, 43, 32, 34, 32, 43, 32,
-	46, 43, 58, 43, 46, 43, 58, 43, 34, 32, 43, 32, 34, 32, 43, 32,
-};
-static void print_v16qi(v16qi v) {
-	printf("<li><code>");
-	for (int i = 0; i < 16; i++)
-		printf("%03d ", v[i]);
-	printf("</code></li>\n");
-}
-static void print_v16qu(v16qu v) {
-	printf("<li><code>");
-	for (int i = 0; i < 16; i++)
-		printf("%03d ", v[i]);
-	printf("</code></li>\n");
-}
-static void print_v8hi(v8hi v) {
-	printf("<li><code>");
-	for (int i = 0; i < 8; i++)
-		printf("%03d ", v[i]);
-	printf("</code></li>\n");
-}
-static void print_v4si(v4si v) {
-	printf("<li><code>");
-	for (int i = 0; i < 4; i++)
-		printf("%05d ", v[i]);
-	printf("</code></li>\n");
-}
 
-
-
-/**
- * These functions are not executed often enough to justify maintaining AVX2
- * versions.
- */
-static __attribute__((noinline)) void FUNC(compute_LevelScale4x4, int iYCbCr) {
+__attribute__((noinline)) void FUNC(compute_LevelScale4x4, int iYCbCr) {
 	// This part is very unsatisfactory and will have to be optimised some day.
 	int BitDepth = (iYCbCr == 0) ? ctx->ps.BitDepth_Y : ctx->ps.BitDepth_C;
 	__m128i zero = _mm_setzero_si128();
@@ -80,7 +30,34 @@ static __attribute__((noinline)) void FUNC(compute_LevelScale4x4, int iYCbCr) {
 	ctx->LevelScale_v[3] = (v4si)_mm_sll_epi32(_mm_unpackhi_epi16(x1, zero), shift);
 }
 
-static inline void FUNC(compute_LevelScale8x8, int iYCbCr) {
+inline void FUNC(compute_LevelScale8x8, int iYCbCr) {
+	static const v16qi normAdjust8x8[6][4] = {
+		20, 19, 25, 19, 20, 19, 25, 19, 19, 18, 24, 18, 19, 18, 24, 18,
+		25, 24, 32, 24, 25, 24, 32, 24, 19, 18, 24, 18, 19, 18, 24, 18,
+		20, 19, 25, 19, 20, 19, 25, 19, 19, 18, 24, 18, 19, 18, 24, 18,
+		25, 24, 32, 24, 25, 24, 32, 24, 19, 18, 24, 18, 19, 18, 24, 18,
+		22, 21, 28, 21, 22, 21, 28, 21, 21, 19, 26, 19, 21, 19, 26, 19,
+		28, 26, 35, 26, 28, 26, 35, 26, 21, 19, 26, 19, 21, 19, 26, 19,
+		22, 21, 28, 21, 22, 21, 28, 21, 21, 19, 26, 19, 21, 19, 26, 19,
+		28, 26, 35, 26, 28, 26, 35, 26, 21, 19, 26, 19, 21, 19, 26, 19,
+		26, 24, 33, 24, 26, 24, 33, 24, 24, 23, 31, 23, 24, 23, 31, 23,
+		33, 31, 42, 31, 33, 31, 42, 31, 24, 23, 31, 23, 24, 23, 31, 23,
+		26, 24, 33, 24, 26, 24, 33, 24, 24, 23, 31, 23, 24, 23, 31, 23,
+		33, 31, 42, 31, 33, 31, 42, 31, 24, 23, 31, 23, 24, 23, 31, 23,
+		28, 26, 35, 26, 28, 26, 35, 26, 26, 25, 33, 25, 26, 25, 33, 25,
+		35, 33, 45, 33, 35, 33, 45, 33, 26, 25, 33, 25, 26, 25, 33, 25,
+		28, 26, 35, 26, 28, 26, 35, 26, 26, 25, 33, 25, 26, 25, 33, 25,
+		35, 33, 45, 33, 35, 33, 45, 33, 26, 25, 33, 25, 26, 25, 33, 25,
+		32, 30, 40, 30, 32, 30, 40, 30, 30, 28, 38, 28, 30, 28, 38, 28,
+		40, 38, 51, 38, 40, 38, 51, 38, 30, 28, 38, 28, 30, 28, 38, 28,
+		32, 30, 40, 30, 32, 30, 40, 30, 30, 28, 38, 28, 30, 28, 38, 28,
+		40, 38, 51, 38, 40, 38, 51, 38, 30, 28, 38, 28, 30, 28, 38, 28,
+		36, 34, 46, 34, 36, 34, 46, 34, 34, 32, 43, 32, 34, 32, 43, 32,
+		46, 43, 58, 43, 46, 43, 58, 43, 34, 32, 43, 32, 34, 32, 43, 32,
+		36, 34, 46, 34, 36, 34, 46, 34, 34, 32, 43, 32, 34, 32, 43, 32,
+		46, 43, 58, 43, 46, 43, 58, 43, 34, 32, 43, 32, 34, 32, 43, 32,
+	};
+	
 	int BitDepth = (iYCbCr == 0) ? ctx->ps.BitDepth_Y : ctx->ps.BitDepth_C;
 	__m128i zero = _mm_setzero_si128();
 	__m128i shift = _mm_cvtsi32_si128((unsigned)mb->QP[iYCbCr] / 6 + BitDepth - 8);
@@ -105,7 +82,7 @@ static inline void FUNC(compute_LevelScale8x8, int iYCbCr) {
  * speedup. Also the implementation matches the spec's pseudocode, avoiding
  * minor optimisations which would make it harder to understand.
  */
-static __attribute__((noinline)) void FUNC(decode_Residual4x4, __m128i p0, __m128i p1)
+__attribute__((noinline)) void FUNC(decode_Residual4x4, __m128i p0, __m128i p1)
 {
 	// shortcut for blocks without AC coefficients
 	__m128i x4, x5;
@@ -190,7 +167,7 @@ static __attribute__((noinline)) void FUNC(decode_Residual4x4, __m128i p0, __m12
  * predicted samples in registers, and the second (for Inter) passes them in
  * place in memory.
  */
-static __attribute__((noinline)) void FUNC(decode_Residual8x8_8bit, __m128i p0,
+__attribute__((noinline)) void FUNC(decode_Residual8x8_8bit, __m128i p0,
 	__m128i p1, __m128i p2, __m128i p3, __m128i p4, __m128i p5, __m128i p6,
 	__m128i p7)
 {
@@ -307,7 +284,7 @@ static __attribute__((noinline)) void FUNC(decode_Residual8x8_8bit, __m128i p0,
 	*(int64_t *)(q +  stride * 2) = u3[1];
 }
 
-static __attribute__((noinline)) void FUNC(decode_Residual8x8_noargs_8bit)
+__attribute__((noinline)) void FUNC(decode_Residual8x8_noargs_8bit)
 {
 	// blocks without residuals can exit here since predicted samples are in place
 	if (__builtin_expect(ctx->significant_coeff_flags == 0, 1))
@@ -331,7 +308,7 @@ static __attribute__((noinline)) void FUNC(decode_Residual8x8_noargs_8bit)
 
 
 #ifdef __AVX2__
-static __attribute__((noinline)) void FUNC(decode_Residual8x8, __m128i p0, __m128i p1,
+__attribute__((noinline)) void FUNC(decode_Residual8x8, __m128i p0, __m128i p1,
 	__m128i p2, __m128i p3, __m128i p4, __m128i p5, __m128i p6, __m128i p7)
 {
 	if (__builtin_expect(ctx->clip == 255, 1))
@@ -449,7 +426,7 @@ static __attribute__((noinline)) void FUNC(decode_Residual8x8, __m128i p0, __m12
 	*(__m128i *)(p + stride * 7) = _mm256_extracti128_si256(u3, 1);
 }
 #else // !defined(__AVX2__)
-static __attribute__((noinline)) void FUNC(decode_Residual8x8, __m128i p0, __m128i p1,
+__attribute__((noinline)) void FUNC(decode_Residual8x8, __m128i p0, __m128i p1,
 	__m128i p2, __m128i p3, __m128i p4, __m128i p5, __m128i p6, __m128i p7)
 {
 	if (__builtin_expect(ctx->clip == 255, 1))
@@ -602,7 +579,7 @@ static __attribute__((noinline)) void FUNC(decode_Residual8x8, __m128i p0, __m12
 /**
  * DC coefficients transform
  */
-static __attribute__((noinline)) void FUNC(decode_ResidualDC4x4) {
+__attribute__((noinline)) void FUNC(decode_ResidualDC4x4) {
 	CALL(compute_LevelScale4x4, ctx->BlkIdx >> 4);
 	
 	// loading
@@ -654,7 +631,7 @@ static __attribute__((noinline)) void FUNC(decode_ResidualDC4x4) {
 	ctx->d_v[7] = (v4si)_mm_unpackhi_epi64(dc2, dc3);
 }
 
-static __attribute__((noinline)) void FUNC(decode_ResidualDC2x2) {
+__attribute__((noinline)) void FUNC(decode_ResidualDC2x2) {
 	int iYCbCr = (ctx->BlkIdx - 12) >> 2; // BlkIdx is 16 or 20
 	unsigned qP = mb->QP[iYCbCr];
 	unsigned w = ctx->ps.weightScale4x4[iYCbCr + mb->f.mbIsInterFlag * 3][0];
@@ -671,7 +648,7 @@ static __attribute__((noinline)) void FUNC(decode_ResidualDC2x2) {
 	d[3] = ((i2 - i3) * LevelScale) >> 5;
 }
 
-static __attribute__((noinline)) void FUNC(decode_ResidualDC2x4) {
+__attribute__((noinline)) void FUNC(decode_ResidualDC2x4) {
 	int iYCbCr = (ctx->BlkIdx - 8) >> 3; // BlkIdx is 16 or 24
 	unsigned qP_DC = mb->QP[iYCbCr] + 3;
 	int w = ctx->ps.weightScale4x4[iYCbCr + mb->f.mbIsInterFlag * 3][0];

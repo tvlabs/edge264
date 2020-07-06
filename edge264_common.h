@@ -246,6 +246,11 @@ register size_t codIOffset asm("r15");
 
 
 
+/**
+ * Function declarations are put in a single block here instead of .h files
+ * because they are so few. Functions used across files are not made static to
+ * allow compiling them individually.
+ */
 #ifdef TRACE
 #include <stdio.h>
 #include "edge264_predicates.c"
@@ -266,12 +271,16 @@ static inline unsigned umin(unsigned a, unsigned b) { return (a < b) ? a : b; }
 static inline unsigned umax(unsigned a, unsigned b) { return (a > b) ? a : b; }
 static inline int median(int a, int b, int c) { return max(min(max(a, b), c), min(a, b)); }
 
-size_t FUNC(refill, int, size_t); // not static to allow compiling files individually
-size_t FUNC(get_u1);
-size_t FUNC(get_uv, unsigned);
-size_t FUNC(get_ue16);
+// edge264_cabac.c
+__attribute__((noinline)) void FUNC(CABAC_parse_slice_data, int cabac_init_idc);
+
+// edge264_golomb.c
+__attribute__((noinline)) size_t FUNC(refill, int shift, size_t ret);
+__attribute__((noinline)) size_t FUNC(get_u1);
+__attribute__((noinline)) size_t FUNC(get_uv, unsigned v);
+__attribute__((noinline)) size_t FUNC(get_ue16);
 #if SIZE_BIT == 32
-size_t FUNC(get_ue32);
+__attribute__((noinline)) size_t FUNC(get_ue32);
 #else
 #define get_ue32 get_ue16
 #endif
@@ -279,10 +288,49 @@ static inline unsigned FUNC(get_ue, unsigned upper) { return umin((upper <= 6553
 static inline int map_se(unsigned codeNum) { return (codeNum & 1) ? codeNum / 2 + 1 : -(codeNum / 2); }
 static inline int FUNC(get_se, int lower, int upper) { return min(max(map_se((lower >= -32767 && upper <= 32767) ? CALL(get_ue16) : CALL(get_ue32)), lower), upper); }
 
+// edge264_intra_ssse3.c
+void FUNC(decode_samples);
+
+// for debugging
+void print_v16qi(v16qi v) {
+	printf("<li><code>");
+	for (int i = 0; i < 16; i++)
+		printf("%03d ", v[i]);
+	printf("</code></li>\n");
+}
+void print_v16qu(v16qu v) {
+	printf("<li><code>");
+	for (int i = 0; i < 16; i++)
+		printf("%03d ", v[i]);
+	printf("</code></li>\n");
+}
+void print_v8hi(v8hi v) {
+	printf("<li><code>");
+	for (int i = 0; i < 8; i++)
+		printf("%03d ", v[i]);
+	printf("</code></li>\n");
+}
+void print_v4si(v4si v) {
+	printf("<li><code>");
+	for (int i = 0; i < 4; i++)
+		printf("%05d ", v[i]);
+	printf("</code></li>\n");
+}
 
 
-#ifdef __SSSE3__
+
+/**
+ * Machine-specific common function declarations
+ */
+#ifdef __AVX2__
+#include <immintrin.h>
+#elif defined __SSSE3__
 #include <tmmintrin.h>
+static inline __m128i _mm_broadcastw_epi16(__m128i a) {
+	return _mm_shuffle_epi32(_mm_shufflelo_epi16(a, _MM_SHUFFLE(0, 0, 0, 0)), _MM_SHUFFLE(1, 0, 1, 0));
+}
+#endif // __AVX2__
+
 #ifdef __SSE4_1__
 #include <smmintrin.h>
 #define vector_select(mask, t, f) (typeof(f))_mm_blendv_epi8((__m128i)(f), (__m128i)(t), (__m128i)(mask))
@@ -292,7 +340,7 @@ static inline __m128i load8x1_8bit(uint8_t *p, __m128i zero) {
 static inline __m128i load4x2_8bit(uint8_t *r0, uint8_t *r1, __m128i zero) {
 	return _mm_cvtepu8_epi16(_mm_insert_epi32(_mm_cvtsi32_si128(*(int *)r0), *(int *)r1, 1));
 }
-#else // !__SSE4_1__
+#elif defined __SSSE3__
 #define vector_select(mask, t, f) (((t) & (mask)) | ((f) & ~(mask)))
 static inline __m128i _mm_mullo_epi32(__m128i a, __m128i b) {
 	__m128i c = _mm_shuffle_epi32(a, _MM_SHUFFLE(0, 3, 0, 1));
@@ -316,13 +364,7 @@ static inline __m128i load4x2_8bit(uint8_t *r0, uint8_t *r1, __m128i zero) {
 }
 #endif // __SSE4_1__
 
-#ifdef __AVX2__
-#include <immintrin.h>
-#else // !__AVX2__
-static inline __m128i _mm_broadcastw_epi16(__m128i a) {
-	return _mm_shuffle_epi32(_mm_shufflelo_epi16(a, _MM_SHUFFLE(0, 0, 0, 0)), _MM_SHUFFLE(1, 0, 1, 0));
-}
-#endif // __AVX2__
+#ifdef __SSSE3__
 static inline __m128i _mm_srl_si128(__m128i m, int count) {
 	static const uint8_t SMask[32] __attribute__((aligned(32))) = {
 		 0,  1,  2,  3,  4,  5,  6,  7,  8,  9, 10, 11, 12, 13, 14, 15,
@@ -351,9 +393,21 @@ static inline __m128i _mm_movpi64_epi64(__m64 a) {
 	return b;
 }
 #endif // __GNUC__
+
+// edge264_residual.c has an interface specific to x86
+__attribute__((noinline)) void FUNC(compute_LevelScale4x4, int iYCbCr);
+inline void FUNC(compute_LevelScale8x8, int iYCbCr);
+__attribute__((noinline)) void FUNC(decode_Residual4x4, __m128i p0, __m128i p1);
+__attribute__((noinline)) void FUNC(decode_Residual8x8_8bit, __m128i p0, __m128i p1, __m128i p2, __m128i p3, __m128i p4, __m128i p5, __m128i p6, __m128i p7);
+__attribute__((noinline)) void FUNC(decode_Residual8x8_noargs_8bit);
+__attribute__((noinline)) void FUNC(decode_Residual8x8, __m128i p0, __m128i p1, __m128i p2, __m128i p3, __m128i p4, __m128i p5, __m128i p6, __m128i p7);
+__attribute__((noinline)) void FUNC(decode_ResidualDC4x4);
+__attribute__((noinline)) void FUNC(decode_ResidualDC2x2);
+__attribute__((noinline)) void FUNC(decode_ResidualDC2x4);
+
 #else // !__SSSE3__
 #error "Add -mssse3 or more recent"
-#endif
+#endif // __SSSE3__
 
 #ifndef __clang__
 #define __builtin_shufflevector(a, b, ...) __builtin_shuffle(a, b, (typeof(a)){__VA_ARGS__})

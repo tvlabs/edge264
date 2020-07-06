@@ -1011,3 +1011,12 @@ INTER16x16_QPEL_21_23(qpel23, CALL(packus_6tapD_8bit, v03, v0B, vh, zero))
 INTER16x16_QPEL_12_22_32(qpel12, CALL(packus_6tapD_8bit, h20, h28, hv, zero))
 INTER16x16_QPEL_12_22_32(qpel22, hv)
 INTER16x16_QPEL_12_22_32(qpel32, CALL(packus_6tapD_8bit, h30, h38, hv, zero))
+
+
+
+/**
+ * 
+ */
+int FUNC(interChroma_2x2_8bit, int i4x4) {
+	
+}

@@ -1845,7 +1845,7 @@ static __attribute__((noinline)) void FUNC(PAFF_parse_slice_data)
  * unoptimised version.
  */
 #ifdef __SSSE3__
-static inline void FUNC(CABAC_parse_slice_data, int cabac_init_idc) {
+__attribute__((noinline)) void FUNC(CABAC_parse_slice_data, int cabac_init_idc) {
 	codIRange = (size_t)255 << (SIZE_BIT - 9);
 	codIOffset = CALL(get_uv, SIZE_BIT - 1);
 	
@@ -1863,6 +1863,6 @@ static inline void FUNC(CABAC_parse_slice_data, int cabac_init_idc) {
 	}
 	ctx->cabac[276] = 252;
 	if (!ctx->MbaffFrameFlag)
-		CALL(PAFF_parse_slice_data);
+		JUMP(PAFF_parse_slice_data);
 }
 #endif

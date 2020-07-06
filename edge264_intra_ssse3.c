@@ -14,13 +14,6 @@
 
 #include "edge264_common.h"
 
-static void FUNC(decode_Residual4x4, __m128i, __m128i);
-static void FUNC(decode_Residual8x8, __m128i, __m128i, __m128i, __m128i, __m128i, __m128i, __m128i, __m128i);
-static void FUNC(decode_Residual8x8_8bit, __m128i, __m128i, __m128i, __m128i, __m128i, __m128i, __m128i, __m128i);
-static void FUNC(decode_ResidualDC4x4);
-static void FUNC(decode_ResidualDC2x2);
-static void FUNC(decode_ResidualDC2x4);
-
 static inline __m128i lowpass(__m128i left, __m128i mid, __m128i right) {
 	return _mm_avg_epu16(_mm_srli_epi16(_mm_add_epi16(left, right), 1), mid);
 }

@@ -394,16 +394,24 @@ static inline __m128i _mm_movpi64_epi64(__m64 a) {
 }
 #endif // __GNUC__
 
-// edge264_residual.c has an interface specific to x86
+// edge264_residual.c has a machine-specific interface
 __attribute__((noinline)) void FUNC(compute_LevelScale4x4, int iYCbCr);
-inline void FUNC(compute_LevelScale8x8, int iYCbCr);
-__attribute__((noinline)) void FUNC(decode_Residual4x4, __m128i p0, __m128i p1);
-__attribute__((noinline)) void FUNC(decode_Residual8x8_8bit, __m128i p0, __m128i p1, __m128i p2, __m128i p3, __m128i p4, __m128i p5, __m128i p6, __m128i p7);
-__attribute__((noinline)) void FUNC(decode_Residual8x8_noargs_8bit);
-__attribute__((noinline)) void FUNC(decode_Residual8x8, __m128i p0, __m128i p1, __m128i p2, __m128i p3, __m128i p4, __m128i p5, __m128i p6, __m128i p7);
+void FUNC(compute_LevelScale8x8, int iYCbCr);
+__attribute__((noinline)) void FUNC(add_8bit_idct4x4_from_regs, __m128i p0, __m128i p1, size_t stride, ssize_t nstride, uint8_t *row1);
+__attribute__((noinline)) void FUNC(add_16bit_idct4x4_from_regs, __m128i p0, __m128i p1, size_t stride, ssize_t nstride, uint8_t *row1);
+void FUNC(add_8bit_idct4x4_in_place);
+void FUNC(add_16bit_idct4x4_in_place);
+__attribute__((noinline)) void FUNC(add_8bit_idct8x8_from_regs, __m128i p0, __m128i p1, size_t stride, ssize_t nstride, uint8_t *row1);
+__attribute__((noinline)) void FUNC(add_16bit_idct8x8_from_regs, __m128i p0, __m128i p1, size_t stride, ssize_t nstride, uint8_t *row1);
+void FUNC(add_8bit_idct8x8_in_place);
+void FUNC(add_16bit_idct8x8_in_place);
 __attribute__((noinline)) void FUNC(decode_ResidualDC4x4);
 __attribute__((noinline)) void FUNC(decode_ResidualDC2x2);
 __attribute__((noinline)) void FUNC(decode_ResidualDC2x4);
+// legacy functions
+__attribute__((noinline)) void FUNC(decode_Residual4x4, __m128i p0, __m128i p1);
+__attribute__((noinline)) void FUNC(decode_Residual8x8_8bit, __m128i p0, __m128i p1, __m128i p2, __m128i p3, __m128i p4, __m128i p5, __m128i p6, __m128i p7);
+__attribute__((noinline)) void FUNC(decode_Residual8x8, __m128i p0, __m128i p1, __m128i p2, __m128i p3, __m128i p4, __m128i p5, __m128i p6, __m128i p7);
 
 #else // !__SSSE3__
 #error "Add -mssse3 or more recent"

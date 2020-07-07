@@ -6,7 +6,7 @@
  * These functions are not executed often enough to justify maintaining AVX2
  * versions.
  */
-static const v16qi normAdjust4x4[6] = { // shared with decode_ResidualDC2x2/2x4
+static const v16qi normAdjust4x4[6] = { // shared with decode_ResidualDC2x4
 	10, 13, 10, 13, 13, 16, 13, 16, 10, 13, 10, 13, 13, 16, 13, 16,
 	11, 14, 11, 14, 14, 18, 14, 18, 11, 14, 11, 14, 14, 18, 14, 18,
 	13, 16, 13, 16, 16, 20, 16, 20, 13, 16, 13, 16, 16, 20, 16, 20,
@@ -82,14 +82,14 @@ inline void FUNC(compute_LevelScale8x8, int iYCbCr) {
  * speedup. Also the implementation matches the spec's pseudocode, avoiding
  * minor optimisations which would make it harder to understand.
  */
-static inline __attribute__((always_inline)) void FUNC(add_idct4x4_to_regs,
-	__m128i *p0, __m128i *p1)
+__attribute__((noinline)) void FUNC(decode_Residual4x4, __m128i p0, __m128i p1)
 {
 	// shortcut for blocks without AC coefficients
+	__m128i x4, x5;
 	if (__builtin_expect(ctx->significant_coeff_flags <= 1, 1)) {
 		__m128i DC = _mm_set1_epi16((ctx->d[0] + 32) >> 6);
-		*p0 = _mm_adds_epi16(*p0, DC);
-		*p1 = _mm_adds_epi16(*p1, DC);
+		x4 = _mm_adds_epi16(p0, DC);
+		x5 = _mm_adds_epi16(p1, DC);
 	} else {
 		
 		// loading
@@ -131,64 +131,28 @@ static inline __attribute__((always_inline)) void FUNC(add_idct4x4_to_regs,
 		// final residual values and addition to predicted samples
 		__m128i r0 = _mm_packs_epi32(_mm_srai_epi32(h0, 6), _mm_srai_epi32(h1, 6));
 		__m128i r1 = _mm_packs_epi32(_mm_srai_epi32(h2, 6), _mm_srai_epi32(h3, 6));
-		*p0 = _mm_adds_epi16(r0, *p0);
-		*p1 = _mm_adds_epi16(r1, *p1);
+		x4 = _mm_adds_epi16(r0, p0);
+		x5 = _mm_adds_epi16(r1, p1);
 	}
-}
-
-__attribute__((noinline)) void FUNC(add_8bit_idct4x4_from_regs, __m128i p0,
-	__m128i p1, size_t stride, ssize_t nstride, uint8_t *row1)
-{
-	CALL(add_idct4x4_to_regs, &p0, &p1);
-	v4si u = (v4si)_mm_packus_epi16(p0, p1);
-	*(int32_t *)(row1 + nstride    ) = u[0];
-	*(int32_t *)(row1              ) = u[1];
-	*(int32_t *)(row1 +  stride    ) = u[2];
-	*(int32_t *)(row1 +  stride * 2) = u[3];
-}
-
-__attribute__((noinline)) void FUNC(add_16bit_idct4x4_from_regs, __m128i p0,
-	__m128i p1, size_t stride, ssize_t nstride, uint8_t *row1)
-{
-	CALL(add_idct4x4_to_regs, &p0, &p1);
-	__m128i zero = _mm_setzero_si128();
-	__m128i clip = (__m128i)ctx->clip_v;
-	v2li u0 = (v2li)_mm_min_epi16(_mm_max_epi16(p0, zero), clip);
-	v2li u1 = (v2li)_mm_min_epi16(_mm_max_epi16(p1, zero), clip);
-	*(int64_t *)(row1 + nstride    ) = u0[0];
-	*(int64_t *)(row1              ) = u0[1];
-	*(int64_t *)(row1 +  stride    ) = u1[0];
-	*(int64_t *)(row1 +  stride * 2) = u1[1];
-}
-
-inline void FUNC(add_8bit_idct4x4_in_place) {
+	
+	// storage
+	uint8_t *p = ctx->plane + ctx->plane_offsets[ctx->BlkIdx];
 	size_t stride = ctx->stride;
-	ssize_t nstride = -stride;
-	uint8_t *row1 = ctx->plane + ctx->plane_offsets[ctx->BlkIdx] + stride;
-	__m128i zero = _mm_setzero_si128();
-	__m128i p0 = load4x2_8bit(row1 + nstride, row1             , zero);
-	__m128i p1 = load4x2_8bit(row1 +  stride, row1 + stride * 2, zero);
-	JUMP(add_8bit_idct4x4_from_regs, p0, p1, stride, nstride, row1);
-}
-
-inline void FUNC(add_16bit_idct4x4_in_place) {
-	size_t stride = ctx->stride;
-	ssize_t nstride = -stride;
-	uint8_t *row1 = ctx->plane + ctx->plane_offsets[ctx->BlkIdx] + stride;
-	__m128i p0 = _mm_set_epi64(*(__m64 *)(row1             ), *(__m64 *)(row1 + nstride));
-	__m128i p1 = _mm_set_epi64(*(__m64 *)(row1 + stride * 2), *(__m64 *)(row1 +  stride));
-	JUMP(add_16bit_idct4x4_from_regs, p0, p1, stride, nstride, row1);
-}
-
-// legacy function
-__attribute__((noinline)) void FUNC(decode_Residual4x4, __m128i p0, __m128i p1) {
-	size_t stride = ctx->stride;
-	ssize_t nstride = -stride;
-	uint8_t *row1 = ctx->plane + ctx->plane_offsets[ctx->BlkIdx] + stride;
 	if (__builtin_expect(ctx->clip == 255, 1)) {
-		JUMP(add_8bit_idct4x4_from_regs, p0, p1, stride, nstride, row1);
+		v4si u = (v4si)_mm_packus_epi16(x4, x5);
+		*(int32_t *)(p + stride * 0) = u[0];
+		*(int32_t *)(p + stride * 1) = u[1];
+		*(int32_t *)(p + stride * 2) = u[2];
+		*(int32_t *)(p + stride * 3) = u[3];
 	} else {
-		JUMP(add_16bit_idct4x4_from_regs, p0, p1, stride, nstride, row1);
+		__m128i zero = _mm_setzero_si128();
+		__m128i clip = (__m128i)ctx->clip_v;
+		v2li u0 = (v2li)_mm_min_epi16(_mm_max_epi16(x4, zero), clip);
+		v2li u1 = (v2li)_mm_min_epi16(_mm_max_epi16(x5, zero), clip);
+		*(int64_t *)(p + stride * 0) = u0[0];
+		*(int64_t *)(p + stride * 1) = u0[1];
+		*(int64_t *)(p + stride * 2) = u1[0];
+		*(int64_t *)(p + stride * 3) = u1[1];
 	}
 }
 
@@ -198,7 +162,7 @@ __attribute__((noinline)) void FUNC(decode_Residual4x4, __m128i p0, __m128i p1) 
  * Inverse 8x8 transform
  *
  * 8/16bit versions are kept separate since the first is noticeably faster
- * when AVX is not available to speed up the 16bit version.
+ * when AVX is not available.
  * For each one, two entry points are provided. The first (for Intra) passes
  * predicted samples in registers, and the second (for Inter) passes them in
  * place in memory.

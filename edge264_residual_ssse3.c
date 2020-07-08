@@ -30,7 +30,7 @@ __attribute__((noinline)) void FUNC(compute_LevelScale4x4, int iYCbCr) {
 	ctx->LevelScale_v[3] = (v4si)_mm_sll_epi32(_mm_unpackhi_epi16(x1, zero), shift);
 }
 
-inline void FUNC(compute_LevelScale8x8, int iYCbCr) {
+__attribute__((noinline)) void FUNC(compute_LevelScale8x8, int iYCbCr) {
 	static const v16qi normAdjust8x8[6][4] = {
 		20, 19, 25, 19, 20, 19, 25, 19, 19, 18, 24, 18, 19, 18, 24, 18,
 		25, 24, 32, 24, 25, 24, 32, 24, 19, 18, 24, 18, 19, 18, 24, 18,

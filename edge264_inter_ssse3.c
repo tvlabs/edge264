@@ -728,39 +728,29 @@ INTER8xH_QPEL_12_22_32(qpel32, filter_36tapD_8bit, CALL(avg_6tapD_8bit, x30, hv,
  * Here more than previous code, we are confronted with very high register
  * pressure and will rather reload values from memory than keeping them live.
  */
-int FUNC(inter16x16_qpel00_8bit, size_t stride, ssize_t nstride, uint8_t *p, size_t dstStride, __m128i *dst) {
-	ssize_t nStride = -dstStride;
-	*(__m128i *)(dst                ) = _mm_lddqu_si128((__m128i *)(p              ));
-	*(__m128i *)(dst + dstStride    ) = _mm_lddqu_si128((__m128i *)(p +  stride    ));
-	*(__m128i *)(dst + dstStride * 2) = _mm_lddqu_si128((__m128i *)(p +  stride * 2));
-	p += stride * 4;
-	dst += dstStride * 4;
-	*(__m128i *)(dst +   nStride    ) = _mm_lddqu_si128((__m128i *)(p + nstride    ));
-	*(__m128i *)(dst                ) = _mm_lddqu_si128((__m128i *)(p              ));
-	*(__m128i *)(dst + dstStride    ) = _mm_lddqu_si128((__m128i *)(p +  stride    ));
-	*(__m128i *)(dst + dstStride * 2) = _mm_lddqu_si128((__m128i *)(p +  stride * 2));
-	p += stride * 4;
-	dst += dstStride * 4;
-	*(__m128i *)(dst +   nStride    ) = _mm_lddqu_si128((__m128i *)(p + nstride    ));
-	*(__m128i *)(dst                ) = _mm_lddqu_si128((__m128i *)(p              ));
-	*(__m128i *)(dst + dstStride    ) = _mm_lddqu_si128((__m128i *)(p +  stride    ));
-	*(__m128i *)(dst + dstStride * 2) = _mm_lddqu_si128((__m128i *)(p +  stride * 2));
-	p += stride * 4;
-	dst += dstStride * 4;
-	*(__m128i *)(dst +   nStride    ) = _mm_lddqu_si128((__m128i *)(p + nstride    ));
-	*(__m128i *)(dst                ) = _mm_lddqu_si128((__m128i *)(p              ));
-	*(__m128i *)(dst + dstStride    ) = _mm_lddqu_si128((__m128i *)(p +  stride    ));
-	*(__m128i *)(dst + dstStride * 2) = _mm_lddqu_si128((__m128i *)(p +  stride * 2));
-	*(__m128i *)(dst + dstStride * 3) = _mm_lddqu_si128((__m128i *)(p +  stride * 3));
-	return ponderation_16x16();
+void FUNC(inter16xH_qpel00_8bit, int h, size_t dstride, uint8_t *dst, size_t sstride, uint8_t *src) {
+	do {
+		*(__m128i *)(dst              ) = _mm_lddqu_si128((__m128i *)(src              ));
+		*(__m128i *)(dst + dstride    ) = _mm_lddqu_si128((__m128i *)(src + sstride    ));
+		*(__m128i *)(dst + dstride * 2) = _mm_lddqu_si128((__m128i *)(src + sstride * 2));
+		*(__m128i *)(dst + dstride * 3) = _mm_lddqu_si128((__m128i *)(src + sstride * 3));
+		src += sstride * 4;
+		dst += dstride * 4;
+		*(__m128i *)(dst              ) = _mm_lddqu_si128((__m128i *)(src              ));
+		*(__m128i *)(dst + dstride    ) = _mm_lddqu_si128((__m128i *)(src + sstride    ));
+		*(__m128i *)(dst + dstride * 2) = _mm_lddqu_si128((__m128i *)(src + sstride * 2));
+		*(__m128i *)(dst + dstride * 3) = _mm_lddqu_si128((__m128i *)(src + sstride * 3));
+		src += sstride * 4;
+		dst += dstride * 4;
+	} while (h -= 8);
 }
 
-#define INTER16x16_QPEL_01_02_03(QPEL, P)\
-	int FUNC(inter16x16_ ## QPEL ## _8bit, size_t stride, ssize_t nstride, uint8_t *p, size_t dstStride, __m128i *dst) {\
+#define INTER16xH_QPEL_01_02_03(QPEL, P)\
+	void FUNC(inter16xH_ ## QPEL ## _8bit, int h, size_t dstride, uint8_t *dst, size_t sstride, uint8_t *src) {\
 		__m128i zero = _mm_setzero_si128();\
-		for (int i = 0; i < 16; i++, p += stride, dst += dstStride) {\
-			__m128i d00 = _mm_lddqu_si128((__m128i *)(p - 2));\
-			__m128i l0D = load8x1_8bit(p + 11, zero);\
+		do {\
+			__m128i d00 = _mm_lddqu_si128((__m128i *)(src - 2));\
+			__m128i l0D = load8x1_8bit(src + 11, zero);\
 			__m128i l00 = _mm_unpacklo_epi8(d00, zero);\
 			__m128i l08 = _mm_unpackhi_epi8(d00, zero);\
 			__m128i l0G = _mm_srli_si128(l0D, 6);\
@@ -777,22 +767,24 @@ int FUNC(inter16x16_qpel00_8bit, size_t stride, ssize_t nstride, uint8_t *p, siz
 			__m128i h1 = CALL(noclip_6tap, l08, l09, l0A, l0B, l0C, l0D, zero);\
 			__m128i h = _mm_packus_epi16(h0, h1);\
 			*(__m128i *)dst = P;\
-		}\
-		return ponderation_16x16();\
+			src += sstride;\
+			dst += dstride;\
+		} while (--h);\
 	}\
 
-INTER16x16_QPEL_01_02_03(qpel01, _mm_avg_epu8(h, _mm_lddqu_si128((__m128i *)p)))
-INTER16x16_QPEL_01_02_03(qpel02, h)
-INTER16x16_QPEL_01_02_03(qpel03, _mm_avg_epu8(h, _mm_lddqu_si128((__m128i *)(p + 1))))
+INTER16xH_QPEL_01_02_03(qpel01, _mm_avg_epu8(h, _mm_lddqu_si128((__m128i *)src)))
+INTER16xH_QPEL_01_02_03(qpel02, h)
+INTER16xH_QPEL_01_02_03(qpel03, _mm_avg_epu8(h, _mm_lddqu_si128((__m128i *)(src + 1))))
 
-#define INTER16x16_QPEL_10_20_30(QPEL, P)\
-	int FUNC(inter16x16_ ## QPEL ## _8bit, size_t stride, ssize_t nstride, uint8_t *p, size_t dstStride, __m128i *dst) {\
+#define INTER16xH_QPEL_10_20_30(QPEL, P)\
+	void FUNC(inter16xH_ ## QPEL ## _8bit, int h, size_t dstride, uint8_t *dst, size_t sstride, uint8_t *src) {\
+		ssize_t nstride= -sstride;\
 		__m128i zero = _mm_setzero_si128();\
-		__m128i d00 = _mm_lddqu_si128((__m128i *)(p + nstride * 2));\
-		__m128i d10 = _mm_lddqu_si128((__m128i *)(p + nstride    ));\
-		__m128i d20 = _mm_lddqu_si128((__m128i *)(p              ));\
-		__m128i d30 = _mm_lddqu_si128((__m128i *)(p +  stride    ));\
-		__m128i d40 = _mm_lddqu_si128((__m128i *)(p +  stride * 2));\
+		__m128i d00 = _mm_lddqu_si128((__m128i *)(src + nstride * 2));\
+		__m128i d10 = _mm_lddqu_si128((__m128i *)(src + nstride    ));\
+		__m128i d20 = _mm_lddqu_si128((__m128i *)(src              ));\
+		__m128i d30 = _mm_lddqu_si128((__m128i *)(src + sstride    ));\
+		__m128i d40 = _mm_lddqu_si128((__m128i *)(src + sstride * 2));\
 		__m128i l00 = _mm_unpacklo_epi8(d00, zero);\
 		__m128i l08 = _mm_unpackhi_epi8(d00, zero);\
 		__m128i l10 = _mm_unpacklo_epi8(d10, zero);\
@@ -803,9 +795,9 @@ INTER16x16_QPEL_01_02_03(qpel03, _mm_avg_epu8(h, _mm_lddqu_si128((__m128i *)(p +
 		__m128i l38 = _mm_unpackhi_epi8(d30, zero);\
 		__m128i l40 = _mm_unpacklo_epi8(d40, zero);\
 		__m128i l48 = _mm_unpackhi_epi8(d40, zero);\
-		for (int i = 0; i < 16; i++, dst += dstStride) {\
-			p += stride;\
-			__m128i d50 = _mm_lddqu_si128((__m128i *)(p + stride * 2));\
+		do {\
+			src += sstride;\
+			__m128i d50 = _mm_lddqu_si128((__m128i *)(src + sstride * 2));\
 			__m128i l50 = _mm_unpacklo_epi8(d50, zero);\
 			__m128i l58 = _mm_unpackhi_epi8(d50, zero);\
 			__m128i v0 = CALL(noclip_6tap, l00, l10, l20, l30, l40, l50, zero);\
@@ -817,27 +809,28 @@ INTER16x16_QPEL_01_02_03(qpel03, _mm_avg_epu8(h, _mm_lddqu_si128((__m128i *)(p +
 			l20 = l30, l28 = l38;\
 			l30 = l40, l38 = l48;\
 			l40 = l50, l48 = l58;\
-		}\
-		return ponderation_16x16();\
+			dst += dstride;\
+		} while (--h);\
 	}\
 
-INTER16x16_QPEL_10_20_30(qpel10, _mm_avg_epu8(v, _mm_lddqu_si128((__m128i *)p)))
-INTER16x16_QPEL_10_20_30(qpel20, v)
-INTER16x16_QPEL_10_20_30(qpel30, _mm_avg_epu8(v, _mm_lddqu_si128((__m128i *)(p + stride))))
+INTER16xH_QPEL_10_20_30(qpel10, _mm_avg_epu8(v, _mm_lddqu_si128((__m128i *)src)))
+INTER16xH_QPEL_10_20_30(qpel20, v)
+INTER16xH_QPEL_10_20_30(qpel30, _mm_avg_epu8(v, _mm_lddqu_si128((__m128i *)(src + sstride))))
 
-#define INTER16x16_QPEL_11_13(QPEL, R, S, OFFSET)\
-	int FUNC(inter16x16_ ## QPEL ## _8bit, size_t stride, ssize_t nstride, uint8_t *p, size_t dstStride, __m128i *dst) {\
+#define INTER16xH_QPEL_11_13(QPEL, R, S)\
+	void FUNC(inter16xH_ ## QPEL ## _8bit, int h, size_t dstride, uint8_t *dst, size_t sstride, uint8_t *src) {\
+		ssize_t nstride= -sstride;\
 		__m128i zero = _mm_setzero_si128();\
-		__m128i d0##R = _mm_lddqu_si128((__m128i *)(p + nstride * 2 + OFFSET));\
-		__m128i d1##R = _mm_lddqu_si128((__m128i *)(p + nstride     + OFFSET));\
+		__m128i d0##R = _mm_lddqu_si128((__m128i *)(src + nstride * 2 + R - 2));\
+		__m128i d1##R = _mm_lddqu_si128((__m128i *)(src + nstride     + R - 2));\
 		__m128i l0##R = _mm_unpacklo_epi8(d0##R, zero);\
 		__m128i l0##S = _mm_unpackhi_epi8(d0##R, zero);\
 		__m128i l1##R = _mm_unpacklo_epi8(d1##R, zero);\
 		__m128i l1##S = _mm_unpackhi_epi8(d1##R, zero);\
-		for (int i = 0; i < 16; i++, dst += dstStride) {\
-			p += stride;\
-			__m128i d20 = _mm_lddqu_si128((__m128i *)(p + nstride - 2));\
-			__m128i l2D = load8x1_8bit(p + nstride + 11, zero);\
+		do {\
+			src += sstride;\
+			__m128i d20 = _mm_lddqu_si128((__m128i *)(src + nstride - 2));\
+			__m128i l2D = load8x1_8bit(src + nstride + 11, zero);\
 			__m128i l20 = _mm_unpacklo_epi8(d20, zero);\
 			__m128i l28 = _mm_unpackhi_epi8(d20, zero);\
 			__m128i l2G = _mm_srli_si128(l2D, 6);\
@@ -853,9 +846,9 @@ INTER16x16_QPEL_10_20_30(qpel30, _mm_avg_epu8(v, _mm_lddqu_si128((__m128i *)(p +
 			__m128i h0 = CALL(noclip_6tap, l20, l21, l22, l23, l24, l25, zero);\
 			__m128i h1 = CALL(noclip_6tap, l28, l29, l2A, l2B, l2C, l2D, zero);\
 			__m128i h = _mm_packus_epi16(h0, h1);\
-			__m128i d3##R = _mm_lddqu_si128((__m128i *)(p              + OFFSET));\
-			__m128i d4##R = _mm_lddqu_si128((__m128i *)(p + stride     + OFFSET));\
-			__m128i d5##R = _mm_lddqu_si128((__m128i *)(p + stride * 2 + OFFSET));\
+			__m128i d3##R = _mm_lddqu_si128((__m128i *)(src               + R - 2));\
+			__m128i d4##R = _mm_lddqu_si128((__m128i *)(src + sstride     + R - 2));\
+			__m128i d5##R = _mm_lddqu_si128((__m128i *)(src + sstride * 2 + R - 2));\
 			__m128i l3##R = _mm_unpacklo_epi8(d3##R, zero);\
 			__m128i l3##S = _mm_unpackhi_epi8(d3##R, zero);\
 			__m128i l4##R = _mm_unpacklo_epi8(d4##R, zero);\
@@ -867,29 +860,30 @@ INTER16x16_QPEL_10_20_30(qpel30, _mm_avg_epu8(v, _mm_lddqu_si128((__m128i *)(p +
 			*(__m128i *)dst = _mm_avg_epu8(_mm_packus_epi16(v0, v1), h);\
 			l0##R = l1##R, l0##S = l1##S;\
 			l1##R = l2##R, l1##S = l2##S;\
-		}\
-		return ponderation_16x16();\
+			dst += dstride;\
+		} while (--h);\
 	}\
 
-INTER16x16_QPEL_11_13(qpel11, 2, A, 0)
-INTER16x16_QPEL_11_13(qpel13, 3, B, 1)
+INTER16xH_QPEL_11_13(qpel11, 2, A)
+INTER16xH_QPEL_11_13(qpel13, 3, B)
 
-#define INTER16x16_QPEL_31_33(QPEL, R, S, OFFSET)\
-	int FUNC(inter16x16_ ## QPEL ## _8bit, size_t stride, ssize_t nstride, uint8_t *p, size_t dstStride, __m128i *dst) {\
+#define INTER16xH_QPEL_31_33(QPEL, R, S)\
+	void FUNC(inter16xH_ ## QPEL ## _8bit, int h, size_t dstride, uint8_t *dst, size_t sstride, uint8_t *src) {\
+		ssize_t nstride= -sstride;\
 		__m128i zero = _mm_setzero_si128();\
-		__m128i d0##R = _mm_lddqu_si128((__m128i *)(p + nstride * 2 + OFFSET));\
-		__m128i d1##R = _mm_lddqu_si128((__m128i *)(p + nstride     + OFFSET));\
-		__m128i d2##R = _mm_lddqu_si128((__m128i *)(p               + OFFSET));\
+		__m128i d0##R = _mm_lddqu_si128((__m128i *)(src + nstride * 2 + R - 2));\
+		__m128i d1##R = _mm_lddqu_si128((__m128i *)(src + nstride     + R - 2));\
+		__m128i d2##R = _mm_lddqu_si128((__m128i *)(src               + R - 2));\
 		__m128i l0##R = _mm_unpacklo_epi8(d0##R, zero);\
 		__m128i l0##S = _mm_unpackhi_epi8(d0##R, zero);\
 		__m128i l1##R = _mm_unpacklo_epi8(d1##R, zero);\
 		__m128i l1##S = _mm_unpackhi_epi8(d1##R, zero);\
 		__m128i l2##R = _mm_unpacklo_epi8(d2##R, zero);\
 		__m128i l2##S = _mm_unpackhi_epi8(d2##R, zero);\
-		for (int i = 0; i < 16; i++, dst += dstStride) {\
-			p += stride;\
-			__m128i d30 = _mm_lddqu_si128((__m128i *)(p - 2));\
-			__m128i l3D = load8x1_8bit(p + 11, zero);\
+		do {\
+			src += sstride;\
+			__m128i d30 = _mm_lddqu_si128((__m128i *)(src - 2));\
+			__m128i l3D = load8x1_8bit(src + 11, zero);\
 			__m128i l30 = _mm_unpacklo_epi8(d30, zero);\
 			__m128i l38 = _mm_unpackhi_epi8(d30, zero);\
 			__m128i l3G = _mm_srli_si128(l3D, 6);\
@@ -905,8 +899,8 @@ INTER16x16_QPEL_11_13(qpel13, 3, B, 1)
 			__m128i h0 = CALL(noclip_6tap, l30, l31, l32, l33, l34, l35, zero);\
 			__m128i h1 = CALL(noclip_6tap, l38, l39, l3A, l3B, l3C, l3D, zero);\
 			__m128i h = _mm_packus_epi16(h0, h1);\
-			__m128i d4##R = _mm_lddqu_si128((__m128i *)(p + stride     + OFFSET));\
-			__m128i d5##R = _mm_lddqu_si128((__m128i *)(p + stride * 2 + OFFSET));\
+			__m128i d4##R = _mm_lddqu_si128((__m128i *)(src + sstride     + R - 2));\
+			__m128i d5##R = _mm_lddqu_si128((__m128i *)(src + sstride * 2 + R - 2));\
 			__m128i l4##R = _mm_unpacklo_epi8(d4##R, zero);\
 			__m128i l4##S = _mm_unpackhi_epi8(d4##R, zero);\
 			__m128i l5##R = _mm_unpacklo_epi8(d5##R, zero);\
@@ -917,40 +911,41 @@ INTER16x16_QPEL_11_13(qpel13, 3, B, 1)
 			l0##R = l1##R, l0##S = l1##S;\
 			l1##R = l2##R, l1##S = l2##S;\
 			l2##R = l3##R, l2##S = l3##S;\
-		}\
-		return ponderation_16x16();\
+			dst += dstride;\
+		} while (--h);\
 	}\
 
-INTER16x16_QPEL_31_33(qpel31, 2, A, 0)
-INTER16x16_QPEL_31_33(qpel33, 3, B, 1)
+INTER16xH_QPEL_31_33(qpel31, 2, A)
+INTER16xH_QPEL_31_33(qpel33, 3, B)
 
-#define INTER16x16_QPEL_21_23(QPEL, P)\
-	int FUNC(inter16x16_ ## QPEL ## _8bit, size_t stride, ssize_t nstride, uint8_t *p, size_t dstStride, __m128i *dst) {\
+#define INTER16xH_QPEL_21_23(QPEL, P)\
+	void FUNC(inter16xH_ ## QPEL ## _8bit, int h, size_t dstride, uint8_t *dst, size_t sstride, uint8_t *src) {\
+		ssize_t nstride= -sstride;\
 		__m128i zero = _mm_setzero_si128();\
-		for (int i = 0; i < 16; i++, dst += dstStride) {\
-			__m128i d00 = _mm_lddqu_si128((__m128i *)(p + nstride * 2 - 2));\
-			__m128i l0D = load8x1_8bit(p + nstride * 2 + 11, zero);\
+		__m128i d00 = _mm_lddqu_si128((__m128i *)(src + nstride * 2 - 2));\
+		__m128i l0D = load8x1_8bit(src + nstride * 2 + 11, zero);\
+		__m128i d10 = _mm_lddqu_si128((__m128i *)(src + nstride     - 2));\
+		__m128i l1D = load8x1_8bit(src + nstride     + 11, zero);\
+		__m128i d20 = _mm_lddqu_si128((__m128i *)(src               - 2));\
+		__m128i l2D = load8x1_8bit(src               + 11, zero);\
+		__m128i d30 = _mm_lddqu_si128((__m128i *)(src + sstride     - 2));\
+		__m128i l3D = load8x1_8bit(src + sstride     + 11, zero);\
+		__m128i d40 = _mm_lddqu_si128((__m128i *)(src + sstride * 2 - 2));\
+		__m128i l4D = load8x1_8bit(src + sstride * 2 + 11, zero);\
+		do {\
+			src += sstride;\
+			__m128i d50 = _mm_lddqu_si128((__m128i *)(src + sstride * 2 - 2));\
+			__m128i l5D = load8x1_8bit(src + sstride * 2 + 11, zero);\
 			__m128i l00 = _mm_unpacklo_epi8(d00, zero);\
 			__m128i l08 = _mm_unpackhi_epi8(d00, zero);\
-			__m128i d10 = _mm_lddqu_si128((__m128i *)(p + nstride - 2));\
-			__m128i l1D = load8x1_8bit(p + nstride     + 11, zero);\
 			__m128i l10 = _mm_unpacklo_epi8(d10, zero);\
 			__m128i l18 = _mm_unpackhi_epi8(d10, zero);\
-			__m128i d20 = _mm_lddqu_si128((__m128i *)(p - 2));\
-			__m128i l2D = load8x1_8bit(p + nstride     + 11, zero);\
 			__m128i l20 = _mm_unpacklo_epi8(d20, zero);\
 			__m128i l28 = _mm_unpackhi_epi8(d20, zero);\
-			p += stride;\
-			__m128i d30 = _mm_lddqu_si128((__m128i *)(p - 2));\
-			__m128i l3D = load8x1_8bit(p               + 11, zero);\
 			__m128i l30 = _mm_unpacklo_epi8(d30, zero);\
 			__m128i l38 = _mm_unpackhi_epi8(d30, zero);\
-			__m128i d40 = _mm_lddqu_si128((__m128i *)(p + stride - 2));\
-			__m128i l4D = load8x1_8bit(p +  stride     + 11, zero);\
 			__m128i l40 = _mm_unpacklo_epi8(d40, zero);\
 			__m128i l48 = _mm_unpackhi_epi8(d40, zero);\
-			__m128i d50 = _mm_lddqu_si128((__m128i *)(p + stride * 2 - 2));\
-			__m128i l5D = load8x1_8bit(p +  stride * 2 + 11, zero);\
 			__m128i l50 = _mm_unpacklo_epi8(d50, zero);\
 			__m128i l58 = _mm_unpackhi_epi8(d50, zero);\
 			__m128i v0D = CALL(filter_36tapU_8bit, l0D, l1D, l2D, l3D, l4D, l5D);\
@@ -966,23 +961,26 @@ INTER16x16_QPEL_31_33(qpel33, 3, B, 1)
 			__m128i v0A = _mm_alignr_epi8(v0G, v08, 4);\
 			__m128i v0B = _mm_alignr_epi8(v0G, v08, 6);\
 			__m128i v0C = _mm_alignr_epi8(v0G, v08, 8);\
-			__m128i vh0 = CALL(filter_36tapD_8bit, v00, v01, v02, v03, v04, v05, zero);\
-			__m128i vh1 = CALL(filter_36tapD_8bit, v08, v09, v0A, v0B, v0C, v0D, zero);\
+			__m128i vh0 = CALL(noclip_36tapD_8bit, v00, v01, v02, v03, v04, v05, zero);\
+			__m128i vh1 = CALL(noclip_36tapD_8bit, v08, v09, v0A, v0B, v0C, v0D, zero);\
 			__m128i vh = _mm_packus_epi16(vh0, vh1);\
 			*(__m128i *)dst = P;\
-		}\
-		return ponderation_16x16();\
+			d00 = d10, d10 = d20, d20 = d30, d30 = d40, d40 = d50;\
+			l0D = l1D, l1D = l2D, l2D = l3D, l3D = l4D, l4D = l5D;\
+			dst += dstride;\
+		} while (--h);\
 	}\
 
-INTER16x16_QPEL_21_23(qpel21, CALL(packus_6tapD_8bit, v02, v0A, vh, zero))
-INTER16x16_QPEL_21_23(qpel23, CALL(packus_6tapD_8bit, v03, v0B, vh, zero))
+INTER16xH_QPEL_21_23(qpel21, CALL(packus_6tapD_8bit, v02, v0A, vh, zero))
+INTER16xH_QPEL_21_23(qpel23, CALL(packus_6tapD_8bit, v03, v0B, vh, zero))
 
 // with an array on stack or a preliminary loop, both compilers get crazy
-#define INTER16x16_QPEL_12_22_32(QPEL, P)\
-	int FUNC(inter16x16_ ## QPEL ## _8bit, size_t stride, ssize_t nstride, uint8_t *p, size_t dstStride, __m128i *dst) {\
+#define INTER16xH_QPEL_12_22_32(QPEL, P)\
+	void FUNC(inter16xH_ ## QPEL ## _8bit, int h, size_t dstride, uint8_t *dst, size_t sstride, uint8_t *src) {\
+		ssize_t nstride= -sstride;\
 		__m128i zero = _mm_setzero_si128();\
-		__m128i d00 = _mm_lddqu_si128((__m128i *)(p + nstride * 2 - 2));\
-		__m128i l0D = load8x1_8bit(p + nstride * 2 + 11, zero);\
+		__m128i d00 = _mm_lddqu_si128((__m128i *)(src + nstride * 2 - 2));\
+		__m128i l0D = load8x1_8bit(src + nstride * 2 + 11, zero);\
 		__m128i l00 = _mm_unpacklo_epi8(d00, zero);\
 		__m128i l08 = _mm_unpackhi_epi8(d00, zero);\
 		__m128i l0G = _mm_srli_si128(l0D, 6);\
@@ -997,8 +995,8 @@ INTER16x16_QPEL_21_23(qpel23, CALL(packus_6tapD_8bit, v03, v0B, vh, zero))
 		__m128i l0C = _mm_alignr_epi8(l0G, l08, 8);\
 		__m128i h00 = CALL(filter_36tapU_8bit, l00, l01, l02, l03, l04, l05);\
 		__m128i h08 = CALL(filter_36tapU_8bit, l08, l09, l0A, l0B, l0C, l0D);\
-		__m128i d10 = _mm_lddqu_si128((__m128i *)(p + nstride - 2));\
-		__m128i l1D = load8x1_8bit(p + nstride     + 11, zero);\
+		__m128i d10 = _mm_lddqu_si128((__m128i *)(src + nstride     - 2));\
+		__m128i l1D = load8x1_8bit(src + nstride     + 11, zero);\
 		__m128i l10 = _mm_unpacklo_epi8(d10, zero);\
 		__m128i l18 = _mm_unpackhi_epi8(d10, zero);\
 		__m128i l1G = _mm_srli_si128(l1D, 6);\
@@ -1013,8 +1011,8 @@ INTER16x16_QPEL_21_23(qpel23, CALL(packus_6tapD_8bit, v03, v0B, vh, zero))
 		__m128i l1C = _mm_alignr_epi8(l1G, l18, 8);\
 		__m128i h10 = CALL(filter_36tapU_8bit, l10, l11, l12, l13, l14, l15);\
 		__m128i h18 = CALL(filter_36tapU_8bit, l18, l19, l1A, l1B, l1C, l1D);\
-		__m128i d20 = _mm_lddqu_si128((__m128i *)(p - 2));\
-		__m128i l2D = load8x1_8bit(p               + 11, zero);\
+		__m128i d20 = _mm_lddqu_si128((__m128i *)(src               - 2));\
+		__m128i l2D = load8x1_8bit(src               + 11, zero);\
 		__m128i l20 = _mm_unpacklo_epi8(d20, zero);\
 		__m128i l28 = _mm_unpackhi_epi8(d20, zero);\
 		__m128i l2G = _mm_srli_si128(l2D, 6);\
@@ -1029,8 +1027,8 @@ INTER16x16_QPEL_21_23(qpel23, CALL(packus_6tapD_8bit, v03, v0B, vh, zero))
 		__m128i l2C = _mm_alignr_epi8(l2G, l28, 8);\
 		__m128i h20 = CALL(filter_36tapU_8bit, l20, l21, l22, l23, l24, l25);\
 		__m128i h28 = CALL(filter_36tapU_8bit, l28, l29, l2A, l2B, l2C, l2D);\
-		__m128i d30 = _mm_lddqu_si128((__m128i *)(p + stride - 2));\
-		__m128i l3D = load8x1_8bit(p +  stride     + 11, zero);\
+		__m128i d30 = _mm_lddqu_si128((__m128i *)(src + sstride     - 2));\
+		__m128i l3D = load8x1_8bit(src + sstride     + 11, zero);\
 		__m128i l30 = _mm_unpacklo_epi8(d30, zero);\
 		__m128i l38 = _mm_unpackhi_epi8(d30, zero);\
 		__m128i l3G = _mm_srli_si128(l3D, 6);\
@@ -1045,8 +1043,8 @@ INTER16x16_QPEL_21_23(qpel23, CALL(packus_6tapD_8bit, v03, v0B, vh, zero))
 		__m128i l3C = _mm_alignr_epi8(l3G, l38, 8);\
 		__m128i h30 = CALL(filter_36tapU_8bit, l30, l31, l32, l33, l34, l35);\
 		__m128i h38 = CALL(filter_36tapU_8bit, l38, l39, l3A, l3B, l3C, l3D);\
-		__m128i d40 = _mm_lddqu_si128((__m128i *)(p + stride * 2 - 2));\
-		__m128i l4D = load8x1_8bit(p +  stride * 2 + 11, zero);\
+		__m128i d40 = _mm_lddqu_si128((__m128i *)(src + sstride * 2 - 2));\
+		__m128i l4D = load8x1_8bit(src + sstride * 2 + 11, zero);\
 		__m128i l40 = _mm_unpacklo_epi8(d40, zero);\
 		__m128i l48 = _mm_unpackhi_epi8(d40, zero);\
 		__m128i l4G = _mm_srli_si128(l4D, 6);\
@@ -1061,10 +1059,10 @@ INTER16x16_QPEL_21_23(qpel23, CALL(packus_6tapD_8bit, v03, v0B, vh, zero))
 		__m128i l4C = _mm_alignr_epi8(l4G, l48, 8);\
 		__m128i h40 = CALL(filter_36tapU_8bit, l40, l41, l42, l43, l44, l45);\
 		__m128i h48 = CALL(filter_36tapU_8bit, l48, l49, l4A, l4B, l4C, l4D);\
-		for (int i = 0; i < 16; i++, dst += dstStride) {\
-			p += stride;\
-			__m128i d50 = _mm_lddqu_si128((__m128i *)(p + nstride * 2 - 2));\
-			__m128i l5D = load8x1_8bit(p + nstride * 2 + 11, zero);\
+		do {\
+			src += sstride;\
+			__m128i d50 = _mm_lddqu_si128((__m128i *)(src + nstride * 2 - 2));\
+			__m128i l5D = load8x1_8bit(src + nstride * 2 + 11, zero);\
 			__m128i l50 = _mm_unpacklo_epi8(d50, zero);\
 			__m128i l58 = _mm_unpackhi_epi8(d50, zero);\
 			__m128i l5G = _mm_srli_si128(l5D, 6);\
@@ -1079,8 +1077,8 @@ INTER16x16_QPEL_21_23(qpel23, CALL(packus_6tapD_8bit, v03, v0B, vh, zero))
 			__m128i l5C = _mm_alignr_epi8(l5G, l58, 8);\
 			__m128i h50 = CALL(filter_36tapU_8bit, l50, l51, l52, l53, l54, l55);\
 			__m128i h58 = CALL(filter_36tapU_8bit, l58, l59, l5A, l5B, l5C, l5D);\
-			__m128i hv0 = CALL(filter_36tapD_8bit, h00, h10, h20, h30, h40, h50, zero);\
-			__m128i hv1 = CALL(filter_36tapD_8bit, h08, h18, h28, h38, h48, h58, zero);\
+			__m128i hv0 = CALL(noclip_36tapD_8bit, h00, h10, h20, h30, h40, h50, zero);\
+			__m128i hv1 = CALL(noclip_36tapD_8bit, h08, h18, h28, h38, h48, h58, zero);\
 			__m128i hv = _mm_packus_epi16(hv0, hv1);\
 			*(__m128i *)dst = P;\
 			h00 = h10, h08 = h18;\
@@ -1088,10 +1086,10 @@ INTER16x16_QPEL_21_23(qpel23, CALL(packus_6tapD_8bit, v03, v0B, vh, zero))
 			h20 = h30, h28 = h38;\
 			h30 = h40, h38 = h48;\
 			h40 = h50, h48 = h58;\
-		}\
-		return ponderation_16x16();\
+			dst += dstride;\
+		} while (--h);\
 	}\
 
-INTER16x16_QPEL_12_22_32(qpel12, CALL(packus_6tapD_8bit, h20, h28, hv, zero))
-INTER16x16_QPEL_12_22_32(qpel22, hv)
-INTER16x16_QPEL_12_22_32(qpel32, CALL(packus_6tapD_8bit, h30, h38, hv, zero))
+INTER16xH_QPEL_12_22_32(qpel12, CALL(packus_6tapD_8bit, h20, h28, hv, zero))
+INTER16xH_QPEL_12_22_32(qpel22, hv)
+INTER16xH_QPEL_12_22_32(qpel32, CALL(packus_6tapD_8bit, h30, h38, hv, zero))

@@ -101,6 +101,9 @@ static inline __attribute__((always_inline)) __m128i FUNC(packus_6tapD_8bit,
 
 
 
+/**
+ * Helper function to pack and store the result of Inter4x4 prediction.
+ */
 static inline __attribute__((always_inline)) void FUNC(store4x4_8bit,
 	size_t dstride, uint8_t *dst, __m128i p0, __m128i p1)
 {
@@ -114,14 +117,12 @@ static inline __attribute__((always_inline)) void FUNC(store4x4_8bit,
 
 
 /**
- * Inter 4x4 prediction takes one (or two) 9x9 matrix of 8/16bit luma samples
- * as input, and outputs a 4x4 matrix of 16bit samples to residual decoding,
- * passed in two 4x2 registers.
- * Loads are generally done by 4x1 matrices, denoted as sRC in the code (R=row,
- * C=left column), or 8x1 matrices, denoted as lRC. Operations are done on 4x2
- * matrices, denoted as mRC. Each one is extracted with a single pshufps on
- * (lR0, l{R+1}0) or (lR1, l{R+1}1). We never read outside the input matrix to
- * avoid additional code/documentation up in the parser.
+ * Inter 4x{4/8} prediction takes a 9x{9/13} matrix of 8/16bit luma samples as
+ * input, and outputs a 4x{4/8} matrix in memory.
+ * Loads are generally done by 8x1 matrices denoted as lRC in the code (R=row,
+ * C=left column), or 4x2 matrices denoted as mRC. Conversion between both
+ * sizes is obtained with the use of pshufps. By convention we never read
+ * outside the source matrix, to limit additional code/documentation.
  *
  * The following approaches were tried for implementing the filters:
  * _ pmadd four rows with [1,-5,20,20,-5,1,0,0,0], [0,1,-5,20,20,-5,1,0,0],
@@ -135,16 +136,18 @@ static inline __attribute__((always_inline)) void FUNC(store4x4_8bit,
  * _ computing half-sample interpolations first and averaging them in qpel
  *   code. While it used very little code, it incurred a lot of reads/writes
  *   of temporary data and wasted many redundant operations.
+ * _ making 4x4 filters jump to residual with their values in registers (like
+ *   Intra), to spare some packing/unpacking and writes/reads. However it was
+ *   incompatible with variable-height filters, and the latter was deemed more
+ *   advantageous for architectural simplicity.
  *
- * As with Intra decoding, we pass zero to all functions to prevent compilers
- * from inserting pxor everywhere (they do), and also nstride=-stride and
- * q=p+stride*4 to prevent them from doing sub-efficient math on addresses.
- * While it is impossible for functions to return multiple values in registers
- * (stupid ABI), we cannot put redundant loads in functions and duplicate a lot
- * of code. The same goes for filter_6tap, which would force all live registers
- * on stack if not inlined. Although I_HATE_MACROS, they are very useful here
- * to reduce 16 (big) functions down to 7. This is a lot of code, but all qpel
- * 4x4 interpolations are done in registers without intermediate steps!
+ * While it is impossible for functions to return multiple values in multiple
+ * registers (stupid ABI), we cannot put redundant loads in functions and had
+ * to duplicate a lot of code. The same goes for filter_6tap, which would force
+ * all live registers on stack if not inlined.
+ * Also, although I_HATE_MACROS they are very useful here to reduce 16 (big)
+ * functions down to 7. This is a lot of code, but all qpel 4xH interpolations
+ * are done in registers without intermediate storage!
  */
 void FUNC(inter4xH_qpel00_8bit, int h, size_t dstride, uint8_t *dst, size_t sstride, uint8_t *src) {
 	do {
@@ -470,10 +473,15 @@ INTER4xH_QPEL_12_22_32(qpel32, filter_36tapD_8bit, CALL(avg_6tapD_8bit, x30, hv0
 
 
 /**
- * Inter 8x8 prediction takes one (or two) 13x13 matrix and yields a 16bit 8x8
- * result. This is simpler than 4x4 since each register is a 8x1 line, so it
- * needs less shuffling. Unrolling would mean a lot of copy/paste, thus we use
- * loops and leave it to compilers to decide (they do a bit at O3).
+ * Inter 8x{4/8/16} prediction takes a 13x{9/13/21} matrix and outputs a
+ * 8x{4/8/16} matrix in memory.
+ * This is actually simpler than 4xH since we always work on 8x1 lines, so
+ * there are fewer shuffles. The entire matrix being too big to fit in
+ * registers, we compute values from top to bottom and keep intermediate
+ * results between iterations. The code is not manually unrolled since it would
+ * require a bit too much copy/paste (personal taste). However there is no
+ * simple way to signal that h is multiple of 4, so compilers aren't able to
+ * unroll for greater performance.
  */
 void FUNC(inter8xH_qpel00_8bit, int h, size_t dstride, uint8_t *dst, size_t sstride, uint8_t *src) {
 	do {
@@ -721,12 +729,11 @@ INTER8xH_QPEL_12_22_32(qpel32, filter_36tapD_8bit, CALL(avg_6tapD_8bit, x30, hv,
 
 
 /**
- * Inter 16x16 takes one (or two) 21x21 matrix and yields a 16x16 matrix.
- * Contrary to 4x4 and 8x8 it won't go to residual afterwards, so we store it
- * directly in place. We denote as dRC a 16x1 matrix of 8bit values loaded from
+ * Inter 16x{8/16} takes a 21x{13/21} matrix and outputs a 16x{8/16} matrix in
  * memory.
- * Here more than previous code, we are confronted with very high register
- * pressure and will rather reload values from memory than keeping them live.
+ * Here the biggest difficulty is register pressure, so we count on compilers
+ * to spill/reload on stack. All functions were designed with 16 available
+ * registers in mind.
  */
 void FUNC(inter16xH_qpel00_8bit, int h, size_t dstride, uint8_t *dst, size_t sstride, uint8_t *src) {
 	do {

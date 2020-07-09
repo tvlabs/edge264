@@ -1,5 +1,7 @@
 // TODO: Add pmaddubsw weighting in the functions
 // TODO: Invert X&Y in QPEL to match ffmpeg convention
+// TODO: Does restrict allow compilers to reorder reads/writes?
+// TODO: Make INTER4xH_QPEL_21_22_23 lighter by halving the loop?
 
 #include "edge264_common.h"
 
@@ -63,6 +65,18 @@ static inline __attribute__((always_inline)) __m128i FUNC(filter_36tapD_8bit, __
 	__m128i x7 = _mm_srai_epi16(_mm_sub_epi16(x6, _mm_sub_epi16(b, c)), 2);
 	__m128i x8 = _mm_max_epi16(_mm_srai_epi16(_mm_add_epi16(c, x7), 5), zero);
 	return _mm_min_epi16(_mm_avg_epu16(x8, zero), (__m128i)ctx->clip_Y);
+}
+
+static inline __attribute__((always_inline)) __m128i FUNC(noclip_36tapD_8bit, __m128i x0,
+	__m128i x1, __m128i x2, __m128i x3, __m128i x4, __m128i x5, __m128i zero)
+{
+	__m128i a = _mm_add_epi16(x0, x5);
+	__m128i b = _mm_add_epi16(x1, x4);
+	__m128i c = _mm_add_epi16(x2, x3);
+	__m128i x6 = _mm_srai_epi16(_mm_sub_epi16(a, b), 2);
+	__m128i x7 = _mm_srai_epi16(_mm_sub_epi16(x6, _mm_sub_epi16(b, c)), 2);
+	__m128i x8 = _mm_max_epi16(_mm_srai_epi16(_mm_add_epi16(c, x7), 5), zero);
+	return _mm_avg_epu16(x8, zero);
 }
 
 /**
@@ -315,68 +329,82 @@ INTER4xH_QPEL_11_13(qpel13, 3, 1)
 INTER4xH_QPEL_31_33(qpel31, 2, 0)
 INTER4xH_QPEL_31_33(qpel33, 3, 1)
 
-#define INTER4x4_QPEL_21_22_23(QPEL, P0, P1)\
-	int FUNC(inter4x4_ ## QPEL ## _8bit, size_t stride, ssize_t nstride, uint8_t *p, uint8_t *q) {\
+#define INTER4xH_QPEL_21_23(QPEL, P0, P1)\
+	void FUNC(inter4xH_ ## QPEL ## _8bit, int h, size_t dstride, uint8_t *dst, size_t sstride, uint8_t *src) {\
+		ssize_t nstride = -sstride;\
 		__m128i zero = _mm_setzero_si128();\
-		__m128i l00 = load8x1_8bit(p + nstride * 2 - 2, zero);\
-		__m128i l10 = load8x1_8bit(p + nstride     - 2, zero);\
-		__m128i l20 = load8x1_8bit(p               - 2, zero);\
-		__m128i l30 = load8x1_8bit(p +  stride     - 2, zero);\
-		__m128i l40 = load8x1_8bit(p +  stride * 2 - 2, zero);\
-		__m128i l50 = load8x1_8bit(q + nstride     - 2, zero);\
-		__m128i l60 = load8x1_8bit(q               - 2, zero);\
-		__m128i l70 = load8x1_8bit(q +  stride     - 2, zero);\
-		__m128i l80 = load8x1_8bit(q +  stride * 2 - 2, zero);\
-		__m128i c88 = _mm_set_epi8(q[ stride     + 6], q[              6],\
-			q[nstride     + 6], p[ stride * 2 + 6], p[ stride     + 6],\
-			p[              6], p[nstride     + 6], p[nstride * 2 + 6],\
-			0, 0, 0, 0, 0, 0, 0, q[ stride * 2 + 6]);\
-		__m128i c08 = _mm_unpackhi_epi8(c88, zero);\
-		__m128i c18 = _mm_srli_si128(c08, 2);\
-		__m128i c28 = _mm_srli_si128(c08, 4);\
-		__m128i c38 = _mm_srli_si128(c08, 6);\
-		__m128i c48 = _mm_srli_si128(c08, 8);\
-		__m128i c58 = _mm_alignr_epi8(c88, c08, 10);\
-		__m128i x00 = CALL(filter_36tapU_8bit, l00, l10, l20, l30, l40, l50);\
-		__m128i x10 = CALL(filter_36tapU_8bit, l10, l20, l30, l40, l50, l60);\
-		__m128i x20 = CALL(filter_36tapU_8bit, l20, l30, l40, l50, l60, l70);\
-		__m128i x30 = CALL(filter_36tapU_8bit, l30, l40, l50, l60, l70, l80);\
-		__m128i x08 = CALL(filter_36tapU_8bit, c08, c18, c28, c38, c48, c58);\
-		__m128i x01 = _mm_alignr_epi8(x08, x00, 2);\
-		__m128i x18 = _mm_srli_si128(x08, 2);\
-		__m128i x11 = _mm_alignr_epi8(x18, x10, 2);\
-		__m128i x28 = _mm_srli_si128(x18, 2);\
-		__m128i x21 = _mm_alignr_epi8(x28, x20, 2);\
-		__m128i x38 = _mm_srli_si128(x28, 2);\
-		__m128i x31 = _mm_alignr_epi8(x38, x30, 2);\
-		__m128i y00 = (__m128i)_mm_shuffle_ps((__m128)x00, (__m128)x10, _MM_SHUFFLE(1, 0, 1, 0));\
-		__m128i y01 = (__m128i)_mm_shuffle_ps((__m128)x01, (__m128)x11, _MM_SHUFFLE(1, 0, 1, 0));\
-		__m128i y02 = (__m128i)_mm_shuffle_ps((__m128)x00, (__m128)x10, _MM_SHUFFLE(2, 1, 2, 1));\
-		__m128i y03 = (__m128i)_mm_shuffle_ps((__m128)x01, (__m128)x11, _MM_SHUFFLE(2, 1, 2, 1));\
-		__m128i y04 = (__m128i)_mm_shuffle_ps((__m128)x00, (__m128)x10, _MM_SHUFFLE(3, 2, 3, 2));\
-		__m128i y05 = (__m128i)_mm_shuffle_ps((__m128)x01, (__m128)x11, _MM_SHUFFLE(3, 2, 3, 2));\
-		__m128i y20 = (__m128i)_mm_shuffle_ps((__m128)x20, (__m128)x30, _MM_SHUFFLE(1, 0, 1, 0));\
-		__m128i y21 = (__m128i)_mm_shuffle_ps((__m128)x21, (__m128)x31, _MM_SHUFFLE(1, 0, 1, 0));\
-		__m128i y22 = (__m128i)_mm_shuffle_ps((__m128)x20, (__m128)x30, _MM_SHUFFLE(2, 1, 2, 1));\
-		__m128i y23 = (__m128i)_mm_shuffle_ps((__m128)x21, (__m128)x31, _MM_SHUFFLE(2, 1, 2, 1));\
-		__m128i y24 = (__m128i)_mm_shuffle_ps((__m128)x20, (__m128)x30, _MM_SHUFFLE(3, 2, 3, 2));\
-		__m128i y25 = (__m128i)_mm_shuffle_ps((__m128)x21, (__m128)x31, _MM_SHUFFLE(3, 2, 3, 2));\
-		__m128i vh0 = CALL(filter_36tapD_8bit, y00, y01, y02, y03, y04, y05, zero);\
-		__m128i vh1 = CALL(filter_36tapD_8bit, y20, y21, y22, y23, y24, y25, zero);\
-		return ponderation_4x4(P0, P1);\
+		__m128i l00 = load8x1_8bit(src + nstride * 2 - 2, zero);\
+		__m128i l10 = load8x1_8bit(src + nstride     - 2, zero);\
+		__m128i l20 = load8x1_8bit(src               - 2, zero);\
+		__m128i l30 = load8x1_8bit(src + sstride     - 2, zero);\
+		__m128i l40 = load8x1_8bit(src + sstride * 2 - 2, zero);\
+		__m128i c8 = _mm_setr_epi8(0, 0, 0, 0, 0, 0,\
+			src[nstride * 2 + 6], 0,\
+			src[nstride     + 6], 0,\
+			src[              6], 0,\
+			src[sstride     + 6], 0,\
+			src[sstride * 2 + 6], 0);\
+		for (int i = 2; i-- > 0; dst += dstride * 4) {\
+			src += sstride * 4;\
+			__m128i l50 = load8x1_8bit(src + nstride     - 2, zero);\
+			__m128i l60 = load8x1_8bit(src               - 2, zero);\
+			__m128i l70 = load8x1_8bit(src + sstride     - 2, zero);\
+			__m128i l80 = load8x1_8bit(src + sstride * 2 - 2, zero);\
+			__m128i c58 = _mm_setr_epi8(\
+				src[nstride     + 6], 0,\
+				src[            + 6], 0,\
+				src[sstride     + 6], 0,\
+				src[sstride * 2 + 6], 0, 0, 0, 0, 0, 0, 0, 0, 0);\
+			__m128i c08 = _mm_alignr_epi8(c58, c8, 6);\
+			__m128i c18 = _mm_alignr_epi8(c58, c8, 8);\
+			__m128i c28 = _mm_alignr_epi8(c58, c8, 10);\
+			__m128i c38 = _mm_alignr_epi8(c58, c8, 12);\
+			__m128i c48 = _mm_alignr_epi8(c58, c8, 14);\
+			__m128i x00 = CALL(filter_36tapU_8bit, l00, l10, l20, l30, l40, l50);\
+			__m128i x10 = CALL(filter_36tapU_8bit, l10, l20, l30, l40, l50, l60);\
+			__m128i x20 = CALL(filter_36tapU_8bit, l20, l30, l40, l50, l60, l70);\
+			__m128i x30 = CALL(filter_36tapU_8bit, l30, l40, l50, l60, l70, l80);\
+			__m128i x08 = CALL(filter_36tapU_8bit, c08, c18, c28, c38, c48, c58);\
+			__m128i x01 = _mm_alignr_epi8(x08, x00, 2);\
+			__m128i x18 = _mm_srli_si128(x08, 2);\
+			__m128i x11 = _mm_alignr_epi8(x18, x10, 2);\
+			__m128i x28 = _mm_srli_si128(x18, 2);\
+			__m128i x21 = _mm_alignr_epi8(x28, x20, 2);\
+			__m128i x38 = _mm_srli_si128(x28, 2);\
+			__m128i x31 = _mm_alignr_epi8(x38, x30, 2);\
+			__m128i y00 = (__m128i)_mm_shuffle_ps((__m128)x00, (__m128)x10, _MM_SHUFFLE(1, 0, 1, 0));\
+			__m128i y01 = (__m128i)_mm_shuffle_ps((__m128)x01, (__m128)x11, _MM_SHUFFLE(1, 0, 1, 0));\
+			__m128i y02 = (__m128i)_mm_shuffle_ps((__m128)x00, (__m128)x10, _MM_SHUFFLE(2, 1, 2, 1));\
+			__m128i y03 = (__m128i)_mm_shuffle_ps((__m128)x01, (__m128)x11, _MM_SHUFFLE(2, 1, 2, 1));\
+			__m128i y04 = (__m128i)_mm_shuffle_ps((__m128)x00, (__m128)x10, _MM_SHUFFLE(3, 2, 3, 2));\
+			__m128i y05 = (__m128i)_mm_shuffle_ps((__m128)x01, (__m128)x11, _MM_SHUFFLE(3, 2, 3, 2));\
+			__m128i y20 = (__m128i)_mm_shuffle_ps((__m128)x20, (__m128)x30, _MM_SHUFFLE(1, 0, 1, 0));\
+			__m128i y21 = (__m128i)_mm_shuffle_ps((__m128)x21, (__m128)x31, _MM_SHUFFLE(1, 0, 1, 0));\
+			__m128i y22 = (__m128i)_mm_shuffle_ps((__m128)x20, (__m128)x30, _MM_SHUFFLE(2, 1, 2, 1));\
+			__m128i y23 = (__m128i)_mm_shuffle_ps((__m128)x21, (__m128)x31, _MM_SHUFFLE(2, 1, 2, 1));\
+			__m128i y24 = (__m128i)_mm_shuffle_ps((__m128)x20, (__m128)x30, _MM_SHUFFLE(3, 2, 3, 2));\
+			__m128i y25 = (__m128i)_mm_shuffle_ps((__m128)x21, (__m128)x31, _MM_SHUFFLE(3, 2, 3, 2));\
+			__m128i vh0 = CALL(filter_36tapD_8bit, y00, y01, y02, y03, y04, y05, zero);\
+			__m128i vh1 = CALL(filter_36tapD_8bit, y20, y21, y22, y23, y24, y25, zero);\
+			CALL(store4x4_8bit, dstride, dst, P0, P1);\
+			if (h == 4)\
+				break;\
+			l00 = l40, l10 = l50, l20 = l60, l30 = l70, l40 = l80;\
+			c8 = c18;\
+		}\
 	}\
 
-INTER4x4_QPEL_21_22_23(qpel21, CALL(avg_6tapD_8bit, y02, vh0, zero), CALL(avg_6tapD_8bit, y22, vh1, zero))
-INTER4x4_QPEL_21_22_23(qpel22, vh0, vh1)
-INTER4x4_QPEL_21_22_23(qpel23, CALL(avg_6tapD_8bit, y03, vh0, zero), CALL(avg_6tapD_8bit, y23, vh1, zero))
+INTER4xH_QPEL_21_23(qpel21, CALL(avg_6tapD_8bit, y02, vh0, zero), CALL(avg_6tapD_8bit, y22, vh1, zero))
+INTER4xH_QPEL_21_23(qpel23, CALL(avg_6tapD_8bit, y03, vh0, zero), CALL(avg_6tapD_8bit, y23, vh1, zero))
 
-#define INTER4x4_QPEL_12_32(QPEL, P0, P1)\
-	int FUNC(inter4x4_ ## QPEL ## _8bit, size_t stride, ssize_t nstride, uint8_t *p, uint8_t *q) {\
+#define INTER4xH_QPEL_12_22_32(QPEL, FILTER, P0, P1)\
+	void FUNC(inter4xH_ ## QPEL ## _8bit, int h, size_t dstride, uint8_t *dst, size_t sstride, uint8_t *src) {\
+		ssize_t nstride = -sstride;\
 		__m128i zero = _mm_setzero_si128();\
-		__m128i l00 = load8x1_8bit(p + nstride * 2 - 2, zero);\
-		__m128i l01 = load8x1_8bit(p + nstride * 2 - 1, zero);\
-		__m128i l10 = load8x1_8bit(p + nstride     - 2, zero);\
-		__m128i l11 = load8x1_8bit(p + nstride     - 1, zero);\
+		__m128i l00 = load8x1_8bit(src + nstride * 2 - 2, zero);\
+		__m128i l01 = load8x1_8bit(src + nstride * 2 - 1, zero);\
+		__m128i l10 = load8x1_8bit(src + nstride     - 2, zero);\
+		__m128i l11 = load8x1_8bit(src + nstride     - 1, zero);\
 		__m128i m00 = (__m128i)_mm_shuffle_ps((__m128)l00, (__m128)l10, _MM_SHUFFLE(1, 0, 1, 0));\
 		__m128i m01 = (__m128i)_mm_shuffle_ps((__m128)l01, (__m128)l11, _MM_SHUFFLE(1, 0, 1, 0));\
 		__m128i m02 = (__m128i)_mm_shuffle_ps((__m128)l00, (__m128)l10, _MM_SHUFFLE(2, 1, 2, 1));\
@@ -384,10 +412,10 @@ INTER4x4_QPEL_21_22_23(qpel23, CALL(avg_6tapD_8bit, y03, vh0, zero), CALL(avg_6t
 		__m128i m04 = (__m128i)_mm_shuffle_ps((__m128)l00, (__m128)l10, _MM_SHUFFLE(3, 2, 3, 2));\
 		__m128i m05 = (__m128i)_mm_shuffle_ps((__m128)l01, (__m128)l11, _MM_SHUFFLE(3, 2, 3, 2));\
 		__m128i x00 = CALL(filter_36tapU_8bit, m00, m01, m02, m03, m04, m05);\
-		__m128i l20 = load8x1_8bit(p               - 2, zero);\
-		__m128i l21 = load8x1_8bit(p               - 1, zero);\
-		__m128i l30 = load8x1_8bit(p +  stride     - 2, zero);\
-		__m128i l31 = load8x1_8bit(p +  stride     - 1, zero);\
+		__m128i l20 = load8x1_8bit(src               - 2, zero);\
+		__m128i l21 = load8x1_8bit(src               - 1, zero);\
+		__m128i l30 = load8x1_8bit(src + sstride     - 2, zero);\
+		__m128i l31 = load8x1_8bit(src + sstride     - 1, zero);\
 		__m128i m20 = (__m128i)_mm_shuffle_ps((__m128)l20, (__m128)l30, _MM_SHUFFLE(1, 0, 1, 0));\
 		__m128i m21 = (__m128i)_mm_shuffle_ps((__m128)l21, (__m128)l31, _MM_SHUFFLE(1, 0, 1, 0));\
 		__m128i m22 = (__m128i)_mm_shuffle_ps((__m128)l20, (__m128)l30, _MM_SHUFFLE(2, 1, 2, 1));\
@@ -395,47 +423,54 @@ INTER4x4_QPEL_21_22_23(qpel23, CALL(avg_6tapD_8bit, y03, vh0, zero), CALL(avg_6t
 		__m128i m24 = (__m128i)_mm_shuffle_ps((__m128)l20, (__m128)l30, _MM_SHUFFLE(3, 2, 3, 2));\
 		__m128i m25 = (__m128i)_mm_shuffle_ps((__m128)l21, (__m128)l31, _MM_SHUFFLE(3, 2, 3, 2));\
 		__m128i x20 = CALL(filter_36tapU_8bit, m20, m21, m22, m23, m24, m25);\
-		__m128i l40 = load8x1_8bit(p +  stride * 2 - 2, zero);\
-		__m128i l41 = load8x1_8bit(p +  stride * 2 - 1, zero);\
-		__m128i l50 = load8x1_8bit(q + nstride     - 2, zero);\
-		__m128i l51 = load8x1_8bit(q + nstride     - 1, zero);\
-		__m128i m40 = (__m128i)_mm_shuffle_ps((__m128)l40, (__m128)l50, _MM_SHUFFLE(1, 0, 1, 0));\
-		__m128i m41 = (__m128i)_mm_shuffle_ps((__m128)l41, (__m128)l51, _MM_SHUFFLE(1, 0, 1, 0));\
-		__m128i m42 = (__m128i)_mm_shuffle_ps((__m128)l40, (__m128)l50, _MM_SHUFFLE(2, 1, 2, 1));\
-		__m128i m43 = (__m128i)_mm_shuffle_ps((__m128)l41, (__m128)l51, _MM_SHUFFLE(2, 1, 2, 1));\
-		__m128i m44 = (__m128i)_mm_shuffle_ps((__m128)l40, (__m128)l50, _MM_SHUFFLE(3, 2, 3, 2));\
-		__m128i m45 = (__m128i)_mm_shuffle_ps((__m128)l41, (__m128)l51, _MM_SHUFFLE(3, 2, 3, 2));\
-		__m128i x40 = CALL(filter_36tapU_8bit, m40, m41, m42, m43, m44, m45);\
-		__m128i l60 = load8x1_8bit(q               - 2, zero);\
-		__m128i l61 = load8x1_8bit(q               - 1, zero);\
-		__m128i l70 = load8x1_8bit(q +  stride     - 2, zero);\
-		__m128i l71 = load8x1_8bit(q +  stride     - 1, zero);\
-		__m128i m60 = (__m128i)_mm_shuffle_ps((__m128)l60, (__m128)l70, _MM_SHUFFLE(1, 0, 1, 0));\
-		__m128i m61 = (__m128i)_mm_shuffle_ps((__m128)l61, (__m128)l71, _MM_SHUFFLE(1, 0, 1, 0));\
-		__m128i m62 = (__m128i)_mm_shuffle_ps((__m128)l60, (__m128)l70, _MM_SHUFFLE(2, 1, 2, 1));\
-		__m128i m63 = (__m128i)_mm_shuffle_ps((__m128)l61, (__m128)l71, _MM_SHUFFLE(2, 1, 2, 1));\
-		__m128i m64 = (__m128i)_mm_shuffle_ps((__m128)l60, (__m128)l70, _MM_SHUFFLE(3, 2, 3, 2));\
-		__m128i m65 = (__m128i)_mm_shuffle_ps((__m128)l61, (__m128)l71, _MM_SHUFFLE(3, 2, 3, 2));\
-		__m128i x60 = CALL(filter_36tapU_8bit, m60, m61, m62, m63, m64, m65);\
-		__m128i l80 = load8x1_8bit(q +  stride * 2 - 2, zero);\
-		__m128i l81 = load8x1_8bit(q +  stride * 2 - 1, zero);\
-		__m128i m70 = (__m128i)_mm_shuffle_ps((__m128)l70, (__m128)l80, _MM_SHUFFLE(1, 0, 1, 0));\
-		__m128i m71 = (__m128i)_mm_shuffle_ps((__m128)l71, (__m128)l81, _MM_SHUFFLE(1, 0, 1, 0));\
-		__m128i m72 = (__m128i)_mm_shuffle_ps((__m128)l70, (__m128)l80, _MM_SHUFFLE(2, 1, 2, 1));\
-		__m128i m73 = (__m128i)_mm_shuffle_ps((__m128)l71, (__m128)l81, _MM_SHUFFLE(2, 1, 2, 1));\
-		__m128i m74 = (__m128i)_mm_shuffle_ps((__m128)l70, (__m128)l80, _MM_SHUFFLE(3, 2, 3, 2));\
-		__m128i m75 = (__m128i)_mm_shuffle_ps((__m128)l71, (__m128)l81, _MM_SHUFFLE(3, 2, 3, 2));\
-		__m128i x70 = CALL(filter_36tapU_8bit, m70, m71, m72, m73, m74, m75);\
+		__m128i l40 = load8x1_8bit(src + sstride * 2 - 2, zero);\
+		__m128i l41 = load8x1_8bit(src + sstride * 2 - 1, zero);\
+		__m128i m30 = (__m128i)_mm_shuffle_ps((__m128)l30, (__m128)l40, _MM_SHUFFLE(1, 0, 1, 0));\
+		__m128i m31 = (__m128i)_mm_shuffle_ps((__m128)l31, (__m128)l41, _MM_SHUFFLE(1, 0, 1, 0));\
+		__m128i m32 = (__m128i)_mm_shuffle_ps((__m128)l30, (__m128)l40, _MM_SHUFFLE(2, 1, 2, 1));\
+		__m128i m33 = (__m128i)_mm_shuffle_ps((__m128)l31, (__m128)l41, _MM_SHUFFLE(2, 1, 2, 1));\
+		__m128i m34 = (__m128i)_mm_shuffle_ps((__m128)l30, (__m128)l40, _MM_SHUFFLE(3, 2, 3, 2));\
+		__m128i m35 = (__m128i)_mm_shuffle_ps((__m128)l31, (__m128)l41, _MM_SHUFFLE(3, 2, 3, 2));\
+		__m128i x30 = CALL(filter_36tapU_8bit, m30, m31, m32, m33, m34, m35);\
 		__m128i x10 = _mm_alignr_epi8(x20, x00, 8);\
-		__m128i x30 = _mm_alignr_epi8(x40, x20, 8);\
-		__m128i x50 = _mm_alignr_epi8(x60, x40, 8);\
-		__m128i hv0 = CALL(filter_36tapD_8bit, x00, x10, x20, x30, x40, x50, zero);\
-		__m128i hv1 = CALL(filter_36tapD_8bit, x20, x30, x40, x50, x60, x70, zero);\
-		return ponderation_4x4(CALL(avg_6tapD_8bit, P0, hv0, zero), CALL(avg_6tapD_8bit, P1, hv1, zero));\
+		for (int i = 2; i-- > 0; dst += dstride * 4) {\
+			src += sstride * 4;\
+			__m128i l50 = load8x1_8bit(src + nstride     - 2, zero);\
+			__m128i l51 = load8x1_8bit(src + nstride     - 1, zero);\
+			__m128i l60 = load8x1_8bit(src               - 2, zero);\
+			__m128i l61 = load8x1_8bit(src               - 1, zero);\
+			__m128i m50 = (__m128i)_mm_shuffle_ps((__m128)l50, (__m128)l60, _MM_SHUFFLE(1, 0, 1, 0));\
+			__m128i m51 = (__m128i)_mm_shuffle_ps((__m128)l51, (__m128)l61, _MM_SHUFFLE(1, 0, 1, 0));\
+			__m128i m52 = (__m128i)_mm_shuffle_ps((__m128)l50, (__m128)l60, _MM_SHUFFLE(2, 1, 2, 1));\
+			__m128i m53 = (__m128i)_mm_shuffle_ps((__m128)l51, (__m128)l61, _MM_SHUFFLE(2, 1, 2, 1));\
+			__m128i m54 = (__m128i)_mm_shuffle_ps((__m128)l50, (__m128)l60, _MM_SHUFFLE(3, 2, 3, 2));\
+			__m128i m55 = (__m128i)_mm_shuffle_ps((__m128)l51, (__m128)l61, _MM_SHUFFLE(3, 2, 3, 2));\
+			__m128i x50 = CALL(filter_36tapU_8bit, m50, m51, m52, m53, m54, m55);\
+			__m128i l70 = load8x1_8bit(src + sstride     - 2, zero);\
+			__m128i l71 = load8x1_8bit(src + sstride     - 1, zero);\
+			__m128i l80 = load8x1_8bit(src + sstride * 2 - 2, zero);\
+			__m128i l81 = load8x1_8bit(src + sstride * 2 - 1, zero);\
+			__m128i m70 = (__m128i)_mm_shuffle_ps((__m128)l70, (__m128)l80, _MM_SHUFFLE(1, 0, 1, 0));\
+			__m128i m71 = (__m128i)_mm_shuffle_ps((__m128)l71, (__m128)l81, _MM_SHUFFLE(1, 0, 1, 0));\
+			__m128i m72 = (__m128i)_mm_shuffle_ps((__m128)l70, (__m128)l80, _MM_SHUFFLE(2, 1, 2, 1));\
+			__m128i m73 = (__m128i)_mm_shuffle_ps((__m128)l71, (__m128)l81, _MM_SHUFFLE(2, 1, 2, 1));\
+			__m128i m74 = (__m128i)_mm_shuffle_ps((__m128)l70, (__m128)l80, _MM_SHUFFLE(3, 2, 3, 2));\
+			__m128i m75 = (__m128i)_mm_shuffle_ps((__m128)l71, (__m128)l81, _MM_SHUFFLE(3, 2, 3, 2));\
+			__m128i x70 = CALL(filter_36tapU_8bit, m70, m71, m72, m73, m74, m75);\
+			__m128i x40 = _mm_alignr_epi8(x50, x30, 8);\
+			__m128i x60 = _mm_alignr_epi8(x70, x50, 8);\
+			__m128i hv0 = CALL(FILTER, x00, x10, x20, x30, x40, x50, zero);\
+			__m128i hv1 = CALL(FILTER, x20, x30, x40, x50, x60, x70, zero);\
+			CALL(store4x4_8bit, dstride, dst, P0, P1);\
+			if (h == 4)\
+				break;\
+			x00 = x40, x10 = x50, x20 = x60, x30 = x70;\
+		}\
 	}\
 
-INTER4x4_QPEL_12_32(qpel12, x20, x40)
-INTER4x4_QPEL_12_32(qpel32, x30, x50)
+INTER4xH_QPEL_12_22_32(qpel12, filter_36tapD_8bit, CALL(avg_6tapD_8bit, x20, hv0, zero), CALL(avg_6tapD_8bit, x40, hv1, zero))
+INTER4xH_QPEL_12_22_32(qpel22, noclip_36tapD_8bit, hv0, hv1)
+INTER4xH_QPEL_12_22_32(qpel32, filter_36tapD_8bit, CALL(avg_6tapD_8bit, x30, hv0, zero), CALL(avg_6tapD_8bit, x50, hv1, zero))
 
 
 

@@ -117,8 +117,9 @@ static inline __attribute__((always_inline)) void FUNC(store4x4_8bit,
  * input, and outputs a 4x{4/8} matrix in memory.
  * Loads are generally done by 8x1 matrices denoted as lRC in the code (R=row,
  * C=left column), or 4x2 matrices denoted as mRC. Conversion between both
- * sizes is obtained with the use of pshufps. By convention we never read
- * outside the source matrix, to limit additional code/documentation.
+ * sizes is obtained with single pshufps instructions. By convention we never
+ * read outside the source matrix, to avoid additional code/documentation in
+ * the rest of the decoder.
  *
  * The following approaches were tried for implementing the filters:
  * _ pmadd four rows with [1,-5,20,20,-5,1,0,0,0], [0,1,-5,20,20,-5,1,0,0],
@@ -142,8 +143,8 @@ static inline __attribute__((always_inline)) void FUNC(store4x4_8bit,
  * to duplicate a lot of code. The same goes for filter_6tap, which would force
  * all live registers on stack if not inlined.
  * Also, although I_HATE_MACROS they are very useful here to reduce 16 (big)
- * functions down to 7. This is a lot of code, but all qpel 4xH interpolations
- * are done in registers without intermediate storage!
+ * functions down to 7. This is a lot of code, but all qpel interpolations are
+ * done in registers without intermediate storage!
  */
 void FUNC(inter4xH_qpel00_8bit, int h, size_t dstride, uint8_t *dst, size_t sstride, uint8_t *src) {
 	do {
@@ -471,13 +472,13 @@ INTER4xH_QPEL_12_22_32(qpel32, filter_36tapD_8bit, CALL(avg_6tapD_8bit, x30, hv0
 /**
  * Inter 8x{4/8/16} prediction takes a 13x{9/13/21} matrix and outputs a
  * 8x{4/8/16} matrix in memory.
- * This is actually simpler than 4xH since we always work on 8x1 lines, so
- * there are fewer shuffles. The entire matrix being too big to fit in
+ * This is actually simpler than 4xH since we always work on 8x1 lines, so we
+ * don't need pshufps anymore. The entire input matrix being too big to fit in
  * registers, we compute values from top to bottom and keep intermediate
  * results between iterations. The code is not manually unrolled since it would
  * require a bit too much copy/paste (personal taste). However there is no
- * simple way to signal that h is multiple of 4, so compilers aren't able to
- * unroll for greater performance.
+ * simple way to signal that h is multiple of 4, so compilers won't be able to
+ * unroll sub-loops for greater performance.
  */
 void FUNC(inter8xH_qpel00_8bit, int h, size_t dstride, uint8_t *dst, size_t sstride, uint8_t *src) {
 	do {
@@ -729,7 +730,7 @@ INTER8xH_QPEL_12_22_32(qpel32, filter_36tapD_8bit, CALL(avg_6tapD_8bit, x30, hv,
  * memory.
  * Here the biggest difficulty is register pressure, so we count on compilers
  * to spill/reload on stack. All functions were designed with 16 available
- * registers in mind.
+ * registers in mind, for older chips there will just be more spills.
  */
 void FUNC(inter16xH_qpel00_8bit, int h, size_t dstride, uint8_t *dst, size_t sstride, uint8_t *src) {
 	do {

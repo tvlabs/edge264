@@ -5,10 +5,6 @@
 
 #include "edge264_common.h"
 
-int ponderation_4x4(__m128i, __m128i);
-int ponderation_8x8();
-int ponderation_16x16();
-
 
 
 /**
@@ -1100,3 +1096,32 @@ INTER16xH_QPEL_21_23(qpel23, CALL(packus_6tapD_8bit, v03, v0B, vh, zero))
 INTER16xH_QPEL_12_22_32(qpel12, CALL(packus_6tapD_8bit, h20, h28, hv, zero))
 INTER16xH_QPEL_12_22_32(qpel22, hv)
 INTER16xH_QPEL_12_22_32(qpel32, CALL(packus_6tapD_8bit, h30, h38, hv, zero))
+
+
+
+void FUNC(decode_inter, int i, int w, int h, int x, int y) {
+	typedef void FUNC((*InterFunction), int, size_t, uint8_t *, size_t, uint8_t *);
+	static InterFunction fcts[3][4][4] = { // [w][y%4][x%4]
+		inter4xH_qpel00_8bit, inter4xH_qpel01_8bit, inter4xH_qpel02_8bit, inter4xH_qpel03_8bit,
+		inter4xH_qpel10_8bit, inter4xH_qpel11_8bit, inter4xH_qpel12_8bit, inter4xH_qpel13_8bit,
+		inter4xH_qpel20_8bit, inter4xH_qpel21_8bit, inter4xH_qpel22_8bit, inter4xH_qpel23_8bit,
+		inter4xH_qpel30_8bit, inter4xH_qpel31_8bit, inter4xH_qpel32_8bit, inter4xH_qpel33_8bit,
+		
+		inter8xH_qpel00_8bit, inter8xH_qpel01_8bit, inter8xH_qpel02_8bit, inter8xH_qpel03_8bit,
+		inter8xH_qpel10_8bit, inter8xH_qpel11_8bit, inter8xH_qpel12_8bit, inter8xH_qpel13_8bit,
+		inter8xH_qpel20_8bit, inter8xH_qpel21_8bit, inter8xH_qpel22_8bit, inter8xH_qpel23_8bit,
+		inter8xH_qpel30_8bit, inter8xH_qpel31_8bit, inter8xH_qpel32_8bit, inter8xH_qpel33_8bit,
+		
+		inter16xH_qpel00_8bit, inter16xH_qpel01_8bit, inter16xH_qpel02_8bit, inter16xH_qpel03_8bit,
+		inter16xH_qpel10_8bit, inter16xH_qpel11_8bit, inter16xH_qpel12_8bit, inter16xH_qpel13_8bit,
+		inter16xH_qpel20_8bit, inter16xH_qpel21_8bit, inter16xH_qpel22_8bit, inter16xH_qpel23_8bit,
+		inter16xH_qpel30_8bit, inter16xH_qpel31_8bit, inter16xH_qpel32_8bit, inter16xH_qpel33_8bit,
+	};
+	
+	size_t stride = ctx->plane_offsets[2] >> 2;
+	int offset = ctx->plane_offsets[i & 15];
+	uint8_t *src = ctx->ref_planes[0][mb->refIdx[i >> 2]] + offset +
+		(ctx->y + (y >> 2)) * stride + (ctx->x + (x >> 2));
+	uint8_t *dst = ctx->plane_Y + ctx->plane_offsets[i & 15];
+	CALL(fcts[w == 4 ? 0 : w == 8 ? 1 : 2][y & 3][x & 3], h, stride, dst, stride, src);
+}

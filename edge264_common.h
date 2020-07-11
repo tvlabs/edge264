@@ -28,6 +28,7 @@ typedef uint32_t v4su __attribute__((vector_size(16)));
 typedef uint64_t v2lu __attribute__((vector_size(16)));
 typedef int32_t v8si __attribute__((vector_size(32))); // for alignment of ctx->d
 typedef int16_t v16hi __attribute__((vector_size(32))); // for larger mask-storage of mvs
+typedef int32_t v16si __attribute__((vector_size(64))); // for initialization of neighbouring offsets
 
 
 
@@ -136,18 +137,20 @@ typedef struct
 	union { uint8_t cabac[1024]; v16qu cabac_v[64]; };
 	
 	// neighbouring offsets (relative to the start of each array in mb)
-	union { int16_t coded_block_flags_4x4_A[48]; int16_t Intra4x4PredMode_A[16]; int16_t absMvdComp_A[16]; v8hi A4x4_8bit[6]; };
-	union { int32_t coded_block_flags_4x4_B[48]; int32_t Intra4x4PredMode_B[16]; int32_t absMvdComp_B[16]; v4si B4x4_8bit[12]; };
+	union { int16_t coded_block_flags_4x4_A[48]; int16_t Intra4x4PredMode_A[16]; int16_t absMvdComp_A[16]; v16hi A4x4_8bit[3]; };
+	union { int32_t coded_block_flags_4x4_B[48]; int32_t Intra4x4PredMode_B[16]; int32_t absMvdComp_B[16]; v16si B4x4_8bit[3]; };
 	union { int16_t coded_block_flags_8x8_A[12]; int16_t CodedBlockPatternLuma_A[4]; int16_t refIdx_A[4]; v4hi A8x8_8bit[3]; };
 	union { int32_t coded_block_flags_8x8_B[12]; int32_t CodedBlockPatternLuma_B[4]; int32_t refIdx_B[4]; v4si B8x8_8bit[3]; };
-	int32_t refIdx_C; // offset to mbC->refIdx[3]
-	int32_t refIdx_D; // offset to mbD->refIdx[2]
+	int32_t refIdx_C; // offset to mbC->refIdx[2]
+	int32_t refIdx_D; // offset to mbD->refIdx[3]
 	union { int32_t refIdx4x4_A_s[16]; v16qi refIdx4x4_A_v; }; // shuffle vector for mv prediction
 	union { int32_t refIdx4x4_B_s[16]; v16qi refIdx4x4_B_v; };
 	union { int32_t refIdx4x4_C_s[16]; v16qi refIdx4x4_C_v; }; // updated per-mb
-	int16_t mvs_A[16];
-	int32_t mvs_B[16];
-	int32_t mvs_C[16]; // updated per-mb to account for block size and D-override
+	union { int16_t mvs_A[16]; v16hi mvs_A_v; };
+	union { int32_t mvs_B[16]; v16si mvs_B_v; };
+	union { int32_t mvs_C[16]; v4si mvs_C_v[4]; }; // updated per-mb
+	union { int32_t mvs8x8_C[4]; v4si mvs8x8_C_v; }; // for initialising mvs_C
+	union { int32_t mvs8x8_D[4]; v4si mvs8x8_D_v; };
 	
 	// Intra context
 	v16qu pred_offset_C; // BitDepth offset on PredMode from Y to Cb/Cr

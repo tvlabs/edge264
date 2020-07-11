@@ -1609,6 +1609,16 @@ static __attribute__((noinline)) void FUNC(parse_I_mb, int ctxIdx)
 	fprintf(stderr, "mb_skip_flag: %x\n", mb->f.mb_skip_flag);
 	if (mb->f.mb_skip_flag) {
 		memset(mb->mvs + 32, 0, 64);
+		int refIdxA = *(mb->refIdx + ctx->refIdx_A[0]);
+		int refIdxB = *(mb->refIdx + ctx->refIdx_B[0]);
+		int refIdxC = *(mb->refIdx + (ctx->unavail[5] & 4 ? ctx->refIdx_D : ctx->refIdx_C));
+		int xA = *(mb->mvs + ctx->mvs_A[0]);
+		int yA = *(mb->mvs + ctx->mvs_A[0] + 32);
+		int xB = *(mb->mvs + ctx->mvs_B[0]);
+		int yB = *(mb->mvs + ctx->mvs_B[0] + 32);
+		int xC = *(mb->mvs + ctx->mvs_C[0]); // FIXME
+		int yC = *(mb->mvs + ctx->mvs_C[0] + 32);
+		
 		// TODO: infer mvL0
 		return;
 	} else if (CALL(get_ae, 14)) {
@@ -1658,27 +1668,34 @@ static __attribute__((noinline)) void FUNC(parse_I_mb, int ctxIdx)
 	unsigned flags = 0;
 	for (int i8x8 = 0, f, w, s; i8x8 < 4; i8x8++) {
 		int i4x4 = i8x8 * 4;
+		int unavailBC = ctx->unavail[i4x4 + 1] & 0x6; // incremented by subpart modes to signal 8-sample width
 		if (CALL(get_ae, 21)) { // 8x8
 			f = 1;
-			w = 1;
 			s = 0;
+			ctx->mvs_C[i4x4] = (unavailBC & 4 ? ctx->mvs8x8_D : ctx->mvs8x8_C)[i8x8];
+			unavailBC++;
 		} else if (ctx->transform_8x8_mode_flag = 0, !CALL(get_ae, 22)) { // 8x4
 			f = 5;
-			w = 1;
 			s = (int32_t)(v4qi){0, 0, 2, 2};
+			ctx->mvs_C[i4x4] = (unavailBC & 4 ? ctx->mvs8x8_D : ctx->mvs8x8_C)[i8x8];
+			ctx->mvs_C[i4x4 + 2] = ctx->mvs_A[i4x4];
+			unavailBC++;
 		} else if (CALL(get_ae, 23)) { // 4x8
 			f = 3;
-			w = 0;
 			s = (int32_t)(v4qi){0, 1, 0, 1};
+			ctx->mvs_C[i4x4] = (unavailBC & 2) ? ctx->mvs8x8_D[i8x8] : ctx->mvs_B[i4x4 + 1];
+			ctx->mvs_C[i4x4 + 1] = (unavailBC & 4) ? ctx->mvs_B[i4x4] : ctx->mvs8x8_C[i8x8];
 		} else { // 4x4
 			f = 15;
-			w = 0;
 			s = (int32_t)(v4qi){0, 1, 2, 3};
+			ctx->mvs_C[i4x4] = (unavailBC & 2) ? ctx->mvs8x8_D[i8x8] : ctx->mvs_B[i4x4 + 1];
+			ctx->mvs_C[i4x4 + 1] = (unavailBC & 4) ? ctx->mvs_B[i4x4] : ctx->mvs8x8_C[i8x8];
+			ctx->mvs_C[i4x4 + 2] = i4x4 + 1;
+			ctx->mvs_C[i4x4 + 3] = i4x4;
 		}
 		fprintf(stderr, "sub_mb_type: %c\n", (f == 1) ? '0' : (f == 5) ? '1' : (f == 3) ? '2' : '3');
 		flags |= f << i4x4;
-		int unavailBC = ctx->unavail[i4x4 + 1] & 0x6;
-		ctx->refIdx4x4_C_s[i8x8] = refIdx4x4_base[i8x8] + (int32_t)refIdx4x4_inc[unavailBC + w];
+		ctx->refIdx4x4_C_s[i8x8] = refIdx4x4_base[i8x8] + (int32_t)refIdx4x4_inc[unavailBC];
 		ctx->mvs_shuffle_s[i8x8] = i4x4 * 0x01010101 + s;
 	}
 	ctx->mvd_flags = flags;

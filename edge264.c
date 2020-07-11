@@ -19,6 +19,7 @@
 #ifdef __SSSE3__
 #include "edge264_residual_ssse3.c"
 #include "edge264_intra_ssse3.c"
+#include "edge264_inter_ssse3.c"
 #endif
 #include "edge264_cabac.c"
 
@@ -94,38 +95,29 @@ static void FUNC(initialise_decoding_context, Edge264_stream *e)
 	ctx->clip_Y = (v8hi){cY, cY, cY, cY, cY, cY, cY, cY};
 	ctx->clip_C = (v8hi){cC, cC, cC, cC, cC, cC, cC, cC};
 	
-	int offsetA = sizeof(*mb);
-	int offsetB = (ctx->ps.width / 16 + 1) * sizeof(*mb);
-	ctx->A4x4_8bit[0] = (v8hi){5 - offsetA, 0, 7 - offsetA, 2, 1, 4, 3, 6};
-	ctx->A4x4_8bit[1] = (v8hi){13 - offsetA, 8, 15 - offsetA, 10, 9, 12, 11, 14};
-	ctx->B4x4_8bit[0] = (v4si){10 - offsetB, 11 - offsetB, 0, 1};
-	ctx->B4x4_8bit[1] = (v4si){14 - offsetB, 15 - offsetB, 4, 5};
-	ctx->B4x4_8bit[2] = (v4si){2, 3, 8, 9};
-	ctx->B4x4_8bit[3] = (v4si){6, 7, 12, 13};
-	ctx->A8x8_8bit[0] = (v4hi){1 - offsetA, 0, 3 - offsetA, 2};
-	ctx->B8x8_8bit[0] = (v4si){2 - offsetB, 3 - offsetB, 0, 1};
+	int offA_8bit = -(int)sizeof(*mb);
+	int offB_8bit = -(ctx->ps.width / 16 + 1) * sizeof(*mb);
+	ctx->A4x4_8bit[0] = (v16hi){5 + offA_8bit, 0, 7 + offA_8bit, 2, 1, 4, 3, 6, 13 + offA_8bit, 8, 15 + offA_8bit, 10, 9, 12, 11, 14};
+	ctx->B4x4_8bit[0] = (v16si){10 + offB_8bit, 11 + offB_8bit, 0, 1, 14 + offB_8bit, 15 + offB_8bit, 4, 5, 2, 3, 8, 9, 6, 7, 12, 13};
+	ctx->A8x8_8bit[0] = (v4hi){1 + offA_8bit, 0, 3 + offA_8bit, 2};
+	ctx->B8x8_8bit[0] = (v4si){2 + offB_8bit, 3 + offB_8bit, 0, 1};
 	if (ctx->ps.ChromaArrayType == 1) {
-		ctx->A4x4_8bit[2] = (v8hi){17 - offsetA, 16, 19 - offsetA, 18, 21 - offsetA, 20, 23 - offsetA, 22};
-		ctx->B4x4_8bit[4] = (v4si){18 - offsetB, 19 - offsetB, 16, 17};
-		ctx->B4x4_8bit[5] = (v4si){22 - offsetB, 23 - offsetB, 20, 21};
+		ctx->A4x4_8bit[1] = (v16hi){17 + offA_8bit, 16, 19 + offA_8bit, 18, 21 + offA_8bit, 20, 23 + offA_8bit, 22};
+		ctx->B4x4_8bit[1] = (v16si){18 + offB_8bit, 19 + offB_8bit, 16, 17, 22 + offB_8bit, 23 + offB_8bit, 20, 21};
 	} else if (ctx->ps.ChromaArrayType == 2) {
-		ctx->A4x4_8bit[2] = (v8hi){17 - offsetA, 16, 19 - offsetA, 18, 21 - offsetA, 20, 23 - offsetA, 22};
-		ctx->A4x4_8bit[3] = (v8hi){25 - offsetA, 24, 27 - offsetA, 26, 29 - offsetA, 28, 31 - offsetA, 30};
-		ctx->B4x4_8bit[4] = (v4si){22 - offsetB, 23 - offsetB, 16, 17};
-		ctx->B4x4_8bit[5] = (v4si){18, 19, 20, 21};
-		ctx->B4x4_8bit[6] = (v4si){30 - offsetB, 31 - offsetB, 24, 25};
-		ctx->B4x4_8bit[7] = (v4si){26, 27, 28, 29};
+		ctx->A4x4_8bit[1] = (v16hi){17 + offA_8bit, 16, 19 + offA_8bit, 18, 21 + offA_8bit, 20, 23 + offA_8bit, 22, 25 + offA_8bit, 24, 27 + offA_8bit, 26, 29 + offA_8bit, 28, 31 + offA_8bit, 30};
+		ctx->B4x4_8bit[1] = (v16si){22 + offB_8bit, 23 + offB_8bit, 16, 17, 18, 19, 20, 21, 30 + offB_8bit, 31 + offB_8bit, 24, 25, 26, 27, 28, 29};
 	} else if (ctx->ps.ChromaArrayType == 3) {
-		v8hi h16 = {16, 16, 16, 16, 16, 16, 16, 16};
-		for (int i = 2; i < 6; i++)
-			ctx->A4x4_8bit[i] = ctx->A4x4_8bit[i - 2] + h16;
-		v4si s16 = {16, 16, 16, 16};
-		for (int i = 4; i < 12; i++)
-			ctx->B4x4_8bit[i] = ctx->B4x4_8bit[i - 4] + s16;
-		ctx->A8x8_8bit[1] = (v4hi){5 - offsetA, 4, 7 - offsetA, 6};
-		ctx->A8x8_8bit[2] = (v4hi){9 - offsetA, 8, 11 - offsetA, 10};
-		ctx->B8x8_8bit[1] = (v4si){6 - offsetB, 7 - offsetB, 4, 5};
-		ctx->B8x8_8bit[2] = (v4si){10 - offsetB, 11 - offsetB, 8, 9};
+		v16hi h16 = {16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16};
+		ctx->A4x4_8bit[1] = ctx->A4x4_8bit[0] + h16;
+		ctx->A4x4_8bit[2] = ctx->A4x4_8bit[1] + h16;
+		v16si s16 = {16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16};
+		ctx->B4x4_8bit[1] = ctx->B4x4_8bit[0] + s16;
+		ctx->B4x4_8bit[2] = ctx->B4x4_8bit[1] + s16;
+		ctx->A8x8_8bit[1] = (v4hi){5 + offA_8bit, 4, 7 + offA_8bit, 6};
+		ctx->A8x8_8bit[2] = (v4hi){9 + offA_8bit, 8, 11 + offA_8bit, 10};
+		ctx->B8x8_8bit[1] = (v4si){6 + offB_8bit, 7 + offB_8bit, 4, 5};
+		ctx->B8x8_8bit[2] = (v4si){10 + offB_8bit, 11 + offB_8bit, 8, 9};
 	}
 	
 	for (int i = 0; i < 16; i++) {
@@ -155,6 +147,18 @@ static void FUNC(initialise_decoding_context, Edge264_stream *e)
 	
 	// P/B slices
 	if (ctx->slice_type < 2) {
+		int offA_16bit = offA_8bit >> 1;
+		int offB_16bit = offB_8bit >> 1;
+		int offC_16bit = offB_16bit + sizeof(*mb);
+		int offD_16bit = offB_16bit - sizeof(*mb);
+		ctx->refIdx_C = offB_8bit + sizeof(*mb) + 2;
+		ctx->refIdx_D = offB_8bit - sizeof(*mb) + 3;
+		ctx->refIdx4x4_A_v = (v16qi){5, 6, 5, 6, 6, 7, 6, 7, 9, 10, 9, 10, 10, 11, 10, 11};
+		ctx->refIdx4x4_B_v = (v16qi){2, 2, 6, 6, 3, 3, 7, 7, 6, 6, 10, 10, 7, 7, 11, 11};
+		ctx->mvs_A_v = (v16hi){5 + offA_16bit, 0, 7 + offA_16bit, 2, 1, 4, 3, 6, 13 + offA_16bit, 8, 15 + offA_16bit, 10, 9, 12, 11, 14};
+		ctx->mvs_B_v = (v16si){10 + offB_16bit, 11 + offB_16bit, 0, 1, 14 + offB_16bit, 15 + offB_16bit, 4, 5, 2, 3, 8, 9, 6, 7, 12, 13};
+		ctx->mvs8x8_C_v = (v4si){14 + offB_16bit, 10 + offC_16bit, 6, 0};
+		ctx->mvs8x8_D_v = (v4si){15 + offD_16bit, 11 + offB_16bit, 7 + offA_16bit, 3};
 		ctx->ref_idx_mask = (ctx->ps.num_ref_idx_active[0] > 1 ? 0x1111 : 0) |
 			(ctx->ps.num_ref_idx_active[1] > 1 ? 0x11110000 : 0);
 		ctx->col_short_term = ~e->long_term_flags >> (ctx->RefPicList[1][0] & 15) & 1;

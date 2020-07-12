@@ -77,7 +77,7 @@ typedef struct {
 	union { int8_t coded_block_flags_8x8[12]; v16qi coded_block_flags_8x8_v; }; // [iYCbCr][i8x8]
 	union { int8_t coded_block_flags_4x4[48]; int32_t coded_block_flags_4x4_s[12]; v16qi coded_block_flags_4x4_v[3]; }; // [iYCbCr][i4x4]
 	union { int8_t absMvdComp[64]; v16qi absMvdComp_v[4]; }; // [compIdx][LX][i4x4]
-	union { int16_t mvs[64]; v8hi mvs_v[8]; v16hi mvs_V[4]; }; // [compIdx][LX][i4x4]
+	union { int16_t mvs[64]; v16hi mvs_V[4]; }; // [compIdx][LX][i4x4]
 } Edge264_macroblock;
 
 

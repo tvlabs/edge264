@@ -1,4 +1,5 @@
 /** TODOs:
+ * _ Implement cbf neighbouring rule for Inter/Intra
  * _ make 2 interfaces for residuals, with p/q/stride/nstride and pred from registers or memory
  *   -> don't forget that most cbf are 0 thus writing directly to memory is beneficial
  * _ transition Intra code to new residuals interface

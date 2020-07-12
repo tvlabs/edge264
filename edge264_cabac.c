@@ -1320,11 +1320,11 @@ static __attribute__((noinline)) void FUNC(parse_mvs)
 		
 		// load neighbouring motion vectors and equality mask
 		int xA = *(mb->mvs + ctx->mvs_A[i]);
-		int yA = *(mb->mvs + ctx->mvs_A[i] + 1);
+		int yA = *(mb->mvs + ctx->mvs_A[i] + 32);
 		int xB = *(mb->mvs + ctx->mvs_B[i]);
-		int yB = *(mb->mvs + ctx->mvs_B[i] + 1);
+		int yB = *(mb->mvs + ctx->mvs_B[i] + 32);
 		int xC = *(mb->mvs + ctx->mvs_C[i]);
-		int yC = *(mb->mvs + ctx->mvs_C[i] + 1);
+		int yC = *(mb->mvs + ctx->mvs_C[i] + 32);
 		int eq = ctx->refIdx4x4_eq[i];
 		
 		// This branch is unavoidable if we don't want to mess with mvA/B addresses too.
@@ -1608,18 +1608,30 @@ static __attribute__((noinline)) void FUNC(parse_I_mb, int ctxIdx)
 	mb->f.mb_skip_flag = CALL(get_ae, 13 - ctx->inc.mb_skip_flag);
 	fprintf(stderr, "mb_skip_flag: %x\n", mb->f.mb_skip_flag);
 	if (mb->f.mb_skip_flag) {
-		memset(mb->mvs + 32, 0, 64);
 		int refIdxA = *(mb->refIdx + ctx->refIdx_A[0]);
 		int refIdxB = *(mb->refIdx + ctx->refIdx_B[0]);
 		int refIdxC = *(mb->refIdx + (ctx->unavail[5] & 4 ? ctx->refIdx_D : ctx->refIdx_C));
+		int mvs_C = (ctx->unavail[5] & 4) ? ctx->mvs8x8_D[0] : ctx->mvs8x8_C[1];
 		int xA = *(mb->mvs + ctx->mvs_A[0]);
 		int yA = *(mb->mvs + ctx->mvs_A[0] + 32);
 		int xB = *(mb->mvs + ctx->mvs_B[0]);
 		int yB = *(mb->mvs + ctx->mvs_B[0] + 32);
-		int xC = *(mb->mvs + ctx->mvs_C[0]); // FIXME
-		int yC = *(mb->mvs + ctx->mvs_C[0] + 32);
-		
-		// TODO: infer mvL0
+		int xC = *(mb->mvs + mvs_C);
+		int yC = *(mb->mvs + mvs_C + 32);
+		int eq = (refIdxB >= 0 || refIdxC >= 0) ? !refIdxA + !refIdxB * 2 + !refIdxC * 4 : 0x1;
+		int x, y;
+		if (__builtin_expect(0xe9 >> eq & 1, 1)) {
+			x = median(xA, xB, xC);
+			y = median(yA, yB, yC);
+		} else {
+			x = (eq == 1) ? xA : (eq == 2) ? xB : xC;
+			y = (eq == 1) ? yA : (eq == 2) ? yB : yC;
+		}
+		mb->mvs_V[0] = (v16hi){x, x, x, x, x, x, x, x, x, x, x, x, x, x, x, x};
+		mb->mvs_V[1] = (v16hi){};
+		mb->mvs_V[2] = (v16hi){y, y, y, y, y, y, y, y, y, y, y, y, y, y, y, y};
+		mb->mvs_V[3] = (v16hi){};
+		CALL(decode_inter, 0, 16, 16, x, y);
 		return;
 	} else if (CALL(get_ae, 14)) {
 		JUMP(parse_I_mb, 17);
@@ -1638,7 +1650,7 @@ static __attribute__((noinline)) void FUNC(parse_I_mb, int ctxIdx)
 			int refIdxC = *(mb->refIdx + (ctx->unavail[5] & 4 ? ctx->refIdx_D : ctx->refIdx_C));
 			ctx->refIdx4x4_eq[0] = (refIdxB >= 0 || refIdxC >= 0) ?
 				(refIdx==refIdxA) + (refIdx==refIdxB) * 2 + (refIdx==refIdxC) * 4 : 0x1;
-			// FIXME: mvs_C
+			ctx->mvs_C[0] = (ctx->unavail[5] & 4) ? ctx->mvs8x8_D[0] : ctx->mvs8x8_C[1];
 			ctx->mvs_shuffle_v = (v16qi){0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
 			JUMP(parse_mvs);
 		} // else 8x8
@@ -1649,7 +1661,7 @@ static __attribute__((noinline)) void FUNC(parse_I_mb, int ctxIdx)
 		mb->refIdx_l = __builtin_shufflevector(mb->refIdx_l, mb->refIdx_l, 0, 1, 0, 1, 4, 5, 4, 5);
 		ctx->refIdx4x4_eq[0] = 0x1;
 		ctx->refIdx4x4_eq[4] = 0x4;
-		// FIXME: mvs_C
+		ctx->mvs_C[4] = (ctx->unavail[5] & 4) ? ctx->mvs8x8_D[1] : ctx->mvs8x8_C[1];
 		ctx->mvs_shuffle_v = (v16qi){0, 0, 0, 0, 4, 4, 4, 4, 0, 0, 0, 0, 4, 4, 4, 4};
 		JUMP(parse_mvs);
 	} else { // 16x8
@@ -1758,8 +1770,7 @@ static __attribute__((noinline)) void FUNC(parse_B_mb)
 		str += str + CALL(get_ae, 32);
 	}
 	if (str == 13) {
-		v8hi *v = mb->mvs_v;
-		v[0] = v[1] = v[2] = v[3] = v[4] = v[5] = v[6] = v[7] = (v8hi){};
+		memset(mb->mvs_V, 0, sizeof(mb->mvs_V));
 		JUMP(parse_I_mb, 32);
 	}
 	fprintf(stderr, "mb_type: %u\n", B2mb_type[str]);

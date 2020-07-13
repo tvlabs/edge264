@@ -121,8 +121,21 @@ static void FUNC(check_ctx, int label) {
 	predicate(ctx->plane_Y == e->DPB + e->frame_size * e->currPic + ctx->y * e->stride_Y + ctx->x);
 	predicate(ctx->plane_Cb == e->DPB + e->frame_size * e->currPic + e->plane_size_Y + (ctx->ps.ChromaArrayType > 1 ? ctx->y : ctx->y >> 1) * e->stride_C + (ctx->x >> 4) * ctx->col_offset_C);
 	
-	for (int i = 0; label > LOOP_START_LABEL && i < 16; i++)
-		predicate(ctx->inc.v[i] == mb[-1].f.v[i] + (mbB->f.v[i] << flags_twice.v[i]));
+	if (label > LOOP_START_LABEL) {
+		predicate(ctx->inc.unavailable == mb[-1].f.unavailable + mbB->f.unavailable * 2);
+		predicate(ctx->inc.mb_field_decoding_flag == mb[-1].f.mb_field_decoding_flag + mbB->f.mb_field_decoding_flag);
+		predicate(ctx->inc.mb_skip_flag == mb[-1].f.mb_skip_flag + mbB->f.mb_skip_flag);
+		predicate(ctx->inc.mb_type_I_NxN == mb[-1].f.mb_type_I_NxN + mbB->f.mb_type_I_NxN);
+		predicate(ctx->inc.mb_type_B_Direct == mb[-1].f.mb_type_B_Direct + mbB->f.mb_type_B_Direct);
+		predicate(ctx->inc.transform_size_8x8_flag == mb[-1].f.transform_size_8x8_flag + mbB->f.transform_size_8x8_flag);
+		predicate(ctx->inc.intra_chroma_pred_mode_non_zero == mb[-1].f.intra_chroma_pred_mode_non_zero + mbB->f.intra_chroma_pred_mode_non_zero);
+		predicate(ctx->inc.CodedBlockPatternChromaDC == mb[-1].f.CodedBlockPatternChromaDC + mbB->f.CodedBlockPatternChromaDC * 2);
+		predicate(ctx->inc.CodedBlockPatternChromaAC == mb[-1].f.CodedBlockPatternChromaAC + mbB->f.CodedBlockPatternChromaAC * 2);
+	}
+	for (int i = 0; i < 3; i++) {
+		if (label > INTRA_MB_LABEL)
+			predicate(ctx->inc.coded_block_flags_16x16[i] == (ctx->inc.unavailable & 1 ? !mb->f.mbIsInterFlag : mb[-1].f.coded_block_flags_16x16[i]) + (ctx->inc.unavailable & 2 ? !mb->f.mbIsInterFlag : mbB->f.coded_block_flags_16x16[i]) * 2);
+	}
 	for (int i = 0; i < 16; i++)
 		predicate(mb->f.v[i] >= 0 && mb->f.v[i] <= 1);
 	if (label > LOOP_START_LABEL)

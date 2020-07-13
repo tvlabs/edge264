@@ -1444,7 +1444,7 @@ static __attribute__((noinline)) void FUNC(parse_I_mb, int ctxIdx)
 		mb[-1].coded_block_flags_4x4_v[0] = mb[-1].coded_block_flags_4x4_v[1] =
 			mb[-1].coded_block_flags_4x4_v[2] = mb[-1].coded_block_flags_8x8_v =
 			(v16qi){1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1};
-		mb[-1].f.coded_block_flags_16x16_s = 0x01010101;
+		ctx->inc.coded_block_flags_16x16_s |= 0x01010101;
 	}
 	if (ctx->inc.unavailable & 2) {
 		// Why add a new variable when the value is already in memory??
@@ -1452,7 +1452,7 @@ static __attribute__((noinline)) void FUNC(parse_I_mb, int ctxIdx)
 		mbB->coded_block_flags_4x4_v[0] = mbB->coded_block_flags_4x4_v[1] =
 			mbB->coded_block_flags_4x4_v[2] = mbB->coded_block_flags_8x8_v =
 			(v16qi){1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1};
-		mbB->f.coded_block_flags_16x16_s = 0x01010101;
+		ctx->inc.coded_block_flags_16x16_s |= 0x02020202;
 	}
 	mb->f.mbIsInterFlag = 0;
 	
@@ -1653,18 +1653,18 @@ static __attribute__((noinline)) void FUNC(parse_I_mb, int ctxIdx)
 		JUMP(parse_I_mb, 17);
 	}
 	
-	// Intra-specific initialisations
+	// Inter-specific initialisations
 	if (ctx->inc.unavailable & 1) {
 		mb[-1].coded_block_flags_4x4_v[0] = mb[-1].coded_block_flags_4x4_v[1] =
 			mb[-1].coded_block_flags_4x4_v[2] = mb[-1].coded_block_flags_8x8_v = (v16qi){};
-		mb[-1].f.coded_block_flags_16x16_s = 0;
+		ctx->inc.coded_block_flags_16x16_s &= 0x02020202;
 	}
 	if (ctx->inc.unavailable & 2) {
 		// Why add a new variable when the value is already in memory??
 		Edge264_macroblock *mbB = (Edge264_macroblock *)((uint8_t *)mb + ctx->coded_block_flags_4x4_B[0] - 10);
 		mbB->coded_block_flags_4x4_v[0] = mbB->coded_block_flags_4x4_v[1] =
 			mbB->coded_block_flags_4x4_v[2] = mbB->coded_block_flags_8x8_v = (v16qi){};
-		mbB->f.coded_block_flags_16x16_s = 0;
+		ctx->inc.coded_block_flags_16x16_s &= 0x01010101;
 	}
 	
 	// initializations and jumps for mb_type

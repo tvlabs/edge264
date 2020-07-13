@@ -1167,7 +1167,6 @@ static int FUNC(parse_seq_parameter_set, Edge264_stream *e)
 		.f.mb_skip_flag = 1,
 		.f.mb_type_I_NxN = 1,
 		.f.mb_type_B_Direct = 1,
-		.f.coded_block_flags_16x16 = {1, 1, 1},
 		.refIdx = {-1, -1, -1, -1},
 		.Intra4x4PredMode = {-2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2},
 		.CodedBlockPatternLuma = {1, 1, 1, 1},

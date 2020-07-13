@@ -2,7 +2,8 @@
  * _ Implement cbf neighbouring rule for Inter/Intra
  * _ make 2 interfaces for residuals, with p/q/stride/nstride and pred from registers or memory
  *   -> don't forget that most cbf are 0 thus writing directly to memory is beneficial
- * _ transition Intra code to new residuals interface
+ * _ rewrite Intra16x16 decoding to write to memory and use the same residuals mode as Inter
+ * _ use a switch for edge264_inter...
  * _ Duplicate Inter routines in 3 with macros (put, avg, weighted) iff it makes decoding noticeably faster
  * _ switch to SDL which is likely to have a more stable future support than GLFW, with an option to play without display
  * _ make ref_idx a separate function, and 4 distinct 8x8/8x16/16x8/16x16 functions as prologs to parse_mvds

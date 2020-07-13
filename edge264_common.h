@@ -48,8 +48,8 @@ typedef union {
 		int8_t intra_chroma_pred_mode_non_zero;
 		int8_t CodedBlockPatternChromaDC;
 		int8_t CodedBlockPatternChromaAC;
-		int8_t coded_block_flags_16x16[3];
 		int8_t mbIsInterFlag;
+		union { int8_t coded_block_flags_16x16[3]; int32_t coded_block_flags_16x16_s; };
 	};
 	v16qi v;
 } Edge264_flags;
@@ -127,7 +127,7 @@ typedef struct
 	uint8_t *plane;
 	uint8_t *plane_Y;
 	uint8_t *plane_Cb; // plane_Cr is a fixed offset away from this pointer
-	Edge264_macroblock *_mb; // backup storage when not in a Global Register
+	Edge264_macroblock *_mb; // backup storage when not in a live variable
 	Edge264_stream *e; // for predicates at TRACE>0
 	v8hi clip_Y; // vector of maximum sample values
 	v8hi clip_C;

@@ -978,7 +978,7 @@ INTER16xH_QPEL_31_33(qpel33, 3, B)
 INTER16xH_QPEL_21_23(qpel21, CALL(packus_6tapD_8bit, v02, v0A, vh, zero))
 INTER16xH_QPEL_21_23(qpel23, CALL(packus_6tapD_8bit, v03, v0B, vh, zero))
 
-// with an array on stack or a preliminary loop, both compilers get crazy
+// with an array on stack or a preliminary loop, both compilers would get crazy
 #define INTER16xH_QPEL_12_22_32(QPEL, P)\
 	void FUNC(inter16xH_ ## QPEL ## _8bit, int h, size_t dstride, uint8_t *dst, size_t sstride, uint8_t *src) {\
 		ssize_t nstride= -sstride;\

@@ -1171,8 +1171,6 @@ static int FUNC(parse_seq_parameter_set, Edge264_stream *e)
 		.refIdx = {-1, -1, -1, -1},
 		.Intra4x4PredMode = {-2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2},
 		.CodedBlockPatternLuma = {1, 1, 1, 1},
-		.coded_block_flags_8x8 = {1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1},
-		.coded_block_flags_4x4 = {1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1},
 	};
 	
 	// Profiles are only useful to initialize max_num_reorder_frames/max_dec_frame_buffering.

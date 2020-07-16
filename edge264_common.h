@@ -422,9 +422,9 @@ __attribute__((noinline)) void FUNC(add_idct8x8);
 __attribute__((noinline)) void FUNC(decode_Residual4x4, __m128i p0, __m128i p1);
 __attribute__((noinline)) void FUNC(decode_Residual8x8_8bit, __m128i p0, __m128i p1, __m128i p2, __m128i p3, __m128i p4, __m128i p5, __m128i p6, __m128i p7);
 __attribute__((noinline)) void FUNC(decode_Residual8x8, __m128i p0, __m128i p1, __m128i p2, __m128i p3, __m128i p4, __m128i p5, __m128i p6, __m128i p7);
-__attribute__((noinline)) void FUNC(decode_ResidualDC4x4);
-__attribute__((noinline)) void FUNC(decode_ResidualDC2x2);
-__attribute__((noinline)) void FUNC(decode_ResidualDC2x4);
+__attribute__((noinline)) void FUNC(transform_dc4x4);
+__attribute__((noinline)) void FUNC(transform_dc2x2);
+__attribute__((noinline)) void FUNC(transform_dc2x4);
 
 #else // !__SSSE3__
 #error "Add -mssse3 or more recent"
@@ -437,6 +437,12 @@ __attribute__((noinline)) void FUNC(decode_ResidualDC2x4);
 
 
 enum PredModes {
+	ADD_RESIDUAL_4x4,
+	ADD_RESIDUAL_8x8,
+	TRANSFORM_DC_4x4,
+	TRANSFORM_DC_2x4,
+	TRANSFORM_DC_2x2,
+	
 	VERTICAL_4x4,
 	HORIZONTAL_4x4,
 	DC_4x4,

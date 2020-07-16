@@ -1,5 +1,4 @@
 /** TODOs:
- * _ Create new versions of residual 4x4 and 8x8 that add directly to memory
  * _ Create a new Pred Mode that just calls the new residual functions
  * _ Implement and test Inter residual using this new Pred mode
  * _ Modify all Intra decoding functions to operate after parsing (rather than before residual) and use the same Pred Mode

@@ -587,7 +587,7 @@ __attribute__((noinline)) void FUNC(decode_Residual8x8, __m128i p0,
 /**
  * DC coefficients transform
  */
-__attribute__((noinline)) void FUNC(decode_ResidualDC4x4) {
+__attribute__((noinline)) void FUNC(transform_dc4x4) {
 	CALL(compute_LevelScale4x4, ctx->BlkIdx >> 4);
 	
 	// loading
@@ -639,7 +639,7 @@ __attribute__((noinline)) void FUNC(decode_ResidualDC4x4) {
 	ctx->d_v[7] = (v4si)_mm_unpackhi_epi64(dc2, dc3);
 }
 
-__attribute__((noinline)) void FUNC(decode_ResidualDC2x2) {
+__attribute__((noinline)) void FUNC(transform_dc2x2) {
 	int iYCbCr = (ctx->BlkIdx - 12) >> 2; // BlkIdx is 16 or 20
 	unsigned qP = mb->QP[iYCbCr];
 	unsigned w = ctx->ps.weightScale4x4[iYCbCr + mb->f.mbIsInterFlag * 3][0];
@@ -656,7 +656,7 @@ __attribute__((noinline)) void FUNC(decode_ResidualDC2x2) {
 	d[3] = ((i2 - i3) * LevelScale) >> 5;
 }
 
-__attribute__((noinline)) void FUNC(decode_ResidualDC2x4) {
+__attribute__((noinline)) void FUNC(transform_dc2x4) {
 	int iYCbCr = (ctx->BlkIdx - 8) >> 3; // BlkIdx is 16 or 24
 	unsigned qP_DC = mb->QP[iYCbCr] + 3;
 	int w = ctx->ps.weightScale4x4[iYCbCr + mb->f.mbIsInterFlag * 3][0];

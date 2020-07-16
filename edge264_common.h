@@ -417,6 +417,8 @@ static inline __m128i _mm_movpi64_epi64(__m64 a) {
 // edge264_residual.c has an interface specific to x86
 __attribute__((noinline)) void FUNC(compute_LevelScale4x4, int iYCbCr);
 __attribute__((noinline)) void FUNC(compute_LevelScale8x8, int iYCbCr);
+__attribute__((noinline)) void FUNC(add_idct4x4);
+__attribute__((noinline)) void FUNC(add_idct8x8);
 __attribute__((noinline)) void FUNC(decode_Residual4x4, __m128i p0, __m128i p1);
 __attribute__((noinline)) void FUNC(decode_Residual8x8_8bit, __m128i p0, __m128i p1, __m128i p2, __m128i p3, __m128i p4, __m128i p5, __m128i p6, __m128i p7);
 __attribute__((noinline)) void FUNC(decode_Residual8x8, __m128i p0, __m128i p1, __m128i p2, __m128i p3, __m128i p4, __m128i p5, __m128i p6, __m128i p7);

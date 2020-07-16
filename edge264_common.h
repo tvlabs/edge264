@@ -388,6 +388,23 @@ static inline size_t lsd(size_t msb, size_t lsb, unsigned shift) {
 	__asm__("shld %%cl, %1, %0" : "+rm" (msb) : "r" (lsb), "c" (shift));
 	return msb;
 }
+static inline void FUNC(store4x4_8bit, size_t stride, uint8_t *dst, __m128i p0, __m128i p1) {
+	__m128i p = _mm_packus_epi16(p0, p1);
+	*(int32_t *)(dst             ) = ((v4si)p)[0];
+	*(int32_t *)(dst + stride    ) = ((v4si)p)[1];
+	*(int32_t *)(dst + stride * 2) = ((v4si)p)[2];
+	*(int32_t *)(dst + stride * 3) = ((v4si)p)[3];
+}
+static inline void FUNC(store4x4_16bit, size_t stride, uint8_t *dst, __m128i p0, __m128i p1) {
+	__m128i zero = _mm_setzero_si128();
+	__m128i clip = (__m128i)ctx->clip_v;
+	v2li u0 = (v2li)_mm_min_epi16(_mm_max_epi16(p0, zero), clip);
+	v2li u1 = (v2li)_mm_min_epi16(_mm_max_epi16(p1, zero), clip);
+	*(int64_t *)(dst             ) = u0[0];
+	*(int64_t *)(dst + stride    ) = u0[1];
+	*(int64_t *)(dst + stride * 2) = u1[0];
+	*(int64_t *)(dst + stride * 3) = u1[1];
+}
 // fixing GCC's defect
 #if defined(__GNUC__) && !defined(__clang__)
 static inline __m128i _mm_movpi64_epi64(__m64 a) {
@@ -402,7 +419,6 @@ __attribute__((noinline)) void FUNC(compute_LevelScale4x4, int iYCbCr);
 __attribute__((noinline)) void FUNC(compute_LevelScale8x8, int iYCbCr);
 __attribute__((noinline)) void FUNC(decode_Residual4x4, __m128i p0, __m128i p1);
 __attribute__((noinline)) void FUNC(decode_Residual8x8_8bit, __m128i p0, __m128i p1, __m128i p2, __m128i p3, __m128i p4, __m128i p5, __m128i p6, __m128i p7);
-__attribute__((noinline)) void FUNC(decode_Residual8x8_noargs_8bit);
 __attribute__((noinline)) void FUNC(decode_Residual8x8, __m128i p0, __m128i p1, __m128i p2, __m128i p3, __m128i p4, __m128i p5, __m128i p6, __m128i p7);
 __attribute__((noinline)) void FUNC(decode_ResidualDC4x4);
 __attribute__((noinline)) void FUNC(decode_ResidualDC2x2);

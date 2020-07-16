@@ -98,21 +98,6 @@ static inline __attribute__((always_inline)) __m128i FUNC(packus_6tapD_8bit,
 
 
 /**
- * Helper function to pack and store the result of Inter4x4 prediction.
- */
-static inline __attribute__((always_inline)) void FUNC(store4x4_8bit,
-	size_t dstride, uint8_t *dst, __m128i p0, __m128i p1)
-{
-	__m128i p = _mm_packus_epi16(p0, p1);
-	*(int32_t *)(dst              ) = ((v4si)p)[0];
-	*(int32_t *)(dst + dstride    ) = ((v4si)p)[1];
-	*(int32_t *)(dst + dstride * 2) = ((v4si)p)[2];
-	*(int32_t *)(dst + dstride * 3) = ((v4si)p)[3];
-}
-
-
-
-/**
  * Inter 4x{4/8} prediction takes a 9x{9/13} matrix of 8/16bit luma samples as
  * input, and outputs a 4x{4/8} matrix in memory.
  * Loads are generally done by 8x1 matrices denoted as lRC in the code (R=row,

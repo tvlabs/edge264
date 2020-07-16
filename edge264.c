@@ -1,5 +1,4 @@
 /** TODOs:
- * _ Create a new Pred Mode that just calls the new residual functions
  * _ Implement and test Inter residual using this new Pred mode
  * _ Modify all Intra decoding functions to operate after parsing (rather than before residual) and use the same Pred Mode
  * _ Remove Pred modes in favor of static residual calls

@@ -2,6 +2,7 @@
 // TODO: Invert X&Y in QPEL to match ffmpeg convention
 // TODO: Does restrict allow compilers to reorder reads/writes?
 // TODO: Make INTER4xH_QPEL_21_22_23 lighter by halving the loop?
+// TODO: Add support for 16bit
 
 #include "edge264_common.h"
 
@@ -1082,6 +1083,71 @@ INTER16xH_QPEL_21_23(qpel23, CALL(packus_6tapD_8bit, v03, v0B, vh, zero))
 INTER16xH_QPEL_12_22_32(qpel12, CALL(packus_6tapD_8bit, h20, h28, hv, zero))
 INTER16xH_QPEL_12_22_32(qpel22, hv)
 INTER16xH_QPEL_12_22_32(qpel32, CALL(packus_6tapD_8bit, h30, h38, hv, zero))
+
+
+
+/**
+ * Inter chroma prediction
+ *
+ * A/B/C/D coefficients are passed in vector registers since their computation
+ * is shared by all sizes.
+ */
+void FUNC(inter2xH_chroma_8bit, int h, size_t dstride, uint8_t *dst, size_t sstride, uint8_t *src, __m128i AB, __m128i CD) {
+	__m64 shuf = _mm_setr_pi8(0, 1, 1, 2, 4, 5, 5, 6);
+	__m64 zero = _mm_setzero_si64();
+	__m64 ab = _mm_movepi64_pi64(AB);
+	__m64 cd = _mm_movepi64_pi64(CD);
+	__m64 m0 = _mm_shuffle_pi8(_mm_setr_pi32(0, *(int32_t *)src), shuf);
+	do {
+		__m64 m1 = _mm_setr_pi32(*(int32_t *)(src + sstride    ), *(int32_t *)(src + sstride * 2));
+		__m64 m2 = _mm_shuffle_pi8(m1, shuf);
+		__m64 m3 = _mm_alignr_pi8(m2, m0, 4);
+		__m64 m4 = _mm_add_pi16(_mm_maddubs_pi16(m3, ab), _mm_maddubs_pi16(m2, cd));
+		v4hi m5 = (v4hi)_mm_packs_pu16(_mm_avg_pu16(_mm_srli_pi16(m4, 5), zero), zero);
+		*(int16_t *)(dst          ) = m5[0];
+		*(int16_t *)(dst + dstride) = m5[1];
+		src += sstride * 2;
+		dst += dstride * 2;
+		m0 = m2;
+	} while (h -= 2);
+}
+
+void FUNC(inter4xH_chroma_8bit, int h, size_t dstride, uint8_t *dst, size_t sstride, uint8_t *src, __m128i AB, __m128i CD) {
+	__m128i zero = _mm_setzero_si128();
+	__m128i x0 = _mm_slli_si128(_mm_unpacklo_epi8(_mm_cvtsi32_si128(*(int32_t *)src), _mm_cvtsi32_si128(*(int32_t *)(src + 1))), 8);
+	do {
+		__m128i x1 = _mm_setr_epi32(*(int32_t *)(src + sstride        ), *(int32_t *)(src + sstride * 2    ), 0, 0);
+		__m128i x2 = _mm_setr_epi32(*(int32_t *)(src + sstride     + 1), *(int32_t *)(src + sstride * 2 + 1), 0, 0);
+		__m128i x3 = _mm_unpacklo_epi8(x1, x2);
+		__m128i x4 = _mm_alignr_epi8(x3, x0, 8);
+		__m128i x5 = _mm_add_epi16(_mm_maddubs_epi16(x4, AB), _mm_maddubs_epi16(x3, CD));
+		v4si x6 = (v4si)_mm_packus_epi16(_mm_avg_epu16(_mm_srli_epi16(x5, 5), zero), zero);
+		*(int32_t *)(dst          ) = x6[0];
+		*(int32_t *)(dst + dstride) = x6[1];
+		src += sstride * 2;
+		dst += dstride * 2;
+		x0 = x3;
+	} while (h -= 2);
+}
+
+void FUNC(inter8xH_chroma_8bit, int h, size_t dstride, uint8_t *dst, size_t sstride, uint8_t *src, __m128i AB, __m128i CD) {
+	__m128i zero = _mm_setzero_si128();
+	__m128i x0 = _mm_unpacklo_epi8(_mm_loadu_si64(src              ), _mm_loadu_si64(src               + 1));
+	do {
+		__m128i x1 = _mm_unpacklo_epi8(_mm_loadu_si64(src + sstride    ), _mm_loadu_si64(src + sstride     + 1));
+		__m128i x2 = _mm_unpacklo_epi8(_mm_loadu_si64(src + sstride * 2), _mm_loadu_si64(src + sstride * 2 + 1));
+		__m128i x3 = _mm_add_epi16(_mm_maddubs_epi16(x0, AB), _mm_maddubs_epi16(x1, CD));
+		__m128i x4 = _mm_add_epi16(_mm_maddubs_epi16(x1, AB), _mm_maddubs_epi16(x2, CD));
+		__m128i x5 = _mm_avg_epu16(_mm_srli_epi16(x3, 5), zero);
+		__m128i x6 = _mm_avg_epu16(_mm_srli_epi16(x4, 5), zero);
+		v2li x7 = (v2li)_mm_packus_epi16(x5, x6);
+		*(int64_t *)(dst          ) = x7[0];
+		*(int64_t *)(dst + dstride) = x7[1];
+		src += sstride * 2;
+		dst += dstride * 2;
+		x0 = x2;
+	} while (h -= 2);
+}
 
 
 

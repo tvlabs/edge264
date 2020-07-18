@@ -7,9 +7,8 @@ This is an experimental software decoder for the H.264 video codec, written from
 Supported features
 ------------------
 
-* Any resolution from 1x1 up to 8K UHD (level 6.2)
-* 4:0:0, 4:2:0, 4:2:2 and 4:4:4
-* 8-14 bit-depth (with possibility of different luma/chroma depths)
+* Any resolution (multiple of 16) from 16x16 up to 8K UHD (level 6.2)
+* 8-bit 4:2:0 planar YUV
 * CABAC only (but very optimised!)
 * Intra frames
 * All POC types (0, 1, 2)
@@ -21,10 +20,13 @@ Supported features
 Planned features
 ----------------
 
-* P/B frames (parsing already implemented)
-* Deblocking (work in progress)
+* P/B frames (work in progress)
+* Deblocking
+* 9-14 bit depths with possibility of different luma/chroma depths (already implemented, needs testing)
+* 4:0:0, 4:2:2 and 4:4:4 (already implemented, needs testing)
 * Transform-bypass for macroblocks with QP==0
 * Constrained Intra prediction mode
+* Frame cropping
 * Slices (and separate colour planes)
 * Thread-safety and slice-multithreading (to let multithreaded encoders decode/encode each frame on the same thread)
 * MVC 3D support

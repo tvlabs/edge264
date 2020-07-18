@@ -1152,30 +1152,11 @@ void FUNC(inter8xH_chroma_8bit, int h, size_t dstride, uint8_t *dst, size_t sstr
 
 
 void FUNC(decode_inter, int i, int w, int h, int x, int y) {
-	/*typedef void FUNC((*InterFunction), int, size_t, uint8_t *, size_t, uint8_t *);
-	static InterFunction fcts[3][4][4] = { // [w][y%4][x%4]
-		inter4xH_qpel00_8bit, inter4xH_qpel01_8bit, inter4xH_qpel02_8bit, inter4xH_qpel03_8bit,
-		inter4xH_qpel10_8bit, inter4xH_qpel11_8bit, inter4xH_qpel12_8bit, inter4xH_qpel13_8bit,
-		inter4xH_qpel20_8bit, inter4xH_qpel21_8bit, inter4xH_qpel22_8bit, inter4xH_qpel23_8bit,
-		inter4xH_qpel30_8bit, inter4xH_qpel31_8bit, inter4xH_qpel32_8bit, inter4xH_qpel33_8bit,
-		
-		inter8xH_qpel00_8bit, inter8xH_qpel01_8bit, inter8xH_qpel02_8bit, inter8xH_qpel03_8bit,
-		inter8xH_qpel10_8bit, inter8xH_qpel11_8bit, inter8xH_qpel12_8bit, inter8xH_qpel13_8bit,
-		inter8xH_qpel20_8bit, inter8xH_qpel21_8bit, inter8xH_qpel22_8bit, inter8xH_qpel23_8bit,
-		inter8xH_qpel30_8bit, inter8xH_qpel31_8bit, inter8xH_qpel32_8bit, inter8xH_qpel33_8bit,
-		
-		inter16xH_qpel00_8bit, inter16xH_qpel01_8bit, inter16xH_qpel02_8bit, inter16xH_qpel03_8bit,
-		inter16xH_qpel10_8bit, inter16xH_qpel11_8bit, inter16xH_qpel12_8bit, inter16xH_qpel13_8bit,
-		inter16xH_qpel20_8bit, inter16xH_qpel21_8bit, inter16xH_qpel22_8bit, inter16xH_qpel23_8bit,
-		inter16xH_qpel30_8bit, inter16xH_qpel31_8bit, inter16xH_qpel32_8bit, inter16xH_qpel33_8bit,
-	};*/
-	
+	uint8_t *ref = ctx->ref_planes[0][mb->refIdx[i >> 2]];
 	size_t stride = ctx->plane_offsets[2] >> 2;
-	int offset = ctx->plane_offsets[i & 15];
-	uint8_t *src = ctx->ref_planes[0][mb->refIdx[i >> 2]] + offset +
-		(ctx->y + (y >> 2)) * stride + (ctx->x + (x >> 2));
-	uint8_t *dst = ctx->plane_Y + ctx->plane_offsets[i & 15];
-	// CALL(fcts[w == 4 ? 0 : w == 8 ? 1 : 2][y & 3][x & 3], h, stride, dst, stride, src);
+	int offset = ctx->plane_offsets[i];
+	uint8_t *src = ref + offset + (ctx->y + (y >> 2)) * stride + (ctx->x + (x >> 2));
+	uint8_t *dst = ctx->plane_Y + offset;
 	switch ((w == 4 ? 0 : w == 8 ? 16 : 32) + (y & 3) * 4 + (x & 3)) {
 	case 0: CALL(inter4xH_qpel00_8bit, h, stride, dst, stride, src); break;
 	case 1: CALL(inter4xH_qpel01_8bit, h, stride, dst, stride, src); break;
@@ -1228,5 +1209,33 @@ void FUNC(decode_inter, int i, int w, int h, int x, int y) {
 	case 46: CALL(inter16xH_qpel32_8bit, h, stride, dst, stride, src); break;
 	case 47: CALL(inter16xH_qpel33_8bit, h, stride, dst, stride, src); break;
 	default: __builtin_unreachable();
+	}
+	
+	// temporary hardcoding 4:2:0 until devising a simpler internal plane storage
+	stride = ctx->plane_offsets[18] >> 2;
+	int xFrac_C = x & 7;
+	int yFrac_C = y & 7;
+	int mul = 8 - xFrac_C + (xFrac_C << 8);
+	__m128i AB = _mm_set1_epi16(mul * (8 - yFrac_C));
+	__m128i CD = _mm_set1_epi16(mul * yFrac_C);
+	offset = ctx->plane_offsets[16 + (i >> 2)];
+	src = ref + ctx->e->plane_size_Y + offset + (ctx->y + (y >> 3)) * stride + (ctx->x + (x >> 3));
+	dst = ctx->plane_Cb + offset;
+	if (w == 4) {
+		CALL(inter2xH_chroma_8bit, h >> 1, stride, dst, stride, src, AB, CD);
+	} else if (w == 8) {
+		CALL(inter4xH_chroma_8bit, h >> 1, stride, dst, stride, src, AB, CD);
+	} else {
+		CALL(inter8xH_chroma_8bit, h >> 1, stride, dst, stride, src, AB, CD);
+	}
+	offset = ctx->plane_offsets[20 + (i >> 2)];
+	src = ref + ctx->e->plane_size_Y + offset + (ctx->y + (y >> 3)) * stride + (ctx->x + (x >> 3));
+	dst = ctx->plane_Cb + offset;
+	if (w == 4) {
+		CALL(inter2xH_chroma_8bit, h >> 1, stride, dst, stride, src, AB, CD);
+	} else if (w == 8) {
+		CALL(inter4xH_chroma_8bit, h >> 1, stride, dst, stride, src, AB, CD);
+	} else {
+		CALL(inter8xH_chroma_8bit, h >> 1, stride, dst, stride, src, AB, CD);
 	}
 }

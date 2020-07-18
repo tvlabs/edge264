@@ -160,7 +160,6 @@ typedef struct
 	union { int16_t pred_buffer[144]; v8hi pred_buffer_v[18]; }; // temporary storage for prediction samples
 	
 	// Inter context
-	v4qi test;
 	uint32_t mvd_flags;
 	int8_t transform_8x8_mode_flag;
 	uint32_t ref_idx_mask;
@@ -294,6 +293,15 @@ static inline int FUNC(get_se, int lower, int upper) { return min(max(map_se((lo
 // edge264_intra_ssse3.c
 void FUNC(decode_samples);
 
+// edge264_residual_ssse3.c
+__attribute__((noinline)) void FUNC(compute_LevelScale4x4, int iYCbCr);
+__attribute__((noinline)) void FUNC(compute_LevelScale8x8, int iYCbCr);
+__attribute__((noinline)) void FUNC(add_idct4x4);
+__attribute__((noinline)) void FUNC(add_idct8x8);
+__attribute__((noinline)) void FUNC(transform_dc4x4);
+__attribute__((noinline)) void FUNC(transform_dc2x2);
+__attribute__((noinline)) void FUNC(transform_dc2x4);
+
 // for debugging
 void print_v16qi(v16qi v) {
 	printf("<li><code>");
@@ -414,17 +422,10 @@ static inline __m128i _mm_movpi64_epi64(__m64 a) {
 }
 #endif // __GNUC__
 
-// edge264_residual.c has an interface specific to x86
-__attribute__((noinline)) void FUNC(compute_LevelScale4x4, int iYCbCr);
-__attribute__((noinline)) void FUNC(compute_LevelScale8x8, int iYCbCr);
-__attribute__((noinline)) void FUNC(add_idct4x4);
-__attribute__((noinline)) void FUNC(add_idct8x8);
+// legacy functions
 __attribute__((noinline)) void FUNC(decode_Residual4x4, __m128i p0, __m128i p1);
 __attribute__((noinline)) void FUNC(decode_Residual8x8_8bit, __m128i p0, __m128i p1, __m128i p2, __m128i p3, __m128i p4, __m128i p5, __m128i p6, __m128i p7);
 __attribute__((noinline)) void FUNC(decode_Residual8x8, __m128i p0, __m128i p1, __m128i p2, __m128i p3, __m128i p4, __m128i p5, __m128i p6, __m128i p7);
-__attribute__((noinline)) void FUNC(transform_dc4x4);
-__attribute__((noinline)) void FUNC(transform_dc2x2);
-__attribute__((noinline)) void FUNC(transform_dc2x4);
 
 #else // !__SSSE3__
 #error "Add -mssse3 or more recent"

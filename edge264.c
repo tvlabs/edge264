@@ -1,6 +1,7 @@
 /** TODOs:
  * _ Implement and test Inter residual using this new Pred mode
  * _ Modify all Intra decoding functions to operate after parsing (rather than before residual) and use the same Pred Mode
+ * _ Remove plane_Y/Cb in favor of a fixed plane pointer + incremented plane_offsets
  * _ Remove Pred modes in favor of static residual calls
  * _ switch to SDL which is likely to have a more stable future support than GLFW, with an option to play without display
  * _ make ref_idx a separate function, and 4 distinct 8x8/8x16/16x8/16x16 functions as prologs to parse_mvds

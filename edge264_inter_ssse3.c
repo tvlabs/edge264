@@ -1219,7 +1219,7 @@ void FUNC(decode_inter, int i, int w, int h, int x, int y) {
 	__m128i AB = _mm_set1_epi16(mul * (8 - yFrac_C));
 	__m128i CD = _mm_set1_epi16(mul * yFrac_C);
 	offset = ctx->plane_offsets[16 + (i >> 2)];
-	src = ref + ctx->e->plane_size_Y + offset + (ctx->y + (y >> 3)) * stride + (ctx->x + (x >> 3));
+	src = ref + ctx->e->plane_size_Y + offset + ((ctx->y >> 1) + (y >> 3)) * stride + ((ctx->x >> 1) + (x >> 3));
 	dst = ctx->plane_Cb + offset;
 	if (w == 4) {
 		CALL(inter2xH_chroma_8bit, h >> 1, stride, dst, stride, src, AB, CD);
@@ -1229,7 +1229,7 @@ void FUNC(decode_inter, int i, int w, int h, int x, int y) {
 		CALL(inter8xH_chroma_8bit, h >> 1, stride, dst, stride, src, AB, CD);
 	}
 	offset = ctx->plane_offsets[20 + (i >> 2)];
-	src = ref + ctx->e->plane_size_Y + offset + (ctx->y + (y >> 3)) * stride + (ctx->x + (x >> 3));
+	src = ref + ctx->e->plane_size_Y + offset + ((ctx->y >> 1) + (y >> 3)) * stride + ((ctx->x >> 1) + (x >> 3));
 	dst = ctx->plane_Cb + offset;
 	if (w == 4) {
 		CALL(inter2xH_chroma_8bit, h >> 1, stride, dst, stride, src, AB, CD);

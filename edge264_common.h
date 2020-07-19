@@ -168,6 +168,7 @@ typedef struct
 	uint8_t *ref_planes[2][32];
 	union { int32_t mvs_shuffle_s[4]; v16qi mvs_shuffle_v; }; // shuffle vector for mvs/absMvdComp storage
 	union { int8_t refIdx4x4_eq[32]; v16qi refIdx4x4_eq_v[2]; };
+	union { int8_t part_sizes[32]; int64_t part_sizes_l[4]; }; // pairs {w,h} for sizes of inter blocks
 	int8_t MapPicToList0[35]; // [1 + refPic]
 	int16_t DistScaleFactor[3][32]; // [top/bottom/frame][refIdxL0]
 	union { int8_t implicit_weights[2][32][32]; v16qi implicit_weights_v[2][32][2]; }; // w1 for [top/bottom][ref0][ref1]

@@ -1221,21 +1221,21 @@ void FUNC(decode_inter, int i, int w, int h, int x, int y) {
 	offset = ctx->plane_offsets[16 + (i >> 2)];
 	src = ref + ctx->e->plane_size_Y + offset + ((ctx->y >> 1) + (y >> 3)) * stride + ((ctx->x >> 1) + (x >> 3));
 	dst = ctx->plane_Cb + offset;
-	if (w == 4) {
-		CALL(inter2xH_chroma_8bit, h >> 1, stride, dst, stride, src, AB, CD);
+	if (w == 16) {
+		CALL(inter8xH_chroma_8bit, h >> 1, stride, dst, stride, src, AB, CD);
 	} else if (w == 8) {
 		CALL(inter4xH_chroma_8bit, h >> 1, stride, dst, stride, src, AB, CD);
 	} else {
-		CALL(inter8xH_chroma_8bit, h >> 1, stride, dst, stride, src, AB, CD);
+		CALL(inter2xH_chroma_8bit, h >> 1, stride, dst, stride, src, AB, CD);
 	}
 	offset = ctx->plane_offsets[20 + (i >> 2)];
 	src = ref + ctx->e->plane_size_Y + offset + ((ctx->y >> 1) + (y >> 3)) * stride + ((ctx->x >> 1) + (x >> 3));
 	dst = ctx->plane_Cb + offset;
-	if (w == 4) {
-		CALL(inter2xH_chroma_8bit, h >> 1, stride, dst, stride, src, AB, CD);
+	if (w == 16) {
+		CALL(inter8xH_chroma_8bit, h >> 1, stride, dst, stride, src, AB, CD);
 	} else if (w == 8) {
 		CALL(inter4xH_chroma_8bit, h >> 1, stride, dst, stride, src, AB, CD);
 	} else {
-		CALL(inter8xH_chroma_8bit, h >> 1, stride, dst, stride, src, AB, CD);
+		CALL(inter2xH_chroma_8bit, h >> 1, stride, dst, stride, src, AB, CD);
 	}
 }

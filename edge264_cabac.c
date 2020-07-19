@@ -1280,11 +1280,12 @@ static __attribute__((noinline)) void FUNC(parse_ref_idx)
 		int refIdxA = *(mb->refIdx + (i & 4) + ctx->refIdx_A[i & 3]);
 		int refIdxB = *(mb->refIdx + (i & 4) + ctx->refIdx_B[i & 3]);
 		int ctxIdxInc = (refIdxA > 0) + (refIdxB > 0) * 2;
+		int num_ref_idx_active_minus1 = ctx->ps.num_ref_idx_active[i >> 2] - 1;
 		int refIdx = 0;
-		
-		// This cannot loop forever since binVal would oscillate past the end of the RBSP.
-		while (CALL(get_ae, 54 + ctxIdxInc))
-			refIdx++, ctxIdxInc = ctxIdxInc / 4 + 4; // cool trick from ffmpeg
+		while (CALL(get_ae, 54 + ctxIdxInc) && refIdx < num_ref_idx_active_minus1) {
+			ctxIdxInc = (ctxIdxInc >> 2) + 4; // cool trick from ffmpeg
+			refIdx++;
+		}
 		mb->refIdx[i] = refIdx;
 		fprintf(stderr, "ref_idx_l%x: %u\n", i >> 2, refIdx);
 	}
@@ -1335,9 +1336,10 @@ static __attribute__((noinline)) void FUNC(parse_mvs)
 			x += (eq == 1) ? xA : (eq == 2) ? xB : xC;
 			y += (eq == 1) ? yA : (eq == 2) ? yB : yC;
 		}
+		int i4x4 = i & 15;
+		CALL(decode_inter, i4x4, ctx->part_sizes[i4x4 * 2], ctx->part_sizes[i4x4 * 2 + 1], x, y);
 		
 		// 32-bytes stores (GCC and Clang do a decent fallback for 16-bytes)
-		int i4x4 = i & 15;
 		int lx = i >> 4;
 		v16qi vi4x4 = {i4x4, i4x4, i4x4, i4x4, i4x4, i4x4, i4x4, i4x4, i4x4, i4x4, i4x4, i4x4, i4x4, i4x4, i4x4, i4x4};
 		v16hi mask = __builtin_convertvector(ctx->mvs_shuffle_v == vi4x4, v16hi);
@@ -1693,6 +1695,7 @@ static __attribute__((noinline)) void FUNC(parse_I_mb, int ctxIdx)
 				(refIdx==refIdxA) + (refIdx==refIdxB) * 2 + (refIdx==refIdxC) * 4 : 0x1;
 			ctx->mvs_C[0] = (ctx->unavail[5] & 4) ? ctx->mvs8x8_D[0] : ctx->mvs8x8_C[1];
 			ctx->mvs_shuffle_v = (v16qi){0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+			ctx->part_sizes_l[0] = (int64_t)(v8qi){16, 16};
 			JUMP(parse_mvs);
 		} // else 8x8
 	} else if (!CALL(get_ae, 17)) { // 8x16
@@ -1704,6 +1707,7 @@ static __attribute__((noinline)) void FUNC(parse_I_mb, int ctxIdx)
 		ctx->refIdx4x4_eq[4] = 0x4;
 		ctx->mvs_C[4] = (ctx->unavail[5] & 4) ? ctx->mvs8x8_D[1] : ctx->mvs8x8_C[1];
 		ctx->mvs_shuffle_v = (v16qi){0, 0, 0, 0, 4, 4, 4, 4, 0, 0, 0, 0, 4, 4, 4, 4};
+		ctx->part_sizes_l[0] = ctx->part_sizes_l[1] = (int64_t)(v8qi){8, 16};
 		JUMP(parse_mvs);
 	} else { // 16x8
 		ctx->mvd_flags = 0x0101;
@@ -1713,31 +1717,36 @@ static __attribute__((noinline)) void FUNC(parse_I_mb, int ctxIdx)
 		ctx->refIdx4x4_eq[0] = 0x2;
 		ctx->refIdx4x4_eq[8] = 0x1;
 		ctx->mvs_shuffle_v = (v16qi){0, 0, 0, 0, 0, 0, 0, 0, 8, 8, 8, 8, 8, 8, 8, 8};
+		ctx->part_sizes_l[0] = ctx->part_sizes_l[2] = (int64_t)(v8qi){16, 8};
 		JUMP(parse_mvs);
 	}
 	fprintf(stderr, "mb_type: 3\n");
 	
 	// initializations and jumps for sub_mb_type
 	unsigned flags = 0;
-	for (int i8x8 = 0, f, w, s; i8x8 < 4; i8x8++) {
+	for (int i8x8 = 0, f, s; i8x8 < 4; i8x8++) {
 		int i4x4 = i8x8 * 4;
 		int unavailBC = ctx->unavail[i4x4 + 1] & 0x6; // incremented by subpart modes to signal 8-sample width
+		int64_t sizes;
 		if (CALL(get_ae, 21)) { // 8x8
 			f = 1;
 			s = 0;
 			ctx->mvs_C[i4x4] = (unavailBC & 4 ? ctx->mvs8x8_D : ctx->mvs8x8_C)[i8x8];
 			unavailBC++;
+			sizes = (int64_t)(v8qi){8, 8};
 		} else if (ctx->transform_8x8_mode_flag = 0, !CALL(get_ae, 22)) { // 8x4
 			f = 5;
 			s = (int32_t)(v4qi){0, 0, 2, 2};
 			ctx->mvs_C[i4x4] = (unavailBC & 4 ? ctx->mvs8x8_D : ctx->mvs8x8_C)[i8x8];
 			ctx->mvs_C[i4x4 + 2] = ctx->mvs_A[i4x4];
 			unavailBC++;
+			sizes = (int64_t)(v8qi){8, 4, 0, 0, 8, 4, 0, 0};
 		} else if (CALL(get_ae, 23)) { // 4x8
 			f = 3;
 			s = (int32_t)(v4qi){0, 1, 0, 1};
 			ctx->mvs_C[i4x4] = (unavailBC & 2) ? ctx->mvs8x8_D[i8x8] : ctx->mvs_B[i4x4 + 1];
 			ctx->mvs_C[i4x4 + 1] = (unavailBC & 4) ? ctx->mvs_B[i4x4] : ctx->mvs8x8_C[i8x8];
+			sizes = (int64_t)(v8qi){4, 8, 4, 8};
 		} else { // 4x4
 			f = 15;
 			s = (int32_t)(v4qi){0, 1, 2, 3};
@@ -1745,11 +1754,13 @@ static __attribute__((noinline)) void FUNC(parse_I_mb, int ctxIdx)
 			ctx->mvs_C[i4x4 + 1] = (unavailBC & 4) ? ctx->mvs_B[i4x4] : ctx->mvs8x8_C[i8x8];
 			ctx->mvs_C[i4x4 + 2] = i4x4 + 1;
 			ctx->mvs_C[i4x4 + 3] = i4x4;
+			sizes = (int64_t)(v8qi){4, 4, 4, 4, 4, 4, 4, 4};
 		}
-		fprintf(stderr, "sub_mb_type: %c\n", (f == 1) ? '0' : (f == 5) ? '1' : (f == 3) ? '2' : '3');
 		flags |= f << i4x4;
 		ctx->refIdx4x4_C_s[i8x8] = refIdx4x4_base[i8x8] + (int32_t)refIdx4x4_inc[unavailBC];
 		ctx->mvs_shuffle_s[i8x8] = i4x4 * 0x01010101 + s;
+		ctx->part_sizes_l[i8x8] = sizes;
+		fprintf(stderr, "sub_mb_type: %c\n", (f == 1) ? '0' : (f == 5) ? '1' : (f == 3) ? '2' : '3');
 	}
 	ctx->mvd_flags = flags;
 	CALL(parse_ref_idx);

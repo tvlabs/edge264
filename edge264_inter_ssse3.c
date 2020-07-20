@@ -472,8 +472,8 @@ static void FUNC(inter8xH_qpel00_8bit, int h, size_t dstride, uint8_t *dst, size
 		memcpy(dst + dstride    , src + sstride    , 8);
 		memcpy(dst + dstride * 2, src + sstride * 2, 8);
 		memcpy(dst + dstride * 3, src + sstride * 3, 8);
-		dst += dstride * 4;
 		src += sstride * 4;
+		dst += dstride * 4;
 	} while (h -= 4);
 }
 
@@ -483,13 +483,14 @@ static void FUNC(inter8xH_qpel00_8bit, int h, size_t dstride, uint8_t *dst, size
 		do {\
 			__m128i l05 = load8x1_8bit(src + 3, zero);\
 			__m128i l00 = load8x1_8bit(src - 2, zero);\
-			__m128i x0 = _mm_srli_si128(l05, 6);\
-			__m128i l01 = _mm_alignr_epi8(x0, l00, 2);\
-			__m128i l02 = _mm_alignr_epi8(x0, l00, 2);\
-			__m128i l03 = _mm_alignr_epi8(x0, l00, 2);\
-			__m128i l04 = _mm_alignr_epi8(x0, l00, 2);\
+			__m128i l08 = _mm_srli_si128(l05, 6);\
+			__m128i l01 = _mm_alignr_epi8(l08, l00, 2);\
+			__m128i l02 = _mm_alignr_epi8(l08, l00, 4);\
+			__m128i l03 = _mm_alignr_epi8(l08, l00, 6);\
+			__m128i l04 = _mm_alignr_epi8(l08, l00, 8);\
 			__m128i h = CALL(FILTER, l00, l01, l02, l03, l04, l05, zero);\
 			_mm_storel_epi64((__m128i *)dst, _mm_packus_epi16(P, zero));\
+			src += sstride;\
 			dst += dstride;\
 		} while (--h);\
 	}\

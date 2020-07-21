@@ -1551,8 +1551,8 @@ static __attribute__((noinline)) void FUNC(parse_I_mb, int ctxIdx)
 		}
 		
 		// PCM is so rare that it should be compact rather than fast
-		uint8_t *p = ctx->plane_Y;
-		for (int y = 16; y-- > 0; p += ctx->plane_offsets[2] >> 2) {
+		uint8_t *p = ctx->frame + ctx->frame_offsets_x[0] + ctx->frame_offsets_y[0];
+		for (int y = 16; y-- > 0; p += ctx->stride_Y) {
 			for (int x = 0; x < 16; x++) {
 				if (ctx->ps.BitDepth_Y == 8)
 					p[x] = CALL(get_uv, 8);
@@ -1560,10 +1560,10 @@ static __attribute__((noinline)) void FUNC(parse_I_mb, int ctxIdx)
 					((uint16_t *)p)[x] = CALL(get_uv, ctx->ps.BitDepth_Y);
 			}
 		}
-		p = ctx->plane_Cb;
+		p = ctx->frame + ctx->frame_offsets_x[16] + ctx->frame_offsets_y[16];
 		int MbWidthC = (ctx->ps.ChromaArrayType < 3) ? 8 : 16;
 		static int8_t MbHeightC[4] = {0, 8, 16, 16};
-		for (int y = MbHeightC[ctx->ps.ChromaArrayType]; y-- > 0; p += ctx->plane_offsets[18] >> 2) {
+		for (int y = MbHeightC[ctx->ps.ChromaArrayType]; y-- > 0; p += ctx->stride_C) {
 			for (int x = 0; x < MbWidthC; x++) {
 				if (ctx->ps.BitDepth_Y == 8)
 					p[x] = CALL(get_uv, 8);
@@ -1571,8 +1571,8 @@ static __attribute__((noinline)) void FUNC(parse_I_mb, int ctxIdx)
 					((uint16_t *)p)[x] = CALL(get_uv, ctx->ps.BitDepth_Y);
 			}
 		}
-		p = ctx->plane_Cb + ctx->plane_offsets[16 + ctx->ps.ChromaArrayType * 4];
-		for (int y = MbHeightC[ctx->ps.ChromaArrayType]; y-- > 0; p += ctx->plane_offsets[18] >> 2) {
+		p = ctx->frame + ctx->frame_offsets_x[32] + ctx->frame_offsets_y[32];
+		for (int y = MbHeightC[ctx->ps.ChromaArrayType]; y-- > 0; p += ctx->stride_C) {
 			for (int x = 0; x < MbWidthC; x++) {
 				if (ctx->ps.BitDepth_Y == 8)
 					p[x] = CALL(get_uv, 8);

@@ -1114,7 +1114,7 @@ static __attribute__((noinline)) void FUNC(parse_Intra16x16_residual)
 	// Both AC and DC coefficients are initially parsed to ctx->d[0..15]
 	int mb_field_decoding_flag = mb->f.mb_field_decoding_flag;
 	ctx->plane = ctx->plane_Y;
-	ctx->stride = ctx->plane_offsets[2] >> 2;
+	ctx->stride = ctx->stride_Y;
 	ctx->clip_v = ctx->clip_C;
 	ctx->sig_inc_v[0] = ctx->last_inc_v[0] = sig_inc_4x4;
 	ctx->scan_v[0] = scan_4x4[mb_field_decoding_flag];
@@ -1152,7 +1152,7 @@ static __attribute__((noinline)) void FUNC(parse_Intra16x16_residual)
 		
 		// nice optimisation for 4:4:4 modes
 		ctx->plane = ctx->plane_Cb; // not a bug, plane offsets include Cr offset
-		ctx->stride = ctx->plane_offsets[18] >> 2;
+		ctx->stride = ctx->stride_C;
 		ctx->clip_v = ctx->clip_C;
 		if (ctx->ps.ChromaArrayType <3)
 			JUMP(parse_chroma_residual);
@@ -1171,7 +1171,7 @@ static __attribute__((noinline)) void FUNC(parse_NxN_residual)
 	
 	// next few blocks will share many parameters, so we cache a LOT of them
 	ctx->plane = ctx->plane_Y;
-	ctx->stride = ctx->plane_offsets[2] >> 2;
+	ctx->stride = ctx->stride_Y;
 	ctx->clip_v = ctx->clip_Y;
 	ctx->BlkIdx = 0;
 	do {
@@ -1228,7 +1228,7 @@ static __attribute__((noinline)) void FUNC(parse_NxN_residual)
 		
 		// nice optimisation for 4:4:4 modes
 		ctx->plane = ctx->plane_Cb; // not a bug, plane offsets include Cr offset
-		ctx->stride = ctx->plane_offsets[18] >> 2;
+		ctx->stride = ctx->stride_C;
 		ctx->clip_v = ctx->clip_C;
 		if (ctx->ps.ChromaArrayType <3)
 			JUMP(parse_chroma_residual);
@@ -1871,7 +1871,7 @@ static __attribute__((noinline)) void FUNC(PAFF_parse_slice_data)
 	
 	ctx->mb_qp_delta_non_zero = 0;
 	while (1) {
-		fprintf(stderr, "********** %u **********\n", ctx->ps.width * ctx->y / 256 + ctx->x / 16);
+		fprintf(stderr, "********** %u **********\n", CurrMbAddr++);
 		CALL(check_ctx, LOOP_START_LABEL);
 		Edge264_macroblock *mbB = mb - (ctx->ps.width >> 4) - 1;
 		v16qi flagsA = mb[-1].f.v;
@@ -1904,18 +1904,39 @@ static __attribute__((noinline)) void FUNC(PAFF_parse_slice_data)
 		
 		// point to the next macroblock
 		mb++;
+		int xY = (ctx->frame_offsets_x[4] - ctx->frame_offsets_x[0]) << 1;
+		int xC = (ctx->frame_offsets_x[20] - ctx->frame_offsets_x[16]) << 1;
+		int end_of_line = (ctx->frame_offsets_x[0] + xY >= ctx->stride_Y);
+		ctx->frame_offsets_x_v[0] = ctx->frame_offsets_x_v[1] +=
+			(v8hu){xY, xY, xY, xY, xY, xY, xY, xY};
+		ctx->frame_offsets_x_v[2] = ctx->frame_offsets_x_v[3] = ctx->frame_offsets_x_v[4] = ctx->frame_offsets_x_v[5] +=
+			(v8hu){xC, xC, xC, xC, xC, xC, xC, xC};
+		
 		ctx->plane_Y += ctx->plane_offsets[1] * 4;
 		ctx->plane_Cb += ctx->col_offset_C;
-		if ((ctx->x += 16) < ctx->ps.width)
+		if (!end_of_line)
 			continue;
 		
 		// reaching the end of a line
-		mb++;
+		if (ctx->frame_offsets_y[10] + ctx->stride_Y * 4 >= ctx->plane_size_Y)
+			break;
+		mb++; // skip the empty macroblock at the edge
+		ctx->frame_offsets_x_v[0] = ctx->frame_offsets_x_v[1] -=
+			(v8hu){ctx->stride_Y, ctx->stride_Y, ctx->stride_Y, ctx->stride_Y, ctx->stride_Y, ctx->stride_Y, ctx->stride_Y, ctx->stride_Y};
+		ctx->frame_offsets_x_v[2] = ctx->frame_offsets_x_v[3] = ctx->frame_offsets_x_v[4] = ctx->frame_offsets_x_v[5] -=
+			(v8hu){ctx->stride_C, ctx->stride_C, ctx->stride_C, ctx->stride_C, ctx->stride_C, ctx->stride_C, ctx->stride_C, ctx->stride_C};
+		v4si YY = (v4si){ctx->stride_Y, ctx->stride_Y, ctx->stride_Y, ctx->stride_Y} << 4;
+		int yC = (ctx->frame_offsets_y[24] - ctx->frame_offsets_y[16]) << 1;
+		v4si YC = (v4si){yC, yC, yC, yC};
+		ctx->frame_offsets_y_v[0] = ctx->frame_offsets_y_v[1] += YY;
+		ctx->frame_offsets_y_v[2] = ctx->frame_offsets_y_v[3] += YY;
+		ctx->frame_offsets_y_v[4] = ctx->frame_offsets_y_v[5] += YC;
+		ctx->frame_offsets_y_v[6] = ctx->frame_offsets_y_v[7] += YC;
+		ctx->frame_offsets_y_v[8] = ctx->frame_offsets_y_v[9] += YC;
+		ctx->frame_offsets_y_v[10] = ctx->frame_offsets_y_v[11] += YC;
+		
 		ctx->plane_Y += ctx->plane_offsets[10] + (ctx->plane_offsets[10] >> 2);
 		ctx->plane_Cb += ctx->row_offset_C;
-		ctx->x = 0;
-		if ((ctx->y += 16) >= (ctx->field_pic_flag ? ctx->ps.height >> 1 : ctx->ps.height))
-			break;
 	}
 }
 

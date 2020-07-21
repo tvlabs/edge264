@@ -116,10 +116,6 @@ static void FUNC(check_ctx, int label) {
 		predicate(ctx->stride == (ctx->ps.BitDepth_Y == 8 ? ctx->ps.width : ctx->ps.width << 1));
 	else if (label >= RESIDUAL_DC_LABEL)
 		predicate(ctx->stride == (ctx->ps.ChromaArrayType == 0 ? 0 : ctx->ps.ChromaArrayType < 3 ? ctx->ps.width >> 1 : ctx->ps.width) << (ctx->ps.BitDepth_C > 8));
-	predicate(ctx->x >= 0 && ctx->x < ctx->ps.width && (ctx->x & 15) == 0);
-	predicate(ctx->y >= 0 && ctx->y < ctx->ps.height && (ctx->y & 15) == 0);
-	predicate(ctx->plane_Y == e->DPB + e->frame_size * e->currPic + ctx->y * e->stride_Y + ctx->x);
-	predicate(ctx->plane_Cb == e->DPB + e->frame_size * e->currPic + e->plane_size_Y + (ctx->ps.ChromaArrayType > 1 ? ctx->y : ctx->y >> 1) * e->stride_C + (ctx->x >> 4) * ctx->col_offset_C);
 	
 	if (label > LOOP_START_LABEL) {
 		predicate(ctx->inc.unavailable == mb[-1].f.unavailable + mbB->f.unavailable * 2);
@@ -139,7 +135,7 @@ static void FUNC(check_ctx, int label) {
 	for (int i = 0; i < 16; i++)
 		predicate(mb->f.v[i] >= 0 && mb->f.v[i] <= 1);
 	if (label > LOOP_START_LABEL)
-		predicate(mb->f.unavailable == 0 && (ctx->x == 0 ^ mb[-1].f.unavailable == 0) && (ctx->y == 0 ^ mbB->f.unavailable == 0));
+		predicate(mb->f.unavailable == 0 && (ctx->frame_offsets_x[0] == 0 ^ mb[-1].f.unavailable == 0) && (ctx->frame_offsets_y[0] == 0 ^ mbB->f.unavailable == 0));
 	if (label > LOOP_START_LABEL)
 		predicate(mb->f.mb_field_decoding_flag == ctx->field_pic_flag);
 	predicate(ctx->slice_type < 2 || (mb->f.mb_skip_flag == 0 && mb->f.mb_type_B_Direct == 0));

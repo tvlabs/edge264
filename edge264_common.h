@@ -107,7 +107,6 @@ typedef struct
 	int8_t FilterOffsetA; // 5 significant bits
 	int8_t FilterOffsetB;
 	int8_t mb_qp_delta_non_zero;
-	int8_t col_offset_C;
 	int32_t TopFieldOrderCnt;
 	int32_t BottomFieldOrderCnt;
 	Edge264_parameter_set ps;
@@ -120,20 +119,30 @@ typedef struct
 	size_t _codIOffset;
 	int8_t shift; // index of next input bit in RBSP, strictly less than SIZE_BIT
 	int8_t BlkIdx; // index of current AC block (for PredMode), in order Y/Cb/Cr and without gaps
-	int16_t x; // 14 significant bits
-	int16_t y;
-	uint16_t stride; // 16 significant bits (at 8K, 16bit depth, field pic)
+	
+	//old
+	int8_t col_offset_C;
 	int32_t row_offset_C; // memory offset to increment plane_Cb at the end of a row
 	uint8_t *plane;
 	uint8_t *plane_Y;
 	uint8_t *plane_Cb; // plane_Cr is a fixed offset away from this pointer
+	union { int32_t plane_offsets[48]; v4si plane_offsets_v[12]; }; // memory offsets for BlkIdx
+	// new
+	int32_t CurrMbAddr; // updated only at TRACE >= 1
+	uint16_t stride_Y; // 16 significant bits (at 8K, 16bit depth, field pic)
+	uint16_t stride_C;
+	uint16_t stride; // legacy, needed by intra and residual functions
+	int32_t plane_size_Y;
+	uint8_t *frame; // address of first byte in luma plane of current picture
+	union { uint16_t frame_offsets_x[48]; v8hu frame_offsets_x_v[6]; }; // memory offsets for BlkIdx
+	union { int32_t frame_offsets_y[48]; v4si frame_offsets_y_v[12]; }; // premultiplied with strides
+	
 	Edge264_macroblock *_mb; // backup storage when not in a live variable
 	Edge264_stream *e; // for predicates at TRACE>0
 	v8hi clip_Y; // vector of maximum sample values
 	v8hi clip_C;
 	union { int16_t clip; v8hi clip_v; };
 	union { int8_t unavail[16]; v16qi unavail_v; }; // unavailability of neighbouring A/B/C/D blocks
-	union { int32_t plane_offsets[48]; v4si plane_offsets_v[12]; }; // memory offsets for BlkIdx
 	union { uint8_t cabac[1024]; v16qu cabac_v[64]; };
 	
 	// neighbouring offsets (relative to the start of each array in mb)

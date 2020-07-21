@@ -1154,10 +1154,10 @@ void FUNC(inter8xH_chroma_8bit, int h, size_t dstride, uint8_t *dst, size_t sstr
 
 void FUNC(decode_inter, int i, int w, int h, int x, int y) {
 	uint8_t *ref = ctx->ref_planes[0][mb->refIdx[i >> 2]];
-	size_t stride = ctx->plane_offsets[2] >> 2;
-	int offset = ctx->plane_offsets[i];
-	uint8_t *src = ref + offset + (ctx->y + (y >> 2)) * stride + (ctx->x + (x >> 2));
-	uint8_t *dst = ctx->plane_Y + offset;
+	size_t stride = ctx->stride_Y;
+	int offset = ctx->frame_offsets_x[i] + ctx->frame_offsets_y[i];
+	uint8_t *src = ref + offset + (y >> 2) * stride + (x >> 2);
+	uint8_t *dst = ctx->frame + offset;
 	switch ((w == 4 ? 0 : w == 8 ? 16 : 32) + (y & 3) * 4 + (x & 3)) {
 	case 0: CALL(inter4xH_qpel00_8bit, h, stride, dst, stride, src); break;
 	case 1: CALL(inter4xH_qpel01_8bit, h, stride, dst, stride, src); break;
@@ -1213,15 +1213,15 @@ void FUNC(decode_inter, int i, int w, int h, int x, int y) {
 	}
 	
 	// temporary hardcoding 4:2:0 until devising a simpler internal plane storage
-	stride = ctx->plane_offsets[18] >> 2;
+	stride = ctx->stride_C;
 	int xFrac_C = x & 7;
 	int yFrac_C = y & 7;
 	int mul = 8 - xFrac_C + (xFrac_C << 8);
 	__m128i AB = _mm_set1_epi16(mul * (8 - yFrac_C));
 	__m128i CD = _mm_set1_epi16(mul * yFrac_C);
-	offset = ctx->plane_offsets[16 + (i >> 2)];
-	src = ref + ctx->e->plane_size_Y + offset + ((ctx->y >> 1) + (y >> 3)) * stride + ((ctx->x >> 1) + (x >> 3));
-	dst = ctx->plane_Cb + offset;
+	offset = ctx->frame_offsets_x[16 + i] + ctx->frame_offsets_y[16 + i];
+	src = ref + offset + (y >> 3) * stride + (x >> 3);
+	dst = ctx->frame + offset;
 	if (w == 16) {
 		CALL(inter8xH_chroma_8bit, h >> 1, stride, dst, stride, src, AB, CD);
 	} else if (w == 8) {
@@ -1229,9 +1229,9 @@ void FUNC(decode_inter, int i, int w, int h, int x, int y) {
 	} else {
 		CALL(inter2xH_chroma_8bit, h >> 1, stride, dst, stride, src, AB, CD);
 	}
-	offset = ctx->plane_offsets[20 + (i >> 2)];
-	src = ref + ctx->e->plane_size_Y + offset + ((ctx->y >> 1) + (y >> 3)) * stride + ((ctx->x >> 1) + (x >> 3));
-	dst = ctx->plane_Cb + offset;
+	offset = ctx->frame_offsets_x[32 + i] + ctx->frame_offsets_y[32 + i];
+	src = ref + offset + (y >> 3) * stride + (x >> 3);
+	dst = ctx->frame + offset;
 	if (w == 16) {
 		CALL(inter8xH_chroma_8bit, h >> 1, stride, dst, stride, src, AB, CD);
 	} else if (w == 8) {

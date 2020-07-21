@@ -2,6 +2,7 @@
  * _ Implement and test Inter residual using this new Pred mode
  * _ Modify all Intra decoding functions to operate after parsing (rather than before residual) and use the same Pred Mode
  * _ Remove plane_Y/Cb in favor of a fixed plane pointer + incremented plane_offsets
+ * _ Remove stride variable in favor of passing it directly to residual functions
  * _ Remove Pred modes in favor of static residual calls
  * _ switch to SDL which is likely to have a more stable future support than GLFW, with an option to play without display
  * _ make ref_idx a separate function, and 4 distinct 8x8/8x16/16x8/16x16 functions as prologs to parse_mvds
@@ -81,15 +82,48 @@ static void FUNC(initialise_decoding_context, Edge264_stream *e)
 		{HORIZONTAL_UP_8x8, 0, HORIZONTAL_UP_8x8, 0, HORIZONTAL_UP_8x8, 0, HORIZONTAL_UP_8x8, 0, HORIZONTAL_UP_8x8_D, 0, HORIZONTAL_UP_8x8_D, 0, HORIZONTAL_UP_8x8_D, 0, HORIZONTAL_UP_8x8_D, 0},
 	};
 	
-	ctx->x = 0;
-	ctx->y = 0;
+	// old
 	ctx->plane_Y = e->DPB + e->currPic * e->frame_size;
 	ctx->plane_Cb = ctx->plane_Y + e->plane_size_Y;
 	int MbWidthC = ctx->ps.ChromaArrayType < 3 ? 8 : 16;
 	ctx->col_offset_C = ctx->ps.BitDepth_C == 8 ? MbWidthC : MbWidthC * 2;
 	ctx->row_offset_C = ctx->ps.ChromaArrayType == 1 ? e->stride_C * 7 : e->stride_C * 15;
-	mb = (Edge264_macroblock *)(ctx->plane_Cb + e->plane_size_C * 2 + (ctx->ps.width / 16 + 2) * sizeof(*mb));
+	for (int i = 0; i < 16; i++) {
+		int x = (i << 2 & 4) | (i << 1 & 8);
+		int y = (i << 1 & 4) | (i & 8);
+		ctx->plane_offsets[i] = y * e->stride_Y + (ctx->ps.BitDepth_Y == 8 ? x : x * 2);
+		if (ctx->ps.ChromaArrayType == 3) {
+			ctx->plane_offsets[16 + i] = y * e->stride_C + (ctx->ps.BitDepth_C == 8 ? x : x * 2);
+			ctx->plane_offsets[32 + i] = ctx->plane_offsets[16 + i] + e->plane_size_C;
+		}
+	}
+	for (int i = 0; ctx->ps.ChromaArrayType < 3 && i < ctx->ps.ChromaArrayType * 4; i++) {
+		int x = i << 2 & 4;
+		int y = i << 1 & 12;
+		ctx->plane_offsets[16 + i] = y * e->stride_C + (ctx->ps.BitDepth_C == 8 ? x : x * 2);
+		ctx->plane_offsets[16 + ctx->ps.ChromaArrayType * 4 + i] = ctx->plane_offsets[16 + i] + e->plane_size_C;
+	}
 	
+	// new
+	ctx->CurrMbAddr = 0;
+	ctx->stride_Y = e->stride_Y;
+	ctx->stride_C = e->stride_C;
+	ctx->plane_size_Y = e->plane_size_Y;
+	ctx->frame = e->DPB + e->currPic * e->frame_size;
+	int pixel_shift_Y = (ctx->ps.BitDepth_Y > 8);
+	int pixel_shift_C = (ctx->ps.BitDepth_C > 8) - (ctx->ps.ChromaArrayType < 3);
+	int mul_C = (ctx->ps.ChromaArrayType < 2) ? ctx->stride_C >> 1 : ctx->stride_C;
+	for (int i = 0; i < 16; i++) {
+		int x = (i << 2 & 4) | (i << 1 & 8);
+		int y = (i << 1 & 4) | (i & 8);
+		ctx->frame_offsets_x[i] = x << pixel_shift_Y;
+		ctx->frame_offsets_y[i] = y * ctx->stride_Y;
+		ctx->frame_offsets_x[16 + i] = ctx->frame_offsets_x[32 + i] = x >> 1 << (1 + pixel_shift_C);
+		ctx->frame_offsets_y[16 + i] = ctx->plane_size_Y + y * mul_C;
+		ctx->frame_offsets_y[32 + i] = ctx->frame_offsets_y[16 + i] + e->plane_size_C;
+	}
+	
+	mb = (Edge264_macroblock *)(ctx->frame + ctx->plane_size_Y + e->plane_size_C * 2 + (ctx->ps.width / 16 + 2) * sizeof(*mb));
 	int cY = (1 << ctx->ps.BitDepth_Y) - 1;
 	int cC = (1 << ctx->ps.BitDepth_C) - 1;
 	ctx->clip_Y = (v8hi){cY, cY, cY, cY, cY, cY, cY, cY};
@@ -120,21 +154,6 @@ static void FUNC(initialise_decoding_context, Edge264_stream *e)
 		ctx->B8x8_8bit[2] = (v4si){10 + offB_8bit, 11 + offB_8bit, 8, 9};
 	}
 	
-	for (int i = 0; i < 16; i++) {
-		int x = (i << 2 & 4) | (i << 1 & 8);
-		int y = (i << 1 & 4) | (i & 8);
-		ctx->plane_offsets[i] = y * e->stride_Y + (ctx->ps.BitDepth_Y == 8 ? x : x * 2);
-		if (ctx->ps.ChromaArrayType == 3) {
-			ctx->plane_offsets[16 + i] = y * e->stride_C + (ctx->ps.BitDepth_C == 8 ? x : x * 2);
-			ctx->plane_offsets[32 + i] = ctx->plane_offsets[16 + i] + e->plane_size_C;
-		}
-	}
-	for (int i = 0; ctx->ps.ChromaArrayType < 3 && i < ctx->ps.ChromaArrayType * 4; i++) {
-		int x = i << 2 & 4;
-		int y = i << 1 & 12;
-		ctx->plane_offsets[16 + i] = y * e->stride_C + (ctx->ps.BitDepth_C == 8 ? x : x * 2);
-		ctx->plane_offsets[16 + ctx->ps.ChromaArrayType * 4 + i] = ctx->plane_offsets[16 + i] + e->plane_size_C;
-	}
 	
 	int p = (ctx->ps.BitDepth_Y == 8) ? 0 : VERTICAL_4x4_16_BIT;
 	int q = (ctx->ps.BitDepth_C == 8 ? 0 : VERTICAL_4x4_16_BIT) - p;

@@ -31,7 +31,7 @@
 #include <stdint.h>
 
 typedef struct {
-	// The first 8 bytes define the frame buffer size and format.
+	// The first 8 bytes uniquely determine the frame buffer size and format.
 	int8_t chroma_format_idc; // 2 significant bits
 	int8_t BitDepth_Y; // 4 significant bits
 	int8_t BitDepth_C;
@@ -75,7 +75,7 @@ typedef struct {
 
 
 typedef struct Edge264_stream {
-	// These four fields must be set prior to decoding
+	// These four fields must be set prior to decoding.
 	const uint8_t *CPB; // should point to a NAL unit (skip the 001 prefix)
 	const uint8_t *end;
 	int (*output_frame)(struct Edge264_stream*, int);
@@ -105,7 +105,7 @@ typedef struct Edge264_stream {
 /**
  * Scans memory for the next three-byte 00n pattern, and returns a pointer to
  * the first following byte (or end if no pattern was found).
- * Reads memory in 16-bytes chunks.
+ * Reads memory in aligned 16-bytes chunks.
  */
 const uint8_t *Edge264_find_start_code(int n, const uint8_t *CPB, const uint8_t *end);
 
@@ -126,7 +126,6 @@ int Edge264_decode_NAL(Edge264_stream *e);
  * entire structure except CPB/end/output_frame/user. Returns the sticky error
  * code (before clearing it).
  * To end quickly without outputs, clear output_frame before the call.
- * This function is called automatically on a End of stream NAL unit.
  */
 int Edge264_end_stream(Edge264_stream *e);
 

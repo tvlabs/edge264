@@ -132,7 +132,7 @@ __attribute__((noinline)) void FUNC(add_idct4x4)
 	}
 	
 	// addition to values in place, clipping and storage
-	uint8_t *p = ctx->plane + ctx->plane_offsets[ctx->BlkIdx];
+	uint8_t *p = ctx->frame + ctx->frame_offsets_x[ctx->BlkIdx2i4x4[ctx->BlkIdx]] + ctx->frame_offsets_y[ctx->BlkIdx2i4x4[ctx->BlkIdx]];
 	size_t stride = ctx->stride;
 	if (__builtin_expect(ctx->clip == 255, 1)) {
 		__m128i zero = _mm_setzero_si128();
@@ -149,7 +149,7 @@ __attribute__((noinline)) void FUNC(add_idct4x4)
 // legacy function
 __attribute__((noinline)) void FUNC(decode_Residual4x4, __m128i p0, __m128i p1)
 {
-	uint8_t *p = ctx->plane + ctx->plane_offsets[ctx->BlkIdx];
+	uint8_t *p = ctx->frame + ctx->frame_offsets_x[ctx->BlkIdx2i4x4[ctx->BlkIdx]] + ctx->frame_offsets_y[ctx->BlkIdx2i4x4[ctx->BlkIdx]];
 	size_t stride = ctx->stride;
 	if (__builtin_expect(ctx->clip == 255, 1)) {
 		CALL(store4x4_8bit, stride, p, p0, p1);
@@ -259,7 +259,7 @@ __attribute__((noinline)) void FUNC(add_idct8x8)
 		// addition to values in place, clipping and storage
 		size_t stride = ctx->stride;
 		size_t stride3 = stride * 3;
-		uint8_t *p = ctx->plane + ctx->plane_offsets[ctx->BlkIdx];
+		uint8_t *p = ctx->frame + ctx->frame_offsets_x[ctx->BlkIdx2i4x4[ctx->BlkIdx]] + ctx->frame_offsets_y[ctx->BlkIdx2i4x4[ctx->BlkIdx]];
 		uint8_t *q = p + stride * 4;
 		__m128i zero = _mm_setzero_si128();
 		__m128i p0 = load8x1_8bit(p             , zero);
@@ -373,7 +373,7 @@ __attribute__((noinline)) void FUNC(add_idct8x8)
 		// addition to values in place, clipping and storage
 		size_t stride = ctx->stride;
 		size_t stride3 = stride * 3;
-		uint8_t *p = ctx->plane + ctx->plane_offsets[ctx->BlkIdx];
+		uint8_t *p = ctx->frame + ctx->frame_offsets_x[ctx->BlkIdx2i4x4[ctx->BlkIdx]] + ctx->frame_offsets_y[ctx->BlkIdx2i4x4[ctx->BlkIdx]];
 		uint8_t *q = p + stride * 4;
 		__m256i zero = _mm256_setzero_si256();
 		__m256i clip = _mm256_broadcastsi128_si256((__m128i)ctx->clip_v);
@@ -514,7 +514,7 @@ __attribute__((noinline)) void FUNC(add_idct8x8)
 		// addition to values in place, clipping and storage
 		size_t stride = ctx->stride;
 		size_t stride3 = stride * 3;
-		uint8_t *p = ctx->plane + ctx->plane_offsets[ctx->BlkIdx];
+		uint8_t *p = ctx->frame + ctx->frame_offsets_x[ctx->BlkIdx2i4x4[ctx->BlkIdx]] + ctx->frame_offsets_y[ctx->BlkIdx2i4x4[ctx->BlkIdx]];
 		uint8_t *q = p + stride * 4;
 		__m128i zero = _mm_setzero_si128();
 		__m128i clip = (__m128i)ctx->clip_v;
@@ -553,7 +553,7 @@ __attribute__((noinline)) void FUNC(decode_Residual8x8, __m128i p0,
 {
 	size_t stride = ctx->stride;
 	size_t stride3 = stride * 3;
-	uint8_t *p = ctx->plane + ctx->plane_offsets[ctx->BlkIdx];
+	uint8_t *p = ctx->frame + ctx->frame_offsets_x[ctx->BlkIdx2i4x4[ctx->BlkIdx]] + ctx->frame_offsets_y[ctx->BlkIdx2i4x4[ctx->BlkIdx]];
 	uint8_t *q = p + stride * 4;
 	if (__builtin_expect(ctx->clip == 255, 1)) {
 		v2li u0 = (v2li)_mm_packus_epi16(p0, p1);

@@ -1113,7 +1113,6 @@ static __attribute__((noinline)) void FUNC(parse_Intra16x16_residual)
 	
 	// Both AC and DC coefficients are initially parsed to ctx->d[0..15]
 	int mb_field_decoding_flag = mb->f.mb_field_decoding_flag;
-	ctx->plane = ctx->plane_Y;
 	ctx->stride = ctx->stride_Y;
 	ctx->clip_v = ctx->clip_C;
 	ctx->sig_inc_v[0] = ctx->last_inc_v[0] = sig_inc_4x4;
@@ -1151,7 +1150,6 @@ static __attribute__((noinline)) void FUNC(parse_Intra16x16_residual)
 		} while (++ctx->BlkIdx & 15);
 		
 		// nice optimisation for 4:4:4 modes
-		ctx->plane = ctx->plane_Cb; // not a bug, plane offsets include Cr offset
 		ctx->stride = ctx->stride_C;
 		ctx->clip_v = ctx->clip_C;
 		if (ctx->ps.ChromaArrayType <3)
@@ -1170,7 +1168,6 @@ static __attribute__((noinline)) void FUNC(parse_NxN_residual)
 	CALL(parse_mb_qp_delta, mb->f.CodedBlockPatternChromaDC | mb->CodedBlockPatternLuma_s);
 	
 	// next few blocks will share many parameters, so we cache a LOT of them
-	ctx->plane = ctx->plane_Y;
 	ctx->stride = ctx->stride_Y;
 	ctx->clip_v = ctx->clip_Y;
 	ctx->BlkIdx = 0;
@@ -1227,7 +1224,6 @@ static __attribute__((noinline)) void FUNC(parse_NxN_residual)
 		}
 		
 		// nice optimisation for 4:4:4 modes
-		ctx->plane = ctx->plane_Cb; // not a bug, plane offsets include Cr offset
 		ctx->stride = ctx->stride_C;
 		ctx->clip_v = ctx->clip_C;
 		if (ctx->ps.ChromaArrayType <3)
@@ -1911,9 +1907,6 @@ static __attribute__((noinline)) void FUNC(PAFF_parse_slice_data)
 			(v8hu){xY, xY, xY, xY, xY, xY, xY, xY};
 		ctx->frame_offsets_x_v[2] = ctx->frame_offsets_x_v[3] = ctx->frame_offsets_x_v[4] = ctx->frame_offsets_x_v[5] +=
 			(v8hu){xC, xC, xC, xC, xC, xC, xC, xC};
-		
-		ctx->plane_Y += ctx->plane_offsets[1] * 4;
-		ctx->plane_Cb += ctx->col_offset_C;
 		if (!end_of_line)
 			continue;
 		
@@ -1934,9 +1927,6 @@ static __attribute__((noinline)) void FUNC(PAFF_parse_slice_data)
 		ctx->frame_offsets_y_v[6] = ctx->frame_offsets_y_v[7] += YC;
 		ctx->frame_offsets_y_v[8] = ctx->frame_offsets_y_v[9] += YC;
 		ctx->frame_offsets_y_v[10] = ctx->frame_offsets_y_v[11] += YC;
-		
-		ctx->plane_Y += ctx->plane_offsets[10] + (ctx->plane_offsets[10] >> 2);
-		ctx->plane_Cb += ctx->row_offset_C;
 	}
 }
 

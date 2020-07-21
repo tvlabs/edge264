@@ -82,27 +82,9 @@ static void FUNC(initialise_decoding_context, Edge264_stream *e)
 		{HORIZONTAL_UP_8x8, 0, HORIZONTAL_UP_8x8, 0, HORIZONTAL_UP_8x8, 0, HORIZONTAL_UP_8x8, 0, HORIZONTAL_UP_8x8_D, 0, HORIZONTAL_UP_8x8_D, 0, HORIZONTAL_UP_8x8_D, 0, HORIZONTAL_UP_8x8_D, 0},
 	};
 	
-	// old
-	ctx->plane_Y = e->DPB + e->currPic * e->frame_size;
-	ctx->plane_Cb = ctx->plane_Y + e->plane_size_Y;
-	int MbWidthC = ctx->ps.ChromaArrayType < 3 ? 8 : 16;
-	ctx->col_offset_C = ctx->ps.BitDepth_C == 8 ? MbWidthC : MbWidthC * 2;
-	ctx->row_offset_C = ctx->ps.ChromaArrayType == 1 ? e->stride_C * 7 : e->stride_C * 15;
-	for (int i = 0; i < 16; i++) {
-		int x = (i << 2 & 4) | (i << 1 & 8);
-		int y = (i << 1 & 4) | (i & 8);
-		ctx->plane_offsets[i] = y * e->stride_Y + (ctx->ps.BitDepth_Y == 8 ? x : x * 2);
-		if (ctx->ps.ChromaArrayType == 3) {
-			ctx->plane_offsets[16 + i] = y * e->stride_C + (ctx->ps.BitDepth_C == 8 ? x : x * 2);
-			ctx->plane_offsets[32 + i] = ctx->plane_offsets[16 + i] + e->plane_size_C;
-		}
-	}
-	for (int i = 0; ctx->ps.ChromaArrayType < 3 && i < ctx->ps.ChromaArrayType * 4; i++) {
-		int x = i << 2 & 4;
-		int y = i << 1 & 12;
-		ctx->plane_offsets[16 + i] = y * e->stride_C + (ctx->ps.BitDepth_C == 8 ? x : x * 2);
-		ctx->plane_offsets[16 + ctx->ps.ChromaArrayType * 4 + i] = ctx->plane_offsets[16 + i] + e->plane_size_C;
-	}
+	// temporary until BlkIdx is removed
+	ctx->BlkIdx2i4x4_v[0] = (v16qi){0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15};
+	ctx->BlkIdx2i4x4_v[1] = (v16qi){16, 20, 24, 28, 32, 36, 40, 44};
 	
 	// new
 	ctx->CurrMbAddr = 0;
@@ -594,7 +576,7 @@ static int FUNC(parse_slice_layer_without_partitioning, Edge264_stream *e)
 	// If pic_parameter_set_id>=4 then it cannot have been initialized before, thus is erroneous.
 	if (pic_parameter_set_id >= 4 || e->PPSs[pic_parameter_set_id].num_ref_idx_active[0] == 0)
 		return -2;
-	if (ctx->slice_type != 2)
+	if (ctx->slice_type != 0 && ctx->slice_type != 2)
 		return -1;
 	ctx->ps = e->PPSs[pic_parameter_set_id];
 	

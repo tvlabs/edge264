@@ -170,16 +170,12 @@ static void FUNC(check_ctx, int label) {
 	predicate(ctx->FilterOffsetA >= -12 && ctx->FilterOffsetA <= 12);
 	predicate(ctx->FilterOffsetB >= -12 && ctx->FilterOffsetB <= 12);
 	predicate(ctx->mb_qp_delta_non_zero == 0 || ctx->mb_qp_delta_non_zero == 1);
-	predicate(ctx->col_offset_C == 8 << ((ctx->ps.ChromaArrayType == 3) + (ctx->ps.BitDepth_C > 8)));
-	predicate(ctx->row_offset_C == e->stride_C * (ctx->ps.ChromaArrayType == 1 ? 7 : 15));
 	predicate(ctx->ps.bottom_field_pic_order_in_frame_present_flag == 1 || ctx->TopFieldOrderCnt == ctx->BottomFieldOrderCnt);
 	check_parameter_set(&ctx->ps);
 	
 	if (label >= RESIDUAL_CB_DC_LABEL) {
-		predicate(ctx->plane == ctx->plane_Cb);
 		predicate(memcmp(&ctx->clip_v, &ctx->clip_C, 16) == 0);
 	} else if (label >= RESIDUAL_DC_LABEL) {
-		predicate(ctx->plane == ctx->plane_Y);
 		predicate(memcmp(&ctx->clip_v, &ctx->clip_Y, 16) == 0);
 	}
 	

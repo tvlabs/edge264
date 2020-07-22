@@ -1091,9 +1091,10 @@ INTER16xH_QPEL_12_22_32(qpel32, CALL(packus_6tapD_8bit, h30, h38, hv, zero))
  * Inter chroma prediction
  *
  * A/B/C/D coefficients are passed in vector registers since their computation
- * is shared by all sizes.
+ * is shared by all sizes. These functions should be inlined, otherwise AB/CD
+ * would be spilled on stack.
  */
-void FUNC(inter2xH_chroma_8bit, int h, size_t dstride, uint8_t *dst, size_t sstride, uint8_t *src, __m128i AB, __m128i CD) {
+static inline void FUNC(inter2xH_chroma_8bit, int h, size_t dstride, uint8_t *dst, size_t sstride, uint8_t *src, __m128i AB, __m128i CD) {
 	__m64 shuf = _mm_setr_pi8(0, 1, 1, 2, 4, 5, 5, 6);
 	__m64 zero = _mm_setzero_si64();
 	__m64 ab = _mm_movepi64_pi64(AB);
@@ -1113,7 +1114,7 @@ void FUNC(inter2xH_chroma_8bit, int h, size_t dstride, uint8_t *dst, size_t sstr
 	} while (h -= 2);
 }
 
-void FUNC(inter4xH_chroma_8bit, int h, size_t dstride, uint8_t *dst, size_t sstride, uint8_t *src, __m128i AB, __m128i CD) {
+static inline void FUNC(inter4xH_chroma_8bit, int h, size_t dstride, uint8_t *dst, size_t sstride, uint8_t *src, __m128i AB, __m128i CD) {
 	__m128i zero = _mm_setzero_si128();
 	__m128i x0 = _mm_slli_si128(_mm_unpacklo_epi8(_mm_cvtsi32_si128(*(int32_t *)src), _mm_cvtsi32_si128(*(int32_t *)(src + 1))), 8);
 	do {
@@ -1131,7 +1132,7 @@ void FUNC(inter4xH_chroma_8bit, int h, size_t dstride, uint8_t *dst, size_t sstr
 	} while (h -= 2);
 }
 
-void FUNC(inter8xH_chroma_8bit, int h, size_t dstride, uint8_t *dst, size_t sstride, uint8_t *src, __m128i AB, __m128i CD) {
+static inline void FUNC(inter8xH_chroma_8bit, int h, size_t dstride, uint8_t *dst, size_t sstride, uint8_t *src, __m128i AB, __m128i CD) {
 	__m128i zero = _mm_setzero_si128();
 	__m128i x0 = _mm_unpacklo_epi8(_mm_loadu_si64(src              ), _mm_loadu_si64(src               + 1));
 	do {
@@ -1153,90 +1154,120 @@ void FUNC(inter8xH_chroma_8bit, int h, size_t dstride, uint8_t *dst, size_t sstr
 
 
 void FUNC(decode_inter, int i, int w, int h, int x, int y) {
+	static int8_t shift_8bit[46] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15};
+	size_t sstride = ctx->stride_Y;
+	int offx = ctx->frame_offsets_x[i] + (x >> 2); // FIXME 16 bit
+	int offy = ctx->frame_offsets_y[i] + (y >> 2) * sstride;
+	int subx = x & 3;
+	int suby = y & 3;
 	uint8_t *ref = ctx->ref_planes[0][mb->refIdx[i >> 2]];
-	size_t stride = ctx->stride_Y;
-	int offset = ctx->frame_offsets_x[i] + ctx->frame_offsets_y[i];
-	uint8_t *src = ref + offset + (y >> 2) * stride + (x >> 2);
-	uint8_t *dst = ctx->frame + offset;
-	switch ((w == 4 ? 0 : w == 8 ? 16 : 32) + (y & 3) * 4 + (x & 3)) {
-	case 0: CALL(inter4xH_qpel00_8bit, h, stride, dst, stride, src); break;
-	case 1: CALL(inter4xH_qpel01_8bit, h, stride, dst, stride, src); break;
-	case 2: CALL(inter4xH_qpel02_8bit, h, stride, dst, stride, src); break;
-	case 3: CALL(inter4xH_qpel03_8bit, h, stride, dst, stride, src); break;
-	case 4: CALL(inter4xH_qpel10_8bit, h, stride, dst, stride, src); break;
-	case 5: CALL(inter4xH_qpel11_8bit, h, stride, dst, stride, src); break;
-	case 6: CALL(inter4xH_qpel12_8bit, h, stride, dst, stride, src); break;
-	case 7: CALL(inter4xH_qpel13_8bit, h, stride, dst, stride, src); break;
-	case 8: CALL(inter4xH_qpel20_8bit, h, stride, dst, stride, src); break;
-	case 9: CALL(inter4xH_qpel21_8bit, h, stride, dst, stride, src); break;
-	case 10: CALL(inter4xH_qpel22_8bit, h, stride, dst, stride, src); break;
-	case 11: CALL(inter4xH_qpel23_8bit, h, stride, dst, stride, src); break;
-	case 12: CALL(inter4xH_qpel30_8bit, h, stride, dst, stride, src); break;
-	case 13: CALL(inter4xH_qpel31_8bit, h, stride, dst, stride, src); break;
-	case 14: CALL(inter4xH_qpel32_8bit, h, stride, dst, stride, src); break;
-	case 15: CALL(inter4xH_qpel33_8bit, h, stride, dst, stride, src); break;
+	uint8_t *src = ref + offx + offy;
+	uint8_t *dst = ctx->frame + ctx->frame_offsets_x[i] + ctx->frame_offsets_y[i];
 	
-	case 16: CALL(inter8xH_qpel00_8bit, h, stride, dst, stride, src); break;
-	case 17: CALL(inter8xH_qpel01_8bit, h, stride, dst, stride, src); break;
-	case 18: CALL(inter8xH_qpel02_8bit, h, stride, dst, stride, src); break;
-	case 19: CALL(inter8xH_qpel03_8bit, h, stride, dst, stride, src); break;
-	case 20: CALL(inter8xH_qpel10_8bit, h, stride, dst, stride, src); break;
-	case 21: CALL(inter8xH_qpel11_8bit, h, stride, dst, stride, src); break;
-	case 22: CALL(inter8xH_qpel12_8bit, h, stride, dst, stride, src); break;
-	case 23: CALL(inter8xH_qpel13_8bit, h, stride, dst, stride, src); break;
-	case 24: CALL(inter8xH_qpel20_8bit, h, stride, dst, stride, src); break;
-	case 25: CALL(inter8xH_qpel21_8bit, h, stride, dst, stride, src); break;
-	case 26: CALL(inter8xH_qpel22_8bit, h, stride, dst, stride, src); break;
-	case 27: CALL(inter8xH_qpel23_8bit, h, stride, dst, stride, src); break;
-	case 28: CALL(inter8xH_qpel30_8bit, h, stride, dst, stride, src); break;
-	case 29: CALL(inter8xH_qpel31_8bit, h, stride, dst, stride, src); break;
-	case 30: CALL(inter8xH_qpel32_8bit, h, stride, dst, stride, src); break;
-	case 31: CALL(inter8xH_qpel33_8bit, h, stride, dst, stride, src); break;
+	// edge propagation is an annoying but nice little piece of code
+	if ((unsigned)(subx ? offx - 2 : offx) > sstride - (subx ? w + 5 : w) ||
+		(unsigned)(suby ? offy - sstride * 2 : offy) > ctx->plane_size_Y - (suby ? h + 5 : h) * sstride)
+	{
+		v16qi shuf0, shuf1, v0, v1;
+		memcpy(&shuf0, shift_8bit + 15 + clip3(-15, 0, offx - 2) + clip3(0, 15, offx + 14 - sstride), 16);
+		memcpy(&shuf1, shift_8bit + 15 + clip3(-15, 0, offx + 14) + clip3(0, 15, offx + 30 - sstride), 16);
+		uint8_t *src0 = ref + clip3(0, sstride - 16, offx - 2);
+		uint8_t *src1 = ref + clip3(0, sstride - 16, offx + 14);
+		offy -= sstride * 2;
+		for (v16qu *buf = ctx->edge_buf_v; buf < ctx->edge_buf_v + 10 + h * 2; buf += 2, offy += sstride) {
+			int c = clip3(0, ctx->plane_size_Y - sstride, offy);
+			memcpy(&v0, src0 + c, 16);
+			memcpy(&v1, src1 + c, 16);
+			buf[0] = (v16qu)byte_shuffle(v0, shuf0);
+			buf[1] = (v16qu)byte_shuffle(v1, shuf1);
+		}
+		sstride = 32;
+		src = ctx->edge_buf + 66;
+	}
 	
-	case 32: CALL(inter16xH_qpel00_8bit, h, stride, dst, stride, src); break;
-	case 33: CALL(inter16xH_qpel01_8bit, h, stride, dst, stride, src); break;
-	case 34: CALL(inter16xH_qpel02_8bit, h, stride, dst, stride, src); break;
-	case 35: CALL(inter16xH_qpel03_8bit, h, stride, dst, stride, src); break;
-	case 36: CALL(inter16xH_qpel10_8bit, h, stride, dst, stride, src); break;
-	case 37: CALL(inter16xH_qpel11_8bit, h, stride, dst, stride, src); break;
-	case 38: CALL(inter16xH_qpel12_8bit, h, stride, dst, stride, src); break;
-	case 39: CALL(inter16xH_qpel13_8bit, h, stride, dst, stride, src); break;
-	case 40: CALL(inter16xH_qpel20_8bit, h, stride, dst, stride, src); break;
-	case 41: CALL(inter16xH_qpel21_8bit, h, stride, dst, stride, src); break;
-	case 42: CALL(inter16xH_qpel22_8bit, h, stride, dst, stride, src); break;
-	case 43: CALL(inter16xH_qpel23_8bit, h, stride, dst, stride, src); break;
-	case 44: CALL(inter16xH_qpel30_8bit, h, stride, dst, stride, src); break;
-	case 45: CALL(inter16xH_qpel31_8bit, h, stride, dst, stride, src); break;
-	case 46: CALL(inter16xH_qpel32_8bit, h, stride, dst, stride, src); break;
-	case 47: CALL(inter16xH_qpel33_8bit, h, stride, dst, stride, src); break;
+	size_t dstride = ctx->stride_Y;
+	switch ((w == 4 ? 0 : w == 8 ? 16 : 32) + suby * 4 + subx) {
+	case 0: CALL(inter4xH_qpel00_8bit, h, dstride, dst, sstride, src); break;
+	case 1: CALL(inter4xH_qpel01_8bit, h, dstride, dst, sstride, src); break;
+	case 2: CALL(inter4xH_qpel02_8bit, h, dstride, dst, sstride, src); break;
+	case 3: CALL(inter4xH_qpel03_8bit, h, dstride, dst, sstride, src); break;
+	case 4: CALL(inter4xH_qpel10_8bit, h, dstride, dst, sstride, src); break;
+	case 5: CALL(inter4xH_qpel11_8bit, h, dstride, dst, sstride, src); break;
+	case 6: CALL(inter4xH_qpel12_8bit, h, dstride, dst, sstride, src); break;
+	case 7: CALL(inter4xH_qpel13_8bit, h, dstride, dst, sstride, src); break;
+	case 8: CALL(inter4xH_qpel20_8bit, h, dstride, dst, sstride, src); break;
+	case 9: CALL(inter4xH_qpel21_8bit, h, dstride, dst, sstride, src); break;
+	case 10: CALL(inter4xH_qpel22_8bit, h, dstride, dst, sstride, src); break;
+	case 11: CALL(inter4xH_qpel23_8bit, h, dstride, dst, sstride, src); break;
+	case 12: CALL(inter4xH_qpel30_8bit, h, dstride, dst, sstride, src); break;
+	case 13: CALL(inter4xH_qpel31_8bit, h, dstride, dst, sstride, src); break;
+	case 14: CALL(inter4xH_qpel32_8bit, h, dstride, dst, sstride, src); break;
+	case 15: CALL(inter4xH_qpel33_8bit, h, dstride, dst, sstride, src); break;
+	
+	case 16: CALL(inter8xH_qpel00_8bit, h, dstride, dst, sstride, src); break;
+	case 17: CALL(inter8xH_qpel01_8bit, h, dstride, dst, sstride, src); break;
+	case 18: CALL(inter8xH_qpel02_8bit, h, dstride, dst, sstride, src); break;
+	case 19: CALL(inter8xH_qpel03_8bit, h, dstride, dst, sstride, src); break;
+	case 20: CALL(inter8xH_qpel10_8bit, h, dstride, dst, sstride, src); break;
+	case 21: CALL(inter8xH_qpel11_8bit, h, dstride, dst, sstride, src); break;
+	case 22: CALL(inter8xH_qpel12_8bit, h, dstride, dst, sstride, src); break;
+	case 23: CALL(inter8xH_qpel13_8bit, h, dstride, dst, sstride, src); break;
+	case 24: CALL(inter8xH_qpel20_8bit, h, dstride, dst, sstride, src); break;
+	case 25: CALL(inter8xH_qpel21_8bit, h, dstride, dst, sstride, src); break;
+	case 26: CALL(inter8xH_qpel22_8bit, h, dstride, dst, sstride, src); break;
+	case 27: CALL(inter8xH_qpel23_8bit, h, dstride, dst, sstride, src); break;
+	case 28: CALL(inter8xH_qpel30_8bit, h, dstride, dst, sstride, src); break;
+	case 29: CALL(inter8xH_qpel31_8bit, h, dstride, dst, sstride, src); break;
+	case 30: CALL(inter8xH_qpel32_8bit, h, dstride, dst, sstride, src); break;
+	case 31: CALL(inter8xH_qpel33_8bit, h, dstride, dst, sstride, src); break;
+	
+	case 32: CALL(inter16xH_qpel00_8bit, h, dstride, dst, sstride, src); break;
+	case 33: CALL(inter16xH_qpel01_8bit, h, dstride, dst, sstride, src); break;
+	case 34: CALL(inter16xH_qpel02_8bit, h, dstride, dst, sstride, src); break;
+	case 35: CALL(inter16xH_qpel03_8bit, h, dstride, dst, sstride, src); break;
+	case 36: CALL(inter16xH_qpel10_8bit, h, dstride, dst, sstride, src); break;
+	case 37: CALL(inter16xH_qpel11_8bit, h, dstride, dst, sstride, src); break;
+	case 38: CALL(inter16xH_qpel12_8bit, h, dstride, dst, sstride, src); break;
+	case 39: CALL(inter16xH_qpel13_8bit, h, dstride, dst, sstride, src); break;
+	case 40: CALL(inter16xH_qpel20_8bit, h, dstride, dst, sstride, src); break;
+	case 41: CALL(inter16xH_qpel21_8bit, h, dstride, dst, sstride, src); break;
+	case 42: CALL(inter16xH_qpel22_8bit, h, dstride, dst, sstride, src); break;
+	case 43: CALL(inter16xH_qpel23_8bit, h, dstride, dst, sstride, src); break;
+	case 44: CALL(inter16xH_qpel30_8bit, h, dstride, dst, sstride, src); break;
+	case 45: CALL(inter16xH_qpel31_8bit, h, dstride, dst, sstride, src); break;
+	case 46: CALL(inter16xH_qpel32_8bit, h, dstride, dst, sstride, src); break;
+	case 47: CALL(inter16xH_qpel33_8bit, h, dstride, dst, sstride, src); break;
 	default: __builtin_unreachable();
 	}
 	
 	// temporary hardcoding 4:2:0 until devising a simpler internal plane storage
-	stride = ctx->stride_C;
+	sstride = ctx->stride_C;
 	int xFrac_C = x & 7;
 	int yFrac_C = y & 7;
 	int mul = 8 - xFrac_C + (xFrac_C << 8);
 	__m128i AB = _mm_set1_epi16(mul * (8 - yFrac_C));
 	__m128i CD = _mm_set1_epi16(mul * yFrac_C);
-	offset = ctx->frame_offsets_x[16 + i] + ctx->frame_offsets_y[16 + i];
-	src = ref + offset + (y >> 3) * stride + (x >> 3);
-	dst = ctx->frame + offset;
+	offx = ctx->frame_offsets_x[16 + i] + (x >> 3);
+	offy = ctx->frame_offsets_y[16 + i] + (y >> 3) * sstride;
+	src = ref + offx + offy;
+	dst = ctx->frame + ctx->frame_offsets_x[16 + i] + ctx->frame_offsets_y[16 + i];
 	if (w == 16) {
-		CALL(inter8xH_chroma_8bit, h >> 1, stride, dst, stride, src, AB, CD);
+		CALL(inter8xH_chroma_8bit, h >> 1, sstride, dst, sstride, src, AB, CD);
 	} else if (w == 8) {
-		CALL(inter4xH_chroma_8bit, h >> 1, stride, dst, stride, src, AB, CD);
+		CALL(inter4xH_chroma_8bit, h >> 1, sstride, dst, sstride, src, AB, CD);
 	} else {
-		CALL(inter2xH_chroma_8bit, h >> 1, stride, dst, stride, src, AB, CD);
+		CALL(inter2xH_chroma_8bit, h >> 1, sstride, dst, sstride, src, AB, CD);
 	}
-	offset = ctx->frame_offsets_x[32 + i] + ctx->frame_offsets_y[32 + i];
-	src = ref + offset + (y >> 3) * stride + (x >> 3);
-	dst = ctx->frame + offset;
+	
+	offx = ctx->frame_offsets_x[32 + i] + (x >> 3);
+	offy = ctx->frame_offsets_y[32 + i] + (y >> 3) * sstride;
+	src = ref + offx + offy;
+	dst = ctx->frame + ctx->frame_offsets_x[32 + i] + ctx->frame_offsets_y[32 + i];
 	if (w == 16) {
-		CALL(inter8xH_chroma_8bit, h >> 1, stride, dst, stride, src, AB, CD);
+		CALL(inter8xH_chroma_8bit, h >> 1, sstride, dst, sstride, src, AB, CD);
 	} else if (w == 8) {
-		CALL(inter4xH_chroma_8bit, h >> 1, stride, dst, stride, src, AB, CD);
+		CALL(inter4xH_chroma_8bit, h >> 1, sstride, dst, sstride, src, AB, CD);
 	} else {
-		CALL(inter2xH_chroma_8bit, h >> 1, stride, dst, stride, src, AB, CD);
+		CALL(inter2xH_chroma_8bit, h >> 1, sstride, dst, sstride, src, AB, CD);
 	}
 }

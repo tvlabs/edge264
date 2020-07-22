@@ -1867,7 +1867,7 @@ static __attribute__((noinline)) void FUNC(PAFF_parse_slice_data)
 	
 	ctx->mb_qp_delta_non_zero = 0;
 	while (1) {
-		fprintf(stderr, "********** %u **********\n", CurrMbAddr++);
+		fprintf(stderr, "********** %u **********\n", CurrMbAddr);
 		CALL(check_ctx, LOOP_START_LABEL);
 		Edge264_macroblock *mbB = mb - (ctx->ps.width >> 4) - 1;
 		v16qi flagsA = mb[-1].f.v;
@@ -1900,6 +1900,7 @@ static __attribute__((noinline)) void FUNC(PAFF_parse_slice_data)
 		
 		// point to the next macroblock
 		mb++;
+		ctx->CurrMbAddr++;
 		int xY = (ctx->frame_offsets_x[4] - ctx->frame_offsets_x[0]) << 1;
 		int xC = (ctx->frame_offsets_x[20] - ctx->frame_offsets_x[16]) << 1;
 		int end_of_line = (ctx->frame_offsets_x[0] + xY >= ctx->stride_Y);

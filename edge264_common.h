@@ -119,7 +119,7 @@ typedef struct
 	size_t _codIOffset;
 	int8_t shift; // index of next input bit in RBSP, strictly less than SIZE_BIT
 	int8_t BlkIdx; // index of current AC block (for PredMode), in order Y/Cb/Cr and without gaps
-	int32_t CurrMbAddr; // updated only at TRACE >= 1
+	int32_t CurrMbAddr; // used for debugging only
 	uint16_t stride_Y; // 16 significant bits (at 8K, 16bit depth, field pic)
 	uint16_t stride_C;
 	uint16_t stride; // legacy, needed by intra and residual functions
@@ -169,6 +169,7 @@ typedef struct
 	union { int32_t mvs_shuffle_s[4]; v16qi mvs_shuffle_v; }; // shuffle vector for mvs/absMvdComp storage
 	union { int8_t refIdx4x4_eq[32]; v16qi refIdx4x4_eq_v[2]; };
 	union { int8_t part_sizes[32]; int64_t part_sizes_l[4]; }; // pairs {w,h} for sizes of inter blocks
+	union { uint8_t edge_buf[1008]; v16qu edge_buf_v[63]; };
 	int8_t MapPicToList0[35]; // [1 + refPic]
 	int16_t DistScaleFactor[3][32]; // [top/bottom/frame][refIdxL0]
 	union { int8_t implicit_weights[2][32][32]; v16qi implicit_weights_v[2][32][2]; }; // w1 for [top/bottom][ref0][ref1]

@@ -91,6 +91,7 @@ static void FUNC(initialise_decoding_context, Edge264_stream *e)
 	ctx->stride_Y = e->stride_Y;
 	ctx->stride_C = e->stride_C;
 	ctx->plane_size_Y = e->plane_size_Y;
+	ctx->plane_size_C = e->plane_size_C;
 	ctx->frame = e->DPB + e->currPic * e->frame_size;
 	int pixel_shift_Y = (ctx->ps.BitDepth_Y > 8);
 	int pixel_shift_C = (ctx->ps.BitDepth_C > 8) - (ctx->ps.ChromaArrayType < 3);

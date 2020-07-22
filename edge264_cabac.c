@@ -1660,8 +1660,7 @@ static __attribute__((noinline)) void FUNC(parse_I_mb, int ctxIdx)
 		mb->mvs_V[1] = (v16hi){};
 		mb->mvs_V[2] = (v16hi){y, y, y, y, y, y, y, y, y, y, y, y, y, y, y, y};
 		mb->mvs_V[3] = (v16hi){};
-		CALL(decode_inter, 0, 16, 16, x, y);
-		return;
+		JUMP(decode_inter, 0, 16, 16, x, y);
 	} else if (CALL(get_ae, 14)) {
 		JUMP(parse_I_mb, 17);
 	}

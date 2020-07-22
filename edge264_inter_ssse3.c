@@ -804,9 +804,9 @@ INTER16xH_QPEL_01_02_03(qpel03, _mm_avg_epu8(h, _mm_lddqu_si128((__m128i *)(src 
 		} while (--h);\
 	}\
 
-INTER16xH_QPEL_10_20_30(qpel10, _mm_avg_epu8(v, _mm_lddqu_si128((__m128i *)src)))
+INTER16xH_QPEL_10_20_30(qpel10, _mm_avg_epu8(v, _mm_lddqu_si128((__m128i *)(src + nstride))))
 INTER16xH_QPEL_10_20_30(qpel20, v)
-INTER16xH_QPEL_10_20_30(qpel30, _mm_avg_epu8(v, _mm_lddqu_si128((__m128i *)(src + sstride))))
+INTER16xH_QPEL_10_20_30(qpel30, _mm_avg_epu8(v, _mm_lddqu_si128((__m128i *)src)))
 
 #define INTER16xH_QPEL_11_13(QPEL, R, S)\
 	static void FUNC(inter16xH_ ## QPEL ## _8bit, int h, size_t dstride, uint8_t *dst, size_t sstride, uint8_t *src) {\
@@ -1164,6 +1164,7 @@ __attribute__((noinline)) void FUNC(decode_inter, int i, int w, int h, int x, in
 	uint8_t *ref = ctx->ref_planes[0][mb->refIdx[i >> 2]];
 	uint8_t *src_Y = ref + xInt_Y + yInt_Y;
 	uint8_t *dst_Y = ctx->frame + ctx->frame_offsets_x[i] + ctx->frame_offsets_y[i];
+	// printf("<li>CurrMbAddr=%d, i=%d, w=%d, h=%d, x=%d, y=%d</li>\n", ctx->CurrMbAddr, i, w, h, x, y);
 	
 	// edge propagation is an annoying but nice little piece of code
 	if (__builtin_expect((unsigned)(xFrac_Y ? xInt_Y - 2 : xInt_Y) > sstride_Y - (xFrac_Y ? w + 5 : w) ||
@@ -1254,14 +1255,14 @@ __attribute__((noinline)) void FUNC(decode_inter, int i, int w, int h, int x, in
 	uint8_t *dst_Cr = ctx->frame + ctx->frame_offsets_x[32 + i] + ctx->frame_offsets_y[32 + i];
 	
 	// chroma edge propagation
-	if (__builtin_expect((unsigned)xInt_C > sstride_C - (w >> 1) - 1 ||
-		(unsigned)(yInt_Cb - ctx->plane_size_Y) > ctx->plane_size_C - ((h >> 1) - 1) * sstride_C, 0))
+	if (__builtin_expect((unsigned)xInt_C >= sstride_C - (w >> 1) ||
+		(unsigned)(yInt_Cb - ctx->plane_size_Y) >= ctx->plane_size_C - (h >> 1) * sstride_C, 0))
 	{
 		v16qi shuf = {}, v0, v1;
 		memcpy(&shuf, shift_C_8bit + 7 + clip3(-7, 0, xInt_C) + clip3(0, 7, xInt_C + 8 - sstride_C), 8);
 		uint8_t *src0 = ref + clip3(0, sstride_C - 8, xInt_C);
 		uint8_t *src1 = ref + clip3(0, sstride_C - 1, xInt_C + 8);
-		for (int j = 0; j <= h; j++, yInt_Cb += sstride_C, yInt_Cr += sstride_C) {
+		for (int j = 0; j <= h >> 1; j++, yInt_Cb += sstride_C, yInt_Cr += sstride_C) {
 			int cb = clip3(ctx->plane_size_Y, ctx->plane_size_Y + ctx->plane_size_C - sstride_C, yInt_Cb);
 			int cr = clip3(ctx->plane_size_Y + ctx->plane_size_C, ctx->plane_size_Y + ctx->plane_size_C * 2 - sstride_C, yInt_Cr);
 			memcpy(&v0, src0 + cb, 8);

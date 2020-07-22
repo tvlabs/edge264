@@ -1633,7 +1633,6 @@ static __attribute__((noinline)) void FUNC(parse_I_mb, int ctxIdx)
 	mb->f.mb_skip_flag = CALL(get_ae, 13 - ctx->inc.mb_skip_flag);
 	fprintf(stderr, "mb_skip_flag: %x\n", mb->f.mb_skip_flag);
 	if (mb->f.mb_skip_flag) {
-		int unavail = ctx->unavail[5];
 		int refIdxA = *(mb->refIdx + ctx->refIdx_A[0]);
 		int refIdxB = *(mb->refIdx + ctx->refIdx_B[0]);
 		int xA = *(mb->mvs + ctx->mvs_A[0]);
@@ -1642,9 +1641,9 @@ static __attribute__((noinline)) void FUNC(parse_I_mb, int ctxIdx)
 		int yB = *(mb->mvs + ctx->mvs_B[0] + 32);
 		int x = 0;
 		int y = 0;
-		if (!(unavail & 3) && (refIdxA | xA | yA) && (refIdxB | xB | yB)) {
-			int refIdxC = *(mb->refIdx + (unavail & 4 ? ctx->refIdx_D : ctx->refIdx_C));
-			int mvs_C = (unavail & 4) ? ctx->mvs8x8_D[0] : ctx->mvs8x8_C[1];
+		if (!ctx->inc.unavailable && (refIdxA | xA | yA) && (refIdxB | xB | yB)) {
+			int refIdxC = *(mb->refIdx + (ctx->unavail[5] & 4 ? ctx->refIdx_D : ctx->refIdx_C));
+			int mvs_C = (ctx->unavail[5] & 4) ? ctx->mvs8x8_D[0] : ctx->mvs8x8_C[1];
 			int xC = *(mb->mvs + mvs_C);
 			int yC = *(mb->mvs + mvs_C + 32);
 			int eq = (refIdxB >= 0 || refIdxC >= 0) ? !refIdxA + !refIdxB * 2 + !refIdxC * 4 : 0x1;
@@ -1686,14 +1685,13 @@ static __attribute__((noinline)) void FUNC(parse_I_mb, int ctxIdx)
 			fprintf(stderr, "mb_type: 0\n");
 			CALL(parse_ref_idx);
 			mb->refIdx_l = __builtin_shufflevector(mb->refIdx_l, mb->refIdx_l, 0, 0, 0, 0, 4, 4, 4, 4);
-			int unavail = ctx->unavail[5];
 			int refIdx = mb->refIdx[0];
 			int refIdxA = *(mb->refIdx + ctx->refIdx_A[0]);
 			int refIdxB = *(mb->refIdx + ctx->refIdx_B[0]);
-			int refIdxC = *(mb->refIdx + (unavail & 4 ? ctx->refIdx_D : ctx->refIdx_C));
+			int refIdxC = *(mb->refIdx + (ctx->unavail[5] & 4 ? ctx->refIdx_D : ctx->refIdx_C));
 			ctx->refIdx4x4_eq[0] = (refIdxB >= 0 || refIdxC >= 0) ?
 				(refIdx==refIdxA) + (refIdx==refIdxB) * 2 + (refIdx==refIdxC) * 4 : 0x1;
-			ctx->mvs_C[0] = (unavail & 4) ? ctx->mvs8x8_D[0] : ctx->mvs8x8_C[1];
+			ctx->mvs_C[0] = (ctx->unavail[5] & 4) ? ctx->mvs8x8_D[0] : ctx->mvs8x8_C[1];
 			ctx->mvs_shuffle_v = (v16qi){0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
 			ctx->part_sizes_l[0] = (int64_t)(v8qi){16, 16};
 			JUMP(parse_mvs);

@@ -4,6 +4,7 @@
  * _ Remove plane_Y/Cb in favor of a fixed plane pointer + incremented plane_offsets
  * _ Remove stride variable in favor of passing it directly to residual functions
  * _ Remove Pred modes in favor of static residual calls
+ * _ Modify edge_play to display only differing values in red for Erroneous mb
  * _ switch to SDL which is likely to have a more stable future support than GLFW, with an option to play without display
  * _ make ref_idx a separate function, and 4 distinct 8x8/8x16/16x8/16x16 functions as prologs to parse_mvds
  * _ update the tables of names for profiles and NAL types
@@ -151,8 +152,8 @@ static void FUNC(initialise_decoding_context, Edge264_stream *e)
 	if (ctx->slice_type < 2) {
 		int offA_16bit = offA_8bit >> 1;
 		int offB_16bit = offB_8bit >> 1;
-		int offC_16bit = offB_16bit + sizeof(*mb);
-		int offD_16bit = offB_16bit - sizeof(*mb);
+		int offC_16bit = offB_16bit + (sizeof(*mb) >> 1);
+		int offD_16bit = offB_16bit - (sizeof(*mb) >> 1);
 		ctx->refIdx_C = offB_8bit + sizeof(*mb) + 2;
 		ctx->refIdx_D = offB_8bit - sizeof(*mb) + 3;
 		ctx->refIdx4x4_A_v = (v16qi){5, 6, 5, 6, 6, 7, 6, 7, 9, 10, 9, 10, 10, 11, 10, 11};

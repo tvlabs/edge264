@@ -1052,8 +1052,8 @@ INTER16xH_QPEL_21_23(qpel23, CALL(packus_6tapD_8bit, v03, v0B, vh, zero))
 		__m128i h48 = CALL(filter_36tapU_8bit, l48, l49, l4A, l4B, l4C, l4D);\
 		do {\
 			src += sstride;\
-			__m128i d50 = _mm_lddqu_si128((__m128i *)(src + nstride * 2 - 2));\
-			__m128i l5D = load8x1_8bit(src + nstride * 2 + 11, zero);\
+			__m128i d50 = _mm_lddqu_si128((__m128i *)(src + sstride * 2 - 2));\
+			__m128i l5D = load8x1_8bit(src + sstride * 2 + 11, zero);\
 			__m128i l50 = _mm_unpacklo_epi8(d50, zero);\
 			__m128i l58 = _mm_unpackhi_epi8(d50, zero);\
 			__m128i l5G = _mm_srli_si128(l5D, 6);\

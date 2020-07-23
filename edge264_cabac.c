@@ -1241,11 +1241,12 @@ static __attribute__((noinline)) void FUNC(parse_NxN_residual)
  */
 static __attribute__((noinline)) void FUNC(parse_coded_block_pattern) {
 	CALL(check_ctx, RESIDUAL_CBP_LABEL);
+	
 	// Luma prefix
 	for (int i = 0; i < 4; i++) {
 		int cbpA = *(mb->CodedBlockPatternLuma + ctx->CodedBlockPatternLuma_A[i]);
 		int cbpB = *(mb->CodedBlockPatternLuma + ctx->CodedBlockPatternLuma_B[i]);
-		mb->CodedBlockPatternLuma[i] = CALL(get_ae, -(-76 + cbpA + cbpB * 2));
+		mb->CodedBlockPatternLuma[i] = CALL(get_ae, 76 - cbpA - cbpB * 2);
 	}
 	
 	// Chroma suffix
@@ -1259,32 +1260,6 @@ static __attribute__((noinline)) void FUNC(parse_coded_block_pattern) {
 		mb->CodedBlockPatternLuma[0] * 1 + mb->CodedBlockPatternLuma[1] * 2 +
 		mb->CodedBlockPatternLuma[2] * 4 + mb->CodedBlockPatternLuma[3] * 8 +
 		(mb->f.CodedBlockPatternChromaDC + mb->f.CodedBlockPatternChromaAC) * 16);
-}
-
-
-
-/**
- * Parses ref_idx_lx (9.3.3.1.1.6).
- *
- * There are 4 code paths (8x8, 8x16, 16x8, 16x16) with different treatments
- * after parsing ref_idx, so we put it in a function to spare a branch after.
- */
-static __attribute__((noinline)) void FUNC(parse_ref_idx)
-{
-	for (unsigned f = ctx->mvd_flags & ctx->ref_idx_mask; f != 0; f &= f - 1) {
-		int i = __builtin_ctz(f) >> 2;
-		int refIdxA = *(mb->refIdx + (i & 4) + ctx->refIdx_A[i & 3]);
-		int refIdxB = *(mb->refIdx + (i & 4) + ctx->refIdx_B[i & 3]);
-		int ctxIdxInc = (refIdxA > 0) + (refIdxB > 0) * 2;
-		int num_ref_idx_active_minus1 = ctx->ps.num_ref_idx_active[i >> 2] - 1;
-		int refIdx = 0;
-		while (CALL(get_ae, 54 + ctxIdxInc) && refIdx < num_ref_idx_active_minus1) {
-			ctxIdxInc = (ctxIdxInc >> 2) + 4; // cool trick from ffmpeg
-			refIdx++;
-		}
-		mb->refIdx[i] = refIdx;
-		fprintf(stderr, "ref_idx_l%x: %u\n", i >> 2, refIdx);
-	}
 }
 
 
@@ -1464,6 +1439,7 @@ static __attribute__((noinline)) void FUNC(parse_I_mb, int ctxIdx)
 		ctx->inc.coded_block_flags_16x16_s |= 0x02020202;
 	}
 	mb->f.mbIsInterFlag = 0;
+	mb->refIdx_l = (v8qi){-1, -1, -1, -1, -1, -1, -1, -1};
 	
 	// I_NxN
 	if (!CALL(get_ae, ctxIdx)) {
@@ -1586,6 +1562,32 @@ static __attribute__((noinline)) void FUNC(parse_I_mb, int ctxIdx)
 
 
 /**
+ * Parses ref_idx_lx (9.3.3.1.1.6).
+ *
+ * There are 4 code paths (8x8, 8x16, 16x8, 16x16) with different treatments
+ * after parsing ref_idx, so we put it in a function to spare a branch after.
+ */
+static __attribute__((noinline)) void FUNC(parse_ref_idx)
+{
+	for (unsigned f = ctx->mvd_flags & ctx->ref_idx_mask; f != 0; f &= f - 1) {
+		int i = __builtin_ctz(f) >> 2;
+		int refIdxA = *(mb->refIdx + (i & 4) + ctx->refIdx_A[i & 3]);
+		int refIdxB = *(mb->refIdx + (i & 4) + ctx->refIdx_B[i & 3]);
+		int ctxIdxInc = (refIdxA > 0) + (refIdxB > 0) * 2;
+		int num_ref_idx_active_minus1 = ctx->ps.num_ref_idx_active[i >> 2] - 1;
+		int refIdx = 0;
+		while (CALL(get_ae, 54 + ctxIdxInc) && refIdx < num_ref_idx_active_minus1) {
+			ctxIdxInc = (ctxIdxInc >> 2) + 4; // cool trick from ffmpeg
+			refIdx++;
+		}
+		mb->refIdx[i] = refIdx;
+		fprintf(stderr, "ref_idx: %u\n", refIdx);
+	}
+}
+
+
+
+/**
  * These functions parse the syntax elements mb_type, sub_mb_type and ref_idx
  * (from function) for the current macroblock in a P or B slice, and initialize
  * mvd_flags, mvs_shuffle, transform_8x8_mode_flag and refIdx4x4_eq, before
@@ -1624,10 +1626,11 @@ static __attribute__((noinline)) void FUNC(parse_I_mb, int ctxIdx)
 		{-4, -4, 0, 0}, {-5, -16, -1, -16}, // B available, C unavailable
 		{-5, -4, 0, 0}, {-5, -16, -1, -16}}; // B and C unavailable
 	
-	// common initializations
+	// Inter initializations
 	ctx->transform_8x8_mode_flag = ctx->ps.transform_8x8_mode_flag;
 	mb->f.mbIsInterFlag = 1;
-	mb->refIdx_l = (v8qi){0, 0, 0, 0, -1, -1, -1, -1};
+	mb->refIdx_s[1] = -1;
+	mb->Intra4x4PredMode_v = (v16qi){2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2};
 	
 	// shortcuts for P_Skip and Intra
 	mb->f.mb_skip_flag = CALL(get_ae, 13 - ctx->inc.mb_skip_flag);
@@ -1656,15 +1659,13 @@ static __attribute__((noinline)) void FUNC(parse_I_mb, int ctxIdx)
 			}
 		}
 		mb->mvs_V[0] = (v16hi){x, x, x, x, x, x, x, x, x, x, x, x, x, x, x, x};
-		mb->mvs_V[1] = (v16hi){};
 		mb->mvs_V[2] = (v16hi){y, y, y, y, y, y, y, y, y, y, y, y, y, y, y, y};
-		mb->mvs_V[3] = (v16hi){};
 		JUMP(decode_inter, 0, 16, 16, x, y);
 	} else if (CALL(get_ae, 14)) {
 		JUMP(parse_I_mb, 17);
 	}
 	
-	// Inter-specific initialisations
+	// Non-skip Inter initialisations
 	if (ctx->inc.unavailable & 1) {
 		mb[-1].coded_block_flags_4x4_v[0] = mb[-1].coded_block_flags_4x4_v[1] =
 			mb[-1].coded_block_flags_4x4_v[2] = mb[-1].coded_block_flags_8x8_v = (v16qi){};
@@ -1792,9 +1793,12 @@ static __attribute__((noinline)) void FUNC(parse_B_mb)
 	static const uint8_t b2sub_mb_type[13] = {3, 4, 5, 6, 1, 2, 11, 12, 7, 8, 9, 10, 0};
 	
 	mb->f.mbIsInterFlag = 1;
+	mb->Intra4x4PredMode_v = (v16qi){2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2};
+	
 	mb->f.mb_skip_flag = CALL(get_ae, 26 - ctx->inc.mb_skip_flag);
 	fprintf(stderr, "mb_skip_flag: %x\n", mb->f.mb_skip_flag);
 	if (mb->f.mb_skip_flag) {
+		mb->CodedBlockPatternLuma_s = 0;
 		mb->f.mb_type_B_Direct = 1;
 		JUMP(parse_NxN_residual);
 		
@@ -1864,14 +1868,13 @@ static __attribute__((noinline)) void FUNC(PAFF_parse_slice_data)
 	
 	ctx->mb_qp_delta_non_zero = 0;
 	while (1) {
-		fprintf(stderr, "********** %u **********\n", CurrMbAddr);
+		fprintf(stderr, "********** %u **********\n", ctx->CurrMbAddr);
 		CALL(check_ctx, LOOP_START_LABEL);
 		Edge264_macroblock *mbB = mb - (ctx->ps.width >> 4) - 1;
 		v16qi flagsA = mb[-1].f.v;
 		v16qi flagsB = mbB->f.v;
 		ctx->inc.v = flagsA + flagsB + (flagsB & flags_twice.v);
-		mb->f.v = (v16qi){};
-		mb->coded_block_flags_8x8_v = (v16qi){};
+		memset(mb, 0, sizeof(*mb));
 		mb->f.mb_field_decoding_flag = ctx->field_pic_flag;
 		
 		// prepare block unavailability information (6.4.11.4)

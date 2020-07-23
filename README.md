@@ -51,7 +51,7 @@ When debugging, the make flag `TRACE=1` enables printing NAL headers to stdout i
 A test program is also provided, that browses files in a `conformance` directory, decoding each `<video>.264` and comparing its output with the pair `<video>.yuv`.
 
 ```sh
-$ ./edge264_test-gcc-9
+$ ./edge264_test-cc
 ```
 
 

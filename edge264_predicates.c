@@ -118,7 +118,6 @@ static void FUNC(check_ctx, int label) {
 		predicate(ctx->stride == (ctx->ps.ChromaArrayType == 0 ? 0 : ctx->ps.ChromaArrayType < 3 ? ctx->ps.width >> 1 : ctx->ps.width) << (ctx->ps.BitDepth_C > 8));
 	
 	if (label > LOOP_START_LABEL) {
-		predicate(ctx->inc.unavailable == mb[-1].f.unavailable + mbB->f.unavailable * 2);
 		predicate(ctx->inc.mb_field_decoding_flag == mb[-1].f.mb_field_decoding_flag + mbB->f.mb_field_decoding_flag);
 		predicate(ctx->inc.mb_skip_flag == mb[-1].f.mb_skip_flag + mbB->f.mb_skip_flag);
 		predicate(ctx->inc.mb_type_I_NxN == mb[-1].f.mb_type_I_NxN + mbB->f.mb_type_I_NxN);
@@ -177,25 +176,6 @@ static void FUNC(check_ctx, int label) {
 		predicate(memcmp(&ctx->clip_v, &ctx->clip_C, 16) == 0);
 	} else if (label >= RESIDUAL_DC_LABEL) {
 		predicate(memcmp(&ctx->clip_v, &ctx->clip_Y, 16) == 0);
-	}
-	
-	if (label > LOOP_START_LABEL) {
-		predicate(ctx->unavail[0] == (mb[-1].f.unavailable | mbB->f.unavailable << 1 | mbB->f.unavailable << 2 | mbB[-1].f.unavailable << 3));
-		predicate(ctx->unavail[1] == mbB->f.unavailable * 14);
-		predicate(ctx->unavail[2] == mb[-1].f.unavailable * 9);
-		predicate(ctx->unavail[3] == 4);
-		predicate(ctx->unavail[4] == mbB->f.unavailable * 14);
-		predicate(ctx->unavail[5] == (mbB->f.unavailable << 1 | mbB[1].f.unavailable << 2 | mbB->f.unavailable << 3));
-		predicate(ctx->unavail[6] == 0);
-		predicate(ctx->unavail[7] == 4);
-		predicate(ctx->unavail[8] == mb[-1].f.unavailable * 9);
-		predicate(ctx->unavail[9] == 0);
-		predicate(ctx->unavail[10] == mb[-1].f.unavailable * 9);
-		predicate(ctx->unavail[11] == 4);
-		predicate(ctx->unavail[12] == 0);
-		predicate(ctx->unavail[13] == 4);
-		predicate(ctx->unavail[14] == 0);
-		predicate(ctx->unavail[15] == 4);
 	}
 	
 	static int A4x4[16] = {5 - (int)sizeof(*mb), 0, 7 - (int)sizeof(*mb), 2, 1, 4, 3, 6, 13 - (int)sizeof(*mb), 8, 15 - (int)sizeof(*mb), 10, 9, 12, 11, 14};

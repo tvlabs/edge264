@@ -1364,7 +1364,7 @@ static __attribute__((noinline)) void FUNC(parse_intra_chroma_pred_mode)
 		static uint8_t ac[4] = {VERTICAL_4x4_BUFFERED, HORIZONTAL_4x4_BUFFERED, VERTICAL_4x4_BUFFERED, PLANE_4x4_BUFFERED};
 		int depth = (ctx->ps.BitDepth_C == 8) ? 0 : VERTICAL_4x4_16_BIT;
 		int i = depth + ac[mode];
-		int dc420 = depth + dc[mode] + (mode == 0 ? ctx->inc.unavailable : 0);
+		int dc420 = depth + dc[mode] + (mode == 0 ? ctx->inc.unavailable & 3 : 0);
 		ctx->PredMode_v[1] = (v16qu){i, i, i, i, i, i, i, i, i, i, i, i, i, i, i, i};
 		if (type == 1)
 			ctx->PredMode[16] = ctx->PredMode[20] = dc420;
@@ -1491,7 +1491,7 @@ static __attribute__((noinline)) void FUNC(parse_I_mb, int ctxIdx)
 		int depth = ctx->intra4x4_modes[0][0] - VERTICAL_4x4;
 		int p = depth + VERTICAL_4x4_BUFFERED + mode;
 		ctx->PredMode_v[0] = (v16qu){p, p, p, p, p, p, p, p, p, p, p, p, p, p, p, p};
-		ctx->PredMode[0] = depth + dc[mode] + (mode == 2 ? ctx->inc.unavailable : 0);
+		ctx->PredMode[0] = depth + dc[mode] + (mode == 2 ? ctx->inc.unavailable & 3 : 0);
 		ctx->PredMode_v[1] = ctx->PredMode_v[2] = ctx->PredMode_v[0] + ctx->pred_offset_C;
 		
 		CALL(parse_intra_chroma_pred_mode);
@@ -1644,12 +1644,12 @@ static __attribute__((noinline)) void FUNC(parse_ref_idx)
 		int yB = *(mb->mvs + ctx->mvs_B[0] + 32);
 		int x = 0;
 		int y = 0;
-		if (!ctx->inc.unavailable && (refIdxA | xA | yA) && (refIdxB | xB | yB)) {
-			int refIdxC = *(mb->refIdx + (ctx->unavail[5] & 4 ? ctx->refIdx_D : ctx->refIdx_C));
-			int mvs_C = (ctx->unavail[5] & 4) ? ctx->mvs8x8_D[0] : ctx->mvs8x8_C[1];
+		if (!(ctx->inc.unavailable & 3) && (refIdxA | xA | yA) && (refIdxB | xB | yB)) {
+			int refIdxC = *(mb->refIdx + (ctx->inc.unavailable & 4 ? ctx->refIdx_D : ctx->refIdx_C));
+			int mvs_C = (ctx->inc.unavailable & 4) ? ctx->mvs8x8_D[0] : ctx->mvs8x8_C[1];
 			int xC = *(mb->mvs + mvs_C);
 			int yC = *(mb->mvs + mvs_C + 32);
-			int eq = (refIdxB >= 0 || refIdxC >= 0) ? !refIdxA + !refIdxB * 2 + !refIdxC * 4 : 0x1;
+			int eq = (!refIdxA | (ctx->inc.unavailable==14)) + !refIdxB * 2 + !refIdxC * 4;
 			if (__builtin_expect(0xe9 >> eq & 1, 1)) {
 				x = median(xA, xB, xC);
 				y = median(yA, yB, yC);
@@ -1685,36 +1685,53 @@ static __attribute__((noinline)) void FUNC(parse_ref_idx)
 			ctx->mvd_flags = 0x0001;
 			fprintf(stderr, "mb_type: 0\n");
 			CALL(parse_ref_idx);
-			mb->refIdx_l = __builtin_shufflevector(mb->refIdx_l, mb->refIdx_l, 0, 0, 0, 0, 4, 4, 4, 4);
 			int refIdx = mb->refIdx[0];
 			int refIdxA = *(mb->refIdx + ctx->refIdx_A[0]);
 			int refIdxB = *(mb->refIdx + ctx->refIdx_B[0]);
-			int refIdxC = *(mb->refIdx + (ctx->unavail[5] & 4 ? ctx->refIdx_D : ctx->refIdx_C));
-			ctx->refIdx4x4_eq[0] = (refIdxB >= 0 || refIdxC >= 0) ?
-				(refIdx==refIdxA) + (refIdx==refIdxB) * 2 + (refIdx==refIdxC) * 4 : 0x1;
-			ctx->mvs_C[0] = (ctx->unavail[5] & 4) ? ctx->mvs8x8_D[0] : ctx->mvs8x8_C[1];
+			int refIdxC = *(mb->refIdx + (ctx->inc.unavailable & 4 ? ctx->refIdx_D : ctx->refIdx_C));
+			ctx->mvs_C[0] = (ctx->inc.unavailable & 4) ? ctx->mvs8x8_D[0] : ctx->mvs8x8_C[1];
+			mb->refIdx_l = __builtin_shufflevector(mb->refIdx_l, mb->refIdx_l, 0, 0, 0, 0, 4, 4, 4, 4);
+			ctx->refIdx4x4_eq[0] = ((refIdx==refIdxA) | (ctx->inc.unavailable==14)) + (refIdx==refIdxB) * 2 + (refIdx==refIdxC) * 4;
 			ctx->mvs_shuffle_v = (v16qi){0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
 			ctx->part_sizes_l[0] = (int64_t)(v8qi){16, 16};
 			JUMP(parse_mvs);
 		} // else 8x8
+		
 	} else if (!CALL(get_ae, 17)) { // 8x16
 		ctx->mvd_flags = 0x0011;
 		fprintf(stderr, "mb_type: 2\n");
 		CALL(parse_ref_idx);
+		int refIdx0 = mb->refIdx[0];
+		int refIdx1 = mb->refIdx[1];
+		int refIdxA0 = *(mb->refIdx + ctx->refIdx_A[0]);
+		int refIdxB0 = *(mb->refIdx + ctx->refIdx_B[0]);
+		int refIdxB1 = *(mb->refIdx + ctx->refIdx_B[1]);
+		int refIdxC0 = (ctx->inc.unavailable & 2) ? *(mb->refIdx + ctx->refIdx_D) : refIdxB1;
+		ctx->mvs_C[0] = (ctx->inc.unavailable & 2) ? ctx->mvs8x8_D[0] : ctx->mvs8x8_C[0];
+		int refIdxC1 = (ctx->inc.unavailable & 4) ? refIdxB0 : *(mb->refIdx + ctx->refIdx_C);
+		ctx->mvs_C[4] = (ctx->inc.unavailable & 4) ? ctx->mvs8x8_D[1] : ctx->mvs8x8_C[1];
 		mb->refIdx_l = __builtin_shufflevector(mb->refIdx_l, mb->refIdx_l, 0, 1, 0, 1, 4, 5, 4, 5);
-		ctx->refIdx4x4_eq[0] = 0x1;
-		ctx->refIdx4x4_eq[4] = 0x4;
-		ctx->mvs_C[4] = (ctx->unavail[5] & 4) ? ctx->mvs8x8_D[1] : ctx->mvs8x8_C[1];
+		ctx->refIdx4x4_eq[0] = (refIdx0==refIdxA0) ? 0x1 : (ctx->unavail[0]==14) + (refIdx0==refIdxB0) * 2 + (refIdx0==refIdxC1) * 4;
+		ctx->refIdx4x4_eq[4] = (refIdx1==refIdxC1) ? 0x4 : ((refIdx1==refIdx0) | (ctx->unavail[5]==14)) + (refIdx1==refIdxB1) * 2;
 		ctx->mvs_shuffle_v = (v16qi){0, 0, 0, 0, 4, 4, 4, 4, 0, 0, 0, 0, 4, 4, 4, 4};
 		ctx->part_sizes_l[0] = ctx->part_sizes_l[1] = (int64_t)(v8qi){8, 16};
 		JUMP(parse_mvs);
+		
 	} else { // 16x8
 		ctx->mvd_flags = 0x0101;
 		fprintf(stderr, "mb_type: 1\n");
 		CALL(parse_ref_idx);
+		int refIdx0 = mb->refIdx[0];
+		int refIdx2 = mb->refIdx[2];
+		int refIdxA0 = *(mb->refIdx + ctx->refIdx_A[0]);
+		int refIdxA2 = *(mb->refIdx + ctx->refIdx_A[2]);
+		int refIdxB0 = *(mb->refIdx + ctx->refIdx_B[0]);
+		int refIdxC0 = *(mb->refIdx + (ctx->inc.unavailable & 4 ? ctx->refIdx_D : ctx->refIdx_C));
+		ctx->mvs_C[0] = (ctx->inc.unavailable & 4) ? ctx->mvs8x8_D[0] : ctx->mvs8x8_C[1];
+		ctx->mvs_C[8] = ctx->mvs8x8_D[2];
 		mb->refIdx_l = __builtin_shufflevector(mb->refIdx_l, mb->refIdx_l, 0, 0, 2, 2, 4, 4, 6, 6);
-		ctx->refIdx4x4_eq[0] = 0x2;
-		ctx->refIdx4x4_eq[8] = 0x1;
+		ctx->refIdx4x4_eq[0] = (refIdx0==refIdxB0) ? 0x2 : ((refIdx0==refIdxA0) | (ctx->inc.unavailable==14)) + (refIdx0==refIdxC0) * 4;
+		ctx->refIdx4x4_eq[8] = (refIdx2==refIdxA2) ? 0x1 : (refIdx2==refIdx0) * 2 + (refIdx2==refIdxA0) * 4;
 		ctx->mvs_shuffle_v = (v16qi){0, 0, 0, 0, 0, 0, 0, 0, 8, 8, 8, 8, 8, 8, 8, 8};
 		ctx->part_sizes_l[0] = ctx->part_sizes_l[2] = (int64_t)(v8qi){16, 8};
 		JUMP(parse_mvs);
@@ -1725,38 +1742,38 @@ static __attribute__((noinline)) void FUNC(parse_ref_idx)
 	unsigned flags = 0;
 	for (int i8x8 = 0, f, s; i8x8 < 4; i8x8++) {
 		int i4x4 = i8x8 * 4;
-		int unavailBC = ctx->unavail[i4x4 + 1] & 0x6; // incremented by subpart modes to signal 8-sample width
+		int unavail1 = ctx->unavail[i4x4 + 1]; // incremented by subpart modes to signal 8-sample width
 		int64_t sizes;
 		if (CALL(get_ae, 21)) { // 8x8
+			ctx->mvs_C[i4x4] = (unavail1 & 4 ? ctx->mvs8x8_D : ctx->mvs8x8_C)[i8x8];
+			ctx->unavail[i4x4] |= unavail1++;
 			f = 1;
 			s = 0;
-			ctx->mvs_C[i4x4] = (unavailBC & 4 ? ctx->mvs8x8_D : ctx->mvs8x8_C)[i8x8];
-			unavailBC++;
 			sizes = (int64_t)(v8qi){8, 8};
 		} else if (ctx->transform_8x8_mode_flag = 0, !CALL(get_ae, 22)) { // 8x4
+			ctx->mvs_C[i4x4] = (unavail1 & 4 ? ctx->mvs8x8_D : ctx->mvs8x8_C)[i8x8];
+			ctx->mvs_C[i4x4 + 2] = ctx->mvs_A[i4x4];
+			ctx->unavail[i4x4] |= unavail1++;
 			f = 5;
 			s = (int32_t)(v4qi){0, 0, 2, 2};
-			ctx->mvs_C[i4x4] = (unavailBC & 4 ? ctx->mvs8x8_D : ctx->mvs8x8_C)[i8x8];
-			ctx->mvs_C[i4x4 + 2] = ctx->mvs_A[i4x4];
-			unavailBC++;
 			sizes = (int64_t)(v8qi){8, 4, 0, 0, 8, 4, 0, 0};
 		} else if (CALL(get_ae, 23)) { // 4x8
+			ctx->mvs_C[i4x4] = (unavail1 & 2) ? ctx->mvs8x8_D[i8x8] : ctx->mvs_B[i4x4 + 1];
+			ctx->mvs_C[i4x4 + 1] = (unavail1 & 4) ? ctx->mvs_B[i4x4] : ctx->mvs8x8_C[i8x8];
 			f = 3;
 			s = (int32_t)(v4qi){0, 1, 0, 1};
-			ctx->mvs_C[i4x4] = (unavailBC & 2) ? ctx->mvs8x8_D[i8x8] : ctx->mvs_B[i4x4 + 1];
-			ctx->mvs_C[i4x4 + 1] = (unavailBC & 4) ? ctx->mvs_B[i4x4] : ctx->mvs8x8_C[i8x8];
 			sizes = (int64_t)(v8qi){4, 8, 4, 8};
 		} else { // 4x4
-			f = 15;
-			s = (int32_t)(v4qi){0, 1, 2, 3};
-			ctx->mvs_C[i4x4] = (unavailBC & 2) ? ctx->mvs8x8_D[i8x8] : ctx->mvs_B[i4x4 + 1];
-			ctx->mvs_C[i4x4 + 1] = (unavailBC & 4) ? ctx->mvs_B[i4x4] : ctx->mvs8x8_C[i8x8];
+			ctx->mvs_C[i4x4] = (unavail1 & 2) ? ctx->mvs8x8_D[i8x8] : ctx->mvs_B[i4x4 + 1];
+			ctx->mvs_C[i4x4 + 1] = (unavail1 & 4) ? ctx->mvs_B[i4x4] : ctx->mvs8x8_C[i8x8];
 			ctx->mvs_C[i4x4 + 2] = i4x4 + 1;
 			ctx->mvs_C[i4x4 + 3] = i4x4;
+			f = 15;
+			s = (int32_t)(v4qi){0, 1, 2, 3};
 			sizes = (int64_t)(v8qi){4, 4, 4, 4, 4, 4, 4, 4};
 		}
 		flags |= f << i4x4;
-		ctx->refIdx4x4_C_s[i8x8] = refIdx4x4_base[i8x8] + (int32_t)refIdx4x4_inc[unavailBC];
+		ctx->refIdx4x4_C_s[i8x8] = refIdx4x4_base[i8x8] + (int32_t)refIdx4x4_inc[unavail1 & 7];
 		ctx->mvs_shuffle_s[i8x8] = i4x4 * 0x01010101 + s;
 		ctx->part_sizes_l[i8x8] = sizes;
 		fprintf(stderr, "sub_mb_type: %c\n", (f == 1) ? '0' : (f == 5) ? '1' : (f == 3) ? '2' : '3');
@@ -1776,7 +1793,7 @@ static __attribute__((noinline)) void FUNC(parse_ref_idx)
 	// compare them and store equality formula
 	v16qi refIdx = __builtin_shufflevector(neighbours, neighbours, 6, 6, 6, 6, 7, 7, 7, 7, 10, 10, 10, 10, 11, 11, 11, 11);
 	v16qi sum = ((((refIdx==refIdxC) << 1) + (refIdx==refIdxB)) << 1) + (refIdx==refIdxA);
-	ctx->refIdx4x4_eq_v[0] = -(sum | (refIdxB<(v16qi){} & refIdxC<(v16qi){})); // if B and C are unavailable, then sum is 0 or 1
+	ctx->refIdx4x4_eq_v[0] = -(sum | (ctx->unavail_v==14)); // if B and C are unavailable, then sum is 0 or 1
 	JUMP(parse_mvs);
 }
 
@@ -1869,20 +1886,24 @@ static __attribute__((noinline)) void FUNC(PAFF_parse_slice_data)
 	ctx->mb_qp_delta_non_zero = 0;
 	while (1) {
 		fprintf(stderr, "********** %u **********\n", ctx->CurrMbAddr);
-		CALL(check_ctx, LOOP_START_LABEL);
 		Edge264_macroblock *mbB = mb - (ctx->ps.width >> 4) - 1;
 		v16qi flagsA = mb[-1].f.v;
 		v16qi flagsB = mbB->f.v;
 		ctx->inc.v = flagsA + flagsB + (flagsB & flags_twice.v);
 		memset(mb, 0, sizeof(*mb));
 		mb->f.mb_field_decoding_flag = ctx->field_pic_flag;
+		CALL(check_ctx, LOOP_START_LABEL);
 		
 		// prepare block unavailability information (6.4.11.4)
 		ctx->unavail_v = block_unavailability[ctx->inc.unavailable];
-		if (mbB[1].f.unavailable)
-			ctx->unavail[5] |= 4;
-		if (mbB[-1].f.unavailable)
-			ctx->unavail[0] |= 8;
+		if (mbB[1].f.unavailable) {
+			ctx->inc.unavailable += 4;
+			ctx->unavail[5] += 4;
+		}
+		if (mbB[-1].f.unavailable) {
+			ctx->inc.unavailable += 8;
+			ctx->unavail[0] += 8;
+		}
 		
 		// Would it actually help to push this test outside the loop?
 		if (ctx->slice_type == 0)

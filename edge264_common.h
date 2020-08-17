@@ -277,7 +277,9 @@ static inline unsigned umax(unsigned a, unsigned b) { return (a > b) ? a : b; }
 static inline int median(int a, int b, int c) { return max(min(max(a, b), c), min(a, b)); }
 
 // edge264_cabac.c
-__attribute__((noinline)) void FUNC(CABAC_parse_slice_data, int cabac_init_idc);
+__attribute__((noinline)) size_t FUNC(renorm, int ceil, size_t binVal);
+__attribute__((noinline)) size_t FUNC(get_ae, int ctxIdx);
+void FUNC(init_cabac, int cabac_init_idc);
 
 // edge264_golomb.c
 __attribute__((noinline)) size_t FUNC(refill, int shift, size_t ret);
@@ -304,6 +306,9 @@ __attribute__((noinline)) void FUNC(add_idct8x8);
 __attribute__((noinline)) void FUNC(transform_dc4x4);
 __attribute__((noinline)) void FUNC(transform_dc2x2);
 __attribute__((noinline)) void FUNC(transform_dc2x4);
+
+// edge264_slice.c
+__attribute__((noinline)) void FUNC(parse_slice_data);
 
 // for debugging
 void print_v16qi(v16qi v) {

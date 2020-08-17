@@ -17,13 +17,14 @@
  */
 
 #include "edge264_common.h"
-#include "edge264_golomb.c"
 #ifdef __SSSE3__
 #include "edge264_residual_ssse3.c"
 #include "edge264_intra_ssse3.c"
 #include "edge264_inter_ssse3.c"
 #endif
+#include "edge264_golomb.c"
 #include "edge264_cabac.c"
+#include "edge264_slice.c"
 
 
 
@@ -710,7 +711,8 @@ static int FUNC(parse_slice_layer_without_partitioning, Edge264_stream *e)
 		unsigned alignment = ctx->shift & 7;
 		if (alignment != 0 && CALL(get_uv, 8 - alignment) != 0xff >> alignment)
 			return -2;
-		CALL(CABAC_parse_slice_data, cabac_init_idc);
+		CALL(init_cabac, cabac_init_idc);
+		CALL(parse_slice_data);
 		// I'd rather display a portion of image than nothing, so do not test errors here yet
 	}
 	

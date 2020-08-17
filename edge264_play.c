@@ -28,7 +28,7 @@ static unsigned textures[3];
 
 
 
-static int check_frame(const Edge264_stream *e, const uint8_t *frame, const uint8_t *ref)
+static int check_frame(const Edge264_stream *e, int i, const uint8_t *frame, const uint8_t *ref)
 {
 	int MbStrideY = e->SPS.BitDepth_Y == 8 ? 16 : 32;
 	int MbWidthC = e->SPS.chroma_format_idc < 3 ? 8 : 16;
@@ -52,10 +52,10 @@ static int check_frame(const Edge264_stream *e, const uint8_t *frame, const uint
 				if (invalid) {
 					printf("</ul>\n"
 						"<ul>\n"
-						"<li style='color:red'>Erroneous macroblock (row %d, column %d, %s plane):<pre>\n", row, col, (iYCbCr == 0) ? "Luma" : (iYCbCr == 1) ? "Cb" : "Cr");
+						"<li style='color:red'>Erroneous macroblock (pic_order_cnt %d, row %d, column %d, %s plane):<pre style='color:black'>\n", e->FieldOrderCnt[i], row, col, (iYCbCr == 0) ? "Luma" : (iYCbCr == 1) ? "Cb" : "Cr");
 					for (int base = 0; base < MbHeight * stride; base += stride) {
 						for (int offset = base; offset < base + MbStride; offset++)
-							printf("%3d ", p[offset]);
+							printf(p[offset] != q[offset] ? "<span style='color:red'>%3d</span> " : "%3d ", p[offset]);
 						printf("\t");
 						for (int offset = base; offset < base + MbStride; offset++)
 							printf("%3d ", q[offset]);
@@ -117,7 +117,7 @@ int print_frame(Edge264_stream *e, int i)
 	
 	// Does this frame match the reference?
 	if (e->user != NULL) {
-		if (check_frame(e, p, e->user)) {
+		if (check_frame(e, i, p, e->user)) {
 			while (!glfwWindowShouldClose(window))
 				glfwWaitEvents();
 			glfwTerminate();

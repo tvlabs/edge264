@@ -1619,12 +1619,12 @@ static __attribute__((noinline)) void FUNC(parse_ref_idx)
  */
  __attribute__((noinline)) void FUNC(parse_P_mb)
 {
-	static const int32_t refIdx4x4_base[4] = {0x06060606, 0x07070707, 0x0A0A0A0A, 0x0B0B0B0B};
-	static const v4qi refIdx4x4_inc[8] = {
-		{-4, -3, 0, 0}, {-3, -16, -1, -16}, // B and C available
-		{-5, -3, 0, 0}, {-3, -16, -1, -16}, // B unavailable, C available
-		{-4, -4, 0, 0}, {-5, -16, -1, -16}, // B available, C unavailable
-		{-5, -4, 0, 0}, {-5, -16, -1, -16}}; // B and C unavailable
+	static const int32_t refIdx4x4_C_base[4] = {0x01010101, 0x02020202, 0x05050505, 0x06060606};
+	static const v4qi refIdx4x4_C_inc[8] = {
+		{1, 2, 5, 5}, {2, 0, 4, 0}, // B and C available
+		{0, 2, 5, 5}, {2, 0, 4, 0}, // B unavailable, C available
+		{1, 1, 5, 5}, {0, 0, 4, 0}, // B available, C unavailable
+		{0, 1, 5, 5}, {0, 0, 4, 0}}; // B and C unavailable
 	
 	// Inter initializations
 	ctx->transform_8x8_mode_flag = ctx->ps.transform_8x8_mode_flag;
@@ -1773,7 +1773,7 @@ static __attribute__((noinline)) void FUNC(parse_ref_idx)
 			sizes = (int64_t)(v8qi){4, 4, 4, 4, 4, 4, 4, 4};
 		}
 		flags |= f << i4x4;
-		ctx->refIdx4x4_C_s[i8x8] = refIdx4x4_base[i8x8] + (int32_t)refIdx4x4_inc[unavail1 & 7];
+		ctx->refIdx4x4_C_s[i8x8] = refIdx4x4_C_base[i8x8] + (int32_t)refIdx4x4_C_inc[unavail1 & 7];
 		ctx->mvs_shuffle_s[i8x8] = i4x4 * 0x01010101 + s;
 		ctx->part_sizes_l[i8x8] = sizes;
 		fprintf(stderr, "sub_mb_type: %c\n", (f == 1) ? '0' : (f == 5) ? '1' : (f == 3) ? '2' : '3');

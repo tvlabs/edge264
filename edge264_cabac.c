@@ -1711,7 +1711,7 @@ static __attribute__((noinline)) void FUNC(parse_ref_idx)
 		int refIdxC1 = (ctx->inc.unavailable & 4) ? refIdxB0 : *(mb->refIdx + ctx->refIdx_C);
 		ctx->mvs_C[4] = (ctx->inc.unavailable & 4) ? ctx->mvs8x8_D[1] : ctx->mvs8x8_C[1];
 		mb->refIdx_l = __builtin_shufflevector(mb->refIdx_l, mb->refIdx_l, 0, 1, 0, 1, 4, 5, 4, 5);
-		ctx->refIdx4x4_eq[0] = (refIdx0==refIdxA0) ? 0x1 : (ctx->unavail[0]==14) + (refIdx0==refIdxB0) * 2 + (refIdx0==refIdxC1) * 4;
+		ctx->refIdx4x4_eq[0] = (refIdx0==refIdxA0) ? 0x1 : (ctx->unavail[0]==14) + (refIdx0==refIdxB0) * 2 + (refIdx0==refIdxC0) * 4;
 		ctx->refIdx4x4_eq[4] = (refIdx1==refIdxC1) ? 0x4 : ((refIdx1==refIdx0) | (ctx->unavail[5]==14)) + (refIdx1==refIdxB1) * 2;
 		ctx->mvs_shuffle_v = (v16qi){0, 0, 0, 0, 4, 4, 4, 4, 0, 0, 0, 0, 4, 4, 4, 4};
 		ctx->part_sizes_l[0] = ctx->part_sizes_l[1] = (int64_t)(v8qi){8, 16};

@@ -641,7 +641,7 @@ static int FUNC(parse_slice_layer_without_partitioning, Edge264_stream *e)
 	if (!ctx->field_pic_flag)
 		e->FieldOrderCnt[16 + e->currPic] = ctx->BottomFieldOrderCnt;
 	
-	// That could be optimised into fast bit tests, but no compiler knows it :)
+	// That could be optimised into fast bit tests, but would be unreadable :)
 	if (ctx->slice_type == 0 || ctx->slice_type == 1) {
 		if (ctx->slice_type == 1) {
 			ctx->direct_spatial_mv_pred_flag = CALL(get_u1);
@@ -658,11 +658,12 @@ static int FUNC(parse_slice_layer_without_partitioning, Edge264_stream *e)
 			}
 		}
 		
+		// A dummy last value must be overwritten by a valid reference.
 		ctx->RefPicList[0][ctx->ps.num_ref_idx_active[0] - 1] = -1;
 		ctx->RefPicList[1][ctx->ps.num_ref_idx_active[1] - 1] = -1;
 		CALL(parse_ref_pic_list_modification, e);
-		if (ctx->RefPicList[0][ctx->ps.num_ref_idx_active[0] - 1] < 0 || (ctx->slice_type == 1 &&
-			ctx->RefPicList[1][ctx->ps.num_ref_idx_active[1] - 1] < 0))
+		if (ctx->RefPicList[0][ctx->ps.num_ref_idx_active[0] - 1] < 0 ||
+			(ctx->slice_type == 1 && ctx->RefPicList[1][ctx->ps.num_ref_idx_active[1] - 1] < 0))
 			return -2;
 		
 		CALL(parse_pred_weight_table, e);

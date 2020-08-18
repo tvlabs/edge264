@@ -177,6 +177,8 @@ int main(int argc, char *argv[])
 	fstat(fd, &stC);
 	uint8_t *cpb = mmap(NULL, stC.st_size, PROT_READ, MAP_SHARED, fd, 0);
 	assert(cpb!=MAP_FAILED);
+	
+	// allocate and setup the main Edge264 structure
 	Edge264_stream e = {
 		.CPB = cpb + 3 + (cpb[2] == 0),
 		.end = cpb + stC.st_size,

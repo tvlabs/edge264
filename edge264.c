@@ -88,7 +88,6 @@ static void FUNC(initialise_decoding_context, Edge264_stream *e)
 	ctx->BlkIdx2i4x4_v[0] = (v16qi){0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15};
 	ctx->BlkIdx2i4x4_v[1] = (v16qi){16, 20, 24, 28, 32, 36, 40, 44};
 	
-	// new
 	ctx->CurrMbAddr = 0;
 	ctx->stride_Y = e->stride_Y;
 	ctx->stride_C = e->stride_C;
@@ -107,7 +106,6 @@ static void FUNC(initialise_decoding_context, Edge264_stream *e)
 		ctx->frame_offsets_y[16 + i] = ctx->plane_size_Y + y * mul_C;
 		ctx->frame_offsets_y[32 + i] = ctx->frame_offsets_y[16 + i] + e->plane_size_C;
 	}
-	
 	mb = (Edge264_macroblock *)(ctx->frame + ctx->plane_size_Y + e->plane_size_C * 2 + (ctx->ps.width / 16 + 2) * sizeof(*mb));
 	int cY = (1 << ctx->ps.BitDepth_Y) - 1;
 	int cC = (1 << ctx->ps.BitDepth_C) - 1;
@@ -318,7 +316,7 @@ static void FUNC(parse_ref_pic_list_modification, const Edge264_stream *e)
  * Parses coefficients for weighted sample prediction (7.4.3.2 and 8.4.2.3).
  *
  * As a reminder, predicted Inter samples from 1/2 refs are weighted with one
- * of three modes depending on (slice_type, num_refs, weighted_flag/idc):
+ * of three modes depending on (slice_type, weighted_flag/idc, num_refs):
  * _ (P, 0, 1) -> default
  * _ (P, 1, 1) -> explicit
  * _ (B, 0, 1) -> default
@@ -701,7 +699,6 @@ static int FUNC(parse_slice_layer_without_partitioning, Edge264_stream *e)
 	}
 	
 	// If we have the guts to decode this frame, fill ctx with useful values.
-	// FIXME: check that we have enough ref frames
 	if (first_mb_in_slice > 0 || ctx->disable_deblocking_filter_idc != 1)
 		return -1;
 	CALL(initialise_decoding_context, e);

@@ -77,7 +77,7 @@ typedef struct {
 	union { int8_t coded_block_flags_8x8[12]; v16qi coded_block_flags_8x8_v; }; // [iYCbCr][i8x8]
 	union { int8_t coded_block_flags_4x4[48]; int32_t coded_block_flags_4x4_s[12]; v16qi coded_block_flags_4x4_v[3]; }; // [iYCbCr][i4x4]
 	union { int8_t absMvdComp[64]; v16qi absMvdComp_v[4]; }; // [compIdx][LX][i4x4]
-	union { int16_t mvs[64]; v16hi mvs_V[4]; }; // [compIdx][LX][i4x4]
+	union { int16_t mvs[64]; v8hi mvs_v[8]; v16hi mvs_V[4]; }; // [compIdx][LX][i4x4]
 } Edge264_macroblock;
 
 
@@ -391,7 +391,7 @@ static inline __m128i _mm_srl_si128(__m128i m, int count) {
 	};
 	return _mm_shuffle_epi8(m, _mm_loadu_si128((__m128i *)(SMask + count)));
 }
-static inline v8hi mv_is_zero(v8hi mvCol) {
+static inline v8hi mv_near_zero(v8hi mvCol) {
 	return (v8hi)_mm_cmpeq_epi32(_mm_srli_epi16(_mm_abs_epi16((__m128i)mvCol), 1), _mm_setzero_si128());
 }
 static inline v8hi temporal_scale(v8hi mvCol, int16_t DistScaleFactor) {
@@ -740,12 +740,12 @@ static __attribute__((noinline)) void init_B_Direct(Edge264_ctx *s, Edge264_flag
 		m->refIdx_s[0] = refIdxL0 * 0x01010101;
 		m->refIdx_s[1] = refIdxL1 * 0x01010101;
 		
-		/* mv_is_zero encapsulates the intrinsic for abs which is essential here. */
+		/* mv_almost_zero encapsulates the intrinsic for abs which is essential here. */
 		unsigned mask = ctx->col_short_term << 7; // FIXME: Revert bit order to keep sign!
-		v8hi colZero0 = (refCol01[0] & mask) ? mv_is_zero(mvCol0) : (v8hi){};
-		v8hi colZero1 = (refCol01[1] & mask) ? mv_is_zero(mvCol1) : (v8hi){};
-		v8hi colZero2 = (refCol23[0] & mask) ? mv_is_zero(mvCol2) : (v8hi){};
-		v8hi colZero3 = (refCol23[1] & mask) ? mv_is_zero(mvCol3) : (v8hi){};
+		v8hi colZero0 = (refCol01[0] & mask) ? mv_almost_zero(mvCol0) : (v8hi){};
+		v8hi colZero1 = (refCol01[1] & mask) ? mv_almost_zero(mvCol1) : (v8hi){};
+		v8hi colZero2 = (refCol23[0] & mask) ? mv_almost_zero(mvCol2) : (v8hi){};
+		v8hi colZero3 = (refCol23[1] & mask) ? mv_almost_zero(mvCol3) : (v8hi){};
 		
 		typedef int32_t v4si __attribute__((vector_size(16)));
 		ctx->mvs_v[0] = ctx->mvs_v[1] = ctx->mvs_v[2] = ctx->mvs_v[3] = (v8hi)(v4si){mvL0.s, mvL0.s, mvL0.s, mvL0.s};

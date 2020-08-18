@@ -506,7 +506,7 @@ static __attribute__((noinline)) void FUNC(parse_coded_block_pattern) {
  * _ A/B/C/D are 4x4 blocks on pixels at relative positions (-1,0)/(0,-1)/(W,-1)/(-1,-1)
  * _ unavailable A/B/C/D blocks count as refIdx=-1 and mv=0
  * _ if C is unavailable, replace it with D
- * _ for 8x16 and 16x8, predict from (A,C) and (B,A)
+ * _ for 8x16 and 16x8, predict from (A,C) and (B,A) if their refIdx matches
  * _ otherwise if B, C and D are unavailable, replace B and C with A
  * _ then if only one of refIdxA/B/C is equal to refIdx, predict mv from it
  * _ otherwise predict mv as median(mvA, mvB, mvC)
@@ -974,7 +974,7 @@ static __attribute__((noinline)) void FUNC(parse_ref_idx)
 	unsigned flags = 0;
 	for (int i8x8 = 0, f, s; i8x8 < 4; i8x8++) {
 		int i4x4 = i8x8 * 4;
-		int unavail1 = ctx->unavail[i4x4 + 1]; // incremented by subpart modes to signal 8-sample width
+		int unavail1 = ctx->unavail[i4x4 + 1]; // always even, incremented by subpart modes to signal 8-sample width
 		int64_t sizes;
 		if (CALL(get_ae, 21)) { // 8x8
 			ctx->mvs_C[i4x4] = (unavail1 & 4 ? ctx->mvs8x8_D : ctx->mvs8x8_C)[i8x8];
@@ -1103,6 +1103,114 @@ static __attribute__((noinline)) void FUNC(parse_B_mb)
 
 
 /**
+ * Initialise the reference indices and motion vectors of an entire macroblock
+ * with direct prediction (8.4.1.2).
+ */
+void FUNC(init_direct_spatial_prediction)
+{
+	// compute refIdxCol and mvCol
+	Edge264_macroblock *mbCol = ctx->mbCol;
+	v8hi refColRaw = __builtin_convertvector(mbCol->refIdx_l, v8hi);
+	v8hi refCol01 = __builtin_shufflevector(refColRaw, refColRaw, 0, 0, 0, 0, 1, 1, 1, 1);
+	v8hi refCol23 = __builtin_shufflevector(refColRaw, refColRaw, 2, 2, 2, 2, 3, 3, 3, 3);
+	v8hi refCol45 = __builtin_shufflevector(refColRaw, refColRaw, 4, 4, 4, 4, 5, 5, 5, 5);
+	v8hi refCol67 = __builtin_shufflevector(refColRaw, refColRaw, 6, 6, 6, 6, 7, 7, 7, 7);
+	v8hi refColLo = vector_select(refCol01 >= 0, refCol01, refCol45);
+	v8hi refColHi = vector_select(refCol23 >= 0, refCol23, refCol67);
+	v8hi mvColXLo = vector_select(refCol01 >= 0, mbCol->mvs_v[0], mbCol->mvs_v[2]);
+	v8hi mvColXHi = vector_select(refCol23 >= 0, mbCol->mvs_v[1], mbCol->mvs_v[3]);
+	v8hi mvColYLo = vector_select(refCol01 >= 0, mbCol->mvs_v[4], mbCol->mvs_v[6]);
+	v8hi mvColYHi = vector_select(refCol23 >= 0, mbCol->mvs_v[5], mbCol->mvs_v[7]);
+	
+	// gather tests for unavailability of C
+	int refIdxL0C = *(mb->refIdx + (ctx->inc.unavailable & 4 ? ctx->refIdx_D : ctx->refIdx_C));
+	int refIdxL1C = *(mb->refIdx + (ctx->inc.unavailable & 4 ? ctx->refIdx_D : ctx->refIdx_C) + 4);
+	int mvs_C = (ctx->inc.unavailable & 4) ? ctx->mvs8x8_D[0] : ctx->mvs8x8_C[1];
+	
+	// initialize refIdxL0 with unsigned comparisons (equivalent for MinPositive)
+	// and mvL0 along since refIdxL0 will equal at least one of refIdxL0A/B/C
+	int refIdxL0A = *(mb->refIdx + ctx->refIdx_A[0]);
+	int refIdxL0B = *(mb->refIdx + ctx->refIdx_B[0]);
+	int x0A = *(mb->mvs + ctx->mvs_A[0]);
+	int y0A = *(mb->mvs + ctx->mvs_A[0] + 32);
+	int x0B = *(mb->mvs + ctx->mvs_B[0]);
+	int y0B = *(mb->mvs + ctx->mvs_B[0] + 32);
+	int x0C = *(mb->mvs + mvs_C);
+	int y0C = *(mb->mvs + mvs_C + 32);
+	int refIdxL0min = (unsigned)refIdxL0A < (unsigned)refIdxL0B ? refIdxL0A : refIdxL0B;
+	int refIdxL0max = (unsigned)refIdxL0A < (unsigned)refIdxL0B ? refIdxL0B : refIdxL0A;
+	int x0min = (unsigned)refIdxL0A < (unsigned)refIdxL0B ? x0A : x0B;
+	int y0min = (unsigned)refIdxL0A < (unsigned)refIdxL0B ? y0A : y0B;
+	int refIdxL0 = (unsigned)refIdxL0min < (unsigned)refIdxL0C ? refIdxL0min : refIdxL0C;
+	int x0 = (unsigned)refIdxL0min < (unsigned)refIdxL0C ? x0min : x0C;
+	int y0 = (unsigned)refIdxL0min < (unsigned)refIdxL0C ? y0min : y0C;
+	if (refIdxL0min == refIdxL0C || refIdxL0 == refIdxL0max) {
+		x0 = median(x0A, x0B, x0C);
+		y0 = median(y0A, y0B, y0C);
+	}
+	
+	// do the same for refIdxL1 and mvL1
+	int refIdxL1A = *(mb->refIdx + ctx->refIdx_A[0] + 4);
+	int refIdxL1B = *(mb->refIdx + ctx->refIdx_B[0] + 4);
+	int x1A = *(mb->mvs + ctx->mvs_A[0] + 16);
+	int y1A = *(mb->mvs + ctx->mvs_A[0] + 48);
+	int x1B = *(mb->mvs + ctx->mvs_B[0] + 16);
+	int y1B = *(mb->mvs + ctx->mvs_B[0] + 48);
+	int x1C = *(mb->mvs + mvs_C + 16);
+	int y1C = *(mb->mvs + mvs_C + 48);
+	int refIdxL1min = (unsigned)refIdxL1A < (unsigned)refIdxL1B ? refIdxL1A : refIdxL1B;
+	int refIdxL1max = (unsigned)refIdxL1A < (unsigned)refIdxL1B ? refIdxL1B : refIdxL1A;
+	int x1min = (unsigned)refIdxL1A < (unsigned)refIdxL1B ? x1A : x1B;
+	int y1min = (unsigned)refIdxL1A < (unsigned)refIdxL1B ? y1A : y1B;
+	int refIdxL1 = (unsigned)refIdxL1min < (unsigned)refIdxL1C ? refIdxL1min : refIdxL1C;
+	int x1 = (unsigned)refIdxL1min < (unsigned)refIdxL1C ? x1min : x1C;
+	int y1 = (unsigned)refIdxL1min < (unsigned)refIdxL1C ? y1min : y1C;
+	if (refIdxL1min == refIdxL1C || refIdxL1 == refIdxL1max) {
+		x1 = median(x1A, x1B, x1C);
+		y1 = median(y1A, y1B, y1C);
+	}
+	
+	// direct zero prediction applies only to refIdx (mvLX are zero already)
+	if (refIdxL0 < 0 && refIdxL1 < 0)
+		refIdxL0 = refIdxL1 = 0;
+	mb->refIdx_s[0] = refIdxL0 * 0x01010101;
+	mb->refIdx_s[1] = refIdxL1 * 0x01010101;
+	
+	// compute mvLX with that weird colZeroFlag condition
+	v8hi x0Lo = (v8hi){x0, x0, x0, x0, x0, x0, x0, x0}, x0Hi = x0Lo;
+	v8hi y0Lo = (v8hi){y0, y0, y0, y0, y0, y0, y0, y0}, y0Hi = y0Lo;
+	v8hi x1Lo = (v8hi){x1, x1, x1, x1, x1, x1, x1, x1}, x1Hi = x1Lo;
+	v8hi y1Lo = (v8hi){y1, y1, y1, y1, y1, y1, y1, y1}, y1Hi = y1Lo;
+	if (__builtin_expect(ctx->col_short_term, 1)) {
+		// FIXME: try putting this test before shuffle
+		v8hi colZeroLo = (refColLo == 0) & mv_near_zero(mvColXLo) & mv_near_zero(mvColYLo);
+		v8hi colZeroHi = (refColHi == 0) & mv_near_zero(mvColXHi) & mv_near_zero(mvColYHi);
+		if (refIdxL0 == 0) {
+			x0Lo &= ~colZeroLo;
+			x0Hi &= ~colZeroHi;
+			y0Lo &= ~colZeroLo;
+			y0Hi &= ~colZeroHi;
+		}
+		if (refIdxL1 == 0) {
+			x1Lo &= ~colZeroLo;
+			x1Hi &= ~colZeroHi;
+			y1Lo &= ~colZeroLo;
+			y1Hi &= ~colZeroHi;
+		}
+	}
+	mb->mvs_v[0] = x0Lo;
+	mb->mvs_v[1] = x0Hi;
+	mb->mvs_v[2] = x1Lo;
+	mb->mvs_v[3] = x1Hi;
+	mb->mvs_v[4] = y0Lo;
+	mb->mvs_v[5] = y0Hi;
+	mb->mvs_v[6] = y1Lo;
+	mb->mvs_v[7] = y1Hi;
+}
+
+
+
+/**
  * This function loops through the macroblocks of a slice, initialising their
  * data and calling parse_inter/intra_mb for each one.
  */
@@ -1138,12 +1246,13 @@ __attribute__((noinline)) void FUNC(parse_slice_data)
 		}
 		
 		// Would it actually help to push this test outside the loop?
-		if (ctx->slice_type == 0)
+		if (ctx->slice_type == 0) {
 			CALL(parse_P_mb);
-		else if (ctx->slice_type == 1)
+		} else if (ctx->slice_type == 1) {
 			CALL(parse_B_mb);
-		else
+		} else {
 			CALL(parse_I_mb, 5 - ctx->inc.mb_type_I_NxN);
+		}
 		
 		// break on end_of_slice_flag
 		int end_of_slice_flag = CALL(get_ae, 276);

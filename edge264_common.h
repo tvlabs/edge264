@@ -77,7 +77,7 @@ typedef struct {
 	union { int8_t coded_block_flags_8x8[12]; v16qi coded_block_flags_8x8_v; }; // [iYCbCr][i8x8]
 	union { int8_t coded_block_flags_4x4[48]; int32_t coded_block_flags_4x4_s[12]; v16qi coded_block_flags_4x4_v[3]; }; // [iYCbCr][i4x4]
 	union { int8_t absMvdComp[64]; v16qi absMvdComp_v[4]; }; // [compIdx][LX][i4x4]
-	union { int16_t mvs[64]; v8hi mvs_v[8]; v16hi mvs_V[4]; }; // [compIdx][LX][i4x4]
+	union { int16_t mvs[64]; int64_t mvs_l[16]; v8hi mvs_v[8]; v16hi mvs_V[4]; }; // [compIdx][LX][i4x4]
 } Edge264_macroblock;
 
 
@@ -85,7 +85,7 @@ typedef struct {
 /**
  * This structure stores the entire decoder state during its operation, such
  * that we can dedicate a single pointer for it.
- * It is separate with Edge264_stream, to distinguish state that lives during
+ * It is separate from Edge264_stream, to distinguish state that lives during
  * a single frame, from state that spans multiple frames.
  */
 typedef struct
@@ -99,7 +99,6 @@ typedef struct
 	uint8_t MbaffFrameFlag:1;
 	uint8_t direct_spatial_mv_pred_flag:1;
 	uint8_t firstRefPicL1:1;
-	uint8_t col_short_term:1;
 	int8_t slice_type; // 3 significant bits
 	int8_t luma_log2_weight_denom; // 3 significant bits
 	int8_t chroma_log2_weight_denom; // 3 significant bits
@@ -127,7 +126,7 @@ typedef struct
 	int32_t plane_size_Y;
 	int32_t plane_size_C;
 	uint8_t *frame; // address of first byte in luma plane of current picture
-	union { uint16_t frame_offsets_x[48]; v8hu frame_offsets_x_v[6]; }; // memory offsets for BlkIdx
+	union { uint16_t frame_offsets_x[48]; v8hu frame_offsets_x_v[6]; }; // memory offsets for i4x4
 	union { int32_t frame_offsets_y[48]; v4si frame_offsets_y_v[12]; }; // premultiplied with strides
 	Edge264_macroblock *_mb; // backup storage when not in a live variable
 	Edge264_stream *e; // for predicates at TRACE>0
@@ -162,19 +161,20 @@ typedef struct
 	
 	// Inter context
 	uint32_t mvd_flags;
-	int8_t transform_8x8_mode_flag;
 	uint32_t ref_idx_mask;
 	Edge264_macroblock *mbCol;
+	int8_t transform_8x8_mode_flag; // updated during parsing to replace noSubMbPartSizeLessThan8x8Flag
+	int8_t zero_if_col_short_term;
+	int8_t MapColToList0[33]; // [refIdxCol + 1]
 	union { int8_t RefPicList[2][32]; v16qi RefPicList_v[4]; };
 	uint8_t *ref_planes[2][32];
 	union { int32_t mvs_shuffle_s[4]; v16qi mvs_shuffle_v; }; // shuffle vector for mvs/absMvdComp storage
 	union { int8_t refIdx4x4_eq[32]; v16qi refIdx4x4_eq_v[2]; };
 	union { int8_t part_sizes[32]; int64_t part_sizes_l[4]; }; // pairs {w,h} for sizes of inter blocks
-	union { uint8_t edge_buf[1008]; int64_t edge_buf_l[126]; v16qu edge_buf_v[63]; };
-	int8_t MapPicToList0[35]; // [1 + refPic]
 	int16_t DistScaleFactor[3][32]; // [top/bottom/frame][refIdxL0]
 	union { int8_t implicit_weights[2][32][32]; v16qi implicit_weights_v[2][32][2]; }; // w1 for [top/bottom][ref0][ref1]
 	int8_t weights_offsets[32][2][4][2]; // [RefIdx][LX][iYCbCr][weight/offset]
+	union { uint8_t edge_buf[1008]; int64_t edge_buf_l[126]; v16qu edge_buf_v[63]; };
 	
 	// Residuals context
 	uint64_t significant_coeff_flags; // used to determine if DC decoding can be used (faster)
@@ -254,7 +254,7 @@ register size_t codIOffset asm("r15");
 /**
  * Function declarations are put in a single block here instead of .h files
  * because they are so few. Functions used across files are not made static to
- * allow compiling them individually.
+ * allow compiling each file individually.
  */
 #ifdef TRACE
 #include <stdio.h>

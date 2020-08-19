@@ -1106,7 +1106,7 @@ static __attribute__((noinline)) void FUNC(parse_B_mb)
  * Initialise the reference indices and motion vectors of an entire macroblock
  * with direct prediction (8.4.1.2).
  */
-void FUNC(init_direct_spatial_prediction)
+static void FUNC(init_direct_spatial_prediction)
 {
 	// compute refIdxCol and mvCol
 	Edge264_macroblock *mbCol = ctx->mbCol;
@@ -1128,7 +1128,7 @@ void FUNC(init_direct_spatial_prediction)
 	int mvs_C = (ctx->inc.unavailable & 4) ? ctx->mvs8x8_D[0] : ctx->mvs8x8_C[1];
 	
 	// initialize refIdxL0 with unsigned comparisons (equivalent for MinPositive)
-	// and mvL0 along since refIdxL0 will equal at least one of refIdxL0A/B/C
+	// and mvL0 along since refIdxL0 will equal already one of refIdxL0A/B/C
 	int refIdxL0A = *(mb->refIdx + ctx->refIdx_A[0]);
 	int refIdxL0B = *(mb->refIdx + ctx->refIdx_B[0]);
 	int x0A = *(mb->mvs + ctx->mvs_A[0]);
@@ -1181,22 +1181,19 @@ void FUNC(init_direct_spatial_prediction)
 	v8hi y0Lo = (v8hi){y0, y0, y0, y0, y0, y0, y0, y0}, y0Hi = y0Lo;
 	v8hi x1Lo = (v8hi){x1, x1, x1, x1, x1, x1, x1, x1}, x1Hi = x1Lo;
 	v8hi y1Lo = (v8hi){y1, y1, y1, y1, y1, y1, y1, y1}, y1Hi = y1Lo;
-	if (__builtin_expect(ctx->col_short_term, 1)) {
-		// FIXME: try putting this test before shuffle
-		v8hi colZeroLo = (refColLo == 0) & mv_near_zero(mvColXLo) & mv_near_zero(mvColYLo);
-		v8hi colZeroHi = (refColHi == 0) & mv_near_zero(mvColXHi) & mv_near_zero(mvColYHi);
-		if (refIdxL0 == 0) {
-			x0Lo &= ~colZeroLo;
-			x0Hi &= ~colZeroHi;
-			y0Lo &= ~colZeroLo;
-			y0Hi &= ~colZeroHi;
-		}
-		if (refIdxL1 == 0) {
-			x1Lo &= ~colZeroLo;
-			x1Hi &= ~colZeroHi;
-			y1Lo &= ~colZeroLo;
-			y1Hi &= ~colZeroHi;
-		}
+	v8hi colZeroLo = (refColLo == 0) & mv_near_zero(mvColXLo) & mv_near_zero(mvColYLo);
+	v8hi colZeroHi = (refColHi == 0) & mv_near_zero(mvColXHi) & mv_near_zero(mvColYHi);
+	if (refIdxL0 == ctx->zero_if_col_short_term) {
+		x0Lo &= ~colZeroLo;
+		x0Hi &= ~colZeroHi;
+		y0Lo &= ~colZeroLo;
+		y0Hi &= ~colZeroHi;
+	}
+	if (refIdxL1 == ctx->zero_if_col_short_term) {
+		x1Lo &= ~colZeroLo;
+		x1Hi &= ~colZeroHi;
+		y1Lo &= ~colZeroLo;
+		y1Hi &= ~colZeroHi;
 	}
 	mb->mvs_v[0] = x0Lo;
 	mb->mvs_v[1] = x0Hi;
@@ -1206,6 +1203,11 @@ void FUNC(init_direct_spatial_prediction)
 	mb->mvs_v[5] = y0Hi;
 	mb->mvs_v[6] = y1Lo;
 	mb->mvs_v[7] = y1Hi;
+}
+
+static void FUNC(init_direct_temporal_prediction)
+{
+	
 }
 
 

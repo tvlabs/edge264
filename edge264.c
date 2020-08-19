@@ -12,6 +12,7 @@
  * _ backup output/ref flags and FrameNum and restore then on bad slice_header
  * _ make ret non sticky to allow partial decodes during implementation
  * _ try using epb for context pointer, and email GCC when it fails
+ * _ When implementing fields and MBAFF, keep the same pic coding struct (no FLD/AFRM) and just add mb_field_decoding_flag
  * _ after implementing P/B and MBAFF, optimize away array accesses of is422 and mb->f.mb_field_decoding_flag
  * _ after implementing P/B and MBAFF, consider splitting decode_samples into NxN, 16x16 and chroma, making parse_residual_block a regular function, including intraNxN_modes inside the switch of decode_NxN, and removing many copies for AC->DC PredMode
  */
@@ -163,7 +164,7 @@ static void FUNC(initialise_decoding_context, Edge264_stream *e)
 		ctx->mvs8x8_D_v = (v4si){15 + offD_16bit, 11 + offB_16bit, 7 + offA_16bit, 3};
 		ctx->ref_idx_mask = (ctx->ps.num_ref_idx_active[0] > 1 ? 0x1111 : 0) |
 			(ctx->ps.num_ref_idx_active[1] > 1 ? 0x11110000 : 0);
-		ctx->col_short_term = ~e->long_term_flags >> (ctx->RefPicList[1][0] & 15) & 1;
+		//ctx->col_short_term = ~e->long_term_flags >> (ctx->RefPicList[1][0] & 15) & 1;
 		
 		// initialize plane pointers for all references
 		for (int l = 0; l <= ctx->slice_type; l++) {

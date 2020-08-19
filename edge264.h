@@ -75,7 +75,7 @@ typedef struct {
 
 
 typedef struct Edge264_stream {
-	// These four fields must be set prior to decoding.
+	// These four fields must be set prior to decoding, the rest zeroed.
 	const uint8_t *CPB; // should point to a NAL unit (skip the 001 prefix)
 	const uint8_t *end;
 	int (*output_frame)(struct Edge264_stream*, int);

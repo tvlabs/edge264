@@ -158,10 +158,10 @@ static void FUNC(initialise_decoding_context, Edge264_stream *e)
 		ctx->refIdx_D = offB_8bit - sizeof(*mb) + 3;
 		ctx->refIdx4x4_A_v = (v16qi){5, 6, 5, 6, 6, 7, 6, 7, 9, 10, 9, 10, 10, 11, 10, 11};
 		ctx->refIdx4x4_B_v = (v16qi){2, 2, 6, 6, 3, 3, 7, 7, 6, 6, 10, 10, 7, 7, 11, 11};
-		ctx->mvs_A_v = (v16hi){5 + offA_16bit, 0, 7 + offA_16bit, 2, 1, 4, 3, 6, 13 + offA_16bit, 8, 15 + offA_16bit, 10, 9, 12, 11, 14};
-		ctx->mvs_B_v = (v16si){10 + offB_16bit, 11 + offB_16bit, 0, 1, 14 + offB_16bit, 15 + offB_16bit, 4, 5, 2, 3, 8, 9, 6, 7, 12, 13};
-		ctx->mvs8x8_C_v = (v4si){14 + offB_16bit, 10 + offC_16bit, 6, 0};
-		ctx->mvs8x8_D_v = (v4si){15 + offD_16bit, 11 + offB_16bit, 7 + offA_16bit, 3};
+		ctx->mvs_A_v = (v16hi){10 + offA_16bit, 0, 14 + offA_16bit, 4, 2, 8, 6, 12, 26 + offA_16bit, 16, 30 + offA_16bit, 20, 18, 24, 22, 28};
+		ctx->mvs_B_v = (v16si){20 + offB_16bit, 22 + offB_16bit, 0, 2, 28 + offB_16bit, 30 + offB_16bit, 8, 10, 4, 6, 16, 18, 12, 14, 24, 26};
+		ctx->mvs8x8_C_v = (v4si){28 + offB_16bit, 20 + offC_16bit, 12, 0};
+		ctx->mvs8x8_D_v = (v4si){30 + offD_16bit, 22 + offB_16bit, 14 + offA_16bit, 6};
 		ctx->ref_idx_mask = (ctx->ps.num_ref_idx_active[0] > 1 ? 0x1111 : 0) |
 			(ctx->ps.num_ref_idx_active[1] > 1 ? 0x11110000 : 0);
 		//ctx->col_short_term = ~e->long_term_flags >> (ctx->RefPicList[1][0] & 15) & 1;

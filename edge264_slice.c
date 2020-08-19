@@ -1109,35 +1109,55 @@ static __attribute__((noinline)) void FUNC(parse_B_mb)
  */
 static void FUNC(init_direct_spatial_prediction)
 {
-	// compute refIdxCol and mvCol
+	// load refIdxCol and mvCol
 	Edge264_macroblock *mbCol = ctx->mbCol;
-	v8hi refColRaw = __builtin_convertvector(mbCol->refIdx_l, v8hi);
-	v8hi refCol01 = __builtin_shufflevector(refColRaw, refColRaw, 0, 0, 0, 0, 1, 1, 1, 1);
-	v8hi refCol23 = __builtin_shufflevector(refColRaw, refColRaw, 2, 2, 2, 2, 3, 3, 3, 3);
-	v8hi refCol45 = __builtin_shufflevector(refColRaw, refColRaw, 4, 4, 4, 4, 5, 5, 5, 5);
-	v8hi refCol67 = __builtin_shufflevector(refColRaw, refColRaw, 6, 6, 6, 6, 7, 7, 7, 7);
-	v8hi refColLo = vector_select(refCol01 >= 0, refCol01, refCol45);
-	v8hi refColHi = vector_select(refCol23 >= 0, refCol23, refCol67);
-	v8hi mvColXLo = vector_select(refCol01 >= 0, mbCol->mvs_v[0], mbCol->mvs_v[2]);
-	v8hi mvColXHi = vector_select(refCol23 >= 0, mbCol->mvs_v[1], mbCol->mvs_v[3]);
-	v8hi mvColYLo = vector_select(refCol01 >= 0, mbCol->mvs_v[4], mbCol->mvs_v[6]);
-	v8hi mvColYHi = vector_select(refCol23 >= 0, mbCol->mvs_v[5], mbCol->mvs_v[7]);
+	int refCol0 = mbCol->refIdx[0];
+	int refCol1 = mbCol->refIdx[1];
+	int refCol2 = mbCol->refIdx[2];
+	int refCol3 = mbCol->refIdx[3];
+	v8hi mvCol0 = mbCol->mvs_v[0];
+	v8hi mvCol1 = mbCol->mvs_v[1];
+	v8hi mvCol2 = mbCol->mvs_v[2];
+	v8hi mvCol3 = mbCol->mvs_v[3];
+	
+	// Both GCC and Clang are INCREDIBLY dumb for any attempt to use cmovs here.
+	if (refCol0 < 0)
+		refCol0 = mbCol->refIdx[4], mvCol0 = mbCol->mvs_v[4];
+	if (refCol1 < 0)
+		refCol1 = mbCol->refIdx[5], mvCol1 = mbCol->mvs_v[5];
+	if (refCol2 < 0)
+		refCol2 = mbCol->refIdx[6], mvCol2 = mbCol->mvs_v[6];
+	if (refCol3 < 0)
+		refCol3 = mbCol->refIdx[7], mvCol3 = mbCol->mvs_v[7];
+	
+	// initialize colZeroFlags
+	v8hi colZero0 = {}, colZero1 = {}, colZero2 = {}, colZero3 = {};
+	if (__builtin_expect(refCol0 == ctx->zero_if_col_short_term, 1))
+		colZero0 = mv_near_zero(mvCol0);
+	if (__builtin_expect(refCol1 == ctx->zero_if_col_short_term, 1))
+		colZero1 = mv_near_zero(mvCol1);
+	if (__builtin_expect(refCol2 == ctx->zero_if_col_short_term, 1))
+		colZero2 = mv_near_zero(mvCol2);
+	if (__builtin_expect(refCol3 == ctx->zero_if_col_short_term, 1))
+		colZero3 = mv_near_zero(mvCol3);
 	
 	// gather tests for unavailability of C
-	int refIdxL0C = *(mb->refIdx + (ctx->inc.unavailable & 4 ? ctx->refIdx_D : ctx->refIdx_C));
-	int refIdxL1C = *(mb->refIdx + (ctx->inc.unavailable & 4 ? ctx->refIdx_D : ctx->refIdx_C) + 4);
-	int mvs_C = (ctx->inc.unavailable & 4) ? ctx->mvs8x8_D[0] : ctx->mvs8x8_C[1];
+	int refIdx_C = ctx->refIdx_C;
+	int mvs_C = ctx->mvs8x8_C[1];
+	if (__builtin_expect(ctx->inc.unavailable & 4, 0))
+		refIdx_C = ctx->refIdx_D, mvs_C = ctx->mvs8x8_D[0];
 	
 	// initialize refIdxL0 with unsigned comparisons (equivalent for MinPositive)
 	// and mvL0 along since refIdxL0 will equal already one of refIdxL0A/B/C
 	int refIdxL0A = *(mb->refIdx + ctx->refIdx_A[0]);
 	int refIdxL0B = *(mb->refIdx + ctx->refIdx_B[0]);
+	int refIdxL0C = *(mb->refIdx + refIdx_C);
 	int x0A = *(mb->mvs + ctx->mvs_A[0]);
-	int y0A = *(mb->mvs + ctx->mvs_A[0] + 32);
+	int y0A = *(mb->mvs + ctx->mvs_A[0] + 1);
 	int x0B = *(mb->mvs + ctx->mvs_B[0]);
-	int y0B = *(mb->mvs + ctx->mvs_B[0] + 32);
+	int y0B = *(mb->mvs + ctx->mvs_B[0] + 1);
 	int x0C = *(mb->mvs + mvs_C);
-	int y0C = *(mb->mvs + mvs_C + 32);
+	int y0C = *(mb->mvs + mvs_C + 1);
 	int refIdxL0min = (unsigned)refIdxL0A < (unsigned)refIdxL0B ? refIdxL0A : refIdxL0B;
 	int refIdxL0max = (unsigned)refIdxL0A < (unsigned)refIdxL0B ? refIdxL0B : refIdxL0A;
 	int x0min = (unsigned)refIdxL0A < (unsigned)refIdxL0B ? x0A : x0B;
@@ -1145,20 +1165,22 @@ static void FUNC(init_direct_spatial_prediction)
 	int refIdxL0 = (unsigned)refIdxL0min < (unsigned)refIdxL0C ? refIdxL0min : refIdxL0C;
 	int x0 = (unsigned)refIdxL0min < (unsigned)refIdxL0C ? x0min : x0C;
 	int y0 = (unsigned)refIdxL0min < (unsigned)refIdxL0C ? y0min : y0C;
-	if (refIdxL0min == refIdxL0C || refIdxL0 == refIdxL0max) {
+	if (__builtin_expect(refIdxL0min == refIdxL0C || refIdxL0 == refIdxL0max, 1)) {
 		x0 = median(x0A, x0B, x0C);
 		y0 = median(y0A, y0B, y0C);
 	}
+	v8hi mvs0 = (v8hi){x0, y0, x0, y0, x0, y0, x0, y0}, mvs1 = mvs0, mvs2 = mvs0, mvs3 = mvs0;
 	
 	// do the same for refIdxL1 and mvL1
 	int refIdxL1A = *(mb->refIdx + ctx->refIdx_A[0] + 4);
 	int refIdxL1B = *(mb->refIdx + ctx->refIdx_B[0] + 4);
-	int x1A = *(mb->mvs + ctx->mvs_A[0] + 16);
-	int y1A = *(mb->mvs + ctx->mvs_A[0] + 48);
-	int x1B = *(mb->mvs + ctx->mvs_B[0] + 16);
-	int y1B = *(mb->mvs + ctx->mvs_B[0] + 48);
-	int x1C = *(mb->mvs + mvs_C + 16);
-	int y1C = *(mb->mvs + mvs_C + 48);
+	int refIdxL1C = *(mb->refIdx + refIdx_C + 4);
+	int x1A = *(mb->mvs + ctx->mvs_A[0] + 32);
+	int y1A = *(mb->mvs + ctx->mvs_A[0] + 33);
+	int x1B = *(mb->mvs + ctx->mvs_B[0] + 32);
+	int y1B = *(mb->mvs + ctx->mvs_B[0] + 33);
+	int x1C = *(mb->mvs + mvs_C + 32);
+	int y1C = *(mb->mvs + mvs_C + 33);
 	int refIdxL1min = (unsigned)refIdxL1A < (unsigned)refIdxL1B ? refIdxL1A : refIdxL1B;
 	int refIdxL1max = (unsigned)refIdxL1A < (unsigned)refIdxL1B ? refIdxL1B : refIdxL1A;
 	int x1min = (unsigned)refIdxL1A < (unsigned)refIdxL1B ? x1A : x1B;
@@ -1166,49 +1188,76 @@ static void FUNC(init_direct_spatial_prediction)
 	int refIdxL1 = (unsigned)refIdxL1min < (unsigned)refIdxL1C ? refIdxL1min : refIdxL1C;
 	int x1 = (unsigned)refIdxL1min < (unsigned)refIdxL1C ? x1min : x1C;
 	int y1 = (unsigned)refIdxL1min < (unsigned)refIdxL1C ? y1min : y1C;
-	if (refIdxL1min == refIdxL1C || refIdxL1 == refIdxL1max) {
+	if (__builtin_expect(refIdxL1min == refIdxL1C || refIdxL1 == refIdxL1max, 1)) {
 		x1 = median(x1A, x1B, x1C);
 		y1 = median(y1A, y1B, y1C);
 	}
+	v8hi mvs4 = (v8hi){x1, y1, x1, y1, x1, y1, x1, y1}, mvs5 = mvs4, mvs6 = mvs4, mvs7 = mvs4;
 	
 	// direct zero prediction applies only to refIdx (mvLX are zero already)
-	if (refIdxL0 < 0 && refIdxL1 < 0)
+	if (__builtin_expect(refIdxL0 < 0 && refIdxL1 < 0, 0))
 		refIdxL0 = refIdxL1 = 0;
 	mb->refIdx_s[0] = refIdxL0 * 0x01010101;
 	mb->refIdx_s[1] = refIdxL1 * 0x01010101;
 	
-	// compute mvLX with that weird colZeroFlag condition
-	v8hi x0Lo = (v8hi){x0, x0, x0, x0, x0, x0, x0, x0}, x0Hi = x0Lo;
-	v8hi y0Lo = (v8hi){y0, y0, y0, y0, y0, y0, y0, y0}, y0Hi = y0Lo;
-	v8hi x1Lo = (v8hi){x1, x1, x1, x1, x1, x1, x1, x1}, x1Hi = x1Lo;
-	v8hi y1Lo = (v8hi){y1, y1, y1, y1, y1, y1, y1, y1}, y1Hi = y1Lo;
-	v8hi colZeroLo = (refColLo == 0) & mv_near_zero(mvColXLo) & mv_near_zero(mvColYLo);
-	v8hi colZeroHi = (refColHi == 0) & mv_near_zero(mvColXHi) & mv_near_zero(mvColYHi);
-	if (refIdxL0 == ctx->zero_if_col_short_term) {
-		x0Lo &= ~colZeroLo;
-		x0Hi &= ~colZeroHi;
-		y0Lo &= ~colZeroLo;
-		y0Hi &= ~colZeroHi;
+	// mask mvs with colZeroFlags and store them
+	if (refIdxL0 == 0) {
+		mvs0 &= ~colZero0;
+		mvs1 &= ~colZero1;
+		mvs2 &= ~colZero2;
+		mvs3 &= ~colZero3;
 	}
-	if (refIdxL1 == ctx->zero_if_col_short_term) {
-		x1Lo &= ~colZeroLo;
-		x1Hi &= ~colZeroHi;
-		y1Lo &= ~colZeroLo;
-		y1Hi &= ~colZeroHi;
+	if (refIdxL1 == 0) {
+		mvs4 &= ~colZero0;
+		mvs5 &= ~colZero1;
+		mvs6 &= ~colZero2;
+		mvs7 &= ~colZero3;
 	}
-	mb->mvs_v[0] = x0Lo;
-	mb->mvs_v[1] = x0Hi;
-	mb->mvs_v[2] = x1Lo;
-	mb->mvs_v[3] = x1Hi;
-	mb->mvs_v[4] = y0Lo;
-	mb->mvs_v[5] = y0Hi;
-	mb->mvs_v[6] = y1Lo;
-	mb->mvs_v[7] = y1Hi;
+	mb->mvs_v[0] = mvs0;
+	mb->mvs_v[1] = mvs1;
+	mb->mvs_v[2] = mvs2;
+	mb->mvs_v[3] = mvs3;
+	mb->mvs_v[4] = mvs4;
+	mb->mvs_v[5] = mvs5;
+	mb->mvs_v[6] = mvs6;
+	mb->mvs_v[7] = mvs7;
 }
 
 static void FUNC(init_direct_temporal_prediction)
 {
+	// Both GCC and Clang are INCREDIBLY dumb for any attempt to use cmovs here.
+	Edge264_macroblock *mbCol = ctx->mbCol;
+	int refCol0 = mbCol->refIdx[0];
+	int refCol1 = mbCol->refIdx[1];
+	int refCol2 = mbCol->refIdx[2];
+	int refCol3 = mbCol->refIdx[3];
+	v8hi mvCol0 = mbCol->mvs_v[0];
+	v8hi mvCol1 = mbCol->mvs_v[1];
+	v8hi mvCol2 = mbCol->mvs_v[2];
+	v8hi mvCol3 = mbCol->mvs_v[3];
+	if (refCol0 < 0)
+		refCol0 = mbCol->refIdx[4], mvCol0 = mbCol->mvs_v[4];
+	if (refCol1 < 0)
+		refCol1 = mbCol->refIdx[5], mvCol1 = mbCol->mvs_v[5];
+	if (refCol2 < 0)
+		refCol2 = mbCol->refIdx[6], mvCol2 = mbCol->mvs_v[6];
+	if (refCol3 < 0)
+		refCol3 = mbCol->refIdx[7], mvCol3 = mbCol->mvs_v[7];
 	
+	// with precomputed constants the rest is straightforward
+	mb->refIdx[0] = ctx->MapColToList0[1 + refCol0];
+	mb->refIdx[1] = ctx->MapColToList0[1 + refCol1];
+	mb->refIdx[2] = ctx->MapColToList0[1 + refCol2];
+	mb->refIdx[3] = ctx->MapColToList0[1 + refCol3];
+	mb->refIdx_s[1] = 0;
+	mb->mvs_v[0] = temporal_scale(mvCol0, ctx->DistScaleFactor[mb->refIdx[0]]);
+	mb->mvs_v[1] = temporal_scale(mvCol1, ctx->DistScaleFactor[mb->refIdx[1]]);
+	mb->mvs_v[2] = temporal_scale(mvCol2, ctx->DistScaleFactor[mb->refIdx[2]]);
+	mb->mvs_v[3] = temporal_scale(mvCol3, ctx->DistScaleFactor[mb->refIdx[3]]);
+	mb->mvs_v[4] = mb->mvs_v[0] - mvCol0;
+	mb->mvs_v[5] = mb->mvs_v[1] - mvCol1;
+	mb->mvs_v[6] = mb->mvs_v[2] - mvCol2;
+	mb->mvs_v[7] = mb->mvs_v[3] - mvCol3;
 }
 
 

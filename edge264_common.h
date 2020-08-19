@@ -15,6 +15,7 @@
 
 
 
+typedef union { int16_t h[2]; int32_t s; } v2hi;
 typedef int8_t v4qi __attribute__((vector_size(4)));
 typedef int8_t v8qi __attribute__((vector_size(8)));
 typedef int16_t v4hi __attribute__((vector_size(8)));
@@ -77,7 +78,7 @@ typedef struct {
 	union { int8_t coded_block_flags_8x8[12]; v16qi coded_block_flags_8x8_v; }; // [iYCbCr][i8x8]
 	union { int8_t coded_block_flags_4x4[48]; int32_t coded_block_flags_4x4_s[12]; v16qi coded_block_flags_4x4_v[3]; }; // [iYCbCr][i4x4]
 	union { int8_t absMvdComp[64]; v16qi absMvdComp_v[4]; }; // [compIdx][LX][i4x4] (beware != mvs)
-	union { int16_t mvs[64]; int64_t mvs_l[16]; v8hi mvs_v[8]; }; // [LX][i4x4][compIdx]
+	union { int16_t mvs[64]; int32_t mvs_s[32]; v8hi mvs_v[8]; }; // [LX][i4x4][compIdx]
 } Edge264_macroblock;
 
 
@@ -171,7 +172,7 @@ typedef struct
 	union { int32_t mvs_shuffle_s[4]; v16qi mvs_shuffle_v; }; // shuffle vector for mvs/absMvdComp storage
 	union { int8_t refIdx4x4_eq[32]; v16qi refIdx4x4_eq_v[2]; };
 	union { int8_t part_sizes[32]; int64_t part_sizes_l[4]; }; // pairs {w,h} for sizes of inter blocks
-	int16_t DistScaleFactor[3][32]; // [top/bottom/frame][refIdxL0]
+	int16_t DistScaleFactor[32]; // [refIdxL0]
 	union { int8_t implicit_weights[2][32][32]; v16qi implicit_weights_v[2][32][2]; }; // w1 for [top/bottom][ref0][ref1]
 	int8_t weights_offsets[32][2][4][2]; // [RefIdx][LX][iYCbCr][weight/offset]
 	union { uint8_t edge_buf[1008]; int64_t edge_buf_l[126]; v16qu edge_buf_v[63]; };
@@ -391,6 +392,11 @@ static inline __m128i _mm_srl_si128(__m128i m, int count) {
 	};
 	return _mm_shuffle_epi8(m, _mm_loadu_si128((__m128i *)(SMask + count)));
 }
+static inline v8hi vector_median(v8hi a, v8hi b, v8hi c) {
+	return (v8hi)_mm_max_epi16(_mm_min_epi16(_mm_max_epi16((__m128i)a,
+		(__m128i)b), (__m128i)c), _mm_min_epi16((__m128i)a, (__m128i)b));
+}
+// FIXME: wrong!
 static inline v8hi mv_near_zero(v8hi mvCol) {
 	return (v8hi)_mm_cmpeq_epi32(_mm_srli_epi16(_mm_abs_epi16((__m128i)mvCol), 1), _mm_setzero_si128());
 }

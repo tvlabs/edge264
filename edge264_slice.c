@@ -521,35 +521,31 @@ static __attribute__((noinline)) void FUNC(parse_mvs)
 		int i = ctz32(ctx->mvd_flags);
 		int x = CALL(parse_mvd, i, 40);
 		int y = CALL(parse_mvd, i + 32, 47);
+		v8hi mv = {x, y};
 		
 		// load neighbouring motion vectors and equality mask
-		int xA = *(mb->mvs + ctx->mvs_A[i]);
-		int yA = *(mb->mvs + ctx->mvs_A[i] + 1);
-		int xB = *(mb->mvs + ctx->mvs_B[i]);
-		int yB = *(mb->mvs + ctx->mvs_B[i] + 1);
-		int xC = *(mb->mvs + ctx->mvs_C[i]);
-		int yC = *(mb->mvs + ctx->mvs_C[i] + 1);
+		v8hi mvA = (v8hi)(v4si){*(mb->mvs_s + ctx->mvs_A[i])};
+		v8hi mvB = (v8hi)(v4si){*(mb->mvs_s + ctx->mvs_B[i])};
+		v8hi mvC = (v8hi)(v4si){*(mb->mvs_s + ctx->mvs_C[i])};
 		int eq = ctx->refIdx4x4_eq[i];
 		
 		// This branch is unavoidable if we don't want to mess with mvA/B addresses too.
 		if (__builtin_expect(0xe9 >> eq & 1, 1)) {
-			x += median(xA, xB, xC);
-			y += median(yA, yB, yC);
+			mv += vector_median(mvA, mvB, mvC);
 		} else {
-			x += (eq == 1) ? xA : (eq == 2) ? xB : xC;
-			y += (eq == 1) ? yA : (eq == 2) ? yB : yC;
+			mv += (eq == 1) ? mvA : (eq == 2) ? mvB : mvC;
 		}
-		int i4x4 = i & 15;
-		CALL(decode_inter, i4x4, ctx->part_sizes[i4x4 * 2], ctx->part_sizes[i4x4 * 2 + 1], x, y);
 		
 		// interleaving, masking and storing
-		v8hi xy = {x, y, x, y, x, y, x, y};
-		v8hi *mvs_v = mb->mvs_v + (i >> 4 << 2);
+		v8hi mvs = (v8hi)__builtin_shufflevector((v4si)mv, (v4si)mv, 0, 0, 0, 0);
+		v8hi *dst = mb->mvs_v + (i >> 4 << 2);
+		int i4x4 = i & 15;
 		v16qi mask = ctx->mvs_shuffle_v == (int8_t)i4x4;
-		mvs_v[0] |= xy & (v8hi)__builtin_shufflevector(mask, mask, 0, 0, 0, 0, 1, 1, 1, 1, 2, 2, 2, 2, 3, 3, 3, 3);
-		mvs_v[1] |= xy & (v8hi)__builtin_shufflevector(mask, mask, 4, 4, 4, 4, 5, 5, 5, 5, 6, 6, 6, 6, 7, 7, 7, 7);
-		mvs_v[2] |= xy & (v8hi)__builtin_shufflevector(mask, mask, 8, 8, 8, 8, 9, 9, 9, 9, 10, 10, 10, 10, 11, 11, 11, 11);
-		mvs_v[3] |= xy & (v8hi)__builtin_shufflevector(mask, mask, 12, 12, 12, 12, 13, 13, 13, 13, 14, 14, 14, 14, 15, 15, 15, 15);
+		dst[0] = vector_select(__builtin_shufflevector(mask, mask, 0, 0, 0, 0, 1, 1, 1, 1, 2, 2, 2, 2, 3, 3, 3, 3), mvs, dst[0]);
+		dst[1] = vector_select(__builtin_shufflevector(mask, mask, 4, 4, 4, 4, 5, 5, 5, 5, 6, 6, 6, 6, 7, 7, 7, 7), mvs, dst[1]);
+		dst[2] = vector_select(__builtin_shufflevector(mask, mask, 8, 8, 8, 8, 9, 9, 9, 9, 10, 10, 10, 10, 11, 11, 11, 11), mvs, dst[2]);
+		dst[3] = vector_select(__builtin_shufflevector(mask, mask, 12, 12, 12, 12, 13, 13, 13, 13, 14, 14, 14, 14, 15, 15, 15, 15), mvs, dst[3]);
+		CALL(decode_inter, i4x4, ctx->part_sizes[i4x4 * 2], ctx->part_sizes[i4x4 * 2 + 1], mvs[0], mvs[1]);
 	} while (ctx->mvd_flags &= ctx->mvd_flags - 1);
 	
 	CALL(parse_coded_block_pattern);
@@ -872,28 +868,22 @@ static __attribute__((noinline)) void FUNC(parse_ref_idx)
 	if (mb->f.mb_skip_flag) {
 		int refIdxA = *(mb->refIdx + ctx->refIdx_A[0]);
 		int refIdxB = *(mb->refIdx + ctx->refIdx_B[0]);
-		int xA = *(mb->mvs + ctx->mvs_A[0]);
-		int yA = *(mb->mvs + ctx->mvs_A[0] + 1);
-		int xB = *(mb->mvs + ctx->mvs_B[0]);
-		int yB = *(mb->mvs + ctx->mvs_B[0] + 1);
-		int x = 0;
-		int y = 0;
-		if (!(ctx->inc.unavailable & 3) && (refIdxA | xA | yA) && (refIdxB | xB | yB)) {
+		int mvA = *(mb->mvs_s + ctx->mvs_A[0]);
+		int mvB = *(mb->mvs_s + ctx->mvs_B[0]);
+		v8hi mv = {};
+		if (!(ctx->inc.unavailable & 3) && (refIdxA | mvA) && (refIdxB | mvB)) {
 			int refIdxC = *(mb->refIdx + (ctx->inc.unavailable & 4 ? ctx->refIdx_D : ctx->refIdx_C));
-			int mvs_C = (ctx->inc.unavailable & 4) ? ctx->mvs8x8_D[0] : ctx->mvs8x8_C[1];
-			int xC = *(mb->mvs + mvs_C);
-			int yC = *(mb->mvs + mvs_C + 1);
+			int mvC = *(mb->mvs_s + (ctx->inc.unavailable & 4 ? ctx->mvs8x8_D[0] : ctx->mvs8x8_C[1]));
 			int eq = (!refIdxA | (ctx->inc.unavailable==14)) + !refIdxB * 2 + !refIdxC * 4;
 			if (__builtin_expect(0xe9 >> eq & 1, 1)) {
-				x = median(xA, xB, xC);
-				y = median(yA, yB, yC);
+				mv = vector_median((v8hi)(v4si){mvA}, (v8hi)(v4si){mvB}, (v8hi)(v4si){mvC});
 			} else {
-				x = (eq == 1) ? xA : (eq == 2) ? xB : xC;
-				y = (eq == 1) ? yA : (eq == 2) ? yB : yC;
+				mv = (v8hi)(v4si){(eq == 1) ? mvA : (eq == 2) ? mvB : mvC};
 			}
 		}
-		mb->mvs_v[0] = mb->mvs_v[1] = mb->mvs_v[2] = mb->mvs_v[3] = (v8hi){x, y, x, y, x, y, x, y};
-		JUMP(decode_inter, 0, 16, 16, x, y);
+		v8hi mvs = (v8hi)__builtin_shufflevector((v4si)mv, (v4si)mv, 0, 0, 0, 0);
+		mb->mvs_v[0] = mb->mvs_v[1] = mb->mvs_v[2] = mb->mvs_v[3] = mvs;
+		JUMP(decode_inter, 0, 16, 16, mvs[0], mvs[1]);
 	} else if (CALL(get_ae, 14)) {
 		JUMP(parse_I_mb, 17);
 	}
@@ -999,8 +989,8 @@ static __attribute__((noinline)) void FUNC(parse_ref_idx)
 		} else { // 4x4
 			ctx->mvs_C[i4x4] = (unavail1 & 2) ? ctx->mvs8x8_D[i8x8] : ctx->mvs_B[i4x4 + 1];
 			ctx->mvs_C[i4x4 + 1] = (unavail1 & 4) ? ctx->mvs_B[i4x4] : ctx->mvs8x8_C[i8x8];
-			ctx->mvs_C[i4x4 + 2] = i4x4 * 2 + 2;
-			ctx->mvs_C[i4x4 + 3] = i4x4 * 2;
+			ctx->mvs_C[i4x4 + 2] = i4x4 + 1;
+			ctx->mvs_C[i4x4 + 3] = i4x4;
 			f = 15;
 			s = (int32_t)(v4qi){0, 1, 2, 3};
 			sizes = (int64_t)(v8qi){4, 4, 4, 4, 4, 4, 4, 4};

@@ -1155,7 +1155,7 @@ static void FUNC(init_direct_spatial_prediction)
 	
 	// select median if refIdx equals one more of refIdxA/B/C
 	v16qi cmp_med = (refIdxm == refIdxC) | (refIdx == refIdxM);
-	v8hi mv01 = vector_select(cmp_med, vector_median(mvA, mvB, mvC), mvm);
+	v8hi mv01 = vector_select(cmp_med, vector_median(mvA, mvB, mvC), mvmm);
 	v8hi mvs0 = (v8hi)__builtin_shufflevector((v4si)mv01, (v4si)mv01, 0, 0, 0, 0);
 	v8hi mvs1 = (v8hi)__builtin_shufflevector((v4si)mv01, (v4si)mv01, 1, 1, 1, 1);
 	

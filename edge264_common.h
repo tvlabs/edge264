@@ -312,25 +312,25 @@ __attribute__((noinline)) void FUNC(transform_dc2x4);
 __attribute__((noinline)) void FUNC(parse_slice_data);
 
 // for debugging
-void print_v16qi(v16qi v) {
+static void print_v16qi(v16qi v) {
 	printf("<li><code>");
 	for (int i = 0; i < 16; i++)
 		printf("%03d ", v[i]);
 	printf("</code></li>\n");
 }
-void print_v16qu(v16qu v) {
+static void print_v16qu(v16qu v) {
 	printf("<li><code>");
 	for (int i = 0; i < 16; i++)
 		printf("%03d ", v[i]);
 	printf("</code></li>\n");
 }
-void print_v8hi(v8hi v) {
+static void print_v8hi(v8hi v) {
 	printf("<li><code>");
 	for (int i = 0; i < 8; i++)
 		printf("%03d ", v[i]);
 	printf("</code></li>\n");
 }
-void print_v4si(v4si v) {
+static void print_v4si(v4si v) {
 	printf("<li><code>");
 	for (int i = 0; i < 4; i++)
 		printf("%05d ", v[i]);

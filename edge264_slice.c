@@ -1120,7 +1120,7 @@ static void FUNC(init_direct_spatial_prediction)
 	v8hi mvCol2 = mbCol->mvs_v[2];
 	v8hi mvCol3 = mbCol->mvs_v[3];
 	
-	// Both GCC and Clang are INCREDIBLY dumb for any attempt to use cmovs here.
+	// Both GCC and Clang are INCREDIBLY dumb for any attempt to use ?: here.
 	if (refCol0 < 0)
 		refCol0 = mbCol->refIdx[4], mvCol0 = mbCol->mvs_v[4];
 	if (refCol1 < 0)
@@ -1225,7 +1225,7 @@ static void FUNC(init_direct_spatial_prediction)
 
 static void FUNC(init_direct_temporal_prediction)
 {
-	// Both GCC and Clang are INCREDIBLY dumb for any attempt to use cmovs here.
+	// load refIdxCol and mvCol
 	Edge264_macroblock *mbCol = ctx->mbCol;
 	int refCol0 = mbCol->refIdx[0];
 	int refCol1 = mbCol->refIdx[1];
@@ -1235,6 +1235,8 @@ static void FUNC(init_direct_temporal_prediction)
 	v8hi mvCol1 = mbCol->mvs_v[1];
 	v8hi mvCol2 = mbCol->mvs_v[2];
 	v8hi mvCol3 = mbCol->mvs_v[3];
+	
+	// Both GCC and Clang are INCREDIBLY dumb for any attempt to use ?: here.
 	if (refCol0 < 0)
 		refCol0 = mbCol->refIdx[4], mvCol0 = mbCol->mvs_v[4];
 	if (refCol1 < 0)

@@ -73,7 +73,7 @@ typedef struct {
 	Edge264_flags f;
 	int8_t QP[3];
 	union { int8_t CodedBlockPatternLuma[4]; int32_t CodedBlockPatternLuma_s; }; // [i8x8]
-	union { int8_t refIdx[8]; int32_t refIdx_s[2]; v8qi refIdx_l; }; // [LX][i8x8]
+	union { int8_t refIdx[8]; int32_t refIdx_s[2]; int64_t refIdx_l; v8qi refIdx_v; }; // [LX][i8x8]
 	union { int8_t Intra4x4PredMode[16]; v16qi Intra4x4PredMode_v; }; // [i4x4]
 	union { int8_t coded_block_flags_8x8[12]; v16qi coded_block_flags_8x8_v; }; // [iYCbCr][i8x8]
 	union { int8_t coded_block_flags_4x4[48]; int32_t coded_block_flags_4x4_s[12]; v16qi coded_block_flags_4x4_v[3]; }; // [iYCbCr][i4x4]
@@ -361,7 +361,7 @@ static inline __m128i load4x2_8bit(uint8_t *r0, uint8_t *r1, __m128i zero) {
 	return _mm_cvtepu8_epi16(_mm_insert_epi32(_mm_cvtsi32_si128(*(int *)r0), *(int *)r1, 1));
 }
 #elif defined __SSSE3__
-#define vector_select(mask, t, f) (((t) & (mask)) | ((f) & ~(mask)))
+#define vector_select(mask, t, f) (((t) & (typeof(t))(mask)) | ((f) & ~(typeof(t))(mask)))
 static inline __m128i _mm_mullo_epi32(__m128i a, __m128i b) {
 	__m128i c = _mm_shuffle_epi32(a, _MM_SHUFFLE(0, 3, 0, 1));
 	__m128i d = _mm_shuffle_epi32(b, _MM_SHUFFLE(0, 3, 0, 1));
@@ -396,7 +396,6 @@ static inline v8hi vector_median(v8hi a, v8hi b, v8hi c) {
 	return (v8hi)_mm_max_epi16(_mm_min_epi16(_mm_max_epi16((__m128i)a,
 		(__m128i)b), (__m128i)c), _mm_min_epi16((__m128i)a, (__m128i)b));
 }
-// FIXME: wrong!
 static inline v8hi mv_near_zero(v8hi mvCol) {
 	return (v8hi)_mm_cmpeq_epi32(_mm_srli_epi16(_mm_abs_epi16((__m128i)mvCol), 1), _mm_setzero_si128());
 }

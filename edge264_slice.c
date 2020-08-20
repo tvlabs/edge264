@@ -669,7 +669,7 @@ static __attribute__((noinline)) void FUNC(parse_I_mb, int ctxIdx)
 		ctx->inc.coded_block_flags_16x16_s |= 0x02020202;
 	}
 	mb->f.mbIsInterFlag = 0;
-	mb->refIdx_l = (v8qi){-1, -1, -1, -1, -1, -1, -1, -1};
+	mb->refIdx_v = (v8qi){-1, -1, -1, -1, -1, -1, -1, -1};
 	
 	// I_NxN
 	if (!CALL(get_ae, ctxIdx)) {
@@ -913,7 +913,7 @@ static __attribute__((noinline)) void FUNC(parse_ref_idx)
 			int refIdxB = *(mb->refIdx + ctx->refIdx_B[0]);
 			int refIdxC = *(mb->refIdx + (ctx->inc.unavailable & 4 ? ctx->refIdx_D : ctx->refIdx_C));
 			ctx->mvs_C[0] = (ctx->inc.unavailable & 4) ? ctx->mvs8x8_D[0] : ctx->mvs8x8_C[1];
-			mb->refIdx_l = __builtin_shufflevector(mb->refIdx_l, mb->refIdx_l, 0, 0, 0, 0, 4, 4, 4, 4);
+			mb->refIdx_v = __builtin_shufflevector(mb->refIdx_v, mb->refIdx_v, 0, 0, 0, 0, 4, 4, 4, 4);
 			ctx->refIdx4x4_eq[0] = ((refIdx==refIdxA) | (ctx->inc.unavailable==14)) + (refIdx==refIdxB) * 2 + (refIdx==refIdxC) * 4;
 			ctx->mvs_shuffle_v = (v16qi){0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
 			ctx->part_sizes_l[0] = (int64_t)(v8qi){16, 16};
@@ -933,7 +933,7 @@ static __attribute__((noinline)) void FUNC(parse_ref_idx)
 		ctx->mvs_C[0] = (ctx->inc.unavailable & 2) ? ctx->mvs8x8_D[0] : ctx->mvs8x8_C[0];
 		int refIdxC1 = (ctx->inc.unavailable & 4) ? refIdxB0 : *(mb->refIdx + ctx->refIdx_C);
 		ctx->mvs_C[4] = (ctx->inc.unavailable & 4) ? ctx->mvs8x8_D[1] : ctx->mvs8x8_C[1];
-		mb->refIdx_l = __builtin_shufflevector(mb->refIdx_l, mb->refIdx_l, 0, 1, 0, 1, 4, 5, 4, 5);
+		mb->refIdx_v = __builtin_shufflevector(mb->refIdx_v, mb->refIdx_v, 0, 1, 0, 1, 4, 5, 4, 5);
 		ctx->refIdx4x4_eq[0] = (refIdx0==refIdxA0) ? 0x1 : (ctx->unavail[0]==14) + (refIdx0==refIdxB0) * 2 + (refIdx0==refIdxC0) * 4;
 		ctx->refIdx4x4_eq[4] = (refIdx1==refIdxC1) ? 0x4 : ((refIdx1==refIdx0) | (ctx->unavail[5]==14)) + (refIdx1==refIdxB1) * 2;
 		ctx->mvs_shuffle_v = (v16qi){0, 0, 0, 0, 4, 4, 4, 4, 0, 0, 0, 0, 4, 4, 4, 4};
@@ -952,7 +952,7 @@ static __attribute__((noinline)) void FUNC(parse_ref_idx)
 		int refIdxC0 = *(mb->refIdx + (ctx->inc.unavailable & 4 ? ctx->refIdx_D : ctx->refIdx_C));
 		ctx->mvs_C[0] = (ctx->inc.unavailable & 4) ? ctx->mvs8x8_D[0] : ctx->mvs8x8_C[1];
 		ctx->mvs_C[8] = ctx->mvs8x8_D[2];
-		mb->refIdx_l = __builtin_shufflevector(mb->refIdx_l, mb->refIdx_l, 0, 0, 2, 2, 4, 4, 6, 6);
+		mb->refIdx_v = __builtin_shufflevector(mb->refIdx_v, mb->refIdx_v, 0, 0, 2, 2, 4, 4, 6, 6);
 		ctx->refIdx4x4_eq[0] = (refIdx0==refIdxB0) ? 0x2 : ((refIdx0==refIdxA0) | (ctx->inc.unavailable==14)) + (refIdx0==refIdxC0) * 4;
 		ctx->refIdx4x4_eq[8] = (refIdx2==refIdxA2) ? 0x1 : (refIdx2==refIdx0) * 2 + (refIdx2==refIdxA0) * 4;
 		ctx->mvs_shuffle_v = (v16qi){0, 0, 0, 0, 0, 0, 0, 0, 8, 8, 8, 8, 8, 8, 8, 8};
@@ -1131,86 +1131,55 @@ static void FUNC(init_direct_spatial_prediction)
 	if (__builtin_expect(refCol3 == ctx->zero_if_col_short_term, 1))
 		colZero3 = mv_near_zero(mvCol3);
 	
-	// gather tests for unavailability of C
-	int refIdx_C = ctx->refIdx_C;
-	int mvs_C = ctx->mvs8x8_C[1];
-	if (__builtin_expect(ctx->inc.unavailable & 4, 0))
-		refIdx_C = ctx->refIdx_D, mvs_C = ctx->mvs8x8_D[0];
-	
-	// initialize refIdxL0 with unsigned comparisons (equivalent for MinPositive)
-	// and mvL0 along since refIdxL0 will equal already one of refIdxL0A/B/C
-	int refIdxL0A = *(mb->refIdx + ctx->refIdx_A[0]);
-	int refIdxL0B = *(mb->refIdx + ctx->refIdx_B[0]);
-	int refIdxL0C = *(mb->refIdx + refIdx_C);
-	int x0A = *(mb->mvs + ctx->mvs_A[0]);
-	int y0A = *(mb->mvs + ctx->mvs_A[0] + 1);
-	int x0B = *(mb->mvs + ctx->mvs_B[0]);
-	int y0B = *(mb->mvs + ctx->mvs_B[0] + 1);
-	int x0C = *(mb->mvs + mvs_C);
-	int y0C = *(mb->mvs + mvs_C + 1);
-	int refIdxL0min = (unsigned)refIdxL0A < (unsigned)refIdxL0B ? refIdxL0A : refIdxL0B;
-	int refIdxL0max = (unsigned)refIdxL0A < (unsigned)refIdxL0B ? refIdxL0B : refIdxL0A;
-	int x0min = (unsigned)refIdxL0A < (unsigned)refIdxL0B ? x0A : x0B;
-	int y0min = (unsigned)refIdxL0A < (unsigned)refIdxL0B ? y0A : y0B;
-	int refIdxL0 = (unsigned)refIdxL0min < (unsigned)refIdxL0C ? refIdxL0min : refIdxL0C;
-	int x0 = (unsigned)refIdxL0min < (unsigned)refIdxL0C ? x0min : x0C;
-	int y0 = (unsigned)refIdxL0min < (unsigned)refIdxL0C ? y0min : y0C;
-	if (__builtin_expect(refIdxL0min == refIdxL0C || refIdxL0 == refIdxL0max, 1)) {
-		x0 = median(x0A, x0B, x0C);
-		y0 = median(y0A, y0B, y0C);
+	// load all refIdxN and mvN in vector registers
+	v8hi mvA = (v8hi)(v4si){*(mb->mvs_s + ctx->mvs_A[0]), *(mb->mvs_s + ctx->mvs_A[0] + 16)};
+	v8hi mvB = (v8hi)(v4si){*(mb->mvs_s + ctx->mvs_B[0]), *(mb->mvs_s + ctx->mvs_B[0] + 16)};
+	v8hi mvC = (v8hi)(v4si){*(mb->mvs_s + ctx->mvs8x8_C[1]), *(mb->mvs_s + ctx->mvs8x8_C[1] + 16)};
+	v16qi shuf = {0, 0, 0, 0, 1, 1, 1, 1};
+	v16qi refIdxA = byte_shuffle((v16qi){*(mb->refIdx + ctx->refIdx_A[0]), *(mb->refIdx + ctx->refIdx_A[0] + 4)}, shuf);
+	v16qi refIdxB = byte_shuffle((v16qi){*(mb->refIdx + ctx->refIdx_B[0]), *(mb->refIdx + ctx->refIdx_B[0] + 4)}, shuf);
+	v16qi refIdxC = byte_shuffle((v16qi){*(mb->refIdx + ctx->refIdx_C), *(mb->refIdx + ctx->refIdx_C + 4)}, shuf);
+	if (__builtin_expect(ctx->inc.unavailable & 4, 0)) {
+		mvC = (v8hi)(v4si){*(mb->mvs_s + ctx->mvs8x8_D[0]), *(mb->mvs_s + ctx->mvs8x8_D[0] + 16)};
+		refIdxC = byte_shuffle((v16qi){*(mb->refIdx + ctx->refIdx_D), *(mb->refIdx + ctx->refIdx_D + 4)}, shuf);
 	}
-	v8hi mvs0 = (v8hi){x0, y0, x0, y0, x0, y0, x0, y0}, mvs1 = mvs0, mvs2 = mvs0, mvs3 = mvs0;
 	
-	// do the same for refIdxL1 and mvL1
-	int refIdxL1A = *(mb->refIdx + ctx->refIdx_A[0] + 4);
-	int refIdxL1B = *(mb->refIdx + ctx->refIdx_B[0] + 4);
-	int refIdxL1C = *(mb->refIdx + refIdx_C + 4);
-	int x1A = *(mb->mvs + ctx->mvs_A[0] + 32);
-	int y1A = *(mb->mvs + ctx->mvs_A[0] + 33);
-	int x1B = *(mb->mvs + ctx->mvs_B[0] + 32);
-	int y1B = *(mb->mvs + ctx->mvs_B[0] + 33);
-	int x1C = *(mb->mvs + mvs_C + 32);
-	int y1C = *(mb->mvs + mvs_C + 33);
-	int refIdxL1min = (unsigned)refIdxL1A < (unsigned)refIdxL1B ? refIdxL1A : refIdxL1B;
-	int refIdxL1max = (unsigned)refIdxL1A < (unsigned)refIdxL1B ? refIdxL1B : refIdxL1A;
-	int x1min = (unsigned)refIdxL1A < (unsigned)refIdxL1B ? x1A : x1B;
-	int y1min = (unsigned)refIdxL1A < (unsigned)refIdxL1B ? y1A : y1B;
-	int refIdxL1 = (unsigned)refIdxL1min < (unsigned)refIdxL1C ? refIdxL1min : refIdxL1C;
-	int x1 = (unsigned)refIdxL1min < (unsigned)refIdxL1C ? x1min : x1C;
-	int y1 = (unsigned)refIdxL1min < (unsigned)refIdxL1C ? y1min : y1C;
-	if (__builtin_expect(refIdxL1min == refIdxL1C || refIdxL1 == refIdxL1max, 1)) {
-		x1 = median(x1A, x1B, x1C);
-		y1 = median(y1A, y1B, y1C);
-	}
-	v8hi mvs4 = (v8hi){x1, y1, x1, y1, x1, y1, x1, y1}, mvs5 = mvs4, mvs6 = mvs4, mvs7 = mvs4;
+	// initialize mv along refIdx since it will equal one of refIdxA/B/C
+	v16qu cmp_AB = (v16qu)refIdxA < (v16qu)refIdxB; // unsigned comparisons
+	v16qi refIdxm = vector_select(cmp_AB, refIdxA, refIdxB); // umin(refIdxA, refIdxB)
+	v16qi refIdxM = vector_select(cmp_AB, refIdxB, refIdxA); // umax(refIdxA, refIdxB)
+	v8hi mvm = vector_select(cmp_AB, mvA, mvB);
+	v16qu cmp_mC = (v16qu)refIdxm < (v16qu)refIdxC;
+	v16qi refIdx = vector_select(cmp_mC, refIdxm, refIdxC); // umin(refIdxm, refIdxC)
+	v8hi mvmm = vector_select(cmp_mC, mvm, mvC);
+	
+	// select median if refIdx equals one more of refIdxA/B/C
+	v16qi cmp_med = (refIdxm == refIdxC) | (refIdx == refIdxM);
+	v8hi mv01 = vector_select(cmp_med, vector_median(mvA, mvB, mvC), mvm);
+	v8hi mvs0 = (v8hi)__builtin_shufflevector((v4si)mv01, (v4si)mv01, 0, 0, 0, 0);
+	v8hi mvs1 = (v8hi)__builtin_shufflevector((v4si)mv01, (v4si)mv01, 1, 1, 1, 1);
 	
 	// direct zero prediction applies only to refIdx (mvLX are zero already)
-	if (__builtin_expect(refIdxL0 < 0 && refIdxL1 < 0, 0))
-		refIdxL0 = refIdxL1 = 0;
-	mb->refIdx_s[0] = refIdxL0 * 0x01010101;
-	mb->refIdx_s[1] = refIdxL1 * 0x01010101;
+	refIdx &= (v16qi)((v2li)refIdx != -1);
+	mb->refIdx_l = ((v2li)refIdx)[0];
 	
 	// mask mvs with colZeroFlags and store them
-	if (refIdxL0 == 0) {
-		mvs0 &= ~colZero0;
-		mvs1 &= ~colZero1;
-		mvs2 &= ~colZero2;
-		mvs3 &= ~colZero3;
+	if (refIdx[0] == 0) {
+		mb->mvs_v[0] = mvs0 & ~colZero0;
+		mb->mvs_v[1] = mvs0 & ~colZero1;
+		mb->mvs_v[2] = mvs0 & ~colZero2;
+		mb->mvs_v[3] = mvs0 & ~colZero3;
+	} else {
+		mb->mvs_v[0] = mb->mvs_v[1] = mb->mvs_v[2] = mb->mvs_v[3] = mvs0;
 	}
-	if (refIdxL1 == 0) {
-		mvs4 &= ~colZero0;
-		mvs5 &= ~colZero1;
-		mvs6 &= ~colZero2;
-		mvs7 &= ~colZero3;
+	if (refIdx[4] == 0) {
+		mb->mvs_v[4] = mvs1 & ~colZero0;
+		mb->mvs_v[5] = mvs1 & ~colZero1;
+		mb->mvs_v[6] = mvs1 & ~colZero2;
+		mb->mvs_v[7] = mvs1 & ~colZero3;
+	} else {
+		mb->mvs_v[4] = mb->mvs_v[5] = mb->mvs_v[6] = mb->mvs_v[7] = mvs1;
 	}
-	mb->mvs_v[0] = mvs0;
-	mb->mvs_v[1] = mvs1;
-	mb->mvs_v[2] = mvs2;
-	mb->mvs_v[3] = mvs3;
-	mb->mvs_v[4] = mvs4;
-	mb->mvs_v[5] = mvs5;
-	mb->mvs_v[6] = mvs6;
-	mb->mvs_v[7] = mvs7;
 }
 
 static void FUNC(init_direct_temporal_prediction)

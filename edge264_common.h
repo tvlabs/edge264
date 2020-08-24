@@ -18,6 +18,7 @@
 typedef int8_t v4qi __attribute__((vector_size(4)));
 typedef int8_t v8qi __attribute__((vector_size(8)));
 typedef int16_t v4hi __attribute__((vector_size(8)));
+typedef size_t v16u __attribute__((vector_size(16)));
 typedef int8_t v16qi __attribute__((vector_size(16)));
 typedef int16_t v8hi __attribute__((vector_size(16)));
 typedef int32_t v4si __attribute__((vector_size(16)));
@@ -384,13 +385,6 @@ static inline __m128i load4x2_8bit(uint8_t *r0, uint8_t *r1, __m128i zero) {
 #endif // __SSE4_1__
 
 #ifdef __SSSE3__
-static inline __m128i _mm_srl_si128(__m128i m, int count) {
-	static const uint8_t SMask[32] __attribute__((aligned(32))) = {
-		 0,  1,  2,  3,  4,  5,  6,  7,  8,  9, 10, 11, 12, 13, 14, 15,
-		-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
-	};
-	return _mm_shuffle_epi8(m, _mm_loadu_si128((__m128i *)(SMask + count)));
-}
 static inline v8hi vector_median(v8hi a, v8hi b, v8hi c) {
 	return (v8hi)_mm_max_epi16(_mm_min_epi16(_mm_max_epi16((__m128i)a,
 		(__m128i)b), (__m128i)c), _mm_min_epi16((__m128i)a, (__m128i)b));

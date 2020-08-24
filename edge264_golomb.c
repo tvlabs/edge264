@@ -32,7 +32,10 @@
 #ifdef __SSSE3__
 __attribute__((noinline)) size_t FUNC(refill, int shift, size_t ret)
 {
-typedef size_t v16u __attribute__((vector_size(16)));
+	static const uint8_t shr_data[32] = {
+		 0,  1,  2,  3,  4,  5,  6,  7,  8,  9, 10, 11, 12, 13, 14, 15,
+		-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
+	};
 	static const v16qi shuf[8] = {
 		{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 15},
 		{0, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 15},
@@ -50,31 +53,46 @@ typedef size_t v16u __attribute__((vector_size(16)));
 		return ret;
 	ctx->shift = shift;
 	
-	// load 16 bytes and detect escape sequences
+	// load 16 bytes without ever reading past the end
 	const uint8_t *CPB = ctx->CPB;
-	__m128i x = (CPB <= ctx->end - 14) ?
-		_mm_loadu_si128((__m128i *)(CPB - 2)) :
-		_mm_srl_si128(_mm_loadu_si128((__m128i *)(ctx->end - 16)), CPB - (ctx->end - 14));
-	__m128i zero = _mm_setzero_si128();
-	unsigned eptb = _mm_movemask_epi8(_mm_cmpeq_epi8(x, zero));
-	x = _mm_srli_si128(x, 2);
-	eptb &= eptb >> 1 & _mm_movemask_epi8(_mm_cmpeq_epi8(_mm_and_si128(x, _mm_set1_epi8(-4)), zero));
+	const uint8_t *end = ctx->end;
+	const uint8_t *after;
+	__m128i x;
+	if (__builtin_expect(CPB + 14 <= end, 1)) {
+		after = CPB + sizeof(size_t);
+		x = _mm_loadu_si128((__m128i *)(CPB - 2));
+	} else {
+		after = CPB + sizeof(size_t) < end ? CPB + sizeof(size_t) : end;
+		__m128i shr_mask = _mm_loadu_si128((__m128i *)(shr_data + (CPB + 14 - end)));
+		x = _mm_shuffle_epi8(_mm_loadu_si128((__m128i *)(end - 16)), shr_mask);
+		x = vector_select(shr_mask, shr_mask, x); // turn every inserted 0 into -1
+	}
 	
-	// iterate on and remove every emulation_prevention_three_byte
-	for (; eptb & (SIZE_BIT == 32 ? 0xf : 0xff); CPB++, eptb = (eptb & (eptb - 1)) >> 1) {
-		int i = __builtin_ctz(eptb);
+	// create a bitmask for the positions of 00n escape sequences
+	unsigned bytes0 = _mm_movemask_epi8(_mm_cmpeq_epi8(x, _mm_setzero_si128()));
+	x = _mm_srli_si128(x, 2);
+	unsigned bytes03 = _mm_movemask_epi8(_mm_cmpeq_epi8(x, _mm_min_epu8(x, _mm_set1_epi8(3))));
+	unsigned esc = bytes0 & bytes0 >> 1 & bytes03;
+	
+	// iterate on escape sequences that fall inside the bytes to refill
+	while (__builtin_expect(esc & (SIZE_BIT == 32 ? 0xf : 0xff), 0)) {
+		int i = __builtin_ctz(esc);
 		
-		// for a start code, stop at the last byte
-		if (CPB[i] <3) {
-			CPB += i - sizeof(size_t);
+		// for a start code, stay there to prevent future refills from advancing
+		if (CPB[i] <3) { // does not overflow end since we inserted -1 after it
+			after = CPB + i;
 			break;
 		}
+		
+		// otherwise this is an emulation_prevention_three_byte -> remove it
 		x = _mm_shuffle_epi8(x, (__m128i)shuf[i]);
+		esc = (esc & (esc - 1)) >> 1;
+		CPB++;
+		after = after + 1 < end ? after + 1 : end;
 	}
-	CPB += sizeof(size_t);
+	ctx->CPB = after;
 	ctx->RBSP[0] = ctx->RBSP[1];
 	ctx->RBSP[1] = big_endian(((v16u)x)[0]);
-	ctx->CPB = CPB < ctx->end ? CPB : ctx->end;
 	return ret;
 }
 #endif

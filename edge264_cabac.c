@@ -743,7 +743,7 @@ __attribute__((noinline)) size_t FUNC(renorm, int ceil, size_t binVal) {
 	unsigned v = clz(codIRange) - ceil;
 	size_t bits = lsd(ctx->RBSP[0], ctx->RBSP[1], ctx->shift);
 	codIRange <<= v;
-	codIOffset = (codIOffset << v) | (bits >> (SIZE_BIT - v));
+	codIOffset = (codIOffset << v) | (bits >> (SIZE_BIT - v)); // FIXME: lsd?
 	return CALL(refill, ctx->shift + v, binVal);
 }
 

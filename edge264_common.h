@@ -117,9 +117,8 @@ typedef struct
 	size_t RBSP[2];
 	size_t _codIRange; // backup storage when not in a Global Register
 	size_t _codIOffset;
-	int8_t shift; // index of next input bit in RBSP, strictly less than SIZE_BIT
+	int32_t CurrMbAddr;
 	int8_t BlkIdx; // index of current AC block (for PredMode), in order Y/Cb/Cr and without gaps
-	int32_t CurrMbAddr; // used for debugging only
 	uint16_t stride_Y; // 16 significant bits (at 8K, 16bit depth, field pic)
 	uint16_t stride_C;
 	uint16_t stride; // legacy, needed by intra and residual functions
@@ -283,7 +282,7 @@ __attribute__((noinline)) size_t FUNC(get_ae, int ctxIdx);
 void FUNC(init_cabac, int cabac_init_idc);
 
 // edge264_golomb.c
-__attribute__((noinline)) size_t FUNC(refill, int shift, size_t ret);
+__attribute__((noinline)) size_t FUNC(refill, size_t ret);
 __attribute__((noinline)) size_t FUNC(get_u1);
 __attribute__((noinline)) size_t FUNC(get_uv, unsigned v);
 __attribute__((noinline)) size_t FUNC(get_ue16);

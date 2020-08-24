@@ -103,7 +103,6 @@ static void FUNC(check_ctx, int label) {
 	
 	predicate(ctx->CPB <= ctx->end);
 	predicate(codIRange >= 256 && codIRange > codIOffset);
-	predicate(ctx->shift >= 0 && ctx->shift < SIZE_BIT);
 	switch (label) {
 	case RESIDUAL_DC_LABEL: predicate(ctx->BlkIdx == 0 || (ctx->ps.ChromaArrayType == 3 && (ctx->BlkIdx == 16 || ctx->BlkIdx == 32))); break;
 	case RESIDUAL_8x8_LABEL: predicate((ctx->BlkIdx & 3) == 0); // FALLTHROUGH

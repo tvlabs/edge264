@@ -30,7 +30,7 @@
 
 
 #ifdef __SSSE3__
-__attribute__((noinline)) size_t FUNC(refill, int shift, size_t ret)
+__attribute__((noinline)) size_t FUNC(refill, size_t ret)
 {
 	static const uint8_t shr_data[32] = {
 		 0,  1,  2,  3,  4,  5,  6,  7,  8,  9, 10, 11, 12, 13, 14, 15,
@@ -46,12 +46,6 @@ __attribute__((noinline)) size_t FUNC(refill, int shift, size_t ret)
 		{0, 1, 2, 3, 4, 5, 7, 8, 9, 10, 11, 12, 13, 14, 15, 15},
 		{0, 1, 2, 3, 4, 5, 6, 8, 9, 10, 11, 12, 13, 14, 15, 15},
 	};
-	
-	// check for shift overflow
-	ctx->shift = shift;
-	if (__builtin_expect((shift -= SIZE_BIT) < 0, 1))
-		return ret;
-	ctx->shift = shift;
 	
 	// load 16 bytes without ever reading past the end
 	const uint8_t *CPB = ctx->CPB;
@@ -90,9 +84,14 @@ __attribute__((noinline)) size_t FUNC(refill, int shift, size_t ret)
 		CPB++;
 		after = after + 1 < end ? after + 1 : end;
 	}
+	
+	// increment CPB and insert the unescaped bytes into the cache
 	ctx->CPB = after;
-	ctx->RBSP[0] = ctx->RBSP[1];
-	ctx->RBSP[1] = big_endian(((v16u)x)[0]);
+	int trailing_bit = ctz(ctx->RBSP[0]);
+	int shift = trailing_bit + 1;
+	size_t bytes = big_endian(((v16u)x)[0]);
+	ctx->RBSP[0] = lsd(ctx->RBSP[0] >> shift, bytes, shift);
+	ctx->RBSP[1] = bytes << shift | (size_t)1 << trailing_bit;
 	return ret;
 }
 #endif
@@ -100,27 +99,38 @@ __attribute__((noinline)) size_t FUNC(refill, int shift, size_t ret)
 
 
 __attribute__((noinline)) size_t FUNC(get_u1) {
-	return CALL(refill, ctx->shift + 1, ctx->RBSP[0] << ctx->shift >> (SIZE_BIT - 1));
+	size_t ret = ctx->RBSP[0] >> (SIZE_BIT - 1);
+	ctx->RBSP[0] = lsd(ctx->RBSP[0], ctx->RBSP[1], 1);
+	if (ctx->RBSP[1] <<= 1)
+		return ret;
+	return CALL(refill, ret);
 }
 
 __attribute__((noinline)) size_t FUNC(get_uv, unsigned v) {
-	size_t bits = lsd(ctx->RBSP[0], ctx->RBSP[1], ctx->shift);
-	return CALL(refill, ctx->shift + v, bits >> (SIZE_BIT - v));
+	size_t ret = ctx->RBSP[0] >> (SIZE_BIT - v);
+	ctx->RBSP[0] = lsd(ctx->RBSP[0], ctx->RBSP[1], v);
+	if (ctx->RBSP[1] <<= v)
+		return ret;
+	return CALL(refill, ret);
 }
 
 // Parses one Exp-Golomb code in one read, up to 2^16-2 (2^32-2 on 64bit machines)
 __attribute__((noinline)) size_t FUNC(get_ue16) {
-	size_t bits = lsd(ctx->RBSP[0], ctx->RBSP[1], ctx->shift);
-	unsigned v = clz(bits | (size_t)1 << (SIZE_BIT / 2)) * 2 + 1;
-	return CALL(refill, ctx->shift + v, (bits >> (SIZE_BIT - v)) - 1);
+	unsigned v = clz(ctx->RBSP[0] | (size_t)1 << (SIZE_BIT / 2)) * 2 + 1;
+	size_t ret = (ctx->RBSP[0] >> (SIZE_BIT - v)) - 1;
+	ctx->RBSP[0] = lsd(ctx->RBSP[0], ctx->RBSP[1], v);
+	if (ctx->RBSP[1] <<= v)
+		return ret;
+	return CALL(refill, ret);
 }
 
 // Parses one Exp-Golomb code in two reads, up to 2^32-2 (useless on 64bit machines)
 #if SIZE_BIT == 32
 __attribute__((noinline)) size_t FUNC(get_ue32) {
-	size_t bits = lsd(ctx->RBSP[0], ctx->RBSP[1], ctx->shift);
-	unsigned leadingZeroBits = clz(bits | 1);
-	unsigned v = CALL(refill, ctx->shift + leadingZeroBits, leadingZeroBits + 1);
-	return CALL(get_uv, v) - 1;
+	unsigned leadingZeroBits = clz(ctx->RBSP[0] | 1);
+	ctx->RBSP[0] = lsd(ctx->RBSP[0], ctx->RBSP[1], leadingZeroBits);
+	if (ctx->RBSP[1] <<= leadingZeroBits)
+		CALL(refill, 0);
+	return CALL(get_uv, leadingZeroBits + 1);
 }
 #endif

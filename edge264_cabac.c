@@ -741,10 +741,12 @@ static const uint8_t transIdx[256] = {
  */
 __attribute__((noinline)) size_t FUNC(renorm, int ceil, size_t binVal) {
 	unsigned v = clz(codIRange) - ceil;
-	size_t bits = lsd(ctx->RBSP[0], ctx->RBSP[1], ctx->shift);
 	codIRange <<= v;
-	codIOffset = (codIOffset << v) | (bits >> (SIZE_BIT - v)); // FIXME: lsd?
-	return CALL(refill, ctx->shift + v, binVal);
+	codIOffset = lsd(codIOffset, ctx->RBSP[0], v);
+	ctx->RBSP[0] = lsd(ctx->RBSP[0], ctx->RBSP[1], v);
+	if (ctx->RBSP[1] <<= v)
+		return binVal;
+	return CALL(refill, binVal);
 }
 
 __attribute__((noinline)) size_t FUNC(get_ae, int ctxIdx)

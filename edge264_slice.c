@@ -740,16 +740,19 @@ static __attribute__((noinline)) void FUNC(parse_I_mb, int ctxIdx)
 		ctx->mb_qp_delta_non_zero = 0;
 		
 		// reclaim all but two bits from codIOffset, and skip pcm_alignment_zero_bit
-		codIOffset >>= ctx->shift;
-		ctx->shift = (ctx->shift - (SIZE_BIT - clz(codIRange) - 2) + 7) & -8;
-		while (ctx->shift < 0) {
-			ctx->shift += 8;
-			ctx->RBSP[1] = lsd(ctx->RBSP[0], ctx->RBSP[1], SIZE_BIT - 8);
-			ctx->RBSP[0] = lsd(codIOffset, ctx->RBSP[0], SIZE_BIT - 8);
-			codIOffset >>= 8;
-			int32_t i;
-			memcpy(&i, ctx->CPB - 4, 4);
-			ctx->CPB -= 1 + ((big_endian32(i) >> 8) == 3);
+		int bits = SIZE_BIT * 3 - clz(codIRange) - 2 - ctz(ctx->RBSP[1]) - 1;
+		int shift = clz(codIRange) + 2 + (bits & 7);
+		ctx->RBSP[1] = lsd(ctx->RBSP[0], ctx->RBSP[1], shift);
+		ctx->RBSP[0] = lsd(codIOffset, ctx->RBSP[0], shift);
+		
+		// if they didn't fit in RBSP[0/1], reset the trailing bit and rewind CPB
+		if (bits >= SIZE_BIT * 2) {
+			ctx->RBSP[1] = (ctx->RBSP[1] & (ssize_t)-256) | (size_t)0x80;
+			do {
+				int32_t i;
+				memcpy(&i, ctx->CPB - 4, 4);
+				ctx->CPB -= 1 + (big_endian32(i) >> 8 == 3);
+			} while ((bits -= 8) >= SIZE_BIT * 2);
 		}
 		
 		// PCM is so rare that it should be compact rather than fast

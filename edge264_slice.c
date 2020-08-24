@@ -1015,7 +1015,7 @@ static __attribute__((noinline)) void FUNC(parse_ref_idx)
 	
 	// compare them and store equality formula
 	v16qi refIdx = __builtin_shufflevector(neighbours, neighbours, 6, 6, 6, 6, 7, 7, 7, 7, 10, 10, 10, 10, 11, 11, 11, 11);
-	v16qi sum = ((((refIdx==refIdxC) << 1) + (refIdx==refIdxB)) << 1) + (refIdx==refIdxA);
+	v16qi sum = (refIdx==refIdxA) + ((refIdx==refIdxB) << 1) + ((refIdx==refIdxC) << 2);
 	ctx->refIdx4x4_eq_v[0] = -(sum | (ctx->unavail_v==14)); // if B and C are unavailable, then sum is 0 or 1
 	JUMP(parse_mvs);
 }

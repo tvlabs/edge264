@@ -12,6 +12,7 @@
  * _ backup output/ref flags and FrameNum and restore then on bad slice_header
  * _ make ret non sticky to allow partial decodes during implementation
  * _ try using epb for context pointer, and email GCC when it fails
+ * _ When implementing CAVLC, try storing bits in 2 registers with a set lsb to check for refill
  * _ When implementing fields and MBAFF, keep the same pic coding struct (no FLD/AFRM) and just add mb_field_decoding_flag
  * _ after implementing P/B and MBAFF, optimize away array accesses of is422 and mb->f.mb_field_decoding_flag
  * _ after implementing P/B and MBAFF, consider splitting decode_samples into NxN, 16x16 and chroma, making parse_residual_block a regular function, including intraNxN_modes inside the switch of decode_NxN, and removing many copies for AC->DC PredMode
@@ -578,7 +579,7 @@ static int FUNC(parse_slice_layer_without_partitioning, Edge264_stream *e)
 	// If pic_parameter_set_id>=4 then it cannot have been initialized before, thus is erroneous.
 	if (pic_parameter_set_id >= 4 || e->PPSs[pic_parameter_set_id].num_ref_idx_active[0] == 0)
 		return -2;
-	if (ctx->slice_type > 2)
+	if (ctx->slice_type > 2 || ctx->slice_type == 1)
 		return -1;
 	ctx->ps = e->PPSs[pic_parameter_set_id];
 	

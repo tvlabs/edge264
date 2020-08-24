@@ -15,7 +15,6 @@
 
 
 
-typedef union { int16_t h[2]; int32_t s; } v2hi;
 typedef int8_t v4qi __attribute__((vector_size(4)));
 typedef int8_t v8qi __attribute__((vector_size(8)));
 typedef int16_t v4hi __attribute__((vector_size(8)));

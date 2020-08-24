@@ -102,7 +102,7 @@ __attribute__((noinline)) size_t FUNC(get_ue16) {
 __attribute__((noinline)) size_t FUNC(get_ue32) {
 	size_t bits = lsd(ctx->RBSP[0], ctx->RBSP[1], ctx->shift);
 	unsigned leadingZeroBits = clz(bits | 1);
-	CALL(refill, ctx->shift + leadingZeroBits, 0);
-	return CALL(get_uv, leadingZeroBits + 1) - 1;
+	unsigned v = CALL(refill, ctx->shift + leadingZeroBits, leadingZeroBits + 1);
+	return CALL(get_uv, v) - 1;
 }
 #endif

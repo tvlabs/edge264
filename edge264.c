@@ -707,7 +707,7 @@ static int FUNC(parse_slice_layer_without_partitioning, Edge264_stream *e)
 	
 	// cabac_alignment_one_bit gives a good probability to catch random errors.
 	if (ctx->ps.entropy_coding_mode_flag) {
-		unsigned bits = (SIZE_BIT - 1 - ctz(ctx->RBSP[1])) & 7;
+		unsigned bits = (SIZE_BIT - 1 - ctz(lsb_cache)) & 7;
 		if (bits != 0 && CALL(get_uv, bits) != (1 << bits) - 1)
 			return -2;
 		CALL(init_cabac, cabac_init_idc);
@@ -927,7 +927,7 @@ static int FUNC(parse_pic_parameter_set, Edge264_stream *e)
 	ctx->ps.transform_8x8_mode_flag = 0;
 	
 	// short for peek-24-bits-without-having-to-define-a-single-use-function
-	if (ctx->RBSP[0] >> (SIZE_BIT - 24) != 0x800000) {
+	if (msb_cache >> (SIZE_BIT - 24) != 0x800000) {
 		ctx->ps.transform_8x8_mode_flag = CALL(get_u1);
 		printf("<li>transform_8x8_mode_flag: <code>%x</code></li>\n",
 			ctx->ps.transform_8x8_mode_flag);
@@ -1478,12 +1478,12 @@ int Edge264_decode_NAL(Edge264_stream *e)
 	SET_CTX(&context);
 	memset(ctx, -1, sizeof(*ctx));
 	ctx->_mb = mb;
-	ctx->_codIRange = codIRange;
-	ctx->_codIOffset = codIOffset;
+	size_t _codIRange = codIRange; // backup if stored in a Register Variable
+	size_t _codIOffset = codIOffset;
 	ctx->e = e;
 	
 	// prefill the bitstream cache with 2 bytes (guaranteed unescaped)
-	ctx->RBSP[0] = (size_t)e->CPB[1] << (SIZE_BIT - 8) | (size_t)e->CPB[2] << (SIZE_BIT - 16) | (size_t)1 << (SIZE_BIT - 17);
+	msb_cache = (size_t)e->CPB[1] << (SIZE_BIT - 8) | (size_t)e->CPB[2] << (SIZE_BIT - 16) | (size_t)1 << (SIZE_BIT - 17);
 	ctx->CPB = e->CPB + 3; // first byte that might be escaped
 	ctx->end = e->end;
 	CALL(refill, 0);
@@ -1511,8 +1511,8 @@ int Edge264_decode_NAL(Edge264_stream *e)
 	
 	// restore registers and point to next NAL unit
 	mb = ctx->_mb;
-	codIRange = ctx->_codIRange;
-	codIOffset = ctx->_codIOffset;
+	codIRange = _codIRange;
+	codIOffset = _codIOffset;
 	e->CPB = Edge264_find_start_code(1, ctx->CPB - 2, ctx->end);
 	RESET_CTX();
 	return (e->CPB >= e->end && e->ret >= 0) ? 1 : e->ret;

@@ -87,11 +87,11 @@ __attribute__((noinline)) size_t FUNC(refill, size_t ret)
 	
 	// increment CPB and insert the unescaped bytes into the cache
 	ctx->CPB = after;
-	int trailing_bit = ctz(ctx->RBSP[0]);
+	int trailing_bit = ctz(msb_cache);
 	int shift = trailing_bit + 1;
 	size_t bytes = big_endian(((v16u)x)[0]);
-	ctx->RBSP[0] = lsd(ctx->RBSP[0] >> shift, bytes, shift);
-	ctx->RBSP[1] = bytes << shift | (size_t)1 << trailing_bit;
+	msb_cache = lsd(msb_cache >> shift, bytes, shift);
+	lsb_cache = bytes << shift | (size_t)1 << trailing_bit;
 	return ret;
 }
 #endif
@@ -99,27 +99,27 @@ __attribute__((noinline)) size_t FUNC(refill, size_t ret)
 
 
 __attribute__((noinline)) size_t FUNC(get_u1) {
-	size_t ret = ctx->RBSP[0] >> (SIZE_BIT - 1);
-	ctx->RBSP[0] = lsd(ctx->RBSP[0], ctx->RBSP[1], 1);
-	if (ctx->RBSP[1] <<= 1)
+	size_t ret = msb_cache >> (SIZE_BIT - 1);
+	msb_cache = lsd(msb_cache, lsb_cache, 1);
+	if (lsb_cache <<= 1)
 		return ret;
 	return CALL(refill, ret);
 }
 
 __attribute__((noinline)) size_t FUNC(get_uv, unsigned v) {
-	size_t ret = ctx->RBSP[0] >> (SIZE_BIT - v);
-	ctx->RBSP[0] = lsd(ctx->RBSP[0], ctx->RBSP[1], v);
-	if (ctx->RBSP[1] <<= v)
+	size_t ret = msb_cache >> (SIZE_BIT - v);
+	msb_cache = lsd(msb_cache, lsb_cache, v);
+	if (lsb_cache <<= v)
 		return ret;
 	return CALL(refill, ret);
 }
 
 // Parses one Exp-Golomb code in one read, up to 2^16-2 (2^32-2 on 64bit machines)
 __attribute__((noinline)) size_t FUNC(get_ue16) {
-	unsigned v = clz(ctx->RBSP[0] | (size_t)1 << (SIZE_BIT / 2)) * 2 + 1;
-	size_t ret = (ctx->RBSP[0] >> (SIZE_BIT - v)) - 1;
-	ctx->RBSP[0] = lsd(ctx->RBSP[0], ctx->RBSP[1], v);
-	if (ctx->RBSP[1] <<= v)
+	unsigned v = clz(msb_cache | (size_t)1 << (SIZE_BIT / 2)) * 2 + 1;
+	size_t ret = (msb_cache >> (SIZE_BIT - v)) - 1;
+	msb_cache = lsd(msb_cache, lsb_cache, v);
+	if (lsb_cache <<= v)
 		return ret;
 	return CALL(refill, ret);
 }
@@ -127,9 +127,9 @@ __attribute__((noinline)) size_t FUNC(get_ue16) {
 // Parses one Exp-Golomb code in two reads, up to 2^32-2 (useless on 64bit machines)
 #if SIZE_BIT == 32
 __attribute__((noinline)) size_t FUNC(get_ue32) {
-	unsigned leadingZeroBits = clz(ctx->RBSP[0] | 1);
-	ctx->RBSP[0] = lsd(ctx->RBSP[0], ctx->RBSP[1], leadingZeroBits);
-	if (ctx->RBSP[1] <<= leadingZeroBits)
+	unsigned leadingZeroBits = clz(msb_cache | 1);
+	msb_cache = lsd(msb_cache, lsb_cache, leadingZeroBits);
+	if (lsb_cache <<= leadingZeroBits)
 		CALL(refill, 0);
 	return CALL(get_uv, leadingZeroBits + 1);
 }

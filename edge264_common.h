@@ -112,10 +112,11 @@ typedef struct
 	Edge264_parameter_set ps;
 	
 	// parsing context
-	const uint8_t *CPB; // memory address of next bytes to load in the RBSP
+	const uint8_t *CPB; // memory address of the next byte to load in lsb_cache
 	const uint8_t *end;
-	size_t RBSP[2];
-	size_t _codIRange; // backup storage when not in a Global Register
+	size_t _lsb_cache; // backup storage when not in a Global Register
+	size_t _msb_cache;
+	size_t _codIRange; // same as _lsb_cache/_msb_cache
 	size_t _codIOffset;
 	int32_t CurrMbAddr;
 	int8_t BlkIdx; // index of current AC block (for PredMode), in order Y/Cb/Cr and without gaps
@@ -242,11 +243,17 @@ register Edge264_ctx *ctx asm("ebx");
 #endif
 #define mb ctx->_mb
 #if defined(__SSSE3__) && !defined(__clang__) && SIZE_BIT == 64
-register size_t codIRange asm("r14");
-register size_t codIOffset asm("r15");
+register size_t rbsp_reg0 asm("r14");
+register size_t rbsp_reg1 asm("r15");
+#define codIRange rbsp_reg0
+#define codIOffset rbsp_reg1
+#define lsb_cache rbsp_reg0
+#define msb_cache rbsp_reg1
 #else
 #define codIRange ctx->_codIRange
 #define codIOffset ctx->_codIOffset
+#define lsb_cache ctx->_lsb_cache
+#define msb_cache ctx->_msb_cache
 #endif
 
 

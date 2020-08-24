@@ -741,12 +741,17 @@ static const uint8_t transIdx[256] = {
  */
 __attribute__((noinline)) size_t FUNC(renorm, int ceil, size_t binVal) {
 	unsigned v = clz(codIRange) - ceil;
-	codIRange <<= v;
-	codIOffset = lsd(codIOffset, ctx->RBSP[0], v);
-	ctx->RBSP[0] = lsd(ctx->RBSP[0], ctx->RBSP[1], v);
-	if (ctx->RBSP[1] <<= v)
-		return binVal;
-	return CALL(refill, binVal);
+	ctx->_codIRange = codIRange << v;
+	ctx->_codIOffset = lsd(codIOffset, ctx->_msb_cache, v);
+	msb_cache = lsd(ctx->_msb_cache, ctx->_lsb_cache, v);
+	lsb_cache = ctx->_lsb_cache << v;
+	if (!lsb_cache)
+		CALL(refill, 0);
+	ctx->_lsb_cache = lsb_cache;
+	ctx->_msb_cache = msb_cache;
+	codIRange = ctx->_codIRange;
+	codIOffset = ctx->_codIOffset;
+	return binVal;
 }
 
 __attribute__((noinline)) size_t FUNC(get_ae, int ctxIdx)
@@ -774,8 +779,7 @@ __attribute__((noinline)) size_t FUNC(get_ae, int ctxIdx)
 
 
 /**
- * Initialise the CABAC decoding engine and set the initial cabac values using
- * vector code (9.3.1.1).
+ * Initialise CABAC's context variables using vector code (9.3.1.1).
  *
  * Considering the bottleneck of memory access, this is probably just as fast
  * as copying from precomputed values. Please refrain from providing a default,
@@ -783,9 +787,6 @@ __attribute__((noinline)) size_t FUNC(get_ae, int ctxIdx)
  */
 #ifdef __SSSE3__
 void FUNC(init_cabac, int cabac_init_idc) {
-	codIRange = (size_t)255 << (SIZE_BIT - 9);
-	codIOffset = CALL(get_uv, SIZE_BIT - 1);
-	
 	__m128i mul = _mm_set1_epi16(max(ctx->ps.QP_Y, 0) + 4096);
 	const __m128i *src = (__m128i *)context_init[cabac_init_idc];
 	for (v16qu *dst = ctx->cabac_v; dst < ctx->cabac_v + 64; dst++, src += 2) {

@@ -241,7 +241,7 @@ static __attribute__((noinline)) void FUNC(parse_mb_qp_delta, unsigned cond) {
 	ctx->mb_qp_delta_non_zero = cond && CALL(get_ae, 60 + ctx->mb_qp_delta_non_zero);
 	if (ctx->mb_qp_delta_non_zero) {
 		
-		// cannot loop forever since binVal will oscillate past end of RBSP
+		// FIXME: cannot loop forever since binVal will oscillate past end of RBSP?
 		int count = 1, ctxIdx = 62;
 		while (CALL(get_ae, ctxIdx))
 			count++, ctxIdx = 63;
@@ -740,14 +740,14 @@ static __attribute__((noinline)) void FUNC(parse_I_mb, int ctxIdx)
 		ctx->mb_qp_delta_non_zero = 0;
 		
 		// reclaim all but two bits from codIOffset, and skip pcm_alignment_zero_bit
-		int bits = SIZE_BIT * 3 - clz(codIRange) - 2 - ctz(ctx->RBSP[1]) - 1;
+		int bits = SIZE_BIT * 3 - clz(codIRange) - 2 - ctz(ctx->_lsb_cache) - 1;
 		int shift = clz(codIRange) + 2 + (bits & 7);
-		ctx->RBSP[1] = lsd(ctx->RBSP[0], ctx->RBSP[1], shift);
-		ctx->RBSP[0] = lsd(codIOffset, ctx->RBSP[0], shift);
+		lsb_cache = lsd(ctx->_msb_cache, ctx->_lsb_cache, shift);
+		msb_cache = lsd(codIOffset, ctx->_msb_cache, shift);
 		
 		// if they didn't fit in RBSP[0/1], reset the trailing bit and rewind CPB
 		if (bits >= SIZE_BIT * 2) {
-			ctx->RBSP[1] = (ctx->RBSP[1] & (ssize_t)-256) | (size_t)0x80;
+			lsb_cache = (lsb_cache & (ssize_t)-256) | (size_t)0x80;
 			do {
 				int32_t i;
 				memcpy(&i, ctx->CPB - 4, 4);
@@ -786,9 +786,12 @@ static __attribute__((noinline)) void FUNC(parse_I_mb, int ctxIdx)
 			}
 		}
 		
-		// reinitialize CABAC
+		// switch back from CAVLC to CABAC decoding caches
+		size_t fill = CALL(get_uv, SIZE_BIT - 1);
+		ctx->_lsb_cache = lsb_cache;
+		ctx->_msb_cache = msb_cache;
 		codIRange = (size_t)255 << (SIZE_BIT - 9);
-		codIOffset = CALL(get_uv, SIZE_BIT - 1);
+		codIOffset = fill;
 	}
 }
 
@@ -1239,6 +1242,13 @@ __attribute__((noinline)) void FUNC(parse_slice_data)
 		{ 7, 14,  9,  4, 14, 10,  0,  4,  9,  0,  9,  4,  0,  4,  0,  4},
 	};
 	
+	// switch from CAVLC to CABAC decoding caches
+	size_t fill = CALL(get_uv, SIZE_BIT - 1);
+	ctx->_lsb_cache = lsb_cache;
+	ctx->_msb_cache = msb_cache;
+	codIRange = (size_t)255 << (SIZE_BIT - 9);
+	codIOffset = fill;
+	
 	ctx->mb_qp_delta_non_zero = 0;
 	while (1) {
 		fprintf(stderr, "********** %u **********\n", ctx->CurrMbAddr);
@@ -1307,4 +1317,8 @@ __attribute__((noinline)) void FUNC(parse_slice_data)
 		ctx->frame_offsets_y_v[8] = ctx->frame_offsets_y_v[9] += YC;
 		ctx->frame_offsets_y_v[10] = ctx->frame_offsets_y_v[11] += YC;
 	}
+	
+	// restore CAVLC decoding caches
+	lsb_cache = ctx->_lsb_cache;
+	msb_cache = ctx->_msb_cache;
 }

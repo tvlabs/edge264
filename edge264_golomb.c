@@ -128,6 +128,6 @@ __attribute__((noinline)) size_t FUNC(get_ue32) {
 	msb_cache = lsd(msb_cache, lsb_cache, leadingZeroBits);
 	if (lsb_cache <<= leadingZeroBits)
 		CALL(refill, 0);
-	return CALL(get_uv, leadingZeroBits + 1);
+	return CALL(get_uv, leadingZeroBits + 1) - 1;
 }
 #endif

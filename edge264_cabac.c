@@ -740,7 +740,7 @@ static const uint8_t transIdx[256] = {
  * yielding the original values.
  */
 __attribute__((noinline)) size_t FUNC(renorm, int ceil, size_t binVal) {
-	unsigned v = clz(codIRange) - ceil;
+	size_t v = clz(codIRange) - ceil;
 	ctx->_codIRange = codIRange << v;
 	ctx->_codIOffset = lsd(codIOffset, ctx->_msb_cache, v);
 	msb_cache = lsd(ctx->_msb_cache, ctx->_lsb_cache, v);
@@ -756,11 +756,11 @@ __attribute__((noinline)) size_t FUNC(renorm, int ceil, size_t binVal) {
 
 __attribute__((noinline)) size_t FUNC(get_ae, int ctxIdx)
 {
-	ssize_t state = ctx->cabac[ctxIdx];
-	unsigned shift = SIZE_BIT - 3 - clz(codIRange);
+	size_t state = ctx->cabac[ctxIdx];
+	size_t shift = SIZE_BIT - 3 - clz(codIRange);
 	fprintf(stderr, "%u/%u: (%u,%x)", (int)(codIOffset >> (shift - 6)), (int)(codIRange >> (shift - 6)), (int)state >> 2, (int)state & 1);
 	// fprintf(stderr, "%u/%u[%d]: (%u,%x)", (int)(codIOffset >> (shift - 6)), (int)(codIRange >> (shift - 6)), ctxIdx, (int)state >> 2, (int)state & 1);
-	ssize_t idx = (state & -4) + (codIRange >> shift);
+	size_t idx = (state & -4) + (codIRange >> shift);
 	size_t codIRangeLPS = (size_t)(rangeTabLPS - 4)[idx] << (shift - 6);
 	codIRange -= codIRangeLPS;
 	if (codIOffset >= codIRange) {

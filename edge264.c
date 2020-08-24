@@ -5,6 +5,7 @@
  * _ Remove stride variable in favor of passing it directly to residual functions
  * _ Remove Pred modes in favor of static residual calls
  * _ Remove ctx->unavail in favor of ctx->inc.unavailable ?
+ * _ int/unsigned do not cohabitate well with [s]size_t -> try using size_t exclusively!
  * _ switch to SDL which is likely to have a more stable future support than GLFW, with an option to play without display
  * _ make ref_idx a separate function, and 4 distinct 8x8/8x16/16x8/16x16 functions as prologs to parse_mvds
  * _ update the tables of names for profiles and NAL types

@@ -1,21 +1,24 @@
 /** TODOs:
- * _ Implement and test Inter residual using this new Pred mode
- * _ Modify all Intra decoding functions to operate after parsing (rather than before residual) and use the same Pred Mode
- * _ Remove plane_Y/Cb in favor of a fixed plane pointer + incremented plane_offsets
+ * _ Implement weighting inside edge264_inter.c
+ * _ Implement parsing and decoding for B_Skip and B_Direct_16x16
+ * _ Implement parsing and decoding for B_L[0/1]_[16x16/16x8/8x16]
+ * _ Refactor with parse_P_mb to reduce duplicate code
+ * _ Implement parsing and decoding for B_8x8
+ * _ Initialize implicit and explicit weights for P/B slices
+ * _ Test and debug B slices
+ 
+ * _ Modify all Intra decoding functions to operate after parsing (rather than before residual) and write directly to memory
  * _ Remove stride variable in favor of passing it directly to residual functions
- * _ Remove Pred modes in favor of static residual calls
- * _ Remove ctx->unavail in favor of ctx->inc.unavailable ?
+ * _ Remove Pred modes and related variables (BlkIdx)
+ 
  * _ switch to SDL which is likely to have a more stable future support than GLFW, with an option to play without display
- * _ make ref_idx a separate function, and 4 distinct 8x8/8x16/16x8/16x16 functions as prologs to parse_mvds
- * _ update the tables of names for profiles and NAL types
- * _ upgrade DPB storage size to 17, by simply doubling reference and output flags sizes
- * _ backup output/ref flags and FrameNum and restore then on bad slice_header
  * _ make ret non sticky to allow partial decodes during implementation
+ * _ update the tables of names for profiles and NAL types
+ * _ upgrade DPB storage size to 32 (to allow future multithreaded decoding), by simply doubling reference and output flags sizes
+ * _ backup output/ref flags and FrameNum and restore then on bad slice_header
  * _ try using epb for context pointer, and email GCC when it fails
- * _ When implementing CAVLC, try storing bits in 2 registers with a set lsb to check for refill
  * _ When implementing fields and MBAFF, keep the same pic coding struct (no FLD/AFRM) and just add mb_field_decoding_flag
  * _ after implementing P/B and MBAFF, optimize away array accesses of is422 and mb->f.mb_field_decoding_flag
- * _ after implementing P/B and MBAFF, consider splitting decode_samples into NxN, 16x16 and chroma, making parse_residual_block a regular function, including intraNxN_modes inside the switch of decode_NxN, and removing many copies for AC->DC PredMode
  */
 
 #include "edge264_common.h"

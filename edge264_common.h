@@ -284,19 +284,19 @@ static inline unsigned umax(unsigned a, unsigned b) { return (a > b) ? a : b; }
 static inline int median(int a, int b, int c) { return max(min(max(a, b), c), min(a, b)); }
 
 // edge264_cabac.c
-__attribute__((noinline)) size_t FUNC(renorm, int ceil, size_t binVal);
-__attribute__((noinline)) size_t FUNC(get_ae, int ctxIdx);
+__attribute__((noinline)) int FUNC(renorm, int ceil, int binVal);
+__attribute__((noinline)) int FUNC(get_ae, int ctxIdx);
 void FUNC(init_cabac, int cabac_init_idc);
 
 // edge264_golomb.c
-__attribute__((noinline)) size_t FUNC(refill, size_t ret);
-__attribute__((noinline)) size_t FUNC(get_u1);
-__attribute__((noinline)) size_t FUNC(get_uv, unsigned v);
-__attribute__((noinline)) size_t FUNC(get_ue16, unsigned upper);
-__attribute__((noinline)) size_t FUNC(get_se16, int lower, int upper);
+__attribute__((noinline)) int FUNC(refill, int ret);
+__attribute__((noinline)) int FUNC(get_u1);
+__attribute__((noinline)) unsigned FUNC(get_uv, unsigned v);
+__attribute__((noinline)) unsigned FUNC(get_ue16, unsigned upper);
+__attribute__((noinline)) int FUNC(get_se16, int lower, int upper);
 #if SIZE_BIT == 32
-__attribute__((noinline)) size_t FUNC(get_ue32, unsigned upper);
-__attribute__((noinline)) size_t FUNC(get_se32, int lower, int upper);
+__attribute__((noinline)) unsigned FUNC(get_ue32, unsigned upper);
+__attribute__((noinline)) int FUNC(get_se32, int lower, int upper);
 #else
 #define get_ue32 get_ue16
 #define get_se32 get_se16

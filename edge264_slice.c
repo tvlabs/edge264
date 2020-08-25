@@ -786,8 +786,11 @@ static __attribute__((noinline)) void FUNC(parse_I_mb, int ctxIdx)
 			}
 		}
 		
-		// switch back from CAVLC to CABAC decoding caches
-		size_t fill = CALL(get_uv, SIZE_BIT - 1);
+		// do a big get_uv(SIZE_BIT-1) and switch back to CABAC decoding caches
+		size_t fill = msb_cache >> 1;
+		msb_cache = lsd(msb_cache, lsb_cache, SIZE_BIT - 1);
+		if (!(lsb_cache << (SIZE_BIT - 1)))
+			CALL(refill, 0);
 		ctx->_lsb_cache = lsb_cache;
 		ctx->_msb_cache = msb_cache;
 		codIRange = (size_t)255 << (SIZE_BIT - 9);
@@ -1243,7 +1246,10 @@ __attribute__((noinline)) void FUNC(parse_slice_data)
 	};
 	
 	// switch from CAVLC to CABAC decoding caches
-	size_t fill = CALL(get_uv, SIZE_BIT - 1);
+	size_t fill = msb_cache >> 1;
+	msb_cache = lsd(msb_cache, lsb_cache, SIZE_BIT - 1);
+	if (!(lsb_cache << (SIZE_BIT - 1)))
+		CALL(refill, 0);
 	ctx->_lsb_cache = lsb_cache;
 	ctx->_msb_cache = msb_cache;
 	codIRange = (size_t)255 << (SIZE_BIT - 9);

@@ -739,7 +739,7 @@ static const uint8_t transIdx[256] = {
  * the full range of a register, a shift right by SIZE_BIT-9-clz(codIRange)
  * yielding the original values.
  */
-__attribute__((noinline)) size_t FUNC(renorm, int ceil, size_t binVal) {
+__attribute__((noinline)) int FUNC(renorm, int ceil, int binVal) {
 	size_t v = clz(codIRange) - ceil;
 	ctx->_codIRange = codIRange << v;
 	ctx->_codIOffset = lsd(codIOffset, ctx->_msb_cache, v);
@@ -754,7 +754,7 @@ __attribute__((noinline)) size_t FUNC(renorm, int ceil, size_t binVal) {
 	return binVal;
 }
 
-__attribute__((noinline)) size_t FUNC(get_ae, int ctxIdx)
+__attribute__((noinline)) int FUNC(get_ae, int ctxIdx)
 {
 	size_t state = ctx->cabac[ctxIdx];
 	size_t shift = SIZE_BIT - 3 - clz(codIRange);
@@ -770,7 +770,7 @@ __attribute__((noinline)) size_t FUNC(get_ae, int ctxIdx)
 	}
 	ctx->cabac[ctxIdx] = transIdx[state];
 	fprintf(stderr, "->(%u,%x)\n", transIdx[state] >> 2, transIdx[state] & 1);
-	size_t binVal = state & 1;
+	int binVal = state & 1;
 	if (__builtin_expect(codIRange < 512, 0)) // 256*2 allows parsing an extra coeff_sign_flag without renorm.
 		return CALL(renorm, 1, binVal);
 	return binVal;

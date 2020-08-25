@@ -292,15 +292,15 @@ void FUNC(init_cabac, int cabac_init_idc);
 __attribute__((noinline)) size_t FUNC(refill, size_t ret);
 __attribute__((noinline)) size_t FUNC(get_u1);
 __attribute__((noinline)) size_t FUNC(get_uv, unsigned v);
-__attribute__((noinline)) size_t FUNC(get_ue16);
+__attribute__((noinline)) size_t FUNC(get_ue16, unsigned upper);
+__attribute__((noinline)) size_t FUNC(get_se16, int lower, int upper);
 #if SIZE_BIT == 32
-__attribute__((noinline)) size_t FUNC(get_ue32);
+__attribute__((noinline)) size_t FUNC(get_ue32, unsigned upper);
+__attribute__((noinline)) size_t FUNC(get_se32, int lower, int upper);
 #else
 #define get_ue32 get_ue16
+#define get_se32 get_se16
 #endif
-static inline unsigned FUNC(get_ue, unsigned upper) { return umin((upper <= 65534) ? CALL(get_ue16) : CALL(get_ue32), upper); }
-static inline int map_se(unsigned codeNum) { return (codeNum & 1) ? codeNum / 2 + 1 : -(codeNum / 2); }
-static inline int FUNC(get_se, int lower, int upper) { return min(max(map_se((lower >= -32767 && upper <= 32767) ? CALL(get_ue16) : CALL(get_ue32)), lower), upper); }
 
 // edge264_intra_ssse3.c
 void FUNC(decode_samples);

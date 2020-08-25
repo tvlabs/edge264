@@ -103,6 +103,7 @@ __attribute__((noinline)) size_t FUNC(get_u1) {
 	return CALL(refill, ret);
 }
 
+// Parses a 1~32-bit fixed size code
 __attribute__((noinline)) size_t FUNC(get_uv, unsigned v) {
 	size_t ret = msb_cache >> (SIZE_BIT - v);
 	msb_cache = lsd(msb_cache, lsb_cache, v);
@@ -111,23 +112,43 @@ __attribute__((noinline)) size_t FUNC(get_uv, unsigned v) {
 	return CALL(refill, ret);
 }
 
-// Parses one Exp-Golomb code in one read, up to 2^16-2 (2^32-2 on 64bit machines)
-__attribute__((noinline)) size_t FUNC(get_ue16) {
+// Parses a Exp-Golomb code in one read, up to 2^16-2 (2^32-2 on 64-bit machines)
+__attribute__((noinline)) size_t FUNC(get_ue16, unsigned upper) {
 	unsigned v = clz(msb_cache | (size_t)1 << (SIZE_BIT / 2)) * 2 + 1;
-	size_t ret = (msb_cache >> (SIZE_BIT - v)) - 1;
+	size_t ret = umin((msb_cache >> (SIZE_BIT - v)) - 1, upper);
 	msb_cache = lsd(msb_cache, lsb_cache, v);
 	if (lsb_cache <<= v)
 		return ret;
 	return CALL(refill, ret);
 }
 
-// Parses one Exp-Golomb code in two reads, up to 2^32-2 (useless on 64bit machines)
+// Parses a signed Exp-Golomb code in one read, from -2^15+1 to 2^15-1 (-2^31+1 to 2^31-1 on 64-bit machines)
+__attribute__((noinline)) size_t FUNC(get_se16, int lower, int upper) {
+	unsigned v = clz(msb_cache | (size_t)1 << (SIZE_BIT / 2)) * 2 + 1;
+	size_t ue = (msb_cache >> (SIZE_BIT - v)) - 1;
+	size_t ret = min(max((ue & 1) ? ue / 2 + 1 : -(ue / 2), lower), upper);
+	msb_cache = lsd(msb_cache, lsb_cache, v);
+	if (lsb_cache <<= v)
+		return ret;
+	return CALL(refill, ret);
+}
+
+// Extensions to [0,2^32-2] and [-2^31+1,2^31-1] for 32-bit machines
 #if SIZE_BIT == 32
-__attribute__((noinline)) size_t FUNC(get_ue32) {
+__attribute__((noinline)) size_t FUNC(get_ue32, unsigned upper) {
 	unsigned leadingZeroBits = clz(msb_cache | 1);
 	msb_cache = lsd(msb_cache, lsb_cache, leadingZeroBits);
-	if (lsb_cache <<= leadingZeroBits)
+	if (!(lsb_cache <<= leadingZeroBits))
 		CALL(refill, 0);
-	return CALL(get_uv, leadingZeroBits + 1) - 1;
+	return umin(CALL(get_uv, leadingZeroBits + 1) - 1, upper);
+}
+
+__attribute__((noinline)) size_t FUNC(get_se32, int lower, int upper) {
+	unsigned leadingZeroBits = clz(msb_cache | 1);
+	msb_cache = lsd(msb_cache, lsb_cache, leadingZeroBits);
+	if (!(lsb_cache <<= leadingZeroBits))
+		CALL(refill, 0);
+	unsigned ue = CALL(get_uv, leadingZeroBits + 1) - 1;
+	return min(max(ue & 1 ? ue / 2 + 1 : -(ue / 2), lower), upper);
 }
 #endif

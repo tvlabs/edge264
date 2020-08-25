@@ -242,10 +242,10 @@ static __attribute__((noinline)) void FUNC(parse_mb_qp_delta, unsigned cond) {
 	if (ctx->mb_qp_delta_non_zero) {
 		
 		// FIXME: cannot loop forever since binVal will oscillate past end of RBSP?
-		int count = 1, ctxIdx = 62;
+		unsigned count = 1, ctxIdx = 62;
 		while (CALL(get_ae, ctxIdx))
 			count++, ctxIdx = 63;
-		mb_qp_delta = map_se(count);
+		mb_qp_delta = count & 1 ? count / 2 + 1 : -(count / 2);
 		int QP = ctx->ps.QP_Y + mb_qp_delta;
 		int QpBdOffset_Y = (ctx->ps.BitDepth_Y - 8) * 6;
 		ctx->ps.QP_Y = (QP < -QpBdOffset_Y) ? QP + 52 + QpBdOffset_Y :

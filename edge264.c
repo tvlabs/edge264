@@ -6,6 +6,7 @@
  * _ Implement parsing and decoding for B_8x8
  * _ Initialize implicit and explicit weights for P/B slices
  * _ Test and debug B slices
+ * _ Refactor decode_inter to extract the non-SSSE3 code into edge264_slice.c
  
  * _ Modify all Intra decoding functions to operate after parsing (rather than before residual) and write directly to memory
  * _ Remove stride variable in favor of passing it directly to residual functions

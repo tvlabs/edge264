@@ -1,7 +1,11 @@
 // TODO: Add pmaddubsw weighting in the functions
+// TODO: There are 3 cases for initializing weights:
+//       - put values without weighting (if single non-weighted or first of pair)
+//       - put values with single weighting (if single weighted)
+//       - put values with double weighting (if second of pair)
+// TODO: Replace the luma switch by a function table
 // TODO: Invert X&Y in QPEL to match ffmpeg convention
 // TODO: Does restrict allow compilers to reorder reads/writes?
-// TODO: Make INTER4xH_QPEL_21_22_23 lighter by halving the loop?
 // TODO: Add support for 16bit
 
 #include "edge264_common.h"

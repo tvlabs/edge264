@@ -1,9 +1,9 @@
+// TODO: Replace the luma switch by a function table
 // TODO: Add pmaddubsw weighting in the functions
 // TODO: There are 3 cases for initializing weights:
 //       - put values without weighting (if single non-weighted or first of pair)
 //       - put values with single weighting (if single weighted)
 //       - put values with double weighting (if second of pair)
-// TODO: Replace the luma switch by a function table
 // TODO: Invert X&Y in QPEL to match ffmpeg convention
 // TODO: Does restrict allow compilers to reorder reads/writes?
 // TODO: Add support for 16bit
@@ -1160,6 +1160,21 @@ static inline void FUNC(inter8xH_chroma_8bit, int h, size_t dstride, uint8_t *ds
 __attribute__((noinline)) void FUNC(decode_inter, int i, int w, int h, int x, int y) {
 	static int8_t shift_Y_8bit[46] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15};
 	static int8_t shift_C_8bit[22] = {0, 0, 0, 0, 0, 0, 0, 0, 1, 2, 3, 4, 5, 6, 7, 7, 7, 7, 7, 7, 7, 7};
+	static void FUNC((*luma_fcts[48]), int, size_t, uint8_t*, size_t, uint8_t*) = {
+		inter4xH_qpel00_8bit, inter4xH_qpel01_8bit, inter4xH_qpel02_8bit, inter4xH_qpel03_8bit,
+		inter4xH_qpel10_8bit, inter4xH_qpel11_8bit, inter4xH_qpel12_8bit, inter4xH_qpel13_8bit,
+		inter4xH_qpel20_8bit, inter4xH_qpel21_8bit, inter4xH_qpel22_8bit, inter4xH_qpel23_8bit,
+		inter4xH_qpel30_8bit, inter4xH_qpel31_8bit, inter4xH_qpel32_8bit, inter4xH_qpel33_8bit,
+		inter8xH_qpel00_8bit, inter8xH_qpel01_8bit, inter8xH_qpel02_8bit, inter8xH_qpel03_8bit,
+		inter8xH_qpel10_8bit, inter8xH_qpel11_8bit, inter8xH_qpel12_8bit, inter8xH_qpel13_8bit,
+		inter8xH_qpel20_8bit, inter8xH_qpel21_8bit, inter8xH_qpel22_8bit, inter8xH_qpel23_8bit,
+		inter8xH_qpel30_8bit, inter8xH_qpel31_8bit, inter8xH_qpel32_8bit, inter8xH_qpel33_8bit,
+		inter16xH_qpel00_8bit, inter16xH_qpel01_8bit, inter16xH_qpel02_8bit, inter16xH_qpel03_8bit,
+		inter16xH_qpel10_8bit, inter16xH_qpel11_8bit, inter16xH_qpel12_8bit, inter16xH_qpel13_8bit,
+		inter16xH_qpel20_8bit, inter16xH_qpel21_8bit, inter16xH_qpel22_8bit, inter16xH_qpel23_8bit,
+		inter16xH_qpel30_8bit, inter16xH_qpel31_8bit, inter16xH_qpel32_8bit, inter16xH_qpel33_8bit,
+	};
+	
 	size_t sstride_Y = ctx->stride_Y;
 	int xInt_Y = ctx->frame_offsets_x[i] + (x >> 2); // FIXME 16 bit
 	int yInt_Y = ctx->frame_offsets_y[i] + (y >> 2) * sstride_Y;
@@ -1192,59 +1207,8 @@ __attribute__((noinline)) void FUNC(decode_inter, int i, int w, int h, int x, in
 	}
 	
 	size_t dstride_Y = ctx->stride_Y;
-	switch ((w == 4 ? 0 : w == 8 ? 16 : 32) + yFrac_Y * 4 + xFrac_Y) {
-	case 0: CALL(inter4xH_qpel00_8bit, h, dstride_Y, dst_Y, sstride_Y, src_Y); break;
-	case 1: CALL(inter4xH_qpel01_8bit, h, dstride_Y, dst_Y, sstride_Y, src_Y); break;
-	case 2: CALL(inter4xH_qpel02_8bit, h, dstride_Y, dst_Y, sstride_Y, src_Y); break;
-	case 3: CALL(inter4xH_qpel03_8bit, h, dstride_Y, dst_Y, sstride_Y, src_Y); break;
-	case 4: CALL(inter4xH_qpel10_8bit, h, dstride_Y, dst_Y, sstride_Y, src_Y); break;
-	case 5: CALL(inter4xH_qpel11_8bit, h, dstride_Y, dst_Y, sstride_Y, src_Y); break;
-	case 6: CALL(inter4xH_qpel12_8bit, h, dstride_Y, dst_Y, sstride_Y, src_Y); break;
-	case 7: CALL(inter4xH_qpel13_8bit, h, dstride_Y, dst_Y, sstride_Y, src_Y); break;
-	case 8: CALL(inter4xH_qpel20_8bit, h, dstride_Y, dst_Y, sstride_Y, src_Y); break;
-	case 9: CALL(inter4xH_qpel21_8bit, h, dstride_Y, dst_Y, sstride_Y, src_Y); break;
-	case 10: CALL(inter4xH_qpel22_8bit, h, dstride_Y, dst_Y, sstride_Y, src_Y); break;
-	case 11: CALL(inter4xH_qpel23_8bit, h, dstride_Y, dst_Y, sstride_Y, src_Y); break;
-	case 12: CALL(inter4xH_qpel30_8bit, h, dstride_Y, dst_Y, sstride_Y, src_Y); break;
-	case 13: CALL(inter4xH_qpel31_8bit, h, dstride_Y, dst_Y, sstride_Y, src_Y); break;
-	case 14: CALL(inter4xH_qpel32_8bit, h, dstride_Y, dst_Y, sstride_Y, src_Y); break;
-	case 15: CALL(inter4xH_qpel33_8bit, h, dstride_Y, dst_Y, sstride_Y, src_Y); break;
-	
-	case 16: CALL(inter8xH_qpel00_8bit, h, dstride_Y, dst_Y, sstride_Y, src_Y); break;
-	case 17: CALL(inter8xH_qpel01_8bit, h, dstride_Y, dst_Y, sstride_Y, src_Y); break;
-	case 18: CALL(inter8xH_qpel02_8bit, h, dstride_Y, dst_Y, sstride_Y, src_Y); break;
-	case 19: CALL(inter8xH_qpel03_8bit, h, dstride_Y, dst_Y, sstride_Y, src_Y); break;
-	case 20: CALL(inter8xH_qpel10_8bit, h, dstride_Y, dst_Y, sstride_Y, src_Y); break;
-	case 21: CALL(inter8xH_qpel11_8bit, h, dstride_Y, dst_Y, sstride_Y, src_Y); break;
-	case 22: CALL(inter8xH_qpel12_8bit, h, dstride_Y, dst_Y, sstride_Y, src_Y); break;
-	case 23: CALL(inter8xH_qpel13_8bit, h, dstride_Y, dst_Y, sstride_Y, src_Y); break;
-	case 24: CALL(inter8xH_qpel20_8bit, h, dstride_Y, dst_Y, sstride_Y, src_Y); break;
-	case 25: CALL(inter8xH_qpel21_8bit, h, dstride_Y, dst_Y, sstride_Y, src_Y); break;
-	case 26: CALL(inter8xH_qpel22_8bit, h, dstride_Y, dst_Y, sstride_Y, src_Y); break;
-	case 27: CALL(inter8xH_qpel23_8bit, h, dstride_Y, dst_Y, sstride_Y, src_Y); break;
-	case 28: CALL(inter8xH_qpel30_8bit, h, dstride_Y, dst_Y, sstride_Y, src_Y); break;
-	case 29: CALL(inter8xH_qpel31_8bit, h, dstride_Y, dst_Y, sstride_Y, src_Y); break;
-	case 30: CALL(inter8xH_qpel32_8bit, h, dstride_Y, dst_Y, sstride_Y, src_Y); break;
-	case 31: CALL(inter8xH_qpel33_8bit, h, dstride_Y, dst_Y, sstride_Y, src_Y); break;
-	
-	case 32: CALL(inter16xH_qpel00_8bit, h, dstride_Y, dst_Y, sstride_Y, src_Y); break;
-	case 33: CALL(inter16xH_qpel01_8bit, h, dstride_Y, dst_Y, sstride_Y, src_Y); break;
-	case 34: CALL(inter16xH_qpel02_8bit, h, dstride_Y, dst_Y, sstride_Y, src_Y); break;
-	case 35: CALL(inter16xH_qpel03_8bit, h, dstride_Y, dst_Y, sstride_Y, src_Y); break;
-	case 36: CALL(inter16xH_qpel10_8bit, h, dstride_Y, dst_Y, sstride_Y, src_Y); break;
-	case 37: CALL(inter16xH_qpel11_8bit, h, dstride_Y, dst_Y, sstride_Y, src_Y); break;
-	case 38: CALL(inter16xH_qpel12_8bit, h, dstride_Y, dst_Y, sstride_Y, src_Y); break;
-	case 39: CALL(inter16xH_qpel13_8bit, h, dstride_Y, dst_Y, sstride_Y, src_Y); break;
-	case 40: CALL(inter16xH_qpel20_8bit, h, dstride_Y, dst_Y, sstride_Y, src_Y); break;
-	case 41: CALL(inter16xH_qpel21_8bit, h, dstride_Y, dst_Y, sstride_Y, src_Y); break;
-	case 42: CALL(inter16xH_qpel22_8bit, h, dstride_Y, dst_Y, sstride_Y, src_Y); break;
-	case 43: CALL(inter16xH_qpel23_8bit, h, dstride_Y, dst_Y, sstride_Y, src_Y); break;
-	case 44: CALL(inter16xH_qpel30_8bit, h, dstride_Y, dst_Y, sstride_Y, src_Y); break;
-	case 45: CALL(inter16xH_qpel31_8bit, h, dstride_Y, dst_Y, sstride_Y, src_Y); break;
-	case 46: CALL(inter16xH_qpel32_8bit, h, dstride_Y, dst_Y, sstride_Y, src_Y); break;
-	case 47: CALL(inter16xH_qpel33_8bit, h, dstride_Y, dst_Y, sstride_Y, src_Y); break;
-	default: __builtin_unreachable();
-	}
+	CALL(luma_fcts[(w == 4 ? 0 : w == 8 ? 16 : 32) + yFrac_Y * 4 + xFrac_Y],
+		h, dstride_Y, dst_Y, sstride_Y, src_Y);
 	
 	// temporary hardcoding 4:2:0 until devising a simpler internal plane storage
 	size_t sstride_C = ctx->stride_C;

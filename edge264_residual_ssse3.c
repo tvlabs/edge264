@@ -138,11 +138,22 @@ __attribute__((noinline)) void FUNC(add_idct4x4)
 		__m128i zero = _mm_setzero_si128();
 		__m128i p0 = load4x2_8bit(p + stride * 0, p + stride * 1, zero);
 		__m128i p1 = load4x2_8bit(p + stride * 2, p + stride * 3, zero);
-		CALL(store4x4_8bit, stride, p, _mm_adds_epi16(p0, r0), _mm_adds_epi16(p1, r1));
+		v4si u = (v4si)_mm_packus_epi16(_mm_adds_epi16(p0, r0), _mm_adds_epi16(p1, r1));
+		*(int32_t *)(p             ) = u[0];
+		*(int32_t *)(p + stride    ) = u[1];
+		*(int32_t *)(p + stride * 2) = u[2];
+		*(int32_t *)(p + stride * 3) = u[3];
 	} else {
 		__m128i p0 = _mm_setr_epi64(*(__m64 *)(p + stride * 0), *(__m64 *)(p + stride * 1));
 		__m128i p1 = _mm_setr_epi64(*(__m64 *)(p + stride * 2), *(__m64 *)(p + stride * 3));
-		CALL(store4x4_16bit, stride, p, _mm_adds_epi16(p0, r0), _mm_adds_epi16(p1, r1));
+		__m128i zero = _mm_setzero_si128();
+		__m128i clip = (__m128i)ctx->clip_v;
+		v2li u0 = (v2li)_mm_min_epi16(_mm_max_epi16(_mm_adds_epi16(p0, r0), zero), clip);
+		v2li u1 = (v2li)_mm_min_epi16(_mm_max_epi16(_mm_adds_epi16(p1, r1), zero), clip);
+		*(int64_t *)(p             ) = u0[0];
+		*(int64_t *)(p + stride    ) = u0[1];
+		*(int64_t *)(p + stride * 2) = u1[0];
+		*(int64_t *)(p + stride * 3) = u1[1];
 	}
 }
 
@@ -152,9 +163,16 @@ __attribute__((noinline)) void FUNC(decode_Residual4x4, __m128i p0, __m128i p1)
 	uint8_t *p = ctx->frame + ctx->frame_offsets_x[ctx->BlkIdx2i4x4[ctx->BlkIdx]] + ctx->frame_offsets_y[ctx->BlkIdx2i4x4[ctx->BlkIdx]];
 	size_t stride = ctx->stride;
 	if (__builtin_expect(ctx->clip == 255, 1)) {
-		CALL(store4x4_8bit, stride, p, p0, p1);
+		v4si u = (v4si)_mm_packus_epi16(p0, p1);
+		*(int32_t *)(p             ) = u[0];
+		*(int32_t *)(p + stride    ) = u[1];
+		*(int32_t *)(p + stride * 2) = u[2];
+		*(int32_t *)(p + stride * 3) = u[3];
 	} else {
-		CALL(store4x4_16bit, stride, p, p0, p1);
+		*(int64_t *)(p             ) = ((v2li)p0)[0];
+		*(int64_t *)(p + stride    ) = ((v2li)p0)[1];
+		*(int64_t *)(p + stride * 2) = ((v2li)p1)[0];
+		*(int64_t *)(p + stride * 3) = ((v2li)p1)[1];
 	}
 	JUMP(add_idct4x4);
 }

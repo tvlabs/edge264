@@ -167,6 +167,9 @@ typedef struct
 	int8_t transform_8x8_mode_flag; // updated during parsing to replace noSubMbPartSizeLessThan8x8Flag
 	int8_t zero_if_col_short_term;
 	int8_t MapColToList0[33]; // [refIdxCol + 1]
+	union { v8qi biweights_l; v16qi biweights_v; };
+	union { v4hi bioffsets_l; v8hi bioffsets_v; };
+	union { v4hi logWD_l; v8hi logWD_v; };
 	union { int8_t RefPicList[2][32]; v16qi RefPicList_v[4]; };
 	uint8_t *ref_planes[2][32];
 	union { int32_t mvs_shuffle_s[4]; v16qi mvs_shuffle_v; }; // shuffle vector for mvs/absMvdComp storage
@@ -407,23 +410,6 @@ static inline v16qi byte_shuffle(v16qi a, v16qi mask) {
 static inline size_t lsd(size_t msb, size_t lsb, unsigned shift) {
 	__asm__("shld %%cl, %1, %0" : "+rm" (msb) : "r" (lsb), "c" (shift));
 	return msb;
-}
-static inline void FUNC(store4x4_8bit, size_t stride, uint8_t *dst, __m128i p0, __m128i p1) {
-	__m128i p = _mm_packus_epi16(p0, p1);
-	*(int32_t *)(dst             ) = ((v4si)p)[0];
-	*(int32_t *)(dst + stride    ) = ((v4si)p)[1];
-	*(int32_t *)(dst + stride * 2) = ((v4si)p)[2];
-	*(int32_t *)(dst + stride * 3) = ((v4si)p)[3];
-}
-static inline void FUNC(store4x4_16bit, size_t stride, uint8_t *dst, __m128i p0, __m128i p1) {
-	__m128i zero = _mm_setzero_si128();
-	__m128i clip = (__m128i)ctx->clip_v;
-	v2li u0 = (v2li)_mm_min_epi16(_mm_max_epi16(p0, zero), clip);
-	v2li u1 = (v2li)_mm_min_epi16(_mm_max_epi16(p1, zero), clip);
-	*(int64_t *)(dst             ) = u0[0];
-	*(int64_t *)(dst + stride    ) = u0[1];
-	*(int64_t *)(dst + stride * 2) = u1[0];
-	*(int64_t *)(dst + stride * 3) = u1[1];
 }
 // fixing GCC's defect
 #if defined(__GNUC__) && !defined(__clang__)

@@ -162,11 +162,12 @@ typedef struct
 	
 	// Inter context
 	uint32_t mvd_flags;
+	uint32_t bipred_flags;
 	uint32_t ref_idx_mask;
 	Edge264_macroblock *mbCol;
 	int8_t transform_8x8_mode_flag; // updated during parsing to replace noSubMbPartSizeLessThan8x8Flag
 	int8_t zero_if_col_short_term;
-	int8_t MapColToList0[33]; // [refIdxCol + 1]
+	int8_t MapColToList0[65]; // [refIdxCol + 1]
 	union { v8qi biweights_l; v16qi biweights_v; };
 	union { v4hi bioffsets_l; v8hi bioffsets_v; };
 	union { v4hi logWD_l; v8hi logWD_v; };

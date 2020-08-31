@@ -1,8 +1,8 @@
-// TODO: Add pmaddubsw weighting in the functions
 // TODO: There are 3 cases for initializing weights:
 //       - put values without weighting (if single non-weighted or first of pair)
 //       - put values with single weighting (if single weighted)
 //       - put values with double weighting (if second of pair)
+// TODO: Make ref_idx address the full RefPicList[64] ?
 // TODO: Invert X&Y in QPEL to match ffmpeg convention
 // TODO: Does restrict allow compilers to reorder reads/writes?
 // TODO: Add support for 16bit
@@ -588,7 +588,6 @@ INTER8xH_QPEL_10_20_30(qpel10, filter_6tap, _mm_avg_epu16(v0, l20), _mm_avg_epu1
 INTER8xH_QPEL_10_20_30(qpel20, noclip_6tap, v0, v1)
 INTER8xH_QPEL_10_20_30(qpel30, filter_6tap, _mm_avg_epu16(v0, l30), _mm_avg_epu16(v1, l40))
 
-// FIXME delay shufA to spare some instructions
 #define INTER8xH_QPEL_11_31(QPEL, R, S)\
 	static void FUNC(inter8xH_ ## QPEL ## _8bit, int h, size_t dstride, uint8_t * restrict dst, size_t sstride, uint8_t *src) {\
 		ssize_t nstride = -sstride;\
@@ -1316,9 +1315,19 @@ __attribute__((noinline)) void FUNC(decode_inter, int i, int w, int h, int x, in
 		src_Y = ctx->edge_buf + 66;
 	}
 	
-	ctx->biweights_v = (v16qi){0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1};
-	ctx->bioffsets_v = (v8hi){};
-	ctx->logWD_v = (v8hi){};
+	// initialize prediction weights
+	if (ctx->ps.weighted_bipred_idc != 1 ? !(ctx->bipred_flags & 1 << i) : ctx->mvd_flags >> 16 & 1 << i) {
+		ctx->biweights_v = (v16qi){0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1};
+		ctx->bioffsets_v = ctx->logWD_v = (v8hi){};
+	} else if (ctx->ps.weighted_bipred_idc == 2) { // 2nd ref of pair
+		
+	} else if (ctx->ps.weighted_bipred_idc == 0) { // 2nd ref of pair
+		ctx->biweights_v = (v16qi){1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1};
+		ctx->bioffsets_v = ctx->logWD_v = (v8hi){1, 1, 1, 1, 1, 1, 1, 1};
+	} else { // either 2nd ref of pair or single ref
+		
+	}
+	
 	size_t dstride_Y = ctx->stride_Y;
 	CALL(luma_fcts[(w == 4 ? 0 : w == 8 ? 16 : 32) + yFrac_Y * 4 + xFrac_Y],
 		h, dstride_Y, dst_Y, sstride_Y, src_Y);

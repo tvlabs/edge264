@@ -1206,13 +1206,13 @@ static void FUNC(init_direct_temporal_prediction)
 	
 	// Both GCC and Clang are INCREDIBLY dumb for any attempt to use ?: here.
 	if (refCol0 < 0)
-		refCol0 = mbCol->refIdx[4], mvCol0 = mbCol->mvs_v[4];
+		refCol0 = mbCol->refIdx[4] | 32, mvCol0 = mbCol->mvs_v[4];
 	if (refCol1 < 0)
-		refCol1 = mbCol->refIdx[5], mvCol1 = mbCol->mvs_v[5];
+		refCol1 = mbCol->refIdx[5] | 32, mvCol1 = mbCol->mvs_v[5];
 	if (refCol2 < 0)
-		refCol2 = mbCol->refIdx[6], mvCol2 = mbCol->mvs_v[6];
+		refCol2 = mbCol->refIdx[6] | 32, mvCol2 = mbCol->mvs_v[6];
 	if (refCol3 < 0)
-		refCol3 = mbCol->refIdx[7], mvCol3 = mbCol->mvs_v[7];
+		refCol3 = mbCol->refIdx[7] | 32, mvCol3 = mbCol->mvs_v[7];
 	
 	// with precomputed constants the rest is straightforward
 	mb->refIdx[0] = ctx->MapColToList0[1 + refCol0];

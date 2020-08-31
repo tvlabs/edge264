@@ -170,6 +170,7 @@ static void FUNC(initialise_decoding_context, Edge264_stream *e)
 		ctx->ref_idx_mask = (ctx->ps.num_ref_idx_active[0] > 1 ? 0x1111 : 0) |
 			(ctx->ps.num_ref_idx_active[1] > 1 ? 0x11110000 : 0);
 		//ctx->col_short_term = ~e->long_term_flags >> (ctx->RefPicList[1][0] & 15) & 1;
+		ctx->bipred_flags = 0;
 		
 		// initialize plane pointers for all references
 		for (int l = 0; l <= ctx->slice_type; l++) {

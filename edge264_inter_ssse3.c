@@ -3,6 +3,7 @@
 //       - put values with single weighting (if single weighted)
 //       - put values with double weighting (if second of pair)
 // TODO: Make ref_idx address the full RefPicList[64] ?
+// TODO: Invert LX and RefIdx in ctx ?
 // TODO: Invert X&Y in QPEL to match ffmpeg convention
 // TODO: Does restrict allow compilers to reorder reads/writes?
 // TODO: Add support for 16bit
@@ -1284,12 +1285,14 @@ __attribute__((noinline)) void FUNC(decode_inter, int i, int w, int h, int x, in
 		inter16xH_qpel30_8bit, inter16xH_qpel31_8bit, inter16xH_qpel32_8bit, inter16xH_qpel33_8bit,
 	};
 	
+	// load source and destination addresses
 	size_t sstride_Y = ctx->stride_Y;
 	int xInt_Y = ctx->frame_offsets_x[i] + (x >> 2); // FIXME 16 bit
 	int yInt_Y = ctx->frame_offsets_y[i] + (y >> 2) * sstride_Y;
 	int xFrac_Y = x & 3;
 	int yFrac_Y = y & 3;
-	uint8_t *ref = ctx->ref_planes[0][mb->refIdx[i >> 2]];
+	int refIdx = mb->refIdx[i >> 2];
+	uint8_t *ref = ctx->ref_planes[i >> 4][refIdx];
 	uint8_t *src_Y = ref + xInt_Y + yInt_Y;
 	uint8_t *dst_Y = ctx->frame + ctx->frame_offsets_x[i] + ctx->frame_offsets_y[i];
 	//	printf("<li>CurrMbAddr=%d, i=%d, w=%d, h=%d, ref=%d, x=%d, y=%d</li>\n", ctx->CurrMbAddr, i, w, h, mb->refIdx[i >> 2], x, y);
@@ -1319,18 +1322,36 @@ __attribute__((noinline)) void FUNC(decode_inter, int i, int w, int h, int x, in
 	if (ctx->ps.weighted_bipred_idc != 1 ? !(ctx->bipred_flags & 1 << i) : ctx->mvd_flags >> 16 & 1 << i) {
 		ctx->biweights_v = (v16qi){0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1};
 		ctx->bioffsets_v = ctx->logWD_v = (v8hi){};
-	} else if (ctx->ps.weighted_bipred_idc == 2) { // 2nd ref of pair
-		
-	} else if (ctx->ps.weighted_bipred_idc == 0) { // 2nd ref of pair
+	} else if (ctx->ps.weighted_bipred_idc == 2) { // implicit, 2nd ref of pair
+		ctx->logWD_v = (v8hi)(v2li){6};
+		ctx->bioffsets_v = (v8hi){32, 32, 32, 32, 32, 32, 32, 32};
+		int w1 = ctx->implicit_weights[0][mb->refIdx[(i >> 2) - 4]][refIdx];
+		int w0 = 64 - w1;
+		ctx->biweights_v = (v16qi){w0, w1, w0, w1, w0, w1, w0, w1, w0, w1, w0, w1, w0, w1, w0, w1};
+	} else if (ctx->ps.weighted_bipred_idc == 0) { // default, 2nd ref of pair
 		ctx->biweights_v = (v16qi){1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1};
-		ctx->bioffsets_v = ctx->logWD_v = (v8hi){1, 1, 1, 1, 1, 1, 1, 1};
-	} else { // either 2nd ref of pair or single ref
-		
+		ctx->bioffsets_v = (v8hi){1, 1, 1, 1, 1, 1, 1, 1};
+		ctx->logWD_v = (v8hi)(v2li){1};
+	} else if (ctx->bipred_flags & 1 << i) { // explicit, 2nd ref of pair
+		ctx->logWD_v = (v8hi)(v2li){ctx->luma_log2_weight_denom + 1};
+		int refIdxL0 = mb->refIdx[(i >> 2) - 4];
+		int w0 = ctx->weights_offsets[refIdxL0][0][0][0];
+		int o0 = ctx->weights_offsets[refIdxL0][0][0][1];
+		int w1 = ctx->weights_offsets[refIdx][1][0][0];
+		int o1 = ctx->weights_offsets[refIdx][1][0][1];
+		int o01 = ((o0 + o1 + 1) | 1) << ctx->luma_log2_weight_denom;
+		ctx->biweights_v = (v16qi){w0, w1, w0, w1, w0, w1, w0, w1, w0, w1, w0, w1, w0, w1, w0, w1};
+		ctx->bioffsets_v = (v8hi){o01, o01, o01, o01, o01, o01, o01, o01};
+	} else { // explicit, single ref
+		ctx->logWD_v = (v8hi)(v2li){ctx->luma_log2_weight_denom};
+		int w = ctx->weights_offsets[refIdx][i >> 4][0][0];
+		int o = (ctx->weights_offsets[refIdx][i >> 4][0][1] * 2 + 1) << ctx->luma_log2_weight_denom >> 1;
+		ctx->biweights_v = (v16qi){0, w, 0, w, 0, w, 0, w, 0, w, 0, w, 0, w, 0, w};
+		ctx->bioffsets_v = (v8hi){o, o, o, o, o, o, o, o};
 	}
 	
-	size_t dstride_Y = ctx->stride_Y;
 	CALL(luma_fcts[(w == 4 ? 0 : w == 8 ? 16 : 32) + yFrac_Y * 4 + xFrac_Y],
-		h, dstride_Y, dst_Y, sstride_Y, src_Y);
+		h, ctx->stride_Y, dst_Y, sstride_Y, src_Y);
 	
 	// temporary hardcoding 4:2:0 until devising a simpler internal plane storage
 	size_t sstride_C = ctx->stride_C;

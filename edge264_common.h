@@ -178,7 +178,8 @@ typedef struct
 	union { int8_t part_sizes[32]; int64_t part_sizes_l[4]; }; // pairs {w,h} for sizes of inter blocks
 	int16_t DistScaleFactor[32]; // [refIdxL0]
 	union { int8_t implicit_weights[2][32][32]; v16qi implicit_weights_v[2][32][2]; }; // w1 for [top/bottom][ref0][ref1]
-	int8_t weights_offsets[32][2][4][2]; // [RefIdx][LX][iYCbCr][weight/offset]
+	int8_t explicit_weights[3][2][32]; // [iYCbCr][LX][RefIdx]
+	int8_t explicit_offsets[3][2][32];
 	union { uint8_t edge_buf[1008]; int64_t edge_buf_l[126]; v16qu edge_buf_v[63]; };
 	
 	// Residuals context
@@ -395,6 +396,13 @@ static inline __m128i load4x2_8bit(uint8_t *r0, uint8_t *r1, __m128i zero) {
 #endif // __SSE4_1__
 
 #ifdef __SSSE3__
+static inline size_t lsd(size_t msb, size_t lsb, unsigned shift) {
+	__asm__("shld %%cl, %1, %0" : "+rm" (msb) : "r" (lsb), "c" (shift));
+	return msb;
+}
+static inline v16qi byte_shuffle(v16qi a, v16qi mask) {
+	return (v16qi)_mm_shuffle_epi8((__m128i)a, (__m128i)mask);
+}
 static inline v8hi vector_median(v8hi a, v8hi b, v8hi c) {
 	return (v8hi)_mm_max_epi16(_mm_min_epi16(_mm_max_epi16((__m128i)a,
 		(__m128i)b), (__m128i)c), _mm_min_epi16((__m128i)a, (__m128i)b));
@@ -404,13 +412,6 @@ static inline v8hi mv_near_zero(v8hi mvCol) {
 }
 static inline v8hi temporal_scale(v8hi mvCol, int16_t DistScaleFactor) {
 	return (v8hi)_mm_mulhrs_epi16(_mm_set1_epi16(DistScaleFactor), _mm_slli_epi16((__m128i)mvCol, 2));
-}
-static inline v16qi byte_shuffle(v16qi a, v16qi mask) {
-	return (v16qi)_mm_shuffle_epi8((__m128i)a, (__m128i)mask);
-}
-static inline size_t lsd(size_t msb, size_t lsb, unsigned shift) {
-	__asm__("shld %%cl, %1, %0" : "+rm" (msb) : "r" (lsb), "c" (shift));
-	return msb;
 }
 // fixing GCC's defect
 #if defined(__GNUC__) && !defined(__clang__)

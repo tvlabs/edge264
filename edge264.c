@@ -1,6 +1,7 @@
 /** TODOs:
  * _ Implement weighting inside edge264_inter.c
  * _ Implement parsing and decoding for B_Skip and B_Direct_16x16
+ * _ Try refactoring parse_mvs to make it a function and pass its arguments in registers instead of memory
  * _ Implement parsing and decoding for B_L[0/1]_[16x16/16x8/8x16]
  * _ Refactor with parse_P_mb to reduce duplicate code
  * _ Implement parsing and decoding for B_8x8
@@ -347,27 +348,27 @@ static void FUNC(parse_pred_weight_table, Edge264_stream *e)
 			ctx->chroma_log2_weight_denom = CALL(get_ue16, 7);
 		for (int l = 0; l <= ctx->slice_type; l++) {
 			for (int i = 0; i < ctx->ps.num_ref_idx_active[l]; i++) {
-				ctx->weights_offsets[i][l][0][0] = 1 << ctx->luma_log2_weight_denom;
-				ctx->weights_offsets[i][l][0][1] = 0;
-				ctx->weights_offsets[i][l][1][0] = 1 << ctx->chroma_log2_weight_denom;
-				ctx->weights_offsets[i][l][1][1] = 0;
-				ctx->weights_offsets[i][l][2][0] = 1 << ctx->chroma_log2_weight_denom;
-				ctx->weights_offsets[i][l][2][1] = 0;
+				ctx->explicit_weights[0][l][i] = 1 << ctx->luma_log2_weight_denom;
+				ctx->explicit_offsets[0][l][i] = 0;
+				ctx->explicit_weights[1][l][i] = 1 << ctx->chroma_log2_weight_denom;
+				ctx->explicit_offsets[1][l][i] = 0;
+				ctx->explicit_weights[2][l][i] = 1 << ctx->chroma_log2_weight_denom;
+				ctx->explicit_offsets[2][l][i] = 0;
 				if (CALL(get_u1)) {
-					ctx->weights_offsets[i][l][0][0] = CALL(get_se16, -128, 127);
-					ctx->weights_offsets[i][l][0][1] = CALL(get_se16, -128, 127);
+					ctx->explicit_weights[0][l][i] = CALL(get_se16, -128, 127);
+					ctx->explicit_offsets[0][l][i] = CALL(get_se16, -128, 127);
 				}
 				if (ctx->ps.ChromaArrayType != 0 && CALL(get_u1)) {
-					ctx->weights_offsets[i][l][1][0] = CALL(get_se16, -128, 127);
-					ctx->weights_offsets[i][l][1][1] = CALL(get_se16, -128, 127);
-					ctx->weights_offsets[i][l][2][0] = CALL(get_se16, -128, 127);
-					ctx->weights_offsets[i][l][2][1] = CALL(get_se16, -128, 127);
+					ctx->explicit_weights[1][l][i] = CALL(get_se16, -128, 127);
+					ctx->explicit_offsets[1][l][i] = CALL(get_se16, -128, 127);
+					ctx->explicit_weights[2][l][i] = CALL(get_se16, -128, 127);
+					ctx->explicit_offsets[2][l][i] = CALL(get_se16, -128, 127);
 				}
 				printf((ctx->ps.ChromaArrayType == 0) ? "<li>Prediction weights for RefPicList%x[%u]: <code>Y*%d>>%u+%d</code></li>\n" :
 					"<li>Prediction weights for RefPicList%x[%u]: <code>Y*%d>>%u+%d, Cb*%d>>%u+%d, Cr*%d>>%u+%d</code></li>\n", l, i,
-					ctx->weights_offsets[i][l][0][0], ctx->luma_log2_weight_denom, ctx->weights_offsets[i][l][0][1] << (ctx->ps.BitDepth_Y - 8),
-					ctx->weights_offsets[i][l][1][0], ctx->chroma_log2_weight_denom, ctx->weights_offsets[i][l][1][1] << (ctx->ps.BitDepth_C - 8),
-					ctx->weights_offsets[i][l][2][0], ctx->chroma_log2_weight_denom, ctx->weights_offsets[i][l][2][1] << (ctx->ps.BitDepth_C - 8));
+					ctx->explicit_weights[0][l][i], ctx->luma_log2_weight_denom, ctx->explicit_offsets[0][l][i] << (ctx->ps.BitDepth_Y - 8),
+					ctx->explicit_weights[1][l][i], ctx->chroma_log2_weight_denom, ctx->explicit_offsets[1][l][i] << (ctx->ps.BitDepth_C - 8),
+					ctx->explicit_weights[2][l][i], ctx->chroma_log2_weight_denom, ctx->explicit_offsets[2][l][i] << (ctx->ps.BitDepth_C - 8));
 			}
 		}
 	}

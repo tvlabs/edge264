@@ -126,7 +126,9 @@ static void FUNC(initialise_decoding_context, Edge264_stream *e)
 	ctx->A4x4_8bit[0] = (v16hi){5 + offA_8bit, 0, 7 + offA_8bit, 2, 1, 4, 3, 6, 13 + offA_8bit, 8, 15 + offA_8bit, 10, 9, 12, 11, 14};
 	ctx->B4x4_8bit[0] = (v16si){10 + offB_8bit, 11 + offB_8bit, 0, 1, 14 + offB_8bit, 15 + offB_8bit, 4, 5, 2, 3, 8, 9, 6, 7, 12, 13};
 	ctx->A8x8_8bit[0] = (v4hi){1 + offA_8bit, 0, 3 + offA_8bit, 2};
+	ctx->A8x8_8bit[1] = (v4hi){5 + offA_8bit, 4, 7 + offA_8bit, 6};
 	ctx->B8x8_8bit[0] = (v4si){2 + offB_8bit, 3 + offB_8bit, 0, 1};
+	ctx->B8x8_8bit[1] = (v4si){6 + offB_8bit, 7 + offB_8bit, 4, 5};
 	if (ctx->ps.ChromaArrayType == 1) {
 		ctx->A4x4_8bit[1] = (v16hi){17 + offA_8bit, 16, 19 + offA_8bit, 18, 21 + offA_8bit, 20, 23 + offA_8bit, 22};
 		ctx->B4x4_8bit[1] = (v16si){18 + offB_8bit, 19 + offB_8bit, 16, 17, 22 + offB_8bit, 23 + offB_8bit, 20, 21};
@@ -140,9 +142,7 @@ static void FUNC(initialise_decoding_context, Edge264_stream *e)
 		v16si s16 = {16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16};
 		ctx->B4x4_8bit[1] = ctx->B4x4_8bit[0] + s16;
 		ctx->B4x4_8bit[2] = ctx->B4x4_8bit[1] + s16;
-		ctx->A8x8_8bit[1] = (v4hi){5 + offA_8bit, 4, 7 + offA_8bit, 6};
 		ctx->A8x8_8bit[2] = (v4hi){9 + offA_8bit, 8, 11 + offA_8bit, 10};
-		ctx->B8x8_8bit[1] = (v4si){6 + offB_8bit, 7 + offB_8bit, 4, 5};
 		ctx->B8x8_8bit[2] = (v4si){10 + offB_8bit, 11 + offB_8bit, 8, 9};
 	}
 	

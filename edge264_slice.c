@@ -810,8 +810,8 @@ static __attribute__((noinline)) void FUNC(parse_ref_idx)
 {
 	for (unsigned f = ctx->mvd_flags & ctx->ref_idx_mask; f != 0; f &= f - 1) {
 		int i = __builtin_ctz(f) >> 2;
-		int refIdxA = *(mb->refIdx + (i & 4) + ctx->refIdx_A[i & 3]);
-		int refIdxB = *(mb->refIdx + (i & 4) + ctx->refIdx_B[i & 3]);
+		int refIdxA = *(mb->refIdx + ctx->refIdx_A[i]);
+		int refIdxB = *(mb->refIdx + ctx->refIdx_B[i]);
 		int ctxIdxInc = (refIdxA > 0) + (refIdxB > 0) * 2;
 		int num_ref_idx_active_minus1 = ctx->ps.num_ref_idx_active[i >> 2] - 1;
 		int refIdx = 0;

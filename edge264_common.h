@@ -129,7 +129,7 @@ typedef struct
 	uint8_t *frame; // address of first byte in luma plane of current picture
 	union { uint16_t frame_offsets_x[48]; v8hu frame_offsets_x_v[6]; }; // memory offsets for i4x4
 	union { int32_t frame_offsets_y[48]; v4si frame_offsets_y_v[12]; }; // premultiplied with strides
-	Edge264_macroblock *_mb; // backup storage when not in a live variable
+	Edge264_macroblock * restrict _mb; // backup storage when not in a live variable
 	Edge264_stream *e; // for predicates at TRACE>0
 	v8hi clip_Y; // vector of maximum sample values
 	v8hi clip_C;

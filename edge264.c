@@ -1,9 +1,10 @@
 /** TODOs:
- * _ Implement weighting inside edge264_inter.c
  * _ Implement parsing and decoding for B_Skip and B_Direct_16x16
  * _ Try refactoring parse_mvs to make it a function and pass its arguments in registers instead of memory
  * _ Implement parsing and decoding for B_L[0/1]_[16x16/16x8/8x16]
  * _ Refactor with parse_P_mb to reduce duplicate code
+ * _ Refactor parse_ref_idx to pass mask as argument
+ * _ Vectorize initialization of pred weights right after parse_ref_idx
  * _ Implement parsing and decoding for B_8x8
  * _ Initialize implicit and explicit weights for P/B slices
  * _ Test and debug B slices
@@ -13,7 +14,6 @@
  * _ Remove stride variable in favor of passing it directly to residual functions
  * _ Remove Pred modes and related variables (BlkIdx)
  
- * _ switch to SDL which is likely to have a more stable future support than GLFW, with an option to play without display
  * _ make ret non sticky to allow partial decodes during implementation
  * _ update the tables of names for profiles and NAL types
  * _ upgrade DPB storage size to 32 (to allow future multithreaded decoding), by simply doubling reference and output flags sizes

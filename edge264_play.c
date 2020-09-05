@@ -161,38 +161,56 @@ int main(int argc, char *argv[])
 		 1.0,  1.0, 1.0, 0.0,
 		 1.0, -1.0, 1.0, 1.0};
 	
+	// read command-line options
+	int bench = 0, help = 0;
+	char *input_name = NULL, *yuv_name = NULL;
+	for (int i = 1; i < argc; i++) {
+		if (strcmp(argv[i], "-b") == 0) {
+			bench = 1;
+		} else if (strcmp(argv[i], "--help") == 0 || strcmp(argv[i], "-h") == 0) {
+			help = 1;
+		} else if (input_name == NULL) {
+			input_name = argv[i];
+		} else if (yuv_name == NULL) {
+			yuv_name = argv[i];
+		} else {
+			help = 1;
+		}
+	}
+	
 	// print help if called with -h, --help, or no argument
-	if (argc < 2 || strcmp(argv[1], "--help") == 0 || strcmp(argv[1], "-h") == 0) {
-		fprintf(stdout, "Usage: %s video.264 [video.yuv]\n", argv[0]);
+	if (help || argc == 1) {
+		fprintf(stdout, "Usage: %s [-b] video.264 [video.yuv]\n"
+		                "-b\tDisable display and print decoding time\n", argv[0]);
 		return 0;
 	}
 	
 	// memory-map the input file
-	int fd = open(argv[1], O_RDONLY);
-	if (fd < 0) {
-		perror(argv[1]);
+	int input = open(input_name, O_RDONLY);
+	if (input < 0) {
+		perror(input_name);
 		return 0;
 	}
 	struct stat stC;
-	fstat(fd, &stC);
-	uint8_t *cpb = mmap(NULL, stC.st_size, PROT_READ, MAP_SHARED, fd, 0);
+	fstat(input, &stC);
+	uint8_t *cpb = mmap(NULL, stC.st_size, PROT_READ, MAP_SHARED, input, 0);
 	assert(cpb!=MAP_FAILED);
 	
 	// allocate and setup the main Edge264 structure
 	Edge264_stream e = {
 		.CPB = cpb + 3 + (cpb[2] == 0),
 		.end = cpb + stC.st_size,
-		.output_frame = print_frame
+		.output_frame = bench ? NULL : print_frame
 	};
 	
 	// memory-map the optional yuv reference file
 	int yuv = -1;
 	struct stat stD;
 	uint8_t *dpb = NULL;
-	if (argc >= 3) {
-		yuv = open(argv[2], O_RDONLY);
+	if (yuv_name != NULL) {
+		yuv = open(yuv_name, O_RDONLY);
 		if (yuv < 0) {
-			perror(argv[2]);
+			perror(yuv_name);
 			return 0;
 		}
 		fstat(yuv, &stD);
@@ -202,50 +220,52 @@ int main(int argc, char *argv[])
 	}
 	
 	// initialize OpenGL with GLFW
-	glfwInit();
-	glfwWindowHint(GLFW_VISIBLE, GLFW_FALSE);
-	window = glfwCreateWindow(1, 1, "Play", NULL, NULL);
-	glfwMakeContextCurrent(window);
-	glfwSwapInterval(1);
-	glClearColor(0.5, 0.5, 0.5, 1);
-	glDisable(GL_DEPTH_TEST);
-	glEnable(GL_MULTISAMPLE);
-	
-	// compile and link the shaders
-	unsigned program = glCreateProgram();
-	unsigned vshader = glCreateShader(GL_VERTEX_SHADER);
-	unsigned fshader = glCreateShader(GL_FRAGMENT_SHADER);
-	glShaderSource(vshader, 1, (const char*const*)&vsource, NULL);
-	glShaderSource(fshader, 1, (const char*const*)&fsource, NULL);
-	glCompileShader(vshader);
-	glCompileShader(fshader);
-	glAttachShader(program, vshader);
-	glAttachShader(program, fshader);
-	glBindAttribLocation(program, 0, "aCoord");
-	glLinkProgram(program);
-	glUseProgram(program);
-	glEnableVertexAttribArray(0);
-	glUniform1i(glGetUniformLocation(program, "texY"), 0);
-	glUniform1i(glGetUniformLocation(program, "texCb"), 1);
-	glUniform1i(glGetUniformLocation(program, "texCr"), 2);
-	
-	// load a dummy quad
-	unsigned vbo;
-	glGenBuffers(1, &vbo);
-	glBindBuffer(GL_ARRAY_BUFFER, vbo);
-	glBufferData(GL_ARRAY_BUFFER, sizeof(quad), quad, GL_STATIC_DRAW);
-	
-	// setup texture units
-	glGenTextures(3, textures);
-	glBindTexture(GL_TEXTURE_2D, textures[0]);
-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
-	glBindTexture(GL_TEXTURE_2D, textures[1]);
-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
-	glBindTexture(GL_TEXTURE_2D, textures[2]);
-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+	if (!bench) {
+		glfwInit();
+		glfwWindowHint(GLFW_VISIBLE, GLFW_FALSE);
+		window = glfwCreateWindow(1, 1, "Play", NULL, NULL);
+		glfwMakeContextCurrent(window);
+		glfwSwapInterval(1);
+		glClearColor(0.5, 0.5, 0.5, 1);
+		glDisable(GL_DEPTH_TEST);
+		glEnable(GL_MULTISAMPLE);
+		
+		// compile and link the shaders
+		unsigned program = glCreateProgram();
+		unsigned vshader = glCreateShader(GL_VERTEX_SHADER);
+		unsigned fshader = glCreateShader(GL_FRAGMENT_SHADER);
+		glShaderSource(vshader, 1, (const char*const*)&vsource, NULL);
+		glShaderSource(fshader, 1, (const char*const*)&fsource, NULL);
+		glCompileShader(vshader);
+		glCompileShader(fshader);
+		glAttachShader(program, vshader);
+		glAttachShader(program, fshader);
+		glBindAttribLocation(program, 0, "aCoord");
+		glLinkProgram(program);
+		glUseProgram(program);
+		glEnableVertexAttribArray(0);
+		glUniform1i(glGetUniformLocation(program, "texY"), 0);
+		glUniform1i(glGetUniformLocation(program, "texCb"), 1);
+		glUniform1i(glGetUniformLocation(program, "texCr"), 2);
+		
+		// load a dummy quad
+		unsigned vbo;
+		glGenBuffers(1, &vbo);
+		glBindBuffer(GL_ARRAY_BUFFER, vbo);
+		glBufferData(GL_ARRAY_BUFFER, sizeof(quad), quad, GL_STATIC_DRAW);
+		
+		// setup texture units
+		glGenTextures(3, textures);
+		glBindTexture(GL_TEXTURE_2D, textures[0]);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+		glBindTexture(GL_TEXTURE_2D, textures[1]);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+		glBindTexture(GL_TEXTURE_2D, textures[2]);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+	}
 	
 	// parse and dump the file to HTML
 	setbuf(stdout, NULL);
@@ -260,11 +280,12 @@ int main(int argc, char *argv[])
 	
 	// cleanup everything
 	munmap(cpb, stC.st_size);
-	close(fd);
+	close(input);
 	if (yuv >= 0) {
 		munmap(dpb, stD.st_size);
 		close(yuv);
 	}
-	glfwTerminate();
+	if (!bench)
+		glfwTerminate();
 	return 0;
 }

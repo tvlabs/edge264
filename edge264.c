@@ -1,6 +1,4 @@
 /** TODOs:
- * _ Check where is CPB after decoding a NAL, and with which offset we should look for next start code
- 
  * _ Implement parsing and decoding for B_Skip and B_Direct_16x16
  * _ Try refactoring parse_mvs to make it a function and pass its arguments in registers instead of memory
  * _ Implement parsing and decoding for B_L[0/1]_[16x16/16x8/8x16]
@@ -16,7 +14,6 @@
  * _ Remove stride variable in favor of passing it directly to residual functions
  * _ Remove Pred modes and related variables (BlkIdx)
  
- * _ make ret non sticky to allow partial decodes during implementation
  * _ update the tables of names for profiles and NAL types
  * _ upgrade DPB storage size to 32 (to allow future multithreaded decoding), by simply doubling reference and output flags sizes
  * _ backup output/ref flags and FrameNum and restore then on bad slice_header
@@ -1521,6 +1518,7 @@ int Edge264_decode_NAL(Edge264_stream *e)
 	mb = ctx->_mb;
 	codIRange = _codIRange;
 	codIOffset = _codIOffset;
+	// CPB may point anywhere up to the last byte of the next start code
 	e->CPB = Edge264_find_start_code(1, ctx->CPB - 2, ctx->end);
 	RESET_CTX();
 	return (ret == 0 && e->CPB >= e->end) ? 3 : ret;

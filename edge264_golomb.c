@@ -69,8 +69,8 @@ __attribute__((noinline)) int FUNC(refill, int ret)
 	while (__builtin_expect(esc & (SIZE_BIT == 32 ? 0xf : 0xff), 0)) {
 		int i = __builtin_ctz(esc);
 		
-		// for a start code, stay there to prevent future refills from advancing
-		if (CPB[i] <3) { // does not overflow end since we inserted -1 after it
+		// when hitting a start code, point at the 3rd byte to stall future refills there
+		if (CPB[i] <3) {
 			after = CPB + i;
 			break;
 		}

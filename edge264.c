@@ -1,4 +1,6 @@
 /** TODOs:
+ * _ Check where is CPB after decoding a NAL, and with which offset we should look for next start code
+ 
  * _ Implement parsing and decoding for B_Skip and B_Direct_16x16
  * _ Try refactoring parse_mvs to make it a function and pass its arguments in registers instead of memory
  * _ Implement parsing and decoding for B_L[0/1]_[16x16/16x8/8x16]
@@ -21,6 +23,9 @@
  * _ try using epb for context pointer, and email GCC when it fails
  * _ When implementing fields and MBAFF, keep the same pic coding struct (no FLD/AFRM) and just add mb_field_decoding_flag
  * _ after implementing P/B and MBAFF, optimize away array accesses of is422 and mb->f.mb_field_decoding_flag
+ 
+ * _ Current x264 options in HandBrake to output compatible video: no-deblock:slices=1:no-8x8dct:bframes=0
+ * _ To benchmark ffmpeg: time ffmpeg -hide_banner -loglevel warning -i video.264 -f null -
  */
 
 #include "edge264_common.h"
@@ -582,11 +587,11 @@ static int FUNC(parse_slice_layer_without_partitioning, Edge264_stream *e)
 		red_if(ctx->slice_type > 2), slice_type, slice_type_names[ctx->slice_type],
 		red_if(pic_parameter_set_id >= 4 || e->PPSs[pic_parameter_set_id].num_ref_idx_active[0] == 0), pic_parameter_set_id);
 	
-	// If pic_parameter_set_id>=4 then it cannot have been initialized before, thus is erroneous.
-	if (pic_parameter_set_id >= 4 || e->PPSs[pic_parameter_set_id].num_ref_idx_active[0] == 0)
-		return -2;
-	if (ctx->slice_type > 2 || ctx->slice_type == 1)
-		return -1;
+	// check that the requested PPS was initialised and is supported
+	if (pic_parameter_set_id >= 4 || ctx->slice_type > 2)
+		return 1;
+	if (e->PPSs[pic_parameter_set_id].num_ref_idx_active[0] == 0)
+		return 2;
 	ctx->ps = e->PPSs[pic_parameter_set_id];
 	
 	// Gaps in frame_num are currently ignored until implementing Error Concealment.
@@ -671,7 +676,7 @@ static int FUNC(parse_slice_layer_without_partitioning, Edge264_stream *e)
 		CALL(parse_ref_pic_list_modification, e);
 		if (ctx->RefPicList[0][ctx->ps.num_ref_idx_active[0] - 1] < 0 ||
 			(ctx->slice_type == 1 && ctx->RefPicList[1][ctx->ps.num_ref_idx_active[1] - 1] < 0))
-			return -2;
+			return 2;
 		
 		CALL(parse_pred_weight_table, e);
 	}
@@ -706,16 +711,16 @@ static int FUNC(parse_slice_layer_without_partitioning, Edge264_stream *e)
 		}
 	}
 	
-	// If we have the guts to decode this frame, fill ctx with useful values.
-	if (first_mb_in_slice > 0 || ctx->disable_deblocking_filter_idc != 1)
-		return -1;
+	// check if we still want to decode this frame, then fill ctx with useful values
+	if (ctx->slice_type == 1 || first_mb_in_slice > 0 || ctx->disable_deblocking_filter_idc != 1)
+		return 1;
 	CALL(initialise_decoding_context, e);
 	
 	// cabac_alignment_one_bit gives a good probability to catch random errors.
 	if (ctx->ps.entropy_coding_mode_flag) {
 		unsigned bits = (SIZE_BIT - 1 - ctz(lsb_cache)) & 7;
 		if (bits != 0 && CALL(get_uv, bits) != (1 << bits) - 1)
-			return -2;
+			return 2;
 		CALL(init_cabac, cabac_init_idc);
 		CALL(parse_slice_data);
 		// I'd rather display a portion of image than nothing, so do not test errors here yet
@@ -945,11 +950,11 @@ static int FUNC(parse_pic_parameter_set, Edge264_stream *e)
 	
 	// seq_parameter_set_id was ignored so far since no SPS data was read.
 	if (CALL(get_uv, 24) != 0x800000 || e->DPB == NULL)
-		return -2;
+		return 2;
 	if (pic_parameter_set_id >= 4 || !ctx->ps.entropy_coding_mode_flag ||
 		num_slice_groups > 1 || ctx->ps.constrained_intra_pred_flag ||
 		redundant_pic_cnt_present_flag)
-		return -1;
+		return 1;
 	e->PPSs[pic_parameter_set_id] = ctx->ps;
 	return 0;
 }
@@ -1362,10 +1367,10 @@ static int FUNC(parse_seq_parameter_set, Edge264_stream *e)
 	if (CALL(get_u1))
 		CALL(parse_vui_parameters);
 	if (CALL(get_uv, 24) != 0x800000)
-		return -2;
+		return 2;
 	if (ctx->ps.chroma_format_idc != ctx->ps.ChromaArrayType ||
 		ctx->ps.qpprime_y_zero_transform_bypass_flag || !ctx->ps.frame_mbs_only_flag)
-		return -1;
+		return 1;
 	
 	// reallocate the DPB when the image format changes
 	if (memcmp(&ctx->ps, &e->SPS, 8) != 0) {
@@ -1427,16 +1432,13 @@ const uint8_t *Edge264_find_start_code(int n, const uint8_t *CPB, const uint8_t 
 
 
 
-int Edge264_end_stream(Edge264_stream *e) {
-	int ret = e->ret;
+void Edge264_end_stream(Edge264_stream *e) {
 	if (e->DPB != NULL) {
-		if (ret == 0)
-			bump_pictures(e, 0, 15); // FIXME: increase when upgrading to 17-frames DPB
+		bump_pictures(e, 0, 15); // FIXME: increase when upgrading to 17-frames DPB
 		free(e->DPB);
 	}
 	// resetting the structure is safer for maintenance of future variables
 	memset((void *)e + offsetof(Edge264_stream, DPB), 0, sizeof(*e) - offsetof(Edge264_stream, DPB));
-	return ret;
 }
 
 
@@ -1477,7 +1479,7 @@ int Edge264_decode_NAL(Edge264_stream *e)
 	
 	// allocate the decoding context and backup registers
 	if (e->CPB + 2 >= e->end)
-		return 1;
+		return 3;
 	check_stream(e);
 	Edge264_ctx context;
 	SET_CTX(&context);
@@ -1505,12 +1507,13 @@ int Edge264_decode_NAL(Edge264_stream *e)
 		red_if(parse_nal_unit[nal_unit_type] == NULL), nal_unit_type, nal_unit_type_names[nal_unit_type]);
 	
 	// branching on nal_unit_type
-	if (parse_nal_unit[nal_unit_type] != NULL && e->ret >= 0) {
-		e->ret = CALL(parse_nal_unit[nal_unit_type], e);
-		if (e->ret == -1)
+	int ret = 0;
+	if (parse_nal_unit[nal_unit_type] != NULL) {
+		ret = CALL(parse_nal_unit[nal_unit_type], e);
+		if (ret == 1)
 			printf("<li style=\"color: red\">Unsupported stream</li>\n");
-		if (e->ret == -2)
-			printf("<li style=\"color: red\">Erroneous NAL unit</li>\n");
+		if (ret == 2)
+			printf("<li style=\"color: red\">Decoding error</li>\n");
 	}
 	printf("</ul>\n");
 	
@@ -1520,5 +1523,5 @@ int Edge264_decode_NAL(Edge264_stream *e)
 	codIOffset = _codIOffset;
 	e->CPB = Edge264_find_start_code(1, ctx->CPB - 2, ctx->end);
 	RESET_CTX();
-	return (e->CPB >= e->end && e->ret >= 0) ? 1 : e->ret;
+	return (ret == 0 && e->CPB >= e->end) ? 3 : ret;
 }

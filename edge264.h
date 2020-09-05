@@ -82,7 +82,6 @@ typedef struct Edge264_stream {
 	void *user; // optional
 	
 	uint8_t *DPB; // NULL before the first SPS is decoded
-	int8_t ret; // 0=OK, -1=unsupported, -2=error
 	int8_t currPic; // index of next available DPB slot
 	int16_t stride_Y; // 15 significant bits
 	int16_t stride_C;
@@ -115,18 +114,18 @@ const uint8_t *Edge264_find_start_code(int n, const uint8_t *CPB, const uint8_t 
  * output_frame will be called after decoding if a frame is ready for output.
  * Note that it may output a buffered frame rather than the one just decoded
  * (determined by encoder), and may also output several frames after one NAL.
- * Returns 0 on success, 1 on end of stream, -1 on unsupported stream, and -2
- * on error. Negative codes are sticky until next reset.
+ * Returns 0 on success, 1 on unsupported stream, 2 on decoding error, and 3
+ * when reaching the end of stream (before or after decoding).
  */
 int Edge264_decode_NAL(Edge264_stream *e);
 
 
 /**
- * Outputs all remaining pictures, then deallocates all buffers and zeroes the
- * entire structure except CPB/end/output_frame/user. Returns the sticky error
- * code (before clearing it).
+ * Outputs all remaining pictures (ignoring values returned from output_frame),
+ * then deallocates all buffers and zeroes the entire structure except
+ * CPB/end/output_frame/user.
  * To end quickly without outputs, clear output_frame before the call.
  */
-int Edge264_end_stream(Edge264_stream *e);
+void Edge264_end_stream(Edge264_stream *e);
 
 #endif

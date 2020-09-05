@@ -64,10 +64,11 @@ int main() {
 		
 		// decode the entire file and FAIL on any error
 		printf("%s: ", entry->d_name);
-		while (Edge264_decode_NAL(&e) == 0);
-		int ret = Edge264_end_stream(&e);
-		counts[-ret]++;
-		printf("%s\n" RESET, ret == -1 ? YELLOW "UNSUPPORTED" : ret == -2 ? RED "FAIL" : ret == -3 ? BLUE "FLAGGED" : GREEN "PASS");
+		int ret;
+		while ((ret = Edge264_decode_NAL(&e)) == 0);
+		Edge264_end_stream(&e);
+		counts[ret - 1]++;
+		printf("%s\n" RESET, ret == 1 ? YELLOW "UNSUPPORTED" : ret == 2 ? RED "FAIL" : ret == 4 ? BLUE "FLAGGED" : GREEN "PASS");
 		
 		// close everything
 		munmap(cpb, stC.st_size);
@@ -80,6 +81,6 @@ int main() {
 	if (counts[3] > 0)
 		printf("%d " BLUE "FLAGGED" RESET ", ", counts[3]);
 	printf("%d " GREEN "PASS" RESET ", %d " YELLOW "UNSUPPORTED" RESET ", %d " RED "FAIL" RESET "\n",
-		counts[0], counts[1], counts[2]);
+		counts[2], counts[0], counts[1]);
 	return 0;
 }

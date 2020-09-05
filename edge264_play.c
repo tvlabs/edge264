@@ -11,6 +11,7 @@
 #include <string.h>
 #include <unistd.h>
 #include <sys/mman.h>
+#include <sys/resource.h>
 #include <sys/stat.h>
 #include <sys/types.h>
 
@@ -285,7 +286,13 @@ int main(int argc, char *argv[])
 		munmap(dpb, stD.st_size);
 		close(yuv);
 	}
-	if (!bench)
+	if (bench) {
+		struct rusage rusage;
+		getrusage(RUSAGE_SELF, &rusage);
+		fprintf(stdout, "CPU: %ld us\nmemory: %ld Kb\n",
+			rusage.ru_utime.tv_sec * 1000000 + rusage.ru_utime.tv_usec, rusage.ru_maxrss);
+	} else {
 		glfwTerminate();
+	}
 	return 0;
 }

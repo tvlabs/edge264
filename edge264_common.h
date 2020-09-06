@@ -130,7 +130,7 @@ typedef struct
 	union { uint16_t frame_offsets_x[48]; v8hu frame_offsets_x_v[6]; }; // memory offsets for i4x4
 	union { int32_t frame_offsets_y[48]; v4si frame_offsets_y_v[12]; }; // premultiplied with strides
 	Edge264_macroblock * restrict _mb; // backup storage when not in a live variable
-	Edge264_stream *e; // for predicates at TRACE>0
+	const Edge264_stream *e; // for predicates at TRACE>0
 	v8hi clip_Y; // vector of maximum sample values
 	v8hi clip_C;
 	union { int16_t clip; v8hi clip_v; };
@@ -164,7 +164,7 @@ typedef struct
 	uint32_t mvd_flags;
 	uint32_t bipred_flags;
 	uint32_t ref_idx_mask;
-	Edge264_macroblock *mbCol;
+	const Edge264_macroblock *mbCol;
 	int8_t transform_8x8_mode_flag; // updated during parsing to replace noSubMbPartSizeLessThan8x8Flag
 	int8_t zero_if_col_short_term;
 	int8_t MapColToList0[65]; // [refIdxCol + 1]
@@ -172,7 +172,7 @@ typedef struct
 	union { v4hi bioffsets_l; v8hi bioffsets_v; };
 	union { v4hi logWD_l; v8hi logWD_v; };
 	union { int8_t RefPicList[2][32]; v16qi RefPicList_v[4]; };
-	uint8_t *ref_planes[2][32];
+	const uint8_t *ref_planes[2][32];
 	union { int32_t mvs_shuffle_s[4]; v16qi mvs_shuffle_v; }; // shuffle vector for mvs/absMvdComp storage
 	union { int8_t refIdx4x4_eq[32]; v16qi refIdx4x4_eq_v[2]; };
 	union { int8_t part_sizes[32]; int64_t part_sizes_l[4]; }; // pairs {w,h} for sizes of inter blocks
@@ -233,16 +233,16 @@ typedef struct
  * Storing codIRange/Offset in registers also gives a big performance gain.
  */
 #if defined(__SSSE3__) && !defined(__clang__)
-register Edge264_ctx *ctx asm("ebx");
+register Edge264_ctx * restrict ctx asm("ebx");
 #define SET_CTX(p) Edge264_ctx *old = ctx; ctx = p
 #define RESET_CTX() ctx = old
 #define FUNC(f, ...) f(__VA_ARGS__)
 #define CALL(f, ...) f(__VA_ARGS__)
 #define JUMP(f, ...) {f(__VA_ARGS__); return;}
 #else
-#define SET_CTX(p) Edge264_ctx *ctx = p
+#define SET_CTX(p) Edge264_ctx * restrict ctx = p
 #define RESET_CTX()
-#define FUNC(f, ...) f(Edge264_ctx *ctx, ## __VA_ARGS__)
+#define FUNC(f, ...) f(Edge264_ctx * restrict ctx, ## __VA_ARGS__)
 #define CALL(f, ...) f(ctx, ## __VA_ARGS__)
 #define JUMP(f, ...) {f(ctx, ## __VA_ARGS__); return;}
 #endif
@@ -365,10 +365,10 @@ static inline __m128i _mm_broadcastw_epi16(__m128i a) {
 #ifdef __SSE4_1__
 #include <smmintrin.h>
 #define vector_select(mask, t, f) (typeof(f))_mm_blendv_epi8((__m128i)(f), (__m128i)(t), (__m128i)(mask))
-static inline __m128i load8x1_8bit(uint8_t *p, __m128i zero) {
+static inline __m128i load8x1_8bit(const uint8_t *p, __m128i zero) {
 	return _mm_cvtepu8_epi16(_mm_loadu_si64(p));
 }
-static inline __m128i load4x2_8bit(uint8_t *r0, uint8_t *r1, __m128i zero) {
+static inline __m128i load4x2_8bit(const uint8_t *r0, const uint8_t *r1, __m128i zero) {
 	return _mm_cvtepu8_epi16(_mm_insert_epi32(_mm_cvtsi32_si128(*(int *)r0), *(int *)r1, 1));
 }
 #elif defined __SSSE3__
@@ -385,10 +385,10 @@ static inline __m128i _mm_mullo_epi32(__m128i a, __m128i b) {
 static inline __m128i _mm_packus_epi32(__m128i a, __m128i b) {
 	return _mm_max_epi16(_mm_packs_epi32(a, b), _mm_setzero_si128());
 }
-static inline __m128i load8x1_8bit(uint8_t *p, __m128i zero) {
+static inline __m128i load8x1_8bit(const uint8_t *p, __m128i zero) {
 	return _mm_unpacklo_epi8(_mm_loadu_si64(p), zero);
 }
-static inline __m128i load4x2_8bit(uint8_t *r0, uint8_t *r1, __m128i zero) {
+static inline __m128i load4x2_8bit(const uint8_t *r0, const uint8_t *r1, __m128i zero) {
 	__m128i x0 = _mm_cvtsi32_si128(*(int *)r0); // beware unaligned load
 	__m128i x1 = _mm_cvtsi32_si128(*(int *)r1);
 	return _mm_unpacklo_epi8(_mm_unpacklo_epi32(x0, x1), zero);

@@ -796,25 +796,26 @@ static __attribute__((noinline)) void FUNC(parse_I_mb, int ctxIdx)
 /**
  * Parses ref_idx_lx (9.3.3.1.1.6).
  *
- * There are 4 code paths (8x8, 8x16, 16x8, 16x16) with different treatments
- * after parsing ref_idx, so we put it in a function to spare a branch after.
+ * This function uses 3 callee-saved registers across get_ae, which will thus
+ * be pushed in the prologue. Passing refIdx_A/B as arguments would increase
+ * this count to 5, since they are always used after parse_ref_idx. Instead we
+ * reload them afterwards since it is cheaper (2 reads vs 1 read and 1 write).
  */
-static __attribute__((noinline)) void FUNC(parse_ref_idx)
+static inline int FUNC(parse_ref_idx, int i)
 {
-	for (unsigned f = ctx->mvd_flags & ctx->ref_idx_mask; f != 0; f &= f - 1) {
-		int i = __builtin_ctz(f) >> 2;
-		int refIdxA = *(mb->refIdx + ctx->refIdx_A[i]);
-		int refIdxB = *(mb->refIdx + ctx->refIdx_B[i]);
-		int ctxIdxInc = (refIdxA > 0) + (refIdxB > 0) * 2;
-		int num_ref_idx_active_minus1 = ctx->ps.num_ref_idx_active[i >> 2] - 1;
-		int refIdx = 0;
+	int refIdxA = *(mb->refIdx + ctx->refIdx_A[i]);
+	int refIdxB = *(mb->refIdx + ctx->refIdx_B[i]);
+	int ctxIdxInc = (refIdxA > 0) + (refIdxB > 0) * 2;
+	int num_ref_idx_active_minus1 = ctx->ps.num_ref_idx_active[i >> 2] - 1;
+	int refIdx = 0;
+	if (num_ref_idx_active_minus1 > 0) {
 		while (CALL(get_ae, 54 + ctxIdxInc) && refIdx < num_ref_idx_active_minus1) {
 			ctxIdxInc = (ctxIdxInc >> 2) + 4; // cool trick from ffmpeg
 			refIdx++;
 		}
-		mb->refIdx[i] = refIdx;
-		fprintf(stderr, "ref_idx: %u\n", refIdx);
 	}
+	fprintf(stderr, "ref_idx: %u\n", refIdx);
+	return refIdx;
 }
 
 
@@ -907,15 +908,13 @@ static __attribute__((noinline)) void FUNC(parse_ref_idx)
 	// initializations and jumps for mb_type
 	if (!CALL(get_ae, 15)) {
 		if (!CALL(get_ae, 16)) { // 16x16
-			ctx->mvd_flags = 0x0001;
 			fprintf(stderr, "mb_type: 0\n");
-			CALL(parse_ref_idx);
-			int refIdx = mb->refIdx[0];
+			int refIdx = CALL(parse_ref_idx, 0);
 			int refIdxA = *(mb->refIdx + ctx->refIdx_A[0]);
 			int refIdxB = *(mb->refIdx + ctx->refIdx_B[0]);
 			int refIdxC = *(mb->refIdx + (ctx->inc.unavailable & 4 ? ctx->refIdx_D : ctx->refIdx_C));
 			ctx->mvs_C[0] = (ctx->inc.unavailable & 4) ? ctx->mvs8x8_D[0] : ctx->mvs8x8_C[1];
-			mb->refIdx_v = __builtin_shufflevector(mb->refIdx_v, mb->refIdx_v, 0, 0, 0, 0, 4, 4, 4, 4);
+			mb->refIdx_s[0] = refIdx * 0x01010101;
 			ctx->refIdx4x4_eq[0] = ((refIdx==refIdxA) | (ctx->inc.unavailable==14)) + (refIdx==refIdxB) * 2 + (refIdx==refIdxC) * 4;
 			ctx->part_sizes_l[0] = (int64_t)(v8qi){16, 16};
 			CALL(parse_mv, 0);
@@ -926,11 +925,9 @@ static __attribute__((noinline)) void FUNC(parse_ref_idx)
 		} // else 8x8
 		
 	} else if (!CALL(get_ae, 17)) { // 8x16
-		ctx->mvd_flags = 0x0011;
 		fprintf(stderr, "mb_type: 2\n");
-		CALL(parse_ref_idx);
-		int refIdx0 = mb->refIdx[0];
-		int refIdx1 = mb->refIdx[1];
+		int refIdx0 = mb->refIdx[0] = mb->refIdx[2] = CALL(parse_ref_idx, 0);
+		int refIdx1 = mb->refIdx[1] = mb->refIdx[3] = CALL(parse_ref_idx, 1);
 		int refIdxA0 = *(mb->refIdx + ctx->refIdx_A[0]);
 		int refIdxB0 = *(mb->refIdx + ctx->refIdx_B[0]);
 		int refIdxB1 = *(mb->refIdx + ctx->refIdx_B[1]);
@@ -938,7 +935,6 @@ static __attribute__((noinline)) void FUNC(parse_ref_idx)
 		ctx->mvs_C[0] = (ctx->inc.unavailable & 2) ? ctx->mvs8x8_D[0] : ctx->mvs8x8_C[0];
 		int refIdxC1 = (ctx->inc.unavailable & 4) ? refIdxB0 : *(mb->refIdx + ctx->refIdx_C);
 		ctx->mvs_C[4] = (ctx->inc.unavailable & 4) ? ctx->mvs8x8_D[1] : ctx->mvs8x8_C[1];
-		mb->refIdx_v = __builtin_shufflevector(mb->refIdx_v, mb->refIdx_v, 0, 1, 0, 1, 4, 5, 4, 5);
 		ctx->refIdx4x4_eq[0] = (refIdx0==refIdxA0) ? 0x1 : (ctx->unavail[0]==14) + (refIdx0==refIdxB0) * 2 + (refIdx0==refIdxC0) * 4;
 		ctx->refIdx4x4_eq[4] = (refIdx1==refIdxC1) ? 0x4 : ((refIdx1==refIdx0) | (ctx->unavail[5]==14)) + (refIdx1==refIdxB1) * 2;
 		ctx->part_sizes_l[0] = ctx->part_sizes_l[1] = (int64_t)(v8qi){8, 16};
@@ -953,18 +949,15 @@ static __attribute__((noinline)) void FUNC(parse_ref_idx)
 		JUMP(parse_inter_residual);
 		
 	} else { // 16x8
-		ctx->mvd_flags = 0x0101;
 		fprintf(stderr, "mb_type: 1\n");
-		CALL(parse_ref_idx);
-		int refIdx0 = mb->refIdx[0];
-		int refIdx2 = mb->refIdx[2];
+		int refIdx0 = mb->refIdx[0] = mb->refIdx[1] = CALL(parse_ref_idx, 0);
+		int refIdx2 = mb->refIdx[2] = mb->refIdx[3] = CALL(parse_ref_idx, 2);
 		int refIdxA0 = *(mb->refIdx + ctx->refIdx_A[0]);
 		int refIdxA2 = *(mb->refIdx + ctx->refIdx_A[2]);
 		int refIdxB0 = *(mb->refIdx + ctx->refIdx_B[0]);
 		int refIdxC0 = *(mb->refIdx + (ctx->inc.unavailable & 4 ? ctx->refIdx_D : ctx->refIdx_C));
 		ctx->mvs_C[0] = (ctx->inc.unavailable & 4) ? ctx->mvs8x8_D[0] : ctx->mvs8x8_C[1];
 		ctx->mvs_C[8] = ctx->mvs8x8_D[2];
-		mb->refIdx_v = __builtin_shufflevector(mb->refIdx_v, mb->refIdx_v, 0, 0, 2, 2, 4, 4, 6, 6);
 		ctx->refIdx4x4_eq[0] = (refIdx0==refIdxB0) ? 0x2 : ((refIdx0==refIdxA0) | (ctx->inc.unavailable==14)) + (refIdx0==refIdxC0) * 4;
 		ctx->refIdx4x4_eq[8] = (refIdx2==refIdxA2) ? 0x1 : (refIdx2==refIdx0) * 2 + (refIdx2==refIdxA0) * 4;
 		ctx->part_sizes_l[0] = ctx->part_sizes_l[2] = (int64_t)(v8qi){16, 8};
@@ -1021,7 +1014,10 @@ static __attribute__((noinline)) void FUNC(parse_ref_idx)
 		fprintf(stderr, "sub_mb_type: %c\n", (f == 1) ? '0' : (f == 5) ? '1' : (f == 3) ? '2' : '3');
 	}
 	ctx->mvd_flags = flags;
-	CALL(parse_ref_idx);
+	mb->refIdx[0] = CALL(parse_ref_idx, 0);
+	mb->refIdx[1] = CALL(parse_ref_idx, 1);
+	mb->refIdx[2] = CALL(parse_ref_idx, 2);
+	mb->refIdx[3] = CALL(parse_ref_idx, 3);
 	
 	// load neighbouring refIdx values to compute mvpred directions
 	v16qi neighbours = {0, *(mb->refIdx + ctx->refIdx_D), *(mb->refIdx + ctx->refIdx_B[0]),
@@ -1135,7 +1131,7 @@ static __attribute__((noinline)) void FUNC(parse_B_mb)
 static void FUNC(init_direct_spatial_prediction)
 {
 	// load refIdxCol and mvCol
-	Edge264_macroblock *mbCol = ctx->mbCol;
+	const Edge264_macroblock *mbCol = ctx->mbCol;
 	int refCol0 = mbCol->refIdx[0];
 	int refCol1 = mbCol->refIdx[1];
 	int refCol2 = mbCol->refIdx[2];
@@ -1220,7 +1216,7 @@ static void FUNC(init_direct_spatial_prediction)
 static void FUNC(init_direct_temporal_prediction)
 {
 	// load refIdxCol and mvCol
-	Edge264_macroblock *mbCol = ctx->mbCol;
+	const Edge264_macroblock *mbCol = ctx->mbCol;
 	int refCol0 = mbCol->refIdx[0];
 	int refCol1 = mbCol->refIdx[1];
 	int refCol2 = mbCol->refIdx[2];

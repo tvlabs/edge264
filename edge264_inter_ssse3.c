@@ -190,7 +190,7 @@ static inline v16qi pack_weights(int w0, int w1) {
  * functions down to 7. This is a lot of code, but all qpel interpolations are
  * done in registers without intermediate storage!
  */
-static void FUNC(inter4xH_qpel00_8bit, int h, size_t dstride, uint8_t * restrict dst, size_t sstride, uint8_t *src) {
+static void FUNC(inter4xH_qpel00_8bit, int h, size_t dstride, uint8_t * restrict dst, size_t sstride, const uint8_t *src) {
 	do {
 		__m128i p = _mm_setr_epi32(
 			*(int32_t *)(src              ), *(int32_t *)(src + sstride    ),
@@ -202,7 +202,7 @@ static void FUNC(inter4xH_qpel00_8bit, int h, size_t dstride, uint8_t * restrict
 }
 
 #define INTER4xH_QPEL_01_02_03(QPEL, FILTER, P0, P1)\
-	static void FUNC(inter4xH_ ## QPEL ## _8bit, int h, size_t dstride, uint8_t * restrict dst, size_t sstride, uint8_t *src) {\
+	static void FUNC(inter4xH_ ## QPEL ## _8bit, int h, size_t dstride, uint8_t * restrict dst, size_t sstride, const uint8_t *src) {\
 		__m128i zero = _mm_setzero_si128();\
 		do {\
 			__m128i l20 = load8x1_8bit(src               - 2, zero);\
@@ -238,7 +238,7 @@ INTER4xH_QPEL_01_02_03(qpel02, noclip_6tap, h0, h1)
 INTER4xH_QPEL_01_02_03(qpel03, filter_6tap, _mm_avg_epu16(h0, m23), _mm_avg_epu16(h1, m43))
 
 #define INTER4xH_QPEL_10_20_30(QPEL, FILTER, P0, P1)\
-	static void FUNC(inter4xH_ ## QPEL ## _8bit, int h, size_t dstride, uint8_t * restrict dst, size_t sstride, uint8_t *src) {\
+	static void FUNC(inter4xH_ ## QPEL ## _8bit, int h, size_t dstride, uint8_t * restrict dst, size_t sstride, const uint8_t *src) {\
 		ssize_t nstride = -sstride;\
 		__m128i zero = _mm_setzero_si128();\
 		__m128i l00 = load8x1_8bit(src + nstride * 2 - 2, zero);\
@@ -265,7 +265,7 @@ INTER4xH_QPEL_10_20_30(qpel20, noclip_6tap, v0, v1)
 INTER4xH_QPEL_10_20_30(qpel30, filter_6tap, _mm_avg_epu16(v0, m32), _mm_avg_epu16(v1, m52))
 
 #define INTER4xH_QPEL_11_13(QPEL, C, D)\
-	static void FUNC(inter4xH_ ## QPEL ## _8bit, int h, size_t dstride, uint8_t * restrict dst, size_t sstride, uint8_t *src) {\
+	static void FUNC(inter4xH_ ## QPEL ## _8bit, int h, size_t dstride, uint8_t * restrict dst, size_t sstride, const uint8_t *src) {\
 		ssize_t nstride = -sstride;\
 		__m128i zero = _mm_setzero_si128();\
 		__m128i l20 = load8x1_8bit(src               - 2, zero);\
@@ -320,7 +320,7 @@ INTER4xH_QPEL_11_13(qpel11, 2, 0)
 INTER4xH_QPEL_11_13(qpel13, 3, 1)
 
 #define INTER4xH_QPEL_31_33(QPEL, C, D)\
-	static void FUNC(inter4xH_ ## QPEL ## _8bit, int h, size_t dstride, uint8_t * restrict dst, size_t sstride, uint8_t *src) {\
+	static void FUNC(inter4xH_ ## QPEL ## _8bit, int h, size_t dstride, uint8_t * restrict dst, size_t sstride, const uint8_t *src) {\
 		ssize_t nstride = -sstride;\
 		__m128i zero = _mm_setzero_si128();\
 		__m128i m0##C = load4x2_8bit(src + nstride * 2 + D, src + nstride     + D, zero);\
@@ -373,7 +373,7 @@ INTER4xH_QPEL_31_33(qpel31, 2, 0)
 INTER4xH_QPEL_31_33(qpel33, 3, 1)
 
 #define INTER4xH_QPEL_21_23(QPEL, P0, P1)\
-	static void FUNC(inter4xH_ ## QPEL ## _8bit, int h, size_t dstride, uint8_t * restrict dst, size_t sstride, uint8_t *src) {\
+	static void FUNC(inter4xH_ ## QPEL ## _8bit, int h, size_t dstride, uint8_t * restrict dst, size_t sstride, const uint8_t *src) {\
 		ssize_t nstride = -sstride;\
 		__m128i zero = _mm_setzero_si128();\
 		__m128i l00 = load8x1_8bit(src + nstride * 2 - 2, zero);\
@@ -440,7 +440,7 @@ INTER4xH_QPEL_21_23(qpel21, CALL(avg_6tapD_8bit, y02, vh0, zero), CALL(avg_6tapD
 INTER4xH_QPEL_21_23(qpel23, CALL(avg_6tapD_8bit, y03, vh0, zero), CALL(avg_6tapD_8bit, y23, vh1, zero))
 
 #define INTER4xH_QPEL_12_22_32(QPEL, FILTER, P0, P1)\
-	static void FUNC(inter4xH_ ## QPEL ## _8bit, int h, size_t dstride, uint8_t * restrict dst, size_t sstride, uint8_t *src) {\
+	static void FUNC(inter4xH_ ## QPEL ## _8bit, int h, size_t dstride, uint8_t * restrict dst, size_t sstride, const uint8_t *src) {\
 		ssize_t nstride = -sstride;\
 		__m128i zero = _mm_setzero_si128();\
 		__m128i l00 = load8x1_8bit(src + nstride * 2 - 2, zero);\
@@ -526,7 +526,7 @@ INTER4xH_QPEL_12_22_32(qpel32, filter_36tapD_8bit, CALL(avg_6tapD_8bit, x30, hv0
  * simple way to signal that h is multiple of 4, so compilers won't be able to
  * unroll sub-loops for greater performance.
  */
-static void FUNC(inter8xH_qpel00_8bit, int h, size_t dstride, uint8_t * restrict dst, size_t sstride, uint8_t *src) {
+static void FUNC(inter8xH_qpel00_8bit, int h, size_t dstride, uint8_t * restrict dst, size_t sstride, const uint8_t *src) {
 	do {
 		__m128i p = _mm_setr_epi64(*(__m64 *)(src              ), *(__m64 *)(src + sstride    ));
 		CALL(store8x2_8bit, dstride, dst, p);
@@ -536,7 +536,7 @@ static void FUNC(inter8xH_qpel00_8bit, int h, size_t dstride, uint8_t * restrict
 }
 
 #define INTER8xH_QPEL_01_02_03(QPEL, FILTER, P0, P1)\
-	static void FUNC(inter8xH_ ## QPEL ## _8bit, int h, size_t dstride, uint8_t * restrict dst, size_t sstride, uint8_t *src) {\
+	static void FUNC(inter8xH_ ## QPEL ## _8bit, int h, size_t dstride, uint8_t * restrict dst, size_t sstride, const uint8_t *src) {\
 		__m128i zero = _mm_setzero_si128();\
 		do {\
 			__m128i l05 = load8x1_8bit(src           + 3, zero);\
@@ -566,7 +566,7 @@ INTER8xH_QPEL_01_02_03(qpel02, noclip_6tap, h0, h1)
 INTER8xH_QPEL_01_02_03(qpel03, filter_6tap, _mm_avg_epu16(h0, l03), _mm_avg_epu16(h1, l13))
 
 #define INTER8xH_QPEL_10_20_30(QPEL, FILTER, P0, P1)\
-	static void FUNC(inter8xH_ ## QPEL ## _8bit, int h, size_t dstride, uint8_t * restrict dst, size_t sstride, uint8_t *src) {\
+	static void FUNC(inter8xH_ ## QPEL ## _8bit, int h, size_t dstride, uint8_t * restrict dst, size_t sstride, const uint8_t *src) {\
 		ssize_t nstride = -sstride;\
 		__m128i zero = _mm_setzero_si128();\
 		__m128i l00 = load8x1_8bit(src + nstride * 2, zero);\
@@ -591,7 +591,7 @@ INTER8xH_QPEL_10_20_30(qpel20, noclip_6tap, v0, v1)
 INTER8xH_QPEL_10_20_30(qpel30, filter_6tap, _mm_avg_epu16(v0, l30), _mm_avg_epu16(v1, l40))
 
 #define INTER8xH_QPEL_11_31(QPEL, R, S)\
-	static void FUNC(inter8xH_ ## QPEL ## _8bit, int h, size_t dstride, uint8_t * restrict dst, size_t sstride, uint8_t *src) {\
+	static void FUNC(inter8xH_ ## QPEL ## _8bit, int h, size_t dstride, uint8_t * restrict dst, size_t sstride, const uint8_t *src) {\
 		ssize_t nstride = -sstride;\
 		__m128i zero = _mm_setzero_si128();\
 		__m128i shuf2 = _mm_setr_epi8(2, -1, 3, -1, 4, -1, 5, -1, 6, -1, 7, -1, 11, -1, 12, -1);\
@@ -641,7 +641,7 @@ INTER8xH_QPEL_11_31(qpel11, 2, 3)
 INTER8xH_QPEL_11_31(qpel31, 3, 4)
 
 #define INTER8xH_QPEL_13_33(QPEL, R, S)\
-	static void FUNC(inter8xH_ ## QPEL ## _8bit, int h, size_t dstride, uint8_t * restrict dst, size_t sstride, uint8_t *src) {\
+	static void FUNC(inter8xH_ ## QPEL ## _8bit, int h, size_t dstride, uint8_t * restrict dst, size_t sstride, const uint8_t *src) {\
 		ssize_t nstride = -sstride;\
 		__m128i zero = _mm_setzero_si128();\
 		__m128i shuf3 = (__m128i)(v16qi){3, -1, 4, -1, 5, -1, 6, -1, 7, -1, 11, -1, 12, -1, 13, -1};\
@@ -691,7 +691,7 @@ INTER8xH_QPEL_13_33(qpel13, 2, 3)
 INTER8xH_QPEL_13_33(qpel33, 3, 4)
 
 #define INTER8xH_QPEL_21_23(QPEL, P0, P1)\
-	static void FUNC(inter8xH_ ## QPEL ## _8bit, int h, size_t dstride, uint8_t * restrict dst, size_t sstride, uint8_t *src) {\
+	static void FUNC(inter8xH_ ## QPEL ## _8bit, int h, size_t dstride, uint8_t * restrict dst, size_t sstride, const uint8_t *src) {\
 		ssize_t nstride = -sstride;\
 		__m128i zero = _mm_setzero_si128();\
 		__m128i l00 = load8x1_8bit(src + nstride * 2 - 2, zero);\
@@ -740,7 +740,7 @@ INTER8xH_QPEL_21_23(qpel21, CALL(avg_6tapD_8bit, x02, vh0, zero), CALL(avg_6tapD
 INTER8xH_QPEL_21_23(qpel23, CALL(avg_6tapD_8bit, x03, vh0, zero), CALL(avg_6tapD_8bit, x13, vh1, zero))
 
 #define INTER8xH_QPEL_12_22_32(QPEL, FILTER, P0, P1)\
-	static void FUNC(inter8xH_ ## QPEL ## _8bit, int h, size_t dstride, uint8_t * restrict dst, size_t sstride, uint8_t *src) {\
+	static void FUNC(inter8xH_ ## QPEL ## _8bit, int h, size_t dstride, uint8_t * restrict dst, size_t sstride, const uint8_t *src) {\
 		ssize_t nstride = -sstride;\
 		__m128i zero = _mm_setzero_si128();\
 		__m128i l05 = load8x1_8bit(src + nstride * 2 + 3, zero);\
@@ -822,7 +822,7 @@ INTER8xH_QPEL_12_22_32(qpel32, filter_36tapD_8bit, CALL(avg_6tapD_8bit, x30, hv0
  * to spill/reload on stack. All functions were designed with 16 available
  * registers in mind, for older chips there will just be more spills.
  */
-static void FUNC(inter16xH_qpel00_8bit, int h, size_t dstride, uint8_t * restrict dst, size_t sstride, uint8_t *src) {
+static void FUNC(inter16xH_qpel00_8bit, int h, size_t dstride, uint8_t * restrict dst, size_t sstride, const uint8_t *src) {
 	do {
 		CALL(store16x1_8bit, dstride, dst          , _mm_lddqu_si128((__m128i *)(src          )));
 		CALL(store16x1_8bit, dstride, dst + dstride, _mm_lddqu_si128((__m128i *)(src + sstride)));
@@ -832,7 +832,7 @@ static void FUNC(inter16xH_qpel00_8bit, int h, size_t dstride, uint8_t * restric
 }
 
 #define INTER16xH_QPEL_01_02_03(QPEL, P)\
-	static void FUNC(inter16xH_ ## QPEL ## _8bit, int h, size_t dstride, uint8_t * restrict dst, size_t sstride, uint8_t *src) {\
+	static void FUNC(inter16xH_ ## QPEL ## _8bit, int h, size_t dstride, uint8_t * restrict dst, size_t sstride, const uint8_t *src) {\
 		__m128i zero = _mm_setzero_si128();\
 		do {\
 			__m128i d00 = _mm_lddqu_si128((__m128i *)(src - 2));\
@@ -863,7 +863,7 @@ INTER16xH_QPEL_01_02_03(qpel02, h)
 INTER16xH_QPEL_01_02_03(qpel03, _mm_avg_epu8(h, _mm_lddqu_si128((__m128i *)(src + 1))))
 
 #define INTER16xH_QPEL_10_20_30(QPEL, P)\
-	static void FUNC(inter16xH_ ## QPEL ## _8bit, int h, size_t dstride, uint8_t * restrict dst, size_t sstride, uint8_t *src) {\
+	static void FUNC(inter16xH_ ## QPEL ## _8bit, int h, size_t dstride, uint8_t * restrict dst, size_t sstride, const uint8_t *src) {\
 		ssize_t nstride= -sstride;\
 		__m128i zero = _mm_setzero_si128();\
 		__m128i d00 = _mm_lddqu_si128((__m128i *)(src + nstride * 2));\
@@ -904,7 +904,7 @@ INTER16xH_QPEL_10_20_30(qpel20, v)
 INTER16xH_QPEL_10_20_30(qpel30, _mm_avg_epu8(v, _mm_lddqu_si128((__m128i *)src)))
 
 #define INTER16xH_QPEL_11_13(QPEL, R, S)\
-	static void FUNC(inter16xH_ ## QPEL ## _8bit, int h, size_t dstride, uint8_t * restrict dst, size_t sstride, uint8_t *src) {\
+	static void FUNC(inter16xH_ ## QPEL ## _8bit, int h, size_t dstride, uint8_t * restrict dst, size_t sstride, const uint8_t *src) {\
 		ssize_t nstride= -sstride;\
 		__m128i zero = _mm_setzero_si128();\
 		__m128i d0##R = _mm_lddqu_si128((__m128i *)(src + nstride * 2 + R - 2));\
@@ -954,7 +954,7 @@ INTER16xH_QPEL_11_13(qpel11, 2, A)
 INTER16xH_QPEL_11_13(qpel13, 3, B)
 
 #define INTER16xH_QPEL_31_33(QPEL, R, S)\
-	static void FUNC(inter16xH_ ## QPEL ## _8bit, int h, size_t dstride, uint8_t * restrict dst, size_t sstride, uint8_t *src) {\
+	static void FUNC(inter16xH_ ## QPEL ## _8bit, int h, size_t dstride, uint8_t * restrict dst, size_t sstride, const uint8_t *src) {\
 		ssize_t nstride= -sstride;\
 		__m128i zero = _mm_setzero_si128();\
 		__m128i d0##R = _mm_lddqu_si128((__m128i *)(src + nstride * 2 + R - 2));\
@@ -1005,7 +1005,7 @@ INTER16xH_QPEL_31_33(qpel31, 2, A)
 INTER16xH_QPEL_31_33(qpel33, 3, B)
 
 #define INTER16xH_QPEL_21_23(QPEL, P)\
-	static void FUNC(inter16xH_ ## QPEL ## _8bit, int h, size_t dstride, uint8_t * restrict dst, size_t sstride, uint8_t *src) {\
+	static void FUNC(inter16xH_ ## QPEL ## _8bit, int h, size_t dstride, uint8_t * restrict dst, size_t sstride, const uint8_t *src) {\
 		ssize_t nstride= -sstride;\
 		__m128i zero = _mm_setzero_si128();\
 		__m128i d00 = _mm_lddqu_si128((__m128i *)(src + nstride * 2 - 2));\
@@ -1063,7 +1063,7 @@ INTER16xH_QPEL_21_23(qpel23, CALL(packus_6tapD_8bit, v03, v0B, vh, zero))
 
 // with an array on stack or a preliminary loop, both compilers would get crazy
 #define INTER16xH_QPEL_12_22_32(QPEL, P)\
-	static void FUNC(inter16xH_ ## QPEL ## _8bit, int h, size_t dstride, uint8_t * restrict dst, size_t sstride, uint8_t *src) {\
+	static void FUNC(inter16xH_ ## QPEL ## _8bit, int h, size_t dstride, uint8_t * restrict dst, size_t sstride, const uint8_t *src) {\
 		ssize_t nstride= -sstride;\
 		__m128i zero = _mm_setzero_si128();\
 		__m128i d00 = _mm_lddqu_si128((__m128i *)(src + nstride * 2 - 2));\
@@ -1190,7 +1190,7 @@ INTER16xH_QPEL_12_22_32(qpel32, CALL(packus_6tapD_8bit, h30, h38, hv, zero))
  * is shared by all sizes. These functions should be inlined, otherwise AB/CD
  * would be spilled on stack.
  */
-static inline void FUNC(inter2xH_chroma_8bit, int h, size_t dstride, uint8_t * restrict dst, size_t sstride, uint8_t *src, __m128i AB, __m128i CD) {
+static inline void FUNC(inter2xH_chroma_8bit, int h, size_t dstride, uint8_t * restrict dst, size_t sstride, const uint8_t *src, __m128i AB, __m128i CD) {
 	__m64 shuf = _mm_setr_pi8(0, 1, 1, 2, 4, 5, 5, 6);
 	__m64 zero = _mm_setzero_si64();
 	__m64 ab = _mm_movepi64_pi64(AB);
@@ -1216,7 +1216,7 @@ static inline void FUNC(inter2xH_chroma_8bit, int h, size_t dstride, uint8_t * r
 	} while (h -= 2);
 }
 
-static inline void FUNC(inter4xH_chroma_8bit, int h, size_t dstride, uint8_t * restrict dst, size_t sstride, uint8_t *src, __m128i AB, __m128i CD) {
+static inline void FUNC(inter4xH_chroma_8bit, int h, size_t dstride, uint8_t * restrict dst, size_t sstride, const uint8_t *src, __m128i AB, __m128i CD) {
 	__m128i zero = _mm_setzero_si128();
 	__m128i w = (__m128i)ctx->biweights_v;
 	__m128i o = (__m128i)ctx->bioffsets_v;
@@ -1240,7 +1240,7 @@ static inline void FUNC(inter4xH_chroma_8bit, int h, size_t dstride, uint8_t * r
 	} while (h -= 2);
 }
 
-static inline void FUNC(inter8xH_chroma_8bit, int h, size_t dstride, uint8_t * restrict dst, size_t sstride, uint8_t *src, __m128i AB, __m128i CD) {
+static inline void FUNC(inter8xH_chroma_8bit, int h, size_t dstride, uint8_t * restrict dst, size_t sstride, const uint8_t *src, __m128i AB, __m128i CD) {
 	__m128i zero = _mm_setzero_si128();
 	__m128i w = (__m128i)ctx->biweights_v;
 	__m128i o = (__m128i)ctx->bioffsets_v;
@@ -1271,7 +1271,7 @@ static inline void FUNC(inter8xH_chroma_8bit, int h, size_t dstride, uint8_t * r
 __attribute__((noinline)) void FUNC(decode_inter, int i, int w, int h, int x, int y) {
 	static int8_t shift_Y_8bit[46] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15};
 	static int8_t shift_C_8bit[22] = {0, 0, 0, 0, 0, 0, 0, 0, 1, 2, 3, 4, 5, 6, 7, 7, 7, 7, 7, 7, 7, 7};
-	static void FUNC((*luma_fcts[48]), int, size_t, uint8_t*, size_t, uint8_t*) = {
+	static void FUNC((*luma_fcts[48]), int, size_t, uint8_t*, size_t, const uint8_t*) = {
 		inter4xH_qpel00_8bit, inter4xH_qpel01_8bit, inter4xH_qpel02_8bit, inter4xH_qpel03_8bit,
 		inter4xH_qpel10_8bit, inter4xH_qpel11_8bit, inter4xH_qpel12_8bit, inter4xH_qpel13_8bit,
 		inter4xH_qpel20_8bit, inter4xH_qpel21_8bit, inter4xH_qpel22_8bit, inter4xH_qpel23_8bit,
@@ -1293,8 +1293,8 @@ __attribute__((noinline)) void FUNC(decode_inter, int i, int w, int h, int x, in
 	int xFrac_Y = x & 3;
 	int yFrac_Y = y & 3;
 	int refIdx = mb->refIdx[i >> 2];
-	uint8_t *ref = ctx->ref_planes[i >> 4][refIdx];
-	uint8_t *src_Y = ref + xInt_Y + yInt_Y;
+	const uint8_t *ref = ctx->ref_planes[i >> 4][refIdx];
+	const uint8_t *src_Y = ref + xInt_Y + yInt_Y;
 	uint8_t *dst_Y = ctx->frame + ctx->frame_offsets_x[i] + ctx->frame_offsets_y[i];
 	//	printf("<li>CurrMbAddr=%d, i=%d, w=%d, h=%d, ref=%d, x=%d, y=%d</li>\n", ctx->CurrMbAddr, i, w, h, mb->refIdx[i >> 2], x, y);
 	
@@ -1305,8 +1305,8 @@ __attribute__((noinline)) void FUNC(decode_inter, int i, int w, int h, int x, in
 		v16qi shuf0, shuf1, v0, v1;
 		memcpy(&shuf0, shift_Y_8bit + 15 + clip3(-15, 0, xInt_Y - 2) + clip3(0, 15, xInt_Y + 14 - sstride_Y), 16);
 		memcpy(&shuf1, shift_Y_8bit + 15 + clip3(-15, 0, xInt_Y + 14) + clip3(0, 15, xInt_Y + 30 - sstride_Y), 16);
-		uint8_t *src0 = ref + clip3(0, sstride_Y - 16, xInt_Y - 2);
-		uint8_t *src1 = ref + clip3(0, sstride_Y - 16, xInt_Y + 14);
+		const uint8_t *src0 = ref + clip3(0, sstride_Y - 16, xInt_Y - 2);
+		const uint8_t *src1 = ref + clip3(0, sstride_Y - 16, xInt_Y + 14);
 		yInt_Y -= sstride_Y * 2;
 		for (v16qu *buf = ctx->edge_buf_v; buf < ctx->edge_buf_v + 10 + h * 2; buf += 2, yInt_Y += sstride_Y) {
 			int c = clip3(0, ctx->plane_size_Y - sstride_Y, yInt_Y);
@@ -1368,8 +1368,8 @@ __attribute__((noinline)) void FUNC(decode_inter, int i, int w, int h, int x, in
 	int yInt_Cr = ctx->frame_offsets_y[32 + i] + (y >> 3) * sstride_C;
 	int xFrac_C = x & 7;
 	int yFrac_C = y & 7;
-	uint8_t *src_Cb = ref + xInt_C + yInt_Cb;
-	uint8_t *src_Cr = ref + xInt_C + yInt_Cr;
+	const uint8_t *src_Cb = ref + xInt_C + yInt_Cb;
+	const uint8_t *src_Cr = ref + xInt_C + yInt_Cr;
 	uint8_t *dst_Cb = ctx->frame + ctx->frame_offsets_x[16 + i] + ctx->frame_offsets_y[16 + i];
 	uint8_t *dst_Cr = ctx->frame + ctx->frame_offsets_x[32 + i] + ctx->frame_offsets_y[32 + i];
 	
@@ -1379,8 +1379,8 @@ __attribute__((noinline)) void FUNC(decode_inter, int i, int w, int h, int x, in
 	{
 		v16qi shuf = {}, v0, v1;
 		memcpy(&shuf, shift_C_8bit + 7 + clip3(-7, 0, xInt_C) + clip3(0, 7, xInt_C + 8 - sstride_C), 8);
-		uint8_t *src0 = ref + clip3(0, sstride_C - 8, xInt_C);
-		uint8_t *src1 = ref + clip3(0, sstride_C - 1, xInt_C + 8);
+		const uint8_t *src0 = ref + clip3(0, sstride_C - 8, xInt_C);
+		const uint8_t *src1 = ref + clip3(0, sstride_C - 1, xInt_C + 8);
 		for (int j = 0; j <= h >> 1; j++, yInt_Cb += sstride_C, yInt_Cr += sstride_C) {
 			int cb = clip3(ctx->plane_size_Y, ctx->plane_size_Y + ctx->plane_size_C - sstride_C, yInt_Cb);
 			int cr = clip3(ctx->plane_size_Y + ctx->plane_size_C, ctx->plane_size_Y + ctx->plane_size_C * 2 - sstride_C, yInt_Cr);

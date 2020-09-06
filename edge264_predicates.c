@@ -51,10 +51,9 @@ static void check_parameter_set(const Edge264_parameter_set *ps) {
 static void check_stream(const Edge264_stream *e) {
 	predicate(e->CPB < e->end);
 	if (e->DPB == NULL) {
-		predicate(e->ret == 0 && e->currPic == 0 && e->output_flags == 0 && e->reference_flags == 0 && e->long_term_flags == 0 && e->prevFrameNum == 0 && e->prevPicOrderCnt == 0);
+		predicate(e->currPic == 0 && e->output_flags == 0 && e->reference_flags == 0 && e->long_term_flags == 0 && e->prevFrameNum == 0 && e->prevPicOrderCnt == 0);
 		return;
 	}
-	predicate(e->ret >= -2 && e->ret <= 0);
 	predicate(e->currPic >= 0 && e->currPic <= 15);
 	predicate(e->stride_Y == (e->SPS.BitDepth_Y == 8 ? e->SPS.width : e->SPS.width << 1));
 	predicate(e->stride_C == (e->SPS.chroma_format_idc == 0 ? 0 : e->SPS.chroma_format_idc < 3 ? e->SPS.width >> 1 : e->SPS.width) << (e->SPS.BitDepth_C > 8));

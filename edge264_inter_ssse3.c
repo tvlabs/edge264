@@ -1,3 +1,4 @@
+// TODO: Remove w/h from decode parameters since they will get spilled
 // TODO: Move initialisation of prediction weights in parse_ref_idx?
 // TODO: Make ref_idx address the full RefPicList[64] ?
 // TODO: Invert LX and RefIdx in ctx ?

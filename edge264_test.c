@@ -19,7 +19,7 @@
 
 static int check_frame(Edge264_stream *e, int idx) {
 	if (memcmp(e->DPB + e->frame_size * idx, e->user, e->plane_size_Y + e->plane_size_C * 2))
-		return -2;
+		return 2;
 	e->user += e->plane_size_Y + e->plane_size_C * 2;
 	return 0;
 }

@@ -1481,7 +1481,6 @@ int Edge264_decode_NAL(Edge264_stream *e)
 	Edge264_ctx context;
 	SET_CTX(&context);
 	memset(ctx, -1, sizeof(*ctx));
-	ctx->_mb = mb;
 	size_t _codIRange = codIRange; // backup if stored in a Register Variable
 	size_t _codIOffset = codIOffset;
 	ctx->e = e;
@@ -1515,7 +1514,6 @@ int Edge264_decode_NAL(Edge264_stream *e)
 	printf("</ul>\n");
 	
 	// restore registers and point to next NAL unit
-	mb = ctx->_mb;
 	codIRange = _codIRange;
 	codIOffset = _codIOffset;
 	// CPB may point anywhere up to the last byte of the next start code

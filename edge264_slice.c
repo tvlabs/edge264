@@ -655,9 +655,8 @@ static __attribute__((noinline)) void FUNC(parse_I_mb, int ctxIdx)
 	}
 	if (ctx->inc.unavailable & 2) {
 		// Why add a new variable when the value is already in memory??
-		Edge264_macroblock *mbB = (Edge264_macroblock *)((uint8_t *)mb + ctx->coded_block_flags_4x4_B[0] - 10);
-		mbB->coded_block_flags_4x4_v[0] = mbB->coded_block_flags_4x4_v[1] =
-			mbB->coded_block_flags_4x4_v[2] = mbB->coded_block_flags_8x8_v =
+		ctx->mbB->coded_block_flags_4x4_v[0] = ctx->mbB->coded_block_flags_4x4_v[1] =
+			ctx->mbB->coded_block_flags_4x4_v[2] = ctx->mbB->coded_block_flags_8x8_v =
 			(v16qi){1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1};
 		ctx->inc.coded_block_flags_16x16_s |= 0x02020202;
 	}
@@ -852,12 +851,9 @@ static inline int FUNC(parse_ref_idx, int i)
  */
  __attribute__((noinline)) void FUNC(parse_P_mb)
 {
-	static const int32_t refIdx4x4_C_base[4] = {0x01010101, 0x02020202, 0x05050505, 0x06060606};
-	static const v4qi refIdx4x4_C_inc[8] = {
-		{1, 2, 5, 5}, {2, 0, 4, 0}, // B and C available
-		{0, 2, 5, 5}, {2, 0, 4, 0}, // B unavailable, C available
-		{1, 1, 5, 5}, {0, 0, 4, 0}, // B available, C unavailable
-		{0, 1, 5, 5}, {0, 0, 4, 0}}; // B and C unavailable
+	static const v4qi refIdx4x4_C[8] = {
+		{10, 11, 4,  4}, {11, 14, 5,  5}, {4,  5, 6,  6}, {5,  5, 7,  7},  // w=4
+		{11, -1, 1, -1}, {14, -1, 4, -1}, {5, -1, 3, -1}, {4, -1, 6, -1}}; // w=8
 	
 	// Inter initializations
 	ctx->transform_8x8_mode_flag = ctx->ps.transform_8x8_mode_flag;
@@ -899,9 +895,8 @@ static inline int FUNC(parse_ref_idx, int i)
 	}
 	if (ctx->inc.unavailable & 2) {
 		// Why add a new variable when the value is already in memory??
-		Edge264_macroblock *mbB = (Edge264_macroblock *)((uint8_t *)mb + ctx->coded_block_flags_4x4_B[0] - 10);
-		mbB->coded_block_flags_4x4_v[0] = mbB->coded_block_flags_4x4_v[1] =
-			mbB->coded_block_flags_4x4_v[2] = mbB->coded_block_flags_8x8_v = (v16qi){};
+		ctx->mbB->coded_block_flags_4x4_v[0] = ctx->mbB->coded_block_flags_4x4_v[1] =
+			ctx->mbB->coded_block_flags_4x4_v[2] = ctx->mbB->coded_block_flags_8x8_v = (v16qi){};
 		ctx->inc.coded_block_flags_16x16_s &= 0x01010101;
 	}
 	
@@ -975,7 +970,7 @@ static inline int FUNC(parse_ref_idx, int i)
 	
 	// initializations and jumps for sub_mb_type
 	unsigned flags = 0;
-	for (int i8x8 = 0, f, s; i8x8 < 4; i8x8++) {
+	for (int i8x8 = 0, f, s, c; i8x8 < 4; i8x8++) {
 		int i4x4 = i8x8 * 4;
 		int unavail1 = ctx->unavail[i4x4 + 1]; // always even, incremented by subpart modes to signal 8-sample width
 		int64_t sizes;
@@ -984,6 +979,7 @@ static inline int FUNC(parse_ref_idx, int i)
 			ctx->unavail[i4x4] |= unavail1++;
 			f = 1;
 			s = 0;
+			c = (int32_t)refIdx4x4_C[4 + i8x8];
 			sizes = (int64_t)(v8qi){8, 8};
 		} else if (ctx->transform_8x8_mode_flag = 0, !CALL(get_ae, 22)) { // 8x4
 			ctx->mvs_C[i4x4] = (unavail1 & 4 ? ctx->mvs8x8_D : ctx->mvs8x8_C)[i8x8];
@@ -991,12 +987,14 @@ static inline int FUNC(parse_ref_idx, int i)
 			ctx->unavail[i4x4] |= unavail1++;
 			f = 5;
 			s = (int32_t)(v4qi){0, 0, 2, 2};
+			c = (int32_t)refIdx4x4_C[4 + i8x8];
 			sizes = (int64_t)(v8qi){8, 4, 0, 0, 8, 4, 0, 0};
 		} else if (CALL(get_ae, 23)) { // 4x8
 			ctx->mvs_C[i4x4] = (unavail1 & 2) ? ctx->mvs8x8_D[i8x8] : ctx->mvs_B[i4x4 + 1];
 			ctx->mvs_C[i4x4 + 1] = (unavail1 & 4) ? ctx->mvs_B[i4x4] : ctx->mvs8x8_C[i8x8];
 			f = 3;
 			s = (int32_t)(v4qi){0, 1, 0, 1};
+			c = (int32_t)refIdx4x4_C[i8x8];
 			sizes = (int64_t)(v8qi){4, 8, 4, 8};
 		} else { // 4x4
 			ctx->mvs_C[i4x4] = (unavail1 & 2) ? ctx->mvs8x8_D[i8x8] : ctx->mvs_B[i4x4 + 1];
@@ -1005,11 +1003,12 @@ static inline int FUNC(parse_ref_idx, int i)
 			ctx->mvs_C[i4x4 + 3] = i4x4;
 			f = 15;
 			s = (int32_t)(v4qi){0, 1, 2, 3};
+			c = (int32_t)refIdx4x4_C[i8x8];
 			sizes = (int64_t)(v8qi){4, 4, 4, 4, 4, 4, 4, 4};
 		}
 		flags |= f << i4x4;
-		ctx->refIdx4x4_C_s[i8x8] = refIdx4x4_C_base[i8x8] + (int32_t)refIdx4x4_C_inc[unavail1 & 7];
 		ctx->mvs_shuffle_s[i8x8] = i4x4 * 0x01010101 + s;
+		ctx->refIdx4x4_C_s[i8x8] = c;
 		ctx->part_sizes_l[i8x8] = sizes;
 		fprintf(stderr, "sub_mb_type: %c\n", (f == 1) ? '0' : (f == 5) ? '1' : (f == 3) ? '2' : '3');
 	}
@@ -1017,20 +1016,33 @@ static inline int FUNC(parse_ref_idx, int i)
 	mb->refIdx[0] = CALL(parse_ref_idx, 0);
 	mb->refIdx[1] = CALL(parse_ref_idx, 1);
 	mb->refIdx[2] = CALL(parse_ref_idx, 2);
-	mb->refIdx[3] = CALL(parse_ref_idx, 3);
+	mb->refIdx[3] = CALL(parse_ref_idx, 3); // FIXME store forwarding stall here!
 	
-	// load neighbouring refIdx values to compute mvpred directions
-	v16qi neighbours = {0, *(mb->refIdx + ctx->refIdx_D), *(mb->refIdx + ctx->refIdx_B[0]),
-		*(mb->refIdx + ctx->refIdx_B[1]), *(mb->refIdx + ctx->refIdx_C),
-		*(mb->refIdx + ctx->refIdx_A[0]), mb->refIdx[0], mb->refIdx[1], 0,
-		*(mb->refIdx + ctx->refIdx_A[2]), mb->refIdx[2], mb->refIdx[3]};
-	v16qi refIdxA = byte_shuffle(neighbours, ctx->refIdx4x4_A_v);
-	v16qi refIdxB = byte_shuffle(neighbours, ctx->refIdx4x4_B_v);
-	v16qi refIdxC = byte_shuffle(neighbours, ctx->refIdx4x4_C_v);
+	// load neighbouring refIdx values and shuffle them into A/B/C
+	v16qi Ar = (v16qi)(v2li){(int64_t)mb[-1].refIdx_l, (int64_t)mb->refIdx_l};
+	v16qi BC = (v16qi)(v2li){(int64_t)ctx->mbB->refIdx_l, (int64_t)ctx->mbB[1].refIdx_l};
+	v16qi rB = (v16qi)__builtin_shufflevector((v2li)Ar, (v2li)BC, 1, 2);
+	v16qi A4x4 = __builtin_shufflevector(Ar, Ar, 1, 8, 1, 8, 8, 9, 8, 9, 3, 10, 3, 10, 10, 11, 10, 11);
+	v16qi B4x4 = __builtin_shufflevector(rB, rB, 10, 10, 0, 0, 11, 11, 1, 1, 0, 0, 2, 2, 1, 1, 3, 3);
+	v16qi C4x4 = byte_shuffle((v16qi)__builtin_shufflevector((v4si)Ar, (v4si)BC, 0, 2, 4, 6), ctx->refIdx4x4_C_v);
+	v16qi r4x4 = __builtin_shufflevector(Ar, Ar, 8, 8, 8, 8, 9, 9, 9, 9, 10, 10, 10, 10, 11, 11, 11, 11);
+	
+	// handle unavailability of B/C macroblocks
+	if (__builtin_expect(ctx->inc.unavailable > 1, 0)) {
+		if (ctx->inc.unavailable & 2) {
+			C4x4[0] = ctx->mbB[-1].refIdx[3];
+			C4x4[1] = ctx->mbB->refIdx[2];
+		}
+		if (ctx->inc.unavailable << 1 & ctx->part_sizes[8]) {
+			C4x4[4] = ctx->mbB->refIdx[2];
+		}
+		if (ctx->inc.unavailable & 4) {
+			C4x4[5] = ctx->mbB->refIdx[3];
+		}
+	}
 	
 	// compare them and store equality formula
-	v16qi refIdx = __builtin_shufflevector(neighbours, neighbours, 6, 6, 6, 6, 7, 7, 7, 7, 10, 10, 10, 10, 11, 11, 11, 11);
-	v16qi sum = (refIdx==refIdxA) + ((refIdx==refIdxB) << 1) + ((refIdx==refIdxC) << 2);
+	v16qi sum = (r4x4==A4x4) + ((r4x4==B4x4) + (r4x4==C4x4) * 2) * 2; // remember comparisons return -1
 	ctx->refIdx4x4_eq_v[0] = -(sum | (ctx->unavail_v==14)); // if B and C are unavailable, then sum is 0 or 1
 	
 	// loop on mvs
@@ -1280,9 +1292,8 @@ __attribute__((noinline)) void FUNC(parse_slice_data)
 	ctx->mb_qp_delta_non_zero = 0;
 	while (1) {
 		fprintf(stderr, "********** %u **********\n", ctx->CurrMbAddr);
-		Edge264_macroblock *mbB = mb - (ctx->ps.width >> 4) - 1;
 		v16qi flagsA = mb[-1].f.v;
-		v16qi flagsB = mbB->f.v;
+		v16qi flagsB = ctx->mbB->f.v;
 		ctx->inc.v = flagsA + flagsB + (flagsB & flags_twice.v);
 		memset(mb, 0, sizeof(*mb));
 		mb->f.mb_field_decoding_flag = ctx->field_pic_flag;
@@ -1290,11 +1301,11 @@ __attribute__((noinline)) void FUNC(parse_slice_data)
 		
 		// prepare block unavailability information (6.4.11.4)
 		ctx->unavail_v = block_unavailability[ctx->inc.unavailable];
-		if (mbB[1].f.unavailable) {
+		if (ctx->mbB[1].f.unavailable) {
 			ctx->inc.unavailable += 4;
 			ctx->unavail[5] += 4;
 		}
-		if (mbB[-1].f.unavailable) {
+		if (ctx->mbB[-1].f.unavailable) {
 			ctx->inc.unavailable += 8;
 			ctx->unavail[0] += 8;
 		}
@@ -1316,6 +1327,7 @@ __attribute__((noinline)) void FUNC(parse_slice_data)
 		
 		// point to the next macroblock
 		mb++;
+		ctx->mbB++;
 		ctx->CurrMbAddr++;
 		int xY = (ctx->frame_offsets_x[4] - ctx->frame_offsets_x[0]) << 1;
 		int xC = (ctx->frame_offsets_x[20] - ctx->frame_offsets_x[16]) << 1;
@@ -1331,6 +1343,7 @@ __attribute__((noinline)) void FUNC(parse_slice_data)
 		if (ctx->frame_offsets_y[10] + ctx->stride_Y * 4 >= ctx->plane_size_Y)
 			break;
 		mb++; // skip the empty macroblock at the edge
+		ctx->mbB++;
 		ctx->frame_offsets_x_v[0] = ctx->frame_offsets_x_v[1] -=
 			(v8hu){ctx->stride_Y, ctx->stride_Y, ctx->stride_Y, ctx->stride_Y, ctx->stride_Y, ctx->stride_Y, ctx->stride_Y, ctx->stride_Y};
 		ctx->frame_offsets_x_v[2] = ctx->frame_offsets_x_v[3] = ctx->frame_offsets_x_v[4] = ctx->frame_offsets_x_v[5] -=

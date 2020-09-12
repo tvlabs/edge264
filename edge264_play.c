@@ -289,7 +289,7 @@ int main(int argc, char *argv[])
 	if (bench) {
 		struct rusage rusage;
 		getrusage(RUSAGE_SELF, &rusage);
-		fprintf(stdout, "CPU: %ld us\nmemory: %ld Kb\n",
+		fprintf(stdout, "CPU: %ld us\nmemory: %ld kB\n",
 			rusage.ru_utime.tv_sec * 1000000 + rusage.ru_utime.tv_usec, rusage.ru_maxrss);
 	} else {
 		glfwTerminate();

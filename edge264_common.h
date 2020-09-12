@@ -130,6 +130,7 @@ typedef struct
 	union { uint16_t frame_offsets_x[48]; v8hu frame_offsets_x_v[6]; }; // memory offsets for i4x4
 	union { int32_t frame_offsets_y[48]; v4si frame_offsets_y_v[12]; }; // premultiplied with strides
 	Edge264_macroblock * restrict _mb; // backup storage when not in a live variable
+	Edge264_macroblock * restrict mbB;
 	const Edge264_stream *e; // for predicates at TRACE>0
 	v8hi clip_Y; // vector of maximum sample values
 	v8hi clip_C;
@@ -144,9 +145,7 @@ typedef struct
 	union { int32_t coded_block_flags_8x8_B[12]; int32_t CodedBlockPatternLuma_B[4]; int32_t refIdx_B[4]; v4si B8x8_8bit[3]; };
 	int32_t refIdx_C; // offset to mbC->refIdx[2]
 	int32_t refIdx_D; // offset to mbD->refIdx[3]
-	union { int32_t refIdx4x4_A_s[16]; v16qi refIdx4x4_A_v; }; // shuffle vector for mv prediction
-	union { int32_t refIdx4x4_B_s[16]; v16qi refIdx4x4_B_v; };
-	union { int32_t refIdx4x4_C_s[16]; v16qi refIdx4x4_C_v; }; // updated per-mb
+	union { int32_t refIdx4x4_C_s[4]; v16qi refIdx4x4_C_v; }; // shuffle vector for mv prediction
 	union { int16_t mvs_A[16]; v16hi mvs_A_v; };
 	union { int32_t mvs_B[16]; v16si mvs_B_v; };
 	union { int32_t mvs_C[16]; v4si mvs_C_v[4]; }; // updated per-mb
@@ -230,7 +229,7 @@ typedef struct
  * Macro-ed function defs/calls allow removing ctx from args and keeping it in
  * a Global Register Variable if permitted by the compiler. On my machine the
  * speed gain is negligible, but the binary is noticeably smaller.
- * Storing codIRange/Offset in registers also gives a big performance gain.
+ * Storing bitstream caches in registers also gives a big performance gain.
  */
 #if defined(__SSSE3__) && !defined(__clang__)
 register Edge264_ctx * restrict ctx asm("ebx");
@@ -608,165 +607,5 @@ enum PredModes {
 	DC_4x4_BUFFERED_16_BIT,
 	PLANE_4x4_BUFFERED_16_BIT,
 };
-
-
-
-/**
- * Initialise motion vectors and references with direct prediction (8.4.1.1).
- * Inputs are pointers to refIdxL0N.
- */
-#if 0
-static __attribute__((noinline)) void init_P_Skip(Edge264_ctx *s, Edge264_flags *m,
-	const int8_t *refIdxA, const int8_t *refIdxB, const int8_t *refIdxC)
-{
-	union { uint32_t s; int16_t h[2]; } mv = {.s = m->mvEdge_s[18]};
-	if (refIdxB[0] == 0)
-		mv.s = m->mvEdge_s[10];
-	if (refIdxA[0] == 0)
-		mv.s = m->mvEdge_s[6];
-	unsigned eq = (refIdxC[0] == 0) + (refIdxB[0] == 0) + (refIdxA[0] == 0);
-	if (eq == 0 || (eq > 1 && mv.s != 0)) {
-		mv.h[0] = median(m->mvEdge[12], m->mvEdge[20], m->mvEdge[36]);
-		mv.h[1] = median(m->mvEdge[13], m->mvEdge[21], m->mvEdge[37]);
-	}
-	if (ctx->inc.unavailable)
-		mv.s = 0;
-	ctx->mvs_v[0] = ctx->mvs_v[1] = ctx->mvs_v[2] = ctx->mvs_v[3] = (v8hi)(v4su){mv.s, mv.s, mv.s, mv.s};
-	ctx->mvs_v[4] = ctx->mvs_v[5] = ctx->mvs_v[6] = ctx->mvs_v[7] = (v8hi){};
-	m->refIdx_s[0] = 0;
-}
-
-
-
-/**
- * Initialise motion vectors and references with bidirectional prediction (8.4.1.2).
- * Inputs are pointers to refIdxL0N and mvL0N, which yield refIdxL1N and mvL1N
- * with fixed offsets.
- */
-static __attribute__((noinline)) void init_B_Direct(Edge264_ctx *s, Edge264_flags *m,
-	const int8_t *refIdxA, const int8_t *refIdxB, const int8_t *refIdxC)
-{
-	typedef int16_t v2hi __attribute__((vector_size(4)));
-	static const v8hi vertical = {0, -1, 0, -1, 0, -1, 0, -1};
-	static const v8hi one = {1, 1, 1, 1, 1, 1, 1, 1};
-	
-	/* 8.4.1.2.1 - Load mvCol into vector registers. */
-	unsigned PicWidthInMbs = (unsigned)ctx->ps.width / 16;
-	unsigned CurrMbAddr = PicWidthInMbs * ctx->mb_y + ctx->mb_x;
-	const Edge264_macroblock *mbCol = &ctx->mbCol[CurrMbAddr];
-	const uint8_t *refCol01, *refCol23;
-	v8hi mvCol0, mvCol1, mvCol2, mvCol3;
-	if (m->f.mb_field_decoding_flag == mbCol->fieldDecodingFlag) { // One_To_One
-		refCol01 = mbCol->refPic;
-		refCol23 = mbCol->refPic + 2;
-		const v8hi *v = (v8hi *)((uintptr_t)ctx->mvCol + CurrMbAddr * 64);
-		mvCol0 = v[0];
-		mvCol1 = v[1];
-		mvCol2 = v[2];
-		mvCol3 = v[3];
-	} else if (m->f.mb_field_decoding_flag) { // Frm_To_Fld
-		unsigned top = PicWidthInMbs * (ctx->mb_y & -2u) + ctx->mb_x;
-		unsigned bot = PicWidthInMbs * (ctx->mb_y | 1u) + ctx->mb_x;
-		refCol01 = ctx->mbCol[top].refPic;
-		refCol23 = ctx->mbCol[bot].refPic;
-		const v2li *t = (v2li *)((uintptr_t)ctx->mvCol + top * 64);
-		const v2li *b = (v2li *)((uintptr_t)ctx->mvCol + bot * 64);
-		mvCol0 = (v8hi)__builtin_shufflevector(t[0], t[2], 0, 2);
-		mvCol1 = (v8hi)__builtin_shufflevector(t[1], t[3], 0, 2);
-		mvCol2 = (v8hi)__builtin_shufflevector(b[4], b[6], 0, 2);
-		mvCol3 = (v8hi)__builtin_shufflevector(b[5], b[7], 0, 2);
-		if (!ctx->direct_spatial_mv_pred_flag) {
-			mvCol0 -= ((mvCol0 - (mvCol0 > (v8hi){})) >> one) & vertical;
-			mvCol1 -= ((mvCol1 - (mvCol1 > (v8hi){})) >> one) & vertical;
-			mvCol2 -= ((mvCol2 - (mvCol2 > (v8hi){})) >> one) & vertical;
-			mvCol3 -= ((mvCol3 - (mvCol3 > (v8hi){})) >> one) & vertical;
-		}
-	} else { // Fld_To_Frm
-		CurrMbAddr = PicWidthInMbs * ((ctx->mb_y & -2u) | ctx->firstRefPicL1) + ctx->mb_x;
-		refCol01 = refCol23 = ctx->mbCol[CurrMbAddr].refPic + (ctx->mb_y & 1u) * 2;
-		const uint64_t *v = (uint64_t *)((uintptr_t)ctx->mvCol + CurrMbAddr * 64 + (ctx->mb_y & 1u) * 32);
-		mvCol0 = (v8hi)(v2li){v[0], v[0]};
-		mvCol1 = (v8hi)(v2li){v[2], v[2]};
-		mvCol2 = (v8hi)(v2li){v[1], v[1]};
-		mvCol3 = (v8hi)(v2li){v[3], v[3]};
-		if (!ctx->direct_spatial_mv_pred_flag) {
-			mvCol0 += mvCol0 & vertical;
-			mvCol1 += mvCol1 & vertical;
-			mvCol2 += mvCol2 & vertical;
-			mvCol3 += mvCol3 & vertical;
-		}
-	}
-
-	/* 8.4.1.2.2 - Spatial motion prediction. */
-	if (ctx->direct_spatial_mv_pred_flag) {
-		
-		/* refIdxL0 equals one of A/B/C, so initialise mvL0 the same way (8.4.1.3.1). */
-		int refIdxL0A = refIdxA[0], refIdxL0B = refIdxB[0], refIdxL0C = refIdxC[0];
-		union { uint32_t s; int16_t h[2]; } mvL0 =
-			{.s = (unsigned)refIdxL0B < refIdxL0C ? m->mvEdge_s[10] : m->mvEdge_s[18]};
-		int refIdxL0 = (unsigned)refIdxL0B < refIdxL0C ? refIdxL0B : refIdxL0C;
-		mvL0.s = (unsigned)refIdxL0A < refIdxL0 ? m->mvEdge_s[6] : mvL0.s;
-		refIdxL0 = (unsigned)refIdxL0A < refIdxL0 ? refIdxL0A : refIdxL0;
-		
-		/* When another one of A/B/C equals refIdxL0, fallback to median. */
-		if ((refIdxL0 == refIdxL0A) + (refIdxL0 == refIdxL0B) + (refIdxL0 == refIdxL0C) > 1) {
-			mvL0.h[0] = median(m->mvEdge[12], m->mvEdge[20], m->mvEdge[36]);
-			mvL0.h[1] = median(m->mvEdge[13], m->mvEdge[21], m->mvEdge[37]);
-		}
-		
-		/* Same for L1. */
-		int refIdxL1A = refIdxA[4], refIdxL1B = refIdxB[4], refIdxL1C = refIdxC[4];
-		union { uint32_t s; int16_t h[2]; } mvL1 =
-			{.s = (unsigned)refIdxL1B < refIdxL1C ? m->mvEdge_s[11] : m->mvEdge_s[19]};
-		int refIdxL1 = (unsigned)refIdxL1B < refIdxL1C ? refIdxL1B : refIdxL1C;
-		mvL1.s = (unsigned)refIdxL1A < refIdxL1 ? m->mvEdge_s[7] : mvL1.s;
-		refIdxL1 = (unsigned)refIdxL1A < refIdxL1 ? refIdxL1A : refIdxL1;
-		if ((refIdxL1 == refIdxL1A) + (refIdxL1 == refIdxL1B) + (refIdxL1 == refIdxL1C) > 1) {
-			mvL1.h[0] = median(m->mvEdge[14], m->mvEdge[22], m->mvEdge[38]);
-			mvL1.h[1] = median(m->mvEdge[15], m->mvEdge[23], m->mvEdge[39]);
-		}
-		
-		/* Direct Zero Prediction already has both mvLX zeroed. */
-		if (refIdxL0 < 0 && refIdxL1 < 0)
-			refIdxL0 = refIdxL1 = 0;
-		m->refIdx_s[0] = refIdxL0 * 0x01010101;
-		m->refIdx_s[1] = refIdxL1 * 0x01010101;
-		
-		/* mv_almost_zero encapsulates the intrinsic for abs which is essential here. */
-		unsigned mask = ctx->col_short_term << 7; // FIXME: Revert bit order to keep sign!
-		v8hi colZero0 = (refCol01[0] & mask) ? mv_almost_zero(mvCol0) : (v8hi){};
-		v8hi colZero1 = (refCol01[1] & mask) ? mv_almost_zero(mvCol1) : (v8hi){};
-		v8hi colZero2 = (refCol23[0] & mask) ? mv_almost_zero(mvCol2) : (v8hi){};
-		v8hi colZero3 = (refCol23[1] & mask) ? mv_almost_zero(mvCol3) : (v8hi){};
-		
-		typedef int32_t v4si __attribute__((vector_size(16)));
-		ctx->mvs_v[0] = ctx->mvs_v[1] = ctx->mvs_v[2] = ctx->mvs_v[3] = (v8hi)(v4si){mvL0.s, mvL0.s, mvL0.s, mvL0.s};
-		ctx->mvs_v[4] = ctx->mvs_v[5] = ctx->mvs_v[6] = ctx->mvs_v[7] = (v8hi)(v4si){mvL1.s, mvL1.s, mvL1.s, mvL1.s};
-		if (refIdxL0 == 0)
-			ctx->mvs_v[0] &= ~colZero0, ctx->mvs_v[1] &= ~colZero1, ctx->mvs_v[2] &= ~colZero2, ctx->mvs_v[3] &= ~colZero3;
-		if (refIdxL1 == 0)
-			ctx->mvs_v[4] &= ~colZero0, ctx->mvs_v[5] &= ~colZero1, ctx->mvs_v[6] &= ~colZero2, ctx->mvs_v[7] &= ~colZero3;
-	
-	/* 8.4.1.2.3 - Temporal motion prediction. */
-	} else {
-		m->refIdx_s[1] = 0;
-		m->refIdx[0] = (ctx->MapPicToList0 + 1)[refCol01[0] & 0x7fu];
-		m->refIdx[1] = (ctx->MapPicToList0 + 1)[refCol01[1] & 0x7fu];
-		m->refIdx[2] = (ctx->MapPicToList0 + 1)[refCol23[0] & 0x7fu];
-		m->refIdx[3] = (ctx->MapPicToList0 + 1)[refCol23[1] & 0x7fu];
-		const int16_t *DistScaleFactor = ctx->DistScaleFactor[m->f.mb_field_decoding_flag ? ctx->mb_y & 1 : 2];
-		ctx->mvs_v[0] = temporal_scale(mvCol0, DistScaleFactor[m->refIdx[0]]);
-		ctx->mvs_v[1] = temporal_scale(mvCol1, DistScaleFactor[m->refIdx[1]]);
-		ctx->mvs_v[2] = temporal_scale(mvCol2, DistScaleFactor[m->refIdx[2]]);
-		ctx->mvs_v[3] = temporal_scale(mvCol3, DistScaleFactor[m->refIdx[3]]);
-		ctx->mvs_v[4] = ctx->mvs_v[0] - mvCol0;
-		ctx->mvs_v[5] = ctx->mvs_v[1] - mvCol1;
-		ctx->mvs_v[6] = ctx->mvs_v[2] - mvCol2;
-		ctx->mvs_v[7] = ctx->mvs_v[3] - mvCol3;
-	}
-}
-#endif
-
-
 
 #endif

@@ -18,11 +18,12 @@
  * _ upgrade DPB storage size to 32 (to allow future multithreaded decoding), by simply doubling reference and output flags sizes
  * _ backup output/ref flags and FrameNum and restore then on bad slice_header
  * _ try using epb for context pointer, and email GCC when it fails
+ * _ When all cross-slice variables are known, store Edge264_macroblock inside a circular buffer (to get constant A/B offsets) and put the rest in per-frame arrays
  * _ When implementing fields and MBAFF, keep the same pic coding struct (no FLD/AFRM) and just add mb_field_decoding_flag
  * _ after implementing P/B and MBAFF, optimize away array accesses of is422 and mb->f.mb_field_decoding_flag
  
  * _ Current x264 options in HandBrake to output compatible video: no-deblock:slices=1:no-8x8dct:bframes=0
- * _ To benchmark ffmpeg: time ffmpeg -hide_banner -loglevel warning -i video.264 -f null -
+ * _ To benchmark ffmpeg: time ffmpeg -hide_banner -loglevel warning -t 1 -i video.264 -f null -
  */
 
 #include "edge264_common.h"
@@ -115,7 +116,6 @@ static void FUNC(initialise_decoding_context, Edge264_stream *e)
 		ctx->frame_offsets_y[16 + i] = ctx->plane_size_Y + y * mul_C;
 		ctx->frame_offsets_y[32 + i] = ctx->frame_offsets_y[16 + i] + e->plane_size_C;
 	}
-	mb = (Edge264_macroblock *)(ctx->frame + ctx->plane_size_Y + e->plane_size_C * 2 + (ctx->ps.width / 16 + 2) * sizeof(*mb));
 	int cY = (1 << ctx->ps.BitDepth_Y) - 1;
 	int cC = (1 << ctx->ps.BitDepth_C) - 1;
 	ctx->clip_Y = (v8hi){cY, cY, cY, cY, cY, cY, cY, cY};
@@ -123,6 +123,8 @@ static void FUNC(initialise_decoding_context, Edge264_stream *e)
 	
 	int offA_8bit = -(int)sizeof(*mb);
 	int offB_8bit = -(ctx->ps.width / 16 + 1) * sizeof(*mb);
+	ctx->mbB = (Edge264_macroblock *)(ctx->frame + ctx->plane_size_Y + e->plane_size_C * 2 + sizeof(*mb));
+	mb = (Edge264_macroblock *)((uint8_t *)ctx->mbB - offB_8bit);
 	ctx->A4x4_8bit[0] = (v16hi){5 + offA_8bit, 0, 7 + offA_8bit, 2, 1, 4, 3, 6, 13 + offA_8bit, 8, 15 + offA_8bit, 10, 9, 12, 11, 14};
 	ctx->B4x4_8bit[0] = (v16si){10 + offB_8bit, 11 + offB_8bit, 0, 1, 14 + offB_8bit, 15 + offB_8bit, 4, 5, 2, 3, 8, 9, 6, 7, 12, 13};
 	ctx->A8x8_8bit[0] = (v4hi){1 + offA_8bit, 0, 3 + offA_8bit, 2};
@@ -164,8 +166,6 @@ static void FUNC(initialise_decoding_context, Edge264_stream *e)
 		int offD_32bit = offB_32bit - (sizeof(*mb) >> 2);
 		ctx->refIdx_C = offB_8bit + sizeof(*mb) + 2;
 		ctx->refIdx_D = offB_8bit - sizeof(*mb) + 3;
-		ctx->refIdx4x4_A_v = (v16qi){5, 6, 5, 6, 6, 7, 6, 7, 9, 10, 9, 10, 10, 11, 10, 11};
-		ctx->refIdx4x4_B_v = (v16qi){2, 2, 6, 6, 3, 3, 7, 7, 6, 6, 10, 10, 7, 7, 11, 11};
 		ctx->mvs_A_v = (v16hi){5 + offA_32bit, 0, 7 + offA_32bit, 2, 1, 4, 3, 6, 13 + offA_32bit, 8, 15 + offA_32bit, 10, 9, 12, 11, 14};
 		ctx->mvs_B_v = (v16si){10 + offB_32bit, 11 + offB_32bit, 0, 1, 14 + offB_32bit, 15 + offB_32bit, 4, 5, 2, 3, 8, 9, 6, 7, 12, 13};
 		ctx->mvs8x8_C_v = (v4si){14 + offB_32bit, 10 + offC_32bit, 6, 0};

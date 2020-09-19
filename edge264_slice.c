@@ -816,6 +816,21 @@ static inline int FUNC(parse_ref_idx, int i)
 	fprintf(stderr, "ref_idx: %u\n", refIdx);
 	return refIdx;
 }
+static inline int FUNC(parse_ref_idx_bis, int refIdxA, int refIdxB)
+{
+	int ctxIdxInc = (refIdxA > 0) + (refIdxB > 0) * 2;
+	int refIdx = CALL(get_ae, 54 + ctxIdxInc);
+	if (refIdx) {
+		int bin1 = CALL(get_ae, 58);
+		refIdx = 1 + bin1;
+		if (bin1) {
+			while (CALL(get_ae, 59) && refIdx < 31)
+				refIdx++;
+		}
+	}
+	fprintf(stderr, "ref_idx: %u\n", refIdx);
+	return refIdx;
+}
 
 
 
@@ -904,13 +919,22 @@ static inline int FUNC(parse_ref_idx, int i)
 	if (!CALL(get_ae, 15)) {
 		if (!CALL(get_ae, 16)) { // 16x16
 			fprintf(stderr, "mb_type: 0\n");
-			int refIdx = CALL(parse_ref_idx, 0);
+			int refIdx = 0;
 			int refIdxA = *(mb->refIdx + ctx->refIdx_A[0]);
 			int refIdxB = *(mb->refIdx + ctx->refIdx_B[0]);
-			int refIdxC = *(mb->refIdx + (ctx->inc.unavailable & 4 ? ctx->refIdx_D : ctx->refIdx_C));
-			ctx->mvs_C[0] = (ctx->inc.unavailable & 4) ? ctx->mvs8x8_D[0] : ctx->mvs8x8_C[1];
-			mb->refIdx_s[0] = refIdx * 0x01010101;
-			ctx->refIdx4x4_eq[0] = ((refIdx==refIdxA) | (ctx->inc.unavailable==14)) + (refIdx==refIdxB) * 2 + (refIdx==refIdxC) * 4;
+			if (ctx->ps.num_ref_idx_active[0] > 1) {
+				refIdx = CALL(parse_ref_idx_bis, refIdxA, refIdxB);
+				mb->refIdx_s[0] = refIdx * 0x01010101;
+			}
+			int eqA = refIdx==refIdxA;
+			int refIdxC = *(mb->refIdx + ctx->refIdx_C);
+			ctx->mvs_C[0] = ctx->mvs8x8_C[1];
+			if (__builtin_expect(ctx->inc.unavailable & 4, 0)) {
+				refIdxC = *(mb->refIdx + ctx->refIdx_D);
+				ctx->mvs_C[0] = ctx->mvs8x8_D[0];
+				eqA |= ctx->inc.unavailable==14;
+			}
+			ctx->refIdx4x4_eq[0] = eqA + (refIdx==refIdxB) * 2 + (refIdx==refIdxC) * 4;
 			ctx->part_sizes_l[0] = (int64_t)(v8qi){16, 16};
 			CALL(parse_mv, 0);
 			mb->absMvdComp_v[0] = __builtin_shufflevector(mb->absMvdComp_v[0], (v16qi){}, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0);

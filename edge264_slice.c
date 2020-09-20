@@ -899,37 +899,34 @@ static __attribute__((noinline)) void FUNC(parse_mvd_16x16, int i8x8) {
 /**
  * Parses ref_idx_lx (9.3.3.1.1.6).
  *
- * This function uses 3 callee-saved registers across get_ae, which will thus
- * be pushed in the prologue. Passing refIdx_A/B as arguments would increase
- * this count to 5, since they are always used after parse_ref_idx. Instead we
- * reload them afterwards since it is cheaper (2 reads vs 1 read and 1 write).
+ * The test for num_ref_idx_active is kept inside to reduce branch cache
+ * pressure, and is duplicated in two functions to ease it prediction.
  */
-static inline int FUNC(parse_ref_idx, int i)
-{
-	int refIdxA = *(mb->refIdx + ctx->refIdx_A[i]);
-	int refIdxB = *(mb->refIdx + ctx->refIdx_B[i]);
-	int ctxIdxInc = (refIdxA > 0) + (refIdxB > 0) * 2;
-	int num_ref_idx_active_minus1 = ctx->ps.num_ref_idx_active[i >> 2] - 1;
+static __attribute__((noinline)) int FUNC(parse_ref_idx_l0, int i) {
 	int refIdx = 0;
-	if (num_ref_idx_active_minus1 > 0) {
-		while (CALL(get_ae, 54 + ctxIdxInc) && refIdx < num_ref_idx_active_minus1) {
+	if (ctx->ps.num_ref_idx_active[0] > 1) {
+		int refIdxA = *(mb->refIdx + ctx->refIdx_A[i]);
+		int refIdxB = *(mb->refIdx + ctx->refIdx_B[i]);
+		int ctxIdxInc = (refIdxA > 0) + (refIdxB > 0) * 2;
+		while (CALL(get_ae, 54 + ctxIdxInc)) {
 			ctxIdxInc = (ctxIdxInc >> 2) + 4; // cool trick from ffmpeg
-			refIdx++;
+			if (++refIdx >= 32)
+				return 0;
 		}
 	}
 	fprintf(stderr, "ref_idx: %u\n", refIdx);
 	return refIdx;
 }
-static __attribute__((noinline)) int FUNC(parse_ref_idx_bis, int refIdxA, int refIdxB)
-{
-	int ctxIdxInc = (refIdxA > 0) + (refIdxB > 0) * 2;
-	int refIdx = CALL(get_ae, 54 + ctxIdxInc);
-	if (refIdx) {
-		int bin1 = CALL(get_ae, 58);
-		refIdx = 1 + bin1;
-		if (bin1) {
-			while (CALL(get_ae, 59) && refIdx < 31)
-				refIdx++;
+static __attribute__((noinline)) int FUNC(parse_ref_idx_l1, int i) {
+	int refIdx = 0;
+	if (ctx->ps.num_ref_idx_active[1] > 1) {
+		int refIdxA = *(mb->refIdx + ctx->refIdx_A[i]);
+		int refIdxB = *(mb->refIdx + ctx->refIdx_B[i]);
+		int ctxIdxInc = (refIdxA > 0) + (refIdxB > 0) * 2;
+		while (CALL(get_ae, 54 + ctxIdxInc)) {
+			ctxIdxInc = (ctxIdxInc >> 2) + 4; // cool trick from ffmpeg
+			if (++refIdx >= 32)
+				return 0;
 		}
 	}
 	fprintf(stderr, "ref_idx: %u\n", refIdx);
@@ -1031,19 +1028,15 @@ static __attribute__((noinline)) void FUNC(parse_P_mb)
 	if (!CALL(get_ae, 15)) {
 		if (!CALL(get_ae, 16)) { // 16x16
 			fprintf(stderr, "mb_type: 0\n");
-			if (ctx->ps.num_ref_idx_active[0] > 1) {
-				int refIdxA = *(mb->refIdx + ctx->refIdx_A[0]);
-				int refIdxB = *(mb->refIdx + ctx->refIdx_B[0]);
-				mb->refIdx_s[0] = 0x01010101 * CALL(parse_ref_idx_bis, refIdxA, refIdxB);
-			}
+			mb->refIdx_s[0] = 0x01010101 * CALL(parse_ref_idx_l0, 0);
 			CALL(parse_mvd_16x16, 0);
 			JUMP(parse_inter_residual);
 		} // else 8x8
 		
 	} else if (!CALL(get_ae, 17)) { // 8x16
 		fprintf(stderr, "mb_type: 2\n");
-		int refIdx0 = mb->refIdx[0] = mb->refIdx[2] = CALL(parse_ref_idx, 0);
-		int refIdx1 = mb->refIdx[1] = mb->refIdx[3] = CALL(parse_ref_idx, 1);
+		int refIdx0 = mb->refIdx[0] = mb->refIdx[2] = CALL(parse_ref_idx_l0, 0);
+		int refIdx1 = mb->refIdx[1] = mb->refIdx[3] = CALL(parse_ref_idx_l0, 1);
 		int refIdxA0 = *(mb->refIdx + ctx->refIdx_A[0]);
 		int refIdxB0 = *(mb->refIdx + ctx->refIdx_B[0]);
 		int refIdxB1 = *(mb->refIdx + ctx->refIdx_B[1]);
@@ -1064,8 +1057,8 @@ static __attribute__((noinline)) void FUNC(parse_P_mb)
 		
 	} else { // 16x8
 		fprintf(stderr, "mb_type: 1\n");
-		int refIdx0 = mb->refIdx[0] = mb->refIdx[1] = CALL(parse_ref_idx, 0);
-		int refIdx2 = mb->refIdx[2] = mb->refIdx[3] = CALL(parse_ref_idx, 2);
+		int refIdx0 = mb->refIdx[0] = mb->refIdx[1] = CALL(parse_ref_idx_l0, 0);
+		int refIdx2 = mb->refIdx[2] = mb->refIdx[3] = CALL(parse_ref_idx_l0, 2);
 		int refIdxA0 = *(mb->refIdx + ctx->refIdx_A[0]);
 		int refIdxA2 = *(mb->refIdx + ctx->refIdx_A[2]);
 		int refIdxB0 = *(mb->refIdx + ctx->refIdx_B[0]);
@@ -1136,10 +1129,10 @@ static __attribute__((noinline)) void FUNC(parse_P_mb)
 		fprintf(stderr, "sub_mb_type: %c\n", (f == 1) ? '0' : (f == 5) ? '1' : (f == 3) ? '2' : '3');
 	}
 	ctx->mvd_flags = flags;
-	mb->refIdx[0] = CALL(parse_ref_idx, 0);
-	mb->refIdx[1] = CALL(parse_ref_idx, 1);
-	mb->refIdx[2] = CALL(parse_ref_idx, 2);
-	mb->refIdx[3] = CALL(parse_ref_idx, 3); // FIXME store forwarding stall here!
+	mb->refIdx[0] = CALL(parse_ref_idx_l0, 0);
+	mb->refIdx[1] = CALL(parse_ref_idx_l0, 1);
+	mb->refIdx[2] = CALL(parse_ref_idx_l0, 2);
+	mb->refIdx[3] = CALL(parse_ref_idx_l0, 3); // FIXME store forwarding stall here!
 	
 	// load neighbouring refIdx values and shuffle them into A/B/C
 	v16qi Ar = (v16qi)(v2li){(int64_t)mb[-1].refIdx_l, (int64_t)mb->refIdx_l};

@@ -849,7 +849,8 @@ static inline __attribute__((always_inline)) int FUNC(parse_mvd_comp, int ctxBas
 static __attribute__((noinline)) v8hi FUNC(parse_mvd_pair, int absMvdSumX, int absMvdSumY) {
 	int x = CALL(parse_mvd_comp, 40, absMvdSumX);
 	int y = CALL(parse_mvd_comp, 47, absMvdSumY);
-	return (v8hi)__builtin_shufflevector((v4si)(v8hi){x, y}, (v4si){}, 0, 0, 0, 0);
+	v8hi mv = {x, y};
+	return (v8hi)__builtin_shufflevector((v4si)mv, (v4si){}, 0, 0, 0, 0);
 }
 
 
@@ -948,20 +949,20 @@ static __attribute__((noinline)) int FUNC(parse_ref_idx_bis, int refIdxA, int re
 		int mvB = *(mb->mvs_s + ctx->mvs_B[0]);
 		v8hi mv = {};
 		if ((refIdxA | mvA) && (refIdxB | mvB) && !(ctx->inc.unavailable & 3)) {
-			int refIdxC, mvC;
+			int refIdxC, mvs_C;
 			if (__builtin_expect(ctx->inc.unavailable & 4, 0)) {
 				refIdxC = *(mb->refIdx + ctx->refIdx_D);
-				mvC = ctx->mvs8x8_D[0];
+				mvs_C = ctx->mvs8x8_D[0];
 			} else {
 				refIdxC = *(mb->refIdx + ctx->refIdx_C);
-				mvC = ctx->mvs8x8_C[1];
+				mvs_C = ctx->mvs8x8_C[1];
 			}
 			// B/C unavailability (->A) was ruled out, thus not tested here
 			int eq = !refIdxA + !refIdxB * 2 + !refIdxC * 4;
 			if (__builtin_expect(0xe9 >> eq & 1, 1)) {
-				mv = vector_median((v8hi)(v4si){mvA}, (v8hi)(v4si){mvB}, (v8hi)(v4si){*(mb->mvs_s + mvC)});
+				mv = vector_median((v8hi)(v4si){mvA}, (v8hi)(v4si){mvB}, (v8hi)(v4si){*(mb->mvs_s + mvs_C)});
 			} else if (eq == 4) {
-				mv = (v8hi)(v4si){*(mb->mvs_s + mvC)};
+				mv = (v8hi)(v4si){*(mb->mvs_s + mvs_C)};
 			} else {
 				mv = (v8hi)(v4si){(eq == 1) ? mvA : mvB};
 			}
@@ -997,19 +998,37 @@ static __attribute__((noinline)) int FUNC(parse_ref_idx_bis, int refIdxA, int re
 				refIdx = CALL(parse_ref_idx_bis, refIdxA, refIdxB);
 				mb->refIdx_s[0] = refIdx * 0x01010101;
 			}
+			
+			int sx = *(mb->absMvdComp + ctx->absMvdComp_A[0] + 0) + *(mb->absMvdComp + ctx->absMvdComp_B[0] + 0);
+			int sy = *(mb->absMvdComp + ctx->absMvdComp_A[0] + 1) + *(mb->absMvdComp + ctx->absMvdComp_B[0] + 1);
+			v8hi mvd = CALL(parse_mvd_pair, sx, sy);
+			
+			v8hi mvp;
 			int eqA = refIdx==refIdxA;
-			int refIdxC = *(mb->refIdx + ctx->refIdx_C);
-			ctx->mvs_C[0] = ctx->mvs8x8_C[1];
+			int refIdxC, mvs_C;
 			if (__builtin_expect(ctx->inc.unavailable & 4, 0)) {
 				refIdxC = *(mb->refIdx + ctx->refIdx_D);
-				ctx->mvs_C[0] = ctx->mvs8x8_D[0];
+				mvs_C = ctx->mvs8x8_D[0];
 				eqA |= ctx->inc.unavailable==14;
+			} else {
+				refIdxC = *(mb->refIdx + ctx->refIdx_C);
+				mvs_C = ctx->mvs8x8_C[1];
 			}
-			ctx->refIdx4x4_eq[0] = eqA + (refIdx==refIdxB) * 2 + (refIdx==refIdxC) * 4;
-			ctx->part_sizes_l[0] = (int64_t)(v8qi){16, 16};
-			CALL(parse_mv, 0);
-			mb->absMvdComp_v[0] = mb->absMvdComp_v[1] = (v16qu)__builtin_shufflevector((v8hi)mb->absMvdComp_v[0], (v8hi){}, 0, 0, 0, 0, 0, 0, 0, 0);
-			mb->mvs_v[0] = mb->mvs_v[1] = mb->mvs_v[2] = mb->mvs_v[3] = (v8hi)__builtin_shufflevector((v4si)mb->mvs_v[0], (v4si){}, 0, 0, 0, 0);
+			int eq = eqA + (refIdx==refIdxB) * 2 + (refIdx==refIdxC) * 4;
+			if (__builtin_expect(0xe9 >> eq & 1, 1)) {
+				v8hi mvA = (v8hi)(v4si){*(mb->mvs_s + ctx->mvs_A[0])};
+				v8hi mvB = (v8hi)(v4si){*(mb->mvs_s + ctx->mvs_B[0])};
+				v8hi mvC = (v8hi)(v4si){*(mb->mvs_s + mvs_C)};
+				mvp = vector_median(mvA, mvB, mvC);
+			} else {
+				int off = (eq == 1) ? ctx->mvs_A[0] : (eq == 2) ? ctx->mvs_B[0] : mvs_C;
+				mvp = (v8hi)(v4si){*(mb->mvs_s + off)};
+			}
+			
+			v8hi mvs = mvd + (v8hi)__builtin_shufflevector((v4si)mvp, (v4si){}, 0, 0, 0, 0);
+			mb->absMvdComp_v[0] = mb->absMvdComp_v[1] = pack_absMvdComp(mvd);
+			mb->mvs_v[0] = mb->mvs_v[1] = mb->mvs_v[2] = mb->mvs_v[3] = mvs;
+			CALL(decode_inter, 0, 16, 16, mvs[0], mvs[1]);
 			JUMP(parse_inter_residual);
 		} // else 8x8
 		

@@ -410,6 +410,10 @@ static inline v8hi vector_median(v8hi a, v8hi b, v8hi c) {
 	return (v8hi)_mm_max_epi16(_mm_min_epi16(_mm_max_epi16((__m128i)a,
 		(__m128i)b), (__m128i)c), _mm_min_epi16((__m128i)a, (__m128i)b));
 }
+static inline v16qu pack_absMvdComp(v8hi a) {
+	__m128i x = _mm_abs_epi16((__m128i)a);
+	return (v16qu)_mm_packus_epi16(x, x);
+}
 static inline v8hi mv_near_zero(v8hi mvCol) {
 	return (v8hi)_mm_cmpeq_epi32(_mm_srli_epi16(_mm_abs_epi16((__m128i)mvCol), 1), _mm_setzero_si128());
 }

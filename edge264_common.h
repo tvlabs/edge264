@@ -18,6 +18,7 @@
 typedef int8_t v4qi __attribute__((vector_size(4)));
 typedef int8_t v8qi __attribute__((vector_size(8)));
 typedef int16_t v4hi __attribute__((vector_size(8)));
+typedef uint8_t v8qu __attribute__((vector_size(8)));
 typedef size_t v16u __attribute__((vector_size(16)));
 typedef int8_t v16qi __attribute__((vector_size(16)));
 typedef int16_t v8hi __attribute__((vector_size(16)));
@@ -77,7 +78,7 @@ typedef struct {
 	union { int8_t Intra4x4PredMode[16]; v16qi Intra4x4PredMode_v; }; // [i4x4]
 	union { int8_t coded_block_flags_8x8[12]; v16qi coded_block_flags_8x8_v; }; // [iYCbCr][i8x8]
 	union { int8_t coded_block_flags_4x4[48]; int32_t coded_block_flags_4x4_s[12]; v16qi coded_block_flags_4x4_v[3]; }; // [iYCbCr][i4x4]
-	union { int8_t absMvdComp[64]; v16qi absMvdComp_v[4]; }; // [compIdx][LX][i4x4] (beware != mvs)
+	union { uint8_t absMvdComp[64]; v8qu absMvdComp_l[8]; v16qu absMvdComp_v[4]; }; // [LX][i4x4][compIdx]
 	union { int16_t mvs[64]; int32_t mvs_s[32]; v8hi mvs_v[8]; }; // [LX][i4x4][compIdx]
 } Edge264_macroblock;
 
@@ -139,10 +140,12 @@ typedef struct
 	union { uint8_t cabac[1024]; v16qu cabac_v[64]; };
 	
 	// neighbouring offsets (relative to the start of each array in mb)
-	union { int16_t coded_block_flags_4x4_A[48]; int16_t Intra4x4PredMode_A[16]; int16_t absMvdComp_A[16]; v16hi A4x4_8bit[3]; };
-	union { int32_t coded_block_flags_4x4_B[48]; int32_t Intra4x4PredMode_B[16]; int32_t absMvdComp_B[16]; v16si B4x4_8bit[3]; };
+	union { int16_t coded_block_flags_4x4_A[48]; int16_t Intra4x4PredMode_A[16]; v16hi A4x4_8bit[3]; };
+	union { int32_t coded_block_flags_4x4_B[48]; int32_t Intra4x4PredMode_B[16]; v16si B4x4_8bit[3]; };
 	union { int16_t coded_block_flags_8x8_A[12]; int16_t CodedBlockPatternLuma_A[4]; int16_t refIdx_A[4]; v4hi A8x8_8bit[3]; };
 	union { int32_t coded_block_flags_8x8_B[12]; int32_t CodedBlockPatternLuma_B[4]; int32_t refIdx_B[4]; v4si B8x8_8bit[3]; };
+	union { int16_t absMvdComp_A[16]; v16hi absMvdComp_A_v; };
+	union { int32_t absMvdComp_B[16]; v16si absMvdComp_B_v; };
 	int32_t refIdx_C; // offset to mbC->refIdx[2]
 	int32_t refIdx_D; // offset to mbD->refIdx[3]
 	union { int32_t refIdx4x4_C_s[4]; v16qi refIdx4x4_C_v; }; // shuffle vector for mv prediction
@@ -173,6 +176,7 @@ typedef struct
 	union { int8_t RefPicList[2][32]; v16qi RefPicList_v[4]; };
 	const uint8_t *ref_planes[2][32];
 	union { int32_t mvs_shuffle_s[4]; v16qi mvs_shuffle_v; }; // shuffle vector for mvs/absMvdComp storage
+	union { v8qi absMvdComp_shuffle_l[4]; v16qi absMvdComp_shuffle_v[2]; };
 	union { int8_t refIdx4x4_eq[32]; v16qi refIdx4x4_eq_v[2]; };
 	union { int8_t part_sizes[32]; int64_t part_sizes_l[4]; }; // pairs {w,h} for sizes of inter blocks
 	int16_t DistScaleFactor[32]; // [refIdxL0]

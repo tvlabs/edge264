@@ -167,6 +167,8 @@ static void FUNC(initialise_decoding_context, Edge264_stream *e)
 		int offD_32bit = offB_32bit - (sizeof(*mb) >> 2);
 		ctx->refIdx_C = offB_8bit + sizeof(*mb) + 2;
 		ctx->refIdx_D = offB_8bit - sizeof(*mb) + 3;
+		ctx->absMvdComp_A_v = (v16hi){10 + offA_8bit, 0, 14 + offA_8bit, 4, 2, 8, 6, 12, 26 + offA_8bit, 16, 30 + offA_8bit, 20, 18, 24, 22, 28};
+		ctx->absMvdComp_B_v = (v16si){20 + offB_8bit, 22 + offB_8bit, 0, 2, 28 + offB_8bit, 30 + offB_8bit, 8, 10, 4, 6, 16, 18, 12, 14, 24, 26};
 		ctx->mvs_A_v = (v16hi){5 + offA_32bit, 0, 7 + offA_32bit, 2, 1, 4, 3, 6, 13 + offA_32bit, 8, 15 + offA_32bit, 10, 9, 12, 11, 14};
 		ctx->mvs_B_v = (v16si){10 + offB_32bit, 11 + offB_32bit, 0, 1, 14 + offB_32bit, 15 + offB_32bit, 4, 5, 2, 3, 8, 9, 6, 7, 12, 13};
 		ctx->mvs8x8_C_v = (v4si){14 + offB_32bit, 10 + offC_32bit, 6, 0};

@@ -793,6 +793,68 @@ static __attribute__((noinline)) void FUNC(parse_I_mb, int ctxIdx)
 
 
 /**
+ * Parse mvd_lx (7.3.5.1, 7.4.5.1, 9.3.2.3, 9.3.3.1.1.7 and tables 9-34 and 9-39).
+ *
+ * We use the same binary division trick as parse_residual_block to read bypass
+ * bits without looping. Also, we inline the parsing of both components of each
+ * pair in a single function to reduce the number of calls.
+ */
+static inline __attribute__((always_inline)) int FUNC(parse_mvd_comp, int ctxBase, int absMvdSum) {
+	int ctxIdx = ctxBase + (absMvdSum >= 3) + (absMvdSum > 32);
+	int mvd = 0;
+	ctxBase += 3;
+	while (mvd < 9 && CALL(get_ae, ctxIdx))
+		ctxIdx = ctxBase + min(mvd++, 3);
+	
+	// Once again, we use unsigned division to read all bypass bits.
+	if (mvd >= 9) {
+		CALL(renorm, 0, 0);
+		codIRange >>= SIZE_BIT - 9;
+		uint32_t num = codIOffset >> (SIZE_BIT - 32);
+		uint32_t quo = num / (uint32_t)codIRange;
+		uint32_t rem = num % (uint32_t)codIRange;
+		
+		// 32bit/9bit division yields 23 bypass bits.
+		int k = 3 + clz32(~(quo << 9));
+		unsigned shift = 6 + k;
+		if (__builtin_expect(k >= 13, 0)) { // At k==12, code length is 22 bits.
+			codIRange <<= (SIZE_BIT - 32);
+			codIOffset = (SIZE_BIT == 32) ? rem : (uint32_t)codIOffset | (size_t)rem << 32;
+			CALL(renorm, 4, 0); // Next division will yield 19 bypass bits...
+			codIRange >>= SIZE_BIT - 13;
+			num = codIOffset >> (SIZE_BIT - 32);
+			quo = num / (uint32_t)codIRange + (quo << 19); // ... such that we keep 13 as msb.
+			rem = num % (uint32_t)codIRange;
+			shift -= 19;
+		}
+		
+		// Return the unconsumed bypass bits to codIOffset, and compute mvd.
+		size_t mul = ((uint32_t)-1 >> 1 >> (shift + k) & quo) * (uint32_t)codIRange + rem;
+		codIRange <<= SIZE_BIT - 1 - (shift + k);
+		codIOffset = (SIZE_BIT == 32) ? mul : (uint32_t)codIOffset | mul << 32;
+		mvd = 1 + (1 << k) + (quo << shift >> (31 - k));
+	}
+	
+	// Parse the sign flag.
+	if (mvd > 0) {
+		codIRange >>= 1;
+		mvd = (codIOffset >= codIRange) ? -mvd : mvd;
+		codIOffset = (codIOffset >= codIRange) ? codIOffset - codIRange : codIOffset;
+	}
+	fprintf(stderr, "mvd: %d\n", mvd);
+	// fprintf(stderr, "mvd_l%x: %d\n", pos >> 1 & 1, mvd);
+	return mvd;
+}
+
+static __attribute__((noinline)) v8hi FUNC(parse_mvd_pair, int absMvdSumX, int absMvdSumY) {
+	int x = CALL(parse_mvd_comp, 40, absMvdSumX);
+	int y = CALL(parse_mvd_comp, 47, absMvdSumY);
+	return (v8hi)__builtin_shufflevector((v4si)(v8hi){x, y}, (v4si){}, 0, 0, 0, 0);
+}
+
+
+
+/**
  * Parses ref_idx_lx (9.3.3.1.1.6).
  *
  * This function uses 3 callee-saved registers across get_ae, which will thus
@@ -885,17 +947,26 @@ static __attribute__((noinline)) int FUNC(parse_ref_idx_bis, int refIdxA, int re
 		int mvA = *(mb->mvs_s + ctx->mvs_A[0]);
 		int mvB = *(mb->mvs_s + ctx->mvs_B[0]);
 		v8hi mv = {};
-		if (!(ctx->inc.unavailable & 3) && (refIdxA | mvA) && (refIdxB | mvB)) {
-			int refIdxC = *(mb->refIdx + (ctx->inc.unavailable & 4 ? ctx->refIdx_D : ctx->refIdx_C));
-			int mvC = *(mb->mvs_s + (ctx->inc.unavailable & 4 ? ctx->mvs8x8_D[0] : ctx->mvs8x8_C[1]));
-			int eq = (!refIdxA | (ctx->inc.unavailable==14)) + !refIdxB * 2 + !refIdxC * 4;
-			if (__builtin_expect(0xe9 >> eq & 1, 1)) {
-				mv = vector_median((v8hi)(v4si){mvA}, (v8hi)(v4si){mvB}, (v8hi)(v4si){mvC});
+		if ((refIdxA | mvA) && (refIdxB | mvB) && !(ctx->inc.unavailable & 3)) {
+			int refIdxC, mvC;
+			if (__builtin_expect(ctx->inc.unavailable & 4, 0)) {
+				refIdxC = *(mb->refIdx + ctx->refIdx_D);
+				mvC = ctx->mvs8x8_D[0];
 			} else {
-				mv = (v8hi)(v4si){(eq == 1) ? mvA : (eq == 2) ? mvB : mvC};
+				refIdxC = *(mb->refIdx + ctx->refIdx_C);
+				mvC = ctx->mvs8x8_C[1];
+			}
+			// B/C unavailability (->A) was ruled out, thus not tested here
+			int eq = !refIdxA + !refIdxB * 2 + !refIdxC * 4;
+			if (__builtin_expect(0xe9 >> eq & 1, 1)) {
+				mv = vector_median((v8hi)(v4si){mvA}, (v8hi)(v4si){mvB}, (v8hi)(v4si){*(mb->mvs_s + mvC)});
+			} else if (eq == 4) {
+				mv = (v8hi)(v4si){*(mb->mvs_s + mvC)};
+			} else {
+				mv = (v8hi)(v4si){(eq == 1) ? mvA : mvB};
 			}
 		}
-		v8hi mvs = (v8hi)__builtin_shufflevector((v4si)mv, (v4si)mv, 0, 0, 0, 0);
+		v8hi mvs = (v8hi)__builtin_shufflevector((v4si)mv, (v4si){}, 0, 0, 0, 0);
 		mb->mvs_v[0] = mb->mvs_v[1] = mb->mvs_v[2] = mb->mvs_v[3] = mvs;
 		JUMP(decode_inter, 0, 16, 16, mvs[0], mvs[1]);
 	} else if (CALL(get_ae, 14)) {

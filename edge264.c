@@ -24,7 +24,7 @@
  * _ after implementing P/B and MBAFF, optimize away array accesses of is422 and mb->f.mb_field_decoding_flag
  
  * _ Current x264 options in HandBrake to output compatible video: no-deblock:slices=1:no-8x8dct:bframes=0
- * _ To benchmark ffmpeg: time ffmpeg -hide_banner -loglevel warning -t 1 -i video.264 -f null -
+ * _ To benchmark ffmpeg: ffmpeg -hide_banner -benchmark -threads 1 -i video.264 -f null -
  */
 
 #include "edge264_common.h"

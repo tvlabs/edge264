@@ -165,7 +165,6 @@ typedef struct
 	// Inter context
 	uint32_t mvd_flags;
 	uint32_t bipred_flags;
-	uint32_t ref_idx_mask;
 	const Edge264_macroblock *mbCol;
 	int8_t transform_8x8_mode_flag; // updated during parsing to replace noSubMbPartSizeLessThan8x8Flag
 	int8_t zero_if_col_short_term;
@@ -175,8 +174,7 @@ typedef struct
 	union { v4hi logWD_l; v8hi logWD_v; };
 	union { int8_t RefPicList[2][32]; v16qi RefPicList_v[4]; };
 	const uint8_t *ref_planes[2][32];
-	union { int32_t mvs_shuffle_s[4]; v16qi mvs_shuffle_v; }; // shuffle vector for mvs/absMvdComp storage
-	union { v8qi absMvdComp_shuffle_l[4]; v16qi absMvdComp_shuffle_v[2]; };
+	v4hi inter8x8_shuffle[4];
 	union { int8_t refIdx4x4_eq[32]; v16qi refIdx4x4_eq_v[2]; };
 	union { int8_t part_sizes[32]; int64_t part_sizes_l[4]; }; // pairs {w,h} for sizes of inter blocks
 	int16_t DistScaleFactor[32]; // [refIdxL0]

@@ -161,63 +161,6 @@ static __attribute__((noinline)) void FUNC(parse_residual_block, unsigned coded_
 
 
 /**
- * This function parses one mvd_lX symbol, using the same binary division trick
- * as above to read all bypass bits at once.
- */
-static __attribute__((noinline)) int FUNC(parse_mvd, int pos, int ctxBase) {
-	int absMvdCompA = *(mb->absMvdComp + ctx->absMvdComp_A[pos >> 1] + (pos & 1));
-	int absMvdCompB = *(mb->absMvdComp + ctx->absMvdComp_B[pos >> 1] + (pos & 1));
-	int sum = absMvdCompA + absMvdCompB;
-	int ctxIdx = ctxBase + (sum >= 3) + (sum > 32);
-	int mvd = 0;
-	ctxBase += 3;
-	while (mvd < 9 && CALL(get_ae, ctxIdx))
-		ctxIdx = ctxBase + min(mvd++, 3);
-	
-	// Once again, we use unsigned division to read all bypass bits.
-	if (mvd >= 9) {
-		CALL(renorm, 0, 0);
-		codIRange >>= SIZE_BIT - 9;
-		uint32_t num = codIOffset >> (SIZE_BIT - 32);
-		uint32_t quo = num / (uint32_t)codIRange;
-		uint32_t rem = num % (uint32_t)codIRange;
-		
-		// 32bit/9bit division yields 23 bypass bits.
-		int k = 3 + clz32(~(quo << 9));
-		unsigned shift = 6 + k;
-		if (__builtin_expect(k >= 13, 0)) { // At k==12, code length is 22 bits.
-			codIRange <<= (SIZE_BIT - 32);
-			codIOffset = (SIZE_BIT == 32) ? rem : (uint32_t)codIOffset | (size_t)rem << 32;
-			CALL(renorm, 4, 0); // Next division will yield 19 bypass bits...
-			codIRange >>= SIZE_BIT - 13;
-			num = codIOffset >> (SIZE_BIT - 32);
-			quo = num / (uint32_t)codIRange + (quo << 19); // ... such that we keep 13 as msb.
-			rem = num % (uint32_t)codIRange;
-			shift -= 19;
-		}
-		
-		// Return the unconsumed bypass bits to codIOffset, and compute mvd.
-		size_t mul = ((uint32_t)-1 >> 1 >> (shift + k) & quo) * (uint32_t)codIRange + rem;
-		codIRange <<= SIZE_BIT - 1 - (shift + k);
-		codIOffset = (SIZE_BIT == 32) ? mul : (uint32_t)codIOffset | mul << 32;
-		mvd = 1 + (1 << k) + (quo << shift >> (31 - k));
-	}
-	mb->absMvdComp[pos] = min(mvd, 66);
-	
-	// Parse the sign flag.
-	if (mvd > 0) {
-		codIRange >>= 1;
-		mvd = (codIOffset >= codIRange) ? -mvd : mvd;
-		codIOffset = (codIOffset >= codIRange) ? codIOffset - codIRange : codIOffset;
-	}
-	fprintf(stderr, "mvd: %d\n", mvd);
-	// fprintf(stderr, "mvd_l%x: %d\n", pos >> 1 & 1, mvd);
-	return mvd;
-}
-
-
-
-/**
  * As its name says, parses mb_qp_delta (9.3.2.7 and 9.3.3.1.1.5).
  *
  * cond should contain the values in coded_block_pattern as stored in mb,
@@ -493,76 +436,6 @@ static __attribute__((noinline)) void FUNC(parse_coded_block_pattern) {
 
 
 
-static void FUNC(parse_inter_residual)
-{
-	CALL(parse_coded_block_pattern);
-	
-	if (mb->CodedBlockPatternLuma_s && ctx->transform_8x8_mode_flag) {
-		mb->f.transform_size_8x8_flag = CALL(get_ae, 399 + ctx->inc.transform_size_8x8_flag);
-		fprintf(stderr, "transform_size_8x8_flag: %x\n", mb->f.transform_size_8x8_flag);
-	}
-	
-	// temporary fix until Pred modes are removed
-	ctx->PredMode_v[0] = (mb->f.transform_size_8x8_flag) ?
-		(v16qu){ADD_RESIDUAL_8x8, ADD_RESIDUAL_8x8, ADD_RESIDUAL_8x8, ADD_RESIDUAL_8x8, ADD_RESIDUAL_8x8, ADD_RESIDUAL_8x8, ADD_RESIDUAL_8x8, ADD_RESIDUAL_8x8, ADD_RESIDUAL_8x8, ADD_RESIDUAL_8x8, ADD_RESIDUAL_8x8, ADD_RESIDUAL_8x8, ADD_RESIDUAL_8x8, ADD_RESIDUAL_8x8, ADD_RESIDUAL_8x8, ADD_RESIDUAL_8x8} :
-		(v16qu){ADD_RESIDUAL_4x4, ADD_RESIDUAL_4x4, ADD_RESIDUAL_4x4, ADD_RESIDUAL_4x4, ADD_RESIDUAL_4x4, ADD_RESIDUAL_4x4, ADD_RESIDUAL_4x4, ADD_RESIDUAL_4x4, ADD_RESIDUAL_4x4, ADD_RESIDUAL_4x4, ADD_RESIDUAL_4x4, ADD_RESIDUAL_4x4, ADD_RESIDUAL_4x4, ADD_RESIDUAL_4x4, ADD_RESIDUAL_4x4, ADD_RESIDUAL_4x4};
-	if (ctx->ps.ChromaArrayType == 1)
-		ctx->PredMode_v[1] = (v16qu){TRANSFORM_DC_2x2, ADD_RESIDUAL_4x4, ADD_RESIDUAL_4x4, ADD_RESIDUAL_4x4, TRANSFORM_DC_2x2, ADD_RESIDUAL_4x4, ADD_RESIDUAL_4x4, ADD_RESIDUAL_4x4};
-	else if (ctx->ps.ChromaArrayType == 2)
-		ctx->PredMode_v[1] = (v16qu){TRANSFORM_DC_2x4, ADD_RESIDUAL_4x4, ADD_RESIDUAL_4x4, ADD_RESIDUAL_4x4, ADD_RESIDUAL_4x4, ADD_RESIDUAL_4x4, ADD_RESIDUAL_4x4, ADD_RESIDUAL_4x4, TRANSFORM_DC_2x4, ADD_RESIDUAL_4x4, ADD_RESIDUAL_4x4, ADD_RESIDUAL_4x4, ADD_RESIDUAL_4x4, ADD_RESIDUAL_4x4, ADD_RESIDUAL_4x4, ADD_RESIDUAL_4x4};
-	else if (ctx->ps.ChromaArrayType == 3)
-		ctx->PredMode_v[1] = ctx->PredMode_v[2] = ctx->PredMode_v[0];
-	JUMP(parse_NxN_residual);
-}
-
-
-
-/**
- * This function parses the syntax elements mvd_lX (from function),
- * coded_block_pattern (from function), and transform_size_8x8_flag for an
- * Inter macroblock, then branches to residual decoding through tail call.
- *
- * Motion vector prediction is one of the hardest parts to decode (8.4.1.3),
- * here is a summary of the rules:
- * _ A/B/C/D are 4x4 blocks on pixels at relative positions (-1,0)/(0,-1)/(W,-1)/(-1,-1)
- * _ unavailable A/B/C/D blocks count as refIdx=-1 and mv=0
- * _ if C is unavailable, replace it with D
- * _ for 8x16 and 16x8, predict from (A,C) and (B,A) if their refIdx matches
- * _ otherwise if B, C and D are unavailable, replace B and C with A
- * _ then if only one of refIdxA/B/C is equal to refIdx, predict mv from it
- * _ otherwise predict mv as median(mvA, mvB, mvC)
- *
- * In this function, refIdx4x4_eq covers rules 1~5 already, so we only need to
- * switch on values of each equality mask to determine predicted mvs.
- */
-static __attribute__((noinline)) void FUNC(parse_mv, int i)
-{
-	// parsing mvd components in pairs, to reduce branches
-	int x = CALL(parse_mvd, i * 2, 40);
-	int y = CALL(parse_mvd, i * 2 + 1, 47);
-	v8hi mv = {x, y};
-	
-	// load neighbouring motion vectors and equality mask
-	v8hi mvA = (v8hi)(v4si){*(mb->mvs_s + ctx->mvs_A[i])};
-	v8hi mvB = (v8hi)(v4si){*(mb->mvs_s + ctx->mvs_B[i])};
-	v8hi mvC = (v8hi)(v4si){*(mb->mvs_s + ctx->mvs_C[i])};
-	int eq = ctx->refIdx4x4_eq[i];
-	
-	// This branch is unavoidable if we don't want to mess with mvA/B addresses too.
-	if (__builtin_expect(0xe9 >> eq & 1, 1)) {
-		mv += vector_median(mvA, mvB, mvC);
-	} else {
-		mv += (eq == 1) ? mvA : (eq == 2) ? mvB : mvC;
-	}
-	
-	// storage and tail jump to decoding
-	mb->mvs_s[i] = ((v4si)mv)[0];
-	int i4x4 = i & 15;
-	JUMP(decode_inter, i4x4, ctx->part_sizes[i4x4 * 2], ctx->part_sizes[i4x4 * 2 + 1], mv[0], mv[1]);
-}
-
-
-
 /**
  * Parses intra_chroma_pred_mode (9.3.2.2 and 9.3.3.1.1.8).
  *
@@ -792,11 +665,36 @@ static __attribute__((noinline)) void FUNC(parse_I_mb, int ctxIdx)
 
 
 
+static void FUNC(parse_inter_residual)
+{
+	CALL(parse_coded_block_pattern);
+	
+	if (mb->CodedBlockPatternLuma_s && ctx->transform_8x8_mode_flag) {
+		mb->f.transform_size_8x8_flag = CALL(get_ae, 399 + ctx->inc.transform_size_8x8_flag);
+		fprintf(stderr, "transform_size_8x8_flag: %x\n", mb->f.transform_size_8x8_flag);
+	}
+	
+	// temporary fix until Pred modes are removed
+	ctx->PredMode_v[0] = (mb->f.transform_size_8x8_flag) ?
+		(v16qu){ADD_RESIDUAL_8x8, ADD_RESIDUAL_8x8, ADD_RESIDUAL_8x8, ADD_RESIDUAL_8x8, ADD_RESIDUAL_8x8, ADD_RESIDUAL_8x8, ADD_RESIDUAL_8x8, ADD_RESIDUAL_8x8, ADD_RESIDUAL_8x8, ADD_RESIDUAL_8x8, ADD_RESIDUAL_8x8, ADD_RESIDUAL_8x8, ADD_RESIDUAL_8x8, ADD_RESIDUAL_8x8, ADD_RESIDUAL_8x8, ADD_RESIDUAL_8x8} :
+		(v16qu){ADD_RESIDUAL_4x4, ADD_RESIDUAL_4x4, ADD_RESIDUAL_4x4, ADD_RESIDUAL_4x4, ADD_RESIDUAL_4x4, ADD_RESIDUAL_4x4, ADD_RESIDUAL_4x4, ADD_RESIDUAL_4x4, ADD_RESIDUAL_4x4, ADD_RESIDUAL_4x4, ADD_RESIDUAL_4x4, ADD_RESIDUAL_4x4, ADD_RESIDUAL_4x4, ADD_RESIDUAL_4x4, ADD_RESIDUAL_4x4, ADD_RESIDUAL_4x4};
+	if (ctx->ps.ChromaArrayType == 1)
+		ctx->PredMode_v[1] = (v16qu){TRANSFORM_DC_2x2, ADD_RESIDUAL_4x4, ADD_RESIDUAL_4x4, ADD_RESIDUAL_4x4, TRANSFORM_DC_2x2, ADD_RESIDUAL_4x4, ADD_RESIDUAL_4x4, ADD_RESIDUAL_4x4};
+	else if (ctx->ps.ChromaArrayType == 2)
+		ctx->PredMode_v[1] = (v16qu){TRANSFORM_DC_2x4, ADD_RESIDUAL_4x4, ADD_RESIDUAL_4x4, ADD_RESIDUAL_4x4, ADD_RESIDUAL_4x4, ADD_RESIDUAL_4x4, ADD_RESIDUAL_4x4, ADD_RESIDUAL_4x4, TRANSFORM_DC_2x4, ADD_RESIDUAL_4x4, ADD_RESIDUAL_4x4, ADD_RESIDUAL_4x4, ADD_RESIDUAL_4x4, ADD_RESIDUAL_4x4, ADD_RESIDUAL_4x4, ADD_RESIDUAL_4x4};
+	else if (ctx->ps.ChromaArrayType == 3)
+		ctx->PredMode_v[1] = ctx->PredMode_v[2] = ctx->PredMode_v[0];
+	JUMP(parse_NxN_residual);
+}
+
+
+
 /**
- * Parse mvd_lx (7.3.5.1, 7.4.5.1, 9.3.2.3, 9.3.3.1.1.7 and tables 9-34 and 9-39).
+ * Parse a single motion vector component (7.3.5.1, 7.4.5.1, 9.3.2.3,
+ * 9.3.3.1.1.7 and tables 9-34 and 9-39).
  *
- * We use the same binary division trick as parse_residual_block to read bypass
- * bits without looping.
+ * Here we use the same binary division trick as parse_residual_block to read
+ * bypass bits without looping. It might not be any faster, but looks cool!
  */
 static int FUNC(parse_mvd_comp, int ctxBase, int absMvdSum) {
 	int ctxIdx = ctxBase + (absMvdSum >= 3) + (absMvdSum > 32);
@@ -890,7 +788,7 @@ static __attribute__((noinline)) void FUNC(parse_mvd_16x16, int lx) {
 	
 	// sum mvp and mvd, broadcast everything to memory and tail-jump to decoding
 	v8hi mvs = (v8hi)__builtin_shufflevector((v4si)(mvp + mvd), (v4si){}, 0, 0, 0, 0);
-	((v8hi *)absMvdComp_p)[0] = ((v8hi *)absMvdComp_p)[1] = pack_absMvdComp(mvd);
+	((v16qu *)absMvdComp_p)[0] = ((v16qu *)absMvdComp_p)[1] = pack_absMvdComp(mvd);
 	((v8hi *)mvs_p)[0] = ((v8hi *)mvs_p)[1] = ((v8hi *)mvs_p)[2] = ((v8hi *)mvs_p)[3] = mvs;
 	JUMP(decode_inter, 0, 16, 16, mvs[0], mvs[1]);
 }
@@ -942,7 +840,7 @@ static __attribute__((noinline)) void FUNC(parse_mvd_8x16_left, int lx) {
 	
 	// sum mvp and mvd, broadcast everything to memory and call decoding
 	v8hi mvs = (v8hi)__builtin_shufflevector((v4si)(mvp + mvd), (v4si){}, 0, 0, 0, 0);
-	((v8qi *)absMvdComp_p)[0] = ((v8qi *)absMvdComp_p)[2] = (v8qi)((v2li)pack_absMvdComp(mvd))[0];
+	((v8qu *)absMvdComp_p)[0] = ((v8qu *)absMvdComp_p)[2] = (v8qu)((v2li)pack_absMvdComp(mvd))[0];
 	((v8hi *)mvs_p)[0] = ((v8hi *)mvs_p)[2] = mvs;
 	JUMP(decode_inter, 0, 8, 16, mvs[0], mvs[1]);
 }
@@ -994,7 +892,7 @@ static __attribute__((noinline)) void FUNC(parse_mvd_8x16_right, int lx) {
 	
 	// sum mvp and mvd, broadcast everything to memory and call decoding
 	v8hi mvs = (v8hi)__builtin_shufflevector((v4si)(mvp + mvd), (v4si){}, 0, 0, 0, 0);
-	((v8qi *)absMvdComp_p)[1] = ((v8qi *)absMvdComp_p)[3] = (v8qi)((v2li)pack_absMvdComp(mvd))[0];
+	((v8qu *)absMvdComp_p)[1] = ((v8qu *)absMvdComp_p)[3] = (v8qu)((v2li)pack_absMvdComp(mvd))[0];
 	((v8hi *)mvs_p)[1] = ((v8hi *)mvs_p)[3] = mvs;
 	CALL(decode_inter, 4, 8, 16, mvs[0], mvs[1]);
 }
@@ -1046,7 +944,7 @@ static __attribute__((noinline)) void FUNC(parse_mvd_16x8_top, int lx) {
 	
 	// sum mvp and mvd, broadcast everything to memory and tail-jump to decoding
 	v8hi mvs = (v8hi)__builtin_shufflevector((v4si)(mvp + mvd), (v4si){}, 0, 0, 0, 0);
-	((v8hi *)absMvdComp_p)[0] = pack_absMvdComp(mvd);
+	((v16qu *)absMvdComp_p)[0] = pack_absMvdComp(mvd);
 	((v8hi *)mvs_p)[0] = ((v8hi *)mvs_p)[1] = mvs;
 	JUMP(decode_inter, 0, 16, 8, mvs[0], mvs[1]);
 }
@@ -1091,7 +989,7 @@ static __attribute__((noinline)) void FUNC(parse_mvd_16x8_bottom, int lx) {
 	
 	// sum mvp and mvd, broadcast everything to memory and tail-jump to decoding
 	v8hi mvs = (v8hi)__builtin_shufflevector((v4si)(mvp + mvd), (v4si){}, 0, 0, 0, 0);
-	((v8hi *)absMvdComp_p)[1] = pack_absMvdComp(mvd);
+	((v16qu *)absMvdComp_p)[1] = pack_absMvdComp(mvd);
 	((v8hi *)mvs_p)[2] = ((v8hi *)mvs_p)[3] = mvs;
 	JUMP(decode_inter, 8, 16, 8, mvs[0], mvs[1]);
 }
@@ -1139,33 +1037,27 @@ static __attribute__((noinline)) int FUNC(parse_ref_idx_l1, int i) {
 
 /**
  * These functions parse the syntax elements mb_type, sub_mb_type and ref_idx
- * (from function) for the current macroblock in a P or B slice, and initialize
- * mvd_flags, mvs_shuffle, transform_8x8_mode_flag and refIdx4x4_eq, before
- * jumping to further decoding.
+ * (from function) for the current macroblock in a P or B slice, before jumping
+ * to further parsing.
  *
- * mvd_flags is a 32bit mask indexed by LX*16+BlkIdx. Each set bit indicates a
- * mvd pair should be parsed for the corresponding block index. We obtain a
- * mask for parsing refIdx by masking every 4th bit.
+ * Motion vector prediction is one of the hardest parts to decode (8.4.1.3),
+ * here is a summary of the rules:
+ * _ A/B/C/D are 4x4 blocks on pixels at relative positions (-1,0)/(0,-1)/(W,-1)/(-1,-1)
+ * _ unavailable A/B/C/D blocks count as refIdx=-1 and mv=0
+ * _ if C is unavailable, replace it with D
+ * _ for 8x16 and 16x8, predict from (A,C) and (B,A) if their refIdx matches
+ * _ otherwise if B, C and D are unavailable, replace B and C with A
+ * _ then if only one of refIdxA/B/C is equal to refIdx, predict mv from it
+ * _ otherwise predict mv as median(mvA, mvB, mvC)
  *
- * Each mvd pair may cover a 4x4, 4x8, 8x4, 8x8, 8x16, 16x8 or 16x16 block.
- * While we do not keep mb_type, we will duplicate each parsed mvd pair to all
- * covered 4x4 blocks. So we provide a shuffle mask (mvd_shuffle) for each 4x4
- * position, that indicates where it takes its value. It overwrites all mvs for
- * each mvd pair, but then the code is simple and branchless.
+ * For 8x8 and smaller blocks, we cover rules 1~5 using vector code to compute
+ * (refIdx==refIdxA) + (refIdx==refIdxB)*2 + (refIdx==refIdxC)*4 in parallel.
+ * This mask is then used for each position to determine where the predicted
+ * motion vector is fetched.
  *
  * transform_8x8_mode_flag is initialized with a copy of its value in ctx->ps,
  * then modified during mb_type parsing to account for the complex conditions
  * in 7.3.5.
- *
- * refIdx4x4_eq stores the result of comparing refIdx with refIdxA/B/C for each
- * 4x4 block: (refIdx==refIdxA) + (refIdx==refIdxB)*2 + (refIdx==refIdxC)*4.
- * They are used in parse_mvs to compute the origins of predicted mvs.
- * For partitions smaller than or equal to 8x8, they are computed in parallel
- * with vector code, first by loading refIdx neighbours in a single v16qi
- *  1  2  3  4
- *  5| 6  7|
- *  9|10 11|
- * then by shuffling it with variable masks to infer refIdxA/B/C.
  */
 static __attribute__((noinline)) void FUNC(parse_P_mb)
 {
@@ -1255,55 +1147,47 @@ static __attribute__((noinline)) void FUNC(parse_P_mb)
 	
 	// initializations and jumps for sub_mb_type
 	unsigned flags = 0;
-	for (int i8x8 = 0, f, s, c; i8x8 < 4; i8x8++) {
+	for (int i8x8 = 0; i8x8 < 4; i8x8++) {
 		int i4x4 = i8x8 * 4;
-		int unavail1 = ctx->unavail[i4x4 + 1]; // always even, incremented by subpart modes to signal 8-sample width
-		int64_t sizes;
-		v8qi absMvdComp_shuffle;
+		int unavail1 = ctx->unavail[i4x4 + 1];
+		
 		if (CALL(get_ae, 21)) { // 8x8
 			ctx->mvs_C[i4x4] = (unavail1 & 4 ? ctx->mvs8x8_D : ctx->mvs8x8_C)[i8x8];
 			ctx->unavail[i4x4] |= unavail1++;
-			f = 1;
-			s = 0;
-			c = (int32_t)refIdx4x4_C[4 + i8x8];
-			sizes = (int64_t)(v8qi){8, 8};
-			absMvdComp_shuffle = (v8qi){0, 1, 0, 1, 0, 1, 0, 1};
+			flags |= 1 << i4x4;
+			ctx->refIdx4x4_C_s[i8x8] = (int32_t)refIdx4x4_C[4 + i8x8];
+			ctx->part_sizes_l[i8x8] = (int64_t)(v8qi){8, 8};
+			ctx->inter8x8_shuffle[i8x8] = (v4hi){0, 0, 0, 0};
+			
 		} else if (ctx->transform_8x8_mode_flag = 0, !CALL(get_ae, 22)) { // 8x4
 			ctx->mvs_C[i4x4] = (unavail1 & 4 ? ctx->mvs8x8_D : ctx->mvs8x8_C)[i8x8];
 			ctx->mvs_C[i4x4 + 2] = ctx->mvs_A[i4x4];
 			ctx->unavail[i4x4] |= unavail1++;
-			f = 5;
-			s = (int32_t)(v4qi){0, 0, 2, 2};
-			c = (int32_t)refIdx4x4_C[4 + i8x8];
-			sizes = (int64_t)(v8qi){8, 4, 0, 0, 8, 4, 0, 0};
-			absMvdComp_shuffle = (v8qi){0, 1, 0, 1, 4, 5, 4, 5};
+			flags |= 5 << i4x4;
+			ctx->refIdx4x4_C_s[i8x8] = (int32_t)refIdx4x4_C[4 + i8x8];
+			ctx->part_sizes_l[i8x8] = (int64_t)(v8qi){8, 4, 0, 0, 8, 4, 0, 0};
+			ctx->inter8x8_shuffle[i8x8] = (v4hi){0, 0, 2, 2};
+			
 		} else if (CALL(get_ae, 23)) { // 4x8
 			ctx->mvs_C[i4x4] = (unavail1 & 2) ? ctx->mvs8x8_D[i8x8] : ctx->mvs_B[i4x4 + 1];
 			ctx->mvs_C[i4x4 + 1] = (unavail1 & 4) ? ctx->mvs_B[i4x4] : ctx->mvs8x8_C[i8x8];
-			f = 3;
-			s = (int32_t)(v4qi){0, 1, 0, 1};
-			c = (int32_t)refIdx4x4_C[i8x8];
-			sizes = (int64_t)(v8qi){4, 8, 4, 8};
-			absMvdComp_shuffle = (v8qi){0, 1, 2, 3, 0, 1, 2, 3};
+			flags |= 3 << i4x4;
+			ctx->refIdx4x4_C_s[i8x8] = (int32_t)refIdx4x4_C[i8x8];
+			ctx->part_sizes_l[i8x8] = (int64_t)(v8qi){4, 8, 4, 8};
+			ctx->inter8x8_shuffle[i8x8] = (v4hi){0, 1, 0, 1};
+			
 		} else { // 4x4
 			ctx->mvs_C[i4x4] = (unavail1 & 2) ? ctx->mvs8x8_D[i8x8] : ctx->mvs_B[i4x4 + 1];
 			ctx->mvs_C[i4x4 + 1] = (unavail1 & 4) ? ctx->mvs_B[i4x4] : ctx->mvs8x8_C[i8x8];
 			ctx->mvs_C[i4x4 + 2] = i4x4 + 1;
 			ctx->mvs_C[i4x4 + 3] = i4x4;
-			f = 15;
-			s = (int32_t)(v4qi){0, 1, 2, 3};
-			c = (int32_t)refIdx4x4_C[i8x8];
-			sizes = (int64_t)(v8qi){4, 4, 4, 4, 4, 4, 4, 4};
-			absMvdComp_shuffle = (v8qi){0, 1, 2, 3, 4, 5, 6, 7};
+			flags |= 15 << i4x4;
+			ctx->refIdx4x4_C_s[i8x8] = (int32_t)refIdx4x4_C[i8x8];
+			ctx->part_sizes_l[i8x8] = (int64_t)(v8qi){4, 4, 4, 4, 4, 4, 4, 4};
+			ctx->inter8x8_shuffle[i8x8] = (v4hi){0, 1, 2, 3};
 		}
-		flags |= f << i4x4;
-		ctx->mvs_shuffle_s[i8x8] = i4x4 * 0x01010101 + s;
-		ctx->refIdx4x4_C_s[i8x8] = c;
-		ctx->part_sizes_l[i8x8] = sizes;
-		ctx->absMvdComp_shuffle_l[i8x8] = absMvdComp_shuffle + (int8_t)((i8x8 & 1) * 8);
 		fprintf(stderr, "sub_mb_type: %c\n", (f == 1) ? '0' : (f == 5) ? '1' : (f == 3) ? '2' : '3');
 	}
-	ctx->mvd_flags = flags;
 	mb->refIdx[0] = CALL(parse_ref_idx_l0, 0);
 	mb->refIdx[1] = CALL(parse_ref_idx_l0, 1);
 	mb->refIdx[2] = CALL(parse_ref_idx_l0, 2);
@@ -1334,23 +1218,42 @@ static __attribute__((noinline)) void FUNC(parse_P_mb)
 	
 	// compare them and store equality formula
 	v16qi sum = (r4x4==A4x4) + ((r4x4==B4x4) + (r4x4==C4x4) * 2) * 2; // remember comparisons return -1
-	ctx->refIdx4x4_eq_v[0] = -(sum | (ctx->unavail_v==14)); // if B and C are unavailable, then sum is 0 or 1
+	ctx->refIdx4x4_eq_v[0] = -(sum | (ctx->unavail_v==14)); // if B and C are unavailable, then sum is already 0 or 1
 	
 	// loop on mvs
 	do {
-		int i = ctz32(ctx->mvd_flags);
-		CALL(parse_mv, i);
-		mb->absMvdComp_v[0] = (v16qu)byte_shuffle((v16qi)mb->absMvdComp_v[0], ctx->absMvdComp_shuffle_v[0]);
-		mb->absMvdComp_v[1] = (v16qu)byte_shuffle((v16qi)mb->absMvdComp_v[1], ctx->absMvdComp_shuffle_v[1]);
-		v8hi mvs = (v8hi)__builtin_shufflevector((v4si){mb->mvs_s[i]}, (v4si){}, 0, 0, 0, 0);
-		v8hi *dst = mb->mvs_v + (i >> 4 << 2);
-		int i4x4 = i & 15;
-		v16qi mask = ctx->mvs_shuffle_v == (int8_t)i4x4;
-		dst[0] = vector_select(__builtin_shufflevector(mask, mask, 0, 0, 0, 0, 1, 1, 1, 1, 2, 2, 2, 2, 3, 3, 3, 3), mvs, dst[0]);
-		dst[1] = vector_select(__builtin_shufflevector(mask, mask, 4, 4, 4, 4, 5, 5, 5, 5, 6, 6, 6, 6, 7, 7, 7, 7), mvs, dst[1]);
-		dst[2] = vector_select(__builtin_shufflevector(mask, mask, 8, 8, 8, 8, 9, 9, 9, 9, 10, 10, 10, 10, 11, 11, 11, 11), mvs, dst[2]);
-		dst[3] = vector_select(__builtin_shufflevector(mask, mask, 12, 12, 12, 12, 13, 13, 13, 13, 14, 14, 14, 14, 15, 15, 15, 15), mvs, dst[3]);
-	} while (ctx->mvd_flags &= ctx->mvd_flags - 1);
+		int i = __builtin_ctz(flags);
+		int sumx = *(mb->absMvdComp + 0 + ctx->absMvdComp_A[i]) + *(mb->absMvdComp + 0 + ctx->absMvdComp_B[i]);
+		int sumy = *(mb->absMvdComp + 1 + ctx->absMvdComp_A[i]) + *(mb->absMvdComp + 1 + ctx->absMvdComp_B[i]);
+		int x = CALL(parse_mvd_comp, 40, sumx);
+		int y = CALL(parse_mvd_comp, 47, sumy);
+		v8hi mvd = {x, y};
+		
+		// branch on equality mask
+		v8hi mvp;
+		int eq = ctx->refIdx4x4_eq[i];
+		if (__builtin_expect(0xe9 >> eq & 1, 1)) {
+			v8hi mvA = (v8hi)(v4si){*(mb->mvs_s + ctx->mvs_A[i])};
+			v8hi mvB = (v8hi)(v4si){*(mb->mvs_s + ctx->mvs_B[i])};
+			v8hi mvC = (v8hi)(v4si){*(mb->mvs_s + ctx->mvs_C[i])};
+			mvp = vector_median(mvA, mvB, mvC);
+		} else if (eq == 1) {
+			mvp = (v8hi)(v4si){*(mb->mvs_s + ctx->mvs_A[i])};
+		} else if (eq == 2) {
+			mvp = (v8hi)(v4si){*(mb->mvs_s + ctx->mvs_B[i])};
+		} else {
+			mvp = (v8hi)(v4si){*(mb->mvs_s + ctx->mvs_C[i])};
+		}
+		
+		// broadcast absMvdComp and mvs to memory then call decoding
+		int i8x8 = i >> 2;
+		v4hi mask = ctx->inter8x8_shuffle[i8x8] == (int16_t)(i & 3);
+		mb->absMvdComp_l[i8x8] |= (v8qi)mask & (v8qi)((v2li)pack_absMvdComp(mvd))[0];
+		v8hi mvs = (v8hi)__builtin_shufflevector((v4si)(mvp + mvd), (v4si){}, 0, 0, 0, 0);
+		v8hi mvs_mask = __builtin_shufflevector((v8hi)(v2li){(int64_t)mask}, (v8hi){}, 0, 0, 1, 1, 2, 2, 3, 3);
+		mb->mvs_v[i8x8] |= mvs_mask & mvs;
+		CALL(decode_inter, i, ctx->part_sizes[i * 2], ctx->part_sizes[i * 2 + 1], mvs[0], mvs[1]);
+	} while (flags &= flags - 1);
 	JUMP(parse_inter_residual);
 }
 

@@ -19,7 +19,7 @@
  * _ upgrade DPB storage size to 32 (to allow future multithreaded decoding), by simply doubling reference and output flags sizes
  * _ backup output/ref flags and FrameNum and restore then on bad slice_header
  * _ try using epb for context pointer, and email GCC when it fails
- * _ When all cross-slice variables are known, store Edge264_macroblock inside a circular buffer (to get constant A/B offsets) and put the rest in per-frame arrays
+ * _ When all cross-slice variables are known, store Edge264_macroblock inside a circular buffer (to get constant A/B offsets), put the rest in per-frame arrays, and access C/D with offset arrays (mandatory for MBAFF)
  * _ When implementing fields and MBAFF, keep the same pic coding struct (no FLD/AFRM) and just add mb_field_decoding_flag
  * _ after implementing P/B and MBAFF, optimize away array accesses of is422 and mb->f.mb_field_decoding_flag
  
@@ -173,8 +173,6 @@ static void FUNC(initialise_decoding_context, Edge264_stream *e)
 		ctx->mvs_B_v = (v16si){10 + offB_32bit, 11 + offB_32bit, 0, 1, 14 + offB_32bit, 15 + offB_32bit, 4, 5, 2, 3, 8, 9, 6, 7, 12, 13};
 		ctx->mvs8x8_C_v = (v4si){14 + offB_32bit, 10 + offC_32bit, 6, 0};
 		ctx->mvs8x8_D_v = (v4si){15 + offD_32bit, 11 + offB_32bit, 7 + offA_32bit, 3};
-		ctx->ref_idx_mask = (ctx->ps.num_ref_idx_active[0] > 1 ? 0x0f : 0) |
-		                    (ctx->ps.num_ref_idx_active[1] > 1 ? 0xf0 : 0);
 		//ctx->col_short_term = ~e->long_term_flags >> (ctx->RefPicList[1][0] & 15) & 1;
 		ctx->bipred_flags = 0;
 		

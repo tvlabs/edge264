@@ -798,7 +798,7 @@ static __attribute__((noinline)) void FUNC(parse_I_mb, int ctxIdx)
  * We use the same binary division trick as parse_residual_block to read bypass
  * bits without looping.
  */
-static inline __attribute__((always_inline)) int FUNC(parse_mvd_comp, int ctxBase, int absMvdSum) {
+static int FUNC(parse_mvd_comp, int ctxBase, int absMvdSum) {
 	int ctxIdx = ctxBase + (absMvdSum >= 3) + (absMvdSum > 32);
 	int mvd = 0;
 	ctxBase += 3;
@@ -850,9 +850,20 @@ static inline __attribute__((always_inline)) int FUNC(parse_mvd_comp, int ctxBas
 /**
  * Sub-functions to parse a single mvd pair for different sizes.
  */
-static __attribute__((noinline)) void FUNC(parse_mvd_16x16, int i8x8) {
-	// load and compare neighbouring indices
-	int8_t *refIdx_p = mb->refIdx + i8x8;
+static __attribute__((noinline)) void FUNC(parse_mvd_16x16, int lx) {
+	uint8_t *absMvdComp_p = mb->absMvdComp + lx * 32;
+	int8_t *refIdx_p = mb->refIdx + lx * 4;
+	int32_t *mvs_p = mb->mvs_s + lx * 16;
+	
+	// call the parsing of mvd first to avoid spilling mvp if not inlined
+	int sumx = absMvdComp_p[0 + ctx->absMvdComp_A[0]] + absMvdComp_p[0 + ctx->absMvdComp_B[0]];
+	int sumy = absMvdComp_p[1 + ctx->absMvdComp_A[0]] + absMvdComp_p[1 + ctx->absMvdComp_B[0]];
+	int x = CALL(parse_mvd_comp, 40, sumx);
+	int y = CALL(parse_mvd_comp, 47, sumy);
+	v8hi mvd = {x, y};
+	
+	// compare neighbouring indices and compute mvp
+	v8hi mvp;
 	int refIdx = refIdx_p[0];
 	int refIdxA = refIdx_p[ctx->refIdx_A[0]];
 	int refIdxB = refIdx_p[ctx->refIdx_B[0]];
@@ -867,10 +878,6 @@ static __attribute__((noinline)) void FUNC(parse_mvd_16x16, int i8x8) {
 		mvs_C = ctx->mvs8x8_C[1];
 	}
 	int eq = eqA + (refIdx==refIdxB) * 2 + (refIdx==refIdxC) * 4;
-	
-	// beware not to load any mvs that we would not use
-	v8hi mvp;
-	int32_t *mvs_p = mb->mvs_s + i8x8 * 4;
 	if (__builtin_expect(0xe9 >> eq & 1, 1)) {
 		v8hi mvA = (v8hi)(v4si){mvs_p[ctx->mvs_A[0]]};
 		v8hi mvB = (v8hi)(v4si){mvs_p[ctx->mvs_B[0]]};
@@ -881,17 +888,212 @@ static __attribute__((noinline)) void FUNC(parse_mvd_16x16, int i8x8) {
 		mvp = (v8hi)(v4si){mvs_p[mvs_N]};
 	}
 	
-	// parse a mvd pair, add it to mvp and broadcast everything to memory
-	uint8_t *absMvdComp_p = mb->absMvdComp + i8x8 * 8;
+	// sum mvp and mvd, broadcast everything to memory and tail-jump to decoding
+	v8hi mvs = (v8hi)__builtin_shufflevector((v4si)(mvp + mvd), (v4si){}, 0, 0, 0, 0);
+	((v8hi *)absMvdComp_p)[0] = ((v8hi *)absMvdComp_p)[1] = pack_absMvdComp(mvd);
+	((v8hi *)mvs_p)[0] = ((v8hi *)mvs_p)[1] = ((v8hi *)mvs_p)[2] = ((v8hi *)mvs_p)[3] = mvs;
+	JUMP(decode_inter, 0, 16, 16, mvs[0], mvs[1]);
+}
+
+static __attribute__((noinline)) void FUNC(parse_mvd_8x16_left, int lx) {
+	uint8_t *absMvdComp_p = mb->absMvdComp + lx * 32;
+	int8_t *refIdx_p = mb->refIdx + lx * 4;
+	int32_t *mvs_p = mb->mvs_s + lx * 16;
+	
+	// call the parsing of mvd first to avoid spilling mvp if not inlined
 	int sumx = absMvdComp_p[0 + ctx->absMvdComp_A[0]] + absMvdComp_p[0 + ctx->absMvdComp_B[0]];
 	int sumy = absMvdComp_p[1 + ctx->absMvdComp_A[0]] + absMvdComp_p[1 + ctx->absMvdComp_B[0]];
 	int x = CALL(parse_mvd_comp, 40, sumx);
 	int y = CALL(parse_mvd_comp, 47, sumy);
 	v8hi mvd = {x, y};
-	v8hi mvs = (v8hi)__builtin_shufflevector((v4si)(mvd + mvp), (v4si){}, 0, 0, 0, 0);
-	((v8hi *)absMvdComp_p)[0] = ((v8hi *)absMvdComp_p)[1] = pack_absMvdComp(mvd);
-	((v8hi *)mvs_p)[0] = ((v8hi *)mvs_p)[1] = ((v8hi *)mvs_p)[2] = ((v8hi *)mvs_p)[3] = mvs;
-	JUMP(decode_inter, 0, 16, 16, mvs[0], mvs[1]);
+	
+	// compare neighbouring indices and compute mvp
+	v8hi mvp;
+	int refIdx = refIdx_p[0];
+	int refIdxA = refIdx_p[ctx->refIdx_A[0]];
+	if (refIdx == refIdxA || ctx->unavail[0] == 14) {
+		mvp = (v8hi)(v4si){mvs_p[ctx->mvs_A[0]]};
+	} else {
+		int refIdxB = refIdx_p[ctx->refIdx_B[0]];
+		int refIdxC, mvs_C;
+		if (__builtin_expect(ctx->inc.unavailable & 2, 0)) {
+			refIdxC = refIdx_p[ctx->refIdx_D];
+			mvs_C = ctx->mvs8x8_D[0];
+		} else {
+			refIdxC = refIdx_p[ctx->refIdx_B[1]];
+			mvs_C = ctx->mvs8x8_C[0];
+		}
+		if (refIdx == refIdxB) {
+			mvp = (v8hi)(v4si){mvs_p[ctx->mvs_B[0]]};
+			if (refIdx == refIdxC) {
+				v8hi mvA = (v8hi)(v4si){mvs_p[ctx->mvs_A[0]]};
+				v8hi mvC = (v8hi)(v4si){mvs_p[mvs_C]};
+				mvp = vector_median(mvA, mvp, mvC);
+			}
+		} else { // refIdx != refIdxA/B
+			mvp = (v8hi)(v4si){mvs_p[mvs_C]};
+			if (refIdx != refIdxC) {
+				v8hi mvA = (v8hi)(v4si){mvs_p[ctx->mvs_A[0]]};
+				v8hi mvB = (v8hi)(v4si){mvs_p[ctx->mvs_B[0]]};
+				mvp = vector_median(mvA, mvB, mvp);
+			}
+		}
+	}
+	
+	// sum mvp and mvd, broadcast everything to memory and call decoding
+	v8hi mvs = (v8hi)__builtin_shufflevector((v4si)(mvp + mvd), (v4si){}, 0, 0, 0, 0);
+	((v8qi *)absMvdComp_p)[0] = ((v8qi *)absMvdComp_p)[2] = (v8qi)((v2li)pack_absMvdComp(mvd))[0];
+	((v8hi *)mvs_p)[0] = ((v8hi *)mvs_p)[2] = mvs;
+	JUMP(decode_inter, 0, 8, 16, mvs[0], mvs[1]);
+}
+
+static __attribute__((noinline)) void FUNC(parse_mvd_8x16_right, int lx) {
+	uint8_t *absMvdComp_p = mb->absMvdComp + lx * 32;
+	int8_t *refIdx_p = mb->refIdx + lx * 4;
+	int32_t *mvs_p = mb->mvs_s + lx * 16;
+	
+	// call the parsing of mvd first to avoid spilling mvp if not inlined
+	int sumx = absMvdComp_p[0 + ctx->absMvdComp_A[4]] + absMvdComp_p[0 + ctx->absMvdComp_B[4]];
+	int sumy = absMvdComp_p[1 + ctx->absMvdComp_A[4]] + absMvdComp_p[1 + ctx->absMvdComp_B[4]];
+	int x = CALL(parse_mvd_comp, 40, sumx);
+	int y = CALL(parse_mvd_comp, 47, sumy);
+	v8hi mvd = {x, y};
+	
+	// compare neighbouring indices and compute mvp
+	v8hi mvp;
+	int refIdx = refIdx_p[1];
+	int refIdxC, mvs_C;
+	if (__builtin_expect(ctx->inc.unavailable & 4, 0)) {
+		refIdxC = refIdx_p[ctx->refIdx_B[0]];
+		mvs_C = ctx->mvs8x8_D[1];
+	} else {
+		refIdxC = refIdx_p[ctx->refIdx_C];
+		mvs_C = ctx->mvs8x8_C[1];
+	}
+	if (refIdx == refIdxC) {
+		mvp = (v8hi)(v4si){mvs_p[mvs_C]};
+	} else {
+		int refIdxA = refIdx_p[0];
+		int refIdxB = refIdx_p[ctx->refIdx_B[1]];
+		if (refIdx == refIdxB) {
+			mvp = (v8hi)(v4si){mvs_p[ctx->mvs_B[4]]};
+			if (refIdx == refIdxA) {
+				v8hi mvA = (v8hi)(v4si){mvs_p[ctx->mvs_A[4]]};
+				v8hi mvC = (v8hi)(v4si){mvs_p[mvs_C]};
+				mvp = vector_median(mvA, mvp, mvC);
+			}
+		} else { // refIdx != B/C
+			mvp = (v8hi)(v4si){mvs_p[ctx->mvs_A[4]]};
+			if (refIdx != refIdxA && ctx->unavail[5] != 14) {
+				v8hi mvB = (v8hi)(v4si){mvs_p[ctx->mvs_B[4]]};
+				v8hi mvC = (v8hi)(v4si){mvs_p[mvs_C]};
+				mvp = vector_median(mvp, mvB, mvC);
+			}
+		}
+	}
+	
+	// sum mvp and mvd, broadcast everything to memory and call decoding
+	v8hi mvs = (v8hi)__builtin_shufflevector((v4si)(mvp + mvd), (v4si){}, 0, 0, 0, 0);
+	((v8qi *)absMvdComp_p)[1] = ((v8qi *)absMvdComp_p)[3] = (v8qi)((v2li)pack_absMvdComp(mvd))[0];
+	((v8hi *)mvs_p)[1] = ((v8hi *)mvs_p)[3] = mvs;
+	CALL(decode_inter, 4, 8, 16, mvs[0], mvs[1]);
+}
+
+static __attribute__((noinline)) void FUNC(parse_mvd_16x8_top, int lx) {
+	uint8_t *absMvdComp_p = mb->absMvdComp + lx * 32;
+	int8_t *refIdx_p = mb->refIdx + lx * 4;
+	int32_t *mvs_p = mb->mvs_s + lx * 16;
+	
+	// call the parsing of mvd first to avoid spilling mvp if not inlined
+	int sumx = absMvdComp_p[0 + ctx->absMvdComp_A[0]] + absMvdComp_p[0 + ctx->absMvdComp_B[0]];
+	int sumy = absMvdComp_p[1 + ctx->absMvdComp_A[0]] + absMvdComp_p[1 + ctx->absMvdComp_B[0]];
+	int x = CALL(parse_mvd_comp, 40, sumx);
+	int y = CALL(parse_mvd_comp, 47, sumy);
+	v8hi mvd = {x, y};
+	
+	// compare neighbouring indices and compute mvp
+	v8hi mvp;
+	int refIdx = refIdx_p[0];
+	int refIdxB = refIdx_p[ctx->refIdx_B[0]];
+	if (refIdx == refIdxB) {
+		mvp = (v8hi)(v4si){mvs_p[ctx->mvs_B[0]]};
+	} else {
+		int refIdxA = refIdx_p[ctx->refIdx_A[0]];
+		int refIdxC, mvs_C;
+		if (__builtin_expect(ctx->inc.unavailable & 4, 0)) {
+			refIdxC = refIdx_p[ctx->refIdx_D];
+			mvs_C = ctx->mvs8x8_D[0];
+		} else {
+			refIdxC = refIdx_p[ctx->refIdx_C];
+			mvs_C = ctx->mvs8x8_C[1];
+		}
+		if (refIdx == refIdxC) {
+			mvp = (v8hi)(v4si){mvs_p[mvs_C]};
+			if (refIdx == refIdxA) {
+				v8hi mvA = (v8hi)(v4si){mvs_p[ctx->mvs_A[0]]};
+				v8hi mvB = (v8hi)(v4si){mvs_p[ctx->mvs_B[0]]};
+				mvp = vector_median(mvA, mvB, mvp);
+			}
+		} else { // refIdx != refIdxB/C
+			mvp = (v8hi)(v4si){mvs_p[ctx->mvs_A[0]]};
+			if (refIdx != refIdxA && ctx->inc.unavailable != 14) {
+				v8hi mvB = (v8hi)(v4si){mvs_p[ctx->mvs_B[0]]};
+				v8hi mvC = (v8hi)(v4si){mvs_p[mvs_C]};
+				mvp = vector_median(mvp, mvB, mvC);
+			}
+		}
+	}
+	
+	// sum mvp and mvd, broadcast everything to memory and tail-jump to decoding
+	v8hi mvs = (v8hi)__builtin_shufflevector((v4si)(mvp + mvd), (v4si){}, 0, 0, 0, 0);
+	((v8hi *)absMvdComp_p)[0] = pack_absMvdComp(mvd);
+	((v8hi *)mvs_p)[0] = ((v8hi *)mvs_p)[1] = mvs;
+	JUMP(decode_inter, 0, 16, 8, mvs[0], mvs[1]);
+}
+
+static __attribute__((noinline)) void FUNC(parse_mvd_16x8_bottom, int lx) {
+	uint8_t *absMvdComp_p = mb->absMvdComp + lx * 32;
+	int8_t *refIdx_p = mb->refIdx + lx * 4;
+	int32_t *mvs_p = mb->mvs_s + lx * 16;
+	
+	// call the parsing of mvd first to avoid spilling mvp if not inlined
+	int sumx = absMvdComp_p[0 + ctx->absMvdComp_A[8]] + absMvdComp_p[0 + ctx->absMvdComp_B[8]];
+	int sumy = absMvdComp_p[1 + ctx->absMvdComp_A[8]] + absMvdComp_p[1 + ctx->absMvdComp_B[8]];
+	int x = CALL(parse_mvd_comp, 40, sumx);
+	int y = CALL(parse_mvd_comp, 47, sumy);
+	v8hi mvd = {x, y};
+	
+	// compare neighbouring indices and compute mvp
+	v8hi mvp;
+	int refIdx = refIdx_p[2];
+	int refIdxA = refIdx_p[ctx->refIdx_A[2]];
+	if (refIdx == refIdxA) {
+		mvp = (v8hi)(v4si){mvs_p[ctx->mvs_A[8]]};
+	} else {
+		int refIdxB = refIdx_p[0];
+		int refIdxC = refIdx_p[ctx->refIdx_A[0]];
+		if (refIdx == refIdxB) {
+			mvp = (v8hi)(v4si){mvs_p[0]};
+			if (refIdx == refIdxC) {
+				v8hi mvA = (v8hi)(v4si){mvs_p[ctx->mvs_A[8]]};
+				v8hi mvC = (v8hi)(v4si){mvs_p[ctx->mvs8x8_D[2]]};
+				mvp = vector_median(mvA, mvp, mvC);
+			}
+		} else {
+			mvp = (v8hi)(v4si){mvs_p[ctx->mvs8x8_D[2]]};
+			if (refIdx != refIdxC) {
+				v8hi mvA = (v8hi)(v4si){mvs_p[ctx->mvs_A[8]]};
+				v8hi mvB = (v8hi)(v4si){mvs_p[0]};
+				mvp = vector_median(mvA, mvB, mvp);
+			}
+		}
+	}
+	
+	// sum mvp and mvd, broadcast everything to memory and tail-jump to decoding
+	v8hi mvs = (v8hi)__builtin_shufflevector((v4si)(mvp + mvd), (v4si){}, 0, 0, 0, 0);
+	((v8hi *)absMvdComp_p)[1] = pack_absMvdComp(mvd);
+	((v8hi *)mvs_p)[2] = ((v8hi *)mvs_p)[3] = mvs;
+	JUMP(decode_inter, 8, 16, 8, mvs[0], mvs[1]);
 }
 
 
@@ -1035,45 +1237,18 @@ static __attribute__((noinline)) void FUNC(parse_P_mb)
 		
 	} else if (!CALL(get_ae, 17)) { // 8x16
 		fprintf(stderr, "mb_type: 2\n");
-		int refIdx0 = mb->refIdx[0] = mb->refIdx[2] = CALL(parse_ref_idx_l0, 0);
-		int refIdx1 = mb->refIdx[1] = mb->refIdx[3] = CALL(parse_ref_idx_l0, 1);
-		int refIdxA0 = *(mb->refIdx + ctx->refIdx_A[0]);
-		int refIdxB0 = *(mb->refIdx + ctx->refIdx_B[0]);
-		int refIdxB1 = *(mb->refIdx + ctx->refIdx_B[1]);
-		int refIdxC0 = (ctx->inc.unavailable & 2) ? *(mb->refIdx + ctx->refIdx_D) : refIdxB1;
-		ctx->mvs_C[0] = (ctx->inc.unavailable & 2) ? ctx->mvs8x8_D[0] : ctx->mvs8x8_C[0];
-		int refIdxC1 = (ctx->inc.unavailable & 4) ? refIdxB0 : *(mb->refIdx + ctx->refIdx_C);
-		ctx->mvs_C[4] = (ctx->inc.unavailable & 4) ? ctx->mvs8x8_D[1] : ctx->mvs8x8_C[1];
-		ctx->refIdx4x4_eq[0] = (refIdx0==refIdxA0) ? 0x1 : (ctx->unavail[0]==14) + (refIdx0==refIdxB0) * 2 + (refIdx0==refIdxC0) * 4;
-		ctx->refIdx4x4_eq[4] = (refIdx1==refIdxC1) ? 0x4 : ((refIdx1==refIdx0) | (ctx->unavail[5]==14)) + (refIdx1==refIdxB1) * 2;
-		ctx->part_sizes_l[0] = ctx->part_sizes_l[1] = (int64_t)(v8qi){8, 16};
-		CALL(parse_mv, 0);
-		mb->absMvdComp_l[0] = mb->absMvdComp_l[2] = (v8qu)__builtin_shufflevector((v4hi)mb->absMvdComp_l[0], (v4hi){}, 0, 0, 0, 0);
-		mb->mvs_v[0] = mb->mvs_v[2] = (v8hi)__builtin_shufflevector((v4si)mb->mvs_v[0], (v4si){}, 0, 0, 0, 0);
-		CALL(parse_mv, 4);
-		mb->absMvdComp_l[1] = mb->absMvdComp_l[3] = (v8qu)__builtin_shufflevector((v4hi)mb->absMvdComp_l[1], (v4hi){}, 0, 0, 0, 0);
-		mb->mvs_v[1] = mb->mvs_v[3] = (v8hi)__builtin_shufflevector((v4si)mb->mvs_v[1], (v4si){}, 0, 0, 0, 0);
+		mb->refIdx[0] = mb->refIdx[2] = CALL(parse_ref_idx_l0, 0);
+		mb->refIdx[1] = mb->refIdx[3] = CALL(parse_ref_idx_l0, 1);
+		CALL(parse_mvd_8x16_left, 0);
+		CALL(parse_mvd_8x16_right, 0);
 		JUMP(parse_inter_residual);
 		
 	} else { // 16x8
 		fprintf(stderr, "mb_type: 1\n");
-		int refIdx0 = mb->refIdx[0] = mb->refIdx[1] = CALL(parse_ref_idx_l0, 0);
-		int refIdx2 = mb->refIdx[2] = mb->refIdx[3] = CALL(parse_ref_idx_l0, 2);
-		int refIdxA0 = *(mb->refIdx + ctx->refIdx_A[0]);
-		int refIdxA2 = *(mb->refIdx + ctx->refIdx_A[2]);
-		int refIdxB0 = *(mb->refIdx + ctx->refIdx_B[0]);
-		int refIdxC0 = *(mb->refIdx + (ctx->inc.unavailable & 4 ? ctx->refIdx_D : ctx->refIdx_C));
-		ctx->mvs_C[0] = (ctx->inc.unavailable & 4) ? ctx->mvs8x8_D[0] : ctx->mvs8x8_C[1];
-		ctx->mvs_C[8] = ctx->mvs8x8_D[2];
-		ctx->refIdx4x4_eq[0] = (refIdx0==refIdxB0) ? 0x2 : ((refIdx0==refIdxA0) | (ctx->inc.unavailable==14)) + (refIdx0==refIdxC0) * 4;
-		ctx->refIdx4x4_eq[8] = (refIdx2==refIdxA2) ? 0x1 : (refIdx2==refIdx0) * 2 + (refIdx2==refIdxA0) * 4;
-		ctx->part_sizes_l[0] = ctx->part_sizes_l[2] = (int64_t)(v8qi){16, 8};
-		CALL(parse_mv, 0);
-		mb->absMvdComp_v[0] = (v16qu)__builtin_shufflevector((v8hi)mb->absMvdComp_v[0], (v8hi){}, 0, 0, 0, 0, 0, 0, 0, 0);
-		mb->mvs_v[0] = mb->mvs_v[1] = (v8hi)__builtin_shufflevector((v4si)mb->mvs_v[0], (v4si){}, 0, 0, 0, 0);
-		CALL(parse_mv, 8);
-		mb->absMvdComp_v[1] = (v16qu)__builtin_shufflevector((v8hi)mb->absMvdComp_v[1], (v8hi){}, 0, 0, 0, 0, 0, 0, 0, 0);
-		mb->mvs_v[2] = mb->mvs_v[3] = (v8hi)__builtin_shufflevector((v4si)mb->mvs_v[2], (v4si){}, 0, 0, 0, 0);
+		mb->refIdx[0] = mb->refIdx[1] = CALL(parse_ref_idx_l0, 0);
+		mb->refIdx[2] = mb->refIdx[3] = CALL(parse_ref_idx_l0, 2);
+		CALL(parse_mvd_16x8_top, 0);
+		CALL(parse_mvd_16x8_bottom, 0);
 		JUMP(parse_inter_residual);
 	}
 	fprintf(stderr, "mb_type: 3\n");
@@ -1132,7 +1307,7 @@ static __attribute__((noinline)) void FUNC(parse_P_mb)
 	mb->refIdx[0] = CALL(parse_ref_idx_l0, 0);
 	mb->refIdx[1] = CALL(parse_ref_idx_l0, 1);
 	mb->refIdx[2] = CALL(parse_ref_idx_l0, 2);
-	mb->refIdx[3] = CALL(parse_ref_idx_l0, 3); // FIXME store forwarding stall here!
+	mb->refIdx[3] = CALL(parse_ref_idx_l0, 3);
 	
 	// load neighbouring refIdx values and shuffle them into A/B/C
 	v16qi Ar = (v16qi)(v2li){(int64_t)mb[-1].refIdx_l, (int64_t)mb->refIdx_l};

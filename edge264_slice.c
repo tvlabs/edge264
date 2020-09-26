@@ -534,7 +534,6 @@ static __attribute__((noinline)) void FUNC(parse_I_mb, int ctxIdx)
 		ctx->inc.coded_block_flags_16x16_s |= 0x02020202;
 	}
 	mb->f.mbIsInterFlag = 0;
-	mb->refIdx_v = (v8qi){-1, -1, -1, -1, -1, -1, -1, -1};
 	
 	// I_NxN
 	if (!CALL(get_ae, ctxIdx)) {
@@ -569,11 +568,13 @@ static __attribute__((noinline)) void FUNC(parse_I_mb, int ctxIdx)
 	
 	// Intra_16x16
 	} else if (!CALL(get_ae, 276)) {
-		mb->CodedBlockPatternLuma_s = CALL(get_ae, max(ctxIdx + 1, 6)) ? 0x01010101 : 0;
-		mb->f.CodedBlockPatternChromaDC = CALL(get_ae, max(ctxIdx + 2, 7));
+		ctxIdx = max(ctxIdx, 5);
+		mb->CodedBlockPatternLuma_s = CALL(get_ae, ctxIdx + 1) ? 0x01010101 : 0;
+		mb->f.CodedBlockPatternChromaDC = CALL(get_ae, ctxIdx + 2);
+		ctxIdx = max(ctxIdx, 6);
 		if (mb->f.CodedBlockPatternChromaDC)
-			mb->f.CodedBlockPatternChromaAC = CALL(get_ae, max(ctxIdx + 2, 8));
-		int mode = CALL(get_ae, max(ctxIdx + 3, 9)) << 1;
+			mb->f.CodedBlockPatternChromaAC = CALL(get_ae, ctxIdx + 2);
+		int mode = CALL(get_ae, ctxIdx + 3) << 1;
 		mode += CALL(get_ae, max(ctxIdx + 3, 10));
 		fprintf(stderr, "mb_type: %u\n", mb->CodedBlockPatternLuma[0] * 12 +
 			(mb->f.CodedBlockPatternChromaDC + mb->f.CodedBlockPatternChromaAC) * 4 +
@@ -1020,8 +1021,8 @@ static __attribute__((noinline)) int FUNC(parse_ref_idx_l0, int i) {
 static __attribute__((noinline)) int FUNC(parse_ref_idx_l1, int i) {
 	int refIdx = 0;
 	if (ctx->ps.num_ref_idx_active[1] > 1) {
-		int refIdxA = *(mb->refIdx + ctx->refIdx_A[i]);
-		int refIdxB = *(mb->refIdx + ctx->refIdx_B[i]);
+		int refIdxA = *(mb->refIdx + 4 + ctx->refIdx_A[i]);
+		int refIdxB = *(mb->refIdx + 4 + ctx->refIdx_B[i]);
 		int ctxIdxInc = (refIdxA > 0) + (refIdxB > 0) * 2;
 		while (CALL(get_ae, 54 + ctxIdxInc)) {
 			ctxIdxInc = (ctxIdxInc >> 2) + 4; // cool trick from ffmpeg
@@ -1031,6 +1032,143 @@ static __attribute__((noinline)) int FUNC(parse_ref_idx_l1, int i) {
 	}
 	fprintf(stderr, "ref_idx: %u\n", refIdx);
 	return refIdx;
+}
+
+
+
+/**
+ * Initialise the reference indices and motion vectors of an entire macroblock
+ * with direct prediction (8.4.1.2).
+ */
+static inline void FUNC(init_direct_spatial_mv_pred)
+{
+	// load refIdxCol and mvCol
+	const Edge264_macroblock *mbCol = ctx->mbCol;
+	int refCol0 = mbCol->refIdx[0];
+	int refCol1 = mbCol->refIdx[1];
+	int refCol2 = mbCol->refIdx[2];
+	int refCol3 = mbCol->refIdx[3];
+	v8hi mvCol0 = mbCol->mvs_v[0];
+	v8hi mvCol1 = mbCol->mvs_v[1];
+	v8hi mvCol2 = mbCol->mvs_v[2];
+	v8hi mvCol3 = mbCol->mvs_v[3];
+	
+	// Both GCC and Clang are INCREDIBLY dumb for any attempt to use ?: here.
+	if (refCol0 < 0)
+		refCol0 = mbCol->refIdx[4], mvCol0 = mbCol->mvs_v[4];
+	if (refCol1 < 0)
+		refCol1 = mbCol->refIdx[5], mvCol1 = mbCol->mvs_v[5];
+	if (refCol2 < 0)
+		refCol2 = mbCol->refIdx[6], mvCol2 = mbCol->mvs_v[6];
+	if (refCol3 < 0)
+		refCol3 = mbCol->refIdx[7], mvCol3 = mbCol->mvs_v[7];
+	
+	// initialize colZeroFlags
+	v8hi colZero0 = {}, colZero1 = {}, colZero2 = {}, colZero3 = {};
+	if (__builtin_expect(refCol0 == ctx->zero_if_col_short_term, 1))
+		colZero0 = mv_near_zero(mvCol0);
+	if (__builtin_expect(refCol1 == ctx->zero_if_col_short_term, 1))
+		colZero1 = mv_near_zero(mvCol1);
+	if (__builtin_expect(refCol2 == ctx->zero_if_col_short_term, 1))
+		colZero2 = mv_near_zero(mvCol2);
+	if (__builtin_expect(refCol3 == ctx->zero_if_col_short_term, 1))
+		colZero3 = mv_near_zero(mvCol3);
+	
+	// load all refIdxN and mvN in vector registers
+	v8hi mvA = (v8hi)(v4si){*(mb->mvs_s + ctx->mvs_A[0]), *(mb->mvs_s + ctx->mvs_A[0] + 16)};
+	v8hi mvB = (v8hi)(v4si){*(mb->mvs_s + ctx->mvs_B[0]), *(mb->mvs_s + ctx->mvs_B[0] + 16)};
+	v8hi mvC = (v8hi)(v4si){*(mb->mvs_s + ctx->mvs8x8_C[1]), *(mb->mvs_s + ctx->mvs8x8_C[1] + 16)};
+	v16qi shuf = {0, 0, 0, 0, 1, 1, 1, 1};
+	v16qi refIdxA = byte_shuffle((v16qi){*(mb->refIdx + ctx->refIdx_A[0]), *(mb->refIdx + ctx->refIdx_A[0] + 4)}, shuf);
+	v16qi refIdxB = byte_shuffle((v16qi){*(mb->refIdx + ctx->refIdx_B[0]), *(mb->refIdx + ctx->refIdx_B[0] + 4)}, shuf);
+	v16qi refIdxC = byte_shuffle((v16qi){*(mb->refIdx + ctx->refIdx_C), *(mb->refIdx + ctx->refIdx_C + 4)}, shuf);
+	if (__builtin_expect(ctx->inc.unavailable & 4, 0)) {
+		mvC = (v8hi)(v4si){*(mb->mvs_s + ctx->mvs8x8_D[0]), *(mb->mvs_s + ctx->mvs8x8_D[0] + 16)};
+		refIdxC = byte_shuffle((v16qi){*(mb->refIdx + ctx->refIdx_D), *(mb->refIdx + ctx->refIdx_D + 4)}, shuf);
+	}
+	
+	// initialize mv along refIdx since it will equal one of refIdxA/B/C
+	v16qu cmp_AB = (v16qu)refIdxA < (v16qu)refIdxB; // unsigned comparisons
+	v16qi refIdxm = vector_select(cmp_AB, refIdxA, refIdxB); // umin(refIdxA, refIdxB)
+	v16qi refIdxM = vector_select(cmp_AB, refIdxB, refIdxA); // umax(refIdxA, refIdxB)
+	v8hi mvm = vector_select(cmp_AB, mvA, mvB);
+	v16qu cmp_mC = (v16qu)refIdxm < (v16qu)refIdxC;
+	v16qi refIdx = vector_select(cmp_mC, refIdxm, refIdxC); // umin(refIdxm, refIdxC)
+	v8hi mvmm = vector_select(cmp_mC, mvm, mvC);
+	
+	// select median if refIdx equals one more of refIdxA/B/C
+	v16qi cmp_med = (refIdxm == refIdxC) | (refIdx == refIdxM);
+	v8hi mv01 = vector_select(cmp_med, vector_median(mvA, mvB, mvC), mvmm);
+	v8hi mvs0 = (v8hi)__builtin_shufflevector((v4si)mv01, (v4si)mv01, 0, 0, 0, 0);
+	v8hi mvs1 = (v8hi)__builtin_shufflevector((v4si)mv01, (v4si)mv01, 1, 1, 1, 1);
+	
+	// direct zero prediction applies only to refIdx (mvLX are zero already)
+	refIdx &= (v16qi)((v2li)refIdx != -1);
+	mb->refIdx_l = ((v2li)refIdx)[0];
+	
+	// mask mvs with colZeroFlags and store them
+	if (refIdx[0] == 0) {
+		mb->mvs_v[0] = mvs0 & ~colZero0;
+		mb->mvs_v[1] = mvs0 & ~colZero1;
+		mb->mvs_v[2] = mvs0 & ~colZero2;
+		mb->mvs_v[3] = mvs0 & ~colZero3;
+	} else {
+		mb->mvs_v[0] = mb->mvs_v[1] = mb->mvs_v[2] = mb->mvs_v[3] = mvs0;
+	}
+	if (refIdx[4] == 0) {
+		mb->mvs_v[4] = mvs1 & ~colZero0;
+		mb->mvs_v[5] = mvs1 & ~colZero1;
+		mb->mvs_v[6] = mvs1 & ~colZero2;
+		mb->mvs_v[7] = mvs1 & ~colZero3;
+	} else {
+		mb->mvs_v[4] = mb->mvs_v[5] = mb->mvs_v[6] = mb->mvs_v[7] = mvs1;
+	}
+}
+
+static inline void FUNC(init_direct_temporal_mv_pred)
+{
+	// load refIdxCol and mvCol
+	const Edge264_macroblock *mbCol = ctx->mbCol;
+	int refCol0 = mbCol->refIdx[0];
+	int refCol1 = mbCol->refIdx[1];
+	int refCol2 = mbCol->refIdx[2];
+	int refCol3 = mbCol->refIdx[3];
+	v8hi mvCol0 = mbCol->mvs_v[0];
+	v8hi mvCol1 = mbCol->mvs_v[1];
+	v8hi mvCol2 = mbCol->mvs_v[2];
+	v8hi mvCol3 = mbCol->mvs_v[3];
+	
+	// Both GCC and Clang are INCREDIBLY dumb for any attempt to use ?: here.
+	if (refCol0 < 0)
+		refCol0 = mbCol->refIdx[4] | 32, mvCol0 = mbCol->mvs_v[4];
+	if (refCol1 < 0)
+		refCol1 = mbCol->refIdx[5] | 32, mvCol1 = mbCol->mvs_v[5];
+	if (refCol2 < 0)
+		refCol2 = mbCol->refIdx[6] | 32, mvCol2 = mbCol->mvs_v[6];
+	if (refCol3 < 0)
+		refCol3 = mbCol->refIdx[7] | 32, mvCol3 = mbCol->mvs_v[7];
+	
+	// with precomputed constants the rest is straightforward
+	mb->refIdx[0] = ctx->MapColToList0[1 + refCol0];
+	mb->refIdx[1] = ctx->MapColToList0[1 + refCol1];
+	mb->refIdx[2] = ctx->MapColToList0[1 + refCol2];
+	mb->refIdx[3] = ctx->MapColToList0[1 + refCol3];
+	mb->refIdx_s[1] = 0;
+	mb->mvs_v[0] = temporal_scale(mvCol0, ctx->DistScaleFactor[mb->refIdx[0]]);
+	mb->mvs_v[1] = temporal_scale(mvCol1, ctx->DistScaleFactor[mb->refIdx[1]]);
+	mb->mvs_v[2] = temporal_scale(mvCol2, ctx->DistScaleFactor[mb->refIdx[2]]);
+	mb->mvs_v[3] = temporal_scale(mvCol3, ctx->DistScaleFactor[mb->refIdx[3]]);
+	mb->mvs_v[4] = mb->mvs_v[0] - mvCol0;
+	mb->mvs_v[5] = mb->mvs_v[1] - mvCol1;
+	mb->mvs_v[6] = mb->mvs_v[2] - mvCol2;
+	mb->mvs_v[7] = mb->mvs_v[3] - mvCol3;
+}
+
+static __attribute__((noinline)) void FUNC(init_direct_mv_pred) {
+	if (ctx->direct_spatial_mv_pred_flag)
+		CALL(init_direct_spatial_mv_pred);
+	else
+		CALL(init_direct_temporal_mv_pred);
 }
 
 
@@ -1066,15 +1204,15 @@ static __attribute__((noinline)) void FUNC(parse_P_mb)
 		{11, -1, 1, -1}, {14, -1, 4, -1}, {5, -1, 3, -1}, {4, -1, 6, -1}}; // w=8
 	
 	// Inter initializations
-	ctx->transform_8x8_mode_flag = ctx->ps.transform_8x8_mode_flag;
 	mb->f.mbIsInterFlag = 1;
-	mb->refIdx_s[1] = -1;
 	mb->Intra4x4PredMode_v = (v16qi){2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2};
 	
-	// shortcuts for P_Skip and Intra
-	mb->f.mb_skip_flag = CALL(get_ae, 13 - ctx->inc.mb_skip_flag);
-	fprintf(stderr, "mb_skip_flag: %x\n", mb->f.mb_skip_flag);
-	if (mb->f.mb_skip_flag) {
+	// shortcut for P_Skip
+	int mb_skip_flag = CALL(get_ae, 13 - ctx->inc.mb_skip_flag);
+	fprintf(stderr, "mb_skip_flag: %x\n", mb_skip_flag);
+	if (mb_skip_flag) {
+		mb->f.mb_skip_flag = mb_skip_flag;
+		mb->refIdx_s[0] = 0;
 		int refIdxA = *(mb->refIdx + ctx->refIdx_A[0]);
 		int refIdxB = *(mb->refIdx + ctx->refIdx_B[0]);
 		int mvA = *(mb->mvs_s + ctx->mvs_A[0]);
@@ -1102,11 +1240,13 @@ static __attribute__((noinline)) void FUNC(parse_P_mb)
 		v8hi mvs = (v8hi)__builtin_shufflevector((v4si)mv, (v4si){}, 0, 0, 0, 0);
 		mb->mvs_v[0] = mb->mvs_v[1] = mb->mvs_v[2] = mb->mvs_v[3] = mvs;
 		JUMP(decode_inter, 0, 16, 16, mvs[0], mvs[1]);
-	} else if (CALL(get_ae, 14)) {
+		
+	} else if (CALL(get_ae, 14)) { // Intra
 		JUMP(parse_I_mb, 17);
 	}
 	
 	// Non-skip Inter initialisations
+	ctx->transform_8x8_mode_flag = ctx->ps.transform_8x8_mode_flag;
 	if (ctx->inc.unavailable & 1) {
 		mb[-1].coded_block_flags_4x4_v[0] = mb[-1].coded_block_flags_4x4_v[1] =
 			mb[-1].coded_block_flags_4x4_v[2] = mb[-1].coded_block_flags_8x8_v = (v16qi){};
@@ -1251,7 +1391,7 @@ static __attribute__((noinline)) void FUNC(parse_P_mb)
 		mb->absMvdComp_l[i8x8] |= (v8qi)mask & (v8qi)((v2li)pack_absMvdComp(mvd))[0];
 		v8hi mvs = (v8hi)__builtin_shufflevector((v4si)(mvp + mvd), (v4si){}, 0, 0, 0, 0);
 		v8hi mvs_mask = __builtin_shufflevector((v8hi)(v2li){(int64_t)mask}, (v8hi){}, 0, 0, 1, 1, 2, 2, 3, 3);
-		mb->mvs_v[i8x8] |= mvs_mask & mvs;
+		mb->mvs_v[i8x8] |= mvs_mask & mvs; // valid since mvs is initialized with 0
 		CALL(decode_inter, i, ctx->part_sizes[i * 2], ctx->part_sizes[i * 2 + 1], mvs[0], mvs[1]);
 	} while (flags &= flags - 1);
 	JUMP(parse_inter_residual);
@@ -1269,26 +1409,38 @@ static __attribute__((noinline)) void FUNC(parse_B_mb)
 		0, 0, 11, 22, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21};
 	static const uint8_t b2sub_mb_type[13] = {3, 4, 5, 6, 1, 2, 11, 12, 7, 8, 9, 10, 0};
 	
+	// Inter initializations
 	mb->f.mbIsInterFlag = 1;
 	mb->Intra4x4PredMode_v = (v16qi){2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2};
 	
-	mb->f.mb_skip_flag = CALL(get_ae, 26 - ctx->inc.mb_skip_flag);
-	fprintf(stderr, "mb_skip_flag: %x\n", mb->f.mb_skip_flag);
-	if (mb->f.mb_skip_flag) {
-		mb->CodedBlockPatternLuma_s = 0;
+	// shortcut for B_Skip
+	int mb_skip_flag = CALL(get_ae, 26 - ctx->inc.mb_skip_flag);
+	fprintf(stderr, "mb_skip_flag: %x\n", mb_skip_flag);
+	if (mb_skip_flag) {
+		mb->f.mb_skip_flag = mb_skip_flag;
 		mb->f.mb_type_B_Direct = 1;
+		CALL(init_direct_mv_pred);
 		JUMP(parse_NxN_residual);
 		
 	// B_Direct_16x16
 	} else if (!CALL(get_ae, 29 - ctx->inc.mb_type_B_Direct)) {
 		fprintf(stderr, "mb_type: 0\n");
-		CALL(parse_coded_block_pattern);
-		if (mb->CodedBlockPatternLuma_s && ctx->ps.transform_8x8_mode_flag && ctx->ps.direct_8x8_inference_flag) {
-			mb->f.transform_size_8x8_flag = CALL(get_ae, 399 + ctx->inc.transform_size_8x8_flag);
-			fprintf(stderr, "transform_size_8x8_flag: %x\n", mb->f.transform_size_8x8_flag);
-		}
 		mb->f.mb_type_B_Direct = 1;
-		JUMP(parse_NxN_residual);
+		ctx->transform_8x8_mode_flag = ctx->ps.transform_8x8_mode_flag & ctx->ps.direct_8x8_inference_flag;
+		JUMP(parse_inter_residual);
+	}
+	
+	// Non-direct Inter initialisations
+	ctx->transform_8x8_mode_flag = ctx->ps.transform_8x8_mode_flag;
+	if (ctx->inc.unavailable & 1) {
+		mb[-1].coded_block_flags_4x4_v[0] = mb[-1].coded_block_flags_4x4_v[1] =
+			mb[-1].coded_block_flags_4x4_v[2] = mb[-1].coded_block_flags_8x8_v = (v16qi){};
+		ctx->inc.coded_block_flags_16x16_s &= 0x02020202;
+	}
+	if (ctx->inc.unavailable & 2) {
+		ctx->mbB->coded_block_flags_4x4_v[0] = ctx->mbB->coded_block_flags_4x4_v[1] =
+			ctx->mbB->coded_block_flags_4x4_v[2] = ctx->mbB->coded_block_flags_8x8_v = (v16qi){};
+		ctx->inc.coded_block_flags_16x16_s &= 0x01010101;
 	}
 	
 	// Most important here is the minimal number of conditional branches.
@@ -1300,14 +1452,190 @@ static __attribute__((noinline)) void FUNC(parse_B_mb)
 	{
 		str += str + CALL(get_ae, 32);
 	}
-	if (str == 13) {
-		memset(mb->mvs_v, 0, sizeof(mb->mvs_v));
-		JUMP(parse_I_mb, 32);
+	if (str != 13) {
+		fprintf(stderr, "mb_type: %u\n", B2mb_type[str]);
 	}
-	fprintf(stderr, "mb_type: %u\n", B2mb_type[str]);
-	unsigned flags = B2flags[str];
+	
+	// initialisations and jumps for mb_type
+	switch (str) {
+	case 0: // B_Bi_16x16
+		mb->refIdx_s[0] = 0x01010101 * CALL(parse_ref_idx_l0, 0);
+		mb->refIdx_s[1] = 0x01010101 * CALL(parse_ref_idx_l1, 0);
+		CALL(parse_mvd_16x16, 0);
+		CALL(parse_mvd_16x16, 1);
+		JUMP(parse_inter_residual);
+		
+	case 1: // B_L0_L0_16x8
+		mb->refIdx[0] = mb->refIdx[1] = CALL(parse_ref_idx_l0, 0);
+		mb->refIdx[2] = mb->refIdx[3] = CALL(parse_ref_idx_l0, 2);
+		CALL(parse_mvd_16x8_top, 0);
+		CALL(parse_mvd_16x8_bottom, 0);
+		JUMP(parse_inter_residual);
+		
+	case 2: // B_L0_L0_8x16
+		mb->refIdx[0] = mb->refIdx[2] = CALL(parse_ref_idx_l0, 0);
+		mb->refIdx[1] = mb->refIdx[3] = CALL(parse_ref_idx_l0, 1);
+		CALL(parse_mvd_8x16_left, 0);
+		CALL(parse_mvd_8x16_right, 0);
+		JUMP(parse_inter_residual);
+		
+	case 3: // B_L1_L1_16x8
+		mb->refIdx[4] = mb->refIdx[5] = CALL(parse_ref_idx_l1, 0);
+		mb->refIdx[6] = mb->refIdx[7] = CALL(parse_ref_idx_l1, 2);
+		CALL(parse_mvd_16x8_top, 1);
+		CALL(parse_mvd_16x8_bottom, 1);
+		JUMP(parse_inter_residual);
+		
+	case 4: // B_L1_L1_8x16
+		mb->refIdx[4] = mb->refIdx[6] = CALL(parse_ref_idx_l1, 0);
+		mb->refIdx[5] = mb->refIdx[7] = CALL(parse_ref_idx_l1, 1);
+		CALL(parse_mvd_8x16_left, 1);
+		CALL(parse_mvd_8x16_right, 1);
+		JUMP(parse_inter_residual);
+		
+	case 5: // B_L0_L1_16x8
+		mb->refIdx[0] = mb->refIdx[1] = CALL(parse_ref_idx_l0, 0);
+		mb->refIdx[6] = mb->refIdx[7] = CALL(parse_ref_idx_l1, 2);
+		CALL(parse_mvd_16x8_top, 0);
+		CALL(parse_mvd_16x8_bottom, 1);
+		JUMP(parse_inter_residual);
+		
+	case 6: // B_L0_L1_8x16
+		mb->refIdx[0] = mb->refIdx[2] = CALL(parse_ref_idx_l0, 0);
+		mb->refIdx[5] = mb->refIdx[7] = CALL(parse_ref_idx_l1, 1);
+		CALL(parse_mvd_8x16_left, 0);
+		CALL(parse_mvd_8x16_right, 1);
+		JUMP(parse_inter_residual);
+		
+	case 7: // B_L1_L0_16x8
+		mb->refIdx[2] = mb->refIdx[3] = CALL(parse_ref_idx_l0, 2);
+		mb->refIdx[4] = mb->refIdx[5] = CALL(parse_ref_idx_l1, 0);
+		CALL(parse_mvd_16x8_bottom, 0);
+		CALL(parse_mvd_16x8_top, 1);
+		JUMP(parse_inter_residual);
+		
+	case 8: // B_L0_16x16
+		mb->refIdx_s[0] = 0x01010101 * CALL(parse_ref_idx_l0, 0);
+		CALL(parse_mvd_16x16, 0);
+		JUMP(parse_inter_residual);
+		
+	case 9: // B_L1_16x16
+		mb->refIdx_s[1] = 0x01010101 * CALL(parse_ref_idx_l1, 0);
+		CALL(parse_mvd_16x16, 1);
+		JUMP(parse_inter_residual);
+		
+	case 13: // Intra
+		JUMP(parse_I_mb, 32);
+		
+	case 14: // B_L1_L0_8x16
+		mb->refIdx[1] = mb->refIdx[3] = CALL(parse_ref_idx_l0, 1);
+		mb->refIdx[4] = mb->refIdx[6] = CALL(parse_ref_idx_l1, 0);
+		CALL(parse_mvd_8x16_right, 0);
+		CALL(parse_mvd_8x16_left, 1);
+		JUMP(parse_inter_residual);
+		
+	case 15: // B_8x8
+		break;
+		
+	case 16: // B_L0_Bi_16x8
+		mb->refIdx[0] = mb->refIdx[1] = CALL(parse_ref_idx_l0, 0);
+		mb->refIdx[2] = mb->refIdx[3] = CALL(parse_ref_idx_l0, 2);
+		mb->refIdx[6] = mb->refIdx[7] = CALL(parse_ref_idx_l1, 2);
+		CALL(parse_mvd_16x8_top, 0);
+		CALL(parse_mvd_16x8_bottom, 0);
+		CALL(parse_mvd_16x8_bottom, 1);
+		JUMP(parse_inter_residual);
+		
+	case 17: // B_L0_Bi_8x16
+		mb->refIdx[0] = mb->refIdx[2] = CALL(parse_ref_idx_l0, 0);
+		mb->refIdx[1] = mb->refIdx[3] = CALL(parse_ref_idx_l0, 1);
+		mb->refIdx[5] = mb->refIdx[7] = CALL(parse_ref_idx_l1, 1);
+		CALL(parse_mvd_8x16_left, 0);
+		CALL(parse_mvd_8x16_right, 0);
+		CALL(parse_mvd_8x16_right, 1);
+		JUMP(parse_inter_residual);
+		
+	case 18: // B_L1_Bi_16x8
+		mb->refIdx[2] = mb->refIdx[3] = CALL(parse_ref_idx_l0, 2);
+		mb->refIdx[4] = mb->refIdx[5] = CALL(parse_ref_idx_l1, 0);
+		mb->refIdx[6] = mb->refIdx[7] = CALL(parse_ref_idx_l1, 2);
+		CALL(parse_mvd_16x8_bottom, 0);
+		CALL(parse_mvd_16x8_top, 1);
+		CALL(parse_mvd_16x8_bottom, 1);
+		JUMP(parse_inter_residual);
+		
+	case 19: // B_L1_Bi_8x16
+		mb->refIdx[1] = mb->refIdx[3] = CALL(parse_ref_idx_l0, 1);
+		mb->refIdx[4] = mb->refIdx[6] = CALL(parse_ref_idx_l1, 0);
+		mb->refIdx[5] = mb->refIdx[7] = CALL(parse_ref_idx_l1, 1);
+		CALL(parse_mvd_8x16_right, 0);
+		CALL(parse_mvd_8x16_left, 1);
+		CALL(parse_mvd_8x16_right, 1);
+		JUMP(parse_inter_residual);
+		
+	case 20: // B_Bi_L0_16x8
+		mb->refIdx[0] = mb->refIdx[1] = CALL(parse_ref_idx_l0, 0);
+		mb->refIdx[2] = mb->refIdx[3] = CALL(parse_ref_idx_l0, 2);
+		mb->refIdx[4] = mb->refIdx[5] = CALL(parse_ref_idx_l1, 0);
+		CALL(parse_mvd_16x8_top, 0);
+		CALL(parse_mvd_16x8_bottom, 0);
+		CALL(parse_mvd_16x8_top, 1);
+		JUMP(parse_inter_residual);
+		
+	case 21: // B_Bi_L0_8x16
+		mb->refIdx[0] = mb->refIdx[2] = CALL(parse_ref_idx_l0, 0);
+		mb->refIdx[1] = mb->refIdx[3] = CALL(parse_ref_idx_l0, 1);
+		mb->refIdx[4] = mb->refIdx[6] = CALL(parse_ref_idx_l1, 0);
+		CALL(parse_mvd_8x16_left, 0);
+		CALL(parse_mvd_8x16_right, 0);
+		CALL(parse_mvd_8x16_left, 1);
+		JUMP(parse_inter_residual);
+		
+	case 22: // B_Bi_L1_16x8
+		mb->refIdx[0] = mb->refIdx[1] = CALL(parse_ref_idx_l0, 0);
+		mb->refIdx[4] = mb->refIdx[5] = CALL(parse_ref_idx_l1, 0);
+		mb->refIdx[6] = mb->refIdx[7] = CALL(parse_ref_idx_l1, 2);
+		CALL(parse_mvd_16x8_top, 0);
+		CALL(parse_mvd_16x8_top, 1);
+		CALL(parse_mvd_16x8_bottom, 1);
+		JUMP(parse_inter_residual);
+		
+	case 23: // B_Bi_L1_8x16
+		mb->refIdx[0] = mb->refIdx[2] = CALL(parse_ref_idx_l0, 0);
+		mb->refIdx[4] = mb->refIdx[6] = CALL(parse_ref_idx_l1, 0);
+		mb->refIdx[5] = mb->refIdx[7] = CALL(parse_ref_idx_l1, 1);
+		CALL(parse_mvd_8x16_left, 0);
+		CALL(parse_mvd_8x16_left, 1);
+		CALL(parse_mvd_8x16_right, 1);
+		JUMP(parse_inter_residual);
+		
+	case 24: // B_Bi_Bi_16x8
+		mb->refIdx[0] = mb->refIdx[1] = CALL(parse_ref_idx_l0, 0);
+		mb->refIdx[2] = mb->refIdx[3] = CALL(parse_ref_idx_l0, 2);
+		mb->refIdx[4] = mb->refIdx[5] = CALL(parse_ref_idx_l1, 0);
+		mb->refIdx[6] = mb->refIdx[7] = CALL(parse_ref_idx_l1, 2);
+		CALL(parse_mvd_16x8_top, 0);
+		CALL(parse_mvd_16x8_bottom, 0);
+		CALL(parse_mvd_16x8_top, 1);
+		CALL(parse_mvd_16x8_bottom, 1);
+		JUMP(parse_inter_residual);
+		
+	case 25: // B_Bi_Bi_8x16
+		mb->refIdx[0] = mb->refIdx[2] = CALL(parse_ref_idx_l0, 0);
+		mb->refIdx[1] = mb->refIdx[3] = CALL(parse_ref_idx_l0, 1);
+		mb->refIdx[4] = mb->refIdx[6] = CALL(parse_ref_idx_l1, 0);
+		mb->refIdx[5] = mb->refIdx[7] = CALL(parse_ref_idx_l1, 1);
+		CALL(parse_mvd_8x16_left, 0);
+		CALL(parse_mvd_8x16_right, 0);
+		CALL(parse_mvd_8x16_left, 1);
+		CALL(parse_mvd_8x16_right, 1);
+		JUMP(parse_inter_residual);
+	default:
+		__builtin_unreachable();
+	}
 	
 	// Parsing for sub_mb_type in B slices.
+	unsigned flags = 0;
 	for (int i = 0; str == 15 && i < 16; i += 4) {
 		int sub = 12;
 		if (!CALL(get_ae, 36)) {
@@ -1324,138 +1652,7 @@ static __attribute__((noinline)) void FUNC(parse_B_mb)
 		}
 		fprintf(stderr, "sub_mb_type: %u\n", b2sub_mb_type[sub]);
 	}
-	ctx->mvd_flags = flags;
 	return;
-}
-
-
-
-/**
- * Initialise the reference indices and motion vectors of an entire macroblock
- * with direct prediction (8.4.1.2).
- */
-static void FUNC(init_direct_spatial_prediction)
-{
-	// load refIdxCol and mvCol
-	const Edge264_macroblock *mbCol = ctx->mbCol;
-	int refCol0 = mbCol->refIdx[0];
-	int refCol1 = mbCol->refIdx[1];
-	int refCol2 = mbCol->refIdx[2];
-	int refCol3 = mbCol->refIdx[3];
-	v8hi mvCol0 = mbCol->mvs_v[0];
-	v8hi mvCol1 = mbCol->mvs_v[1];
-	v8hi mvCol2 = mbCol->mvs_v[2];
-	v8hi mvCol3 = mbCol->mvs_v[3];
-	
-	// Both GCC and Clang are INCREDIBLY dumb for any attempt to use ?: here.
-	if (refCol0 < 0)
-		refCol0 = mbCol->refIdx[4], mvCol0 = mbCol->mvs_v[4];
-	if (refCol1 < 0)
-		refCol1 = mbCol->refIdx[5], mvCol1 = mbCol->mvs_v[5];
-	if (refCol2 < 0)
-		refCol2 = mbCol->refIdx[6], mvCol2 = mbCol->mvs_v[6];
-	if (refCol3 < 0)
-		refCol3 = mbCol->refIdx[7], mvCol3 = mbCol->mvs_v[7];
-	
-	// initialize colZeroFlags
-	v8hi colZero0 = {}, colZero1 = {}, colZero2 = {}, colZero3 = {};
-	if (__builtin_expect(refCol0 == ctx->zero_if_col_short_term, 1))
-		colZero0 = mv_near_zero(mvCol0);
-	if (__builtin_expect(refCol1 == ctx->zero_if_col_short_term, 1))
-		colZero1 = mv_near_zero(mvCol1);
-	if (__builtin_expect(refCol2 == ctx->zero_if_col_short_term, 1))
-		colZero2 = mv_near_zero(mvCol2);
-	if (__builtin_expect(refCol3 == ctx->zero_if_col_short_term, 1))
-		colZero3 = mv_near_zero(mvCol3);
-	
-	// load all refIdxN and mvN in vector registers
-	v8hi mvA = (v8hi)(v4si){*(mb->mvs_s + ctx->mvs_A[0]), *(mb->mvs_s + ctx->mvs_A[0] + 16)};
-	v8hi mvB = (v8hi)(v4si){*(mb->mvs_s + ctx->mvs_B[0]), *(mb->mvs_s + ctx->mvs_B[0] + 16)};
-	v8hi mvC = (v8hi)(v4si){*(mb->mvs_s + ctx->mvs8x8_C[1]), *(mb->mvs_s + ctx->mvs8x8_C[1] + 16)};
-	v16qi shuf = {0, 0, 0, 0, 1, 1, 1, 1};
-	v16qi refIdxA = byte_shuffle((v16qi){*(mb->refIdx + ctx->refIdx_A[0]), *(mb->refIdx + ctx->refIdx_A[0] + 4)}, shuf);
-	v16qi refIdxB = byte_shuffle((v16qi){*(mb->refIdx + ctx->refIdx_B[0]), *(mb->refIdx + ctx->refIdx_B[0] + 4)}, shuf);
-	v16qi refIdxC = byte_shuffle((v16qi){*(mb->refIdx + ctx->refIdx_C), *(mb->refIdx + ctx->refIdx_C + 4)}, shuf);
-	if (__builtin_expect(ctx->inc.unavailable & 4, 0)) {
-		mvC = (v8hi)(v4si){*(mb->mvs_s + ctx->mvs8x8_D[0]), *(mb->mvs_s + ctx->mvs8x8_D[0] + 16)};
-		refIdxC = byte_shuffle((v16qi){*(mb->refIdx + ctx->refIdx_D), *(mb->refIdx + ctx->refIdx_D + 4)}, shuf);
-	}
-	
-	// initialize mv along refIdx since it will equal one of refIdxA/B/C
-	v16qu cmp_AB = (v16qu)refIdxA < (v16qu)refIdxB; // unsigned comparisons
-	v16qi refIdxm = vector_select(cmp_AB, refIdxA, refIdxB); // umin(refIdxA, refIdxB)
-	v16qi refIdxM = vector_select(cmp_AB, refIdxB, refIdxA); // umax(refIdxA, refIdxB)
-	v8hi mvm = vector_select(cmp_AB, mvA, mvB);
-	v16qu cmp_mC = (v16qu)refIdxm < (v16qu)refIdxC;
-	v16qi refIdx = vector_select(cmp_mC, refIdxm, refIdxC); // umin(refIdxm, refIdxC)
-	v8hi mvmm = vector_select(cmp_mC, mvm, mvC);
-	
-	// select median if refIdx equals one more of refIdxA/B/C
-	v16qi cmp_med = (refIdxm == refIdxC) | (refIdx == refIdxM);
-	v8hi mv01 = vector_select(cmp_med, vector_median(mvA, mvB, mvC), mvmm);
-	v8hi mvs0 = (v8hi)__builtin_shufflevector((v4si)mv01, (v4si)mv01, 0, 0, 0, 0);
-	v8hi mvs1 = (v8hi)__builtin_shufflevector((v4si)mv01, (v4si)mv01, 1, 1, 1, 1);
-	
-	// direct zero prediction applies only to refIdx (mvLX are zero already)
-	refIdx &= (v16qi)((v2li)refIdx != -1);
-	mb->refIdx_l = ((v2li)refIdx)[0];
-	
-	// mask mvs with colZeroFlags and store them
-	if (refIdx[0] == 0) {
-		mb->mvs_v[0] = mvs0 & ~colZero0;
-		mb->mvs_v[1] = mvs0 & ~colZero1;
-		mb->mvs_v[2] = mvs0 & ~colZero2;
-		mb->mvs_v[3] = mvs0 & ~colZero3;
-	} else {
-		mb->mvs_v[0] = mb->mvs_v[1] = mb->mvs_v[2] = mb->mvs_v[3] = mvs0;
-	}
-	if (refIdx[4] == 0) {
-		mb->mvs_v[4] = mvs1 & ~colZero0;
-		mb->mvs_v[5] = mvs1 & ~colZero1;
-		mb->mvs_v[6] = mvs1 & ~colZero2;
-		mb->mvs_v[7] = mvs1 & ~colZero3;
-	} else {
-		mb->mvs_v[4] = mb->mvs_v[5] = mb->mvs_v[6] = mb->mvs_v[7] = mvs1;
-	}
-}
-
-static void FUNC(init_direct_temporal_prediction)
-{
-	// load refIdxCol and mvCol
-	const Edge264_macroblock *mbCol = ctx->mbCol;
-	int refCol0 = mbCol->refIdx[0];
-	int refCol1 = mbCol->refIdx[1];
-	int refCol2 = mbCol->refIdx[2];
-	int refCol3 = mbCol->refIdx[3];
-	v8hi mvCol0 = mbCol->mvs_v[0];
-	v8hi mvCol1 = mbCol->mvs_v[1];
-	v8hi mvCol2 = mbCol->mvs_v[2];
-	v8hi mvCol3 = mbCol->mvs_v[3];
-	
-	// Both GCC and Clang are INCREDIBLY dumb for any attempt to use ?: here.
-	if (refCol0 < 0)
-		refCol0 = mbCol->refIdx[4] | 32, mvCol0 = mbCol->mvs_v[4];
-	if (refCol1 < 0)
-		refCol1 = mbCol->refIdx[5] | 32, mvCol1 = mbCol->mvs_v[5];
-	if (refCol2 < 0)
-		refCol2 = mbCol->refIdx[6] | 32, mvCol2 = mbCol->mvs_v[6];
-	if (refCol3 < 0)
-		refCol3 = mbCol->refIdx[7] | 32, mvCol3 = mbCol->mvs_v[7];
-	
-	// with precomputed constants the rest is straightforward
-	mb->refIdx[0] = ctx->MapColToList0[1 + refCol0];
-	mb->refIdx[1] = ctx->MapColToList0[1 + refCol1];
-	mb->refIdx[2] = ctx->MapColToList0[1 + refCol2];
-	mb->refIdx[3] = ctx->MapColToList0[1 + refCol3];
-	mb->refIdx_s[1] = 0;
-	mb->mvs_v[0] = temporal_scale(mvCol0, ctx->DistScaleFactor[mb->refIdx[0]]);
-	mb->mvs_v[1] = temporal_scale(mvCol1, ctx->DistScaleFactor[mb->refIdx[1]]);
-	mb->mvs_v[2] = temporal_scale(mvCol2, ctx->DistScaleFactor[mb->refIdx[2]]);
-	mb->mvs_v[3] = temporal_scale(mvCol3, ctx->DistScaleFactor[mb->refIdx[3]]);
-	mb->mvs_v[4] = mb->mvs_v[0] - mvCol0;
-	mb->mvs_v[5] = mb->mvs_v[1] - mvCol1;
-	mb->mvs_v[6] = mb->mvs_v[2] - mvCol2;
-	mb->mvs_v[7] = mb->mvs_v[3] - mvCol3;
 }
 
 
@@ -1490,6 +1687,7 @@ __attribute__((noinline)) void FUNC(parse_slice_data)
 		v16qi flagsB = ctx->mbB->f.v;
 		ctx->inc.v = flagsA + flagsB + (flagsB & flags_twice.v);
 		memset(mb, 0, sizeof(*mb));
+		mb->refIdx_v = (v8qi){-1, -1, -1, -1, -1, -1, -1, -1};
 		mb->f.mb_field_decoding_flag = ctx->field_pic_flag;
 		CALL(check_ctx, LOOP_START_LABEL);
 		

@@ -1040,7 +1040,7 @@ static __attribute__((noinline)) int FUNC(parse_ref_idx_l1, int i) {
  * Initialise the reference indices and motion vectors of an entire macroblock
  * with direct prediction (8.4.1.2).
  */
-static inline void FUNC(init_direct_spatial_mv_pred)
+static inline __attribute__((always_inline)) void FUNC(decode_direct_spatial_mv_pred)
 {
 	// load refIdxCol and mvCol
 	const Edge264_macroblock *mbCol = ctx->mbCol;
@@ -1125,7 +1125,7 @@ static inline void FUNC(init_direct_spatial_mv_pred)
 	}
 }
 
-static inline void FUNC(init_direct_temporal_mv_pred)
+static inline __attribute__((always_inline)) void FUNC(decode_direct_temporal_mv_pred)
 {
 	// load refIdxCol and mvCol
 	const Edge264_macroblock *mbCol = ctx->mbCol;
@@ -1164,11 +1164,21 @@ static inline void FUNC(init_direct_temporal_mv_pred)
 	mb->mvs_v[7] = mb->mvs_v[3] - mvCol3;
 }
 
-static __attribute__((noinline)) void FUNC(init_direct_mv_pred) {
-	if (ctx->direct_spatial_mv_pred_flag)
-		CALL(init_direct_spatial_mv_pred);
-	else
-		CALL(init_direct_temporal_mv_pred);
+// FIXME: direct_8x8_inference_flag
+// FIXME: use the same partition sizes as mbCol
+static __attribute__((noinline)) void FUNC(decode_direct_mv_pred, unsigned mask) {
+	// initialise refIdx and mvs with fast vector code
+	if (ctx->direct_spatial_mv_pred_flag) {
+		CALL(decode_direct_spatial_mv_pred);
+	} else {
+		CALL(decode_direct_temporal_mv_pred);
+	}
+	
+	// execute decode_inter for the positions given in mask
+	do {
+		int i = __builtin_ctz(mask);
+		CALL(decode_inter, i, 4, 4, mb->mvs[i * 2], mb->mvs[i * 2 + 1]);
+	} while (mask &= mask - 1);
 }
 
 
@@ -1399,10 +1409,6 @@ static __attribute__((noinline)) void FUNC(parse_P_mb)
 
 static __attribute__((noinline)) void FUNC(parse_B_mb)
 {
-	static const uint32_t B2flags[26] = {0x00010001, 0x00000101, 0x00000011, 0x01010000,
-		0x00110000, 0x01000001, 0x00100001, 0x00010100, 0x00000001, 0x00010000,
-		0, 0, 0, 0, 0x00010010, 0, 0x01000101, 0x00100011, 0x01010100, 0x00110010,
-		0x00010101, 0x00010011, 0x01010001, 0x00110001, 0x01010101, 0x00110011};
 	static const uint32_t b2flags[13] = {0x10001, 0x00005, 0x00003, 0x50000, 0x00001,
 		0x10000, 0xf0000, 0xf000f, 0x30000, 0x50005, 0x30003, 0x0000f, 0};
 	static const uint8_t B2mb_type[26] = {3, 4, 5, 6, 7, 8, 9, 10, 1, 2, 0, 0,
@@ -1419,14 +1425,14 @@ static __attribute__((noinline)) void FUNC(parse_B_mb)
 	if (mb_skip_flag) {
 		mb->f.mb_skip_flag = mb_skip_flag;
 		mb->f.mb_type_B_Direct = 1;
-		CALL(init_direct_mv_pred);
-		JUMP(parse_NxN_residual);
+		JUMP(decode_direct_mv_pred, 0xffffffffu);
 		
 	// B_Direct_16x16
 	} else if (!CALL(get_ae, 29 - ctx->inc.mb_type_B_Direct)) {
 		fprintf(stderr, "mb_type: 0\n");
 		mb->f.mb_type_B_Direct = 1;
 		ctx->transform_8x8_mode_flag = ctx->ps.transform_8x8_mode_flag & ctx->ps.direct_8x8_inference_flag;
+		CALL(decode_direct_mv_pred, 0xffffffffu);
 		JUMP(parse_inter_residual);
 	}
 	

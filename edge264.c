@@ -14,6 +14,8 @@
  * _ Modify all Intra decoding functions to operate after parsing (rather than before residual) and write directly to memory
  * _ Remove stride variable in favor of passing it directly to residual functions
  * _ Remove Pred modes and related variables (BlkIdx)
+ * _ Modify the API to return at most 1 image per call, and include a 4th return code OUTPUT_IMAGE (test beforehand whether it may happen that the DPB is full without empty slot, and if not too frequent fix them with a realloc)
+ * _ Don't allocate before each image, because it might contribute to fragmentation if other allocations happen inbetween
  
  * _ update the tables of names for profiles and NAL types
  * _ upgrade DPB storage size to 32 (to allow future multithreaded decoding), by simply doubling reference and output flags sizes
@@ -22,6 +24,7 @@
  * _ When all cross-slice variables are known, store Edge264_macroblock inside a circular buffer (to get constant A/B offsets), put the rest in per-frame arrays, and access C/D with offset arrays (mandatory for MBAFF)
  * _ When implementing fields and MBAFF, keep the same pic coding struct (no FLD/AFRM) and just add mb_field_decoding_flag
  * _ after implementing P/B and MBAFF, optimize away array accesses of is422 and mb->f.mb_field_decoding_flag
+ * _ Change the API to return an array of frames instead of using a callback (easier for FFIs)
  
  * _ Current x264 options in HandBrake to output compatible video: no-deblock:slices=1:no-8x8dct:bframes=0
  * _ To benchmark ffmpeg: ffmpeg -hide_banner -benchmark -threads 1 -i video.264 -f null -
@@ -173,7 +176,6 @@ static void FUNC(initialise_decoding_context, Edge264_stream *e)
 		ctx->mvs_B_v = (v16si){10 + offB_32bit, 11 + offB_32bit, 0, 1, 14 + offB_32bit, 15 + offB_32bit, 4, 5, 2, 3, 8, 9, 6, 7, 12, 13};
 		ctx->mvs8x8_C_v = (v4si){14 + offB_32bit, 10 + offC_32bit, 6, 0};
 		ctx->mvs8x8_D_v = (v4si){15 + offD_32bit, 11 + offB_32bit, 7 + offA_32bit, 3};
-		//ctx->col_short_term = ~e->long_term_flags >> (ctx->RefPicList[1][0] & 15) & 1;
 		ctx->bipred_flags = 0;
 		
 		// initialize plane pointers for all references
@@ -181,6 +183,22 @@ static void FUNC(initialise_decoding_context, Edge264_stream *e)
 			for (int i = 0; i < ctx->ps.num_ref_idx_active[l]; i++) {
 				ctx->ref_planes[l][i] = e->DPB + (ctx->RefPicList[l][i] & 15) * e->frame_size;
 			}
+		}
+		
+		// initialize co-located picture variables
+		if (ctx->slice_type == 1) {
+			int refPicCol = ctx->RefPicList[1][0];
+			int8_t *colList = e->RefPicLists[refPicCol];
+			int8_t MapPicToList0[16] = {}; // pictures not found in RefPicList0 will point to 0 by default
+			ctx->mbCol = (Edge264_macroblock *)(e->DPB + refPicCol * e->frame_size + ctx->plane_size_Y + e->plane_size_C * 2 + sizeof(*mb) - offB_8bit);
+			ctx->zero_if_col_short_term = (e->long_term_flags & 1 << refPicCol) ? 32 : 0;
+			for (int i = 32; i-- > 0; ) {
+				if (ctx->RefPicList[0][i] >= 0)
+					MapPicToList0[ctx->RefPicList[0][i]] = i;
+			}
+			ctx->MapColToList0[0] = 0;
+			for (int i = 0; i < 64; i++)
+				ctx->MapColToList0[1 + i] = (colList[i] >= 0) ? MapPicToList0[1 + colList[i]] : 0;
 		}
 	}
 }
@@ -204,6 +222,7 @@ static void FUNC(parse_ref_pic_list_modification, const Edge264_stream *e)
 	uint16_t b = e->reference_flags >> 16;
 	int count[3] = {0, 0, 0}; // number of refs before/after/long
 	int size = 0;
+	memset(ctx->RefPicList, -1, 64);
 	
 	// This single loop sorts all short and long term references at once.
 	for (unsigned refs = (ctx->field_pic_flag) ? t | b : t & b; refs; ) {
@@ -668,10 +687,10 @@ static int FUNC(parse_slice_layer_without_partitioning, Edge264_stream *e)
 			}
 		}
 		
-		// A dummy last value must be overwritten by a valid reference.
-		ctx->RefPicList[0][ctx->ps.num_ref_idx_active[0] - 1] = -1;
-		ctx->RefPicList[1][ctx->ps.num_ref_idx_active[1] - 1] = -1;
 		CALL(parse_ref_pic_list_modification, e);
+		memcpy(e->RefPicLists[e->currPic], ctx->RefPicList, 64);
+		
+		// A dummy last value must be overwritten by a valid reference.
 		if (ctx->RefPicList[0][ctx->ps.num_ref_idx_active[0] - 1] < 0 ||
 			(ctx->slice_type == 1 && ctx->RefPicList[1][ctx->ps.num_ref_idx_active[1] - 1] < 0))
 			return 2;
@@ -710,7 +729,7 @@ static int FUNC(parse_slice_layer_without_partitioning, Edge264_stream *e)
 	}
 	
 	// check if we still want to decode this frame, then fill ctx with useful values
-	if (ctx->slice_type == 1 || first_mb_in_slice > 0 || ctx->disable_deblocking_filter_idc != 1)
+	if (first_mb_in_slice > 0 || ctx->disable_deblocking_filter_idc != 1)
 		return 1;
 	CALL(initialise_decoding_context, e);
 	

@@ -132,7 +132,7 @@ typedef struct
 	union { int32_t frame_offsets_y[48]; v4si frame_offsets_y_v[12]; }; // premultiplied with strides
 	Edge264_macroblock * restrict _mb; // backup storage when not in a live variable
 	Edge264_macroblock * restrict mbB;
-	const Edge264_stream *e; // for predicates at TRACE>0
+	const Edge264_stream *e; // for debugging only
 	v8hi clip_Y; // vector of maximum sample values
 	v8hi clip_C;
 	union { int16_t clip; v8hi clip_v; };
@@ -167,7 +167,7 @@ typedef struct
 	uint32_t bipred_flags;
 	const Edge264_macroblock *mbCol;
 	int8_t transform_8x8_mode_flag; // updated during parsing to replace noSubMbPartSizeLessThan8x8Flag
-	int8_t zero_if_col_short_term;
+	int8_t zero_if_col_short_term; // otherwise any impossible refIdx value
 	int8_t MapColToList0[65]; // [refIdxCol + 1]
 	union { v8qi biweights_l; v16qi biweights_v; };
 	union { v4hi bioffsets_l; v8hi bioffsets_v; };

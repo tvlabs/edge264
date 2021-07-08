@@ -1014,8 +1014,8 @@ static __attribute__((noinline)) int FUNC(parse_ref_idx_l0, int i) {
 			if (++refIdx >= 32)
 				return 0;
 		}
+		fprintf(stderr, "ref_idx: %u\n", refIdx);
 	}
-	fprintf(stderr, "ref_idx: %u\n", refIdx);
 	return refIdx;
 }
 static __attribute__((noinline)) int FUNC(parse_ref_idx_l1, int i) {
@@ -1029,8 +1029,8 @@ static __attribute__((noinline)) int FUNC(parse_ref_idx_l1, int i) {
 			if (++refIdx >= 32)
 				return 0;
 		}
+		fprintf(stderr, "ref_idx: %u\n", refIdx);
 	}
-	fprintf(stderr, "ref_idx: %u\n", refIdx);
 	return refIdx;
 }
 
@@ -1052,6 +1052,11 @@ static inline __attribute__((always_inline)) void FUNC(decode_direct_spatial_mv_
 	v8hi mvCol1 = mbCol->mvs_v[1];
 	v8hi mvCol2 = mbCol->mvs_v[2];
 	v8hi mvCol3 = mbCol->mvs_v[3];
+	fprintf(stderr, "refCols=(%d,%d,%d,%d) zero_if_col_short_term=%d\n", refCol0, refCol1, refCol2, refCol3, ctx->zero_if_col_short_term);
+	print_v8hi(mvCol0);
+	print_v8hi(mvCol1);
+	print_v8hi(mvCol2);
+	print_v8hi(mvCol3);
 	
 	// Both GCC and Clang are INCREDIBLY dumb for any attempt to use ?: here.
 	if (refCol0 < 0)
@@ -1336,6 +1341,7 @@ static __attribute__((noinline)) void FUNC(parse_P_mb)
 			ctx->part_sizes_l[i8x8] = (int64_t)(v8qi){4, 4, 4, 4, 4, 4, 4, 4};
 			ctx->inter8x8_shuffle[i8x8] = (v4hi){0, 1, 2, 3};
 		}
+		unsigned f = flags >> i4x4;
 		fprintf(stderr, "sub_mb_type: %c\n", (f == 1) ? '0' : (f == 5) ? '1' : (f == 3) ? '2' : '3');
 	}
 	mb->refIdx[0] = CALL(parse_ref_idx_l0, 0);
@@ -1726,6 +1732,7 @@ __attribute__((noinline)) void FUNC(parse_slice_data)
 		// point to the next macroblock
 		mb++;
 		ctx->mbB++;
+		ctx->mbCol++;
 		ctx->CurrMbAddr++;
 		int xY = (ctx->frame_offsets_x[4] - ctx->frame_offsets_x[0]) << 1;
 		int xC = (ctx->frame_offsets_x[20] - ctx->frame_offsets_x[16]) << 1;
@@ -1742,6 +1749,7 @@ __attribute__((noinline)) void FUNC(parse_slice_data)
 			break;
 		mb++; // skip the empty macroblock at the edge
 		ctx->mbB++;
+		ctx->mbCol++;
 		ctx->frame_offsets_x_v[0] = ctx->frame_offsets_x_v[1] -=
 			(v8hu){ctx->stride_Y, ctx->stride_Y, ctx->stride_Y, ctx->stride_Y, ctx->stride_Y, ctx->stride_Y, ctx->stride_Y, ctx->stride_Y};
 		ctx->frame_offsets_x_v[2] = ctx->frame_offsets_x_v[3] = ctx->frame_offsets_x_v[4] = ctx->frame_offsets_x_v[5] -=

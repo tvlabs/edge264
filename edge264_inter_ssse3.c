@@ -1296,7 +1296,7 @@ __attribute__((noinline)) void FUNC(decode_inter, int i, int w, int h, int x, in
 	const uint8_t *ref = ctx->ref_planes[i >> 4][refIdx];
 	const uint8_t *src_Y = ref + xInt_Y + yInt_Y;
 	uint8_t *dst_Y = ctx->frame + ctx->frame_offsets_x[i] + ctx->frame_offsets_y[i];
-	//	printf("<li>CurrMbAddr=%d, i=%d, w=%d, h=%d, ref=%d, x=%d, y=%d</li>\n", ctx->CurrMbAddr, i, w, h, mb->refIdx[i >> 2], x, y);
+	printf("<li>CurrMbAddr=%d, i=%d, w=%d, h=%d, ref=%d, x=%d, y=%d</li>\n", ctx->CurrMbAddr, i, w, h, mb->refIdx[i >> 2], x, y);
 	
 	// edge propagation is an annoying but nice little piece of code
 	if (__builtin_expect((unsigned)(xFrac_Y ? xInt_Y - 2 : xInt_Y) > sstride_Y - (xFrac_Y ? w + 5 : w) ||

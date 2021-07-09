@@ -1052,11 +1052,6 @@ static inline __attribute__((always_inline)) void FUNC(decode_direct_spatial_mv_
 	v8hi mvCol1 = mbCol->mvs_v[1];
 	v8hi mvCol2 = mbCol->mvs_v[2];
 	v8hi mvCol3 = mbCol->mvs_v[3];
-	fprintf(stderr, "refCols=(%d,%d,%d,%d) zero_if_col_short_term=%d\n", refCol0, refCol1, refCol2, refCol3, ctx->zero_if_col_short_term);
-	print_v8hi(mvCol0);
-	print_v8hi(mvCol1);
-	print_v8hi(mvCol2);
-	print_v8hi(mvCol3);
 	
 	// Both GCC and Clang are INCREDIBLY dumb for any attempt to use ?: here.
 	if (refCol0 < 0)

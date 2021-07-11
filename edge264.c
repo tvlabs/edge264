@@ -25,6 +25,7 @@
  * _ When implementing fields and MBAFF, keep the same pic coding struct (no FLD/AFRM) and just add mb_field_decoding_flag
  * _ after implementing P/B and MBAFF, optimize away array accesses of is422 and mb->f.mb_field_decoding_flag
  * _ Change the API to return an array of frames instead of using a callback (easier for FFIs)
+ * _ Remember Intra decoding is mixed with residuals so switch is necessary and passing preds in registers is good -> provide 2 functions add_idct4x4_inplace/inregs and keep preds in regs or mem depending on host number of regs
  
  * _ Current x264 options in HandBrake to output compatible video: no-deblock:slices=1:no-8x8dct:bframes=0
  * _ To benchmark ffmpeg: ffmpeg -hide_banner -benchmark -threads 1 -i video.264 -f null -
@@ -345,7 +346,7 @@ static void FUNC(parse_ref_pic_list_modification, const Edge264_stream *e)
 /**
  * Parses coefficients for weighted sample prediction (7.4.3.2 and 8.4.2.3).
  *
- * As a reminder, predicted Inter samples from 1/2 refs are weighted with one
+ * As a reminder, predicted Inter samples from 1~2 refs are weighted with one
  * of three modes depending on (slice_type, weighted_flag/idc, num_refs):
  * _ (P, 0, 1) -> default
  * _ (P, 1, 1) -> explicit
@@ -729,7 +730,7 @@ static int FUNC(parse_slice_layer_without_partitioning, Edge264_stream *e)
 	}
 	
 	// check if we still want to decode this frame, then fill ctx with useful values
-	if (first_mb_in_slice > 0 || ctx->disable_deblocking_filter_idc != 1)
+	if (ctx->slice_type == 1 || first_mb_in_slice > 0 || ctx->disable_deblocking_filter_idc != 1)
 		return 1;
 	CALL(initialise_decoding_context, e);
 	

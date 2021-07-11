@@ -791,7 +791,7 @@ static __attribute__((noinline)) void FUNC(parse_mvd_16x16, int lx) {
 	v8hi mvs = (v8hi)__builtin_shufflevector((v4si)(mvp + mvd), (v4si){}, 0, 0, 0, 0);
 	((v16qu *)absMvdComp_p)[0] = ((v16qu *)absMvdComp_p)[1] = pack_absMvdComp(mvd);
 	((v8hi *)mvs_p)[0] = ((v8hi *)mvs_p)[1] = ((v8hi *)mvs_p)[2] = ((v8hi *)mvs_p)[3] = mvs;
-	JUMP(decode_inter, 0, 16, 16, mvs[0], mvs[1]);
+	JUMP(decode_inter, 0, 16, 16);
 }
 
 static __attribute__((noinline)) void FUNC(parse_mvd_8x16_left, int lx) {
@@ -843,7 +843,7 @@ static __attribute__((noinline)) void FUNC(parse_mvd_8x16_left, int lx) {
 	v8hi mvs = (v8hi)__builtin_shufflevector((v4si)(mvp + mvd), (v4si){}, 0, 0, 0, 0);
 	((v8qu *)absMvdComp_p)[0] = ((v8qu *)absMvdComp_p)[2] = (v8qu)((v2li)pack_absMvdComp(mvd))[0];
 	((v8hi *)mvs_p)[0] = ((v8hi *)mvs_p)[2] = mvs;
-	JUMP(decode_inter, 0, 8, 16, mvs[0], mvs[1]);
+	JUMP(decode_inter, 0, 8, 16);
 }
 
 static __attribute__((noinline)) void FUNC(parse_mvd_8x16_right, int lx) {
@@ -895,7 +895,7 @@ static __attribute__((noinline)) void FUNC(parse_mvd_8x16_right, int lx) {
 	v8hi mvs = (v8hi)__builtin_shufflevector((v4si)(mvp + mvd), (v4si){}, 0, 0, 0, 0);
 	((v8qu *)absMvdComp_p)[1] = ((v8qu *)absMvdComp_p)[3] = (v8qu)((v2li)pack_absMvdComp(mvd))[0];
 	((v8hi *)mvs_p)[1] = ((v8hi *)mvs_p)[3] = mvs;
-	CALL(decode_inter, 4, 8, 16, mvs[0], mvs[1]);
+	CALL(decode_inter, 4, 8, 16);
 }
 
 static __attribute__((noinline)) void FUNC(parse_mvd_16x8_top, int lx) {
@@ -947,7 +947,7 @@ static __attribute__((noinline)) void FUNC(parse_mvd_16x8_top, int lx) {
 	v8hi mvs = (v8hi)__builtin_shufflevector((v4si)(mvp + mvd), (v4si){}, 0, 0, 0, 0);
 	((v16qu *)absMvdComp_p)[0] = pack_absMvdComp(mvd);
 	((v8hi *)mvs_p)[0] = ((v8hi *)mvs_p)[1] = mvs;
-	JUMP(decode_inter, 0, 16, 8, mvs[0], mvs[1]);
+	JUMP(decode_inter, 0, 16, 8);
 }
 
 static __attribute__((noinline)) void FUNC(parse_mvd_16x8_bottom, int lx) {
@@ -992,7 +992,7 @@ static __attribute__((noinline)) void FUNC(parse_mvd_16x8_bottom, int lx) {
 	v8hi mvs = (v8hi)__builtin_shufflevector((v4si)(mvp + mvd), (v4si){}, 0, 0, 0, 0);
 	((v16qu *)absMvdComp_p)[1] = pack_absMvdComp(mvd);
 	((v8hi *)mvs_p)[2] = ((v8hi *)mvs_p)[3] = mvs;
-	JUMP(decode_inter, 8, 16, 8, mvs[0], mvs[1]);
+	JUMP(decode_inter, 8, 16, 8);
 }
 
 
@@ -1177,7 +1177,7 @@ static __attribute__((noinline)) void FUNC(decode_direct_mv_pred, unsigned mask)
 	// execute decode_inter for the positions given in mask
 	do {
 		int i = __builtin_ctz(mask);
-		CALL(decode_inter, i, 4, 4, mb->mvs[i * 2], mb->mvs[i * 2 + 1]);
+		CALL(decode_inter, i, 4, 4);
 	} while (mask &= mask - 1);
 }
 
@@ -1249,7 +1249,7 @@ static __attribute__((noinline)) void FUNC(parse_P_mb)
 		}
 		v8hi mvs = (v8hi)__builtin_shufflevector((v4si)mv, (v4si){}, 0, 0, 0, 0);
 		mb->mvs_v[0] = mb->mvs_v[1] = mb->mvs_v[2] = mb->mvs_v[3] = mvs;
-		JUMP(decode_inter, 0, 16, 16, mvs[0], mvs[1]);
+		JUMP(decode_inter, 0, 16, 16);
 		
 	} else if (CALL(get_ae, 14)) { // Intra
 		JUMP(parse_I_mb, 17);
@@ -1403,7 +1403,7 @@ static __attribute__((noinline)) void FUNC(parse_P_mb)
 		v8hi mvs = (v8hi)__builtin_shufflevector((v4si)(mvp + mvd), (v4si){}, 0, 0, 0, 0);
 		v8hi mvs_mask = __builtin_shufflevector((v8hi)(v2li){(int64_t)mask}, (v8hi){}, 0, 0, 1, 1, 2, 2, 3, 3);
 		mb->mvs_v[i8x8] |= mvs_mask & mvs; // valid since mvs is initialized with 0
-		CALL(decode_inter, i, ctx->part_sizes[i * 2], ctx->part_sizes[i * 2 + 1], mvs[0], mvs[1]);
+		CALL(decode_inter, i, ctx->part_sizes[i * 2], ctx->part_sizes[i * 2 + 1]);
 	} while (flags &= flags - 1);
 	JUMP(parse_inter_residual);
 }

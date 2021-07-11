@@ -1268,7 +1268,7 @@ static inline void FUNC(inter8xH_chroma_8bit, int h, size_t dstride, uint8_t * r
 
 
 
-__attribute__((noinline)) void FUNC(decode_inter, int i4x4, int w, int h) {
+__attribute__((noinline)) void FUNC(decode_inter, int i, int w, int h) {
 	static int8_t shift_Y_8bit[46] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15};
 	static int8_t shift_C_8bit[22] = {0, 0, 0, 0, 0, 0, 0, 0, 1, 2, 3, 4, 5, 6, 7, 7, 7, 7, 7, 7, 7, 7};
 	static void FUNC((*luma_fcts[48]), int, size_t, uint8_t*, size_t, const uint8_t*) = {
@@ -1287,19 +1287,20 @@ __attribute__((noinline)) void FUNC(decode_inter, int i4x4, int w, int h) {
 	};
 	
 	// load source and destination addresses
-	int x = mb->mvs[i4x4 * 2];
-	int y = mb->mvs[i4x4 * 2 + 1];
 	size_t sstride_Y = ctx->stride_Y;
+	int x = mb->mvs[i * 2];
+	int y = mb->mvs[i * 2 + 1];
+	int i8x8 = i >> 2;
+	int i4x4 = i & 15;
+	int refIdx = mb->refIdx[i8x8] + (i & 16) * 2;
 	int xInt_Y = ctx->frame_offsets_x[i4x4] + (x >> 2); // FIXME 16 bit
 	int yInt_Y = ctx->frame_offsets_y[i4x4] + (y >> 2) * sstride_Y;
 	int xFrac_Y = x & 3;
 	int yFrac_Y = y & 3;
-	int i8x8 = i4x4 >> 2;
-	int refIdx = mb->refIdx[i8x8];
-	const uint8_t *ref = ctx->ref_planes[i4x4 >> 4][refIdx];
+	const uint8_t *ref = ctx->ref_planes[refIdx];
 	const uint8_t *src_Y = ref + xInt_Y + yInt_Y;
 	uint8_t *dst_Y = ctx->frame + ctx->frame_offsets_x[i4x4] + ctx->frame_offsets_y[i4x4];
-	printf("<li>CurrMbAddr=%d, i4x4=%d, w=%d, h=%d, ref=%d, x=%d, y=%d</li>\n", ctx->CurrMbAddr, i4x4, w, h, mb->refIdx[i8x8], x, y);
+	printf("<li>CurrMbAddr=%d, i=%d, w=%d, h=%d, x=%d, y=%d, ref=%d</li>\n", ctx->CurrMbAddr, i, w, h, x, y, refIdx);
 	
 	// edge propagation is an annoying but nice little piece of code
 	if (__builtin_expect((unsigned)(xFrac_Y ? xInt_Y - 2 : xInt_Y) > sstride_Y - (xFrac_Y ? w + 5 : w) ||
@@ -1325,11 +1326,11 @@ __attribute__((noinline)) void FUNC(decode_inter, int i4x4, int w, int h) {
 	// initialize prediction weights
 	v16qi biweights_Cb, biweights_Cr;
 	v8hi bioffsets_Cb, bioffsets_Cr, logWD_C;
-	if (i4x4 < 16 && (ctx->ps.weighted_bipred_idc != 1 || mb->refIdx[i8x8 + 4] < 0)) { // no weight
+	if (i8x8 < 4 && (ctx->ps.weighted_bipred_idc != 1 || mb->refIdx[i8x8 + 4] >= 0)) { // no weight
 		ctx->biweights_v = biweights_Cb = biweights_Cr = (v16qi){0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1};
 		ctx->bioffsets_v = bioffsets_Cb = bioffsets_Cr = logWD_C = ctx->logWD_v = (v8hi){};
 	} else if (ctx->ps.weighted_bipred_idc == 2) { // implicit, 2nd ref of pair
-		int w1 = ctx->implicit_weights[0][mb->refIdx[i8x8 - 4]][refIdx];
+		int w1 = ctx->implicit_weights[0][mb->refIdx[i8x8 - 4]][refIdx - 32];
 		ctx->biweights_v = biweights_Cb = biweights_Cr = pack_weights(64 - w1, w1);
 		ctx->bioffsets_v = bioffsets_Cb = bioffsets_Cr = (v8hi){32, 32, 32, 32, 32, 32, 32, 32};
 		ctx->logWD_v = logWD_C = (v8hi)(v2li){6};
@@ -1337,26 +1338,26 @@ __attribute__((noinline)) void FUNC(decode_inter, int i4x4, int w, int h) {
 		ctx->biweights_v = biweights_Cb = biweights_Cr = (v16qi){1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1};
 		ctx->bioffsets_v = bioffsets_Cb = bioffsets_Cr = (v8hi){1, 1, 1, 1, 1, 1, 1, 1};
 		ctx->logWD_v = logWD_C = (v8hi)(v2li){1};
-	} else if (i4x4 >= 16) { // explicit, 2nd ref of pair
+	} else if (i8x8 >= 4) { // explicit, 2nd ref of pair
 		int refIdxL0 = mb->refIdx[i8x8 - 4];
-		ctx->biweights_v = pack_weights(ctx->explicit_weights[0][0][refIdxL0], ctx->explicit_weights[0][1][refIdx]);
-		biweights_Cb = pack_weights(ctx->explicit_weights[1][0][refIdxL0], ctx->explicit_weights[1][1][refIdx]);
-		biweights_Cr = pack_weights(ctx->explicit_weights[2][0][refIdxL0], ctx->explicit_weights[2][1][refIdx]);
-		ctx->bioffsets_v = (v8hi)_mm_set1_epi16(((ctx->explicit_offsets[0][0][refIdxL0] +
-			ctx->explicit_offsets[0][1][refIdx] + 1) | 1) << ctx->luma_log2_weight_denom);
-		bioffsets_Cb = (v8hi)_mm_set1_epi16(((ctx->explicit_offsets[1][0][refIdxL0] +
-			ctx->explicit_offsets[1][1][refIdx] + 1) | 1) << ctx->chroma_log2_weight_denom);
-		bioffsets_Cr = (v8hi)_mm_set1_epi16(((ctx->explicit_offsets[1][0][refIdxL0] +
-			ctx->explicit_offsets[1][1][refIdx] + 1) | 1) << ctx->chroma_log2_weight_denom);
+		ctx->biweights_v = pack_weights(ctx->explicit_weights[0][refIdxL0], ctx->explicit_weights[0][refIdx]);
+		biweights_Cb = pack_weights(ctx->explicit_weights[1][refIdxL0], ctx->explicit_weights[1][refIdx]);
+		biweights_Cr = pack_weights(ctx->explicit_weights[2][refIdxL0], ctx->explicit_weights[2][refIdx]);
+		ctx->bioffsets_v = (v8hi)_mm_set1_epi16(((ctx->explicit_offsets[0][refIdxL0] +
+			ctx->explicit_offsets[0][refIdx] + 1) | 1) << ctx->luma_log2_weight_denom);
+		bioffsets_Cb = (v8hi)_mm_set1_epi16(((ctx->explicit_offsets[1][refIdxL0] +
+			ctx->explicit_offsets[1][refIdx] + 1) | 1) << ctx->chroma_log2_weight_denom);
+		bioffsets_Cr = (v8hi)_mm_set1_epi16(((ctx->explicit_offsets[1][refIdxL0] +
+			ctx->explicit_offsets[1][refIdx] + 1) | 1) << ctx->chroma_log2_weight_denom);
 		ctx->logWD_v = (v8hi)(v2li){ctx->luma_log2_weight_denom + 1};
 		logWD_C = (v8hi)(v2li){ctx->chroma_log2_weight_denom + 1};
 	} else { // explicit, single ref
-		ctx->biweights_v = pack_weights(0, ctx->explicit_weights[0][i4x4 >> 4][refIdx]);
-		biweights_Cb = pack_weights(0, ctx->explicit_weights[1][i4x4 >> 4][refIdx]);
-		biweights_Cr = pack_weights(0, ctx->explicit_weights[2][i4x4 >> 4][refIdx]);
-		ctx->bioffsets_v = (v8hi)_mm_set1_epi16((ctx->explicit_offsets[0][i4x4 >> 4][refIdx] * 2 + 1) << ctx->luma_log2_weight_denom >> 1);
-		bioffsets_Cb = (v8hi)_mm_set1_epi16((ctx->explicit_offsets[1][i4x4 >> 4][refIdx] * 2 + 1) << ctx->chroma_log2_weight_denom >> 1);
-		bioffsets_Cr = (v8hi)_mm_set1_epi16((ctx->explicit_offsets[2][i4x4 >> 4][refIdx] * 2 + 1) << ctx->chroma_log2_weight_denom >> 1);
+		ctx->biweights_v = pack_weights(0, ctx->explicit_weights[0][refIdx]);
+		biweights_Cb = pack_weights(0, ctx->explicit_weights[1][refIdx]);
+		biweights_Cr = pack_weights(0, ctx->explicit_weights[2][refIdx]);
+		ctx->bioffsets_v = (v8hi)_mm_set1_epi16((ctx->explicit_offsets[0][refIdx] * 2 + 1) << ctx->luma_log2_weight_denom >> 1);
+		bioffsets_Cb = (v8hi)_mm_set1_epi16((ctx->explicit_offsets[1][refIdx] * 2 + 1) << ctx->chroma_log2_weight_denom >> 1);
+		bioffsets_Cr = (v8hi)_mm_set1_epi16((ctx->explicit_offsets[2][refIdx] * 2 + 1) << ctx->chroma_log2_weight_denom >> 1);
 		ctx->logWD_v = (v8hi)(v2li){ctx->luma_log2_weight_denom};
 		logWD_C = (v8hi)(v2li){ctx->chroma_log2_weight_denom};
 	}

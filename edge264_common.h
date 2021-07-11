@@ -164,7 +164,6 @@ typedef struct
 	
 	// Inter context
 	uint32_t mvd_flags;
-	uint32_t bipred_flags;
 	const Edge264_macroblock *mbCol;
 	int8_t transform_8x8_mode_flag; // updated during parsing to replace noSubMbPartSizeLessThan8x8Flag
 	int8_t zero_if_col_short_term; // otherwise any impossible refIdx value
@@ -173,14 +172,14 @@ typedef struct
 	union { v4hi bioffsets_l; v8hi bioffsets_v; };
 	union { v4hi logWD_l; v8hi logWD_v; };
 	union { int8_t RefPicList[2][32]; v16qi RefPicList_v[4]; };
-	const uint8_t *ref_planes[2][32];
+	const uint8_t *ref_planes[64]; // [lx][refIdx]
 	v4hi inter8x8_shuffle[4];
 	union { int8_t refIdx4x4_eq[32]; v16qi refIdx4x4_eq_v[2]; };
 	union { int8_t part_sizes[32]; int64_t part_sizes_l[4]; }; // pairs {w,h} for sizes of inter blocks
 	int16_t DistScaleFactor[32]; // [refIdxL0]
 	union { int8_t implicit_weights[2][32][32]; v16qi implicit_weights_v[2][32][2]; }; // w1 for [top/bottom][ref0][ref1]
-	int8_t explicit_weights[3][2][32]; // [iYCbCr][LX][RefIdx]
-	int8_t explicit_offsets[3][2][32];
+	int8_t explicit_weights[3][64]; // [iYCbCr][LX][RefIdx]
+	int8_t explicit_offsets[3][64];
 	union { uint8_t edge_buf[1008]; int64_t edge_buf_l[126]; v16qu edge_buf_v[63]; };
 	
 	// Residuals context

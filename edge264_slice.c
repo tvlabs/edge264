@@ -792,7 +792,7 @@ static __attribute__((noinline)) void FUNC(parse_mvd_16x16, int lx) {
 	v8hi mvs = (v8hi)__builtin_shufflevector((v4si)(mvp + mvd), (v4si){}, 0, 0, 0, 0);
 	((v16qu *)absMvdComp_p)[0] = ((v16qu *)absMvdComp_p)[1] = pack_absMvdComp(mvd);
 	((v8hi *)mvs_p)[0] = ((v8hi *)mvs_p)[1] = ((v8hi *)mvs_p)[2] = ((v8hi *)mvs_p)[3] = mvs;
-	JUMP(decode_inter, 0, 16, 16);
+	JUMP(decode_inter, lx * 16, 16, 16);
 }
 
 static __attribute__((noinline)) void FUNC(parse_mvd_8x16_left, int lx) {
@@ -844,7 +844,7 @@ static __attribute__((noinline)) void FUNC(parse_mvd_8x16_left, int lx) {
 	v8hi mvs = (v8hi)__builtin_shufflevector((v4si)(mvp + mvd), (v4si){}, 0, 0, 0, 0);
 	((v8qu *)absMvdComp_p)[0] = ((v8qu *)absMvdComp_p)[2] = (v8qu)((v2li)pack_absMvdComp(mvd))[0];
 	((v8hi *)mvs_p)[0] = ((v8hi *)mvs_p)[2] = mvs;
-	JUMP(decode_inter, 0, 8, 16);
+	JUMP(decode_inter, lx * 16, 8, 16);
 }
 
 static __attribute__((noinline)) void FUNC(parse_mvd_8x16_right, int lx) {
@@ -896,7 +896,7 @@ static __attribute__((noinline)) void FUNC(parse_mvd_8x16_right, int lx) {
 	v8hi mvs = (v8hi)__builtin_shufflevector((v4si)(mvp + mvd), (v4si){}, 0, 0, 0, 0);
 	((v8qu *)absMvdComp_p)[1] = ((v8qu *)absMvdComp_p)[3] = (v8qu)((v2li)pack_absMvdComp(mvd))[0];
 	((v8hi *)mvs_p)[1] = ((v8hi *)mvs_p)[3] = mvs;
-	CALL(decode_inter, 4, 8, 16);
+	CALL(decode_inter, lx * 16 + 4, 8, 16);
 }
 
 static __attribute__((noinline)) void FUNC(parse_mvd_16x8_top, int lx) {
@@ -948,7 +948,7 @@ static __attribute__((noinline)) void FUNC(parse_mvd_16x8_top, int lx) {
 	v8hi mvs = (v8hi)__builtin_shufflevector((v4si)(mvp + mvd), (v4si){}, 0, 0, 0, 0);
 	((v16qu *)absMvdComp_p)[0] = pack_absMvdComp(mvd);
 	((v8hi *)mvs_p)[0] = ((v8hi *)mvs_p)[1] = mvs;
-	JUMP(decode_inter, 0, 16, 8);
+	JUMP(decode_inter, lx * 16, 16, 8);
 }
 
 static __attribute__((noinline)) void FUNC(parse_mvd_16x8_bottom, int lx) {
@@ -993,7 +993,7 @@ static __attribute__((noinline)) void FUNC(parse_mvd_16x8_bottom, int lx) {
 	v8hi mvs = (v8hi)__builtin_shufflevector((v4si)(mvp + mvd), (v4si){}, 0, 0, 0, 0);
 	((v16qu *)absMvdComp_p)[1] = pack_absMvdComp(mvd);
 	((v8hi *)mvs_p)[2] = ((v8hi *)mvs_p)[3] = mvs;
-	JUMP(decode_inter, 8, 16, 8);
+	JUMP(decode_inter, lx * 16 + 8, 16, 8);
 }
 
 
@@ -1142,9 +1142,9 @@ static inline __attribute__((always_inline)) void FUNC(decode_direct_spatial_mv_
 				v8hu mt = (v8hu){t, t, t, t, t, t, t, t} & masks;
 				v8hu mc = (v8hu){c, c, c, c, c, c, c, c} & masks;
 				int type = first_true((mt == masks) & ((mc == masks) | (mc == 0)));
-				todo_blocks ^= ((uint16_t *)&masks)[type];
+				todo_blocks ^= ((uint16_t *)&masks)[type] << i;
 				CALL(decode_inter, i, widths[type], heights[type]);
-			} while (todo_blocks &= todo_blocks - 1);
+			} while (todo_blocks);
 			mb->inter_blocks = inter_blocks | inter_blocks >> 16;
 			return;
 		}

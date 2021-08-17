@@ -191,7 +191,7 @@ static void FUNC(initialise_decoding_context, Edge264_stream *e)
 			int8_t *colList = e->RefPicLists[refPicCol];
 			int8_t MapPicToList0[16] = {}; // pictures not found in RefPicList0 will point to 0 by default
 			ctx->mbCol = (Edge264_macroblock *)(e->DPB + refPicCol * e->frame_size + ctx->plane_size_Y + e->plane_size_C * 2 + sizeof(*mb) - offB_8bit);
-			ctx->zero_if_col_short_term = ((e->long_term_flags >> refPicCol) & 1) << 5;
+			ctx->col_short_term = (e->long_term_flags >> refPicCol & 1) ^ 1;
 			for (int i = 32; i-- > 0; ) {
 				if (ctx->RefPicList[0][i] >= 0)
 					MapPicToList0[ctx->RefPicList[0][i]] = i;

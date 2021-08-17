@@ -15,6 +15,7 @@
 
 
 
+typedef int8_t v2qi __attribute__((vector_size(2)));
 typedef int8_t v4qi __attribute__((vector_size(4)));
 typedef int8_t v8qi __attribute__((vector_size(8)));
 typedef int16_t v4hi __attribute__((vector_size(8)));
@@ -72,6 +73,7 @@ static const Edge264_flags flags_twice = {
  */
 typedef struct {
 	Edge264_flags f;
+	uint16_t inter_blocks; // bitmask for every index that is the topleft corner of a block
 	int8_t QP[3];
 	union { int8_t CodedBlockPatternLuma[4]; int32_t CodedBlockPatternLuma_s; }; // [i8x8]
 	union { int8_t refIdx[8]; int32_t refIdx_s[2]; int64_t refIdx_l; v8qi refIdx_v; }; // [LX][i8x8]
@@ -163,10 +165,9 @@ typedef struct
 	union { int16_t pred_buffer[144]; v8hi pred_buffer_v[18]; }; // temporary storage for prediction samples
 	
 	// Inter context
-	uint32_t mvd_flags;
 	const Edge264_macroblock *mbCol;
 	int8_t transform_8x8_mode_flag; // updated during parsing to replace noSubMbPartSizeLessThan8x8Flag
-	int8_t zero_if_col_short_term; // otherwise any impossible refIdx value
+	int8_t col_short_term;
 	int8_t MapColToList0[65]; // [refIdxCol + 1]
 	union { v8qi biweights_l; v16qi biweights_v; };
 	union { v4hi bioffsets_l; v8hi bioffsets_v; };
@@ -175,7 +176,7 @@ typedef struct
 	const uint8_t *ref_planes[64]; // [lx][refIdx]
 	v4hi inter8x8_shuffle[4];
 	union { int8_t refIdx4x4_eq[32]; v16qi refIdx4x4_eq_v[2]; };
-	union { int8_t part_sizes[32]; int64_t part_sizes_l[4]; }; // pairs {w,h} for sizes of inter blocks
+	union { int8_t part_sizes[32]; int16_t part_sizes_h[16]; int64_t part_sizes_l[4]; }; // pairs {w,h} for sizes of inter blocks
 	int16_t DistScaleFactor[32]; // [refIdxL0]
 	union { int8_t implicit_weights[2][32][32]; v16qi implicit_weights_v[2][32][2]; }; // w1 for [top/bottom][ref0][ref1]
 	int8_t explicit_weights[3][64]; // [iYCbCr][LX][RefIdx]
@@ -372,7 +373,7 @@ static inline __m128i load4x2_8bit(const uint8_t *r0, const uint8_t *r1, __m128i
 	return _mm_cvtepu8_epi16(_mm_insert_epi32(_mm_cvtsi32_si128(*(int *)r0), *(int *)r1, 1));
 }
 #elif defined __SSSE3__
-#define vector_select(mask, t, f) (((t) & (typeof(t))(mask)) | ((f) & ~(typeof(t))(mask)))
+#define vector_select(mask, t, f) (((t) & (typeof(t))(mask < 0)) | ((f) & ~(typeof(t))(mask < 0)))
 static inline __m128i _mm_mullo_epi32(__m128i a, __m128i b) {
 	__m128i c = _mm_shuffle_epi32(a, _MM_SHUFFLE(0, 3, 0, 1));
 	__m128i d = _mm_shuffle_epi32(b, _MM_SHUFFLE(0, 3, 0, 1));
@@ -411,8 +412,16 @@ static inline v16qu pack_absMvdComp(v8hi a) {
 	__m128i x = _mm_abs_epi16(_mm_shuffle_epi32((__m128i)a, _MM_SHUFFLE(0, 0, 0, 0)));
 	return (v16qu)_mm_packus_epi16(x, x);
 }
-static inline v8hi mv_near_zero(v8hi mvCol) {
+static inline v8hi mvs_near_zero(v8hi mvCol) {
 	return (v8hi)_mm_cmpeq_epi32(_mm_srli_epi16(_mm_abs_epi16((__m128i)mvCol), 1), _mm_setzero_si128());
+}
+static inline int colZero_mask_to_flags(v8hi m0, v8hi m1, v8hi m2, v8hi m3) {
+	__m128i x0 = _mm_packs_epi32((__m128i)m0, (__m128i)m1);
+	__m128i x1 = _mm_packs_epi32((__m128i)m2, (__m128i)m3);
+	return _mm_movemask_epi8(_mm_packs_epi16(x0, x1));
+}
+static inline int first_true(v8hu a) {
+	return _mm_movemask_epi8((__m128i)a) >> 1;
 }
 static inline v8hi temporal_scale(v8hi mvCol, int16_t DistScaleFactor) {
 	return (v8hi)_mm_mulhrs_epi16(_mm_set1_epi16(DistScaleFactor), _mm_slli_epi16((__m128i)mvCol, 2));

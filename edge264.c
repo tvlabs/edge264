@@ -344,17 +344,6 @@ static void FUNC(parse_ref_pic_list_modification, const Edge264_stream *e)
 
 /**
  * Parses coefficients for weighted sample prediction (7.4.3.2 and 8.4.2.3).
- *
- * As a reminder, predicted Inter samples from 1~2 refs are weighted with one
- * of three modes depending on (slice_type, weighted_flag/idc, num_refs):
- * _ (P, 0, 1) -> default
- * _ (P, 1, 1) -> explicit
- * _ (B, 0, 1) -> default
- * _ (B, 0, 2) -> default
- * _ (B, 1, 1) -> explicit
- * _ (B, 1, 2) -> explicit
- * _ (B, 2, 1) -> default
- * _ (B, 2, 2) -> implicit
  */
 static void FUNC(parse_pred_weight_table, Edge264_stream *e)
 {

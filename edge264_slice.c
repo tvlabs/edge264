@@ -1081,9 +1081,9 @@ static inline __attribute__((always_inline)) void FUNC(decode_direct_spatial_mv_
 		v16qi refColL0 = (v16qi)(v4si){mbCol->refIdx_s[0]};
 		v16qi offsets = refColL0 & 32;
 		v8hi mvCol0 = *(v8hi*)(mbCol->mvs + offsets[0]);
-		v8hi mvCol1 = *(v8hi*)(mbCol->mvs + offsets[1]);
-		v8hi mvCol2 = *(v8hi*)(mbCol->mvs + offsets[2]);
-		v8hi mvCol3 = *(v8hi*)(mbCol->mvs + offsets[3]);
+		v8hi mvCol1 = *(v8hi*)(mbCol->mvs + offsets[1] + 8);
+		v8hi mvCol2 = *(v8hi*)(mbCol->mvs + offsets[2] + 16);
+		v8hi mvCol3 = *(v8hi*)(mbCol->mvs + offsets[3] + 24);
 		v16qi refCol = vector_select(refColL0, (v16qi)(v4si){mbCol->refIdx_s[1]}, refColL0);
 		if (ctx->ps.direct_8x8_inference_flag) {
 			mvCol0 = (v8hi)__builtin_shufflevector((v4si)mvCol0, (v4si)mvCol0, 0, 0, 0, 0);
@@ -1140,8 +1140,8 @@ static inline __attribute__((always_inline)) void FUNC(decode_direct_spatial_mv_
 				unsigned t = todo_blocks >> i;
 				unsigned c = colZeroFlags >> i;
 				v8hu mt = (v8hu){t, t, t, t, t, t, t, t} & masks;
-				v8hu mc = (v8hu){c, c, c, c, c, c, c, c} & masks;
-				int type = first_true((mt == masks) & ((mc == masks) | (mc == 0)));
+				v8hu mc = (v8hu){c, c, c, c, c, c, c, c};
+				int type = first_true(((mt & mc) == masks) | ((mt & ~mc) == masks));
 				todo_blocks ^= ((uint16_t *)&masks)[type] << i;
 				CALL(decode_inter, i, widths[type], heights[type]);
 			} while (todo_blocks);
@@ -1154,8 +1154,10 @@ static inline __attribute__((always_inline)) void FUNC(decode_direct_spatial_mv_
 	mb->mvs_v[0] = mb->mvs_v[1] = mb->mvs_v[2] = mb->mvs_v[3] = mvs0;
 	mb->mvs_v[4] = mb->mvs_v[5] = mb->mvs_v[6] = mb->mvs_v[7] = mvs1;
 	mb->inter_blocks = 1;
-	CALL(decode_inter, 0, 16, 16);
-	CALL(decode_inter, 16, 16, 16);
+	if (mb->refIdx[0] >= 0)
+		CALL(decode_inter, 0, 16, 16);
+	if (mb->refIdx[4] >= 0)
+		CALL(decode_inter, 16, 16, 16);
 }
 
 static inline __attribute__((always_inline)) void FUNC(decode_direct_temporal_mv_pred, unsigned todo_blocks)

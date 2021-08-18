@@ -420,7 +420,8 @@ static inline int colZero_mask_to_flags(v8hi m0, v8hi m1, v8hi m2, v8hi m3) {
 	__m128i x1 = _mm_packs_epi32((__m128i)m2, (__m128i)m3);
 	return _mm_movemask_epi8(_mm_packs_epi16(x0, x1));
 }
-static inline int first_true(v8hu a) { // FIXME use PCMPISTRI
+static inline int first_true(v8hu a) {
+	// pcmpistri wouldn't help here due to its high latency
 	return __builtin_ctz(_mm_movemask_epi8((__m128i)a)) >> 1;
 }
 static inline v8hi temporal_scale(v8hi mvCol, int16_t DistScaleFactor) {

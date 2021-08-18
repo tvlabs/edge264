@@ -5,6 +5,7 @@
 // TODO: Invert X&Y in QPEL to match ffmpeg convention
 // TODO: Does restrict allow compilers to reorder reads/writes?
 // TODO: Add support for 16bit
+// TODO: swap chroma & luma in decode_inter to finish on a tail call
 
 #include "edge264_common.h"
 
@@ -1268,6 +1269,19 @@ static inline void FUNC(inter8xH_chroma_8bit, int h, size_t dstride, uint8_t * r
 
 
 
+/**
+ * Decode a single Inter block, fetching refIdx and mv at the given index in
+ * memory, then computing the samples for the three color planes.
+ * 
+ * There are 5 weighting schemes, which we select with the help of this table:
+ *            +------------+--------------+------------+--------------+
+ *            | ref0 alone | ref0 of pair | ref1 alone | ref1 of pair |
+ * +----------+------------+--------------+------------+--------------+
+ * | bipred=0 | no_weight  | no_weight    | no_weight  | default2     |
+ * | bipred=1 | explicit1  | no_weight    | explicit1  | explicit2    |
+ * | bipred=2 | no_weight  | no_weight    | no_weight  | implicit2    |
+ * +----------+------------+--------------+------------+--------------+
+ */
 __attribute__((noinline)) void FUNC(decode_inter, int i, int w, int h) {
 	static int8_t shift_Y_8bit[46] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15};
 	static int8_t shift_C_8bit[22] = {0, 0, 0, 0, 0, 0, 0, 0, 1, 2, 3, 4, 5, 6, 7, 7, 7, 7, 7, 7, 7, 7};
@@ -1326,19 +1340,28 @@ __attribute__((noinline)) void FUNC(decode_inter, int i, int w, int h) {
 	// initialize prediction weights
 	v16qi biweights_Cb, biweights_Cr;
 	v8hi bioffsets_Cb, bioffsets_Cr, logWD_C;
-	if (i8x8 < 4 && (ctx->ps.weighted_bipred_idc != 1 || mb->refIdx[i8x8 + 4] >= 0)) { // no weight
+	if ((i8x8 < 4 || mb->refIdx[i8x8 - 4] < 0) && (ctx->ps.weighted_bipred_idc != 1 || mb->refIdx[i8x8 ^ 4] >= 0)) { // no_weight
 		ctx->biweights_v = biweights_Cb = biweights_Cr = (v16qi){0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1};
 		ctx->bioffsets_v = bioffsets_Cb = bioffsets_Cr = logWD_C = ctx->logWD_v = (v8hi){};
-	} else if (ctx->ps.weighted_bipred_idc == 2) { // implicit, 2nd ref of pair
+	} else if (ctx->ps.weighted_bipred_idc == 2) { // implicit2
 		int w1 = ctx->implicit_weights[0][mb->refIdx[i8x8 - 4]][refIdx - 32];
 		ctx->biweights_v = biweights_Cb = biweights_Cr = pack_weights(64 - w1, w1);
 		ctx->bioffsets_v = bioffsets_Cb = bioffsets_Cr = (v8hi){32, 32, 32, 32, 32, 32, 32, 32};
 		ctx->logWD_v = logWD_C = (v8hi)(v2li){6};
-	} else if (ctx->ps.weighted_bipred_idc == 0) { // default, 2nd ref of pair
+	} else if (ctx->ps.weighted_bipred_idc == 0) { // default2
 		ctx->biweights_v = biweights_Cb = biweights_Cr = (v16qi){1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1};
 		ctx->bioffsets_v = bioffsets_Cb = bioffsets_Cr = (v8hi){1, 1, 1, 1, 1, 1, 1, 1};
 		ctx->logWD_v = logWD_C = (v8hi)(v2li){1};
-	} else if (i8x8 >= 4) { // explicit, 2nd ref of pair
+	} else if (mb->refIdx[i8x8 ^ 4] < 0) { // explicit1
+		ctx->biweights_v = pack_weights(0, ctx->explicit_weights[0][refIdx]);
+		biweights_Cb = pack_weights(0, ctx->explicit_weights[1][refIdx]);
+		biweights_Cr = pack_weights(0, ctx->explicit_weights[2][refIdx]);
+		ctx->bioffsets_v = (v8hi)_mm_set1_epi16((ctx->explicit_offsets[0][refIdx] * 2 + 1) << ctx->luma_log2_weight_denom >> 1);
+		bioffsets_Cb = (v8hi)_mm_set1_epi16((ctx->explicit_offsets[1][refIdx] * 2 + 1) << ctx->chroma_log2_weight_denom >> 1);
+		bioffsets_Cr = (v8hi)_mm_set1_epi16((ctx->explicit_offsets[2][refIdx] * 2 + 1) << ctx->chroma_log2_weight_denom >> 1);
+		ctx->logWD_v = (v8hi)(v2li){ctx->luma_log2_weight_denom};
+		logWD_C = (v8hi)(v2li){ctx->chroma_log2_weight_denom};
+	} else { // explicit2
 		int refIdxL0 = mb->refIdx[i8x8 - 4];
 		ctx->biweights_v = pack_weights(ctx->explicit_weights[0][refIdxL0], ctx->explicit_weights[0][refIdx]);
 		biweights_Cb = pack_weights(ctx->explicit_weights[1][refIdxL0], ctx->explicit_weights[1][refIdx]);
@@ -1351,15 +1374,6 @@ __attribute__((noinline)) void FUNC(decode_inter, int i, int w, int h) {
 			ctx->explicit_offsets[1][refIdx] + 1) | 1) << ctx->chroma_log2_weight_denom);
 		ctx->logWD_v = (v8hi)(v2li){ctx->luma_log2_weight_denom + 1};
 		logWD_C = (v8hi)(v2li){ctx->chroma_log2_weight_denom + 1};
-	} else { // explicit, single ref
-		ctx->biweights_v = pack_weights(0, ctx->explicit_weights[0][refIdx]);
-		biweights_Cb = pack_weights(0, ctx->explicit_weights[1][refIdx]);
-		biweights_Cr = pack_weights(0, ctx->explicit_weights[2][refIdx]);
-		ctx->bioffsets_v = (v8hi)_mm_set1_epi16((ctx->explicit_offsets[0][refIdx] * 2 + 1) << ctx->luma_log2_weight_denom >> 1);
-		bioffsets_Cb = (v8hi)_mm_set1_epi16((ctx->explicit_offsets[1][refIdx] * 2 + 1) << ctx->chroma_log2_weight_denom >> 1);
-		bioffsets_Cr = (v8hi)_mm_set1_epi16((ctx->explicit_offsets[2][refIdx] * 2 + 1) << ctx->chroma_log2_weight_denom >> 1);
-		ctx->logWD_v = (v8hi)(v2li){ctx->luma_log2_weight_denom};
-		logWD_C = (v8hi)(v2li){ctx->chroma_log2_weight_denom};
 	}
 	
 	CALL(luma_fcts[(w == 4 ? 0 : w == 8 ? 16 : 32) + yFrac_Y * 4 + xFrac_Y],

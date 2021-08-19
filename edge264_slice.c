@@ -749,6 +749,8 @@ static int FUNC(parse_mvd_comp, int ctxBase, int absMvdSum) {
 
 /**
  * Sub-functions to parse a single mvd pair for different sizes.
+ * 
+ * FIXME vectorize each pair parse_mvd_8x16_left/right into a single function
  */
 static __attribute__((noinline)) void FUNC(parse_mvd_16x16, int lx) {
 	uint8_t *absMvdComp_p = mb->absMvdComp + lx * 32;
@@ -1040,6 +1042,8 @@ static __attribute__((noinline)) int FUNC(parse_ref_idx_l1, int i) {
 /**
  * Initialise the reference indices and motion vectors of an entire macroblock
  * with direct prediction (8.4.1.2).
+ * 
+ * FIXME inter_blocks may be wrong with B_Direct_8x8
  */
 static inline __attribute__((always_inline)) void FUNC(decode_direct_spatial_mv_pred, unsigned todo_blocks)
 {
@@ -1078,7 +1082,7 @@ static inline __attribute__((always_inline)) void FUNC(decode_direct_spatial_mv_
 	// trick from ffmpeg: skip computations on refCol/mvCol if both mvs are zero
 	if (((v2li)mv01)[0] != 0 && ctx->col_short_term) {
 		const Edge264_macroblock *mbCol = ctx->mbCol;
-		v16qi refColL0 = (v16qi)(v4si){mbCol->refIdx_s[0]};
+		v16qi refColL0 = (v16qi)(v4si){mbCol->refIdx_s[0]}; // FIXME possible to avoid vec space?
 		v16qi offsets = refColL0 & 32;
 		v8hi mvCol0 = *(v8hi*)(mbCol->mvs + offsets[0]);
 		v8hi mvCol1 = *(v8hi*)(mbCol->mvs + offsets[1] + 8);
@@ -1142,6 +1146,7 @@ static inline __attribute__((always_inline)) void FUNC(decode_direct_spatial_mv_
 				v8hu mt = (v8hu){t, t, t, t, t, t, t, t} & masks;
 				v8hu mc = (v8hu){c, c, c, c, c, c, c, c};
 				int type = first_true(((mt & mc) == masks) | ((mt & ~mc) == masks));
+				// FIXME mask type based on i!
 				todo_blocks ^= ((uint16_t *)&masks)[type] << i;
 				CALL(decode_inter, i, widths[type], heights[type]);
 			} while (todo_blocks);
@@ -1164,30 +1169,27 @@ static inline __attribute__((always_inline)) void FUNC(decode_direct_temporal_mv
 {
 	// load refIdxCol and mvCol
 	const Edge264_macroblock *mbCol = ctx->mbCol;
-	int refCol0 = mbCol->refIdx[0];
-	int refCol1 = mbCol->refIdx[1];
-	int refCol2 = mbCol->refIdx[2];
-	int refCol3 = mbCol->refIdx[3];
-	v8hi mvCol0 = mbCol->mvs_v[0];
-	v8hi mvCol1 = mbCol->mvs_v[1];
-	v8hi mvCol2 = mbCol->mvs_v[2];
-	v8hi mvCol3 = mbCol->mvs_v[3];
-	
-	// Both GCC and Clang are INCREDIBLY dumb for any attempt to use ?: here.
-	if (refCol0 < 0)
-		refCol0 = mbCol->refIdx[4] | 32, mvCol0 = mbCol->mvs_v[4];
-	if (refCol1 < 0)
-		refCol1 = mbCol->refIdx[5] | 32, mvCol1 = mbCol->mvs_v[5];
-	if (refCol2 < 0)
-		refCol2 = mbCol->refIdx[6] | 32, mvCol2 = mbCol->mvs_v[6];
-	if (refCol3 < 0)
-		refCol3 = mbCol->refIdx[7] | 32, mvCol3 = mbCol->mvs_v[7];
+	v16qi refColL0 = (v16qi)(v4si){mbCol->refIdx_s[0]};
+	v16qi offsets = refColL0 & 32;
+	v8hi mvCol0 = *(v8hi*)(mbCol->mvs + offsets[0]);
+	v8hi mvCol1 = *(v8hi*)(mbCol->mvs + offsets[1] + 8);
+	v8hi mvCol2 = *(v8hi*)(mbCol->mvs + offsets[2] + 16);
+	v8hi mvCol3 = *(v8hi*)(mbCol->mvs + offsets[3] + 24);
+	v16qi refCol = vector_select(refColL0, (v16qi)(v4si){mbCol->refIdx_s[1]} | 32, refColL0);
+	unsigned inter_blocks = mbCol->inter_blocks;
+	if (ctx->ps.direct_8x8_inference_flag) {
+		mvCol0 = (v8hi)__builtin_shufflevector((v4si)mvCol0, (v4si)mvCol0, 0, 0, 0, 0);
+		mvCol1 = (v8hi)__builtin_shufflevector((v4si)mvCol1, (v4si)mvCol1, 1, 1, 1, 1);
+		mvCol2 = (v8hi)__builtin_shufflevector((v4si)mvCol2, (v4si)mvCol2, 2, 2, 2, 2);
+		mvCol3 = (v8hi)__builtin_shufflevector((v4si)mvCol3, (v4si)mvCol3, 3, 3, 3, 3);
+		inter_blocks &= 0x1111;
+	}
 	
 	// with precomputed constants the rest is straightforward
-	mb->refIdx[0] = ctx->MapColToList0[1 + refCol0];
-	mb->refIdx[1] = ctx->MapColToList0[1 + refCol1];
-	mb->refIdx[2] = ctx->MapColToList0[1 + refCol2];
-	mb->refIdx[3] = ctx->MapColToList0[1 + refCol3];
+	mb->refIdx[0] = ctx->MapColToList0[1 + refCol[0]];
+	mb->refIdx[1] = ctx->MapColToList0[1 + refCol[1]];
+	mb->refIdx[2] = ctx->MapColToList0[1 + refCol[2]];
+	mb->refIdx[3] = ctx->MapColToList0[1 + refCol[3]];
 	mb->refIdx_s[1] = 0;
 	mb->mvs_v[0] = temporal_scale(mvCol0, ctx->DistScaleFactor[mb->refIdx[0]]);
 	mb->mvs_v[1] = temporal_scale(mvCol1, ctx->DistScaleFactor[mb->refIdx[1]]);
@@ -1199,11 +1201,18 @@ static inline __attribute__((always_inline)) void FUNC(decode_direct_temporal_mv
 	mb->mvs_v[7] = mb->mvs_v[3] - mvCol3;
 	
 	// execute decode_inter for the positions given in the mask
-	// FIXME use mbCol->inter_blocks
+	inter_blocks += inter_blocks << 16;
 	do {
-		int i = __builtin_ctz(todo_blocks);
-		CALL(decode_inter, i, 4, 4);
-	} while (todo_blocks &= todo_blocks - 1);
+		int i = __builtin_ctz(inter_blocks);
+		static int8_t fake_neighbours[16] = {0, 13, 14, 15, 4, 13, 14, 15, 8, 13, 14, 15, 12, 13, 14, 15};
+		static int8_t nb2types[16] = {0, 5, 4, 6, 2, 5, 4, 6, 1, 5, 4, 6, 3, 5, 4, 6};
+		static uint16_t masks[7] = {0xffff, 0xff, 0xf0f, 0xf, 0x3, 0x5, 0x1};
+		static int8_t widths[7] = {16, 16, 8, 8, 8, 4, 4};
+		static int8_t heights[7] = {16, 8, 16, 8, 4, 8, 4};
+		int type = nb2types[_pext_u32(inter_blocks >> i, 0x116) | fake_neighbours[i & 15]];
+		inter_blocks ^= masks[type] << i;
+		CALL(decode_inter, i, widths[type], heights[type]);
+	} while (inter_blocks);
 }
 
 static __attribute__((noinline)) void FUNC(decode_direct_mv_pred, unsigned todo_blocks) {

@@ -94,7 +94,7 @@ typedef struct {
  */
 typedef struct
 {
-	// small variables and slice header
+	// small variables and constant parameters
 	Edge264_flags inc; // increments for CABAC indices of macroblock syntax elements
 	uint8_t non_ref_flag:1; // TODO: remove if unnecessary after Inter is done
 	uint8_t IdrPicFlag:1;
@@ -166,6 +166,7 @@ typedef struct
 	
 	// Inter context
 	const Edge264_macroblock *mbCol;
+	uint8_t num_ref_idx_active_mask;
 	int8_t transform_8x8_mode_flag; // updated during parsing to replace noSubMbPartSizeLessThan8x8Flag
 	int8_t col_short_term;
 	int8_t MapColToList0[65]; // [refIdxCol + 1]
@@ -231,7 +232,7 @@ typedef struct
  * Macro-ed function defs/calls allow removing ctx from args and keeping it in
  * a Global Register Variable if permitted by the compiler. On my machine the
  * speed gain is negligible, but the binary is noticeably smaller.
- * Storing bitstream caches in registers also gives a big performance gain.
+ * However storing bitstream caches in registers gives a big performance gain.
  */
 #if defined(__SSSE3__) && !defined(__clang__)
 register Edge264_ctx * restrict ctx asm("ebx");
@@ -308,10 +309,13 @@ __attribute__((noinline)) int FUNC(get_se32, int lower, int upper);
 #define get_se32 get_se16
 #endif
 
-// edge264_intra_ssse3.c
+// edge264_inter_*.c
+void FUNC(decode_inter, int i, int w, int h);
+
+// edge264_intra_*.c
 void FUNC(decode_samples);
 
-// edge264_residual_ssse3.c
+// edge264_residual_*.c
 __attribute__((noinline)) void FUNC(compute_LevelScale4x4, int iYCbCr);
 __attribute__((noinline)) void FUNC(compute_LevelScale8x8, int iYCbCr);
 __attribute__((noinline)) void FUNC(add_idct4x4);
@@ -323,7 +327,7 @@ __attribute__((noinline)) void FUNC(transform_dc2x4);
 // edge264_slice.c
 __attribute__((noinline)) void FUNC(parse_slice_data);
 
-// for debugging
+// debugging functions
 static void print_v16qi(v16qi v) {
 	printf("<li><code>");
 	for (int i = 0; i < 16; i++)
@@ -349,11 +353,7 @@ static void print_v4si(v4si v) {
 	printf("</code></li>\n");
 }
 
-
-
-/**
- * Machine-specific common function declarations
- */
+// Machine-specific common function declarations
 #ifdef __AVX2__
 #include <immintrin.h>
 #elif defined __SSSE3__
@@ -451,6 +451,9 @@ __attribute__((noinline)) void FUNC(decode_Residual8x8, __m128i p0, __m128i p1, 
 
 
 
+/**
+ * Values used to control the gigantic switch inside decode_samples
+ */
 enum PredModes {
 	ADD_RESIDUAL_4x4,
 	ADD_RESIDUAL_8x8,

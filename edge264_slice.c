@@ -749,15 +749,11 @@ static int FUNC(parse_mvd_comp, int ctxBase, int absMvdSum) {
 
 /**
  * Sub-functions to parse a single mvd pair for different sizes.
- * 
- * FIXME vectorize each pair parse_mvd_8x16_left/right into a single function
  */
-static __attribute__((noinline)) void FUNC(parse_mvd_16x16, int lx) {
-	uint8_t *absMvdComp_p = mb->absMvdComp + lx * 32;
-	int8_t *refIdx_p = mb->refIdx + lx * 4;
-	int32_t *mvs_p = mb->mvs_s + lx * 16;
-	
+static __attribute__((noinline)) void FUNC(parse_mvd_16x16, int lx)
+{
 	// call the parsing of mvd first to avoid spilling mvp if not inlined
+	uint8_t *absMvdComp_p = mb->absMvdComp + lx * 32;
 	int sumx = absMvdComp_p[0 + ctx->absMvdComp_A[0]] + absMvdComp_p[0 + ctx->absMvdComp_B[0]];
 	int sumy = absMvdComp_p[1 + ctx->absMvdComp_A[0]] + absMvdComp_p[1 + ctx->absMvdComp_B[0]];
 	int x = CALL(parse_mvd_comp, 40, sumx);
@@ -765,6 +761,8 @@ static __attribute__((noinline)) void FUNC(parse_mvd_16x16, int lx) {
 	v8hi mvd = {x, y};
 	
 	// compare neighbouring indices and compute mvp
+	int8_t *refIdx_p = mb->refIdx + lx * 4;
+	int32_t *mvs_p = mb->mvs_s + lx * 16;
 	v8hi mvp;
 	int refIdx = refIdx_p[0];
 	int refIdxA = refIdx_p[ctx->refIdx_A[0]];
@@ -797,12 +795,10 @@ static __attribute__((noinline)) void FUNC(parse_mvd_16x16, int lx) {
 	JUMP(decode_inter, lx * 16, 16, 16);
 }
 
-static __attribute__((noinline)) void FUNC(parse_mvd_8x16_left, int lx) {
-	uint8_t *absMvdComp_p = mb->absMvdComp + lx * 32;
-	int8_t *refIdx_p = mb->refIdx + lx * 4;
-	int32_t *mvs_p = mb->mvs_s + lx * 16;
-	
+static __attribute__((noinline)) void FUNC(parse_mvd_8x16_left, int lx)
+{
 	// call the parsing of mvd first to avoid spilling mvp if not inlined
+	uint8_t *absMvdComp_p = mb->absMvdComp + lx * 32;
 	int sumx = absMvdComp_p[0 + ctx->absMvdComp_A[0]] + absMvdComp_p[0 + ctx->absMvdComp_B[0]];
 	int sumy = absMvdComp_p[1 + ctx->absMvdComp_A[0]] + absMvdComp_p[1 + ctx->absMvdComp_B[0]];
 	int x = CALL(parse_mvd_comp, 40, sumx);
@@ -810,6 +806,8 @@ static __attribute__((noinline)) void FUNC(parse_mvd_8x16_left, int lx) {
 	v8hi mvd = {x, y};
 	
 	// compare neighbouring indices and compute mvp
+	int8_t *refIdx_p = mb->refIdx + lx * 4;
+	int32_t *mvs_p = mb->mvs_s + lx * 16;
 	v8hi mvp;
 	int refIdx = refIdx_p[0];
 	int refIdxA = refIdx_p[ctx->refIdx_A[0]];
@@ -849,12 +847,10 @@ static __attribute__((noinline)) void FUNC(parse_mvd_8x16_left, int lx) {
 	JUMP(decode_inter, lx * 16, 8, 16);
 }
 
-static __attribute__((noinline)) void FUNC(parse_mvd_8x16_right, int lx) {
-	uint8_t *absMvdComp_p = mb->absMvdComp + lx * 32;
-	int8_t *refIdx_p = mb->refIdx + lx * 4;
-	int32_t *mvs_p = mb->mvs_s + lx * 16;
-	
+static __attribute__((noinline)) void FUNC(parse_mvd_8x16_right, int lx)
+{
 	// call the parsing of mvd first to avoid spilling mvp if not inlined
+	uint8_t *absMvdComp_p = mb->absMvdComp + lx * 32;
 	int sumx = absMvdComp_p[0 + ctx->absMvdComp_A[4]] + absMvdComp_p[0 + ctx->absMvdComp_B[4]];
 	int sumy = absMvdComp_p[1 + ctx->absMvdComp_A[4]] + absMvdComp_p[1 + ctx->absMvdComp_B[4]];
 	int x = CALL(parse_mvd_comp, 40, sumx);
@@ -862,6 +858,8 @@ static __attribute__((noinline)) void FUNC(parse_mvd_8x16_right, int lx) {
 	v8hi mvd = {x, y};
 	
 	// compare neighbouring indices and compute mvp
+	int8_t *refIdx_p = mb->refIdx + lx * 4;
+	int32_t *mvs_p = mb->mvs_s + lx * 16;
 	v8hi mvp;
 	int refIdx = refIdx_p[1];
 	int refIdxC, mvs_C;
@@ -901,12 +899,10 @@ static __attribute__((noinline)) void FUNC(parse_mvd_8x16_right, int lx) {
 	CALL(decode_inter, lx * 16 + 4, 8, 16);
 }
 
-static __attribute__((noinline)) void FUNC(parse_mvd_16x8_top, int lx) {
-	uint8_t *absMvdComp_p = mb->absMvdComp + lx * 32;
-	int8_t *refIdx_p = mb->refIdx + lx * 4;
-	int32_t *mvs_p = mb->mvs_s + lx * 16;
-	
+static __attribute__((noinline)) void FUNC(parse_mvd_16x8_top, int lx)
+{
 	// call the parsing of mvd first to avoid spilling mvp if not inlined
+	uint8_t *absMvdComp_p = mb->absMvdComp + lx * 32;
 	int sumx = absMvdComp_p[0 + ctx->absMvdComp_A[0]] + absMvdComp_p[0 + ctx->absMvdComp_B[0]];
 	int sumy = absMvdComp_p[1 + ctx->absMvdComp_A[0]] + absMvdComp_p[1 + ctx->absMvdComp_B[0]];
 	int x = CALL(parse_mvd_comp, 40, sumx);
@@ -914,6 +910,8 @@ static __attribute__((noinline)) void FUNC(parse_mvd_16x8_top, int lx) {
 	v8hi mvd = {x, y};
 	
 	// compare neighbouring indices and compute mvp
+	int8_t *refIdx_p = mb->refIdx + lx * 4;
+	int32_t *mvs_p = mb->mvs_s + lx * 16;
 	v8hi mvp;
 	int refIdx = refIdx_p[0];
 	int refIdxB = refIdx_p[ctx->refIdx_B[0]];
@@ -953,12 +951,10 @@ static __attribute__((noinline)) void FUNC(parse_mvd_16x8_top, int lx) {
 	JUMP(decode_inter, lx * 16, 16, 8);
 }
 
-static __attribute__((noinline)) void FUNC(parse_mvd_16x8_bottom, int lx) {
-	uint8_t *absMvdComp_p = mb->absMvdComp + lx * 32;
-	int8_t *refIdx_p = mb->refIdx + lx * 4;
-	int32_t *mvs_p = mb->mvs_s + lx * 16;
-	
+static __attribute__((noinline)) void FUNC(parse_mvd_16x8_bottom, int lx)
+{
 	// call the parsing of mvd first to avoid spilling mvp if not inlined
+	uint8_t *absMvdComp_p = mb->absMvdComp + lx * 32;
 	int sumx = absMvdComp_p[0 + ctx->absMvdComp_A[8]] + absMvdComp_p[0 + ctx->absMvdComp_B[8]];
 	int sumy = absMvdComp_p[1 + ctx->absMvdComp_A[8]] + absMvdComp_p[1 + ctx->absMvdComp_B[8]];
 	int x = CALL(parse_mvd_comp, 40, sumx);
@@ -966,6 +962,8 @@ static __attribute__((noinline)) void FUNC(parse_mvd_16x8_bottom, int lx) {
 	v8hi mvd = {x, y};
 	
 	// compare neighbouring indices and compute mvp
+	int8_t *refIdx_p = mb->refIdx + lx * 4;
+	int32_t *mvs_p = mb->mvs_s + lx * 16;
 	v8hi mvp;
 	int refIdx = refIdx_p[2];
 	int refIdxA = refIdx_p[ctx->refIdx_A[2]];

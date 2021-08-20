@@ -19,7 +19,7 @@ static inline __m128i lowpass(__m128i left, __m128i mid, __m128i right) {
 }
 
 // returns Intra8x8 filtered samples p'[-1,0] to p'[-1,7]
-static __attribute__((noinline)) __m128i FUNC(filter8_left_8bit, size_t stride, ssize_t nstride, uint8_t *p, __m128i zero, ssize_t lt) {
+static noinline __m128i FUNC(filter8_left_8bit, size_t stride, ssize_t nstride, uint8_t *p, __m128i zero, ssize_t lt) {
 	uint8_t *q = p + stride * 4;
 	__m64 m0 = _mm_unpackhi_pi8(*(__m64 *)(p + nstride     - 8), *(__m64 *)(p               - 8));
 	__m64 m1 = _mm_unpackhi_pi8(*(__m64 *)(p +  stride     - 8), *(__m64 *)(p +  stride * 2 - 8));
@@ -32,7 +32,7 @@ static __attribute__((noinline)) __m128i FUNC(filter8_left_8bit, size_t stride, 
 	__m128i x2 = _mm_shufflehi_epi16(_mm_srli_si128(x0, 2), _MM_SHUFFLE(2, 2, 1, 0));
 	return lowpass(x1, x0, x2);
 }
-static __attribute__((noinline)) __m128i FUNC(filter8_left_16bit, size_t stride, ssize_t nstride, uint8_t *p, ssize_t lt) {
+static noinline __m128i FUNC(filter8_left_16bit, size_t stride, ssize_t nstride, uint8_t *p, ssize_t lt) {
 	uint8_t *q = p + stride * 4;
 	__m128i x0 = _mm_unpackhi_epi16(*(__m128i *)(p + nstride     - 16), *(__m128i *)(p               - 16));
 	__m128i x1 = _mm_unpackhi_epi16(*(__m128i *)(p +  stride     - 16), *(__m128i *)(p +  stride * 2 - 16));
@@ -45,7 +45,7 @@ static __attribute__((noinline)) __m128i FUNC(filter8_left_16bit, size_t stride,
 }
 
 // filters Intra8x8 samples p'[-1,7] to p'[-1,-1] to PredBuffer, and returns p'[0,-1] to p'[7,-1]
-static __attribute__((noinline)) __m128i FUNC(filter8_top_left_8bit, size_t stride, ssize_t nstride, uint8_t *p, __m128i zero, ssize_t lt, __m128i top) {
+static noinline __m128i FUNC(filter8_top_left_8bit, size_t stride, ssize_t nstride, uint8_t *p, __m128i zero, ssize_t lt, __m128i top) {
 	uint8_t *q = p + stride * 4;
 	__m64 m0 = _mm_unpackhi_pi8(*(__m64 *)(p + nstride     - 8), *(__m64 *)(p +      lt     - 8));
 	__m64 m1 = _mm_unpackhi_pi8(*(__m64 *)(p +  stride     - 8), *(__m64 *)(p +             - 8));
@@ -63,7 +63,7 @@ static __attribute__((noinline)) __m128i FUNC(filter8_top_left_8bit, size_t stri
 	ctx->pred_buffer[8] = (p[nstride - 1] + p[nstride * 2 - 1] * 2 + p[nstride * 2] + 2) >> 2;
 	return lowpass(x4, x5, x6);
 }
-static __attribute__((noinline)) __m128i FUNC(filter8_top_left_16bit, size_t stride, ssize_t nstride, uint8_t *p, __m128i zero, ssize_t lt, __m128i tr, __m128i tl) {
+static noinline __m128i FUNC(filter8_top_left_16bit, size_t stride, ssize_t nstride, uint8_t *p, __m128i zero, ssize_t lt, __m128i tr, __m128i tl) {
 	uint8_t *q = p + stride * 4;
 	__m128i x0 = _mm_unpackhi_epi16(*(__m128i *)(p + nstride     - 16), *(__m128i *)(p +      lt     - 16));
 	__m128i x1 = _mm_unpackhi_epi16(*(__m128i *)(p +  stride     - 16), *(__m128i *)(p +             - 16));
@@ -78,7 +78,7 @@ static __attribute__((noinline)) __m128i FUNC(filter8_top_left_16bit, size_t str
 }
 
 // returns 8bit samples p[-1,0] to p[-1,15]
-static __attribute__((noinline)) __m128i FUNC(load16_left_8bit, size_t stride, ssize_t nstride, uint8_t *p) {
+static noinline __m128i FUNC(load16_left_8bit, size_t stride, ssize_t nstride, uint8_t *p) {
 	uint8_t *q = p + stride * 4;
 	uint8_t *r = q + stride * 4;
 	uint8_t *s = r + stride * 4;
@@ -96,7 +96,7 @@ static __attribute__((noinline)) __m128i FUNC(load16_left_8bit, size_t stride, s
 }
 
 // stores samples p[-1,8] to p[-1,15], and returns p[-1,0] to p[-1,7]
-static __attribute__((noinline)) __m128i FUNC(load16_left_16bit, size_t stride, ssize_t nstride, uint8_t *p) {
+static noinline __m128i FUNC(load16_left_16bit, size_t stride, ssize_t nstride, uint8_t *p) {
 	uint8_t *q = p + stride * 4;
 	uint8_t *r = q + stride * 4;
 	uint8_t *s = r + stride * 4;
@@ -113,7 +113,7 @@ static __attribute__((noinline)) __m128i FUNC(load16_left_16bit, size_t stride, 
 }
 
 // returns 8bit samples p[-1,0] to p[-1,7] in upper half of its __m128i argument
-static __attribute__((noinline)) __m128i FUNC(load8_left_8bit, size_t stride, ssize_t nstride, uint8_t *p, __m128i top) {
+static noinline __m128i FUNC(load8_left_8bit, size_t stride, ssize_t nstride, uint8_t *p, __m128i top) {
 	uint8_t *q = p + stride * 4;
 	__m64 m0 = _mm_unpackhi_pi8(*(__m64 *)(p + nstride     - 8), *(__m64 *)(p               - 8));
 	__m64 m1 = _mm_unpackhi_pi8(*(__m64 *)(p +  stride     - 8), *(__m64 *)(p +  stride * 2 - 8));
@@ -124,7 +124,7 @@ static __attribute__((noinline)) __m128i FUNC(load8_left_8bit, size_t stride, ss
 }
 
 // returns samples p[-1,0] to p[-1,7]
-static __attribute__((noinline)) __m128i FUNC(load8_left_16bit, size_t stride, ssize_t nstride, uint8_t *p) {
+static noinline __m128i FUNC(load8_left_16bit, size_t stride, ssize_t nstride, uint8_t *p) {
 	uint8_t *q = p + stride * 4;
 	__m128i x0 = _mm_unpackhi_epi16(*(__m128i *)(p + nstride     - 16), *(__m128i *)(p               - 16));
 	__m128i x1 = _mm_unpackhi_epi16(*(__m128i *)(p +  stride     - 16), *(__m128i *)(p +  stride * 2 - 16));
@@ -777,7 +777,7 @@ static void FUNC(decode_ChromaPlane8x16, __m128i top, __m128i leftt, __m128i lef
  * _ all of them should be passed to functions in the same order to avoid
  *   moves, and should not be used after function calls to avoid spills
  */
-static __attribute__((noinline)) void FUNC(decode_switch, size_t stride, ssize_t nstride, uint8_t *p, __m128i *buf, int mode, __m128i zero) {
+static noinline void FUNC(decode_switch, size_t stride, ssize_t nstride, uint8_t *p, __m128i *buf, int mode, __m128i zero) {
 	static const v16qi C8_8bit = {7, 8, 9, 10, 11, 12, 13, 14, 15, 15, -1, -1, -1, -1, -1, -1};
 	static const v16qi D8_8bit = {0, 0, 1, 2, 3, 4, 5, 6, 7, 8, -1, -1, -1, -1, -1, -1};
 	static const v16qi CD8_8bit = {0, 0, 1, 2, 3, 4, 5, 6, 7, 7, -1, -1, -1, -1, -1, -1};

@@ -17,7 +17,7 @@
  * The sum is actually computed as (((a-b)/4-(b-c))/4+c+1)/2, the last shift
  * being carried after clipping above zero to use pavg.
  */
-static inline __attribute__((always_inline)) __m128i FUNC(filter_6tap, __m128i x0,
+static always_inline __m128i FUNC(filter_6tap, __m128i x0,
 	__m128i x1, __m128i x2, __m128i x3, __m128i x4, __m128i x5, __m128i zero)
 {
 	__m128i a = _mm_add_epi16(x0, x5);
@@ -29,7 +29,7 @@ static inline __attribute__((always_inline)) __m128i FUNC(filter_6tap, __m128i x
 	return _mm_min_epi16(_mm_avg_epu16(x8, zero), (__m128i)ctx->clip_Y);
 }
 
-static inline __attribute__((always_inline)) __m128i FUNC(noclip_6tap, __m128i x0,
+static always_inline __m128i FUNC(noclip_6tap, __m128i x0,
 	__m128i x1, __m128i x2, __m128i x3, __m128i x4, __m128i x5, __m128i zero)
 {
 	__m128i a = _mm_add_epi16(x0, x5);
@@ -45,7 +45,7 @@ static inline __attribute__((always_inline)) __m128i FUNC(noclip_6tap, __m128i x
  * First we shift Up and sum values in one dimension (horizontal or vertical),
  * then we shift Down accumulated values and sum them in the other dimension.
  */
-static inline __attribute__((always_inline)) __m128i FUNC(filter_36tapU_8bit,
+static always_inline __m128i FUNC(filter_36tapU_8bit,
 	__m128i x0, __m128i x1, __m128i x2, __m128i x3, __m128i x4, __m128i x5)
 {
 	__m128i a = _mm_add_epi16(x0, x5);
@@ -55,7 +55,7 @@ static inline __attribute__((always_inline)) __m128i FUNC(filter_36tapU_8bit,
 	return _mm_add_epi16(_mm_add_epi16(a, x6), _mm_slli_epi16(x6, 2)); // a+(c*4-b)*5
 }
 
-static inline __attribute__((always_inline)) __m128i FUNC(filter_36tapD_8bit, __m128i x0,
+static always_inline __m128i FUNC(filter_36tapD_8bit, __m128i x0,
 	__m128i x1, __m128i x2, __m128i x3, __m128i x4, __m128i x5, __m128i zero)
 {
 	__m128i a = _mm_add_epi16(x0, x5);
@@ -67,7 +67,7 @@ static inline __attribute__((always_inline)) __m128i FUNC(filter_36tapD_8bit, __
 	return _mm_min_epi16(_mm_avg_epu16(x8, zero), (__m128i)ctx->clip_Y);
 }
 
-static inline __attribute__((always_inline)) __m128i FUNC(noclip_36tapD_8bit, __m128i x0,
+static always_inline __m128i FUNC(noclip_36tapD_8bit, __m128i x0,
 	__m128i x1, __m128i x2, __m128i x3, __m128i x4, __m128i x5, __m128i zero)
 {
 	__m128i a = _mm_add_epi16(x0, x5);
@@ -84,14 +84,14 @@ static inline __attribute__((always_inline)) __m128i FUNC(noclip_36tapD_8bit, __
  * 6-tap values from intermediate 36-tap sums, and averaging them with the
  * original qpel22 values.
  */
-static inline __attribute__((always_inline)) __m128i FUNC(avg_6tapD_8bit,
+static always_inline __m128i FUNC(avg_6tapD_8bit,
 	__m128i sum, __m128i avg, __m128i zero)
 {
 	__m128i x0 = _mm_avg_epu16(_mm_max_epi16(_mm_srai_epi16(sum, 4), zero), zero);
 	return _mm_avg_epu16(_mm_min_epi16(x0, (__m128i)ctx->clip_Y), avg);
 }
 
-static inline __attribute__((always_inline)) __m128i FUNC(packus_6tapD_8bit,
+static always_inline __m128i FUNC(packus_6tapD_8bit,
 	__m128i sum0, __m128i sum1, __m128i avg, __m128i zero)
 {
 	__m128i x0 = _mm_avg_epu16(_mm_max_epi16(_mm_srai_epi16(sum0, 4), zero), zero);
@@ -102,7 +102,7 @@ static inline __attribute__((always_inline)) __m128i FUNC(packus_6tapD_8bit,
 /**
  * Functions for in-place weighting and storage.
  */
-static inline __attribute__((always_inline)) void FUNC(store4x4_8bit,
+static always_inline void FUNC(store4x4_8bit,
 	size_t stride, uint8_t * restrict dst, __m128i p)
 {
 	__m128i q = _mm_setr_epi32(
@@ -122,7 +122,7 @@ static inline __attribute__((always_inline)) void FUNC(store4x4_8bit,
 	*(int32_t *)(dst + stride * 3) = r[3];
 }
 
-static inline __attribute__((always_inline)) void FUNC(store8x2_8bit,
+static always_inline void FUNC(store8x2_8bit,
 	size_t stride, uint8_t * restrict dst, __m128i p)
 {
 	__m128i q = _mm_setr_epi64(*(__m64 *)(dst         ), *(__m64 *)(dst + stride));
@@ -138,7 +138,7 @@ static inline __attribute__((always_inline)) void FUNC(store8x2_8bit,
 	*(int64_t *)(dst + stride) = r[1];
 }
 
-static inline __attribute__((always_inline)) void FUNC(store16x1_8bit,
+static always_inline void FUNC(store16x1_8bit,
 	size_t stride, uint8_t * restrict dst, __m128i p)
 {
 	__m128i q = *(__m128i *)dst;
@@ -1282,7 +1282,7 @@ static inline void FUNC(inter8xH_chroma_8bit, int h, size_t dstride, uint8_t * r
  * | bipred=2 | no_weight  | no_weight    | no_weight  | implicit2    |
  * +----------+------------+--------------+------------+--------------+
  */
-__attribute__((noinline)) void FUNC(decode_inter, int i, int w, int h) {
+noinline void FUNC(decode_inter, int i, int w, int h) {
 	static int8_t shift_Y_8bit[46] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15};
 	static int8_t shift_C_8bit[22] = {0, 0, 0, 0, 0, 0, 0, 0, 1, 2, 3, 4, 5, 6, 7, 7, 7, 7, 7, 7, 7, 7};
 	static void FUNC((*luma_fcts[48]), int, size_t, uint8_t*, size_t, const uint8_t*) = {

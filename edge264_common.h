@@ -270,6 +270,13 @@ register size_t rbsp_reg1 asm("r15");
  * because they are so few. Functions used across files are not made static to
  * allow compiling each file individually.
  */
+#ifndef noinline
+#define noinline __attribute__((noinline))
+#endif
+#ifndef always_inline
+#define always_inline inline __attribute__((always_inline))
+#endif
+
 #ifdef TRACE
 #include <stdio.h>
 #include "edge264_predicates.c"
@@ -291,19 +298,19 @@ static inline unsigned umax(unsigned a, unsigned b) { return (a > b) ? a : b; }
 static inline int median(int a, int b, int c) { return max(min(max(a, b), c), min(a, b)); }
 
 // edge264_cabac.c
-__attribute__((noinline)) int FUNC(renorm, int ceil, int binVal);
-__attribute__((noinline)) int FUNC(get_ae, int ctxIdx);
+noinline int FUNC(renorm, int ceil, int binVal);
+noinline int FUNC(get_ae, int ctxIdx);
 void FUNC(init_cabac, int cabac_init_idc);
 
 // edge264_golomb.c
-__attribute__((noinline)) int FUNC(refill, int ret);
-__attribute__((noinline)) int FUNC(get_u1);
-__attribute__((noinline)) unsigned FUNC(get_uv, unsigned v);
-__attribute__((noinline)) unsigned FUNC(get_ue16, unsigned upper);
-__attribute__((noinline)) int FUNC(get_se16, int lower, int upper);
+noinline int FUNC(refill, int ret);
+noinline int FUNC(get_u1);
+noinline unsigned FUNC(get_uv, unsigned v);
+noinline unsigned FUNC(get_ue16, unsigned upper);
+noinline int FUNC(get_se16, int lower, int upper);
 #if SIZE_BIT == 32
-__attribute__((noinline)) unsigned FUNC(get_ue32, unsigned upper);
-__attribute__((noinline)) int FUNC(get_se32, int lower, int upper);
+noinline unsigned FUNC(get_ue32, unsigned upper);
+noinline int FUNC(get_se32, int lower, int upper);
 #else
 #define get_ue32 get_ue16
 #define get_se32 get_se16
@@ -316,16 +323,16 @@ void FUNC(decode_inter, int i, int w, int h);
 void FUNC(decode_samples);
 
 // edge264_residual_*.c
-__attribute__((noinline)) void FUNC(compute_LevelScale4x4, int iYCbCr);
-__attribute__((noinline)) void FUNC(compute_LevelScale8x8, int iYCbCr);
-__attribute__((noinline)) void FUNC(add_idct4x4);
-__attribute__((noinline)) void FUNC(add_idct8x8);
-__attribute__((noinline)) void FUNC(transform_dc4x4);
-__attribute__((noinline)) void FUNC(transform_dc2x2);
-__attribute__((noinline)) void FUNC(transform_dc2x4);
+noinline void FUNC(compute_LevelScale4x4, int iYCbCr);
+noinline void FUNC(compute_LevelScale8x8, int iYCbCr);
+noinline void FUNC(add_idct4x4);
+noinline void FUNC(add_idct8x8);
+noinline void FUNC(transform_dc4x4);
+noinline void FUNC(transform_dc2x2);
+noinline void FUNC(transform_dc2x4);
 
 // edge264_slice.c
-__attribute__((noinline)) void FUNC(parse_slice_data);
+noinline void FUNC(parse_slice_data);
 
 // debugging functions
 static void print_v16qi(v16qi v) {
@@ -437,9 +444,9 @@ static inline __m128i _mm_movpi64_epi64(__m64 a) {
 #endif // __GNUC__
 
 // legacy functions
-__attribute__((noinline)) void FUNC(decode_Residual4x4, __m128i p0, __m128i p1);
-__attribute__((noinline)) void FUNC(decode_Residual8x8_8bit, __m128i p0, __m128i p1, __m128i p2, __m128i p3, __m128i p4, __m128i p5, __m128i p6, __m128i p7);
-__attribute__((noinline)) void FUNC(decode_Residual8x8, __m128i p0, __m128i p1, __m128i p2, __m128i p3, __m128i p4, __m128i p5, __m128i p6, __m128i p7);
+noinline void FUNC(decode_Residual4x4, __m128i p0, __m128i p1);
+noinline void FUNC(decode_Residual8x8_8bit, __m128i p0, __m128i p1, __m128i p2, __m128i p3, __m128i p4, __m128i p5, __m128i p6, __m128i p7);
+noinline void FUNC(decode_Residual8x8, __m128i p0, __m128i p1, __m128i p2, __m128i p3, __m128i p4, __m128i p5, __m128i p6, __m128i p7);
 
 #else // !__SSSE3__
 #error "Add -mssse3 or more recent"

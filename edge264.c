@@ -547,7 +547,7 @@ static void FUNC(parse_dec_ref_pic_marking, Edge264_stream *e)
  * max_dec_frame_buffering (C.2.3).
  * Called by end_stream to output all pictures, so ctx must not be used.
  */
-static __attribute__((noinline)) int bump_pictures(Edge264_stream *e,
+static noinline int bump_pictures(Edge264_stream *e,
 	int max_num_reorder_frames, int max_dec_frame_buffering)
 {
 	int ret = 0;

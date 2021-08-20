@@ -739,7 +739,7 @@ static const uint8_t transIdx[256] = {
  * the full range of a register, a shift right by SIZE_BIT-9-clz(codIRange)
  * yielding the original values.
  */
-__attribute__((noinline)) int FUNC(renorm, int ceil, int binVal) {
+noinline int FUNC(renorm, int ceil, int binVal) {
 	size_t v = clz(codIRange) - ceil;
 	ctx->_codIRange = codIRange << v;
 	ctx->_codIOffset = lsd(codIOffset, ctx->_msb_cache, v);
@@ -754,7 +754,7 @@ __attribute__((noinline)) int FUNC(renorm, int ceil, int binVal) {
 	return binVal;
 }
 
-__attribute__((noinline)) int FUNC(get_ae, int ctxIdx)
+noinline int FUNC(get_ae, int ctxIdx)
 {
 	size_t state = ctx->cabac[ctxIdx];
 	size_t shift = SIZE_BIT - 3 - clz(codIRange);

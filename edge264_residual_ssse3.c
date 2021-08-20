@@ -15,7 +15,7 @@ static const v16qi normAdjust4x4[6] = { // shared with decode_ResidualDC2x4
 	18, 23, 18, 23, 23, 29, 23, 29, 18, 23, 18, 23, 23, 29, 23, 29,
 };
 
-__attribute__((noinline)) void FUNC(compute_LevelScale4x4, int iYCbCr) {
+noinline void FUNC(compute_LevelScale4x4, int iYCbCr) {
 	// This part is very unsatisfactory and will have to be optimised some day.
 	int BitDepth = (iYCbCr == 0) ? ctx->ps.BitDepth_Y : ctx->ps.BitDepth_C;
 	__m128i zero = _mm_setzero_si128();
@@ -30,7 +30,7 @@ __attribute__((noinline)) void FUNC(compute_LevelScale4x4, int iYCbCr) {
 	ctx->LevelScale_v[3] = (v4si)_mm_sll_epi32(_mm_unpackhi_epi16(x1, zero), shift);
 }
 
-__attribute__((noinline)) void FUNC(compute_LevelScale8x8, int iYCbCr) {
+noinline void FUNC(compute_LevelScale8x8, int iYCbCr) {
 	static const v16qi normAdjust8x8[6][4] = {
 		20, 19, 25, 19, 20, 19, 25, 19, 19, 18, 24, 18, 19, 18, 24, 18,
 		25, 24, 32, 24, 25, 24, 32, 24, 19, 18, 24, 18, 19, 18, 24, 18,
@@ -82,7 +82,7 @@ __attribute__((noinline)) void FUNC(compute_LevelScale8x8, int iYCbCr) {
  * speedup. Also the implementation matches the spec's pseudocode, avoiding
  * minor optimisations which would make it harder to understand.
  */
-__attribute__((noinline)) void FUNC(add_idct4x4)
+noinline void FUNC(add_idct4x4)
 {
 	// shortcut for blocks without AC coefficients
 	__m128i r0, r1;
@@ -158,7 +158,7 @@ __attribute__((noinline)) void FUNC(add_idct4x4)
 }
 
 // legacy function
-__attribute__((noinline)) void FUNC(decode_Residual4x4, __m128i p0, __m128i p1)
+noinline void FUNC(decode_Residual4x4, __m128i p0, __m128i p1)
 {
 	uint8_t *p = ctx->frame + ctx->frame_offsets_x[ctx->BlkIdx2i4x4[ctx->BlkIdx]] + ctx->frame_offsets_y[ctx->BlkIdx2i4x4[ctx->BlkIdx]];
 	size_t stride = ctx->stride;
@@ -185,7 +185,7 @@ __attribute__((noinline)) void FUNC(decode_Residual4x4, __m128i p0, __m128i p1)
  * 8/16bit versions are kept separate since the first is much faster.
  * For the second, an AVX2 version is maintained that brings a decent speedup.
  */
-__attribute__((noinline)) void FUNC(add_idct8x8)
+noinline void FUNC(add_idct8x8)
 {
 	if (__builtin_expect(ctx->clip == 255, 1)) {
 		
@@ -565,7 +565,7 @@ __attribute__((noinline)) void FUNC(add_idct8x8)
 }
 
 // legacy function
-__attribute__((noinline)) void FUNC(decode_Residual8x8, __m128i p0,
+noinline void FUNC(decode_Residual8x8, __m128i p0,
 	__m128i p1, __m128i p2, __m128i p3, __m128i p4, __m128i p5, __m128i p6,
 	__m128i p7)
 {
@@ -605,7 +605,7 @@ __attribute__((noinline)) void FUNC(decode_Residual8x8, __m128i p0,
 /**
  * DC coefficients transform
  */
-__attribute__((noinline)) void FUNC(transform_dc4x4) {
+noinline void FUNC(transform_dc4x4) {
 	CALL(compute_LevelScale4x4, ctx->BlkIdx >> 4);
 	
 	// loading
@@ -657,7 +657,7 @@ __attribute__((noinline)) void FUNC(transform_dc4x4) {
 	ctx->d_v[7] = (v4si)_mm_unpackhi_epi64(dc2, dc3);
 }
 
-__attribute__((noinline)) void FUNC(transform_dc2x2) {
+noinline void FUNC(transform_dc2x2) {
 	int iYCbCr = (ctx->BlkIdx - 12) >> 2; // BlkIdx is 16 or 20
 	unsigned qP = mb->QP[iYCbCr];
 	unsigned w = ctx->ps.weightScale4x4[iYCbCr + mb->f.mbIsInterFlag * 3][0];
@@ -674,7 +674,7 @@ __attribute__((noinline)) void FUNC(transform_dc2x2) {
 	d[3] = ((i2 - i3) * LevelScale) >> 5;
 }
 
-__attribute__((noinline)) void FUNC(transform_dc2x4) {
+noinline void FUNC(transform_dc2x4) {
 	int iYCbCr = (ctx->BlkIdx - 8) >> 3; // BlkIdx is 16 or 24
 	unsigned qP_DC = mb->QP[iYCbCr] + 3;
 	int w = ctx->ps.weightScale4x4[iYCbCr + mb->f.mbIsInterFlag * 3][0];

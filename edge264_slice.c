@@ -78,7 +78,7 @@ static const v4hi ctxIdxOffsets_8x8[3][2] = {
  * coeff_abs_level expects at most 2^(7+14), i.e 43 bits as Exp-Golomb, so we
  * use two 32bit divisions (second one being executed for long codes only).
  */
-static __attribute__((noinline)) void FUNC(parse_residual_block, unsigned coded_block_flag, int startIdx, int endIdx)
+static noinline void FUNC(parse_residual_block, unsigned coded_block_flag, int startIdx, int endIdx)
 {
 	// Sharing this test here should limit branch predictor cache pressure.
 	if (!coded_block_flag)
@@ -166,7 +166,7 @@ static __attribute__((noinline)) void FUNC(parse_residual_block, unsigned coded_
  * cond should contain the values in coded_block_pattern as stored in mb,
  * such that Intra16x16 can request unconditional parsing by passing 1.
  */
-static __attribute__((noinline)) void FUNC(parse_mb_qp_delta, unsigned cond) {
+static noinline void FUNC(parse_mb_qp_delta, unsigned cond) {
 	static const int QP_C[100] = {-36, -35, -34, -33, -32, -31, -30, -29, -28,
 		-27, -26, -25, -24, -23, -22, -21, -20, -19, -18, -17, -16, -15, -14,
 		-13, -12, -11, -10, -9, -8, -7, -6, -5, -4, -3, -2, -1, 0, 1, 2, 3, 4,
@@ -208,7 +208,7 @@ static __attribute__((noinline)) void FUNC(parse_mb_qp_delta, unsigned cond) {
  * Parsing for chroma 4:2:2 and 4:2:0 is put in a separate function to be
  * tail-called from parse_NxN_residual and parse_Intra16x16_residual.
  */
-static __attribute__((noinline)) void FUNC(parse_chroma_residual)
+static noinline void FUNC(parse_chroma_residual)
 {
 	int is422 = ctx->ps.ChromaArrayType - 1;
 	if (is422 < 0)
@@ -279,7 +279,7 @@ static __attribute__((noinline)) void FUNC(parse_chroma_residual)
  * Intra16x16 residual blocks have so many differences with Intra4x4 that they
  * deserve their own function.
  */
-static __attribute__((noinline)) void FUNC(parse_Intra16x16_residual)
+static noinline void FUNC(parse_Intra16x16_residual)
 {
 	CALL(parse_mb_qp_delta, 1);
 	
@@ -335,7 +335,7 @@ static __attribute__((noinline)) void FUNC(parse_Intra16x16_residual)
  * This block is dedicated to the parsing of Intra_NxN and Inter_NxN, since
  * they share much in common.
  */
-static __attribute__((noinline)) void FUNC(parse_NxN_residual)
+static noinline void FUNC(parse_NxN_residual)
 {
 	CALL(parse_mb_qp_delta, mb->f.CodedBlockPatternChromaDC | mb->CodedBlockPatternLuma_s);
 	
@@ -411,7 +411,7 @@ static __attribute__((noinline)) void FUNC(parse_NxN_residual)
  * As with mb_qp_delta, coded_block_pattern is parsed in two distinct code
  * paths, thus put in a non-inlined function.
  */
-static __attribute__((noinline)) void FUNC(parse_coded_block_pattern) {
+static noinline void FUNC(parse_coded_block_pattern) {
 	CALL(check_ctx, RESIDUAL_CBP_LABEL);
 	
 	// Luma prefix
@@ -442,7 +442,7 @@ static __attribute__((noinline)) void FUNC(parse_coded_block_pattern) {
  * As with mb_qp_delta and coded_block_pattern, experience shows allowing
  * compilers to inline this function makes them produce slower&heavier code.
  */
-static __attribute__((noinline)) void FUNC(parse_intra_chroma_pred_mode)
+static noinline void FUNC(parse_intra_chroma_pred_mode)
 {
 	// Do not optimise too hard to keep the code understandable here.
 	CALL(check_ctx, INTRA_CHROMA_LABEL);
@@ -475,7 +475,7 @@ static __attribute__((noinline)) void FUNC(parse_intra_chroma_pred_mode)
  * Parses prev_intraNxN_pred_mode_flag and rem_intraNxN_pred_mode, and returns
  * the given intra_pred_mode (7.3.5.1, 7.4.5.1, 8.3.1.1 and table 9-34).
  */
-static __attribute__((noinline)) int FUNC(parse_intraNxN_pred_mode, int luma4x4BlkIdx)
+static noinline int FUNC(parse_intraNxN_pred_mode, int luma4x4BlkIdx)
 {
 	// dcPredModePredictedFlag is enforced by putting -2
 	int intraMxMPredModeA = *(mb->Intra4x4PredMode + ctx->Intra4x4PredMode_A[luma4x4BlkIdx]);
@@ -510,7 +510,7 @@ static __attribute__((noinline)) int FUNC(parse_intraNxN_pred_mode, int luma4x4B
  *   to account for unavailability of neighbouring blocks, Intra chroma modes
  *   and Inter prediction.
  */
-static __attribute__((noinline)) void FUNC(parse_I_mb, int ctxIdx)
+static noinline void FUNC(parse_I_mb, int ctxIdx)
 {
 	static const Edge264_flags flags_PCM = {
 		.CodedBlockPatternChromaDC = 1,
@@ -750,7 +750,7 @@ static int FUNC(parse_mvd_comp, int ctxBase, int absMvdSum) {
 /**
  * Sub-functions to parse a single mvd pair for different sizes.
  */
-static __attribute__((noinline)) void FUNC(parse_mvd_16x16, int lx)
+static noinline void FUNC(parse_mvd_16x16, int lx)
 {
 	// call the parsing of mvd first to avoid spilling mvp if not inlined
 	uint8_t *absMvdComp_p = mb->absMvdComp + lx * 32;
@@ -795,7 +795,7 @@ static __attribute__((noinline)) void FUNC(parse_mvd_16x16, int lx)
 	JUMP(decode_inter, lx * 16, 16, 16);
 }
 
-static __attribute__((noinline)) void FUNC(parse_mvd_8x16_left, int lx)
+static noinline void FUNC(parse_mvd_8x16_left, int lx)
 {
 	// call the parsing of mvd first to avoid spilling mvp if not inlined
 	uint8_t *absMvdComp_p = mb->absMvdComp + lx * 32;
@@ -847,7 +847,7 @@ static __attribute__((noinline)) void FUNC(parse_mvd_8x16_left, int lx)
 	JUMP(decode_inter, lx * 16, 8, 16);
 }
 
-static __attribute__((noinline)) void FUNC(parse_mvd_8x16_right, int lx)
+static noinline void FUNC(parse_mvd_8x16_right, int lx)
 {
 	// call the parsing of mvd first to avoid spilling mvp if not inlined
 	uint8_t *absMvdComp_p = mb->absMvdComp + lx * 32;
@@ -899,7 +899,7 @@ static __attribute__((noinline)) void FUNC(parse_mvd_8x16_right, int lx)
 	CALL(decode_inter, lx * 16 + 4, 8, 16);
 }
 
-static __attribute__((noinline)) void FUNC(parse_mvd_16x8_top, int lx)
+static noinline void FUNC(parse_mvd_16x8_top, int lx)
 {
 	// call the parsing of mvd first to avoid spilling mvp if not inlined
 	uint8_t *absMvdComp_p = mb->absMvdComp + lx * 32;
@@ -951,7 +951,7 @@ static __attribute__((noinline)) void FUNC(parse_mvd_16x8_top, int lx)
 	JUMP(decode_inter, lx * 16, 16, 8);
 }
 
-static __attribute__((noinline)) void FUNC(parse_mvd_16x8_bottom, int lx)
+static noinline void FUNC(parse_mvd_16x8_bottom, int lx)
 {
 	// call the parsing of mvd first to avoid spilling mvp if not inlined
 	uint8_t *absMvdComp_p = mb->absMvdComp + lx * 32;
@@ -1004,7 +1004,7 @@ static __attribute__((noinline)) void FUNC(parse_mvd_16x8_bottom, int lx)
  * The test for num_ref_idx_active is kept inside to reduce branch cache
  * pressure, and is duplicated in two functions to ease its prediction.
  */
-static __attribute__((noinline)) int FUNC(parse_ref_idx_l0, int i) {
+static noinline int FUNC(parse_ref_idx_l0, int i) {
 	int refIdx = 0;
 	if (ctx->ps.num_ref_idx_active[0] > 1) {
 		int refIdxA = *(mb->refIdx + ctx->refIdx_A[i]);
@@ -1019,7 +1019,7 @@ static __attribute__((noinline)) int FUNC(parse_ref_idx_l0, int i) {
 	}
 	return refIdx;
 }
-static __attribute__((noinline)) int FUNC(parse_ref_idx_l1, int i) {
+static noinline int FUNC(parse_ref_idx_l1, int i) {
 	int refIdx = 0;
 	if (ctx->ps.num_ref_idx_active[1] > 1) {
 		int refIdxA = *(mb->refIdx + 4 + ctx->refIdx_A[i]);
@@ -1043,7 +1043,7 @@ static __attribute__((noinline)) int FUNC(parse_ref_idx_l1, int i) {
  * 
  * FIXME inter_blocks may be wrong with B_Direct_8x8
  */
-static inline __attribute__((always_inline)) void FUNC(decode_direct_spatial_mv_pred, unsigned todo_blocks)
+static always_inline void FUNC(decode_direct_spatial_mv_pred, unsigned todo_blocks)
 {
 	// load all refIdxN and mvN in vector registers
 	v16qi shuf = {0, 0, 0, 0, 1, 1, 1, 1, 2, 2, 2, 2, 3, 3, 3, 3};
@@ -1163,7 +1163,7 @@ static inline __attribute__((always_inline)) void FUNC(decode_direct_spatial_mv_
 		CALL(decode_inter, 16, 16, 16);
 }
 
-static inline __attribute__((always_inline)) void FUNC(decode_direct_temporal_mv_pred, unsigned todo_blocks)
+static always_inline void FUNC(decode_direct_temporal_mv_pred, unsigned todo_blocks)
 {
 	// load refIdxCol and mvCol
 	const Edge264_macroblock *mbCol = ctx->mbCol;
@@ -1213,7 +1213,7 @@ static inline __attribute__((always_inline)) void FUNC(decode_direct_temporal_mv
 	} while (inter_blocks);
 }
 
-static __attribute__((noinline)) void FUNC(decode_direct_mv_pred, unsigned todo_blocks) {
+static noinline void FUNC(decode_direct_mv_pred, unsigned todo_blocks) {
 	if (ctx->direct_spatial_mv_pred_flag) {
 		CALL(decode_direct_spatial_mv_pred, todo_blocks);
 	} else {
@@ -1247,7 +1247,7 @@ static __attribute__((noinline)) void FUNC(decode_direct_mv_pred, unsigned todo_
  * then modified during mb_type parsing to account for the complex conditions
  * in 7.3.5.
  */
-static __attribute__((noinline)) void FUNC(parse_P_mb)
+static noinline void FUNC(parse_P_mb)
 {
 	static const v4qi refIdx4x4_C[8] = {
 		{10, 11, 4,  4}, {11, 14, 5,  5}, {4,  5, 6,  6}, {5,  5, 7,  7},  // w=4
@@ -1453,7 +1453,7 @@ static __attribute__((noinline)) void FUNC(parse_P_mb)
 	JUMP(parse_inter_residual);
 }
 
-static __attribute__((noinline)) void FUNC(parse_B_mb)
+static noinline void FUNC(parse_B_mb)
 {
 	static const uint16_t B2flags[26] = {0x0001, 0x0101, 0x0011, 0x0101, 0x0011,
 		0x0101, 0x0011, 0x0101, 0x0001, 0x0001, 0, 0, 0, 0x0001, 0x0011, 0x1111,
@@ -1717,7 +1717,7 @@ static __attribute__((noinline)) void FUNC(parse_B_mb)
  * This function loops through the macroblocks of a slice, initialising their
  * data and calling parse_inter/intra_mb for each one.
  */
-__attribute__((noinline)) void FUNC(parse_slice_data)
+noinline void FUNC(parse_slice_data)
 {
 	static const v16qi block_unavailability[4] = {
 		{ 0,  0,  0,  4,  0,  0,  0,  4,  0,  0,  0,  4,  0,  4,  0,  4},

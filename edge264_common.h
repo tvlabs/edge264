@@ -166,7 +166,7 @@ typedef struct
 	
 	// Inter context
 	const Edge264_macroblock *mbCol;
-	uint8_t num_ref_idx_active_mask;
+	uint8_t num_ref_idx_mask;
 	int8_t transform_8x8_mode_flag; // updated during parsing to replace noSubMbPartSizeLessThan8x8Flag
 	int8_t col_short_term;
 	int8_t MapColToList0[65]; // [refIdxCol + 1]

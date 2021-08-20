@@ -177,6 +177,8 @@ static void FUNC(initialise_decoding_context, Edge264_stream *e)
 		ctx->mvs_B_v = (v16si){10 + offB_32bit, 11 + offB_32bit, 0, 1, 14 + offB_32bit, 15 + offB_32bit, 4, 5, 2, 3, 8, 9, 6, 7, 12, 13};
 		ctx->mvs8x8_C_v = (v4si){14 + offB_32bit, 10 + offC_32bit, 6, 0};
 		ctx->mvs8x8_D_v = (v4si){15 + offD_32bit, 11 + offB_32bit, 7 + offA_32bit, 3};
+		ctx->num_ref_idx_mask = (ctx->ps.num_ref_idx_active[0] > 1) * 0x0f +
+			(ctx->ps.num_ref_idx_active[1] > 1) * 0xf0;
 		
 		// initialize plane pointers for all references
 		for (int l = 0; l <= ctx->slice_type; l++) {

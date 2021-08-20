@@ -535,6 +535,7 @@ static noinline void FUNC(parse_I_mb, int ctxIdx)
 	}
 	mb->f.mbIsInterFlag = 0;
 	mb->inter_blocks = 0x0001;
+	mb->refIdx_l = -1;
 	
 	// I_NxN
 	if (!CALL(get_ae, ctxIdx)) {
@@ -1000,39 +1001,28 @@ static noinline void FUNC(parse_mvd_16x8_bottom, int lx)
 
 /**
  * Parses ref_idx_lx (9.3.3.1.1.6).
- *
- * The test for num_ref_idx_active is kept inside to reduce branch cache
- * pressure, and is duplicated in two functions to ease its prediction.
  */
-static noinline int FUNC(parse_ref_idx_l0, int i) {
-	int refIdx = 0;
-	if (ctx->ps.num_ref_idx_active[0] > 1) {
+static noinline void FUNC(parse_ref_idx, unsigned f) {
+	static const v8qi masks[4] = {{0, 0, 0, 0, 4, 4, 4, 4}, {0, 1, 0, 1, 4, 5, 4, 5}, {0, 0, 2, 2, 4, 4, 6, 6}, {0, 1, 2, 3, 4, 5, 6, 7}};
+	int shuf = (f >> 1 | f >> 5) & 3;
+	v16qu v = {f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f};
+	v16qu bits = {1, 2, 4, 8, 16, 32, 64, 128};
+	mb->refIdx_l = ((v2li)((bits & ~v) == bits))[0]; // initialize to 0 if parsed, -1 otherwise
+	for (f &= ctx->num_ref_idx_mask; f; f &= f - 1) {
+		int i = __builtin_ctz(f);
 		int refIdxA = *(mb->refIdx + ctx->refIdx_A[i]);
 		int refIdxB = *(mb->refIdx + ctx->refIdx_B[i]);
 		int ctxIdxInc = (refIdxA > 0) + (refIdxB > 0) * 2;
+		int refIdx = 0;
 		while (CALL(get_ae, 54 + ctxIdxInc)) {
 			ctxIdxInc = (ctxIdxInc >> 2) + 4; // cool trick from ffmpeg
 			if (++refIdx >= 32)
-				return 0;
+				return; // leave without storing value, keeping memory in a valid state
 		}
+		mb->refIdx[i] = refIdx;
 		fprintf(stderr, "ref_idx: %u\n", refIdx);
 	}
-	return refIdx;
-}
-static noinline int FUNC(parse_ref_idx_l1, int i) {
-	int refIdx = 0;
-	if (ctx->ps.num_ref_idx_active[1] > 1) {
-		int refIdxA = *(mb->refIdx + 4 + ctx->refIdx_A[i]);
-		int refIdxB = *(mb->refIdx + 4 + ctx->refIdx_B[i]);
-		int ctxIdxInc = (refIdxA > 0) + (refIdxB > 0) * 2;
-		while (CALL(get_ae, 54 + ctxIdxInc)) {
-			ctxIdxInc = (ctxIdxInc >> 2) + 4; // cool trick from ffmpeg
-			if (++refIdx >= 32)
-				return 0;
-		}
-		fprintf(stderr, "ref_idx: %u\n", refIdx);
-	}
-	return refIdx;
+	mb->refIdx_l = ((v2li)byte_shuffle((v16qi)(v2li){mb->refIdx_l}, (v16qi)(v2li){(int64_t)masks[shuf]}))[0];
 }
 
 
@@ -1262,7 +1252,7 @@ static noinline void FUNC(parse_P_mb)
 	fprintf(stderr, "mb_skip_flag: %x\n", mb_skip_flag);
 	if (mb_skip_flag) {
 		mb->f.mb_skip_flag = mb_skip_flag;
-		mb->refIdx_s[0] = 0;
+		mb->refIdx_l = (int64_t)(v8qi){0, 0, 0, 0, -1, -1, -1, -1};
 		mb->inter_blocks = 0x0001;
 		int refIdxA = *(mb->refIdx + ctx->refIdx_A[0]);
 		int refIdxB = *(mb->refIdx + ctx->refIdx_B[0]);
@@ -1314,7 +1304,7 @@ static noinline void FUNC(parse_P_mb)
 		if (!CALL(get_ae, 16)) { // 16x16
 			fprintf(stderr, "mb_type: 0\n");
 			mb->inter_blocks = 0x0001;
-			mb->refIdx_s[0] = 0x01010101 * CALL(parse_ref_idx_l0, 0);
+			CALL(parse_ref_idx, 0x01);
 			CALL(parse_mvd_16x16, 0);
 			JUMP(parse_inter_residual);
 		} // else 8x8
@@ -1322,8 +1312,7 @@ static noinline void FUNC(parse_P_mb)
 	} else if (!CALL(get_ae, 17)) { // 8x16
 		fprintf(stderr, "mb_type: 2\n");
 		mb->inter_blocks = 0x0011;
-		mb->refIdx[0] = mb->refIdx[2] = CALL(parse_ref_idx_l0, 0);
-		mb->refIdx[1] = mb->refIdx[3] = CALL(parse_ref_idx_l0, 1);
+		CALL(parse_ref_idx, 0x03);
 		CALL(parse_mvd_8x16_left, 0);
 		CALL(parse_mvd_8x16_right, 0);
 		JUMP(parse_inter_residual);
@@ -1331,8 +1320,7 @@ static noinline void FUNC(parse_P_mb)
 	} else { // 16x8
 		fprintf(stderr, "mb_type: 1\n");
 		mb->inter_blocks = 0x0101;
-		mb->refIdx[0] = mb->refIdx[1] = CALL(parse_ref_idx_l0, 0);
-		mb->refIdx[2] = mb->refIdx[3] = CALL(parse_ref_idx_l0, 2);
+		CALL(parse_ref_idx, 0x05);
 		CALL(parse_mvd_16x8_top, 0);
 		CALL(parse_mvd_16x8_bottom, 0);
 		JUMP(parse_inter_residual);
@@ -1384,10 +1372,7 @@ static noinline void FUNC(parse_P_mb)
 		fprintf(stderr, "sub_mb_type: %c\n", (f == 1) ? '0' : (f == 5) ? '1' : (f == 3) ? '2' : '3');
 	}
 	mb->inter_blocks = flags;
-	mb->refIdx[0] = CALL(parse_ref_idx_l0, 0);
-	mb->refIdx[1] = CALL(parse_ref_idx_l0, 1);
-	mb->refIdx[2] = CALL(parse_ref_idx_l0, 2);
-	mb->refIdx[3] = CALL(parse_ref_idx_l0, 3);
+	CALL(parse_ref_idx, 0x0f);
 	
 	// load neighbouring refIdx values and shuffle them into A/B/C
 	v16qi Ar = (v16qi)(v2li){(int64_t)mb[-1].refIdx_l, (int64_t)mb->refIdx_l};
@@ -1455,7 +1440,10 @@ static noinline void FUNC(parse_P_mb)
 
 static noinline void FUNC(parse_B_mb)
 {
-	static const uint16_t B2flags[26] = {0x0001, 0x0101, 0x0011, 0x0101, 0x0011,
+	static const uint8_t B2ref_idx[26] = {0x11, 0x05, 0x03, 0x50, 0x30, 0x41,
+		0x21, 0x14, 0x01, 0x10, 0, 0, 0, 0, 0x12, 0, 0x45, 0x23, 0x54, 0x32,
+		0x15, 0x13, 0x51, 0x31, 0x55, 0x33};
+	static const uint16_t B2inter_flags[26] = {0x0001, 0x0101, 0x0011, 0x0101, 0x0011,
 		0x0101, 0x0011, 0x0101, 0x0001, 0x0001, 0, 0, 0, 0x0001, 0x0011, 0x1111,
 		0x0101, 0x0011, 0x0101, 0x0011, 0x0101, 0x0011, 0x0101, 0x0011, 0x0101, 0x0011};
 	static const uint32_t b2flags[13] = {0x10001, 0x00005, 0x00003, 0x50000,
@@ -1467,6 +1455,7 @@ static noinline void FUNC(parse_B_mb)
 	// Inter initializations
 	mb->f.mbIsInterFlag = 1;
 	mb->Intra4x4PredMode_v = (v16qi){2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2};
+	mb->refIdx_l = -1;
 	
 	// shortcut for B_Skip
 	int mb_skip_flag = CALL(get_ae, 26 - ctx->inc.mb_skip_flag);
@@ -1512,175 +1501,102 @@ static noinline void FUNC(parse_B_mb)
 	}
 	
 	// initialisations and jumps for mb_type
-	mb->inter_blocks = B2flags[str];
+	mb->inter_blocks = B2inter_flags[str];
+	CALL(parse_ref_idx, B2ref_idx[str]);
 	switch (str) {
 	case 0: // B_Bi_16x16
-		mb->refIdx_s[0] = 0x01010101 * CALL(parse_ref_idx_l0, 0);
-		mb->refIdx_s[1] = 0x01010101 * CALL(parse_ref_idx_l1, 0);
 		CALL(parse_mvd_16x16, 0);
 		CALL(parse_mvd_16x16, 1);
 		JUMP(parse_inter_residual);
-		
 	case 1: // B_L0_L0_16x8
-		mb->refIdx[0] = mb->refIdx[1] = CALL(parse_ref_idx_l0, 0);
-		mb->refIdx[2] = mb->refIdx[3] = CALL(parse_ref_idx_l0, 2);
 		CALL(parse_mvd_16x8_top, 0);
 		CALL(parse_mvd_16x8_bottom, 0);
 		JUMP(parse_inter_residual);
-		
 	case 2: // B_L0_L0_8x16
-		mb->refIdx[0] = mb->refIdx[2] = CALL(parse_ref_idx_l0, 0);
-		mb->refIdx[1] = mb->refIdx[3] = CALL(parse_ref_idx_l0, 1);
 		CALL(parse_mvd_8x16_left, 0);
 		CALL(parse_mvd_8x16_right, 0);
 		JUMP(parse_inter_residual);
-		
 	case 3: // B_L1_L1_16x8
-		mb->refIdx[4] = mb->refIdx[5] = CALL(parse_ref_idx_l1, 0);
-		mb->refIdx[6] = mb->refIdx[7] = CALL(parse_ref_idx_l1, 2);
 		CALL(parse_mvd_16x8_top, 1);
 		CALL(parse_mvd_16x8_bottom, 1);
 		JUMP(parse_inter_residual);
-		
 	case 4: // B_L1_L1_8x16
-		mb->refIdx[4] = mb->refIdx[6] = CALL(parse_ref_idx_l1, 0);
-		mb->refIdx[5] = mb->refIdx[7] = CALL(parse_ref_idx_l1, 1);
 		CALL(parse_mvd_8x16_left, 1);
 		CALL(parse_mvd_8x16_right, 1);
 		JUMP(parse_inter_residual);
-		
 	case 5: // B_L0_L1_16x8
-		mb->refIdx[0] = mb->refIdx[1] = CALL(parse_ref_idx_l0, 0);
-		mb->refIdx[6] = mb->refIdx[7] = CALL(parse_ref_idx_l1, 2);
 		CALL(parse_mvd_16x8_top, 0);
 		CALL(parse_mvd_16x8_bottom, 1);
 		JUMP(parse_inter_residual);
-		
 	case 6: // B_L0_L1_8x16
-		mb->refIdx[0] = mb->refIdx[2] = CALL(parse_ref_idx_l0, 0);
-		mb->refIdx[5] = mb->refIdx[7] = CALL(parse_ref_idx_l1, 1);
 		CALL(parse_mvd_8x16_left, 0);
 		CALL(parse_mvd_8x16_right, 1);
 		JUMP(parse_inter_residual);
-		
 	case 7: // B_L1_L0_16x8
-		mb->refIdx[2] = mb->refIdx[3] = CALL(parse_ref_idx_l0, 2);
-		mb->refIdx[4] = mb->refIdx[5] = CALL(parse_ref_idx_l1, 0);
 		CALL(parse_mvd_16x8_bottom, 0);
 		CALL(parse_mvd_16x8_top, 1);
 		JUMP(parse_inter_residual);
-		
 	case 8: // B_L0_16x16
-		mb->refIdx_s[0] = 0x01010101 * CALL(parse_ref_idx_l0, 0);
 		CALL(parse_mvd_16x16, 0);
 		JUMP(parse_inter_residual);
-		
 	case 9: // B_L1_16x16
-		mb->refIdx_s[1] = 0x01010101 * CALL(parse_ref_idx_l1, 0);
 		CALL(parse_mvd_16x16, 1);
 		JUMP(parse_inter_residual);
-		
 	case 13: // Intra
 		JUMP(parse_I_mb, 32);
-		
 	case 14: // B_L1_L0_8x16
-		mb->refIdx[1] = mb->refIdx[3] = CALL(parse_ref_idx_l0, 1);
-		mb->refIdx[4] = mb->refIdx[6] = CALL(parse_ref_idx_l1, 0);
 		CALL(parse_mvd_8x16_right, 0);
 		CALL(parse_mvd_8x16_left, 1);
 		JUMP(parse_inter_residual);
-		
 	case 15: // B_8x8
 		break;
-		
 	case 16: // B_L0_Bi_16x8
-		mb->refIdx[0] = mb->refIdx[1] = CALL(parse_ref_idx_l0, 0);
-		mb->refIdx[2] = mb->refIdx[3] = CALL(parse_ref_idx_l0, 2);
-		mb->refIdx[6] = mb->refIdx[7] = CALL(parse_ref_idx_l1, 2);
 		CALL(parse_mvd_16x8_top, 0);
 		CALL(parse_mvd_16x8_bottom, 0);
 		CALL(parse_mvd_16x8_bottom, 1);
 		JUMP(parse_inter_residual);
-		
 	case 17: // B_L0_Bi_8x16
-		mb->refIdx[0] = mb->refIdx[2] = CALL(parse_ref_idx_l0, 0);
-		mb->refIdx[1] = mb->refIdx[3] = CALL(parse_ref_idx_l0, 1);
-		mb->refIdx[5] = mb->refIdx[7] = CALL(parse_ref_idx_l1, 1);
 		CALL(parse_mvd_8x16_left, 0);
 		CALL(parse_mvd_8x16_right, 0);
 		CALL(parse_mvd_8x16_right, 1);
 		JUMP(parse_inter_residual);
-		
 	case 18: // B_L1_Bi_16x8
-		mb->refIdx[2] = mb->refIdx[3] = CALL(parse_ref_idx_l0, 2);
-		mb->refIdx[4] = mb->refIdx[5] = CALL(parse_ref_idx_l1, 0);
-		mb->refIdx[6] = mb->refIdx[7] = CALL(parse_ref_idx_l1, 2);
 		CALL(parse_mvd_16x8_bottom, 0);
 		CALL(parse_mvd_16x8_top, 1);
 		CALL(parse_mvd_16x8_bottom, 1);
 		JUMP(parse_inter_residual);
-		
 	case 19: // B_L1_Bi_8x16
-		mb->refIdx[1] = mb->refIdx[3] = CALL(parse_ref_idx_l0, 1);
-		mb->refIdx[4] = mb->refIdx[6] = CALL(parse_ref_idx_l1, 0);
-		mb->refIdx[5] = mb->refIdx[7] = CALL(parse_ref_idx_l1, 1);
 		CALL(parse_mvd_8x16_right, 0);
 		CALL(parse_mvd_8x16_left, 1);
 		CALL(parse_mvd_8x16_right, 1);
 		JUMP(parse_inter_residual);
-		
 	case 20: // B_Bi_L0_16x8
-		mb->refIdx[0] = mb->refIdx[1] = CALL(parse_ref_idx_l0, 0);
-		mb->refIdx[2] = mb->refIdx[3] = CALL(parse_ref_idx_l0, 2);
-		mb->refIdx[4] = mb->refIdx[5] = CALL(parse_ref_idx_l1, 0);
 		CALL(parse_mvd_16x8_top, 0);
 		CALL(parse_mvd_16x8_bottom, 0);
 		CALL(parse_mvd_16x8_top, 1);
 		JUMP(parse_inter_residual);
-		
 	case 21: // B_Bi_L0_8x16
-		mb->refIdx[0] = mb->refIdx[2] = CALL(parse_ref_idx_l0, 0);
-		mb->refIdx[1] = mb->refIdx[3] = CALL(parse_ref_idx_l0, 1);
-		mb->refIdx[4] = mb->refIdx[6] = CALL(parse_ref_idx_l1, 0);
 		CALL(parse_mvd_8x16_left, 0);
 		CALL(parse_mvd_8x16_right, 0);
 		CALL(parse_mvd_8x16_left, 1);
 		JUMP(parse_inter_residual);
-		
 	case 22: // B_Bi_L1_16x8
-		mb->refIdx[0] = mb->refIdx[1] = CALL(parse_ref_idx_l0, 0);
-		mb->refIdx[4] = mb->refIdx[5] = CALL(parse_ref_idx_l1, 0);
-		mb->refIdx[6] = mb->refIdx[7] = CALL(parse_ref_idx_l1, 2);
 		CALL(parse_mvd_16x8_top, 0);
 		CALL(parse_mvd_16x8_top, 1);
 		CALL(parse_mvd_16x8_bottom, 1);
 		JUMP(parse_inter_residual);
-		
 	case 23: // B_Bi_L1_8x16
-		mb->refIdx[0] = mb->refIdx[2] = CALL(parse_ref_idx_l0, 0);
-		mb->refIdx[4] = mb->refIdx[6] = CALL(parse_ref_idx_l1, 0);
-		mb->refIdx[5] = mb->refIdx[7] = CALL(parse_ref_idx_l1, 1);
 		CALL(parse_mvd_8x16_left, 0);
 		CALL(parse_mvd_8x16_left, 1);
 		CALL(parse_mvd_8x16_right, 1);
 		JUMP(parse_inter_residual);
-		
 	case 24: // B_Bi_Bi_16x8
-		mb->refIdx[0] = mb->refIdx[1] = CALL(parse_ref_idx_l0, 0);
-		mb->refIdx[2] = mb->refIdx[3] = CALL(parse_ref_idx_l0, 2);
-		mb->refIdx[4] = mb->refIdx[5] = CALL(parse_ref_idx_l1, 0);
-		mb->refIdx[6] = mb->refIdx[7] = CALL(parse_ref_idx_l1, 2);
 		CALL(parse_mvd_16x8_top, 0);
 		CALL(parse_mvd_16x8_bottom, 0);
 		CALL(parse_mvd_16x8_top, 1);
 		CALL(parse_mvd_16x8_bottom, 1);
 		JUMP(parse_inter_residual);
-		
 	case 25: // B_Bi_Bi_8x16
-		mb->refIdx[0] = mb->refIdx[2] = CALL(parse_ref_idx_l0, 0);
-		mb->refIdx[1] = mb->refIdx[3] = CALL(parse_ref_idx_l0, 1);
-		mb->refIdx[4] = mb->refIdx[6] = CALL(parse_ref_idx_l1, 0);
-		mb->refIdx[5] = mb->refIdx[7] = CALL(parse_ref_idx_l1, 1);
 		CALL(parse_mvd_8x16_left, 0);
 		CALL(parse_mvd_8x16_right, 0);
 		CALL(parse_mvd_8x16_left, 1);
@@ -1743,7 +1659,6 @@ noinline void FUNC(parse_slice_data)
 		v16qi flagsB = ctx->mbB->f.v;
 		ctx->inc.v = flagsA + flagsB + (flagsB & flags_twice.v);
 		memset(mb, 0, sizeof(*mb)); // FIXME who needs this?
-		mb->refIdx_v = (v8qi){-1, -1, -1, -1, -1, -1, -1, -1};
 		mb->f.mb_field_decoding_flag = ctx->field_pic_flag;
 		CALL(check_ctx, LOOP_START_LABEL);
 		

@@ -1002,7 +1002,7 @@ static inline void FUNC(parse_mvd_16x8_bottom, int lx)
 /**
  * Parses ref_idx_lx (9.3.3.1.1.6).
  */
-static noinline void FUNC(parse_ref_idx, unsigned f) {
+static inline void FUNC(parse_ref_idx, unsigned f) {
 	static const v8qi masks[4] = {{0, 0, 0, 0, 4, 4, 4, 4}, {0, 1, 0, 1, 4, 5, 4, 5}, {0, 0, 2, 2, 4, 4, 6, 6}, {0, 1, 2, 3, 4, 5, 6, 7}};
 	int shuf = (f >> 1 | f >> 5) & 3;
 	v16qu v = {f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f};
@@ -1589,33 +1589,25 @@ static inline void FUNC(parse_P_mb)
 	}
 	
 	// initializations and jumps for mb_type
-	if (!CALL(get_ae, 15)) {
-		if (!CALL(get_ae, 16)) { // 16x16
-			fprintf(stderr, "mb_type: 0\n");
-			mb->inter_blocks = 0x0001;
-			CALL(parse_ref_idx, 0x01);
-			CALL(parse_mvd_16x16, 0);
-			JUMP(parse_inter_residual);
-		} // else 8x8
-		
-	} else if (!CALL(get_ae, 17)) { // 8x16
-		fprintf(stderr, "mb_type: 2\n");
+	int str = CALL(get_ae, 15);
+	str += str + CALL(get_ae, 16 + str);
+	fprintf(stderr, "mb_type: %u\n", (4 - str) & 3);
+	if (str == 1)
+		JUMP(parse_P_sub_mb);
+	CALL(parse_ref_idx, (str + 1) | 1); // 0->1, 2->3, 3->5
+	if (str == 0) { // 16x16
+		mb->inter_blocks = 0x0001;
+		CALL(parse_mvd_16x16, 0);
+	} else if (str == 2) { // 8x16
 		mb->inter_blocks = 0x0011;
-		CALL(parse_ref_idx, 0x03);
 		CALL(parse_mvd_8x16_left, 0);
 		CALL(parse_mvd_8x16_right, 0);
-		JUMP(parse_inter_residual);
-		
 	} else { // 16x8
-		fprintf(stderr, "mb_type: 1\n");
 		mb->inter_blocks = 0x0101;
-		CALL(parse_ref_idx, 0x05);
 		CALL(parse_mvd_16x8_top, 0);
 		CALL(parse_mvd_16x8_bottom, 0);
-		JUMP(parse_inter_residual);
 	}
-	fprintf(stderr, "mb_type: 3\n");
-	JUMP(parse_P_sub_mb);
+	JUMP(parse_inter_residual);
 }
 
 

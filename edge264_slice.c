@@ -751,7 +751,7 @@ static int FUNC(parse_mvd_comp, int ctxBase, int absMvdSum) {
 /**
  * Sub-functions to parse a single mvd pair for different sizes.
  */
-static noinline void FUNC(parse_mvd_16x16, int lx)
+static inline void FUNC(parse_mvd_16x16, int lx)
 {
 	// call the parsing of mvd first to avoid spilling mvp if not inlined
 	uint8_t *absMvdComp_p = mb->absMvdComp + lx * 32;
@@ -796,7 +796,7 @@ static noinline void FUNC(parse_mvd_16x16, int lx)
 	JUMP(decode_inter, lx * 16, 16, 16);
 }
 
-static noinline void FUNC(parse_mvd_8x16_left, int lx)
+static inline void FUNC(parse_mvd_8x16_left, int lx)
 {
 	// call the parsing of mvd first to avoid spilling mvp if not inlined
 	uint8_t *absMvdComp_p = mb->absMvdComp + lx * 32;
@@ -848,7 +848,7 @@ static noinline void FUNC(parse_mvd_8x16_left, int lx)
 	JUMP(decode_inter, lx * 16, 8, 16);
 }
 
-static noinline void FUNC(parse_mvd_8x16_right, int lx)
+static inline void FUNC(parse_mvd_8x16_right, int lx)
 {
 	// call the parsing of mvd first to avoid spilling mvp if not inlined
 	uint8_t *absMvdComp_p = mb->absMvdComp + lx * 32;
@@ -900,7 +900,7 @@ static noinline void FUNC(parse_mvd_8x16_right, int lx)
 	CALL(decode_inter, lx * 16 + 4, 8, 16);
 }
 
-static noinline void FUNC(parse_mvd_16x8_top, int lx)
+static inline void FUNC(parse_mvd_16x8_top, int lx)
 {
 	// call the parsing of mvd first to avoid spilling mvp if not inlined
 	uint8_t *absMvdComp_p = mb->absMvdComp + lx * 32;
@@ -952,7 +952,7 @@ static noinline void FUNC(parse_mvd_16x8_top, int lx)
 	JUMP(decode_inter, lx * 16, 16, 8);
 }
 
-static noinline void FUNC(parse_mvd_16x8_bottom, int lx)
+static inline void FUNC(parse_mvd_16x8_bottom, int lx)
 {
 	// call the parsing of mvd first to avoid spilling mvp if not inlined
 	uint8_t *absMvdComp_p = mb->absMvdComp + lx * 32;
@@ -1237,7 +1237,7 @@ static noinline void FUNC(decode_direct_mv_pred, unsigned todo_blocks) {
  * then modified during mb_type parsing to account for the complex conditions
  * in 7.3.5.
  */
-static noinline void FUNC(parse_P_mb)
+static void FUNC(parse_P_mb)
 {
 	static const v4qi refIdx4x4_C[8] = {
 		{10, 11, 4,  4}, {11, 14, 5,  5}, {4,  5, 6,  6}, {5,  5, 7,  7},  // w=4
@@ -1438,19 +1438,88 @@ static noinline void FUNC(parse_P_mb)
 	JUMP(parse_inter_residual);
 }
 
-static noinline void FUNC(parse_B_mb)
+
+
+/**
+ * Parse sub_mb_type in a B macroblock.
+ * 
+ * This function is distinct from parse_B_mb to allow different inlinings.
+ * For each 8x8 block we test for B_Direct_8x8, otherwise we extract a
+ * bitstring and initialize the parsing flags with it. Values are:
+ * _ 0 = B_Bi_8x8
+ * _ 1 = B_L0_8x4
+ * _ 2 = B_L0_4x8
+ * _ 3 = B_L1_8x4
+ * _ 4 = B_L0_8x8
+ * _ 5 = B_L1_8x8
+ * _ 6 = B_L1_4x4
+ * _ 7 = B_Bi_4x4
+ * _ 8 = B_L1_4x8
+ * _ 9 = B_Bi_8x4
+ * _ 10 = B_Bi_4x8
+ * _ 11 = B_L0_4x4
+ */
+static void FUNC(parse_B_sub_mb) {
+	static const uint32_t sub2flags[13] = {0x10001, 0x00005, 0x00003, 0x50000,
+		0x00001, 0x10000, 0xf0000, 0xf000f, 0x30000, 0x50005, 0x30003, 0x0000f, 0};
+	static const uint8_t sub2mb_type[13] = {3, 4, 5, 6, 1, 2, 11, 12, 7, 8, 9, 10, 0};
+	
+	unsigned flags = 0;
+	for (int i = 0; i < 16; i += 4) {
+		int sub = 12;
+		if (!CALL(get_ae, 36)) {
+			
+		} else {
+			sub = 2;
+			if (!CALL(get_ae, 37) || (sub = CALL(get_ae, 38),
+				sub += sub + CALL(get_ae, 39),
+				sub += sub + CALL(get_ae, 39), sub - 4 < 2u))
+			{
+				sub += sub + CALL(get_ae, 39);
+			}
+			flags |= sub2flags[sub] << i;
+		}
+		fprintf(stderr, "sub_mb_type: %u\n", sub2mb_type[sub]);
+	}
+	mb->inter_blocks = flags | flags >> 16;
+}
+
+/**
+ * Parse mb_skip_flag and mb_type in a B macroblock.
+ * 
+ * Quick tests are done for B_Skip and B_Direct_16x16, otherwise we extract a
+ * bitstring and use it to branch to further parsing. Values are:
+ * _ 0 = B_Bi_16x16
+ * _ 1 = B_L0_L0_16x8
+ * _ 2 = B_L0_L0_8x16
+ * _ 3 = B_L1_L1_16x8
+ * _ 4 = B_L1_L1_8x16
+ * _ 5 = B_L0_L1_16x8
+ * _ 6 = B_L0_L1_8x16
+ * _ 7 = B_L1_L0_16x8
+ * _ 8 = B_L0_16x16
+ * _ 9 = B_L1_16x16
+ * _ 13 = Intra
+ * _ 14 = B_L1_L0_8x16
+ * _ 15 = B_8x8
+ * _ 16 = B_L0_Bi_16x8
+ * _ 17 = B_L0_Bi_8x16
+ * _ 18 = B_L1_Bi_16x8
+ * _ 19 = B_L1_Bi_8x16
+ * _ 20 = B_Bi_L0_16x8
+ * _ 21 = B_Bi_L0_8x16
+ * _ 22 = B_Bi_L1_16x8
+ * _ 23 = B_Bi_L1_8x16
+ * _ 24 = B_Bi_Bi_16x8
+ * _ 25 = B_Bi_Bi_8x16
+ */
+static inline void FUNC(parse_B_mb)
 {
-	static const uint8_t B2ref_idx[26] = {0x11, 0x05, 0x03, 0x50, 0x30, 0x41,
+	static const uint8_t str2flags[26] = {0x11, 0x05, 0x03, 0x50, 0x30, 0x41,
 		0x21, 0x14, 0x01, 0x10, 0, 0, 0, 0, 0x12, 0, 0x45, 0x23, 0x54, 0x32,
 		0x15, 0x13, 0x51, 0x31, 0x55, 0x33};
-	static const uint16_t B2inter_flags[26] = {0x0001, 0x0101, 0x0011, 0x0101, 0x0011,
-		0x0101, 0x0011, 0x0101, 0x0001, 0x0001, 0, 0, 0, 0x0001, 0x0011, 0x1111,
-		0x0101, 0x0011, 0x0101, 0x0011, 0x0101, 0x0011, 0x0101, 0x0011, 0x0101, 0x0011};
-	static const uint32_t b2flags[13] = {0x10001, 0x00005, 0x00003, 0x50000,
-		0x00001, 0x10000, 0xf0000, 0xf000f, 0x30000, 0x50005, 0x30003, 0x0000f, 0};
-	static const uint8_t B2mb_type[26] = {3, 4, 5, 6, 7, 8, 9, 10, 1, 2, 0, 0,
+	static const uint8_t str2mb_type[26] = {3, 4, 5, 6, 7, 8, 9, 10, 1, 2, 0, 0,
 		0, 0, 11, 22, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21};
-	static const uint8_t b2sub_mb_type[13] = {3, 4, 5, 6, 1, 2, 11, 12, 7, 8, 9, 10, 0};
 	
 	// Inter initializations
 	mb->f.mbIsInterFlag = 1;
@@ -1496,142 +1565,50 @@ static noinline void FUNC(parse_B_mb)
 	{
 		str += str + CALL(get_ae, 32);
 	}
-	if (str != 13) {
-		fprintf(stderr, "mb_type: %u\n", B2mb_type[str]);
-	}
 	
-	// initialisations and jumps for mb_type
-	mb->inter_blocks = B2inter_flags[str];
-	CALL(parse_ref_idx, B2ref_idx[str]);
-	switch (str) {
-	case 0: // B_Bi_16x16
-		CALL(parse_mvd_16x16, 0);
-		CALL(parse_mvd_16x16, 1);
-		JUMP(parse_inter_residual);
-	case 1: // B_L0_L0_16x8
-		CALL(parse_mvd_16x8_top, 0);
-		CALL(parse_mvd_16x8_bottom, 0);
-		JUMP(parse_inter_residual);
-	case 2: // B_L0_L0_8x16
-		CALL(parse_mvd_8x16_left, 0);
-		CALL(parse_mvd_8x16_right, 0);
-		JUMP(parse_inter_residual);
-	case 3: // B_L1_L1_16x8
-		CALL(parse_mvd_16x8_top, 1);
-		CALL(parse_mvd_16x8_bottom, 1);
-		JUMP(parse_inter_residual);
-	case 4: // B_L1_L1_8x16
-		CALL(parse_mvd_8x16_left, 1);
-		CALL(parse_mvd_8x16_right, 1);
-		JUMP(parse_inter_residual);
-	case 5: // B_L0_L1_16x8
-		CALL(parse_mvd_16x8_top, 0);
-		CALL(parse_mvd_16x8_bottom, 1);
-		JUMP(parse_inter_residual);
-	case 6: // B_L0_L1_8x16
-		CALL(parse_mvd_8x16_left, 0);
-		CALL(parse_mvd_8x16_right, 1);
-		JUMP(parse_inter_residual);
-	case 7: // B_L1_L0_16x8
-		CALL(parse_mvd_16x8_bottom, 0);
-		CALL(parse_mvd_16x8_top, 1);
-		JUMP(parse_inter_residual);
-	case 8: // B_L0_16x16
-		CALL(parse_mvd_16x16, 0);
-		JUMP(parse_inter_residual);
-	case 9: // B_L1_16x16
-		CALL(parse_mvd_16x16, 1);
-		JUMP(parse_inter_residual);
-	case 13: // Intra
+	// branch on str values
+	if (str == 13)
 		JUMP(parse_I_mb, 32);
-	case 14: // B_L1_L0_8x16
-		CALL(parse_mvd_8x16_right, 0);
-		CALL(parse_mvd_8x16_left, 1);
-		JUMP(parse_inter_residual);
-	case 15: // B_8x8
-		break;
-	case 16: // B_L0_Bi_16x8
-		CALL(parse_mvd_16x8_top, 0);
-		CALL(parse_mvd_16x8_bottom, 0);
-		CALL(parse_mvd_16x8_bottom, 1);
-		JUMP(parse_inter_residual);
-	case 17: // B_L0_Bi_8x16
-		CALL(parse_mvd_8x16_left, 0);
-		CALL(parse_mvd_8x16_right, 0);
-		CALL(parse_mvd_8x16_right, 1);
-		JUMP(parse_inter_residual);
-	case 18: // B_L1_Bi_16x8
-		CALL(parse_mvd_16x8_bottom, 0);
-		CALL(parse_mvd_16x8_top, 1);
-		CALL(parse_mvd_16x8_bottom, 1);
-		JUMP(parse_inter_residual);
-	case 19: // B_L1_Bi_8x16
-		CALL(parse_mvd_8x16_right, 0);
-		CALL(parse_mvd_8x16_left, 1);
-		CALL(parse_mvd_8x16_right, 1);
-		JUMP(parse_inter_residual);
-	case 20: // B_Bi_L0_16x8
-		CALL(parse_mvd_16x8_top, 0);
-		CALL(parse_mvd_16x8_bottom, 0);
-		CALL(parse_mvd_16x8_top, 1);
-		JUMP(parse_inter_residual);
-	case 21: // B_Bi_L0_8x16
-		CALL(parse_mvd_8x16_left, 0);
-		CALL(parse_mvd_8x16_right, 0);
-		CALL(parse_mvd_8x16_left, 1);
-		JUMP(parse_inter_residual);
-	case 22: // B_Bi_L1_16x8
-		CALL(parse_mvd_16x8_top, 0);
-		CALL(parse_mvd_16x8_top, 1);
-		CALL(parse_mvd_16x8_bottom, 1);
-		JUMP(parse_inter_residual);
-	case 23: // B_Bi_L1_8x16
-		CALL(parse_mvd_8x16_left, 0);
-		CALL(parse_mvd_8x16_left, 1);
-		CALL(parse_mvd_8x16_right, 1);
-		JUMP(parse_inter_residual);
-	case 24: // B_Bi_Bi_16x8
-		CALL(parse_mvd_16x8_top, 0);
-		CALL(parse_mvd_16x8_bottom, 0);
-		CALL(parse_mvd_16x8_top, 1);
-		CALL(parse_mvd_16x8_bottom, 1);
-		JUMP(parse_inter_residual);
-	case 25: // B_Bi_Bi_8x16
-		CALL(parse_mvd_8x16_left, 0);
-		CALL(parse_mvd_8x16_right, 0);
-		CALL(parse_mvd_8x16_left, 1);
-		CALL(parse_mvd_8x16_right, 1);
-		JUMP(parse_inter_residual);
-	default:
-		__builtin_unreachable();
+	fprintf(stderr, "mb_type: %u\n", str2mb_type[str]);
+	if (str == 15)
+		JUMP(parse_B_sub_mb);
+	int flags8x8 = str2flags[str];
+	CALL(parse_ref_idx, flags8x8);
+	if (!(flags8x8 & 0xee)) { // 16x16
+		mb->inter_blocks = 0x0001;
+		if (flags8x8 & 0x01)
+			CALL(parse_mvd_16x16, 0);
+		if (flags8x8 & 0x10)
+			CALL(parse_mvd_16x16, 1);
+	} else if (!(flags8x8 & 0xcc)) { // 8x16
+		mb->inter_blocks = 0x0011;
+		if (flags8x8 & 0x01)
+			CALL(parse_mvd_8x16_left, 0);
+		if (flags8x8 & 0x02)
+			CALL(parse_mvd_8x16_right, 0);
+		if (flags8x8 & 0x10)
+			CALL(parse_mvd_8x16_left, 1);
+		if (flags8x8 & 0x20)
+			CALL(parse_mvd_8x16_right, 1);
+	} else { // 16x8
+		mb->inter_blocks = 0x0101;
+		if (flags8x8 & 0x01)
+			CALL(parse_mvd_16x8_top, 0);
+		if (flags8x8 & 0x04)
+			CALL(parse_mvd_16x8_bottom, 0);
+		if (flags8x8 & 0x10)
+			CALL(parse_mvd_16x8_top, 1);
+		if (flags8x8 & 0x40)
+			CALL(parse_mvd_16x8_bottom, 1);
 	}
-	
-	// Parsing for sub_mb_type in B slices.
-	unsigned flags = 0;
-	for (int i = 0; str == 15 && i < 16; i += 4) {
-		int sub = 12;
-		if (!CALL(get_ae, 36)) {
-			
-		} else {
-			sub = 2;
-			if (!CALL(get_ae, 37) || (sub = CALL(get_ae, 38),
-				sub += sub + CALL(get_ae, 39),
-				sub += sub + CALL(get_ae, 39), sub - 4 < 2u))
-			{
-				sub += sub + CALL(get_ae, 39);
-			}
-			flags |= b2flags[sub] << i;
-		}
-		fprintf(stderr, "sub_mb_type: %u\n", b2sub_mb_type[sub]);
-	}
-	mb->inter_blocks = flags | flags >> 16;
+	JUMP(parse_inter_residual);
 }
 
 
 
 /**
  * This function loops through the macroblocks of a slice, initialising their
- * data and calling parse_inter/intra_mb for each one.
+ * data and calling parse_{I/P/B}_mb for each one.
  */
 noinline void FUNC(parse_slice_data)
 {

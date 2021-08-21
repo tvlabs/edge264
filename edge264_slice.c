@@ -1214,238 +1214,11 @@ static noinline void FUNC(decode_direct_mv_pred, unsigned todo_blocks) {
 
 
 /**
- * These functions parse the syntax elements mb_type, sub_mb_type, ref_idx and
- * mvd (with functions) for the current macroblock in a P or B slice, before
- * jumping to residual parsing.
- *
- * Motion vector prediction is one of the hardest parts to decode (8.4.1.3),
- * here is a summary of the rules:
- * _ A/B/C/D are 4x4 blocks on pixels at relative positions (-1,0)/(0,-1)/(W,-1)/(-1,-1)
- * _ unavailable A/B/C/D blocks count as refIdx=-1 and mv=0
- * _ if C is unavailable, replace it with D
- * _ for 8x16 and 16x8, predict from (A,C) and (B,A) if their refIdx match
- * _ otherwise if B, C and D are unavailable, replace B and C with A
- * _ then if only one of refIdxA/B/C is equal to refIdx, predict mv from it
- * _ otherwise predict mv as median(mvA, mvB, mvC)
- *
- * For 8x8 and smaller blocks, we cover rules 1~5 using vector code to compute
- * (refIdx==refIdxA) + (refIdx==refIdxB)*2 + (refIdx==refIdxC)*4 in parallel.
- * This value is then used at each position to determine where the predicted
- * motion vector is fetched.
- *
- * transform_8x8_mode_flag is initialized with a copy of its value in ctx->ps,
- * then modified during mb_type parsing to account for the complex conditions
- * in 7.3.5.
- */
-static void FUNC(parse_P_mb)
-{
-	static const v4qi refIdx4x4_C[8] = {
-		{10, 11, 4,  4}, {11, 14, 5,  5}, {4,  5, 6,  6}, {5,  5, 7,  7},  // w=4
-		{11, -1, 1, -1}, {14, -1, 4, -1}, {5, -1, 3, -1}, {4, -1, 6, -1}}; // w=8
-	
-	// Inter initializations
-	mb->f.mbIsInterFlag = 1;
-	mb->Intra4x4PredMode_v = (v16qi){2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2};
-	
-	// shortcut for P_Skip
-	int mb_skip_flag = CALL(get_ae, 13 - ctx->inc.mb_skip_flag);
-	fprintf(stderr, "mb_skip_flag: %x\n", mb_skip_flag);
-	if (mb_skip_flag) {
-		mb->f.mb_skip_flag = mb_skip_flag;
-		mb->refIdx_l = (int64_t)(v8qi){0, 0, 0, 0, -1, -1, -1, -1};
-		mb->inter_blocks = 0x0001;
-		int refIdxA = *(mb->refIdx + ctx->refIdx_A[0]);
-		int refIdxB = *(mb->refIdx + ctx->refIdx_B[0]);
-		int mvA = *(mb->mvs_s + ctx->mvs_A[0]);
-		int mvB = *(mb->mvs_s + ctx->mvs_B[0]);
-		v8hi mv = {};
-		if ((refIdxA | mvA) && (refIdxB | mvB) && !(ctx->inc.unavailable & 3)) {
-			int refIdxC, mvs_C;
-			if (__builtin_expect(ctx->inc.unavailable & 4, 0)) {
-				refIdxC = *(mb->refIdx + ctx->refIdx_D);
-				mvs_C = ctx->mvs8x8_D[0];
-			} else {
-				refIdxC = *(mb->refIdx + ctx->refIdx_C);
-				mvs_C = ctx->mvs8x8_C[1];
-			}
-			// B/C unavailability (->A) was ruled out, thus not tested here
-			int eq = !refIdxA + !refIdxB * 2 + !refIdxC * 4;
-			if (__builtin_expect(0xe9 >> eq & 1, 1)) {
-				mv = vector_median((v8hi)(v4si){mvA}, (v8hi)(v4si){mvB}, (v8hi)(v4si){*(mb->mvs_s + mvs_C)});
-			} else if (eq == 4) {
-				mv = (v8hi)(v4si){*(mb->mvs_s + mvs_C)};
-			} else {
-				mv = (v8hi)(v4si){(eq == 1) ? mvA : mvB};
-			}
-		}
-		v8hi mvs = (v8hi)__builtin_shufflevector((v4si)mv, (v4si){}, 0, 0, 0, 0);
-		mb->mvs_v[0] = mb->mvs_v[1] = mb->mvs_v[2] = mb->mvs_v[3] = mvs;
-		JUMP(decode_inter, 0, 16, 16);
-		
-	} else if (CALL(get_ae, 14)) { // Intra
-		JUMP(parse_I_mb, 17);
-	}
-	
-	// Non-skip Inter initialisations
-	ctx->transform_8x8_mode_flag = ctx->ps.transform_8x8_mode_flag;
-	if (ctx->inc.unavailable & 1) {
-		mb[-1].coded_block_flags_4x4_v[0] = mb[-1].coded_block_flags_4x4_v[1] =
-			mb[-1].coded_block_flags_4x4_v[2] = mb[-1].coded_block_flags_8x8_v = (v16qi){};
-		ctx->inc.coded_block_flags_16x16_s &= 0x02020202;
-	}
-	if (ctx->inc.unavailable & 2) {
-		ctx->mbB->coded_block_flags_4x4_v[0] = ctx->mbB->coded_block_flags_4x4_v[1] =
-			ctx->mbB->coded_block_flags_4x4_v[2] = ctx->mbB->coded_block_flags_8x8_v = (v16qi){};
-		ctx->inc.coded_block_flags_16x16_s &= 0x01010101;
-	}
-	
-	// initializations and jumps for mb_type
-	if (!CALL(get_ae, 15)) {
-		if (!CALL(get_ae, 16)) { // 16x16
-			fprintf(stderr, "mb_type: 0\n");
-			mb->inter_blocks = 0x0001;
-			CALL(parse_ref_idx, 0x01);
-			CALL(parse_mvd_16x16, 0);
-			JUMP(parse_inter_residual);
-		} // else 8x8
-		
-	} else if (!CALL(get_ae, 17)) { // 8x16
-		fprintf(stderr, "mb_type: 2\n");
-		mb->inter_blocks = 0x0011;
-		CALL(parse_ref_idx, 0x03);
-		CALL(parse_mvd_8x16_left, 0);
-		CALL(parse_mvd_8x16_right, 0);
-		JUMP(parse_inter_residual);
-		
-	} else { // 16x8
-		fprintf(stderr, "mb_type: 1\n");
-		mb->inter_blocks = 0x0101;
-		CALL(parse_ref_idx, 0x05);
-		CALL(parse_mvd_16x8_top, 0);
-		CALL(parse_mvd_16x8_bottom, 0);
-		JUMP(parse_inter_residual);
-	}
-	fprintf(stderr, "mb_type: 3\n");
-	
-	// initializations and jumps for sub_mb_type
-	unsigned flags = 0;
-	for (int i8x8 = 0; i8x8 < 4; i8x8++) {
-		int i4x4 = i8x8 * 4;
-		int unavail1 = ctx->unavail[i4x4 + 1];
-		
-		if (CALL(get_ae, 21)) { // 8x8
-			ctx->mvs_C[i4x4] = (unavail1 & 4 ? ctx->mvs8x8_D : ctx->mvs8x8_C)[i8x8];
-			ctx->unavail[i4x4] |= unavail1++;
-			flags |= 1 << i4x4;
-			ctx->refIdx4x4_C_s[i8x8] = (int32_t)refIdx4x4_C[4 + i8x8];
-			ctx->part_sizes_l[i8x8] = (int64_t)(v8qi){8, 8};
-			ctx->inter8x8_shuffle[i8x8] = (v4hi){0, 0, 0, 0};
-			
-		} else if (ctx->transform_8x8_mode_flag = 0, !CALL(get_ae, 22)) { // 8x4
-			ctx->mvs_C[i4x4] = (unavail1 & 4 ? ctx->mvs8x8_D : ctx->mvs8x8_C)[i8x8];
-			ctx->mvs_C[i4x4 + 2] = ctx->mvs_A[i4x4];
-			ctx->unavail[i4x4] |= unavail1++;
-			flags |= 5 << i4x4;
-			ctx->refIdx4x4_C_s[i8x8] = (int32_t)refIdx4x4_C[4 + i8x8];
-			ctx->part_sizes_l[i8x8] = (int64_t)(v8qi){8, 4, 0, 0, 8, 4, 0, 0};
-			ctx->inter8x8_shuffle[i8x8] = (v4hi){0, 0, 2, 2};
-			
-		} else if (CALL(get_ae, 23)) { // 4x8
-			ctx->mvs_C[i4x4] = (unavail1 & 2) ? ctx->mvs8x8_D[i8x8] : ctx->mvs_B[i4x4 + 1];
-			ctx->mvs_C[i4x4 + 1] = (unavail1 & 4) ? ctx->mvs_B[i4x4] : ctx->mvs8x8_C[i8x8];
-			flags |= 3 << i4x4;
-			ctx->refIdx4x4_C_s[i8x8] = (int32_t)refIdx4x4_C[i8x8];
-			ctx->part_sizes_l[i8x8] = (int64_t)(v8qi){4, 8, 4, 8};
-			ctx->inter8x8_shuffle[i8x8] = (v4hi){0, 1, 0, 1};
-			
-		} else { // 4x4
-			ctx->mvs_C[i4x4] = (unavail1 & 2) ? ctx->mvs8x8_D[i8x8] : ctx->mvs_B[i4x4 + 1];
-			ctx->mvs_C[i4x4 + 1] = (unavail1 & 4) ? ctx->mvs_B[i4x4] : ctx->mvs8x8_C[i8x8];
-			ctx->mvs_C[i4x4 + 2] = i4x4 + 1;
-			ctx->mvs_C[i4x4 + 3] = i4x4;
-			flags |= 15 << i4x4;
-			ctx->refIdx4x4_C_s[i8x8] = (int32_t)refIdx4x4_C[i8x8];
-			ctx->part_sizes_l[i8x8] = (int64_t)(v8qi){4, 4, 4, 4, 4, 4, 4, 4};
-			ctx->inter8x8_shuffle[i8x8] = (v4hi){0, 1, 2, 3};
-		}
-		unsigned f = flags >> i4x4;
-		fprintf(stderr, "sub_mb_type: %c\n", (f == 1) ? '0' : (f == 5) ? '1' : (f == 3) ? '2' : '3');
-	}
-	mb->inter_blocks = flags;
-	CALL(parse_ref_idx, 0x0f);
-	
-	// load neighbouring refIdx values and shuffle them into A/B/C
-	v16qi Ar = (v16qi)(v2li){(int64_t)mb[-1].refIdx_l, (int64_t)mb->refIdx_l};
-	v16qi BC = (v16qi)(v2li){(int64_t)ctx->mbB->refIdx_l, (int64_t)ctx->mbB[1].refIdx_l};
-	v16qi rB = (v16qi)__builtin_shufflevector((v2li)Ar, (v2li)BC, 1, 2);
-	v16qi A4x4 = __builtin_shufflevector(Ar, Ar, 1, 8, 1, 8, 8, 9, 8, 9, 3, 10, 3, 10, 10, 11, 10, 11);
-	v16qi B4x4 = __builtin_shufflevector(rB, rB, 10, 10, 0, 0, 11, 11, 1, 1, 0, 0, 2, 2, 1, 1, 3, 3);
-	v16qi C4x4 = byte_shuffle((v16qi)__builtin_shufflevector((v4si)Ar, (v4si)BC, 0, 2, 4, 6), ctx->refIdx4x4_C_v);
-	v16qi r4x4 = __builtin_shufflevector(Ar, Ar, 8, 8, 8, 8, 9, 9, 9, 9, 10, 10, 10, 10, 11, 11, 11, 11);
-	
-	// handle unavailability of B/C macroblocks
-	if (__builtin_expect(ctx->inc.unavailable > 1, 0)) {
-		if (ctx->inc.unavailable & 2) {
-			C4x4[0] = ctx->mbB[-1].refIdx[3];
-			C4x4[1] = ctx->mbB->refIdx[2];
-		}
-		if (ctx->inc.unavailable << 1 & ctx->part_sizes[8]) {
-			C4x4[4] = ctx->mbB->refIdx[2];
-		}
-		if (ctx->inc.unavailable & 4) {
-			C4x4[5] = ctx->mbB->refIdx[3];
-		}
-	}
-	
-	// compare them and store equality formula
-	v16qi sum = (r4x4==A4x4) + ((r4x4==B4x4) + (r4x4==C4x4) * 2) * 2; // remember comparisons return -1
-	ctx->refIdx4x4_eq_v[0] = -(sum | (ctx->unavail_v==14)); // if B and C are unavailable, then sum is already 0 or 1
-	
-	// loop on mvs
-	do {
-		int i = __builtin_ctz(flags);
-		int sumx = *(mb->absMvdComp + 0 + ctx->absMvdComp_A[i]) + *(mb->absMvdComp + 0 + ctx->absMvdComp_B[i]);
-		int sumy = *(mb->absMvdComp + 1 + ctx->absMvdComp_A[i]) + *(mb->absMvdComp + 1 + ctx->absMvdComp_B[i]);
-		int x = CALL(parse_mvd_comp, 40, sumx);
-		int y = CALL(parse_mvd_comp, 47, sumy);
-		v8hi mvd = {x, y};
-		
-		// branch on equality mask
-		v8hi mvp;
-		int eq = ctx->refIdx4x4_eq[i];
-		if (__builtin_expect(0xe9 >> eq & 1, 1)) {
-			v8hi mvA = (v8hi)(v4si){*(mb->mvs_s + ctx->mvs_A[i])};
-			v8hi mvB = (v8hi)(v4si){*(mb->mvs_s + ctx->mvs_B[i])};
-			v8hi mvC = (v8hi)(v4si){*(mb->mvs_s + ctx->mvs_C[i])};
-			mvp = vector_median(mvA, mvB, mvC);
-		} else if (eq == 1) {
-			mvp = (v8hi)(v4si){*(mb->mvs_s + ctx->mvs_A[i])};
-		} else if (eq == 2) {
-			mvp = (v8hi)(v4si){*(mb->mvs_s + ctx->mvs_B[i])};
-		} else {
-			mvp = (v8hi)(v4si){*(mb->mvs_s + ctx->mvs_C[i])};
-		}
-		
-		// broadcast absMvdComp and mvs to memory then call decoding
-		int i8x8 = i >> 2;
-		v4hi mask = ctx->inter8x8_shuffle[i8x8] == (int16_t)(i & 3);
-		mb->absMvdComp_l[i8x8] |= (v8qi)mask & (v8qi)((v2li)pack_absMvdComp(mvd))[0];
-		v8hi mvs = (v8hi)__builtin_shufflevector((v4si)(mvp + mvd), (v4si){}, 0, 0, 0, 0);
-		v8hi mvs_mask = __builtin_shufflevector((v8hi)(v2li){(int64_t)mask}, (v8hi){}, 0, 0, 1, 1, 2, 2, 3, 3);
-		mb->mvs_v[i8x8] |= mvs_mask & mvs; // valid since mvs is initialized with 0
-		CALL(decode_inter, i, ctx->part_sizes[i * 2], ctx->part_sizes[i * 2 + 1]);
-	} while (flags &= flags - 1);
-	JUMP(parse_inter_residual);
-}
-
-
-
-/**
  * Parse sub_mb_type in a B macroblock.
  * 
  * This function is distinct from parse_B_mb to allow different inlinings.
  * For each 8x8 block we test for B_Direct_8x8, otherwise we extract a
- * bitstring and initialize the parsing flags with it. Values are:
+ * bitstring and initialize the loop flags with it. Values are:
  * _ 0 = B_Bi_8x8
  * _ 1 = B_L0_8x4
  * _ 2 = B_L0_4x8
@@ -1483,6 +1256,8 @@ static void FUNC(parse_B_sub_mb) {
 	}
 	mb->inter_blocks = flags | flags >> 16;
 }
+
+
 
 /**
  * Parse mb_skip_flag and mb_type in a B macroblock.
@@ -1602,6 +1377,245 @@ static inline void FUNC(parse_B_mb)
 			CALL(parse_mvd_16x8_bottom, 1);
 	}
 	JUMP(parse_inter_residual);
+}
+
+
+
+/**
+ * Parse sub_mb_type in a P macroblock.
+ * 
+ * This function is distinct from parse_P_mb to allow different inlinings.
+ * For each 8x8 block we fill a bitmask for the indices at which mvs will be
+ * parsed, then we loop on these bits and broadcast the values accordingly.
+ */
+static void FUNC(parse_P_sub_mb)
+{
+	static const v4qi refIdx4x4_C[8] = {
+		{10, 11, 4,  4}, {11, 14, 5,  5}, {4,  5, 6,  6}, {5,  5, 7,  7},  // w=4
+		{11, -1, 1, -1}, {14, -1, 4, -1}, {5, -1, 3, -1}, {4, -1, 6, -1}}; // w=8
+	
+	// initializations and jumps for sub_mb_type
+	unsigned flags = 0;
+	for (int i8x8 = 0; i8x8 < 4; i8x8++) {
+		int i4x4 = i8x8 * 4;
+		int unavail1 = ctx->unavail[i4x4 + 1];
+		
+		if (CALL(get_ae, 21)) { // 8x8
+			ctx->mvs_C[i4x4] = (unavail1 & 4 ? ctx->mvs8x8_D : ctx->mvs8x8_C)[i8x8];
+			ctx->unavail[i4x4] |= unavail1++;
+			flags |= 1 << i4x4;
+			ctx->refIdx4x4_C_s[i8x8] = (int32_t)refIdx4x4_C[4 + i8x8];
+			ctx->part_sizes_l[i8x8] = (int64_t)(v8qi){8, 8};
+			ctx->inter8x8_shuffle[i8x8] = (v4hi){0, 0, 0, 0};
+			
+		} else if (ctx->transform_8x8_mode_flag = 0, !CALL(get_ae, 22)) { // 8x4
+			ctx->mvs_C[i4x4] = (unavail1 & 4 ? ctx->mvs8x8_D : ctx->mvs8x8_C)[i8x8];
+			ctx->mvs_C[i4x4 + 2] = ctx->mvs_A[i4x4];
+			ctx->unavail[i4x4] |= unavail1++;
+			flags |= 5 << i4x4;
+			ctx->refIdx4x4_C_s[i8x8] = (int32_t)refIdx4x4_C[4 + i8x8];
+			ctx->part_sizes_l[i8x8] = (int64_t)(v8qi){8, 4, 0, 0, 8, 4, 0, 0};
+			ctx->inter8x8_shuffle[i8x8] = (v4hi){0, 0, 2, 2};
+			
+		} else if (CALL(get_ae, 23)) { // 4x8
+			ctx->mvs_C[i4x4] = (unavail1 & 2) ? ctx->mvs8x8_D[i8x8] : ctx->mvs_B[i4x4 + 1];
+			ctx->mvs_C[i4x4 + 1] = (unavail1 & 4) ? ctx->mvs_B[i4x4] : ctx->mvs8x8_C[i8x8];
+			flags |= 3 << i4x4;
+			ctx->refIdx4x4_C_s[i8x8] = (int32_t)refIdx4x4_C[i8x8];
+			ctx->part_sizes_l[i8x8] = (int64_t)(v8qi){4, 8, 4, 8};
+			ctx->inter8x8_shuffle[i8x8] = (v4hi){0, 1, 0, 1};
+			
+		} else { // 4x4
+			ctx->mvs_C[i4x4] = (unavail1 & 2) ? ctx->mvs8x8_D[i8x8] : ctx->mvs_B[i4x4 + 1];
+			ctx->mvs_C[i4x4 + 1] = (unavail1 & 4) ? ctx->mvs_B[i4x4] : ctx->mvs8x8_C[i8x8];
+			ctx->mvs_C[i4x4 + 2] = i4x4 + 1;
+			ctx->mvs_C[i4x4 + 3] = i4x4;
+			flags |= 15 << i4x4;
+			ctx->refIdx4x4_C_s[i8x8] = (int32_t)refIdx4x4_C[i8x8];
+			ctx->part_sizes_l[i8x8] = (int64_t)(v8qi){4, 4, 4, 4, 4, 4, 4, 4};
+			ctx->inter8x8_shuffle[i8x8] = (v4hi){0, 1, 2, 3};
+		}
+		unsigned f = flags >> i4x4;
+		fprintf(stderr, "sub_mb_type: %c\n", (f == 1) ? '0' : (f == 5) ? '1' : (f == 3) ? '2' : '3');
+	}
+	mb->inter_blocks = flags;
+	CALL(parse_ref_idx, 0x0f);
+	
+	// load neighbouring refIdx values and shuffle them into A/B/C
+	v16qi Ar = (v16qi)(v2li){(int64_t)mb[-1].refIdx_l, (int64_t)mb->refIdx_l};
+	v16qi BC = (v16qi)(v2li){(int64_t)ctx->mbB->refIdx_l, (int64_t)ctx->mbB[1].refIdx_l};
+	v16qi rB = (v16qi)__builtin_shufflevector((v2li)Ar, (v2li)BC, 1, 2);
+	v16qi A4x4 = __builtin_shufflevector(Ar, Ar, 1, 8, 1, 8, 8, 9, 8, 9, 3, 10, 3, 10, 10, 11, 10, 11);
+	v16qi B4x4 = __builtin_shufflevector(rB, rB, 10, 10, 0, 0, 11, 11, 1, 1, 0, 0, 2, 2, 1, 1, 3, 3);
+	v16qi C4x4 = byte_shuffle((v16qi)__builtin_shufflevector((v4si)Ar, (v4si)BC, 0, 2, 4, 6), ctx->refIdx4x4_C_v);
+	v16qi r4x4 = __builtin_shufflevector(Ar, Ar, 8, 8, 8, 8, 9, 9, 9, 9, 10, 10, 10, 10, 11, 11, 11, 11);
+	
+	// handle unavailability of B/C macroblocks
+	if (__builtin_expect(ctx->inc.unavailable > 1, 0)) {
+		if (ctx->inc.unavailable & 2) {
+			C4x4[0] = ctx->mbB[-1].refIdx[3];
+			C4x4[1] = ctx->mbB->refIdx[2];
+		}
+		if (ctx->inc.unavailable << 1 & ctx->part_sizes[8]) {
+			C4x4[4] = ctx->mbB->refIdx[2];
+		}
+		if (ctx->inc.unavailable & 4) {
+			C4x4[5] = ctx->mbB->refIdx[3];
+		}
+	}
+	
+	// compare them and store equality formula
+	v16qi sum = (r4x4==A4x4) + ((r4x4==B4x4) + (r4x4==C4x4) * 2) * 2; // remember comparisons return -1
+	ctx->refIdx4x4_eq_v[0] = -(sum | (ctx->unavail_v==14)); // if B and C are unavailable, then sum is already 0 or 1
+	
+	// loop on mvs
+	do {
+		int i = __builtin_ctz(flags);
+		int sumx = *(mb->absMvdComp + 0 + ctx->absMvdComp_A[i]) + *(mb->absMvdComp + 0 + ctx->absMvdComp_B[i]);
+		int sumy = *(mb->absMvdComp + 1 + ctx->absMvdComp_A[i]) + *(mb->absMvdComp + 1 + ctx->absMvdComp_B[i]);
+		int x = CALL(parse_mvd_comp, 40, sumx);
+		int y = CALL(parse_mvd_comp, 47, sumy);
+		v8hi mvd = {x, y};
+		
+		// branch on equality mask
+		v8hi mvp;
+		int eq = ctx->refIdx4x4_eq[i];
+		if (__builtin_expect(0xe9 >> eq & 1, 1)) {
+			v8hi mvA = (v8hi)(v4si){*(mb->mvs_s + ctx->mvs_A[i])};
+			v8hi mvB = (v8hi)(v4si){*(mb->mvs_s + ctx->mvs_B[i])};
+			v8hi mvC = (v8hi)(v4si){*(mb->mvs_s + ctx->mvs_C[i])};
+			mvp = vector_median(mvA, mvB, mvC);
+		} else if (eq == 1) {
+			mvp = (v8hi)(v4si){*(mb->mvs_s + ctx->mvs_A[i])};
+		} else if (eq == 2) {
+			mvp = (v8hi)(v4si){*(mb->mvs_s + ctx->mvs_B[i])};
+		} else {
+			mvp = (v8hi)(v4si){*(mb->mvs_s + ctx->mvs_C[i])};
+		}
+		
+		// broadcast absMvdComp and mvs to memory then call decoding
+		int i8x8 = i >> 2;
+		v4hi mask = ctx->inter8x8_shuffle[i8x8] == (int16_t)(i & 3);
+		mb->absMvdComp_l[i8x8] |= (v8qi)mask & (v8qi)((v2li)pack_absMvdComp(mvd))[0];
+		v8hi mvs = (v8hi)__builtin_shufflevector((v4si)(mvp + mvd), (v4si){}, 0, 0, 0, 0);
+		v8hi mvs_mask = __builtin_shufflevector((v8hi)(v2li){(int64_t)mask}, (v8hi){}, 0, 0, 1, 1, 2, 2, 3, 3);
+		mb->mvs_v[i8x8] |= mvs_mask & mvs; // valid since mvs is initialized with 0
+		CALL(decode_inter, i, ctx->part_sizes[i * 2], ctx->part_sizes[i * 2 + 1]);
+	} while (flags &= flags - 1);
+	JUMP(parse_inter_residual);
+}
+
+
+
+/**
+ * Parse mb_skip_flag and mb_type in a P macroblock.
+ * 
+ * Motion vector prediction is one of the hardest parts to decode (8.4.1.3),
+ * here is a summary of the rules:
+ * _ A/B/C/D are 4x4 blocks at relative pixel positions (-1,0)/(0,-1)/(W,-1)/(-1,-1)
+ * _ if C is unavailable, take its values from D instead
+ * _ then any further unavailable block counts as refIdx=-1 and mv=0
+ * _ parse refIdx for the current block
+ * _ for 8x16 or 16x8, compare it with A(left)/C(right) or B(top)/A(bottom),
+ *   if it matches take the mv from the same neighbour
+ * _ otherwise if B/C/D are all unavailable, take their values from A instead
+ * _ then if only one of A/B/C equals refIdx, take mv from this neighbour
+ * _ otherwise predict mv as median(mvA, mvB, mvC)
+ * 
+ * In general we implement these rules in two steps:
+ * _ compare refIdx with A/B/C and produce a 3 bit equality mask (which can be
+ *   computed in parallel for all 4x4 blocks since there is no dependency
+ *   between blocks here)
+ * _ for each block, fetch the correct mv(s) and compute their median based on
+ *   the mask
+ * 
+ * FIXME use a 4-bit mask to spare writes in C4x4
+ */
+static inline void FUNC(parse_P_mb)
+{
+	// Inter initializations
+	mb->f.mbIsInterFlag = 1;
+	mb->Intra4x4PredMode_v = (v16qi){2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2};
+	
+	// shortcut for P_Skip
+	int mb_skip_flag = CALL(get_ae, 13 - ctx->inc.mb_skip_flag);
+	fprintf(stderr, "mb_skip_flag: %x\n", mb_skip_flag);
+	if (mb_skip_flag) {
+		mb->f.mb_skip_flag = mb_skip_flag;
+		mb->refIdx_l = (int64_t)(v8qi){0, 0, 0, 0, -1, -1, -1, -1};
+		mb->inter_blocks = 0x0001;
+		int refIdxA = *(mb->refIdx + ctx->refIdx_A[0]);
+		int refIdxB = *(mb->refIdx + ctx->refIdx_B[0]);
+		int mvA = *(mb->mvs_s + ctx->mvs_A[0]);
+		int mvB = *(mb->mvs_s + ctx->mvs_B[0]);
+		v8hi mv = {};
+		if ((refIdxA | mvA) && (refIdxB | mvB) && !(ctx->inc.unavailable & 3)) {
+			int refIdxC, mvs_C;
+			if (__builtin_expect(ctx->inc.unavailable & 4, 0)) {
+				refIdxC = *(mb->refIdx + ctx->refIdx_D);
+				mvs_C = ctx->mvs8x8_D[0];
+			} else {
+				refIdxC = *(mb->refIdx + ctx->refIdx_C);
+				mvs_C = ctx->mvs8x8_C[1];
+			}
+			// B/C unavailability (->A) was ruled out, thus not tested here
+			int eq = !refIdxA + !refIdxB * 2 + !refIdxC * 4;
+			if (__builtin_expect(0xe9 >> eq & 1, 1)) {
+				mv = vector_median((v8hi)(v4si){mvA}, (v8hi)(v4si){mvB}, (v8hi)(v4si){*(mb->mvs_s + mvs_C)});
+			} else if (eq == 4) {
+				mv = (v8hi)(v4si){*(mb->mvs_s + mvs_C)};
+			} else {
+				mv = (v8hi)(v4si){(eq == 1) ? mvA : mvB};
+			}
+		}
+		v8hi mvs = (v8hi)__builtin_shufflevector((v4si)mv, (v4si){}, 0, 0, 0, 0);
+		mb->mvs_v[0] = mb->mvs_v[1] = mb->mvs_v[2] = mb->mvs_v[3] = mvs;
+		JUMP(decode_inter, 0, 16, 16);
+		
+	} else if (CALL(get_ae, 14)) { // Intra
+		JUMP(parse_I_mb, 17);
+	}
+	
+	// Non-skip Inter initialisations
+	if (ctx->inc.unavailable & 1) {
+		mb[-1].coded_block_flags_4x4_v[0] = mb[-1].coded_block_flags_4x4_v[1] =
+			mb[-1].coded_block_flags_4x4_v[2] = mb[-1].coded_block_flags_8x8_v = (v16qi){};
+		ctx->inc.coded_block_flags_16x16_s &= 0x02020202;
+	}
+	if (ctx->inc.unavailable & 2) {
+		ctx->mbB->coded_block_flags_4x4_v[0] = ctx->mbB->coded_block_flags_4x4_v[1] =
+			ctx->mbB->coded_block_flags_4x4_v[2] = ctx->mbB->coded_block_flags_8x8_v = (v16qi){};
+		ctx->inc.coded_block_flags_16x16_s &= 0x01010101;
+	}
+	
+	// initializations and jumps for mb_type
+	if (!CALL(get_ae, 15)) {
+		if (!CALL(get_ae, 16)) { // 16x16
+			fprintf(stderr, "mb_type: 0\n");
+			mb->inter_blocks = 0x0001;
+			CALL(parse_ref_idx, 0x01);
+			CALL(parse_mvd_16x16, 0);
+			JUMP(parse_inter_residual);
+		} // else 8x8
+		
+	} else if (!CALL(get_ae, 17)) { // 8x16
+		fprintf(stderr, "mb_type: 2\n");
+		mb->inter_blocks = 0x0011;
+		CALL(parse_ref_idx, 0x03);
+		CALL(parse_mvd_8x16_left, 0);
+		CALL(parse_mvd_8x16_right, 0);
+		JUMP(parse_inter_residual);
+		
+	} else { // 16x8
+		fprintf(stderr, "mb_type: 1\n");
+		mb->inter_blocks = 0x0101;
+		CALL(parse_ref_idx, 0x05);
+		CALL(parse_mvd_16x8_top, 0);
+		CALL(parse_mvd_16x8_bottom, 0);
+		JUMP(parse_inter_residual);
+	}
+	fprintf(stderr, "mb_type: 3\n");
+	JUMP(parse_P_sub_mb);
 }
 
 

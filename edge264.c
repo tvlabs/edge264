@@ -179,6 +179,7 @@ static void FUNC(initialise_decoding_context, Edge264_stream *e)
 		ctx->mvs8x8_D_v = (v4si){15 + offD_32bit, 11 + offB_32bit, 7 + offA_32bit, 3};
 		ctx->num_ref_idx_mask = (ctx->ps.num_ref_idx_active[0] > 1) * 0x0f +
 			(ctx->ps.num_ref_idx_active[1] > 1) * 0xf0;
+		ctx->transform_8x8_mode_flag = ctx->ps.transform_8x8_mode_flag; // for P slices this value is constant
 		
 		// initialize plane pointers for all references
 		for (int l = 0; l <= ctx->slice_type; l++) {

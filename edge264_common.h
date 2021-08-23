@@ -80,7 +80,7 @@ typedef struct {
 	union { int8_t Intra4x4PredMode[16]; v16qi Intra4x4PredMode_v; }; // [i4x4]
 	union { int8_t coded_block_flags_8x8[12]; v16qi coded_block_flags_8x8_v; }; // [iYCbCr][i8x8]
 	union { int8_t coded_block_flags_4x4[48]; int32_t coded_block_flags_4x4_s[12]; v16qi coded_block_flags_4x4_v[3]; }; // [iYCbCr][i4x4]
-	union { uint8_t absMvdComp[64]; v8qu absMvdComp_l[8]; v16qu absMvdComp_v[4]; }; // [LX][i4x4][compIdx]
+	union { uint8_t absMvdComp[64]; uint64_t absMvdComp_l[8]; v16qu absMvdComp_v[4]; }; // [LX][i4x4][compIdx]
 	union { int16_t mvs[64]; int32_t mvs_s[32]; v8hi mvs_v[8]; }; // [LX][i4x4][compIdx]
 } Edge264_macroblock;
 
@@ -150,10 +150,11 @@ typedef struct
 	union { int32_t absMvdComp_B[16]; v16si absMvdComp_B_v; };
 	int32_t refIdx_C; // offset to mbC->refIdx[2]
 	int32_t refIdx_D; // offset to mbD->refIdx[3]
-	union { int32_t refIdx4x4_C_s[4]; v16qi refIdx4x4_C_v; }; // shuffle vector for mv prediction
+	union { int8_t refIdx4x4_C[16]; int32_t refIdx4x4_C_s[4]; v16qi refIdx4x4_C_v; }; // shuffle vector for mv prediction
 	union { int16_t mvs_A[16]; v16hi mvs_A_v; };
 	union { int32_t mvs_B[16]; v16si mvs_B_v; };
 	union { int32_t mvs_C[16]; v4si mvs_C_v[4]; }; // updated per-mb
+	union { int32_t mvs_D[16]; v4si mvs_D_v[4]; };
 	union { int32_t mvs8x8_C[4]; v4si mvs8x8_C_v; }; // for initialising mvs_C
 	union { int32_t mvs8x8_D[4]; v4si mvs8x8_D_v; };
 	
@@ -372,7 +373,7 @@ static inline __m128i _mm_broadcastw_epi16(__m128i a) {
 
 #ifdef __SSE4_1__
 #include <smmintrin.h>
-#define vector_select(mask, t, f) (typeof(f))_mm_blendv_epi8((__m128i)(f), (__m128i)(t), (__m128i)(mask))
+#define vector_select(mask, t, f) (typeof(t))_mm_blendv_epi8((__m128i)(f), (__m128i)(t), (__m128i)(mask))
 static inline __m128i load8x1_8bit(const uint8_t *p, __m128i zero) {
 	return _mm_cvtepu8_epi16(_mm_loadu_si64(p));
 }

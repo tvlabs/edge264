@@ -1012,6 +1012,7 @@ static inline void FUNC(parse_ref_idx, unsigned f) {
 		int i = __builtin_ctz(f);
 		int refIdxA = *(mb->refIdx + ctx->refIdx_A[i]);
 		int refIdxB = *(mb->refIdx + ctx->refIdx_B[i]);
+		// FIXME not valid if P_Skip or B_Skip -> introduce mb->refIdxInc bitfield
 		int ctxIdxInc = (refIdxA > 0) + (refIdxB > 0) * 2;
 		int refIdx = 0;
 		while (CALL(get_ae, 54 + ctxIdxInc)) {
@@ -1066,6 +1067,7 @@ static always_inline void FUNC(decode_direct_spatial_mv_pred, unsigned todo_bloc
 	// direct zero prediction applies only to refIdx (mvLX are zero already)
 	refIdx ^= (v16qi)((v2li)refIdx == -1);
 	mb->refIdx_l = ((v2li)refIdx)[0];
+	// printf("<li>refIdxL0A/B/C=%d/%d/%d, refIdxL1A/B/C=%d/%d/%d, mvsL0A/B/C=[%d,%d]/[%d,%d]/[%d,%d], mvsL1A/B/C=[%d,%d]/[%d,%d]/[%d,%d] -> refIdxL0/1=%d/%d, mvsL0/1=[%d,%d]/[%d,%d]</li>\n", refIdxA[0], refIdxB[0], refIdxC[0], refIdxA[4], refIdxB[4], refIdxC[4], mvA[0], mvA[1], mvB[0], mvB[1], mvC[0], mvC[1], mvA[2], mvA[3], mvB[2], mvB[3], mvC[2], mvC[3], mb->refIdx[0], mb->refIdx[4], mv01[0], mv01[1], mv01[2], mv01[3]);
 	
 	// trick from ffmpeg: skip computations on refCol/mvCol if both mvs are zero
 	if (((v2li)mv01)[0] != 0 && ctx->col_short_term) {
@@ -1189,15 +1191,14 @@ static always_inline void FUNC(decode_direct_temporal_mv_pred, unsigned todo_blo
 	mb->mvs_v[7] = mb->mvs_v[3] - mvCol3;
 	
 	// execute decode_inter for the positions given in the mask
-	inter_blocks += inter_blocks << 16;
+	inter_blocks |= inter_blocks << 16;
 	do {
 		int i = __builtin_ctz(inter_blocks);
 		static int8_t fake_neighbours[16] = {0, 13, 14, 15, 4, 13, 14, 15, 8, 13, 14, 15, 12, 13, 14, 15};
-		static int8_t nb2types[16] = {0, 5, 4, 6, 2, 5, 4, 6, 1, 5, 4, 6, 3, 5, 4, 6};
-		static uint16_t masks[7] = {0xffff, 0xff, 0xf0f, 0xf, 0x3, 0x5, 0x1};
-		static int8_t widths[7] = {16, 16, 8, 8, 8, 4, 4};
-		static int8_t heights[7] = {16, 8, 16, 8, 4, 8, 4};
-		int type = nb2types[_pext_u32(inter_blocks >> i, 0x116) | fake_neighbours[i & 15]]; // FIXME intrinsic
+		static uint16_t masks[16] = {0xffff, 0x5, 0x3, 0x1, 0xf0f, 0x5, 0x3, 0x1, 0xff, 0x5, 0x3, 0x1, 0xf, 0x5, 0x3, 0x1};
+		static int8_t widths[16] = {16, 4, 8, 4, 8, 4, 8, 4, 16, 4, 8, 4, 8, 4, 8, 4};
+		static int8_t heights[16] = {16, 8, 4, 4, 16, 8, 4, 4, 8, 8, 4, 4, 8, 8, 4, 4};
+		int type = extract_neighbours(inter_blocks >> i) | fake_neighbours[i & 15];
 		inter_blocks ^= masks[type] << i;
 		CALL(decode_inter, i, widths[type], heights[type]);
 	} while (inter_blocks);
@@ -1240,7 +1241,6 @@ void FUNC(parse_B_sub_mb) {
 	// initializations for sub_mb_type
 	unsigned mvd_flags = 0;
 	unsigned direct_flags = 0;
-	unsigned ref_idx_flags = 0x100000; // could be replaced by pext(mvd, 0x11111111)...
 	for (int i8x8 = 0; i8x8 < 4; i8x8++) {
 		int i4x4 = i8x8 * 4;
 		if (!CALL(get_ae, 36)) {
@@ -1255,13 +1255,13 @@ void FUNC(parse_B_sub_mb) {
 				sub += sub + CALL(get_ae, 39);
 			}
 			mvd_flags |= sub2flags[sub] << i4x4;
-			ref_idx_flags |= (sub2flags[sub] & 0x10001) << i8x8;
 			if (0x23b & 1 << sub) { // 8xN
 				ctx->unavail[i4x4] = (ctx->unavail[i4x4] & 11) | (ctx->unavail[i4x4 + 1] & 4);
+				ctx->unavail[i4x4 + 2] |= 4;
 				ctx->refIdx4x4_C[i4x4] = 0x0d63 >> i4x4 & 15;
 				ctx->mvs_C[i4x4] = ctx->mvs8x8_C[i8x8];
 			} else { // 4xN
-				ctx->refIdx4x4_C[i4x4] = 0x0c32 >> i4x4 & 15;
+				ctx->refIdx4x4_C[i4x4] = 0xdc32 >> i4x4 & 15;
 				ctx->mvs_C[i4x4] = ctx->mvs_B[i4x4 + 1];
 			}
 			fprintf(stderr, "sub_mb_type: %u\n", sub2mb_type[sub]);
@@ -1272,7 +1272,7 @@ void FUNC(parse_B_sub_mb) {
 	// initialize direct prediction then parse all ref_idx values
 	if (direct_flags)
 		CALL(decode_direct_mv_pred, direct_flags);
-	CALL(parse_ref_idx, (ref_idx_flags & 15) | (ref_idx_flags >> 12));
+	CALL(parse_ref_idx, mvd_flags2ref_idx(mvd_flags)); // FIXME prevent erasing of direct
 	
 	// load neighbouring refIdx values and shuffle them into A/B/C/D
 	Edge264_macroblock *mbB = ctx->mbB;
@@ -1296,8 +1296,8 @@ void FUNC(parse_B_sub_mb) {
 	// combine them into a vector of 4-bit equality masks
 	v16qi u = ctx->unavail_v;
 	v16qi uC = u & 4;
-	ctx->refIdx4x4_eq_v[0] = uC*2 + (uC&(r0==D0)) - ((r0==A0 | u==14) + ((r0==B0) + (r0==C0) * 2) * 2);
-	ctx->refIdx4x4_eq_v[1] = uC*2 + (uC&(r1==D1)) - ((r1==A1 | u==14) + ((r1==B1) + (r1==C1) * 2) * 2);
+	ctx->refIdx4x4_eq_v[0] = (uC - vector_select(uC==4, r0==D0, r0==C0) * 2 - (r0==B0)) * 2 - (r0==A0 | u==14);
+	ctx->refIdx4x4_eq_v[1] = (uC - vector_select(uC==4, r1==D1, r1==C1) * 2 - (r1==B1)) * 2 - (r1==A1 | u==14);
 	
 	// loop on mvs
 	do {
@@ -1318,21 +1318,21 @@ void FUNC(parse_B_sub_mb) {
 		if (__builtin_expect(0xe9e9 >> eq & 1, 1)) {
 			v8hi mvA = (v8hi)(v4si){mvs_p[ctx->mvs_A[i4x4]]};
 			v8hi mvB = (v8hi)(v4si){mvs_p[ctx->mvs_B[i4x4]]};
-			v8hi mvCD = (v8hi)(v4si){mvs_p[mvs_DC]};
-			mvp = vector_median(mvA, mvB, mvCD);
+			v8hi mvDC = (v8hi)(v4si){mvs_p[mvs_DC]};
+			mvp = vector_median(mvA, mvB, mvDC);
 		} else {
 			int mvs_AB = eq & 1 ? ctx->mvs_A[i4x4] : ctx->mvs_B[i4x4];
 			mvp = (v8hi)(v4si){mvs_p[eq & 4 ? mvs_DC : mvs_AB]};
 		}
 		
 		// broadcast absMvdComp and mvs to memory then call decoding
-		static const int8_t masks[16] = {0, 15, 10, 5, 12, 6, 0, 0, 8, 0, 0, 0, 4, 0, 2, 1};
+		static const int8_t masks[16] = {0, 15, 10, 5, 12, 3, 0, 0, 8, 0, 0, 0, 4, 0, 2, 1};
 		static const int8_t widths[16] = {0, 8, 4, 4, 8, 8, 0, 0, 4, 0, 0, 0, 4, 0, 4, 4};
 		static const int8_t heights[16] = {0, 8, 8, 8, 4, 4, 0, 0, 4, 0, 0, 0, 4, 0, 4, 4};
 		int type = mvd_flags >> (i & -4) & 15;
 		int m = masks[type];
 		int i8x8 = i >> 2;
-		v8hi bits = (v8hi){1, 2, 4, 8};
+		v8hi bits = {1, 2, 4, 8};
 		v8hi absMvdComp_mask = ((v8hi){m, m, m, m, m, m, m, m} & bits) == bits;
 		v8hi absMvdComp_old = (v8hi)(v2li){mb->absMvdComp_l[i8x8]};
 		v8hi mvs_mask = __builtin_shufflevector(absMvdComp_mask, (v8hi){}, 0, 0, 1, 1, 2, 2, 3, 3);
@@ -1476,89 +1476,50 @@ static inline void FUNC(parse_B_mb)
  */
 static void FUNC(parse_P_sub_mb)
 {
-	static const v4qi refIdx4x4_C[8] = {
-		{10, 11, 4,  4}, {11, 14, 5,  5}, {4,  5, 6,  6}, {5,  5, 7,  7},  // w=4
-		{11, -1, 1, -1}, {14, -1, 4, -1}, {5, -1, 3, -1}, {4, -1, 6, -1}}; // w=8
-	
-	// initializations and jumps for sub_mb_type
-	unsigned flags = 0;
+	// initializations for sub_mb_type
+	unsigned mvd_flags = 0;
 	for (int i8x8 = 0; i8x8 < 4; i8x8++) {
 		int i4x4 = i8x8 * 4;
-		int unavail1 = ctx->unavail[i4x4 + 1];
-		
-		if (CALL(get_ae, 21)) { // 8x8
-			ctx->mvs_C[i4x4] = (unavail1 & 4 ? ctx->mvs8x8_D : ctx->mvs8x8_C)[i8x8];
-			ctx->unavail[i4x4] |= unavail1; // FIXME bug if D avail and B unavail, and if C avail and B unavail
-			flags |= 1 << i4x4;
-			ctx->refIdx4x4_C_s[i8x8] = (int32_t)refIdx4x4_C[4 + i8x8];
-			ctx->part_sizes_l[i8x8] = (int64_t)(v8qi){8, 8};
-			ctx->inter8x8_shuffle[i8x8] = (v4hi){0, 0, 0, 0};
-			
-		} else if (ctx->transform_8x8_mode_flag = 0, !CALL(get_ae, 22)) { // 8x4
-			ctx->mvs_C[i4x4] = (unavail1 & 4 ? ctx->mvs8x8_D : ctx->mvs8x8_C)[i8x8];
-			ctx->mvs_C[i4x4 + 2] = ctx->mvs_A[i4x4];
-			ctx->unavail[i4x4] |= unavail1;
-			flags |= 5 << i4x4;
-			ctx->refIdx4x4_C_s[i8x8] = (int32_t)refIdx4x4_C[4 + i8x8];
-			ctx->part_sizes_l[i8x8] = (int64_t)(v8qi){8, 4, 0, 0, 8, 4, 0, 0};
-			ctx->inter8x8_shuffle[i8x8] = (v4hi){0, 0, 2, 2};
-			
-		} else if (CALL(get_ae, 23)) { // 4x8
-			ctx->mvs_C[i4x4] = (unavail1 & 2) ? ctx->mvs8x8_D[i8x8] : ctx->mvs_B[i4x4 + 1];
-			ctx->mvs_C[i4x4 + 1] = (unavail1 & 4) ? ctx->mvs_B[i4x4] : ctx->mvs8x8_C[i8x8];
-			flags |= 3 << i4x4;
-			ctx->refIdx4x4_C_s[i8x8] = (int32_t)refIdx4x4_C[i8x8];
-			ctx->part_sizes_l[i8x8] = (int64_t)(v8qi){4, 8, 4, 8};
-			ctx->inter8x8_shuffle[i8x8] = (v4hi){0, 1, 0, 1};
-			
-		} else { // 4x4
-			ctx->mvs_C[i4x4] = (unavail1 & 2) ? ctx->mvs8x8_D[i8x8] : ctx->mvs_B[i4x4 + 1];
-			ctx->mvs_C[i4x4 + 1] = (unavail1 & 4) ? ctx->mvs_B[i4x4] : ctx->mvs8x8_C[i8x8];
-			ctx->mvs_C[i4x4 + 2] = i4x4 + 1;
-			ctx->mvs_C[i4x4 + 3] = i4x4;
-			flags |= 15 << i4x4;
-			ctx->refIdx4x4_C_s[i8x8] = (int32_t)refIdx4x4_C[i8x8];
-			ctx->part_sizes_l[i8x8] = (int64_t)(v8qi){4, 4, 4, 4, 4, 4, 4, 4};
-			ctx->inter8x8_shuffle[i8x8] = (v4hi){0, 1, 2, 3};
+		int flags = 1;
+		if (CALL(get_ae, 21) || // 8x8
+			(ctx->transform_8x8_mode_flag = 0, flags = 5, !CALL(get_ae, 22))) { // 8x4
+			ctx->unavail[i4x4] = (ctx->unavail[i4x4] & 11) | (ctx->unavail[i4x4 + 1] & 4);
+			ctx->unavail[i4x4 + 2] |= 4;
+			ctx->refIdx4x4_C[i4x4] = 0x0d63 >> i4x4 & 15;
+			ctx->mvs_C[i4x4] = ctx->mvs8x8_C[i8x8];
+		} else { // 4xN
+			ctx->refIdx4x4_C[i4x4] = 0xdc32 >> i4x4 & 15;
+			ctx->mvs_C[i4x4] = ctx->mvs_B[i4x4 + 1];
+			flags = CALL(get_ae, 23) ? 3 : 15;
 		}
-		unsigned f = flags >> i4x4;
-		fprintf(stderr, "sub_mb_type: %c\n", (f == 1) ? '0' : (f == 5) ? '1' : (f == 3) ? '2' : '3');
+		mvd_flags |= flags << i4x4;
+		fprintf(stderr, "sub_mb_type: %c\n", (flags == 1) ? '0' : (flags == 5) ? '1' : (flags == 3) ? '2' : '3');
 	}
-	mb->inter_blocks = flags;
+	mb->inter_blocks = mvd_flags;
 	CALL(parse_ref_idx, 0x0f);
 	
-	// load neighbouring refIdx values and shuffle them into A/B/C
+	// load neighbouring refIdx values and shuffle them into A/B/C/D
+	Edge264_macroblock *mbB = ctx->mbB;
+	v16qi BC = (v16qi)(v2li){(int64_t)mbB->refIdx_l, (int64_t)mbB[1].refIdx_l};
 	v16qi Ar = (v16qi)(v2li){(int64_t)mb[-1].refIdx_l, (int64_t)mb->refIdx_l};
-	v16qi BC = (v16qi)(v2li){(int64_t)ctx->mbB->refIdx_l, (int64_t)ctx->mbB[1].refIdx_l};
-	v16qi rB = (v16qi)__builtin_shufflevector((v2li)Ar, (v2li)BC, 1, 2);
-	v16qi A4x4 = __builtin_shufflevector(Ar, Ar, 1, 8, 1, 8, 8, 9, 8, 9, 3, 10, 3, 10, 10, 11, 10, 11);
-	v16qi B4x4 = __builtin_shufflevector(rB, rB, 10, 10, 0, 0, 11, 11, 1, 1, 0, 0, 2, 2, 1, 1, 3, 3);
-	v16qi C4x4 = byte_shuffle((v16qi)__builtin_shufflevector((v4si)Ar, (v4si)BC, 0, 2, 4, 6), ctx->refIdx4x4_C_v);
-	v16qi r4x4 = __builtin_shufflevector(Ar, Ar, 8, 8, 8, 8, 9, 9, 9, 9, 10, 10, 10, 10, 11, 11, 11, 11);
+	v16qi BCAr0 = (v16qi)__builtin_shufflevector((v4si)BC, (v4si)Ar, 0, 2, 4, 6);
+	v16qi r0 = __builtin_shufflevector(BCAr0, BCAr0, 12, 12, 12, 12, 13, 13, 13, 13, 14, 14, 14, 14, 15, 15, 15, 15);
+	v16qi A0 = __builtin_shufflevector(BCAr0, BCAr0, 9, 12, 9, 12, 12, 13, 12, 13, 11, 14, 11, 14, 14, 15, 14, 15);
+	v16qi B0 = __builtin_shufflevector(BCAr0, BCAr0, 2, 2, 12, 12, 3, 3, 13, 13, 12, 12, 14, 14, 13, 13, 15, 15);
+	v16qi C0 = byte_shuffle(BCAr0, ctx->refIdx4x4_C_v);
+	v16qi D0 = __builtin_shufflevector(BCAr0, BCAr0, -1, 2, 9, 12, 2, 3, 12, 13, 9, 12, 11, 14, 12, 13, 14, 15);
+	D0[0] = mbB->refIdx[3];
 	
-	// handle unavailability of B/C macroblocks
-	if (__builtin_expect(ctx->inc.unavailable > 1, 0)) {
-		if (ctx->inc.unavailable & 2) {
-			C4x4[0] = ctx->mbB[-1].refIdx[3];
-			C4x4[1] = ctx->mbB->refIdx[2];
-		}
-		if (ctx->inc.unavailable << 1 & ctx->part_sizes[8]) {
-			C4x4[4] = ctx->mbB->refIdx[2];
-		}
-		if (ctx->inc.unavailable & 4) {
-			C4x4[5] = ctx->mbB->refIdx[3];
-		}
-	}
-	
-	// compare them and store equality formula
-	v16qi sum = (r4x4==A4x4) + ((r4x4==B4x4) + (r4x4==C4x4) * 2) * 2; // remember comparisons return -1
-	ctx->refIdx4x4_eq_v[0] = -(sum | (ctx->unavail_v==14)); // if B and C are unavailable, then sum is already 0 or 1
+	// combine them into a vector of 4-bit equality masks
+	v16qi u = ctx->unavail_v;
+	v16qi uC = u & 4;
+	ctx->refIdx4x4_eq_v[0] = (uC - vector_select(uC==4, r0==D0, r0==C0) * 2 - (r0==B0)) * 2 - (r0==A0 | u==14);
 	
 	// loop on mvs
 	do {
-		int i = __builtin_ctz(flags);
-		int sumx = *(mb->absMvdComp + 0 + ctx->absMvdComp_A[i]) + *(mb->absMvdComp + 0 + ctx->absMvdComp_B[i]);
-		int sumy = *(mb->absMvdComp + 1 + ctx->absMvdComp_A[i]) + *(mb->absMvdComp + 1 + ctx->absMvdComp_B[i]);
+		int i = __builtin_ctz(mvd_flags);
+		int sumx = *(mb->absMvdComp + ctx->absMvdComp_A[i] + 0) + *(mb->absMvdComp + ctx->absMvdComp_B[i] + 0);
+		int sumy = *(mb->absMvdComp + ctx->absMvdComp_A[i] + 1) + *(mb->absMvdComp + ctx->absMvdComp_B[i] + 1);
 		int x = CALL(parse_mvd_comp, 40, sumx);
 		int y = CALL(parse_mvd_comp, 47, sumy);
 		v8hi mvd = {x, y};
@@ -1566,28 +1527,33 @@ static void FUNC(parse_P_sub_mb)
 		// branch on equality mask
 		v8hi mvp;
 		int eq = ctx->refIdx4x4_eq[i];
-		if (__builtin_expect(0xe9 >> eq & 1, 1)) {
+		int mvs_DC = eq & 8 ? ctx->mvs_D[i] : ctx->mvs_C[i];
+		if (__builtin_expect(0xe9e9 >> eq & 1, 1)) {
 			v8hi mvA = (v8hi)(v4si){*(mb->mvs_s + ctx->mvs_A[i])};
 			v8hi mvB = (v8hi)(v4si){*(mb->mvs_s + ctx->mvs_B[i])};
-			v8hi mvC = (v8hi)(v4si){*(mb->mvs_s + ctx->mvs_C[i])};
-			mvp = vector_median(mvA, mvB, mvC);
-		} else if (eq == 1) {
-			mvp = (v8hi)(v4si){*(mb->mvs_s + ctx->mvs_A[i])};
-		} else if (eq == 2) {
-			mvp = (v8hi)(v4si){*(mb->mvs_s + ctx->mvs_B[i])};
+			v8hi mvDC = (v8hi)(v4si){*(mb->mvs_s + mvs_DC)};
+			mvp = vector_median(mvA, mvB, mvDC);
 		} else {
-			mvp = (v8hi)(v4si){*(mb->mvs_s + ctx->mvs_C[i])};
+			int mvs_AB = eq & 1 ? ctx->mvs_A[i] : ctx->mvs_B[i];
+			mvp = (v8hi)(v4si){*(mb->mvs_s + (eq & 4 ? mvs_DC : mvs_AB))};
 		}
 		
 		// broadcast absMvdComp and mvs to memory then call decoding
+		static const int8_t masks[16] = {0, 15, 10, 5, 12, 3, 0, 0, 8, 0, 0, 0, 4, 0, 2, 1};
+		static const int8_t widths[16] = {0, 8, 4, 4, 8, 8, 0, 0, 4, 0, 0, 0, 4, 0, 4, 4};
+		static const int8_t heights[16] = {0, 8, 8, 8, 4, 4, 0, 0, 4, 0, 0, 0, 4, 0, 4, 4};
+		int type = mvd_flags >> (i & -4) & 15;
+		int m = masks[type];
 		int i8x8 = i >> 2;
-		v4hi mask = ctx->inter8x8_shuffle[i8x8] == (int16_t)(i & 3);
-		mb->absMvdComp_l[i8x8] |= (v8qi)mask & (v8qi)((v2li)pack_absMvdComp(mvd))[0];
+		v8hi bits = {1, 2, 4, 8};
+		v8hi absMvdComp_mask = ((v8hi){m, m, m, m, m, m, m, m} & bits) == bits;
+		v8hi absMvdComp_old = (v8hi)(v2li){mb->absMvdComp_l[i8x8]};
+		v8hi mvs_mask = __builtin_shufflevector(absMvdComp_mask, (v8hi){}, 0, 0, 1, 1, 2, 2, 3, 3);
 		v8hi mvs = (v8hi)__builtin_shufflevector((v4si)(mvp + mvd), (v4si){}, 0, 0, 0, 0);
-		v8hi mvs_mask = __builtin_shufflevector((v8hi)(v2li){(int64_t)mask}, (v8hi){}, 0, 0, 1, 1, 2, 2, 3, 3);
-		mb->mvs_v[i8x8] |= mvs_mask & mvs; // valid since mvs is initialized with 0
-		CALL(decode_inter, i, ctx->part_sizes[i * 2], ctx->part_sizes[i * 2 + 1]);
-	} while (flags &= flags - 1);
+		mb->absMvdComp_l[i8x8] = ((v2li)vector_select(absMvdComp_mask, (v8hi)pack_absMvdComp(mvd), absMvdComp_old))[0];
+		mb->mvs_v[i8x8] = vector_select(mvs_mask, mvs, mb->mvs_v[i8x8]);
+		CALL(decode_inter, i, widths[type], heights[type]);
+	} while (mvd_flags &= mvd_flags - 1);
 	JUMP(parse_inter_residual);
 }
 

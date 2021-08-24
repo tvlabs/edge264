@@ -26,7 +26,8 @@
  * _ after implementing P/B and MBAFF, optimize away array accesses of is422 and mb->f.mb_field_decoding_flag
  * _ Change the API to return an array of frames instead of using a callback (easier for FFIs)
  * _ Remember Intra decoding is mixed with residuals so switch is necessary and passing preds in registers is good -> provide 2 functions add_idct4x4_inplace/inregs and keep preds in regs or mem depending on host number of regs
- 
+ * _ make offsets relative to macroblock, to make binary lighter
+ * 
  * _ Current x264 options in HandBrake to output compatible video: no-deblock:slices=1:no-8x8dct:bframes=0
  * _ To benchmark ffmpeg: ffmpeg -hide_banner -benchmark -threads 1 -i video.264 -f null -
  */
@@ -176,6 +177,8 @@ static void FUNC(initialise_decoding_context, Edge264_stream *e)
 		ctx->absMvdComp_B_v = (v16si){20 + offB_8bit, 22 + offB_8bit, 0, 2, 28 + offB_8bit, 30 + offB_8bit, 8, 10, 4, 6, 16, 18, 12, 14, 24, 26};
 		ctx->mvs_A_v = (v16hi){5 + offA_32bit, 0, 7 + offA_32bit, 2, 1, 4, 3, 6, 13 + offA_32bit, 8, 15 + offA_32bit, 10, 9, 12, 11, 14};
 		ctx->mvs_B_v = (v16si){10 + offB_32bit, 11 + offB_32bit, 0, 1, 14 + offB_32bit, 15 + offB_32bit, 4, 5, 2, 3, 8, 9, 6, 7, 12, 13};
+		ctx->mvs_C_v = (v16si){11 + offB_32bit, 14 + offB_32bit, 1, -1, 15 + offB_32bit, 10 + offC_32bit, 5, -1, 3, 6, 9, -1, 7, -1, 13, -1};
+		ctx->mvs_D_v = (v16si){15 + offD_32bit, 10 + offB_32bit, 5 + offA_32bit, 0, 11 + offB_32bit, 14 + offB_32bit, 1, 4, 7 + offA_32bit, 2, 13 + offA_32bit, 8, 3, 6, 9, 12};
 		ctx->mvs8x8_C_v = (v4si){14 + offB_32bit, 10 + offC_32bit, 6, 0};
 		ctx->mvs8x8_D_v = (v4si){15 + offD_32bit, 11 + offB_32bit, 7 + offA_32bit, 3};
 		ctx->num_ref_idx_mask = (ctx->ps.num_ref_idx_active[0] > 1) * 0x0f +

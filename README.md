@@ -21,15 +21,15 @@ Planned features
 ----------------
 
 * B frames (work in progress)
-* Deblocking
 * CAVLC
+* Deblocking
 * Transform-bypass for macroblocks with QP==0
 * Constrained Intra prediction mode
 * Frame cropping
-* Slices (and separate colour planes)
 * MVC 3D support
 * 4:0:0, 4:2:2 and 4:4:4 (mostly implemented, needs testing)
 * 9-14 bit depths with possibility of different luma/chroma depths (mostly implemented, needs testing)
+* Slices (and separate colour planes)
 * Thread-safety and slice-multithreading (to let multithreaded encoders decode/encode each frame on the same thread)
 * PAFF and MBAFF (some decoding already implemented)
 * Error concealment

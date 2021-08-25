@@ -1273,7 +1273,7 @@ static inline void FUNC(inter8xH_chroma_8bit, int h, size_t dstride, uint8_t * r
  * Decode a single Inter block, fetching refIdx and mv at the given index in
  * memory, then computing the samples for the three color planes.
  * 
- * There are 5 weighting schemes, which we select with the help of this table:
+ * There are 5 weighting schemes, which we select according to this table:
  *            +------------+--------------+------------+--------------+
  *            | ref0 alone | ref0 of pair | ref1 alone | ref1 of pair |
  * +----------+------------+--------------+------------+--------------+
@@ -1338,6 +1338,7 @@ noinline void FUNC(decode_inter, int i, int w, int h) {
 	}
 	
 	// initialize prediction weights
+	// FIXME unused variables?
 	v16qi biweights_Cb, biweights_Cr;
 	v8hi bioffsets_Cb, bioffsets_Cr, logWD_C;
 	if ((i8x8 < 4 || mb->refIdx[i8x8 - 4] < 0) && (ctx->ps.weighted_bipred_idc != 1 || mb->refIdx[i8x8 ^ 4] >= 0)) { // no_weight

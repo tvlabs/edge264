@@ -10,13 +10,15 @@
  * _ Test and debug B slices
  * _ Refactor decode_inter to extract the non-SSSE3 code into edge264_slice.c
  * _ Fix Direct_16x16 to initialize a single mv for the entire block
- 
+ * _ Rename absMvdComp into absMvd
+ * _ Rename other mb variables to their non symbol version
+ * 
  * _ Modify all Intra decoding functions to operate after parsing (rather than before residual) and write directly to memory
  * _ Remove stride variable in favor of passing it directly to residual functions
  * _ Remove Pred modes and related variables (BlkIdx)
  * _ Modify the API to return at most 1 image per call, and include a 4th return code OUTPUT_IMAGE (test beforehand whether it may happen that the DPB is full without empty slot, and if not too frequent fix them with a realloc)
  * _ Don't allocate before each image, because it might contribute to fragmentation if other allocations happen inbetween
- 
+ * 
  * _ update the tables of names for profiles and NAL types
  * _ upgrade DPB storage size to 32 (to allow future multithreaded decoding), by simply doubling reference and output flags sizes
  * _ backup output/ref flags and FrameNum and restore then on bad slice_header

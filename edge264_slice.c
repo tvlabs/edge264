@@ -1001,29 +1001,46 @@ static inline void FUNC(parse_mvd_16x8_bottom, int lx)
 
 /**
  * Parses ref_idx_lx (9.3.3.1.1.6).
+ * 
+ * f is a bitmask for indices of symbols that should be parsed. These values
+ * are then broadcast to other positions according to the inferred block
+ * shapes, unless bit 8 is set (to signal Direct_8x8).
  */
 static inline void FUNC(parse_ref_idx, unsigned f) {
-	static const v8qi masks[4] = {{0, 0, 0, 0, 4, 4, 4, 4}, {0, 1, 0, 1, 4, 5, 4, 5}, {0, 0, 2, 2, 4, 4, 6, 6}, {0, 1, 2, 3, 4, 5, 6, 7}};
-	int shuf = (f >> 1 | f >> 5) & 3;
+	static const int8_t inc_shifts[8] = {0, 5, 4, 2, 8, 13, 12, 10};
+	static const int8_t bit_shifts[8] = {5, 3, 2, 7, 13, 11, 10, 15};
 	v16qu v = {f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f};
 	v16qu bits = {1, 2, 4, 8, 16, 32, 64, 128};
-	mb->refIdx_l = ((v2li)((bits & ~v) == bits))[0]; // initialize to 0 if parsed, -1 otherwise
-	for (f &= ctx->num_ref_idx_mask; f; f &= f - 1) {
-		int i = __builtin_ctz(f);
-		int refIdxA = *(mb->refIdx + ctx->refIdx_A[i]);
-		int refIdxB = *(mb->refIdx + ctx->refIdx_B[i]);
-		// FIXME not valid if P_Skip or B_Skip -> introduce mb->refIdxInc bitfield
-		int ctxIdxInc = (refIdxA > 0) + (refIdxB > 0) * 2;
-		int refIdx = 0;
-		while (CALL(get_ae, 54 + ctxIdxInc)) {
-			ctxIdxInc = (ctxIdxInc >> 2) + 4; // cool trick from ffmpeg
-			if (++refIdx >= 32)
-				return; // leave without storing value, keeping memory in a valid state
+	mb->refIdx_l = ((v2li){mb->refIdx_l} & ~(v2li)((v & bits) == bits))[0]; // set to 0 if parsed
+	mb->ref_idx_nz = (mb[-1].ref_idx_nz >> 3 & 0x1111) | (ctx->mbB->ref_idx_nz >> 1 & 0x4242);
+	for (unsigned u = f & ctx->num_ref_idx_mask; u; u &= u - 1) {
+		int i = __builtin_ctz(u);
+		int ref_idx = 0;
+		if (CALL(get_ae, 54 + (mb->ref_idx_nz >> inc_shifts[i] & 3))) {
+			ref_idx = 1;
+			mb->ref_idx_nz |= ref_idx << bit_shifts[i];
+			if (CALL(get_ae, 58)) {
+				do {
+					if (++ref_idx >= 32)
+						return; // leave without storing value, keeping memory in a valid state
+				} while (CALL(get_ae, 59));
+			}
 		}
-		mb->refIdx[i] = refIdx;
-		fprintf(stderr, "ref_idx: %u\n", refIdx);
+		mb->refIdx[i] = ref_idx;
+		fprintf(stderr, "ref_idx: %u\n", ref_idx);
 	}
-	mb->refIdx_l = ((v2li)byte_shuffle((v16qi)(v2li){mb->refIdx_l}, (v16qi)(v2li){(int64_t)masks[shuf]}))[0];
+	
+	// broadcast the values
+	v16qi refIdx_v = (v16qi)(v2li){mb->refIdx_l};
+	if (!(f & 0x122)) { // 16xN
+		refIdx_v = __builtin_shufflevector(refIdx_v, refIdx_v, 0, 0, 2, 2, 4, 4, 6, 6, -1, -1, -1, -1, -1, -1, -1, -1);
+		mb->ref_idx_nz |= (mb->ref_idx_nz >> 2 & 0x0808) | (mb->ref_idx_nz << 5 & 0x8080);
+	}
+	if (!(f & 0x144)) { // Nx16
+		refIdx_v = __builtin_shufflevector(refIdx_v, refIdx_v, 0, 1, 0, 1, 4, 5, 4, 5, -1, -1, -1, -1, -1, -1, -1, -1);
+		mb->ref_idx_nz |= (mb->ref_idx_nz >> 3 & 0x0404) | (mb->ref_idx_nz << 4 & 0x8080);
+	}
+	mb->refIdx_l = ((v2li)refIdx_v)[0];
 }
 
 
@@ -1233,7 +1250,7 @@ static noinline void FUNC(decode_direct_mv_pred, unsigned todo_blocks) {
  * _ 10 = B_Bi_4x8
  * _ 11 = B_L0_4x4
  */
-void FUNC(parse_B_sub_mb) {
+static void FUNC(parse_B_sub_mb) {
 	static const uint32_t sub2flags[12] = {0x10001, 0x00005, 0x00003, 0x50000,
 		0x00001, 0x10000, 0xf0000, 0xf000f, 0x30000, 0x50005, 0x30003, 0x0000f};
 	static const uint8_t sub2mb_type[13] = {3, 4, 5, 6, 1, 2, 11, 12, 7, 8, 9, 10, 0};
@@ -1272,7 +1289,7 @@ void FUNC(parse_B_sub_mb) {
 	// initialize direct prediction then parse all ref_idx values
 	if (direct_flags)
 		CALL(decode_direct_mv_pred, direct_flags);
-	CALL(parse_ref_idx, mvd_flags2ref_idx(mvd_flags)); // FIXME prevent erasing of direct
+	CALL(parse_ref_idx, 0x100 | mvd_flags2ref_idx(mvd_flags));
 	
 	// load neighbouring refIdx values and shuffle them into A/B/C/D
 	Edge264_macroblock *mbB = ctx->mbB;
@@ -1431,6 +1448,7 @@ static inline void FUNC(parse_B_mb)
 	if (str == 13)
 		JUMP(parse_I_mb, 32);
 	fprintf(stderr, "mb_type: %u\n", str2mb_type[str]);
+	mb->refIdx_l = -1;
 	if (str == 15)
 		JUMP(parse_B_sub_mb);
 	int flags8x8 = str2flags[str];
@@ -1629,6 +1647,7 @@ static inline void FUNC(parse_P_mb)
 	}
 	
 	// Non-skip Inter initialisations
+	mb->refIdx_s[1] = -1;
 	if (ctx->inc.unavailable & 1) {
 		mb[-1].coded_block_flags_4x4_v[0] = mb[-1].coded_block_flags_4x4_v[1] =
 			mb[-1].coded_block_flags_4x4_v[2] = mb[-1].coded_block_flags_8x8_v = (v16qi){};

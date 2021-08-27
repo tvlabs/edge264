@@ -1051,7 +1051,7 @@ static inline void FUNC(parse_ref_idx, unsigned f) {
  * 
  * FIXME inter_blocks may be wrong with B_Direct_8x8
  */
-static always_inline void FUNC(decode_direct_spatial_mv_pred, unsigned todo_blocks)
+static always_inline void FUNC(decode_direct_spatial_mv_pred, unsigned direct_flags)
 {
 	// load all refIdxN and mvN in vector registers
 	v16qi shuf = {0, 0, 0, 0, 1, 1, 1, 1, 2, 2, 2, 2, 3, 3, 3, 3};
@@ -1083,11 +1083,10 @@ static always_inline void FUNC(decode_direct_spatial_mv_pred, unsigned todo_bloc
 	
 	// direct zero prediction applies only to refIdx (mvLX are zero already)
 	refIdx ^= (v16qi)((v2li)refIdx == -1);
-	mb->refIdx_l = ((v2li)refIdx)[0];
 	// printf("<li>refIdxL0A/B/C=%d/%d/%d, refIdxL1A/B/C=%d/%d/%d, mvsL0A/B/C=[%d,%d]/[%d,%d]/[%d,%d], mvsL1A/B/C=[%d,%d]/[%d,%d]/[%d,%d] -> refIdxL0/1=%d/%d, mvsL0/1=[%d,%d]/[%d,%d]</li>\n", refIdxA[0], refIdxB[0], refIdxC[0], refIdxA[4], refIdxB[4], refIdxC[4], mvA[0], mvA[1], mvB[0], mvB[1], mvC[0], mvC[1], mvA[2], mvA[3], mvB[2], mvB[3], mvC[2], mvC[3], mb->refIdx[0], mb->refIdx[4], mv01[0], mv01[1], mv01[2], mv01[3]);
 	
 	// trick from ffmpeg: skip computations on refCol/mvCol if both mvs are zero
-	if (((v2li)mv01)[0] != 0 && ctx->col_short_term) {
+	if ((((v2li)mv01)[0] != 0 || direct_flags != 0xffffffff) && ctx->col_short_term) {
 		const Edge264_macroblock *mbCol = ctx->mbCol;
 		v16qi refColL0 = (v16qi)(v4si){mbCol->refIdx_s[0]}; // FIXME possible to avoid vec space?
 		v16qi offsets = refColL0 & 32;
@@ -1117,9 +1116,9 @@ static always_inline void FUNC(decode_direct_spatial_mv_pred, unsigned todo_bloc
 		unsigned colZeroFlags = colZero_mask_to_flags(colZeroMask0, colZeroMask1, colZeroMask2, colZeroMask3);
 		
 		// skip computations on colZeroFlags if none are set
-		if (colZeroFlags != 0) {
+		if (colZeroFlags != 0 || direct_flags != 0xffffffff) {
 			colZeroFlags += colZeroFlags << 16;
-			if (mb->refIdx[0] == 0) {
+			if (refIdx[0] == 0) {
 				mb->mvs_v[0] = mvs0 & ~colZeroMask0;
 				mb->mvs_v[1] = mvs0 & ~colZeroMask1;
 				mb->mvs_v[2] = mvs0 & ~colZeroMask2;
@@ -1127,9 +1126,9 @@ static always_inline void FUNC(decode_direct_spatial_mv_pred, unsigned todo_bloc
 			} else {
 				mb->mvs_v[0] = mb->mvs_v[1] = mb->mvs_v[2] = mb->mvs_v[3] = mvs0;
 				colZeroFlags &= 0xffff0000;
-				todo_blocks &= (mb->refIdx[0] < 0) ? 0xffff0000 : -1;
+				direct_flags &= (refIdx[0] < 0) ? 0xffff0000 : -1;
 			}
-			if (mb->refIdx[4] == 0) {
+			if (refIdx[4] == 0) {
 				mb->mvs_v[4] = mvs1 & ~colZeroMask0;
 				mb->mvs_v[5] = mvs1 & ~colZeroMask1;
 				mb->mvs_v[6] = mvs1 & ~colZeroMask2;
@@ -1137,32 +1136,39 @@ static always_inline void FUNC(decode_direct_spatial_mv_pred, unsigned todo_bloc
 			} else {
 				mb->mvs_v[4] = mb->mvs_v[5] = mb->mvs_v[6] = mb->mvs_v[7] = mvs1;
 				colZeroFlags &= 0x0000ffff;
-				todo_blocks &= (mb->refIdx[4] < 0) ? 0x0000ffff : -1;
+				direct_flags &= (refIdx[4] < 0) ? 0x0000ffff : -1;
 			}
 			
+			// set indices not covered by direct_flags to -1
+			v16qu v = (v16qu)(v4su){little_endian32(direct_flags)};
+			v16qu vv = __builtin_shufflevector(v, v, 0, 0, 1, 1, 2, 2, 3, 3, 4, 4, 5, 5, 6, 6, 7, 7);
+			v16qu m = {0x0f, 0xf0, 0x0f, 0xf0, 0x0f, 0xf0, 0x0f, 0xf0};
+			mb->refIdx_l = ((v2li)(refIdx | ((m & ~vv) == m)))[0];
+			
 			// iteratively cut the area into blocks with uniform colZeroFlags values
-			static v8hu masks = {0xffff, 0xff, 0xf0f, 0xf, 0x3, 0x5, 0x1};
-			static int8_t widths[8] = {16, 16, 8, 8, 8, 4, 4};
-			static int8_t heights[8] = {16, 8, 16, 8, 4, 8, 4};
+			static const v8hu masks = {0xffff, 0xff, 0xf0f, 0xf, 0x3, 0x5, 0x1};
+			static const uint16_t scopes[16] = {0xffff, 0x5, 0x3, 0x1, 0xf0f, 0x5, 0x3, 0x1, 0xff, 0x5, 0x3, 0x1, 0xf, 0x5, 0x3, 0x1};
+			static const int8_t widths[8] = {16, 16, 8, 8, 8, 4, 4};
+			static const int8_t heights[8] = {16, 8, 16, 8, 4, 8, 4};
 			unsigned inter_blocks = 0;
 			do {
-				int i = __builtin_ctz(todo_blocks);
+				int i = __builtin_ctz(direct_flags);
 				inter_blocks += 1 << i;
-				unsigned t = todo_blocks >> i;
+				unsigned t = direct_flags >> i & scopes[i & 15];
 				unsigned c = colZeroFlags >> i;
 				v8hu mt = (v8hu){t, t, t, t, t, t, t, t} & masks;
 				v8hu mc = (v8hu){c, c, c, c, c, c, c, c};
 				int type = first_true(((mt & mc) == masks) | ((mt & ~mc) == masks));
-				// FIXME mask type based on i!
-				todo_blocks ^= ((uint16_t *)&masks)[type] << i;
+				direct_flags ^= ((uint16_t *)&masks)[type] << i;
 				CALL(decode_inter, i, widths[type], heights[type]);
-			} while (todo_blocks);
+			} while (direct_flags);
 			mb->inter_blocks = inter_blocks | inter_blocks >> 16;
 			return;
 		}
 	}
 	
 	// fallback if we did not need colZeroFlags
+	mb->refIdx_l = ((v2li)refIdx)[0];
 	mb->mvs_v[0] = mb->mvs_v[1] = mb->mvs_v[2] = mb->mvs_v[3] = mvs0;
 	mb->mvs_v[4] = mb->mvs_v[5] = mb->mvs_v[6] = mb->mvs_v[7] = mvs1;
 	mb->inter_blocks = 1;
@@ -1172,7 +1178,7 @@ static always_inline void FUNC(decode_direct_spatial_mv_pred, unsigned todo_bloc
 		CALL(decode_inter, 16, 16, 16);
 }
 
-static always_inline void FUNC(decode_direct_temporal_mv_pred, unsigned todo_blocks)
+static always_inline void FUNC(decode_direct_temporal_mv_pred, unsigned direct_flags)
 {
 	// load refIdxCol and mvCol
 	const Edge264_macroblock *mbCol = ctx->mbCol;
@@ -1221,11 +1227,11 @@ static always_inline void FUNC(decode_direct_temporal_mv_pred, unsigned todo_blo
 	} while (inter_blocks);
 }
 
-static noinline void FUNC(decode_direct_mv_pred, unsigned todo_blocks) {
+static noinline void FUNC(decode_direct_mv_pred, unsigned direct_flags) {
 	if (ctx->direct_spatial_mv_pred_flag) {
-		CALL(decode_direct_spatial_mv_pred, todo_blocks);
+		CALL(decode_direct_spatial_mv_pred, direct_flags);
 	} else {
-		CALL(decode_direct_temporal_mv_pred, todo_blocks);
+		CALL(decode_direct_temporal_mv_pred, direct_flags);
 	}
 }
 
@@ -1287,6 +1293,7 @@ static void FUNC(parse_B_sub_mb) {
 	mb->inter_blocks = mvd_flags | mvd_flags >> 16;
 	
 	// initialize direct prediction then parse all ref_idx values
+	// FIXME there should be non-direct8x8 indices that are still -1
 	if (direct_flags)
 		CALL(decode_direct_mv_pred, direct_flags);
 	CALL(parse_ref_idx, 0x100 | mvd_flags2ref_idx(mvd_flags));

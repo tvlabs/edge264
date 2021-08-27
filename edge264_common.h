@@ -202,9 +202,11 @@ typedef struct
 
 
 #if __BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__
+	#define little_endian32(x) (x)
 	#define big_endian32 __builtin_bswap32
 	#define big_endian64 __builtin_bswap64
 #elif __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+	#define little_endian32 __builtin_bswap32
 	#define big_endian32(x) (x)
 	#define big_endian64(x) (x)
 #endif

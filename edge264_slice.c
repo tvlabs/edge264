@@ -1021,9 +1021,8 @@ static inline void FUNC(parse_ref_idx, unsigned f) {
 			mb->ref_idx_nz |= ref_idx << bit_shifts[i];
 			if (CALL(get_ae, 58)) {
 				do {
-					if (++ref_idx >= 32)
-						return; // leave without storing value, keeping memory in a valid state
-				} while (CALL(get_ae, 59));
+					ref_idx++;
+				} while (ref_idx < 32 && CALL(get_ae, 59));
 			}
 		}
 		mb->refIdx[i] = ref_idx;
@@ -1032,6 +1031,7 @@ static inline void FUNC(parse_ref_idx, unsigned f) {
 	
 	// broadcast the values
 	v16qi refIdx_v = (v16qi)(v2li){mb->refIdx_l};
+	refIdx_v = min_v16qi(refIdx_v, (v16qi)(v2li){(int64_t)ctx->clip_ref_idx});
 	if (!(f & 0x122)) { // 16xN
 		refIdx_v = __builtin_shufflevector(refIdx_v, refIdx_v, 0, 0, 2, 2, 4, 4, 6, 6, -1, -1, -1, -1, -1, -1, -1, -1);
 		mb->ref_idx_nz |= (mb->ref_idx_nz >> 2 & 0x0808) | (mb->ref_idx_nz << 5 & 0x8080);

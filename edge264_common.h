@@ -175,6 +175,7 @@ typedef struct
 	int8_t transform_8x8_mode_flag; // updated during parsing to replace noSubMbPartSizeLessThan8x8Flag
 	int8_t col_short_term;
 	int8_t MapColToList0[65]; // [refIdxCol + 1]
+	v8qi clip_ref_idx;
 	union { v8qi biweights_l; v16qi biweights_v; };
 	union { v4hi bioffsets_l; v8hi bioffsets_v; };
 	union { v4hi logWD_l; v8hi logWD_v; };
@@ -404,6 +405,9 @@ static void print_v4si(v4si v) {
 		static inline __m128i load4x2_8bit(const uint8_t *r0, const uint8_t *r1, __m128i zero) {
 			return _mm_cvtepu8_epi16(_mm_insert_epi32(_mm_cvtsi32_si128(*(int *)r0), *(int *)r1, 1));
 		}
+		static inline v16qi min_v16qi(v16qi a, v16qi b) {
+			return _mm_min_epi8(a, b);
+		}
 	#elif defined __SSSE3__
 		#define vector_select(mask, t, f) (((t) & (typeof(t))(mask < 0)) | ((f) & ~(typeof(t))(mask < 0)))
 		static inline __m128i _mm_mullo_epi32(__m128i a, __m128i b) {
@@ -424,6 +428,9 @@ static void print_v4si(v4si v) {
 			__m128i x0 = _mm_cvtsi32_si128(*(int *)r0); // beware unaligned load
 			__m128i x1 = _mm_cvtsi32_si128(*(int *)r1);
 			return _mm_unpacklo_epi8(_mm_unpacklo_epi32(x0, x1), zero);
+		}
+		static inline v16qi min_v16qi(v16qi a, v16qi b) {
+			return _mm_xor_si128(a, _mm_and_si128(_mm_xor_si128(a, b), _mm_cmpgt_epi8(a, b)));
 		}
 	#endif
 

@@ -29,6 +29,7 @@
  * _ Change the API to return an array of frames instead of using a callback (easier for FFIs)
  * _ Remember Intra decoding is mixed with residuals so switch is necessary and passing preds in registers is good -> provide 2 functions add_idct4x4_inplace/inregs and keep preds in regs or mem depending on host number of regs
  * _ make offsets relative to macroblock, to make binary lighter
+ * _ since unsigned means implicit overflow by machine-dependent size, replace all by uint32_t!
  * 
  * _ Current x264 options in HandBrake to output compatible video: no-deblock:slices=1:no-8x8dct:bframes=0
  * _ To benchmark ffmpeg: ffmpeg -hide_banner -benchmark -threads 1 -i video.264 -f null -
@@ -172,8 +173,6 @@ static void FUNC(initialise_decoding_context, Edge264_stream *e)
 		int offB_32bit = offB_8bit >> 2;
 		int offC_32bit = offB_32bit + (sizeof(*mb) >> 2);
 		int offD_32bit = offB_32bit - (sizeof(*mb) >> 2);
-		ctx->refIdx_C = offB_8bit + sizeof(*mb) + 2;
-		ctx->refIdx_D = offB_8bit - sizeof(*mb) + 3;
 		ctx->refIdx4x4_C_v = (v16qi){2, 3, 12, -1, 3, 6, 13, -1, 12, 13, 14, -1, 13, -1, 15, -1};
 		ctx->absMvdComp_A_v = (v16hi){10 + offA_8bit, 0, 14 + offA_8bit, 4, 2, 8, 6, 12, 26 + offA_8bit, 16, 30 + offA_8bit, 20, 18, 24, 22, 28};
 		ctx->absMvdComp_B_v = (v16si){20 + offB_8bit, 22 + offB_8bit, 0, 2, 28 + offB_8bit, 30 + offB_8bit, 8, 10, 4, 6, 16, 18, 12, 14, 24, 26};
@@ -181,8 +180,6 @@ static void FUNC(initialise_decoding_context, Edge264_stream *e)
 		ctx->mvs_B_v = (v16si){10 + offB_32bit, 11 + offB_32bit, 0, 1, 14 + offB_32bit, 15 + offB_32bit, 4, 5, 2, 3, 8, 9, 6, 7, 12, 13};
 		ctx->mvs_C_v = (v16si){11 + offB_32bit, 14 + offB_32bit, 1, -1, 15 + offB_32bit, 10 + offC_32bit, 5, -1, 3, 6, 9, -1, 7, -1, 13, -1};
 		ctx->mvs_D_v = (v16si){15 + offD_32bit, 10 + offB_32bit, 5 + offA_32bit, 0, 11 + offB_32bit, 14 + offB_32bit, 1, 4, 7 + offA_32bit, 2, 13 + offA_32bit, 8, 3, 6, 9, 12};
-		ctx->mvs8x8_C_v = (v4si){14 + offB_32bit, 10 + offC_32bit, 6, 0};
-		ctx->mvs8x8_D_v = (v4si){15 + offD_32bit, 11 + offB_32bit, 7 + offA_32bit, 3};
 		ctx->num_ref_idx_mask = (ctx->ps.num_ref_idx_active[0] > 1) * 0x0f +
 			(ctx->ps.num_ref_idx_active[1] > 1) * 0xf0;
 		int n0 = ctx->ps.num_ref_idx_active[0];

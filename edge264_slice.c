@@ -181,7 +181,7 @@ static noinline void FUNC(parse_mb_qp_delta, unsigned cond) {
 	ctx->mb_qp_delta_non_zero = cond && CALL(get_ae, 60 + ctx->mb_qp_delta_non_zero);
 	if (ctx->mb_qp_delta_non_zero) {
 		
-		// FIXME: cannot loop forever since binVal will oscillate past end of RBSP?
+		// FIXME prevent infinite looping
 		unsigned count = 1, ctxIdx = 62;
 		while (CALL(get_ae, ctxIdx))
 			count++, ctxIdx = 63;
@@ -536,6 +536,7 @@ static noinline void FUNC(parse_I_mb, int ctxIdx)
 	mb->f.mbIsInterFlag = 0;
 	mb->inter_blocks = 0x0001;
 	mb->refIdx_l = -1;
+	memset(mb->mvs_v, 0, 128);
 	
 	// I_NxN
 	if (!CALL(get_ae, ctxIdx)) {
@@ -751,7 +752,7 @@ static int FUNC(parse_mvd_comp, int ctxBase, int absMvdSum) {
 /**
  * Sub-functions to parse a single mvd pair for different sizes.
  */
-static inline void FUNC(parse_mvd_16x16, int lx)
+static always_inline void FUNC(parse_mvd_16x16, int lx)
 {
 	// call the parsing of mvd first to avoid spilling mvp if not inlined
 	uint8_t *absMvdComp_p = mb->absMvdComp + lx * 32;
@@ -762,41 +763,40 @@ static inline void FUNC(parse_mvd_16x16, int lx)
 	v8hi mvd = {x, y};
 	
 	// compare neighbouring indices and compute mvp
-	int8_t *refIdx_p = mb->refIdx + lx * 4;
 	int32_t *mvs_p = mb->mvs_s + lx * 16;
 	v8hi mvp;
-	int refIdx = refIdx_p[0];
-	int refIdxA = refIdx_p[ctx->refIdx_A[0]];
-	int refIdxB = refIdx_p[ctx->refIdx_B[0]];
+	int refIdx = mb->refIdx[lx * 4];
+	int refIdxA = *(mb->refIdx + lx * 4 + ctx->refIdx_A[0]);
+	int refIdxB = *(mb->refIdx + lx * 4 + ctx->refIdx_B[0]);
 	int eqA = refIdx==refIdxA;
 	int refIdxC, mvs_C;
 	if (__builtin_expect(ctx->inc.unavailable & 4, 0)) {
-		refIdxC = refIdx_p[ctx->refIdx_D];
-		mvs_C = ctx->mvs8x8_D[0];
+		refIdxC = ctx->mbB[-1].refIdx[lx * 4 + 3];
+		mvs_C = ctx->mvs_D[0];
 		eqA |= ctx->inc.unavailable==14;
 	} else {
-		refIdxC = refIdx_p[ctx->refIdx_C];
-		mvs_C = ctx->mvs8x8_C[1];
+		refIdxC = ctx->mbB[1].refIdx[lx * 4 + 2];
+		mvs_C = ctx->mvs_C[5];
 	}
 	int eq = eqA + (refIdx==refIdxB) * 2 + (refIdx==refIdxC) * 4;
 	if (__builtin_expect(0xe9 >> eq & 1, 1)) {
-		v8hi mvA = (v8hi)(v4si){mvs_p[ctx->mvs_A[0]]};
-		v8hi mvB = (v8hi)(v4si){mvs_p[ctx->mvs_B[0]]};
-		v8hi mvC = (v8hi)(v4si){mvs_p[mvs_C]};
+		v8hi mvA = (v8hi)(v4si){*(mb->mvs_s + lx * 16 + ctx->mvs_A[0])};
+		v8hi mvB = (v8hi)(v4si){*(mb->mvs_s + lx * 16 + ctx->mvs_B[0])};
+		v8hi mvC = (v8hi)(v4si){*(mb->mvs_s + lx * 16 + mvs_C)};
 		mvp = vector_median(mvA, mvB, mvC);
 	} else {
 		int mvs_N = (eq == 1) ? ctx->mvs_A[0] : (eq == 2) ? ctx->mvs_B[0] : mvs_C;
-		mvp = (v8hi)(v4si){mvs_p[mvs_N]};
+		mvp = (v8hi)(v4si){*(mb->mvs_s + lx * 16 + mvs_N)};
 	}
 	
 	// sum mvp and mvd, broadcast everything to memory and tail-jump to decoding
 	v8hi mvs = (v8hi)__builtin_shufflevector((v4si)(mvp + mvd), (v4si){}, 0, 0, 0, 0);
 	((v16qu *)absMvdComp_p)[0] = ((v16qu *)absMvdComp_p)[1] = pack_absMvdComp(mvd);
-	((v8hi *)mvs_p)[0] = ((v8hi *)mvs_p)[1] = ((v8hi *)mvs_p)[2] = ((v8hi *)mvs_p)[3] = mvs;
+	mb->mvs_v[lx * 4] = mb->mvs_v[lx * 4 + 1] = mb->mvs_v[lx * 4 + 2] = mb->mvs_v[lx * 4 + 3] = mvs;
 	JUMP(decode_inter, lx * 16, 16, 16);
 }
 
-static inline void FUNC(parse_mvd_8x16_left, int lx)
+static always_inline void FUNC(parse_mvd_8x16_left, int lx)
 {
 	// call the parsing of mvd first to avoid spilling mvp if not inlined
 	uint8_t *absMvdComp_p = mb->absMvdComp + lx * 32;
@@ -807,35 +807,33 @@ static inline void FUNC(parse_mvd_8x16_left, int lx)
 	v8hi mvd = {x, y};
 	
 	// compare neighbouring indices and compute mvp
-	int8_t *refIdx_p = mb->refIdx + lx * 4;
-	int32_t *mvs_p = mb->mvs_s + lx * 16;
 	v8hi mvp;
-	int refIdx = refIdx_p[0];
-	int refIdxA = refIdx_p[ctx->refIdx_A[0]];
+	int refIdx = mb->refIdx[lx * 4];
+	int refIdxA = *(mb->refIdx + lx * 4 + ctx->refIdx_A[0]);
 	if (refIdx == refIdxA || ctx->unavail[0] == 14) {
-		mvp = (v8hi)(v4si){mvs_p[ctx->mvs_A[0]]};
+		mvp = (v8hi)(v4si){*(mb->mvs_s + lx * 16 + ctx->mvs_A[0])};
 	} else {
-		int refIdxB = refIdx_p[ctx->refIdx_B[0]];
+		int refIdxB = *(mb->refIdx + lx * 4 + ctx->refIdx_B[0]);
 		int refIdxC, mvs_C;
 		if (__builtin_expect(ctx->inc.unavailable & 2, 0)) {
-			refIdxC = refIdx_p[ctx->refIdx_D];
-			mvs_C = ctx->mvs8x8_D[0];
+			refIdxC = ctx->mbB[-1].refIdx[lx * 4 + 3];
+			mvs_C = ctx->mvs_D[0];
 		} else {
-			refIdxC = refIdx_p[ctx->refIdx_B[1]];
-			mvs_C = ctx->mvs8x8_C[0];
+			refIdxC = *(mb->refIdx + lx * 4 + ctx->refIdx_B[1]);
+			mvs_C = ctx->mvs_C[1];
 		}
 		if (refIdx == refIdxB) {
-			mvp = (v8hi)(v4si){mvs_p[ctx->mvs_B[0]]};
+			mvp = (v8hi)(v4si){*(mb->mvs_s + lx * 16 + ctx->mvs_B[0])};
 			if (refIdx == refIdxC) {
-				v8hi mvA = (v8hi)(v4si){mvs_p[ctx->mvs_A[0]]};
-				v8hi mvC = (v8hi)(v4si){mvs_p[mvs_C]};
+				v8hi mvA = (v8hi)(v4si){*(mb->mvs_s + lx * 16 + ctx->mvs_A[0])};
+				v8hi mvC = (v8hi)(v4si){*(mb->mvs_s + lx * 16 + mvs_C)};
 				mvp = vector_median(mvA, mvp, mvC);
 			}
 		} else { // refIdx != refIdxA/B
-			mvp = (v8hi)(v4si){mvs_p[mvs_C]};
+			mvp = (v8hi)(v4si){*(mb->mvs_s + lx * 16 + mvs_C)};
 			if (refIdx != refIdxC) {
-				v8hi mvA = (v8hi)(v4si){mvs_p[ctx->mvs_A[0]]};
-				v8hi mvB = (v8hi)(v4si){mvs_p[ctx->mvs_B[0]]};
+				v8hi mvA = (v8hi)(v4si){*(mb->mvs_s + lx * 16 + ctx->mvs_A[0])};
+				v8hi mvB = (v8hi)(v4si){*(mb->mvs_s + lx * 16 + ctx->mvs_B[0])};
 				mvp = vector_median(mvA, mvB, mvp);
 			}
 		}
@@ -844,11 +842,11 @@ static inline void FUNC(parse_mvd_8x16_left, int lx)
 	// sum mvp and mvd, broadcast everything to memory and call decoding
 	v8hi mvs = (v8hi)__builtin_shufflevector((v4si)(mvp + mvd), (v4si){}, 0, 0, 0, 0);
 	((v8qu *)absMvdComp_p)[0] = ((v8qu *)absMvdComp_p)[2] = (v8qu)((v2li)pack_absMvdComp(mvd))[0];
-	((v8hi *)mvs_p)[0] = ((v8hi *)mvs_p)[2] = mvs;
+	mb->mvs_v[lx * 4] = mb->mvs_v[lx * 4 + 2] = mvs;
 	JUMP(decode_inter, lx * 16, 8, 16);
 }
 
-static inline void FUNC(parse_mvd_8x16_right, int lx)
+static always_inline void FUNC(parse_mvd_8x16_right, int lx)
 {
 	// call the parsing of mvd first to avoid spilling mvp if not inlined
 	uint8_t *absMvdComp_p = mb->absMvdComp + lx * 32;
@@ -859,35 +857,33 @@ static inline void FUNC(parse_mvd_8x16_right, int lx)
 	v8hi mvd = {x, y};
 	
 	// compare neighbouring indices and compute mvp
-	int8_t *refIdx_p = mb->refIdx + lx * 4;
-	int32_t *mvs_p = mb->mvs_s + lx * 16;
 	v8hi mvp;
-	int refIdx = refIdx_p[1];
+	int refIdx = mb->refIdx[lx * 4 + 1];
 	int refIdxC, mvs_C;
 	if (__builtin_expect(ctx->inc.unavailable & 4, 0)) {
-		refIdxC = refIdx_p[ctx->refIdx_B[0]];
-		mvs_C = ctx->mvs8x8_D[1];
+		refIdxC = *(mb->refIdx + lx * 4 + ctx->refIdx_B[0]);
+		mvs_C = ctx->mvs_D[4];
 	} else {
-		refIdxC = refIdx_p[ctx->refIdx_C];
-		mvs_C = ctx->mvs8x8_C[1];
+		refIdxC = ctx->mbB[1].refIdx[lx * 4 + 2];
+		mvs_C = ctx->mvs_C[5];
 	}
 	if (refIdx == refIdxC) {
-		mvp = (v8hi)(v4si){mvs_p[mvs_C]};
+		mvp = (v8hi)(v4si){*(mb->mvs_s + lx * 16 + mvs_C)};
 	} else {
-		int refIdxA = refIdx_p[0];
-		int refIdxB = refIdx_p[ctx->refIdx_B[1]];
+		int refIdxA = mb->refIdx[lx * 4];
+		int refIdxB = *(mb->refIdx + lx * 4 + ctx->refIdx_B[1]);
 		if (refIdx == refIdxB) {
-			mvp = (v8hi)(v4si){mvs_p[ctx->mvs_B[4]]};
+			mvp = (v8hi)(v4si){*(mb->mvs_s + lx * 16 + ctx->mvs_B[4])};
 			if (refIdx == refIdxA) {
-				v8hi mvA = (v8hi)(v4si){mvs_p[ctx->mvs_A[4]]};
-				v8hi mvC = (v8hi)(v4si){mvs_p[mvs_C]};
+				v8hi mvA = (v8hi)(v4si){*(mb->mvs_s + lx * 16 + ctx->mvs_A[4])};
+				v8hi mvC = (v8hi)(v4si){*(mb->mvs_s + lx * 16 + mvs_C)};
 				mvp = vector_median(mvA, mvp, mvC);
 			}
 		} else { // refIdx != B/C
-			mvp = (v8hi)(v4si){mvs_p[ctx->mvs_A[4]]};
+			mvp = (v8hi)(v4si){*(mb->mvs_s + lx * 16 + ctx->mvs_A[4])};
 			if (refIdx != refIdxA && ctx->unavail[5] != 14) {
-				v8hi mvB = (v8hi)(v4si){mvs_p[ctx->mvs_B[4]]};
-				v8hi mvC = (v8hi)(v4si){mvs_p[mvs_C]};
+				v8hi mvB = (v8hi)(v4si){*(mb->mvs_s + lx * 16 + ctx->mvs_B[4])};
+				v8hi mvC = (v8hi)(v4si){*(mb->mvs_s + lx * 16 + mvs_C)};
 				mvp = vector_median(mvp, mvB, mvC);
 			}
 		}
@@ -896,11 +892,11 @@ static inline void FUNC(parse_mvd_8x16_right, int lx)
 	// sum mvp and mvd, broadcast everything to memory and call decoding
 	v8hi mvs = (v8hi)__builtin_shufflevector((v4si)(mvp + mvd), (v4si){}, 0, 0, 0, 0);
 	((v8qu *)absMvdComp_p)[1] = ((v8qu *)absMvdComp_p)[3] = (v8qu)((v2li)pack_absMvdComp(mvd))[0];
-	((v8hi *)mvs_p)[1] = ((v8hi *)mvs_p)[3] = mvs;
+	mb->mvs_v[lx * 4 + 1] = mb->mvs_v[lx * 4 + 3] = mvs;
 	CALL(decode_inter, lx * 16 + 4, 8, 16);
 }
 
-static inline void FUNC(parse_mvd_16x8_top, int lx)
+static always_inline void FUNC(parse_mvd_16x8_top, int lx)
 {
 	// call the parsing of mvd first to avoid spilling mvp if not inlined
 	uint8_t *absMvdComp_p = mb->absMvdComp + lx * 32;
@@ -911,35 +907,33 @@ static inline void FUNC(parse_mvd_16x8_top, int lx)
 	v8hi mvd = {x, y};
 	
 	// compare neighbouring indices and compute mvp
-	int8_t *refIdx_p = mb->refIdx + lx * 4;
-	int32_t *mvs_p = mb->mvs_s + lx * 16;
 	v8hi mvp;
-	int refIdx = refIdx_p[0];
-	int refIdxB = refIdx_p[ctx->refIdx_B[0]];
+	int refIdx = mb->refIdx[lx * 4];
+	int refIdxB = *(mb->refIdx + lx * 4 + ctx->refIdx_B[0]);
 	if (refIdx == refIdxB) {
-		mvp = (v8hi)(v4si){mvs_p[ctx->mvs_B[0]]};
+		mvp = (v8hi)(v4si){*(mb->mvs_s + lx * 16 + ctx->mvs_B[0])};
 	} else {
-		int refIdxA = refIdx_p[ctx->refIdx_A[0]];
+		int refIdxA = *(mb->refIdx + lx * 4 + ctx->refIdx_A[0]);
 		int refIdxC, mvs_C;
 		if (__builtin_expect(ctx->inc.unavailable & 4, 0)) {
-			refIdxC = refIdx_p[ctx->refIdx_D];
-			mvs_C = ctx->mvs8x8_D[0];
+			refIdxC = ctx->mbB[-1].refIdx[lx * 4 + 3];
+			mvs_C = ctx->mvs_D[0];
 		} else {
-			refIdxC = refIdx_p[ctx->refIdx_C];
-			mvs_C = ctx->mvs8x8_C[1];
+			refIdxC = ctx->mbB[1].refIdx[lx * 4 + 2];
+			mvs_C = ctx->mvs_C[5];
 		}
 		if (refIdx == refIdxC) {
-			mvp = (v8hi)(v4si){mvs_p[mvs_C]};
+			mvp = (v8hi)(v4si){*(mb->mvs_s + lx * 16 + mvs_C)};
 			if (refIdx == refIdxA) {
-				v8hi mvA = (v8hi)(v4si){mvs_p[ctx->mvs_A[0]]};
-				v8hi mvB = (v8hi)(v4si){mvs_p[ctx->mvs_B[0]]};
+				v8hi mvA = (v8hi)(v4si){*(mb->mvs_s + lx * 16 + ctx->mvs_A[0])};
+				v8hi mvB = (v8hi)(v4si){*(mb->mvs_s + lx * 16 + ctx->mvs_B[0])};
 				mvp = vector_median(mvA, mvB, mvp);
 			}
 		} else { // refIdx != refIdxB/C
-			mvp = (v8hi)(v4si){mvs_p[ctx->mvs_A[0]]};
+			mvp = (v8hi)(v4si){*(mb->mvs_s + lx * 16 + ctx->mvs_A[0])};
 			if (refIdx != refIdxA && ctx->inc.unavailable != 14) {
-				v8hi mvB = (v8hi)(v4si){mvs_p[ctx->mvs_B[0]]};
-				v8hi mvC = (v8hi)(v4si){mvs_p[mvs_C]};
+				v8hi mvB = (v8hi)(v4si){*(mb->mvs_s + lx * 16 + ctx->mvs_B[0])};
+				v8hi mvC = (v8hi)(v4si){*(mb->mvs_s + lx * 16 + mvs_C)};
 				mvp = vector_median(mvp, mvB, mvC);
 			}
 		}
@@ -948,11 +942,11 @@ static inline void FUNC(parse_mvd_16x8_top, int lx)
 	// sum mvp and mvd, broadcast everything to memory and tail-jump to decoding
 	v8hi mvs = (v8hi)__builtin_shufflevector((v4si)(mvp + mvd), (v4si){}, 0, 0, 0, 0);
 	((v16qu *)absMvdComp_p)[0] = pack_absMvdComp(mvd);
-	((v8hi *)mvs_p)[0] = ((v8hi *)mvs_p)[1] = mvs;
+	mb->mvs_v[lx * 4 + 0] = mb->mvs_v[lx * 4 + 1] = mvs;
 	JUMP(decode_inter, lx * 16, 16, 8);
 }
 
-static inline void FUNC(parse_mvd_16x8_bottom, int lx)
+static always_inline void FUNC(parse_mvd_16x8_bottom, int lx)
 {
 	// call the parsing of mvd first to avoid spilling mvp if not inlined
 	uint8_t *absMvdComp_p = mb->absMvdComp + lx * 32;
@@ -963,28 +957,26 @@ static inline void FUNC(parse_mvd_16x8_bottom, int lx)
 	v8hi mvd = {x, y};
 	
 	// compare neighbouring indices and compute mvp
-	int8_t *refIdx_p = mb->refIdx + lx * 4;
-	int32_t *mvs_p = mb->mvs_s + lx * 16;
 	v8hi mvp;
-	int refIdx = refIdx_p[2];
-	int refIdxA = refIdx_p[ctx->refIdx_A[2]];
+	int refIdx = mb->refIdx[lx * 4 + 2];
+	int refIdxA = *(mb->refIdx + lx * 4 + ctx->refIdx_A[2]);
 	if (refIdx == refIdxA) {
-		mvp = (v8hi)(v4si){mvs_p[ctx->mvs_A[8]]};
+		mvp = (v8hi)(v4si){*(mb->mvs_s + lx * 16 + ctx->mvs_A[8])};
 	} else {
-		int refIdxB = refIdx_p[0];
-		int refIdxC = refIdx_p[ctx->refIdx_A[0]];
+		int refIdxB = mb->refIdx[lx * 4];
+		int refIdxC = *(mb->refIdx + lx * 4 + ctx->refIdx_A[0]);
 		if (refIdx == refIdxB) {
-			mvp = (v8hi)(v4si){mvs_p[0]};
+			mvp = (v8hi)(v4si){*(mb->mvs_s + lx * 16)};
 			if (refIdx == refIdxC) {
-				v8hi mvA = (v8hi)(v4si){mvs_p[ctx->mvs_A[8]]};
-				v8hi mvC = (v8hi)(v4si){mvs_p[ctx->mvs8x8_D[2]]};
+				v8hi mvA = (v8hi)(v4si){*(mb->mvs_s + lx * 16 + ctx->mvs_A[8])};
+				v8hi mvC = (v8hi)(v4si){*(mb->mvs_s + lx * 16 + ctx->mvs_D[8])};
 				mvp = vector_median(mvA, mvp, mvC);
 			}
 		} else {
-			mvp = (v8hi)(v4si){mvs_p[ctx->mvs8x8_D[2]]};
+			mvp = (v8hi)(v4si){*(mb->mvs_s + lx * 16 + ctx->mvs_D[8])};
 			if (refIdx != refIdxC) {
-				v8hi mvA = (v8hi)(v4si){mvs_p[ctx->mvs_A[8]]};
-				v8hi mvB = (v8hi)(v4si){mvs_p[0]};
+				v8hi mvA = (v8hi)(v4si){*(mb->mvs_s + lx * 16 + ctx->mvs_A[8])};
+				v8hi mvB = (v8hi)(v4si){*(mb->mvs_s + lx * 16)};
 				mvp = vector_median(mvA, mvB, mvp);
 			}
 		}
@@ -993,7 +985,7 @@ static inline void FUNC(parse_mvd_16x8_bottom, int lx)
 	// sum mvp and mvd, broadcast everything to memory and tail-jump to decoding
 	v8hi mvs = (v8hi)__builtin_shufflevector((v4si)(mvp + mvd), (v4si){}, 0, 0, 0, 0);
 	((v16qu *)absMvdComp_p)[1] = pack_absMvdComp(mvd);
-	((v8hi *)mvs_p)[2] = ((v8hi *)mvs_p)[3] = mvs;
+	mb->mvs_v[lx * 4 + 2] = mb->mvs_v[lx * 4 + 3] = mvs;
 	JUMP(decode_inter, lx * 16 + 8, 16, 8);
 }
 
@@ -1049,21 +1041,22 @@ static inline void FUNC(parse_ref_idx, unsigned f) {
  * Initialise the reference indices and motion vectors of an entire macroblock
  * with direct prediction (8.4.1.2).
  * 
- * FIXME inter_blocks may be wrong with B_Direct_8x8
+ * mb->refIdx should be initialized to 0 in direct blocks, and -1 otherwise.
+ * mb->mvs will be overwritten only on direct blocks.
  */
-static always_inline void FUNC(decode_direct_spatial_mv_pred, unsigned direct_flags)
+static always_inline void FUNC(decode_direct_spatial_mv_pred)
 {
 	// load all refIdxN and mvN in vector registers
 	v16qi shuf = {0, 0, 0, 0, 1, 1, 1, 1, 2, 2, 2, 2, 3, 3, 3, 3};
 	v8hi mvA = (v8hi)(v4si){*(mb->mvs_s + ctx->mvs_A[0]), *(mb->mvs_s + ctx->mvs_A[0] + 16)};
 	v8hi mvB = (v8hi)(v4si){*(mb->mvs_s + ctx->mvs_B[0]), *(mb->mvs_s + ctx->mvs_B[0] + 16)};
-	v8hi mvC = (v8hi)(v4si){*(mb->mvs_s + ctx->mvs8x8_C[1]), *(mb->mvs_s + ctx->mvs8x8_C[1] + 16)};
+	v8hi mvC = (v8hi)(v4si){*(mb->mvs_s + ctx->mvs_C[5]), *(mb->mvs_s + ctx->mvs_C[5] + 16)};
 	v16qi refIdxA = byte_shuffle((v16qi){*(mb->refIdx + ctx->refIdx_A[0]), *(mb->refIdx + ctx->refIdx_A[0] + 4)}, shuf);
 	v16qi refIdxB = byte_shuffle((v16qi){*(mb->refIdx + ctx->refIdx_B[0]), *(mb->refIdx + ctx->refIdx_B[0] + 4)}, shuf);
-	v16qi refIdxC = byte_shuffle((v16qi){*(mb->refIdx + ctx->refIdx_C), *(mb->refIdx + ctx->refIdx_C + 4)}, shuf);
+	v16qi refIdxC = byte_shuffle((v16qi){ctx->mbB[1].refIdx[2], ctx->mbB[1].refIdx[6]}, shuf);
 	if (__builtin_expect(ctx->inc.unavailable & 4, 0)) {
-		mvC = (v8hi)(v4si){*(mb->mvs_s + ctx->mvs8x8_D[0]), *(mb->mvs_s + ctx->mvs8x8_D[0] + 16)};
-		refIdxC = byte_shuffle((v16qi){*(mb->refIdx + ctx->refIdx_D), *(mb->refIdx + ctx->refIdx_D + 4)}, shuf);
+		mvC = (v8hi)(v4si){*(mb->mvs_s + ctx->mvs_D[0]), *(mb->mvs_s + ctx->mvs_D[0] + 16)};
+		refIdxC = byte_shuffle((v16qi){ctx->mbB[-1].refIdx[3], ctx->mbB[-1].refIdx[7]}, shuf);
 	}
 	
 	// initialize mv along refIdx since it will equal one of refIdxA/B/C
@@ -1079,71 +1072,88 @@ static always_inline void FUNC(decode_direct_spatial_mv_pred, unsigned direct_fl
 	v16qi cmp_med = (refIdxm == refIdxC) | (refIdx == refIdxM); // 3 cases: A=B<C, A=C<B, B=C<A
 	v8hi mv01 = vector_select(cmp_med, vector_median(mvA, mvB, mvC), mvmm);
 	v8hi mvs0 = (v8hi)__builtin_shufflevector((v4si)mv01, (v4si)mv01, 0, 0, 0, 0);
-	v8hi mvs1 = (v8hi)__builtin_shufflevector((v4si)mv01, (v4si)mv01, 1, 1, 1, 1);
+	v8hi mvs4 = (v8hi)__builtin_shufflevector((v4si)mv01, (v4si)mv01, 1, 1, 1, 1);
 	
 	// direct zero prediction applies only to refIdx (mvLX are zero already)
 	refIdx ^= (v16qi)((v2li)refIdx == -1);
-	// printf("<li>refIdxL0A/B/C=%d/%d/%d, refIdxL1A/B/C=%d/%d/%d, mvsL0A/B/C=[%d,%d]/[%d,%d]/[%d,%d], mvsL1A/B/C=[%d,%d]/[%d,%d]/[%d,%d] -> refIdxL0/1=%d/%d, mvsL0/1=[%d,%d]/[%d,%d]</li>\n", refIdxA[0], refIdxB[0], refIdxC[0], refIdxA[4], refIdxB[4], refIdxC[4], mvA[0], mvA[1], mvB[0], mvB[1], mvC[0], mvC[1], mvA[2], mvA[3], mvB[2], mvB[3], mvC[2], mvC[3], mb->refIdx[0], mb->refIdx[4], mv01[0], mv01[1], mv01[2], mv01[3]);
+	//printf("<li>refIdxL0A/B/C=%d/%d/%d, refIdxL1A/B/C=%d/%d/%d, mvsL0A/B/C=[%d,%d]/[%d,%d]/[%d,%d], mvsL1A/B/C=[%d,%d]/[%d,%d]/[%d,%d] -> refIdxL0/1=%d/%d, mvsL0/1=[%d,%d]/[%d,%d]</li>\n", refIdxA[0], refIdxB[0], refIdxC[0], refIdxA[4], refIdxB[4], refIdxC[4], mvA[0], mvA[1], mvB[0], mvB[1], mvC[0], mvC[1], mvA[2], mvA[3], mvB[2], mvB[3], mvC[2], mvC[3], mb->refIdx[0], mb->refIdx[4], mv01[0], mv01[1], mv01[2], mv01[3]);
 	
 	// trick from ffmpeg: skip computations on refCol/mvCol if both mvs are zero
-	if ((((v2li)mv01)[0] != 0 || direct_flags != 0xffffffff) && ctx->col_short_term) {
-		const Edge264_macroblock *mbCol = ctx->mbCol;
-		v16qi refColL0 = (v16qi)(v4si){mbCol->refIdx_s[0]}; // FIXME possible to avoid vec space?
-		v16qi offsets = refColL0 & 32;
-		v8hi mvCol0 = *(v8hi*)(mbCol->mvs + offsets[0]);
-		v8hi mvCol1 = *(v8hi*)(mbCol->mvs + offsets[1] + 8);
-		v8hi mvCol2 = *(v8hi*)(mbCol->mvs + offsets[2] + 16);
-		v8hi mvCol3 = *(v8hi*)(mbCol->mvs + offsets[3] + 24);
-		v16qi refCol = vector_select(refColL0, (v16qi)(v4si){mbCol->refIdx_s[1]}, refColL0);
-		if (ctx->ps.direct_8x8_inference_flag) {
-			mvCol0 = (v8hi)__builtin_shufflevector((v4si)mvCol0, (v4si)mvCol0, 0, 0, 0, 0);
-			mvCol1 = (v8hi)__builtin_shufflevector((v4si)mvCol1, (v4si)mvCol1, 1, 1, 1, 1);
-			mvCol2 = (v8hi)__builtin_shufflevector((v4si)mvCol2, (v4si)mvCol2, 2, 2, 2, 2);
-			mvCol3 = (v8hi)__builtin_shufflevector((v4si)mvCol3, (v4si)mvCol3, 3, 3, 3, 3);
-		}
-		
-		// initialize colZeroFlags and masks for motion vectors
-		unsigned refColZero = ((v4su)(refCol == 0))[0];
+	if (((v2li)mv01)[0] != 0 || mb->refIdx_l != 0) {
 		v8hi colZeroMask0 = {}, colZeroMask1 = {}, colZeroMask2 = {}, colZeroMask3 = {};
-		if (__builtin_expect(refColZero & 1, 1))
-			colZeroMask0 = mvs_near_zero(mvCol0);
-		if (__builtin_expect(refColZero & 1 << 8, 1))
-			colZeroMask1 = mvs_near_zero(mvCol1);
-		if (__builtin_expect(refColZero & 1 << 16, 1))
-			colZeroMask2 = mvs_near_zero(mvCol2);
-		if (__builtin_expect(refColZero & 1 << 24, 1))
-			colZeroMask3 = mvs_near_zero(mvCol3);
-		unsigned colZeroFlags = colZero_mask_to_flags(colZeroMask0, colZeroMask1, colZeroMask2, colZeroMask3);
-		
-		// skip computations on colZeroFlags if none are set
-		if (colZeroFlags != 0 || direct_flags != 0xffffffff) {
-			colZeroFlags += colZeroFlags << 16;
-			if (refIdx[0] == 0) {
-				mb->mvs_v[0] = mvs0 & ~colZeroMask0;
-				mb->mvs_v[1] = mvs0 & ~colZeroMask1;
-				mb->mvs_v[2] = mvs0 & ~colZeroMask2;
-				mb->mvs_v[3] = mvs0 & ~colZeroMask3;
-			} else {
-				mb->mvs_v[0] = mb->mvs_v[1] = mb->mvs_v[2] = mb->mvs_v[3] = mvs0;
-				colZeroFlags &= 0xffff0000;
-				direct_flags &= (refIdx[0] < 0) ? 0xffff0000 : -1;
-			}
-			if (refIdx[4] == 0) {
-				mb->mvs_v[4] = mvs1 & ~colZeroMask0;
-				mb->mvs_v[5] = mvs1 & ~colZeroMask1;
-				mb->mvs_v[6] = mvs1 & ~colZeroMask2;
-				mb->mvs_v[7] = mvs1 & ~colZeroMask3;
-			} else {
-				mb->mvs_v[4] = mb->mvs_v[5] = mb->mvs_v[6] = mb->mvs_v[7] = mvs1;
-				colZeroFlags &= 0x0000ffff;
-				direct_flags &= (refIdx[4] < 0) ? 0x0000ffff : -1;
+		unsigned colZeroFlags = 0;
+		if (ctx->col_short_term) {
+			const Edge264_macroblock *mbCol = ctx->mbCol;
+			v16qi refColL0 = (v16qi)(v4si){mbCol->refIdx_s[0]};
+			v16qi offsets = refColL0 & 32;
+			v8hi mvCol0 = *(v8hi*)(mbCol->mvs + offsets[0]);
+			v8hi mvCol1 = *(v8hi*)(mbCol->mvs + offsets[1] + 8);
+			v8hi mvCol2 = *(v8hi*)(mbCol->mvs + offsets[2] + 16);
+			v8hi mvCol3 = *(v8hi*)(mbCol->mvs + offsets[3] + 24);
+			v16qi refCol = vector_select(refColL0, (v16qi)(v4si){mbCol->refIdx_s[1]}, refColL0);
+			if (ctx->ps.direct_8x8_inference_flag) {
+				mvCol0 = (v8hi)__builtin_shufflevector((v4si)mvCol0, (v4si)mvCol0, 0, 0, 0, 0);
+				mvCol1 = (v8hi)__builtin_shufflevector((v4si)mvCol1, (v4si)mvCol1, 1, 1, 1, 1);
+				mvCol2 = (v8hi)__builtin_shufflevector((v4si)mvCol2, (v4si)mvCol2, 2, 2, 2, 2);
+				mvCol3 = (v8hi)__builtin_shufflevector((v4si)mvCol3, (v4si)mvCol3, 3, 3, 3, 3);
 			}
 			
-			// set indices not covered by direct_flags to -1
-			v16qu v = (v16qu)(v4su){little_endian32(direct_flags)};
-			v16qu vv = __builtin_shufflevector(v, v, 0, 0, 1, 1, 2, 2, 3, 3, 4, 4, 5, 5, 6, 6, 7, 7);
-			v16qu m = {0x0f, 0xf0, 0x0f, 0xf0, 0x0f, 0xf0, 0x0f, 0xf0};
-			mb->refIdx_l = ((v2li)(refIdx | ((m & ~vv) == m)))[0];
+			// initialize colZeroFlags and masks for motion vectors
+			unsigned refColZero = ((v4su)(refCol == 0))[0];
+			if (__builtin_expect(refColZero & 1, 1))
+				colZeroMask0 = mvs_near_zero(mvCol0);
+			if (__builtin_expect(refColZero & 1 << 8, 1))
+				colZeroMask1 = mvs_near_zero(mvCol1);
+			if (__builtin_expect(refColZero & 1 << 16, 1))
+				colZeroMask2 = mvs_near_zero(mvCol2);
+			if (__builtin_expect(refColZero & 1 << 24, 1))
+				colZeroMask3 = mvs_near_zero(mvCol3);
+			colZeroFlags = colZero_mask_to_flags(colZeroMask0, colZeroMask1, colZeroMask2, colZeroMask3);
+		}
+		
+		// skip computations on colZeroFlags if none are set
+		if (colZeroFlags != 0 || mb->refIdx_l != 0) {
+			unsigned mvd_flags = refIdx_to_mvd_flags(mb->refIdx_l);
+			unsigned direct_flags = mvd_flags;
+			v8hi mvs1 = mvs0, mvs2 = mvs0, mvs3 = mvs0, mvs5 = mvs4, mvs6 = mvs4, mvs7 = mvs4;
+			if (refIdx[0] == 0) {
+				colZeroFlags += colZeroFlags << 16;
+				mvs0 &= ~colZeroMask0;
+				mvs1 &= ~colZeroMask1;
+				mvs2 &= ~colZeroMask2;
+				mvs3 &= ~colZeroMask3;
+			} else {
+				colZeroFlags <<= 16;
+				mvd_flags = (refIdx[0] < 0) ? mvd_flags & 0xffff0000 : mvd_flags;
+			}
+			if (refIdx[4] == 0) {
+				mvs4 &= ~colZeroMask0;
+				mvs5 &= ~colZeroMask1;
+				mvs6 &= ~colZeroMask2;
+				mvs7 &= ~colZeroMask3;
+			} else {
+				colZeroFlags &= 0x0000ffff;
+				mvd_flags = (refIdx[4] < 0) ? mvd_flags & 0x0000ffff : mvd_flags;
+			}
+			
+			// conditional memory storage
+			mb->refIdx_l |= ((v2li)refIdx)[0];
+			if (direct_flags & 1) {
+				mb->mvs_v[0] = mvs0;
+				mb->mvs_v[4] = mvs4;
+			}
+			if (direct_flags & 1 << 4) {
+				mb->mvs_v[1] = mvs1;
+				mb->mvs_v[5] = mvs5;
+			}
+			if (direct_flags & 1 << 8) {
+				mb->mvs_v[2] = mvs2;
+				mb->mvs_v[6] = mvs6;
+			}
+			if (direct_flags & 1 << 12) {
+				mb->mvs_v[3] = mvs3;
+				mb->mvs_v[7] = mvs7;
+			}
 			
 			// iteratively cut the area into blocks with uniform colZeroFlags values
 			static const v8hu masks = {0xffff, 0xff, 0xf0f, 0xf, 0x3, 0x5, 0x1};
@@ -1152,16 +1162,16 @@ static always_inline void FUNC(decode_direct_spatial_mv_pred, unsigned direct_fl
 			static const int8_t heights[8] = {16, 8, 16, 8, 4, 8, 4};
 			unsigned inter_blocks = 0;
 			do {
-				int i = __builtin_ctz(direct_flags);
+				int i = __builtin_ctz(mvd_flags);
 				inter_blocks += 1 << i;
-				unsigned t = direct_flags >> i & scopes[i & 15];
+				unsigned t = mvd_flags >> i & scopes[i & 15];
 				unsigned c = colZeroFlags >> i;
 				v8hu mt = (v8hu){t, t, t, t, t, t, t, t} & masks;
 				v8hu mc = (v8hu){c, c, c, c, c, c, c, c};
 				int type = first_true(((mt & mc) == masks) | ((mt & ~mc) == masks));
-				direct_flags ^= ((uint16_t *)&masks)[type] << i;
+				mvd_flags ^= ((uint16_t *)&masks)[type] << i;
 				CALL(decode_inter, i, widths[type], heights[type]);
-			} while (direct_flags);
+			} while (mvd_flags);
 			mb->inter_blocks = inter_blocks | inter_blocks >> 16;
 			return;
 		}
@@ -1170,7 +1180,7 @@ static always_inline void FUNC(decode_direct_spatial_mv_pred, unsigned direct_fl
 	// fallback if we did not need colZeroFlags
 	mb->refIdx_l = ((v2li)refIdx)[0];
 	mb->mvs_v[0] = mb->mvs_v[1] = mb->mvs_v[2] = mb->mvs_v[3] = mvs0;
-	mb->mvs_v[4] = mb->mvs_v[5] = mb->mvs_v[6] = mb->mvs_v[7] = mvs1;
+	mb->mvs_v[4] = mb->mvs_v[5] = mb->mvs_v[6] = mb->mvs_v[7] = mvs4;
 	mb->inter_blocks = 1;
 	if (mb->refIdx[0] >= 0)
 		CALL(decode_inter, 0, 16, 16);
@@ -1178,7 +1188,7 @@ static always_inline void FUNC(decode_direct_spatial_mv_pred, unsigned direct_fl
 		CALL(decode_inter, 16, 16, 16);
 }
 
-static always_inline void FUNC(decode_direct_temporal_mv_pred, unsigned direct_flags)
+static always_inline void FUNC(decode_direct_temporal_mv_pred)
 {
 	// load refIdxCol and mvCol
 	const Edge264_macroblock *mbCol = ctx->mbCol;
@@ -1227,11 +1237,11 @@ static always_inline void FUNC(decode_direct_temporal_mv_pred, unsigned direct_f
 	} while (inter_blocks);
 }
 
-static noinline void FUNC(decode_direct_mv_pred, unsigned direct_flags) {
+static noinline void FUNC(decode_direct_mv_pred) {
 	if (ctx->direct_spatial_mv_pred_flag) {
-		CALL(decode_direct_spatial_mv_pred, direct_flags);
+		CALL(decode_direct_spatial_mv_pred);
 	} else {
-		CALL(decode_direct_temporal_mv_pred, direct_flags);
+		CALL(decode_direct_temporal_mv_pred);
 	}
 }
 
@@ -1262,12 +1272,12 @@ static void FUNC(parse_B_sub_mb) {
 	static const uint8_t sub2mb_type[13] = {3, 4, 5, 6, 1, 2, 11, 12, 7, 8, 9, 10, 0};
 	
 	// initializations for sub_mb_type
+	mb->refIdx_l = -1;
 	unsigned mvd_flags = 0;
-	unsigned direct_flags = 0;
 	for (int i8x8 = 0; i8x8 < 4; i8x8++) {
 		int i4x4 = i8x8 * 4;
 		if (!CALL(get_ae, 36)) {
-			direct_flags |= 0xf000f << i4x4;
+			mb->refIdx[i8x8] = mb->refIdx[4 + i8x8] = 0;
 			fprintf(stderr, "sub_mb_type: 0\n");
 		} else {
 			int sub = 2;
@@ -1282,7 +1292,7 @@ static void FUNC(parse_B_sub_mb) {
 				ctx->unavail[i4x4] = (ctx->unavail[i4x4] & 11) | (ctx->unavail[i4x4 + 1] & 4);
 				ctx->unavail[i4x4 + 2] |= 4;
 				ctx->refIdx4x4_C[i4x4] = 0x0d63 >> i4x4 & 15;
-				ctx->mvs_C[i4x4] = ctx->mvs8x8_C[i8x8];
+				ctx->mvs_C[i4x4] = ctx->mvs_C[i4x4 + 1];
 			} else { // 4xN
 				ctx->refIdx4x4_C[i4x4] = 0xdc32 >> i4x4 & 15;
 				ctx->mvs_C[i4x4] = ctx->mvs_B[i4x4 + 1];
@@ -1293,9 +1303,8 @@ static void FUNC(parse_B_sub_mb) {
 	mb->inter_blocks = mvd_flags | mvd_flags >> 16;
 	
 	// initialize direct prediction then parse all ref_idx values
-	// FIXME there should be non-direct8x8 indices that are still -1
-	if (direct_flags)
-		CALL(decode_direct_mv_pred, direct_flags);
+	if (mb->refIdx_l != -1ll)
+		CALL(decode_direct_mv_pred);
 	CALL(parse_ref_idx, 0x100 | mvd_flags2ref_idx(mvd_flags));
 	
 	// load neighbouring refIdx values and shuffle them into A/B/C/D
@@ -1415,16 +1424,18 @@ static inline void FUNC(parse_B_mb)
 	int mb_skip_flag = CALL(get_ae, 26 - ctx->inc.mb_skip_flag);
 	fprintf(stderr, "mb_skip_flag: %x\n", mb_skip_flag);
 	if (mb_skip_flag) {
+		mb->refIdx_l = 0;
 		mb->f.mb_skip_flag = mb_skip_flag;
 		mb->f.mb_type_B_Direct = 1;
-		JUMP(decode_direct_mv_pred, 0xffffffffu);
+		JUMP(decode_direct_mv_pred);
 		
 	// B_Direct_16x16
 	} else if (!CALL(get_ae, 29 - ctx->inc.mb_type_B_Direct)) {
 		fprintf(stderr, "mb_type: 0\n");
+		mb->refIdx_l = 0;
 		mb->f.mb_type_B_Direct = 1;
 		ctx->transform_8x8_mode_flag = ctx->ps.transform_8x8_mode_flag & ctx->ps.direct_8x8_inference_flag;
-		CALL(decode_direct_mv_pred, 0xffffffffu);
+		CALL(decode_direct_mv_pred);
 		JUMP(parse_inter_residual);
 	}
 	
@@ -1456,6 +1467,7 @@ static inline void FUNC(parse_B_mb)
 		JUMP(parse_I_mb, 32);
 	fprintf(stderr, "mb_type: %u\n", str2mb_type[str]);
 	mb->refIdx_l = -1;
+	memset(mb->mvs_v, 0, 128);
 	if (str == 15)
 		JUMP(parse_B_sub_mb);
 	int flags8x8 = str2flags[str];
@@ -1511,7 +1523,7 @@ static void FUNC(parse_P_sub_mb)
 			ctx->unavail[i4x4] = (ctx->unavail[i4x4] & 11) | (ctx->unavail[i4x4 + 1] & 4);
 			ctx->unavail[i4x4 + 2] |= 4;
 			ctx->refIdx4x4_C[i4x4] = 0x0d63 >> i4x4 & 15;
-			ctx->mvs_C[i4x4] = ctx->mvs8x8_C[i8x8];
+			ctx->mvs_C[i4x4] = ctx->mvs_C[i4x4 + 1];
 		} else { // 4xN
 			ctx->refIdx4x4_C[i4x4] = 0xdc32 >> i4x4 & 15;
 			ctx->mvs_C[i4x4] = ctx->mvs_B[i4x4 + 1];
@@ -1600,13 +1612,11 @@ static void FUNC(parse_P_sub_mb)
  * _ otherwise predict mv as median(mvA, mvB, mvC)
  * 
  * In general we implement these rules in two steps:
- * _ compare refIdx with A/B/C and produce a 3 bit equality mask (which can be
- *   computed in parallel for all 4x4 blocks since there is no dependency
- *   between blocks here)
- * _ for each block, fetch the correct mv(s) and compute their median based on
- *   the mask
- * 
- * FIXME use a 4-bit mask to spare writes in C4x4?
+ * _ compare refIdx with A/B/C and produce a 3 bit equality mask (plus a bit
+ *   for C->D replacement), which can be computed in parallel for all 4x4
+ *   blocks since there is no dependency between blocks here
+ * _ for each block in sequence, fetch the correct mv(s) and compute their
+ *   median based on the mask
  */
 static inline void FUNC(parse_P_mb)
 {
@@ -1619,8 +1629,9 @@ static inline void FUNC(parse_P_mb)
 	fprintf(stderr, "mb_skip_flag: %x\n", mb_skip_flag);
 	if (mb_skip_flag) {
 		mb->f.mb_skip_flag = mb_skip_flag;
-		mb->refIdx_l = (int64_t)(v8qi){0, 0, 0, 0, -1, -1, -1, -1};
 		mb->inter_blocks = 0x0001;
+		mb->refIdx_l = (int64_t)(v8qi){0, 0, 0, 0, -1, -1, -1, -1};
+		memset(mb->mvs_v + 4, 0, 64);
 		int refIdxA = *(mb->refIdx + ctx->refIdx_A[0]);
 		int refIdxB = *(mb->refIdx + ctx->refIdx_B[0]);
 		int mvA = *(mb->mvs_s + ctx->mvs_A[0]);
@@ -1629,11 +1640,11 @@ static inline void FUNC(parse_P_mb)
 		if ((refIdxA | mvA) && (refIdxB | mvB) && !(ctx->inc.unavailable & 3)) {
 			int refIdxC, mvs_C;
 			if (__builtin_expect(ctx->inc.unavailable & 4, 0)) {
-				refIdxC = *(mb->refIdx + ctx->refIdx_D);
-				mvs_C = ctx->mvs8x8_D[0];
+				refIdxC = ctx->mbB[-1].refIdx[3];
+				mvs_C = ctx->mvs_D[0];
 			} else {
-				refIdxC = *(mb->refIdx + ctx->refIdx_C);
-				mvs_C = ctx->mvs8x8_C[1];
+				refIdxC = ctx->mbB[1].refIdx[2];
+				mvs_C = ctx->mvs_C[5];
 			}
 			// B/C unavailability (->A) was ruled out, thus not tested here
 			int eq = !refIdxA + !refIdxB * 2 + !refIdxC * 4;
@@ -1655,6 +1666,7 @@ static inline void FUNC(parse_P_mb)
 	
 	// Non-skip Inter initialisations
 	mb->refIdx_s[1] = -1;
+	memset(mb->mvs_v + 4, 0, 64);
 	if (ctx->inc.unavailable & 1) {
 		mb[-1].coded_block_flags_4x4_v[0] = mb[-1].coded_block_flags_4x4_v[1] =
 			mb[-1].coded_block_flags_4x4_v[2] = mb[-1].coded_block_flags_8x8_v = (v16qi){};
@@ -1715,11 +1727,11 @@ noinline void FUNC(parse_slice_data)
 	
 	ctx->mb_qp_delta_non_zero = 0;
 	while (1) {
-		fprintf(stderr, "********** %u **********\n", ctx->CurrMbAddr);
+		fprintf(stderr, "********** %u ********** (%d)\n", ctx->CurrMbAddr, ctx->TopFieldOrderCnt);
 		v16qi flagsA = mb[-1].f.v;
 		v16qi flagsB = ctx->mbB->f.v;
 		ctx->inc.v = flagsA + flagsB + (flagsB & flags_twice.v);
-		memset(mb, 0, sizeof(*mb)); // FIXME who needs this?
+		memset(mb, 0, offsetof(Edge264_macroblock, mvs)); // FIXME who needs this?
 		mb->f.mb_field_decoding_flag = ctx->field_pic_flag;
 		CALL(check_ctx, LOOP_START_LABEL);
 		

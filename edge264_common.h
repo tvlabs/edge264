@@ -147,20 +147,13 @@ typedef struct
 	union { int32_t coded_block_flags_4x4_B[48]; int32_t Intra4x4PredMode_B[16]; v16si B4x4_8bit[3]; };
 	union { int16_t coded_block_flags_8x8_A[12]; int16_t CodedBlockPatternLuma_A[4]; int16_t refIdx_A[8]; v4hi A8x8_8bit[3]; };
 	union { int32_t coded_block_flags_8x8_B[12]; int32_t CodedBlockPatternLuma_B[4]; int32_t refIdx_B[8]; v4si B8x8_8bit[3]; };
-	// FIXME remove
 	union { int16_t absMvdComp_A[16]; v16hi absMvdComp_A_v; };
 	union { int32_t absMvdComp_B[16]; v16si absMvdComp_B_v; };
-	// FIXME remove
-	int32_t refIdx_C; // offset to mbC->refIdx[2]
-	int32_t refIdx_D; // offset to mbD->refIdx[3]
 	union { int8_t refIdx4x4_C[16]; int32_t refIdx4x4_C_s[4]; v16qi refIdx4x4_C_v; }; // shuffle vector for mv prediction
 	union { int16_t mvs_A[16]; v16hi mvs_A_v; };
 	union { int32_t mvs_B[16]; v16si mvs_B_v; };
 	union { int32_t mvs_C[16]; v16si mvs_C_v; };
 	union { int32_t mvs_D[16]; v16si mvs_D_v; };
-	// FIXME remove
-	union { int32_t mvs8x8_C[4]; v4si mvs8x8_C_v; }; // for initialising mvs_C
-	union { int32_t mvs8x8_D[4]; v4si mvs8x8_D_v; };
 	
 	// Intra context
 	v16qu pred_offset_C; // BitDepth offset on PredMode from Y to Cb/Cr
@@ -204,10 +197,12 @@ typedef struct
 
 #if __BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__
 	#define little_endian32(x) (x)
+	#define little_endian64(x) (x)
 	#define big_endian32 __builtin_bswap32
 	#define big_endian64 __builtin_bswap64
 #elif __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
 	#define little_endian32 __builtin_bswap32
+	#define little_endian64 __builtin_bswap64
 	#define big_endian32(x) (x)
 	#define big_endian64(x) (x)
 #endif
@@ -379,6 +374,9 @@ static void print_v4si(v4si v) {
 	#endif
 	
 	#ifdef __BMI2__
+		static inline unsigned refIdx_to_mvd_flags(int64_t f) {
+			return _pext_u64(~little_endian64(f), 0x0f0f0f0f0f0f0f0full);
+		}
 		static inline int mvd_flags2ref_idx(unsigned f) {
 			return _pext_u32(f, 0x11111111);
 		}
@@ -386,6 +384,11 @@ static void print_v4si(v4si v) {
 			return _pext_u32(f, 0x116);
 		}
 	#else
+		static inline unsigned refIdx_to_mvd_flags(int64_t f) {
+			uint64_t a = ~f & 0x0ff00ff00ff00ff0ull;
+			uint64_t b = a >> 4 | a >> 12;
+			return (b & 0xffff) | (b >> 16 & 0xffff0000);
+		}
 		static inline int mvd_flags2ref_idx(unsigned f) {
 			int a = f & 0x11111111;
 			int b = a | a >> 3;

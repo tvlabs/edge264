@@ -206,7 +206,7 @@ static void FUNC(initialise_decoding_context, Edge264_stream *e)
 			}
 			ctx->MapColToList0[0] = 0;
 			for (int i = 0; i < 64; i++)
-				ctx->MapColToList0[1 + i] = (colList[i] >= 0) ? MapPicToList0[1 + colList[i]] : 0;
+				ctx->MapColToList0[1 + i] = (colList[i] >= 0) ? MapPicToList0[colList[i]] : 0;
 		}
 	}
 }

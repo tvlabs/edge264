@@ -374,7 +374,7 @@ static void print_v4si(v4si v) {
 	#endif
 	
 	#ifdef __BMI2__
-		static inline unsigned refIdx_to_mvd_flags(int64_t f) {
+		static inline unsigned refIdx_to_direct_flags(int64_t f) {
 			return _pext_u64(~little_endian64(f), 0x0f0f0f0f0f0f0f0full);
 		}
 		static inline int mvd_flags2ref_idx(unsigned f) {
@@ -384,7 +384,7 @@ static void print_v4si(v4si v) {
 			return _pext_u32(f, 0x116);
 		}
 	#else
-		static inline unsigned refIdx_to_mvd_flags(int64_t f) {
+		static inline unsigned refIdx_to_direct_flags(int64_t f) {
 			uint64_t a = ~f & 0x0ff00ff00ff00ff0ull;
 			uint64_t b = a >> 4 | a >> 12;
 			return (b & 0xffff) | (b >> 16 & 0xffff0000);

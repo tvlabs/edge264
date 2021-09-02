@@ -1199,33 +1199,34 @@ static always_inline void FUNC(decode_direct_temporal_mv_pred)
 	v8hi mvCol2 = *(v8hi*)(mbCol->mvs + offsets[2] + 16);
 	v8hi mvCol3 = *(v8hi*)(mbCol->mvs + offsets[3] + 24);
 	v16qi refCol = vector_select(refColL0, (v16qi)(v4si){mbCol->refIdx_s[1]} | 32, refColL0);
-	unsigned mvd_flags = mbCol->inter_blocks & refIdx_to_direct_flags(mb->refIdx_l);
+	unsigned mvd_flags = refIdx_to_direct_flags(mb->refIdx_l) & 0xffff;
+	unsigned inter_blocks = mbCol->inter_blocks | ~mvd_flags;
 	if (ctx->ps.direct_8x8_inference_flag) {
 		mvCol0 = (v8hi)__builtin_shufflevector((v4si)mvCol0, (v4si)mvCol0, 0, 0, 0, 0);
 		mvCol1 = (v8hi)__builtin_shufflevector((v4si)mvCol1, (v4si)mvCol1, 1, 1, 1, 1);
 		mvCol2 = (v8hi)__builtin_shufflevector((v4si)mvCol2, (v4si)mvCol2, 2, 2, 2, 2);
 		mvCol3 = (v8hi)__builtin_shufflevector((v4si)mvCol3, (v4si)mvCol3, 3, 3, 3, 3);
-		mvd_flags &= 0x1111;
+		inter_blocks &= 0x1111;
 	}
 	
 	// with precomputed constants the rest is straightforward
 	mb->refIdx[0] |= ctx->MapColToList0[1 + refCol[0]];
-	if (mb->refIdx[0] < 0) {
+	if (mb->refIdx[0] >= 0) {
 		mb->mvs_v[0] = temporal_scale(mvCol0, ctx->DistScaleFactor[mb->refIdx[0]]);
 		mb->mvs_v[4] = mb->mvs_v[0] - mvCol0;
 	}
 	mb->refIdx[1] |= ctx->MapColToList0[1 + refCol[1]];
-	if (mb->refIdx[1] < 0) {
+	if (mb->refIdx[1] >= 0) {
 		mb->mvs_v[1] = temporal_scale(mvCol1, ctx->DistScaleFactor[mb->refIdx[1]]);
 		mb->mvs_v[5] = mb->mvs_v[1] - mvCol1;
 	}
 	mb->refIdx[2] |= ctx->MapColToList0[1 + refCol[2]];
-	if (mb->refIdx[2] < 0) {
+	if (mb->refIdx[2] >= 0) {
 		mb->mvs_v[2] = temporal_scale(mvCol2, ctx->DistScaleFactor[mb->refIdx[2]]);
 		mb->mvs_v[6] = mb->mvs_v[2] - mvCol2;
 	}
 	mb->refIdx[3] |= ctx->MapColToList0[1 + refCol[3]];
-	if (mb->refIdx[3] < 0) {
+	if (mb->refIdx[3] >= 0) {
 		mb->mvs_v[3] = temporal_scale(mvCol3, ctx->DistScaleFactor[mb->refIdx[3]]);
 		mb->mvs_v[7] = mb->mvs_v[3] - mvCol3;
 	}
@@ -1237,10 +1238,11 @@ static always_inline void FUNC(decode_direct_temporal_mv_pred)
 		static uint16_t masks[16] = {0xffff, 0x5, 0x3, 0x1, 0xf0f, 0x5, 0x3, 0x1, 0xff, 0x5, 0x3, 0x1, 0xf, 0x5, 0x3, 0x1};
 		static int8_t widths[16] = {16, 4, 8, 4, 8, 4, 8, 4, 16, 4, 8, 4, 8, 4, 8, 4};
 		static int8_t heights[16] = {16, 8, 4, 4, 16, 8, 4, 4, 8, 8, 4, 4, 8, 8, 4, 4};
-		int type = extract_neighbours(mvd_flags >> i) | fake_neighbours[i & 15];
+		int type = extract_neighbours(inter_blocks >> i) | fake_neighbours[i];
 		CALL(decode_inter, i, widths[type], heights[type]);
 		CALL(decode_inter, i + 16, widths[type], heights[type]);
-	} while (mvd_flags &= mvd_flags - 1);
+		mvd_flags ^= masks[type] << i;
+	} while (mvd_flags);
 }
 
 static noinline void FUNC(decode_direct_mv_pred) {

@@ -409,11 +409,11 @@ static void print_v4si(v4si v) {
 			return _mm_cvtepu8_epi16(_mm_insert_epi32(_mm_cvtsi32_si128(*(int *)r0), *(int *)r1, 1));
 		}
 		static inline v16qi min_v16qi(v16qi a, v16qi b) {
-			return _mm_min_epi8(a, b);
+			return (v16qi)_mm_min_epi8((__m128i)a, (__m128i)b);
 		}
 	#elif defined __SSSE3__
 		#define vector_select(mask, t, f) (((t) & (typeof(t))(mask < 0)) | ((f) & ~(typeof(t))(mask < 0)))
-		static inline __m128i _mm_mullo_epi32(__m128i a, __m128i b) {
+		static inline __m128i _mm_mullo_epi32(__m128i a, __m128i b) { // FIXME correct
 			__m128i c = _mm_shuffle_epi32(a, _MM_SHUFFLE(0, 3, 0, 1));
 			__m128i d = _mm_shuffle_epi32(b, _MM_SHUFFLE(0, 3, 0, 1));
 			__m128i e = _mm_mul_epu32(a, b);
@@ -433,7 +433,7 @@ static void print_v4si(v4si v) {
 			return _mm_unpacklo_epi8(_mm_unpacklo_epi32(x0, x1), zero);
 		}
 		static inline v16qi min_v16qi(v16qi a, v16qi b) {
-			return _mm_xor_si128(a, _mm_and_si128(_mm_xor_si128(a, b), _mm_cmpgt_epi8(a, b)));
+			return (v16qi)_mm_xor_si128((__m128i)a, _mm_and_si128(_mm_xor_si128((__m128i)a, (__m128i)b), _mm_cmpgt_epi8((__m128i)a, (__m128i)b)));
 		}
 	#endif
 
@@ -464,7 +464,11 @@ static void print_v4si(v4si v) {
 		return __builtin_ctz(_mm_movemask_epi8((__m128i)a)) >> 1; // pcmpistri wouldn't help here due to its high latency
 	}
 	static inline v8hi temporal_scale(v8hi mvCol, int16_t DistScaleFactor) {
-		return (v8hi)_mm_mulhrs_epi16(_mm_set1_epi16(DistScaleFactor), _mm_slli_epi16((__m128i)mvCol, 2));
+		__m128i neg = _mm_set1_epi32(-1);
+		__m128i mul = _mm_set1_epi32(DistScaleFactor + 0xff800000);
+		__m128i lo = _mm_madd_epi16(_mm_unpacklo_epi16(mvCol, neg), mul);
+		__m128i hi = _mm_madd_epi16(_mm_unpackhi_epi16(mvCol, neg), mul);
+		return _mm_packs_epi32(_mm_srai_epi32(lo, 8), _mm_srai_epi32(hi, 8));
 	}
 	
 	// fixing GCC's defect

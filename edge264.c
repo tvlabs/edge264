@@ -157,7 +157,6 @@ static void FUNC(initialise_decoding_context, Edge264_stream *e)
 		ctx->B8x8_8bit[2] = (v4si){10 + offB_8bit, 11 + offB_8bit, 8, 9};
 	}
 	
-	
 	int p = (ctx->ps.BitDepth_Y == 8) ? 0 : VERTICAL_4x4_16_BIT;
 	int q = (ctx->ps.BitDepth_C == 8 ? 0 : VERTICAL_4x4_16_BIT) - p;
 	v16qu pred_offset = (v16qu){p, p, p, p, p, p, p, p, p, p, p, p, p, p, p, p};
@@ -186,27 +185,41 @@ static void FUNC(initialise_decoding_context, Edge264_stream *e)
 		int n1 = ctx->ps.num_ref_idx_active[1];
 		ctx->clip_ref_idx = (v8qi){n0, n0, n0, n0, n1, n1, n1, n1};
 		ctx->transform_8x8_mode_flag = ctx->ps.transform_8x8_mode_flag; // for P slices this value is constant
-		
-		// initialize plane pointers for all references
 		for (int i = 0; i < n0; i++)
 			ctx->ref_planes[i] = e->DPB + (ctx->RefPicList[0][i] & 15) * e->frame_size;
+		
+		// B slices
 		if (ctx->slice_type == 1) {
 			for (int i = 0; i < n1; i++)
 				ctx->ref_planes[32 + i] = e->DPB + (ctx->RefPicList[1][i] & 15) * e->frame_size;
+			int colPic = ctx->RefPicList[1][0];
+			ctx->mbCol = (Edge264_macroblock *)(e->DPB + colPic * e->frame_size + ctx->plane_size_Y + e->plane_size_C * 2 + sizeof(*mb) - offB_8bit);
+			ctx->col_short_term = (e->long_term_flags >> colPic & 1) ^ 1;
 			
-			// initialize co-located picture variables
-			int refPicCol = ctx->RefPicList[1][0];
-			int8_t *colList = e->RefPicLists[refPicCol];
-			int8_t MapPicToList0[16] = {}; // pictures not found in RefPicList0 will point to 0 by default
-			ctx->mbCol = (Edge264_macroblock *)(e->DPB + refPicCol * e->frame_size + ctx->plane_size_Y + e->plane_size_C * 2 + sizeof(*mb) - offB_8bit);
-			ctx->col_short_term = (e->long_term_flags >> refPicCol & 1) ^ 1;
-			for (int i = 32; i-- > 0; ) {
-				if (ctx->RefPicList[0][i] >= 0)
-					MapPicToList0[ctx->RefPicList[0][i]] = i;
+			// initializations for temporal prediction
+			if (!ctx->direct_spatial_mv_pred_flag) {
+				int8_t MapPicToList0[16] = {}; // pictures not found in RefPicList0 will point to 0 by default
+				int poc = min(ctx->TopFieldOrderCnt, ctx->BottomFieldOrderCnt);
+				int pic1 = ctx->RefPicList[1][0];
+				int poc1 = min(e->FieldOrderCnt[pic1], e->FieldOrderCnt[16 + pic1]);
+				for (int refIdxL0 = ctx->ps.num_ref_idx_active[0]; refIdxL0-- > 0; ) {
+					int pic0 = ctx->RefPicList[0][refIdxL0];
+					MapPicToList0[pic0] = refIdxL0;
+					int poc0 = min(e->FieldOrderCnt[pic0], e->FieldOrderCnt[16 + pic0]);
+					int DistScaleFactor = 256;
+					if (!(e->long_term_flags & 1 << pic0) && poc0 != poc1) {
+						int tb = min(max(poc - poc0, -128), 127);
+						int td = min(max(poc1 - poc0, -128), 127);
+						int tx = (16384 + abs(td / 2)) / td;
+						DistScaleFactor = min(max((tb * tx + 32) >> 6, -1024), 1023);
+					}
+					ctx->DistScaleFactor[refIdxL0] = DistScaleFactor;
+				}
+				int8_t *colList = e->RefPicLists[colPic];
+				ctx->MapColToList0[0] = 0;
+				for (int i = 0; i < 64; i++)
+					ctx->MapColToList0[1 + i] = (colList[i] >= 0) ? MapPicToList0[colList[i]] : 0;
 			}
-			ctx->MapColToList0[0] = 0;
-			for (int i = 0; i < 64; i++)
-				ctx->MapColToList0[1 + i] = (colList[i] >= 0) ? MapPicToList0[colList[i]] : 0;
 		}
 	}
 }
@@ -341,8 +354,8 @@ static void FUNC(parse_ref_pic_list_modification, const Edge264_stream *e)
 		
 		printf("<li>RefPicList%x: <code>", l);
 		for (int i = 0; i < ctx->ps.num_ref_idx_active[l]; i++) {
-			printf("%u%s ", e->FieldOrderCnt[ctx->RefPicList[l][i]],
-				(!ctx->field_pic_flag) ? "" : (ctx->RefPicList[l][i] >= 16) ? "(bot)" : "(top)");
+			int pic = ctx->RefPicList[l][i];
+			printf("%u ", min(e->FieldOrderCnt[pic], e->FieldOrderCnt[16 + pic]));
 		}
 		printf("</code></li>\n");
 	}
@@ -391,69 +404,6 @@ static void FUNC(parse_pred_weight_table, Edge264_stream *e)
 			}
 		}
 	}
-	
-	
-	
-	/*// Initialise implicit_weights and DistScaleFactor for frames.
-	if (ctx->slice_type == 1 && !ctx->field_pic_flag) {
-		int PicOrderCnt = min(ctx->TopFieldOrderCnt, ctx->BottomFieldOrderCnt);
-		int topAbsDiffPOC = abs(e->FieldOrderCnt[ctx->RefPicList[1][0]] - PicOrderCnt);
-		int bottomAbsDiffPOC = abs(e->FieldOrderCnt[ctx->RefPicList[1][1] - PicOrderCnt);
-		ctx->firstRefPicL1 = (topAbsDiffPOC >= bottomAbsDiffPOC);
-		for (int refIdxL0 = 0; refIdxL0 < ctx->ps.num_ref_idx_active[0]; refIdxL0++) {
-			int pic0 = ctx->RefPicList[0][2 * refIdxL0];
-			int PicOrderCnt0 = min(pic0->PicOrderCnt, pic0[1].PicOrderCnt);
-			int tb = min(max(PicOrderCnt - PicOrderCnt0, -128), 127);
-			int DistScaleFactor = 0;
-			for (int refIdxL1 = ctx->ps.num_ref_idx_active[1]; refIdxL1-- > 0; ) {
-				const Edge264_picture *pic1 = ctx->DPB + ctx->RefPicList[1][2 * refIdxL1];
-				int PicOrderCnt1 = min(pic1->PicOrderCnt, pic1[1].PicOrderCnt);
-				int td = min(max(PicOrderCnt1 - PicOrderCnt0, -128), 127);
-				DistScaleFactor = 256;
-				int w_1C = 32;
-				if (td != 0 && !(long_term_flags & (1 << refIdxL0))) {
-					int tx = (16384 + abs(td / 2)) / td;
-					DistScaleFactor = min(max((tb * tx + 32) >> 6, -1024), 1023);
-					if (!(long_term_flags & (1 << refIdxL1)) &&
-						(DistScaleFactor >> 2) >= -64 && (DistScaleFactor >> 2) <= 128)
-						w_1C = DistScaleFactor >> 2;
-				}
-				ctx->implicit_weights[2][2 * refIdxL0][2 * refIdxL1] = -w_1C;
-			}
-			ctx->DistScaleFactor[2][2 * refIdxL0] = DistScaleFactor << 5;
-		}
-	}
-	
-	// Initialise the same for fields.
-	if (ctx->slice_type == 1 && (ctx->field_pic_flag || ctx->MbaffFrameFlag))
-		for (int refIdxL0 = ctx->ps.num_ref_idx_active[0] << ctx->MbaffFrameFlag; refIdxL0-- > 0; )
-	{
-		const Edge264_picture *pic0 = ctx->DPB + ctx->RefPicList[0][refIdxL0];
-		int tb0 = min(max(ctx->p.PicOrderCnt - pic0->PicOrderCnt, -128), 127);
-		int tb1 = min(max(OtherFieldOrderCnt - pic0->PicOrderCnt, -128), 127);
-		int DistScaleFactor0 = 0, DistScaleFactor1 = 0;
-		for (int refIdxL1 = ctx->ps.num_ref_idx_active[1] << ctx->MbaffFrameFlag; refIdxL1-- > 0; ) {
-			const Edge264_picture *pic1 = ctx->DPB + ctx->RefPicList[1][refIdxL1];
-			int td = min(max(pic1->PicOrderCnt - pic0->PicOrderCnt, -128), 127);
-			DistScaleFactor0 = DistScaleFactor1 = 256;
-			int w_1C = 32, W_1C = 32;
-			if (td != 0 && !(long_term_flags & (1 << (refIdxL0 / 2)))) {
-				int tx = (16384 + abs(td / 2)) / td;
-				DistScaleFactor0 = min(max((tb0 * tx + 32) >> 6, -1024), 1023);
-				DistScaleFactor1 = min(max((tb1 * tx + 32) >> 6, -1024), 1023);
-				if (!(long_term_flags & (1 << (refIdxL1 / 2)))) {
-					if ((DistScaleFactor0 >> 2) >= -64 && (DistScaleFactor0 >> 2) <= 128)
-						w_1C = DistScaleFactor0 >> 2;
-					if ((DistScaleFactor1 >> 2) >= -64 && (DistScaleFactor1 >> 2) <= 128)
-						W_1C = DistScaleFactor1 >> 2;
-				}
-			}
-			ctx->implicit_weights[ctx->bottom_field_flag][refIdxL0][refIdxL1] = -w_1C;
-			ctx->implicit_weights[ctx->bottom_field_flag ^ 1][refIdxL0][refIdxL1] = -W_1C;
-		}
-		ctx->DistScaleFactor[ctx->bottom_field_flag][refIdxL0] = DistScaleFactor0 << 5;
-		ctx->DistScaleFactor[ctx->bottom_field_flag ^ 1][refIdxL0] = DistScaleFactor1 << 5;
-	}*/
 }
 
 

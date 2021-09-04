@@ -1207,7 +1207,7 @@ static always_inline void FUNC(decode_direct_temporal_mv_pred)
 		inter_blocks &= 0x01231111;
 	}
 	
-	// with precomputed constants the rest is straightforward
+	// conditional memory storage
 	mb->refIdx[0] |= ctx->MapColToList0[1 + refCol[0]];
 	if (mb->refIdx[0] >= 0) {
 		mb->mvs_v[0] = temporal_scale(mvCol0, ctx->DistScaleFactor[mb->refIdx[0]]);
@@ -1233,16 +1233,16 @@ static always_inline void FUNC(decode_direct_temporal_mv_pred)
 	if (mb->refIdx[3] >= 0) {
 		mb->mvs_v[3] = temporal_scale(mvCol3, ctx->DistScaleFactor[mb->refIdx[3]]);
 		mb->mvs_v[7] = mb->mvs_v[3] - mvCol3;
-	} else {
-		inter_blocks &= ~0x0120f000;
+	} else { // edge case: 16x16 with a direct8x8 block on the bottom-right corner
+		inter_blocks = (inter_blocks == 0x01231111) ? 0x00010111 : inter_blocks & ~0x0120f000;
 	}
 	
 	// execute decode_inter for the positions given in the mask
 	mb->inter_blocks |= inter_blocks;
 	do {
-		static uint16_t masks[16] = {1, 1, 1, 1, 0x11, 1, 1, 1, 0x101, 1, 1, 1, 0x1111};
-		static int8_t widths[16] = {8, 4, 8, 4, 16, 0, 0, 0, 8, 0, 0, 0, 16};
-		static int8_t heights[16] = {8, 8, 4, 4, 8, 0, 0, 0, 16, 0, 0, 0, 16};
+		static uint16_t masks[16] = {1, 1, 1, 1, 0x11, 1, 1, 1, 0x101, 1, 1, 1, 0x1111, 1, 1, 1};
+		static int8_t widths[16] = {8, 4, 8, 4, 16, 0, 0, 0, 8, 0, 0, 0, 16, 0, 0, 0};
+		static int8_t heights[16] = {8, 8, 4, 4, 8, 0, 0, 0, 16, 0, 0, 0, 16, 0, 0, 0};
 		int i = __builtin_ctz(inter_blocks);
 		int type = extract_neighbours(inter_blocks >> i) | (i & 3); // second term adds fake neighbours for border blocks
 		inter_blocks ^= masks[type] << i;

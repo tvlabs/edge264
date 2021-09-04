@@ -465,10 +465,10 @@ static void print_v4si(v4si v) {
 	}
 	static inline v8hi temporal_scale(v8hi mvCol, int16_t DistScaleFactor) {
 		__m128i neg = _mm_set1_epi32(-1);
-		__m128i mul = _mm_set1_epi32(DistScaleFactor + 0xff800000);
-		__m128i lo = _mm_madd_epi16(_mm_unpacklo_epi16(mvCol, neg), mul);
-		__m128i hi = _mm_madd_epi16(_mm_unpackhi_epi16(mvCol, neg), mul);
-		return _mm_packs_epi32(_mm_srai_epi32(lo, 8), _mm_srai_epi32(hi, 8));
+		__m128i mul = _mm_set1_epi32(DistScaleFactor + 0xff800000u);
+		__m128i lo = _mm_madd_epi16(_mm_unpacklo_epi16((__m128i)mvCol, neg), mul);
+		__m128i hi = _mm_madd_epi16(_mm_unpackhi_epi16((__m128i)mvCol, neg), mul);
+		return (v8hi)_mm_packs_epi32(_mm_srai_epi32(lo, 8), _mm_srai_epi32(hi, 8));
 	}
 	
 	// fixing GCC's defect

@@ -678,6 +678,17 @@ static void FUNC(parse_inter_residual)
 		fprintf(stderr, "transform_size_8x8_flag: %x\n", mb->f.transform_size_8x8_flag);
 	}
 	
+	if (ctx->inc.unavailable & 1) {
+		mb[-1].coded_block_flags_4x4_v[0] = mb[-1].coded_block_flags_4x4_v[1] =
+			mb[-1].coded_block_flags_4x4_v[2] = mb[-1].coded_block_flags_8x8_v = (v16qi){};
+		ctx->inc.coded_block_flags_16x16_s &= 0x02020202;
+	}
+	if (ctx->inc.unavailable & 2) {
+		ctx->mbB->coded_block_flags_4x4_v[0] = ctx->mbB->coded_block_flags_4x4_v[1] =
+			ctx->mbB->coded_block_flags_4x4_v[2] = ctx->mbB->coded_block_flags_8x8_v = (v16qi){};
+		ctx->inc.coded_block_flags_16x16_s &= 0x01010101;
+	}
+	
 	// temporary fix until Pred modes are removed
 	ctx->PredMode_v[0] = (mb->f.transform_size_8x8_flag) ?
 		(v16qu){ADD_RESIDUAL_8x8, ADD_RESIDUAL_8x8, ADD_RESIDUAL_8x8, ADD_RESIDUAL_8x8, ADD_RESIDUAL_8x8, ADD_RESIDUAL_8x8, ADD_RESIDUAL_8x8, ADD_RESIDUAL_8x8, ADD_RESIDUAL_8x8, ADD_RESIDUAL_8x8, ADD_RESIDUAL_8x8, ADD_RESIDUAL_8x8, ADD_RESIDUAL_8x8, ADD_RESIDUAL_8x8, ADD_RESIDUAL_8x8, ADD_RESIDUAL_8x8} :
@@ -1443,9 +1454,10 @@ static inline void FUNC(parse_B_mb)
 		mb->inter_blocks = 0;
 		mb->refIdx_l = 0;
 		JUMP(decode_direct_mv_pred);
+	}
 		
 	// B_Direct_16x16
-	} else if (!CALL(get_ae, 29 - ctx->inc.mb_type_B_Direct)) {
+	if (!CALL(get_ae, 29 - ctx->inc.mb_type_B_Direct)) {
 		fprintf(stderr, "mb_type: 0\n");
 		ctx->transform_8x8_mode_flag = ctx->ps.transform_8x8_mode_flag & ctx->ps.direct_8x8_inference_flag;
 		mb->f.mb_type_B_Direct = 1;
@@ -1454,19 +1466,7 @@ static inline void FUNC(parse_B_mb)
 		CALL(decode_direct_mv_pred);
 		JUMP(parse_inter_residual);
 	}
-	
-	// Non-direct Inter initialisations
 	ctx->transform_8x8_mode_flag = ctx->ps.transform_8x8_mode_flag;
-	if (ctx->inc.unavailable & 1) {
-		mb[-1].coded_block_flags_4x4_v[0] = mb[-1].coded_block_flags_4x4_v[1] =
-			mb[-1].coded_block_flags_4x4_v[2] = mb[-1].coded_block_flags_8x8_v = (v16qi){};
-		ctx->inc.coded_block_flags_16x16_s &= 0x02020202;
-	}
-	if (ctx->inc.unavailable & 2) {
-		ctx->mbB->coded_block_flags_4x4_v[0] = ctx->mbB->coded_block_flags_4x4_v[1] =
-			ctx->mbB->coded_block_flags_4x4_v[2] = ctx->mbB->coded_block_flags_8x8_v = (v16qi){};
-		ctx->inc.coded_block_flags_16x16_s &= 0x01010101;
-	}
 	
 	// Most important here is the minimal number of conditional branches.
 	int str = 4;
@@ -1683,16 +1683,6 @@ static inline void FUNC(parse_P_mb)
 	// Non-skip Inter initialisations
 	mb->refIdx_s[1] = -1;
 	memset(mb->mvs_v + 4, 0, 64);
-	if (ctx->inc.unavailable & 1) {
-		mb[-1].coded_block_flags_4x4_v[0] = mb[-1].coded_block_flags_4x4_v[1] =
-			mb[-1].coded_block_flags_4x4_v[2] = mb[-1].coded_block_flags_8x8_v = (v16qi){};
-		ctx->inc.coded_block_flags_16x16_s &= 0x02020202;
-	}
-	if (ctx->inc.unavailable & 2) {
-		ctx->mbB->coded_block_flags_4x4_v[0] = ctx->mbB->coded_block_flags_4x4_v[1] =
-			ctx->mbB->coded_block_flags_4x4_v[2] = ctx->mbB->coded_block_flags_8x8_v = (v16qi){};
-		ctx->inc.coded_block_flags_16x16_s &= 0x01010101;
-	}
 	
 	// initializations and jumps for mb_type
 	int str = CALL(get_ae, 15);

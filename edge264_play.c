@@ -75,7 +75,7 @@ static int check_frame(const Edge264_stream *e, int i, const uint8_t *frame, con
 	}
 	printf("</ul>\n"
 		"<ul>\n"
-		"<li style='color:green'>Correct output frame</li>\n");
+		"<li style='color:green'>Output frame with pic_order_cnt %d is correct</li>\n", e->FieldOrderCnt[i]);
 	return 0;
 }
 

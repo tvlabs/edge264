@@ -534,7 +534,7 @@ static noinline void FUNC(parse_I_mb, int ctxIdx)
 		ctx->inc.coded_block_flags_16x16_s |= 0x02020202;
 	}
 	mb->f.mbIsInterFlag = 0;
-	mb->inter_blocks = 0x0001;
+	mb->inter_blocks = 0x01231111;
 	mb->refIdx_l = -1;
 	memset(mb->mvs_v, 0, 128);
 	
@@ -1156,19 +1156,20 @@ static always_inline void FUNC(decode_direct_spatial_mv_pred)
 			}
 			
 			// iteratively cut the area into blocks with uniform colZeroFlags values
-			static const v8hu masks = {0xffff, 0xff, 0xf0f, 0xf, 0x3, 0x5, 0x1};
 			static const uint16_t scopes[16] = {0xffff, 0x5, 0x3, 0x1, 0xf0f, 0x5, 0x3, 0x1, 0xff, 0x5, 0x3, 0x1, 0xf, 0x5, 0x3, 0x1};
-			static const int8_t widths[8] = {16, 16, 8, 8, 8, 4, 4};
-			static const int8_t heights[8] = {16, 8, 16, 8, 4, 8, 4};
+			static const v8hu masks = {0xffff, 0xff, 0xf0f, 0xf, 0x3, 0x5, 0x1};
+			static const int32_t inter_blocks[7] = {0x01231111, 0x00010011, 0x00020101, 1, 1, 1, 1};
+			static const int8_t widths[7] = {16, 16, 8, 8, 8, 4, 4};
+			static const int8_t heights[7] = {16, 8, 16, 8, 4, 8, 4};
 			do {
 				int i = __builtin_ctz(mvd_flags);
-				mb->inter_blocks |= 1 << (i & 15);
 				unsigned t = mvd_flags >> i & scopes[i & 15];
 				unsigned c = colZeroFlags >> i;
 				v8hu mt = (v8hu){t, t, t, t, t, t, t, t} & masks;
 				v8hu mc = (v8hu){c, c, c, c, c, c, c, c};
 				int type = first_true(((mt & mc) == masks) | ((mt & ~mc) == masks));
 				mvd_flags ^= ((uint16_t *)&masks)[type] << i;
+				mb->inter_blocks |= inter_blocks[type] << (i & 15);
 				CALL(decode_inter, i, widths[type], heights[type]);
 			} while (mvd_flags);
 			return;
@@ -1179,7 +1180,7 @@ static always_inline void FUNC(decode_direct_spatial_mv_pred)
 	mb->refIdx_l = ((v2li)refIdx)[0];
 	mb->mvs_v[0] = mb->mvs_v[1] = mb->mvs_v[2] = mb->mvs_v[3] = mvs0;
 	mb->mvs_v[4] = mb->mvs_v[5] = mb->mvs_v[6] = mb->mvs_v[7] = mvs4;
-	mb->inter_blocks = 1;
+	mb->inter_blocks = 0x01231111;
 	if (mb->refIdx[0] >= 0)
 		CALL(decode_inter, 0, 16, 16);
 	if (mb->refIdx[4] >= 0)
@@ -1197,55 +1198,57 @@ static always_inline void FUNC(decode_direct_temporal_mv_pred)
 	v8hi mvCol2 = *(v8hi*)(mbCol->mvs + offsets[2] + 16);
 	v8hi mvCol3 = *(v8hi*)(mbCol->mvs + offsets[3] + 24);
 	v16qi refCol = vector_select(refColL0, (v16qi)(v4si){mbCol->refIdx_s[1]} | 32, refColL0);
-	unsigned mvd_flags = refIdx_to_direct_flags(mb->refIdx_l) & 0xffff;
-	unsigned col_blocks = mbCol->inter_blocks | ~mvd_flags;
+	unsigned inter_blocks = mbCol->inter_blocks;
 	if (ctx->ps.direct_8x8_inference_flag) {
 		mvCol0 = (v8hi)__builtin_shufflevector((v4si)mvCol0, (v4si)mvCol0, 0, 0, 0, 0);
 		mvCol1 = (v8hi)__builtin_shufflevector((v4si)mvCol1, (v4si)mvCol1, 1, 1, 1, 1);
 		mvCol2 = (v8hi)__builtin_shufflevector((v4si)mvCol2, (v4si)mvCol2, 2, 2, 2, 2);
 		mvCol3 = (v8hi)__builtin_shufflevector((v4si)mvCol3, (v4si)mvCol3, 3, 3, 3, 3);
-		col_blocks &= 0x1111;
+		inter_blocks &= 0x01231111;
 	}
-	if (ctx->CurrMbAddr == 29)
-		printf("<li>mvd_flags=%#x, col_blocks=%#x</li>\n", mvd_flags, col_blocks);
 	
 	// with precomputed constants the rest is straightforward
 	mb->refIdx[0] |= ctx->MapColToList0[1 + refCol[0]];
 	if (mb->refIdx[0] >= 0) {
 		mb->mvs_v[0] = temporal_scale(mvCol0, ctx->DistScaleFactor[mb->refIdx[0]]);
 		mb->mvs_v[4] = mb->mvs_v[0] - mvCol0;
+	} else {
+		inter_blocks &= ~0x0003000f;
 	}
 	mb->refIdx[1] |= ctx->MapColToList0[1 + refCol[1]];
 	if (mb->refIdx[1] >= 0) {
 		mb->mvs_v[1] = temporal_scale(mvCol1, ctx->DistScaleFactor[mb->refIdx[1]]);
 		mb->mvs_v[5] = mb->mvs_v[1] - mvCol1;
+	} else {
+		inter_blocks &= ~0x002100f0;
 	}
 	mb->refIdx[2] |= ctx->MapColToList0[1 + refCol[2]];
 	if (mb->refIdx[2] >= 0) {
 		mb->mvs_v[2] = temporal_scale(mvCol2, ctx->DistScaleFactor[mb->refIdx[2]]);
 		mb->mvs_v[6] = mb->mvs_v[2] - mvCol2;
+	} else {
+		inter_blocks &= ~0x01020f00;
 	}
 	mb->refIdx[3] |= ctx->MapColToList0[1 + refCol[3]];
 	if (mb->refIdx[3] >= 0) {
 		mb->mvs_v[3] = temporal_scale(mvCol3, ctx->DistScaleFactor[mb->refIdx[3]]);
 		mb->mvs_v[7] = mb->mvs_v[3] - mvCol3;
+	} else {
+		inter_blocks &= ~0x0120f000;
 	}
 	
 	// execute decode_inter for the positions given in the mask
-	// FIXME 8x8-8x8-16x8 and 8x8-8x16-8x8 have the same inter_blocks representation
-	// FIXME switch to a equal-right/bottom representation
+	mb->inter_blocks |= inter_blocks;
 	do {
-		static int8_t fake_neighbours[16] = {0, 13, 14, 15, 4, 13, 14, 15, 8, 13, 14, 15, 12, 13, 14, 15};
-		static uint16_t masks[16] = {0xffff, 0x5, 0x3, 0x1, 0xf0f, 0x5, 0x3, 0x1, 0xff, 0x5, 0x3, 0x1, 0xf, 0x5, 0x3, 0x1};
-		static int8_t widths[16] = {16, 4, 8, 4, 8, 4, 8, 4, 16, 4, 8, 4, 8, 4, 8, 4};
-		static int8_t heights[16] = {16, 8, 4, 4, 16, 8, 4, 4, 8, 8, 4, 4, 8, 8, 4, 4};
-		int i = __builtin_ctz(mvd_flags);
-		int type = extract_neighbours(col_blocks >> i) | fake_neighbours[i];
-		mb->inter_blocks |= 1 << i;
-		mvd_flags ^= masks[type] << i;
+		static uint16_t masks[16] = {1, 1, 1, 1, 0x11, 1, 1, 1, 0x101, 1, 1, 1, 0x1111};
+		static int8_t widths[16] = {8, 4, 8, 4, 16, 0, 0, 0, 8, 0, 0, 0, 16};
+		static int8_t heights[16] = {8, 8, 4, 4, 8, 0, 0, 0, 16, 0, 0, 0, 16};
+		int i = __builtin_ctz(inter_blocks);
+		int type = extract_neighbours(inter_blocks >> i) | (i & 3); // second term adds fake neighbours for border blocks
+		inter_blocks ^= masks[type] << i;
 		CALL(decode_inter, i, widths[type], heights[type]);
 		CALL(decode_inter, i + 16, widths[type], heights[type]);
-	} while (mvd_flags);
+	} while (inter_blocks & 0xffff);
 }
 
 static noinline void FUNC(decode_direct_mv_pred) {
@@ -1311,7 +1314,7 @@ static void FUNC(parse_B_sub_mb) {
 			fprintf(stderr, "sub_mb_type: %u\n", sub2mb_type[sub]);
 		}
 	}
-	mb->inter_blocks = mvd_flags | mvd_flags >> 16;
+	mb->inter_blocks = (mvd_flags & 0xffff) | mvd_flags >> 16;
 	
 	// initialize direct prediction then parse all ref_idx values
 	if (mb->refIdx_l != -1ll)
@@ -1486,13 +1489,13 @@ static inline void FUNC(parse_B_mb)
 	int flags8x8 = str2flags[str];
 	CALL(parse_ref_idx, flags8x8);
 	if (!(flags8x8 & 0xee)) { // 16x16
-		mb->inter_blocks = 0x0001;
+		mb->inter_blocks = 0x01231111;
 		if (flags8x8 & 0x01)
 			CALL(parse_mvd_16x16, 0);
 		if (flags8x8 & 0x10)
 			CALL(parse_mvd_16x16, 1);
 	} else if (!(flags8x8 & 0xcc)) { // 8x16
-		mb->inter_blocks = 0x0011;
+		mb->inter_blocks = 0x00221111;
 		if (flags8x8 & 0x01)
 			CALL(parse_mvd_8x16_left, 0);
 		if (flags8x8 & 0x02)
@@ -1502,7 +1505,7 @@ static inline void FUNC(parse_B_mb)
 		if (flags8x8 & 0x20)
 			CALL(parse_mvd_8x16_right, 1);
 	} else { // 16x8
-		mb->inter_blocks = 0x0101;
+		mb->inter_blocks = 0x01011111;
 		if (flags8x8 & 0x01)
 			CALL(parse_mvd_16x8_top, 0);
 		if (flags8x8 & 0x04)
@@ -1642,7 +1645,7 @@ static inline void FUNC(parse_P_mb)
 	fprintf(stderr, "mb_skip_flag: %x\n", mb_skip_flag);
 	if (mb_skip_flag) {
 		mb->f.mb_skip_flag = mb_skip_flag;
-		mb->inter_blocks = 0x0001;
+		mb->inter_blocks = 0x01231111;
 		mb->refIdx_l = (int64_t)(v8qi){0, 0, 0, 0, -1, -1, -1, -1};
 		memset(mb->mvs_v + 4, 0, 64);
 		int refIdxA = *(mb->refIdx + ctx->refIdx_A[0]);
@@ -1699,14 +1702,14 @@ static inline void FUNC(parse_P_mb)
 		JUMP(parse_P_sub_mb);
 	CALL(parse_ref_idx, (str + 1) | 1); // 0->1, 2->3, 3->5
 	if (str == 0) { // 16x16
-		mb->inter_blocks = 0x0001;
+		mb->inter_blocks = 0x01231111;
 		CALL(parse_mvd_16x16, 0);
 	} else if (str == 2) { // 8x16
-		mb->inter_blocks = 0x0011;
+		mb->inter_blocks = 0x00221111;
 		CALL(parse_mvd_8x16_left, 0);
 		CALL(parse_mvd_8x16_right, 0);
 	} else { // 16x8
-		mb->inter_blocks = 0x0101;
+		mb->inter_blocks = 0x01011111;
 		CALL(parse_mvd_16x8_top, 0);
 		CALL(parse_mvd_16x8_bottom, 0);
 	}

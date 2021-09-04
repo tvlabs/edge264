@@ -73,7 +73,7 @@ static const Edge264_flags flags_twice = {
  */
 typedef struct {
 	Edge264_flags f;
-	uint16_t inter_blocks; // bitmask for every index that is the topleft corner of a block
+	uint32_t inter_blocks; // bitmask for every index that is the topleft corner of a block, upper half indicates whether each 8x8 block is equal with its right/bottom neighbours
 	uint16_t ref_idx_nz;
 	int8_t QP[3];
 	union { int8_t CodedBlockPatternLuma[4]; int32_t CodedBlockPatternLuma_s; }; // [i8x8]
@@ -381,7 +381,7 @@ static void print_v4si(v4si v) {
 			return _pext_u32(f, 0x11111111);
 		}
 		static inline int extract_neighbours(unsigned f) {
-			return _pext_u32(f, 0x116);
+			return _pext_u32(f, 0x30006);
 		}
 	#else
 		static inline unsigned refIdx_to_direct_flags(int64_t f) {
@@ -396,7 +396,7 @@ static void print_v4si(v4si v) {
 			return (c & 0xf) | (c >> 12 & 0xf0);
 		}
 		static inline int extract_neighbours(unsigned f) {
-			return (f >> 1 & 3) | (f >> 2 & 4) | (f >> 5 & 8);
+			return (f >> 1 & 3) | (f >> 14 & 12);
 		}
 	#endif
 

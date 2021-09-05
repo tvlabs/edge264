@@ -1,8 +1,6 @@
-// TODO: Remove w/h from decode parameters since they will get spilled
 // TODO: Move initialisation of prediction weights in parse_ref_idx?
-// TODO: Make ref_idx address the full RefPicList[64] ?
-// TODO: Invert LX and RefIdx in ctx ?
 // TODO: Invert X&Y in QPEL to match ffmpeg convention
+// TODO: remove __m64
 // TODO: Does restrict allow compilers to reorder reads/writes?
 // TODO: Add support for 16bit
 // TODO: swap chroma & luma in decode_inter to finish on a tail call
@@ -17,8 +15,7 @@
  * The sum is actually computed as (((a-b)/4-(b-c))/4+c+1)/2, the last shift
  * being carried after clipping above zero to use pavg.
  */
-static always_inline __m128i FUNC(filter_6tap, __m128i x0,
-	__m128i x1, __m128i x2, __m128i x3, __m128i x4, __m128i x5, __m128i zero)
+static always_inline __m128i FUNC(filter_6tap, __m128i x0, __m128i x1, __m128i x2, __m128i x3, __m128i x4, __m128i x5, __m128i zero)
 {
 	__m128i a = _mm_add_epi16(x0, x5);
 	__m128i b = _mm_add_epi16(x1, x4);
@@ -29,8 +26,7 @@ static always_inline __m128i FUNC(filter_6tap, __m128i x0,
 	return _mm_min_epi16(_mm_avg_epu16(x8, zero), (__m128i)ctx->clip_Y);
 }
 
-static always_inline __m128i FUNC(noclip_6tap, __m128i x0,
-	__m128i x1, __m128i x2, __m128i x3, __m128i x4, __m128i x5, __m128i zero)
+static always_inline __m128i FUNC(noclip_6tap, __m128i x0, __m128i x1, __m128i x2, __m128i x3, __m128i x4, __m128i x5, __m128i zero)
 {
 	__m128i a = _mm_add_epi16(x0, x5);
 	__m128i b = _mm_add_epi16(x1, x4);
@@ -45,8 +41,7 @@ static always_inline __m128i FUNC(noclip_6tap, __m128i x0,
  * First we shift Up and sum values in one dimension (horizontal or vertical),
  * then we shift Down accumulated values and sum them in the other dimension.
  */
-static always_inline __m128i FUNC(filter_36tapU_8bit,
-	__m128i x0, __m128i x1, __m128i x2, __m128i x3, __m128i x4, __m128i x5)
+static always_inline __m128i FUNC(filter_36tapU_8bit, __m128i x0, __m128i x1, __m128i x2, __m128i x3, __m128i x4, __m128i x5)
 {
 	__m128i a = _mm_add_epi16(x0, x5);
 	__m128i b = _mm_add_epi16(x1, x4);
@@ -55,8 +50,7 @@ static always_inline __m128i FUNC(filter_36tapU_8bit,
 	return _mm_add_epi16(_mm_add_epi16(a, x6), _mm_slli_epi16(x6, 2)); // a+(c*4-b)*5
 }
 
-static always_inline __m128i FUNC(filter_36tapD_8bit, __m128i x0,
-	__m128i x1, __m128i x2, __m128i x3, __m128i x4, __m128i x5, __m128i zero)
+static always_inline __m128i FUNC(filter_36tapD_8bit, __m128i x0, __m128i x1, __m128i x2, __m128i x3, __m128i x4, __m128i x5, __m128i zero)
 {
 	__m128i a = _mm_add_epi16(x0, x5);
 	__m128i b = _mm_add_epi16(x1, x4);
@@ -67,8 +61,7 @@ static always_inline __m128i FUNC(filter_36tapD_8bit, __m128i x0,
 	return _mm_min_epi16(_mm_avg_epu16(x8, zero), (__m128i)ctx->clip_Y);
 }
 
-static always_inline __m128i FUNC(noclip_36tapD_8bit, __m128i x0,
-	__m128i x1, __m128i x2, __m128i x3, __m128i x4, __m128i x5, __m128i zero)
+static always_inline __m128i FUNC(noclip_36tapD_8bit, __m128i x0, __m128i x1, __m128i x2, __m128i x3, __m128i x4, __m128i x5, __m128i zero)
 {
 	__m128i a = _mm_add_epi16(x0, x5);
 	__m128i b = _mm_add_epi16(x1, x4);
@@ -84,15 +77,13 @@ static always_inline __m128i FUNC(noclip_36tapD_8bit, __m128i x0,
  * 6-tap values from intermediate 36-tap sums, and averaging them with the
  * original qpel22 values.
  */
-static always_inline __m128i FUNC(avg_6tapD_8bit,
-	__m128i sum, __m128i avg, __m128i zero)
+static always_inline __m128i FUNC(avg_6tapD_8bit, __m128i sum, __m128i avg, __m128i zero)
 {
 	__m128i x0 = _mm_avg_epu16(_mm_max_epi16(_mm_srai_epi16(sum, 4), zero), zero);
 	return _mm_avg_epu16(_mm_min_epi16(x0, (__m128i)ctx->clip_Y), avg);
 }
 
-static always_inline __m128i FUNC(packus_6tapD_8bit,
-	__m128i sum0, __m128i sum1, __m128i avg, __m128i zero)
+static always_inline __m128i FUNC(packus_6tapD_8bit, __m128i sum0, __m128i sum1, __m128i avg, __m128i zero)
 {
 	__m128i x0 = _mm_avg_epu16(_mm_max_epi16(_mm_srai_epi16(sum0, 4), zero), zero);
 	__m128i x1 = _mm_avg_epu16(_mm_max_epi16(_mm_srai_epi16(sum1, 4), zero), zero);
@@ -102,8 +93,7 @@ static always_inline __m128i FUNC(packus_6tapD_8bit,
 /**
  * Functions for in-place weighting and storage.
  */
-static always_inline void FUNC(store4x4_8bit,
-	size_t stride, uint8_t * restrict dst, __m128i p)
+static always_inline void FUNC(store4x4_8bit, size_t stride, uint8_t * restrict dst, __m128i p)
 {
 	__m128i q = _mm_setr_epi32(
 		*(int32_t *)(dst             ), *(int32_t *)(dst + stride    ),
@@ -122,8 +112,7 @@ static always_inline void FUNC(store4x4_8bit,
 	*(int32_t *)(dst + stride * 3) = r[3];
 }
 
-static always_inline void FUNC(store8x2_8bit,
-	size_t stride, uint8_t * restrict dst, __m128i p)
+static always_inline void FUNC(store8x2_8bit, size_t stride, uint8_t * restrict dst, __m128i p)
 {
 	__m128i q = _mm_setr_epi64(*(__m64 *)(dst         ), *(__m64 *)(dst + stride));
 	__m128i w = (__m128i)ctx->biweights_v;
@@ -138,8 +127,7 @@ static always_inline void FUNC(store8x2_8bit,
 	*(int64_t *)(dst + stride) = r[1];
 }
 
-static always_inline void FUNC(store16x1_8bit,
-	size_t stride, uint8_t * restrict dst, __m128i p)
+static always_inline void FUNC(store16x1_8bit, size_t stride, uint8_t * restrict dst, __m128i p)
 {
 	__m128i q = *(__m128i *)dst;
 	__m128i w = (__m128i)ctx->biweights_v;
@@ -151,7 +139,7 @@ static always_inline void FUNC(store16x1_8bit,
 	__m128i x3 = _mm_sra_epi16(_mm_add_epi16(_mm_maddubs_epi16(x1, w), o), logWD);
 	*(__m128i *)dst = _mm_packus_epi16(x2, x3);
 }
-static inline v16qi pack_weights(int w0, int w1) {
+static always_inline v16qi pack_weights(int w0, int w1) {
 	return (v16qi)_mm_unpacklo_epi8(_mm_set1_epi8(w0), _mm_set1_epi8(w1));
 }
 
@@ -184,12 +172,12 @@ static inline v16qi pack_weights(int w0, int w1) {
  *   advantageous for architectural simplicity.
  *
  * While it is impossible for functions to return multiple values in multiple
- * registers (stupid ABI), we cannot put redundant loads in functions and had
+ * registers (stupid ABI), we cannot put redundant loads in functions and have
  * to duplicate a lot of code. The same goes for filter_6tap, which would force
- * all live registers on stack if not inlined.
+ * all live vector registers on stack if not inlined.
  * Also, although I_HATE_MACROS they are very useful here to reduce 16 (big)
  * functions down to 7. This is a lot of code, but all qpel interpolations are
- * done in registers without intermediate storage!
+ * done in one pass without intermediate storage!
  */
 static void FUNC(inter4xH_qpel00_8bit, int h, size_t dstride, uint8_t * restrict dst, size_t sstride, const uint8_t *src) {
 	do {
@@ -1191,14 +1179,14 @@ INTER16xH_QPEL_12_22_32(qpel32, CALL(packus_6tapD_8bit, h30, h38, hv, zero))
  * is shared by all sizes. These functions should be inlined, otherwise AB/CD
  * would be spilled on stack.
  */
-static inline void FUNC(inter2xH_chroma_8bit, int h, size_t dstride, uint8_t * restrict dst, size_t sstride, const uint8_t *src, __m128i AB, __m128i CD) {
+static always_inline void FUNC(inter2xH_chroma_8bit, int h, size_t dstride, uint8_t * restrict dst, size_t sstride, const uint8_t *src, __m128i AB, __m128i CD, __m128i W, __m128i O, __m128i logWD) {
 	__m64 shuf = _mm_setr_pi8(0, 1, 1, 2, 4, 5, 5, 6);
 	__m64 zero = _mm_setzero_si64();
 	__m64 ab = _mm_movepi64_pi64(AB);
 	__m64 cd = _mm_movepi64_pi64(CD);
-	__m64 w = (__m64)ctx->biweights_l;
-	__m64 o = (__m64)ctx->bioffsets_l;
-	__m64 logWD = (__m64)ctx->logWD_l;
+	__m64 w = _mm_movepi64_pi64(W);
+	__m64 o = _mm_movepi64_pi64(O);
+	__m64 logwd = _mm_movepi64_pi64(logWD);
 	__m64 m0 = _mm_shuffle_pi8(_mm_setr_pi32(0, *(int32_t *)src), shuf);
 	do {
 		__m64 m1 = _mm_setr_pi32(*(int32_t *)(src + sstride    ), *(int32_t *)(src + sstride * 2));
@@ -1208,7 +1196,7 @@ static inline void FUNC(inter2xH_chroma_8bit, int h, size_t dstride, uint8_t * r
 		__m64 p = _mm_packs_pu16(_mm_avg_pu16(_mm_srli_pi16(m4, 5), zero), zero);
 		__m64 q = _mm_setr_pi16(*(int16_t *)(dst          ), *(int16_t *)(dst + dstride), 0, 0);
 		__m64 m5 = _mm_add_pi16(_mm_maddubs_pi16(_mm_unpacklo_pi8(q, p), w), o);
-		v4hi m6 = (v4hi)_mm_packs_pu16(_mm_sra_pi16(m5, logWD), zero);
+		v4hi m6 = (v4hi)_mm_packs_pu16(_mm_sra_pi16(m5, logwd), zero);
 		*(int16_t *)(dst          ) = m6[0];
 		*(int16_t *)(dst + dstride) = m6[1];
 		src += sstride * 2;
@@ -1217,11 +1205,8 @@ static inline void FUNC(inter2xH_chroma_8bit, int h, size_t dstride, uint8_t * r
 	} while (h -= 2);
 }
 
-static inline void FUNC(inter4xH_chroma_8bit, int h, size_t dstride, uint8_t * restrict dst, size_t sstride, const uint8_t *src, __m128i AB, __m128i CD) {
+static always_inline void FUNC(inter4xH_chroma_8bit, int h, size_t dstride, uint8_t * restrict dst, size_t sstride, const uint8_t *src, __m128i AB, __m128i CD, __m128i W, __m128i O, __m128i logWD) {
 	__m128i zero = _mm_setzero_si128();
-	__m128i w = (__m128i)ctx->biweights_v;
-	__m128i o = (__m128i)ctx->bioffsets_v;
-	__m128i logWD = (__m128i)ctx->logWD_v;
 	__m128i x0 = _mm_slli_si128(_mm_unpacklo_epi8(_mm_cvtsi32_si128(*(int32_t *)src), _mm_cvtsi32_si128(*(int32_t *)(src + 1))), 8);
 	do {
 		__m128i x1 = _mm_setr_epi32(*(int32_t *)(src + sstride        ), *(int32_t *)(src + sstride * 2    ), 0, 0);
@@ -1231,7 +1216,7 @@ static inline void FUNC(inter4xH_chroma_8bit, int h, size_t dstride, uint8_t * r
 		__m128i x5 = _mm_add_epi16(_mm_maddubs_epi16(x4, AB), _mm_maddubs_epi16(x3, CD));
 		__m128i p = _mm_packus_epi16(_mm_avg_epu16(_mm_srli_epi16(x5, 5), zero), zero);
 		__m128i q = _mm_setr_epi32(*(int32_t *)(dst          ), *(int32_t *)(dst + dstride), 0, 0);
-		__m128i x6 = _mm_add_epi16(_mm_maddubs_epi16(_mm_unpacklo_epi8(q, p), w), o);
+		__m128i x6 = _mm_add_epi16(_mm_maddubs_epi16(_mm_unpacklo_epi8(q, p), W), O);
 		v4si x7 = (v4si)_mm_packus_epi16(_mm_sra_epi16(x6, logWD), zero);
 		*(int32_t *)(dst          ) = x7[0];
 		*(int32_t *)(dst + dstride) = x7[1];
@@ -1241,11 +1226,8 @@ static inline void FUNC(inter4xH_chroma_8bit, int h, size_t dstride, uint8_t * r
 	} while (h -= 2);
 }
 
-static inline void FUNC(inter8xH_chroma_8bit, int h, size_t dstride, uint8_t * restrict dst, size_t sstride, const uint8_t *src, __m128i AB, __m128i CD) {
+static always_inline void FUNC(inter8xH_chroma_8bit, int h, size_t dstride, uint8_t * restrict dst, size_t sstride, const uint8_t *src, __m128i AB, __m128i CD, __m128i W, __m128i O, __m128i logWD) {
 	__m128i zero = _mm_setzero_si128();
-	__m128i w = (__m128i)ctx->biweights_v;
-	__m128i o = (__m128i)ctx->bioffsets_v;
-	__m128i logWD = (__m128i)ctx->logWD_v;
 	__m128i x0 = _mm_unpacklo_epi8(_mm_loadu_si64(src              ), _mm_loadu_si64(src               + 1));
 	do {
 		__m128i x1 = _mm_unpacklo_epi8(_mm_loadu_si64(src + sstride    ), _mm_loadu_si64(src + sstride     + 1));
@@ -1256,8 +1238,8 @@ static inline void FUNC(inter8xH_chroma_8bit, int h, size_t dstride, uint8_t * r
 		__m128i x6 = _mm_avg_epu16(_mm_srli_epi16(x4, 5), zero);
 		__m128i p = _mm_packus_epi16(x5, x6);
 		__m128i q = _mm_setr_epi64(*(__m64 *)(dst          ), *(__m64 *)(dst + dstride));
-		__m128i x7 = _mm_add_epi16(_mm_maddubs_epi16(_mm_unpacklo_epi8(q, p), w), o);
-		__m128i x8 = _mm_add_epi16(_mm_maddubs_epi16(_mm_unpackhi_epi8(q, p), w), o);
+		__m128i x7 = _mm_add_epi16(_mm_maddubs_epi16(_mm_unpacklo_epi8(q, p), W), O);
+		__m128i x8 = _mm_add_epi16(_mm_maddubs_epi16(_mm_unpackhi_epi8(q, p), W), O);
 		v2li x9 = (v2li)_mm_packus_epi16(_mm_sra_epi16(x7, logWD), _mm_sra_epi16(x8, logWD));
 		*(int64_t *)(dst          ) = x9[0];
 		*(int64_t *)(dst + dstride) = x9[1];
@@ -1338,7 +1320,6 @@ noinline void FUNC(decode_inter, int i, int w, int h) {
 	}
 	
 	// initialize prediction weights
-	// FIXME unused variables?
 	v16qi biweights_Cb, biweights_Cr;
 	v8hi bioffsets_Cb, bioffsets_Cr, logWD_C;
 	if ((i8x8 < 4 || mb->refIdx[i8x8 - 4] < 0) && (ctx->ps.weighted_bipred_idc != 1 || mb->refIdx[i8x8 ^ 4] >= 0)) { // no_weight
@@ -1420,13 +1401,13 @@ noinline void FUNC(decode_inter, int i, int w, int h) {
 	__m128i AB = _mm_set1_epi16(mul * (8 - yFrac_C));
 	__m128i CD = _mm_set1_epi16(mul * yFrac_C);
 	if (w == 16) {
-		CALL(inter8xH_chroma_8bit, h >> 1, dstride_C, dst_Cb, sstride_C, src_Cb, AB, CD);
-		CALL(inter8xH_chroma_8bit, h >> 1, dstride_C, dst_Cr, sstride_C, src_Cr, AB, CD);
+		CALL(inter8xH_chroma_8bit, h >> 1, dstride_C, dst_Cb, sstride_C, src_Cb, AB, CD, biweights_Cb, bioffsets_Cb, logWD_C);
+		CALL(inter8xH_chroma_8bit, h >> 1, dstride_C, dst_Cr, sstride_C, src_Cr, AB, CD, biweights_Cr, bioffsets_Cr, logWD_C);
 	} else if (w == 8) {
-		CALL(inter4xH_chroma_8bit, h >> 1, dstride_C, dst_Cb, sstride_C, src_Cb, AB, CD);
-		CALL(inter4xH_chroma_8bit, h >> 1, dstride_C, dst_Cr, sstride_C, src_Cr, AB, CD);
+		CALL(inter4xH_chroma_8bit, h >> 1, dstride_C, dst_Cb, sstride_C, src_Cb, AB, CD, biweights_Cb, bioffsets_Cb, logWD_C);
+		CALL(inter4xH_chroma_8bit, h >> 1, dstride_C, dst_Cr, sstride_C, src_Cr, AB, CD, biweights_Cr, bioffsets_Cr, logWD_C);
 	} else {
-		CALL(inter2xH_chroma_8bit, h >> 1, dstride_C, dst_Cb, sstride_C, src_Cb, AB, CD);
-		CALL(inter2xH_chroma_8bit, h >> 1, dstride_C, dst_Cr, sstride_C, src_Cr, AB, CD);
+		CALL(inter2xH_chroma_8bit, h >> 1, dstride_C, dst_Cb, sstride_C, src_Cb, AB, CD, biweights_Cb, bioffsets_Cb, logWD_C);
+		CALL(inter2xH_chroma_8bit, h >> 1, dstride_C, dst_Cr, sstride_C, src_Cr, AB, CD, biweights_Cr, bioffsets_Cr, logWD_C);
 	}
 }

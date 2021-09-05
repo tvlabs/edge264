@@ -676,7 +676,7 @@ static int FUNC(parse_slice_layer_without_partitioning, Edge264_stream *e)
 	}
 	
 	// check if we still want to decode this frame, then fill ctx with useful values
-	if (first_mb_in_slice > 0 || ctx->disable_deblocking_filter_idc != 1)
+	if (ctx->slice_type == 1 || first_mb_in_slice > 0 || ctx->disable_deblocking_filter_idc != 1)
 		return 1;
 	CALL(initialise_decoding_context, e);
 	

@@ -1,10 +1,10 @@
 // TODO: Move initialisation of prediction weights in parse_ref_idx?
 // TODO: Invert X&Y in QPEL to match ffmpeg convention
 // TODO: remove __m64
-// TODO: Does restrict allow compilers to reorder reads/writes?
-// TODO: Add support for 16bit
 // TODO: swap chroma & luma in decode_inter to finish on a tail call
+// TODO: Add support for 16bit
 
+#include <assert.h>
 #include "edge264_common.h"
 
 
@@ -1299,8 +1299,8 @@ noinline void FUNC(decode_inter, int i, int w, int h) {
 	//printf("<li>CurrMbAddr=%d, i=%d, w=%d, h=%d, x=%d, y=%d, ref=%d</li>\n", ctx->CurrMbAddr, i, w, h, x, y, refIdx);
 	
 	// edge propagation is an annoying but nice little piece of code
-	if (__builtin_expect((unsigned)(xFrac_Y ? xInt_Y - 2 : xInt_Y) > sstride_Y - (xFrac_Y ? w + 5 : w) ||
-		(unsigned)(yFrac_Y ? yInt_Y - sstride_Y * 2 : yInt_Y) > ctx->plane_size_Y - (yFrac_Y ? h + 5 : h) * sstride_Y, 0))
+	if (__builtin_expect((unsigned)xInt_Y - 2 >= sstride_Y - w - 4 ||
+		(unsigned)yInt_Y - sstride_Y * 2 >= ctx->plane_size_Y - (h + 4) * sstride_Y, 0))
 	{
 		v16qi shuf0, shuf1, v0, v1;
 		memcpy(&shuf0, shift_Y_8bit + 15 + clip3(-15, 0, xInt_Y - 2) + clip3(0, 15, xInt_Y + 14 - sstride_Y), 16);
@@ -1373,9 +1373,9 @@ noinline void FUNC(decode_inter, int i, int w, int h) {
 	uint8_t *dst_Cb = ctx->frame + ctx->frame_offsets_x[16 + i4x4] + ctx->frame_offsets_y[16 + i4x4];
 	uint8_t *dst_Cr = ctx->frame + ctx->frame_offsets_x[32 + i4x4] + ctx->frame_offsets_y[32 + i4x4];
 	
-	// chroma edge propagation
+	// chroma edge propagation (separate from luma to speed up xInt_C==yInt_C==0)
 	if (__builtin_expect((unsigned)xInt_C >= sstride_C - (w >> 1) ||
-		(unsigned)(yInt_Cb - ctx->plane_size_Y) >= ctx->plane_size_C - (h >> 1) * sstride_C, 0))
+		(unsigned)yInt_Cb - ctx->plane_size_Y >= ctx->plane_size_C - (h >> 1) * sstride_C, 0))
 	{
 		v16qi shuf = {}, v0, v1;
 		memcpy(&shuf, shift_C_8bit + 7 + clip3(-7, 0, xInt_C) + clip3(0, 7, xInt_C + 8 - sstride_C), 8);
@@ -1401,13 +1401,13 @@ noinline void FUNC(decode_inter, int i, int w, int h) {
 	__m128i AB = _mm_set1_epi16(mul * (8 - yFrac_C));
 	__m128i CD = _mm_set1_epi16(mul * yFrac_C);
 	if (w == 16) {
-		CALL(inter8xH_chroma_8bit, h >> 1, dstride_C, dst_Cb, sstride_C, src_Cb, AB, CD, biweights_Cb, bioffsets_Cb, logWD_C);
-		CALL(inter8xH_chroma_8bit, h >> 1, dstride_C, dst_Cr, sstride_C, src_Cr, AB, CD, biweights_Cr, bioffsets_Cr, logWD_C);
+		CALL(inter8xH_chroma_8bit, h >> 1, dstride_C, dst_Cb, sstride_C, src_Cb, AB, CD, (__m128i)biweights_Cb, (__m128i)bioffsets_Cb, (__m128i)logWD_C);
+		CALL(inter8xH_chroma_8bit, h >> 1, dstride_C, dst_Cr, sstride_C, src_Cr, AB, CD, (__m128i)biweights_Cr, (__m128i)bioffsets_Cr, (__m128i)logWD_C);
 	} else if (w == 8) {
-		CALL(inter4xH_chroma_8bit, h >> 1, dstride_C, dst_Cb, sstride_C, src_Cb, AB, CD, biweights_Cb, bioffsets_Cb, logWD_C);
-		CALL(inter4xH_chroma_8bit, h >> 1, dstride_C, dst_Cr, sstride_C, src_Cr, AB, CD, biweights_Cr, bioffsets_Cr, logWD_C);
+		CALL(inter4xH_chroma_8bit, h >> 1, dstride_C, dst_Cb, sstride_C, src_Cb, AB, CD, (__m128i)biweights_Cb, (__m128i)bioffsets_Cb, (__m128i)logWD_C);
+		CALL(inter4xH_chroma_8bit, h >> 1, dstride_C, dst_Cr, sstride_C, src_Cr, AB, CD, (__m128i)biweights_Cr, (__m128i)bioffsets_Cr, (__m128i)logWD_C);
 	} else {
-		CALL(inter2xH_chroma_8bit, h >> 1, dstride_C, dst_Cb, sstride_C, src_Cb, AB, CD, biweights_Cb, bioffsets_Cb, logWD_C);
-		CALL(inter2xH_chroma_8bit, h >> 1, dstride_C, dst_Cr, sstride_C, src_Cr, AB, CD, biweights_Cr, bioffsets_Cr, logWD_C);
+		CALL(inter2xH_chroma_8bit, h >> 1, dstride_C, dst_Cb, sstride_C, src_Cb, AB, CD, (__m128i)biweights_Cb, (__m128i)bioffsets_Cb, (__m128i)logWD_C);
+		CALL(inter2xH_chroma_8bit, h >> 1, dstride_C, dst_Cr, sstride_C, src_Cr, AB, CD, (__m128i)biweights_Cr, (__m128i)bioffsets_Cr, (__m128i)logWD_C);
 	}
 }

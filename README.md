@@ -10,7 +10,7 @@ Supported features
 * Any resolution (multiple of 16) from 16x16 up to 8K UHD (level 6.2)
 * 8-bit 4:2:0 planar YUV
 * CABAC only (but very optimised!)
-* I/P frames
+* I/P/B frames
 * All POC types (0, 1, 2)
 * Per-slice reference lists
 * Memory Management Control Operations
@@ -20,9 +20,9 @@ Supported features
 Planned features
 ----------------
 
-* B frames (work in progress)
 * CAVLC
 * Deblocking
+* Intra16x16 and 8x8 transforms (needs testing and debugging)
 * Transform-bypass for macroblocks with QP==0
 * Constrained Intra prediction mode
 * Frame cropping
@@ -30,7 +30,7 @@ Planned features
 * 4:0:0, 4:2:2 and 4:4:4 (mostly implemented, needs testing)
 * 9-14 bit depths with possibility of different luma/chroma depths (mostly implemented, needs testing)
 * Slices (and separate colour planes)
-* Thread-safety and slice-multithreading (to let multithreaded encoders decode/encode each frame on the same thread)
+* Slice-multithreading (to let multithreaded encoders decode/encode each frame on the same thread)
 * PAFF and MBAFF (some decoding already implemented)
 * Error concealment
 
@@ -38,7 +38,7 @@ Planned features
 Technical details
 -----------------
 
-edge264 is built and tested with GNU GCC and LLVM Clang, supports 32/64 bit architectures, and requires 128 bit SIMD support. GCC generally makes faster code thanks to the support for Global Register Variables. GLFW3 development headers should be installed to compile `edge264_play`.
+edge264 is built and tested with GNU GCC and LLVM Clang, supports 32/64 bit architectures, and requires 128 bit SIMD support. GLFW3 development headers should be installed to compile `edge264_play`.
 
 ```sh
 $ ffmpeg -i video.mp4 -vcodec copy -bsf h264_mp4toannexb -an video.264 # optional, converts from MP4 format
@@ -46,7 +46,7 @@ $ make
 $ ./edge264_play-cc video.264
 ```
 
-When debugging, the make flag `TRACE=1` enables printing headers symbols to stdout in HTML format, and `TRACE=2` adds the dumping of all other symbols to stderr (*very large*). I usually compare its output with that of a modified version of the [official](https://avc.hhi.fraunhofer.de/) JM decoder. On the set of official AVCv1 conformance bitstreams, files `CANL1_Sony_E`, `CANL2_Sony_E`, `CANL1_SVA_B`, `CANL2_SVA_B`, `CANL3_SVA_B`, `CANL1_TOSHIBA_G`, `CAPCMNL1_Sand_E` are known to decode perfectly (the rest using yet unsupported features).
+When debugging, the make flag `TRACE=1` enables printing headers symbols to stdout in HTML format, and `TRACE=2` adds the dumping of all other symbols to stderr (*very large*). I usually compare its output with that of a modified version of the [official](https://avc.hhi.fraunhofer.de/) JM decoder. On the set of official AVCv1 conformance bitstreams, files `CANL1_Sony_E`, `CANL2_Sony_E`, `CANL3_Sony_C`, `CANL1_SVA_B`, `CANL2_SVA_B`, `CANL3_SVA_B`, `CANL4_SVA_B`, `CANL1_TOSHIBA_G`, `CAPCMNL1_Sand_E` are known to decode perfectly (the rest using yet unsupported features).
 
 A test program is also provided, that browses files in a `conformance` directory, decoding each `<video>.264` and comparing its output with the pair `<video>.yuv`.
 

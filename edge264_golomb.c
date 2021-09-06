@@ -14,7 +14,7 @@
  *   with a shift count. This approach incurs a test for refill (predicted not
  *   taken), but spares a lot of buffer management code. However it incurs some
  *   complexity to reassemble codes bigger than 32 bits.
- * _ The same as above but with a size_t[2] cache with shift count. On 64-bit
+ * _ The same as above but with a size_t[2] cache with shift count. On 64-bit
  *   machines it allows reading ANY code size with very few instructions, and
  *   pushes the refill call at the end for tail call optimization.
  * _ The same size_t[2] buffer but with the shift replaced by a trailing set

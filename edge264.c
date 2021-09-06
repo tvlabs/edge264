@@ -30,6 +30,7 @@
  * _ Remember Intra decoding is mixed with residuals so switch is necessary and passing preds in registers is good -> provide 2 functions add_idct4x4_inplace/inregs and keep preds in regs or mem depending on host number of regs
  * _ make offsets relative to macroblock, to make binary lighter
  * _ since unsigned means implicit overflow by machine-dependent size, replace all by uint32_t!
+ * _ review the maximum values according to the latest spec (they change, e.g. log_max_mv_length)
  * 
  * _ Current x264 options in HandBrake to output compatible video: no-deblock:slices=1:no-8x8dct:bframes=0
  * _ To benchmark ffmpeg: ffmpeg -hide_banner -benchmark -threads 1 -i video.264 -f null -
@@ -181,16 +182,16 @@ static void FUNC(initialise_decoding_context, Edge264_stream *e)
 		ctx->mvs_D_v = (v16si){15 + offD_32bit, 10 + offB_32bit, 5 + offA_32bit, 0, 11 + offB_32bit, 14 + offB_32bit, 1, 4, 7 + offA_32bit, 2, 13 + offA_32bit, 8, 3, 6, 9, 12};
 		ctx->num_ref_idx_mask = (ctx->ps.num_ref_idx_active[0] > 1) * 0x0f +
 			(ctx->ps.num_ref_idx_active[1] > 1) * 0xf0;
-		int n0 = ctx->ps.num_ref_idx_active[0];
-		int n1 = ctx->ps.num_ref_idx_active[1];
-		ctx->clip_ref_idx = (v8qi){n0, n0, n0, n0, n1, n1, n1, n1};
 		ctx->transform_8x8_mode_flag = ctx->ps.transform_8x8_mode_flag; // for P slices this value is constant
-		for (int i = 0; i < n0; i++)
+		int max0 = ctx->ps.num_ref_idx_active[0] - 1;
+		int max1 = ctx->slice_type == 0 ? -1 : ctx->ps.num_ref_idx_active[1] - 1;
+		ctx->clip_ref_idx = (v8qi){max0, max0, max0, max0, max1, max1, max1, max1};
+		for (int i = 0; i <= max0; i++)
 			ctx->ref_planes[i] = e->DPB + (ctx->RefPicList[0][i] & 15) * e->frame_size;
 		
 		// B slices
 		if (ctx->slice_type == 1) {
-			for (int i = 0; i < n1; i++)
+			for (int i = 0; i <= max1; i++)
 				ctx->ref_planes[32 + i] = e->DPB + (ctx->RefPicList[1][i] & 15) * e->frame_size;
 			int colPic = ctx->RefPicList[1][0];
 			ctx->mbCol = (Edge264_macroblock *)(e->DPB + colPic * e->frame_size + ctx->plane_size_Y + e->plane_size_C * 2 + sizeof(*mb) - offB_8bit);
@@ -676,7 +677,7 @@ static int FUNC(parse_slice_layer_without_partitioning, Edge264_stream *e)
 	}
 	
 	// check if we still want to decode this frame, then fill ctx with useful values
-	if (ctx->slice_type == 1 || first_mb_in_slice > 0 || ctx->disable_deblocking_filter_idc != 1)
+	if (first_mb_in_slice > 0 || ctx->disable_deblocking_filter_idc != 1)
 		return 1;
 	CALL(initialise_decoding_context, e);
 	

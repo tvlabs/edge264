@@ -1008,6 +1008,7 @@ static always_inline void FUNC(parse_mvd_16x8_bottom, int lx)
  * f is a bitmask for indices of symbols that should be parsed. These values
  * are then broadcast to other positions according to the inferred block
  * shapes, unless bit 8 is set (to signal Direct_8x8).
+ * This function also clips all values to valid ones.
  */
 static inline void FUNC(parse_ref_idx, unsigned f) {
 	static const int8_t inc_shifts[8] = {0, 5, 4, 2, 8, 13, 12, 10};
@@ -1297,7 +1298,6 @@ static void FUNC(parse_B_sub_mb) {
 	static const uint8_t sub2mb_type[13] = {3, 4, 5, 6, 1, 2, 11, 12, 7, 8, 9, 10, 0};
 	
 	// initializations for sub_mb_type
-	mb->refIdx_l = -1;
 	unsigned mvd_flags = 0;
 	for (int i8x8 = 0; i8x8 < 4; i8x8++) {
 		int i4x4 = i8x8 * 4;
@@ -1680,11 +1680,8 @@ static inline void FUNC(parse_P_mb)
 		JUMP(parse_I_mb, 17);
 	}
 	
-	// Non-skip Inter initialisations
-	mb->refIdx_s[1] = -1;
-	memset(mb->mvs_v + 4, 0, 64);
-	
 	// initializations and jumps for mb_type
+	memset(mb->mvs_v + 4, 0, 64);
 	int str = CALL(get_ae, 15);
 	str += str + CALL(get_ae, 16 + str);
 	fprintf(stderr, "mb_type: %u\n", (4 - str) & 3);

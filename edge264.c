@@ -1,39 +1,32 @@
-/** TODOs:
- * _ Implement parsing and decoding for B_Skip and B_Direct_16x16
- * _ Try refactoring parse_mvs to make it a function and pass its arguments in registers instead of memory
- * _ Implement parsing and decoding for B_L[0/1]_[16x16/16x8/8x16]
- * _ Refactor with parse_P_mb to reduce duplicate code
- * _ Refactor parse_ref_idx to pass mask as argument
- * _ Vectorize initialization of pred weights right after parse_ref_idx
- * _ Implement parsing and decoding for B_8x8
- * _ Initialize implicit and explicit weights for P/B slices
- * _ Test and debug B slices
- * _ Refactor decode_inter to extract the non-SSSE3 code into edge264_slice.c
- * _ Fix Direct_16x16 to initialize a single mv for the entire block
- * _ Rename absMvdComp into absMvd
- * _ Rename other mb variables to their non symbol version
- * 
- * _ Modify all Intra decoding functions to operate after parsing (rather than before residual) and write directly to memory
- * _ Remove stride variable in favor of passing it directly to residual functions
- * _ Remove Pred modes and related variables (BlkIdx)
- * _ Modify the API to return at most 1 image per call, and include a 4th return code OUTPUT_IMAGE (test beforehand whether it may happen that the DPB is full without empty slot, and if not too frequent fix them with a realloc)
- * _ Don't allocate before each image, because it might contribute to fragmentation if other allocations happen inbetween
- * 
- * _ update the tables of names for profiles and NAL types
+/** TODO:
+ * _ modify the API to return at most 1 image per call in Edge264_stream, and include a 4th return code OUTPUT_IMAGE (test beforehand whether it may happen that the DPB is full without empty slot, and if not too frequent fix them with a realloc)
+ */
+
+/** MAYDO:
+ * _ refactor get_ae to refill with 7/3 bytes without relying on CAVLC, and put all bitstream functions under a single .c file
+ * _ vectorize initialization of pred weights at the start of parse_P/B_mb
+ * _ refactor decode_inter to extract the non-SSSE3 code into edge264_slice.c
+ * _ refactor decode_inter to move chroma edge propagation inside luma edge propagation, and reintroduce shortcut for xFrac==yFrac==0 to speed up static frames
+ * _ rename absMvdComp into absMvd, and other mb variables into their non symbol version
+ * _ replace lRC by lXY in edge264_inter to match ffmpeg convention
+ * _ replace __m64 code with __m128i to follow GCC/clang drop of MMX
+ * _ swap chroma & luma calls in decode_inter to finish on a tail call
+ * _ modify Intra_16x16 and Intra_Chroma to operate after parsing (rather than before residual) and write directly to memory
+ * _ remove stride variable in favor of passing it directly to residual functions
+ * _ once PredMode is used solely by Intra_4x4/8x8, remove it in favor of computing unavailability just before decoding
+ * _ remember Intra decoding is mixed with residuals so switch is necessary and passing preds in registers is good -> provide 2 functions add_idct4x4_inplace/inregs and keep preds in regs or mem depending on host number of regs
+ * _ update the tables of names for profiles and NAL types, and review the maximum values according to the latest spec (they change, e.g. log_max_mv_length)
  * _ upgrade DPB storage size to 32 (to allow future multithreaded decoding), by simply doubling reference and output flags sizes
  * _ backup output/ref flags and FrameNum and restore then on bad slice_header
  * _ try using epb for context pointer, and email GCC when it fails
- * _ When all cross-slice variables are known, store Edge264_macroblock inside a circular buffer (to get constant A/B offsets), put the rest in per-frame arrays, and access C/D with offset arrays (mandatory for MBAFF)
- * _ When implementing fields and MBAFF, keep the same pic coding struct (no FLD/AFRM) and just add mb_field_decoding_flag
- * _ after implementing P/B and MBAFF, optimize away array accesses of is422 and mb->f.mb_field_decoding_flag
- * _ Change the API to return an array of frames instead of using a callback (easier for FFIs)
- * _ Remember Intra decoding is mixed with residuals so switch is necessary and passing preds in registers is good -> provide 2 functions add_idct4x4_inplace/inregs and keep preds in regs or mem depending on host number of regs
- * _ make offsets relative to macroblock, to make binary lighter
+ * _ when implementing fields and MBAFF, keep the same pic coding struct (no FLD/AFRM) and just add mb_field_decoding_flag
  * _ since unsigned means implicit overflow by machine-dependent size, replace all by uint32_t!
- * _ review the maximum values according to the latest spec (they change, e.g. log_max_mv_length)
- * 
- * _ Current x264 options in HandBrake to output compatible video: no-deblock:slices=1:no-8x8dct:bframes=0
- * _ To benchmark ffmpeg: ffmpeg -hide_banner -benchmark -threads 1 -i video.264 -f null -
+ */
+
+/** Notes:
+ * _ to benchmark ffmpeg: ffmpeg -hide_banner -benchmark -threads 1 -i video.264 -f null -
+ * _ current x264 options in HandBrake to output compatible video: no-deblock:slices=1:no-8x8dct
+ * _ don't allocate images separately, because for desktop it will contribute to fragmentation if other allocs happen inbetween, and for embedded systems it will be easier to bypass malloc and manage memory by hand
  */
 
 #include "edge264_common.h"

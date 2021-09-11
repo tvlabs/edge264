@@ -1,9 +1,3 @@
-// TODO: Move initialisation of prediction weights in parse_ref_idx?
-// TODO: Invert X&Y in QPEL to match ffmpeg convention
-// TODO: remove __m64
-// TODO: swap chroma & luma in decode_inter to finish on a tail call
-// TODO: Add support for 16bit
-
 #include <assert.h>
 #include "edge264_common.h"
 

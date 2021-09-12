@@ -1,7 +1,3 @@
-/** TODO:
- * _ modify the API to return at most 1 image per call in Edge264_stream, and include a 4th return code OUTPUT_IMAGE (test beforehand whether it may happen that the DPB is full without empty slot, and if not too frequent fix them with a realloc)
- */
-
 /** MAYDO:
  * _ refactor get_ae to refill with 7/3 bytes without relying on CAVLC, and put all bitstream functions under a single .c file
  * _ vectorize initialization of pred weights at the start of parse_P/B_mb

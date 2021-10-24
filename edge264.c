@@ -106,6 +106,7 @@ static void FUNC(initialise_decoding_context, Edge264_stream *e)
 	ctx->BlkIdx2i4x4_v[0] = (v16qi){0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15};
 	ctx->BlkIdx2i4x4_v[1] = (v16qi){16, 20, 24, 28, 32, 36, 40, 44};
 	
+	ctx->mb_qp_delta_non_zero = 0;
 	ctx->CurrMbAddr = 0;
 	ctx->stride_Y = e->stride_Y;
 	ctx->stride_C = e->stride_C;
@@ -684,7 +685,7 @@ static int FUNC(parse_slice_layer_without_partitioning, Edge264_stream *e)
 		unsigned bits = (SIZE_BIT - 1 - ctz(lsb_cache)) & 7;
 		if (bits != 0 && CALL(get_uv, bits) != (1 << bits) - 1)
 			return 2;
-		CALL(init_cabac, cabac_init_idc);
+		CALL(init_cabac_context, cabac_init_idc);
 		CALL(parse_slice_data);
 		// I'd rather display a portion of image than nothing, so do not test errors here yet
 	}

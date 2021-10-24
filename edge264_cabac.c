@@ -776,6 +776,18 @@ noinline int FUNC(get_ae, int ctxIdx)
 	return binVal;
 }
 
+void FUNC(cavlc_to_cabac) {
+	// take SIZE_BIT-1 bits from cache to codIOffset
+	size_t fill = msb_cache >> 1;
+	msb_cache = lsd(msb_cache, lsb_cache, SIZE_BIT - 1);
+	if (!(lsb_cache <<= (SIZE_BIT - 1)))
+		CALL(refill, 0);
+	ctx->_lsb_cache = lsb_cache;
+	ctx->_msb_cache = msb_cache;
+	codIRange = (size_t)510 << (SIZE_BIT - 10);
+	codIOffset = (fill < codIRange) ? fill : codIRange - 1; // protection against invalid bitstream
+}
+
 
 
 /**
@@ -786,7 +798,7 @@ noinline int FUNC(get_ae, int ctxIdx)
  * unoptimised version.
  */
 #ifdef __SSSE3__
-void FUNC(init_cabac, int cabac_init_idc) {
+void FUNC(init_cabac_context, int cabac_init_idc) {
 	__m128i mul = _mm_set1_epi16(max(ctx->ps.QP_Y, 0) + 4096);
 	const __m128i *src = (__m128i *)context_init[cabac_init_idc];
 	for (v16qu *dst = ctx->cabac_v; dst < ctx->cabac_v + 64; dst++, src += 2) {

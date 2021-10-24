@@ -654,16 +654,7 @@ static noinline void FUNC(parse_I_mb, int ctxIdx)
 					((uint16_t *)p)[x] = CALL(get_uv, ctx->ps.BitDepth_Y);
 			}
 		}
-		
-		// do a big get_uv(SIZE_BIT-1) and switch back to CABAC decoding caches
-		size_t fill = msb_cache >> 1;
-		msb_cache = lsd(msb_cache, lsb_cache, SIZE_BIT - 1);
-		if (!(lsb_cache << (SIZE_BIT - 1)))
-			CALL(refill, 0);
-		ctx->_lsb_cache = lsb_cache;
-		ctx->_msb_cache = msb_cache;
-		codIRange = (size_t)255 << (SIZE_BIT - 9);
-		codIOffset = fill;
+		CALL(cavlc_to_cabac);
 	}
 }
 
@@ -1718,17 +1709,7 @@ noinline void FUNC(parse_slice_data)
 		{ 7, 14,  9,  4, 14, 10,  0,  4,  9,  0,  9,  4,  0,  4,  0,  4},
 	};
 	
-	// switch from CAVLC to CABAC decoding caches
-	size_t fill = msb_cache >> 1;
-	msb_cache = lsd(msb_cache, lsb_cache, SIZE_BIT - 1);
-	if (!(lsb_cache << (SIZE_BIT - 1)))
-		CALL(refill, 0);
-	ctx->_lsb_cache = lsb_cache;
-	ctx->_msb_cache = msb_cache;
-	codIRange = (size_t)255 << (SIZE_BIT - 9);
-	codIOffset = fill;
-	
-	ctx->mb_qp_delta_non_zero = 0;
+	CALL(cavlc_to_cabac);
 	while (1) {
 		fprintf(stderr, "********** %u **********\n", ctx->CurrMbAddr);
 		v16qi flagsA = mb[-1].f.v;

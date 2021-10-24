@@ -303,7 +303,8 @@ static inline int median(int a, int b, int c) { return max(min(max(a, b), c), mi
 // edge264_cabac.c
 noinline int FUNC(renorm, int ceil, int binVal);
 noinline int FUNC(get_ae, int ctxIdx);
-void FUNC(init_cabac, int cabac_init_idc);
+void FUNC(cavlc_to_cabac);
+void FUNC(init_cabac_context, int cabac_init_idc);
 
 // edge264_golomb.c
 noinline int FUNC(refill, int ret);

@@ -1,5 +1,14 @@
 /** MAYDO:
  * _ refactor get_ae to refill with 7/3 bytes without relying on CAVLC, and put all bitstream functions under a single .c file
+ *   _ undo the 512 limit back to 256
+ *   _ update get_ae to use the full register range including sign bit
+ *   _ reimplement the bypass algorithm with a loop
+ *   _ merge edge264_golomb and edge264_cabac into edge264_bitstream
+ *   _ put the CABAC-CAVLC transition code inside functions
+ *   _ put the CABAC/CAVLC end of frame tests inside functions
+ *   _ implement a refill function specifically for CABAC
+ *   _ implement a refill function specifically for CAVLC
+ *   _ reimplement the bypass algorithm with divisions
  * _ vectorize initialization of pred weights at the start of parse_P/B_mb
  * _ refactor decode_inter to extract the non-SSSE3 code into edge264_slice.c
  * _ refactor decode_inter to move chroma edge propagation inside luma edge propagation, and reintroduce shortcut for xFrac==yFrac==0 to speed up static frames

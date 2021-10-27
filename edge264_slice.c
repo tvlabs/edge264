@@ -73,6 +73,10 @@ static const v4hi ctxIdxOffsets_8x8[3][2] = {
 /**
  * This function parses a group of significant_flags, then the corresponding
  * sequence of coeff_abs_level_minus1/coeff_sign_flag pairs (9.3.2.3).
+ * 
+ * Bypass bits can be extracted all at once using a binary division (!!).
+ * coeff_abs_level expects at most 2^(7+14)-14, i.e 41 bits as Exp-Golomb, so
+ * we can get all of them on 64 bit machines.
  */
 static noinline void FUNC(parse_residual_block, unsigned coded_block_flag, int startIdx, int endIdx)
 {
@@ -102,7 +106,7 @@ static noinline void FUNC(parse_residual_block, unsigned coded_block_flag, int s
 		while (coeff_level < 15 && CALL(get_ae, ctxIdx))
 			coeff_level++, ctxIdx = ctxIdx1;
 		if (coeff_level >= 15) {
-			
+#if SIZE_BIT == 32
 			// the biggest value to encode is 2^(14+7)-14, for which k=20 (see 9.3.2.3)
 			int k = 0;
 			while (CALL(get_bypass) && k < 20)
@@ -111,6 +115,26 @@ static noinline void FUNC(parse_residual_block, unsigned coded_block_flag, int s
 			while (k--)
 				coeff_level += coeff_level + CALL(get_bypass);
 			coeff_level += 14;
+#elif SIZE_BIT == 64
+			// we need at least 50 bits in codIOffset to get 41 bits with a division by 9 bits
+			int zeros = clz(codIRange);
+			if (zeros > 14) {
+				codIOffset = lsd(codIOffset, CALL(get_bytes, zeros >> 3), zeros & -8);
+				codIRange <<= zeros & -8;
+				zeros = clz(codIRange);
+			}
+			int shift = 64 - 50 - zeros; // [0..14]
+			size_t num = codIOffset >> shift;
+			size_t denom = codIRange >> (shift + 41);
+			size_t quo = num / denom; // 41 bypass bits in lsb and zeros above
+			size_t rem = num % denom;
+			int k = min(clz(~quo << (64 - 41)), 20);
+			int unused = 41 - k * 2 - 1;
+			coeff_level = 14 + (1 << k | (quo >> unused & (((size_t)1 << k) - 1)));
+			size_t unconsumed = (quo & (((size_t)1 << unused) - 1)) * denom + rem;
+			codIOffset = (codIOffset & (((size_t)1 << shift) - 1)) | unconsumed << shift;
+			codIRange = denom << (unused + shift);
+#endif
 		}
 		
 		// not the brightest part of spec (9.3.3.1.3), I did my best

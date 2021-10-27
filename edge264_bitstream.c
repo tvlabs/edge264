@@ -25,10 +25,10 @@ static always_inline size_t FUNC(get_bytes, int nbytes)
 	const uint8_t *after;
 	__m128i x;
 	if (__builtin_expect(CPB + 14 <= end, 1)) {
-		after = CPB + sizeof(size_t);
+		after = CPB + nbytes;
 		x = _mm_loadu_si128((__m128i *)(CPB - 2));
 	} else {
-		after = CPB + sizeof(size_t) < end ? CPB + sizeof(size_t) : end;
+		after = CPB + nbytes < end ? CPB + nbytes : end;
 		__m128i shr_mask = _mm_loadu_si128((__m128i *)(shr_data + (CPB + 14 - end)));
 		x = _mm_shuffle_epi8(_mm_loadu_si128((__m128i *)(end - 16)), shr_mask);
 		x = vector_select(shr_mask, shr_mask, x); // turn every inserted 0 into -1
@@ -88,11 +88,10 @@ static always_inline size_t FUNC(get_bytes, int nbytes)
  *   Register Variables.
  */
 noinline int FUNC(refill, int ret) {
-	int trailing_bit = ctz(msb_cache);
-	int shift = trailing_bit + 1;
 	size_t bytes = CALL(get_bytes, SIZE_BIT >> 3);
-	msb_cache = lsd(msb_cache >> shift, bytes, shift);
-	lsb_cache = bytes << shift | (size_t)1 << trailing_bit;
+	int trailing_bit = ctz(msb_cache); // [0..SIZE_BIT-1]
+	msb_cache = (msb_cache ^ (size_t)1 << trailing_bit) | bytes >> (SIZE_BIT - 1 - trailing_bit);
+	lsb_cache = (bytes * 2 + 1) << trailing_bit;
 	return ret;
 }
 
@@ -164,21 +163,6 @@ noinline int FUNC(get_se32, int lower, int upper) {
  * the full range of a register, a shift right by SIZE_BIT-9-clz(codIRange)
  * yielding the original values.
  */
-static int FUNC(renorm, int ceil, int binVal) {
-	size_t v = clz(codIRange) - ceil;
-	ctx->_codIRange = codIRange << v;
-	ctx->_codIOffset = lsd(codIOffset, ctx->_msb_cache, v);
-	msb_cache = lsd(ctx->_msb_cache, ctx->_lsb_cache, v);
-	lsb_cache = ctx->_lsb_cache << v;
-	if (!lsb_cache)
-		CALL(refill, 0);
-	ctx->_lsb_cache = lsb_cache;
-	ctx->_msb_cache = msb_cache;
-	codIRange = ctx->_codIRange;
-	codIOffset = ctx->_codIOffset;
-	return binVal;
-}
-
 noinline int FUNC(get_ae, int ctxIdx)
 {
 	static const uint8_t rangeTabLPS[64 * 4] = {
@@ -232,14 +216,18 @@ noinline int FUNC(get_ae, int ctxIdx)
 	ctx->cabac[ctxIdx] = transIdx[state];
 	fprintf(stderr, "->(%u,%x)\n", transIdx[state] >> 2, transIdx[state] & 1);
 	int binVal = state & 1;
-	if (__builtin_expect(codIRange < 256, 0))
-		return CALL(renorm, 0, binVal);
+	if (__builtin_expect(codIRange < 256, 0)) {
+		codIOffset = lsd(codIOffset, CALL(get_bytes, SIZE_BIT / 8 - 1), SIZE_BIT - 8);
+		codIRange <<= SIZE_BIT - 8;
+	}
 	return binVal;
 }
 
 static always_inline int FUNC(get_bypass) {
-	if (codIRange < 512)
-		CALL(renorm, 0, 0);
+	if (codIRange < 512) {
+		codIOffset = lsd(codIOffset, CALL(get_bytes, SIZE_BIT / 8 - 2), SIZE_BIT - 16);
+		codIRange <<= SIZE_BIT - 16;
+	}
 	codIRange >>= 1;
 	size_t binVal = codIOffset >= codIRange;
 	codIOffset = binVal ? codIOffset - codIRange : codIOffset;
@@ -247,45 +235,33 @@ static always_inline int FUNC(get_bypass) {
 }
 
 void FUNC(cabac_start) {
-	// take SIZE_BIT-1 bits from cache to codIOffset
-	size_t fill = msb_cache >> 1;
-	msb_cache = lsd(msb_cache, lsb_cache, SIZE_BIT - 1);
-	if (!(lsb_cache <<= (SIZE_BIT - 1)))
-		CALL(refill, 0);
-	ctx->_lsb_cache = lsb_cache;
-	ctx->_msb_cache = msb_cache;
-	codIRange = (size_t)510 << (SIZE_BIT - 10);
-	codIOffset = (fill < codIRange) ? fill : codIRange - 1; // protection against invalid bitstream
+	// reclaim bits from cache while realigning with CPB on a byte boundary
+	int extra_bits = SIZE_BIT - 1 - ctz(lsb_cache);
+	int shift = -extra_bits & 7;
+	codIRange = (size_t)510 << (SIZE_BIT - 9 - shift); // aliases lsb_cache is a GRV is used
+	codIOffset = msb_cache >> shift; // aliases msb_cache is a GRV is used
+	codIOffset = (codIOffset < codIRange) ? codIOffset : codIRange - 1; // protection against invalid bitstream
+	
+	// rewind CPB for the extra bytes in cache
+	while (extra_bits > 0) {
+		int32_t i;
+		memcpy(&i, ctx->CPB - 4, 4);
+		ctx->CPB -= 1 + (big_endian32(i) >> 8 == 3);
+		extra_bits -= 8;
+	}
 }
 
 int FUNC(cabac_terminate) {
-	int extra = SIZE_BIT - 9 - clz(codIRange);
+	int extra = SIZE_BIT - 9 - clz(codIRange); // [0..SIZE_BIT-9]
 	codIRange -= (size_t)2 << extra;
 	if (codIOffset >= codIRange) {
-		// reclaim the extra bits from codIOffset
-		int bits = extra + SIZE_BIT * 2 - ctz(ctx->_lsb_cache) - 1;
-		int shift = SIZE_BIT - extra + (bits & 7);
-		if (shift < SIZE_BIT) {
-			lsb_cache = lsd(ctx->_msb_cache, ctx->_lsb_cache, shift);
-			msb_cache = lsd(codIOffset, ctx->_msb_cache, shift);
-			// if they didn't fit in RBSP[0/1], reset the trailing bit and rewind CPB
-			if (bits >= SIZE_BIT * 2) {
-				lsb_cache = (lsb_cache & (ssize_t)-256) | (size_t)0x80;
-				do {
-					int32_t i;
-					memcpy(&i, ctx->CPB - 4, 4);
-					ctx->CPB -= 1 + (big_endian32(i) >> 8 == 3);
-				} while ((bits -= 8) >= SIZE_BIT * 2);
-			}
-		} else {
-			shift -= SIZE_BIT;
-			msb_cache = lsd(ctx->_msb_cache, ctx->_lsb_cache, shift);
-			lsb_cache = ctx->_lsb_cache << shift;
-		}
-		return 1;
+		// reclaim the extra bits minus alignment bits, then refill the cache
+		msb_cache = (codIOffset * 2 + 1) << (SIZE_BIT - 1 - (extra & -8));
+		return CALL(refill, 1);
 	}
 	if (__builtin_expect(codIRange < 256, 0)) {
-		return CALL(renorm, 0, 0);
+		codIOffset = lsd(codIOffset, CALL(get_bytes, SIZE_BIT / 8 - 1), SIZE_BIT - 8);
+		codIRange <<= SIZE_BIT - 8;
 	}
 	return 0;
 }

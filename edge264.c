@@ -1,6 +1,5 @@
 /** MAYDO:
  * _ refactor get_ae to refill with 7/3 bytes without relying on CAVLC, and put all bitstream functions under a single .c file
- *   _ implement a refill function specifically for CABAC
  *   _ reimplement the bypass algorithm with divisions
  * _ make all internal functions static even if shared in common.h (makes a warning)
  * _ vectorize initialization of pred weights at the start of parse_P/B_mb

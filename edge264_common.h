@@ -300,13 +300,7 @@ static inline unsigned umin(unsigned a, unsigned b) { return (a < b) ? a : b; }
 static inline unsigned umax(unsigned a, unsigned b) { return (a > b) ? a : b; }
 static inline int median(int a, int b, int c) { return max(min(max(a, b), c), min(a, b)); }
 
-// edge264_cabac.c
-noinline int FUNC(renorm, int ceil, int binVal);
-noinline int FUNC(get_ae, int ctxIdx);
-void FUNC(cavlc_to_cabac);
-void FUNC(init_cabac_context, int cabac_init_idc);
-
-// edge264_golomb.c
+// edge264_bitstream.c
 noinline int FUNC(refill, int ret);
 noinline int FUNC(get_u1);
 noinline unsigned FUNC(get_uv, unsigned v);
@@ -319,6 +313,11 @@ noinline int FUNC(get_se16, int lower, int upper);
 	#define get_ue32 get_ue16
 	#define get_se32 get_se16
 #endif
+noinline int FUNC(get_ae, int ctxIdx);
+static always_inline int FUNC(get_bypass);
+void FUNC(cabac_start);
+int FUNC(cabac_terminate);
+void FUNC(cabac_init, int idc);
 
 // edge264_inter_*.c
 void FUNC(decode_inter, int i, int w, int h);

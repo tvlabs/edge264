@@ -73,10 +73,6 @@ static const v4hi ctxIdxOffsets_8x8[3][2] = {
 /**
  * This function parses a group of significant_flags, then the corresponding
  * sequence of coeff_abs_level_minus1/coeff_sign_flag pairs (9.3.2.3).
- *
- * Bypass bits can be extracted all at once using a binary division (!!).
- * coeff_abs_level expects at most 2^(7+14), i.e 43 bits as Exp-Golomb, so we
- * use two 32bit divisions (second one being executed for long codes only).
  */
 static noinline void FUNC(parse_residual_block, unsigned coded_block_flag, int startIdx, int endIdx)
 {
@@ -105,34 +101,16 @@ static noinline void FUNC(parse_residual_block, unsigned coded_block_flag, int s
 		int ctxIdx = ctxIdx0;
 		while (coeff_level < 15 && CALL(get_ae, ctxIdx))
 			coeff_level++, ctxIdx = ctxIdx1;
-	
-		// Unsigned division uses one extra bit, so the first renorm is correct.
 		if (coeff_level >= 15) {
-			CALL(renorm, 0, 0); // Hardcore!!!
-			codIRange >>= SIZE_BIT - 9;
-			uint32_t num = codIOffset >> (SIZE_BIT - 32);
-			uint32_t quo = num / (uint32_t)codIRange;
-			uint32_t rem = num % (uint32_t)codIRange;
-		
-			// 32bit/9bit division yields 23 bypass bits.
-			int k = clz32(~(quo << 9));
-			unsigned shift = 9 + k;
-			if (__builtin_expect(k >= 12, 0)) { // At k==11, code length is 23 bits.
-				codIRange <<= SIZE_BIT - 32;
-				codIOffset = (SIZE_BIT == 32) ? rem : (uint32_t)codIOffset | (size_t)rem << 32;
-				CALL(renorm, 2, 0); // Next division will yield 21 bypass bits...
-				codIRange >>= SIZE_BIT - 11;
-				num = codIOffset >> (SIZE_BIT - 32);
-				quo = num / (uint32_t)codIRange + (quo << 21); // ... such that we keep 11 as msb.
-				rem = num % (uint32_t)codIRange;
-				shift -= 21;
-			}
-		
-			// Return the unconsumed bypass bits to codIOffset, and compute coeff_level.
-			size_t mul = ((uint32_t)-1 >> 1 >> (shift + k) & quo) * (uint32_t)codIRange + rem;
-			codIRange <<= SIZE_BIT - 1 - (shift + k);
-			codIOffset = (SIZE_BIT == 32) ? mul : (uint32_t)codIOffset | mul << 32;
-			coeff_level = 14 + (1 << k) + (quo << shift >> (31 - k));
+			
+			// the biggest value to encode is 2^(14+7)-14, for which k=20 (see 9.3.2.3)
+			int k = 0;
+			while (CALL(get_bypass) && k < 20)
+				k++;
+			coeff_level = 1;
+			while (k--)
+				coeff_level += coeff_level + CALL(get_bypass);
+			coeff_level += 14;
 		}
 		
 		// not the brightest part of spec (9.3.3.1.3), I did my best
@@ -142,12 +120,8 @@ static noinline void FUNC(parse_residual_block, unsigned coded_block_flag, int s
 		ctxIdx0 = last_sig_offset + (coeff_level > 1 ? 0 : ctxIdxInc);
 		ctxIdx1 = min(ctxIdx1 + (coeff_level > 1), (last_sig_offset == 257 ? last_sig_offset + 8 : last_sig_offset + 9));
 	
-		// parse coeff_sign_flag
-		codIRange >>= 1;
-		int c = (codIOffset >= codIRange) ? -coeff_level : coeff_level;
-		codIOffset = (codIOffset >= codIRange) ? codIOffset - codIRange : codIOffset;
-		
 		// scale and store
+		int c = CALL(get_bypass) ? -coeff_level : coeff_level;
 		int i = 63 - clz64(significant_coeff_flags);
 		int scan = ctx->scan[i]; // beware, scan is transposed already
 		ctx->d[scan] = (c * ctx->LevelScale[scan] + 32) >> 6; // cannot overflow since spec says result is 22 bits
@@ -570,7 +544,7 @@ static noinline void FUNC(parse_I_mb, int ctxIdx)
 		JUMP(parse_NxN_residual);
 	
 	// Intra_16x16
-	} else if (!CALL(get_ae, 276)) {
+	} else if (!CALL(cabac_terminate)) {
 		ctxIdx = max(ctxIdx, 5);
 		mb->CodedBlockPatternLuma_s = CALL(get_ae, ctxIdx + 1) ? 0x01010101 : 0;
 		mb->f.CodedBlockPatternChromaDC = CALL(get_ae, ctxIdx + 2);
@@ -608,22 +582,6 @@ static noinline void FUNC(parse_I_mb, int ctxIdx)
 			(v16qi){1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1};
 		ctx->mb_qp_delta_non_zero = 0;
 		
-		// reclaim all but two bits from codIOffset, and skip pcm_alignment_zero_bit
-		int bits = SIZE_BIT * 3 - clz(codIRange) - 2 - ctz(ctx->_lsb_cache) - 1;
-		int shift = clz(codIRange) + 2 + (bits & 7);
-		lsb_cache = lsd(ctx->_msb_cache, ctx->_lsb_cache, shift);
-		msb_cache = lsd(codIOffset, ctx->_msb_cache, shift);
-		
-		// if they didn't fit in RBSP[0/1], reset the trailing bit and rewind CPB
-		if (bits >= SIZE_BIT * 2) {
-			lsb_cache = (lsb_cache & (ssize_t)-256) | (size_t)0x80;
-			do {
-				int32_t i;
-				memcpy(&i, ctx->CPB - 4, 4);
-				ctx->CPB -= 1 + (big_endian32(i) >> 8 == 3);
-			} while ((bits -= 8) >= SIZE_BIT * 2);
-		}
-		
 		// PCM is so rare that it should be compact rather than fast
 		uint8_t *p = ctx->frame + ctx->frame_offsets_x[0] + ctx->frame_offsets_y[0];
 		for (int y = 16; y-- > 0; p += ctx->stride_Y) {
@@ -654,7 +612,7 @@ static noinline void FUNC(parse_I_mb, int ctxIdx)
 					((uint16_t *)p)[x] = CALL(get_uv, ctx->ps.BitDepth_Y);
 			}
 		}
-		CALL(cavlc_to_cabac);
+		CALL(cabac_start);
 	}
 }
 
@@ -698,9 +656,6 @@ static void FUNC(parse_inter_residual)
 /**
  * Parse a single motion vector component (7.3.5.1, 7.4.5.1, 9.3.2.3,
  * 9.3.3.1.1.7 and tables 9-34 and 9-39).
- *
- * Here we use the same binary division trick as parse_residual_block to read
- * bypass bits without looping. It might not be any faster, but looks cool!
  */
 static int FUNC(parse_mvd_comp, int ctxBase, int absMvdSum) {
 	int ctxIdx = ctxBase + (absMvdSum >= 3) + (absMvdSum > 32);
@@ -708,42 +663,21 @@ static int FUNC(parse_mvd_comp, int ctxBase, int absMvdSum) {
 	ctxBase += 3;
 	while (mvd < 9 && CALL(get_ae, ctxIdx))
 		ctxIdx = ctxBase + min(mvd++, 3);
-	
-	// Once again, we use unsigned division to read all bypass bits.
 	if (mvd >= 9) {
-		CALL(renorm, 0, 0);
-		codIRange >>= SIZE_BIT - 9;
-		uint32_t num = codIOffset >> (SIZE_BIT - 32);
-		uint32_t quo = num / (uint32_t)codIRange;
-		uint32_t rem = num % (uint32_t)codIRange;
 		
-		// 32bit/9bit division yields 23 bypass bits.
-		int k = 3 + clz32(~(quo << 9));
-		unsigned shift = 6 + k;
-		if (__builtin_expect(k >= 13, 0)) { // At k==12, code length is 22 bits.
-			codIRange <<= (SIZE_BIT - 32);
-			codIOffset = (SIZE_BIT == 32) ? rem : (uint32_t)codIOffset | (size_t)rem << 32;
-			CALL(renorm, 4, 0); // Next division will yield 19 bypass bits...
-			codIRange >>= SIZE_BIT - 13;
-			num = codIOffset >> (SIZE_BIT - 32);
-			quo = num / (uint32_t)codIRange + (quo << 19); // ... such that we keep 13 as msb.
-			rem = num % (uint32_t)codIRange;
-			shift -= 19;
-		}
-		
-		// Return the unconsumed bypass bits to codIOffset, and compute mvd.
-		size_t mul = ((uint32_t)-1 >> 1 >> (shift + k) & quo) * (uint32_t)codIRange + rem;
-		codIRange <<= SIZE_BIT - 1 - (shift + k);
-		codIOffset = (SIZE_BIT == 32) ? mul : (uint32_t)codIOffset | mul << 32;
-		mvd = 1 + (1 << k) + (quo << shift >> (31 - k));
+		// the biggest value to encode is 2^15-9, for which k=15 (see 9.3.2.3)
+		int k = 3;
+		while (CALL(get_bypass) && k < 15)
+			k++;
+		mvd = 1;
+		while (k--)
+			mvd += mvd + CALL(get_bypass);
+		mvd += 1;
 	}
 	
 	// Parse the sign flag.
-	if (mvd > 0) {
-		codIRange >>= 1;
-		mvd = (codIOffset >= codIRange) ? -mvd : mvd;
-		codIOffset = (codIOffset >= codIRange) ? codIOffset - codIRange : codIOffset;
-	}
+	if (mvd > 0)
+		mvd = CALL(get_bypass) ? -mvd : mvd;
 	fprintf(stderr, "mvd: %d\n", mvd);
 	// fprintf(stderr, "mvd_l%x: %d\n", pos >> 1 & 1, mvd);
 	return mvd;
@@ -1709,7 +1643,7 @@ noinline void FUNC(parse_slice_data)
 		{ 7, 14,  9,  4, 14, 10,  0,  4,  9,  0,  9,  4,  0,  4,  0,  4},
 	};
 	
-	CALL(cavlc_to_cabac);
+	CALL(cabac_start);
 	while (1) {
 		fprintf(stderr, "********** %u **********\n", ctx->CurrMbAddr);
 		v16qi flagsA = mb[-1].f.v;
@@ -1740,7 +1674,7 @@ noinline void FUNC(parse_slice_data)
 		}
 		
 		// break on end_of_slice_flag
-		int end_of_slice_flag = CALL(get_ae, 276);
+		int end_of_slice_flag = CALL(cabac_terminate);
 		fprintf(stderr, "end_of_slice_flag: %x\n\n", end_of_slice_flag);
 		if (end_of_slice_flag)
 			break;
@@ -1780,8 +1714,4 @@ noinline void FUNC(parse_slice_data)
 		ctx->frame_offsets_y_v[8] = ctx->frame_offsets_y_v[9] += YC;
 		ctx->frame_offsets_y_v[10] = ctx->frame_offsets_y_v[11] += YC;
 	}
-	
-	// restore CAVLC decoding caches
-	lsb_cache = ctx->_lsb_cache;
-	msb_cache = ctx->_msb_cache;
 }

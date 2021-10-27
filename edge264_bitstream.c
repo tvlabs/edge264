@@ -1,8 +1,300 @@
 #include "edge264_common.h"
 
 
+/**
+ * Read Exp-Golomb codes and bit sequences.
+ *
+ * These critical functions are designed to contain minimal numbers of branches
+ * and memory writes. Several approaches were tried before:
+ * _ Removing all emulation_prevention_three_bytes beforehand to an
+ *   intermediate buffer, then making 1~3 aligned reads. The first part incurs
+ *   some complexity for the buffer management, but then the second part is
+ *   simple and branchless (3 functions with fixed number of aligned reads for
+ *   different maximum code sizes).
+ * _ The same as above but with unaligned reads, to make 1 read for most codes.
+ *   This part is frustrating, because it is more complex but still faster.
+ * _ Removing emulation_prevention_three_bytes on the fly to a uint64_t cache
+ *   with a shift count. This approach incurs a test for refill (predicted not
+ *   taken), but spares a lot of buffer management code. However it incurs some
+ *   complexity to reassemble codes bigger than 32 bits.
+ * _ The same as above but with a size_t[2] cache with shift count. On 64-bit
+ *   machines it allows reading ANY code size with very few instructions, and
+ *   pushes the refill call at the end for tail call optimization.
+ * _ The same size_t[2] buffer but with the shift replaced by a trailing set
+ *   bit. It requires updating 2 variables instead of 1 (shift), but shortens
+ *   all dependency chains and allows storing the whole context in two Global
+ *   Register Variables.
+ */
+#ifdef __SSSE3__
+noinline int FUNC(refill, int ret)
+{
+	static const uint8_t shr_data[32] = {
+		 0,  1,  2,  3,  4,  5,  6,  7,  8,  9, 10, 11, 12, 13, 14, 15,
+		-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
+	};
+	static const v16qi shuf[8] = {
+		{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 15},
+		{0, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 15},
+		{0, 1, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 15},
+		{0, 1, 2, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 15},
+		{0, 1, 2, 3, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 15},
+		{0, 1, 2, 3, 4, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 15},
+		{0, 1, 2, 3, 4, 5, 7, 8, 9, 10, 11, 12, 13, 14, 15, 15},
+		{0, 1, 2, 3, 4, 5, 6, 8, 9, 10, 11, 12, 13, 14, 15, 15},
+	};
+	
+	// load 16 bytes without ever reading past the end
+	const uint8_t *CPB = ctx->CPB;
+	const uint8_t *end = ctx->end;
+	const uint8_t *after;
+	__m128i x;
+	if (__builtin_expect(CPB + 14 <= end, 1)) {
+		after = CPB + sizeof(size_t);
+		x = _mm_loadu_si128((__m128i *)(CPB - 2));
+	} else {
+		after = CPB + sizeof(size_t) < end ? CPB + sizeof(size_t) : end;
+		__m128i shr_mask = _mm_loadu_si128((__m128i *)(shr_data + (CPB + 14 - end)));
+		x = _mm_shuffle_epi8(_mm_loadu_si128((__m128i *)(end - 16)), shr_mask);
+		x = vector_select(shr_mask, shr_mask, x); // turn every inserted 0 into -1
+	}
+	
+	// create a bitmask for the positions of 00n escape sequences
+	unsigned bytes0 = _mm_movemask_epi8(_mm_cmpeq_epi8(x, _mm_setzero_si128()));
+	x = _mm_srli_si128(x, 2);
+	unsigned bytes03 = _mm_movemask_epi8(_mm_cmpeq_epi8(x, _mm_min_epu8(x, _mm_set1_epi8(3))));
+	unsigned esc = bytes0 & bytes0 >> 1 & bytes03;
+	
+	// iterate on escape sequences that fall inside the bytes to refill
+	while (__builtin_expect(esc & (SIZE_BIT == 32 ? 0xf : 0xff), 0)) {
+		int i = __builtin_ctz(esc);
+		
+		// when hitting a start code, point at the 3rd byte to stall future refills there
+		if (CPB[i] <3) {
+			after = CPB + i;
+			break;
+		}
+		
+		// otherwise this is an emulation_prevention_three_byte -> remove it
+		x = _mm_shuffle_epi8(x, (__m128i)shuf[i]);
+		esc = (esc & (esc - 1)) >> 1;
+		CPB++;
+		after = after + 1 < end ? after + 1 : end;
+	}
+	
+	// increment CPB and insert the unescaped bytes into the cache
+	ctx->CPB = after;
+	int trailing_bit = ctz(msb_cache);
+	int shift = trailing_bit + 1;
+	size_t bytes = big_endian(((v16u)x)[0]);
+	msb_cache = lsd(msb_cache >> shift, bytes, shift);
+	lsb_cache = bytes << shift | (size_t)1 << trailing_bit;
+	return ret;
+}
+#endif
 
-// cabac_init_idc==0 for I frames.
+noinline int FUNC(get_u1) {
+	int ret = msb_cache >> (SIZE_BIT - 1);
+	msb_cache = lsd(msb_cache, lsb_cache, 1);
+	if (lsb_cache <<= 1)
+		return ret;
+	return CALL(refill, ret);
+}
+
+// Parses a 1~32-bit fixed size code
+noinline unsigned FUNC(get_uv, unsigned v) {
+	unsigned ret = msb_cache >> (SIZE_BIT - v);
+	msb_cache = lsd(msb_cache, lsb_cache, v);
+	if (lsb_cache <<= v)
+		return ret;
+	return CALL(refill, ret);
+}
+
+// Parses a Exp-Golomb code in one read, up to 2^16-2 (2^32-2 on 64-bit machines)
+noinline unsigned FUNC(get_ue16, unsigned upper) {
+	unsigned v = clz(msb_cache | (size_t)1 << (SIZE_BIT / 2)) * 2 + 1;
+	unsigned ret = umin((msb_cache >> (SIZE_BIT - v)) - 1, upper);
+	msb_cache = lsd(msb_cache, lsb_cache, v);
+	if (lsb_cache <<= v)
+		return ret;
+	return CALL(refill, ret);
+}
+
+// Parses a signed Exp-Golomb code in one read, from -2^15+1 to 2^15-1 (-2^31+1 to 2^31-1 on 64-bit machines)
+noinline int FUNC(get_se16, int lower, int upper) {
+	unsigned v = clz(msb_cache | (size_t)1 << (SIZE_BIT / 2)) * 2 + 1;
+	unsigned ue = (msb_cache >> (SIZE_BIT - v)) - 1;
+	int ret = min(max((ue & 1) ? ue / 2 + 1 : -(ue / 2), lower), upper);
+	msb_cache = lsd(msb_cache, lsb_cache, v);
+	if (lsb_cache <<= v)
+		return ret;
+	return CALL(refill, ret);
+}
+
+// Extensions to [0,2^32-2] and [-2^31+1,2^31-1] for 32-bit machines
+#if SIZE_BIT == 32
+noinline unsigned FUNC(get_ue32, unsigned upper) {
+	unsigned leadingZeroBits = clz(msb_cache | 1);
+	msb_cache = lsd(msb_cache, lsb_cache, leadingZeroBits);
+	if (!(lsb_cache <<= leadingZeroBits))
+		CALL(refill, 0);
+	return umin(CALL(get_uv, leadingZeroBits + 1) - 1, upper);
+}
+
+noinline int FUNC(get_se32, int lower, int upper) {
+	unsigned leadingZeroBits = clz(msb_cache | 1);
+	msb_cache = lsd(msb_cache, lsb_cache, leadingZeroBits);
+	if (!(lsb_cache <<= leadingZeroBits))
+		CALL(refill, 0);
+	unsigned ue = CALL(get_uv, leadingZeroBits + 1) - 1;
+	return min(max(ue & 1 ? ue / 2 + 1 : -(ue / 2), lower), upper);
+}
+#endif
+
+
+
+/**
+ * Read CABAC bins (9.3.3.2).
+ *
+ * In the spec, codIRange belongs to [256..510] (ninth bit set) and codIOffset
+ * is strictly less (9 significant bits). In the functions below, they cover
+ * the full range of a register, a shift right by SIZE_BIT-9-clz(codIRange)
+ * yielding the original values.
+ */
+static int FUNC(renorm, int ceil, int binVal) {
+	size_t v = clz(codIRange) - ceil;
+	ctx->_codIRange = codIRange << v;
+	ctx->_codIOffset = lsd(codIOffset, ctx->_msb_cache, v);
+	msb_cache = lsd(ctx->_msb_cache, ctx->_lsb_cache, v);
+	lsb_cache = ctx->_lsb_cache << v;
+	if (!lsb_cache)
+		CALL(refill, 0);
+	ctx->_lsb_cache = lsb_cache;
+	ctx->_msb_cache = msb_cache;
+	codIRange = ctx->_codIRange;
+	codIOffset = ctx->_codIOffset;
+	return binVal;
+}
+
+noinline int FUNC(get_ae, int ctxIdx)
+{
+	static const uint8_t rangeTabLPS[64 * 4] = {
+		128, 176, 208, 240, 128, 167, 197, 227, 128, 158, 187, 216, 123, 150, 178, 205,
+		116, 142, 169, 195, 111, 135, 160, 185, 105, 128, 152, 175, 100, 122, 144, 166,
+		 95, 116, 137, 158,  90, 110, 130, 150,  85, 104, 123, 142,  81,  99, 117, 135,
+		 77,  94, 111, 128,  73,  89, 105, 122,  69,  85, 100, 116,  66,  80,  95, 110,
+		 62,  76,  90, 104,  59,  72,  86,  99,  56,  69,  81,  94,  53,  65,  77,  89,
+		 51,  62,  73,  85,  48,  59,  69,  80,  46,  56,  66,  76,  43,  53,  63,  72,
+		 41,  50,  59,  69,  39,  48,  56,  65,  37,  45,  54,  62,  35,  43,  51,  59,
+		 33,  41,  48,  56,  32,  39,  46,  53,  30,  37,  43,  50,  29,  35,  41,  48,
+		 27,  33,  39,  45,  26,  31,  37,  43,  24,  30,  35,  41,  23,  28,  33,  39,
+		 22,  27,  32,  37,  21,  26,  30,  35,  20,  24,  29,  33,  19,  23,  27,  31,
+		 18,  22,  26,  30,  17,  21,  25,  28,  16,  20,  23,  27,  15,  19,  22,  25,
+		 14,  18,  21,  24,  14,  17,  20,  23,  13,  16,  19,  22,  12,  15,  18,  21,
+		 12,  14,  17,  20,  11,  14,  16,  19,  11,  13,  15,  18,  10,  12,  15,  17,
+		 10,  12,  14,  16,   9,  11,  13,  15,   9,  11,  12,  14,   8,  10,  12,  14,
+		  8,   9,  11,  13,   7,   9,  11,  12,   7,   9,  10,  12,   7,   8,  10,  11,
+		  6,   8,   9,  11,   6,   7,   9,  10,   6,   7,   8,   9,   2,   2,   2,   2,
+	};
+	static const uint8_t transIdx[256] = {
+		  4,   5, 253, 252,   8,   9, 153, 152,  12,  13, 153, 152,  16,  17, 149, 148,
+		 20,  21, 149, 148,  24,  25, 149, 148,  28,  29, 145, 144,  32,  33, 145, 144,
+		 36,  37, 145, 144,  40,  41, 141, 140,  44,  45, 141, 140,  48,  49, 141, 140,
+		 52,  53, 137, 136,  56,  57, 137, 136,  60,  61, 133, 132,  64,  65, 133, 132,
+		 68,  69, 133, 132,  72,  73, 129, 128,  76,  77, 129, 128,  80,  81, 125, 124,
+		 84,  85, 121, 120,  88,  89, 121, 120,  92,  93, 121, 120,  96,  97, 117, 116,
+		100, 101, 117, 116, 104, 105, 113, 112, 108, 109, 109, 108, 112, 113, 109, 108,
+		116, 117, 105, 104, 120, 121, 105, 104, 124, 125, 101, 100, 128, 129,  97,  96,
+		132, 133,  97,  96, 136, 137,  93,  92, 140, 141,  89,  88, 144, 145,  89,  88,
+		148, 149,  85,  84, 152, 153,  85,  84, 156, 157,  77,  76, 160, 161,  77,  76,
+		164, 165,  73,  72, 168, 169,  73,  72, 172, 173,  65,  64, 176, 177,  65,  64,
+		180, 181,  61,  60, 184, 185,  61,  60, 188, 189,  53,  52, 192, 193,  53,  52,
+		196, 197,  49,  48, 200, 201,  45,  44, 204, 205,  45,  44, 208, 209,  37,  36,
+		212, 213,  37,  36, 216, 217,  33,  32, 220, 221,  29,  28, 224, 225,  25,  24,
+		228, 229,  21,  20, 232, 233,  17,  16, 236, 237,  17,  16, 240, 241,   9,   8,
+		244, 245,   9,   8, 248, 249,   5,   4, 248, 249,   1,   0, 252, 253,   0,   1,
+	};
+	size_t state = ctx->cabac[ctxIdx];
+	size_t shift = SIZE_BIT - 3 - clz(codIRange);
+	fprintf(stderr, "%u/%u: (%u,%x)", (int)(codIOffset >> (shift - 6)), (int)(codIRange >> (shift - 6)), (int)state >> 2, (int)state & 1);
+	//fprintf(stderr, "%u/%u[%d]: (%u,%x)", (int)(codIOffset >> (shift - 6)), (int)(codIRange >> (shift - 6)), ctxIdx, (int)state >> 2, (int)state & 1);
+	size_t idx = (state & -4) + (codIRange >> shift);
+	size_t codIRangeLPS = (size_t)(rangeTabLPS - 4)[idx] << (shift - 6);
+	codIRange -= codIRangeLPS;
+	if (codIOffset >= codIRange) {
+		state ^= 255;
+		codIOffset -= codIRange;
+		codIRange = codIRangeLPS;
+	}
+	ctx->cabac[ctxIdx] = transIdx[state];
+	fprintf(stderr, "->(%u,%x)\n", transIdx[state] >> 2, transIdx[state] & 1);
+	int binVal = state & 1;
+	if (__builtin_expect(codIRange < 256, 0))
+		return CALL(renorm, 0, binVal);
+	return binVal;
+}
+
+static always_inline int FUNC(get_bypass) {
+	if (codIRange < 512)
+		CALL(renorm, 0, 0);
+	codIRange >>= 1;
+	size_t binVal = codIOffset >= codIRange;
+	codIOffset = binVal ? codIOffset - codIRange : codIOffset;
+	return binVal;
+}
+
+void FUNC(cabac_start) {
+	// take SIZE_BIT-1 bits from cache to codIOffset
+	size_t fill = msb_cache >> 1;
+	msb_cache = lsd(msb_cache, lsb_cache, SIZE_BIT - 1);
+	if (!(lsb_cache <<= (SIZE_BIT - 1)))
+		CALL(refill, 0);
+	ctx->_lsb_cache = lsb_cache;
+	ctx->_msb_cache = msb_cache;
+	codIRange = (size_t)510 << (SIZE_BIT - 10);
+	codIOffset = (fill < codIRange) ? fill : codIRange - 1; // protection against invalid bitstream
+}
+
+int FUNC(cabac_terminate) {
+	int extra = SIZE_BIT - 9 - clz(codIRange);
+	codIRange -= (size_t)2 << extra;
+	if (codIOffset >= codIRange) {
+		// reclaim the extra bits from codIOffset
+		int bits = extra + SIZE_BIT * 2 - ctz(ctx->_lsb_cache) - 1;
+		int shift = SIZE_BIT - extra + (bits & 7);
+		if (shift < SIZE_BIT) {
+			lsb_cache = lsd(ctx->_msb_cache, ctx->_lsb_cache, shift);
+			msb_cache = lsd(codIOffset, ctx->_msb_cache, shift);
+			// if they didn't fit in RBSP[0/1], reset the trailing bit and rewind CPB
+			if (bits >= SIZE_BIT * 2) {
+				lsb_cache = (lsb_cache & (ssize_t)-256) | (size_t)0x80;
+				do {
+					int32_t i;
+					memcpy(&i, ctx->CPB - 4, 4);
+					ctx->CPB -= 1 + (big_endian32(i) >> 8 == 3);
+				} while ((bits -= 8) >= SIZE_BIT * 2);
+			}
+		} else {
+			shift -= SIZE_BIT;
+			msb_cache = lsd(ctx->_msb_cache, ctx->_lsb_cache, shift);
+			lsb_cache = ctx->_lsb_cache << shift;
+		}
+		return 1;
+	}
+	if (__builtin_expect(codIRange < 256, 0)) {
+		return CALL(renorm, 0, 0);
+	}
+	return 0;
+}
+
+
+
+/**
+ * Initialise CABAC's context variables using vector code (9.3.1.1).
+ *
+ * Considering the bottleneck of memory access, this is probably just as fast
+ * as copying from precomputed values. Please refrain from providing a default,
+ * unoptimised version.
+ */
 static const int8_t context_init[4][1024][2] __attribute__((aligned(16))) = {{
 	{  20, -15}, {   2,  54}, {   3,  74}, {  20, -15}, {   2,  54}, {   3,  74},
 	{ -28, 127}, { -23, 104}, {  -6,  53}, {  -1,  54}, {   7,  51}, {   0,   0},
@@ -692,115 +984,11 @@ static const int8_t context_init[4][1024][2] __attribute__((aligned(16))) = {{
 	{ -11,  91}, { -30, 127}, {  -5,  79}, { -11, 104}, { -11,  91}, { -30, 127},
 	{  -5,  79}, { -11, 104}, { -11,  91}, { -30, 127},
 }};
-static const uint8_t rangeTabLPS[64 * 4] = {
-	128, 176, 208, 240, 128, 167, 197, 227, 128, 158, 187, 216, 123, 150, 178, 205,
-	116, 142, 169, 195, 111, 135, 160, 185, 105, 128, 152, 175, 100, 122, 144, 166,
-	 95, 116, 137, 158,  90, 110, 130, 150,  85, 104, 123, 142,  81,  99, 117, 135,
-	 77,  94, 111, 128,  73,  89, 105, 122,  69,  85, 100, 116,  66,  80,  95, 110,
-	 62,  76,  90, 104,  59,  72,  86,  99,  56,  69,  81,  94,  53,  65,  77,  89,
-	 51,  62,  73,  85,  48,  59,  69,  80,  46,  56,  66,  76,  43,  53,  63,  72,
-	 41,  50,  59,  69,  39,  48,  56,  65,  37,  45,  54,  62,  35,  43,  51,  59,
-	 33,  41,  48,  56,  32,  39,  46,  53,  30,  37,  43,  50,  29,  35,  41,  48,
-	 27,  33,  39,  45,  26,  31,  37,  43,  24,  30,  35,  41,  23,  28,  33,  39,
-	 22,  27,  32,  37,  21,  26,  30,  35,  20,  24,  29,  33,  19,  23,  27,  31,
-	 18,  22,  26,  30,  17,  21,  25,  28,  16,  20,  23,  27,  15,  19,  22,  25,
-	 14,  18,  21,  24,  14,  17,  20,  23,  13,  16,  19,  22,  12,  15,  18,  21,
-	 12,  14,  17,  20,  11,  14,  16,  19,  11,  13,  15,  18,  10,  12,  15,  17,
-	 10,  12,  14,  16,   9,  11,  13,  15,   9,  11,  12,  14,   8,  10,  12,  14,
-	  8,   9,  11,  13,   7,   9,  11,  12,   7,   9,  10,  12,   7,   8,  10,  11,
-	  6,   8,   9,  11,   6,   7,   9,  10,   6,   7,   8,   9,   2,   2,   2,   2,
-};
-static const uint8_t transIdx[256] = {
-	  4,   5, 253, 252,   8,   9, 153, 152,  12,  13, 153, 152,  16,  17, 149, 148,
-	 20,  21, 149, 148,  24,  25, 149, 148,  28,  29, 145, 144,  32,  33, 145, 144,
-	 36,  37, 145, 144,  40,  41, 141, 140,  44,  45, 141, 140,  48,  49, 141, 140,
-	 52,  53, 137, 136,  56,  57, 137, 136,  60,  61, 133, 132,  64,  65, 133, 132,
-	 68,  69, 133, 132,  72,  73, 129, 128,  76,  77, 129, 128,  80,  81, 125, 124,
-	 84,  85, 121, 120,  88,  89, 121, 120,  92,  93, 121, 120,  96,  97, 117, 116,
-	100, 101, 117, 116, 104, 105, 113, 112, 108, 109, 109, 108, 112, 113, 109, 108,
-	116, 117, 105, 104, 120, 121, 105, 104, 124, 125, 101, 100, 128, 129,  97,  96,
-	132, 133,  97,  96, 136, 137,  93,  92, 140, 141,  89,  88, 144, 145,  89,  88,
-	148, 149,  85,  84, 152, 153,  85,  84, 156, 157,  77,  76, 160, 161,  77,  76,
-	164, 165,  73,  72, 168, 169,  73,  72, 172, 173,  65,  64, 176, 177,  65,  64,
-	180, 181,  61,  60, 184, 185,  61,  60, 188, 189,  53,  52, 192, 193,  53,  52,
-	196, 197,  49,  48, 200, 201,  45,  44, 204, 205,  45,  44, 208, 209,  37,  36,
-	212, 213,  37,  36, 216, 217,  33,  32, 220, 221,  29,  28, 224, 225,  25,  24,
-	228, 229,  21,  20, 232, 233,  17,  16, 236, 237,  17,  16, 240, 241,   9,   8,
-	244, 245,   9,   8, 248, 249,   5,   4, 248, 249,   1,   0, 252, 253,   0,   1,
-};
 
-
-
-/**
- * Read CABAC bins (9.3.3.2).
- *
- * In the spec, codIRange belongs to [256..510] (ninth bit set) and codIOffset
- * is strictly less (9 significant bits). In the functions below, they cover
- * the full range of a register, a shift right by SIZE_BIT-9-clz(codIRange)
- * yielding the original values.
- */
-noinline int FUNC(renorm, int ceil, int binVal) {
-	size_t v = clz(codIRange) - ceil;
-	ctx->_codIRange = codIRange << v;
-	ctx->_codIOffset = lsd(codIOffset, ctx->_msb_cache, v);
-	msb_cache = lsd(ctx->_msb_cache, ctx->_lsb_cache, v);
-	lsb_cache = ctx->_lsb_cache << v;
-	if (!lsb_cache)
-		CALL(refill, 0);
-	ctx->_lsb_cache = lsb_cache;
-	ctx->_msb_cache = msb_cache;
-	codIRange = ctx->_codIRange;
-	codIOffset = ctx->_codIOffset;
-	return binVal;
-}
-
-noinline int FUNC(get_ae, int ctxIdx)
-{
-	size_t state = ctx->cabac[ctxIdx];
-	size_t shift = SIZE_BIT - 3 - clz(codIRange);
-	fprintf(stderr, "%u/%u: (%u,%x)", (int)(codIOffset >> (shift - 6)), (int)(codIRange >> (shift - 6)), (int)state >> 2, (int)state & 1);
-	//fprintf(stderr, "%u/%u[%d]: (%u,%x)", (int)(codIOffset >> (shift - 6)), (int)(codIRange >> (shift - 6)), ctxIdx, (int)state >> 2, (int)state & 1);
-	size_t idx = (state & -4) + (codIRange >> shift);
-	size_t codIRangeLPS = (size_t)(rangeTabLPS - 4)[idx] << (shift - 6);
-	codIRange -= codIRangeLPS;
-	if (codIOffset >= codIRange) {
-		state ^= 255;
-		codIOffset -= codIRange;
-		codIRange = codIRangeLPS;
-	}
-	ctx->cabac[ctxIdx] = transIdx[state];
-	fprintf(stderr, "->(%u,%x)\n", transIdx[state] >> 2, transIdx[state] & 1);
-	int binVal = state & 1;
-	if (__builtin_expect(codIRange < 512, 0)) // 256*2 allows parsing an extra coeff_sign_flag without renorm.
-		return CALL(renorm, 1, binVal);
-	return binVal;
-}
-
-void FUNC(cavlc_to_cabac) {
-	// take SIZE_BIT-1 bits from cache to codIOffset
-	size_t fill = msb_cache >> 1;
-	msb_cache = lsd(msb_cache, lsb_cache, SIZE_BIT - 1);
-	if (!(lsb_cache <<= (SIZE_BIT - 1)))
-		CALL(refill, 0);
-	ctx->_lsb_cache = lsb_cache;
-	ctx->_msb_cache = msb_cache;
-	codIRange = (size_t)510 << (SIZE_BIT - 10);
-	codIOffset = (fill < codIRange) ? fill : codIRange - 1; // protection against invalid bitstream
-}
-
-
-
-/**
- * Initialise CABAC's context variables using vector code (9.3.1.1).
- *
- * Considering the bottleneck of memory access, this is probably just as fast
- * as copying from precomputed values. Please refrain from providing a default,
- * unoptimised version.
- */
 #ifdef __SSSE3__
-void FUNC(init_cabac_context, int cabac_init_idc) {
+void FUNC(cabac_init, int idc) {
 	__m128i mul = _mm_set1_epi16(max(ctx->ps.QP_Y, 0) + 4096);
-	const __m128i *src = (__m128i *)context_init[cabac_init_idc];
+	const __m128i *src = (__m128i *)context_init[idc];
 	for (v16qu *dst = ctx->cabac_v; dst < ctx->cabac_v + 64; dst++, src += 2) {
 		__m128i sum0 = _mm_srai_epi16(_mm_maddubs_epi16(mul, src[0]), 4);
 		__m128i sum1 = _mm_srai_epi16(_mm_maddubs_epi16(mul, src[1]), 4);

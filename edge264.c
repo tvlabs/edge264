@@ -1,14 +1,9 @@
 /** MAYDO:
  * _ refactor get_ae to refill with 7/3 bytes without relying on CAVLC, and put all bitstream functions under a single .c file
- *   _ undo the 512 limit back to 256
- *   _ update get_ae to use the full register range including sign bit
- *   _ reimplement the bypass algorithm with a loop
- *   _ merge edge264_golomb and edge264_cabac into edge264_bitstream
- *   _ put the CABAC-CAVLC transition code inside functions
- *   _ put the CABAC/CAVLC end of frame tests inside functions
  *   _ implement a refill function specifically for CABAC
  *   _ implement a refill function specifically for CAVLC
  *   _ reimplement the bypass algorithm with divisions
+ * _ make all internal functions static even if shared in common.h (makes a warning)
  * _ vectorize initialization of pred weights at the start of parse_P/B_mb
  * _ refactor decode_inter to extract the non-SSSE3 code into edge264_slice.c
  * _ refactor decode_inter to move chroma edge propagation inside luma edge propagation, and reintroduce shortcut for xFrac==yFrac==0 to speed up static frames
@@ -40,8 +35,7 @@
 #include "edge264_intra_ssse3.c"
 #include "edge264_inter_ssse3.c"
 #endif
-#include "edge264_golomb.c"
-#include "edge264_cabac.c"
+#include "edge264_bitstream.c"
 #include "edge264_slice.c"
 
 
@@ -685,7 +679,7 @@ static int FUNC(parse_slice_layer_without_partitioning, Edge264_stream *e)
 		unsigned bits = (SIZE_BIT - 1 - ctz(lsb_cache)) & 7;
 		if (bits != 0 && CALL(get_uv, bits) != (1 << bits) - 1)
 			return 2;
-		CALL(init_cabac_context, cabac_init_idc);
+		CALL(cabac_init, cabac_init_idc);
 		CALL(parse_slice_data);
 		// I'd rather display a portion of image than nothing, so do not test errors here yet
 	}

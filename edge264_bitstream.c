@@ -1,3 +1,6 @@
+/**
+ * Parsing CAVLC and CABAC values (for 32 or 64 bit machines).
+ */
 #include "edge264_common.h"
 
 
@@ -66,26 +69,24 @@ static always_inline size_t FUNC(get_bytes, int nbytes)
 /**
  * Read Exp-Golomb codes and bit sequences.
  *
- * These critical functions are designed to contain minimal numbers of branches
- * and memory writes. Several approaches were tried before:
- * _ Removing all emulation_prevention_three_bytes beforehand to an
- *   intermediate buffer, then making 1~3 aligned reads. The first part incurs
- *   some complexity for the buffer management, but then the second part is
- *   simple and branchless (3 functions with fixed number of aligned reads for
- *   different maximum code sizes).
- * _ The same as above but with unaligned reads, to make 1 read for most codes.
- *   This part is frustrating, because it is more complex but still faster.
+ * History of versions and updates:
+ * _ Removing all emulation_prevention_three_bytes beforehand to a buffer, then
+ *   making 1~3 aligned reads depending on expected code size. The code for
+ *   reading Exp-Golomb values is branchless, although the functions for long
+ *   codes are quite complex.
+ * _ Same as above but making 1~2 unaligned reads. It makes the code shorter
+ *   and probably faster, but more complex to understand.
  * _ Removing emulation_prevention_three_bytes on the fly to a uint64_t cache
- *   with a shift count. This approach incurs a test for refill (predicted not
- *   taken), but spares a lot of buffer management code. However it incurs some
- *   complexity to reassemble codes bigger than 32 bits.
- * _ The same as above but with a size_t[2] cache with shift count. On 64-bit
- *   machines it allows reading ANY code size with very few instructions, and
- *   pushes the refill call at the end for tail call optimization.
- * _ The same size_t[2] buffer but with the shift replaced by a trailing set
- *   bit. It requires updating 2 variables instead of 1 (shift), but shortens
- *   all dependency chains and allows storing the whole context in two Global
- *   Register Variables.
+ *   with a shift count. This adds a test for refill each time a value is read
+ *   (predicted not taken), but spares a full read/write pass on memory and
+ *   needs zero buffer allocation. However it incurs some complexity to
+ *   reassemble codes bigger than 32 bits.
+ * _ Same as above but with a size_t[2] cache with shift count. It doubles the
+ *   storage for 64 bit machines, and allows them to read any code size without
+ *   an intermediate refill (pushing it as a tail call).
+ * _ Same as above but using a trailing set bit instead of a shift variable.
+ *   The main context then fits in 2 variables, which are easier to store in
+ *   Global Register Variables.
  */
 noinline int FUNC(refill, int ret) {
 	size_t bytes = CALL(get_bytes, SIZE_BIT >> 3);
@@ -157,11 +158,39 @@ noinline int FUNC(get_se32, int lower, int upper) {
 
 /**
  * Read CABAC bins (9.3.3.2).
- *
- * In the spec, codIRange belongs to [256..510] (ninth bit set) and codIOffset
- * is strictly less (9 significant bits). In the functions below, they cover
- * the full range of a register, a shift right by SIZE_BIT-9-clz(codIRange)
- * yielding the original values.
+ * 
+ * History of versions and updates:
+ * _ Storing codIOffset and codIRange in two size_t variables, along with a
+ *   counter to indicate how many extra bits are present in codIOffset.
+ *   codIRange corresponds with the spec, and codIOffset is shifted with extra
+ *   least significant bits. It dramatically reduces the number of memory reads
+ *   to refill codIOffset compared to the specification, at the expense of more
+ *   complex shift math.
+ * _ Same as above but using the leading set bit of codIRange instead of a
+ *   variable to count the remaining bits in codIOffset. codIRange is now
+ *   shifted along with codIOffset. It requires one less memory load and
+ *   shortens the dependency chain of critical function get_ae, thus improving
+ *   overall performance.
+ * _ Using a division instruction to get bypass bits ahead of time, since the
+ *   process described in 9.3.3.2.3 is actually equivalent with a binary
+ *   division. It is unclear whether it actually improves performance, but it
+ *   looks very cool!
+ * _ Storing codIOffset and codIRange in Global Register Variables (possible
+ *   with GCC), since they account for a lot of reads/writes otherwise. It
+ *   improves performance overall, and was later followed by the storage of
+ *   CAVLC's context in GRVs. However the renormalization is now quite complex
+ *   as it involves swapping CABAC and CAVLC in GRVs to fetch bits before
+ *   inserting them into codIOffset.
+ * _ Increasing the codIRange lower bound to trigger a refill from 256 to 512,
+ *   to spare the refill test when parsing coeff_sign_flag. It was later
+ *   abandoned since it required additional comments to explain divergence from
+ *   specification.
+ * _ Splitting CAVLC functions from memory access, such that renormalization
+ *   can fetch bytes without restoring CAVLC's context. It spared a test for
+ *   calling CAVLC's refill (not well predicted), thus improving performance.
+ *   However the bypass division trick is now disabled on 32 bit machines,
+ *   since renormalization will now leave 25~32 bits in codIOffset, but the
+ *   algorithm would need at least 29 to remain simple.
  */
 noinline int FUNC(get_ae, int ctxIdx)
 {

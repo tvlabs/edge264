@@ -1491,7 +1491,7 @@ static noinline void FUNC(decode_switch, size_t stride, ssize_t nstride, uint8_t
 
 
 
-void FUNC(decode_samples) {
+static void FUNC(decode_samples) {
 	int BlkIdx = ctx->BlkIdx;
 	size_t stride = ctx->stride;
 	uint8_t *p = ctx->frame + ctx->frame_offsets_x[ctx->BlkIdx2i4x4[BlkIdx]] + ctx->frame_offsets_y[ctx->BlkIdx2i4x4[BlkIdx]] + stride;

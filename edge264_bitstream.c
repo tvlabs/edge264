@@ -88,7 +88,7 @@ static always_inline size_t FUNC(get_bytes, int nbytes)
  *   The main context then fits in 2 variables, which are easier to store in
  *   Global Register Variables.
  */
-noinline int FUNC(refill, int ret) {
+static noinline int FUNC(refill, int ret) {
 	size_t bytes = CALL(get_bytes, SIZE_BIT >> 3);
 	int trailing_bit = ctz(msb_cache); // [0..SIZE_BIT-1]
 	msb_cache = (msb_cache ^ (size_t)1 << trailing_bit) | bytes >> (SIZE_BIT - 1 - trailing_bit);
@@ -96,7 +96,7 @@ noinline int FUNC(refill, int ret) {
 	return ret;
 }
 
-noinline int FUNC(get_u1) {
+static noinline int FUNC(get_u1) {
 	int ret = msb_cache >> (SIZE_BIT - 1);
 	msb_cache = lsd(msb_cache, lsb_cache, 1);
 	if (lsb_cache <<= 1)
@@ -105,17 +105,23 @@ noinline int FUNC(get_u1) {
 }
 
 // Parses a 1~32-bit fixed size code
-noinline unsigned FUNC(get_uv, unsigned v) {
+static noinline unsigned FUNC(get_uv, unsigned v) {
 	unsigned ret = msb_cache >> (SIZE_BIT - v);
-	msb_cache = lsd(msb_cache, lsb_cache, v);
-	if (lsb_cache <<= v)
+	if (SIZE_BIT == 32 && __builtin_expect(v == 32, 0)) {
+		msb_cache = lsb_cache;
+		lsb_cache = 0;
+	} else {
+		msb_cache = lsd(msb_cache, lsb_cache, v);
+		lsb_cache <<= v;
+	}
+	if (lsb_cache)
 		return ret;
 	return CALL(refill, ret);
 }
 
 // Parses a Exp-Golomb code in one read, up to 2^16-2 (2^32-2 on 64-bit machines)
-noinline unsigned FUNC(get_ue16, unsigned upper) {
-	unsigned v = clz(msb_cache | (size_t)1 << (SIZE_BIT / 2)) * 2 + 1;
+static noinline unsigned FUNC(get_ue16, unsigned upper) {
+	unsigned v = clz(msb_cache | (size_t)1 << (SIZE_BIT / 2)) * 2 + 1; // [1..SIZE_BIT-1]
 	unsigned ret = umin((msb_cache >> (SIZE_BIT - v)) - 1, upper);
 	msb_cache = lsd(msb_cache, lsb_cache, v);
 	if (lsb_cache <<= v)
@@ -124,8 +130,8 @@ noinline unsigned FUNC(get_ue16, unsigned upper) {
 }
 
 // Parses a signed Exp-Golomb code in one read, from -2^15+1 to 2^15-1 (-2^31+1 to 2^31-1 on 64-bit machines)
-noinline int FUNC(get_se16, int lower, int upper) {
-	unsigned v = clz(msb_cache | (size_t)1 << (SIZE_BIT / 2)) * 2 + 1;
+static noinline int FUNC(get_se16, int lower, int upper) {
+	unsigned v = clz(msb_cache | (size_t)1 << (SIZE_BIT / 2)) * 2 + 1; // [1..SIZE_BIT-1]
 	unsigned ue = (msb_cache >> (SIZE_BIT - v)) - 1;
 	int ret = min(max((ue & 1) ? ue / 2 + 1 : -(ue / 2), lower), upper);
 	msb_cache = lsd(msb_cache, lsb_cache, v);
@@ -136,16 +142,16 @@ noinline int FUNC(get_se16, int lower, int upper) {
 
 // Extensions to [0,2^32-2] and [-2^31+1,2^31-1] for 32-bit machines
 #if SIZE_BIT == 32
-noinline unsigned FUNC(get_ue32, unsigned upper) {
-	unsigned leadingZeroBits = clz(msb_cache | 1);
+static noinline unsigned FUNC(get_ue32, unsigned upper) {
+	unsigned leadingZeroBits = clz(msb_cache | 1); // [0..31]
 	msb_cache = lsd(msb_cache, lsb_cache, leadingZeroBits);
 	if (!(lsb_cache <<= leadingZeroBits))
 		CALL(refill, 0);
 	return umin(CALL(get_uv, leadingZeroBits + 1) - 1, upper);
 }
 
-noinline int FUNC(get_se32, int lower, int upper) {
-	unsigned leadingZeroBits = clz(msb_cache | 1);
+static noinline int FUNC(get_se32, int lower, int upper) {
+	unsigned leadingZeroBits = clz(msb_cache | 1); // [0..31]
 	msb_cache = lsd(msb_cache, lsb_cache, leadingZeroBits);
 	if (!(lsb_cache <<= leadingZeroBits))
 		CALL(refill, 0);
@@ -188,11 +194,11 @@ noinline int FUNC(get_se32, int lower, int upper) {
  * _ Splitting CAVLC functions from memory access, such that renormalization
  *   can fetch bytes without restoring CAVLC's context. It spared a test for
  *   calling CAVLC's refill (not well predicted), thus improving performance.
- *   However the bypass division trick is now disabled on 32 bit machines,
+ *   However the bypass division trick is now unavailable on 32 bit machines,
  *   since renormalization will now leave 25~32 bits in codIOffset, but the
- *   algorithm would need at least 29 to remain simple.
+ *   algorithm needs at least 29 to remain simple.
  */
-noinline int FUNC(get_ae, int ctxIdx)
+static noinline int FUNC(get_ae, int ctxIdx)
 {
 	static const uint8_t rangeTabLPS[64 * 4] = {
 		128, 176, 208, 240, 128, 167, 197, 227, 128, 158, 187, 216, 123, 150, 178, 205,
@@ -231,7 +237,7 @@ noinline int FUNC(get_ae, int ctxIdx)
 		244, 245,   9,   8, 248, 249,   5,   4, 248, 249,   1,   0, 252, 253,   0,   1,
 	};
 	size_t state = ctx->cabac[ctxIdx];
-	size_t shift = SIZE_BIT - 3 - clz(codIRange);
+	size_t shift = SIZE_BIT - 3 - clz(codIRange); // [6..SIZE_BIT-3]
 	fprintf(stderr, "%u/%u: (%u,%x)", (int)(codIOffset >> (shift - 6)), (int)(codIRange >> (shift - 6)), (int)state >> 2, (int)state & 1);
 	//fprintf(stderr, "%u/%u[%d]: (%u,%x)", (int)(codIOffset >> (shift - 6)), (int)(codIRange >> (shift - 6)), ctxIdx, (int)state >> 2, (int)state & 1);
 	size_t idx = (state & -4) + (codIRange >> shift);
@@ -263,14 +269,13 @@ static always_inline int FUNC(get_bypass) {
 	return binVal;
 }
 
-void FUNC(cabac_start) {
+static void FUNC(cabac_start) {
 	// reclaim bits from cache while realigning with CPB on a byte boundary
 	int extra_bits = SIZE_BIT - 1 - ctz(lsb_cache);
 	int shift = -extra_bits & 7;
 	codIRange = (size_t)510 << (SIZE_BIT - 9 - shift); // aliases lsb_cache is a GRV is used
 	codIOffset = msb_cache >> shift; // aliases msb_cache is a GRV is used
 	codIOffset = (codIOffset < codIRange) ? codIOffset : codIRange - 1; // protection against invalid bitstream
-	
 	// rewind CPB for the extra bytes in cache
 	while (extra_bits > 0) {
 		int32_t i;
@@ -280,7 +285,7 @@ void FUNC(cabac_start) {
 	}
 }
 
-int FUNC(cabac_terminate) {
+static int FUNC(cabac_terminate) {
 	int extra = SIZE_BIT - 9 - clz(codIRange); // [0..SIZE_BIT-9]
 	codIRange -= (size_t)2 << extra;
 	if (codIOffset >= codIRange) {
@@ -995,7 +1000,7 @@ static const int8_t context_init[4][1024][2] __attribute__((aligned(16))) = {{
 }};
 
 #ifdef __SSSE3__
-void FUNC(cabac_init, int idc) {
+static void FUNC(cabac_init, int idc) {
 	__m128i mul = _mm_set1_epi16(max(ctx->ps.QP_Y, 0) + 4096);
 	const __m128i *src = (__m128i *)context_init[idc];
 	for (v16qu *dst = ctx->cabac_v; dst < ctx->cabac_v + 64; dst++, src += 2) {

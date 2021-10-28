@@ -1,7 +1,4 @@
 /** MAYDO:
- * _ refactor get_ae to refill with 7/3 bytes without relying on CAVLC, and put all bitstream functions under a single .c file
- *   _ reimplement the bypass algorithm with divisions
- * _ make all internal functions static even if shared in common.h (makes a warning)
  * _ vectorize initialization of pred weights at the start of parse_P/B_mb
  * _ refactor decode_inter to extract the non-SSSE3 code into edge264_slice.c
  * _ refactor decode_inter to move chroma edge propagation inside luma edge propagation, and reintroduce shortcut for xFrac==yFrac==0 to speed up static frames

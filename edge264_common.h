@@ -301,41 +301,41 @@ static inline unsigned umax(unsigned a, unsigned b) { return (a > b) ? a : b; }
 static inline int median(int a, int b, int c) { return max(min(max(a, b), c), min(a, b)); }
 
 // edge264_bitstream.c
-noinline int FUNC(refill, int ret);
-noinline int FUNC(get_u1);
-noinline unsigned FUNC(get_uv, unsigned v);
-noinline unsigned FUNC(get_ue16, unsigned upper);
-noinline int FUNC(get_se16, int lower, int upper);
+static noinline int FUNC(refill, int ret);
+static noinline int FUNC(get_u1);
+static noinline unsigned FUNC(get_uv, unsigned v);
+static noinline unsigned FUNC(get_ue16, unsigned upper);
+static noinline int FUNC(get_se16, int lower, int upper);
 #if SIZE_BIT == 32
-	noinline unsigned FUNC(get_ue32, unsigned upper);
-	noinline int FUNC(get_se32, int lower, int upper);
+	static noinline unsigned FUNC(get_ue32, unsigned upper);
+	static noinline int FUNC(get_se32, int lower, int upper);
 #else
 	#define get_ue32 get_ue16
 	#define get_se32 get_se16
 #endif
-noinline int FUNC(get_ae, int ctxIdx);
+static noinline int FUNC(get_ae, int ctxIdx);
 static always_inline int FUNC(get_bypass);
-void FUNC(cabac_start);
-int FUNC(cabac_terminate);
-void FUNC(cabac_init, int idc);
+static void FUNC(cabac_start);
+static int FUNC(cabac_terminate);
+static void FUNC(cabac_init, int idc);
 
 // edge264_inter_*.c
-void FUNC(decode_inter, int i, int w, int h);
+static void FUNC(decode_inter, int i, int w, int h);
 
 // edge264_intra_*.c
-void FUNC(decode_samples);
+static void FUNC(decode_samples);
 
 // edge264_residual_*.c
-noinline void FUNC(compute_LevelScale4x4, int iYCbCr);
-noinline void FUNC(compute_LevelScale8x8, int iYCbCr);
-noinline void FUNC(add_idct4x4);
-noinline void FUNC(add_idct8x8);
-noinline void FUNC(transform_dc4x4);
-noinline void FUNC(transform_dc2x2);
-noinline void FUNC(transform_dc2x4);
+static noinline void FUNC(compute_LevelScale4x4, int iYCbCr);
+static noinline void FUNC(compute_LevelScale8x8, int iYCbCr);
+static noinline void FUNC(add_idct4x4);
+static noinline void FUNC(add_idct8x8);
+static noinline void FUNC(transform_dc4x4);
+static noinline void FUNC(transform_dc2x2);
+static noinline void FUNC(transform_dc2x4);
 
 // edge264_slice.c
-noinline void FUNC(parse_slice_data);
+static noinline void FUNC(parse_slice_data);
 
 // debugging functions
 static void print_v16qi(v16qi v) {
@@ -481,9 +481,9 @@ static void print_v4si(v4si v) {
 	#endif // __GNUC__
 
 	// legacy functions
-	noinline void FUNC(decode_Residual4x4, __m128i p0, __m128i p1);
-	noinline void FUNC(decode_Residual8x8_8bit, __m128i p0, __m128i p1, __m128i p2, __m128i p3, __m128i p4, __m128i p5, __m128i p6, __m128i p7);
-	noinline void FUNC(decode_Residual8x8, __m128i p0, __m128i p1, __m128i p2, __m128i p3, __m128i p4, __m128i p5, __m128i p6, __m128i p7);
+	static noinline void FUNC(decode_Residual4x4, __m128i p0, __m128i p1);
+	static noinline void FUNC(decode_Residual8x8_8bit, __m128i p0, __m128i p1, __m128i p2, __m128i p3, __m128i p4, __m128i p5, __m128i p6, __m128i p7);
+	static noinline void FUNC(decode_Residual8x8, __m128i p0, __m128i p1, __m128i p2, __m128i p3, __m128i p4, __m128i p5, __m128i p6, __m128i p7);
 
 #else // add other architectures here
 	#error "Add -mssse3 or more recent"

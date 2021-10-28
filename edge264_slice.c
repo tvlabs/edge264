@@ -118,22 +118,19 @@ static noinline void FUNC(parse_residual_block, unsigned coded_block_flag, int s
 #elif SIZE_BIT == 64
 			// we need at least 50 bits in codIOffset to get 41 bits with a division by 9 bits
 			int zeros = clz(codIRange);
-			if (zeros > 14) {
+			if (zeros > 64 - 50) {
 				codIOffset = lsd(codIOffset, CALL(get_bytes, zeros >> 3), zeros & -8);
 				codIRange <<= zeros & -8;
 				zeros = clz(codIRange);
 			}
-			int shift = 64 - 50 - zeros; // [0..14]
-			size_t num = codIOffset >> shift;
-			size_t denom = codIRange >> (shift + 41);
-			size_t quo = num / denom; // 41 bypass bits in lsb and zeros above
-			size_t rem = num % denom;
-			int k = min(clz(~quo << (64 - 41)), 20);
-			int unused = 41 - k * 2 - 1;
+			codIRange >>= 64 - 9 - zeros;
+			size_t quo = codIOffset / codIRange; // requested bits are in lsb and zeros+9 empty bits above
+			size_t rem = codIOffset % codIRange;
+			int k = min(clz(~quo << (zeros + 9)), 20);
+			int unused = 64 - 9 - zeros - k * 2 - 1;
 			coeff_level = 14 + (1 << k | (quo >> unused & (((size_t)1 << k) - 1)));
-			size_t unconsumed = (quo & (((size_t)1 << unused) - 1)) * denom + rem;
-			codIOffset = (codIOffset & (((size_t)1 << shift) - 1)) | unconsumed << shift;
-			codIRange = denom << (unused + shift);
+			codIOffset = (quo & (((size_t)1 << unused) - 1)) * codIRange + rem;
+			codIRange <<= unused;
 #endif
 		}
 		
@@ -680,6 +677,11 @@ static void FUNC(parse_inter_residual)
 /**
  * Parse a single motion vector component (7.3.5.1, 7.4.5.1, 9.3.2.3,
  * 9.3.3.1.1.7 and tables 9-34 and 9-39).
+ * 
+ * As with residual coefficients, bypass bits can be extracted all at once
+ * using a binary division. mvd expects at most 2^15-9, i.e 28 bits as
+ * Exp-Golomb, so we need a single division on 64-bit machines and two on
+ * 32-bit machines.
  */
 static int FUNC(parse_mvd_comp, int ctxBase, int absMvdSum) {
 	int ctxIdx = ctxBase + (absMvdSum >= 3) + (absMvdSum > 32);
@@ -688,15 +690,29 @@ static int FUNC(parse_mvd_comp, int ctxBase, int absMvdSum) {
 	while (mvd < 9 && CALL(get_ae, ctxIdx))
 		ctxIdx = ctxBase + min(mvd++, 3);
 	if (mvd >= 9) {
-		
-		// the biggest value to encode is 2^15-9, for which k=15 (see 9.3.2.3)
-		int k = 3;
-		while (CALL(get_bypass) && k < 15)
-			k++;
-		mvd = 1;
-		while (k--)
-			mvd += mvd + CALL(get_bypass);
-		mvd += 1;
+		// we need at least 37 (or 22) bits in codIOffset to get 28 (or 13) bypass bits
+		int zeros = clz(codIRange);
+		if (zeros > (SIZE_BIT == 64 ? 64 - 37 : 32 - 22)) {
+			codIOffset = lsd(codIOffset, CALL(get_bytes, zeros >> 3), zeros & -8);
+			codIRange <<= zeros & -8;
+			zeros = clz(codIRange);
+		}
+		// for 64-bit we could shift codIOffset down to 37 bits to help iterative hardware dividers, but this code isn't critical enough
+		codIRange >>= SIZE_BIT - 9 - zeros;
+		size_t quo = codIOffset / codIRange; // requested bits are in lsb and zeros+9 empty bits above
+		size_t rem = codIOffset % codIRange;
+		int k = 3 + min(clz(~quo << (zeros + 9)), 12);
+		int unused = SIZE_BIT - 9 - zeros - k * 2 + 2;
+		if (SIZE_BIT == 32 && __builtin_expect(unused < 0, 0)) { // FIXME needs testing
+			// refill codIOffset with 16 bits then make a new division
+			codIOffset = lsd(rem, CALL(get_bytes, 2), 16);
+			quo = lsd(quo, (codIOffset / codIRange) << (SIZE_BIT - 16), 16);
+			rem = codIOffset % codIRange;
+			unused += 16;
+		}
+		mvd = 1 + (1 << k | (quo >> unused & (((size_t)1 << k) - 1)));
+		codIOffset = (quo & (((size_t)1 << unused) - 1)) * codIRange + rem;
+		codIRange <<= unused;
 	}
 	
 	// Parse the sign flag.
@@ -1658,7 +1674,7 @@ static inline void FUNC(parse_P_mb)
  * This function loops through the macroblocks of a slice, initialising their
  * data and calling parse_{I/P/B}_mb for each one.
  */
-noinline void FUNC(parse_slice_data)
+static noinline void FUNC(parse_slice_data)
 {
 	static const v16qi block_unavailability[4] = {
 		{ 0,  0,  0,  4,  0,  0,  0,  4,  0,  0,  0,  4,  0,  4,  0,  4},

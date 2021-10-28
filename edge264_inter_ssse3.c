@@ -1258,7 +1258,7 @@ static always_inline void FUNC(inter8xH_chroma_8bit, int h, size_t dstride, uint
  * | bipred=2 | no_weight  | no_weight    | no_weight  | implicit2    |
  * +----------+------------+--------------+------------+--------------+
  */
-noinline void FUNC(decode_inter, int i, int w, int h) {
+static noinline void FUNC(decode_inter, int i, int w, int h) {
 	static int8_t shift_Y_8bit[46] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15};
 	static int8_t shift_C_8bit[22] = {0, 0, 0, 0, 0, 0, 0, 0, 1, 2, 3, 4, 5, 6, 7, 7, 7, 7, 7, 7, 7, 7};
 	static void FUNC((*luma_fcts[48]), int, size_t, uint8_t*, size_t, const uint8_t*) = {

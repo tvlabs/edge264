@@ -258,7 +258,7 @@ static noinline int FUNC(get_ae, int ctxIdx)
 	return binVal;
 }
 
-static always_inline int FUNC(get_bypass) {
+static inline int FUNC(get_bypass) {
 	if (codIRange < 512) {
 		codIOffset = lsd(codIOffset, CALL(get_bytes, SIZE_BIT / 8 - 2), SIZE_BIT - 16);
 		codIRange <<= SIZE_BIT - 16;

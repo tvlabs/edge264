@@ -1,11 +1,15 @@
 /** MAYDO:
- * _ vectorize initialization of pred weights at the start of parse_P/B_mb
- * _ refactor decode_inter to extract the non-SSSE3 code into edge264_slice.c
- * _ refactor decode_inter to move chroma edge propagation inside luma edge propagation, and reintroduce shortcut for xFrac==yFrac==0 to speed up static frames
+ * _ optimize and simplify inter decoding:
+ *   _ pass weights/offsets as arguments of luma functions and delete them from Edge264_ctx storage
+ *   _ vectorize initialization of weights/offsets right after parsing all refIdx
+ *   _ use different memory regions for chroma & luma edge propagation (and test by moving chroma propagation before luma prediction)
+ *   _ move chroma edge propagation inside luma edge propagation, and reintroduce shortcut for xFrac==yFrac==0 to speed up static frames
+ *   _ swap chroma & luma calls in decode_inter to finish on a tail call
+ *   _ refactor decode_inter to extract the non-SSSE3 code into edge264_slice.c
+ *   _ replace lRC by lXY in edge264_inter to match ffmpeg's convention
+ * _ replace parse_mvd_comp with parse_mvd_pair and include the code for summing absMvdComp?
  * _ rename absMvdComp into absMvd, and other mb variables into their non symbol version
- * _ replace lRC by lXY in edge264_inter to match ffmpeg convention
  * _ replace __m64 code with __m128i to follow GCC/clang drop of MMX
- * _ swap chroma & luma calls in decode_inter to finish on a tail call
  * _ modify Intra_16x16 and Intra_Chroma to operate after parsing (rather than before residual) and write directly to memory
  * _ remove stride variable in favor of passing it directly to residual functions
  * _ once PredMode is used solely by Intra_4x4/8x8, remove it in favor of computing unavailability just before decoding
@@ -21,7 +25,7 @@
 /** Notes:
  * _ to benchmark ffmpeg: ffmpeg -hide_banner -benchmark -threads 1 -i video.264 -f null -
  * _ current x264 options in HandBrake to output compatible video: no-deblock:slices=1:no-8x8dct
- * _ don't allocate images separately, because for desktop it will contribute to fragmentation if other allocs happen inbetween, and for embedded systems it will be easier to bypass malloc and manage memory by hand
+ * _ don't allocate images separately, because for desktop it will contribute to fragmentation if other allocs happen inbetween, and for embedded systems it will be easier to bypass malloc and manage memory by hand with a single alloc
  */
 
 #include "edge264_common.h"

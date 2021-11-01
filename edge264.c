@@ -1,7 +1,6 @@
 /** MAYDO:
  * _ optimize and simplify inter decoding:
- *   _ pass weights/offsets as arguments of luma functions and delete them from Edge264_ctx storage
- *   _ remove CALLs in inter_ssse3 ?
+ *   _ remove zero avg optimizations in favor of fixed constant load
  *   _ vectorize initialization of weights/offsets right after parsing all refIdx
  *   _ use different memory regions for chroma & luma edge propagation (and test by moving chroma propagation before luma prediction)
  *   _ move chroma edge propagation inside luma edge propagation, and reintroduce shortcut for xFrac==yFrac==0 to speed up static frames

@@ -1,12 +1,15 @@
 /** MAYDO:
  * _ optimize and simplify inter decoding:
  *   _ pass weights/offsets as arguments of luma functions and delete them from Edge264_ctx storage
+ *   _ remove CALLs in inter_ssse3 ?
  *   _ vectorize initialization of weights/offsets right after parsing all refIdx
  *   _ use different memory regions for chroma & luma edge propagation (and test by moving chroma propagation before luma prediction)
  *   _ move chroma edge propagation inside luma edge propagation, and reintroduce shortcut for xFrac==yFrac==0 to speed up static frames
  *   _ swap chroma & luma calls in decode_inter to finish on a tail call
  *   _ refactor decode_inter to extract the non-SSSE3 code into edge264_slice.c
  *   _ replace lRC by lXY in edge264_inter to match ffmpeg's convention
+ * _ fix initialization of implicit weights
+ * _ review and secure the places where CABAC could result in unsupported internal state
  * _ replace parse_mvd_comp with parse_mvd_pair and include the code for summing absMvdComp?
  * _ rename absMvdComp into absMvd, and other mb variables into their non symbol version
  * _ replace __m64 code with __m128i to follow GCC/clang drop of MMX

@@ -769,7 +769,7 @@ INTER8xH_QPEL_21_22_23(qpel23, filter_6tapD_8bit(x30, x40, hv))
 /**
  * Inter 16x{8/16} takes a 21x{13/21} matrix and outputs a 16x{8/16} matrix in
  * memory.
- * Here the biggest difficulty is register pressure, so we count on compilers
+ * Here the biggest challenge is register pressure, so we count on compilers
  * to spill/reload on stack. All functions were designed with 16 available
  * registers in mind, for older chips there will just be more spills.
  */
@@ -1289,10 +1289,16 @@ noinline void FUNC(decode_inter, int i, int w, int h) {
 		biweights_Y = biweights_Cb = biweights_Cr = (v16qi){0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1};
 		bioffsets_Y = bioffsets_Cb = bioffsets_Cr = logWD_C = logWD_Y = (v8hi){};
 	} else if (ctx->ps.weighted_bipred_idc == 2) { // implicit2
-		int w1 = ctx->implicit_weights[0][mb->refIdx[i8x8 - 4]][refIdx - 32];
+		int w1 = -ctx->implicit_weights[0][mb->refIdx[i8x8 - 4]][refIdx - 32];
+		if (__builtin_expect((unsigned)w1 + 63 >= 191, 0)) { // one weight will overflow if w1 is 128 or -64
+			w1 >>= 5;
+			bioffsets_Y = bioffsets_Cb = bioffsets_Cr = (v8hi){1, 1, 1, 1, 1, 1, 1, 1};
+			logWD_Y = logWD_C = (v8hi)(v2li){1};
+		} else {
+			bioffsets_Y = bioffsets_Cb = bioffsets_Cr = (v8hi){32, 32, 32, 32, 32, 32, 32, 32};
+			logWD_Y = logWD_C = (v8hi)(v2li){6};
+		}
 		biweights_Y = biweights_Cb = biweights_Cr = pack_weights(64 - w1, w1);
-		bioffsets_Y = bioffsets_Cb = bioffsets_Cr = (v8hi){32, 32, 32, 32, 32, 32, 32, 32};
-		logWD_Y = logWD_C = (v8hi)(v2li){6};
 	} else if (ctx->ps.weighted_bipred_idc == 0) { // default2
 		biweights_Y = biweights_Cb = biweights_Cr = (v16qi){1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1};
 		bioffsets_Y = bioffsets_Cb = bioffsets_Cr = (v8hi){1, 1, 1, 1, 1, 1, 1, 1};

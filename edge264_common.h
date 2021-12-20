@@ -178,7 +178,7 @@ typedef struct
 	union { int8_t implicit_weights[2][32][32]; v16qi implicit_weights_v[2][32][2]; }; // w1 for [top/bottom][ref0][ref1]
 	int8_t explicit_weights[3][64]; // [iYCbCr][LX][RefIdx]
 	int8_t explicit_offsets[3][64];
-	union { uint8_t edge_buf[1008]; int64_t edge_buf_l[126]; v16qu edge_buf_v[63]; };
+	union { uint8_t edge_buf[2016]; int64_t edge_buf_l[252]; v16qu edge_buf_v[126]; };
 	
 	// Residuals context
 	uint64_t significant_coeff_flags; // used to determine if DC decoding can be used (faster)

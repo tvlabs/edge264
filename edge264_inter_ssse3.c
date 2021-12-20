@@ -1245,44 +1245,16 @@ noinline void FUNC(decode_inter, int i, int w, int h) {
 		inter16xH_qpel03_8bit, inter16xH_qpel13_8bit, inter16xH_qpel23_8bit, inter16xH_qpel33_8bit,
 	};
 	
-	// load source and destination addresses
-	size_t sstride_Y = ctx->stride_Y;
+	// load motion vector and reference picture
 	int x = mb->mvs[i * 2];
 	int y = mb->mvs[i * 2 + 1];
 	int i8x8 = i >> 2;
 	int i4x4 = i & 15;
 	int refIdx = mb->refIdx[i8x8] + (i & 16) * 2;
-	int xInt_Y = ctx->frame_offsets_x[i4x4] + (x >> 2); // FIXME 16 bit
-	int yInt_Y = ctx->frame_offsets_y[i4x4] + (y >> 2) * sstride_Y;
-	int xFrac_Y = x & 3;
-	int yFrac_Y = y & 3;
 	const uint8_t *ref = ctx->ref_planes[refIdx];
-	const uint8_t *src_Y = ref + xInt_Y + yInt_Y;
-	uint8_t *dst_Y = ctx->frame + ctx->frame_offsets_x[i4x4] + ctx->frame_offsets_y[i4x4];
 	//printf("<li>CurrMbAddr=%d, i=%d, w=%d, h=%d, x=%d, y=%d, ref=%d</li>\n", ctx->CurrMbAddr, i, w, h, x, y, refIdx);
 	
-	// edge propagation is an annoying but nice little piece of code
-	if (__builtin_expect((unsigned)xInt_Y - 2 >= sstride_Y - w - 4 ||
-		(unsigned)yInt_Y - sstride_Y * 2 >= ctx->plane_size_Y - (h + 4) * sstride_Y, 0))
-	{
-		v16qi shuf0, shuf1, v0, v1;
-		memcpy(&shuf0, shift_Y_8bit + 15 + clip3(-15, 0, xInt_Y - 2) + clip3(0, 15, xInt_Y + 14 - sstride_Y), 16);
-		memcpy(&shuf1, shift_Y_8bit + 15 + clip3(-15, 0, xInt_Y + 14) + clip3(0, 15, xInt_Y + 30 - sstride_Y), 16);
-		const uint8_t *src0 = ref + clip3(0, sstride_Y - 16, xInt_Y - 2);
-		const uint8_t *src1 = ref + clip3(0, sstride_Y - 16, xInt_Y + 14);
-		yInt_Y -= sstride_Y * 2;
-		for (v16qu *buf = ctx->edge_buf_v; buf < ctx->edge_buf_v + 10 + h * 2; buf += 2, yInt_Y += sstride_Y) {
-			int c = clip3(0, ctx->plane_size_Y - sstride_Y, yInt_Y);
-			memcpy(&v0, src0 + c, 16);
-			memcpy(&v1, src1 + c, 16);
-			buf[0] = (v16qu)byte_shuffle(v0, shuf0);
-			buf[1] = (v16qu)byte_shuffle(v1, shuf1);
-		}
-		sstride_Y = 32;
-		src_Y = ctx->edge_buf + 66;
-	}
-	
-	// initialize prediction weights
+	// initialize prediction weights (not vectorized since most often 1~2 calls per mb)
 	v16qi biweights_Y, biweights_Cb, biweights_Cr;
 	v8hi bioffsets_Y, bioffsets_Cb, bioffsets_Cr, logWD_Y, logWD_C;
 	if ((i8x8 < 4 || mb->refIdx[i8x8 - 4] < 0) && (ctx->ps.weighted_bipred_idc != 1 || mb->refIdx[i8x8 ^ 4] >= 0)) { // no_weight
@@ -1327,45 +1299,69 @@ noinline void FUNC(decode_inter, int i, int w, int h) {
 		logWD_C = (v8hi)(v2li){ctx->chroma_log2_weight_denom + 1};
 	}
 	
-	luma_fcts[(w == 4 ? 0 : w == 8 ? 16 : 32) + yFrac_Y * 4 + xFrac_Y]
-		(h, ctx->stride_Y, dst_Y, sstride_Y, src_Y, (__m128i)biweights_Y, (__m128i)bioffsets_Y, (__m128i)logWD_Y);
-	
-	// temporary hardcoding 4:2:0 until devising a simpler internal plane storage
+	// compute source pointers
+	size_t sstride_Y = ctx->stride_Y;
 	size_t sstride_C = ctx->stride_C;
+	int xInt_Y = ctx->frame_offsets_x[i4x4] + (x >> 2);
 	int xInt_C = ctx->frame_offsets_x[16 + i4x4] + (x >> 3);
+	int yInt_Y = ctx->frame_offsets_y[i4x4] + (y >> 2) * sstride_Y;
 	int yInt_Cb = ctx->frame_offsets_y[16 + i4x4] + (y >> 3) * sstride_C;
 	int yInt_Cr = ctx->frame_offsets_y[32 + i4x4] + (y >> 3) * sstride_C;
-	int xFrac_C = x & 7;
-	int yFrac_C = y & 7;
+	const uint8_t *src_Y = ref + xInt_Y + yInt_Y;
 	const uint8_t *src_Cb = ref + xInt_C + yInt_Cb;
 	const uint8_t *src_Cr = ref + xInt_C + yInt_Cr;
-	uint8_t *dst_Cb = ctx->frame + ctx->frame_offsets_x[16 + i4x4] + ctx->frame_offsets_y[16 + i4x4];
-	uint8_t *dst_Cr = ctx->frame + ctx->frame_offsets_x[32 + i4x4] + ctx->frame_offsets_y[32 + i4x4];
 	
-	// chroma edge propagation (separate from luma to speed up xInt_C==yInt_C==0)
-	if (__builtin_expect((unsigned)xInt_C >= sstride_C - (w >> 1) ||
-		(unsigned)yInt_Cb - ctx->plane_size_Y >= ctx->plane_size_C - (h >> 1) * sstride_C, 0))
+	// edge propagation is an annoying but beautiful piece of code
+	if (__builtin_expect((unsigned)xInt_Y - 2 >= sstride_Y - w - 4 ||
+		(unsigned)yInt_Y - sstride_Y * 2 >= ctx->plane_size_Y - (h + 4) * sstride_Y, 0))
 	{
-		v16qi shuf = {}, v0, v1;
-		memcpy(&shuf, shift_C_8bit + 7 + clip3(-7, 0, xInt_C) + clip3(0, 7, xInt_C + 8 - sstride_C), 8);
-		const uint8_t *src0 = ref + clip3(0, sstride_C - 8, xInt_C);
-		const uint8_t *src1 = ref + clip3(0, sstride_C - 1, xInt_C + 8);
-		for (int j = 0; j <= h >> 1; j++, yInt_Cb += sstride_C, yInt_Cr += sstride_C) {
-			int cb = clip3(ctx->plane_size_Y, ctx->plane_size_Y + ctx->plane_size_C - sstride_C, yInt_Cb);
-			int cr = clip3(ctx->plane_size_Y + ctx->plane_size_C, ctx->plane_size_Y + ctx->plane_size_C * 2 - sstride_C, yInt_Cr);
-			memcpy(&v0, src0 + cb, 8);
-			memcpy(&v1, src0 + cr, 8);
-			ctx->edge_buf_l[j * 2     ] = ((v2li)byte_shuffle(v0, shuf))[0];
-			ctx->edge_buf_l[j * 2 + 34] = ((v2li)byte_shuffle(v1, shuf))[0];
-			ctx->edge_buf[j * 16 +   8] = *(src1 + cb);
-			ctx->edge_buf[j * 16 + 280] = *(src1 + cr);
+		v16qi shuf0, shuf1, v0, v1;
+		memcpy(&shuf0, shift_Y_8bit + 15 + clip3(-15, 0, xInt_Y - 2) + clip3(0, 15, xInt_Y + 14 - sstride_Y), 16);
+		memcpy(&shuf1, shift_Y_8bit + 15 + clip3(-15, 0, xInt_Y + 14) + clip3(0, 15, xInt_Y + 30 - sstride_Y), 16);
+		const uint8_t *src0 = ref + clip3(0, sstride_Y - 16, xInt_Y - 2);
+		const uint8_t *src1 = ref + clip3(0, sstride_Y - 16, xInt_Y + 14);
+		yInt_Y -= sstride_Y * 2;
+		for (v16qu *buf = ctx->edge_buf_v; buf < ctx->edge_buf_v + 10 + h * 2; buf += 2, yInt_Y += sstride_Y) {
+			int c = clip3(0, ctx->plane_size_Y - sstride_Y, yInt_Y);
+			memcpy(&v0, src0 + c, 16);
+			memcpy(&v1, src1 + c, 16);
+			buf[0] = (v16qu)byte_shuffle(v0, shuf0);
+			buf[1] = (v16qu)byte_shuffle(v1, shuf1);
 		}
-		sstride_C = 16;
-		src_Cb = ctx->edge_buf;
-		src_Cr = ctx->edge_buf + 272;
+		sstride_Y = 32;
+		src_Y = ctx->edge_buf + 66;
+		
+		// chroma test is separate from luma to speed up xInt_C==yInt_C==0
+		if (__builtin_expect((unsigned)xInt_C >= sstride_C - (w >> 1) ||
+			(unsigned)yInt_Cb - ctx->plane_size_Y >= ctx->plane_size_C - (h >> 1) * sstride_C, 0))
+		{
+			v16qi shuf = {}, v0, v1;
+			memcpy(&shuf, shift_C_8bit + 7 + clip3(-7, 0, xInt_C) + clip3(0, 7, xInt_C + 8 - sstride_C), 8);
+			const uint8_t *src0 = ref + clip3(0, sstride_C - 8, xInt_C);
+			const uint8_t *src1 = ref + clip3(0, sstride_C - 1, xInt_C + 8);
+			for (int j = 0; j <= h >> 1; j++, yInt_Cb += sstride_C, yInt_Cr += sstride_C) {
+				int cb = clip3(ctx->plane_size_Y, ctx->plane_size_Y + ctx->plane_size_C - sstride_C, yInt_Cb);
+				int cr = clip3(ctx->plane_size_Y + ctx->plane_size_C, ctx->plane_size_Y + ctx->plane_size_C * 2 - sstride_C, yInt_Cr);
+				memcpy(&v0, src0 + cb, 8);
+				memcpy(&v1, src0 + cr, 8);
+				// FIXME merge into 2 writes ?
+				ctx->edge_buf_l[j * 2 +  84] = ((v2li)byte_shuffle(v0, shuf))[0];
+				ctx->edge_buf_l[j * 2 + 168] = ((v2li)byte_shuffle(v1, shuf))[0];
+				ctx->edge_buf[j * 16 +  680] = *(src1 + cb);
+				ctx->edge_buf[j * 16 + 1352] = *(src1 + cr);
+			}
+			sstride_C = 16;
+			src_Cb = ctx->edge_buf +  672;
+			src_Cr = ctx->edge_buf + 1344;
+		}
 	}
 	
+	// chroma prediction comes first since it is inlined
 	size_t dstride_C = ctx->stride_C;
+	uint8_t *dst_Cb = ctx->frame + ctx->frame_offsets_x[16 + i4x4] + ctx->frame_offsets_y[16 + i4x4];
+	uint8_t *dst_Cr = ctx->frame + ctx->frame_offsets_x[32 + i4x4] + ctx->frame_offsets_y[32 + i4x4];
+	int xFrac_C = x & 7;
+	int yFrac_C = y & 7;
 	int mul = 8 - xFrac_C + (xFrac_C << 8);
 	__m128i AB = _mm_set1_epi16(mul * (8 - yFrac_C));
 	__m128i CD = _mm_set1_epi16(mul * yFrac_C);
@@ -1379,4 +1375,11 @@ noinline void FUNC(decode_inter, int i, int w, int h) {
 		inter2xH_chroma_8bit(h >> 1, dstride_C, dst_Cb, sstride_C, src_Cb, AB, CD, (__m128i)biweights_Cb, (__m128i)bioffsets_Cb, (__m128i)logWD_C);
 		inter2xH_chroma_8bit(h >> 1, dstride_C, dst_Cr, sstride_C, src_Cr, AB, CD, (__m128i)biweights_Cr, (__m128i)bioffsets_Cr, (__m128i)logWD_C);
 	}
+	
+	// tail jump to luma prediction
+	int xFrac_Y = x & 3;
+	int yFrac_Y = y & 3;
+	uint8_t *dst_Y = ctx->frame + ctx->frame_offsets_x[i4x4] + ctx->frame_offsets_y[i4x4];
+	luma_fcts[(w == 4 ? 0 : w == 8 ? 16 : 32) + yFrac_Y * 4 + xFrac_Y]
+		(h, ctx->stride_Y, dst_Y, sstride_Y, src_Y, (__m128i)biweights_Y, (__m128i)bioffsets_Y, (__m128i)logWD_Y);
 }

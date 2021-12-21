@@ -1344,7 +1344,7 @@ noinline void FUNC(decode_inter, int i, int w, int h) {
 				int cr = clip3(ctx->plane_size_Y + ctx->plane_size_C, ctx->plane_size_Y + ctx->plane_size_C * 2 - sstride_C, yInt_Cr);
 				memcpy(&v0, src0 + cb, 8);
 				memcpy(&v1, src0 + cr, 8);
-				// FIXME merge into 2 writes ?
+				// each line has 2 writes to support 8px strides
 				ctx->edge_buf_l[j * 2 +  84] = ((v2li)byte_shuffle(v0, shuf))[0];
 				ctx->edge_buf_l[j * 2 + 168] = ((v2li)byte_shuffle(v1, shuf))[0];
 				ctx->edge_buf[j * 16 +  680] = *(src1 + cb);

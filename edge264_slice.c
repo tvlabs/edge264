@@ -675,7 +675,7 @@ static void FUNC(parse_inter_residual)
 
 
 /**
- * Parse a single motion vector component (7.3.5.1, 7.4.5.1, 9.3.2.3,
+ * Parse both components of a motion vector (7.3.5.1, 7.4.5.1, 9.3.2.3,
  * 9.3.3.1.1.7 and tables 9-34 and 9-39).
  * 
  * As with residual coefficients, bypass bits can be extracted all at once
@@ -683,60 +683,68 @@ static void FUNC(parse_inter_residual)
  * Exp-Golomb, so we need a single division on 64-bit machines and two on
  * 32-bit machines.
  */
-static int FUNC(parse_mvd_comp, int ctxBase, int absMvdSum) {
-	int ctxIdx = ctxBase + (absMvdSum >= 3) + (absMvdSum > 32);
-	int mvd = 0;
-	ctxBase += 3;
-	while (mvd < 9 && CALL(get_ae, ctxIdx))
-		ctxIdx = ctxBase + min(mvd++, 3);
-	if (mvd >= 9) {
-		// we need at least 37 (or 22) bits in codIOffset to get 28 (or 13) bypass bits
-		int zeros = clz(codIRange);
-		if (zeros > (SIZE_BIT == 64 ? 64 - 37 : 32 - 22)) {
-			codIOffset = lsd(codIOffset, CALL(get_bytes, zeros >> 3), zeros & -8);
-			codIRange <<= zeros & -8;
-			zeros = clz(codIRange);
+static v8hi FUNC(parse_mvd_pair, const uint8_t *absMvdComp_lx, int i4x4) {
+	v8hi res;
+	for (int ctxBase = 40, j = 0;;) {
+		int sum = absMvdComp_lx[ctx->absMvdComp_A[i4x4] + j] + absMvdComp_lx[ctx->absMvdComp_B[i4x4] + j];
+		int ctxIdx = ctxBase + (sum >= 3) + (sum > 32);
+		int mvd = 0;
+		ctxBase += 3;
+		while (mvd < 9 && CALL(get_ae, ctxIdx))
+			ctxIdx = ctxBase + min(mvd++, 3);
+		if (mvd >= 9) {
+			// we need at least 37 (or 22) bits in codIOffset to get 28 (or 13) bypass bits
+			int zeros = clz(codIRange);
+			if (zeros > (SIZE_BIT == 64 ? 64 - 37 : 32 - 22)) {
+				codIOffset = lsd(codIOffset, CALL(get_bytes, zeros >> 3), zeros & -8);
+				codIRange <<= zeros & -8;
+				zeros = clz(codIRange);
+			}
+			// for 64-bit we could shift codIOffset down to 37 bits to help iterative hardware dividers, but this code isn't critical enough
+			codIRange >>= SIZE_BIT - 9 - zeros;
+			size_t quo = codIOffset / codIRange; // requested bits are in lsb and zeros+9 empty bits above
+			size_t rem = codIOffset % codIRange;
+			int k = 3 + min(clz(~quo << (zeros + 9)), 12);
+			int unused = SIZE_BIT - 9 - zeros - k * 2 + 2;
+			if (SIZE_BIT == 32 && __builtin_expect(unused < 0, 0)) { // FIXME needs testing
+				// refill codIOffset with 16 bits then make a new division
+				codIOffset = lsd(rem, CALL(get_bytes, 2), 16);
+				quo = lsd(quo, (codIOffset / codIRange) << (SIZE_BIT - 16), 16);
+				rem = codIOffset % codIRange;
+				unused += 16;
+			}
+			mvd = 1 + (1 << k | (quo >> unused & (((size_t)1 << k) - 1)));
+			codIOffset = (quo & (((size_t)1 << unused) - 1)) * codIRange + rem;
+			codIRange <<= unused;
 		}
-		// for 64-bit we could shift codIOffset down to 37 bits to help iterative hardware dividers, but this code isn't critical enough
-		codIRange >>= SIZE_BIT - 9 - zeros;
-		size_t quo = codIOffset / codIRange; // requested bits are in lsb and zeros+9 empty bits above
-		size_t rem = codIOffset % codIRange;
-		int k = 3 + min(clz(~quo << (zeros + 9)), 12);
-		int unused = SIZE_BIT - 9 - zeros - k * 2 + 2;
-		if (SIZE_BIT == 32 && __builtin_expect(unused < 0, 0)) { // FIXME needs testing
-			// refill codIOffset with 16 bits then make a new division
-			codIOffset = lsd(rem, CALL(get_bytes, 2), 16);
-			quo = lsd(quo, (codIOffset / codIRange) << (SIZE_BIT - 16), 16);
-			rem = codIOffset % codIRange;
-			unused += 16;
+		
+		// Parse the sign flag.
+		if (mvd > 0)
+			mvd = CALL(get_bypass) ? -mvd : mvd;
+		fprintf(stderr, "mvd: %d\n", mvd);
+		// fprintf(stderr, "mvd_l%x: %d\n", pos >> 1 & 1, mvd);
+		
+		if (++j == 2) {
+			res[1] = mvd;
+			return res;
 		}
-		mvd = 1 + (1 << k | (quo >> unused & (((size_t)1 << k) - 1)));
-		codIOffset = (quo & (((size_t)1 << unused) - 1)) * codIRange + rem;
-		codIRange <<= unused;
+		ctxBase = 47;
+		res = (v8hi){mvd};
 	}
-	
-	// Parse the sign flag.
-	if (mvd > 0)
-		mvd = CALL(get_bypass) ? -mvd : mvd;
-	fprintf(stderr, "mvd: %d\n", mvd);
-	// fprintf(stderr, "mvd_l%x: %d\n", pos >> 1 & 1, mvd);
-	return mvd;
 }
 
 
 
 /**
- * Sub-functions to parse a single mvd pair for different sizes.
+ * These functions are designed to optimize the parsing of motion vectors for
+ * block sizes 16x16, 8x16 and 16x8. Each call parses a mvd pair, adds the
+ * prediction from neighbours, then ends with a call to decode_inter.
  */
 static always_inline void FUNC(parse_mvd_16x16, int lx)
 {
 	// call the parsing of mvd first to avoid spilling mvp if not inlined
 	uint8_t *absMvdComp_p = mb->absMvdComp + lx * 32;
-	int sumx = absMvdComp_p[ctx->absMvdComp_A[0] + 0] + absMvdComp_p[ctx->absMvdComp_B[0] + 0];
-	int sumy = absMvdComp_p[ctx->absMvdComp_A[0] + 1] + absMvdComp_p[ctx->absMvdComp_B[0] + 1];
-	int x = CALL(parse_mvd_comp, 40, sumx);
-	int y = CALL(parse_mvd_comp, 47, sumy);
-	v8hi mvd = {x, y};
+	v8hi mvd = CALL(parse_mvd_pair, absMvdComp_p, 0);
 	
 	// compare neighbouring indices and compute mvp
 	int32_t *mvs_p = mb->mvs_s + lx * 16;
@@ -769,18 +777,14 @@ static always_inline void FUNC(parse_mvd_16x16, int lx)
 	v8hi mvs = (v8hi)__builtin_shufflevector((v4si)(mvp + mvd), (v4si){}, 0, 0, 0, 0);
 	((v16qu *)absMvdComp_p)[0] = ((v16qu *)absMvdComp_p)[1] = pack_absMvdComp(mvd);
 	mb->mvs_v[lx * 4] = mb->mvs_v[lx * 4 + 1] = mb->mvs_v[lx * 4 + 2] = mb->mvs_v[lx * 4 + 3] = mvs;
-	JUMP(decode_inter, lx * 16, 16, 16);
+	CALL(decode_inter, lx * 16, 16, 16);
 }
 
 static always_inline void FUNC(parse_mvd_8x16_left, int lx)
 {
 	// call the parsing of mvd first to avoid spilling mvp if not inlined
 	uint8_t *absMvdComp_p = mb->absMvdComp + lx * 32;
-	int sumx = absMvdComp_p[ctx->absMvdComp_A[0] + 0] + absMvdComp_p[ctx->absMvdComp_B[0] + 0];
-	int sumy = absMvdComp_p[ctx->absMvdComp_A[0] + 1] + absMvdComp_p[ctx->absMvdComp_B[0] + 1];
-	int x = CALL(parse_mvd_comp, 40, sumx);
-	int y = CALL(parse_mvd_comp, 47, sumy);
-	v8hi mvd = {x, y};
+	v8hi mvd = CALL(parse_mvd_pair, absMvdComp_p, 0);
 	
 	// compare neighbouring indices and compute mvp
 	v8hi mvp;
@@ -819,18 +823,14 @@ static always_inline void FUNC(parse_mvd_8x16_left, int lx)
 	v8hi mvs = (v8hi)__builtin_shufflevector((v4si)(mvp + mvd), (v4si){}, 0, 0, 0, 0);
 	((v8qu *)absMvdComp_p)[0] = ((v8qu *)absMvdComp_p)[2] = (v8qu)((v2li)pack_absMvdComp(mvd))[0];
 	mb->mvs_v[lx * 4] = mb->mvs_v[lx * 4 + 2] = mvs;
-	JUMP(decode_inter, lx * 16, 8, 16);
+	CALL(decode_inter, lx * 16, 8, 16);
 }
 
 static always_inline void FUNC(parse_mvd_8x16_right, int lx)
 {
 	// call the parsing of mvd first to avoid spilling mvp if not inlined
 	uint8_t *absMvdComp_p = mb->absMvdComp + lx * 32;
-	int sumx = absMvdComp_p[ctx->absMvdComp_A[4] + 0] + absMvdComp_p[ctx->absMvdComp_B[4] + 0];
-	int sumy = absMvdComp_p[ctx->absMvdComp_A[4] + 1] + absMvdComp_p[ctx->absMvdComp_B[4] + 1];
-	int x = CALL(parse_mvd_comp, 40, sumx);
-	int y = CALL(parse_mvd_comp, 47, sumy);
-	v8hi mvd = {x, y};
+	v8hi mvd = CALL(parse_mvd_pair, absMvdComp_p, 4);
 	
 	// compare neighbouring indices and compute mvp
 	v8hi mvp;
@@ -876,11 +876,7 @@ static always_inline void FUNC(parse_mvd_16x8_top, int lx)
 {
 	// call the parsing of mvd first to avoid spilling mvp if not inlined
 	uint8_t *absMvdComp_p = mb->absMvdComp + lx * 32;
-	int sumx = absMvdComp_p[ctx->absMvdComp_A[0] + 0] + absMvdComp_p[ctx->absMvdComp_B[0] + 0];
-	int sumy = absMvdComp_p[ctx->absMvdComp_A[0] + 1] + absMvdComp_p[ctx->absMvdComp_B[0] + 1];
-	int x = CALL(parse_mvd_comp, 40, sumx);
-	int y = CALL(parse_mvd_comp, 47, sumy);
-	v8hi mvd = {x, y};
+	v8hi mvd = CALL(parse_mvd_pair, absMvdComp_p, 0);
 	
 	// compare neighbouring indices and compute mvp
 	v8hi mvp;
@@ -919,18 +915,14 @@ static always_inline void FUNC(parse_mvd_16x8_top, int lx)
 	v8hi mvs = (v8hi)__builtin_shufflevector((v4si)(mvp + mvd), (v4si){}, 0, 0, 0, 0);
 	((v16qu *)absMvdComp_p)[0] = pack_absMvdComp(mvd);
 	mb->mvs_v[lx * 4 + 0] = mb->mvs_v[lx * 4 + 1] = mvs;
-	JUMP(decode_inter, lx * 16, 16, 8);
+	CALL(decode_inter, lx * 16, 16, 8);
 }
 
 static always_inline void FUNC(parse_mvd_16x8_bottom, int lx)
 {
 	// call the parsing of mvd first to avoid spilling mvp if not inlined
 	uint8_t *absMvdComp_p = mb->absMvdComp + lx * 32;
-	int sumx = absMvdComp_p[ctx->absMvdComp_A[8] + 0] + absMvdComp_p[ctx->absMvdComp_B[8] + 0];
-	int sumy = absMvdComp_p[ctx->absMvdComp_A[8] + 1] + absMvdComp_p[ctx->absMvdComp_B[8] + 1];
-	int x = CALL(parse_mvd_comp, 40, sumx);
-	int y = CALL(parse_mvd_comp, 47, sumy);
-	v8hi mvd = {x, y};
+	v8hi mvd = CALL(parse_mvd_pair, absMvdComp_p, 8);
 	
 	// compare neighbouring indices and compute mvp
 	v8hi mvp;
@@ -962,13 +954,13 @@ static always_inline void FUNC(parse_mvd_16x8_bottom, int lx)
 	v8hi mvs = (v8hi)__builtin_shufflevector((v4si)(mvp + mvd), (v4si){}, 0, 0, 0, 0);
 	((v16qu *)absMvdComp_p)[1] = pack_absMvdComp(mvd);
 	mb->mvs_v[lx * 4 + 2] = mb->mvs_v[lx * 4 + 3] = mvs;
-	JUMP(decode_inter, lx * 16 + 8, 16, 8);
+	CALL(decode_inter, lx * 16 + 8, 16, 8);
 }
 
 
 
 /**
- * Parses ref_idx_lx (9.3.3.1.1.6).
+ * Parse all ref_idx_lx in a given macroblock (9.3.3.1.1.6).
  * 
  * f is a bitmask for indices of symbols that should be parsed. These values
  * are then broadcast to other positions according to the inferred block
@@ -1327,11 +1319,7 @@ static void FUNC(parse_B_sub_mb) {
 		int i = __builtin_ctz(mvd_flags);
 		int i4x4 = i & 15;
 		uint8_t *absMvdComp_p = mb->absMvdComp + (i & 16) * 2;
-		int sumx = absMvdComp_p[ctx->absMvdComp_A[i4x4] + 0] + absMvdComp_p[ctx->absMvdComp_B[i4x4] + 0];
-		int sumy = absMvdComp_p[ctx->absMvdComp_A[i4x4] + 1] + absMvdComp_p[ctx->absMvdComp_B[i4x4] + 1];
-		int x = CALL(parse_mvd_comp, 40, sumx);
-		int y = CALL(parse_mvd_comp, 47, sumy);
-		v8hi mvd = {x, y};
+		v8hi mvd = CALL(parse_mvd_pair, absMvdComp_p, i4x4);
 		
 		// branch on equality mask
 		int32_t *mvs_p = mb->mvs_s + (i & 16);
@@ -1536,11 +1524,7 @@ static void FUNC(parse_P_sub_mb)
 	// loop on mvs
 	do {
 		int i = __builtin_ctz(mvd_flags);
-		int sumx = *(mb->absMvdComp + ctx->absMvdComp_A[i] + 0) + *(mb->absMvdComp + ctx->absMvdComp_B[i] + 0);
-		int sumy = *(mb->absMvdComp + ctx->absMvdComp_A[i] + 1) + *(mb->absMvdComp + ctx->absMvdComp_B[i] + 1);
-		int x = CALL(parse_mvd_comp, 40, sumx);
-		int y = CALL(parse_mvd_comp, 47, sumy);
-		v8hi mvd = {x, y};
+		v8hi mvd = CALL(parse_mvd_pair, mb->absMvdComp, i);
 		
 		// branch on equality mask
 		v8hi mvp;
@@ -1588,7 +1572,7 @@ static void FUNC(parse_P_sub_mb)
  * _ parse refIdx for the current block
  * _ for 8x16 or 16x8, compare it with A(left)/C(right) or B(top)/A(bottom),
  *   if it matches take the mv from the same neighbour
- * _ otherwise if B/C/D are all unavailable, take their values from A instead
+ * _ otherwise if B and C are unavailable, take their values from A instead
  * _ then if only one of A/B/C equals refIdx, take mv from this neighbour
  * _ otherwise predict mv as median(mvA, mvB, mvC)
  * 

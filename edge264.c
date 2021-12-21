@@ -1,7 +1,4 @@
 /** MAYDO:
- * _ optimize and simplify inter decoding:
- *   _ refactor decode_inter to extract the non-SSSE3 code into edge264_slice.c
- *   _ replace lRC by lXY in edge264_inter to match ffmpeg's convention
  * _ fix initialization of implicit weights
  * _ review and secure the places where CABAC could result in unsupported internal state
  * _ replace parse_mvd_comp with parse_mvd_pair and include the code for summing absMvdComp?

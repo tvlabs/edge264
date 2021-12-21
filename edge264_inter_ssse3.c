@@ -1,4 +1,3 @@
-#include <assert.h>
 #include "edge264_common.h"
 
 
@@ -102,7 +101,8 @@ static always_inline v16qi pack_weights(int w0, int w1) {
  * C=left column), or 4x2 matrices denoted as mRC. Conversion between both
  * sizes is obtained with single pshufps instructions. By convention we never
  * read outside the source matrix, to avoid additional code/documentation in
- * the rest of the decoder.
+ * the rest of the decoder. Also functions follow ffmpeg's naming convention
+ * with qpelXY (instead of qpelRC).
  *
  * The following approaches were tried for implementing the filters:
  * _ pmadd four rows with [1,-5,20,20,-5,1,0,0,0], [0,1,-5,20,20,-5,1,0,0],

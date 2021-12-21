@@ -1,78 +1,17 @@
 #include "edge264_common.h"
 
-#ifdef CABAC
-	#define SUFFIX _cabac
+#undef CAFUNC
+#undef CACALL
+#undef CAJUMP
+#ifdef CAVLC
+	#define CAFUNC(f, ...) FUNC(f ## _cavlc, ## __VA_ARGS__)
+	#define CACALL(f, ...) CALL(f ## _cavlc, ## __VA_ARGS__)
+	#define CAJUMP(f, ...) JUMP(f ## _cavlc, ## __VA_ARGS__)
 #else
-	#define SUFFIX _cavlc
+	#define CAFUNC(f, ...) FUNC(f ## _cabac, ## __VA_ARGS__)
+	#define CACALL(f, ...) CALL(f ## _cabac, ## __VA_ARGS__)
+	#define CAJUMP(f, ...) JUMP(f ## _cabac, ## __VA_ARGS__)
 #endif
-
-
-
-static const v16qi sig_inc_4x4 =
-	{0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15};
-static const v16qi sig_inc_8x8[2][4] = {{
-	{ 0,  1,  2,  3,  4,  5,  5,  4,  4,  3,  3,  4,  4,  4,  5,  5},
-	{ 4,  4,  4,  4,  3,  3,  6,  7,  7,  7,  8,  9, 10,  9,  8,  7},
-	{ 7,  6, 11, 12, 13, 11,  6,  7,  8,  9, 14, 10,  9,  8,  6, 11},
-	{12, 13, 11,  6,  9, 14, 10,  9, 11, 12, 13, 11, 14, 10, 12,  0},
-	}, {
-	{ 0,  1,  1,  2,  2,  3,  3,  4,  5,  6,  7,  7,  7,  8,  4,  5},
-	{ 6,  9, 10, 10,  8, 11, 12, 11,  9,  9, 10, 10,  8, 11, 12, 11},
-	{ 9,  9, 10, 10,  8, 11, 12, 11,  9,  9, 10, 10,  8, 13, 13,  9},
-	{ 9, 10, 10,  8, 13, 13,  9,  9, 10, 10, 14, 14, 14, 14, 14,  0},
-}};
-static const v16qi last_inc_8x8[4] = {
-	{0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1},
-	{2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2},
-	{3, 3, 3, 3, 3, 3, 3, 3, 4, 4, 4, 4, 4, 4, 4, 4},
-	{5, 5, 5, 5, 6, 6, 6, 6, 7, 7, 7, 7, 8, 8, 8, 8},
-};
-static const v8qi sig_inc_chromaDC[2] =
-	{{0, 1, 2, 0}, {0, 0, 1, 1, 2, 2, 2, 0}};
-
-// transposed scan tables
-static const v16qi scan_4x4[2] = {
-	{0, 4, 1, 2, 5, 8, 12, 9, 6, 3, 7, 10, 13, 14, 11, 15},
-	{0, 1, 4, 2, 3, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15},
-};
-static const v16qi scan_8x8[2][4] = {{
-	{ 0,  8,  1,  2,  9, 16, 24, 17, 10,  3,  4, 11, 18, 25, 32, 40},
-	{33, 26, 19, 12,  5,  6, 13, 20, 27, 34, 41, 48, 56, 49, 42, 35},
-	{28, 21, 14,  7, 15, 22, 29, 36, 43, 50, 57, 58, 51, 44, 37, 30},
-	{23, 31, 38, 45, 52, 59, 60, 53, 46, 39, 47, 54, 61, 62, 55, 63},
-	}, {
-	{ 0,  1,  2,  8,  9,  3,  4, 10, 16, 11,  5,  6,  7, 12, 17, 24},
-	{18, 13, 14, 15, 19, 25, 32, 26, 20, 21, 22, 23, 27, 33, 40, 34},
-	{28, 29, 30, 31, 35, 41, 48, 42, 36, 37, 38, 39, 43, 49, 50, 44},
-	{45, 46, 47, 51, 56, 57, 52, 53, 54, 55, 58, 59, 60, 61, 62, 63},
-}};
-static const v8qi scan_chromaDC[2] =
-	{{0, 1, 2, 3}, {0, 2, 1, 4, 6, 3, 5, 7}};
-
-static const v4hi ctxIdxOffsets_16x16DC[3][2] = {
-	{{85, 105, 166, 227}, {85, 277, 338, 227}}, // ctxBlockCat==0
-	{{460, 484, 572, 952}, {460, 776, 864, 952}}, // ctxBlockCat==6
-	{{472, 528, 616, 982}, {472, 820, 908, 982}}, // ctxBlockCat==10
-};
-static const v4hi ctxIdxOffsets_16x16AC[3][2] = {
-	{{89, 119, 180, 237}, {89, 291, 352, 237}}, // ctxBlockCat==1
-	{{464, 498, 586, 962}, {464, 790, 878, 962}}, // ctxBlockCat==7
-	{{476, 542, 630, 992}, {476, 834, 922, 992}}, // ctxBlockCat==11
-};
-static const v4hi ctxIdxOffsets_chromaDC[2] =
-	{{97, 149, 210, 257}, {97, 321, 382, 257}}; // ctxBlockCat==3
-static const v4hi ctxIdxOffsets_chromaAC[2] =
-	{{101, 151, 212, 266}, {101, 323, 384, 266}}; // ctxBlockCat==4
-static const v4hi ctxIdxOffsets_4x4[3][2] = {
-	{{93, 134, 195, 247}, {93, 306, 367, 247}}, // ctxBlockCat==2
-	{{468, 528, 616, 972}, {468, 805, 893, 972}}, // ctxBlockCat==8
-	{{480, 557, 645, 1002}, {480, 849, 937, 1002}}, // ctxBlockCat==12
-};
-static const v4hi ctxIdxOffsets_8x8[3][2] = {
-	{{1012, 402, 417, 426}, {1012, 436, 451, 426}}, // ctxBlockCat==5
-	{{1016, 660, 690, 708}, {1016, 675, 699, 708}}, // ctxBlockCat==9
-	{{1020, 718, 748, 766}, {1020, 733, 757, 766}}, // ctxBlockCat==13
-};
 
 
 
@@ -84,7 +23,7 @@ static const v4hi ctxIdxOffsets_8x8[3][2] = {
  * coeff_abs_level expects at most 2^(7+14)-14, i.e 41 bits as Exp-Golomb, so
  * we can get all of them on 64 bit machines.
  */
-static noinline void FUNC(parse_residual_block, unsigned coded_block_flag, int startIdx, int endIdx)
+static noinline void CAFUNC(parse_residual_block, unsigned coded_block_flag, int startIdx, int endIdx)
 {
 	// Sharing this test here should limit branch predictor cache pressure.
 	if (!coded_block_flag)
@@ -167,7 +106,7 @@ static noinline void FUNC(parse_residual_block, unsigned coded_block_flag, int s
  * cond should contain the values in coded_block_pattern as stored in mb,
  * such that Intra16x16 can request unconditional parsing by passing 1.
  */
-static void FUNC(parse_mb_qp_delta, unsigned cond) {
+static void CAFUNC(parse_mb_qp_delta, unsigned cond) {
 	static const int QP_C[100] = {-36, -35, -34, -33, -32, -31, -30, -29, -28,
 		-27, -26, -25, -24, -23, -22, -21, -20, -19, -18, -17, -16, -15, -14,
 		-13, -12, -11, -10, -9, -8, -7, -6, -5, -4, -3, -2, -1, 0, 1, 2, 3, 4,
@@ -209,7 +148,7 @@ static void FUNC(parse_mb_qp_delta, unsigned cond) {
  * Parsing for chroma 4:2:2 and 4:2:0 is put in a separate function to be
  * tail-called from parse_NxN_residual and parse_Intra16x16_residual.
  */
-static void FUNC(parse_chroma_residual)
+static void CAFUNC(parse_chroma_residual)
 {
 	int is422 = ctx->ps.ChromaArrayType - 1;
 	if (is422 < 0)
@@ -230,7 +169,7 @@ static void FUNC(parse_chroma_residual)
 		mb->f.coded_block_flags_16x16[1] = coded_block_flag_Cb;
 	}
 	CALL(check_ctx, RESIDUAL_CB_DC_LABEL);
-	CALL(parse_residual_block, coded_block_flag_Cb, 0, is422 * 4 + 3);
+	CACALL(parse_residual_block, coded_block_flag_Cb, 0, is422 * 4 + 3);
 	ctx->PredMode[16] = ctx->PredMode[17];
 	ctx->pred_buffer_v[16] = ctx->pred_buffer_v[17]; // backup for CHROMA_NxN_BUFFERED
 	
@@ -244,7 +183,7 @@ static void FUNC(parse_chroma_residual)
 		mb->f.coded_block_flags_16x16[2] = coded_block_flag_Cr;
 	}
 	CALL(check_ctx, RESIDUAL_CR_DC_LABEL);
-	CALL(parse_residual_block, coded_block_flag_Cr, 0, is422 * 4 + 3);
+	CACALL(parse_residual_block, coded_block_flag_Cr, 0, is422 * 4 + 3);
 	ctx->PredMode[ctx->BlkIdx] = ctx->PredMode[ctx->BlkIdx + 1];
 	
 	// Eight or sixteen 4x4 AC blocks for the Cb/Cr components
@@ -270,7 +209,7 @@ static void FUNC(parse_chroma_residual)
 		ctx->d[0] = ctx->d[ctx->BlkIdx];
 		ctx->significant_coeff_flags = 1;
 		CALL(check_ctx, RESIDUAL_CHROMA_LABEL);
-		CALL(parse_residual_block, coded_block_flag, 1, 15);
+		CACALL(parse_residual_block, coded_block_flag, 1, 15);
 	}
 }
 
@@ -280,9 +219,9 @@ static void FUNC(parse_chroma_residual)
  * Intra16x16 residual blocks have so many differences with Intra4x4 that they
  * deserve their own function.
  */
-static void FUNC(parse_Intra16x16_residual)
+static void CAFUNC(parse_Intra16x16_residual)
 {
-	CALL(parse_mb_qp_delta, 1);
+	CACALL(parse_mb_qp_delta, 1);
 	
 	// Both AC and DC coefficients are initially parsed to ctx->d[0..15]
 	int mb_field_decoding_flag = mb->f.mb_field_decoding_flag;
@@ -301,7 +240,7 @@ static void FUNC(parse_Intra16x16_residual)
 		mb->f.coded_block_flags_16x16[iYCbCr] = CALL(get_ae, ctx->ctxIdxOffsets[0] +
 			ctx->inc.coded_block_flags_16x16[iYCbCr]);
 		CALL(check_ctx, RESIDUAL_DC_LABEL);
-		CALL(parse_residual_block, mb->f.coded_block_flags_16x16[iYCbCr], 0, 15);
+		CACALL(parse_residual_block, mb->f.coded_block_flags_16x16[iYCbCr], 0, 15);
 		
 		// All AC blocks pick a DC coeff, then go to ctx->d[1..15]
 		ctx->ctxIdxOffsets_l = ctxIdxOffsets_16x16AC[iYCbCr][mb_field_decoding_flag];
@@ -318,7 +257,7 @@ static void FUNC(parse_Intra16x16_residual)
 			ctx->d[0] = ctx->d[16 + (ctx->BlkIdx & 15)];
 			ctx->significant_coeff_flags = 1;
 			CALL(check_ctx, RESIDUAL_4x4_LABEL);
-			CALL(parse_residual_block, coded_block_flag, 1, 15);
+			CACALL(parse_residual_block, coded_block_flag, 1, 15);
 		// not a loop-predictor-friendly condition, but would it make a difference?
 		} while (++ctx->BlkIdx & 15);
 		
@@ -326,7 +265,7 @@ static void FUNC(parse_Intra16x16_residual)
 		ctx->stride = ctx->stride_C;
 		ctx->clip_v = ctx->clip_C;
 		if (ctx->ps.ChromaArrayType <3)
-			JUMP(parse_chroma_residual);
+			CAJUMP(parse_chroma_residual);
 	} while (ctx->BlkIdx < 48);
 }
 
@@ -336,9 +275,9 @@ static void FUNC(parse_Intra16x16_residual)
  * This block is dedicated to the parsing of Intra_NxN and Inter_NxN, since
  * they share much in common.
  */
-static void FUNC(parse_NxN_residual)
+static void CAFUNC(parse_NxN_residual)
 {
-	CALL(parse_mb_qp_delta, mb->f.CodedBlockPatternChromaDC | mb->CodedBlockPatternLuma_s);
+	CACALL(parse_mb_qp_delta, mb->f.CodedBlockPatternChromaDC | mb->CodedBlockPatternLuma_s);
 	
 	// next few blocks will share many parameters, so we cache a LOT of them
 	ctx->stride = ctx->stride_Y;
@@ -365,7 +304,7 @@ static void FUNC(parse_NxN_residual)
 				memset(ctx->d, 0, 64);
 				ctx->significant_coeff_flags = 0;
 				CALL(check_ctx, RESIDUAL_4x4_LABEL);
-				CALL(parse_residual_block, coded_block_flag, 0, 15);
+				CACALL(parse_residual_block, coded_block_flag, 0, 15);
 			} while (++ctx->BlkIdx & 15);
 		} else {
 			
@@ -392,7 +331,7 @@ static void FUNC(parse_NxN_residual)
 				memset(ctx->d, 0, 256);
 				ctx->significant_coeff_flags = 0;
 				CALL(check_ctx, RESIDUAL_8x8_LABEL);
-				CALL(parse_residual_block, coded_block_flag, 0, 63);
+				CACALL(parse_residual_block, coded_block_flag, 0, 63);
 			} while ((ctx->BlkIdx += 4) & 15);
 		}
 		
@@ -400,7 +339,7 @@ static void FUNC(parse_NxN_residual)
 		ctx->stride = ctx->stride_C;
 		ctx->clip_v = ctx->clip_C;
 		if (ctx->ps.ChromaArrayType <3)
-			JUMP(parse_chroma_residual);
+			CAJUMP(parse_chroma_residual);
 	} while (ctx->BlkIdx < 48);
 }
 
@@ -412,7 +351,7 @@ static void FUNC(parse_NxN_residual)
  * As with mb_qp_delta, coded_block_pattern is parsed in two distinct code
  * paths, thus put in a non-inlined function.
  */
-static void FUNC(parse_coded_block_pattern) {
+static void CAFUNC(parse_coded_block_pattern) {
 	CALL(check_ctx, RESIDUAL_CBP_LABEL);
 	
 	// Luma prefix
@@ -443,7 +382,7 @@ static void FUNC(parse_coded_block_pattern) {
  * As with mb_qp_delta and coded_block_pattern, experience shows allowing
  * compilers to inline this function makes them produce slower&heavier code.
  */
-static void FUNC(parse_intra_chroma_pred_mode)
+static void CAFUNC(parse_intra_chroma_pred_mode)
 {
 	// Do not optimise too hard to keep the code understandable here.
 	CALL(check_ctx, INTRA_CHROMA_LABEL);
@@ -476,7 +415,7 @@ static void FUNC(parse_intra_chroma_pred_mode)
  * Parses prev_intraNxN_pred_mode_flag and rem_intraNxN_pred_mode, and returns
  * the given intra_pred_mode (7.3.5.1, 7.4.5.1, 8.3.1.1 and table 9-34).
  */
-static int FUNC(parse_intraNxN_pred_mode, int luma4x4BlkIdx)
+static int CAFUNC(parse_intraNxN_pred_mode, int luma4x4BlkIdx)
 {
 	// dcPredModePredictedFlag is enforced by putting -2
 	int intraMxMPredModeA = *(mb->Intra4x4PredMode + ctx->Intra4x4PredMode_A[luma4x4BlkIdx]);
@@ -511,7 +450,7 @@ static int FUNC(parse_intraNxN_pred_mode, int luma4x4BlkIdx)
  *   to account for unavailability of neighbouring blocks, Intra chroma modes
  *   and Inter prediction.
  */
-static noinline void FUNC(parse_I_mb, int ctxIdx)
+static noinline void CAFUNC(parse_I_mb, int ctxIdx)
 {
 	static const Edge264_flags flags_PCM = {
 		.CodedBlockPatternChromaDC = 1,
@@ -554,21 +493,21 @@ static noinline void FUNC(parse_I_mb, int ctxIdx)
 		
 		if (mb->f.transform_size_8x8_flag) {
 			for (int i = 0; i < 16; i += 4) {
-				int mode = CALL(parse_intraNxN_pred_mode, i);
+				int mode = CACALL(parse_intraNxN_pred_mode, i);
 				mb->Intra4x4PredMode[i + 1] = mb->Intra4x4PredMode[i + 2] = mb->Intra4x4PredMode[i + 3] = mode;
 				ctx->PredMode[i] = ctx->intra8x8_modes[mode][ctx->unavail[i + (i >> 2)]];
 			}
 		} else {
 			for (int i = 0; i < 16; i++) {
-				mb->Intra4x4PredMode[i] = CALL(parse_intraNxN_pred_mode, i);
+				mb->Intra4x4PredMode[i] = CACALL(parse_intraNxN_pred_mode, i);
 				ctx->PredMode[i] = ctx->intra4x4_modes[mb->Intra4x4PredMode[i]][ctx->unavail[i]];
 			}
 		}
 		ctx->PredMode_v[1] = ctx->PredMode_v[2] = ctx->PredMode_v[0] + ctx->pred_offset_C;
 		
-		CALL(parse_intra_chroma_pred_mode);
-		CALL(parse_coded_block_pattern);
-		JUMP(parse_NxN_residual);
+		CACALL(parse_intra_chroma_pred_mode);
+		CACALL(parse_coded_block_pattern);
+		CAJUMP(parse_NxN_residual);
 	
 	// Intra_16x16
 	} else if (!CALL(cabac_terminate)) {
@@ -594,8 +533,8 @@ static noinline void FUNC(parse_I_mb, int ctxIdx)
 		ctx->PredMode[0] = depth + dc[mode] + (mode == 2 ? ctx->inc.unavailable & 3 : 0);
 		ctx->PredMode_v[1] = ctx->PredMode_v[2] = ctx->PredMode_v[0] + ctx->pred_offset_C;
 		
-		CALL(parse_intra_chroma_pred_mode);
-		JUMP(parse_Intra16x16_residual);
+		CACALL(parse_intra_chroma_pred_mode);
+		CAJUMP(parse_Intra16x16_residual);
 		
 	// I_PCM
 	} else {
@@ -650,9 +589,9 @@ static noinline void FUNC(parse_I_mb, int ctxIdx)
  * It parses coded_block_pattern and transform_size_8x8_flag, that are parsed
  * in different orders in Intra macroblocks.
  */
-static void FUNC(parse_inter_residual)
+static void CAFUNC(parse_inter_residual)
 {
-	CALL(parse_coded_block_pattern);
+	CACALL(parse_coded_block_pattern);
 	
 	if (mb->CodedBlockPatternLuma_s && ctx->transform_8x8_mode_flag) {
 		mb->f.transform_size_8x8_flag = CALL(get_ae, 399 + ctx->inc.transform_size_8x8_flag);
@@ -680,7 +619,7 @@ static void FUNC(parse_inter_residual)
 		ctx->PredMode_v[1] = (v16qu){TRANSFORM_DC_2x4, ADD_RESIDUAL_4x4, ADD_RESIDUAL_4x4, ADD_RESIDUAL_4x4, ADD_RESIDUAL_4x4, ADD_RESIDUAL_4x4, ADD_RESIDUAL_4x4, ADD_RESIDUAL_4x4, TRANSFORM_DC_2x4, ADD_RESIDUAL_4x4, ADD_RESIDUAL_4x4, ADD_RESIDUAL_4x4, ADD_RESIDUAL_4x4, ADD_RESIDUAL_4x4, ADD_RESIDUAL_4x4, ADD_RESIDUAL_4x4};
 	else if (ctx->ps.ChromaArrayType == 3)
 		ctx->PredMode_v[1] = ctx->PredMode_v[2] = ctx->PredMode_v[0];
-	JUMP(parse_NxN_residual);
+	CAJUMP(parse_NxN_residual);
 }
 
 
@@ -694,7 +633,7 @@ static void FUNC(parse_inter_residual)
  * Exp-Golomb, so we need a single division on 64-bit machines and two on
  * 32-bit machines.
  */
-static v8hi FUNC(parse_mvd_pair, const uint8_t *absMvdComp_lx, int i4x4) {
+static v8hi CAFUNC(parse_mvd_pair, const uint8_t *absMvdComp_lx, int i4x4) {
 	v8hi res;
 	for (int ctxBase = 40, j = 0;;) {
 		int sum = absMvdComp_lx[ctx->absMvdComp_A[i4x4] + j] + absMvdComp_lx[ctx->absMvdComp_B[i4x4] + j];
@@ -754,7 +693,7 @@ static v8hi FUNC(parse_mvd_pair, const uint8_t *absMvdComp_lx, int i4x4) {
  * shapes, unless bit 8 is set (to signal Direct_8x8).
  * This function also clips all values to valid ones.
  */
-static inline void FUNC(parse_ref_idx, unsigned f) {
+static inline void CAFUNC(parse_ref_idx, unsigned f) {
 	static const int8_t inc_shifts[8] = {0, 5, 4, 2, 8, 13, 12, 10};
 	static const int8_t bit_shifts[8] = {5, 3, 2, 7, 13, 11, 10, 15};
 	v16qu v = {f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f};
@@ -812,7 +751,7 @@ static inline void FUNC(parse_ref_idx, unsigned f) {
  * _ 10 = B_Bi_4x8
  * _ 11 = B_L0_4x4
  */
-static void FUNC(parse_B_sub_mb) {
+static void CAFUNC(parse_B_sub_mb) {
 	static const uint32_t sub2flags[12] = {0x10001, 0x00005, 0x00003, 0x50000,
 		0x00001, 0x10000, 0xf0000, 0xf000f, 0x30000, 0x50005, 0x30003, 0x0000f};
 	static const uint8_t sub2mb_type[13] = {3, 4, 5, 6, 1, 2, 11, 12, 7, 8, 9, 10, 0};
@@ -850,7 +789,7 @@ static void FUNC(parse_B_sub_mb) {
 	// initialize direct prediction then parse all ref_idx values
 	if (mb->refIdx_l != -1ll)
 		CALL(decode_direct_mv_pred);
-	CALL(parse_ref_idx, 0x100 | mvd_flags2ref_idx(mvd_flags));
+	CACALL(parse_ref_idx, 0x100 | mvd_flags2ref_idx(mvd_flags));
 	
 	// load neighbouring refIdx values and shuffle them into A/B/C/D
 	Edge264_macroblock *mbB = ctx->mbB;
@@ -882,7 +821,7 @@ static void FUNC(parse_B_sub_mb) {
 		int i = __builtin_ctz(mvd_flags);
 		int i4x4 = i & 15;
 		uint8_t *absMvdComp_p = mb->absMvdComp + (i & 16) * 2;
-		v8hi mvd = CALL(parse_mvd_pair, absMvdComp_p, i4x4);
+		v8hi mvd = CACALL(parse_mvd_pair, absMvdComp_p, i4x4);
 		
 		// branch on equality mask
 		int32_t *mvs_p = mb->mvs_s + (i & 16);
@@ -915,7 +854,7 @@ static void FUNC(parse_B_sub_mb) {
 		mb->mvs_v[i8x8] = vector_select(mvs_mask, mvs, mb->mvs_v[i8x8]);
 		CALL(decode_inter, i, widths[type], heights[type]);
 	} while (mvd_flags &= mvd_flags - 1);
-	JUMP(parse_inter_residual);
+	CAJUMP(parse_inter_residual);
 }
 
 
@@ -949,7 +888,7 @@ static void FUNC(parse_B_sub_mb) {
  * _ 24 = B_Bi_Bi_16x8
  * _ 25 = B_Bi_Bi_8x16
  */
-static inline void FUNC(parse_B_mb)
+static inline void CAFUNC(parse_B_mb)
 {
 	static const uint8_t str2flags[26] = {0x11, 0x05, 0x03, 0x50, 0x30, 0x41,
 		0x21, 0x14, 0x01, 0x10, 0, 0, 0, 0, 0x12, 0, 0x45, 0x23, 0x54, 0x32,
@@ -980,7 +919,7 @@ static inline void FUNC(parse_B_mb)
 		mb->inter_blocks = 0;
 		mb->refIdx_l = 0;
 		CALL(decode_direct_mv_pred);
-		JUMP(parse_inter_residual);
+		CAJUMP(parse_inter_residual);
 	}
 	ctx->transform_8x8_mode_flag = ctx->ps.transform_8x8_mode_flag;
 	
@@ -996,62 +935,62 @@ static inline void FUNC(parse_B_mb)
 	
 	// branch on str values
 	if (str == 13)
-		JUMP(parse_I_mb, 32);
+		CAJUMP(parse_I_mb, 32);
 	fprintf(stderr, "mb_type: %u\n", str2mb_type[str]);
 	mb->refIdx_l = -1;
 	memset(mb->mvs_v, 0, 128);
 	if (str == 15)
-		JUMP(parse_B_sub_mb);
+		CAJUMP(parse_B_sub_mb);
 	int flags8x8 = str2flags[str];
-	CALL(parse_ref_idx, flags8x8);
+	CACALL(parse_ref_idx, flags8x8);
 	if (!(flags8x8 & 0xee)) { // 16x16
 		mb->inter_blocks = 0x01231111;
 		if (flags8x8 & 0x01) {
-			v8hi mvd = CALL(parse_mvd_pair, mb->absMvdComp, 0);
+			v8hi mvd = CACALL(parse_mvd_pair, mb->absMvdComp, 0);
 			CALL(decode_inter_16x16, mvd, 0);
 		}
 		if (flags8x8 & 0x10) {
-			v8hi mvd = CALL(parse_mvd_pair, mb->absMvdComp + 32, 0);
+			v8hi mvd = CACALL(parse_mvd_pair, mb->absMvdComp + 32, 0);
 			CALL(decode_inter_16x16, mvd, 1);
 		}
 	} else if (!(flags8x8 & 0xcc)) { // 8x16
 		mb->inter_blocks = 0x00221111;
 		if (flags8x8 & 0x01) {
-			v8hi mvd = CALL(parse_mvd_pair, mb->absMvdComp, 0);
+			v8hi mvd = CACALL(parse_mvd_pair, mb->absMvdComp, 0);
 			CALL(decode_inter_8x16_left, mvd, 0);
 		}
 		if (flags8x8 & 0x02) {
-			v8hi mvd = CALL(parse_mvd_pair, mb->absMvdComp, 4);
+			v8hi mvd = CACALL(parse_mvd_pair, mb->absMvdComp, 4);
 			CALL(decode_inter_8x16_right, mvd, 0);
 		}
 		if (flags8x8 & 0x10) {
-			v8hi mvd = CALL(parse_mvd_pair, mb->absMvdComp + 32, 0);
+			v8hi mvd = CACALL(parse_mvd_pair, mb->absMvdComp + 32, 0);
 			CALL(decode_inter_8x16_left, mvd, 1);
 		}
 		if (flags8x8 & 0x20) {
-			v8hi mvd = CALL(parse_mvd_pair, mb->absMvdComp + 32, 4);
+			v8hi mvd = CACALL(parse_mvd_pair, mb->absMvdComp + 32, 4);
 			CALL(decode_inter_8x16_right, mvd, 1);
 		}
 	} else { // 16x8
 		mb->inter_blocks = 0x01011111;
 		if (flags8x8 & 0x01) {
-			v8hi mvd = CALL(parse_mvd_pair, mb->absMvdComp, 0);
+			v8hi mvd = CACALL(parse_mvd_pair, mb->absMvdComp, 0);
 			CALL(decode_inter_16x8_top, mvd, 0);
 		}
 		if (flags8x8 & 0x04) {
-			v8hi mvd = CALL(parse_mvd_pair, mb->absMvdComp, 8);
+			v8hi mvd = CACALL(parse_mvd_pair, mb->absMvdComp, 8);
 			CALL(decode_inter_16x8_bottom, mvd, 0);
 		}
 		if (flags8x8 & 0x10) {
-			v8hi mvd = CALL(parse_mvd_pair, mb->absMvdComp + 32, 0);
+			v8hi mvd = CACALL(parse_mvd_pair, mb->absMvdComp + 32, 0);
 			CALL(decode_inter_16x8_top, mvd, 1);
 		}
 		if (flags8x8 & 0x40) {
-			v8hi mvd = CALL(parse_mvd_pair, mb->absMvdComp + 32, 8);
+			v8hi mvd = CACALL(parse_mvd_pair, mb->absMvdComp + 32, 8);
 			CALL(decode_inter_16x8_bottom, mvd, 1);
 		}
 	}
-	JUMP(parse_inter_residual);
+	CAJUMP(parse_inter_residual);
 }
 
 
@@ -1063,7 +1002,7 @@ static inline void FUNC(parse_B_mb)
  * For each 8x8 block we fill a bitmask for the indices at which mvs will be
  * parsed, then we loop on these bits and broadcast the values accordingly.
  */
-static void FUNC(parse_P_sub_mb)
+static void CAFUNC(parse_P_sub_mb)
 {
 	// initializations for sub_mb_type
 	unsigned mvd_flags = 0;
@@ -1085,7 +1024,7 @@ static void FUNC(parse_P_sub_mb)
 		fprintf(stderr, "sub_mb_type: %c\n", (flags == 1) ? '0' : (flags == 5) ? '1' : (flags == 3) ? '2' : '3');
 	}
 	mb->inter_blocks = mvd_flags;
-	CALL(parse_ref_idx, 0x0f);
+	CACALL(parse_ref_idx, 0x0f);
 	
 	// load neighbouring refIdx values and shuffle them into A/B/C/D
 	Edge264_macroblock *mbB = ctx->mbB;
@@ -1107,7 +1046,7 @@ static void FUNC(parse_P_sub_mb)
 	// loop on mvs
 	do {
 		int i = __builtin_ctz(mvd_flags);
-		v8hi mvd = CALL(parse_mvd_pair, mb->absMvdComp, i);
+		v8hi mvd = CACALL(parse_mvd_pair, mb->absMvdComp, i);
 		
 		// branch on equality mask
 		v8hi mvp;
@@ -1139,7 +1078,7 @@ static void FUNC(parse_P_sub_mb)
 		mb->mvs_v[i8x8] = vector_select(mvs_mask, mvs, mb->mvs_v[i8x8]);
 		CALL(decode_inter, i, widths[type], heights[type]);
 	} while (mvd_flags &= mvd_flags - 1);
-	JUMP(parse_inter_residual);
+	CAJUMP(parse_inter_residual);
 }
 
 
@@ -1166,7 +1105,7 @@ static void FUNC(parse_P_sub_mb)
  * _ for each block in sequence, fetch the correct mv(s) and compute their
  *   median based on the mask
  */
-static inline void FUNC(parse_P_mb)
+static inline void CAFUNC(parse_P_mb)
 {
 	// Inter initializations
 	mb->f.mbIsInterFlag = 1;
@@ -1209,7 +1148,7 @@ static inline void FUNC(parse_P_mb)
 		JUMP(decode_inter, 0, 16, 16);
 		
 	} else if (CALL(get_ae, 14)) { // Intra
-		JUMP(parse_I_mb, 17);
+		CAJUMP(parse_I_mb, 17);
 	}
 	
 	// initializations and jumps for mb_type
@@ -1218,26 +1157,26 @@ static inline void FUNC(parse_P_mb)
 	str += str + CALL(get_ae, 16 + str);
 	fprintf(stderr, "mb_type: %u\n", (4 - str) & 3);
 	if (str == 1)
-		JUMP(parse_P_sub_mb);
-	CALL(parse_ref_idx, (str + 1) | 1); // 0->1, 2->3, 3->5
+		CAJUMP(parse_P_sub_mb);
+	CACALL(parse_ref_idx, (str + 1) | 1); // 0->1, 2->3, 3->5
 	if (str == 0) { // 16x16
 		mb->inter_blocks = 0x01231111;
-		v8hi mvd = CALL(parse_mvd_pair, mb->absMvdComp, 0);
+		v8hi mvd = CACALL(parse_mvd_pair, mb->absMvdComp, 0);
 		CALL(decode_inter_16x16, mvd, 0);
 	} else if (str == 2) { // 8x16
 		mb->inter_blocks = 0x00221111;
-		v8hi mvd0 = CALL(parse_mvd_pair, mb->absMvdComp, 0);
+		v8hi mvd0 = CACALL(parse_mvd_pair, mb->absMvdComp, 0);
 		CALL(decode_inter_8x16_left, mvd0, 0);
-		v8hi mvd1 = CALL(parse_mvd_pair, mb->absMvdComp, 4);
+		v8hi mvd1 = CACALL(parse_mvd_pair, mb->absMvdComp, 4);
 		CALL(decode_inter_8x16_right, mvd1, 0);
 	} else { // 16x8
 		mb->inter_blocks = 0x01011111;
-		v8hi mvd0 = CALL(parse_mvd_pair, mb->absMvdComp, 0);
+		v8hi mvd0 = CACALL(parse_mvd_pair, mb->absMvdComp, 0);
 		CALL(decode_inter_16x8_top, mvd0, 0);
-		v8hi mvd1 = CALL(parse_mvd_pair, mb->absMvdComp, 8);
+		v8hi mvd1 = CACALL(parse_mvd_pair, mb->absMvdComp, 8);
 		CALL(decode_inter_16x8_bottom, mvd1, 0);
 	}
-	JUMP(parse_inter_residual);
+	CAJUMP(parse_inter_residual);
 }
 
 
@@ -1246,7 +1185,7 @@ static inline void FUNC(parse_P_mb)
  * This function loops through the macroblocks of a slice, initialising their
  * data and calling parse_{I/P/B}_mb for each one.
  */
-static noinline void FUNC(parse_slice_data)
+static noinline void CAFUNC(parse_slice_data)
 {
 	static const v16qi block_unavailability[4] = {
 		{ 0,  0,  0,  4,  0,  0,  0,  4,  0,  0,  0,  4,  0,  4,  0,  4},
@@ -1278,11 +1217,11 @@ static noinline void FUNC(parse_slice_data)
 		
 		// Would it actually help to push this test outside the loop?
 		if (ctx->slice_type == 0) {
-			CALL(parse_P_mb);
+			CACALL(parse_P_mb);
 		} else if (ctx->slice_type == 1) {
-			CALL(parse_B_mb);
+			CACALL(parse_B_mb);
 		} else {
-			CALL(parse_I_mb, 5 - ctx->inc.mb_type_I_NxN);
+			CACALL(parse_I_mb, 5 - ctx->inc.mb_type_I_NxN);
 		}
 		
 		// break on end_of_slice_flag

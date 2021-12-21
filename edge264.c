@@ -31,6 +31,8 @@
 #include "edge264_bitstream.c"
 #include "edge264_mvpred.c"
 #include "edge264_slice.c"
+#define CAVLC 1
+#include "edge264_slice.c"
 
 
 
@@ -676,7 +678,7 @@ static int FUNC(parse_slice_layer_without_partitioning, Edge264_stream *e)
 		if (bits != 0 && CALL(get_uv, bits) != (1 << bits) - 1)
 			return 2;
 		CALL(cabac_init, cabac_init_idc);
-		CALL(parse_slice_data);
+		CALL(parse_slice_data_cabac);
 		// I'd rather display a portion of image than nothing, so do not test errors here yet
 	}
 	

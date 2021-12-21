@@ -340,7 +340,8 @@ static noinline void FUNC(transform_dc2x2);
 static noinline void FUNC(transform_dc2x4);
 
 // edge264_slice.c
-static noinline void FUNC(parse_slice_data);
+static noinline void FUNC(parse_slice_data_cavlc);
+static noinline void FUNC(parse_slice_data_cabac);
 
 // debugging functions
 static void print_v16qi(v16qi v) {
@@ -495,6 +496,77 @@ static void print_v4si(v4si v) {
 #ifndef __clang__
 #define __builtin_shufflevector(a, b, ...) __builtin_shuffle(a, b, (typeof(a)){__VA_ARGS__})
 #endif
+
+
+
+/**
+ * Constants
+ */
+static const v16qi sig_inc_4x4 =
+	{0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15};
+static const v16qi sig_inc_8x8[2][4] = {{
+	{ 0,  1,  2,  3,  4,  5,  5,  4,  4,  3,  3,  4,  4,  4,  5,  5},
+	{ 4,  4,  4,  4,  3,  3,  6,  7,  7,  7,  8,  9, 10,  9,  8,  7},
+	{ 7,  6, 11, 12, 13, 11,  6,  7,  8,  9, 14, 10,  9,  8,  6, 11},
+	{12, 13, 11,  6,  9, 14, 10,  9, 11, 12, 13, 11, 14, 10, 12,  0},
+	}, {
+	{ 0,  1,  1,  2,  2,  3,  3,  4,  5,  6,  7,  7,  7,  8,  4,  5},
+	{ 6,  9, 10, 10,  8, 11, 12, 11,  9,  9, 10, 10,  8, 11, 12, 11},
+	{ 9,  9, 10, 10,  8, 11, 12, 11,  9,  9, 10, 10,  8, 13, 13,  9},
+	{ 9, 10, 10,  8, 13, 13,  9,  9, 10, 10, 14, 14, 14, 14, 14,  0},
+}};
+static const v16qi last_inc_8x8[4] = {
+	{0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1},
+	{2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2},
+	{3, 3, 3, 3, 3, 3, 3, 3, 4, 4, 4, 4, 4, 4, 4, 4},
+	{5, 5, 5, 5, 6, 6, 6, 6, 7, 7, 7, 7, 8, 8, 8, 8},
+};
+static const v8qi sig_inc_chromaDC[2] =
+	{{0, 1, 2, 0}, {0, 0, 1, 1, 2, 2, 2, 0}};
+
+// transposed scan tables
+static const v16qi scan_4x4[2] = {
+	{0, 4, 1, 2, 5, 8, 12, 9, 6, 3, 7, 10, 13, 14, 11, 15},
+	{0, 1, 4, 2, 3, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15},
+};
+static const v16qi scan_8x8[2][4] = {{
+	{ 0,  8,  1,  2,  9, 16, 24, 17, 10,  3,  4, 11, 18, 25, 32, 40},
+	{33, 26, 19, 12,  5,  6, 13, 20, 27, 34, 41, 48, 56, 49, 42, 35},
+	{28, 21, 14,  7, 15, 22, 29, 36, 43, 50, 57, 58, 51, 44, 37, 30},
+	{23, 31, 38, 45, 52, 59, 60, 53, 46, 39, 47, 54, 61, 62, 55, 63},
+	}, {
+	{ 0,  1,  2,  8,  9,  3,  4, 10, 16, 11,  5,  6,  7, 12, 17, 24},
+	{18, 13, 14, 15, 19, 25, 32, 26, 20, 21, 22, 23, 27, 33, 40, 34},
+	{28, 29, 30, 31, 35, 41, 48, 42, 36, 37, 38, 39, 43, 49, 50, 44},
+	{45, 46, 47, 51, 56, 57, 52, 53, 54, 55, 58, 59, 60, 61, 62, 63},
+}};
+static const v8qi scan_chromaDC[2] =
+	{{0, 1, 2, 3}, {0, 2, 1, 4, 6, 3, 5, 7}};
+
+static const v4hi ctxIdxOffsets_16x16DC[3][2] = {
+	{{85, 105, 166, 227}, {85, 277, 338, 227}}, // ctxBlockCat==0
+	{{460, 484, 572, 952}, {460, 776, 864, 952}}, // ctxBlockCat==6
+	{{472, 528, 616, 982}, {472, 820, 908, 982}}, // ctxBlockCat==10
+};
+static const v4hi ctxIdxOffsets_16x16AC[3][2] = {
+	{{89, 119, 180, 237}, {89, 291, 352, 237}}, // ctxBlockCat==1
+	{{464, 498, 586, 962}, {464, 790, 878, 962}}, // ctxBlockCat==7
+	{{476, 542, 630, 992}, {476, 834, 922, 992}}, // ctxBlockCat==11
+};
+static const v4hi ctxIdxOffsets_chromaDC[2] =
+	{{97, 149, 210, 257}, {97, 321, 382, 257}}; // ctxBlockCat==3
+static const v4hi ctxIdxOffsets_chromaAC[2] =
+	{{101, 151, 212, 266}, {101, 323, 384, 266}}; // ctxBlockCat==4
+static const v4hi ctxIdxOffsets_4x4[3][2] = {
+	{{93, 134, 195, 247}, {93, 306, 367, 247}}, // ctxBlockCat==2
+	{{468, 528, 616, 972}, {468, 805, 893, 972}}, // ctxBlockCat==8
+	{{480, 557, 645, 1002}, {480, 849, 937, 1002}}, // ctxBlockCat==12
+};
+static const v4hi ctxIdxOffsets_8x8[3][2] = {
+	{{1012, 402, 417, 426}, {1012, 436, 451, 426}}, // ctxBlockCat==5
+	{{1016, 660, 690, 708}, {1016, 675, 699, 708}}, // ctxBlockCat==9
+	{{1020, 718, 748, 766}, {1020, 733, 757, 766}}, // ctxBlockCat==13
+};
 
 
 

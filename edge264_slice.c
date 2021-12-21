@@ -161,7 +161,7 @@ static noinline void FUNC(parse_residual_block, unsigned coded_block_flag, int s
  * cond should contain the values in coded_block_pattern as stored in mb,
  * such that Intra16x16 can request unconditional parsing by passing 1.
  */
-static noinline void FUNC(parse_mb_qp_delta, unsigned cond) {
+static void FUNC(parse_mb_qp_delta, unsigned cond) {
 	static const int QP_C[100] = {-36, -35, -34, -33, -32, -31, -30, -29, -28,
 		-27, -26, -25, -24, -23, -22, -21, -20, -19, -18, -17, -16, -15, -14,
 		-13, -12, -11, -10, -9, -8, -7, -6, -5, -4, -3, -2, -1, 0, 1, 2, 3, 4,
@@ -203,7 +203,7 @@ static noinline void FUNC(parse_mb_qp_delta, unsigned cond) {
  * Parsing for chroma 4:2:2 and 4:2:0 is put in a separate function to be
  * tail-called from parse_NxN_residual and parse_Intra16x16_residual.
  */
-static noinline void FUNC(parse_chroma_residual)
+static void FUNC(parse_chroma_residual)
 {
 	int is422 = ctx->ps.ChromaArrayType - 1;
 	if (is422 < 0)
@@ -274,7 +274,7 @@ static noinline void FUNC(parse_chroma_residual)
  * Intra16x16 residual blocks have so many differences with Intra4x4 that they
  * deserve their own function.
  */
-static noinline void FUNC(parse_Intra16x16_residual)
+static void FUNC(parse_Intra16x16_residual)
 {
 	CALL(parse_mb_qp_delta, 1);
 	
@@ -330,7 +330,7 @@ static noinline void FUNC(parse_Intra16x16_residual)
  * This block is dedicated to the parsing of Intra_NxN and Inter_NxN, since
  * they share much in common.
  */
-static noinline void FUNC(parse_NxN_residual)
+static void FUNC(parse_NxN_residual)
 {
 	CALL(parse_mb_qp_delta, mb->f.CodedBlockPatternChromaDC | mb->CodedBlockPatternLuma_s);
 	
@@ -406,7 +406,7 @@ static noinline void FUNC(parse_NxN_residual)
  * As with mb_qp_delta, coded_block_pattern is parsed in two distinct code
  * paths, thus put in a non-inlined function.
  */
-static noinline void FUNC(parse_coded_block_pattern) {
+static void FUNC(parse_coded_block_pattern) {
 	CALL(check_ctx, RESIDUAL_CBP_LABEL);
 	
 	// Luma prefix
@@ -437,7 +437,7 @@ static noinline void FUNC(parse_coded_block_pattern) {
  * As with mb_qp_delta and coded_block_pattern, experience shows allowing
  * compilers to inline this function makes them produce slower&heavier code.
  */
-static noinline void FUNC(parse_intra_chroma_pred_mode)
+static void FUNC(parse_intra_chroma_pred_mode)
 {
 	// Do not optimise too hard to keep the code understandable here.
 	CALL(check_ctx, INTRA_CHROMA_LABEL);
@@ -470,7 +470,7 @@ static noinline void FUNC(parse_intra_chroma_pred_mode)
  * Parses prev_intraNxN_pred_mode_flag and rem_intraNxN_pred_mode, and returns
  * the given intra_pred_mode (7.3.5.1, 7.4.5.1, 8.3.1.1 and table 9-34).
  */
-static noinline int FUNC(parse_intraNxN_pred_mode, int luma4x4BlkIdx)
+static int FUNC(parse_intraNxN_pred_mode, int luma4x4BlkIdx)
 {
 	// dcPredModePredictedFlag is enforced by putting -2
 	int intraMxMPredModeA = *(mb->Intra4x4PredMode + ctx->Intra4x4PredMode_A[luma4x4BlkIdx]);
@@ -547,10 +547,10 @@ static noinline void FUNC(parse_I_mb, int ctxIdx)
 		}
 		
 		if (mb->f.transform_size_8x8_flag) {
-			for (int i = 0; i < 4; i++) {
-				int mode = CALL(parse_intraNxN_pred_mode, i * 4);
-				mb->Intra4x4PredMode[i * 4 + 1] = mb->Intra4x4PredMode[i * 4 + 2] = mb->Intra4x4PredMode[i * 4 + 3] = mode;
-				ctx->PredMode[i * 4] = ctx->intra8x8_modes[mode][ctx->unavail[i * 5]];
+			for (int i = 0; i < 16; i += 4) {
+				int mode = CALL(parse_intraNxN_pred_mode, i);
+				mb->Intra4x4PredMode[i + 1] = mb->Intra4x4PredMode[i + 2] = mb->Intra4x4PredMode[i + 3] = mode;
+				ctx->PredMode[i] = ctx->intra8x8_modes[mode][ctx->unavail[i + (i >> 2)]];
 			}
 		} else {
 			for (int i = 0; i < 16; i++) {
@@ -639,6 +639,11 @@ static noinline void FUNC(parse_I_mb, int ctxIdx)
 
 
 
+/**
+ * This function is the entry point for residual parsing in Inter macroblocks.
+ * It parses coded_block_pattern and transform_size_8x8_flag, that are parsed
+ * in different orders in Intra macroblocks.
+ */
 static void FUNC(parse_inter_residual)
 {
 	CALL(parse_coded_block_pattern);

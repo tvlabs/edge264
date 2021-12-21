@@ -740,14 +740,12 @@ static v8hi FUNC(parse_mvd_pair, const uint8_t *absMvdComp_lx, int i4x4) {
  * block sizes 16x16, 8x16 and 16x8. Each call parses a mvd pair, adds the
  * prediction from neighbours, then ends with a call to decode_inter.
  */
-static always_inline void FUNC(parse_mvd_16x16, int lx)
+static inline void FUNC(parse_mvd_16x16, int lx)
 {
 	// call the parsing of mvd first to avoid spilling mvp if not inlined
-	uint8_t *absMvdComp_p = mb->absMvdComp + lx * 32;
-	v8hi mvd = CALL(parse_mvd_pair, absMvdComp_p, 0);
+	v8hi mvd = CALL(parse_mvd_pair, mb->absMvdComp + lx * 32, 0);
 	
 	// compare neighbouring indices and compute mvp
-	int32_t *mvs_p = mb->mvs_s + lx * 16;
 	v8hi mvp;
 	int refIdx = mb->refIdx[lx * 4];
 	int refIdxA = *(mb->refIdx + lx * 4 + ctx->refIdx_A[0]);
@@ -775,16 +773,15 @@ static always_inline void FUNC(parse_mvd_16x16, int lx)
 	
 	// sum mvp and mvd, broadcast everything to memory and tail-jump to decoding
 	v8hi mvs = (v8hi)__builtin_shufflevector((v4si)(mvp + mvd), (v4si){}, 0, 0, 0, 0);
-	((v16qu *)absMvdComp_p)[0] = ((v16qu *)absMvdComp_p)[1] = pack_absMvdComp(mvd);
+	mb->absMvdComp_v[lx * 2] = mb->absMvdComp_v[lx * 2 + 1] = pack_absMvdComp(mvd);
 	mb->mvs_v[lx * 4] = mb->mvs_v[lx * 4 + 1] = mb->mvs_v[lx * 4 + 2] = mb->mvs_v[lx * 4 + 3] = mvs;
 	CALL(decode_inter, lx * 16, 16, 16);
 }
 
-static always_inline void FUNC(parse_mvd_8x16_left, int lx)
+static inline void FUNC(parse_mvd_8x16_left, int lx)
 {
 	// call the parsing of mvd first to avoid spilling mvp if not inlined
-	uint8_t *absMvdComp_p = mb->absMvdComp + lx * 32;
-	v8hi mvd = CALL(parse_mvd_pair, absMvdComp_p, 0);
+	v8hi mvd = CALL(parse_mvd_pair, mb->absMvdComp + lx * 32, 0);
 	
 	// compare neighbouring indices and compute mvp
 	v8hi mvp;
@@ -821,16 +818,15 @@ static always_inline void FUNC(parse_mvd_8x16_left, int lx)
 	
 	// sum mvp and mvd, broadcast everything to memory and call decoding
 	v8hi mvs = (v8hi)__builtin_shufflevector((v4si)(mvp + mvd), (v4si){}, 0, 0, 0, 0);
-	((v8qu *)absMvdComp_p)[0] = ((v8qu *)absMvdComp_p)[2] = (v8qu)((v2li)pack_absMvdComp(mvd))[0];
+	mb->absMvdComp_l[lx * 4] = mb->absMvdComp_l[lx * 4 + 2] = ((v2li)pack_absMvdComp(mvd))[0];
 	mb->mvs_v[lx * 4] = mb->mvs_v[lx * 4 + 2] = mvs;
 	CALL(decode_inter, lx * 16, 8, 16);
 }
 
-static always_inline void FUNC(parse_mvd_8x16_right, int lx)
+static inline void FUNC(parse_mvd_8x16_right, int lx)
 {
 	// call the parsing of mvd first to avoid spilling mvp if not inlined
-	uint8_t *absMvdComp_p = mb->absMvdComp + lx * 32;
-	v8hi mvd = CALL(parse_mvd_pair, absMvdComp_p, 4);
+	v8hi mvd = CALL(parse_mvd_pair, mb->absMvdComp + lx * 32, 4);
 	
 	// compare neighbouring indices and compute mvp
 	v8hi mvp;
@@ -867,16 +863,15 @@ static always_inline void FUNC(parse_mvd_8x16_right, int lx)
 	
 	// sum mvp and mvd, broadcast everything to memory and call decoding
 	v8hi mvs = (v8hi)__builtin_shufflevector((v4si)(mvp + mvd), (v4si){}, 0, 0, 0, 0);
-	((v8qu *)absMvdComp_p)[1] = ((v8qu *)absMvdComp_p)[3] = (v8qu)((v2li)pack_absMvdComp(mvd))[0];
+	mb->absMvdComp_l[lx * 4 + 1] = mb->absMvdComp_l[lx * 4 + 3] = ((v2li)pack_absMvdComp(mvd))[0];
 	mb->mvs_v[lx * 4 + 1] = mb->mvs_v[lx * 4 + 3] = mvs;
 	CALL(decode_inter, lx * 16 + 4, 8, 16);
 }
 
-static always_inline void FUNC(parse_mvd_16x8_top, int lx)
+static inline void FUNC(parse_mvd_16x8_top, int lx)
 {
 	// call the parsing of mvd first to avoid spilling mvp if not inlined
-	uint8_t *absMvdComp_p = mb->absMvdComp + lx * 32;
-	v8hi mvd = CALL(parse_mvd_pair, absMvdComp_p, 0);
+	v8hi mvd = CALL(parse_mvd_pair, mb->absMvdComp + lx * 32, 0);
 	
 	// compare neighbouring indices and compute mvp
 	v8hi mvp;
@@ -913,16 +908,15 @@ static always_inline void FUNC(parse_mvd_16x8_top, int lx)
 	
 	// sum mvp and mvd, broadcast everything to memory and tail-jump to decoding
 	v8hi mvs = (v8hi)__builtin_shufflevector((v4si)(mvp + mvd), (v4si){}, 0, 0, 0, 0);
-	((v16qu *)absMvdComp_p)[0] = pack_absMvdComp(mvd);
+	mb->absMvdComp_v[lx * 2] = pack_absMvdComp(mvd);
 	mb->mvs_v[lx * 4 + 0] = mb->mvs_v[lx * 4 + 1] = mvs;
 	CALL(decode_inter, lx * 16, 16, 8);
 }
 
-static always_inline void FUNC(parse_mvd_16x8_bottom, int lx)
+static inline void FUNC(parse_mvd_16x8_bottom, int lx)
 {
 	// call the parsing of mvd first to avoid spilling mvp if not inlined
-	uint8_t *absMvdComp_p = mb->absMvdComp + lx * 32;
-	v8hi mvd = CALL(parse_mvd_pair, absMvdComp_p, 8);
+	v8hi mvd = CALL(parse_mvd_pair, mb->absMvdComp + lx * 32, 8);
 	
 	// compare neighbouring indices and compute mvp
 	v8hi mvp;
@@ -952,7 +946,7 @@ static always_inline void FUNC(parse_mvd_16x8_bottom, int lx)
 	
 	// sum mvp and mvd, broadcast everything to memory and tail-jump to decoding
 	v8hi mvs = (v8hi)__builtin_shufflevector((v4si)(mvp + mvd), (v4si){}, 0, 0, 0, 0);
-	((v16qu *)absMvdComp_p)[1] = pack_absMvdComp(mvd);
+	mb->absMvdComp_v[lx * 2 + 1] = pack_absMvdComp(mvd);
 	mb->mvs_v[lx * 4 + 2] = mb->mvs_v[lx * 4 + 3] = mvs;
 	CALL(decode_inter, lx * 16 + 8, 16, 8);
 }

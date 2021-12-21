@@ -29,6 +29,7 @@
 #include "edge264_inter_ssse3.c"
 #endif
 #include "edge264_bitstream.c"
+#include "edge264_mvpred.c"
 #include "edge264_slice.c"
 
 
@@ -668,6 +669,8 @@ static int FUNC(parse_slice_layer_without_partitioning, Edge264_stream *e)
 	CALL(initialise_decoding_context, e);
 	
 	// cabac_alignment_one_bit gives a good probability to catch random errors.
+	if (!ctx->ps.entropy_coding_mode_flag)
+		return 4;
 	if (ctx->ps.entropy_coding_mode_flag) {
 		unsigned bits = (SIZE_BIT - 1 - ctz(lsb_cache)) & 7;
 		if (bits != 0 && CALL(get_uv, bits) != (1 << bits) - 1)
@@ -802,12 +805,12 @@ static int FUNC(parse_pic_parameter_set, Edge264_stream *e)
 	int num_slice_groups = CALL(get_ue16, 7) + 1;
 	printf("<li%s>pic_parameter_set_id: <code>%u</code></li>\n"
 		"<li>seq_parameter_set_id: <code>%u</code></li>\n"
-		"<li%s>entropy_coding_mode_flag: <code>%x</code></li>\n"
+		"<li>entropy_coding_mode_flag: <code>%x</code></li>\n"
 		"<li>bottom_field_pic_order_in_frame_present_flag: <code>%x</code></li>\n"
 		"<li%s>num_slice_groups: <code>%u</code></li>\n",
 		red_if(pic_parameter_set_id >= 4), pic_parameter_set_id,
 		seq_parameter_set_id,
-		red_if(!ctx->ps.entropy_coding_mode_flag), ctx->ps.entropy_coding_mode_flag,
+		ctx->ps.entropy_coding_mode_flag,
 		ctx->ps.bottom_field_pic_order_in_frame_present_flag,
 		red_if(num_slice_groups > 1), num_slice_groups);
 	
@@ -902,7 +905,7 @@ static int FUNC(parse_pic_parameter_set, Edge264_stream *e)
 	// seq_parameter_set_id was ignored so far since no SPS data was read.
 	if (CALL(get_uv, 24) != 0x800000 || e->DPB == NULL)
 		return 2;
-	if (pic_parameter_set_id >= 4 || !ctx->ps.entropy_coding_mode_flag ||
+	if (pic_parameter_set_id >= 4 ||
 		num_slice_groups > 1 || ctx->ps.constrained_intra_pred_flag ||
 		redundant_pic_cnt_present_flag)
 		return 1;

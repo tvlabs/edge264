@@ -322,6 +322,14 @@ void FUNC(decode_inter, int i, int w, int h);
 // edge264_intra_*.c
 static void FUNC(decode_samples);
 
+// edge264_mvpred.c
+static inline void FUNC(decode_inter_16x16, v8hi mvd, int lx);
+static inline void FUNC(decode_inter_8x16_left, v8hi mvd, int lx);
+static inline void FUNC(decode_inter_8x16_right, v8hi mvd, int lx);
+static inline void FUNC(decode_inter_16x8_top, v8hi mvd, int lx);
+static inline void FUNC(decode_inter_16x8_bottom, v8hi mvd, int lx);
+static noinline void FUNC(decode_direct_mv_pred);
+
 // edge264_residual_*.c
 static noinline void FUNC(compute_LevelScale4x4, int iYCbCr);
 static noinline void FUNC(compute_LevelScale8x8, int iYCbCr);

@@ -30,8 +30,10 @@
 #endif
 #include "edge264_bitstream.c"
 #include "edge264_mvpred.c"
+#define CABAC 0
 #include "edge264_slice.c"
-#define CAVLC 1
+#undef CABAC
+#define CABAC 1
 #include "edge264_slice.c"
 
 
@@ -671,13 +673,16 @@ static int FUNC(parse_slice_layer_without_partitioning, Edge264_stream *e)
 	CALL(initialise_decoding_context, e);
 	
 	// cabac_alignment_one_bit gives a good probability to catch random errors.
-	if (!ctx->ps.entropy_coding_mode_flag)
+	if (!ctx->ps.entropy_coding_mode_flag) {
+		ctx->mb_skip_run = -1;
 		return 4;
-	if (ctx->ps.entropy_coding_mode_flag) {
+		CALL(parse_slice_data_cavlc);
+	} else {
 		unsigned bits = (SIZE_BIT - 1 - ctz(lsb_cache)) & 7;
 		if (bits != 0 && CALL(get_uv, bits) != (1 << bits) - 1)
 			return 2;
 		CALL(cabac_init, cabac_init_idc);
+		CALL(cabac_start);
 		CALL(parse_slice_data_cabac);
 		// I'd rather display a portion of image than nothing, so do not test errors here yet
 	}

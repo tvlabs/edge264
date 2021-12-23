@@ -1,11 +1,10 @@
 #include "edge264_common.h"
 
 
-
 /**
  * These functions are designed to optimize the parsing of motion vectors for
- * block sizes 16x16, 8x16 and 16x8. Each call parses a mvd pair, adds the
- * prediction from neighbours, then ends with a call to decode_inter.
+ * block sizes 16x16, 8x16 and 16x8. Each call computes a prediction from
+ * neighbours, adds the mvd pair, then ends with a call to decode_inter.
  */
 static inline void FUNC(decode_inter_16x16, v8hi mvd, int lx)
 {

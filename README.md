@@ -20,7 +20,7 @@ Supported features
 Planned features
 ----------------
 
-* CAVLC
+* CAVLC (work in progress)
 * Intra16x16 and 8x8 transforms (needs testing and debugging)
 * Deblocking
 * Transform-bypass for macroblocks with QP==0

@@ -123,6 +123,7 @@ typedef struct
 	size_t _codIRange; // same as _lsb_cache/_msb_cache
 	size_t _codIOffset;
 	int32_t CurrMbAddr;
+	int32_t mb_skip_run;
 	int8_t BlkIdx; // index of current AC block (for PredMode), in order Y/Cb/Cr and without gaps
 	uint16_t stride_Y; // 16 significant bits (at 8K, 16bit depth, field pic)
 	uint16_t stride_C;

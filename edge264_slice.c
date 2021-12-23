@@ -3,7 +3,7 @@
 #undef CAFUNC
 #undef CACALL
 #undef CAJUMP
-#ifdef CAVLC
+#if !CABAC
 	#define CAFUNC(f, ...) FUNC(f ## _cavlc, ## __VA_ARGS__)
 	#define CACALL(f, ...) CALL(f ## _cavlc, ## __VA_ARGS__)
 	#define CAJUMP(f, ...) JUMP(f ## _cavlc, ## __VA_ARGS__)
@@ -737,7 +737,7 @@ static inline void CAFUNC(parse_ref_idx, unsigned f) {
  * 
  * This function is distinct from parse_B_mb to allow different inlinings.
  * For each 8x8 block we test for B_Direct_8x8, otherwise we extract a
- * bitstring and initialize the loop flags with it. Values are:
+ * bitstring and initialize the loop flags with it. Values for CABAC are:
  * _ 0 = B_Bi_8x8
  * _ 1 = B_L0_8x4
  * _ 2 = B_L0_4x8
@@ -752,15 +752,24 @@ static inline void CAFUNC(parse_ref_idx, unsigned f) {
  * _ 11 = B_L0_4x4
  */
 static void CAFUNC(parse_B_sub_mb) {
-	static const uint32_t sub2flags[12] = {0x10001, 0x00005, 0x00003, 0x50000,
-		0x00001, 0x10000, 0xf0000, 0xf000f, 0x30000, 0x50005, 0x30003, 0x0000f};
-	static const uint8_t sub2mb_type[13] = {3, 4, 5, 6, 1, 2, 11, 12, 7, 8, 9, 10, 0};
 	
 	// initializations for sub_mb_type
 	unsigned mvd_flags = 0;
 	for (int i8x8 = 0; i8x8 < 4; i8x8++) {
 		int i4x4 = i8x8 * 4;
-		if (!CALL(get_ae, 36)) {
+#if !CABAC
+		int sub_mb_type = CALL(get_ue16, 12);
+		fprintf(stderr, "sub_mb_type: %u\n", sub_mb_type);
+		if (sub_mb_type == 0) { // B_Direct_8x8
+			mb->refIdx[i8x8] = mb->refIdx[4 + i8x8] = 0;
+		} else {
+			static const uint32_t sub_mb_type2flags[13] = {0, 0x00001, 0x10000,
+				0x10001, 0x00005, 0x00003, 0x50000, 0x30000, 50005, 0x30003,
+				0x0000f, 0xf0000, 0xf000f};
+			mvd_flags |= sub_mb_type2flags[sub_mb_type] << i4x4;
+			if (0x015f & 1 << sub_mb_type) { // 8xN
+#else
+		if (!CALL(get_ae, 36)) { // B_Direct_8x8
 			mb->refIdx[i8x8] = mb->refIdx[4 + i8x8] = 0;
 			fprintf(stderr, "sub_mb_type: 0\n");
 		} else {
@@ -771,8 +780,13 @@ static void CAFUNC(parse_B_sub_mb) {
 			{
 				sub += sub + CALL(get_ae, 39);
 			}
+			static const uint32_t sub2flags[12] = {0x10001, 0x00005, 0x00003, 0x50000,
+				0x00001, 0x10000, 0xf0000, 0xf000f, 0x30000, 0x50005, 0x30003, 0x0000f};
 			mvd_flags |= sub2flags[sub] << i4x4;
+			static const uint8_t sub2mb_type[13] = {3, 4, 5, 6, 1, 2, 11, 12, 7, 8, 9, 10, 0};
+			fprintf(stderr, "sub_mb_type: %u\n", sub2mb_type[sub]);
 			if (0x23b & 1 << sub) { // 8xN
+#endif
 				ctx->unavail[i4x4] = (ctx->unavail[i4x4] & 11) | (ctx->unavail[i4x4 + 1] & 4);
 				ctx->unavail[i4x4 + 2] |= 4;
 				ctx->refIdx4x4_C[i4x4] = 0x0d63 >> i4x4 & 15;
@@ -781,7 +795,6 @@ static void CAFUNC(parse_B_sub_mb) {
 				ctx->refIdx4x4_C[i4x4] = 0xdc32 >> i4x4 & 15;
 				ctx->mvs_C[i4x4] = ctx->mvs_B[i4x4 + 1];
 			}
-			fprintf(stderr, "sub_mb_type: %u\n", sub2mb_type[sub]);
 		}
 	}
 	mb->inter_blocks = (mvd_flags & 0xffff) | mvd_flags >> 16;
@@ -863,7 +876,7 @@ static void CAFUNC(parse_B_sub_mb) {
  * Parse mb_skip_flag and mb_type in a B macroblock.
  * 
  * Quick tests are done for B_Skip and B_Direct_16x16, otherwise we extract a
- * bitstring and use it to branch to further parsing. Values are:
+ * bitstring and use it to branch to further parsing. Values for CABAC are:
  * _ 0 = B_Bi_16x16
  * _ 1 = B_L0_L0_16x8
  * _ 2 = B_L0_L0_8x16
@@ -890,21 +903,25 @@ static void CAFUNC(parse_B_sub_mb) {
  */
 static inline void CAFUNC(parse_B_mb)
 {
-	static const uint8_t str2flags[26] = {0x11, 0x05, 0x03, 0x50, 0x30, 0x41,
-		0x21, 0x14, 0x01, 0x10, 0, 0, 0, 0, 0x12, 0, 0x45, 0x23, 0x54, 0x32,
-		0x15, 0x13, 0x51, 0x31, 0x55, 0x33};
-	static const uint8_t str2mb_type[26] = {3, 4, 5, 6, 7, 8, 9, 10, 1, 2, 0, 0,
-		0, 0, 11, 22, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21};
-	
 	// Inter initializations
 	mb->f.mbIsInterFlag = 1;
 	mb->Intra4x4PredMode_v = (v16qi){2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2};
 	
-	// shortcut for B_Skip
+	// parse mb_skip_run/flag
+#if !CABAC
+	if (ctx->mb_skip_run < 0) {
+		ctx->mb_skip_run = CALL(get_ue32, 139264);
+		fprintf(stderr, "mb_skip_run: %u\n", ctx->mb_skip_run);
+	}
+	int mb_skip_flag = ctx->mb_skip_run-- > 0;
+#else
 	int mb_skip_flag = CALL(get_ae, 26 - ctx->inc.mb_skip_flag);
+	mb->f.mb_skip_flag = mb_skip_flag;
 	fprintf(stderr, "mb_skip_flag: %x\n", mb_skip_flag);
+#endif
+	
+	// earliest handling for B_Skip
 	if (mb_skip_flag) {
-		mb->f.mb_skip_flag = mb_skip_flag;
 		mb->f.mb_type_B_Direct = 1;
 		mb->inter_blocks = 0;
 		mb->refIdx_l = 0;
@@ -912,7 +929,12 @@ static inline void CAFUNC(parse_B_mb)
 	}
 		
 	// B_Direct_16x16
+#if !CABAC
+	int mb_type = CALL(get_ue16, 48);
+	if (mb_type == 0) {
+#else
 	if (!CALL(get_ae, 29 - ctx->inc.mb_type_B_Direct)) {
+#endif
 		fprintf(stderr, "mb_type: 0\n");
 		ctx->transform_8x8_mode_flag = ctx->ps.transform_8x8_mode_flag & ctx->ps.direct_8x8_inference_flag;
 		mb->f.mb_type_B_Direct = 1;
@@ -923,7 +945,20 @@ static inline void CAFUNC(parse_B_mb)
 	}
 	ctx->transform_8x8_mode_flag = ctx->ps.transform_8x8_mode_flag;
 	
-	// Most important here is the minimal number of conditional branches.
+	// initializations and jumps for mb_type
+#if !CABAC
+	if (mb_type > 22)
+		CAJUMP(parse_I_mb, mb_type - 23);
+	fprintf(stderr, "mb_type: %u\n", mb_type);
+	mb->refIdx_l = -1;
+	memset(mb->mvs_v, 0, 128);
+	if (mb_type == 22)
+		CAJUMP(parse_B_sub_mb);
+	static const uint8_t mb_type2flags[22] = {0, 0x01, 0x10, 0x11, 0x05, 0x03,
+		0x50, 0x30, 0x41, 0x21, 0x14, 0x12, 0x45, 0x23, 0x54, 0x32, 0x15, 0x13,
+		0x51, 0x31, 0x55, 0x33};
+	int flags8x8 = mb_type2flags[mb_type];
+#else
 	int str = 4;
 	if (!CALL(get_ae, 30) || (str = CALL(get_ae, 31),
 		str += str + CALL(get_ae, 32),
@@ -932,16 +967,22 @@ static inline void CAFUNC(parse_B_mb)
 	{
 		str += str + CALL(get_ae, 32);
 	}
-	
-	// branch on str values
 	if (str == 13)
 		CAJUMP(parse_I_mb, 32);
+	static const uint8_t str2mb_type[26] = {3, 4, 5, 6, 7, 8, 9, 10, 1, 2, 0, 0,
+		0, 0, 11, 22, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21};
 	fprintf(stderr, "mb_type: %u\n", str2mb_type[str]);
 	mb->refIdx_l = -1;
 	memset(mb->mvs_v, 0, 128);
 	if (str == 15)
 		CAJUMP(parse_B_sub_mb);
+	static const uint8_t str2flags[26] = {0x11, 0x05, 0x03, 0x50, 0x30, 0x41,
+		0x21, 0x14, 0x01, 0x10, 0, 0, 0, 0, 0x12, 0, 0x45, 0x23, 0x54, 0x32,
+		0x15, 0x13, 0x51, 0x31, 0x55, 0x33};
 	int flags8x8 = str2flags[str];
+#endif
+	
+	// decoding large blocks
 	CACALL(parse_ref_idx, flags8x8);
 	if (!(flags8x8 & 0xee)) { // 16x16
 		mb->inter_blocks = 0x01231111;
@@ -1002,15 +1043,21 @@ static inline void CAFUNC(parse_B_mb)
  * For each 8x8 block we fill a bitmask for the indices at which mvs will be
  * parsed, then we loop on these bits and broadcast the values accordingly.
  */
-static void CAFUNC(parse_P_sub_mb)
+static void CAFUNC(parse_P_sub_mb, unsigned ref_idx_flags)
 {
 	// initializations for sub_mb_type
 	unsigned mvd_flags = 0;
 	for (int i8x8 = 0; i8x8 < 4; i8x8++) {
 		int i4x4 = i8x8 * 4;
 		int flags = 1;
+#if !CABAC
+		int sub_mb_type = CALL(get_ue16, 3);
+		if (sub_mb_type == 0 || // 8x8
+			(ctx->transform_8x8_mode_flag = 0, flags = 5, sub_mb_type == 1)) { // 8x4
+#else
 		if (CALL(get_ae, 21) || // 8x8
 			(ctx->transform_8x8_mode_flag = 0, flags = 5, !CALL(get_ae, 22))) { // 8x4
+#endif
 			ctx->unavail[i4x4] = (ctx->unavail[i4x4] & 11) | (ctx->unavail[i4x4 + 1] & 4);
 			ctx->unavail[i4x4 + 2] |= 4;
 			ctx->refIdx4x4_C[i4x4] = 0x0d63 >> i4x4 & 15;
@@ -1018,13 +1065,17 @@ static void CAFUNC(parse_P_sub_mb)
 		} else { // 4xN
 			ctx->refIdx4x4_C[i4x4] = 0xdc32 >> i4x4 & 15;
 			ctx->mvs_C[i4x4] = ctx->mvs_B[i4x4 + 1];
+#if !CABAC
+			flags = sub_mb_type == 2 ? 3 : 15;
+#else
 			flags = CALL(get_ae, 23) ? 3 : 15;
+#endif
 		}
-		mvd_flags |= flags << i4x4;
 		fprintf(stderr, "sub_mb_type: %c\n", (flags == 1) ? '0' : (flags == 5) ? '1' : (flags == 3) ? '2' : '3');
+		mvd_flags |= flags << i4x4;
 	}
 	mb->inter_blocks = mvd_flags;
-	CACALL(parse_ref_idx, 0x0f);
+	CACALL(parse_ref_idx, ref_idx_flags);
 	
 	// load neighbouring refIdx values and shuffle them into A/B/C/D
 	Edge264_macroblock *mbB = ctx->mbB;
@@ -1111,11 +1162,21 @@ static inline void CAFUNC(parse_P_mb)
 	mb->f.mbIsInterFlag = 1;
 	mb->Intra4x4PredMode_v = (v16qi){2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2};
 	
-	// shortcut for P_Skip
+	// parse mb_skip_run/flag
+#if !CABAC
+	if (ctx->mb_skip_run < 0) {
+		ctx->mb_skip_run = CALL(get_ue32, 139264);
+		fprintf(stderr, "mb_skip_run: %u\n", ctx->mb_skip_run);
+	}
+	int mb_skip_flag = ctx->mb_skip_run-- > 0;
+#else
 	int mb_skip_flag = CALL(get_ae, 13 - ctx->inc.mb_skip_flag);
+	mb->f.mb_skip_flag = mb_skip_flag;
 	fprintf(stderr, "mb_skip_flag: %x\n", mb_skip_flag);
+#endif
+	
+	// earliest handling for P_Skip
 	if (mb_skip_flag) {
-		mb->f.mb_skip_flag = mb_skip_flag;
 		mb->inter_blocks = 0x01231111;
 		mb->refIdx_l = (int64_t)(v8qi){0, 0, 0, 0, -1, -1, -1, -1};
 		memset(mb->mvs_v + 4, 0, 64);
@@ -1147,23 +1208,36 @@ static inline void CAFUNC(parse_P_mb)
 		mb->mvs_v[0] = mb->mvs_v[1] = mb->mvs_v[2] = mb->mvs_v[3] = mvs;
 		JUMP(decode_inter, 0, 16, 16);
 		
-	} else if (CALL(get_ae, 14)) { // Intra
-		CAJUMP(parse_I_mb, 17);
 	}
 	
 	// initializations and jumps for mb_type
+#if !CABAC
+	int mb_type = CALL(get_ue16, 30);
+	if (mb_type > 4)
+		CAJUMP(parse_I_mb, mb_type - 5);
+	fprintf(stderr, "mb_type: %u\n", mb_type);
 	memset(mb->mvs_v + 4, 0, 64);
-	int str = CALL(get_ae, 15);
-	str += str + CALL(get_ae, 16 + str);
-	fprintf(stderr, "mb_type: %u\n", (4 - str) & 3);
-	if (str == 1)
-		CAJUMP(parse_P_sub_mb);
-	CACALL(parse_ref_idx, (str + 1) | 1); // 0->1, 2->3, 3->5
-	if (str == 0) { // 16x16
+	if (mb_type > 2)
+		CAJUMP(parse_P_sub_mb, (mb_type + 12) & 15); // 3->15, 4->0
+	CACALL(parse_ref_idx, 0x351 >> (mb_type << 2) & 15); // 0->1, 1->5, 2->3
+#else
+	if (CALL(get_ae, 14)) // Intra
+		CAJUMP(parse_I_mb, 17);
+	int mb_type = CALL(get_ae, 15); // actually 1 and 3 are swapped
+	mb_type += mb_type + CALL(get_ae, 16 + mb_type);
+	fprintf(stderr, "mb_type: %u\n", (4 - mb_type) & 3);
+	memset(mb->mvs_v + 4, 0, 64);
+	if (mb_type == 1)
+		CAJUMP(parse_P_sub_mb, 15);
+	CACALL(parse_ref_idx, (mb_type + 1) | 1); // 0->1, 2->3, 3->5
+#endif
+	
+	// decoding large blocks
+	if (mb_type == 0) { // 16x16
 		mb->inter_blocks = 0x01231111;
 		v8hi mvd = CACALL(parse_mvd_pair, mb->absMvdComp, 0);
 		CALL(decode_inter_16x16, mvd, 0);
-	} else if (str == 2) { // 8x16
+	} else if (mb_type == 2) { // 8x16
 		mb->inter_blocks = 0x00221111;
 		v8hi mvd0 = CACALL(parse_mvd_pair, mb->absMvdComp, 0);
 		CALL(decode_inter_8x16_left, mvd0, 0);
@@ -1194,12 +1268,13 @@ static noinline void CAFUNC(parse_slice_data)
 		{ 7, 14,  9,  4, 14, 10,  0,  4,  9,  0,  9,  4,  0,  4,  0,  4},
 	};
 	
-	CALL(cabac_start);
 	while (1) {
 		fprintf(stderr, "********** %u **********\n", ctx->CurrMbAddr);
+#ifdef CABAC
 		v16qi flagsA = mb[-1].f.v;
 		v16qi flagsB = ctx->mbB->f.v;
 		ctx->inc.v = flagsA + flagsB + (flagsB & flags_twice.v);
+#endif
 		memset(mb, 0, offsetof(Edge264_macroblock, mvs)); // FIXME who needs this?
 		mb->f.mb_field_decoding_flag = ctx->field_pic_flag;
 		CALL(check_ctx, LOOP_START_LABEL);
@@ -1224,11 +1299,16 @@ static noinline void CAFUNC(parse_slice_data)
 			CACALL(parse_I_mb, 5 - ctx->inc.mb_type_I_NxN);
 		}
 		
-		// break on end_of_slice_flag
+		// break at end of slice
+#if !CABAC
+		if (msb_cache >> (SIZE_BIT - 24) == 0x800000)
+			break;
+#else
 		int end_of_slice_flag = CALL(cabac_terminate);
 		fprintf(stderr, "end_of_slice_flag: %x\n\n", end_of_slice_flag);
 		if (end_of_slice_flag)
 			break;
+#endif
 		
 		// point to the next macroblock
 		mb++;

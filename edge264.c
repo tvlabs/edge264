@@ -176,7 +176,7 @@ static void FUNC(initialise_decoding_context, Edge264_stream *e)
 		ctx->transform_8x8_mode_flag = ctx->ps.transform_8x8_mode_flag; // for P slices this value is constant
 		int max0 = ctx->ps.num_ref_idx_active[0] - 1;
 		int max1 = ctx->slice_type == 0 ? -1 : ctx->ps.num_ref_idx_active[1] - 1;
-		ctx->clip_ref_idx = (v8qi){max0, max0, max0, max0, max1, max1, max1, max1};
+		ctx->clip_ref_idx_v = (v8qi){max0, max0, max0, max0, max1, max1, max1, max1};
 		for (int i = 0; i <= max0; i++)
 			ctx->ref_planes[i] = e->DPB + (ctx->RefPicList[0][i] & 15) * e->frame_size;
 		

@@ -594,7 +594,11 @@ static void CAFUNC(parse_inter_residual)
 	CACALL(parse_coded_block_pattern);
 	
 	if (mb->CodedBlockPatternLuma_s && ctx->transform_8x8_mode_flag) {
+#if !CABAC
+		mb->f.transform_size_8x8_flag = CALL(get_u1);
+#else
 		mb->f.transform_size_8x8_flag = CALL(get_ae, 399 + ctx->inc.transform_size_8x8_flag);
+#endif
 		fprintf(stderr, "transform_size_8x8_flag: %x\n", mb->f.transform_size_8x8_flag);
 	}
 	
@@ -634,6 +638,11 @@ static void CAFUNC(parse_inter_residual)
  * 32-bit machines.
  */
 static v8hi CAFUNC(parse_mvd_pair, const uint8_t *absMvdComp_lx, int i4x4) {
+#if !CABAC
+	int x = CALL(get_se32, -32768, 32767);
+	int y = CALL(get_se32, -32768, 32767);
+	return (v8hi){x, y};
+#else
 	v8hi res;
 	for (int ctxBase = 40, j = 0;;) {
 		int sum = absMvdComp_lx[ctx->absMvdComp_A[i4x4] + j] + absMvdComp_lx[ctx->absMvdComp_B[i4x4] + j];
@@ -681,6 +690,7 @@ static v8hi CAFUNC(parse_mvd_pair, const uint8_t *absMvdComp_lx, int i4x4) {
 		ctxBase = 47;
 		res = (v8hi){mvd};
 	}
+#endif
 }
 
 
@@ -703,6 +713,12 @@ static inline void CAFUNC(parse_ref_idx, unsigned f) {
 	for (unsigned u = f & ctx->num_ref_idx_mask; u; u &= u - 1) {
 		int i = __builtin_ctz(u);
 		int ref_idx = 0;
+#if !CABAC
+		if (ctx->clip_ref_idx[i] == 1)
+			ref_idx = CALL(get_u1) ^ 1;
+		else
+			ref_idx = CALL(get_ue16, ctx->clip_ref_idx[i]);
+#else
 		if (CALL(get_ae, 54 + (mb->ref_idx_nz >> inc_shifts[i] & 3))) {
 			ref_idx = 1;
 			mb->ref_idx_nz |= ref_idx << bit_shifts[i];
@@ -712,13 +728,16 @@ static inline void CAFUNC(parse_ref_idx, unsigned f) {
 				} while (ref_idx < 32 && CALL(get_ae, 59));
 			}
 		}
+#endif
 		mb->refIdx[i] = ref_idx;
 		fprintf(stderr, "ref_idx: %u\n", ref_idx);
 	}
 	
 	// broadcast the values
 	v16qi refIdx_v = (v16qi)(v2li){mb->refIdx_l};
-	refIdx_v = min_v16qi(refIdx_v, (v16qi)(v2li){(int64_t)ctx->clip_ref_idx});
+#if CABAC
+	refIdx_v = min_v16qi(refIdx_v, (v16qi)(v2li){(int64_t)ctx->clip_ref_idx_v});
+#endif
 	if (!(f & 0x122)) { // 16xN
 		refIdx_v = __builtin_shufflevector(refIdx_v, refIdx_v, 0, 0, 2, 2, 4, 4, 6, 6, -1, -1, -1, -1, -1, -1, -1, -1);
 		mb->ref_idx_nz |= (mb->ref_idx_nz >> 2 & 0x0808) | (mb->ref_idx_nz << 5 & 0x8080);

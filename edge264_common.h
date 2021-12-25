@@ -141,6 +141,7 @@ typedef struct
 	v8hi clip_C;
 	union { int16_t clip; v8hi clip_v; };
 	union { int8_t unavail[16]; v16qi unavail_v; }; // unavailability of neighbouring A/B/C/D blocks
+	int8_t map_me[48];
 	union { uint8_t cabac[1024]; v16qu cabac_v[64]; };
 	
 	// neighbouring offsets (relative to the start of each array in mb)

@@ -30,9 +30,7 @@
 #endif
 #include "edge264_bitstream.c"
 #include "edge264_mvpred.c"
-#define CABAC 0
 #include "edge264_slice.c"
-#undef CABAC
 #define CABAC 1
 #include "edge264_slice.c"
 
@@ -674,6 +672,13 @@ static int FUNC(parse_slice_layer_without_partitioning, Edge264_stream *e)
 	
 	// cabac_alignment_one_bit gives a good probability to catch random errors.
 	if (!ctx->ps.entropy_coding_mode_flag) {
+		static const int8_t me_intra[48] = {47, 31, 15, 0, 23, 27, 29, 30, 7, 11,
+			13, 14, 39, 43, 45, 46, 16, 3, 5, 10, 12, 19, 21, 26, 28, 35, 37, 42,
+			44, 1, 2, 4, 8, 17, 18, 20, 24, 6, 9, 22, 25, 32, 33, 34, 36, 40, 38, 41};
+		static const int8_t me_inter[48] = {0, 16, 1, 2, 4, 8, 32, 3, 5, 10, 12,
+			15, 47, 7, 11, 13, 14, 6, 9, 31, 35, 37, 42, 44, 33, 34, 36, 40, 39,
+			43, 45, 46, 17, 18, 20, 24, 19, 21, 26, 28, 23, 27, 29, 30, 22, 25, 38, 41};
+		memcpy(ctx->map_me, ctx->slice_type == 2 ? me_intra : me_inter, sizeof(ctx->map_me));
 		ctx->mb_skip_run = -1;
 		return 4;
 		CALL(parse_slice_data_cavlc);

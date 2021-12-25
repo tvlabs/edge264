@@ -1,13 +1,16 @@
 /** MAYDO:
- * _ fix initialization of implicit weights
- * _ review and secure the places where CABAC could result in unsupported internal state
- * _ replace parse_mvd_comp with parse_mvd_pair and include the code for summing absMvdComp?
- * _ rename absMvdComp into absMvd, and other mb variables into their non symbol version
- * _ replace __m64 code with __m128i to follow GCC/clang drop of MMX
  * _ modify Intra_16x16 and Intra_Chroma to operate after parsing (rather than before residual) and write directly to memory
  * _ remove stride variable in favor of passing it directly to residual functions
- * _ once PredMode is used solely by Intra_4x4/8x8, remove it in favor of computing unavailability just before decoding
+ * _ remove mb_field_decoding_flag entirely
+ * _ store coded_block_flags in compact bit fields
  * _ remember Intra decoding is mixed with residuals so switch is necessary and passing preds in registers is good -> provide 2 functions add_idct4x4_inplace/inregs and keep preds in regs or mem depending on host number of regs
+ * _ simplify residuals functions before completing CAVLC
+ * 
+ * _ fix initialization of implicit weights
+ * _ review and secure the places where CABAC could result in unsupported internal state
+ * _ rename absMvdComp into absMvd, and other mb variables into their non symbol version
+ * _ replace __m64 code with __m128i to follow GCC/clang drop of MMX
+ * _ once PredMode is used solely by Intra_4x4/8x8, remove it in favor of computing unavailability just before decoding
  * _ update the tables of names for profiles and NAL types, and review the maximum values according to the latest spec (they change, e.g. log_max_mv_length)
  * _ upgrade DPB storage size to 32 (to allow future multithreaded decoding), by simply doubling reference and output flags sizes
  * _ backup output/ref flags and FrameNum and restore then on bad slice_header

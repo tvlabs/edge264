@@ -3,7 +3,7 @@
 #undef CAFUNC
 #undef CACALL
 #undef CAJUMP
-#undef CACOND // FIXME use it
+#undef CACOND
 #ifndef CABAC
 	#define CAFUNC(f, ...) FUNC(f ## _cavlc, ## __VA_ARGS__)
 	#define CACALL(f, ...) CALL(f ## _cavlc, ## __VA_ARGS__)
@@ -1310,11 +1310,9 @@ static noinline void CAFUNC(parse_slice_data)
 	
 	while (1) {
 		fprintf(stderr, "********** %u **********\n", ctx->CurrMbAddr);
-#ifdef CABAC
 		v16qi flagsA = mb[-1].f.v;
 		v16qi flagsB = ctx->mbB->f.v;
 		ctx->inc.v = flagsA + flagsB + (flagsB & flags_twice.v);
-#endif
 		memset(mb, 0, offsetof(Edge264_macroblock, mvs)); // FIXME who needs this?
 		mb->f.mb_field_decoding_flag = ctx->field_pic_flag;
 		CALL(check_ctx, LOOP_START_LABEL);

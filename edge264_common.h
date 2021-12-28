@@ -374,11 +374,12 @@ static void print_v4si(v4si v) {
 // Intel-specific common function declarations
 #ifdef __SSSE3__
 	#include <x86intrin.h>
-
-	#ifndef __AVX2__
-		static inline __m128i _mm_broadcastw_epi16(__m128i a) {
-			return _mm_shuffle_epi32(_mm_shufflelo_epi16(a, _MM_SHUFFLE(0, 0, 0, 0)), _MM_SHUFFLE(1, 0, 1, 0));
-		}
+	
+	#ifndef _mm_storeu_si64
+		#define _mm_storeu_si64(mem_addr, a) _mm_storel_epi64((__m128i *)(mem_addr), a)
+	#endif
+	#ifndef _mm_broadcastw_epi16
+		#define _mm_broadcastw_epi16(a) _mm_shuffle_epi32(_mm_shufflelo_epi16(a, _MM_SHUFFLE(0, 0, 0, 0)), _MM_SHUFFLE(1, 0, 1, 0))
 	#endif
 	
 	#ifdef __BMI2__

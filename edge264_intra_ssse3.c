@@ -426,6 +426,14 @@ static void intra16x16_vertical_8bit(size_t stride, ssize_t nstride, uint8_t *p,
 	*(__m128i *)(s +  stride    ) = *(__m128i *)(s +  stride * 2) = top;
 }
 
+static void chroma8x8_vertical_8bit(size_t stride, size_t nstride, uint8_t *p, uint8_t *q) {
+	__m64 top = *(__m64 *)(p + nstride * 2);
+	*(__m64 *)(p + nstride    ) = *(__m64 *)(p              ) = top;
+	*(__m64 *)(p +  stride    ) = *(__m64 *)(p +  stride * 2) = top;
+	*(__m64 *)(q + nstride    ) = *(__m64 *)(q              ) = top;
+	*(__m64 *)(q +  stride    ) = *(__m64 *)(q +  stride * 2) = top;
+}
+
 static void intra16x16_horizontal_8bit(size_t stride, ssize_t nstride, uint8_t *p, uint8_t *q, uint8_t *r, uint8_t *s) {
 	__m128i shuf = _mm_set1_epi8(15);
 	*(__m128i *)(p + nstride    ) = _mm_shuffle_epi8(*(__m128i *)(p + nstride     - 16), shuf);
@@ -444,6 +452,18 @@ static void intra16x16_horizontal_8bit(size_t stride, ssize_t nstride, uint8_t *
 	*(__m128i *)(s              ) = _mm_shuffle_epi8(*(__m128i *)(s               - 16), shuf);
 	*(__m128i *)(s +  stride    ) = _mm_shuffle_epi8(*(__m128i *)(s +  stride     - 16), shuf);
 	*(__m128i *)(s +  stride * 2) = _mm_shuffle_epi8(*(__m128i *)(s +  stride * 2 - 16), shuf);
+}
+
+static void chroma8x8_horizontal_8bit(size_t stride, size_t nstride, uint8_t *p, uint8_t *q) {
+	__m128i shuf = _mm_setzero_si128();
+	_mm_storeu_si64(p + nstride    , _mm_shuffle_epi8(_mm_loadu_si64(p + nstride     - 1), shuf));
+	_mm_storeu_si64(p              , _mm_shuffle_epi8(_mm_loadu_si64(p               - 1), shuf));
+	_mm_storeu_si64(p +  stride    , _mm_shuffle_epi8(_mm_loadu_si64(p +  stride     - 1), shuf));
+	_mm_storeu_si64(p +  stride * 2, _mm_shuffle_epi8(_mm_loadu_si64(p +  stride * 2 - 1), shuf));
+	_mm_storeu_si64(q + nstride    , _mm_shuffle_epi8(_mm_loadu_si64(q + nstride     - 1), shuf));
+	_mm_storeu_si64(q              , _mm_shuffle_epi8(_mm_loadu_si64(q               - 1), shuf));
+	_mm_storeu_si64(q +  stride    , _mm_shuffle_epi8(_mm_loadu_si64(q +  stride     - 1), shuf));
+	_mm_storeu_si64(q +  stride * 2, _mm_shuffle_epi8(_mm_loadu_si64(q +  stride * 2 - 1), shuf));
 }
 
 static void intra16x16_DC_8bit(size_t stride, ssize_t nstride, uint8_t *p, uint8_t *q, uint8_t *r, uint8_t *s) {

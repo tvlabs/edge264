@@ -549,8 +549,8 @@ static void intra16x16_plane_8bit(size_t stride, ssize_t nstride, uint8_t *p, ui
 	__m128i l8 = _mm_alignr_epi8(l9, *(__m128i *)(r + nstride     - 16), 15);
 	__m128i l6 = _mm_alignr_epi8(l8, *(__m128i *)(q +  stride     - 16), 15);
 	__m128i l5 = _mm_alignr_epi8(l6, *(__m128i *)(q               - 16), 15);
-	__m128i l4 = _mm_alignr_epi8(l5, *(__m128i *)(q + nstride * 2 - 16), 15);
-	__m128i l3 = _mm_alignr_epi8(l4, *(__m128i *)(q + nstride     - 16), 15);
+	__m128i l4 = _mm_alignr_epi8(l5, *(__m128i *)(q + nstride     - 16), 15);
+	__m128i l3 = _mm_alignr_epi8(l4, *(__m128i *)(q + nstride * 2 - 16), 15);
 	__m128i l2 = _mm_alignr_epi8(l3, *(__m128i *)(p +  stride     - 16), 15);
 	__m128i l1 = _mm_alignr_epi8(l2, *(__m128i *)(p               - 16), 15);
 	__m128i l0 = _mm_alignr_epi8(l1, *(__m128i *)(p + nstride     - 16), 15);
@@ -574,7 +574,7 @@ static void intra16x16_plane_8bit(size_t stride, ssize_t nstride, uint8_t *p, ui
 	
 	// compute prediction vectors and store them in memory
 	__m128i x9 = _mm_sub_epi16(_mm_add_epi16(a, c), _mm_slli_epi16(c, 3));
-	__m128i p1 = _mm_sub_epi16(x9, _mm_mullo_epi16(_mm_cvtepi8_epi16(mul), b));
+	__m128i p1 = _mm_add_epi16(x9, _mm_mullo_epi16(_mm_unpackhi_epi8(mul, _mm_setzero_si128()), b));
 	__m128i p0 = _mm_sub_epi16(p1, _mm_slli_epi16(b, 3));
 	*(__m128i *)(p + nstride    ) = _mm_packus_epi16(_mm_srai_epi16(p0, 5), _mm_srai_epi16(p1, 5));
 	p0 = _mm_add_epi16(p0, c), p1 = _mm_add_epi16(p1, c);
@@ -618,7 +618,8 @@ static inline void FUNC(decode_intra16x16, int mode) {
 	
 	size_t stride = ctx->stride_Y;
 	uint8_t *p = ctx->frame + ctx->frame_offsets_x[0] + ctx->frame_offsets_y[0] + stride;
-	
+	uint8_t *r = p + stride * 8;
+	fcts[mode * 4 + (ctx->inc.unavailable & 3)](stride, -stride, p, p + stride * 4, r, r + stride * 4);
 }
 
 

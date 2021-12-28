@@ -1,5 +1,4 @@
 /** MAYDO:
- * _ don't add C/D to ctx->inc.unavailable
  * _ modify Intra_16x16 and Intra_Chroma to operate after parsing (rather than before residual) and write directly to memory
  * _ remove stride variable in favor of passing it directly to residual functions
  * _ remove mb_field_decoding_flag entirely

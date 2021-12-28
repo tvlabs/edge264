@@ -550,15 +550,10 @@ static noinline void CAFUNC(parse_I_mb, int mb_type_or_ctxIdx)
 			mode + (ctxIdx == 17 ? 6 : ctxIdx == 32 ? 24 : 1));
 #endif
 		
-		// prepare the decoding modes
+		// decode the samples before parsing residuals
+		ctx->PredMode_v[0] = (v16qu){TRANSFORM_DC_4x4, ADD_RESIDUAL_4x4, ADD_RESIDUAL_4x4, ADD_RESIDUAL_4x4, ADD_RESIDUAL_4x4, ADD_RESIDUAL_4x4, ADD_RESIDUAL_4x4, ADD_RESIDUAL_4x4, ADD_RESIDUAL_4x4, ADD_RESIDUAL_4x4, ADD_RESIDUAL_4x4, ADD_RESIDUAL_4x4, ADD_RESIDUAL_4x4, ADD_RESIDUAL_4x4, ADD_RESIDUAL_4x4, ADD_RESIDUAL_4x4};
 		mb->Intra4x4PredMode_v = (v16qi){2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2};
-		static uint8_t dc[4] = {VERTICAL_16x16, HORIZONTAL_16x16, DC_16x16, PLANE_16x16};
-		int depth = ctx->intra4x4_modes[0][0] - VERTICAL_4x4;
-		int p = depth + VERTICAL_4x4_BUFFERED + mode;
-		ctx->PredMode_v[0] = (v16qu){p, p, p, p, p, p, p, p, p, p, p, p, p, p, p, p};
-		ctx->PredMode[0] = depth + dc[mode] + (mode == 2 ? ctx->inc.unavailable & 3 : 0);
-		ctx->PredMode_v[1] = ctx->PredMode_v[2] = ctx->PredMode_v[0] + ctx->pred_offset_C;
-		
+		CALL(decode_intra16x16, mode);
 		CACALL(parse_intra_chroma_pred_mode);
 		CAJUMP(parse_Intra16x16_residual);
 		

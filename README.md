@@ -21,7 +21,7 @@ Planned features
 ----------------
 
 * CAVLC (work in progress)
-* Intra16x16 and 8x8 transforms (needs testing and debugging)
+* 8x8 transforms (needs testing and debugging)
 * Deblocking
 * Transform-bypass for macroblocks with QP==0
 * Constrained Intra prediction mode

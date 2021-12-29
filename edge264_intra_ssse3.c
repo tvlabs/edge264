@@ -717,7 +717,7 @@ static void chroma8x8_plane_8bit(size_t stride, ssize_t nstride, uint8_t *p, uin
 	__m128i HV = _mm_add_epi16(x1, _mm_shufflelo_epi16(x1, _MM_SHUFFLE(2, 3, 0, 1))); // H in 1st quarter, V in 2nd, both in [-2550,2550]
 	__m128i x2 = _mm_add_epi16(HV, _mm_srai_epi16(HV, 4)); // (17 * HV) >> 4, in [-2710,2709]
 	__m128i x3 = _mm_srai_epi16(_mm_sub_epi16(x2, _mm_set1_epi16(-1)), 1); // (17 * HV + 16) >> 5
-	__m128i x4 = _mm_add_epi16(_mm_srli_si128(l7, 15), _mm_srli_si128(t0, 15));
+	__m128i x4 = _mm_add_epi16(_mm_srli_si128(l7, 15), _mm_srli_si128(t1, 15));
 	__m128i a = _mm_slli_epi16(_mm_sub_epi16(_mm_broadcastw_epi16(x4), _mm_set1_epi16(-1)), 4); // in [16,8176]
 	__m128i b = _mm_shuffle_epi32(x3, _MM_SHUFFLE(0, 0, 0, 0));
 	__m128i c = _mm_shuffle_epi32(x3, _MM_SHUFFLE(1, 1, 1, 1));

@@ -406,18 +406,8 @@ static void CAFUNC(parse_intra_chroma_pred_mode)
 		mb->f.intra_chroma_pred_mode_non_zero = (mode > 0);
 #endif
 		fprintf(stderr, "intra_chroma_pred_mode: %u\n", mode);
-		
-		// ac[0]==VERTICAL_4x4_BUFFERED reuses the buffering mode of Intra16x16
-		static uint8_t dc[4] = {DC_CHROMA_8x8, HORIZONTAL_CHROMA_8x8, VERTICAL_CHROMA_8x8, PLANE_CHROMA_8x8};
-		static uint8_t ac[4] = {VERTICAL_4x4_BUFFERED, HORIZONTAL_4x4_BUFFERED, VERTICAL_4x4_BUFFERED, PLANE_4x4_BUFFERED};
-		int depth = (ctx->ps.BitDepth_C == 8) ? 0 : VERTICAL_4x4_16_BIT;
-		int i = depth + ac[mode];
-		int dc420 = depth + dc[mode] + (mode == 0 ? ctx->inc.unavailable & 3 : 0);
-		ctx->PredMode_v[1] = (v16qu){i, i, i, i, i, i, i, i, i, i, i, i, i, i, i, i};
-		if (type == 1)
-			ctx->PredMode[16] = ctx->PredMode[20] = dc420;
-		else
-			ctx->PredMode[16] = ctx->PredMode[24] = dc420 + (DC_CHROMA_8x16 - DC_CHROMA_8x8);
+		CALL(decode_intraChroma, mode);
+		ctx->PredMode_v[1] = (v16qu){TRANSFORM_DC_2x2, ADD_RESIDUAL_4x4, ADD_RESIDUAL_4x4, ADD_RESIDUAL_4x4, TRANSFORM_DC_2x2, ADD_RESIDUAL_4x4, ADD_RESIDUAL_4x4, ADD_RESIDUAL_4x4};
 	}
 }
 

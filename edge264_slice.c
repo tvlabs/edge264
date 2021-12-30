@@ -93,6 +93,7 @@ static noinline void CAFUNC(parse_residual_block, unsigned coded_block_flag, int
 		int c = CALL(get_bypass) ? -coeff_level : coeff_level;
 		int i = 63 - clz64(significant_coeff_flags);
 		int scan = ctx->scan[i]; // beware, scan is transposed already
+		ctx->c[scan] = c;
 		ctx->d[scan] = (c * ctx->LevelScale[scan] + 32) >> 6; // cannot overflow since spec says result is 22 bits
 		significant_coeff_flags &= ~((uint64_t)1 << i);
 		fprintf(stderr, "coeffLevel[%d]: %d\n", i - startIdx, c);
@@ -164,6 +165,7 @@ static void CAFUNC(parse_residual_block_bis, int startIdx, int endIdx)
 		int c = CALL(get_bypass) ? -coeff_level : coeff_level;
 		int i = 63 - clz64(significant_coeff_flags);
 		int scan = ctx->scan[i]; // beware, scan is transposed already
+		ctx->c[scan] = c;
 		ctx->d[scan] = (c * ctx->LevelScale[scan] + 32) >> 6; // cannot overflow since spec says result is 22 bits
 		significant_coeff_flags &= ~((uint64_t)1 << i);
 		fprintf(stderr, "coeffLevel[%d]: %d\n", i - startIdx, c);
@@ -228,39 +230,38 @@ static void CAFUNC(parse_chroma_residual)
 		return;
 	
 	// As in Intra16x16, DC blocks are parsed to ctx->d[0..7], then transformed to ctx->d[16..31]
-	ctx->LevelScale_v[0] = ctx->LevelScale_v[1] = (v4si){64, 64, 64, 64};
 	ctx->ctxIdxOffsets_l = ctxIdxOffsets_chromaDC[mb->f.mb_field_decoding_flag];
 	ctx->sig_inc_l = ctx->last_inc_l = sig_inc_chromaDC[is422];
-	ctx->scan_l = scan_chromaDC[is422];
+	ctx->scan_l = (v8qi){0, 2, 1, 4, 6, 3, 5, 7}; // always store as 4:2:2
 	
 	// One 2x2 or 2x4 DC block for the Cb component
-	memset(ctx->d, 0, 32);
-	int coded_block_flag_Cb = 0;
-	if (mb->f.CodedBlockPatternChromaDC) {
-		coded_block_flag_Cb = CALL(get_ae, ctx->ctxIdxOffsets[0] +
-			ctx->inc.coded_block_flags_16x16[1]);
-		mb->f.coded_block_flags_16x16[1] = coded_block_flag_Cb;
+	memset(ctx->c + 16, 0, 64);
+	memset(ctx->d + 16, 0, 64);
+	if (mb->f.CodedBlockPatternChromaDC && CALL(get_ae, ctx->ctxIdxOffsets[0] + ctx->inc.coded_block_flags_16x16[1])) {
+		mb->f.coded_block_flags_16x16[1] = 1;
+		memset(ctx->c, 0, 32);
+		memset(ctx->d, 0, 32);
+		CACALL(parse_residual_block_bis, 0, is422 * 4 + 3);
+		if (is422) CALL(transform_dc2x4); else CALL(transform_dc2x2);
 	}
 	CALL(check_ctx, RESIDUAL_CB_DC_LABEL);
-	CACALL(parse_residual_block, coded_block_flag_Cb, 0, is422 * 4 + 3);
 	ctx->PredMode[16] = ctx->PredMode[17];
-	ctx->pred_buffer_v[16] = ctx->pred_buffer_v[17]; // backup for CHROMA_NxN_BUFFERED
 	
 	// Another 2x2/2x4 DC block for the Cr component
 	ctx->BlkIdx = 20 + is422 * 4;
-	memset(ctx->d, 0, 32);
-	int coded_block_flag_Cr = 0;
-	if (mb->f.CodedBlockPatternChromaDC) {
-		coded_block_flag_Cr = CALL(get_ae, ctx->ctxIdxOffsets[0] +
-			ctx->inc.coded_block_flags_16x16[2]);
-		mb->f.coded_block_flags_16x16[2] = coded_block_flag_Cr;
+	if (mb->f.CodedBlockPatternChromaDC && CALL(get_ae, ctx->ctxIdxOffsets[0] + ctx->inc.coded_block_flags_16x16[2])) {
+		mb->f.coded_block_flags_16x16[2] = 1;
+		memset(ctx->c, 0, 32);
+		memset(ctx->d, 0, 32);
+		CACALL(parse_residual_block_bis, 0, is422 * 4 + 3);
+		if (is422) CALL(transform_dc2x4); else CALL(transform_dc2x2);
 	}
 	CALL(check_ctx, RESIDUAL_CR_DC_LABEL);
-	CACALL(parse_residual_block, coded_block_flag_Cr, 0, is422 * 4 + 3);
 	ctx->PredMode[ctx->BlkIdx] = ctx->PredMode[ctx->BlkIdx + 1];
 	
 	// Eight or sixteen 4x4 AC blocks for the Cb/Cr components
 	CALL(compute_LevelScale4x4, 1);
+	ctx->LevelScale[0] = 64;
 	ctx->sig_inc_v[0] = ctx->last_inc_v[0] = sig_inc_4x4;
 	ctx->scan_v[0] = scan_4x4[mb->f.mb_field_decoding_flag];
 	ctx->ctxIdxOffsets_l = ctxIdxOffsets_chromaAC[mb->f.mb_field_decoding_flag];
@@ -268,6 +269,7 @@ static void CAFUNC(parse_chroma_residual)
 		if (ctx->BlkIdx == 20 + is422 * 4) {
 			ctx->pred_buffer_v[16] = ctx->pred_buffer_v[17];
 			CALL(compute_LevelScale4x4, 2);
+			ctx->LevelScale[0] = 64;
 		}
 		
 		// neighbouring access uses pointer arithmetic to avoid bounds checks
@@ -278,7 +280,9 @@ static void CAFUNC(parse_chroma_residual)
 			coded_block_flag = CALL(get_ae, ctx->ctxIdxOffsets[0] + cbfA + cbfB * 2);
 		}
 		mb->coded_block_flags_4x4[ctx->BlkIdx] = coded_block_flag;
+		memset(ctx->c, 0, 64);
 		memset(ctx->d, 0, 64);
+		ctx->c[0] = ctx->c[ctx->BlkIdx];
 		ctx->d[0] = ctx->d[ctx->BlkIdx];
 		ctx->significant_coeff_flags = 1;
 		CALL(check_ctx, RESIDUAL_CHROMA_LABEL);
@@ -312,15 +316,17 @@ static void CAFUNC(parse_Intra16x16_residual)
 		CALL(check_ctx, RESIDUAL_DC_LABEL);
 		// CACALL(parse_residual_block, mb->f.coded_block_flags_16x16[iYCbCr], 0, 15);
 		if (mb->f.coded_block_flags_16x16[iYCbCr]) {
-			ctx->LevelScale_v[0] = ctx->LevelScale_v[1] = ctx->LevelScale_v[2] = ctx->LevelScale_v[3] = (v4si){64, 64, 64, 64};
+			memset(ctx->c, 0, 64);
 			memset(ctx->d, 0, 64);
 			CACALL(parse_residual_block_bis, 0, 15);
 			CALL(compute_LevelScale4x4, iYCbCr);
 			CALL(transform_dc4x4);
 		} else {
 			CALL(compute_LevelScale4x4, iYCbCr);
+			memset(ctx->c + 16, 0, 64);
 			memset(ctx->d + 16, 0, 64);
 		}
+		ctx->LevelScale[0] = 64;
 		
 		// All AC blocks pick a DC coeff, then go to ctx->d[1..15]
 		ctx->ctxIdxOffsets_l = ctxIdxOffsets_16x16AC[iYCbCr][mb_field_decoding_flag];
@@ -333,7 +339,9 @@ static void CAFUNC(parse_Intra16x16_residual)
 				coded_block_flag = CALL(get_ae, ctx->ctxIdxOffsets[0] + cbfA + cbfB * 2);
 			}
 			mb->coded_block_flags_4x4[ctx->BlkIdx] = coded_block_flag;
+			memset(ctx->c, 0, 64);
 			memset(ctx->d, 0, 64);
+			ctx->c[0] = ctx->c[16 + (ctx->BlkIdx & 15)];
 			ctx->d[0] = ctx->d[16 + (ctx->BlkIdx & 15)];
 			ctx->significant_coeff_flags = 1;
 			CALL(check_ctx, RESIDUAL_4x4_LABEL);
@@ -381,6 +389,7 @@ static void CAFUNC(parse_NxN_residual)
 					coded_block_flag = CALL(get_ae, ctx->ctxIdxOffsets[0] + cbfA + cbfB * 2);
 				}
 				mb->coded_block_flags_4x4[ctx->BlkIdx] = coded_block_flag;
+				memset(ctx->c, 0, 64);
 				memset(ctx->d, 0, 64);
 				ctx->significant_coeff_flags = 0;
 				CALL(check_ctx, RESIDUAL_4x4_LABEL);
@@ -408,6 +417,7 @@ static void CAFUNC(parse_NxN_residual)
 				}
 				mb->coded_block_flags_8x8[luma8x8BlkIdx] = coded_block_flag;
 				mb->coded_block_flags_4x4_s[luma8x8BlkIdx] = coded_block_flag ? 0x01010101 : 0;
+				memset(ctx->c, 0, 256);
 				memset(ctx->d, 0, 256);
 				ctx->significant_coeff_flags = 0;
 				CALL(check_ctx, RESIDUAL_8x8_LABEL);

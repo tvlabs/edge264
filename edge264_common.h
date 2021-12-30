@@ -189,6 +189,7 @@ typedef struct
 	union { int8_t last_inc[64]; v8qi last_inc_l; v16qi last_inc_v[4]; };
 	union { int8_t scan[64]; v8qi scan_l; v16qi scan_v[4]; };
 	union { int32_t LevelScale[64]; v4si LevelScale_v[16]; };
+	union { int32_t c[64]; v4si c_v[16]; }; // non-scaled residual coefficients
 	union { int32_t d[64]; v4si d_v[16]; v8si d_V[8]; }; // scaled residual coefficients
 } Edge264_ctx;
 
@@ -540,8 +541,6 @@ static const v16qi scan_8x8[2][4] = {{
 	{28, 29, 30, 31, 35, 41, 48, 42, 36, 37, 38, 39, 43, 49, 50, 44},
 	{45, 46, 47, 51, 56, 57, 52, 53, 54, 55, 58, 59, 60, 61, 62, 63},
 }};
-static const v8qi scan_chromaDC[2] =
-	{{0, 1, 2, 3}, {0, 2, 1, 4, 6, 3, 5, 7}};
 
 static const v4hi ctxIdxOffsets_16x16DC[3][2] = {
 	{{85, 105, 166, 227}, {85, 277, 338, 227}}, // ctxBlockCat==0

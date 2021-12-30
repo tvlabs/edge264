@@ -607,10 +607,10 @@ static noinline void FUNC(decode_Residual8x8, __m128i p0,
  */
 static noinline void FUNC(transform_dc4x4) {
 	// loading
-	__m128i c0 = (__m128i)ctx->d_v[0];
-	__m128i c1 = (__m128i)ctx->d_v[1];
-	__m128i c2 = (__m128i)ctx->d_v[2];
-	__m128i c3 = (__m128i)ctx->d_v[3];
+	__m128i c0 = (__m128i)ctx->c_v[0];
+	__m128i c1 = (__m128i)ctx->c_v[1];
+	__m128i c2 = (__m128i)ctx->c_v[2];
+	__m128i c3 = (__m128i)ctx->c_v[3];
 	
 	// left matrix multiplication
 	__m128i x0 = _mm_add_epi32(c0, c1);
@@ -642,29 +642,39 @@ static noinline void FUNC(transform_dc4x4) {
 	__m128i f2 = _mm_sub_epi32(xI, xJ);
 	__m128i f3 = _mm_add_epi32(xI, xJ);
 	
-	// scaling and storing
+	// scaling and storing in zigzag order
 	__m128i s = _mm_set1_epi32(ctx->LevelScale[0]);
 	__m128i s128 = _mm_set1_epi32(128);
 	__m128i dc0 = _mm_srai_epi32(_mm_add_epi32(_mm_mullo_epi32(f0, s), s128), 8);
 	__m128i dc1 = _mm_srai_epi32(_mm_add_epi32(_mm_mullo_epi32(f1, s), s128), 8);
 	__m128i dc2 = _mm_srai_epi32(_mm_add_epi32(_mm_mullo_epi32(f2, s), s128), 8);
 	__m128i dc3 = _mm_srai_epi32(_mm_add_epi32(_mm_mullo_epi32(f3, s), s128), 8);
+	ctx->c_v[4] = (v4si)_mm_unpacklo_epi64(dc0, dc1);
+	ctx->c_v[5] = (v4si)_mm_unpackhi_epi64(dc0, dc1);
+	ctx->c_v[6] = (v4si)_mm_unpacklo_epi64(dc2, dc3);
+	ctx->c_v[7] = (v4si)_mm_unpackhi_epi64(dc2, dc3);
 	ctx->d_v[4] = (v4si)_mm_unpacklo_epi64(dc0, dc1);
 	ctx->d_v[5] = (v4si)_mm_unpackhi_epi64(dc0, dc1);
 	ctx->d_v[6] = (v4si)_mm_unpacklo_epi64(dc2, dc3);
 	ctx->d_v[7] = (v4si)_mm_unpackhi_epi64(dc2, dc3);
 }
 
-static noinline void FUNC(transform_dc2x2) {
+static inline void FUNC(transform_dc2x2) {
 	int iYCbCr = (ctx->BlkIdx - 12) >> 2; // BlkIdx is 16 or 20
 	unsigned qP = mb->QP[iYCbCr];
 	unsigned w = ctx->ps.weightScale4x4[iYCbCr + mb->f.mbIsInterFlag * 3][0];
 	unsigned nA = normAdjust4x4[qP % 6][0];
 	int LevelScale = (w * nA) << (qP / 6 + ctx->ps.BitDepth_C - 8);
-	int i0 = ctx->d[0] + ctx->d[2];
-	int i1 = ctx->d[1] + ctx->d[3];
-	int i2 = ctx->d[0] - ctx->d[2];
-	int i3 = ctx->d[1] - ctx->d[3];
+	// we assume 4:2:2 input scan order
+	int i0 = ctx->c[0] + ctx->c[1];
+	int i1 = ctx->c[2] + ctx->c[4];
+	int i2 = ctx->c[0] - ctx->c[1];
+	int i3 = ctx->c[2] - ctx->c[4];
+	int32_t *c = ctx->c + ctx->BlkIdx;
+	c[0] = ((i0 + i1) * LevelScale) >> 5;
+	c[1] = ((i0 - i1) * LevelScale) >> 5;
+	c[2] = ((i2 + i3) * LevelScale) >> 5;
+	c[3] = ((i2 - i3) * LevelScale) >> 5;
 	int32_t *d = ctx->d + ctx->BlkIdx;
 	d[0] = ((i0 + i1) * LevelScale) >> 5;
 	d[1] = ((i0 - i1) * LevelScale) >> 5;
@@ -672,13 +682,13 @@ static noinline void FUNC(transform_dc2x2) {
 	d[3] = ((i2 - i3) * LevelScale) >> 5;
 }
 
-static noinline void FUNC(transform_dc2x4) {
+static inline void FUNC(transform_dc2x4) {
 	int iYCbCr = (ctx->BlkIdx - 8) >> 3; // BlkIdx is 16 or 24
 	unsigned qP_DC = mb->QP[iYCbCr] + 3;
 	int w = ctx->ps.weightScale4x4[iYCbCr + mb->f.mbIsInterFlag * 3][0];
 	int nA = normAdjust4x4[qP_DC % 6][0];
-	__m128i x0 = (__m128i)ctx->d_v[0]; // {c00, c01, c10, c11} as per 8.5.11.1
-	__m128i x1 = (__m128i)ctx->d_v[1]; // {c20, c21, c30, c31}
+	__m128i x0 = (__m128i)ctx->c_v[0]; // {c00, c01, c10, c11} as per 8.5.11.1
+	__m128i x1 = (__m128i)ctx->c_v[1]; // {c20, c21, c30, c31}
 	__m128i x2 = _mm_add_epi32(x0, x1); // {c00+c20, c01+c21, c10+c30, c11+c31}
 	__m128i x3 = _mm_sub_epi32(x0, x1); // {c00-c20, c01-c21, c10-c30, c11-c31}
 	__m128i x4 = _mm_unpacklo_epi64(x2, x3); // {c00+c20, c01+c21, c00-c20, c01-c21}
@@ -694,4 +704,7 @@ static noinline void FUNC(transform_dc2x4) {
 	__m128i *d = (__m128i *)ctx->d_v + 2 + iYCbCr * 2;
 	d[0] = _mm_unpacklo_epi32(dc0, dc1);
 	d[1] = _mm_shuffle_epi32(_mm_unpackhi_epi64(dc0, dc1), _MM_SHUFFLE(2, 0, 3, 1));
+	__m128i *c = (__m128i *)ctx->c_v + 2 + iYCbCr * 2;
+	c[0] = _mm_unpacklo_epi32(dc0, dc1);
+	c[1] = _mm_shuffle_epi32(_mm_unpackhi_epi64(dc0, dc1), _MM_SHUFFLE(2, 0, 3, 1));
 }

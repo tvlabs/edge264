@@ -1,10 +1,17 @@
 /** MAYDO:
- * _ remove stride variable in favor of passing it directly to residual functions
- * _ remove mb_field_decoding_flag entirely
- * _ store coded_block_flags in compact bit fields
- * _ remember Intra decoding is mixed with residuals so switch is necessary and passing preds in registers is good -> provide 2 functions add_idct4x4_inplace/inregs and keep preds in regs or mem depending on host number of regs
- * _ simplify residuals functions before completing CAVLC
+ * _ remove all calls to check_ctx as this is hardly useful and readable
+ * _ implement new functions decode_intra4x4 and decode_intra8x8 taking i4x4 as parameter
+ * _ replace all calls to parse_residual_block by its bis version, then remove the former
+ * _ remove decode_samples, PredMode and the PredModes enum
+ * _ modify all decoding functions to get rid of BlkIdx and stride by adding parameters
+ * _ remove all uses of mb_field_decoding_flag while keeping const data for future use
+ * _ initialize scan_v[1..3] in edge264.c, only scan_v[0] changes dynamically
+ * _ reintroduce DC optimization for intraNxN, outside of residualNxN
+ * _ introduce a double DC optimization for intra16x16 (on cbp and cbf)
+ * _ refactor chroma_residual to introduce a DC optimization and skip the loop if AC is false
  * 
+ * _ store coded_block_flags in compact bit fields
+ * _ simplify residuals functions before completing CAVLC
  * _ fix initialization of implicit weights
  * _ review and secure the places where CABAC could result in unsupported internal state
  * _ rename absMvdComp into absMvd, and other mb variables into their non symbol version

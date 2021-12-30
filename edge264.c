@@ -1,6 +1,4 @@
 /** MAYDO:
- * _ modify Intra_Chroma to operate after parsing (rather than before residual) and write directly to memory
- * _ count the frequencies of Intra16x16 alone, with DC and with DC+AC
  * _ remove stride variable in favor of passing it directly to residual functions
  * _ remove mb_field_decoding_flag entirely
  * _ store coded_block_flags in compact bit fields

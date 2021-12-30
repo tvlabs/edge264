@@ -606,8 +606,6 @@ static noinline void FUNC(decode_Residual8x8, __m128i p0,
  * DC coefficients transform
  */
 static noinline void FUNC(transform_dc4x4) {
-	CALL(compute_LevelScale4x4, ctx->BlkIdx >> 4);
-	
 	// loading
 	__m128i c0 = (__m128i)ctx->d_v[0];
 	__m128i c1 = (__m128i)ctx->d_v[1];

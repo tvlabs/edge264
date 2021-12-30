@@ -101,6 +101,76 @@ static noinline void CAFUNC(parse_residual_block, unsigned coded_block_flag, int
 	JUMP(decode_samples);
 }
 
+static void CAFUNC(parse_residual_block_bis, int startIdx, int endIdx)
+{
+	// significant_coeff_flags are stored as a bit mask
+	uint64_t significant_coeff_flags = 0;
+	int i = startIdx;
+	do {
+		if (CALL(get_ae, ctx->ctxIdxOffsets[1] + ctx->sig_inc[i])) {
+			significant_coeff_flags |= (uint64_t)1 << i;
+			if (CALL(get_ae, ctx->ctxIdxOffsets[2] + ctx->last_inc[i]))
+				break;
+		}
+	} while (++i < endIdx);
+	significant_coeff_flags |= (uint64_t)1 << i;
+	ctx->significant_coeff_flags = significant_coeff_flags;
+	
+	// Now loop on set bits to parse all non-zero coefficients.
+	int ctxIdx0 = ctx->ctxIdxOffsets[3] + 1;
+	int ctxIdx1 = ctx->ctxIdxOffsets[3] + 5;
+	do {
+		int coeff_level = 1;
+		int ctxIdx = ctxIdx0;
+		while (coeff_level < 15 && CALL(get_ae, ctxIdx))
+			coeff_level++, ctxIdx = ctxIdx1;
+		if (coeff_level >= 15) {
+#if SIZE_BIT == 32
+			// the biggest value to encode is 2^(14+7)-14, for which k=20 (see 9.3.2.3)
+			int k = 0;
+			while (CALL(get_bypass) && k < 20)
+				k++;
+			coeff_level = 1;
+			while (k--)
+				coeff_level += coeff_level + CALL(get_bypass);
+			coeff_level += 14;
+#elif SIZE_BIT == 64
+			// we need at least 50 bits in codIOffset to get 41 bits with a division by 9 bits
+			int zeros = clz(codIRange);
+			if (zeros > 64 - 50) {
+				codIOffset = lsd(codIOffset, CALL(get_bytes, zeros >> 3), zeros & -8);
+				codIRange <<= zeros & -8;
+				zeros = clz(codIRange);
+			}
+			codIRange >>= 64 - 9 - zeros;
+			size_t quo = codIOffset / codIRange; // requested bits are in lsb and zeros+9 empty bits above
+			size_t rem = codIOffset % codIRange;
+			int k = min(clz(~quo << (zeros + 9)), 20);
+			int unused = 64 - 9 - zeros - k * 2 - 1;
+			coeff_level = 14 + (1 << k | (quo >> unused & (((size_t)1 << k) - 1)));
+			codIOffset = (quo & (((size_t)1 << unused) - 1)) * codIRange + rem;
+			codIRange <<= unused;
+#endif
+		}
+		
+		// not the brightest part of spec (9.3.3.1.3), I did my best
+		static const int8_t trans[5] = {0, 2, 3, 4, 4};
+		int last_sig_offset = ctx->ctxIdxOffsets[3];
+		int ctxIdxInc = trans[ctxIdx0 - last_sig_offset];
+		ctxIdx0 = last_sig_offset + (coeff_level > 1 ? 0 : ctxIdxInc);
+		ctxIdx1 = min(ctxIdx1 + (coeff_level > 1), (last_sig_offset == 257 ? last_sig_offset + 8 : last_sig_offset + 9));
+	
+		// scale and store
+		int c = CALL(get_bypass) ? -coeff_level : coeff_level;
+		int i = 63 - clz64(significant_coeff_flags);
+		int scan = ctx->scan[i]; // beware, scan is transposed already
+		ctx->d[scan] = (c * ctx->LevelScale[scan] + 32) >> 6; // cannot overflow since spec says result is 22 bits
+		significant_coeff_flags &= ~((uint64_t)1 << i);
+		fprintf(stderr, "coeffLevel[%d]: %d\n", i - startIdx, c);
+		// fprintf(stderr, "coeffLevel[%d](%d): %d\n", i - startIdx, ctx->BlkIdx, c);
+	} while (significant_coeff_flags != 0);
+}
+
 
 
 /**
@@ -229,21 +299,28 @@ static void CAFUNC(parse_Intra16x16_residual)
 	// Both AC and DC coefficients are initially parsed to ctx->d[0..15]
 	int mb_field_decoding_flag = mb->f.mb_field_decoding_flag;
 	ctx->stride = ctx->stride_Y;
-	ctx->clip_v = ctx->clip_C;
+	ctx->clip_v = ctx->clip_Y;
 	ctx->sig_inc_v[0] = ctx->last_inc_v[0] = sig_inc_4x4;
 	ctx->scan_v[0] = scan_4x4[mb_field_decoding_flag];
 	ctx->BlkIdx = 0;
 	do {
 		// Parse a DC block, then transform it to ctx->d[16..31]
 		int iYCbCr = ctx->BlkIdx >> 4;
-		ctx->LevelScale_v[0] = ctx->LevelScale_v[1] = ctx->LevelScale_v[2] =
-			ctx->LevelScale_v[3] = (v4si){64, 64, 64, 64};
-		memset(ctx->d, 0, 64);
 		ctx->ctxIdxOffsets_l = ctxIdxOffsets_16x16DC[iYCbCr][mb_field_decoding_flag];
 		mb->f.coded_block_flags_16x16[iYCbCr] = CALL(get_ae, ctx->ctxIdxOffsets[0] +
 			ctx->inc.coded_block_flags_16x16[iYCbCr]);
 		CALL(check_ctx, RESIDUAL_DC_LABEL);
-		CACALL(parse_residual_block, mb->f.coded_block_flags_16x16[iYCbCr], 0, 15);
+		// CACALL(parse_residual_block, mb->f.coded_block_flags_16x16[iYCbCr], 0, 15);
+		if (mb->f.coded_block_flags_16x16[iYCbCr]) {
+			ctx->LevelScale_v[0] = ctx->LevelScale_v[1] = ctx->LevelScale_v[2] = ctx->LevelScale_v[3] = (v4si){64, 64, 64, 64};
+			memset(ctx->d, 0, 64);
+			CACALL(parse_residual_block_bis, 0, 15);
+			CALL(compute_LevelScale4x4, iYCbCr);
+			CALL(transform_dc4x4);
+		} else {
+			CALL(compute_LevelScale4x4, iYCbCr);
+			memset(ctx->d + 16, 0, 64);
+		}
 		
 		// All AC blocks pick a DC coeff, then go to ctx->d[1..15]
 		ctx->ctxIdxOffsets_l = ctxIdxOffsets_16x16AC[iYCbCr][mb_field_decoding_flag];

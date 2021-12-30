@@ -189,8 +189,7 @@ typedef struct
 	union { int8_t last_inc[64]; v8qi last_inc_l; v16qi last_inc_v[4]; };
 	union { int8_t scan[64]; v8qi scan_l; v16qi scan_v[4]; };
 	union { int32_t LevelScale[64]; v4si LevelScale_v[16]; };
-	union { int32_t c[64]; v4si c_v[16]; }; // non-scaled residual coefficients
-	union { int32_t d[64]; v4si d_v[16]; v8si d_V[8]; }; // scaled residual coefficients
+	union { int32_t c[64]; v4si c_v[16]; v8si c_V[8]; }; // non-scaled residual coefficients
 } Edge264_ctx;
 
 

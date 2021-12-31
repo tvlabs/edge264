@@ -82,6 +82,76 @@ static noinline void FUNC(compute_LevelScale8x8, int iYCbCr) {
  * speedup. Also the implementation matches the spec's pseudocode, avoiding
  * minor optimisations which would make it harder to understand.
  */
+static void FUNC(add_idct4x4_bis, size_t stride, uint8_t *samples)
+{
+	// loading and scaling
+	__m128i s32 = _mm_set1_epi32(32);
+	__m128i *c = (__m128i *)ctx->c_v;
+	__m128i *s = (__m128i *)ctx->LevelScale_v;
+	__m128i d0 = _mm_srai_epi32(_mm_add_epi32(_mm_mullo_epi32(c[0], s[0]), s32), 6);
+	__m128i d1 = _mm_srai_epi32(_mm_add_epi32(_mm_mullo_epi32(c[1], s[1]), s32), 6);
+	__m128i d2 = _mm_srai_epi32(_mm_add_epi32(_mm_mullo_epi32(c[2], s[2]), s32), 6);
+	__m128i d3 = _mm_srai_epi32(_mm_add_epi32(_mm_mullo_epi32(c[3], s[3]), s32), 6);
+	
+	// horizontal 1D transform
+	__m128i e0 = _mm_add_epi32(d0, d2);
+	__m128i e1 = _mm_sub_epi32(d0, d2);
+	__m128i e2 = _mm_sub_epi32(_mm_srai_epi32(d1, 1), d3);
+	__m128i e3 = _mm_add_epi32(_mm_srai_epi32(d3, 1), d1);
+	__m128i f0 = _mm_add_epi32(e0, e3);
+	__m128i f1 = _mm_add_epi32(e1, e2);
+	__m128i f2 = _mm_sub_epi32(e1, e2);
+	__m128i f3 = _mm_sub_epi32(e0, e3);
+	
+	// matrix transposition
+	__m128i x0 = _mm_unpacklo_epi32(f0, f1);
+	__m128i x1 = _mm_unpacklo_epi32(f2, f3);
+	__m128i x2 = _mm_unpackhi_epi32(f0, f1);
+	__m128i x3 = _mm_unpackhi_epi32(f2, f3);
+	f0 = _mm_add_epi32(_mm_unpacklo_epi64(x0, x1), _mm_set1_epi32(32));
+	f1 = _mm_unpackhi_epi64(x0, x1);
+	f2 = _mm_unpacklo_epi64(x2, x3);
+	f3 = _mm_unpackhi_epi64(x2, x3);
+	
+	// vertical 1D transform
+	__m128i g0 = _mm_add_epi32(f0, f2);
+	__m128i g1 = _mm_sub_epi32(f0, f2);
+	__m128i g2 = _mm_sub_epi32(_mm_srai_epi32(f1, 1), f3);
+	__m128i g3 = _mm_add_epi32(_mm_srai_epi32(f3, 1), f1);
+	__m128i h0 = _mm_add_epi32(g0, g3);
+	__m128i h1 = _mm_add_epi32(g1, g2);
+	__m128i h2 = _mm_sub_epi32(g1, g2);
+	__m128i h3 = _mm_sub_epi32(g0, g3);
+	
+	// final residual values
+	__m128i r0 = _mm_packs_epi32(_mm_srai_epi32(h0, 6), _mm_srai_epi32(h1, 6));
+	__m128i r1 = _mm_packs_epi32(_mm_srai_epi32(h2, 6), _mm_srai_epi32(h3, 6));
+	
+	// addition to values in place, clipping and storage
+	size_t stride3 = stride * 3;
+	if (__builtin_expect(ctx->clip == 255, 1)) {
+		__m128i zero = _mm_setzero_si128();
+		__m128i p0 = load4x2_8bit(samples             , samples + stride , zero);
+		__m128i p1 = load4x2_8bit(samples + stride * 2, samples + stride3, zero);
+		v4si u = (v4si)_mm_packus_epi16(_mm_adds_epi16(p0, r0), _mm_adds_epi16(p1, r1));
+		*(int32_t *)(samples             ) = u[0];
+		*(int32_t *)(samples + stride    ) = u[1];
+		*(int32_t *)(samples + stride * 2) = u[2];
+		*(int32_t *)(samples + stride * 3) = u[3];
+	} else {
+		__m128i p0 = _mm_setr_epi64(*(__m64 *)(samples             ), *(__m64 *)(samples + stride ));
+		__m128i p1 = _mm_setr_epi64(*(__m64 *)(samples + stride * 2), *(__m64 *)(samples + stride3));
+		__m128i zero = _mm_setzero_si128();
+		__m128i clip = (__m128i)ctx->clip_v;
+		v2li u0 = (v2li)_mm_min_epi16(_mm_max_epi16(_mm_adds_epi16(p0, r0), zero), clip);
+		v2li u1 = (v2li)_mm_min_epi16(_mm_max_epi16(_mm_adds_epi16(p1, r1), zero), clip);
+		*(int64_t *)(samples             ) = u0[0];
+		*(int64_t *)(samples + stride    ) = u0[1];
+		*(int64_t *)(samples + stride * 2) = u1[0];
+		*(int64_t *)(samples + stride * 3) = u1[1];
+	}
+}
+
 static noinline void FUNC(add_idct4x4)
 {
 	// loading and scaling

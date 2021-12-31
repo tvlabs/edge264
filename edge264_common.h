@@ -375,10 +375,28 @@ static void print_v4si(v4si v) {
 #ifdef __SSSE3__
 	#include <x86intrin.h>
 	
-	#ifndef _mm_broadcastw_epi16
+	// missing intrinsics (https://gcc.gnu.org/bugzilla/show_bug.cgi?id=95483)
+	#define _mm_loadu_si32(a) _mm_cvtsi32_si128(*(int32_t *)(a))
+
+	// instructions available on later architectures
+	#ifndef __AVX_2__
 		#define _mm_broadcastw_epi16(a) _mm_shuffle_epi32(_mm_shufflelo_epi16(a, _MM_SHUFFLE(0, 0, 0, 0)), _MM_SHUFFLE(1, 0, 1, 0))
 	#endif
-	
+	#ifndef __SSE4_1__
+		static inline __m128i _mm_mullo_epi32(__m128i a, __m128i b) { // FIXME correct
+			__m128i c = _mm_shuffle_epi32(a, _MM_SHUFFLE(0, 3, 0, 1));
+			__m128i d = _mm_shuffle_epi32(b, _MM_SHUFFLE(0, 3, 0, 1));
+			__m128i e = _mm_mul_epu32(a, b);
+			__m128i f = _mm_mul_epu32(c, d);
+			__m128 g = _mm_shuffle_ps((__m128)e, (__m128)f, _MM_SHUFFLE(2, 0, 2, 0));
+			return _mm_shuffle_epi32((__m128i)g, _MM_SHUFFLE(3, 1, 2, 0));
+		}
+		static inline __m128i _mm_packus_epi32(__m128i a, __m128i b) {
+			return _mm_max_epi16(_mm_packs_epi32(a, b), _mm_setzero_si128()); // not strictly equivalent but sufficient for 14bit results
+		}
+	#endif
+
+	// complements to GCC vector intrinsics
 	#ifdef __BMI2__
 		static inline unsigned refIdx_to_direct_flags(int64_t f) {
 			return _pext_u64(~little_endian64(f), 0x0f0f0f0f0f0f0f0full);
@@ -405,42 +423,29 @@ static void print_v4si(v4si v) {
 			return (f >> 1 & 3) | (f >> 14 & 12);
 		}
 	#endif
-
 	#ifdef __SSE4_1__
 		#define vector_select(mask, t, f) (typeof(t))_mm_blendv_epi8((__m128i)(f), (__m128i)(t), (__m128i)(mask))
 		static always_inline __m128i load8x1_8bit(const uint8_t *p, __m128i zero) {
 			return _mm_cvtepu8_epi16(_mm_loadu_si64(p));
 		}
 		static always_inline __m128i load4x2_8bit(const uint8_t *r0, const uint8_t *r1, __m128i zero) {
-			return _mm_cvtepu8_epi16(_mm_insert_epi32(_mm_cvtsi32_si128(*(int *)r0), *(int *)r1, 1));
+			return _mm_cvtepu8_epi16(_mm_insert_epi32(_mm_cvtsi32_si128(*(int32_t *)r0), *(int *)r1, 1));
 		}
 		static inline v16qi min_v16qi(v16qi a, v16qi b) {
 			return (v16qi)_mm_min_epi8((__m128i)a, (__m128i)b);
 		}
 	#elif defined __SSSE3__
 		#define vector_select(mask, t, f) (((t) & (typeof(t))(mask < 0)) | ((f) & ~(typeof(t))(mask < 0)))
-		static inline __m128i _mm_mullo_epi32(__m128i a, __m128i b) { // FIXME correct
-			__m128i c = _mm_shuffle_epi32(a, _MM_SHUFFLE(0, 3, 0, 1));
-			__m128i d = _mm_shuffle_epi32(b, _MM_SHUFFLE(0, 3, 0, 1));
-			__m128i e = _mm_mul_epu32(a, b);
-			__m128i f = _mm_mul_epu32(c, d);
-			__m128 g = _mm_shuffle_ps((__m128)e, (__m128)f, _MM_SHUFFLE(2, 0, 2, 0));
-			return _mm_shuffle_epi32((__m128i)g, _MM_SHUFFLE(3, 1, 2, 0));
-		}
-		static inline __m128i _mm_packus_epi32(__m128i a, __m128i b) {
-			return _mm_max_epi16(_mm_packs_epi32(a, b), _mm_setzero_si128()); // not strictly equivalent but sufficient for 14bit results
-		}
 		static inline __m128i load8x1_8bit(const uint8_t *p, __m128i zero) {
 			return _mm_unpacklo_epi8(_mm_loadu_si64(p), zero);
 		}
 		static inline __m128i load4x2_8bit(const uint8_t *r0, const uint8_t *r1, __m128i zero) {
-			return _mm_unpacklo_epi8(_mm_unpacklo_epi32(_mm_loadu_si32(r0), _mm_loadu_si32(r1)), zero);
+			return _mm_unpacklo_epi8(_mm_unpacklo_epi32(_mm_cvtsi32_si128(*(int32_t *)r0), _mm_cvtsi32_si128(*(int32_t *)r1)), zero);
 		}
 		static inline v16qi min_v16qi(v16qi a, v16qi b) {
 			return (v16qi)_mm_xor_si128((__m128i)a, _mm_and_si128(_mm_xor_si128((__m128i)a, (__m128i)b), _mm_cmpgt_epi8((__m128i)a, (__m128i)b)));
 		}
 	#endif
-
 	static inline size_t lsd(size_t msb, size_t lsb, unsigned shift) {
 		__asm__("shld %%cl, %1, %0" : "+rm" (msb) : "r" (lsb), "c" (shift));
 		return msb;
@@ -475,7 +480,7 @@ static void print_v4si(v4si v) {
 		return (v8hi)_mm_packs_epi32(_mm_srai_epi32(lo, 8), _mm_srai_epi32(hi, 8));
 	}
 	
-	// fixing GCC's defect
+	// FIXME remove once we get rid of __m64
 	#if defined(__GNUC__) && !defined(__clang__)
 	static inline __m128i _mm_movpi64_epi64(__m64 a) {
 		__m128i b;

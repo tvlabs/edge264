@@ -1,4 +1,6 @@
 /** MAYDO:
+ * _ redo intraNxN switch with gotos !!!
+ * _ replace palignr loads with unpacks everywhere and reduce the use of unaligned loads
  * _ remove all calls to check_ctx as this is hardly useful and readable
  * _ implement new functions decode_intra4x4 and decode_intra8x8 taking i4x4 as parameter
  * _ replace all calls to parse_residual_block by its bis version, then remove the former

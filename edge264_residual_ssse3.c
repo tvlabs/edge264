@@ -82,7 +82,7 @@ static noinline void FUNC(compute_LevelScale8x8, int iYCbCr) {
  * speedup. Also the implementation matches the spec's pseudocode, avoiding
  * minor optimisations which would make it harder to understand.
  */
-static void FUNC(add_idct4x4_bis, size_t stride, uint8_t *samples)
+static void FUNC(add_idct4x4_bis, uint8_t *samples, size_t stride)
 {
 	// loading and scaling
 	__m128i s32 = _mm_set1_epi32(32);

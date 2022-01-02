@@ -338,8 +338,8 @@ static noinline void FUNC(compute_LevelScale8x8, int iYCbCr);
 static noinline void FUNC(add_idct4x4);
 static noinline void FUNC(add_idct8x8);
 static noinline void FUNC(transform_dc4x4);
-static noinline void FUNC(transform_dc2x2);
-static noinline void FUNC(transform_dc2x4);
+static inline void FUNC(transform_dc2x2);
+static inline void FUNC(transform_dc2x4);
 
 // edge264_slice.c
 static noinline void FUNC(parse_slice_data_cavlc);
@@ -376,7 +376,12 @@ static void print_v4si(v4si v) {
 	#include <x86intrin.h>
 	
 	// missing intrinsics (https://gcc.gnu.org/bugzilla/show_bug.cgi?id=95483)
-	#define _mm_loadu_si32(a) _mm_cvtsi32_si128(*(int32_t *)(a))
+	
+	#if defined(__clang__)
+		static always_inline __m128i _mm_loadu_si32(const uint8_t *a) {
+			return _mm_cvtsi32_si128(*(int32_t *)(a));
+		}
+	#endif
 
 	// instructions available on later architectures
 	#ifndef __AVX_2__
@@ -428,6 +433,10 @@ static void print_v4si(v4si v) {
 		static always_inline __m128i load8x1_8bit(const uint8_t *p, __m128i zero) {
 			return _mm_cvtepu8_epi16(_mm_loadu_si64(p));
 		}
+		static always_inline __m128i load4x1_8bit(const uint8_t *p, __m128i zero) {
+			return _mm_cvtepu8_epi16(_mm_loadu_si32(p));
+		}
+		// FIXME with cvt 8->32 then pack ?
 		static always_inline __m128i load4x2_8bit(const uint8_t *r0, const uint8_t *r1, __m128i zero) {
 			return _mm_cvtepu8_epi16(_mm_insert_epi32(_mm_cvtsi32_si128(*(int32_t *)r0), *(int *)r1, 1));
 		}
@@ -438,6 +447,9 @@ static void print_v4si(v4si v) {
 		#define vector_select(mask, t, f) (((t) & (typeof(t))(mask < 0)) | ((f) & ~(typeof(t))(mask < 0)))
 		static inline __m128i load8x1_8bit(const uint8_t *p, __m128i zero) {
 			return _mm_unpacklo_epi8(_mm_loadu_si64(p), zero);
+		}
+		static inline __m128i load4x1_8bit(const uint8_t *p, __m128i zero) {
+			return _mm_unpacklo_epi8(_mm_loadu_si32(p), zero);
 		}
 		static inline __m128i load4x2_8bit(const uint8_t *r0, const uint8_t *r1, __m128i zero) {
 			return _mm_unpacklo_epi8(_mm_unpacklo_epi32(_mm_cvtsi32_si128(*(int32_t *)r0), _mm_cvtsi32_si128(*(int32_t *)r1)), zero);
@@ -574,7 +586,113 @@ static const v4hi ctxIdxOffsets_8x8[3][2] = {
 
 
 /**
- * Values used to control the gigantic switch inside decode_samples
+ * Each intraNxN mode is converted to one of these modes right before decoding
+ * to select the proper internal routine.
+ */
+enum Intra4x4_mode {
+	VERTICAL_4x4_8_BIS,
+	HORIZONTAL_4x4_8_BIS,
+	DC_4x4_8_BIS,
+	DC_4x4_A_8_BIS,
+	DC_4x4_B_8_BIS,
+	DC_4x4_AB_8_BIS,
+	DIAGONAL_DOWN_LEFT_4x4_8_BIS,
+	DIAGONAL_DOWN_LEFT_4x4_C_8_BIS,
+	DIAGONAL_DOWN_RIGHT_4x4_8_BIS,
+	VERTICAL_RIGHT_4x4_8_BIS,
+	HORIZONTAL_DOWN_4x4_8_BIS,
+	VERTICAL_LEFT_4x4_8_BIS,
+	VERTICAL_LEFT_4x4_C_8_BIS,
+	HORIZONTAL_UP_4x4_8_BIS,
+	
+	VERTICAL_4x4_16_BIS,
+	HORIZONTAL_4x4_16_BIS,
+	DC_4x4_16_BIS,
+	DC_4x4_A_16_BIS,
+	DC_4x4_B_16_BIS,
+	DC_4x4_AB_16_BIS,
+	DIAGONAL_DOWN_LEFT_4x4_16_BIS,
+	DIAGONAL_DOWN_LEFT_4x4_C_16_BIS,
+	DIAGONAL_DOWN_RIGHT_4x4_16_BIS,
+	VERTICAL_RIGHT_4x4_16_BIS,
+	HORIZONTAL_DOWN_4x4_16_BIS,
+	VERTICAL_LEFT_4x4_16_BIS,
+	VERTICAL_LEFT_4x4_C_16_BIS,
+	HORIZONTAL_UP_4x4_16_BIS
+};
+
+enum Intra8x8_mode {
+	VERTICAL_8x8_8_BIS,
+	VERTICAL_8x8_C_8_BIS,
+	VERTICAL_8x8_D_8_BIS,
+	VERTICAL_8x8_CD_8_BIS,
+	HORIZONTAL_8x8_8_BIS,
+	HORIZONTAL_8x8_D_8_BIS,
+	DC_8x8_8_BIS,
+	DC_8x8_C_8_BIS,
+	DC_8x8_D_8_BIS,
+	DC_8x8_CD_8_BIS,
+	DC_8x8_A_8_BIS,
+	DC_8x8_AC_8_BIS,
+	DC_8x8_AD_8_BIS,
+	DC_8x8_ACD_8_BIS,
+	DC_8x8_B_8_BIS,
+	DC_8x8_BD_8_BIS,
+	DC_8x8_AB_8_BIS,
+	DIAGONAL_DOWN_LEFT_8x8_8_BIS,
+	DIAGONAL_DOWN_LEFT_8x8_C_8_BIS,
+	DIAGONAL_DOWN_LEFT_8x8_D_8_BIS,
+	DIAGONAL_DOWN_LEFT_8x8_CD_8_BIS,
+	DIAGONAL_DOWN_RIGHT_8x8_8_BIS,
+	DIAGONAL_DOWN_RIGHT_8x8_C_8_BIS,
+	VERTICAL_RIGHT_8x8_8_BIS,
+	VERTICAL_RIGHT_8x8_C_8_BIS,
+	HORIZONTAL_DOWN_8x8_8_BIS,
+	VERTICAL_LEFT_8x8_8_BIS,
+	VERTICAL_LEFT_8x8_C_8_BIS,
+	VERTICAL_LEFT_8x8_D_8_BIS,
+	VERTICAL_LEFT_8x8_CD_8_BIS,
+	HORIZONTAL_UP_8x8_8_BIS,
+	HORIZONTAL_UP_8x8_D_8_BIS,
+	
+	VERTICAL_8x8_16_BIS,
+	VERTICAL_8x8_C_16_BIS,
+	VERTICAL_8x8_D_16_BIS,
+	VERTICAL_8x8_CD_16_BIS,
+	HORIZONTAL_8x8_16_BIS,
+	HORIZONTAL_8x8_D_16_BIS,
+	DC_8x8_16_BIS,
+	DC_8x8_C_16_BIS,
+	DC_8x8_D_16_BIS,
+	DC_8x8_CD_16_BIS,
+	DC_8x8_A_16_BIS,
+	DC_8x8_AC_16_BIS,
+	DC_8x8_AD_16_BIS,
+	DC_8x8_ACD_16_BIS,
+	DC_8x8_B_16_BIS,
+	DC_8x8_BD_16_BIS,
+	DC_8x8_AB_16_BIS,
+	DIAGONAL_DOWN_LEFT_8x8_16_BIS,
+	DIAGONAL_DOWN_LEFT_8x8_C_16_BIS,
+	DIAGONAL_DOWN_LEFT_8x8_D_16_BIS,
+	DIAGONAL_DOWN_LEFT_8x8_CD_16_BIS,
+	DIAGONAL_DOWN_RIGHT_8x8_16_BIS,
+	DIAGONAL_DOWN_RIGHT_8x8_C_16_BIS,
+	VERTICAL_RIGHT_8x8_16_BIS,
+	VERTICAL_RIGHT_8x8_C_16_BIS,
+	HORIZONTAL_DOWN_8x8_16_BIS,
+	VERTICAL_LEFT_8x8_16_BIS,
+	VERTICAL_LEFT_8x8_C_16_BIS,
+	VERTICAL_LEFT_8x8_D_16_BIS,
+	VERTICAL_LEFT_8x8_CD_16_BIS,
+	HORIZONTAL_UP_8x8_16_BIS,
+	HORIZONTAL_UP_8x8_D_16_BIS
+};
+
+
+
+/**
+ * Legacy enum
  */
 enum PredModes {
 	ADD_RESIDUAL_4x4,

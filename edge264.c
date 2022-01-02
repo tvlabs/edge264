@@ -1,5 +1,4 @@
 /** MAYDO:
- * _ redo intraNxN switch with gotos !!!
  * _ replace palignr loads with unpacks everywhere and reduce the use of unaligned loads
  * _ remove all calls to check_ctx as this is hardly useful and readable
  * _ remove clip_v in favor of passing it to decoding functions (same as stride)

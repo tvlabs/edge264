@@ -552,9 +552,16 @@ static noinline void CAFUNC(parse_I_mb, int mb_type_or_ctxIdx)
 #endif
 		
 		// decode the samples before parsing residuals
+		static const int8_t intra16x16_modes[4][4] = {
+			I16x16_V_8 , I16x16_V_8  , I16x16_DCB_8, I16x16_DCAB_8,
+			I16x16_H_8 , I16x16_DCA_8, I16x16_H_8  , I16x16_DCAB_8,
+			I16x16_DC_8, I16x16_DCA_8, I16x16_DCB_8, I16x16_DCAB_8,
+			I16x16_P_8 , I16x16_DCA_8, I16x16_DCB_8, I16x16_DCAB_8,
+		};
 		ctx->PredMode_v[0] = (v16qu){TRANSFORM_DC_4x4, ADD_RESIDUAL_4x4, ADD_RESIDUAL_4x4, ADD_RESIDUAL_4x4, ADD_RESIDUAL_4x4, ADD_RESIDUAL_4x4, ADD_RESIDUAL_4x4, ADD_RESIDUAL_4x4, ADD_RESIDUAL_4x4, ADD_RESIDUAL_4x4, ADD_RESIDUAL_4x4, ADD_RESIDUAL_4x4, ADD_RESIDUAL_4x4, ADD_RESIDUAL_4x4, ADD_RESIDUAL_4x4, ADD_RESIDUAL_4x4};
 		mb->Intra4x4PredMode_v = (v16qi){2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2};
-		CALL(decode_intra16x16, mode);
+		uint8_t *samples = ctx->frame + ctx->frame_offsets_x[0] + ctx->frame_offsets_y[0];
+		decode_intra16x16(intra16x16_modes[mode][ctx->inc.unavailable & 3], samples, ctx->stride_Y, ctx->clip_Y);
 		CACALL(parse_intra_chroma_pred_mode);
 		CAJUMP(parse_Intra16x16_residual);
 		

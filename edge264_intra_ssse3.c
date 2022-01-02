@@ -93,16 +93,15 @@ static noinline __m128i FUNC(filter8_top_left_16bit, size_t stride, ssize_t nstr
  * the leaves. Since there is no way to make compilers generate proper code
  * with switches or functions, we use goto inside each mode.
  */
-static noinline void FUNC(_decode_intra4x4, int mode, size_t stride, ssize_t nstride, uint8_t *p) {
-	__m128i zero = _mm_setzero_si128();
+static noinline void _decode_intra4x4(int mode, size_t stride, ssize_t nstride, uint8_t *p, __m128i clip, __m128i zero) {
 	__m128i x0, x1, x2, x3, x4, x5, x6, x7, x8, x9, xA, p0, p1;
 	switch (mode) {
 	
-	case VERTICAL_4x4_8_BIS:
+	case I4x4_V_8:
 		*(int32_t *)(p + nstride) = *(int32_t *)p = *(int32_t *)(p + stride) = *(int32_t *)(p + stride * 2) = *(int32_t *)(p + nstride * 2);
 		return;
 	
-	case HORIZONTAL_4x4_8_BIS:
+	case I4x4_H_8:
 		x0 = _mm_set1_epi8(3);
 		*(int32_t *)(p + nstride    ) = ((v4si)_mm_shuffle_epi8(_mm_loadu_si32(p + nstride     - 4), x0))[0];
 		*(int32_t *)(p              ) = ((v4si)_mm_shuffle_epi8(_mm_loadu_si32(p               - 4), x0))[0];
@@ -110,7 +109,7 @@ static noinline void FUNC(_decode_intra4x4, int mode, size_t stride, ssize_t nst
 		*(int32_t *)(p +  stride * 2) = ((v4si)_mm_shuffle_epi8(_mm_loadu_si32(p +  stride * 2 - 4), x0))[0];
 		return;
 	
-	case DC_4x4_8_BIS:
+	case I4x4_DC_8:
 		x0 = _mm_loadu_si32(p + nstride * 2);
 		x1 = _mm_loadu_si32(p + nstride     - 4);
 		x2 = _mm_loadu_si32(p               - 4);
@@ -122,10 +121,10 @@ static noinline void FUNC(_decode_intra4x4, int mode, size_t stride, ssize_t nst
 		x7 = _mm_shuffle_epi8(_mm_avg_epu16(x6, zero), zero);
 		*(int32_t *)(p + nstride) = *(int32_t *)p = *(int32_t *)(p + stride) = *(int32_t *)(p + stride * 2) = ((v4si)x7)[0];
 		return;
-	case DC_4x4_A_8_BIS:
+	case I4x4_DCA_8:
 		x6 = _mm_srli_epi16(_mm_sad_epu8(_mm_loadu_si32(p + nstride * 2), zero), 1);
 		goto dc_4x4;
-	case DC_4x4_B_8_BIS:
+	case I4x4_DCB_8:
 		x0 = _mm_loadu_si32(p + nstride     - 4);
 		x1 = _mm_loadu_si32(p               - 4);
 		x2 = _mm_loadu_si32(p +  stride     - 4);
@@ -133,11 +132,11 @@ static noinline void FUNC(_decode_intra4x4, int mode, size_t stride, ssize_t nst
 		x4 = _mm_unpacklo_epi16(_mm_unpacklo_epi8(x0, x1), _mm_unpacklo_epi8(x2, x3));
 		x6 = _mm_srli_epi16(_mm_sad_epu8(_mm_srli_si128(x4, 12), zero), 1);
 		goto dc_4x4;
-	case DC_4x4_AB_8_BIS:
-		x6 = (__m128i)ctx->clip_v;
+	case I4x4_DCAB_8:
+		x6 = clip;
 		goto dc_4x4;
 	
-	case DIAGONAL_DOWN_LEFT_4x4_8_BIS:
+	case I4x4_DDL_8:
 		x0 = load8x1_8bit(p + nstride * 2, zero);
 	diagonal_down_left_4x4:
 		x1 = _mm_srli_si128(x0, 2);
@@ -147,11 +146,11 @@ static noinline void FUNC(_decode_intra4x4, int mode, size_t stride, ssize_t nst
 		p0 = (__m128i)_mm_shuffle_ps((__m128)x3, (__m128)x4, _MM_SHUFFLE(1, 0, 1, 0));
 		p1 = (__m128i)_mm_shuffle_ps((__m128)x3, (__m128)x4, _MM_SHUFFLE(2, 1, 2, 1));
 		break;
-	case DIAGONAL_DOWN_LEFT_4x4_C_8_BIS:
+	case I4x4_DDLC_8:
 		x0 = _mm_shuffle_epi8(_mm_loadu_si32(p + nstride * 2), _mm_setr_epi8(0, -1, 1, -1, 2, -1, 3, -1, 3, -1, 3, -1, 3, -1, 3, -1));
 		goto diagonal_down_left_4x4;
 	
-	case DIAGONAL_DOWN_RIGHT_4x4_8_BIS:
+	case I4x4_DDR_8:
 		x0 = load8x1_8bit(p + nstride * 2 - 1, zero); // 45678...
 		x1 = _mm_loadu_si32(p + nstride     - 4); // ...3............
 		x2 = _mm_loadu_si32(p               - 4); // ...2............
@@ -164,7 +163,7 @@ static noinline void FUNC(_decode_intra4x4, int mode, size_t stride, ssize_t nst
 		p1 = (__m128i)_mm_shuffle_ps((__m128)x7, (__m128)x6, _MM_SHUFFLE(1, 0, 1, 0));
 		break;
 	
-	case VERTICAL_RIGHT_4x4_8_BIS:
+	case I4x4_VR_8:
 		x0 = _mm_loadu_si64(p + nstride * 2 - 1); // 34567...........
 		x1 = _mm_loadu_si32(p + nstride     - 4); // ...2............
 		x2 = _mm_loadu_si32(p               - 4); // ...1............
@@ -180,7 +179,7 @@ static noinline void FUNC(_decode_intra4x4, int mode, size_t stride, ssize_t nst
 		p1 = _mm_unpackhi_epi64(_mm_slli_si128(x9, 2), _mm_slli_si128(xA, 2));
 		break;
 	
-	case HORIZONTAL_DOWN_4x4_8_BIS:
+	case I4x4_HD_8:
 		x0 = _mm_loadu_si32(p + nstride * 2 - 1); // 4567............
 		x1 = _mm_loadu_si32(p + nstride     - 4); // ...3............
 		x2 = _mm_loadu_si32(p               - 4); // ...2............
@@ -196,7 +195,7 @@ static noinline void FUNC(_decode_intra4x4, int mode, size_t stride, ssize_t nst
 		p1 = _mm_shuffle_epi32(xA, _MM_SHUFFLE(1, 0, 2, 1));
 		break;
 	
-	case VERTICAL_LEFT_4x4_8_BIS:
+	case I4x4_VL_8:
 		x0 = load8x1_8bit(p + nstride * 2, zero);
 	vertical_left_4x4:
 		x1 = _mm_srli_si128(x0, 2);
@@ -206,11 +205,11 @@ static noinline void FUNC(_decode_intra4x4, int mode, size_t stride, ssize_t nst
 		p0 = _mm_unpacklo_epi64(x3, x4);
 		p1 = _mm_unpacklo_epi64(_mm_srli_si128(x3, 2), _mm_srli_si128(x4, 2));
 		break;
-	case VERTICAL_LEFT_4x4_C_8_BIS:
+	case I4x4_VLC_8:
 		x0 = _mm_shuffle_epi8(_mm_loadu_si32(p + nstride * 2), _mm_setr_epi8(0, -1, 1, -1, 2, -1, 3, -1, 3, -1, 3, -1, 3, -1, 3, -1));
 		goto vertical_left_4x4;
 	
-	case HORIZONTAL_UP_4x4_8_BIS:
+	case I4x4_HU_8:
 		x0 = _mm_loadu_si32(p + nstride     - 4); // ...3............
 		x1 = _mm_loadu_si32(p               - 4); // ...2............
 		x2 = _mm_loadu_si32(p +  stride     - 4); // ...1............
@@ -233,116 +232,8 @@ static noinline void FUNC(_decode_intra4x4, int mode, size_t stride, ssize_t nst
 	*(int32_t *)(p +  stride * 2) = v[3];
 }
 
-static always_inline void FUNC(decode_intra4x4, int mode, uint8_t *samples, size_t stride) {
-	CALL(_decode_intra4x4, mode, stride, -stride, samples + stride);
-}
-
-
-
-static void FUNC(decode_Horizontal4x4_8bit, size_t stride, ssize_t nstride, uint8_t *p) {
-	static const v16qi shuf = {3, -1, 3, -1, 3, -1, 3, -1, 11, -1, 11, -1, 11, -1, 11, -1};
-	__m128i x0 = _mm_set_epi64(*(__m64 *)(p +             - 4), *(__m64 *)(p + nstride     - 4));
-	__m128i x1 = _mm_set_epi64(*(__m64 *)(p +  stride * 2 - 4), *(__m64 *)(p +  stride     - 4));
-	__m128i x2 = _mm_shuffle_epi8(x0, (__m128i)shuf);
-	__m128i x3 = _mm_shuffle_epi8(x1, (__m128i)shuf);
-	JUMP(decode_Residual4x4, x2, x3);
-}
-
-static void FUNC(decode_Horizontal4x4_16bit, size_t stride, ssize_t nstride, uint8_t *p) {
-	__m128i x0 = _mm_set_epi64(*(__m64 *)(p +             - 8), *(__m64 *)(p + nstride     - 8));
-	__m128i x1 = _mm_set_epi64(*(__m64 *)(p +  stride * 2 - 8), *(__m64 *)(p +  stride     - 8));
-	__m128i x2 = _mm_shufflelo_epi16(x0, _MM_SHUFFLE(3, 3, 3, 3));
-	__m128i x3 = _mm_shufflelo_epi16(x1, _MM_SHUFFLE(3, 3, 3, 3));
-	__m128i x4 = _mm_shufflehi_epi16(x2, _MM_SHUFFLE(3, 3, 3, 3));
-	__m128i x5 = _mm_shufflehi_epi16(x3, _MM_SHUFFLE(3, 3, 3, 3));
-	JUMP(decode_Residual4x4, x4, x5);
-}
-
-static void FUNC(decode_DC4x4_8bit, __m128i zero, __m128i x0) {
-	__m128i x1 = _mm_avg_epu16(_mm_srli_epi16(_mm_sad_epu8(x0, zero), 2), zero);
-	__m128i DC = _mm_broadcastw_epi16(x1);
-	JUMP(decode_Residual4x4, DC, DC);
-}
-
-static void FUNC(decode_DiagonalDownLeft4x4, __m128i top) {
-	__m128i x0 = _mm_srli_si128(top, 2);
-	__m128i x1 = _mm_shufflehi_epi16(_mm_shuffle_epi32(top, _MM_SHUFFLE(3, 3, 2, 1)), _MM_SHUFFLE(1, 1, 1, 0));
-	__m128i x2 = lowpass(top, x0, x1);
-	__m128i x3 = _mm_srli_si128(x2, 2);
-	__m128i x4 = (__m128i)_mm_shuffle_ps((__m128)x2, (__m128)x3, _MM_SHUFFLE(1, 0, 1, 0));
-	__m128i x5 = (__m128i)_mm_shuffle_ps((__m128)x2, (__m128)x3, _MM_SHUFFLE(2, 1, 2, 1));
-	JUMP(decode_Residual4x4, x4, x5);
-}
-
-static void FUNC(decode_DiagonalDownRight4x4, __m128i lt, __m128i bot) {
-	__m128i x0 = _mm_slli_si128(lt, 2);
-	__m128i x1 = _mm_alignr_epi8(lt, bot, 12);
-	__m128i x2 = lowpass(lt, x0, x1);
-	__m128i x3 = _mm_slli_si128(x2, 2);
-	__m128i x4 = (__m128i)_mm_shuffle_ps((__m128)x2, (__m128)x3, _MM_SHUFFLE(3, 2, 3, 2));
-	__m128i x5 = (__m128i)_mm_shuffle_ps((__m128)x2, (__m128)x3, _MM_SHUFFLE(2, 1, 2, 1));
-	JUMP(decode_Residual4x4, x4, x5);
-}
-
-static void FUNC(decode_VerticalRight4x4, __m128i lt) {
-	__m128i x0 = _mm_slli_si128(lt, 2);
-	__m128i x1 = _mm_shuffle_epi32(lt, _MM_SHUFFLE(2, 1, 0, 0));
-	__m128i x2 = _mm_avg_epu16(lt, x0);
-	__m128i x3 = lowpass(lt, x0, x1);
-	__m128i x4 = (__m128i)_mm_shuffle_ps((__m128)x3, (__m128)x2, _MM_SHUFFLE(3, 2, 1, 0));
-	__m128i x5 = _mm_shufflelo_epi16(x3, _MM_SHUFFLE(2, 0, 0, 0));
-	__m128i x6 = _mm_unpackhi_epi64(x2, x3);
-	__m128i x7 = _mm_unpackhi_epi64(_mm_slli_si128(x4, 2), _mm_slli_si128(x5, 2));
-	JUMP(decode_Residual4x4, x6, x7);
-}
-
-static void FUNC(decode_HorizontalDown4x4, __m128i lt) {
-	__m128i x0 = _mm_srli_si128(lt, 2);
-	__m128i x1 = _mm_shuffle_epi32(lt, _MM_SHUFFLE(3, 3, 2, 1));
-	__m128i x2 = _mm_avg_epu16(lt, x0);
-	__m128i x3 = lowpass(lt, x0, x1);
-	__m128i x4 = _mm_unpacklo_epi16(x2, x3);
-	__m128i x5 = _mm_shuffle_epi32(_mm_unpackhi_epi64(x3, x4), _MM_SHUFFLE(3, 2, 0, 3));
-	__m128i x6 = _mm_shuffle_epi32(x4, _MM_SHUFFLE(1, 0, 2, 1));
-	JUMP(decode_Residual4x4, x5, x6);
-}
-
-static void FUNC(decode_VerticalLeft4x4, __m128i top) {
-	__m128i x0 = _mm_srli_si128(top, 2);
-	__m128i x1 = _mm_shufflehi_epi16(_mm_shuffle_epi32(top, _MM_SHUFFLE(3, 3, 2, 1)), _MM_SHUFFLE(1, 1, 1, 0));
-	__m128i x2 = _mm_avg_epu16(top, x0);
-	__m128i x3 = lowpass(top, x0, x1);
-	__m128i x4 = _mm_unpacklo_epi64(x2, x3);
-	__m128i x5 = _mm_unpacklo_epi64(_mm_srli_si128(x2, 2), _mm_srli_si128(x3, 2));
-	JUMP(decode_Residual4x4, x4, x5);
-}
-
-static void FUNC(decode_HorizontalUp4x4_8bit, size_t stride, ssize_t nstride, uint8_t *p, __m128i zero) {
-	__m64 m0 = _mm_unpacklo_pi8(*(__m64 *)(p + nstride     - 4), *(__m64 *)(p +             - 4));
-	__m64 m1 = _mm_unpacklo_pi8(*(__m64 *)(p +  stride     - 4), *(__m64 *)(p +  stride * 2 - 4));
-	__m64 m2 = _mm_unpackhi_pi16(m0, m1);
-	__m128i x0 = _mm_unpacklo_epi8(_mm_movpi64_epi64(m2), zero);
-	__m128i x1 = _mm_shufflehi_epi16(x0, _MM_SHUFFLE(3, 3, 2, 1));
-	__m128i x2 = _mm_shufflehi_epi16(x0, _MM_SHUFFLE(3, 3, 3, 2));
-	__m128i x3 = _mm_avg_epu16(x0, x1);
-	__m128i x4 = lowpass(x0, x1, x2);
-	__m128i x5 = _mm_unpackhi_epi16(x3, x4);
-	__m128i x6 = _mm_shuffle_epi32(x5, _MM_SHUFFLE(2, 1, 1, 0));
-	__m128i x7 = _mm_shuffle_epi32(x5, _MM_SHUFFLE(3, 3, 3, 2));
-	JUMP(decode_Residual4x4, x6, x7);
-}
-
-static void FUNC(decode_HorizontalUp4x4_16bit, size_t stride, ssize_t nstride, uint8_t *p) {
-   __m64 m0 = _mm_shuffle_pi16(*(__m64 *)(p +  stride * 2 - 8), _MM_SHUFFLE(3, 3, 3, 3));
-   __m64 m1 = _mm_alignr_pi8(m0, *(__m64 *)(p +  stride     - 8), 6);
-   __m64 m2 = _mm_alignr_pi8(m1, *(__m64 *)(p               - 8), 6);
-   __m64 m3 = _mm_alignr_pi8(m2, *(__m64 *)(p + nstride     - 8), 6);
-   __m64 m4 = _mm_avg_pu16(m2, m3);
-	__m64 m5 =  _mm_avg_pu16(_mm_srli_pi16(_mm_add_pi16(m1, m3), 1), m2);
-   __m128i x0 = _mm_unpacklo_epi16(_mm_movpi64_epi64(m4), _mm_movpi64_epi64(m5));
-   __m128i x1 = _mm_shuffle_epi32(x0, _MM_SHUFFLE(2, 1, 1, 0));
-   __m128i x2 = _mm_shuffle_epi32(x0, _MM_SHUFFLE(3, 3, 3, 2));
-   JUMP(decode_Residual4x4, x1, x2);
+static always_inline void decode_intra4x4(int mode, uint8_t *samples, size_t stride, v8hi clip) {
+	_decode_intra4x4(mode, stride, -stride, samples + stride, (__m128i)clip, _mm_setzero_si128());
 }
 
 
@@ -864,8 +755,31 @@ static inline void FUNC(decode_intraChroma, int mode) {
 
 
 /**
- * Legacy functions kept to help implement 16-bit support and 8x16.
+ * Legacy functions kept to help implement 8x8, 16-bit and 4:2:2.
  */
+static void FUNC(decode_Horizontal4x4_16bit, size_t stride, ssize_t nstride, uint8_t *p) {
+	__m128i x0 = _mm_set_epi64(*(__m64 *)(p +             - 8), *(__m64 *)(p + nstride     - 8));
+	__m128i x1 = _mm_set_epi64(*(__m64 *)(p +  stride * 2 - 8), *(__m64 *)(p +  stride     - 8));
+	__m128i x2 = _mm_shufflelo_epi16(x0, _MM_SHUFFLE(3, 3, 3, 3));
+	__m128i x3 = _mm_shufflelo_epi16(x1, _MM_SHUFFLE(3, 3, 3, 3));
+	__m128i x4 = _mm_shufflehi_epi16(x2, _MM_SHUFFLE(3, 3, 3, 3));
+	__m128i x5 = _mm_shufflehi_epi16(x3, _MM_SHUFFLE(3, 3, 3, 3));
+	JUMP(decode_Residual4x4, x4, x5);
+}
+
+static void FUNC(decode_HorizontalUp4x4_16bit, size_t stride, ssize_t nstride, uint8_t *p) {
+	__m64 m0 = _mm_shuffle_pi16(*(__m64 *)(p +  stride * 2 - 8), _MM_SHUFFLE(3, 3, 3, 3));
+	__m64 m1 = _mm_alignr_pi8(m0, *(__m64 *)(p +  stride     - 8), 6);
+	__m64 m2 = _mm_alignr_pi8(m1, *(__m64 *)(p               - 8), 6);
+	__m64 m3 = _mm_alignr_pi8(m2, *(__m64 *)(p + nstride     - 8), 6);
+	__m64 m4 = _mm_avg_pu16(m2, m3);
+	__m64 m5 =  _mm_avg_pu16(_mm_srli_pi16(_mm_add_pi16(m1, m3), 1), m2);
+	__m128i x0 = _mm_unpacklo_epi16(_mm_movpi64_epi64(m4), _mm_movpi64_epi64(m5));
+	__m128i x1 = _mm_shuffle_epi32(x0, _MM_SHUFFLE(2, 1, 1, 0));
+	__m128i x2 = _mm_shuffle_epi32(x0, _MM_SHUFFLE(3, 3, 3, 2));
+	JUMP(decode_Residual4x4, x1, x2);
+}
+
 static void FUNC(decode_DC16x16_16bit, __m128i topr, __m128i topl, __m128i leftt, __m128i leftb) {
 	__m128i zero = _mm_setzero_si128();
 	__m128i x0 = _mm_adds_epu16(_mm_add_epi16(topr, topl), _mm_add_epi16(leftt, leftb));
@@ -1067,34 +981,6 @@ static void FUNC(decode_ChromaPlane8x16, __m128i top, __m128i leftt, __m128i lef
 	JUMP(transform_dc2x4);
 }
 
-
-
-/**
- * This function has been redesigned many times because of many constraints.
- * The ideal architecture here is a tree where a unique switch starts at the
- * leaves, and we jump down the tree to share code among subsections,
- * finishing with residual decoding at the root.
- *
- * The problems are:
- * _ The prologue must be minimal for the performance of Intra4x4 modes, so
- *   code common to other modes has to be duplicated or put in functions.
- * _ gcc does not support collapsing nested switches into a single one,
- *   leaving only the possibility to duplicate some code.
- * _ Functions incur some overhead, even with tail calls, because of stack
- *   management.
- * _ Readability should limit the size of the main function.
- *
- * The parameters to decode_switch are computed in a prologue function at the
- * end of this file, to force these critical values in registers:
- * _ nstride is -stride
- * _ p points to row 1, column 0 of the target block, such that all 4x4 samples
- *   can be reached with a single x86 instruction with stride and nstride
- * _ buf is &pred_buffer[BlkIdx%16] for AC Intra16x16 and Chroma modes
- * _ mode is PredMode[BlkIdx]
- * _ a zero value is forced in XMM0 to prevent compilers spamming PXORs
- * _ all of them should be passed to functions in the same order to avoid
- *   moves, and should not be used after function calls to avoid spills
- */
 static noinline void FUNC(decode_switch, size_t stride, ssize_t nstride, uint8_t *p, __m128i *buf, int mode, __m128i zero) {
 	static const v16qi C8_8bit = {7, 8, 9, 10, 11, 12, 13, 14, 15, 15, -1, -1, -1, -1, -1, -1};
 	static const v16qi D8_8bit = {0, 0, 1, 2, 3, 4, 5, 6, 7, 8, -1, -1, -1, -1, -1, -1};
@@ -1103,70 +989,6 @@ static noinline void FUNC(decode_switch, size_t stride, ssize_t nstride, uint8_t
 	__m64 m0, m1, m2;
 	__m128i x0, x1, x2, x3, x4, x5, x6;
 	switch (mode) {
-	case ADD_RESIDUAL_4x4:
-		JUMP(add_idct4x4);
-	case ADD_RESIDUAL_8x8:
-		JUMP(add_idct8x8);
-	case TRANSFORM_DC_4x4:
-		JUMP(transform_dc4x4);
-	case TRANSFORM_DC_2x4:
-		JUMP(transform_dc2x4);
-	case TRANSFORM_DC_2x2:
-		JUMP(transform_dc2x2);
-	
-	// Intra4x4 modes -> critical performance
-	case VERTICAL_4x4:
-		x0 = _mm_unpacklo_epi8(_mm_set1_epi32(*(int32_t *)(p + nstride * 2)), zero);
-		JUMP(decode_Residual4x4, x0, x0);
-	case HORIZONTAL_4x4:
-		JUMP(decode_Horizontal4x4_8bit, stride, nstride, p);
-	case DC_4x4:
-		m0 = _mm_unpacklo_pi8(*(__m64 *)(p + nstride     - 4), *(__m64 *)(p               - 4));
-		m1 = _mm_unpacklo_pi8(*(__m64 *)(p +  stride     - 4), *(__m64 *)(p +  stride * 2 - 4));
-		m2 = _mm_unpackhi_pi32(_mm_unpackhi_pi16(m0, m1), *(__m64 *)(p + nstride * 2 - 4));
-		JUMP(decode_DC4x4_8bit, zero, _mm_movpi64_epi64(m2));
-	case DC_4x4_A:
-		JUMP(decode_DC4x4_8bit, zero, _mm_set1_epi32(*(int32_t *)(p + nstride * 2)));
-	case DC_4x4_B:
-		m0 = _mm_unpacklo_pi8(*(__m64 *)(p + nstride     - 4), *(__m64 *)(p               - 4));
-		m1 = _mm_unpacklo_pi8(*(__m64 *)(p +  stride     - 4), *(__m64 *)(p +  stride * 2 - 4));
-		m2 = _mm_shuffle_pi16(_mm_unpackhi_pi16(m0, m1), _MM_SHUFFLE(3, 2, 3, 2));
-		JUMP(decode_DC4x4_8bit, zero, _mm_movpi64_epi64(m2));
-	case DC_4x4_AB:
-	case DC_4x4_AB_16_BIT:
-		x0 = _mm_avg_epu16(zero, (__m128i)ctx->clip_v);
-		JUMP(decode_Residual4x4, x0, x0);
-	case DIAGONAL_DOWN_LEFT_4x4:
-		x0 = _mm_unpacklo_epi8(_mm_loadl_epi64((__m128i *)(p + nstride * 2)), zero);
-		JUMP(decode_DiagonalDownLeft4x4, x0);
-	case DIAGONAL_DOWN_LEFT_4x4_C:
-		x0 = _mm_unpacklo_epi8(_mm_set1_epi32(*(int32_t *)(p + nstride * 2)), zero);
-		JUMP(decode_DiagonalDownLeft4x4, _mm_shufflehi_epi16(x0, _MM_SHUFFLE(3, 3, 3, 3)));
-	case DIAGONAL_DOWN_RIGHT_4x4:
-		m0 = _mm_alignr_pi8(*(__m64 *)(p + nstride * 2 - 1), *(__m64 *)(p + nstride     - 8), 7);
-		m1 = _mm_unpackhi_pi8(*(__m64 *)(p +  stride     - 8), *(__m64 *)(p               - 8));
-		x0 = _mm_unpacklo_epi8(_mm_movpi64_epi64(_mm_alignr_pi8(m0, m1, 6)), zero);
-		x1 = _mm_unpacklo_epi8(_mm_loadl_epi64((__m128i *)(p +  stride * 2 - 8)), zero);
-		JUMP(decode_DiagonalDownRight4x4, x0, x1);
-	case VERTICAL_RIGHT_4x4:
-		m0 = _mm_alignr_pi8(*(__m64 *)(p + nstride * 2 - 1), *(__m64 *)(p + nstride     - 8), 7);
-		m1 = _mm_unpackhi_pi8(*(__m64 *)(p +  stride     - 8), *(__m64 *)(p               - 8));
-		x0 = _mm_unpacklo_epi8(_mm_movpi64_epi64(_mm_alignr_pi8(m0, m1, 6)), zero);
-		JUMP(decode_VerticalRight4x4, x0);
-	case HORIZONTAL_DOWN_4x4:
-		m0 = _mm_unpacklo_pi8(*(__m64 *)(p +  stride * 2 - 4), *(__m64 *)(p +  stride     - 4));
-		m1 = _mm_unpacklo_pi8(*(__m64 *)(p               - 4), *(__m64 *)(p + nstride     - 4));
-		m2 = _mm_unpackhi_pi32(_mm_unpackhi_pi16(m0, m1), *(__m64 *)(p + nstride * 2 - 5));
-		x0 = _mm_unpacklo_epi8(_mm_movpi64_epi64(m2), zero);
-		JUMP(decode_HorizontalDown4x4, x0);
-	case VERTICAL_LEFT_4x4:
-		x0 = _mm_unpacklo_epi8(_mm_loadl_epi64((__m128i *)(p + nstride * 2)), zero);
-		JUMP(decode_VerticalLeft4x4, x0);
-	case VERTICAL_LEFT_4x4_C:
-		x0 = _mm_unpacklo_epi8(_mm_set1_epi32(*(int32_t *)(p + nstride * 2)), zero);
-		JUMP(decode_VerticalLeft4x4, _mm_shufflehi_epi16(x0, _MM_SHUFFLE(3, 3, 3, 3)));
-	case HORIZONTAL_UP_4x4:
-		JUMP(decode_HorizontalUp4x4_8bit, stride, nstride, p, zero);
 	
 	// Intra8x8 modes
 	case VERTICAL_8x8:
@@ -1316,8 +1138,6 @@ static noinline void FUNC(decode_switch, size_t stride, ssize_t nstride, uint8_t
 		__builtin_unreachable();
 	}
 }
-
-
 
 static void FUNC(decode_samples) {
 	int BlkIdx = ctx->BlkIdx;

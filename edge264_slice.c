@@ -26,81 +26,7 @@
  * coeff_abs_level expects at most 2^(7+14)-14, i.e 41 bits as Exp-Golomb, so
  * we can get all of them on 64 bit machines.
  */
-static noinline void CAFUNC(parse_residual_block, unsigned coded_block_flag, int startIdx, int endIdx)
-{
-	// Sharing this test here should limit branch predictor cache pressure.
-	if (!coded_block_flag)
-		JUMP(decode_samples);
-	
-	// significant_coeff_flags are stored as a bit mask
-	uint64_t significant_coeff_flags = 0;
-	int i = startIdx;
-	do {
-		if (CALL(get_ae, ctx->ctxIdxOffsets[1] + ctx->sig_inc[i])) {
-			significant_coeff_flags |= (uint64_t)1 << i;
-			if (CALL(get_ae, ctx->ctxIdxOffsets[2] + ctx->last_inc[i]))
-				break;
-		}
-	} while (++i < endIdx);
-	significant_coeff_flags |= (uint64_t)1 << i;
-	ctx->significant_coeff_flags = significant_coeff_flags;
-	
-	// Now loop on set bits to parse all non-zero coefficients.
-	int ctxIdx0 = ctx->ctxIdxOffsets[3] + 1;
-	int ctxIdx1 = ctx->ctxIdxOffsets[3] + 5;
-	do {
-		int coeff_level = 1;
-		int ctxIdx = ctxIdx0;
-		while (coeff_level < 15 && CALL(get_ae, ctxIdx))
-			coeff_level++, ctxIdx = ctxIdx1;
-		if (coeff_level >= 15) {
-#if SIZE_BIT == 32
-			// the biggest value to encode is 2^(14+7)-14, for which k=20 (see 9.3.2.3)
-			int k = 0;
-			while (CALL(get_bypass) && k < 20)
-				k++;
-			coeff_level = 1;
-			while (k--)
-				coeff_level += coeff_level + CALL(get_bypass);
-			coeff_level += 14;
-#elif SIZE_BIT == 64
-			// we need at least 50 bits in codIOffset to get 41 bits with a division by 9 bits
-			int zeros = clz(codIRange);
-			if (zeros > 64 - 50) {
-				codIOffset = lsd(codIOffset, CALL(get_bytes, zeros >> 3), zeros & -8);
-				codIRange <<= zeros & -8;
-				zeros = clz(codIRange);
-			}
-			codIRange >>= 64 - 9 - zeros;
-			size_t quo = codIOffset / codIRange; // requested bits are in lsb and zeros+9 empty bits above
-			size_t rem = codIOffset % codIRange;
-			int k = min(clz(~quo << (zeros + 9)), 20);
-			int unused = 64 - 9 - zeros - k * 2 - 1;
-			coeff_level = 14 + (1 << k | (quo >> unused & (((size_t)1 << k) - 1)));
-			codIOffset = (quo & (((size_t)1 << unused) - 1)) * codIRange + rem;
-			codIRange <<= unused;
-#endif
-		}
-		
-		// not the brightest part of spec (9.3.3.1.3), I did my best
-		static const int8_t trans[5] = {0, 2, 3, 4, 4};
-		int last_sig_offset = ctx->ctxIdxOffsets[3];
-		int ctxIdxInc = trans[ctxIdx0 - last_sig_offset];
-		ctxIdx0 = last_sig_offset + (coeff_level > 1 ? 0 : ctxIdxInc);
-		ctxIdx1 = min(ctxIdx1 + (coeff_level > 1), (last_sig_offset == 257 ? last_sig_offset + 8 : last_sig_offset + 9));
-	
-		// scale and store
-		int c = CALL(get_bypass) ? -coeff_level : coeff_level;
-		int i = 63 - clz64(significant_coeff_flags);
-		ctx->c[ctx->scan[i]] = c; // beware, scan is transposed already
-		significant_coeff_flags &= ~((uint64_t)1 << i);
-		fprintf(stderr, "coeffLevel[%d]: %d\n", i - startIdx, c);
-		// fprintf(stderr, "coeffLevel[%d](%d): %d\n", i - startIdx, ctx->BlkIdx, c);
-	} while (significant_coeff_flags != 0);
-	JUMP(decode_samples);
-}
-
-static void CAFUNC(parse_residual_block_bis, int startIdx, int endIdx)
+static void CAFUNC(parse_residual_block, int startIdx, int endIdx)
 {
 	// significant_coeff_flags are stored as a bit mask
 	uint64_t significant_coeff_flags = 0;
@@ -235,22 +161,20 @@ static void CAFUNC(parse_chroma_residual)
 	if (mb->f.CodedBlockPatternChromaDC && CALL(get_ae, ctx->ctxIdxOffsets[0] + ctx->inc.coded_block_flags_16x16[1])) {
 		mb->f.coded_block_flags_16x16[1] = 1;
 		memset(ctx->c, 0, 32);
-		CACALL(parse_residual_block_bis, 0, is422 * 4 + 3);
+		CACALL(parse_residual_block, 0, is422 * 4 + 3);
 		if (is422) CALL(transform_dc2x4); else CALL(transform_dc2x2);
 	}
 	CALL(check_ctx, RESIDUAL_CB_DC_LABEL);
-	ctx->PredMode[16] = ctx->PredMode[17];
 	
 	// Another 2x2/2x4 DC block for the Cr component
 	ctx->BlkIdx = 20 + is422 * 4;
 	if (mb->f.CodedBlockPatternChromaDC && CALL(get_ae, ctx->ctxIdxOffsets[0] + ctx->inc.coded_block_flags_16x16[2])) {
 		mb->f.coded_block_flags_16x16[2] = 1;
 		memset(ctx->c, 0, 32);
-		CACALL(parse_residual_block_bis, 0, is422 * 4 + 3);
+		CACALL(parse_residual_block, 0, is422 * 4 + 3);
 		if (is422) CALL(transform_dc2x4); else CALL(transform_dc2x2);
 	}
 	CALL(check_ctx, RESIDUAL_CR_DC_LABEL);
-	ctx->PredMode[ctx->BlkIdx] = ctx->PredMode[ctx->BlkIdx + 1];
 	
 	// Eight or sixteen 4x4 AC blocks for the Cb/Cr components
 	CALL(compute_LevelScale4x4, 1);
@@ -260,24 +184,24 @@ static void CAFUNC(parse_chroma_residual)
 	ctx->ctxIdxOffsets_l = ctxIdxOffsets_chromaAC[mb->f.mb_field_decoding_flag];
 	for (ctx->BlkIdx = 16; ctx->BlkIdx < 24 + is422 * 8; ctx->BlkIdx++) {
 		if (ctx->BlkIdx == 20 + is422 * 4) {
-			ctx->pred_buffer_v[16] = ctx->pred_buffer_v[17];
 			CALL(compute_LevelScale4x4, 2);
 			ctx->LevelScale[0] = 64;
 		}
 		
 		// neighbouring access uses pointer arithmetic to avoid bounds checks
-		int coded_block_flag = 0;
-		if (mb->f.CodedBlockPatternChromaAC) {
-			int cbfA = *(mb->coded_block_flags_4x4 + ctx->coded_block_flags_4x4_A[ctx->BlkIdx]);
-			int cbfB = *(mb->coded_block_flags_4x4 + ctx->coded_block_flags_4x4_B[ctx->BlkIdx]);
-			coded_block_flag = CALL(get_ae, ctx->ctxIdxOffsets[0] + cbfA + cbfB * 2);
-		}
-		mb->coded_block_flags_4x4[ctx->BlkIdx] = coded_block_flag;
 		memset(ctx->c, 0, 64);
 		ctx->c[0] = ctx->c[ctx->BlkIdx];
 		ctx->significant_coeff_flags = 1;
+		if (mb->f.CodedBlockPatternChromaAC) {
+			int cbfA = *(mb->coded_block_flags_4x4 + ctx->coded_block_flags_4x4_A[ctx->BlkIdx]);
+			int cbfB = *(mb->coded_block_flags_4x4 + ctx->coded_block_flags_4x4_B[ctx->BlkIdx]);
+			if (CALL(get_ae, ctx->ctxIdxOffsets[0] + cbfA + cbfB * 2)) {
+				mb->coded_block_flags_4x4[ctx->BlkIdx] = 1;
+				CACALL(parse_residual_block, 1, 15);
+			}
+		}
 		CALL(check_ctx, RESIDUAL_CHROMA_LABEL);
-		CACALL(parse_residual_block, coded_block_flag, 1, 15);
+		CALL(add_idct4x4);
 	}
 }
 
@@ -307,7 +231,7 @@ static void CAFUNC(parse_Intra16x16_residual)
 		if (CALL(get_ae, ctx->ctxIdxOffsets[0] + ctx->inc.coded_block_flags_16x16[iYCbCr])) {
 			mb->f.coded_block_flags_16x16[iYCbCr] = 1;
 			memset(ctx->c, 0, 64);
-			CACALL(parse_residual_block_bis, 0, 15);
+			CACALL(parse_residual_block, 0, 15);
 			CALL(transform_dc4x4);
 		} else {
 			memset(ctx->c + 16, 0, 64);
@@ -316,20 +240,20 @@ static void CAFUNC(parse_Intra16x16_residual)
 		
 		// All AC blocks pick a DC coeff, then go to ctx->c[1..15]
 		ctx->ctxIdxOffsets_l = ctxIdxOffsets_16x16AC[iYCbCr][mb_field_decoding_flag];
-		ctx->PredMode[ctx->BlkIdx] = ctx->PredMode[ctx->BlkIdx + 1];
 		do {
-			int coded_block_flag = 0;
-			if (mb->CodedBlockPatternLuma[ctx->BlkIdx >> 2]) {
-				int cbfA = *(mb->coded_block_flags_4x4 + ctx->coded_block_flags_4x4_A[ctx->BlkIdx]);
-				int cbfB = *(mb->coded_block_flags_4x4 + ctx->coded_block_flags_4x4_B[ctx->BlkIdx]);
-				coded_block_flag = CALL(get_ae, ctx->ctxIdxOffsets[0] + cbfA + cbfB * 2);
-			}
-			mb->coded_block_flags_4x4[ctx->BlkIdx] = coded_block_flag;
 			memset(ctx->c, 0, 64);
 			ctx->c[0] = ctx->c[16 + (ctx->BlkIdx & 15)];
 			ctx->significant_coeff_flags = 1;
+			if (mb->CodedBlockPatternLuma[ctx->BlkIdx >> 2]) {
+				int cbfA = *(mb->coded_block_flags_4x4 + ctx->coded_block_flags_4x4_A[ctx->BlkIdx]);
+				int cbfB = *(mb->coded_block_flags_4x4 + ctx->coded_block_flags_4x4_B[ctx->BlkIdx]);
+				if (CALL(get_ae, ctx->ctxIdxOffsets[0] + cbfA + cbfB * 2)) {
+					mb->coded_block_flags_4x4[ctx->BlkIdx] = 1;
+					CACALL(parse_residual_block, 1, 15);
+				}
+			}
 			CALL(check_ctx, RESIDUAL_4x4_LABEL);
-			CACALL(parse_residual_block, coded_block_flag, 1, 15);
+			CALL(add_idct4x4);
 		// not a loop-predictor-friendly condition, but would it make a difference?
 		} while (++ctx->BlkIdx & 15);
 		
@@ -349,6 +273,18 @@ static void CAFUNC(parse_Intra16x16_residual)
  */
 static void CAFUNC(parse_NxN_residual)
 {
+	static const int8_t intra4x4_modes[9][16] = {
+		I4x4_V_8  , I4x4_V_8   , I4x4_DCAB_8, I4x4_DCAB_8, I4x4_V_8   , I4x4_V_8   , I4x4_DCAB_8, I4x4_DCAB_8, I4x4_V_8   , I4x4_V_8   , I4x4_DCAB_8, I4x4_DCAB_8, I4x4_V_8   , I4x4_V_8   , I4x4_DCAB_8, I4x4_DCAB_8,
+		I4x4_H_8  , I4x4_DCAB_8, I4x4_H_8   , I4x4_DCAB_8, I4x4_H_8   , I4x4_DCAB_8, I4x4_H_8   , I4x4_DCAB_8, I4x4_H_8   , I4x4_DCAB_8, I4x4_H_8   , I4x4_DCAB_8, I4x4_H_8   , I4x4_DCAB_8, I4x4_H_8   , I4x4_DCAB_8,
+		I4x4_DC_8 , I4x4_DCA_8 , I4x4_DCB_8 , I4x4_DCAB_8, I4x4_DC_8  , I4x4_DCA_8 , I4x4_DCB_8 , I4x4_DCAB_8, I4x4_DC_8  , I4x4_DCA_8 , I4x4_DCB_8 , I4x4_DCAB_8, I4x4_DC_8  , I4x4_DCA_8 , I4x4_DCB_8 , I4x4_DCAB_8,
+		I4x4_DDL_8, I4x4_DDL_8 , I4x4_DCAB_8, I4x4_DCAB_8, I4x4_DDLC_8, I4x4_DDLC_8, I4x4_DCAB_8, I4x4_DCAB_8, I4x4_DDL_8 , I4x4_DDL_8 , I4x4_DCAB_8, I4x4_DCAB_8, I4x4_DDLC_8, I4x4_DDLC_8, I4x4_DCAB_8, I4x4_DCAB_8,
+		I4x4_DDR_8, I4x4_DCAB_8, I4x4_DCAB_8, I4x4_DCAB_8, I4x4_DDR_8 , I4x4_DCAB_8, I4x4_DCAB_8, I4x4_DCAB_8, I4x4_DCAB_8, I4x4_DCAB_8, I4x4_DCAB_8, I4x4_DCAB_8, I4x4_DCAB_8, I4x4_DCAB_8, I4x4_DCAB_8, I4x4_DCAB_8,
+		I4x4_VR_8 , I4x4_DCAB_8, I4x4_DCAB_8, I4x4_DCAB_8, I4x4_VR_8  , I4x4_DCAB_8, I4x4_DCAB_8, I4x4_DCAB_8, I4x4_DCAB_8, I4x4_DCAB_8, I4x4_DCAB_8, I4x4_DCAB_8, I4x4_DCAB_8, I4x4_DCAB_8, I4x4_DCAB_8, I4x4_DCAB_8,
+		I4x4_HD_8 , I4x4_DCAB_8, I4x4_DCAB_8, I4x4_DCAB_8, I4x4_HD_8  , I4x4_DCAB_8, I4x4_DCAB_8, I4x4_DCAB_8, I4x4_DCAB_8, I4x4_DCAB_8, I4x4_DCAB_8, I4x4_DCAB_8, I4x4_DCAB_8, I4x4_DCAB_8, I4x4_DCAB_8, I4x4_DCAB_8,
+		I4x4_VL_8 , I4x4_VL_8  , I4x4_DCAB_8, I4x4_DCAB_8, I4x4_VLC_8 , I4x4_VLC_8 , I4x4_DCAB_8, I4x4_DCAB_8, I4x4_VL_8  , I4x4_VL_8  , I4x4_DCAB_8, I4x4_DCAB_8, I4x4_VLC_8 , I4x4_VLC_8 , I4x4_DCAB_8, I4x4_DCAB_8,
+		I4x4_HU_8 , I4x4_DCAB_8, I4x4_HU_8  , I4x4_DCAB_8, I4x4_HU_8  , I4x4_DCAB_8, I4x4_HU_8  , I4x4_DCAB_8, I4x4_HU_8  , I4x4_DCAB_8, I4x4_HU_8  , I4x4_DCAB_8, I4x4_HU_8  , I4x4_DCAB_8, I4x4_HU_8  , I4x4_DCAB_8,
+	};
+	
 	CACALL(parse_mb_qp_delta, mb->f.CodedBlockPatternChromaDC | mb->CodedBlockPatternLuma_s);
 	
 	// next few blocks will share many parameters, so we cache a LOT of them
@@ -366,17 +302,23 @@ static void CAFUNC(parse_NxN_residual)
 			
 			// Decoding directly follows parsing to avoid duplicate loops.
 			do {
-				int coded_block_flag = 0;
+				if (!mb->f.mbIsInterFlag) {
+					int mode = intra4x4_modes[mb->Intra4x4PredMode[ctx->BlkIdx & 15]][ctx->unavail[ctx->BlkIdx & 15]];
+					uint8_t *samples = ctx->frame + ctx->frame_offsets_x[ctx->BlkIdx] + ctx->frame_offsets_y[ctx->BlkIdx];
+					decode_intra4x4(mode, samples, ctx->stride, ctx->clip_v);
+				}
 				if (mb->CodedBlockPatternLuma[ctx->BlkIdx >> 2]) {
 					int cbfA = *(mb->coded_block_flags_4x4 + ctx->coded_block_flags_4x4_A[ctx->BlkIdx]);
 					int cbfB = *(mb->coded_block_flags_4x4 + ctx->coded_block_flags_4x4_B[ctx->BlkIdx]);
-					coded_block_flag = CALL(get_ae, ctx->ctxIdxOffsets[0] + cbfA + cbfB * 2);
+					if (CALL(get_ae, ctx->ctxIdxOffsets[0] + cbfA + cbfB * 2)) {
+						mb->coded_block_flags_4x4[ctx->BlkIdx] = 1;
+						memset(ctx->c, 0, 64);
+						CACALL(parse_residual_block, 0, 15);
+						CALL(add_idct4x4);
+					}
 				}
-				mb->coded_block_flags_4x4[ctx->BlkIdx] = coded_block_flag;
-				memset(ctx->c, 0, 64);
-				ctx->significant_coeff_flags = 0;
 				CALL(check_ctx, RESIDUAL_4x4_LABEL);
-				CACALL(parse_residual_block, coded_block_flag, 0, 15);
+				//CALL(decode_samples);
 			} while (++ctx->BlkIdx & 15);
 		} else {
 			
@@ -403,7 +345,7 @@ static void CAFUNC(parse_NxN_residual)
 				memset(ctx->c, 0, 256);
 				ctx->significant_coeff_flags = 0;
 				CALL(check_ctx, RESIDUAL_8x8_LABEL);
-				CACALL(parse_residual_block, coded_block_flag, 0, 63);
+				//CACALL(parse_residual_block, coded_block_flag, 0, 63);
 			} while ((ctx->BlkIdx += 4) & 15);
 		}
 		
@@ -558,8 +500,8 @@ static noinline void CAFUNC(parse_I_mb, int mb_type_or_ctxIdx)
 #ifdef CABAC
 		mb->f.mb_type_I_NxN = 1;
 		fprintf(stderr, (mb_type_or_ctxIdx == 17) ? "mb_type: 5\n" : // in P slice
-		                (mb_type_or_ctxIdx == 32) ? "mb_type: 23\n" : // in B slice
-		                                            "mb_type: 0\n"); // in I slice
+							 (mb_type_or_ctxIdx == 32) ? "mb_type: 23\n" : // in B slice
+																  "mb_type: 0\n"); // in I slice
 #endif
 		
 		// 7.3.5, 7.4.5, 9.3.3.1.1.10 and table 9-34

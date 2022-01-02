@@ -589,39 +589,24 @@ static const v4hi ctxIdxOffsets_8x8[3][2] = {
  * Each intraNxN mode is converted to one of these modes right before decoding
  * to select the proper internal routine.
  */
-enum Intra4x4_mode {
-	VERTICAL_4x4_8_BIS,
-	HORIZONTAL_4x4_8_BIS,
-	DC_4x4_8_BIS,
-	DC_4x4_A_8_BIS,
-	DC_4x4_B_8_BIS,
-	DC_4x4_AB_8_BIS,
-	DIAGONAL_DOWN_LEFT_4x4_8_BIS,
-	DIAGONAL_DOWN_LEFT_4x4_C_8_BIS,
-	DIAGONAL_DOWN_RIGHT_4x4_8_BIS,
-	VERTICAL_RIGHT_4x4_8_BIS,
-	HORIZONTAL_DOWN_4x4_8_BIS,
-	VERTICAL_LEFT_4x4_8_BIS,
-	VERTICAL_LEFT_4x4_C_8_BIS,
-	HORIZONTAL_UP_4x4_8_BIS,
-	
-	VERTICAL_4x4_16_BIS,
-	HORIZONTAL_4x4_16_BIS,
-	DC_4x4_16_BIS,
-	DC_4x4_A_16_BIS,
-	DC_4x4_B_16_BIS,
-	DC_4x4_AB_16_BIS,
-	DIAGONAL_DOWN_LEFT_4x4_16_BIS,
-	DIAGONAL_DOWN_LEFT_4x4_C_16_BIS,
-	DIAGONAL_DOWN_RIGHT_4x4_16_BIS,
-	VERTICAL_RIGHT_4x4_16_BIS,
-	HORIZONTAL_DOWN_4x4_16_BIS,
-	VERTICAL_LEFT_4x4_16_BIS,
-	VERTICAL_LEFT_4x4_C_16_BIS,
-	HORIZONTAL_UP_4x4_16_BIS
+enum Intra4x4_modes {
+	I4x4_V_8,
+	I4x4_H_8,
+	I4x4_DC_8,
+	I4x4_DCA_8,
+	I4x4_DCB_8,
+	I4x4_DCAB_8,
+	I4x4_DDL_8,
+	I4x4_DDLC_8,
+	I4x4_DDR_8,
+	I4x4_VR_8,
+	I4x4_HD_8,
+	I4x4_VL_8,
+	I4x4_VLC_8,
+	I4x4_HU_8,
 };
 
-enum Intra8x8_mode {
+enum Intra8x8_modes {
 	VERTICAL_8x8_8_BIS,
 	VERTICAL_8x8_C_8_BIS,
 	VERTICAL_8x8_D_8_BIS,

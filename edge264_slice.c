@@ -113,7 +113,6 @@ static void CAFUNC(parse_mb_qp_delta, unsigned cond) {
 		39, 39, 39, 39};
 	// TODO: Put initialisation for neighbouring Inter/Intra cbf values here
 	
-	CALL(check_ctx, RESIDUAL_QP_LABEL);
 	int mb_qp_delta = 0;
 	ctx->mb_qp_delta_non_zero = cond && CALL(get_ae, 60 + ctx->mb_qp_delta_non_zero);
 	if (ctx->mb_qp_delta_non_zero) {
@@ -164,7 +163,6 @@ static void CAFUNC(parse_chroma_residual)
 		CACALL(parse_residual_block, 0, is422 * 4 + 3);
 		if (is422) CALL(transform_dc2x4); else CALL(transform_dc2x2);
 	}
-	CALL(check_ctx, RESIDUAL_CB_DC_LABEL);
 	
 	// Another 2x2/2x4 DC block for the Cr component
 	ctx->BlkIdx = 20 + is422 * 4;
@@ -174,7 +172,6 @@ static void CAFUNC(parse_chroma_residual)
 		CACALL(parse_residual_block, 0, is422 * 4 + 3);
 		if (is422) CALL(transform_dc2x4); else CALL(transform_dc2x2);
 	}
-	CALL(check_ctx, RESIDUAL_CR_DC_LABEL);
 	
 	// Eight or sixteen 4x4 AC blocks for the Cb/Cr components
 	CALL(compute_LevelScale4x4, 1);
@@ -200,7 +197,6 @@ static void CAFUNC(parse_chroma_residual)
 				CACALL(parse_residual_block, 1, 15);
 			}
 		}
-		CALL(check_ctx, RESIDUAL_CHROMA_LABEL);
 		CALL(add_idct4x4);
 	}
 }
@@ -226,7 +222,6 @@ static void CAFUNC(parse_Intra16x16_residual)
 		// Parse a DC block, then transform it to ctx->c[16..31]
 		int iYCbCr = ctx->BlkIdx >> 4;
 		ctx->ctxIdxOffsets_l = ctxIdxOffsets_16x16DC[iYCbCr][mb_field_decoding_flag];
-		CALL(check_ctx, RESIDUAL_DC_LABEL);
 		CALL(compute_LevelScale4x4, iYCbCr);
 		if (CALL(get_ae, ctx->ctxIdxOffsets[0] + ctx->inc.coded_block_flags_16x16[iYCbCr])) {
 			mb->f.coded_block_flags_16x16[iYCbCr] = 1;
@@ -252,7 +247,6 @@ static void CAFUNC(parse_Intra16x16_residual)
 					CACALL(parse_residual_block, 1, 15);
 				}
 			}
-			CALL(check_ctx, RESIDUAL_4x4_LABEL);
 			CALL(add_idct4x4);
 		// not a loop-predictor-friendly condition, but would it make a difference?
 		} while (++ctx->BlkIdx & 15);
@@ -317,8 +311,6 @@ static void CAFUNC(parse_NxN_residual)
 						CALL(add_idct4x4);
 					}
 				}
-				CALL(check_ctx, RESIDUAL_4x4_LABEL);
-				//CALL(decode_samples);
 			} while (++ctx->BlkIdx & 15);
 		} else {
 			
@@ -344,7 +336,6 @@ static void CAFUNC(parse_NxN_residual)
 				mb->coded_block_flags_4x4_s[luma8x8BlkIdx] = coded_block_flag ? 0x01010101 : 0;
 				memset(ctx->c, 0, 256);
 				ctx->significant_coeff_flags = 0;
-				CALL(check_ctx, RESIDUAL_8x8_LABEL);
 				//CACALL(parse_residual_block, coded_block_flag, 0, 63);
 			} while ((ctx->BlkIdx += 4) & 15);
 		}
@@ -365,9 +356,8 @@ static void CAFUNC(parse_NxN_residual)
  * As with mb_qp_delta, coded_block_pattern is parsed in two distinct code
  * paths, thus put in a non-inlined function.
  */
-static void CAFUNC(parse_coded_block_pattern) {
-	CALL(check_ctx, RESIDUAL_CBP_LABEL);
-	
+static void CAFUNC(parse_coded_block_pattern)
+{
 	// Luma prefix
 #ifndef CABAC
 	int cbp = ctx->map_me[CALL(get_ue16, 47)];
@@ -411,7 +401,6 @@ static void CAFUNC(parse_intra_chroma_pred_mode)
 	};
 	
 	// Do not optimise too hard to keep the code understandable here.
-	CALL(check_ctx, INTRA_CHROMA_LABEL);
 	int type = ctx->ps.ChromaArrayType;
 	if (type == 1 || type == 2) {
 #ifndef CABAC
@@ -483,7 +472,6 @@ static noinline void CAFUNC(parse_I_mb, int mb_type_or_ctxIdx)
 		.CodedBlockPatternChromaAC = 1,
 		.coded_block_flags_16x16 = {1, 1, 1},
 	};
-	CALL(check_ctx, INTRA_MB_LABEL);
 	
 	// Intra-specific initialisations
 	if (ctx->inc.unavailable & 1) {
@@ -1327,7 +1315,6 @@ static noinline void CAFUNC(parse_slice_data)
 		ctx->inc.v = flagsA + flagsB + (flagsB & flags_twice.v);
 		memset(mb, 0, offsetof(Edge264_macroblock, mvs)); // FIXME who needs this?
 		mb->f.mb_field_decoding_flag = ctx->field_pic_flag;
-		CALL(check_ctx, LOOP_START_LABEL);
 		
 		// prepare block unavailability information (6.4.11.4)
 		ctx->unavail_v = block_unavailability[ctx->inc.unavailable];

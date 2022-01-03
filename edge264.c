@@ -1,6 +1,4 @@
 /** MAYDO:
- * _ Revise IntraChroma like Intra16x16
- * _ replace palignr loads with unpacks everywhere and reduce the use of unaligned loads
  * _ remove all calls to check_ctx as this is hardly useful and readable
  * _ remove clip_v in favor of passing it to decoding functions (same as stride)
  * _ implement new functions decode_intra4x4 and decode_intra8x8 taking i4x4 as parameter
@@ -1458,7 +1456,6 @@ int Edge264_decode_NAL(Edge264_stream *e)
 	// allocate the decoding context and backup registers
 	if (e->CPB + 2 >= e->end)
 		return 3;
-	check_stream(e);
 	Edge264_ctx context;
 	SET_CTX(&context);
 	memset(ctx, -1, sizeof(*ctx));

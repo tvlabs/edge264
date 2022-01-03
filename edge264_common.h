@@ -281,7 +281,6 @@ typedef struct
 
 #ifdef TRACE
 	#include <stdio.h>
-	#include "edge264_predicates.c"
 	static inline const char *red_if(int cond) { return (cond) ? " style='color:red'" : ""; }
 #else
 	#define printf(...) ((void)0)

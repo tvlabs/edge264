@@ -1,4 +1,5 @@
 /** MAYDO:
+ * _ Revise IntraChroma like Intra16x16
  * _ replace palignr loads with unpacks everywhere and reduce the use of unaligned loads
  * _ remove all calls to check_ctx as this is hardly useful and readable
  * _ remove clip_v in favor of passing it to decoding functions (same as stride)

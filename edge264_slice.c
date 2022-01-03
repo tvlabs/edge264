@@ -403,6 +403,13 @@ static void CAFUNC(parse_coded_block_pattern) {
  */
 static void CAFUNC(parse_intra_chroma_pred_mode)
 {
+	static const int8_t intraChroma_modes[4][4] = {
+		IC8x8_DC_8, IC8x8_DCA_8, IC8x8_DCB_8, IC8x8_DCAB_8,
+		IC8x8_H_8 , IC8x8_DCA_8, IC8x8_H_8  , IC8x8_DCAB_8,
+		IC8x8_V_8 , IC8x8_V_8  , IC8x8_DCB_8, IC8x8_DCAB_8,
+		IC8x8_P_8 , IC8x8_DCA_8, IC8x8_DCB_8, IC8x8_DCAB_8
+	};
+	
 	// Do not optimise too hard to keep the code understandable here.
 	CALL(check_ctx, INTRA_CHROMA_LABEL);
 	int type = ctx->ps.ChromaArrayType;
@@ -417,7 +424,9 @@ static void CAFUNC(parse_intra_chroma_pred_mode)
 		mb->f.intra_chroma_pred_mode_non_zero = (mode > 0);
 #endif
 		fprintf(stderr, "intra_chroma_pred_mode: %u\n", mode);
-		CALL(decode_intraChroma, mode);
+		uint8_t *samplesCb = ctx->frame + ctx->frame_offsets_x[16] + ctx->frame_offsets_y[16];
+		uint8_t *samplesCr = samplesCb + ctx->plane_size_C;
+		decode_intraChroma(intraChroma_modes[mode][ctx->inc.unavailable & 3], samplesCb, samplesCr, ctx->stride_C, ctx->clip_C);
 		ctx->PredMode_v[1] = (v16qu){TRANSFORM_DC_2x2, ADD_RESIDUAL_4x4, ADD_RESIDUAL_4x4, ADD_RESIDUAL_4x4, TRANSFORM_DC_2x2, ADD_RESIDUAL_4x4, ADD_RESIDUAL_4x4, ADD_RESIDUAL_4x4};
 	}
 }

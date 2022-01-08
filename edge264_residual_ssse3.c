@@ -44,16 +44,17 @@ static const v16qi normAdjust8x8[6][4] = {
  * Here we try to stay close to the spec's pseudocode, avoiding minor
  * optimisations that would make the code hard to understand.
  */
-static void add_idct4x4_8bit(v4si *c, unsigned qP, v16qu wS, int32_t *DCidx, uint8_t *samples, size_t stride)
+static inline void FUNC(add_idct4x4_8bit, int iYCbCr, int i4x4, v16qu wS, int32_t *DCidx)
 {
 	// loading and scaling
+	unsigned qP = mb->QP[iYCbCr];
 	__m128i sh = _mm_cvtsi32_si128(qP / 6);
 	__m128i nA = (__m128i)normAdjust4x4[qP % 6];
 	__m128i zero = _mm_setzero_si128();
 	__m128i LS0 = _mm_mullo_epi16(_mm_unpacklo_epi8((__m128i)wS, zero), _mm_unpacklo_epi8(nA, zero));
 	__m128i LS1 = _mm_mullo_epi16(_mm_unpackhi_epi8((__m128i)wS, zero), _mm_unpackhi_epi8(nA, zero));
-	__m128i c0 = _mm_packs_epi32((__m128i)c[0], (__m128i)c[1]);
-	__m128i c1 = _mm_packs_epi32((__m128i)c[2], (__m128i)c[3]);
+	__m128i c0 = _mm_packs_epi32((__m128i)ctx->c_v[0], (__m128i)ctx->c_v[1]);
+	__m128i c1 = _mm_packs_epi32((__m128i)ctx->c_v[2], (__m128i)ctx->c_v[3]);
 	__m128i ml0 = _mm_mullo_epi16(c0, LS0);
 	__m128i mh0 = _mm_mulhi_epi16(c0, LS0);
 	__m128i ml1 = _mm_mullo_epi16(c1, LS1);
@@ -95,17 +96,19 @@ static void add_idct4x4_8bit(v4si *c, unsigned qP, v16qu wS, int32_t *DCidx, uin
 	// final residual values and addition in place
 	__m128i r0 = _mm_srai_epi16(h0, 6);
 	__m128i r1 = _mm_srai_epi16(h1, 6);
-	__m128i p0 = load4x2_8bit(samples             , samples + stride    , zero);
-	__m128i p1 = load4x2_8bit(samples + stride * 2, samples + stride * 3, zero);
+	uint8_t *p = ctx->frame + ctx->frame_offsets_x[iYCbCr * 16 + i4x4] + ctx->frame_offsets_y[iYCbCr * 16 + i4x4];
+	size_t stride = ctx->stride;
+	__m128i p0 = load4x2_8bit(p             , p + stride    , zero);
+	__m128i p1 = load4x2_8bit(p + stride * 2, p + stride * 3, zero);
 	v4si u = (v4si)_mm_packus_epi16(_mm_adds_epi16(p0, r0), _mm_adds_epi16(p1, r1));
-	*(int32_t *)(samples             ) = u[0];
-	*(int32_t *)(samples + stride    ) = u[1];
-	*(int32_t *)(samples + stride * 2) = u[2];
-	*(int32_t *)(samples + stride * 3) = u[3];
+	*(int32_t *)(p             ) = u[0];
+	*(int32_t *)(p + stride    ) = u[1];
+	*(int32_t *)(p + stride * 2) = u[2];
+	*(int32_t *)(p + stride * 3) = u[3];
 }
 
 // legacy function kept for future 16bit support
-static noinline void FUNC(add_idct4x4)
+static noinline void FUNC(add_idct4x4_old)
 {
 	// loading and scaling
 	__m128i s32 = _mm_set1_epi32(32);
@@ -625,7 +628,7 @@ static inline void FUNC(transform_dc4x4, int iYCbCr)
 	__m128i f3 = _mm_add_epi32(xI, xJ);
 	
 	// scale
-	int qP = mb->QP[iYCbCr];
+	unsigned qP = mb->QP[iYCbCr];
 	__m128i s32 = _mm_set1_epi32(32);
 	__m128i LS = _mm_set1_epi32((ctx->ps.weightScale4x4[iYCbCr][0] * normAdjust4x4[qP % 6][0]) << (qP / 6));
 	__m128i dc0 = _mm_srai_epi32(_mm_add_epi32(_mm_mullo_epi32(f0, LS), s32), 6);

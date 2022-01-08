@@ -183,12 +183,10 @@ typedef struct
 	union { uint8_t edge_buf[2016]; int64_t edge_buf_l[252]; v16qu edge_buf_v[126]; };
 	
 	// Residuals context
-	uint64_t significant_coeff_flags; // used to determine if DC decoding can be used (faster)
 	union { int16_t ctxIdxOffsets[4]; v4hi ctxIdxOffsets_l; }; // {cbf,sig_flag,last_sig_flag,coeff_abs}
 	union { int8_t sig_inc[64]; v8qi sig_inc_l; v16qi sig_inc_v[4]; };
 	union { int8_t last_inc[64]; v8qi last_inc_l; v16qi last_inc_v[4]; };
 	union { int8_t scan[64]; v8qi scan_l; v16qi scan_v[4]; };
-	union { int32_t LevelScale[64]; v4si LevelScale_v[16]; };
 	union { int32_t c[64]; v4si c_v[16]; v8si c_V[8]; }; // non-scaled residual coefficients
 } Edge264_ctx;
 
@@ -332,11 +330,9 @@ static inline void FUNC(decode_inter_16x8_bottom, v8hi mvd, int lx);
 static noinline void FUNC(decode_direct_mv_pred);
 
 // edge264_residual_*.c
-static noinline void FUNC(compute_LevelScale4x4, int iYCbCr);
-static noinline void FUNC(compute_LevelScale8x8, int iYCbCr);
 static noinline void FUNC(add_idct4x4);
 static noinline void FUNC(add_idct8x8);
-static noinline void FUNC(transform_dc4x4);
+static inline void FUNC(transform_dc4x4, int iYCbCr);
 static inline void FUNC(transform_dc2x2);
 static inline void FUNC(transform_dc2x4);
 
@@ -500,11 +496,6 @@ static void print_v4si(v4si v) {
 	}
 	#endif // __GNUC__
 
-	// legacy functions
-	static noinline void FUNC(decode_Residual4x4, __m128i p0, __m128i p1);
-	static noinline void FUNC(decode_Residual8x8_8bit, __m128i p0, __m128i p1, __m128i p2, __m128i p3, __m128i p4, __m128i p5, __m128i p6, __m128i p7);
-	static noinline void FUNC(decode_Residual8x8, __m128i p0, __m128i p1, __m128i p2, __m128i p3, __m128i p4, __m128i p5, __m128i p6, __m128i p7);
-
 #else // add other architectures here
 	#error "Add -mssse3 or more recent"
 #endif
@@ -556,6 +547,10 @@ static const v16qi scan_8x8[2][4] = {{
 	{28, 29, 30, 31, 35, 41, 48, 42, 36, 37, 38, 39, 43, 49, 50, 44},
 	{45, 46, 47, 51, 56, 57, 52, 53, 54, 55, 58, 59, 60, 61, 62, 63},
 }};
+static const v16qi scan_chroma[2] = {
+	{0, 1, 2, 3, 4, 5, 6, 7},
+	{0, 2, 1, 4, 6, 3, 5, 7, 8, 10, 9, 12, 14, 11, 13, 15}
+};
 
 static const v4hi ctxIdxOffsets_16x16DC[3][2] = {
 	{{85, 105, 166, 227}, {85, 277, 338, 227}}, // ctxBlockCat==0

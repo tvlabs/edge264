@@ -1,5 +1,6 @@
 /** MAYDO:
- * _ remove all calls to check_ctx as this is hardly useful and readable
+ * _ implement a new dc2x2 transform that computes Cb&Cr at the same time, and adds DC to image if AC is false
+ * _ add a dc4x4 function that adds 4 dc values to image if cbp is false for an 8x8 block (with vector extensions if possible)
  * _ remove clip_v in favor of passing it to decoding functions (same as stride)
  * _ implement new functions decode_intra4x4 and decode_intra8x8 taking i4x4 as parameter
  * _ replace all calls to parse_residual_block by its bis version, then remove the former

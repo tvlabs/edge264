@@ -779,7 +779,6 @@ static void FUNC(decode_Horizontal4x4_16bit, size_t stride, ssize_t nstride, uin
 	__m128i x3 = _mm_shufflelo_epi16(x1, _MM_SHUFFLE(3, 3, 3, 3));
 	__m128i x4 = _mm_shufflehi_epi16(x2, _MM_SHUFFLE(3, 3, 3, 3));
 	__m128i x5 = _mm_shufflehi_epi16(x3, _MM_SHUFFLE(3, 3, 3, 3));
-	JUMP(decode_Residual4x4, x4, x5);
 }
 
 static void FUNC(decode_HorizontalUp4x4_16bit, size_t stride, ssize_t nstride, uint8_t *p) {
@@ -792,7 +791,6 @@ static void FUNC(decode_HorizontalUp4x4_16bit, size_t stride, ssize_t nstride, u
 	__m128i x0 = _mm_unpacklo_epi16(_mm_movpi64_epi64(m4), _mm_movpi64_epi64(m5));
 	__m128i x1 = _mm_shuffle_epi32(x0, _MM_SHUFFLE(2, 1, 1, 0));
 	__m128i x2 = _mm_shuffle_epi32(x0, _MM_SHUFFLE(3, 3, 3, 2));
-	JUMP(decode_Residual4x4, x1, x2);
 }
 
 static void FUNC(decode_DC16x16_16bit, __m128i topr, __m128i topl, __m128i leftt, __m128i leftb) {
@@ -804,7 +802,6 @@ static void FUNC(decode_DC16x16_16bit, __m128i topr, __m128i topl, __m128i leftt
 	__m128i x4 = _mm_srli_epi32(x3, 4);
 	__m128i DC = _mm_avg_epu16(_mm_packs_epi32(x4, x4), zero);
 	ctx->pred_buffer_v[0] = (v8hi)DC;
-	JUMP(transform_dc4x4);
 }
 
 static void FUNC(decode_Plane16x16_16bit, __m128i topr, __m128i topl, __m128i leftt, __m128i leftb) {
@@ -850,7 +847,6 @@ static void FUNC(decode_Plane16x16_16bit, __m128i topr, __m128i topl, __m128i le
 	ctx->pred_buffer_v[11] = (v8hi)_mm_add_epi32(p1, c2);
 	ctx->pred_buffer_v[14] = (v8hi)_mm_add_epi32(p2, c2);
 	ctx->pred_buffer_v[15] = (v8hi)_mm_add_epi32(p3, c2);
-	JUMP(transform_dc4x4);
 }
 
 static void FUNC(decode_ChromaDC8x8_16bit, __m128i top03, __m128i left03, __m128i dc12) {

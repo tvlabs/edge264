@@ -188,12 +188,9 @@ static void CAFUNC(parse_chroma_residual)
 				CACALL(parse_residual_block, 1, 15);
 			}
 		}
-		// CALL(add_idct4x4);
-		if (ctx->clip == 255) {
-			int iYCbCr = (ctx->BlkIdx >> 2) - 3;
-			v16qi wS = ((v16qi *)ctx->ps.weightScale4x4)[iYCbCr + mb->f.mbIsInterFlag * 3];
-			CALL(add_idct4x4_8bit, iYCbCr, ctx->BlkIdx2i4x4[ctx->BlkIdx] & 15, wS, &ctx->c[ctx->BlkIdx]);
-		}
+		int iYCbCr = (ctx->BlkIdx >> 2) - 3;
+		v16qi wS = ((v16qi *)ctx->ps.weightScale4x4)[iYCbCr + mb->f.mbIsInterFlag * 3];
+		CALL(add_idct4x4, iYCbCr, ctx->BlkIdx2i4x4[ctx->BlkIdx] & 15, wS, &ctx->c[ctx->BlkIdx]);
 	}
 }
 
@@ -238,8 +235,7 @@ static void CAFUNC(parse_Intra16x16_residual)
 					mb->coded_block_flags_4x4[BlkIdx] = 1;
 					CACALL(parse_residual_block, 1, 15);
 				}
-				if (ctx->clip == 255)
-					CALL(add_idct4x4_8bit, iYCbCr, i4x4, ((v16qi *)ctx->ps.weightScale4x4)[iYCbCr], &ctx->c[16 + i4x4]);
+				CALL(add_idct4x4, iYCbCr, i4x4, ((v16qi *)ctx->ps.weightScale4x4)[iYCbCr], &ctx->c[16 + i4x4]);
 			}
 		}
 		
@@ -299,10 +295,8 @@ static void CAFUNC(parse_NxN_residual)
 						mb->coded_block_flags_4x4[ctx->BlkIdx] = 1;
 						memset(ctx->c, 0, 64);
 						CACALL(parse_residual_block, 0, 15);
-						if (ctx->clip == 255) {
-							v16qi wS = ((v16qi *)ctx->ps.weightScale4x4)[iYCbCr + mb->f.mbIsInterFlag * 3];
-							CALL(add_idct4x4_8bit, iYCbCr, ctx->BlkIdx & 15, wS, NULL);
-						}
+						v16qi wS = ((v16qi *)ctx->ps.weightScale4x4)[iYCbCr + mb->f.mbIsInterFlag * 3];
+						CALL(add_idct4x4, iYCbCr, ctx->BlkIdx & 15, wS, NULL);
 					}
 				}
 			} while (++ctx->BlkIdx & 15);

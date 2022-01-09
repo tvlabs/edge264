@@ -699,6 +699,40 @@ static inline void FUNC(transform_dc2x2) {
 	c[3] = ((i2 - i3) * LevelScale) >> 5;
 }
 
+static inline void FUNC(transform_dc2x2_bis) {
+	// load both matrices interlaced+transposed and multiply right
+	__m128i c0 = (__m128i)ctx->c_v[0];
+	__m128i c1 = (__m128i)ctx->c_v[1];
+	__m128i d0 = _mm_add_epi32(c0, c1);
+	__m128i d1 = _mm_sub_epi32(c0, c1);
+	
+	// transpose and multiply left
+	__m128i e0 = _mm_unpacklo_epi64(d0, d1);
+	__m128i e1 = _mm_unpackhi_epi64(d0, d1);
+	__m128i f0 = _mm_add_epi32(e0, e1);
+	__m128i f1 = _mm_sub_epi32(e0, e1);
+	
+	// deinterlace and scale
+	unsigned qPb = mb->QP[1];
+	unsigned qPr = mb->QP[2];
+	__m128i LSb = _mm_set1_epi32((ctx->ps.weightScale4x4[1 + mb->f.mbIsInterFlag * 3][0] * normAdjust4x4[qPb % 6][0]) << (qPb / 6));
+	__m128i LSr = _mm_set1_epi32((ctx->ps.weightScale4x4[2 + mb->f.mbIsInterFlag * 3][0] * normAdjust4x4[qPr % 6][0]) << (qPr / 6));
+	__m128i fb = (__m128i)_mm_shuffle_ps((__m128)f0, (__m128)f1, _MM_SHUFFLE(2, 0, 2, 0));
+	__m128i fr = (__m128i)_mm_shuffle_ps((__m128)f0, (__m128)f1, _MM_SHUFFLE(3, 1, 3, 1));
+	__m128i dcCb = _mm_srai_epi32(_mm_mullo_epi32(fb, LSb), 5);
+	__m128i dcCr = _mm_srai_epi32(_mm_mullo_epi32(fr, LSr), 5);
+	
+	// store if needed later ...
+	if (mb->f.CodedBlockPatternChromaAC) {
+		ctx->c_v[4] = (v4si)dcCb;
+		ctx->c_v[5] = (v4si)dcCr;
+		
+	// ... or prepare for storage in place
+	} else {
+		
+	}
+}
+
 static inline void FUNC(transform_dc2x4) {
 	int iYCbCr = (ctx->BlkIdx - 8) >> 3; // BlkIdx is 16 or 24
 	unsigned qP_DC = mb->QP[iYCbCr] + 3;

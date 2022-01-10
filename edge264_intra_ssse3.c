@@ -96,7 +96,7 @@ static noinline __m128i FUNC(filter8_top_left_16bit, size_t stride, ssize_t nstr
 /**
  * Intra4x4
  */
-static noinline void _decode_intra4x4(int mode, size_t stride, ssize_t nstride, uint8_t *p, __m128i clip, __m128i zero) {
+static noinline void _decode_intra4x4(int mode, size_t stride, ssize_t nstride, uint8_t *p, int clip, __m128i zero) {
 	__m128i x0, x1, x2, x3, x4, x5, x6, x7, x8, x9, xA, p0, p1;
 	switch (mode) {
 	
@@ -136,7 +136,7 @@ static noinline void _decode_intra4x4(int mode, size_t stride, ssize_t nstride, 
 		x6 = _mm_srli_epi16(_mm_sad_epu8(_mm_srli_si128(x4, 12), zero), 1);
 		goto dc_4x4;
 	case I4x4_DCAB_8:
-		x6 = clip;
+		x6 = _mm_set1_epi16(clip);
 		goto dc_4x4;
 	
 	case I4x4_DDL_8:
@@ -235,8 +235,10 @@ static noinline void _decode_intra4x4(int mode, size_t stride, ssize_t nstride, 
 	*(int32_t *)(p +  stride * 2) = v[3];
 }
 
-static always_inline void decode_intra4x4(int mode, uint8_t *samples, size_t stride, v8hi clip) {
-	_decode_intra4x4(mode, stride, -stride, samples + stride, (__m128i)clip, _mm_setzero_si128());
+static always_inline void FUNC(decode_intra4x4, int mode, int BlkIdx) {
+	size_t stride = ctx->stride;
+	uint8_t *p = ctx->frame + ctx->frame_offsets_x[BlkIdx] + ctx->frame_offsets_y[BlkIdx] + stride;
+	_decode_intra4x4(mode, stride, -stride, p, ctx->clip, _mm_setzero_si128());
 }
 
 
@@ -405,7 +407,7 @@ static void FUNC(decode_HorizontalUp8x8, __m128i left) {
 /**
  * Intra16x16
  */
-static noinline void _decode_intra16x16(int mode, size_t stride, ssize_t nstride, uint8_t *p, uint8_t *q, uint8_t *r, uint8_t *s, __m128i clip) {
+static noinline void _decode_intra16x16(int mode, size_t stride, ssize_t nstride, uint8_t *p, uint8_t *q, uint8_t *r, uint8_t *s, int clip) {
 	__m128i top, left, pred;
 	switch (mode) {
 	
@@ -488,10 +490,9 @@ static noinline void _decode_intra16x16(int mode, size_t stride, ssize_t nstride
 		__m128i x3 = _mm_unpackhi_epi16(_mm_unpackhi_epi8(lC, lD), _mm_unpackhi_epi8(lE, lF));
 		top = left = _mm_unpackhi_epi64(_mm_unpackhi_epi32(x0, x1), _mm_unpackhi_epi32(x2, x3));
 		} goto i16x16_dc_8;
-	case I16x16_DCAB_8: {
-		__m128i x0 = _mm_avg_epu16(clip, _mm_setzero_si128());
-		pred = _mm_packus_epi16(x0, x0);
-		} break;
+	case I16x16_DCAB_8: 
+		pred = _mm_set1_epi8(-128);
+		break;
 	
 	case I16x16_P_8: {
 		// load neighbouring values in vector registers
@@ -584,10 +585,10 @@ static noinline void _decode_intra16x16(int mode, size_t stride, ssize_t nstride
 	*(__m128i *)(s +  stride * 2) = pred;
 }
 
-static always_inline void decode_intra16x16(int mode, uint8_t *samples, size_t stride, v8hi clip) {
+static always_inline void FUNC(decode_intra16x16, int mode, uint8_t *samples, size_t stride) {
 	uint8_t *p = samples + stride;
 	uint8_t *r = p + stride * 8;
-	_decode_intra16x16(mode, stride, -stride, p, p + stride * 4, r, r + stride * 4, (__m128i)clip);
+	_decode_intra16x16(mode, stride, -stride, p, p + stride * 4, r, r + stride * 4, ctx->clip);
 }
 
 
@@ -728,7 +729,7 @@ static always_inline void chroma8x8_plane_8bit(size_t stride, ssize_t nstride, u
 	*(int64_t *)(q +  stride * 2) = xE[1];
 }
 
-static noinline void _decode_intraChroma(int mode, size_t stride, ssize_t nstride, uint8_t *pCb, uint8_t *qCb, uint8_t *pCr, uint8_t *qCr, __m128i clip) {
+static noinline void _decode_intraChroma(int mode, size_t stride, ssize_t nstride, uint8_t *pCb, uint8_t *qCb, uint8_t *pCr, uint8_t *qCr, int clip) {
 	switch (mode) {
 	case IC8x8_DC_8:
 		chroma8x8_DC_8bit(stride, nstride, pCb, qCb);
@@ -761,10 +762,10 @@ static noinline void _decode_intraChroma(int mode, size_t stride, ssize_t nstrid
 	}
 }
 
-static always_inline void decode_intraChroma(int mode, uint8_t *samplesCb, uint8_t *samplesCr, size_t stride, v8hi clip) {
+static always_inline void FUNC(decode_intraChroma, int mode, uint8_t *samplesCb, uint8_t *samplesCr, size_t stride) {
 	uint8_t *pCb = samplesCb + stride;
 	uint8_t *pCr = samplesCr + stride;
-	_decode_intraChroma(mode, stride, -stride, pCb, pCb + stride * 4, pCr, pCr + stride * 4, clip);
+	_decode_intraChroma(mode, stride, -stride, pCb, pCb + stride * 4, pCr, pCr + stride * 4, ctx->clip);
 }
 
 
@@ -856,7 +857,7 @@ static void FUNC(decode_ChromaDC8x8_16bit, __m128i top03, __m128i left03, __m128
 	__m128i x3 = _mm_srli_epi16(_mm_avg_epu16(_mm_add_epi16(x1, _mm_set1_epi16(3)), x2), 2);
 	__m128i x4 = _mm_add_epi16(dc12, _mm_shuffle_epi32(dc12, _MM_SHUFFLE(2, 3, 0, 1)));
 	__m128i x5 = _mm_avg_epu16(_mm_srli_epi16(_mm_hadd_epi16(x4, x4), 1), _mm_setzero_si128());
-	__m128i *buf = (__m128i *)&ctx->pred_buffer_v[ctx->BlkIdx & 15];
+	__m128i *buf = (__m128i *)&ctx->pred_buffer_v[0/*BlkIdx*/ & 15];
 	buf[0] = _mm_unpacklo_epi64(x3, x3);
 	buf[1] = _mm_shuffle_epi32(x5, _MM_SHUFFLE(0, 0, 0, 0));
 	buf[2] = _mm_shuffle_epi32(x5, _MM_SHUFFLE(1, 1, 1, 1));
@@ -905,7 +906,7 @@ static void FUNC(decode_ChromaDC8x16_8bit, __m128i dc03, __m128i dc2146, __m128i
 	__m128i x4 = _mm_avg_epu16(_mm_srli_epi16(_mm_packs_epi32(x2, x3), 2), zero);
 	__m128i x5 = _mm_unpacklo_epi16(x4, x4);
 	__m128i x6 = _mm_unpackhi_epi16(x4, x4);
-	__m128i *buf = (__m128i *)&ctx->pred_buffer_v[ctx->BlkIdx & 15];
+	__m128i *buf = (__m128i *)&ctx->pred_buffer_v[0/*BlkIdx*/ & 15];
 	buf[0] = _mm_shuffle_epi32(x5, _MM_SHUFFLE(0, 0, 0, 0));
 	buf[1] = _mm_shuffle_epi32(x6, _MM_SHUFFLE(1, 1, 1, 1));
 	buf[2] = _mm_shuffle_epi32(x6, _MM_SHUFFLE(0, 0, 0, 0));
@@ -924,7 +925,7 @@ static void FUNC(decode_ChromaDC8x16_16bit, __m128i top03, __m128i left03, __m12
 	__m128i x3 = _mm_shufflelo_epi16(_mm_shufflehi_epi16(x1, _MM_SHUFFLE(2, 3, 0, 1)), _MM_SHUFFLE(2, 3, 0, 1));
 	__m128i x4 = _mm_srli_epi16(_mm_avg_epu16(_mm_add_epi16(x0, _mm_set1_epi16(3)), x2), 2);
 	__m128i x5 = _mm_avg_epu16(_mm_srli_epi16(_mm_add_epi16(x1, x3), 1), _mm_setzero_si128());
-	__m128i *buf = (__m128i *)&ctx->pred_buffer_v[ctx->BlkIdx & 15];
+	__m128i *buf = (__m128i *)&ctx->pred_buffer_v[0/*BlkIdx*/ & 15];
 	buf[0] = _mm_shuffle_epi32(x4, _MM_SHUFFLE(0, 0, 0, 0));
 	buf[1] = _mm_shuffle_epi32(x5, _MM_SHUFFLE(0, 0, 0, 0));
 	buf[2] = _mm_shuffle_epi32(x5, _MM_SHUFFLE(1, 1, 1, 1));
@@ -937,7 +938,7 @@ static void FUNC(decode_ChromaDC8x16_16bit, __m128i top03, __m128i left03, __m12
 }
 
 static void FUNC(decode_ChromaHorizontal8x16, __m128i leftt, __m128i leftb) {
-	__m128i *buf = (__m128i *)&ctx->pred_buffer_v[ctx->BlkIdx & 15];
+	__m128i *buf = (__m128i *)&ctx->pred_buffer_v[0/*BlkIdx*/ & 15];
 	buf[0] = buf[1] = _mm_unpacklo_epi16(leftt, leftt);
 	buf[2] = buf[3] = _mm_unpackhi_epi16(leftt, leftt);
 	buf[4] = buf[5] = _mm_unpacklo_epi16(leftb, leftb);
@@ -978,7 +979,7 @@ static void FUNC(decode_ChromaPlane8x16, __m128i top, __m128i leftt, __m128i lef
 		p1 = _mm_packs_epi32(p1, _mm_add_epi32(p1, c));
 		c2 = _mm_packs_epi32(c2, c2);
 	}
-	__m128i *buf = (__m128i *)&ctx->pred_buffer_v[ctx->BlkIdx & 15];
+	__m128i *buf = (__m128i *)&ctx->pred_buffer_v[0/*BlkIdx*/ & 15];
 	buf[0] = p0;
 	buf[1] = p1;
 	buf[2] = (p0 = _mm_add_epi32(p0, c2));
@@ -1074,7 +1075,7 @@ static noinline void FUNC(decode_switch, size_t stride, ssize_t nstride, uint8_t
 		JUMP(decode_DC8x8_8bit, x0, x0);
 	case DC_8x8_AB:
 	case DC_8x8_AB_16_BIT:
-		x0 = _mm_avg_epu16(zero, (__m128i)ctx->clip_v);
+		//x0 = _mm_avg_epu16(zero, (__m128i)ctx->clip_v);
 		JUMP(decode_Residual8x8, x0, x0, x0, x0, x0, x0, x0, x0);
 	case DIAGONAL_DOWN_LEFT_8x8:
 		x0 = _mm_unpacklo_epi8(_mm_loadl_epi64((__m128i *)(p + nstride * 2)), zero);
@@ -1149,9 +1150,9 @@ static noinline void FUNC(decode_switch, size_t stride, ssize_t nstride, uint8_t
 }
 
 static void FUNC(decode_samples) {
-	int BlkIdx = ctx->BlkIdx;
+	int BlkIdx = 0/*BlkIdx*/;
 	size_t stride = ctx->stride;
-	uint8_t *p = ctx->frame + ctx->frame_offsets_x[ctx->BlkIdx2i4x4[BlkIdx]] + ctx->frame_offsets_y[ctx->BlkIdx2i4x4[BlkIdx]] + stride;
+	uint8_t *p = ctx->frame + ctx->frame_offsets_x[0/*BlkIdx2i4x4[BlkIdx]*/] + ctx->frame_offsets_y[0/*BlkIdx2i4x4[BlkIdx]*/] + stride;
 	__m128i *buf = (__m128i *)&ctx->pred_buffer_v[BlkIdx & 15];
-	JUMP(decode_switch, stride, -stride, p, buf, ctx->PredMode[BlkIdx], _mm_setzero_si128());
+	JUMP(decode_switch, stride, -stride, p, buf, 0/*ctx->PredMode[BlkIdx]*/, _mm_setzero_si128());
 }

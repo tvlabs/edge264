@@ -196,7 +196,7 @@ static void CAFUNC(parse_Intra16x16_residual)
 	// Both AC and DC coefficients are initially parsed to ctx->c[0..15]
 	int mb_field_decoding_flag = mb->f.mb_field_decoding_flag;
 	ctx->stride = ctx->stride_Y;
-	ctx->clip_v = ctx->clip_Y;
+	ctx->clip = ctx->clip_Y;
 	ctx->sig_inc_v[0] = ctx->last_inc_v[0] = sig_inc_4x4;
 	ctx->scan_v[0] = scan_4x4[mb_field_decoding_flag];
 	for (int iYCbCr = 0; iYCbCr < 3; iYCbCr++) {
@@ -231,7 +231,7 @@ static void CAFUNC(parse_Intra16x16_residual)
 		
 		// here is how we share the decoding of luma coefficients with 4:4:4 modes
 		ctx->stride = ctx->stride_C;
-		ctx->clip_v = ctx->clip_C;
+		ctx->clip = ctx->clip_C;
 		if (ctx->ps.ChromaArrayType <3)
 			CAJUMP(parse_chroma_residual);
 	}
@@ -261,7 +261,7 @@ static void CAFUNC(parse_NxN_residual)
 	
 	// next few blocks will share many parameters, so we cache a LOT of them
 	ctx->stride = ctx->stride_Y;
-	ctx->clip_v = ctx->clip_Y;
+	ctx->clip = ctx->clip_Y;
 	for (int iYCbCr = 0; iYCbCr < 3; iYCbCr++) {
 		int mb_field_decoding_flag = mb->f.mb_field_decoding_flag;
 		if (!mb->f.transform_size_8x8_flag) {
@@ -272,11 +272,8 @@ static void CAFUNC(parse_NxN_residual)
 			// Decoding directly follows parsing to avoid duplicate loops.
 			for (int i4x4 = 0; i4x4 < 16; i4x4++) {
 				int BlkIdx = iYCbCr * 16 + i4x4;
-				if (!mb->f.mbIsInterFlag) {
-					int mode = intra4x4_modes[mb->Intra4x4PredMode[i4x4]][ctx->unavail[i4x4]];
-					uint8_t *samples = ctx->frame + ctx->frame_offsets_x[BlkIdx] + ctx->frame_offsets_y[BlkIdx];
-					decode_intra4x4(mode, samples, ctx->stride, ctx->clip_v);
-				}
+				if (!mb->f.mbIsInterFlag)
+					CALL(decode_intra4x4, intra4x4_modes[mb->Intra4x4PredMode[i4x4]][ctx->unavail[i4x4]], BlkIdx);
 				if (mb->CodedBlockPatternLuma[i4x4 >> 2]) {
 					int cbfA = *(mb->coded_block_flags_4x4 + ctx->coded_block_flags_4x4_A[BlkIdx]);
 					int cbfB = *(mb->coded_block_flags_4x4 + ctx->coded_block_flags_4x4_B[BlkIdx]);
@@ -317,7 +314,7 @@ static void CAFUNC(parse_NxN_residual)
 		
 		// nice optimisation for 4:4:4 modes
 		ctx->stride = ctx->stride_C;
-		ctx->clip_v = ctx->clip_C;
+		ctx->clip = ctx->clip_C;
 		if (ctx->ps.ChromaArrayType <3)
 			CAJUMP(parse_chroma_residual);
 	}
@@ -390,8 +387,7 @@ static void CAFUNC(parse_intra_chroma_pred_mode)
 		fprintf(stderr, "intra_chroma_pred_mode: %u\n", mode);
 		uint8_t *samplesCb = ctx->frame + ctx->frame_offsets_x[16] + ctx->frame_offsets_y[16];
 		uint8_t *samplesCr = samplesCb + ctx->plane_size_C;
-		decode_intraChroma(intraChroma_modes[mode][ctx->inc.unavailable & 3], samplesCb, samplesCr, ctx->stride_C, ctx->clip_C);
-		ctx->PredMode_v[1] = (v16qu){TRANSFORM_DC_2x2, ADD_RESIDUAL_4x4, ADD_RESIDUAL_4x4, ADD_RESIDUAL_4x4, TRANSFORM_DC_2x2, ADD_RESIDUAL_4x4, ADD_RESIDUAL_4x4, ADD_RESIDUAL_4x4};
+		CALL(decode_intraChroma, intraChroma_modes[mode][ctx->inc.unavailable & 3], samplesCb, samplesCr, ctx->stride_C);
 	}
 }
 
@@ -432,13 +428,9 @@ static int CAFUNC(parse_intraNxN_pred_mode, int luma4x4BlkIdx)
  * PCM stuff, and coded_block_pattern (from function) for the current Intra
  * macroblock. It proceeds to residual decoding through tail call.
  *
- * The prediction mode is stored twice in ctx:
- * _ Intra4x4PredMode, buffer for neighbouring values. The special value -2 is
- *   used by unavailable blocks and Inter blocks with constrained_intra_pred_flag,
- *   to account for dcPredModePredictedFlag.
- * _ PredMode, for the late decoding of samples. It has a wider range of values
- *   to account for unavailability of neighbouring blocks, Intra chroma modes
- *   and Inter prediction.
+ * In Intra4x4PredMode the special value -2 is used by unavailable blocks and
+ * Inter blocks with constrained_intra_pred_flag, to account for
+ * dcPredModePredictedFlag.
  */
 static noinline void CAFUNC(parse_I_mb, int mb_type_or_ctxIdx)
 {
@@ -483,18 +475,12 @@ static noinline void CAFUNC(parse_I_mb, int mb_type_or_ctxIdx)
 		}
 		
 		if (mb->f.transform_size_8x8_flag) {
-			for (int i = 0; i < 16; i += 4) {
-				int mode = CACALL(parse_intraNxN_pred_mode, i);
-				mb->Intra4x4PredMode[i + 1] = mb->Intra4x4PredMode[i + 2] = mb->Intra4x4PredMode[i + 3] = mode;
-				ctx->PredMode[i] = ctx->intra8x8_modes[mode][ctx->unavail[i + (i >> 2)]];
-			}
+			for (int i = 0; i < 16; i += 4)
+				mb->Intra4x4PredMode[i + 1] = mb->Intra4x4PredMode[i + 2] = mb->Intra4x4PredMode[i + 3] = CACALL(parse_intraNxN_pred_mode, i);
 		} else {
-			for (int i = 0; i < 16; i++) {
+			for (int i = 0; i < 16; i++)
 				mb->Intra4x4PredMode[i] = CACALL(parse_intraNxN_pred_mode, i);
-				ctx->PredMode[i] = ctx->intra4x4_modes[mb->Intra4x4PredMode[i]][ctx->unavail[i]];
-			}
 		}
-		ctx->PredMode_v[1] = ctx->PredMode_v[2] = ctx->PredMode_v[0] + ctx->pred_offset_C;
 		
 		CACALL(parse_intra_chroma_pred_mode);
 		CACALL(parse_coded_block_pattern);
@@ -530,10 +516,9 @@ static noinline void CAFUNC(parse_I_mb, int mb_type_or_ctxIdx)
 			I16x16_DC_8, I16x16_DCA_8, I16x16_DCB_8, I16x16_DCAB_8,
 			I16x16_P_8 , I16x16_DCA_8, I16x16_DCB_8, I16x16_DCAB_8,
 		};
-		ctx->PredMode_v[0] = (v16qu){TRANSFORM_DC_4x4, ADD_RESIDUAL_4x4, ADD_RESIDUAL_4x4, ADD_RESIDUAL_4x4, ADD_RESIDUAL_4x4, ADD_RESIDUAL_4x4, ADD_RESIDUAL_4x4, ADD_RESIDUAL_4x4, ADD_RESIDUAL_4x4, ADD_RESIDUAL_4x4, ADD_RESIDUAL_4x4, ADD_RESIDUAL_4x4, ADD_RESIDUAL_4x4, ADD_RESIDUAL_4x4, ADD_RESIDUAL_4x4, ADD_RESIDUAL_4x4};
 		mb->Intra4x4PredMode_v = (v16qi){2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2};
 		uint8_t *samples = ctx->frame + ctx->frame_offsets_x[0] + ctx->frame_offsets_y[0];
-		decode_intra16x16(intra16x16_modes[mode][ctx->inc.unavailable & 3], samples, ctx->stride_Y, ctx->clip_Y);
+		CALL(decode_intra16x16, intra16x16_modes[mode][ctx->inc.unavailable & 3], samples, ctx->stride_Y);
 		CACALL(parse_intra_chroma_pred_mode);
 		CAJUMP(parse_Intra16x16_residual);
 		
@@ -617,17 +602,6 @@ static void CAFUNC(parse_inter_residual)
 			ctx->mbB->coded_block_flags_4x4_v[2] = ctx->mbB->coded_block_flags_8x8_v = (v16qi){};
 		ctx->inc.coded_block_flags_16x16_s &= 0x01010101;
 	}
-	
-	// temporary fix until Pred modes are removed
-	ctx->PredMode_v[0] = (mb->f.transform_size_8x8_flag) ?
-		(v16qu){ADD_RESIDUAL_8x8, ADD_RESIDUAL_8x8, ADD_RESIDUAL_8x8, ADD_RESIDUAL_8x8, ADD_RESIDUAL_8x8, ADD_RESIDUAL_8x8, ADD_RESIDUAL_8x8, ADD_RESIDUAL_8x8, ADD_RESIDUAL_8x8, ADD_RESIDUAL_8x8, ADD_RESIDUAL_8x8, ADD_RESIDUAL_8x8, ADD_RESIDUAL_8x8, ADD_RESIDUAL_8x8, ADD_RESIDUAL_8x8, ADD_RESIDUAL_8x8} :
-		(v16qu){ADD_RESIDUAL_4x4, ADD_RESIDUAL_4x4, ADD_RESIDUAL_4x4, ADD_RESIDUAL_4x4, ADD_RESIDUAL_4x4, ADD_RESIDUAL_4x4, ADD_RESIDUAL_4x4, ADD_RESIDUAL_4x4, ADD_RESIDUAL_4x4, ADD_RESIDUAL_4x4, ADD_RESIDUAL_4x4, ADD_RESIDUAL_4x4, ADD_RESIDUAL_4x4, ADD_RESIDUAL_4x4, ADD_RESIDUAL_4x4, ADD_RESIDUAL_4x4};
-	if (ctx->ps.ChromaArrayType == 1)
-		ctx->PredMode_v[1] = (v16qu){TRANSFORM_DC_2x2, ADD_RESIDUAL_4x4, ADD_RESIDUAL_4x4, ADD_RESIDUAL_4x4, TRANSFORM_DC_2x2, ADD_RESIDUAL_4x4, ADD_RESIDUAL_4x4, ADD_RESIDUAL_4x4};
-	else if (ctx->ps.ChromaArrayType == 2)
-		ctx->PredMode_v[1] = (v16qu){TRANSFORM_DC_2x4, ADD_RESIDUAL_4x4, ADD_RESIDUAL_4x4, ADD_RESIDUAL_4x4, ADD_RESIDUAL_4x4, ADD_RESIDUAL_4x4, ADD_RESIDUAL_4x4, ADD_RESIDUAL_4x4, TRANSFORM_DC_2x4, ADD_RESIDUAL_4x4, ADD_RESIDUAL_4x4, ADD_RESIDUAL_4x4, ADD_RESIDUAL_4x4, ADD_RESIDUAL_4x4, ADD_RESIDUAL_4x4, ADD_RESIDUAL_4x4};
-	else if (ctx->ps.ChromaArrayType == 3)
-		ctx->PredMode_v[1] = ctx->PredMode_v[2] = ctx->PredMode_v[0];
 	CAJUMP(parse_NxN_residual);
 }
 

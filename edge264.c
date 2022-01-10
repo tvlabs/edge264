@@ -6,6 +6,7 @@
  * _ initialize scan_v[1..3] in edge264.c, only scan_v[0] changes dynamically
  * _ reintroduce DC optimization inside add_idct4x4
  * 
+ * _ initialize values in initialise_decoding_context without vectors
  * _ store coded_block_flags in compact bit fields
  * _ simplify residuals functions before completing CAVLC
  * _ fix initialization of implicit weights
@@ -69,34 +70,6 @@ static const v16qu Default_8x8_Inter[4] = {
  */
 static void FUNC(initialise_decoding_context, Edge264_stream *e)
 {
-	/**
-	 * IntraNxN_modes[IntraNxNPredMode][unavail] yield the prediction switch entry
-	 * from unavailability of neighbouring blocks.
-	 * They are copied in ctx to precompute the bit depth offset.
-	 */
-	static const v16qu Intra4x4_modes[9] = {
-		{VERTICAL_4x4, VERTICAL_4x4, 0, 0, VERTICAL_4x4, VERTICAL_4x4, 0, 0, VERTICAL_4x4, VERTICAL_4x4, 0, 0, VERTICAL_4x4, VERTICAL_4x4, 0, 0},
-		{HORIZONTAL_4x4, 0, HORIZONTAL_4x4, 0, HORIZONTAL_4x4, 0, HORIZONTAL_4x4, 0, HORIZONTAL_4x4, 0, HORIZONTAL_4x4, 0, HORIZONTAL_4x4, 0, HORIZONTAL_4x4, 0},
-		{DC_4x4, DC_4x4_A, DC_4x4_B, DC_4x4_AB, DC_4x4, DC_4x4_A, DC_4x4_B, DC_4x4_AB, DC_4x4, DC_4x4_A, DC_4x4_B, DC_4x4_AB, DC_4x4, DC_4x4_A, DC_4x4_B, DC_4x4_AB},
-		{DIAGONAL_DOWN_LEFT_4x4, DIAGONAL_DOWN_LEFT_4x4, 0, 0, DIAGONAL_DOWN_LEFT_4x4_C, DIAGONAL_DOWN_LEFT_4x4_C, 0, 0, DIAGONAL_DOWN_LEFT_4x4, DIAGONAL_DOWN_LEFT_4x4, 0, 0, DIAGONAL_DOWN_LEFT_4x4_C, DIAGONAL_DOWN_LEFT_4x4_C, 0, 0},
-		{DIAGONAL_DOWN_RIGHT_4x4, 0, 0, 0, DIAGONAL_DOWN_RIGHT_4x4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
-		{VERTICAL_RIGHT_4x4, 0, 0, 0, VERTICAL_RIGHT_4x4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
-		{HORIZONTAL_DOWN_4x4, 0, 0, 0, HORIZONTAL_DOWN_4x4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
-		{VERTICAL_LEFT_4x4, VERTICAL_LEFT_4x4, 0, 0, VERTICAL_LEFT_4x4_C, VERTICAL_LEFT_4x4_C, 0, 0, VERTICAL_LEFT_4x4, VERTICAL_LEFT_4x4, 0, 0, VERTICAL_LEFT_4x4_C, VERTICAL_LEFT_4x4_C, 0, 0},
-		{HORIZONTAL_UP_4x4, 0, HORIZONTAL_UP_4x4, 0, HORIZONTAL_UP_4x4, 0, HORIZONTAL_UP_4x4, 0, HORIZONTAL_UP_4x4, 0, HORIZONTAL_UP_4x4, 0, HORIZONTAL_UP_4x4, 0, HORIZONTAL_UP_4x4, 0},
-	};
-	static const v16qu Intra8x8_modes[9] = {
-		{VERTICAL_8x8, VERTICAL_8x8, 0, 0, VERTICAL_8x8_C, VERTICAL_8x8_C, 0, 0, VERTICAL_8x8_D, VERTICAL_8x8_D, 0, 0, VERTICAL_8x8_CD, VERTICAL_8x8_CD, 0, 0},
-		{HORIZONTAL_8x8, 0, HORIZONTAL_8x8, 0, HORIZONTAL_8x8, 0, HORIZONTAL_8x8, 0, HORIZONTAL_8x8_D, 0, HORIZONTAL_8x8_D, 0, HORIZONTAL_8x8_D, 0, HORIZONTAL_8x8_D, 0},
-		{DC_8x8, DC_8x8_A, DC_8x8_B, DC_8x8_AB, DC_8x8_C, DC_8x8_AC, DC_8x8_B, DC_8x8_AB, DC_8x8_D, DC_8x8_AD, DC_8x8_BD, DC_8x8_AB, DC_8x8_CD, DC_8x8_ACD, DC_8x8_BD, DC_8x8_AB},
-		{DIAGONAL_DOWN_LEFT_8x8, DIAGONAL_DOWN_LEFT_8x8, 0, 0, DIAGONAL_DOWN_LEFT_8x8_C, DIAGONAL_DOWN_LEFT_8x8_C, 0, 0, DIAGONAL_DOWN_LEFT_8x8_D, DIAGONAL_DOWN_LEFT_8x8_D, 0, 0, DIAGONAL_DOWN_LEFT_8x8_CD, DIAGONAL_DOWN_LEFT_8x8_CD, 0, 0},
-		{DIAGONAL_DOWN_RIGHT_8x8, 0, 0, 0, DIAGONAL_DOWN_RIGHT_8x8_C, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
-		{VERTICAL_RIGHT_8x8, 0, 0, 0, VERTICAL_RIGHT_8x8_C, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
-		{HORIZONTAL_DOWN_8x8, 0, 0, 0, HORIZONTAL_DOWN_8x8, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
-		{VERTICAL_LEFT_8x8, VERTICAL_LEFT_8x8, 0, 0, VERTICAL_LEFT_8x8_C, VERTICAL_LEFT_8x8_C, 0, 0, VERTICAL_LEFT_8x8_D, VERTICAL_LEFT_8x8_D, 0, 0, VERTICAL_LEFT_8x8_CD, VERTICAL_LEFT_8x8_CD, 0, 0},
-		{HORIZONTAL_UP_8x8, 0, HORIZONTAL_UP_8x8, 0, HORIZONTAL_UP_8x8, 0, HORIZONTAL_UP_8x8, 0, HORIZONTAL_UP_8x8_D, 0, HORIZONTAL_UP_8x8_D, 0, HORIZONTAL_UP_8x8_D, 0, HORIZONTAL_UP_8x8_D, 0},
-	};
-	
 	ctx->mb_qp_delta_non_zero = 0;
 	ctx->CurrMbAddr = 0;
 	ctx->stride_Y = e->stride_Y;
@@ -116,10 +89,8 @@ static void FUNC(initialise_decoding_context, Edge264_stream *e)
 		ctx->frame_offsets_y[16 + i] = ctx->plane_size_Y + y * mul_C;
 		ctx->frame_offsets_y[32 + i] = ctx->frame_offsets_y[16 + i] + e->plane_size_C;
 	}
-	int cY = (1 << ctx->ps.BitDepth_Y) - 1;
-	int cC = (1 << ctx->ps.BitDepth_C) - 1;
-	ctx->clip_Y = (v8hi){cY, cY, cY, cY, cY, cY, cY, cY};
-	ctx->clip_C = (v8hi){cC, cC, cC, cC, cC, cC, cC, cC};
+	ctx->clip_Y = (1 << ctx->ps.BitDepth_Y) - 1;
+	ctx->clip_C = (1 << ctx->ps.BitDepth_C) - 1;
 	
 	int offA_8bit = -(int)sizeof(*mb);
 	int offB_8bit = -(ctx->ps.width / 16 + 1) * sizeof(*mb);
@@ -146,15 +117,6 @@ static void FUNC(initialise_decoding_context, Edge264_stream *e)
 		ctx->B4x4_8bit[2] = ctx->B4x4_8bit[1] + s16;
 		ctx->A8x8_8bit[2] = (v4hi){9 + offA_8bit, 8, 11 + offA_8bit, 10};
 		ctx->B8x8_8bit[2] = (v4si){10 + offB_8bit, 11 + offB_8bit, 8, 9};
-	}
-	
-	int p = (ctx->ps.BitDepth_Y == 8) ? 0 : VERTICAL_4x4_16_BIT;
-	int q = (ctx->ps.BitDepth_C == 8 ? 0 : VERTICAL_4x4_16_BIT) - p;
-	v16qu pred_offset = (v16qu){p, p, p, p, p, p, p, p, p, p, p, p, p, p, p, p};
-	ctx->pred_offset_C = (v16qu){q, q, q, q, q, q, q, q, q, q, q, q, q, q, q, q};
-	for (int i = 0; i < 9; i++) {
-		ctx->intra4x4_modes_v[i] = Intra4x4_modes[i] + pred_offset;
-		ctx->intra8x8_modes_v[i] = Intra8x8_modes[i] + pred_offset;
 	}
 	
 	// P/B slices
@@ -577,7 +539,7 @@ static int FUNC(parse_slice_layer_without_partitioning, Edge264_stream *e)
 	}
 	
 	// Compute Top/BottomFieldOrderCnt (8.2.1).
-	ctx->TopFieldOrderCnt = ctx->BottomFieldOrderCnt = e->prevFrameNum * 2 - ctx->non_ref_flag;
+	ctx->TopFieldOrderCnt = ctx->BottomFieldOrderCnt = e->prevFrameNum * 2 + ctx->nal_ref_flag - 1;
 	if (ctx->ps.pic_order_cnt_type == 0) {
 		unsigned shift = WORD_BIT - ctx->ps.log2_max_pic_order_cnt_lsb;
 		int diff = CALL(get_uv, ctx->ps.log2_max_pic_order_cnt_lsb) - e->prevPicOrderCnt;
@@ -586,11 +548,11 @@ static int FUNC(parse_slice_layer_without_partitioning, Edge264_stream *e)
 		ctx->BottomFieldOrderCnt = PicOrderCnt;
 		if (!ctx->field_pic_flag && ctx->ps.bottom_field_pic_order_in_frame_present_flag)
 			ctx->BottomFieldOrderCnt = PicOrderCnt + CALL(get_se32, (-1u << 31) + 1, (1u << 31) - 1);
-		if (!ctx->non_ref_flag)
+		if (ctx->nal_ref_flag)
 			e->prevPicOrderCnt = PicOrderCnt;
 	} else if (ctx->ps.pic_order_cnt_type == 1) {
-		unsigned absFrameNum = e->prevFrameNum - ctx->non_ref_flag;
-		unsigned expectedPicOrderCnt = (ctx->non_ref_flag) ? ctx->ps.offset_for_non_ref_pic : 0;
+		unsigned absFrameNum = e->prevFrameNum + ctx->nal_ref_flag - 1;
+		unsigned expectedPicOrderCnt = (ctx->nal_ref_flag) ? 0 : ctx->ps.offset_for_non_ref_pic;
 		if (ctx->ps.num_ref_frames_in_pic_order_cnt_cycle != 0) {
 			expectedPicOrderCnt += (absFrameNum / ctx->ps.num_ref_frames_in_pic_order_cnt_cycle) *
 				e->PicOrderCntDeltas[ctx->ps.num_ref_frames_in_pic_order_cnt_cycle] +
@@ -637,7 +599,7 @@ static int FUNC(parse_slice_layer_without_partitioning, Edge264_stream *e)
 	}
 	
 	// not much to say in this comment either (though intention there is!)
-	if (!ctx->non_ref_flag)
+	if (ctx->nal_ref_flag)
 		CALL(parse_dec_ref_pic_marking, e);
 	e->output_flags |= 1 << e->currPic;
 	int cabac_init_idc = 0;
@@ -1463,7 +1425,7 @@ int Edge264_decode_NAL(Edge264_stream *e)
 	// beware we're parsing a NAL header :)
 	unsigned nal_ref_idc = *e->CPB >> 5;
 	unsigned nal_unit_type = *e->CPB & 0x1f;
-	ctx->non_ref_flag = (nal_ref_idc == 0);
+	ctx->nal_ref_flag = (nal_ref_idc != 0);
 	ctx->IdrPicFlag = (nal_unit_type == 5);
 	printf("<ul>\n"
 		"<li>nal_ref_idc: <code>%u</code></li>\n"

@@ -114,7 +114,7 @@ static inline void FUNC(add_idct4x4, int iYCbCr, int i4x4, v16qu wS, int32_t *DC
 	} else {
 		__m128i p0 = _mm_setr_epi64(*(__m64 *)(p             ), *(__m64 *)(p + stride    ));
 		__m128i p1 = _mm_setr_epi64(*(__m64 *)(p + stride * 2), *(__m64 *)(p + stride * 3));
-		__m128i clip = (__m128i)ctx->clip_v;
+		__m128i clip = _mm_set1_epi16(ctx->clip);
 		v2li u0 = (v2li)_mm_min_epi16(_mm_max_epi16(_mm_adds_epi16(p0, r0), zero), clip);
 		v2li u1 = (v2li)_mm_min_epi16(_mm_max_epi16(_mm_adds_epi16(p1, r1), zero), clip);
 		*(int64_t *)(p             ) = u0[0];
@@ -133,7 +133,7 @@ static inline void FUNC(add_idct4x4, int iYCbCr, int i4x4, v16qu wS, int32_t *DC
  */
 static noinline void FUNC(add_idct8x8)
 {
-	if (__builtin_expect(ctx->clip == 255, 1)) {
+	if (ctx->clip == 255) {
 		// loading and scaling
 		__m128i s32 = _mm_set1_epi32(32);
 		__m128i *c = (__m128i *)ctx->c_v;
@@ -218,7 +218,7 @@ static noinline void FUNC(add_idct8x8)
 		// addition to values in place, clipping and storage
 		size_t stride = ctx->stride;
 		size_t stride3 = stride * 3;
-		uint8_t *p = ctx->frame + ctx->frame_offsets_x[ctx->BlkIdx2i4x4[ctx->BlkIdx]] + ctx->frame_offsets_y[ctx->BlkIdx2i4x4[ctx->BlkIdx]];
+		uint8_t *p = ctx->frame + ctx->frame_offsets_x[0/*BlkIdx2i4x4[BlkIdx]*/] + ctx->frame_offsets_y[0/*BlkIdx2i4x4[BlkIdx]*/];
 		uint8_t *q = p + stride * 4;
 		__m128i zero = _mm_setzero_si128();
 		__m128i p0 = load8x1_8bit(p             , zero);
@@ -326,10 +326,10 @@ static noinline void FUNC(add_idct8x8)
 		// addition to values in place, clipping and storage
 		size_t stride = ctx->stride;
 		size_t stride3 = stride * 3;
-		uint8_t *p = ctx->frame + ctx->frame_offsets_x[ctx->BlkIdx2i4x4[ctx->BlkIdx]] + ctx->frame_offsets_y[ctx->BlkIdx2i4x4[ctx->BlkIdx]];
+		uint8_t *p = ctx->frame + ctx->frame_offsets_x[0/*BlkIdx2i4x4[BlkIdx]*/] + ctx->frame_offsets_y[0/*BlkIdx2i4x4[BlkIdx]*/];
 		uint8_t *q = p + stride * 4;
 		__m256i zero = _mm256_setzero_si256();
-		__m256i clip = _mm256_broadcastsi128_si256((__m128i)ctx->clip_v);
+		__m256i clip = _mm256_set1_epi16(ctx->clip);
 		__m256i p0 = _mm256_setr_m128i(*(__m128i *)(p             ), *(__m128i *)(p + stride ));
 		__m256i p1 = _mm256_setr_m128i(*(__m128i *)(p + stride * 2), *(__m128i *)(p + stride3));
 		__m256i p2 = _mm256_setr_m128i(*(__m128i *)(q             ), *(__m128i *)(q + stride ));
@@ -461,10 +461,10 @@ static noinline void FUNC(add_idct8x8)
 		// addition to values in place, clipping and storage
 		size_t stride = ctx->stride;
 		size_t stride3 = stride * 3;
-		uint8_t *p = ctx->frame + ctx->frame_offsets_x[ctx->BlkIdx2i4x4[ctx->BlkIdx]] + ctx->frame_offsets_y[ctx->BlkIdx2i4x4[ctx->BlkIdx]];
+		uint8_t *p = ctx->frame + ctx->frame_offsets_x[0/*BlkIdx2i4x4[BlkIdx]*/] + ctx->frame_offsets_y[0/*BlkIdx2i4x4[BlkIdx]*/];
 		uint8_t *q = p + stride * 4;
 		__m128i zero = _mm_setzero_si128();
-		__m128i clip = (__m128i)ctx->clip_v;
+		__m128i clip = _mm_set1_epi16(ctx->clip);
 		__m128i p0 = *(__m128i *)(p             );
 		__m128i p1 = *(__m128i *)(p + stride    );
 		__m128i p2 = *(__m128i *)(p + stride * 2);
@@ -500,7 +500,7 @@ static noinline void FUNC(decode_Residual8x8, __m128i p0,
 {
 	size_t stride = ctx->stride;
 	size_t stride3 = stride * 3;
-	uint8_t *p = ctx->frame + ctx->frame_offsets_x[ctx->BlkIdx2i4x4[ctx->BlkIdx]] + ctx->frame_offsets_y[ctx->BlkIdx2i4x4[ctx->BlkIdx]];
+	uint8_t *p = ctx->frame + ctx->frame_offsets_x[0/*BlkIdx2i4x4[BlkIdx]*/] + ctx->frame_offsets_y[0/*BlkIdx2i4x4[BlkIdx]*/];
 	uint8_t *q = p + stride * 4;
 	if (__builtin_expect(ctx->clip == 255, 1)) {
 		v2li u0 = (v2li)_mm_packus_epi16(p0, p1);
@@ -700,7 +700,7 @@ static inline void FUNC(transform_dc2x2_bis) {
 		size_t stride = ctx->stride;
 		size_t stride3 = stride * 3;
 		uint8_t *pb = ctx->frame + ctx->frame_offsets_x[16] + ctx->frame_offsets_y[16];
-		uint8_t *pr = ctx->frame + ctx->frame_offsets_x[32] + ctx->frame_offsets_y[32];
+		uint8_t *pr = pb + ctx->plane_size_C;
 		uint8_t *qb = pb + stride * 4;
 		uint8_t *qr = pr + stride * 4;
 		__m128i s32 = _mm_set1_epi32(32);
@@ -761,7 +761,7 @@ static inline void FUNC(transform_dc2x2_bis) {
 }
 
 static inline void FUNC(transform_dc2x4) {
-	int iYCbCr = (ctx->BlkIdx - 8) >> 3; // BlkIdx is 16 or 24
+	int iYCbCr = (0/*BlkIdx*/ - 8) >> 3; // BlkIdx is 16 or 24
 	unsigned qP_DC = mb->QP[iYCbCr] + 3;
 	int w = ctx->ps.weightScale4x4[iYCbCr + mb->f.mbIsInterFlag * 3][0];
 	int nA = normAdjust4x4[qP_DC % 6][0];

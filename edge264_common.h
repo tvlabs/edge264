@@ -97,8 +97,8 @@ typedef struct
 {
 	// small variables and constant parameters
 	Edge264_flags inc; // increments for CABAC indices of macroblock syntax elements
-	uint8_t non_ref_flag:1; // TODO: remove if unnecessary after Inter is done
-	uint8_t IdrPicFlag:1; // TODO remove in favor of passing as parameter
+	uint8_t nal_ref_flag:1;
+	uint8_t IdrPicFlag:1;
 	uint8_t field_pic_flag:1;
 	uint8_t bottom_field_flag:1;
 	uint8_t MbaffFrameFlag:1;
@@ -121,24 +121,22 @@ typedef struct
 	size_t _msb_cache;
 	size_t _codIRange; // same as _lsb_cache/_msb_cache
 	size_t _codIOffset;
+	Edge264_macroblock * restrict _mb; // backup storage for macro mb
+	Edge264_macroblock * restrict mbB;
+	const Edge264_stream *e; // for debugging only
 	int32_t CurrMbAddr;
 	int32_t mb_skip_run;
-	int8_t BlkIdx; // legacy, to be removed
-	uint16_t stride_Y; // 16 significant bits (at 8K, 16bit depth, field pic)
-	uint16_t stride_C;
-	uint16_t stride; // legacy, needed by intra and residual functions
-	union { int8_t BlkIdx2i4x4[48]; v16qi BlkIdx2i4x4_v[3]; }; // legacy, to be removed
 	int32_t plane_size_Y;
 	int32_t plane_size_C;
+	uint16_t stride_Y; // 16 significant bits (at 8K, 16bit depth, field pic)
+	uint16_t stride_C;
+	uint16_t stride; // stores stride of current plane for decoding functions
+	int16_t clip_Y; // maximum sample value
+	int16_t clip_C;
+	int16_t clip; // clip value for current plane being decoded
 	uint8_t *frame; // address of first byte in luma plane of current picture
 	union { uint16_t frame_offsets_x[48]; v8hu frame_offsets_x_v[6]; }; // memory offsets for i4x4
 	union { int32_t frame_offsets_y[48]; v4si frame_offsets_y_v[12]; }; // premultiplied with strides
-	Edge264_macroblock * restrict _mb; // backup storage when not in a live variable
-	Edge264_macroblock * restrict mbB;
-	const Edge264_stream *e; // for debugging only
-	v8hi clip_Y; // vector of maximum sample values
-	v8hi clip_C;
-	union { int16_t clip; v8hi clip_v; };
 	union { int8_t unavail[16]; v16qi unavail_v; }; // unavailability of neighbouring A/B/C/D blocks
 	int8_t map_me[48];
 	union { uint8_t cabac[1024]; v16qu cabac_v[64]; };
@@ -157,10 +155,8 @@ typedef struct
 	union { int32_t mvs_D[16]; v16si mvs_D_v; };
 	
 	// Intra context
-	v16qu pred_offset_C; // BitDepth offset on PredMode from Y to Cb/Cr
-	union { uint8_t intra4x4_modes[9][16]; v16qu intra4x4_modes_v[9]; };
+	union { uint8_t intra4x4_modes[9][16]; v16qu intra4x4_modes_v[9]; }; // kept for future 16bit support
 	union { uint8_t intra8x8_modes[9][16]; v16qu intra8x8_modes_v[9]; };
-	union { uint8_t PredMode[48]; v16qu PredMode_v[3]; };
 	union { int16_t pred_buffer[144]; v8hi pred_buffer_v[18]; }; // temporary storage for prediction samples
 	
 	// Inter context

@@ -98,12 +98,11 @@ typedef struct
 	// small variables and constant parameters
 	Edge264_flags inc; // increments for CABAC indices of macroblock syntax elements
 	uint8_t non_ref_flag:1; // TODO: remove if unnecessary after Inter is done
-	uint8_t IdrPicFlag:1;
+	uint8_t IdrPicFlag:1; // TODO remove in favor of passing as parameter
 	uint8_t field_pic_flag:1;
 	uint8_t bottom_field_flag:1;
 	uint8_t MbaffFrameFlag:1;
 	uint8_t direct_spatial_mv_pred_flag:1;
-	uint8_t firstRefPicL1:1;
 	int8_t slice_type; // 3 significant bits
 	int8_t luma_log2_weight_denom; // 3 significant bits
 	int8_t chroma_log2_weight_denom; // 3 significant bits
@@ -124,11 +123,11 @@ typedef struct
 	size_t _codIOffset;
 	int32_t CurrMbAddr;
 	int32_t mb_skip_run;
-	int8_t BlkIdx; // index of current AC block (for PredMode), in order Y/Cb/Cr and without gaps
+	int8_t BlkIdx; // legacy, to be removed
 	uint16_t stride_Y; // 16 significant bits (at 8K, 16bit depth, field pic)
 	uint16_t stride_C;
 	uint16_t stride; // legacy, needed by intra and residual functions
-	union { int8_t BlkIdx2i4x4[48]; v16qi BlkIdx2i4x4_v[3]; }; // temporary until BlkIdx is removed
+	union { int8_t BlkIdx2i4x4[48]; v16qi BlkIdx2i4x4_v[3]; }; // legacy, to be removed
 	int32_t plane_size_Y;
 	int32_t plane_size_C;
 	uint8_t *frame; // address of first byte in luma plane of current picture
@@ -331,8 +330,6 @@ static noinline void FUNC(decode_direct_mv_pred);
 
 // edge264_residual_*.c
 static inline void FUNC(transform_dc4x4, int iYCbCr);
-static inline void FUNC(transform_dc2x2);
-static inline void FUNC(transform_dc2x4);
 
 // edge264_slice.c
 static noinline void FUNC(parse_slice_data_cavlc);
@@ -526,8 +523,8 @@ static const v16qi last_inc_8x8[4] = {
 	{3, 3, 3, 3, 3, 3, 3, 3, 4, 4, 4, 4, 4, 4, 4, 4},
 	{5, 5, 5, 5, 6, 6, 6, 6, 7, 7, 7, 7, 8, 8, 8, 8},
 };
-static const v8qi sig_inc_chromaDC[2] =
-	{{0, 1, 2, 0}, {0, 0, 1, 1, 2, 2, 2, 0}};
+static const v16qi sig_inc_chromaDC[2] =
+	{{0, 1, 2, 0, 0, 1, 2, 0}, {0, 0, 1, 1, 2, 2, 2, 0, 0, 0, 1, 1, 2, 2, 2, 0}};
 
 // transposed scan tables
 static const v16qi scan_4x4[2] = {

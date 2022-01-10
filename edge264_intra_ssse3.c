@@ -861,7 +861,6 @@ static void FUNC(decode_ChromaDC8x8_16bit, __m128i top03, __m128i left03, __m128
 	buf[1] = _mm_shuffle_epi32(x5, _MM_SHUFFLE(0, 0, 0, 0));
 	buf[2] = _mm_shuffle_epi32(x5, _MM_SHUFFLE(1, 1, 1, 1));
 	buf[3] = _mm_unpackhi_epi64(x3, x3);
-	JUMP(transform_dc2x2);
 }
 
 static void FUNC(decode_ChromaPlane8x8_16bit, size_t stride, ssize_t nstride, uint8_t *p, __m128i *buf) {
@@ -895,7 +894,6 @@ static void FUNC(decode_ChromaPlane8x8_16bit, size_t stride, ssize_t nstride, ui
 	buf[1] = p1;
 	buf[2] = _mm_add_epi32(p0, c2);
 	buf[3] = _mm_add_epi32(p1, c2);
-	JUMP(transform_dc2x2);
 }
 
 static void FUNC(decode_ChromaDC8x16_8bit, __m128i dc03, __m128i dc2146, __m128i dc57) {

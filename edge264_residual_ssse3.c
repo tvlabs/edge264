@@ -650,49 +650,17 @@ static inline void FUNC(transform_dc4x4, int iYCbCr)
 	}
 }
 
-static inline void add_dc8x8(v4si c, uint8_t *samples, size_t stride, v8hi clip) {
-	__m128i r = _mm_srai_epi32(_mm_add_epi32((__m128i)c, _mm_set1_epi32(32)), 6);
-	size_t stride3 = stride * 3;
-	uint8_t *samples4 = samples + stride * 4;
-	if (clip[0] == 255) {
-		__m128i x0 = _mm_shuffle_epi8(r, _mm_setr_epi8(0, 1, 0, 1, 0, 1, 0, 1, 4, 5, 4, 5, 4, 5, 4, 5));
-		__m128i x1 = _mm_shuffle_epi8(r, _mm_setr_epi8(8, 9, 8, 9, 8, 9, 8, 9, 12, 13, 12, 13, 12, 13, 12, 13));
-		__m128i zero = _mm_setzero_si128();
-		__m128i x2 = _mm_adds_epi16(load8x1_8bit(samples              , zero), x0);
-		__m128i x3 = _mm_adds_epi16(load8x1_8bit(samples  + stride    , zero), x0);
-		__m128i x4 = _mm_adds_epi16(load8x1_8bit(samples  + stride * 2, zero), x0);
-		__m128i x5 = _mm_adds_epi16(load8x1_8bit(samples  + stride3   , zero), x0);
-		__m128i x6 = _mm_adds_epi16(load8x1_8bit(samples4             , zero), x1);
-		__m128i x7 = _mm_adds_epi16(load8x1_8bit(samples4 + stride    , zero), x1);
-		__m128i x8 = _mm_adds_epi16(load8x1_8bit(samples4 + stride * 2, zero), x1);
-		__m128i x9 = _mm_adds_epi16(load8x1_8bit(samples4 + stride3   , zero), x1);
-		v2li xA = (v2li)_mm_packus_epi16(x2, x3);
-		v2li xB = (v2li)_mm_packus_epi16(x4, x5);
-		v2li xC = (v2li)_mm_packus_epi16(x6, x7);
-		v2li xD = (v2li)_mm_packus_epi16(x8, x9);
-		*(int64_t *)(samples              ) = xA[0];
-		*(int64_t *)(samples  + stride    ) = xA[1];
-		*(int64_t *)(samples  + stride * 2) = xB[0];
-		*(int64_t *)(samples  + stride3   ) = xB[1];
-		*(int64_t *)(samples4             ) = xC[0];
-		*(int64_t *)(samples4 + stride    ) = xC[1];
-		*(int64_t *)(samples4 + stride * 2) = xD[0];
-		*(int64_t *)(samples4 + stride3   ) = xD[1];
-	}
-}
-
-static inline void FUNC(transform_dc2x2) {
-	int iYCbCr = (ctx->BlkIdx - 12) >> 2; // BlkIdx is 16 or 20
-	unsigned qP = mb->QP[iYCbCr];
-	unsigned w = ctx->ps.weightScale4x4[iYCbCr + mb->f.mbIsInterFlag * 3][0];
+static inline void FUNC(transform_dc2x2, int Cr) {
+	unsigned qP = mb->QP[1 + Cr];
+	unsigned w = ctx->ps.weightScale4x4[1 + Cr + mb->f.mbIsInterFlag * 3][0];
 	unsigned nA = normAdjust4x4[qP % 6][0];
 	int LevelScale = (w * nA) << (qP / 6 + ctx->ps.BitDepth_C - 8);
 	// we assume 4:2:2 input scan order
-	int i0 = ctx->c[0] + ctx->c[1];
-	int i1 = ctx->c[2] + ctx->c[4];
-	int i2 = ctx->c[0] - ctx->c[1];
-	int i3 = ctx->c[2] - ctx->c[4];
-	int32_t *c = ctx->c + ctx->BlkIdx;
+	int i0 = ctx->c[0+Cr] + ctx->c[4+Cr];
+	int i1 = ctx->c[2+Cr] + ctx->c[6+Cr];
+	int i2 = ctx->c[0+Cr] - ctx->c[4+Cr];
+	int i3 = ctx->c[2+Cr] - ctx->c[6+Cr];
+	int32_t *c = ctx->c + 16 + Cr * 4;
 	c[0] = ((i0 + i1) * LevelScale) >> 5;
 	c[1] = ((i0 - i1) * LevelScale) >> 5;
 	c[2] = ((i2 + i3) * LevelScale) >> 5;
@@ -729,7 +697,66 @@ static inline void FUNC(transform_dc2x2_bis) {
 		
 	// ... or prepare for storage in place
 	} else {
+		size_t stride = ctx->stride;
+		size_t stride3 = stride * 3;
+		uint8_t *pb = ctx->frame + ctx->frame_offsets_x[16] + ctx->frame_offsets_y[16];
+		uint8_t *pr = ctx->frame + ctx->frame_offsets_x[32] + ctx->frame_offsets_y[32];
+		uint8_t *qb = pb + stride * 4;
+		uint8_t *qr = pr + stride * 4;
+		__m128i s32 = _mm_set1_epi32(32);
+		__m128i rb = _mm_srai_epi32(_mm_add_epi32(dcCb, s32), 6);
+		__m128i rr = _mm_srai_epi32(_mm_add_epi32(dcCr, s32), 6);
+		__m128i shuflo = _mm_setr_epi8(0, 1, 0, 1, 0, 1, 0, 1, 4, 5, 4, 5, 4, 5, 4, 5);
+		__m128i shufhi = _mm_setr_epi8(8, 9, 8, 9, 8, 9, 8, 9, 12, 13, 12, 13, 12, 13, 12, 13);
+		__m128i lob = _mm_shuffle_epi8(rb, shuflo);
+		__m128i hib = _mm_shuffle_epi8(rb, shufhi);
+		__m128i lor = _mm_shuffle_epi8(rr, shuflo);
+		__m128i hir = _mm_shuffle_epi8(rr, shufhi);
+		__m128i zero = _mm_setzero_si128();
 		
+		// add to predicted samples
+		if (ctx->clip == 255) {
+			__m128i b0 = _mm_adds_epi16(load8x1_8bit(pb             , zero), lob);
+			__m128i b1 = _mm_adds_epi16(load8x1_8bit(pb + stride    , zero), lob);
+			__m128i b2 = _mm_adds_epi16(load8x1_8bit(pb + stride * 2, zero), lob);
+			__m128i b3 = _mm_adds_epi16(load8x1_8bit(pb + stride3   , zero), lob);
+			__m128i b4 = _mm_adds_epi16(load8x1_8bit(qb             , zero), hib);
+			__m128i b5 = _mm_adds_epi16(load8x1_8bit(qb + stride    , zero), hib);
+			__m128i b6 = _mm_adds_epi16(load8x1_8bit(qb + stride * 2, zero), hib);
+			__m128i b7 = _mm_adds_epi16(load8x1_8bit(qb + stride3   , zero), hib);
+			v2li b8 = (v2li)_mm_packus_epi16(b0, b1);
+			v2li b9 = (v2li)_mm_packus_epi16(b2, b3);
+			v2li bA = (v2li)_mm_packus_epi16(b4, b5);
+			v2li bB = (v2li)_mm_packus_epi16(b6, b7);
+			*(int64_t *)(pb             ) = b8[0];
+			*(int64_t *)(pb + stride    ) = b8[1];
+			*(int64_t *)(pb + stride * 2) = b9[0];
+			*(int64_t *)(pb + stride3   ) = b9[1];
+			*(int64_t *)(qb             ) = bA[0];
+			*(int64_t *)(qb + stride    ) = bA[1];
+			*(int64_t *)(qb + stride * 2) = bB[0];
+			*(int64_t *)(qb + stride3   ) = bB[1];
+			__m128i r0 = _mm_adds_epi16(load8x1_8bit(pr             , zero), lor);
+			__m128i r1 = _mm_adds_epi16(load8x1_8bit(pr + stride    , zero), lor);
+			__m128i r2 = _mm_adds_epi16(load8x1_8bit(pr + stride * 2, zero), lor);
+			__m128i r3 = _mm_adds_epi16(load8x1_8bit(pr + stride3   , zero), lor);
+			__m128i r4 = _mm_adds_epi16(load8x1_8bit(qr             , zero), hir);
+			__m128i r5 = _mm_adds_epi16(load8x1_8bit(qr + stride    , zero), hir);
+			__m128i r6 = _mm_adds_epi16(load8x1_8bit(qr + stride * 2, zero), hir);
+			__m128i r7 = _mm_adds_epi16(load8x1_8bit(qr + stride3   , zero), hir);
+			v2li r8 = (v2li)_mm_packus_epi16(r0, r1);
+			v2li r9 = (v2li)_mm_packus_epi16(r2, r3);
+			v2li rA = (v2li)_mm_packus_epi16(r4, r5);
+			v2li rB = (v2li)_mm_packus_epi16(r6, r7);
+			*(int64_t *)(pr             ) = r8[0];
+			*(int64_t *)(pr + stride    ) = r8[1];
+			*(int64_t *)(pr + stride * 2) = r9[0];
+			*(int64_t *)(pr + stride3   ) = r9[1];
+			*(int64_t *)(qr             ) = rA[0];
+			*(int64_t *)(qr + stride    ) = rA[1];
+			*(int64_t *)(qr + stride * 2) = rB[0];
+			*(int64_t *)(qr + stride3   ) = rB[1];
+		}
 	}
 }
 

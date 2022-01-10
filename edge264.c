@@ -1,15 +1,10 @@
 /** MAYDO:
- * _ implement a new dc2x2 transform that computes Cb&Cr at the same time, and adds DC to image if AC is false
- * _ remove clip_v in favor of passing it to decoding functions (same as stride)
- * _ implement new functions decode_intra4x4 and decode_intra8x8 taking i4x4 as parameter
- * _ replace all calls to parse_residual_block by its bis version, then remove the former
+ * _ review Edge264_ctx structure to reduce memory usage
  * _ remove decode_samples, PredMode and the PredModes enum
- * _ modify all decoding functions to get rid of BlkIdx and stride by adding parameters
+ * _ modify all decoding functions to get rid of BlkIdx by adding parameters
  * _ remove all uses of mb_field_decoding_flag while keeping const data for future use
  * _ initialize scan_v[1..3] in edge264.c, only scan_v[0] changes dynamically
- * _ reintroduce DC optimization for intraNxN, outside of residualNxN
- * _ introduce a double DC optimization for intra16x16 (on cbp and cbf)
- * _ refactor chroma_residual to introduce a DC optimization and skip the loop if AC is false
+ * _ reintroduce DC optimization inside add_idct4x4
  * 
  * _ store coded_block_flags in compact bit fields
  * _ simplify residuals functions before completing CAVLC
@@ -101,10 +96,6 @@ static void FUNC(initialise_decoding_context, Edge264_stream *e)
 		{VERTICAL_LEFT_8x8, VERTICAL_LEFT_8x8, 0, 0, VERTICAL_LEFT_8x8_C, VERTICAL_LEFT_8x8_C, 0, 0, VERTICAL_LEFT_8x8_D, VERTICAL_LEFT_8x8_D, 0, 0, VERTICAL_LEFT_8x8_CD, VERTICAL_LEFT_8x8_CD, 0, 0},
 		{HORIZONTAL_UP_8x8, 0, HORIZONTAL_UP_8x8, 0, HORIZONTAL_UP_8x8, 0, HORIZONTAL_UP_8x8, 0, HORIZONTAL_UP_8x8_D, 0, HORIZONTAL_UP_8x8_D, 0, HORIZONTAL_UP_8x8_D, 0, HORIZONTAL_UP_8x8_D, 0},
 	};
-	
-	// temporary until BlkIdx is removed
-	ctx->BlkIdx2i4x4_v[0] = (v16qi){0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15};
-	ctx->BlkIdx2i4x4_v[1] = (v16qi){16, 20, 24, 28, 32, 36, 40, 44};
 	
 	ctx->mb_qp_delta_non_zero = 0;
 	ctx->CurrMbAddr = 0;

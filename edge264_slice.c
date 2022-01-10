@@ -145,52 +145,41 @@ static void CAFUNC(parse_mb_qp_delta, unsigned cond) {
  */
 static void CAFUNC(parse_chroma_residual)
 {
-	if (!mb->f.CodedBlockPatternChromaDC) // valid also for 4:0:0
-		return;
-	
-	// As in Intra16x16, DC blocks are parsed to ctx->c[0..7], then transformed to ctx->c[16..31]
-	int is422 = ctx->ps.ChromaArrayType - 1;
-	ctx->ctxIdxOffsets_l = ctxIdxOffsets_chromaDC[mb->f.mb_field_decoding_flag];
-	ctx->sig_inc_l = ctx->last_inc_l = sig_inc_chromaDC[is422];
-	ctx->scan_l = (v8qi){0, 2, 1, 4, 6, 3, 5, 7}; // always store as 4:2:2
-	ctx->BlkIdx = 16;
-	
-	// One 2x2 or 2x4 DC block for the Cb component
-	memset(ctx->c + 16, 0, 64);
-	if (CALL(get_ae, ctx->ctxIdxOffsets[0] + ctx->inc.coded_block_flags_16x16[1])) {
-		mb->f.coded_block_flags_16x16[1] = 1;
-		memset(ctx->c, 0, 32);
-		CACALL(parse_residual_block, 0, is422 * 4 + 3);
-		if (is422) CALL(transform_dc2x4); else CALL(transform_dc2x2);
-	}
-	
-	// Another 2x2/2x4 DC block for the Cr component
-	ctx->BlkIdx = 20 + is422 * 4;
-	if (CALL(get_ae, ctx->ctxIdxOffsets[0] + ctx->inc.coded_block_flags_16x16[2])) {
-		mb->f.coded_block_flags_16x16[2] = 1;
-		memset(ctx->c, 0, 32);
-		CACALL(parse_residual_block, 0, is422 * 4 + 3);
-		if (is422) CALL(transform_dc2x4); else CALL(transform_dc2x2);
-	}
-	
-	// Eight or sixteen 4x4 AC blocks for the Cb/Cr components
-	ctx->sig_inc_v[0] = ctx->last_inc_v[0] = sig_inc_4x4;
-	ctx->scan_v[0] = scan_4x4[mb->f.mb_field_decoding_flag];
-	ctx->ctxIdxOffsets_l = ctxIdxOffsets_chromaAC[mb->f.mb_field_decoding_flag];
-	for (ctx->BlkIdx = 16; ctx->BlkIdx < 24 + is422 * 8; ctx->BlkIdx++) {
-		// neighbouring access uses pointer arithmetic to avoid bounds checks
+	// As in Intra16x16, DC blocks are parsed to ctx->c[0..15], then transformed to ctx->c[16..31]
+	if (mb->f.CodedBlockPatternChromaDC) { // valid also for 4:0:0
+		int is422 = ctx->ps.ChromaArrayType - 1;
+		ctx->ctxIdxOffsets_l = ctxIdxOffsets_chromaDC[mb->f.mb_field_decoding_flag];
+		ctx->sig_inc_v[0] = ctx->last_inc_v[0] = sig_inc_chromaDC[is422];
+		ctx->scan_l = (v8qi){0, 4, 2, 6, 1, 5, 3, 7}; // FIXME 4:2:2
 		memset(ctx->c, 0, 64);
+		if (CALL(get_ae, ctx->ctxIdxOffsets[0] + ctx->inc.coded_block_flags_16x16[1])) {
+			mb->f.coded_block_flags_16x16[1] = 1;
+			CACALL(parse_residual_block, 0, 3);
+		}
+		if (CALL(get_ae, ctx->ctxIdxOffsets[0] + ctx->inc.coded_block_flags_16x16[2])) {
+			mb->f.coded_block_flags_16x16[2] = 1;
+			CACALL(parse_residual_block, 4, 7);
+		}
+		CALL(transform_dc2x2_bis);
+		
+		// Eight or sixteen 4x4 AC blocks for the Cb/Cr components
 		if (mb->f.CodedBlockPatternChromaAC) {
-			int cbfA = *(mb->coded_block_flags_4x4 + ctx->coded_block_flags_4x4_A[ctx->BlkIdx]);
-			int cbfB = *(mb->coded_block_flags_4x4 + ctx->coded_block_flags_4x4_B[ctx->BlkIdx]);
-			if (CALL(get_ae, ctx->ctxIdxOffsets[0] + cbfA + cbfB * 2)) {
-				mb->coded_block_flags_4x4[ctx->BlkIdx] = 1;
-				CACALL(parse_residual_block, 1, 15);
+			ctx->sig_inc_v[0] = ctx->last_inc_v[0] = sig_inc_4x4;
+			ctx->scan_v[0] = scan_4x4[mb->f.mb_field_decoding_flag];
+			ctx->ctxIdxOffsets_l = ctxIdxOffsets_chromaAC[mb->f.mb_field_decoding_flag];
+			for (int i4x4 = 0; i4x4 < 8; i4x4++) {
+				memset(ctx->c, 0, 64);
+				int cbfA = *(mb->coded_block_flags_4x4 + ctx->coded_block_flags_4x4_A[16 + i4x4]);
+				int cbfB = *(mb->coded_block_flags_4x4 + ctx->coded_block_flags_4x4_B[16 + i4x4]);
+				if (CALL(get_ae, ctx->ctxIdxOffsets[0] + cbfA + cbfB * 2)) {
+					mb->coded_block_flags_4x4[16 + i4x4] = 1;
+					CACALL(parse_residual_block, 1, 15);
+				}
+				int iYCbCr = 1 + (i4x4 >> 2);
+				v16qi wS = ((v16qi *)ctx->ps.weightScale4x4)[iYCbCr + mb->f.mbIsInterFlag * 3];
+				CALL(add_idct4x4, iYCbCr, (i4x4 * 4) & 15, wS, &ctx->c[16 + i4x4]);
 			}
 		}
-		int iYCbCr = (ctx->BlkIdx >> 2) - 3;
-		v16qi wS = ((v16qi *)ctx->ps.weightScale4x4)[iYCbCr + mb->f.mbIsInterFlag * 3];
-		CALL(add_idct4x4, iYCbCr, ctx->BlkIdx2i4x4[ctx->BlkIdx] & 15, wS, &ctx->c[ctx->BlkIdx]);
 	}
 }
 
@@ -211,6 +200,7 @@ static void CAFUNC(parse_Intra16x16_residual)
 	ctx->sig_inc_v[0] = ctx->last_inc_v[0] = sig_inc_4x4;
 	ctx->scan_v[0] = scan_4x4[mb_field_decoding_flag];
 	for (int iYCbCr = 0; iYCbCr < 3; iYCbCr++) {
+		
 		// Parse a DC block, then transform it to ctx->c[16..31]
 		ctx->ctxIdxOffsets_l = ctxIdxOffsets_16x16DC[iYCbCr][mb_field_decoding_flag];
 		if (CALL(get_ae, ctx->ctxIdxOffsets[0] + ctx->inc.coded_block_flags_16x16[iYCbCr])) {
@@ -272,9 +262,7 @@ static void CAFUNC(parse_NxN_residual)
 	// next few blocks will share many parameters, so we cache a LOT of them
 	ctx->stride = ctx->stride_Y;
 	ctx->clip_v = ctx->clip_Y;
-	ctx->BlkIdx = 0;
-	do {
-		int iYCbCr = ctx->BlkIdx >> 4;
+	for (int iYCbCr = 0; iYCbCr < 3; iYCbCr++) {
 		int mb_field_decoding_flag = mb->f.mb_field_decoding_flag;
 		if (!mb->f.transform_size_8x8_flag) {
 			ctx->ctxIdxOffsets_l = ctxIdxOffsets_4x4[iYCbCr][mb_field_decoding_flag];
@@ -282,24 +270,25 @@ static void CAFUNC(parse_NxN_residual)
 			ctx->sig_inc_v[0] = ctx->last_inc_v[0] = sig_inc_4x4;
 			
 			// Decoding directly follows parsing to avoid duplicate loops.
-			do {
-				uint8_t *samples = ctx->frame + ctx->frame_offsets_x[ctx->BlkIdx] + ctx->frame_offsets_y[ctx->BlkIdx];
+			for (int i4x4 = 0; i4x4 < 16; i4x4++) {
+				int BlkIdx = iYCbCr * 16 + i4x4;
 				if (!mb->f.mbIsInterFlag) {
-					int mode = intra4x4_modes[mb->Intra4x4PredMode[ctx->BlkIdx & 15]][ctx->unavail[ctx->BlkIdx & 15]];
+					int mode = intra4x4_modes[mb->Intra4x4PredMode[i4x4]][ctx->unavail[i4x4]];
+					uint8_t *samples = ctx->frame + ctx->frame_offsets_x[BlkIdx] + ctx->frame_offsets_y[BlkIdx];
 					decode_intra4x4(mode, samples, ctx->stride, ctx->clip_v);
 				}
-				if (mb->CodedBlockPatternLuma[ctx->BlkIdx >> 2]) {
-					int cbfA = *(mb->coded_block_flags_4x4 + ctx->coded_block_flags_4x4_A[ctx->BlkIdx]);
-					int cbfB = *(mb->coded_block_flags_4x4 + ctx->coded_block_flags_4x4_B[ctx->BlkIdx]);
+				if (mb->CodedBlockPatternLuma[i4x4 >> 2]) {
+					int cbfA = *(mb->coded_block_flags_4x4 + ctx->coded_block_flags_4x4_A[BlkIdx]);
+					int cbfB = *(mb->coded_block_flags_4x4 + ctx->coded_block_flags_4x4_B[BlkIdx]);
 					if (CALL(get_ae, ctx->ctxIdxOffsets[0] + cbfA + cbfB * 2)) {
-						mb->coded_block_flags_4x4[ctx->BlkIdx] = 1;
+						mb->coded_block_flags_4x4[BlkIdx] = 1;
 						memset(ctx->c, 0, 64);
 						CACALL(parse_residual_block, 0, 15);
 						v16qi wS = ((v16qi *)ctx->ps.weightScale4x4)[iYCbCr + mb->f.mbIsInterFlag * 3];
-						CALL(add_idct4x4, iYCbCr, ctx->BlkIdx & 15, wS, NULL);
+						CALL(add_idct4x4, iYCbCr, i4x4, wS, NULL);
 					}
 				}
-			} while (++ctx->BlkIdx & 15);
+			}
 		} else {
 			
 			ctx->ctxIdxOffsets_l = ctxIdxOffsets_8x8[iYCbCr][mb_field_decoding_flag];
@@ -311,19 +300,19 @@ static void CAFUNC(parse_NxN_residual)
 				ctx->scan_v[i] = r[i];
 			}
 			
-			do {
-				int luma8x8BlkIdx = ctx->BlkIdx >> 2;
-				int coded_block_flag = mb->CodedBlockPatternLuma[luma8x8BlkIdx & 3];
+			for (int i8x8 = 0; i8x8 < 4; i8x8++) {
+				int BlkIdx = iYCbCr * 4 + i8x8;
+				int coded_block_flag = mb->CodedBlockPatternLuma[i8x8];
 				if (coded_block_flag && ctx->ps.ChromaArrayType == 3) {
-					int cbfA = *(mb->coded_block_flags_8x8 + ctx->coded_block_flags_8x8_A[luma8x8BlkIdx]);
-					int cbfB = *(mb->coded_block_flags_8x8 + ctx->coded_block_flags_8x8_B[luma8x8BlkIdx]);
+					int cbfA = *(mb->coded_block_flags_8x8 + ctx->coded_block_flags_8x8_A[BlkIdx]);
+					int cbfB = *(mb->coded_block_flags_8x8 + ctx->coded_block_flags_8x8_B[BlkIdx]);
 					coded_block_flag = CALL(get_ae, ctx->ctxIdxOffsets[0] + cbfA + cbfB * 2);
 				}
-				mb->coded_block_flags_8x8[luma8x8BlkIdx] = coded_block_flag;
-				mb->coded_block_flags_4x4_s[luma8x8BlkIdx] = coded_block_flag ? 0x01010101 : 0;
+				mb->coded_block_flags_8x8[BlkIdx] = coded_block_flag;
+				mb->coded_block_flags_4x4_s[BlkIdx] = coded_block_flag ? 0x01010101 : 0;
 				memset(ctx->c, 0, 256);
 				//CACALL(parse_residual_block, coded_block_flag, 0, 63);
-			} while ((ctx->BlkIdx += 4) & 15);
+			}
 		}
 		
 		// nice optimisation for 4:4:4 modes
@@ -331,7 +320,7 @@ static void CAFUNC(parse_NxN_residual)
 		ctx->clip_v = ctx->clip_C;
 		if (ctx->ps.ChromaArrayType <3)
 			CAJUMP(parse_chroma_residual);
-	} while (ctx->BlkIdx < 48);
+	}
 }
 
 

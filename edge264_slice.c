@@ -110,8 +110,8 @@ static void CAFUNC(parse_mb_qp_delta, unsigned cond) {
 		24, 25, 26, 27, 28, 29, 29, 30, 31, 32, 32, 33, 34, 34, 35, 35, 36, 36,
 		37, 37, 37, 38, 38, 38, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39,
 		39, 39, 39, 39};
-	// TODO: Put initialisation for neighbouring Inter/Intra cbf values here
 	
+	// FIXME init mb_qp_delta_non_zero properly
 	int mb_qp_delta = 0;
 	ctx->mb_qp_delta_non_zero = cond && CALL(get_ae, 60 + ctx->mb_qp_delta_non_zero);
 	if (ctx->mb_qp_delta_non_zero) {
@@ -148,7 +148,7 @@ static void CAFUNC(parse_chroma_residual)
 	// As in Intra16x16, DC blocks are parsed to ctx->c[0..15], then transformed to ctx->c[16..31]
 	if (mb->f.CodedBlockPatternChromaDC) { // valid also for 4:0:0
 		int is422 = ctx->ps.ChromaArrayType - 1;
-		ctx->ctxIdxOffsets_l = ctxIdxOffsets_chromaDC[mb->f.mb_field_decoding_flag];
+		ctx->ctxIdxOffsets_l = ctxIdxOffsets_chromaDC[0];
 		ctx->sig_inc_v[0] = ctx->last_inc_v[0] = sig_inc_chromaDC[is422];
 		ctx->scan_l = (v8qi){0, 4, 2, 6, 1, 5, 3, 7}; // FIXME 4:2:2
 		memset(ctx->c, 0, 64);
@@ -160,13 +160,13 @@ static void CAFUNC(parse_chroma_residual)
 			mb->f.coded_block_flags_16x16[2] = 1;
 			CACALL(parse_residual_block, 4, 7);
 		}
-		CALL(transform_dc2x2_bis);
+		CALL(transform_dc2x2);
 		
 		// Eight or sixteen 4x4 AC blocks for the Cb/Cr components
 		if (mb->f.CodedBlockPatternChromaAC) {
 			ctx->sig_inc_v[0] = ctx->last_inc_v[0] = sig_inc_4x4;
-			ctx->scan_v[0] = scan_4x4[mb->f.mb_field_decoding_flag];
-			ctx->ctxIdxOffsets_l = ctxIdxOffsets_chromaAC[mb->f.mb_field_decoding_flag];
+			ctx->scan_v[0] = scan_4x4[0];
+			ctx->ctxIdxOffsets_l = ctxIdxOffsets_chromaAC[0];
 			for (int i4x4 = 0; i4x4 < 8; i4x4++) {
 				memset(ctx->c, 0, 64);
 				int cbfA = *(mb->coded_block_flags_4x4 + ctx->coded_block_flags_4x4_A[16 + i4x4]);
@@ -194,15 +194,14 @@ static void CAFUNC(parse_Intra16x16_residual)
 	CACALL(parse_mb_qp_delta, 1);
 	
 	// Both AC and DC coefficients are initially parsed to ctx->c[0..15]
-	int mb_field_decoding_flag = mb->f.mb_field_decoding_flag;
 	ctx->stride = ctx->stride_Y;
 	ctx->clip = ctx->clip_Y;
 	ctx->sig_inc_v[0] = ctx->last_inc_v[0] = sig_inc_4x4;
-	ctx->scan_v[0] = scan_4x4[mb_field_decoding_flag];
+	ctx->scan_v[0] = scan_4x4[0];
 	for (int iYCbCr = 0; iYCbCr < 3; iYCbCr++) {
 		
 		// Parse a DC block, then transform it to ctx->c[16..31]
-		ctx->ctxIdxOffsets_l = ctxIdxOffsets_16x16DC[iYCbCr][mb_field_decoding_flag];
+		ctx->ctxIdxOffsets_l = ctxIdxOffsets_16x16DC[iYCbCr][0];
 		if (CALL(get_ae, ctx->ctxIdxOffsets[0] + ctx->inc.coded_block_flags_16x16[iYCbCr])) {
 			mb->f.coded_block_flags_16x16[iYCbCr] = 1;
 			memset(ctx->c, 0, 64);
@@ -215,7 +214,7 @@ static void CAFUNC(parse_Intra16x16_residual)
 		
 		// All AC blocks pick a DC coeff, then go to ctx->c[1..15]
 		if (mb->CodedBlockPatternLuma_s) {
-			ctx->ctxIdxOffsets_l = ctxIdxOffsets_16x16AC[iYCbCr][mb_field_decoding_flag];
+			ctx->ctxIdxOffsets_l = ctxIdxOffsets_16x16AC[iYCbCr][0];
 			for (int i4x4 = 0; i4x4 < 16; i4x4++) {
 				memset(ctx->c, 0, 64);
 				int BlkIdx = iYCbCr * 16 + i4x4;
@@ -263,10 +262,9 @@ static void CAFUNC(parse_NxN_residual)
 	ctx->stride = ctx->stride_Y;
 	ctx->clip = ctx->clip_Y;
 	for (int iYCbCr = 0; iYCbCr < 3; iYCbCr++) {
-		int mb_field_decoding_flag = mb->f.mb_field_decoding_flag;
 		if (!mb->f.transform_size_8x8_flag) {
-			ctx->ctxIdxOffsets_l = ctxIdxOffsets_4x4[iYCbCr][mb_field_decoding_flag];
-			ctx->scan_v[0] = scan_4x4[mb_field_decoding_flag];
+			ctx->ctxIdxOffsets_l = ctxIdxOffsets_4x4[iYCbCr][0];
+			ctx->scan_v[0] = scan_4x4[0];
 			ctx->sig_inc_v[0] = ctx->last_inc_v[0] = sig_inc_4x4;
 			
 			// Decoding directly follows parsing to avoid duplicate loops.
@@ -288,15 +286,10 @@ static void CAFUNC(parse_NxN_residual)
 			}
 		} else {
 			
-			ctx->ctxIdxOffsets_l = ctxIdxOffsets_8x8[iYCbCr][mb_field_decoding_flag];
-			const v16qi *p = sig_inc_8x8[mb_field_decoding_flag];
-			const v16qi *r = scan_8x8[mb_field_decoding_flag];
-			for (int i = 0; i < 4; i++) {
-				ctx->sig_inc_v[i] = p[i];
-				ctx->last_inc_v[i] = last_inc_8x8[i];
-				ctx->scan_v[i] = r[i];
-			}
-			
+			ctx->ctxIdxOffsets_l = ctxIdxOffsets_8x8[iYCbCr][0];
+			ctx->sig_inc_v[0] = sig_inc_8x8[0][0];
+			ctx->last_inc_v[0] = last_inc_8x8[0];
+			ctx->scan_v[0] = scan_8x8[0][0];
 			for (int i8x8 = 0; i8x8 < 4; i8x8++) {
 				int BlkIdx = iYCbCr * 4 + i8x8;
 				int coded_block_flag = mb->CodedBlockPatternLuma[i8x8];
@@ -1263,7 +1256,6 @@ static noinline void CAFUNC(parse_slice_data)
 		v16qi flagsB = ctx->mbB->f.v;
 		ctx->inc.v = flagsA + flagsB + (flagsB & flags_twice.v);
 		memset(mb, 0, offsetof(Edge264_macroblock, mvs)); // FIXME who needs this?
-		mb->f.mb_field_decoding_flag = ctx->field_pic_flag;
 		
 		// prepare block unavailability information (6.4.11.4)
 		ctx->unavail_v = block_unavailability[ctx->inc.unavailable];

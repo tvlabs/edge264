@@ -29,7 +29,7 @@ typedef uint8_t v16qu __attribute__((vector_size(16)));
 typedef uint16_t v8hu __attribute__((vector_size(16)));
 typedef uint32_t v4su __attribute__((vector_size(16)));
 typedef uint64_t v2lu __attribute__((vector_size(16)));
-typedef int32_t v8si __attribute__((vector_size(32))); // for alignment of ctx->d
+typedef int32_t v8si __attribute__((vector_size(32))); // for alignment of ctx->c
 typedef int16_t v16hi __attribute__((vector_size(32))); // for initialization of neighbouring offsets
 typedef int32_t v16si __attribute__((vector_size(64)));
 
@@ -157,7 +157,6 @@ typedef struct
 	// Intra context
 	union { uint8_t intra4x4_modes[9][16]; v16qu intra4x4_modes_v[9]; }; // kept for future 16bit support
 	union { uint8_t intra8x8_modes[9][16]; v16qu intra8x8_modes_v[9]; };
-	union { int16_t pred_buffer[144]; v8hi pred_buffer_v[18]; }; // temporary storage for prediction samples
 	
 	// Inter context
 	const Edge264_macroblock *mbCol;
@@ -166,11 +165,9 @@ typedef struct
 	int8_t col_short_term;
 	int8_t MapColToList0[65]; // [refIdxCol + 1]
 	union { int8_t clip_ref_idx[8]; v8qi clip_ref_idx_v; };
-	union { int8_t RefPicList[2][32]; v16qi RefPicList_v[4]; };
-	const uint8_t *ref_planes[64]; // [lx][refIdx]
-	v4hi inter8x8_shuffle[4];
+	union { int8_t RefPicList[2][32]; v16qi RefPicList_v[4]; }; // FIXME store in stack instead?
+	const uint8_t *ref_planes[64]; // [lx][refIdx], FIXME store relative to frame
 	union { int8_t refIdx4x4_eq[32]; v16qi refIdx4x4_eq_v[2]; };
-	union { int8_t part_sizes[32]; int16_t part_sizes_h[16]; int64_t part_sizes_l[4]; }; // pairs {w,h} for sizes of inter blocks
 	int16_t DistScaleFactor[32]; // [refIdxL0]
 	union { int8_t implicit_weights[2][32][32]; v16qi implicit_weights_v[2][32][2]; }; // w1 for [top/bottom][ref0][ref1]
 	int8_t explicit_weights[3][64]; // [iYCbCr][LX][RefIdx]
@@ -311,10 +308,12 @@ static int FUNC(cabac_terminate);
 static void FUNC(cabac_init, int idc);
 
 // edge264_inter_*.c
-void FUNC(decode_inter, int i, int w, int h);
+static noinline void FUNC(decode_inter, int i, int w, int h);
 
 // edge264_intra_*.c
-static void FUNC(decode_samples);
+static always_inline void FUNC(decode_intra4x4, int mode, int BlkIdx);
+static always_inline void FUNC(decode_intra16x16, int mode, uint8_t *samples, size_t stride);
+static always_inline void FUNC(decode_intraChroma, int mode, uint8_t *samplesCb, uint8_t *samplesCr, size_t stride);
 
 // edge264_mvpred.c
 static inline void FUNC(decode_inter_16x16, v8hi mvd, int lx);
@@ -325,44 +324,46 @@ static inline void FUNC(decode_inter_16x8_bottom, v8hi mvd, int lx);
 static noinline void FUNC(decode_direct_mv_pred);
 
 // edge264_residual_*.c
+static inline void FUNC(add_idct4x4, int iYCbCr, int i4x4, v16qu wS, int32_t *DCidx);
 static inline void FUNC(transform_dc4x4, int iYCbCr);
+static inline void FUNC(transform_dc2x2);
+static inline void FUNC(transform_dc2x4);
 
 // edge264_slice.c
 static noinline void FUNC(parse_slice_data_cavlc);
 static noinline void FUNC(parse_slice_data_cabac);
 
 // debugging functions
-static void print_v16qi(v16qi v) {
-	printf("<li><code>");
-	for (int i = 0; i < 16; i++)
-		printf("%03d ", v[i]);
-	printf("</code></li>\n");
-}
-static void print_v16qu(v16qu v) {
-	printf("<li><code>");
-	for (int i = 0; i < 16; i++)
-		printf("%03d ", v[i]);
-	printf("</code></li>\n");
-}
-static void print_v8hi(v8hi v) {
-	printf("<li><code>");
-	for (int i = 0; i < 8; i++)
-		printf("%03d ", v[i]);
-	printf("</code></li>\n");
-}
-static void print_v4si(v4si v) {
-	printf("<li><code>");
-	for (int i = 0; i < 4; i++)
-		printf("%05d ", v[i]);
-	printf("</code></li>\n");
-}
+#define print_v16qi(a) {\
+	v16qi v = (v16qi)a;\
+	printf("<li><code>");\
+	for (int i = 0; i < 16; i++)\
+		printf("%4d ", v[i]);\
+	printf("</code></li>\n");}
+#define print_v16qu(a) {\
+	v16qu v = (v16qu)a;\
+	printf("<li><code>");\
+	for (int i = 0; i < 16; i++)\
+		printf("%3u ", v[i]);\
+	printf("</code></li>\n");}
+#define print_v8hi(a) {\
+	v8hi v = (v8hi)a;\
+	printf("<li><code>");\
+	for (int i = 0; i < 8; i++)\
+		printf("%6d ", v[i]);\
+	printf("</code></li>\n");}
+#define print_v4si(a) {\
+	v4si v = (v4si)a;\
+	printf("<li><code>");\
+	for (int i = 0; i < 4; i++)\
+		printf("%6d ", v[i]);\
+	printf("</code></li>\n");}
 
 // Intel-specific common function declarations
 #ifdef __SSSE3__
 	#include <x86intrin.h>
 	
 	// missing intrinsics (https://gcc.gnu.org/bugzilla/show_bug.cgi?id=95483)
-	
 	#if defined(__clang__)
 		static always_inline __m128i _mm_loadu_si32(const uint8_t *a) {
 			return _mm_cvtsi32_si128(*(int32_t *)(a));

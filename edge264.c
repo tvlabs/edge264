@@ -1,11 +1,5 @@
 /** MAYDO:
- * _ review Edge264_ctx structure to reduce memory usage
- * _ remove decode_samples, PredMode and the PredModes enum
- * _ modify all decoding functions to get rid of BlkIdx by adding parameters
- * _ remove all uses of mb_field_decoding_flag while keeping const data for future use
- * _ initialize scan_v[1..3] in edge264.c, only scan_v[0] changes dynamically
  * _ reintroduce DC optimization inside add_idct4x4
- * 
  * _ initialize values in initialise_decoding_context without vectors
  * _ store coded_block_flags in compact bit fields
  * _ simplify residuals functions before completing CAVLC
@@ -91,6 +85,11 @@ static void FUNC(initialise_decoding_context, Edge264_stream *e)
 	}
 	ctx->clip_Y = (1 << ctx->ps.BitDepth_Y) - 1;
 	ctx->clip_C = (1 << ctx->ps.BitDepth_C) - 1;
+	for (int i = 1; i < 4; i++) {
+		ctx->sig_inc_v[i] = sig_inc_8x8[0][i];
+		ctx->last_inc_v[i] = last_inc_8x8[i];
+		ctx->scan_v[i] = scan_8x8[0][i];
+	}
 	
 	int offA_8bit = -(int)sizeof(*mb);
 	int offB_8bit = -(ctx->ps.width / 16 + 1) * sizeof(*mb);

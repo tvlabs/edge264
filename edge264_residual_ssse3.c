@@ -650,24 +650,8 @@ static inline void FUNC(transform_dc4x4, int iYCbCr)
 	}
 }
 
-static inline void FUNC(transform_dc2x2, int Cr) {
-	unsigned qP = mb->QP[1 + Cr];
-	unsigned w = ctx->ps.weightScale4x4[1 + Cr + mb->f.mbIsInterFlag * 3][0];
-	unsigned nA = normAdjust4x4[qP % 6][0];
-	int LevelScale = (w * nA) << (qP / 6 + ctx->ps.BitDepth_C - 8);
-	// we assume 4:2:2 input scan order
-	int i0 = ctx->c[0+Cr] + ctx->c[4+Cr];
-	int i1 = ctx->c[2+Cr] + ctx->c[6+Cr];
-	int i2 = ctx->c[0+Cr] - ctx->c[4+Cr];
-	int i3 = ctx->c[2+Cr] - ctx->c[6+Cr];
-	int32_t *c = ctx->c + 16 + Cr * 4;
-	c[0] = ((i0 + i1) * LevelScale) >> 5;
-	c[1] = ((i0 - i1) * LevelScale) >> 5;
-	c[2] = ((i2 + i3) * LevelScale) >> 5;
-	c[3] = ((i2 - i3) * LevelScale) >> 5;
-}
-
-static inline void FUNC(transform_dc2x2_bis) {
+static inline void FUNC(transform_dc2x2)
+{
 	// load both matrices interlaced+transposed and multiply right
 	__m128i c0 = (__m128i)ctx->c_v[0];
 	__m128i c1 = (__m128i)ctx->c_v[1];
@@ -760,7 +744,8 @@ static inline void FUNC(transform_dc2x2_bis) {
 	}
 }
 
-static inline void FUNC(transform_dc2x4) {
+static inline void FUNC(transform_dc2x4)
+{
 	int iYCbCr = (0/*BlkIdx*/ - 8) >> 3; // BlkIdx is 16 or 24
 	unsigned qP_DC = mb->QP[iYCbCr] + 3;
 	int w = ctx->ps.weightScale4x4[iYCbCr + mb->f.mbIsInterFlag * 3][0];

@@ -1,6 +1,4 @@
 /** MAYDO:
- * _ replace QP by QPprime in all code
- * _ remove mb->QP
  * _ pass mvs in registers to decode_inter
  * _ remove stride & clip temporarily until actually working on 4:4:4
  * _ reintroduce DC optimization inside add_idct4x4
@@ -70,6 +68,11 @@ static const v16qu Default_8x8_Inter[4] = {
  */
 static void FUNC(initialise_decoding_context, Edge264_stream *e)
 {
+	static const int8_t QP_Y2C[79] = {
+		0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+		1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 29, 30, 31, 32, 32, 33, 34, 34, 35, 35, 36, 36, 37, 37, 37, 38, 38, 38,
+		39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39};
+	
 	ctx->mb_qp_delta_nz = 0;
 	ctx->CurrMbAddr = 0;
 	ctx->stride_Y = e->stride_Y;
@@ -96,6 +99,14 @@ static void FUNC(initialise_decoding_context, Edge264_stream *e)
 		ctx->last_inc_v[i] = last_inc_8x8[i];
 		ctx->scan_v[i] = scan_8x8[0][i];
 	}
+	memcpy(ctx->QPprime_C_v    , QP_Y2C + clip3(0, 63, 15 + ctx->ps.chroma_qp_index_offset), 16);
+	memcpy(ctx->QPprime_C_v + 1, QP_Y2C + clip3(0, 63, 31 + ctx->ps.chroma_qp_index_offset), 16);
+	memcpy(ctx->QPprime_C_v + 2, QP_Y2C + clip3(0, 63, 47 + ctx->ps.chroma_qp_index_offset), 16);
+	memcpy(ctx->QPprime_C_v + 3, QP_Y2C + clip3(0, 63, 63 + ctx->ps.chroma_qp_index_offset), 16);
+	memcpy(ctx->QPprime_C_v + 4, QP_Y2C + clip3(0, 63, 15 + ctx->ps.second_chroma_qp_index_offset), 16);
+	memcpy(ctx->QPprime_C_v + 5, QP_Y2C + clip3(0, 63, 31 + ctx->ps.second_chroma_qp_index_offset), 16);
+	memcpy(ctx->QPprime_C_v + 6, QP_Y2C + clip3(0, 63, 47 + ctx->ps.second_chroma_qp_index_offset), 16);
+	memcpy(ctx->QPprime_C_v + 7, QP_Y2C + clip3(0, 63, 63 + ctx->ps.second_chroma_qp_index_offset), 16);
 	
 	int offA_8bit = -(int)sizeof(*mb);
 	int offB_8bit = -(ctx->ps.width / 16 + 1) * sizeof(*mb);

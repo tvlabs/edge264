@@ -44,10 +44,9 @@ static const v16qi normAdjust8x8[6][4] = {
  * Here we try to stay close to the spec's pseudocode, avoiding minor
  * optimisations that would make the code hard to understand.
  */
-static inline void FUNC(add_idct4x4, int iYCbCr, int i4x4, v16qu wS, int32_t *DCidx)
+static inline void FUNC(add_idct4x4, int iYCbCr, int i4x4, int qP, v16qu wS, int32_t *DCidx)
 {
 	// loading and scaling
-	unsigned qP = mb->QP[iYCbCr]; // FIXME 16bit
 	__m128i zero = _mm_setzero_si128();
 	__m128i sh = _mm_cvtsi32_si128(qP / 6);
 	__m128i nA = (__m128i)normAdjust4x4[qP % 6];
@@ -573,7 +572,7 @@ static inline void FUNC(transform_dc4x4, int iYCbCr)
 	__m128i f3 = _mm_add_epi32(xI, xJ);
 	
 	// scale
-	unsigned qP = mb->QP[iYCbCr];
+	unsigned qP = ctx->ps.QPprime_Y; // FIXME 4:4:4
 	__m128i s32 = _mm_set1_epi32(32);
 	__m128i LS = _mm_set1_epi32((ctx->ps.weightScale4x4[iYCbCr][0] * normAdjust4x4[qP % 6][0]) << (qP / 6));
 	__m128i dc0 = _mm_srai_epi32(_mm_add_epi32(_mm_mullo_epi32(f0, LS), s32), 6);
@@ -665,8 +664,8 @@ static inline void FUNC(transform_dc2x2)
 	__m128i f1 = _mm_sub_epi32(e0, e1);
 	
 	// deinterlace and scale
-	unsigned qPb = mb->QP[1];
-	unsigned qPr = mb->QP[2];
+	unsigned qPb = ctx->QPprime_C[0][ctx->ps.QPprime_Y];
+	unsigned qPr = ctx->QPprime_C[1][ctx->ps.QPprime_Y];
 	__m128i LSb = _mm_set1_epi32((ctx->ps.weightScale4x4[1 + mb->f.mbIsInterFlag * 3][0] * normAdjust4x4[qPb % 6][0]) << (qPb / 6));
 	__m128i LSr = _mm_set1_epi32((ctx->ps.weightScale4x4[2 + mb->f.mbIsInterFlag * 3][0] * normAdjust4x4[qPr % 6][0]) << (qPr / 6));
 	__m128i fb = (__m128i)_mm_shuffle_ps((__m128)f0, (__m128)f1, _MM_SHUFFLE(2, 0, 2, 0));
@@ -747,7 +746,7 @@ static inline void FUNC(transform_dc2x2)
 static inline void FUNC(transform_dc2x4)
 {
 	int iYCbCr = (0/*BlkIdx*/ - 8) >> 3; // BlkIdx is 16 or 24
-	unsigned qP_DC = mb->QP[iYCbCr] + 3;
+	unsigned qP_DC = 0; //mb->QP[iYCbCr] + 3;
 	int w = ctx->ps.weightScale4x4[iYCbCr + mb->f.mbIsInterFlag * 3][0];
 	int nA = normAdjust4x4[qP_DC % 6][0];
 	__m128i x0 = (__m128i)ctx->c_v[0]; // {c00, c01, c10, c11} as per 8.5.11.1

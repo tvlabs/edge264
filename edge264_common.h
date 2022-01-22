@@ -75,7 +75,6 @@ typedef struct {
 	Edge264_flags f;
 	uint32_t inter_blocks; // bitmask for every index that is the topleft corner of a block, upper half indicates whether each 8x8 block is equal with its right/bottom neighbours
 	uint16_t ref_idx_nz;
-	int8_t QP[3];
 	union { int8_t CodedBlockPatternLuma[4]; int32_t CodedBlockPatternLuma_s; }; // [i8x8]
 	union { int8_t refIdx[8]; int32_t refIdx_s[2]; int64_t refIdx_l; v8qi refIdx_v; }; // [LX][i8x8]
 	union { int8_t Intra4x4PredMode[16]; v16qi Intra4x4PredMode_v; }; // [i4x4]
@@ -179,6 +178,7 @@ typedef struct
 	union { int8_t sig_inc[64]; v8qi sig_inc_l; v16qi sig_inc_v[4]; };
 	union { int8_t last_inc[64]; v8qi last_inc_l; v16qi last_inc_v[4]; };
 	union { int8_t scan[64]; v8qi scan_l; v16qi scan_v[4]; };
+	union { int8_t QPprime_C[2][64]; v16qi QPprime_C_v[8]; };
 	union { int32_t c[64]; v4si c_v[16]; v8si c_V[8]; }; // non-scaled residual coefficients
 } Edge264_ctx;
 
@@ -324,7 +324,7 @@ static inline void FUNC(decode_inter_16x8_bottom, v8hi mvd, int lx);
 static noinline void FUNC(decode_direct_mv_pred);
 
 // edge264_residual_*.c
-static inline void FUNC(add_idct4x4, int iYCbCr, int i4x4, v16qu wS, int32_t *DCidx);
+static inline void FUNC(add_idct4x4, int iYCbCr, int i4x4, int qP, v16qu wS, int32_t *DCidx);
 static inline void FUNC(transform_dc4x4, int iYCbCr);
 static inline void FUNC(transform_dc2x2);
 static inline void FUNC(transform_dc2x4);

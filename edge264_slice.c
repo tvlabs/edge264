@@ -98,9 +98,6 @@ static void CAFUNC(parse_residual_block, int startIdx, int endIdx)
 
 /**
  * As its name says, parses mb_qp_delta (9.3.2.7 and 9.3.3.1.1.5).
- *
- * cond should contain the values in coded_block_pattern as stored in mb,
- * such that Intra16x16 can request unconditional parsing by passing 1.
  */
 static void CAFUNC(parse_mb_qp_delta)
 {
@@ -115,15 +112,6 @@ static void CAFUNC(parse_mb_qp_delta)
 		ctx->ps.QPprime_Y = (sum < 0) ? sum + 52 : (sum >= 52) ? sum - 52 : sum;
 		fprintf(stderr, "mb_qp_delta: %d\n", mb_qp_delta);
 	}
-	
-	// deduce this macroblock's QP values
-	int QpBdOffset_C = (ctx->ps.BitDepth_C - 8) * 6;
-	// FIXME integrate all operations into QP_Cb and QP_Cr arrays in ctx
-	int QP_Cb = ctx->ps.QPprime_Y + ctx->ps.chroma_qp_index_offset;
-	int QP_Cr = ctx->ps.QPprime_Y + ctx->ps.second_chroma_qp_index_offset;
-	mb->QP[0] = ctx->ps.QPprime_Y;
-	mb->QP[1] = QP_C[36 + clip3(-QpBdOffset_C, 51, QP_Cb)];
-	mb->QP[2] = QP_C[36 + clip3(-QpBdOffset_C, 51, QP_Cr)];
 }
 
 
@@ -166,7 +154,8 @@ static void CAFUNC(parse_chroma_residual)
 				}
 				int iYCbCr = 1 + (i4x4 >> 2);
 				v16qi wS = ((v16qi *)ctx->ps.weightScale4x4)[iYCbCr + mb->f.mbIsInterFlag * 3];
-				CALL(add_idct4x4, iYCbCr, (i4x4 * 4) & 15, wS, &ctx->c[16 + i4x4]);
+				int qP = ctx->QPprime_C[iYCbCr - 1][ctx->ps.QPprime_Y];
+				CALL(add_idct4x4, iYCbCr, (i4x4 * 4) & 15, qP, wS, &ctx->c[16 + i4x4]);
 			}
 		}
 	}
@@ -213,7 +202,7 @@ static void CAFUNC(parse_Intra16x16_residual)
 					mb->coded_block_flags_4x4[BlkIdx] = 1;
 					CACALL(parse_residual_block, 1, 15);
 				}
-				CALL(add_idct4x4, iYCbCr, i4x4, ((v16qi *)ctx->ps.weightScale4x4)[iYCbCr], &ctx->c[16 + i4x4]);
+				CALL(add_idct4x4, iYCbCr, i4x4, ctx->ps.QPprime_Y, ((v16qi *)ctx->ps.weightScale4x4)[iYCbCr], &ctx->c[16 + i4x4]);
 			}
 		}
 		
@@ -248,7 +237,6 @@ static void CAFUNC(parse_NxN_residual)
 	if (mb->f.CodedBlockPatternChromaDC | mb->CodedBlockPatternLuma_s)
 		CACALL(parse_mb_qp_delta);
 	else
-		// FIXME initialize mb->QP too !
 		ctx->mb_qp_delta_nz = 0;
 	
 	// next few blocks will share many parameters, so we cache a LOT of them
@@ -273,7 +261,7 @@ static void CAFUNC(parse_NxN_residual)
 						memset(ctx->c, 0, 64);
 						CACALL(parse_residual_block, 0, 15);
 						v16qi wS = ((v16qi *)ctx->ps.weightScale4x4)[iYCbCr + mb->f.mbIsInterFlag * 3];
-						CALL(add_idct4x4, iYCbCr, i4x4, wS, NULL);
+						CALL(add_idct4x4, iYCbCr, i4x4, ctx->ps.QPprime_Y, wS, NULL);
 					}
 				}
 			}

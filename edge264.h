@@ -59,7 +59,7 @@ typedef struct {
 	int8_t direct_8x8_inference_flag; // 1 significant bit
 	int8_t num_ref_idx_active[2]; // 6 significant bits
 	int8_t weighted_bipred_idc; // 2 significant bits
-	int8_t QP_Y; // 7 significant bits
+	int8_t QPprime_Y; // 7 significant bits
 	int8_t chroma_qp_index_offset; // 5 significant bits
 	int8_t transform_8x8_mode_flag; // 1 significant bit
 	int8_t second_chroma_qp_index_offset; // 5 significant bits

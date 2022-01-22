@@ -109,7 +109,7 @@ typedef struct
 	int8_t disable_deblocking_filter_idc; // 2 significant bits
 	int8_t FilterOffsetA; // 5 significant bits
 	int8_t FilterOffsetB;
-	int8_t mb_qp_delta_non_zero;
+	int8_t mb_qp_delta_nz;
 	int32_t TopFieldOrderCnt;
 	int32_t BottomFieldOrderCnt;
 	Edge264_parameter_set ps;
@@ -165,9 +165,9 @@ typedef struct
 	int8_t col_short_term;
 	int8_t MapColToList0[65]; // [refIdxCol + 1]
 	union { int8_t clip_ref_idx[8]; v8qi clip_ref_idx_v; };
-	union { int8_t RefPicList[2][32]; v16qi RefPicList_v[4]; }; // FIXME store in stack instead?
+	union { int8_t RefPicList[2][32]; v16qi RefPicList_v[4]; }; // FIXME store on stack instead?
 	const uint8_t *ref_planes[64]; // [lx][refIdx], FIXME store relative to frame
-	union { int8_t refIdx4x4_eq[32]; v16qi refIdx4x4_eq_v[2]; };
+	union { int8_t refIdx4x4_eq[32]; v16qi refIdx4x4_eq_v[2]; }; // FIXME store on stack
 	int16_t DistScaleFactor[32]; // [refIdxL0]
 	union { int8_t implicit_weights[2][32][32]; v16qi implicit_weights_v[2][32][2]; }; // w1 for [top/bottom][ref0][ref1]
 	int8_t explicit_weights[3][64]; // [iYCbCr][LX][RefIdx]
@@ -568,6 +568,14 @@ static const v4hi ctxIdxOffsets_8x8[3][2] = {
 	{{1016, 660, 690, 708}, {1016, 675, 699, 708}}, // ctxBlockCat==9
 	{{1020, 718, 748, 766}, {1020, 733, 757, 766}}, // ctxBlockCat==13
 };
+
+static const int8_t QP_C[100] = {-36, -35, -34, -33, -32, -31, -30, -29, -28,
+	-27, -26, -25, -24, -23, -22, -21, -20, -19, -18, -17, -16, -15, -14,
+	-13, -12, -11, -10, -9, -8, -7, -6, -5, -4, -3, -2, -1, 0, 1, 2, 3, 4,
+	5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23,
+	24, 25, 26, 27, 28, 29, 29, 30, 31, 32, 32, 33, 34, 34, 35, 35, 36, 36,
+	37, 37, 37, 38, 38, 38, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39,
+	39, 39, 39, 39};
 
 
 

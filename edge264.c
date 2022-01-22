@@ -1,8 +1,14 @@
 /** MAYDO:
+ * _ replace QP by QPprime in all code
+ * _ remove mb->QP
+ * _ pass mvs in registers to decode_inter
+ * _ remove stride & clip temporarily until actually working on 4:4:4
  * _ reintroduce DC optimization inside add_idct4x4
  * _ initialize values in initialise_decoding_context without vectors
  * _ store coded_block_flags in compact bit fields
  * _ simplify residuals functions before completing CAVLC
+ * _ split all ctx->... = CALL(...) followed by test to avoid depending on masking
+ * _ debug the decoding with GCC
  * _ fix initialization of implicit weights
  * _ review and secure the places where CABAC could result in unsupported internal state
  * _ rename absMvdComp into absMvd, and other mb variables into their non symbol version
@@ -64,7 +70,7 @@ static const v16qu Default_8x8_Inter[4] = {
  */
 static void FUNC(initialise_decoding_context, Edge264_stream *e)
 {
-	ctx->mb_qp_delta_non_zero = 0;
+	ctx->mb_qp_delta_nz = 0;
 	ctx->CurrMbAddr = 0;
 	ctx->stride_Y = e->stride_Y;
 	ctx->stride_C = e->stride_C;
@@ -606,8 +612,8 @@ static int FUNC(parse_slice_layer_without_partitioning, Edge264_stream *e)
 		cabac_init_idc = 1 + CALL(get_ue16, 2);
 		printf("<li>cabac_init_idc: <code>%u</code></li>\n", cabac_init_idc - 1);
 	}
-	ctx->ps.QP_Y += CALL(get_se16, -6 * ((int)ctx->ps.BitDepth_Y - 8) - ctx->ps.QP_Y, 51 - ctx->ps.QP_Y);
-	printf("<li>SliceQP<sub>Y</sub>: <code>%d</code></li>\n", ctx->ps.QP_Y);
+	ctx->ps.QPprime_Y += CALL(get_se16, -ctx->ps.QPprime_Y, 51 - ctx->ps.QPprime_Y); // FIXME QpBdOffset
+	printf("<li>SliceQP<sub>Y</sub>: <code>%d</code></li>\n", ctx->ps.QPprime_Y);
 	
 	// Loop filter is yet to be implemented.
 	ctx->disable_deblocking_filter_idc = 0;
@@ -836,7 +842,7 @@ static int FUNC(parse_pic_parameter_set, Edge264_stream *e)
 	ctx->ps.num_ref_idx_active[1] = CALL(get_ue16, 31) + 1;
 	ctx->ps.weighted_pred_flag = CALL(get_u1);
 	ctx->ps.weighted_bipred_idc = CALL(get_uv, 2);
-	ctx->ps.QP_Y = CALL(get_se16, -62, 25) + 26;
+	ctx->ps.QPprime_Y = CALL(get_se16, -26, 25) + 26; // FIXME QpBdOffset
 	int pic_init_qs = CALL(get_se16, -26, 25) + 26;
 	ctx->ps.second_chroma_qp_index_offset = ctx->ps.chroma_qp_index_offset = CALL(get_se16, -12, 12);
 	ctx->ps.deblocking_filter_control_present_flag = CALL(get_u1);
@@ -856,7 +862,7 @@ static int FUNC(parse_pic_parameter_set, Edge264_stream *e)
 		ctx->ps.num_ref_idx_active[1],
 		ctx->ps.weighted_pred_flag,
 		ctx->ps.weighted_bipred_idc,
-		ctx->ps.QP_Y,
+		ctx->ps.QPprime_Y,
 		pic_init_qs,
 		ctx->ps.chroma_qp_index_offset,
 		ctx->ps.deblocking_filter_control_present_flag,

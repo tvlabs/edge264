@@ -102,37 +102,26 @@ static void CAFUNC(parse_residual_block, int startIdx, int endIdx)
  * cond should contain the values in coded_block_pattern as stored in mb,
  * such that Intra16x16 can request unconditional parsing by passing 1.
  */
-static void CAFUNC(parse_mb_qp_delta, unsigned cond) {
-	static const int QP_C[100] = {-36, -35, -34, -33, -32, -31, -30, -29, -28,
-		-27, -26, -25, -24, -23, -22, -21, -20, -19, -18, -17, -16, -15, -14,
-		-13, -12, -11, -10, -9, -8, -7, -6, -5, -4, -3, -2, -1, 0, 1, 2, 3, 4,
-		5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23,
-		24, 25, 26, 27, 28, 29, 29, 30, 31, 32, 32, 33, 34, 34, 35, 35, 36, 36,
-		37, 37, 37, 38, 38, 38, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39,
-		39, 39, 39, 39};
-	
-	// FIXME init mb_qp_delta_non_zero properly
-	int mb_qp_delta = 0;
-	ctx->mb_qp_delta_non_zero = cond && CALL(get_ae, 60 + ctx->mb_qp_delta_non_zero);
-	if (ctx->mb_qp_delta_non_zero) {
-		
-		// FIXME prevent infinite looping
+static void CAFUNC(parse_mb_qp_delta)
+{
+	int mb_qp_delta_nz = CALL(get_ae, 60 + ctx->mb_qp_delta_nz);
+	ctx->mb_qp_delta_nz = mb_qp_delta_nz;
+	if (mb_qp_delta_nz) {
 		unsigned count = 1, ctxIdx = 62;
-		while (CALL(get_ae, ctxIdx))
+		while (CALL(get_ae, ctxIdx) && count < 52) // FIXME QpBdOffset
 			count++, ctxIdx = 63;
-		mb_qp_delta = count & 1 ? count / 2 + 1 : -(count / 2);
-		int QP = ctx->ps.QP_Y + mb_qp_delta;
-		int QpBdOffset_Y = (ctx->ps.BitDepth_Y - 8) * 6;
-		ctx->ps.QP_Y = (QP < -QpBdOffset_Y) ? QP + 52 + QpBdOffset_Y :
-			(QP >= 52) ? QP - (52 + QpBdOffset_Y) : QP;
+		int mb_qp_delta = count & 1 ? count / 2 + 1 : -(count / 2);
+		int sum = ctx->ps.QPprime_Y + mb_qp_delta;
+		ctx->ps.QPprime_Y = (sum < 0) ? sum + 52 : (sum >= 52) ? sum - 52 : sum;
 		fprintf(stderr, "mb_qp_delta: %d\n", mb_qp_delta);
 	}
 	
 	// deduce this macroblock's QP values
 	int QpBdOffset_C = (ctx->ps.BitDepth_C - 8) * 6;
-	int QP_Cb = ctx->ps.QP_Y + ctx->ps.chroma_qp_index_offset;
-	int QP_Cr = ctx->ps.QP_Y + ctx->ps.second_chroma_qp_index_offset;
-	mb->QP[0] = ctx->ps.QP_Y;
+	// FIXME integrate all operations into QP_Cb and QP_Cr arrays in ctx
+	int QP_Cb = ctx->ps.QPprime_Y + ctx->ps.chroma_qp_index_offset;
+	int QP_Cr = ctx->ps.QPprime_Y + ctx->ps.second_chroma_qp_index_offset;
+	mb->QP[0] = ctx->ps.QPprime_Y;
 	mb->QP[1] = QP_C[36 + clip3(-QpBdOffset_C, 51, QP_Cb)];
 	mb->QP[2] = QP_C[36 + clip3(-QpBdOffset_C, 51, QP_Cr)];
 }
@@ -191,7 +180,7 @@ static void CAFUNC(parse_chroma_residual)
  */
 static void CAFUNC(parse_Intra16x16_residual)
 {
-	CACALL(parse_mb_qp_delta, 1);
+	CACALL(parse_mb_qp_delta);
 	
 	// Both AC and DC coefficients are initially parsed to ctx->c[0..15]
 	ctx->stride = ctx->stride_Y;
@@ -256,7 +245,11 @@ static void CAFUNC(parse_NxN_residual)
 		I4x4_HU_8 , I4x4_DCAB_8, I4x4_HU_8  , I4x4_DCAB_8, I4x4_HU_8  , I4x4_DCAB_8, I4x4_HU_8  , I4x4_DCAB_8, I4x4_HU_8  , I4x4_DCAB_8, I4x4_HU_8  , I4x4_DCAB_8, I4x4_HU_8  , I4x4_DCAB_8, I4x4_HU_8  , I4x4_DCAB_8,
 	};
 	
-	CACALL(parse_mb_qp_delta, mb->f.CodedBlockPatternChromaDC | mb->CodedBlockPatternLuma_s);
+	if (mb->f.CodedBlockPatternChromaDC | mb->CodedBlockPatternLuma_s)
+		CACALL(parse_mb_qp_delta);
+	else
+		// FIXME initialize mb->QP too !
+		ctx->mb_qp_delta_nz = 0;
 	
 	// next few blocks will share many parameters, so we cache a LOT of them
 	ctx->stride = ctx->stride_Y;
@@ -525,13 +518,13 @@ static noinline void CAFUNC(parse_I_mb, int mb_type_or_ctxIdx)
 		fprintf(stderr, "mb_type: 25\n");
 #endif
 		
+		ctx->mb_qp_delta_nz = 0;
 		mb->f.v |= flags_PCM.v;
 		mb->Intra4x4PredMode_v = (v16qi){2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2};
 		mb->CodedBlockPatternLuma_s = 0x01010101;
 		mb->coded_block_flags_8x8_v = mb->coded_block_flags_4x4_v[0] =
 			mb->coded_block_flags_4x4_v[1] = mb->coded_block_flags_4x4_v[2] =
 			(v16qi){1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1};
-		ctx->mb_qp_delta_non_zero = 0;
 		
 		// PCM is so rare that it should be compact rather than fast
 		uint8_t *p = ctx->frame + ctx->frame_offsets_x[0] + ctx->frame_offsets_y[0];
@@ -913,6 +906,7 @@ static inline void CAFUNC(parse_B_mb)
 	
 	// earliest handling for B_Skip
 	if (mb_skip_flag) {
+		ctx->mb_qp_delta_nz = 0;
 		mb->f.mb_type_B_Direct = 1;
 		mb->inter_blocks = 0;
 		mb->refIdx_l = 0;
@@ -1159,6 +1153,7 @@ static inline void CAFUNC(parse_P_mb)
 	
 	// earliest handling for P_Skip
 	if (mb_skip_flag) {
+		ctx->mb_qp_delta_nz = 0;
 		mb->inter_blocks = 0x01231111;
 		mb->refIdx_l = (int64_t)(v8qi){0, 0, 0, 0, -1, -1, -1, -1};
 		memset(mb->mvs_v + 4, 0, 64);
@@ -1189,7 +1184,6 @@ static inline void CAFUNC(parse_P_mb)
 		v8hi mvs = (v8hi)__builtin_shufflevector((v4si)mv, (v4si){}, 0, 0, 0, 0);
 		mb->mvs_v[0] = mb->mvs_v[1] = mb->mvs_v[2] = mb->mvs_v[3] = mvs;
 		JUMP(decode_inter, 0, 16, 16);
-		
 	}
 	
 	// initializations and jumps for mb_type

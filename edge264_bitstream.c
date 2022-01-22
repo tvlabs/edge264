@@ -1001,7 +1001,7 @@ static const int8_t context_init[4][1024][2] __attribute__((aligned(16))) = {{
 
 #ifdef __SSSE3__
 static void FUNC(cabac_init, int idc) {
-	__m128i mul = _mm_set1_epi16(max(ctx->ps.QP_Y, 0) + 4096);
+	__m128i mul = _mm_set1_epi16(max(ctx->ps.QPprime_Y, 0) + 4096);
 	const __m128i *src = (__m128i *)context_init[idc];
 	for (v16qu *dst = ctx->cabac_v; dst < ctx->cabac_v + 64; dst++, src += 2) {
 		__m128i sum0 = _mm_srai_epi16(_mm_maddubs_epi16(mul, src[0]), 4);

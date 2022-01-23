@@ -74,23 +74,13 @@ static void FUNC(initialise_decoding_context, Edge264_stream *e)
 	
 	ctx->mb_qp_delta_nz = 0;
 	ctx->CurrMbAddr = 0;
+	ctx->samples_pic[0] = ctx->samples_row[0] = ctx->samples_mb[0] = e->DPB + e->currPic * e->frame_size;
+	ctx->samples_pic[1] = ctx->samples_row[1] = ctx->samples_mb[1] = ctx->samples_pic[0] + e->plane_size_Y;
+	ctx->samples_pic[2] = ctx->samples_row[2] = ctx->samples_mb[2] = ctx->samples_pic[1] + e->plane_size_C;
 	ctx->stride[0] = e->stride_Y;
 	ctx->stride[1] = ctx->stride[2] = e->stride_C;
 	ctx->plane_size_Y = e->plane_size_Y;
 	ctx->plane_size_C = e->plane_size_C;
-	ctx->frame = e->DPB + e->currPic * e->frame_size;
-	int pixel_shift_Y = (ctx->ps.BitDepth_Y > 8);
-	int pixel_shift_C = (ctx->ps.BitDepth_C > 8) - (ctx->ps.ChromaArrayType < 3);
-	int mul_C = (ctx->ps.ChromaArrayType < 2) ? e->stride_C >> 1 : e->stride_C;
-	for (int i = 0; i < 16; i++) {
-		int x = (i << 2 & 4) | (i << 1 & 8);
-		int y = (i << 1 & 4) | (i & 8);
-		ctx->frame_offsets_x[i] = x << pixel_shift_Y;
-		ctx->frame_offsets_y[i] = y * e->stride_Y;
-		ctx->frame_offsets_x[16 + i] = ctx->frame_offsets_x[32 + i] = x >> 1 << (1 + pixel_shift_C);
-		ctx->frame_offsets_y[16 + i] = ctx->plane_size_Y + y * mul_C;
-		ctx->frame_offsets_y[32 + i] = ctx->frame_offsets_y[16 + i] + e->plane_size_C;
-	}
 	ctx->clip[0] = (1 << ctx->ps.BitDepth_Y) - 1;
 	ctx->clip[1] = ctx->clip[2] = (1 << ctx->ps.BitDepth_C) - 1;
 	for (int i = 1; i < 4; i++) {
@@ -109,7 +99,7 @@ static void FUNC(initialise_decoding_context, Edge264_stream *e)
 	
 	int offA_8bit = -(int)sizeof(*mb);
 	int offB_8bit = -(ctx->ps.width / 16 + 1) * sizeof(*mb);
-	ctx->mbB = (Edge264_macroblock *)(ctx->frame + ctx->plane_size_Y + e->plane_size_C * 2 + sizeof(*mb));
+	ctx->mbB = (Edge264_macroblock *)(ctx->samples_mb[2] + e->plane_size_C + sizeof(*mb));
 	mb = (Edge264_macroblock *)((uint8_t *)ctx->mbB - offB_8bit);
 	ctx->A4x4_8bit[0] = (v16hi){5 + offA_8bit, 0, 7 + offA_8bit, 2, 1, 4, 3, 6, 13 + offA_8bit, 8, 15 + offA_8bit, 10, 9, 12, 11, 14};
 	ctx->B4x4_8bit[0] = (v16si){10 + offB_8bit, 11 + offB_8bit, 0, 1, 14 + offB_8bit, 15 + offB_8bit, 4, 5, 2, 3, 8, 9, 6, 7, 12, 13};

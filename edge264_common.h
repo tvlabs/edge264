@@ -127,11 +127,11 @@ typedef struct
 	int32_t mb_skip_run;
 	int32_t plane_size_Y;
 	int32_t plane_size_C;
+	uint8_t *samples_pic[3]; // address of top-left byte of current picture
+	uint8_t *samples_row[3]; // address of top-left byte of current row of macroblocks
+	uint8_t *samples_mb[3]; // address of top-left byte of current macroblock
 	uint16_t stride[3]; // [iYCbCr], 16 significant bits (8K, 16bit, field pic)
 	int16_t clip[3]; // [iYCbCr], maximum sample value
-	uint8_t *frame; // address of first byte in luma plane of current picture
-	union { uint16_t frame_offsets_x[48]; v8hu frame_offsets_x_v[6]; }; // memory offsets for i4x4
-	union { int32_t frame_offsets_y[48]; v4si frame_offsets_y_v[12]; }; // premultiplied with strides
 	union { int8_t unavail[16]; v16qi unavail_v; }; // unavailability of neighbouring A/B/C/D blocks
 	int8_t map_me[48];
 	union { uint8_t cabac[1024]; v16qu cabac_v[64]; };
@@ -320,7 +320,7 @@ static inline void FUNC(decode_inter_16x8_bottom, v8hi mvd, int lx);
 static noinline void FUNC(decode_direct_mv_pred);
 
 // edge264_residual_*.c
-static inline void FUNC(add_idct4x4, int iYCbCr, int i4x4, int qP, v16qu wS, int32_t *DCidx);
+static inline void FUNC(add_idct4x4, int iYCbCr, int qP, v16qu wS, int32_t *DCidx, uint8_t *samples);
 static inline void FUNC(transform_dc4x4, int iYCbCr);
 static inline void FUNC(transform_dc2x2);
 static inline void FUNC(transform_dc2x4);
@@ -565,13 +565,10 @@ static const v4hi ctxIdxOffsets_8x8[3][2] = {
 	{{1020, 718, 748, 766}, {1020, 733, 757, 766}}, // ctxBlockCat==13
 };
 
-static const int8_t QP_C[100] = {-36, -35, -34, -33, -32, -31, -30, -29, -28,
-	-27, -26, -25, -24, -23, -22, -21, -20, -19, -18, -17, -16, -15, -14,
-	-13, -12, -11, -10, -9, -8, -7, -6, -5, -4, -3, -2, -1, 0, 1, 2, 3, 4,
-	5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23,
-	24, 25, 26, 27, 28, 29, 29, 30, 31, 32, 32, 33, 34, 34, 35, 35, 36, 36,
-	37, 37, 37, 38, 38, 38, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39,
-	39, 39, 39, 39};
+static const int8_t x444[16] = {0, 4, 0, 4, 8, 12, 8, 12, 0, 4, 0, 4, 8, 12, 8, 12};
+static const int8_t y444[16] = {0, 0, 4, 4, 0, 0, 4, 4, 8, 8, 12, 12, 8, 8, 12, 12};
+static const int8_t x420[8] = {0, 4, 0, 4, 0, 4, 0, 4};
+static const int8_t y420[8] = {0, 0, 4, 4, 0, 0, 4, 4};
 
 
 

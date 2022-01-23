@@ -1302,14 +1302,14 @@ static noinline void FUNC(decode_inter, int i, int w, int h) {
 	// compute source pointers
 	size_t sstride_Y = ctx->stride[0];
 	size_t sstride_C = ctx->stride[1];
-	int xInt_Y = ctx->frame_offsets_x[i4x4] + (x >> 2);
-	int xInt_C = ctx->frame_offsets_x[16 + i4x4] + (x >> 3);
-	int yInt_Y = ctx->frame_offsets_y[i4x4] + (y >> 2) * sstride_Y;
-	int yInt_Cb = ctx->frame_offsets_y[16 + i4x4] + (y >> 3) * sstride_C;
-	int yInt_Cr = ctx->frame_offsets_y[32 + i4x4] + (y >> 3) * sstride_C;
+	// FIXME replace with Frac to replace shifts with lea
+	int xInt_Y = ctx->samples_mb[0] - ctx->samples_row[0] + x444[i4x4] + (x >> 2);
+	int xInt_C = ctx->samples_mb[1] - ctx->samples_row[1] + (x444[i4x4] >> 1) + (x >> 3);
+	int yInt_Y = ctx->samples_row[0] - ctx->samples_pic[0] + (y444[i4x4] + (y >> 2)) * sstride_Y;
+	int yInt_C = ctx->samples_row[1] - ctx->samples_pic[0] + ((y444[i4x4] >> 1) + (y >> 3)) * sstride_C;
 	const uint8_t *src_Y = ref + xInt_Y + yInt_Y;
-	const uint8_t *src_Cb = ref + xInt_C + yInt_Cb;
-	const uint8_t *src_Cr = ref + xInt_C + yInt_Cr;
+	const uint8_t *src_Cb = ref + xInt_C + yInt_C;
+	const uint8_t *src_Cr = ref + xInt_C + yInt_C + ctx->plane_size_C;
 	
 	// edge propagation is an annoying but beautiful piece of code
 	if (__builtin_expect((unsigned)xInt_Y - 2 >= sstride_Y - w - 4 ||
@@ -1333,15 +1333,15 @@ static noinline void FUNC(decode_inter, int i, int w, int h) {
 		
 		// chroma test is separate from luma to speed up xInt_C==yInt_C==0
 		if (__builtin_expect((unsigned)xInt_C >= sstride_C - (w >> 1) ||
-			(unsigned)yInt_Cb - ctx->plane_size_Y >= ctx->plane_size_C - (h >> 1) * sstride_C, 0))
+			(unsigned)yInt_C - ctx->plane_size_Y >= ctx->plane_size_C - (h >> 1) * sstride_C, 0))
 		{
 			v16qi shuf = {}, v0, v1;
 			memcpy(&shuf, shift_C_8bit + 7 + clip3(-7, 0, xInt_C) + clip3(0, 7, xInt_C + 8 - sstride_C), 8);
 			const uint8_t *src0 = ref + clip3(0, sstride_C - 8, xInt_C);
 			const uint8_t *src1 = ref + clip3(0, sstride_C - 1, xInt_C + 8);
-			for (int j = 0; j <= h >> 1; j++, yInt_Cb += sstride_C, yInt_Cr += sstride_C) {
-				int cb = clip3(ctx->plane_size_Y, ctx->plane_size_Y + ctx->plane_size_C - sstride_C, yInt_Cb);
-				int cr = clip3(ctx->plane_size_Y + ctx->plane_size_C, ctx->plane_size_Y + ctx->plane_size_C * 2 - sstride_C, yInt_Cr);
+			for (int j = 0; j <= h >> 1; j++, yInt_C += sstride_C) {
+				int cb = clip3(ctx->plane_size_Y, ctx->plane_size_Y + ctx->plane_size_C - sstride_C, yInt_C);
+				int cr = clip3(ctx->plane_size_Y + ctx->plane_size_C, ctx->plane_size_Y + ctx->plane_size_C * 2 - sstride_C, yInt_C + ctx->plane_size_C);
 				memcpy(&v0, src0 + cb, 8);
 				memcpy(&v1, src0 + cr, 8);
 				// each line has 2 writes to support 8px strides
@@ -1358,8 +1358,8 @@ static noinline void FUNC(decode_inter, int i, int w, int h) {
 	
 	// chroma prediction comes first since it is inlined
 	size_t dstride_C = ctx->stride[1];
-	uint8_t *dst_Cb = ctx->frame + ctx->frame_offsets_x[16 + i4x4] + ctx->frame_offsets_y[16 + i4x4];
-	uint8_t *dst_Cr = ctx->frame + ctx->frame_offsets_x[32 + i4x4] + ctx->frame_offsets_y[32 + i4x4];
+	uint8_t *dst_Cb = ctx->samples_mb[1] + (y444[i4x4] >> 1) * dstride_C + (x444[i4x4] >> 1);
+	uint8_t *dst_Cr = dst_Cb + ctx->plane_size_C;
 	int xFrac_C = x & 7;
 	int yFrac_C = y & 7;
 	int mul = 8 - xFrac_C + (xFrac_C << 8);
@@ -1379,7 +1379,8 @@ static noinline void FUNC(decode_inter, int i, int w, int h) {
 	// tail jump to luma prediction
 	int xFrac_Y = x & 3;
 	int yFrac_Y = y & 3;
-	uint8_t *dst_Y = ctx->frame + ctx->frame_offsets_x[i4x4] + ctx->frame_offsets_y[i4x4];
+	size_t dstride_Y = ctx->stride[0];
+	uint8_t *dst_Y = ctx->samples_mb[0] + y444[i4x4] * dstride_Y + x444[i4x4];
 	luma_fcts[(w == 4 ? 0 : w == 8 ? 16 : 32) + yFrac_Y * 4 + xFrac_Y]
-		(h, ctx->stride[0], dst_Y, sstride_Y, src_Y, (__m128i)biweights_Y, (__m128i)bioffsets_Y, (__m128i)logWD_Y);
+		(h, dstride_Y, dst_Y, sstride_Y, src_Y, (__m128i)biweights_Y, (__m128i)bioffsets_Y, (__m128i)logWD_Y);
 }

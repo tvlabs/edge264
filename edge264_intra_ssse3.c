@@ -1150,7 +1150,7 @@ static noinline void FUNC(decode_switch, size_t stride, ssize_t nstride, uint8_t
 static void FUNC(decode_samples) {
 	int BlkIdx = 0/*BlkIdx*/;
 	size_t stride = ctx->stride[0];
-	uint8_t *p = ctx->frame + ctx->frame_offsets_x[0/*BlkIdx2i4x4[BlkIdx]*/] + ctx->frame_offsets_y[0/*BlkIdx2i4x4[BlkIdx]*/] + stride;
+	uint8_t *p = NULL; //ctx->frame + ctx->frame_offsets_x[0/*BlkIdx2i4x4[BlkIdx]*/] + ctx->frame_offsets_y[0/*BlkIdx2i4x4[BlkIdx]*/] + stride;
 	__m128i *buf = NULL;//(__m128i *)&ctx->pred_buffer_v[BlkIdx & 15];
 	JUMP(decode_switch, stride, -stride, p, buf, 0/*ctx->PredMode[BlkIdx]*/, _mm_setzero_si128());
 }

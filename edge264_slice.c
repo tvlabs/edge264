@@ -155,7 +155,8 @@ static void CAFUNC(parse_chroma_residual)
 				int iYCbCr = 1 + (i4x4 >> 2);
 				v16qi wS = ((v16qi *)ctx->ps.weightScale4x4)[iYCbCr + mb->f.mbIsInterFlag * 3];
 				int qP = ctx->QPprime_C[iYCbCr - 1][ctx->ps.QPprime_Y];
-				CALL(add_idct4x4, iYCbCr, (i4x4 * 4) & 15, qP, wS, &ctx->c[16 + i4x4]);
+				uint8_t *samples = ctx->samples_mb[iYCbCr] + y420[i4x4] * ctx->stride[1] + x420[i4x4];
+				CALL(add_idct4x4, iYCbCr, qP, wS, &ctx->c[16 + i4x4], samples);
 			}
 		}
 	}
@@ -200,7 +201,8 @@ static void CAFUNC(parse_Intra16x16_residual)
 					mb->coded_block_flags_4x4[BlkIdx] = 1;
 					CACALL(parse_residual_block, 1, 15);
 				}
-				CALL(add_idct4x4, iYCbCr, i4x4, ctx->ps.QPprime_Y, ((v16qi *)ctx->ps.weightScale4x4)[iYCbCr], &ctx->c[16 + i4x4]);
+				uint8_t *samples = ctx->samples_mb[iYCbCr] + y444[i4x4] * ctx->stride[iYCbCr] + x444[i4x4];
+				CALL(add_idct4x4, iYCbCr, ctx->ps.QPprime_Y, ((v16qi *)ctx->ps.weightScale4x4)[iYCbCr], &ctx->c[16 + i4x4], samples);
 			}
 		}
 		
@@ -245,10 +247,10 @@ static void CAFUNC(parse_NxN_residual)
 			// Decoding directly follows parsing to avoid duplicate loops.
 			for (int i4x4 = 0; i4x4 < 16; i4x4++) {
 				int BlkIdx = iYCbCr * 16 + i4x4;
-				if (!mb->f.mbIsInterFlag) {
-					uint8_t *samples = ctx->frame + ctx->frame_offsets_x[BlkIdx] + ctx->frame_offsets_y[BlkIdx];
-					CALL(decode_intra4x4, intra4x4_modes[mb->Intra4x4PredMode[i4x4]][ctx->unavail[i4x4]], samples, ctx->stride[iYCbCr], ctx->clip[iYCbCr]);
-				}
+				size_t stride = ctx->stride[iYCbCr];
+				uint8_t *samples = ctx->samples_mb[iYCbCr] + y444[i4x4] * stride + x444[i4x4];
+				if (!mb->f.mbIsInterFlag)
+					CALL(decode_intra4x4, intra4x4_modes[mb->Intra4x4PredMode[i4x4]][ctx->unavail[i4x4]], samples, stride, ctx->clip[iYCbCr]);
 				if (mb->CodedBlockPatternLuma[i4x4 >> 2]) {
 					int cbfA = *(mb->coded_block_flags_4x4 + ctx->coded_block_flags_4x4_A[BlkIdx]);
 					int cbfB = *(mb->coded_block_flags_4x4 + ctx->coded_block_flags_4x4_B[BlkIdx]);
@@ -257,7 +259,7 @@ static void CAFUNC(parse_NxN_residual)
 						memset(ctx->c, 0, 64);
 						CACALL(parse_residual_block, 0, 15);
 						v16qi wS = ((v16qi *)ctx->ps.weightScale4x4)[iYCbCr + mb->f.mbIsInterFlag * 3];
-						CALL(add_idct4x4, iYCbCr, i4x4, ctx->ps.QPprime_Y, wS, NULL);
+						CALL(add_idct4x4, iYCbCr, ctx->ps.QPprime_Y, wS, NULL, samples);
 					}
 				}
 			}
@@ -353,9 +355,7 @@ static void CAFUNC(parse_intra_chroma_pred_mode)
 		mb->f.intra_chroma_pred_mode_non_zero = (mode > 0);
 #endif
 		fprintf(stderr, "intra_chroma_pred_mode: %u\n", mode);
-		uint8_t *samplesCb = ctx->frame + ctx->frame_offsets_x[16] + ctx->frame_offsets_y[16];
-		uint8_t *samplesCr = samplesCb + ctx->plane_size_C;
-		CALL(decode_intraChroma, intraChroma_modes[mode][ctx->inc.unavailable & 3], samplesCb, samplesCr, ctx->stride[1], ctx->clip[1]);
+		CALL(decode_intraChroma, intraChroma_modes[mode][ctx->inc.unavailable & 3], ctx->samples_mb[1], ctx->samples_mb[2], ctx->stride[1], ctx->clip[1]);
 	}
 }
 
@@ -485,8 +485,7 @@ static noinline void CAFUNC(parse_I_mb, int mb_type_or_ctxIdx)
 			I16x16_P_8 , I16x16_DCA_8, I16x16_DCB_8, I16x16_DCAB_8,
 		};
 		mb->Intra4x4PredMode_v = (v16qi){2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2};
-		uint8_t *samples = ctx->frame + ctx->frame_offsets_x[0] + ctx->frame_offsets_y[0];
-		CALL(decode_intra16x16, intra16x16_modes[mode][ctx->inc.unavailable & 3], samples, ctx->stride[0], ctx->clip[0]); // FIXME 4:4:4
+		CALL(decode_intra16x16, intra16x16_modes[mode][ctx->inc.unavailable & 3], ctx->samples_mb[0], ctx->stride[0], ctx->clip[0]); // FIXME 4:4:4
 		CACALL(parse_intra_chroma_pred_mode);
 		CAJUMP(parse_Intra16x16_residual);
 		
@@ -509,7 +508,7 @@ static noinline void CAFUNC(parse_I_mb, int mb_type_or_ctxIdx)
 			(v16qi){1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1};
 		
 		// PCM is so rare that it should be compact rather than fast
-		uint8_t *p = ctx->frame + ctx->frame_offsets_x[0] + ctx->frame_offsets_y[0];
+		uint8_t *p = ctx->samples_mb[0];
 		for (int y = 16; y-- > 0; p += ctx->stride[0]) {
 			for (int x = 0; x < 16; x++) {
 				if (ctx->ps.BitDepth_Y == 8)
@@ -518,7 +517,7 @@ static noinline void CAFUNC(parse_I_mb, int mb_type_or_ctxIdx)
 					((uint16_t *)p)[x] = CALL(get_uv, ctx->ps.BitDepth_Y);
 			}
 		}
-		p = ctx->frame + ctx->frame_offsets_x[16] + ctx->frame_offsets_y[16];
+		p = ctx->samples_mb[1];
 		int MbWidthC = (ctx->ps.ChromaArrayType < 3) ? 8 : 16;
 		static int8_t MbHeightC[4] = {0, 8, 16, 16};
 		for (int y = MbHeightC[ctx->ps.ChromaArrayType]; y-- > 0; p += ctx->stride[1]) {
@@ -529,7 +528,7 @@ static noinline void CAFUNC(parse_I_mb, int mb_type_or_ctxIdx)
 					((uint16_t *)p)[x] = CALL(get_uv, ctx->ps.BitDepth_Y);
 			}
 		}
-		p = ctx->frame + ctx->frame_offsets_x[32] + ctx->frame_offsets_y[32];
+		p = ctx->samples_mb[2];
 		for (int y = MbHeightC[ctx->ps.ChromaArrayType]; y-- > 0; p += ctx->stride[1]) {
 			for (int x = 0; x < MbWidthC; x++) {
 				if (ctx->ps.BitDepth_Y == 8)
@@ -1267,34 +1266,20 @@ static noinline void CAFUNC(parse_slice_data)
 		ctx->mbB++;
 		ctx->mbCol++;
 		ctx->CurrMbAddr++;
-		int xY = (ctx->frame_offsets_x[4] - ctx->frame_offsets_x[0]) << 1;
-		int xC = (ctx->frame_offsets_x[20] - ctx->frame_offsets_x[16]) << 1;
-		int end_of_line = (ctx->frame_offsets_x[0] + xY >= ctx->stride[0]);
-		ctx->frame_offsets_x_v[0] = ctx->frame_offsets_x_v[1] +=
-			(v8hu){xY, xY, xY, xY, xY, xY, xY, xY};
-		ctx->frame_offsets_x_v[2] = ctx->frame_offsets_x_v[3] = ctx->frame_offsets_x_v[4] = ctx->frame_offsets_x_v[5] +=
-			(v8hu){xC, xC, xC, xC, xC, xC, xC, xC};
-		if (!end_of_line)
-			continue;
+		ctx->samples_mb[0] += 16; // FIXME 16bit
+		ctx->samples_mb[1] += 8; // FIXME 4:2:2, 16bit
+		ctx->samples_mb[2] += 8;
 		
-		// reaching the end of a line
-		if (ctx->frame_offsets_y[10] + ctx->stride[0] * 4 >= ctx->plane_size_Y)
-			break;
-		mb++; // skip the empty macroblock at the edge
-		ctx->mbB++;
-		ctx->mbCol++;
-		ctx->frame_offsets_x_v[0] = ctx->frame_offsets_x_v[1] -=
-			(v8hu){ctx->stride[0], ctx->stride[0], ctx->stride[0], ctx->stride[0], ctx->stride[0], ctx->stride[0], ctx->stride[0], ctx->stride[0]};
-		ctx->frame_offsets_x_v[2] = ctx->frame_offsets_x_v[3] = ctx->frame_offsets_x_v[4] = ctx->frame_offsets_x_v[5] -=
-			(v8hu){ctx->stride[1], ctx->stride[1], ctx->stride[1], ctx->stride[1], ctx->stride[1], ctx->stride[1], ctx->stride[1], ctx->stride[1]};
-		v4si YY = (v4si){ctx->stride[0], ctx->stride[0], ctx->stride[0], ctx->stride[0]} << 4;
-		int yC = (ctx->frame_offsets_y[24] - ctx->frame_offsets_y[16]) << 1;
-		v4si YC = (v4si){yC, yC, yC, yC};
-		ctx->frame_offsets_y_v[0] = ctx->frame_offsets_y_v[1] += YY;
-		ctx->frame_offsets_y_v[2] = ctx->frame_offsets_y_v[3] += YY;
-		ctx->frame_offsets_y_v[4] = ctx->frame_offsets_y_v[5] += YC;
-		ctx->frame_offsets_y_v[6] = ctx->frame_offsets_y_v[7] += YC;
-		ctx->frame_offsets_y_v[8] = ctx->frame_offsets_y_v[9] += YC;
-		ctx->frame_offsets_y_v[10] = ctx->frame_offsets_y_v[11] += YC;
+		// end of row
+		if (ctx->samples_mb[0] - ctx->samples_row[0] >= ctx->stride[0]) {
+			mb++; // skip the empty macroblock at the edge
+			ctx->mbB++;
+			ctx->mbCol++;
+			ctx->samples_mb[0] = ctx->samples_row[0] += ctx->stride[0] * 16;
+			ctx->samples_mb[1] = ctx->samples_row[1] += ctx->stride[1] * 8; // FIXME 4:2:2
+			ctx->samples_mb[2] = ctx->samples_row[2] += ctx->stride[1] * 8;
+			if (ctx->samples_row[0] - ctx->samples_pic[0] >= ctx->plane_size_Y)
+				break;
+		}
 	}
 }

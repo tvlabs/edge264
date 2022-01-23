@@ -1300,8 +1300,8 @@ static noinline void FUNC(decode_inter, int i, int w, int h) {
 	}
 	
 	// compute source pointers
-	size_t sstride_Y = ctx->stride_Y;
-	size_t sstride_C = ctx->stride_C;
+	size_t sstride_Y = ctx->stride[0];
+	size_t sstride_C = ctx->stride[1];
 	int xInt_Y = ctx->frame_offsets_x[i4x4] + (x >> 2);
 	int xInt_C = ctx->frame_offsets_x[16 + i4x4] + (x >> 3);
 	int yInt_Y = ctx->frame_offsets_y[i4x4] + (y >> 2) * sstride_Y;
@@ -1357,7 +1357,7 @@ static noinline void FUNC(decode_inter, int i, int w, int h) {
 	}
 	
 	// chroma prediction comes first since it is inlined
-	size_t dstride_C = ctx->stride_C;
+	size_t dstride_C = ctx->stride[1];
 	uint8_t *dst_Cb = ctx->frame + ctx->frame_offsets_x[16 + i4x4] + ctx->frame_offsets_y[16 + i4x4];
 	uint8_t *dst_Cr = ctx->frame + ctx->frame_offsets_x[32 + i4x4] + ctx->frame_offsets_y[32 + i4x4];
 	int xFrac_C = x & 7;
@@ -1381,5 +1381,5 @@ static noinline void FUNC(decode_inter, int i, int w, int h) {
 	int yFrac_Y = y & 3;
 	uint8_t *dst_Y = ctx->frame + ctx->frame_offsets_x[i4x4] + ctx->frame_offsets_y[i4x4];
 	luma_fcts[(w == 4 ? 0 : w == 8 ? 16 : 32) + yFrac_Y * 4 + xFrac_Y]
-		(h, ctx->stride_Y, dst_Y, sstride_Y, src_Y, (__m128i)biweights_Y, (__m128i)bioffsets_Y, (__m128i)logWD_Y);
+		(h, ctx->stride[0], dst_Y, sstride_Y, src_Y, (__m128i)biweights_Y, (__m128i)bioffsets_Y, (__m128i)logWD_Y);
 }

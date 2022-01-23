@@ -172,8 +172,6 @@ static void CAFUNC(parse_Intra16x16_residual)
 	CACALL(parse_mb_qp_delta);
 	
 	// Both AC and DC coefficients are initially parsed to ctx->c[0..15]
-	ctx->stride = ctx->stride_Y;
-	ctx->clip = ctx->clip_Y;
 	ctx->sig_inc_v[0] = ctx->last_inc_v[0] = sig_inc_4x4;
 	ctx->scan_v[0] = scan_4x4[0];
 	for (int iYCbCr = 0; iYCbCr < 3; iYCbCr++) {
@@ -207,8 +205,6 @@ static void CAFUNC(parse_Intra16x16_residual)
 		}
 		
 		// here is how we share the decoding of luma coefficients with 4:4:4 modes
-		ctx->stride = ctx->stride_C;
-		ctx->clip = ctx->clip_C;
 		if (ctx->ps.ChromaArrayType <3)
 			CAJUMP(parse_chroma_residual);
 	}
@@ -240,8 +236,6 @@ static void CAFUNC(parse_NxN_residual)
 		ctx->mb_qp_delta_nz = 0;
 	
 	// next few blocks will share many parameters, so we cache a LOT of them
-	ctx->stride = ctx->stride_Y;
-	ctx->clip = ctx->clip_Y;
 	for (int iYCbCr = 0; iYCbCr < 3; iYCbCr++) {
 		if (!mb->f.transform_size_8x8_flag) {
 			ctx->ctxIdxOffsets_l = ctxIdxOffsets_4x4[iYCbCr][0];
@@ -251,8 +245,10 @@ static void CAFUNC(parse_NxN_residual)
 			// Decoding directly follows parsing to avoid duplicate loops.
 			for (int i4x4 = 0; i4x4 < 16; i4x4++) {
 				int BlkIdx = iYCbCr * 16 + i4x4;
-				if (!mb->f.mbIsInterFlag)
-					CALL(decode_intra4x4, intra4x4_modes[mb->Intra4x4PredMode[i4x4]][ctx->unavail[i4x4]], BlkIdx);
+				if (!mb->f.mbIsInterFlag) {
+					uint8_t *samples = ctx->frame + ctx->frame_offsets_x[BlkIdx] + ctx->frame_offsets_y[BlkIdx];
+					CALL(decode_intra4x4, intra4x4_modes[mb->Intra4x4PredMode[i4x4]][ctx->unavail[i4x4]], samples, ctx->stride[iYCbCr], ctx->clip[iYCbCr]);
+				}
 				if (mb->CodedBlockPatternLuma[i4x4 >> 2]) {
 					int cbfA = *(mb->coded_block_flags_4x4 + ctx->coded_block_flags_4x4_A[BlkIdx]);
 					int cbfB = *(mb->coded_block_flags_4x4 + ctx->coded_block_flags_4x4_B[BlkIdx]);
@@ -287,8 +283,6 @@ static void CAFUNC(parse_NxN_residual)
 		}
 		
 		// nice optimisation for 4:4:4 modes
-		ctx->stride = ctx->stride_C;
-		ctx->clip = ctx->clip_C;
 		if (ctx->ps.ChromaArrayType <3)
 			CAJUMP(parse_chroma_residual);
 	}
@@ -361,7 +355,7 @@ static void CAFUNC(parse_intra_chroma_pred_mode)
 		fprintf(stderr, "intra_chroma_pred_mode: %u\n", mode);
 		uint8_t *samplesCb = ctx->frame + ctx->frame_offsets_x[16] + ctx->frame_offsets_y[16];
 		uint8_t *samplesCr = samplesCb + ctx->plane_size_C;
-		CALL(decode_intraChroma, intraChroma_modes[mode][ctx->inc.unavailable & 3], samplesCb, samplesCr, ctx->stride_C);
+		CALL(decode_intraChroma, intraChroma_modes[mode][ctx->inc.unavailable & 3], samplesCb, samplesCr, ctx->stride[1], ctx->clip[1]);
 	}
 }
 
@@ -492,7 +486,7 @@ static noinline void CAFUNC(parse_I_mb, int mb_type_or_ctxIdx)
 		};
 		mb->Intra4x4PredMode_v = (v16qi){2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2};
 		uint8_t *samples = ctx->frame + ctx->frame_offsets_x[0] + ctx->frame_offsets_y[0];
-		CALL(decode_intra16x16, intra16x16_modes[mode][ctx->inc.unavailable & 3], samples, ctx->stride_Y);
+		CALL(decode_intra16x16, intra16x16_modes[mode][ctx->inc.unavailable & 3], samples, ctx->stride[0], ctx->clip[0]); // FIXME 4:4:4
 		CACALL(parse_intra_chroma_pred_mode);
 		CAJUMP(parse_Intra16x16_residual);
 		
@@ -516,7 +510,7 @@ static noinline void CAFUNC(parse_I_mb, int mb_type_or_ctxIdx)
 		
 		// PCM is so rare that it should be compact rather than fast
 		uint8_t *p = ctx->frame + ctx->frame_offsets_x[0] + ctx->frame_offsets_y[0];
-		for (int y = 16; y-- > 0; p += ctx->stride_Y) {
+		for (int y = 16; y-- > 0; p += ctx->stride[0]) {
 			for (int x = 0; x < 16; x++) {
 				if (ctx->ps.BitDepth_Y == 8)
 					p[x] = CALL(get_uv, 8);
@@ -527,7 +521,7 @@ static noinline void CAFUNC(parse_I_mb, int mb_type_or_ctxIdx)
 		p = ctx->frame + ctx->frame_offsets_x[16] + ctx->frame_offsets_y[16];
 		int MbWidthC = (ctx->ps.ChromaArrayType < 3) ? 8 : 16;
 		static int8_t MbHeightC[4] = {0, 8, 16, 16};
-		for (int y = MbHeightC[ctx->ps.ChromaArrayType]; y-- > 0; p += ctx->stride_C) {
+		for (int y = MbHeightC[ctx->ps.ChromaArrayType]; y-- > 0; p += ctx->stride[1]) {
 			for (int x = 0; x < MbWidthC; x++) {
 				if (ctx->ps.BitDepth_Y == 8)
 					p[x] = CALL(get_uv, 8);
@@ -536,7 +530,7 @@ static noinline void CAFUNC(parse_I_mb, int mb_type_or_ctxIdx)
 			}
 		}
 		p = ctx->frame + ctx->frame_offsets_x[32] + ctx->frame_offsets_y[32];
-		for (int y = MbHeightC[ctx->ps.ChromaArrayType]; y-- > 0; p += ctx->stride_C) {
+		for (int y = MbHeightC[ctx->ps.ChromaArrayType]; y-- > 0; p += ctx->stride[1]) {
 			for (int x = 0; x < MbWidthC; x++) {
 				if (ctx->ps.BitDepth_Y == 8)
 					p[x] = CALL(get_uv, 8);
@@ -1275,7 +1269,7 @@ static noinline void CAFUNC(parse_slice_data)
 		ctx->CurrMbAddr++;
 		int xY = (ctx->frame_offsets_x[4] - ctx->frame_offsets_x[0]) << 1;
 		int xC = (ctx->frame_offsets_x[20] - ctx->frame_offsets_x[16]) << 1;
-		int end_of_line = (ctx->frame_offsets_x[0] + xY >= ctx->stride_Y);
+		int end_of_line = (ctx->frame_offsets_x[0] + xY >= ctx->stride[0]);
 		ctx->frame_offsets_x_v[0] = ctx->frame_offsets_x_v[1] +=
 			(v8hu){xY, xY, xY, xY, xY, xY, xY, xY};
 		ctx->frame_offsets_x_v[2] = ctx->frame_offsets_x_v[3] = ctx->frame_offsets_x_v[4] = ctx->frame_offsets_x_v[5] +=
@@ -1284,16 +1278,16 @@ static noinline void CAFUNC(parse_slice_data)
 			continue;
 		
 		// reaching the end of a line
-		if (ctx->frame_offsets_y[10] + ctx->stride_Y * 4 >= ctx->plane_size_Y)
+		if (ctx->frame_offsets_y[10] + ctx->stride[0] * 4 >= ctx->plane_size_Y)
 			break;
 		mb++; // skip the empty macroblock at the edge
 		ctx->mbB++;
 		ctx->mbCol++;
 		ctx->frame_offsets_x_v[0] = ctx->frame_offsets_x_v[1] -=
-			(v8hu){ctx->stride_Y, ctx->stride_Y, ctx->stride_Y, ctx->stride_Y, ctx->stride_Y, ctx->stride_Y, ctx->stride_Y, ctx->stride_Y};
+			(v8hu){ctx->stride[0], ctx->stride[0], ctx->stride[0], ctx->stride[0], ctx->stride[0], ctx->stride[0], ctx->stride[0], ctx->stride[0]};
 		ctx->frame_offsets_x_v[2] = ctx->frame_offsets_x_v[3] = ctx->frame_offsets_x_v[4] = ctx->frame_offsets_x_v[5] -=
-			(v8hu){ctx->stride_C, ctx->stride_C, ctx->stride_C, ctx->stride_C, ctx->stride_C, ctx->stride_C, ctx->stride_C, ctx->stride_C};
-		v4si YY = (v4si){ctx->stride_Y, ctx->stride_Y, ctx->stride_Y, ctx->stride_Y} << 4;
+			(v8hu){ctx->stride[1], ctx->stride[1], ctx->stride[1], ctx->stride[1], ctx->stride[1], ctx->stride[1], ctx->stride[1], ctx->stride[1]};
+		v4si YY = (v4si){ctx->stride[0], ctx->stride[0], ctx->stride[0], ctx->stride[0]} << 4;
 		int yC = (ctx->frame_offsets_y[24] - ctx->frame_offsets_y[16]) << 1;
 		v4si YC = (v4si){yC, yC, yC, yC};
 		ctx->frame_offsets_y_v[0] = ctx->frame_offsets_y_v[1] += YY;

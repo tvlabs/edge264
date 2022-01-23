@@ -1,6 +1,5 @@
 /** MAYDO:
- * _ pass mvs in registers to decode_inter
- * _ remove stride & clip temporarily until actually working on 4:4:4
+ * _ remove plane_size_Y/C and frame offsets in favor of a lighter mechanism?
  * _ reintroduce DC optimization inside add_idct4x4
  * _ initialize values in initialise_decoding_context without vectors
  * _ store coded_block_flags in compact bit fields
@@ -75,25 +74,25 @@ static void FUNC(initialise_decoding_context, Edge264_stream *e)
 	
 	ctx->mb_qp_delta_nz = 0;
 	ctx->CurrMbAddr = 0;
-	ctx->stride_Y = e->stride_Y;
-	ctx->stride_C = e->stride_C;
+	ctx->stride[0] = e->stride_Y;
+	ctx->stride[1] = ctx->stride[2] = e->stride_C;
 	ctx->plane_size_Y = e->plane_size_Y;
 	ctx->plane_size_C = e->plane_size_C;
 	ctx->frame = e->DPB + e->currPic * e->frame_size;
 	int pixel_shift_Y = (ctx->ps.BitDepth_Y > 8);
 	int pixel_shift_C = (ctx->ps.BitDepth_C > 8) - (ctx->ps.ChromaArrayType < 3);
-	int mul_C = (ctx->ps.ChromaArrayType < 2) ? ctx->stride_C >> 1 : ctx->stride_C;
+	int mul_C = (ctx->ps.ChromaArrayType < 2) ? e->stride_C >> 1 : e->stride_C;
 	for (int i = 0; i < 16; i++) {
 		int x = (i << 2 & 4) | (i << 1 & 8);
 		int y = (i << 1 & 4) | (i & 8);
 		ctx->frame_offsets_x[i] = x << pixel_shift_Y;
-		ctx->frame_offsets_y[i] = y * ctx->stride_Y;
+		ctx->frame_offsets_y[i] = y * e->stride_Y;
 		ctx->frame_offsets_x[16 + i] = ctx->frame_offsets_x[32 + i] = x >> 1 << (1 + pixel_shift_C);
 		ctx->frame_offsets_y[16 + i] = ctx->plane_size_Y + y * mul_C;
 		ctx->frame_offsets_y[32 + i] = ctx->frame_offsets_y[16 + i] + e->plane_size_C;
 	}
-	ctx->clip_Y = (1 << ctx->ps.BitDepth_Y) - 1;
-	ctx->clip_C = (1 << ctx->ps.BitDepth_C) - 1;
+	ctx->clip[0] = (1 << ctx->ps.BitDepth_Y) - 1;
+	ctx->clip[1] = ctx->clip[2] = (1 << ctx->ps.BitDepth_C) - 1;
 	for (int i = 1; i < 4; i++) {
 		ctx->sig_inc_v[i] = sig_inc_8x8[0][i];
 		ctx->last_inc_v[i] = last_inc_8x8[i];

@@ -127,12 +127,8 @@ typedef struct
 	int32_t mb_skip_run;
 	int32_t plane_size_Y;
 	int32_t plane_size_C;
-	uint16_t stride_Y; // 16 significant bits (at 8K, 16bit depth, field pic)
-	uint16_t stride_C;
-	uint16_t stride; // stores stride of current plane for decoding functions
-	int16_t clip_Y; // maximum sample value
-	int16_t clip_C;
-	int16_t clip; // clip value for current plane being decoded
+	uint16_t stride[3]; // [iYCbCr], 16 significant bits (8K, 16bit, field pic)
+	int16_t clip[3]; // [iYCbCr], maximum sample value
 	uint8_t *frame; // address of first byte in luma plane of current picture
 	union { uint16_t frame_offsets_x[48]; v8hu frame_offsets_x_v[6]; }; // memory offsets for i4x4
 	union { int32_t frame_offsets_y[48]; v4si frame_offsets_y_v[12]; }; // premultiplied with strides
@@ -311,9 +307,9 @@ static void FUNC(cabac_init, int idc);
 static noinline void FUNC(decode_inter, int i, int w, int h);
 
 // edge264_intra_*.c
-static always_inline void FUNC(decode_intra4x4, int mode, int BlkIdx);
-static always_inline void FUNC(decode_intra16x16, int mode, uint8_t *samples, size_t stride);
-static always_inline void FUNC(decode_intraChroma, int mode, uint8_t *samplesCb, uint8_t *samplesCr, size_t stride);
+static always_inline void FUNC(decode_intra4x4, int mode, uint8_t *samples, size_t stride, int clip);
+static always_inline void FUNC(decode_intra16x16, int mode, uint8_t *samples, size_t stride, int clip);
+static always_inline void FUNC(decode_intraChroma, int mode, uint8_t *samplesCb, uint8_t *samplesCr, size_t stride, int clip);
 
 // edge264_mvpred.c
 static inline void FUNC(decode_inter_16x16, v8hi mvd, int lx);

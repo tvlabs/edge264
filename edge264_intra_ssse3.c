@@ -235,10 +235,8 @@ static noinline void _decode_intra4x4(int mode, size_t stride, ssize_t nstride, 
 	*(int32_t *)(p +  stride * 2) = v[3];
 }
 
-static always_inline void FUNC(decode_intra4x4, int mode, int BlkIdx) {
-	size_t stride = ctx->stride;
-	uint8_t *p = ctx->frame + ctx->frame_offsets_x[BlkIdx] + ctx->frame_offsets_y[BlkIdx] + stride;
-	_decode_intra4x4(mode, stride, -stride, p, ctx->clip, _mm_setzero_si128());
+static always_inline void FUNC(decode_intra4x4, int mode, uint8_t *samples, size_t stride, int clip) {
+	_decode_intra4x4(mode, stride, -stride, samples + stride, clip, _mm_setzero_si128());
 }
 
 
@@ -585,10 +583,10 @@ static noinline void _decode_intra16x16(int mode, size_t stride, ssize_t nstride
 	*(__m128i *)(s +  stride * 2) = pred;
 }
 
-static always_inline void FUNC(decode_intra16x16, int mode, uint8_t *samples, size_t stride) {
+static always_inline void FUNC(decode_intra16x16, int mode, uint8_t *samples, size_t stride, int clip) {
 	uint8_t *p = samples + stride;
 	uint8_t *r = p + stride * 8;
-	_decode_intra16x16(mode, stride, -stride, p, p + stride * 4, r, r + stride * 4, ctx->clip);
+	_decode_intra16x16(mode, stride, -stride, p, p + stride * 4, r, r + stride * 4, clip);
 }
 
 
@@ -762,10 +760,10 @@ static noinline void _decode_intraChroma(int mode, size_t stride, ssize_t nstrid
 	}
 }
 
-static always_inline void FUNC(decode_intraChroma, int mode, uint8_t *samplesCb, uint8_t *samplesCr, size_t stride) {
+static always_inline void FUNC(decode_intraChroma, int mode, uint8_t *samplesCb, uint8_t *samplesCr, size_t stride, int clip) {
 	uint8_t *pCb = samplesCb + stride;
 	uint8_t *pCr = samplesCr + stride;
-	_decode_intraChroma(mode, stride, -stride, pCb, pCb + stride * 4, pCr, pCr + stride * 4, ctx->clip);
+	_decode_intraChroma(mode, stride, -stride, pCb, pCb + stride * 4, pCr, pCr + stride * 4, clip);
 }
 
 
@@ -1151,7 +1149,7 @@ static noinline void FUNC(decode_switch, size_t stride, ssize_t nstride, uint8_t
 
 static void FUNC(decode_samples) {
 	int BlkIdx = 0/*BlkIdx*/;
-	size_t stride = ctx->stride;
+	size_t stride = ctx->stride[0];
 	uint8_t *p = ctx->frame + ctx->frame_offsets_x[0/*BlkIdx2i4x4[BlkIdx]*/] + ctx->frame_offsets_y[0/*BlkIdx2i4x4[BlkIdx]*/] + stride;
 	__m128i *buf = NULL;//(__m128i *)&ctx->pred_buffer_v[BlkIdx & 15];
 	JUMP(decode_switch, stride, -stride, p, buf, 0/*ctx->PredMode[BlkIdx]*/, _mm_setzero_si128());

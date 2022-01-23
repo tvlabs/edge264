@@ -101,8 +101,8 @@ static inline void FUNC(add_idct4x4, int iYCbCr, int i4x4, int qP, v16qu wS, int
 	
 	// addition to values in place, clipping and storage
 	uint8_t *p = ctx->frame + ctx->frame_offsets_x[iYCbCr * 16 + i4x4] + ctx->frame_offsets_y[iYCbCr * 16 + i4x4];
-	size_t stride = ctx->stride;
-	if (ctx->clip == 255) {
+	size_t stride = ctx->stride[iYCbCr];
+	if (ctx->clip[iYCbCr] == 255) {
 		__m128i p0 = load4x2_8bit(p             , p + stride    , zero);
 		__m128i p1 = load4x2_8bit(p + stride * 2, p + stride * 3, zero);
 		v4si u = (v4si)_mm_packus_epi16(_mm_adds_epi16(p0, r0), _mm_adds_epi16(p1, r1));
@@ -113,7 +113,7 @@ static inline void FUNC(add_idct4x4, int iYCbCr, int i4x4, int qP, v16qu wS, int
 	} else {
 		__m128i p0 = _mm_setr_epi64(*(__m64 *)(p             ), *(__m64 *)(p + stride    ));
 		__m128i p1 = _mm_setr_epi64(*(__m64 *)(p + stride * 2), *(__m64 *)(p + stride * 3));
-		__m128i clip = _mm_set1_epi16(ctx->clip);
+		__m128i clip = _mm_set1_epi16(ctx->clip[iYCbCr]);
 		v2li u0 = (v2li)_mm_min_epi16(_mm_max_epi16(_mm_adds_epi16(p0, r0), zero), clip);
 		v2li u1 = (v2li)_mm_min_epi16(_mm_max_epi16(_mm_adds_epi16(p1, r1), zero), clip);
 		*(int64_t *)(p             ) = u0[0];
@@ -132,7 +132,7 @@ static inline void FUNC(add_idct4x4, int iYCbCr, int i4x4, int qP, v16qu wS, int
  */
 static noinline void FUNC(add_idct8x8)
 {
-	if (ctx->clip == 255) {
+	if (ctx->clip[0] == 255) { // FIXME 4:4:4
 		// loading and scaling
 		__m128i s32 = _mm_set1_epi32(32);
 		__m128i *c = (__m128i *)ctx->c_v;
@@ -215,7 +215,7 @@ static noinline void FUNC(add_idct8x8)
 		__m128i r7 = _mm_srai_epi16(d7, 6);
 		
 		// addition to values in place, clipping and storage
-		size_t stride = ctx->stride;
+		size_t stride = ctx->stride[0]; // FIXME 4:4:4
 		size_t stride3 = stride * 3;
 		uint8_t *p = ctx->frame + ctx->frame_offsets_x[0/*BlkIdx2i4x4[BlkIdx]*/] + ctx->frame_offsets_y[0/*BlkIdx2i4x4[BlkIdx]*/];
 		uint8_t *q = p + stride * 4;
@@ -323,12 +323,12 @@ static noinline void FUNC(add_idct8x8)
 		__m256i r3 = _mm256_permute4x64_epi64(yJ, _MM_SHUFFLE(3, 1, 2, 0));
 		
 		// addition to values in place, clipping and storage
-		size_t stride = ctx->stride;
+		size_t stride = ctx->stride[0]; // FIXME 4:4:4
 		size_t stride3 = stride * 3;
 		uint8_t *p = ctx->frame + ctx->frame_offsets_x[0/*BlkIdx2i4x4[BlkIdx]*/] + ctx->frame_offsets_y[0/*BlkIdx2i4x4[BlkIdx]*/];
 		uint8_t *q = p + stride * 4;
 		__m256i zero = _mm256_setzero_si256();
-		__m256i clip = _mm256_set1_epi16(ctx->clip);
+		__m256i clip = _mm256_set1_epi16(ctx->clip[0]); // FIXME 4:4:4
 		__m256i p0 = _mm256_setr_m128i(*(__m128i *)(p             ), *(__m128i *)(p + stride ));
 		__m256i p1 = _mm256_setr_m128i(*(__m128i *)(p + stride * 2), *(__m128i *)(p + stride3));
 		__m256i p2 = _mm256_setr_m128i(*(__m128i *)(q             ), *(__m128i *)(q + stride ));
@@ -458,12 +458,12 @@ static noinline void FUNC(add_idct8x8)
 		__m128i r7 = _mm_packs_epi32(_mm_srai_epi32((__m128i)ctx->c_v[14], 6), _mm_srai_epi32(d7, 6));
 		
 		// addition to values in place, clipping and storage
-		size_t stride = ctx->stride;
+		size_t stride = ctx->stride[0]; // FIXME 4:4:4
 		size_t stride3 = stride * 3;
 		uint8_t *p = ctx->frame + ctx->frame_offsets_x[0/*BlkIdx2i4x4[BlkIdx]*/] + ctx->frame_offsets_y[0/*BlkIdx2i4x4[BlkIdx]*/];
 		uint8_t *q = p + stride * 4;
 		__m128i zero = _mm_setzero_si128();
-		__m128i clip = _mm_set1_epi16(ctx->clip);
+		__m128i clip = _mm_set1_epi16(ctx->clip[0]); // FIXME 4:4:4
 		__m128i p0 = *(__m128i *)(p             );
 		__m128i p1 = *(__m128i *)(p + stride    );
 		__m128i p2 = *(__m128i *)(p + stride * 2);
@@ -497,11 +497,11 @@ static noinline void FUNC(decode_Residual8x8, __m128i p0,
 	__m128i p1, __m128i p2, __m128i p3, __m128i p4, __m128i p5, __m128i p6,
 	__m128i p7)
 {
-	size_t stride = ctx->stride;
+	size_t stride = ctx->stride[0]; // FIXME 4:4:4
 	size_t stride3 = stride * 3;
 	uint8_t *p = ctx->frame + ctx->frame_offsets_x[0/*BlkIdx2i4x4[BlkIdx]*/] + ctx->frame_offsets_y[0/*BlkIdx2i4x4[BlkIdx]*/];
 	uint8_t *q = p + stride * 4;
-	if (__builtin_expect(ctx->clip == 255, 1)) {
+	if (__builtin_expect(ctx->clip[0] == 255, 1)) { // FIXME 4:4:4
 		v2li u0 = (v2li)_mm_packus_epi16(p0, p1);
 		v2li u1 = (v2li)_mm_packus_epi16(p2, p3);
 		v2li u2 = (v2li)_mm_packus_epi16(p4, p5);
@@ -589,7 +589,7 @@ static inline void FUNC(transform_dc4x4, int iYCbCr)
 		
 	// ... or prepare for storage in place
 	} else {
-		size_t stride = ctx->stride;
+		size_t stride = ctx->stride[iYCbCr];
 		size_t stride3 = stride * 3;
 		uint8_t *p = ctx->frame + ctx->frame_offsets_x[iYCbCr * 16] + ctx->frame_offsets_y[iYCbCr * 16];
 		uint8_t *q = p + stride * 4;
@@ -611,7 +611,7 @@ static inline void FUNC(transform_dc4x4, int iYCbCr)
 		__m128i hi3 = _mm_shuffle_epi8(r3, shufhi);
 		
 		// add to predicted samples
-		if (ctx->clip == 255) {
+		if (ctx->clip[iYCbCr] == 255) {
 			__m128i zero = _mm_setzero_si128();
 			__m128i p0 = *(__m128i *)(p             );
 			__m128i p1 = *(__m128i *)(p + stride    );
@@ -680,7 +680,7 @@ static inline void FUNC(transform_dc2x2)
 		
 	// ... or prepare for storage in place
 	} else {
-		size_t stride = ctx->stride;
+		size_t stride = ctx->stride[1];
 		size_t stride3 = stride * 3;
 		uint8_t *pb = ctx->frame + ctx->frame_offsets_x[16] + ctx->frame_offsets_y[16];
 		uint8_t *pr = pb + ctx->plane_size_C;
@@ -698,7 +698,7 @@ static inline void FUNC(transform_dc2x2)
 		__m128i zero = _mm_setzero_si128();
 		
 		// add to predicted samples
-		if (ctx->clip == 255) {
+		if (ctx->clip[1] == 255) {
 			__m128i b0 = _mm_adds_epi16(load8x1_8bit(pb             , zero), lob);
 			__m128i b1 = _mm_adds_epi16(load8x1_8bit(pb + stride    , zero), lob);
 			__m128i b2 = _mm_adds_epi16(load8x1_8bit(pb + stride * 2, zero), lob);

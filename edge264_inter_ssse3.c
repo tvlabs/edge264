@@ -1302,11 +1302,10 @@ static noinline void FUNC(decode_inter, int i, int w, int h) {
 	// compute source pointers
 	size_t sstride_Y = ctx->stride[0];
 	size_t sstride_C = ctx->stride[1];
-	// FIXME replace with Frac to replace shifts with lea
 	int xInt_Y = ctx->samples_mb[0] - ctx->samples_row[0] + x444[i4x4] + (x >> 2);
 	int xInt_C = ctx->samples_mb[1] - ctx->samples_row[1] + (x444[i4x4] >> 1) + (x >> 3);
-	int yInt_Y = ctx->samples_row[0] - ctx->samples_pic[0] + (y444[i4x4] + (y >> 2)) * sstride_Y;
-	int yInt_C = ctx->samples_row[1] - ctx->samples_pic[0] + ((y444[i4x4] >> 1) + (y >> 3)) * sstride_C;
+	int yInt_Y = ctx->samples_row[0] - ctx->samples_pic + (y444[i4x4] + (y >> 2)) * sstride_Y;
+	int yInt_C = ctx->samples_row[1] - ctx->samples_pic + ((y444[i4x4] >> 1) + (y >> 3)) * sstride_C;
 	const uint8_t *src_Y = ref + xInt_Y + yInt_Y;
 	const uint8_t *src_Cb = ref + xInt_C + yInt_C;
 	const uint8_t *src_Cr = ref + xInt_C + yInt_C + ctx->plane_size_C;

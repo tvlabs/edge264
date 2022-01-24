@@ -31,7 +31,7 @@ typedef uint32_t v4su __attribute__((vector_size(16)));
 typedef uint64_t v2lu __attribute__((vector_size(16)));
 typedef int32_t v8si __attribute__((vector_size(32))); // for alignment of ctx->c
 typedef int16_t v16hi __attribute__((vector_size(32))); // for initialization of neighbouring offsets
-typedef int32_t v16si __attribute__((vector_size(64)));
+typedef int32_t v16si __attribute__((vector_size(64))); // for initialization of neighbouring offsets
 
 
 
@@ -70,16 +70,21 @@ static const Edge264_flags flags_twice = {
  * than their lifespans, packing everything in a single structure is arguably
  * the simplest to maintain. Arrays of precomputed neighbouring offsets spare
  * the use of local caches, thus minimising memory writes.
+ * 
+ * For bit values in 8x8 and 4x4 blocks, we use compact bit patterns in bits_v,
+ * allowing quick retrieval of neighbouring values for CABAC:
+ *             1  8 15 22
+ *   1 6    0| 7 14 21  5
+ * 0|5 3    6|13 20  4 11
+ * 4|2 7   12|19  3 10 17
+ *         18| 2  9 16 23
  */
 typedef struct {
 	Edge264_flags f;
 	uint32_t inter_blocks; // bitmask for every index that is the topleft corner of a block, upper half indicates whether each 8x8 block is equal with its right/bottom neighbours
-	uint16_t ref_idx_nz;
-	union { int8_t CodedBlockPatternLuma[4]; int32_t CodedBlockPatternLuma_s; }; // [i8x8]
 	union { int8_t refIdx[8]; int32_t refIdx_s[2]; int64_t refIdx_l; v8qi refIdx_v; }; // [LX][i8x8]
+	union { uint32_t bits[4]; v4su bits_v; }; // {cbf_Y 8x8/4x4 , cbf_Cb 8x8/4x4, cbf_Cr 8x8/4x4, cbp/ref_idx_nz}
 	union { int8_t Intra4x4PredMode[16]; v16qi Intra4x4PredMode_v; }; // [i4x4]
-	union { int8_t coded_block_flags_8x8[12]; v16qi coded_block_flags_8x8_v; }; // [iYCbCr][i8x8]
-	union { int8_t coded_block_flags_4x4[48]; int32_t coded_block_flags_4x4_s[12]; v16qi coded_block_flags_4x4_v[3]; }; // [iYCbCr][i4x4]
 	union { uint8_t absMvdComp[64]; uint64_t absMvdComp_l[8]; v16qu absMvdComp_v[4]; }; // [LX][i4x4][compIdx]
 	union { int16_t mvs[64]; int32_t mvs_s[32]; v8hi mvs_v[8]; }; // [LX][i4x4][compIdx]
 } Edge264_macroblock;
@@ -127,20 +132,18 @@ typedef struct
 	int32_t mb_skip_run;
 	int32_t plane_size_Y;
 	int32_t plane_size_C;
-	uint8_t *samples_pic[3]; // address of top-left byte of current picture
-	uint8_t *samples_row[3]; // address of top-left byte of current row of macroblocks
-	uint8_t *samples_mb[3]; // address of top-left byte of current macroblock
+	uint8_t *samples_pic; // address of top-left byte of current picture
+	uint8_t *samples_row[3]; // address of top-left byte of each plane in current row of macroblocks
+	uint8_t *samples_mb[3]; // address of top-left byte of each plane in current macroblock
 	uint16_t stride[3]; // [iYCbCr], 16 significant bits (8K, 16bit, field pic)
 	int16_t clip[3]; // [iYCbCr], maximum sample value
 	union { int8_t unavail[16]; v16qi unavail_v; }; // unavailability of neighbouring A/B/C/D blocks
-	int8_t map_me[48];
+	uint8_t map_me[48];
 	union { uint8_t cabac[1024]; v16qu cabac_v[64]; };
 	
 	// neighbouring offsets (relative to the start of each array in mb)
-	union { int16_t coded_block_flags_4x4_A[48]; int16_t Intra4x4PredMode_A[16]; v16hi A4x4_8bit[3]; };
-	union { int32_t coded_block_flags_4x4_B[48]; int32_t Intra4x4PredMode_B[16]; v16si B4x4_8bit[3]; };
-	union { int16_t coded_block_flags_8x8_A[12]; int16_t CodedBlockPatternLuma_A[4]; int16_t refIdx_A[8]; v4hi A8x8_8bit[3]; };
-	union { int32_t coded_block_flags_8x8_B[12]; int32_t CodedBlockPatternLuma_B[4]; int32_t refIdx_B[8]; v4si B8x8_8bit[3]; };
+	union { int16_t Intra4x4PredMode_A[16]; v16hi Intra4x4PredMode_A_v; };
+	union { int32_t Intra4x4PredMode_B[16]; v16si Intra4x4PredMode_B_v; };
 	union { int16_t absMvdComp_A[16]; v16hi absMvdComp_A_v; };
 	union { int32_t absMvdComp_B[16]; v16si absMvdComp_B_v; };
 	union { int8_t refIdx4x4_C[16]; int32_t refIdx4x4_C_s[4]; v16qi refIdx4x4_C_v; }; // shuffle vector for mv prediction
@@ -320,7 +323,7 @@ static inline void FUNC(decode_inter_16x8_bottom, v8hi mvd, int lx);
 static noinline void FUNC(decode_direct_mv_pred);
 
 // edge264_residual_*.c
-static inline void FUNC(add_idct4x4, int iYCbCr, int qP, v16qu wS, int32_t *DCidx, uint8_t *samples);
+static inline void FUNC(add_idct4x4, int iYCbCr, int qP, v16qu wS, int DCidx, uint8_t *samples);
 static inline void FUNC(transform_dc4x4, int iYCbCr);
 static inline void FUNC(transform_dc2x2);
 static inline void FUNC(transform_dc2x4);
@@ -370,7 +373,7 @@ static noinline void FUNC(parse_slice_data_cabac);
 	#ifndef __AVX_2__
 		#define _mm_broadcastw_epi16(a) _mm_shuffle_epi32(_mm_shufflelo_epi16(a, _MM_SHUFFLE(0, 0, 0, 0)), _MM_SHUFFLE(1, 0, 1, 0))
 	#endif
-	#ifndef __SSE4_1__
+	#if defined(__SSE4_1__) && !defined(__clang__)
 		static inline __m128i _mm_mullo_epi32(__m128i a, __m128i b) { // FIXME correct
 			__m128i c = _mm_shuffle_epi32(a, _MM_SHUFFLE(0, 3, 0, 1));
 			__m128i d = _mm_shuffle_epi32(b, _MM_SHUFFLE(0, 3, 0, 1));
@@ -569,6 +572,11 @@ static const int8_t x444[16] = {0, 4, 0, 4, 8, 12, 8, 12, 0, 4, 0, 4, 8, 12, 8, 
 static const int8_t y444[16] = {0, 0, 4, 4, 0, 0, 4, 4, 8, 8, 12, 12, 8, 8, 12, 12};
 static const int8_t x420[8] = {0, 4, 0, 4, 0, 4, 0, 4};
 static const int8_t y420[8] = {0, 0, 4, 4, 0, 0, 4, 4};
+
+static const int8_t inc8x8[12] = {0, 5, 4, 2, 8, 13, 12, 10, 16, 21, 20, 18};
+static const int8_t bit8x8[12] = {5, 3, 2, 7, 13, 11, 10, 15, 21, 19, 18, 23};
+static const int8_t inc4x4[16] = {8, 15, 14, 21, 22, 29, 28, 12, 20, 27, 26, 10, 11, 18, 17, 24};
+static const int8_t bit4x4[16] = {15, 22, 21, 28, 29, 13, 12, 19, 27, 11, 10, 17, 18, 25, 24, 31};
 
 
 

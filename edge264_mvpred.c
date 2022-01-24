@@ -11,8 +11,8 @@ static inline void FUNC(decode_inter_16x16, v8hi mvd, int lx)
 	// compare neighbouring indices and compute mvp
 	v8hi mvp;
 	int refIdx = mb->refIdx[lx * 4];
-	int refIdxA = *(mb->refIdx + lx * 4 + ctx->refIdx_A[0]);
-	int refIdxB = *(mb->refIdx + lx * 4 + ctx->refIdx_B[0]);
+	int refIdxA = mb[-1].refIdx[lx * 4 + 1];
+	int refIdxB = ctx->mbB->refIdx[lx * 4 + 2];
 	int eqA = refIdx==refIdxA;
 	int refIdxC, mvs_C;
 	if (__builtin_expect(ctx->inc.unavailable & 4, 0)) {
@@ -46,17 +46,17 @@ static inline void FUNC(decode_inter_8x16_left, v8hi mvd, int lx)
 	// compare neighbouring indices and compute mvp
 	v8hi mvp;
 	int refIdx = mb->refIdx[lx * 4];
-	int refIdxA = *(mb->refIdx + lx * 4 + ctx->refIdx_A[0]);
+	int refIdxA = mb[-1].refIdx[lx * 4 + 1];
 	if (refIdx == refIdxA || ctx->unavail[0] == 14) {
 		mvp = (v8hi)(v4si){*(mb->mvs_s + lx * 16 + ctx->mvs_A[0])};
 	} else {
-		int refIdxB = *(mb->refIdx + lx * 4 + ctx->refIdx_B[0]);
+		int refIdxB = ctx->mbB->refIdx[lx * 4 + 2];
 		int refIdxC, mvs_C;
 		if (__builtin_expect(ctx->inc.unavailable & 2, 0)) {
 			refIdxC = ctx->mbB[-1].refIdx[lx * 4 + 3];
 			mvs_C = ctx->mvs_D[0];
 		} else {
-			refIdxC = *(mb->refIdx + lx * 4 + ctx->refIdx_B[1]);
+			refIdxC = ctx->mbB->refIdx[lx * 4 + 3];
 			mvs_C = ctx->mvs_C[1];
 		}
 		if (refIdx == refIdxB) {
@@ -90,7 +90,7 @@ static inline void FUNC(decode_inter_8x16_right, v8hi mvd, int lx)
 	int refIdx = mb->refIdx[lx * 4 + 1];
 	int refIdxC, mvs_C;
 	if (__builtin_expect(ctx->inc.unavailable & 4, 0)) {
-		refIdxC = *(mb->refIdx + lx * 4 + ctx->refIdx_B[0]);
+		refIdxC = ctx->mbB->refIdx[lx * 4 + 2];
 		mvs_C = ctx->mvs_D[4];
 	} else {
 		refIdxC = ctx->mbB[1].refIdx[lx * 4 + 2];
@@ -100,7 +100,7 @@ static inline void FUNC(decode_inter_8x16_right, v8hi mvd, int lx)
 		mvp = (v8hi)(v4si){*(mb->mvs_s + lx * 16 + mvs_C)};
 	} else {
 		int refIdxA = mb->refIdx[lx * 4];
-		int refIdxB = *(mb->refIdx + lx * 4 + ctx->refIdx_B[1]);
+		int refIdxB = ctx->mbB->refIdx[lx * 4 + 3];
 		if (refIdx == refIdxB) {
 			mvp = (v8hi)(v4si){*(mb->mvs_s + lx * 16 + ctx->mvs_B[4])};
 			if (refIdx == refIdxA) {
@@ -130,11 +130,11 @@ static inline void FUNC(decode_inter_16x8_top, v8hi mvd, int lx)
 	// compare neighbouring indices and compute mvp
 	v8hi mvp;
 	int refIdx = mb->refIdx[lx * 4];
-	int refIdxB = *(mb->refIdx + lx * 4 + ctx->refIdx_B[0]);
+	int refIdxB = ctx->mbB->refIdx[lx * 4 + 2];
 	if (refIdx == refIdxB) {
 		mvp = (v8hi)(v4si){*(mb->mvs_s + lx * 16 + ctx->mvs_B[0])};
 	} else {
-		int refIdxA = *(mb->refIdx + lx * 4 + ctx->refIdx_A[0]);
+		int refIdxA = mb[-1].refIdx[lx * 4 + 1];
 		int refIdxC, mvs_C;
 		if (__builtin_expect(ctx->inc.unavailable & 4, 0)) {
 			refIdxC = ctx->mbB[-1].refIdx[lx * 4 + 3];
@@ -172,12 +172,12 @@ static inline void FUNC(decode_inter_16x8_bottom, v8hi mvd, int lx)
 	// compare neighbouring indices and compute mvp
 	v8hi mvp;
 	int refIdx = mb->refIdx[lx * 4 + 2];
-	int refIdxA = *(mb->refIdx + lx * 4 + ctx->refIdx_A[2]);
+	int refIdxA = mb[-1].refIdx[lx * 4 + 3];
 	if (refIdx == refIdxA) {
 		mvp = (v8hi)(v4si){*(mb->mvs_s + lx * 16 + ctx->mvs_A[8])};
 	} else {
 		int refIdxB = mb->refIdx[lx * 4];
-		int refIdxC = *(mb->refIdx + lx * 4 + ctx->refIdx_A[0]);
+		int refIdxC = mb[-1].refIdx[lx * 4 + 1];
 		if (refIdx == refIdxB) {
 			mvp = (v8hi)(v4si){*(mb->mvs_s + lx * 16)};
 			if (refIdx == refIdxC) {
@@ -218,8 +218,8 @@ static always_inline void FUNC(decode_direct_spatial_mv_pred)
 	v8hi mvA = (v8hi)(v4si){*(mb->mvs_s + ctx->mvs_A[0]), *(mb->mvs_s + ctx->mvs_A[0] + 16)};
 	v8hi mvB = (v8hi)(v4si){*(mb->mvs_s + ctx->mvs_B[0]), *(mb->mvs_s + ctx->mvs_B[0] + 16)};
 	v8hi mvC = (v8hi)(v4si){*(mb->mvs_s + ctx->mvs_C[5]), *(mb->mvs_s + ctx->mvs_C[5] + 16)};
-	v16qi refIdxA = byte_shuffle((v16qi){*(mb->refIdx + ctx->refIdx_A[0]), *(mb->refIdx + ctx->refIdx_A[0] + 4)}, shuf);
-	v16qi refIdxB = byte_shuffle((v16qi){*(mb->refIdx + ctx->refIdx_B[0]), *(mb->refIdx + ctx->refIdx_B[0] + 4)}, shuf);
+	v16qi refIdxA = byte_shuffle((v16qi){mb[-1].refIdx[1], mb[-1].refIdx[5]}, shuf);
+	v16qi refIdxB = byte_shuffle((v16qi){ctx->mbB->refIdx[2], ctx->mbB->refIdx[6]}, shuf);
 	v16qi refIdxC = byte_shuffle((v16qi){ctx->mbB[1].refIdx[2], ctx->mbB[1].refIdx[6]}, shuf);
 	if (__builtin_expect(ctx->inc.unavailable & 4, 0)) {
 		mvC = (v8hi)(v4si){*(mb->mvs_s + ctx->mvs_D[0]), *(mb->mvs_s + ctx->mvs_D[0] + 16)};

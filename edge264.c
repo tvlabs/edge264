@@ -1,10 +1,4 @@
 /** MAYDO:
- * _ remove plane_size_Y/C and frame offsets in favor of a lighter mechanism?
- * _ reintroduce DC optimization inside add_idct4x4
- * _ initialize values in initialise_decoding_context without vectors
- * _ store coded_block_flags in compact bit fields
- * _ simplify residuals functions before completing CAVLC
- * _ split all ctx->... = CALL(...) followed by test to avoid depending on masking
  * _ debug the decoding with GCC
  * _ fix initialization of implicit weights
  * _ review and secure the places where CABAC could result in unsupported internal state
@@ -74,9 +68,9 @@ static void FUNC(initialise_decoding_context, Edge264_stream *e)
 	
 	ctx->mb_qp_delta_nz = 0;
 	ctx->CurrMbAddr = 0;
-	ctx->samples_pic[0] = ctx->samples_row[0] = ctx->samples_mb[0] = e->DPB + e->currPic * e->frame_size;
-	ctx->samples_pic[1] = ctx->samples_row[1] = ctx->samples_mb[1] = ctx->samples_pic[0] + e->plane_size_Y;
-	ctx->samples_pic[2] = ctx->samples_row[2] = ctx->samples_mb[2] = ctx->samples_pic[1] + e->plane_size_C;
+	ctx->samples_mb[0] = ctx->samples_row[0] = ctx->samples_pic = e->DPB + e->currPic * e->frame_size;
+	ctx->samples_mb[1] = ctx->samples_row[1] = ctx->samples_mb[0] + e->plane_size_Y;
+	ctx->samples_mb[2] = ctx->samples_row[2] = ctx->samples_mb[1] + e->plane_size_C;
 	ctx->stride[0] = e->stride_Y;
 	ctx->stride[1] = ctx->stride[2] = e->stride_C;
 	ctx->plane_size_Y = e->plane_size_Y;
@@ -97,46 +91,27 @@ static void FUNC(initialise_decoding_context, Edge264_stream *e)
 	memcpy(ctx->QPprime_C_v + 6, QP_Y2C + clip3(0, 63, 47 + ctx->ps.second_chroma_qp_index_offset), 16);
 	memcpy(ctx->QPprime_C_v + 7, QP_Y2C + clip3(0, 63, 63 + ctx->ps.second_chroma_qp_index_offset), 16);
 	
-	int offA_8bit = -(int)sizeof(*mb);
-	int offB_8bit = -(ctx->ps.width / 16 + 1) * sizeof(*mb);
+	// initializing with vectors is not the fastest here, but is more readable and maintainable
+	int offA_int8 = -(int)sizeof(*mb);
+	int offB_int8 = -(ctx->ps.width / 16 + 1) * sizeof(*mb);
 	ctx->mbB = (Edge264_macroblock *)(ctx->samples_mb[2] + e->plane_size_C + sizeof(*mb));
-	mb = (Edge264_macroblock *)((uint8_t *)ctx->mbB - offB_8bit);
-	ctx->A4x4_8bit[0] = (v16hi){5 + offA_8bit, 0, 7 + offA_8bit, 2, 1, 4, 3, 6, 13 + offA_8bit, 8, 15 + offA_8bit, 10, 9, 12, 11, 14};
-	ctx->B4x4_8bit[0] = (v16si){10 + offB_8bit, 11 + offB_8bit, 0, 1, 14 + offB_8bit, 15 + offB_8bit, 4, 5, 2, 3, 8, 9, 6, 7, 12, 13};
-	ctx->A8x8_8bit[0] = (v4hi){1 + offA_8bit, 0, 3 + offA_8bit, 2};
-	ctx->A8x8_8bit[1] = (v4hi){5 + offA_8bit, 4, 7 + offA_8bit, 6};
-	ctx->B8x8_8bit[0] = (v4si){2 + offB_8bit, 3 + offB_8bit, 0, 1};
-	ctx->B8x8_8bit[1] = (v4si){6 + offB_8bit, 7 + offB_8bit, 4, 5};
-	if (ctx->ps.ChromaArrayType == 1) {
-		ctx->A4x4_8bit[1] = (v16hi){17 + offA_8bit, 16, 19 + offA_8bit, 18, 21 + offA_8bit, 20, 23 + offA_8bit, 22};
-		ctx->B4x4_8bit[1] = (v16si){18 + offB_8bit, 19 + offB_8bit, 16, 17, 22 + offB_8bit, 23 + offB_8bit, 20, 21};
-	} else if (ctx->ps.ChromaArrayType == 2) {
-		ctx->A4x4_8bit[1] = (v16hi){17 + offA_8bit, 16, 19 + offA_8bit, 18, 21 + offA_8bit, 20, 23 + offA_8bit, 22, 25 + offA_8bit, 24, 27 + offA_8bit, 26, 29 + offA_8bit, 28, 31 + offA_8bit, 30};
-		ctx->B4x4_8bit[1] = (v16si){22 + offB_8bit, 23 + offB_8bit, 16, 17, 18, 19, 20, 21, 30 + offB_8bit, 31 + offB_8bit, 24, 25, 26, 27, 28, 29};
-	} else if (ctx->ps.ChromaArrayType == 3) {
-		v16hi h16 = {16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16};
-		ctx->A4x4_8bit[1] = ctx->A4x4_8bit[0] + h16;
-		ctx->A4x4_8bit[2] = ctx->A4x4_8bit[1] + h16;
-		v16si s16 = {16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16};
-		ctx->B4x4_8bit[1] = ctx->B4x4_8bit[0] + s16;
-		ctx->B4x4_8bit[2] = ctx->B4x4_8bit[1] + s16;
-		ctx->A8x8_8bit[2] = (v4hi){9 + offA_8bit, 8, 11 + offA_8bit, 10};
-		ctx->B8x8_8bit[2] = (v4si){10 + offB_8bit, 11 + offB_8bit, 8, 9};
-	}
+	mb = (Edge264_macroblock *)((uint8_t *)ctx->mbB - offB_int8);
+	ctx->Intra4x4PredMode_A_v = (v16hi){5 + offA_int8, 0, 7 + offA_int8, 2, 1, 4, 3, 6, 13 + offA_int8, 8, 15 + offA_int8, 10, 9, 12, 11, 14};
+	ctx->Intra4x4PredMode_B_v = (v16si){10 + offB_int8, 11 + offB_int8, 0, 1, 14 + offB_int8, 15 + offB_int8, 4, 5, 2, 3, 8, 9, 6, 7, 12, 13};
 	
 	// P/B slices
 	if (ctx->slice_type < 2) {
-		int offA_32bit = offA_8bit >> 2;
-		int offB_32bit = offB_8bit >> 2;
-		int offC_32bit = offB_32bit + (sizeof(*mb) >> 2);
-		int offD_32bit = offB_32bit - (sizeof(*mb) >> 2);
+		int offA_int32 = offA_int8 >> 2;
+		int offB_int32 = offB_int8 >> 2;
+		int offC_int32 = offB_int32 + (sizeof(*mb) >> 2);
+		int offD_int32 = offB_int32 - (sizeof(*mb) >> 2);
 		ctx->refIdx4x4_C_v = (v16qi){2, 3, 12, -1, 3, 6, 13, -1, 12, 13, 14, -1, 13, -1, 15, -1};
-		ctx->absMvdComp_A_v = (v16hi){10 + offA_8bit, 0, 14 + offA_8bit, 4, 2, 8, 6, 12, 26 + offA_8bit, 16, 30 + offA_8bit, 20, 18, 24, 22, 28};
-		ctx->absMvdComp_B_v = (v16si){20 + offB_8bit, 22 + offB_8bit, 0, 2, 28 + offB_8bit, 30 + offB_8bit, 8, 10, 4, 6, 16, 18, 12, 14, 24, 26};
-		ctx->mvs_A_v = (v16hi){5 + offA_32bit, 0, 7 + offA_32bit, 2, 1, 4, 3, 6, 13 + offA_32bit, 8, 15 + offA_32bit, 10, 9, 12, 11, 14};
-		ctx->mvs_B_v = (v16si){10 + offB_32bit, 11 + offB_32bit, 0, 1, 14 + offB_32bit, 15 + offB_32bit, 4, 5, 2, 3, 8, 9, 6, 7, 12, 13};
-		ctx->mvs_C_v = (v16si){11 + offB_32bit, 14 + offB_32bit, 1, -1, 15 + offB_32bit, 10 + offC_32bit, 5, -1, 3, 6, 9, -1, 7, -1, 13, -1};
-		ctx->mvs_D_v = (v16si){15 + offD_32bit, 10 + offB_32bit, 5 + offA_32bit, 0, 11 + offB_32bit, 14 + offB_32bit, 1, 4, 7 + offA_32bit, 2, 13 + offA_32bit, 8, 3, 6, 9, 12};
+		ctx->absMvdComp_A_v = (v16hi){10 + offA_int8, 0, 14 + offA_int8, 4, 2, 8, 6, 12, 26 + offA_int8, 16, 30 + offA_int8, 20, 18, 24, 22, 28};
+		ctx->absMvdComp_B_v = (v16si){20 + offB_int8, 22 + offB_int8, 0, 2, 28 + offB_int8, 30 + offB_int8, 8, 10, 4, 6, 16, 18, 12, 14, 24, 26};
+		ctx->mvs_A_v = (v16hi){5 + offA_int32, 0, 7 + offA_int32, 2, 1, 4, 3, 6, 13 + offA_int32, 8, 15 + offA_int32, 10, 9, 12, 11, 14};
+		ctx->mvs_B_v = (v16si){10 + offB_int32, 11 + offB_int32, 0, 1, 14 + offB_int32, 15 + offB_int32, 4, 5, 2, 3, 8, 9, 6, 7, 12, 13};
+		ctx->mvs_C_v = (v16si){11 + offB_int32, 14 + offB_int32, 1, -1, 15 + offB_int32, 10 + offC_int32, 5, -1, 3, 6, 9, -1, 7, -1, 13, -1};
+		ctx->mvs_D_v = (v16si){15 + offD_int32, 10 + offB_int32, 5 + offA_int32, 0, 11 + offB_int32, 14 + offB_int32, 1, 4, 7 + offA_int32, 2, 13 + offA_int32, 8, 3, 6, 9, 12};
 		ctx->num_ref_idx_mask = (ctx->ps.num_ref_idx_active[0] > 1) * 0x0f +
 			(ctx->ps.num_ref_idx_active[1] > 1) * 0xf0;
 		ctx->transform_8x8_mode_flag = ctx->ps.transform_8x8_mode_flag; // for P slices this value is constant
@@ -151,7 +126,7 @@ static void FUNC(initialise_decoding_context, Edge264_stream *e)
 			for (int i = 0; i <= max1; i++)
 				ctx->ref_planes[32 + i] = e->DPB + (ctx->RefPicList[1][i] & 15) * e->frame_size;
 			int colPic = ctx->RefPicList[1][0];
-			ctx->mbCol = (Edge264_macroblock *)(e->DPB + colPic * e->frame_size + ctx->plane_size_Y + e->plane_size_C * 2 + sizeof(*mb) - offB_8bit);
+			ctx->mbCol = (Edge264_macroblock *)(e->DPB + colPic * e->frame_size + ctx->plane_size_Y + e->plane_size_C * 2 + sizeof(*mb) - offB_int8);
 			ctx->col_short_term = (e->long_term_flags >> colPic & 1) ^ 1;
 			
 			// initializations for temporal prediction
@@ -640,12 +615,8 @@ static int FUNC(parse_slice_layer_without_partitioning, Edge264_stream *e)
 	
 	// cabac_alignment_one_bit gives a good probability to catch random errors.
 	if (!ctx->ps.entropy_coding_mode_flag) {
-		static const int8_t me_intra[48] = {47, 31, 15, 0, 23, 27, 29, 30, 7, 11,
-			13, 14, 39, 43, 45, 46, 16, 3, 5, 10, 12, 19, 21, 26, 28, 35, 37, 42,
-			44, 1, 2, 4, 8, 17, 18, 20, 24, 6, 9, 22, 25, 32, 33, 34, 36, 40, 38, 41};
-		static const int8_t me_inter[48] = {0, 16, 1, 2, 4, 8, 32, 3, 5, 10, 12,
-			15, 47, 7, 11, 13, 14, 6, 9, 31, 35, 37, 42, 44, 33, 34, 36, 40, 39,
-			43, 45, 46, 17, 18, 20, 24, 19, 21, 26, 28, 23, 27, 29, 30, 22, 25, 38, 41};
+		static const uint8_t me_intra[48] = {174, 173, 172, 0, 45, 169, 165, 141, 44, 168, 164, 140, 46, 170, 166, 142, 1, 40, 36, 136, 132, 41, 37, 137, 133, 42, 38, 138, 134, 32, 8, 4, 128, 33, 9, 5, 129, 12, 160, 13, 161, 2, 34, 10, 6, 130, 14, 162};
+		static const uint8_t me_inter[48] = {0, 1, 32, 8, 4, 128, 2, 40, 36, 136, 132, 172, 174, 44, 168, 164, 140, 12, 160, 173, 42, 38, 138, 134, 34, 10, 6, 130, 46, 170, 166, 142, 33, 9, 5, 129, 41, 37, 137, 133, 45, 169, 165, 141, 13, 161, 14, 162};
 		memcpy(ctx->map_me, ctx->slice_type == 2 ? me_intra : me_inter, sizeof(ctx->map_me));
 		ctx->mb_skip_run = -1;
 		return 4;
@@ -1117,7 +1088,7 @@ static int FUNC(parse_seq_parameter_set, Edge264_stream *e)
 		.f.mb_type_B_Direct = 1,
 		.refIdx = {-1, -1, -1, -1, -1, -1, -1, -1},
 		.Intra4x4PredMode = {-2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2},
-		.CodedBlockPatternLuma = {1, 1, 1, 1},
+		.bits[3] = 0xac, // cbp
 	};
 	
 	// Profiles are only useful to initialize max_num_reorder_frames/max_dec_frame_buffering.

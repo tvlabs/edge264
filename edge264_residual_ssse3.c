@@ -44,7 +44,7 @@ static const v16qi normAdjust8x8[6][4] = {
  * Here we try to stay close to the spec's pseudocode, avoiding minor
  * optimisations that would make the code hard to understand.
  */
-static inline void FUNC(add_idct4x4, int iYCbCr, int qP, v16qu wS, int32_t *DCidx, uint8_t *samples)
+static inline void FUNC(add_idct4x4, int iYCbCr, int qP, v16qu wS, int DCidx, uint8_t *samples)
 {
 	// loading and scaling
 	__m128i zero = _mm_setzero_si128();
@@ -61,8 +61,8 @@ static inline void FUNC(add_idct4x4, int iYCbCr, int qP, v16qu wS, int32_t *DCid
 	__m128i d1 = _mm_srai_epi32(_mm_add_epi32(_mm_mullo_epi32(mul1, ctx->c_v[1]), s8), 4);
 	__m128i d2 = _mm_srai_epi32(_mm_add_epi32(_mm_mullo_epi32(mul2, ctx->c_v[2]), s8), 4);
 	__m128i d3 = _mm_srai_epi32(_mm_add_epi32(_mm_mullo_epi32(mul3, ctx->c_v[3]), s8), 4);
-	if (DCidx)
-		d0[0] = *DCidx;
+	if (DCidx >= 0)
+		d0[0] = ctx->c[16 + DCidx];
 	
 	// horizontal 1D transform
 	__m128i e0 = _mm_add_epi32((v4si)d0, d2);
@@ -115,6 +115,32 @@ static inline void FUNC(add_idct4x4, int iYCbCr, int qP, v16qu wS, int32_t *DCid
 		__m128i clip = _mm_set1_epi16(ctx->clip[iYCbCr]);
 		v2li u0 = (v2li)_mm_min_epi16(_mm_max_epi16(_mm_adds_epi16(p0, r0), zero), clip);
 		v2li u1 = (v2li)_mm_min_epi16(_mm_max_epi16(_mm_adds_epi16(p1, r1), zero), clip);
+		*(int64_t *)(samples             ) = u0[0];
+		*(int64_t *)(samples + stride    ) = u0[1];
+		*(int64_t *)(samples + stride * 2) = u1[0];
+		*(int64_t *)(samples + stride * 3) = u1[1];
+	}
+}
+
+static inline void FUNC(add_dc4x4, int iYCbCr, int DCidx, uint8_t *samples) {
+	__m128i x = _mm_srai_epi32(_mm_add_epi32(_mm_set1_epi32(ctx->c[16 + DCidx]), _mm_set1_epi32(32)), 6);
+	__m128i r = _mm_packs_epi32(x, x);
+	__m128i zero = _mm_setzero_si128();
+	size_t stride = ctx->stride[iYCbCr];
+	if (ctx->clip[iYCbCr] == 255) {
+		__m128i p0 = load4x2_8bit(samples             , samples + stride    , zero);
+		__m128i p1 = load4x2_8bit(samples + stride * 2, samples + stride * 3, zero);
+		v4si u = (v4si)_mm_packus_epi16(_mm_adds_epi16(p0, r), _mm_adds_epi16(p1, r));
+		*(int32_t *)(samples             ) = u[0];
+		*(int32_t *)(samples + stride    ) = u[1];
+		*(int32_t *)(samples + stride * 2) = u[2];
+		*(int32_t *)(samples + stride * 3) = u[3];
+	} else {
+		__m128i p0 = _mm_setr_epi64(*(__m64 *)(samples             ), *(__m64 *)(samples + stride    ));
+		__m128i p1 = _mm_setr_epi64(*(__m64 *)(samples + stride * 2), *(__m64 *)(samples + stride * 3));
+		__m128i clip = _mm_set1_epi16(ctx->clip[iYCbCr]);
+		v2li u0 = (v2li)_mm_min_epi16(_mm_max_epi16(_mm_adds_epi16(p0, r), zero), clip);
+		v2li u1 = (v2li)_mm_min_epi16(_mm_max_epi16(_mm_adds_epi16(p1, r), zero), clip);
 		*(int64_t *)(samples             ) = u0[0];
 		*(int64_t *)(samples + stride    ) = u0[1];
 		*(int64_t *)(samples + stride * 2) = u1[0];
@@ -580,7 +606,7 @@ static inline void FUNC(transform_dc4x4, int iYCbCr)
 	__m128i dc3 = _mm_srai_epi32(_mm_add_epi32(_mm_mullo_epi32(f3, LS), s32), 6);
 	
 	// store in zigzag order if needed later ...
-	if (mb->CodedBlockPatternLuma_s) {
+	if (mb->bits[3] & 1 << 5) {
 		ctx->c_v[4] = (v4si)_mm_unpacklo_epi64(dc0, dc1);
 		ctx->c_v[5] = (v4si)_mm_unpackhi_epi64(dc0, dc1);
 		ctx->c_v[6] = (v4si)_mm_unpacklo_epi64(dc2, dc3);

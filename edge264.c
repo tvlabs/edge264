@@ -27,7 +27,7 @@
 #endif
 #include "edge264_bitstream.c"
 #include "edge264_mvpred.c"
-#include "edge264_slice.c"
+//#include "edge264_slice.c"
 #define CABAC 1
 #include "edge264_slice.c"
 

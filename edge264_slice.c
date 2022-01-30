@@ -19,6 +19,223 @@
 
 
 /**
+ * Parse the coeff_token header for a non-ChromaDCLevel residual block encoded
+ * with CAVLC (9.2.1)
+ *
+ * While both CAVLC and residual coefficients are not too critical to optimize,
+ * this function is designed to be simple and compact.
+ */
+#ifndef CABAC
+static int FUNC(parse_coeff_token_cavlc, int iYCbCr, int i4x4) {
+	static const uint8_t nC_offset[8] = {184, 184, 80, 80, 0, 0, 0, 0};
+	static const int16_t tokens[38 * 8] = {
+		543, 539, 535, 531, 527, 522, 517, 512, // 4 <= nC < 8
+		661, 662, 657, 658, 653, 675, 654, 649,
+		780, 798, 797, 776, 807, 794, 793, 772,
+		924, 920, 934, 916, 938, 930, 929, 912,
+		1075, 1070, 1065, 1060, 1071, 1066, 1061, 1056,
+		1200, 1206, 1201, 1196, 1207, 1202, 1197, 1192,
+		1341, 1336, 1339, 1338, 1337, 1332, 1205, 1205,
+		1345, 1345, 1340, 1340, 1343, 1343, 1342, 1342,
+		1347, 1347, 1347, 1347, 1346, 1346, 1346, 1346,
+		1344, 1344, 1344, 1344, 1344, 1344, 1344, 1344,
+		261, 261, 261, 261, 256, 256, 256, 256, // 2 <= cN < 4
+		531, 531, 527, 527, 394, 394, 394, 394,
+		795, 782, 781, 772, 663, 663, 649, 649,
+		799, 799, 786, 786, 785, 785, 776, 776,
+		931, 931, 918, 918, 917, 917, 908, 908,
+		1044, 1044, 1050, 1050, 1049, 1049, 1040, 1040,
+		1191, 1191, 1182, 1182, 1181, 1181, 1176, 1176,
+		1455, 1446, 1445, 1440, 1451, 1442, 1441, 1436,
+		1580, 1582, 1581, 1576, 1587, 1578, 1577, 1572,
+		1723, 1718, 1717, 1716, 1718, 1714, 1713, 1712,
+		1853, 1852, 1854, 1849, 1722, 1722, 1720, 1720,
+		1859, 1859, 1858, 1858, 1857, 1857, 1856, 1856,
+		1727, 1727, 1727, 1727, 1727, 1727, 1727, 1727,
+		128, 128, 128, 128, 128, 128, 128, 128, // 0 <= nC < 2
+		261, 261, 261, 261, 261, 261, 261, 261,
+		394, 394, 394, 394, 394, 394, 394, 394,
+		775, 775, 772, 772, 655, 655, 655, 655,
+		919, 919, 910, 910, 787, 787, 787, 787,
+		1051, 1051, 1042, 1042, 1037, 1037, 1032, 1032,
+		1183, 1183, 1174, 1174, 1169, 1169, 1164, 1164,
+		1315, 1315, 1306, 1306, 1301, 1301, 1296, 1296,
+		1447, 1447, 1438, 1438, 1433, 1433, 1428, 1428,
+		1696, 1702, 1697, 1692, 1707, 1698, 1693, 1688,
+		1843, 1838, 1833, 1832, 1839, 1834, 1829, 1828,
+		1979, 1974, 1969, 1968, 1975, 1970, 1965, 1964,
+		2115, 2110, 2109, 2104, 2111, 2106, 2105, 2100,
+		2112, 2112, 2114, 2114, 2113, 2113, 2108, 2108,
+		1973, 1973, 1973, 1973, 1973, 1973, 1973, 1973,
+	};
+	
+	int nA = *(mb->nC[iYCbCr] + ctx->Intra4x4PredMode_A[i4x4]);
+	int nB = *(mb->nC[iYCbCr] + ctx->Intra4x4PredMode_B[i4x4]);
+	int nC = (ctx->inc.unavailable & 3) ? nA + nB : (nA + nB + 1) >> 1; // FIXME unavailability of 4x4 blocks!
+	int coeff_token, v;
+	if (__builtin_expect(nC < 8, 1)) {
+		int leadingZeroBits = clz(msb_cache | (size_t)1 << (SIZE_BIT - 15));
+		unsigned fourBits = msb_cache >> (SIZE_BIT - 4 - leadingZeroBits);
+		int token = tokens[nC_offset[nC] + leadingZeroBits * 8 + fourBits - 8];
+		coeff_token = token & 127;
+		v = token >> 7;
+	} else {
+		coeff_token = (msb_cache >> (SIZE_BIT - 6)) + 4;
+		if (coeff_token == 7)
+			coeff_token = 0;
+		v = 6;
+	}
+	msb_cache = lsd(msb_cache, lsb_cache, v);
+	if (lsb_cache <<= v)
+		return coeff_token;
+	return CALL(refill, coeff_token);
+}
+#endif
+
+
+
+/**
+ * Temporary functions for two alternatives to parse total_zeros.
+ */
+#ifndef CABAC
+static inline int FUNC(parse_total_zeros_alt, int endIdx, int TotalCoeff) {
+	static const uint8_t codes[] = {
+		// 2x2 blocks
+		51, 50, 33, 33, 16, 16, 16, 16,
+		34, 33, 16, 16,
+		17, 16,
+		// 2x4 blocks
+		87, 86, 69, 69, 67, 67, 68, 68, 49, 49, 49, 49, 50, 50, 50, 50, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16,
+		48, 50, 33, 33, 51, 52, 53, 54,
+		48, 49, 34, 34, 35, 35, 52, 53,
+		33, 33, 34, 34, 35, 35, 48, 52,
+		32, 33, 34, 35,
+		32, 33, 18, 18,
+		16, 17,
+		// 4x4 blocks
+		143, 159, 158, 157, 140, 140, 139, 139, 122, 122, 122, 122, 121, 121, 121, 121, 104, 104, 104, 104, 104, 104, 104, 104, 103, 103, 103, 103, 103, 103, 103, 103, 86, 86, 86, 86, 86, 86, 86, 86, 86, 86, 86, 86, 86, 86, 86, 86, 85, 85, 85, 85, 85, 85, 85, 85, 85, 85, 85, 85, 85, 85, 85, 85, 68, 68, 68, 68, 68, 68, 68, 68, 68, 68, 68, 68, 68, 68, 68, 68, 68, 68, 68, 68, 68, 68, 68, 68, 68, 68, 68, 68, 68, 68, 68, 68, 67, 67, 67, 67, 67, 67, 67, 67, 67, 67, 67, 67, 67, 67, 67, 67, 67, 67, 67, 67, 67, 67, 67, 67, 67, 67, 67, 67, 67, 67, 67, 67, 50, 50, 50, 50, 50, 50, 50, 50, 50, 50, 50, 50, 50, 50, 50, 50, 50, 50, 50, 50, 50, 50, 50, 50, 50, 50, 50, 50, 50, 50, 50, 50, 50, 50, 50, 50, 50, 50, 50, 50, 50, 50, 50, 50, 50, 50, 50, 50, 50, 50, 50, 50, 50, 50, 50, 50, 50, 50, 50, 50, 50, 50, 50, 50, 49, 49, 49, 49, 49, 49, 49, 49, 49, 49, 49, 49, 49, 49, 49, 49, 49, 49, 49, 49, 49, 49, 49, 49, 49, 49, 49, 49, 49, 49, 49, 49, 49, 49, 49, 49, 49, 49, 49, 49, 49, 49, 49, 49, 49, 49, 49, 49, 49, 49, 49, 49, 49, 49, 49, 49, 49, 49, 49, 49, 49, 49, 49, 49, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16,
+		110, 109, 108, 107, 90, 90, 89, 89, 72, 72, 72, 72, 71, 71, 71, 71, 70, 70, 70, 70, 69, 69, 69, 69, 52, 52, 52, 52, 52, 52, 52, 52, 51, 51, 51, 51, 51, 51, 51, 51, 50, 50, 50, 50, 50, 50, 50, 50, 49, 49, 49, 49, 49, 49, 49, 49, 48, 48, 48, 48, 48, 48, 48, 48,
+		109, 107, 92, 92, 90, 90, 89, 89, 72, 72, 72, 72, 69, 69, 69, 69, 68, 68, 68, 68, 64, 64, 64, 64, 55, 55, 55, 55, 55, 55, 55, 55, 54, 54, 54, 54, 54, 54, 54, 54, 51, 51, 51, 51, 51, 51, 51, 51, 50, 50, 50, 50, 50, 50, 50, 50, 49, 49, 49, 49, 49, 49, 49, 49,
+		92, 91, 90, 80, 73, 73, 71, 71, 67, 67, 66, 66, 56, 56, 56, 56, 54, 54, 54, 54, 53, 53, 53, 53, 52, 52, 52, 52, 49, 49, 49, 49,
+		91, 89, 74, 74, 72, 72, 66, 66, 65, 65, 64, 64, 55, 55, 55, 55, 54, 54, 54, 54, 53, 53, 53, 53, 52, 52, 52, 52, 51, 51, 51, 51,
+		106, 96, 81, 81, 72, 72, 72, 72, 57, 57, 57, 57, 57, 57, 57, 57, 55, 55, 55, 55, 55, 55, 55, 55, 54, 54, 54, 54, 54, 54, 54, 54, 53, 53, 53, 53, 53, 53, 53, 53, 52, 52, 52, 52, 52, 52, 52, 52, 51, 51, 51, 51, 51, 51, 51, 51, 50, 50, 50, 50, 50, 50, 50, 50,
+		105, 96, 81, 81, 71, 71, 71, 71, 56, 56, 56, 56, 56, 56, 56, 56, 54, 54, 54, 54, 54, 54, 54, 54, 52, 52, 52, 52, 52, 52, 52, 52, 51, 51, 51, 51, 51, 51, 51, 51, 50, 50, 50, 50, 50, 50, 50, 50, 37, 37, 37, 37, 37, 37, 37, 37, 37, 37, 37, 37, 37, 37, 37, 37,
+		104, 96, 82, 82, 65, 65, 65, 65, 55, 55, 55, 55, 55, 55, 55, 55, 54, 54, 54, 54, 54, 54, 54, 54, 51, 51, 51, 51, 51, 51, 51, 51, 37, 37, 37, 37, 37, 37, 37, 37, 37, 37, 37, 37, 37, 37, 37, 37, 36, 36, 36, 36, 36, 36, 36, 36, 36, 36, 36, 36, 36, 36, 36, 36,
+		97, 96, 87, 87, 66, 66, 66, 66, 53, 53, 53, 53, 53, 53, 53, 53, 38, 38, 38, 38, 38, 38, 38, 38, 38, 38, 38, 38, 38, 38, 38, 38, 36, 36, 36, 36, 36, 36, 36, 36, 36, 36, 36, 36, 36, 36, 36, 36, 35, 35, 35, 35, 35, 35, 35, 35, 35, 35, 35, 35, 35, 35, 35, 35,
+		81, 80, 70, 70, 50, 50, 50, 50, 37, 37, 37, 37, 37, 37, 37, 37, 36, 36, 36, 36, 36, 36, 36, 36, 35, 35, 35, 35, 35, 35, 35, 35,
+		64, 65, 50, 50, 51, 51, 53, 53, 20, 20, 20, 20, 20, 20, 20, 20,
+		64, 65, 52, 52, 34, 34, 34, 34, 19, 19, 19, 19, 19, 19, 19, 19,
+		48, 49, 35, 35, 18, 18, 18, 18,
+		32, 33, 18, 18,
+		16, 17,
+	};
+	static const int16_t columns[27] = {2, 129, 192, 0, 244, 754, 882, 1010, 1137, 1201, 1264, 0, 1320, 9509, 10533, 11556, 12068, 12581, 13605, 14629, 15653, 16676, 17187, 17443, 17698, 17825, 17888};
+	
+	int column = columns[endIdx + TotalCoeff - 4];
+	int idx = msb_cache >> ((column & 15) ^ (SIZE_BIT - 1));
+	int code = codes[(column >> 4) + idx];
+	int v = code >> 4;
+	msb_cache = lsd(msb_cache, lsb_cache, v);
+	lsb_cache <<= v;
+	return code & 15;
+}
+
+static inline int FUNC(parse_total_zeros, int endIdx, int TotalCoeff) {
+	static const uint8_t codes[27][9][4] = { // [tzVlcIndex][leadingZeroBits][suffix]
+		// 2x2 blocks
+		{16, 16, 16, 16, 33, 33, 33, 33, 50, 50, 50, 50, 51, 51, 51, 51, 51, 51, 51, 51, 51, 51, 51, 51, 51, 51, 51, 51, 51, 51, 51, 51, 51, 51, 51, 51},
+		{16, 16, 16, 16, 33, 33, 33, 33, 34, 34, 34, 34, 34, 34, 34, 34, 34, 34, 34, 34, 34, 34, 34, 34, 34, 34, 34, 34, 34, 34, 34, 34, 34, 34, 34, 34},
+		{16, 16, 16, 16, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17},
+		{}, // 2x4 blocks
+		{16, 16, 16, 16, 49, 49, 50, 50, 67, 67, 68, 68, 69, 69, 69, 69, 86, 86, 86, 86, 87, 87, 87, 87, 87, 87, 87, 87, 87, 87, 87, 87, 87, 87, 87, 87},
+		{51, 52, 53, 54, 33, 33, 33, 33, 50, 50, 50, 50, 48, 48, 48, 48, 48, 48, 48, 48, 48, 48, 48, 48, 48, 48, 48, 48, 48, 48, 48, 48, 48, 48, 48, 48},
+		{35, 35, 52, 53, 34, 34, 34, 34, 49, 49, 49, 49, 48, 48, 48, 48, 48, 48, 48, 48, 48, 48, 48, 48, 48, 48, 48, 48, 48, 48, 48, 48, 48, 48, 48, 48},
+		{35, 35, 48, 52, 34, 34, 34, 34, 33, 33, 33, 33, 33, 33, 33, 33, 33, 33, 33, 33, 33, 33, 33, 33, 33, 33, 33, 33, 33, 33, 33, 33, 33, 33, 33, 33},
+		{34, 34, 35, 35, 33, 33, 33, 33, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32},
+		{18, 18, 18, 18, 33, 33, 33, 33, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32},
+		{17, 17, 17, 17, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16},
+		{}, // 4x4 blocks
+		{16, 16, 16, 16, 50, 50, 49, 49, 68, 68, 67, 67, 86, 86, 85, 85, 104, 104, 103, 103, 122, 122, 121, 121, 140, 140, 139, 139, 158, 158, 157, 157, 159, 159, 159, 159},
+		{51, 50, 49, 48, 70, 69, 52, 52, 72, 72, 71, 71, 90, 90, 89, 89, 108, 108, 107, 107, 109, 109, 109, 109, 110, 110, 110, 110, 110, 110, 110, 110, 110, 110, 110, 110},
+		{54, 51, 50, 49, 68, 64, 55, 55, 72, 72, 69, 69, 90, 90, 89, 89, 92, 92, 92, 92, 107, 107, 107, 107, 109, 109, 109, 109, 109, 109, 109, 109, 109, 109, 109, 109},
+		{54, 53, 52, 49, 67, 66, 56, 56, 73, 73, 71, 71, 90, 90, 80, 80, 91, 91, 91, 91, 92, 92, 92, 92, 92, 92, 92, 92, 92, 92, 92, 92, 92, 92, 92, 92},
+		{54, 53, 52, 51, 65, 64, 55, 55, 72, 72, 66, 66, 74, 74, 74, 74, 89, 89, 89, 89, 91, 91, 91, 91, 91, 91, 91, 91, 91, 91, 91, 91, 91, 91, 91, 91},
+		{53, 52, 51, 50, 55, 55, 54, 54, 57, 57, 57, 57, 72, 72, 72, 72, 81, 81, 81, 81, 96, 96, 96, 96, 106, 106, 106, 106, 106, 106, 106, 106, 106, 106, 106, 106},
+		{51, 50, 37, 37, 54, 54, 52, 52, 56, 56, 56, 56, 71, 71, 71, 71, 81, 81, 81, 81, 96, 96, 96, 96, 105, 105, 105, 105, 105, 105, 105, 105, 105, 105, 105, 105},
+		{37, 37, 36, 36, 54, 54, 51, 51, 55, 55, 55, 55, 65, 65, 65, 65, 82, 82, 82, 82, 96, 96, 96, 96, 104, 104, 104, 104, 104, 104, 104, 104, 104, 104, 104, 104},
+		{36, 36, 35, 35, 38, 38, 38, 38, 53, 53, 53, 53, 66, 66, 66, 66, 87, 87, 87, 87, 96, 96, 96, 96, 97, 97, 97, 97, 97, 97, 97, 97, 97, 97, 97, 97},
+		{36, 36, 35, 35, 37, 37, 37, 37, 50, 50, 50, 50, 70, 70, 70, 70, 80, 80, 80, 80, 81, 81, 81, 81, 81, 81, 81, 81, 81, 81, 81, 81, 81, 81, 81, 81},
+		{20, 20, 20, 20, 51, 51, 53, 53, 50, 50, 50, 50, 65, 65, 65, 65, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64},
+		{19, 19, 19, 19, 34, 34, 34, 34, 52, 52, 52, 52, 65, 65, 65, 65, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64},
+		{18, 18, 18, 18, 35, 35, 35, 35, 49, 49, 49, 49, 48, 48, 48, 48, 48, 48, 48, 48, 48, 48, 48, 48, 48, 48, 48, 48, 48, 48, 48, 48, 48, 48, 48, 48},
+		{18, 18, 18, 18, 33, 33, 33, 33, 16, 16, 16, 16, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32},
+		{17, 17, 17, 17, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16},
+	};
+	int leadingZeroBits = clz(msb_cache | (size_t)1 << (SIZE_BIT - 9));
+	int suffix = msb_cache >> ((leadingZeroBits + 2) ^ (SIZE_BIT - 1));
+	int code = codes[endIdx + TotalCoeff - 4][leadingZeroBits - 1][suffix];
+	int v = code >> 4;
+	msb_cache = lsd(msb_cache, lsb_cache, v);
+	lsb_cache <<= v;
+	return code & 15;
+}
+#endif
+
+
+
+/**
+ * Parsing a CAVLC residual block without coeff_token (9.2).
+ * 
+ * While the spec is quite convoluted here, level_prefix+level_suffix just look
+ * like Exp-Golomb codes, so we just need to compute a code length (v) and an
+ * offset to add to the input bits.
+ * Both CAVLC and residual coefficients are not too critical to optimize, so
+ * this function is designed to be simple and compact.
+ */
+#ifndef CABAC
+void FUNC(parse_residual_block_cavlc, int coeff_token, int codes_offset, int startIdx, int endIdx)
+{
+	int TrailingOnes = coeff_token & 3;
+	int TotalCoeff = coeff_token >> 2;
+	int trailing_ones_sign_flags = CALL(get_uv, TrailingOnes);
+	int levelVal[16];
+	for (int i = 0, suffixLength = 1, v, offset; i < TotalCoeff - TrailingOnes; i++) {
+		int level_prefix = clz(msb_cache | (size_t)1 << (SIZE_BIT - 26)); // limit given in 9.2.2.1
+		if (level_prefix < 15) {
+			if (i == 0 && level_prefix == 14 && (TotalCoeff <= 10 || TrailingOnes == 3)) {
+				v = 19;
+				offset = -2;
+			} else {
+				v = level_prefix + suffixLength + 1;
+				offset = (level_prefix - 1) << suffixLength;
+			}
+		} else {
+			v = level_prefix * 2 - 2;
+			offset = (15 << suffixLength) - 4096;
+		}
+#if SIZE_BIT == 32
+		v -= level_prefix;
+		msb_cache = lsd(msb_cache, lsb_cache, level_prefix);
+		if (!(lsb_cache <<= level_prefix))
+			CALL(refill, 0);
+#endif
+		int levelCode = CALL(get_uv, v) + offset;
+		levelCode += (i == 0 && TrailingOnes < 3) * 2;
+		levelVal[i] = (levelCode % 2) ? (-levelCode - 1) >> 1 : (levelCode + 2) >> 1;
+		suffixLength = min(suffixLength + (levelCode > (3 << suffixLength)), 6);
+	}
+	
+	// total_zeros
+	int zerosLeft = 0;
+	if (TotalCoeff <= endIdx - startIdx)
+		zerosLeft = CALL(parse_total_zeros, endIdx, TotalCoeff);
+	
+}
+#endif
+
+
+
+/**
  * This function parses a group of significant_flags, then the corresponding
  * sequence of coeff_abs_level_minus1/coeff_sign_flag pairs (9.3.2.3).
  * 
@@ -26,7 +243,8 @@
  * coeff_abs_level expects at most 2^(7+14)-14, i.e 41 bits as Exp-Golomb, so
  * we can get all of them on 64 bit machines.
  */
-static void CAFUNC(parse_residual_block, int startIdx, int endIdx)
+#ifdef CABAC
+static void FUNC(parse_residual_block_cabac, int startIdx, int endIdx)
 {
 	// significant_coeff_flags are stored as a bit mask
 	uint64_t significant_coeff_flags = 0;
@@ -93,6 +311,7 @@ static void CAFUNC(parse_residual_block, int startIdx, int endIdx)
 		// fprintf(stderr, "coeffLevel[%d](%d): %d\n", i - startIdx, ctx->BlkIdx, c);
 	} while (significant_coeff_flags != 0);
 }
+#endif
 
 
 
@@ -101,6 +320,13 @@ static void CAFUNC(parse_residual_block, int startIdx, int endIdx)
  */
 static void CAFUNC(parse_mb_qp_delta)
 {
+#ifndef CABAC
+	int mb_qp_delta = CALL(get_se16, -26, 25); // FIXME QpBdOffset
+	int sum = ctx->ps.QPprime_Y + mb_qp_delta;
+	ctx->ps.QPprime_Y = (sum < 0) ? sum + 52 : (sum >= 52) ? sum - 52 : sum;
+	if (mb_qp_delta)
+		fprintf(stderr, "mb_qp_delta: %d\n", mb_qp_delta);
+#else
 	int mb_qp_delta_nz = CALL(get_ae, 60 + ctx->mb_qp_delta_nz);
 	ctx->mb_qp_delta_nz = mb_qp_delta_nz;
 	if (mb_qp_delta_nz) {
@@ -112,6 +338,7 @@ static void CAFUNC(parse_mb_qp_delta)
 		ctx->ps.QPprime_Y = (sum < 0) ? sum + 52 : (sum >= 52) ? sum - 52 : sum;
 		fprintf(stderr, "mb_qp_delta: %d\n", mb_qp_delta);
 	}
+#endif
 }
 
 
@@ -130,11 +357,11 @@ static void CAFUNC(parse_chroma_residual)
 		memset(ctx->c, 0, 64);
 		if (CALL(get_ae, ctx->ctxIdxOffsets[0] + ctx->inc.coded_block_flags_16x16[1])) {
 			mb->f.coded_block_flags_16x16[1] = 1;
-			CACALL(parse_residual_block, 0, 3);
+			CALL(parse_residual_block_cabac, 0, 3);
 		}
 		if (CALL(get_ae, ctx->ctxIdxOffsets[0] + ctx->inc.coded_block_flags_16x16[2])) {
 			mb->f.coded_block_flags_16x16[2] = 1;
-			CACALL(parse_residual_block, 4, 7);
+			CALL(parse_residual_block_cabac, 4, 7);
 		}
 		CALL(transform_dc2x2);
 		
@@ -149,7 +376,7 @@ static void CAFUNC(parse_chroma_residual)
 				if (CALL(get_ae, ctx->ctxIdxOffsets[0] + (mb->bits[1] >> inc8x8[4 + i4x4] & 3))) {
 					mb->bits[1] |= 1 << bit8x8[4 + i4x4];
 					memset(ctx->c, 0, 64);
-					CACALL(parse_residual_block, 1, 15);
+					CALL(parse_residual_block_cabac, 1, 15);
 					v16qi wS = ((v16qi *)ctx->ps.weightScale4x4)[iYCbCr + mb->f.mbIsInterFlag * 3];
 					int qP = ctx->QPprime_C[iYCbCr - 1][ctx->ps.QPprime_Y];
 					CALL(add_idct4x4, iYCbCr, qP, wS, i4x4, samples);
@@ -181,7 +408,7 @@ static void CAFUNC(parse_Intra16x16_residual)
 		if (CALL(get_ae, ctx->ctxIdxOffsets[0] + ctx->inc.coded_block_flags_16x16[iYCbCr])) {
 			mb->f.coded_block_flags_16x16[iYCbCr] = 1;
 			memset(ctx->c, 0, 64);
-			CACALL(parse_residual_block, 0, 15);
+			CALL(parse_residual_block_cabac, 0, 15);
 			CALL(transform_dc4x4, iYCbCr);
 		} else {
 			if (mb->bits[3] & 1 << 5)
@@ -196,7 +423,7 @@ static void CAFUNC(parse_Intra16x16_residual)
 				if (CALL(get_ae, ctx->ctxIdxOffsets[0] + (mb->bits[iYCbCr] >> inc4x4[i4x4] & 3))) {
 					mb->bits[iYCbCr] |= 1 << bit4x4[i4x4];
 					memset(ctx->c, 0, 64);
-					CACALL(parse_residual_block, 1, 15);
+					CALL(parse_residual_block_cabac, 1, 15);
 					CALL(add_idct4x4, iYCbCr, ctx->ps.QPprime_Y, ((v16qi *)ctx->ps.weightScale4x4)[iYCbCr], i4x4, samples);
 				} else {
 					CALL(add_dc4x4, iYCbCr, i4x4, samples);
@@ -252,7 +479,7 @@ static void CAFUNC(parse_NxN_residual)
 					if (CALL(get_ae, ctx->ctxIdxOffsets[0] + (mb->bits[iYCbCr] >> inc4x4[i4x4] & 3))) {
 						mb->bits[iYCbCr] |= 1 << bit4x4[i4x4];
 						memset(ctx->c, 0, 64);
-						CACALL(parse_residual_block, 0, 15);
+						CALL(parse_residual_block_cabac, 0, 15);
 						v16qi wS = ((v16qi *)ctx->ps.weightScale4x4)[iYCbCr + mb->f.mbIsInterFlag * 3];
 						// DC blocks are marginal here (about 16%) so we do not handle them separately
 						CALL(add_idct4x4, iYCbCr, ctx->ps.QPprime_Y, wS, -1, samples);
@@ -276,7 +503,7 @@ static void CAFUNC(parse_NxN_residual)
 				//mb->coded_block_flags_8x8[BlkIdx] = coded_block_flag;
 				//mb->coded_block_flags_4x4_s[BlkIdx] = coded_block_flag ? 0x01010101 : 0;
 				memset(ctx->c, 0, 256);
-				//CACALL(parse_residual_block, coded_block_flag, 0, 63);
+				//CALL(parse_residual_block_cabac, coded_block_flag, 0, 63);
 			}
 		}
 		

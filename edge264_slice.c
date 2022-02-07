@@ -26,70 +26,93 @@
  * this function is designed to be simple and compact.
  */
 #ifndef CABAC
-static int FUNC(parse_coeff_token_cavlc, int iYCbCr, int i4x4) {
-	static const uint8_t nC_offset[8] = {184, 184, 80, 80, 0, 0, 0, 0};
-	static const int16_t tokens[38 * 8] = {
-		543, 539, 535, 531, 527, 522, 517, 512, // 4 <= nC < 8
-		661, 662, 657, 658, 653, 675, 654, 649,
-		780, 798, 797, 776, 807, 794, 793, 772,
-		924, 920, 934, 916, 938, 930, 929, 912,
-		1075, 1070, 1065, 1060, 1071, 1066, 1061, 1056,
-		1200, 1206, 1201, 1196, 1207, 1202, 1197, 1192,
-		1341, 1336, 1339, 1338, 1337, 1332, 1205, 1205,
-		1345, 1345, 1340, 1340, 1343, 1343, 1342, 1342,
-		1347, 1347, 1347, 1347, 1346, 1346, 1346, 1346,
-		1344, 1344, 1344, 1344, 1344, 1344, 1344, 1344,
-		261, 261, 261, 261, 256, 256, 256, 256, // 2 <= cN < 4
-		531, 531, 527, 527, 394, 394, 394, 394,
-		795, 782, 781, 772, 663, 663, 649, 649,
-		799, 799, 786, 786, 785, 785, 776, 776,
-		931, 931, 918, 918, 917, 917, 908, 908,
-		1044, 1044, 1050, 1050, 1049, 1049, 1040, 1040,
-		1191, 1191, 1182, 1182, 1181, 1181, 1176, 1176,
-		1455, 1446, 1445, 1440, 1451, 1442, 1441, 1436,
-		1580, 1582, 1581, 1576, 1587, 1578, 1577, 1572,
-		1723, 1718, 1717, 1716, 1718, 1714, 1713, 1712,
-		1853, 1852, 1854, 1849, 1722, 1722, 1720, 1720,
-		1859, 1859, 1858, 1858, 1857, 1857, 1856, 1856,
-		1727, 1727, 1727, 1727, 1727, 1727, 1727, 1727,
-		128, 128, 128, 128, 128, 128, 128, 128, // 0 <= nC < 2
-		261, 261, 261, 261, 261, 261, 261, 261,
-		394, 394, 394, 394, 394, 394, 394, 394,
-		775, 775, 772, 772, 655, 655, 655, 655,
-		919, 919, 910, 910, 787, 787, 787, 787,
-		1051, 1051, 1042, 1042, 1037, 1037, 1032, 1032,
-		1183, 1183, 1174, 1174, 1169, 1169, 1164, 1164,
-		1315, 1315, 1306, 1306, 1301, 1301, 1296, 1296,
-		1447, 1447, 1438, 1438, 1433, 1433, 1428, 1428,
-		1696, 1702, 1697, 1692, 1707, 1698, 1693, 1688,
-		1843, 1838, 1833, 1832, 1839, 1834, 1829, 1828,
-		1979, 1974, 1969, 1968, 1975, 1970, 1965, 1964,
-		2115, 2110, 2109, 2104, 2111, 2106, 2105, 2100,
-		2112, 2112, 2114, 2114, 2113, 2113, 2108, 2108,
-		1973, 1973, 1973, 1973, 1973, 1973, 1973, 1973,
-	};
-	
-	int nA = *(mb->nC[iYCbCr] + ctx->Intra4x4PredMode_A[i4x4]);
-	int nB = *(mb->nC[iYCbCr] + ctx->Intra4x4PredMode_B[i4x4]);
-	int nC = (ctx->unavail[i4x4] & 3) ? nA + nB : (nA + nB + 1) >> 1;
-	int coeff_token, v;
-	if (__builtin_expect(nC < 8, 1)) {
-		int leadingZeroBits = clz(msb_cache | (size_t)1 << (SIZE_BIT - 15));
-		unsigned fourBits = msb_cache >> (SIZE_BIT - 4 - leadingZeroBits);
-		int token = tokens[nC_offset[nC] + leadingZeroBits * 8 + fourBits - 8];
-		coeff_token = token & 127;
-		v = token >> 7;
-	} else {
-		coeff_token = (msb_cache >> (SIZE_BIT - 6)) + 4;
-		if (coeff_token == 7)
-			coeff_token = 0;
-		v = 6;
+	static int FUNC(parse_coeff_token_cavlc, int iYCbCr, int i4x4) {
+		static const uint8_t nC_offset[8] = {184, 184, 80, 80, 0, 0, 0, 0};
+		static const int16_t tokens[38 * 8] = {
+			543, 539, 535, 531, 527, 522, 517, 512, // 4 <= nC < 8
+			661, 662, 657, 658, 653, 675, 654, 649,
+			780, 798, 797, 776, 807, 794, 793, 772,
+			924, 920, 934, 916, 938, 930, 929, 912,
+			1075, 1070, 1065, 1060, 1071, 1066, 1061, 1056,
+			1200, 1206, 1201, 1196, 1207, 1202, 1197, 1192,
+			1341, 1336, 1339, 1338, 1337, 1332, 1205, 1205,
+			1345, 1345, 1340, 1340, 1343, 1343, 1342, 1342,
+			1347, 1347, 1347, 1347, 1346, 1346, 1346, 1346,
+			1344, 1344, 1344, 1344, 1344, 1344, 1344, 1344,
+			261, 261, 261, 261, 256, 256, 256, 256, // 2 <= cN < 4
+			531, 531, 527, 527, 394, 394, 394, 394,
+			795, 782, 781, 772, 663, 663, 649, 649,
+			799, 799, 786, 786, 785, 785, 776, 776,
+			931, 931, 918, 918, 917, 917, 908, 908,
+			1044, 1044, 1050, 1050, 1049, 1049, 1040, 1040,
+			1191, 1191, 1182, 1182, 1181, 1181, 1176, 1176,
+			1455, 1446, 1445, 1440, 1451, 1442, 1441, 1436,
+			1580, 1582, 1581, 1576, 1587, 1578, 1577, 1572,
+			1723, 1718, 1717, 1716, 1718, 1714, 1713, 1712,
+			1853, 1852, 1854, 1849, 1722, 1722, 1720, 1720,
+			1859, 1859, 1858, 1858, 1857, 1857, 1856, 1856,
+			1727, 1727, 1727, 1727, 1727, 1727, 1727, 1727,
+			128, 128, 128, 128, 128, 128, 128, 128, // 0 <= nC < 2
+			261, 261, 261, 261, 261, 261, 261, 261,
+			394, 394, 394, 394, 394, 394, 394, 394,
+			775, 775, 772, 772, 655, 655, 655, 655,
+			919, 919, 910, 910, 787, 787, 787, 787,
+			1051, 1051, 1042, 1042, 1037, 1037, 1032, 1032,
+			1183, 1183, 1174, 1174, 1169, 1169, 1164, 1164,
+			1315, 1315, 1306, 1306, 1301, 1301, 1296, 1296,
+			1447, 1447, 1438, 1438, 1433, 1433, 1428, 1428,
+			1696, 1702, 1697, 1692, 1707, 1698, 1693, 1688,
+			1843, 1838, 1833, 1832, 1839, 1834, 1829, 1828,
+			1979, 1974, 1969, 1968, 1975, 1970, 1965, 1964,
+			2115, 2110, 2109, 2104, 2111, 2106, 2105, 2100,
+			2112, 2112, 2114, 2114, 2113, 2113, 2108, 2108,
+			1973, 1973, 1973, 1973, 1973, 1973, 1973, 1973,
+		};
+		
+		int nA = *(mb->nC[iYCbCr] + ctx->Intra4x4PredMode_A[i4x4]);
+		int nB = *(mb->nC[iYCbCr] + ctx->Intra4x4PredMode_B[i4x4]);
+		int nC = (ctx->unavail[i4x4] & 3) ? nA + nB : (nA + nB + 1) >> 1;
+		int coeff_token, v;
+		if (__builtin_expect(nC < 8, 1)) {
+			int leadingZeroBits = clz(msb_cache | (size_t)1 << (SIZE_BIT - 15));
+			unsigned fourBits = msb_cache >> (SIZE_BIT - 4 - leadingZeroBits);
+			int token = tokens[nC_offset[nC] + leadingZeroBits * 8 + fourBits - 8];
+			coeff_token = token & 127;
+			v = token >> 7;
+		} else {
+			coeff_token = (msb_cache >> (SIZE_BIT - 6)) + 4;
+			if (coeff_token == 7)
+				coeff_token = 0;
+			v = 6;
+		}
+		msb_cache = lsd(msb_cache, lsb_cache, v);
+		if (lsb_cache <<= v)
+			return coeff_token;
+		return CALL(refill, coeff_token);
 	}
-	msb_cache = lsd(msb_cache, lsb_cache, v);
-	if (lsb_cache <<= v)
-		return coeff_token;
-	return CALL(refill, coeff_token);
-}
+	
+	// 4:2:0 is best handled separately due to the open-ended 0000000 code and 3 bit suffixes
+	static int FUNC(parse_DC2x2_coeff_token_cavlc) {
+		static const int16_t tokens[] = {
+			133, 133, 133, 133,
+			256, 256, 256, 256,
+			394, 394, 394, 394,
+			776, 783, 777, 772,
+			784, 784, 780, 780,
+			910, 910, 909, 909,
+			1042, 1042, 1041, 1041,
+			915, 915, 915, 915,
+		};
+		int leadingZeroBits = clz(msb_cache | (size_t)1 << (SIZE_BIT - 8));
+		unsigned threeBits = msb_cache >> (SIZE_BIT - 3 - leadingZeroBits);
+		int token = tokens[leadingZeroBits * 4 + threeBits - 4];
+		int coeff_token = token & 127;
+		int v = token >> 7;
+		msb_cache = lsd(msb_cache, lsb_cache, v);
+		if (lsb_cache <<= v)
+			return coeff_token;
+		return CALL(refill, coeff_token);
+	}
 #endif
 
 
@@ -347,17 +370,19 @@ static void CAFUNC(parse_chroma_residual)
 		#endif
 		ctx->scan_l = (v8qi){0, 4, 2, 6, 1, 5, 3, 7};
 		memset(ctx->c, 0, 64);
-		if (CALL(get_ae, ctx->ctxIdxOffsets[0] + ctx->inc.coded_block_flags_16x16[1])) {
+		int token_or_cbf_Cb = CACOND(CALL(parse_DC2x2_coeff_token_cavlc), CALL(get_ae, ctx->ctxIdxOffsets[0] + ctx->inc.coded_block_flags_16x16[1]));
+		if (token_or_cbf_Cb) {
 			#ifdef CABAC
 				mb->f.coded_block_flags_16x16[1] = 1;
 			#endif
-			CACALL(parse_residual_block, 0, 3, 0);
+			CACALL(parse_residual_block, 0, 3, token_or_cbf_Cb);
 		}
-		if (CALL(get_ae, ctx->ctxIdxOffsets[0] + ctx->inc.coded_block_flags_16x16[2])) {
+		int token_or_cbf_Cr = CACOND(CALL(parse_DC2x2_coeff_token_cavlc), CALL(get_ae, ctx->ctxIdxOffsets[0] + ctx->inc.coded_block_flags_16x16[2]));
+		if (token_or_cbf_Cr) {
 			#ifdef CABAC
 				mb->f.coded_block_flags_16x16[2] = 1;
 			#endif
-			CACALL(parse_residual_block, 4, 7, 0);
+			CACALL(parse_residual_block, 4, 7, token_or_cbf_Cr);
 		}
 		CALL(transform_dc2x2);
 		
@@ -371,7 +396,7 @@ static void CAFUNC(parse_chroma_residual)
 			for (int i4x4 = 0; i4x4 < 8; i4x4++) {
 				int iYCbCr = 1 + (i4x4 >> 2);
 				uint8_t *samples = ctx->samples_mb[iYCbCr] + y420[i4x4] * ctx->stride[1] + x420[i4x4];
-				int token_or_cbf = CALL(get_ae, ctx->ctxIdxOffsets[0] + (mb->bits[1] >> inc8x8[4 + i4x4] & 3));
+				int token_or_cbf = CACOND(CALL(parse_coeff_token_cavlc, iYCbCr, 0), CALL(get_ae, ctx->ctxIdxOffsets[0] + (mb->bits[1] >> inc8x8[4 + i4x4] & 3)));
 				if (token_or_cbf) {
 					#ifdef CABAC
 						mb->bits[1] |= 1 << bit8x8[4 + i4x4];

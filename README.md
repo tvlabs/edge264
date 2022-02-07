@@ -1,17 +1,16 @@
 edge264
 =======
 
-This is an experimental software decoder for the H.264 video codec, written from scratch with the goal of improving the architecture/performance/latency of software H.264 decoding. It is by no means a complete decoder (yet!), but rather a test-bed for new decoding techniques.
+This is an experimental software decoder for the H.264 video codec, written from scratch with the goal of improving the architecture/performance/latency of software video decoders. It is by no means a complete decoder (yet!), but rather a test-bed for original programming techniques.
 
 
 Supported features
 ------------------
 
 * Any resolution (multiple of 16) from 16x16 up to 8K UHD (level 6.2)
-* 8-bit 4:2:0 planar YUV
+* 8-bit 4:2:0 planar YUV output
 * CABAC only (but very optimised!)
 * I/P/B frames
-* All POC types (0, 1, 2)
 * Per-slice reference lists
 * Memory Management Control Operations
 * Long-term reference pictures

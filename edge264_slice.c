@@ -210,7 +210,7 @@ static inline int FUNC(parse_total_zeros, int endIdx, int TotalCoeff) {
  * Parse a CAVLC or CABAC residual block without coeff_token nor
  * coded_block_flag (9.2 and 9.3.2.3).
  * 
- * While the spec is quite convoluted for CAVLC, level_prefix+level_suffix just
+ * For CAVLC, while the spec is quite convoluted level_prefix+level_suffix just
  * look like Exp-Golomb codes, so we just compute a code length (v) and an
  * offset to add to the input bits.
  * For CABAC, all bypass bits can be extracted using a binary division (!!).
@@ -223,12 +223,19 @@ void CAFUNC(parse_residual_block, int startIdx, int endIdx, int token_or_cbf) {
 	#ifndef CABAC
 		int TrailingOnes = token_or_cbf & 3;
 		int TotalCoeff = token_or_cbf >> 2;
-		int trailing_ones_sign_flags = CALL(get_uv, TrailingOnes);
-		int levelVal[16];
-		for (int i = 0, suffixLength = 1, v, offset; i < TotalCoeff - TrailingOnes; i++) {
+		
+		// parse all level values from end to start
+		int32_t level[16];
+		size_t signs = ~msb_cache;
+		level[0] = (signs >> (SIZE_BIT - 2) & 2) - 1;
+		level[1] = (signs >> (SIZE_BIT - 3) & 2) - 1;
+		level[2] = (signs >> (SIZE_BIT - 4) & 2) - 1;
+		msb_cache = lsd(msb_cache, lsb_cache, TrailingOnes);
+		lsb_cache <<= TrailingOnes;
+		for (int i = TrailingOnes, suffixLength = 1, v, offset; i < TotalCoeff; i++) {
 			int level_prefix = clz(msb_cache | (size_t)1 << (SIZE_BIT - 26)); // limit given in 9.2.2.1
 			if (level_prefix < 15) {
-				if (i == 0 && level_prefix == 14 && (TotalCoeff <= 10 || TrailingOnes == 3)) {
+				if (i == TrailingOnes && level_prefix == 14 && (TotalCoeff <= 10 || TrailingOnes == 3)) {
 					v = 19;
 					offset = -2;
 				} else {
@@ -247,16 +254,50 @@ void CAFUNC(parse_residual_block, int startIdx, int endIdx, int token_or_cbf) {
 			#endif
 			int levelCode = CALL(get_uv, v) + offset;
 			levelCode += (i == 0 && TrailingOnes < 3) * 2;
-			levelVal[i] = (levelCode % 2) ? (-levelCode - 1) >> 1 : (levelCode + 2) >> 1;
+			level[i] = (levelCode % 2) ? (-levelCode - 1) >> 1 : (levelCode + 2) >> 1;
 			suffixLength = min(suffixLength + (levelCode > (3 << suffixLength)), 6);
 		}
 		
-		// total_zeros
+		// store level values at proper positions in memory
 		int zerosLeft = 0;
 		if (TotalCoeff <= endIdx - startIdx)
 			zerosLeft = CALL(parse_total_zeros, endIdx, TotalCoeff);
+		int8_t *scan = ctx->scan + zeros_left + TotalCoeff - 1;
+		ctx->c[*scan] = level[0];
+		for (int i = 1, v, run_before; i < TotalCoeff; i++) {
+			scan--;
+			if (zerosLeft > 0) {
+				int threeBits = msb_cache >> (SIZE_BIT - 3);
+				if (zerosLeft <= 6) {
+					static int8_t run_before_codes[6][8] {
+						9, 9, 9, 9, 8, 8, 8, 8,
+						18, 18, 17, 17, 8, 8, 8, 8,
+						19, 19, 18, 18, 17, 17, 16, 16,
+						28, 27, 18, 18, 17, 17, 16, 16,
+						29, 28, 27, 26, 17, 17, 16, 16,
+						25, 26, 28, 27, 30, 29, 16, 16,
+					};
+					int code = run_before_codes[zerosLeft - 1][threeBits];
+					v = code >> 3;
+					run_before = code & 7;
+				} else if (threeBits > 0) {
+					v = 3;
+					run_before = threeBits ^ 7; // 7 - threeBits
+				} else {
+					v = clz(msb_cache) + 1;
+					run_before = min(v + 3, zerosLeft);
+				}
+				scan -= run_before;
+				zerosLeft -= run_before;
+				msb_cache = lsd(msb_cache, lsb_cache, v);
+				lsb_cache <<= v;
+			}
+			ctx->c[*scan] = level[i];
+		}
 		
-		
+		// trailing_ones_sign_flags+total_zeros+run_before consumed at most 31 bits, so we can delay refill here
+		if (!lsb_cache)
+			CALL(refill, 0);
 	#else // CABAC
 		
 		// significant_coeff_flags are stored as a bit mask

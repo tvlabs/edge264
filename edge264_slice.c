@@ -211,13 +211,13 @@ static inline int FUNC(parse_total_zeros, int endIdx, int TotalCoeff) {
  * coded_block_flag (9.2 and 9.3.2.3).
  * 
  * For CAVLC, while the spec is quite convoluted level_prefix+level_suffix just
- * look like Exp-Golomb codes, so we just compute a code length (v) and an
+ * look like Exp-Golomb codes, so we need only compute a code length (v) and an
  * offset to add to the input bits.
  * For CABAC, all bypass bits can be extracted using a binary division (!!).
  * coeff_abs_level expects at most 2^(7+14)-14, i.e 41 bits as Exp-Golomb, so
  * we can get all of them on 64 bit machines.
- * While residual coefficients are not too critical to optimize, both functions
- * are designed to be simple and compact.
+ * While residual coefficients are not too critical to optimize, both CAVLC and
+ * CABAC versions of this function are designed to be simple and compact.
  */
 void CAFUNC(parse_residual_block, int startIdx, int endIdx, int token_or_cbf) {
 	#ifndef CABAC
@@ -398,7 +398,7 @@ static void CAFUNC(parse_mb_qp_delta)
 
 
 /**
- * Parsing for chroma 4:2:2 and 4:2:0 is put in a separate function to be
+ * Parsing for chroma 4:2:0 and 4:2:2 is put in a separate function to be
  * tail-called from parse_NxN_residual and parse_Intra16x16_residual.
  */
 static void CAFUNC(parse_chroma_residual)
@@ -519,8 +519,8 @@ static void CAFUNC(parse_Intra16x16_residual)
 
 
 /**
- * This block is dedicated to the parsing of Intra_NxN and Inter_NxN, since
- * they share much in common.
+ * This block is dedicated to the parsing of Intra_NxN and Inter_NxN residual
+ * blocks, since they share much in common.
  */
 static void CAFUNC(parse_NxN_residual)
 {
@@ -606,7 +606,7 @@ static void CAFUNC(parse_NxN_residual)
  * Parses CodedBlockPatternLuma/Chroma (9.3.2.6 and 9.3.3.1.1.4).
  *
  * As with mb_qp_delta, coded_block_pattern is parsed in two distinct code
- * paths, thus put in a non-inlined function.
+ * paths, thus put in a distinct function.
  */
 static void CAFUNC(parse_coded_block_pattern)
 {
@@ -640,9 +640,6 @@ static void CAFUNC(parse_coded_block_pattern)
 
 /**
  * Parses intra_chroma_pred_mode (9.3.2.2 and 9.3.3.1.1.8).
- *
- * As with mb_qp_delta and coded_block_pattern, experience shows allowing
- * compilers to inline this function makes them produce slower&heavier code.
  */
 static void CAFUNC(parse_intra_chroma_pred_mode)
 {
@@ -704,8 +701,8 @@ static int CAFUNC(parse_intraNxN_pred_mode, int luma4x4BlkIdx)
 /**
  * This function parses the syntax elements mb_type, transform_size_8x8_flag,
  * intraNxN_pred_mode (from function), intra_chroma_pred_mode (from function),
- * PCM stuff, and coded_block_pattern (from function) for the current Intra
- * macroblock. It proceeds to residual decoding through tail call.
+ * coded_block_pattern (from function) and PCM stuff for the current Intra
+ * macroblock. It proceeds to residual decoding through tail calls.
  *
  * In Intra4x4PredMode the special value -2 is used by unavailable blocks and
  * Inter blocks with constrained_intra_pred_flag, to account for
@@ -850,9 +847,9 @@ static noinline void CAFUNC(parse_I_mb, int mb_type_or_ctxIdx)
 
 
 /**
- * This function is the entry point for residual parsing in Inter macroblocks.
+ * This function is the entry point to residual parsing in Inter macroblocks.
  * It parses coded_block_pattern and transform_size_8x8_flag, that are parsed
- * in different orders in Intra macroblocks.
+ * in different orders than Intra macroblocks.
  */
 static void CAFUNC(parse_inter_residual)
 {
@@ -1397,7 +1394,7 @@ static void CAFUNC(parse_P_sub_mb, unsigned ref_idx_flags)
  * here is a summary of the rules:
  * _ A/B/C/D are 4x4 blocks at relative pixel positions (-1,0)/(0,-1)/(W,-1)/(-1,-1)
  * _ if C is unavailable, take its values from D instead
- * _ any further unavailable block counts as refIdx=-1 and mv=0
+ * _ any further unavailable block counts as refIdx=-1 and mv=(0,0)
  * _ parse refIdx for the current block
  * _ for 8x16 or 16x8, compare it with A(left)/C(right) or B(top)/A(bottom),
  *   if it matches take the mv from the same neighbour
@@ -1409,7 +1406,7 @@ static void CAFUNC(parse_P_sub_mb, unsigned ref_idx_flags)
  * _ compare refIdx with A/B/C and produce a 3 bit equality mask (plus a bit
  *   for C->D replacement), which can be computed in parallel for all 4x4
  *   blocks since there is no dependency between blocks here
- * _ for each block in sequence, fetch the correct mv(s) and compute their
+ * _ then for each block in sequence, fetch the correct mv(s) and compute their
  *   median based on the mask
  */
 static inline void CAFUNC(parse_P_mb)

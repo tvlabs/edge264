@@ -116,10 +116,10 @@ static always_inline v16qi pack_weights(int w0, int w1) {
  * _ computing half-sample interpolations first and averaging them in qpel
  *   code. While it used very little code, it incurred a lot of reads/writes
  *   of temporary data and wasted many redundant operations.
- * _ making 4x4 filters jump to residual with their values in registers (like
- *   Intra), to spare some packing/unpacking and writes/reads. However it was
- *   incompatible with variable-height filters, and the latter was deemed more
- *   advantageous for architectural simplicity.
+ * _ making 4x4 filters jump to residual with their values in registers, to
+ *   spare some packing/unpacking and writes/reads. However it was incompatible
+ *   with variable-height filters, and the latter was deemed more advantageous
+ *   for architectural simplicity.
  *
  * While it is impossible for functions to return multiple values in multiple
  * registers (stupid ABI), we cannot put redundant loads in functions and have

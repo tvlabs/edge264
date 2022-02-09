@@ -191,8 +191,8 @@ static noinline int FUNC(get_se32, int lower, int upper) {
  *   to spare the refill test when parsing coeff_sign_flag. It was later
  *   abandoned since it required additional comments to explain divergence from
  *   specification.
- * _ Splitting CAVLC functions from memory access, such that renormalization
- *   can fetch bytes without restoring CAVLC's context. It spared a test for
+ * _ Removing the dependency on CAVLC for renormalization, such that it can
+ *   fetch bytes without restoring CAVLC's context. It spared a test for
  *   calling CAVLC's refill (not well predicted), thus improving performance.
  *   However the bypass division trick is now unavailable on 32 bit machines,
  *   since renormalization will now leave 25~32 bits in codIOffset, but the

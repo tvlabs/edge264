@@ -182,7 +182,7 @@ int main(int argc, char *argv[])
 	// print help if called with -h, --help, or no argument
 	if (help || argc == 1) {
 		fprintf(stdout, "Usage: %s [-b] video.264 [video.yuv]\n"
-		                "-b\tDisable display and print decoding time\n", argv[0]);
+		                "-b\tBenchmark decoding time and memory usage (disables display)\n", argv[0]);
 		return 0;
 	}
 	

@@ -1,4 +1,5 @@
 /** MAYDO:
+ * _ remove uses of __m64 in inter_ssse3.c
  * _ debug the decoding with GCC
  * _ fix initialization of implicit weights
  * _ review and secure the places where CABAC could result in unsupported internal state

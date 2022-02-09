@@ -22,12 +22,12 @@ Planned features
 * CAVLC (work in progress)
 * 8x8 transforms (needs testing and debugging)
 * Deblocking
-* Transform-bypass for macroblocks with QP==0
-* Constrained Intra prediction mode
 * Frame cropping
 * MVC 3D support
 * 4:0:0, 4:2:2 and 4:4:4 (mostly implemented, needs testing)
 * 9-14 bit depths with possibility of different luma/chroma depths (mostly implemented, needs testing)
+* Transform-bypass for macroblocks with QP==0
+* Constrained Intra prediction mode
 * Slices (and separate colour planes)
 * Slice-multithreading (to let multithreaded encoders decode/encode each frame on the same thread)
 * PAFF and MBAFF (some decoding already implemented)
@@ -37,7 +37,7 @@ Planned features
 Technical details
 -----------------
 
-edge264 is built and tested with GNU GCC and LLVM Clang, supports 32/64 bit architectures, and requires 128 bit SIMD support. GLFW3 development headers should be installed to compile `edge264_play`.
+edge264 is built and tested with GNU GCC and LLVM Clang, supports 32/64 bit architectures, and requires 128 bit SIMD support. Instruction sets are currently limited to Intel x86/x64 with SSSE3. GLFW3 development headers should be installed to compile `edge264_play`.
 
 ```sh
 $ ffmpeg -i video.mp4 -vcodec copy -bsf h264_mp4toannexb -an video.264 # optional, converts from MP4 format
@@ -45,7 +45,7 @@ $ make
 $ ./edge264_play-cc video.264
 ```
 
-When debugging, the make flag `TRACE=1` enables printing headers symbols to stdout in HTML format, and `TRACE=2` adds the dumping of all other symbols to stderr (*very large*). I usually compare its output with that of a modified version of the [official](https://avc.hhi.fraunhofer.de/) JM decoder. On the set of official AVCv1 conformance bitstreams, files `CANL1_Sony_E`, `CANL2_Sony_E`, `CANL3_Sony_C`, `CANL1_SVA_B`, `CANL2_SVA_B`, `CANL3_SVA_B`, `CANL4_SVA_B`, `CANL1_TOSHIBA_G`, `CAPCMNL1_Sand_E` are known to decode perfectly (the rest using yet unsupported features).
+When debugging, the make flag `TRACE=1` enables printing headers to stdout in HTML format, and `TRACE=2` adds the dumping of all other symbols to stderr (*very large*). I usually compare its output with that of a modified version of the official [JM decoder](https://avc.hhi.fraunhofer.de/). On the set of official AVCv1 conformance bitstreams, files `CANL1_Sony_E`, `CANL2_Sony_E`, `CANL3_Sony_C`, `CANL1_SVA_B`, `CANL2_SVA_B`, `CANL3_SVA_B`, `CANL4_SVA_B`, `CANL1_TOSHIBA_G`, `CAPCMNL1_Sand_E` are known to decode perfectly (the rest using yet unsupported features).
 
 A test program is also provided, that browses files in a `conformance` directory, decoding each `<video>.264` and comparing its output with the pair `<video>.yuv`.
 
@@ -59,7 +59,7 @@ Key takeaways
 
 * [Minimalistic API](edge264.h) (3 functions and 2 structures).
 * [The input bitstream](edge264_golomb.c) is unescaped on the fly using vector code, avoiding a full preprocessing pass to remove escape sequences, and thus reducing memory reads/writes.
-* [Error detection](edge264.c) is performed once in each type of NAL unit (search for `return` statements), by clamping all input values to their expected ranges, then looking for `rbsp_trailing_bit` afterwards (with _very high_ probability of catching an error if the stream is corrupted). This design choice is discussed in [A case about parsing errors](https://traffaillac.github.io/parsing.html).
+* [Error detection](edge264.c) is performed once in each type of NAL unit (search for `return` statements), by clamping all input values to their expected ranges, then expecting `rbsp_trailing_bit` afterwards (with _very high_ probability of catching an error if the stream is corrupted). This design choice is discussed in [A case about parsing errors](https://traffaillac.github.io/parsing.html).
 * [The bitstream caches](edge264_common.h) for CAVLC and CABAC (search for `rbsp_reg`) are stored in two size_t variables each, mapped on Global Register Variables if possible, speeding up the _very frequent_ calls to input functions. The main context pointer is also assigned to a GRV, to help reduce the binary size (\~120k).
 * [The main decoding loop](edge264_slice.c) is carefully designed with the smallest code and fewest number of conditional branches, to ease its readability and upgradeability. Its architecture is a forward pipeline loosely resembling hardware decoders, using tail calls to pass execution between code blocks.
 * [The decoding of input symbols](edge264_slice.c) is interspersed with their parsing (instead of parsing to a `struct` then decoding the data). It deduplicates branches and loops that are present in both parsing and decoding, and even eliminates the need to store some symbols (e.g. mb_type, sub_mb_type, mb_qp_delta).

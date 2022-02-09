@@ -63,12 +63,12 @@ int main() {
 		e.user = dpb;
 		
 		// decode the entire file and FAIL on any error
-		printf("%s: ", entry->d_name);
 		int ret;
 		while ((ret = Edge264_decode_NAL(&e)) == 0);
 		Edge264_end_stream(&e);
 		counts[ret - 1]++;
-		printf("%s\n" RESET, ret == 1 ? YELLOW "UNSUPPORTED" : ret == 2 ? RED "FAIL" : ret == 4 ? BLUE "FLAGGED" : GREEN "PASS");
+		if (ret > 1)
+			printf("%s: %s\n" RESET, entry->d_name, ret == 1 ? YELLOW "UNSUPPORTED" : ret == 2 ? RED "FAIL" : ret == 4 ? BLUE "FLAGGED" : GREEN "PASS");
 		
 		// close everything
 		munmap(cpb, stC.st_size);

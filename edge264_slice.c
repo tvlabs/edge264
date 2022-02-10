@@ -1,3 +1,4 @@
+// FIXME transform_8x8_mode_flag pour B_sub_mb_type
 #include "edge264_common.h"
 
 #undef CAFUNC
@@ -293,13 +294,13 @@ void CAFUNC(parse_residual_block, int startIdx, int endIdx, int token_or_cbf) {
 				lsb_cache <<= v;
 			}
 			ctx->c[*scan] = level[i];
+			fprintf(stderr, "coeffLevel[%ld]: %d\n", scan - ctx->scan - startIdx, level[i]);
 		}
 		
 		// trailing_ones_sign_flags+total_zeros+run_before consumed at most 31 bits, so we can delay refill here
 		if (!lsb_cache)
 			CALL(refill, 0);
 	#else // CABAC
-		
 		// significant_coeff_flags are stored as a bit mask
 		uint64_t significant_coeff_flags = 0;
 		int i = startIdx;
@@ -885,12 +886,14 @@ static void CAFUNC(parse_inter_residual)
 static v8hi CAFUNC(parse_mvd_pair, const uint8_t *absMvdComp_lx, int i4x4) {
 	#ifndef CABAC
 		int x = CALL(get_se32, -32768, 32767);
+		fprintf(stderr, "mvd: %d\n", x);
 		int y = CALL(get_se32, -32768, 32767);
+		fprintf(stderr, "mvd: %d\n", y);
 		return (v8hi){x, y};
 	#else
 		v8hi res;
-		for (int ctxBase = 40, j = 0;;) {
-			int sum = absMvdComp_lx[ctx->absMvdComp_A[i4x4] + j] + absMvdComp_lx[ctx->absMvdComp_B[i4x4] + j];
+		for (int ctxBase = 40, i = 0;;) {
+			int sum = absMvdComp_lx[ctx->absMvdComp_A[i4x4] + i] + absMvdComp_lx[ctx->absMvdComp_B[i4x4] + i];
 			int ctxIdx = ctxBase + (sum >= 3) + (sum > 32);
 			int mvd = 0;
 			ctxBase += 3;
@@ -928,7 +931,7 @@ static v8hi CAFUNC(parse_mvd_pair, const uint8_t *absMvdComp_lx, int i4x4) {
 			fprintf(stderr, "mvd: %d\n", mvd);
 			// fprintf(stderr, "mvd_l%x: %d\n", pos >> 1 & 1, mvd);
 			
-			if (++j == 2) {
+			if (++i == 2) {
 				res[1] = mvd;
 				return res;
 			}
@@ -1052,9 +1055,12 @@ static void CAFUNC(parse_B_sub_mb) {
 				ctx->unavail[i4x4 + 2] |= 4;
 				ctx->refIdx4x4_C[i4x4] = 0x0d63 >> i4x4 & 15;
 				ctx->mvs_C[i4x4] = ctx->mvs_C[i4x4 + 1];
+				if (CACOND(0x1ff0 & 1 << sub_mb_type, 0xfce & 1 << sub))
+					ctx->transform_8x8_mode_flag = 0;
 			} else { // 4xN
 				ctx->refIdx4x4_C[i4x4] = 0xdc32 >> i4x4 & 15;
 				ctx->mvs_C[i4x4] = ctx->mvs_B[i4x4 + 1];
+				ctx->transform_8x8_mode_flag = 0;
 			}
 		}
 	}
@@ -1555,6 +1561,9 @@ static noinline void CAFUNC(parse_slice_data)
 			CACALL(parse_B_mb);
 		} else {
 			int mb_type_or_ctxIdx = CACOND(CALL(get_ue16, 25), 5 - ctx->inc.mb_type_I_NxN);
+			#ifndef CABAC
+				printf("mb_type: %u\n", mb_type_or_ctxIdx);
+			#endif
 			CACALL(parse_I_mb, mb_type_or_ctxIdx);
 		}
 		

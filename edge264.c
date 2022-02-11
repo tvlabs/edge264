@@ -97,8 +97,8 @@ static void FUNC(initialise_decoding_context, Edge264_stream *e)
 	int offB_int8 = -(ctx->ps.width / 16 + 1) * sizeof(*mb);
 	ctx->mbB = (Edge264_macroblock *)(ctx->samples_mb[2] + e->plane_size_C + sizeof(*mb));
 	mb = (Edge264_macroblock *)((uint8_t *)ctx->mbB - offB_int8);
-	ctx->Intra4x4PredMode_A_v = (v16hi){5 + offA_int8, 0, 7 + offA_int8, 2, 1, 4, 3, 6, 13 + offA_int8, 8, 15 + offA_int8, 10, 9, 12, 11, 14};
-	ctx->Intra4x4PredMode_B_v = (v16si){10 + offB_int8, 11 + offB_int8, 0, 1, 14 + offB_int8, 15 + offB_int8, 4, 5, 2, 3, 8, 9, 6, 7, 12, 13};
+	ctx->A4x4_int8_v = (v16hi){5 + offA_int8, 0, 7 + offA_int8, 2, 1, 4, 3, 6, 13 + offA_int8, 8, 15 + offA_int8, 10, 9, 12, 11, 14};
+	ctx->B4x4_int8_v = (v16si){10 + offB_int8, 11 + offB_int8, 0, 1, 14 + offB_int8, 15 + offB_int8, 4, 5, 2, 3, 8, 9, 6, 7, 12, 13};
 	
 	// P/B slices
 	if (ctx->slice_type < 2) {

@@ -1,4 +1,5 @@
-// FIXME transform_8x8_mode_flag pour B_sub_mb_type
+// FIXME enregistrer nC après avoir parsé CoeffToken
+// FIXME neighbouring nC values for chroma AC
 #include "edge264_common.h"
 
 #undef CAFUNC
@@ -70,8 +71,8 @@
 			1973, 1973, 1973, 1973, 1973, 1973, 1973, 1973,
 		};
 		
-		int nA = *(mb->nC[iYCbCr] + ctx->Intra4x4PredMode_A[i4x4]);
-		int nB = *(mb->nC[iYCbCr] + ctx->Intra4x4PredMode_B[i4x4]);
+		int nA = *(mb->nC[iYCbCr] + ctx->A4x4_int8[i4x4]);
+		int nB = *(mb->nC[iYCbCr] + ctx->B4x4_int8[i4x4]);
 		int nC = (ctx->unavail[i4x4] & 3) ? nA + nB : (nA + nB + 1) >> 1;
 		int coeff_token, v;
 		if (__builtin_expect(nC < 8, 1)) {
@@ -677,8 +678,8 @@ static void CAFUNC(parse_intra_chroma_pred_mode)
 static int CAFUNC(parse_intraNxN_pred_mode, int luma4x4BlkIdx)
 {
 	// dcPredModePredictedFlag is enforced by putting -2
-	int intraMxMPredModeA = *(mb->Intra4x4PredMode + ctx->Intra4x4PredMode_A[luma4x4BlkIdx]);
-	int intraMxMPredModeB = *(mb->Intra4x4PredMode + ctx->Intra4x4PredMode_B[luma4x4BlkIdx]);
+	int intraMxMPredModeA = *(mb->Intra4x4PredMode + ctx->A4x4_int8[luma4x4BlkIdx]);
+	int intraMxMPredModeB = *(mb->Intra4x4PredMode + ctx->B4x4_int8[luma4x4BlkIdx]);
 	int mode = abs(min(intraMxMPredModeA, intraMxMPredModeB));
 	if (CACOND(!CALL(get_u1), !CALL(get_ae, 68))) {
 		#ifndef CABAC

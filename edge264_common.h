@@ -143,8 +143,8 @@ typedef struct
 	union { uint8_t cabac[1024]; v16qu cabac_v[64]; };
 	
 	// neighbouring offsets (relative to the start of each array in mb)
-	union { int16_t Intra4x4PredMode_A[16]; v16hi Intra4x4PredMode_A_v; };
-	union { int32_t Intra4x4PredMode_B[16]; v16si Intra4x4PredMode_B_v; };
+	union { int16_t A4x4_int8[16]; v16hi A4x4_int8_v; };
+	union { int32_t B4x4_int8[16]; v16si B4x4_int8_v; };
 	union { int16_t absMvdComp_A[16]; v16hi absMvdComp_A_v; };
 	union { int32_t absMvdComp_B[16]; v16si absMvdComp_B_v; };
 	union { int8_t refIdx4x4_C[16]; int32_t refIdx4x4_C_s[4]; v16qi refIdx4x4_C_v; }; // shuffle vector for mv prediction

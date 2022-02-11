@@ -28,7 +28,7 @@
  * this function is designed to be simple and compact.
  */
 #ifndef CABAC
-	static int FUNC(parse_coeff_token_cavlc, int iYCbCr, int i4x4) {
+	static int FUNC(parse_coeff_token_cavlc, int nA, int nB) {
 		static const uint8_t nC_offset[8] = {184, 184, 80, 80, 0, 0, 0, 0};
 		static const int16_t tokens[38 * 8] = {
 			543, 539, 535, 531, 527, 522, 517, 512, // 4 <= nC < 8
@@ -71,9 +71,9 @@
 			1973, 1973, 1973, 1973, 1973, 1973, 1973, 1973,
 		};
 		
-		int nA = *(mb->nC[iYCbCr] + ctx->A4x4_int8[i4x4]);
-		int nB = *(mb->nC[iYCbCr] + ctx->B4x4_int8[i4x4]);
-		int nC = (ctx->unavail[i4x4] & 3) ? nA + nB : (nA + nB + 1) >> 1;
+		// unavailable blocks have the value 32
+		int sum = nA + nB;
+		int nC = (sum < 64) ? (sum + 1) >> 1 : sum & 31;
 		int coeff_token, v;
 		if (__builtin_expect(nC < 8, 1)) {
 			int leadingZeroBits = clz(msb_cache | (size_t)1 << (SIZE_BIT - 15));
@@ -221,7 +221,7 @@ static inline int FUNC(parse_total_zeros, int endIdx, int TotalCoeff) {
  * While residual coefficients are not too critical to optimize, both CAVLC and
  * CABAC versions of this function are designed to be simple and compact.
  */
-void CAFUNC(parse_residual_block, int startIdx, int endIdx, int token_or_cbf) {
+static void CAFUNC(parse_residual_block, int startIdx, int endIdx, int token_or_cbf) {
 	#ifndef CABAC
 		int TrailingOnes = token_or_cbf & 3;
 		int TotalCoeff = token_or_cbf >> 2;
@@ -264,14 +264,14 @@ void CAFUNC(parse_residual_block, int startIdx, int endIdx, int token_or_cbf) {
 		int zerosLeft = 0;
 		if (TotalCoeff <= endIdx - startIdx)
 			zerosLeft = CALL(parse_total_zeros, endIdx, TotalCoeff);
-		int8_t *scan = ctx->scan + zeros_left + TotalCoeff - 1;
+		int8_t *scan = ctx->scan + zerosLeft + TotalCoeff - 1;
 		ctx->c[*scan] = level[0];
 		for (int i = 1, v, run_before; i < TotalCoeff; i++) {
 			scan--;
 			if (zerosLeft > 0) {
 				int threeBits = msb_cache >> (SIZE_BIT - 3);
 				if (zerosLeft <= 6) {
-					static int8_t run_before_codes[6][8] {
+					static int8_t run_before_codes[6][8] = {
 						9, 9, 9, 9, 8, 8, 8, 8,
 						18, 18, 17, 17, 8, 8, 8, 8,
 						19, 19, 18, 18, 17, 17, 16, 16,
@@ -439,11 +439,11 @@ static void CAFUNC(parse_chroma_residual)
 			for (int i4x4 = 0; i4x4 < 8; i4x4++) {
 				int iYCbCr = 1 + (i4x4 >> 2);
 				uint8_t *samples = ctx->samples_mb[iYCbCr] + y420[i4x4] * ctx->stride[1] + x420[i4x4];
-				int token_or_cbf = CACOND(CALL(parse_coeff_token_cavlc, iYCbCr, 0), CALL(get_ae, ctx->ctxIdxOffsets[0] + (mb->bits[1] >> inc8x8[4 + i4x4] & 3)));
+				int token_or_cbf = CACOND(
+					CALL(parse_coeff_token_cavlc, *(mb->nC[1] + ctx->ACbCr_int8[i4x4]), *(mb->nC[1] + ctx->BCbCr_int8[i4x4])),
+					CALL(get_ae, ctx->ctxIdxOffsets[0] + (mb->bits[1] >> inc8x8[4 + i4x4] & 3)));
 				if (token_or_cbf) {
-					#ifdef CABAC
-						mb->bits[1] |= 1 << bit8x8[4 + i4x4];
-					#endif
+					CACOND(mb->nC[1][i4x4] = token_or_cbf >> 2, mb->bits[1] |= 1 << bit8x8[4 + i4x4]);
 					memset(ctx->c, 0, 64);
 					CACALL(parse_residual_block, 1, 15, token_or_cbf);
 					v16qi wS = ((v16qi *)ctx->ps.weightScale4x4)[iYCbCr + mb->f.mbIsInterFlag * 3];
@@ -478,11 +478,11 @@ static void CAFUNC(parse_Intra16x16_residual)
 		#ifdef CABAC
 			ctx->ctxIdxOffsets_l = ctxIdxOffsets_16x16DC[iYCbCr][0];
 		#endif
-		int token_or_cbf = CACOND(CALL(parse_coeff_token_cavlc, iYCbCr, 0), CALL(get_ae, ctx->ctxIdxOffsets[0] + ctx->inc.coded_block_flags_16x16[iYCbCr]));
+		int token_or_cbf = CACOND(
+			CALL(parse_coeff_token_cavlc, mb[-1].nC[iYCbCr][5], ctx->mbB->nC[iYCbCr][10]),
+			CALL(get_ae, ctx->ctxIdxOffsets[0] + ctx->inc.coded_block_flags_16x16[iYCbCr]));
 		if (token_or_cbf) {
-			#ifdef CABAC
-				mb->f.coded_block_flags_16x16[iYCbCr] = 1;
-			#endif
+			CACOND(mb->nC[iYCbCr][0] = token_or_cbf >> 2, mb->f.coded_block_flags_16x16[iYCbCr] = 1);
 			memset(ctx->c, 0, 64);
 			CACALL(parse_residual_block, 0, 15, token_or_cbf);
 			CALL(transform_dc4x4, iYCbCr);
@@ -498,11 +498,11 @@ static void CAFUNC(parse_Intra16x16_residual)
 			#endif
 			for (int i4x4 = 0; i4x4 < 16; i4x4++) {
 				uint8_t *samples = ctx->samples_mb[iYCbCr] + y444[i4x4] * ctx->stride[iYCbCr] + x444[i4x4];
-				int token_or_cbf = CACOND(CALL(parse_coeff_token_cavlc, iYCbCr, i4x4), CALL(get_ae, ctx->ctxIdxOffsets[0] + (mb->bits[iYCbCr] >> inc4x4[i4x4] & 3)));
+				int token_or_cbf = CACOND(
+					CALL(parse_coeff_token_cavlc, *(mb->nC[iYCbCr] + ctx->A4x4_int8[i4x4]), *(mb->nC[iYCbCr] + ctx->B4x4_int8[i4x4])),
+					CALL(get_ae, ctx->ctxIdxOffsets[0] + (mb->bits[iYCbCr] >> inc4x4[i4x4] & 3)));
 				if (token_or_cbf) {
-					#ifdef CABAC
-						mb->bits[iYCbCr] |= 1 << bit4x4[i4x4];
-					#endif
+					CACOND(mb->nC[iYCbCr][i4x4] = token_or_cbf >> 2, mb->bits[iYCbCr] |= 1 << bit4x4[i4x4]);
 					memset(ctx->c, 0, 64);
 					CACALL(parse_residual_block, 1, 15, token_or_cbf);
 					CALL(add_idct4x4, iYCbCr, ctx->ps.QPprime_Y, ((v16qi *)ctx->ps.weightScale4x4)[iYCbCr], i4x4, samples);
@@ -561,11 +561,11 @@ static void CAFUNC(parse_NxN_residual)
 				if (!mb->f.mbIsInterFlag)
 					CALL(decode_intra4x4, intra4x4_modes[mb->Intra4x4PredMode[i4x4]][ctx->unavail[i4x4]], samples, stride, ctx->clip[iYCbCr]);
 				if (mb->bits[3] & 1 << bit8x8[i4x4 >> 2]) {
-					int token_or_cbf = CACOND(CALL(parse_coeff_token_cavlc, iYCbCr, i4x4), CALL(get_ae, ctx->ctxIdxOffsets[0] + (mb->bits[iYCbCr] >> inc4x4[i4x4] & 3)));
+					int token_or_cbf = CACOND(
+						CALL(parse_coeff_token_cavlc, *(mb->nC[iYCbCr] + ctx->A4x4_int8[i4x4]), *(mb->nC[iYCbCr] + ctx->B4x4_int8[i4x4])),
+						CALL(get_ae, ctx->ctxIdxOffsets[0] + (mb->bits[iYCbCr] >> inc4x4[i4x4] & 3)));
 					if (token_or_cbf) {
-						#ifdef CABAC
-							mb->bits[iYCbCr] |= 1 << bit4x4[i4x4];
-						#endif
+						CACOND(mb->nC[iYCbCr][i4x4] = token_or_cbf >> 2, mb->bits[iYCbCr] |= 1 << bit4x4[i4x4]);
 						memset(ctx->c, 0, 64);
 						CACALL(parse_residual_block, 0, 15, token_or_cbf);
 						
@@ -1563,7 +1563,7 @@ static noinline void CAFUNC(parse_slice_data)
 		} else {
 			int mb_type_or_ctxIdx = CACOND(CALL(get_ue16, 25), 5 - ctx->inc.mb_type_I_NxN);
 			#ifndef CABAC
-				printf("mb_type: %u\n", mb_type_or_ctxIdx);
+				fprintf(stderr, "mb_type: %u\n", mb_type_or_ctxIdx);
 			#endif
 			CACALL(parse_I_mb, mb_type_or_ctxIdx);
 		}

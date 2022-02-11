@@ -1,5 +1,6 @@
 /** MAYDO:
  * _ remove uses of __m64 in inter_ssse3.c
+ * _ change the API to return 0~N frames after each call (instead of callback)
  * _ debug the decoding with GCC
  * _ fix initialization of implicit weights
  * _ review and secure the places where CABAC could result in unsupported internal state
@@ -28,7 +29,7 @@
 #endif
 #include "edge264_bitstream.c"
 #include "edge264_mvpred.c"
-//#include "edge264_slice.c"
+#include "edge264_slice.c"
 #define CABAC 1
 #include "edge264_slice.c"
 
@@ -92,13 +93,17 @@ static void FUNC(initialise_decoding_context, Edge264_stream *e)
 	memcpy(ctx->QPprime_C_v + 6, QP_Y2C + clip3(0, 63, 47 + ctx->ps.second_chroma_qp_index_offset), 16);
 	memcpy(ctx->QPprime_C_v + 7, QP_Y2C + clip3(0, 63, 63 + ctx->ps.second_chroma_qp_index_offset), 16);
 	
-	// initializing with vectors is not the fastest here, but is more readable and maintainable
+	// initializing with vectors is not the fastest here, but is most readable thus maintainable
 	int offA_int8 = -(int)sizeof(*mb);
 	int offB_int8 = -(ctx->ps.width / 16 + 1) * sizeof(*mb);
 	ctx->mbB = (Edge264_macroblock *)(ctx->samples_mb[2] + e->plane_size_C + sizeof(*mb));
 	mb = (Edge264_macroblock *)((uint8_t *)ctx->mbB - offB_int8);
 	ctx->A4x4_int8_v = (v16hi){5 + offA_int8, 0, 7 + offA_int8, 2, 1, 4, 3, 6, 13 + offA_int8, 8, 15 + offA_int8, 10, 9, 12, 11, 14};
 	ctx->B4x4_int8_v = (v16si){10 + offB_int8, 11 + offB_int8, 0, 1, 14 + offB_int8, 15 + offB_int8, 4, 5, 2, 3, 8, 9, 6, 7, 12, 13};
+	if (ctx->ps.ChromaArrayType == 1) {
+		ctx->ACbCr_int8_v = (v16hi){1 + offA_int8, 0, 3 + offA_int8, 2, 5 + offA_int8, 4, 7 + offA_int8, 6};
+		ctx->BCbCr_int8_v = (v16si){2 + offB_int8, 3 + offB_int8, 0, 1, 6 + offB_int8, 7 + offB_int8, 4, 5};
+	}
 	
 	// P/B slices
 	if (ctx->slice_type < 2) {
@@ -620,7 +625,6 @@ static int FUNC(parse_slice_layer_without_partitioning, Edge264_stream *e)
 		static const uint8_t me_inter[48] = {0, 1, 32, 8, 4, 128, 2, 40, 36, 136, 132, 172, 174, 44, 168, 164, 140, 12, 160, 173, 42, 38, 138, 134, 34, 10, 6, 130, 46, 170, 166, 142, 33, 9, 5, 129, 41, 37, 137, 133, 45, 169, 165, 141, 13, 161, 14, 162};
 		memcpy(ctx->map_me, ctx->slice_type == 2 ? me_intra : me_inter, sizeof(ctx->map_me));
 		ctx->mb_skip_run = -1;
-		return 4;
 		CALL(parse_slice_data_cavlc);
 	} else {
 		unsigned bits = (SIZE_BIT - 1 - ctz(lsb_cache)) & 7;
@@ -859,7 +863,7 @@ static int FUNC(parse_pic_parameter_set, Edge264_stream *e)
 		return 2;
 	if (pic_parameter_set_id >= 4 ||
 		num_slice_groups > 1 || ctx->ps.constrained_intra_pred_flag ||
-		redundant_pic_cnt_present_flag)
+		redundant_pic_cnt_present_flag || ctx->ps.transform_8x8_mode_flag)
 		return 1;
 	e->PPSs[pic_parameter_set_id] = ctx->ps;
 	return 0;
@@ -1088,8 +1092,11 @@ static int FUNC(parse_seq_parameter_set, Edge264_stream *e)
 		.f.mb_type_I_NxN = 1,
 		.f.mb_type_B_Direct = 1,
 		.refIdx = {-1, -1, -1, -1, -1, -1, -1, -1},
-		.Intra4x4PredMode = {-2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2},
 		.bits[3] = 0xac, // cbp
+		.nC[0] = {32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32},
+		.nC[1] = {32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32},
+		.nC[2] = {32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32},
+		.Intra4x4PredMode = {-2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2},
 	};
 	
 	// Profiles are only useful to initialize max_num_reorder_frames/max_dec_frame_buffering.

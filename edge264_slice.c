@@ -295,7 +295,6 @@ static void CAFUNC(parse_residual_block, int startIdx, int endIdx, int token_or_
 				lsb_cache <<= v;
 			}
 			ctx->c[*scan] = level[i];
-			fprintf(stderr, "coeffLevel[%ld]: %d\n", scan - ctx->scan - startIdx, level[i]);
 		}
 		
 		// trailing_ones_sign_flags+total_zeros+run_before consumed at most 31 bits, so we can delay refill here
@@ -363,10 +362,11 @@ static void CAFUNC(parse_residual_block, int startIdx, int endIdx, int token_or_
 			int i = 63 - clz64(significant_coeff_flags);
 			ctx->c[ctx->scan[i]] = c; // beware, scan is transposed already
 			significant_coeff_flags &= ~((uint64_t)1 << i);
-			fprintf(stderr, "coeffLevel[%d]: %d\n", i - startIdx, c);
-			// fprintf(stderr, "coeffLevel[%d](%d): %d\n", i - startIdx, ctx->BlkIdx, c);
 		} while (significant_coeff_flags != 0);
 	#endif
+	for (int i = startIdx; i <= endIdx; i++)
+		fprintf(stderr, " %d", ctx->c[ctx->scan[i]]);
+	fprintf(stderr, "\n");
 }
 
 
@@ -378,23 +378,24 @@ static void CAFUNC(parse_mb_qp_delta)
 {
 	#ifndef CABAC
 		int mb_qp_delta = CALL(get_se16, -26, 25); // FIXME QpBdOffset
-		int sum = ctx->ps.QPprime_Y + mb_qp_delta;
-		ctx->ps.QPprime_Y = (sum < 0) ? sum + 52 : (sum >= 52) ? sum - 52 : sum;
-		if (mb_qp_delta)
-			fprintf(stderr, "mb_qp_delta: %d\n", mb_qp_delta);
+		if (mb_qp_delta) {
+			int sum = ctx->ps.QPprime_Y + mb_qp_delta;
+			ctx->ps.QPprime_Y = (sum < 0) ? sum + 52 : (sum >= 52) ? sum - 52 : sum;
+		}
 	#else
 		int mb_qp_delta_nz = CALL(get_ae, 60 + ctx->mb_qp_delta_nz);
 		ctx->mb_qp_delta_nz = mb_qp_delta_nz;
+		int mb_qp_delta = 0;
 		if (mb_qp_delta_nz) {
 			unsigned count = 1, ctxIdx = 62;
 			while (CALL(get_ae, ctxIdx) && count < 52) // FIXME QpBdOffset
 				count++, ctxIdx = 63;
-			int mb_qp_delta = count & 1 ? count / 2 + 1 : -(count / 2);
+			mb_qp_delta = count & 1 ? count / 2 + 1 : -(count / 2);
 			int sum = ctx->ps.QPprime_Y + mb_qp_delta;
 			ctx->ps.QPprime_Y = (sum < 0) ? sum + 52 : (sum >= 52) ? sum - 52 : sum;
-			fprintf(stderr, "mb_qp_delta: %d\n", mb_qp_delta);
 		}
 	#endif
+	fprintf(stderr, "mb_qp_delta: %d\n", mb_qp_delta);
 }
 
 
@@ -420,6 +421,7 @@ static void CAFUNC(parse_chroma_residual)
 			#ifdef CABAC
 				mb->f.coded_block_flags_16x16[1] = 1;
 			#endif
+			fprintf(stderr, "Cb DC coeffLevels:");
 			CACALL(parse_residual_block, 0, 3, token_or_cbf_Cb);
 		}
 		int token_or_cbf_Cr = CACOND(
@@ -429,6 +431,7 @@ static void CAFUNC(parse_chroma_residual)
 			#ifdef CABAC
 				mb->f.coded_block_flags_16x16[2] = 1;
 			#endif
+			fprintf(stderr, "Cr DC coeffLevels:");
 			CACALL(parse_residual_block, 4, 7, token_or_cbf_Cr);
 		}
 		CALL(transform_dc2x2);
@@ -449,6 +452,7 @@ static void CAFUNC(parse_chroma_residual)
 				if (token_or_cbf) {
 					CACOND(mb->nC[1][i4x4] = token_or_cbf >> 2, mb->bits[1] |= 1 << bit8x8[4 + i4x4]);
 					memset(ctx->c, 0, 64);
+					fprintf(stderr, "Chroma AC coeffLevels[%d]:", i4x4);
 					CACALL(parse_residual_block, 1, 15, token_or_cbf);
 					v16qi wS = ((v16qi *)ctx->ps.weightScale4x4)[iYCbCr + mb->f.mbIsInterFlag * 3];
 					int qP = ctx->QPprime_C[iYCbCr - 1][ctx->ps.QPprime_Y];
@@ -488,6 +492,7 @@ static void CAFUNC(parse_Intra16x16_residual)
 		if (token_or_cbf) {
 			CACOND(mb->nC[iYCbCr][0] = token_or_cbf >> 2, mb->f.coded_block_flags_16x16[iYCbCr] = 1);
 			memset(ctx->c, 0, 64);
+			fprintf(stderr, "16x16 DC coeffLevels[%d]:", iYCbCr);
 			CACALL(parse_residual_block, 0, 15, token_or_cbf);
 			CALL(transform_dc4x4, iYCbCr);
 		} else {
@@ -508,6 +513,7 @@ static void CAFUNC(parse_Intra16x16_residual)
 				if (token_or_cbf) {
 					CACOND(mb->nC[iYCbCr][i4x4] = token_or_cbf >> 2, mb->bits[iYCbCr] |= 1 << bit4x4[i4x4]);
 					memset(ctx->c, 0, 64);
+					fprintf(stderr, "16x16 AC coeffLevels[%d]:", iYCbCr * 16 + i4x4);
 					CACALL(parse_residual_block, 1, 15, token_or_cbf);
 					CALL(add_idct4x4, iYCbCr, ctx->ps.QPprime_Y, ((v16qi *)ctx->ps.weightScale4x4)[iYCbCr], i4x4, samples);
 				} else {
@@ -571,6 +577,7 @@ static void CAFUNC(parse_NxN_residual)
 					if (token_or_cbf) {
 						CACOND(mb->nC[iYCbCr][i4x4] = token_or_cbf >> 2, mb->bits[iYCbCr] |= 1 << bit4x4[i4x4]);
 						memset(ctx->c, 0, 64);
+						fprintf(stderr, "4x4 coeffLevels[%d]:", iYCbCr * 16 + i4x4);
 						CACALL(parse_residual_block, 0, 15, token_or_cbf);
 						
 						// DC blocks are marginal here (about 16%) so we do not handle them separately
@@ -685,20 +692,18 @@ static int CAFUNC(parse_intraNxN_pred_mode, int luma4x4BlkIdx)
 	int intraMxMPredModeA = *(mb->Intra4x4PredMode + ctx->A4x4_int8[luma4x4BlkIdx]);
 	int intraMxMPredModeB = *(mb->Intra4x4PredMode + ctx->B4x4_int8[luma4x4BlkIdx]);
 	int mode = abs(min(intraMxMPredModeA, intraMxMPredModeB));
+	int rem_intra_pred_mode = -1;
 	if (CACOND(!CALL(get_u1), !CALL(get_ae, 68))) {
 		#ifndef CABAC
-			int rem_intra_pred_mode = CALL(get_uv, 3);
+			rem_intra_pred_mode = CALL(get_uv, 3);
 		#else
-			int rem_intra_pred_mode = CALL(get_ae, 69);
+			rem_intra_pred_mode = CALL(get_ae, 69);
 			rem_intra_pred_mode += CALL(get_ae, 69) * 2;
 			rem_intra_pred_mode += CALL(get_ae, 69) * 4;
 		#endif
-		fprintf(stderr, "rem_intra_pred_mode: %u\n", rem_intra_pred_mode);
 		mode = rem_intra_pred_mode + (rem_intra_pred_mode >= mode);
-	} else {
-		// for compatibility with reference decoder
-		fprintf(stderr, "rem_intra_pred_mode: -1\n");
 	}
+	fprintf(stderr, " %d", rem_intra_pred_mode);
 	return mode;
 }
 
@@ -751,6 +756,7 @@ static noinline void CAFUNC(parse_I_mb, int mb_type_or_ctxIdx)
 			fprintf(stderr, "transform_size_8x8_flag: %x\n", mb->f.transform_size_8x8_flag);
 		}
 		
+		fprintf(stderr, "rem_intra_pred_modes:");
 		if (mb->f.transform_size_8x8_flag) {
 			for (int i = 0; i < 16; i += 4)
 				mb->Intra4x4PredMode[i + 1] = mb->Intra4x4PredMode[i + 2] = mb->Intra4x4PredMode[i + 3] = CACALL(parse_intraNxN_pred_mode, i);
@@ -758,6 +764,7 @@ static noinline void CAFUNC(parse_I_mb, int mb_type_or_ctxIdx)
 			for (int i = 0; i < 16; i++)
 				mb->Intra4x4PredMode[i] = CACALL(parse_intraNxN_pred_mode, i);
 		}
+		fprintf(stderr, "\n");
 		
 		CACALL(parse_intra_chroma_pred_mode);
 		CACALL(parse_coded_block_pattern);
@@ -891,9 +898,8 @@ static void CAFUNC(parse_inter_residual)
 static v8hi CAFUNC(parse_mvd_pair, const uint8_t *absMvdComp_lx, int i4x4) {
 	#ifndef CABAC
 		int x = CALL(get_se32, -32768, 32767);
-		fprintf(stderr, "mvd: %d\n", x);
 		int y = CALL(get_se32, -32768, 32767);
-		fprintf(stderr, "mvd: %d\n", y);
+		fprintf(stderr, "mvd[%lu]: %d,%d\n", absMvdComp_lx - mb->absMvdComp + i4x4, x, y);
 		return (v8hi){x, y};
 	#else
 		v8hi res;
@@ -918,13 +924,15 @@ static v8hi CAFUNC(parse_mvd_pair, const uint8_t *absMvdComp_lx, int i4x4) {
 				size_t rem = codIOffset % codIRange;
 				int k = 3 + min(clz(~quo << (zeros + 9)), 12);
 				int unused = SIZE_BIT - 9 - zeros - k * 2 + 2;
-				if (SIZE_BIT == 32 && __builtin_expect(unused < 0, 0)) { // FIXME needs testing
-					// refill codIOffset with 16 bits then make a new division
-					codIOffset = lsd(rem, CALL(get_bytes, 2), 16);
-					quo = lsd(quo, (codIOffset / codIRange) << (SIZE_BIT - 16), 16);
-					rem = codIOffset % codIRange;
-					unused += 16;
-				}
+				#if SIZE_BIT == 32
+					if (__builtin_expect(unused < 0, 0)) { // FIXME needs testing
+						// refill codIOffset with 16 bits then make a new division
+						codIOffset = lsd(rem, CALL(get_bytes, 2), 16);
+						quo = lsd(quo, (codIOffset / codIRange) << (SIZE_BIT - 16), 16);
+						rem = codIOffset % codIRange;
+						unused += 16;
+					}
+				#endif
 				mvd = 1 + (1 << k | (quo >> unused & (((size_t)1 << k) - 1)));
 				codIOffset = (quo & (((size_t)1 << unused) - 1)) * codIRange + rem;
 				codIRange <<= unused;
@@ -933,11 +941,11 @@ static v8hi CAFUNC(parse_mvd_pair, const uint8_t *absMvdComp_lx, int i4x4) {
 			// Parse the sign flag.
 			if (mvd > 0)
 				mvd = CALL(get_bypass) ? -mvd : mvd;
-			fprintf(stderr, "mvd: %d\n", mvd);
 			// fprintf(stderr, "mvd_l%x: %d\n", pos >> 1 & 1, mvd);
 			
 			if (++i == 2) {
 				res[1] = mvd;
+				fprintf(stderr, "mvd[%lu]: %d,%d\n", absMvdComp_lx - mb->absMvdComp + i4x4, res[0], mvd);
 				return res;
 			}
 			ctxBase = 47;
@@ -980,8 +988,8 @@ static inline void CAFUNC(parse_ref_idx, unsigned f) {
 			}
 		#endif
 		mb->refIdx[i] = ref_idx;
-		fprintf(stderr, "ref_idx: %u\n", ref_idx);
 	}
+	fprintf(stderr, "ref_idx: %d %d %d %d %d %d %d %d\n", mb->refIdx[0], mb->refIdx[1], mb->refIdx[2], mb->refIdx[3], mb->refIdx[4], mb->refIdx[5], mb->refIdx[6], mb->refIdx[7]);
 	
 	// broadcast the values
 	v16qi refIdx_v = (v16qi)(v2li){mb->refIdx_l};

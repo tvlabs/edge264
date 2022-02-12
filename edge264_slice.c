@@ -413,14 +413,18 @@ static void CAFUNC(parse_chroma_residual)
 		#endif
 		ctx->scan_l = (v8qi){0, 4, 2, 6, 1, 5, 3, 7};
 		memset(ctx->c, 0, 64);
-		int token_or_cbf_Cb = CACOND(CALL(parse_DC2x2_coeff_token_cavlc), CALL(get_ae, ctx->ctxIdxOffsets[0] + ctx->inc.coded_block_flags_16x16[1]));
+		int token_or_cbf_Cb = CACOND(
+			CALL(parse_DC2x2_coeff_token_cavlc),
+			CALL(get_ae, ctx->ctxIdxOffsets[0] + ctx->inc.coded_block_flags_16x16[1]));
 		if (token_or_cbf_Cb) {
 			#ifdef CABAC
 				mb->f.coded_block_flags_16x16[1] = 1;
 			#endif
 			CACALL(parse_residual_block, 0, 3, token_or_cbf_Cb);
 		}
-		int token_or_cbf_Cr = CACOND(CALL(parse_DC2x2_coeff_token_cavlc), CALL(get_ae, ctx->ctxIdxOffsets[0] + ctx->inc.coded_block_flags_16x16[2]));
+		int token_or_cbf_Cr = CACOND(
+			CALL(parse_DC2x2_coeff_token_cavlc),
+			CALL(get_ae, ctx->ctxIdxOffsets[0] + ctx->inc.coded_block_flags_16x16[2]));
 		if (token_or_cbf_Cr) {
 			#ifdef CABAC
 				mb->f.coded_block_flags_16x16[2] = 1;

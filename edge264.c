@@ -1,4 +1,5 @@
 /** MAYDO:
+ * _ redo the TRACE=2 output to make it more readable and compact, and restore JM to default output
  * _ remove uses of __m64 in inter_ssse3.c
  * _ change the API to return 0~N frames after each call (instead of callback)
  * _ debug the decoding with GCC

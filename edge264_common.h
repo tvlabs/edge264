@@ -179,7 +179,7 @@ typedef struct
 	union { int16_t ctxIdxOffsets[4]; v4hi ctxIdxOffsets_l; }; // {cbf,sig_flag,last_sig_flag,coeff_abs}
 	union { int8_t sig_inc[64]; v8qi sig_inc_l; v16qi sig_inc_v[4]; };
 	union { int8_t last_inc[64]; v8qi last_inc_l; v16qi last_inc_v[4]; };
-	union { int8_t scan[64]; v8qi scan_l; v16qi scan_v[4]; };
+	union { int8_t scan[64]; v4qi scan_s; v8qi scan_l; v16qi scan_v[4]; };
 	union { int8_t QPprime_C[2][64]; v16qi QPprime_C_v[8]; };
 	union { int32_t c[64]; v4si c_v[16]; v8si c_V[8]; }; // non-scaled residual coefficients
 } Edge264_ctx;

@@ -73,7 +73,7 @@
 		
 		// unavailable blocks have the value 32
 		int sum = nA + nB;
-		int nC = (sum < 64) ? (sum + 1) >> 1 : sum & 31;
+		int nC = (sum < 64) ? (sum + 1) >> 1 : sum & 63;
 		int coeff_token, v;
 		if (__builtin_expect(nC < 8, 1)) {
 			int leadingZeroBits = clz(msb_cache | (size_t)1 << (SIZE_BIT - 15));
@@ -236,17 +236,18 @@ static void CAFUNC(parse_residual_block, int startIdx, int endIdx, int token_or_
 		lsb_cache <<= TrailingOnes;
 		for (int i = TrailingOnes, suffixLength = 1, v, offset; i < TotalCoeff; i++) {
 			int level_prefix = clz(msb_cache | (size_t)1 << (SIZE_BIT - 26)); // limit given in 9.2.2.1
-			if (level_prefix < 15) {
-				if (i == TrailingOnes && level_prefix == 14 && (TotalCoeff <= 10 || TrailingOnes == 3)) {
-					v = 19;
-					offset = -2;
-				} else {
-					v = level_prefix + suffixLength + 1;
-					offset = (level_prefix - 1) << suffixLength;
-				}
-			} else {
+			if (level_prefix >= 15) {
 				v = level_prefix * 2 - 2;
 				offset = (15 << suffixLength) - 4096;
+			} else if (i > TrailingOnes || (TotalCoeff > 10 && TrailingOnes < 3)) {
+				v = level_prefix + suffixLength + 1;
+				offset = (level_prefix - 1) << suffixLength;
+			} else if (level_prefix < 14) {
+				v = level_prefix + 1;
+				offset = level_prefix - 1;
+			} else {
+				v = 19;
+				offset = -2;
 			}
 			#if SIZE_BIT == 32
 				v -= level_prefix;
@@ -255,9 +256,9 @@ static void CAFUNC(parse_residual_block, int startIdx, int endIdx, int token_or_
 					CALL(refill, 0);
 			#endif
 			int levelCode = CALL(get_uv, v) + offset;
-			levelCode += (i == 0 && TrailingOnes < 3) * 2;
+			levelCode += (i == TrailingOnes && TrailingOnes < 3) * 2;
 			level[i] = (levelCode % 2) ? (-levelCode - 1) >> 1 : (levelCode + 2) >> 1;
-			suffixLength = min(suffixLength + (levelCode > (3 << suffixLength)), 6);
+			suffixLength = min(suffixLength + (levelCode >= (3 << suffixLength)), 6);
 		}
 		
 		// store level values at proper positions in memory
@@ -412,7 +413,6 @@ static void CAFUNC(parse_chroma_residual)
 			ctx->ctxIdxOffsets_l = ctxIdxOffsets_chromaDC[0]; // FIXME 4:2:2
 			ctx->sig_inc_v[0] = ctx->last_inc_v[0] = sig_inc_chromaDC[0];
 		#endif
-		ctx->scan_l = (v8qi){0, 4, 2, 6, 1, 5, 3, 7};
 		memset(ctx->c, 0, 64);
 		int token_or_cbf_Cb = CACOND(
 			CALL(parse_DC2x2_coeff_token_cavlc),
@@ -422,6 +422,7 @@ static void CAFUNC(parse_chroma_residual)
 				mb->f.coded_block_flags_16x16[1] = 1;
 			#endif
 			fprintf(stderr, "Cb DC coeffLevels:");
+			ctx->scan_s = (v4qi){0, 4, 2, 6};
 			CACALL(parse_residual_block, 0, 3, token_or_cbf_Cb);
 		}
 		int token_or_cbf_Cr = CACOND(
@@ -432,7 +433,8 @@ static void CAFUNC(parse_chroma_residual)
 				mb->f.coded_block_flags_16x16[2] = 1;
 			#endif
 			fprintf(stderr, "Cr DC coeffLevels:");
-			CACALL(parse_residual_block, 4, 7, token_or_cbf_Cr);
+			ctx->scan_s = (v4qi){1, 5, 3, 7};
+			CACALL(parse_residual_block, 0, 3, token_or_cbf_Cr);
 		}
 		CALL(transform_dc2x2);
 		

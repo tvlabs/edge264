@@ -45,7 +45,7 @@ $ make
 $ ./edge264_play-cc video.264
 ```
 
-When debugging, the make flag `TRACE=1` enables printing headers to stdout in HTML format, and `TRACE=2` adds the dumping of all other symbols to stderr (*very large*). I usually compare its output with that of a modified version of the official [JM decoder](https://avc.hhi.fraunhofer.de/). On the set of official AVCv1 conformance bitstreams, files `CANL1_Sony_E`, `CANL2_Sony_E`, `CANL3_Sony_C`, `CANL1_SVA_B`, `CANL2_SVA_B`, `CANL3_SVA_B`, `CANL4_SVA_B`, `CANL1_TOSHIBA_G`, `CAPCMNL1_Sand_E` are known to decode perfectly (the rest using yet unsupported features).
+When debugging, the make flag `TRACE=1` enables printing headers to stdout in HTML format, and `TRACE=2` adds the dumping of all other symbols to stderr (*very large*). On the set of official AVCv1 conformance bitstreams, files `CANL1_Sony_E`, `CANL2_Sony_E`, `CANL3_Sony_C`, `CANL1_SVA_B`, `CANL2_SVA_B`, `CANL3_SVA_B`, `CANL4_SVA_B`, `CANL1_TOSHIBA_G`, `CAPCMNL1_Sand_E` are known to decode perfectly (the rest using yet unsupported features).
 
 A test program is also provided, that browses files in a `conformance` directory, decoding each `<video>.264` and comparing its output with the pair `<video>.yuv`.
 

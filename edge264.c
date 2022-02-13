@@ -1,4 +1,5 @@
 /** MAYDO:
+ * _ use endIdx=3 for Cr DC blocks!
  * _ remove uses of __m64 in inter_ssse3.c
  * _ change the API to return 0~N frames after each call (instead of callback)
  * _ debug the decoding with GCC
@@ -1093,9 +1094,9 @@ static int FUNC(parse_seq_parameter_set, Edge264_stream *e)
 		.f.mb_type_B_Direct = 1,
 		.refIdx = {-1, -1, -1, -1, -1, -1, -1, -1},
 		.bits[3] = 0xac, // cbp
-		.nC[0] = {32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32},
-		.nC[1] = {32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32},
-		.nC[2] = {32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32},
+		.nC[0] = {64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64},
+		.nC[1] = {64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64},
+		.nC[2] = {64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64},
 		.Intra4x4PredMode = {-2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2},
 	};
 	

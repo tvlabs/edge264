@@ -265,7 +265,7 @@ static void CAFUNC(parse_residual_block, int startIdx, int endIdx, int token_or_
 		int zerosLeft = 0;
 		if (TotalCoeff <= endIdx - startIdx)
 			zerosLeft = CALL(parse_total_zeros, endIdx, TotalCoeff);
-		int8_t *scan = ctx->scan + zerosLeft + TotalCoeff - 1;
+		int8_t *scan = ctx->scan + startIdx + zerosLeft + TotalCoeff - 1;
 		ctx->c[*scan] = level[0];
 		for (int i = 1, v, run_before; i < TotalCoeff; i++) {
 			scan--;
@@ -639,11 +639,11 @@ static void CAFUNC(parse_coded_block_pattern)
 	#endif
 	
 	// Chroma suffix
-	if (ctx->ps.ChromaArrayType == 1 || ctx->ps.ChromaArrayType == 2) {
-		int CodedBlockPatternChromaDC = CACOND(cbp & 1, CALL(get_ae, 77 + ctx->inc.CodedBlockPatternChromaDC));
-		mb->f.CodedBlockPatternChromaDC = CodedBlockPatternChromaDC;
-		if (CodedBlockPatternChromaDC)
-			mb->f.CodedBlockPatternChromaAC = CACOND(cbp >> 1 & 1, CALL(get_ae, 81 + ctx->inc.CodedBlockPatternChromaAC));
+	if ((ctx->ps.ChromaArrayType == 1 || ctx->ps.ChromaArrayType == 2) &&
+		CACOND(cbp & 3, CALL(get_ae, 77 + ctx->inc.CodedBlockPatternChromaDC)))
+	{
+		mb->f.CodedBlockPatternChromaDC = 1;
+		mb->f.CodedBlockPatternChromaAC = CACOND(cbp >> 1 & 1, CALL(get_ae, 81 + ctx->inc.CodedBlockPatternChromaAC));
 	}
 	
 	fprintf(stderr, "coded_block_pattern: %u\n",

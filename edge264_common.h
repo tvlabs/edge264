@@ -139,7 +139,6 @@ typedef struct
 	uint16_t stride[3]; // [iYCbCr], 16 significant bits (8K, 16bit, field pic)
 	int16_t clip[3]; // [iYCbCr], maximum sample value
 	union { int8_t unavail[16]; v16qi unavail_v; }; // unavailability of neighbouring A/B/C/D blocks
-	uint8_t map_me[48];
 	union { uint8_t cabac[1024]; v16qu cabac_v[64]; };
 	
 	// neighbouring offsets (relative to the start of each array in mb)

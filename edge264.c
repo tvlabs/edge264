@@ -1,5 +1,5 @@
 /** MAYDO:
- * _ use endIdx=3 for Cr DC blocks!
+ * _ change the API with inspiration from https://code.videolan.org/videolan/dav1d/-/tree/master/include/dav1d
  * _ remove uses of __m64 in inter_ssse3.c
  * _ change the API to return 0~N frames after each call (instead of callback)
  * _ debug the decoding with GCC
@@ -622,9 +622,6 @@ static int FUNC(parse_slice_layer_without_partitioning, Edge264_stream *e)
 	
 	// cabac_alignment_one_bit gives a good probability to catch random errors.
 	if (!ctx->ps.entropy_coding_mode_flag) {
-		static const uint8_t me_intra[48] = {174, 173, 172, 0, 45, 169, 165, 141, 44, 168, 164, 140, 46, 170, 166, 142, 1, 40, 36, 136, 132, 41, 37, 137, 133, 42, 38, 138, 134, 32, 8, 4, 128, 33, 9, 5, 129, 12, 160, 13, 161, 2, 34, 10, 6, 130, 14, 162};
-		static const uint8_t me_inter[48] = {0, 1, 32, 8, 4, 128, 2, 40, 36, 136, 132, 172, 174, 44, 168, 164, 140, 12, 160, 173, 42, 38, 138, 134, 34, 10, 6, 130, 46, 170, 166, 142, 33, 9, 5, 129, 41, 37, 137, 133, 45, 169, 165, 141, 13, 161, 14, 162};
-		memcpy(ctx->map_me, ctx->slice_type == 2 ? me_intra : me_inter, sizeof(ctx->map_me));
 		ctx->mb_skip_run = -1;
 		CALL(parse_slice_data_cavlc);
 	} else {

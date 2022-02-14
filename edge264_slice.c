@@ -106,8 +106,8 @@
 			915, 915, 915, 915,
 		};
 		int leadingZeroBits = clz(msb_cache | (size_t)1 << (SIZE_BIT - 8));
-		unsigned threeBits = msb_cache >> (SIZE_BIT - 3 - leadingZeroBits);
-		int token = tokens[leadingZeroBits * 4 + threeBits - 4];
+		unsigned suffix = msb_cache >> (SIZE_BIT - 3 - leadingZeroBits) & 3;
+		int token = tokens[leadingZeroBits * 4 + suffix];
 		int coeff_token = token & 127;
 		int v = token >> 7;
 		msb_cache = lsd(msb_cache, lsb_cache, v);
@@ -197,8 +197,8 @@ static inline int FUNC(parse_total_zeros, int endIdx, int TotalCoeff) {
 		{17, 17, 17, 17, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16},
 	};
 	int leadingZeroBits = clz(msb_cache | (size_t)1 << (SIZE_BIT - 9));
-	int suffix = msb_cache >> ((leadingZeroBits + 2) ^ (SIZE_BIT - 1));
-	int code = codes[endIdx + TotalCoeff - 4][leadingZeroBits - 1][suffix];
+	int suffix = msb_cache >> ((leadingZeroBits + 2) ^ (SIZE_BIT - 1)) & 3;
+	int code = codes[endIdx + TotalCoeff - 4][leadingZeroBits][suffix];
 	int v = code >> 4;
 	msb_cache = lsd(msb_cache, lsb_cache, v);
 	lsb_cache <<= v;
@@ -492,7 +492,9 @@ static void CAFUNC(parse_Intra16x16_residual)
 			CALL(parse_coeff_token_cavlc, mb[-1].nC[iYCbCr][5], ctx->mbB->nC[iYCbCr][10]),
 			CALL(get_ae, ctx->ctxIdxOffsets[0] + ctx->inc.coded_block_flags_16x16[iYCbCr]));
 		if (token_or_cbf) {
-			CACOND(mb->nC[iYCbCr][0] = token_or_cbf >> 2, mb->f.coded_block_flags_16x16[iYCbCr] = 1);
+			#ifdef CABAC
+				mb->f.coded_block_flags_16x16[iYCbCr] = 1;
+			#endif
 			memset(ctx->c, 0, 64);
 			fprintf(stderr, "16x16 DC coeffLevels[%d]:", iYCbCr);
 			CACALL(parse_residual_block, 0, 15, token_or_cbf);
@@ -623,11 +625,11 @@ static void CAFUNC(parse_NxN_residual)
  * As with mb_qp_delta, coded_block_pattern is parsed in two distinct code
  * paths, thus put in a distinct function.
  */
-static void CAFUNC(parse_coded_block_pattern)
+static void CAFUNC(parse_coded_block_pattern, const uint8_t *map_me)
 {
 	// Luma prefix
 	#ifndef CABAC
-		int cbp = ctx->map_me[CALL(get_ue16, 47)];
+		int cbp = map_me[CALL(get_ue16, 47)];
 		mb->bits[3] |= cbp & 0xac;
 	#else
 		int bits = mb->bits[3];
@@ -728,6 +730,7 @@ static noinline void CAFUNC(parse_I_mb, int mb_type_or_ctxIdx)
 		.CodedBlockPatternChromaAC = 1,
 		.coded_block_flags_16x16 = {1, 1, 1},
 	};
+	static const uint8_t me_intra[48] = {174, 173, 172, 0, 45, 169, 165, 141, 44, 168, 164, 140, 46, 170, 166, 142, 1, 40, 36, 136, 132, 41, 37, 137, 133, 42, 38, 138, 134, 32, 8, 4, 128, 33, 9, 5, 129, 12, 160, 13, 161, 2, 34, 10, 6, 130, 14, 162};
 	
 	// Intra-specific initialisations
 	if (ctx->inc.unavailable & 1) {
@@ -769,7 +772,7 @@ static noinline void CAFUNC(parse_I_mb, int mb_type_or_ctxIdx)
 		fprintf(stderr, "\n");
 		
 		CACALL(parse_intra_chroma_pred_mode);
-		CACALL(parse_coded_block_pattern);
+		CACALL(parse_coded_block_pattern, me_intra);
 		CAJUMP(parse_NxN_residual);
 	
 	// Intra_16x16
@@ -868,7 +871,8 @@ static noinline void CAFUNC(parse_I_mb, int mb_type_or_ctxIdx)
  */
 static void CAFUNC(parse_inter_residual)
 {
-	CACALL(parse_coded_block_pattern);
+	static const uint8_t me_inter[48] = {0, 1, 32, 8, 4, 128, 2, 40, 36, 136, 132, 172, 174, 44, 168, 164, 140, 12, 160, 173, 42, 38, 138, 134, 34, 10, 6, 130, 46, 170, 166, 142, 33, 9, 5, 129, 41, 37, 137, 133, 45, 169, 165, 141, 13, 161, 14, 162};
+	CACALL(parse_coded_block_pattern, me_inter);
 	
 	if ((mb->bits[3] & 0xac) && ctx->transform_8x8_mode_flag) {
 		mb->f.transform_size_8x8_flag = CACOND(CALL(get_u1), CALL(get_ae, 399 + ctx->inc.transform_size_8x8_flag));
@@ -1543,7 +1547,7 @@ static noinline void CAFUNC(parse_slice_data)
 	};
 	
 	while (1) {
-		fprintf(stderr, "********** %u **********\n", ctx->CurrMbAddr);
+		fprintf(stderr, "********** POC=%u MB=%u **********\n", min(ctx->TopFieldOrderCnt, ctx->BottomFieldOrderCnt), ctx->CurrMbAddr);
 		v16qi flagsA = mb[-1].f.v;
 		v16qi flagsB = ctx->mbB->f.v;
 		ctx->inc.v = flagsA + flagsB + (flagsB & flags_twice.v);

@@ -1,7 +1,20 @@
 /** MAYDO:
+ * _ make POC an absolute value to fix the wrong ordering after IDR
+ * _ fix MaxDpbSize and max_dec_frame_buffering values according to spec
+ * _ review limits in SPS and PPS with latest spec
+ * _ limit picture bumping to one output per frame
+ * _ make bumping release pictures as attribute in e instead of callback
+ * _ make end_stream release pictures one by one in e then free at last call
+ * _ update the attributes of e to include all necessary data to decode one frame
+ * _ update existing codes to match new format
+ * _ add error code for bad input
+ * _ add flush function
+ * _ document functions with inspiration from Dav1d
+ * 
  * _ change the API with inspiration from https://code.videolan.org/videolan/dav1d/-/tree/master/include/dav1d
  * _ remove uses of __m64 in inter_ssse3.c
  * _ change the API to return 0~N frames after each call (instead of callback)
+ * _ add support for open GOP (i.e. ignoring frames that reference unavailable previous frames)
  * _ debug the decoding with GCC
  * _ fix initialization of implicit weights
  * _ review and secure the places where CABAC could result in unsupported internal state
@@ -10,6 +23,7 @@
  * _ once PredMode is used solely by Intra_4x4/8x8, remove it in favor of computing unavailability just before decoding
  * _ update the tables of names for profiles and NAL types, and review the maximum values according to the latest spec (they change, e.g. log_max_mv_length)
  * _ upgrade DPB storage size to 32 (to allow future multithreaded decoding), by simply doubling reference and output flags sizes
+ * _ don't implement multithreading if singlethreading can already handle 6.2 on middle-end hardware
  * _ backup output/ref flags and FrameNum and restore then on bad slice_header
  * _ try using epb for context pointer, and email GCC when it fails
  * _ when implementing fields and MBAFF, keep the same pic coding struct (no FLD/AFRM) and just add mb_field_decoding_flag

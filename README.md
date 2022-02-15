@@ -24,6 +24,7 @@ Planned features
 * Deblocking
 * Frame cropping
 * MVC 3D support
+* Open GOP support
 * 4:0:0, 4:2:2 and 4:4:4 (mostly implemented, needs testing)
 * 9-14 bit depths with possibility of different luma/chroma depths (mostly implemented, needs testing)
 * Transform-bypass for macroblocks with QP==0

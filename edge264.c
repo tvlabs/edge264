@@ -1,5 +1,4 @@
 /** MAYDO:
- * _ make POC an absolute value to fix the wrong ordering after IDR
  * _ fix MaxDpbSize and max_dec_frame_buffering values according to spec
  * _ review limits in SPS and PPS with latest spec
  * _ limit picture bumping to one output per frame
@@ -398,6 +397,9 @@ static void FUNC(parse_dec_ref_pic_marking, Edge264_stream *e)
 			continue;
 		} else if (memory_management_control_operation == 5) {
 			e->reference_flags = e->long_term_flags = 0;
+			e->prevPicOrderCnt = ctx->TopFieldOrderCnt & ((1 << ctx->ps.log2_max_pic_order_cnt_lsb) - 1); // should be 0 for bottom fields
+			for (int i = 0; i < 32; i++)
+				e->FieldOrderCnt[i] += 1 << 31; // make all buffered pictures precede the next ones
 			printf("<li>All references -> unused for reference</li>\n");
 			continue;
 		} else if (memory_management_control_operation == 6) {
@@ -535,6 +537,8 @@ static int FUNC(parse_slice_layer_without_partitioning, Edge264_stream *e)
 	// I did not get the point of idr_pic_id yet.
 	if (ctx->IdrPicFlag) {
 		e->reference_flags = e->long_term_flags = e->prevFrameNum = 0;
+		for (int i = 0; i < 32; i++)
+			e->FieldOrderCnt[i] += 1 << 31; // make all buffered pictures precede the next ones
 		int idr_pic_id = CALL(get_ue32, 65535); // probably a typo in the spec
 		printf("<li>idr_pic_id: <code>%u</code></li>\n", idr_pic_id);
 	}

@@ -36,8 +36,8 @@ static int check_frame(const Edge264_stream *e, int i, const uint8_t *frame, con
 	int MbStrideC = e->SPS.BitDepth_C == 8 ? MbWidthC : MbWidthC * 2;
 	int MbHeightC = e->SPS.chroma_format_idc < 2 ? 8 : 16;
 	
-	for (int row = 0; row < e->SPS.height >> 4; row++) {
-		for (int col = 0; col < e->SPS.width >> 4; col++) {
+	for (int row = 0; row < e->SPS.pic_height_in_mbs; row++) {
+		for (int col = 0; col < e->SPS.pic_width_in_mbs; col++) {
 			int MbStride = MbStrideY;
 			int MbHeight = 16;
 			int stride = e->stride_Y;
@@ -86,8 +86,10 @@ int print_frame(Edge264_stream *e, int i)
 	// resize the window if necessary
 	int w, h;
 	glfwGetWindowSize(window, &w, &h);
-	if (w != e->SPS.width || h != e->SPS.height) {
-		glfwSetWindowSize(window, e->SPS.width, e->SPS.height);
+	int widthY = e->SPS.pic_width_in_mbs << 4;
+	int heightY = e->SPS.pic_height_in_mbs << 4;
+	if (w != widthY || h != heightY) {
+		glfwSetWindowSize(window, widthY, heightY);
 		glfwShowWindow(window);
 	}
 	
@@ -95,11 +97,11 @@ int print_frame(Edge264_stream *e, int i)
 	glClear(GL_COLOR_BUFFER_BIT);
 	glVertexAttribPointer(0, 4, GL_FLOAT, GL_FALSE, 0, 0);
 	const uint8_t* p = e->DPB + i * e->frame_size;
-	int widthC = e->SPS.chroma_format_idc < 3 ? e->SPS.width >> 1 : e->SPS.width;
-	int heightC = e->SPS.chroma_format_idc < 2 ? e->SPS.height >> 1 : e->SPS.height;
+	int widthC = widthY >> (e->SPS.chroma_format_idc < 3);
+	int heightC = heightY >> (e->SPS.chroma_format_idc < 2);
 	glActiveTexture(GL_TEXTURE0);
 	glBindTexture(GL_TEXTURE_2D, textures[0]);
-	glTexImage2D(GL_TEXTURE_2D, 0, GL_LUMINANCE, e->SPS.width, e->SPS.height, 0, GL_LUMINANCE, e->SPS.BitDepth_Y == 8 ? GL_UNSIGNED_BYTE : GL_UNSIGNED_SHORT, p);
+	glTexImage2D(GL_TEXTURE_2D, 0, GL_LUMINANCE, widthY, heightY, 0, GL_LUMINANCE, e->SPS.BitDepth_Y == 8 ? GL_UNSIGNED_BYTE : GL_UNSIGNED_SHORT, p);
 	glActiveTexture(GL_TEXTURE1);
 	glBindTexture(GL_TEXTURE_2D, textures[1]);
 	glTexImage2D(GL_TEXTURE_2D, 0, GL_LUMINANCE, widthC, heightC, 0, GL_LUMINANCE, e->SPS.BitDepth_C == 8 ? GL_UNSIGNED_BYTE : GL_UNSIGNED_SHORT, p + e->plane_size_Y);

@@ -109,7 +109,7 @@ static void FUNC(initialise_decoding_context, Edge264_stream *e)
 	
 	// initializing with vectors is not the fastest here, but is most readable thus maintainable
 	int offA_int8 = -(int)sizeof(*mb);
-	int offB_int8 = -(ctx->ps.width / 16 + 1) * sizeof(*mb);
+	int offB_int8 = -(ctx->ps.pic_width_in_mbs + 1) * sizeof(*mb);
 	ctx->mbB = (Edge264_macroblock *)(ctx->samples_mb[2] + e->plane_size_C + sizeof(*mb));
 	mb = (Edge264_macroblock *)((uint8_t *)ctx->mbB - offB_int8);
 	ctx->A4x4_int8_v = (v16hi){5 + offA_int8, 0, 7 + offA_int8, 2, 1, 4, 3, 6, 13 + offA_int8, 8, 15 + offA_int8, 10, 9, 12, 11, 14};
@@ -1240,23 +1240,22 @@ static int FUNC(parse_seq_parameter_set, Edge264_stream *e)
 		profile_idc == 110 || profile_idc == 122 || profile_idc == 244) &&
 		(constraint_set_flags & 1 << 4)) ? 0 : ctx->ps.max_num_ref_frames;
 	
-	// We don't store pic_width/height_in_mbs to avoid cluttering structs
+	// Max dimensions are imposed by some int16 storage, wait for actual needs to push them.
 	int gaps_in_frame_num_value_allowed_flag = CALL(get_u1);
-	unsigned pic_width_in_mbs = CALL(get_ue16, 511) + 1;
-	int pic_height_in_map_units = CALL(get_ue16, 511) + 1;
-	ctx->ps.frame_mbs_only_flag = CALL(get_u1);
-	ctx->ps.width = pic_width_in_mbs << 4;
-	ctx->ps.height = (ctx->ps.frame_mbs_only_flag) ? pic_height_in_map_units << 4 :
-		pic_height_in_map_units << 5;
+	ctx->ps.pic_width_in_mbs = CALL(get_ue16, 1022) + 1;
+	int pic_height_in_map_units = CALL(get_ue16, 1054) + 1;
+	int frame_mbs_only_flag = CALL(get_u1);
+	ctx->ps.frame_mbs_only_flag = frame_mbs_only_flag;
+	ctx->ps.pic_height_in_mbs = pic_height_in_map_units << 1 >> frame_mbs_only_flag;
 	printf("<li>max_num_ref_frames: <code>%u</code></li>\n"
 		"<li>gaps_in_frame_num_value_allowed_flag: <code>%x</code></li>\n"
-		"<li>width: <code>%u</code></li>\n"
-		"<li>height: <code>%u</code></li>\n"
+		"<li>pic_width_in_mbs: <code>%u</code></li>\n"
+		"<li>pic_height_in_mbs: <code>%u</code></li>\n"
 		"<li%s>frame_mbs_only_flag: <code>%x</code></li>\n",
 		ctx->ps.max_num_ref_frames,
 		gaps_in_frame_num_value_allowed_flag,
-		ctx->ps.width,
-		ctx->ps.height,
+		ctx->ps.pic_width_in_mbs,
+		ctx->ps.pic_height_in_mbs,
 		red_if(!ctx->ps.frame_mbs_only_flag), ctx->ps.frame_mbs_only_flag);
 	
 	// Evil has a name...
@@ -1278,8 +1277,8 @@ static int FUNC(parse_seq_parameter_set, Edge264_stream *e)
 	if (CALL(get_u1)) {
 		unsigned shiftX = (ctx->ps.ChromaArrayType == 1) | (ctx->ps.ChromaArrayType == 2);
 		unsigned shiftY = (ctx->ps.ChromaArrayType == 1) + (ctx->ps.frame_mbs_only_flag ^ 1);
-		int limX = (ctx->ps.width >> shiftX) - 1;
-		int limY = (ctx->ps.height >> shiftY) - 1;
+		int limX = (ctx->ps.pic_width_in_mbs << 4 >> shiftX) - 1;
+		int limY = (ctx->ps.pic_height_in_mbs << 4 >> shiftY) - 1;
 		ctx->ps.frame_crop_left_offset = CALL(get_ue16, limX) << shiftX;
 		ctx->ps.frame_crop_right_offset = CALL(get_ue16, limX - (ctx->ps.frame_crop_left_offset >> shiftX));
 		ctx->ps.frame_crop_top_offset = CALL(get_ue16, limY) << shiftY;
@@ -1306,12 +1305,12 @@ static int FUNC(parse_seq_parameter_set, Edge264_stream *e)
 		Edge264_end_stream(e); // This will output all pending pictures
 		
 		// some basic variables first
-		int width_Y = ctx->ps.width;
+		int PicWidthInMbs = ctx->ps.pic_width_in_mbs;
+		int PicHeightInMbs = ctx->ps.pic_height_in_mbs;
+		int width_Y = PicWidthInMbs << 4;
 		int width_C = ctx->ps.chroma_format_idc == 0 ? 0 : ctx->ps.chroma_format_idc == 3 ? width_Y : width_Y >> 1;
-		int height_Y = ctx->ps.height;
+		int height_Y = PicHeightInMbs << 4;
 		int height_C = ctx->ps.chroma_format_idc < 2 ? height_Y >> 1 : height_Y;
-		int PicWidthInMbs = width_Y >> 4;
-		int PicHeightInMbs = height_Y >> 4;
 		
 		// An offset might be added if cache alignment has a significant impact on some videos.
 		e->stride_Y = ctx->ps.BitDepth_Y == 8 ? width_Y : width_Y * 2;

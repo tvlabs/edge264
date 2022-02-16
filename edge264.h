@@ -36,8 +36,8 @@ typedef struct {
 	int8_t BitDepth_Y; // 4 significant bits
 	int8_t BitDepth_C;
 	int8_t max_dec_frame_buffering; // 5 significant bits
-	int16_t width; // in luma samples, at most 8192
-	int16_t height;
+	int16_t pic_width_in_mbs; // 10 significant bits
+	int16_t pic_height_in_mbs; // 10 significant bits
 	
 	// The rest is internal stuff.
 	uint16_t qpprime_y_zero_transform_bypass_flag:1;

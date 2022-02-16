@@ -1,5 +1,4 @@
 /** MAYDO:
- * _ fix MaxDpbSize and max_dec_frame_buffering values according to spec
  * _ review limits in SPS and PPS with latest spec
  * _ limit picture bumping to one output per frame
  * _ make bumping release pictures as attribute in e instead of callback
@@ -1102,6 +1101,20 @@ static int FUNC(parse_seq_parameter_set, Edge264_stream *e)
 		[244] = "High 4:4:4 Predictive",
 	};
 	static const char * const chroma_format_idc_names[4] = {"4:0:0", "4:2:0", "4:2:2", "4:4:4"};
+	static const int32_t MaxDpbMbs[64] = {
+		396, 396, 396, 396, 396, 396, 396, 396, 396, 396, 396, // level 1
+		900, // levels 1b and 1.1
+		2376, 2376, 2376, 2376, 2376, 2376, 2376, 2376, 2376, // levels 1.2, 1.3 and 2
+		4752, // level 2.1
+		8100, 8100, 8100, 8100, 8100, 8100, 8100, 8100, 8100, // levels 2.2 and 3
+		18000, // level 3.1
+		20480, // level 3.2
+		32768, 32768, 32768, 32768, 32768, 32768, 32768, 32768, 32768, // levels 4 and 4.1
+		34816, // level 4.2
+		110400, 110400, 110400, 110400, 110400, 110400, 110400, 110400, // level 5
+		184320, 184320, // levels 5.1 and 5.2
+		696320, 696320, 696320, 696320, 696320, 696320, 696320, 696320, 696320, 696320, 696320, // levels 6, 6.1 and 6.2
+	};
 	static const Edge264_macroblock unavail_mb = {
 		.f.unavailable = 1,
 		.f.mb_skip_flag = 1,
@@ -1232,27 +1245,25 @@ static int FUNC(parse_seq_parameter_set, Edge264_stream *e)
 		printf("</ul>\n");
 	}
 	
-	// We use lower default values than spec (E.2.1), that would fail for
-	// streams reordering non-reference frames (unlikely)
-	ctx->ps.max_num_ref_frames = CALL(get_ue16, 15);
+	// Max dimensions are imposed by some int16 storage, wait for actual needs to push them.
+	int max_num_ref_frames = CALL(get_ue16, 15);
+	int gaps_in_frame_num_value_allowed_flag = CALL(get_u1);
+	ctx->ps.pic_width_in_mbs = CALL(get_ue16, 1022) + 1;
+	int pic_height_in_map_units = CALL(get_ue16, 1054) + 1;
+	ctx->ps.frame_mbs_only_flag = CALL(get_u1);
+	ctx->ps.pic_height_in_mbs = pic_height_in_map_units << 1 >> ctx->ps.frame_mbs_only_flag;
+	int MaxDpbFrames = min(MaxDpbMbs[min(level_idc, 63)] / (ctx->ps.pic_width_in_mbs * ctx->ps.pic_height_in_mbs), 16);
+	ctx->ps.max_num_ref_frames = min(max_num_ref_frames, MaxDpbFrames);
 	ctx->ps.max_num_reorder_frames = ctx->ps.max_dec_frame_buffering =
 		((profile_idc == 44 || profile_idc == 86 || profile_idc == 100 ||
 		profile_idc == 110 || profile_idc == 122 || profile_idc == 244) &&
 		(constraint_set_flags & 1 << 4)) ? 0 : ctx->ps.max_num_ref_frames;
-	
-	// Max dimensions are imposed by some int16 storage, wait for actual needs to push them.
-	int gaps_in_frame_num_value_allowed_flag = CALL(get_u1);
-	ctx->ps.pic_width_in_mbs = CALL(get_ue16, 1022) + 1;
-	int pic_height_in_map_units = CALL(get_ue16, 1054) + 1;
-	int frame_mbs_only_flag = CALL(get_u1);
-	ctx->ps.frame_mbs_only_flag = frame_mbs_only_flag;
-	ctx->ps.pic_height_in_mbs = pic_height_in_map_units << 1 >> frame_mbs_only_flag;
 	printf("<li>max_num_ref_frames: <code>%u</code></li>\n"
 		"<li>gaps_in_frame_num_value_allowed_flag: <code>%x</code></li>\n"
 		"<li>pic_width_in_mbs: <code>%u</code></li>\n"
 		"<li>pic_height_in_mbs: <code>%u</code></li>\n"
 		"<li%s>frame_mbs_only_flag: <code>%x</code></li>\n",
-		ctx->ps.max_num_ref_frames,
+		max_num_ref_frames,
 		gaps_in_frame_num_value_allowed_flag,
 		ctx->ps.pic_width_in_mbs,
 		ctx->ps.pic_height_in_mbs,
@@ -1296,8 +1307,11 @@ static int FUNC(parse_seq_parameter_set, Edge264_stream *e)
 		CALL(parse_vui_parameters);
 	if (CALL(get_uv, 24) != 0x800000)
 		return 2;
-	if (ctx->ps.chroma_format_idc != ctx->ps.ChromaArrayType ||
-		ctx->ps.qpprime_y_zero_transform_bypass_flag || !ctx->ps.frame_mbs_only_flag)
+	if (ctx->ps.ChromaArrayType != 1 || ctx->ps.BitDepth_Y != 8 ||
+		ctx->ps.BitDepth_C != 8 || ctx->ps.qpprime_y_zero_transform_bypass_flag ||
+		!ctx->ps.frame_mbs_only_flag || ctx->ps.frame_crop_left_offset ||
+		ctx->ps.frame_crop_right_offset || ctx->ps.frame_crop_top_offset ||
+		ctx->ps.frame_crop_bottom_offset)
 		return 1;
 	
 	// reallocate the DPB when the image format changes

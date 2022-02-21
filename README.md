@@ -58,7 +58,7 @@ $ ./edge264_test-cc
 Key takeaways
 -------------
 
-* [Minimalistic API](edge264.h) (3 functions and 2 structures).
+* [Minimalistic API](edge264.h) (4 functions and 2 structures).
 * [The input bitstream](edge264_golomb.c) is unescaped on the fly using vector code, avoiding a full preprocessing pass to remove escape sequences, and thus reducing memory reads/writes.
 * [Error detection](edge264.c) is performed once in each type of NAL unit (search for `return` statements), by clamping all input values to their expected ranges, then expecting `rbsp_trailing_bit` afterwards (with _very high_ probability of catching an error if the stream is corrupted). This design choice is discussed in [A case about parsing errors](https://traffaillac.github.io/parsing.html).
 * [The bitstream caches](edge264_common.h) for CAVLC and CABAC (search for `rbsp_reg`) are stored in two size_t variables each, mapped on Global Register Variables if possible, speeding up the _very frequent_ calls to input functions. The main context pointer is also assigned to a GRV, to help reduce the binary size (\~130k).

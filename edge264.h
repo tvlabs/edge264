@@ -125,8 +125,8 @@ int Edge264_decode_NAL(Edge264_stream *e);
 
 
 /**
- * Extract and return a decoded frame. Pass end_of_stream=1 to drain all
- * remaining frames at the end of a bitstream.
+ * Extract and return a decoded frame (or NULL if none is available).
+ * Pass end_of_stream=1 to drain all remaining frames at the stream end.
  * 
  * Example code:
  *    Edge264_stream e = {.CPB=buffer_start, .end=buffer_end};

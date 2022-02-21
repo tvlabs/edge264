@@ -102,12 +102,12 @@ typedef struct
 {
 	// small variables and constant parameters
 	Edge264_flags inc; // increments for CABAC indices of macroblock syntax elements
-	uint8_t nal_ref_flag:1;
-	uint8_t IdrPicFlag:1;
 	uint8_t field_pic_flag:1;
 	uint8_t bottom_field_flag:1;
 	uint8_t MbaffFrameFlag:1;
 	uint8_t direct_spatial_mv_pred_flag:1;
+	int8_t nal_ref_idc;
+	int8_t nal_unit_type;
 	int8_t slice_type; // 3 significant bits
 	int8_t luma_log2_weight_denom; // 3 significant bits
 	int8_t chroma_log2_weight_denom; // 3 significant bits
@@ -115,6 +115,7 @@ typedef struct
 	int8_t FilterOffsetA; // 5 significant bits
 	int8_t FilterOffsetB;
 	int8_t mb_qp_delta_nz;
+	int8_t currPic;
 	int32_t TopFieldOrderCnt;
 	int32_t BottomFieldOrderCnt;
 	Edge264_parameter_set ps;

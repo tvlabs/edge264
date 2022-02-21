@@ -39,7 +39,7 @@ typedef struct {
 	int16_t pic_width_in_mbs; // 10 significant bits
 	int16_t pic_height_in_mbs; // 10 significant bits
 	
-	// The rest is internal stuff.
+	// private fields
 	uint16_t qpprime_y_zero_transform_bypass_flag:1;
 	uint16_t pic_order_cnt_type:2;
 	uint16_t delta_pic_order_always_zero_flag:1; // pic_order_cnt_type==1
@@ -75,14 +75,12 @@ typedef struct {
 
 
 typedef struct Edge264_stream {
-	// These four fields must be set prior to decoding, the rest zeroed.
+	// These fields must be set prior to decoding, the rest zeroed.
 	const uint8_t *CPB; // should point to a NAL unit (after the 001 prefix)
-	const uint8_t *end; // first byte after the end of the buffer
-	int (*output_frame)(struct Edge264_stream*, int);
-	void *user; // optional
+	const uint8_t *end; // first byte past the end of the buffer
 	
+	// private fields
 	uint8_t *DPB; // NULL before the first SPS is decoded
-	int8_t currPic; // index of next available DPB slot
 	int16_t stride_Y; // 15 significant bits
 	int16_t stride_C;
 	int32_t plane_size_Y;
@@ -103,30 +101,53 @@ typedef struct Edge264_stream {
 
 
 /**
- * Scans memory for the next three-byte 00n pattern, and returns a pointer to
- * the first following byte (or end if no pattern was found).
- * Reads memory in aligned 16-bytes chunks.
+ * Scan memory for the next three-byte 00n pattern, returning a pointer to the
+ * first following byte (or end if no pattern was found).
  */
 const uint8_t *Edge264_find_start_code(int n, const uint8_t *CPB, const uint8_t *end);
 
 
 /**
- * Decodes one NAL unit, then increments its CPB pointer to the next one.
- * output_frame will be called after decoding if a frame is ready for output.
- * Note that it may output a buffered frame rather than the one just decoded
- * (determined by encoder), and may also output several frames after one NAL.
- * Returns 0 on success, 1 on unsupported stream, 2 on decoding error, and 3
- * when reaching the end of stream (before or after decoding).
+ * Decode a single NAL unit, with e->CPB pointing at its first byte.
+ * When the NAL is followed by a start code (for annex B streams), e->CPB will
+ * be updated to point at the next unit.
+ * 
+ * Return codes are:
+ *  0: success
+ * -1: unsupported stream (decoding may proceed but could return zero frames)
+ * -2: decoding error (decoding may proceed but could show visual artefacts,
+ *     if you can validate with another decoder that the stream is correct,
+ *     please consider filling a bug report, thanks!)
+ * -3: bad library call (either was called with e->CPB==e->end, or a frame must
+ *     be consumed prior to the call), decoding should stop immediately.
  */
 int Edge264_decode_NAL(Edge264_stream *e);
 
 
 /**
- * Outputs all remaining pictures (ignoring values returned from output_frame),
- * then deallocates all buffers and zeroes the entire structure except
- * CPB/end/output_frame/user.
- * To end quickly without outputs, clear output_frame before the call.
+ * Extract and return a decoded frame. Pass end_of_stream=1 to drain all
+ * remaining frames at the end of a bitstream.
+ * 
+ * Example code:
+ *    Edge264_stream e = {.CPB=buffer_start, .end=buffer_end};
+ *    int res = 0;
+ *    do {
+ *       if (e.CPB < e.end)
+ *          res = Edge264_decode_NAL(&e);
+ *       const uint8_t *output = Edge264_get_frame(&e, e.CPB == e.end);
+ *       if (output != NULL)
+ *          process_frame(&e, output);
+ *       else if (e.CPB == e.end)
+ *          break;
+ *    } while (res > -3);
+ *    Edge264_clear(&e);
  */
-void Edge264_end_stream(Edge264_stream *e);
+const void *Edge264_get_frame(Edge264_stream *e, int end_of_stream);
+
+
+/**
+ * Free all internal memory and reset the structure to zero.
+ */
+void Edge264_clear(Edge264_stream *e);
 
 #endif

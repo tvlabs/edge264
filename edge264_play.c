@@ -25,11 +25,91 @@
 #endif
 
 static GLFWwindow *window;
+static const uint8_t *cmp;
 static unsigned textures[3];
 
 
 
-static int check_frame(const Edge264_stream *e, int i, const uint8_t *frame, const uint8_t *ref)
+static void init_display()
+{
+	static const char* vsource =
+		"attribute vec4 aCoord;"
+		"varying vec2 vTex;"
+		"void main() {"
+			"gl_Position = vec4(aCoord.xy, 0.0, 1.0);"
+			"vTex = aCoord.zw;"
+		"}";
+	static const char* fsource =
+		"varying vec2 vTex;"
+		"uniform sampler2D texY;"
+		"uniform sampler2D texCb;"
+		"uniform sampler2D texCr;"
+		"const mat4 YCbCr_RGB = mat4("
+			" 1.164383,  1.164383,  1.164383, 0.0,"
+			" 0.000000, -0.391762,  2.017232, 0.0,"
+			" 1.596027, -0.812968,  0.000000, 0.0,"
+			"-0.870787,  0.529591, -1.081390, 1.0);"
+		"void main() {"
+			"float Y = texture2D(texY, vTex).r;"
+			"float Cb = texture2D(texCb, vTex).r;"
+			"float Cr = texture2D(texCr, vTex).r;"
+			"gl_FragColor = YCbCr_RGB * vec4(Y, Cb, Cr, 1.0);"
+		"}";
+	static const float quad[16] = {
+		-1.0,  1.0, 0.0, 0.0,
+		-1.0, -1.0, 0.0, 1.0,
+		 1.0,  1.0, 1.0, 0.0,
+		 1.0, -1.0, 1.0, 1.0};
+	
+	glfwInit();
+	glfwWindowHint(GLFW_VISIBLE, GLFW_FALSE);
+	window = glfwCreateWindow(1, 1, "Play", NULL, NULL);
+	glfwMakeContextCurrent(window);
+	glfwSwapInterval(1);
+	glClearColor(0.5, 0.5, 0.5, 1);
+	glDisable(GL_DEPTH_TEST);
+	glEnable(GL_MULTISAMPLE);
+	
+	// compile and link the shaders
+	unsigned program = glCreateProgram();
+	unsigned vshader = glCreateShader(GL_VERTEX_SHADER);
+	unsigned fshader = glCreateShader(GL_FRAGMENT_SHADER);
+	glShaderSource(vshader, 1, (const char*const*)&vsource, NULL);
+	glShaderSource(fshader, 1, (const char*const*)&fsource, NULL);
+	glCompileShader(vshader);
+	glCompileShader(fshader);
+	glAttachShader(program, vshader);
+	glAttachShader(program, fshader);
+	glBindAttribLocation(program, 0, "aCoord");
+	glLinkProgram(program);
+	glUseProgram(program);
+	glEnableVertexAttribArray(0);
+	glUniform1i(glGetUniformLocation(program, "texY"), 0);
+	glUniform1i(glGetUniformLocation(program, "texCb"), 1);
+	glUniform1i(glGetUniformLocation(program, "texCr"), 2);
+	
+	// load a dummy quad
+	unsigned vbo;
+	glGenBuffers(1, &vbo);
+	glBindBuffer(GL_ARRAY_BUFFER, vbo);
+	glBufferData(GL_ARRAY_BUFFER, sizeof(quad), quad, GL_STATIC_DRAW);
+	
+	// setup texture units
+	glGenTextures(3, textures);
+	glBindTexture(GL_TEXTURE_2D, textures[0]);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+	glBindTexture(GL_TEXTURE_2D, textures[1]);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+	glBindTexture(GL_TEXTURE_2D, textures[2]);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+}
+
+
+
+static int check_frame(const Edge264_stream *e, int i, const uint8_t *frame)
 {
 	int MbStrideY = e->SPS.BitDepth_Y == 8 ? 16 : 32;
 	int MbWidthC = e->SPS.chroma_format_idc < 3 ? 8 : 16;
@@ -45,7 +125,7 @@ static int check_frame(const Edge264_stream *e, int i, const uint8_t *frame, con
 			for (int iYCbCr = 0; iYCbCr < 3; iYCbCr++) {
 				int offset = plane + row * MbHeight * stride + col * MbStride;
 				const uint8_t *p = frame + offset;
-				const uint8_t *q = ref + offset;
+				const uint8_t *q = cmp + offset;
 				
 				int invalid = 0;
 				for (int base = 0; base < MbHeight * stride; base += stride)
@@ -73,15 +153,15 @@ static int check_frame(const Edge264_stream *e, int i, const uint8_t *frame, con
 			}
 		}
 	}
-	printf("</ul>\n"
-		"<ul>\n"
-		"<li style='color:green'>Output frame with pic_order_cnt %d is correct</li>\n", e->FieldOrderCnt[i]);
+	printf("<ul>\n"
+		"<li style='color:green'>Output frame with pic_order_cnt %d is correct</li>\n"
+		"</ul>\n", e->FieldOrderCnt[i]);
 	return 0;
 }
 
 
 
-int print_frame(Edge264_stream *e, int i)
+int process_frame(Edge264_stream *e, int i)
 {
 	// resize the window if necessary
 	int w, h;
@@ -119,14 +199,14 @@ int print_frame(Edge264_stream *e, int i)
 	}
 	
 	// Does this frame match the reference?
-	if (e->user != NULL) {
-		if (check_frame(e, i, p, e->user)) {
+	if (cmp != NULL) {
+		if (check_frame(e, i, p)) {
 			while (!glfwWindowShouldClose(window))
 				glfwWaitEvents();
 			glfwTerminate();
 			exit(0);
 		}
-		e->user += e->plane_size_Y + e->plane_size_C * 2;
+		cmp += e->plane_size_Y + e->plane_size_C * 2;
 	}
 	return 0;
 }
@@ -135,35 +215,6 @@ int print_frame(Edge264_stream *e, int i)
 
 int main(int argc, char *argv[])
 {
-	static const char* vsource =
-		"attribute vec4 aCoord;"
-		"varying vec2 vTex;"
-		"void main() {"
-			"gl_Position = vec4(aCoord.xy, 0.0, 1.0);"
-			"vTex = aCoord.zw;"
-		"}";
-	static const char* fsource =
-		"varying vec2 vTex;"
-		"uniform sampler2D texY;"
-		"uniform sampler2D texCb;"
-		"uniform sampler2D texCr;"
-		"const mat4 YCbCr_RGB = mat4("
-			" 1.164383,  1.164383,  1.164383, 0.0,"
-			" 0.000000, -0.391762,  2.017232, 0.0,"
-			" 1.596027, -0.812968,  0.000000, 0.0,"
-			"-0.870787,  0.529591, -1.081390, 1.0);"
-		"void main() {"
-			"float Y = texture2D(texY, vTex).r;"
-			"float Cb = texture2D(texCb, vTex).r;"
-			"float Cr = texture2D(texCr, vTex).r;"
-			"gl_FragColor = YCbCr_RGB * vec4(Y, Cb, Cr, 1.0);"
-		"}";
-	static const float quad[16] = {
-		-1.0,  1.0, 0.0, 0.0,
-		-1.0, -1.0, 0.0, 1.0,
-		 1.0,  1.0, 1.0, 0.0,
-		 1.0, -1.0, 1.0, 1.0};
-	
 	// read command-line options
 	int bench = 0, help = 0;
 	char *input_name = NULL, *yuv_name = NULL;
@@ -203,7 +254,6 @@ int main(int argc, char *argv[])
 	Edge264_stream e = {
 		.CPB = cpb + 3 + (cpb[2] == 0),
 		.end = cpb + stC.st_size,
-		.output_frame = bench ? NULL : print_frame
 	};
 	
 	// memory-map the optional yuv reference file
@@ -219,56 +269,12 @@ int main(int argc, char *argv[])
 		fstat(yuv, &stD);
 		dpb = mmap(NULL, stD.st_size, PROT_READ, MAP_SHARED, yuv, 0);
 		assert(dpb!=NULL);
-		e.user = dpb;
+		cmp = dpb;
 	}
 	
 	// initialize OpenGL with GLFW
-	if (!bench) {
-		glfwInit();
-		glfwWindowHint(GLFW_VISIBLE, GLFW_FALSE);
-		window = glfwCreateWindow(1, 1, "Play", NULL, NULL);
-		glfwMakeContextCurrent(window);
-		glfwSwapInterval(1);
-		glClearColor(0.5, 0.5, 0.5, 1);
-		glDisable(GL_DEPTH_TEST);
-		glEnable(GL_MULTISAMPLE);
-		
-		// compile and link the shaders
-		unsigned program = glCreateProgram();
-		unsigned vshader = glCreateShader(GL_VERTEX_SHADER);
-		unsigned fshader = glCreateShader(GL_FRAGMENT_SHADER);
-		glShaderSource(vshader, 1, (const char*const*)&vsource, NULL);
-		glShaderSource(fshader, 1, (const char*const*)&fsource, NULL);
-		glCompileShader(vshader);
-		glCompileShader(fshader);
-		glAttachShader(program, vshader);
-		glAttachShader(program, fshader);
-		glBindAttribLocation(program, 0, "aCoord");
-		glLinkProgram(program);
-		glUseProgram(program);
-		glEnableVertexAttribArray(0);
-		glUniform1i(glGetUniformLocation(program, "texY"), 0);
-		glUniform1i(glGetUniformLocation(program, "texCb"), 1);
-		glUniform1i(glGetUniformLocation(program, "texCr"), 2);
-		
-		// load a dummy quad
-		unsigned vbo;
-		glGenBuffers(1, &vbo);
-		glBindBuffer(GL_ARRAY_BUFFER, vbo);
-		glBufferData(GL_ARRAY_BUFFER, sizeof(quad), quad, GL_STATIC_DRAW);
-		
-		// setup texture units
-		glGenTextures(3, textures);
-		glBindTexture(GL_TEXTURE_2D, textures[0]);
-		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
-		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
-		glBindTexture(GL_TEXTURE_2D, textures[1]);
-		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
-		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
-		glBindTexture(GL_TEXTURE_2D, textures[2]);
-		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
-		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
-	}
+	if (!bench)
+		init_display();
 	
 	// parse and dump the file to HTML
 	setbuf(stdout, NULL);
@@ -276,8 +282,17 @@ int main(int argc, char *argv[])
 		"<html>\n"
 		"<head><title>NAL headers</title></head>\n"
 		"<body>\n");
-	while (Edge264_decode_NAL(&e) == 0);
-	Edge264_end_stream(&e);
+	int res;
+	do {
+		if (e.CPB < e.end)
+			res = Edge264_decode_NAL(&e);
+		const uint8_t *output = Edge264_get_frame(&e, e.CPB == e.end);
+		if (output != NULL && !bench)
+			process_frame(&e, (output - e.DPB) / e.frame_size);
+		else if (e.CPB == e.end)
+			break;
+	} while (res > -3);
+	Edge264_clear(&e);
 	printf("</body>\n"
 		"</html>\n");
 	

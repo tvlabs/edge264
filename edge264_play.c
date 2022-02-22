@@ -282,16 +282,14 @@ int main(int argc, char *argv[])
 		"<html>\n"
 		"<head><title>NAL headers</title></head>\n"
 		"<body>\n");
-	int res;
-	do {
-		if (e.CPB < e.end)
-			res = Edge264_decode_NAL(&e);
+	while (1) {
+		int res = Edge264_decode_NAL(&e);
 		const uint8_t *output = Edge264_get_frame(&e, e.CPB == e.end);
 		if (output != NULL && !bench)
 			process_frame(&e, (output - e.DPB) / e.frame_size);
 		else if (e.CPB == e.end)
 			break;
-	} while (res > -3);
+	}
 	Edge264_clear(&e);
 	printf("</body>\n"
 		"</html>\n");

@@ -91,6 +91,7 @@ typedef struct Edge264_stream {
 	uint16_t output_flags;
 	int32_t prevFrameNum;
 	int32_t prevPicOrderCnt;
+	int32_t dispPicOrderCnt;
 	int32_t FrameNum[16];
 	int32_t FieldOrderCnt[32]; // lower/higher half for top/bottom fields
 	Edge264_parameter_set SPS;
@@ -118,8 +119,8 @@ const uint8_t *Edge264_find_start_code(int n, const uint8_t *CPB, const uint8_t 
  * -2: decoding error (decoding may proceed but could show visual artefacts,
  *     if you can validate with another decoder that the stream is correct,
  *     please consider filling a bug report, thanks!)
- * -3: bad library call (either was called with e->CPB==e->end, or a frame must
- *     be consumed prior to the call), decoding should stop immediately.
+ * -3: DPB is full (more frames should be consumed before decoding can resume)
+ * -4: end of bitstream (e->CPB==e->end, so fetch some new data to proceed)
  */
 int Edge264_decode_NAL(Edge264_stream *e);
 
@@ -130,16 +131,14 @@ int Edge264_decode_NAL(Edge264_stream *e);
  * 
  * Example code:
  *    Edge264_stream e = {.CPB=buffer_start, .end=buffer_end};
- *    int res = 0;
- *    do {
- *       if (e.CPB < e.end)
- *          res = Edge264_decode_NAL(&e);
+ *    while (1) {
+ *       int res = Edge264_decode_NAL(&e);
  *       const uint8_t *output = Edge264_get_frame(&e, e.CPB == e.end);
- *       if (output != NULL)
- *          process_frame(&e, output);
+ *       if (output != NULL && !bench)
+ *          process_frame(&e, (output - e.DPB) / e.frame_size);
  *       else if (e.CPB == e.end)
  *          break;
- *    } while (res > -3);
+ *    }
  *    Edge264_clear(&e);
  */
 const void *Edge264_get_frame(Edge264_stream *e, int end_of_stream);

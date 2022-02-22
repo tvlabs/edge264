@@ -1,4 +1,5 @@
 /** MAYDO:
+ * _ fix the display of CABAC with TRACE=2
  * _ update the attributes of e to include all necessary data to decode one frame
  * _ remove uses of __m64 in inter_ssse3.c
  * _ add support for open GOP (i.e. ignoring frames that reference unavailable previous frames)
@@ -499,6 +500,7 @@ static int FUNC(parse_slice_layer_without_partitioning, Edge264_stream *e)
 	if (ctx->nal_unit_type == 5) {
 		for (int i = 0; i < 32; i++)
 			e->FieldOrderCnt[i] -= 1 << 31; // make all buffered pictures precede the next ones
+		e->dispPicOrderCnt = -1; // make all buffered pictured ready for display
 		int idr_pic_id = CALL(get_ue32, 65535);
 		printf("<li>idr_pic_id: <code>%u</code></li>\n", idr_pic_id);
 	}
@@ -570,6 +572,8 @@ static int FUNC(parse_slice_layer_without_partitioning, Edge264_stream *e)
 	// not much to say in this comment either (though intention there is!)
 	if (ctx->nal_ref_idc)
 		CALL(parse_dec_ref_pic_marking, e);
+	else
+		e->dispPicOrderCnt = ctx->TopFieldOrderCnt; // all frames with lower POCs are now ready for output
 	e->output_flags |= 1 << ctx->currPic;
 	int cabac_init_idc = 0;
 	if (ctx->ps.entropy_coding_mode_flag && ctx->slice_type != 2) {
@@ -1370,7 +1374,9 @@ int Edge264_decode_NAL(Edge264_stream *e)
 	};
 	
 	// quick checks before initializing a context
-	if (e->CPB >= e->end || __builtin_popcount(e->output_flags) > e->SPS.max_num_reorder_frames)
+	if (e->CPB >= e->end)
+		return -4;
+	if (__builtin_popcount((e->reference_flags & 0xffff) | e->reference_flags >> 16 | e->output_flags) > e->SPS.max_dec_frame_buffering)
 		return -3;
 	int nal_ref_idc = *e->CPB >> 5;
 	int nal_unit_type = *e->CPB & 0x1f;
@@ -1420,18 +1426,17 @@ int Edge264_decode_NAL(Edge264_stream *e)
 
 
 const void *Edge264_get_frame(Edge264_stream *e, int end_of_stream) {
-	int delay = (end_of_stream) ? 0 : e->SPS.max_num_reorder_frames;
-	if (__builtin_popcount(e->output_flags) > delay) {
-		int output = -1, best = INT_MAX;
-		for (int o = e->output_flags; o != 0; o &= o - 1) {
-			int i = __builtin_ctz(o);
-			if (best > e->FieldOrderCnt[i])
-				best = e->FieldOrderCnt[output = i];
-		}
-		e->output_flags ^= 1 << output;
-		return e->DPB + output * e->frame_size;
+	int output = -1;
+	int best = (end_of_stream || __builtin_popcount(e->output_flags) > e->SPS.max_num_reorder_frames) ? INT_MAX : e->dispPicOrderCnt;
+	for (int o = e->output_flags; o != 0; o &= o - 1) {
+		int i = __builtin_ctz(o);
+		if (e->FieldOrderCnt[i] <= best)
+			best = e->FieldOrderCnt[output = i];
 	}
-	return NULL;
+	if (output < 0)
+		return NULL;
+	e->output_flags ^= 1 << output;
+	return e->DPB + output * e->frame_size;
 }
 
 

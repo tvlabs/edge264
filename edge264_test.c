@@ -19,7 +19,7 @@
 
 
 int main() {
-	int counts[5] = {0, 0, 0, 0};
+	int counts[6] = {};
 	struct dirent *entry;
 	struct stat stC, stD;
 	Edge264_stream e = {};
@@ -58,8 +58,7 @@ int main() {
 		// decode the entire file and FAIL on any error
 		int res;
 		do {
-			if (e.CPB < e.end)
-				res = Edge264_decode_NAL(&e);
+			res = Edge264_decode_NAL(&e);
 			const uint8_t *output = Edge264_get_frame(&e, e.CPB == e.end);
 			if (output != NULL) {
 				if (memcmp(output, cmp, e.plane_size_Y + e.plane_size_C * 2))
@@ -68,13 +67,13 @@ int main() {
 			} else if (e.CPB == e.end) {
 				break;
 			}
-		} while (res == 0);
+		} while (res != -1 && res != -2);
 		Edge264_clear(&e);
 		if (res == 0 && cmp != dpb + stD.st_size)
 			res = -2;
 		counts[-res]++;
 		if (res != -1)
-			printf("%s: %s\n" RESET, entry->d_name, res == 0 ? GREEN "PASS" : res == -1 ? YELLOW "UNSUPPORTED" : res == -2 ? RED "FAIL" : res == -3 ? PURPLE "FATAL" : BLUE "FLAGGED");
+			printf("%s: %s\n" RESET, entry->d_name, res == -4 ? GREEN "PASS" : res == -1 ? YELLOW "UNSUPPORTED" : res == -2 ? RED "FAIL" : BLUE "FLAGGED");
 		
 		// close everything
 		munmap(cpb, stC.st_size);
@@ -84,9 +83,9 @@ int main() {
 	}
 	closedir(dir);
 	putchar('\n');
-	if (counts[4] > 0)
-		printf("%d " BLUE "FLAGGED" RESET ", ", counts[4]);
+	if (counts[5] > 0)
+		printf("%d " BLUE "FLAGGED" RESET ", ", counts[5]);
 	printf("%d " GREEN "PASS" RESET ", %d " YELLOW "UNSUPPORTED" RESET ", %d " RED "FAIL" RESET "\n",
-		counts[0], counts[1], counts[2]);
+		counts[4], counts[1], counts[2]);
 	return 0;
 }

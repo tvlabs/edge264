@@ -133,7 +133,7 @@ static int check_frame(const Edge264_stream *e, int i, const uint8_t *frame)
 				if (invalid) {
 					printf("</ul>\n"
 						"<ul>\n"
-						"<li style='color:red'>Erroneous macroblock (pic_order_cnt %d, row %d, column %d, %s plane):<pre style='color:black'>\n", e->FieldOrderCnt[i], row, col, (iYCbCr == 0) ? "Luma" : (iYCbCr == 1) ? "Cb" : "Cr");
+						"<li style='color:red'>Erroneous macroblock (pic_order_cnt %d, row %d, column %d, %s plane):<pre style='color:black'>\n", e->FieldOrderCnt[i] & ~(1 << 31), row, col, (iYCbCr == 0) ? "Luma" : (iYCbCr == 1) ? "Cb" : "Cr");
 					for (int base = 0; base < MbHeight * stride; base += stride) {
 						for (int offset = base; offset < base + MbStride; offset++)
 							printf(p[offset] != q[offset] ? "<span style='color:red'>%3d</span> " : "%3d ", p[offset]);
@@ -155,7 +155,7 @@ static int check_frame(const Edge264_stream *e, int i, const uint8_t *frame)
 	}
 	printf("<ul>\n"
 		"<li style='color:green'>Output frame with pic_order_cnt %d is correct</li>\n"
-		"</ul>\n", e->FieldOrderCnt[i]);
+		"</ul>\n", e->FieldOrderCnt[i] & ~(1 << 31));
 	return 0;
 }
 

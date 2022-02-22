@@ -1,7 +1,6 @@
 /** MAYDO:
  * _ update the attributes of e to include all necessary data to decode one frame
  * _ remove uses of __m64 in inter_ssse3.c
- * _ change the API to return 0~N frames after each call (instead of callback)
  * _ add support for open GOP (i.e. ignoring frames that reference unavailable previous frames)
  * _ debug the decoding with GCC
  * _ fix initialization of implicit weights
@@ -474,10 +473,12 @@ static int FUNC(parse_slice_layer_without_partitioning, Edge264_stream *e)
 	ctx->ps = e->PPSs[pic_parameter_set_id];
 	
 	// find a DPB slot for the upcoming frame
+	if (ctx->nal_unit_type == 5)
+		e->reference_flags = e->long_term_flags = e->prevFrameNum = 0;
 	ctx->currPic = __builtin_ctz(~(uint16_t)(e->reference_flags | e->reference_flags >> 16 | e->output_flags) | 1 << ctx->ps.max_dec_frame_buffering);
-	unsigned relFrameNum = CALL(get_uv, ctx->ps.log2_max_frame_num) - e->prevFrameNum;
-	e->FrameNum[ctx->currPic] =
-		e->prevFrameNum += relFrameNum & ~(-1u << ctx->ps.log2_max_frame_num);
+	unsigned frame_num = CALL(get_uv, ctx->ps.log2_max_frame_num);
+	unsigned inc = (frame_num - e->prevFrameNum) & ~(-1u << ctx->ps.log2_max_frame_num);
+	e->FrameNum[ctx->currPic] = e->prevFrameNum += inc;
 	printf("<li>frame_num: <code>%u</code></li>\n", e->prevFrameNum);
 	
 	// As long as PAFF/MBAFF are unsupported, this code won't execute (but is still kept).
@@ -496,9 +497,8 @@ static int FUNC(parse_slice_layer_without_partitioning, Edge264_stream *e)
 	
 	// I did not get the point of idr_pic_id yet.
 	if (ctx->nal_unit_type == 5) {
-		e->reference_flags = e->long_term_flags = e->prevFrameNum = 0;
 		for (int i = 0; i < 32; i++)
-			e->FieldOrderCnt[i] += 1 << 31; // make all buffered pictures precede the next ones
+			e->FieldOrderCnt[i] -= 1 << 31; // make all buffered pictures precede the next ones
 		int idr_pic_id = CALL(get_ue32, 65535);
 		printf("<li>idr_pic_id: <code>%u</code></li>\n", idr_pic_id);
 	}
@@ -1210,7 +1210,8 @@ static int FUNC(parse_seq_parameter_set, Edge264_stream *e)
 	int pic_height_in_map_units = CALL(get_ue16, 1054) + 1;
 	ctx->ps.frame_mbs_only_flag = CALL(get_u1);
 	ctx->ps.pic_height_in_mbs = pic_height_in_map_units << 1 >> ctx->ps.frame_mbs_only_flag;
-	int MaxDpbFrames = min(MaxDpbMbs[min(level_idc, 63)] / (ctx->ps.pic_width_in_mbs * ctx->ps.pic_height_in_mbs), 16);
+	// FIXME upgrade to 17 frames
+	int MaxDpbFrames = min(MaxDpbMbs[min(level_idc, 63)] / (ctx->ps.pic_width_in_mbs * ctx->ps.pic_height_in_mbs), 15);
 	ctx->ps.max_num_ref_frames = min(max_num_ref_frames, MaxDpbFrames);
 	ctx->ps.max_num_reorder_frames = ctx->ps.max_dec_frame_buffering =
 		((profile_idc == 44 || profile_idc == 86 || profile_idc == 100 ||

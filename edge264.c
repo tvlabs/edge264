@@ -468,9 +468,9 @@ static int FUNC(parse_slice_layer_without_partitioning, Edge264_stream *e)
 	
 	// check that the requested PPS was initialised and is supported
 	if (pic_parameter_set_id >= 4 || ctx->slice_type > 2)
-		return -1;
+		return -3;
 	if (e->PPSs[pic_parameter_set_id].num_ref_idx_active[0] == 0)
-		return -2;
+		return -4;
 	ctx->ps = e->PPSs[pic_parameter_set_id];
 	
 	// find a DPB slot for the upcoming frame
@@ -564,7 +564,7 @@ static int FUNC(parse_slice_layer_without_partitioning, Edge264_stream *e)
 		// A dummy last value must be overwritten by a valid reference.
 		if (ctx->RefPicList[0][ctx->ps.num_ref_idx_active[0] - 1] < 0 ||
 			(ctx->slice_type == 1 && ctx->RefPicList[1][ctx->ps.num_ref_idx_active[1] - 1] < 0))
-			return -2;
+			return -4;
 		
 		CALL(parse_pred_weight_table, e);
 	}
@@ -603,7 +603,7 @@ static int FUNC(parse_slice_layer_without_partitioning, Edge264_stream *e)
 	
 	// check if we still want to decode this frame, then fill ctx with useful values
 	if (first_mb_in_slice > 0 || ctx->disable_deblocking_filter_idc != 1)
-		return -1;
+		return -3;
 	CALL(initialise_decoding_context, e);
 	
 	// cabac_alignment_one_bit gives a good probability to catch random errors.
@@ -613,7 +613,7 @@ static int FUNC(parse_slice_layer_without_partitioning, Edge264_stream *e)
 	} else {
 		unsigned bits = (SIZE_BIT - 1 - ctz(lsb_cache)) & 7;
 		if (bits != 0 && CALL(get_uv, bits) != (1 << bits) - 1)
-			return -2;
+			return -4;
 		CALL(cabac_init, cabac_init_idc);
 		CALL(cabac_start);
 		CALL(parse_slice_data_cabac);
@@ -827,11 +827,11 @@ static int FUNC(parse_pic_parameter_set, Edge264_stream *e)
 	
 	// seq_parameter_set_id was ignored so far since no SPS data was read.
 	if (CALL(get_uv, 24) != 0x800000 || e->DPB == NULL)
-		return -2;
+		return -4;
 	if (pic_parameter_set_id >= 4 ||
 		num_slice_groups > 1 || ctx->ps.constrained_intra_pred_flag ||
 		redundant_pic_cnt_present_flag || ctx->ps.transform_8x8_mode_flag)
-		return -1;
+		return -3;
 	e->PPSs[pic_parameter_set_id] = ctx->ps;
 	return 0;
 }
@@ -1269,13 +1269,13 @@ static int FUNC(parse_seq_parameter_set, Edge264_stream *e)
 	if (CALL(get_u1))
 		CALL(parse_vui_parameters);
 	if (CALL(get_uv, 24) != 0x800000)
-		return -2;
+		return -4;
 	if (ctx->ps.ChromaArrayType != 1 || ctx->ps.BitDepth_Y != 8 ||
 		ctx->ps.BitDepth_C != 8 || ctx->ps.qpprime_y_zero_transform_bypass_flag ||
 		!ctx->ps.frame_mbs_only_flag || ctx->ps.frame_crop_left_offset ||
 		ctx->ps.frame_crop_right_offset || ctx->ps.frame_crop_top_offset ||
 		ctx->ps.frame_crop_bottom_offset)
-		return -1;
+		return -3;
 	
 	// reallocate the DPB when the image format changes
 	if (memcmp(&ctx->ps, &e->SPS, 8) != 0) {
@@ -1375,9 +1375,9 @@ int Edge264_decode_NAL(Edge264_stream *e)
 	
 	// quick checks before initializing a context
 	if (e->CPB >= e->end)
-		return -4;
+		return -2;
 	if (__builtin_popcount((e->reference_flags & 0xffff) | e->reference_flags >> 16 | e->output_flags) > e->SPS.max_dec_frame_buffering)
-		return -3;
+		return -1;
 	int nal_ref_idc = *e->CPB >> 5;
 	int nal_unit_type = *e->CPB & 0x1f;
 	printf("<ul>\n"

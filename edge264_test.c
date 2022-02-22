@@ -62,18 +62,18 @@ int main() {
 			const uint8_t *output = Edge264_get_frame(&e, e.CPB == e.end);
 			if (output != NULL) {
 				if (memcmp(output, cmp, e.plane_size_Y + e.plane_size_C * 2))
-					res = -2;
+					res = -4;
 				cmp += e.plane_size_Y + e.plane_size_C * 2;
 			} else if (e.CPB == e.end) {
 				break;
 			}
-		} while (res != -1 && res != -2);
-		Edge264_clear(&e);
+		} while (res > -3);
 		if (res == 0 && cmp != dpb + stD.st_size)
-			res = -2;
+			res = -4;
+		Edge264_clear(&e);
 		counts[-res]++;
-		if (res != -1)
-			printf("%s: %s\n" RESET, entry->d_name, res == -4 ? GREEN "PASS" : res == -1 ? YELLOW "UNSUPPORTED" : res == -2 ? RED "FAIL" : BLUE "FLAGGED");
+		if (res != -3)
+			printf("%s: %s\n" RESET, entry->d_name, res == -2 ? GREEN "PASS" : res == -3 ? YELLOW "UNSUPPORTED" : res == -4 ? RED "FAIL" : BLUE "FLAGGED");
 		
 		// close everything
 		munmap(cpb, stC.st_size);
@@ -86,6 +86,6 @@ int main() {
 	if (counts[5] > 0)
 		printf("%d " BLUE "FLAGGED" RESET ", ", counts[5]);
 	printf("%d " GREEN "PASS" RESET ", %d " YELLOW "UNSUPPORTED" RESET ", %d " RED "FAIL" RESET "\n",
-		counts[4], counts[1], counts[2]);
+		counts[2], counts[3], counts[4]);
 	return 0;
 }

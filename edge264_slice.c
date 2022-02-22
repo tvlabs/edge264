@@ -1591,7 +1591,7 @@ static noinline void CAFUNC(parse_slice_data)
 			int end_of_slice_flag = CALL(cabac_terminate);
 			fprintf(stderr, "end_of_slice_flag: %x\n\n", end_of_slice_flag);
 		#endif
-		if (CACOND(msb_cache >> (SIZE_BIT - 24) == 0x800000, end_of_slice_flag))
+		if (CACOND(ctx->mb_skip_run < 0 && msb_cache >> (SIZE_BIT - 24) == 0x800000, end_of_slice_flag))
 			break;
 		
 		// point to the next macroblock

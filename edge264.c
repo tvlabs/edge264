@@ -1,5 +1,6 @@
 /** MAYDO:
  * _ fix the display of CABAC with TRACE=2
+ * _ remove the systematic refill test in get_uX in favor of manual tests at key point in every mb
  * _ update the attributes of e to include all necessary data to decode one frame
  * _ remove uses of __m64 in inter_ssse3.c
  * _ add support for open GOP (i.e. ignoring frames that reference unavailable previous frames)
@@ -1405,9 +1406,9 @@ int Edge264_decode_NAL(Edge264_stream *e)
 		CALL(refill, 0);
 		
 		ret = CALL(parse_nal_unit[nal_unit_type], e);
-		if (ret == 1)
+		if (ret == -3)
 			printf("<li style=\"color: red\">Unsupported stream</li>\n");
-		if (ret == 2)
+		if (ret == -4)
 			printf("<li style=\"color: red\">Decoding error</li>\n");
 		
 		// restore registers

@@ -1,6 +1,5 @@
 /** MAYDO:
  * _ fix the display of CABAC with TRACE=2
- * _ remove end_of_stream argument in favor of detecting it in the stream
  * _ update the attributes of e to include all necessary data to decode one frame
  * _ remove uses of __m64 in inter_ssse3.c
  * _ add support for open GOP (i.e. ignoring frames that reference unavailable previous frames)

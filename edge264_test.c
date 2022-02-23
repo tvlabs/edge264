@@ -59,12 +59,12 @@ int main() {
 		int res;
 		do {
 			res = Edge264_decode_NAL(&e);
-			const uint8_t *output = Edge264_get_frame(&e, e.CPB == e.end);
+			const uint8_t *output = Edge264_get_frame(&e, res == -2);
 			if (output != NULL) {
 				if (memcmp(output, cmp, e.plane_size_Y + e.plane_size_C * 2))
 					res = -4;
 				cmp += e.plane_size_Y + e.plane_size_C * 2;
-			} else if (e.CPB == e.end) {
+			} else if (res == -2) {
 				break;
 			}
 		} while (res > -3);

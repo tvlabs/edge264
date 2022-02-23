@@ -823,8 +823,9 @@ static noinline void CAFUNC(parse_I_mb, int mb_type_or_ctxIdx)
 		
 		ctx->mb_qp_delta_nz = 0;
 		mb->f.v |= flags_PCM.v;
-		mb->Intra4x4PredMode_v = (v16qi){2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2};
 		mb->bits_v = (v4su){0xbb6ebcac, 0xacacac, 0xac, 0xac}; // FIXME 4:2:2
+		mb->nC_v[0] = mb->nC_v[1] = mb->nC_v[2] = (v16qi){16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16};
+		mb->Intra4x4PredMode_v = (v16qi){2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2};
 		
 		// PCM is so rare that it should be compact rather than fast
 		uint8_t *p = ctx->samples_mb[0];

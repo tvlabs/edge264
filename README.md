@@ -24,20 +24,20 @@ Planned features
 * Frame cropping
 * MVC 3D support
 * Open GOP support
-* 4:0:0, 4:2:2 and 4:4:4 (mostly implemented, needs testing)
-* 9-14 bit depths with possibility of different luma/chroma depths (mostly implemented, needs testing)
+* 4:0:0, 4:2:2 and 4:4:4 (partially implemented)
+* 9-14 bit depths with possibility of different luma/chroma depths (partially implemented)
 * Transform-bypass for macroblocks with QP==0
 * Constrained Intra prediction mode
 * Slices (and separate colour planes)
 * Slice-multithreading (to let multithreaded encoders decode/encode each frame on the same thread)
-* PAFF and MBAFF (some decoding already implemented)
+* PAFF and MBAFF (partially implemented)
 * Error concealment
 
 
 Technical details
 -----------------
 
-edge264 is built and tested with GNU GCC and LLVM Clang, supports 32/64 bit architectures, and requires 128 bit SIMD support. Processor support is currently limited to Intel x86/x64 with SSSE3. GLFW3 development headers should be installed to compile `edge264_play`.
+edge264 is built and tested with GNU GCC and LLVM Clang, supports 32/64 bit architectures, and requires 128 bit SIMD support. Processor support is currently limited to Intel x86/x64 with at least SSSE3. [GLFW3](https://www.glfw.org/) development headers should be installed to compile `edge264_play`.
 
 ```sh
 $ ffmpeg -i video.mp4 -vcodec copy -bsf h264_mp4toannexb -an video.264 # optional, converts from MP4 format
@@ -45,7 +45,7 @@ $ make
 $ ./edge264_play-cc video.264
 ```
 
-When debugging, the make flag `TRACE=1` enables printing headers to stdout in HTML format, and `TRACE=2` adds the dumping of all other symbols to stderr (*very large*). A test program is also provided, that browses files in a `conformance` directory, decoding each `<video>.264` and comparing its output with the pair `<video>.yuv`. On the set of 134 official AVCv1 conformance bitstreams, 19 files are decoded perfectly, the rest using yet unsupported features.
+When debugging, the make flag `TRACE=1` enables printing headers to stdout in HTML format, and `TRACE=2` adds the dumping of all other symbols to stderr (*very large*). A test program is also provided, that browses files in a `conformance` directory, decoding each `<video>.264` and comparing its output with the pair `<video>.yuv`. On the set of official [AVCv1 conformance bitstreams](https://www.itu.int/wftp3/av-arch/jvt-site/draft_conformance/), 19 files are known to decode perfectly, the rest using yet unsupported features.
 
 ```sh
 $ ./edge264_test-cc

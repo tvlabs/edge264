@@ -574,7 +574,6 @@ static int FUNC(parse_slice_layer_without_partitioning, Edge264_stream *e)
 		CALL(parse_dec_ref_pic_marking, e);
 	else
 		e->dispPicOrderCnt = ctx->TopFieldOrderCnt; // all frames with lower POCs are now ready for output
-	e->output_flags |= 1 << ctx->currPic;
 	int cabac_init_idc = 0;
 	if (ctx->ps.entropy_coding_mode_flag && ctx->slice_type != 2) {
 		cabac_init_idc = 1 + CALL(get_ue16, 2);
@@ -619,6 +618,7 @@ static int FUNC(parse_slice_layer_without_partitioning, Edge264_stream *e)
 		CALL(parse_slice_data_cabac);
 		// I'd rather display a portion of image than nothing, so do not test errors here yet
 	}
+	e->output_flags |= 1 << ctx->currPic; // flag the image for display only if fully decoded
 	return 0;
 }
 

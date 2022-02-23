@@ -68,7 +68,7 @@ int main() {
 				break;
 			}
 		} while (res > -3);
-		if (res == 0 && cmp != dpb + stD.st_size)
+		if (res == -2 && cmp != dpb + stD.st_size)
 			res = -4;
 		Edge264_clear(&e);
 		counts[-res]++;

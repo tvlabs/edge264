@@ -133,10 +133,10 @@ int Edge264_decode_NAL(Edge264_stream *e);
  *    Edge264_stream e = {.CPB=buffer_start, .end=buffer_end};
  *    while (1) {
  *       int res = Edge264_decode_NAL(&e);
- *       const uint8_t *output = Edge264_get_frame(&e, e.CPB == e.end);
+ *       const uint8_t *output = Edge264_get_frame(&e, res == -2);
  *       if (output != NULL)
- *          process_frame(&e, (output - e.DPB) / e.frame_size);
- *       else if (e.CPB == e.end)
+ *          process_frame(&e, output);
+ *       else if (res == -2)
  *          break;
  *    }
  *    Edge264_clear(&e);

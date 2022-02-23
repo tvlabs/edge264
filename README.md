@@ -9,7 +9,7 @@ Supported features
 
 * Any resolution (multiple of 16) from 16x16 up to 8K UHD (level 6.2)
 * 8-bit 4:2:0 planar YUV output
-* CABAC only (but very optimised!)
+* CAVLC/CABAC
 * I/P/B frames
 * Per-slice reference lists
 * Memory Management Control Operations
@@ -19,7 +19,6 @@ Supported features
 Planned features
 ----------------
 
-* CAVLC (work in progress)
 * 8x8 transforms (needs testing and debugging)
 * Deblocking
 * Frame cropping
@@ -38,7 +37,7 @@ Planned features
 Technical details
 -----------------
 
-edge264 is built and tested with GNU GCC and LLVM Clang, supports 32/64 bit architectures, and requires 128 bit SIMD support. Instruction sets are currently limited to Intel x86/x64 with SSSE3. GLFW3 development headers should be installed to compile `edge264_play`.
+edge264 is built and tested with GNU GCC and LLVM Clang, supports 32/64 bit architectures, and requires 128 bit SIMD support. Processor support is currently limited to Intel x86/x64 with SSSE3. GLFW3 development headers should be installed to compile `edge264_play`.
 
 ```sh
 $ ffmpeg -i video.mp4 -vcodec copy -bsf h264_mp4toannexb -an video.264 # optional, converts from MP4 format
@@ -46,9 +45,7 @@ $ make
 $ ./edge264_play-cc video.264
 ```
 
-When debugging, the make flag `TRACE=1` enables printing headers to stdout in HTML format, and `TRACE=2` adds the dumping of all other symbols to stderr (*very large*). On the set of official AVCv1 conformance bitstreams, files `CANL1_Sony_E`, `CANL2_Sony_E`, `CANL3_Sony_C`, `CANL1_SVA_B`, `CANL2_SVA_B`, `CANL3_SVA_B`, `CANL4_SVA_B`, `CANL1_TOSHIBA_G`, `CAPCMNL1_Sand_E` are known to decode perfectly (the rest using yet unsupported features).
-
-A test program is also provided, that browses files in a `conformance` directory, decoding each `<video>.264` and comparing its output with the pair `<video>.yuv`.
+When debugging, the make flag `TRACE=1` enables printing headers to stdout in HTML format, and `TRACE=2` adds the dumping of all other symbols to stderr (*very large*). A test program is also provided, that browses files in a `conformance` directory, decoding each `<video>.264` and comparing its output with the pair `<video>.yuv`. On the set of 134 official AVCv1 conformance bitstreams, 19 files are decoded perfectly, the rest using yet unsupported features.
 
 ```sh
 $ ./edge264_test-cc

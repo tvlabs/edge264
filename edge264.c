@@ -466,8 +466,8 @@ static int FUNC(parse_slice_layer_without_partitioning, Edge264_stream *e)
 		red_if(ctx->slice_type > 2), slice_type, slice_type_names[ctx->slice_type],
 		red_if(pic_parameter_set_id >= 4 || e->PPSs[pic_parameter_set_id].num_ref_idx_active[0] == 0), pic_parameter_set_id);
 	
-	// check that the requested PPS was initialised and is supported
-	if (pic_parameter_set_id >= 4 || ctx->slice_type > 2)
+	// check that the following slice may be decoded
+	if (first_mb_in_slice > 0 || ctx->slice_type > 2 || pic_parameter_set_id >= 4)
 		return -3;
 	if (e->PPSs[pic_parameter_set_id].num_ref_idx_active[0] == 0)
 		return -4;
@@ -601,7 +601,7 @@ static int FUNC(parse_slice_layer_without_partitioning, Edge264_stream *e)
 	}
 	
 	// check if we still want to decode this frame, then fill ctx with useful values
-	if (first_mb_in_slice > 0 || ctx->disable_deblocking_filter_idc != 1)
+	if (ctx->disable_deblocking_filter_idc != 1)
 		return -3;
 	CALL(initialise_decoding_context, e);
 	

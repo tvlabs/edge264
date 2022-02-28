@@ -364,13 +364,6 @@ static noinline void FUNC(parse_slice_data_cabac);
 // Intel-specific common function declarations
 #ifdef __SSSE3__
 	#include <x86intrin.h>
-	
-	// missing intrinsics (https://gcc.gnu.org/bugzilla/show_bug.cgi?id=95483)
-	#if defined(__clang__)
-		static always_inline __m128i _mm_loadu_si32(const uint8_t *a) {
-			return _mm_cvtsi32_si128(*(int32_t *)(a));
-		}
-	#endif
 
 	// instructions available on later architectures
 	#ifndef __AVX_2__

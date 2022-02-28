@@ -19,16 +19,16 @@ Supported features
 Planned features
 ----------------
 
-* 8x8 transforms (needs testing and debugging)
 * Deblocking
+* Slices and slice groups
+* Constrained Intra prediction
 * Frame cropping
+* 8x8 transforms (needs testing and debugging)
 * MVC 3D support
 * Open GOP support
 * 4:0:0, 4:2:2 and 4:4:4 (partially implemented)
 * 9-14 bit depths with possibility of different luma/chroma depths (partially implemented)
 * Transform-bypass for macroblocks with QP==0
-* Constrained Intra prediction mode
-* Slices (and separate colour planes)
 * Slice-multithreading (to let multithreaded encoders decode/encode each frame on the same thread)
 * PAFF and MBAFF (partially implemented)
 * Error concealment

@@ -26,7 +26,10 @@ int main() {
 	
 	// parse all clips in the conformance directory
 	setbuf(stdout, NULL);
-	chdir("conformance");
+	if (chdir("conformance") < 0) {
+		perror("cannot open \"conformance\" directory");
+		return 0;
+	}
 	DIR *dir = opendir(".");
 	assert(dir!=NULL);
 	while ((entry = readdir(dir))) {

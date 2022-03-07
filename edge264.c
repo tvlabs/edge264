@@ -18,6 +18,7 @@
  * _ try using epb for context pointer, and email GCC when it fails
  * _ when implementing fields and MBAFF, keep the same pic coding struct (no FLD/AFRM) and just add mb_field_decoding_flag
  * _ since unsigned means implicit overflow by machine-dependent size, replace all by uint32_t!
+ * _ to prepare ARM support, implement _Generic functions min/max/adds/subs (https://en.cppreference.com/w/c/language/generic), put #ifdef SSSE3 inside all vector functions, and start converting some functions to vector extensions
  */
 
 /** Notes:

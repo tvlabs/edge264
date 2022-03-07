@@ -19,7 +19,7 @@ Supported features
 Planned features
 ----------------
 
-* Deblocking
+* Deblocking (work in progress)
 * Slices and slice groups
 * Constrained Intra prediction
 * Frame cropping

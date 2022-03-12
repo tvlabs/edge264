@@ -3,6 +3,7 @@
  * _ remove the systematic refill test in get_uX in favor of manual tests at key point in every mb
  * _ update the attributes of e to include all necessary data to decode one frame
  * _ remove uses of __m64 in inter_ssse3.c
+ * _ review intra and inter routines to check whether 8bit versions could be shorter in code
  * _ add support for open GOP (i.e. ignoring frames that reference unavailable previous frames)
  * _ debug the decoding with GCC
  * _ fix initialization of implicit weights
@@ -19,6 +20,7 @@
  * _ when implementing fields and MBAFF, keep the same pic coding struct (no FLD/AFRM) and just add mb_field_decoding_flag
  * _ since unsigned means implicit overflow by machine-dependent size, replace all by uint32_t!
  * _ to prepare ARM support, implement _Generic functions min/max/adds/subs (https://en.cppreference.com/w/c/language/generic), put #ifdef SSSE3 inside all vector functions, and start converting some functions to vector extensions
+ * _ use 1 less register for 16x16 inter/intra transforms by using -4/+4/-2/-1/0/1/2/-4/+4 ...
  */
 
 /** Notes:

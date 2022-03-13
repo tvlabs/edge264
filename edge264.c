@@ -3,6 +3,7 @@
  * _ remove the systematic refill test in get_uX in favor of manual tests at key point in every mb
  * _ update the attributes of e to include all necessary data to decode one frame
  * _ remove uses of __m64 in inter_ssse3.c
+ * _ replace old uses of lddqu with loadu
  * _ review intra and inter routines to check whether 8bit versions could be shorter in code
  * _ add support for open GOP (i.e. ignoring frames that reference unavailable previous frames)
  * _ debug the decoding with GCC

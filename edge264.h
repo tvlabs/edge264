@@ -116,7 +116,7 @@ const uint8_t *Edge264_find_start_code(int n, const uint8_t *CPB, const uint8_t 
  * Return codes are:
  *  0: success
  * -1: DPB is full (more frames should be consumed before decoding can resume)
- * -2: end of bitstream (e->CPB==e->end, so fetch some new data to proceed)
+ * -2: end of buffer (e->CPB==e->end, so fetch some new data to proceed)
  * -3: unsupported stream (decoding may proceed but could return zero frames)
  * -4: decoding error (decoding may proceed but could show visual artefacts,
  *     if you can validate with another decoder that the stream is correct,
@@ -129,7 +129,7 @@ int Edge264_decode_NAL(Edge264_stream *e);
  * Extract and return a decoded frame (or NULL if none is available).
  * Pass end_of_stream=1 to drain all remaining frames at the stream end.
  * 
- * Example code:
+ * Example code (single buffer in annex B format):
  *    Edge264_stream e = {.CPB=buffer_start, .end=buffer_end};
  *    while (1) {
  *       int res = Edge264_decode_NAL(&e);

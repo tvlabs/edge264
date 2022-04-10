@@ -6,6 +6,7 @@
  * _ replace old uses of lddqu with loadu
  * _ review intra and inter routines to check whether 8bit versions could be shorter in code
  * _ add support for open GOP (i.e. ignoring frames that reference unavailable previous frames)
+ * _ compile decoding function separately to let them use msb/lsb_cache registers
  * _ debug the decoding with GCC
  * _ fix initialization of implicit weights
  * _ review and secure the places where CABAC could result in unsupported internal state

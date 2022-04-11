@@ -1,5 +1,6 @@
 // TODO add shortcut for P slices
-// FIXME increment RefPicList to assign refIdx=-1 with ref=0
+// TODO add shortcut for tC0 in 8x8 macroblocks?
+// TODO increment RefPicList to assign refIdx=-1 with ref=0
 // TODO disable deblocking of single edge if indexA<16
 
 #include "edge264_common.h"
@@ -14,7 +15,7 @@ static always_inline __m128i diff_lte(__m128i a, __m128i b, __m128i c) {
 
 
 /**
- * Compute all 32 values of tC0 for bS in [0,3] for the current macroblock,
+ * Compute all 32 values of tC0 for bS in [0..3] for the current macroblock,
  * sorted in deblocking order.
  * 
  * Edges are labeled a to h in deblocking order. indexAB should contain
@@ -42,16 +43,16 @@ static always_inline __m128i diff_lte(__m128i a, __m128i b, __m128i c) {
  *         |mvs_c=0 |    0     |    1     |    1     |    0     |
  * --------+--------+----------+----------+----------+----------+
  */
-static inline void FUNC(init_tC0, v8hi indexAB, __m128i tC0[2]) {
-	static const int8_t tpC0[3][52] = {
+static inline void FUNC(init_tC0, v8hi indexAB, __m128i *tC0v, __m128i *tC0h) {
+	static const int8_t idx2tC0[3][52] = {
 		{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 2, 2, 2, 2, 3, 3, 3, 4, 4, 4, 5, 6, 6, 7, 8, 9, 10, 11, 13},
 		{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 2, 2, 2, 2, 3, 3, 3, 4, 4, 5, 5, 6, 7, 8, 8, 10, 11, 12, 13, 15, 17},
 		{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 2, 2, 2, 2, 3, 3, 3, 4, 4, 4, 5, 6, 6, 7, 8, 9, 10, 11, 13, 14, 16, 18, 20, 23, 25},
 	};
 	
-	// compute all values of tc0 in advance
+	// shortcut for Intra macroblock
 	if (!mb->f.mbIsInterFlag) {
-		tC0[0] = tC0[1] = _mm_set1_epi8(tpC0[2][indexAB[0]]);
+		*tC0v = *tC0h = _mm_set1_epi8(idx2tC0[2][indexAB[0]]);
 	} else {
 		// compute non zero values for edges with differing motion vectors
 		__m128i c3 = _mm_set1_epi8(3);
@@ -138,23 +139,30 @@ static inline void FUNC(init_tC0, v8hi indexAB, __m128i tC0[2]) {
 		__m128i bS2efgh = _mm_cmpgt_epi8(_mm_or_si128(nnzh, _mm_alignr_epi8(nnzh, nnzt, 12)), zero);
 		
 		// compute all values of tC0
-		__m128i tC0bS1bcdfgh = _mm_cvtsi32_si128(tpC0[0][indexAB[2]]);
-		__m128i tC0bS2bcdfgh = _mm_cvtsi32_si128(tpC0[1][indexAB[2]]);
+		__m128i tC0bS1bcdfgh = _mm_cvtsi32_si128(idx2tC0[0][indexAB[2]]);
+		__m128i tC0bS2bcdfgh = _mm_cvtsi32_si128(idx2tC0[1][indexAB[2]]);
 		__m128i shuf1000 = _mm_setr_epi8(2, 2, 2, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
-		__m128i tC0bS0 = _mm_set1_epi8(-2);
-		__m128i tC0bS1abcd = _mm_shuffle_epi8(_mm_insert_epi16(tC0bS1bcdfgh, tpC0[0][indexAB[0]], 1), shuf1000);
-		__m128i tC0bS1efgh = _mm_shuffle_epi8(_mm_insert_epi16(tC0bS1bcdfgh, tpC0[0][indexAB[4]], 1), shuf1000);
-		__m128i tC0bS2abcd = _mm_shuffle_epi8(_mm_insert_epi16(tC0bS2bcdfgh, tpC0[1][indexAB[0]], 1), shuf1000);
-		__m128i tC0bS2efgh = _mm_shuffle_epi8(_mm_insert_epi16(tC0bS2bcdfgh, tpC0[1][indexAB[4]], 1), shuf1000);
-		tC0[0] = _mm_blendv_epi8(_mm_blendv_epi8(tC0bS0, tC0bS1abcd, bS1abcd), tC0bS2abcd, bS2abcd);
-		tC0[1] = _mm_blendv_epi8(_mm_blendv_epi8(tC0bS0, tC0bS1efgh, bS1efgh), tC0bS2efgh, bS2efgh);
+		__m128i tC0bS0 = _mm_set1_epi8(-1);
+		__m128i tC0bS1abcd = _mm_shuffle_epi8(_mm_insert_epi16(tC0bS1bcdfgh, idx2tC0[0][indexAB[0]], 1), shuf1000);
+		__m128i tC0bS1efgh = _mm_shuffle_epi8(_mm_insert_epi16(tC0bS1bcdfgh, idx2tC0[0][indexAB[4]], 1), shuf1000);
+		__m128i tC0bS2abcd = _mm_shuffle_epi8(_mm_insert_epi16(tC0bS2bcdfgh, idx2tC0[1][indexAB[0]], 1), shuf1000);
+		__m128i tC0bS2efgh = _mm_shuffle_epi8(_mm_insert_epi16(tC0bS2bcdfgh, idx2tC0[1][indexAB[4]], 1), shuf1000);
+		*tC0v = _mm_blendv_epi8(_mm_blendv_epi8(tC0bS0, tC0bS1abcd, bS1abcd), tC0bS2abcd, bS2abcd);
+		*tC0h = _mm_blendv_epi8(_mm_blendv_epi8(tC0bS0, tC0bS1efgh, bS1efgh), tC0bS2efgh, bS2efgh);
 	}
 }
 
 
 
-#define DEBLOCK_LUMA_SOFT(p2, p1, p0, q0, q1, q2) {\
-	/* compute a mask for each lane that will be filtered, and apply it to tc0 */\
+/**
+ * Deblock a single edge in place for bS in [0..3].
+ * 
+ * am1 is _mm_set1_epi8(alpha - 1)
+ * bm1 is _mm_set1_epi8(beta - 1)
+ * tC0 should equal -1 for each position where bS=0
+ */
+#define DEBLOCK_LUMA_SOFT(p2, p1, p0, q0, q1, q2, am1, bm1, tC0) {\
+	/* compute filterSamplesFlags as a mask, and apply it to tc0 */\
 	__m128i c128 = _mm_set1_epi8(-128);\
 	__m128i pq0 = _mm_subs_epu8(p0, q0);\
 	__m128i qp0 = _mm_subs_epu8(q0, p0);\
@@ -162,35 +170,34 @@ static inline void FUNC(init_tC0, v8hi indexAB, __m128i tC0[2]) {
 	__m128i sub0 = _mm_subs_epu8(_mm_adds_epu8(qp0, c128), pq0); /* save 128+q0-p0 for later */\
 	__m128i abs1 = _mm_or_si128(_mm_subs_epu8(p1, p0), _mm_subs_epu8(p0, p1));\
 	__m128i abs2 = _mm_or_si128(_mm_subs_epu8(q1, q0), _mm_subs_epu8(q0, q1));\
-	__m128i am1 = _mm_set1_epi8(alpha - 1);\
-	__m128i bm1 = _mm_set1_epi8(beta - 1);\
-	__m128i filterSamplesFlags = _mm_cmpeq_epi8(_mm_or_si128(_mm_subs_epu8(abs0, am1), _mm_subs_epu8(_mm_max_epu8(abs1, abs2), bm1)), _mm_setzero_si128());\
-	__m128i mtc0 = _mm_and_si128(tc0, filterSamplesFlags);\
+	__m128i or = _mm_or_si128(_mm_subs_epu8(abs0, am1), _mm_subs_epu8(_mm_max_epu8(abs1, abs2), bm1));\
+	__m128i zero = _mm_setzero_si128();\
+	__m128i filterSamplesFlags = _mm_blendv_epi8(_mm_cmpeq_epi8(or, zero), zero, tC0);\
+	__m128i ftC0 = _mm_and_si128(tC0, filterSamplesFlags);\
 	/* filter p1 and q1 (same as ffmpeg, I couldn't find better) */\
 	__m128i c1 = _mm_set1_epi8(1);\
 	__m128i x0 = _mm_avg_epu8(p0, q0); /* (p0+q0+1)>>1 */\
 	__m128i x1 = _mm_sub_epi8(_mm_avg_epu8(p2, x0), _mm_and_si128(_mm_xor_si128(p2, x0), c1)); /* (p2+((p0+q0+1)>>1))>>1 */\
-	__m128i x2 = _mm_sub_epi8(_mm_avg_epu8(q2, x0), _mm_and_si128(_mm_xor_si128(q2, x0), c1)); /* (p2+((p0+q0+1)>>1))>>1 */\
-	__m128i pp1 = _mm_min_epu8(_mm_max_epu8(x1, _mm_subs_epu8(p1, mtc0)), _mm_adds_epu8(p1, mtc0));\
-	__m128i qp1 = _mm_min_epu8(_mm_max_epu8(x2, _mm_subs_epu8(q1, mtc0)), _mm_adds_epu8(q1, mtc0));\
+	__m128i x2 = _mm_sub_epi8(_mm_avg_epu8(q2, x0), _mm_and_si128(_mm_xor_si128(q2, x0), c1)); /* (q2+((p0+q0+1)>>1))>>1 */\
+	__m128i pp1 = _mm_min_epu8(_mm_max_epu8(x1, _mm_subs_epu8(p1, ftC0)), _mm_adds_epu8(p1, ftC0));\
+	__m128i qp1 = _mm_min_epu8(_mm_max_epu8(x2, _mm_subs_epu8(q1, ftC0)), _mm_adds_epu8(q1, ftC0));\
 	__m128i apltb = diff_lte(p2, p0, bm1);\
 	__m128i aqltb = diff_lte(q2, q0, bm1);\
 	__m128i sub1 = _mm_avg_epu8(p1, _mm_xor_si128(q1, _mm_set1_epi8(-1))); /* save 128+((p1-q1)>>1) for later */\
-	p1 = vector_select(apltb, pp1, p1);\
-	q1 = vector_select(aqltb, qp1, q1);\
+	p1 = _mm_blendv_epi8(p1, pp1, apltb);\
+	q1 = _mm_blendv_epi8(q1, qp1, aqltb);\
 	/* filter p0 and q0 (by offsetting signed to unsigned to apply pavg) */\
-	__m128i mtc = _mm_sub_epi8(_mm_sub_epi8(mtc0, apltb), aqltb);\
+	__m128i ftC = _mm_and_si128(_mm_sub_epi8(_mm_sub_epi8(ftC0, apltb), aqltb), filterSamplesFlags);\
 	__m128i x3 = _mm_avg_epu8(sub0, _mm_avg_epu8(sub1, _mm_set1_epi8(127))); /* 128+((q0-p0+((p1-q1)>>2)+1)>>1) */\
-	__m128i delta = _mm_min_epu8(_mm_subs_epu8(x3, c128), mtc); /* delta if delta>0 */\
-	__m128i ndelta = _mm_min_epu8(_mm_subs_epu8(c128, x3), mtc); /* -delta if delta<0 */\
+	__m128i delta = _mm_min_epu8(_mm_subs_epu8(x3, c128), ftC); /* delta if delta>0 */\
+	__m128i ndelta = _mm_min_epu8(_mm_subs_epu8(c128, x3), ftC); /* -delta if delta<0 */\
 	p0 = _mm_subs_epu8(_mm_adds_epu8(p0, delta), ndelta);\
 	q0 = _mm_subs_epu8(_mm_adds_epu8(p0, delta), ndelta);}
 
 
 
-#define DEBLOCK_LUMA_HARD(p3, p2, p1, p0, q0, q1, q2, q3) {\
+#define DEBLOCK_LUMA_HARD(p3, p2, p1, p0, q0, q1, q2, q3, alpha, bm1) {\
 	/* compute condition masks for filtering modes */\
-	__m128i bm1 = _mm_set1_epi8(beta - 1);\
 	__m128i condpq = diff_lte(p0, q0, _mm_set1_epi8((alpha >> 2) + 1));\
 	__m128i condp = _mm_and_si128(diff_lte(p2, p0, bm1), condpq);\
 	__m128i condq = _mm_and_si128(diff_lte(q2, q0, bm1), condpq);\
@@ -207,15 +214,15 @@ static inline void FUNC(init_tC0, v8hi indexAB, __m128i tC0[2]) {
 	__m128i qp0a = _mm_avg_epu8(q21p1, pq0); /* q'0 (first formula) */\
 	__m128i pp0b = _mm_avg_epu8(p1, _mm_sub_epi8(_mm_avg_epu8(p0, q1), _mm_and_si128(_mm_xor_si128(p0, q1), c1))); /* p'0 (second formula) */\
 	__m128i qp0b = _mm_avg_epu8(q1, _mm_sub_epi8(_mm_avg_epu8(q0, p1), _mm_and_si128(_mm_xor_si128(q0, p1), c1))); /* q'0 (second formula) */\
-	p0 = vector_select(condp, pp0a, pp0b);\
-	q0 = vector_select(condq, qp0a, qp0b);\
+	p0 = _mm_blendv_epi8(pp0b, pp0a, condp);\
+	q0 = _mm_blendv_epi8(qp0b, qp0a, condq);\
 	/* compute p'1 and q'1 */\
 	__m128i p21 = _mm_sub_epi8(_mm_avg_epu8(p2, p1), _mm_and_si128(_mm_xor_si128(p2, p1), and0)); /* p21+pq0 == (p2+p1+p0+q0)/2 */\
 	__m128i q21 = _mm_sub_epi8(_mm_avg_epu8(q2, q1), _mm_and_si128(_mm_xor_si128(q2, q1), and0)); /* q21+pq0 == (q2+q1+q0+p1)/2 */\
 	__m128i pp1 = _mm_avg_epu8(p21, pq0); /* p'1 */\
 	__m128i qp1 = _mm_avg_epu8(q21, pq0); /* q'1 */\
-	p1 = vector_select(condp, pp1, p1);\
-	q1 = vector_select(condq, qp1, q1);\
+	p1 = _mm_blendv_epi8(p1, pp1, condp);\
+	q1 = _mm_blendv_epi8(q1, qp1, condq);\
 	/* compute p'2 and q'2 */\
 	__m128i fix1 = _mm_and_si128(_mm_xor_si128(p21, pq0), c1);\
 	__m128i fix2 = _mm_and_si128(_mm_xor_si128(q21, pq0), c1);\
@@ -225,20 +232,20 @@ static inline void FUNC(init_tC0, v8hi indexAB, __m128i tC0[2]) {
 	__m128i q3q2 = _mm_sub_epi8(_mm_avg_epu8(q3, q2), _mm_and_si128(_mm_xor_si128(q3, q2), _mm_xor_si128(fix2, c1))); /* q3q2+q210p0 == (q3+q2+(q2+q1+p0+q0)/2)/2 */\
 	__m128i pp2 = _mm_avg_epu8(p3p2, p210q0); /* p'2 */\
 	__m128i qp2 = _mm_avg_epu8(q3q2, q210p0); /* q'2 */\
-	p2 = vector_select(condp, pp2, p2);\
-	q2 = vector_select(condq, qp2, q2);}
+	p2 = _mm_blendv_epi8(p2, pp2, condp);\
+	q2 = _mm_blendv_epi8(q2, qp2, condq);}
 
 
 
-#define TRANSPOSE_8x16(src, half, dst0, dst1, dst2, dst3, dst4, dst5, dst6, dst7) {\
-	__m128i a0 = _mm_unpack##half##_epi8(src##0, src##1);\
-	__m128i a1 = _mm_unpack##half##_epi8(src##2, src##3);\
-	__m128i a2 = _mm_unpack##half##_epi8(src##4, src##5);\
-	__m128i a3 = _mm_unpack##half##_epi8(src##6, src##7);\
-	__m128i a4 = _mm_unpack##half##_epi8(src##8, src##9);\
-	__m128i a5 = _mm_unpack##half##_epi8(src##A, src##B);\
-	__m128i a6 = _mm_unpack##half##_epi8(src##C, src##D);\
-	__m128i a7 = _mm_unpack##half##_epi8(src##E, src##F);\
+#define TRANSPOSE_8x16(src, lohi, dst0, dst1, dst2, dst3, dst4, dst5, dst6, dst7) {\
+	__m128i a0 = _mm_unpack##lohi##_epi8(src##0, src##1);\
+	__m128i a1 = _mm_unpack##lohi##_epi8(src##2, src##3);\
+	__m128i a2 = _mm_unpack##lohi##_epi8(src##4, src##5);\
+	__m128i a3 = _mm_unpack##lohi##_epi8(src##6, src##7);\
+	__m128i a4 = _mm_unpack##lohi##_epi8(src##8, src##9);\
+	__m128i a5 = _mm_unpack##lohi##_epi8(src##A, src##B);\
+	__m128i a6 = _mm_unpack##lohi##_epi8(src##C, src##D);\
+	__m128i a7 = _mm_unpack##lohi##_epi8(src##E, src##F);\
 	__m128i b0 = _mm_unpacklo_epi16(a0, a1);\
 	__m128i b1 = _mm_unpackhi_epi16(a0, a1);\
 	__m128i b2 = _mm_unpacklo_epi16(a2, a3);\
@@ -268,19 +275,20 @@ static inline void FUNC(init_tC0, v8hi indexAB, __m128i tC0[2]) {
 
 void FUNC(deblock_luma_row, size_t stride, ssize_t nstride, uint8_t*restrict px0, uint8_t*restrict px7, uint8_t*restrict pxE, uint8_t*restrict pxX)
 {
-	__m128i zero = _mm_setzero_si128();
+	static const uint8_t idx2alpha[52] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 4, 4, 5, 6, 7, 8, 9, 10, 12, 13, 15, 17, 20, 22, 25, 28, 32, 36, 40, 45, 50, 56, 63, 71, 80, 90, 101, 113, 127, 144, 162, 182, 203, 226, 255, 255};
+	static const uint8_t idx2beta[52] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 2, 2, 3, 3, 3, 3, 4, 4, 4, 6, 6, 7, 7, 8, 8, 9, 9, 10, 10, 11, 11, 12, 12, 13, 13, 14, 14, 15, 15, 16, 16, 17, 17, 18, 18};
+	
 	do {
 		// compute all values of indexA, indexB and tC0 for the current macroblock
 		__m128i qP = _mm_shufflelo_epi16(_mm_cvtsi32_si128(mb->QP[0]), 0);
 		__m128i qPav = _mm_avg_epu16(qP, _mm_insert_epi16(_mm_insert_epi16(qP, mb[-1].QP[0], 0), ctx->mbB->QP[0], 2));
 		__m128i filterOffsets = _mm_shuffle_epi32(_mm_insert_epi16(_mm_cvtsi32_si128(ctx->FilterOffsetA), ctx->FilterOffsetB, 1), 0);
 		v8hi indexAB = (v8hi)_mm_min_epi16(_mm_max_epi16(_mm_add_epi16(_mm_unpacklo_epi16(qPav, qPav), filterOffsets), _mm_setzero_si128()), _mm_set1_epi16(51));
-		__m128i tC0[2];
-		CALL(init_tC0, indexAB, tC0);
+		__m128i tC0abcd, tC0efgh;
+		CALL(init_tC0, indexAB, &tC0abcd, &tC0efgh);
 		
-		// first vertical edge
 		__m128i v0, v1, v2, v3, v4, v5, v6, v7;
-		if (1) { // FIXME with QP
+		if (!mb[-1].f.unavailable) {
 			// load and transpose the left 12x16 matrix
 			__m128i xa0 = _mm_loadu_si128((__m128i *)(px0               - 8));
 			__m128i xa1 = _mm_loadu_si128((__m128i *)(px0 +  stride     - 8));
@@ -312,13 +320,19 @@ void FUNC(deblock_luma_row, size_t stride, ssize_t nstride, uint8_t*restrict px0
 			__m128i vZ = _mm_unpackhi_epi64(xb5, xb7);
 			TRANSPOSE_8x16(xa, hi, v0, v1, v2, v3, v4, v5, v6, v7);
 			
-			if (1) { // FIXME is intra block
-				DEBLOCK_LUMA_HARD(vW, vX, vY, vZ, v0, v1, v2, v3);
+			// first vertical edge
+			int alpha_a = idx2alpha[indexAB[0]];
+			__m128i bm1a = _mm_set1_epi8(idx2beta[indexAB[1]] - 1);
+			if (mb[-1].f.mbIsInterFlag & mb->f.mbIsInterFlag) {
+				__m128i am1a = _mm_set1_epi8(alpha_a - 1);
+				__m128i tC0a = _mm_unpacklo_epi8(tC0abcd, tC0abcd);
+				tC0a = _mm_unpacklo_epi8(tC0a, tC0a);
+				DEBLOCK_LUMA_SOFT(vX, vY, vZ, v0, v1, v2, am1a, bm1a, tC0a);
 			} else {
-				DEBLOCK_LUMA_SOFT(vX, vY, vZ, v0, v1, v2);
+				DEBLOCK_LUMA_HARD(vW, vX, vY, vZ, v0, v1, v2, v3, alpha_a, bm1a);
 			}
 			
-			// store vW/vX/vY/vZ into the previous macroblock
+			// store vW/vX/vY/vZ into the left macroblock
 			__m128i xc0 = _mm_unpacklo_epi8(vW, vX);
 			__m128i xc1 = _mm_unpackhi_epi8(vW, vX);
 			__m128i xc2 = _mm_unpacklo_epi8(vY, vZ);
@@ -365,8 +379,12 @@ void FUNC(deblock_luma_row, size_t stride, ssize_t nstride, uint8_t*restrict px0
 		}
 		
 		// second vertical edge
+		__m128i am1bcdfgh = _mm_set1_epi8(idx2alpha[indexAB[2]] - 1);
+		__m128i bm1bcdfgh = _mm_set1_epi8(idx2beta[indexAB[3]] - 1);
 		if (!mb->f.transform_size_8x8_flag) {
-			DEBLOCK_LUMA_SOFT(v1, v2, v3, v4, v5, v6);
+			__m128i tC0b = _mm_unpacklo_epi8(tC0abcd, tC0abcd);
+			tC0b = _mm_unpackhi_epi8(tC0b, tC0b);
+			DEBLOCK_LUMA_SOFT(v1, v2, v3, v4, v5, v6, am1bcdfgh, bm1bcdfgh, tC0b);
 		}
 		
 		// load and transpose the right 8x16 matrix
@@ -390,11 +408,15 @@ void FUNC(deblock_luma_row, size_t stride, ssize_t nstride, uint8_t*restrict px0
 		TRANSPOSE_8x16(xa, hi, v8, v9, vA, vB, vC, vD, vE, vF);
 		
 		// third vertical edge
-		DEBLOCK_LUMA_SOFT(v5, v6, v7, v8, v9, vA);
+		__m128i tC0c = _mm_unpackhi_epi8(tC0abcd, tC0abcd);
+		tC0c = _mm_unpacklo_epi8(tC0c, tC0c);
+		DEBLOCK_LUMA_SOFT(v5, v6, v7, v8, v9, vA, am1bcdfgh, bm1bcdfgh, tC0c);
 		
 		// fourth vertical edge
 		if (!mb->f.transform_size_8x8_flag) {
-			DEBLOCK_LUMA_SOFT(v9, vA, vB, vC, vD, vE);
+			__m128i tC0d = _mm_unpackhi_epi8(tC0abcd, tC0abcd);
+			tC0d = _mm_unpackhi_epi8(tC0d, tC0d);
+			DEBLOCK_LUMA_SOFT(v9, vA, vB, vC, vD, vE, am1bcdfgh, bm1bcdfgh, tC0d);
 		}
 		
 		// transpose the top 16x8 matrix
@@ -402,11 +424,16 @@ void FUNC(deblock_luma_row, size_t stride, ssize_t nstride, uint8_t*restrict px0
 		TRANSPOSE_8x16(v, lo, h0, h1, h2, h3, h4, h5, h6, h7);
 		
 		// first horizontal edge
-		if (!ctx->mbB->f.unavailable) { // FIXME with QP
-			if (1) { // FIXME
-				DEBLOCK_LUMA_HARD(*(__m128i *)(px0 + nstride * 4), *(__m128i *)(pxX              ), *(__m128i *)(px0 + nstride * 2), *(__m128i *)(px0 + nstride    ), h0, h1, h2, h3);
+		if (!ctx->mbB->f.unavailable) {
+			int alpha_e = idx2alpha[indexAB[4]];
+			__m128i bm1e = _mm_set1_epi8(idx2beta[indexAB[5]] - 1);
+			if (ctx->mbB->f.mbIsInterFlag & mb->f.mbIsInterFlag) {
+				__m128i am1e = _mm_set1_epi8(alpha_e - 1);
+				__m128i tC0e = _mm_unpacklo_epi8(tC0efgh, tC0efgh);
+				tC0e = _mm_unpacklo_epi8(tC0e, tC0e);
+				DEBLOCK_LUMA_SOFT(*(__m128i *)(pxX              ), *(__m128i *)(px0 + nstride * 2), *(__m128i *)(px0 + nstride    ), h0, h1, h2, am1e, bm1e, tC0e);
 			} else {
-				DEBLOCK_LUMA_SOFT(*(__m128i *)(pxX              ), *(__m128i *)(px0 + nstride * 2), *(__m128i *)(px0 + nstride    ), h0, h1, h2);
+				DEBLOCK_LUMA_HARD(*(__m128i *)(px0 + nstride * 4), *(__m128i *)(pxX              ), *(__m128i *)(px0 + nstride * 2), *(__m128i *)(px0 + nstride    ), h0, h1, h2, h3, alpha_e, bm1e);
 			}
 		}
 		*(__m128i *)(px0              ) = h0;
@@ -414,7 +441,9 @@ void FUNC(deblock_luma_row, size_t stride, ssize_t nstride, uint8_t*restrict px0
 		
 		// second horizontal edge
 		if (!mb->f.transform_size_8x8_flag) {
-			DEBLOCK_LUMA_SOFT(h1, h2, h3, h4, h5, h6);
+			__m128i tC0f = _mm_unpacklo_epi8(tC0efgh, tC0efgh);
+			tC0f = _mm_unpackhi_epi8(tC0f, tC0f);
+			DEBLOCK_LUMA_SOFT(h1, h2, h3, h4, h5, h6, am1bcdfgh, bm1bcdfgh, tC0f);
 		}
 		*(__m128i *)(px0 +  stride * 2) = h2;
 		*(__m128i *)(px7 + nstride * 4) = h3;
@@ -428,7 +457,9 @@ void FUNC(deblock_luma_row, size_t stride, ssize_t nstride, uint8_t*restrict px0
 		*(__m128i *)(pxE +  stride    ) = hF;
 		
 		// third horizontal edge
-		DEBLOCK_LUMA_SOFT(h5, h6, h7, h8, h9, hA);
+		__m128i tC0g = _mm_unpackhi_epi8(tC0efgh, tC0efgh);
+		tC0g = _mm_unpacklo_epi8(tC0g, tC0g);
+		DEBLOCK_LUMA_SOFT(h5, h6, h7, h8, h9, hA, am1bcdfgh, bm1bcdfgh, tC0g);
 		*(__m128i *)(px7 + nstride    ) = h6;
 		*(__m128i *)(px7              ) = h7;
 		*(__m128i *)(px7 +  stride    ) = h8;
@@ -436,7 +467,9 @@ void FUNC(deblock_luma_row, size_t stride, ssize_t nstride, uint8_t*restrict px0
 		
 		// fourth horizontal edge
 		if (!mb->f.transform_size_8x8_flag) {
-			DEBLOCK_LUMA_SOFT(h9, hA, hB, hC, hD, hE);
+			__m128i tC0h = _mm_unpackhi_epi8(tC0efgh, tC0efgh);
+			tC0h = _mm_unpackhi_epi8(tC0h, tC0h);
+			DEBLOCK_LUMA_SOFT(h9, hA, hB, hC, hD, hE, am1bcdfgh, bm1bcdfgh, tC0h);
 		}
 		*(__m128i *)(pxE + nstride * 4) = hA;
 		*(__m128i *)(px7 +  stride * 4) = hB;

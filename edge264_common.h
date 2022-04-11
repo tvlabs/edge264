@@ -81,7 +81,7 @@ static const Edge264_flags flags_twice = {
  */
 typedef struct {
 	Edge264_flags f;
-	int8_t QP[3];
+	int8_t QP[3]; // QP'
 	uint32_t inter_blocks; // bitmask for every index that is the topleft corner of a block, upper half indicates whether each 8x8 block is equal with its right/bottom neighbours
 	union { int8_t refIdx[8]; int32_t refIdx_s[2]; int64_t refIdx_l; v8qi refIdx_v; }; // [LX][i8x8]
 	union { uint32_t bits[4]; v4su bits_v; }; // {cbf_Y 8x8/4x4 , cbf_Cb 8x8/4x4, cbf_Cr 8x8/4x4, cbp/ref_idx_nz}

@@ -3,6 +3,8 @@
 // TODO increment RefPicList to assign refIdx=-1 with ref=0
 // TODO disable deblocking of single edge if indexA<16
 
+// gcc=1716, clang=1830
+
 #include "edge264_common.h"
 
 
@@ -273,7 +275,7 @@ static inline void FUNC(init_tC0, v8hi indexAB, __m128i *tC0v, __m128i *tC0h) {
 
 
 
-void FUNC(deblock_luma_row, size_t stride, ssize_t nstride, uint8_t*restrict px0, uint8_t*restrict px7, uint8_t*restrict pxE, uint8_t*restrict pxX)
+void FUNC(deblock_luma_row, size_t stride, ssize_t nstride, size_t stride7, uint8_t * restrict px0)
 {
 	static const uint8_t idx2alpha[52] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 4, 4, 5, 6, 7, 8, 9, 10, 12, 13, 15, 17, 20, 22, 25, 28, 32, 36, 40, 45, 50, 56, 63, 71, 80, 90, 101, 113, 127, 144, 162, 182, 203, 226, 255, 255};
 	static const uint8_t idx2beta[52] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 2, 2, 3, 3, 3, 3, 4, 4, 4, 6, 6, 7, 7, 8, 8, 9, 9, 10, 10, 11, 11, 12, 12, 13, 13, 14, 14, 15, 15, 16, 16, 17, 17, 18, 18};
@@ -293,6 +295,7 @@ void FUNC(deblock_luma_row, size_t stride, ssize_t nstride, uint8_t*restrict px0
 			__m128i xa0 = _mm_loadu_si128((__m128i *)(px0               - 8));
 			__m128i xa1 = _mm_loadu_si128((__m128i *)(px0 +  stride     - 8));
 			__m128i xa2 = _mm_loadu_si128((__m128i *)(px0 +  stride * 2 - 8));
+			uint8_t * restrict px7 = px0 + stride7;
 			__m128i xa3 = _mm_loadu_si128((__m128i *)(px7 + nstride * 4 - 8));
 			__m128i xa4 = _mm_loadu_si128((__m128i *)(px0 +  stride * 4 - 8));
 			__m128i xa5 = _mm_loadu_si128((__m128i *)(px7 + nstride * 2 - 8));
@@ -300,6 +303,7 @@ void FUNC(deblock_luma_row, size_t stride, ssize_t nstride, uint8_t*restrict px0
 			__m128i xa7 = _mm_loadu_si128((__m128i *)(px7               - 8));
 			__m128i xa8 = _mm_loadu_si128((__m128i *)(px7 +  stride     - 8));
 			__m128i xa9 = _mm_loadu_si128((__m128i *)(px7 +  stride * 2 - 8));
+			uint8_t * restrict pxE = px7 + stride7;
 			__m128i xaA = _mm_loadu_si128((__m128i *)(pxE + nstride * 4 - 8));
 			__m128i xaB = _mm_loadu_si128((__m128i *)(px7 +  stride * 4 - 8));
 			__m128i xaC = _mm_loadu_si128((__m128i *)(pxE + nstride * 2 - 8));
@@ -344,6 +348,7 @@ void FUNC(deblock_luma_row, size_t stride, ssize_t nstride, uint8_t*restrict px0
 			*(int32_t *)(px0               - 4) = xc4[0];
 			*(int32_t *)(px0 +  stride     - 4) = xc4[1];
 			*(int32_t *)(px0 +  stride * 2 - 4) = xc4[2];
+			px7 = px0 + stride7;
 			*(int32_t *)(px7 + nstride * 4 - 4) = xc4[3];
 			*(int32_t *)(px0 +  stride * 4 - 4) = xc5[0];
 			*(int32_t *)(px7 + nstride * 2 - 4) = xc5[1];
@@ -351,6 +356,7 @@ void FUNC(deblock_luma_row, size_t stride, ssize_t nstride, uint8_t*restrict px0
 			*(int32_t *)(px7               - 4) = xc5[3];
 			*(int32_t *)(px7 +  stride     - 4) = xc6[0];
 			*(int32_t *)(px7 +  stride * 2 - 4) = xc6[1];
+			pxE = px7 + stride7;
 			*(int32_t *)(pxE + nstride * 4 - 4) = xc6[2];
 			*(int32_t *)(px7 +  stride * 4 - 4) = xc6[3];
 			*(int32_t *)(pxE + nstride * 2 - 4) = xc7[0];
@@ -362,6 +368,7 @@ void FUNC(deblock_luma_row, size_t stride, ssize_t nstride, uint8_t*restrict px0
 			__m128i xa0 = *(__m128i *)(px0              );
 			__m128i xa1 = *(__m128i *)(px0 +  stride    );
 			__m128i xa2 = *(__m128i *)(px0 +  stride * 2);
+			uint8_t * restrict px7 = px0 + stride7;
 			__m128i xa3 = *(__m128i *)(px7 + nstride * 4);
 			__m128i xa4 = *(__m128i *)(px0 +  stride * 4);
 			__m128i xa5 = *(__m128i *)(px7 + nstride * 2);
@@ -369,6 +376,7 @@ void FUNC(deblock_luma_row, size_t stride, ssize_t nstride, uint8_t*restrict px0
 			__m128i xa7 = *(__m128i *)(px7              );
 			__m128i xa8 = *(__m128i *)(px7 +  stride    );
 			__m128i xa9 = *(__m128i *)(px7 +  stride * 2);
+			uint8_t * restrict pxE = px7 + stride7;
 			__m128i xaA = *(__m128i *)(pxE + nstride * 4);
 			__m128i xaB = *(__m128i *)(px7 +  stride * 4);
 			__m128i xaC = *(__m128i *)(pxE + nstride * 2);
@@ -391,6 +399,7 @@ void FUNC(deblock_luma_row, size_t stride, ssize_t nstride, uint8_t*restrict px0
 		__m128i xa0 = *(__m128i *)(px0              );
 		__m128i xa1 = *(__m128i *)(px0 +  stride    );
 		__m128i xa2 = *(__m128i *)(px0 +  stride * 2);
+		uint8_t * restrict px7 = px0 + stride7;
 		__m128i xa3 = *(__m128i *)(px7 + nstride * 4);
 		__m128i xa4 = *(__m128i *)(px0 +  stride * 4);
 		__m128i xa5 = *(__m128i *)(px7 + nstride * 2);
@@ -398,6 +407,7 @@ void FUNC(deblock_luma_row, size_t stride, ssize_t nstride, uint8_t*restrict px0
 		__m128i xa7 = *(__m128i *)(px7              );
 		__m128i xa8 = *(__m128i *)(px7 +  stride    );
 		__m128i xa9 = *(__m128i *)(px7 +  stride * 2);
+		uint8_t * restrict pxE = px7 + stride7;
 		__m128i xaA = *(__m128i *)(pxE + nstride * 4);
 		__m128i xaB = *(__m128i *)(px7 +  stride * 4);
 		__m128i xaC = *(__m128i *)(pxE + nstride * 2);
@@ -431,9 +441,9 @@ void FUNC(deblock_luma_row, size_t stride, ssize_t nstride, uint8_t*restrict px0
 				__m128i am1e = _mm_set1_epi8(alpha_e - 1);
 				__m128i tC0e = _mm_unpacklo_epi8(tC0efgh, tC0efgh);
 				tC0e = _mm_unpacklo_epi8(tC0e, tC0e);
-				DEBLOCK_LUMA_SOFT(*(__m128i *)(pxX              ), *(__m128i *)(px0 + nstride * 2), *(__m128i *)(px0 + nstride    ), h0, h1, h2, am1e, bm1e, tC0e);
+				DEBLOCK_LUMA_SOFT(*(__m128i *)(px0 + nstride * 3), *(__m128i *)(px0 + nstride * 2), *(__m128i *)(px0 + nstride    ), h0, h1, h2, am1e, bm1e, tC0e);
 			} else {
-				DEBLOCK_LUMA_HARD(*(__m128i *)(px0 + nstride * 4), *(__m128i *)(pxX              ), *(__m128i *)(px0 + nstride * 2), *(__m128i *)(px0 + nstride    ), h0, h1, h2, h3, alpha_e, bm1e);
+				DEBLOCK_LUMA_HARD(*(__m128i *)(px0 + nstride * 4), *(__m128i *)(px0 + nstride * 3), *(__m128i *)(px0 + nstride * 2), *(__m128i *)(px0 + nstride    ), h0, h1, h2, h3, alpha_e, bm1e);
 			}
 		}
 		*(__m128i *)(px0              ) = h0;
@@ -445,6 +455,7 @@ void FUNC(deblock_luma_row, size_t stride, ssize_t nstride, uint8_t*restrict px0
 			tC0f = _mm_unpackhi_epi8(tC0f, tC0f);
 			DEBLOCK_LUMA_SOFT(h1, h2, h3, h4, h5, h6, am1bcdfgh, bm1bcdfgh, tC0f);
 		}
+		px7 = px0 + stride7;
 		*(__m128i *)(px0 +  stride * 2) = h2;
 		*(__m128i *)(px7 + nstride * 4) = h3;
 		*(__m128i *)(px0 +  stride * 4) = h4;
@@ -453,6 +464,7 @@ void FUNC(deblock_luma_row, size_t stride, ssize_t nstride, uint8_t*restrict px0
 		// transpose the bottom 16x8 matrix
 		__m128i h8, h9, hA, hB, hC, hD, hE, hF;
 		TRANSPOSE_8x16(v, hi, h8, h9, hA, hB, hC, hD, hE, hF);
+		pxE = px0 + stride7;
 		*(__m128i *)(pxE              ) = hE;
 		*(__m128i *)(pxE +  stride    ) = hF;
 		
@@ -480,8 +492,5 @@ void FUNC(deblock_luma_row, size_t stride, ssize_t nstride, uint8_t*restrict px0
 		mb++;
 		ctx->mbB++;
 		px0 += 16;
-		px7 += 16;
-		pxE += 16;
-		pxX += 16;
 	} while (1); // FIXME
 }

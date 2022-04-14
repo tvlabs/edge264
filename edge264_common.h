@@ -81,8 +81,8 @@ static const Edge264_flags flags_twice = {
  */
 typedef struct {
 	Edge264_flags f;
-	int8_t QP[3]; // QP'
 	uint32_t inter_blocks; // bitmask for every index that is the topleft corner of a block, upper half indicates whether each 8x8 block is equal with its right/bottom neighbours
+	union { uint8_t QP[3]; uint32_t QP_s; }; // [iYCbCr]
 	union { int8_t refIdx[8]; int32_t refIdx_s[2]; int64_t refIdx_l; v8qi refIdx_v; }; // [LX][i8x8]
 	union { uint32_t bits[4]; v4su bits_v; }; // {cbf_Y 8x8/4x4 , cbf_Cb 8x8/4x4, cbf_Cr 8x8/4x4, cbp/ref_idx_nz}
 	union { int8_t nC[3][16]; v16qi nC_v[3]; }; // for CAVLC and deblocking, 64 if unavailable
@@ -113,8 +113,7 @@ typedef struct
 	int8_t luma_log2_weight_denom; // 3 significant bits
 	int8_t chroma_log2_weight_denom; // 3 significant bits
 	int8_t disable_deblocking_filter_idc; // 2 significant bits
-	int8_t FilterOffsetA; // 5 significant bits
-	int8_t FilterOffsetB;
+	union { int8_t FilterOffsetA, FilterOffsetB; int16_t FilterOffsets; }; // 5 significant bits
 	int8_t mb_qp_delta_nz;
 	int8_t currPic;
 	int32_t TopFieldOrderCnt;
@@ -183,6 +182,14 @@ typedef struct
 	union { int8_t scan[64]; v4qi scan_s; v8qi scan_l; v16qi scan_v[4]; };
 	union { int8_t QPprime_C[2][64]; v16qi QPprime_C_v[8]; };
 	union { int32_t c[64]; v4si c_v[16]; v8si c_V[8]; }; // non-scaled residual coefficients
+	
+	// Deblocking context
+	uint8_t qP2alpha[52];
+	uint8_t qP2beta[52];
+	uint8_t qP2tC0[3][52];
+	union { uint8_t alpha[16]; v16qu alpha_v; }; // {internal_Y,internal_Cb,internal_Cr,0,0,0,0,0,left_Y,left_Cb,left_Cr,0,top_Y,top_Cb,top_Cr,0}
+	union { uint8_t beta[16]; v16qu beta_v; };
+	union { int32_t tC0_s[16]; int64_t tC0_l[8]; v16qi tC0_v[4]; }; // 4 bytes per edge in deblocking order -> 8 luma edges then 8 alternating Cb/Cr edges
 } Edge264_ctx;
 
 
@@ -370,7 +377,7 @@ static noinline void FUNC(parse_slice_data_cabac);
 	#ifndef __AVX_2__
 		#define _mm_broadcastw_epi16(a) _mm_shuffle_epi32(_mm_shufflelo_epi16(a, _MM_SHUFFLE(0, 0, 0, 0)), _MM_SHUFFLE(1, 0, 1, 0))
 	#endif
-	#if defined(__SSE4_1__) && !defined(__clang__)
+	#if !defined(__SSE4_1__) && !defined(__clang__)
 		static inline __m128i _mm_mullo_epi32(__m128i a, __m128i b) { // FIXME correct
 			__m128i c = _mm_shuffle_epi32(a, _MM_SHUFFLE(0, 3, 0, 1));
 			__m128i d = _mm_shuffle_epi32(b, _MM_SHUFFLE(0, 3, 0, 1));
@@ -382,6 +389,12 @@ static noinline void FUNC(parse_slice_data_cabac);
 		static inline __m128i _mm_packus_epi32(__m128i a, __m128i b) {
 			return _mm_max_epi16(_mm_packs_epi32(a, b), _mm_setzero_si128()); // not strictly equivalent but sufficient for 14bit results
 		}
+	#endif
+	#if !defined(__SSE4_1__)
+		#define _mm_blendv_epi8(f, t, c) ({\
+			__m128i m = _mm_cmpgt_epi8(_mm_setzero_si128(), c);\
+			_mm_or_si128(_mm_and_si128(t, m), _mm_andnot_si128(f, m));\
+		})
 	#endif
 
 	// complements to GCC vector intrinsics

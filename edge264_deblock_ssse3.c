@@ -8,6 +8,7 @@
 // TODO check that alpha=0 or beta=0 does not break the decoder
 // TODO introduce an alternative to blendv expecting full mask for a simpler SSSE3 fallback
 // TODO acknowledge influence of ffmpeg source
+// TODO make deblock_mb iterate on entire frame to simplify future improvements (i.e. slices)
 
 #include "edge264_common.h"
 
@@ -581,15 +582,13 @@ static noinline void FUNC(deblock_Y_8bit, uint8_t * restrict px0, size_t stride,
 
 static noinline void FUNC(deblock_CbCr_8bit, uint8_t * restrict Cb0, uint8_t * restrict Cr0, size_t stride, ssize_t nstride, size_t stride7)
 {
-	CALL(init_alpha_beta_tC0);
-	
 	__m128i v0, v1, v2, v3, v4, v5, v6, v7;
 	if (!mb[-1].f.unavailable) {
 		// load and transpose both 12x8 matrices (with left macroblock)
 		__m128i xa0 = _mm_loadu_si128((__m128i *)(Cb0               - 8));
 		__m128i xa1 = _mm_loadu_si128((__m128i *)(Cb0 +  stride     - 8));
 		__m128i xa2 = _mm_loadu_si128((__m128i *)(Cb0 +  stride * 2 - 8));
-		uint8_t * Cb7 = Cb0 + stride7;
+		uint8_t *Cb7 = Cb0 + stride7;
 		__m128i xa3 = _mm_loadu_si128((__m128i *)(Cb7 + nstride * 4 - 8));
 		__m128i xa4 = _mm_loadu_si128((__m128i *)(Cb0 +  stride * 4 - 8));
 		__m128i xa5 = _mm_loadu_si128((__m128i *)(Cb7 + nstride * 2 - 8));
@@ -598,7 +597,7 @@ static noinline void FUNC(deblock_CbCr_8bit, uint8_t * restrict Cb0, uint8_t * r
 		__m128i xa8 = _mm_loadu_si128((__m128i *)(Cr0               - 8));
 		__m128i xa9 = _mm_loadu_si128((__m128i *)(Cr0 +  stride     - 8));
 		__m128i xaA = _mm_loadu_si128((__m128i *)(Cr0 +  stride * 2 - 8));
-		uint8_t * Cr7 = Cr0 + stride7;
+		uint8_t *Cr7 = Cr0 + stride7;
 		__m128i xaB = _mm_loadu_si128((__m128i *)(Cr7 + nstride * 4 - 8));
 		__m128i xaC = _mm_loadu_si128((__m128i *)(Cr0 +  stride * 4 - 8));
 		__m128i xaD = _mm_loadu_si128((__m128i *)(Cr7 + nstride * 2 - 8));
@@ -649,22 +648,124 @@ static noinline void FUNC(deblock_CbCr_8bit, uint8_t * restrict Cb0, uint8_t * r
 		*(int16_t *)(Cr7               - 2) = xc1[7];
 	} else {
 		// load and transpose both 8x8 matrices
-		
+		__m128i xa0 = _mm_loadl_epi64((__m128i *)(Cb0              ));
+		__m128i xa1 = _mm_loadl_epi64((__m128i *)(Cb0 +  stride    ));
+		__m128i xa2 = _mm_loadl_epi64((__m128i *)(Cb0 +  stride * 2));
+		uint8_t *Cb7 = Cb0 + stride7;
+		__m128i xa3 = _mm_loadl_epi64((__m128i *)(Cb7 + nstride * 4));
+		__m128i xa4 = _mm_loadl_epi64((__m128i *)(Cb0 +  stride * 4));
+		__m128i xa5 = _mm_loadl_epi64((__m128i *)(Cb7 + nstride * 2));
+		__m128i xa6 = _mm_loadl_epi64((__m128i *)(Cb7 + nstride    ));
+		__m128i xa7 = _mm_loadl_epi64((__m128i *)(Cb7              ));
+		__m128i xa8 = _mm_loadl_epi64((__m128i *)(Cr0              ));
+		__m128i xa9 = _mm_loadl_epi64((__m128i *)(Cr0 +  stride    ));
+		__m128i xaA = _mm_loadl_epi64((__m128i *)(Cr0 +  stride * 2));
+		uint8_t *Cr7 = Cr0 + stride7;
+		__m128i xaB = _mm_loadl_epi64((__m128i *)(Cr7 + nstride * 4));
+		__m128i xaC = _mm_loadl_epi64((__m128i *)(Cr0 +  stride * 4));
+		__m128i xaD = _mm_loadl_epi64((__m128i *)(Cr7 + nstride * 2));
+		__m128i xaE = _mm_loadl_epi64((__m128i *)(Cr7 + nstride    ));
+		__m128i xaF = _mm_loadl_epi64((__m128i *)(Cr7              ));
+		TRANSPOSE_8x16(xa, lo, v0, v1, v2, v3, v4, v5, v6, v7);
 	}
 	
+	// third vertical edge
+	__m128i shuf_cg = _mm_setr_epi8(1, 1, 1, 1, 1, 1, 1, 1, 2, 2, 2, 2, 2, 2, 2, 2);
+	__m128i cm1cg = _mm_set1_epi8(-1);
+	__m128i am1cg = _mm_add_epi8(_mm_shuffle_epi8((__m128i)ctx->alpha_v, shuf_cg), cm1cg);
+	__m128i bm1cg = _mm_add_epi8(_mm_shuffle_epi8((__m128i)ctx->beta_v, shuf_cg), cm1cg);
+	__m128i tC0c = expand2(ctx->tC0_l[5]);
+	DEBLOCK_CHROMA_SOFT(v2, v3, v4, v5, am1cg, bm1cg, tC0c);
+	
+	// transpose both 8x8 matrices
+	__m128i xd0 = _mm_unpacklo_epi8(v0, v1);
+	__m128i xd1 = _mm_unpackhi_epi8(v0, v1);
+	__m128i xd2 = _mm_unpacklo_epi8(v2, v3);
+	__m128i xd3 = _mm_unpackhi_epi8(v2, v3);
+	__m128i xd4 = _mm_unpacklo_epi8(v4, v5);
+	__m128i xd5 = _mm_unpackhi_epi8(v4, v5);
+	__m128i xd6 = _mm_unpacklo_epi8(v6, v7);
+	__m128i xd7 = _mm_unpackhi_epi8(v6, v7);
+	__m128i xe0 = _mm_unpacklo_epi16(xd0, xd2);
+	__m128i xe1 = _mm_unpackhi_epi16(xd0, xd2);
+	__m128i xe2 = _mm_unpacklo_epi16(xd1, xd3);
+	__m128i xe3 = _mm_unpackhi_epi16(xd1, xd3);
+	__m128i xe4 = _mm_unpacklo_epi16(xd4, xd6);
+	__m128i xe5 = _mm_unpackhi_epi16(xd4, xd6);
+	__m128i xe6 = _mm_unpacklo_epi16(xd5, xd7);
+	__m128i xe7 = _mm_unpackhi_epi16(xd5, xd7);
+	__m128i xf0 = _mm_unpacklo_epi32(xe0, xe4);
+	__m128i xf1 = _mm_unpackhi_epi32(xe0, xe4);
+	__m128i xf2 = _mm_unpacklo_epi32(xe1, xe5);
+	__m128i xf3 = _mm_unpackhi_epi32(xe1, xe5);
+	__m128i xf4 = _mm_unpacklo_epi32(xe2, xe6);
+	__m128i xf5 = _mm_unpackhi_epi32(xe2, xe6);
+	__m128i xf6 = _mm_unpacklo_epi32(xe3, xe7);
+	__m128i xf7 = _mm_unpackhi_epi32(xe3, xe7);
+	__m128i h0 = _mm_unpacklo_epi64(xf0, xf4);
+	__m128i h1 = _mm_unpackhi_epi64(xf0, xf4);
+	__m128i h2 = _mm_unpacklo_epi64(xf1, xf5);
+	__m128i h3 = _mm_unpackhi_epi64(xf1, xf5);
+	__m128i h4 = _mm_unpacklo_epi64(xf2, xf6);
+	__m128i h5 = _mm_unpackhi_epi64(xf2, xf6);
+	__m128i h6 = _mm_unpacklo_epi64(xf3, xf7);
+	__m128i h7 = _mm_unpackhi_epi64(xf3, xf7);
+	
+	// first horizontal edge
+	if (!ctx->mbB->f.unavailable) {
+		__m128i shuf_e = _mm_setr_epi8(13, 13, 13, 13, 13, 13, 13, 13, 14, 14, 14, 14, 14, 14, 14, 14);
+		__m128i cm1e = _mm_set1_epi8(-1);
+		__m128i am1e = _mm_add_epi8(_mm_shuffle_epi8((__m128i)ctx->alpha_v, shuf_e), cm1e);
+		__m128i bm1e = _mm_add_epi8(_mm_shuffle_epi8((__m128i)ctx->beta_v, shuf_e), cm1e);
+		__m128i hY = _mm_setr_epi64(*(__m64 *)(Cb0 + nstride * 2), *(__m64 *)(Cr0 + nstride * 2));
+		__m128i hZ = _mm_setr_epi64(*(__m64 *)(Cb0 + nstride    ), *(__m64 *)(Cr0 + nstride    ));
+		if (ctx->mbB->f.mbIsInterFlag & mb->f.mbIsInterFlag) {
+			__m128i tC0e = expand2(ctx->tC0_l[6]);
+			DEBLOCK_CHROMA_SOFT(hY, hZ, h0, h1, am1e, bm1e, tC0e);
+		} else {
+			DEBLOCK_CHROMA_HARD(hY, hZ, h0, h1, am1e, bm1e);
+		}
+		*(int64_t *)(Cb0 + nstride * 2) = ((v2li)hY)[0];
+		*(int64_t *)(Cr0 + nstride * 2) = ((v2li)hY)[1];
+		*(int64_t *)(Cb0 + nstride    ) = ((v2li)hZ)[0];
+		*(int64_t *)(Cr0 + nstride    ) = ((v2li)hZ)[1];
+	}
+	*(int64_t *)(Cb0              ) = ((v2li)h0)[0];
+	*(int64_t *)(Cr0              ) = ((v2li)h0)[1];
+	*(int64_t *)(Cb0 +  stride    ) = ((v2li)h1)[0];
+	*(int64_t *)(Cr0 +  stride    ) = ((v2li)h1)[1];
+	
+	// third horizontal edge
+	__m128i tC0g = expand2(ctx->tC0_l[7]);
+	DEBLOCK_CHROMA_SOFT(h2, h3, h4, h5, am1cg, bm1cg, tC0g);
+	*(int64_t *)(Cb0 +  stride * 2) = ((v2li)h2)[0];
+	*(int64_t *)(Cr0 +  stride * 2) = ((v2li)h2)[1];
+	uint8_t *Cb7 = Cb0 + stride7;
+	uint8_t *Cr7 = Cr0 + stride7;
+	*(int64_t *)(Cb7 + nstride * 4) = ((v2li)h3)[0];
+	*(int64_t *)(Cr7 + nstride * 4) = ((v2li)h3)[1];
+	*(int64_t *)(Cb0 +  stride * 4) = ((v2li)h4)[0];
+	*(int64_t *)(Cr0 +  stride * 4) = ((v2li)h4)[1];
+	*(int64_t *)(Cb7 + nstride * 2) = ((v2li)h5)[0];
+	*(int64_t *)(Cr7 + nstride * 2) = ((v2li)h5)[1];
+	*(int64_t *)(Cb7 + nstride    ) = ((v2li)h6)[0];
+	*(int64_t *)(Cr7 + nstride    ) = ((v2li)h6)[1];
+	*(int64_t *)(Cb7              ) = ((v2li)h7)[0];
+	*(int64_t *)(Cr7              ) = ((v2li)h7)[1];
 }
 
 
 
-void FUNC(deblock_mb, uint8_t *samplesY, uint8_t *samplesCb, uint8_t *samplesCr, Edge264_macroblock *_mb) {
+noinline void FUNC(deblock_mb, uint8_t *samplesY, uint8_t *samplesCb, uint8_t *samplesCr, Edge264_macroblock *_mb) {
 	size_t offsetB = (void *)mb - (void *)ctx->mbB;
 	Edge264_macroblock *old = mb;
 	mb = _mb;
 	ctx->mbB = _mb - offsetB;
-	size_t strideC = ctx->stride[1];
-	CALL(deblock_CbCr_8bit, samplesCb, samplesCr, strideC, -strideC, strideC * 7);
+	CALL(init_alpha_beta_tC0);
 	size_t strideY = ctx->stride[0];
 	CALL(deblock_Y_8bit, samplesY, strideY, -strideY, strideY * 7);
+	size_t strideC = ctx->stride[1];
+	CALL(deblock_CbCr_8bit, samplesCb, samplesCr, strideC, -strideC, strideC * 7);
 	mb = old;
 	ctx->mbB = old - offsetB;
 }

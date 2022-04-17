@@ -170,6 +170,8 @@ static void FUNC(initialise_decoding_context, Edge264_stream *e)
 					ctx->MapColToList0[1 + i] = (colList[i] >= 0) ? MapPicToList0[colList[i]] : 0;
 			}
 		}
+		ctx->RefPicList_v[0] += (v16qi){1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1}; // for deblocking, to use pic 0 as "unused"
+		ctx->RefPicList_v[2] += (v16qi){1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1};
 	}
 }
 

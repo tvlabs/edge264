@@ -1,5 +1,3 @@
-// TODO add shortcut for tC0 in 8x8 macroblocks?
-// TODO increment RefPicList to assign refIdx=-1 with ref=0
 // TODO disable deblocking of single edge if indexA<16
 // TODO initialize QP to 0 for PCM macroblocks
 // TODO put indexAB in union to memory since clang cannot fetch directly from memory

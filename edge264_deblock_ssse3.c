@@ -30,12 +30,14 @@ static const int8_t idx2tC0[3][52] = {
  * deblocking order) of the current macroblock.
  * 
  * One of the hard parts here is computing a mask for bS=1. Edges a/c/e/g and
- * b/d/f/h are handled separately, then we calculate 4 values per edge:
+ * b/d/f/h are handled separately, and we calculate 4 values per edge:
  * _ differences of references in parallel (l0 vs l0, l1 vs l1) -> refs_p
- *   (equals zero for b/d/f/h)
+ *   (zero on b/d/f/h edges)
  * _ differences of references in cross (l0 vs l1, l1 vs l0) -> refs_c
+ *   (zero on P macroblocks)
  * _ differences of motion vectors in parallel -> mvs_p
  * _ differences of motion vectors in cross -> mvs_c
+ *   (zero on P macroblocks)
  * 
  * Then bS is inferred with the help of a Karnaugh map, where the AND operation
  * is achieved using _mm_min_epu8:
@@ -92,7 +94,39 @@ static inline void FUNC(init_alpha_beta_tC0)
 		// compute masks for bS=1 based on equality of references and motion vectors
 		__m128i bS1aceg, bS1bdfh, zero;
 		__m128i c3 = _mm_set1_epi8(3);
-		if (mb->refIdx_s[1] & mb[-1].refIdx_s[1] & ctx->mbB->refIdx_s[1] == -1) { // P macroblocks
+		if (mb->inter_blocks == 0x01231111) { // 16x16 macroblock
+			__m128i mvsv0l0 = (__m128i)_mm_shuffle_ps((__m128)mb[-1].mvs_v[1], (__m128)mb[-1].mvs_v[3], _MM_SHUFFLE(3, 1, 3, 1));
+			__m128i mvsv1l0 = (__m128i)_mm_shuffle_ps((__m128)mb->mvs_v[0], (__m128)mb->mvs_v[2], _MM_SHUFFLE(2, 0, 2, 0));
+			__m128i mvsv0l1 = (__m128i)_mm_shuffle_ps((__m128)mb[-1].mvs_v[5], (__m128)mb[-1].mvs_v[7], _MM_SHUFFLE(3, 1, 3, 1));
+			__m128i mvsv1l1 = (__m128i)_mm_shuffle_ps((__m128)mb->mvs_v[4], (__m128)mb->mvs_v[6], _MM_SHUFFLE(2, 0, 2, 0));
+			__m128i mvsh0l0 = _mm_unpackhi_epi64((__m128i)ctx->mbB->mvs_v[2], (__m128i)ctx->mbB->mvs_v[3]);
+			__m128i mvsh1l0 = _mm_unpacklo_epi64((__m128i)mb->mvs_v[0], (__m128i)mb->mvs_v[1]);
+			__m128i mvsh0l1 = _mm_unpackhi_epi64((__m128i)ctx->mbB->mvs_v[6], (__m128i)ctx->mbB->mvs_v[7]);
+			__m128i mvsh1l1 = _mm_unpacklo_epi64((__m128i)mb->mvs_v[4], (__m128i)mb->mvs_v[5]);
+			__m128i mvsael00 = _mm_packs_epi16(_mm_sub_epi16(mvsv0l0, mvsv1l0), _mm_sub_epi16(mvsh0l0, mvsh1l0));
+			__m128i mvsael01 = _mm_packs_epi16(_mm_sub_epi16(mvsv0l0, mvsv1l1), _mm_sub_epi16(mvsh0l0, mvsh1l1));
+			__m128i mvsael10 = _mm_packs_epi16(_mm_sub_epi16(mvsv0l1, mvsv1l0), _mm_sub_epi16(mvsh0l1, mvsh1l0));
+			__m128i mvsael11 = _mm_packs_epi16(_mm_sub_epi16(mvsv0l1, mvsv1l1), _mm_sub_epi16(mvsh0l1, mvsh1l1));
+			__m128i mvsaep = _mm_subs_epu8(_mm_max_epu8(_mm_abs_epi8(mvsael00), _mm_abs_epi8(mvsael11)), c3);
+			__m128i mvsaec = _mm_subs_epu8(_mm_max_epu8(_mm_abs_epi8(mvsael01), _mm_abs_epi8(mvsael10)), c3);
+			zero = _mm_setzero_si128();
+			__m128i mvsacegp = _mm_shuffle_epi32(_mm_packs_epi16(mvsaep, zero), _MM_SHUFFLE(3, 1, 2, 0));
+			__m128i mvsacegc = _mm_shuffle_epi32(_mm_packs_epi16(mvsaec, zero), _MM_SHUFFLE(3, 1, 2, 0));
+			__m128i refIdx0 = _mm_setr_epi32(mb->refIdx_s[0], mb[-1].refIdx_s[0], ctx->mbB->refIdx_s[0], 0);
+			__m128i refIdx1 = _mm_setr_epi32(mb->refIdx_s[1], mb[-1].refIdx_s[1], ctx->mbB->refIdx_s[1], 0);
+			__m128i shufVHAB = _mm_setr_epi8(0, 2, 1, 3, 0, 1, 2, 3, 5, 7, 0, 2, 10, 11, 0, 1);
+			__m128i refs0 = _mm_shuffle_epi8(_mm_shuffle_epi8((__m128i)ctx->RefPicList_v[0], refIdx0), shufVHAB); // (v0,h0,A0,B0)
+			__m128i refs1 = _mm_shuffle_epi8(_mm_shuffle_epi8((__m128i)ctx->RefPicList_v[1], refIdx1), shufVHAB); // (v1,h1,A1,B1)
+			__m128i neq0 = _mm_xor_si128(refs0, (__m128i)_mm_shuffle_ps((__m128)refs1, (__m128)refs0, _MM_SHUFFLE(1, 0, 3, 2))); // (v0^A1,h0^B1,A0^v0,B0^h0)
+			__m128i neq1 = _mm_xor_si128(refs1, (__m128i)_mm_shuffle_ps((__m128)refs0, (__m128)refs1, _MM_SHUFFLE(1, 0, 3, 2))); // (v1^A0,h1^B0,A1^v1,B1^h1)
+			__m128i refsaceg = _mm_or_si128(neq0, neq1); // low=cross, high=parallel
+			__m128i refsacegc = _mm_unpacklo_epi8(refsaceg, refsaceg);
+			__m128i refsacegp = _mm_unpackhi_epi8(refsaceg, refsaceg);
+			__m128i neq3 = _mm_or_si128(_mm_min_epu8(refsacegp, refsacegc), _mm_min_epu8(mvsacegp, mvsacegc));
+			__m128i neq4 = _mm_or_si128(_mm_min_epu8(refsacegp, mvsacegc), _mm_min_epu8(mvsacegp, refsacegc));
+			bS1aceg = _mm_cmpgt_epi8(_mm_or_si128(neq3, neq4), zero);
+			bS1bdfh = zero;
+		} else if (mb->refIdx_s[1] & mb[-1].refIdx_s[1] & ctx->mbB->refIdx_s[1] == -1) { // P macroblocks
 			__m128i mvsv0 = (__m128i)_mm_shuffle_ps((__m128)mb[-1].mvs_v[1], (__m128)mb[-1].mvs_v[3], _MM_SHUFFLE(3, 1, 3, 1));
 			__m128i mvsv1 = (__m128i)_mm_shuffle_ps((__m128)mb->mvs_v[0], (__m128)mb->mvs_v[2], _MM_SHUFFLE(2, 0, 2, 0));
 			__m128i mvsv2 = (__m128i)_mm_shuffle_ps((__m128)mb->mvs_v[0], (__m128)mb->mvs_v[2], _MM_SHUFFLE(3, 1, 3, 1));

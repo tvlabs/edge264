@@ -184,9 +184,6 @@ typedef struct
 	union { int32_t c[64]; v4si c_v[16]; v8si c_V[8]; }; // non-scaled residual coefficients
 	
 	// Deblocking context
-	uint8_t qP2alpha[52];
-	uint8_t qP2beta[52];
-	uint8_t qP2tC0[3][52];
 	union { uint8_t alpha[16]; v16qu alpha_v; }; // {internal_Y,internal_Cb,internal_Cr,0,0,0,0,0,left_Y,left_Cb,left_Cr,0,top_Y,top_Cb,top_Cr,0}
 	union { uint8_t beta[16]; v16qu beta_v; };
 	union { int32_t tC0_s[16]; int64_t tC0_l[8]; v16qi tC0_v[4]; }; // 4 bytes per edge in deblocking order -> 8 luma edges then 8 alternating Cb/Cr edges

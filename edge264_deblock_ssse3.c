@@ -1,10 +1,7 @@
-// TODO initialize QP to 0 for PCM macroblocks
-// TODO put indexAB in union to memory since clang cannot fetch directly from memory
-// TODO précalculer un tableau de correspondance qP -> alpha/beta/tC0
-// TODO check that alpha=0 or beta=0 does not break the decoder
 // TODO introduce an alternative to blendv expecting full mask for a simpler SSSE3 fallback
 // TODO acknowledge influence of ffmpeg source
 // TODO make deblock_mb iterate on entire frame to simplify future improvements (i.e. slices)
+// TODO touch nC in CABAC too
 
 #include "edge264_common.h"
 

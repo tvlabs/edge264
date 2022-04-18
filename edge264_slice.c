@@ -1,5 +1,3 @@
-// FIXME enregistrer nC après avoir parsé CoeffToken
-// FIXME neighbouring nC values for chroma AC
 #include "edge264_common.h"
 
 #undef CAFUNC
@@ -380,8 +378,9 @@ static void CAFUNC(parse_mb_qp_delta)
 	#ifndef CABAC
 		int mb_qp_delta = CALL(get_se16, -26, 25); // FIXME QpBdOffset
 		if (mb_qp_delta) {
-			int sum = ctx->ps.QPprime_Y + mb_qp_delta;
-			ctx->ps.QPprime_Y = (sum < 0) ? sum + 52 : (sum >= 52) ? sum - 52 : sum;
+			int sum = ctx->QP[0] + mb_qp_delta;
+			int QP_Y = (sum < 0) ? sum + 52 : (sum >= 52) ? sum - 52 : sum;
+			mb->QP_s = ctx->QP_s = (v4qi){QP_Y, ctx->QP_C[0][QP_Y], ctx->QP_C[1][QP_Y]};
 		}
 	#else
 		int mb_qp_delta_nz = CALL(get_ae, 60 + ctx->mb_qp_delta_nz);
@@ -392,8 +391,9 @@ static void CAFUNC(parse_mb_qp_delta)
 			while (CALL(get_ae, ctxIdx) && count < 52) // FIXME QpBdOffset
 				count++, ctxIdx = 63;
 			mb_qp_delta = count & 1 ? count / 2 + 1 : -(count / 2);
-			int sum = ctx->ps.QPprime_Y + mb_qp_delta;
-			ctx->ps.QPprime_Y = (sum < 0) ? sum + 52 : (sum >= 52) ? sum - 52 : sum;
+			int sum = ctx->QP[0] + mb_qp_delta;
+			int QP_Y = (sum < 0) ? sum + 52 : (sum >= 52) ? sum - 52 : sum;
+			mb->QP_s = ctx->QP_s = (v4qi){QP_Y, ctx->QP_C[0][QP_Y], ctx->QP_C[1][QP_Y]};
 		}
 	#endif
 	fprintf(stderr, "mb_qp_delta: %d\n", mb_qp_delta);
@@ -457,8 +457,7 @@ static void CAFUNC(parse_chroma_residual)
 					fprintf(stderr, "Chroma AC coeffLevels[%d]:", i4x4);
 					CACALL(parse_residual_block, 1, 15, token_or_cbf);
 					v16qi wS = ((v16qi *)ctx->ps.weightScale4x4)[iYCbCr + mb->f.mbIsInterFlag * 3];
-					int qP = ctx->QPprime_C[iYCbCr - 1][ctx->ps.QPprime_Y];
-					CALL(add_idct4x4, iYCbCr, qP, wS, i4x4, samples);
+					CALL(add_idct4x4, iYCbCr, ctx->QP[iYCbCr], wS, i4x4, samples);
 				} else {
 					CALL(add_dc4x4, iYCbCr, i4x4, samples);
 				}
@@ -519,7 +518,7 @@ static void CAFUNC(parse_Intra16x16_residual)
 					memset(ctx->c, 0, 64);
 					fprintf(stderr, "16x16 AC coeffLevels[%d]:", iYCbCr * 16 + i4x4);
 					CACALL(parse_residual_block, 1, 15, token_or_cbf);
-					CALL(add_idct4x4, iYCbCr, ctx->ps.QPprime_Y, ((v16qi *)ctx->ps.weightScale4x4)[iYCbCr], i4x4, samples);
+					CALL(add_idct4x4, iYCbCr, ctx->QP[0], ((v16qi *)ctx->ps.weightScale4x4)[iYCbCr], i4x4, samples);
 				} else {
 					CALL(add_dc4x4, iYCbCr, i4x4, samples);
 				}
@@ -586,7 +585,7 @@ static void CAFUNC(parse_NxN_residual)
 						
 						// DC blocks are marginal here (about 16%) so we do not handle them separately
 						v16qi wS = ((v16qi *)ctx->ps.weightScale4x4)[iYCbCr + mb->f.mbIsInterFlag * 3];
-						CALL(add_idct4x4, iYCbCr, ctx->ps.QPprime_Y, wS, -1, samples);
+						CALL(add_idct4x4, iYCbCr, ctx->QP[0], wS, -1, samples);
 					}
 				}
 			}
@@ -823,6 +822,7 @@ static noinline void CAFUNC(parse_I_mb, int mb_type_or_ctxIdx)
 		
 		ctx->mb_qp_delta_nz = 0;
 		mb->f.v |= flags_PCM.v;
+		mb->QP_s = (v4qi){0, ctx->QP_C[0][0], ctx->QP_C[1][0]};
 		mb->bits_v = (v4su){0xbb6ebcac, 0xacacac, 0xac, 0xac}; // FIXME 4:2:2
 		mb->nC_v[0] = mb->nC_v[1] = mb->nC_v[2] = (v16qi){16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16};
 		mb->Intra4x4PredMode_v = (v16qi){2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2};
@@ -1553,6 +1553,7 @@ static noinline void CAFUNC(parse_slice_data)
 		v16qi flagsB = ctx->mbB->f.v;
 		ctx->inc.v = flagsA + flagsB + (flagsB & flags_twice.v);
 		memset(mb, 0, offsetof(Edge264_macroblock, mvs)); // FIXME who needs this?
+		mb->QP_s = ctx->QP_s;
 		if (ctx->ps.ChromaArrayType == 1) {
 			mb->bits_v = (ctx->mbB->bits_v >> 1 & (v4su){0x40810242, 0x424242, 0x42, 0x424242}) |
 				(mb[-1].bits_v >> 3 & (v4su){0x11, 0x111111, 0x11, 0x111111}) |

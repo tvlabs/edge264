@@ -94,14 +94,16 @@ static void FUNC(initialise_decoding_context, Edge264_stream *e)
 		ctx->last_inc_v[i] = last_inc_8x8[i];
 		ctx->scan_v[i] = scan_8x8[0][i];
 	}
-	memcpy(ctx->QPprime_C_v    , QP_Y2C + clip3(0, 63, 15 + ctx->ps.chroma_qp_index_offset), 16);
-	memcpy(ctx->QPprime_C_v + 1, QP_Y2C + clip3(0, 63, 31 + ctx->ps.chroma_qp_index_offset), 16);
-	memcpy(ctx->QPprime_C_v + 2, QP_Y2C + clip3(0, 63, 47 + ctx->ps.chroma_qp_index_offset), 16);
-	memcpy(ctx->QPprime_C_v + 3, QP_Y2C + clip3(0, 63, 63 + ctx->ps.chroma_qp_index_offset), 16);
-	memcpy(ctx->QPprime_C_v + 4, QP_Y2C + clip3(0, 63, 15 + ctx->ps.second_chroma_qp_index_offset), 16);
-	memcpy(ctx->QPprime_C_v + 5, QP_Y2C + clip3(0, 63, 31 + ctx->ps.second_chroma_qp_index_offset), 16);
-	memcpy(ctx->QPprime_C_v + 6, QP_Y2C + clip3(0, 63, 47 + ctx->ps.second_chroma_qp_index_offset), 16);
-	memcpy(ctx->QPprime_C_v + 7, QP_Y2C + clip3(0, 63, 63 + ctx->ps.second_chroma_qp_index_offset), 16);
+	memcpy(ctx->QP_C_v    , QP_Y2C + clip3(0, 63, 15 + ctx->ps.chroma_qp_index_offset), 16);
+	memcpy(ctx->QP_C_v + 1, QP_Y2C + clip3(0, 63, 31 + ctx->ps.chroma_qp_index_offset), 16);
+	memcpy(ctx->QP_C_v + 2, QP_Y2C + clip3(0, 63, 47 + ctx->ps.chroma_qp_index_offset), 16);
+	memcpy(ctx->QP_C_v + 3, QP_Y2C + clip3(0, 63, 63 + ctx->ps.chroma_qp_index_offset), 16);
+	memcpy(ctx->QP_C_v + 4, QP_Y2C + clip3(0, 63, 15 + ctx->ps.second_chroma_qp_index_offset), 16);
+	memcpy(ctx->QP_C_v + 5, QP_Y2C + clip3(0, 63, 31 + ctx->ps.second_chroma_qp_index_offset), 16);
+	memcpy(ctx->QP_C_v + 6, QP_Y2C + clip3(0, 63, 47 + ctx->ps.second_chroma_qp_index_offset), 16);
+	memcpy(ctx->QP_C_v + 7, QP_Y2C + clip3(0, 63, 63 + ctx->ps.second_chroma_qp_index_offset), 16);
+	ctx->QP[1] = ctx->QP_C[0][ctx->QP[0]];
+	ctx->QP[2] = ctx->QP_C[1][ctx->QP[0]];
 	
 	// initializing with vectors is not the fastest here, but is most readable thus maintainable
 	int offA_int8 = -(int)sizeof(*mb);
@@ -587,8 +589,8 @@ static int FUNC(parse_slice_layer_without_partitioning, Edge264_stream *e)
 		cabac_init_idc = 1 + CALL(get_ue16, 2);
 		printf("<li>cabac_init_idc: <code>%u</code></li>\n", cabac_init_idc - 1);
 	}
-	ctx->ps.QPprime_Y += CALL(get_se16, -ctx->ps.QPprime_Y, 51 - ctx->ps.QPprime_Y); // FIXME QpBdOffset
-	printf("<li>SliceQP<sub>Y</sub>: <code>%d</code></li>\n", ctx->ps.QPprime_Y);
+	ctx->QP[0] = ctx->ps.QPprime_Y + CALL(get_se16, -ctx->ps.QPprime_Y, 51 - ctx->ps.QPprime_Y); // FIXME QpBdOffset
+	printf("<li>SliceQP<sub>Y</sub>: <code>%d</code></li>\n", ctx->QP[0]);
 	
 	// Loop filter is yet to be implemented.
 	ctx->disable_deblocking_filter_idc = 0;

@@ -82,7 +82,7 @@ static const Edge264_flags flags_twice = {
 typedef struct {
 	Edge264_flags f;
 	uint32_t inter_blocks; // bitmask for every index that is the topleft corner of a block, upper half indicates whether each 8x8 block is equal with its right/bottom neighbours
-	union { uint8_t QP[3]; uint32_t QP_s; }; // [iYCbCr]
+	union { uint8_t QP[3]; v4qi QP_s; }; // [iYCbCr]
 	union { int8_t refIdx[8]; int32_t refIdx_s[2]; int64_t refIdx_l; v8qi refIdx_v; }; // [LX][i8x8]
 	union { uint32_t bits[4]; v4su bits_v; }; // {cbf_Y 8x8/4x4 , cbf_Cb 8x8/4x4, cbf_Cr 8x8/4x4, cbp/ref_idx_nz}
 	union { int8_t nC[3][16]; v16qi nC_v[3]; }; // for CAVLC and deblocking, 64 if unavailable
@@ -176,11 +176,12 @@ typedef struct
 	union { uint8_t edge_buf[2016]; int64_t edge_buf_l[252]; v16qu edge_buf_v[126]; };
 	
 	// Residuals context
+	union { int8_t QP[3]; v4qi QP_s; }; // same as mb
 	union { int16_t ctxIdxOffsets[4]; v4hi ctxIdxOffsets_l; }; // {cbf,sig_flag,last_sig_flag,coeff_abs}
 	union { int8_t sig_inc[64]; v8qi sig_inc_l; v16qi sig_inc_v[4]; };
 	union { int8_t last_inc[64]; v8qi last_inc_l; v16qi last_inc_v[4]; };
 	union { int8_t scan[64]; v4qi scan_s; v8qi scan_l; v16qi scan_v[4]; };
-	union { int8_t QPprime_C[2][64]; v16qi QPprime_C_v[8]; };
+	union { int8_t QP_C[2][64]; v16qi QP_C_v[8]; };
 	union { int32_t c[64]; v4si c_v[16]; v8si c_V[8]; }; // non-scaled residual coefficients
 	
 	// Deblocking context

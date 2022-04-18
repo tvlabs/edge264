@@ -6,6 +6,7 @@
 // TODO introduce an alternative to blendv expecting full mask for a simpler SSSE3 fallback
 // TODO acknowledge influence of ffmpeg source
 // TODO make deblock_mb iterate on entire frame to simplify future improvements (i.e. slices)
+// 115
 
 #include "edge264_common.h"
 
@@ -251,13 +252,14 @@ static inline void FUNC(init_alpha_beta_tC0)
 
 /**
  * Filter a single edge in place for bS in [0..3].
+ * tC0 should equal -1 for each position where bS=0 or beta=0.
  * 
- * am1 is _mm_set1_epi8(alpha - 1)
- * bm1 is _mm_set1_epi8(beta - 1)
- * tC0 should equal -1 for each position where bS=0
+ * For 8-pixel chroma edges we filter both Cb and Cr in lower and upper halves
+ * of registers. In these cases note that alpha and beta may contain zero
+ * values, so we should not use alpha-1 or beta-1.
  */
-#define DEBLOCK_LUMA_SOFT(p2, p1, p0, q0, q1, q2, am1, bm1, tC0) {\
-	/* compute filterSamplesFlags as a mask, and apply it to tC0 */\
+#define DEBLOCK_LUMA_SOFT(p2, p1, p0, q0, q1, q2, alpha, beta, tC0) {\
+	/* compute the opposite of filterSamplesFlags as a mask, and transfer the mask bS=0 from tC0 */\
 	__m128i c128 = _mm_set1_epi8(-128);\
 	__m128i pq0 = _mm_subs_epu8(p0, q0);\
 	__m128i qp0 = _mm_subs_epu8(q0, p0);\
@@ -265,10 +267,9 @@ static inline void FUNC(init_alpha_beta_tC0)
 	__m128i sub0 = _mm_subs_epu8(_mm_adds_epu8(qp0, c128), pq0); /* save 128+q0-p0 for later */\
 	__m128i abs1 = _mm_or_si128(_mm_subs_epu8(p1, p0), _mm_subs_epu8(p0, p1));\
 	__m128i abs2 = _mm_or_si128(_mm_subs_epu8(q1, q0), _mm_subs_epu8(q0, q1));\
-	__m128i or = _mm_or_si128(_mm_subs_epu8(abs0, am1), _mm_subs_epu8(_mm_max_epu8(abs1, abs2), bm1));\
-	__m128i zero = _mm_setzero_si128();\
-	__m128i filterSamplesFlags = _mm_blendv_epi8(_mm_cmpeq_epi8(or, zero), zero, tC0);\
-	__m128i ftC0 = _mm_and_si128(tC0, filterSamplesFlags);\
+	__m128i and = _mm_min_epu8(_mm_subs_epu8(alpha, abs0), _mm_subs_epu8(beta, _mm_max_epu8(abs1, abs2)));\
+	__m128i ignoreSamplesFlags = _mm_blendv_epi8(_mm_cmpeq_epi8(and, _mm_setzero_si128()), tC0, tC0);\
+	__m128i ftC0 = _mm_andnot_si128(tC0, ignoreSamplesFlags);\
 	/* filter p1 and q1 (same as ffmpeg, I couldn't find better) */\
 	__m128i c1 = _mm_set1_epi8(1);\
 	__m128i x0 = _mm_avg_epu8(p0, q0); /* (p0+q0+1)>>1 */\
@@ -276,21 +277,23 @@ static inline void FUNC(init_alpha_beta_tC0)
 	__m128i x2 = _mm_sub_epi8(_mm_avg_epu8(q2, x0), _mm_and_si128(_mm_xor_si128(q2, x0), c1)); /* (q2+((p0+q0+1)>>1))>>1 */\
 	__m128i pp1 = _mm_min_epu8(_mm_max_epu8(x1, _mm_subs_epu8(p1, ftC0)), _mm_adds_epu8(p1, ftC0));\
 	__m128i qp1 = _mm_min_epu8(_mm_max_epu8(x2, _mm_subs_epu8(q1, ftC0)), _mm_adds_epu8(q1, ftC0));\
+	__m128i cm1 = _mm_set1_epi8(-1);\
+	__m128i bm1 = _mm_add_epi8(beta, cm1);\
 	__m128i apltb = _mm_cmpeq_epi8(_mm_subs_epu8(_mm_subs_epu8(p2, p0), bm1), _mm_subs_epu8(_mm_subs_epu8(p0, p2), bm1));\
 	__m128i aqltb = _mm_cmpeq_epi8(_mm_subs_epu8(_mm_subs_epu8(q2, q0), bm1), _mm_subs_epu8(_mm_subs_epu8(q0, q2), bm1));\
-	__m128i sub1 = _mm_avg_epu8(p1, _mm_xor_si128(q1, _mm_set1_epi8(-1))); /* save 128+((p1-q1)>>1) for later */\
+	__m128i sub1 = _mm_avg_epu8(p1, _mm_xor_si128(q1, cm1)); /* save 128+((p1-q1)>>1) for later */\
 	p1 = _mm_blendv_epi8(p1, pp1, apltb);\
 	q1 = _mm_blendv_epi8(q1, qp1, aqltb);\
 	/* filter p0 and q0 (by offsetting signed to unsigned to apply pavg) */\
-	__m128i ftC = _mm_and_si128(_mm_sub_epi8(_mm_sub_epi8(ftC0, apltb), aqltb), filterSamplesFlags);\
+	__m128i ftC = _mm_andnot_si128(_mm_sub_epi8(_mm_sub_epi8(ftC0, apltb), aqltb), ignoreSamplesFlags);\
 	__m128i x3 = _mm_avg_epu8(sub0, _mm_avg_epu8(sub1, _mm_set1_epi8(127))); /* 128+((q0-p0+((p1-q1)>>2)+1)>>1) */\
 	__m128i delta = _mm_min_epu8(_mm_subs_epu8(x3, c128), ftC); /* delta if delta>0 */\
 	__m128i ndelta = _mm_min_epu8(_mm_subs_epu8(c128, x3), ftC); /* -delta if delta<0 */\
 	p0 = _mm_subs_epu8(_mm_adds_epu8(p0, delta), ndelta);\
 	q0 = _mm_subs_epu8(_mm_adds_epu8(p0, delta), ndelta);}
 
-#define DEBLOCK_CHROMA_SOFT(p1, p0, q0, q1, am1, bm1, tC0) {\
-	/* compute filterSamplesFlags and apply if to tC */\
+#define DEBLOCK_CHROMA_SOFT(p1, p0, q0, q1, alpha, beta, tC0) {\
+	/* compute the opposite of filterSamplesFlags and apply if to tC */\
 	__m128i c128 = _mm_set1_epi8(-128);\
 	__m128i pq0 = _mm_subs_epu8(p0, q0);\
 	__m128i qp0 = _mm_subs_epu8(q0, p0);\
@@ -298,10 +301,10 @@ static inline void FUNC(init_alpha_beta_tC0)
 	__m128i sub0 = _mm_subs_epu8(_mm_adds_epu8(qp0, c128), pq0); /* save 128+q0-p0 for later */\
 	__m128i abs1 = _mm_or_si128(_mm_subs_epu8(p1, p0), _mm_subs_epu8(p0, p1));\
 	__m128i abs2 = _mm_or_si128(_mm_subs_epu8(q1, q0), _mm_subs_epu8(q0, q1));\
-	__m128i or = _mm_or_si128(_mm_subs_epu8(abs0, am1), _mm_subs_epu8(_mm_max_epu8(abs1, abs2), bm1));\
-	__m128i filterSamplesFlags = _mm_cmpeq_epi8(or, _mm_setzero_si128()); /* bS=0 is already handled in tC0 */\
+	__m128i and = _mm_min_epu8(_mm_subs_epu8(alpha, abs0), _mm_subs_epu8(beta, _mm_max_epu8(abs1, abs2)));\
+	__m128i ignoreSamplesFlags = _mm_cmpeq_epi8(and, _mm_setzero_si128());\
 	__m128i cm1 = _mm_set1_epi8(-1);\
-	__m128i ftC = _mm_and_si128(_mm_sub_epi8(tC0, cm1), filterSamplesFlags);\
+	__m128i ftC = _mm_andnot_si128(_mm_sub_epi8(tC0, cm1), ignoreSamplesFlags);\
 	/* filter p0 and q0 (by offsetting signed to unsigned to apply pavg) */\
 	__m128i sub1 = _mm_avg_epu8(p1, _mm_xor_si128(q1, cm1)); /* 128+((p1-q1)>>1) */\
 	__m128i x3 = _mm_avg_epu8(sub0, _mm_avg_epu8(sub1, _mm_set1_epi8(127))); /* 128+((q0-p0+((p1-q1)>>2)+1)>>1) */\
@@ -314,9 +317,11 @@ static inline void FUNC(init_alpha_beta_tC0)
 
 /**
  * Filter a single edge in place for bS=4.
+ * 
+ * The luma filter depends on beta>0 thus should not be used with beta=0.
  */
-#define DEBLOCK_LUMA_HARD(p3, p2, p1, p0, q0, q1, q2, q3, am1, bm1) {\
-	/* compute filterSamplesFlags and condition masks for filtering modes */\
+#define DEBLOCK_LUMA_HARD(p3, p2, p1, p0, q0, q1, q2, q3, alpha, beta) {\
+	/* compute the opposite of filterSamplesFlags, and condition masks for filtering modes */\
 	__m128i abs0 = _mm_or_si128(_mm_subs_epu8(p0, q0), _mm_subs_epu8(q0, p0));\
 	__m128i abs1 = _mm_or_si128(_mm_subs_epu8(p1, p0), _mm_subs_epu8(p0, p1));\
 	__m128i abs2 = _mm_or_si128(_mm_subs_epu8(q1, q0), _mm_subs_epu8(q0, q1));\
@@ -324,8 +329,9 @@ static inline void FUNC(init_alpha_beta_tC0)
 	__m128i abs4 = _mm_or_si128(_mm_subs_epu8(q2, q0), _mm_subs_epu8(q0, q2));\
 	__m128i zero = _mm_setzero_si128();\
 	__m128i c1 = _mm_set1_epi8(1);\
-	__m128i filterSamplesFlags = _mm_cmpeq_epi8(_mm_or_si128(_mm_subs_epu8(abs0, am1), _mm_subs_epu8(_mm_max_epu8(abs1, abs2), bm1)), zero);\
-	__m128i condpq = _mm_subs_epu8(abs0, _mm_add_epi8(_mm_avg_epu8(_mm_avg_epu8(am1, zero), zero), c1));\
+	__m128i ignoreSamplesFlags = _mm_cmpeq_epi8(_mm_min_epu8(_mm_subs_epu8(alpha, abs0), _mm_subs_epu8(beta, _mm_max_epu8(abs1, abs2))), zero);\
+	__m128i bm1 = _mm_sub_epi8(beta, c1);\
+	__m128i condpq = _mm_subs_epu8(abs0, _mm_avg_epu8(_mm_avg_epu8(alpha, c1), zero)); /* abs0-((alpha>>2)+1) */\
 	__m128i condp = _mm_cmpeq_epi8(_mm_or_si128(_mm_subs_epu8(abs3, bm1), condpq), zero);\
 	__m128i condq = _mm_cmpeq_epi8(_mm_or_si128(_mm_subs_epu8(abs4, bm1), condpq), zero);\
 	/* compute p'0 and q'0 */\
@@ -340,11 +346,11 @@ static inline void FUNC(init_alpha_beta_tC0)
 	__m128i qp0a = _mm_avg_epu8(q21p1, pq0); /* q'0 (first formula) */\
 	__m128i pp0b = _mm_avg_epu8(p1, _mm_sub_epi8(_mm_avg_epu8(p0, q1), _mm_and_si128(_mm_xor_si128(p0, q1), c1))); /* p'0 (second formula) */\
 	__m128i qp0b = _mm_avg_epu8(q1, _mm_sub_epi8(_mm_avg_epu8(q0, p1), _mm_and_si128(_mm_xor_si128(q0, p1), c1))); /* q'0 (second formula) */\
-	p0 = _mm_blendv_epi8(p0, _mm_blendv_epi8(pp0b, pp0a, condp), filterSamplesFlags);\
-	q0 = _mm_blendv_epi8(q0, _mm_blendv_epi8(qp0b, qp0a, condq), filterSamplesFlags);\
+	p0 = _mm_blendv_epi8(_mm_blendv_epi8(pp0b, pp0a, condp), p0, ignoreSamplesFlags);\
+	q0 = _mm_blendv_epi8(_mm_blendv_epi8(qp0b, qp0a, condq), q0, ignoreSamplesFlags);\
 	/* compute p'1 and q'1 */\
-	__m128i fcondp = _mm_and_si128(condp, filterSamplesFlags);\
-	__m128i fcondq = _mm_and_si128(condq, filterSamplesFlags);\
+	__m128i fcondp = _mm_andnot_si128(condp, ignoreSamplesFlags);\
+	__m128i fcondq = _mm_andnot_si128(condq, ignoreSamplesFlags);\
 	__m128i p21 = _mm_sub_epi8(_mm_avg_epu8(p2, p1), _mm_and_si128(_mm_xor_si128(p2, p1), and0)); /* p21+pq0 == (p2+p1+p0+q0)/2 */\
 	__m128i q21 = _mm_sub_epi8(_mm_avg_epu8(q2, q1), _mm_and_si128(_mm_xor_si128(q2, q1), and0)); /* q21+pq0 == (q2+q1+q0+p1)/2 */\
 	__m128i pp1 = _mm_avg_epu8(p21, pq0); /* p'1 */\
@@ -363,19 +369,19 @@ static inline void FUNC(init_alpha_beta_tC0)
 	p2 = _mm_blendv_epi8(p2, pp2, fcondp);\
 	q2 = _mm_blendv_epi8(q2, qp2, fcondq);}
 
-#define DEBLOCK_CHROMA_HARD(p1, p0, q0, q1, am1, bm1) {\
-	/* compute filterSamplesFlags */\
+#define DEBLOCK_CHROMA_HARD(p1, p0, q0, q1, alpha, beta) {\
+	/* compute the opposite of filterSamplesFlags */\
 	__m128i abs0 = _mm_or_si128(_mm_subs_epu8(p0, q0), _mm_subs_epu8(q0, p0));\
 	__m128i abs1 = _mm_or_si128(_mm_subs_epu8(p1, p0), _mm_subs_epu8(p0, p1));\
 	__m128i abs2 = _mm_or_si128(_mm_subs_epu8(q1, q0), _mm_subs_epu8(q0, q1));\
-	__m128i or = _mm_or_si128(_mm_subs_epu8(abs0, am1), _mm_subs_epu8(_mm_max_epu8(abs1, abs2), bm1));\
-	__m128i filterSamplesFlags = _mm_cmpeq_epi8(or, _mm_setzero_si128());\
+	__m128i and = _mm_min_epu8(_mm_subs_epu8(alpha, abs0), _mm_subs_epu8(beta, _mm_max_epu8(abs1, abs2)));\
+	__m128i ignoreSamplesFlags = _mm_cmpeq_epi8(and, _mm_setzero_si128());\
 	/* compute p'0 and q'0 */\
 	__m128i c1 = _mm_set1_epi8(1);\
 	__m128i pp0b = _mm_avg_epu8(p1, _mm_sub_epi8(_mm_avg_epu8(p0, q1), _mm_and_si128(_mm_xor_si128(p0, q1), c1))); /* p'0 (second formula) */\
 	__m128i qp0b = _mm_avg_epu8(q1, _mm_sub_epi8(_mm_avg_epu8(q0, p1), _mm_and_si128(_mm_xor_si128(q0, p1), c1))); /* q'0 (second formula) */\
-	p0 = _mm_blendv_epi8(p0, pp0b, filterSamplesFlags);\
-	q0 = _mm_blendv_epi8(q0, qp0b, filterSamplesFlags);}
+	p0 = _mm_blendv_epi8(pp0b, p0, ignoreSamplesFlags);\
+	q0 = _mm_blendv_epi8(qp0b, q0, ignoreSamplesFlags);}
 
 
 
@@ -477,15 +483,14 @@ static noinline void FUNC(deblock_Y_8bit, uint8_t * restrict px0, size_t stride,
 		TRANSPOSE_8x16(xa, hi, v0, v1, v2, v3, v4, v5, v6, v7);
 		
 		// first vertical edge
-		__m128i cm1a = _mm_set1_epi8(-1);
-		__m128i am1a = _mm_add_epi8(_mm_set1_epi8(ctx->alpha[8]), cm1a);
-		__m128i bm1a = _mm_add_epi8(_mm_set1_epi8(ctx->beta[8]), cm1a);
+		__m128i alpha_a = _mm_set1_epi8(ctx->alpha[8]);
+		__m128i beta_a = _mm_set1_epi8(ctx->beta[8]);
 		if (mb[-1].f.mbIsInterFlag & mb->f.mbIsInterFlag) {
 			__m128i tC0a = expand4(ctx->tC0_s[0]);
 			if (ctx->tC0_s[0] != -1)
-				DEBLOCK_LUMA_SOFT(vX, vY, vZ, v0, v1, v2, am1a, bm1a, tC0a);
+				DEBLOCK_LUMA_SOFT(vX, vY, vZ, v0, v1, v2, alpha_a, beta_a, tC0a);
 		} else if (ctx->alpha[8] != 0) {
-			DEBLOCK_LUMA_HARD(vW, vX, vY, vZ, v0, v1, v2, v3, am1a, bm1a);
+			DEBLOCK_LUMA_HARD(vW, vX, vY, vZ, v0, v1, v2, v3, alpha_a, beta_a);
 		}
 		
 		// store vW/vX/vY/vZ into the left macroblock
@@ -539,13 +544,12 @@ static noinline void FUNC(deblock_Y_8bit, uint8_t * restrict px0, size_t stride,
 	}
 	
 	// second vertical edge
-	__m128i cm1bcdfgh = _mm_set1_epi8(-1);
-	__m128i am1bcdfgh = _mm_add_epi8(_mm_set1_epi8(ctx->alpha[0]), cm1bcdfgh);
-	__m128i bm1bcdfgh = _mm_add_epi8(_mm_set1_epi8(ctx->beta[0]), cm1bcdfgh);
+	__m128i alpha_bcdfgh = _mm_set1_epi8(ctx->alpha[0]);
+	__m128i beta_bcdfgh = _mm_set1_epi8(ctx->beta[0]);
 	if (!mb->f.transform_size_8x8_flag) {
 		__m128i tC0b = expand4(ctx->tC0_s[1]);
 		if (ctx->tC0_s[1] != -1)
-			DEBLOCK_LUMA_SOFT(v1, v2, v3, v4, v5, v6, am1bcdfgh, bm1bcdfgh, tC0b);
+			DEBLOCK_LUMA_SOFT(v1, v2, v3, v4, v5, v6, alpha_bcdfgh, beta_bcdfgh, tC0b);
 	}
 	
 	// load and transpose the right 8x16 matrix
@@ -573,13 +577,13 @@ static noinline void FUNC(deblock_Y_8bit, uint8_t * restrict px0, size_t stride,
 	// third vertical edge
 	__m128i tC0c = expand4(ctx->tC0_s[2]);
 	if (ctx->tC0_s[2] != -1)
-		DEBLOCK_LUMA_SOFT(v5, v6, v7, v8, v9, vA, am1bcdfgh, bm1bcdfgh, tC0c);
+		DEBLOCK_LUMA_SOFT(v5, v6, v7, v8, v9, vA, alpha_bcdfgh, beta_bcdfgh, tC0c);
 	
 	// fourth vertical edge
 	if (!mb->f.transform_size_8x8_flag) {
 		__m128i tC0d = expand4(ctx->tC0_s[3]);
 		if (ctx->tC0_s[3] != -1)
-			DEBLOCK_LUMA_SOFT(v9, vA, vB, vC, vD, vE, am1bcdfgh, bm1bcdfgh, tC0d);
+			DEBLOCK_LUMA_SOFT(v9, vA, vB, vC, vD, vE, alpha_bcdfgh, beta_bcdfgh, tC0d);
 	}
 	
 	// transpose the top 16x8 matrix
@@ -588,15 +592,14 @@ static noinline void FUNC(deblock_Y_8bit, uint8_t * restrict px0, size_t stride,
 	
 	// first horizontal edge
 	if (!ctx->mbB->f.unavailable) {
-		__m128i cm1e = _mm_set1_epi8(-1);
-		__m128i am1e = _mm_add_epi8(_mm_set1_epi8(ctx->alpha[12]), cm1e);
-		__m128i bm1e = _mm_add_epi8(_mm_set1_epi8(ctx->beta[12]), cm1e);
+		__m128i alpha_e = _mm_set1_epi8(ctx->alpha[12]);
+		__m128i beta_e = _mm_set1_epi8(ctx->beta[12]);
 		if (ctx->mbB->f.mbIsInterFlag & mb->f.mbIsInterFlag) {
 			__m128i tC0e = expand4(ctx->tC0_s[4]);
 			if (ctx->tC0_s[4] != -1)
-				DEBLOCK_LUMA_SOFT(*(__m128i *)(px0 + nstride * 3), *(__m128i *)(px0 + nstride * 2), *(__m128i *)(px0 + nstride    ), h0, h1, h2, am1e, bm1e, tC0e);
+				DEBLOCK_LUMA_SOFT(*(__m128i *)(px0 + nstride * 3), *(__m128i *)(px0 + nstride * 2), *(__m128i *)(px0 + nstride    ), h0, h1, h2, alpha_e, beta_e, tC0e);
 		} else if (ctx->alpha[12] != 0) {
-			DEBLOCK_LUMA_HARD(*(__m128i *)(px0 + nstride * 4), *(__m128i *)(px0 + nstride * 3), *(__m128i *)(px0 + nstride * 2), *(__m128i *)(px0 + nstride    ), h0, h1, h2, h3, am1e, bm1e);
+			DEBLOCK_LUMA_HARD(*(__m128i *)(px0 + nstride * 4), *(__m128i *)(px0 + nstride * 3), *(__m128i *)(px0 + nstride * 2), *(__m128i *)(px0 + nstride    ), h0, h1, h2, h3, alpha_e, beta_e);
 		}
 	}
 	*(__m128i *)(px0              ) = h0;
@@ -606,7 +609,7 @@ static noinline void FUNC(deblock_Y_8bit, uint8_t * restrict px0, size_t stride,
 	if (!mb->f.transform_size_8x8_flag) {
 		__m128i tC0f = expand4(ctx->tC0_s[5]);
 		if (ctx->tC0_s[5] != -1)
-			DEBLOCK_LUMA_SOFT(h1, h2, h3, h4, h5, h6, am1bcdfgh, bm1bcdfgh, tC0f);
+			DEBLOCK_LUMA_SOFT(h1, h2, h3, h4, h5, h6, alpha_bcdfgh, beta_bcdfgh, tC0f);
 	}
 	px7 = px0 + stride7;
 	*(__m128i *)(px0 +  stride * 2) = h2;
@@ -624,7 +627,7 @@ static noinline void FUNC(deblock_Y_8bit, uint8_t * restrict px0, size_t stride,
 	// third horizontal edge
 	__m128i tC0g = expand4(ctx->tC0_s[6]);
 	if (ctx->tC0_s[6] != -1)
-		DEBLOCK_LUMA_SOFT(h5, h6, h7, h8, h9, hA, am1bcdfgh, bm1bcdfgh, tC0g);
+		DEBLOCK_LUMA_SOFT(h5, h6, h7, h8, h9, hA, alpha_bcdfgh, beta_bcdfgh, tC0g);
 	*(__m128i *)(px7 + nstride    ) = h6;
 	*(__m128i *)(px7              ) = h7;
 	*(__m128i *)(px7 +  stride    ) = h8;
@@ -634,7 +637,7 @@ static noinline void FUNC(deblock_Y_8bit, uint8_t * restrict px0, size_t stride,
 	if (!mb->f.transform_size_8x8_flag) {
 		__m128i tC0h = expand4(ctx->tC0_s[7]);
 		if (ctx->tC0_s[7] != -1)
-			DEBLOCK_LUMA_SOFT(h9, hA, hB, hC, hD, hE, am1bcdfgh, bm1bcdfgh, tC0h);
+			DEBLOCK_LUMA_SOFT(h9, hA, hB, hC, hD, hE, alpha_bcdfgh, beta_bcdfgh, tC0h);
 	}
 	*(__m128i *)(pxE + nstride * 4) = hA;
 	*(__m128i *)(px7 +  stride * 4) = hB;
@@ -679,15 +682,14 @@ static noinline void FUNC(deblock_CbCr_8bit, uint8_t * restrict Cb0, uint8_t * r
 		
 		// first vertical edge
 		__m128i shuf_a = _mm_setr_epi8(9, 9, 9, 9, 9, 9, 9, 9, 10, 10, 10, 10, 10, 10, 10, 10);
-		__m128i cm1a = _mm_set1_epi8(-1);
-		__m128i am1a = _mm_add_epi8(_mm_shuffle_epi8((__m128i)ctx->alpha_v, shuf_a), cm1a);
-		__m128i bm1a = _mm_add_epi8(_mm_shuffle_epi8((__m128i)ctx->beta_v, shuf_a), cm1a);
+		__m128i alpha_a = _mm_shuffle_epi8((__m128i)ctx->alpha_v, shuf_a);
+		__m128i beta_a = _mm_shuffle_epi8((__m128i)ctx->beta_v, shuf_a);
 		if (mb[-1].f.mbIsInterFlag & mb->f.mbIsInterFlag) {
 			__m128i tC0a = expand2(ctx->tC0_l[4]);
 			if (ctx->tC0_l[4] != -1)
-				DEBLOCK_CHROMA_SOFT(vY, vZ, v0, v1, am1a, bm1a, tC0a);
+				DEBLOCK_CHROMA_SOFT(vY, vZ, v0, v1, alpha_a, beta_a, tC0a);
 		} else { // FIXME alpha may be 0 and not 0 !
-			DEBLOCK_CHROMA_HARD(vY, vZ, v0, v1, am1a, bm1a);
+			DEBLOCK_CHROMA_HARD(vY, vZ, v0, v1, alpha_a, beta_a);
 		}
 		
 		// store vY/vZ into the left macroblock
@@ -736,12 +738,11 @@ static noinline void FUNC(deblock_CbCr_8bit, uint8_t * restrict Cb0, uint8_t * r
 	
 	// third vertical edge
 	__m128i shuf_cg = _mm_setr_epi8(1, 1, 1, 1, 1, 1, 1, 1, 2, 2, 2, 2, 2, 2, 2, 2);
-	__m128i cm1cg = _mm_set1_epi8(-1);
-	__m128i am1cg = _mm_add_epi8(_mm_shuffle_epi8((__m128i)ctx->alpha_v, shuf_cg), cm1cg);
-	__m128i bm1cg = _mm_add_epi8(_mm_shuffle_epi8((__m128i)ctx->beta_v, shuf_cg), cm1cg);
+	__m128i alpha_cg = _mm_shuffle_epi8((__m128i)ctx->alpha_v, shuf_cg);
+	__m128i beta_cg = _mm_shuffle_epi8((__m128i)ctx->beta_v, shuf_cg);
 	__m128i tC0c = expand2(ctx->tC0_l[5]);
 	if (ctx->tC0_l[5] != -1)
-		DEBLOCK_CHROMA_SOFT(v2, v3, v4, v5, am1cg, bm1cg, tC0c);
+		DEBLOCK_CHROMA_SOFT(v2, v3, v4, v5, alpha_cg, beta_cg, tC0c);
 	
 	// transpose both 8x8 matrices
 	__m128i xd0 = _mm_unpacklo_epi8(v0, v1);
@@ -780,17 +781,16 @@ static noinline void FUNC(deblock_CbCr_8bit, uint8_t * restrict Cb0, uint8_t * r
 	// first horizontal edge
 	if (!ctx->mbB->f.unavailable) {
 		__m128i shuf_e = _mm_setr_epi8(13, 13, 13, 13, 13, 13, 13, 13, 14, 14, 14, 14, 14, 14, 14, 14);
-		__m128i cm1e = _mm_set1_epi8(-1);
-		__m128i am1e = _mm_add_epi8(_mm_shuffle_epi8((__m128i)ctx->alpha_v, shuf_e), cm1e);
-		__m128i bm1e = _mm_add_epi8(_mm_shuffle_epi8((__m128i)ctx->beta_v, shuf_e), cm1e);
+		__m128i alpha_e = _mm_shuffle_epi8((__m128i)ctx->alpha_v, shuf_e);
+		__m128i beta_e = _mm_shuffle_epi8((__m128i)ctx->beta_v, shuf_e);
 		__m128i hY = _mm_setr_epi64(*(__m64 *)(Cb0 + nstride * 2), *(__m64 *)(Cr0 + nstride * 2));
 		__m128i hZ = _mm_setr_epi64(*(__m64 *)(Cb0 + nstride    ), *(__m64 *)(Cr0 + nstride    ));
 		if (ctx->mbB->f.mbIsInterFlag & mb->f.mbIsInterFlag) {
 			__m128i tC0e = expand2(ctx->tC0_l[6]);
 			if (ctx->tC0_l[6] != -1)
-				DEBLOCK_CHROMA_SOFT(hY, hZ, h0, h1, am1e, bm1e, tC0e);
+				DEBLOCK_CHROMA_SOFT(hY, hZ, h0, h1, alpha_e, beta_e, tC0e);
 		} else {
-			DEBLOCK_CHROMA_HARD(hY, hZ, h0, h1, am1e, bm1e);
+			DEBLOCK_CHROMA_HARD(hY, hZ, h0, h1, alpha_e, beta_e);
 		}
 		*(int64_t *)(Cb0 + nstride * 2) = ((v2li)hY)[0];
 		*(int64_t *)(Cr0 + nstride * 2) = ((v2li)hY)[1];
@@ -805,7 +805,7 @@ static noinline void FUNC(deblock_CbCr_8bit, uint8_t * restrict Cb0, uint8_t * r
 	// third horizontal edge
 	__m128i tC0g = expand2(ctx->tC0_l[7]);
 	if (ctx->tC0_l[7] != -1)
-		DEBLOCK_CHROMA_SOFT(h2, h3, h4, h5, am1cg, bm1cg, tC0g);
+		DEBLOCK_CHROMA_SOFT(h2, h3, h4, h5, alpha_cg, beta_cg, tC0g);
 	*(int64_t *)(Cb0 +  stride * 2) = ((v2li)h2)[0];
 	*(int64_t *)(Cr0 +  stride * 2) = ((v2li)h2)[1];
 	uint8_t *Cb7 = Cb0 + stride7;

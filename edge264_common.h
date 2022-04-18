@@ -391,8 +391,10 @@ static noinline void FUNC(parse_slice_data_cabac);
 	#if !defined(__SSE4_1__)
 		#define _mm_blendv_epi8(f, t, c) ({\
 			__m128i m = _mm_cmpgt_epi8(_mm_setzero_si128(), c);\
-			_mm_or_si128(_mm_and_si128(t, m), _mm_andnot_si128(f, m));\
-		})
+			_mm_or_si128(_mm_and_si128(t, m), _mm_andnot_si128(f, m));})
+		#define _mm_max_epi8(a, b) ({\
+			__m128i m = _mm_cmpgt_epi8(a, b);\
+			_mm_or_si128(_mm_and_si128(a, m), _mm_and_si128(b, m));})
 	#endif
 
 	// complements to GCC vector intrinsics
@@ -422,8 +424,11 @@ static noinline void FUNC(parse_slice_data_cabac);
 			return (f >> 1 & 3) | (f >> 14 & 12);
 		}
 	#endif
+		
+	// custom functions
 	#ifdef __SSE4_1__
 		#define vector_select(mask, t, f) (typeof(t))_mm_blendv_epi8((__m128i)(f), (__m128i)(t), (__m128i)(mask))
+		#define blend_mask _mm_blendv_epi8
 		static always_inline __m128i load8x1_8bit(const uint8_t *p, __m128i zero) {
 			return _mm_cvtepu8_epi16(_mm_loadu_si64(p));
 		}
@@ -439,6 +444,7 @@ static noinline void FUNC(parse_slice_data_cabac);
 		}
 	#elif defined __SSSE3__
 		#define vector_select(mask, t, f) (((t) & (typeof(t))(mask < 0)) | ((f) & ~(typeof(t))(mask < 0)))
+		#define blend_mask(f, t, m) _mm_or_si128(_mm_andnot_si128(f, m), _mm_and_si128(t, m))
 		static inline __m128i load8x1_8bit(const uint8_t *p, __m128i zero) {
 			return _mm_unpacklo_epi8(_mm_loadu_si64(p), zero);
 		}

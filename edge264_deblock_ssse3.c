@@ -1,5 +1,3 @@
-// TODO introduce an alternative to blendv expecting full mask for a simpler SSSE3 fallback
-// TODO acknowledge influence of ffmpeg source
 // TODO make deblock_mb iterate on entire frame to simplify future improvements (i.e. slices)
 // TODO touch nC in CABAC too
 
@@ -74,8 +72,8 @@ static inline void FUNC(init_alpha_beta_tC0)
 	__m128i betalo = _mm_shuffle_epi8(_mm_loadu_si128((__m128i *)(idx2beta + 4)), Bm4);
 	__m128i betamd = _mm_shuffle_epi8(_mm_loadu_si128((__m128i *)(idx2beta + 20)), Bm4);
 	__m128i betahi = _mm_shuffle_epi8(_mm_loadu_si128((__m128i *)(idx2beta + 36)), Bm4);
-	ctx->alpha_v = (v16qu)_mm_blendv_epi8(_mm_blendv_epi8(alphalo, alphamd, Agte20), alphahi, Agte36);
-	ctx->beta_v = (v16qu)_mm_blendv_epi8(_mm_blendv_epi8(betalo, betamd, Bgte20), betahi, Bgte36);
+	ctx->alpha_v = (v16qu)blend_mask(blend_mask(alphalo, alphamd, Agte20), alphahi, Agte36);
+	ctx->beta_v = (v16qu)blend_mask(blend_mask(betalo, betamd, Bgte20), betahi, Bgte36);
 	
 	// initialize tC0 with bS=3 for internal edges of Intra macroblock
 	__m128i tC0neg = _mm_cmpgt_epi8(zero, Am4);
@@ -83,7 +81,7 @@ static inline void FUNC(init_alpha_beta_tC0)
 		__m128i tC03lo = _mm_shuffle_epi8(_mm_loadu_si128((__m128i *)(idx2tC0[2] + 4)), Am4);
 		__m128i tC03md = _mm_shuffle_epi8(_mm_loadu_si128((__m128i *)(idx2tC0[2] + 20)), Am4);
 		__m128i tC03hi = _mm_shuffle_epi8(_mm_loadu_si128((__m128i *)(idx2tC0[2] + 36)), Am4);
-		__m128i tC03 = _mm_or_si128(_mm_blendv_epi8(_mm_blendv_epi8(tC03lo, tC03md, Agte20), tC03hi, Agte36), tC0neg);
+		__m128i tC03 = _mm_or_si128(blend_mask(blend_mask(tC03lo, tC03md, Agte20), tC03hi, Agte36), tC0neg);
 		ctx->tC0_v[0] = ctx->tC0_v[1] = (v16qi)_mm_shuffle_epi8(tC03, zero);
 		ctx->tC0_v[2] = ctx->tC0_v[3] = (v16qi)_mm_shuffle_epi8(tC03, _mm_setr_epi8(-1, -1, -1, -1, -1, -1, -1, -1, 1, 1, 1, 1, 2, 2, 2, 2));
 	} else {
@@ -91,11 +89,11 @@ static inline void FUNC(init_alpha_beta_tC0)
 		__m128i tC01lo = _mm_shuffle_epi8(_mm_loadu_si128((__m128i *)(idx2tC0[0] + 4)), Am4);
 		__m128i tC01md = _mm_shuffle_epi8(_mm_loadu_si128((__m128i *)(idx2tC0[0] + 20)), Am4);
 		__m128i tC01hi = _mm_shuffle_epi8(_mm_loadu_si128((__m128i *)(idx2tC0[0] + 36)), Am4);
-		__m128i tC01 = _mm_or_si128(_mm_blendv_epi8(_mm_blendv_epi8(tC01lo, tC01md, Agte20), tC01hi, Agte36), tC0neg);
+		__m128i tC01 = _mm_or_si128(blend_mask(blend_mask(tC01lo, tC01md, Agte20), tC01hi, Agte36), tC0neg);
 		__m128i tC02lo = _mm_shuffle_epi8(_mm_loadu_si128((__m128i *)(idx2tC0[1] + 4)), Am4);
 		__m128i tC02md = _mm_shuffle_epi8(_mm_loadu_si128((__m128i *)(idx2tC0[1] + 20)), Am4);
 		__m128i tC02hi = _mm_shuffle_epi8(_mm_loadu_si128((__m128i *)(idx2tC0[1] + 36)), Am4);
-		__m128i tC02 = _mm_or_si128(_mm_blendv_epi8(_mm_blendv_epi8(tC02lo, tC02md, Agte20), tC02hi, Agte36), tC0neg);
+		__m128i tC02 = _mm_or_si128(blend_mask(blend_mask(tC02lo, tC02md, Agte20), tC02hi, Agte36), tC0neg);
 		
 		// compute masks for bS=1 based on equality of references and motion vectors
 		__m128i bS1aceg, bS1bdfh;
@@ -244,10 +242,10 @@ static inline void FUNC(init_alpha_beta_tC0)
 		__m128i shuf1 = _mm_setr_epi8(12, 12, 12, 12, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
 		__m128i shuf2 = _mm_setr_epi8(9, 9, 9, 9, 10, 10, 10, 10, 1, 1, 1, 1, 2, 2, 2, 2);
 		__m128i shuf3 = _mm_setr_epi8(13, 13, 13, 13, 14, 14, 14, 14, 1, 1, 1, 1, 2, 2, 2, 2);
-		ctx->tC0_v[0] = (v16qi)_mm_blendv_epi8(_mm_blendv_epi8(tC00, _mm_shuffle_epi8(tC01, shuf0), bS1abcd), _mm_shuffle_epi8(tC02, shuf0), bS2abcd);
-		ctx->tC0_v[1] = (v16qi)_mm_blendv_epi8(_mm_blendv_epi8(tC00, _mm_shuffle_epi8(tC01, shuf1), bS1efgh), _mm_shuffle_epi8(tC02, shuf1), bS2efgh);
-		ctx->tC0_v[2] = (v16qi)_mm_blendv_epi8(_mm_blendv_epi8(tC00, _mm_shuffle_epi8(tC01, shuf2), bS1aacc), _mm_shuffle_epi8(tC02, shuf2), bS2aacc);
-		ctx->tC0_v[3] = (v16qi)_mm_blendv_epi8(_mm_blendv_epi8(tC00, _mm_shuffle_epi8(tC01, shuf3), bS1eegg), _mm_shuffle_epi8(tC02, shuf3), bS2eegg);
+		ctx->tC0_v[0] = (v16qi)blend_mask(blend_mask(tC00, _mm_shuffle_epi8(tC01, shuf0), bS1abcd), _mm_shuffle_epi8(tC02, shuf0), bS2abcd);
+		ctx->tC0_v[1] = (v16qi)blend_mask(blend_mask(tC00, _mm_shuffle_epi8(tC01, shuf1), bS1efgh), _mm_shuffle_epi8(tC02, shuf1), bS2efgh);
+		ctx->tC0_v[2] = (v16qi)blend_mask(blend_mask(tC00, _mm_shuffle_epi8(tC01, shuf2), bS1aacc), _mm_shuffle_epi8(tC02, shuf2), bS2aacc);
+		ctx->tC0_v[3] = (v16qi)blend_mask(blend_mask(tC00, _mm_shuffle_epi8(tC01, shuf3), bS1eegg), _mm_shuffle_epi8(tC02, shuf3), bS2eegg);
 	}
 }
 
@@ -257,9 +255,13 @@ static inline void FUNC(init_alpha_beta_tC0)
  * Filter a single edge in place for bS in [0..3].
  * tC0 should equal -1 for each position where bS=0 or beta=0.
  * 
+ * I must acknowledge that I looked a LOT at ffmpeg's filters while developing
+ * these filters. They taught me many tricks to handle 9~10 bit operations on
+ * 8 bit hardware, so I owe them a lot of time saved. Thanks!
+ * 
  * For 8-pixel chroma edges we filter both Cb and Cr in lower and upper halves
- * of registers. In these cases note that alpha and beta may contain zero
- * values, so we should not use alpha-1 or beta-1.
+ * of registers. In these cases note that alpha and beta may contain zero and
+ * non-zero values, so we should not use alpha-1 or beta-1.
  */
 #define DEBLOCK_LUMA_SOFT(p2, p1, p0, q0, q1, q2, alpha, beta, tC0) {\
 	/* compute the opposite of filterSamplesFlags as a mask, and transfer the mask bS=0 from tC0 */\
@@ -285,8 +287,8 @@ static inline void FUNC(init_alpha_beta_tC0)
 	__m128i apltb = _mm_cmpeq_epi8(_mm_subs_epu8(_mm_subs_epu8(p2, p0), bm1), _mm_subs_epu8(_mm_subs_epu8(p0, p2), bm1));\
 	__m128i aqltb = _mm_cmpeq_epi8(_mm_subs_epu8(_mm_subs_epu8(q2, q0), bm1), _mm_subs_epu8(_mm_subs_epu8(q0, q2), bm1));\
 	__m128i sub1 = _mm_avg_epu8(p1, _mm_xor_si128(q1, cm1)); /* save 128+((p1-q1)>>1) for later */\
-	p1 = _mm_blendv_epi8(p1, pp1, apltb);\
-	q1 = _mm_blendv_epi8(q1, qp1, aqltb);\
+	p1 = blend_mask(p1, pp1, apltb);\
+	q1 = blend_mask(q1, qp1, aqltb);\
 	/* filter p0 and q0 (by offsetting signed to unsigned to apply pavg) */\
 	__m128i ftC = _mm_andnot_si128(_mm_sub_epi8(_mm_sub_epi8(ftC0, apltb), aqltb), ignoreSamplesFlags);\
 	__m128i x3 = _mm_avg_epu8(sub0, _mm_avg_epu8(sub1, _mm_set1_epi8(127))); /* 128+((q0-p0+((p1-q1)>>2)+1)>>1) */\
@@ -321,7 +323,7 @@ static inline void FUNC(init_alpha_beta_tC0)
 /**
  * Filter a single edge in place for bS=4.
  * 
- * The luma filter depends on beta>0 thus should not be used with beta=0.
+ * The luma filter uses beta-1 thus should not be used with beta=0.
  */
 #define DEBLOCK_LUMA_HARD(p3, p2, p1, p0, q0, q1, q2, q3, alpha, beta) {\
 	/* compute the opposite of filterSamplesFlags, and condition masks for filtering modes */\
@@ -349,8 +351,8 @@ static inline void FUNC(init_alpha_beta_tC0)
 	__m128i qp0a = _mm_avg_epu8(q21p1, pq0); /* q'0 (first formula) */\
 	__m128i pp0b = _mm_avg_epu8(p1, _mm_sub_epi8(_mm_avg_epu8(p0, q1), _mm_and_si128(_mm_xor_si128(p0, q1), c1))); /* p'0 (second formula) */\
 	__m128i qp0b = _mm_avg_epu8(q1, _mm_sub_epi8(_mm_avg_epu8(q0, p1), _mm_and_si128(_mm_xor_si128(q0, p1), c1))); /* q'0 (second formula) */\
-	p0 = _mm_blendv_epi8(_mm_blendv_epi8(pp0b, pp0a, condp), p0, ignoreSamplesFlags);\
-	q0 = _mm_blendv_epi8(_mm_blendv_epi8(qp0b, qp0a, condq), q0, ignoreSamplesFlags);\
+	p0 = blend_mask(blend_mask(pp0b, pp0a, condp), p0, ignoreSamplesFlags);\
+	q0 = blend_mask(blend_mask(qp0b, qp0a, condq), q0, ignoreSamplesFlags);\
 	/* compute p'1 and q'1 */\
 	__m128i fcondp = _mm_andnot_si128(condp, ignoreSamplesFlags);\
 	__m128i fcondq = _mm_andnot_si128(condq, ignoreSamplesFlags);\
@@ -358,8 +360,8 @@ static inline void FUNC(init_alpha_beta_tC0)
 	__m128i q21 = _mm_sub_epi8(_mm_avg_epu8(q2, q1), _mm_and_si128(_mm_xor_si128(q2, q1), and0)); /* q21+pq0 == (q2+q1+q0+p1)/2 */\
 	__m128i pp1 = _mm_avg_epu8(p21, pq0); /* p'1 */\
 	__m128i qp1 = _mm_avg_epu8(q21, pq0); /* q'1 */\
-	p1 = _mm_blendv_epi8(p1, pp1, fcondp);\
-	q1 = _mm_blendv_epi8(q1, qp1, fcondq);\
+	p1 = blend_mask(p1, pp1, fcondp);\
+	q1 = blend_mask(q1, qp1, fcondq);\
 	/* compute p'2 and q'2 */\
 	__m128i fix1 = _mm_and_si128(_mm_xor_si128(p21, pq0), c1);\
 	__m128i fix2 = _mm_and_si128(_mm_xor_si128(q21, pq0), c1);\
@@ -369,8 +371,8 @@ static inline void FUNC(init_alpha_beta_tC0)
 	__m128i q3q2 = _mm_sub_epi8(_mm_avg_epu8(q3, q2), _mm_and_si128(_mm_xor_si128(q3, q2), _mm_xor_si128(fix2, c1))); /* q3q2+q210p0 == (q3+q2+(q2+q1+p0+q0)/2)/2 */\
 	__m128i pp2 = _mm_avg_epu8(p3p2, p210q0); /* p'2 */\
 	__m128i qp2 = _mm_avg_epu8(q3q2, q210p0); /* q'2 */\
-	p2 = _mm_blendv_epi8(p2, pp2, fcondp);\
-	q2 = _mm_blendv_epi8(q2, qp2, fcondq);}
+	p2 = blend_mask(p2, pp2, fcondp);\
+	q2 = blend_mask(q2, qp2, fcondq);}
 
 #define DEBLOCK_CHROMA_HARD(p1, p0, q0, q1, alpha, beta) {\
 	/* compute the opposite of filterSamplesFlags */\
@@ -383,8 +385,8 @@ static inline void FUNC(init_alpha_beta_tC0)
 	__m128i c1 = _mm_set1_epi8(1);\
 	__m128i pp0b = _mm_avg_epu8(p1, _mm_sub_epi8(_mm_avg_epu8(p0, q1), _mm_and_si128(_mm_xor_si128(p0, q1), c1))); /* p'0 (second formula) */\
 	__m128i qp0b = _mm_avg_epu8(q1, _mm_sub_epi8(_mm_avg_epu8(q0, p1), _mm_and_si128(_mm_xor_si128(q0, p1), c1))); /* q'0 (second formula) */\
-	p0 = _mm_blendv_epi8(pp0b, p0, ignoreSamplesFlags);\
-	q0 = _mm_blendv_epi8(qp0b, q0, ignoreSamplesFlags);}
+	p0 = blend_mask(pp0b, p0, ignoreSamplesFlags);\
+	q0 = blend_mask(qp0b, q0, ignoreSamplesFlags);}
 
 
 
@@ -446,7 +448,7 @@ static always_inline __m128i expand2(int64_t a) {
 
 
 /**
- * Deblock a single luma macroblock in place.
+ * Deblock the luma plane of a single macroblock in place.
  */
 static noinline void FUNC(deblock_Y_8bit, uint8_t * restrict px0, size_t stride, ssize_t nstride, size_t stride7)
 {
@@ -650,6 +652,9 @@ static noinline void FUNC(deblock_Y_8bit, uint8_t * restrict px0, size_t stride,
 
 
 
+/**
+ * Deblock both chroma planes of a single macroblock in place.
+ */
 static noinline void FUNC(deblock_CbCr_8bit, uint8_t * restrict Cb0, uint8_t * restrict Cr0, size_t stride, ssize_t nstride, size_t stride7)
 {
 	__m128i v0, v1, v2, v3, v4, v5, v6, v7;

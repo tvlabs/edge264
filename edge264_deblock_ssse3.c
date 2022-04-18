@@ -15,10 +15,10 @@ static const uint8_t idx2alpha[52] =
 	{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 4, 4, 5, 6, 7, 8, 9, 10, 12, 13, 15, 17, 20, 22, 25, 28, 32, 36, 40, 45, 50, 56, 63, 71, 80, 90, 101, 113, 127, 144, 162, 182, 203, 226, 255, 255};
 static const uint8_t idx2beta[52] =
 	{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 2, 2, 3, 3, 3, 3, 4, 4, 4, 6, 6, 7, 7, 8, 8, 9, 9, 10, 10, 11, 11, 12, 12, 13, 13, 14, 14, 15, 15, 16, 16, 17, 17, 18, 18};
-static const int8_t idx2tC0[3][52] = {
-	{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 2, 2, 2, 2, 3, 3, 3, 4, 4, 4, 5, 6, 6, 7, 8, 9, 10, 11, 13},
-	{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 2, 2, 2, 2, 3, 3, 3, 4, 4, 5, 5, 6, 7, 8, 8, 10, 11, 12, 13, 15, 17},
-	{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 2, 2, 2, 2, 3, 3, 3, 4, 4, 4, 5, 6, 6, 7, 8, 9, 10, 11, 13, 14, 16, 18, 20, 23, 25},
+static const int8_t idx2tC0[3][52] = { // modified to disable deblocking when alpha or beta is zero
+	{-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 2, 2, 2, 2, 3, 3, 3, 4, 4, 4, 5, 6, 6, 7, 8, 9, 10, 11, 13},
+	{-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 2, 2, 2, 2, 3, 3, 3, 4, 4, 5, 5, 6, 7, 8, 8, 10, 11, 12, 13, 15, 17},
+	{-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 2, 2, 2, 2, 3, 3, 3, 4, 4, 4, 5, 6, 6, 7, 8, 9, 10, 11, 13, 14, 16, 18, 20, 23, 25},
 };
 
 
@@ -71,11 +71,12 @@ static inline void FUNC(init_alpha_beta_tC0)
 	ctx->beta_v = (v16qu)_mm_blendv_epi8(_mm_blendv_epi8(betalo, betamd, gte20), betahi, gte36);
 	
 	// initialize tC0 with bS=3 for internal edges of Intra macroblock
+	__m128i tC0neg = _mm_cmpgt_epi8(_mm_setzero_si128(), qP_av);
 	if (!mb->f.mbIsInterFlag) {
 		__m128i tC03lo = _mm_shuffle_epi8(_mm_loadu_si128((__m128i *)(ctx->qP2tC0[2] + 4)), qP_av);
 		__m128i tC03md = _mm_shuffle_epi8(_mm_loadu_si128((__m128i *)(ctx->qP2tC0[2] + 20)), qP_av);
 		__m128i tC03hi = _mm_shuffle_epi8(_mm_loadu_si128((__m128i *)(ctx->qP2tC0[2] + 36)), qP_av);
-		__m128i tC03 = _mm_blendv_epi8(_mm_blendv_epi8(tC03lo, tC03md, gte20), tC03hi, gte36);
+		__m128i tC03 = _mm_or_si128(_mm_blendv_epi8(_mm_blendv_epi8(tC03lo, tC03md, gte20), tC03hi, gte36), tC0neg);
 		ctx->tC0_v[0] = ctx->tC0_v[1] = (v16qi)_mm_shuffle_epi8(tC03, _mm_setzero_si128());
 		ctx->tC0_v[2] = ctx->tC0_v[3] = (v16qi)_mm_shuffle_epi8(tC03, _mm_setr_epi8(-1, -1, -1, -1, -1, -1, -1, -1, 1, 1, 1, 1, 2, 2, 2, 2));
 	} else {
@@ -83,11 +84,11 @@ static inline void FUNC(init_alpha_beta_tC0)
 		__m128i tC01lo = _mm_shuffle_epi8(_mm_loadu_si128((__m128i *)(ctx->qP2tC0[0] + 4)), qP_av);
 		__m128i tC01md = _mm_shuffle_epi8(_mm_loadu_si128((__m128i *)(ctx->qP2tC0[0] + 20)), qP_av);
 		__m128i tC01hi = _mm_shuffle_epi8(_mm_loadu_si128((__m128i *)(ctx->qP2tC0[0] + 36)), qP_av);
-		__m128i tC01 = _mm_blendv_epi8(_mm_blendv_epi8(tC01lo, tC01md, gte20), tC01hi, gte36);
+		__m128i tC01 = _mm_or_si128(_mm_blendv_epi8(_mm_blendv_epi8(tC01lo, tC01md, gte20), tC01hi, gte36), tC0neg);
 		__m128i tC02lo = _mm_shuffle_epi8(_mm_loadu_si128((__m128i *)(ctx->qP2tC0[1] + 4)), qP_av);
 		__m128i tC02md = _mm_shuffle_epi8(_mm_loadu_si128((__m128i *)(ctx->qP2tC0[1] + 20)), qP_av);
 		__m128i tC02hi = _mm_shuffle_epi8(_mm_loadu_si128((__m128i *)(ctx->qP2tC0[1] + 36)), qP_av);
-		__m128i tC02 = _mm_blendv_epi8(_mm_blendv_epi8(tC02lo, tC02md, gte20), tC02hi, gte36);
+		__m128i tC02 = _mm_or_si128(_mm_blendv_epi8(_mm_blendv_epi8(tC02lo, tC02md, gte20), tC02hi, gte36), tC0neg);
 		
 		// compute masks for bS=1 based on equality of references and motion vectors
 		__m128i bS1aceg, bS1bdfh, zero;
@@ -481,8 +482,9 @@ static noinline void FUNC(deblock_Y_8bit, uint8_t * restrict px0, size_t stride,
 		__m128i bm1a = _mm_add_epi8(_mm_set1_epi8(ctx->beta[8]), cm1a);
 		if (mb[-1].f.mbIsInterFlag & mb->f.mbIsInterFlag) {
 			__m128i tC0a = expand4(ctx->tC0_s[0]);
-			DEBLOCK_LUMA_SOFT(vX, vY, vZ, v0, v1, v2, am1a, bm1a, tC0a);
-		} else {
+			if (ctx->tC0_s[0] != -1)
+				DEBLOCK_LUMA_SOFT(vX, vY, vZ, v0, v1, v2, am1a, bm1a, tC0a);
+		} else if (ctx->alpha[8] != 0) {
 			DEBLOCK_LUMA_HARD(vW, vX, vY, vZ, v0, v1, v2, v3, am1a, bm1a);
 		}
 		
@@ -542,7 +544,8 @@ static noinline void FUNC(deblock_Y_8bit, uint8_t * restrict px0, size_t stride,
 	__m128i bm1bcdfgh = _mm_add_epi8(_mm_set1_epi8(ctx->beta[0]), cm1bcdfgh);
 	if (!mb->f.transform_size_8x8_flag) {
 		__m128i tC0b = expand4(ctx->tC0_s[1]);
-		DEBLOCK_LUMA_SOFT(v1, v2, v3, v4, v5, v6, am1bcdfgh, bm1bcdfgh, tC0b);
+		if (ctx->tC0_s[1] != -1)
+			DEBLOCK_LUMA_SOFT(v1, v2, v3, v4, v5, v6, am1bcdfgh, bm1bcdfgh, tC0b);
 	}
 	
 	// load and transpose the right 8x16 matrix
@@ -569,12 +572,14 @@ static noinline void FUNC(deblock_Y_8bit, uint8_t * restrict px0, size_t stride,
 	
 	// third vertical edge
 	__m128i tC0c = expand4(ctx->tC0_s[2]);
-	DEBLOCK_LUMA_SOFT(v5, v6, v7, v8, v9, vA, am1bcdfgh, bm1bcdfgh, tC0c);
+	if (ctx->tC0_s[2] != -1)
+		DEBLOCK_LUMA_SOFT(v5, v6, v7, v8, v9, vA, am1bcdfgh, bm1bcdfgh, tC0c);
 	
 	// fourth vertical edge
 	if (!mb->f.transform_size_8x8_flag) {
 		__m128i tC0d = expand4(ctx->tC0_s[3]);
-		DEBLOCK_LUMA_SOFT(v9, vA, vB, vC, vD, vE, am1bcdfgh, bm1bcdfgh, tC0d);
+		if (ctx->tC0_s[3] != -1)
+			DEBLOCK_LUMA_SOFT(v9, vA, vB, vC, vD, vE, am1bcdfgh, bm1bcdfgh, tC0d);
 	}
 	
 	// transpose the top 16x8 matrix
@@ -588,8 +593,9 @@ static noinline void FUNC(deblock_Y_8bit, uint8_t * restrict px0, size_t stride,
 		__m128i bm1e = _mm_add_epi8(_mm_set1_epi8(ctx->beta[12]), cm1e);
 		if (ctx->mbB->f.mbIsInterFlag & mb->f.mbIsInterFlag) {
 			__m128i tC0e = expand4(ctx->tC0_s[4]);
-			DEBLOCK_LUMA_SOFT(*(__m128i *)(px0 + nstride * 3), *(__m128i *)(px0 + nstride * 2), *(__m128i *)(px0 + nstride    ), h0, h1, h2, am1e, bm1e, tC0e);
-		} else {
+			if (ctx->tC0_s[4] != -1)
+				DEBLOCK_LUMA_SOFT(*(__m128i *)(px0 + nstride * 3), *(__m128i *)(px0 + nstride * 2), *(__m128i *)(px0 + nstride    ), h0, h1, h2, am1e, bm1e, tC0e);
+		} else if (ctx->alpha[12] != 0) {
 			DEBLOCK_LUMA_HARD(*(__m128i *)(px0 + nstride * 4), *(__m128i *)(px0 + nstride * 3), *(__m128i *)(px0 + nstride * 2), *(__m128i *)(px0 + nstride    ), h0, h1, h2, h3, am1e, bm1e);
 		}
 	}
@@ -599,7 +605,8 @@ static noinline void FUNC(deblock_Y_8bit, uint8_t * restrict px0, size_t stride,
 	// second horizontal edge
 	if (!mb->f.transform_size_8x8_flag) {
 		__m128i tC0f = expand4(ctx->tC0_s[5]);
-		DEBLOCK_LUMA_SOFT(h1, h2, h3, h4, h5, h6, am1bcdfgh, bm1bcdfgh, tC0f);
+		if (ctx->tC0_s[5] != -1)
+			DEBLOCK_LUMA_SOFT(h1, h2, h3, h4, h5, h6, am1bcdfgh, bm1bcdfgh, tC0f);
 	}
 	px7 = px0 + stride7;
 	*(__m128i *)(px0 +  stride * 2) = h2;
@@ -616,7 +623,8 @@ static noinline void FUNC(deblock_Y_8bit, uint8_t * restrict px0, size_t stride,
 	
 	// third horizontal edge
 	__m128i tC0g = expand4(ctx->tC0_s[6]);
-	DEBLOCK_LUMA_SOFT(h5, h6, h7, h8, h9, hA, am1bcdfgh, bm1bcdfgh, tC0g);
+	if (ctx->tC0_s[6] != -1)
+		DEBLOCK_LUMA_SOFT(h5, h6, h7, h8, h9, hA, am1bcdfgh, bm1bcdfgh, tC0g);
 	*(__m128i *)(px7 + nstride    ) = h6;
 	*(__m128i *)(px7              ) = h7;
 	*(__m128i *)(px7 +  stride    ) = h8;
@@ -625,7 +633,8 @@ static noinline void FUNC(deblock_Y_8bit, uint8_t * restrict px0, size_t stride,
 	// fourth horizontal edge
 	if (!mb->f.transform_size_8x8_flag) {
 		__m128i tC0h = expand4(ctx->tC0_s[7]);
-		DEBLOCK_LUMA_SOFT(h9, hA, hB, hC, hD, hE, am1bcdfgh, bm1bcdfgh, tC0h);
+		if (ctx->tC0_s[7] != -1)
+			DEBLOCK_LUMA_SOFT(h9, hA, hB, hC, hD, hE, am1bcdfgh, bm1bcdfgh, tC0h);
 	}
 	*(__m128i *)(pxE + nstride * 4) = hA;
 	*(__m128i *)(px7 +  stride * 4) = hB;
@@ -675,8 +684,9 @@ static noinline void FUNC(deblock_CbCr_8bit, uint8_t * restrict Cb0, uint8_t * r
 		__m128i bm1a = _mm_add_epi8(_mm_shuffle_epi8((__m128i)ctx->beta_v, shuf_a), cm1a);
 		if (mb[-1].f.mbIsInterFlag & mb->f.mbIsInterFlag) {
 			__m128i tC0a = expand2(ctx->tC0_l[4]);
-			DEBLOCK_CHROMA_SOFT(vY, vZ, v0, v1, am1a, bm1a, tC0a);
-		} else {
+			if (ctx->tC0_l[4] != -1)
+				DEBLOCK_CHROMA_SOFT(vY, vZ, v0, v1, am1a, bm1a, tC0a);
+		} else { // FIXME alpha may be 0 and not 0 !
 			DEBLOCK_CHROMA_HARD(vY, vZ, v0, v1, am1a, bm1a);
 		}
 		
@@ -730,7 +740,8 @@ static noinline void FUNC(deblock_CbCr_8bit, uint8_t * restrict Cb0, uint8_t * r
 	__m128i am1cg = _mm_add_epi8(_mm_shuffle_epi8((__m128i)ctx->alpha_v, shuf_cg), cm1cg);
 	__m128i bm1cg = _mm_add_epi8(_mm_shuffle_epi8((__m128i)ctx->beta_v, shuf_cg), cm1cg);
 	__m128i tC0c = expand2(ctx->tC0_l[5]);
-	DEBLOCK_CHROMA_SOFT(v2, v3, v4, v5, am1cg, bm1cg, tC0c);
+	if (ctx->tC0_l[5] != -1)
+		DEBLOCK_CHROMA_SOFT(v2, v3, v4, v5, am1cg, bm1cg, tC0c);
 	
 	// transpose both 8x8 matrices
 	__m128i xd0 = _mm_unpacklo_epi8(v0, v1);
@@ -776,7 +787,8 @@ static noinline void FUNC(deblock_CbCr_8bit, uint8_t * restrict Cb0, uint8_t * r
 		__m128i hZ = _mm_setr_epi64(*(__m64 *)(Cb0 + nstride    ), *(__m64 *)(Cr0 + nstride    ));
 		if (ctx->mbB->f.mbIsInterFlag & mb->f.mbIsInterFlag) {
 			__m128i tC0e = expand2(ctx->tC0_l[6]);
-			DEBLOCK_CHROMA_SOFT(hY, hZ, h0, h1, am1e, bm1e, tC0e);
+			if (ctx->tC0_l[6] != -1)
+				DEBLOCK_CHROMA_SOFT(hY, hZ, h0, h1, am1e, bm1e, tC0e);
 		} else {
 			DEBLOCK_CHROMA_HARD(hY, hZ, h0, h1, am1e, bm1e);
 		}
@@ -792,7 +804,8 @@ static noinline void FUNC(deblock_CbCr_8bit, uint8_t * restrict Cb0, uint8_t * r
 	
 	// third horizontal edge
 	__m128i tC0g = expand2(ctx->tC0_l[7]);
-	DEBLOCK_CHROMA_SOFT(h2, h3, h4, h5, am1cg, bm1cg, tC0g);
+	if (ctx->tC0_l[7] != -1)
+		DEBLOCK_CHROMA_SOFT(h2, h3, h4, h5, am1cg, bm1cg, tC0g);
 	*(int64_t *)(Cb0 +  stride * 2) = ((v2li)h2)[0];
 	*(int64_t *)(Cr0 +  stride * 2) = ((v2li)h2)[1];
 	uint8_t *Cb7 = Cb0 + stride7;

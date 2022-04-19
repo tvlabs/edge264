@@ -1,5 +1,6 @@
 /** MAYDO:
  * _ fix the display of CABAC with TRACE=2
+ * _ rename TRACE into DBG or the opposite to be more coherent (make TRACE=1 should generate edge264_play-trace1)
  * _ remove the systematic refill test in get_uX in favor of manual tests at key point in every mb
  * _ update the attributes of e to include all necessary data to decode one frame
  * _ remove uses of __m64 in inter_ssse3.c

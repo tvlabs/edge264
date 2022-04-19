@@ -23,6 +23,7 @@
  * _ since unsigned means implicit overflow by machine-dependent size, replace all by uint32_t!
  * _ to prepare ARM support, implement _Generic functions min/max/adds/subs (https://en.cppreference.com/w/c/language/generic), put #ifdef SSSE3 inside all vector functions, and start converting some functions to vector extensions
  * _ use 1 less register for 16x16 inter/intra transforms by using -4/+4/-2/-1/0/1/2/-4/+4 ...
+ * _ remove the 4x4 portion of mb->bits since CABAC uses nC for deblocking (wait until MVC-3D though)
  */
 
 /** Notes:
@@ -599,8 +600,8 @@ static int FUNC(parse_slice_layer_without_partitioning, Edge264_stream *e)
 	ctx->FilterOffsetB = 0;
 	if (ctx->ps.deblocking_filter_control_present_flag) {
 		ctx->disable_deblocking_filter_idc = CALL(get_ue16, 2);
-		printf("<li%s>disable_deblocking_filter_idc: <code>%d</code></li>\n",
-			red_if(ctx->disable_deblocking_filter_idc != 1), ctx->disable_deblocking_filter_idc);
+		printf("<li>disable_deblocking_filter_idc: <code>%d</code></li>\n",
+			ctx->disable_deblocking_filter_idc);
 		if (ctx->disable_deblocking_filter_idc != 1) {
 			ctx->FilterOffsetA = CALL(get_se16, -6, 6) * 2;
 			ctx->FilterOffsetB = CALL(get_se16, -6, 6) * 2;
@@ -611,16 +612,13 @@ static int FUNC(parse_slice_layer_without_partitioning, Edge264_stream *e)
 		}
 	}
 	
-	// check if we still want to decode this frame, then fill ctx with useful values
-	if (ctx->disable_deblocking_filter_idc != 1)
-		return -3;
+	// fill the context with useful values and start decoding
 	CALL(initialise_decoding_context, e);
-	
-	// cabac_alignment_one_bit gives a good probability to catch random errors.
 	if (!ctx->ps.entropy_coding_mode_flag) {
 		ctx->mb_skip_run = -1;
 		CALL(parse_slice_data_cavlc);
 	} else {
+		// cabac_alignment_one_bit gives a good probability to catch random errors.
 		unsigned bits = (SIZE_BIT - 1 - ctz(lsb_cache)) & 7;
 		if (bits != 0 && CALL(get_uv, bits) != (1 << bits) - 1)
 			return -4;

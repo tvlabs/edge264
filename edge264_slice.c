@@ -452,7 +452,10 @@ static void CAFUNC(parse_chroma_residual)
 					CALL(parse_coeff_token_cavlc, *(mb->nC[1] + ctx->ACbCr_int8[i4x4]), *(mb->nC[1] + ctx->BCbCr_int8[i4x4])),
 					CALL(get_ae, ctx->ctxIdxOffsets[0] + (mb->bits[1] >> inc8x8[4 + i4x4] & 3)));
 				if (token_or_cbf) {
-					CACOND(mb->nC[1][i4x4] = token_or_cbf >> 2, mb->bits[1] |= 1 << bit8x8[4 + i4x4]);
+					mb->nC[1][i4x4] = CACOND(token_or_cbf >> 2, 1);
+					#ifdef CABAC
+						mb->bits[1] |= 1 << bit8x8[4 + i4x4];
+					#endif
 					memset(ctx->c, 0, 64);
 					fprintf(stderr, "Chroma AC coeffLevels[%d]:", i4x4);
 					CACALL(parse_residual_block, 1, 15, token_or_cbf);
@@ -514,7 +517,10 @@ static void CAFUNC(parse_Intra16x16_residual)
 					CALL(parse_coeff_token_cavlc, *(mb->nC[iYCbCr] + ctx->A4x4_int8[i4x4]), *(mb->nC[iYCbCr] + ctx->B4x4_int8[i4x4])),
 					CALL(get_ae, ctx->ctxIdxOffsets[0] + (mb->bits[iYCbCr] >> inc4x4[i4x4] & 3)));
 				if (token_or_cbf) {
-					CACOND(mb->nC[iYCbCr][i4x4] = token_or_cbf >> 2, mb->bits[iYCbCr] |= 1 << bit4x4[i4x4]);
+					mb->nC[iYCbCr][i4x4] = CACOND(token_or_cbf >> 2, 1);
+					#ifdef CABAC
+						mb->bits[iYCbCr] |= 1 << bit4x4[i4x4];
+					#endif
 					memset(ctx->c, 0, 64);
 					fprintf(stderr, "16x16 AC coeffLevels[%d]:", iYCbCr * 16 + i4x4);
 					CACALL(parse_residual_block, 1, 15, token_or_cbf);
@@ -578,7 +584,10 @@ static void CAFUNC(parse_NxN_residual)
 						CALL(parse_coeff_token_cavlc, *(mb->nC[iYCbCr] + ctx->A4x4_int8[i4x4]), *(mb->nC[iYCbCr] + ctx->B4x4_int8[i4x4])),
 						CALL(get_ae, ctx->ctxIdxOffsets[0] + (mb->bits[iYCbCr] >> inc4x4[i4x4] & 3)));
 					if (token_or_cbf) {
-						CACOND(mb->nC[iYCbCr][i4x4] = token_or_cbf >> 2, mb->bits[iYCbCr] |= 1 << bit4x4[i4x4]);
+						mb->nC[iYCbCr][i4x4] = CACOND(token_or_cbf >> 2, 1);
+						#ifdef CABAC
+							mb->bits[iYCbCr] |= 1 << bit4x4[i4x4];
+						#endif
 						memset(ctx->c, 0, 64);
 						fprintf(stderr, "4x4 coeffLevels[%d]:", iYCbCr * 16 + i4x4);
 						CACALL(parse_residual_block, 0, 15, token_or_cbf);

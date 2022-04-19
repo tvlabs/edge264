@@ -1,4 +1,3 @@
-// TODO make deblock_mb iterate on entire frame to simplify future improvements (i.e. slices)
 // TODO touch nC in CABAC too
 
 #include "edge264_common.h"
@@ -49,8 +48,8 @@ static inline void FUNC(init_alpha_beta_tC0)
 {
 	// compute all values of indexA and indexB for each of the color planes first
 	__m128i zero = _mm_setzero_si128();
-	__m128i qP = _mm_set1_epi32(mb->QP_s);
-	__m128i qPAB = _mm_unpacklo_epi32(_mm_cvtsi32_si128(mb[-1].QP_s), _mm_cvtsi32_si128(ctx->mbB->QP_s));
+	__m128i qP = _mm_set1_epi32((int32_t)mb->QP_s);
+	__m128i qPAB = _mm_unpacklo_epi32(_mm_cvtsi32_si128((int32_t)mb[-1].QP_s), _mm_cvtsi32_si128((int32_t)ctx->mbB->QP_s));
 	__m128i qPav = _mm_avg_epu8(qP, _mm_unpacklo_epi64(qP, qPAB)); // mid/mid/A/B
 	__m128i c51 = _mm_set1_epi8(51);
 	__m128i indexA = _mm_min_epu8(_mm_max_epi8(_mm_add_epi8(qPav, _mm_set1_epi8(ctx->FilterOffsetA)), zero), c51);
@@ -450,11 +449,12 @@ static always_inline __m128i expand2(int64_t a) {
 /**
  * Deblock the luma plane of a single macroblock in place.
  */
-static noinline void FUNC(deblock_Y_8bit, uint8_t * restrict px0, size_t stride, ssize_t nstride, size_t stride7)
+static noinline void FUNC(deblock_Y_8bit, size_t stride, ssize_t nstride, size_t stride7)
 {
 	__m128i v0, v1, v2, v3, v4, v5, v6, v7;
 	if (!mb[-1].f.unavailable) {
 		// load and transpose the left 12x16 matrix
+		uint8_t * restrict px0 = ctx->samples_mb[0];
 		__m128i xa0 = _mm_loadu_si128((__m128i *)(px0               - 8));
 		__m128i xa1 = _mm_loadu_si128((__m128i *)(px0 +  stride     - 8));
 		__m128i xa2 = _mm_loadu_si128((__m128i *)(px0 +  stride * 2 - 8));
@@ -507,6 +507,7 @@ static noinline void FUNC(deblock_Y_8bit, uint8_t * restrict px0, size_t stride,
 		v4si xc5 = (v4si)_mm_unpackhi_epi16(xc0, xc1);
 		v4si xc6 = (v4si)_mm_unpacklo_epi16(xc2, xc3);
 		v4si xc7 = (v4si)_mm_unpackhi_epi16(xc2, xc3);
+		px0 = ctx->samples_mb[0];
 		*(int32_t *)(px0               - 4) = xc4[0];
 		*(int32_t *)(px0 +  stride     - 4) = xc4[1];
 		*(int32_t *)(px0 +  stride * 2 - 4) = xc4[2];
@@ -527,6 +528,7 @@ static noinline void FUNC(deblock_Y_8bit, uint8_t * restrict px0, size_t stride,
 		*(int32_t *)(pxE +  stride     - 4) = xc7[3];
 	} else {
 		// load and transpose the left 8x16 matrix
+		uint8_t * restrict px0 = ctx->samples_mb[0];
 		__m128i xa0 = *(__m128i *)(px0              );
 		__m128i xa1 = *(__m128i *)(px0 +  stride    );
 		__m128i xa2 = *(__m128i *)(px0 +  stride * 2);
@@ -558,6 +560,7 @@ static noinline void FUNC(deblock_Y_8bit, uint8_t * restrict px0, size_t stride,
 	}
 	
 	// load and transpose the right 8x16 matrix
+	uint8_t * restrict px0 = ctx->samples_mb[0];
 	__m128i xa0 = *(__m128i *)(px0              );
 	__m128i xa1 = *(__m128i *)(px0 +  stride    );
 	__m128i xa2 = *(__m128i *)(px0 +  stride * 2);
@@ -596,6 +599,7 @@ static noinline void FUNC(deblock_Y_8bit, uint8_t * restrict px0, size_t stride,
 	TRANSPOSE_8x16(v, lo, h0, h1, h2, h3, h4, h5, h6, h7);
 	
 	// first horizontal edge
+	px0 = ctx->samples_mb[0];
 	if (!ctx->mbB->f.unavailable) {
 		__m128i alpha_e = _mm_set1_epi8(ctx->alpha[12]);
 		__m128i beta_e = _mm_set1_epi8(ctx->beta[12]);
@@ -655,24 +659,26 @@ static noinline void FUNC(deblock_Y_8bit, uint8_t * restrict px0, size_t stride,
 /**
  * Deblock both chroma planes of a single macroblock in place.
  */
-static noinline void FUNC(deblock_CbCr_8bit, uint8_t * restrict Cb0, uint8_t * restrict Cr0, size_t stride, ssize_t nstride, size_t stride7)
+static noinline void FUNC(deblock_CbCr_8bit, size_t stride, ssize_t nstride, size_t stride7)
 {
 	__m128i v0, v1, v2, v3, v4, v5, v6, v7;
 	if (!mb[-1].f.unavailable) {
 		// load and transpose both 12x8 matrices (with left macroblock)
+		uint8_t * restrict Cb0 = ctx->samples_mb[1];
 		__m128i xa0 = _mm_loadu_si128((__m128i *)(Cb0               - 8));
 		__m128i xa1 = _mm_loadu_si128((__m128i *)(Cb0 +  stride     - 8));
 		__m128i xa2 = _mm_loadu_si128((__m128i *)(Cb0 +  stride * 2 - 8));
-		uint8_t *Cb7 = Cb0 + stride7;
+		uint8_t * restrict Cb7 = Cb0 + stride7;
 		__m128i xa3 = _mm_loadu_si128((__m128i *)(Cb7 + nstride * 4 - 8));
 		__m128i xa4 = _mm_loadu_si128((__m128i *)(Cb0 +  stride * 4 - 8));
 		__m128i xa5 = _mm_loadu_si128((__m128i *)(Cb7 + nstride * 2 - 8));
 		__m128i xa6 = _mm_loadu_si128((__m128i *)(Cb7 + nstride     - 8));
 		__m128i xa7 = _mm_loadu_si128((__m128i *)(Cb7               - 8));
+		uint8_t * restrict Cr0 = ctx->samples_mb[2];
 		__m128i xa8 = _mm_loadu_si128((__m128i *)(Cr0               - 8));
 		__m128i xa9 = _mm_loadu_si128((__m128i *)(Cr0 +  stride     - 8));
 		__m128i xaA = _mm_loadu_si128((__m128i *)(Cr0 +  stride * 2 - 8));
-		uint8_t *Cr7 = Cr0 + stride7;
+		uint8_t * restrict Cr7 = Cr0 + stride7;
 		__m128i xaB = _mm_loadu_si128((__m128i *)(Cr7 + nstride * 4 - 8));
 		__m128i xaC = _mm_loadu_si128((__m128i *)(Cr0 +  stride * 4 - 8));
 		__m128i xaD = _mm_loadu_si128((__m128i *)(Cr7 + nstride * 2 - 8));
@@ -703,6 +709,7 @@ static noinline void FUNC(deblock_CbCr_8bit, uint8_t * restrict Cb0, uint8_t * r
 		// store vY/vZ into the left macroblock
 		v8hi xc0 = (v8hi)_mm_unpacklo_epi8(vY, vZ);
 		v8hi xc1 = (v8hi)_mm_unpackhi_epi8(vY, vZ);
+		Cb0 = ctx->samples_mb[1];
 		*(int16_t *)(Cb0               - 2) = xc0[0];
 		*(int16_t *)(Cb0 +  stride     - 2) = xc0[1];
 		*(int16_t *)(Cb0 +  stride * 2 - 2) = xc0[2];
@@ -712,6 +719,7 @@ static noinline void FUNC(deblock_CbCr_8bit, uint8_t * restrict Cb0, uint8_t * r
 		*(int16_t *)(Cb7 + nstride * 2 - 2) = xc0[5];
 		*(int16_t *)(Cb7 + nstride     - 2) = xc0[6];
 		*(int16_t *)(Cb7               - 2) = xc0[7];
+		Cr0 = ctx->samples_mb[2];
 		*(int16_t *)(Cr0               - 2) = xc1[0];
 		*(int16_t *)(Cr0 +  stride     - 2) = xc1[1];
 		*(int16_t *)(Cr0 +  stride * 2 - 2) = xc1[2];
@@ -723,19 +731,21 @@ static noinline void FUNC(deblock_CbCr_8bit, uint8_t * restrict Cb0, uint8_t * r
 		*(int16_t *)(Cr7               - 2) = xc1[7];
 	} else {
 		// load and transpose both 8x8 matrices
+		uint8_t * restrict Cb0 = ctx->samples_mb[1];
 		__m128i xa0 = _mm_loadl_epi64((__m128i *)(Cb0              ));
 		__m128i xa1 = _mm_loadl_epi64((__m128i *)(Cb0 +  stride    ));
 		__m128i xa2 = _mm_loadl_epi64((__m128i *)(Cb0 +  stride * 2));
-		uint8_t *Cb7 = Cb0 + stride7;
+		uint8_t * restrict Cb7 = Cb0 + stride7;
 		__m128i xa3 = _mm_loadl_epi64((__m128i *)(Cb7 + nstride * 4));
 		__m128i xa4 = _mm_loadl_epi64((__m128i *)(Cb0 +  stride * 4));
 		__m128i xa5 = _mm_loadl_epi64((__m128i *)(Cb7 + nstride * 2));
 		__m128i xa6 = _mm_loadl_epi64((__m128i *)(Cb7 + nstride    ));
 		__m128i xa7 = _mm_loadl_epi64((__m128i *)(Cb7              ));
+		uint8_t * restrict Cr0 = ctx->samples_mb[2];
 		__m128i xa8 = _mm_loadl_epi64((__m128i *)(Cr0              ));
 		__m128i xa9 = _mm_loadl_epi64((__m128i *)(Cr0 +  stride    ));
 		__m128i xaA = _mm_loadl_epi64((__m128i *)(Cr0 +  stride * 2));
-		uint8_t *Cr7 = Cr0 + stride7;
+		uint8_t * restrict Cr7 = Cr0 + stride7;
 		__m128i xaB = _mm_loadl_epi64((__m128i *)(Cr7 + nstride * 4));
 		__m128i xaC = _mm_loadl_epi64((__m128i *)(Cr0 +  stride * 4));
 		__m128i xaD = _mm_loadl_epi64((__m128i *)(Cr7 + nstride * 2));
@@ -787,6 +797,8 @@ static noinline void FUNC(deblock_CbCr_8bit, uint8_t * restrict Cb0, uint8_t * r
 	__m128i h7 = _mm_unpackhi_epi64(xf3, xf7);
 	
 	// first horizontal edge
+	uint8_t * restrict Cb0 = ctx->samples_mb[1];
+	uint8_t * restrict Cr0 = ctx->samples_mb[2];
 	if (!ctx->mbB->f.unavailable) {
 		__m128i shuf_e = _mm_setr_epi8(13, 13, 13, 13, 13, 13, 13, 13, 14, 14, 14, 14, 14, 14, 14, 14);
 		__m128i alpha_e = _mm_shuffle_epi8((__m128i)ctx->alpha_v, shuf_e);
@@ -816,8 +828,8 @@ static noinline void FUNC(deblock_CbCr_8bit, uint8_t * restrict Cb0, uint8_t * r
 		DEBLOCK_CHROMA_SOFT(h2, h3, h4, h5, alpha_cg, beta_cg, tC0g);
 	*(int64_t *)(Cb0 +  stride * 2) = ((v2li)h2)[0];
 	*(int64_t *)(Cr0 +  stride * 2) = ((v2li)h2)[1];
-	uint8_t *Cb7 = Cb0 + stride7;
-	uint8_t *Cr7 = Cr0 + stride7;
+	uint8_t * restrict Cb7 = Cb0 + stride7;
+	uint8_t * restrict Cr7 = Cr0 + stride7;
 	*(int64_t *)(Cb7 + nstride * 4) = ((v2li)h3)[0];
 	*(int64_t *)(Cr7 + nstride * 4) = ((v2li)h3)[1];
 	*(int64_t *)(Cb0 +  stride * 4) = ((v2li)h4)[0];
@@ -832,16 +844,43 @@ static noinline void FUNC(deblock_CbCr_8bit, uint8_t * restrict Cb0, uint8_t * r
 
 
 
-noinline void FUNC(deblock_mb, uint8_t *samplesY, uint8_t *samplesCb, uint8_t *samplesCr, Edge264_macroblock *_mb) {
-	size_t offsetB = (void *)mb - (void *)ctx->mbB;
-	Edge264_macroblock *old = mb;
-	mb = _mb;
-	ctx->mbB = _mb - offsetB;
-	CALL(init_alpha_beta_tC0);
-	size_t strideY = ctx->stride[0];
-	CALL(deblock_Y_8bit, samplesY, strideY, -strideY, strideY * 7);
-	size_t strideC = ctx->stride[1];
-	CALL(deblock_CbCr_8bit, samplesCb, samplesCr, strideC, -strideC, strideC * 7);
-	mb = old;
-	ctx->mbB = old - offsetB;
+/**
+ * Loop through an entire frame to apply the deblocking filter on all
+ * macroblocks.
+ */
+static noinline void FUNC(deblock_frame)
+{
+	// point at the first macroblock (ignoring samples_row since we don't do Inter)
+	ctx->samples_mb[0] = ctx->samples_pic;
+	ctx->samples_mb[1] = ctx->samples_mb[0] + ctx->plane_size_Y;
+	ctx->samples_mb[2] = ctx->samples_mb[1] + ctx->plane_size_C;
+	ctx->mbB = (Edge264_macroblock *)(ctx->samples_mb[2] + ctx->plane_size_C) + 1;
+	mb = ctx->mbB + ctx->ps.pic_width_in_mbs + 1;
+	ctx->CurrMbAddr = 0;
+	
+	do {
+		// deblock a single macroblock
+		CALL(init_alpha_beta_tC0);
+		size_t strideY = ctx->stride[0];
+		CALL(deblock_Y_8bit, strideY, -strideY, strideY * 7);
+		size_t strideC = ctx->stride[1];
+		CALL(deblock_CbCr_8bit, strideC, -strideC, strideC * 7);
+		
+		// point at the next macroblock
+		mb++;
+		ctx->mbB++;
+		ctx->samples_mb[0] += 16;
+		ctx->samples_mb[1] += 8;
+		ctx->samples_mb[2] += 8;
+		ctx->CurrMbAddr++;
+		
+		// end of row
+		if (!ctx->mbB->f.unavailable)
+			continue;
+		mb++;
+		ctx->mbB++;
+		ctx->samples_mb[0] += ctx->stride[0] * 15;
+		ctx->samples_mb[1] += ctx->stride[1] * 7;
+		ctx->samples_mb[2] += ctx->stride[1] * 7;
+	} while (ctx->samples_mb[0] - ctx->samples_pic < ctx->plane_size_Y);
 }

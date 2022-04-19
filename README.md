@@ -11,7 +11,7 @@ Supported features
 * 8-bit 4:2:0 planar YUV output
 * CAVLC/CABAC
 * I/P/B frames
-* Per-slice reference lists
+* Per-frame reference lists
 * Memory Management Control Operations
 * Long-term reference pictures
 

@@ -36,6 +36,7 @@
 #include "edge264_residual_ssse3.c"
 #include "edge264_intra_ssse3.c"
 #include "edge264_inter_ssse3.c"
+#include "edge264_deblock_ssse3.c"
 #endif
 #include "edge264_bitstream.c"
 #include "edge264_mvpred.c"
@@ -628,7 +629,9 @@ static int FUNC(parse_slice_layer_without_partitioning, Edge264_stream *e)
 		CALL(parse_slice_data_cabac);
 		// I'd rather display a portion of image than nothing, so do not test errors here yet
 	}
-	e->output_flags |= 1 << ctx->currPic; // flag the image for display only if fully decoded
+	if (ctx->disable_deblocking_filter_idc != 1)
+		CALL(deblock_frame);
+	e->output_flags |= 1 << ctx->currPic; // flag the image for display only when fully decoded
 	return 0;
 }
 

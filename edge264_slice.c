@@ -1005,11 +1005,10 @@ static inline void CAFUNC(parse_ref_idx, unsigned f) {
 		#endif
 		mb->refIdx[i] = ref_idx;
 	}
-	fprintf(stderr, "ref_idx: %d %d %d %d %d %d %d %d\n", mb->refIdx[0], mb->refIdx[1], mb->refIdx[2], mb->refIdx[3], mb->refIdx[4], mb->refIdx[5], mb->refIdx[6], mb->refIdx[7]);
 	
 	// broadcast the values
 	v16qi refIdx_v = (v16qi)(v2li){mb->refIdx_l};
-	#if CABAC
+	#ifdef CABAC
 		refIdx_v = min_v16qi(refIdx_v, (v16qi)(v2li){(int64_t)ctx->clip_ref_idx_v});
 	#endif
 	if (!(f & 0x122)) { // 16xN
@@ -1021,6 +1020,7 @@ static inline void CAFUNC(parse_ref_idx, unsigned f) {
 		mb->bits[3] |= (mb->bits[3] >> 3 & 0x040400) | (mb->bits[3] << 4 & 0x808000);
 	}
 	mb->refIdx_l = ((v2li)refIdx_v)[0];
+	fprintf(stderr, "ref_idx: %d %d %d %d %d %d %d %d\n", mb->refIdx[0], mb->refIdx[1], mb->refIdx[2], mb->refIdx[3], mb->refIdx[4], mb->refIdx[5], mb->refIdx[6], mb->refIdx[7]);
 }
 
 
@@ -1062,7 +1062,7 @@ static void CAFUNC(parse_B_sub_mb) {
 		} else {
 			#ifndef CABAC
 				static const uint32_t sub_mb_type2flags[13] = {0, 0x00001, 0x10000,
-					0x10001, 0x00005, 0x00003, 0x50000, 0x30000, 50005, 0x30003,
+					0x10001, 0x00005, 0x00003, 0x50000, 0x30000, 0x50005, 0x30003,
 					0x0000f, 0xf0000, 0xf000f};
 				mvd_flags |= sub_mb_type2flags[sub_mb_type] << i4x4;
 			#else
@@ -1098,6 +1098,8 @@ static void CAFUNC(parse_B_sub_mb) {
 	// initialize direct prediction then parse all ref_idx values
 	if (mb->refIdx_l != -1ll)
 		CALL(decode_direct_mv_pred);
+	if (mvd_flags == 0) // yes there are streams that use 4 Direct8x8 instead of one Direct16x16
+		CAJUMP(parse_inter_residual);
 	CACALL(parse_ref_idx, 0x100 | mvd_flags2ref_idx(mvd_flags));
 	
 	// load neighbouring refIdx values and shuffle them into A/B/C/D

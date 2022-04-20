@@ -1,5 +1,7 @@
 /** MAYDO:
+ * _ swap the convention for direct 8x8 blocks in refIdx to make it more intuitive (0<->-1)
  * _ fix the display of CABAC with TRACE=2
+ * _ make TRACE=2 output even more compact with sub_mb_types and mvds
  * _ rename TRACE into DBG or the opposite to be more coherent (make TRACE=1 should generate edge264_play-trace1)
  * _ remove the systematic refill test in get_uX in favor of manual tests at key point in every mb
  * _ update the attributes of e to include all necessary data to decode one frame
@@ -546,7 +548,7 @@ static int FUNC(parse_slice_layer_without_partitioning, Edge264_stream *e)
 				expectedPicOrderCnt + CALL(get_se32, (-1u << 31) + 1, (1u << 31) - 1) : expectedPicOrderCnt;
 		}
 	}
-	printf("<li>pic_order_cnt: <code>%u</code></li>\n", min(ctx->TopFieldOrderCnt, ctx->BottomFieldOrderCnt));
+	printf("<li>pic_order_cnt: <code>%d</code></li>\n", min(ctx->TopFieldOrderCnt, ctx->BottomFieldOrderCnt));
 	e->FieldOrderCnt[(ctx->bottom_field_flag) ? ctx->currPic + 16 : ctx->currPic] = ctx->TopFieldOrderCnt;
 	if (!ctx->field_pic_flag)
 		e->FieldOrderCnt[16 + ctx->currPic] = ctx->BottomFieldOrderCnt;

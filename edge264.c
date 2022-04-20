@@ -1,6 +1,7 @@
 /** MAYDO:
  * _ swap the convention for direct 8x8 blocks in refIdx to make it more intuitive (0<->-1)
  * _ fix the display of CABAC with TRACE=2
+ * _ use positive and negative return codes to distinguish codes that should stop the loop
  * _ make TRACE=2 output even more compact with sub_mb_types and mvds
  * _ rename TRACE into DBG or the opposite to be more coherent (make TRACE=1 should generate edge264_play-trace1)
  * _ remove the systematic refill test in get_uX in favor of manual tests at key point in every mb
@@ -1439,9 +1440,18 @@ int Edge264_decode_NAL(Edge264_stream *e)
 
 
 
-const void *Edge264_get_frame(Edge264_stream *e, int end_of_stream) {
+/**
+ * By default all frames with POC lower or equal with the last non-reference
+ * picture or lower than the last IDR picture are considered for output.
+ * This function will consider all frames instead if:
+ * _ there are more frames to output than max_num_reorder_frames
+ * _ there is no empty slot for the next frame
+ * _ drain is set
+ */
+const void *Edge264_get_frame(Edge264_stream *e, int drain) {
 	int output = -1;
-	int best = (end_of_stream || __builtin_popcount(e->output_flags) > e->SPS.max_num_reorder_frames) ? INT_MAX : e->dispPicOrderCnt;
+	int best = (drain || __builtin_popcount(e->output_flags) > e->SPS.max_num_reorder_frames ||
+		__builtin_popcount((e->reference_flags & 0xffff) | e->reference_flags >> 16 | e->output_flags) > e->SPS.max_dec_frame_buffering) ? INT_MAX : e->dispPicOrderCnt;
 	for (int o = e->output_flags; o != 0; o &= o - 1) {
 		int i = __builtin_ctz(o);
 		if (e->FieldOrderCnt[i] <= best)

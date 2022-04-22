@@ -113,7 +113,7 @@ static inline void FUNC(init_alpha_beta_tC0)
 			__m128i refIdx1 = _mm_setr_epi32(mb->refIdx_s[1], mb[-1].refIdx_s[1], ctx->mbB->refIdx_s[1], 0);
 			__m128i shufVHAB = _mm_setr_epi8(0, 2, 1, 3, 0, 1, 2, 3, 5, 7, 0, 2, 10, 11, 0, 1);
 			__m128i refs0 = _mm_shuffle_epi8(_mm_shuffle_epi8((__m128i)ctx->RefPicList_v[0], refIdx0), shufVHAB); // (v0,h0,A0,B0)
-			__m128i refs1 = _mm_shuffle_epi8(_mm_shuffle_epi8((__m128i)ctx->RefPicList_v[1], refIdx1), shufVHAB); // (v1,h1,A1,B1)
+			__m128i refs1 = _mm_shuffle_epi8(_mm_shuffle_epi8((__m128i)ctx->RefPicList_v[2], refIdx1), shufVHAB); // (v1,h1,A1,B1)
 			__m128i neq0 = _mm_xor_si128(refs0, (__m128i)_mm_shuffle_ps((__m128)refs1, (__m128)refs0, _MM_SHUFFLE(1, 0, 3, 2))); // (v0^A1,h0^B1,A0^v0,B0^h0)
 			__m128i neq1 = _mm_xor_si128(refs1, (__m128i)_mm_shuffle_ps((__m128)refs0, (__m128)refs1, _MM_SHUFFLE(1, 0, 3, 2))); // (v1^A0,h1^B0,A1^v1,B1^h1)
 			__m128i refsaceg = _mm_or_si128(neq0, neq1); // low=cross, high=parallel
@@ -200,7 +200,7 @@ static inline void FUNC(init_alpha_beta_tC0)
 			__m128i refIdx1 = _mm_setr_epi32(mb->refIdx_s[1], mb[-1].refIdx_s[1], ctx->mbB->refIdx_s[1], 0);
 			__m128i shufVHAB = _mm_setr_epi8(0, 2, 1, 3, 0, 1, 2, 3, 5, 7, 0, 2, 10, 11, 0, 1);
 			__m128i refs0 = _mm_shuffle_epi8(_mm_shuffle_epi8((__m128i)ctx->RefPicList_v[0], refIdx0), shufVHAB); // (v0,h0,A0,B0)
-			__m128i refs1 = _mm_shuffle_epi8(_mm_shuffle_epi8((__m128i)ctx->RefPicList_v[1], refIdx1), shufVHAB); // (v1,h1,A1,B1)
+			__m128i refs1 = _mm_shuffle_epi8(_mm_shuffle_epi8((__m128i)ctx->RefPicList_v[2], refIdx1), shufVHAB); // (v1,h1,A1,B1)
 			__m128i neq0 = _mm_xor_si128(refs0, (__m128i)_mm_shuffle_ps((__m128)refs1, (__m128)refs0, _MM_SHUFFLE(1, 0, 3, 2))); // (v0^A1,h0^B1,A0^v0,B0^h0)
 			__m128i neq1 = _mm_xor_si128(refs1, (__m128i)_mm_shuffle_ps((__m128)refs0, (__m128)refs1, _MM_SHUFFLE(1, 0, 3, 2))); // (v1^A0,h1^B0,A1^v1,B1^h1)
 			__m128i neq2 = _mm_xor_si128(refs0, refs1);
@@ -486,7 +486,7 @@ static noinline void FUNC(deblock_Y_8bit, size_t stride, ssize_t nstride, size_t
 		__m128i alpha_a = _mm_set1_epi8(ctx->alpha[8]);
 		__m128i beta_a = _mm_set1_epi8(ctx->beta[8]);
 		if (mb[-1].f.mbIsInterFlag & mb->f.mbIsInterFlag) {
-			__m128i tC0a = expand4(ctx->tC0_s[0]); // FIXME inclure dans le if
+			__m128i tC0a = expand4(ctx->tC0_s[0]);
 			if (ctx->tC0_s[0] != -1)
 				DEBLOCK_LUMA_SOFT(vX, vY, vZ, v0, v1, v2, alpha_a, beta_a, tC0a);
 		} else if (ctx->alpha[8] != 0) {

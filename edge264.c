@@ -283,6 +283,7 @@ static void FUNC(parse_ref_pic_list_modification, const Edge264_stream *e)
 			for (int refIdx = 0; (modification_of_pic_nums_idc = CALL(get_ue16, 3)) < 3 && refIdx < 32; refIdx++)
 		{
 			int num = CALL(get_ue32, 4294967294);
+			printf("<li>modification_of_pic_nums_idc=%d, num=%d</li>\n", modification_of_pic_nums_idc, num);
 			unsigned MaskFrameNum = -1;
 			unsigned short_long = e->long_term_flags * 0x00010001;
 			unsigned parity = ctx->bottom_field_flag ? 0xffff0000u : 0xffff; // FIXME: FrameNum % 2 ?

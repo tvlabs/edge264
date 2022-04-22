@@ -26,6 +26,8 @@ Planned features
 * 8x8 transforms (needs testing and debugging)
 * MVC 3D support
 * Open GOP support
+* AVX-2 enhancements
+* ARM support
 * 4:0:0, 4:2:2 and 4:4:4 (partially implemented)
 * 9-14 bit depths with possibility of different luma/chroma depths (partially implemented)
 * Transform-bypass for macroblocks with QP==0

@@ -1451,6 +1451,7 @@ static inline void CAFUNC(parse_P_mb)
 	// Inter initializations
 	mb->f.mbIsInterFlag = 1;
 	mb->Intra4x4PredMode_v = (v16qi){2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2};
+	mb->refIdx_l = (int64_t)(v8qi){0, 0, 0, 0, -1, -1, -1, -1};
 	
 	// parse mb_skip_run/flag
 	#ifndef CABAC
@@ -1469,7 +1470,6 @@ static inline void CAFUNC(parse_P_mb)
 	if (mb_skip_flag) {
 		ctx->mb_qp_delta_nz = 0;
 		mb->inter_blocks = 0x01231111;
-		mb->refIdx_l = (int64_t)(v8qi){0, 0, 0, 0, -1, -1, -1, -1};
 		memset(mb->mvs_v + 4, 0, 64);
 		int refIdxA = mb[-1].refIdx[1];
 		int refIdxB = ctx->mbB->refIdx[2];

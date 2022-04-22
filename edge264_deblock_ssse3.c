@@ -486,7 +486,7 @@ static noinline void FUNC(deblock_Y_8bit, size_t stride, ssize_t nstride, size_t
 		__m128i alpha_a = _mm_set1_epi8(ctx->alpha[8]);
 		__m128i beta_a = _mm_set1_epi8(ctx->beta[8]);
 		if (mb[-1].f.mbIsInterFlag & mb->f.mbIsInterFlag) {
-			__m128i tC0a = expand4(ctx->tC0_s[0]);
+			__m128i tC0a = expand4(ctx->tC0_s[0]); // FIXME inclure dans le if
 			if (ctx->tC0_s[0] != -1)
 				DEBLOCK_LUMA_SOFT(vX, vY, vZ, v0, v1, v2, alpha_a, beta_a, tC0a);
 		} else if (ctx->alpha[8] != 0) {

@@ -1293,8 +1293,8 @@ static noinline void FUNC(decode_inter, int i, int w, int h) {
 			ctx->explicit_offsets[0][refIdx] + 1) | 1) << ctx->luma_log2_weight_denom);
 		bioffsets_Cb = (v8hi)_mm_set1_epi16(((ctx->explicit_offsets[1][refIdxL0] +
 			ctx->explicit_offsets[1][refIdx] + 1) | 1) << ctx->chroma_log2_weight_denom);
-		bioffsets_Cr = (v8hi)_mm_set1_epi16(((ctx->explicit_offsets[1][refIdxL0] +
-			ctx->explicit_offsets[1][refIdx] + 1) | 1) << ctx->chroma_log2_weight_denom);
+		bioffsets_Cr = (v8hi)_mm_set1_epi16(((ctx->explicit_offsets[2][refIdxL0] +
+			ctx->explicit_offsets[2][refIdx] + 1) | 1) << ctx->chroma_log2_weight_denom);
 		logWD_Y = (v8hi)(v2li){ctx->luma_log2_weight_denom + 1};
 		logWD_C = (v8hi)(v2li){ctx->chroma_log2_weight_denom + 1};
 	}

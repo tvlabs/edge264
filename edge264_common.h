@@ -113,7 +113,8 @@ typedef struct
 	int8_t luma_log2_weight_denom; // 3 significant bits
 	int8_t chroma_log2_weight_denom; // 3 significant bits
 	int8_t disable_deblocking_filter_idc; // 2 significant bits
-	union { int8_t FilterOffsetA, FilterOffsetB; int16_t FilterOffsets; }; // 5 significant bits
+	int8_t FilterOffsetA; // 5 significant bits
+	int8_t FilterOffsetB;
 	int8_t mb_qp_delta_nz;
 	int8_t currPic;
 	int32_t TopFieldOrderCnt;

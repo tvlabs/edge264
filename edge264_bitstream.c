@@ -279,7 +279,7 @@ static void FUNC(cabac_start) {
 		int32_t i;
 		memcpy(&i, ctx->CPB - 3, 4);
 		ctx->CPB -= big_endian32(i) >> 8 == 3;
-		ctx->CPB -= (lsb_cache & 255) == ctx->CPB[-1];
+		ctx->CPB -= (lsb_cache & 255) == ctx->CPB[-1]; // zeros might have been inserted if CPB reached end of RBSP
 		lsb_cache >>= 8;
 		extra_bits -= 8;
 	}

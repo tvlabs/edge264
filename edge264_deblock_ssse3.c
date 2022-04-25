@@ -255,7 +255,7 @@ static inline void FUNC(init_alpha_beta_tC0)
  * 
  * For 8-pixel chroma edges we filter both Cb and Cr in lower and upper halves
  * of registers. In these cases note that alpha and beta may contain zero and
- * non-zero values, so we should not use alpha-1 or beta-1.
+ * non-zero values, so we cannot use alpha-1 or beta-1.
  */
 #define DEBLOCK_LUMA_SOFT(p2, p1, p0, q0, q1, q2, alpha, beta, tC0) {\
 	/* compute the opposite of filterSamplesFlags as a mask, and transfer the mask bS=0 from tC0 */\
@@ -749,7 +749,7 @@ static noinline void FUNC(deblock_CbCr_8bit, size_t stride, ssize_t nstride, siz
 		TRANSPOSE_8x16(xa, lo, v0, v1, v2, v3, v4, v5, v6, v7);
 	}
 	
-	// third vertical edge
+	// second vertical edge
 	__m128i shuf_cg = _mm_setr_epi8(1, 1, 1, 1, 1, 1, 1, 1, 2, 2, 2, 2, 2, 2, 2, 2);
 	__m128i alpha_cg = _mm_shuffle_epi8((__m128i)ctx->alpha_v, shuf_cg);
 	__m128i beta_cg = _mm_shuffle_epi8((__m128i)ctx->beta_v, shuf_cg);
@@ -817,7 +817,7 @@ static noinline void FUNC(deblock_CbCr_8bit, size_t stride, ssize_t nstride, siz
 	*(int64_t *)(Cb0 +  stride    ) = ((v2li)h1)[0];
 	*(int64_t *)(Cr0 +  stride    ) = ((v2li)h1)[1];
 	
-	// third horizontal edge
+	// second horizontal edge
 	__m128i tC0g = expand2(ctx->tC0_l[7]);
 	if (ctx->tC0_l[7] != -1)
 		DEBLOCK_CHROMA_SOFT(h2, h3, h4, h5, alpha_cg, beta_cg, tC0g);

@@ -58,7 +58,7 @@
 			after = after + 1 < end ? after + 1 : end;
 		}
 		
-		// increment CPB and return the request bytes in upper part of the result
+		// increment CPB and return the requested bytes in upper part of the result
 		ctx->CPB = after;
 		return big_endian(((v16u)x)[0]);
 	}
@@ -238,7 +238,7 @@ static noinline int FUNC(get_ae, int ctxIdx)
 	};
 	size_t state = ctx->cabac[ctxIdx];
 	size_t shift = SIZE_BIT - 3 - clz(codIRange); // [6..SIZE_BIT-3]
-	fprintf(stderr, "%u/%u: (%u,%x)", (int)(codIOffset >> (shift - 6)), (int)(codIRange >> (shift - 6)), (int)state >> 2, (int)state & 1);
+	//fprintf(stderr, "%u/%u: (%u,%x)", (int)(codIOffset >> (shift - 6)), (int)(codIRange >> (shift - 6)), (int)state >> 2, (int)state & 1);
 	//fprintf(stderr, "%u/%u[%d]: (%u,%x)", (int)(codIOffset >> (shift - 6)), (int)(codIRange >> (shift - 6)), ctxIdx, (int)state >> 2, (int)state & 1);
 	size_t idx = (state & -4) + (codIRange >> shift);
 	size_t codIRangeLPS = (size_t)(rangeTabLPS - 4)[idx] << (shift - 6);
@@ -249,7 +249,7 @@ static noinline int FUNC(get_ae, int ctxIdx)
 		codIRange = codIRangeLPS;
 	}
 	ctx->cabac[ctxIdx] = transIdx[state];
-	fprintf(stderr, "->(%u,%x)\n", transIdx[state] >> 2, transIdx[state] & 1);
+	//fprintf(stderr, "->(%u,%x)\n", transIdx[state] >> 2, transIdx[state] & 1);
 	int binVal = state & 1;
 	if (__builtin_expect(codIRange < 256, 0)) {
 		codIOffset = lsd(codIOffset, CALL(get_bytes, SIZE_BIT / 8 - 1), SIZE_BIT - 8);
@@ -273,16 +273,18 @@ static void FUNC(cabac_start) {
 	// reclaim bits from cache while realigning with CPB on a byte boundary
 	int extra_bits = SIZE_BIT - 1 - ctz(lsb_cache);
 	int shift = -extra_bits & 7;
-	codIRange = (size_t)510 << (SIZE_BIT - 9 - shift); // aliases lsb_cache is a GRV is used
-	codIOffset = msb_cache >> shift; // aliases msb_cache is a GRV is used
-	codIOffset = (codIOffset < codIRange) ? codIOffset : codIRange - 1; // protection against invalid bitstream
-	// rewind CPB for the extra bytes in cache
-	while (extra_bits > 0) {
+	codIOffset = lsd(msb_cache, lsb_cache, shift); // codIOffset and msb_cache are the same register when a GRV is used
+	lsb_cache >>= SIZE_BIT - extra_bits;
+	while (extra_bits >= 8) {
 		int32_t i;
-		memcpy(&i, ctx->CPB - 4, 4);
-		ctx->CPB -= 1 + (big_endian32(i) >> 8 == 3);
+		memcpy(&i, ctx->CPB - 3, 4);
+		ctx->CPB -= big_endian32(i) >> 8 == 3;
+		ctx->CPB -= (lsb_cache & 255) == ctx->CPB[-1];
+		lsb_cache >>= 8;
 		extra_bits -= 8;
 	}
+	codIRange = (size_t)510 << (SIZE_BIT - 9);
+	codIOffset = (codIOffset < codIRange) ? codIOffset : codIRange - 1; // protection against invalid bitstream
 }
 
 static int FUNC(cabac_terminate) {

@@ -312,7 +312,7 @@ static noinline int FUNC(get_se16, int lower, int upper);
 #endif
 static noinline int FUNC(get_ae, int ctxIdx);
 static always_inline int FUNC(get_bypass);
-static void FUNC(cabac_start);
+static int FUNC(cabac_start);
 static int FUNC(cabac_terminate);
 static void FUNC(cabac_init, int idc);
 

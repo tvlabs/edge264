@@ -624,11 +624,9 @@ static int FUNC(parse_slice_layer_without_partitioning, Edge264_stream *e)
 		CALL(parse_slice_data_cavlc);
 	} else {
 		// cabac_alignment_one_bit gives a good probability to catch random errors.
-		unsigned bits = (SIZE_BIT - 1 - ctz(lsb_cache)) & 7;
-		if (bits != 0 && CALL(get_uv, bits) != (1 << bits) - 1)
+		if (CALL(cabac_start))
 			return -4;
 		CALL(cabac_init, cabac_init_idc);
-		CALL(cabac_start);
 		CALL(parse_slice_data_cabac);
 		// I'd rather display a portion of image than nothing, so do not test errors here yet
 	}

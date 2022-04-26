@@ -269,10 +269,11 @@ static inline int FUNC(get_bypass) {
 	return binVal;
 }
 
-static void FUNC(cabac_start) {
+static int FUNC(cabac_start) {
 	// reclaim bits from cache while realigning with CPB on a byte boundary
 	int extra_bits = SIZE_BIT - 1 - ctz(lsb_cache);
-	int shift = -extra_bits & 7;
+	int shift = extra_bits & 7;
+	int ret = shift > 0 && (ssize_t)msb_cache >> (SIZE_BIT - shift) != -1; // return 1 if not all alignment bits are ones
 	codIOffset = lsd(msb_cache, lsb_cache, shift); // codIOffset and msb_cache are the same register when a GRV is used
 	lsb_cache >>= SIZE_BIT - extra_bits;
 	while (extra_bits >= 8) {
@@ -285,6 +286,7 @@ static void FUNC(cabac_start) {
 	}
 	codIRange = (size_t)510 << (SIZE_BIT - 9);
 	codIOffset = (codIOffset < codIRange) ? codIOffset : codIRange - 1; // protection against invalid bitstream
+	return ret;
 }
 
 static int FUNC(cabac_terminate) {

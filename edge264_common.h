@@ -280,7 +280,7 @@ typedef struct
 
 #ifdef TRACE
 	#include <stdio.h>
-	static inline const char *red_if(int cond) { return (cond) ? " style='color:red'" : ""; }
+	static inline const char *red_if(int cond) { return (cond) ? " style='background-color:#f77'" : ""; }
 #else
 	#define printf(...) ((void)0)
 	#define check_stream(e) ((void)0)
@@ -348,28 +348,28 @@ static noinline void FUNC(parse_slice_data_cabac);
 // debugging functions
 #define print_v16qi(a) {\
 	v16qi v = (v16qi)a;\
-	printf("<li><code>");\
+	printf("<tr><th>" #a "</th><td>");\
 	for (int i = 0; i < 16; i++)\
 		printf("%4d ", v[i]);\
-	printf("</code></li>\n");}
+	printf("</td></tr>\n");}
 #define print_v16qu(a) {\
 	v16qu v = (v16qu)a;\
-	printf("<li><code>");\
+	printf("<tr><th>" #a "</th><td>");\
 	for (int i = 0; i < 16; i++)\
 		printf("%3u ", v[i]);\
-	printf("</code></li>\n");}
+	printf("</td></tr>\n");}
 #define print_v8hi(a) {\
 	v8hi v = (v8hi)a;\
-	printf("<li><code>");\
+	printf("<tr><th>" #a "</th><td>");\
 	for (int i = 0; i < 8; i++)\
 		printf("%6d ", v[i]);\
-	printf("</code></li>\n");}
+	printf("</td></tr>\n");}
 #define print_v4si(a) {\
 	v4si v = (v4si)a;\
-	printf("<li><code>");\
+	printf("<tr><th>" #a "</th><td>");\
 	for (int i = 0; i < 4; i++)\
 		printf("%6d ", v[i]);\
-	printf("</code></li>\n");}
+	printf("</td></tr>\n");}
 
 // Intel-specific common function declarations
 #ifdef __SSSE3__

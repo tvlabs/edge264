@@ -131,9 +131,7 @@ static int check_frame(const Edge264_stream *e, int i, const uint8_t *frame)
 				for (int base = 0; base < MbHeight * stride; base += stride)
 					invalid |= memcmp(p + base, q + base, MbStride);
 				if (invalid) {
-					printf("</ul>\n"
-						"<ul>\n"
-						"<li style='color:red'>Erroneous macroblock (pic_order_cnt %d, row %d, column %d, %s plane):<pre style='color:black'>\n", e->FieldOrderCnt[i] & ~(1 << 31), row, col, (iYCbCr == 0) ? "Luma" : (iYCbCr == 1) ? "Cb" : "Cr");
+					printf("<h4 style='color:red'>Erroneous macroblock (pic_order_cnt %d, row %d, column %d, %s plane):<pre style='color:black'>\n", ((e->FieldOrderCnt[i] + 0x7fff) & 0x7fffffff) - 0x7fff, row, col, (iYCbCr == 0) ? "Luma" : (iYCbCr == 1) ? "Cb" : "Cr");
 					for (int base = 0; base < MbHeight * stride; base += stride) {
 						for (int offset = base; offset < base + MbStride; offset++)
 							printf(p[offset] != q[offset] ? "<span style='color:red'>%3d</span> " : "%3d ", p[offset]);
@@ -142,7 +140,7 @@ static int check_frame(const Edge264_stream *e, int i, const uint8_t *frame)
 							printf("%3d ", q[offset]);
 						printf("\n");
 					}
-					printf("</pre></li>\n");
+					printf("</pre></h4>\n");
 					return -2;
 				}
 				
@@ -153,9 +151,8 @@ static int check_frame(const Edge264_stream *e, int i, const uint8_t *frame)
 			}
 		}
 	}
-	printf("<ul>\n"
-		"<li style='color:green'>Output frame with pic_order_cnt %d is correct</li>\n"
-		"</ul>\n", (e->FieldOrderCnt[i] > -(1 << 16)) ? e->FieldOrderCnt[i] : e->FieldOrderCnt[i] ^ (1 << 31));
+	printf("<h4 style='color:green'>Output frame with pic_order_cnt %d is correct</h4>\n",
+		((e->FieldOrderCnt[i] + 0x7fff) & 0x7fffffff) - 0x7fff);
 	return 0;
 }
 
@@ -280,7 +277,17 @@ int main(int argc, char *argv[])
 	setbuf(stdout, NULL);
 	printf("<!doctype html>\n"
 		"<html>\n"
-		"<head><title>NAL headers</title></head>\n"
+		"<head>\n"
+		"<title>NAL headers</title>\n"
+		"<style>\n"
+		"h4 { margin: -1em 0 1em 0 }\n"
+		"table { border-collapse: collapse; border: 2px solid black; margin-bottom: 2em }\n"
+		"tr { border-bottom: 1px solid black; vertical-align: top }\n"
+		"tr>*:first-child { text-align: right }\n"
+		"th,td { padding: .2em .4em }\n"
+		"</style>\n"
+		"<link rel=stylesheet href=style.css>\n"
+		"</head>\n"
 		"<body>\n");
 	while (1) {
 		int res = Edge264_decode_NAL(&e);

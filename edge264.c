@@ -277,39 +277,42 @@ static void FUNC(parse_ref_pic_list_modification, const Edge264_stream *e)
 	// parse the ref_pic_list_modification() instructions
 	for (int l = 0; l <= ctx->slice_type; l++) {
 		unsigned picNumLX = (ctx->field_pic_flag) ? e->prevFrameNum * 2 + 1 : e->prevFrameNum;
-		int modification_of_pic_nums_idc;
 		
 		// Let's not waste some precious indentation space...
-		if (CALL(get_u1))
-			for (int refIdx = 0; (modification_of_pic_nums_idc = CALL(get_ue16, 3)) < 3 && refIdx < 32; refIdx++)
-		{
-			int num = CALL(get_ue32, 4294967294);
-			unsigned MaskFrameNum = -1;
-			unsigned short_long = e->long_term_flags * 0x00010001;
-			unsigned parity = ctx->bottom_field_flag ? 0xffff0000u : 0xffff; // FIXME: FrameNum % 2 ?
-			if (modification_of_pic_nums_idc < 2) {
-				num = (modification_of_pic_nums_idc == 0) ? picNumLX - (num + 1) : picNumLX + (num + 1);
-				picNumLX = num;
-				MaskFrameNum = (1 << ctx->ps.log2_max_frame_num) - 1;
-				short_long = ~short_long;
-			}
-			
-			// LongTerm and ShortTerm share this same picture search.
-			unsigned FrameNum = MaskFrameNum & (ctx->field_pic_flag ? num >> 1 : num);
-			for (unsigned r = e->reference_flags & short_long & parity; r; r &= r - 1) {
-				int pic = __builtin_ctz(r);
-				if ((e->FrameNum[pic & 15] & MaskFrameNum) == FrameNum) {
-					// initialization placed pic exactly once in RefPicList, so shift it down to refIdx position
-					int buf = pic;
-					int cIdx = refIdx;
-					do {
-						int swap = ctx->RefPicList[l][cIdx];
-						ctx->RefPicList[l][cIdx] = buf;
-						buf = swap;
-					} while (++cIdx < size && buf != pic);
-					break;
+		int modification_of_pic_nums_idc;
+		if (CALL(get_u1)) {
+			printf("<tr><th>ref_pic_list_modifications_l%x</th><td>", l);
+			for (int refIdx = 0; (modification_of_pic_nums_idc = CALL(get_ue16, 3)) < 3 && refIdx < 32; refIdx++) {
+				int num = CALL(get_ue32, 4294967294);
+				printf("%s%d%s", refIdx ? ", " : "", !modification_of_pic_nums_idc ? -num - 1 : num + 2 - modification_of_pic_nums_idc, (modification_of_pic_nums_idc == 2) ? "*" : "");
+				unsigned MaskFrameNum = -1;
+				unsigned short_long = e->long_term_flags * 0x00010001;
+				unsigned parity = ctx->bottom_field_flag ? 0xffff0000u : 0xffff; // FIXME: FrameNum % 2 ?
+				if (modification_of_pic_nums_idc < 2) {
+					num = (modification_of_pic_nums_idc == 0) ? picNumLX - (num + 1) : picNumLX + (num + 1);
+					picNumLX = num;
+					MaskFrameNum = (1 << ctx->ps.log2_max_frame_num) - 1;
+					short_long = ~short_long;
+				}
+				
+				// LongTerm and ShortTerm share this same picture search.
+				unsigned FrameNum = MaskFrameNum & (ctx->field_pic_flag ? num >> 1 : num);
+				for (unsigned r = e->reference_flags & short_long & parity; r; r &= r - 1) {
+					int pic = __builtin_ctz(r);
+					if ((e->FrameNum[pic & 15] & MaskFrameNum) == FrameNum) {
+						// initialization placed pic exactly once in RefPicList, so shift it down to refIdx position
+						int buf = pic;
+						int cIdx = refIdx;
+						do {
+							int swap = ctx->RefPicList[l][cIdx];
+							ctx->RefPicList[l][cIdx] = buf;
+							buf = swap;
+						} while (++cIdx < size && buf != pic);
+						break;
+					}
 				}
 			}
+			printf("</td></tr>\n");
 		}
 	}
 	
@@ -318,7 +321,7 @@ static void FUNC(parse_ref_pic_list_modification, const Edge264_stream *e)
 		for (int i = 0; i < ctx->ps.num_ref_idx_active[l]; i++) {
 			int pic = ctx->RefPicList[l][i];
 			int poc = ((min(e->FieldOrderCnt[pic], e->FieldOrderCnt[16 + pic]) + 0x7fff) & 0x7fffffff) - 0x7fff;
-			printf("%u/%u%s", e->FrameNum[pic], poc, (i < ctx->ps.num_ref_idx_active[l] - 1) ? ", " : (ctx->slice_type - l == 1) ? "<br>" : "");
+			printf("%u%s/%u%s", e->FrameNum[pic], (e->long_term_flags >> pic & 1) ? "*" : "", poc, (i < ctx->ps.num_ref_idx_active[l] - 1) ? ", " : (ctx->slice_type - l == 1) ? "<br>" : "");
 		}
 	}
 	printf("</td></tr>\n");
@@ -404,13 +407,14 @@ static void FUNC(parse_dec_ref_pic_marking, Edge264_stream *e)
 					if (e->FrameNum[j] > max_long_term_frame_idx)
 						e->reference_flags &= ~(0x10001 << j), e->long_term_flags ^= 1 << j;
 				}
-				printf("4 (dereference long-term frames above %u)", max_long_term_frame_idx);
+				printf("4 (dereference long-term frames above %d)", max_long_term_frame_idx);
 				continue;
 			} else if (memory_management_control_operation == 5) {
 				e->reference_flags = e->long_term_flags = 0;
 				e->prevPicOrderCnt = ctx->TopFieldOrderCnt & ((1 << ctx->ps.log2_max_pic_order_cnt_lsb) - 1); // should be 0 for bottom fields
 				for (int j = 0; j < 32; j++)
 					e->FieldOrderCnt[j] ^= 1 << 31; // make all buffered pictures precede the next ones
+				e->dispPicOrderCnt = -1; // make all buffered pictured ready for display
 				printf("5 (dereference all frames)");
 				continue;
 			} else if (memory_management_control_operation == 6) {
@@ -504,7 +508,7 @@ static int FUNC(parse_slice_layer_without_partitioning, Edge264_stream *e)
 	unsigned frame_num = CALL(get_uv, ctx->ps.log2_max_frame_num);
 	unsigned inc = (frame_num - e->prevFrameNum) & ~(-1u << ctx->ps.log2_max_frame_num);
 	e->FrameNum[ctx->currPic] = e->prevFrameNum += inc;
-	printf("<tr><th>FrameNum</th><td>%u</td></tr>\n", e->prevFrameNum);
+	printf("<tr><th>frame_num => FrameNum</th><td>%u => %u</td></tr>\n", frame_num, e->prevFrameNum);
 	
 	// As long as PAFF/MBAFF are unsupported, this code won't execute (but is still kept).
 	ctx->field_pic_flag = 0;
@@ -534,8 +538,9 @@ static int FUNC(parse_slice_layer_without_partitioning, Edge264_stream *e)
 	ctx->TopFieldOrderCnt = ctx->BottomFieldOrderCnt = e->prevFrameNum * 2 + nal_ref_flag - 1;
 	if (ctx->ps.pic_order_cnt_type == 0) {
 		unsigned shift = WORD_BIT - ctx->ps.log2_max_pic_order_cnt_lsb;
-		int diff = CALL(get_uv, ctx->ps.log2_max_pic_order_cnt_lsb) - e->prevPicOrderCnt;
-		unsigned PicOrderCnt = e->prevPicOrderCnt + (diff << shift >> shift);
+		int pic_order_cnt_lsb = CALL(get_uv, ctx->ps.log2_max_pic_order_cnt_lsb);
+		unsigned PicOrderCnt = e->prevPicOrderCnt + ((pic_order_cnt_lsb - e->prevPicOrderCnt) << shift >> shift);
+		printf("<tr><th>pic_order_cnt_lsb => PicOrderCnt</th><td>%u => %d</td></tr>\n", pic_order_cnt_lsb, PicOrderCnt);
 		ctx->TopFieldOrderCnt = PicOrderCnt;
 		ctx->BottomFieldOrderCnt = PicOrderCnt;
 		if (!ctx->field_pic_flag && ctx->ps.bottom_field_pic_order_in_frame_present_flag)
@@ -556,8 +561,10 @@ static int FUNC(parse_slice_layer_without_partitioning, Edge264_stream *e)
 			ctx->BottomFieldOrderCnt = (!ctx->field_pic_flag && ctx->ps.bottom_field_pic_order_in_frame_present_flag) ?
 				expectedPicOrderCnt + CALL(get_se32, (-1u << 31) + 1, (1u << 31) - 1) : expectedPicOrderCnt;
 		}
+		printf("<tr><th>PicOrderCnt</th><td>%d</td></tr>\n", ctx->TopFieldOrderCnt);
+	} else {
+		printf("<tr><th>PicOrderCnt</th><td>%d</td></tr>\n", ctx->TopFieldOrderCnt);
 	}
-	printf("<tr><th>PicOrderCnt</th><td>%d</td></tr>\n", min(ctx->TopFieldOrderCnt, ctx->BottomFieldOrderCnt));
 	e->FieldOrderCnt[(ctx->bottom_field_flag) ? ctx->currPic + 16 : ctx->currPic] = ctx->TopFieldOrderCnt;
 	if (!ctx->field_pic_flag)
 		e->FieldOrderCnt[16 + ctx->currPic] = ctx->BottomFieldOrderCnt;
@@ -574,14 +581,14 @@ static int FUNC(parse_slice_layer_without_partitioning, Edge264_stream *e)
 		if (CALL(get_u1)) {
 			for (int l = 0; l <= ctx->slice_type; l++)
 				ctx->ps.num_ref_idx_active[l] = CALL(get_ue16, ctx->field_pic_flag ? 31 : 15) + 1;
-			printf("<tr><th>num_ref_idx_active</th><td>%u, %u</td></tr>\n",
+			printf(ctx->slice_type ? "<tr><th>num_ref_idx_active</th><td>%u, %u</td></tr>\n": "<tr><th>num_ref_idx_active</th><td>%u</td></tr>\n",
 				ctx->ps.num_ref_idx_active[0], ctx->ps.num_ref_idx_active[1]);
 		} else {
 			if (!ctx->field_pic_flag) {
 				ctx->ps.num_ref_idx_active[0] = min(ctx->ps.num_ref_idx_active[0], 16);
 				ctx->ps.num_ref_idx_active[1] = min(ctx->ps.num_ref_idx_active[1], 16);
 			}
-			printf("<tr><th>num_ref_idx_active (inferred)</th><td>%u, %u</td></tr>\n",
+			printf(ctx->slice_type ? "<tr><th>num_ref_idx_active (inferred)</th><td>%u, %u</td></tr>\n": "<tr><th>num_ref_idx_active (inferred)</th><td>%u</td></tr>\n",
 				ctx->ps.num_ref_idx_active[0], ctx->ps.num_ref_idx_active[1]);
 		}
 		
@@ -607,8 +614,8 @@ static int FUNC(parse_slice_layer_without_partitioning, Edge264_stream *e)
 		int r = (e->reference_flags | e->reference_flags >> 16) >> i & 1;
 		int l = e->long_term_flags >> i & 1;
 		int o = e->output_flags >> i & 1;
-		printf(r ? (o ? "<b>%u%s</b>/<b>%d</b>" : "<b>%u%s</b>/%d") : (o ? "%u%s/<b>%d</b>" : "empty"),
-			e->FrameNum[i], l ? "*" : "", ((min(e->FieldOrderCnt[i], e->FieldOrderCnt[i + 16]) + 0x7fff) & 0x7fffffff) - 0x7fff);
+		printf(!r ? "_/" : l ? "%u*/" : "%u/", e->FrameNum[i]);
+		printf(o ? "%d" : "_", ((min(e->FieldOrderCnt[i], e->FieldOrderCnt[i + 16]) + 0x7fff) & 0x7fffffff) - 0x7fff);
 		printf((i < ctx->ps.max_dec_frame_buffering) ? ", " : "</small></td></tr>\n");
 	}
 	

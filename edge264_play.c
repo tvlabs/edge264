@@ -151,7 +151,7 @@ static int check_frame(const Edge264_stream *e, int i, const uint8_t *frame)
 			}
 		}
 	}
-	printf("<h4 style='color:green'>Output frame with pic_order_cnt %d is correct</h4>\n",
+	printf("<h4 style='color:green'>Output frame with PicOrderCnt %d is correct</h4>\n",
 		((e->FieldOrderCnt[i] + 0x7fff) & 0x7fffffff) - 0x7fff);
 	return 0;
 }

@@ -381,6 +381,14 @@ static void FUNC(parse_pred_weight_table, Edge264_stream *e)
  */
 static void FUNC(parse_dec_ref_pic_marking, Edge264_stream *e)
 {
+	static const char * const memory_management_control_operation_names[6] = {
+		"%s1 (dereference frame %u)",
+		"%s2 (dereference long-term frame %u)",
+		"%s3 (convert frame %u into long-term index %u)",
+		"%s4 (dereference long-term frames above %d)",
+		"%s5 (convert current picture to IDR and dereference all frames)",
+		"%s6 (assign long-term index %u to current picture)"};
+	
 	int memory_management_control_operation;
 	int i = 32;
 	if (ctx->nal_unit_type == 5) {
@@ -399,58 +407,53 @@ static void FUNC(parse_dec_ref_pic_marking, Edge264_stream *e)
 	// 8.2.5.4 - Adaptive memory control marking process.
 	} else if (CALL(get_u1)) {
 		while ((memory_management_control_operation = CALL(get_ue16, 6)) != 0 && i-- > 0) {
-			printf((i == 31) ? "<tr><th>memory_management_control_operations</th><td>" : "<br>");
+			int num0 = 0, num1 = 0;
 			if (memory_management_control_operation == 4) {
-				int max_long_term_frame_idx = CALL(get_ue16, ctx->ps.max_num_ref_frames) - 1;
+				num0 = CALL(get_ue16, ctx->ps.max_num_ref_frames) - 1;
 				for (unsigned r = e->long_term_flags; r != 0; r &= r - 1) {
 					int j = __builtin_ctz(r);
-					if (e->FrameNum[j] > max_long_term_frame_idx)
+					if (e->FrameNum[j] > num0)
 						e->reference_flags &= ~(0x10001 << j), e->long_term_flags ^= 1 << j;
 				}
-				printf("4 (dereference long-term frames above %d)", max_long_term_frame_idx);
-				continue;
 			} else if (memory_management_control_operation == 5) {
 				e->reference_flags = e->long_term_flags = 0;
 				e->prevPicOrderCnt = ctx->TopFieldOrderCnt & ((1 << ctx->ps.log2_max_pic_order_cnt_lsb) - 1); // should be 0 for bottom fields
 				for (int j = 0; j < 32; j++)
 					e->FieldOrderCnt[j] ^= 1 << 31; // make all buffered pictures precede the next ones
 				e->dispPicOrderCnt = -1; // make all buffered pictured ready for display
-				printf("5 (dereference all frames)");
-				continue;
+				e->prevFrameNum = e->FrameNum[ctx->currPic] = 0;
 			} else if (memory_management_control_operation == 6) {
 				e->long_term_flags |= 1 << ctx->currPic;
-				e->FrameNum[ctx->currPic] = CALL(get_ue16, ctx->ps.max_num_ref_frames - 1);
-				printf("6 (assign long-term index %u to current picture)", e->FrameNum[ctx->currPic]);
-				continue;
+				e->FrameNum[ctx->currPic] = num0 = CALL(get_ue16, ctx->ps.max_num_ref_frames - 1);
+			} else {
+				
+				// The remaining three operations share the search for num0.
+				int pic_num = CALL(get_ue32, 4294967294);
+				int FrameNum = (ctx->field_pic_flag) ? pic_num >> 1 : pic_num;
+				num0 = (memory_management_control_operation != 2) ?
+					e->prevFrameNum - 1 - FrameNum : FrameNum;
+				int parity = ((pic_num & ctx->field_pic_flag) ^ ctx->bottom_field_flag) << 4;
+				unsigned short_long_term = (memory_management_control_operation != 2) ? ~e->long_term_flags : e->long_term_flags;
+				for (unsigned r = (uint16_t)(e->reference_flags >> parity) & short_long_term; r; r &= r - 1) {
+					int j = __builtin_ctz(r);
+					if (e->FrameNum[j] != num0)
+						continue;
+					unsigned frame = 0x10001 << j;
+					unsigned pic = ctx->field_pic_flag ? 1 << (parity + j) : frame;
+					if (memory_management_control_operation == 1) {
+						e->reference_flags &= ~pic;
+					} else if (memory_management_control_operation == 2) {
+						e->reference_flags &= ~pic;
+						if (!(e->reference_flags & frame))
+							e->long_term_flags &= ~frame;
+					} else if (memory_management_control_operation == 3) {
+						e->FrameNum[j] = num1 = CALL(get_ue16, 15);
+						e->long_term_flags |= frame;
+					}
+				}
 			}
-			
-			// The remaining three operations share the search for FrameNum.
-			int pic_num = CALL(get_ue32, 4294967294);
-			int LongTermFrameNum = (ctx->field_pic_flag) ? pic_num >> 1 : pic_num;
-			int FrameNum = (memory_management_control_operation != 2) ?
-				e->prevFrameNum - 1 - LongTermFrameNum : LongTermFrameNum;
-			int parity = ((pic_num & ctx->field_pic_flag) ^ ctx->bottom_field_flag) << 4;
-			unsigned r = (uint16_t)(e->reference_flags >> parity) &
-				(memory_management_control_operation != 2 ? ~e->long_term_flags : e->long_term_flags);
-			int j = ctx->currPic;
-			while (r != 0 && e->FrameNum[j = __builtin_ctz(r)] != FrameNum)
-				r &= r - 1;
-			unsigned frame = 0x10001 << j;
-			unsigned pic = ctx->field_pic_flag ? 1 << (parity + j) : frame;
-			
-			if (memory_management_control_operation == 1) {
-				e->reference_flags &= ~pic;
-				printf("1 (dereference frame %u)", FrameNum);
-			} else if (memory_management_control_operation == 2) {
-				e->reference_flags &= ~pic;
-				if (!(e->reference_flags & frame))
-					e->long_term_flags &= ~frame;
-				printf("2 (dereference long-term frame %u)", FrameNum);
-			} else if (memory_management_control_operation == 3) {
-				e->FrameNum[j] = CALL(get_ue16, 15);
-				e->long_term_flags |= frame;
-				printf("3 (assign long-term index %u to frame %u)", e->FrameNum[j], FrameNum);
-			}
+			printf(memory_management_control_operation_names[memory_management_control_operation - 1],
+				(i == 31) ? "<tr><th>memory_management_control_operations</th><td>" : "<br>", num0, num1);
 		}
 		printf("</td></tr>\n");
 	}

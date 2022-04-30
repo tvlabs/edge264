@@ -200,15 +200,12 @@ static void FUNC(parse_ref_pic_list_modification, const Edge264_stream *e)
 	// For P we sort on FrameNum, for B we sort on PicOrderCnt.
 	const int32_t *values = (ctx->slice_type == 0) ? e->FrameNum : e->FieldOrderCnt; // FIXME wrong for long-term in B frames
 	unsigned pic_value = (ctx->slice_type == 0) ? e->prevFrameNum : ctx->TopFieldOrderCnt;
-	uint16_t t = e->reference_flags;
-	uint16_t b = e->reference_flags >> 16;
 	int count[3] = {0, 0, 0}; // number of refs before/after/long
 	int size = 0;
 	memset(ctx->RefPicList, -1, 64);
 	
-	// This single loop sorts all short and long term references at once.
-	for (unsigned refs = (ctx->field_pic_flag) ? t | b : t & b; refs; ) {
-		int next = 0;
+	// sort all short and long term references for RefPicListL0
+	for (unsigned refs = e->reference_flags, next = 0; refs; refs ^= 1 << next) {
 		int best = INT_MAX;
 		for (unsigned r = refs; r; r &= r - 1) {
 			int i = __builtin_ctz(r);
@@ -221,10 +218,9 @@ static void FUNC(parse_ref_pic_list_modification, const Edge264_stream *e)
 		}
 		ctx->RefPicList[0][size++] = next;
 		count[best >> 16]++;
-		refs ^= 1 << next;
 	}
 	
-	// Fill RefPicListL1 by swapping before/after references
+	// fill RefPicListL1 by swapping before/after references
 	for (int src = 0; src < size; src++) {
 		int dst = (src < count[0]) ? src + count[1] :
 			(src < count[0] + count[1]) ? src - count[0] : src;
@@ -232,7 +228,7 @@ static void FUNC(parse_ref_pic_list_modification, const Edge264_stream *e)
 	}
 	
 	// When decoding a field, extract a list of fields from each list of frames.
-	union { int8_t q[32]; v16qi v[2]; } RefFrameList;
+	/*union { int8_t q[32]; v16qi v[2]; } RefFrameList;
 	for (int l = 0; ctx->field_pic_flag && l <= ctx->slice_type; l++) {
 		v16qi v = ctx->RefPicList_v[l * 2];
 		RefFrameList.v[0] = v;
@@ -267,7 +263,7 @@ static void FUNC(parse_ref_pic_list_modification, const Edge264_stream *e)
 				}
 			}
 		}
-	}
+	}*/
 	
 	// Swap the two first slots of RefPicListL1 if equal with RefPicListL0.
 	if (size > 1 && memcmp(ctx->RefPicList[0], ctx->RefPicList[1], 32) == 0) {
@@ -275,20 +271,17 @@ static void FUNC(parse_ref_pic_list_modification, const Edge264_stream *e)
 		ctx->RefPicList[1][1] = ctx->RefPicList[0][0];
 	}
 	
-	// parse the ref_pic_list_modification() instructions
+	// parse the ref_pic_list_modification() header
 	for (int l = 0; l <= ctx->slice_type; l++) {
 		unsigned picNumLX = (ctx->field_pic_flag) ? e->prevFrameNum * 2 + 1 : e->prevFrameNum;
-		
-		// Let's not waste some precious indentation space...
 		int modification_of_pic_nums_idc;
-		if (CALL(get_u1)) {
+		if (CALL(get_u1)) { // ref_pic_list_modification_flag
 			printf("<tr><th>ref_pic_list_modifications_l%x</th><td>", l);
 			for (int refIdx = 0; (modification_of_pic_nums_idc = CALL(get_ue16, 3)) < 3 && refIdx < 32; refIdx++) {
 				int num = CALL(get_ue32, 4294967294);
 				printf("%s%d%s", refIdx ? ", " : "", !modification_of_pic_nums_idc ? -num - 1 : num + 2 - modification_of_pic_nums_idc, (modification_of_pic_nums_idc == 2) ? "*" : "");
 				unsigned MaskFrameNum = -1;
-				unsigned short_long = e->long_term_flags * 0x00010001;
-				unsigned parity = ctx->bottom_field_flag ? 0xffff0000u : 0xffff; // FIXME: FrameNum % 2 ?
+				unsigned short_long = e->long_term_flags;
 				if (modification_of_pic_nums_idc < 2) {
 					num = (modification_of_pic_nums_idc == 0) ? picNumLX - (num + 1) : picNumLX + (num + 1);
 					picNumLX = num;
@@ -298,9 +291,9 @@ static void FUNC(parse_ref_pic_list_modification, const Edge264_stream *e)
 				
 				// LongTerm and ShortTerm share this same picture search.
 				unsigned FrameNum = MaskFrameNum & (ctx->field_pic_flag ? num >> 1 : num);
-				for (unsigned r = e->reference_flags & short_long & parity; r; r &= r - 1) {
+				for (unsigned r = e->reference_flags & short_long; r; r &= r - 1) {
 					int pic = __builtin_ctz(r);
-					if ((e->FrameNum[pic & 15] & MaskFrameNum) == FrameNum) {
+					if ((e->FrameNum[pic] & MaskFrameNum) == FrameNum) {
 						// initialization placed pic exactly once in RefPicList, so shift it down to refIdx position
 						int buf = pic;
 						int cIdx = refIdx;
@@ -412,7 +405,7 @@ static void FUNC(parse_dec_ref_pic_marking, Edge264_stream *e)
 				for (unsigned r = e->long_term_flags; r != 0; r &= r - 1) {
 					int j = __builtin_ctz(r);
 					if (e->FrameNum[j] > num0)
-						e->reference_flags &= ~(0x10001 << j), e->long_term_flags ^= 1 << j;
+						e->reference_flags &= ~(1 << j), e->long_term_flags ^= 1 << j;
 				}
 			} else if (memory_management_control_operation == 5) {
 				e->reference_flags = e->long_term_flags = 0;
@@ -431,23 +424,19 @@ static void FUNC(parse_dec_ref_pic_marking, Edge264_stream *e)
 				int FrameNum = (ctx->field_pic_flag) ? pic_num >> 1 : pic_num;
 				num0 = (memory_management_control_operation != 2) ?
 					e->prevFrameNum - 1 - FrameNum : FrameNum;
-				int parity = ((pic_num & ctx->field_pic_flag) ^ ctx->bottom_field_flag) << 4;
-				unsigned short_long_term = (memory_management_control_operation != 2) ? ~e->long_term_flags : e->long_term_flags;
-				for (unsigned r = (uint16_t)(e->reference_flags >> parity) & short_long_term; r; r &= r - 1) {
+				unsigned short_long = (memory_management_control_operation != 2) ? ~e->long_term_flags : e->long_term_flags;
+				for (unsigned r = e->reference_flags & short_long; r; r &= r - 1) {
 					int j = __builtin_ctz(r);
 					if (e->FrameNum[j] != num0)
 						continue;
-					unsigned frame = 0x10001 << j;
-					unsigned pic = ctx->field_pic_flag ? 1 << (parity + j) : frame;
 					if (memory_management_control_operation == 1) {
-						e->reference_flags &= ~pic;
+						e->reference_flags ^= 1 << j;
 					} else if (memory_management_control_operation == 2) {
-						e->reference_flags &= ~pic;
-						if (!(e->reference_flags & frame))
-							e->long_term_flags &= ~frame;
+						e->reference_flags ^= 1 << j;
+						e->long_term_flags ^= 1 << j;
 					} else if (memory_management_control_operation == 3) {
 						e->FrameNum[j] = num1 = CALL(get_ue16, 15);
-						e->long_term_flags |= frame;
+						e->long_term_flags |= 1 << j;
 					}
 				}
 			}
@@ -458,7 +447,7 @@ static void FUNC(parse_dec_ref_pic_marking, Edge264_stream *e)
 	}
 	
 	// 8.2.5.3 - Sliding window marking process
-	unsigned r = (uint16_t)e->reference_flags | e->reference_flags >> 16;
+	unsigned r = e->reference_flags;
 	if (__builtin_popcount(r) >= ctx->ps.max_num_ref_frames) {
 		int best = INT_MAX;
 		int next = 0;
@@ -467,9 +456,9 @@ static void FUNC(parse_dec_ref_pic_marking, Edge264_stream *e)
 			if (best > e->FrameNum[i])
 				best = e->FrameNum[next = i];
 		}
-		e->reference_flags &= ~(0x10001 << next);
+		e->reference_flags &= ~(1 << next); // don't use xor instead, since r may be zero
 	}
-	e->reference_flags |= (!ctx->field_pic_flag ? 0x10001 : ctx->bottom_field_flag ? 0x10000 : 1) << ctx->currPic;
+	e->reference_flags |= 1 << ctx->currPic;
 }
 
 
@@ -506,7 +495,7 @@ static int FUNC(parse_slice_layer_without_partitioning, Edge264_stream *e)
 	// find a DPB slot for the upcoming frame
 	if (ctx->nal_unit_type == 5)
 		e->reference_flags = e->long_term_flags = e->prevFrameNum = 0;
-	ctx->currPic = __builtin_ctz(~(uint16_t)(e->reference_flags | e->reference_flags >> 16 | e->output_flags) | 1 << ctx->ps.max_dec_frame_buffering);
+	ctx->currPic = __builtin_ctz(~(e->reference_flags | e->output_flags) | 1 << ctx->ps.max_dec_frame_buffering);
 	unsigned frame_num = CALL(get_uv, ctx->ps.log2_max_frame_num);
 	unsigned inc = (frame_num - e->prevFrameNum) & ~(-1u << ctx->ps.log2_max_frame_num);
 	e->FrameNum[ctx->currPic] = e->prevFrameNum += inc;
@@ -613,7 +602,7 @@ static int FUNC(parse_slice_layer_without_partitioning, Edge264_stream *e)
 		e->dispPicOrderCnt = ctx->TopFieldOrderCnt; // all frames with lower POCs are now ready for output
 	printf("<tr><th>DPB (FrameNum/PicOrderCnt)</th><td><small>");
 	for (int i = 0; i <= ctx->ps.max_dec_frame_buffering; i++) {
-		int r = (e->reference_flags | e->reference_flags >> 16) >> i & 1;
+		int r = e->reference_flags >> i & 1;
 		int l = e->long_term_flags >> i & 1;
 		int o = e->output_flags >> i & 1;
 		printf(!r ? "_/" : l ? "%u*/" : "%u/", e->FrameNum[i]);
@@ -1420,7 +1409,7 @@ int Edge264_decode_NAL(Edge264_stream *e)
 	// quick checks before initializing a context
 	if (e->CPB >= e->end)
 		return -2;
-	if (__builtin_popcount((e->reference_flags & 0xffff) | e->reference_flags >> 16 | e->output_flags) > e->SPS.max_dec_frame_buffering)
+	if (__builtin_popcount(e->reference_flags | e->output_flags) > e->SPS.max_dec_frame_buffering)
 		return -1;
 	int nal_ref_idc = *e->CPB >> 5;
 	int nal_unit_type = *e->CPB & 0x1f;
@@ -1480,7 +1469,7 @@ int Edge264_decode_NAL(Edge264_stream *e)
 const void *Edge264_get_frame(Edge264_stream *e, int drain) {
 	int output = -1;
 	int best = (drain || __builtin_popcount(e->output_flags) > e->SPS.max_num_reorder_frames ||
-		__builtin_popcount((e->reference_flags & 0xffff) | e->reference_flags >> 16 | e->output_flags) > e->SPS.max_dec_frame_buffering) ? INT_MAX : e->dispPicOrderCnt;
+		__builtin_popcount(e->reference_flags | e->output_flags) > e->SPS.max_dec_frame_buffering) ? INT_MAX : e->dispPicOrderCnt;
 	for (int o = e->output_flags; o != 0; o &= o - 1) {
 		int i = __builtin_ctz(o);
 		if (e->FieldOrderCnt[i] <= best)

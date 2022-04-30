@@ -86,9 +86,9 @@ typedef struct Edge264_stream {
 	int32_t plane_size_Y;
 	int32_t plane_size_C;
 	int32_t frame_size;
-	uint32_t reference_flags; // lower/higher half for top/bottom fields
-	uint16_t long_term_flags;
-	uint32_t output_flags;
+	uint32_t reference_flags; // bitfield for indices of reference frames
+	uint32_t long_term_flags; // bitfield for indices of long-term frames
+	uint32_t output_flags; // bitfield for frames waiting for output
 	int32_t prevFrameNum;
 	int32_t prevPicOrderCnt;
 	int32_t dispPicOrderCnt;

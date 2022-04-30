@@ -10,6 +10,7 @@
  * _ update the attributes of e to include all necessary data to decode one frame
  * _ remove uses of __m64 in inter_ssse3.c
  * _ replace old uses of lddqu with loadu
+ * _ vectorize initializations for temporal prediction
  * _ review intra and inter routines to check whether 8bit versions could be shorter in code
  * _ add support for open GOP (i.e. ignoring frames that reference unavailable previous frames)
  * _ compile decoding function separately to let them use msb/lsb_cache registers
@@ -145,26 +146,26 @@ static void FUNC(initialise_decoding_context, Edge264_stream *e)
 		int max1 = ctx->slice_type == 0 ? -1 : ctx->ps.num_ref_idx_active[1] - 1;
 		ctx->clip_ref_idx_v = (v8qi){max0, max0, max0, max0, max1, max1, max1, max1};
 		for (int i = 0; i <= max0; i++)
-			ctx->ref_planes[i] = e->DPB + (ctx->RefPicList[0][i] & 15) * e->frame_size;
+			ctx->ref_planes[i] = e->DPB + ctx->RefPicList[0][i] * e->frame_size;
 		
 		// B slices
 		if (ctx->slice_type == 1) {
 			for (int i = 0; i <= max1; i++)
-				ctx->ref_planes[32 + i] = e->DPB + (ctx->RefPicList[1][i] & 15) * e->frame_size;
+				ctx->ref_planes[32 + i] = e->DPB + ctx->RefPicList[1][i] * e->frame_size;
 			int colPic = ctx->RefPicList[1][0];
 			ctx->mbCol = (Edge264_macroblock *)(e->DPB + colPic * e->frame_size + ctx->plane_size_Y + e->plane_size_C * 2 + sizeof(*mb) - offB_int8);
 			ctx->col_short_term = (e->long_term_flags >> colPic & 1) ^ 1;
 			
 			// initializations for temporal prediction
 			if (!ctx->direct_spatial_mv_pred_flag) {
-				int8_t MapPicToList0[16] = {}; // pictures not found in RefPicList0 will point to 0 by default
+				int8_t MapPicToList0[32] = {}; // pictures not found in RefPicList0 will point to 0 by default
 				int poc = min(ctx->TopFieldOrderCnt, ctx->BottomFieldOrderCnt);
 				int pic1 = ctx->RefPicList[1][0];
-				int poc1 = min(e->FieldOrderCnt[pic1], e->FieldOrderCnt[16 + pic1]);
+				int poc1 = min(e->FieldOrderCnt[0][pic1], e->FieldOrderCnt[1][pic1]);
 				for (int refIdxL0 = ctx->ps.num_ref_idx_active[0]; refIdxL0-- > 0; ) {
 					int pic0 = ctx->RefPicList[0][refIdxL0];
 					MapPicToList0[pic0] = refIdxL0;
-					int poc0 = min(e->FieldOrderCnt[pic0], e->FieldOrderCnt[16 + pic0]);
+					int poc0 = min(e->FieldOrderCnt[0][pic0], e->FieldOrderCnt[1][pic0]);
 					int DistScaleFactor = 256;
 					if (!(e->long_term_flags & 1 << pic0) && poc0 != poc1) {
 						int tb = min(max(poc - poc0, -128), 127);
@@ -198,7 +199,7 @@ static void FUNC(initialise_decoding_context, Edge264_stream *e)
 static void FUNC(parse_ref_pic_list_modification, const Edge264_stream *e)
 {
 	// For P we sort on FrameNum, for B we sort on PicOrderCnt.
-	const int32_t *values = (ctx->slice_type == 0) ? e->FrameNum : e->FieldOrderCnt; // FIXME wrong for long-term in B frames
+	const int32_t *values = (ctx->slice_type == 0) ? e->FrameNum : e->FieldOrderCnt[0]; // FIXME wrong for long-term in B frames
 	unsigned pic_value = (ctx->slice_type == 0) ? e->prevFrameNum : ctx->TopFieldOrderCnt;
 	int count[3] = {0, 0, 0}; // number of refs before/after/long
 	int size = 0;
@@ -314,7 +315,7 @@ static void FUNC(parse_ref_pic_list_modification, const Edge264_stream *e)
 	for (int l = 0; l <= ctx->slice_type; l++) {
 		for (int i = 0; i < ctx->ps.num_ref_idx_active[l]; i++) {
 			int pic = ctx->RefPicList[l][i];
-			int poc = ((min(e->FieldOrderCnt[pic], e->FieldOrderCnt[16 + pic]) + 0x7fff) & 0x7fffffff) - 0x7fff;
+			int poc = ((min(e->FieldOrderCnt[0][pic], e->FieldOrderCnt[1][pic]) + 0x7fff) & 0x7fffffff) - 0x7fff;
 			printf("%u%s/%u%s", e->FrameNum[pic], (e->long_term_flags >> pic & 1) ? "*" : "", poc, (i < ctx->ps.num_ref_idx_active[l] - 1) ? ", " : (ctx->slice_type - l == 1) ? "<br>" : "");
 		}
 	}
@@ -410,8 +411,8 @@ static void FUNC(parse_dec_ref_pic_marking, Edge264_stream *e)
 			} else if (memory_management_control_operation == 5) {
 				e->reference_flags = e->long_term_flags = 0;
 				e->prevPicOrderCnt = ctx->TopFieldOrderCnt & ((1 << ctx->ps.log2_max_pic_order_cnt_lsb) - 1); // should be 0 for bottom fields
-				for (int j = 0; j < 32; j++)
-					e->FieldOrderCnt[j] ^= 1 << 31; // make all buffered pictures precede the next ones
+				for (int j = 0; j < 64; j++)
+					e->FieldOrderCnt[0][j] ^= 1 << 31; // make all buffered pictures precede the next ones
 				e->dispPicOrderCnt = -1; // make all buffered pictured ready for display
 				e->prevFrameNum = e->FrameNum[ctx->currPic] = 0;
 			} else if (memory_management_control_operation == 6) {
@@ -517,8 +518,8 @@ static int FUNC(parse_slice_layer_without_partitioning, Edge264_stream *e)
 	
 	// I did not get the point of idr_pic_id yet.
 	if (ctx->nal_unit_type == 5) {
-		for (int i = 0; i < 32; i++)
-			e->FieldOrderCnt[i] ^= 1 << 31; // make all buffered pictures precede the next ones
+		for (int i = 0; i < 64; i++) // FIXME vectorize
+			e->FieldOrderCnt[0][i] ^= 1 << 31; // make all buffered pictures precede the next ones
 		e->dispPicOrderCnt = -1; // make all buffered pictured ready for display
 		int idr_pic_id = CALL(get_ue32, 65535);
 		printf("<tr><th>idr_pic_id</th><td>%u</td></tr>\n", idr_pic_id);
@@ -534,7 +535,7 @@ static int FUNC(parse_slice_layer_without_partitioning, Edge264_stream *e)
 		printf("<tr><th>pic_order_cnt_lsb => PicOrderCnt</th><td>%u => %d</td></tr>\n", pic_order_cnt_lsb, PicOrderCnt);
 		ctx->TopFieldOrderCnt = PicOrderCnt;
 		ctx->BottomFieldOrderCnt = PicOrderCnt;
-		if (!ctx->field_pic_flag && ctx->ps.bottom_field_pic_order_in_frame_present_flag)
+		if (ctx->ps.bottom_field_pic_order_in_frame_present_flag && !ctx->field_pic_flag)
 			ctx->BottomFieldOrderCnt = PicOrderCnt + CALL(get_se32, (-1u << 31) + 1, (1u << 31) - 1);
 		if (nal_ref_flag)
 			e->prevPicOrderCnt = PicOrderCnt;
@@ -548,17 +549,14 @@ static int FUNC(parse_slice_layer_without_partitioning, Edge264_stream *e)
 		}
 		ctx->TopFieldOrderCnt = ctx->BottomFieldOrderCnt = expectedPicOrderCnt;
 		if (!ctx->ps.delta_pic_order_always_zero_flag) {
-			ctx->TopFieldOrderCnt = expectedPicOrderCnt += CALL(get_se32, (-1u << 31) + 1, (1u << 31) - 1);
-			ctx->BottomFieldOrderCnt = (!ctx->field_pic_flag && ctx->ps.bottom_field_pic_order_in_frame_present_flag) ?
-				expectedPicOrderCnt + CALL(get_se32, (-1u << 31) + 1, (1u << 31) - 1) : expectedPicOrderCnt;
+			ctx->TopFieldOrderCnt = ctx->BottomFieldOrderCnt = expectedPicOrderCnt += CALL(get_se32, (-1u << 31) + 1, (1u << 31) - 1);
+			if (ctx->ps.bottom_field_pic_order_in_frame_present_flag && !ctx->field_pic_flag)
+				ctx->BottomFieldOrderCnt += CALL(get_se32, (-1u << 31) + 1, (1u << 31) - 1);
 		}
 		printf("<tr><th>PicOrderCnt</th><td>%d</td></tr>\n", ctx->TopFieldOrderCnt);
 	} else {
 		printf("<tr><th>PicOrderCnt</th><td>%d</td></tr>\n", ctx->TopFieldOrderCnt);
 	}
-	e->FieldOrderCnt[(ctx->bottom_field_flag) ? ctx->currPic + 16 : ctx->currPic] = ctx->TopFieldOrderCnt;
-	if (!ctx->field_pic_flag)
-		e->FieldOrderCnt[16 + ctx->currPic] = ctx->BottomFieldOrderCnt;
 	
 	// That could be optimised into fast bit tests, but would be unreadable :)
 	if (ctx->slice_type == 0 || ctx->slice_type == 1) {
@@ -606,7 +604,7 @@ static int FUNC(parse_slice_layer_without_partitioning, Edge264_stream *e)
 		int l = e->long_term_flags >> i & 1;
 		int o = e->output_flags >> i & 1;
 		printf(!r ? "_/" : l ? "%u*/" : "%u/", e->FrameNum[i]);
-		printf(o ? "%d" : "_", ((min(e->FieldOrderCnt[i], e->FieldOrderCnt[i + 16]) + 0x7fff) & 0x7fffffff) - 0x7fff);
+		printf(o ? "%d" : "_", ((min(e->FieldOrderCnt[0][i], e->FieldOrderCnt[1][i]) + 0x7fff) & 0x7fffffff) - 0x7fff);
 		printf((i < ctx->ps.max_dec_frame_buffering) ? ", " : "</small></td></tr>\n");
 	}
 	
@@ -653,6 +651,9 @@ static int FUNC(parse_slice_layer_without_partitioning, Edge264_stream *e)
 	
 	// wait until after the slice is correctly decoded to update e then deblock
 	e->output_flags = (ctx->no_output_of_prior_pics_flag ? 0 : e->output_flags) | 1 << ctx->currPic;
+	e->FieldOrderCnt[ctx->bottom_field_flag][ctx->currPic] = ctx->TopFieldOrderCnt;
+	if (!ctx->field_pic_flag)
+		e->FieldOrderCnt[1][ctx->currPic] = ctx->BottomFieldOrderCnt;
 	if (ctx->disable_deblocking_filter_idc != 1)
 		CALL(deblock_frame);
 	return 0;
@@ -1472,8 +1473,8 @@ const void *Edge264_get_frame(Edge264_stream *e, int drain) {
 		__builtin_popcount(e->reference_flags | e->output_flags) > e->SPS.max_dec_frame_buffering) ? INT_MAX : e->dispPicOrderCnt;
 	for (int o = e->output_flags; o != 0; o &= o - 1) {
 		int i = __builtin_ctz(o);
-		if (e->FieldOrderCnt[i] <= best)
-			best = e->FieldOrderCnt[output = i];
+		if (e->FieldOrderCnt[0][i] <= best)
+			best = e->FieldOrderCnt[0][output = i];
 	}
 	if (output < 0)
 		return NULL;

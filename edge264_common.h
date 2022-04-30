@@ -107,16 +107,18 @@ typedef struct
 	uint8_t bottom_field_flag:1;
 	uint8_t MbaffFrameFlag:1;
 	uint8_t direct_spatial_mv_pred_flag:1;
-	int8_t nal_ref_idc;
-	int8_t nal_unit_type;
+	int8_t nal_ref_idc; // 2 significant bits
+	int8_t nal_unit_type; // 5 significant bits
 	int8_t slice_type; // 3 significant bits
 	int8_t luma_log2_weight_denom; // 3 significant bits
 	int8_t chroma_log2_weight_denom; // 3 significant bits
+	int8_t no_output_of_prior_pics_flag; // 1 significant bit
 	int8_t disable_deblocking_filter_idc; // 2 significant bits
 	int8_t FilterOffsetA; // 5 significant bits
 	int8_t FilterOffsetB;
 	int8_t mb_qp_delta_nz;
 	int8_t currPic;
+	//int32_t FrameNum;
 	int32_t TopFieldOrderCnt;
 	int32_t BottomFieldOrderCnt;
 	Edge264_parameter_set ps;

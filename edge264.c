@@ -1,4 +1,5 @@
 /** MAYDO:
+ * _ cap num_ref_idx to the actual number of available refs, and handle gaps in frame num properly
  * _ display both FrameNum and POC in RefPicList on TRACE=1 output
  * _ swap the convention for direct 8x8 blocks in refIdx to make it more intuitive (0<->-1)
  * _ fix the display of CABAC with TRACE=2
@@ -197,7 +198,7 @@ static void FUNC(initialise_decoding_context, Edge264_stream *e)
 static void FUNC(parse_ref_pic_list_modification, const Edge264_stream *e)
 {
 	// For P we sort on FrameNum, for B we sort on PicOrderCnt.
-	const int32_t *values = (ctx->slice_type == 0) ? e->FrameNum : e->FieldOrderCnt;
+	const int32_t *values = (ctx->slice_type == 0) ? e->FrameNum : e->FieldOrderCnt; // FIXME wrong for long-term in B frames
 	unsigned pic_value = (ctx->slice_type == 0) ? e->prevFrameNum : ctx->TopFieldOrderCnt;
 	uint16_t t = e->reference_flags;
 	uint16_t b = e->reference_flags >> 16;
@@ -392,16 +393,14 @@ static void FUNC(parse_dec_ref_pic_marking, Edge264_stream *e)
 	int memory_management_control_operation;
 	int i = 32;
 	if (ctx->nal_unit_type == 5) {
-		int no_output_of_prior_pics_flag = CALL(get_u1);
-		if (no_output_of_prior_pics_flag)
-			e->output_flags = 0;
+		ctx->no_output_of_prior_pics_flag = CALL(get_u1);
 		int long_term_reference_flag = CALL(get_u1);
 		e->long_term_flags = long_term_reference_flag << ctx->currPic;
 		if (long_term_reference_flag)
 			e->FrameNum[ctx->currPic] = 0;
 		printf("<tr><th>no_output_of_prior_pics_flag</th><td>%x</td></tr>\n"
 			"<tr><th>long_term_reference_flag</th><td>%x</td></tr>\n",
-			no_output_of_prior_pics_flag,
+			ctx->no_output_of_prior_pics_flag,
 			long_term_reference_flag);
 	
 	// 8.2.5.4 - Adaptive memory control marking process.
@@ -607,11 +606,11 @@ static int FUNC(parse_slice_layer_without_partitioning, Edge264_stream *e)
 	}
 	
 	// not much to say in this comment either (though intention there is!)
+	ctx->no_output_of_prior_pics_flag = 0;
 	if (ctx->nal_ref_idc)
 		CALL(parse_dec_ref_pic_marking, e);
 	else
 		e->dispPicOrderCnt = ctx->TopFieldOrderCnt; // all frames with lower POCs are now ready for output
-	e->output_flags |= 1 << ctx->currPic; // flag the image for display only when fully decoded
 	printf("<tr><th>DPB (FrameNum/PicOrderCnt)</th><td><small>");
 	for (int i = 0; i <= ctx->ps.max_dec_frame_buffering; i++) {
 		int r = (e->reference_flags | e->reference_flags >> 16) >> i & 1;
@@ -662,6 +661,9 @@ static int FUNC(parse_slice_layer_without_partitioning, Edge264_stream *e)
 		CALL(parse_slice_data_cabac);
 		// I'd rather display a portion of image than nothing, so do not test errors here yet
 	}
+	
+	// wait until after the slice is correctly decoded to update e then deblock
+	e->output_flags = (ctx->no_output_of_prior_pics_flag ? 0 : e->output_flags) | 1 << ctx->currPic;
 	if (ctx->disable_deblocking_filter_idc != 1)
 		CALL(deblock_frame);
 	return 0;

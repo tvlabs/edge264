@@ -79,13 +79,15 @@ typedef struct Edge264_stream {
 	const uint8_t *CPB; // should point to a NAL unit (after the 001 prefix)
 	const uint8_t *end; // first byte past the end of the buffer
 	
-	// private fields
-	uint8_t *DPB; // NULL before the first SPS is decoded
+	// read-only fields
 	int16_t stride_Y; // 15 significant bits
 	int16_t stride_C;
 	int32_t plane_size_Y;
 	int32_t plane_size_C;
 	int32_t frame_size;
+	
+	// private fields
+	uint8_t *DPB; // NULL before the first SPS is decoded
 	uint32_t reference_flags; // bitfield for indices of reference frames
 	uint32_t long_term_flags; // bitfield for indices of long-term frames
 	uint32_t output_flags; // bitfield for frames waiting for output

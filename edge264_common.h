@@ -101,8 +101,7 @@ typedef struct {
  */
 typedef struct
 {
-	// small variables and constant parameters
-	Edge264_flags inc; // increments for CABAC indices of macroblock syntax elements
+	// header context
 	uint8_t field_pic_flag:1;
 	uint8_t bottom_field_flag:1;
 	uint8_t MbaffFrameFlag:1;
@@ -121,6 +120,8 @@ typedef struct
 	int32_t FrameNum;
 	int32_t TopFieldOrderCnt;
 	int32_t BottomFieldOrderCnt;
+	uint32_t reference_flags;
+	uint32_t long_term_flags;
 	Edge264_parameter_set ps;
 	
 	// parsing context
@@ -143,6 +144,7 @@ typedef struct
 	uint16_t stride[3]; // [iYCbCr], 16 significant bits (8K, 16bit, field pic)
 	int16_t clip[3]; // [iYCbCr], maximum sample value
 	union { int8_t unavail[16]; v16qi unavail_v; }; // unavailability of neighbouring A/B/C/D blocks
+	Edge264_flags inc; // increments for CABAC indices of macroblock syntax elements
 	union { uint8_t cabac[1024]; v16qu cabac_v[64]; };
 	
 	// neighbouring offsets (relative to the start of each array in mb)

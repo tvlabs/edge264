@@ -200,7 +200,7 @@ static void FUNC(parse_ref_pic_list_modification, const Edge264_stream *e)
 {
 	// For P we sort on FrameNum, for B we sort on PicOrderCnt.
 	const int32_t *values = (ctx->slice_type == 0) ? e->FrameNum : e->FieldOrderCnt[0]; // FIXME wrong for long-term in B frames
-	unsigned pic_value = (ctx->slice_type == 0) ? e->prevFrameNum : ctx->TopFieldOrderCnt;
+	unsigned pic_value = (ctx->slice_type == 0) ? ctx->FrameNum : ctx->TopFieldOrderCnt;
 	int count[3] = {0, 0, 0}; // number of refs before/after/long
 	int size = 0;
 	memset(ctx->RefPicList, -1, 64);
@@ -274,7 +274,7 @@ static void FUNC(parse_ref_pic_list_modification, const Edge264_stream *e)
 	
 	// parse the ref_pic_list_modification() header
 	for (int l = 0; l <= ctx->slice_type; l++) {
-		unsigned picNumLX = (ctx->field_pic_flag) ? e->prevFrameNum * 2 + 1 : e->prevFrameNum;
+		unsigned picNumLX = (ctx->field_pic_flag) ? ctx->FrameNum * 2 + 1 : ctx->FrameNum;
 		int modification_of_pic_nums_idc;
 		if (CALL(get_u1)) { // ref_pic_list_modification_flag
 			printf("<tr><th>ref_pic_list_modifications_l%x</th><td>", l);
@@ -414,7 +414,7 @@ static void FUNC(parse_dec_ref_pic_marking, Edge264_stream *e)
 				for (int j = 0; j < 64; j++)
 					e->FieldOrderCnt[0][j] ^= 1 << 31; // make all buffered pictures precede the next ones
 				e->dispPicOrderCnt = -1; // make all buffered pictured ready for display
-				e->prevFrameNum = e->FrameNum[ctx->currPic] = 0;
+				ctx->FrameNum = 0;
 			} else if (memory_management_control_operation == 6) {
 				e->long_term_flags |= 1 << ctx->currPic;
 				e->FrameNum[ctx->currPic] = num0 = CALL(get_ue16, ctx->ps.max_num_ref_frames - 1);
@@ -424,7 +424,7 @@ static void FUNC(parse_dec_ref_pic_marking, Edge264_stream *e)
 				int pic_num = CALL(get_ue32, 4294967294);
 				int FrameNum = (ctx->field_pic_flag) ? pic_num >> 1 : pic_num;
 				num0 = (memory_management_control_operation != 2) ?
-					e->prevFrameNum - 1 - FrameNum : FrameNum;
+					ctx->FrameNum - 1 - FrameNum : FrameNum;
 				unsigned short_long = (memory_management_control_operation != 2) ? ~e->long_term_flags : e->long_term_flags;
 				for (unsigned r = e->reference_flags & short_long; r; r &= r - 1) {
 					int j = __builtin_ctz(r);
@@ -494,13 +494,14 @@ static int FUNC(parse_slice_layer_without_partitioning, Edge264_stream *e)
 	ctx->ps = e->PPSs[pic_parameter_set_id];
 	
 	// find a DPB slot for the upcoming frame
+	int prevFrameNum = e->prevFrameNum;
 	if (ctx->nal_unit_type == 5)
-		e->reference_flags = e->long_term_flags = e->prevFrameNum = 0;
+		e->reference_flags = e->long_term_flags = prevFrameNum = 0;
 	ctx->currPic = __builtin_ctz(~(e->reference_flags | e->output_flags) | 1 << ctx->ps.max_dec_frame_buffering);
 	unsigned frame_num = CALL(get_uv, ctx->ps.log2_max_frame_num);
-	unsigned inc = (frame_num - e->prevFrameNum) & ~(-1u << ctx->ps.log2_max_frame_num);
-	e->FrameNum[ctx->currPic] = e->prevFrameNum += inc;
-	printf("<tr><th>frame_num => FrameNum</th><td>%u => %u</td></tr>\n", frame_num, e->prevFrameNum);
+	unsigned inc = (frame_num - prevFrameNum) & ~(-1u << ctx->ps.log2_max_frame_num);
+	ctx->FrameNum = e->prevFrameNum + inc;
+	printf("<tr><th>frame_num => FrameNum</th><td>%u => %u</td></tr>\n", frame_num, ctx->FrameNum);
 	
 	// As long as PAFF/MBAFF are unsupported, this code won't execute (but is still kept).
 	ctx->field_pic_flag = 0;
@@ -527,7 +528,7 @@ static int FUNC(parse_slice_layer_without_partitioning, Edge264_stream *e)
 	
 	// Compute Top/BottomFieldOrderCnt (8.2.1).
 	int nal_ref_flag = (ctx->nal_ref_idc != 0);
-	ctx->TopFieldOrderCnt = ctx->BottomFieldOrderCnt = e->prevFrameNum * 2 + nal_ref_flag - 1;
+	ctx->TopFieldOrderCnt = ctx->BottomFieldOrderCnt = ctx->FrameNum * 2 + nal_ref_flag - 1;
 	if (ctx->ps.pic_order_cnt_type == 0) {
 		unsigned shift = WORD_BIT - ctx->ps.log2_max_pic_order_cnt_lsb;
 		int pic_order_cnt_lsb = CALL(get_uv, ctx->ps.log2_max_pic_order_cnt_lsb);
@@ -540,7 +541,7 @@ static int FUNC(parse_slice_layer_without_partitioning, Edge264_stream *e)
 		if (nal_ref_flag)
 			e->prevPicOrderCnt = PicOrderCnt;
 	} else if (ctx->ps.pic_order_cnt_type == 1) {
-		unsigned absFrameNum = e->prevFrameNum + nal_ref_flag - 1;
+		unsigned absFrameNum = ctx->FrameNum + nal_ref_flag - 1;
 		unsigned expectedPicOrderCnt = (nal_ref_flag) ? 0 : ctx->ps.offset_for_non_ref_pic;
 		if (ctx->ps.num_ref_frames_in_pic_order_cnt_cycle != 0) {
 			expectedPicOrderCnt += (absFrameNum / ctx->ps.num_ref_frames_in_pic_order_cnt_cycle) *
@@ -650,6 +651,7 @@ static int FUNC(parse_slice_layer_without_partitioning, Edge264_stream *e)
 	}
 	
 	// wait until after the slice is correctly decoded to update e then deblock
+	e->FrameNum[ctx->currPic] = e->prevFrameNum = ctx->FrameNum;
 	e->output_flags = (ctx->no_output_of_prior_pics_flag ? 0 : e->output_flags) | 1 << ctx->currPic;
 	e->FieldOrderCnt[ctx->bottom_field_flag][ctx->currPic] = ctx->TopFieldOrderCnt;
 	if (!ctx->field_pic_flag)

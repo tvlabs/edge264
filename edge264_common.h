@@ -118,7 +118,7 @@ typedef struct
 	int8_t FilterOffsetB;
 	int8_t mb_qp_delta_nz;
 	int8_t currPic;
-	//int32_t FrameNum;
+	int32_t FrameNum;
 	int32_t TopFieldOrderCnt;
 	int32_t BottomFieldOrderCnt;
 	Edge264_parameter_set ps;

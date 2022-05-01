@@ -95,6 +95,7 @@ typedef struct Edge264_stream {
 	int32_t prevPicOrderCnt;
 	int32_t dispPicOrderCnt;
 	int32_t FrameNum[32];
+	int8_t LongTermFrameIdx[32] __attribute__((aligned(16)));
 	int32_t FieldOrderCnt[2][32]; // lower/higher half for top/bottom fields
 	Edge264_parameter_set SPS;
 	Edge264_parameter_set PPSs[4];

@@ -199,7 +199,7 @@ static void FUNC(initialise_decoding_context, Edge264_stream *e)
 static void FUNC(parse_ref_pic_list_modification, const Edge264_stream *e)
 {
 	// For P we sort on FrameNum, for B we sort on PicOrderCnt.
-	const int32_t *values = (ctx->slice_type == 0) ? e->FrameNum : e->FieldOrderCnt[0]; // FIXME wrong for long-term in B frames
+	const int32_t *values = (ctx->slice_type == 0) ? e->FrameNum : e->FieldOrderCnt[0];
 	unsigned pic_value = (ctx->slice_type == 0) ? ctx->FrameNum : ctx->TopFieldOrderCnt;
 	int count[3] = {0, 0, 0}; // number of refs before/after/long
 	int size = 0;
@@ -212,8 +212,8 @@ static void FUNC(parse_ref_pic_list_modification, const Edge264_stream *e)
 			int i = __builtin_ctz(r);
 			int diff = values[i] - pic_value;
 			int ShortTermNum = (diff <= 0) ? -diff : 0x10000 + diff;
-			int LongTermFrameNum = e->FrameNum[i] + 0x20000;
-			int v = (e->long_term_flags & 1 << i) ? LongTermFrameNum : ShortTermNum;
+			int LongTermNum = e->LongTermFrameIdx[i] + 0x20000;
+			int v = (e->long_term_flags & 1 << i) ? LongTermNum : ShortTermNum;
 			if (v < best)
 				best = v, next = i;
 		}
@@ -294,7 +294,7 @@ static void FUNC(parse_ref_pic_list_modification, const Edge264_stream *e)
 				unsigned FrameNum = MaskFrameNum & (ctx->field_pic_flag ? num >> 1 : num);
 				for (unsigned r = e->reference_flags & short_long; r; r &= r - 1) {
 					int pic = __builtin_ctz(r);
-					if ((e->FrameNum[pic] & MaskFrameNum) == FrameNum) {
+					if (modification_of_pic_nums_idc < 2 ? (e->FrameNum[pic] & MaskFrameNum) == FrameNum : e->LongTermFrameIdx[pic] == FrameNum) {
 						// initialization placed pic exactly once in RefPicList, so shift it down to refIdx position
 						int buf = pic;
 						int cIdx = refIdx;
@@ -316,7 +316,8 @@ static void FUNC(parse_ref_pic_list_modification, const Edge264_stream *e)
 		for (int i = 0; i < ctx->ps.num_ref_idx_active[l]; i++) {
 			int pic = ctx->RefPicList[l][i];
 			int poc = ((min(e->FieldOrderCnt[0][pic], e->FieldOrderCnt[1][pic]) + 0x7fff) & 0x7fffffff) - 0x7fff;
-			printf("%u%s/%u%s", e->FrameNum[pic], (e->long_term_flags >> pic & 1) ? "*" : "", poc, (i < ctx->ps.num_ref_idx_active[l] - 1) ? ", " : (ctx->slice_type - l == 1) ? "<br>" : "");
+			int l = e->long_term_flags >> pic & 1;
+			printf("%u%s/%u%s", l ? e->LongTermFrameIdx[pic] : e->FrameNum[pic], l ? "*" : "", poc, (i < ctx->ps.num_ref_idx_active[l] - 1) ? ", " : (ctx->slice_type - l == 1) ? "<br>" : "");
 		}
 	}
 	printf("</td></tr>\n");
@@ -399,6 +400,8 @@ static void FUNC(parse_dec_ref_pic_marking, Edge264_stream *e)
 	// 8.2.5.4 - Adaptive memory control marking process.
 	ctx->reference_flags = e->reference_flags;
 	ctx->long_term_flags = e->long_term_flags;
+	ctx->LongTermFrameIdx_v[0] = ((v16qi *)e->LongTermFrameIdx)[0];
+	ctx->LongTermFrameIdx_v[1] = ((v16qi *)e->LongTermFrameIdx)[1];
 	if (CALL(get_u1)) {
 		while ((memory_management_control_operation = CALL(get_ue16, 6)) != 0 && i-- > 0) {
 			int num0 = 0, num1 = 0;
@@ -406,7 +409,7 @@ static void FUNC(parse_dec_ref_pic_marking, Edge264_stream *e)
 				num0 = CALL(get_ue16, ctx->ps.max_num_ref_frames) - 1;
 				for (unsigned r = ctx->long_term_flags; r != 0; r &= r - 1) {
 					int j = __builtin_ctz(r);
-					if (e->FrameNum[j] > num0) {
+					if (ctx->LongTermFrameIdx[j] > num0) {
 						ctx->reference_flags ^= 1 << j;
 						ctx->long_term_flags ^= 1 << j;
 					}
@@ -416,7 +419,7 @@ static void FUNC(parse_dec_ref_pic_marking, Edge264_stream *e)
 				ctx->long_term_flags = 0;
 			} else if (memory_management_control_operation == 6) {
 				ctx->long_term_flags |= 1 << ctx->currPic;
-				ctx->FrameNum = num0 = CALL(get_ue16, ctx->ps.max_num_ref_frames - 1);
+				ctx->LongTermFrameIdx[ctx->currPic] = num0 = CALL(get_ue16, ctx->ps.max_num_ref_frames - 1);
 			} else {
 				
 				// The remaining three operations share the search for num0.
@@ -427,7 +430,7 @@ static void FUNC(parse_dec_ref_pic_marking, Edge264_stream *e)
 				unsigned short_long = (memory_management_control_operation != 2) ? ~ctx->long_term_flags : ctx->long_term_flags;
 				for (unsigned r = ctx->reference_flags & short_long; r; r &= r - 1) {
 					int j = __builtin_ctz(r);
-					if (e->FrameNum[j] != num0)
+					if ((memory_management_control_operation == 2 ? e->LongTermFrameIdx[j] : e->FrameNum[j]) != num0)
 						continue;
 					if (memory_management_control_operation == 1) {
 						ctx->reference_flags ^= 1 << j;
@@ -435,7 +438,12 @@ static void FUNC(parse_dec_ref_pic_marking, Edge264_stream *e)
 						ctx->reference_flags ^= 1 << j;
 						ctx->long_term_flags ^= 1 << j;
 					} else if (memory_management_control_operation == 3) {
-						e->FrameNum[j] = num1 = CALL(get_ue16, 15);
+						ctx->LongTermFrameIdx[j] = num1 = CALL(get_ue16, 15);
+						for (unsigned l = ctx->long_term_flags; l; l &= l - 1) {
+							int k = __builtin_ctz(l);
+							if (ctx->LongTermFrameIdx[k] == num1)
+								ctx->long_term_flags ^= 1 << k;
+						}
 						ctx->long_term_flags |= 1 << j;
 					}
 				}
@@ -589,6 +597,7 @@ static int FUNC(parse_slice_layer_without_partitioning, Edge264_stream *e)
 	ctx->no_output_of_prior_pics_flag = 0;
 	if (ctx->nal_ref_idc)
 		CALL(parse_dec_ref_pic_marking, e);
+	// FIXME
 	printf("<tr><th>DPB (FrameNum/PicOrderCnt)</th><td><small>");
 	for (int i = 0; i <= ctx->ps.max_dec_frame_buffering; i++) {
 		int r = e->reference_flags >> i & 1;
@@ -644,7 +653,7 @@ static int FUNC(parse_slice_layer_without_partitioning, Edge264_stream *e)
 	if (ctx->disable_deblocking_filter_idc != 1)
 		CALL(deblock_frame);
 	if (ctx->nal_unit_type == 5) { // IDR or mmco5
-		e->FrameNum[ctx->currPic] = e->prevFrameNum = 0;
+		e->LongTermFrameIdx[ctx->currPic] = e->FrameNum[ctx->currPic] = e->prevFrameNum = 0;
 		int tempPicOrderCnt = min(ctx->TopFieldOrderCnt, ctx->BottomFieldOrderCnt);
 		for (int i = 0; i < 64; i++) // FIXME vectorize
 			// FIXME IDR*2 may shuffle POCs
@@ -656,6 +665,8 @@ static int FUNC(parse_slice_layer_without_partitioning, Edge264_stream *e)
 		e->long_term_flags = ctx->long_term_flags;
 	} else {
 		e->FrameNum[ctx->currPic] = e->prevFrameNum = ctx->FrameNum;
+		((v16qi *)e->LongTermFrameIdx)[0] = ctx->LongTermFrameIdx_v[0];
+		((v16qi *)e->LongTermFrameIdx)[1] = ctx->LongTermFrameIdx_v[1];
 		e->FieldOrderCnt[0][ctx->currPic] = ctx->TopFieldOrderCnt;
 		e->FieldOrderCnt[1][ctx->currPic] = ctx->BottomFieldOrderCnt;
 		if (ctx->nal_ref_idc) {

@@ -122,6 +122,7 @@ typedef struct
 	int32_t BottomFieldOrderCnt;
 	uint32_t reference_flags;
 	uint32_t long_term_flags;
+	union { int8_t LongTermFrameIdx[32]; v16qi LongTermFrameIdx_v[2]; };
 	Edge264_parameter_set ps;
 	
 	// parsing context

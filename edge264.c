@@ -438,7 +438,7 @@ static void FUNC(parse_dec_ref_pic_marking, Edge264_stream *e)
 						ctx->reference_flags ^= 1 << j;
 						ctx->long_term_flags ^= 1 << j;
 					} else if (memory_management_control_operation == 3) {
-						ctx->LongTermFrameIdx[j] = num1 = CALL(get_ue16, 15);
+						ctx->LongTermFrameIdx[j] = num1 = CALL(get_ue16, ctx->ps.max_num_ref_frames - 1);
 						for (unsigned l = ctx->long_term_flags; l; l &= l - 1) {
 							int k = __builtin_ctz(l);
 							if (ctx->LongTermFrameIdx[k] == num1)
@@ -1080,8 +1080,7 @@ static void FUNC(parse_vui_parameters)
 		int max_num_reorder_frames = CALL(get_ue16, 16);
 		
 		// we don't enforce MaxDpbFrames here since violating the level is harmless
-		// FIXME: increase bound when upgrading to 17-frames DPB
-		ctx->ps.max_dec_frame_buffering = max(CALL(get_ue16, 15), ctx->ps.max_num_ref_frames);
+		ctx->ps.max_dec_frame_buffering = max(CALL(get_ue16, 16), ctx->ps.max_num_ref_frames);
 		ctx->ps.max_num_reorder_frames = min(max_num_reorder_frames, ctx->ps.max_dec_frame_buffering);
 		printf("<tr><th>motion_vectors_over_pic_boundaries_flag</th><td>%x</td></tr>\n"
 			"<tr><th>max_bytes_per_pic_denom</th><td>%u</td></tr>\n"
@@ -1263,14 +1262,13 @@ static int FUNC(parse_seq_parameter_set, Edge264_stream *e)
 	}
 	
 	// Max width is imposed by some int16 storage, wait for actual needs to push it.
-	int max_num_ref_frames = CALL(get_ue16, 15);
+	int max_num_ref_frames = CALL(get_ue16, 16);
 	int gaps_in_frame_num_value_allowed_flag = CALL(get_u1);
 	ctx->ps.pic_width_in_mbs = CALL(get_ue16, 1022) + 1;
 	int pic_height_in_map_units = CALL(get_ue16, 1054) + 1;
 	ctx->ps.frame_mbs_only_flag = CALL(get_u1);
 	ctx->ps.pic_height_in_mbs = pic_height_in_map_units << 1 >> ctx->ps.frame_mbs_only_flag;
-	// FIXME upgrade to 17 frames
-	int MaxDpbFrames = min(MaxDpbMbs[min(level_idc, 63)] / (ctx->ps.pic_width_in_mbs * ctx->ps.pic_height_in_mbs), 15);
+	int MaxDpbFrames = min(MaxDpbMbs[min(level_idc, 63)] / (ctx->ps.pic_width_in_mbs * ctx->ps.pic_height_in_mbs), 16);
 	ctx->ps.max_num_ref_frames = min(max_num_ref_frames, MaxDpbFrames);
 	ctx->ps.max_num_reorder_frames = ctx->ps.max_dec_frame_buffering =
 		((profile_idc == 44 || profile_idc == 86 || profile_idc == 100 ||

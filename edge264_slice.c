@@ -164,7 +164,7 @@ static inline int FUNC(parse_total_zeros_alt, int endIdx, int TotalCoeff) {
 }
 
 static inline int FUNC(parse_total_zeros, int endIdx, int TotalCoeff) {
-	static const uint8_t codes[27][9][4] = { // [tzVlcIndex][leadingZeroBits][suffix]
+	static const uint8_t codes[27][9 * 4] = { // [tzVlcIndex][leadingZeroBits][suffix]
 		// 2x2 blocks
 		{16, 16, 16, 16, 33, 33, 33, 33, 50, 50, 50, 50, 51, 51, 51, 51, 51, 51, 51, 51, 51, 51, 51, 51, 51, 51, 51, 51, 51, 51, 51, 51, 51, 51, 51, 51},
 		{16, 16, 16, 16, 33, 33, 33, 33, 34, 34, 34, 34, 34, 34, 34, 34, 34, 34, 34, 34, 34, 34, 34, 34, 34, 34, 34, 34, 34, 34, 34, 34, 34, 34, 34, 34},
@@ -196,7 +196,7 @@ static inline int FUNC(parse_total_zeros, int endIdx, int TotalCoeff) {
 	};
 	int leadingZeroBits = clz(msb_cache | (size_t)1 << (SIZE_BIT - 9));
 	int suffix = msb_cache >> ((leadingZeroBits + 2) ^ (SIZE_BIT - 1)) & 3;
-	int code = codes[endIdx + TotalCoeff - 4][leadingZeroBits][suffix];
+	int code = codes[endIdx + TotalCoeff - 4][leadingZeroBits * 4 + suffix];
 	int v = code >> 4;
 	msb_cache = lsd(msb_cache, lsb_cache, v);
 	lsb_cache <<= v;
@@ -271,12 +271,12 @@ static void CAFUNC(parse_residual_block, int startIdx, int endIdx, int token_or_
 				int threeBits = msb_cache >> (SIZE_BIT - 3);
 				if (zerosLeft <= 6) {
 					static int8_t run_before_codes[6][8] = {
-						9, 9, 9, 9, 8, 8, 8, 8,
-						18, 18, 17, 17, 8, 8, 8, 8,
-						19, 19, 18, 18, 17, 17, 16, 16,
-						28, 27, 18, 18, 17, 17, 16, 16,
-						29, 28, 27, 26, 17, 17, 16, 16,
-						25, 26, 28, 27, 30, 29, 16, 16,
+						{9, 9, 9, 9, 8, 8, 8, 8},
+						{18, 18, 17, 17, 8, 8, 8, 8},
+						{19, 19, 18, 18, 17, 17, 16, 16},
+						{28, 27, 18, 18, 17, 17, 16, 16},
+						{29, 28, 27, 26, 17, 17, 16, 16},
+						{25, 26, 28, 27, 30, 29, 16, 16},
 					};
 					int code = run_before_codes[zerosLeft - 1][threeBits];
 					v = code >> 3;
@@ -546,15 +546,15 @@ static void CAFUNC(parse_Intra16x16_residual)
 static void CAFUNC(parse_NxN_residual)
 {
 	static const int8_t intra4x4_modes[9][16] = {
-		I4x4_V_8  , I4x4_V_8   , I4x4_DCAB_8, I4x4_DCAB_8, I4x4_V_8   , I4x4_V_8   , I4x4_DCAB_8, I4x4_DCAB_8, I4x4_V_8   , I4x4_V_8   , I4x4_DCAB_8, I4x4_DCAB_8, I4x4_V_8   , I4x4_V_8   , I4x4_DCAB_8, I4x4_DCAB_8,
-		I4x4_H_8  , I4x4_DCAB_8, I4x4_H_8   , I4x4_DCAB_8, I4x4_H_8   , I4x4_DCAB_8, I4x4_H_8   , I4x4_DCAB_8, I4x4_H_8   , I4x4_DCAB_8, I4x4_H_8   , I4x4_DCAB_8, I4x4_H_8   , I4x4_DCAB_8, I4x4_H_8   , I4x4_DCAB_8,
-		I4x4_DC_8 , I4x4_DCA_8 , I4x4_DCB_8 , I4x4_DCAB_8, I4x4_DC_8  , I4x4_DCA_8 , I4x4_DCB_8 , I4x4_DCAB_8, I4x4_DC_8  , I4x4_DCA_8 , I4x4_DCB_8 , I4x4_DCAB_8, I4x4_DC_8  , I4x4_DCA_8 , I4x4_DCB_8 , I4x4_DCAB_8,
-		I4x4_DDL_8, I4x4_DDL_8 , I4x4_DCAB_8, I4x4_DCAB_8, I4x4_DDLC_8, I4x4_DDLC_8, I4x4_DCAB_8, I4x4_DCAB_8, I4x4_DDL_8 , I4x4_DDL_8 , I4x4_DCAB_8, I4x4_DCAB_8, I4x4_DDLC_8, I4x4_DDLC_8, I4x4_DCAB_8, I4x4_DCAB_8,
-		I4x4_DDR_8, I4x4_DCAB_8, I4x4_DCAB_8, I4x4_DCAB_8, I4x4_DDR_8 , I4x4_DCAB_8, I4x4_DCAB_8, I4x4_DCAB_8, I4x4_DCAB_8, I4x4_DCAB_8, I4x4_DCAB_8, I4x4_DCAB_8, I4x4_DCAB_8, I4x4_DCAB_8, I4x4_DCAB_8, I4x4_DCAB_8,
-		I4x4_VR_8 , I4x4_DCAB_8, I4x4_DCAB_8, I4x4_DCAB_8, I4x4_VR_8  , I4x4_DCAB_8, I4x4_DCAB_8, I4x4_DCAB_8, I4x4_DCAB_8, I4x4_DCAB_8, I4x4_DCAB_8, I4x4_DCAB_8, I4x4_DCAB_8, I4x4_DCAB_8, I4x4_DCAB_8, I4x4_DCAB_8,
-		I4x4_HD_8 , I4x4_DCAB_8, I4x4_DCAB_8, I4x4_DCAB_8, I4x4_HD_8  , I4x4_DCAB_8, I4x4_DCAB_8, I4x4_DCAB_8, I4x4_DCAB_8, I4x4_DCAB_8, I4x4_DCAB_8, I4x4_DCAB_8, I4x4_DCAB_8, I4x4_DCAB_8, I4x4_DCAB_8, I4x4_DCAB_8,
-		I4x4_VL_8 , I4x4_VL_8  , I4x4_DCAB_8, I4x4_DCAB_8, I4x4_VLC_8 , I4x4_VLC_8 , I4x4_DCAB_8, I4x4_DCAB_8, I4x4_VL_8  , I4x4_VL_8  , I4x4_DCAB_8, I4x4_DCAB_8, I4x4_VLC_8 , I4x4_VLC_8 , I4x4_DCAB_8, I4x4_DCAB_8,
-		I4x4_HU_8 , I4x4_DCAB_8, I4x4_HU_8  , I4x4_DCAB_8, I4x4_HU_8  , I4x4_DCAB_8, I4x4_HU_8  , I4x4_DCAB_8, I4x4_HU_8  , I4x4_DCAB_8, I4x4_HU_8  , I4x4_DCAB_8, I4x4_HU_8  , I4x4_DCAB_8, I4x4_HU_8  , I4x4_DCAB_8,
+		{I4x4_V_8  , I4x4_V_8   , I4x4_DCAB_8, I4x4_DCAB_8, I4x4_V_8   , I4x4_V_8   , I4x4_DCAB_8, I4x4_DCAB_8, I4x4_V_8   , I4x4_V_8   , I4x4_DCAB_8, I4x4_DCAB_8, I4x4_V_8   , I4x4_V_8   , I4x4_DCAB_8, I4x4_DCAB_8},
+		{I4x4_H_8  , I4x4_DCAB_8, I4x4_H_8   , I4x4_DCAB_8, I4x4_H_8   , I4x4_DCAB_8, I4x4_H_8   , I4x4_DCAB_8, I4x4_H_8   , I4x4_DCAB_8, I4x4_H_8   , I4x4_DCAB_8, I4x4_H_8   , I4x4_DCAB_8, I4x4_H_8   , I4x4_DCAB_8},
+		{I4x4_DC_8 , I4x4_DCA_8 , I4x4_DCB_8 , I4x4_DCAB_8, I4x4_DC_8  , I4x4_DCA_8 , I4x4_DCB_8 , I4x4_DCAB_8, I4x4_DC_8  , I4x4_DCA_8 , I4x4_DCB_8 , I4x4_DCAB_8, I4x4_DC_8  , I4x4_DCA_8 , I4x4_DCB_8 , I4x4_DCAB_8},
+		{I4x4_DDL_8, I4x4_DDL_8 , I4x4_DCAB_8, I4x4_DCAB_8, I4x4_DDLC_8, I4x4_DDLC_8, I4x4_DCAB_8, I4x4_DCAB_8, I4x4_DDL_8 , I4x4_DDL_8 , I4x4_DCAB_8, I4x4_DCAB_8, I4x4_DDLC_8, I4x4_DDLC_8, I4x4_DCAB_8, I4x4_DCAB_8},
+		{I4x4_DDR_8, I4x4_DCAB_8, I4x4_DCAB_8, I4x4_DCAB_8, I4x4_DDR_8 , I4x4_DCAB_8, I4x4_DCAB_8, I4x4_DCAB_8, I4x4_DCAB_8, I4x4_DCAB_8, I4x4_DCAB_8, I4x4_DCAB_8, I4x4_DCAB_8, I4x4_DCAB_8, I4x4_DCAB_8, I4x4_DCAB_8},
+		{I4x4_VR_8 , I4x4_DCAB_8, I4x4_DCAB_8, I4x4_DCAB_8, I4x4_VR_8  , I4x4_DCAB_8, I4x4_DCAB_8, I4x4_DCAB_8, I4x4_DCAB_8, I4x4_DCAB_8, I4x4_DCAB_8, I4x4_DCAB_8, I4x4_DCAB_8, I4x4_DCAB_8, I4x4_DCAB_8, I4x4_DCAB_8},
+		{I4x4_HD_8 , I4x4_DCAB_8, I4x4_DCAB_8, I4x4_DCAB_8, I4x4_HD_8  , I4x4_DCAB_8, I4x4_DCAB_8, I4x4_DCAB_8, I4x4_DCAB_8, I4x4_DCAB_8, I4x4_DCAB_8, I4x4_DCAB_8, I4x4_DCAB_8, I4x4_DCAB_8, I4x4_DCAB_8, I4x4_DCAB_8},
+		{I4x4_VL_8 , I4x4_VL_8  , I4x4_DCAB_8, I4x4_DCAB_8, I4x4_VLC_8 , I4x4_VLC_8 , I4x4_DCAB_8, I4x4_DCAB_8, I4x4_VL_8  , I4x4_VL_8  , I4x4_DCAB_8, I4x4_DCAB_8, I4x4_VLC_8 , I4x4_VLC_8 , I4x4_DCAB_8, I4x4_DCAB_8},
+		{I4x4_HU_8 , I4x4_DCAB_8, I4x4_HU_8  , I4x4_DCAB_8, I4x4_HU_8  , I4x4_DCAB_8, I4x4_HU_8  , I4x4_DCAB_8, I4x4_HU_8  , I4x4_DCAB_8, I4x4_HU_8  , I4x4_DCAB_8, I4x4_HU_8  , I4x4_DCAB_8, I4x4_HU_8  , I4x4_DCAB_8},
 	};
 	
 	if (mb->f.CodedBlockPatternChromaDC | (mb->bits[3] & 0xac))
@@ -669,10 +669,10 @@ static void CAFUNC(parse_coded_block_pattern, const uint8_t *map_me)
 static void CAFUNC(parse_intra_chroma_pred_mode)
 {
 	static const int8_t intraChroma_modes[4][4] = {
-		IC8x8_DC_8, IC8x8_DCA_8, IC8x8_DCB_8, IC8x8_DCAB_8,
-		IC8x8_H_8 , IC8x8_DCA_8, IC8x8_H_8  , IC8x8_DCAB_8,
-		IC8x8_V_8 , IC8x8_V_8  , IC8x8_DCB_8, IC8x8_DCAB_8,
-		IC8x8_P_8 , IC8x8_DCA_8, IC8x8_DCB_8, IC8x8_DCAB_8
+		{IC8x8_DC_8, IC8x8_DCA_8, IC8x8_DCB_8, IC8x8_DCAB_8},
+		{IC8x8_H_8 , IC8x8_DCA_8, IC8x8_H_8  , IC8x8_DCAB_8},
+		{IC8x8_V_8 , IC8x8_V_8  , IC8x8_DCB_8, IC8x8_DCAB_8},
+		{IC8x8_P_8 , IC8x8_DCA_8, IC8x8_DCB_8, IC8x8_DCAB_8},
 	};
 	
 	// Do not optimise too hard to keep the code understandable here.
@@ -809,10 +809,10 @@ static noinline void CAFUNC(parse_I_mb, int mb_type_or_ctxIdx)
 		
 		// decode the samples before parsing residuals
 		static const int8_t intra16x16_modes[4][4] = {
-			I16x16_V_8 , I16x16_V_8  , I16x16_DCB_8, I16x16_DCAB_8,
-			I16x16_H_8 , I16x16_DCA_8, I16x16_H_8  , I16x16_DCAB_8,
-			I16x16_DC_8, I16x16_DCA_8, I16x16_DCB_8, I16x16_DCAB_8,
-			I16x16_P_8 , I16x16_DCA_8, I16x16_DCB_8, I16x16_DCAB_8,
+			{I16x16_V_8 , I16x16_V_8  , I16x16_DCB_8, I16x16_DCAB_8},
+			{I16x16_H_8 , I16x16_DCA_8, I16x16_H_8  , I16x16_DCAB_8},
+			{I16x16_DC_8, I16x16_DCA_8, I16x16_DCB_8, I16x16_DCAB_8},
+			{I16x16_P_8 , I16x16_DCA_8, I16x16_DCB_8, I16x16_DCAB_8},
 		};
 		mb->Intra4x4PredMode_v = (v16qi){2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2};
 		CALL(decode_intra16x16, intra16x16_modes[mode][ctx->inc.unavailable & 3], ctx->samples_mb[0], ctx->stride[0], ctx->clip[0]); // FIXME 4:4:4

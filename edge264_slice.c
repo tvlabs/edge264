@@ -1114,8 +1114,8 @@ static void CAFUNC(parse_B_sub_mb) {
 	v16qi A1 = __builtin_shufflevector(BCAr1, BCAr1, 9, 12, 9, 12, 12, 13, 12, 13, 11, 14, 11, 14, 14, 15, 14, 15);
 	v16qi B0 = __builtin_shufflevector(BCAr0, BCAr0, 2, 2, 12, 12, 3, 3, 13, 13, 12, 12, 14, 14, 13, 13, 15, 15);
 	v16qi B1 = __builtin_shufflevector(BCAr1, BCAr1, 2, 2, 12, 12, 3, 3, 13, 13, 12, 12, 14, 14, 13, 13, 15, 15);
-	v16qi C0 = byte_shuffle(BCAr0, ctx->refIdx4x4_C_v);
-	v16qi C1 = byte_shuffle(BCAr1, ctx->refIdx4x4_C_v);
+	v16qi C0 = shuffle(BCAr0, ctx->refIdx4x4_C_v);
+	v16qi C1 = shuffle(BCAr1, ctx->refIdx4x4_C_v);
 	v16qi D0 = __builtin_shufflevector(BCAr0, BCAr0, -1, 2, 9, 12, 2, 3, 12, 13, 9, 12, 11, 14, 12, 13, 14, 15);
 	v16qi D1 = __builtin_shufflevector(BCAr1, BCAr1, -1, 2, 9, 12, 2, 3, 12, 13, 9, 12, 11, 14, 12, 13, 14, 15);
 	D0[0] = mbB->refIdx[3];
@@ -1375,7 +1375,7 @@ static void CAFUNC(parse_P_sub_mb, unsigned ref_idx_flags)
 	v16qi r0 = __builtin_shufflevector(BCAr0, BCAr0, 12, 12, 12, 12, 13, 13, 13, 13, 14, 14, 14, 14, 15, 15, 15, 15);
 	v16qi A0 = __builtin_shufflevector(BCAr0, BCAr0, 9, 12, 9, 12, 12, 13, 12, 13, 11, 14, 11, 14, 14, 15, 14, 15);
 	v16qi B0 = __builtin_shufflevector(BCAr0, BCAr0, 2, 2, 12, 12, 3, 3, 13, 13, 12, 12, 14, 14, 13, 13, 15, 15);
-	v16qi C0 = byte_shuffle(BCAr0, ctx->refIdx4x4_C_v);
+	v16qi C0 = shuffle(BCAr0, ctx->refIdx4x4_C_v);
 	v16qi D0 = __builtin_shufflevector(BCAr0, BCAr0, -1, 2, 9, 12, 2, 3, 12, 13, 9, 12, 11, 14, 12, 13, 14, 15);
 	D0[0] = mbB->refIdx[3];
 	

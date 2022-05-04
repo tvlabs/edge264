@@ -1324,8 +1324,8 @@ static noinline void FUNC(decode_inter, int i, int w, int h) {
 			int c = clip3(0, ctx->plane_size_Y - sstride_Y, yInt_Y);
 			memcpy(&v0, src0 + c, 16);
 			memcpy(&v1, src1 + c, 16);
-			buf[0] = (v16qu)byte_shuffle(v0, shuf0);
-			buf[1] = (v16qu)byte_shuffle(v1, shuf1);
+			buf[0] = (v16qu)shuffle(v0, shuf0);
+			buf[1] = (v16qu)shuffle(v1, shuf1);
 		}
 		sstride_Y = 32;
 		src_Y = ctx->edge_buf + 66;
@@ -1344,8 +1344,8 @@ static noinline void FUNC(decode_inter, int i, int w, int h) {
 				memcpy(&v0, src0 + cb, 8);
 				memcpy(&v1, src0 + cr, 8);
 				// each line has 2 writes to support 8px strides
-				ctx->edge_buf_l[j * 2 +  84] = ((v2li)byte_shuffle(v0, shuf))[0];
-				ctx->edge_buf_l[j * 2 + 168] = ((v2li)byte_shuffle(v1, shuf))[0];
+				ctx->edge_buf_l[j * 2 +  84] = ((v2li)shuffle(v0, shuf))[0];
+				ctx->edge_buf_l[j * 2 + 168] = ((v2li)shuffle(v1, shuf))[0];
 				ctx->edge_buf[j * 16 +  680] = *(src1 + cb);
 				ctx->edge_buf[j * 16 + 1352] = *(src1 + cr);
 			}

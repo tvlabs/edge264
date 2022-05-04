@@ -471,7 +471,7 @@ static noinline void FUNC(parse_slice_data_cabac);
 		__asm__("shld %%cl, %1, %0" : "+rm" (msb) : "r" (lsb), "c" (shift));
 		return msb;
 	}
-	static inline v16qi byte_shuffle(v16qi a, v16qi mask) {
+	static inline v16qi shuffle(v16qi a, v16qi mask) {
 		return (v16qi)_mm_shuffle_epi8((__m128i)a, (__m128i)mask);
 	}
 	static inline v8hi vector_median(v8hi a, v8hi b, v8hi c) {

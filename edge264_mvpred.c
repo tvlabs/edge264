@@ -218,12 +218,12 @@ static always_inline void FUNC(decode_direct_spatial_mv_pred)
 	v8hi mvA = (v8hi)(v4si){*(mb->mvs_s + ctx->mvs_A[0]), *(mb->mvs_s + ctx->mvs_A[0] + 16)};
 	v8hi mvB = (v8hi)(v4si){*(mb->mvs_s + ctx->mvs_B[0]), *(mb->mvs_s + ctx->mvs_B[0] + 16)};
 	v8hi mvC = (v8hi)(v4si){*(mb->mvs_s + ctx->mvs_C[5]), *(mb->mvs_s + ctx->mvs_C[5] + 16)};
-	v16qi refIdxA = byte_shuffle((v16qi){mb[-1].refIdx[1], mb[-1].refIdx[5]}, shuf);
-	v16qi refIdxB = byte_shuffle((v16qi){ctx->mbB->refIdx[2], ctx->mbB->refIdx[6]}, shuf);
-	v16qi refIdxC = byte_shuffle((v16qi){ctx->mbB[1].refIdx[2], ctx->mbB[1].refIdx[6]}, shuf);
+	v16qi refIdxA = shuffle((v16qi){mb[-1].refIdx[1], mb[-1].refIdx[5]}, shuf);
+	v16qi refIdxB = shuffle((v16qi){ctx->mbB->refIdx[2], ctx->mbB->refIdx[6]}, shuf);
+	v16qi refIdxC = shuffle((v16qi){ctx->mbB[1].refIdx[2], ctx->mbB[1].refIdx[6]}, shuf);
 	if (__builtin_expect(ctx->inc.unavailable & 4, 0)) {
 		mvC = (v8hi)(v4si){*(mb->mvs_s + ctx->mvs_D[0]), *(mb->mvs_s + ctx->mvs_D[0] + 16)};
-		refIdxC = byte_shuffle((v16qi){ctx->mbB[-1].refIdx[3], ctx->mbB[-1].refIdx[7]}, shuf);
+		refIdxC = shuffle((v16qi){ctx->mbB[-1].refIdx[3], ctx->mbB[-1].refIdx[7]}, shuf);
 	}
 	
 	// initialize mv along refIdx since it will equal one of refIdxA/B/C

@@ -5,6 +5,7 @@
 #ifndef EDGE264_COMMON_H
 #define EDGE264_COMMON_H
 
+#include <assert.h>
 #include <limits.h>
 #include <stddef.h>
 #include <stdint.h>
@@ -84,6 +85,7 @@ typedef struct {
 	uint32_t inter_blocks; // bitmask for every index that is the topleft corner of a block, upper half indicates whether each 8x8 block is equal with its right/bottom neighbours
 	union { uint8_t QP[3]; v4qi QP_s; }; // [iYCbCr]
 	union { int8_t refIdx[8]; int32_t refIdx_s[2]; int64_t refIdx_l; v8qi refIdx_v; }; // [LX][i8x8]
+	union { int8_t refPic[8]; int32_t refPic_s[2]; int64_t refPic_l; }; // [LX][i8x8]
 	union { uint32_t bits[4]; v4su bits_v; }; // {cbf_Y 8x8/4x4 , cbf_Cb 8x8/4x4, cbf_Cr 8x8/4x4, cbp/ref_idx_nz}
 	union { int8_t nC[3][16]; v16qi nC_v[3]; }; // for CAVLC and deblocking, 64 if unavailable
 	union { int8_t Intra4x4PredMode[16]; v16qi Intra4x4PredMode_v; }; // [i4x4]
@@ -167,13 +169,14 @@ typedef struct
 	
 	// Inter context
 	const Edge264_macroblock *mbCol;
+	uint8_t *DPB;
+	int32_t frame_size;
 	uint8_t num_ref_idx_mask;
 	int8_t transform_8x8_mode_flag; // updated during parsing to replace noSubMbPartSizeLessThan8x8Flag
 	int8_t col_short_term;
 	int8_t MapColToList0[65]; // [refIdxCol + 1]
 	union { int8_t clip_ref_idx[8]; v8qi clip_ref_idx_v; };
 	union { int8_t RefPicList[2][32]; v16qi RefPicList_v[4]; };
-	const uint8_t *ref_planes[64]; // [lx][refIdx], FIXME store relative to frame
 	union { int8_t refIdx4x4_eq[32]; v16qi refIdx4x4_eq_v[2]; }; // FIXME store on stack
 	int16_t DistScaleFactor[32]; // [refIdxL0]
 	union { int8_t implicit_weights[2][32][32]; v16qi implicit_weights_v[2][32][2]; }; // w1 for [top/bottom][ref0][ref1]
@@ -300,7 +303,6 @@ static inline int max(int a, int b) { return (a > b) ? a : b; }
 static inline int clip3(int a, int b, int c) { return min(max(c, a), b); }
 static inline unsigned umin(unsigned a, unsigned b) { return (a < b) ? a : b; }
 static inline unsigned umax(unsigned a, unsigned b) { return (a > b) ? a : b; }
-static inline int median(int a, int b, int c) { return max(min(max(a, b), c), min(a, b)); }
 
 // edge264_bitstream.c
 static noinline int FUNC(refill, int ret);
@@ -398,9 +400,6 @@ static noinline void FUNC(parse_slice_data_cabac);
 		}
 	#endif
 	#if !defined(__SSE4_1__)
-		#define _mm_blendv_epi8(f, t, c) ({\
-			__m128i m = _mm_cmpgt_epi8(_mm_setzero_si128(), c);\
-			_mm_or_si128(_mm_and_si128(t, m), _mm_andnot_si128(f, m));})
 		#define _mm_max_epi8(a, b) ({\
 			__m128i m = _mm_cmpgt_epi8(a, b);\
 			_mm_or_si128(_mm_and_si128(a, m), _mm_and_si128(b, m));})
@@ -436,8 +435,8 @@ static noinline void FUNC(parse_slice_data_cabac);
 		
 	// custom functions
 	#ifdef __SSE4_1__
-		#define vector_select(mask, t, f) (typeof(t))_mm_blendv_epi8((__m128i)(f), (__m128i)(t), (__m128i)(mask))
-		#define blend_mask _mm_blendv_epi8
+		#define ifelse_mask(v, t, f) (typeof(t))_mm_blendv_epi8((__m128i)(f), (__m128i)(t), (__m128i)(v))
+		#define ifelse_msb(v, t, f) (typeof(t))_mm_blendv_epi8((__m128i)(f), (__m128i)(t), (__m128i)(v))
 		static always_inline __m128i load8x1_8bit(const uint8_t *p, __m128i zero) {
 			return _mm_cvtepu8_epi16(_mm_loadu_si64(p));
 		}
@@ -452,8 +451,8 @@ static noinline void FUNC(parse_slice_data_cabac);
 			return (v16qi)_mm_min_epi8((__m128i)a, (__m128i)b);
 		}
 	#elif defined __SSSE3__
-		#define vector_select(mask, t, f) (((t) & (typeof(t))(mask < 0)) | ((f) & ~(typeof(t))(mask < 0)))
-		#define blend_mask(f, t, m) _mm_or_si128(_mm_andnot_si128(f, m), _mm_and_si128(t, m))
+		#define ifelse_mask(v, t, f) {__m128i _v = (__m128i)(v); (typeof(t))_mm_or_si128(_mm_andnot_si128((__m128i)(f), _v), _mm_and_si128((__m128i)(t), _v));}
+		#define ifelse_msb(v, t, f) {__m128i _v = _mm_cmpgt_epi8((__m128i)(v), _mm_setzero_si128()); (typeof(t))_mm_or_si128(_mm_andnot_si128((__m128i)(f), _v), _mm_and_si128((__m128i)(t), _v));}
 		static inline __m128i load8x1_8bit(const uint8_t *p, __m128i zero) {
 			return _mm_unpacklo_epi8(_mm_loadu_si64(p), zero);
 		}
@@ -474,7 +473,7 @@ static noinline void FUNC(parse_slice_data_cabac);
 	static inline v16qi shuffle(v16qi a, v16qi mask) {
 		return (v16qi)_mm_shuffle_epi8((__m128i)a, (__m128i)mask);
 	}
-	static inline v8hi vector_median(v8hi a, v8hi b, v8hi c) {
+	static inline v8hi median_v8hi(v8hi a, v8hi b, v8hi c) {
 		return (v8hi)_mm_max_epi16(_mm_min_epi16(_mm_max_epi16((__m128i)a,
 			(__m128i)b), (__m128i)c), _mm_min_epi16((__m128i)a, (__m128i)b));
 	}
@@ -500,6 +499,7 @@ static noinline void FUNC(parse_slice_data_cabac);
 		__m128i hi = _mm_madd_epi16(_mm_unpackhi_epi16((__m128i)mvCol, neg), mul);
 		return (v8hi)_mm_packs_epi32(_mm_srai_epi32(lo, 8), _mm_srai_epi32(hi, 8));
 	}
+	#define shr(a, i) (typeof(a))_mm_srli_si128((__m128i)(a), i)
 	
 	// FIXME remove once we get rid of __m64
 	#if defined(__GNUC__) && !defined(__clang__)

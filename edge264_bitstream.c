@@ -34,7 +34,6 @@
 			after = CPB + nbytes < end ? CPB + nbytes : end;
 			__m128i shr_mask = _mm_loadu_si128((__m128i *)(shr_data + (CPB + 14 - end)));
 			x = _mm_shuffle_epi8(_mm_loadu_si128((__m128i *)(end - 16)), shr_mask);
-			x = vector_select(shr_mask, shr_mask, x); // turn every inserted 0 into -1
 		}
 		
 		// create a bitmask for the positions of 00n escape sequences

@@ -752,6 +752,7 @@ static noinline void CAFUNC(parse_I_mb, int mb_type_or_ctxIdx)
 	mb->f.mbIsInterFlag = 0;
 	mb->inter_blocks = 0x01231111;
 	mb->refIdx_l = -1;
+	mb->refPic_l = -1;
 	memset(mb->mvs_v, 0, 128);
 	
 	// I_NxN
@@ -1006,21 +1007,29 @@ static inline void CAFUNC(parse_ref_idx, unsigned f) {
 		mb->refIdx[i] = ref_idx;
 	}
 	
-	// broadcast the values
+	// clip and broadcast the values
 	v16qi refIdx_v = (v16qi)(v2li){mb->refIdx_l};
 	#ifdef CABAC
 		refIdx_v = min_v16qi(refIdx_v, (v16qi)(v2li){(int64_t)ctx->clip_ref_idx_v});
 	#endif
 	if (!(f & 0x122)) { // 16xN
-		refIdx_v = __builtin_shufflevector(refIdx_v, refIdx_v, 0, 0, 2, 2, 4, 4, 6, 6, -1, -1, -1, -1, -1, -1, -1, -1);
-		mb->bits[3] |= (mb->bits[3] >> 2 & 0x080800) | (mb->bits[3] << 5 & 0x808000);
+		refIdx_v = shuffle(refIdx_v, (v16qi){0, 0, 2, 2, 4, 4, 6, 6, -1, -1, -1, -1, -1, -1, -1, -1});
+		#ifdef CABAC
+			mb->bits[3] |= (mb->bits[3] >> 2 & 0x080800) | (mb->bits[3] << 5 & 0x808000);
+		#endif
 	}
 	if (!(f & 0x144)) { // Nx16
-		refIdx_v = __builtin_shufflevector(refIdx_v, refIdx_v, 0, 1, 0, 1, 4, 5, 4, 5, -1, -1, -1, -1, -1, -1, -1, -1);
-		mb->bits[3] |= (mb->bits[3] >> 3 & 0x040400) | (mb->bits[3] << 4 & 0x808000);
+		refIdx_v = shuffle(refIdx_v, (v16qi){0, 1, 0, 1, 4, 5, 4, 5, -1, -1, -1, -1, -1, -1, -1, -1});
+		#ifdef CABAC
+			mb->bits[3] |= (mb->bits[3] >> 3 & 0x040400) | (mb->bits[3] << 4 & 0x808000);
+		#endif
 	}
 	mb->refIdx_l = ((v2li)refIdx_v)[0];
 	fprintf(stderr, "ref_idx: %d %d %d %d %d %d %d %d\n", mb->refIdx[0], mb->refIdx[1], mb->refIdx[2], mb->refIdx[3], mb->refIdx[4], mb->refIdx[5], mb->refIdx[6], mb->refIdx[7]);
+	
+	// compute reference picture numbers
+	mb->refPic_s[0] = ((v4si)ifelse_msb(refIdx_v, refIdx_v, shuffle(ctx->RefPicList_v[0], refIdx_v)))[0];
+	mb->refPic_s[1] = ((v4si)ifelse_msb(refIdx_v, refIdx_v, shuffle(ctx->RefPicList_v[2], refIdx_v)))[1];
 }
 
 
@@ -1124,8 +1133,8 @@ static void CAFUNC(parse_B_sub_mb) {
 	// combine them into a vector of 4-bit equality masks
 	v16qi u = ctx->unavail_v;
 	v16qi uC = u & 4;
-	ctx->refIdx4x4_eq_v[0] = (uC - vector_select(uC==4, r0==D0, r0==C0) * 2 - (r0==B0)) * 2 - (r0==A0 | u==14);
-	ctx->refIdx4x4_eq_v[1] = (uC - vector_select(uC==4, r1==D1, r1==C1) * 2 - (r1==B1)) * 2 - (r1==A1 | u==14);
+	ctx->refIdx4x4_eq_v[0] = (uC - ifelse_mask(uC==4, r0==D0, r0==C0) * 2 - (r0==B0)) * 2 - (r0==A0 | u==14);
+	ctx->refIdx4x4_eq_v[1] = (uC - ifelse_mask(uC==4, r1==D1, r1==C1) * 2 - (r1==B1)) * 2 - (r1==A1 | u==14);
 	
 	// loop on mvs
 	do {
@@ -1143,7 +1152,7 @@ static void CAFUNC(parse_B_sub_mb) {
 			v8hi mvA = (v8hi)(v4si){mvs_p[ctx->mvs_A[i4x4]]};
 			v8hi mvB = (v8hi)(v4si){mvs_p[ctx->mvs_B[i4x4]]};
 			v8hi mvDC = (v8hi)(v4si){mvs_p[mvs_DC]};
-			mvp = vector_median(mvA, mvB, mvDC);
+			mvp = median_v8hi(mvA, mvB, mvDC);
 		} else {
 			int mvs_AB = eq & 1 ? ctx->mvs_A[i4x4] : ctx->mvs_B[i4x4];
 			mvp = (v8hi)(v4si){mvs_p[eq & 4 ? mvs_DC : mvs_AB]};
@@ -1161,8 +1170,8 @@ static void CAFUNC(parse_B_sub_mb) {
 		v8hi absMvdComp_old = (v8hi)(v2li){mb->absMvdComp_l[i8x8]};
 		v8hi mvs_mask = __builtin_shufflevector(absMvdComp_mask, (v8hi){}, 0, 0, 1, 1, 2, 2, 3, 3);
 		v8hi mvs = (v8hi)__builtin_shufflevector((v4si)(mvp + mvd), (v4si){}, 0, 0, 0, 0);
-		mb->absMvdComp_l[i8x8] = ((v2li)vector_select(absMvdComp_mask, (v8hi)pack_absMvdComp(mvd), absMvdComp_old))[0];
-		mb->mvs_v[i8x8] = vector_select(mvs_mask, mvs, mb->mvs_v[i8x8]);
+		mb->absMvdComp_l[i8x8] = ((v2li)ifelse_mask(absMvdComp_mask, (v8hi)pack_absMvdComp(mvd), absMvdComp_old))[0];
+		mb->mvs_v[i8x8] = ifelse_mask(mvs_mask, mvs, mb->mvs_v[i8x8]);
 		CALL(decode_inter, i, widths[type], heights[type]);
 	} while (mvd_flags &= mvd_flags - 1);
 	CAJUMP(parse_inter_residual);
@@ -1382,7 +1391,7 @@ static void CAFUNC(parse_P_sub_mb, unsigned ref_idx_flags)
 	// combine them into a vector of 4-bit equality masks
 	v16qi u = ctx->unavail_v;
 	v16qi uC = u & 4;
-	ctx->refIdx4x4_eq_v[0] = (uC - vector_select(uC==4, r0==D0, r0==C0) * 2 - (r0==B0)) * 2 - (r0==A0 | u==14);
+	ctx->refIdx4x4_eq_v[0] = (uC - ifelse_mask(uC==4, r0==D0, r0==C0) * 2 - (r0==B0)) * 2 - (r0==A0 | u==14);
 	
 	// loop on mvs
 	do {
@@ -1397,7 +1406,7 @@ static void CAFUNC(parse_P_sub_mb, unsigned ref_idx_flags)
 			v8hi mvA = (v8hi)(v4si){*(mb->mvs_s + ctx->mvs_A[i])};
 			v8hi mvB = (v8hi)(v4si){*(mb->mvs_s + ctx->mvs_B[i])};
 			v8hi mvDC = (v8hi)(v4si){*(mb->mvs_s + mvs_DC)};
-			mvp = vector_median(mvA, mvB, mvDC);
+			mvp = median_v8hi(mvA, mvB, mvDC);
 		} else {
 			int mvs_AB = eq & 1 ? ctx->mvs_A[i] : ctx->mvs_B[i];
 			mvp = (v8hi)(v4si){*(mb->mvs_s + (eq & 4 ? mvs_DC : mvs_AB))};
@@ -1415,8 +1424,8 @@ static void CAFUNC(parse_P_sub_mb, unsigned ref_idx_flags)
 		v8hi absMvdComp_old = (v8hi)(v2li){mb->absMvdComp_l[i8x8]};
 		v8hi mvs_mask = __builtin_shufflevector(absMvdComp_mask, (v8hi){}, 0, 0, 1, 1, 2, 2, 3, 3);
 		v8hi mvs = (v8hi)__builtin_shufflevector((v4si)(mvp + mvd), (v4si){}, 0, 0, 0, 0);
-		mb->absMvdComp_l[i8x8] = ((v2li)vector_select(absMvdComp_mask, (v8hi)pack_absMvdComp(mvd), absMvdComp_old))[0];
-		mb->mvs_v[i8x8] = vector_select(mvs_mask, mvs, mb->mvs_v[i8x8]);
+		mb->absMvdComp_l[i8x8] = ((v2li)ifelse_mask(absMvdComp_mask, (v8hi)pack_absMvdComp(mvd), absMvdComp_old))[0];
+		mb->mvs_v[i8x8] = ifelse_mask(mvs_mask, mvs, mb->mvs_v[i8x8]);
 		CALL(decode_inter, i, widths[type], heights[type]);
 	} while (mvd_flags &= mvd_flags - 1);
 	CAJUMP(parse_inter_residual);
@@ -1470,6 +1479,8 @@ static inline void CAFUNC(parse_P_mb)
 	if (mb_skip_flag) {
 		ctx->mb_qp_delta_nz = 0;
 		mb->inter_blocks = 0x01231111;
+		v16qi refIdx_v = (v2li){mb->refIdx_l};
+		mb->refPic_l = ((v2li)(shuffle(ctx->RefPicList_v[0], refIdx_v)) | refIdx_v)[0];
 		memset(mb->mvs_v + 4, 0, 64);
 		int refIdxA = mb[-1].refIdx[1];
 		int refIdxB = ctx->mbB->refIdx[2];
@@ -1488,7 +1499,7 @@ static inline void CAFUNC(parse_P_mb)
 			// B/C unavailability (->A) was ruled out, thus not tested here
 			int eq = !refIdxA + !refIdxB * 2 + !refIdxC * 4;
 			if (__builtin_expect(0xe9 >> eq & 1, 1)) {
-				mv = vector_median((v8hi)(v4si){mvA}, (v8hi)(v4si){mvB}, (v8hi)(v4si){*(mb->mvs_s + mvs_C)});
+				mv = median_v8hi((v8hi)(v4si){mvA}, (v8hi)(v4si){mvB}, (v8hi)(v4si){*(mb->mvs_s + mvs_C)});
 			} else if (eq == 4) {
 				mv = (v8hi)(v4si){*(mb->mvs_s + mvs_C)};
 			} else {

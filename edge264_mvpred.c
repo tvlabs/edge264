@@ -28,7 +28,7 @@ static inline void FUNC(decode_inter_16x16, v8hi mvd, int lx)
 		v8hi mvA = (v8hi)(v4si){*(mb->mvs_s + lx * 16 + ctx->mvs_A[0])};
 		v8hi mvB = (v8hi)(v4si){*(mb->mvs_s + lx * 16 + ctx->mvs_B[0])};
 		v8hi mvC = (v8hi)(v4si){*(mb->mvs_s + lx * 16 + mvs_C)};
-		mvp = vector_median(mvA, mvB, mvC);
+		mvp = median_v8hi(mvA, mvB, mvC);
 	} else {
 		int mvs_N = (eq == 1) ? ctx->mvs_A[0] : (eq == 2) ? ctx->mvs_B[0] : mvs_C;
 		mvp = (v8hi)(v4si){*(mb->mvs_s + lx * 16 + mvs_N)};
@@ -64,14 +64,14 @@ static inline void FUNC(decode_inter_8x16_left, v8hi mvd, int lx)
 			if (refIdx == refIdxC) {
 				v8hi mvA = (v8hi)(v4si){*(mb->mvs_s + lx * 16 + ctx->mvs_A[0])};
 				v8hi mvC = (v8hi)(v4si){*(mb->mvs_s + lx * 16 + mvs_C)};
-				mvp = vector_median(mvA, mvp, mvC);
+				mvp = median_v8hi(mvA, mvp, mvC);
 			}
 		} else { // refIdx != refIdxA/B
 			mvp = (v8hi)(v4si){*(mb->mvs_s + lx * 16 + mvs_C)};
 			if (refIdx != refIdxC) {
 				v8hi mvA = (v8hi)(v4si){*(mb->mvs_s + lx * 16 + ctx->mvs_A[0])};
 				v8hi mvB = (v8hi)(v4si){*(mb->mvs_s + lx * 16 + ctx->mvs_B[0])};
-				mvp = vector_median(mvA, mvB, mvp);
+				mvp = median_v8hi(mvA, mvB, mvp);
 			}
 		}
 	}
@@ -106,14 +106,14 @@ static inline void FUNC(decode_inter_8x16_right, v8hi mvd, int lx)
 			if (refIdx == refIdxA) {
 				v8hi mvA = (v8hi)(v4si){*(mb->mvs_s + lx * 16 + ctx->mvs_A[4])};
 				v8hi mvC = (v8hi)(v4si){*(mb->mvs_s + lx * 16 + mvs_C)};
-				mvp = vector_median(mvA, mvp, mvC);
+				mvp = median_v8hi(mvA, mvp, mvC);
 			}
 		} else { // refIdx != B/C
 			mvp = (v8hi)(v4si){*(mb->mvs_s + lx * 16 + ctx->mvs_A[4])};
 			if (refIdx != refIdxA && ctx->unavail[5] != 14) {
 				v8hi mvB = (v8hi)(v4si){*(mb->mvs_s + lx * 16 + ctx->mvs_B[4])};
 				v8hi mvC = (v8hi)(v4si){*(mb->mvs_s + lx * 16 + mvs_C)};
-				mvp = vector_median(mvp, mvB, mvC);
+				mvp = median_v8hi(mvp, mvB, mvC);
 			}
 		}
 	}
@@ -148,14 +148,14 @@ static inline void FUNC(decode_inter_16x8_top, v8hi mvd, int lx)
 			if (refIdx == refIdxA) {
 				v8hi mvA = (v8hi)(v4si){*(mb->mvs_s + lx * 16 + ctx->mvs_A[0])};
 				v8hi mvB = (v8hi)(v4si){*(mb->mvs_s + lx * 16 + ctx->mvs_B[0])};
-				mvp = vector_median(mvA, mvB, mvp);
+				mvp = median_v8hi(mvA, mvB, mvp);
 			}
 		} else { // refIdx != refIdxB/C
 			mvp = (v8hi)(v4si){*(mb->mvs_s + lx * 16 + ctx->mvs_A[0])};
 			if (refIdx != refIdxA && ctx->inc.unavailable != 14) {
 				v8hi mvB = (v8hi)(v4si){*(mb->mvs_s + lx * 16 + ctx->mvs_B[0])};
 				v8hi mvC = (v8hi)(v4si){*(mb->mvs_s + lx * 16 + mvs_C)};
-				mvp = vector_median(mvp, mvB, mvC);
+				mvp = median_v8hi(mvp, mvB, mvC);
 			}
 		}
 	}
@@ -183,14 +183,14 @@ static inline void FUNC(decode_inter_16x8_bottom, v8hi mvd, int lx)
 			if (refIdx == refIdxC) {
 				v8hi mvA = (v8hi)(v4si){*(mb->mvs_s + lx * 16 + ctx->mvs_A[8])};
 				v8hi mvC = (v8hi)(v4si){*(mb->mvs_s + lx * 16 + ctx->mvs_D[8])};
-				mvp = vector_median(mvA, mvp, mvC);
+				mvp = median_v8hi(mvA, mvp, mvC);
 			}
 		} else {
 			mvp = (v8hi)(v4si){*(mb->mvs_s + lx * 16 + ctx->mvs_D[8])};
 			if (refIdx != refIdxC) {
 				v8hi mvA = (v8hi)(v4si){*(mb->mvs_s + lx * 16 + ctx->mvs_A[8])};
 				v8hi mvB = (v8hi)(v4si){*(mb->mvs_s + lx * 16)};
-				mvp = vector_median(mvA, mvB, mvp);
+				mvp = median_v8hi(mvA, mvB, mvp);
 			}
 		}
 	}
@@ -214,35 +214,37 @@ static inline void FUNC(decode_inter_16x8_bottom, v8hi mvd, int lx)
 static always_inline void FUNC(decode_direct_spatial_mv_pred)
 {
 	// load all refIdxN and mvN in vector registers
-	v16qi shuf = {0, 0, 0, 0, 1, 1, 1, 1, 2, 2, 2, 2, 3, 3, 3, 3};
+	v16qi shuf = {0, 0, 0, 0, 4, 4, 4, 4, -1, -1, -1, -1, -1, -1, -1, -1};
 	v8hi mvA = (v8hi)(v4si){*(mb->mvs_s + ctx->mvs_A[0]), *(mb->mvs_s + ctx->mvs_A[0] + 16)};
 	v8hi mvB = (v8hi)(v4si){*(mb->mvs_s + ctx->mvs_B[0]), *(mb->mvs_s + ctx->mvs_B[0] + 16)};
 	v8hi mvC = (v8hi)(v4si){*(mb->mvs_s + ctx->mvs_C[5]), *(mb->mvs_s + ctx->mvs_C[5] + 16)};
-	v16qi refIdxA = shuffle((v16qi){mb[-1].refIdx[1], mb[-1].refIdx[5]}, shuf);
-	v16qi refIdxB = shuffle((v16qi){ctx->mbB->refIdx[2], ctx->mbB->refIdx[6]}, shuf);
-	v16qi refIdxC = shuffle((v16qi){ctx->mbB[1].refIdx[2], ctx->mbB[1].refIdx[6]}, shuf);
+	v16qi refIdxA = shuffle(shr((v16qi)(v2li){mb[-1].refIdx_l}, 1), shuf);
+	v16qi refIdxB = shuffle(shr((v16qi)(v2li){ctx->mbB->refIdx_l}, 2), shuf);
+	v16qi refIdxC = shuffle(shr((v16qi)(v2li){ctx->mbB[1].refIdx_l}, 2), shuf);
 	if (__builtin_expect(ctx->inc.unavailable & 4, 0)) {
 		mvC = (v8hi)(v4si){*(mb->mvs_s + ctx->mvs_D[0]), *(mb->mvs_s + ctx->mvs_D[0] + 16)};
-		refIdxC = shuffle((v16qi){ctx->mbB[-1].refIdx[3], ctx->mbB[-1].refIdx[7]}, shuf);
+		refIdxC = shuffle(shr((v16qi)(v2li){ctx->mbB[-1].refIdx_l}, 3), shuf);
 	}
 	
 	// initialize mv along refIdx since it will equal one of refIdxA/B/C
 	v16qu cmp_AB = (v16qu)refIdxA < (v16qu)refIdxB; // unsigned comparisons
-	v16qi refIdxm = vector_select(cmp_AB, refIdxA, refIdxB); // umin(refIdxA, refIdxB)
-	v16qi refIdxM = vector_select(cmp_AB, refIdxB, refIdxA); // umax(refIdxA, refIdxB)
-	v8hi mvm = vector_select(cmp_AB, mvA, mvB);
+	v16qi refIdxm = ifelse_mask(cmp_AB, refIdxA, refIdxB); // umin(refIdxA, refIdxB)
+	v16qi refIdxM = ifelse_mask(cmp_AB, refIdxB, refIdxA); // umax(refIdxA, refIdxB)
+	v8hi mvm = ifelse_mask(cmp_AB, mvA, mvB);
 	v16qu cmp_mC = (v16qu)refIdxm < (v16qu)refIdxC;
-	v16qi refIdx = vector_select(cmp_mC, refIdxm, refIdxC); // umin(refIdxm, refIdxC)
-	v8hi mvmm = vector_select(cmp_mC, mvm, mvC);
+	v16qi refIdx = ifelse_mask(cmp_mC, refIdxm, refIdxC); // umin(refIdxm, refIdxC)
+	v8hi mvmm = ifelse_mask(cmp_mC, mvm, mvC);
 	
 	// select median if refIdx equals another of refIdxA/B/C
 	v16qi cmp_med = (refIdxm == refIdxC) | (refIdx == refIdxM); // 3 cases: A=B<C, A=C<B, B=C<A
-	v8hi mv01 = vector_select(cmp_med, vector_median(mvA, mvB, mvC), mvmm);
+	v8hi mv01 = ifelse_mask(cmp_med, median_v8hi(mvA, mvB, mvC), mvmm);
 	v8hi mvs0 = (v8hi)__builtin_shufflevector((v4si)mv01, (v4si)mv01, 0, 0, 0, 0);
 	v8hi mvs4 = (v8hi)__builtin_shufflevector((v4si)mv01, (v4si)mv01, 1, 1, 1, 1);
 	
 	// direct zero prediction applies only to refIdx (mvLX are zero already)
 	refIdx ^= (v16qi)((v2li)refIdx == -1);
+	mb->refPic_s[0] = ((v4si)ifelse_msb(refIdx, refIdx, shuffle(ctx->RefPicList_v[0], refIdx)))[0]; // overwritten by parse_ref_idx later if refIdx!=0
+	mb->refPic_s[1] = ((v4si)ifelse_msb(refIdx, refIdx, shuffle(ctx->RefPicList_v[2], refIdx)))[1];
 	//printf("<li>refIdxL0A/B/C=%d/%d/%d, refIdxL1A/B/C=%d/%d/%d, mvsL0A/B/C=[%d,%d]/[%d,%d]/[%d,%d], mvsL1A/B/C=[%d,%d]/[%d,%d]/[%d,%d] -> refIdxL0/1=%d/%d, mvsL0/1=[%d,%d]/[%d,%d]</li>\n", refIdxA[0], refIdxB[0], refIdxC[0], refIdxA[4], refIdxB[4], refIdxC[4], mvA[0], mvA[1], mvB[0], mvB[1], mvC[0], mvC[1], mvA[2], mvA[3], mvB[2], mvB[3], mvC[2], mvC[3], refIdx[0], refIdx[4], mv01[0], mv01[1], mv01[2], mv01[3]);
 	
 	// trick from ffmpeg: skip computations on refCol/mvCol if both mvs are zero
@@ -257,7 +259,7 @@ static always_inline void FUNC(decode_direct_spatial_mv_pred)
 			v8hi mvCol1 = *(v8hi*)(mbCol->mvs + offsets[1] + 8);
 			v8hi mvCol2 = *(v8hi*)(mbCol->mvs + offsets[2] + 16);
 			v8hi mvCol3 = *(v8hi*)(mbCol->mvs + offsets[3] + 24);
-			v16qi refCol = vector_select(refColL0, (v16qi)(v4si){mbCol->refIdx_s[1]}, refColL0);
+			v16qi refCol = ifelse_msb(refColL0, (v16qi)(v4si){mbCol->refIdx_s[1]}, refColL0);
 			if (ctx->ps.direct_8x8_inference_flag) {
 				mvCol0 = (v8hi)__builtin_shufflevector((v4si)mvCol0, (v4si)mvCol0, 0, 0, 0, 0);
 				mvCol1 = (v8hi)__builtin_shufflevector((v4si)mvCol1, (v4si)mvCol1, 1, 1, 1, 1);
@@ -364,7 +366,7 @@ static always_inline void FUNC(decode_direct_temporal_mv_pred)
 	v8hi mvCol1 = *(v8hi*)(mbCol->mvs + offsets[1] + 8);
 	v8hi mvCol2 = *(v8hi*)(mbCol->mvs + offsets[2] + 16);
 	v8hi mvCol3 = *(v8hi*)(mbCol->mvs + offsets[3] + 24);
-	v16qi refCol = vector_select(refColL0, (v16qi)(v4si){mbCol->refIdx_s[1]} | 32, refColL0);
+	v16qi refCol = ifelse_msb(refColL0, (v16qi)(v4si){mbCol->refIdx_s[1]} | 32, refColL0);
 	unsigned inter_blocks = mbCol->inter_blocks;
 	if (ctx->ps.direct_8x8_inference_flag) {
 		mvCol0 = (v8hi)__builtin_shufflevector((v4si)mvCol0, (v4si)mvCol0, 0, 0, 0, 0);
@@ -375,6 +377,7 @@ static always_inline void FUNC(decode_direct_temporal_mv_pred)
 	}
 	
 	// conditional memory storage
+	// FIXME map pic->idx instead of idx->idx
 	mb->refIdx[0] |= ctx->MapColToList0[1 + refCol[0]];
 	if (mb->refIdx[0] >= 0) {
 		mb->mvs_v[0] = temporal_scale(mvCol0, ctx->DistScaleFactor[mb->refIdx[0]]);
@@ -403,6 +406,9 @@ static always_inline void FUNC(decode_direct_temporal_mv_pred)
 	} else { // edge case: 16x16 with a direct8x8 block on the bottom-right corner
 		inter_blocks = (inter_blocks == 0x01231111) ? 0x00010111 : inter_blocks & ~0x0120f000;
 	}
+	v16qi refIdx = (v16qi)(v2li){mb->refIdx_l};
+	mb->refPic_s[0] = ((v4si)ifelse_msb(refIdx, refIdx, shuffle(ctx->RefPicList_v[0], refIdx)))[0]; // overwritten by parse_ref_idx later if refIdx!=0
+	mb->refPic_s[1] = ((v4si)shuffle(ctx->RefPicList_v[2], (v16qi){}))[0]; // refIdxL1 is 0
 	
 	// execute decode_inter for the positions given in the mask
 	mb->inter_blocks |= inter_blocks;

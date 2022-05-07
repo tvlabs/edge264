@@ -66,8 +66,8 @@ static inline void FUNC(init_alpha_beta_tC0)
 	__m128i betalo = _mm_shuffle_epi8(_mm_loadu_si128((__m128i *)(idx2beta + 4)), Bm4);
 	__m128i betamd = _mm_shuffle_epi8(_mm_loadu_si128((__m128i *)(idx2beta + 20)), Bm4);
 	__m128i betahi = _mm_shuffle_epi8(_mm_loadu_si128((__m128i *)(idx2beta + 36)), Bm4);
-	ctx->alpha_v = (v16qu)blend_mask(blend_mask(alphalo, alphamd, Agte20), alphahi, Agte36);
-	ctx->beta_v = (v16qu)blend_mask(blend_mask(betalo, betamd, Bgte20), betahi, Bgte36);
+	ctx->alpha_v = (v16qu)ifelse_mask(Agte36, alphahi, ifelse_mask(Agte20, alphamd, alphalo));
+	ctx->beta_v = (v16qu)ifelse_mask(Bgte36, betahi, ifelse_mask(Bgte20, betamd, betalo));
 	
 	// initialize tC0 with bS=3 for internal edges of Intra macroblock
 	__m128i tC0neg = _mm_cmpgt_epi8(zero, Am4);
@@ -75,7 +75,7 @@ static inline void FUNC(init_alpha_beta_tC0)
 		__m128i tC03lo = _mm_shuffle_epi8(_mm_loadu_si128((__m128i *)(idx2tC0[2] + 4)), Am4);
 		__m128i tC03md = _mm_shuffle_epi8(_mm_loadu_si128((__m128i *)(idx2tC0[2] + 20)), Am4);
 		__m128i tC03hi = _mm_shuffle_epi8(_mm_loadu_si128((__m128i *)(idx2tC0[2] + 36)), Am4);
-		__m128i tC03 = _mm_or_si128(blend_mask(blend_mask(tC03lo, tC03md, Agte20), tC03hi, Agte36), tC0neg);
+		__m128i tC03 = _mm_or_si128(ifelse_mask(Agte36, tC03hi, ifelse_mask(Agte20, tC03md, tC03lo)), tC0neg);
 		ctx->tC0_v[0] = ctx->tC0_v[1] = (v16qi)_mm_shuffle_epi8(tC03, zero);
 		ctx->tC0_v[2] = ctx->tC0_v[3] = (v16qi)_mm_shuffle_epi8(tC03, _mm_setr_epi8(-1, -1, -1, -1, -1, -1, -1, -1, 1, 1, 1, 1, 2, 2, 2, 2));
 	} else {
@@ -83,15 +83,16 @@ static inline void FUNC(init_alpha_beta_tC0)
 		__m128i tC01lo = _mm_shuffle_epi8(_mm_loadu_si128((__m128i *)(idx2tC0[0] + 4)), Am4);
 		__m128i tC01md = _mm_shuffle_epi8(_mm_loadu_si128((__m128i *)(idx2tC0[0] + 20)), Am4);
 		__m128i tC01hi = _mm_shuffle_epi8(_mm_loadu_si128((__m128i *)(idx2tC0[0] + 36)), Am4);
-		__m128i tC01 = _mm_or_si128(blend_mask(blend_mask(tC01lo, tC01md, Agte20), tC01hi, Agte36), tC0neg);
+		__m128i tC01 = _mm_or_si128(ifelse_mask(Agte36, tC01hi, ifelse_mask(Agte20, tC01md, tC01lo)), tC0neg);
 		__m128i tC02lo = _mm_shuffle_epi8(_mm_loadu_si128((__m128i *)(idx2tC0[1] + 4)), Am4);
 		__m128i tC02md = _mm_shuffle_epi8(_mm_loadu_si128((__m128i *)(idx2tC0[1] + 20)), Am4);
 		__m128i tC02hi = _mm_shuffle_epi8(_mm_loadu_si128((__m128i *)(idx2tC0[1] + 36)), Am4);
-		__m128i tC02 = _mm_or_si128(blend_mask(blend_mask(tC02lo, tC02md, Agte20), tC02hi, Agte36), tC0neg);
+		__m128i tC02 = _mm_or_si128(ifelse_mask(Agte36, tC02hi, ifelse_mask(Agte20, tC02md, tC02lo)), tC0neg);
 		
 		// compute masks for bS=1 based on equality of references and motion vectors
 		__m128i bS1aceg, bS1bdfh;
 		__m128i c3 = _mm_set1_epi8(3);
+		__m128i cm1 = _mm_set1_epi8(-1);
 		if (mb->inter_blocks == 0x01231111) { // 16x16 macroblock
 			__m128i mvsv0l0 = (__m128i)_mm_shuffle_ps((__m128)mb[-1].mvs_v[1], (__m128)mb[-1].mvs_v[3], _MM_SHUFFLE(3, 1, 3, 1));
 			__m128i mvsv1l0 = (__m128i)_mm_shuffle_ps((__m128)mb->mvs_v[0], (__m128)mb->mvs_v[2], _MM_SHUFFLE(2, 0, 2, 0));
@@ -112,8 +113,8 @@ static inline void FUNC(init_alpha_beta_tC0)
 			__m128i refIdx0 = _mm_setr_epi32(mb->refIdx_s[0], mb[-1].refIdx_s[0], ctx->mbB->refIdx_s[0], 0);
 			__m128i refIdx1 = _mm_setr_epi32(mb->refIdx_s[1], mb[-1].refIdx_s[1], ctx->mbB->refIdx_s[1], 0);
 			__m128i shufVHAB = _mm_setr_epi8(0, 2, 1, 3, 0, 1, 2, 3, 5, 7, 0, 2, 10, 11, 0, 1);
-			__m128i refs0 = _mm_shuffle_epi8(_mm_shuffle_epi8((__m128i)ctx->RefPicList_v[0], refIdx0), shufVHAB); // (v0,h0,A0,B0)
-			__m128i refs1 = _mm_shuffle_epi8(_mm_shuffle_epi8((__m128i)ctx->RefPicList_v[2], refIdx1), shufVHAB); // (v1,h1,A1,B1)
+			__m128i refs0 = _mm_shuffle_epi8(_mm_shuffle_epi8(_mm_sub_epi8((__m128i)ctx->RefPicList_v[0], cm1), refIdx0), shufVHAB); // (v0,h0,A0,B0)
+			__m128i refs1 = _mm_shuffle_epi8(_mm_shuffle_epi8(_mm_sub_epi8((__m128i)ctx->RefPicList_v[2], cm1), refIdx1), shufVHAB); // (v1,h1,A1,B1)
 			__m128i neq0 = _mm_xor_si128(refs0, (__m128i)_mm_shuffle_ps((__m128)refs1, (__m128)refs0, _MM_SHUFFLE(1, 0, 3, 2))); // (v0^A1,h0^B1,A0^v0,B0^h0)
 			__m128i neq1 = _mm_xor_si128(refs1, (__m128i)_mm_shuffle_ps((__m128)refs0, (__m128)refs1, _MM_SHUFFLE(1, 0, 3, 2))); // (v1^A0,h1^B0,A1^v1,B1^h1)
 			__m128i refsaceg = _mm_or_si128(neq0, neq1); // low=cross, high=parallel
@@ -142,7 +143,7 @@ static inline void FUNC(init_alpha_beta_tC0)
 			__m128i mvsbdfh = _mm_packs_epi16(_mm_subs_epu8(_mm_abs_epi8(mvsbd), c3), _mm_subs_epu8(_mm_abs_epi8(mvsfh), c3));
 			__m128i refIdx = _mm_setr_epi32(mb->refIdx_s[0], mb[-1].refIdx_s[0], ctx->mbB->refIdx_s[0], 0);
 			__m128i shufVHAB = _mm_setr_epi8(0, 2, 1, 3, 0, 1, 2, 3, 5, 7, 0, 2, 10, 11, 0, 1);
-			__m128i refs = _mm_shuffle_epi8(_mm_shuffle_epi8((__m128i)ctx->RefPicList_v[0], refIdx), shufVHAB); // (v0,h0,A0,B0)
+			__m128i refs = _mm_shuffle_epi8(_mm_shuffle_epi8(_mm_sub_epi8((__m128i)ctx->RefPicList_v[0], cm1), refIdx), shufVHAB); // (v0,h0,A0,B0)
 			__m128i neq = _mm_xor_si128(refs, _mm_unpackhi_epi64(refs, refs)); // (v0^A0,h0^B0,0,0)
 			__m128i refsaceg = _mm_unpacklo_epi8(neq, neq);
 			bS1aceg = _mm_cmpgt_epi8(_mm_or_si128(refsaceg, mvsaceg), zero);
@@ -199,8 +200,8 @@ static inline void FUNC(init_alpha_beta_tC0)
 			__m128i refIdx0 = _mm_setr_epi32(mb->refIdx_s[0], mb[-1].refIdx_s[0], ctx->mbB->refIdx_s[0], 0);
 			__m128i refIdx1 = _mm_setr_epi32(mb->refIdx_s[1], mb[-1].refIdx_s[1], ctx->mbB->refIdx_s[1], 0);
 			__m128i shufVHAB = _mm_setr_epi8(0, 2, 1, 3, 0, 1, 2, 3, 5, 7, 0, 2, 10, 11, 0, 1);
-			__m128i refs0 = _mm_shuffle_epi8(_mm_shuffle_epi8((__m128i)ctx->RefPicList_v[0], refIdx0), shufVHAB); // (v0,h0,A0,B0)
-			__m128i refs1 = _mm_shuffle_epi8(_mm_shuffle_epi8((__m128i)ctx->RefPicList_v[2], refIdx1), shufVHAB); // (v1,h1,A1,B1)
+			__m128i refs0 = _mm_shuffle_epi8(_mm_shuffle_epi8(_mm_sub_epi8((__m128i)ctx->RefPicList_v[0], cm1), refIdx0), shufVHAB); // (v0,h0,A0,B0)
+			__m128i refs1 = _mm_shuffle_epi8(_mm_shuffle_epi8(_mm_sub_epi8((__m128i)ctx->RefPicList_v[2], cm1), refIdx1), shufVHAB); // (v1,h1,A1,B1)
 			__m128i neq0 = _mm_xor_si128(refs0, (__m128i)_mm_shuffle_ps((__m128)refs1, (__m128)refs0, _MM_SHUFFLE(1, 0, 3, 2))); // (v0^A1,h0^B1,A0^v0,B0^h0)
 			__m128i neq1 = _mm_xor_si128(refs1, (__m128i)_mm_shuffle_ps((__m128)refs0, (__m128)refs1, _MM_SHUFFLE(1, 0, 3, 2))); // (v1^A0,h1^B0,A1^v1,B1^h1)
 			__m128i neq2 = _mm_xor_si128(refs0, refs1);
@@ -236,10 +237,10 @@ static inline void FUNC(init_alpha_beta_tC0)
 		__m128i shuf1 = _mm_setr_epi8(12, 12, 12, 12, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
 		__m128i shuf2 = _mm_setr_epi8(9, 9, 9, 9, 10, 10, 10, 10, 1, 1, 1, 1, 2, 2, 2, 2);
 		__m128i shuf3 = _mm_setr_epi8(13, 13, 13, 13, 14, 14, 14, 14, 1, 1, 1, 1, 2, 2, 2, 2);
-		ctx->tC0_v[0] = (v16qi)blend_mask(blend_mask(tC00, _mm_shuffle_epi8(tC01, shuf0), bS1abcd), _mm_shuffle_epi8(tC02, shuf0), bS2abcd);
-		ctx->tC0_v[1] = (v16qi)blend_mask(blend_mask(tC00, _mm_shuffle_epi8(tC01, shuf1), bS1efgh), _mm_shuffle_epi8(tC02, shuf1), bS2efgh);
-		ctx->tC0_v[2] = (v16qi)blend_mask(blend_mask(tC00, _mm_shuffle_epi8(tC01, shuf2), bS1aacc), _mm_shuffle_epi8(tC02, shuf2), bS2aacc);
-		ctx->tC0_v[3] = (v16qi)blend_mask(blend_mask(tC00, _mm_shuffle_epi8(tC01, shuf3), bS1eegg), _mm_shuffle_epi8(tC02, shuf3), bS2eegg);
+		ctx->tC0_v[0] = (v16qi)ifelse_mask(bS2abcd, _mm_shuffle_epi8(tC02, shuf0), ifelse_mask(bS1abcd, _mm_shuffle_epi8(tC01, shuf0), tC00));
+		ctx->tC0_v[1] = (v16qi)ifelse_mask(bS2efgh, _mm_shuffle_epi8(tC02, shuf1), ifelse_mask(bS1efgh, _mm_shuffle_epi8(tC01, shuf1), tC00));
+		ctx->tC0_v[2] = (v16qi)ifelse_mask(bS2aacc, _mm_shuffle_epi8(tC02, shuf2), ifelse_mask(bS1aacc, _mm_shuffle_epi8(tC01, shuf2), tC00));
+		ctx->tC0_v[3] = (v16qi)ifelse_mask(bS2eegg, _mm_shuffle_epi8(tC02, shuf3), ifelse_mask(bS1eegg, _mm_shuffle_epi8(tC01, shuf3), tC00));
 	}
 }
 
@@ -267,7 +268,7 @@ static inline void FUNC(init_alpha_beta_tC0)
 	__m128i abs1 = _mm_or_si128(_mm_subs_epu8(p1, p0), _mm_subs_epu8(p0, p1));\
 	__m128i abs2 = _mm_or_si128(_mm_subs_epu8(q1, q0), _mm_subs_epu8(q0, q1));\
 	__m128i and = _mm_min_epu8(_mm_subs_epu8(alpha, abs0), _mm_subs_epu8(beta, _mm_max_epu8(abs1, abs2)));\
-	__m128i ignoreSamplesFlags = _mm_blendv_epi8(_mm_cmpeq_epi8(and, _mm_setzero_si128()), tC0, tC0);\
+	__m128i ignoreSamplesFlags = ifelse_msb(tC0, tC0, _mm_cmpeq_epi8(and, _mm_setzero_si128()));\
 	__m128i ftC0 = _mm_andnot_si128(ignoreSamplesFlags, tC0);\
 	/* filter p1 and q1 (same as ffmpeg, I couldn't find better) */\
 	__m128i c1 = _mm_set1_epi8(1);\
@@ -281,8 +282,8 @@ static inline void FUNC(init_alpha_beta_tC0)
 	__m128i apltb = _mm_cmpeq_epi8(_mm_subs_epu8(_mm_subs_epu8(p2, p0), bm1), _mm_subs_epu8(_mm_subs_epu8(p0, p2), bm1));\
 	__m128i aqltb = _mm_cmpeq_epi8(_mm_subs_epu8(_mm_subs_epu8(q2, q0), bm1), _mm_subs_epu8(_mm_subs_epu8(q0, q2), bm1));\
 	__m128i sub1 = _mm_avg_epu8(p1, _mm_xor_si128(q1, cm1)); /* save 128+((p1-q1)>>1) for later */\
-	p1 = blend_mask(p1, pp1, apltb);\
-	q1 = blend_mask(q1, qp1, aqltb);\
+	p1 = ifelse_mask(apltb, pp1, p1);\
+	q1 = ifelse_mask(aqltb, qp1, q1);\
 	/* filter p0 and q0 (by offsetting signed to unsigned to apply pavg) */\
 	__m128i ftC = _mm_andnot_si128(ignoreSamplesFlags, _mm_sub_epi8(_mm_sub_epi8(ftC0, apltb), aqltb));\
 	__m128i x3 = _mm_avg_epu8(sub0, _mm_avg_epu8(sub1, _mm_set1_epi8(127))); /* 128+((q0-p0+((p1-q1)>>2)+1)>>1) */\
@@ -345,8 +346,8 @@ static inline void FUNC(init_alpha_beta_tC0)
 	__m128i qp0a = _mm_avg_epu8(q21p1, pq0); /* q'0 (first formula) */\
 	__m128i pp0b = _mm_avg_epu8(p1, _mm_sub_epi8(_mm_avg_epu8(p0, q1), _mm_and_si128(_mm_xor_si128(p0, q1), c1))); /* p'0 (second formula) */\
 	__m128i qp0b = _mm_avg_epu8(q1, _mm_sub_epi8(_mm_avg_epu8(q0, p1), _mm_and_si128(_mm_xor_si128(q0, p1), c1))); /* q'0 (second formula) */\
-	p0 = blend_mask(blend_mask(pp0b, pp0a, condp), p0, ignoreSamplesFlags);\
-	q0 = blend_mask(blend_mask(qp0b, qp0a, condq), q0, ignoreSamplesFlags);\
+	p0 = ifelse_mask(ignoreSamplesFlags, p0, ifelse_mask(condp, pp0a, pp0b));\
+	q0 = ifelse_mask(ignoreSamplesFlags, q0, ifelse_mask(condq, qp0a, qp0b));\
 	/* compute p'1 and q'1 */\
 	__m128i fcondp = _mm_andnot_si128(ignoreSamplesFlags, condp);\
 	__m128i fcondq = _mm_andnot_si128(ignoreSamplesFlags, condq);\
@@ -354,8 +355,8 @@ static inline void FUNC(init_alpha_beta_tC0)
 	__m128i q21 = _mm_sub_epi8(_mm_avg_epu8(q2, q1), _mm_and_si128(_mm_xor_si128(q2, q1), and0)); /* q21+pq0 == (q2+q1+q0+p1)/2 */\
 	__m128i pp1 = _mm_avg_epu8(p21, pq0); /* p'1 */\
 	__m128i qp1 = _mm_avg_epu8(q21, pq0); /* q'1 */\
-	p1 = blend_mask(p1, pp1, fcondp);\
-	q1 = blend_mask(q1, qp1, fcondq);\
+	p1 = ifelse_mask(fcondp, pp1, p1);\
+	q1 = ifelse_mask(fcondq, qp1, q1);\
 	/* compute p'2 and q'2 */\
 	__m128i fix1 = _mm_and_si128(_mm_xor_si128(p21, pq0), c1);\
 	__m128i fix2 = _mm_and_si128(_mm_xor_si128(q21, pq0), c1);\
@@ -365,8 +366,8 @@ static inline void FUNC(init_alpha_beta_tC0)
 	__m128i q3q2 = _mm_sub_epi8(_mm_avg_epu8(q3, q2), _mm_and_si128(_mm_xor_si128(q3, q2), _mm_xor_si128(fix2, c1))); /* q3q2+q210p0 == (q3+q2+(q2+q1+p0+q0)/2)/2 */\
 	__m128i pp2 = _mm_avg_epu8(p3p2, p210q0); /* p'2 */\
 	__m128i qp2 = _mm_avg_epu8(q3q2, q210p0); /* q'2 */\
-	p2 = blend_mask(p2, pp2, fcondp);\
-	q2 = blend_mask(q2, qp2, fcondq);}
+	p2 = ifelse_mask(fcondp, pp2, p2);\
+	q2 = ifelse_mask(fcondq, qp2, q2);}
 
 #define DEBLOCK_CHROMA_HARD(p1, p0, q0, q1, alpha, beta) {\
 	/* compute the opposite of filterSamplesFlags */\
@@ -379,8 +380,8 @@ static inline void FUNC(init_alpha_beta_tC0)
 	__m128i c1 = _mm_set1_epi8(1);\
 	__m128i pp0b = _mm_avg_epu8(p1, _mm_sub_epi8(_mm_avg_epu8(p0, q1), _mm_and_si128(_mm_xor_si128(p0, q1), c1))); /* p'0 (second formula) */\
 	__m128i qp0b = _mm_avg_epu8(q1, _mm_sub_epi8(_mm_avg_epu8(q0, p1), _mm_and_si128(_mm_xor_si128(q0, p1), c1))); /* q'0 (second formula) */\
-	p0 = blend_mask(pp0b, p0, ignoreSamplesFlags);\
-	q0 = blend_mask(qp0b, q0, ignoreSamplesFlags);}
+	p0 = ifelse_mask(ignoreSamplesFlags, p0, pp0b);\
+	q0 = ifelse_mask(ignoreSamplesFlags, q0, qp0b);}
 
 
 

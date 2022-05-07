@@ -1,4 +1,6 @@
 /** MAYDO:
+ * _ modify deblocking to use refPic instead of refIdx
+ * _ change MapColToList0 to operate on picture numbers
  * _ cap num_ref_idx to the actual number of available refs, and handle gaps in frame num properly
  * _ display both FrameNum and POC in RefPicList on TRACE=1 output
  * _ swap the convention for direct 8x8 blocks in refIdx to make it more intuitive (0<->-1)
@@ -128,6 +130,8 @@ static void FUNC(initialise_decoding_context, Edge264_stream *e)
 	
 	// P/B slices
 	if (ctx->slice_type < 2) {
+		ctx->DPB = e->DPB;
+		ctx->frame_size = e->frame_size;
 		int offA_int32 = offA_int8 >> 2;
 		int offB_int32 = offB_int8 >> 2;
 		int offC_int32 = offB_int32 + (sizeof(*mb) >> 2);
@@ -145,13 +149,9 @@ static void FUNC(initialise_decoding_context, Edge264_stream *e)
 		int max0 = ctx->ps.num_ref_idx_active[0] - 1;
 		int max1 = ctx->slice_type == 0 ? -1 : ctx->ps.num_ref_idx_active[1] - 1;
 		ctx->clip_ref_idx_v = (v8qi){max0, max0, max0, max0, max1, max1, max1, max1};
-		for (int i = 0; i <= max0; i++)
-			ctx->ref_planes[i] = e->DPB + ctx->RefPicList[0][i] * e->frame_size;
 		
 		// B slices
 		if (ctx->slice_type == 1) {
-			for (int i = 0; i <= max1; i++)
-				ctx->ref_planes[32 + i] = e->DPB + ctx->RefPicList[1][i] * e->frame_size;
 			int colPic = ctx->RefPicList[1][0];
 			ctx->mbCol = (Edge264_macroblock *)(e->DPB + colPic * e->frame_size + ctx->plane_size_Y + e->plane_size_C * 2 + sizeof(*mb) - offB_int8);
 			ctx->col_short_term = (e->long_term_flags >> colPic & 1) ^ 1;
@@ -181,8 +181,6 @@ static void FUNC(initialise_decoding_context, Edge264_stream *e)
 					ctx->MapColToList0[1 + i] = (colList[i] >= 0) ? MapPicToList0[colList[i]] : 0;
 			}
 		}
-		ctx->RefPicList_v[0] += (v16qi){1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1}; // for deblocking, to use pic 0 as "unused"
-		ctx->RefPicList_v[2] += (v16qi){1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1};
 	}
 }
 

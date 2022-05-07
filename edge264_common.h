@@ -174,7 +174,7 @@ typedef struct
 	uint8_t num_ref_idx_mask;
 	int8_t transform_8x8_mode_flag; // updated during parsing to replace noSubMbPartSizeLessThan8x8Flag
 	int8_t col_short_term;
-	int8_t MapColToList0[65]; // [refIdxCol + 1]
+	union { int8_t MapPicToList0[32]; v16qi MapPicToList0_v[2]; };
 	union { int8_t clip_ref_idx[8]; v8qi clip_ref_idx_v; };
 	union { int8_t RefPicList[2][32]; v16qi RefPicList_v[4]; };
 	union { int8_t refIdx4x4_eq[32]; v16qi refIdx4x4_eq_v[2]; }; // FIXME store on stack

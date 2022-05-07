@@ -1,5 +1,4 @@
 /** MAYDO:
- * _ modify deblocking to use refPic instead of refIdx
  * _ change MapColToList0 to operate on picture numbers
  * _ cap num_ref_idx to the actual number of available refs, and handle gaps in frame num properly
  * _ display both FrameNum and POC in RefPicList on TRACE=1 output
@@ -158,13 +157,13 @@ static void FUNC(initialise_decoding_context, Edge264_stream *e)
 			
 			// initializations for temporal prediction
 			if (!ctx->direct_spatial_mv_pred_flag) {
-				int8_t MapPicToList0[32] = {}; // pictures not found in RefPicList0 will point to 0 by default
+				ctx->MapPicToList0_v[0] = ctx->MapPicToList0_v[1] = (v16qi){}; // pictures not found in RefPicList0 will point to 0 by default
 				int poc = min(ctx->TopFieldOrderCnt, ctx->BottomFieldOrderCnt);
 				int pic1 = ctx->RefPicList[1][0];
 				int poc1 = min(e->FieldOrderCnt[0][pic1], e->FieldOrderCnt[1][pic1]);
 				for (int refIdxL0 = ctx->ps.num_ref_idx_active[0]; refIdxL0-- > 0; ) {
 					int pic0 = ctx->RefPicList[0][refIdxL0];
-					MapPicToList0[pic0] = refIdxL0;
+					ctx->MapPicToList0[pic0] = refIdxL0;
 					int poc0 = min(e->FieldOrderCnt[0][pic0], e->FieldOrderCnt[1][pic0]);
 					int DistScaleFactor = 256;
 					if (!(e->long_term_flags & 1 << pic0) && poc0 != poc1) {
@@ -175,10 +174,6 @@ static void FUNC(initialise_decoding_context, Edge264_stream *e)
 					}
 					ctx->DistScaleFactor[refIdxL0] = DistScaleFactor;
 				}
-				int8_t *colList = e->RefPicLists[colPic];
-				ctx->MapColToList0[0] = 0;
-				for (int i = 0; i < 64; i++)
-					ctx->MapColToList0[1 + i] = (colList[i] >= 0) ? MapPicToList0[colList[i]] : 0;
 			}
 		}
 	}
@@ -581,7 +576,6 @@ static int FUNC(parse_slice_layer_without_partitioning, Edge264_stream *e)
 		}
 		
 		CALL(parse_ref_pic_list_modification, e);
-		memcpy(e->RefPicLists[ctx->currPic], ctx->RefPicList, 64);
 		
 		// A dummy last value must be overwritten by a valid reference.
 		if (ctx->RefPicList[0][ctx->ps.num_ref_idx_active[0] - 1] < 0 ||
@@ -1146,6 +1140,7 @@ static int FUNC(parse_seq_parameter_set, Edge264_stream *e)
 		.f.mb_type_I_NxN = 1,
 		.f.mb_type_B_Direct = 1,
 		.refIdx = {-1, -1, -1, -1, -1, -1, -1, -1},
+		.refPic = {-1, -1, -1, -1, -1, -1, -1, -1},
 		.bits[3] = 0xac, // cbp
 		.nC[0] = {64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64},
 		.nC[1] = {64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64},

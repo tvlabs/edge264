@@ -100,7 +100,6 @@ typedef struct Edge264_stream {
 	Edge264_parameter_set SPS;
 	Edge264_parameter_set PPSs[4];
 	int16_t PicOrderCntDeltas[256]; // too big to fit in Edge264_parameter_set
-	int8_t RefPicLists[32][64] __attribute__((aligned(64)));
 } Edge264_stream;
 
 

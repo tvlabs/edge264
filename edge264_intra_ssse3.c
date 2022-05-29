@@ -310,7 +310,7 @@ static void FUNC(decode_DiagonalDownLeft8x8, __m128i right, __m128i top, __m128i
 
 static void FUNC(decode_DiagonalDownRight8x8, __m128i top) {
 	__m128i left = top;//(__m128i)ctx->pred_buffer_v[0];
-	__m128i lt = top;//_mm_lddqu_si128((__m128i *)(ctx->pred_buffer + 1));
+	__m128i lt = top;//_mm_loadu_si128((__m128i *)(ctx->pred_buffer + 1));
 	__m128i lb = _mm_slli_si128(left, 2);
 	__m128i tl = _mm_alignr_epi8(top, lt, 14);
 	__m128i tll = _mm_alignr_epi8(top, lt, 12);
@@ -327,7 +327,7 @@ static void FUNC(decode_DiagonalDownRight8x8, __m128i top) {
 }
 
 static void FUNC(decode_VerticalRight8x8, __m128i top) {
-	__m128i lt = top;//_mm_lddqu_si128((__m128i *)(ctx->pred_buffer + 1));
+	__m128i lt = top;//_mm_loadu_si128((__m128i *)(ctx->pred_buffer + 1));
 	__m128i x0 = _mm_slli_si128(lt, 2);
 	__m128i x1 = _mm_shuffle_epi32(lt, _MM_SHUFFLE(2, 1, 0, 0));
 	__m128i x2 = _mm_alignr_epi8(top, lt, 14);
@@ -346,7 +346,7 @@ static void FUNC(decode_VerticalRight8x8, __m128i top) {
 
 static void FUNC(decode_HorizontalDown8x8, __m128i top) {
 	__m128i left = top;//(__m128i)ctx->pred_buffer_v[0];
-	__m128i topl = top;//_mm_alignr_epi8(top, _mm_lddqu_si128((__m128i *)(ctx->pred_buffer + 1)), 14);
+	__m128i topl = top;//_mm_alignr_epi8(top, _mm_loadu_si128((__m128i *)(ctx->pred_buffer + 1)), 14);
 	__m128i x0 = _mm_alignr_epi8(topl, left, 2);
 	__m128i x1 = _mm_alignr_epi8(topl, left, 4);
 	__m128i x2 = _mm_srli_si128(topl, 2);
@@ -1026,15 +1026,15 @@ static noinline void FUNC(decode_switch, size_t stride, ssize_t nstride, uint8_t
 		x0 = CALL(filter8_left_8bit, stride, nstride, p, zero, nstride);
 		JUMP(decode_Horizontal8x8, x0);
 	case DC_8x8:
-		x0 = _mm_lddqu_si128((__m128i *)(p + nstride * 2 - 1));
+		x0 = _mm_loadu_si128((__m128i *)(p + nstride * 2 - 1));
 		x1 = CALL(filter8_top_left_8bit, stride, nstride, p, zero, nstride * 2, x0);
 		//JUMP(decode_DC8x8_8bit, x1, (__m128i)ctx->pred_buffer_v[0]);
 	case DC_8x8_C:
-		x0 = _mm_shuffle_epi8(_mm_lddqu_si128((__m128i *)(p + nstride * 2 - 8)), (__m128i)C8_8bit);
+		x0 = _mm_shuffle_epi8(_mm_loadu_si128((__m128i *)(p + nstride * 2 - 8)), (__m128i)C8_8bit);
 		x1 = CALL(filter8_top_left_8bit, stride, nstride, p, zero, nstride * 2, x0);
 		//JUMP(decode_DC8x8_8bit, x1, (__m128i)ctx->pred_buffer_v[0]);
 	case DC_8x8_D:
-		x0 = _mm_shuffle_epi8(_mm_lddqu_si128((__m128i *)(p + nstride * 2)), (__m128i)D8_8bit);
+		x0 = _mm_shuffle_epi8(_mm_loadu_si128((__m128i *)(p + nstride * 2)), (__m128i)D8_8bit);
 		x1 = CALL(filter8_top_left_8bit, stride, nstride, p, zero, nstride, x0);
 		//JUMP(decode_DC8x8_8bit, x1, (__m128i)ctx->pred_buffer_v[0]);
 	case DC_8x8_CD:
@@ -1096,23 +1096,23 @@ static noinline void FUNC(decode_switch, size_t stride, ssize_t nstride, uint8_t
 		x2 = _mm_shufflelo_epi16(_mm_slli_si128(x0, 2), _MM_SHUFFLE(3, 2, 1, 1));
 		JUMP(decode_DiagonalDownLeft8x8, x1, x0, x2);
 	case DIAGONAL_DOWN_RIGHT_8x8:
-		x0 = _mm_lddqu_si128((__m128i *)(p + nstride * 2 - 1));
+		x0 = _mm_loadu_si128((__m128i *)(p + nstride * 2 - 1));
 		x1 = CALL(filter8_top_left_8bit, stride, nstride, p, zero, nstride * 2, x0);
 		JUMP(decode_DiagonalDownRight8x8, x1);
 	case DIAGONAL_DOWN_RIGHT_8x8_C:
-		x0 = _mm_shuffle_epi8(_mm_lddqu_si128((__m128i *)(p + nstride * 2 - 8)), (__m128i)C8_8bit);
+		x0 = _mm_shuffle_epi8(_mm_loadu_si128((__m128i *)(p + nstride * 2 - 8)), (__m128i)C8_8bit);
 		x1 = CALL(filter8_top_left_8bit, stride, nstride, p, zero, nstride * 2, x0);
 		JUMP(decode_DiagonalDownRight8x8, x1);
 	case VERTICAL_RIGHT_8x8:
-		x0 = _mm_lddqu_si128((__m128i *)(p + nstride * 2 - 1));
+		x0 = _mm_loadu_si128((__m128i *)(p + nstride * 2 - 1));
 		x1 = CALL(filter8_top_left_8bit, stride, nstride, p, zero, nstride * 2, x0);
 		JUMP(decode_VerticalRight8x8, x1);
 	case VERTICAL_RIGHT_8x8_C:
-		x0 = _mm_shuffle_epi8(_mm_lddqu_si128((__m128i *)(p + nstride * 2 - 8)), (__m128i)C8_8bit);
+		x0 = _mm_shuffle_epi8(_mm_loadu_si128((__m128i *)(p + nstride * 2 - 8)), (__m128i)C8_8bit);
 		x1 = CALL(filter8_top_left_8bit, stride, nstride, p, zero, nstride * 2, x0);
 		JUMP(decode_VerticalRight8x8, x1);
 	case HORIZONTAL_DOWN_8x8:
-		x0 = _mm_lddqu_si128((__m128i *)(p + nstride * 2 - 1));
+		x0 = _mm_loadu_si128((__m128i *)(p + nstride * 2 - 1));
 		x1 = CALL(filter8_top_left_8bit, stride, nstride, p, zero, nstride * 2, x0);
 		JUMP(decode_HorizontalDown8x8, x1);
 	case VERTICAL_LEFT_8x8:

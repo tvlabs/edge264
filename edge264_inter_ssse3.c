@@ -775,8 +775,8 @@ INTER8xH_QPEL_21_22_23(qpel23, filter_6tapD_8bit(x30, x40, hv))
  */
 static void inter16xH_qpel00_8bit(int h, size_t dstride, uint8_t * restrict dst, size_t sstride, const uint8_t *src, __m128i w, __m128i o, __m128i logWD) {
 	do {
-		store16x1_8bit(dstride, dst          , _mm_lddqu_si128((__m128i *)(src          )), w, o, logWD);
-		store16x1_8bit(dstride, dst + dstride, _mm_lddqu_si128((__m128i *)(src + sstride)), w, o, logWD);
+		store16x1_8bit(dstride, dst          , _mm_loadu_si128((__m128i *)(src          )), w, o, logWD);
+		store16x1_8bit(dstride, dst + dstride, _mm_loadu_si128((__m128i *)(src + sstride)), w, o, logWD);
 		src += sstride * 2;
 		dst += dstride * 2;
 	} while (h -= 2);
@@ -816,11 +816,11 @@ INTER16xH_QPEL_10_20_30(qpel30, _mm_avg_epu8(h, _mm_packus_epi16(l03, l0B)))
 	static void inter16xH_ ## QPEL ## _8bit(int h, size_t dstride, uint8_t * restrict dst, size_t sstride, const uint8_t *src, __m128i w, __m128i o, __m128i logWD) {\
 		ssize_t nstride= -sstride;\
 		__m128i zero = _mm_setzero_si128();\
-		__m128i d00 = _mm_lddqu_si128((__m128i *)(src + nstride * 2));\
-		__m128i d10 = _mm_lddqu_si128((__m128i *)(src + nstride    ));\
-		__m128i d20 = _mm_lddqu_si128((__m128i *)(src              ));\
-		__m128i d30 = _mm_lddqu_si128((__m128i *)(src + sstride    ));\
-		__m128i d40 = _mm_lddqu_si128((__m128i *)(src + sstride * 2));\
+		__m128i d00 = _mm_loadu_si128((__m128i *)(src + nstride * 2));\
+		__m128i d10 = _mm_loadu_si128((__m128i *)(src + nstride    ));\
+		__m128i d20 = _mm_loadu_si128((__m128i *)(src              ));\
+		__m128i d30 = _mm_loadu_si128((__m128i *)(src + sstride    ));\
+		__m128i d40 = _mm_loadu_si128((__m128i *)(src + sstride * 2));\
 		__m128i l00 = _mm_unpacklo_epi8(d00, zero);\
 		__m128i l08 = _mm_unpackhi_epi8(d00, zero);\
 		__m128i l10 = _mm_unpacklo_epi8(d10, zero);\
@@ -833,7 +833,7 @@ INTER16xH_QPEL_10_20_30(qpel30, _mm_avg_epu8(h, _mm_packus_epi16(l03, l0B)))
 		__m128i l48 = _mm_unpackhi_epi8(d40, zero);\
 		do {\
 			src += sstride;\
-			__m128i d50 = _mm_lddqu_si128((__m128i *)(src + sstride * 2));\
+			__m128i d50 = _mm_loadu_si128((__m128i *)(src + sstride * 2));\
 			__m128i l50 = _mm_unpacklo_epi8(d50, zero);\
 			__m128i l58 = _mm_unpackhi_epi8(d50, zero);\
 			__m128i v0 = filter_6tap_8bit(l00, l10, l20, l30, l40, l50);\
@@ -857,15 +857,15 @@ INTER16xH_QPEL_01_02_03(qpel03, _mm_avg_epu8(v, _mm_packus_epi16(l30, l38)))
 	static void inter16xH_ ## QPEL ## _8bit(int h, size_t dstride, uint8_t * restrict dst, size_t sstride, const uint8_t *src, __m128i w, __m128i o, __m128i logWD) {\
 		ssize_t nstride= -sstride;\
 		__m128i zero = _mm_setzero_si128();\
-		__m128i d0##R = _mm_lddqu_si128((__m128i *)(src + nstride * 2 + R - 2));\
-		__m128i d1##R = _mm_lddqu_si128((__m128i *)(src + nstride     + R - 2));\
+		__m128i d0##R = _mm_loadu_si128((__m128i *)(src + nstride * 2 + R - 2));\
+		__m128i d1##R = _mm_loadu_si128((__m128i *)(src + nstride     + R - 2));\
 		__m128i l0##R = _mm_unpacklo_epi8(d0##R, zero);\
 		__m128i l0##S = _mm_unpackhi_epi8(d0##R, zero);\
 		__m128i l1##R = _mm_unpacklo_epi8(d1##R, zero);\
 		__m128i l1##S = _mm_unpackhi_epi8(d1##R, zero);\
 		do {\
 			src += sstride;\
-			__m128i d20 = _mm_lddqu_si128((__m128i *)(src + nstride - 2));\
+			__m128i d20 = _mm_loadu_si128((__m128i *)(src + nstride - 2));\
 			__m128i l2D = load8x1_8bit(src + nstride + 11, zero);\
 			__m128i l20 = _mm_unpacklo_epi8(d20, zero);\
 			__m128i l28 = _mm_unpackhi_epi8(d20, zero);\
@@ -882,9 +882,9 @@ INTER16xH_QPEL_01_02_03(qpel03, _mm_avg_epu8(v, _mm_packus_epi16(l30, l38)))
 			__m128i h0 = filter_6tap_8bit(l20, l21, l22, l23, l24, l25);\
 			__m128i h1 = filter_6tap_8bit(l28, l29, l2A, l2B, l2C, l2D);\
 			__m128i h = _mm_packus_epi16(h0, h1);\
-			__m128i d3##R = _mm_lddqu_si128((__m128i *)(src               + R - 2));\
-			__m128i d4##R = _mm_lddqu_si128((__m128i *)(src + sstride     + R - 2));\
-			__m128i d5##R = _mm_lddqu_si128((__m128i *)(src + sstride * 2 + R - 2));\
+			__m128i d3##R = _mm_loadu_si128((__m128i *)(src               + R - 2));\
+			__m128i d4##R = _mm_loadu_si128((__m128i *)(src + sstride     + R - 2));\
+			__m128i d5##R = _mm_loadu_si128((__m128i *)(src + sstride * 2 + R - 2));\
 			__m128i l3##R = _mm_unpacklo_epi8(d3##R, zero);\
 			__m128i l3##S = _mm_unpackhi_epi8(d3##R, zero);\
 			__m128i l4##R = _mm_unpacklo_epi8(d4##R, zero);\
@@ -908,9 +908,9 @@ INTER16xH_QPEL_11_31(qpel31, 3, B)
 	static void inter16xH_ ## QPEL ## _8bit(int h, size_t dstride, uint8_t * restrict dst, size_t sstride, const uint8_t *src, __m128i w, __m128i o, __m128i logWD) {\
 		ssize_t nstride= -sstride;\
 		__m128i zero = _mm_setzero_si128();\
-		__m128i d0##R = _mm_lddqu_si128((__m128i *)(src + nstride * 2 + R - 2));\
-		__m128i d1##R = _mm_lddqu_si128((__m128i *)(src + nstride     + R - 2));\
-		__m128i d2##R = _mm_lddqu_si128((__m128i *)(src               + R - 2));\
+		__m128i d0##R = _mm_loadu_si128((__m128i *)(src + nstride * 2 + R - 2));\
+		__m128i d1##R = _mm_loadu_si128((__m128i *)(src + nstride     + R - 2));\
+		__m128i d2##R = _mm_loadu_si128((__m128i *)(src               + R - 2));\
 		__m128i l0##R = _mm_unpacklo_epi8(d0##R, zero);\
 		__m128i l0##S = _mm_unpackhi_epi8(d0##R, zero);\
 		__m128i l1##R = _mm_unpacklo_epi8(d1##R, zero);\
@@ -919,7 +919,7 @@ INTER16xH_QPEL_11_31(qpel31, 3, B)
 		__m128i l2##S = _mm_unpackhi_epi8(d2##R, zero);\
 		do {\
 			src += sstride;\
-			__m128i d30 = _mm_lddqu_si128((__m128i *)(src - 2));\
+			__m128i d30 = _mm_loadu_si128((__m128i *)(src - 2));\
 			__m128i l3D = load8x1_8bit(src + 11, zero);\
 			__m128i l30 = _mm_unpacklo_epi8(d30, zero);\
 			__m128i l38 = _mm_unpackhi_epi8(d30, zero);\
@@ -936,8 +936,8 @@ INTER16xH_QPEL_11_31(qpel31, 3, B)
 			__m128i h0 = filter_6tap_8bit(l30, l31, l32, l33, l34, l35);\
 			__m128i h1 = filter_6tap_8bit(l38, l39, l3A, l3B, l3C, l3D);\
 			__m128i h = _mm_packus_epi16(h0, h1);\
-			__m128i d4##R = _mm_lddqu_si128((__m128i *)(src + sstride     + R - 2));\
-			__m128i d5##R = _mm_lddqu_si128((__m128i *)(src + sstride * 2 + R - 2));\
+			__m128i d4##R = _mm_loadu_si128((__m128i *)(src + sstride     + R - 2));\
+			__m128i d5##R = _mm_loadu_si128((__m128i *)(src + sstride * 2 + R - 2));\
 			__m128i l4##R = _mm_unpacklo_epi8(d4##R, zero);\
 			__m128i l4##S = _mm_unpackhi_epi8(d4##R, zero);\
 			__m128i l5##R = _mm_unpacklo_epi8(d5##R, zero);\
@@ -960,29 +960,29 @@ INTER16xH_QPEL_13_33(qpel33, 3, B)
 	static void inter16xH_ ## QPEL ## _8bit(int h, size_t dstride, uint8_t * restrict dst, size_t sstride, const uint8_t *src, __m128i w, __m128i o, __m128i logWD) {\
 		ssize_t nstride= -sstride;\
 		__m128i zero = _mm_setzero_si128();\
-		__m128i d00 = _mm_lddqu_si128((__m128i *)(src + nstride * 2 - 2));\
+		__m128i d00 = _mm_loadu_si128((__m128i *)(src + nstride * 2 - 2));\
 		__m128i l00 = _mm_unpacklo_epi8(d00, zero);\
 		__m128i l08 = _mm_unpackhi_epi8(d00, zero);\
 		__m128i l0D = load8x1_8bit(src + nstride * 2 + 11, zero);\
-		__m128i d10 = _mm_lddqu_si128((__m128i *)(src + nstride     - 2));\
+		__m128i d10 = _mm_loadu_si128((__m128i *)(src + nstride     - 2));\
 		__m128i l10 = _mm_unpacklo_epi8(d10, zero);\
 		__m128i l18 = _mm_unpackhi_epi8(d10, zero);\
 		__m128i l1D = load8x1_8bit(src + nstride     + 11, zero);\
-		__m128i d20 = _mm_lddqu_si128((__m128i *)(src               - 2));\
+		__m128i d20 = _mm_loadu_si128((__m128i *)(src               - 2));\
 		__m128i l20 = _mm_unpacklo_epi8(d20, zero);\
 		__m128i l28 = _mm_unpackhi_epi8(d20, zero);\
 		__m128i l2D = load8x1_8bit(src               + 11, zero);\
-		__m128i d30 = _mm_lddqu_si128((__m128i *)(src + sstride     - 2));\
+		__m128i d30 = _mm_loadu_si128((__m128i *)(src + sstride     - 2));\
 		__m128i l30 = _mm_unpacklo_epi8(d30, zero);\
 		__m128i l38 = _mm_unpackhi_epi8(d30, zero);\
 		__m128i l3D = load8x1_8bit(src + sstride     + 11, zero);\
-		__m128i d40 = _mm_lddqu_si128((__m128i *)(src + sstride * 2 - 2));\
+		__m128i d40 = _mm_loadu_si128((__m128i *)(src + sstride * 2 - 2));\
 		__m128i l40 = _mm_unpacklo_epi8(d40, zero);\
 		__m128i l48 = _mm_unpackhi_epi8(d40, zero);\
 		__m128i l4D = load8x1_8bit(src + sstride * 2 + 11, zero);\
 		do {\
 			src += sstride;\
-			__m128i d50 = _mm_lddqu_si128((__m128i *)(src + sstride * 2 - 2));\
+			__m128i d50 = _mm_loadu_si128((__m128i *)(src + sstride * 2 - 2));\
 			__m128i l50 = _mm_unpacklo_epi8(d50, zero);\
 			__m128i l58 = _mm_unpackhi_epi8(d50, zero);\
 			__m128i v00 = filter_36tapU_8bit(l00, l10, l20, l30, l40, l50);\
@@ -1018,7 +1018,7 @@ INTER16xH_QPEL_12_32(qpel32, filter_6tapD_8bit(v03, v0B, vh))
 	static void inter16xH_ ## QPEL ## _8bit(int h, size_t dstride, uint8_t * restrict dst, size_t sstride, const uint8_t *src, __m128i w, __m128i o, __m128i logWD) {\
 		ssize_t nstride= -sstride;\
 		__m128i zero = _mm_setzero_si128();\
-		__m128i d00 = _mm_lddqu_si128((__m128i *)(src + nstride * 2 - 2));\
+		__m128i d00 = _mm_loadu_si128((__m128i *)(src + nstride * 2 - 2));\
 		__m128i l00 = _mm_unpacklo_epi8(d00, zero);\
 		__m128i l08 = _mm_unpackhi_epi8(d00, zero);\
 		__m128i l0D = load8x1_8bit(src + nstride * 2 + 11, zero);\
@@ -1034,7 +1034,7 @@ INTER16xH_QPEL_12_32(qpel32, filter_6tapD_8bit(v03, v0B, vh))
 		__m128i l0C = _mm_alignr_epi8(l0G, l08, 8);\
 		__m128i h00 = filter_36tapU_8bit(l00, l01, l02, l03, l04, l05);\
 		__m128i h08 = filter_36tapU_8bit(l08, l09, l0A, l0B, l0C, l0D);\
-		__m128i d10 = _mm_lddqu_si128((__m128i *)(src + nstride     - 2));\
+		__m128i d10 = _mm_loadu_si128((__m128i *)(src + nstride     - 2));\
 		__m128i l10 = _mm_unpacklo_epi8(d10, zero);\
 		__m128i l18 = _mm_unpackhi_epi8(d10, zero);\
 		__m128i l1D = load8x1_8bit(src + nstride     + 11, zero);\
@@ -1050,7 +1050,7 @@ INTER16xH_QPEL_12_32(qpel32, filter_6tapD_8bit(v03, v0B, vh))
 		__m128i l1C = _mm_alignr_epi8(l1G, l18, 8);\
 		__m128i h10 = filter_36tapU_8bit(l10, l11, l12, l13, l14, l15);\
 		__m128i h18 = filter_36tapU_8bit(l18, l19, l1A, l1B, l1C, l1D);\
-		__m128i d20 = _mm_lddqu_si128((__m128i *)(src               - 2));\
+		__m128i d20 = _mm_loadu_si128((__m128i *)(src               - 2));\
 		__m128i l20 = _mm_unpacklo_epi8(d20, zero);\
 		__m128i l28 = _mm_unpackhi_epi8(d20, zero);\
 		__m128i l2D = load8x1_8bit(src               + 11, zero);\
@@ -1066,7 +1066,7 @@ INTER16xH_QPEL_12_32(qpel32, filter_6tapD_8bit(v03, v0B, vh))
 		__m128i l2C = _mm_alignr_epi8(l2G, l28, 8);\
 		__m128i h20 = filter_36tapU_8bit(l20, l21, l22, l23, l24, l25);\
 		__m128i h28 = filter_36tapU_8bit(l28, l29, l2A, l2B, l2C, l2D);\
-		__m128i d30 = _mm_lddqu_si128((__m128i *)(src + sstride     - 2));\
+		__m128i d30 = _mm_loadu_si128((__m128i *)(src + sstride     - 2));\
 		__m128i l30 = _mm_unpacklo_epi8(d30, zero);\
 		__m128i l38 = _mm_unpackhi_epi8(d30, zero);\
 		__m128i l3D = load8x1_8bit(src + sstride     + 11, zero);\
@@ -1082,7 +1082,7 @@ INTER16xH_QPEL_12_32(qpel32, filter_6tapD_8bit(v03, v0B, vh))
 		__m128i l3C = _mm_alignr_epi8(l3G, l38, 8);\
 		__m128i h30 = filter_36tapU_8bit(l30, l31, l32, l33, l34, l35);\
 		__m128i h38 = filter_36tapU_8bit(l38, l39, l3A, l3B, l3C, l3D);\
-		__m128i d40 = _mm_lddqu_si128((__m128i *)(src + sstride * 2 - 2));\
+		__m128i d40 = _mm_loadu_si128((__m128i *)(src + sstride * 2 - 2));\
 		__m128i l40 = _mm_unpacklo_epi8(d40, zero);\
 		__m128i l48 = _mm_unpackhi_epi8(d40, zero);\
 		__m128i l4D = load8x1_8bit(src + sstride * 2 + 11, zero);\
@@ -1100,7 +1100,7 @@ INTER16xH_QPEL_12_32(qpel32, filter_6tapD_8bit(v03, v0B, vh))
 		__m128i h48 = filter_36tapU_8bit(l48, l49, l4A, l4B, l4C, l4D);\
 		do {\
 			src += sstride;\
-			__m128i d50 = _mm_lddqu_si128((__m128i *)(src + sstride * 2 - 2));\
+			__m128i d50 = _mm_loadu_si128((__m128i *)(src + sstride * 2 - 2));\
 			__m128i l50 = _mm_unpacklo_epi8(d50, zero);\
 			__m128i l58 = _mm_unpackhi_epi8(d50, zero);\
 			__m128i l51 = _mm_alignr_epi8(l58, l50, 2);\

@@ -1,5 +1,4 @@
 /** MAYDO:
- * _ replace old uses of lddqu with loadu
  * _ vectorize initializations for temporal prediction
  * _ review intra and inter routines to check whether 8bit versions could be shorter in code
  * _ add support for open GOP (i.e. ignoring frames that reference unavailable previous frames)

@@ -237,7 +237,6 @@ typedef struct
  * Macro-ed function defs/calls allow removing ctx from args and keeping it in
  * a Global Register Variable if permitted by the compiler. On my machine the
  * speed gain is negligible, but the binary is noticeably smaller.
- * However storing bitstream caches in registers gives a big performance gain.
  */
 #if defined(__SSSE3__) && !defined(__clang__)
 	register Edge264_ctx * restrict ctx asm("ebx");
@@ -254,19 +253,6 @@ typedef struct
 	#define JUMP(f, ...) {f(ctx, ## __VA_ARGS__); return;}
 #endif
 #define mb ctx->_mb
-#if defined(__SSSE3__) && !defined(__clang__) && SIZE_BIT == 64
-	register size_t rbsp_reg0 asm("r14");
-	register size_t rbsp_reg1 asm("r15");
-	#define codIRange rbsp_reg0
-	#define codIOffset rbsp_reg1
-	#define lsb_cache rbsp_reg0
-	#define msb_cache rbsp_reg1
-#else
-	#define codIRange ctx->_codIRange
-	#define codIOffset ctx->_codIOffset
-	#define lsb_cache ctx->_lsb_cache
-	#define msb_cache ctx->_msb_cache
-#endif
 
 
 
@@ -320,15 +306,21 @@ static int FUNC(cabac_terminate);
 static void FUNC(cabac_init, int idc);
 
 // edge264_deblock_*.c
-static noinline void FUNC(deblock_frame);
+void FUNC(deblock_frame);
 
 // edge264_inter_*.c
-static noinline void FUNC(decode_inter, int i, int w, int h);
+void FUNC(decode_inter, int i, int w, int h);
 
 // edge264_intra_*.c
-static always_inline void FUNC(decode_intra4x4, int mode, uint8_t *samples, size_t stride, int clip);
-static always_inline void FUNC(decode_intra16x16, int mode, uint8_t *samples, size_t stride, int clip);
-static always_inline void FUNC(decode_intraChroma, int mode, uint8_t *samplesCb, uint8_t *samplesCr, size_t stride, int clip);
+void _decode_intra4x4(int mode, uint8_t *px1, size_t stride, ssize_t nstride, int clip, v16qi zero);
+void _decode_intra16x16(int mode, uint8_t *px0, uint8_t *px7, uint8_t *pxE, size_t stride, ssize_t nstride, int clip);
+void _decode_intraChroma(int mode, uint8_t *Cb0, uint8_t *Cb7, uint8_t *Cr0, uint8_t *Cr7, size_t stride, ssize_t nstride, int clip);
+static always_inline void FUNC(decode_intra4x4, int mode, uint8_t *samples, size_t stride, int clip) {
+	_decode_intra4x4(mode, samples + stride, stride, -stride, clip, (v16qi){}); }
+static always_inline void FUNC(decode_intra16x16, int mode, uint8_t *samples, size_t stride, int clip) {
+	_decode_intra16x16(mode, samples, samples + stride * 7, samples + stride * 14, stride, -stride, clip); }
+static always_inline void FUNC(decode_intraChroma, int mode, uint8_t *samplesCb, uint8_t *samplesCr, size_t stride, int clip) {
+	_decode_intraChroma(mode, samplesCb, samplesCb + stride * 7, samplesCr, samplesCr + stride * 7, stride, -stride, clip); }
 
 // edge264_mvpred.c
 static inline void FUNC(decode_inter_16x16, v8hi mvd, int lx);
@@ -339,10 +331,11 @@ static inline void FUNC(decode_inter_16x8_bottom, v8hi mvd, int lx);
 static noinline void FUNC(decode_direct_mv_pred);
 
 // edge264_residual_*.c
-static inline void FUNC(add_idct4x4, int iYCbCr, int qP, v16qu wS, int DCidx, uint8_t *samples);
-static inline void FUNC(transform_dc4x4, int iYCbCr);
-static inline void FUNC(transform_dc2x2);
-static inline void FUNC(transform_dc2x4);
+void FUNC(add_idct4x4, int iYCbCr, int qP, v16qu wS, int DCidx, uint8_t *samples);
+void FUNC(add_dc4x4, int iYCbCr, int DCidx, uint8_t *samples);
+void FUNC(transform_dc4x4, int iYCbCr);
+void FUNC(transform_dc2x2);
+void FUNC(transform_dc2x4);
 
 // edge264_slice.c
 static noinline void FUNC(parse_slice_data_cavlc);

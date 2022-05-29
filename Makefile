@@ -1,31 +1,42 @@
+override CFLAGS := -std=gnu99 -march=native -O2 $(CFLAGS)
+
 # TRACE:
 # 1 - Prints NAL headers to stdout
 # 2 - Also prints decoded symbols to stderr (VERY LARGE)
+ifeq ($(TRACE),)
+	SUF = -$(CC)
+else
+	override CFLAGS := -DTRACE=$(TRACE) $(CFLAGS)
+	SUF = -trace$(TRACE)
+endif
 
-override CFLAGS := -std=gnu99 -march=native -O2 $(CFLAGS) `pkg-config glfw3 --cflags --libs`
-
+# pkg-config is missing -framework OpenGL on macos, so we handle this manually
 ifeq ($(OS),)
 	OS := $(shell uname)
 endif
 ifeq ($(OS),Darwin)
-	LIBS = -lglfw -framework OpenGL
+	GLFW3 = -lglfw -framework OpenGL
 else
-	LIBS = -lglfw -lgl
+	GLFW3 = -lglfw -lgl
 endif
 
-ifeq ($(TRACE),)
-	SUFFIX = -$(CC)
-else
-	override CFLAGS := -DTRACE=$(TRACE) $(CFLAGS)
-	SUFFIX = -trace$(TRACE)
-endif
 
-edge264$(SUFFIX).o: edge264*.c edge264*.h Makefile
-	$(CC) -o edge264$(SUFFIX).o -c $(CFLAGS) edge264.c
+edge264$(SUF).o: edge264*.c edge264*.h edge264_deblock$(SUF).o edge264_intra$(SUF).o edge264_inter$(SUF).o edge264_residual$(SUF).o Makefile
+	$(CC) -o edge264$(SUF).o -c $(CFLAGS) edge264.c
 ifeq ($(TRACE),)
-	$(CC) -o edge264_test$(SUFFIX) $(CFLAGS) edge264_test.c edge264$(SUFFIX).o
+	$(CC) -o edge264_test$(SUF) $(CFLAGS) edge264_test.c edge264$(SUF).o edge264_deblock$(SUF).o edge264_intra$(SUF).o edge264_inter$(SUF).o edge264_residual$(SUF).o
 endif
-	$(CC) -o edge264_play$(SUFFIX) $(CFLAGS) $(LIBS) edge264_play.c edge264$(SUFFIX).o
+	$(CC) $(GLFW3) $(CFLAGS) -o edge264_play$(SUF) edge264_play.c edge264$(SUF).o edge264_deblock$(SUF).o edge264_intra$(SUF).o edge264_inter$(SUF).o edge264_residual$(SUF).o
+
+# These files are compiled separately to use a different set of GRVs
+edge264_deblock$(SUF).o: edge264_deblock.c edge264_common.h Makefile
+	$(CC) -o edge264_deblock$(SUF).o -c $(CFLAGS) edge264_deblock.c
+edge264_inter$(SUF).o: edge264_inter.c edge264_common.h Makefile
+	$(CC) -o edge264_inter$(SUF).o -c $(CFLAGS) edge264_inter.c
+edge264_intra$(SUF).o: edge264_intra.c edge264_common.h Makefile
+	$(CC) -o edge264_intra$(SUF).o -c $(CFLAGS) edge264_intra.c
+edge264_residual$(SUF).o: edge264_residual.c edge264_common.h Makefile
+	$(CC) -o edge264_residual$(SUF).o -c $(CFLAGS) edge264_residual.c
 
 .PHONY: clean
 clean:

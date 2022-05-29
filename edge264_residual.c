@@ -44,7 +44,7 @@ static const v16qi normAdjust8x8[24] = {
  * Here we try to stay close to the spec's pseudocode, avoiding minor
  * optimisations that would make the code hard to understand.
  */
-static inline void FUNC(add_idct4x4, int iYCbCr, int qP, v16qu wS, int DCidx, uint8_t *samples)
+void FUNC(add_idct4x4, int iYCbCr, int qP, v16qu wS, int DCidx, uint8_t *samples)
 {
 	// loading and scaling
 	__m128i zero = _mm_setzero_si128();
@@ -122,7 +122,7 @@ static inline void FUNC(add_idct4x4, int iYCbCr, int qP, v16qu wS, int DCidx, ui
 	}
 }
 
-static inline void FUNC(add_dc4x4, int iYCbCr, int DCidx, uint8_t *samples) {
+void FUNC(add_dc4x4, int iYCbCr, int DCidx, uint8_t *samples) {
 	__m128i x = _mm_srai_epi32(_mm_add_epi32(_mm_set1_epi32(ctx->c[16 + DCidx]), _mm_set1_epi32(32)), 6);
 	__m128i r = _mm_packs_epi32(x, x);
 	__m128i zero = _mm_setzero_si128();
@@ -560,7 +560,7 @@ static noinline void FUNC(decode_Residual8x8, __m128i p0,
  * 
  * These functions do not gain enough from 8bit to justify distinct versions.
  */
-static inline void FUNC(transform_dc4x4, int iYCbCr)
+void FUNC(transform_dc4x4, int iYCbCr)
 {
 	// load matrix in column order and multiply right
 	__m128i c0 = (__m128i)ctx->c_v[0];
@@ -674,7 +674,7 @@ static inline void FUNC(transform_dc4x4, int iYCbCr)
 	}
 }
 
-static inline void FUNC(transform_dc2x2)
+void FUNC(transform_dc2x2)
 {
 	// load both matrices interlaced+transposed and multiply right
 	__m128i c0 = (__m128i)ctx->c_v[0];
@@ -768,7 +768,7 @@ static inline void FUNC(transform_dc2x2)
 	}
 }
 
-static inline void FUNC(transform_dc2x4)
+void FUNC(transform_dc2x4)
 {
 	int iYCbCr = (0/*BlkIdx*/ - 8) >> 3; // BlkIdx is 16 or 24
 	unsigned qP_DC = 0; //mb->QP[iYCbCr] + 3;

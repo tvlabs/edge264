@@ -1,7 +1,4 @@
 /** MAYDO:
- * _ review intra and inter routines to check whether 8bit versions could be shorter in code
- * _ add support for open GOP (i.e. ignoring frames that reference unavailable previous frames)
- * _ compile decoding function separately to let them use msb/lsb_cache registers
  * _ debug the decoding with GCC
  * _ review and secure the places where CABAC could result in unsupported internal state
  * _ rename absMvdComp into absMvd, and other mb variables into their non symbol version
@@ -26,13 +23,23 @@
  * _ don't allocate images separately, because for desktop it will contribute to fragmentation if other allocs happen inbetween, and for embedded systems it will be easier to bypass malloc and manage memory by hand with a single alloc
  */
 
-#include "edge264_common.h"
-#ifdef __SSSE3__
-#include "edge264_residual_ssse3.c"
-#include "edge264_intra_ssse3.c"
-#include "edge264_inter_ssse3.c"
-#include "edge264_deblock_ssse3.c"
+
+// Storing bitstream caches in GRVs provides a big performance gain for GCC
+#if defined(__SSSE3__) && !defined(__clang__) && SIZE_BIT == 64
+	register size_t rbsp_reg0 asm("r14");
+	register size_t rbsp_reg1 asm("r15");
+	#define codIRange rbsp_reg0
+	#define codIOffset rbsp_reg1
+	#define lsb_cache rbsp_reg0
+	#define msb_cache rbsp_reg1
+#else
+	#define codIRange ctx->_codIRange
+	#define codIOffset ctx->_codIOffset
+	#define lsb_cache ctx->_lsb_cache
+	#define msb_cache ctx->_msb_cache
 #endif
+
+#include "edge264_common.h"
 #include "edge264_bitstream.c"
 #include "edge264_mvpred.c"
 #include "edge264_slice.c"

@@ -842,7 +842,7 @@ static noinline void FUNC(deblock_CbCr_8bit, size_t stride, ssize_t nstride, siz
  * Loop through an entire frame to apply the deblocking filter on all
  * macroblocks.
  */
-static noinline void FUNC(deblock_frame)
+void FUNC(deblock_frame)
 {
 	// point at the first macroblock
 	ctx->samples_mb[0] = ctx->samples_row[0] = ctx->samples_pic;

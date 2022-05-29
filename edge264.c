@@ -1,5 +1,4 @@
 /** MAYDO:
- * _ update the attributes of e to include all necessary data to decode one frame
  * _ remove uses of __m64 in inter_ssse3.c
  * _ replace old uses of lddqu with loadu
  * _ vectorize initializations for temporal prediction
@@ -1413,16 +1412,18 @@ static int FUNC(parse_seq_parameter_set, Edge264_stream *e)
 		// some basic variables first
 		int PicWidthInMbs = ctx->ps.pic_width_in_mbs;
 		int PicHeightInMbs = ctx->ps.pic_height_in_mbs;
-		int width_Y = PicWidthInMbs << 4;
-		int width_C = ctx->ps.chroma_format_idc == 0 ? 0 : ctx->ps.chroma_format_idc == 3 ? width_Y : width_Y >> 1;
-		int height_Y = PicHeightInMbs << 4;
-		int height_C = ctx->ps.chroma_format_idc < 2 ? height_Y >> 1 : height_Y;
+		e->pixel_depth_Y = ctx->ps.BitDepth_Y > 8;
+		e->pixel_depth_C = ctx->ps.BitDepth_C > 8;
+		e->width_Y = PicWidthInMbs << 4;
+		e->width_C = ctx->ps.chroma_format_idc == 0 ? 0 : ctx->ps.chroma_format_idc == 3 ? e->width_Y : e->width_Y >> 1;
+		e->height_Y = PicHeightInMbs << 4;
+		e->height_C = ctx->ps.chroma_format_idc < 2 ? e->height_Y >> 1 : e->height_Y;
 		
 		// An offset might be added if cache alignment has a significant impact on some videos.
-		e->stride_Y = ctx->ps.BitDepth_Y == 8 ? width_Y : width_Y * 2;
-		e->stride_C = ctx->ps.BitDepth_C == 8 ? width_C : width_C * 2;
-		e->plane_size_Y = e->stride_Y * height_Y;
-		e->plane_size_C = e->stride_C * height_C;
+		e->stride_Y = e->width_Y << e->pixel_depth_Y;
+		e->stride_C = e->width_C << e->pixel_depth_C;
+		e->plane_size_Y = e->stride_Y * e->height_Y;
+		e->plane_size_C = e->stride_C * e->height_C;
 		
 		// Each picture in the DPB is three planes and a group of macroblocks
 		e->frame_size = (e->plane_size_Y + e->plane_size_C * 2 + (PicWidthInMbs + 1) *
@@ -1573,7 +1574,9 @@ int Edge264_get_frame(Edge264_stream *e, int drain) {
 	if (output < 0)
 		return -1;
 	e->output_flags ^= 1 << output;
-	e->frame = e->DPB + output * e->frame_size;
+	e->samples_Y = e->DPB + output * e->frame_size;
+	e->samples_Cb = e->samples_Y + e->plane_size_Y;
+	e->samples_Cr = e->samples_Cb + e->plane_size_C;
 	return 0;
 }
 

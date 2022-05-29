@@ -109,13 +109,15 @@ static void init_display()
 
 
 
-static int check_frame(const Edge264_stream *e, int i, const uint8_t *frame)
+static int check_frame(const Edge264_stream *e)
 {
+	int i = (e->samples_Y - e->DPB) / e->frame_size;
 	int MbStrideY = e->SPS.BitDepth_Y == 8 ? 16 : 32;
 	int MbWidthC = e->SPS.chroma_format_idc < 3 ? 8 : 16;
 	int MbStrideC = e->SPS.BitDepth_C == 8 ? MbWidthC : MbWidthC * 2;
 	int MbHeightC = e->SPS.chroma_format_idc < 2 ? 8 : 16;
 	
+	// should be reworked when implementing frame cropping
 	for (int row = 0; row < e->SPS.pic_height_in_mbs; row++) {
 		for (int col = 0; col < e->SPS.pic_width_in_mbs; col++) {
 			int MbStride = MbStrideY;
@@ -124,7 +126,7 @@ static int check_frame(const Edge264_stream *e, int i, const uint8_t *frame)
 			int plane = 0;
 			for (int iYCbCr = 0; iYCbCr < 3; iYCbCr++) {
 				int offset = plane + row * MbHeight * stride + col * MbStride;
-				const uint8_t *p = frame + offset;
+				const uint8_t *p = e->samples_Y + offset;
 				const uint8_t *q = cmp + offset;
 				
 				int invalid = 0;
@@ -158,7 +160,7 @@ static int check_frame(const Edge264_stream *e, int i, const uint8_t *frame)
 
 
 
-int process_frame(Edge264_stream *e, int i)
+int process_frame(Edge264_stream *e)
 {
 	// resize the window if necessary
 	int w, h;
@@ -173,18 +175,17 @@ int process_frame(Edge264_stream *e, int i)
 	// upload the image to OpenGL and render!
 	glClear(GL_COLOR_BUFFER_BIT);
 	glVertexAttribPointer(0, 4, GL_FLOAT, GL_FALSE, 0, 0);
-	const uint8_t* p = e->DPB + i * e->frame_size;
 	int widthC = widthY >> (e->SPS.chroma_format_idc < 3);
 	int heightC = heightY >> (e->SPS.chroma_format_idc < 2);
 	glActiveTexture(GL_TEXTURE0);
 	glBindTexture(GL_TEXTURE_2D, textures[0]);
-	glTexImage2D(GL_TEXTURE_2D, 0, GL_LUMINANCE, widthY, heightY, 0, GL_LUMINANCE, e->SPS.BitDepth_Y == 8 ? GL_UNSIGNED_BYTE : GL_UNSIGNED_SHORT, p);
+	glTexImage2D(GL_TEXTURE_2D, 0, GL_LUMINANCE, widthY, heightY, 0, GL_LUMINANCE, e->SPS.BitDepth_Y == 8 ? GL_UNSIGNED_BYTE : GL_UNSIGNED_SHORT, e->samples_Y);
 	glActiveTexture(GL_TEXTURE1);
 	glBindTexture(GL_TEXTURE_2D, textures[1]);
-	glTexImage2D(GL_TEXTURE_2D, 0, GL_LUMINANCE, widthC, heightC, 0, GL_LUMINANCE, e->SPS.BitDepth_C == 8 ? GL_UNSIGNED_BYTE : GL_UNSIGNED_SHORT, p + e->plane_size_Y);
+	glTexImage2D(GL_TEXTURE_2D, 0, GL_LUMINANCE, widthC, heightC, 0, GL_LUMINANCE, e->SPS.BitDepth_C == 8 ? GL_UNSIGNED_BYTE : GL_UNSIGNED_SHORT, e->samples_Cb);
 	glActiveTexture(GL_TEXTURE2);
 	glBindTexture(GL_TEXTURE_2D, textures[2]);
-	glTexImage2D(GL_TEXTURE_2D, 0, GL_LUMINANCE, widthC, heightC, 0, GL_LUMINANCE, e->SPS.BitDepth_C == 8 ? GL_UNSIGNED_BYTE : GL_UNSIGNED_SHORT, p + e->plane_size_Y + e->plane_size_C);
+	glTexImage2D(GL_TEXTURE_2D, 0, GL_LUMINANCE, widthC, heightC, 0, GL_LUMINANCE, e->SPS.BitDepth_C == 8 ? GL_UNSIGNED_BYTE : GL_UNSIGNED_SHORT, e->samples_Cr);
 	glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
 	glfwSwapBuffers(window);
 	
@@ -197,7 +198,7 @@ int process_frame(Edge264_stream *e, int i)
 	
 	// Does this frame match the reference?
 	if (cmp != NULL) {
-		if (check_frame(e, i, p)) {
+		if (check_frame(e)) {
 			while (!glfwWindowShouldClose(window))
 				glfwWaitEvents();
 			glfwTerminate();
@@ -292,7 +293,7 @@ int main(int argc, char *argv[])
 	while (1) {
 		int res = Edge264_decode_NAL(&e);
 		if (Edge264_get_frame(&e, res == -2) >= 0 && !bench)
-			process_frame(&e, (e.frame - e.DPB) / e.frame_size);
+			process_frame(&e);
 		else if (res == -2)
 			break;
 	}

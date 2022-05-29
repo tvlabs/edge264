@@ -80,7 +80,15 @@ typedef struct Edge264_stream {
 	const uint8_t *end; // first byte past the end of the buffer
 	
 	// public read-only fields
-	uint8_t *frame; // pointer to the frame returned by get_frame
+	uint8_t *samples_Y;
+	uint8_t *samples_Cb;
+	uint8_t *samples_Cr;
+	int8_t pixel_depth_Y; // 0 for 8-bit, 1 for 16-bit
+	int8_t pixel_depth_C;
+	int16_t width_Y;
+	int16_t width_C;
+	int16_t height_Y;
+	int16_t height_C;
 	int16_t stride_Y;
 	int16_t stride_C;
 	int32_t plane_size_Y;
@@ -88,7 +96,7 @@ typedef struct Edge264_stream {
 	
 	// private fields
 	uint8_t *DPB; // NULL before the first SPS is decoded
-	int32_t frame_size; // larger than plane_size_Y+2*plane_size_C since macroblocks values are stored at the end
+	int32_t frame_size;
 	uint32_t reference_flags; // bitfield for indices of reference frames
 	uint32_t pic_reference_flags; // to be applied after decoding all slices of the current frame
 	uint32_t long_term_flags; // bitfield for indices of long-term frames

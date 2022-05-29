@@ -459,7 +459,7 @@ static void CAFUNC(parse_chroma_residual)
 					memset(ctx->c, 0, 64);
 					fprintf(stderr, "Chroma AC coeffLevels[%d]:", i4x4);
 					CACALL(parse_residual_block, 1, 15, token_or_cbf);
-					v16qi wS = ((v16qi *)ctx->ps.weightScale4x4)[iYCbCr + mb->f.mbIsInterFlag * 3];
+					v16qu wS = ((v16qu *)ctx->ps.weightScale4x4)[iYCbCr + mb->f.mbIsInterFlag * 3];
 					CALL(add_idct4x4, iYCbCr, ctx->QP[iYCbCr], wS, i4x4, samples);
 				} else {
 					CALL(add_dc4x4, iYCbCr, i4x4, samples);
@@ -524,7 +524,7 @@ static void CAFUNC(parse_Intra16x16_residual)
 					memset(ctx->c, 0, 64);
 					fprintf(stderr, "16x16 AC coeffLevels[%d]:", iYCbCr * 16 + i4x4);
 					CACALL(parse_residual_block, 1, 15, token_or_cbf);
-					CALL(add_idct4x4, iYCbCr, ctx->QP[0], ((v16qi *)ctx->ps.weightScale4x4)[iYCbCr], i4x4, samples);
+					CALL(add_idct4x4, iYCbCr, ctx->QP[0], ((v16qu *)ctx->ps.weightScale4x4)[iYCbCr], i4x4, samples);
 				} else {
 					CALL(add_dc4x4, iYCbCr, i4x4, samples);
 				}
@@ -593,7 +593,7 @@ static void CAFUNC(parse_NxN_residual)
 						CACALL(parse_residual_block, 0, 15, token_or_cbf);
 						
 						// DC blocks are marginal here (about 16%) so we do not handle them separately
-						v16qi wS = ((v16qi *)ctx->ps.weightScale4x4)[iYCbCr + mb->f.mbIsInterFlag * 3];
+						v16qu wS = ((v16qu *)ctx->ps.weightScale4x4)[iYCbCr + mb->f.mbIsInterFlag * 3];
 						CALL(add_idct4x4, iYCbCr, ctx->QP[0], wS, -1, samples);
 					}
 				}
@@ -1483,8 +1483,8 @@ static inline void CAFUNC(parse_P_mb)
 	if (mb_skip_flag) {
 		ctx->mb_qp_delta_nz = 0;
 		mb->inter_blocks = 0x01231111;
-		v16qi refIdx_v = (v2li){mb->refIdx_l};
-		mb->refPic_l = ((v2li)(shuffle(ctx->RefPicList_v[0], refIdx_v)) | refIdx_v)[0];
+		v16qi refIdx_v = (v16qi)(v2li){mb->refIdx_l};
+		mb->refPic_l = ((v2li)(shuffle(ctx->RefPicList_v[0], refIdx_v) | refIdx_v))[0];
 		memset(mb->mvs_v + 4, 0, 64);
 		int refIdxA = mb[-1].refIdx[1];
 		int refIdxB = ctx->mbB->refIdx[2];

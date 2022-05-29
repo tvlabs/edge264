@@ -10,16 +10,15 @@ else
 	SUF = -trace$(TRACE)
 endif
 
-# pkg-config is missing -framework OpenGL on macos, so we handle this manually
+# pkg-config is missing -framework OpenGL on macos
 ifeq ($(OS),)
 	OS := $(shell uname)
 endif
 ifeq ($(OS),Darwin)
-	GLFW3 = -lglfw -framework OpenGL
+	GLFW3 = `pkg-config --cflags --static --libs glfw3` -framework OpenGL
 else
-	GLFW3 = -lglfw -lgl
+	GLFW3 = `pkg-config --cflags --static --libs glfw3`
 endif
-
 
 edge264$(SUF).o: edge264*.c edge264*.h edge264_deblock$(SUF).o edge264_intra$(SUF).o edge264_inter$(SUF).o edge264_residual$(SUF).o Makefile
 	$(CC) -o edge264$(SUF).o -c $(CFLAGS) edge264.c

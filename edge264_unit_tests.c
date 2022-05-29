@@ -21,8 +21,8 @@ static inline void print_v16qu(__m128i x) {
 		printf("%3d ", ((v16qu)x)[i]);
 	printf("\n");
 }
-#include "edge264_residual_ssse3.c"
-#include "edge264_intra_ssse3.c"
+#include "edge264_residual.c"
+#include "edge264_intra.c"
 #endif
 
 #define RED   "\x1b[31m"
@@ -327,7 +327,7 @@ int main() {
 
 // Tiny program testing Intra16x16 and Chroma8x8 validity (jan 2022)
 #define TRACE 1
-#include "edge264_intra_ssse3.c"
+#include "edge264_intra.c"
 
 #define RED   "\x1b[31m"
 #define GREEN "\x1b[32m"

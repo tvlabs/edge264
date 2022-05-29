@@ -57,16 +57,16 @@ void FUNC(add_idct4x4, int iYCbCr, int qP, v16qu wS, int DCidx, uint8_t *samples
 	__m128i mul2 = _mm_sll_epi32(_mm_unpacklo_epi16(LS1, zero), sh);
 	__m128i mul3 = _mm_sll_epi32(_mm_unpackhi_epi16(LS1, zero), sh);
 	__m128i s8 = _mm_set1_epi32(8);
-	v4si d0 = (v4si)_mm_srai_epi32(_mm_add_epi32(_mm_mullo_epi32(mul0, ctx->c_v[0]), s8), 4);
-	__m128i d1 = _mm_srai_epi32(_mm_add_epi32(_mm_mullo_epi32(mul1, ctx->c_v[1]), s8), 4);
-	__m128i d2 = _mm_srai_epi32(_mm_add_epi32(_mm_mullo_epi32(mul2, ctx->c_v[2]), s8), 4);
-	__m128i d3 = _mm_srai_epi32(_mm_add_epi32(_mm_mullo_epi32(mul3, ctx->c_v[3]), s8), 4);
+	v4si d0 = (v4si)_mm_srai_epi32(_mm_add_epi32(_mm_mullo_epi32(mul0, (__m128i)ctx->c_v[0]), s8), 4);
+	__m128i d1 = _mm_srai_epi32(_mm_add_epi32(_mm_mullo_epi32(mul1, (__m128i)ctx->c_v[1]), s8), 4);
+	__m128i d2 = _mm_srai_epi32(_mm_add_epi32(_mm_mullo_epi32(mul2, (__m128i)ctx->c_v[2]), s8), 4);
+	__m128i d3 = _mm_srai_epi32(_mm_add_epi32(_mm_mullo_epi32(mul3, (__m128i)ctx->c_v[3]), s8), 4);
 	if (DCidx >= 0)
 		d0[0] = ctx->c[16 + DCidx];
 	
 	// horizontal 1D transform
-	__m128i e0 = _mm_add_epi32((v4si)d0, d2);
-	__m128i e1 = _mm_sub_epi32((v4si)d0, d2);
+	__m128i e0 = _mm_add_epi32((__m128i)d0, d2);
+	__m128i e1 = _mm_sub_epi32((__m128i)d0, d2);
 	__m128i e2 = _mm_sub_epi32(_mm_srai_epi32(d1, 1), d3);
 	__m128i e3 = _mm_add_epi32(_mm_srai_epi32(d3, 1), d1);
 	__m128i f0 = _mm_add_epi32(e0, e3);

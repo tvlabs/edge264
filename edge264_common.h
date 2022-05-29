@@ -175,7 +175,7 @@ typedef struct
 	union { int8_t RefPicList[2][32]; v16qi RefPicList_v[4]; };
 	union { int8_t refIdx4x4_eq[32]; v16qi refIdx4x4_eq_v[2]; }; // FIXME store on stack
 	int16_t DistScaleFactor[32]; // [refIdxL0]
-	union { int8_t implicit_weights[2][32][32]; v16qi implicit_weights_v[2][32][2]; }; // w1 for [top/bottom][ref0][ref1]
+	union { int8_t implicit_weights[32][32]; v16qi implicit_weights_v[32][2]; }; // w1 for [ref0][ref1]
 	int8_t explicit_weights[3][64]; // [iYCbCr][LX][RefIdx]
 	int8_t explicit_offsets[3][64];
 	union { uint8_t edge_buf[2016]; int64_t edge_buf_l[252]; v16qu edge_buf_v[126]; };
@@ -446,6 +446,9 @@ static noinline void FUNC(parse_slice_data_cabac);
 		static inline v16qi min_v16qi(v16qi a, v16qi b) {
 			return (v16qi)_mm_min_epi8((__m128i)a, (__m128i)b);
 		}
+		static inline v4si min_v4si(v4si a, v4si b) {
+			return (v4si)_mm_min_epi32((__m128i)a, (__m128i)b);
+		}
 	#elif defined __SSSE3__
 		#define ifelse_mask(v, t, f) {__m128i _v = (__m128i)(v); (typeof(t))_mm_or_si128(_mm_andnot_si128((__m128i)(f), _v), _mm_and_si128((__m128i)(t), _v));}
 		#define ifelse_msb(v, t, f) {__m128i _v = _mm_cmpgt_epi8((__m128i)(v), _mm_setzero_si128()); (typeof(t))_mm_or_si128(_mm_andnot_si128((__m128i)(f), _v), _mm_and_si128((__m128i)(t), _v));}
@@ -461,6 +464,9 @@ static noinline void FUNC(parse_slice_data_cabac);
 		static inline v16qi min_v16qi(v16qi a, v16qi b) {
 			return (v16qi)_mm_xor_si128((__m128i)a, _mm_and_si128(_mm_xor_si128((__m128i)a, (__m128i)b), _mm_cmpgt_epi8((__m128i)a, (__m128i)b)));
 		}
+		static inline v4si min_v4si(v4si a, v4si b) {
+			return (v4si)_mm_xor_si128((__m128i)a, _mm_and_si128(_mm_xor_si128((__m128i)a, (__m128i)b), _mm_cmpgt_epi32((__m128i)a, (__m128i)b)));
+		}
 	#endif
 	static inline size_t lsd(size_t msb, size_t lsb, unsigned shift) {
 		__asm__("shld %%cl, %1, %0" : "+rm" (msb) : "r" (lsb), "c" (shift));
@@ -468,6 +474,12 @@ static noinline void FUNC(parse_slice_data_cabac);
 	}
 	static inline v16qi shuffle(v16qi a, v16qi mask) {
 		return (v16qi)_mm_shuffle_epi8((__m128i)a, (__m128i)mask);
+	}
+	static inline v8hi pack_v4si(v4si a, v4si b) {
+		return (v8hi)_mm_packs_epi32((__m128i)a, (__m128i)b);
+	}
+	static inline v16qi pack_v8hi(v8hi a, v8hi b) {
+		return (v16qi)_mm_packs_epi16((__m128i)a, (__m128i)b);
 	}
 	static inline v8hi median_v8hi(v8hi a, v8hi b, v8hi c) {
 		return (v8hi)_mm_max_epi16(_mm_min_epi16(_mm_max_epi16((__m128i)a,

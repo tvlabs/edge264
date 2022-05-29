@@ -1,10 +1,8 @@
 /** MAYDO:
- * _ vectorize initializations for temporal prediction
  * _ review intra and inter routines to check whether 8bit versions could be shorter in code
  * _ add support for open GOP (i.e. ignoring frames that reference unavailable previous frames)
  * _ compile decoding function separately to let them use msb/lsb_cache registers
  * _ debug the decoding with GCC
- * _ fix initialization of implicit weights
  * _ review and secure the places where CABAC could result in unsupported internal state
  * _ rename absMvdComp into absMvd, and other mb variables into their non symbol version
  * _ replace __m64 code with __m128i to follow GCC/clang drop of MMX
@@ -143,21 +141,40 @@ static void FUNC(initialise_decoding_context, Edge264_stream *e)
 			ctx->mbCol = (Edge264_macroblock *)(e->DPB + colPic * e->frame_size + ctx->plane_size_Y + e->plane_size_C * 2 + sizeof(*mb) - offB_int8);
 			ctx->col_short_term = (e->long_term_flags >> colPic & 1) ^ 1;
 			
-			// initializations for temporal prediction
-			if (!ctx->direct_spatial_mv_pred_flag) {
+			// initializations for temporal prediction and implicit weights
+			int rangeL1 = ctx->ps.num_ref_idx_active[1];
+			if (ctx->ps.weighted_bipred_idc == 2 || (rangeL1 = 1, !ctx->direct_spatial_mv_pred_flag)) {
+				union { int16_t h[32]; v8hi v[4]; } diff;
+				union { int8_t q[32]; v16qi v[2]; } tb, td;
+				v4si poc = {ctx->PicOrderCnt, ctx->PicOrderCnt, ctx->PicOrderCnt, ctx->PicOrderCnt};
+				diff.v[0] = pack_v4si(poc - min_v4si(((v4si *)e->FieldOrderCnt[0])[0], ((v4si *)e->FieldOrderCnt[1])[0]),
+				                      poc - min_v4si(((v4si *)e->FieldOrderCnt[0])[1], ((v4si *)e->FieldOrderCnt[1])[1]));
+				diff.v[1] = pack_v4si(poc - min_v4si(((v4si *)e->FieldOrderCnt[0])[2], ((v4si *)e->FieldOrderCnt[1])[2]),
+				                      poc - min_v4si(((v4si *)e->FieldOrderCnt[0])[3], ((v4si *)e->FieldOrderCnt[1])[3]));
+				diff.v[2] = pack_v4si(poc - min_v4si(((v4si *)e->FieldOrderCnt[0])[4], ((v4si *)e->FieldOrderCnt[1])[4]),
+				                      poc - min_v4si(((v4si *)e->FieldOrderCnt[0])[5], ((v4si *)e->FieldOrderCnt[1])[5]));
+				diff.v[3] = pack_v4si(poc - min_v4si(((v4si *)e->FieldOrderCnt[0])[6], ((v4si *)e->FieldOrderCnt[1])[6]),
+				                      poc - min_v4si(((v4si *)e->FieldOrderCnt[0])[7], ((v4si *)e->FieldOrderCnt[1])[7]));
+				tb.v[0] = pack_v8hi(diff.v[0], diff.v[1]);
+				tb.v[1] = pack_v8hi(diff.v[2], diff.v[3]);
 				ctx->MapPicToList0_v[0] = ctx->MapPicToList0_v[1] = (v16qi){}; // pictures not found in RefPicList0 will point to 0 by default
-				int pic1 = ctx->RefPicList[1][0];
-				int poc1 = min(e->FieldOrderCnt[0][pic1], e->FieldOrderCnt[1][pic1]);
-				for (int refIdxL0 = ctx->ps.num_ref_idx_active[0]; refIdxL0-- > 0; ) {
+				for (int refIdxL0 = ctx->ps.num_ref_idx_active[0], DistScaleFactor; refIdxL0-- > 0; ) {
 					int pic0 = ctx->RefPicList[0][refIdxL0];
 					ctx->MapPicToList0[pic0] = refIdxL0;
-					int poc0 = min(e->FieldOrderCnt[0][pic0], e->FieldOrderCnt[1][pic0]);
-					int DistScaleFactor = 256;
-					if (!(e->long_term_flags & 1 << pic0) && poc0 != poc1) {
-						int tb = min(max(ctx->PicOrderCnt - poc0, -128), 127);
-						int td = min(max(poc1 - poc0, -128), 127);
-						int tx = (16384 + abs(td / 2)) / td;
-						DistScaleFactor = min(max((tb * tx + 32) >> 6, -1024), 1023);
+					v8hi diff0 = {diff.h[pic0], diff.h[pic0], diff.h[pic0], diff.h[pic0], diff.h[pic0], diff.h[pic0], diff.h[pic0], diff.h[pic0]};
+					td.v[0] = pack_v8hi(diff0 - diff.v[0], diff0 - diff.v[1]);
+					td.v[1] = pack_v8hi(diff0 - diff.v[2], diff0 - diff.v[3]);
+					for (int refIdxL1 = rangeL1, implicit_weight; refIdxL1-- > 0; ) {
+						int pic1 = ctx->RefPicList[1][refIdxL1];
+						if (td.q[pic1] != 0 && !(e->long_term_flags & 1 << pic0)) {
+							int tx = (16384 + abs(td.q[pic1] / 2)) / td.q[pic1];
+							DistScaleFactor = min(max((tb.q[pic0] * tx + 32) >> 6, -1024), 1023);
+							implicit_weight = (!(e->long_term_flags & 1 << pic1) && DistScaleFactor >= -256 && DistScaleFactor <= 515) ? DistScaleFactor >> 2 : 32;
+						} else {
+							DistScaleFactor = 256;
+							implicit_weight = 32;
+						}
+						ctx->implicit_weights[refIdxL0][refIdxL1] = implicit_weight;
 					}
 					ctx->DistScaleFactor[refIdxL0] = DistScaleFactor;
 				}

@@ -1262,7 +1262,7 @@ static noinline void FUNC(decode_inter, int i, int w, int h) {
 		biweights_Y = biweights_Cb = biweights_Cr = (v16qi){0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1};
 		bioffsets_Y = bioffsets_Cb = bioffsets_Cr = logWD_C = logWD_Y = (v8hi){};
 	} else if (ctx->ps.weighted_bipred_idc == 2) { // implicit2
-		int w1 = -ctx->implicit_weights[0][mb->refIdx[i8x8 - 4]][mb->refIdx[i8x8]];
+		int w1 = -ctx->implicit_weights[mb->refIdx[i8x8 - 4]][mb->refIdx[i8x8]];
 		if (__builtin_expect((unsigned)w1 + 63 >= 191, 0)) { // one weight will overflow if w1 is 128 or -64
 			w1 >>= 5;
 			bioffsets_Y = bioffsets_Cb = bioffsets_Cr = (v8hi){1, 1, 1, 1, 1, 1, 1, 1};

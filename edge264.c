@@ -463,6 +463,34 @@ static void FUNC(parse_ref_pic_list_modification, const Edge264_stream *e)
 
 
 /**
+ * This function parses frame_num, checks for gaps in frame_num, then allocates
+ * a slot for the current frame in the DPB.
+ * It returns -1 if the DPB is full and should be consumed beforehand.
+ */
+static int FUNC(parse_frame_num, Edge264_stream *e)
+{
+	// clear everything now on IDR picture
+	if (ctx->nal_unit_type == 5)
+		e->prevFrameNum = e->prevPicOrderCnt = e->reference_flags = e->long_term_flags = 0;
+	
+	// parse frame_num
+	unsigned frame_num = CALL(get_uv, ctx->ps.log2_max_frame_num);
+	unsigned inc = (frame_num - e->prevFrameNum) & ~(-1u << ctx->ps.log2_max_frame_num);
+	ctx->FrameNum = e->prevFrameNum + inc;
+	printf("<tr><th>frame_num => FrameNum</th><td>%u => %u</td></tr>\n", frame_num, ctx->FrameNum);
+	
+	// find a DPB slot for the upcoming frame
+	unsigned unavail = e->reference_flags | e->output_flags;
+	if (__builtin_popcount(unavail) > e->SPS.max_dec_frame_buffering)
+		return -1;
+	ctx->currPic = __builtin_ctz(~unavail);
+	e->FrameNum[ctx->currPic] = ctx->FrameNum;
+	return 0;
+}
+
+
+
+/**
  * This function matches slice_header() in 7.3.3, which it parses while updating
  * the DPB and initialising slice data for further decoding. Pictures are output
  * through bumping.
@@ -490,15 +518,8 @@ static int FUNC(parse_slice_layer_without_partitioning, Edge264_stream *e)
 	if (e->PPSs[pic_parameter_set_id].num_ref_idx_active[0] == 0)
 		return -4;
 	ctx->ps = e->PPSs[pic_parameter_set_id];
-	
-	// find a DPB slot for the upcoming frame
-	int prevFrameNum = (ctx->nal_unit_type == 5) ? 0 : e->prevFrameNum;
-	unsigned reference_flags = (ctx->nal_unit_type == 5) ? 0 : e->reference_flags;
-	ctx->currPic = __builtin_ctz(~(reference_flags | e->output_flags) | 1 << ctx->ps.max_dec_frame_buffering);
-	unsigned frame_num = CALL(get_uv, ctx->ps.log2_max_frame_num);
-	unsigned inc = (frame_num - prevFrameNum) & ~(-1u << ctx->ps.log2_max_frame_num);
-	ctx->FrameNum = prevFrameNum + inc;
-	printf("<tr><th>frame_num => FrameNum</th><td>%u => %u</td></tr>\n", frame_num, ctx->FrameNum);
+	if (CALL(parse_frame_num, e))
+		return -1;
 	
 	// As long as PAFF/MBAFF are unsupported, this code won't execute (but is still kept).
 	ctx->field_pic_flag = 0;
@@ -1423,8 +1444,6 @@ int Edge264_decode_NAL(Edge264_stream *e)
 	// quick checks before parsing
 	if (e->CPB >= e->end)
 		return -2;
-	if (__builtin_popcount(e->reference_flags | e->output_flags) > e->SPS.max_dec_frame_buffering)
-		return -1;
 	int nal_ref_idc = *e->CPB >> 5;
 	int nal_unit_type = *e->CPB & 0x1f;
 	printf("<table>\n"
@@ -1478,7 +1497,7 @@ int Edge264_decode_NAL(Edge264_stream *e)
 /**
  * By default all frames with POC lower or equal with the last non-reference
  * picture or lower than the last IDR picture are considered for output.
- * This function will consider all frames instead if:
+ * This function will consider all frames instead if either:
  * _ there are more frames to output than max_num_reorder_frames
  * _ there is no empty slot for the next frame
  * _ drain is set

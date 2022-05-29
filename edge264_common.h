@@ -421,7 +421,7 @@ static noinline void FUNC(parse_slice_data_cabac);
 			return (f >> 1 & 3) | (f >> 14 & 12);
 		}
 	#endif
-		
+	
 	// custom functions
 	#ifdef __SSE4_1__
 		#define ifelse_mask(v, t, f) (typeof(t))_mm_blendv_epi8((__m128i)(f), (__m128i)(t), (__m128i)(v))
@@ -502,13 +502,18 @@ static noinline void FUNC(parse_slice_data_cabac);
 	}
 	#define shr(a, i) (typeof(a))_mm_srli_si128((__m128i)(a), i)
 	
+	// fixing a strange bug from GCC
+	#if defined(__GNUC__) && !defined(__clang__)
+		#define _mm_loadu_si32(p) ((__m128i)(v4si){*(int32_t *)(p)})
+	#endif
+	
 	// FIXME remove once we get rid of __m64
 	#if defined(__GNUC__) && !defined(__clang__)
-	static inline __m128i _mm_movpi64_epi64(__m64 a) {
-		__m128i b;
-		__asm__("movq2dq %1, %0" : "=x" (b) : "y" (a));
-		return b;
-	}
+		static inline __m128i _mm_movpi64_epi64(__m64 a) {
+			__m128i b;
+			__asm__("movq2dq %1, %0" : "=x" (b) : "y" (a));
+			return b;
+		}
 	#endif // __GNUC__
 
 #else // add other architectures here

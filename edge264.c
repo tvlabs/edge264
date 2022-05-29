@@ -1,5 +1,4 @@
 /** MAYDO:
- * _ debug the decoding with GCC
  * _ review and secure the places where CABAC could result in unsupported internal state
  * _ rename absMvdComp into absMvd, and other mb variables into their non symbol version
  * _ replace __m64 code with __m128i to follow GCC/clang drop of MMX

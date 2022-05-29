@@ -457,12 +457,12 @@ static void FUNC(parse_ref_pic_list_modification, const Edge264_stream *e)
 	
 	#ifdef TRACE
 		printf("<tr><th>RefPicLists (FrameNum/PicOrderCnt)</th><td>");
-		for (int l = 0; l <= ctx->slice_type; l++) {
-			for (int i = 0; i < ctx->ps.num_ref_idx_active[l]; i++) {
-				int pic = ctx->RefPicList[l][i];
+		for (int lx = 0; lx <= ctx->slice_type; lx++) {
+			for (int i = 0; i < ctx->ps.num_ref_idx_active[lx]; i++) {
+				int pic = ctx->RefPicList[lx][i];
 				int poc = min(e->FieldOrderCnt[0][pic], e->FieldOrderCnt[1][pic]) << 6 >> 6;
 				int l = e->long_term_flags >> pic & 1;
-				printf("%u%s/%u%s", l ? e->LongTermFrameIdx[pic] : e->FrameNum[pic], l ? "*" : "", poc, (i < ctx->ps.num_ref_idx_active[l] - 1) ? ", " : (ctx->slice_type - l == 1) ? "<br>" : "");
+				printf("%u%s/%u%s", l ? e->LongTermFrameIdx[pic] : e->FrameNum[pic], l ? "*" : "", poc, (i < ctx->ps.num_ref_idx_active[lx] - 1) ? ", " : (ctx->slice_type - lx == 1) ? "<br>" : "");
 			}
 		}
 		printf("</td></tr>\n");

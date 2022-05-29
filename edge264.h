@@ -89,13 +89,17 @@ typedef struct Edge264_stream {
 	// private fields
 	uint8_t *DPB; // NULL before the first SPS is decoded
 	uint32_t reference_flags; // bitfield for indices of reference frames
+	uint32_t mmco_reference_flags; // to be applied after decoding all slices of the current frame
 	uint32_t long_term_flags; // bitfield for indices of long-term frames
+	uint32_t mmco_long_term_flags; // to be applied after decoding all slices of the current frame
 	uint32_t output_flags; // bitfield for frames waiting for output
 	int32_t prevFrameNum;
 	int32_t prevPicOrderCnt;
 	int32_t dispPicOrderCnt;
+	int32_t mmco5_or_idr; // when set, all POCs will be decreased after completing the current frame
 	int32_t FrameNum[32];
 	int8_t LongTermFrameIdx[32] __attribute__((aligned(16)));
+	int8_t mmco_LongTermFrameIdx[32] __attribute__((aligned(16))); // to be applied after decoding all slices of the current frame
 	int32_t FieldOrderCnt[2][32] __attribute__((aligned(16))); // lower/higher half for top/bottom fields
 	Edge264_parameter_set SPS;
 	Edge264_parameter_set PPSs[4];

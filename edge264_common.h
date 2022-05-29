@@ -121,9 +121,6 @@ typedef struct
 	int8_t currPic;
 	int32_t FrameNum;
 	int32_t PicOrderCnt;
-	uint32_t reference_flags;
-	uint32_t long_term_flags;
-	union { int8_t LongTermFrameIdx[32]; v16qi LongTermFrameIdx_v[2]; };
 	Edge264_parameter_set ps;
 	
 	// parsing context

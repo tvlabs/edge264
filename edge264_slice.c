@@ -1570,7 +1570,7 @@ static noinline void CAFUNC(parse_slice_data)
 	};
 	
 	while (1) {
-		fprintf(stderr, "********** POC=%u MB=%u **********\n", min(ctx->TopFieldOrderCnt, ctx->BottomFieldOrderCnt), ctx->CurrMbAddr);
+		fprintf(stderr, "********** POC=%u MB=%u **********\n", ctx->PicOrderCnt, ctx->CurrMbAddr);
 		v16qi flagsA = mb[-1].f.v;
 		v16qi flagsB = ctx->mbB->f.v;
 		ctx->inc.v = flagsA + flagsB + (flagsB & flags_twice.v);

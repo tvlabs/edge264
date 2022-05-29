@@ -157,7 +157,6 @@ static void FUNC(initialise_decoding_context, Edge264_stream *e)
 			// initializations for temporal prediction
 			if (!ctx->direct_spatial_mv_pred_flag) {
 				ctx->MapPicToList0_v[0] = ctx->MapPicToList0_v[1] = (v16qi){}; // pictures not found in RefPicList0 will point to 0 by default
-				int poc = min(ctx->TopFieldOrderCnt, ctx->BottomFieldOrderCnt);
 				int pic1 = ctx->RefPicList[1][0];
 				int poc1 = min(e->FieldOrderCnt[0][pic1], e->FieldOrderCnt[1][pic1]);
 				for (int refIdxL0 = ctx->ps.num_ref_idx_active[0]; refIdxL0-- > 0; ) {
@@ -166,7 +165,7 @@ static void FUNC(initialise_decoding_context, Edge264_stream *e)
 					int poc0 = min(e->FieldOrderCnt[0][pic0], e->FieldOrderCnt[1][pic0]);
 					int DistScaleFactor = 256;
 					if (!(e->long_term_flags & 1 << pic0) && poc0 != poc1) {
-						int tb = min(max(poc - poc0, -128), 127);
+						int tb = min(max(ctx->PicOrderCnt - poc0, -128), 127);
 						int td = min(max(poc1 - poc0, -128), 127);
 						int tx = (16384 + abs(td / 2)) / td;
 						DistScaleFactor = min(max((tb * tx + 32) >> 6, -1024), 1023);
@@ -337,7 +336,7 @@ static void FUNC(parse_ref_pic_list_modification, const Edge264_stream *e)
 {
 	// For P we sort on FrameNum, for B we sort on PicOrderCnt.
 	const int32_t *values = (ctx->slice_type == 0) ? e->FrameNum : e->FieldOrderCnt[0];
-	unsigned pic_value = (ctx->slice_type == 0) ? ctx->FrameNum : ctx->TopFieldOrderCnt;
+	unsigned pic_value = (ctx->slice_type == 0) ? ctx->FrameNum : ctx->PicOrderCnt;
 	int count[3] = {0, 0, 0}; // number of refs before/after/long
 	int size = 0;
 	memset(ctx->RefPicList, -1, 64);
@@ -475,7 +474,7 @@ static int FUNC(parse_frame_num, Edge264_stream *e)
 	
 	// parse frame_num
 	unsigned frame_num = CALL(get_uv, ctx->ps.log2_max_frame_num);
-	unsigned inc = (frame_num - e->prevFrameNum) & ~(-1u << ctx->ps.log2_max_frame_num);
+	unsigned inc = (frame_num - e->prevFrameNum) & ((1 << ctx->ps.log2_max_frame_num) - 1);
 	ctx->FrameNum = e->prevFrameNum + inc;
 	printf("<tr><th>frame_num => FrameNum</th><td>%u => %u</td></tr>\n", frame_num, ctx->FrameNum);
 	
@@ -492,8 +491,7 @@ static int FUNC(parse_frame_num, Edge264_stream *e)
 
 /**
  * This function matches slice_header() in 7.3.3, which it parses while updating
- * the DPB and initialising slice data for further decoding. Pictures are output
- * through bumping.
+ * the DPB and initialising slice data for further decoding.
  */
 static int FUNC(parse_slice_layer_without_partitioning, Edge264_stream *e)
 {
@@ -542,35 +540,37 @@ static int FUNC(parse_slice_layer_without_partitioning, Edge264_stream *e)
 	}
 	
 	// Compute Top/BottomFieldOrderCnt (8.2.1).
-	int nal_ref_flag = (ctx->nal_ref_idc != 0);
-	ctx->TopFieldOrderCnt = ctx->BottomFieldOrderCnt = ctx->FrameNum * 2 + nal_ref_flag - 1;
+	int TopFieldOrderCnt, BottomFieldOrderCnt;
 	if (ctx->ps.pic_order_cnt_type == 0) {
-		unsigned shift = WORD_BIT - ctx->ps.log2_max_pic_order_cnt_lsb;
+		int shift = WORD_BIT - ctx->ps.log2_max_pic_order_cnt_lsb;
 		int pic_order_cnt_lsb = CALL(get_uv, ctx->ps.log2_max_pic_order_cnt_lsb);
-		unsigned PicOrderCnt = e->prevPicOrderCnt + ((pic_order_cnt_lsb - e->prevPicOrderCnt) << shift >> shift);
-		printf("<tr><th>pic_order_cnt_lsb => PicOrderCnt</th><td>%u => %d</td></tr>\n", pic_order_cnt_lsb, PicOrderCnt);
-		ctx->TopFieldOrderCnt = PicOrderCnt;
-		ctx->BottomFieldOrderCnt = PicOrderCnt;
+		int inc = (pic_order_cnt_lsb - e->prevPicOrderCnt) << shift >> shift;
+		TopFieldOrderCnt = BottomFieldOrderCnt = e->prevPicOrderCnt + inc;
 		if (ctx->ps.bottom_field_pic_order_in_frame_present_flag && !ctx->field_pic_flag)
-			ctx->BottomFieldOrderCnt = PicOrderCnt + CALL(get_se32, (-1u << 31) + 1, (1u << 31) - 1);
+			BottomFieldOrderCnt += CALL(get_se32, (-1u << 31) + 1, (1u << 31) - 1);
+		printf("<tr><th>pic_order_cnt_lsb => PicOrderCnt</th><td>%u => %d</td></tr>\n", pic_order_cnt_lsb, TopFieldOrderCnt);
 	} else if (ctx->ps.pic_order_cnt_type == 1) {
-		unsigned absFrameNum = ctx->FrameNum + nal_ref_flag - 1;
-		unsigned expectedPicOrderCnt = (nal_ref_flag) ? 0 : ctx->ps.offset_for_non_ref_pic;
+		unsigned absFrameNum = ctx->FrameNum + (ctx->nal_ref_idc != 0) - 1;
+		TopFieldOrderCnt = (ctx->nal_ref_idc) ? 0 : ctx->ps.offset_for_non_ref_pic;
 		if (ctx->ps.num_ref_frames_in_pic_order_cnt_cycle != 0) {
-			expectedPicOrderCnt += (absFrameNum / ctx->ps.num_ref_frames_in_pic_order_cnt_cycle) *
+			TopFieldOrderCnt += (absFrameNum / ctx->ps.num_ref_frames_in_pic_order_cnt_cycle) *
 				e->PicOrderCntDeltas[ctx->ps.num_ref_frames_in_pic_order_cnt_cycle] +
 				e->PicOrderCntDeltas[absFrameNum % ctx->ps.num_ref_frames_in_pic_order_cnt_cycle];
 		}
-		ctx->TopFieldOrderCnt = ctx->BottomFieldOrderCnt = expectedPicOrderCnt;
+		BottomFieldOrderCnt = TopFieldOrderCnt;
 		if (!ctx->ps.delta_pic_order_always_zero_flag) {
-			ctx->TopFieldOrderCnt = ctx->BottomFieldOrderCnt = expectedPicOrderCnt += CALL(get_se32, (-1u << 31) + 1, (1u << 31) - 1);
+			BottomFieldOrderCnt = TopFieldOrderCnt += CALL(get_se32, (-1u << 31) + 1, (1u << 31) - 1);
 			if (ctx->ps.bottom_field_pic_order_in_frame_present_flag && !ctx->field_pic_flag)
-				ctx->BottomFieldOrderCnt += CALL(get_se32, (-1u << 31) + 1, (1u << 31) - 1);
+				BottomFieldOrderCnt += CALL(get_se32, (-1u << 31) + 1, (1u << 31) - 1);
 		}
-		printf("<tr><th>PicOrderCnt</th><td>%d</td></tr>\n", ctx->TopFieldOrderCnt);
+		printf("<tr><th>PicOrderCnt</th><td>%d</td></tr>\n", TopFieldOrderCnt);
 	} else {
-		printf("<tr><th>PicOrderCnt</th><td>%d</td></tr>\n", ctx->TopFieldOrderCnt);
+		TopFieldOrderCnt = BottomFieldOrderCnt = ctx->FrameNum * 2 + (ctx->nal_ref_idc != 0) - 1;
+		printf("<tr><th>PicOrderCnt</th><td>%d</td></tr>\n", TopFieldOrderCnt);
 	}
+	ctx->PicOrderCnt = min(TopFieldOrderCnt, BottomFieldOrderCnt);
+	e->FieldOrderCnt[0][ctx->currPic] = TopFieldOrderCnt;
+	e->FieldOrderCnt[1][ctx->currPic] = BottomFieldOrderCnt;
 	
 	// That could be optimised into fast bit tests, but would be unreadable :)
 	if (ctx->slice_type == 0 || ctx->slice_type == 1) {
@@ -666,27 +666,27 @@ static int FUNC(parse_slice_layer_without_partitioning, Edge264_stream *e)
 		CALL(deblock_frame);
 	if (ctx->nal_unit_type == 5) { // IDR or mmco5
 		e->LongTermFrameIdx[ctx->currPic] = e->FrameNum[ctx->currPic] = e->prevFrameNum = 0;
-		int tempPicOrderCnt = min(ctx->TopFieldOrderCnt, ctx->BottomFieldOrderCnt);
-		for (int i = 0; i < 64; i++) // FIXME vectorize
+		for (unsigned o = e->output_flags; o; o &= o - 1) {
+			int i = __builtin_ctz(o);
 			// FIXME IDR*2 may shuffle POCs
 			e->FieldOrderCnt[0][i] ^= 1 << 31; // make all buffered pictures precede the next ones
+			e->FieldOrderCnt[1][i] ^= 1 << 31;
+		}
 		e->dispPicOrderCnt = -1; // make all buffered pictured ready for display
-		e->FieldOrderCnt[0][ctx->currPic] = e->prevPicOrderCnt = ctx->TopFieldOrderCnt - tempPicOrderCnt;
-		e->FieldOrderCnt[1][ctx->currPic] = ctx->BottomFieldOrderCnt - tempPicOrderCnt;
+		e->prevPicOrderCnt = e->FieldOrderCnt[0][ctx->currPic] -= ctx->PicOrderCnt;
+		e->FieldOrderCnt[1][ctx->currPic] -= ctx->PicOrderCnt;
 		e->reference_flags = 1 << ctx->currPic;
 		e->long_term_flags = ctx->long_term_flags;
 	} else {
 		e->FrameNum[ctx->currPic] = e->prevFrameNum = ctx->FrameNum;
 		((v16qi *)e->LongTermFrameIdx)[0] = ctx->LongTermFrameIdx_v[0];
 		((v16qi *)e->LongTermFrameIdx)[1] = ctx->LongTermFrameIdx_v[1];
-		e->FieldOrderCnt[0][ctx->currPic] = ctx->TopFieldOrderCnt;
-		e->FieldOrderCnt[1][ctx->currPic] = ctx->BottomFieldOrderCnt;
 		if (ctx->nal_ref_idc) {
-			e->prevPicOrderCnt = ctx->TopFieldOrderCnt;
+			e->prevPicOrderCnt = ctx->PicOrderCnt;
 			e->reference_flags = ctx->reference_flags | 1 << ctx->currPic;
 			e->long_term_flags = ctx->long_term_flags;
 		} else {
-			e->dispPicOrderCnt = ctx->TopFieldOrderCnt; // all frames with lower POCs are now ready for output
+			e->dispPicOrderCnt = ctx->PicOrderCnt; // all frames with lower POCs are now ready for output
 		}
 	}
 	e->output_flags = (ctx->no_output_of_prior_pics_flag ? 0 : e->output_flags) | 1 << ctx->currPic;

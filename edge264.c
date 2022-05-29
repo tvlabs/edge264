@@ -194,13 +194,13 @@ static void FUNC(parse_dec_ref_pic_marking, Edge264_stream *e)
 		"%s6 (assign long-term index %u to current picture)"};
 	
 	if (ctx->nal_unit_type == 5) {
-		e->mmco_reference_flags = 1 << ctx->currPic;
+		e->pic_reference_flags = 1 << ctx->currPic;
 		ctx->no_output_of_prior_pics_flag = CALL(get_u1);
-		e->mmco_long_term_flags = CALL(get_u1) << ctx->currPic;
+		e->pic_long_term_flags = CALL(get_u1) << ctx->currPic;
 		printf("<tr><th>no_output_of_prior_pics_flag</th><td>%x</td></tr>\n"
 			"<tr><th>long_term_reference_flag</th><td>%x</td></tr>\n",
 			ctx->no_output_of_prior_pics_flag,
-			e->mmco_long_term_flags >> ctx->currPic);
+			e->pic_long_term_flags >> ctx->currPic);
 		return;
 	}
 	
@@ -212,20 +212,20 @@ static void FUNC(parse_dec_ref_pic_marking, Edge264_stream *e)
 			int num0 = 0, num1 = 0;
 			if (memory_management_control_operation == 4) {
 				num0 = CALL(get_ue16, ctx->ps.max_num_ref_frames) - 1;
-				for (unsigned r = e->mmco_long_term_flags; r != 0; r &= r - 1) {
+				for (unsigned r = e->pic_long_term_flags; r != 0; r &= r - 1) {
 					int j = __builtin_ctz(r);
-					if (e->mmco_LongTermFrameIdx[j] > num0) {
-						e->mmco_reference_flags ^= 1 << j;
-						e->mmco_long_term_flags ^= 1 << j;
+					if (e->pic_LongTermFrameIdx[j] > num0) {
+						e->pic_reference_flags ^= 1 << j;
+						e->pic_long_term_flags ^= 1 << j;
 					}
 				}
 			} else if (memory_management_control_operation == 5) {
-				e->mmco_reference_flags = 0;
-				e->mmco_long_term_flags = 0;
-				e->mmco5_or_idr = 1;
+				e->pic_reference_flags = 0;
+				e->pic_long_term_flags = 0;
+				e->pic_idr_or_mmco5 = 1;
 			} else if (memory_management_control_operation == 6) {
-				e->mmco_long_term_flags |= 1 << ctx->currPic;
-				e->mmco_LongTermFrameIdx[ctx->currPic] = num0 = CALL(get_ue16, ctx->ps.max_num_ref_frames - 1);
+				e->pic_long_term_flags |= 1 << ctx->currPic;
+				e->pic_LongTermFrameIdx[ctx->currPic] = num0 = CALL(get_ue16, ctx->ps.max_num_ref_frames - 1);
 			} else {
 				
 				// The remaining three operations share the search for num0.
@@ -233,24 +233,24 @@ static void FUNC(parse_dec_ref_pic_marking, Edge264_stream *e)
 				int FrameNum = (ctx->field_pic_flag) ? pic_num >> 1 : pic_num;
 				num0 = (memory_management_control_operation != 2) ?
 					ctx->FrameNum - 1 - FrameNum : FrameNum;
-				unsigned short_long = (memory_management_control_operation != 2) ? ~e->mmco_long_term_flags : e->mmco_long_term_flags;
-				for (unsigned r = e->mmco_reference_flags & short_long; r; r &= r - 1) {
+				unsigned short_long = (memory_management_control_operation != 2) ? ~e->pic_long_term_flags : e->pic_long_term_flags;
+				for (unsigned r = e->pic_reference_flags & short_long; r; r &= r - 1) {
 					int j = __builtin_ctz(r);
 					if ((memory_management_control_operation == 2 ? e->LongTermFrameIdx[j] : e->FrameNum[j]) != num0)
 						continue;
 					if (memory_management_control_operation == 1) {
-						e->mmco_reference_flags ^= 1 << j;
+						e->pic_reference_flags ^= 1 << j;
 					} else if (memory_management_control_operation == 2) {
-						e->mmco_reference_flags ^= 1 << j;
-						e->mmco_long_term_flags ^= 1 << j;
+						e->pic_reference_flags ^= 1 << j;
+						e->pic_long_term_flags ^= 1 << j;
 					} else if (memory_management_control_operation == 3) {
-						e->mmco_LongTermFrameIdx[j] = num1 = CALL(get_ue16, ctx->ps.max_num_ref_frames - 1);
-						for (unsigned l = e->mmco_long_term_flags; l; l &= l - 1) {
+						e->pic_LongTermFrameIdx[j] = num1 = CALL(get_ue16, ctx->ps.max_num_ref_frames - 1);
+						for (unsigned l = e->pic_long_term_flags; l; l &= l - 1) {
 							int k = __builtin_ctz(l);
-							if (e->mmco_LongTermFrameIdx[k] == num1)
-								e->mmco_long_term_flags ^= 1 << k;
+							if (e->pic_LongTermFrameIdx[k] == num1)
+								e->pic_long_term_flags ^= 1 << k;
 						}
-						e->mmco_long_term_flags |= 1 << j;
+						e->pic_long_term_flags |= 1 << j;
 					}
 				}
 			}
@@ -261,18 +261,18 @@ static void FUNC(parse_dec_ref_pic_marking, Edge264_stream *e)
 	}
 	
 	// 8.2.5.3 - Sliding window marking process
-	unsigned r = e->mmco_reference_flags;
+	unsigned r = e->pic_reference_flags;
 	if (__builtin_popcount(r) >= ctx->ps.max_num_ref_frames) {
 		int best = INT_MAX;
 		int next = 0;
-		for (r ^= e->mmco_long_term_flags; r != 0; r &= r - 1) {
+		for (r ^= e->pic_long_term_flags; r != 0; r &= r - 1) {
 			int i = __builtin_ctz(r);
 			if (best > e->FrameNum[i])
 				best = e->FrameNum[next = i];
 		}
-		e->mmco_reference_flags &= ~(1 << next); // don't use xor here since r may be zero
+		e->pic_reference_flags &= ~(1 << next); // don't use xor here since r may be zero
 	}
-	e->mmco_reference_flags |= 1 << ctx->currPic;
+	e->pic_reference_flags |= 1 << ctx->currPic;
 }
 
 
@@ -470,15 +470,15 @@ static int FUNC(parse_frame_num, Edge264_stream *e)
 	// initialize reference fields that will be applied after decoding the current frame (8.2.5.1)
 	int prevFrameNum;
 	if (ctx->nal_unit_type == 5) {
-		prevFrameNum = e->mmco_reference_flags = e->mmco_long_term_flags = 0;
-		e->mmco5_or_idr = 1;
+		prevFrameNum = e->pic_reference_flags = e->pic_long_term_flags = 0;
+		e->pic_idr_or_mmco5 = 1;
 	} else {
 		prevFrameNum = e->prevFrameNum;
-		e->mmco_reference_flags = e->reference_flags;
-		e->mmco_long_term_flags = e->long_term_flags;
-		e->mmco5_or_idr = 0;
-		((v16qi *)e->mmco_LongTermFrameIdx)[0] = ((v16qi *)e->LongTermFrameIdx)[0];
-		((v16qi *)e->mmco_LongTermFrameIdx)[1] = ((v16qi *)e->LongTermFrameIdx)[1];
+		e->pic_reference_flags = e->reference_flags;
+		e->pic_long_term_flags = e->long_term_flags;
+		e->pic_idr_or_mmco5 = 0;
+		((v16qi *)e->pic_LongTermFrameIdx)[0] = ((v16qi *)e->LongTermFrameIdx)[0];
+		((v16qi *)e->pic_LongTermFrameIdx)[1] = ((v16qi *)e->LongTermFrameIdx)[1];
 	}
 	
 	// parse frame_num
@@ -488,11 +488,11 @@ static int FUNC(parse_frame_num, Edge264_stream *e)
 	printf("<tr><th>frame_num => FrameNum</th><td>%u => %u</td></tr>\n", frame_num, ctx->FrameNum);
 	
 	// find a DPB slot for the upcoming frame
-	unsigned unavail = e->mmco_reference_flags | e->output_flags;
+	unsigned unavail = e->pic_reference_flags | e->output_flags;
 	if (__builtin_popcount(unavail) > e->SPS.max_dec_frame_buffering)
 		return -1;
 	ctx->currPic = __builtin_ctz(~unavail);
-	e->FrameNum[ctx->currPic] = ctx->FrameNum;
+	e->FrameNum[ctx->currPic] = e->prevFrameNum = ctx->FrameNum;
 	return 0;
 }
 
@@ -578,6 +578,8 @@ static int FUNC(parse_slice_layer_without_partitioning, Edge264_stream *e)
 		TopFieldOrderCnt = BottomFieldOrderCnt = ctx->FrameNum * 2 + (ctx->nal_ref_idc != 0) - 1;
 		printf("<tr><th>PicOrderCnt</th><td>%d</td></tr>\n", TopFieldOrderCnt);
 	}
+	if (abs(TopFieldOrderCnt) >= 1 << 25 || abs(BottomFieldOrderCnt) >= 1 << 25)
+		return -3;
 	ctx->PicOrderCnt = min(TopFieldOrderCnt, BottomFieldOrderCnt);
 	e->FieldOrderCnt[0][ctx->currPic] = TopFieldOrderCnt;
 	e->FieldOrderCnt[1][ctx->currPic] = BottomFieldOrderCnt;
@@ -676,29 +678,25 @@ static int FUNC(parse_slice_layer_without_partitioning, Edge264_stream *e)
 		CALL(deblock_frame);
 	
 	// update e after all slices of the current frame are decoded
-	if (e->mmco5_or_idr) { // IDR or mmco5
+	if (e->pic_idr_or_mmco5) { // IDR or mmco5
 		e->LongTermFrameIdx[ctx->currPic] = e->FrameNum[ctx->currPic] = e->prevFrameNum = 0;
 		for (unsigned o = e->output_flags; o; o &= o - 1) {
 			int i = __builtin_ctz(o);
-			// FIXME IDR*2 may shuffle POCs
-			e->FieldOrderCnt[0][i] ^= 1 << 31; // make all buffered pictures precede the next ones
-			e->FieldOrderCnt[1][i] ^= 1 << 31;
+			e->FieldOrderCnt[0][i] -= 1 << 26; // make all buffered pictures precede the next ones
+			e->FieldOrderCnt[1][i] -= 1 << 26;
 		}
-		e->dispPicOrderCnt = -1; // make all buffered pictured ready for display
+		e->dispPicOrderCnt = -(1 << 25); // make all buffered pictures ready for display
 		e->prevPicOrderCnt = e->FieldOrderCnt[0][ctx->currPic] -= ctx->PicOrderCnt;
 		e->FieldOrderCnt[1][ctx->currPic] -= ctx->PicOrderCnt;
+	} else if (ctx->nal_ref_idc) {
+		e->prevPicOrderCnt = ctx->PicOrderCnt;
 	} else {
-		e->FrameNum[ctx->currPic] = e->prevFrameNum = ctx->FrameNum;
-		if (ctx->nal_ref_idc) {
-			e->prevPicOrderCnt = ctx->PicOrderCnt;
-		} else {
-			e->dispPicOrderCnt = ctx->PicOrderCnt; // all frames with lower POCs are now ready for output
-		}
+		e->dispPicOrderCnt = ctx->PicOrderCnt; // all frames with lower POCs are now ready for output
 	}
-	e->reference_flags = e->mmco_reference_flags;
-	e->long_term_flags = e->mmco_long_term_flags;
-	((v16qi *)e->LongTermFrameIdx)[0] = ((v16qi *)e->mmco_LongTermFrameIdx)[0];
-	((v16qi *)e->LongTermFrameIdx)[1] = ((v16qi *)e->mmco_LongTermFrameIdx)[1];
+	e->reference_flags = e->pic_reference_flags;
+	e->long_term_flags = e->pic_long_term_flags;
+	((v16qi *)e->LongTermFrameIdx)[0] = ((v16qi *)e->pic_LongTermFrameIdx)[0];
+	((v16qi *)e->LongTermFrameIdx)[1] = ((v16qi *)e->pic_LongTermFrameIdx)[1];
 	e->output_flags = (ctx->no_output_of_prior_pics_flag ? 0 : e->output_flags) | 1 << ctx->currPic;
 	return 0;
 }

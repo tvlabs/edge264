@@ -1,5 +1,4 @@
 /** MAYDO:
- * _ review and secure the places where CABAC could result in unsupported internal state
  * _ rename absMvdComp into absMvd, and other mb variables into their non symbol version
  * _ replace __m64 code with __m128i to follow GCC/clang drop of MMX
  * _ once PredMode is used solely by Intra_4x4/8x8, remove it in favor of computing unavailability just before decoding
@@ -1241,9 +1240,6 @@ static int FUNC(parse_seq_parameter_set, Edge264_stream *e)
 		.refIdx = {-1, -1, -1, -1, -1, -1, -1, -1},
 		.refPic = {-1, -1, -1, -1, -1, -1, -1, -1},
 		.bits[3] = 0xac, // cbp
-		.nC[0] = {64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64},
-		.nC[1] = {64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64},
-		.nC[2] = {64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64},
 		.Intra4x4PredMode = {-2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2},
 	};
 	

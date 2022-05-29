@@ -26,7 +26,7 @@
  * this function is designed to be simple and compact.
  */
 #ifndef CABAC
-	static int FUNC(parse_coeff_token_cavlc, int nA, int nB) {
+	static int FUNC(parse_coeff_token_cavlc, int i4x4, int nA, int nB) {
 		static const uint8_t nC_offset[8] = {184, 184, 80, 80, 0, 0, 0, 0};
 		static const int16_t tokens[38 * 8] = {
 			543, 539, 535, 531, 527, 522, 517, 512, // 4 <= nC < 8
@@ -71,7 +71,7 @@
 		
 		// unavailable blocks have the value 32
 		int sum = nA + nB;
-		int nC = (sum < 64) ? (sum + 1) >> 1 : sum & 63;
+		int nC = !(ctx->unavail[i4x4] & 3) ? (sum + 1) >> 1 : sum;
 		int coeff_token, v;
 		if (__builtin_expect(nC < 8, 1)) {
 			int leadingZeroBits = clz(msb_cache | (size_t)1 << (SIZE_BIT - 15));
@@ -448,14 +448,12 @@ static void CAFUNC(parse_chroma_residual)
 			for (int i4x4 = 0; i4x4 < 8; i4x4++) {
 				int iYCbCr = 1 + (i4x4 >> 2);
 				uint8_t *samples = ctx->samples_mb[iYCbCr] + y420[i4x4] * ctx->stride[1] + x420[i4x4];
-				int token_or_cbf = CACOND(
-					CALL(parse_coeff_token_cavlc, *(mb->nC[1] + ctx->ACbCr_int8[i4x4]), *(mb->nC[1] + ctx->BCbCr_int8[i4x4])),
-					CALL(get_ae, ctx->ctxIdxOffsets[0] + (mb->bits[1] >> inc8x8[4 + i4x4] & 3)));
+				int nA = *(mb->nC[1] + ctx->ACbCr_int8[i4x4]);
+				int nB = *(mb->nC[1] + ctx->BCbCr_int8[i4x4]);
+				int token_or_cbf = CACOND(CALL(parse_coeff_token_cavlc, i4x4 << 2 & 15, nA, nB),
+					CALL(get_ae, ctx->ctxIdxOffsets[0] + nA + nB * 2));
 				if (token_or_cbf) {
 					mb->nC[1][i4x4] = CACOND(token_or_cbf >> 2, 1);
-					#ifdef CABAC
-						mb->bits[1] |= 1 << bit8x8[4 + i4x4];
-					#endif
 					memset(ctx->c, 0, 64);
 					fprintf(stderr, "Chroma AC coeffLevels[%d]:", i4x4);
 					CACALL(parse_residual_block, 1, 15, token_or_cbf);
@@ -491,7 +489,7 @@ static void CAFUNC(parse_Intra16x16_residual)
 			ctx->ctxIdxOffsets_l = ctxIdxOffsets_16x16DC[iYCbCr][0];
 		#endif
 		int token_or_cbf = CACOND(
-			CALL(parse_coeff_token_cavlc, mb[-1].nC[iYCbCr][5], ctx->mbB->nC[iYCbCr][10]),
+			CALL(parse_coeff_token_cavlc, 0, mb[-1].nC[iYCbCr][5], ctx->mbB->nC[iYCbCr][10]),
 			CALL(get_ae, ctx->ctxIdxOffsets[0] + ctx->inc.coded_block_flags_16x16[iYCbCr]));
 		if (token_or_cbf) {
 			#ifdef CABAC
@@ -513,14 +511,12 @@ static void CAFUNC(parse_Intra16x16_residual)
 			#endif
 			for (int i4x4 = 0; i4x4 < 16; i4x4++) {
 				uint8_t *samples = ctx->samples_mb[iYCbCr] + y444[i4x4] * ctx->stride[iYCbCr] + x444[i4x4];
-				int token_or_cbf = CACOND(
-					CALL(parse_coeff_token_cavlc, *(mb->nC[iYCbCr] + ctx->A4x4_int8[i4x4]), *(mb->nC[iYCbCr] + ctx->B4x4_int8[i4x4])),
-					CALL(get_ae, ctx->ctxIdxOffsets[0] + (mb->bits[iYCbCr] >> inc4x4[i4x4] & 3)));
+				int nA = *(mb->nC[iYCbCr] + ctx->A4x4_int8[i4x4]);
+				int nB = *(mb->nC[iYCbCr] + ctx->B4x4_int8[i4x4]);
+				int token_or_cbf = CACOND(CALL(parse_coeff_token_cavlc, i4x4, nA, nB),
+					CALL(get_ae, ctx->ctxIdxOffsets[0] + nA + nB * 2));
 				if (token_or_cbf) {
 					mb->nC[iYCbCr][i4x4] = CACOND(token_or_cbf >> 2, 1);
-					#ifdef CABAC
-						mb->bits[iYCbCr] |= 1 << bit4x4[i4x4];
-					#endif
 					memset(ctx->c, 0, 64);
 					fprintf(stderr, "16x16 AC coeffLevels[%d]:", iYCbCr * 16 + i4x4);
 					CACALL(parse_residual_block, 1, 15, token_or_cbf);
@@ -580,14 +576,12 @@ static void CAFUNC(parse_NxN_residual)
 				if (!mb->f.mbIsInterFlag)
 					CALL(decode_intra4x4, intra4x4_modes[mb->Intra4x4PredMode[i4x4]][ctx->unavail[i4x4]], samples, stride, ctx->clip[iYCbCr]);
 				if (mb->bits[3] & 1 << bit8x8[i4x4 >> 2]) {
-					int token_or_cbf = CACOND(
-						CALL(parse_coeff_token_cavlc, *(mb->nC[iYCbCr] + ctx->A4x4_int8[i4x4]), *(mb->nC[iYCbCr] + ctx->B4x4_int8[i4x4])),
-						CALL(get_ae, ctx->ctxIdxOffsets[0] + (mb->bits[iYCbCr] >> inc4x4[i4x4] & 3)));
+					int nA = *(mb->nC[iYCbCr] + ctx->A4x4_int8[i4x4]);
+					int nB = *(mb->nC[iYCbCr] + ctx->B4x4_int8[i4x4]);
+					int token_or_cbf = CACOND(CALL(parse_coeff_token_cavlc, i4x4, nA, nB),
+						CALL(get_ae, ctx->ctxIdxOffsets[0] + nA + nB * 2));
 					if (token_or_cbf) {
 						mb->nC[iYCbCr][i4x4] = CACOND(token_or_cbf >> 2, 1);
-						#ifdef CABAC
-							mb->bits[iYCbCr] |= 1 << bit4x4[i4x4];
-						#endif
 						memset(ctx->c, 0, 64);
 						fprintf(stderr, "4x4 coeffLevels[%d]:", iYCbCr * 16 + i4x4);
 						CACALL(parse_residual_block, 0, 15, token_or_cbf);
@@ -742,11 +736,17 @@ static noinline void CAFUNC(parse_I_mb, int mb_type_or_ctxIdx)
 	
 	// Intra-specific initialisations
 	if (ctx->inc.unavailable & 1) {
-		mb->bits_v |= (v4su){0x04104111, 0x111111, 0x11}; // FIXME 4:2:2
+		mb->bits_v |= (v4su){0x11, 0x11, 0x11}; // FIXME 4:2:2
+		#ifdef CABAC
+			mb[-1].nC_v[0] = mb[-1].nC_v[1] = mb[-1].nC_v[2] = (v16qi){1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1};
+		#endif
 		ctx->inc.coded_block_flags_16x16_s |= 0x010101;
 	}
 	if (ctx->inc.unavailable & 2) {
-		mb->bits_v |= (v4su){0x40810242, 0x424242, 0x42};
+		mb->bits_v |= (v4su){0x42, 0x42, 0x42};
+		#ifdef CABAC
+			ctx->mbB->nC_v[0] = ctx->mbB->nC_v[1] = ctx->mbB->nC_v[2] = (v16qi){1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1};
+		#endif
 		ctx->inc.coded_block_flags_16x16_s |= 0x020202;
 	}
 	mb->f.mbIsInterFlag = 0;
@@ -833,8 +833,10 @@ static noinline void CAFUNC(parse_I_mb, int mb_type_or_ctxIdx)
 		ctx->mb_qp_delta_nz = 0;
 		mb->f.v |= flags_PCM.v;
 		mb->QP_s = (v4qi){0, ctx->QP_C[0][0], ctx->QP_C[1][0]};
-		mb->bits_v = (v4su){0xbb6ebcac, 0xacacac, 0xac, 0xac}; // FIXME 4:2:2
-		mb->nC_v[0] = mb->nC_v[1] = mb->nC_v[2] = (v16qi){16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16};
+		mb->bits_v = (v4su){0xac, 0xac, 0xac, 0xac}; // FIXME 4:2:2
+		mb->nC_v[0] = mb->nC_v[1] = mb->nC_v[2] = CACOND(
+			((v16qi){16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16}),
+			((v16qi){1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1}));
 		mb->Intra4x4PredMode_v = (v16qi){2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2};
 		
 		// PCM is so rare that it should be compact rather than fast
@@ -891,11 +893,15 @@ static void CAFUNC(parse_inter_residual)
 	}
 	
 	if (ctx->inc.unavailable & 1) {
-		mb->bits_v &= ~(v4su){0x04104111, 0x111111, 0x11}; // FIXME 4:2:2
+		#ifdef CABAC
+			mb[-1].nC_v[0] = mb[-1].nC_v[1] = mb[-1].nC_v[2] = (v16qi){};
+		#endif
 		ctx->inc.coded_block_flags_16x16_s &= 0x020202;
 	}
 	if (ctx->inc.unavailable & 2) {
-		mb->bits_v &= ~(v4su){0x40810242, 0x424242, 0x42};
+		#ifdef CABAC
+			ctx->mbB->nC_v[0] = ctx->mbB->nC_v[1] = ctx->mbB->nC_v[2] = (v16qi){};
+		#endif
 		ctx->inc.coded_block_flags_16x16_s &= 0x010101;
 	}
 	CAJUMP(parse_NxN_residual);
@@ -997,11 +1003,9 @@ static inline void CAFUNC(parse_ref_idx, unsigned f) {
 			if (CALL(get_ae, 54 + (mb->bits[3] >> inc8x8[4 + i] & 3))) {
 				ref_idx = 1;
 				mb->bits[3] |= 1 << bit8x8[4 + i];
-				if (CALL(get_ae, 58)) {
-					do {
-						ref_idx++;
-					} while (ref_idx < 32 && CALL(get_ae, 59));
-				}
+				int ctxIdx = 58;
+				while (ref_idx < 32 && CALL(get_ae, ctxIdx))
+					ref_idx++, ctxIdx = 59;
 			}
 		#endif
 		mb->refIdx[i] = ref_idx;
@@ -1580,14 +1584,9 @@ static noinline void CAFUNC(parse_slice_data)
 		ctx->inc.v = flagsA + flagsB + (flagsB & flags_twice.v);
 		memset(mb, 0, offsetof(Edge264_macroblock, mvs)); // FIXME who needs this?
 		mb->QP_s = ctx->QP_s;
-		if (ctx->ps.ChromaArrayType == 1) {
-			mb->bits_v = (ctx->mbB->bits_v >> 1 & (v4su){0x40810242, 0x424242, 0x42, 0x424242}) |
-				(mb[-1].bits_v >> 3 & (v4su){0x11, 0x111111, 0x11, 0x111111}) |
-				(mb[-1].bits_v >> 5 & (v4su){0x04104100, 0, 0, 0});
-			} else { // FIXME 4:2:2
-			mb->bits_v = (ctx->mbB->bits_v >> 1 & (v4su){0x40810242, 0x40810242, 0x40810242, 0x424242}) |
-				(mb[-1].bits_v >> 3 & (v4su){0x11, 0x11, 0x11, 0x111111}) |
-				(mb[-1].bits_v >> 5 & (v4su){0x04104100, 0x04104100, 0x04104100, 0});
+		if (ctx->ps.ChromaArrayType == 1) { // FIXME 4:2:2
+			mb->bits_v = (ctx->mbB->bits_v >> 1 & (v4su){0x42, 0x42, 0x42, 0x424242}) |
+				(mb[-1].bits_v >> 3 & (v4su){0x11, 0x11, 0x11, 0x111111});
 		}
 		
 		// prepare block unavailability information (6.4.11.4)

@@ -131,7 +131,7 @@ static int check_frame(const Edge264_stream *e, int i, const uint8_t *frame)
 				for (int base = 0; base < MbHeight * stride; base += stride)
 					invalid |= memcmp(p + base, q + base, MbStride);
 				if (invalid) {
-					printf("<h4 style='color:red'>Erroneous macroblock (pic_order_cnt %d, row %d, column %d, %s plane):<pre style='color:black'>\n", ((e->FieldOrderCnt[0][i] + 0x7fff) & 0x7fffffff) - 0x7fff, row, col, (iYCbCr == 0) ? "Luma" : (iYCbCr == 1) ? "Cb" : "Cr");
+					printf("<h4 style='color:red'>Erroneous macroblock (pic_order_cnt %d, row %d, column %d, %s plane):<pre style='color:black'>\n", e->FieldOrderCnt[0][i] << 6 >> 6, row, col, (iYCbCr == 0) ? "Luma" : (iYCbCr == 1) ? "Cb" : "Cr");
 					for (int base = 0; base < MbHeight * stride; base += stride) {
 						for (int offset = base; offset < base + MbStride; offset++)
 							printf(p[offset] != q[offset] ? "<span style='color:red'>%3d</span> " : "%3d ", p[offset]);
@@ -152,7 +152,7 @@ static int check_frame(const Edge264_stream *e, int i, const uint8_t *frame)
 		}
 	}
 	printf("<h4 style='color:green'>Output frame with PicOrderCnt %d is correct</h4>\n",
-		((e->FieldOrderCnt[0][i] + 0x7fff) & 0x7fffffff) - 0x7fff);
+		e->FieldOrderCnt[0][i] << 6 >> 6);
 	return 0;
 }
 

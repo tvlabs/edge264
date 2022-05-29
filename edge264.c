@@ -450,7 +450,7 @@ static void FUNC(parse_ref_pic_list_modification, const Edge264_stream *e)
 	for (int l = 0; l <= ctx->slice_type; l++) {
 		for (int i = 0; i < ctx->ps.num_ref_idx_active[l]; i++) {
 			int pic = ctx->RefPicList[l][i];
-			int poc = ((min(e->FieldOrderCnt[0][pic], e->FieldOrderCnt[1][pic]) + 0x7fff) & 0x7fffffff) - 0x7fff;
+			int poc = min(e->FieldOrderCnt[0][pic], e->FieldOrderCnt[1][pic]) << 6 >> 6;
 			int l = e->long_term_flags >> pic & 1;
 			printf("%u%s/%u%s", l ? e->LongTermFrameIdx[pic] : e->FrameNum[pic], l ? "*" : "", poc, (i < ctx->ps.num_ref_idx_active[l] - 1) ? ", " : (ctx->slice_type - l == 1) ? "<br>" : "");
 		}
@@ -461,19 +461,19 @@ static void FUNC(parse_ref_pic_list_modification, const Edge264_stream *e)
 
 
 /**
- * This function parses frame_num, checks for gaps in frame_num, then allocates
- * a slot for the current frame in the DPB.
+ * This function parses frame_num, checks for gaps in frame_num (8.2.5.2), then
+ * allocates a slot for the current frame in the DPB.
  * It returns -1 if the DPB is full and should be consumed beforehand.
  */
 static int FUNC(parse_frame_num, Edge264_stream *e)
 {
 	// initialize reference fields that will be applied after decoding the current frame (8.2.5.1)
-	int prevFrameNum;
+	int prevRefFrameNum;
 	if (ctx->nal_unit_type == 5) {
-		prevFrameNum = e->pic_reference_flags = e->pic_long_term_flags = 0;
+		prevRefFrameNum = e->pic_reference_flags = e->pic_long_term_flags = 0;
 		e->pic_idr_or_mmco5 = 1;
 	} else {
-		prevFrameNum = e->prevFrameNum;
+		prevRefFrameNum = e->prevRefFrameNum;
 		e->pic_reference_flags = e->reference_flags;
 		e->pic_long_term_flags = e->long_term_flags;
 		e->pic_idr_or_mmco5 = 0;
@@ -483,16 +483,64 @@ static int FUNC(parse_frame_num, Edge264_stream *e)
 	
 	// parse frame_num
 	int frame_num = CALL(get_uv, ctx->ps.log2_max_frame_num);
-	int inc = (frame_num - prevFrameNum) & ((1 << ctx->ps.log2_max_frame_num) - 1);
-	ctx->FrameNum = prevFrameNum + inc;
+	int inc = (frame_num - prevRefFrameNum) & ((1 << ctx->ps.log2_max_frame_num) - 1);
+	ctx->FrameNum = prevRefFrameNum + inc;
 	printf("<tr><th>frame_num => FrameNum</th><td>%u => %u</td></tr>\n", frame_num, ctx->FrameNum);
+	
+	// when detecting a gap, dereference enough frames to fit the last non-existing frames
+	int gap = ctx->FrameNum - prevRefFrameNum - 1;
+	if (gap > 0) { // cannot happen for IDR frames
+		int non_existing = min(gap, ctx->ps.max_num_ref_frames - __builtin_popcount(e->long_term_flags));
+		int excess = __builtin_popcount(e->reference_flags) + non_existing - ctx->ps.max_num_ref_frames;
+		for (int unref; excess > 0; excess--) {
+			int best = INT_MAX;
+			for (unsigned r = e->reference_flags; r; r &= r - 1) {
+				int i = __builtin_ctz(r);
+				if (e->FrameNum[i] < best)
+					best = e->FrameNum[unref = i];
+			}
+			e->reference_flags ^= 1 << unref;
+		}
+		
+		// make enough frames immediately displayable until there are enough DPB slots available
+		unsigned output_flags = e->output_flags;
+		while (__builtin_popcount(e->reference_flags | output_flags) + non_existing > ctx->ps.max_dec_frame_buffering) {
+			int disp, best = INT_MAX;
+			for (unsigned o = output_flags; o; o &= o - 1) {
+				int i = __builtin_ctz(o);
+				if (e->FieldOrderCnt[0][i] < best)
+					best = e->FieldOrderCnt[0][disp = i];
+			}
+			output_flags ^= 1 << disp;
+			e->dispPicOrderCnt = max(e->dispPicOrderCnt, best);
+		}
+		if (output_flags != e->output_flags)
+			return -1;
+		
+		// finally insert the last non-existing frames one by one
+		for (unsigned FrameNum = ctx->FrameNum - non_existing; FrameNum < ctx->FrameNum; FrameNum++) {
+			int i = __builtin_ctz(~(e->reference_flags | output_flags));
+			e->reference_flags |= 1 << i;
+			e->FrameNum[i] = FrameNum;
+			int PicOrderCnt = 0;
+			if (ctx->ps.pic_order_cnt_type == 2) {
+				PicOrderCnt = FrameNum * 2;
+			} else if (ctx->ps.num_ref_frames_in_pic_order_cnt_cycle > 0) {
+				PicOrderCnt = (FrameNum / ctx->ps.num_ref_frames_in_pic_order_cnt_cycle) *
+					e->PicOrderCntDeltas[ctx->ps.num_ref_frames_in_pic_order_cnt_cycle] +
+					e->PicOrderCntDeltas[FrameNum % ctx->ps.num_ref_frames_in_pic_order_cnt_cycle];
+			}
+			e->FieldOrderCnt[0][i] = e->FieldOrderCnt[1][i] = PicOrderCnt;
+		}
+		e->pic_reference_flags = e->reference_flags;
+	}
 	
 	// find a DPB slot for the upcoming frame
 	unsigned unavail = e->pic_reference_flags | e->output_flags;
-	if (__builtin_popcount(unavail) > e->SPS.max_dec_frame_buffering)
+	if (__builtin_popcount(unavail) > ctx->ps.max_dec_frame_buffering)
 		return -1;
 	ctx->currPic = __builtin_ctz(~unavail);
-	e->FrameNum[ctx->currPic] = e->prevFrameNum = ctx->FrameNum;
+	e->FrameNum[ctx->currPic] = ctx->FrameNum;
 	return 0;
 }
 
@@ -562,7 +610,7 @@ static int FUNC(parse_slice_layer_without_partitioning, Edge264_stream *e)
 	} else if (ctx->ps.pic_order_cnt_type == 1) {
 		unsigned absFrameNum = ctx->FrameNum + (ctx->nal_ref_idc != 0) - 1;
 		TopFieldOrderCnt = (ctx->nal_ref_idc) ? 0 : ctx->ps.offset_for_non_ref_pic;
-		if (ctx->ps.num_ref_frames_in_pic_order_cnt_cycle != 0) {
+		if (ctx->ps.num_ref_frames_in_pic_order_cnt_cycle > 0) {
 			TopFieldOrderCnt += (absFrameNum / ctx->ps.num_ref_frames_in_pic_order_cnt_cycle) *
 				e->PicOrderCntDeltas[ctx->ps.num_ref_frames_in_pic_order_cnt_cycle] +
 				e->PicOrderCntDeltas[absFrameNum % ctx->ps.num_ref_frames_in_pic_order_cnt_cycle];
@@ -628,7 +676,7 @@ static int FUNC(parse_slice_layer_without_partitioning, Edge264_stream *e)
 		int l = e->long_term_flags >> i & 1;
 		int o = e->output_flags >> i & 1;
 		printf(!r ? "_/" : l ? "%u*/" : "%u/", e->FrameNum[i]);
-		printf(o ? "%d" : "_", ((min(e->FieldOrderCnt[0][i], e->FieldOrderCnt[1][i]) + 0x7fff) & 0x7fffffff) - 0x7fff);
+		printf(o ? "%d" : "_", min(e->FieldOrderCnt[0][i], e->FieldOrderCnt[1][i]) << 6 >> 6);
 		printf((i < ctx->ps.max_dec_frame_buffering) ? ", " : "</small></td></tr>\n");
 	}
 	
@@ -679,7 +727,7 @@ static int FUNC(parse_slice_layer_without_partitioning, Edge264_stream *e)
 	
 	// update e after all slices of the current frame are decoded
 	if (e->pic_idr_or_mmco5) { // IDR or mmco5
-		e->LongTermFrameIdx[ctx->currPic] = e->FrameNum[ctx->currPic] = e->prevFrameNum = 0;
+		e->LongTermFrameIdx[ctx->currPic] = e->FrameNum[ctx->currPic] = e->prevRefFrameNum = 0;
 		for (unsigned o = e->output_flags; o; o &= o - 1) {
 			int i = __builtin_ctz(o);
 			e->FieldOrderCnt[0][i] -= 1 << 26; // make all buffered pictures precede the next ones
@@ -689,6 +737,7 @@ static int FUNC(parse_slice_layer_without_partitioning, Edge264_stream *e)
 		e->prevPicOrderCnt = e->FieldOrderCnt[0][ctx->currPic] -= ctx->PicOrderCnt;
 		e->FieldOrderCnt[1][ctx->currPic] -= ctx->PicOrderCnt;
 	} else if (ctx->nal_ref_idc) {
+		e->prevRefFrameNum = ctx->FrameNum;
 		e->prevPicOrderCnt = ctx->PicOrderCnt;
 	} else {
 		e->dispPicOrderCnt = ctx->PicOrderCnt; // all frames with lower POCs are now ready for output

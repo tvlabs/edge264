@@ -1,8 +1,4 @@
 /** MAYDO:
- * _ use positive and negative return codes to distinguish codes that should stop the loop
- * _ make TRACE=2 output even more compact with sub_mb_types and mvds
- * _ rename TRACE into DBG or the opposite to be more coherent (make TRACE=1 should generate edge264_play-trace1)
- * _ remove the systematic refill test in get_uX in favor of manual tests at key point in every mb
  * _ update the attributes of e to include all necessary data to decode one frame
  * _ remove uses of __m64 in inter_ssse3.c
  * _ replace old uses of lddqu with loadu
@@ -496,7 +492,7 @@ static int FUNC(parse_frame_num, Edge264_stream *e)
 	
 	// when detecting a gap, dereference enough frames to fit the last non-existing frames
 	int gap = ctx->FrameNum - prevRefFrameNum - 1;
-	if (gap > 0) { // cannot happen for IDR frames
+	if (__builtin_expect(gap > 0, 0)) { // cannot happen for IDR frames
 		int non_existing = min(gap, ctx->ps.max_num_ref_frames - __builtin_popcount(e->long_term_flags));
 		int excess = __builtin_popcount(e->reference_flags) + non_existing - ctx->ps.max_num_ref_frames;
 		for (int unref; excess > 0; excess--) {

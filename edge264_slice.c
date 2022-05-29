@@ -827,7 +827,7 @@ static noinline void CAFUNC(parse_I_mb, int mb_type_or_ctxIdx)
 			msb_cache = lsd(msb_cache, lsb_cache, bits);
 			lsb_cache = lsb_cache << bits;
 		#else
-			fprintf(stderr, (ctxIdx == 17) ? "mb_type: 30\n" : (ctxIdx == 32) ? "mb_type: 48\n" : "mb_type: 25\n");
+			fprintf(stderr, (mb_type_or_ctxIdx == 17) ? "mb_type: 30\n" : (mb_type_or_ctxIdx == 32) ? "mb_type: 48\n" : "mb_type: 25\n");
 		#endif
 		
 		ctx->mb_qp_delta_nz = 0;
@@ -1056,16 +1056,17 @@ static inline void CAFUNC(parse_ref_idx, unsigned f) {
 static void CAFUNC(parse_B_sub_mb) {
 	
 	// initializations for sub_mb_type
+	fprintf(stderr, "sub_mb_types:");
 	unsigned mvd_flags = 0;
 	for (int i8x8 = 0; i8x8 < 4; i8x8++) {
 		int i4x4 = i8x8 * 4;
 		#ifndef CABAC
 			int sub_mb_type = CALL(get_ue16, 12);
-			fprintf(stderr, "sub_mb_type: %u\n", sub_mb_type);
+			fprintf(stderr, " %u", sub_mb_type);
 		#endif
 		if (CACOND(sub_mb_type == 0, !CALL(get_ae, 36))) { // B_Direct_8x8
 			#ifdef CABAC
-				fprintf(stderr, "sub_mb_type: 0\n");
+				fprintf(stderr, " 0");
 			#endif
 			mb->refIdx[i8x8] = mb->refIdx[4 + i8x8] = 0;
 		} else {
@@ -1086,7 +1087,7 @@ static void CAFUNC(parse_B_sub_mb) {
 					0x00001, 0x10000, 0xf0000, 0xf000f, 0x30000, 0x50005, 0x30003, 0x0000f};
 				mvd_flags |= sub2flags[sub] << i4x4;
 				static const uint8_t sub2mb_type[13] = {3, 4, 5, 6, 1, 2, 11, 12, 7, 8, 9, 10, 0};
-				fprintf(stderr, "sub_mb_type: %u\n", sub2mb_type[sub]);
+				fprintf(stderr, " %u", sub2mb_type[sub]);
 			#endif
 			if (CACOND(0x015f & 1 << sub_mb_type, 0x23b & 1 << sub)) { // 8xN
 				ctx->unavail[i4x4] = (ctx->unavail[i4x4] & 11) | (ctx->unavail[i4x4 + 1] & 4);
@@ -1103,6 +1104,7 @@ static void CAFUNC(parse_B_sub_mb) {
 		}
 	}
 	mb->inter_blocks = (mvd_flags & 0xffff) | mvd_flags >> 16;
+	fprintf(stderr, "\n");
 	
 	// initialize direct prediction then parse all ref_idx values
 	if (mb->refIdx_l != -1ll)
@@ -1352,6 +1354,7 @@ static inline void CAFUNC(parse_B_mb)
 static void CAFUNC(parse_P_sub_mb, unsigned ref_idx_flags)
 {
 	// initializations for sub_mb_type
+	fprintf(stderr, "sub_mb_types:");
 	unsigned mvd_flags = 0;
 	for (int i8x8 = 0; i8x8 < 4; i8x8++) {
 		int i4x4 = i8x8 * 4;
@@ -1370,10 +1373,11 @@ static void CAFUNC(parse_P_sub_mb, unsigned ref_idx_flags)
 			ctx->mvs_C[i4x4] = ctx->mvs_B[i4x4 + 1];
 			flags = CACOND(sub_mb_type == 2, CALL(get_ae, 23)) ? 3 : 15;
 		}
-		fprintf(stderr, "sub_mb_type: %c\n", (flags == 1) ? '0' : (flags == 5) ? '1' : (flags == 3) ? '2' : '3');
+		fprintf(stderr, (flags == 1) ? " 0" : (flags == 5) ? " 1" : (flags == 3) ? " 2" : " 3");
 		mvd_flags |= flags << i4x4;
 	}
 	mb->inter_blocks = mvd_flags;
+	fprintf(stderr, "\n");
 	CACALL(parse_ref_idx, ref_idx_flags);
 	
 	// load neighbouring refIdx values and shuffle them into A/B/C/D

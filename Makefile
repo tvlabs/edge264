@@ -17,7 +17,7 @@ ifeq ($(TRACE),)
 	SUFFIX = -$(CC)
 else
 	override CFLAGS := -DTRACE=$(TRACE) $(CFLAGS)
-	SUFFIX = -dbg$(TRACE)
+	SUFFIX = -trace$(TRACE)
 endif
 
 edge264$(SUFFIX).o: edge264*.c edge264*.h Makefile

@@ -79,21 +79,21 @@ typedef struct Edge264_stream {
 	const uint8_t *CPB; // should point to a NAL unit (after the 001 prefix)
 	const uint8_t *end; // first byte past the end of the buffer
 	
-	// read-only fields
+	// public read-only fields
 	uint8_t *frame; // pointer to the frame returned by get_frame
-	int16_t stride_Y; // 15 significant bits
+	int16_t stride_Y;
 	int16_t stride_C;
 	int32_t plane_size_Y;
 	int32_t plane_size_C;
-	int32_t frame_size;
 	
 	// private fields
 	uint8_t *DPB; // NULL before the first SPS is decoded
+	int32_t frame_size; // larger than plane_size_Y+2*plane_size_C since macroblocks values are stored at the end
 	uint32_t reference_flags; // bitfield for indices of reference frames
 	uint32_t pic_reference_flags; // to be applied after decoding all slices of the current frame
 	uint32_t long_term_flags; // bitfield for indices of long-term frames
 	uint32_t pic_long_term_flags; // to be applied after decoding all slices of the current frame
-	uint32_t output_flags; // bitfield for frames waiting for output
+	uint32_t output_flags; // bitfield for frames waiting to be output
 	int32_t prevRefFrameNum;
 	int32_t prevPicOrderCnt;
 	int32_t dispPicOrderCnt;
@@ -122,7 +122,8 @@ const uint8_t *Edge264_find_start_code(int n, const uint8_t *CPB, const uint8_t 
  * 
  * Return codes are (negative if no NAL was consumed):
  * -2: end of buffer (e->CPB==e->end, so fetch some new data to proceed)
- * -1: DPB is full (more frames should be consumed before decoding can resume)
+ * -1: DPB is full (more frames should be consumed before decoding can resume,
+ *     only returned while decoding a picture NAL)
  *  0: success
  *  1: unsupported stream (decoding may proceed but could return zero frames)
  *  2: decoding error (decoding may proceed but could show visual artefacts,

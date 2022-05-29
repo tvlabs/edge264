@@ -827,7 +827,7 @@ static noinline void CAFUNC(parse_I_mb, int mb_type_or_ctxIdx)
 			msb_cache = lsd(msb_cache, lsb_cache, bits);
 			lsb_cache = lsb_cache << bits;
 		#else
-			fprintf(stderr, "mb_type: 25\n"); // FIXME P and B
+			fprintf(stderr, (ctxIdx == 17) ? "mb_type: 30\n" : (ctxIdx == 32) ? "mb_type: 48\n" : "mb_type: 25\n");
 		#endif
 		
 		ctx->mb_qp_delta_nz = 0;

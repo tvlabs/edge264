@@ -291,9 +291,8 @@ int main(int argc, char *argv[])
 		"<body>\n");
 	while (1) {
 		int res = Edge264_decode_NAL(&e);
-		const uint8_t *output = Edge264_get_frame(&e, res == -2);
-		if (output != NULL && !bench)
-			process_frame(&e, (output - e.DPB) / e.frame_size);
+		if (Edge264_get_frame(&e, res == -2) >= 0 && !bench)
+			process_frame(&e, (e.frame - e.DPB) / e.frame_size);
 		else if (res == -2)
 			break;
 	}

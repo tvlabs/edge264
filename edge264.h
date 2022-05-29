@@ -80,6 +80,7 @@ typedef struct Edge264_stream {
 	const uint8_t *end; // first byte past the end of the buffer
 	
 	// read-only fields
+	uint8_t *frame; // pointer to the frame returned by get_frame
 	int16_t stride_Y; // 15 significant bits
 	int16_t stride_C;
 	int32_t plane_size_Y;
@@ -119,12 +120,12 @@ const uint8_t *Edge264_find_start_code(int n, const uint8_t *CPB, const uint8_t 
  * When the NAL is followed by a start code (for annex B streams), e->CPB will
  * be updated to point at the next unit.
  * 
- * Return codes are:
- *  0: success
- * -1: DPB is full (more frames should be consumed before decoding can resume)
+ * Return codes are (negative if no NAL was consumed):
  * -2: end of buffer (e->CPB==e->end, so fetch some new data to proceed)
- * -3: unsupported stream (decoding may proceed but could return zero frames)
- * -4: decoding error (decoding may proceed but could show visual artefacts,
+ * -1: DPB is full (more frames should be consumed before decoding can resume)
+ *  0: success
+ *  1: unsupported stream (decoding may proceed but could return zero frames)
+ *  2: decoding error (decoding may proceed but could show visual artefacts,
  *     if you can validate with another decoder that the stream is correct,
  *     please consider filling a bug report, thanks!)
  */
@@ -132,22 +133,27 @@ int Edge264_decode_NAL(Edge264_stream *e);
 
 
 /**
- * Extract and return a decoded frame (or NULL if none is available).
- * Pass drain=1 to extract all remaining frames at the end of stream.
+ * Fetch a decoded frame and store it in e->frame (pass drain=1 to extract all
+ * remaining frames at the end of stream).
+ * 
+ * Return codes are:
+ * -1: no frame ready for output
+ *  0: success
+ *  1: erroneous frame (the returned frame wasn't properly decoded and may
+ *     contain visual artefacts)
  * 
  * Example code (single buffer in annex B format):
  *    Edge264_stream e = {.CPB=buffer_start, .end=buffer_end};
  *    while (1) {
  *       int res = Edge264_decode_NAL(&e);
- *       const uint8_t *output = Edge264_get_frame(&e, res == -2);
- *       if (output != NULL)
- *          process_frame(&e, output);
+ *       if (Edge264_get_frame(&e, res == -2) >= 0) // drain when reaching the end
+ *          process_frame(&e, e->frame);
  *       else if (res == -2)
  *          break;
  *    }
  *    Edge264_clear(&e);
  */
-const void *Edge264_get_frame(Edge264_stream *e, int drain);
+int Edge264_get_frame(Edge264_stream *e, int drain);
 
 
 /**

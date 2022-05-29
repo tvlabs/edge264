@@ -1,5 +1,4 @@
 /** MAYDO:
- * _ fix the display of CABAC with TRACE=2
  * _ use positive and negative return codes to distinguish codes that should stop the loop
  * _ make TRACE=2 output even more compact with sub_mb_types and mvds
  * _ rename TRACE into DBG or the opposite to be more coherent (make TRACE=1 should generate edge264_play-trace1)
@@ -577,9 +576,9 @@ static int FUNC(parse_slice_layer_without_partitioning, Edge264_stream *e)
 	
 	// check that the following slice may be decoded
 	if (first_mb_in_slice > 0 || ctx->slice_type > 2 || pic_parameter_set_id >= 4)
-		return -3;
+		return 1;
 	if (e->PPSs[pic_parameter_set_id].num_ref_idx_active[0] == 0)
-		return -4;
+		return 2;
 	ctx->ps = e->PPSs[pic_parameter_set_id];
 	if (CALL(parse_frame_num, e))
 		return -1;
@@ -640,7 +639,7 @@ static int FUNC(parse_slice_layer_without_partitioning, Edge264_stream *e)
 		printf("<tr><th>PicOrderCnt</th><td>%d</td></tr>\n", TopFieldOrderCnt);
 	}
 	if (abs(TopFieldOrderCnt) >= 1 << 25 || abs(BottomFieldOrderCnt) >= 1 << 25)
-		return -3;
+		return 1;
 	ctx->PicOrderCnt = min(TopFieldOrderCnt, BottomFieldOrderCnt);
 	e->FieldOrderCnt[0][ctx->currPic] = TopFieldOrderCnt;
 	e->FieldOrderCnt[1][ctx->currPic] = BottomFieldOrderCnt;
@@ -723,7 +722,7 @@ static int FUNC(parse_slice_layer_without_partitioning, Edge264_stream *e)
 	} else {
 		// cabac_alignment_one_bit gives a good probability to catch random errors.
 		if (CALL(cabac_start))
-			return -4;
+			return 2;
 		CALL(cabac_init, cabac_init_idc);
 		CALL(parse_slice_data_cabac);
 	}
@@ -966,11 +965,11 @@ static int FUNC(parse_pic_parameter_set, Edge264_stream *e)
 	
 	// seq_parameter_set_id was ignored so far since no SPS data was read.
 	if (CALL(get_uv, 24) != 0x800000 || e->DPB == NULL)
-		return -4;
+		return 2;
 	if (pic_parameter_set_id >= 4 ||
 		num_slice_groups > 1 || ctx->ps.constrained_intra_pred_flag ||
 		redundant_pic_cnt_present_flag || ctx->ps.transform_8x8_mode_flag)
-		return -3;
+		return 1;
 	e->PPSs[pic_parameter_set_id] = ctx->ps;
 	return 0;
 }
@@ -1400,13 +1399,13 @@ static int FUNC(parse_seq_parameter_set, Edge264_stream *e)
 	}
 	
 	if (CALL(get_uv, 24) != 0x800000)
-		return -4;
+		return 2;
 	if (ctx->ps.ChromaArrayType != 1 || ctx->ps.BitDepth_Y != 8 ||
 		ctx->ps.BitDepth_C != 8 || ctx->ps.qpprime_y_zero_transform_bypass_flag ||
 		!ctx->ps.frame_mbs_only_flag || ctx->ps.frame_crop_left_offset ||
 		ctx->ps.frame_crop_right_offset || ctx->ps.frame_crop_top_offset ||
 		ctx->ps.frame_crop_bottom_offset)
-		return -3;
+		return 1;
 	
 	// reallocate the DPB when the image format changes
 	if (memcmp(&ctx->ps, &e->SPS, 8) != 0) {
@@ -1538,9 +1537,9 @@ int Edge264_decode_NAL(Edge264_stream *e)
 		ret = CALL(parse_nal_unit[nal_unit_type], e);
 		if (ret == -1)
 			printf("<tr style='background-color:#f77'><th colspan=2 style='text-align:center'>DPB is full</th></tr>\n");
-		if (ret == -3)
+		if (ret == 1)
 			printf("<tr style='background-color:#f77'><th colspan=2 style='text-align:center'>Unsupported stream</th></tr>\n");
-		if (ret == -4)
+		if (ret == 2)
 			printf("<tr style='background-color:#f77'><th colspan=2 style='text-align:center'>Decoding error</th></tr>\n");
 		
 		// restore registers
@@ -1566,7 +1565,7 @@ int Edge264_decode_NAL(Edge264_stream *e)
  * _ there is no empty slot for the next frame
  * _ drain is set
  */
-const void *Edge264_get_frame(Edge264_stream *e, int drain) {
+int Edge264_get_frame(Edge264_stream *e, int drain) {
 	int output = -1;
 	int best = (drain || __builtin_popcount(e->output_flags) > e->SPS.max_num_reorder_frames ||
 		__builtin_popcount(e->reference_flags | e->output_flags) > e->SPS.max_dec_frame_buffering) ? INT_MAX : e->dispPicOrderCnt;
@@ -1576,9 +1575,10 @@ const void *Edge264_get_frame(Edge264_stream *e, int drain) {
 			best = e->FieldOrderCnt[0][output = i];
 	}
 	if (output < 0)
-		return NULL;
+		return -1;
 	e->output_flags ^= 1 << output;
-	return e->DPB + output * e->frame_size;
+	e->frame = e->DPB + output * e->frame_size;
+	return 0;
 }
 
 

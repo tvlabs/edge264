@@ -62,21 +62,20 @@ int main() {
 		int res;
 		do {
 			res = Edge264_decode_NAL(&e);
-			const uint8_t *output = Edge264_get_frame(&e, res == -2);
-			if (output != NULL) {
-				if (memcmp(output, cmp, e.plane_size_Y + e.plane_size_C * 2))
-					res = -4;
+			if (!Edge264_get_frame(&e, res == -2)) {
+				if (memcmp(e.frame, cmp, e.plane_size_Y + e.plane_size_C * 2))
+					res = 2;
 				cmp += e.plane_size_Y + e.plane_size_C * 2;
 			} else if (res == -2) {
 				break;
 			}
-		} while (res > -3);
+		} while (res <= 0);
 		if (res == -2 && cmp != dpb + stD.st_size)
-			res = -4;
+			res = 2;
 		Edge264_clear(&e);
-		counts[-res]++;
-		if (res != -3)
-			printf("%s: %s\n" RESET, entry->d_name, res == -2 ? GREEN "PASS" : res == -3 ? YELLOW "UNSUPPORTED" : res == -4 ? RED "FAIL" : BLUE "FLAGGED");
+		counts[2 + res]++;
+		if (res != 1)
+			printf("%s: %s\n" RESET, entry->d_name, res == -2 ? GREEN "PASS" : res == 1 ? YELLOW "UNSUPPORTED" : res == 2 ? RED "FAIL" : BLUE "FLAGGED");
 		
 		// close everything
 		munmap(cpb, stC.st_size);
@@ -89,6 +88,6 @@ int main() {
 	if (counts[5] > 0)
 		printf("%d " BLUE "FLAGGED" RESET ", ", counts[5]);
 	printf("%d " GREEN "PASS" RESET ", %d " YELLOW "UNSUPPORTED" RESET ", %d " RED "FAIL" RESET "\n",
-		counts[2], counts[3], counts[4]);
+		counts[0], counts[3], counts[4]);
 	return 0;
 }

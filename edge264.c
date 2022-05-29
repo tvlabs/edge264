@@ -1,7 +1,4 @@
 /** MAYDO:
- * _ cap num_ref_idx to the actual number of available refs, and handle gaps in frame num properly
- * _ display both FrameNum and POC in RefPicList on TRACE=1 output
- * _ swap the convention for direct 8x8 blocks in refIdx to make it more intuitive (0<->-1)
  * _ fix the display of CABAC with TRACE=2
  * _ use positive and negative return codes to distinguish codes that should stop the loop
  * _ make TRACE=2 output even more compact with sub_mb_types and mvds
@@ -338,7 +335,8 @@ static void FUNC(parse_ref_pic_list_modification, const Edge264_stream *e)
 	unsigned pic_value = (ctx->slice_type == 0) ? ctx->FrameNum : ctx->PicOrderCnt;
 	int count[3] = {0, 0, 0}; // number of refs before/after/long
 	int size = 0;
-	memset(ctx->RefPicList, -1, 64);
+	ctx->RefPicList_v[0] = ctx->RefPicList_v[1] = ctx->RefPicList_v[2] = ctx->RefPicList_v[3] =
+		(v16qi){-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1};
 	
 	// sort all short and long term references for RefPicListL0
 	for (unsigned refs = e->reference_flags, next = 0; refs; refs ^= 1 << next) {
@@ -401,8 +399,8 @@ static void FUNC(parse_ref_pic_list_modification, const Edge264_stream *e)
 		}
 	}*/
 	
-	// Swap the two first slots of RefPicListL1 if equal with RefPicListL0.
-	if (size > 1 && memcmp(ctx->RefPicList[0], ctx->RefPicList[1], 32) == 0) {
+	// Swap the two first slots of RefPicListL1 if it the same as RefPicListL0.
+	if (ctx->RefPicList[0][0] == ctx->RefPicList[1][0]) {
 		ctx->RefPicList[1][0] = ctx->RefPicList[0][1];
 		ctx->RefPicList[1][1] = ctx->RefPicList[0][0];
 	}
@@ -446,16 +444,26 @@ static void FUNC(parse_ref_pic_list_modification, const Edge264_stream *e)
 		}
 	}
 	
-	printf("<tr><th>RefPicLists (FrameNum/PicOrderCnt)</th><td>");
-	for (int l = 0; l <= ctx->slice_type; l++) {
-		for (int i = 0; i < ctx->ps.num_ref_idx_active[l]; i++) {
-			int pic = ctx->RefPicList[l][i];
-			int poc = min(e->FieldOrderCnt[0][pic], e->FieldOrderCnt[1][pic]) << 6 >> 6;
-			int l = e->long_term_flags >> pic & 1;
-			printf("%u%s/%u%s", l ? e->LongTermFrameIdx[pic] : e->FrameNum[pic], l ? "*" : "", poc, (i < ctx->ps.num_ref_idx_active[l] - 1) ? ", " : (ctx->slice_type - l == 1) ? "<br>" : "");
+	// fill all uninitialized references with ref 0 in case num_ref_idx_active is too high
+	v16qi ref0l0 = shuffle(ctx->RefPicList_v[0], (v16qi){});
+	v16qi ref0l1 = shuffle(ctx->RefPicList_v[2], (v16qi){});
+	ctx->RefPicList_v[0] = ifelse_msb(ctx->RefPicList_v[0], ref0l0, ctx->RefPicList_v[0]);
+	ctx->RefPicList_v[1] = ifelse_msb(ctx->RefPicList_v[1], ref0l0, ctx->RefPicList_v[1]);
+	ctx->RefPicList_v[2] = ifelse_msb(ctx->RefPicList_v[2], ref0l1, ctx->RefPicList_v[2]);
+	ctx->RefPicList_v[3] = ifelse_msb(ctx->RefPicList_v[3], ref0l1, ctx->RefPicList_v[3]);
+	
+	#ifdef TRACE
+		printf("<tr><th>RefPicLists (FrameNum/PicOrderCnt)</th><td>");
+		for (int l = 0; l <= ctx->slice_type; l++) {
+			for (int i = 0; i < ctx->ps.num_ref_idx_active[l]; i++) {
+				int pic = ctx->RefPicList[l][i];
+				int poc = min(e->FieldOrderCnt[0][pic], e->FieldOrderCnt[1][pic]) << 6 >> 6;
+				int l = e->long_term_flags >> pic & 1;
+				printf("%u%s/%u%s", l ? e->LongTermFrameIdx[pic] : e->FrameNum[pic], l ? "*" : "", poc, (i < ctx->ps.num_ref_idx_active[l] - 1) ? ", " : (ctx->slice_type - l == 1) ? "<br>" : "");
+			}
 		}
-	}
-	printf("</td></tr>\n");
+		printf("</td></tr>\n");
+	#endif
 }
 
 
@@ -603,10 +611,13 @@ static int FUNC(parse_slice_layer_without_partitioning, Edge264_stream *e)
 		int pic_order_cnt_lsb = CALL(get_uv, ctx->ps.log2_max_pic_order_cnt_lsb);
 		int prevPicOrderCnt = (ctx->nal_unit_type == 5) ? 0 : e->prevPicOrderCnt;
 		int inc = (pic_order_cnt_lsb - prevPicOrderCnt) << shift >> shift;
-		TopFieldOrderCnt = BottomFieldOrderCnt = prevPicOrderCnt + inc;
+		TopFieldOrderCnt = prevPicOrderCnt + inc;
+		int delta_pic_order_cnt_bottom = 0;
 		if (ctx->ps.bottom_field_pic_order_in_frame_present_flag && !ctx->field_pic_flag)
-			BottomFieldOrderCnt += CALL(get_se32, (-1u << 31) + 1, (1u << 31) - 1);
-		printf("<tr><th>pic_order_cnt_lsb => PicOrderCnt</th><td>%u => %d</td></tr>\n", pic_order_cnt_lsb, TopFieldOrderCnt);
+			delta_pic_order_cnt_bottom = CALL(get_se32, (-1u << 31) + 1, (1u << 31) - 1);
+		BottomFieldOrderCnt = TopFieldOrderCnt + delta_pic_order_cnt_bottom;
+		printf("<tr><th>pic_order_cnt_lsb/delta_pic_order_cnt_bottom => Top/Bottom POC</th><td>%u/%d => %d/%d</td></tr>\n",
+			pic_order_cnt_lsb, delta_pic_order_cnt_bottom, TopFieldOrderCnt, BottomFieldOrderCnt);
 	} else if (ctx->ps.pic_order_cnt_type == 1) {
 		unsigned absFrameNum = ctx->FrameNum + (ctx->nal_ref_idc != 0) - 1;
 		TopFieldOrderCnt = (ctx->nal_ref_idc) ? 0 : ctx->ps.offset_for_non_ref_pic;
@@ -615,13 +626,15 @@ static int FUNC(parse_slice_layer_without_partitioning, Edge264_stream *e)
 				e->PicOrderCntDeltas[ctx->ps.num_ref_frames_in_pic_order_cnt_cycle] +
 				e->PicOrderCntDeltas[absFrameNum % ctx->ps.num_ref_frames_in_pic_order_cnt_cycle];
 		}
-		BottomFieldOrderCnt = TopFieldOrderCnt;
+		int delta_pic_order_cnt0 = 0, delta_pic_order_cnt1 = 0;
 		if (!ctx->ps.delta_pic_order_always_zero_flag) {
-			BottomFieldOrderCnt = TopFieldOrderCnt += CALL(get_se32, (-1u << 31) + 1, (1u << 31) - 1);
+			delta_pic_order_cnt0 = CALL(get_se32, (-1u << 31) + 1, (1u << 31) - 1);
 			if (ctx->ps.bottom_field_pic_order_in_frame_present_flag && !ctx->field_pic_flag)
-				BottomFieldOrderCnt += CALL(get_se32, (-1u << 31) + 1, (1u << 31) - 1);
+				delta_pic_order_cnt1 = CALL(get_se32, (-1u << 31) + 1, (1u << 31) - 1);
 		}
-		printf("<tr><th>PicOrderCnt</th><td>%d</td></tr>\n", TopFieldOrderCnt);
+		TopFieldOrderCnt += delta_pic_order_cnt0;
+		BottomFieldOrderCnt = TopFieldOrderCnt + delta_pic_order_cnt1;
+		printf("<tr><th>delta_pic_order_cnt[0/1] => Top/Bottom POC</th><td>%d/%d => %d/%d</td></tr>\n", delta_pic_order_cnt0, delta_pic_order_cnt1, TopFieldOrderCnt, BottomFieldOrderCnt);
 	} else {
 		TopFieldOrderCnt = BottomFieldOrderCnt = ctx->FrameNum * 2 + (ctx->nal_ref_idc != 0) - 1;
 		printf("<tr><th>PicOrderCnt</th><td>%d</td></tr>\n", TopFieldOrderCnt);
@@ -656,29 +669,24 @@ static int FUNC(parse_slice_layer_without_partitioning, Edge264_stream *e)
 		}
 		
 		CALL(parse_ref_pic_list_modification, e);
-		
-		// A dummy last value must be overwritten by a valid reference.
-		if (ctx->RefPicList[0][ctx->ps.num_ref_idx_active[0] - 1] < 0 ||
-			(ctx->slice_type == 1 && ctx->RefPicList[1][ctx->ps.num_ref_idx_active[1] - 1] < 0))
-			return -4;
-		
 		CALL(parse_pred_weight_table, e);
 	}
 	
-	// not much to say in this comment either (though intention there is!)
 	ctx->no_output_of_prior_pics_flag = 0;
 	if (ctx->nal_ref_idc)
 		CALL(parse_dec_ref_pic_marking, e);
-	// FIXME
-	printf("<tr><th>DPB (FrameNum/PicOrderCnt)</th><td><small>");
-	for (int i = 0; i <= ctx->ps.max_dec_frame_buffering; i++) {
-		int r = e->reference_flags >> i & 1;
-		int l = e->long_term_flags >> i & 1;
-		int o = e->output_flags >> i & 1;
-		printf(!r ? "_/" : l ? "%u*/" : "%u/", e->FrameNum[i]);
-		printf(o ? "%d" : "_", min(e->FieldOrderCnt[0][i], e->FieldOrderCnt[1][i]) << 6 >> 6);
-		printf((i < ctx->ps.max_dec_frame_buffering) ? ", " : "</small></td></tr>\n");
-	}
+	
+	#ifdef TRACE
+		printf("<tr><th>DPB (FrameNum/PicOrderCnt)</th><td><small>");
+		for (int i = 0; i <= ctx->ps.max_dec_frame_buffering; i++) {
+			int r = e->pic_reference_flags >> i & 1;
+			int l = e->pic_long_term_flags >> i & 1;
+			int o = e->output_flags >> i & 1;
+			printf(!r ? "_/" : l ? "%u*/" : "%u/", l ? e->pic_LongTermFrameIdx[i] : e->FrameNum[i]);
+			printf(o ? "%d" : "_", min(e->FieldOrderCnt[0][i], e->FieldOrderCnt[1][i]) << 6 >> 6);
+			printf((i < ctx->ps.max_dec_frame_buffering) ? ", " : "</small></td></tr>\n");
+		}
+	#endif
 	
 	int cabac_init_idc = 0;
 	if (ctx->ps.entropy_coding_mode_flag && ctx->slice_type != 2) {
@@ -721,7 +729,6 @@ static int FUNC(parse_slice_layer_without_partitioning, Edge264_stream *e)
 	}
 	
 	// deblock the entire frame at once
-	// FIXME check for errors before proceeding
 	if (ctx->disable_deblocking_filter_idc != 1)
 		CALL(deblock_frame);
 	

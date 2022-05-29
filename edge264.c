@@ -1,5 +1,4 @@
 /** MAYDO:
- * _ change MapColToList0 to operate on picture numbers
  * _ cap num_ref_idx to the actual number of available refs, and handle gaps in frame num properly
  * _ display both FrameNum and POC in RefPicList on TRACE=1 output
  * _ swap the convention for direct 8x8 blocks in refIdx to make it more intuitive (0<->-1)
@@ -182,6 +181,151 @@ static void FUNC(initialise_decoding_context, Edge264_stream *e)
 
 
 /**
+ * Updates the reference flags by adaptive memory control or sliding window
+ * marking process (8.2.5).
+ */
+static void FUNC(parse_dec_ref_pic_marking, Edge264_stream *e)
+{
+	static const char * const memory_management_control_operation_names[6] = {
+		"%s1 (dereference frame %u)",
+		"%s2 (dereference long-term frame %u)",
+		"%s3 (convert frame %u into long-term index %u)",
+		"%s4 (dereference long-term frames above %d)",
+		"%s5 (convert current picture to IDR and dereference all frames)",
+		"%s6 (assign long-term index %u to current picture)"};
+	
+	int memory_management_control_operation;
+	int i = 32;
+	if (ctx->nal_unit_type == 5) {
+		ctx->no_output_of_prior_pics_flag = CALL(get_u1);
+		ctx->long_term_flags = CALL(get_u1) << ctx->currPic;
+		printf("<tr><th>no_output_of_prior_pics_flag</th><td>%x</td></tr>\n"
+			"<tr><th>long_term_reference_flag</th><td>%x</td></tr>\n",
+			ctx->no_output_of_prior_pics_flag,
+			ctx->long_term_flags >> ctx->currPic);
+		return;
+	}
+	
+	// 8.2.5.4 - Adaptive memory control marking process.
+	ctx->reference_flags = e->reference_flags;
+	ctx->long_term_flags = e->long_term_flags;
+	ctx->LongTermFrameIdx_v[0] = ((v16qi *)e->LongTermFrameIdx)[0];
+	ctx->LongTermFrameIdx_v[1] = ((v16qi *)e->LongTermFrameIdx)[1];
+	if (CALL(get_u1)) {
+		while ((memory_management_control_operation = CALL(get_ue16, 6)) != 0 && i-- > 0) {
+			int num0 = 0, num1 = 0;
+			if (memory_management_control_operation == 4) {
+				num0 = CALL(get_ue16, ctx->ps.max_num_ref_frames) - 1;
+				for (unsigned r = ctx->long_term_flags; r != 0; r &= r - 1) {
+					int j = __builtin_ctz(r);
+					if (ctx->LongTermFrameIdx[j] > num0) {
+						ctx->reference_flags ^= 1 << j;
+						ctx->long_term_flags ^= 1 << j;
+					}
+				}
+			} else if (memory_management_control_operation == 5) {
+				ctx->nal_unit_type = 5;
+				ctx->long_term_flags = 0;
+			} else if (memory_management_control_operation == 6) {
+				ctx->long_term_flags |= 1 << ctx->currPic;
+				ctx->LongTermFrameIdx[ctx->currPic] = num0 = CALL(get_ue16, ctx->ps.max_num_ref_frames - 1);
+			} else {
+				
+				// The remaining three operations share the search for num0.
+				int pic_num = CALL(get_ue32, 4294967294);
+				int FrameNum = (ctx->field_pic_flag) ? pic_num >> 1 : pic_num;
+				num0 = (memory_management_control_operation != 2) ?
+					ctx->FrameNum - 1 - FrameNum : FrameNum;
+				unsigned short_long = (memory_management_control_operation != 2) ? ~ctx->long_term_flags : ctx->long_term_flags;
+				for (unsigned r = ctx->reference_flags & short_long; r; r &= r - 1) {
+					int j = __builtin_ctz(r);
+					if ((memory_management_control_operation == 2 ? e->LongTermFrameIdx[j] : e->FrameNum[j]) != num0)
+						continue;
+					if (memory_management_control_operation == 1) {
+						ctx->reference_flags ^= 1 << j;
+					} else if (memory_management_control_operation == 2) {
+						ctx->reference_flags ^= 1 << j;
+						ctx->long_term_flags ^= 1 << j;
+					} else if (memory_management_control_operation == 3) {
+						ctx->LongTermFrameIdx[j] = num1 = CALL(get_ue16, ctx->ps.max_num_ref_frames - 1);
+						for (unsigned l = ctx->long_term_flags; l; l &= l - 1) {
+							int k = __builtin_ctz(l);
+							if (ctx->LongTermFrameIdx[k] == num1)
+								ctx->long_term_flags ^= 1 << k;
+						}
+						ctx->long_term_flags |= 1 << j;
+					}
+				}
+			}
+			printf(memory_management_control_operation_names[memory_management_control_operation - 1],
+				(i == 31) ? "<tr><th>memory_management_control_operations</th><td>" : "<br>", num0, num1);
+		}
+		printf("</td></tr>\n");
+	}
+	
+	// 8.2.5.3 - Sliding window marking process
+	unsigned r = ctx->reference_flags;
+	if (__builtin_popcount(r) >= ctx->ps.max_num_ref_frames) {
+		int best = INT_MAX;
+		int next = 0;
+		for (r ^= ctx->long_term_flags; r != 0; r &= r - 1) {
+			int i = __builtin_ctz(r);
+			if (best > e->FrameNum[i])
+				best = e->FrameNum[next = i];
+		}
+		ctx->reference_flags &= ~(1 << next); // don't use xor here since r may be zero
+	}
+}
+
+
+
+/**
+ * Parses coefficients for weighted sample prediction (7.4.3.2 and 8.4.2.3).
+ */
+static void FUNC(parse_pred_weight_table, Edge264_stream *e)
+{
+	// further tests will depend only on weighted_bipred_idc
+	if (ctx->slice_type == 0)
+		ctx->ps.weighted_bipred_idc = ctx->ps.weighted_pred_flag;
+	
+	// parse explicit weights/offsets
+	if (ctx->ps.weighted_bipred_idc == 1) {
+		ctx->luma_log2_weight_denom = CALL(get_ue16, 7);
+		ctx->chroma_log2_weight_denom = 0;
+		if (ctx->ps.ChromaArrayType != 0)
+			ctx->chroma_log2_weight_denom = CALL(get_ue16, 7);
+		for (int l = 0; l <= ctx->slice_type; l++) {
+			printf("<tr><th>Prediction weights L%x (weight/offset)</th><td>", l);
+			for (int i = 0; i < ctx->ps.num_ref_idx_active[l]; i++) {
+				ctx->explicit_weights[0][l * 32 + i] = 1 << ctx->luma_log2_weight_denom;
+				ctx->explicit_offsets[0][l * 32 + i] = 0;
+				ctx->explicit_weights[1][l * 32 + i] = 1 << ctx->chroma_log2_weight_denom;
+				ctx->explicit_offsets[1][l * 32 + i] = 0;
+				ctx->explicit_weights[2][l * 32 + i] = 1 << ctx->chroma_log2_weight_denom;
+				ctx->explicit_offsets[2][l * 32 + i] = 0;
+				if (CALL(get_u1)) {
+					ctx->explicit_weights[0][l * 32 + i] = CALL(get_se16, -128, 127);
+					ctx->explicit_offsets[0][l * 32 + i] = CALL(get_se16, -128, 127);
+				}
+				if (ctx->ps.ChromaArrayType != 0 && CALL(get_u1)) {
+					ctx->explicit_weights[1][l * 32 + i] = CALL(get_se16, -128, 127);
+					ctx->explicit_offsets[1][l * 32 + i] = CALL(get_se16, -128, 127);
+					ctx->explicit_weights[2][l * 32 + i] = CALL(get_se16, -128, 127);
+					ctx->explicit_offsets[2][l * 32 + i] = CALL(get_se16, -128, 127);
+				}
+				printf((ctx->ps.ChromaArrayType == 0) ? "*%d/%u+%d" : "*%d/%u+%d : *%d/%u+%d : *%d/%u+%d",
+					ctx->explicit_weights[0][l * 32 + i], 1 << ctx->luma_log2_weight_denom, ctx->explicit_offsets[0][l * 32 + i] << (ctx->ps.BitDepth_Y - 8),
+					ctx->explicit_weights[1][l * 32 + i], 1 << ctx->chroma_log2_weight_denom, ctx->explicit_offsets[1][l * 32 + i] << (ctx->ps.BitDepth_C - 8),
+					ctx->explicit_weights[2][l * 32 + i], 1 << ctx->chroma_log2_weight_denom, ctx->explicit_offsets[2][l * 32 + i] << (ctx->ps.BitDepth_C - 8));
+				printf((i < ctx->ps.num_ref_idx_active[l] - 1) ? "<br>" : "</td></tr>\n");
+			}
+		}
+	}
+}
+
+
+
+/**
  * Initialises and updates the reference picture lists (8.2.4).
  *
  * Both initialisation and parsing of ref_pic_list_modification are fit into a
@@ -314,151 +458,6 @@ static void FUNC(parse_ref_pic_list_modification, const Edge264_stream *e)
 		}
 	}
 	printf("</td></tr>\n");
-}
-
-
-
-/**
- * Parses coefficients for weighted sample prediction (7.4.3.2 and 8.4.2.3).
- */
-static void FUNC(parse_pred_weight_table, Edge264_stream *e)
-{
-	// further tests will depend only on weighted_bipred_idc
-	if (ctx->slice_type == 0)
-		ctx->ps.weighted_bipred_idc = ctx->ps.weighted_pred_flag;
-	
-	// parse explicit weights/offsets
-	if (ctx->ps.weighted_bipred_idc == 1) {
-		ctx->luma_log2_weight_denom = CALL(get_ue16, 7);
-		ctx->chroma_log2_weight_denom = 0;
-		if (ctx->ps.ChromaArrayType != 0)
-			ctx->chroma_log2_weight_denom = CALL(get_ue16, 7);
-		for (int l = 0; l <= ctx->slice_type; l++) {
-			printf("<tr><th>Prediction weights L%x (weight/offset)</th><td>", l);
-			for (int i = 0; i < ctx->ps.num_ref_idx_active[l]; i++) {
-				ctx->explicit_weights[0][l * 32 + i] = 1 << ctx->luma_log2_weight_denom;
-				ctx->explicit_offsets[0][l * 32 + i] = 0;
-				ctx->explicit_weights[1][l * 32 + i] = 1 << ctx->chroma_log2_weight_denom;
-				ctx->explicit_offsets[1][l * 32 + i] = 0;
-				ctx->explicit_weights[2][l * 32 + i] = 1 << ctx->chroma_log2_weight_denom;
-				ctx->explicit_offsets[2][l * 32 + i] = 0;
-				if (CALL(get_u1)) {
-					ctx->explicit_weights[0][l * 32 + i] = CALL(get_se16, -128, 127);
-					ctx->explicit_offsets[0][l * 32 + i] = CALL(get_se16, -128, 127);
-				}
-				if (ctx->ps.ChromaArrayType != 0 && CALL(get_u1)) {
-					ctx->explicit_weights[1][l * 32 + i] = CALL(get_se16, -128, 127);
-					ctx->explicit_offsets[1][l * 32 + i] = CALL(get_se16, -128, 127);
-					ctx->explicit_weights[2][l * 32 + i] = CALL(get_se16, -128, 127);
-					ctx->explicit_offsets[2][l * 32 + i] = CALL(get_se16, -128, 127);
-				}
-				printf((ctx->ps.ChromaArrayType == 0) ? "*%d/%u+%d" : "*%d/%u+%d : *%d/%u+%d : *%d/%u+%d",
-					ctx->explicit_weights[0][l * 32 + i], 1 << ctx->luma_log2_weight_denom, ctx->explicit_offsets[0][l * 32 + i] << (ctx->ps.BitDepth_Y - 8),
-					ctx->explicit_weights[1][l * 32 + i], 1 << ctx->chroma_log2_weight_denom, ctx->explicit_offsets[1][l * 32 + i] << (ctx->ps.BitDepth_C - 8),
-					ctx->explicit_weights[2][l * 32 + i], 1 << ctx->chroma_log2_weight_denom, ctx->explicit_offsets[2][l * 32 + i] << (ctx->ps.BitDepth_C - 8));
-				printf((i < ctx->ps.num_ref_idx_active[l] - 1) ? "<br>" : "</td></tr>\n");
-			}
-		}
-	}
-}
-
-
-
-/**
- * Updates the reference flags by adaptive memory control or sliding window
- * marking process (8.2.5).
- */
-static void FUNC(parse_dec_ref_pic_marking, Edge264_stream *e)
-{
-	static const char * const memory_management_control_operation_names[6] = {
-		"%s1 (dereference frame %u)",
-		"%s2 (dereference long-term frame %u)",
-		"%s3 (convert frame %u into long-term index %u)",
-		"%s4 (dereference long-term frames above %d)",
-		"%s5 (convert current picture to IDR and dereference all frames)",
-		"%s6 (assign long-term index %u to current picture)"};
-	
-	int memory_management_control_operation;
-	int i = 32;
-	if (ctx->nal_unit_type == 5) {
-		ctx->no_output_of_prior_pics_flag = CALL(get_u1);
-		ctx->long_term_flags = CALL(get_u1) << ctx->currPic;
-		printf("<tr><th>no_output_of_prior_pics_flag</th><td>%x</td></tr>\n"
-			"<tr><th>long_term_reference_flag</th><td>%x</td></tr>\n",
-			ctx->no_output_of_prior_pics_flag,
-			ctx->long_term_flags >> ctx->currPic);
-		return;
-	}
-	
-	// 8.2.5.4 - Adaptive memory control marking process.
-	ctx->reference_flags = e->reference_flags;
-	ctx->long_term_flags = e->long_term_flags;
-	ctx->LongTermFrameIdx_v[0] = ((v16qi *)e->LongTermFrameIdx)[0];
-	ctx->LongTermFrameIdx_v[1] = ((v16qi *)e->LongTermFrameIdx)[1];
-	if (CALL(get_u1)) {
-		while ((memory_management_control_operation = CALL(get_ue16, 6)) != 0 && i-- > 0) {
-			int num0 = 0, num1 = 0;
-			if (memory_management_control_operation == 4) {
-				num0 = CALL(get_ue16, ctx->ps.max_num_ref_frames) - 1;
-				for (unsigned r = ctx->long_term_flags; r != 0; r &= r - 1) {
-					int j = __builtin_ctz(r);
-					if (ctx->LongTermFrameIdx[j] > num0) {
-						ctx->reference_flags ^= 1 << j;
-						ctx->long_term_flags ^= 1 << j;
-					}
-				}
-			} else if (memory_management_control_operation == 5) {
-				ctx->nal_unit_type = 5;
-				ctx->long_term_flags = 0;
-			} else if (memory_management_control_operation == 6) {
-				ctx->long_term_flags |= 1 << ctx->currPic;
-				ctx->LongTermFrameIdx[ctx->currPic] = num0 = CALL(get_ue16, ctx->ps.max_num_ref_frames - 1);
-			} else {
-				
-				// The remaining three operations share the search for num0.
-				int pic_num = CALL(get_ue32, 4294967294);
-				int FrameNum = (ctx->field_pic_flag) ? pic_num >> 1 : pic_num;
-				num0 = (memory_management_control_operation != 2) ?
-					ctx->FrameNum - 1 - FrameNum : FrameNum;
-				unsigned short_long = (memory_management_control_operation != 2) ? ~ctx->long_term_flags : ctx->long_term_flags;
-				for (unsigned r = ctx->reference_flags & short_long; r; r &= r - 1) {
-					int j = __builtin_ctz(r);
-					if ((memory_management_control_operation == 2 ? e->LongTermFrameIdx[j] : e->FrameNum[j]) != num0)
-						continue;
-					if (memory_management_control_operation == 1) {
-						ctx->reference_flags ^= 1 << j;
-					} else if (memory_management_control_operation == 2) {
-						ctx->reference_flags ^= 1 << j;
-						ctx->long_term_flags ^= 1 << j;
-					} else if (memory_management_control_operation == 3) {
-						ctx->LongTermFrameIdx[j] = num1 = CALL(get_ue16, ctx->ps.max_num_ref_frames - 1);
-						for (unsigned l = ctx->long_term_flags; l; l &= l - 1) {
-							int k = __builtin_ctz(l);
-							if (ctx->LongTermFrameIdx[k] == num1)
-								ctx->long_term_flags ^= 1 << k;
-						}
-						ctx->long_term_flags |= 1 << j;
-					}
-				}
-			}
-			printf(memory_management_control_operation_names[memory_management_control_operation - 1],
-				(i == 31) ? "<tr><th>memory_management_control_operations</th><td>" : "<br>", num0, num1);
-		}
-		printf("</td></tr>\n");
-	}
-	
-	// 8.2.5.3 - Sliding window marking process
-	unsigned r = ctx->reference_flags;
-	if (__builtin_popcount(r) >= ctx->ps.max_num_ref_frames) {
-		int best = INT_MAX;
-		int next = 0;
-		for (r ^= ctx->long_term_flags; r != 0; r &= r - 1) {
-			int i = __builtin_ctz(r);
-			if (best > e->FrameNum[i])
-				best = e->FrameNum[next = i];
-		}
-		ctx->reference_flags &= ~(1 << next); // don't use xor here since r may be zero
-	}
 }
 
 
@@ -1421,7 +1420,7 @@ int Edge264_decode_NAL(Edge264_stream *e)
 		[8] = parse_pic_parameter_set,
 	};
 	
-	// quick checks before initializing a context
+	// quick checks before parsing
 	if (e->CPB >= e->end)
 		return -2;
 	if (__builtin_popcount(e->reference_flags | e->output_flags) > e->SPS.max_dec_frame_buffering)
@@ -1434,25 +1433,28 @@ int Edge264_decode_NAL(Edge264_stream *e)
 		nal_ref_idc,
 		nal_unit_type, nal_unit_type_names[nal_unit_type]);
 	
-	// allocate a context for parseable NALs
+	// allocate the decoding context
+	Edge264_ctx context;
+	SET_CTX(&context);
+	// memset(ctx, -1, sizeof(*ctx));
+	ctx->CPB = e->CPB + 3; // first byte that might be escaped
+	
+	// initialize the parsing context if we can parse the current NAL
 	int ret = 0;
 	if (parse_nal_unit[nal_unit_type] != NULL && e->CPB + 2 < e->end) {
-		Edge264_ctx context;
-		SET_CTX(&context);
-		// memset(ctx, -1, sizeof(*ctx));
 		size_t _codIRange = codIRange; // backup if stored in a Register Variable
 		size_t _codIOffset = codIOffset;
 		ctx->e = e;
 		ctx->nal_ref_idc = nal_ref_idc;
 		ctx->nal_unit_type = nal_unit_type;
-		
 		// prefill the bitstream cache with 2 bytes (guaranteed unescaped)
 		msb_cache = (size_t)e->CPB[1] << (SIZE_BIT - 8) | (size_t)e->CPB[2] << (SIZE_BIT - 16) | (size_t)1 << (SIZE_BIT - 17);
-		ctx->CPB = e->CPB + 3; // first byte that might be escaped
 		ctx->end = e->end;
 		CALL(refill, 0);
 		
 		ret = CALL(parse_nal_unit[nal_unit_type], e);
+		if (ret == -1)
+			printf("<tr style='background-color:#f77'><th colspan=2 style='text-align:center'>DPB is full</th></tr>\n");
 		if (ret == -3)
 			printf("<tr style='background-color:#f77'><th colspan=2 style='text-align:center'>Unsupported stream</th></tr>\n");
 		if (ret == -4)
@@ -1461,12 +1463,12 @@ int Edge264_decode_NAL(Edge264_stream *e)
 		// restore registers
 		codIRange = _codIRange;
 		codIOffset = _codIOffset;
-		e->CPB = ctx->CPB;
-		RESET_CTX();
 	}
 	
 	// CPB may point anywhere up to the last byte of the next start code
-	e->CPB = Edge264_find_start_code(1, e->CPB - 2, e->end);
+	if (ret != -1)
+		e->CPB = Edge264_find_start_code(1, ctx->CPB - 2, e->end);
+	RESET_CTX();
 	printf("</table>\n");
 	return ret;
 }

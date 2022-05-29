@@ -505,7 +505,7 @@ static int FUNC(parse_frame_num, Edge264_stream *e)
 		int excess = __builtin_popcount(e->reference_flags) + non_existing - ctx->ps.max_num_ref_frames;
 		for (int unref; excess > 0; excess--) {
 			int best = INT_MAX;
-			for (unsigned r = e->reference_flags; r; r &= r - 1) {
+			for (unsigned r = e->reference_flags & ~e->long_term_flags; r; r &= r - 1) {
 				int i = __builtin_ctz(r);
 				if (e->FrameNum[i] < best)
 					best = e->FrameNum[unref = i];
@@ -679,18 +679,6 @@ static int FUNC(parse_slice_layer_without_partitioning, Edge264_stream *e)
 	if (ctx->nal_ref_idc)
 		CALL(parse_dec_ref_pic_marking, e);
 	
-	#ifdef TRACE
-		printf("<tr><th>DPB (FrameNum/PicOrderCnt)</th><td><small>");
-		for (int i = 0; i <= ctx->ps.max_dec_frame_buffering; i++) {
-			int r = e->pic_reference_flags >> i & 1;
-			int l = e->pic_long_term_flags >> i & 1;
-			int o = e->output_flags >> i & 1;
-			printf(!r ? "_/" : l ? "%u*/" : "%u/", l ? e->pic_LongTermFrameIdx[i] : e->FrameNum[i]);
-			printf(o ? "%d" : "_", min(e->FieldOrderCnt[0][i], e->FieldOrderCnt[1][i]) << 6 >> 6);
-			printf((i < ctx->ps.max_dec_frame_buffering) ? ", " : "</small></td></tr>\n");
-		}
-	#endif
-	
 	int cabac_init_idc = 0;
 	if (ctx->ps.entropy_coding_mode_flag && ctx->slice_type != 2) {
 		cabac_init_idc = 1 + CALL(get_ue16, 2);
@@ -757,6 +745,18 @@ static int FUNC(parse_slice_layer_without_partitioning, Edge264_stream *e)
 	((v16qi *)e->LongTermFrameIdx)[0] = ((v16qi *)e->pic_LongTermFrameIdx)[0];
 	((v16qi *)e->LongTermFrameIdx)[1] = ((v16qi *)e->pic_LongTermFrameIdx)[1];
 	e->output_flags = (ctx->no_output_of_prior_pics_flag ? 0 : e->output_flags) | 1 << ctx->currPic;
+	
+	#ifdef TRACE
+		printf("<tr><th>DPB (FrameNum/PicOrderCnt)</th><td><small>");
+		for (int i = 0; i <= ctx->ps.max_dec_frame_buffering; i++) {
+			int r = e->reference_flags >> i & 1;
+			int l = e->long_term_flags >> i & 1;
+			int o = e->output_flags >> i & 1;
+			printf(!r ? "_/" : l ? "%u*/" : "%u/", l ? e->LongTermFrameIdx[i] : e->FrameNum[i]);
+			printf(o ? "%d" : "_", min(e->FieldOrderCnt[0][i], e->FieldOrderCnt[1][i]) << 6 >> 6);
+			printf((i < ctx->ps.max_dec_frame_buffering) ? ", " : "</small></td></tr>\n");
+		}
+	#endif
 	return 0;
 }
 

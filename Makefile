@@ -22,10 +22,11 @@ endif
 
 edge264$(SUF).o: edge264*.c edge264*.h edge264_deblock$(SUF).o edge264_intra$(SUF).o edge264_inter$(SUF).o edge264_residual$(SUF).o Makefile
 	$(CC) -o edge264$(SUF).o -c $(CFLAGS) edge264.c
+	ld -r edge264$(SUF).o edge264_deblock$(SUF).o edge264_intra$(SUF).o edge264_inter$(SUF).o edge264_residual$(SUF).o -o edge264$(SUF).o
 ifeq ($(TRACE),)
-	$(CC) -o edge264_test$(SUF) $(CFLAGS) edge264_test.c edge264$(SUF).o edge264_deblock$(SUF).o edge264_intra$(SUF).o edge264_inter$(SUF).o edge264_residual$(SUF).o
+	$(CC) -o edge264_test$(SUF) $(CFLAGS) edge264_test.c edge264$(SUF).o
 endif
-	$(CC) $(GLFW3) $(CFLAGS) -o edge264_play$(SUF) edge264_play.c edge264$(SUF).o edge264_deblock$(SUF).o edge264_intra$(SUF).o edge264_inter$(SUF).o edge264_residual$(SUF).o
+	$(CC) $(GLFW3) $(CFLAGS) -o edge264_play$(SUF) edge264_play.c edge264$(SUF).o
 
 # These files are compiled separately to use a different set of GRVs
 edge264_deblock$(SUF).o: edge264_deblock.c edge264_common.h Makefile

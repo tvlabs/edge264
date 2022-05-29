@@ -36,7 +36,7 @@ static inline void FUNC(decode_inter_16x16, v8hi mvd, int lx)
 	
 	// sum mvp and mvd, broadcast everything to memory and tail-jump to decoding
 	v8hi mvs = (v8hi)__builtin_shufflevector((v4si)(mvp + mvd), (v4si){}, 0, 0, 0, 0);
-	mb->absMvdComp_v[lx * 2] = mb->absMvdComp_v[lx * 2 + 1] = pack_absMvdComp(mvd);
+	mb->absMvd_v[lx * 2] = mb->absMvd_v[lx * 2 + 1] = pack_absMvd(mvd);
 	mb->mvs_v[lx * 4] = mb->mvs_v[lx * 4 + 1] = mb->mvs_v[lx * 4 + 2] = mb->mvs_v[lx * 4 + 3] = mvs;
 	CALL(decode_inter, lx * 16, 16, 16);
 }
@@ -78,7 +78,7 @@ static inline void FUNC(decode_inter_8x16_left, v8hi mvd, int lx)
 	
 	// sum mvp and mvd, broadcast everything to memory and call decoding
 	v8hi mvs = (v8hi)__builtin_shufflevector((v4si)(mvp + mvd), (v4si){}, 0, 0, 0, 0);
-	mb->absMvdComp_l[lx * 4] = mb->absMvdComp_l[lx * 4 + 2] = ((v2li)pack_absMvdComp(mvd))[0];
+	mb->absMvd_l[lx * 4] = mb->absMvd_l[lx * 4 + 2] = ((v2li)pack_absMvd(mvd))[0];
 	mb->mvs_v[lx * 4] = mb->mvs_v[lx * 4 + 2] = mvs;
 	CALL(decode_inter, lx * 16, 8, 16);
 }
@@ -120,7 +120,7 @@ static inline void FUNC(decode_inter_8x16_right, v8hi mvd, int lx)
 	
 	// sum mvp and mvd, broadcast everything to memory and call decoding
 	v8hi mvs = (v8hi)__builtin_shufflevector((v4si)(mvp + mvd), (v4si){}, 0, 0, 0, 0);
-	mb->absMvdComp_l[lx * 4 + 1] = mb->absMvdComp_l[lx * 4 + 3] = ((v2li)pack_absMvdComp(mvd))[0];
+	mb->absMvd_l[lx * 4 + 1] = mb->absMvd_l[lx * 4 + 3] = ((v2li)pack_absMvd(mvd))[0];
 	mb->mvs_v[lx * 4 + 1] = mb->mvs_v[lx * 4 + 3] = mvs;
 	CALL(decode_inter, lx * 16 + 4, 8, 16);
 }
@@ -162,7 +162,7 @@ static inline void FUNC(decode_inter_16x8_top, v8hi mvd, int lx)
 	
 	// sum mvp and mvd, broadcast everything to memory and tail-jump to decoding
 	v8hi mvs = (v8hi)__builtin_shufflevector((v4si)(mvp + mvd), (v4si){}, 0, 0, 0, 0);
-	mb->absMvdComp_v[lx * 2] = pack_absMvdComp(mvd);
+	mb->absMvd_v[lx * 2] = pack_absMvd(mvd);
 	mb->mvs_v[lx * 4 + 0] = mb->mvs_v[lx * 4 + 1] = mvs;
 	CALL(decode_inter, lx * 16, 16, 8);
 }
@@ -197,7 +197,7 @@ static inline void FUNC(decode_inter_16x8_bottom, v8hi mvd, int lx)
 	
 	// sum mvp and mvd, broadcast everything to memory and tail-jump to decoding
 	v8hi mvs = (v8hi)__builtin_shufflevector((v4si)(mvp + mvd), (v4si){}, 0, 0, 0, 0);
-	mb->absMvdComp_v[lx * 2 + 1] = pack_absMvdComp(mvd);
+	mb->absMvd_v[lx * 2 + 1] = pack_absMvd(mvd);
 	mb->mvs_v[lx * 4 + 2] = mb->mvs_v[lx * 4 + 3] = mvs;
 	CALL(decode_inter, lx * 16 + 8, 16, 8);
 }

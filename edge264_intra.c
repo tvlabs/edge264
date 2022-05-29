@@ -662,11 +662,11 @@ static always_inline void chroma8x8_horizontal_8bit(uint8_t *px0, uint8_t *px7, 
 }
 
 static always_inline void chroma8x8_vertical_8bit(uint8_t *px0, uint8_t *px7, size_t stride, ssize_t nstride) {
-	__m64 top = *(__m64 *)(px0 + nstride    );
-	*(__m64 *)(px0              ) = *(__m64 *)(px0 +  stride    ) = top;
-	*(__m64 *)(px0 +  stride * 2) = *(__m64 *)(px7 + nstride * 4) = top;
-	*(__m64 *)(px0 +  stride * 4) = *(__m64 *)(px7 + nstride * 2) = top;
-	*(__m64 *)(px7 + nstride    ) = *(__m64 *)(px7              ) = top;
+	int64_t top = *(int64_t *)(px0 + nstride    );
+	*(int64_t *)(px0              ) = *(int64_t *)(px0 +  stride    ) = top;
+	*(int64_t *)(px0 +  stride * 2) = *(int64_t *)(px7 + nstride * 4) = top;
+	*(int64_t *)(px0 +  stride * 4) = *(int64_t *)(px7 + nstride * 2) = top;
+	*(int64_t *)(px7 + nstride    ) = *(int64_t *)(px7              ) = top;
 }
 
 static always_inline void chroma8x8_plane_8bit(uint8_t *px0, uint8_t *px7, size_t stride, ssize_t nstride) {

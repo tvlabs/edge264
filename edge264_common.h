@@ -21,6 +21,7 @@ typedef int8_t v4qi __attribute__((vector_size(4)));
 typedef int8_t v8qi __attribute__((vector_size(8)));
 typedef int16_t v4hi __attribute__((vector_size(8)));
 typedef uint8_t v8qu __attribute__((vector_size(8)));
+typedef uint32_t v2su __attribute__((vector_size(8)));
 typedef size_t v16u __attribute__((vector_size(16)));
 typedef int8_t v16qi __attribute__((vector_size(16)));
 typedef int16_t v8hi __attribute__((vector_size(16)));
@@ -84,12 +85,12 @@ typedef struct {
 	Edge264_flags f;
 	uint32_t inter_blocks; // bitmask for every index that is the topleft corner of a block, upper half indicates whether each 8x8 block is equal with its right/bottom neighbours
 	union { uint8_t QP[3]; v4qi QP_s; }; // [iYCbCr]
-	union { int8_t refIdx[8]; int32_t refIdx_s[2]; int64_t refIdx_l; v8qi refIdx_v; }; // [LX][i8x8]
+	union { int8_t refIdx[8]; int32_t refIdx_s[2]; int64_t refIdx_l; }; // [LX][i8x8]
 	union { int8_t refPic[8]; int32_t refPic_s[2]; int64_t refPic_l; }; // [LX][i8x8]
-	union { uint32_t bits[4]; v4su bits_v; }; // {cbf_Y 8x8/4x4 , cbf_Cb 8x8/4x4, cbf_Cr 8x8/4x4, cbp/ref_idx_nz}
+	union { uint32_t bits[2]; uint64_t bits_l; }; // {cbp/ref_idx_nz, cbf_Y/Cb/Cr 8x8}
 	union { int8_t nC[3][16]; v16qi nC_v[3]; }; // for CAVLC and deblocking, 64 if unavailable
 	union { int8_t Intra4x4PredMode[16]; v16qi Intra4x4PredMode_v; }; // [i4x4]
-	union { uint8_t absMvdComp[64]; uint64_t absMvdComp_l[8]; v16qu absMvdComp_v[4]; }; // [LX][i4x4][compIdx]
+	union { uint8_t absMvd[64]; uint64_t absMvd_l[8]; v16qu absMvd_v[4]; }; // [LX][i4x4][compIdx]
 	union { int16_t mvs[64]; int32_t mvs_s[32]; v8hi mvs_v[8]; }; // [LX][i4x4][compIdx]
 } Edge264_macroblock;
 
@@ -151,8 +152,8 @@ typedef struct
 	union { int32_t B4x4_int8[16]; v16si B4x4_int8_v; };
 	union { int16_t ACbCr_int8[16]; v16hi ACbCr_int8_v; };
 	union { int32_t BCbCr_int8[16]; v16si BCbCr_int8_v; };
-	union { int16_t absMvdComp_A[16]; v16hi absMvdComp_A_v; };
-	union { int32_t absMvdComp_B[16]; v16si absMvdComp_B_v; };
+	union { int16_t absMvd_A[16]; v16hi absMvd_A_v; };
+	union { int32_t absMvd_B[16]; v16si absMvd_B_v; };
 	union { int8_t refIdx4x4_C[16]; int32_t refIdx4x4_C_s[4]; v16qi refIdx4x4_C_v; }; // shuffle vector for mv prediction
 	union { int16_t mvs_A[16]; v16hi mvs_A_v; };
 	union { int32_t mvs_B[16]; v16si mvs_B_v; };
@@ -478,7 +479,7 @@ static noinline void FUNC(parse_slice_data_cabac);
 		return (v8hi)_mm_max_epi16(_mm_min_epi16(_mm_max_epi16((__m128i)a,
 			(__m128i)b), (__m128i)c), _mm_min_epi16((__m128i)a, (__m128i)b));
 	}
-	static inline v16qu pack_absMvdComp(v8hi a) {
+	static inline v16qu pack_absMvd(v8hi a) {
 		__m128i x = _mm_abs_epi16(_mm_shuffle_epi32((__m128i)a, _MM_SHUFFLE(0, 0, 0, 0)));
 		return (v16qu)_mm_packus_epi16(x, x);
 	}

@@ -606,7 +606,7 @@ void FUNC(transform_dc4x4, int iYCbCr)
 	__m128i dc3 = _mm_srai_epi32(_mm_add_epi32(_mm_mullo_epi32(f3, LS), s32), 6);
 	
 	// store in zigzag order if needed later ...
-	if (mb->bits[3] & 1 << 5) {
+	if (mb->bits[0] & 1 << 5) {
 		ctx->c_v[4] = (v4si)_mm_unpacklo_epi64(dc0, dc1);
 		ctx->c_v[5] = (v4si)_mm_unpackhi_epi64(dc0, dc1);
 		ctx->c_v[6] = (v4si)_mm_unpacklo_epi64(dc2, dc3);

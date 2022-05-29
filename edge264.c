@@ -1,18 +1,7 @@
 /** MAYDO:
- * _ rename absMvdComp into absMvd, and other mb variables into their non symbol version
- * _ replace __m64 code with __m128i to follow GCC/clang drop of MMX
- * _ once PredMode is used solely by Intra_4x4/8x8, remove it in favor of computing unavailability just before decoding
- * _ update the tables of names for profiles and NAL types, and review the maximum values according to the latest spec (they change, e.g. log_max_mv_length)
- * _ upgrade DPB storage size to 32 (to allow future multithreaded decoding), by simply doubling reference and output flags sizes
- * _ after upgrading DPB, add an option to store N more frames, to tolerate lags in CPU scheduling
- * _ don't implement multithreading if singlethreading can already handle 6.2 on middle-end hardware
- * _ backup output/ref flags and FrameNum and restore then on bad slice_header
+ * _ add an option to store N more frames, to tolerate lags in CPU scheduling
  * _ try using epb for context pointer, and email GCC when it fails
  * _ when implementing fields and MBAFF, keep the same pic coding struct (no FLD/AFRM) and just add mb_field_decoding_flag
- * _ since unsigned means implicit overflow by machine-dependent size, replace all by uint32_t!
- * _ to prepare ARM support, implement _Generic functions min/max/adds/subs (https://en.cppreference.com/w/c/language/generic), put #ifdef SSSE3 inside all vector functions, and start converting some functions to vector extensions
- * _ use 1 less register for 16x16 inter/intra transforms by using -4/+4/-2/-1/0/1/2/-4/+4 ...
- * _ remove the 4x4 portion of mb->bits since CABAC uses nC for deblocking (wait until MVC-3D though)
  */
 
 /** Notes:
@@ -127,8 +116,8 @@ static void FUNC(initialise_decoding_context, Edge264_stream *e)
 		int offC_int32 = offB_int32 + (sizeof(*mb) >> 2);
 		int offD_int32 = offB_int32 - (sizeof(*mb) >> 2);
 		ctx->refIdx4x4_C_v = (v16qi){2, 3, 12, -1, 3, 6, 13, -1, 12, 13, 14, -1, 13, -1, 15, -1};
-		ctx->absMvdComp_A_v = (v16hi){10 + offA_int8, 0, 14 + offA_int8, 4, 2, 8, 6, 12, 26 + offA_int8, 16, 30 + offA_int8, 20, 18, 24, 22, 28};
-		ctx->absMvdComp_B_v = (v16si){20 + offB_int8, 22 + offB_int8, 0, 2, 28 + offB_int8, 30 + offB_int8, 8, 10, 4, 6, 16, 18, 12, 14, 24, 26};
+		ctx->absMvd_A_v = (v16hi){10 + offA_int8, 0, 14 + offA_int8, 4, 2, 8, 6, 12, 26 + offA_int8, 16, 30 + offA_int8, 20, 18, 24, 22, 28};
+		ctx->absMvd_B_v = (v16si){20 + offB_int8, 22 + offB_int8, 0, 2, 28 + offB_int8, 30 + offB_int8, 8, 10, 4, 6, 16, 18, 12, 14, 24, 26};
 		ctx->mvs_A_v = (v16hi){5 + offA_int32, 0, 7 + offA_int32, 2, 1, 4, 3, 6, 13 + offA_int32, 8, 15 + offA_int32, 10, 9, 12, 11, 14};
 		ctx->mvs_B_v = (v16si){10 + offB_int32, 11 + offB_int32, 0, 1, 14 + offB_int32, 15 + offB_int32, 4, 5, 2, 3, 8, 9, 6, 7, 12, 13};
 		ctx->mvs_C_v = (v16si){11 + offB_int32, 14 + offB_int32, 1, -1, 15 + offB_int32, 10 + offC_int32, 5, -1, 3, 6, 9, -1, 7, -1, 13, -1};
@@ -1239,7 +1228,7 @@ static int FUNC(parse_seq_parameter_set, Edge264_stream *e)
 		.f.mb_type_B_Direct = 1,
 		.refIdx = {-1, -1, -1, -1, -1, -1, -1, -1},
 		.refPic = {-1, -1, -1, -1, -1, -1, -1, -1},
-		.bits[3] = 0xac, // cbp
+		.bits[0] = 0xac, // cbp
 		.Intra4x4PredMode = {-2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2},
 	};
 	

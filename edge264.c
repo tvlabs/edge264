@@ -1,4 +1,15 @@
 /** MAYDO:
+ * _ start by allowing first_slice_mb to be non zero
+ * _ in parse_slice_data, erase top/bottom fields on slice boundary, and restore them afterwards
+ * _ add a int8_t in mb->f set in parse_slice_data, that tells whether top/left borders will be deblocked
+ * _ reintroduce e->currPic that points to the current incomplete frame (or -1 if no frame is incomplete)
+ * _ add a int32_t for the current incomplete frame to store the number of mbs decoded (not incremented on slice error)
+ * _ on each slice reuse currPic if it has the same POC
+ * _ add a function ready_frame that is called whenever a frame gets all its mbs or a new one is started
+ * _ How can one signal that an erroneous frame is ready for output after sending the last slice?
+ * _ call ready_frame on AUD and on drain when no output frame is available
+ * 
+ * _ implement a tool that decodes an Annex B stream and compares it with a JM output, returning a faulty GOP file on error
  * _ add an option to store N more frames, to tolerate lags in CPU scheduling
  * _ try using epb for context pointer, and email GCC when it fails
  * _ when implementing fields and MBAFF, keep the same pic coding struct (no FLD/AFRM) and just add mb_field_decoding_flag

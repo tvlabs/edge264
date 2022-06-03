@@ -148,8 +148,6 @@ int Edge264_decode_NAL(Edge264_stream *e);
  * Return codes are:
  * -1: no frame ready for output
  *  0: success
- *  1: erroneous frame (the returned frame wasn't properly decoded and may
- *     contain visual artefacts)
  * 
  * Example code (single buffer in annex B format):
  *    Edge264_stream e = {.CPB=buffer_start, .end=buffer_end};

@@ -104,6 +104,7 @@ typedef struct Edge264_stream {
 	uint32_t output_flags; // bitfield for frames waiting to be output
 	int8_t pic_idr_or_mmco5; // when set, all POCs will be decreased after completing the current frame
 	int8_t currPic; // index of current incomplete frame, or -1
+	int32_t pic_remaining_mbs; // when zero the picture is complete
 	int32_t prevRefFrameNum;
 	int32_t prevPicOrderCnt;
 	int32_t dispPicOrderCnt;

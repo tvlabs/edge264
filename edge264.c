@@ -1,10 +1,6 @@
 /** MAYDO:
- * _ reintroduce e->currPic that points to the current incomplete frame (or -1 if no frame is incomplete)
- * _ add a int32_t for the current incomplete frame to store the number of mbs decoded (not incremented on slice error)
- * _ on each slice reuse currPic if it has the same POC
- * _ add a function ready_frame that is called whenever a frame gets all its mbs or a new one is started
- * _ How can one signal that an erroneous frame is ready for output after sending the last slice?
  * _ call ready_frame on AUD and on drain when no output frame is available
+ * _ initialize ctx properly with first_mb_in_slice
  * 
  * _ compact mb->f into a uint32_t to reduce loads in deblocking
  * _ implement a tool that decodes an Annex B stream and compares it with a JM output, returning a faulty GOP file on error
@@ -487,10 +483,7 @@ static void FUNC(parse_ref_pic_list_modification, const Edge264_stream *e)
  */
 static void FUNC(finish_frame, Edge264_stream *e)
 {
-	// deblock the entire frame at once
-	CALL(deblock_frame);
-	
-	// update e after all slices of the current frame are decoded
+	// apply the frame headers to e
 	if (e->pic_idr_or_mmco5) { // IDR or mmco5
 		e->LongTermFrameIdx[e->currPic] = e->FrameNum[e->currPic] = e->prevRefFrameNum = 0;
 		for (unsigned o = e->output_flags; o; o &= o - 1) {
@@ -499,19 +492,21 @@ static void FUNC(finish_frame, Edge264_stream *e)
 			e->FieldOrderCnt[1][i] -= 1 << 26;
 		}
 		e->dispPicOrderCnt = -(1 << 25); // make all buffered pictures ready for display
-		e->prevPicOrderCnt = e->FieldOrderCnt[0][e->currPic] -= ctx->PicOrderCnt;
-		e->FieldOrderCnt[1][e->currPic] -= ctx->PicOrderCnt;
-	} else if (ctx->nal_ref_idc) {
-		e->prevRefFrameNum = ctx->FrameNum;
-		e->prevPicOrderCnt = ctx->PicOrderCnt;
+		int tempPicOrderCnt = min(e->FieldOrderCnt[0][e->currPic], e->FieldOrderCnt[1][e->currPic]);
+		e->prevPicOrderCnt = e->FieldOrderCnt[0][e->currPic] -= tempPicOrderCnt;
+		e->FieldOrderCnt[1][e->currPic] -= tempPicOrderCnt;
+	} else if (e->pic_reference_flags & 1 << e->currPic) {
+		e->prevRefFrameNum = e->FrameNum[e->currPic];
+		e->prevPicOrderCnt = e->FieldOrderCnt[0][e->currPic];
 	} else {
-		e->dispPicOrderCnt = ctx->PicOrderCnt; // all frames with lower POCs are now ready for output
+		e->dispPicOrderCnt = e->FieldOrderCnt[0][e->currPic]; // all frames with lower POCs are now ready for output
 	}
 	e->reference_flags = e->pic_reference_flags;
 	e->long_term_flags = e->pic_long_term_flags;
 	((v16qi *)e->LongTermFrameIdx)[0] = ((v16qi *)e->pic_LongTermFrameIdx)[0];
 	((v16qi *)e->LongTermFrameIdx)[1] = ((v16qi *)e->pic_LongTermFrameIdx)[1];
 	e->output_flags |= 1 << e->currPic;
+	e->currPic = -1;
 	
 	#ifdef TRACE
 		printf("<tr><th>DPB (FrameNum/PicOrderCnt)</th><td><small>");
@@ -529,36 +524,15 @@ static void FUNC(finish_frame, Edge264_stream *e)
 
 
 /**
- * This function parses frame_num, checks for gaps in frame_num (8.2.5.2), then
- * allocates a slot for the current frame in the DPB.
+ * This function checks for gaps in frame_num (8.2.5.2), then reserves a slot
+ * for the current frame in the DPB.
  * It returns -1 if the DPB is full and should be consumed beforehand.
  */
-static int FUNC(parse_frame_num, Edge264_stream *e)
+static int FUNC(assign_currPic, Edge264_stream *e, int gap, int TopFieldOrderCnt, int BottomFieldOrderCnt)
 {
-	// initialize reference fields that will be applied after decoding the current frame (8.2.5.1)
-	int prevRefFrameNum;
-	if (ctx->nal_unit_type == 5) {
-		prevRefFrameNum = e->pic_reference_flags = e->pic_long_term_flags = 0;
-		e->pic_idr_or_mmco5 = 1;
-	} else {
-		prevRefFrameNum = e->prevRefFrameNum;
-		e->pic_reference_flags = e->reference_flags;
-		e->pic_long_term_flags = e->long_term_flags;
-		e->pic_idr_or_mmco5 = 0;
-		((v16qi *)e->pic_LongTermFrameIdx)[0] = ((v16qi *)e->LongTermFrameIdx)[0];
-		((v16qi *)e->pic_LongTermFrameIdx)[1] = ((v16qi *)e->LongTermFrameIdx)[1];
-	}
-	
-	// parse frame_num
-	int frame_num = CALL(get_uv, ctx->ps.log2_max_frame_num);
-	int inc = (frame_num - prevRefFrameNum) & ((1 << ctx->ps.log2_max_frame_num) - 1);
-	ctx->FrameNum = prevRefFrameNum + inc;
-	printf("<tr><th>frame_num => FrameNum</th><td>%u => %u</td></tr>\n", frame_num, ctx->FrameNum);
-	
 	// when detecting a gap, dereference enough frames to fit the last non-existing frames
-	int gap = ctx->FrameNum - prevRefFrameNum - 1;
-	if (__builtin_expect(gap > 0, 0)) { // cannot happen for IDR frames
-		int non_existing = min(gap, ctx->ps.max_num_ref_frames - __builtin_popcount(e->long_term_flags));
+	if (__builtin_expect(gap > 1, 0)) { // cannot happen for IDR frames
+		int non_existing = min(gap - 1, ctx->ps.max_num_ref_frames - __builtin_popcount(e->long_term_flags));
 		int excess = __builtin_popcount(e->reference_flags) + non_existing - ctx->ps.max_num_ref_frames;
 		for (int unref; excess > 0; excess--) {
 			int best = INT_MAX;
@@ -603,12 +577,32 @@ static int FUNC(parse_frame_num, Edge264_stream *e)
 		e->pic_reference_flags = e->reference_flags;
 	}
 	
+	// reuse currPic if POC matches, otherwise finish the previous frame and find a DPB slot
+	if (e->currPic >= 0) {
+		if (e->FieldOrderCnt[0][e->currPic] == TopFieldOrderCnt)
+			return 0;
+		CALL(finish_frame, e);
+	}
+	
 	// find a DPB slot for the upcoming frame
 	unsigned unavail = e->pic_reference_flags | e->output_flags;
 	if (__builtin_popcount(unavail) > ctx->ps.max_dec_frame_buffering)
 		return -1;
 	e->currPic = __builtin_ctz(~unavail);
+	e->pic_remaining_mbs = ctx->ps.pic_width_in_mbs * ctx->ps.pic_height_in_mbs;
 	e->FrameNum[e->currPic] = ctx->FrameNum;
+	e->FieldOrderCnt[0][e->currPic] = TopFieldOrderCnt;
+	e->FieldOrderCnt[1][e->currPic] = BottomFieldOrderCnt;
+	if (ctx->nal_unit_type == 5) {
+		e->pic_reference_flags = e->pic_long_term_flags = 0;
+		e->pic_idr_or_mmco5 = 1;
+	} else {
+		e->pic_reference_flags = e->reference_flags;
+		e->pic_long_term_flags = e->long_term_flags;
+		e->pic_idr_or_mmco5 = 0;
+		((v16qi *)e->pic_LongTermFrameIdx)[0] = ((v16qi *)e->LongTermFrameIdx)[0];
+		((v16qi *)e->pic_LongTermFrameIdx)[1] = ((v16qi *)e->LongTermFrameIdx)[1];
+	}
 	return 0;
 }
 
@@ -623,26 +617,29 @@ static int FUNC(parse_slice_layer_without_partitioning, Edge264_stream *e)
 	static const char * const slice_type_names[5] = {"P", "B", "I", "SP", "SI"};
 	static const char * const disable_deblocking_filter_idc_names[3] = {"enabled", "disabled", "disabled across slices"};
 	
-	// We correctly input these values to better display them... in red.
+	// first important fields and checks before decoding the slice header
 	ctx->first_mb_in_slice = ctx->CurrMbAddr = CALL(get_ue32, 139263);
 	int slice_type = CALL(get_ue16, 9);
 	ctx->slice_type = (slice_type < 5) ? slice_type : slice_type - 5;
 	int pic_parameter_set_id = CALL(get_ue16, 255);
-	printf("<tr%s><th>first_mb_in_slice</th><td>%u</td></tr>\n"
+	printf("<tr><th>first_mb_in_slice</th><td>%u</td></tr>\n"
 		"<tr%s><th>slice_type</th><td>%u (%s)</td></tr>\n"
 		"<tr%s><th>pic_parameter_set_id</th><td>%u</td></tr>\n",
 		ctx->first_mb_in_slice,
 		red_if(ctx->slice_type > 2), slice_type, slice_type_names[ctx->slice_type],
 		red_if(pic_parameter_set_id >= 4 || e->PPSs[pic_parameter_set_id].num_ref_idx_active[0] == 0), pic_parameter_set_id);
-	
-	// check that the following slice may be decoded
 	if (ctx->slice_type > 2 || pic_parameter_set_id >= 4)
 		return 1;
 	if (e->PPSs[pic_parameter_set_id].num_ref_idx_active[0] == 0)
 		return 2;
 	ctx->ps = e->PPSs[pic_parameter_set_id];
-	if (CALL(parse_frame_num, e))
-		return -1;
+	
+	// parse frame_num
+	int prevRefFrameNum = (ctx->nal_unit_type == 5) ? 0 : e->prevRefFrameNum;
+	int frame_num = CALL(get_uv, ctx->ps.log2_max_frame_num);
+	int gap = (frame_num - prevRefFrameNum) & ((1 << ctx->ps.log2_max_frame_num) - 1);
+	ctx->FrameNum = prevRefFrameNum + gap;
+	printf("<tr><th>frame_num => FrameNum</th><td>%u => %u</td></tr>\n", frame_num, ctx->FrameNum);
 	
 	// As long as PAFF/MBAFF are unsupported, this code won't execute (but is still kept).
 	ctx->field_pic_flag = 0;
@@ -702,8 +699,8 @@ static int FUNC(parse_slice_layer_without_partitioning, Edge264_stream *e)
 	if (abs(TopFieldOrderCnt) >= 1 << 25 || abs(BottomFieldOrderCnt) >= 1 << 25)
 		return 1;
 	ctx->PicOrderCnt = min(TopFieldOrderCnt, BottomFieldOrderCnt);
-	e->FieldOrderCnt[0][e->currPic] = TopFieldOrderCnt;
-	e->FieldOrderCnt[1][e->currPic] = BottomFieldOrderCnt;
+	if (CALL(assign_currPic, e, gap, TopFieldOrderCnt, BottomFieldOrderCnt))
+		return -1;
 	
 	// That could be optimised into fast bit tests, but would be unreadable :)
 	if (ctx->slice_type == 0 || ctx->slice_type == 1) {
@@ -767,6 +764,7 @@ static int FUNC(parse_slice_layer_without_partitioning, Edge264_stream *e)
 	if (!ctx->ps.entropy_coding_mode_flag) {
 		ctx->mb_skip_run = -1;
 		CALL(parse_slice_data_cavlc);
+		// FIXME check for proper end of slice
 	} else {
 		// cabac_alignment_one_bit gives a good probability to catch random errors.
 		if (CALL(cabac_start))
@@ -774,7 +772,13 @@ static int FUNC(parse_slice_layer_without_partitioning, Edge264_stream *e)
 		CALL(cabac_init, cabac_init_idc);
 		CALL(parse_slice_data_cabac);
 	}
-	CALL(finish_frame, e);
+	
+	// when the total number of decoded mbs is enough, finish the frame
+	e->pic_remaining_mbs -= ctx->CurrMbAddr - ctx->first_mb_in_slice + 1;
+	if (e->pic_remaining_mbs <= 0) {
+		CALL(finish_frame, e);
+		CALL(deblock_frame);
+	}
 	return 0;
 }
 

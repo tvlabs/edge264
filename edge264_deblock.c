@@ -446,7 +446,7 @@ static always_inline __m128i expand2(int64_t a) {
 static noinline void FUNC(deblock_Y_8bit, size_t stride, ssize_t nstride, size_t stride7)
 {
 	__m128i v0, v1, v2, v3, v4, v5, v6, v7;
-	if (!mb[-1].f.unavailable) {
+	if (mb->f.filter_edges & 2) {
 		// load and transpose the left 12x16 matrix
 		uint8_t * restrict px0 = ctx->samples_mb[0];
 		__m128i xa0 = _mm_loadu_si128((__m128i *)(px0               - 8));
@@ -594,7 +594,7 @@ static noinline void FUNC(deblock_Y_8bit, size_t stride, ssize_t nstride, size_t
 	
 	// first horizontal edge
 	px0 = ctx->samples_mb[0];
-	if (!ctx->mbB->f.unavailable) {
+	if (mb->f.filter_edges & 4) {
 		__m128i alpha_e = _mm_set1_epi8(ctx->alpha[12]);
 		__m128i beta_e = _mm_set1_epi8(ctx->beta[12]);
 		if (ctx->mbB->f.mbIsInterFlag & mb->f.mbIsInterFlag) {
@@ -656,7 +656,7 @@ static noinline void FUNC(deblock_Y_8bit, size_t stride, ssize_t nstride, size_t
 static noinline void FUNC(deblock_CbCr_8bit, size_t stride, ssize_t nstride, size_t stride7)
 {
 	__m128i v0, v1, v2, v3, v4, v5, v6, v7;
-	if (!mb[-1].f.unavailable) {
+	if (mb->f.filter_edges & 2) {
 		// load and transpose both 12x8 matrices (with left macroblock)
 		uint8_t * restrict Cb0 = ctx->samples_mb[1];
 		__m128i xa0 = _mm_loadu_si128((__m128i *)(Cb0               - 8));
@@ -793,7 +793,7 @@ static noinline void FUNC(deblock_CbCr_8bit, size_t stride, ssize_t nstride, siz
 	// first horizontal edge
 	uint8_t * restrict Cb0 = ctx->samples_mb[1];
 	uint8_t * restrict Cr0 = ctx->samples_mb[2];
-	if (!ctx->mbB->f.unavailable) {
+	if (mb->f.filter_edges & 4) {
 		__m128i shuf_e = _mm_setr_epi8(13, 13, 13, 13, 13, 13, 13, 13, 14, 14, 14, 14, 14, 14, 14, 14);
 		__m128i alpha_e = _mm_shuffle_epi8((__m128i)ctx->alpha_v, shuf_e);
 		__m128i beta_e = _mm_shuffle_epi8((__m128i)ctx->beta_v, shuf_e);
@@ -854,11 +854,13 @@ void FUNC(deblock_frame)
 	
 	do {
 		// deblock a single macroblock
-		CALL(init_alpha_beta_tC0);
-		size_t strideY = ctx->stride[0];
-		CALL(deblock_Y_8bit, strideY, -strideY, strideY * 7);
-		size_t strideC = ctx->stride[1];
-		CALL(deblock_CbCr_8bit, strideC, -strideC, strideC * 7);
+		if (mb->f.filter_edges & 1) {
+			CALL(init_alpha_beta_tC0);
+			size_t strideY = ctx->stride[0];
+			CALL(deblock_Y_8bit, strideY, -strideY, strideY * 7);
+			size_t strideC = ctx->stride[1];
+			CALL(deblock_CbCr_8bit, strideC, -strideC, strideC * 7);
+		}
 		
 		// point at the next macroblock
 		mb++;

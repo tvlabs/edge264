@@ -1579,25 +1579,84 @@ static noinline void CAFUNC(parse_slice_data)
 	
 	while (1) {
 		fprintf(stderr, "********** POC=%u MB=%u **********\n", ctx->PicOrderCnt, ctx->CurrMbAddr);
-		v16qi flagsA = mb[-1].f.v;
-		v16qi flagsB = ctx->mbB->f.v;
-		ctx->inc.v = flagsA + flagsB + (flagsB & flags_twice.v);
+		
+		// store temporary unavailable data on slice edge
+		int unavailable = 0;
+		int filter_edges = -(ctx->disable_deblocking_filter_idc != 1);
+		v16qi fA = mb[-1].f.v;
+		v16qi fB = ctx->mbB->f.v;
+		uint64_t bitsA = mb[-1].bits_l;
+		uint64_t bitsB = ctx->mbB->bits_l;
+		if (ctx->first_mb_in_slice) {
+			v16qi zero = {};
+			if (ctx->CurrMbAddr == ctx->first_mb_in_slice) { // A is unavailable
+				unavailable = 1;
+				fA = unavail_mb.f.v;
+				bitsA = unavail_mb.bits_l;
+				ctx->refIdx_copyA = mb[-1].refIdx_l;
+				ctx->nC_copyA[0] = mb[-1].nC_v[0];
+				ctx->nC_copyA[1] = mb[-1].nC_v[1];
+				ctx->nC_copyA[2] = mb[-1].nC_v[2];
+				ctx->mvs_copyA[0] = mb[-1].mvs_v[1];
+				ctx->mvs_copyA[1] = mb[-1].mvs_v[3];
+				ctx->mvs_copyA[2] = mb[-1].mvs_v[5];
+				ctx->mvs_copyA[3] = mb[-1].mvs_v[7];
+				mb[-1].refIdx_l = -1;
+				mb[-1].nC_v[0] = mb[-1].nC_v[1] = mb[-1].nC_v[2] = (v16qi)zero;
+				mb[-1].Intra4x4PredMode_v = unavail_mb.Intra4x4PredMode_v;
+				mb[-1].absMvd_v[0] = mb[-1].absMvd_v[1] = mb[-1].absMvd_v[2] = mb[-1].absMvd_v[3] = (v16qu)zero;
+				mb[-1].mvs_v[1] = mb[-1].mvs_v[3] = mb[-1].mvs_v[5] = mb[-1].mvs_v[7] = (v8hi)zero;
+			}
+			if (ctx->CurrMbAddr <= ctx->first_mb_in_slice + ctx->ps.pic_width_in_mbs) { // B is unavailable
+				unavailable += 2;
+				fB = unavail_mb.f.v;
+				bitsB = unavail_mb.bits_l;
+				ctx->refIdx_copyB = ctx->mbB->refIdx_l;
+				ctx->nC_copyB[0] = ctx->mbB->nC_l[1];
+				ctx->nC_copyB[1] = ctx->mbB->nC_l[3];
+				ctx->nC_copyB[2] = ctx->mbB->nC_l[5];
+				ctx->mvs_copyB[0] = ctx->mbB->mvs_l[5];
+				ctx->mvs_copyB[1] = ctx->mbB->mvs_l[7];
+				ctx->mvs_copyB[2] = ctx->mbB->mvs_l[13];
+				ctx->mvs_copyB[3] = ctx->mbB->mvs_l[15];
+				ctx->mbB->refIdx_l = -1;
+				ctx->mbB->nC_l[1] = ctx->mbB->nC_l[3] = ctx->mbB->nC_l[5] = 0;
+				ctx->mbB->Intra4x4PredMode_v = unavail_mb.Intra4x4PredMode_v;
+				ctx->mbB->absMvd_v[1] = ctx->mbB->absMvd_v[3] = (v16qu)zero;
+				ctx->mbB->mvs_l[5] = ctx->mbB->mvs_l[7] = ctx->mbB->mvs_l[13] = ctx->mbB->mvs_l[15] = 0;
+			}
+			if (ctx->CurrMbAddr < ctx->first_mb_in_slice + ctx->ps.pic_width_in_mbs) { // C is unavailable
+				ctx->refIdx_copyCD = ctx->mbB[1].refIdx_l;
+				ctx->mvs_copyCD[0] = ctx->mbB[1].mvs_s[10];
+				ctx->mvs_copyCD[1] = ctx->mbB[1].mvs_s[26];
+				ctx->mbB[1].refIdx_l = -1;
+				ctx->mbB[1].mvs_s[10] = ctx->mbB[1].mvs_s[26] = 0;
+			}
+			if (ctx->disable_deblocking_filter_idc == 2)
+				filter_edges &= ~(unavailable << 1);
+		}
+		
+		// initialize current macroblock
+		ctx->inc.v = fA + fB + (fB & flags_twice.v);
 		memset(mb, 0, offsetof(Edge264_macroblock, mvs)); // FIXME who needs this?
 		mb->QP_s = ctx->QP_s;
 		if (ctx->ps.ChromaArrayType == 1) { // FIXME 4:2:2
-			mb->bits_l = (ctx->mbB->bits_l >> 1 & 0x42424200424242) | (mb[-1].bits_l >> 3 & 0x11111100111111);
+			mb->bits_l = (bitsA >> 3 & 0x11111100111111) | (bitsB >> 1 & 0x42424200424242);
 		}
 		
 		// prepare block unavailability information (6.4.11.4)
-		ctx->unavail_v = block_unavailability[ctx->inc.unavailable];
+		unavailable |= ctx->inc.unavailable;
+		mb->f.filter_edges = filter_edges & ~(unavailable << 1);
+		ctx->unavail_v = block_unavailability[unavailable];
 		if (ctx->mbB[1].f.unavailable) {
-			ctx->inc.unavailable += 4;
+			unavailable += 4;
 			ctx->unavail[5] += 4;
 		}
 		if (ctx->mbB[-1].f.unavailable) {
-			ctx->inc.unavailable += 8;
+			unavailable += 8;
 			ctx->unavail[0] += 8;
 		}
+		ctx->inc.unavailable = unavailable;
 		
 		// Would it actually help to push this test outside the loop?
 		if (ctx->slice_type == 0) {
@@ -1610,6 +1669,35 @@ static noinline void CAFUNC(parse_slice_data)
 				fprintf(stderr, "mb_type: %u\n", mb_type_or_ctxIdx);
 			#endif
 			CACALL(parse_I_mb, mb_type_or_ctxIdx);
+		}
+		
+		// restore macroblock data on slice edge
+		if (ctx->first_mb_in_slice) {
+			if (ctx->CurrMbAddr == ctx->first_mb_in_slice) { // A is unavailable
+				mb[-1].refIdx_l = ctx->refIdx_copyA;
+				mb[-1].nC_v[0] = ctx->nC_copyA[0];
+				mb[-1].nC_v[1] = ctx->nC_copyA[1];
+				mb[-1].nC_v[2] = ctx->nC_copyA[2];
+				mb[-1].mvs_v[1] = ctx->mvs_copyA[0];
+				mb[-1].mvs_v[3] = ctx->mvs_copyA[1];
+				mb[-1].mvs_v[5] = ctx->mvs_copyA[2];
+				mb[-1].mvs_v[7] = ctx->mvs_copyA[3];
+			}
+			if (ctx->CurrMbAddr <= ctx->first_mb_in_slice + ctx->ps.pic_width_in_mbs) { // B is unavailable
+				ctx->mbB->refIdx_l = ctx->refIdx_copyB;
+				ctx->mbB->nC_l[1] = ctx->nC_copyB[0];
+				ctx->mbB->nC_l[3] = ctx->nC_copyB[1];
+				ctx->mbB->nC_l[5] = ctx->nC_copyB[2];
+				ctx->mbB->mvs_l[5] = ctx->mvs_copyB[0];
+				ctx->mbB->mvs_l[7] = ctx->mvs_copyB[1];
+				ctx->mbB->mvs_l[13] = ctx->mvs_copyB[2];
+				ctx->mbB->mvs_l[15] = ctx->mvs_copyB[3];
+			}
+			if (ctx->CurrMbAddr < ctx->first_mb_in_slice + ctx->ps.pic_width_in_mbs) { // C is unavailable
+				ctx->mbB[1].refIdx_l = ctx->refIdx_copyCD;
+				ctx->mbB[1].mvs_s[10] = ctx->mvs_copyCD[0];
+				ctx->mbB[1].mvs_s[26] = ctx->mvs_copyCD[1];
+			}
 		}
 		
 		// break at end of slice

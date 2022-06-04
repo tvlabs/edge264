@@ -55,6 +55,7 @@ typedef union {
 		int8_t CodedBlockPatternChromaAC;
 		int8_t mbIsInterFlag;
 		union { int8_t coded_block_flags_16x16[3]; int32_t coded_block_flags_16x16_s; };
+		int8_t filter_edges; // internal/left/top
 	};
 	v16qi v;
 } Edge264_flags;
@@ -73,13 +74,11 @@ static const Edge264_flags flags_twice = {
  * the simplest to maintain. Arrays of precomputed neighbouring offsets spare
  * the use of local caches, thus minimising memory writes.
  * 
- * For bit values in 8x8 and 4x4 blocks, we use compact bit patterns in bits_v,
- * allowing quick retrieval of neighbouring values for CABAC:
- *             1  8 15 22
- *   1 6    0| 7 14 21  5
- * 0|5 3    6|13 20  4 11
- * 4|2 7   12|19  3 10 17
- *         18| 2  9 16 23
+ * For bit values in 8x8 blocks, we use compact bit patterns in bits, allowing
+ * quick retrieval of neighbouring values for CABAC:
+ *   1 6
+ * 0|5 3
+ * 4|2 7
  */
 typedef struct {
 	Edge264_flags f;
@@ -88,11 +87,20 @@ typedef struct {
 	union { int8_t refIdx[8]; int32_t refIdx_s[2]; int64_t refIdx_l; }; // [LX][i8x8]
 	union { int8_t refPic[8]; int32_t refPic_s[2]; int64_t refPic_l; }; // [LX][i8x8]
 	union { uint32_t bits[2]; uint64_t bits_l; }; // {cbp/ref_idx_nz, cbf_Y/Cb/Cr 8x8}
-	union { int8_t nC[3][16]; v16qi nC_v[3]; }; // for CAVLC and deblocking, 64 if unavailable
+	union { int8_t nC[3][16]; int64_t nC_l[6]; v16qi nC_v[3]; }; // for CAVLC and deblocking, 64 if unavailable
 	union { int8_t Intra4x4PredMode[16]; v16qi Intra4x4PredMode_v; }; // [i4x4]
 	union { uint8_t absMvd[64]; uint64_t absMvd_l[8]; v16qu absMvd_v[4]; }; // [LX][i4x4][compIdx]
-	union { int16_t mvs[64]; int32_t mvs_s[32]; v8hi mvs_v[8]; }; // [LX][i4x4][compIdx]
+	union { int16_t mvs[64]; int32_t mvs_s[32]; int64_t mvs_l[16]; v8hi mvs_v[8]; }; // [LX][i4x4][compIdx]
 } Edge264_macroblock;
+static const Edge264_macroblock unavail_mb = {
+	.f.unavailable = 1,
+	.f.mb_skip_flag = 1,
+	.f.mb_type_I_NxN = 1,
+	.f.mb_type_B_Direct = 1,
+	.refIdx = {-1, -1, -1, -1, -1, -1, -1, -1},
+	.bits[0] = 0xac, // cbp
+	.Intra4x4PredMode = {-2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2},
+};
 
 
 
@@ -119,7 +127,7 @@ typedef struct
 	int8_t FilterOffsetA; // 5 significant bits
 	int8_t FilterOffsetB;
 	int8_t mb_qp_delta_nz;
-	int8_t currPic;
+	int32_t first_mb_in_slice;
 	int32_t FrameNum;
 	int32_t PicOrderCnt;
 	Edge264_parameter_set ps;
@@ -159,6 +167,14 @@ typedef struct
 	union { int32_t mvs_B[16]; v16si mvs_B_v; };
 	union { int32_t mvs_C[16]; v16si mvs_C_v; };
 	union { int32_t mvs_D[16]; v16si mvs_D_v; };
+	int32_t mvs_copyCD[2];
+	int64_t refIdx_copyA;
+	int64_t refIdx_copyB;
+	int64_t refIdx_copyCD;
+	int64_t nC_copyB[3];
+	int64_t mvs_copyB[4];
+	v16qi nC_copyA[3];
+	v8hi mvs_copyA[4];
 	
 	// Intra context
 	union { uint8_t intra4x4_modes[9][16]; v16qu intra4x4_modes_v[9]; }; // kept for future 16bit support

@@ -102,10 +102,11 @@ typedef struct Edge264_stream {
 	uint32_t long_term_flags; // bitfield for indices of long-term frames
 	uint32_t pic_long_term_flags; // to be applied after decoding all slices of the current frame
 	uint32_t output_flags; // bitfield for frames waiting to be output
+	int8_t pic_idr_or_mmco5; // when set, all POCs will be decreased after completing the current frame
+	int8_t currPic; // index of current incomplete frame, or -1
 	int32_t prevRefFrameNum;
 	int32_t prevPicOrderCnt;
 	int32_t dispPicOrderCnt;
-	int32_t pic_idr_or_mmco5; // when set, all POCs will be decreased after completing the current frame
 	int32_t FrameNum[32];
 	int8_t LongTermFrameIdx[32] __attribute__((aligned(16)));
 	int8_t pic_LongTermFrameIdx[32] __attribute__((aligned(16))); // to be applied after decoding all slices of the current frame

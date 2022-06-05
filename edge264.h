@@ -36,7 +36,7 @@ typedef struct {
 	int8_t BitDepth_Y; // 4 significant bits
 	int8_t BitDepth_C;
 	int8_t max_dec_frame_buffering; // 5 significant bits
-	int16_t pic_width_in_mbs; // 10 significant bits
+	uint16_t pic_width_in_mbs; // 10 significant bits
 	int16_t pic_height_in_mbs; // 10 significant bits
 	
 	// private fields

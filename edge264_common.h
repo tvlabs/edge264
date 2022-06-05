@@ -127,7 +127,7 @@ typedef struct
 	int8_t FilterOffsetA; // 5 significant bits
 	int8_t FilterOffsetB;
 	int8_t mb_qp_delta_nz;
-	int32_t first_mb_in_slice;
+	uint32_t first_mb_in_slice;
 	int32_t FrameNum;
 	int32_t PicOrderCnt;
 	Edge264_parameter_set ps;

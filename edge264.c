@@ -1,8 +1,7 @@
 /** MAYDO:
- * _ call ready_frame on AUD and on drain when no output frame is available
- * _ initialize ctx properly with first_mb_in_slice
- * 
+ * _ check why Edge264_macroblock is 320 bytes instead of 304
  * _ compact mb->f into a uint32_t to reduce loads in deblocking
+ * _ add a macro mbB to simplify the syntax ctx->mbB
  * _ implement a tool that decodes an Annex B stream and compares it with a JM output, returning a faulty GOP file on error
  * _ add an option to store N more frames, to tolerate lags in CPU scheduling
  * _ try using epb for context pointer, and email GCC when it fails
@@ -73,10 +72,18 @@ static void FUNC(initialise_decoding_context, Edge264_stream *e)
 		1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 29, 30, 31, 32, 32, 33, 34, 34, 35, 35, 36, 36, 37, 37, 37, 38, 38, 38,
 		39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39};
 	
+	// This code is not critical so we do not optimize away first_mb_in_slice==0.
+	ctx->CurrMbAddr = ctx->first_mb_in_slice;
+	int mby = ctx->first_mb_in_slice / ctx->ps.pic_width_in_mbs;
+	int mbx = ctx->first_mb_in_slice % ctx->ps.pic_width_in_mbs;
 	ctx->mb_qp_delta_nz = 0;
-	ctx->samples_mb[0] = ctx->samples_row[0] = ctx->samples_pic = e->DPB + e->currPic * e->frame_size;
-	ctx->samples_mb[1] = ctx->samples_row[1] = ctx->samples_mb[0] + e->plane_size_Y;
-	ctx->samples_mb[2] = ctx->samples_row[2] = ctx->samples_mb[1] + e->plane_size_C;
+	ctx->samples_pic = e->DPB + e->currPic * e->frame_size;
+	ctx->samples_row[0] = ctx->samples_pic + mby * e->stride_Y * 16;
+	ctx->samples_row[1] = ctx->samples_pic + e->plane_size_Y + mby * e->stride_C * 8;
+	ctx->samples_row[2] = ctx->samples_row[1] + e->plane_size_C;
+	ctx->samples_mb[0] = ctx->samples_row[0] + mbx * 16;
+	ctx->samples_mb[1] = ctx->samples_row[1] + mbx * 8;
+	ctx->samples_mb[2] = ctx->samples_row[2] + mbx * 8;
 	ctx->stride[0] = e->stride_Y;
 	ctx->stride[1] = ctx->stride[2] = e->stride_C;
 	ctx->plane_size_Y = e->plane_size_Y;
@@ -102,7 +109,7 @@ static void FUNC(initialise_decoding_context, Edge264_stream *e)
 	// initializing with vectors is not the fastest here, but is most readable thus maintainable
 	int offA_int8 = -(int)sizeof(*mb);
 	int offB_int8 = -(ctx->ps.pic_width_in_mbs + 1) * sizeof(*mb);
-	ctx->mbB = (Edge264_macroblock *)(ctx->samples_mb[2] + e->plane_size_C + sizeof(*mb));
+	ctx->mbB = (Edge264_macroblock *)(ctx->samples_pic + e->plane_size_Y + e->plane_size_C * 2 + sizeof(*mb) * (1 + mbx) - offB_int8 * mby);
 	mb = (Edge264_macroblock *)((uint8_t *)ctx->mbB - offB_int8);
 	ctx->A4x4_int8_v = (v16hi){5 + offA_int8, 0, 7 + offA_int8, 2, 1, 4, 3, 6, 13 + offA_int8, 8, 15 + offA_int8, 10, 9, 12, 11, 14};
 	ctx->B4x4_int8_v = (v16si){10 + offB_int8, 11 + offB_int8, 0, 1, 14 + offB_int8, 15 + offB_int8, 4, 5, 2, 3, 8, 9, 6, 7, 12, 13};
@@ -136,7 +143,7 @@ static void FUNC(initialise_decoding_context, Edge264_stream *e)
 		// B slices
 		if (ctx->slice_type == 1) {
 			int colPic = ctx->RefPicList[1][0];
-			ctx->mbCol = (Edge264_macroblock *)(e->DPB + colPic * e->frame_size + ctx->plane_size_Y + e->plane_size_C * 2 + sizeof(*mb) - offB_int8);
+			ctx->mbCol = (Edge264_macroblock *)((uint8_t *)mb + (colPic - e->currPic) * e->frame_size);
 			ctx->col_short_term = (e->long_term_flags >> colPic & 1) ^ 1;
 			
 			// initializations for temporal prediction and implicit weights
@@ -618,7 +625,7 @@ static int FUNC(parse_slice_layer_without_partitioning, Edge264_stream *e)
 	static const char * const disable_deblocking_filter_idc_names[3] = {"enabled", "disabled", "disabled across slices"};
 	
 	// first important fields and checks before decoding the slice header
-	ctx->first_mb_in_slice = ctx->CurrMbAddr = CALL(get_ue32, 139263);
+	ctx->first_mb_in_slice = CALL(get_ue32, 139263);
 	int slice_type = CALL(get_ue16, 9);
 	ctx->slice_type = (slice_type < 5) ? slice_type : slice_type - 5;
 	int pic_parameter_set_id = CALL(get_ue16, 255);
@@ -779,6 +786,22 @@ static int FUNC(parse_slice_layer_without_partitioning, Edge264_stream *e)
 		CALL(finish_frame, e);
 		CALL(deblock_frame);
 	}
+	return 0;
+}
+
+
+
+/**
+ * AUDs are used to delimit the start of a new frame and the end of the
+ * previous one. This is particularly useful in low-latency situations to
+ * force ending a frame event if we did not receive all slices.
+ */
+static int FUNC(parse_access_unit_delimiter, Edge264_stream *e)
+{
+	int primary_pic_type = CALL(get_uv, 3);
+	printf("<tr><th>primary_pic_type</th><td>%d</td></tr>\n", primary_pic_type);
+	if (e->currPic >= 0)
+		CALL(finish_frame, e);
 	return 0;
 }
 
@@ -1518,6 +1541,7 @@ int Edge264_decode_NAL(Edge264_stream *e)
 		[5] = parse_slice_layer_without_partitioning,
 		[7] = parse_seq_parameter_set,
 		[8] = parse_pic_parameter_set,
+		[9] = parse_access_unit_delimiter,
 	};
 	
 	// quick checks before parsing

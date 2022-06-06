@@ -1,5 +1,5 @@
 /** MAYDO:
- * _ compact mb->f into a uint32_t to reduce loads in deblocking
+ * _ fix the memset of mb in parse_slice_data before introducing permanent "unavail" field
  * _ initialize mb unavailability ahead of slices, then fix initialization of unavailability/filter_edges for each mb when first_mb_in_slice!=0
  * _ add a macro mbB to simplify the syntax ctx->mbB
  * _ rename edge264_common.h into internal.h to make it more obvious that this is an internal file!

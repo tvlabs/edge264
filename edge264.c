@@ -1,7 +1,9 @@
 /** MAYDO:
- * _ check why Edge264_macroblock is 320 bytes instead of 304
  * _ compact mb->f into a uint32_t to reduce loads in deblocking
+ * _ initialize mb unavailability ahead of slices, then fix initialization of unavailability/filter_edges for each mb when first_mb_in_slice!=0
  * _ add a macro mbB to simplify the syntax ctx->mbB
+ * _ rename edge264_common.h into internal.h to make it more obvious that this is an internal file!
+ * 
  * _ implement a tool that decodes an Annex B stream and compares it with a JM output, returning a faulty GOP file on error
  * _ add an option to store N more frames, to tolerate lags in CPU scheduling
  * _ try using epb for context pointer, and email GCC when it fails
@@ -781,8 +783,8 @@ static int FUNC(parse_slice_layer_without_partitioning, Edge264_stream *e)
 	}
 	
 	// when the total number of decoded mbs is enough, finish the frame
-	e->pic_remaining_mbs -= ctx->CurrMbAddr - ctx->first_mb_in_slice + 1;
-	if (e->pic_remaining_mbs <= 0) {
+	e->pic_remaining_mbs -= ctx->CurrMbAddr - ctx->first_mb_in_slice;
+	if (e->pic_remaining_mbs == 0) {
 		CALL(finish_frame, e);
 		CALL(deblock_frame);
 	}
@@ -794,7 +796,7 @@ static int FUNC(parse_slice_layer_without_partitioning, Edge264_stream *e)
 /**
  * AUDs are used to delimit the start of a new frame and the end of the
  * previous one. This is particularly useful in low-latency situations to
- * force ending a frame event if we did not receive all slices.
+ * force ending a frame even if we did not receive all slices.
  */
 static int FUNC(parse_access_unit_delimiter, Edge264_stream *e)
 {

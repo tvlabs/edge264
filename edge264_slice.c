@@ -1582,7 +1582,7 @@ static noinline void CAFUNC(parse_slice_data)
 		
 		// store temporary unavailable data on slice edge
 		int unavailable = 0;
-		int filter_edges = -(ctx->disable_deblocking_filter_idc != 1);
+		int filter_edges = (ctx->disable_deblocking_filter_idc == 1) ? 0 : 7;
 		v16qi fA = mb[-1].f.v;
 		v16qi fB = ctx->mbB->f.v;
 		uint64_t bitsA = mb[-1].bits_l;
@@ -1645,8 +1645,8 @@ static noinline void CAFUNC(parse_slice_data)
 		}
 		
 		// prepare block unavailability information (6.4.11.4)
+		mb->f.filter_edges = filter_edges & ~(ctx->inc.unavailable << 1);
 		unavailable |= ctx->inc.unavailable;
-		mb->f.filter_edges = filter_edges & ~(unavailable << 1);
 		ctx->unavail_v = block_unavailability[unavailable];
 		if (ctx->mbB[1].f.unavailable) {
 			unavailable += 4;
@@ -1701,6 +1701,7 @@ static noinline void CAFUNC(parse_slice_data)
 		}
 		
 		// break at end of slice
+		ctx->CurrMbAddr++;
 		#ifdef CABAC
 			int end_of_slice_flag = CALL(cabac_terminate);
 			fprintf(stderr, "end_of_slice_flag: %x\n\n", end_of_slice_flag);
@@ -1712,7 +1713,6 @@ static noinline void CAFUNC(parse_slice_data)
 		mb++;
 		ctx->mbB++;
 		ctx->mbCol++;
-		ctx->CurrMbAddr++;
 		ctx->samples_mb[0] += 16; // FIXME 16bit
 		ctx->samples_mb[1] += 8; // FIXME 4:2:2, 16bit
 		ctx->samples_mb[2] += 8;

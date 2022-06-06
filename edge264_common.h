@@ -54,8 +54,8 @@ typedef union {
 		int8_t CodedBlockPatternChromaDC;
 		int8_t CodedBlockPatternChromaAC;
 		int8_t mbIsInterFlag;
-		union { int8_t coded_block_flags_16x16[3]; int32_t coded_block_flags_16x16_s; };
 		int8_t filter_edges; // internal/left/top
+		union { int8_t coded_block_flags_16x16[3]; int32_t coded_block_flags_16x16_s; };
 	};
 	v16qi v;
 } Edge264_flags;

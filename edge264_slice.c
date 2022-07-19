@@ -753,7 +753,7 @@ static noinline void CAFUNC(parse_I_mb, int mb_type_or_ctxIdx)
 	mb->inter_blocks = 0x01231111;
 	mb->refIdx_l = -1;
 	mb->refPic_l = -1;
-	memset(mb->mvs_v, 0, 128);
+	mb->mvs_v[0] = mb->mvs_v[1] = mb->mvs_v[2] = mb->mvs_v[3] = mb->mvs_v[4] = mb->mvs_v[5] = mb->mvs_v[6] = mb->mvs_v[7] = (v8hi){};
 	
 	// I_NxN
 	if (CACOND(mb_type_or_ctxIdx == 0, !CALL(get_ae, mb_type_or_ctxIdx))) {
@@ -1498,7 +1498,6 @@ static inline void CAFUNC(parse_P_mb)
 		mb->inter_blocks = 0x01231111;
 		v16qi refIdx_v = (v16qi)(v2li){mb->refIdx_l};
 		mb->refPic_l = ((v2li)(shuffle(ctx->RefPicList_v[0], refIdx_v) | refIdx_v))[0];
-		memset(mb->mvs_v + 4, 0, 64);
 		int refIdxA = mb[-1].refIdx[1];
 		int refIdxB = ctx->mbB->refIdx[2];
 		int mvA = *(mb->mvs_s + ctx->mvs_A[0]);
@@ -1525,6 +1524,7 @@ static inline void CAFUNC(parse_P_mb)
 		}
 		v8hi mvs = (v8hi)__builtin_shufflevector((v4si)mv, (v4si){}, 0, 0, 0, 0);
 		mb->mvs_v[0] = mb->mvs_v[1] = mb->mvs_v[2] = mb->mvs_v[3] = mvs;
+		mb->mvs_v[4] = mb->mvs_v[5] = mb->mvs_v[6] = mb->mvs_v[7] = (v8hi){};
 		JUMP(decode_inter, 0, 16, 16);
 	}
 	
@@ -1534,7 +1534,7 @@ static inline void CAFUNC(parse_P_mb)
 		fprintf(stderr, "mb_type: %u\n", mb_type);
 		if (mb_type > 4)
 			CAJUMP(parse_I_mb, mb_type - 5);
-		memset(mb->mvs_v + 4, 0, 64);
+		mb->mvs_v[4] = mb->mvs_v[5] = mb->mvs_v[6] = mb->mvs_v[7] = (v8hi){};
 		if (mb_type > 2)
 			CAJUMP(parse_P_sub_mb, (mb_type + 12) & 15); // 3->15, 4->0
 		CACALL(parse_ref_idx, 0x351 >> (mb_type << 2) & 15); // 0->1, 1->5, 2->3
@@ -1544,7 +1544,7 @@ static inline void CAFUNC(parse_P_mb)
 		int mb_type = CALL(get_ae, 15); // actually 1 and 3 are swapped
 		mb_type += mb_type + CALL(get_ae, 16 + mb_type);
 		fprintf(stderr, "mb_type: %u\n", (4 - mb_type) & 3);
-		memset(mb->mvs_v + 4, 0, 64);
+		mb->mvs_v[4] = mb->mvs_v[5] = mb->mvs_v[6] = mb->mvs_v[7] = (v8hi){};
 		if (mb_type == 1)
 			CAJUMP(parse_P_sub_mb, 15);
 		CACALL(parse_ref_idx, (mb_type + 1) | 1); // 0->1, 2->3, 3->5

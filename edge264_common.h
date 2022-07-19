@@ -439,6 +439,11 @@ static noinline void FUNC(parse_slice_data_cabac);
 		}
 	#endif
 	
+	// fixing a strange bug from GCC
+	#if defined(__GNUC__) && !defined(__clang__)
+		#define _mm_loadu_si32(p) ((__m128i)(v4si){*(int32_t *)(p)})
+	#endif
+	
 	// custom functions
 	#ifdef __SSE4_1__
 		#define ifelse_mask(v, t, f) (typeof(t))_mm_blendv_epi8((__m128i)(f), (__m128i)(t), (__m128i)(v))
@@ -518,11 +523,6 @@ static noinline void FUNC(parse_slice_data_cabac);
 		return (v8hi)_mm_packs_epi32(_mm_srai_epi32(lo, 8), _mm_srai_epi32(hi, 8));
 	}
 	#define shr(a, i) (typeof(a))_mm_srli_si128((__m128i)(a), i)
-	
-	// fixing a strange bug from GCC
-	#if defined(__GNUC__) && !defined(__clang__)
-		#define _mm_loadu_si32(p) ((__m128i)(v4si){*(int32_t *)(p)})
-	#endif
 	
 	// FIXME remove once we get rid of __m64
 	#if defined(__GNUC__) && !defined(__clang__)

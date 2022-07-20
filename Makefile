@@ -40,4 +40,4 @@ edge264_residual$(SUF).o: edge264_residual.c edge264_common.h Makefile
 
 .PHONY: clean
 clean:
-	rm edge264-*.o edge264_play-* edge264_test-*
+	rm edge264*.o edge264_play-* edge264_test-*

@@ -71,18 +71,21 @@ static const Edge264_flags flags_twice = {
 /**
  * Although we waste some space by storing some neighbouring values for more
  * than their lifespans, packing everything in a single structure is arguably
- * the simplest to maintain. Arrays of precomputed neighbouring offsets spare
- * the use of local caches, thus minimising memory writes.
+ * the simplest to maintain. Neighbouring values from the same or a different
+ * macroblock are obtained with memory offsets precomputed in ctx. With this
+ * technique we spare the use of intermediate caches thus reduce memory writes.
  * 
- * For bit values in 8x8 blocks, we use compact bit patterns in bits, allowing
- * quick retrieval of neighbouring values for CABAC:
+ * CABAC bit values of 8x8 blocks are stored in compact 8-bit patterns that
+ * allow retrieving A+B*2 efficiently:
  *   1 6
  * 0|5 3
  * 4|2 7
  */
 typedef struct {
 	Edge264_flags f;
-	uint32_t inter_blocks; // bitmask for every index that is the topleft corner of a block, upper half indicates whether each 8x8 block is equal with its right/bottom neighbours
+	/* low half: bitmask for every i4x4 that is the topleft corner of a block
+	   high half: equality of each i8x8 with its right/bottom neighbours */
+	uint32_t inter_blocks;
 	union { uint8_t QP[3]; v4qi QP_s; }; // [iYCbCr]
 	union { int8_t refIdx[8]; int32_t refIdx_s[2]; int64_t refIdx_l; }; // [LX][i8x8]
 	union { int8_t refPic[8]; int32_t refPic_s[2]; int64_t refPic_l; }; // [LX][i8x8]

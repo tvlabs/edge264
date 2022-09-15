@@ -208,10 +208,9 @@ static inline void FUNC(decode_inter_16x8_bottom, v8hi mvd, int lx)
  * Initialise the reference indices and motion vectors of an entire macroblock
  * with direct prediction (8.4.1.2).
  * 
- * mb->refIdx should be initialized to 0 in direct blocks, and -1 otherwise.
- * mb->mvs will be overwritten only on direct blocks.
+ * direct_mask should be 1 on all Direct 4x4 positions.
  */
-static always_inline void FUNC(decode_direct_spatial_mv_pred)
+static always_inline void FUNC(decode_direct_spatial_mv_pred, unsigned direct_mask)
 {
 	// load all refIdxN and mvN in vector registers
 	v16qi shuf = {0, 0, 0, 0, 4, 4, 4, 4, -1, -1, -1, -1, -1, -1, -1, -1};
@@ -248,7 +247,7 @@ static always_inline void FUNC(decode_direct_spatial_mv_pred)
 	//printf("<li>refIdxL0A/B/C=%d/%d/%d, refIdxL1A/B/C=%d/%d/%d, mvsL0A/B/C=[%d,%d]/[%d,%d]/[%d,%d], mvsL1A/B/C=[%d,%d]/[%d,%d]/[%d,%d] -> refIdxL0/1=%d/%d, mvsL0/1=[%d,%d]/[%d,%d]</li>\n", refIdxA[0], refIdxB[0], refIdxC[0], refIdxA[4], refIdxB[4], refIdxC[4], mvA[0], mvA[1], mvB[0], mvB[1], mvC[0], mvC[1], mvA[2], mvA[3], mvB[2], mvB[3], mvC[2], mvC[3], refIdx[0], refIdx[4], mv01[0], mv01[1], mv01[2], mv01[3]);
 	
 	// trick from ffmpeg: skip computations on refCol/mvCol if both mvs are zero
-	if (((v2li)mv01)[0] != 0 || mb->refIdx_l != 0) {
+	if (((v2li)mv01)[0] != 0 || direct_mask != 0xffff) {
 		v8hi colZeroMask0 = {}, colZeroMask1 = {}, colZeroMask2 = {}, colZeroMask3 = {};
 		unsigned colZeroFlags = 0;
 		if (ctx->col_short_term) {
@@ -281,8 +280,8 @@ static always_inline void FUNC(decode_direct_spatial_mv_pred)
 		}
 		
 		// skip computations on colZeroFlags if none are set
-		if (colZeroFlags != 0 || mb->refIdx_l != 0) {
-			unsigned direct_flags = refIdx_to_direct_flags(mb->refIdx_l);
+		if (colZeroFlags != 0 || direct_mask != 0xffff) {
+			unsigned direct_flags = direct_mask | direct_mask << 16;
 			unsigned mvd_flags = direct_flags;
 			v8hi mvs1 = mvs0, mvs2 = mvs0, mvs3 = mvs0, mvs5 = mvs4, mvs6 = mvs4, mvs7 = mvs4;
 			if (refIdx[0] == 0) {
@@ -357,13 +356,13 @@ static always_inline void FUNC(decode_direct_spatial_mv_pred)
 	mb->mvs_v[0] = mb->mvs_v[1] = mb->mvs_v[2] = mb->mvs_v[3] = mvs0;
 	mb->mvs_v[4] = mb->mvs_v[5] = mb->mvs_v[6] = mb->mvs_v[7] = mvs4;
 	mb->inter_blocks = 0x01231111;
-	if (mb->refIdx[0] >= 0)
+	if (refIdx[0] >= 0)
 		CALL(decode_inter, 0, 16, 16);
-	if (mb->refIdx[4] >= 0)
+	if (refIdx[4] >= 0)
 		CALL(decode_inter, 16, 16, 16);
 }
 
-static always_inline void FUNC(decode_direct_temporal_mv_pred)
+static always_inline void FUNC(decode_direct_temporal_mv_pred, unsigned direct_mask)
 {
 	// load refPicCol and mvCol
 	const Edge264_macroblock *mbCol = ctx->mbCol;
@@ -389,34 +388,34 @@ static always_inline void FUNC(decode_direct_temporal_mv_pred)
 	v16qi refIdx = ifelse_mask(refPicCol > 15, hi, lo);
 	mb->refPic_s[0] = ((v4si)ifelse_msb(refIdx, refIdx, shuffle(ctx->RefPicList_v[0], refIdx)))[0]; // overwritten by parse_ref_idx later if refIdx!=0
 	mb->refPic_s[1] = ((v4si)shuffle(ctx->RefPicList_v[2], (v16qi){}))[0]; // refIdxL1 is 0
-	if (mb->refIdx[0] >= 0) {
+	if (direct_mask & 1) {
 		mb->refIdx[0] = refIdx[0];
 		mb->refIdx[4] = 0;
-		mb->mvs_v[0] = temporal_scale(mvCol0, ctx->DistScaleFactor[mb->refIdx[0]]);
+		mb->mvs_v[0] = temporal_scale(mvCol0, ctx->DistScaleFactor[refIdx[0]]);
 		mb->mvs_v[4] = mb->mvs_v[0] - mvCol0;
 	} else {
 		inter_blocks &= ~0x0003000f;
 	}
-	if (mb->refIdx[1] >= 0) {
+	if (direct_mask & 1 << 4) {
 		mb->refIdx[1] = refIdx[1];
 		mb->refIdx[5] = 0;
-		mb->mvs_v[1] = temporal_scale(mvCol1, ctx->DistScaleFactor[mb->refIdx[1]]);
+		mb->mvs_v[1] = temporal_scale(mvCol1, ctx->DistScaleFactor[refIdx[1]]);
 		mb->mvs_v[5] = mb->mvs_v[1] - mvCol1;
 	} else {
 		inter_blocks &= ~0x002100f0;
 	}
-	if (mb->refIdx[2] >= 0) {
+	if (direct_mask & 1 << 8) {
 		mb->refIdx[2] = refIdx[2];
 		mb->refIdx[6] = 0;
-		mb->mvs_v[2] = temporal_scale(mvCol2, ctx->DistScaleFactor[mb->refIdx[2]]);
+		mb->mvs_v[2] = temporal_scale(mvCol2, ctx->DistScaleFactor[refIdx[2]]);
 		mb->mvs_v[6] = mb->mvs_v[2] - mvCol2;
 	} else {
 		inter_blocks &= ~0x01020f00;
 	}
-	if (mb->refIdx[3] >= 0) {
+	if (direct_mask & 1 << 12) {
 		mb->refIdx[3] = refIdx[3];
 		mb->refIdx[7] = 0;
-		mb->mvs_v[3] = temporal_scale(mvCol3, ctx->DistScaleFactor[mb->refIdx[3]]);
+		mb->mvs_v[3] = temporal_scale(mvCol3, ctx->DistScaleFactor[refIdx[3]]);
 		mb->mvs_v[7] = mb->mvs_v[3] - mvCol3;
 	} else { // edge case: 16x16 with a direct8x8 block on the bottom-right corner
 		inter_blocks = (inter_blocks == 0x01231111) ? 0x00010111 : inter_blocks & ~0x0120f000;
@@ -436,10 +435,10 @@ static always_inline void FUNC(decode_direct_temporal_mv_pred)
 	} while (inter_blocks & 0xffff);
 }
 
-static noinline void FUNC(decode_direct_mv_pred) {
+static noinline void FUNC(decode_direct_mv_pred, unsigned direct_mask) {
 	if (ctx->direct_spatial_mv_pred_flag) {
-		CALL(decode_direct_spatial_mv_pred);
+		CALL(decode_direct_spatial_mv_pred, direct_mask);
 	} else {
-		CALL(decode_direct_temporal_mv_pred);
+		CALL(decode_direct_temporal_mv_pred, direct_mask);
 	}
 }

@@ -348,7 +348,7 @@ static inline void FUNC(decode_inter_8x16_left, v8hi mvd, int lx);
 static inline void FUNC(decode_inter_8x16_right, v8hi mvd, int lx);
 static inline void FUNC(decode_inter_16x8_top, v8hi mvd, int lx);
 static inline void FUNC(decode_inter_16x8_bottom, v8hi mvd, int lx);
-static noinline void FUNC(decode_direct_mv_pred);
+static noinline void FUNC(decode_direct_mv_pred, unsigned direct_mask);
 
 // edge264_residual_*.c
 void FUNC(add_idct4x4, int iYCbCr, int qP, v16qu wS, int DCidx, uint8_t *samples);

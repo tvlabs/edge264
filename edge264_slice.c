@@ -1075,7 +1075,6 @@ static void CAFUNC(parse_B_sub_mb) {
 			#ifdef CABAC
 				fprintf(stderr, " 0");
 			#endif
-			mb->refIdx[i8x8] = mb->refIdx[4 + i8x8] = 0;
 		} else {
 			#ifndef CABAC
 				static const uint32_t sub_mb_type2flags[13] = {0, 0x00001, 0x10000,
@@ -1114,8 +1113,9 @@ static void CAFUNC(parse_B_sub_mb) {
 	fprintf(stderr, "\n");
 	
 	// initialize direct prediction then parse all ref_idx values
-	if (mb->refIdx_l != -1ll)
-		CALL(decode_direct_mv_pred);
+	unsigned direct_mask = (~(mvd_flags | mvd_flags >> 16) & 0x1111) * 15;
+	if (direct_mask != 0)
+		CALL(decode_direct_mv_pred, direct_mask);
 	if (mvd_flags == 0) // yes there are streams that use 4 Direct8x8 instead of one Direct16x16
 		CAJUMP(parse_inter_residual);
 	CACALL(parse_ref_idx, 0x100 | mvd_flags2ref_idx(mvd_flags));
@@ -1243,8 +1243,7 @@ static inline void CAFUNC(parse_B_mb)
 			ctx->mb_qp_delta_nz = 0;
 		#endif
 		mb->inter_blocks = 0;
-		mb->refIdx_l = 0;
-		JUMP(decode_direct_mv_pred);
+		JUMP(decode_direct_mv_pred, 0xffff);
 	}
 		
 	// B_Direct_16x16
@@ -1258,8 +1257,7 @@ static inline void CAFUNC(parse_B_mb)
 		#endif
 		ctx->transform_8x8_mode_flag = ctx->ps.transform_8x8_mode_flag & ctx->ps.direct_8x8_inference_flag;
 		mb->inter_blocks = 0;
-		mb->refIdx_l = 0;
-		CALL(decode_direct_mv_pred);
+		CALL(decode_direct_mv_pred, 0xffff);
 		CAJUMP(parse_inter_residual);
 	}
 	ctx->transform_8x8_mode_flag = ctx->ps.transform_8x8_mode_flag;

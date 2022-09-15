@@ -306,20 +306,27 @@ static always_inline void FUNC(decode_direct_spatial_mv_pred)
 			}
 			
 			// conditional memory storage
-			mb->refIdx_l |= ((v2li)refIdx)[0];
 			if (direct_flags & 1) {
+				mb->refIdx[0] = refIdx[0];
+				mb->refIdx[4] = refIdx[4];
 				mb->mvs_v[0] = mvs0;
 				mb->mvs_v[4] = mvs4;
 			}
 			if (direct_flags & 1 << 4) {
+				mb->refIdx[1] = refIdx[0];
+				mb->refIdx[5] = refIdx[4];
 				mb->mvs_v[1] = mvs1;
 				mb->mvs_v[5] = mvs5;
 			}
 			if (direct_flags & 1 << 8) {
+				mb->refIdx[2] = refIdx[0];
+				mb->refIdx[6] = refIdx[4];
 				mb->mvs_v[2] = mvs2;
 				mb->mvs_v[6] = mvs6;
 			}
 			if (direct_flags & 1 << 12) {
+				mb->refIdx[3] = refIdx[0];
+				mb->refIdx[7] = refIdx[4];
 				mb->mvs_v[3] = mvs3;
 				mb->mvs_v[7] = mvs7;
 			}
@@ -358,7 +365,7 @@ static always_inline void FUNC(decode_direct_spatial_mv_pred)
 
 static always_inline void FUNC(decode_direct_temporal_mv_pred)
 {
-	// load refIdxCol and mvCol
+	// load refPicCol and mvCol
 	const Edge264_macroblock *mbCol = ctx->mbCol;
 	v16qi refPicColL0 = (v16qi)(v4si){mbCol->refPic_s[0]};
 	v16qi offsets = refPicColL0 & 32;
@@ -379,29 +386,36 @@ static always_inline void FUNC(decode_direct_temporal_mv_pred)
 	// conditional memory storage
 	v16qi lo = shuffle(ctx->MapPicToList0_v[0], refPicCol);
 	v16qi hi = shuffle(ctx->MapPicToList0_v[1], refPicCol);
-	v16qi refIdx = ifelse_mask(refPicCol > 15, hi, lo) | (v16qi)(v4si){mb->refIdx_s[0]};
-	mb->refIdx_s[0] = ((v4si)refIdx)[0];
+	v16qi refIdx = ifelse_mask(refPicCol > 15, hi, lo);
 	mb->refPic_s[0] = ((v4si)ifelse_msb(refIdx, refIdx, shuffle(ctx->RefPicList_v[0], refIdx)))[0]; // overwritten by parse_ref_idx later if refIdx!=0
 	mb->refPic_s[1] = ((v4si)shuffle(ctx->RefPicList_v[2], (v16qi){}))[0]; // refIdxL1 is 0
 	if (mb->refIdx[0] >= 0) {
+		mb->refIdx[0] = refIdx[0];
+		mb->refIdx[4] = 0;
 		mb->mvs_v[0] = temporal_scale(mvCol0, ctx->DistScaleFactor[mb->refIdx[0]]);
 		mb->mvs_v[4] = mb->mvs_v[0] - mvCol0;
 	} else {
 		inter_blocks &= ~0x0003000f;
 	}
 	if (mb->refIdx[1] >= 0) {
+		mb->refIdx[1] = refIdx[1];
+		mb->refIdx[5] = 0;
 		mb->mvs_v[1] = temporal_scale(mvCol1, ctx->DistScaleFactor[mb->refIdx[1]]);
 		mb->mvs_v[5] = mb->mvs_v[1] - mvCol1;
 	} else {
 		inter_blocks &= ~0x002100f0;
 	}
 	if (mb->refIdx[2] >= 0) {
+		mb->refIdx[2] = refIdx[2];
+		mb->refIdx[6] = 0;
 		mb->mvs_v[2] = temporal_scale(mvCol2, ctx->DistScaleFactor[mb->refIdx[2]]);
 		mb->mvs_v[6] = mb->mvs_v[2] - mvCol2;
 	} else {
 		inter_blocks &= ~0x01020f00;
 	}
 	if (mb->refIdx[3] >= 0) {
+		mb->refIdx[3] = refIdx[3];
+		mb->refIdx[7] = 0;
 		mb->mvs_v[3] = temporal_scale(mvCol3, ctx->DistScaleFactor[mb->refIdx[3]]);
 		mb->mvs_v[7] = mb->mvs_v[3] - mvCol3;
 	} else { // edge case: 16x16 with a direct8x8 block on the bottom-right corner

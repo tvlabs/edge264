@@ -1270,7 +1270,7 @@ static inline void CAFUNC(parse_B_mb)
 		if (mb_type > 22)
 			CAJUMP(parse_I_mb, mb_type - 23);
 		mb->refIdx_l = -1;
-		memset(mb->mvs_v, 0, 128);
+		mb->mvs_v[0] = mb->mvs_v[1] = mb->mvs_v[2] = mb->mvs_v[3] = mb->mvs_v[4] = mb->mvs_v[5] = mb->mvs_v[6] = mb->mvs_v[7] = (v8hi){};
 		if (mb_type == 22)
 			CAJUMP(parse_B_sub_mb);
 		static const uint8_t mb_type2flags[22] = {0, 0x01, 0x10, 0x11, 0x05, 0x03,
@@ -1292,7 +1292,7 @@ static inline void CAFUNC(parse_B_mb)
 			0, 0, 11, 22, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21};
 		fprintf(stderr, "mb_type: %u\n", str2mb_type[str]);
 		mb->refIdx_l = -1;
-		memset(mb->mvs_v, 0, 128);
+		mb->mvs_v[0] = mb->mvs_v[1] = mb->mvs_v[2] = mb->mvs_v[3] = mb->mvs_v[4] = mb->mvs_v[5] = mb->mvs_v[6] = mb->mvs_v[7] = (v8hi){};
 		if (str == 15)
 			CAJUMP(parse_B_sub_mb);
 		static const uint8_t str2flags[26] = {0x11, 0x05, 0x03, 0x50, 0x30, 0x41,

@@ -1,7 +1,8 @@
 edge264
 =======
 
-This is an experimental software decoder for the H.264 video codec, written from scratch with the goal of improving the architecture/performance/latency of software video decoders. It is by no means a complete decoder (yet!), but rather a test-bed for original programming techniques.
+This is a minimalist software decoder for the H.264 video codec, written from scratch to experiment new programming techniques in order to improve on performance and code complexity over existing decoders.
+It used to be only a toy project, but is now geared towards a production-ready decoder.
 
 
 Supported features
@@ -20,7 +21,7 @@ Supported features
 Planned features
 ----------------
 
-* Slices and slice groups
+* Slices and Arbitrary Slice Order (work in progress)
 * Frame cropping
 * 8x8 transforms (needs testing and debugging)
 * MVC 3D support

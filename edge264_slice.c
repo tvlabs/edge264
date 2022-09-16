@@ -1113,9 +1113,9 @@ static void CAFUNC(parse_B_sub_mb) {
 	fprintf(stderr, "\n");
 	
 	// initialize direct prediction then parse all ref_idx values
-	unsigned direct_mask = (~(mvd_flags | mvd_flags >> 16) & 0x1111) * 15;
-	if (direct_mask != 0)
-		CALL(decode_direct_mv_pred, direct_mask);
+	unsigned inter_flags = (mvd_flags & 0xffff) | mvd_flags >> 16;
+	if ((inter_flags & 0x1111) != 0x1111)
+		CALL(decode_direct_mv_pred, inter_flags);
 	if (mvd_flags == 0) // yes there are streams that use 4 Direct8x8 instead of one Direct16x16
 		CAJUMP(parse_inter_residual);
 	CACALL(parse_ref_idx, 0x100 | mvd_flags2ref_idx(mvd_flags));
@@ -1243,7 +1243,7 @@ static inline void CAFUNC(parse_B_mb)
 			ctx->mb_qp_delta_nz = 0;
 		#endif
 		mb->inter_blocks = 0;
-		JUMP(decode_direct_mv_pred, 0xffff);
+		JUMP(decode_direct_mv_pred, 0);
 	}
 		
 	// B_Direct_16x16
@@ -1257,7 +1257,7 @@ static inline void CAFUNC(parse_B_mb)
 		#endif
 		ctx->transform_8x8_mode_flag = ctx->ps.transform_8x8_mode_flag & ctx->ps.direct_8x8_inference_flag;
 		mb->inter_blocks = 0;
-		CALL(decode_direct_mv_pred, 0xffff);
+		CALL(decode_direct_mv_pred, 0);
 		CAJUMP(parse_inter_residual);
 	}
 	ctx->transform_8x8_mode_flag = ctx->ps.transform_8x8_mode_flag;
@@ -1645,7 +1645,7 @@ static noinline void CAFUNC(parse_slice_data)
 		
 		// initialize current macroblock
 		ctx->inc.v = fA + fB + (fB & flags_twice.v);
-		memset(mb, 0, offsetof(Edge264_macroblock, mvs)); // FIXME who needs this?
+		memset(mb, 0, offsetof(Edge264_macroblock, refIdx)); // FIXME who needs this?
 		mb->QP_s = ctx->QP_s;
 		if (ctx->ps.ChromaArrayType == 1) { // FIXME 4:2:2
 			mb->bits_l = (bitsA >> 3 & 0x11111100111111) | (bitsB >> 1 & 0x42424200424242);

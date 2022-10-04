@@ -83,9 +83,7 @@ static const Edge264_flags flags_twice = {
  */
 typedef struct {
 	Edge264_flags f;
-	/* low half: bitmask for every i4x4 that is the topleft corner of a block
-	   high half: equality of each i8x8 with its right/bottom neighbours */
-	uint32_t inter_blocks;
+	union { uint8_t inter_eqs[4]; uint32_t inter_eqs_s; }; // 2 flags per 4x4 block storing right/bottom equality of mvs&ref, in little endian
 	union { uint8_t QP[3]; v4qi QP_s; }; // [iYCbCr]
 	union { uint32_t bits[2]; uint64_t bits_l; }; // {cbp/ref_idx_nz, cbf_Y/Cb/Cr 8x8}
 	union { int8_t nC[3][16]; int64_t nC_l[6]; v16qi nC_v[3]; }; // for CAVLC and deblocking, 64 if unavailable
@@ -423,7 +421,7 @@ static noinline void FUNC(parse_slice_data_cabac);
 			return _pext_u32(f, 0x11111111);
 		}
 		static inline int extract_neighbours(unsigned f) {
-			return _pext_u32(f, 0x30006);
+			return _pext_u32(f, 0x27);
 		}
 	#else
 		static inline unsigned refIdx_to_direct_flags(int64_t f) {
@@ -438,7 +436,7 @@ static noinline void FUNC(parse_slice_data_cabac);
 			return (c & 0xf) | (c >> 12 & 0xf0);
 		}
 		static inline int extract_neighbours(unsigned f) {
-			return (f >> 1 & 3) | (f >> 14 & 12);
+			return (f & 7) | (f >> 2 & 8);
 		}
 	#endif
 	

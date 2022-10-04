@@ -1,8 +1,6 @@
 /** MAYDO:
- * _ initialize refIdx unconditionally too
  * _ make a simplification pass on direct
  * _ see if ref_idx parsing can be coded easily from mvd_flags and without refIdx direct values
- *
  * _ fix the memset of mb in parse_slice_data before introducing permanent "unavail" field
  * _ initialize mb unavailability ahead of slices, then fix initialization of unavailability/filter_edges for each mb when first_mb_in_slice!=0
  * _ add a macro mbB to simplify the syntax ctx->mbB
@@ -641,7 +639,7 @@ static int FUNC(parse_slice_layer_without_partitioning, Edge264_stream *e)
 		ctx->first_mb_in_slice,
 		red_if(ctx->slice_type > 2), slice_type, slice_type_names[ctx->slice_type],
 		red_if(pic_parameter_set_id >= 4 || e->PPSs[pic_parameter_set_id].num_ref_idx_active[0] == 0), pic_parameter_set_id);
-	if (ctx->slice_type > 2 || pic_parameter_set_id >= 4)
+	if (ctx->first_mb_in_slice > 0 || ctx->slice_type > 2 || pic_parameter_set_id >= 4)
 		return 1;
 	if (e->PPSs[pic_parameter_set_id].num_ref_idx_active[0] == 0)
 		return 2;

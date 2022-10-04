@@ -207,8 +207,6 @@ static inline void FUNC(decode_inter_16x8_bottom, v8hi mvd, int lx)
 /**
  * Initialise the reference indices and motion vectors of an entire macroblock
  * with direct prediction (8.4.1.2).
- * 
- * direct_mask should be 1 on all Direct 4x4 positions.
  */
 static always_inline void FUNC(decode_direct_spatial_mv_pred, unsigned inter_flags)
 {
@@ -242,7 +240,7 @@ static always_inline void FUNC(decode_direct_spatial_mv_pred, unsigned inter_fla
 	
 	// direct zero prediction applies only to refIdx (mvLX are zero already)
 	refIdx ^= (v16qi)((v2li)refIdx == -1);
-	mb->refPic_s[0] = ((v4si)ifelse_msb(refIdx, refIdx, shuffle(ctx->RefPicList_v[0], refIdx)))[0]; // overwritten by parse_ref_idx later if refIdx!=0
+	mb->refPic_s[0] = ((v4si)ifelse_msb(refIdx, refIdx, shuffle(ctx->RefPicList_v[0], refIdx)))[0];
 	mb->refPic_s[1] = ((v4si)ifelse_msb(refIdx, refIdx, shuffle(ctx->RefPicList_v[2], refIdx)))[1];
 	//printf("<li>refIdxL0A/B/C=%d/%d/%d, refIdxL1A/B/C=%d/%d/%d, mvsL0A/B/C=[%d,%d]/[%d,%d]/[%d,%d], mvsL1A/B/C=[%d,%d]/[%d,%d]/[%d,%d] -> refIdxL0/1=%d/%d, mvsL0/1=[%d,%d]/[%d,%d]</li>\n", refIdxA[0], refIdxB[0], refIdxC[0], refIdxA[4], refIdxB[4], refIdxC[4], mvA[0], mvA[1], mvB[0], mvB[1], mvC[0], mvC[1], mvA[2], mvA[3], mvB[2], mvB[3], mvC[2], mvC[3], refIdx[0], refIdx[4], mv01[0], mv01[1], mv01[2], mv01[3]);
 	
@@ -269,13 +267,13 @@ static always_inline void FUNC(decode_direct_spatial_mv_pred, unsigned inter_fla
 			
 			// initialize colZeroFlags and masks for motion vectors
 			unsigned refColZero = ((v4su)(refCol == 0))[0];
-			if (__builtin_expect(refColZero & 1, 1))
+			if (refColZero & 1)
 				colZeroMask0 = mvs_near_zero(mvCol0);
-			if (__builtin_expect(refColZero & 1 << 8, 1))
+			if (refColZero & 1 << 8)
 				colZeroMask1 = mvs_near_zero(mvCol1);
-			if (__builtin_expect(refColZero & 1 << 16, 1))
+			if (refColZero & 1 << 16)
 				colZeroMask2 = mvs_near_zero(mvCol2);
-			if (__builtin_expect(refColZero & 1 << 24, 1))
+			if (refColZero & 1 << 24)
 				colZeroMask3 = mvs_near_zero(mvCol3);
 			colZeroFlags = colZero_mask_to_flags(colZeroMask0, colZeroMask1, colZeroMask2, colZeroMask3);
 		}
@@ -332,11 +330,12 @@ static always_inline void FUNC(decode_direct_spatial_mv_pred, unsigned inter_fla
 			}
 			
 			// iteratively cut the area into blocks with uniform colZeroFlags values
-			static const uint16_t scopes[16] = {0xffff, 0x5, 0x3, 0x1, 0xf0f, 0x5, 0x3, 0x1, 0xff, 0x5, 0x3, 0x1, 0xf, 0x5, 0x3, 0x1};
-			static const v8hu masks = {0xffff, 0xff, 0xf0f, 0xf, 0x3, 0x5, 0x1};
-			static const int32_t inter_blocks[7] = {0x01231111, 0x00010011, 0x00020101, 1, 1, 1, 1};
-			static const int8_t widths[7] = {16, 16, 8, 8, 8, 4, 4};
-			static const int8_t heights[7] = {16, 8, 16, 8, 4, 8, 4};
+			static const uint16_t scopes[16] = {0xffff, 0x505, 0x33, 0x1, 0xf0f, 0x505, 0x3, 0x1, 0xff, 0x5, 0x33, 0x1, 0xf, 0x5, 0x3, 0x1};
+			static const v8hu masks = {0xffff, 0xff, 0xf0f, 0xf, 0x33, 0x3, 0x5, 0x1};
+			static const uint32_t eqs[8] = {0x1b5fbbff, 0x1b5f, 0x1b00bb, 0x1b, 0x0105, 0x1, 0x2, 0};
+			static const int8_t widths[8] = {16, 16, 8, 8, 16, 8, 4, 4};
+			static const int8_t heights[8] = {16, 8, 16, 8, 4, 4, 8, 4};
+			uint64_t inter_eqs = 0;
 			do {
 				int i = __builtin_ctz(mvd_flags);
 				unsigned t = mvd_flags >> i & scopes[i & 15];
@@ -345,9 +344,10 @@ static always_inline void FUNC(decode_direct_spatial_mv_pred, unsigned inter_fla
 				v8hu mc = (v8hu){c, c, c, c, c, c, c, c};
 				int type = first_true(((mt & mc) == masks) | ((mt & ~mc) == masks));
 				mvd_flags ^= ((uint16_t *)&masks)[type] << i;
-				mb->inter_blocks |= inter_blocks[type] << (i & 15);
+				inter_eqs |= (uint64_t)eqs[type] << i * 2;
 				CALL(decode_inter, i, widths[type], heights[type]);
 			} while (mvd_flags);
+			mb->inter_eqs_s |= little_endian32(inter_eqs & inter_eqs >> 32);
 			return;
 		}
 	}
@@ -356,7 +356,7 @@ static always_inline void FUNC(decode_direct_spatial_mv_pred, unsigned inter_fla
 	mb->refIdx_l = ((v2li)refIdx)[0];
 	mb->mvs_v[0] = mb->mvs_v[1] = mb->mvs_v[2] = mb->mvs_v[3] = mvs0;
 	mb->mvs_v[4] = mb->mvs_v[5] = mb->mvs_v[6] = mb->mvs_v[7] = mvs4;
-	mb->inter_blocks = 0x01231111;
+	mb->inter_eqs_s = little_endian32(0x1b5fbbff);
 	if (refIdx[0] >= 0)
 		CALL(decode_inter, 0, 16, 16);
 	if (refIdx[4] >= 0)
@@ -374,13 +374,13 @@ static always_inline void FUNC(decode_direct_temporal_mv_pred, unsigned inter_fl
 	v8hi mvCol2 = *(v8hi*)(mbCol->mvs + offsets[2] + 16);
 	v8hi mvCol3 = *(v8hi*)(mbCol->mvs + offsets[3] + 24);
 	v16qi refPicCol = ifelse_msb(refPicColL0, (v16qi)(v4si){mbCol->refPic_s[1]}, refPicColL0);
-	unsigned inter_blocks = mbCol->inter_blocks;
+	unsigned inter_eqs = little_endian32(mbCol->inter_eqs_s);
 	if (ctx->ps.direct_8x8_inference_flag) {
 		mvCol0 = (v8hi)__builtin_shufflevector((v4si)mvCol0, (v4si)mvCol0, 0, 0, 0, 0);
 		mvCol1 = (v8hi)__builtin_shufflevector((v4si)mvCol1, (v4si)mvCol1, 1, 1, 1, 1);
 		mvCol2 = (v8hi)__builtin_shufflevector((v4si)mvCol2, (v4si)mvCol2, 2, 2, 2, 2);
 		mvCol3 = (v8hi)__builtin_shufflevector((v4si)mvCol3, (v4si)mvCol3, 3, 3, 3, 3);
-		inter_blocks &= 0x01231111;
+		inter_eqs |= 0x1b1b1b1b;
 	}
 	
 	// conditional memory storage
@@ -395,7 +395,7 @@ static always_inline void FUNC(decode_direct_temporal_mv_pred, unsigned inter_fl
 		mb->mvs_v[0] = temporal_scale(mvCol0, ctx->DistScaleFactor[refIdx[0]]);
 		mb->mvs_v[4] = mb->mvs_v[0] - mvCol0;
 	} else {
-		inter_blocks &= ~0x0003000f;
+		inter_eqs &= ~0x000000ff;
 	}
 	if (!(inter_flags & 1 << 4)) {
 		mb->refIdx[1] = refIdx[1];
@@ -403,7 +403,7 @@ static always_inline void FUNC(decode_direct_temporal_mv_pred, unsigned inter_fl
 		mb->mvs_v[1] = temporal_scale(mvCol1, ctx->DistScaleFactor[refIdx[1]]);
 		mb->mvs_v[5] = mb->mvs_v[1] - mvCol1;
 	} else {
-		inter_blocks &= ~0x002100f0;
+		inter_eqs &= ~0x0000bb44;
 	}
 	if (!(inter_flags & 1 << 8)) {
 		mb->refIdx[2] = refIdx[2];
@@ -411,7 +411,7 @@ static always_inline void FUNC(decode_direct_temporal_mv_pred, unsigned inter_fl
 		mb->mvs_v[2] = temporal_scale(mvCol2, ctx->DistScaleFactor[refIdx[2]]);
 		mb->mvs_v[6] = mb->mvs_v[2] - mvCol2;
 	} else {
-		inter_blocks &= ~0x01020f00;
+		inter_eqs &= ~0x005f00a0;
 	}
 	if (!(inter_flags & 1 << 12)) {
 		mb->refIdx[3] = refIdx[3];
@@ -419,21 +419,22 @@ static always_inline void FUNC(decode_direct_temporal_mv_pred, unsigned inter_fl
 		mb->mvs_v[3] = temporal_scale(mvCol3, ctx->DistScaleFactor[refIdx[3]]);
 		mb->mvs_v[7] = mb->mvs_v[3] - mvCol3;
 	} else { // edge case: 16x16 with a direct8x8 block on the bottom-right corner
-		inter_blocks = (inter_blocks == 0x01231111) ? 0x00010111 : inter_blocks & ~0x0120f000;
+		inter_eqs = (inter_eqs == 0x1b5fbbff) ? 0x001b1b5f : inter_eqs & ~0x1b44a000;
 	}
 	
 	// execute decode_inter for the positions given in the mask
-	mb->inter_blocks |= inter_blocks;
+	mb->inter_eqs_s |= little_endian32(inter_eqs);
+	unsigned direct_flags = (~inter_flags & 0x1111) * 0xf;
 	do {
-		static uint16_t masks[16] = {1, 1, 1, 1, 0x11, 1, 1, 1, 0x101, 1, 1, 1, 0x1111, 1, 1, 1};
-		static int8_t widths[16] = {8, 4, 8, 4, 16, 0, 0, 0, 8, 0, 0, 0, 16, 0, 0, 0};
-		static int8_t heights[16] = {8, 8, 4, 4, 8, 0, 0, 0, 16, 0, 0, 0, 16, 0, 0, 0};
-		int i = __builtin_ctz(inter_blocks);
-		int type = extract_neighbours(inter_blocks >> i) | (i & 3); // second term adds fake neighbours for border blocks
-		inter_blocks ^= masks[type] << i;
+		static uint16_t masks[16] = {0x1, 0x3, 0x5, 0xf, 0x1, 0x33, 0x5, 0xff, 0x1, 0x3, 0x0505, 0x0f0f, 0x1, 0x33, 0x0505, 0xffff};
+		static int8_t widths[16] = {4, 8, 4, 8, 4, 16, 4, 16, 4, 8, 4, 8, 4, 16, 4, 16};
+		static int8_t heights[16] = {4, 4, 8, 8, 4, 4, 8, 8, 4, 4, 16, 16, 4, 4, 16, 16};
+		int i = __builtin_ctz(direct_flags);
+		int type = extract_neighbours(inter_eqs >> i * 2) & ~i;
+		direct_flags ^= masks[type] << i;
 		CALL(decode_inter, i, widths[type], heights[type]);
 		CALL(decode_inter, i + 16, widths[type], heights[type]);
-	} while (inter_blocks & 0xffff);
+	} while (direct_flags);
 }
 
 static noinline void FUNC(decode_direct_mv_pred, unsigned inter_flags) {

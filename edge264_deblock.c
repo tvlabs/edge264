@@ -92,7 +92,7 @@ static inline void FUNC(init_alpha_beta_tC0)
 		// compute masks for bS!=1 based on equality of references and motion vectors
 		__m128i bS0aceg, bS0bdfh;
 		__m128i c3 = _mm_set1_epi8(3);
-		if (mb->inter_blocks == 0x01231111) { // 16x16 macroblock
+		if (mb->inter_eqs_s == little_endian32(0x1b5fbbff)) { // 16x16 macroblock
 			__m128i mvsv0l0 = (__m128i)_mm_shuffle_ps((__m128)mb[-1].mvs_v[1], (__m128)mb[-1].mvs_v[3], _MM_SHUFFLE(3, 1, 3, 1));
 			__m128i mvsv1l0 = (__m128i)_mm_shuffle_ps((__m128)mb->mvs_v[0], (__m128)mb->mvs_v[2], _MM_SHUFFLE(2, 0, 2, 0));
 			__m128i mvsv0l1 = (__m128i)_mm_shuffle_ps((__m128)mb[-1].mvs_v[5], (__m128)mb[-1].mvs_v[7], _MM_SHUFFLE(3, 1, 3, 1));

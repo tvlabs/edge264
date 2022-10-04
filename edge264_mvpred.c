@@ -208,7 +208,7 @@ static inline void FUNC(decode_inter_16x8_bottom, v8hi mvd, int lx)
  * Initialise the reference indices and motion vectors of an entire macroblock
  * with direct prediction (8.4.1.2).
  */
-static always_inline void FUNC(decode_direct_spatial_mv_pred, unsigned inter_flags)
+static always_inline void FUNC(decode_direct_spatial_mv_pred, unsigned direct_flags)
 {
 	// load all refIdxN and mvN in vector registers
 	v16qi shuf = {0, 0, 0, 0, 4, 4, 4, 4, -1, -1, -1, -1, -1, -1, -1, -1};
@@ -245,8 +245,7 @@ static always_inline void FUNC(decode_direct_spatial_mv_pred, unsigned inter_fla
 	//printf("<li>refIdxL0A/B/C=%d/%d/%d, refIdxL1A/B/C=%d/%d/%d, mvsL0A/B/C=[%d,%d]/[%d,%d]/[%d,%d], mvsL1A/B/C=[%d,%d]/[%d,%d]/[%d,%d] -> refIdxL0/1=%d/%d, mvsL0/1=[%d,%d]/[%d,%d]</li>\n", refIdxA[0], refIdxB[0], refIdxC[0], refIdxA[4], refIdxB[4], refIdxC[4], mvA[0], mvA[1], mvB[0], mvB[1], mvC[0], mvC[1], mvA[2], mvA[3], mvB[2], mvB[3], mvC[2], mvC[3], refIdx[0], refIdx[4], mv01[0], mv01[1], mv01[2], mv01[3]);
 	
 	// trick from ffmpeg: skip computations on refCol/mvCol if both mvs are zero
-	unsigned inter_mask = inter_flags & 0x1111;
-	if (((v2li)mv01)[0] != 0 || inter_mask != 0) {
+	if (((v2li)mv01)[0] != 0 || direct_flags != 0xffffffff) {
 		v8hi colZeroMask0 = {}, colZeroMask1 = {}, colZeroMask2 = {}, colZeroMask3 = {};
 		unsigned colZeroFlags = 0;
 		if (ctx->col_short_term) {
@@ -279,8 +278,7 @@ static always_inline void FUNC(decode_direct_spatial_mv_pred, unsigned inter_fla
 		}
 		
 		// skip computations on colZeroFlags if none are set
-		if (colZeroFlags != 0 || inter_mask != 0) {
-			unsigned direct_flags = ~(inter_mask * 0x000f000f);
+		if (colZeroFlags != 0 || direct_flags != 0xffffffff) {
 			unsigned mvd_flags = direct_flags;
 			v8hi mvs1 = mvs0, mvs2 = mvs0, mvs3 = mvs0, mvs5 = mvs4, mvs6 = mvs4, mvs7 = mvs4;
 			if (refIdx[0] == 0) {
@@ -363,7 +361,7 @@ static always_inline void FUNC(decode_direct_spatial_mv_pred, unsigned inter_fla
 		CALL(decode_inter, 16, 16, 16);
 }
 
-static always_inline void FUNC(decode_direct_temporal_mv_pred, unsigned inter_flags)
+static always_inline void FUNC(decode_direct_temporal_mv_pred, unsigned direct_flags)
 {
 	// load refPicCol and mvCol
 	const Edge264_macroblock *mbCol = ctx->mbCol;
@@ -389,7 +387,7 @@ static always_inline void FUNC(decode_direct_temporal_mv_pred, unsigned inter_fl
 	v16qi refIdx = ifelse_mask(refPicCol > 15, hi, lo);
 	mb->refPic_s[0] = ((v4si)ifelse_msb(refIdx, refIdx, shuffle(ctx->RefPicList_v[0], refIdx)))[0]; // overwritten by parse_ref_idx later if refIdx!=0
 	mb->refPic_s[1] = ((v4si)shuffle(ctx->RefPicList_v[2], (v16qi){}))[0]; // refIdxL1 is 0
-	if (!(inter_flags & 1)) {
+	if (direct_flags & 1) {
 		mb->refIdx[0] = refIdx[0];
 		mb->refIdx[4] = 0;
 		mb->mvs_v[0] = temporal_scale(mvCol0, ctx->DistScaleFactor[refIdx[0]]);
@@ -397,7 +395,7 @@ static always_inline void FUNC(decode_direct_temporal_mv_pred, unsigned inter_fl
 	} else {
 		inter_eqs &= ~0x000000ff;
 	}
-	if (!(inter_flags & 1 << 4)) {
+	if (direct_flags & 1 << 4) {
 		mb->refIdx[1] = refIdx[1];
 		mb->refIdx[5] = 0;
 		mb->mvs_v[1] = temporal_scale(mvCol1, ctx->DistScaleFactor[refIdx[1]]);
@@ -405,7 +403,7 @@ static always_inline void FUNC(decode_direct_temporal_mv_pred, unsigned inter_fl
 	} else {
 		inter_eqs &= ~0x0000bb44;
 	}
-	if (!(inter_flags & 1 << 8)) {
+	if (direct_flags & 1 << 8) {
 		mb->refIdx[2] = refIdx[2];
 		mb->refIdx[6] = 0;
 		mb->mvs_v[2] = temporal_scale(mvCol2, ctx->DistScaleFactor[refIdx[2]]);
@@ -413,7 +411,7 @@ static always_inline void FUNC(decode_direct_temporal_mv_pred, unsigned inter_fl
 	} else {
 		inter_eqs &= ~0x005f00a0;
 	}
-	if (!(inter_flags & 1 << 12)) {
+	if (direct_flags & 1 << 12) {
 		mb->refIdx[3] = refIdx[3];
 		mb->refIdx[7] = 0;
 		mb->mvs_v[3] = temporal_scale(mvCol3, ctx->DistScaleFactor[refIdx[3]]);
@@ -424,7 +422,7 @@ static always_inline void FUNC(decode_direct_temporal_mv_pred, unsigned inter_fl
 	
 	// execute decode_inter for the positions given in the mask
 	mb->inter_eqs_s |= little_endian32(inter_eqs);
-	unsigned direct_flags = (~inter_flags & 0x1111) * 0xf;
+	direct_flags &= 0xffff;
 	do {
 		static uint16_t masks[16] = {0x1, 0x3, 0x5, 0xf, 0x1, 0x33, 0x5, 0xff, 0x1, 0x3, 0x0505, 0x0f0f, 0x1, 0x33, 0x0505, 0xffff};
 		static int8_t widths[16] = {4, 8, 4, 8, 4, 16, 4, 16, 4, 8, 4, 8, 4, 16, 4, 16};
@@ -437,10 +435,10 @@ static always_inline void FUNC(decode_direct_temporal_mv_pred, unsigned inter_fl
 	} while (direct_flags);
 }
 
-static noinline void FUNC(decode_direct_mv_pred, unsigned inter_flags) {
+static noinline void FUNC(decode_direct_mv_pred, unsigned direct_flags) {
 	if (ctx->direct_spatial_mv_pred_flag) {
-		CALL(decode_direct_spatial_mv_pred, inter_flags);
+		CALL(decode_direct_spatial_mv_pred, direct_flags);
 	} else {
-		CALL(decode_direct_temporal_mv_pred, inter_flags);
+		CALL(decode_direct_temporal_mv_pred, direct_flags);
 	}
 }

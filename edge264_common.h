@@ -88,9 +88,9 @@ typedef struct {
 	union { uint32_t bits[2]; uint64_t bits_l; }; // {cbp/ref_idx_nz, cbf_Y/Cb/Cr 8x8}
 	union { int8_t nC[3][16]; int64_t nC_l[6]; v16qi nC_v[3]; }; // for CAVLC and deblocking, 64 if unavailable
 	union { int8_t Intra4x4PredMode[16]; v16qi Intra4x4PredMode_v; }; // [i4x4]
-	union { uint8_t absMvd[64]; uint64_t absMvd_l[8]; v16qu absMvd_v[4]; }; // [LX][i4x4][compIdx]
 	union { int8_t refIdx[8]; int32_t refIdx_s[2]; int64_t refIdx_l; }; // [LX][i8x8]
 	union { int8_t refPic[8]; int32_t refPic_s[2]; int64_t refPic_l; }; // [LX][i8x8]
+	union { uint8_t absMvd[64]; uint64_t absMvd_l[8]; v16qu absMvd_v[4]; }; // [LX][i4x4][compIdx]
 	union { int16_t mvs[64]; int32_t mvs_s[32]; int64_t mvs_l[16]; v8hi mvs_v[8]; }; // [LX][i4x4][compIdx]
 } Edge264_macroblock;
 static const Edge264_macroblock unavail_mb = {

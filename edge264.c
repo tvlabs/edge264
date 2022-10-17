@@ -644,8 +644,7 @@ static int FUNC(parse_slice_layer_without_partitioning, Edge264_stream *e)
 	// parse frame_num
 	int prevRefFrameNum = (ctx->nal_unit_type == 5) ? 0 : e->prevRefFrameNum;
 	int frame_num = CALL(get_uv, ctx->ps.log2_max_frame_num);
-	int gap = (frame_num - prevRefFrameNum) & ((1 << ctx->ps.log2_max_frame_num) - 1);
-	ctx->FrameNum = prevRefFrameNum + gap;
+	ctx->FrameNum = prevRefFrameNum + ((frame_num - prevRefFrameNum) & ((1 << ctx->ps.log2_max_frame_num) - 1));
 	printf("<tr><th>frame_num => FrameNum</th><td>%u => %u</td></tr>\n", frame_num, ctx->FrameNum);
 	
 	// As long as PAFF/MBAFF are unsupported, this code won't execute (but is still kept).
@@ -708,8 +707,11 @@ static int FUNC(parse_slice_layer_without_partitioning, Edge264_stream *e)
 	ctx->PicOrderCnt = min(TopFieldOrderCnt, BottomFieldOrderCnt);
 	if (e->currPic >= 0 && e->FieldOrderCnt[0][e->currPic] != TopFieldOrderCnt)
 		CALL(finish_frame, e);
-	if (e->currPic < 0 && CALL(assign_currPic, e, gap, TopFieldOrderCnt, BottomFieldOrderCnt))
-		return -1; // last return, after this point the slice will be decoded
+	if (e->currPic < 0) {
+		int gap = (ctx->nal_unit_type == 5) ? 0 : ctx->FrameNum - e->prevRefFrameNum;
+		if (CALL(assign_currPic, e, gap, TopFieldOrderCnt, BottomFieldOrderCnt))
+			return -1; // last return, after this point the slice will be decoded
+	}
 	
 	// That could be optimised into a fast bit test, but would be less readable :)
 	if (ctx->slice_type == 0 || ctx->slice_type == 1) {

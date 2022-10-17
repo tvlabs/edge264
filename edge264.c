@@ -2,7 +2,7 @@
  * _ initialize mb unavailability ahead of slices, then fix initialization of unavailability/filter_edges for each mb when first_mb_in_slice!=0
  * _ add a macro mbB to simplify the syntax ctx->mbB
  * _ rename edge264_common.h into internal.h to make it more obvious that this is an internal file!
- * 
+ * _ clean edge264_internal.h from unused stuff
  * _ implement a tool that decodes an Annex B stream and compares it with a JM output, returning a faulty GOP file on error
  * _ add an option to store N more frames, to tolerate lags in CPU scheduling
  * _ try using epb for context pointer, and email GCC when it fails
@@ -485,9 +485,15 @@ static void FUNC(parse_ref_pic_list_modification, const Edge264_stream *e)
 
 
 /**
- * This function is to be called when all slices for the current frame have
- * been received and decoded. It deblocks the frame, flags it for output and
- * applies its pending memory management operations.
+ * This function deblocks the current frame, flags it for output and applies
+ * its pending memory management operations. It is called when either:
+ * _ a sufficient number of macroblocks have been decoded for the current frame
+ * _ a slice is decoded with a POC different than the current frame
+ * _ an access unit delimiter is received
+ * 
+ * Note that to keep the code simple we do not handle receiving the same slice
+ * twice or the slices of two frames shuffled. Such error protection should be
+ * provided at the demuxer level.
  */
 static void FUNC(finish_frame, Edge264_stream *e)
 {
@@ -534,7 +540,7 @@ static void FUNC(finish_frame, Edge264_stream *e)
 /**
  * This function checks for gaps in frame_num (8.2.5.2), then reserves a slot
  * for the current frame in the DPB.
- * It returns -1 if the DPB is full and should be consumed beforehand.
+ * It returns -1 if the DPB is full and should be drained beforehand.
  */
 static int FUNC(assign_currPic, Edge264_stream *e, int gap, int TopFieldOrderCnt, int BottomFieldOrderCnt)
 {
@@ -585,13 +591,6 @@ static int FUNC(assign_currPic, Edge264_stream *e, int gap, int TopFieldOrderCnt
 		e->pic_reference_flags = e->reference_flags;
 	}
 	
-	// reuse currPic if POC matches, otherwise finish the previous frame and find a DPB slot
-	if (e->currPic >= 0) {
-		if (e->FieldOrderCnt[0][e->currPic] == TopFieldOrderCnt)
-			return 0;
-		CALL(finish_frame, e);
-	}
-	
 	// find a DPB slot for the upcoming frame
 	unsigned unavail = e->pic_reference_flags | e->output_flags;
 	if (__builtin_popcount(unavail) > ctx->ps.max_dec_frame_buffering)
@@ -636,7 +635,7 @@ static int FUNC(parse_slice_layer_without_partitioning, Edge264_stream *e)
 		ctx->first_mb_in_slice,
 		red_if(ctx->slice_type > 2), slice_type, slice_type_names[ctx->slice_type],
 		red_if(pic_parameter_set_id >= 4 || e->PPSs[pic_parameter_set_id].num_ref_idx_active[0] == 0), pic_parameter_set_id);
-	if (ctx->first_mb_in_slice > 0 || ctx->slice_type > 2 || pic_parameter_set_id >= 4)
+	if (ctx->slice_type > 2 || pic_parameter_set_id >= 4)
 		return 1;
 	if (e->PPSs[pic_parameter_set_id].num_ref_idx_active[0] == 0)
 		return 2;
@@ -707,10 +706,12 @@ static int FUNC(parse_slice_layer_without_partitioning, Edge264_stream *e)
 	if (abs(TopFieldOrderCnt) >= 1 << 25 || abs(BottomFieldOrderCnt) >= 1 << 25)
 		return 1;
 	ctx->PicOrderCnt = min(TopFieldOrderCnt, BottomFieldOrderCnt);
-	if (CALL(assign_currPic, e, gap, TopFieldOrderCnt, BottomFieldOrderCnt))
-		return -1;
+	if (e->currPic >= 0 && e->FieldOrderCnt[0][e->currPic] != TopFieldOrderCnt)
+		CALL(finish_frame, e);
+	if (e->currPic < 0 && CALL(assign_currPic, e, gap, TopFieldOrderCnt, BottomFieldOrderCnt))
+		return -1; // last return, after this point the slice will be decoded
 	
-	// That could be optimised into fast bit tests, but would be unreadable :)
+	// That could be optimised into a fast bit test, but would be less readable :)
 	if (ctx->slice_type == 0 || ctx->slice_type == 1) {
 		if (ctx->slice_type == 1) {
 			ctx->direct_spatial_mv_pred_flag = CALL(get_u1);

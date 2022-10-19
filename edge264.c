@@ -3,6 +3,7 @@
  * _ add a macro mbB to simplify the syntax ctx->mbB
  * _ rename edge264_common.h into internal.h to make it more obvious that this is an internal file!
  * _ clean edge264_internal.h from unused stuff
+ * _ merge e and ctx pointers to reduce register pressure in edge264.c ?
  * _ implement a tool that decodes an Annex B stream and compares it with a JM output, returning a faulty GOP file on error
  * _ add an option to store N more frames, to tolerate lags in CPU scheduling
  * _ try using epb for context pointer, and email GCC when it fails
@@ -207,6 +208,7 @@ static void FUNC(parse_dec_ref_pic_marking, Edge264_stream *e)
 	
 	// while the exact release time of non-ref frames in C.4.5.2 is ambiguous, we ignore no_output_of_prior_pics_flag
 	if (ctx->nal_unit_type == 5) {
+		e->pic_idr_or_mmco5 = 1;
 		e->pic_reference_flags = 1 << e->currPic;
 		int no_output_of_prior_pics_flag = CALL(get_u1);
 		e->pic_long_term_flags = CALL(get_u1) << e->currPic;
@@ -218,6 +220,11 @@ static void FUNC(parse_dec_ref_pic_marking, Edge264_stream *e)
 	}
 	
 	// 8.2.5.4 - Adaptive memory control marking process.
+	e->pic_reference_flags = e->reference_flags;
+	e->pic_long_term_flags = e->long_term_flags;
+	e->pic_idr_or_mmco5 = 0;
+	((v16qi *)e->pic_LongTermFrameIdx)[0] = ((v16qi *)e->LongTermFrameIdx)[0];
+	((v16qi *)e->pic_LongTermFrameIdx)[1] = ((v16qi *)e->LongTermFrameIdx)[1];
 	int memory_management_control_operation;
 	int i = 32;
 	if (CALL(get_u1)) {
@@ -487,18 +494,29 @@ static void FUNC(parse_ref_pic_list_modification, const Edge264_stream *e)
 /**
  * This function deblocks the current frame, flags it for output and applies
  * its pending memory management operations. It is called when either:
- * _ a sufficient number of macroblocks have been decoded for the current frame
- * _ a slice is decoded with a POC different than the current frame
+ * _ a sufficient number of macroblocks have been decoded for the current frame (only for single thread)
+ * _ a slice is decoded with a frame_num/POC different than the current frame
  * _ an access unit delimiter is received
  * 
- * Note that to keep the code simple we do not handle receiving the same slice
- * twice or the slices of two frames shuffled. Such error protection should be
- * provided at the demuxer level.
+ * The test on POC alone is not sufficient without frame_num, because the
+ * correct POC value depends on FrameNum which needs an up-to-date PrevFrameNum.
  */
 static void FUNC(finish_frame, Edge264_stream *e)
 {
 	// apply the frame headers to e
-	if (e->pic_idr_or_mmco5) { // IDR or mmco5
+	if (!(e->pic_reference_flags & 1 << e->currPic)) { // non ref
+		e->dispPicOrderCnt = e->FieldOrderCnt[0][e->currPic]; // all frames with lower POCs are now ready for output
+	} else if (!e->pic_idr_or_mmco5) { // ref without IDR or mmco5
+		e->reference_flags = e->pic_reference_flags;
+		e->long_term_flags = e->pic_long_term_flags;
+		((v16qi *)e->LongTermFrameIdx)[0] = ((v16qi *)e->pic_LongTermFrameIdx)[0];
+		((v16qi *)e->LongTermFrameIdx)[1] = ((v16qi *)e->pic_LongTermFrameIdx)[1];
+		e->prevRefFrameNum = e->FrameNum[e->currPic];
+		e->prevPicOrderCnt = e->FieldOrderCnt[0][e->currPic];
+	} else { // IDR or mmco5
+		e->reference_flags = e->pic_reference_flags;
+		e->long_term_flags = e->pic_long_term_flags;
+		((v16qi *)e->LongTermFrameIdx)[0] = ((v16qi *)e->LongTermFrameIdx)[1] = (v16qi){};
 		e->LongTermFrameIdx[e->currPic] = e->FrameNum[e->currPic] = e->prevRefFrameNum = 0;
 		for (unsigned o = e->output_flags; o; o &= o - 1) {
 			int i = __builtin_ctz(o);
@@ -509,21 +527,13 @@ static void FUNC(finish_frame, Edge264_stream *e)
 		int tempPicOrderCnt = min(e->FieldOrderCnt[0][e->currPic], e->FieldOrderCnt[1][e->currPic]);
 		e->prevPicOrderCnt = e->FieldOrderCnt[0][e->currPic] -= tempPicOrderCnt;
 		e->FieldOrderCnt[1][e->currPic] -= tempPicOrderCnt;
-	} else if (e->pic_reference_flags & 1 << e->currPic) {
-		e->prevRefFrameNum = e->FrameNum[e->currPic];
-		e->prevPicOrderCnt = e->FieldOrderCnt[0][e->currPic];
-	} else {
-		e->dispPicOrderCnt = e->FieldOrderCnt[0][e->currPic]; // all frames with lower POCs are now ready for output
 	}
-	e->reference_flags = e->pic_reference_flags;
-	e->long_term_flags = e->pic_long_term_flags;
-	((v16qi *)e->LongTermFrameIdx)[0] = ((v16qi *)e->pic_LongTermFrameIdx)[0];
-	((v16qi *)e->LongTermFrameIdx)[1] = ((v16qi *)e->pic_LongTermFrameIdx)[1];
 	e->output_flags |= 1 << e->currPic;
 	e->currPic = -1;
+	CALL(deblock_frame); // FIXME pointers are wrong if executed in next slice
 	
 	#ifdef TRACE
-		printf("<tr><th>DPB (FrameNum/PicOrderCnt)</th><td><small>");
+		printf("<tr><th>DPB after completing last frame (FrameNum/PicOrderCnt)</th><td><small>");
 		for (int i = 0; i <= ctx->ps.max_dec_frame_buffering; i++) {
 			int r = e->reference_flags >> i & 1;
 			int l = e->long_term_flags >> i & 1;
@@ -600,16 +610,6 @@ static int FUNC(assign_currPic, Edge264_stream *e, int gap, int TopFieldOrderCnt
 	e->FrameNum[e->currPic] = ctx->FrameNum;
 	e->FieldOrderCnt[0][e->currPic] = TopFieldOrderCnt;
 	e->FieldOrderCnt[1][e->currPic] = BottomFieldOrderCnt;
-	if (ctx->nal_unit_type == 5) {
-		e->pic_reference_flags = e->pic_long_term_flags = 0;
-		e->pic_idr_or_mmco5 = 1;
-	} else {
-		e->pic_reference_flags = e->reference_flags;
-		e->pic_long_term_flags = e->long_term_flags;
-		e->pic_idr_or_mmco5 = 0;
-		((v16qi *)e->pic_LongTermFrameIdx)[0] = ((v16qi *)e->LongTermFrameIdx)[0];
-		((v16qi *)e->pic_LongTermFrameIdx)[1] = ((v16qi *)e->LongTermFrameIdx)[1];
-	}
 	return 0;
 }
 
@@ -642,9 +642,12 @@ static int FUNC(parse_slice_layer_without_partitioning, Edge264_stream *e)
 	ctx->ps = e->PPSs[pic_parameter_set_id];
 	
 	// parse frame_num
-	int prevRefFrameNum = (ctx->nal_unit_type == 5) ? 0 : e->prevRefFrameNum;
 	int frame_num = CALL(get_uv, ctx->ps.log2_max_frame_num);
-	ctx->FrameNum = prevRefFrameNum + ((frame_num - prevRefFrameNum) & ((1 << ctx->ps.log2_max_frame_num) - 1));
+	int FrameNumMask = (1 << ctx->ps.log2_max_frame_num) - 1;
+	if (e->currPic >= 0 && frame_num != (e->FrameNum[e->currPic] & FrameNumMask))
+		CALL(finish_frame, e);
+	int prevRefFrameNum = (ctx->nal_unit_type == 5) ? 0 : e->prevRefFrameNum;
+	ctx->FrameNum = prevRefFrameNum + ((frame_num - prevRefFrameNum) & FrameNumMask);
 	printf("<tr><th>frame_num => FrameNum</th><td>%u => %u</td></tr>\n", frame_num, ctx->FrameNum);
 	
 	// As long as PAFF/MBAFF are unsupported, this code won't execute (but is still kept).
@@ -670,8 +673,10 @@ static int FUNC(parse_slice_layer_without_partitioning, Edge264_stream *e)
 	// Compute Top/BottomFieldOrderCnt (8.2.1).
 	int TopFieldOrderCnt, BottomFieldOrderCnt;
 	if (ctx->ps.pic_order_cnt_type == 0) {
-		int shift = WORD_BIT - ctx->ps.log2_max_pic_order_cnt_lsb;
 		int pic_order_cnt_lsb = CALL(get_uv, ctx->ps.log2_max_pic_order_cnt_lsb);
+		int shift = WORD_BIT - ctx->ps.log2_max_pic_order_cnt_lsb;
+		if (e->currPic >= 0 && pic_order_cnt_lsb != ((unsigned)e->FieldOrderCnt[0][e->currPic] << shift >> shift))
+			CALL(finish_frame, e);
 		int prevPicOrderCnt = (ctx->nal_unit_type == 5) ? 0 : e->prevPicOrderCnt;
 		int inc = (pic_order_cnt_lsb - prevPicOrderCnt) << shift >> shift;
 		TopFieldOrderCnt = prevPicOrderCnt + inc;
@@ -696,6 +701,8 @@ static int FUNC(parse_slice_layer_without_partitioning, Edge264_stream *e)
 				delta_pic_order_cnt1 = CALL(get_se32, (-1u << 31) + 1, (1u << 31) - 1);
 		}
 		TopFieldOrderCnt += delta_pic_order_cnt0;
+		if (e->currPic >= 0 && TopFieldOrderCnt != e->FieldOrderCnt[0][e->currPic])
+			CALL(finish_frame, e);
 		BottomFieldOrderCnt = TopFieldOrderCnt + delta_pic_order_cnt1;
 		printf("<tr><th>delta_pic_order_cnt[0/1] => Top/Bottom POC</th><td>%d/%d => %d/%d</td></tr>\n", delta_pic_order_cnt0, delta_pic_order_cnt1, TopFieldOrderCnt, BottomFieldOrderCnt);
 	} else {
@@ -705,8 +712,6 @@ static int FUNC(parse_slice_layer_without_partitioning, Edge264_stream *e)
 	if (abs(TopFieldOrderCnt) >= 1 << 25 || abs(BottomFieldOrderCnt) >= 1 << 25)
 		return 1;
 	ctx->PicOrderCnt = min(TopFieldOrderCnt, BottomFieldOrderCnt);
-	if (e->currPic >= 0 && e->FieldOrderCnt[0][e->currPic] != TopFieldOrderCnt)
-		CALL(finish_frame, e);
 	if (e->currPic < 0) {
 		int gap = (ctx->nal_unit_type == 5) ? 0 : ctx->FrameNum - e->prevRefFrameNum;
 		if (CALL(assign_currPic, e, gap, TopFieldOrderCnt, BottomFieldOrderCnt))
@@ -742,6 +747,8 @@ static int FUNC(parse_slice_layer_without_partitioning, Edge264_stream *e)
 	
 	if (ctx->nal_ref_idc)
 		CALL(parse_dec_ref_pic_marking, e);
+	else
+		e->pic_reference_flags = e->reference_flags;
 	
 	int cabac_init_idc = 0;
 	if (ctx->ps.entropy_coding_mode_flag && ctx->slice_type != 2) {
@@ -786,10 +793,8 @@ static int FUNC(parse_slice_layer_without_partitioning, Edge264_stream *e)
 	
 	// when the total number of decoded mbs is enough, finish the frame
 	e->pic_remaining_mbs -= ctx->CurrMbAddr - ctx->first_mb_in_slice;
-	if (e->pic_remaining_mbs == 0) {
+	if (e->pic_remaining_mbs == 0)
 		CALL(finish_frame, e);
-		CALL(deblock_frame);
-	}
 	return 0;
 }
 

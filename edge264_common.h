@@ -324,7 +324,7 @@ static int FUNC(cabac_terminate);
 static void FUNC(cabac_init, int idc);
 
 // edge264_deblock_*.c
-void FUNC(deblock_frame);
+void FUNC(deblock_frame, Edge264_stream *e, uint8_t *samples);
 
 // edge264_inter_*.c
 void FUNC(decode_inter, int i, int w, int h);

@@ -529,8 +529,8 @@ static void FUNC(finish_frame, Edge264_stream *e)
 		e->FieldOrderCnt[1][e->currPic] -= tempPicOrderCnt;
 	}
 	e->output_flags |= 1 << e->currPic;
+	CALL(deblock_frame, e, e->DPB + e->currPic * e->frame_size);
 	e->currPic = -1;
-	CALL(deblock_frame); // FIXME pointers are wrong if executed in next slice
 	
 	#ifdef TRACE
 		printf("<tr><th>DPB after completing last frame (FrameNum/PicOrderCnt)</th><td><small>");
@@ -809,7 +809,7 @@ static int FUNC(parse_access_unit_delimiter, Edge264_stream *e)
 {
 	int primary_pic_type = CALL(get_uv, 3);
 	printf("<tr><th>primary_pic_type</th><td>%d</td></tr>\n", primary_pic_type);
-	if (e->currPic >= 0)
+	if (e->DPB != NULL && e->currPic >= 0)
 		CALL(finish_frame, e);
 	return 0;
 }

@@ -842,23 +842,23 @@ static noinline void FUNC(deblock_CbCr_8bit, size_t stride, ssize_t nstride, siz
  * Loop through an entire frame to apply the deblocking filter on all
  * macroblocks.
  */
-void FUNC(deblock_frame)
+void FUNC(deblock_frame, Edge264_stream *e, uint8_t *samples)
 {
 	// point at the first macroblock
-	ctx->samples_mb[0] = ctx->samples_row[0] = ctx->samples_pic;
-	ctx->samples_mb[1] = ctx->samples_mb[0] + ctx->plane_size_Y;
-	ctx->samples_mb[2] = ctx->samples_mb[1] + ctx->plane_size_C;
-	ctx->mbB = (Edge264_macroblock *)(ctx->samples_mb[2] + ctx->plane_size_C) + 1;
-	mb = ctx->mbB + ctx->ps.pic_width_in_mbs + 1;
+	ctx->samples_mb[0] = ctx->samples_row[0] = ctx->samples_pic = samples;
+	ctx->samples_mb[1] = ctx->samples_mb[0] + e->plane_size_Y;
+	ctx->samples_mb[2] = ctx->samples_mb[1] + e->plane_size_C;
+	ctx->mbB = (Edge264_macroblock *)(ctx->samples_mb[2] + e->plane_size_C) + 1;
+	mb = ctx->mbB + e->SPS.pic_width_in_mbs + 1;
 	ctx->CurrMbAddr = 0;
 	
 	do {
 		// deblock a single macroblock
 		if (mb->f.filter_edges & 1) {
 			CALL(init_alpha_beta_tC0);
-			size_t strideY = ctx->stride[0];
+			size_t strideY = e->stride_Y;
 			CALL(deblock_Y_8bit, strideY, -strideY, strideY * 7);
-			size_t strideC = ctx->stride[1];
+			size_t strideC = e->stride_C;
 			CALL(deblock_CbCr_8bit, strideC, -strideC, strideC * 7);
 		}
 		
@@ -871,12 +871,12 @@ void FUNC(deblock_frame)
 		ctx->CurrMbAddr++;
 		
 		// end of row
-		if (ctx->samples_mb[0] - ctx->samples_row[0] < ctx->stride[0])
+		if (ctx->samples_mb[0] - ctx->samples_row[0] < e->stride_Y)
 			continue;
 		mb++;
 		ctx->mbB++;
-		ctx->samples_mb[0] = ctx->samples_row[0] += ctx->stride[0] * 16;
-		ctx->samples_mb[1] += ctx->stride[1] * 7;
-		ctx->samples_mb[2] += ctx->stride[1] * 7;
-	} while (ctx->samples_mb[0] - ctx->samples_pic < ctx->plane_size_Y);
+		ctx->samples_mb[0] = ctx->samples_row[0] += e->stride_Y * 16;
+		ctx->samples_mb[1] += e->stride_C * 7;
+		ctx->samples_mb[2] += e->stride_C * 7;
+	} while (ctx->samples_mb[0] - ctx->samples_pic < e->plane_size_Y);
 }

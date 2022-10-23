@@ -1646,14 +1646,15 @@ static noinline void CAFUNC(parse_slice_data)
 				bitsB = unavail_mb.bits_l;
 				ctx->refIdx_copyB = ctx->mbB->refIdx_l;
 				ctx->nC_copyB[0] = ctx->mbB->nC_l[1];
-				ctx->nC_copyB[1] = ctx->mbB->nC_l[3];
-				ctx->nC_copyB[2] = ctx->mbB->nC_l[5];
+				ctx->nC_copyB[1] = ctx->mbB->nC_l[5];
+				ctx->nC_copyB_v[1] = ctx->mbB->nC_v[1];
 				ctx->mvs_copyB[0] = ctx->mbB->mvs_l[5];
 				ctx->mvs_copyB[1] = ctx->mbB->mvs_l[7];
 				ctx->mvs_copyB[2] = ctx->mbB->mvs_l[13];
 				ctx->mvs_copyB[3] = ctx->mbB->mvs_l[15];
 				ctx->mbB->refIdx_l = -1;
-				ctx->mbB->nC_l[1] = ctx->mbB->nC_l[3] = ctx->mbB->nC_l[5] = 0;
+				ctx->mbB->nC_l[1] = ctx->mbB->nC_l[5] = 0;
+				ctx->mbB->nC_v[1] = (v2li){};
 				ctx->mbB->Intra4x4PredMode_v = unavail_mb.Intra4x4PredMode_v;
 				ctx->mbB->absMvd_v[1] = ctx->mbB->absMvd_v[3] = (v16qu)zero;
 				ctx->mbB->mvs_l[5] = ctx->mbB->mvs_l[7] = ctx->mbB->mvs_l[13] = ctx->mbB->mvs_l[15] = 0;
@@ -1720,8 +1721,8 @@ static noinline void CAFUNC(parse_slice_data)
 			if (ctx->CurrMbAddr <= ctx->first_mb_in_slice + ctx->ps.pic_width_in_mbs) { // B is unavailable
 				ctx->mbB->refIdx_l = ctx->refIdx_copyB;
 				ctx->mbB->nC_l[1] = ctx->nC_copyB[0];
-				ctx->mbB->nC_l[3] = ctx->nC_copyB[1];
-				ctx->mbB->nC_l[5] = ctx->nC_copyB[2];
+				ctx->mbB->nC_l[5] = ctx->nC_copyB[1];
+				ctx->mbB->nC_v[1] = ctx->nC_copyB_v[1];
 				ctx->mbB->mvs_l[5] = ctx->mvs_copyB[0];
 				ctx->mbB->mvs_l[7] = ctx->mvs_copyB[1];
 				ctx->mbB->mvs_l[13] = ctx->mvs_copyB[2];

@@ -1,4 +1,5 @@
 /** MAYDO:
+ * _ Return number of decoded mbs from slice -> 0 if error
  * _ initialize mb unavailability ahead of slices, then fix initialization of unavailability/filter_edges for each mb when first_mb_in_slice!=0
  * _ add a macro mbB to simplify the syntax ctx->mbB
  * _ rename edge264_common.h into internal.h to make it more obvious that this is an internal file!

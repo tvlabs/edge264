@@ -172,7 +172,7 @@ typedef struct
 	int64_t refIdx_copyA;
 	int64_t refIdx_copyB;
 	int64_t refIdx_copyCD;
-	int64_t nC_copyB[3];
+	union { int64_t nC_copyB[4]; v2li nC_copyB_v[2]; };
 	int64_t mvs_copyB[4];
 	v16qi nC_copyA[3];
 	v8hi mvs_copyA[4];

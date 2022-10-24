@@ -80,7 +80,7 @@ static const Edge264_flags flags_twice = {
  */
 typedef struct {
 	Edge264_flags f;
-	uint8_t unavail16x16; // unavailability of neighbouring A/B/C/D macroblocks
+	uint8_t unavail16x16; // unavailability of neighbouring A/B/C/D macroblocks in frame
 	uint8_t filter_edges; // 3 bits to enable deblocking of internal/left/top edges
 	union { uint8_t inter_eqs[4]; uint32_t inter_eqs_s; }; // 2 flags per 4x4 block storing right/bottom equality of mvs&ref, in little endian
 	union { uint8_t QP[3]; v4qi QP_s; }; // [iYCbCr]
@@ -150,6 +150,7 @@ typedef struct
 	uint8_t *samples_mb[3]; // address of top-left byte of each plane in current macroblock
 	uint16_t stride[3]; // [iYCbCr], 16 significant bits (8K, 16bit, field pic)
 	int16_t clip[3]; // [iYCbCr], maximum sample value
+	uint8_t unavail16x16;  // unavailability of neighbouring A/B/C/D macroblocks in slice
 	union { int8_t unavail4x4[16]; v16qi unavail4x4_v; }; // unavailability of neighbouring A/B/C/D blocks
 	Edge264_flags inc; // increments for CABAC indices of macroblock syntax elements
 	union { uint8_t cabac[1024]; v16qu cabac_v[64]; };

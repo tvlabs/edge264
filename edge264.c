@@ -1,6 +1,6 @@
 /** MAYDO:
+ * _ rename ctx->unavail into unavail4x4
  * _ Return number of decoded mbs from slice -> 0 if error
- * _ initialize mb unavailability ahead of slices, then fix initialization of unavailability/filter_edges for each mb when first_mb_in_slice!=0
  * _ add a macro mbB to simplify the syntax ctx->mbB
  * _ rename edge264_common.h into internal.h to make it more obvious that this is an internal file!
  * _ clean edge264_internal.h from unused stuff
@@ -1476,19 +1476,27 @@ static int FUNC(parse_seq_parameter_set, Edge264_stream *e)
 		e->plane_size_C = e->stride_C * e->height_C;
 		
 		// Each picture in the DPB is three planes and a group of macroblocks
-		e->frame_size = (e->plane_size_Y + e->plane_size_C * 2 + (PicWidthInMbs + 1) *
-			(PicHeightInMbs + 1) * sizeof(Edge264_macroblock) + 15) & -16;
+		int mbs = (PicWidthInMbs + 1) * (PicHeightInMbs + 1);
+		e->frame_size = (e->plane_size_Y + e->plane_size_C * 2 + mbs * sizeof(Edge264_macroblock) + 15) & -16;
 		e->DPB = malloc(e->frame_size * (ctx->ps.max_dec_frame_buffering + 1));
 		if (e->DPB == NULL)
 			return 1;
 		
-		// initialise the unavailable macroblocks
+		// initialise the macroblocks
 		for (int i = 0; i <= ctx->ps.max_dec_frame_buffering; i++) {
 			Edge264_macroblock *m = (Edge264_macroblock *)(e->DPB + i * e->frame_size + e->plane_size_Y + e->plane_size_C * 2);
-			for (int j = 0; j <= PicWidthInMbs; j++)
+			for (int j = 0; j <= PicWidthInMbs + 1; j++) {
 				m[j] = unavail_mb;
-			for (int j = 1; j <= PicHeightInMbs; j++)
-				m[j * (PicWidthInMbs + 1)] = unavail_mb;
+				m[PicWidthInMbs + 1 + j].unavail16x16 = 14;
+			}
+			for (int j = PicWidthInMbs * 2 + 4; j < mbs; j++)
+				m[j].unavail16x16 = 0;
+			for (int j = PicWidthInMbs * 2 + 2; j < mbs; j += PicWidthInMbs + 1) {
+				m[j] = unavail_mb;
+				m[j + 1].unavail16x16 = 9;
+				m[j + PicWidthInMbs].unavail16x16 = 4;
+			}
+			m[PicWidthInMbs + 2].unavail16x16 = 15;
 		}
 	}
 	e->SPS = ctx->ps;

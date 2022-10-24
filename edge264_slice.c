@@ -682,7 +682,7 @@ static void CAFUNC(parse_intra_chroma_pred_mode)
 			mb->f.intra_chroma_pred_mode_non_zero = (mode > 0);
 		#endif
 		fprintf(stderr, "intra_chroma_pred_mode: %u\n", mode);
-		CALL(decode_intraChroma, intraChroma_modes[mode][ctx->inc.unavailable & 3], ctx->samples_mb[1], ctx->samples_mb[2], ctx->stride[1], ctx->clip[1]);
+		CALL(decode_intraChroma, intraChroma_modes[mode][mb->unavail16x16 & 3], ctx->samples_mb[1], ctx->samples_mb[2], ctx->stride[1], ctx->clip[1]);
 	}
 }
 
@@ -735,14 +735,14 @@ static noinline void CAFUNC(parse_I_mb, int mb_type_or_ctxIdx)
 	static const uint8_t me_intra[48] = {174, 173, 172, 0, 45, 169, 165, 141, 44, 168, 164, 140, 46, 170, 166, 142, 1, 40, 36, 136, 132, 41, 37, 137, 133, 42, 38, 138, 134, 32, 8, 4, 128, 33, 9, 5, 129, 12, 160, 13, 161, 2, 34, 10, 6, 130, 14, 162};
 	
 	// Intra-specific initialisations
-	if (ctx->inc.unavailable & 1) {
+	if (mb->unavail16x16 & 1) {
 		mb->bits[1] |= 0x111111; // FIXME 4:2:2
 		#ifdef CABAC
 			mb[-1].nC_v[0] = mb[-1].nC_v[1] = mb[-1].nC_v[2] = (v16qi){1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1};
 		#endif
 		ctx->inc.coded_block_flags_16x16_s |= 0x010101;
 	}
-	if (ctx->inc.unavailable & 2) {
+	if (mb->unavail16x16 & 2) {
 		mb->bits[1] |= 0x424242;
 		#ifdef CABAC
 			ctx->mbB->nC_v[0] = ctx->mbB->nC_v[1] = ctx->mbB->nC_v[2] = (v16qi){1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1};
@@ -819,7 +819,7 @@ static noinline void CAFUNC(parse_I_mb, int mb_type_or_ctxIdx)
 			{I16x16_P_8 , I16x16_DCA_8, I16x16_DCB_8, I16x16_DCAB_8},
 		};
 		mb->Intra4x4PredMode_v = (v16qi){2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2};
-		CALL(decode_intra16x16, intra16x16_modes[mode][ctx->inc.unavailable & 3], ctx->samples_mb[0], ctx->stride[0], ctx->clip[0]); // FIXME 4:4:4
+		CALL(decode_intra16x16, intra16x16_modes[mode][mb->unavail16x16 & 3], ctx->samples_mb[0], ctx->stride[0], ctx->clip[0]); // FIXME 4:4:4
 		CACALL(parse_intra_chroma_pred_mode);
 		CAJUMP(parse_Intra16x16_residual);
 		
@@ -895,13 +895,13 @@ static void CAFUNC(parse_inter_residual)
 		fprintf(stderr, "transform_size_8x8_flag: %x\n", mb->f.transform_size_8x8_flag);
 	}
 	
-	if (ctx->inc.unavailable & 1) {
+	if (mb->unavail16x16 & 1) {
 		#ifdef CABAC
 			mb[-1].nC_v[0] = mb[-1].nC_v[1] = mb[-1].nC_v[2] = (v16qi){};
 		#endif
 		ctx->inc.coded_block_flags_16x16_s &= 0x020202;
 	}
-	if (ctx->inc.unavailable & 2) {
+	if (mb->unavail16x16 & 2) {
 		#ifdef CABAC
 			ctx->mbB->nC_v[0] = ctx->mbB->nC_v[1] = ctx->mbB->nC_v[2] = (v16qi){};
 		#endif
@@ -1516,9 +1516,9 @@ static inline void CAFUNC(parse_P_mb)
 		int mvA = *(mb->mvs_s + ctx->mvs_A[0]);
 		int mvB = *(mb->mvs_s + ctx->mvs_B[0]);
 		v8hi mv = {};
-		if ((refIdxA | mvA) && (refIdxB | mvB) && !(ctx->inc.unavailable & 3)) {
+		if ((refIdxA | mvA) && (refIdxB | mvB) && !(mb->unavail16x16 & 3)) {
 			int refIdxC, mvs_C;
-			if (__builtin_expect(ctx->inc.unavailable & 4, 0)) {
+			if (__builtin_expect(mb->unavail16x16 & 4, 0)) {
 				refIdxC = ctx->mbB[-1].refIdx[3];
 				mvs_C = ctx->mvs_D[0];
 			} else {
@@ -1603,18 +1603,29 @@ static inline void CAFUNC(parse_P_mb)
  */
 static noinline void CAFUNC(parse_slice_data)
 {
-	static const v16qi block_unavailability[4] = {
+	static const v16qi block_unavailability[16] = {
 		{ 0,  0,  0,  4,  0,  0,  0,  4,  0,  0,  0,  4,  0,  4,  0,  4},
 		{ 1,  0,  9,  4,  0,  0,  0,  4,  9,  0,  9,  4,  0,  4,  0,  4},
 		{ 6, 14,  0,  4, 14, 10,  0,  4,  0,  0,  0,  4,  0,  4,  0,  4},
 		{ 7, 14,  9,  4, 14, 10,  0,  4,  9,  0,  9,  4,  0,  4,  0,  4},
+		{ 0,  0,  0,  4,  0,  4,  0,  4,  0,  0,  0,  4,  0,  4,  0,  4},
+		{ 1,  0,  9,  4,  0,  4,  0,  4,  9,  0,  9,  4,  0,  4,  0,  4},
+		{ 6, 14,  0,  4, 14, 14,  0,  4,  0,  0,  0,  4,  0,  4,  0,  4},
+		{ 7, 14,  9,  4, 14, 14,  0,  4,  9,  0,  9,  4,  0,  4,  0,  4},
+		{ 8,  0,  0,  4,  0,  0,  0,  4,  0,  0,  0,  4,  0,  4,  0,  4},
+		{ 9,  0,  9,  4,  0,  0,  0,  4,  9,  0,  9,  4,  0,  4,  0,  4},
+		{14, 14,  0,  4, 14, 10,  0,  4,  0,  0,  0,  4,  0,  4,  0,  4},
+		{15, 14,  9,  4, 14, 10,  0,  4,  9,  0,  9,  4,  0,  4,  0,  4},
+		{ 8,  0,  0,  4,  0,  4,  0,  4,  0,  0,  0,  4,  0,  4,  0,  4},
+		{ 9,  0,  9,  4,  0,  4,  0,  4,  9,  0,  9,  4,  0,  4,  0,  4},
+		{14, 14,  0,  4, 14, 14,  0,  4,  0,  0,  0,  4,  0,  4,  0,  4},
+		{15, 14,  9,  4, 14, 14,  0,  4,  9,  0,  9,  4,  0,  4,  0,  4},
 	};
 	
 	while (1) {
 		fprintf(stderr, "********** POC=%u MB=%u **********\n", ctx->PicOrderCnt, ctx->CurrMbAddr);
 		
 		// store temporary unavailable data on slice edge
-		int unavailable = 0;
 		int filter_edges = (ctx->disable_deblocking_filter_idc == 1) ? 0 : 7;
 		v16qi fA = mb[-1].f.v;
 		v16qi fB = ctx->mbB->f.v;
@@ -1623,7 +1634,6 @@ static noinline void CAFUNC(parse_slice_data)
 		if (ctx->first_mb_in_slice) {
 			v16qi zero = {};
 			if (ctx->CurrMbAddr == ctx->first_mb_in_slice) { // A is unavailable
-				unavailable = 1;
 				fA = unavail_mb.f.v;
 				bitsA = unavail_mb.bits_l;
 				ctx->refIdx_copyA = mb[-1].refIdx_l;
@@ -1639,9 +1649,9 @@ static noinline void CAFUNC(parse_slice_data)
 				mb[-1].Intra4x4PredMode_v = unavail_mb.Intra4x4PredMode_v;
 				mb[-1].absMvd_v[0] = mb[-1].absMvd_v[1] = mb[-1].absMvd_v[2] = mb[-1].absMvd_v[3] = (v16qu)zero;
 				mb[-1].mvs_v[1] = mb[-1].mvs_v[3] = mb[-1].mvs_v[5] = mb[-1].mvs_v[7] = (v8hi)zero;
+				filter_edges &= ~ctx->disable_deblocking_filter_idc; // impacts only bit 1
 			}
 			if (ctx->CurrMbAddr <= ctx->first_mb_in_slice + ctx->ps.pic_width_in_mbs) { // B is unavailable
-				unavailable += 2;
 				fB = unavail_mb.f.v;
 				bitsB = unavail_mb.bits_l;
 				ctx->refIdx_copyB = ctx->mbB->refIdx_l;
@@ -1658,6 +1668,7 @@ static noinline void CAFUNC(parse_slice_data)
 				ctx->mbB->Intra4x4PredMode_v = unavail_mb.Intra4x4PredMode_v;
 				ctx->mbB->absMvd_v[1] = ctx->mbB->absMvd_v[3] = (v16qu)zero;
 				ctx->mbB->mvs_l[5] = ctx->mbB->mvs_l[7] = ctx->mbB->mvs_l[13] = ctx->mbB->mvs_l[15] = 0;
+				filter_edges &= ~(ctx->disable_deblocking_filter_idc << 1); // impacts only bit 2
 			}
 			if (ctx->CurrMbAddr < ctx->first_mb_in_slice + ctx->ps.pic_width_in_mbs) { // C is unavailable
 				ctx->refIdx_copyCD = ctx->mbB[1].refIdx_l;
@@ -1666,8 +1677,6 @@ static noinline void CAFUNC(parse_slice_data)
 				ctx->mbB[1].refIdx_l = -1;
 				ctx->mbB[1].mvs_s[10] = ctx->mbB[1].mvs_s[26] = 0;
 			}
-			if (ctx->disable_deblocking_filter_idc == 2)
-				filter_edges &= ~(unavailable << 1);
 		}
 		
 		// initialize current macroblock
@@ -1678,20 +1687,8 @@ static noinline void CAFUNC(parse_slice_data)
 			mb->bits_l = (bitsA >> 3 & 0x11111100111111) | (bitsB >> 1 & 0x42424200424242);
 		}
 		mb->nC_v[0] = mb->nC_v[1] = mb->nC_v[2] = (v16qi){};
-		
-		// prepare block unavailability information (6.4.11.4)
-		mb->f.filter_edges = filter_edges & ~(ctx->inc.unavailable << 1);
-		unavailable |= ctx->inc.unavailable;
-		ctx->unavail_v = block_unavailability[unavailable];
-		if (ctx->mbB[1].f.unavailable) {
-			unavailable += 4;
-			ctx->unavail[5] += 4;
-		}
-		if (ctx->mbB[-1].f.unavailable) {
-			unavailable += 8;
-			ctx->unavail[0] += 8;
-		}
-		ctx->inc.unavailable = unavailable;
+		mb->filter_edges = filter_edges & ~(mb->unavail16x16 << 1);
+		ctx->unavail_v = block_unavailability[mb->unavail16x16];
 		
 		// Would it actually help to push this test outside the loop?
 		if (ctx->slice_type == 0) {

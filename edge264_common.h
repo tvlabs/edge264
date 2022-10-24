@@ -44,7 +44,6 @@ typedef int32_t v16si __attribute__((vector_size(64))); // for initialization of
  */
 typedef union {
 	struct {
-		int8_t unavailable;
 		int8_t mb_field_decoding_flag;
 		int8_t mb_skip_flag;
 		int8_t mb_type_I_NxN;
@@ -54,13 +53,11 @@ typedef union {
 		int8_t CodedBlockPatternChromaDC;
 		int8_t CodedBlockPatternChromaAC;
 		int8_t mbIsInterFlag;
-		int8_t filter_edges; // internal/left/top
 		union { int8_t coded_block_flags_16x16[3]; int32_t coded_block_flags_16x16_s; };
 	};
 	v16qi v;
 } Edge264_flags;
 static const Edge264_flags flags_twice = {
-	.unavailable = 1,
 	.CodedBlockPatternChromaDC = 1,
 	.CodedBlockPatternChromaAC = 1,
 	.coded_block_flags_16x16 = {1, 1, 1},
@@ -83,6 +80,8 @@ static const Edge264_flags flags_twice = {
  */
 typedef struct {
 	Edge264_flags f;
+	uint8_t unavail16x16; // unavailability of neighbouring A/B/C/D macroblocks
+	uint8_t filter_edges; // 3 bits to enable deblocking of internal/left/top edges
 	union { uint8_t inter_eqs[4]; uint32_t inter_eqs_s; }; // 2 flags per 4x4 block storing right/bottom equality of mvs&ref, in little endian
 	union { uint8_t QP[3]; v4qi QP_s; }; // [iYCbCr]
 	union { uint32_t bits[2]; uint64_t bits_l; }; // {cbp/ref_idx_nz, cbf_Y/Cb/Cr 8x8}
@@ -94,7 +93,6 @@ typedef struct {
 	union { int16_t mvs[64]; int32_t mvs_s[32]; int64_t mvs_l[16]; v8hi mvs_v[8]; }; // [LX][i4x4][compIdx]
 } Edge264_macroblock;
 static const Edge264_macroblock unavail_mb = {
-	.f.unavailable = 1,
 	.f.mb_skip_flag = 1,
 	.f.mb_type_I_NxN = 1,
 	.f.mb_type_B_Direct = 1,

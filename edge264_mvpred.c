@@ -47,7 +47,7 @@ static inline void FUNC(decode_inter_8x16_left, v8hi mvd, int lx)
 	v8hi mvp;
 	int refIdx = mb->refIdx[lx * 4];
 	int refIdxA = mb[-1].refIdx[lx * 4 + 1];
-	if (refIdx == refIdxA || ctx->unavail[0] == 14) {
+	if (refIdx == refIdxA || ctx->unavail4x4[0] == 14) {
 		mvp = (v8hi)(v4si){*(mb->mvs_s + lx * 16 + ctx->mvs_A[0])};
 	} else {
 		int refIdxB = ctx->mbB->refIdx[lx * 4 + 2];
@@ -110,7 +110,7 @@ static inline void FUNC(decode_inter_8x16_right, v8hi mvd, int lx)
 			}
 		} else { // refIdx != B/C
 			mvp = (v8hi)(v4si){*(mb->mvs_s + lx * 16 + ctx->mvs_A[4])};
-			if (refIdx != refIdxA && ctx->unavail[5] != 14) {
+			if (refIdx != refIdxA && ctx->unavail4x4[5] != 14) {
 				v8hi mvB = (v8hi)(v4si){*(mb->mvs_s + lx * 16 + ctx->mvs_B[4])};
 				v8hi mvC = (v8hi)(v4si){*(mb->mvs_s + lx * 16 + mvs_C)};
 				mvp = median_v8hi(mvp, mvB, mvC);

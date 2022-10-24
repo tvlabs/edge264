@@ -1,5 +1,4 @@
 /** MAYDO:
- * _ rename ctx->unavail into unavail4x4
  * _ Return number of decoded mbs from slice -> 0 if error
  * _ add a macro mbB to simplify the syntax ctx->mbB
  * _ rename edge264_common.h into internal.h to make it more obvious that this is an internal file!

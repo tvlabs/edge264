@@ -150,7 +150,7 @@ typedef struct
 	uint8_t *samples_mb[3]; // address of top-left byte of each plane in current macroblock
 	uint16_t stride[3]; // [iYCbCr], 16 significant bits (8K, 16bit, field pic)
 	int16_t clip[3]; // [iYCbCr], maximum sample value
-	union { int8_t unavail[16]; v16qi unavail_v; }; // unavailability of neighbouring A/B/C/D blocks
+	union { int8_t unavail4x4[16]; v16qi unavail4x4_v; }; // unavailability of neighbouring A/B/C/D blocks
 	Edge264_flags inc; // increments for CABAC indices of macroblock syntax elements
 	union { uint8_t cabac[1024]; v16qu cabac_v[64]; };
 	

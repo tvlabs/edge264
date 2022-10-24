@@ -71,7 +71,7 @@
 		
 		// unavailable blocks have the value 32
 		int sum = nA + nB;
-		int nC = !(ctx->unavail[i4x4] & 3) ? (sum + 1) >> 1 : sum;
+		int nC = !(ctx->unavail4x4[i4x4] & 3) ? (sum + 1) >> 1 : sum;
 		int coeff_token, v;
 		if (__builtin_expect(nC < 8, 1)) {
 			int leadingZeroBits = clz(msb_cache | (size_t)1 << (SIZE_BIT - 15));
@@ -574,7 +574,7 @@ static void CAFUNC(parse_NxN_residual)
 				size_t stride = ctx->stride[iYCbCr];
 				uint8_t *samples = ctx->samples_mb[iYCbCr] + y444[i4x4] * stride + x444[i4x4];
 				if (!mb->f.mbIsInterFlag)
-					CALL(decode_intra4x4, intra4x4_modes[mb->Intra4x4PredMode[i4x4]][ctx->unavail[i4x4]], samples, stride, ctx->clip[iYCbCr]);
+					CALL(decode_intra4x4, intra4x4_modes[mb->Intra4x4PredMode[i4x4]][ctx->unavail4x4[i4x4]], samples, stride, ctx->clip[iYCbCr]);
 				if (mb->bits[0] & 1 << bit8x8[i4x4 >> 2]) {
 					int nA = *(mb->nC[iYCbCr] + ctx->A4x4_int8[i4x4]);
 					int nB = *(mb->nC[iYCbCr] + ctx->B4x4_int8[i4x4]);
@@ -1104,8 +1104,8 @@ static void CAFUNC(parse_B_sub_mb) {
 				fprintf(stderr, " %u", sub2mb_type[sub]);
 			#endif
 			if (CACOND(0x015f & 1 << sub_mb_type, 0x23b & 1 << sub)) { // 8xN
-				ctx->unavail[i4x4] = (ctx->unavail[i4x4] & 11) | (ctx->unavail[i4x4 + 1] & 4);
-				ctx->unavail[i4x4 + 2] |= 4;
+				ctx->unavail4x4[i4x4] = (ctx->unavail4x4[i4x4] & 11) | (ctx->unavail4x4[i4x4 + 1] & 4);
+				ctx->unavail4x4[i4x4 + 2] |= 4;
 				ctx->refIdx4x4_C[i4x4] = 0x0d63 >> i4x4 & 15;
 				ctx->mvs_C[i4x4] = ctx->mvs_C[i4x4 + 1];
 				if (CACOND(0x1ff0 & 1 << sub_mb_type, 0xfce & 1 << sub))
@@ -1147,7 +1147,7 @@ static void CAFUNC(parse_B_sub_mb) {
 	D1[0] = mbB->refIdx[7];
 	
 	// combine them into a vector of 4-bit equality masks
-	v16qi u = ctx->unavail_v;
+	v16qi u = ctx->unavail4x4_v;
 	v16qi uC = u & 4;
 	ctx->refIdx4x4_eq_v[0] = (uC - ifelse_mask(uC==4, r0==D0, r0==C0) * 2 - (r0==B0)) * 2 - (r0==A0 | u==14);
 	ctx->refIdx4x4_eq_v[1] = (uC - ifelse_mask(uC==4, r1==D1, r1==C1) * 2 - (r1==B1)) * 2 - (r1==A1 | u==14);
@@ -1385,8 +1385,8 @@ static void CAFUNC(parse_P_sub_mb, unsigned ref_idx_flags)
 		#endif
 		if (CACOND(sub_mb_type == 0, CALL(get_ae, 21)) || // 8x8
 			(ctx->transform_8x8_mode_flag = 0, flags = 5, eqs = 0x11, CACOND(sub_mb_type == 1, !CALL(get_ae, 22)))) { // 8x4
-			ctx->unavail[i4x4] = (ctx->unavail[i4x4] & 11) | (ctx->unavail[i4x4 + 1] & 4);
-			ctx->unavail[i4x4 + 2] |= 4;
+			ctx->unavail4x4[i4x4] = (ctx->unavail4x4[i4x4] & 11) | (ctx->unavail4x4[i4x4 + 1] & 4);
+			ctx->unavail4x4[i4x4 + 2] |= 4;
 			ctx->refIdx4x4_C[i4x4] = 0x0d63 >> i4x4 & 15;
 			ctx->mvs_C[i4x4] = ctx->mvs_C[i4x4 + 1];
 		} else { // 4xN
@@ -1417,7 +1417,7 @@ static void CAFUNC(parse_P_sub_mb, unsigned ref_idx_flags)
 	D0[0] = mbB->refIdx[3];
 	
 	// combine them into a vector of 4-bit equality masks
-	v16qi u = ctx->unavail_v;
+	v16qi u = ctx->unavail4x4_v;
 	v16qi uC = u & 4;
 	ctx->refIdx4x4_eq_v[0] = (uC - ifelse_mask(uC==4, r0==D0, r0==C0) * 2 - (r0==B0)) * 2 - (r0==A0 | u==14);
 	
@@ -1688,7 +1688,7 @@ static noinline void CAFUNC(parse_slice_data)
 		}
 		mb->nC_v[0] = mb->nC_v[1] = mb->nC_v[2] = (v16qi){};
 		mb->filter_edges = filter_edges & ~(mb->unavail16x16 << 1);
-		ctx->unavail_v = block_unavailability[mb->unavail16x16];
+		ctx->unavail4x4_v = block_unavailability[mb->unavail16x16];
 		
 		// Would it actually help to push this test outside the loop?
 		if (ctx->slice_type == 0) {

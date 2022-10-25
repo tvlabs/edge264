@@ -1667,7 +1667,7 @@ static noinline void CAFUNC(parse_slice_data)
 				ctx->mvs_copyB[3] = ctx->mbB->mvs_l[15];
 				ctx->mbB->refIdx_l = -1;
 				ctx->mbB->nC_l[1] = ctx->mbB->nC_l[5] = 0;
-				ctx->mbB->nC_v[1] = (v2li){};
+				ctx->mbB->nC_v[1] = (v16qi){};
 				ctx->mbB->Intra4x4PredMode_v = unavail_mb.Intra4x4PredMode_v;
 				ctx->mbB->absMvd_v[1] = ctx->mbB->absMvd_v[3] = (v16qu)zero;
 				ctx->mbB->mvs_l[5] = ctx->mbB->mvs_l[7] = ctx->mbB->mvs_l[13] = ctx->mbB->mvs_l[15] = 0;

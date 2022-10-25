@@ -1653,7 +1653,7 @@ static noinline void CAFUNC(parse_slice_data)
 				mb[-1].mvs_v[1] = mb[-1].mvs_v[3] = mb[-1].mvs_v[5] = mb[-1].mvs_v[7] = (v8hi)zero;
 				filter_edges &= ~ctx->disable_deblocking_filter_idc; // impacts only bit 1
 			}
-			if (ctx->CurrMbAddr <= ctx->first_mb_in_slice + ctx->ps.pic_width_in_mbs) { // B is unavailable
+			if (ctx->CurrMbAddr < ctx->first_mb_in_slice + ctx->ps.pic_width_in_mbs) { // B is unavailable
 				unavail16x16 |= 2;
 				fB = unavail_mb.f.v;
 				bitsB = unavail_mb.bits_l;
@@ -1673,7 +1673,7 @@ static noinline void CAFUNC(parse_slice_data)
 				ctx->mbB->mvs_l[5] = ctx->mbB->mvs_l[7] = ctx->mbB->mvs_l[13] = ctx->mbB->mvs_l[15] = 0;
 				filter_edges &= ~(ctx->disable_deblocking_filter_idc << 1); // impacts only bit 2
 			}
-			if (ctx->CurrMbAddr < ctx->first_mb_in_slice + ctx->ps.pic_width_in_mbs) { // C is unavailable
+			if (ctx->CurrMbAddr < ctx->first_mb_in_slice + ctx->ps.pic_width_in_mbs - 1) { // C is unavailable
 				unavail16x16 |= 4;
 				ctx->refIdx_copyCD = ctx->mbB[1].refIdx_l;
 				ctx->mvs_copyCD[0] = ctx->mbB[1].mvs_s[10];

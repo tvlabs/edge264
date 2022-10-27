@@ -15,10 +15,10 @@ static inline void FUNC(decode_inter_16x16, v8hi mvd, int lx)
 	int refIdxB = ctx->mbB->refIdx[lx * 4 + 2];
 	int eqA = refIdx==refIdxA;
 	int refIdxC, mvs_C;
-	if (__builtin_expect(mb->unavail16x16 & 4, 0)) {
+	if (__builtin_expect(ctx->unavail16x16 & 4, 0)) {
 		refIdxC = ctx->mbB[-1].refIdx[lx * 4 + 3];
 		mvs_C = ctx->mvs_D[0];
-		eqA |= mb->unavail16x16==14;
+		eqA |= ctx->unavail16x16==14;
 	} else {
 		refIdxC = ctx->mbB[1].refIdx[lx * 4 + 2];
 		mvs_C = ctx->mvs_C[5];
@@ -52,7 +52,7 @@ static inline void FUNC(decode_inter_8x16_left, v8hi mvd, int lx)
 	} else {
 		int refIdxB = ctx->mbB->refIdx[lx * 4 + 2];
 		int refIdxC, mvs_C;
-		if (__builtin_expect(mb->unavail16x16 & 2, 0)) {
+		if (__builtin_expect(ctx->unavail16x16 & 2, 0)) {
 			refIdxC = ctx->mbB[-1].refIdx[lx * 4 + 3];
 			mvs_C = ctx->mvs_D[0];
 		} else {
@@ -89,7 +89,7 @@ static inline void FUNC(decode_inter_8x16_right, v8hi mvd, int lx)
 	v8hi mvp;
 	int refIdx = mb->refIdx[lx * 4 + 1];
 	int refIdxC, mvs_C;
-	if (__builtin_expect(mb->unavail16x16 & 4, 0)) {
+	if (__builtin_expect(ctx->unavail16x16 & 4, 0)) {
 		refIdxC = ctx->mbB->refIdx[lx * 4 + 2];
 		mvs_C = ctx->mvs_D[4];
 	} else {
@@ -136,7 +136,7 @@ static inline void FUNC(decode_inter_16x8_top, v8hi mvd, int lx)
 	} else {
 		int refIdxA = mb[-1].refIdx[lx * 4 + 1];
 		int refIdxC, mvs_C;
-		if (__builtin_expect(mb->unavail16x16 & 4, 0)) {
+		if (__builtin_expect(ctx->unavail16x16 & 4, 0)) {
 			refIdxC = ctx->mbB[-1].refIdx[lx * 4 + 3];
 			mvs_C = ctx->mvs_D[0];
 		} else {
@@ -152,7 +152,7 @@ static inline void FUNC(decode_inter_16x8_top, v8hi mvd, int lx)
 			}
 		} else { // refIdx != refIdxB/C
 			mvp = (v8hi)(v4si){*(mb->mvs_s + lx * 16 + ctx->mvs_A[0])};
-			if (refIdx != refIdxA && mb->unavail16x16 != 14) {
+			if (refIdx != refIdxA && ctx->unavail16x16 != 14) {
 				v8hi mvB = (v8hi)(v4si){*(mb->mvs_s + lx * 16 + ctx->mvs_B[0])};
 				v8hi mvC = (v8hi)(v4si){*(mb->mvs_s + lx * 16 + mvs_C)};
 				mvp = median_v8hi(mvp, mvB, mvC);
@@ -218,7 +218,7 @@ static always_inline void FUNC(decode_direct_spatial_mv_pred, unsigned direct_fl
 	v16qi refIdxA = shuffle(shr((v16qi)(v2li){mb[-1].refIdx_l}, 1), shuf);
 	v16qi refIdxB = shuffle(shr((v16qi)(v2li){ctx->mbB->refIdx_l}, 2), shuf);
 	v16qi refIdxC = shuffle(shr((v16qi)(v2li){ctx->mbB[1].refIdx_l}, 2), shuf);
-	if (__builtin_expect(mb->unavail16x16 & 4, 0)) {
+	if (__builtin_expect(ctx->unavail16x16 & 4, 0)) {
 		mvC = (v8hi)(v4si){*(mb->mvs_s + ctx->mvs_D[0]), *(mb->mvs_s + ctx->mvs_D[0] + 16)};
 		refIdxC = shuffle(shr((v16qi)(v2li){ctx->mbB[-1].refIdx_l}, 3), shuf);
 	}

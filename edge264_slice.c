@@ -1720,7 +1720,7 @@ static noinline void CAFUNC(parse_slice_data)
 				mb[-1].mvs_v[5] = ctx->mvs_copyA[2];
 				mb[-1].mvs_v[7] = ctx->mvs_copyA[3];
 			}
-			if (ctx->CurrMbAddr <= ctx->first_mb_in_slice + ctx->ps.pic_width_in_mbs) { // B is unavailable
+			if (ctx->CurrMbAddr < ctx->first_mb_in_slice + ctx->ps.pic_width_in_mbs) { // B is unavailable
 				ctx->mbB->refIdx_l = ctx->refIdx_copyB;
 				ctx->mbB->nC_l[1] = ctx->nC_copyB[0];
 				ctx->mbB->nC_l[5] = ctx->nC_copyB[1];
@@ -1730,7 +1730,7 @@ static noinline void CAFUNC(parse_slice_data)
 				ctx->mbB->mvs_l[13] = ctx->mvs_copyB[2];
 				ctx->mbB->mvs_l[15] = ctx->mvs_copyB[3];
 			}
-			if (ctx->CurrMbAddr < ctx->first_mb_in_slice + ctx->ps.pic_width_in_mbs) { // C is unavailable
+			if (ctx->CurrMbAddr < ctx->first_mb_in_slice + ctx->ps.pic_width_in_mbs - 1) { // C is unavailable
 				ctx->mbB[1].refIdx_l = ctx->refIdx_copyCD;
 				ctx->mbB[1].mvs_s[10] = ctx->mvs_copyCD[0];
 				ctx->mbB[1].mvs_s[26] = ctx->mvs_copyCD[1];

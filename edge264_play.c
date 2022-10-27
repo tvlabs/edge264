@@ -133,7 +133,7 @@ static int check_frame(const Edge264_stream *e)
 				for (int base = 0; base < MbHeight * stride; base += stride)
 					invalid |= memcmp(p + base, q + base, MbStride);
 				if (invalid) {
-					printf("<h4 style='color:red'>Erroneous macroblock (pic_order_cnt %d, row %d, column %d, %s plane):<pre style='color:black'>\n", e->FieldOrderCnt[0][i] << 6 >> 6, row, col, (iYCbCr == 0) ? "Luma" : (iYCbCr == 1) ? "Cb" : "Cr");
+					printf("<h4 style='color:red'>Erroneous macroblock (PicOrderCnt %d, row %d, column %d, %s plane):<pre style='color:black'>\n", e->FieldOrderCnt[0][i] << 6 >> 6, row, col, (iYCbCr == 0) ? "Luma" : (iYCbCr == 1) ? "Cb" : "Cr");
 					for (int base = 0; base < MbHeight * stride; base += stride) {
 						for (int offset = base; offset < base + MbStride; offset++)
 							printf(p[offset] != q[offset] ? "<span style='color:red'>%3d</span> " : "%3d ", p[offset]);

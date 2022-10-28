@@ -1646,16 +1646,15 @@ static noinline void CAFUNC(parse_slice_data)
 					fB = unavail_mb.f.v;
 					bitsB = unavail_mb.bits_l;
 					ctx->refIdx_copy[1] = ctx->mbB->refIdx_l;
-					ctx->nC_copy_l[6] = ctx->mbB->nC_l[1];
-					ctx->nC_copy_l[7] = ctx->mbB->nC_l[5];
-					ctx->nC_copy_v[4] = ctx->mbB->nC_v[1];
+					ctx->nC_copy[3] = ctx->mbB->nC_v[0];
+					ctx->nC_copy[4] = ctx->mbB->nC_v[1];
+					ctx->nC_copy[5] = ctx->mbB->nC_v[2];
 					ctx->mvs_copy_l[8] = ctx->mbB->mvs_l[5];
 					ctx->mvs_copy_l[9] = ctx->mbB->mvs_l[7];
 					ctx->mvs_copy_l[10] = ctx->mbB->mvs_l[13];
 					ctx->mvs_copy_l[11] = ctx->mbB->mvs_l[15];
 					ctx->mbB->refIdx_l = -1;
-					ctx->mbB->nC_l[1] = ctx->mbB->nC_l[5] = 0;
-					ctx->mbB->nC_v[1] = (v16qi){};
+					ctx->mbB->nC_v[0] = ctx->mbB->nC_v[1] = ctx->mbB->nC_v[2] = (v16qi){};
 					ctx->mbB->Intra4x4PredMode_v = unavail_mb.Intra4x4PredMode_v;
 					ctx->mbB->absMvd_v[1] = ctx->mbB->absMvd_v[3] = (v16qu)zero;
 					ctx->mbB->mvs_l[5] = ctx->mbB->mvs_l[7] = ctx->mbB->mvs_l[13] = ctx->mbB->mvs_l[15] = 0;
@@ -1672,9 +1671,9 @@ static noinline void CAFUNC(parse_slice_data)
 							fA = unavail_mb.f.v;
 							bitsA = unavail_mb.bits_l;
 							ctx->refIdx_copy[0] = mb[-1].refIdx_l;
-							ctx->nC_copy_v[0] = mb[-1].nC_v[0];
-							ctx->nC_copy_v[1] = mb[-1].nC_v[1];
-							ctx->nC_copy_v[2] = mb[-1].nC_v[2];
+							ctx->nC_copy[0] = mb[-1].nC_v[0];
+							ctx->nC_copy[1] = mb[-1].nC_v[1];
+							ctx->nC_copy[2] = mb[-1].nC_v[2];
 							ctx->mvs_copy_v[0] = mb[-1].mvs_v[1];
 							ctx->mvs_copy_v[1] = mb[-1].mvs_v[3];
 							ctx->mvs_copy_v[2] = mb[-1].mvs_v[5];
@@ -1724,9 +1723,9 @@ static noinline void CAFUNC(parse_slice_data)
 				ctx->mbB[-1].mvs_s[31] = ctx->mvs_copy_s[31];
 				if (ctx->CurrMbAddr < ctx->first_mb_in_slice + ctx->ps.pic_width_in_mbs) { // B is unavailable
 					ctx->mbB->refIdx_l = ctx->refIdx_copy[1];
-					ctx->mbB->nC_l[1] = ctx->nC_copy_l[6];
-					ctx->mbB->nC_l[5] = ctx->nC_copy_l[7];
-					ctx->mbB->nC_v[1] = ctx->nC_copy_v[4];
+					ctx->mbB->nC_v[0] = ctx->nC_copy[3];
+					ctx->mbB->nC_v[1] = ctx->nC_copy[4];
+					ctx->mbB->nC_v[2] = ctx->nC_copy[5];
 					ctx->mbB->mvs_l[5] = ctx->mvs_copy_l[8];
 					ctx->mbB->mvs_l[7] = ctx->mvs_copy_l[9];
 					ctx->mbB->mvs_l[13] = ctx->mvs_copy_l[10];
@@ -1737,9 +1736,9 @@ static noinline void CAFUNC(parse_slice_data)
 						ctx->mbB[1].mvs_s[26] = ctx->mvs_copy_s[29];
 						if (ctx->CurrMbAddr == ctx->first_mb_in_slice) { // A is unavailable
 							mb[-1].refIdx_l = ctx->refIdx_copy[0];
-							mb[-1].nC_v[0] = ctx->nC_copy_v[0];
-							mb[-1].nC_v[1] = ctx->nC_copy_v[1];
-							mb[-1].nC_v[2] = ctx->nC_copy_v[2];
+							mb[-1].nC_v[0] = ctx->nC_copy[0];
+							mb[-1].nC_v[1] = ctx->nC_copy[1];
+							mb[-1].nC_v[2] = ctx->nC_copy[2];
 							mb[-1].mvs_v[1] = ctx->mvs_copy_v[0];
 							mb[-1].mvs_v[3] = ctx->mvs_copy_v[1];
 							mb[-1].mvs_v[5] = ctx->mvs_copy_v[2];

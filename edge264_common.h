@@ -167,14 +167,9 @@ typedef struct
 	union { int32_t mvs_B[16]; v16si mvs_B_v; };
 	union { int32_t mvs_C[16]; v16si mvs_C_v; };
 	union { int32_t mvs_D[16]; v16si mvs_D_v; };
-	int32_t mvs_copyCD[2];
-	int64_t refIdx_copyA;
-	int64_t refIdx_copyB;
-	int64_t refIdx_copyCD;
-	union { int64_t nC_copyB[4]; v16qi nC_copyB_v[2]; };
-	int64_t mvs_copyB[4];
-	v16qi nC_copyA[3];
-	v8hi mvs_copyA[4];
+	int64_t refIdx_copy[4];
+	union { int32_t mvs_copy_s[32]; int64_t mvs_copy_l[16]; v8hi mvs_copy_v[8]; };
+	union { int64_t nC_copy_l[10]; v16qi nC_copy_v[5]; };
 	
 	// Intra context
 	union { uint8_t intra4x4_modes[9][16]; v16qu intra4x4_modes_v[9]; }; // kept for future 16bit support

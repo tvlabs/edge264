@@ -1634,25 +1634,6 @@ static noinline void CAFUNC(parse_slice_data)
 		uint64_t bitsB = ctx->mbB->bits_l;
 		if (ctx->first_mb_in_slice) {
 			v16qi zero = {};
-			if (ctx->CurrMbAddr == ctx->first_mb_in_slice) { // A is unavailable
-				unavail16x16 |= 1;
-				fA = unavail_mb.f.v;
-				bitsA = unavail_mb.bits_l;
-				ctx->refIdx_copyA = mb[-1].refIdx_l;
-				ctx->nC_copyA[0] = mb[-1].nC_v[0];
-				ctx->nC_copyA[1] = mb[-1].nC_v[1];
-				ctx->nC_copyA[2] = mb[-1].nC_v[2];
-				ctx->mvs_copyA[0] = mb[-1].mvs_v[1];
-				ctx->mvs_copyA[1] = mb[-1].mvs_v[3];
-				ctx->mvs_copyA[2] = mb[-1].mvs_v[5];
-				ctx->mvs_copyA[3] = mb[-1].mvs_v[7];
-				mb[-1].refIdx_l = -1;
-				mb[-1].nC_v[0] = mb[-1].nC_v[1] = mb[-1].nC_v[2] = (v16qi)zero;
-				mb[-1].Intra4x4PredMode_v = unavail_mb.Intra4x4PredMode_v;
-				mb[-1].absMvd_v[0] = mb[-1].absMvd_v[1] = mb[-1].absMvd_v[2] = mb[-1].absMvd_v[3] = (v16qu)zero;
-				mb[-1].mvs_v[1] = mb[-1].mvs_v[3] = mb[-1].mvs_v[5] = mb[-1].mvs_v[7] = (v8hi)zero;
-				filter_edges &= ~ctx->disable_deblocking_filter_idc; // impacts only bit 1
-			}
 			if (ctx->CurrMbAddr < ctx->first_mb_in_slice + ctx->ps.pic_width_in_mbs) { // B is unavailable
 				unavail16x16 |= 2;
 				fB = unavail_mb.f.v;
@@ -1672,14 +1653,33 @@ static noinline void CAFUNC(parse_slice_data)
 				ctx->mbB->absMvd_v[1] = ctx->mbB->absMvd_v[3] = (v16qu)zero;
 				ctx->mbB->mvs_l[5] = ctx->mbB->mvs_l[7] = ctx->mbB->mvs_l[13] = ctx->mbB->mvs_l[15] = 0;
 				filter_edges &= ~(ctx->disable_deblocking_filter_idc << 1); // impacts only bit 2
-			}
-			if (ctx->CurrMbAddr < ctx->first_mb_in_slice + ctx->ps.pic_width_in_mbs - 1) { // C and D are unavailable
-				unavail16x16 |= 12;
-				ctx->refIdx_copyCD = ctx->mbB[-1].refIdx_l;
-				ctx->mvs_copyCD[0] = ctx->mbB[-1].mvs_s[15];
-				ctx->mvs_copyCD[1] = ctx->mbB[-1].mvs_s[31];
-				ctx->mbB[-1].refIdx_l = -1;
-				ctx->mbB[-1].mvs_s[15] = ctx->mbB[-1].mvs_s[31] = 0;
+				if (ctx->CurrMbAddr < ctx->first_mb_in_slice + ctx->ps.pic_width_in_mbs - 1) { // C and D are unavailable
+					unavail16x16 |= 12;
+					ctx->refIdx_copyCD = ctx->mbB[-1].refIdx_l;
+					ctx->mvs_copyCD[0] = ctx->mbB[-1].mvs_s[15];
+					ctx->mvs_copyCD[1] = ctx->mbB[-1].mvs_s[31];
+					ctx->mbB[-1].refIdx_l = -1;
+					ctx->mbB[-1].mvs_s[15] = ctx->mbB[-1].mvs_s[31] = 0;
+					if (ctx->CurrMbAddr == ctx->first_mb_in_slice) { // A is unavailable
+						unavail16x16 |= 1;
+						fA = unavail_mb.f.v;
+						bitsA = unavail_mb.bits_l;
+						ctx->refIdx_copyA = mb[-1].refIdx_l;
+						ctx->nC_copyA[0] = mb[-1].nC_v[0];
+						ctx->nC_copyA[1] = mb[-1].nC_v[1];
+						ctx->nC_copyA[2] = mb[-1].nC_v[2];
+						ctx->mvs_copyA[0] = mb[-1].mvs_v[1];
+						ctx->mvs_copyA[1] = mb[-1].mvs_v[3];
+						ctx->mvs_copyA[2] = mb[-1].mvs_v[5];
+						ctx->mvs_copyA[3] = mb[-1].mvs_v[7];
+						mb[-1].refIdx_l = -1;
+						mb[-1].nC_v[0] = mb[-1].nC_v[1] = mb[-1].nC_v[2] = (v16qi)zero;
+						mb[-1].Intra4x4PredMode_v = unavail_mb.Intra4x4PredMode_v;
+						mb[-1].absMvd_v[0] = mb[-1].absMvd_v[1] = mb[-1].absMvd_v[2] = mb[-1].absMvd_v[3] = (v16qu)zero;
+						mb[-1].mvs_v[1] = mb[-1].mvs_v[3] = mb[-1].mvs_v[5] = mb[-1].mvs_v[7] = (v8hi)zero;
+						filter_edges &= ~ctx->disable_deblocking_filter_idc; // impacts only bit 1
+					}
+				}
 			}
 		}
 		
@@ -1710,16 +1710,6 @@ static noinline void CAFUNC(parse_slice_data)
 		
 		// restore macroblock data on slice edge
 		if (ctx->first_mb_in_slice) {
-			if (ctx->CurrMbAddr == ctx->first_mb_in_slice) { // A is unavailable
-				mb[-1].refIdx_l = ctx->refIdx_copyA;
-				mb[-1].nC_v[0] = ctx->nC_copyA[0];
-				mb[-1].nC_v[1] = ctx->nC_copyA[1];
-				mb[-1].nC_v[2] = ctx->nC_copyA[2];
-				mb[-1].mvs_v[1] = ctx->mvs_copyA[0];
-				mb[-1].mvs_v[3] = ctx->mvs_copyA[1];
-				mb[-1].mvs_v[5] = ctx->mvs_copyA[2];
-				mb[-1].mvs_v[7] = ctx->mvs_copyA[3];
-			}
 			if (ctx->CurrMbAddr < ctx->first_mb_in_slice + ctx->ps.pic_width_in_mbs) { // B is unavailable
 				ctx->mbB->refIdx_l = ctx->refIdx_copyB;
 				ctx->mbB->nC_l[1] = ctx->nC_copyB[0];
@@ -1729,11 +1719,21 @@ static noinline void CAFUNC(parse_slice_data)
 				ctx->mbB->mvs_l[7] = ctx->mvs_copyB[1];
 				ctx->mbB->mvs_l[13] = ctx->mvs_copyB[2];
 				ctx->mbB->mvs_l[15] = ctx->mvs_copyB[3];
-			}
-			if (ctx->CurrMbAddr < ctx->first_mb_in_slice + ctx->ps.pic_width_in_mbs - 1) { // C and D are unavailable
-				ctx->mbB[-1].refIdx_l = ctx->refIdx_copyCD;
-				ctx->mbB[-1].mvs_s[15] = ctx->mvs_copyCD[0];
-				ctx->mbB[-1].mvs_s[31] = ctx->mvs_copyCD[1];
+				if (ctx->CurrMbAddr < ctx->first_mb_in_slice + ctx->ps.pic_width_in_mbs - 1) { // C and D are unavailable
+					ctx->mbB[-1].refIdx_l = ctx->refIdx_copyCD;
+					ctx->mbB[-1].mvs_s[15] = ctx->mvs_copyCD[0];
+					ctx->mbB[-1].mvs_s[31] = ctx->mvs_copyCD[1];
+					if (ctx->CurrMbAddr == ctx->first_mb_in_slice) { // A is unavailable
+						mb[-1].refIdx_l = ctx->refIdx_copyA;
+						mb[-1].nC_v[0] = ctx->nC_copyA[0];
+						mb[-1].nC_v[1] = ctx->nC_copyA[1];
+						mb[-1].nC_v[2] = ctx->nC_copyA[2];
+						mb[-1].mvs_v[1] = ctx->mvs_copyA[0];
+						mb[-1].mvs_v[3] = ctx->mvs_copyA[1];
+						mb[-1].mvs_v[5] = ctx->mvs_copyA[2];
+						mb[-1].mvs_v[7] = ctx->mvs_copyA[3];
+					}
+				}
 			}
 		}
 		

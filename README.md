@@ -1,8 +1,8 @@
 edge264
 =======
 
-This is a minimalist software decoder for the H.264 video codec, written from scratch to experiment new programming techniques in order to improve on performance and code complexity over existing decoders.
-It used to be only a toy project, but is now geared towards a production-ready decoder.
+This is a minimalist software decoder for the H.264 video codec, written from scratch to experiment new programming techniques in order to improve performance and code simplicity over existing decoders.
+It used to be just a toy project, but is now geared towards a production-ready decoder.
 
 
 Supported features

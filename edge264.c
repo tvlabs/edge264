@@ -863,17 +863,25 @@ static void FUNC(parse_scaling_lists)
 	if (!ctx->ps.transform_8x8_mode_flag)
 		return;
 	for (int i = 0; i < (ctx->ps.chroma_format_idc == 3 ? 6 : 2); i++) {
-		uint8_t *w8x8 = ctx->ps.weightScale8x8[i];
+		v16qu *w8x8 = (v16qu *)ctx->ps.weightScale8x8[i];
 		if (!CALL(get_u1)) {
-			if (i >= 2)
-				memcpy(w8x8, w8x8 - 128, 64);
+			if (i >= 2) {
+				w8x8[0] = w8x8[-8];
+				w8x8[1] = w8x8[-7];
+				w8x8[2] = w8x8[-6];
+				w8x8[3] = w8x8[-5];
+			}
 		} else {
 			unsigned nextScale = 8 + CALL(get_se16, -128, 127);
 			if (nextScale == 0) {
-				memcpy(w8x8, (i % 2 == 0) ? Default_8x8_Intra : Default_8x8_Inter, 64);
+				const v16qu *d8x8 = (i % 2 == 0) ? Default_8x8_Intra : Default_8x8_Inter;
+				w8x8[0] = d8x8[0];
+				w8x8[1] = d8x8[1];
+				w8x8[2] = d8x8[2];
+				w8x8[3] = d8x8[3];
 			} else {
 				for (unsigned j = 0, lastScale = nextScale;;) {
-					w8x8[j] = lastScale; // modulo 256 happens here
+					((uint8_t *)w8x8)[j] = lastScale; // modulo 256 happens here
 					if (++j >= 64)
 						break;
 					if (nextScale != 0) {

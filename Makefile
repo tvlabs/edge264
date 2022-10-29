@@ -29,13 +29,13 @@ endif
 	$(CC) $(GLFW3) $(CFLAGS) -o edge264_play$(SUF) edge264_play.c edge264$(SUF).o
 
 # These files are compiled separately to use a different set of GRVs
-edge264_deblock$(SUF).o: edge264_deblock.c edge264_common.h Makefile
+edge264_deblock$(SUF).o: edge264_deblock.c edge264*.h Makefile
 	$(CC) -o edge264_deblock$(SUF).o -c $(CFLAGS) edge264_deblock.c
-edge264_inter$(SUF).o: edge264_inter.c edge264_common.h Makefile
+edge264_inter$(SUF).o: edge264_inter.c edge264*.h Makefile
 	$(CC) -o edge264_inter$(SUF).o -c $(CFLAGS) edge264_inter.c
-edge264_intra$(SUF).o: edge264_intra.c edge264_common.h Makefile
+edge264_intra$(SUF).o: edge264_intra.c edge264*.h Makefile
 	$(CC) -o edge264_intra$(SUF).o -c $(CFLAGS) edge264_intra.c
-edge264_residual$(SUF).o: edge264_residual.c edge264_common.h Makefile
+edge264_residual$(SUF).o: edge264_residual.c edge264*.h Makefile
 	$(CC) -o edge264_residual$(SUF).o -c $(CFLAGS) edge264_residual.c
 
 .PHONY: clean

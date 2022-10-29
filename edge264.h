@@ -31,13 +31,17 @@
 #include <stdint.h>
 
 typedef struct {
-	// The first 8 bytes uniquely determine the frame buffer size and format.
+	// The first 16 bytes uniquely determine the frame buffer size and format.
 	int8_t chroma_format_idc; // 2 significant bits
 	int8_t BitDepth_Y; // 4 significant bits
 	int8_t BitDepth_C;
 	int8_t max_dec_frame_buffering; // 5 significant bits
 	uint16_t pic_width_in_mbs; // 10 significant bits
 	int16_t pic_height_in_mbs; // 10 significant bits
+	int16_t frame_crop_left_offset; // in luma samples
+	int16_t frame_crop_right_offset; // in luma samples
+	int16_t frame_crop_top_offset; // in luma samples
+	int16_t frame_crop_bottom_offset; // in luma samples
 	
 	// private fields
 	uint16_t qpprime_y_zero_transform_bypass_flag:1;
@@ -65,10 +69,6 @@ typedef struct {
 	int8_t second_chroma_qp_index_offset; // 5 significant bits
 	int16_t offset_for_non_ref_pic; // pic_order_cnt_type==1
 	int16_t offset_for_top_to_bottom_field; // pic_order_cnt_type==1
-	int16_t frame_crop_left_offset; // in luma samples
-	int16_t frame_crop_right_offset; // in luma samples
-	int16_t frame_crop_top_offset; // in luma samples
-	int16_t frame_crop_bottom_offset; // in luma samples
 	uint8_t weightScale4x4[6][16] __attribute__((aligned(16)));
 	uint8_t weightScale8x8[6][64] __attribute__((aligned(16)));
 } Edge264_parameter_set;

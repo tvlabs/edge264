@@ -1462,7 +1462,7 @@ static int FUNC(parse_seq_parameter_set, Edge264_stream *e)
 		return 1;
 	
 	// reallocate the DPB when the image format changes
-	if (memcmp(&ctx->ps, &e->SPS, 8) != 0) {
+	if (memcmp(&ctx->ps, &e->SPS, 16) != 0) {
 		if (e->DPB != NULL)
 			free(e->DPB);
 		memset(e, 0, sizeof(*e));

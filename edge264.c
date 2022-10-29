@@ -1448,7 +1448,9 @@ static int FUNC(parse_seq_parameter_set, Edge264_stream *e)
 		return 2;
 	if (ctx->ps.ChromaArrayType != 1 || ctx->ps.BitDepth_Y != 8 ||
 		ctx->ps.BitDepth_C != 8 || ctx->ps.qpprime_y_zero_transform_bypass_flag ||
-		!ctx->ps.frame_mbs_only_flag)
+		!ctx->ps.frame_mbs_only_flag || ctx->ps.frame_crop_left_offset > 0 ||
+		ctx->ps.frame_crop_right_offset > 0 || ctx->ps.frame_crop_top_offset > 0 ||
+		ctx->ps.frame_crop_bottom_offset > 0)
 		return 1;
 	
 	// reallocate the DPB when the image format changes

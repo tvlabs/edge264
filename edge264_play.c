@@ -27,6 +27,12 @@
 static GLFWwindow *window;
 static const uint8_t *cmp;
 static unsigned textures[3];
+static unsigned vbo;
+static float quad[16] = {
+	-1.0,  1.0, 0.0, 0.0,
+	-1.0, -1.0, 0.0, 1.0,
+	 1.0,  1.0, 0.0, 0.0,
+	 1.0, -1.0, 0.0, 1.0};
 
 
 
@@ -55,11 +61,6 @@ static void init_display()
 			"float Cr = texture2D(texCr, vTex).r;"
 			"gl_FragColor = YCbCr_RGB * vec4(Y, Cb, Cr, 1.0);"
 		"}";
-	static const float quad[16] = {
-		-1.0,  1.0, 0.0, 0.0,
-		-1.0, -1.0, 0.0, 1.0,
-		 1.0,  1.0, 1.0, 0.0,
-		 1.0, -1.0, 1.0, 1.0};
 	
 	glfwInit();
 	glfwWindowHint(GLFW_VISIBLE, GLFW_FALSE);
@@ -87,12 +88,7 @@ static void init_display()
 	glUniform1i(glGetUniformLocation(program, "texY"), 0);
 	glUniform1i(glGetUniformLocation(program, "texCb"), 1);
 	glUniform1i(glGetUniformLocation(program, "texCr"), 2);
-	
-	// load a dummy quad
-	unsigned vbo;
 	glGenBuffers(1, &vbo);
-	glBindBuffer(GL_ARRAY_BUFFER, vbo);
-	glBufferData(GL_ARRAY_BUFFER, sizeof(quad), quad, GL_STATIC_DRAW);
 	
 	// setup texture units
 	glGenTextures(3, textures);
@@ -109,52 +105,45 @@ static void init_display()
 
 
 
+// should be reworked when implementing 16-bits
 static int check_frame(const Edge264_stream *e)
 {
-	int i = (e->samples_Y - e->DPB) / e->frame_size;
-	int MbStrideY = e->SPS.BitDepth_Y == 8 ? 16 : 32;
-	int MbWidthC = e->SPS.chroma_format_idc < 3 ? 8 : 16;
-	int MbStrideC = e->SPS.BitDepth_C == 8 ? MbWidthC : MbWidthC * 2;
-	int MbHeightC = e->SPS.chroma_format_idc < 2 ? 8 : 16;
-	
-	// should be reworked when implementing frame cropping
+	int poc = e->FieldOrderCnt[0][(e->samples_Y - e->DPB) / e->frame_size] << 6 >> 6;
 	for (int row = 0; row < e->SPS.pic_height_in_mbs; row++) {
 		for (int col = 0; col < e->SPS.pic_width_in_mbs; col++) {
-			int MbStride = MbStrideY;
+			int MbWidth = 16;
 			int MbHeight = 16;
 			int stride = e->stride_Y;
-			int plane = 0;
+			const uint8_t *p = e->samples_Y + row * MbHeight * stride + col * MbWidth;
+			const uint8_t *q = cmp + row * MbHeight * stride + (col * MbWidth);
 			for (int iYCbCr = 0; iYCbCr < 3; iYCbCr++) {
-				int offset = plane + row * MbHeight * stride + col * MbStride;
-				const uint8_t *p = e->samples_Y + offset;
-				const uint8_t *q = cmp + offset;
-				
 				int invalid = 0;
 				for (int base = 0; base < MbHeight * stride; base += stride)
-					invalid |= memcmp(p + base, q + base, MbStride);
+					invalid |= memcmp(p + base, q + base, MbWidth);
 				if (invalid) {
-					printf("<h4 style='color:red'>Erroneous macroblock (PicOrderCnt %d, row %d, column %d, %s plane):<pre style='color:black'>\n", e->FieldOrderCnt[0][i] << 6 >> 6, row, col, (iYCbCr == 0) ? "Luma" : (iYCbCr == 1) ? "Cb" : "Cr");
+					printf("<h4 style='color:red'>Erroneous macroblock (PicOrderCnt %d, row %d, column %d, %s plane):<pre style='color:black'>\n", poc, row, col, (iYCbCr == 0) ? "Luma" : (iYCbCr == 1) ? "Cb" : "Cr");
 					for (int base = 0; base < MbHeight * stride; base += stride) {
-						for (int offset = base; offset < base + MbStride; offset++)
-							printf(p[offset] != q[offset] ? "<span style='color:red'>%3d</span> " : "%3d ", p[offset]);
+						for (int off = base; off < base + MbWidth; off++)
+							printf(p[off] != q[off] ? "<span style='color:red'>%3d</span> " : "%3d ", p[off]);
 						printf("\t");
-						for (int offset = base; offset < base + MbStride; offset++)
-							printf("%3d ", q[offset]);
+						for (int off = base; off < base + MbWidth; off++)
+							printf("%3d ", q[off]);
 						printf("\n");
 					}
 					printf("</pre></h4>\n");
 					return -2;
 				}
 				
-				MbStride = MbStrideC;
-				MbHeight = MbHeightC;
+				MbWidth = e->width_C < e->width_Y ? 8 : 16;
+				MbHeight = e->height_C < e->height_Y ? 8 : 16;
 				stride = e->stride_C;
-				plane += (iYCbCr == 0) ? e->plane_size_Y : e->plane_size_C;
+				const uint8_t *p = (iYCbCr == 0 ? e->samples_Cb : e->samples_Cr) + row * MbHeight * stride + col * MbWidth;
+				const uint8_t *q = cmp + (e->plane_size_C << iYCbCr) + row * MbHeight * stride + col * MbWidth;
 			}
 		}
 	}
-	printf("<h4 style='color:green'>Output frame with PicOrderCnt %d is correct</h4>\n",
-		e->FieldOrderCnt[0][i] << 6 >> 6);
+	cmp += e->plane_size_Y + e->plane_size_C * 2;
+	printf("<h4 style='color:green'>Output frame with PicOrderCnt %d is correct</h4>\n", poc);
 	return 0;
 }
 
@@ -165,27 +154,30 @@ int process_frame(Edge264_stream *e)
 	// resize the window if necessary
 	int w, h;
 	glfwGetWindowSize(window, &w, &h);
-	int widthY = e->SPS.pic_width_in_mbs << 4;
-	int heightY = e->SPS.pic_height_in_mbs << 4;
-	if (w != widthY || h != heightY) {
-		glfwSetWindowSize(window, widthY, heightY);
+	if (w != e->width_Y || h != e->height_Y) {
+		glfwSetWindowSize(window, e->width_Y, e->height_Y);
 		glfwShowWindow(window);
 	}
 	
+	// upload the texture coordinates to crop the right portion of the frame
+	float right = (float)e->width_Y / (float)(e->stride_Y >> e->pixel_depth_Y);
+	if (right != quad[10]) {
+		quad[10] = quad[14] = right;
+		glBindBuffer(GL_ARRAY_BUFFER, vbo);
+		glBufferData(GL_ARRAY_BUFFER, sizeof(quad), quad, GL_STATIC_DRAW);
+	}
 	// upload the image to OpenGL and render!
 	glClear(GL_COLOR_BUFFER_BIT);
 	glVertexAttribPointer(0, 4, GL_FLOAT, GL_FALSE, 0, 0);
-	int widthC = widthY >> (e->SPS.chroma_format_idc < 3);
-	int heightC = heightY >> (e->SPS.chroma_format_idc < 2);
 	glActiveTexture(GL_TEXTURE0);
 	glBindTexture(GL_TEXTURE_2D, textures[0]);
-	glTexImage2D(GL_TEXTURE_2D, 0, GL_LUMINANCE, widthY, heightY, 0, GL_LUMINANCE, e->SPS.BitDepth_Y == 8 ? GL_UNSIGNED_BYTE : GL_UNSIGNED_SHORT, e->samples_Y);
+	glTexImage2D(GL_TEXTURE_2D, 0, GL_LUMINANCE, e->stride_Y >> e->pixel_depth_Y, e->height_Y, 0, GL_LUMINANCE, e->pixel_depth_Y ? GL_UNSIGNED_SHORT : GL_UNSIGNED_BYTE, e->samples_Y);
 	glActiveTexture(GL_TEXTURE1);
 	glBindTexture(GL_TEXTURE_2D, textures[1]);
-	glTexImage2D(GL_TEXTURE_2D, 0, GL_LUMINANCE, widthC, heightC, 0, GL_LUMINANCE, e->SPS.BitDepth_C == 8 ? GL_UNSIGNED_BYTE : GL_UNSIGNED_SHORT, e->samples_Cb);
+	glTexImage2D(GL_TEXTURE_2D, 0, GL_LUMINANCE, e->stride_C >> e->pixel_depth_C, e->height_C, 0, GL_LUMINANCE, e->pixel_depth_C ? GL_UNSIGNED_SHORT : GL_UNSIGNED_BYTE, e->samples_Cb);
 	glActiveTexture(GL_TEXTURE2);
 	glBindTexture(GL_TEXTURE_2D, textures[2]);
-	glTexImage2D(GL_TEXTURE_2D, 0, GL_LUMINANCE, widthC, heightC, 0, GL_LUMINANCE, e->SPS.BitDepth_C == 8 ? GL_UNSIGNED_BYTE : GL_UNSIGNED_SHORT, e->samples_Cr);
+	glTexImage2D(GL_TEXTURE_2D, 0, GL_LUMINANCE, e->stride_C >> e->pixel_depth_C, e->height_C, 0, GL_LUMINANCE, e->pixel_depth_C ? GL_UNSIGNED_SHORT : GL_UNSIGNED_BYTE, e->samples_Cr);
 	glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
 	glfwSwapBuffers(window);
 	
@@ -204,7 +196,6 @@ int process_frame(Edge264_stream *e)
 			glfwTerminate();
 			exit(0);
 		}
-		cmp += e->plane_size_Y + e->plane_size_C * 2;
 	}
 	return 0;
 }

@@ -91,11 +91,11 @@ typedef struct Edge264_stream {
 	int16_t height_C;
 	int16_t stride_Y;
 	int16_t stride_C;
-	int32_t plane_size_Y;
-	int32_t plane_size_C;
 	
 	// private fields
 	uint8_t *DPB; // NULL before the first SPS is decoded
+	int32_t plane_size_Y;
+	int32_t plane_size_C;
 	int32_t frame_size;
 	uint32_t reference_flags; // bitfield for indices of reference frames
 	uint32_t pic_reference_flags; // to be applied after decoding all slices of the current frame

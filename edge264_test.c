@@ -63,9 +63,15 @@ int main() {
 		do {
 			res = Edge264_decode_NAL(&e);
 			if (!Edge264_get_frame(&e, res == -2)) {
-				if (memcmp(e.samples_Y, cmp, e.plane_size_Y + e.plane_size_C * 2)) // beware of holes with frame cropping
+				int diff = 0;
+				for (int y = 0; y < e.height_Y; y++, cmp += e.width_Y << e.pixel_depth_Y)
+					diff |= memcmp(e.samples_Y + y * e.stride_Y, cmp, e.width_Y << e.pixel_depth_Y);
+				for (int y = 0; y < e.height_C; y++, cmp += e.width_C << e.pixel_depth_C)
+					diff |= memcmp(e.samples_Cb + y * e.stride_C, cmp, e.width_C << e.pixel_depth_C);
+				for (int y = 0; y < e.height_C; y++, cmp += e.width_C << e.pixel_depth_C)
+					diff |= memcmp(e.samples_Cr + y * e.stride_C, cmp, e.width_C << e.pixel_depth_C);
+				if (diff)
 					res = 2;
-				cmp += e.plane_size_Y + e.plane_size_C * 2;
 			} else if (res == -2) {
 				break;
 			}

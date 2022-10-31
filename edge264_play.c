@@ -29,12 +29,6 @@ static inline int max(int a, int b) { return (a > b) ? a : b; }
 static GLFWwindow *window;
 static const uint8_t *cmp;
 static unsigned textures[3];
-static unsigned vbo;
-static float quad[16] = {
-	-1.0,  1.0, 0.0, 0.0,
-	-1.0, -1.0, 0.0, 1.0,
-	 1.0,  1.0, 0.0, 0.0,
-	 1.0, -1.0, 0.0, 1.0};
 
 
 
@@ -63,6 +57,11 @@ static void init_display()
 			"float Cr = texture2D(texCr, vTex).r;"
 			"gl_FragColor = YCbCr_RGB * vec4(Y, Cb, Cr, 1.0);"
 		"}";
+	static const float quad[16] = {
+		-1.0,  1.0, 0.0, 0.0,
+		-1.0, -1.0, 0.0, 1.0,
+		 1.0,  1.0, 1.0, 0.0,
+		 1.0, -1.0, 1.0, 1.0};
 	
 	glfwInit();
 	glfwWindowHint(GLFW_VISIBLE, GLFW_FALSE);
@@ -90,7 +89,12 @@ static void init_display()
 	glUniform1i(glGetUniformLocation(program, "texY"), 0);
 	glUniform1i(glGetUniformLocation(program, "texCb"), 1);
 	glUniform1i(glGetUniformLocation(program, "texCr"), 2);
+	
+	// upload the quad with texture coordinates
+	unsigned vbo;
 	glGenBuffers(1, &vbo);
+	glBindBuffer(GL_ARRAY_BUFFER, vbo);
+	glBufferData(GL_ARRAY_BUFFER, sizeof(quad), quad, GL_STATIC_DRAW);
 	
 	// setup texture units
 	glGenTextures(3, textures);
@@ -115,31 +119,31 @@ static int check_frame(const Edge264_stream *e)
 	int left = e->SPS.frame_crop_left_offset;
 	int right = e->SPS.frame_crop_right_offset;
 	int bottom = e->SPS.frame_crop_bottom_offset;
-	for (int row = 0; row < top + e->height_Y + bottom; row += 16) {
-		for (int col = 0; col < left + e->width_Y + right; col += 16) {
+	for (int row = -top; row < e->height_Y + bottom; row += 16) {
+		for (int col = -left; col < e->width_Y + right; col += 16) {
 			int sh_row = 0;
 			int sh_col = 0;
 			const uint8_t *p = e->samples_Y;
 			const uint8_t *q = cmp;
 			for (int iYCbCr = 0; iYCbCr < 3; iYCbCr++) {
 				int invalid = 0;
-				int x0 = max(col, left) >> sh_col;
-				int x1 = min(col + 16, left + e->width_Y) >> sh_col;
-				for (int y = max(row, top) >> sh_row; x0 < x1 && y < min(row + 16, top + e->height_Y) >> sh_row; y++)
-					invalid |= memcmp(p + y * (e->stride_Y >> sh_col) + x0, q + (((y - (top >> sh_row)) * e->width_Y - left) >> sh_col) + x0, x1 - x0);
+				int x0 = max(col, 0) >> sh_col;
+				int x1 = min(col + 16, e->width_Y) >> sh_col;
+				for (int y = max(row, 0) >> sh_row; x0 < x1 && y < min(row + 16, e->height_Y) >> sh_row; y++)
+					invalid |= memcmp(p + y * (e->stride_Y >> sh_col) + x0, q + y * (e->width_Y >> sh_col) + x0, x1 - x0);
 				if (invalid) {
 					printf("<h4 style='color:red'>Erroneous macroblock (PicOrderCnt %d, row %d, column %d, %s plane):<pre style='color:black'>\n",
-						poc, row >> 4, col >> 4, (iYCbCr == 0) ? "Luma" : (iYCbCr == 1) ? "Cb" : "Cr");
+						poc, (top + row) >> 4, (left + col) >> 4, (iYCbCr == 0) ? "Luma" : (iYCbCr == 1) ? "Cb" : "Cr");
 					for (int y = row >> sh_row; y < (row + 16) >> sh_row; y++) {
 						for (int x = col >> sh_col; x < (col + 16) >> sh_col; x++) {
-							printf(y < top >> sh_row || y >= (top + e->height_Y) >> sh_row || x < left >> sh_col || x >= (left + e->width_Y) >> sh_col ? "    " :
-								p[y * (e->stride_Y >> sh_col) + x] == q[(y - (top >> sh_row)) * (e->width_Y >> sh_col) + x - (left >> sh_col)] ? "%3d " :
+							printf(y < 0 || y >= e->height_Y >> sh_row || x < 0 || x >= e->width_Y >> sh_col ? "    " :
+								p[y * (e->stride_Y >> sh_col) + x] == q[y * (e->width_Y >> sh_col) + x] ? "%3d " :
 								"<span style='color:red'>%3d</span> ", p[y * (e->stride_Y >> sh_col) + x]);
 						}
 						printf("\t");
 						for (int x = col >> sh_col; x < (col + 16) >> sh_col; x++) {
-							printf(y < top >> sh_row || y >= (top + e->height_Y) >> sh_row || x < left >> sh_col || x >= (left + e->width_Y) >> sh_col ? "    " :
-								"%3d ", q[(y - (top >> sh_row)) * (e->width_Y >> sh_col) + x - (left >> sh_col)]);
+							printf(y < 0 || y >= e->height_Y >> sh_row || x < 0 || x >= e->width_Y >> sh_col ? "    " :
+								"%3d ", q[y * (e->width_Y >> sh_col) + x]);
 						}
 						printf("\n");
 					}
@@ -170,26 +174,20 @@ int process_frame(Edge264_stream *e)
 		glfwShowWindow(window);
 	}
 	
-	// upload the texture coordinates to crop the right portion of the frame
-	float right = (float)e->width_Y / (float)(e->stride_Y >> e->pixel_depth_Y);
-	if (right != quad[10]) {
-		quad[10] = quad[14] = right;
-		glBindBuffer(GL_ARRAY_BUFFER, vbo);
-		glBufferData(GL_ARRAY_BUFFER, sizeof(quad), quad, GL_STATIC_DRAW);
-	}
 	// upload the image to OpenGL and render!
 	glClear(GL_COLOR_BUFFER_BIT);
 	glVertexAttribPointer(0, 4, GL_FLOAT, GL_FALSE, 0, 0);
+	glPixelStorei(GL_UNPACK_ROW_LENGTH, e->stride_Y);
 	glActiveTexture(GL_TEXTURE0);
 	glBindTexture(GL_TEXTURE_2D, textures[0]);
-	// FIXME GL_UNPACK_ROW_LENGTH
-	glTexImage2D(GL_TEXTURE_2D, 0, GL_LUMINANCE, e->stride_Y >> e->pixel_depth_Y, e->height_Y, 0, GL_LUMINANCE, e->pixel_depth_Y ? GL_UNSIGNED_SHORT : GL_UNSIGNED_BYTE, e->samples_Y);
+	glTexImage2D(GL_TEXTURE_2D, 0, GL_LUMINANCE, e->width_Y >> e->pixel_depth_Y, e->height_Y, 0, GL_LUMINANCE, e->pixel_depth_Y ? GL_UNSIGNED_SHORT : GL_UNSIGNED_BYTE, e->samples_Y);
+	glPixelStorei(GL_UNPACK_ROW_LENGTH, e->stride_C);
 	glActiveTexture(GL_TEXTURE1);
 	glBindTexture(GL_TEXTURE_2D, textures[1]);
-	glTexImage2D(GL_TEXTURE_2D, 0, GL_LUMINANCE, e->stride_C >> e->pixel_depth_C, e->height_C, 0, GL_LUMINANCE, e->pixel_depth_C ? GL_UNSIGNED_SHORT : GL_UNSIGNED_BYTE, e->samples_Cb);
+	glTexImage2D(GL_TEXTURE_2D, 0, GL_LUMINANCE, e->width_C >> e->pixel_depth_C, e->height_C, 0, GL_LUMINANCE, e->pixel_depth_C ? GL_UNSIGNED_SHORT : GL_UNSIGNED_BYTE, e->samples_Cb);
 	glActiveTexture(GL_TEXTURE2);
 	glBindTexture(GL_TEXTURE_2D, textures[2]);
-	glTexImage2D(GL_TEXTURE_2D, 0, GL_LUMINANCE, e->stride_C >> e->pixel_depth_C, e->height_C, 0, GL_LUMINANCE, e->pixel_depth_C ? GL_UNSIGNED_SHORT : GL_UNSIGNED_BYTE, e->samples_Cr);
+	glTexImage2D(GL_TEXTURE_2D, 0, GL_LUMINANCE, e->width_C >> e->pixel_depth_C, e->height_C, 0, GL_LUMINANCE, e->pixel_depth_C ? GL_UNSIGNED_SHORT : GL_UNSIGNED_BYTE, e->samples_Cr);
 	glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
 	glfwSwapBuffers(window);
 	

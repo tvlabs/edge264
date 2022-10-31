@@ -8,7 +8,7 @@ It used to be just a toy project, but is now geared towards a production-ready d
 Supported features
 ------------------
 
-* Any resolution (multiple of 16) from 16x16 up to 8K UHD (level 6.2)
+* Any resolution up to 8K UHD (level 6.2)
 * 8-bit 4:2:0 planar YUV output
 * CAVLC/CABAC
 * I/P/B frames
@@ -22,8 +22,7 @@ Supported features
 Planned features
 ----------------
 
-* Frame cropping
-* 8x8 transforms (needs testing and debugging)
+* 8x8 transforms (work in progress)
 * MVC 3D support
 * Constrained Intra prediction
 * AVX-2 enhancements

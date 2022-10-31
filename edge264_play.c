@@ -23,6 +23,8 @@
 #ifndef TRACE
 #define printf(...) ((void)0)
 #endif
+static inline int min(int a, int b) { return (a < b) ? a : b; }
+static inline int max(int a, int b) { return (a > b) ? a : b; }
 
 static GLFWwindow *window;
 static const uint8_t *cmp;
@@ -109,40 +111,48 @@ static void init_display()
 static int check_frame(const Edge264_stream *e)
 {
 	int poc = e->FieldOrderCnt[0][(e->samples_Y - e->DPB) / e->frame_size] << 6 >> 6;
-	for (int row = 0; row < e->SPS.pic_height_in_mbs; row++) {
-		for (int col = 0; col < e->SPS.pic_width_in_mbs; col++) {
-			int MbWidth = 16;
-			int MbHeight = 16;
-			int stride = e->stride_Y;
-			const uint8_t *p = e->samples_Y + row * MbHeight * stride + col * MbWidth;
-			const uint8_t *q = cmp + row * MbHeight * stride + (col * MbWidth);
+	int top = e->SPS.frame_crop_top_offset;
+	int left = e->SPS.frame_crop_left_offset;
+	int right = e->SPS.frame_crop_right_offset;
+	int bottom = e->SPS.frame_crop_bottom_offset;
+	for (int row = 0; row < top + e->height_Y + bottom; row += 16) {
+		for (int col = 0; col < left + e->width_Y + right; col += 16) {
+			int sh_row = 0;
+			int sh_col = 0;
+			const uint8_t *p = e->samples_Y;
+			const uint8_t *q = cmp;
 			for (int iYCbCr = 0; iYCbCr < 3; iYCbCr++) {
 				int invalid = 0;
-				for (int base = 0; base < MbHeight * stride; base += stride)
-					invalid |= memcmp(p + base, q + base, MbWidth);
+				int bytes = (min(col + 16, left + e->width_Y) - max(col, left)) >> sh_col;
+				for (int y = max(row, top) >> sh_row; y < min(row + 16, top + e->height_Y) >> sh_row; y++)
+					invalid |= memcmp(p + ((y * e->stride_Y + col) >> sh_col), q + (((y - (top >> sh_row)) * e->width_Y + col - left) >> sh_col), bytes);
 				if (invalid) {
-					printf("<h4 style='color:red'>Erroneous macroblock (PicOrderCnt %d, row %d, column %d, %s plane):<pre style='color:black'>\n", poc, row, col, (iYCbCr == 0) ? "Luma" : (iYCbCr == 1) ? "Cb" : "Cr");
-					for (int base = 0; base < MbHeight * stride; base += stride) {
-						for (int off = base; off < base + MbWidth; off++)
-							printf(p[off] != q[off] ? "<span style='color:red'>%3d</span> " : "%3d ", p[off]);
+					printf("<h4 style='color:red'>Erroneous macroblock (PicOrderCnt %d, row %d, column %d, %s plane):<pre style='color:black'>\n",
+						poc, row >> 4, col >> 4, (iYCbCr == 0) ? "Luma" : (iYCbCr == 1) ? "Cb" : "Cr");
+					for (int y = row >> sh_row; y < (row + 16) >> sh_row; y++) {
+						for (int x = col >> sh_col; x < (col + 16) >> sh_col; x++) {
+							printf(y < top >> sh_row || y >= (top + e->height_Y) >> sh_row || x < left >> sh_col || x >= (left + e->width_Y) >> sh_col ? "    " :
+								p[y * (e->stride_Y >> sh_col) + x] == q[(y - (top >> sh_row)) * (e->width_Y >> sh_col) + x - (left >> sh_col)] ? "%3d " :
+								"<span style='color:red'>%3d</span> ", p[y * (e->stride_Y >> sh_col) + x]);
+						}
 						printf("\t");
-						for (int off = base; off < base + MbWidth; off++)
-							printf("%3d ", q[off]);
+						for (int x = col >> sh_col; x < (col + 16) >> sh_col; x++) {
+							printf(y < top >> sh_row || y >= (top + e->height_Y) >> sh_row || x < left >> sh_col || x >= (left + e->width_Y) >> sh_col ? "    " :
+								"%3d ", q[(y - (top >> sh_row)) * (e->width_Y >> sh_col) + x - (left >> sh_col)]);
+						}
 						printf("\n");
 					}
 					printf("</pre></h4>\n");
 					return -2;
 				}
-				
-				MbWidth = e->width_C < e->width_Y ? 8 : 16;
-				MbHeight = e->height_C < e->height_Y ? 8 : 16;
-				stride = e->stride_C;
-				const uint8_t *p = (iYCbCr == 0 ? e->samples_Cb : e->samples_Cr) + row * MbHeight * stride + col * MbWidth;
-				const uint8_t *q = cmp + (e->plane_size_C << iYCbCr) + row * MbHeight * stride + col * MbWidth;
+				sh_row = e->height_C < e->height_Y;
+				sh_col = e->width_C < e->width_Y;
+				p = (iYCbCr == 0) ? e->samples_Cb : e->samples_Cr;
+				q += (iYCbCr == 0) ? e->width_Y * e->height_Y : e->width_C * e->height_C;
 			}
 		}
 	}
-	cmp += e->plane_size_Y + e->plane_size_C * 2;
+	cmp += e->width_Y * e->height_Y + e->width_C * e->height_C * 2;
 	printf("<h4 style='color:green'>Output frame with PicOrderCnt %d is correct</h4>\n", poc);
 	return 0;
 }

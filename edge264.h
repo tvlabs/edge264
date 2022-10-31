@@ -80,9 +80,9 @@ typedef struct Edge264_stream {
 	const uint8_t *end; // first byte past the end of the buffer
 	
 	// public read-only fields
-	uint8_t *samples_Y;
-	uint8_t *samples_Cb;
-	uint8_t *samples_Cr;
+	const uint8_t *samples_Y;
+	const uint8_t *samples_Cb;
+	const uint8_t *samples_Cr;
 	int8_t pixel_depth_Y; // 0 for 8-bit, 1 for 16-bit
 	int8_t pixel_depth_C;
 	int16_t width_Y;

@@ -1430,13 +1430,13 @@ static int FUNC(parse_seq_parameter_set, Edge264_stream *e)
 	ctx->ps.frame_crop_bottom_offset = 0;
 	if (CALL(get_u1)) {
 		unsigned shiftX = (ctx->ps.ChromaArrayType == 1) | (ctx->ps.ChromaArrayType == 2);
-		unsigned shiftY = (ctx->ps.ChromaArrayType == 1) + (ctx->ps.frame_mbs_only_flag ^ 1);
+		unsigned shiftY = (ctx->ps.ChromaArrayType == 1);
 		int limX = (ctx->ps.pic_width_in_mbs << 4 >> shiftX) - 1;
 		int limY = (ctx->ps.pic_height_in_mbs << 4 >> shiftY) - 1;
 		ctx->ps.frame_crop_left_offset = CALL(get_ue16, limX) << shiftX;
-		ctx->ps.frame_crop_right_offset = CALL(get_ue16, limX - (ctx->ps.frame_crop_left_offset >> shiftX));
+		ctx->ps.frame_crop_right_offset = CALL(get_ue16, limX - (ctx->ps.frame_crop_left_offset >> shiftX)) << shiftX;
 		ctx->ps.frame_crop_top_offset = CALL(get_ue16, limY) << shiftY;
-		ctx->ps.frame_crop_bottom_offset = CALL(get_ue16, limY - (ctx->ps.frame_crop_bottom_offset >> shiftY));
+		ctx->ps.frame_crop_bottom_offset = CALL(get_ue16, limY - (ctx->ps.frame_crop_bottom_offset >> shiftY)) << shiftY;
 		printf("<tr><th>frame_crop_offsets</th><td>left %u, right %u, top %u, bottom %u</td></tr>\n",
 			ctx->ps.frame_crop_left_offset, ctx->ps.frame_crop_right_offset, ctx->ps.frame_crop_top_offset, ctx->ps.frame_crop_bottom_offset);
 	} else {
@@ -1456,9 +1456,7 @@ static int FUNC(parse_seq_parameter_set, Edge264_stream *e)
 		return 2;
 	if (ctx->ps.ChromaArrayType != 1 || ctx->ps.BitDepth_Y != 8 ||
 		ctx->ps.BitDepth_C != 8 || ctx->ps.qpprime_y_zero_transform_bypass_flag ||
-		!ctx->ps.frame_mbs_only_flag || ctx->ps.frame_crop_left_offset > 0 ||
-		ctx->ps.frame_crop_right_offset > 0 || ctx->ps.frame_crop_top_offset > 0 ||
-		ctx->ps.frame_crop_bottom_offset > 0)
+		!ctx->ps.frame_mbs_only_flag)
 		return 1;
 	
 	// reallocate the DPB when the image format changes
@@ -1468,22 +1466,24 @@ static int FUNC(parse_seq_parameter_set, Edge264_stream *e)
 		memset(e, 0, sizeof(*e));
 		e->end = ctx->end;
 		
-		// some basic variables first
+		// An offset might be added to stride if cache alignment shows a significant impact.
 		int PicWidthInMbs = ctx->ps.pic_width_in_mbs;
 		int PicHeightInMbs = ctx->ps.pic_height_in_mbs;
+		int width = PicWidthInMbs << 4;
+		int height = PicHeightInMbs << 4;
 		e->currPic = -1;
 		e->pixel_depth_Y = ctx->ps.BitDepth_Y > 8;
 		e->pixel_depth_C = ctx->ps.BitDepth_C > 8;
-		e->width_Y = PicWidthInMbs << 4;
-		e->width_C = ctx->ps.chroma_format_idc == 0 ? 0 : ctx->ps.chroma_format_idc == 3 ? e->width_Y : e->width_Y >> 1;
-		e->height_Y = PicHeightInMbs << 4;
-		e->height_C = ctx->ps.chroma_format_idc < 2 ? e->height_Y >> 1 : e->height_Y;
-		
-		// An offset might be added if cache alignment has a significant impact on some videos.
-		e->stride_Y = e->width_Y << e->pixel_depth_Y;
-		e->stride_C = e->width_C << e->pixel_depth_C;
-		e->plane_size_Y = e->stride_Y * e->height_Y;
-		e->plane_size_C = e->stride_C * e->height_C;
+		e->width_Y = width - ctx->ps.frame_crop_left_offset - ctx->ps.frame_crop_right_offset;
+		e->height_Y = height - ctx->ps.frame_crop_top_offset - ctx->ps.frame_crop_bottom_offset;
+		e->stride_Y = width << e->pixel_depth_Y;
+		e->plane_size_Y = e->stride_Y * height;
+		if (ctx->ps.chroma_format_idc > 0) {
+			e->width_C = ctx->ps.chroma_format_idc == 3 ? e->width_Y : e->width_Y >> 1;
+			e->stride_C = (ctx->ps.chroma_format_idc == 3 ? width : width >> 1) << e->pixel_depth_C;
+			e->height_C = ctx->ps.chroma_format_idc == 1 ? e->height_Y >> 1 : e->height_Y;
+			e->plane_size_C = (ctx->ps.chroma_format_idc == 1 ? height >> 1 : height) * e->stride_C;
+		}
 		
 		// Each picture in the DPB is three planes and a group of macroblocks
 		int mbs = (PicWidthInMbs + 1) * (PicHeightInMbs + 1);
@@ -1645,9 +1645,15 @@ int Edge264_get_frame(Edge264_stream *e, int drain) {
 	if (output < 0)
 		return -1;
 	e->output_flags ^= 1 << output;
-	e->samples_Y = e->DPB + output * e->frame_size;
-	e->samples_Cb = e->samples_Y + e->plane_size_Y;
-	e->samples_Cr = e->samples_Cb + e->plane_size_C;
+	const uint8_t *samples = e->DPB + output * e->frame_size;
+	int top = e->SPS.frame_crop_top_offset;
+	int left = e->SPS.frame_crop_left_offset;
+	int topC = e->SPS.chroma_format_idc == 3 ? top : top >> 1;
+	int leftC = e->SPS.chroma_format_idc == 1 ? left >> 1 : left;
+	int offC = e->plane_size_Y + topC * e->stride_C + (leftC << e->pixel_depth_C);
+	e->samples_Y = samples + top * e->stride_Y + (left << e->pixel_depth_Y);
+	e->samples_Cb = samples + offC;
+	e->samples_Cr = samples + e->plane_size_C + offC;
 	return 0;
 }
 

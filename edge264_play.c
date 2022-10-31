@@ -123,9 +123,10 @@ static int check_frame(const Edge264_stream *e)
 			const uint8_t *q = cmp;
 			for (int iYCbCr = 0; iYCbCr < 3; iYCbCr++) {
 				int invalid = 0;
-				int bytes = (min(col + 16, left + e->width_Y) - max(col, left)) >> sh_col;
-				for (int y = max(row, top) >> sh_row; y < min(row + 16, top + e->height_Y) >> sh_row; y++)
-					invalid |= memcmp(p + ((y * e->stride_Y + col) >> sh_col), q + (((y - (top >> sh_row)) * e->width_Y + col - left) >> sh_col), bytes);
+				int x0 = max(col, left) >> sh_col;
+				int x1 = min(col + 16, left + e->width_Y) >> sh_col;
+				for (int y = max(row, top) >> sh_row; x0 < x1 && y < min(row + 16, top + e->height_Y) >> sh_row; y++)
+					invalid |= memcmp(p + y * (e->stride_Y >> sh_col) + x0, q + (((y - (top >> sh_row)) * e->width_Y - left) >> sh_col) + x0, x1 - x0);
 				if (invalid) {
 					printf("<h4 style='color:red'>Erroneous macroblock (PicOrderCnt %d, row %d, column %d, %s plane):<pre style='color:black'>\n",
 						poc, row >> 4, col >> 4, (iYCbCr == 0) ? "Luma" : (iYCbCr == 1) ? "Cb" : "Cr");
@@ -181,6 +182,7 @@ int process_frame(Edge264_stream *e)
 	glVertexAttribPointer(0, 4, GL_FLOAT, GL_FALSE, 0, 0);
 	glActiveTexture(GL_TEXTURE0);
 	glBindTexture(GL_TEXTURE_2D, textures[0]);
+	// FIXME GL_UNPACK_ROW_LENGTH
 	glTexImage2D(GL_TEXTURE_2D, 0, GL_LUMINANCE, e->stride_Y >> e->pixel_depth_Y, e->height_Y, 0, GL_LUMINANCE, e->pixel_depth_Y ? GL_UNSIGNED_SHORT : GL_UNSIGNED_BYTE, e->samples_Y);
 	glActiveTexture(GL_TEXTURE1);
 	glBindTexture(GL_TEXTURE_2D, textures[1]);

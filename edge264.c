@@ -1,6 +1,4 @@
 /** MAYDO:
- * _ finish current frame if get_frame with drain?
- * _ Add options to test.c to print passed/unsupported files, and print then overwrite counts after each file processed
  * _ add a macro mbB to simplify the syntax ctx->mbB
  * _ rename edge264_common.h into internal.h to make it more obvious that this is an internal file!
  * _ clean edge264_internal.h from unused stuff

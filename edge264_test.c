@@ -10,19 +10,37 @@
 
 #include "edge264.h"
 
-#define RESET  "\x1b[0m"
-#define RED    "\x1b[31m"
-#define GREEN  "\x1b[32m"
-#define YELLOW "\x1b[33m"
-#define BLUE   "\x1b[34m"
-#define PURPLE "\x1b[35m"
+#define RESET  "\033[0m"
+#define RED    "\033[31m"
+#define GREEN  "\033[32m"
+#define YELLOW "\033[33m"
+#define BLUE   "\033[34m"
+#define PURPLE "\033[35m"
 
 
-int main() {
-	int counts[6] = {};
+int main(int argc, char *argv[])
+{
+	// read command-line options
+	int print_unsupported = 0;
+	int print_passed = 0;
+	for (int i = 1; i < argc; i++) {
+		if (strcmp(argv[i], "-h") == 0 || strcmp(argv[i], "--help") == 0) {
+			printf("Usage: %s [-u] [-p]\n"
+			       "-u\tprint names of unsupported files"
+			       "-p\tprint names of passed files", argv[0]);
+			return 0;
+		} else if (strcmp(argv[i], "-u") == 0) {
+			print_unsupported = 1;
+		} else if (strcmp(argv[i], "-p") == 0) {
+			print_passed = 1;
+		}
+	}
+	
+	// fill the stack now
+	Edge264_stream e = {};
 	struct dirent *entry;
 	struct stat stC, stD;
-	Edge264_stream e = {};
+	int counts[6] = {};
 	
 	// parse all clips in the conformance directory
 	setbuf(stdout, NULL);
@@ -32,6 +50,7 @@ int main() {
 	}
 	DIR *dir = opendir(".");
 	assert(dir!=NULL);
+	printf("0 " GREEN "PASS" RESET ", 0 " YELLOW "UNSUPPORTED" RESET ", 0 " RED "FAIL" RESET "\n");
 	while ((entry = readdir(dir))) {
 		char *ext = strrchr(entry->d_name, '.');
 		if (*(int *)ext != *(int *)".264")
@@ -80,8 +99,19 @@ int main() {
 			res = 2;
 		Edge264_clear(&e);
 		counts[2 + res]++;
-		if (res != 1)
-			printf("%s: %s\n" RESET, entry->d_name, res == -2 ? GREEN "PASS" : res == 1 ? YELLOW "UNSUPPORTED" : res == 2 ? RED "FAIL" : BLUE "FLAGGED");
+		printf("\033[A\033[K"); // move cursor up and clear line
+		if (res == -2 && print_passed) {
+			printf("%s: " GREEN "PASS" RESET "\n", entry->d_name);
+		} else if (res == 1 && print_unsupported) {
+			printf("%s: " YELLOW "UNSUPPORTED" RESET "\n", entry->d_name);
+		} else if (res >= 2) {
+			printf("%s: %s" RESET "\n", entry->d_name, res == 2 ? RED "FAIL" : BLUE "FLAGGED");
+		}
+		printf("%d " GREEN "PASS" RESET ", %d " YELLOW "UNSUPPORTED" RESET ", %d " RED "FAIL" RESET,
+			counts[0], counts[3], counts[4]);
+		if (counts[5] > 0)
+			printf(", %d " BLUE "FLAGGED" RESET, counts[5]);
+		putchar('\n');
 		
 		// close everything
 		munmap(cpb, stC.st_size);
@@ -90,10 +120,5 @@ int main() {
 		close(yuv);
 	}
 	closedir(dir);
-	putchar('\n');
-	if (counts[5] > 0)
-		printf("%d " BLUE "FLAGGED" RESET ", ", counts[5]);
-	printf("%d " GREEN "PASS" RESET ", %d " YELLOW "UNSUPPORTED" RESET ", %d " RED "FAIL" RESET "\n",
-		counts[0], counts[3], counts[4]);
-	return 0;
+	return counts[4];
 }

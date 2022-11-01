@@ -1,7 +1,7 @@
 /**
  * Parsing CAVLC and CABAC values (for 32 or 64 bit machines).
  */
-#include "edge264_common.h"
+#include "edge264_internal.h"
 
 
 #ifdef __SSSE3__

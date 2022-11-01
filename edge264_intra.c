@@ -22,7 +22,7 @@
  * _ Avoid 8-bit code that has a tiny effect at the expense of readability.
  */
 
-#include "edge264_common.h"
+#include "edge264_internal.h"
 
 static inline __m128i lowpass(__m128i left, __m128i mid, __m128i right) {
 	return _mm_avg_epu16(_mm_srli_epi16(_mm_add_epi16(left, right), 1), mid);

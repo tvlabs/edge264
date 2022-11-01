@@ -4,7 +4,7 @@
  * may have changed since. However the code may be salvaged and repurposed.
  */
 #define TRACE 1
-#include "edge264_common.h"
+#include "edge264_internal.h"
 #ifdef __SSSE3__
 static inline void print_v4si(__m128i x) {
 	for (int i = 0; i < 4; i++)

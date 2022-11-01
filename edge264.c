@@ -1,5 +1,4 @@
 /** MAYDO:
- * _ rename edge264_common.h into internal.h to make it more obvious that this is an internal file!
  * _ clean edge264_internal.h from unused stuff
  * _ merge e and ctx pointers to reduce register pressure in edge264.c ?
  * _ implement a tool that decodes an Annex B stream and compares it with a JM output, returning a faulty GOP file on error
@@ -30,7 +29,7 @@
 	#define msb_cache ctx->_msb_cache
 #endif
 
-#include "edge264_common.h"
+#include "edge264_internal.h"
 #include "edge264_bitstream.c"
 #include "edge264_mvpred.c"
 #include "edge264_slice.c"

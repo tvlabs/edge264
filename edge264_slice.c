@@ -1,4 +1,4 @@
-#include "edge264_common.h"
+#include "edge264_internal.h"
 
 #undef CAFUNC
 #undef CACALL

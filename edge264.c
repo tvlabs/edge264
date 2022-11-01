@@ -1,7 +1,7 @@
 /** MAYDO:
- * _ clean edge264_internal.h from unused stuff
  * _ merge e and ctx pointers to reduce register pressure in edge264.c ?
  * _ implement a tool that decodes an Annex B stream and compares it with a JM output, returning a faulty GOP file on error
+ * _ fix compilation with SSSE3
  * _ add an option to store N more frames, to tolerate lags in CPU scheduling
  * _ try using epb for context pointer, and email GCC when it fails
  * _ when implementing fields and MBAFF, keep the same pic coding struct (no FLD/AFRM) and just add mb_field_decoding_flag

@@ -1,5 +1,5 @@
 /**
- * Every file should be compilable on its own by including this one.
+ * Every file should be compilable on its own by including this file.
  */
 
 #ifndef EDGE264_COMMON_H
@@ -31,7 +31,7 @@ typedef uint8_t v16qu __attribute__((vector_size(16)));
 typedef uint16_t v8hu __attribute__((vector_size(16)));
 typedef uint32_t v4su __attribute__((vector_size(16)));
 typedef uint64_t v2lu __attribute__((vector_size(16)));
-typedef int32_t v8si __attribute__((vector_size(32))); // for alignment of ctx->c
+typedef int32_t v8si __attribute__((vector_size(32))); // to align ctx->c for AVX-2 residual functions
 typedef int16_t v16hi __attribute__((vector_size(32))); // for initialization of neighbouring offsets
 typedef int32_t v16si __attribute__((vector_size(64))); // for initialization of neighbouring offsets
 
@@ -221,6 +221,16 @@ typedef struct
 	#define big_endian64(x) (x)
 #endif
 
+#if UINT_MAX == 4294967295U && ULLONG_MAX == 18446744073709551615U
+	#define clz32 __builtin_clz
+	#define ctz32 __builtin_ctz
+	#define clz64 __builtin_clzll
+	#define ctz64 __builtin_ctzll
+	#ifndef WORD_BIT
+		#define WORD_BIT 32
+	#endif
+#endif
+
 #if SIZE_MAX == 4294967295U
 	#define SIZE_BIT 32
 	#define big_endian big_endian32
@@ -231,16 +241,6 @@ typedef struct
 	#define big_endian big_endian64
 	#define clz clz64
 	#define ctz ctz64
-#endif
-
-#if UINT_MAX == 4294967295U && ULLONG_MAX == 18446744073709551615U
-	#define clz32 __builtin_clz
-	#define ctz32 __builtin_ctz
-	#define clz64 __builtin_clzll
-	#define ctz64 __builtin_ctzll
-	#ifndef WORD_BIT
-		#define WORD_BIT 32
-	#endif
 #endif
 
 
@@ -271,8 +271,8 @@ typedef struct
 
 /**
  * Function declarations are put in a single block here instead of .h files
- * because they are so few. Functions used across files are not made static to
- * allow compiling each file individually.
+ * because they are so few. Functions used across compilation units are defined
+ * without static.
  */
 #ifndef noinline
 	#define noinline __attribute__((noinline))
@@ -286,8 +286,6 @@ typedef struct
 	static inline const char *red_if(int cond) { return (cond) ? " style='background-color:#f77'" : ""; }
 #else
 	#define printf(...) ((void)0)
-	#define check_stream(e) ((void)0)
-	#define check_ctx(...) ((void)0)
 #endif
 #if TRACE < 2
 	#define fprintf(...) ((void)0)
@@ -383,13 +381,13 @@ static noinline int FUNC(parse_slice_data_cabac);
 // Intel-specific common function declarations
 #ifdef __SSSE3__
 	#include <x86intrin.h>
-
+	
 	// instructions available on later architectures
 	#ifndef __AVX_2__
 		#define _mm_broadcastw_epi16(a) _mm_shuffle_epi32(_mm_shufflelo_epi16(a, _MM_SHUFFLE(0, 0, 0, 0)), _MM_SHUFFLE(1, 0, 1, 0))
 	#endif
 	#if !defined(__SSE4_1__) && !defined(__clang__)
-		static inline __m128i _mm_mullo_epi32(__m128i a, __m128i b) { // FIXME correct
+		static inline __m128i _mm_mullo_epi32(__m128i a, __m128i b) {
 			__m128i c = _mm_shuffle_epi32(a, _MM_SHUFFLE(0, 3, 0, 1));
 			__m128i d = _mm_shuffle_epi32(b, _MM_SHUFFLE(0, 3, 0, 1));
 			__m128i e = _mm_mul_epu32(a, b);
@@ -406,12 +404,9 @@ static noinline int FUNC(parse_slice_data_cabac);
 			__m128i m = _mm_cmpgt_epi8(a, b);\
 			_mm_or_si128(_mm_and_si128(a, m), _mm_and_si128(b, m));})
 	#endif
-
+	
 	// complements to GCC vector intrinsics
 	#ifdef __BMI2__
-		static inline unsigned refIdx_to_direct_flags(int64_t f) {
-			return _pext_u64(~little_endian64(f), 0x0f0f0f0f0f0f0f0full);
-		}
 		static inline int mvd_flags2ref_idx(unsigned f) {
 			return _pext_u32(f, 0x11111111);
 		}
@@ -419,11 +414,6 @@ static noinline int FUNC(parse_slice_data_cabac);
 			return _pext_u32(f, 0x27);
 		}
 	#else
-		static inline unsigned refIdx_to_direct_flags(int64_t f) {
-			uint64_t a = ~f & 0x0ff00ff00ff00ff0ull;
-			uint64_t b = a >> 4 | a >> 12;
-			return (b & 0xffff) | (b >> 16 & 0xffff0000);
-		}
 		static inline int mvd_flags2ref_idx(unsigned f) {
 			int a = f & 0x11111111;
 			int b = a | a >> 3;
@@ -520,15 +510,6 @@ static noinline int FUNC(parse_slice_data_cabac);
 	}
 	#define shr(a, i) (typeof(a))_mm_srli_si128((__m128i)(a), i)
 	
-	// FIXME remove once we get rid of __m64
-	#if defined(__GNUC__) && !defined(__clang__)
-		static inline __m128i _mm_movpi64_epi64(__m64 a) {
-			__m128i b;
-			__asm__("movq2dq %1, %0" : "=x" (b) : "y" (a));
-			return b;
-		}
-	#endif // __GNUC__
-
 #else // add other architectures here
 	#error "Add -mssse3 or more recent"
 #endif
@@ -661,183 +642,6 @@ enum IntraChroma_modes {
 	IC8x8_H_8,
 	IC8x8_V_8,
 	IC8x8_P_8,
-};
-
-
-
-/**
- * Legacy enum
- */
-enum PredModes {
-	ADD_RESIDUAL_4x4,
-	ADD_RESIDUAL_8x8,
-	TRANSFORM_DC_4x4,
-	TRANSFORM_DC_2x2,
-	TRANSFORM_DC_2x4,
-	
-	VERTICAL_4x4,
-	HORIZONTAL_4x4,
-	DC_4x4,
-	DC_4x4_A,
-	DC_4x4_B,
-	DC_4x4_AB,
-	DIAGONAL_DOWN_LEFT_4x4,
-	DIAGONAL_DOWN_LEFT_4x4_C,
-	DIAGONAL_DOWN_RIGHT_4x4,
-	VERTICAL_RIGHT_4x4,
-	HORIZONTAL_DOWN_4x4,
-	VERTICAL_LEFT_4x4,
-	VERTICAL_LEFT_4x4_C,
-	HORIZONTAL_UP_4x4,
-	
-	VERTICAL_8x8, // 14
-	VERTICAL_8x8_C,
-	VERTICAL_8x8_D,
-	VERTICAL_8x8_CD,
-	HORIZONTAL_8x8,
-	HORIZONTAL_8x8_D,
-	DC_8x8,
-	DC_8x8_C,
-	DC_8x8_D,
-	DC_8x8_CD,
-	DC_8x8_A,
-	DC_8x8_AC,
-	DC_8x8_AD,
-	DC_8x8_ACD,
-	DC_8x8_B,
-	DC_8x8_BD,
-	DC_8x8_AB,
-	DIAGONAL_DOWN_LEFT_8x8,
-	DIAGONAL_DOWN_LEFT_8x8_C,
-	DIAGONAL_DOWN_LEFT_8x8_D,
-	DIAGONAL_DOWN_LEFT_8x8_CD,
-	DIAGONAL_DOWN_RIGHT_8x8,
-	DIAGONAL_DOWN_RIGHT_8x8_C,
-	VERTICAL_RIGHT_8x8,
-	VERTICAL_RIGHT_8x8_C,
-	HORIZONTAL_DOWN_8x8,
-	VERTICAL_LEFT_8x8,
-	VERTICAL_LEFT_8x8_C,
-	VERTICAL_LEFT_8x8_D,
-	VERTICAL_LEFT_8x8_CD,
-	HORIZONTAL_UP_8x8,
-	HORIZONTAL_UP_8x8_D,
-	
-	VERTICAL_16x16, // 46
-	HORIZONTAL_16x16,
-	DC_16x16,
-	DC_16x16_A,
-	DC_16x16_B,
-	DC_16x16_AB,
-	PLANE_16x16,
-	DC_CHROMA_8x8,
-	DC_CHROMA_8x8_A,
-	DC_CHROMA_8x8_B,
-	DC_CHROMA_8x8_AB,
-	DC_CHROMA_8x8_Ab,
-	DC_CHROMA_8x8_At,
-	DC_CHROMA_8x8_AbB,
-	DC_CHROMA_8x8_AtB,
-	HORIZONTAL_CHROMA_8x8,
-	VERTICAL_CHROMA_8x8,
-	PLANE_CHROMA_8x8,
-	DC_CHROMA_8x16,
-	DC_CHROMA_8x16_A,
-	DC_CHROMA_8x16_B,
-	DC_CHROMA_8x16_AB,
-	DC_CHROMA_8x16_Ab,
-	DC_CHROMA_8x16_At,
-	DC_CHROMA_8x16_AbB,
-	DC_CHROMA_8x16_AtB,
-	HORIZONTAL_CHROMA_8x16,
-	VERTICAL_CHROMA_8x16,
-	PLANE_CHROMA_8x16,
-	VERTICAL_4x4_BUFFERED,
-	HORIZONTAL_4x4_BUFFERED,
-	DC_4x4_BUFFERED,
-	PLANE_4x4_BUFFERED,
-	
-	VERTICAL_4x4_16_BIT, // 79
-	HORIZONTAL_4x4_16_BIT,
-	DC_4x4_16_BIT,
-	DC_4x4_A_16_BIT,
-	DC_4x4_B_16_BIT,
-	DC_4x4_AB_16_BIT,
-	DIAGONAL_DOWN_LEFT_4x4_16_BIT,
-	DIAGONAL_DOWN_LEFT_4x4_C_16_BIT,
-	DIAGONAL_DOWN_RIGHT_4x4_16_BIT,
-	VERTICAL_RIGHT_4x4_16_BIT,
-	HORIZONTAL_DOWN_4x4_16_BIT,
-	VERTICAL_LEFT_4x4_16_BIT,
-	VERTICAL_LEFT_4x4_C_16_BIT,
-	HORIZONTAL_UP_4x4_16_BIT,
-	
-	VERTICAL_8x8_16_BIT, // 93
-	VERTICAL_8x8_C_16_BIT,
-	VERTICAL_8x8_D_16_BIT,
-	VERTICAL_8x8_CD_16_BIT,
-	HORIZONTAL_8x8_16_BIT,
-	HORIZONTAL_8x8_D_16_BIT,
-	DC_8x8_16_BIT,
-	DC_8x8_C_16_BIT,
-	DC_8x8_D_16_BIT,
-	DC_8x8_CD_16_BIT,
-	DC_8x8_A_16_BIT,
-	DC_8x8_AC_16_BIT,
-	DC_8x8_AD_16_BIT,
-	DC_8x8_ACD_16_BIT,
-	DC_8x8_B_16_BIT,
-	DC_8x8_BD_16_BIT,
-	DC_8x8_AB_16_BIT,
-	DIAGONAL_DOWN_LEFT_8x8_16_BIT,
-	DIAGONAL_DOWN_LEFT_8x8_C_16_BIT,
-	DIAGONAL_DOWN_LEFT_8x8_D_16_BIT,
-	DIAGONAL_DOWN_LEFT_8x8_CD_16_BIT,
-	DIAGONAL_DOWN_RIGHT_8x8_16_BIT,
-	DIAGONAL_DOWN_RIGHT_8x8_C_16_BIT,
-	VERTICAL_RIGHT_8x8_16_BIT,
-	VERTICAL_RIGHT_8x8_C_16_BIT,
-	HORIZONTAL_DOWN_8x8_16_BIT,
-	VERTICAL_LEFT_8x8_16_BIT,
-	VERTICAL_LEFT_8x8_C_16_BIT,
-	VERTICAL_LEFT_8x8_D_16_BIT,
-	VERTICAL_LEFT_8x8_CD_16_BIT,
-	HORIZONTAL_UP_8x8_16_BIT,
-	HORIZONTAL_UP_8x8_D_16_BIT,
-	
-	VERTICAL_16x16_16_BIT, // 125
-	HORIZONTAL_16x16_16_BIT,
-	DC_16x16_16_BIT,
-	DC_16x16_A_16_BIT,
-	DC_16x16_B_16_BIT,
-	DC_16x16_AB_16_BIT,
-	PLANE_16x16_16_BIT,
-	DC_CHROMA_8x8_16_BIT,
-	DC_CHROMA_8x8_A_16_BIT,
-	DC_CHROMA_8x8_B_16_BIT,
-	DC_CHROMA_8x8_AB_16_BIT,
-	DC_CHROMA_8x8_Ab_16_BIT,
-	DC_CHROMA_8x8_At_16_BIT,
-	DC_CHROMA_8x8_AbB_16_BIT,
-	DC_CHROMA_8x8_AtB_16_BIT,
-	VERTICAL_CHROMA_8x8_16_BIT,
-	HORIZONTAL_CHROMA_8x8_16_BIT,
-	PLANE_CHROMA_8x8_16_BIT,
-	DC_CHROMA_8x16_16_BIT,
-	DC_CHROMA_8x16_A_16_BIT,
-	DC_CHROMA_8x16_B_16_BIT,
-	DC_CHROMA_8x16_AB_16_BIT,
-	DC_CHROMA_8x16_Ab_16_BIT,
-	DC_CHROMA_8x16_At_16_BIT,
-	DC_CHROMA_8x16_AbB_16_BIT,
-	DC_CHROMA_8x16_AtB_16_BIT,
-	VERTICAL_CHROMA_8x16_16_BIT,
-	HORIZONTAL_CHROMA_8x16_16_BIT,
-	PLANE_CHROMA_8x16_16_BIT,
-	VERTICAL_4x4_BUFFERED_16_BIT,
-	HORIZONTAL_4x4_BUFFERED_16_BIT,
-	DC_4x4_BUFFERED_16_BIT,
-	PLANE_4x4_BUFFERED_16_BIT,
 };
 
 #endif

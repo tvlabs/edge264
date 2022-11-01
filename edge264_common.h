@@ -139,7 +139,7 @@ typedef struct
 	size_t _codIRange; // same as _lsb_cache/_msb_cache
 	size_t _codIOffset;
 	Edge264_macroblock * restrict _mb; // backup storage for macro mb
-	Edge264_macroblock * restrict mbB;
+	Edge264_macroblock * restrict _mbB; // backup storage for macro mbB
 	const Edge264_stream *e; // for debugging only
 	int32_t CurrMbAddr;
 	int32_t mb_skip_run;
@@ -265,6 +265,7 @@ typedef struct
 	#define JUMP(f, ...) {f(ctx, ## __VA_ARGS__); return;}
 #endif
 #define mb ctx->_mb
+#define mbB ctx->_mbB
 
 
 

@@ -489,7 +489,7 @@ static void CAFUNC(parse_Intra16x16_residual)
 			ctx->ctxIdxOffsets_l = ctxIdxOffsets_16x16DC[iYCbCr][0];
 		#endif
 		int token_or_cbf = CACOND(
-			CALL(parse_coeff_token_cavlc, 0, mb[-1].nC[iYCbCr][5], ctx->mbB->nC[iYCbCr][10]),
+			CALL(parse_coeff_token_cavlc, 0, mb[-1].nC[iYCbCr][5], mbB->nC[iYCbCr][10]),
 			CALL(get_ae, ctx->ctxIdxOffsets[0] + ctx->inc.coded_block_flags_16x16[iYCbCr]));
 		if (token_or_cbf) {
 			#ifdef CABAC
@@ -745,7 +745,7 @@ static noinline void CAFUNC(parse_I_mb, int mb_type_or_ctxIdx)
 	if (ctx->unavail16x16 & 2) {
 		mb->bits[1] |= 0x424242;
 		#ifdef CABAC
-			ctx->mbB->nC_v[0] = ctx->mbB->nC_v[1] = ctx->mbB->nC_v[2] = (v16qi){1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1};
+			mbB->nC_v[0] = mbB->nC_v[1] = mbB->nC_v[2] = (v16qi){1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1};
 		#endif
 		ctx->inc.coded_block_flags_16x16_s |= 0x020202;
 	}
@@ -903,7 +903,7 @@ static void CAFUNC(parse_inter_residual)
 	}
 	if (ctx->unavail16x16 & 2) {
 		#ifdef CABAC
-			ctx->mbB->nC_v[0] = ctx->mbB->nC_v[1] = ctx->mbB->nC_v[2] = (v16qi){};
+			mbB->nC_v[0] = mbB->nC_v[1] = mbB->nC_v[2] = (v16qi){};
 		#endif
 		ctx->inc.coded_block_flags_16x16_s &= 0x010101;
 	}
@@ -1128,7 +1128,6 @@ static void CAFUNC(parse_B_sub_mb) {
 	CACALL(parse_ref_idx, 0x100 | mvd_flags2ref_idx(mvd_flags));
 	
 	// load neighbouring refIdx values and shuffle them into A/B/C/D
-	Edge264_macroblock *mbB = ctx->mbB;
 	v16qi BC = (v16qi)(v2li){(int64_t)mbB->refIdx_l, (int64_t)mbB[1].refIdx_l};
 	v16qi Ar = (v16qi)(v2li){(int64_t)mb[-1].refIdx_l, (int64_t)mb->refIdx_l};
 	v16qi BCAr0 = (v16qi)__builtin_shufflevector((v4si)BC, (v4si)Ar, 0, 2, 4, 6);
@@ -1405,7 +1404,6 @@ static void CAFUNC(parse_P_sub_mb, unsigned ref_idx_flags)
 	CACALL(parse_ref_idx, ref_idx_flags);
 	
 	// load neighbouring refIdx values and shuffle them into A/B/C/D
-	Edge264_macroblock *mbB = ctx->mbB;
 	v16qi BC = (v16qi)(v2li){(int64_t)mbB->refIdx_l, (int64_t)mbB[1].refIdx_l};
 	v16qi Ar = (v16qi)(v2li){(int64_t)mb[-1].refIdx_l, (int64_t)mb->refIdx_l};
 	v16qi BCAr0 = (v16qi)__builtin_shufflevector((v4si)BC, (v4si)Ar, 0, 2, 4, 6);
@@ -1512,17 +1510,17 @@ static inline void CAFUNC(parse_P_mb)
 		v16qi refIdx_v = (v16qi)(v2li){mb->refIdx_l};
 		mb->refPic_l = ((v2li)(shuffle(ctx->RefPicList_v[0], refIdx_v) | refIdx_v))[0];
 		int refIdxA = mb[-1].refIdx[1];
-		int refIdxB = ctx->mbB->refIdx[2];
+		int refIdxB = mbB->refIdx[2];
 		int mvA = *(mb->mvs_s + ctx->mvs_A[0]);
 		int mvB = *(mb->mvs_s + ctx->mvs_B[0]);
 		v8hi mv = {};
 		if ((refIdxA | mvA) && (refIdxB | mvB) && !(ctx->unavail16x16 & 3)) {
 			int refIdxC, mvs_C;
 			if (__builtin_expect(ctx->unavail16x16 & 4, 0)) {
-				refIdxC = ctx->mbB[-1].refIdx[3];
+				refIdxC = mbB[-1].refIdx[3];
 				mvs_C = ctx->mvs_D[0];
 			} else {
-				refIdxC = ctx->mbB[1].refIdx[2];
+				refIdxC = mbB[1].refIdx[2];
 				mvs_C = ctx->mvs_C[5];
 			}
 			// B/C unavailability (->A) was ruled out, thus not tested here
@@ -1629,43 +1627,43 @@ static noinline int CAFUNC(parse_slice_data)
 		int unavail16x16 = mb->unavail16x16;
 		int filter_edges = (ctx->disable_deblocking_filter_idc == 1) ? 0 : ~(mb->unavail16x16 << 1) & 7;
 		v16qi fA = mb[-1].f.v;
-		v16qi fB = ctx->mbB->f.v;
+		v16qi fB = mbB->f.v;
 		uint64_t bitsA = mb[-1].bits_l;
-		uint64_t bitsB = ctx->mbB->bits_l;
+		uint64_t bitsB = mbB->bits_l;
 		if (ctx->first_mb_in_slice) {
 			v16qi zero = {};
 			if (ctx->CurrMbAddr <= ctx->first_mb_in_slice + ctx->ps.pic_width_in_mbs) { // D is unavailable
 				unavail16x16 |= 8;
-				ctx->refIdx_copy[3] = ctx->mbB[-1].refIdx_l;
-				ctx->mvs_copy_s[30] = ctx->mbB[-1].mvs_s[15];
-				ctx->mvs_copy_s[31] = ctx->mbB[-1].mvs_s[31];
-				ctx->mbB[-1].refIdx_l = -1;
-				ctx->mbB[-1].mvs_s[15] = ctx->mbB[-1].mvs_s[31] = 0;
+				ctx->refIdx_copy[3] = mbB[-1].refIdx_l;
+				ctx->mvs_copy_s[30] = mbB[-1].mvs_s[15];
+				ctx->mvs_copy_s[31] = mbB[-1].mvs_s[31];
+				mbB[-1].refIdx_l = -1;
+				mbB[-1].mvs_s[15] = mbB[-1].mvs_s[31] = 0;
 				if (ctx->CurrMbAddr < ctx->first_mb_in_slice + ctx->ps.pic_width_in_mbs) { // B is unavailable
 					unavail16x16 |= 2;
 					fB = unavail_mb.f.v;
 					bitsB = unavail_mb.bits_l;
-					ctx->refIdx_copy[1] = ctx->mbB->refIdx_l;
-					ctx->nC_copy[3] = ctx->mbB->nC_v[0];
-					ctx->nC_copy[4] = ctx->mbB->nC_v[1];
-					ctx->nC_copy[5] = ctx->mbB->nC_v[2];
-					ctx->mvs_copy_l[8] = ctx->mbB->mvs_l[5];
-					ctx->mvs_copy_l[9] = ctx->mbB->mvs_l[7];
-					ctx->mvs_copy_l[10] = ctx->mbB->mvs_l[13];
-					ctx->mvs_copy_l[11] = ctx->mbB->mvs_l[15];
-					ctx->mbB->refIdx_l = -1;
-					ctx->mbB->nC_v[0] = ctx->mbB->nC_v[1] = ctx->mbB->nC_v[2] = (v16qi){};
-					ctx->mbB->Intra4x4PredMode_v = unavail_mb.Intra4x4PredMode_v;
-					ctx->mbB->absMvd_v[1] = ctx->mbB->absMvd_v[3] = (v16qu)zero;
-					ctx->mbB->mvs_l[5] = ctx->mbB->mvs_l[7] = ctx->mbB->mvs_l[13] = ctx->mbB->mvs_l[15] = 0;
+					ctx->refIdx_copy[1] = mbB->refIdx_l;
+					ctx->nC_copy[3] = mbB->nC_v[0];
+					ctx->nC_copy[4] = mbB->nC_v[1];
+					ctx->nC_copy[5] = mbB->nC_v[2];
+					ctx->mvs_copy_l[8] = mbB->mvs_l[5];
+					ctx->mvs_copy_l[9] = mbB->mvs_l[7];
+					ctx->mvs_copy_l[10] = mbB->mvs_l[13];
+					ctx->mvs_copy_l[11] = mbB->mvs_l[15];
+					mbB->refIdx_l = -1;
+					mbB->nC_v[0] = mbB->nC_v[1] = mbB->nC_v[2] = (v16qi){};
+					mbB->Intra4x4PredMode_v = unavail_mb.Intra4x4PredMode_v;
+					mbB->absMvd_v[1] = mbB->absMvd_v[3] = (v16qu)zero;
+					mbB->mvs_l[5] = mbB->mvs_l[7] = mbB->mvs_l[13] = mbB->mvs_l[15] = 0;
 					filter_edges &= ~(ctx->disable_deblocking_filter_idc << 1); // impacts only bit 2
 					if (ctx->CurrMbAddr < ctx->first_mb_in_slice + ctx->ps.pic_width_in_mbs - 1) { // C is unavailable
 						unavail16x16 |= 4;
-						ctx->refIdx_copy[2] = ctx->mbB[1].refIdx_l;
-						ctx->mvs_copy_s[28] = ctx->mbB[1].mvs_s[10];
-						ctx->mvs_copy_s[29] = ctx->mbB[1].mvs_s[26];
-						ctx->mbB[1].refIdx_l = -1;
-						ctx->mbB[1].mvs_s[10] = ctx->mbB[1].mvs_s[26] = 0;
+						ctx->refIdx_copy[2] = mbB[1].refIdx_l;
+						ctx->mvs_copy_s[28] = mbB[1].mvs_s[10];
+						ctx->mvs_copy_s[29] = mbB[1].mvs_s[26];
+						mbB[1].refIdx_l = -1;
+						mbB[1].mvs_s[10] = mbB[1].mvs_s[26] = 0;
 						if (ctx->CurrMbAddr == ctx->first_mb_in_slice) { // A is unavailable
 							unavail16x16 |= 1;
 							fA = unavail_mb.f.v;
@@ -1718,22 +1716,22 @@ static noinline int CAFUNC(parse_slice_data)
 		// restore macroblock data on slice edge
 		if (ctx->first_mb_in_slice) {
 			if (ctx->CurrMbAddr <= ctx->first_mb_in_slice + ctx->ps.pic_width_in_mbs) { // D is unavailable
-				ctx->mbB[-1].refIdx_l = ctx->refIdx_copy[3];
-				ctx->mbB[-1].mvs_s[15] = ctx->mvs_copy_s[30];
-				ctx->mbB[-1].mvs_s[31] = ctx->mvs_copy_s[31];
+				mbB[-1].refIdx_l = ctx->refIdx_copy[3];
+				mbB[-1].mvs_s[15] = ctx->mvs_copy_s[30];
+				mbB[-1].mvs_s[31] = ctx->mvs_copy_s[31];
 				if (ctx->CurrMbAddr < ctx->first_mb_in_slice + ctx->ps.pic_width_in_mbs) { // B is unavailable
-					ctx->mbB->refIdx_l = ctx->refIdx_copy[1];
-					ctx->mbB->nC_v[0] = ctx->nC_copy[3];
-					ctx->mbB->nC_v[1] = ctx->nC_copy[4];
-					ctx->mbB->nC_v[2] = ctx->nC_copy[5];
-					ctx->mbB->mvs_l[5] = ctx->mvs_copy_l[8];
-					ctx->mbB->mvs_l[7] = ctx->mvs_copy_l[9];
-					ctx->mbB->mvs_l[13] = ctx->mvs_copy_l[10];
-					ctx->mbB->mvs_l[15] = ctx->mvs_copy_l[11];
+					mbB->refIdx_l = ctx->refIdx_copy[1];
+					mbB->nC_v[0] = ctx->nC_copy[3];
+					mbB->nC_v[1] = ctx->nC_copy[4];
+					mbB->nC_v[2] = ctx->nC_copy[5];
+					mbB->mvs_l[5] = ctx->mvs_copy_l[8];
+					mbB->mvs_l[7] = ctx->mvs_copy_l[9];
+					mbB->mvs_l[13] = ctx->mvs_copy_l[10];
+					mbB->mvs_l[15] = ctx->mvs_copy_l[11];
 					if (ctx->CurrMbAddr < ctx->first_mb_in_slice + ctx->ps.pic_width_in_mbs - 1) { // C is unavailable
-						ctx->mbB[1].refIdx_l = ctx->refIdx_copy[2];
-						ctx->mbB[1].mvs_s[10] = ctx->mvs_copy_s[28];
-						ctx->mbB[1].mvs_s[26] = ctx->mvs_copy_s[29];
+						mbB[1].refIdx_l = ctx->refIdx_copy[2];
+						mbB[1].mvs_s[10] = ctx->mvs_copy_s[28];
+						mbB[1].mvs_s[26] = ctx->mvs_copy_s[29];
 						if (ctx->CurrMbAddr == ctx->first_mb_in_slice) { // A is unavailable
 							mb[-1].refIdx_l = ctx->refIdx_copy[0];
 							mb[-1].nC_v[0] = ctx->nC_copy[0];
@@ -1760,7 +1758,7 @@ static noinline int CAFUNC(parse_slice_data)
 		
 		// point to the next macroblock
 		mb++;
-		ctx->mbB++;
+		mbB++;
 		ctx->mbCol++;
 		ctx->samples_mb[0] += 16; // FIXME 16bit
 		ctx->samples_mb[1] += 8; // FIXME 4:2:2, 16bit
@@ -1769,7 +1767,7 @@ static noinline int CAFUNC(parse_slice_data)
 		// end of row
 		if (ctx->samples_mb[0] - ctx->samples_row[0] >= ctx->stride[0]) {
 			mb++; // skip the empty macroblock at the edge
-			ctx->mbB++;
+			mbB++;
 			ctx->mbCol++;
 			ctx->samples_mb[0] = ctx->samples_row[0] += ctx->stride[0] * 16;
 			ctx->samples_mb[1] = ctx->samples_row[1] += ctx->stride[1] * 8; // FIXME 4:2:2

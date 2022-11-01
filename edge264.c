@@ -1,5 +1,4 @@
 /** MAYDO:
- * _ add a macro mbB to simplify the syntax ctx->mbB
  * _ rename edge264_common.h into internal.h to make it more obvious that this is an internal file!
  * _ clean edge264_internal.h from unused stuff
  * _ merge e and ctx pointers to reduce register pressure in edge264.c ?
@@ -110,8 +109,8 @@ static void FUNC(initialise_decoding_context, Edge264_stream *e)
 	// initializing with vectors is not the fastest here, but is most readable thus maintainable
 	int offA_int8 = -(int)sizeof(*mb);
 	int offB_int8 = -(ctx->ps.pic_width_in_mbs + 1) * sizeof(*mb);
-	ctx->mbB = (Edge264_macroblock *)(ctx->samples_pic + e->plane_size_Y + e->plane_size_C * 2 + sizeof(*mb) * (1 + mbx) - offB_int8 * mby);
-	mb = (Edge264_macroblock *)((uint8_t *)ctx->mbB - offB_int8);
+	mbB = (Edge264_macroblock *)(ctx->samples_pic + e->plane_size_Y + e->plane_size_C * 2 + sizeof(*mb) * (1 + mbx) - offB_int8 * mby);
+	mb = (Edge264_macroblock *)((uint8_t *)mbB - offB_int8);
 	ctx->A4x4_int8_v = (v16hi){5 + offA_int8, 0, 7 + offA_int8, 2, 1, 4, 3, 6, 13 + offA_int8, 8, 15 + offA_int8, 10, 9, 12, 11, 14};
 	ctx->B4x4_int8_v = (v16si){10 + offB_int8, 11 + offB_int8, 0, 1, 14 + offB_int8, 15 + offB_int8, 4, 5, 2, 3, 8, 9, 6, 7, 12, 13};
 	if (ctx->ps.ChromaArrayType == 1) {

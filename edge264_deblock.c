@@ -44,7 +44,7 @@ static inline void FUNC(init_alpha_beta_tC0)
 	// compute all values of indexA and indexB for each of the color planes first
 	__m128i zero = _mm_setzero_si128();
 	__m128i qP = _mm_set1_epi32((int32_t)mb->QP_s);
-	__m128i qPAB = _mm_unpacklo_epi32(_mm_cvtsi32_si128((int32_t)mb[-1].QP_s), _mm_cvtsi32_si128((int32_t)ctx->mbB->QP_s));
+	__m128i qPAB = _mm_unpacklo_epi32(_mm_cvtsi32_si128((int32_t)mb[-1].QP_s), _mm_cvtsi32_si128((int32_t)mbB->QP_s));
 	__m128i qPav = _mm_avg_epu8(qP, _mm_unpacklo_epi64(qP, qPAB)); // mid/mid/A/B
 	__m128i c51 = _mm_set1_epi8(51);
 	__m128i indexA = _mm_min_epu8(_mm_max_epi8(_mm_add_epi8(qPav, _mm_set1_epi8(ctx->FilterOffsetA)), zero), c51);
@@ -97,9 +97,9 @@ static inline void FUNC(init_alpha_beta_tC0)
 			__m128i mvsv1l0 = (__m128i)_mm_shuffle_ps((__m128)mb->mvs_v[0], (__m128)mb->mvs_v[2], _MM_SHUFFLE(2, 0, 2, 0));
 			__m128i mvsv0l1 = (__m128i)_mm_shuffle_ps((__m128)mb[-1].mvs_v[5], (__m128)mb[-1].mvs_v[7], _MM_SHUFFLE(3, 1, 3, 1));
 			__m128i mvsv1l1 = (__m128i)_mm_shuffle_ps((__m128)mb->mvs_v[4], (__m128)mb->mvs_v[6], _MM_SHUFFLE(2, 0, 2, 0));
-			__m128i mvsh0l0 = _mm_unpackhi_epi64((__m128i)ctx->mbB->mvs_v[2], (__m128i)ctx->mbB->mvs_v[3]);
+			__m128i mvsh0l0 = _mm_unpackhi_epi64((__m128i)mbB->mvs_v[2], (__m128i)mbB->mvs_v[3]);
 			__m128i mvsh1l0 = _mm_unpacklo_epi64((__m128i)mb->mvs_v[0], (__m128i)mb->mvs_v[1]);
-			__m128i mvsh0l1 = _mm_unpackhi_epi64((__m128i)ctx->mbB->mvs_v[6], (__m128i)ctx->mbB->mvs_v[7]);
+			__m128i mvsh0l1 = _mm_unpackhi_epi64((__m128i)mbB->mvs_v[6], (__m128i)mbB->mvs_v[7]);
 			__m128i mvsh1l1 = _mm_unpacklo_epi64((__m128i)mb->mvs_v[4], (__m128i)mb->mvs_v[5]);
 			__m128i mvsael00 = _mm_packs_epi16(_mm_sub_epi16(mvsv0l0, mvsv1l0), _mm_sub_epi16(mvsh0l0, mvsh1l0));
 			__m128i mvsael01 = _mm_packs_epi16(_mm_sub_epi16(mvsv0l0, mvsv1l1), _mm_sub_epi16(mvsh0l0, mvsh1l1));
@@ -110,7 +110,7 @@ static inline void FUNC(init_alpha_beta_tC0)
 			__m128i mvsacegp = _mm_shuffle_epi32(_mm_packs_epi16(mvsaep, zero), _MM_SHUFFLE(3, 1, 2, 0));
 			__m128i mvsacegc = _mm_shuffle_epi32(_mm_packs_epi16(mvsaec, zero), _MM_SHUFFLE(3, 1, 2, 0));
 			__m128i refPic = _mm_cvtsi64_si128(mb->refPic_l);
-			__m128i refPicAB = _mm_setr_epi64((__m64)mb[-1].refPic_l, (__m64)ctx->mbB->refPic_l);
+			__m128i refPicAB = _mm_setr_epi64((__m64)mb[-1].refPic_l, (__m64)mbB->refPic_l);
 			__m128i shufVHAB = _mm_setr_epi8(0, 2, 1, 3, 0, 1, 2, 3, 9, 11, 0, 2, 14, 15, 0, 1);
 			__m128i refs0 = _mm_shuffle_epi8((__m128i)_mm_shuffle_ps((__m128)refPic, (__m128)refPicAB, _MM_SHUFFLE(2, 0, 0, 0)), shufVHAB); // (v0,h0,A0,B0)
 			__m128i refs1 = _mm_shuffle_epi8((__m128i)_mm_shuffle_ps((__m128)refPic, (__m128)refPicAB, _MM_SHUFFLE(3, 1, 1, 1)), shufVHAB); // (v1,h1,A1,B1)
@@ -123,13 +123,13 @@ static inline void FUNC(init_alpha_beta_tC0)
 			__m128i neq4 = _mm_or_si128(_mm_min_epu8(refsacegp, mvsacegc), _mm_min_epu8(mvsacegp, refsacegc));
 			bS0aceg = _mm_cmpeq_epi8(_mm_or_si128(neq3, neq4), zero);
 			bS0bdfh = _mm_set1_epi8(-1);
-		} else if ((mb->refIdx_s[1] & mb[-1].refIdx_s[1] & ctx->mbB->refIdx_s[1]) == -1) { // P macroblocks
+		} else if ((mb->refIdx_s[1] & mb[-1].refIdx_s[1] & mbB->refIdx_s[1]) == -1) { // P macroblocks
 			__m128i mvsv0 = (__m128i)_mm_shuffle_ps((__m128)mb[-1].mvs_v[1], (__m128)mb[-1].mvs_v[3], _MM_SHUFFLE(3, 1, 3, 1));
 			__m128i mvsv1 = (__m128i)_mm_shuffle_ps((__m128)mb->mvs_v[0], (__m128)mb->mvs_v[2], _MM_SHUFFLE(2, 0, 2, 0));
 			__m128i mvsv2 = (__m128i)_mm_shuffle_ps((__m128)mb->mvs_v[0], (__m128)mb->mvs_v[2], _MM_SHUFFLE(3, 1, 3, 1));
 			__m128i mvsv3 = (__m128i)_mm_shuffle_ps((__m128)mb->mvs_v[1], (__m128)mb->mvs_v[3], _MM_SHUFFLE(2, 0, 2, 0));
 			__m128i mvsv4 = (__m128i)_mm_shuffle_ps((__m128)mb->mvs_v[1], (__m128)mb->mvs_v[3], _MM_SHUFFLE(3, 1, 3, 1));
-			__m128i mvsh0 = _mm_unpackhi_epi64((__m128i)ctx->mbB->mvs_v[2], (__m128i)ctx->mbB->mvs_v[3]);
+			__m128i mvsh0 = _mm_unpackhi_epi64((__m128i)mbB->mvs_v[2], (__m128i)mbB->mvs_v[3]);
 			__m128i mvsh1 = _mm_unpacklo_epi64((__m128i)mb->mvs_v[0], (__m128i)mb->mvs_v[1]);
 			__m128i mvsh2 = _mm_unpackhi_epi64((__m128i)mb->mvs_v[0], (__m128i)mb->mvs_v[1]);
 			__m128i mvsh3 = _mm_unpacklo_epi64((__m128i)mb->mvs_v[2], (__m128i)mb->mvs_v[3]);
@@ -141,7 +141,7 @@ static inline void FUNC(init_alpha_beta_tC0)
 			__m128i mvsaceg = _mm_packs_epi16(_mm_subs_epu8(_mm_abs_epi8(mvsac), c3), _mm_subs_epu8(_mm_abs_epi8(mvseg), c3));
 			__m128i mvsbdfh = _mm_packs_epi16(_mm_subs_epu8(_mm_abs_epi8(mvsbd), c3), _mm_subs_epu8(_mm_abs_epi8(mvsfh), c3));
 			__m128i shufVHAB = _mm_setr_epi8(0, 2, 1, 3, 0, 1, 2, 3, 9, 11, 0, 2, 14, 15, 0, 1);
-			__m128i refs = _mm_shuffle_epi8(_mm_setr_epi32(mb->refPic_s[0], 0, mb[-1].refPic_s[0], ctx->mbB->refPic_s[0]), shufVHAB); // (v0,h0,A0,B0)
+			__m128i refs = _mm_shuffle_epi8(_mm_setr_epi32(mb->refPic_s[0], 0, mb[-1].refPic_s[0], mbB->refPic_s[0]), shufVHAB); // (v0,h0,A0,B0)
 			__m128i neq = _mm_xor_si128(refs, _mm_unpackhi_epi64(refs, refs)); // (v0^A0,h0^B0,0,0)
 			__m128i refsaceg = _mm_unpacklo_epi8(neq, neq);
 			bS0aceg = _mm_cmpeq_epi8(_mm_or_si128(refsaceg, mvsaceg), zero);
@@ -169,12 +169,12 @@ static inline void FUNC(init_alpha_beta_tC0)
 			__m128i mvsbdp = _mm_subs_epu8(_mm_max_epu8(_mm_abs_epi8(mvsbdl00), _mm_abs_epi8(mvsbdl11)), c3);
 			__m128i mvsacc = _mm_subs_epu8(_mm_max_epu8(_mm_abs_epi8(mvsacl01), _mm_abs_epi8(mvsacl10)), c3);
 			__m128i mvsbdc = _mm_subs_epu8(_mm_max_epu8(_mm_abs_epi8(mvsbdl01), _mm_abs_epi8(mvsbdl10)), c3);
-			__m128i mvsh0l0 = _mm_unpackhi_epi64((__m128i)ctx->mbB->mvs_v[2], (__m128i)ctx->mbB->mvs_v[3]);
+			__m128i mvsh0l0 = _mm_unpackhi_epi64((__m128i)mbB->mvs_v[2], (__m128i)mbB->mvs_v[3]);
 			__m128i mvsh1l0 = _mm_unpacklo_epi64((__m128i)mb->mvs_v[0], (__m128i)mb->mvs_v[1]);
 			__m128i mvsh2l0 = _mm_unpackhi_epi64((__m128i)mb->mvs_v[0], (__m128i)mb->mvs_v[1]);
 			__m128i mvsh3l0 = _mm_unpacklo_epi64((__m128i)mb->mvs_v[2], (__m128i)mb->mvs_v[3]);
 			__m128i mvsh4l0 = _mm_unpackhi_epi64((__m128i)mb->mvs_v[2], (__m128i)mb->mvs_v[3]);
-			__m128i mvsh0l1 = _mm_unpackhi_epi64((__m128i)ctx->mbB->mvs_v[6], (__m128i)ctx->mbB->mvs_v[7]);
+			__m128i mvsh0l1 = _mm_unpackhi_epi64((__m128i)mbB->mvs_v[6], (__m128i)mbB->mvs_v[7]);
 			__m128i mvsh1l1 = _mm_unpacklo_epi64((__m128i)mb->mvs_v[4], (__m128i)mb->mvs_v[5]);
 			__m128i mvsh2l1 = _mm_unpackhi_epi64((__m128i)mb->mvs_v[4], (__m128i)mb->mvs_v[5]);
 			__m128i mvsh3l1 = _mm_unpacklo_epi64((__m128i)mb->mvs_v[6], (__m128i)mb->mvs_v[7]);
@@ -196,7 +196,7 @@ static inline void FUNC(init_alpha_beta_tC0)
 			__m128i mvsacegc = _mm_packs_epi16(mvsacc, mvsegc);
 			__m128i mvsbdfhc = _mm_packs_epi16(mvsbdc, mvsfhc);
 			__m128i refPic = _mm_cvtsi64_si128(mb->refPic_l);
-			__m128i refPicAB = _mm_setr_epi64((__m64)mb[-1].refPic_l, (__m64)ctx->mbB->refPic_l);
+			__m128i refPicAB = _mm_setr_epi64((__m64)mb[-1].refPic_l, (__m64)mbB->refPic_l);
 			__m128i shufVHAB = _mm_setr_epi8(0, 2, 1, 3, 0, 1, 2, 3, 9, 11, 0, 2, 14, 15, 0, 1);
 			__m128i refs0 = _mm_shuffle_epi8((__m128i)_mm_shuffle_ps((__m128)refPic, (__m128)refPicAB, _MM_SHUFFLE(2, 0, 0, 0)), shufVHAB); // (v0,h0,A0,B0)
 			__m128i refs1 = _mm_shuffle_epi8((__m128i)_mm_shuffle_ps((__m128)refPic, (__m128)refPicAB, _MM_SHUFFLE(3, 1, 1, 1)), shufVHAB); // (v1,h1,A1,B1)
@@ -223,7 +223,7 @@ static inline void FUNC(init_alpha_beta_tC0)
 		__m128i nnzv = _mm_shuffle_epi8((__m128i)mb->nC_v[0], shufV);
 		__m128i nnzl = _mm_shuffle_epi8((__m128i)mb[-1].nC_v[0], shufV);
 		__m128i nnzh = _mm_shuffle_epi8((__m128i)mb->nC_v[0], shufH);
-		__m128i nnzt = _mm_shuffle_epi8((__m128i)ctx->mbB->nC_v[0], shufH);
+		__m128i nnzt = _mm_shuffle_epi8((__m128i)mbB->nC_v[0], shufH);
 		__m128i bS2abcd = _mm_cmpgt_epi8(_mm_or_si128(nnzv, _mm_alignr_epi8(nnzv, nnzl, 12)), zero);
 		__m128i bS2efgh = _mm_cmpgt_epi8(_mm_or_si128(nnzh, _mm_alignr_epi8(nnzh, nnzt, 12)), zero);
 		__m128i bS2aacc = _mm_shuffle_epi32(bS2abcd, _MM_SHUFFLE(2, 2, 0, 0));
@@ -597,7 +597,7 @@ static noinline void FUNC(deblock_Y_8bit, size_t stride, ssize_t nstride, size_t
 	if (mb->filter_edges & 4) {
 		__m128i alpha_e = _mm_set1_epi8(ctx->alpha[12]);
 		__m128i beta_e = _mm_set1_epi8(ctx->beta[12]);
-		if (ctx->mbB->f.mbIsInterFlag & mb->f.mbIsInterFlag) {
+		if (mbB->f.mbIsInterFlag & mb->f.mbIsInterFlag) {
 			__m128i tC0e = expand4(ctx->tC0_s[4]);
 			if (ctx->tC0_s[4] != -1)
 				DEBLOCK_LUMA_SOFT(*(__m128i *)(px0 + nstride * 3), *(__m128i *)(px0 + nstride * 2), *(__m128i *)(px0 + nstride    ), h0, h1, h2, alpha_e, beta_e, tC0e);
@@ -799,7 +799,7 @@ static noinline void FUNC(deblock_CbCr_8bit, size_t stride, ssize_t nstride, siz
 		__m128i beta_e = _mm_shuffle_epi8((__m128i)ctx->beta_v, shuf_e);
 		__m128i hY = _mm_setr_epi64(*(__m64 *)(Cb0 + nstride * 2), *(__m64 *)(Cr0 + nstride * 2));
 		__m128i hZ = _mm_setr_epi64(*(__m64 *)(Cb0 + nstride    ), *(__m64 *)(Cr0 + nstride    ));
-		if (ctx->mbB->f.mbIsInterFlag & mb->f.mbIsInterFlag) {
+		if (mbB->f.mbIsInterFlag & mb->f.mbIsInterFlag) {
 			__m128i tC0e = expand2(ctx->tC0_l[6]);
 			if (ctx->tC0_l[6] != -1)
 				DEBLOCK_CHROMA_SOFT(hY, hZ, h0, h1, alpha_e, beta_e, tC0e);
@@ -848,8 +848,8 @@ void FUNC(deblock_frame, Edge264_stream *e, uint8_t *samples)
 	ctx->samples_mb[0] = ctx->samples_row[0] = ctx->samples_pic = samples;
 	ctx->samples_mb[1] = ctx->samples_mb[0] + e->plane_size_Y;
 	ctx->samples_mb[2] = ctx->samples_mb[1] + e->plane_size_C;
-	ctx->mbB = (Edge264_macroblock *)(ctx->samples_mb[2] + e->plane_size_C) + 1;
-	mb = ctx->mbB + e->SPS.pic_width_in_mbs + 1;
+	mbB = (Edge264_macroblock *)(ctx->samples_mb[2] + e->plane_size_C) + 1;
+	mb = mbB + e->SPS.pic_width_in_mbs + 1;
 	ctx->CurrMbAddr = 0;
 	
 	do {
@@ -864,7 +864,7 @@ void FUNC(deblock_frame, Edge264_stream *e, uint8_t *samples)
 		
 		// point at the next macroblock
 		mb++;
-		ctx->mbB++;
+		mbB++;
 		ctx->samples_mb[0] += 16;
 		ctx->samples_mb[1] += 8;
 		ctx->samples_mb[2] += 8;
@@ -874,7 +874,7 @@ void FUNC(deblock_frame, Edge264_stream *e, uint8_t *samples)
 		if (ctx->samples_mb[0] - ctx->samples_row[0] < e->stride_Y)
 			continue;
 		mb++;
-		ctx->mbB++;
+		mbB++;
 		ctx->samples_mb[0] = ctx->samples_row[0] += e->stride_Y * 16;
 		ctx->samples_mb[1] += e->stride_C * 7;
 		ctx->samples_mb[2] += e->stride_C * 7;

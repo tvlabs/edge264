@@ -350,8 +350,8 @@ void FUNC(transform_dc2x2);
 void FUNC(transform_dc2x4);
 
 // edge264_slice.c
-static noinline void FUNC(parse_slice_data_cavlc);
-static noinline void FUNC(parse_slice_data_cabac);
+static noinline int FUNC(parse_slice_data_cavlc);
+static noinline int FUNC(parse_slice_data_cabac);
 
 // debugging functions
 #define print_v16qi(a) {\

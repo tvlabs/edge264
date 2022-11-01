@@ -1601,7 +1601,7 @@ static inline void CAFUNC(parse_P_mb)
  * This function loops through the macroblocks of a slice, initialising their
  * data and calling parse_{I/P/B}_mb for each one.
  */
-static noinline void CAFUNC(parse_slice_data)
+static noinline int CAFUNC(parse_slice_data)
 {
 	static const v16qi block_unavailability[16] = {
 		{ 0,  0,  0,  4,  0,  0,  0,  4,  0,  0,  0,  4,  0,  4,  0,  4},
@@ -1756,7 +1756,7 @@ static noinline void CAFUNC(parse_slice_data)
 			fprintf(stderr, "end_of_slice_flag: %x\n\n", end_of_slice_flag);
 		#endif
 		if (CACOND(ctx->mb_skip_run <= 0 && msb_cache >> (SIZE_BIT - 24) == 0x800000, end_of_slice_flag))
-			break;
+			return ctx->CurrMbAddr - ctx->first_mb_in_slice;
 		
 		// point to the next macroblock
 		mb++;
@@ -1775,7 +1775,7 @@ static noinline void CAFUNC(parse_slice_data)
 			ctx->samples_mb[1] = ctx->samples_row[1] += ctx->stride[1] * 8; // FIXME 4:2:2
 			ctx->samples_mb[2] = ctx->samples_row[2] += ctx->stride[1] * 8;
 			if (ctx->samples_row[0] - ctx->samples_pic >= ctx->plane_size_Y)
-				break;
+				return 0;
 		}
 	}
 }

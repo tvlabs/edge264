@@ -1,6 +1,6 @@
 /** MAYDO:
- * _ Return number of decoded mbs from slice -> 0 if error
  * _ finish current frame if get_frame with drain?
+ * _ Add options to test.c to print passed/unsupported files, and print then overwrite counts after each file processed
  * _ add a macro mbB to simplify the syntax ctx->mbB
  * _ rename edge264_common.h into internal.h to make it more obvious that this is an internal file!
  * _ clean edge264_internal.h from unused stuff
@@ -13,7 +13,7 @@
 
 /** Notes:
  * _ to benchmark ffmpeg: ffmpeg -hide_banner -benchmark -threads 1 -i video.264 -f null -
- * _ current x264 options in HandBrake to output compatible video: no-deblock:slices=1:no-8x8dct
+ * _ current x264 options in HandBrake to output compatible video: no-8x8dct
  * _ don't allocate images separately, because for desktop it will contribute to fragmentation if other allocs happen inbetween, and for embedded systems it will be easier to bypass malloc and manage memory by hand with a single alloc
  */
 
@@ -716,7 +716,7 @@ static int FUNC(parse_slice_layer_without_partitioning, Edge264_stream *e)
 	if (e->currPic < 0) {
 		int gap = (ctx->nal_unit_type == 5) ? 0 : ctx->FrameNum - e->prevRefFrameNum;
 		if (CALL(assign_currPic, e, gap, TopFieldOrderCnt, BottomFieldOrderCnt))
-			return -1; // last return, after this point the slice will be decoded
+			return -1; // last return, after this point unless error the slice will be decoded
 	}
 	
 	// That could be optimised into a fast bit test, but would be less readable :)
@@ -782,18 +782,16 @@ static int FUNC(parse_slice_layer_without_partitioning, Edge264_stream *e)
 	CALL(initialise_decoding_context, e);
 	if (!ctx->ps.entropy_coding_mode_flag) {
 		ctx->mb_skip_run = -1;
-		CALL(parse_slice_data_cavlc);
-		// FIXME check for proper end of slice
+		e->pic_remaining_mbs -= CALL(parse_slice_data_cavlc);
 	} else {
 		// cabac_alignment_one_bit gives a good probability to catch random errors.
 		if (CALL(cabac_start))
 			return 2;
 		CALL(cabac_init, cabac_init_idc);
-		CALL(parse_slice_data_cabac);
+		e->pic_remaining_mbs -= CALL(parse_slice_data_cabac);
 	}
 	
 	// when the total number of decoded mbs is enough, finish the frame
-	e->pic_remaining_mbs -= ctx->CurrMbAddr - ctx->first_mb_in_slice;
 	if (e->pic_remaining_mbs == 0)
 		CALL(finish_frame, e);
 	return 0;

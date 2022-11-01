@@ -15,24 +15,27 @@
 #define GREEN  "\033[32m"
 #define YELLOW "\033[33m"
 #define BLUE   "\033[34m"
-#define PURPLE "\033[35m"
 
 
 int main(int argc, char *argv[])
 {
 	// read command-line options
-	int print_unsupported = 0;
 	int print_passed = 0;
+	int print_unsupported = 0;
+	int print_failed = 0;
 	for (int i = 1; i < argc; i++) {
 		if (strcmp(argv[i], "-h") == 0 || strcmp(argv[i], "--help") == 0) {
-			printf("Usage: %s [-u] [-p]\n"
-			       "-u\tprint names of unsupported files"
-			       "-p\tprint names of passed files", argv[0]);
+			printf("Usage: %s [-p] [-u] [-f]\n"
+			       "-p\tprint names of passed files\n"
+			       "-u\tprint names of unsupported files\n"
+			       "-f\tprint names of failed files\n", argv[0]);
 			return 0;
-		} else if (strcmp(argv[i], "-u") == 0) {
-			print_unsupported = 1;
 		} else if (strcmp(argv[i], "-p") == 0) {
 			print_passed = 1;
+		} else if (strcmp(argv[i], "-u") == 0) {
+			print_unsupported = 1;
+		} else if (strcmp(argv[i], "-f") == 0) {
+			print_failed = 1;
 		}
 	}
 	
@@ -43,7 +46,6 @@ int main(int argc, char *argv[])
 	int counts[6] = {};
 	
 	// parse all clips in the conformance directory
-	setbuf(stdout, NULL);
 	if (chdir("conformance") < 0) {
 		perror("cannot open \"conformance\" directory");
 		return 0;
@@ -53,7 +55,7 @@ int main(int argc, char *argv[])
 	printf("0 " GREEN "PASS" RESET ", 0 " YELLOW "UNSUPPORTED" RESET ", 0 " RED "FAIL" RESET "\n");
 	while ((entry = readdir(dir))) {
 		char *ext = strrchr(entry->d_name, '.');
-		if (*(int *)ext != *(int *)".264")
+		if (ext == NULL || strcmp(ext, ".264") != 0)
 			continue;
 		
 		// open the clip file and the corresponding yuv file
@@ -99,13 +101,17 @@ int main(int argc, char *argv[])
 			res = 2;
 		Edge264_clear(&e);
 		counts[2 + res]++;
+		
+		// print result
 		printf("\033[A\033[K"); // move cursor up and clear line
 		if (res == -2 && print_passed) {
 			printf("%s: " GREEN "PASS" RESET "\n", entry->d_name);
 		} else if (res == 1 && print_unsupported) {
 			printf("%s: " YELLOW "UNSUPPORTED" RESET "\n", entry->d_name);
-		} else if (res >= 2) {
-			printf("%s: %s" RESET "\n", entry->d_name, res == 2 ? RED "FAIL" : BLUE "FLAGGED");
+		} else if (res == 2 && print_failed) {
+			printf("%s: " RED "FAIL" RESET "\n", entry->d_name);
+		} else if (res == 3) {
+			printf("%s: " BLUE "FLAGGED" RESET "\n", entry->d_name);
 		}
 		printf("%d " GREEN "PASS" RESET ", %d " YELLOW "UNSUPPORTED" RESET ", %d " RED "FAIL" RESET,
 			counts[0], counts[3], counts[4]);

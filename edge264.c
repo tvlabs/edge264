@@ -1,7 +1,8 @@
 /** MAYDO:
+ * _ try to optimize initialization of weights and offsets in decode_inter
+ * _ fix compilation with SSSE3
  * _ merge e and ctx pointers to reduce register pressure in edge264.c ?
  * _ implement a tool that decodes an Annex B stream and compares it with a JM output, returning a faulty GOP file on error
- * _ fix compilation with SSSE3
  * _ add an option to store N more frames, to tolerate lags in CPU scheduling
  * _ try using epb for context pointer, and email GCC when it fails
  * _ when implementing fields and MBAFF, keep the same pic coding struct (no FLD/AFRM) and just add mb_field_decoding_flag
@@ -306,32 +307,33 @@ static void FUNC(parse_pred_weight_table, Edge264_stream *e)
 	// parse explicit weights/offsets
 	if (ctx->ps.weighted_bipred_idc == 1) {
 		ctx->luma_log2_weight_denom = CALL(get_ue16, 7);
-		ctx->chroma_log2_weight_denom = 0;
 		if (ctx->ps.ChromaArrayType != 0)
 			ctx->chroma_log2_weight_denom = CALL(get_ue16, 7);
 		for (int l = 0; l <= ctx->slice_type; l++) {
 			printf("<tr><th>Prediction weights L%x (weight/offset)</th><td>", l);
-			for (int i = 0; i < ctx->ps.num_ref_idx_active[l]; i++) {
-				ctx->explicit_weights[0][l * 32 + i] = 1 << ctx->luma_log2_weight_denom;
-				ctx->explicit_offsets[0][l * 32 + i] = 0;
-				ctx->explicit_weights[1][l * 32 + i] = 1 << ctx->chroma_log2_weight_denom;
-				ctx->explicit_offsets[1][l * 32 + i] = 0;
-				ctx->explicit_weights[2][l * 32 + i] = 1 << ctx->chroma_log2_weight_denom;
-				ctx->explicit_offsets[2][l * 32 + i] = 0;
+			for (int i = l * 32; i < l * 32 + ctx->ps.num_ref_idx_active[l]; i++) {
 				if (CALL(get_u1)) {
-					ctx->explicit_weights[0][l * 32 + i] = CALL(get_se16, -128, 127);
-					ctx->explicit_offsets[0][l * 32 + i] = CALL(get_se16, -128, 127);
+					ctx->explicit_weights[0][i] = CALL(get_se16, -128, 127);
+					ctx->explicit_offsets[0][i] = CALL(get_se16, -128, 127);
+				} else {
+					ctx->explicit_weights[0][i] = 1 << ctx->luma_log2_weight_denom;
+					ctx->explicit_offsets[0][i] = 0;
 				}
 				if (ctx->ps.ChromaArrayType != 0 && CALL(get_u1)) {
-					ctx->explicit_weights[1][l * 32 + i] = CALL(get_se16, -128, 127);
-					ctx->explicit_offsets[1][l * 32 + i] = CALL(get_se16, -128, 127);
-					ctx->explicit_weights[2][l * 32 + i] = CALL(get_se16, -128, 127);
-					ctx->explicit_offsets[2][l * 32 + i] = CALL(get_se16, -128, 127);
+					ctx->explicit_weights[1][i] = CALL(get_se16, -128, 127);
+					ctx->explicit_offsets[1][i] = CALL(get_se16, -128, 127);
+					ctx->explicit_weights[2][i] = CALL(get_se16, -128, 127);
+					ctx->explicit_offsets[2][i] = CALL(get_se16, -128, 127);
+				} else {
+					ctx->explicit_weights[1][i] = 1 << ctx->chroma_log2_weight_denom;
+					ctx->explicit_offsets[1][i] = 0;
+					ctx->explicit_weights[2][i] = 1 << ctx->chroma_log2_weight_denom;
+					ctx->explicit_offsets[2][i] = 0;
 				}
 				printf((ctx->ps.ChromaArrayType == 0) ? "*%d/%u+%d" : "*%d/%u+%d : *%d/%u+%d : *%d/%u+%d",
-					ctx->explicit_weights[0][l * 32 + i], 1 << ctx->luma_log2_weight_denom, ctx->explicit_offsets[0][l * 32 + i] << (ctx->ps.BitDepth_Y - 8),
-					ctx->explicit_weights[1][l * 32 + i], 1 << ctx->chroma_log2_weight_denom, ctx->explicit_offsets[1][l * 32 + i] << (ctx->ps.BitDepth_C - 8),
-					ctx->explicit_weights[2][l * 32 + i], 1 << ctx->chroma_log2_weight_denom, ctx->explicit_offsets[2][l * 32 + i] << (ctx->ps.BitDepth_C - 8));
+					ctx->explicit_weights[0][i], 1 << ctx->luma_log2_weight_denom, ctx->explicit_offsets[0][i] << (ctx->ps.BitDepth_Y - 8),
+					ctx->explicit_weights[1][i], 1 << ctx->chroma_log2_weight_denom, ctx->explicit_offsets[1][i] << (ctx->ps.BitDepth_C - 8),
+					ctx->explicit_weights[2][i], 1 << ctx->chroma_log2_weight_denom, ctx->explicit_offsets[2][i] << (ctx->ps.BitDepth_C - 8));
 				printf((i < ctx->ps.num_ref_idx_active[l] - 1) ? "<br>" : "</td></tr>\n");
 			}
 		}

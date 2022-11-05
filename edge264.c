@@ -1,6 +1,8 @@
 /** MAYDO:
- * _ try to optimize initialization of weights and offsets in decode_inter
  * _ fix compilation with SSSE3
+ * _ make a pass on edge264.c to update comments and review code
+ * _ decrease buffer sizes in internal.h to remove field support further
+ * _ add a flag in parameter_set to signal that it is initialized
  * _ merge e and ctx pointers to reduce register pressure in edge264.c ?
  * _ implement a tool that decodes an Annex B stream and compares it with a JM output, returning a faulty GOP file on error
  * _ add an option to store N more frames, to tolerate lags in CPU scheduling

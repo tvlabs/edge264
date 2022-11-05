@@ -2,7 +2,7 @@ edge264
 =======
 
 This is a minimalist software decoder for the H.264 video codec, written from scratch to experiment new programming techniques in order to improve performance and code simplicity over existing decoders.
-It used to be just a toy project, but is now geared towards a production-ready decoder.
+It used to be only a research project, but is now geared towards a production-ready decoder.
 
 
 Supported features
@@ -46,7 +46,7 @@ $ make
 $ ./edge264_play-cc video.264
 ```
 
-When debugging, the make flag `TRACE=1` enables printing headers to stdout in HTML format, and `TRACE=2` adds the dumping of all other symbols to stderr (*very large*). A test program is also provided, that browses files in a `conformance` directory, decoding each `<video>.264` and comparing its output with the pair `<video>.yuv`. On the set of official [AVCv1 conformance bitstreams](https://www.itu.int/wftp3/av-arch/jvt-site/draft_conformance/), 74 files are known to decode perfectly, the rest using yet unsupported features.
+When debugging, the make flag `TRACE=1` enables printing headers to stdout in HTML format, and `TRACE=2` adds the dumping of all other symbols to stderr (*very large*). A test program is also provided, that browses files in a `conformance` directory, decoding each `<video>.264` and comparing its output with the pair `<video>.yuv`. On the set of official [AVCv1 conformance bitstreams](https://www.itu.int/wftp3/av-arch/jvt-site/draft_conformance/), 75 files are known to decode perfectly, the rest using yet unsupported features.
 
 ```sh
 $ ./edge264_test-cc

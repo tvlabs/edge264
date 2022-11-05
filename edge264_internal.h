@@ -385,21 +385,18 @@ static noinline int FUNC(parse_slice_data_cabac);
 	// instructions available on later architectures
 	#ifndef __AVX_2__
 		#define _mm_broadcastw_epi16(a) _mm_shuffle_epi32(_mm_shufflelo_epi16(a, _MM_SHUFFLE(0, 0, 0, 0)), _MM_SHUFFLE(1, 0, 1, 0))
+		#define _mm_broadcastb_epi8(a) _mm_shuffle_epi8(a, _mm_setzero_si128())
 	#endif
-	#if !defined(__SSE4_1__) && !defined(__clang__)
-		static inline __m128i _mm_mullo_epi32(__m128i a, __m128i b) {
-			__m128i c = _mm_shuffle_epi32(a, _MM_SHUFFLE(0, 3, 0, 1));
-			__m128i d = _mm_shuffle_epi32(b, _MM_SHUFFLE(0, 3, 0, 1));
-			__m128i e = _mm_mul_epu32(a, b);
-			__m128i f = _mm_mul_epu32(c, d);
-			__m128 g = _mm_shuffle_ps((__m128)e, (__m128)f, _MM_SHUFFLE(2, 0, 2, 0));
-			return _mm_shuffle_epi32((__m128i)g, _MM_SHUFFLE(3, 1, 2, 0));
-		}
-		static inline __m128i _mm_packus_epi32(__m128i a, __m128i b) {
-			return _mm_max_epi16(_mm_packs_epi32(a, b), _mm_setzero_si128()); // not strictly equivalent but sufficient for 14bit results
-		}
-	#endif
-	#if !defined(__SSE4_1__)
+	#ifndef __SSE4_1__
+		#define _mm_mullo_epi32(a, b) ({\
+			__m128i _c = _mm_shuffle_epi32(a, _MM_SHUFFLE(0, 3, 0, 1));\
+			__m128i _d = _mm_shuffle_epi32(b, _MM_SHUFFLE(0, 3, 0, 1));\
+			__m128i _e = _mm_mul_epu32(a, b);\
+			__m128i _f = _mm_mul_epu32(_c, _d);\
+			__m128 _g = _mm_shuffle_ps((__m128)_e, (__m128)_f, _MM_SHUFFLE(2, 0, 2, 0));\
+			_mm_shuffle_epi32((__m128i)_g, _MM_SHUFFLE(3, 1, 2, 0));})
+		// not strictly equivalent but sufficient for 14bit results
+		#define _mm_packus_epi32(a, b) _mm_max_epi16(_mm_packs_epi32(a, b), _mm_setzero_si128())
 		#define _mm_max_epi8(a, b) ({\
 			__m128i m = _mm_cmpgt_epi8(a, b);\
 			_mm_or_si128(_mm_and_si128(a, m), _mm_and_si128(b, m));})
@@ -417,7 +414,7 @@ static noinline int FUNC(parse_slice_data_cabac);
 		static inline int mvd_flags2ref_idx(unsigned f) {
 			int a = f & 0x11111111;
 			int b = a | a >> 3;
-			int c = b | b >> 6;;
+			int c = b | b >> 6;
 			return (c & 0xf) | (c >> 12 & 0xf0);
 		}
 		static inline int extract_neighbours(unsigned f) {
@@ -451,8 +448,8 @@ static noinline int FUNC(parse_slice_data_cabac);
 			return (v4si)_mm_min_epi32((__m128i)a, (__m128i)b);
 		}
 	#elif defined __SSSE3__
-		#define ifelse_mask(v, t, f) {__m128i _v = (__m128i)(v); (typeof(t))_mm_or_si128(_mm_andnot_si128((__m128i)(f), _v), _mm_and_si128((__m128i)(t), _v));}
-		#define ifelse_msb(v, t, f) {__m128i _v = _mm_cmpgt_epi8((__m128i)(v), _mm_setzero_si128()); (typeof(t))_mm_or_si128(_mm_andnot_si128((__m128i)(f), _v), _mm_and_si128((__m128i)(t), _v));}
+		#define ifelse_mask(v, t, f) ({__m128i _v = (__m128i)(v); (typeof(t))_mm_or_si128(_mm_andnot_si128(_v, (__m128i)(f)), _mm_and_si128((__m128i)(t), _v));})
+		#define ifelse_msb(v, t, f) ({__m128i _v = _mm_cmpgt_epi8(_mm_setzero_si128(), (__m128i)(v)); (typeof(t))_mm_or_si128(_mm_andnot_si128(_v, (__m128i)(f)), _mm_and_si128((__m128i)(t), _v));})
 		static inline __m128i load8x1_8bit(const uint8_t *p, __m128i zero) {
 			return _mm_unpacklo_epi8(_mm_loadu_si64(p), zero);
 		}

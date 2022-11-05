@@ -1,5 +1,5 @@
 /** MAYDO:
- * _ fix compilation with SSSE3
+ * _ fix compilation with 32bit
  * _ make a pass on edge264.c to update comments and review code
  * _ decrease buffer sizes in internal.h to remove field support further
  * _ add a flag in parameter_set to signal that it is initialized

@@ -1,7 +1,7 @@
 /** MAYDO:
- * _ make a pass on edge264.c to update comments and review code
  * _ decrease buffer sizes in internal.h to remove field support further
  * _ add a flag in parameter_set to signal that it is initialized
+ * _ make a new API compatible with the merging of e and ctx
  * _ merge e and ctx pointers to reduce register pressure in edge264.c ?
  * _ implement a tool that decodes an Annex B stream and compares it with a JM output, returning a faulty GOP file on error
  * _ add an option to store N more frames, to tolerate lags in CPU scheduling
@@ -349,7 +349,6 @@ static void FUNC(parse_pred_weight_table, Edge264_stream *e)
  * Both initialisation and parsing of ref_pic_list_modification are fit into a
  * single function to foster code reduction and compactness. Performance is not
  * crucial here.
- * FIXME: For Mbaff, RefPicList should be stored as fields.
  */
 static void FUNC(parse_ref_pic_list_modification, const Edge264_stream *e)
 {
@@ -758,10 +757,6 @@ static int FUNC(parse_slice_layer_without_partitioning, Edge264_stream *e)
 	ctx->QP[0] = ctx->ps.QPprime_Y + CALL(get_se16, -ctx->ps.QPprime_Y, 51 - ctx->ps.QPprime_Y); // FIXME QpBdOffset
 	printf("<tr><th>SliceQP<sub>Y</sub></th><td>%d</td></tr>\n", ctx->QP[0]);
 	
-	// Loop filter is yet to be implemented.
-	ctx->disable_deblocking_filter_idc = 0;
-	ctx->FilterOffsetA = 0;
-	ctx->FilterOffsetB = 0;
 	if (ctx->ps.deblocking_filter_control_present_flag) {
 		ctx->disable_deblocking_filter_idc = CALL(get_ue16, 2);
 		printf("<tr><th>disable_deblocking_filter_idc</th><td>%x (%s)</td></tr>\n",
@@ -773,6 +768,9 @@ static int FUNC(parse_slice_layer_without_partitioning, Edge264_stream *e)
 				ctx->FilterOffsetA, ctx->FilterOffsetB);
 		}
 	} else {
+		ctx->disable_deblocking_filter_idc = 0;
+		ctx->FilterOffsetA = 0;
+		ctx->FilterOffsetB = 0;
 		printf("<tr><th>disable_deblocking_filter_idc (inferred)</th><td>0 (enabled)</td></tr>\n"
 			"<tr><th>FilterOffsets (inferred)</th><td>0, 0</td></tr>\n");
 	}
@@ -826,7 +824,7 @@ static int FUNC(parse_access_unit_delimiter, Edge264_stream *e)
  */
 static void FUNC(parse_scaling_lists)
 {
-	// Using vectors is fast and more readable than uint8_t pointers with memcpy.
+	// Using vectors is fast and more readable than uint8_t pointers.
 	v16qu *w4x4 = (v16qu *)ctx->ps.weightScale4x4;
 	v16qu fb4x4 = *w4x4; // fall-back
 	v16qu d4x4 = Default_4x4_Intra; // for useDefaultScalingMatrixFlag
@@ -856,7 +854,7 @@ static void FUNC(parse_scaling_lists)
 		}
 	}
 	
-	// For 8x8 scaling lists, we really have no better choice than memcpy.
+	// For 8x8 scaling lists, we really have no better choice than pointers.
 	if (!ctx->ps.transform_8x8_mode_flag)
 		return;
 	for (int i = 0; i < (ctx->ps.chroma_format_idc == 3 ? 6 : 2); i++) {
@@ -896,13 +894,6 @@ static void FUNC(parse_scaling_lists)
 /**
  * Parses the PPS into a copy of the current SPS, then saves it into one of four
  * PPS slots if a rbsp_trailing_bits pattern follows.
- *
- * Slice groups are not supported because:
- * _ The sixth group requires a per-PPS storage of mapUnitToSliceGroupMap, with
- *   an upper size of 512^2 bytes, though a slice group needs 3 bits at most;
- * _ Groups 3-5 ignore the PPS's mapUnitToSliceGroupMap, and use 1 bit per mb;
- * _ Skipping unavailable mbs while decoding a slice messes with the storage of
- *   neighbouring macroblocks as a cirbular buffer.
  */
 static int FUNC(parse_pic_parameter_set, Edge264_stream *e)
 {
@@ -911,7 +902,7 @@ static int FUNC(parse_pic_parameter_set, Edge264_stream *e)
 		"wipe", "explicit"};
 	static const char * const weighted_pred_names[3] = {"average", "explicit", "implicit"};
 	
-	// Actual streams should never use more than 4 PPSs (I, P, B, b).
+	// Actual streams never use more than 4 PPSs (I, P, B, b).
 	ctx->ps = e->SPS;
 	int pic_parameter_set_id = CALL(get_ue16, 255);
 	int seq_parameter_set_id = CALL(get_ue16, 31);
@@ -919,12 +910,12 @@ static int FUNC(parse_pic_parameter_set, Edge264_stream *e)
 	ctx->ps.bottom_field_pic_order_in_frame_present_flag = CALL(get_u1);
 	int num_slice_groups = CALL(get_ue16, 7) + 1;
 	printf("<tr%s><th>pic_parameter_set_id</th><td>%u</td></tr>\n"
-		"<tr><th>seq_parameter_set_id</th><td>%u</td></tr>\n"
+		"<tr%s><th>seq_parameter_set_id</th><td>%u</td></tr>\n"
 		"<tr><th>entropy_coding_mode_flag</th><td>%x</td></tr>\n"
 		"<tr><th>bottom_field_pic_order_in_frame_present_flag</th><td>%x</td></tr>\n"
 		"<tr%s><th>num_slice_groups</th><td>%u</td></tr>\n",
 		red_if(pic_parameter_set_id >= 4), pic_parameter_set_id,
-		seq_parameter_set_id,
+		red_if(seq_parameter_set_id > 0), seq_parameter_set_id,
 		ctx->ps.entropy_coding_mode_flag,
 		ctx->ps.bottom_field_pic_order_in_frame_present_flag,
 		red_if(num_slice_groups > 1), num_slice_groups);
@@ -1001,7 +992,6 @@ static int FUNC(parse_pic_parameter_set, Edge264_stream *e)
 		red_if(redundant_pic_cnt_present_flag), redundant_pic_cnt_present_flag);
 	
 	// short for peek-24-bits-without-having-to-define-a-single-use-function
-	ctx->ps.transform_8x8_mode_flag = 0;
 	if (msb_cache >> (SIZE_BIT - 24) != 0x800000) {
 		ctx->ps.transform_8x8_mode_flag = CALL(get_u1);
 		printf("<tr><th>transform_8x8_mode_flag</th><td>%x</td></tr>\n",
@@ -1023,6 +1013,7 @@ static int FUNC(parse_pic_parameter_set, Edge264_stream *e)
 		printf("<tr><th>second_chroma_qp_index_offset</th><td>%d</td></tr>\n",
 			ctx->ps.second_chroma_qp_index_offset);
 	} else {
+		ctx->ps.transform_8x8_mode_flag = 0;
 		printf("<tr><th>transform_8x8_mode_flag (inferred)</th><td>0</td></tr>\n"
 			"<tr><th>second_chroma_qp_index_offset (inferred)</th><td>0</td></tr>\n");
 	}
@@ -1030,7 +1021,7 @@ static int FUNC(parse_pic_parameter_set, Edge264_stream *e)
 	// seq_parameter_set_id was ignored so far since no SPS data was read.
 	if (CALL(get_uv, 24) != 0x800000 || e->DPB == NULL)
 		return 2;
-	if (pic_parameter_set_id >= 4 ||
+	if (seq_parameter_set_id > 0 || pic_parameter_set_id >= 4 ||
 		num_slice_groups > 1 || ctx->ps.constrained_intra_pred_flag ||
 		redundant_pic_cnt_present_flag || ctx->ps.transform_8x8_mode_flag)
 		return 1;
@@ -1290,17 +1281,12 @@ static int FUNC(parse_seq_parameter_set, Edge264_stream *e)
 	printf("<tr><th>profile_idc</th><td>%u (%s)</td></tr>\n"
 		"<tr><th>constraint_set_flags</th><td>%x, %x, %x, %x, %x, %x</td></tr>\n"
 		"<tr><th>level_idc</th><td>%.1f</td></tr>\n"
-		"<tr><th>seq_parameter_set_id</th><td>%u</td></tr>\n",
+		"<tr%s><th>seq_parameter_set_id</th><td>%u</td></tr>\n",
 		profile_idc, profile_idc_names[profile_idc],
 		constraint_set_flags >> 7, (constraint_set_flags >> 6) & 1, (constraint_set_flags >> 5) & 1, (constraint_set_flags >> 4) & 1, (constraint_set_flags >> 3) & 1, (constraint_set_flags >> 2) & 1,
 		(double)level_idc / 10,
-		seq_parameter_set_id);
+		red_if(seq_parameter_set_id > 0), seq_parameter_set_id);
 	
-	ctx->ps.chroma_format_idc = 1;
-	ctx->ps.ChromaArrayType = 1;
-	ctx->ps.BitDepth_Y = 8;
-	ctx->ps.BitDepth_C = 8;
-	ctx->ps.qpprime_y_zero_transform_bypass_flag = 0;
 	int seq_scaling_matrix_present_flag = 0;
 	if (profile_idc != 66 && profile_idc != 77 && profile_idc != 88) {
 		ctx->ps.ChromaArrayType = ctx->ps.chroma_format_idc = CALL(get_ue16, 3);
@@ -1317,6 +1303,11 @@ static int FUNC(parse_seq_parameter_set, Edge264_stream *e)
 			red_if(ctx->ps.BitDepth_Y != 8 || ctx->ps.BitDepth_C != 8), ctx->ps.BitDepth_Y, ctx->ps.BitDepth_C, ctx->ps.BitDepth_C,
 			red_if(ctx->ps.qpprime_y_zero_transform_bypass_flag), ctx->ps.qpprime_y_zero_transform_bypass_flag);
 	} else {
+		ctx->ps.chroma_format_idc = 1;
+		ctx->ps.ChromaArrayType = 1;
+		ctx->ps.BitDepth_Y = 8;
+		ctx->ps.BitDepth_C = 8;
+		ctx->ps.qpprime_y_zero_transform_bypass_flag = 0;
 		printf("<tr><th>chroma_format_idc (inferred)</th><td>1 (4:2:0)</td></tr>\n"
 			"<tr><th>BitDepths (inferred)</th><td>8:8:8</td></tr>\n"
 			"<tr><th>qpprime_y_zero_transform_bypass_flag (inferred)</th><td>0</td></tr>\n");
@@ -1421,10 +1412,6 @@ static int FUNC(parse_seq_parameter_set, Edge264_stream *e)
 		ctx->ps.direct_8x8_inference_flag);
 	
 	// frame_cropping_flag
-	ctx->ps.frame_crop_left_offset = 0;
-	ctx->ps.frame_crop_right_offset = 0;
-	ctx->ps.frame_crop_top_offset = 0;
-	ctx->ps.frame_crop_bottom_offset = 0;
 	if (CALL(get_u1)) {
 		unsigned shiftX = (ctx->ps.ChromaArrayType == 1) | (ctx->ps.ChromaArrayType == 2);
 		unsigned shiftY = (ctx->ps.ChromaArrayType == 1);
@@ -1437,6 +1424,10 @@ static int FUNC(parse_seq_parameter_set, Edge264_stream *e)
 		printf("<tr><th>frame_crop_offsets</th><td>left %u, right %u, top %u, bottom %u</td></tr>\n",
 			ctx->ps.frame_crop_left_offset, ctx->ps.frame_crop_right_offset, ctx->ps.frame_crop_top_offset, ctx->ps.frame_crop_bottom_offset);
 	} else {
+		ctx->ps.frame_crop_left_offset = 0;
+		ctx->ps.frame_crop_right_offset = 0;
+		ctx->ps.frame_crop_top_offset = 0;
+		ctx->ps.frame_crop_bottom_offset = 0;
 		printf("<tr><th>frame_crop_offsets (inferred)</th><td>left 0, right 0, top 0, bottom 0</td></tr>\n");
 	}
 	
@@ -1451,9 +1442,9 @@ static int FUNC(parse_seq_parameter_set, Edge264_stream *e)
 	
 	if (CALL(get_uv, 24) != 0x800000)
 		return 2;
-	if (ctx->ps.ChromaArrayType != 1 || ctx->ps.BitDepth_Y != 8 ||
-		ctx->ps.BitDepth_C != 8 || ctx->ps.qpprime_y_zero_transform_bypass_flag ||
-		!ctx->ps.frame_mbs_only_flag)
+	if (seq_parameter_set_id > 0 || ctx->ps.ChromaArrayType != 1 ||
+		ctx->ps.BitDepth_Y != 8 || ctx->ps.BitDepth_C != 8 ||
+		ctx->ps.qpprime_y_zero_transform_bypass_flag || !ctx->ps.frame_mbs_only_flag)
 		return 1;
 	
 	// reallocate the DPB when the image format changes

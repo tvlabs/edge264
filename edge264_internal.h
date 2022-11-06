@@ -439,7 +439,7 @@ static noinline int FUNC(parse_slice_data_cabac);
 		}
 		// FIXME with cvt 8->32 then pack ?
 		static always_inline __m128i load4x2_8bit(const uint8_t *r0, const uint8_t *r1, __m128i zero) {
-			return _mm_cvtepu8_epi16(_mm_insert_epi32(_mm_cvtsi32_si128(*(int32_t *)r0), *(int *)r1, 1));
+			return _mm_cvtepu8_epi16(_mm_insert_epi32(_mm_loadu_si32(r0), *(int *)r1, 1));
 		}
 		static inline v16qi min_v16qi(v16qi a, v16qi b) {
 			return (v16qi)_mm_min_epi8((__m128i)a, (__m128i)b);
@@ -457,7 +457,7 @@ static noinline int FUNC(parse_slice_data_cabac);
 			return _mm_unpacklo_epi8(_mm_loadu_si32(p), zero);
 		}
 		static inline __m128i load4x2_8bit(const uint8_t *r0, const uint8_t *r1, __m128i zero) {
-			return _mm_unpacklo_epi8(_mm_unpacklo_epi32(_mm_cvtsi32_si128(*(int32_t *)r0), _mm_cvtsi32_si128(*(int32_t *)r1)), zero);
+			return _mm_unpacklo_epi8(_mm_unpacklo_epi32(_mm_loadu_si32(r0), _mm_loadu_si32(r1)), zero);
 		}
 		static inline v16qi min_v16qi(v16qi a, v16qi b) {
 			return (v16qi)_mm_xor_si128((__m128i)a, _mm_and_si128(_mm_xor_si128((__m128i)a, (__m128i)b), _mm_cmpgt_epi8((__m128i)a, (__m128i)b)));

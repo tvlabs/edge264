@@ -1157,7 +1157,7 @@ static always_inline void inter2xH_chroma_8bit(int h, size_t dstride, uint8_t * 
 		*(int16_t *)(dst + dstride) = v[1];
 	} else {
 		__m128i x0 = _mm_setr_epi32(*(int32_t *)src, *(int32_t *)(src + sstride), *(int32_t *)(src + sstride * 2), *(int32_t *)(src + sstride * 3));
-		__m128i x1 = _mm_alignr_epi8(_mm_cvtsi32_si128(*(int32_t *)(src + sstride * 4)), x0, 4);
+		__m128i x1 = _mm_alignr_epi8(_mm_loadu_si32(src + sstride * 4), x0, 4);
 		__m128i x2 = _mm_add_epi16(_mm_maddubs_epi16(_mm_shuffle_epi8((__m128i)x0, shuf), AB), _mm_maddubs_epi16(_mm_shuffle_epi8(x1, shuf), CD));
 		__m128i p = _mm_packus_epi16(_mm_avg_epu16(_mm_srli_epi16(x2, 5), zero), zero);
 		__m128i q = _mm_setr_epi16(*(int16_t *)dst, *(int16_t *)(dst + dstride), *(int16_t *)(dst + dstride * 2), *(int16_t *)(dst + dstride * 3), 0, 0, 0, 0);
@@ -1172,7 +1172,7 @@ static always_inline void inter2xH_chroma_8bit(int h, size_t dstride, uint8_t * 
 
 static always_inline void inter4xH_chroma_8bit(int h, size_t dstride, uint8_t * restrict dst, size_t sstride, const uint8_t *src, __m128i AB, __m128i CD, __m128i W, __m128i O, __m128i logWD) {
 	__m128i zero = _mm_setzero_si128();
-	__m128i x0 = _mm_slli_si128(_mm_unpacklo_epi8(_mm_cvtsi32_si128(*(int32_t *)src), _mm_cvtsi32_si128(*(int32_t *)(src + 1))), 8);
+	__m128i x0 = _mm_slli_si128(_mm_unpacklo_epi8(_mm_loadu_si32(src), _mm_loadu_si32(src + 1)), 8);
 	do {
 		__m128i x1 = _mm_setr_epi32(*(int32_t *)(src + sstride        ), *(int32_t *)(src + sstride * 2    ), 0, 0);
 		__m128i x2 = _mm_setr_epi32(*(int32_t *)(src + sstride     + 1), *(int32_t *)(src + sstride * 2 + 1), 0, 0);
@@ -1264,7 +1264,7 @@ void FUNC(decode_inter, int i, int w, int h) {
 	if (ctx->ps.weighted_bipred_idc != 1) {
 		if (((i8x8 - 4) | refIdxX) < 0) { // no_weight
 			biweights_Y = biweights_Cb = biweights_Cr = (v16qi){0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1};
-			bioffsets_Y = bioffsets_Cb = bioffsets_Cr = (v16qi){};
+			bioffsets_Y = bioffsets_Cb = bioffsets_Cr = (v8hi){};
 			logWD_Y = logWD_C = (v2li){};
 		} else if (ctx->ps.weighted_bipred_idc == 0) { // default2
 			biweights_Y = biweights_Cb = biweights_Cr = (v16qi){1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1};
@@ -1290,7 +1290,7 @@ void FUNC(decode_inter, int i, int w, int h) {
 			logWD_Y = (v2li){ctx->luma_log2_weight_denom};
 		} else {
 			biweights_Y = (v16qi){0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1};
-			bioffsets_Y = (v16qi){};
+			bioffsets_Y = (v8hi){};
 			logWD_Y = (v2li){};
 		}
 		if (__builtin_expect(ctx->explicit_weights[1][refIdx] < 128, 1)) {
@@ -1301,12 +1301,12 @@ void FUNC(decode_inter, int i, int w, int h) {
 			logWD_C = (v2li){ctx->chroma_log2_weight_denom};
 		} else {
 			biweights_Cb = biweights_Cr = (v16qi){0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1};
-			bioffsets_Cb = bioffsets_Cr = (v16qi){};
+			bioffsets_Cb = bioffsets_Cr = (v8hi){};
 			logWD_C = (v2li){};
 		}
 	} else if (i8x8 < 4) { // no_weight
 		biweights_Y = biweights_Cb = biweights_Cr = (v16qi){0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1};
-		bioffsets_Y = bioffsets_Cb = bioffsets_Cr = (v16qi){};
+		bioffsets_Y = bioffsets_Cb = bioffsets_Cr = (v8hi){};
 		logWD_Y = logWD_C = (v2li){};
 	} else { // explicit2
 		refIdx += 32;

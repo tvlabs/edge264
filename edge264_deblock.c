@@ -44,7 +44,7 @@ static inline void FUNC(init_alpha_beta_tC0)
 	// compute all values of indexA and indexB for each of the color planes first
 	__m128i zero = _mm_setzero_si128();
 	__m128i qP = _mm_set1_epi32((int32_t)mb->QP_s);
-	__m128i qPAB = _mm_unpacklo_epi32(_mm_cvtsi32_si128((int32_t)mb[-1].QP_s), _mm_cvtsi32_si128((int32_t)mbB->QP_s));
+	__m128i qPAB = _mm_unpacklo_epi32(_mm_loadu_si32(&mb[-1].QP_s), _mm_loadu_si32(&mbB->QP_s));
 	__m128i qPav = _mm_avg_epu8(qP, _mm_unpacklo_epi64(qP, qPAB)); // mid/mid/A/B
 	__m128i c51 = _mm_set1_epi8(51);
 	__m128i indexA = _mm_min_epu8(_mm_max_epi8(_mm_add_epi8(qPav, _mm_set1_epi8(ctx->FilterOffsetA)), zero), c51);
@@ -109,7 +109,7 @@ static inline void FUNC(init_alpha_beta_tC0)
 			__m128i mvsaec = _mm_subs_epu8(_mm_max_epu8(_mm_abs_epi8(mvsael01), _mm_abs_epi8(mvsael10)), c3);
 			__m128i mvsacegp = _mm_shuffle_epi32(_mm_packs_epi16(mvsaep, zero), _MM_SHUFFLE(3, 1, 2, 0));
 			__m128i mvsacegc = _mm_shuffle_epi32(_mm_packs_epi16(mvsaec, zero), _MM_SHUFFLE(3, 1, 2, 0));
-			__m128i refPic = _mm_cvtsi64_si128(mb->refPic_l);
+			__m128i refPic = _mm_loadu_si64(&mb->refPic_l);
 			__m128i refPicAB = _mm_setr_epi64((__m64)mb[-1].refPic_l, (__m64)mbB->refPic_l);
 			__m128i shufVHAB = _mm_setr_epi8(0, 2, 1, 3, 0, 1, 2, 3, 9, 11, 0, 2, 14, 15, 0, 1);
 			__m128i refs0 = _mm_shuffle_epi8((__m128i)_mm_shuffle_ps((__m128)refPic, (__m128)refPicAB, _MM_SHUFFLE(2, 0, 0, 0)), shufVHAB); // (v0,h0,A0,B0)
@@ -195,7 +195,7 @@ static inline void FUNC(init_alpha_beta_tC0)
 			__m128i mvsbdfhp = _mm_packs_epi16(mvsbdp, mvsfhp);
 			__m128i mvsacegc = _mm_packs_epi16(mvsacc, mvsegc);
 			__m128i mvsbdfhc = _mm_packs_epi16(mvsbdc, mvsfhc);
-			__m128i refPic = _mm_cvtsi64_si128(mb->refPic_l);
+			__m128i refPic = _mm_loadu_si64(&mb->refPic_l);
 			__m128i refPicAB = _mm_setr_epi64((__m64)mb[-1].refPic_l, (__m64)mbB->refPic_l);
 			__m128i shufVHAB = _mm_setr_epi8(0, 2, 1, 3, 0, 1, 2, 3, 9, 11, 0, 2, 14, 15, 0, 1);
 			__m128i refs0 = _mm_shuffle_epi8((__m128i)_mm_shuffle_ps((__m128)refPic, (__m128)refPicAB, _MM_SHUFFLE(2, 0, 0, 0)), shufVHAB); // (v0,h0,A0,B0)
@@ -428,13 +428,13 @@ static inline void FUNC(init_alpha_beta_tC0)
 /**
  * Helper functions
  */
-static always_inline __m128i expand4(int a) {
-	__m128i x0 = _mm_cvtsi32_si128(a);
+static always_inline __m128i expand4(int32_t *a) {
+	__m128i x0 = _mm_loadu_si32(a);
 	__m128i x1 = _mm_unpacklo_epi8(x0, x0);
 	return _mm_unpacklo_epi8(x1, x1);
 }
-static always_inline __m128i expand2(int64_t a) {
-	__m128i x0 = _mm_cvtsi64_si128(a);
+static always_inline __m128i expand2(int64_t *a) {
+	__m128i x0 = _mm_loadu_si64(a);
 	return _mm_unpacklo_epi8(x0, x0);
 }
 
@@ -485,7 +485,7 @@ static noinline void FUNC(deblock_Y_8bit, size_t stride, ssize_t nstride, size_t
 		__m128i alpha_a = _mm_set1_epi8(ctx->alpha[8]);
 		__m128i beta_a = _mm_set1_epi8(ctx->beta[8]);
 		if (mb[-1].f.mbIsInterFlag & mb->f.mbIsInterFlag) {
-			__m128i tC0a = expand4(ctx->tC0_s[0]);
+			__m128i tC0a = expand4(ctx->tC0_s + 0);
 			if (ctx->tC0_s[0] != -1)
 				DEBLOCK_LUMA_SOFT(vX, vY, vZ, v0, v1, v2, alpha_a, beta_a, tC0a);
 		} else if (ctx->alpha[8] != 0) {
@@ -548,7 +548,7 @@ static noinline void FUNC(deblock_Y_8bit, size_t stride, ssize_t nstride, size_t
 	__m128i alpha_bcdfgh = _mm_set1_epi8(ctx->alpha[0]);
 	__m128i beta_bcdfgh = _mm_set1_epi8(ctx->beta[0]);
 	if (!mb->f.transform_size_8x8_flag) {
-		__m128i tC0b = expand4(ctx->tC0_s[1]);
+		__m128i tC0b = expand4(ctx->tC0_s + 1);
 		if (ctx->tC0_s[1] != -1)
 			DEBLOCK_LUMA_SOFT(v1, v2, v3, v4, v5, v6, alpha_bcdfgh, beta_bcdfgh, tC0b);
 	}
@@ -577,13 +577,13 @@ static noinline void FUNC(deblock_Y_8bit, size_t stride, ssize_t nstride, size_t
 	TRANSPOSE_8x16(xa, hi, v8, v9, vA, vB, vC, vD, vE, vF);
 	
 	// third vertical edge
-	__m128i tC0c = expand4(ctx->tC0_s[2]);
+	__m128i tC0c = expand4(ctx->tC0_s + 2);
 	if (ctx->tC0_s[2] != -1)
 		DEBLOCK_LUMA_SOFT(v5, v6, v7, v8, v9, vA, alpha_bcdfgh, beta_bcdfgh, tC0c);
 	
 	// fourth vertical edge
 	if (!mb->f.transform_size_8x8_flag) {
-		__m128i tC0d = expand4(ctx->tC0_s[3]);
+		__m128i tC0d = expand4(ctx->tC0_s + 3);
 		if (ctx->tC0_s[3] != -1)
 			DEBLOCK_LUMA_SOFT(v9, vA, vB, vC, vD, vE, alpha_bcdfgh, beta_bcdfgh, tC0d);
 	}
@@ -598,7 +598,7 @@ static noinline void FUNC(deblock_Y_8bit, size_t stride, ssize_t nstride, size_t
 		__m128i alpha_e = _mm_set1_epi8(ctx->alpha[12]);
 		__m128i beta_e = _mm_set1_epi8(ctx->beta[12]);
 		if (mbB->f.mbIsInterFlag & mb->f.mbIsInterFlag) {
-			__m128i tC0e = expand4(ctx->tC0_s[4]);
+			__m128i tC0e = expand4(ctx->tC0_s + 4);
 			if (ctx->tC0_s[4] != -1)
 				DEBLOCK_LUMA_SOFT(*(__m128i *)(px0 + nstride * 3), *(__m128i *)(px0 + nstride * 2), *(__m128i *)(px0 + nstride    ), h0, h1, h2, alpha_e, beta_e, tC0e);
 		} else if (ctx->alpha[12] != 0) {
@@ -610,7 +610,7 @@ static noinline void FUNC(deblock_Y_8bit, size_t stride, ssize_t nstride, size_t
 	
 	// second horizontal edge
 	if (!mb->f.transform_size_8x8_flag) {
-		__m128i tC0f = expand4(ctx->tC0_s[5]);
+		__m128i tC0f = expand4(ctx->tC0_s + 5);
 		if (ctx->tC0_s[5] != -1)
 			DEBLOCK_LUMA_SOFT(h1, h2, h3, h4, h5, h6, alpha_bcdfgh, beta_bcdfgh, tC0f);
 	}
@@ -628,7 +628,7 @@ static noinline void FUNC(deblock_Y_8bit, size_t stride, ssize_t nstride, size_t
 	*(__m128i *)(pxE +  stride    ) = hF;
 	
 	// third horizontal edge
-	__m128i tC0g = expand4(ctx->tC0_s[6]);
+	__m128i tC0g = expand4(ctx->tC0_s + 6);
 	if (ctx->tC0_s[6] != -1)
 		DEBLOCK_LUMA_SOFT(h5, h6, h7, h8, h9, hA, alpha_bcdfgh, beta_bcdfgh, tC0g);
 	*(__m128i *)(px7 + nstride    ) = h6;
@@ -638,7 +638,7 @@ static noinline void FUNC(deblock_Y_8bit, size_t stride, ssize_t nstride, size_t
 	
 	// fourth horizontal edge
 	if (!mb->f.transform_size_8x8_flag) {
-		__m128i tC0h = expand4(ctx->tC0_s[7]);
+		__m128i tC0h = expand4(ctx->tC0_s + 7);
 		if (ctx->tC0_s[7] != -1)
 			DEBLOCK_LUMA_SOFT(h9, hA, hB, hC, hD, hE, alpha_bcdfgh, beta_bcdfgh, tC0h);
 	}
@@ -693,7 +693,7 @@ static noinline void FUNC(deblock_CbCr_8bit, size_t stride, ssize_t nstride, siz
 		__m128i alpha_a = _mm_shuffle_epi8((__m128i)ctx->alpha_v, shuf_a);
 		__m128i beta_a = _mm_shuffle_epi8((__m128i)ctx->beta_v, shuf_a);
 		if (mb[-1].f.mbIsInterFlag & mb->f.mbIsInterFlag) {
-			__m128i tC0a = expand2(ctx->tC0_l[4]);
+			__m128i tC0a = expand2(ctx->tC0_l + 4);
 			if (ctx->tC0_l[4] != -1)
 				DEBLOCK_CHROMA_SOFT(vY, vZ, v0, v1, alpha_a, beta_a, tC0a);
 		} else {
@@ -752,7 +752,7 @@ static noinline void FUNC(deblock_CbCr_8bit, size_t stride, ssize_t nstride, siz
 	__m128i shuf_cg = _mm_setr_epi8(1, 1, 1, 1, 1, 1, 1, 1, 2, 2, 2, 2, 2, 2, 2, 2);
 	__m128i alpha_cg = _mm_shuffle_epi8((__m128i)ctx->alpha_v, shuf_cg);
 	__m128i beta_cg = _mm_shuffle_epi8((__m128i)ctx->beta_v, shuf_cg);
-	__m128i tC0c = expand2(ctx->tC0_l[5]);
+	__m128i tC0c = expand2(ctx->tC0_l + 5);
 	if (ctx->tC0_l[5] != -1)
 		DEBLOCK_CHROMA_SOFT(v2, v3, v4, v5, alpha_cg, beta_cg, tC0c);
 	
@@ -800,7 +800,7 @@ static noinline void FUNC(deblock_CbCr_8bit, size_t stride, ssize_t nstride, siz
 		__m128i hY = _mm_setr_epi64(*(__m64 *)(Cb0 + nstride * 2), *(__m64 *)(Cr0 + nstride * 2));
 		__m128i hZ = _mm_setr_epi64(*(__m64 *)(Cb0 + nstride    ), *(__m64 *)(Cr0 + nstride    ));
 		if (mbB->f.mbIsInterFlag & mb->f.mbIsInterFlag) {
-			__m128i tC0e = expand2(ctx->tC0_l[6]);
+			__m128i tC0e = expand2(ctx->tC0_l + 6);
 			if (ctx->tC0_l[6] != -1)
 				DEBLOCK_CHROMA_SOFT(hY, hZ, h0, h1, alpha_e, beta_e, tC0e);
 		} else {
@@ -817,7 +817,7 @@ static noinline void FUNC(deblock_CbCr_8bit, size_t stride, ssize_t nstride, siz
 	*(int64_t *)(Cr0 +  stride    ) = ((v2li)h1)[1];
 	
 	// second horizontal edge
-	__m128i tC0g = expand2(ctx->tC0_l[7]);
+	__m128i tC0g = expand2(ctx->tC0_l + 7);
 	if (ctx->tC0_l[7] != -1)
 		DEBLOCK_CHROMA_SOFT(h2, h3, h4, h5, alpha_cg, beta_cg, tC0g);
 	*(int64_t *)(Cb0 +  stride * 2) = ((v2li)h2)[0];

@@ -40,7 +40,6 @@ int main(int argc, char *argv[])
 	}
 	
 	// fill the stack now
-	Edge264_stream e = {};
 	struct dirent *entry;
 	struct stat stC, stD;
 	int counts[6] = {};
@@ -75,22 +74,23 @@ int main(int argc, char *argv[])
 		fstat(yuv, &stD);
 		uint8_t *dpb = mmap(NULL, stD.st_size, PROT_READ, MAP_SHARED, yuv, 0);
 		assert(cpb!=MAP_FAILED&&dpb!=MAP_FAILED);
-		e.CPB = cpb + 3 + (cpb[2] == 0);
-		e.end = cpb + stC.st_size;
+		Edge264_stream *s = Edge264_alloc();
+		s->CPB = cpb + 3 + (cpb[2] == 0);
+		s->end = cpb + stC.st_size;
 		const uint8_t *cmp = dpb;
 		
 		// decode the entire file and FAIL on any error
 		int res;
 		do {
-			res = Edge264_decode_NAL(&e);
-			if (!Edge264_get_frame(&e, res == -2)) {
+			res = Edge264_decode_NAL(s);
+			if (!Edge264_get_frame(s, res == -2)) {
 				int diff = 0;
-				for (int y = 0; y < e.height_Y; y++, cmp += e.width_Y << e.pixel_depth_Y)
-					diff |= memcmp(e.samples_Y + y * e.stride_Y, cmp, e.width_Y << e.pixel_depth_Y);
-				for (int y = 0; y < e.height_C; y++, cmp += e.width_C << e.pixel_depth_C)
-					diff |= memcmp(e.samples_Cb + y * e.stride_C, cmp, e.width_C << e.pixel_depth_C);
-				for (int y = 0; y < e.height_C; y++, cmp += e.width_C << e.pixel_depth_C)
-					diff |= memcmp(e.samples_Cr + y * e.stride_C, cmp, e.width_C << e.pixel_depth_C);
+				for (int y = 0; y < s->height_Y; y++, cmp += s->width_Y << s->pixel_depth_Y)
+					diff |= memcmp(s->samples_Y + y * s->stride_Y, cmp, s->width_Y << s->pixel_depth_Y);
+				for (int y = 0; y < s->height_C; y++, cmp += s->width_C << s->pixel_depth_C)
+					diff |= memcmp(s->samples_Cb + y * s->stride_C, cmp, s->width_C << s->pixel_depth_C);
+				for (int y = 0; y < s->height_C; y++, cmp += s->width_C << s->pixel_depth_C)
+					diff |= memcmp(s->samples_Cr + y * s->stride_C, cmp, s->width_C << s->pixel_depth_C);
 				if (diff)
 					res = 2;
 			} else if (res == -2) {
@@ -99,7 +99,7 @@ int main(int argc, char *argv[])
 		} while (res <= 0);
 		if (res == -2 && cmp != dpb + stD.st_size)
 			res = 2;
-		Edge264_clear(&e);
+		Edge264_free(&s);
 		counts[2 + res]++;
 		
 		// print result

@@ -250,10 +250,9 @@ int main(int argc, char *argv[])
 	assert(cpb!=MAP_FAILED);
 	
 	// allocate and setup the main Edge264 structure
-	Edge264_stream e = {
-		.CPB = cpb + 3 + (cpb[2] == 0),
-		.end = cpb + stC.st_size,
-	};
+	Edge264_stream *s = Edge264_alloc();
+	s->CPB = cpb + 3 + (cpb[2] == 0);
+	s->end = cpb + stC.st_size;
 	
 	// memory-map the optional yuv reference file
 	int yuv = -1;
@@ -292,13 +291,13 @@ int main(int argc, char *argv[])
 		"</head>\n"
 		"<body>\n");
 	while (1) {
-		int res = Edge264_decode_NAL(&e);
-		if (Edge264_get_frame(&e, res == -2) >= 0 && !bench)
-			process_frame(&e);
+		int res = Edge264_decode_NAL(s);
+		if (Edge264_get_frame(s, res == -2) >= 0 && !bench)
+			process_frame(s);
 		else if (res == -2)
 			break;
 	}
-	Edge264_clear(&e);
+	Edge264_free(&s);
 	printf("</body>\n"
 		"</html>\n");
 	

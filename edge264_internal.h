@@ -140,7 +140,6 @@ typedef struct
 	size_t _codIOffset;
 	Edge264_macroblock * restrict _mb; // backup storage for macro mb
 	Edge264_macroblock * restrict _mbB; // backup storage for macro mbB
-	const Edge264_stream *e; // for debugging only
 	int32_t CurrMbAddr;
 	int32_t mb_skip_run;
 	int32_t plane_size_Y;
@@ -205,6 +204,9 @@ typedef struct
 	union { uint8_t alpha[16]; v16qu alpha_v; }; // {internal_Y,internal_Cb,internal_Cr,0,0,0,0,0,left_Y,left_Cb,left_Cr,0,top_Y,top_Cb,top_Cr,0}
 	union { uint8_t beta[16]; v16qu beta_v; };
 	union { int32_t tC0_s[16]; int64_t tC0_l[8]; v16qi tC0_v[4]; }; // 4 bytes per edge in deblocking order -> 8 luma edges then 8 alternating Cb/Cr edges
+	
+	// The structure exposed through the API is actually at the end of ctx
+	Edge264_stream s;
 } Edge264_ctx;
 
 
@@ -317,7 +319,7 @@ static int FUNC(cabac_terminate);
 static void FUNC(cabac_init, int idc);
 
 // edge264_deblock_*.c
-void FUNC(deblock_frame, Edge264_stream *e, uint8_t *samples);
+void FUNC(deblock_frame, uint8_t *samples);
 
 // edge264_inter_*.c
 void FUNC(decode_inter, int i, int w, int h);

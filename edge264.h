@@ -126,6 +126,13 @@ const uint8_t *Edge264_find_start_code(int n, const uint8_t *CPB, const uint8_t 
 
 
 /**
+ * Allocates a decoding context, and returns a pointer to the substructure used
+ * to pass and receive parameters (or NULL on insufficient memory).
+ */
+Edge264_stream *Edge264_alloc();
+
+
+/**
  * Decode a single NAL unit, with e->CPB pointing at its first byte.
  * When the NAL is followed by a start code (for annex B streams), e->CPB will
  * be updated to point at the next unit.
@@ -166,8 +173,8 @@ int Edge264_get_frame(Edge264_stream *e, int drain);
 
 
 /**
- * Free all internal memory and reset the structure to zero.
+ * Deallocates the decoding context and all its internal structures.
  */
-void Edge264_clear(Edge264_stream *e);
+void Edge264_free(Edge264_stream **s);
 
 #endif

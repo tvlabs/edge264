@@ -24,7 +24,7 @@
 		
 		// load 16 bytes without ever reading past the end
 		const uint8_t *CPB = ctx->CPB;
-		const uint8_t *end = ctx->end;
+		const uint8_t *end = ctx->s.end;
 		const uint8_t *after;
 		__m128i x;
 		if (__builtin_expect(CPB + 14 <= end, 1)) {

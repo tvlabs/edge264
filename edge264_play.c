@@ -114,11 +114,11 @@ static void init_display()
 // should be reworked when implementing 16-bits
 static int check_frame(const Edge264_stream *e)
 {
-	int poc = e->FieldOrderCnt[0][(e->samples_Y - e->DPB) / e->frame_size] << 6 >> 6;
-	int top = e->SPS.frame_crop_top_offset;
-	int left = e->SPS.frame_crop_left_offset;
-	int right = e->SPS.frame_crop_right_offset;
-	int bottom = e->SPS.frame_crop_bottom_offset;
+	int poc = e->PicOrderCnt;
+	int top = e->frame_crop_top_offset;
+	int left = e->frame_crop_left_offset;
+	int right = e->frame_crop_right_offset;
+	int bottom = e->frame_crop_bottom_offset;
 	for (int row = -top; row < e->height_Y + bottom; row += 16) {
 		for (int col = -left; col < e->width_Y + right; col += 16) {
 			int sh_row = 0;

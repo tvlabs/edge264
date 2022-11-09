@@ -30,53 +30,9 @@
 
 #include <stdint.h>
 
-typedef struct {
-	// The first 16 bytes uniquely determine the frame buffer size and format.
-	int8_t chroma_format_idc; // 2 significant bits
-	int8_t BitDepth_Y; // 4 significant bits
-	int8_t BitDepth_C;
-	int8_t max_dec_frame_buffering; // 5 significant bits
-	uint16_t pic_width_in_mbs; // 10 significant bits
-	int16_t pic_height_in_mbs; // 10 significant bits
-	int16_t frame_crop_left_offset; // in luma samples
-	int16_t frame_crop_right_offset; // in luma samples
-	int16_t frame_crop_top_offset; // in luma samples
-	int16_t frame_crop_bottom_offset; // in luma samples
-	
-	// private fields
-	uint16_t qpprime_y_zero_transform_bypass_flag:1;
-	uint16_t pic_order_cnt_type:2;
-	uint16_t delta_pic_order_always_zero_flag:1; // pic_order_cnt_type==1
-	uint16_t frame_mbs_only_flag:1;
-	uint16_t mb_adaptive_frame_field_flag:1;
-	uint16_t entropy_coding_mode_flag:1;
-	uint16_t bottom_field_pic_order_in_frame_present_flag:1;
-	uint16_t weighted_pred_flag:1;
-	uint16_t deblocking_filter_control_present_flag:1;
-	uint16_t constrained_intra_pred_flag:1;
-	int8_t ChromaArrayType; // 2 significant bits
-	int8_t log2_max_frame_num; // 5 significant bits
-	int8_t log2_max_pic_order_cnt_lsb; // 5 significant bits, pic_order_cnt_type==0
-	uint8_t num_ref_frames_in_pic_order_cnt_cycle; // pic_order_cnt_type==1
-	int8_t max_num_ref_frames; // 5 significant bits
-	int8_t max_num_reorder_frames; // 5 significant bits
-	int8_t direct_8x8_inference_flag; // 1 significant bit
-	int8_t num_ref_idx_active[2]; // 6 significant bits
-	int8_t weighted_bipred_idc; // 2 significant bits
-	int8_t QPprime_Y; // 7 significant bits
-	int8_t chroma_qp_index_offset; // 5 significant bits
-	int8_t transform_8x8_mode_flag; // 1 significant bit
-	int8_t second_chroma_qp_index_offset; // 5 significant bits
-	int16_t offset_for_non_ref_pic; // pic_order_cnt_type==1
-	int16_t offset_for_top_to_bottom_field; // pic_order_cnt_type==1
-	uint8_t weightScale4x4[6][16] __attribute__((aligned(16)));
-	uint8_t weightScale8x8[6][64] __attribute__((aligned(16)));
-} Edge264_parameter_set;
-
-
 typedef struct Edge264_stream {
 	// These fields must be set prior to decoding, the rest zeroed.
-	const uint8_t *CPB; // should point to a NAL unit (after the 001 prefix)
+	const uint8_t *CPB; // should always point to a NAL unit (after the 001 prefix)
 	const uint8_t *end; // first byte past the end of the buffer
 	
 	// public read-only fields
@@ -91,30 +47,11 @@ typedef struct Edge264_stream {
 	int16_t height_C;
 	int16_t stride_Y;
 	int16_t stride_C;
-	
-	// private fields
-	uint8_t *DPB; // NULL before the first SPS is decoded
-	int32_t plane_size_Y;
-	int32_t plane_size_C;
-	int32_t frame_size;
-	uint32_t reference_flags; // bitfield for indices of reference frames
-	uint32_t pic_reference_flags; // to be applied after decoding all slices of the current frame
-	uint32_t long_term_flags; // bitfield for indices of long-term frames
-	uint32_t pic_long_term_flags; // to be applied after decoding all slices of the current frame
-	uint32_t output_flags; // bitfield for frames waiting to be output
-	int8_t pic_idr_or_mmco5; // when set, all POCs will be decreased after completing the current frame
-	int8_t currPic; // index of current incomplete frame, or -1
-	int32_t pic_remaining_mbs; // when zero the picture is complete
-	int32_t prevRefFrameNum;
-	int32_t prevPicOrderCnt;
-	int32_t dispPicOrderCnt;
-	int32_t FrameNum[32];
-	int8_t LongTermFrameIdx[32] __attribute__((aligned(16)));
-	int8_t pic_LongTermFrameIdx[32] __attribute__((aligned(16))); // to be applied after decoding all slices of the current frame
-	int32_t FieldOrderCnt[2][32] __attribute__((aligned(16))); // lower/higher half for top/bottom fields
-	Edge264_parameter_set SPS;
-	Edge264_parameter_set PPSs[4];
-	int16_t PicOrderCntDeltas[256]; // too big to fit in Edge264_parameter_set
+	int32_t PicOrderCnt;
+	int16_t frame_crop_left_offset; // in luma samples, already included in samples_Y/Cb/cr and width/height_Y/C
+	int16_t frame_crop_right_offset;
+	int16_t frame_crop_top_offset;
+	int16_t frame_crop_bottom_offset;
 } Edge264_stream;
 
 
@@ -126,19 +63,19 @@ const uint8_t *Edge264_find_start_code(int n, const uint8_t *CPB, const uint8_t 
 
 
 /**
- * Allocates a decoding context, and returns a pointer to the substructure used
+ * Allocate a decoding context, and return a pointer to the substructure used
  * to pass and receive parameters (or NULL on insufficient memory).
  */
 Edge264_stream *Edge264_alloc();
 
 
 /**
- * Decode a single NAL unit, with e->CPB pointing at its first byte.
- * When the NAL is followed by a start code (for annex B streams), e->CPB will
+ * Decode a single NAL unit, for which s->CPB should point to its first byte.
+ * When the NAL is followed by a start code (for annex B streams), s->CPB will
  * be updated to point at the next unit.
  * 
  * Return codes are (negative if no NAL was consumed):
- * -2: end of buffer (e->CPB==e->end, so fetch some new data to proceed)
+ * -2: end of buffer (s->CPB==s->end, so fetch some new data to proceed)
  * -1: DPB is full (more frames should be consumed before decoding can resume,
  *     only returned while decoding a picture NAL)
  *  0: success
@@ -147,7 +84,7 @@ Edge264_stream *Edge264_alloc();
  *     if you can validate with another decoder that the stream is correct,
  *     please consider filling a bug report, thanks!)
  */
-int Edge264_decode_NAL(Edge264_stream *e);
+int Edge264_decode_NAL(Edge264_stream *s);
 
 
 /**
@@ -159,21 +96,23 @@ int Edge264_decode_NAL(Edge264_stream *e);
  *  0: success
  * 
  * Example code (single buffer in annex B format):
- *    Edge264_stream e = {.CPB=buffer_start, .end=buffer_end};
+ *    Edge264_stream *s = Edge264_alloc();
+ *    s->CPB = buffer_start;
+ *    s->end = buffer_end;
  *    while (1) {
- *       int res = Edge264_decode_NAL(&e);
- *       if (Edge264_get_frame(&e, res == -2) >= 0) // drain when reaching the end
- *          process_frame(&e, e->frame);
+ *       int res = Edge264_decode_NAL(s);
+ *       if (Edge264_get_frame(s, res == -2) >= 0) // drain when reaching the end
+ *          process_frame(s);
  *       else if (res == -2)
  *          break;
  *    }
- *    Edge264_clear(&e);
+ *    Edge264_free(&s);
  */
-int Edge264_get_frame(Edge264_stream *e, int drain);
+int Edge264_get_frame(Edge264_stream *s, int drain);
 
 
 /**
- * Deallocates the decoding context and all its internal structures.
+ * Deallocate the decoding context and all its internal structures.
  */
 void Edge264_free(Edge264_stream **s);
 

@@ -846,10 +846,10 @@ void FUNC(deblock_frame, uint8_t *samples)
 {
 	// point at the first macroblock
 	ctx->samples_mb[0] = ctx->samples_row[0] = ctx->samples_pic = samples;
-	ctx->samples_mb[1] = ctx->samples_mb[0] + ctx->s.plane_size_Y;
-	ctx->samples_mb[2] = ctx->samples_mb[1] + ctx->s.plane_size_C;
-	mbB = (Edge264_macroblock *)(ctx->samples_mb[2] + ctx->s.plane_size_C) + 1;
-	mb = mbB + ctx->s.SPS.pic_width_in_mbs + 1;
+	ctx->samples_mb[1] = ctx->samples_mb[0] + ctx->plane_size_Y;
+	ctx->samples_mb[2] = ctx->samples_mb[1] + ctx->plane_size_C;
+	mbB = (Edge264_macroblock *)(ctx->samples_mb[2] + ctx->plane_size_C) + 1;
+	mb = mbB + ctx->SPS.pic_width_in_mbs + 1;
 	ctx->CurrMbAddr = 0;
 	
 	do {
@@ -878,5 +878,5 @@ void FUNC(deblock_frame, uint8_t *samples)
 		ctx->samples_mb[0] = ctx->samples_row[0] += ctx->s.stride_Y * 16;
 		ctx->samples_mb[1] += ctx->s.stride_C * 7;
 		ctx->samples_mb[2] += ctx->s.stride_C * 7;
-	} while (ctx->samples_mb[0] - ctx->samples_pic < ctx->s.plane_size_Y);
+	} while (ctx->samples_mb[0] - ctx->samples_pic < ctx->plane_size_Y);
 }

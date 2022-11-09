@@ -37,6 +37,55 @@ typedef int32_t v16si __attribute__((vector_size(64))); // for initialization of
 
 
 
+
+/**
+ * Parsing each SPS and PPS consists in filling this structure, then copying it
+ * in the persistent context if it is valid (i.e. trailing_bits are detected).
+ */
+typedef struct {
+	// The first 8 bytes uniquely determine the frame buffer size and format.
+	union {
+		struct {
+			int8_t chroma_format_idc; // 2 significant bits
+			int8_t BitDepth_Y; // 4 significant bits
+			int8_t BitDepth_C;
+			int8_t max_dec_frame_buffering; // 5 significant bits
+			uint16_t pic_width_in_mbs; // 10 significant bits
+			int16_t pic_height_in_mbs; // 10 significant bits
+		};
+		int64_t format;
+	};
+	uint16_t qpprime_y_zero_transform_bypass_flag:1;
+	uint16_t pic_order_cnt_type:2;
+	uint16_t delta_pic_order_always_zero_flag:1; // pic_order_cnt_type==1
+	uint16_t frame_mbs_only_flag:1;
+	uint16_t mb_adaptive_frame_field_flag:1;
+	uint16_t entropy_coding_mode_flag:1;
+	uint16_t bottom_field_pic_order_in_frame_present_flag:1;
+	uint16_t weighted_pred_flag:1;
+	uint16_t deblocking_filter_control_present_flag:1;
+	uint16_t constrained_intra_pred_flag:1;
+	int8_t ChromaArrayType; // 2 significant bits
+	int8_t log2_max_frame_num; // 5 significant bits
+	int8_t log2_max_pic_order_cnt_lsb; // 5 significant bits, pic_order_cnt_type==0
+	uint8_t num_ref_frames_in_pic_order_cnt_cycle; // pic_order_cnt_type==1
+	int8_t max_num_ref_frames; // 5 significant bits
+	int8_t max_num_reorder_frames; // 5 significant bits
+	int8_t direct_8x8_inference_flag; // 1 significant bit
+	int8_t num_ref_idx_active[2]; // 6 significant bits
+	int8_t weighted_bipred_idc; // 2 significant bits
+	int8_t QPprime_Y; // 7 significant bits
+	int8_t chroma_qp_index_offset; // 5 significant bits
+	int8_t transform_8x8_mode_flag; // 1 significant bit
+	int8_t second_chroma_qp_index_offset; // 5 significant bits
+	int16_t offset_for_non_ref_pic; // pic_order_cnt_type==1
+	int16_t offset_for_top_to_bottom_field; // pic_order_cnt_type==1
+	union { uint8_t weightScale4x4[6][16]; v16qu weightScale4x4_v[6]; };
+	union { uint8_t weightScale8x8[6][64]; v16qu weightScale8x8_v[6][4]; };
+} Edge264_parameter_set;
+
+
+
 /**
  * In 9.3.3.1.1, ctxIdxInc is always the result of flagA+flagB or flagA+2*flagB,
  * so we pack macroblock flags together to allow adding them in parallel with
@@ -133,7 +182,6 @@ typedef struct
 	
 	// parsing context
 	const uint8_t *CPB; // memory address of the next byte to load in lsb_cache
-	const uint8_t *end;
 	size_t _lsb_cache; // backup storage when not in a Global Register
 	size_t _msb_cache;
 	size_t _codIRange; // same as _lsb_cache/_msb_cache
@@ -142,8 +190,6 @@ typedef struct
 	Edge264_macroblock * restrict _mbB; // backup storage for macro mbB
 	int32_t CurrMbAddr;
 	int32_t mb_skip_run;
-	int32_t plane_size_Y;
-	int32_t plane_size_C;
 	uint8_t *samples_pic; // address of top-left byte of current picture
 	uint8_t *samples_row[3]; // address of top-left byte of each plane in current row of macroblocks
 	uint8_t *samples_mb[3]; // address of top-left byte of each plane in current macroblock
@@ -176,8 +222,6 @@ typedef struct
 	
 	// Inter context
 	const Edge264_macroblock *mbCol;
-	uint8_t *DPB;
-	int32_t frame_size;
 	uint8_t num_ref_idx_mask;
 	int8_t transform_8x8_mode_flag; // updated during parsing to replace noSubMbPartSizeLessThan8x8Flag
 	int8_t col_short_term;
@@ -205,7 +249,29 @@ typedef struct
 	union { uint8_t beta[16]; v16qu beta_v; };
 	union { int32_t tC0_s[16]; int64_t tC0_l[8]; v16qi tC0_v[4]; }; // 4 bytes per edge in deblocking order -> 8 luma edges then 8 alternating Cb/Cr edges
 	
-	// The structure exposed through the API is actually at the end of ctx
+	// Picture buffer and parameter sets
+	uint8_t *DPB; // NULL before the first SPS is decoded
+	int32_t plane_size_Y;
+	int32_t plane_size_C;
+	int32_t frame_size;
+	uint32_t reference_flags; // bitfield for indices of reference frames
+	uint32_t pic_reference_flags; // to be applied after decoding all slices of the current frame
+	uint32_t long_term_flags; // bitfield for indices of long-term frames
+	uint32_t pic_long_term_flags; // to be applied after decoding all slices of the current frame
+	uint32_t output_flags; // bitfield for frames waiting to be output
+	int8_t pic_idr_or_mmco5; // when set, all POCs will be decreased after completing the current frame
+	int8_t currPic; // index of current incomplete frame, or -1
+	int32_t pic_remaining_mbs; // when zero the picture is complete
+	int32_t prevRefFrameNum;
+	int32_t prevPicOrderCnt;
+	int32_t dispPicOrderCnt;
+	int32_t FrameNums[32];
+	int8_t LongTermFrameIdx[32] __attribute__((aligned(16)));
+	int8_t pic_LongTermFrameIdx[32] __attribute__((aligned(16))); // to be applied after decoding all slices of the current frame
+	int32_t FieldOrderCnt[2][32] __attribute__((aligned(16))); // lower/higher half for top/bottom fields
+	Edge264_parameter_set SPS;
+	Edge264_parameter_set PPSs[4];
+	int16_t PicOrderCntDeltas[256]; // too big to fit in Edge264_parameter_set
 	Edge264_stream s;
 } Edge264_ctx;
 

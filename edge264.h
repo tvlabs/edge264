@@ -31,7 +31,7 @@
 #include <stdint.h>
 
 typedef struct Edge264_stream {
-	// These fields must be set prior to decoding, the rest zeroed.
+	// These fields must be set prior to decoding.
 	const uint8_t *CPB; // should always point to a NAL unit (after the 001 prefix)
 	const uint8_t *end; // first byte past the end of the buffer
 	
@@ -47,8 +47,8 @@ typedef struct Edge264_stream {
 	int16_t height_C;
 	int16_t stride_Y;
 	int16_t stride_C;
-	int32_t PicOrderCnt;
-	int16_t frame_crop_left_offset; // in luma samples, already included in samples_Y/Cb/cr and width/height_Y/C
+   int32_t PicOrderCnt;
+	int16_t frame_crop_left_offset __attribute__((aligned(8))); // in luma samples, already included in samples_Y/Cb/cr and width/height_Y/C
 	int16_t frame_crop_right_offset;
 	int16_t frame_crop_top_offset;
 	int16_t frame_crop_bottom_offset;
@@ -70,14 +70,14 @@ Edge264_stream *Edge264_alloc();
 
 
 /**
- * Decode a single NAL unit, for which s->CPB should point to its first byte.
- * When the NAL is followed by a start code (for annex B streams), s->CPB will
- * be updated to point at the next unit.
+ * Decode a single NAL unit, for which s->CPB should point to its first byte
+ * (containing nal_unit_type). When the NAL is followed by a start code (for
+ * annex B streams), s->CPB will be updated to point at the next unit.
  * 
  * Return codes are (negative if no NAL was consumed):
- * -2: end of buffer (s->CPB==s->end, so fetch some new data to proceed)
- * -1: DPB is full (more frames should be consumed before decoding can resume,
- *     only returned while decoding a picture NAL)
+ * -3: end of buffer (s->CPB==s->end, so fetch some new data to proceed)
+ * -2: DPB is full (more frames should be consumed before decoding can resume)
+ * -1: bad parameter (s is NULL)
  *  0: success
  *  1: unsupported stream (decoding may proceed but could return zero frames)
  *  2: decoding error (decoding may proceed but could show visual artefacts,
@@ -88,22 +88,23 @@ int Edge264_decode_NAL(Edge264_stream *s);
 
 
 /**
- * Fetch a decoded frame and store it in e->frame (pass drain=1 to extract all
+ * Fetch a decoded frame and store it in s (pass drain=1 to extract all
  * remaining frames at the end of stream).
  * 
  * Return codes are:
- * -1: no frame ready for output
+ * -2: no frame ready for output
+ * -1: bad parameter (s is NULL)
  *  0: success
  * 
  * Example code (single buffer in annex B format):
  *    Edge264_stream *s = Edge264_alloc();
- *    s->CPB = buffer_start;
+ *    s->CPB = buffer_start + 4;
  *    s->end = buffer_end;
  *    while (1) {
  *       int res = Edge264_decode_NAL(s);
- *       if (Edge264_get_frame(s, res == -2) >= 0) // drain when reaching the end
+ *       if (Edge264_get_frame(s, res == -3) >= 0) // drain when reaching the end
  *          process_frame(s);
- *       else if (res == -2)
+ *       else if (res == -3)
  *          break;
  *    }
  *    Edge264_free(&s);

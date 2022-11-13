@@ -42,7 +42,7 @@ int main(int argc, char *argv[])
 	// fill the stack now
 	struct dirent *entry;
 	struct stat stC, stD;
-	int counts[6] = {};
+	int counts[7] = {};
 	
 	// parse all clips in the conformance directory
 	if (chdir("conformance") < 0) {
@@ -83,7 +83,7 @@ int main(int argc, char *argv[])
 		int res;
 		do {
 			res = Edge264_decode_NAL(s);
-			if (!Edge264_get_frame(s, res == -2)) {
+			if (!Edge264_get_frame(s, res == -3)) {
 				int diff = 0;
 				for (int y = 0; y < s->height_Y; y++, cmp += s->width_Y << s->pixel_depth_Y)
 					diff |= memcmp(s->samples_Y + y * s->stride_Y, cmp, s->width_Y << s->pixel_depth_Y);
@@ -93,18 +93,18 @@ int main(int argc, char *argv[])
 					diff |= memcmp(s->samples_Cr + y * s->stride_C, cmp, s->width_C << s->pixel_depth_C);
 				if (diff)
 					res = 2;
-			} else if (res == -2) {
+			} else if (res == -3) {
 				break;
 			}
 		} while (res <= 0);
-		if (res == -2 && cmp != dpb + stD.st_size)
+		if (res == -3 && cmp != dpb + stD.st_size)
 			res = 2;
 		Edge264_free(&s);
-		counts[2 + res]++;
+		counts[3 + res]++;
 		
 		// print result
 		printf("\033[A\033[K"); // move cursor up and clear line
-		if (res == -2 && print_passed) {
+		if (res == -3 && print_passed) {
 			printf("%s: " GREEN "PASS" RESET "\n", entry->d_name);
 		} else if (res == 1 && print_unsupported) {
 			printf("%s: " YELLOW "UNSUPPORTED" RESET "\n", entry->d_name);
@@ -114,9 +114,9 @@ int main(int argc, char *argv[])
 			printf("%s: " BLUE "FLAGGED" RESET "\n", entry->d_name);
 		}
 		printf("%d " GREEN "PASS" RESET ", %d " YELLOW "UNSUPPORTED" RESET ", %d " RED "FAIL" RESET,
-			counts[0], counts[3], counts[4]);
-		if (counts[5] > 0)
-			printf(", %d " BLUE "FLAGGED" RESET, counts[5]);
+			counts[0], counts[4], counts[5]);
+		if (counts[6] > 0)
+			printf(", %d " BLUE "FLAGGED" RESET, counts[6]);
 		putchar('\n');
 		
 		// close everything
@@ -126,5 +126,5 @@ int main(int argc, char *argv[])
 		close(yuv);
 	}
 	closedir(dir);
-	return counts[4];
+	return counts[5];
 }

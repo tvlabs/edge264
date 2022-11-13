@@ -1,11 +1,5 @@
 /** MAYDO:
- * _ make a new API compatible with the merging of e and ctx
- * 	- comment each field to tell when they initialize (sps, pps, slice, mb)
- * 	- move initialization of persistent fields at their right position
- * 	- pass a pointer to stream to all functions instead of ctx
- * 	- fix back test and play to use the public API
- * 	- add error code -3 for bad parameters
- * 
+ * _ add a version function
  * _ add an option to store N more frames, to tolerate lags in CPU scheduling
  * _ try using epb for context pointer, and email GCC when it fails
  * _ group ctx fields by frequency of accesses and force them manually into L1/L2/L3
@@ -80,7 +74,6 @@ static void FUNC(initialise_decoding_context)
 	ctx->CurrMbAddr = ctx->first_mb_in_slice;
 	int mby = ctx->first_mb_in_slice / ctx->ps.pic_width_in_mbs;
 	int mbx = ctx->first_mb_in_slice % ctx->ps.pic_width_in_mbs;
-	ctx->mb_qp_delta_nz = 0;
 	ctx->samples_pic = ctx->DPB + ctx->currPic * ctx->frame_size;
 	ctx->samples_row[0] = ctx->samples_pic + mby * ctx->s.stride_Y * 16;
 	ctx->samples_row[1] = ctx->samples_pic + ctx->plane_size_Y + mby * ctx->s.stride_C * 8;
@@ -88,11 +81,7 @@ static void FUNC(initialise_decoding_context)
 	ctx->samples_mb[0] = ctx->samples_row[0] + mbx * 16;
 	ctx->samples_mb[1] = ctx->samples_row[1] + mbx * 8;
 	ctx->samples_mb[2] = ctx->samples_row[2] + mbx * 8;
-	ctx->stride[0] = ctx->s.stride_Y;
-	ctx->stride[1] = ctx->stride[2] = ctx->s.stride_C;
-	ctx->clip[0] = (1 << ctx->ps.BitDepth_Y) - 1;
-	ctx->clip[1] = ctx->clip[2] = (1 << ctx->ps.BitDepth_C) - 1;
-	for (int i = 1; i < 4; i++) {
+	for (int i = 1; !ctx->ps.transform_8x8_mode_flag && i < 4; i++) {
 		ctx->sig_inc_v[i] = sig_inc_8x8[0][i];
 		ctx->last_inc_v[i] = last_inc_8x8[i];
 		ctx->scan_v[i] = scan_8x8[0][i];
@@ -107,34 +96,13 @@ static void FUNC(initialise_decoding_context)
 	memcpy(ctx->QP_C_v + 7, QP_Y2C + clip3(0, 63, 63 + ctx->ps.second_chroma_qp_index_offset), 16);
 	ctx->QP[1] = ctx->QP_C[0][ctx->QP[0]];
 	ctx->QP[2] = ctx->QP_C[1][ctx->QP[0]];
-	
-	// initializing with vectors is not the fastest here, but is most readable thus maintainable
-	int offA_int8 = -(int)sizeof(*mb);
 	int offB_int8 = -(ctx->ps.pic_width_in_mbs + 1) * sizeof(*mb);
 	mbB = (Edge264_macroblock *)(ctx->samples_pic + ctx->plane_size_Y + ctx->plane_size_C * 2 + sizeof(*mb) * (1 + mbx) - offB_int8 * mby);
 	mb = (Edge264_macroblock *)((uint8_t *)mbB - offB_int8);
-	ctx->A4x4_int8_v = (v16hi){5 + offA_int8, 0, 7 + offA_int8, 2, 1, 4, 3, 6, 13 + offA_int8, 8, 15 + offA_int8, 10, 9, 12, 11, 14};
-	ctx->B4x4_int8_v = (v16si){10 + offB_int8, 11 + offB_int8, 0, 1, 14 + offB_int8, 15 + offB_int8, 4, 5, 2, 3, 8, 9, 6, 7, 12, 13};
-	if (ctx->ps.ChromaArrayType == 1) {
-		ctx->ACbCr_int8_v = (v16hi){1 + offA_int8, 0, 3 + offA_int8, 2, 5 + offA_int8, 4, 7 + offA_int8, 6};
-		ctx->BCbCr_int8_v = (v16si){2 + offB_int8, 3 + offB_int8, 0, 1, 6 + offB_int8, 7 + offB_int8, 4, 5};
-	}
 	
 	// P/B slices
 	if (ctx->slice_type < 2) {
-		int offA_int32 = offA_int8 >> 2;
-		int offB_int32 = offB_int8 >> 2;
-		int offC_int32 = offB_int32 + (sizeof(*mb) >> 2);
-		int offD_int32 = offB_int32 - (sizeof(*mb) >> 2);
-		ctx->refIdx4x4_C_v = (v16qi){2, 3, 12, -1, 3, 6, 13, -1, 12, 13, 14, -1, 13, -1, 15, -1};
-		ctx->absMvd_A_v = (v16hi){10 + offA_int8, 0, 14 + offA_int8, 4, 2, 8, 6, 12, 26 + offA_int8, 16, 30 + offA_int8, 20, 18, 24, 22, 28};
-		ctx->absMvd_B_v = (v16si){20 + offB_int8, 22 + offB_int8, 0, 2, 28 + offB_int8, 30 + offB_int8, 8, 10, 4, 6, 16, 18, 12, 14, 24, 26};
-		ctx->mvs_A_v = (v16hi){5 + offA_int32, 0, 7 + offA_int32, 2, 1, 4, 3, 6, 13 + offA_int32, 8, 15 + offA_int32, 10, 9, 12, 11, 14};
-		ctx->mvs_B_v = (v16si){10 + offB_int32, 11 + offB_int32, 0, 1, 14 + offB_int32, 15 + offB_int32, 4, 5, 2, 3, 8, 9, 6, 7, 12, 13};
-		ctx->mvs_C_v = (v16si){11 + offB_int32, 14 + offB_int32, 1, -1, 15 + offB_int32, 10 + offC_int32, 5, -1, 3, 6, 9, -1, 7, -1, 13, -1};
-		ctx->mvs_D_v = (v16si){15 + offD_int32, 10 + offB_int32, 5 + offA_int32, 0, 11 + offB_int32, 14 + offB_int32, 1, 4, 7 + offA_int32, 2, 13 + offA_int32, 8, 3, 6, 9, 12};
-		ctx->num_ref_idx_mask = (ctx->ps.num_ref_idx_active[0] > 1) * 0x0f +
-			(ctx->ps.num_ref_idx_active[1] > 1) * 0xf0;
+		ctx->num_ref_idx_mask = (ctx->ps.num_ref_idx_active[0] > 1) * 0x0f + (ctx->ps.num_ref_idx_active[1] > 1) * 0xf0;
 		ctx->transform_8x8_mode_flag = ctx->ps.transform_8x8_mode_flag; // for P slices this value is constant
 		int max0 = ctx->ps.num_ref_idx_active[0] - 1;
 		int max1 = ctx->slice_type == 0 ? -1 : ctx->ps.num_ref_idx_active[1] - 1;
@@ -152,14 +120,14 @@ static void FUNC(initialise_decoding_context)
 				union { int16_t h[32]; v8hi v[4]; } diff;
 				union { int8_t q[32]; v16qi v[2]; } tb, td;
 				v4si poc = {ctx->PicOrderCnt, ctx->PicOrderCnt, ctx->PicOrderCnt, ctx->PicOrderCnt};
-				diff.v[0] = pack_v4si(poc - min_v4si(((v4si *)ctx->FieldOrderCnt[0])[0], ((v4si *)ctx->FieldOrderCnt[1])[0]),
-				                      poc - min_v4si(((v4si *)ctx->FieldOrderCnt[0])[1], ((v4si *)ctx->FieldOrderCnt[1])[1]));
-				diff.v[1] = pack_v4si(poc - min_v4si(((v4si *)ctx->FieldOrderCnt[0])[2], ((v4si *)ctx->FieldOrderCnt[1])[2]),
-				                      poc - min_v4si(((v4si *)ctx->FieldOrderCnt[0])[3], ((v4si *)ctx->FieldOrderCnt[1])[3]));
-				diff.v[2] = pack_v4si(poc - min_v4si(((v4si *)ctx->FieldOrderCnt[0])[4], ((v4si *)ctx->FieldOrderCnt[1])[4]),
-				                      poc - min_v4si(((v4si *)ctx->FieldOrderCnt[0])[5], ((v4si *)ctx->FieldOrderCnt[1])[5]));
-				diff.v[3] = pack_v4si(poc - min_v4si(((v4si *)ctx->FieldOrderCnt[0])[6], ((v4si *)ctx->FieldOrderCnt[1])[6]),
-				                      poc - min_v4si(((v4si *)ctx->FieldOrderCnt[0])[7], ((v4si *)ctx->FieldOrderCnt[1])[7]));
+				diff.v[0] = pack_v4si(poc - min_v4si(ctx->FieldOrderCnt_v[0][0], ctx->FieldOrderCnt_v[1][0]),
+				                      poc - min_v4si(ctx->FieldOrderCnt_v[0][1], ctx->FieldOrderCnt_v[1][1]));
+				diff.v[1] = pack_v4si(poc - min_v4si(ctx->FieldOrderCnt_v[0][2], ctx->FieldOrderCnt_v[1][2]),
+				                      poc - min_v4si(ctx->FieldOrderCnt_v[0][3], ctx->FieldOrderCnt_v[1][3]));
+				diff.v[2] = pack_v4si(poc - min_v4si(ctx->FieldOrderCnt_v[0][4], ctx->FieldOrderCnt_v[1][4]),
+				                      poc - min_v4si(ctx->FieldOrderCnt_v[0][5], ctx->FieldOrderCnt_v[1][5]));
+				diff.v[3] = pack_v4si(poc - min_v4si(ctx->FieldOrderCnt_v[0][6], ctx->FieldOrderCnt_v[1][6]),
+				                      poc - min_v4si(ctx->FieldOrderCnt_v[0][7], ctx->FieldOrderCnt_v[1][7]));
 				tb.v[0] = pack_v8hi(diff.v[0], diff.v[1]);
 				tb.v[1] = pack_v8hi(diff.v[2], diff.v[3]);
 				ctx->MapPicToList0_v[0] = ctx->MapPicToList0_v[1] = (v16qi){}; // pictures not found in RefPicList0 will point to 0 by default
@@ -221,8 +189,8 @@ static void FUNC(parse_dec_ref_pic_marking)
 	ctx->pic_reference_flags = ctx->reference_flags;
 	ctx->pic_long_term_flags = ctx->long_term_flags;
 	ctx->pic_idr_or_mmco5 = 0;
-	((v16qi *)ctx->pic_LongTermFrameIdx)[0] = ((v16qi *)ctx->LongTermFrameIdx)[0];
-	((v16qi *)ctx->pic_LongTermFrameIdx)[1] = ((v16qi *)ctx->LongTermFrameIdx)[1];
+	ctx->pic_LongTermFrameIdx_v[0] = ctx->LongTermFrameIdx_v[0];
+	ctx->pic_LongTermFrameIdx_v[1] = ctx->LongTermFrameIdx_v[1];
 	int memory_management_control_operation;
 	int i = 32;
 	if (CALL(get_u1)) {
@@ -507,14 +475,14 @@ static void FUNC(finish_frame)
 	} else if (!ctx->pic_idr_or_mmco5) { // ref without IDR or mmco5
 		ctx->reference_flags = ctx->pic_reference_flags;
 		ctx->long_term_flags = ctx->pic_long_term_flags;
-		((v16qi *)ctx->LongTermFrameIdx)[0] = ((v16qi *)ctx->pic_LongTermFrameIdx)[0];
-		((v16qi *)ctx->LongTermFrameIdx)[1] = ((v16qi *)ctx->pic_LongTermFrameIdx)[1];
+		ctx->LongTermFrameIdx_v[0] = ctx->pic_LongTermFrameIdx_v[0];
+		ctx->LongTermFrameIdx_v[1] = ctx->pic_LongTermFrameIdx_v[1];
 		ctx->prevRefFrameNum = ctx->FrameNums[ctx->currPic];
 		ctx->prevPicOrderCnt = ctx->FieldOrderCnt[0][ctx->currPic];
 	} else { // IDR or mmco5
 		ctx->reference_flags = ctx->pic_reference_flags;
 		ctx->long_term_flags = ctx->pic_long_term_flags;
-		((v16qi *)ctx->LongTermFrameIdx)[0] = ((v16qi *)ctx->LongTermFrameIdx)[1] = (v16qi){};
+		ctx->LongTermFrameIdx_v[0] = ctx->LongTermFrameIdx_v[1] = (v16qi){};
 		ctx->LongTermFrameIdx[ctx->currPic] = ctx->FrameNums[ctx->currPic] = ctx->prevRefFrameNum = 0;
 		for (unsigned o = ctx->output_flags; o; o &= o - 1) {
 			int i = __builtin_ctz(o);
@@ -548,7 +516,7 @@ static void FUNC(finish_frame)
 /**
  * This function checks for gaps in frame_num (8.2.5.2), then reserves a slot
  * for the current frame in the DPB.
- * It returns -1 if the DPB is full and should be drained beforehand.
+ * It returns -2 if the DPB is full and should be drained beforehand.
  */
 static int FUNC(assign_currPic, int gap, int TopFieldOrderCnt, int BottomFieldOrderCnt)
 {
@@ -579,7 +547,7 @@ static int FUNC(assign_currPic, int gap, int TopFieldOrderCnt, int BottomFieldOr
 			ctx->dispPicOrderCnt = max(ctx->dispPicOrderCnt, best);
 		}
 		if (output_flags != ctx->output_flags)
-			return -1;
+			return -2;
 		
 		// finally insert the last non-existing frames one by one
 		for (unsigned FrameNum = ctx->FrameNum - non_existing; FrameNum < ctx->FrameNum; FrameNum++) {
@@ -602,7 +570,7 @@ static int FUNC(assign_currPic, int gap, int TopFieldOrderCnt, int BottomFieldOr
 	// find a DPB slot for the upcoming frame
 	unsigned unavail = ctx->pic_reference_flags | ctx->output_flags;
 	if (__builtin_popcount(unavail) > ctx->ps.max_dec_frame_buffering)
-		return -1;
+		return -2;
 	ctx->currPic = __builtin_ctz(~unavail);
 	ctx->pic_remaining_mbs = ctx->ps.pic_width_in_mbs * ctx->ps.pic_height_in_mbs;
 	ctx->FrameNums[ctx->currPic] = ctx->FrameNum;
@@ -713,7 +681,7 @@ static int FUNC(parse_slice_layer_without_partitioning)
 	if (ctx->currPic < 0) {
 		int gap = (ctx->nal_unit_type == 5) ? 0 : ctx->FrameNum - ctx->prevRefFrameNum;
 		if (CALL(assign_currPic, gap, TopFieldOrderCnt, BottomFieldOrderCnt))
-			return -1; // last return, after this point unless error the slice will be decoded
+			return -2; // last return, after this point unless error the slice will be decoded
 	}
 	
 	// That could be optimised into a fast bit test, but would be less readable :)
@@ -784,6 +752,7 @@ static int FUNC(parse_slice_layer_without_partitioning)
 		if (CALL(cabac_start))
 			return 2;
 		CALL(cabac_init, cabac_init_idc);
+		ctx->mb_qp_delta_nz = 0;
 		ctx->pic_remaining_mbs -= CALL(parse_slice_data_cabac);
 	}
 	
@@ -1407,21 +1376,18 @@ static int FUNC(parse_seq_parameter_set)
 		ctx->ps.direct_8x8_inference_flag);
 	
 	// frame_cropping_flag
-	int frame_crop_left_offset = 0;
-	int frame_crop_right_offset = 0;
-	int frame_crop_top_offset = 0;
-	int frame_crop_bottom_offset = 0;
+	v4hi frame_crop_offsets = {};
 	if (CALL(get_u1)) {
 		unsigned shiftX = (ctx->ps.ChromaArrayType == 1) | (ctx->ps.ChromaArrayType == 2);
 		unsigned shiftY = (ctx->ps.ChromaArrayType == 1);
 		int limX = (ctx->ps.pic_width_in_mbs << 4 >> shiftX) - 1;
 		int limY = (ctx->ps.pic_height_in_mbs << 4 >> shiftY) - 1;
-		frame_crop_left_offset = CALL(get_ue16, limX) << shiftX;
-		frame_crop_right_offset = CALL(get_ue16, limX - (frame_crop_left_offset >> shiftX)) << shiftX;
-		frame_crop_top_offset = CALL(get_ue16, limY) << shiftY;
-		frame_crop_bottom_offset = CALL(get_ue16, limY - (frame_crop_bottom_offset >> shiftY)) << shiftY;
+		frame_crop_offsets[0] = CALL(get_ue16, limX) << shiftX;
+		frame_crop_offsets[1] = CALL(get_ue16, limX - (frame_crop_offsets[0] >> shiftX)) << shiftX;
+		frame_crop_offsets[2] = CALL(get_ue16, limY) << shiftY;
+		frame_crop_offsets[3] = CALL(get_ue16, limY - (frame_crop_offsets[2] >> shiftY)) << shiftY;
 		printf("<tr><th>frame_crop_offsets</th><td>left %u, right %u, top %u, bottom %u</td></tr>\n",
-			frame_crop_left_offset, frame_crop_right_offset, frame_crop_top_offset, frame_crop_bottom_offset);
+			frame_crop_offsets[0], frame_crop_offsets[1], frame_crop_offsets[2], frame_crop_offsets[3]);
 	} else {
 		printf("<tr><th>frame_crop_offsets (inferred)</th><td>left 0, right 0, top 0, bottom 0</td></tr>\n");
 	}
@@ -1443,34 +1409,53 @@ static int FUNC(parse_seq_parameter_set)
 		return 1;
 	
 	// reallocate the DPB when the image format changes
-	if (ctx->ps.format != ctx->SPS.format) {
-		ctx->s.frame_crop_left_offset = frame_crop_left_offset;
-		ctx->s.frame_crop_right_offset = frame_crop_right_offset;
-		ctx->s.frame_crop_top_offset = frame_crop_top_offset;
-		ctx->s.frame_crop_bottom_offset = frame_crop_bottom_offset;
-		
+	if (ctx->ps.format != ctx->SPS.format || (int64_t)frame_crop_offsets != *(int64_t *)&ctx->s.frame_crop_left_offset) {
 		if (ctx->DPB != NULL)
 			free(ctx->DPB);
 		//memset(&ctx->s, 0, sizeof(ctx->s)); // FIXME clear only the important stuff
 		
 		// An offset might be added to stride if cache alignment shows a significant impact.
+		*(int64_t *)&ctx->s.frame_crop_left_offset = (int64_t)frame_crop_offsets;
 		int PicWidthInMbs = ctx->ps.pic_width_in_mbs;
 		int PicHeightInMbs = ctx->ps.pic_height_in_mbs;
 		int width = PicWidthInMbs << 4;
 		int height = PicHeightInMbs << 4;
 		ctx->currPic = -1;
 		ctx->s.pixel_depth_Y = ctx->ps.BitDepth_Y > 8;
-		ctx->s.pixel_depth_C = ctx->ps.BitDepth_C > 8;
+		ctx->clip[0] = (1 << ctx->ps.BitDepth_Y) - 1;
 		ctx->s.width_Y = width - ctx->s.frame_crop_left_offset - ctx->s.frame_crop_right_offset;
 		ctx->s.height_Y = height - ctx->s.frame_crop_top_offset - ctx->s.frame_crop_bottom_offset;
-		ctx->s.stride_Y = width << ctx->s.pixel_depth_Y;
+		ctx->stride[0] = ctx->s.stride_Y = width << ctx->s.pixel_depth_Y;
 		ctx->plane_size_Y = ctx->s.stride_Y * height;
 		if (ctx->ps.chroma_format_idc > 0) {
+			ctx->s.pixel_depth_C = ctx->ps.BitDepth_C > 8;
+			ctx->clip[1] = ctx->clip[2] = (1 << ctx->ps.BitDepth_C) - 1;
 			ctx->s.width_C = ctx->ps.chroma_format_idc == 3 ? ctx->s.width_Y : ctx->s.width_Y >> 1;
-			ctx->s.stride_C = (ctx->ps.chroma_format_idc == 3 ? width : width >> 1) << ctx->s.pixel_depth_C;
+			ctx->stride[1] = ctx->stride[2] = ctx->s.stride_C = (ctx->ps.chroma_format_idc == 3 ? width : width >> 1) << ctx->s.pixel_depth_C;
 			ctx->s.height_C = ctx->ps.chroma_format_idc == 1 ? ctx->s.height_Y >> 1 : ctx->s.height_Y;
 			ctx->plane_size_C = (ctx->ps.chroma_format_idc == 1 ? height >> 1 : height) * ctx->s.stride_C;
 		}
+		
+		// initialize macroblock offsets with vectors for the sake of readability
+		int offA_int8 = -(int)sizeof(*mb);
+		int offB_int8 = -(PicWidthInMbs + 1) * sizeof(*mb);
+		int offA_int32 = offA_int8 >> 2;
+		int offB_int32 = offB_int8 >> 2;
+		int offC_int32 = offB_int32 + (sizeof(*mb) >> 2);
+		int offD_int32 = offB_int32 - (sizeof(*mb) >> 2);
+		ctx->A4x4_int8_v = (v16hi){5 + offA_int8, 0, 7 + offA_int8, 2, 1, 4, 3, 6, 13 + offA_int8, 8, 15 + offA_int8, 10, 9, 12, 11, 14};
+		ctx->B4x4_int8_v = (v16si){10 + offB_int8, 11 + offB_int8, 0, 1, 14 + offB_int8, 15 + offB_int8, 4, 5, 2, 3, 8, 9, 6, 7, 12, 13};
+		if (ctx->ps.ChromaArrayType == 1) {
+			ctx->ACbCr_int8_v = (v16hi){1 + offA_int8, 0, 3 + offA_int8, 2, 5 + offA_int8, 4, 7 + offA_int8, 6};
+			ctx->BCbCr_int8_v = (v16si){2 + offB_int8, 3 + offB_int8, 0, 1, 6 + offB_int8, 7 + offB_int8, 4, 5};
+		}
+		ctx->refIdx4x4_C_v = (v16qi){2, 3, 12, -1, 3, 6, 13, -1, 12, 13, 14, -1, 13, -1, 15, -1};
+		ctx->absMvd_A_v = (v16hi){10 + offA_int8, 0, 14 + offA_int8, 4, 2, 8, 6, 12, 26 + offA_int8, 16, 30 + offA_int8, 20, 18, 24, 22, 28};
+		ctx->absMvd_B_v = (v16si){20 + offB_int8, 22 + offB_int8, 0, 2, 28 + offB_int8, 30 + offB_int8, 8, 10, 4, 6, 16, 18, 12, 14, 24, 26};
+		ctx->mvs_A_v = (v16hi){5 + offA_int32, 0, 7 + offA_int32, 2, 1, 4, 3, 6, 13 + offA_int32, 8, 15 + offA_int32, 10, 9, 12, 11, 14};
+		ctx->mvs_B_v = (v16si){10 + offB_int32, 11 + offB_int32, 0, 1, 14 + offB_int32, 15 + offB_int32, 4, 5, 2, 3, 8, 9, 6, 7, 12, 13};
+		ctx->mvs_C_v = (v16si){11 + offB_int32, 14 + offB_int32, 1, -1, 15 + offB_int32, 10 + offC_int32, 5, -1, 3, 6, 9, -1, 7, -1, 13, -1};
+		ctx->mvs_D_v = (v16si){15 + offD_int32, 10 + offB_int32, 5 + offA_int32, 0, 11 + offB_int32, 14 + offB_int32, 1, 4, 7 + offA_int32, 2, 13 + offA_int32, 8, 3, 6, 9, 12};
 		
 		// Each picture in the DPB is three planes and a group of macroblocks
 		int mbs = (PicWidthInMbs + 1) * (PicHeightInMbs + 1);
@@ -1567,9 +1552,11 @@ int Edge264_decode_NAL(Edge264_stream *s)
 	};
 	
 	// initial checks before parsing
+	if (s == NULL)
+		return -1;
 	SET_CTX((void *)s - offsetof(Edge264_ctx, s));
 	if (ctx->s.CPB >= ctx->s.end)
-		return -2;
+		return -3;
 	int nal_ref_idc = *ctx->s.CPB >> 5;
 	int nal_unit_type = *ctx->s.CPB & 0x1f;
 	printf("<table>\n"
@@ -1591,7 +1578,7 @@ int Edge264_decode_NAL(Edge264_stream *s)
 		CALL(refill, 0);
 		
 		ret = CALL(parse_nal_unit[nal_unit_type]);
-		if (ret == -1)
+		if (ret == -2)
 			printf("<tr style='background-color:#f77'><th colspan=2 style='text-align:center'>DPB is full</th></tr>\n");
 		if (ret == 1)
 			printf("<tr style='background-color:#f77'><th colspan=2 style='text-align:center'>Unsupported stream</th></tr>\n");
@@ -1604,7 +1591,7 @@ int Edge264_decode_NAL(Edge264_stream *s)
 	}
 	
 	// CPB may point anywhere up to the last byte of the next start code
-	if (ret != -1)
+	if (ret != -2)
 		ctx->s.CPB = Edge264_find_start_code(1, ctx->CPB - 2, ctx->s.end);
 	RESET_CTX();
 	printf("</table>\n");
@@ -1622,8 +1609,10 @@ int Edge264_decode_NAL(Edge264_stream *s)
  * _ drain is set
  */
 int Edge264_get_frame(Edge264_stream *s, int drain) {
+	if (s == NULL)
+		return -1;
 	SET_CTX((void *)s - offsetof(Edge264_ctx, s));
-	int res = -1;
+	int res = -2;
 	int best = (drain || __builtin_popcount(ctx->output_flags) > ctx->SPS.max_num_reorder_frames ||
 		__builtin_popcount(ctx->reference_flags | ctx->output_flags) > ctx->SPS.max_dec_frame_buffering) ? INT_MAX : ctx->dispPicOrderCnt;
 	for (int o = ctx->output_flags; o != 0; o &= o - 1) {

@@ -292,9 +292,9 @@ int main(int argc, char *argv[])
 		"<body>\n");
 	while (1) {
 		int res = Edge264_decode_NAL(s);
-		if (Edge264_get_frame(s, res == -2) >= 0 && !bench)
+		if (Edge264_get_frame(s, res == -3) >= 0 && !bench)
 			process_frame(s);
-		else if (res == -2)
+		else if (res == -3)
 			break;
 	}
 	Edge264_free(&s);

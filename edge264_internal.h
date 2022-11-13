@@ -266,9 +266,9 @@ typedef struct
 	int32_t prevPicOrderCnt;
 	int32_t dispPicOrderCnt;
 	int32_t FrameNums[32];
-	int8_t LongTermFrameIdx[32] __attribute__((aligned(16)));
-	int8_t pic_LongTermFrameIdx[32] __attribute__((aligned(16))); // to be applied after decoding all slices of the current frame
-	int32_t FieldOrderCnt[2][32] __attribute__((aligned(16))); // lower/higher half for top/bottom fields
+	union { int8_t LongTermFrameIdx[32]; v16qi LongTermFrameIdx_v[2]; };
+	union { int8_t pic_LongTermFrameIdx[32]; v16qi pic_LongTermFrameIdx_v[2]; }; // to be applied after decoding all slices of the current frame
+	union { int32_t FieldOrderCnt[2][32]; v4si FieldOrderCnt_v[2][8]; }; // lower/higher half for top/bottom fields
 	Edge264_parameter_set SPS;
 	Edge264_parameter_set PPSs[4];
 	int16_t PicOrderCntDeltas[256]; // too big to fit in Edge264_parameter_set

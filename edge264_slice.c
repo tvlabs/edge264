@@ -532,7 +532,7 @@ static void CAFUNC(parse_NxN_residual)
 				size_t stride = ctx->stride[iYCbCr];
 				uint8_t *samples = ctx->samples_mb[iYCbCr] + y444[i4x4] * stride + x444[i4x4];
 				if (!mb->f.mbIsInterFlag)
-					CALL(decode_intra4x4, intra4x4_modes[mb->Intra4x4PredMode[i4x4]][ctx->unavail4x4[i4x4]], samples, stride, ctx->clip[iYCbCr]);
+					CALL(decode_intra4x4, intra4x4_modes[mb->Intra4x4PredMode[i4x4]][ctx->unavail4x4[i4x4]], samples, stride, iYCbCr);
 				if (mb->bits[0] & 1 << bit8x8[i4x4 >> 2]) {
 					int nA = *(mb->nC[iYCbCr] + ctx->A4x4_int8[i4x4]);
 					int nB = *(mb->nC[iYCbCr] + ctx->B4x4_int8[i4x4]);
@@ -661,7 +661,7 @@ static void CAFUNC(parse_intra_chroma_pred_mode)
 			mb->f.intra_chroma_pred_mode_non_zero = (mode > 0);
 		#endif
 		fprintf(stderr, "intra_chroma_pred_mode: %u\n", mode);
-		CALL(decode_intraChroma, intraChroma_modes[mode][ctx->unavail16x16 & 3], ctx->samples_mb[1], ctx->samples_mb[2], ctx->stride[1], ctx->clip[1]);
+		CALL(decode_intraChroma, intraChroma_modes[mode][ctx->unavail16x16 & 3], ctx->samples_mb[1], ctx->samples_mb[2], ctx->stride[1]);
 	}
 }
 
@@ -798,7 +798,7 @@ static noinline void CAFUNC(parse_I_mb, int mb_type_or_ctxIdx)
 			{I16x16_P_8 , I16x16_DCA_8, I16x16_DCB_8, I16x16_DCAB_8},
 		};
 		mb->Intra4x4PredMode_v = (v16qi){2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2};
-		CALL(decode_intra16x16, intra16x16_modes[mode][ctx->unavail16x16 & 3], ctx->samples_mb[0], ctx->stride[0], ctx->clip[0]); // FIXME 4:4:4
+		CALL(decode_intra16x16, intra16x16_modes[mode][ctx->unavail16x16 & 3], ctx->samples_mb[0], ctx->stride[0], 0); // FIXME 4:4:4
 		CACALL(parse_intra_chroma_pred_mode);
 		CAJUMP(parse_Intra16x16_residual);
 		

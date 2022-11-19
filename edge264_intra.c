@@ -97,7 +97,7 @@ static noinline __m128i FUNC(filter8_top_left_16bit, size_t stride, ssize_t nstr
 /**
  * Intra4x4
  */
-void _decode_intra4x4(int mode, uint8_t *px1, size_t stride, ssize_t nstride, int clip, v16qi zero) {
+void _decode_intra4x4(int mode, uint8_t *px1, size_t stride, ssize_t nstride, v8hi clip, v16qi zero) {
 	__m128i dc, top;
 	switch (mode) {
 	
@@ -137,7 +137,7 @@ void _decode_intra4x4(int mode, uint8_t *px1, size_t stride, ssize_t nstride, in
 		dc = _mm_srli_epi16(_mm_sad_epu8(_mm_srli_si128(x4, 12), (__m128i)zero), 1);
 		goto dc_4x4; }
 	case I4x4_DCAB_8:
-		dc = _mm_set1_epi16(clip);
+		dc = _mm_broadcastw_epi16(clip);
 		goto dc_4x4;
 	
 	case I4x4_DDL_8:
@@ -244,7 +244,13 @@ void _decode_intra4x4(int mode, uint8_t *px1, size_t stride, ssize_t nstride, in
 
 /**
  * Intra8x8
-static void FUNC(decode_Vertical8x8, __m128i topr, __m128i topm, __m128i topl) {
+ */
+void _decode_intra8x8(int mode, uint8_t *px0, uint8_t *px7, size_t stride, ssize_t nstride, v8hi clip, v16qi zero) {
+	
+}
+
+
+/*static void FUNC(decode_Vertical8x8, __m128i topr, __m128i topm, __m128i topl) {
 	__m128i x0 = lowpass(topr, topm, topl);
 	JUMP(decode_Residual8x8, x0, x0, x0, x0, x0, x0, x0, x0);
 }
@@ -406,7 +412,7 @@ static void FUNC(decode_HorizontalUp8x8, __m128i left) {
 /**
  * Intra16x16
  */
-void _decode_intra16x16(int mode, uint8_t *px0, uint8_t *px7, uint8_t *pxE, size_t stride, ssize_t nstride, int clip) {
+void _decode_intra16x16(int mode, uint8_t *px0, uint8_t *px7, uint8_t *pxE, size_t stride, ssize_t nstride, v8hi clip) {
 	__m128i top, left, pred;
 	switch (mode) {
 	
@@ -722,7 +728,7 @@ static always_inline void chroma8x8_plane_8bit(uint8_t *px0, uint8_t *px7, size_
 	*(int64_t *)(px7              ) = xE[1];
 }
 
-void _decode_intraChroma(int mode, uint8_t *Cb0, uint8_t *Cb7, uint8_t *Cr0, uint8_t *Cr7, size_t stride, ssize_t nstride, int clip) {
+void _decode_intraChroma(int mode, uint8_t *Cb0, uint8_t *Cb7, uint8_t *Cr0, uint8_t *Cr7, size_t stride, ssize_t nstride, v8hi clip) {
 	switch (mode) {
 	case IC8x8_DC_8:
 		chroma8x8_DC_8bit(Cb0, Cb7, stride, nstride);

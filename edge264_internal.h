@@ -134,7 +134,7 @@ typedef struct {
 	union { uint8_t inter_eqs[4]; uint32_t inter_eqs_s; }; // 2 flags per 4x4 block storing right/bottom equality of mvs&ref, in little endian
 	union { uint8_t QP[3]; v4qi QP_s; }; // [iYCbCr]
 	union { uint32_t bits[2]; uint64_t bits_l; }; // {cbp/ref_idx_nz, cbf_Y/Cb/Cr 8x8}
-	union { int8_t nC[3][16]; int64_t nC_l[6]; v16qi nC_v[3]; }; // for CAVLC and deblocking, 64 if unavailable
+	union { int8_t nC[3][16]; int32_t nC_s[3][4]; int64_t nC_l[6]; v16qi nC_v[3]; }; // for CAVLC and deblocking, 64 if unavailable
 	union { int8_t Intra4x4PredMode[16]; v16qi Intra4x4PredMode_v; }; // [i4x4]
 	union { int8_t refIdx[8]; int32_t refIdx_s[2]; int64_t refIdx_l; }; // [LX][i8x8]
 	union { int8_t refPic[8]; int32_t refPic_s[2]; int64_t refPic_l; }; // [LX][i8x8]

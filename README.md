@@ -27,11 +27,11 @@ Planned features
 * Constrained Intra prediction
 * AVX-2 enhancements
 * ARM support
-* 4:0:0, 4:2:2 and 4:4:4 (partially implemented)
-* 9-14 bit depths with possibility of different luma/chroma depths (partially implemented)
+* 4:0:0, 4:2:2 and 4:4:4
+* 9-14 bit depths with possibility of different luma/chroma depths
 * Transform-bypass for macroblocks with QP==0
-* Slice-multithreading (to let multithreaded encoders decode/encode each frame on the same thread)
-* PAFF and MBAFF (partially implemented)
+* Slice-multithreading
+* PAFF and MBAFF
 * Error concealment
 
 
@@ -56,7 +56,7 @@ $ ./edge264_test-cc
 Key takeaways
 -------------
 
-* [Minimalistic API](edge264.h) (5 functions and 1 structure).
+* [Minimalistic API](edge264.h) with FFI-friendly design (5 functions and 1 structure).
 * [The input bitstream](edge264_golomb.c) is unescaped on the fly using vector code, avoiding a full preprocessing pass to remove escape sequences, and thus reducing memory reads/writes.
 * [Error detection](edge264.c) is performed once in each type of NAL unit (search for `return` statements), by clamping all input values to their expected ranges, then expecting `rbsp_trailing_bit` afterwards (with _very high_ probability of catching an error if the stream is corrupted). This design choice is discussed in [A case about parsing errors](https://traffaillac.github.io/parsing.html).
 * [The bitstream caches](edge264_internal.h) for CAVLC and CABAC (search for `rbsp_reg`) are stored in two size_t variables each, mapped on Global Register Variables if possible, speeding up the _very frequent_ calls to input functions. The main context pointer is also assigned to a GRV, to help reduce the binary size (\~150k).

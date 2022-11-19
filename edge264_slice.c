@@ -415,7 +415,7 @@ static void CAFUNC(parse_chroma_residual)
 					ctx->c_v[0] = ctx->c_v[1] = ctx->c_v[2] = ctx->c_v[3] = (v4si){};
 					fprintf(stderr, "Chroma AC coeffLevels[%d]:", i4x4);
 					CACALL(parse_residual_block, 1, 15, token_or_cbf);
-					v16qu wS = ((v16qu *)ctx->ps.weightScale4x4)[iYCbCr + mb->f.mbIsInterFlag * 3];
+					v16qu wS = ctx->ps.weightScale4x4_v[iYCbCr + mb->f.mbIsInterFlag * 3];
 					CALL(add_idct4x4, iYCbCr, ctx->QP[iYCbCr], wS, i4x4, samples);
 				} else {
 					CALL(add_dc4x4, iYCbCr, i4x4, samples);
@@ -478,7 +478,7 @@ static void CAFUNC(parse_Intra16x16_residual)
 					ctx->c_v[0] = ctx->c_v[1] = ctx->c_v[2] = ctx->c_v[3] = (v4si){};
 					fprintf(stderr, "16x16 AC coeffLevels[%d]:", iYCbCr * 16 + i4x4);
 					CACALL(parse_residual_block, 1, 15, token_or_cbf);
-					CALL(add_idct4x4, iYCbCr, ctx->QP[0], ((v16qu *)ctx->ps.weightScale4x4)[iYCbCr], i4x4, samples);
+					CALL(add_idct4x4, iYCbCr, ctx->QP[0], ctx->ps.weightScale4x4_v[iYCbCr], i4x4, samples);
 				} else {
 					CALL(add_dc4x4, iYCbCr, i4x4, samples);
 				}
@@ -545,18 +545,39 @@ static void CAFUNC(parse_NxN_residual)
 						CACALL(parse_residual_block, 0, 15, token_or_cbf);
 						
 						// DC blocks are marginal here (about 16%) so we do not handle them separately
-						v16qu wS = ((v16qu *)ctx->ps.weightScale4x4)[iYCbCr + mb->f.mbIsInterFlag * 3];
+						v16qu wS = ctx->ps.weightScale4x4_v[iYCbCr + mb->f.mbIsInterFlag * 3];
 						CALL(add_idct4x4, iYCbCr, ctx->QP[0], wS, -1, samples);
 					}
 				}
 			}
 		} else {
-			
-			ctx->ctxIdxOffsets_l = ctxIdxOffsets_8x8[iYCbCr][0];
-			ctx->sig_inc_v[0] = sig_inc_8x8[0][0];
-			ctx->last_inc_v[0] = last_inc_8x8[0];
+			#ifdef CABAC
+				ctx->ctxIdxOffsets_l = ctxIdxOffsets_8x8[iYCbCr][0];
+				ctx->sig_inc_v[0] = sig_inc_8x8[0][0];
+				ctx->last_inc_v[0] = last_inc_8x8[0];
+			#endif
 			ctx->scan_v[0] = scan_8x8[0][0];
+			
 			for (int i8x8 = 0; i8x8 < 4; i8x8++) {
+				size_t stride = ctx->stride[iYCbCr];
+				uint8_t *samples = ctx->samples_mb[iYCbCr] + y444[i8x8 * 4] * stride + x444[i8x8 * 4];
+				/*if (!mb->f.mbIsInterFlag)
+					CALL(decode_intra8x8, intra8x8_modes[mb->Intra4x4PredMode[i8x8 * 4 + 1]][ctx->unavail4x4[i8x8 * 5]], samples, stride, ctx->clip[iYCbCr]);
+				*/#ifdef CABAC
+					if (mb->bits[0] & 1 << bit8x8[i8x8] && (ctx->ps.ChromaArrayType < 3 || CALL(get_ae, ctx->ctxIdxOffsets[0] + (mb->bits[1] >> inc8x8[iYCbCr * 4 + i8x8] & 3)))) {
+						mb->bits[1] |= 1 << bit8x8[iYCbCr * 4 + i8x8];
+						mb->nC_s[iYCbCr][i8x8] = 0x01010101;
+						for (int i = 0; i < 16; i++)
+							ctx->c_v[i] = (v4si){};
+						fprintf(stderr, "8x8 coeffLevels[%d]:", iYCbCr * 4 + i8x8);
+						CALL(parse_residual_block_cabac, 0, 63, 1);
+						
+					}
+				#else
+				#endif
+				
+				
+				
 				int BlkIdx = iYCbCr * 4 + i8x8;
 				int coded_block_flag = mb->bits[0] & 1 << bit8x8[i8x8];
 				//if (coded_block_flag && ctx->ps.ChromaArrayType == 3) {

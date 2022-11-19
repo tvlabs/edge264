@@ -1,4 +1,12 @@
 /** MAYDO:
+ * _ add 8x8 transform support
+ * 	_ reimplement 8x8 IDCT
+ * 	_ reimplement 8x8 Intra
+ * 	_ implement CABAC parsing
+ * 	_ implement CAVLC parsing
+ * 	_ merge CABAC & CAVLC as much as possible
+ * 	_ enable and test
+ * 
  * _ add a version function
  * _ add an option to store N more frames, to tolerate lags in CPU scheduling
  * _ try using epb for context pointer, and email GCC when it fails
@@ -81,11 +89,6 @@ static void FUNC(initialise_decoding_context)
 	ctx->samples_mb[0] = ctx->samples_row[0] + mbx * 16;
 	ctx->samples_mb[1] = ctx->samples_row[1] + mbx * 8;
 	ctx->samples_mb[2] = ctx->samples_row[2] + mbx * 8;
-	for (int i = 1; !ctx->ps.transform_8x8_mode_flag && i < 4; i++) {
-		ctx->sig_inc_v[i] = sig_inc_8x8[0][i];
-		ctx->last_inc_v[i] = last_inc_8x8[i];
-		ctx->scan_v[i] = scan_8x8[0][i];
-	}
 	memcpy(ctx->QP_C_v    , QP_Y2C + clip3(0, 63, 15 + ctx->ps.chroma_qp_index_offset), 16);
 	memcpy(ctx->QP_C_v + 1, QP_Y2C + clip3(0, 63, 31 + ctx->ps.chroma_qp_index_offset), 16);
 	memcpy(ctx->QP_C_v + 2, QP_Y2C + clip3(0, 63, 47 + ctx->ps.chroma_qp_index_offset), 16);
@@ -985,6 +988,8 @@ static int FUNC(parse_pic_parameter_set)
 	// seq_parameter_set_id was ignored so far since no SPS data was read.
 	if (CALL(get_uv, 24) != 0x800000 || ctx->DPB == NULL)
 		return 2;
+	if (ctx->ps.transform_8x8_mode_flag)
+		return 3;
 	if (seq_parameter_set_id > 0 || pic_parameter_set_id >= 4 ||
 		num_slice_groups > 1 || ctx->ps.constrained_intra_pred_flag ||
 		redundant_pic_cnt_present_flag || ctx->ps.transform_8x8_mode_flag)
@@ -1434,6 +1439,11 @@ static int FUNC(parse_seq_parameter_set)
 			ctx->stride[1] = ctx->stride[2] = ctx->s.stride_C = (ctx->ps.chroma_format_idc == 3 ? width : width >> 1) << ctx->s.pixel_depth_C;
 			ctx->s.height_C = ctx->ps.chroma_format_idc == 1 ? ctx->s.height_Y >> 1 : ctx->s.height_Y;
 			ctx->plane_size_C = (ctx->ps.chroma_format_idc == 1 ? height >> 1 : height) * ctx->s.stride_C;
+		}
+		for (int i = 1; i < 4; i++) {
+			ctx->sig_inc_v[i] = sig_inc_8x8[0][i];
+			ctx->last_inc_v[i] = last_inc_8x8[i];
+			ctx->scan_v[i] = scan_8x8[0][i];
 		}
 		
 		// initialize macroblock offsets with vectors for the sake of readability

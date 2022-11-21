@@ -1,6 +1,5 @@
 /** MAYDO:
  * _ add 8x8 transform support
- * 	_ reimplement 8x8 Intra
  * 	_ unit test 8x8 Intra
  * 	_ reimplement 8x8 IDCT
  * 	_ unit test 8x8 IDCT

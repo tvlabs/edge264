@@ -392,10 +392,13 @@ void FUNC(decode_inter, int i, int w, int h);
 
 // edge264_intra_*.c
 void _decode_intra4x4(int mode, uint8_t *px1, size_t stride, ssize_t nstride, v8hi clip, v16qi zero);
+void _decode_intra8x8(int mode, uint8_t *px0, uint8_t *px7, size_t stride, ssize_t nstride, v8hi clip);
 void _decode_intra16x16(int mode, uint8_t *px0, uint8_t *px7, uint8_t *pxE, size_t stride, ssize_t nstride, v8hi clip);
 void _decode_intraChroma(int mode, uint8_t *Cb0, uint8_t *Cb7, uint8_t *Cr0, uint8_t *Cr7, size_t stride, ssize_t nstride, v8hi clip);
 static always_inline void FUNC(decode_intra4x4, int mode, uint8_t *samples, size_t stride, int iYCbCr) {
 	_decode_intra4x4(mode, samples + stride, stride, -stride, (v8hi){ctx->clip[iYCbCr]}, (v16qi){}); }
+static always_inline void FUNC(decode_intra8x8, int mode, uint8_t *samples, size_t stride, int iYCbCr) {
+	_decode_intra8x8(mode, samples, samples + stride * 7, stride, -stride, (v8hi){ctx->clip[iYCbCr]}); }
 static always_inline void FUNC(decode_intra16x16, int mode, uint8_t *samples, size_t stride, int iYCbCr) {
 	_decode_intra16x16(mode, samples, samples + stride * 7, samples + stride * 14, stride, -stride, (v8hi){ctx->clip[iYCbCr]}); }
 static always_inline void FUNC(decode_intraChroma, int mode, uint8_t *samplesCb, uint8_t *samplesCr, size_t stride) {

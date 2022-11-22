@@ -193,7 +193,7 @@ void _decode_intra4x4(int mode, uint8_t *px1, size_t stride, ssize_t nstride, v8
  * Neighbouring samples are named a to z from bottom left to top right, with
  * i being p[-1,-1] or p[-1,0] if unavailable, and j being p[-1,-1] or p[0,-1].
  */
-static __m128i filter_h2a_8bit(ssize_t dstride, size_t stride, ssize_t nstride, uint8_t *px0, uint8_t *px7) {
+static __m128i filter_h2a_8bit(ssize_t dstride, uint8_t *px0, uint8_t *px7, size_t stride, ssize_t nstride) {
 	__m128i i = _mm_loadu_si32(px0 + dstride     - 4);
 	__m128i h = _mm_loadu_si32(px0               - 4);
 	__m128i g = _mm_loadu_si32(px0 +  stride     - 4);
@@ -212,7 +212,7 @@ static __m128i filter_h2a_8bit(ssize_t dstride, size_t stride, ssize_t nstride, 
 	return _mm_srli_si128(lowpass_8bit(i2b, h2a, g2a), 8);
 }
 
-void _decode_intra8x8(int mode, size_t stride, ssize_t nstride, uint8_t *px0, uint8_t *px7, v8hi clip) {
+void _decode_intra8x8(int mode, uint8_t *px0, uint8_t *px7, size_t stride, ssize_t nstride, v8hi clip) {
 	static const v16qi shr8_8bit = {1, 2, 3, 4, 5, 6, 7, 7, -1, -1, -1, -1, -1, -1};
 	static const v16qi shl_8bit = {0, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14};
 	static const v16qi shr16_8bit = {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 15};
@@ -227,7 +227,7 @@ void _decode_intra8x8(int mode, size_t stride, ssize_t nstride, uint8_t *px0, ui
 		l2s = _mm_loadu_si64(px0 + nstride     + 1);
 		k2r = _mm_loadu_si64(px0 + nstride        );
 	vertical_8x8: {
-		v2li p = (v2li)lowpass_8bit(j2q, l2s, k2r);
+		v2li p = (v2li)lowpass_8bit(j2q, k2r, l2s);
 		*(int64_t *)(px0              ) = p[0];
 		*(int64_t *)(px0 +  stride    ) = p[0];
 		*(int64_t *)(px0 +  stride * 2) = p[0];
@@ -257,7 +257,7 @@ void _decode_intra8x8(int mode, size_t stride, ssize_t nstride, uint8_t *px0, ui
 		dstride = 0;
 		// PASSTHROUGH
 	case I8x8_H_8: {
-		__m128i h2a = filter_h2a_8bit(dstride, stride, nstride, px0, px7);
+		__m128i h2a = filter_h2a_8bit(dstride, px0, px7, stride, nstride);
 		__m128i x0 = _mm_unpacklo_epi8(h2a, h2a);
 		__m128i x1 = _mm_unpacklo_epi16(x0, x0);
 		__m128i x2 = _mm_unpackhi_epi16(x0, x0);
@@ -360,7 +360,7 @@ void _decode_intra8x8(int mode, size_t stride, ssize_t nstride, uint8_t *px0, ui
 		// PASSTHROUGH
 	case I8x8_DC_B_8: {
 		__m128i zero = _mm_setzero_si128();
-		__m128i x0 = _mm_sad_epu8(filter_h2a_8bit(dstride, stride, nstride, px0, px7), zero);
+		__m128i x0 = _mm_sad_epu8(filter_h2a_8bit(dstride, px0, px7, stride, nstride), zero);
 		v2li p = (v2li)_mm_broadcastb_epi8(_mm_avg_epu16(_mm_srli_epi16(x0, 2), zero));
 		*(int64_t *)(px0              ) = p[0];
 		*(int64_t *)(px0 +  stride    ) = p[0];
@@ -372,15 +372,14 @@ void _decode_intra8x8(int mode, size_t stride, ssize_t nstride, uint8_t *px0, ui
 		*(int64_t *)(px7              ) = p[0];
 		return; }
 	case I8x8_DC_AB_8: {
-		v2li p = (v2li)_mm_broadcastb_epi8(clip);
-		*(int64_t *)(px0              ) = p[0];
-		*(int64_t *)(px0 +  stride    ) = p[0];
-		*(int64_t *)(px0 +  stride * 2) = p[0];
-		*(int64_t *)(px7 + nstride * 4) = p[0];
-		*(int64_t *)(px0 +  stride * 4) = p[0];
-		*(int64_t *)(px7 + nstride * 2) = p[0];
-		*(int64_t *)(px7 + nstride    ) = p[0];
-		*(int64_t *)(px7              ) = p[0];
+		*(int64_t *)(px0              ) =
+		*(int64_t *)(px0 +  stride    ) =
+		*(int64_t *)(px0 +  stride * 2) =
+		*(int64_t *)(px7 + nstride * 4) =
+		*(int64_t *)(px0 +  stride * 4) =
+		*(int64_t *)(px7 + nstride * 2) =
+		*(int64_t *)(px7 + nstride    ) =
+		*(int64_t *)(px7              ) = 0x8080808080808080ull;
 		return; }
 	
 	case I8x8_DDL_8:
@@ -537,7 +536,7 @@ void _decode_intra8x8(int mode, size_t stride, ssize_t nstride, uint8_t *px0, ui
 		dstride = 0;
 		// PASSTHROUGH
 	case I8x8_HU_8: {
-		__m128i x0 = _mm_shuffle_epi8(filter_h2a_8bit(dstride, stride, nstride, px0, px7), C7_8bit);
+		__m128i x0 = _mm_shuffle_epi8(filter_h2a_8bit(dstride, px0, px7, stride, nstride), C7_8bit);
 		__m128i x1 = _mm_srli_si128(x0, 1);
 		__m128i x2 = lowpass_8bit(x0, x1, _mm_srli_si128(x0, 2));
 		p0 = _mm_unpacklo_epi8(_mm_avg_epu8(x0, x1), x2);

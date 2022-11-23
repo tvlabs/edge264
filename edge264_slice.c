@@ -510,6 +510,17 @@ static void CAFUNC(parse_NxN_residual)
 		{I4x4_VL_8 , I4x4_VL_8  , I4x4_DCAB_8, I4x4_DCAB_8, I4x4_VLC_8 , I4x4_VLC_8 , I4x4_DCAB_8, I4x4_DCAB_8, I4x4_VL_8  , I4x4_VL_8  , I4x4_DCAB_8, I4x4_DCAB_8, I4x4_VLC_8 , I4x4_VLC_8 , I4x4_DCAB_8, I4x4_DCAB_8},
 		{I4x4_HU_8 , I4x4_DCAB_8, I4x4_HU_8  , I4x4_DCAB_8, I4x4_HU_8  , I4x4_DCAB_8, I4x4_HU_8  , I4x4_DCAB_8, I4x4_HU_8  , I4x4_DCAB_8, I4x4_HU_8  , I4x4_DCAB_8, I4x4_HU_8  , I4x4_DCAB_8, I4x4_HU_8  , I4x4_DCAB_8},
 	};
+	static const int8_t intra8x8_modes[9][16] = {
+		{I8x8_V_8  , I8x8_V_8    , I8x8_DC_AB_8, I8x8_DC_AB_8, I8x8_V_C_8  , I8x8_V_C_8  , I8x8_DC_AB_8, I8x8_DC_AB_8, I8x8_V_D_8  , I8x8_V_D_8  , I8x8_DC_AB_8, I8x8_DC_AB_8, I8x8_V_CD_8  , I8x8_V_CD_8  , I8x8_DC_AB_8, I8x8_DC_AB_8},
+		{I8x8_H_8  , I8x8_DC_AB_8, I8x8_H_8    , I8x8_DC_AB_8, I8x8_H_8    , I8x8_DC_AB_8, I8x8_H_8    , I8x8_DC_AB_8, I8x8_H_D_8  , I8x8_DC_AB_8, I8x8_H_D_8  , I8x8_DC_AB_8, I8x8_H_D_8   , I8x8_DC_AB_8 , I8x8_H_D_8  , I8x8_DC_AB_8},
+		{I8x8_DC_8 , I8x8_DC_A_8 , I8x8_DC_B_8 , I8x8_DC_AB_8, I8x8_DC_C_8 , I8x8_DC_AC_8, I8x8_DC_B_8 , I8x8_DC_AB_8, I8x8_DC_D_8 , I8x8_DC_AD_8, I8x8_DC_BD_8, I8x8_DC_AB_8, I8x8_DC_CD_8 , I8x8_DC_ACD_8, I8x8_DC_BD_8, I8x8_DC_AB_8},
+		{I8x8_DDL_8, I8x8_DDL_8  , I8x8_DC_AB_8, I8x8_DC_AB_8, I8x8_DDL_C_8, I8x8_DDL_C_8, I8x8_DC_AB_8, I8x8_DC_AB_8, I8x8_DDL_D_8, I8x8_DDL_D_8, I8x8_DC_AB_8, I8x8_DC_AB_8, I8x8_DDL_CD_8, I8x8_DDL_CD_8, I8x8_DC_AB_8, I8x8_DC_AB_8},
+		{I8x8_DDR_8, I8x8_DC_AB_8, I8x8_DC_AB_8, I8x8_DC_AB_8, I8x8_DDR_C_8, I8x8_DC_AB_8, I8x8_DC_AB_8, I8x8_DC_AB_8, I8x8_DC_AB_8, I8x8_DC_AB_8, I8x8_DC_AB_8, I8x8_DC_AB_8, I8x8_DC_AB_8 , I8x8_DC_AB_8 , I8x8_DC_AB_8, I8x8_DC_AB_8},
+		{I8x8_VR_8 , I8x8_DC_AB_8, I8x8_DC_AB_8, I8x8_DC_AB_8, I8x8_VR_C_8 , I8x8_DC_AB_8, I8x8_DC_AB_8, I8x8_DC_AB_8, I8x8_DC_AB_8, I8x8_DC_AB_8, I8x8_DC_AB_8, I8x8_DC_AB_8, I8x8_DC_AB_8 , I8x8_DC_AB_8 , I8x8_DC_AB_8, I8x8_DC_AB_8},
+		{I8x8_HD_8 , I8x8_DC_AB_8, I8x8_DC_AB_8, I8x8_DC_AB_8, I8x8_HD_8   , I8x8_DC_AB_8, I8x8_DC_AB_8, I8x8_DC_AB_8, I8x8_DC_AB_8, I8x8_DC_AB_8, I8x8_DC_AB_8, I8x8_DC_AB_8, I8x8_DC_AB_8 , I8x8_DC_AB_8 , I8x8_DC_AB_8, I8x8_DC_AB_8},
+		{I8x8_VL_8 , I8x8_VL_8   , I8x8_DC_AB_8, I8x8_DC_AB_8, I8x8_VL_C_8 , I8x8_VL_C_8 , I8x8_DC_AB_8, I8x8_DC_AB_8, I8x8_VL_D_8 , I8x8_VL_D_8 , I8x8_DC_AB_8, I8x8_DC_AB_8, I8x8_VL_CD_8 , I8x8_VL_CD_8 , I8x8_DC_AB_8, I8x8_DC_AB_8},
+		{I8x8_HU_8 , I8x8_DC_AB_8, I8x8_HU_8   , I8x8_DC_AB_8, I8x8_HU_8   , I8x8_DC_AB_8, I8x8_HU_8   , I8x8_DC_AB_8, I8x8_HU_D_8 , I8x8_DC_AB_8, I8x8_HU_D_8 , I8x8_DC_AB_8, I8x8_HU_D_8  , I8x8_DC_AB_8 , I8x8_HU_D_8 , I8x8_DC_AB_8},
+	};
 	
 	if (mb->f.CodedBlockPatternChromaDC | (mb->bits[0] & 0xac))
 		CACALL(parse_mb_qp_delta);
@@ -543,10 +554,9 @@ static void CAFUNC(parse_NxN_residual)
 						ctx->c_v[0] = ctx->c_v[1] = ctx->c_v[2] = ctx->c_v[3] = (v4si){};
 						fprintf(stderr, "4x4 coeffLevels[%d]:", iYCbCr * 16 + i4x4);
 						CACALL(parse_residual_block, 0, 15, token_or_cbf);
-						
 						// DC blocks are marginal here (about 16%) so we do not handle them separately
 						v16qu wS = ctx->ps.weightScale4x4_v[iYCbCr + mb->f.mbIsInterFlag * 3];
-						CALL(add_idct4x4, iYCbCr, ctx->QP[0], wS, -1, samples);
+						CALL(add_idct4x4, iYCbCr, ctx->QP[0], wS, -1, samples); // FIXME 4:4:4
 					}
 				}
 			}
@@ -561,9 +571,9 @@ static void CAFUNC(parse_NxN_residual)
 			for (int i8x8 = 0; i8x8 < 4; i8x8++) {
 				size_t stride = ctx->stride[iYCbCr];
 				uint8_t *samples = ctx->samples_mb[iYCbCr] + y444[i8x8 * 4] * stride + x444[i8x8 * 4];
-				/*if (!mb->f.mbIsInterFlag)
-					CALL(decode_intra8x8, intra8x8_modes[mb->Intra4x4PredMode[i8x8 * 4 + 1]][ctx->unavail4x4[i8x8 * 5]], samples, stride, ctx->clip[iYCbCr]);
-				*/#ifdef CABAC
+				if (!mb->f.mbIsInterFlag)
+					CALL(decode_intra8x8, intra8x8_modes[mb->Intra4x4PredMode[i8x8 * 4 + 1]][ctx->unavail4x4[i8x8 * 5]], samples, stride, iYCbCr);
+				#ifdef CABAC
 					if (mb->bits[0] & 1 << bit8x8[i8x8] && (ctx->ps.ChromaArrayType < 3 || CALL(get_ae, ctx->ctxIdxOffsets[0] + (mb->bits[1] >> inc8x8[iYCbCr * 4 + i8x8] & 3)))) {
 						mb->bits[1] |= 1 << bit8x8[iYCbCr * 4 + i8x8];
 						mb->nC_s[iYCbCr][i8x8] = 0x01010101;
@@ -571,24 +581,10 @@ static void CAFUNC(parse_NxN_residual)
 							ctx->c_v[i] = (v4si){};
 						fprintf(stderr, "8x8 coeffLevels[%d]:", iYCbCr * 4 + i8x8);
 						CALL(parse_residual_block_cabac, 0, 63, 1);
-						
+						CALL(add_idct8x8, iYCbCr, samples);
 					}
 				#else
 				#endif
-				
-				
-				
-				int BlkIdx = iYCbCr * 4 + i8x8;
-				int coded_block_flag = mb->bits[0] & 1 << bit8x8[i8x8];
-				//if (coded_block_flag && ctx->ps.ChromaArrayType == 3) {
-				//	int cbfA = *(mb->coded_block_flags_8x8 + ctx->coded_block_flags_8x8_A[BlkIdx]);
-				//	int cbfB = *(mb->coded_block_flags_8x8 + ctx->coded_block_flags_8x8_B[BlkIdx]);
-				//	coded_block_flag = CALL(get_ae, ctx->ctxIdxOffsets[0] + cbfA + cbfB * 2);
-				//}
-				//mb->coded_block_flags_8x8[BlkIdx] = coded_block_flag;
-				//mb->coded_block_flags_4x4_s[BlkIdx] = coded_block_flag ? 0x01010101 : 0;
-				memset(ctx->c, 0, 256); // FIXME
-				//CALL(parse_residual_block_cabac, coded_block_flag, 0, 63);
 			}
 		}
 		

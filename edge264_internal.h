@@ -415,6 +415,7 @@ static noinline void FUNC(decode_direct_mv_pred, unsigned direct_mask);
 // edge264_residual_*.c
 void FUNC(add_idct4x4, int iYCbCr, int qP, v16qu wS, int DCidx, uint8_t *samples);
 void FUNC(add_dc4x4, int iYCbCr, int DCidx, uint8_t *samples);
+void FUNC(add_idct8x8, int iYCbCr, uint8_t *samples);
 void FUNC(transform_dc4x4, int iYCbCr);
 void FUNC(transform_dc2x2);
 void FUNC(transform_dc2x4);
@@ -699,13 +700,13 @@ enum Intra8x8_modes {
 	I8x8_V_CD_8,
 	I8x8_H_8,
 	I8x8_H_D_8,
+	I8x8_DC_8,
 	I8x8_DC_A_8,
 	I8x8_DC_AC_8,
 	I8x8_DC_AD_8,
 	I8x8_DC_ACD_8,
 	I8x8_DC_B_8,
 	I8x8_DC_BD_8,
-	I8x8_DC_8,
 	I8x8_DC_C_8,
 	I8x8_DC_D_8,
 	I8x8_DC_CD_8,

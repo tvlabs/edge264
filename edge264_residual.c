@@ -47,6 +47,7 @@ static const v16qi normAdjust8x8[24] = {
 void FUNC(add_idct4x4, int iYCbCr, int qP, v16qu wS, int DCidx, uint8_t *samples)
 {
 	// loading and scaling
+	// FIXME use cvt8->16
 	__m128i zero = _mm_setzero_si128();
 	__m128i sh = _mm_cvtsi32_si128(qP / 6);
 	__m128i nA = (__m128i)normAdjust4x4[qP % 6];
@@ -155,21 +156,50 @@ void FUNC(add_dc4x4, int iYCbCr, int DCidx, uint8_t *samples) {
  *
  * For 16bit, an AVX2 version is maintained that brings a decent speedup.
  */
-static noinline void FUNC(add_idct8x8)
+void FUNC(add_idct8x8, int iYCbCr, uint8_t *samples)
 {
-	if (ctx->clip[0] == 255) { // FIXME 4:4:4
+	int qP = ctx->QP[iYCbCr];
+	size_t stride = ctx->stride[iYCbCr];
+	if (ctx->clip[iYCbCr] == 255) {
 		// loading and scaling
-		__m128i s32 = _mm_set1_epi32(32);
+		__m128i zero = _mm_setzero_si128();
+		__m128i sh = _mm_cvtsi32_si128(qP / 6);
+		__m128i *wS = (__m128i *)ctx->ps.weightScale8x8_v[iYCbCr * 2 + mb->f.mbIsInterFlag];
+		__m128i *nA = (__m128i *)&normAdjust8x8[qP % 6 * 4];
+		__m128i LS0 = _mm_mullo_epi16(_mm_unpacklo_epi8(wS[0], zero), _mm_unpacklo_epi8(nA[0], zero));
+		__m128i LS1 = _mm_mullo_epi16(_mm_unpackhi_epi8(wS[0], zero), _mm_unpackhi_epi8(nA[0], zero));
+		__m128i LS2 = _mm_mullo_epi16(_mm_unpacklo_epi8(wS[1], zero), _mm_unpacklo_epi8(nA[1], zero));
+		__m128i LS3 = _mm_mullo_epi16(_mm_unpackhi_epi8(wS[1], zero), _mm_unpackhi_epi8(nA[1], zero));
+		__m128i LS4 = _mm_mullo_epi16(_mm_unpacklo_epi8(wS[2], zero), _mm_unpacklo_epi8(nA[2], zero));
+		__m128i LS5 = _mm_mullo_epi16(_mm_unpackhi_epi8(wS[2], zero), _mm_unpackhi_epi8(nA[2], zero));
+		__m128i LS6 = _mm_mullo_epi16(_mm_unpacklo_epi8(wS[3], zero), _mm_unpacklo_epi8(nA[3], zero));
+		__m128i LS7 = _mm_mullo_epi16(_mm_unpackhi_epi8(wS[3], zero), _mm_unpackhi_epi8(nA[3], zero));
 		__m128i *c = (__m128i *)ctx->c_v;
-		__m128i *s = NULL;//(__m128i *)ctx->LevelScale_v;
-		__m128i d0 = _mm_packs_epi32(_mm_srai_epi32(_mm_add_epi32(_mm_mullo_epi32(c[0], s[0]), s32), 6), _mm_srai_epi32(_mm_add_epi32(_mm_mullo_epi32(c[1], s[1]), s32), 6));
-		__m128i d1 = _mm_packs_epi32(_mm_srai_epi32(_mm_add_epi32(_mm_mullo_epi32(c[2], s[2]), s32), 6), _mm_srai_epi32(_mm_add_epi32(_mm_mullo_epi32(c[3], s[3]), s32), 6));
-		__m128i d2 = _mm_packs_epi32(_mm_srai_epi32(_mm_add_epi32(_mm_mullo_epi32(c[4], s[4]), s32), 6), _mm_srai_epi32(_mm_add_epi32(_mm_mullo_epi32(c[5], s[5]), s32), 6));
-		__m128i d3 = _mm_packs_epi32(_mm_srai_epi32(_mm_add_epi32(_mm_mullo_epi32(c[6], s[6]), s32), 6), _mm_srai_epi32(_mm_add_epi32(_mm_mullo_epi32(c[7], s[7]), s32), 6));
-		__m128i d4 = _mm_packs_epi32(_mm_srai_epi32(_mm_add_epi32(_mm_mullo_epi32(c[8], s[8]), s32), 6), _mm_srai_epi32(_mm_add_epi32(_mm_mullo_epi32(c[9], s[9]), s32), 6));
-		__m128i d5 = _mm_packs_epi32(_mm_srai_epi32(_mm_add_epi32(_mm_mullo_epi32(c[10], s[10]), s32), 6), _mm_srai_epi32(_mm_add_epi32(_mm_mullo_epi32(c[11], s[11]), s32), 6));
-		__m128i d6 = _mm_packs_epi32(_mm_srai_epi32(_mm_add_epi32(_mm_mullo_epi32(c[12], s[12]), s32), 6), _mm_srai_epi32(_mm_add_epi32(_mm_mullo_epi32(c[13], s[13]), s32), 6));
-		__m128i d7 = _mm_packs_epi32(_mm_srai_epi32(_mm_add_epi32(_mm_mullo_epi32(c[14], s[14]), s32), 6), _mm_srai_epi32(_mm_add_epi32(_mm_mullo_epi32(c[15], s[15]), s32), 6));
+		__m128i mul0 = _mm_mullo_epi32(c[0], _mm_sll_epi32(_mm_unpacklo_epi16(LS0, zero), sh));
+		__m128i mul1 = _mm_mullo_epi32(c[1], _mm_sll_epi32(_mm_unpackhi_epi16(LS0, zero), sh));
+		__m128i mul2 = _mm_mullo_epi32(c[2], _mm_sll_epi32(_mm_unpacklo_epi16(LS1, zero), sh));
+		__m128i mul3 = _mm_mullo_epi32(c[3], _mm_sll_epi32(_mm_unpackhi_epi16(LS1, zero), sh));
+		__m128i mul4 = _mm_mullo_epi32(c[4], _mm_sll_epi32(_mm_unpacklo_epi16(LS2, zero), sh));
+		__m128i mul5 = _mm_mullo_epi32(c[5], _mm_sll_epi32(_mm_unpackhi_epi16(LS2, zero), sh));
+		__m128i mul6 = _mm_mullo_epi32(c[6], _mm_sll_epi32(_mm_unpacklo_epi16(LS3, zero), sh));
+		__m128i mul7 = _mm_mullo_epi32(c[7], _mm_sll_epi32(_mm_unpackhi_epi16(LS3, zero), sh));
+		__m128i mul8 = _mm_mullo_epi32(c[8], _mm_sll_epi32(_mm_unpacklo_epi16(LS4, zero), sh));
+		__m128i mul9 = _mm_mullo_epi32(c[9], _mm_sll_epi32(_mm_unpackhi_epi16(LS4, zero), sh));
+		__m128i mulA = _mm_mullo_epi32(c[10], _mm_sll_epi32(_mm_unpacklo_epi16(LS5, zero), sh));
+		__m128i mulB = _mm_mullo_epi32(c[11], _mm_sll_epi32(_mm_unpackhi_epi16(LS5, zero), sh));
+		__m128i mulC = _mm_mullo_epi32(c[12], _mm_sll_epi32(_mm_unpacklo_epi16(LS6, zero), sh));
+		__m128i mulD = _mm_mullo_epi32(c[13], _mm_sll_epi32(_mm_unpackhi_epi16(LS6, zero), sh));
+		__m128i mulE = _mm_mullo_epi32(c[14], _mm_sll_epi32(_mm_unpacklo_epi16(LS7, zero), sh));
+		__m128i mulF = _mm_mullo_epi32(c[15], _mm_sll_epi32(_mm_unpackhi_epi16(LS7, zero), sh));
+		__m128i s32 = _mm_set1_epi32(32);
+		__m128i d0 = _mm_packs_epi32(_mm_srai_epi32(_mm_add_epi32(mul0, s32), 6), _mm_srai_epi32(_mm_add_epi32(mul1, s32), 6));
+		__m128i d1 = _mm_packs_epi32(_mm_srai_epi32(_mm_add_epi32(mul2, s32), 6), _mm_srai_epi32(_mm_add_epi32(mul3, s32), 6));
+		__m128i d2 = _mm_packs_epi32(_mm_srai_epi32(_mm_add_epi32(mul4, s32), 6), _mm_srai_epi32(_mm_add_epi32(mul5, s32), 6));
+		__m128i d3 = _mm_packs_epi32(_mm_srai_epi32(_mm_add_epi32(mul6, s32), 6), _mm_srai_epi32(_mm_add_epi32(mul7, s32), 6));
+		__m128i d4 = _mm_packs_epi32(_mm_srai_epi32(_mm_add_epi32(mul8, s32), 6), _mm_srai_epi32(_mm_add_epi32(mul9, s32), 6));
+		__m128i d5 = _mm_packs_epi32(_mm_srai_epi32(_mm_add_epi32(mulA, s32), 6), _mm_srai_epi32(_mm_add_epi32(mulB, s32), 6));
+		__m128i d6 = _mm_packs_epi32(_mm_srai_epi32(_mm_add_epi32(mulC, s32), 6), _mm_srai_epi32(_mm_add_epi32(mulD, s32), 6));
+		__m128i d7 = _mm_packs_epi32(_mm_srai_epi32(_mm_add_epi32(mulE, s32), 6), _mm_srai_epi32(_mm_add_epi32(mulF, s32), 6));
 		
 		for (int i = 2;;) {
 			// 1D transform
@@ -240,31 +270,26 @@ static noinline void FUNC(add_idct8x8)
 		__m128i r7 = _mm_srai_epi16(d7, 6);
 		
 		// addition to values in place, clipping and storage
-		size_t stride = ctx->stride[0]; // FIXME 4:4:4
-		size_t stride3 = stride * 3;
-		uint8_t *p = NULL; //ctx->frame + ctx->frame_offsets_x[0/*BlkIdx2i4x4[BlkIdx]*/] + ctx->frame_offsets_y[0/*BlkIdx2i4x4[BlkIdx]*/];
-		uint8_t *q = p + stride * 4;
-		__m128i zero = _mm_setzero_si128();
-		__m128i p0 = load8x1_8bit(p             , zero);
-		__m128i p1 = load8x1_8bit(p + stride    , zero);
-		__m128i p2 = load8x1_8bit(p + stride * 2, zero);
-		__m128i p3 = load8x1_8bit(p + stride3   , zero);
-		__m128i p4 = load8x1_8bit(q             , zero);
-		__m128i p5 = load8x1_8bit(q + stride    , zero);
-		__m128i p6 = load8x1_8bit(q + stride * 2, zero);
-		__m128i p7 = load8x1_8bit(q + stride3   , zero);
+		__m128i p0 = load8x1_8bit(samples             , zero);
+		__m128i p1 = load8x1_8bit(samples + stride    , zero);
+		__m128i p2 = load8x1_8bit(samples + stride * 2, zero);
+		__m128i p3 = load8x1_8bit(samples + stride * 3, zero);
+		__m128i p4 = load8x1_8bit(samples + stride * 4, zero);
+		__m128i p5 = load8x1_8bit(samples + stride * 5, zero);
+		__m128i p6 = load8x1_8bit(samples + stride * 6, zero);
+		__m128i p7 = load8x1_8bit(samples + stride * 7, zero);
 		v2li u0 = (v2li)_mm_packus_epi16(_mm_adds_epi16(p0, r0), _mm_adds_epi16(p1, r1));
 		v2li u1 = (v2li)_mm_packus_epi16(_mm_adds_epi16(p2, r2), _mm_adds_epi16(p3, r3));
 		v2li u2 = (v2li)_mm_packus_epi16(_mm_adds_epi16(p4, r4), _mm_adds_epi16(p5, r5));
 		v2li u3 = (v2li)_mm_packus_epi16(_mm_adds_epi16(p6, r6), _mm_adds_epi16(p7, r7));
-		*(int64_t *)(p             ) = u0[0];
-		*(int64_t *)(p + stride    ) = u0[1];
-		*(int64_t *)(p + stride * 2) = u1[0];
-		*(int64_t *)(p + stride3   ) = u1[1];
-		*(int64_t *)(q             ) = u2[0];
-		*(int64_t *)(q + stride    ) = u2[1];
-		*(int64_t *)(q + stride * 2) = u3[0];
-		*(int64_t *)(q + stride3   ) = u3[1];
+		*(int64_t *)(samples             ) = u0[0];
+		*(int64_t *)(samples + stride    ) = u0[1];
+		*(int64_t *)(samples + stride * 2) = u1[0];
+		*(int64_t *)(samples + stride * 3) = u1[1];
+		*(int64_t *)(samples + stride * 4) = u2[0];
+		*(int64_t *)(samples + stride * 5) = u2[1];
+		*(int64_t *)(samples + stride * 6) = u3[0];
+		*(int64_t *)(samples + stride * 7) = u3[1];
 	} else {
 		
 #ifdef __AVX2__
@@ -516,42 +541,6 @@ static noinline void FUNC(add_idct8x8)
 #endif // __AVX2__
 	}
 }
-
-// legacy function
-static noinline void FUNC(decode_Residual8x8, __m128i p0,
-	__m128i p1, __m128i p2, __m128i p3, __m128i p4, __m128i p5, __m128i p6,
-	__m128i p7)
-{
-	size_t stride = ctx->stride[0]; // FIXME 4:4:4
-	size_t stride3 = stride * 3;
-	uint8_t *p = NULL; //ctx->frame + ctx->frame_offsets_x[0/*BlkIdx2i4x4[BlkIdx]*/] + ctx->frame_offsets_y[0/*BlkIdx2i4x4[BlkIdx]*/];
-	uint8_t *q = p + stride * 4;
-	if (__builtin_expect(ctx->clip[0] == 255, 1)) { // FIXME 4:4:4
-		v2li u0 = (v2li)_mm_packus_epi16(p0, p1);
-		v2li u1 = (v2li)_mm_packus_epi16(p2, p3);
-		v2li u2 = (v2li)_mm_packus_epi16(p4, p5);
-		v2li u3 = (v2li)_mm_packus_epi16(p6, p7);
-		*(int64_t *)(p             ) = u0[0];
-		*(int64_t *)(p + stride    ) = u0[1];
-		*(int64_t *)(p + stride * 2) = u1[0];
-		*(int64_t *)(p + stride3   ) = u1[1];
-		*(int64_t *)(q             ) = u2[0];
-		*(int64_t *)(q + stride    ) = u2[1];
-		*(int64_t *)(q + stride * 2) = u3[0];
-		*(int64_t *)(q + stride3   ) = u3[1];
-	} else {
-		*(__m128i *)(p             ) = p0;
-		*(__m128i *)(p + stride    ) = p1;
-		*(__m128i *)(p + stride * 2) = p2;
-		*(__m128i *)(p + stride3   ) = p3;
-		*(__m128i *)(q             ) = p4;
-		*(__m128i *)(q + stride    ) = p5;
-		*(__m128i *)(q + stride * 2) = p6;
-		*(__m128i *)(q + stride3   ) = p7;
-	}
-	JUMP(add_idct8x8);
-}
-#define decode_Residual8x8_8bit decode_Residual8x8
 
 
 

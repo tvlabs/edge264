@@ -1,15 +1,11 @@
 /** MAYDO:
  * _ add 8x8 transform support
- * 	_ unit test 8x8 Intra
- * 	_ reimplement 8x8 IDCT
- * 	_ unit test 8x8 IDCT
  * 	_ implement CABAC parsing
  * 	_ implement CAVLC parsing
  * 	_ merge CABAC & CAVLC as much as possible
  * 	_ fix compilation with GCC
  * 	_ enable and test
  * 
- * _ rework intra4x4 and others to align with intra8x8 (perhaps even switching to 8bit)
  * _ add a version function
  * _ add an option to store N more frames, to tolerate lags in CPU scheduling
  * _ try using epb for context pointer, and email GCC when it fails

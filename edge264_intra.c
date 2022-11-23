@@ -23,12 +23,12 @@
 
 #include "edge264_internal.h"
 
-static inline __m128i lowpass(__m128i left, __m128i mid, __m128i right) {
-	return _mm_avg_epu16(_mm_srli_epi16(_mm_add_epi16(left, right), 1), mid);
-}
 static inline __m128i lowpass_8bit(__m128i left, __m128i mid, __m128i right) {
 	__m128i bit = _mm_and_si128(_mm_xor_si128(left, right), _mm_set1_epi8(1));
 	return _mm_avg_epu8(_mm_subs_epu8(_mm_avg_epu8(left, right), bit), mid);
+}
+static inline __m128i lowpass_16bit(__m128i left, __m128i mid, __m128i right) {
+	return _mm_avg_epu16(_mm_srli_epi16(_mm_add_epi16(left, right), 1), mid);
 }
 
 // all functions using _mm_cvtepu8_epi16 should contain a variable zero=_mm_setzero_si128()
@@ -88,7 +88,7 @@ void _decode_intra4x4(int mode, uint8_t *px1, size_t stride, ssize_t nstride, v8
 	diagonal_down_left_4x4: {
 		__m128i x1 = _mm_srli_si128(top, 2);
 		__m128i x2 = _mm_shufflehi_epi16(_mm_shuffle_epi32(top, _MM_SHUFFLE(3, 3, 2, 1)), _MM_SHUFFLE(1, 1, 1, 0));
-		__m128i x3 = _mm_packus_epi16(lowpass(top, x1, x2), (__m128i)zero);
+		__m128i x3 = _mm_packus_epi16(lowpass_16bit(top, x1, x2), (__m128i)zero);
 		*(int32_t *)(px1 + nstride    ) = ((v4si)x3)[0];
 		*(int32_t *)(px1              ) = ((v4si)_mm_srli_epi64(x3, 8))[0];
 		*(int32_t *)(px1 +  stride    ) = ((v4si)_mm_srli_epi64(x3, 16))[0];
@@ -105,7 +105,7 @@ void _decode_intra4x4(int mode, uint8_t *px1, size_t stride, ssize_t nstride, v8
 		__m128i x3 = _mm_loadu_si32(px1 +  stride     - 4); // ...1............
 		__m128i x4 = _mm_loadu_si32(px1 +  stride * 2 - 4); // ...0............
 		__m128i x5 = _mm_unpackhi_epi8(_mm_unpacklo_epi16(_mm_unpacklo_epi8(x4, x3), _mm_unpacklo_epi8(x2, x1)), (__m128i)zero); // ....0123
-		__m128i x6 = lowpass(_mm_alignr_epi8(x0, x5, 8), _mm_alignr_epi8(x0, x5, 10), _mm_alignr_epi8(x0, x5, 12));
+		__m128i x6 = lowpass_16bit(_mm_alignr_epi8(x0, x5, 8), _mm_alignr_epi8(x0, x5, 10), _mm_alignr_epi8(x0, x5, 12));
 		__m128i x7 = _mm_packus_epi16(x6, (__m128i)zero);
 		*(int32_t *)(px1 + nstride    ) = ((v4si)_mm_srli_epi64(x7, 24))[0];
 		*(int32_t *)(px1              ) = ((v4si)_mm_srli_epi64(x7, 16))[0];
@@ -121,7 +121,7 @@ void _decode_intra4x4(int mode, uint8_t *px1, size_t stride, ssize_t nstride, v8
 		__m128i x4 = _mm_unpacklo_epi16(_mm_unpacklo_epi8(x3, x3), _mm_unpacklo_epi8(x2, x1)); // .............012
 		__m128i x5 = _mm_cvtepu8_epi16(_mm_alignr_epi8(x0, x4, 13));
 		__m128i x6 = _mm_slli_si128(x5, 2);
-		__m128i x7 = lowpass(x5, x6, _mm_shuffle_epi32(x5, _MM_SHUFFLE(2, 1, 0, 0)));
+		__m128i x7 = lowpass_16bit(x5, x6, _mm_shuffle_epi32(x5, _MM_SHUFFLE(2, 1, 0, 0)));
 		__m128i x8 = _mm_packus_epi16(_mm_avg_epu16(x5, x6), x7);
 		v4si pred = (v4si)_mm_shuffle_epi8(x8, _mm_setr_epi8(4, 5, 6, 7, 12, 13, 14, 15, 11, 4, 5, 6, 10, 12, 13, 14));
 		*(int32_t *)(px1 + nstride    ) = pred[0];
@@ -139,7 +139,7 @@ void _decode_intra4x4(int mode, uint8_t *px1, size_t stride, ssize_t nstride, v8
 		__m128i x5 = _mm_unpacklo_epi16(_mm_unpacklo_epi8(x4, x3), _mm_unpacklo_epi8(x2, x1)); // ............0123
 		__m128i x6 = _mm_cvtepu8_epi16(_mm_alignr_epi8(x0, x5, 12));
 		__m128i x7 = _mm_srli_si128(x6, 2);
-		__m128i x8 = lowpass(x6, x7, _mm_shuffle_epi32(x6, _MM_SHUFFLE(3, 3, 2, 1)));
+		__m128i x8 = lowpass_16bit(x6, x7, _mm_shuffle_epi32(x6, _MM_SHUFFLE(3, 3, 2, 1)));
 		__m128i x9 = _mm_packus_epi16(_mm_avg_epu16(x6, x7), x8);
 		v4si pred = (v4si)_mm_shuffle_epi8(x9, _mm_setr_epi8(3, 11, 12, 13, 2, 10, 3, 11, 1, 9, 2, 10, 0, 8, 1, 9));
 		*(int32_t *)(px1 + nstride    ) = pred[0];
@@ -153,12 +153,11 @@ void _decode_intra4x4(int mode, uint8_t *px1, size_t stride, ssize_t nstride, v8
 	vertical_left_4x4: {
 		__m128i x0 = _mm_srli_si128(top, 2);
 		__m128i x1 = _mm_shufflehi_epi16(_mm_shuffle_epi32(top, _MM_SHUFFLE(3, 3, 2, 1)), _MM_SHUFFLE(1, 1, 1, 0));
-		__m128i x2 = _mm_packus_epi16(_mm_avg_epu16(top, x0), lowpass(top, x0, x1));
-		v4si pred = (v4si)_mm_shuffle_epi8(x2, _mm_setr_epi8(0, 1, 2, 3, 8, 9, 10, 11, 1, 2, 3, 4, 9, 10, 11, 12));
-		*(int32_t *)(px1 + nstride    ) = pred[0];
-		*(int32_t *)(px1              ) = pred[1];
-		*(int32_t *)(px1 +  stride    ) = pred[2];
-		*(int32_t *)(px1 +  stride * 2) = pred[3];
+		__m128i x2 = _mm_packus_epi16(_mm_avg_epu16(top, x0), lowpass_16bit(top, x0, x1));
+		*(int32_t *)(px1 + nstride    ) = ((v4si)x2)[0];
+		*(int32_t *)(px1              ) = ((v4si)x2)[2];
+		*(int32_t *)(px1 +  stride    ) = ((v4si)_mm_srli_si128(x2, 1))[0];
+		*(int32_t *)(px1 +  stride * 2) = ((v4si)_mm_srli_si128(x2, 9))[0];
 		return; }
 	case I4x4_VLC_8:
 		top = _mm_shuffle_epi8(_mm_loadu_si32(px1 + nstride * 2), _mm_setr_epi8(0, -1, 1, -1, 2, -1, 3, -1, 3, -1, 3, -1, 3, -1, 3, -1));
@@ -173,7 +172,7 @@ void _decode_intra4x4(int mode, uint8_t *px1, size_t stride, ssize_t nstride, v8
 		__m128i x5 = _mm_unpackhi_epi8(x4, (__m128i)zero);
 		__m128i x6 = _mm_shufflehi_epi16(x5, _MM_SHUFFLE(3, 3, 2, 1));
 		__m128i x7 = _mm_shufflehi_epi16(x5, _MM_SHUFFLE(3, 3, 3, 2));
-		__m128i x8 = _mm_packus_epi16(_mm_avg_epu16(x5, x6), lowpass(x5, x6, x7));
+		__m128i x8 = _mm_packus_epi16(_mm_avg_epu16(x5, x6), lowpass_16bit(x5, x6, x7));
 		v4si pred = (v4si)_mm_shuffle_epi8(x8, _mm_setr_epi8(4, 12, 5, 13, 5, 13, 6, 14, 6, 14, 7, 7, 7, 7, 7, 7));
 		*(int32_t *)(px1 + nstride    ) = pred[0];
 		*(int32_t *)(px1              ) = pred[1];
@@ -656,22 +655,26 @@ void _decode_intra16x16(int mode, uint8_t *px0, uint8_t *px7, uint8_t *pxE, size
 	case I16x16_P_8: {
 		// load neighbouring values in vector registers
 		top = _mm_setr_epi64(*(__m64 *)(px0 + nstride     - 1), *(__m64 *)(px0 + nstride     + 8));
-		__m128i lF = _mm_srli_si128(*(__m128i *)(pxE +  stride     - 16), 15);
-		__m128i lE = _mm_alignr_epi8(lF, *(__m128i *)(pxE               - 16), 15);
-		__m128i lD = _mm_alignr_epi8(lE, *(__m128i *)(pxE + nstride     - 16), 15);
-		__m128i lC = _mm_alignr_epi8(lD, *(__m128i *)(pxE + nstride * 2 - 16), 15);
-		__m128i lB = _mm_alignr_epi8(lC, *(__m128i *)(px7 +  stride * 4 - 16), 15);
-		__m128i lA = _mm_alignr_epi8(lB, *(__m128i *)(pxE + nstride * 4 - 16), 15);
-		__m128i l9 = _mm_alignr_epi8(lA, *(__m128i *)(px7 +  stride * 2 - 16), 15);
-		__m128i l8 = _mm_alignr_epi8(l9, *(__m128i *)(px7 +  stride     - 16), 15);
-		__m128i l6 = _mm_alignr_epi8(l8, *(__m128i *)(px7 + nstride     - 16), 15);
-		__m128i l5 = _mm_alignr_epi8(l6, *(__m128i *)(px7 + nstride * 2 - 16), 15);
-		__m128i l4 = _mm_alignr_epi8(l5, *(__m128i *)(px0 +  stride * 4 - 16), 15);
-		__m128i l3 = _mm_alignr_epi8(l4, *(__m128i *)(px7 + nstride * 4 - 16), 15);
-		__m128i l2 = _mm_alignr_epi8(l3, *(__m128i *)(px0 +  stride * 2 - 16), 15);
-		__m128i l1 = _mm_alignr_epi8(l2, *(__m128i *)(px0 +  stride     - 16), 15);
-		__m128i l0 = _mm_alignr_epi8(l1, *(__m128i *)(px0               - 16), 15);
-		left = _mm_alignr_epi8(l0, _mm_slli_si128(top, 15), 15);
+		__m128i l0 = _mm_loadu_si32(px0               - 4);
+		__m128i l1 = _mm_loadu_si32(px0 +  stride     - 4);
+		__m128i l2 = _mm_loadu_si32(px0 +  stride * 2 - 4);
+		__m128i l3 = _mm_loadu_si32(px7 + nstride * 4 - 4);
+		__m128i l4 = _mm_loadu_si32(px0 +  stride * 4 - 4);
+		__m128i l5 = _mm_loadu_si32(px7 + nstride * 2 - 4);
+		__m128i l6 = _mm_loadu_si32(px7 + nstride     - 4);
+		__m128i l8 = _mm_loadu_si32(px7 +  stride     - 4);
+		__m128i l9 = _mm_loadu_si32(px7 +  stride * 2 - 4);
+		__m128i lA = _mm_loadu_si32(pxE + nstride * 4 - 4);
+		__m128i lB = _mm_loadu_si32(px7 +  stride * 4 - 4);
+		__m128i lC = _mm_loadu_si32(pxE + nstride * 2 - 4);
+		__m128i lD = _mm_loadu_si32(pxE + nstride     - 4);
+		__m128i lE = _mm_loadu_si32(pxE               - 4);
+		__m128i lF = _mm_loadu_si32(pxE +  stride     - 4);
+		__m128i lG = _mm_unpacklo_epi16(_mm_unpacklo_epi8(_mm_slli_si128(top, 3), l0), _mm_unpacklo_epi8(l1, l2));
+		__m128i lH = _mm_unpacklo_epi16(_mm_unpacklo_epi8(l3, l4), _mm_unpacklo_epi8(l5, l6));
+		__m128i lI = _mm_unpacklo_epi16(_mm_unpacklo_epi8(l8, l9), _mm_unpacklo_epi8(lA, lB));
+		__m128i lJ = _mm_unpacklo_epi16(_mm_unpacklo_epi8(lC, lD), _mm_unpacklo_epi8(lE, lF));
+		left = _mm_unpackhi_epi64(_mm_unpackhi_epi32(lG, lH), _mm_unpackhi_epi32(lI, lJ));
 		
 		// sum the samples and compute a, b, c (with care for overflow)
 		__m128i mul = _mm_setr_epi8(-8, -7, -6, -5, -4, -3, -2, -1, 1, 2, 3, 4, 5, 6, 7, 8);
@@ -931,7 +934,7 @@ static noinline __m128i FUNC(filter8_left_16bit, size_t stride, ssize_t nstride,
 	__m128i x4 = _mm_unpackhi_epi64(_mm_unpackhi_epi32(x0, x1), _mm_unpackhi_epi32(x2, x3));
 	__m128i x5 = _mm_alignr_epi8(x4, *(__m128i *)(p + lt - 16), 14);
 	__m128i x6 = _mm_shufflehi_epi16(_mm_srli_si128(x4, 2), _MM_SHUFFLE(2, 2, 1, 0));
-	return lowpass(x5, x4, x6);
+	return lowpass_16bit(x5, x4, x6);
 }
 static noinline __m128i FUNC(filter8_top_left_16bit, size_t stride, ssize_t nstride, uint8_t *p, __m128i zero, ssize_t lt, __m128i tr, __m128i tl) {
 	uint8_t *q = p + stride * 4;
@@ -942,9 +945,9 @@ static noinline __m128i FUNC(filter8_top_left_16bit, size_t stride, ssize_t nstr
 	__m128i x4 = _mm_unpackhi_epi64(_mm_unpackhi_epi32(x3, x2), _mm_unpackhi_epi32(x1, x0));
 	__m128i x5 = _mm_alignr_epi8(x4, *(__m128i *)(q +  stride * 2 - 16), 14);
 	__m128i x6 = _mm_alignr_epi8(x5, *(__m128i *)(q +  stride * 2 - 16), 14);
-	//ctx->pred_buffer_v[0] = (v8hi)lowpass(x4, x5, x6);
+	//ctx->pred_buffer_v[0] = (v8hi)lowpass_16bit(x4, x5, x6);
 	//ctx->pred_buffer[8] = (*(uint16_t *)(p + nstride - 2) + *(uint16_t *)(p + nstride * 2 - 2) * 2 + *(uint16_t *)(p + nstride * 2) + 2) >> 2;
-	return lowpass(tl, *(__m128i *)(p + nstride * 2), tr);
+	return lowpass_16bit(tl, *(__m128i *)(p + nstride * 2), tr);
 }
 
 static void FUNC(decode_Horizontal4x4_16bit, size_t stride, ssize_t nstride, uint8_t *p) {
@@ -1180,14 +1183,14 @@ static void FUNC(decode_DiagonalDownLeft8x8, __m128i right, __m128i top, __m128i
 	__m128i topr = _mm_alignr_epi8(right, top, 2);
 	__m128i rightl = _mm_alignr_epi8(right, top, 14);
 	__m128i rightr = _mm_shufflehi_epi16(_mm_srli_si128(right, 2), _MM_SHUFFLE(2, 2, 1, 0));
-	__m128i x0 = lowpass(topl, top, topr);
-	__m128i x1 = lowpass(rightl, right, rightr);
+	__m128i x0 = lowpass_16bit(topl, top, topr);
+	__m128i x1 = lowpass_16bit(rightl, right, rightr);
 	__m128i x2 = _mm_alignr_epi8(x1, x0, 2);
 	__m128i x3 = _mm_alignr_epi8(x1, x0, 4);
 	__m128i x4 = _mm_srli_si128(x1, 2);
 	__m128i x5 = _mm_shufflehi_epi16(_mm_shuffle_epi32(x1, _MM_SHUFFLE(3, 3, 2, 1)), _MM_SHUFFLE(1, 1, 1, 0));
-	__m128i x6 = lowpass(x0, x2, x3);
-	__m128i x7 = lowpass(x1, x4, x5);
+	__m128i x6 = lowpass_16bit(x0, x2, x3);
+	__m128i x7 = lowpass_16bit(x1, x4, x5);
 	__m128i x8 = _mm_alignr_epi8(x7, x6, 2);
 	__m128i x9 = _mm_alignr_epi8(x7, x6, 4);
 	__m128i xA = _mm_alignr_epi8(x7, x6, 6);
@@ -1204,8 +1207,8 @@ static void FUNC(decode_DiagonalDownRight8x8, __m128i top) {
 	__m128i lb = _mm_slli_si128(left, 2);
 	__m128i tl = _mm_alignr_epi8(top, lt, 14);
 	__m128i tll = _mm_alignr_epi8(top, lt, 12);
-	__m128i x0 = lowpass(lb, left, lt);
-	__m128i x1 = lowpass(tll, tl, top);
+	__m128i x0 = lowpass_16bit(lb, left, lt);
+	__m128i x1 = lowpass_16bit(tll, tl, top);
 	__m128i x2 = _mm_alignr_epi8(x1, x0, 14);
 	__m128i x3 = _mm_alignr_epi8(x1, x0, 12);
 	__m128i x4 = _mm_alignr_epi8(x1, x0, 10);
@@ -1223,8 +1226,8 @@ static void FUNC(decode_VerticalRight8x8, __m128i top) {
 	__m128i x2 = _mm_alignr_epi8(top, lt, 14);
 	__m128i x3 = _mm_alignr_epi8(top, lt, 12);
 	__m128i x4 = _mm_avg_epu16(top, x2);
-	__m128i x5 = lowpass(lt, x0, x1);
-	__m128i x6 = lowpass(top, x2, x3);
+	__m128i x5 = lowpass_16bit(lt, x0, x1);
+	__m128i x6 = lowpass_16bit(top, x2, x3);
 	__m128i x7 = _mm_alignr_epi8(x4, x5, 14);
 	__m128i x8 = _mm_alignr_epi8(x6, x5 = _mm_slli_si128(x5, 2), 14);
 	__m128i x9 = _mm_alignr_epi8(x7, x5 = _mm_slli_si128(x5, 2), 14);
@@ -1242,8 +1245,8 @@ static void FUNC(decode_HorizontalDown8x8, __m128i top) {
 	__m128i x2 = _mm_srli_si128(topl, 2);
 	__m128i x3 = _mm_shuffle_epi32(topl, _MM_SHUFFLE(3, 3, 2, 1));
 	__m128i x4 = _mm_avg_epu16(left, x0);
-	__m128i x5 = lowpass(left, x0, x1);
-	__m128i x6 = lowpass(topl, x2, x3);
+	__m128i x5 = lowpass_16bit(left, x0, x1);
+	__m128i x6 = lowpass_16bit(topl, x2, x3);
 	__m128i x7 = _mm_unpackhi_epi16(x4, x5);
 	__m128i x8 = _mm_unpacklo_epi16(x4, x5);
 	__m128i x9 = _mm_alignr_epi8(x6, x7, 12);
@@ -1259,16 +1262,16 @@ static void FUNC(decode_VerticalLeft8x8, __m128i right, __m128i top, __m128i top
 	__m128i topr = _mm_alignr_epi8(right, top, 2);
 	__m128i rightl = _mm_alignr_epi8(right, top, 14);
 	__m128i rightr = _mm_shufflehi_epi16(_mm_srli_si128(right, 2), _MM_SHUFFLE(2, 2, 1, 0));
-	__m128i x0 = lowpass(topl, top, topr);
-	__m128i x1 = lowpass(rightl, right, rightr);
+	__m128i x0 = lowpass_16bit(topl, top, topr);
+	__m128i x1 = lowpass_16bit(rightl, right, rightr);
 	__m128i x2 = _mm_alignr_epi8(x1, x0, 2);
 	__m128i x3 = _mm_alignr_epi8(x1, x0, 4);
 	__m128i x4 = _mm_srli_si128(x1, 2);
 	__m128i x5 = _mm_shuffle_epi32(x1, _MM_SHUFFLE(3, 3, 2, 1));
 	__m128i x6 = _mm_avg_epu16(x0, x2);
 	__m128i x7 = _mm_avg_epu16(x1, x4);
-	__m128i x8 = lowpass(x0, x2, x3);
-	__m128i x9 = lowpass(x1, x4, x5);
+	__m128i x8 = lowpass_16bit(x0, x2, x3);
+	__m128i x9 = lowpass_16bit(x1, x4, x5);
 	__m128i xA = _mm_alignr_epi8(x7, x6, 2);
 	__m128i xB = _mm_alignr_epi8(x9, x8, 2);
 	__m128i xC = _mm_alignr_epi8(x7, x6, 4);
@@ -1282,7 +1285,7 @@ static void FUNC(decode_HorizontalUp8x8, __m128i left) {
 	__m128i x0 = _mm_shufflehi_epi16(_mm_srli_si128(left, 2), _MM_SHUFFLE(2, 2, 1, 0));
 	__m128i x1 = _mm_shufflehi_epi16(_mm_shuffle_epi32(left, _MM_SHUFFLE(3, 3, 2, 1)), _MM_SHUFFLE(1, 1, 1, 0));
 	__m128i x2 = _mm_avg_epu16(left, x0);
-	__m128i x3 = lowpass(left, x0, x1);
+	__m128i x3 = lowpass_16bit(left, x0, x1);
 	__m128i x4 = _mm_unpacklo_epi16(x2, x3);
 	__m128i x5 = _mm_unpackhi_epi16(x2, x3);
 	__m128i x6 = _mm_alignr_epi8(x5, x4, 4);

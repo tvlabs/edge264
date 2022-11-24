@@ -6,8 +6,11 @@
  * 	_ fix compilation with GCC
  * 	_ enable and test
  * 
+ * _ add a message to play.c if it ends on ERROR or UNSUPPORTED
+ * _ make a proper install+usage howto in README.md
+ * _ try to select GCC-9 if available in Makefile
  * _ add a version function
- * _ add an option to store N more frames, to tolerate lags in CPU scheduling
+ * _ add an option to store N more frames, to tolerate lags in process scheduling
  * _ try using epb for context pointer, and email GCC when it fails
  * _ group ctx fields by frequency of accesses and force them manually into L1/L2/L3
  * _ when implementing fields and MBAFF, keep the same pic coding struct (no FLD/AFRM) and just add mb_field_decoding_flag

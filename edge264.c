@@ -987,8 +987,6 @@ static int FUNC(parse_pic_parameter_set)
 	// seq_parameter_set_id was ignored so far since no SPS data was read.
 	if (CALL(get_uv, 24) != 0x800000 || ctx->DPB == NULL)
 		return 2;
-	if (ctx->ps.transform_8x8_mode_flag)
-		return 3;
 	if (seq_parameter_set_id > 0 || pic_parameter_set_id >= 4 ||
 		num_slice_groups > 1 || ctx->ps.constrained_intra_pred_flag ||
 		redundant_pic_cnt_present_flag || ctx->ps.transform_8x8_mode_flag)

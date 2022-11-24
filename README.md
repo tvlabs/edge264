@@ -23,6 +23,7 @@ Planned features
 ----------------
 
 * 8x8 transforms (work in progress)
+* Error concealment
 * MVC 3D support
 * Constrained Intra prediction
 * AVX-2 enhancements
@@ -32,7 +33,6 @@ Planned features
 * Transform-bypass for macroblocks with QP==0
 * Slice-multithreading
 * PAFF and MBAFF
-* Error concealment
 
 
 Technical details

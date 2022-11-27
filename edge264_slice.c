@@ -565,26 +565,42 @@ static void CAFUNC(parse_NxN_residual)
 				ctx->ctxIdxOffsets_l = ctxIdxOffsets_8x8[iYCbCr][0];
 				ctx->sig_inc_v[0] = sig_inc_8x8[0][0];
 				ctx->last_inc_v[0] = last_inc_8x8[0];
+				ctx->scan_v[0] = scan_8x8[0][0];
 			#endif
-			ctx->scan_v[0] = scan_8x8[0][0];
 			
 			for (int i8x8 = 0; i8x8 < 4; i8x8++) {
 				size_t stride = ctx->stride[iYCbCr];
 				uint8_t *samples = ctx->samples_mb[iYCbCr] + y444[i8x8 * 4] * stride + x444[i8x8 * 4];
 				if (!mb->f.mbIsInterFlag)
 					CALL(decode_intra8x8, intra8x8_modes[mb->Intra4x4PredMode[i8x8 * 4 + 1]][ctx->unavail4x4[i8x8 * 5]], samples, stride, iYCbCr);
-				#ifdef CABAC
-					if (mb->bits[0] & 1 << bit8x8[i8x8] && (ctx->ps.ChromaArrayType < 3 || CALL(get_ae, ctx->ctxIdxOffsets[0] + (mb->bits[1] >> inc8x8[iYCbCr * 4 + i8x8] & 3)))) {
-						mb->bits[1] |= 1 << bit8x8[iYCbCr * 4 + i8x8];
-						mb->nC_s[iYCbCr][i8x8] = 0x01010101;
+				if (mb->bits[0] & 1 << bit8x8[i8x8]) {
+					#ifdef CABAC
+						if (ctx->ps.ChromaArrayType < 3 || CALL(get_ae, ctx->ctxIdxOffsets[0] + (mb->bits[1] >> inc8x8[iYCbCr * 4 + i8x8] & 3))) {
+							mb->bits[1] |= 1 << bit8x8[iYCbCr * 4 + i8x8];
+							mb->nC_s[iYCbCr][i8x8] = 0x01010101;
+							for (int i = 0; i < 16; i++)
+								ctx->c_v[i] = (v4si){};
+							fprintf(stderr, "8x8 coeffLevels[%d]:", iYCbCr * 4 + i8x8);
+							CALL(parse_residual_block_cabac, 0, 63, 1);
+							CALL(add_idct8x8, iYCbCr, samples);
+						}
+					#else
 						for (int i = 0; i < 16; i++)
 							ctx->c_v[i] = (v4si){};
-						fprintf(stderr, "8x8 coeffLevels[%d]:", iYCbCr * 4 + i8x8);
-						CALL(parse_residual_block_cabac, 0, 63, 1);
+						for (int i4x4 = 0; i4x4 < 4; i4x4++) {
+							ctx->scan_v[0] = scan_8x8[0][i4x4];
+							int nA = *(mb->nC[iYCbCr] + ctx->A4x4_int8[i4x4]);
+							int nB = *(mb->nC[iYCbCr] + ctx->B4x4_int8[i4x4]);
+							int token = CALL(parse_coeff_token_cavlc, i8x8 * 4 + i4x4, nA, nB);
+							if (token) {
+								mb->nC[iYCbCr][i8x8 * 4 + i4x4] = token >> 2;
+								fprintf(stderr, "8x8 coeffLevels[%d][%d]:", iYCbCr * 4 + i8x8, i4x4);
+								CALL(parse_residual_block_cavlc, 0, 15, token);
+							}
+						}
 						CALL(add_idct8x8, iYCbCr, samples);
-					}
-				#else
-				#endif
+					#endif
+				}
 			}
 		}
 		

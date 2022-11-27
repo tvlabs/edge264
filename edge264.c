@@ -1,7 +1,5 @@
 /** MAYDO:
  * _ add 8x8 transform support
- * 	_ implement CABAC parsing
- * 	_ implement CAVLC parsing
  * 	_ merge CABAC & CAVLC as much as possible
  * 	_ fix compilation with GCC
  * 	_ enable and test

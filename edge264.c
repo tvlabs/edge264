@@ -807,8 +807,8 @@ static void FUNC(parse_scaling_lists)
 			if (nextScale == 0) {
 				*w4x4 = fb4x4 = d4x4;
 			} else {
-				for (unsigned j = 0, lastScale = nextScale;;) {
-					((uint8_t *)w4x4)[j] = lastScale;
+				for (unsigned j = 0, lastScale;;) {
+					((uint8_t *)w4x4)[j] = nextScale ?: lastScale;
 					if (++j >= 16)
 						break;
 					if (nextScale != 0) {
@@ -842,8 +842,8 @@ static void FUNC(parse_scaling_lists)
 				w8x8[2] = d8x8[2];
 				w8x8[3] = d8x8[3];
 			} else {
-				for (unsigned j = 0, lastScale = nextScale;;) {
-					((uint8_t *)w8x8)[j] = lastScale; // modulo 256 happens here
+				for (unsigned j = 0, lastScale;;) {
+					((uint8_t *)w8x8)[j] = nextScale ?: lastScale;
 					if (++j >= 64)
 						break;
 					if (nextScale != 0) {
@@ -990,7 +990,7 @@ static int FUNC(parse_pic_parameter_set)
 		return 2;
 	if (seq_parameter_set_id > 0 || pic_parameter_set_id >= 4 ||
 		num_slice_groups > 1 || ctx->ps.constrained_intra_pred_flag ||
-		redundant_pic_cnt_present_flag || ctx->ps.transform_8x8_mode_flag)
+		redundant_pic_cnt_present_flag)
 		return 1;
 	ctx->PPSs[pic_parameter_set_id] = ctx->ps;
 	return 0;

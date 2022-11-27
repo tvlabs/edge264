@@ -47,7 +47,6 @@ static const v16qi normAdjust8x8[24] = {
 void FUNC(add_idct4x4, int iYCbCr, int qP, v16qu wS, int DCidx, uint8_t *samples)
 {
 	// loading and scaling
-	// FIXME use cvt8->16
 	__m128i zero = _mm_setzero_si128();
 	__m128i sh = _mm_cvtsi32_si128(qP / 6);
 	__m128i nA = (__m128i)normAdjust4x4[qP % 6];

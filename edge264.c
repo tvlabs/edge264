@@ -49,20 +49,20 @@
  * Default scaling matrices (tables 7-3 and 7-4).
  */
 static const v16qu Default_4x4_Intra =
-	{6, 13, 13, 20, 20, 20, 28, 28, 28, 28, 32, 32, 32, 37, 37, 42};
+	{6, 13, 20, 28, 13, 20, 28, 32, 20, 28, 32, 37, 28, 32, 37, 42};
 static const v16qu Default_4x4_Inter =
-	{10, 14, 14, 20, 20, 20, 24, 24, 24, 24, 27, 27, 27, 30, 30, 34};
+	{10, 14, 20, 24, 14, 20, 24, 27, 20, 24, 27, 30, 24, 27, 30, 34};
 static const v16qu Default_8x8_Intra[4] = {
-	{ 6, 10, 10, 13, 11, 13, 16, 16, 16, 16, 18, 18, 18, 18, 18, 23},
-	{23, 23, 23, 23, 23, 25, 25, 25, 25, 25, 25, 25, 27, 27, 27, 27},
-	{27, 27, 27, 27, 29, 29, 29, 29, 29, 29, 29, 31, 31, 31, 31, 31},
-	{31, 33, 33, 33, 33, 33, 36, 36, 36, 36, 38, 38, 38, 40, 40, 42},
+	{ 6, 10, 13, 16, 18, 23, 25, 27, 10, 11, 16, 18, 23, 25, 27, 29},
+	{13, 16, 18, 23, 25, 27, 29, 31, 16, 18, 23, 25, 27, 29, 31, 33},
+	{18, 23, 25, 27, 29, 31, 33, 36, 23, 25, 27, 29, 31, 33, 36, 38},
+	{25, 27, 29, 31, 33, 36, 38, 40, 27, 29, 31, 33, 36, 38, 40, 42},
 };
 static const v16qu Default_8x8_Inter[4] = {
-	{ 9, 13, 13, 15, 13, 15, 17, 17, 17, 17, 19, 19, 19, 19, 19, 21},
-	{21, 21, 21, 21, 21, 22, 22, 22, 22, 22, 22, 22, 24, 24, 24, 24},
-	{24, 24, 24, 24, 25, 25, 25, 25, 25, 25, 25, 27, 27, 27, 27, 27},
-	{27, 28, 28, 28, 28, 28, 30, 30, 30, 30, 32, 32, 32, 33, 33, 35},
+	{ 9, 13, 15, 17, 19, 21, 22, 24, 13, 13, 17, 19, 21, 22, 24, 25},
+	{15, 17, 19, 21, 22, 24, 25, 27, 17, 19, 21, 22, 24, 25, 27, 28},
+	{19, 21, 22, 24, 25, 27, 28, 30, 21, 22, 24, 25, 27, 28, 30, 32},
+	{22, 24, 25, 27, 28, 30, 32, 33, 24, 25, 27, 28, 30, 32, 33, 35},
 };
 
 
@@ -808,12 +808,12 @@ static void FUNC(parse_scaling_lists)
 				*w4x4 = fb4x4 = d4x4;
 			} else {
 				for (unsigned j = 0, lastScale;;) {
-					((uint8_t *)w4x4)[j] = nextScale ?: lastScale;
+					((uint8_t *)w4x4)[((int8_t *)scan_4x4)[j]] = nextScale ?: lastScale;
 					if (++j >= 16)
 						break;
 					if (nextScale != 0) {
 						lastScale = nextScale;
-						nextScale += CALL(get_se16, -128, 127); // modulo 256 happens at storage
+						nextScale = (nextScale + CALL(get_se16, -128, 127)) & 255;
 					}
 				}
 				fb4x4 = *w4x4;
@@ -843,12 +843,12 @@ static void FUNC(parse_scaling_lists)
 				w8x8[3] = d8x8[3];
 			} else {
 				for (unsigned j = 0, lastScale;;) {
-					((uint8_t *)w8x8)[j] = nextScale ?: lastScale;
+					((uint8_t *)w8x8)[((int8_t *)scan_8x8)[j]] = nextScale ?: lastScale;
 					if (++j >= 64)
 						break;
 					if (nextScale != 0) {
 						lastScale = nextScale;
-						nextScale += CALL(get_se16, -128, 127);
+						nextScale = (nextScale + CALL(get_se16, -128, 127)) & 255;
 					}
 				}
 			}
@@ -968,12 +968,12 @@ static int FUNC(parse_pic_parameter_set)
 			printf("<tr><th>weightScale4x4</th><td><small>");
 			for (int i = 0; i < 6; i++) {
 				for (int j = 0; j < 16; j++)
-					printf("%u%s", ctx->ps.weightScale4x4[i][j], (j < 15) ? ", " : (i < 6) ? "<br>" : "</small></td></tr>\n");
+					printf("%u%s", ctx->ps.weightScale4x4[i][((int8_t *)scan_4x4)[j]], (j < 15) ? ", " : (i < 6) ? "<br>" : "</small></td></tr>\n");
 			}
 			printf("<tr><th>weightScale8x8</th><td><small>");
-			for (int i = 0; i < 6; i++) {
+			for (int i = 0; i < (ctx->ps.chroma_format_idc < 3 ? 2 : 6); i++) {
 				for (int j = 0; j < 64; j++)
-					printf("%u%s", ctx->ps.weightScale8x8[i][j], (j < 63) ? ", " : (i < 6) ? "<br>" : "</small></td></tr>\n");
+					printf("%u%s", ctx->ps.weightScale8x8[i][((int8_t *)scan_8x8)[j]], (j < 63) ? ", " : (i < 6) ? "<br>" : "</small></td></tr>\n");
 			}
 		}
 		ctx->ps.second_chroma_qp_index_offset = CALL(get_se16, -12, 12);
@@ -1300,13 +1300,13 @@ static int FUNC(parse_seq_parameter_set)
 	printf("<tr><th>weightScale4x4%s</th><td><small>", (seq_scaling_matrix_present_flag) ? "" : " (inferred)");
 	for (int i = 0; i < 6; i++) {
 		for (int j = 0; j < 16; j++)
-			printf("%u%s", ctx->ps.weightScale4x4[i][j], (j < 15) ? ", " : (i < 6) ? "<br>" : "</small></td></tr>\n");
+			printf("%u%s", ctx->ps.weightScale4x4[i][((int8_t *)scan_4x4)[j]], (j < 15) ? ", " : (i < 6) ? "<br>" : "</small></td></tr>\n");
 	}
 	if (profile_idc != 66 && profile_idc != 77 && profile_idc != 88) {
 		printf("<tr><th>weightScale8x8%s</th><td><small>", (seq_scaling_matrix_present_flag) ? "" : " (inferred)");
-		for (int i = 0; i < 6; i++) {
+		for (int i = 0; i < (ctx->ps.chroma_format_idc < 3 ? 2 : 6); i++) {
 			for (int j = 0; j < 64; j++)
-				printf("%u%s", ctx->ps.weightScale8x8[i][j], (j < 63) ? ", " : (i < 6) ? "<br>" : "</small></td></tr>\n");
+				printf("%u%s", ctx->ps.weightScale8x8[i][((int8_t *)scan_8x8)[j]], (j < 63) ? ", " : (i < 6) ? "<br>" : "</small></td></tr>\n");
 		}
 	}
 	

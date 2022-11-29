@@ -262,10 +262,10 @@ void FUNC(add_idct8x8, int iYCbCr, uint8_t *samples)
 			__m128i xF = _mm_unpackhi_epi32(x6, x7);
 			d0 = _mm_add_epi16(_mm_unpacklo_epi64(x8, x9), _mm_set1_epi16(32));
 			d1 = _mm_unpackhi_epi64(x8, x9);
-			d2 = _mm_unpacklo_epi64(xA, xB);
-			d3 = _mm_unpackhi_epi64(xA, xB);
-			d4 = _mm_unpacklo_epi64(xC, xD);
-			d5 = _mm_unpackhi_epi64(xC, xD);
+			d2 = _mm_unpacklo_epi64(xC, xD);
+			d3 = _mm_unpackhi_epi64(xC, xD);
+			d4 = _mm_unpacklo_epi64(xA, xB);
+			d5 = _mm_unpackhi_epi64(xA, xB);
 			d6 = _mm_unpacklo_epi64(xE, xF);
 			d7 = _mm_unpackhi_epi64(xE, xF);
 		}

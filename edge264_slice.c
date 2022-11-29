@@ -1065,6 +1065,8 @@ static void CAFUNC(parse_B_sub_mb) {
 		#endif
 		if (CACOND(sub_mb_type == 0, !CALL(get_ae, 36))) { // B_Direct_8x8
 			mb->inter_eqs[i8x8] = 0x1b;
+			if (!ctx->ps.direct_8x8_inference_flag)
+				ctx->transform_8x8_mode_flag = 0;
 			#ifdef CABAC
 				fprintf(stderr, " 0");
 			#endif
@@ -1532,6 +1534,7 @@ static inline void CAFUNC(parse_P_mb)
 		#endif
 		JUMP(decode_inter, 0, 16, 16);
 	}
+	ctx->transform_8x8_mode_flag = ctx->ps.transform_8x8_mode_flag;
 	
 	// initializations and jumps for mb_type
 	#ifndef CABAC

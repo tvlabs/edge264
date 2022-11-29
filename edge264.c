@@ -965,12 +965,12 @@ static int FUNC(parse_pic_parameter_set)
 			ctx->ps.transform_8x8_mode_flag);
 		if (CALL(get_u1)) {
 			CALL(parse_scaling_lists);
-			printf("<tr><th>weightScale4x4</th><td><small>");
+			printf("<tr><th>ScalingList4x4</th><td><small>");
 			for (int i = 0; i < 6; i++) {
 				for (int j = 0; j < 16; j++)
 					printf("%u%s", ctx->ps.weightScale4x4[i][((int8_t *)scan_4x4)[j]], (j < 15) ? ", " : (i < 6) ? "<br>" : "</small></td></tr>\n");
 			}
-			printf("<tr><th>weightScale8x8</th><td><small>");
+			printf("<tr><th>ScalingList8x8</th><td><small>");
 			for (int i = 0; i < (ctx->ps.chroma_format_idc < 3 ? 2 : 6); i++) {
 				for (int j = 0; j < 64; j++)
 					printf("%u%s", ctx->ps.weightScale8x8[i][((int8_t *)scan_8x8)[j]], (j < 63) ? ", " : (i < 6) ? "<br>" : "</small></td></tr>\n");
@@ -1297,13 +1297,13 @@ static int FUNC(parse_seq_parameter_set)
 		for (int i = 0; i < 24; i++)
 			((v16qu *)ctx->ps.weightScale8x8)[i] = Flat_16;
 	}
-	printf("<tr><th>weightScale4x4%s</th><td><small>", (seq_scaling_matrix_present_flag) ? "" : " (inferred)");
+	printf("<tr><th>ScalingList4x4%s</th><td><small>", (seq_scaling_matrix_present_flag) ? "" : " (inferred)");
 	for (int i = 0; i < 6; i++) {
 		for (int j = 0; j < 16; j++)
 			printf("%u%s", ctx->ps.weightScale4x4[i][((int8_t *)scan_4x4)[j]], (j < 15) ? ", " : (i < 6) ? "<br>" : "</small></td></tr>\n");
 	}
 	if (profile_idc != 66 && profile_idc != 77 && profile_idc != 88) {
-		printf("<tr><th>weightScale8x8%s</th><td><small>", (seq_scaling_matrix_present_flag) ? "" : " (inferred)");
+		printf("<tr><th>ScalingList8x8%s</th><td><small>", (seq_scaling_matrix_present_flag) ? "" : " (inferred)");
 		for (int i = 0; i < (ctx->ps.chroma_format_idc < 3 ? 2 : 6); i++) {
 			for (int j = 0; j < 64; j++)
 				printf("%u%s", ctx->ps.weightScale8x8[i][((int8_t *)scan_8x8)[j]], (j < 63) ? ", " : (i < 6) ? "<br>" : "</small></td></tr>\n");

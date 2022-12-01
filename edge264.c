@@ -4,6 +4,7 @@
  * 	_ fix compilation with GCC
  * 	_ enable and test
  * 
+ * _ check that P/B slice cannot start without at least 1 reference
  * _ add a message to play.c if it ends on ERROR or UNSUPPORTED
  * _ make a proper install+usage howto in README.md
  * _ try to select GCC-9 if available in Makefile
@@ -324,7 +325,7 @@ static void FUNC(parse_ref_pic_list_modification)
 {
 	// For P we sort on FrameNum, for B we sort on PicOrderCnt.
 	const int32_t *values = (ctx->slice_type == 0) ? ctx->FrameNums : ctx->FieldOrderCnt[0];
-	unsigned pic_value = (ctx->slice_type == 0) ? ctx->FrameNum : ctx->PicOrderCnt;
+	int pic_value = (ctx->slice_type == 0) ? ctx->FrameNum : ctx->PicOrderCnt;
 	int count[3] = {0, 0, 0}; // number of refs before/after/long
 	int size = 0;
 	ctx->RefPicList_v[0] = ctx->RefPicList_v[1] = ctx->RefPicList_v[2] = ctx->RefPicList_v[3] =
@@ -392,7 +393,7 @@ static void FUNC(parse_ref_pic_list_modification)
 	}*/
 	
 	// Swap the two first slots of RefPicListL1 if it the same as RefPicListL0.
-	if (ctx->RefPicList[0][0] == ctx->RefPicList[1][0]) {
+	if (ctx->RefPicList[0][1] >= 0 && ctx->RefPicList[0][0] == ctx->RefPicList[1][0]) {
 		ctx->RefPicList[1][0] = ctx->RefPicList[0][1];
 		ctx->RefPicList[1][1] = ctx->RefPicList[0][0];
 	}

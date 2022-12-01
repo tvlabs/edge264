@@ -155,8 +155,6 @@ static const Edge264_macroblock unavail_mb = {
 /**
  * This structure stores the entire decoder state during its operation, such
  * that we can dedicate a single pointer for it.
- * It is separate from Edge264_stream, to distinguish state that lives during
- * a single frame, from state that spans multiple frames.
  */
 typedef struct
 {

@@ -565,7 +565,7 @@ static void CAFUNC(parse_NxN_residual)
 				ctx->ctxIdxOffsets_l = ctxIdxOffsets_8x8[iYCbCr][0];
 				ctx->sig_inc_v[0] = sig_inc_8x8[0][0];
 				ctx->last_inc_v[0] = last_inc_8x8[0];
-				ctx->scan_v[0] = scan_8x8[0][0];
+				ctx->scan_v[0] = scan_8x8_cabac[0][0];
 			#endif
 			
 			for (int i8x8 = 0; i8x8 < 4; i8x8++) {
@@ -588,7 +588,7 @@ static void CAFUNC(parse_NxN_residual)
 						for (int i = 0; i < 16; i++)
 							ctx->c_v[i] = (v4si){};
 						for (int i4x4 = 0; i4x4 < 4; i4x4++) {
-							ctx->scan_v[0] = scan_8x8[0][i4x4];
+							ctx->scan_v[0] = scan_8x8_cavlc[0][i4x4];
 							int nA = *(mb->nC[iYCbCr] + ctx->A4x4_int8[i8x8 * 4 + i4x4]);
 							int nB = *(mb->nC[iYCbCr] + ctx->B4x4_int8[i8x8 * 4 + i4x4]);
 							int token = CALL(parse_coeff_token_cavlc, i8x8 * 4 + i4x4, nA, nB);

@@ -1,5 +1,6 @@
 /** MAYDO:
  * _ add 8x8 transform support
+ * 	_ BUG CAVLC should broadcast token to 8x8 block for bS2 condition in deblocking filter
  * 	_ merge CABAC & CAVLC as much as possible
  * 	_ fix compilation with GCC
  * 	_ enable and test
@@ -844,7 +845,7 @@ static void FUNC(parse_scaling_lists)
 				w8x8[3] = d8x8[3];
 			} else {
 				for (unsigned j = 0, lastScale;;) {
-					((uint8_t *)w8x8)[((int8_t *)scan_8x8)[j]] = nextScale ?: lastScale;
+					((uint8_t *)w8x8)[((int8_t *)scan_8x8_cabac)[j]] = nextScale ?: lastScale;
 					if (++j >= 64)
 						break;
 					if (nextScale != 0) {
@@ -974,7 +975,7 @@ static int FUNC(parse_pic_parameter_set)
 			printf("<tr><th>ScalingList8x8</th><td><small>");
 			for (int i = 0; i < (ctx->ps.chroma_format_idc < 3 ? 2 : 6); i++) {
 				for (int j = 0; j < 64; j++)
-					printf("%u%s", ctx->ps.weightScale8x8[i][((int8_t *)scan_8x8)[j]], (j < 63) ? ", " : (i < 6) ? "<br>" : "</small></td></tr>\n");
+					printf("%u%s", ctx->ps.weightScale8x8[i][((int8_t *)scan_8x8_cabac)[j]], (j < 63) ? ", " : (i < 6) ? "<br>" : "</small></td></tr>\n");
 			}
 		}
 		ctx->ps.second_chroma_qp_index_offset = CALL(get_se16, -12, 12);
@@ -1307,7 +1308,7 @@ static int FUNC(parse_seq_parameter_set)
 		printf("<tr><th>ScalingList8x8%s</th><td><small>", (seq_scaling_matrix_present_flag) ? "" : " (inferred)");
 		for (int i = 0; i < (ctx->ps.chroma_format_idc < 3 ? 2 : 6); i++) {
 			for (int j = 0; j < 64; j++)
-				printf("%u%s", ctx->ps.weightScale8x8[i][((int8_t *)scan_8x8)[j]], (j < 63) ? ", " : (i < 6) ? "<br>" : "</small></td></tr>\n");
+				printf("%u%s", ctx->ps.weightScale8x8[i][((int8_t *)scan_8x8_cabac)[j]], (j < 63) ? ", " : (i < 6) ? "<br>" : "</small></td></tr>\n");
 		}
 	}
 	
@@ -1442,7 +1443,7 @@ static int FUNC(parse_seq_parameter_set)
 		for (int i = 1; i < 4; i++) {
 			ctx->sig_inc_v[i] = sig_inc_8x8[0][i];
 			ctx->last_inc_v[i] = last_inc_8x8[i];
-			ctx->scan_v[i] = scan_8x8[0][i];
+			ctx->scan_v[i] = scan_8x8_cabac[0][i];
 		}
 		
 		// initialize macroblock offsets with vectors for the sake of readability

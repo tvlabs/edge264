@@ -80,7 +80,7 @@ void _decode_intra4x4(int mode, uint8_t *px1, size_t stride, ssize_t nstride, v8
 		dc = _mm_srli_epi16(_mm_sad_epu8(_mm_srli_si128(x4, 12), (__m128i)zero), 1);
 		goto dc_4x4; }
 	case I4x4_DCAB_8:
-		dc = _mm_broadcastw_epi16(clip);
+		dc = _mm_broadcastw_epi16((__m128i)clip);
 		goto dc_4x4;
 	
 	case I4x4_DDL_8:
@@ -239,17 +239,17 @@ void _decode_intra8x8(int mode, uint8_t *px0, uint8_t *px7, size_t stride, ssize
 	case I8x8_V_C_8:
 		k2r = _mm_loadu_si64(px0 + nstride        );
 		j2q = _mm_loadu_si64(px0 + nstride     - 1);
-		l2s = _mm_shuffle_epi8(k2r, shr8_8bit);
+		l2s = _mm_shuffle_epi8(k2r, (__m128i)shr8_8bit);
 		goto vertical_8x8;
 	case I8x8_V_D_8:
 		k2r = _mm_loadu_si64(px0 + nstride        );
 		l2s = _mm_loadu_si64(px0 + nstride     + 1);
-		j2q = _mm_shuffle_epi8(k2r, shl_8bit);
+		j2q = _mm_shuffle_epi8(k2r, (__m128i)shl_8bit);
 		goto vertical_8x8;
 	case I8x8_V_CD_8:
 		k2r = _mm_loadu_si64(px0 + nstride        );
-		l2s = _mm_shuffle_epi8(k2r, shr8_8bit);
-		j2q = _mm_shuffle_epi8(k2r, shl_8bit);
+		l2s = _mm_shuffle_epi8(k2r, (__m128i)shr8_8bit);
+		j2q = _mm_shuffle_epi8(k2r, (__m128i)shl_8bit);
 		goto vertical_8x8;
 	
 	case I8x8_H_D_8:
@@ -308,18 +308,18 @@ void _decode_intra8x8(int mode, uint8_t *px0, uint8_t *px7, size_t stride, ssize
 	case I8x8_DC_C_8:
 		k2r = _mm_loadu_si64(px0 + nstride        );
 		j2q = _mm_loadu_si64(px0 + nstride     - 1);
-		l2s = _mm_shuffle_epi8(k2r, shr8_8bit);
+		l2s = _mm_shuffle_epi8(k2r, (__m128i)shr8_8bit);
 		goto dc_8x8;
 	case I8x8_DC_D_8:
 		k2r = _mm_loadu_si64(px0 + nstride        );
 		l2s = _mm_loadu_si64(px0 + nstride     + 1);
-		j2q = _mm_shuffle_epi8(k2r, shl_8bit);
+		j2q = _mm_shuffle_epi8(k2r, (__m128i)shl_8bit);
 		dstride = 0;
 		goto dc_8x8;
 	case I8x8_DC_CD_8:
 		k2r = _mm_loadu_si64(px0 + nstride        );
-		l2s = _mm_shuffle_epi8(k2r, shr8_8bit);
-		j2q = _mm_shuffle_epi8(k2r, shl_8bit);
+		l2s = _mm_shuffle_epi8(k2r, (__m128i)shr8_8bit);
+		j2q = _mm_shuffle_epi8(k2r, (__m128i)shl_8bit);
 		dstride = 0;
 		goto dc_8x8;
 	case I8x8_DC_A_8:
@@ -342,17 +342,17 @@ void _decode_intra8x8(int mode, uint8_t *px0, uint8_t *px7, size_t stride, ssize
 	case I8x8_DC_AC_8:
 		k2r = _mm_loadu_si64(px0 + nstride        );
 		j2q = _mm_loadu_si64(px0 + nstride     - 1);
-		l2s = _mm_shuffle_epi8(k2r, shr8_8bit);
+		l2s = _mm_shuffle_epi8(k2r, (__m128i)shr8_8bit);
 		goto dc_top_8x8;
 	case I8x8_DC_AD_8:
 		k2r = _mm_loadu_si64(px0 + nstride        );
 		l2s = _mm_loadu_si64(px0 + nstride     + 1);
-		j2q = _mm_shuffle_epi8(k2r, shl_8bit);
+		j2q = _mm_shuffle_epi8(k2r, (__m128i)shl_8bit);
 		goto dc_top_8x8;
 	case I8x8_DC_ACD_8:
 		k2r = _mm_loadu_si64(px0 + nstride        );
-		l2s = _mm_shuffle_epi8(k2r, shr8_8bit);
-		j2q = _mm_shuffle_epi8(k2r, shl_8bit);
+		l2s = _mm_shuffle_epi8(k2r, (__m128i)shr8_8bit);
+		j2q = _mm_shuffle_epi8(k2r, (__m128i)shl_8bit);
 		goto dc_top_8x8;
 	case I8x8_DC_BD_8:
 		dstride = 0;
@@ -385,9 +385,9 @@ void _decode_intra8x8(int mode, uint8_t *px0, uint8_t *px7, size_t stride, ssize
 		j2y = _mm_loadu_si128((__m128i *)(px0 + nstride     - 1));
 		k2z = _mm_loadu_si128((__m128i *)(px0 + nstride        ));
 	diagonal_down_left_8x8: {
-		__m128i l2z = _mm_shuffle_epi8(k2z, shr16_8bit);
+		__m128i l2z = _mm_shuffle_epi8(k2z, (__m128i)shr16_8bit);
 		__m128i x0 = lowpass_8bit(j2y, k2z, l2z);
-		__m128i x1 = _mm_shuffle_epi8(x0, shr16_8bit);
+		__m128i x1 = _mm_shuffle_epi8(x0, (__m128i)shr16_8bit);
 		__m128i x2 = _mm_srli_si128(x1, 1);
 		p0 = lowpass_8bit(x0, x1, x2);
 		p1 = _mm_srli_si128(p0, 1);
@@ -399,20 +399,20 @@ void _decode_intra8x8(int mode, uint8_t *px0, uint8_t *px7, size_t stride, ssize
 		p7 = _mm_srli_si128(p0, 7);
 		break; }
 	case I8x8_DDL_C_8:
-		j2y = _mm_shuffle_epi8(_mm_loadu_si128((__m128i *)(px0 + nstride     - 1)), C8_8bit);
-		k2z = _mm_shuffle_epi8(j2y, shr16_8bit);
+		j2y = _mm_shuffle_epi8(_mm_loadu_si128((__m128i *)(px0 + nstride     - 1)), (__m128i)C8_8bit);
+		k2z = _mm_shuffle_epi8(j2y, (__m128i)shr16_8bit);
 		goto diagonal_down_left_8x8;
 	case I8x8_DDL_D_8:
 		k2z = _mm_loadu_si128((__m128i *)(px0 + nstride        ));
-		j2y = _mm_shuffle_epi8(k2z, shl_8bit);
+		j2y = _mm_shuffle_epi8(k2z, (__m128i)shl_8bit);
 		goto diagonal_down_left_8x8;
 	case I8x8_DDL_CD_8:
-		k2z = _mm_shuffle_epi8(_mm_loadu_si64(px0 + nstride        ), C7_8bit);
-		j2y = _mm_shuffle_epi8(k2z, shl_8bit);
+		k2z = _mm_shuffle_epi8(_mm_loadu_si64(px0 + nstride        ), (__m128i)C7_8bit);
+		j2y = _mm_shuffle_epi8(k2z, (__m128i)shl_8bit);
 		goto diagonal_down_left_8x8;
 	
 	case I8x8_DDR_C_8:
-		j2s = _mm_shuffle_epi8(_mm_loadu_si128((__m128i *)(px0 + nstride     - 1)), C8_8bit);
+		j2s = _mm_shuffle_epi8(_mm_loadu_si128((__m128i *)(px0 + nstride     - 1)), (__m128i)C8_8bit);
 		goto diagonal_down_right_8x8;
 	case I8x8_DDR_8:
 		j2s = _mm_loadu_si128((__m128i *)(px0 + nstride     - 1));
@@ -430,7 +430,7 @@ void _decode_intra8x8(int mode, uint8_t *px0, uint8_t *px7, size_t stride, ssize
 		__m128i a2h = _mm_unpackhi_epi32(a2d, e2h);
 		__m128i a2q = _mm_alignr_epi8(j2s, a2h, 8);
 		__m128i b2r = _mm_alignr_epi8(j2s, a2h, 9);
-		__m128i x0 = lowpass_8bit(_mm_shuffle_epi8(a2q, shl_8bit), a2q, b2r);
+		__m128i x0 = lowpass_8bit(_mm_shuffle_epi8(a2q, (__m128i)shl_8bit), a2q, b2r);
 		__m128i x1 = lowpass_8bit(a2q, b2r, _mm_alignr_epi8(j2s, a2h, 10));
 		p7 = lowpass_8bit(x0, x1, _mm_srli_si128(x1, 1));
 		p6 = _mm_srli_si128(p7, 1);
@@ -443,7 +443,7 @@ void _decode_intra8x8(int mode, uint8_t *px0, uint8_t *px7, size_t stride, ssize
 		break; }
 	
 	case I8x8_VR_C_8:
-		j2s = _mm_shuffle_epi8(_mm_loadu_si128((__m128i *)(px0 + nstride     - 1)), C8_8bit);
+		j2s = _mm_shuffle_epi8(_mm_loadu_si128((__m128i *)(px0 + nstride     - 1)), (__m128i)C8_8bit);
 		goto vertical_right_8x8;
 	case I8x8_VR_8:
 		j2s = _mm_loadu_si128((__m128i *)(px0 + nstride     - 1));
@@ -490,7 +490,7 @@ void _decode_intra8x8(int mode, uint8_t *px0, uint8_t *px7, size_t stride, ssize
 		__m128i a2h = _mm_unpackhi_epi32(a2d, e2h);
 		__m128i a2q = _mm_alignr_epi8(j2s, a2h, 8);
 		__m128i b2r = _mm_alignr_epi8(j2s, a2h, 9);
-		__m128i x0 = lowpass_8bit(_mm_shuffle_epi8(a2q, shl_8bit), a2q, b2r);
+		__m128i x0 = lowpass_8bit(_mm_shuffle_epi8(a2q, (__m128i)shl_8bit), a2q, b2r);
 		__m128i x1 = _mm_srli_si128(x0, 1);
 		__m128i x2 = lowpass_8bit(x0, x1, _mm_srli_si128(x0, 2));
 		p7 = _mm_unpacklo_epi8(_mm_avg_epu8(x0, x1), x2);
@@ -519,23 +519,23 @@ void _decode_intra8x8(int mode, uint8_t *px0, uint8_t *px7, size_t stride, ssize
 		p7 = _mm_srli_si128(p5, 1);
 		break; }
 	case I8x8_VL_C_8:
-		j2y = _mm_shuffle_epi8(_mm_loadu_si128((__m128i *)(px0 + nstride     - 1)), C8_8bit);
+		j2y = _mm_shuffle_epi8(_mm_loadu_si128((__m128i *)(px0 + nstride     - 1)), (__m128i)C8_8bit);
 		k2z = _mm_srli_si128(j2y, 1);
 		goto vertical_left_8x8;
 	case I8x8_VL_D_8:
 		k2z = _mm_loadu_si128((__m128i *)(px0 + nstride        ));
-		j2y = _mm_shuffle_epi8(k2z, shl_8bit);
+		j2y = _mm_shuffle_epi8(k2z, (__m128i)shl_8bit);
 		goto vertical_left_8x8;
 	case I8x8_VL_CD_8:
-		k2z = _mm_shuffle_epi8(_mm_loadu_si64(px0 + nstride        ), C7_8bit);
-		j2y = _mm_shuffle_epi8(k2z, shl_8bit);
+		k2z = _mm_shuffle_epi8(_mm_loadu_si64(px0 + nstride        ), (__m128i)C7_8bit);
+		j2y = _mm_shuffle_epi8(k2z, (__m128i)shl_8bit);
 		goto vertical_left_8x8;
 	
 	case I8x8_HU_D_8:
 		dstride = 0;
 		// PASSTHROUGH
 	case I8x8_HU_8: {
-		__m128i x0 = _mm_shuffle_epi8(filter_h2a_8bit(dstride, px0, px7, stride, nstride), C7_8bit);
+		__m128i x0 = _mm_shuffle_epi8(filter_h2a_8bit(dstride, px0, px7, stride, nstride), (__m128i)C7_8bit);
 		__m128i x1 = _mm_srli_si128(x0, 1);
 		__m128i x2 = lowpass_8bit(x0, x1, _mm_srli_si128(x0, 2));
 		p0 = _mm_unpacklo_epi8(_mm_avg_epu8(x0, x1), x2);

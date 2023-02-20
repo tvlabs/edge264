@@ -574,17 +574,7 @@ static void CAFUNC(parse_NxN_residual)
 				if (!mb->f.mbIsInterFlag)
 					CALL(decode_intra8x8, intra8x8_modes[mb->Intra4x4PredMode[i8x8 * 4 + 1]][ctx->unavail4x4[i8x8 * 5]], samples, stride, iYCbCr);
 				if (mb->bits[0] & 1 << bit8x8[i8x8]) {
-					#ifdef CABAC
-						if (ctx->ps.ChromaArrayType < 3 || CALL(get_ae, ctx->ctxIdxOffsets[0] + (mb->bits[1] >> inc8x8[iYCbCr * 4 + i8x8] & 3))) {
-							mb->bits[1] |= 1 << bit8x8[iYCbCr * 4 + i8x8];
-							mb->nC_s[iYCbCr][i8x8] = 0x01010101;
-							for (int i = 0; i < 16; i++)
-								ctx->c_v[i] = (v4si){};
-							fprintf(stderr, "8x8 coeffLevels[%d]:", iYCbCr * 4 + i8x8);
-							CALL(parse_residual_block_cabac, 0, 63, 1);
-							CALL(add_idct8x8, iYCbCr, samples);
-						}
-					#else
+					#ifndef CABAC
 						for (int i = 0; i < 16; i++)
 							ctx->c_v[i] = (v4si){};
 						for (int i4x4 = 0; i4x4 < 4; i4x4++) {
@@ -599,6 +589,16 @@ static void CAFUNC(parse_NxN_residual)
 							}
 						}
 						CALL(add_idct8x8, iYCbCr, samples);
+					#else
+						if (ctx->ps.ChromaArrayType < 3 || CALL(get_ae, ctx->ctxIdxOffsets[0] + (mb->bits[1] >> inc8x8[iYCbCr * 4 + i8x8] & 3))) {
+							for (int i = 0; i < 16; i++)
+								ctx->c_v[i] = (v4si){};
+							mb->bits[1] |= 1 << bit8x8[iYCbCr * 4 + i8x8];
+							mb->nC_s[iYCbCr][i8x8] = 0x01010101;
+							fprintf(stderr, "8x8 coeffLevels[%d]:", iYCbCr * 4 + i8x8);
+							CALL(parse_residual_block_cabac, 0, 63, 1);
+							CALL(add_idct8x8, iYCbCr, samples);
+						}
 					#endif
 				}
 			}

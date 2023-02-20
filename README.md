@@ -13,6 +13,7 @@ Supported features
 * CAVLC/CABAC
 * I/P/B frames
 * Deblocking
+* 8x8 transforms
 * Slices and Arbitrary Slice Order
 * Per-slice reference lists
 * Memory Management Control Operations
@@ -22,11 +23,9 @@ Supported features
 Planned features
 ----------------
 
-* 8x8 transforms (work in progress)
+* AVX-2 enhancements
 * Error concealment
 * MVC 3D support
-* Constrained Intra prediction
-* AVX-2 enhancements
 * ARM support
 * 4:0:0, 4:2:2 and 4:4:4
 * 9-14 bit depths with possibility of different luma/chroma depths
@@ -46,7 +45,7 @@ $ make
 $ ./edge264_play-cc video.264
 ```
 
-When debugging, the make flag `TRACE=1` enables printing headers to stdout in HTML format, and `TRACE=2` adds the dumping of all other symbols to stderr (*very large*). A test program is also provided, that browses files in a `conformance` directory, decoding each `<video>.264` and comparing its output with the pair `<video>.yuv`. On the set of official [AVCv1 conformance bitstreams](https://www.itu.int/wftp3/av-arch/jvt-site/draft_conformance/), 75 files are known to decode perfectly, the rest using yet unsupported features.
+When debugging, the make flag `TRACE=1` enables printing headers to stdout in HTML format, and `TRACE=2` adds the dumping of all other symbols to stderr (*very large*). A test program is also provided, that browses files in a `conformance` directory, decoding each `<video>.264` and comparing its output with the pair `<video>.yuv`. On the set of official [conformance bitstreams](https://www.itu.int/wftp3/av-arch/jvt-site/draft_conformance/), 88 files are known to decode perfectly, the rest using yet unsupported features.
 
 ```sh
 $ ./edge264_test-cc

@@ -1,10 +1,4 @@
 /** MAYDO:
- * _ add 8x8 transform support
- * 	_ BUG CAVLC should broadcast token to 8x8 block for bS2 condition in deblocking filter
- * 	_ merge CABAC & CAVLC as much as possible
- * 	_ fix compilation with GCC
- * 	_ enable and test
- * 
  * _ check that P/B slice cannot start without at least 1 reference
  * _ add a message to play.c if it ends on ERROR or UNSUPPORTED
  * _ make a proper install+usage howto in README.md

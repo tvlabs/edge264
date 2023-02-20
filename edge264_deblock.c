@@ -217,12 +217,19 @@ static inline void FUNC(init_alpha_beta_tC0)
 		__m128i bS0aacc = _mm_unpacklo_epi32(bS0aceg, bS0aceg);
 		__m128i bS0eegg = _mm_unpackhi_epi32(bS0aceg, bS0aceg);
 		
+		// for 8x8 blocks with CAVLC, broadcast transform tokens beforehand
+		__m128i nC = (__m128i)mb->nC_v[0];
+		if (!ctx->ps.entropy_coding_mode_flag && mb->f.transform_size_8x8_flag) {
+			__m128i x = _mm_cmpgt_epi32((__m128i)mb->nC_v[0], _mm_setzero_si128());
+			mb->nC_v[0] = (v16qi)(nC = _mm_sign_epi8(x, x));
+		}
+		
 		// compute masks for edges with bS=2
 		__m128i shufV = _mm_setr_epi8(0, 2, 8, 10, 1, 3, 9, 11, 4, 6, 12, 14, 5, 7, 13, 15);
 		__m128i shufH = _mm_setr_epi8(0, 1, 4, 5, 2, 3, 6, 7, 8, 9, 12, 13, 10, 11, 14, 15);
-		__m128i nnzv = _mm_shuffle_epi8((__m128i)mb->nC_v[0], shufV);
+		__m128i nnzv = _mm_shuffle_epi8(nC, shufV);
 		__m128i nnzl = _mm_shuffle_epi8((__m128i)mb[-1].nC_v[0], shufV);
-		__m128i nnzh = _mm_shuffle_epi8((__m128i)mb->nC_v[0], shufH);
+		__m128i nnzh = _mm_shuffle_epi8(nC, shufH);
 		__m128i nnzt = _mm_shuffle_epi8((__m128i)mbB->nC_v[0], shufH);
 		__m128i bS2abcd = _mm_cmpgt_epi8(_mm_or_si128(nnzv, _mm_alignr_epi8(nnzv, nnzl, 12)), zero);
 		__m128i bS2efgh = _mm_cmpgt_epi8(_mm_or_si128(nnzh, _mm_alignr_epi8(nnzh, nnzt, 12)), zero);

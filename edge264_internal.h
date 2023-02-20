@@ -31,10 +31,11 @@ typedef uint8_t v16qu __attribute__((vector_size(16)));
 typedef uint16_t v8hu __attribute__((vector_size(16)));
 typedef uint32_t v4su __attribute__((vector_size(16)));
 typedef uint64_t v2lu __attribute__((vector_size(16)));
-typedef int32_t v8si __attribute__((vector_size(32))); // to align ctx->c for AVX-2 residual functions
-typedef int16_t v16hi __attribute__((vector_size(32))); // for initialization of neighbouring offsets
+typedef int8_t v32qi __attribute__((vector_size(32))); // alignment for 256-bit extensions
+typedef int32_t v8si __attribute__((vector_size(32)));
+typedef int16_t v16hi __attribute__((vector_size(32)));
+typedef uint8_t v32qu __attribute__((vector_size(32)));
 typedef int32_t v16si __attribute__((vector_size(64))); // for initialization of neighbouring offsets
-
 
 
 
@@ -245,7 +246,8 @@ typedef struct
 	// Deblocking context
 	union { uint8_t alpha[16]; v16qu alpha_v; }; // {internal_Y,internal_Cb,internal_Cr,0,0,0,0,0,left_Y,left_Cb,left_Cr,0,top_Y,top_Cb,top_Cr,0}
 	union { uint8_t beta[16]; v16qu beta_v; };
-	union { int32_t tC0_s[16]; int64_t tC0_l[8]; v16qi tC0_v[4]; }; // 4 bytes per edge in deblocking order -> 8 luma edges then 8 alternating Cb/Cr edges
+	v32qu alpha_beta_V;
+	union { int32_t tC0_s[16]; int64_t tC0_l[8]; v16qi tC0_v[4]; v32qi tC0_V[2]; }; // 4 bytes per edge in deblocking order -> 8 luma edges then 8 alternating Cb/Cr edges
 	
 	// Picture buffer and parameter sets
 	uint8_t *DPB; // NULL before the first SPS is decoded

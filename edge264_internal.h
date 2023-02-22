@@ -37,6 +37,11 @@ typedef int16_t v16hi __attribute__((vector_size(32)));
 typedef uint8_t v32qu __attribute__((vector_size(32)));
 typedef int32_t v16si __attribute__((vector_size(64))); // for initialization of neighbouring offsets
 
+typedef int8_t i8x16 __attribute__((vector_size(16)));
+typedef int16_t i16x8 __attribute__((vector_size(16)));
+typedef int32_t i32x4 __attribute__((vector_size(16)));
+typedef int64_t i64x2 __attribute__((vector_size(16)));
+
 
 
 /**
@@ -197,7 +202,7 @@ typedef struct
 	uint8_t unavail16x16;  // unavailability of neighbouring A/B/C/D macroblocks in slice
 	union { int8_t unavail4x4[16]; v16qi unavail4x4_v; }; // unavailability of neighbouring A/B/C/D blocks
 	Edge264_flags inc; // increments for CABAC indices of macroblock syntax elements
-	union { uint8_t cabac[1024]; v16qu cabac_v[64]; };
+	union { uint8_t cabac[1024]; i8x16 cabac_v[64]; };
 	
 	// neighbouring offsets (relative to the start of each array in mb)
 	union { int16_t A4x4_int8[16]; v16hi A4x4_int8_v; };
@@ -577,14 +582,73 @@ static noinline int FUNC(parse_slice_data_cabac);
 		__m128i hi = _mm_madd_epi16(_mm_unpackhi_epi16((__m128i)mvCol, neg), mul);
 		return (v8hi)_mm_packs_epi32(_mm_srai_epi32(lo, 8), _mm_srai_epi32(hi, 8));
 	}
-	#define shr(a, i) (typeof(a))_mm_srli_si128((__m128i)(a), i)
 	
 #else // add other architectures here
 	#error "Add -mssse3 or more recent"
 #endif
 
-#ifndef __clang__
-#define __builtin_shufflevector(a, b, ...) __builtin_shuffle(a, b, (typeof(a)){__VA_ARGS__})
+#if !defined(__clang__) && __GNUC__ < 12
+	#define __builtin_shufflevector(a, b, ...) __builtin_shuffle(a, b, (typeof(a)){__VA_ARGS__})
+#endif
+
+
+
+/**
+ * These custom vector intrinsics are an attempt to shorten those from Intel,
+ * as well as to facilitate the future ARM support by listing all of the
+ * instructions actually used.
+ * Also to fix an arguably disputable design decision from C, signedness is
+ * bound to instructions rather than types, it being closer to how processors
+ * work and to spare some bug-inducing implicit promotion rules.
+ */
+#ifdef __SSSE3__
+	#include <x86intrin.h>
+	#define alignr(h, l, i) (i8x16)_mm_alignr_epi8(h, l, i)
+	#define avg8(a, b) (i8x16)_mm_avg_epu8(a, b)
+	#define avg16(a, b) (i16x8)_mm_avg_epu16(a, b)
+	#define hadd16(a, b) (i16x8)_mm_hadd_epi16(a, b)
+	#define load32(p) (i32x4)_mm_loadu_si32(p) // no distinction with unaligned for now
+	#define load64(p) (i64x2)_mm_loadu_si64(p) // same
+	#define load128(p) (i8x16)_mm_loadu_si128((__m128i*)(p))
+	#define maddubs(a, b) (i16x8)_mm_maddubs_epi16(a, b)
+	#define movemask(a) _mm_movemask_epi8(a)
+	#define packs32(a, b) (i16x8)_mm_packs_epi32(a, b)
+	#define packus16(a, b) (i8x16)_mm_packus_epi16(a, b)
+	#define sad8(a, b) (i16x8)_mm_sad_epu8(a, b)
+	#define set8(i) (i8x16)_mm_set1_epi8(i)
+	#define set16(i) (i16x8)_mm_set1_epi16(i)
+	#define shl(a, i) (i8x16)_mm_slli_si128(a, i)
+	#define shr(a, i) (i8x16)_mm_srli_si128(a, i)
+	#define shuffle8(a, m) (i8x16)_mm_shuffle_epi8(a, m) // -1 indices make 0
+	#define shuffle32(a, i, j, k, l) (i32x4)_mm_shuffle_epi32(a, _MM_SHUFFLE(l, k, j, i))
+	#define shufflehi(a, i, j, k, l) (i16x8)_mm_shufflehi_epi16(a, _MM_SHUFFLE(l, k, j, i))
+	#define shufflelo(a, i, j, k, l) (i16x8)_mm_shufflelo_epi16(a, _MM_SHUFFLE(l, k, j, i))
+	#define shuffleps(a, b, i, j, k, l) (i32x4)_mm_shuffle_ps((__m128)(a), (__m128)(b), _MM_SHUFFLE(l, k, j, i))
+	#define subus8(a, b) (i8x16)_mm_subs_epu8(a, b)
+	#define umax8(a, b) (i8x16)_mm_max_epu8(a, b)
+	#define umin8(a, b) (i8x16)_mm_min_epu8(a, b)
+	#define unpacklo8(a, b) (i8x16)_mm_unpacklo_epi8(a, b)
+	#define unpacklo16(a, b) (i16x8)_mm_unpacklo_epi16(a, b)
+	#define unpacklo32(a, b) (i32x4)_mm_unpacklo_epi32(a, b)
+	#define unpacklo64(a, b) (i64x2)_mm_unpacklo_epi64(a, b)
+	#define unpackhi8(a, b) (i8x16)_mm_unpackhi_epi8(a, b)
+	#define unpackhi16(a, b) (i16x8)_mm_unpackhi_epi16(a, b)
+	#define unpackhi32(a, b) (i32x4)_mm_unpackhi_epi32(a, b)
+	#define unpackhi64(a, b) (i64x2)_mm_unpackhi_epi64(a, b)
+	#ifdef __AVX_2__
+		#define broadcast8(a) (i8x16)_mm_broadcastb_epi8(a)
+		#define broadcast16(a) (i16x8)_mm_broadcastw_epi16(a)
+	#else // broadcast8 requires a zero variable around
+		#define broadcast8(a) (i8x16)_mm_shuffle_epi8(a, zero)
+		#define broadcast16(a) (i16x8)_mm_shuffle_epi32(_mm_shufflelo_epi16(a, _MM_SHUFFLE(0, 0, 0, 0)), _MM_SHUFFLE(1, 0, 1, 0))
+	#endif
+	#ifdef __SSE4_1__
+		#define cvt8zx16(a) (i16x8)_mm_cvtepu8_epi16(a)
+		#define load8zx16(p) (i16x8)_mm_cvtepu8_epi16(_mm_loadu_si64(p))
+	#else // sign extension macros require a zero variable around
+		#define cvt8zx16(a) (i16x8)_mm_unpacklo_epi8(a, zero)
+		#define load8zx16(p) (i16x8)_mm_unpacklo_epi8(_mm_loadu_si64(p), zero)
+	#endif
 #endif
 
 

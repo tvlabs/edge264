@@ -1,4 +1,4 @@
-override CFLAGS := -std=gnu99 -march=native -O2 $(CFLAGS)
+override CFLAGS := -std=gnu99 -march=native -O3 -flax-vector-conversions $(CFLAGS)
 
 # TRACE:
 # 1 - Prints NAL headers to stdout

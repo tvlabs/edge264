@@ -603,6 +603,7 @@ static noinline int FUNC(parse_slice_data_cabac);
  */
 #ifdef __SSSE3__
 	#include <x86intrin.h>
+	#define adds16(a, b) (i16x8)_mm_adds_epi16(a, b)
 	#define alignr(h, l, i) (i8x16)_mm_alignr_epi8(h, l, i)
 	#define avg8(a, b) (i8x16)_mm_avg_epu8(a, b)
 	#define avg16(a, b) (i16x8)_mm_avg_epu16(a, b)
@@ -619,6 +620,7 @@ static noinline int FUNC(parse_slice_data_cabac);
 	#define set16(i) (i16x8)_mm_set1_epi16(i)
 	#define shl(a, i) (i8x16)_mm_slli_si128(a, i)
 	#define shr(a, i) (i8x16)_mm_srli_si128(a, i)
+	#define shr16(a, b) (i16x8)_mm_sra_epi16(a, b)
 	#define shuffle8(a, m) (i8x16)_mm_shuffle_epi8(a, m) // -1 indices make 0
 	#define shuffle32(a, i, j, k, l) (i32x4)_mm_shuffle_epi32(a, _MM_SHUFFLE(l, k, j, i))
 	#define shufflehi(a, i, j, k, l) (i16x8)_mm_shufflehi_epi16(a, _MM_SHUFFLE(l, k, j, i))
@@ -645,9 +647,11 @@ static noinline int FUNC(parse_slice_data_cabac);
 	#ifdef __SSE4_1__
 		#define cvt8zx16(a) (i16x8)_mm_cvtepu8_epi16(a)
 		#define load8zx16(p) (i16x8)_mm_cvtepu8_epi16(_mm_loadu_si64(p))
+		#define load8zx32(p) (i32x4)_mm_cvtepu8_epi32(_mm_loadu_si32(p))
 	#else // sign extension macros require a zero variable around
 		#define cvt8zx16(a) (i16x8)_mm_unpacklo_epi8(a, zero)
 		#define load8zx16(p) (i16x8)_mm_unpacklo_epi8(_mm_loadu_si64(p), zero)
+		#define load8zx32(p) (i32x4)_mm_unpacklo_epi8(_mm_unpacklo_epi8(_mm_loadu_si32(p), zero), zero)
 	#endif
 #endif
 

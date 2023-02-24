@@ -23,9 +23,12 @@
 
 #include "edge264_internal.h"
 
-// FIXME after transition to vector extensions
-#define lowpass8(l, m, r) ({i8x16 _l=(l), _r=(r); avg8(subus8(avg8(_l, _r), (_l ^ _r) & set8(1)), m);})
-#define lowpass16(l, m, r) avg16(((i16x8)(l) + (i16x8)(r)) >> 1, m)
+static always_inline i8x16 lowpass8(i8x16 l, i8x16 m, i8x16 r) {
+	return avg8(subus8(avg8(l, r), (l ^ r) & set8(1)), m);
+}
+static always_inline i16x8 lowpass16(i16x8 l, i16x8 m, i16x8 r) {
+	return avg16((l + r) >> 1, m);
+}
 
 
 /**

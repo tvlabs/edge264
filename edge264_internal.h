@@ -237,7 +237,7 @@ typedef struct
 	union { int8_t implicit_weights[32][32]; v16qi implicit_weights_v[32][2]; }; // w1 for [ref0][ref1]
 	int16_t explicit_weights[3][64]; // [iYCbCr][LX][RefIdx]
 	int8_t explicit_offsets[3][64];
-	union { uint8_t edge_buf[2016]; int64_t edge_buf_l[252]; v16qu edge_buf_v[126]; };
+	union { uint8_t edge_buf[2016]; int64_t edge_buf_l[252]; i8x16 edge_buf_v[126]; };
 	
 	// Residuals context
 	union { int8_t QP[3]; v4qi QP_s; }; // same as mb

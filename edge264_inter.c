@@ -198,11 +198,11 @@ INTER4xH_QPEL_01_02_03(qpel01, avg8(v01, packus16(m22, m42)))
 INTER4xH_QPEL_01_02_03(qpel02, v01)
 INTER4xH_QPEL_01_02_03(qpel03, avg8(v01, packus16(m32, m52)))
 
-#define INTER4xH_QPEL_11_31(QPEL, C, D, M6)\
+#define INTER4xH_QPEL_11_31(QPEL, C, M6)\
 	static void inter4xH_ ## QPEL ## _8bit(int h, size_t dstride, uint8_t * restrict dst, size_t sstride, const uint8_t *src, i8x16 w, i16x8 o, i64x2 logWD) {\
 		ssize_t nstride = -sstride;\
-		i32x4 l0 = load8zx32(src + nstride * 2 + D);\
-		i32x4 l1 = load8zx32(src + nstride     + D);\
+		i32x4 l0 = load8zx32(src + nstride * 2 - 2 + C);\
+		i32x4 l1 = load8zx32(src + nstride     - 2 + C);\
 		i8x16 l2 = load128(src               - 2);\
 		i8x16 l3 = load128(src + sstride     - 9);\
 		i8x16 l4 = load128(src + sstride * 2 - 2);\
@@ -248,15 +248,15 @@ INTER4xH_QPEL_01_02_03(qpel03, avg8(v01, packus16(m32, m52)))
 		} while (h -= 4);\
 	}\
 
-INTER4xH_QPEL_11_31(qpel11, 2, 0, shuffle8(l60, shuf_m3))
-INTER4xH_QPEL_11_31(qpel31, 3, 1, shuffle8(l63, shuf_m1))
+INTER4xH_QPEL_11_31(qpel11, 2, shuffle8(l60, shuf_m3))
+INTER4xH_QPEL_11_31(qpel31, 3, shuffle8(l63, shuf_m1))
 
-#define INTER4xH_QPEL_13_33(QPEL, C, D, M7)\
+#define INTER4xH_QPEL_13_33(QPEL, C, M7)\
 	static void inter4xH_ ## QPEL ## _8bit(int h, size_t dstride, uint8_t * restrict dst, size_t sstride, const uint8_t *src, i8x16 w, i16x8 o, i64x2 logWD) {\
 		ssize_t nstride = -sstride;\
-		i32x4 l0 = load8zx32(src + nstride * 2 + D);\
-		i32x4 l1 = load8zx32(src + nstride     + D);\
-		i32x4 l2 = load8zx32(src               + D);\
+		i32x4 l0 = load8zx32(src + nstride * 2 - 2 + C);\
+		i32x4 l1 = load8zx32(src + nstride     - 2 + C);\
+		i32x4 l2 = load8zx32(src               - 2 + C);\
 		i8x16 l3 = load128(src + sstride     - 2);\
 		i8x16 l4 = load128(src + sstride * 2 - 9);\
 		i16x8 m0##C = packs32(l0, l1);\
@@ -301,8 +301,8 @@ INTER4xH_QPEL_11_31(qpel31, 3, 1, shuffle8(l63, shuf_m1))
 		} while (h -= 4);\
 	}\
 
-INTER4xH_QPEL_13_33(qpel13, 2, 0, shuffle8(l70, shuf_m3))
-INTER4xH_QPEL_13_33(qpel33, 3, 1, shuffle8(l73, shuf_m1))
+INTER4xH_QPEL_13_33(qpel13, 2, shuffle8(l70, shuf_m3))
+INTER4xH_QPEL_13_33(qpel33, 3, shuffle8(l73, shuf_m1))
 
 #define INTER4xH_QPEL_12_32(QPEL, P)\
 	static void inter4xH_ ## QPEL ## _8bit(int h, size_t dstride, uint8_t * restrict dst, size_t sstride, const uint8_t *src, i8x16 w, i16x8 o, i64x2 logWD) {\
@@ -318,10 +318,10 @@ INTER4xH_QPEL_13_33(qpel33, 3, 1, shuffle8(l73, shuf_m1))
 		i16x8 l10 = cvt8zx16(l1);\
 		i16x8 l20 = cvt8zx16(l2);\
 		i16x8 l30 = cvt8zx16(l3);\
-		i16x8 l40 = cvt8zx16(l4);\
 		do {\
 			src += sstride * 4;\
 			i8x16 l5 = load128(src + nstride     - 2);\
+			i16x8 l40 = cvt8zx16(l4);\
 			i16x8 l50 = cvt8zx16(l5);\
 			i16x8 x00 = filter_36tapU(l00, l10, l20, l30, l40, l50);\
 			i8x16 l6 = load128(src               - 2);\
@@ -361,7 +361,7 @@ INTER4xH_QPEL_13_33(qpel33, 3, 1, shuffle8(l73, shuf_m1))
 			i16x8 vh1 = filter_36tapD(y20, y21, y22, y23, y24, y25);\
 			i8x16 vh = packus16(vh0, vh1);\
 			store4x4_8bit(dstride, dst, P, w, o, logWD);\
-			l00 = l40, l10 = l50, l20 = l60, l30 = l70, l40 = l80;\
+			l00 = l40, l10 = l50, l20 = l60, l30 = l70;\
 			l4 = l8, r0 = packus16(r48, r48);\
 			dst += dstride * 4;\
 		} while (h -= 4);\
@@ -525,12 +525,12 @@ INTER8xH_QPEL_01_02_03(qpel01, avg8(v01, packus16(l20, l30)))
 INTER8xH_QPEL_01_02_03(qpel02, v01)
 INTER8xH_QPEL_01_02_03(qpel03, avg8(v01, packus16(l30, l40)))
 
-#define INTER8xH_QPEL_11_31(QPEL, C, D)\
+#define INTER8xH_QPEL_11_31(QPEL, C)\
 	static void inter8xH_ ## QPEL ## _8bit(int h, size_t dstride, uint8_t * restrict dst, size_t sstride, const uint8_t *src, i8x16 w, i16x8 o, i64x2 logWD) {\
 		ssize_t nstride = -sstride;\
 		i8x16 zero = {};\
-		i16x8 l0##C = load8zx16(src + nstride * 2 + D);\
-		i16x8 l1##C = load8zx16(src + nstride     + D);\
+		i16x8 l0##C = load8zx16(src + nstride * 2 - 2 + C);\
+		i16x8 l1##C = load8zx16(src + nstride     - 2 + C);\
 		i8x16 l2 = load128(src               - 2);\
 		i8x16 l3 = load128(src + sstride     - 2);\
 		i8x16 l4 = load128(src + sstride * 2 - 2);\
@@ -568,16 +568,16 @@ INTER8xH_QPEL_01_02_03(qpel03, avg8(v01, packus16(l30, l40)))
 		} while (h -= 2);\
 	}\
 
-INTER8xH_QPEL_11_31(qpel11, 2, 0)
-INTER8xH_QPEL_11_31(qpel31, 3, 1)
+INTER8xH_QPEL_11_31(qpel11, 2)
+INTER8xH_QPEL_11_31(qpel31, 3)
 
-#define INTER8xH_QPEL_13_33(QPEL, C, D)\
+#define INTER8xH_QPEL_13_33(QPEL, C)\
 	static void inter8xH_ ## QPEL ## _8bit(int h, size_t dstride, uint8_t * restrict dst, size_t sstride, const uint8_t *src, i8x16 w, i16x8 o, i64x2 logWD) {\
 		ssize_t nstride = -sstride;\
 		i8x16 zero = {};\
-		i16x8 l0##C = load8zx16(src + nstride * 2 + D);\
-		i16x8 l1##C = load8zx16(src + nstride     + D);\
-		i16x8 l2##C = load8zx16(src               + D);\
+		i16x8 l0##C = load8zx16(src + nstride * 2 - 2 + C);\
+		i16x8 l1##C = load8zx16(src + nstride     - 2 + C);\
+		i16x8 l2##C = load8zx16(src               - 2 + C);\
 		i8x16 l3 = load128(src + sstride     - 2);\
 		i8x16 l4 = load128(src + sstride * 2 - 2);\
 		do {\
@@ -613,13 +613,12 @@ INTER8xH_QPEL_11_31(qpel31, 3, 1)
 		} while (h -= 2);\
 	}\
 
-INTER8xH_QPEL_13_33(qpel13, 2, 0)
-INTER8xH_QPEL_13_33(qpel33, 3, 1)
+INTER8xH_QPEL_13_33(qpel13, 2)
+INTER8xH_QPEL_13_33(qpel33, 3)
 
 #define INTER8xH_QPEL_12_32(QPEL, P)\
 	void inter8xH_ ## QPEL ## _8bit(int h, size_t dstride, uint8_t * restrict dst, size_t sstride, const uint8_t *src, i8x16 w, i16x8 o, i64x2 logWD) {\
 		ssize_t nstride = -sstride;\
-		i8x16 zero = {};\
 		i8x16 l0 = load128(src + nstride * 2 - 2);\
 		i8x16 l1 = load128(src + nstride     - 2);\
 		i8x16 l2 = load128(src               - 2);\
@@ -629,6 +628,7 @@ INTER8xH_QPEL_13_33(qpel33, 3, 1)
 			src += sstride * 2;\
 			i8x16 l5 = load128(src + sstride     - 2);\
 			i8x16 l6 = load128(src + sstride * 2 - 2);\
+			i8x16 zero = {};\
 			i16x8 l08 = unpackhi8(l0, zero);\
 			i16x8 l18 = unpackhi8(l1, zero);\
 			i16x8 l28 = unpackhi8(l2, zero);\
@@ -803,7 +803,6 @@ INTER16xH_QPEL_10_20_30(qpel30, avg8(h01, packus16(l03, l0B)))
 #define INTER16xH_QPEL_01_02_03(QPEL, P)\
 	static void inter16xH_ ## QPEL ## _8bit(int h, size_t dstride, uint8_t * restrict dst, size_t sstride, const uint8_t *src, i8x16 w, i16x8 o, i64x2 logWD) {\
 		ssize_t nstride= -sstride;\
-		i8x16 zero = {};\
 		i8x16 l0 = load128(src + nstride * 2);\
 		i8x16 l1 = load128(src + nstride    );\
 		i8x16 l2 = load128(src              );\
@@ -812,6 +811,7 @@ INTER16xH_QPEL_10_20_30(qpel30, avg8(h01, packus16(l03, l0B)))
 		do {\
 			src += sstride;\
 			i8x16 l5 = load128(src + sstride * 2);\
+			i8x16 zero = {};\
 			i16x8 l00 = cvt8zx16(l0);\
 			i16x8 l10 = cvt8zx16(l1);\
 			i16x8 l20 = cvt8zx16(l2);\
@@ -840,7 +840,6 @@ INTER16xH_QPEL_01_02_03(qpel03, avg8(v01, packus16(l30, l38)))
 #define INTER16xH_QPEL_11_13(QPEL, R, S)\
 	static void inter16xH_ ## QPEL ## _8bit(int h, size_t dstride, uint8_t * restrict dst, size_t sstride, const uint8_t *src, i8x16 w, i16x8 o, i64x2 logWD) {\
 		ssize_t nstride= -sstride;\
-		i8x16 zero = {};\
 		i8x16 l0 = load128(src + nstride * 2);\
 		i8x16 l1 = load128(src + nstride    );\
 		i8x16 l2 = load128(src               - 8);\
@@ -851,6 +850,7 @@ INTER16xH_QPEL_01_02_03(qpel03, avg8(v01, packus16(l30, l38)))
 		i8x16 L4 = load128(src + sstride * 2 + 8);\
 		do {\
 			src += sstride;\
+			i8x16 zero = {};\
 			i16x8 l##R##U = cvt8zx16(l##R);\
 			i16x8 l##R##2 = unpackhi8(l##R, zero);\
 			i16x8 l##R##A = cvt8zx16(L##R);\
@@ -896,7 +896,6 @@ INTER16xH_QPEL_11_13(qpel13, 3, 2)
 #define INTER16xH_QPEL_31_33(QPEL, R, S)\
 	static void inter16xH_ ## QPEL ## _8bit(int h, size_t dstride, uint8_t * restrict dst, size_t sstride, const uint8_t *src, i8x16 w, i16x8 o, i64x2 logWD) {\
 		ssize_t nstride= -sstride;\
-		i8x16 zero = {};\
 		i8x16 l0 = load128(src + nstride * 2 + 1);\
 		i8x16 l1 = load128(src + nstride     + 1);\
 		i8x16 l2 = load128(src               - 7);\
@@ -907,6 +906,7 @@ INTER16xH_QPEL_11_13(qpel13, 3, 2)
 		i8x16 L4 = load128(src + sstride * 2 + 9);\
 		do {\
 			src += sstride;\
+			i8x16 zero = {};\
 			i16x8 l##R##V = cvt8zx16(l##R);\
 			i16x8 l##R##3 = unpackhi8(l##R, zero);\
 			i16x8 l##R##B = cvt8zx16(L##R);\
@@ -952,6 +952,7 @@ INTER16xH_QPEL_31_33(qpel33, 3, 2)
 #define INTER16xH_QPEL_12_32(QPEL, P)\
 	static void inter16xH_ ## QPEL ## _8bit(int h, size_t dstride, uint8_t * restrict dst, size_t sstride, const uint8_t *src, i8x16 w, i16x8 o, i64x2 logWD) {\
 		ssize_t nstride= -sstride;\
+		i8x16 zero = {};\
 		i8x16 l0 = load128(src + nstride * 2 - 2);\
 		i16x8 l0G = load8zx16(src + nstride * 2 + 14);\
 		i8x16 l1 = load128(src + nstride     - 2);\
@@ -1134,27 +1135,24 @@ INTER16xH_QPEL_21_22_23(qpel23, filter_6tapD(h30, h38, hv))
  * is shared by all sizes. These functions should be inlined, otherwise AB/CD
  * would be spilled on stack.
  */
-static always_inline void inter2xH_chroma_8bit(int h, size_t dstride, uint8_t * restrict dst, size_t sstride, const uint8_t *src, __m128i AB, __m128i CD, __m128i W, __m128i O, __m128i logWD) {
-	__m128i shuf = _mm_setr_epi8(0, 1, 1, 2, 4, 5, 5, 6, 8, 9, 9, 10, 12, 13, 13, 14);
-	__m128i zero = _mm_setzero_si128();
+static always_inline void inter2xH_chroma_8bit(int h, size_t dstride, uint8_t * restrict dst, size_t sstride, const uint8_t *src, i8x16 AB, i8x16 CD, i8x16 W, i16x8 O, i64x2 logWD) {
+	static const i8x16 shuf = {0, 1, 1, 2, 4, 5, 5, 6, 8, 9, 9, 10, 12, 13, 13, 14};
+	i8x16 zero = {};
 	if (h == 2) {
-		__m128i x0 = _mm_shuffle_epi8(_mm_setr_epi32(*(int32_t *)src, *(int32_t *)(src + sstride), *(int32_t *)(src + sstride * 2), 0), shuf);
-		__m128i x1 = _mm_srli_si128(x0, 4);
-		__m128i x2 = _mm_add_epi16(maddubs(x0, AB), maddubs(x1, CD));
-		__m128i p = packus16(_mm_avg_epu16(_mm_srli_epi16(x2, 5), zero), zero);
-		__m128i q = _mm_setr_epi16(*(int16_t *)dst, *(int16_t *)(dst + dstride), 0, 0, 0, 0, 0, 0);
-		__m128i x3 = _mm_add_epi16(maddubs(unpacklo8(q, p), W), O);
-		v8hi v = (v8hi)packus16(shr16(x3, logWD), zero);
+		i8x16 x0 = shuffle8(((i32x4){*(int32_t *)src, *(int32_t *)(src + sstride), *(int32_t *)(src + sstride * 2)}), shuf);
+		i16x8 x1 = maddubs(x0, AB) + maddubs(shr(x0, 4), CD);
+		i8x16 p = packus16(avg16(x1 >> 5, zero), zero);
+		i16x8 q = {*(int16_t *)dst, *(int16_t *)(dst + dstride)};
+		i16x8 v = packus16(shr16(maddubs(unpacklo8(q, p), W) + O, logWD), zero);
 		*(int16_t *)(dst) = v[0];
 		*(int16_t *)(dst + dstride) = v[1];
 	} else {
-		__m128i x0 = _mm_setr_epi32(*(int32_t *)src, *(int32_t *)(src + sstride), *(int32_t *)(src + sstride * 2), *(int32_t *)(src + sstride * 3));
-		__m128i x1 = alignr(_mm_loadu_si32(src + sstride * 4), x0, 4);
-		__m128i x2 = _mm_add_epi16(maddubs(_mm_shuffle_epi8((__m128i)x0, shuf), AB), maddubs(_mm_shuffle_epi8(x1, shuf), CD));
-		__m128i p = packus16(_mm_avg_epu16(_mm_srli_epi16(x2, 5), zero), zero);
-		__m128i q = _mm_setr_epi16(*(int16_t *)dst, *(int16_t *)(dst + dstride), *(int16_t *)(dst + dstride * 2), *(int16_t *)(dst + dstride * 3), 0, 0, 0, 0);
-		__m128i x3 = _mm_add_epi16(maddubs(unpacklo8(q, p), W), O);
-		v8hi v = (v8hi)packus16(shr16(x3, logWD), zero);
+		i32x4 x0 = {*(int32_t *)src, *(int32_t *)(src + sstride), *(int32_t *)(src + sstride * 2), *(int32_t *)(src + sstride * 3)};
+		i8x16 x1 = alignr(load32(src + sstride * 4), x0, 4);
+		i16x8 x2 = maddubs(shuffle8(x0, shuf), AB) + maddubs(shuffle8(x1, shuf), CD);
+		i8x16 p = packus16(avg16(x2 >> 5, zero), zero);
+		i16x8 q = {*(int16_t *)dst, *(int16_t *)(dst + dstride), *(int16_t *)(dst + dstride * 2), *(int16_t *)(dst + dstride * 3)};
+		i16x8 v = packus16(shr16(maddubs(unpacklo8(q, p), W) + O, logWD), zero);
 		*(int16_t *)(dst) = v[0];
 		*(int16_t *)(dst + dstride) = v[1];
 		*(int16_t *)(dst + dstride * 2) = v[2];
@@ -1162,47 +1160,48 @@ static always_inline void inter2xH_chroma_8bit(int h, size_t dstride, uint8_t * 
 	}
 }
 
-static always_inline void inter4xH_chroma_8bit(int h, size_t dstride, uint8_t * restrict dst, size_t sstride, const uint8_t *src, __m128i AB, __m128i CD, __m128i W, __m128i O, __m128i logWD) {
-	__m128i zero = _mm_setzero_si128();
-	__m128i x0 = _mm_slli_si128(unpacklo8(_mm_loadu_si32(src), _mm_loadu_si32(src + 1)), 8);
+static always_inline void inter4xH_chroma_8bit(int h, size_t dstride, uint8_t * restrict dst, size_t sstride, const uint8_t *src, i8x16 AB, i8x16 CD, i8x16 W, i16x8 O, i64x2 logWD) {
+	i8x16 zero = {};
+	i8x16 x0 = load64(src              );
+	i8x16 x1 = unpacklo8(x0, shr(x0, 1));
 	do {
-		__m128i x1 = _mm_setr_epi32(*(int32_t *)(src + sstride        ), *(int32_t *)(src + sstride * 2    ), 0, 0);
-		__m128i x2 = _mm_setr_epi32(*(int32_t *)(src + sstride     + 1), *(int32_t *)(src + sstride * 2 + 1), 0, 0);
-		__m128i x3 = unpacklo8(x1, x2);
-		__m128i x4 = alignr(x3, x0, 8);
-		__m128i x5 = _mm_add_epi16(maddubs(x4, AB), maddubs(x3, CD));
-		__m128i p = packus16(_mm_avg_epu16(_mm_srli_epi16(x5, 5), zero), zero);
-		__m128i q = _mm_setr_epi32(*(int32_t *)(dst          ), *(int32_t *)(dst + dstride), 0, 0);
-		__m128i x6 = _mm_add_epi16(maddubs(unpacklo8(q, p), W), O);
-		v4si x7 = (v4si)packus16(shr16(x6, logWD), zero);
-		*(int32_t *)(dst          ) = x7[0];
-		*(int32_t *)(dst + dstride) = x7[1];
+		i8x16 x2 = load64(src + sstride    );
+		i8x16 x3 = unpacklo8(x2, shr(x2, 1));
+		i8x16 x4 = load64(src + sstride * 2);
+		i8x16 x5 = unpacklo8(x4, shr(x4, 1));
+		i16x8 x6 = maddubs(unpacklo64(x1, x3), AB) + maddubs(unpacklo64(x3, x5), CD);
+		i8x16 p = packus16(avg16(x6 >> 5, zero), zero);
+		i32x4 q = {*(int32_t *)(dst          ), *(int32_t *)(dst + dstride)};
+		i32x4 v = packus16(shr16(maddubs(unpacklo8(q, p), W) + O, logWD), zero);
+		*(int32_t *)(dst          ) = v[0];
+		*(int32_t *)(dst + dstride) = v[1];
 		src += sstride * 2;
 		dst += dstride * 2;
-		x0 = x3;
+		x1 = x5;
 	} while (h -= 2);
 }
 
-static always_inline void inter8xH_chroma_8bit(int h, size_t dstride, uint8_t * restrict dst, size_t sstride, const uint8_t *src, __m128i AB, __m128i CD, __m128i W, __m128i O, __m128i logWD) {
-	__m128i zero = _mm_setzero_si128();
-	__m128i x0 = unpacklo8(_mm_loadu_si64(src              ), _mm_loadu_si64(src               + 1));
+static always_inline void inter8xH_chroma_8bit(int h, size_t dstride, uint8_t * restrict dst, size_t sstride, const uint8_t *src, i8x16 AB, i8x16 CD, i8x16 W, i16x8 O, i64x2 logWD) {
+	i8x16 zero = {};
+	i8x16 x0 = load128(src              );
+	i8x16 x1 = unpacklo8(x0, shr(x0, 1));
 	do {
-		__m128i x1 = unpacklo8(_mm_loadu_si64(src + sstride    ), _mm_loadu_si64(src + sstride     + 1));
-		__m128i x2 = unpacklo8(_mm_loadu_si64(src + sstride * 2), _mm_loadu_si64(src + sstride * 2 + 1));
-		__m128i x3 = _mm_add_epi16(maddubs(x0, AB), maddubs(x1, CD));
-		__m128i x4 = _mm_add_epi16(maddubs(x1, AB), maddubs(x2, CD));
-		__m128i x5 = _mm_avg_epu16(_mm_srli_epi16(x3, 5), zero);
-		__m128i x6 = _mm_avg_epu16(_mm_srli_epi16(x4, 5), zero);
-		__m128i p = packus16(x5, x6);
-		__m128i q = _mm_setr_epi64(*(__m64 *)(dst          ), *(__m64 *)(dst + dstride));
-		__m128i x7 = _mm_add_epi16(maddubs(unpacklo8(q, p), W), O);
-		__m128i x8 = _mm_add_epi16(maddubs(unpackhi8(q, p), W), O);
-		v2li x9 = (v2li)packus16(shr16(x7, logWD), shr16(x8, logWD));
-		*(int64_t *)(dst          ) = x9[0];
-		*(int64_t *)(dst + dstride) = x9[1];
+		i8x16 x2 = load128(src + sstride    );
+		i8x16 x3 = unpacklo8(x2, shr(x2, 1));
+		i8x16 x4 = load128(src + sstride * 2);
+		i8x16 x5 = unpacklo8(x4, shr(x4, 1));
+		i16x8 x6 = avg16((maddubs(x1, AB) + maddubs(x3, CD)) >> 5, zero);
+		i16x8 x7 = avg16((maddubs(x3, AB) + maddubs(x5, CD)) >> 5, zero);
+		i8x16 p = packus16(x6, x7);
+		i64x2 q = {*(int64_t *)(dst          ), *(int64_t *)(dst + dstride)};
+		i16x8 x8 = shr16(maddubs(unpacklo8(q, p), W) + O, logWD);
+		i16x8 x9 = shr16(maddubs(unpackhi8(q, p), W) + O, logWD);
+		i64x2 v = packus16(x8, x9);
+		*(int64_t *)(dst          ) = v[0];
+		*(int64_t *)(dst + dstride) = v[1];
 		src += sstride * 2;
 		dst += dstride * 2;
-		x0 = x2;
+		x1 = x5;
 	} while (h -= 2);
 }
 
@@ -1248,29 +1247,29 @@ void FUNC(decode_inter, int i, int w, int h) {
 	//printf("<tr><td colspan=2>CurrMbAddr=%d, i=%d, w=%d, h=%d, x=%d, y=%d, idx=%d, pic=%d</td></tr>\n", ctx->CurrMbAddr, i, w, h, x, y, mb->refIdx[i8x8], mb->refPic[i8x8]);
 	
 	// initialize prediction weights (not vectorized since most often 1~2 calls per mb)
-	v16qi biweights_Y, biweights_Cb, biweights_Cr;
-	v8hi bioffsets_Y, bioffsets_Cb, bioffsets_Cr;
-	v2li logWD_Y, logWD_C;
+	i8x16 biweights_Y, biweights_Cb, biweights_Cr;
+	i16x8 bioffsets_Y, bioffsets_Cb, bioffsets_Cr;
+	i64x2 logWD_Y, logWD_C;
 	int refIdx = mb->refIdx[i8x8];
 	int refIdxX = mb->refIdx[i8x8 ^ 4];
 	if (ctx->ps.weighted_bipred_idc != 1) {
 		if (((i8x8 - 4) | refIdxX) < 0) { // no_weight
-			biweights_Y = biweights_Cb = biweights_Cr = (v16qi){0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1};
-			bioffsets_Y = bioffsets_Cb = bioffsets_Cr = (v8hi){};
-			logWD_Y = logWD_C = (v2li){};
+			biweights_Y = biweights_Cb = biweights_Cr = (i8x16){0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1};
+			bioffsets_Y = bioffsets_Cb = bioffsets_Cr = (i16x8){};
+			logWD_Y = logWD_C = (i64x2){};
 		} else if (ctx->ps.weighted_bipred_idc == 0) { // default2
-			biweights_Y = biweights_Cb = biweights_Cr = (v16qi){1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1};
-			bioffsets_Y = bioffsets_Cb = bioffsets_Cr = (v8hi){1, 1, 1, 1, 1, 1, 1, 1};
-			logWD_Y = logWD_C = (v2li){1};
+			biweights_Y = biweights_Cb = biweights_Cr = (i8x16){1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1};
+			bioffsets_Y = bioffsets_Cb = bioffsets_Cr = (i16x8){1, 1, 1, 1, 1, 1, 1, 1};
+			logWD_Y = logWD_C = (i64x2){1};
 		} else { // implicit2
 			int w1 = ctx->implicit_weights[refIdxX][refIdx];
 			if (__builtin_expect((unsigned)w1 + 63 < 191, 1)) { // w0 or w1 will overflow if w1 is 128 or -64
-				bioffsets_Y = bioffsets_Cb = bioffsets_Cr = (v8hi){32, 32, 32, 32, 32, 32, 32, 32};
-				logWD_Y = logWD_C = (v2li){6};
+				bioffsets_Y = bioffsets_Cb = bioffsets_Cr = (i16x8){32, 32, 32, 32, 32, 32, 32, 32};
+				logWD_Y = logWD_C = (i64x2){6};
 			} else {
 				w1 >>= 5;
-				bioffsets_Y = bioffsets_Cb = bioffsets_Cr = (v8hi){1, 1, 1, 1, 1, 1, 1, 1};
-				logWD_Y = logWD_C = (v2li){1};
+				bioffsets_Y = bioffsets_Cb = bioffsets_Cr = (i16x8){1, 1, 1, 1, 1, 1, 1, 1};
+				logWD_Y = logWD_C = (i64x2){1};
 			}
 			biweights_Y = biweights_Cb = biweights_Cr = pack_weights(64 - w1, w1);
 		}
@@ -1278,54 +1277,54 @@ void FUNC(decode_inter, int i, int w, int h) {
 		refIdx += (i8x8 & 4) * 8;
 		if (__builtin_expect(ctx->explicit_weights[0][refIdx] < 128, 1)) {
 			biweights_Y = pack_weights(0, ctx->explicit_weights[0][refIdx]);
-			bioffsets_Y = (v8hi)_mm_set1_epi16((ctx->explicit_offsets[0][refIdx] * 2 + 1) << ctx->luma_log2_weight_denom >> 1);
-			logWD_Y = (v2li){ctx->luma_log2_weight_denom};
+			bioffsets_Y = set16((ctx->explicit_offsets[0][refIdx] * 2 + 1) << ctx->luma_log2_weight_denom >> 1);
+			logWD_Y = (i64x2){ctx->luma_log2_weight_denom};
 		} else {
-			biweights_Y = (v16qi){0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1};
-			bioffsets_Y = (v8hi){};
-			logWD_Y = (v2li){};
+			biweights_Y = (i8x16){0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1};
+			bioffsets_Y = (i16x8){};
+			logWD_Y = (i64x2){};
 		}
 		if (__builtin_expect(ctx->explicit_weights[1][refIdx] < 128, 1)) {
 			biweights_Cb = pack_weights(0, ctx->explicit_weights[1][refIdx]);
 			biweights_Cr = pack_weights(0, ctx->explicit_weights[2][refIdx]);
-			bioffsets_Cb = (v8hi)_mm_set1_epi16((ctx->explicit_offsets[1][refIdx] * 2 + 1) << ctx->chroma_log2_weight_denom >> 1);
-			bioffsets_Cr = (v8hi)_mm_set1_epi16((ctx->explicit_offsets[2][refIdx] * 2 + 1) << ctx->chroma_log2_weight_denom >> 1);
-			logWD_C = (v2li){ctx->chroma_log2_weight_denom};
+			bioffsets_Cb = set16((ctx->explicit_offsets[1][refIdx] * 2 + 1) << ctx->chroma_log2_weight_denom >> 1);
+			bioffsets_Cr = set16((ctx->explicit_offsets[2][refIdx] * 2 + 1) << ctx->chroma_log2_weight_denom >> 1);
+			logWD_C = (i64x2){ctx->chroma_log2_weight_denom};
 		} else {
-			biweights_Cb = biweights_Cr = (v16qi){0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1};
-			bioffsets_Cb = bioffsets_Cr = (v8hi){};
-			logWD_C = (v2li){};
+			biweights_Cb = biweights_Cr = (i8x16){0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1};
+			bioffsets_Cb = bioffsets_Cr = (i16x8){};
+			logWD_C = (i64x2){};
 		}
 	} else if (i8x8 < 4) { // no_weight
-		biweights_Y = biweights_Cb = biweights_Cr = (v16qi){0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1};
-		bioffsets_Y = bioffsets_Cb = bioffsets_Cr = (v8hi){};
-		logWD_Y = logWD_C = (v2li){};
+		biweights_Y = biweights_Cb = biweights_Cr = (i8x16){0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1};
+		bioffsets_Y = bioffsets_Cb = bioffsets_Cr = (i16x8){};
+		logWD_Y = logWD_C = (i64x2){};
 	} else { // explicit2
 		refIdx += 32;
-		bioffsets_Y = (v8hi)_mm_set1_epi16(((ctx->explicit_offsets[0][refIdxX] +
+		bioffsets_Y = set16(((ctx->explicit_offsets[0][refIdxX] +
 			ctx->explicit_offsets[0][refIdx] + 1) | 1) << ctx->luma_log2_weight_denom);
 		if (__builtin_expect((ctx->explicit_weights[0][refIdxX] & ctx->explicit_weights[0][refIdx]) != 128, 1)) {
 			biweights_Y = pack_weights(ctx->explicit_weights[0][refIdxX], ctx->explicit_weights[0][refIdx]);
-			logWD_Y = (v2li){ctx->luma_log2_weight_denom + 1};
+			logWD_Y = (i64x2){ctx->luma_log2_weight_denom + 1};
 		} else {
 			biweights_Y = pack_weights(ctx->explicit_weights[0][refIdxX] >> 1, ctx->explicit_weights[0][refIdx] >> 1);
 			bioffsets_Y >>= 1;
-			logWD_Y = (v2li){ctx->luma_log2_weight_denom};
+			logWD_Y = (i64x2){ctx->luma_log2_weight_denom};
 		}
-		bioffsets_Cb = (v8hi)_mm_set1_epi16(((ctx->explicit_offsets[1][refIdxX] +
+		bioffsets_Cb = set16(((ctx->explicit_offsets[1][refIdxX] +
 			ctx->explicit_offsets[1][refIdx] + 1) | 1) << ctx->chroma_log2_weight_denom);
-		bioffsets_Cr = (v8hi)_mm_set1_epi16(((ctx->explicit_offsets[2][refIdxX] +
+		bioffsets_Cr = set16(((ctx->explicit_offsets[2][refIdxX] +
 			ctx->explicit_offsets[2][refIdx] + 1) | 1) << ctx->chroma_log2_weight_denom);
 		if (__builtin_expect((ctx->explicit_weights[1][refIdxX] & ctx->explicit_weights[1][refIdx]) != 128, 1)) {
 			biweights_Cb = pack_weights(ctx->explicit_weights[1][refIdxX], ctx->explicit_weights[1][refIdx]);
 			biweights_Cr = pack_weights(ctx->explicit_weights[2][refIdxX], ctx->explicit_weights[2][refIdx]);
-			logWD_C = (v2li){ctx->chroma_log2_weight_denom + 1};
+			logWD_C = (i64x2){ctx->chroma_log2_weight_denom + 1};
 		} else {
 			biweights_Cb = pack_weights(ctx->explicit_weights[1][refIdxX] >> 1, ctx->explicit_weights[1][refIdx] >> 1);
 			biweights_Cr = pack_weights(ctx->explicit_weights[2][refIdxX] >> 1, ctx->explicit_weights[2][refIdx] >> 1);
 			bioffsets_Cb >>= 1;
 			bioffsets_Cr >>= 1;
-			logWD_C = (v2li){ctx->chroma_log2_weight_denom};
+			logWD_C = (i64x2){ctx->chroma_log2_weight_denom};
 		}
 	}
 	
@@ -1344,18 +1343,15 @@ void FUNC(decode_inter, int i, int w, int h) {
 	if (__builtin_expect((unsigned)xInt_Y - 2 >= sstride_Y - w - 4 ||
 		(unsigned)yInt_Y - sstride_Y * 2 >= ctx->plane_size_Y - (h + 4) * sstride_Y, 0))
 	{
-		v16qi shuf0, shuf1, v0, v1;
-		memcpy(&shuf0, shift_Y_8bit + 15 + clip3(-15, 0, xInt_Y - 2) + clip3(0, 15, xInt_Y + 14 - sstride_Y), 16);
-		memcpy(&shuf1, shift_Y_8bit + 15 + clip3(-15, 0, xInt_Y + 14) + clip3(0, 15, xInt_Y + 30 - sstride_Y), 16);
+		i8x16 shuf0 = load128(shift_Y_8bit + 15 + clip3(-15, 0, xInt_Y - 2) + clip3(0, 15, xInt_Y + 14 - sstride_Y));
+		i8x16 shuf1 = load128(shift_Y_8bit + 15 + clip3(-15, 0, xInt_Y + 14) + clip3(0, 15, xInt_Y + 30 - sstride_Y));
 		const uint8_t *src0 = ref + clip3(0, sstride_Y - 16, xInt_Y - 2);
 		const uint8_t *src1 = ref + clip3(0, sstride_Y - 16, xInt_Y + 14);
 		yInt_Y -= sstride_Y * 2;
-		for (v16qu *buf = ctx->edge_buf_v; buf < ctx->edge_buf_v + 10 + h * 2; buf += 2, yInt_Y += sstride_Y) {
+		for (i8x16 *buf = ctx->edge_buf_v; buf < ctx->edge_buf_v + 10 + h * 2; buf += 2, yInt_Y += sstride_Y) {
 			int c = clip3(0, ctx->plane_size_Y - sstride_Y, yInt_Y);
-			memcpy(&v0, src0 + c, 16);
-			memcpy(&v1, src1 + c, 16);
-			buf[0] = (v16qu)shuffle(v0, shuf0);
-			buf[1] = (v16qu)shuffle(v1, shuf1);
+			buf[0] = shuffle8(load128(src0 + c), shuf0);
+			buf[1] = shuffle8(load128(src1 + c), shuf1);
 		}
 		sstride_Y = 32;
 		src_Y = ctx->edge_buf + 66;
@@ -1364,7 +1360,7 @@ void FUNC(decode_inter, int i, int w, int h) {
 		if (__builtin_expect((unsigned)xInt_C >= sstride_C - (w >> 1) ||
 			(unsigned)yInt_C - ctx->plane_size_Y >= ctx->plane_size_C - (h >> 1) * sstride_C, 0))
 		{
-			v16qi shuf = {}, v0, v1;
+			i8x16 shuf = {}, v0, v1;
 			memcpy(&shuf, shift_C_8bit + 7 + clip3(-7, 0, xInt_C) + clip3(0, 7, xInt_C + 8 - sstride_C), 8);
 			const uint8_t *src0 = ref + clip3(0, sstride_C - 8, xInt_C);
 			const uint8_t *src1 = ref + clip3(0, sstride_C - 1, xInt_C + 8);
@@ -1374,8 +1370,8 @@ void FUNC(decode_inter, int i, int w, int h) {
 				memcpy(&v0, src0 + cb, 8);
 				memcpy(&v1, src0 + cr, 8);
 				// each line has 2 writes to support 8px strides
-				ctx->edge_buf_l[j * 2 +  84] = ((v2li)shuffle(v0, shuf))[0];
-				ctx->edge_buf_l[j * 2 + 168] = ((v2li)shuffle(v1, shuf))[0];
+				ctx->edge_buf_l[j * 2 +  84] = ((i64x2)shuffle8(v0, shuf))[0];
+				ctx->edge_buf_l[j * 2 + 168] = ((i64x2)shuffle8(v1, shuf))[0];
 				ctx->edge_buf[j * 16 +  680] = *(src1 + cb);
 				ctx->edge_buf[j * 16 + 1352] = *(src1 + cr);
 			}
@@ -1392,17 +1388,17 @@ void FUNC(decode_inter, int i, int w, int h) {
 	int xFrac_C = x & 7;
 	int yFrac_C = y & 7;
 	int mul = 8 - xFrac_C + (xFrac_C << 8);
-	__m128i AB = _mm_set1_epi16(mul * (8 - yFrac_C));
-	__m128i CD = _mm_set1_epi16(mul * yFrac_C);
+	i8x16 AB = set16(mul * (8 - yFrac_C)); // FIXME little endian
+	i8x16 CD = set16(mul * yFrac_C);
 	if (w == 16) {
-		inter8xH_chroma_8bit(h >> 1, dstride_C, dst_Cb, sstride_C, src_Cb, AB, CD, (__m128i)biweights_Cb, (__m128i)bioffsets_Cb, (__m128i)logWD_C);
-		inter8xH_chroma_8bit(h >> 1, dstride_C, dst_Cr, sstride_C, src_Cr, AB, CD, (__m128i)biweights_Cr, (__m128i)bioffsets_Cr, (__m128i)logWD_C);
+		inter8xH_chroma_8bit(h >> 1, dstride_C, dst_Cb, sstride_C, src_Cb, AB, CD, biweights_Cb, bioffsets_Cb, logWD_C);
+		inter8xH_chroma_8bit(h >> 1, dstride_C, dst_Cr, sstride_C, src_Cr, AB, CD, biweights_Cr, bioffsets_Cr, logWD_C);
 	} else if (w == 8) {
-		inter4xH_chroma_8bit(h >> 1, dstride_C, dst_Cb, sstride_C, src_Cb, AB, CD, (__m128i)biweights_Cb, (__m128i)bioffsets_Cb, (__m128i)logWD_C);
-		inter4xH_chroma_8bit(h >> 1, dstride_C, dst_Cr, sstride_C, src_Cr, AB, CD, (__m128i)biweights_Cr, (__m128i)bioffsets_Cr, (__m128i)logWD_C);
+		inter4xH_chroma_8bit(h >> 1, dstride_C, dst_Cb, sstride_C, src_Cb, AB, CD, biweights_Cb, bioffsets_Cb, logWD_C);
+		inter4xH_chroma_8bit(h >> 1, dstride_C, dst_Cr, sstride_C, src_Cr, AB, CD, biweights_Cr, bioffsets_Cr, logWD_C);
 	} else {
-		inter2xH_chroma_8bit(h >> 1, dstride_C, dst_Cb, sstride_C, src_Cb, AB, CD, (__m128i)biweights_Cb, (__m128i)bioffsets_Cb, (__m128i)logWD_C);
-		inter2xH_chroma_8bit(h >> 1, dstride_C, dst_Cr, sstride_C, src_Cr, AB, CD, (__m128i)biweights_Cr, (__m128i)bioffsets_Cr, (__m128i)logWD_C);
+		inter2xH_chroma_8bit(h >> 1, dstride_C, dst_Cb, sstride_C, src_Cb, AB, CD, biweights_Cb, bioffsets_Cb, logWD_C);
+		inter2xH_chroma_8bit(h >> 1, dstride_C, dst_Cr, sstride_C, src_Cr, AB, CD, biweights_Cr, bioffsets_Cr, logWD_C);
 	}
 	
 	// tail jump to luma prediction
@@ -1411,5 +1407,5 @@ void FUNC(decode_inter, int i, int w, int h) {
 	size_t dstride_Y = ctx->stride[0];
 	uint8_t *dst_Y = ctx->samples_mb[0] + y444[i4x4] * dstride_Y + x444[i4x4];
 	luma_fcts[(w == 4 ? 0 : w == 8 ? 16 : 32) + yFrac_Y * 4 + xFrac_Y]
-		(h, dstride_Y, dst_Y, sstride_Y, src_Y, (__m128i)biweights_Y, (__m128i)bioffsets_Y, (__m128i)logWD_Y);
+		(h, dstride_Y, dst_Y, sstride_Y, src_Y, biweights_Y, bioffsets_Y, logWD_Y);
 }

@@ -1,6 +1,7 @@
 /** MAYDO:
  * _ introduce custom intrinsics, with signed/unsigned distinction on ops rather than types
  * _ use -flax-vector-conversions and make a pass to remove casts (starting with "(i") and give more explicit vector types
+ * _ allow compilation of decoding with clang and parsing with GCC
  * _ check that P/B slice cannot start without at least 1 reference
  * _ add a message to play.c if it ends on ERROR or UNSUPPORTED
  * _ make a proper install+usage howto in README.md

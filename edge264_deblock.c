@@ -802,8 +802,8 @@ static noinline void FUNC(deblock_CbCr_8bit, size_t stride, ssize_t nstride, siz
 		i8x16 shuf_e = {13, 13, 13, 13, 13, 13, 13, 13, 14, 14, 14, 14, 14, 14, 14, 14};
 		i8x16 alpha_e = shuffle8(ctx->alpha_v, shuf_e);
 		i8x16 beta_e = shuffle8(ctx->beta_v, shuf_e);
-		i64x2 hY = {*(int64_t *)(Cb0 + nstride * 2), *(int64_t *)(Cr0 + nstride * 2)};
-		i64x2 hZ = {*(int64_t *)(Cb0 + nstride    ), *(int64_t *)(Cr0 + nstride    )};
+		i8x16 hY = (i64x2){*(int64_t *)(Cb0 + nstride * 2), *(int64_t *)(Cr0 + nstride * 2)};
+		i8x16 hZ = (i64x2){*(int64_t *)(Cb0 + nstride    ), *(int64_t *)(Cr0 + nstride    )};
 		if (mbB->f.mbIsInterFlag & mb->f.mbIsInterFlag) {
 			i8x16 tC0e = expand2(ctx->tC0_l + 6);
 			if (ctx->tC0_l[6] != -1)
@@ -811,10 +811,10 @@ static noinline void FUNC(deblock_CbCr_8bit, size_t stride, ssize_t nstride, siz
 		} else {
 			DEBLOCK_CHROMA_HARD(hY, hZ, h0, h1, alpha_e, beta_e);
 		}
-		*(int64_t *)(Cb0 + nstride * 2) = hY[0];
-		*(int64_t *)(Cr0 + nstride * 2) = hY[1];
-		*(int64_t *)(Cb0 + nstride    ) = hZ[0];
-		*(int64_t *)(Cr0 + nstride    ) = hZ[1];
+		*(int64_t *)(Cb0 + nstride * 2) = ((i64x2)hY)[0];
+		*(int64_t *)(Cr0 + nstride * 2) = ((i64x2)hY)[1];
+		*(int64_t *)(Cb0 + nstride    ) = ((i64x2)hZ)[0];
+		*(int64_t *)(Cr0 + nstride    ) = ((i64x2)hZ)[1];
 	}
 	*(int64_t *)(Cb0              ) = ((i64x2)h0)[0];
 	*(int64_t *)(Cr0              ) = ((i64x2)h0)[1];

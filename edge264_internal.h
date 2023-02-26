@@ -419,7 +419,7 @@ static inline void FUNC(decode_inter_16x8_bottom, v8hi mvd, int lx);
 static noinline void FUNC(decode_direct_mv_pred, unsigned direct_mask);
 
 // edge264_residual_*.c
-void FUNC(add_idct4x4, int iYCbCr, int qP, v16qu wS, int DCidx, uint8_t *samples);
+void FUNC(add_idct4x4, int iYCbCr, int qP, i8x16 wS, int DCidx, uint8_t *samples);
 void FUNC(add_dc4x4, int iYCbCr, int DCidx, uint8_t *samples);
 void FUNC(add_idct8x8, int iYCbCr, uint8_t *samples);
 void FUNC(transform_dc4x4, int iYCbCr);
@@ -610,8 +610,11 @@ static noinline int FUNC(parse_slice_data_cabac);
 	#define load32(p) (i32x4)_mm_loadu_si32(p) // no distinction with unaligned for now
 	#define load64(p) (i64x2)_mm_loadu_si64(p) // same
 	#define load128(p) (i8x16)_mm_loadu_si128((__m128i*)(p))
+	#define madd16(a, b) (i32x4)_mm_madd_epi16(a, b)
 	#define maddubs(a, b) (i16x8)_mm_maddubs_epi16(a, b)
 	#define max8(a, b) (i8x16)_mm_max_epi8(a, b)
+	#define max16(a, b) (i16x8)_mm_max_epi16(a, b)
+	#define min16(a, b) (i16x8)_mm_min_epi16(a, b)
 	#define movemask(a) _mm_movemask_epi8(a)
 	#define packs16(a, b) (i8x16)_mm_packs_epi16(a, b)
 	#define packs32(a, b) (i16x8)_mm_packs_epi32(a, b)
@@ -621,8 +624,11 @@ static noinline int FUNC(parse_slice_data_cabac);
 	#define set16(i) (i16x8)_mm_set1_epi16(i)
 	#define set32(i) (i32x4)_mm_set1_epi32(i)
 	#define shl(a, i) (i8x16)_mm_slli_si128(a, i)
+	#define shl16(a, b) (i16x8)_mm_sll_epi16(a, b)
+	#define shl32(a, b) (i32x4)_mm_sll_epi32(a, b)
 	#define shr(a, i) (i8x16)_mm_srli_si128(a, i)
 	#define shr16(a, b) (i16x8)_mm_sra_epi16(a, b)
+	#define shr32(a, b) (i32x4)_mm_sra_epi32(a, b)
 	#define shuffle8(a, m) (i8x16)_mm_shuffle_epi8(a, m) // -1 indices make 0
 	#define shuffle32(a, i, j, k, l) (i32x4)_mm_shuffle_epi32(a, _MM_SHUFFLE(l, k, j, i))
 	#define shufflehi(a, i, j, k, l) (i16x8)_mm_shufflehi_epi16(a, _MM_SHUFFLE(l, k, j, i))
@@ -649,12 +655,14 @@ static noinline int FUNC(parse_slice_data_cabac);
 	#endif
 	#ifdef __SSE4_1__
 		#define cvt8zx16(a) (i16x8)_mm_cvtepu8_epi16(a)
+		#define cvt16zx32(a) (i32x4)_mm_cvtepu16_epi32(a)
 		#define ifelse_mask(v, t, f) (i8x16)_mm_blendv_epi8(f, t, v)
 		#define ifelse_msb(v, t, f) (i8x16)_mm_blendv_epi8(f, t, v)
 		#define load8zx16(p) (i16x8)_mm_cvtepu8_epi16(_mm_loadu_si64(p))
 		#define load8zx32(p) (i32x4)_mm_cvtepu8_epi32(_mm_loadu_si32(p))
 	#else // most macros require a zero variable around
 		#define cvt8zx16(a) (i16x8)_mm_unpacklo_epi8(a, zero)
+		#define cvt16zx32(a) (i32x4)_mm_unpacklo_epi16(a, zero)
 		#define ifelse_mask(v, t, f) ({__m128i _v = (v); (i8x16)_mm_or_si128(_mm_andnot_si128(_v, f), _mm_and_si128(t, _v));})
 		#define ifelse_msb(v, t, f) ({__m128i _v = _mm_cmpgt_epi8(zero, v); (i8x16)_mm_or_si128(_mm_andnot_si128(_v, f), _mm_and_si128(t, _v));})
 		#define load8zx16(p) (i16x8)_mm_unpacklo_epi8(_mm_loadu_si64(p), zero)

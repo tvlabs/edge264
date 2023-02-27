@@ -20,6 +20,9 @@
 
 #include "edge264.h"
 
+#define RESET "\033[0m"
+#define BOLD  "\033[1m"
+
 #ifndef TRACE
 #define printf(...) ((void)0)
 #endif
@@ -27,6 +30,7 @@ static inline int min(int a, int b) { return (a < b) ? a : b; }
 static inline int max(int a, int b) { return (a > b) ? a : b; }
 
 static GLFWwindow *window;
+static int width, height;
 static const uint8_t *cmp;
 static unsigned textures[3];
 
@@ -167,10 +171,8 @@ static int check_frame(const Edge264_stream *e)
 int process_frame(Edge264_stream *e)
 {
 	// resize the window if necessary
-	int w, h;
-	glfwGetWindowSize(window, &w, &h);
-	if (w != e->width_Y || h != e->height_Y) {
-		glfwSetWindowSize(window, e->width_Y, e->height_Y);
+	if (width != e->width_Y || height != e->height_Y) {
+		glfwSetWindowSize(window, width = e->width_Y, height = e->height_Y);
 		glfwShowWindow(window);
 	}
 	
@@ -290,16 +292,21 @@ int main(int argc, char *argv[])
 		"<link rel=stylesheet href=style.css>\n"
 		"</head>\n"
 		"<body>\n");
-	while (1) {
-		int res = Edge264_decode_NAL(s);
+	int res;
+	do {
+		res = Edge264_decode_NAL(s);
 		if (Edge264_get_frame(s, res == -3) >= 0 && !bench)
 			process_frame(s);
 		else if (res == -3)
 			break;
-	}
+	} while (res <= 0);
 	Edge264_free(&s);
 	printf("</body>\n"
 		"</html>\n");
+	if (res == 1 && width == 0)
+		fprintf(stderr, "Decoding ended prematurely on " BOLD "unsupported stream" RESET "\n");
+	if (res == 2 && width == 0)
+		fprintf(stderr, "Decoding ended prematurely on " BOLD "decoding error" RESET "\n");
 	
 	// cleanup everything
 	munmap(cpb, stC.st_size);

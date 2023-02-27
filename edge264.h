@@ -54,67 +54,10 @@ typedef struct Edge264_stream {
 	int16_t frame_crop_bottom_offset;
 } Edge264_stream;
 
-
-/**
- * Scan memory for the next three-byte 00n pattern, returning a pointer to the
- * first following byte (or end if no pattern was found).
- */
 const uint8_t *Edge264_find_start_code(int n, const uint8_t *CPB, const uint8_t *end);
-
-
-/**
- * Allocate a decoding context, and return a pointer to the substructure used
- * to pass and receive parameters (or NULL on insufficient memory).
- */
 Edge264_stream *Edge264_alloc();
-
-
-/**
- * Decode a single NAL unit, for which s->CPB should point to its first byte
- * (containing nal_unit_type). When the NAL is followed by a start code (for
- * annex B streams), s->CPB will be updated to point at the next unit.
- * 
- * Return codes are (negative if no NAL was consumed):
- * -3: end of buffer (s->CPB==s->end, so fetch some new data to proceed)
- * -2: DPB is full (more frames should be consumed before decoding can resume)
- * -1: bad parameter (s is NULL)
- *  0: success
- *  1: unsupported stream (decoding may proceed but could return zero frames)
- *  2: decoding error (decoding may proceed but could show visual artefacts,
- *     if you can validate with another decoder that the stream is correct,
- *     please consider filling a bug report, thanks!)
- */
 int Edge264_decode_NAL(Edge264_stream *s);
-
-
-/**
- * Fetch a decoded frame and store it in s (pass drain=1 to extract all
- * remaining frames at the end of stream).
- * 
- * Return codes are:
- * -2: no frame ready for output
- * -1: bad parameter (s is NULL)
- *  0: success
- * 
- * Example code (single buffer in annex B format):
- *    Edge264_stream *s = Edge264_alloc();
- *    s->CPB = buffer_start + 4;
- *    s->end = buffer_end;
- *    while (1) {
- *       int res = Edge264_decode_NAL(s);
- *       if (Edge264_get_frame(s, res == -3) >= 0) // drain when reaching the end
- *          process_frame(s);
- *       else if (res == -3)
- *          break;
- *    }
- *    Edge264_free(&s);
- */
 int Edge264_get_frame(Edge264_stream *s, int drain);
-
-
-/**
- * Deallocate the decoding context and all its internal structures.
- */
 void Edge264_free(Edge264_stream **s);
 
 #endif

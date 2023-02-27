@@ -35,10 +35,11 @@ Planned features
 * PAFF and MBAFF
 
 
-Compiling
----------
+Compiling and testing
+---------------------
 
 edge264 is built and tested with GNU GCC and LLVM Clang, supports 32/64 bit architectures, and requires 128 bit SIMD support. Processor support is currently limited to Intel x86 or x64 with at least SSSE3. [GLFW3](https://www.glfw.org/) development headers should be installed to compile `edge264_play`. `gcc-9` is recommended since it provides the fastest performance in practice.
+The build process will output an object file (e.g. `edge264-gcc-9.o`), which you may then use to link to your code.
 
 ```sh
 $ make CC=gcc-9 # best performance
@@ -51,6 +52,88 @@ When debugging, the make flag `TRACE=1` enables printing headers to stdout in HT
 ```sh
 $ ./edge264_test-gcc-9
 ```
+
+
+API documentation
+-----------------
+
+Here is a complete example that opens an input file from command line and dumps its decoded frames in planar YUV order to standard output.
+
+```c
+#include <fcntl.h>
+#include <unistd.h>
+#include <sys/mman.h>
+#include <sys/stat.h>
+#include <sys/types.h>
+
+#include "edge264.h"
+
+int main(int argc, char *argv[]) {
+	int f = open(argv[1], O_RDONLY);
+	struct stat st;
+	fstat(f, &st);
+	uint8_t *buf = mmap(NULL, st.st_size, PROT_READ, MAP_SHARED, f, 0);
+	Edge264_stream *s = Edge264_alloc();
+	s->CPB = buf + 3 + (buf[2] == 0);
+	s->end = buf + st.st_size;
+	int res;
+	do {
+		res = Edge264_decode_NAL(s);
+		if (Edge264_get_frame(s, res == -3) >= 0) { // drain remaining frames when at end of buffer
+			for (int y = 0; y < s->height_Y; y++)
+				write(1, s->samples_Y + y * s->stride_Y, s->width_Y);
+			for (int y = 0; y < s->height_C; y++)
+				write(1, s->samples_Cb + y * s->stride_C, s->width_C);
+			for (int y = 0; y < s->height_C; y++)
+				write(1, s->samples_Cr + y * s->stride_C, s->width_C);
+		} else if (res == -3) {
+			break;
+		}
+	} while (res <= 0);
+	Edge264_free(&s);
+	munmap(buf, st.st_size);
+	close(f);
+	return 0;
+}
+```
+
+
+#### `Edge264_stream *Edge264_alloc()`
+
+Allocate and return a decoding context, that is used to pass and receive parameters.
+The private decoding context is actually hidden at negative offsets from the pointer returned.
+
+#### `int Edge264_decode_NAL(Edge264_stream *s)`
+
+Decode a single NAL unit, for which `s->CPB` should point to its first byte (containing `nal_unit_type`) and `s->end` should point to the first byte past the buffer.
+After decoding the NAL, `s->CPB` is automatically advanced past the next start code (for Annex B streams).
+Return codes are:
+
+* **-3** if the function was called while `s->CPB >= s->end`
+* **-2** if the Decoded Picture Buffer is full and `Edge264_get_frame` should be called before proceeding
+* **-1** if the function was called with `s == NULL`
+* **0** on success
+* **1** on unsupported stream (decoding may proceed but could return zero frames)
+* **2** on decoding error (decoding may proceed but could show visual artefacts, if you can check with another decoder that the stream is actually flawless, please consider filling a bug report 🙏)
+
+#### `int Edge264_get_frame(Edge264_stream *s, int drain)`
+
+Check the Decoded Picture Buffer for a pending output frame, and pass it in `s`.
+While H.264 assigns a Picture Order Count to each frame to allow their reordering, a frame is considered ready for output when either (1) it is or precedes a non-reference frame, (2) it precedes a refresh (IDR) frame, (3) it is the next in order while the buffer is full, or (4) it is the next in order while the maximum number of frames held for reordering is reached.
+If `drain` is set then *all* frames will be considered for output, which can help reduce latency if you know that no frame reordering can occur (e.g. for videoconferencing, or at end of stream).
+Return codes are:
+
+* **-2** if there is no frame pending for output
+* **-1** if the function was called with `s == NULL`
+* **0** on success (one frame is returned)
+
+#### `void Edge264_free(Edge264_stream **s)`
+
+Deallocate the entire decoding context, and unset the stream pointer.
+
+#### `const uint8_t *Edge264_find_start_code(int n, const uint8_t *CPB, const uint8_t *end)`
+
+Scan memory for the next three-byte 00n pattern, returning a pointer to the first following byte (or `end` if no pattern was found).
 
 
 Key takeaways

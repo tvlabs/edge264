@@ -1,7 +1,6 @@
 /** MAYDO:
  * _ test all versions of GCC and select it in Makefile if not specified on command line
  * _ check that P/B slice cannot start without at least 1 reference
- * _ move example code and API documentation into README
  * _ add a version function
  * _ add an option to store N more frames, to tolerate lags in process scheduling
  * _ try using epb for context pointer, and email GCC when it fails

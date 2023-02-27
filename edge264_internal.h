@@ -295,12 +295,10 @@ typedef struct
 
 #if SIZE_MAX == 4294967295U
 	#define SIZE_BIT 32
-	#define big_endian big_endian32
 	#define clz clz32
 	#define ctz ctz32
 #elif SIZE_MAX == 18446744073709551615U
 	#define SIZE_BIT 64
-	#define big_endian big_endian64
 	#define clz clz64
 	#define ctz ctz64
 #endif
@@ -353,11 +351,11 @@ typedef struct
 	#define fprintf(...) ((void)0)
 #endif
 
-static inline int min(int a, int b) { return (a < b) ? a : b; }
-static inline int max(int a, int b) { return (a > b) ? a : b; }
-static inline int clip3(int a, int b, int c) { return min(max(c, a), b); }
-static inline unsigned umin(unsigned a, unsigned b) { return (a < b) ? a : b; }
-static inline unsigned umax(unsigned a, unsigned b) { return (a > b) ? a : b; }
+static always_inline int min(int a, int b) { return (a < b) ? a : b; }
+static always_inline int max(int a, int b) { return (a > b) ? a : b; }
+static always_inline int clip3(int a, int b, int c) { return min(max(c, a), b); }
+static always_inline unsigned umin(unsigned a, unsigned b) { return (a < b) ? a : b; }
+static always_inline unsigned umax(unsigned a, unsigned b) { return (a > b) ? a : b; }
 
 // edge264_bitstream.c
 static noinline int FUNC(refill, int ret);
@@ -444,150 +442,22 @@ static noinline int FUNC(parse_slice_data_cabac);
 		printf("%6d ", v[i]);\
 	printf("</td></tr>\n");}
 
-// Intel-specific common function declarations
-#ifdef __SSSE3__
-	#include <x86intrin.h>
-	
-	// instructions available on later architectures
-	#ifndef __AVX_2__
-		#define _mm_broadcastw_epi16(a) _mm_shuffle_epi32(_mm_shufflelo_epi16(a, _MM_SHUFFLE(0, 0, 0, 0)), _MM_SHUFFLE(1, 0, 1, 0))
-		#define _mm_broadcastb_epi8(a) _mm_shuffle_epi8(a, _mm_setzero_si128())
-	#endif
-	#ifndef __SSE4_1__
-		#define _mm_mullo_epi32(a, b) ({\
-			__m128i _c = _mm_shuffle_epi32(a, _MM_SHUFFLE(0, 3, 0, 1));\
-			__m128i _d = _mm_shuffle_epi32(b, _MM_SHUFFLE(0, 3, 0, 1));\
-			__m128i _e = _mm_mul_epu32(a, b);\
-			__m128i _f = _mm_mul_epu32(_c, _d);\
-			__m128 _g = _mm_shuffle_ps((__m128)_e, (__m128)_f, _MM_SHUFFLE(2, 0, 2, 0));\
-			_mm_shuffle_epi32((__m128i)_g, _MM_SHUFFLE(3, 1, 2, 0));})
-		// not strictly equivalent but sufficient for 14bit results
-		#define _mm_packus_epi32(a, b) _mm_max_epi16(_mm_packs_epi32(a, b), _mm_setzero_si128())
-		#define _mm_max_epi8(a, b) ({\
-			__m128i m = _mm_cmpgt_epi8(a, b);\
-			_mm_or_si128(_mm_and_si128(a, m), _mm_and_si128(b, m));})
-	#endif
-	
-	// complements to GCC vector intrinsics
-	#ifdef __BMI2__
-		static inline int mvd_flags2ref_idx(unsigned f) {
-			return _pext_u32(f, 0x11111111);
-		}
-		static inline int extract_neighbours(unsigned f) {
-			return _pext_u32(f, 0x27);
-		}
-	#else
-		static inline int mvd_flags2ref_idx(unsigned f) {
-			int a = f & 0x11111111;
-			int b = a | a >> 3;
-			int c = b | b >> 6;
-			return (c & 0xf) | (c >> 12 & 0xf0);
-		}
-		static inline int extract_neighbours(unsigned f) {
-			return (f & 7) | (f >> 2 & 8);
-		}
-	#endif
-	
-	// fixing a strange bug from GCC
-	#if defined(__GNUC__) && !defined(__clang__)
-		#define _mm_loadu_si32(p) ((__m128i)(i32x4){*(int32_t *)(p)})
-	#endif
-	
-	// custom functions
-	#ifdef __SSE4_1__
-		static always_inline __m128i load8x1_8bit(const uint8_t *p, __m128i zero) {
-			return _mm_cvtepu8_epi16(_mm_loadu_si64(p));
-		}
-		static always_inline __m128i load4x1_8bit(const uint8_t *p, __m128i zero) {
-			return _mm_cvtepu8_epi16(_mm_loadu_si32(p));
-		}
-		// FIXME with cvt 8->32 then pack ?
-		static always_inline __m128i load4x2_8bit(const uint8_t *r0, const uint8_t *r1, __m128i zero) {
-			return _mm_cvtepu8_epi16(_mm_insert_epi32(_mm_loadu_si32(r0), *(int *)r1, 1));
-		}
-		static inline i8x16 min_i8x16(i8x16 a, i8x16 b) {
-			return (i8x16)_mm_min_epi8((__m128i)a, (__m128i)b);
-		}
-		static inline i32x4 min_i32x4(i32x4 a, i32x4 b) {
-			return (i32x4)_mm_min_epi32((__m128i)a, (__m128i)b);
-		}
-	#elif defined __SSSE3__
-		static inline __m128i load8x1_8bit(const uint8_t *p, __m128i zero) {
-			return _mm_unpacklo_epi8(_mm_loadu_si64(p), zero);
-		}
-		static inline __m128i load4x1_8bit(const uint8_t *p, __m128i zero) {
-			return _mm_unpacklo_epi8(_mm_loadu_si32(p), zero);
-		}
-		static inline __m128i load4x2_8bit(const uint8_t *r0, const uint8_t *r1, __m128i zero) {
-			return _mm_unpacklo_epi8(_mm_unpacklo_epi32(_mm_loadu_si32(r0), _mm_loadu_si32(r1)), zero);
-		}
-		static inline i8x16 min_i8x16(i8x16 a, i8x16 b) {
-			return (i8x16)_mm_xor_si128((__m128i)a, _mm_and_si128(_mm_xor_si128((__m128i)a, (__m128i)b), _mm_cmpgt_epi8((__m128i)a, (__m128i)b)));
-		}
-		static inline i32x4 min_i32x4(i32x4 a, i32x4 b) {
-			return (i32x4)_mm_xor_si128((__m128i)a, _mm_and_si128(_mm_xor_si128((__m128i)a, (__m128i)b), _mm_cmpgt_epi32((__m128i)a, (__m128i)b)));
-		}
-	#endif
-	static inline size_t lsd(size_t msb, size_t lsb, unsigned shift) {
-		__asm__("shld %%cl, %1, %0" : "+rm" (msb) : "r" (lsb), "c" (shift));
-		return msb;
-	}
-	static inline i8x16 shuffle(i8x16 a, i8x16 mask) {
-		return (i8x16)_mm_shuffle_epi8((__m128i)a, (__m128i)mask);
-	}
-	static inline i16x8 pack_i32x4(i32x4 a, i32x4 b) {
-		return (i16x8)_mm_packs_epi32((__m128i)a, (__m128i)b);
-	}
-	static inline i8x16 pack_i16x8(i16x8 a, i16x8 b) {
-		return (i8x16)_mm_packs_epi16((__m128i)a, (__m128i)b);
-	}
-	static inline i16x8 median_i16x8(i16x8 a, i16x8 b, i16x8 c) {
-		return (i16x8)_mm_max_epi16(_mm_min_epi16(_mm_max_epi16((__m128i)a,
-			(__m128i)b), (__m128i)c), _mm_min_epi16((__m128i)a, (__m128i)b));
-	}
-	static inline i8x16 pack_absMvd(i16x8 a) {
-		__m128i x = _mm_abs_epi16(_mm_shuffle_epi32((__m128i)a, _MM_SHUFFLE(0, 0, 0, 0)));
-		return (i8x16)_mm_packus_epi16(x, x);
-	}
-	static inline i16x8 mvs_near_zero(i16x8 mvCol) {
-		return (i16x8)_mm_cmpeq_epi32(_mm_srli_epi16(_mm_abs_epi16((__m128i)mvCol), 1), _mm_setzero_si128());
-	}
-	static inline int colZero_mask_to_flags(i16x8 m0, i16x8 m1, i16x8 m2, i16x8 m3) {
-		__m128i x0 = _mm_packs_epi32((__m128i)m0, (__m128i)m1);
-		__m128i x1 = _mm_packs_epi32((__m128i)m2, (__m128i)m3);
-		return _mm_movemask_epi8(_mm_packs_epi16(x0, x1));
-	}
-	static inline int first_true(i16x8 a) {
-		return __builtin_ctz(_mm_movemask_epi8((__m128i)a)) >> 1; // pcmpistri wouldn't help here due to its high latency
-	}
-	static inline i16x8 temporal_scale(i16x8 mvCol, int16_t DistScaleFactor) {
-		__m128i neg = _mm_set1_epi32(-1);
-		__m128i mul = _mm_set1_epi32(DistScaleFactor + 0xff800000u);
-		__m128i lo = _mm_madd_epi16(_mm_unpacklo_epi16((__m128i)mvCol, neg), mul);
-		__m128i hi = _mm_madd_epi16(_mm_unpackhi_epi16((__m128i)mvCol, neg), mul);
-		return (i16x8)_mm_packs_epi32(_mm_srai_epi32(lo, 8), _mm_srai_epi32(hi, 8));
-	}
-	
-#else // add other architectures here
-	#error "Add -mssse3 or more recent"
-#endif
-
-#if !defined(__clang__) && __GNUC__ < 12
-	#define __builtin_shufflevector(a, b, ...) __builtin_shuffle(a, b, (typeof(a)){__VA_ARGS__})
-#endif
-
 
 
 /**
  * These custom vector intrinsics are an attempt to shorten those from Intel,
  * as well as to facilitate the future ARM support by listing all of the
  * instructions actually used.
- * Also to fix an arguably disputable design decision from C, signedness is
- * bound to instructions rather than types, it being closer to how processors
- * work and to spare some bug-inducing implicit promotion rules.
  */
 #ifdef __SSSE3__
 	#include <x86intrin.h>
+	
+	// fixing a strange bug from GCC
+	#if !defined(__clang__) && __GNUC__ < 12
+		#define _mm_loadu_si32(p) ((i32x4){*(int32_t *)(p)})
+	#endif
+	
+	// basic shortened intrinsics
 	#define abs8(a) (i8x16)_mm_abs_epi8(a)
 	#define adds16(a, b) (i16x8)_mm_adds_epi16(a, b)
 	#define addus8(a, b) (i8x16)_mm_adds_epu8(a, b)
@@ -602,7 +472,9 @@ static noinline int FUNC(parse_slice_data_cabac);
 	#define maddubs(a, b) (i16x8)_mm_maddubs_epi16(a, b)
 	#define max8(a, b) (i8x16)_mm_max_epi8(a, b)
 	#define max16(a, b) (i16x8)_mm_max_epi16(a, b)
+	#define min8(a, b) (i8x16)_mm_min_epi8(a, b)
 	#define min16(a, b) (i16x8)_mm_min_epi16(a, b)
+	#define min32(a, b) (i32x4)_mm_min_epi32(a, b)
 	#define movemask(a) _mm_movemask_epi8(a)
 	#define packs16(a, b) (i8x16)_mm_packs_epi16(a, b)
 	#define packs32(a, b) (i16x8)_mm_packs_epi32(a, b)
@@ -656,6 +528,55 @@ static noinline int FUNC(parse_slice_data_cabac);
 		#define load8zx16(p) (i16x8)_mm_unpacklo_epi8(_mm_loadu_si64(p), zero)
 		#define load8zx32(p) (i32x4)_mm_unpacklo_epi8(_mm_unpacklo_epi8(_mm_loadu_si32(p), zero), zero)
 	#endif
+	
+	// hardware accelerated helper functions
+	static always_inline int colZero_mask_to_flags(i16x8 m0, i16x8 m1, i16x8 m2, i16x8 m3) {
+		return movemask(packs16(packs32(m0, m1), packs32(m2, m3)));
+	}
+	static always_inline int first_true(i16x8 a) {
+		return __builtin_ctz(movemask(a)) >> 1; // pcmpistri wouldn't help here due to its high latency
+	}
+	static always_inline size_t lsd(size_t msb, size_t lsb, unsigned shift) {
+		__asm__("shld %%cl, %1, %0" : "+rm" (msb) : "r" (lsb), "c" (shift));
+		return msb;
+	}
+	static always_inline i16x8 median16(i16x8 a, i16x8 b, i16x8 c) {
+		return max16(min16(max16(a, b), c), min16(a, b));
+	}
+	static always_inline i16x8 mvs_near_zero(i16x8 mvCol, i32x4 zero) {
+		return (i32x4)((u16x8)_mm_abs_epi16(mvCol) >> 1) == zero;
+	}
+	static always_inline i8x16 pack_absMvd(i16x8 a) {
+		i16x8 x = _mm_abs_epi16(shuffle32(a, 0, 0, 0, 0));
+		return packus16(x, x);
+	}
+	static always_inline i16x8 temporal_scale(i16x8 mvCol, int16_t DistScaleFactor) {
+		i32x4 neg = set32(-1);
+		i32x4 mul = set32(DistScaleFactor + 0xff800000u);
+		i32x4 lo = madd16(unpacklo16(mvCol, neg), mul);
+		i32x4 hi = madd16(unpackhi16(mvCol, neg), mul);
+		return packs32(lo >> 8, hi >> 8);
+	}
+	#ifdef __BMI2__
+		static always_inline int extract_neighbours(unsigned f) { return _pext_u32(f, 0x27); }
+		static always_inline int mvd_flags2ref_idx(unsigned f) { return _pext_u32(f, 0x11111111); }
+	#else
+		static always_inline int extract_neighbours(unsigned f) {
+			return (f & 7) | (f >> 2 & 8);
+		}
+		static always_inline int mvd_flags2ref_idx(unsigned f) {
+			int a = f & 0x11111111;
+			int b = a | a >> 3;
+			int c = b | b >> 6;
+			return (c & 0xf) | (c >> 12 & 0xf0);
+		}
+	#endif
+#else // add other architectures here
+	#error "Add -mssse3 or more recent"
+#endif
+
+#if !defined(__clang__) && __GNUC__ < 12
+	#define __builtin_shufflevector(a, b, ...) __builtin_shuffle(a, b, (typeof(a)){__VA_ARGS__})
 #endif
 
 

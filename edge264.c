@@ -1,7 +1,4 @@
 /** MAYDO:
- * _ review all __builtin_shufflevector to remove zeros if possible
- * _ introduce custom intrinsics, with signed/unsigned distinction on ops rather than types
- * _ use -flax-vector-conversions and make a pass to remove casts (starting with "(i") and give more explicit vector types
  * _ allow compilation of decoding with clang and parsing with GCC
  * _ check that P/B slice cannot start without at least 1 reference
  * _ add a message to play.c if it ends on ERROR or UNSUPPORTED
@@ -123,23 +120,23 @@ static void FUNC(initialise_decoding_context)
 				union { int16_t h[32]; i16x8 v[4]; } diff;
 				union { int8_t q[32]; i8x16 v[2]; } tb, td;
 				i32x4 poc = {ctx->PicOrderCnt, ctx->PicOrderCnt, ctx->PicOrderCnt, ctx->PicOrderCnt};
-				diff.v[0] = pack_i32x4(poc - min_i32x4(ctx->FieldOrderCnt_v[0][0], ctx->FieldOrderCnt_v[1][0]),
-				                      poc - min_i32x4(ctx->FieldOrderCnt_v[0][1], ctx->FieldOrderCnt_v[1][1]));
-				diff.v[1] = pack_i32x4(poc - min_i32x4(ctx->FieldOrderCnt_v[0][2], ctx->FieldOrderCnt_v[1][2]),
-				                      poc - min_i32x4(ctx->FieldOrderCnt_v[0][3], ctx->FieldOrderCnt_v[1][3]));
-				diff.v[2] = pack_i32x4(poc - min_i32x4(ctx->FieldOrderCnt_v[0][4], ctx->FieldOrderCnt_v[1][4]),
-				                      poc - min_i32x4(ctx->FieldOrderCnt_v[0][5], ctx->FieldOrderCnt_v[1][5]));
-				diff.v[3] = pack_i32x4(poc - min_i32x4(ctx->FieldOrderCnt_v[0][6], ctx->FieldOrderCnt_v[1][6]),
-				                      poc - min_i32x4(ctx->FieldOrderCnt_v[0][7], ctx->FieldOrderCnt_v[1][7]));
-				tb.v[0] = pack_i16x8(diff.v[0], diff.v[1]);
-				tb.v[1] = pack_i16x8(diff.v[2], diff.v[3]);
+				diff.v[0] = packs32(poc - min32(ctx->FieldOrderCnt_v[0][0], ctx->FieldOrderCnt_v[1][0]),
+				                    poc - min32(ctx->FieldOrderCnt_v[0][1], ctx->FieldOrderCnt_v[1][1]));
+				diff.v[1] = packs32(poc - min32(ctx->FieldOrderCnt_v[0][2], ctx->FieldOrderCnt_v[1][2]),
+				                    poc - min32(ctx->FieldOrderCnt_v[0][3], ctx->FieldOrderCnt_v[1][3]));
+				diff.v[2] = packs32(poc - min32(ctx->FieldOrderCnt_v[0][4], ctx->FieldOrderCnt_v[1][4]),
+				                    poc - min32(ctx->FieldOrderCnt_v[0][5], ctx->FieldOrderCnt_v[1][5]));
+				diff.v[3] = packs32(poc - min32(ctx->FieldOrderCnt_v[0][6], ctx->FieldOrderCnt_v[1][6]),
+				                    poc - min32(ctx->FieldOrderCnt_v[0][7], ctx->FieldOrderCnt_v[1][7]));
+				tb.v[0] = packs16(diff.v[0], diff.v[1]);
+				tb.v[1] = packs16(diff.v[2], diff.v[3]);
 				ctx->MapPicToList0_v[0] = ctx->MapPicToList0_v[1] = (i8x16){}; // pictures not found in RefPicList0 will point to 0 by default
 				for (int refIdxL0 = ctx->ps.num_ref_idx_active[0], DistScaleFactor; refIdxL0-- > 0; ) {
 					int pic0 = ctx->RefPicList[0][refIdxL0];
 					ctx->MapPicToList0[pic0] = refIdxL0;
 					i16x8 diff0 = {diff.h[pic0], diff.h[pic0], diff.h[pic0], diff.h[pic0], diff.h[pic0], diff.h[pic0], diff.h[pic0], diff.h[pic0]};
-					td.v[0] = pack_i16x8(diff0 - diff.v[0], diff0 - diff.v[1]);
-					td.v[1] = pack_i16x8(diff0 - diff.v[2], diff0 - diff.v[3]);
+					td.v[0] = packs16(diff0 - diff.v[0], diff0 - diff.v[1]);
+					td.v[1] = packs16(diff0 - diff.v[2], diff0 - diff.v[3]);
 					for (int refIdxL1 = rangeL1, implicit_weight; refIdxL1-- > 0; ) {
 						int pic1 = ctx->RefPicList[1][refIdxL1];
 						if (td.q[pic1] != 0 && !(ctx->long_term_flags & 1 << pic0)) {
@@ -437,8 +434,8 @@ static void FUNC(parse_ref_pic_list_modification)
 	}
 	
 	// fill all uninitialized references with ref 0 in case num_ref_idx_active is too high
-	i8x16 ref0l0 = shuffle(ctx->RefPicList_v[0], (i8x16){});
-	i8x16 ref0l1 = shuffle(ctx->RefPicList_v[2], (i8x16){});
+	i8x16 ref0l0 = shuffle8(ctx->RefPicList_v[0], (i8x16){});
+	i8x16 ref0l1 = shuffle8(ctx->RefPicList_v[2], (i8x16){});
 	ctx->RefPicList_v[0] = ifelse_msb(ctx->RefPicList_v[0], ref0l0, ctx->RefPicList_v[0]);
 	ctx->RefPicList_v[1] = ifelse_msb(ctx->RefPicList_v[1], ref0l0, ctx->RefPicList_v[1]);
 	ctx->RefPicList_v[2] = ifelse_msb(ctx->RefPicList_v[2], ref0l1, ctx->RefPicList_v[2]);

@@ -1008,16 +1008,16 @@ static inline void CAFUNC(parse_ref_idx, unsigned f) {
 	// clip and broadcast the values
 	i8x16 refIdx_v = (i64x2){mb->refIdx_l};
 	#ifdef CABAC
-		refIdx_v = min_i8x16(refIdx_v, (i64x2){(int64_t)ctx->clip_ref_idx_v});
+		refIdx_v = min8(refIdx_v, (i64x2){(int64_t)ctx->clip_ref_idx_v});
 	#endif
 	if (!(f & 0x122)) { // 16xN
-		refIdx_v = shuffle(refIdx_v, (i8x16){0, 0, 2, 2, 4, 4, 6, 6, -1, -1, -1, -1, -1, -1, -1, -1});
+		refIdx_v = shuffle8(refIdx_v, ((i8x16){0, 0, 2, 2, 4, 4, 6, 6, -1, -1, -1, -1, -1, -1, -1, -1}));
 		#ifdef CABAC
 			mb->bits[0] |= (mb->bits[0] >> 2 & 0x080800) | (mb->bits[0] << 5 & 0x808000);
 		#endif
 	}
 	if (!(f & 0x144)) { // Nx16
-		refIdx_v = shuffle(refIdx_v, (i8x16){0, 1, 0, 1, 4, 5, 4, 5, -1, -1, -1, -1, -1, -1, -1, -1});
+		refIdx_v = shuffle8(refIdx_v, ((i8x16){0, 1, 0, 1, 4, 5, 4, 5, -1, -1, -1, -1, -1, -1, -1, -1}));
 		#ifdef CABAC
 			mb->bits[0] |= (mb->bits[0] >> 3 & 0x040400) | (mb->bits[0] << 4 & 0x808000);
 		#endif
@@ -1026,8 +1026,8 @@ static inline void CAFUNC(parse_ref_idx, unsigned f) {
 	fprintf(stderr, "ref_idx: %d %d %d %d %d %d %d %d\n", mb->refIdx[0], mb->refIdx[1], mb->refIdx[2], mb->refIdx[3], mb->refIdx[4], mb->refIdx[5], mb->refIdx[6], mb->refIdx[7]);
 	
 	// compute reference picture numbers
-	mb->refPic_s[0] = ((i32x4)ifelse_msb(refIdx_v, refIdx_v, shuffle(ctx->RefPicList_v[0], refIdx_v)))[0];
-	mb->refPic_s[1] = ((i32x4)ifelse_msb(refIdx_v, refIdx_v, shuffle(ctx->RefPicList_v[2], refIdx_v)))[1];
+	mb->refPic_s[0] = ((i32x4)ifelse_msb(refIdx_v, refIdx_v, shuffle8(ctx->RefPicList_v[0], refIdx_v)))[0];
+	mb->refPic_s[1] = ((i32x4)ifelse_msb(refIdx_v, refIdx_v, shuffle8(ctx->RefPicList_v[2], refIdx_v)))[1];
 }
 
 
@@ -1131,8 +1131,8 @@ static void CAFUNC(parse_B_sub_mb) {
 	i8x16 A1 = __builtin_shufflevector(BCAr1, BCAr1, 9, 12, 9, 12, 12, 13, 12, 13, 11, 14, 11, 14, 14, 15, 14, 15);
 	i8x16 B0 = __builtin_shufflevector(BCAr0, BCAr0, 2, 2, 12, 12, 3, 3, 13, 13, 12, 12, 14, 14, 13, 13, 15, 15);
 	i8x16 B1 = __builtin_shufflevector(BCAr1, BCAr1, 2, 2, 12, 12, 3, 3, 13, 13, 12, 12, 14, 14, 13, 13, 15, 15);
-	i8x16 C0 = shuffle(BCAr0, ctx->refIdx4x4_C_v);
-	i8x16 C1 = shuffle(BCAr1, ctx->refIdx4x4_C_v);
+	i8x16 C0 = shuffle8(BCAr0, ctx->refIdx4x4_C_v);
+	i8x16 C1 = shuffle8(BCAr1, ctx->refIdx4x4_C_v);
 	i8x16 D0 = __builtin_shufflevector(BCAr0, BCAr0, -1, 2, 9, 12, 2, 3, 12, 13, 9, 12, 11, 14, 12, 13, 14, 15);
 	i8x16 D1 = __builtin_shufflevector(BCAr1, BCAr1, -1, 2, 9, 12, 2, 3, 12, 13, 9, 12, 11, 14, 12, 13, 14, 15);
 	D0[0] = mbB->refIdx[3];
@@ -1160,7 +1160,7 @@ static void CAFUNC(parse_B_sub_mb) {
 			i16x8 mvA = (i32x4){mvs_p[ctx->mvs_A[i4x4]]};
 			i16x8 mvB = (i32x4){mvs_p[ctx->mvs_B[i4x4]]};
 			i16x8 mvDC = (i32x4){mvs_p[mvs_DC]};
-			mvp = median_i16x8(mvA, mvB, mvDC);
+			mvp = median16(mvA, mvB, mvDC);
 		} else {
 			int mvs_AB = eq & 1 ? ctx->mvs_A[i4x4] : ctx->mvs_B[i4x4];
 			mvp = (i32x4){mvs_p[eq & 4 ? mvs_DC : mvs_AB]};
@@ -1176,8 +1176,9 @@ static void CAFUNC(parse_B_sub_mb) {
 		i16x8 bits = {1, 2, 4, 8};
 		i16x8 absMvd_mask = ((i16x8){m, m, m, m, m, m, m, m} & bits) == bits;
 		i16x8 absMvd_old = (i64x2){mb->absMvd_l[i8x8]};
-		i16x8 mvs_mask = __builtin_shufflevector(absMvd_mask, (i16x8){}, 0, 0, 1, 1, 2, 2, 3, 3);
-		i16x8 mvs = __builtin_shufflevector((i32x4)(mvp + mvd), (i32x4){}, 0, 0, 0, 0);
+		i16x8 mvs_mask = __builtin_shufflevector(absMvd_mask, absMvd_mask, 0, 0, 1, 1, 2, 2, 3, 3);
+		i32x4 mv = mvp + mvd;
+		i16x8 mvs = __builtin_shufflevector(mv, mv, 0, 0, 0, 0);
 		mb->absMvd_l[i8x8] = ((i64x2)ifelse_mask(absMvd_mask, pack_absMvd(mvd), absMvd_old))[0];
 		mb->mvs_v[i8x8] = ifelse_mask(mvs_mask, mvs, mb->mvs_v[i8x8]);
 		CALL(decode_inter, i, widths[type], heights[type]);
@@ -1403,7 +1404,7 @@ static void CAFUNC(parse_P_sub_mb, unsigned ref_idx_flags)
 	i8x16 r0 = __builtin_shufflevector(BCAr0, BCAr0, 12, 12, 12, 12, 13, 13, 13, 13, 14, 14, 14, 14, 15, 15, 15, 15);
 	i8x16 A0 = __builtin_shufflevector(BCAr0, BCAr0, 9, 12, 9, 12, 12, 13, 12, 13, 11, 14, 11, 14, 14, 15, 14, 15);
 	i8x16 B0 = __builtin_shufflevector(BCAr0, BCAr0, 2, 2, 12, 12, 3, 3, 13, 13, 12, 12, 14, 14, 13, 13, 15, 15);
-	i8x16 C0 = shuffle(BCAr0, ctx->refIdx4x4_C_v);
+	i8x16 C0 = shuffle8(BCAr0, ctx->refIdx4x4_C_v);
 	i8x16 D0 = __builtin_shufflevector(BCAr0, BCAr0, -1, 2, 9, 12, 2, 3, 12, 13, 9, 12, 11, 14, 12, 13, 14, 15);
 	D0[0] = mbB->refIdx[3];
 	
@@ -1425,7 +1426,7 @@ static void CAFUNC(parse_P_sub_mb, unsigned ref_idx_flags)
 			i16x8 mvA = (i32x4){*(mb->mvs_s + ctx->mvs_A[i])};
 			i16x8 mvB = (i32x4){*(mb->mvs_s + ctx->mvs_B[i])};
 			i16x8 mvDC = (i32x4){*(mb->mvs_s + mvs_DC)};
-			mvp = median_i16x8(mvA, mvB, mvDC);
+			mvp = median16(mvA, mvB, mvDC);
 		} else {
 			int mvs_AB = eq & 1 ? ctx->mvs_A[i] : ctx->mvs_B[i];
 			mvp = (i32x4){*(mb->mvs_s + (eq & 4 ? mvs_DC : mvs_AB))};
@@ -1441,8 +1442,9 @@ static void CAFUNC(parse_P_sub_mb, unsigned ref_idx_flags)
 		i16x8 bits = {1, 2, 4, 8};
 		i16x8 absMvd_mask = ((i16x8){m, m, m, m, m, m, m, m} & bits) == bits;
 		i16x8 absMvd_old = (i64x2){mb->absMvd_l[i8x8]};
-		i16x8 mvs_mask = __builtin_shufflevector(absMvd_mask, (i16x8){}, 0, 0, 1, 1, 2, 2, 3, 3);
-		i16x8 mvs = __builtin_shufflevector((i32x4)(mvp + mvd), (i32x4){}, 0, 0, 0, 0);
+		i16x8 mvs_mask = __builtin_shufflevector(absMvd_mask, absMvd_mask, 0, 0, 1, 1, 2, 2, 3, 3);
+		i32x4 mv = mvp + mvd;
+		i16x8 mvs = __builtin_shufflevector(mv, mv, 0, 0, 0, 0);
 		mb->absMvd_l[i8x8] = ((i64x2)ifelse_mask(absMvd_mask, pack_absMvd(mvd), absMvd_old))[0];
 		mb->mvs_v[i8x8] = ifelse_mask(mvs_mask, mvs, mb->mvs_v[i8x8]);
 		CALL(decode_inter, i, widths[type], heights[type]);
@@ -1501,12 +1503,12 @@ static inline void CAFUNC(parse_P_mb)
 		#endif
 		mb->inter_eqs_s = little_endian32(0x1b5fbbff);
 		i8x16 refIdx_v = (i64x2){mb->refIdx_l};
-		mb->refPic_l = ((i64x2)(shuffle(ctx->RefPicList_v[0], refIdx_v) | refIdx_v))[0];
+		mb->refPic_l = ((i64x2)(shuffle8(ctx->RefPicList_v[0], refIdx_v) | refIdx_v))[0];
 		int refIdxA = mb[-1].refIdx[1];
 		int refIdxB = mbB->refIdx[2];
 		int mvA = *(mb->mvs_s + ctx->mvs_A[0]);
 		int mvB = *(mb->mvs_s + ctx->mvs_B[0]);
-		i16x8 mv = {};
+		i32x4 mv = {};
 		if ((refIdxA | mvA) && (refIdxB | mvB) && !(ctx->unavail16x16 & 3)) {
 			int refIdxC, mvs_C;
 			if (__builtin_expect(ctx->unavail16x16 & 4, 0)) {
@@ -1519,14 +1521,14 @@ static inline void CAFUNC(parse_P_mb)
 			// B/C unavailability (->A) was ruled out, thus not tested here
 			int eq = !refIdxA + !refIdxB * 2 + !refIdxC * 4;
 			if (__builtin_expect(0xe9 >> eq & 1, 1)) {
-				mv = median_i16x8((i32x4){mvA}, (i32x4){mvB}, (i32x4){*(mb->mvs_s + mvs_C)});
+				mv = median16((i32x4){mvA}, (i32x4){mvB}, (i32x4){*(mb->mvs_s + mvs_C)});
 			} else if (eq == 4) {
 				mv = (i32x4){*(mb->mvs_s + mvs_C)};
 			} else {
 				mv = (i32x4){(eq == 1) ? mvA : mvB};
 			}
 		}
-		i16x8 mvs = __builtin_shufflevector((i32x4)mv, (i32x4){}, 0, 0, 0, 0);
+		i16x8 mvs = __builtin_shufflevector(mv, mv, 0, 0, 0, 0);
 		mb->mvs_v[0] = mb->mvs_v[1] = mb->mvs_v[2] = mb->mvs_v[3] = mvs;
 		mb->mvs_v[4] = mb->mvs_v[5] = mb->mvs_v[6] = mb->mvs_v[7] = (i16x8){};
 		#ifdef CABAC

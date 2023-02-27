@@ -133,7 +133,7 @@ void _decode_intra4x4(int mode, uint8_t *px1, size_t stride, ssize_t nstride, i1
 		i16x8 x6 = cvt8zx16(alignr(x0, x5, 12));
 		i16x8 x7 = shr(x6, 2);
 		i8x16 x8 = packus16(avg16(x6, x7), lowpass16(x6, x7, shuffle32(x6, 1, 2, 3, 3)));
-		i32x4 pred = shuffle(x8, ((i8x16){3, 11, 12, 13, 2, 10, 3, 11, 1, 9, 2, 10, 0, 8, 1, 9}));
+		i32x4 pred = shuffle8(x8, ((i8x16){3, 11, 12, 13, 2, 10, 3, 11, 1, 9, 2, 10, 0, 8, 1, 9}));
 		*(int32_t *)(px1 + nstride    ) = pred[0];
 		*(int32_t *)(px1              ) = pred[1];
 		*(int32_t *)(px1 +  stride    ) = pred[2];

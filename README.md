@@ -38,10 +38,10 @@ Planned features
 Compiling
 ---------
 
-edge264 is built and tested with GNU GCC and LLVM Clang, supports 32/64 bit architectures, and requires 128 bit SIMD support. Processor support is currently limited to Intel x86 or x64 with at least SSSE3. [GLFW3](https://www.glfw.org/) development headers should be installed to compile `edge264_play`. `gcc-9` is selected by default since it provides the fastest performance in practice.
+edge264 is built and tested with GNU GCC and LLVM Clang, supports 32/64 bit architectures, and requires 128 bit SIMD support. Processor support is currently limited to Intel x86 or x64 with at least SSSE3. [GLFW3](https://www.glfw.org/) development headers should be installed to compile `edge264_play`. `gcc-9` is recommended since it provides the fastest performance in practice.
 
 ```sh
-$ make # add CC=clang to use clang instead
+$ make CC=gcc-9 # best performance
 $ ffmpeg -i video.mp4 -vcodec copy -bsf h264_mp4toannexb -an video.264 # optional, converts from MP4 format
 $ ./edge264_play-gcc-9 video.264 # add -b to benchmark without display
 ```

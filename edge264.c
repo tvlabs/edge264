@@ -1,6 +1,5 @@
 /** MAYDO:
  * _ test all versions of GCC and select it in Makefile if not specified on command line
- * _ fix crash with gcc (all versions) and -O0
  * _ check that P/B slice cannot start without at least 1 reference
  * _ add a message to play.c if it ends on ERROR or UNSUPPORTED
  * _ add a version function
@@ -1556,9 +1555,9 @@ int Edge264_decode_NAL(Edge264_stream *s)
 	// initial checks before parsing
 	if (s == NULL)
 		return -1;
-	SET_CTX((void *)s - offsetof(Edge264_ctx, s));
-	if (ctx->s.CPB >= ctx->s.end)
+	if (s->CPB >= s->end)
 		return -3;
+	SET_CTX((void *)s - offsetof(Edge264_ctx, s));
 	int nal_ref_idc = *ctx->s.CPB >> 5;
 	int nal_unit_type = *ctx->s.CPB & 0x1f;
 	printf("<table>\n"

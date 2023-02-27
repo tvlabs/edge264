@@ -1,4 +1,5 @@
 /** MAYDO:
+ * _ review all __builtin_shufflevector to remove zeros if possible
  * _ introduce custom intrinsics, with signed/unsigned distinction on ops rather than types
  * _ use -flax-vector-conversions and make a pass to remove casts (starting with "(i") and give more explicit vector types
  * _ allow compilation of decoding with clang and parsing with GCC
@@ -47,17 +48,17 @@
 /**
  * Default scaling matrices (tables 7-3 and 7-4).
  */
-static const v16qu Default_4x4_Intra =
+static const i8x16 Default_4x4_Intra =
 	{6, 13, 20, 28, 13, 20, 28, 32, 20, 28, 32, 37, 28, 32, 37, 42};
-static const v16qu Default_4x4_Inter =
+static const i8x16 Default_4x4_Inter =
 	{10, 14, 20, 24, 14, 20, 24, 27, 20, 24, 27, 30, 24, 27, 30, 34};
-static const v16qu Default_8x8_Intra[4] = {
+static const i8x16 Default_8x8_Intra[4] = {
 	{ 6, 10, 13, 16, 18, 23, 25, 27, 10, 11, 16, 18, 23, 25, 27, 29},
 	{13, 16, 18, 23, 25, 27, 29, 31, 16, 18, 23, 25, 27, 29, 31, 33},
 	{18, 23, 25, 27, 29, 31, 33, 36, 23, 25, 27, 29, 31, 33, 36, 38},
 	{25, 27, 29, 31, 33, 36, 38, 40, 27, 29, 31, 33, 36, 38, 40, 42},
 };
-static const v16qu Default_8x8_Inter[4] = {
+static const i8x16 Default_8x8_Inter[4] = {
 	{ 9, 13, 15, 17, 19, 21, 22, 24, 13, 13, 17, 19, 21, 22, 24, 25},
 	{15, 17, 19, 21, 22, 24, 25, 27, 17, 19, 21, 22, 24, 25, 27, 28},
 	{19, 21, 22, 24, 25, 27, 28, 30, 21, 22, 24, 25, 27, 28, 30, 32},
@@ -108,7 +109,7 @@ static void FUNC(initialise_decoding_context)
 		ctx->transform_8x8_mode_flag = ctx->ps.transform_8x8_mode_flag; // for P slices this value is constant
 		int max0 = ctx->ps.num_ref_idx_active[0] - 1;
 		int max1 = ctx->slice_type == 0 ? -1 : ctx->ps.num_ref_idx_active[1] - 1;
-		ctx->clip_ref_idx_v = (v8qi){max0, max0, max0, max0, max1, max1, max1, max1};
+		ctx->clip_ref_idx_v = (i8x8){max0, max0, max0, max0, max1, max1, max1, max1};
 		
 		// B slices
 		if (ctx->slice_type == 1) {
@@ -119,26 +120,26 @@ static void FUNC(initialise_decoding_context)
 			// initializations for temporal prediction and implicit weights
 			int rangeL1 = ctx->ps.num_ref_idx_active[1];
 			if (ctx->ps.weighted_bipred_idc == 2 || (rangeL1 = 1, !ctx->direct_spatial_mv_pred_flag)) {
-				union { int16_t h[32]; v8hi v[4]; } diff;
-				union { int8_t q[32]; v16qi v[2]; } tb, td;
-				v4si poc = {ctx->PicOrderCnt, ctx->PicOrderCnt, ctx->PicOrderCnt, ctx->PicOrderCnt};
-				diff.v[0] = pack_v4si(poc - min_v4si(ctx->FieldOrderCnt_v[0][0], ctx->FieldOrderCnt_v[1][0]),
-				                      poc - min_v4si(ctx->FieldOrderCnt_v[0][1], ctx->FieldOrderCnt_v[1][1]));
-				diff.v[1] = pack_v4si(poc - min_v4si(ctx->FieldOrderCnt_v[0][2], ctx->FieldOrderCnt_v[1][2]),
-				                      poc - min_v4si(ctx->FieldOrderCnt_v[0][3], ctx->FieldOrderCnt_v[1][3]));
-				diff.v[2] = pack_v4si(poc - min_v4si(ctx->FieldOrderCnt_v[0][4], ctx->FieldOrderCnt_v[1][4]),
-				                      poc - min_v4si(ctx->FieldOrderCnt_v[0][5], ctx->FieldOrderCnt_v[1][5]));
-				diff.v[3] = pack_v4si(poc - min_v4si(ctx->FieldOrderCnt_v[0][6], ctx->FieldOrderCnt_v[1][6]),
-				                      poc - min_v4si(ctx->FieldOrderCnt_v[0][7], ctx->FieldOrderCnt_v[1][7]));
-				tb.v[0] = pack_v8hi(diff.v[0], diff.v[1]);
-				tb.v[1] = pack_v8hi(diff.v[2], diff.v[3]);
-				ctx->MapPicToList0_v[0] = ctx->MapPicToList0_v[1] = (v16qi){}; // pictures not found in RefPicList0 will point to 0 by default
+				union { int16_t h[32]; i16x8 v[4]; } diff;
+				union { int8_t q[32]; i8x16 v[2]; } tb, td;
+				i32x4 poc = {ctx->PicOrderCnt, ctx->PicOrderCnt, ctx->PicOrderCnt, ctx->PicOrderCnt};
+				diff.v[0] = pack_i32x4(poc - min_i32x4(ctx->FieldOrderCnt_v[0][0], ctx->FieldOrderCnt_v[1][0]),
+				                      poc - min_i32x4(ctx->FieldOrderCnt_v[0][1], ctx->FieldOrderCnt_v[1][1]));
+				diff.v[1] = pack_i32x4(poc - min_i32x4(ctx->FieldOrderCnt_v[0][2], ctx->FieldOrderCnt_v[1][2]),
+				                      poc - min_i32x4(ctx->FieldOrderCnt_v[0][3], ctx->FieldOrderCnt_v[1][3]));
+				diff.v[2] = pack_i32x4(poc - min_i32x4(ctx->FieldOrderCnt_v[0][4], ctx->FieldOrderCnt_v[1][4]),
+				                      poc - min_i32x4(ctx->FieldOrderCnt_v[0][5], ctx->FieldOrderCnt_v[1][5]));
+				diff.v[3] = pack_i32x4(poc - min_i32x4(ctx->FieldOrderCnt_v[0][6], ctx->FieldOrderCnt_v[1][6]),
+				                      poc - min_i32x4(ctx->FieldOrderCnt_v[0][7], ctx->FieldOrderCnt_v[1][7]));
+				tb.v[0] = pack_i16x8(diff.v[0], diff.v[1]);
+				tb.v[1] = pack_i16x8(diff.v[2], diff.v[3]);
+				ctx->MapPicToList0_v[0] = ctx->MapPicToList0_v[1] = (i8x16){}; // pictures not found in RefPicList0 will point to 0 by default
 				for (int refIdxL0 = ctx->ps.num_ref_idx_active[0], DistScaleFactor; refIdxL0-- > 0; ) {
 					int pic0 = ctx->RefPicList[0][refIdxL0];
 					ctx->MapPicToList0[pic0] = refIdxL0;
-					v8hi diff0 = {diff.h[pic0], diff.h[pic0], diff.h[pic0], diff.h[pic0], diff.h[pic0], diff.h[pic0], diff.h[pic0], diff.h[pic0]};
-					td.v[0] = pack_v8hi(diff0 - diff.v[0], diff0 - diff.v[1]);
-					td.v[1] = pack_v8hi(diff0 - diff.v[2], diff0 - diff.v[3]);
+					i16x8 diff0 = {diff.h[pic0], diff.h[pic0], diff.h[pic0], diff.h[pic0], diff.h[pic0], diff.h[pic0], diff.h[pic0], diff.h[pic0]};
+					td.v[0] = pack_i16x8(diff0 - diff.v[0], diff0 - diff.v[1]);
+					td.v[1] = pack_i16x8(diff0 - diff.v[2], diff0 - diff.v[3]);
 					for (int refIdxL1 = rangeL1, implicit_weight; refIdxL1-- > 0; ) {
 						int pic1 = ctx->RefPicList[1][refIdxL1];
 						if (td.q[pic1] != 0 && !(ctx->long_term_flags & 1 << pic0)) {
@@ -327,7 +328,7 @@ static void FUNC(parse_ref_pic_list_modification)
 	int count[3] = {0, 0, 0}; // number of refs before/after/long
 	int size = 0;
 	ctx->RefPicList_v[0] = ctx->RefPicList_v[1] = ctx->RefPicList_v[2] = ctx->RefPicList_v[3] =
-		(v16qi){-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1};
+		(i8x16){-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1};
 	
 	// sort all short and long term references for RefPicListL0
 	for (unsigned refs = ctx->reference_flags, next = 0; refs; refs ^= 1 << next) {
@@ -353,11 +354,11 @@ static void FUNC(parse_ref_pic_list_modification)
 	}
 	
 	// When decoding a field, extract a list of fields from each list of frames.
-	/*union { int8_t q[32]; v16qi v[2]; } RefFrameList;
+	/*union { int8_t q[32]; i8x16 v[2]; } RefFrameList;
 	for (int l = 0; ctx->field_pic_flag && l <= ctx->slice_type; l++) {
-		v16qi v = ctx->RefPicList_v[l * 2];
+		i8x16 v = ctx->RefPicList_v[l * 2];
 		RefFrameList.v[0] = v;
-		RefFrameList.v[1] = v + (v16qi){16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16};
+		RefFrameList.v[1] = v + (i8x16){16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16};
 		size = 0;
 		int i = ctx->bottom_field_flag << 4; // first parity to check
 		int j = i ^ 16; // other parity to alternate
@@ -436,8 +437,8 @@ static void FUNC(parse_ref_pic_list_modification)
 	}
 	
 	// fill all uninitialized references with ref 0 in case num_ref_idx_active is too high
-	v16qi ref0l0 = shuffle(ctx->RefPicList_v[0], (v16qi){});
-	v16qi ref0l1 = shuffle(ctx->RefPicList_v[2], (v16qi){});
+	i8x16 ref0l0 = shuffle(ctx->RefPicList_v[0], (i8x16){});
+	i8x16 ref0l1 = shuffle(ctx->RefPicList_v[2], (i8x16){});
 	ctx->RefPicList_v[0] = ifelse_msb(ctx->RefPicList_v[0], ref0l0, ctx->RefPicList_v[0]);
 	ctx->RefPicList_v[1] = ifelse_msb(ctx->RefPicList_v[1], ref0l0, ctx->RefPicList_v[1]);
 	ctx->RefPicList_v[2] = ifelse_msb(ctx->RefPicList_v[2], ref0l1, ctx->RefPicList_v[2]);
@@ -484,7 +485,7 @@ static void FUNC(finish_frame)
 	} else { // IDR or mmco5
 		ctx->reference_flags = ctx->pic_reference_flags;
 		ctx->long_term_flags = ctx->pic_long_term_flags;
-		ctx->LongTermFrameIdx_v[0] = ctx->LongTermFrameIdx_v[1] = (v16qi){};
+		ctx->LongTermFrameIdx_v[0] = ctx->LongTermFrameIdx_v[1] = (i8x16){};
 		ctx->LongTermFrameIdx[ctx->currPic] = ctx->FrameNums[ctx->currPic] = ctx->prevRefFrameNum = 0;
 		for (unsigned o = ctx->output_flags; o; o &= o - 1) {
 			int i = __builtin_ctz(o);
@@ -791,9 +792,9 @@ static int FUNC(parse_access_unit_delimiter)
  */
 static void FUNC(parse_scaling_lists)
 {
-	v16qu *w4x4 = ctx->ps.weightScale4x4_v;
-	v16qu fb4x4 = *w4x4; // fall-back
-	v16qu d4x4 = Default_4x4_Intra; // for useDefaultScalingMatrixFlag
+	i8x16 *w4x4 = ctx->ps.weightScale4x4_v;
+	i8x16 fb4x4 = *w4x4; // fall-back
+	i8x16 d4x4 = Default_4x4_Intra; // for useDefaultScalingMatrixFlag
 	for (int i = 0; i < 6; i++, w4x4++) {
 		if (i == 3) {
 			fb4x4 = *w4x4;
@@ -824,7 +825,7 @@ static void FUNC(parse_scaling_lists)
 	if (!ctx->ps.transform_8x8_mode_flag)
 		return;
 	for (int i = 0; i < (ctx->ps.chroma_format_idc == 3 ? 6 : 2); i++) {
-		v16qu *w8x8 = ctx->ps.weightScale8x8_v[i];
+		i8x16 *w8x8 = ctx->ps.weightScale8x8_v[i];
 		if (!CALL(get_u1)) {
 			if (i >= 2) {
 				w8x8[0] = w8x8[-8];
@@ -835,7 +836,7 @@ static void FUNC(parse_scaling_lists)
 		} else {
 			unsigned nextScale = 8 + CALL(get_se16, -128, 127);
 			if (nextScale == 0) {
-				const v16qu *d8x8 = (i % 2 == 0) ? Default_8x8_Intra : Default_8x8_Inter;
+				const i8x16 *d8x8 = (i % 2 == 0) ? Default_8x8_Intra : Default_8x8_Inter;
 				w8x8[0] = d8x8[0];
 				w8x8[1] = d8x8[1];
 				w8x8[2] = d8x8[2];
@@ -1281,20 +1282,20 @@ static int FUNC(parse_seq_parameter_set)
 	
 	// These casts are safe since uint8_t aliases all types.
 	if (seq_scaling_matrix_present_flag) {
-		((v16qu *)ctx->ps.weightScale4x4)[0] = Default_4x4_Intra;
-		((v16qu *)ctx->ps.weightScale4x4)[3] = Default_4x4_Inter;
+		((i8x16 *)ctx->ps.weightScale4x4)[0] = Default_4x4_Intra;
+		((i8x16 *)ctx->ps.weightScale4x4)[3] = Default_4x4_Inter;
 		for (int i = 0; i < 4; i++) {
-			((v16qu *)ctx->ps.weightScale8x8)[i] = Default_8x8_Intra[i]; // scaling list 6
-			((v16qu *)ctx->ps.weightScale8x8)[4 + i] = Default_8x8_Inter[i]; // scaling list 7
+			((i8x16 *)ctx->ps.weightScale8x8)[i] = Default_8x8_Intra[i]; // scaling list 6
+			((i8x16 *)ctx->ps.weightScale8x8)[4 + i] = Default_8x8_Inter[i]; // scaling list 7
 		}
 		ctx->ps.transform_8x8_mode_flag = 1; // this will force parse_scaling_lists to include 8x8
 		CALL(parse_scaling_lists);
 	} else {
-		v16qu Flat_16 = {16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16};
+		i8x16 Flat_16 = {16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16};
 		for (int i = 0; i < 6; i++)
-			((v16qu *)ctx->ps.weightScale4x4)[i] = Flat_16;
+			((i8x16 *)ctx->ps.weightScale4x4)[i] = Flat_16;
 		for (int i = 0; i < 24; i++)
-			((v16qu *)ctx->ps.weightScale8x8)[i] = Flat_16;
+			((i8x16 *)ctx->ps.weightScale8x8)[i] = Flat_16;
 	}
 	printf("<tr><th>ScalingList4x4%s</th><td><small>", (seq_scaling_matrix_present_flag) ? "" : " (inferred)");
 	for (int i = 0; i < 6; i++) {
@@ -1378,7 +1379,7 @@ static int FUNC(parse_seq_parameter_set)
 		ctx->ps.direct_8x8_inference_flag);
 	
 	// frame_cropping_flag
-	v4hi frame_crop_offsets = {};
+	i16x4 frame_crop_offsets = {};
 	if (CALL(get_u1)) {
 		unsigned shiftX = (ctx->ps.ChromaArrayType == 1) | (ctx->ps.ChromaArrayType == 2);
 		unsigned shiftY = (ctx->ps.ChromaArrayType == 1);
@@ -1450,19 +1451,19 @@ static int FUNC(parse_seq_parameter_set)
 		int offB_int32 = offB_int8 >> 2;
 		int offC_int32 = offB_int32 + (sizeof(*mb) >> 2);
 		int offD_int32 = offB_int32 - (sizeof(*mb) >> 2);
-		ctx->A4x4_int8_v = (v16hi){5 + offA_int8, 0, 7 + offA_int8, 2, 1, 4, 3, 6, 13 + offA_int8, 8, 15 + offA_int8, 10, 9, 12, 11, 14};
-		ctx->B4x4_int8_v = (v16si){10 + offB_int8, 11 + offB_int8, 0, 1, 14 + offB_int8, 15 + offB_int8, 4, 5, 2, 3, 8, 9, 6, 7, 12, 13};
+		ctx->A4x4_int8_v = (i16x16){5 + offA_int8, 0, 7 + offA_int8, 2, 1, 4, 3, 6, 13 + offA_int8, 8, 15 + offA_int8, 10, 9, 12, 11, 14};
+		ctx->B4x4_int8_v = (i32x16){10 + offB_int8, 11 + offB_int8, 0, 1, 14 + offB_int8, 15 + offB_int8, 4, 5, 2, 3, 8, 9, 6, 7, 12, 13};
 		if (ctx->ps.ChromaArrayType == 1) {
-			ctx->ACbCr_int8_v = (v16hi){1 + offA_int8, 0, 3 + offA_int8, 2, 5 + offA_int8, 4, 7 + offA_int8, 6};
-			ctx->BCbCr_int8_v = (v16si){2 + offB_int8, 3 + offB_int8, 0, 1, 6 + offB_int8, 7 + offB_int8, 4, 5};
+			ctx->ACbCr_int8_v = (i16x16){1 + offA_int8, 0, 3 + offA_int8, 2, 5 + offA_int8, 4, 7 + offA_int8, 6};
+			ctx->BCbCr_int8_v = (i32x16){2 + offB_int8, 3 + offB_int8, 0, 1, 6 + offB_int8, 7 + offB_int8, 4, 5};
 		}
-		ctx->refIdx4x4_C_v = (v16qi){2, 3, 12, -1, 3, 6, 13, -1, 12, 13, 14, -1, 13, -1, 15, -1};
-		ctx->absMvd_A_v = (v16hi){10 + offA_int8, 0, 14 + offA_int8, 4, 2, 8, 6, 12, 26 + offA_int8, 16, 30 + offA_int8, 20, 18, 24, 22, 28};
-		ctx->absMvd_B_v = (v16si){20 + offB_int8, 22 + offB_int8, 0, 2, 28 + offB_int8, 30 + offB_int8, 8, 10, 4, 6, 16, 18, 12, 14, 24, 26};
-		ctx->mvs_A_v = (v16hi){5 + offA_int32, 0, 7 + offA_int32, 2, 1, 4, 3, 6, 13 + offA_int32, 8, 15 + offA_int32, 10, 9, 12, 11, 14};
-		ctx->mvs_B_v = (v16si){10 + offB_int32, 11 + offB_int32, 0, 1, 14 + offB_int32, 15 + offB_int32, 4, 5, 2, 3, 8, 9, 6, 7, 12, 13};
-		ctx->mvs_C_v = (v16si){11 + offB_int32, 14 + offB_int32, 1, -1, 15 + offB_int32, 10 + offC_int32, 5, -1, 3, 6, 9, -1, 7, -1, 13, -1};
-		ctx->mvs_D_v = (v16si){15 + offD_int32, 10 + offB_int32, 5 + offA_int32, 0, 11 + offB_int32, 14 + offB_int32, 1, 4, 7 + offA_int32, 2, 13 + offA_int32, 8, 3, 6, 9, 12};
+		ctx->refIdx4x4_C_v = (i8x16){2, 3, 12, -1, 3, 6, 13, -1, 12, 13, 14, -1, 13, -1, 15, -1};
+		ctx->absMvd_A_v = (i16x16){10 + offA_int8, 0, 14 + offA_int8, 4, 2, 8, 6, 12, 26 + offA_int8, 16, 30 + offA_int8, 20, 18, 24, 22, 28};
+		ctx->absMvd_B_v = (i32x16){20 + offB_int8, 22 + offB_int8, 0, 2, 28 + offB_int8, 30 + offB_int8, 8, 10, 4, 6, 16, 18, 12, 14, 24, 26};
+		ctx->mvs_A_v = (i16x16){5 + offA_int32, 0, 7 + offA_int32, 2, 1, 4, 3, 6, 13 + offA_int32, 8, 15 + offA_int32, 10, 9, 12, 11, 14};
+		ctx->mvs_B_v = (i32x16){10 + offB_int32, 11 + offB_int32, 0, 1, 14 + offB_int32, 15 + offB_int32, 4, 5, 2, 3, 8, 9, 6, 7, 12, 13};
+		ctx->mvs_C_v = (i32x16){11 + offB_int32, 14 + offB_int32, 1, -1, 15 + offB_int32, 10 + offC_int32, 5, -1, 3, 6, 9, -1, 7, -1, 13, -1};
+		ctx->mvs_D_v = (i32x16){15 + offD_int32, 10 + offB_int32, 5 + offA_int32, 0, 11 + offB_int32, 14 + offB_int32, 1, 4, 7 + offA_int32, 2, 13 + offA_int32, 8, 3, 6, 9, 12};
 		
 		// Each picture in the DPB is three planes and a group of macroblocks
 		int mbs = (PicWidthInMbs + 1) * (PicHeightInMbs + 1);
@@ -1496,23 +1497,21 @@ static int FUNC(parse_seq_parameter_set)
 
 
 
-#ifdef __SSSE3__
 const uint8_t *Edge264_find_start_code(int n, const uint8_t *CPB, const uint8_t *end) {
-	const __m128i zero = _mm_setzero_si128();
-	const __m128i xN = _mm_set1_epi8(n);
-	const __m128i *p = (__m128i *)((uintptr_t)CPB & -16);
-	unsigned z = (_mm_movemask_epi8(_mm_cmpeq_epi8(*p, zero)) & -1u << ((uintptr_t)CPB & 15)) << 2, c;
+	i8x16 zero = {};
+	i8x16 xN = set8(n);
+	const i8x16 *p = (i8x16 *)((uintptr_t)CPB & -16);
+	unsigned z = (movemask(*p == zero) & -1u << ((uintptr_t)CPB & 15)) << 2, c;
 	
 	// no heuristic here since we are limited by memory bandwidth anyway
-	while (!(c = z & z >> 1 & _mm_movemask_epi8(_mm_cmpeq_epi8(*p, xN)))) {
+	while (!(c = z & z >> 1 & movemask(*p == xN))) {
 		if ((uint8_t *)++p >= end)
 			return end;
-		z = z >> 16 | _mm_movemask_epi8(_mm_cmpeq_epi8(*p, zero)) << 2;
+		z = z >> 16 | movemask(*p == zero) << 2;
 	}
 	const uint8_t *res = (uint8_t *)p + 1 + __builtin_ctz(c);
 	return (res < end) ? res : end;
 }
-#endif
 
 
 

@@ -16,32 +16,20 @@
 
 
 
-typedef int8_t v2qi __attribute__((vector_size(2)));
-typedef int8_t v4qi __attribute__((vector_size(4)));
-typedef int8_t v8qi __attribute__((vector_size(8)));
-typedef int16_t v4hi __attribute__((vector_size(8)));
-typedef uint8_t v8qu __attribute__((vector_size(8)));
-typedef uint32_t v2su __attribute__((vector_size(8)));
-typedef size_t v16u __attribute__((vector_size(16)));
-typedef int8_t v16qi __attribute__((vector_size(16)));
-typedef int16_t v8hi __attribute__((vector_size(16)));
-typedef int32_t v4si __attribute__((vector_size(16)));
-typedef int64_t v2li __attribute__((vector_size(16)));
-typedef uint8_t v16qu __attribute__((vector_size(16)));
-typedef uint16_t v8hu __attribute__((vector_size(16)));
-typedef uint32_t v4su __attribute__((vector_size(16)));
-typedef uint64_t v2lu __attribute__((vector_size(16)));
-typedef int8_t v32qi __attribute__((vector_size(32))); // alignment for 256-bit extensions
-typedef int32_t v8si __attribute__((vector_size(32)));
-typedef int16_t v16hi __attribute__((vector_size(32)));
-typedef uint8_t v32qu __attribute__((vector_size(32)));
-typedef int32_t v16si __attribute__((vector_size(64))); // for initialization of neighbouring offsets
-
+typedef int8_t i8x4 __attribute__((vector_size(4)));
+typedef int8_t i8x8 __attribute__((vector_size(8)));
+typedef int16_t i16x4 __attribute__((vector_size(8)));
+typedef int32_t i32x2 __attribute__((vector_size(8)));
 typedef int8_t i8x16 __attribute__((vector_size(16)));
 typedef int16_t i16x8 __attribute__((vector_size(16)));
 typedef int32_t i32x4 __attribute__((vector_size(16)));
 typedef int64_t i64x2 __attribute__((vector_size(16)));
 typedef uint8_t u8x16 __attribute__((vector_size(16)));
+typedef uint16_t u16x8 __attribute__((vector_size(16)));
+typedef int8_t i8x32 __attribute__((vector_size(32))); // alignment for 256-bit extensions
+typedef int16_t i16x16 __attribute__((vector_size(32)));
+typedef int32_t i32x8 __attribute__((vector_size(32)));
+typedef int32_t i32x16 __attribute__((vector_size(64))); // for initialization of neighbouring offsets
 
 
 
@@ -87,8 +75,8 @@ typedef struct {
 	int8_t second_chroma_qp_index_offset; // 5 significant bits
 	int16_t offset_for_non_ref_pic; // pic_order_cnt_type==1
 	int16_t offset_for_top_to_bottom_field; // pic_order_cnt_type==1
-	union { uint8_t weightScale4x4[6][16]; v16qu weightScale4x4_v[6]; };
-	union { uint8_t weightScale8x8[6][64]; v16qu weightScale8x8_v[6][4]; };
+	union { uint8_t weightScale4x4[6][16]; i8x16 weightScale4x4_v[6]; };
+	union { uint8_t weightScale8x8[6][64]; i8x16 weightScale8x8_v[6][4]; };
 } Edge264_parameter_set;
 
 
@@ -111,7 +99,7 @@ typedef union {
 		int8_t mbIsInterFlag;
 		union { int8_t coded_block_flags_16x16[3]; int32_t coded_block_flags_16x16_s; };
 	};
-	v16qi v;
+	i8x16 v;
 } Edge264_flags;
 static const Edge264_flags flags_twice = {
 	.CodedBlockPatternChromaDC = 1,
@@ -139,14 +127,14 @@ typedef struct {
 	uint8_t unavail16x16; // unavailability of neighbouring A/B/C/D macroblocks in frame
 	uint8_t filter_edges; // 3 bits to enable deblocking of internal/left/top edges
 	union { uint8_t inter_eqs[4]; uint32_t inter_eqs_s; }; // 2 flags per 4x4 block storing right/bottom equality of mvs&ref, in little endian
-	union { uint8_t QP[3]; v4qi QP_s; }; // [iYCbCr]
+	union { uint8_t QP[3]; i8x4 QP_s; }; // [iYCbCr]
 	union { uint32_t bits[2]; uint64_t bits_l; }; // {cbp/ref_idx_nz, cbf_Y/Cb/Cr 8x8}
-	union { int8_t nC[3][16]; int32_t nC_s[3][4]; int64_t nC_l[6]; v16qi nC_v[3]; }; // for CAVLC and deblocking, 64 if unavailable
-	union { int8_t Intra4x4PredMode[16]; v16qi Intra4x4PredMode_v; }; // [i4x4]
+	union { int8_t nC[3][16]; int32_t nC_s[3][4]; int64_t nC_l[6]; i8x16 nC_v[3]; }; // for CAVLC and deblocking, 64 if unavailable
+	union { int8_t Intra4x4PredMode[16]; i8x16 Intra4x4PredMode_v; }; // [i4x4]
 	union { int8_t refIdx[8]; int32_t refIdx_s[2]; int64_t refIdx_l; }; // [LX][i8x8]
 	union { int8_t refPic[8]; int32_t refPic_s[2]; int64_t refPic_l; }; // [LX][i8x8]
-	union { uint8_t absMvd[64]; uint64_t absMvd_l[8]; v16qu absMvd_v[4]; }; // [LX][i4x4][compIdx]
-	union { int16_t mvs[64]; int32_t mvs_s[32]; int64_t mvs_l[16]; v8hi mvs_v[8]; }; // [LX][i4x4][compIdx]
+	union { uint8_t absMvd[64]; uint64_t absMvd_l[8]; i8x16 absMvd_v[4]; }; // [LX][i4x4][compIdx]
+	union { int16_t mvs[64]; int32_t mvs_s[32]; int64_t mvs_l[16]; i16x8 mvs_v[8]; }; // [LX][i4x4][compIdx]
 } Edge264_macroblock;
 static const Edge264_macroblock unavail_mb = {
 	.f.mb_skip_flag = 1,
@@ -201,59 +189,59 @@ typedef struct
 	uint16_t stride[3]; // [iYCbCr], 16 significant bits (8K, 16bit, field pic)
 	int16_t clip[3]; // [iYCbCr], maximum sample value
 	uint8_t unavail16x16;  // unavailability of neighbouring A/B/C/D macroblocks in slice
-	union { int8_t unavail4x4[16]; v16qi unavail4x4_v; }; // unavailability of neighbouring A/B/C/D blocks
+	union { int8_t unavail4x4[16]; i8x16 unavail4x4_v; }; // unavailability of neighbouring A/B/C/D blocks
 	Edge264_flags inc; // increments for CABAC indices of macroblock syntax elements
 	union { uint8_t cabac[1024]; i8x16 cabac_v[64]; };
 	
 	// neighbouring offsets (relative to the start of each array in mb)
-	union { int16_t A4x4_int8[16]; v16hi A4x4_int8_v; };
-	union { int32_t B4x4_int8[16]; v16si B4x4_int8_v; };
-	union { int16_t ACbCr_int8[16]; v16hi ACbCr_int8_v; };
-	union { int32_t BCbCr_int8[16]; v16si BCbCr_int8_v; };
-	union { int16_t absMvd_A[16]; v16hi absMvd_A_v; };
-	union { int32_t absMvd_B[16]; v16si absMvd_B_v; };
-	union { int8_t refIdx4x4_C[16]; int32_t refIdx4x4_C_s[4]; v16qi refIdx4x4_C_v; }; // shuffle vector for mv prediction
-	union { int16_t mvs_A[16]; v16hi mvs_A_v; };
-	union { int32_t mvs_B[16]; v16si mvs_B_v; };
-	union { int32_t mvs_C[16]; v16si mvs_C_v; };
-	union { int32_t mvs_D[16]; v16si mvs_D_v; };
-	v16qi nC_copy[6];
+	union { int16_t A4x4_int8[16]; i16x16 A4x4_int8_v; };
+	union { int32_t B4x4_int8[16]; i32x16 B4x4_int8_v; };
+	union { int16_t ACbCr_int8[16]; i16x16 ACbCr_int8_v; };
+	union { int32_t BCbCr_int8[16]; i32x16 BCbCr_int8_v; };
+	union { int16_t absMvd_A[16]; i16x16 absMvd_A_v; };
+	union { int32_t absMvd_B[16]; i32x16 absMvd_B_v; };
+	union { int8_t refIdx4x4_C[16]; int32_t refIdx4x4_C_s[4]; i8x16 refIdx4x4_C_v; }; // shuffle vector for mv prediction
+	union { int16_t mvs_A[16]; i16x16 mvs_A_v; };
+	union { int32_t mvs_B[16]; i32x16 mvs_B_v; };
+	union { int32_t mvs_C[16]; i32x16 mvs_C_v; };
+	union { int32_t mvs_D[16]; i32x16 mvs_D_v; };
+	i8x16 nC_copy[6];
 	int64_t refIdx_copy[4];
-	union { int32_t mvs_copy_s[32]; int64_t mvs_copy_l[16]; v8hi mvs_copy_v[8]; };
+	union { int32_t mvs_copy_s[32]; int64_t mvs_copy_l[16]; i16x8 mvs_copy_v[8]; };
 	
 	// Intra context
-	union { uint8_t intra4x4_modes[9][16]; v16qu intra4x4_modes_v[9]; }; // kept for future 16bit support
-	union { uint8_t intra8x8_modes[9][16]; v16qu intra8x8_modes_v[9]; };
+	union { uint8_t intra4x4_modes[9][16]; i8x16 intra4x4_modes_v[9]; }; // kept for future 16bit support
+	union { uint8_t intra8x8_modes[9][16]; i8x16 intra8x8_modes_v[9]; };
 	
 	// Inter context
 	const Edge264_macroblock *mbCol;
 	uint8_t num_ref_idx_mask;
 	int8_t transform_8x8_mode_flag; // updated during parsing to replace noSubMbPartSizeLessThan8x8Flag
 	int8_t col_short_term;
-	union { int8_t MapPicToList0[32]; v16qi MapPicToList0_v[2]; };
-	union { int8_t clip_ref_idx[8]; v8qi clip_ref_idx_v; };
-	union { int8_t RefPicList[2][32]; v16qi RefPicList_v[4]; };
-	union { int8_t refIdx4x4_eq[32]; v16qi refIdx4x4_eq_v[2]; }; // FIXME store on stack
+	union { int8_t MapPicToList0[32]; i8x16 MapPicToList0_v[2]; };
+	union { int8_t clip_ref_idx[8]; i8x8 clip_ref_idx_v; };
+	union { int8_t RefPicList[2][32]; i8x16 RefPicList_v[4]; };
+	union { int8_t refIdx4x4_eq[32]; i8x16 refIdx4x4_eq_v[2]; }; // FIXME store on stack
 	int16_t DistScaleFactor[32]; // [refIdxL0]
-	union { int8_t implicit_weights[32][32]; v16qi implicit_weights_v[32][2]; }; // w1 for [ref0][ref1]
+	union { int8_t implicit_weights[32][32]; i8x16 implicit_weights_v[32][2]; }; // w1 for [ref0][ref1]
 	int16_t explicit_weights[3][64]; // [iYCbCr][LX][RefIdx]
 	int8_t explicit_offsets[3][64];
 	union { uint8_t edge_buf[2016]; int64_t edge_buf_l[252]; i8x16 edge_buf_v[126]; };
 	
 	// Residuals context
-	union { int8_t QP[3]; v4qi QP_s; }; // same as mb
-	union { int16_t ctxIdxOffsets[4]; v4hi ctxIdxOffsets_l; }; // {cbf,sig_flag,last_sig_flag,coeff_abs}
-	union { int8_t sig_inc[64]; v8qi sig_inc_l; v16qi sig_inc_v[4]; };
-	union { int8_t last_inc[64]; v8qi last_inc_l; v16qi last_inc_v[4]; };
-	union { int8_t scan[64]; v4qi scan_s; v8qi scan_l; v16qi scan_v[4]; };
-	union { int8_t QP_C[2][64]; v16qi QP_C_v[8]; };
-	union { int32_t c[64]; v4si c_v[16]; v8si c_V[8]; }; // non-scaled residual coefficients
+	union { int8_t QP[3]; i8x4 QP_s; }; // same as mb
+	union { int16_t ctxIdxOffsets[4]; i16x4 ctxIdxOffsets_l; }; // {cbf,sig_flag,last_sig_flag,coeff_abs}
+	union { int8_t sig_inc[64]; i8x8 sig_inc_l; i8x16 sig_inc_v[4]; };
+	union { int8_t last_inc[64]; i8x8 last_inc_l; i8x16 last_inc_v[4]; };
+	union { int8_t scan[64]; i8x4 scan_s; i8x8 scan_l; i8x16 scan_v[4]; };
+	union { int8_t QP_C[2][64]; i8x16 QP_C_v[8]; };
+	union { int32_t c[64]; i32x4 c_v[16]; i32x8 c_V[8]; }; // non-scaled residual coefficients
 	
 	// Deblocking context
-	union { uint8_t alpha[16]; v16qu alpha_v; }; // {internal_Y,internal_Cb,internal_Cr,0,0,0,0,0,left_Y,left_Cb,left_Cr,0,top_Y,top_Cb,top_Cr,0}
-	union { uint8_t beta[16]; v16qu beta_v; };
-	v32qu alpha_beta_V;
-	union { int32_t tC0_s[16]; int64_t tC0_l[8]; v16qi tC0_v[4]; v32qi tC0_V[2]; }; // 4 bytes per edge in deblocking order -> 8 luma edges then 8 alternating Cb/Cr edges
+	union { uint8_t alpha[16]; i8x16 alpha_v; }; // {internal_Y,internal_Cb,internal_Cr,0,0,0,0,0,left_Y,left_Cb,left_Cr,0,top_Y,top_Cb,top_Cr,0}
+	union { uint8_t beta[16]; i8x16 beta_v; };
+	i8x32 alpha_beta_V;
+	union { int32_t tC0_s[16]; int64_t tC0_l[8]; i8x16 tC0_v[4]; i8x32 tC0_V[2]; }; // 4 bytes per edge in deblocking order -> 8 luma edges then 8 alternating Cb/Cr edges
 	
 	// Picture buffer and parameter sets
 	uint8_t *DPB; // NULL before the first SPS is decoded
@@ -272,9 +260,9 @@ typedef struct
 	int32_t prevPicOrderCnt;
 	int32_t dispPicOrderCnt;
 	int32_t FrameNums[32];
-	union { int8_t LongTermFrameIdx[32]; v16qi LongTermFrameIdx_v[2]; };
-	union { int8_t pic_LongTermFrameIdx[32]; v16qi pic_LongTermFrameIdx_v[2]; }; // to be applied after decoding all slices of the current frame
-	union { int32_t FieldOrderCnt[2][32]; v4si FieldOrderCnt_v[2][8]; }; // lower/higher half for top/bottom fields
+	union { int8_t LongTermFrameIdx[32]; i8x16 LongTermFrameIdx_v[2]; };
+	union { int8_t pic_LongTermFrameIdx[32]; i8x16 pic_LongTermFrameIdx_v[2]; }; // to be applied after decoding all slices of the current frame
+	union { int32_t FieldOrderCnt[2][32]; i32x4 FieldOrderCnt_v[2][8]; }; // lower/higher half for top/bottom fields
 	Edge264_parameter_set SPS;
 	Edge264_parameter_set PPSs[4];
 	int16_t PicOrderCntDeltas[256]; // too big to fit in Edge264_parameter_set
@@ -397,25 +385,25 @@ void FUNC(deblock_frame, uint8_t *samples);
 void FUNC(decode_inter, int i, int w, int h);
 
 // edge264_intra_*.c
-void _decode_intra4x4(int mode, uint8_t *px1, size_t stride, ssize_t nstride, v8hi clip, v16qi zero);
-void _decode_intra8x8(int mode, uint8_t *px0, uint8_t *px7, size_t stride, ssize_t nstride, v8hi clip);
-void _decode_intra16x16(int mode, uint8_t *px0, uint8_t *px7, uint8_t *pxE, size_t stride, ssize_t nstride, v8hi clip);
-void _decode_intraChroma(int mode, uint8_t *Cb0, uint8_t *Cb7, uint8_t *Cr0, uint8_t *Cr7, size_t stride, ssize_t nstride, v8hi clip);
+void _decode_intra4x4(int mode, uint8_t *px1, size_t stride, ssize_t nstride, i16x8 clip, i8x16 zero);
+void _decode_intra8x8(int mode, uint8_t *px0, uint8_t *px7, size_t stride, ssize_t nstride, i16x8 clip);
+void _decode_intra16x16(int mode, uint8_t *px0, uint8_t *px7, uint8_t *pxE, size_t stride, ssize_t nstride, i16x8 clip);
+void _decode_intraChroma(int mode, uint8_t *Cb0, uint8_t *Cb7, uint8_t *Cr0, uint8_t *Cr7, size_t stride, ssize_t nstride, i16x8 clip);
 static always_inline void FUNC(decode_intra4x4, int mode, uint8_t *samples, size_t stride, int iYCbCr) {
-	_decode_intra4x4(mode, samples + stride, stride, -stride, (v8hi){ctx->clip[iYCbCr]}, (v16qi){}); }
+	_decode_intra4x4(mode, samples + stride, stride, -stride, (i16x8){ctx->clip[iYCbCr]}, (i8x16){}); }
 static always_inline void FUNC(decode_intra8x8, int mode, uint8_t *samples, size_t stride, int iYCbCr) {
-	_decode_intra8x8(mode, samples, samples + stride * 7, stride, -stride, (v8hi){ctx->clip[iYCbCr]}); }
+	_decode_intra8x8(mode, samples, samples + stride * 7, stride, -stride, (i16x8){ctx->clip[iYCbCr]}); }
 static always_inline void FUNC(decode_intra16x16, int mode, uint8_t *samples, size_t stride, int iYCbCr) {
-	_decode_intra16x16(mode, samples, samples + stride * 7, samples + stride * 14, stride, -stride, (v8hi){ctx->clip[iYCbCr]}); }
+	_decode_intra16x16(mode, samples, samples + stride * 7, samples + stride * 14, stride, -stride, (i16x8){ctx->clip[iYCbCr]}); }
 static always_inline void FUNC(decode_intraChroma, int mode, uint8_t *samplesCb, uint8_t *samplesCr, size_t stride) {
-	_decode_intraChroma(mode, samplesCb, samplesCb + stride * 7, samplesCr, samplesCr + stride * 7, stride, -stride, (v8hi){ctx->clip[1]}); }
+	_decode_intraChroma(mode, samplesCb, samplesCb + stride * 7, samplesCr, samplesCr + stride * 7, stride, -stride, (i16x8){ctx->clip[1]}); }
 
 // edge264_mvpred.c
-static inline void FUNC(decode_inter_16x16, v8hi mvd, int lx);
-static inline void FUNC(decode_inter_8x16_left, v8hi mvd, int lx);
-static inline void FUNC(decode_inter_8x16_right, v8hi mvd, int lx);
-static inline void FUNC(decode_inter_16x8_top, v8hi mvd, int lx);
-static inline void FUNC(decode_inter_16x8_bottom, v8hi mvd, int lx);
+static inline void FUNC(decode_inter_16x16, i16x8 mvd, int lx);
+static inline void FUNC(decode_inter_8x16_left, i16x8 mvd, int lx);
+static inline void FUNC(decode_inter_8x16_right, i16x8 mvd, int lx);
+static inline void FUNC(decode_inter_16x8_top, i16x8 mvd, int lx);
+static inline void FUNC(decode_inter_16x8_bottom, i16x8 mvd, int lx);
 static noinline void FUNC(decode_direct_mv_pred, unsigned direct_mask);
 
 // edge264_residual_*.c
@@ -431,26 +419,26 @@ static noinline int FUNC(parse_slice_data_cavlc);
 static noinline int FUNC(parse_slice_data_cabac);
 
 // debugging functions
-#define print_v16qi(a) {\
-	v16qi v = (v16qi)a;\
+#define print_i8x16(a) {\
+	i8x16 v = a;\
 	printf("<tr><th>" #a "</th><td>");\
 	for (int i = 0; i < 16; i++)\
 		printf("%4d ", v[i]);\
 	printf("</td></tr>\n");}
-#define print_v16qu(a) {\
-	v16qu v = (v16qu)a;\
+#define print_u8x16(a) {\
+	u8x16 v = a;\
 	printf("<tr><th>" #a "</th><td>");\
 	for (int i = 0; i < 16; i++)\
 		printf("%3u ", v[i]);\
 	printf("</td></tr>\n");}
-#define print_v8hi(a) {\
-	v8hi v = (v8hi)a;\
+#define print_i16x8(a) {\
+	i16x8 v = a;\
 	printf("<tr><th>" #a "</th><td>");\
 	for (int i = 0; i < 8; i++)\
 		printf("%6d ", v[i]);\
 	printf("</td></tr>\n");}
-#define print_v4si(a) {\
-	v4si v = (v4si)a;\
+#define print_i32x4(a) {\
+	i32x4 v = a;\
 	printf("<tr><th>" #a "</th><td>");\
 	for (int i = 0; i < 4; i++)\
 		printf("%6d ", v[i]);\
@@ -502,7 +490,7 @@ static noinline int FUNC(parse_slice_data_cabac);
 	
 	// fixing a strange bug from GCC
 	#if defined(__GNUC__) && !defined(__clang__)
-		#define _mm_loadu_si32(p) ((__m128i)(v4si){*(int32_t *)(p)})
+		#define _mm_loadu_si32(p) ((__m128i)(i32x4){*(int32_t *)(p)})
 	#endif
 	
 	// custom functions
@@ -517,11 +505,11 @@ static noinline int FUNC(parse_slice_data_cabac);
 		static always_inline __m128i load4x2_8bit(const uint8_t *r0, const uint8_t *r1, __m128i zero) {
 			return _mm_cvtepu8_epi16(_mm_insert_epi32(_mm_loadu_si32(r0), *(int *)r1, 1));
 		}
-		static inline v16qi min_v16qi(v16qi a, v16qi b) {
-			return (v16qi)_mm_min_epi8((__m128i)a, (__m128i)b);
+		static inline i8x16 min_i8x16(i8x16 a, i8x16 b) {
+			return (i8x16)_mm_min_epi8((__m128i)a, (__m128i)b);
 		}
-		static inline v4si min_v4si(v4si a, v4si b) {
-			return (v4si)_mm_min_epi32((__m128i)a, (__m128i)b);
+		static inline i32x4 min_i32x4(i32x4 a, i32x4 b) {
+			return (i32x4)_mm_min_epi32((__m128i)a, (__m128i)b);
 		}
 	#elif defined __SSSE3__
 		static inline __m128i load8x1_8bit(const uint8_t *p, __m128i zero) {
@@ -533,51 +521,51 @@ static noinline int FUNC(parse_slice_data_cabac);
 		static inline __m128i load4x2_8bit(const uint8_t *r0, const uint8_t *r1, __m128i zero) {
 			return _mm_unpacklo_epi8(_mm_unpacklo_epi32(_mm_loadu_si32(r0), _mm_loadu_si32(r1)), zero);
 		}
-		static inline v16qi min_v16qi(v16qi a, v16qi b) {
-			return (v16qi)_mm_xor_si128((__m128i)a, _mm_and_si128(_mm_xor_si128((__m128i)a, (__m128i)b), _mm_cmpgt_epi8((__m128i)a, (__m128i)b)));
+		static inline i8x16 min_i8x16(i8x16 a, i8x16 b) {
+			return (i8x16)_mm_xor_si128((__m128i)a, _mm_and_si128(_mm_xor_si128((__m128i)a, (__m128i)b), _mm_cmpgt_epi8((__m128i)a, (__m128i)b)));
 		}
-		static inline v4si min_v4si(v4si a, v4si b) {
-			return (v4si)_mm_xor_si128((__m128i)a, _mm_and_si128(_mm_xor_si128((__m128i)a, (__m128i)b), _mm_cmpgt_epi32((__m128i)a, (__m128i)b)));
+		static inline i32x4 min_i32x4(i32x4 a, i32x4 b) {
+			return (i32x4)_mm_xor_si128((__m128i)a, _mm_and_si128(_mm_xor_si128((__m128i)a, (__m128i)b), _mm_cmpgt_epi32((__m128i)a, (__m128i)b)));
 		}
 	#endif
 	static inline size_t lsd(size_t msb, size_t lsb, unsigned shift) {
 		__asm__("shld %%cl, %1, %0" : "+rm" (msb) : "r" (lsb), "c" (shift));
 		return msb;
 	}
-	static inline v16qi shuffle(v16qi a, v16qi mask) {
-		return (v16qi)_mm_shuffle_epi8((__m128i)a, (__m128i)mask);
+	static inline i8x16 shuffle(i8x16 a, i8x16 mask) {
+		return (i8x16)_mm_shuffle_epi8((__m128i)a, (__m128i)mask);
 	}
-	static inline v8hi pack_v4si(v4si a, v4si b) {
-		return (v8hi)_mm_packs_epi32((__m128i)a, (__m128i)b);
+	static inline i16x8 pack_i32x4(i32x4 a, i32x4 b) {
+		return (i16x8)_mm_packs_epi32((__m128i)a, (__m128i)b);
 	}
-	static inline v16qi pack_v8hi(v8hi a, v8hi b) {
-		return (v16qi)_mm_packs_epi16((__m128i)a, (__m128i)b);
+	static inline i8x16 pack_i16x8(i16x8 a, i16x8 b) {
+		return (i8x16)_mm_packs_epi16((__m128i)a, (__m128i)b);
 	}
-	static inline v8hi median_v8hi(v8hi a, v8hi b, v8hi c) {
-		return (v8hi)_mm_max_epi16(_mm_min_epi16(_mm_max_epi16((__m128i)a,
+	static inline i16x8 median_i16x8(i16x8 a, i16x8 b, i16x8 c) {
+		return (i16x8)_mm_max_epi16(_mm_min_epi16(_mm_max_epi16((__m128i)a,
 			(__m128i)b), (__m128i)c), _mm_min_epi16((__m128i)a, (__m128i)b));
 	}
-	static inline v16qu pack_absMvd(v8hi a) {
+	static inline i8x16 pack_absMvd(i16x8 a) {
 		__m128i x = _mm_abs_epi16(_mm_shuffle_epi32((__m128i)a, _MM_SHUFFLE(0, 0, 0, 0)));
-		return (v16qu)_mm_packus_epi16(x, x);
+		return (i8x16)_mm_packus_epi16(x, x);
 	}
-	static inline v8hi mvs_near_zero(v8hi mvCol) {
-		return (v8hi)_mm_cmpeq_epi32(_mm_srli_epi16(_mm_abs_epi16((__m128i)mvCol), 1), _mm_setzero_si128());
+	static inline i16x8 mvs_near_zero(i16x8 mvCol) {
+		return (i16x8)_mm_cmpeq_epi32(_mm_srli_epi16(_mm_abs_epi16((__m128i)mvCol), 1), _mm_setzero_si128());
 	}
-	static inline int colZero_mask_to_flags(v8hi m0, v8hi m1, v8hi m2, v8hi m3) {
+	static inline int colZero_mask_to_flags(i16x8 m0, i16x8 m1, i16x8 m2, i16x8 m3) {
 		__m128i x0 = _mm_packs_epi32((__m128i)m0, (__m128i)m1);
 		__m128i x1 = _mm_packs_epi32((__m128i)m2, (__m128i)m3);
 		return _mm_movemask_epi8(_mm_packs_epi16(x0, x1));
 	}
-	static inline int first_true(v8hu a) {
+	static inline int first_true(i16x8 a) {
 		return __builtin_ctz(_mm_movemask_epi8((__m128i)a)) >> 1; // pcmpistri wouldn't help here due to its high latency
 	}
-	static inline v8hi temporal_scale(v8hi mvCol, int16_t DistScaleFactor) {
+	static inline i16x8 temporal_scale(i16x8 mvCol, int16_t DistScaleFactor) {
 		__m128i neg = _mm_set1_epi32(-1);
 		__m128i mul = _mm_set1_epi32(DistScaleFactor + 0xff800000u);
 		__m128i lo = _mm_madd_epi16(_mm_unpacklo_epi16((__m128i)mvCol, neg), mul);
 		__m128i hi = _mm_madd_epi16(_mm_unpackhi_epi16((__m128i)mvCol, neg), mul);
-		return (v8hi)_mm_packs_epi32(_mm_srai_epi32(lo, 8), _mm_srai_epi32(hi, 8));
+		return (i16x8)_mm_packs_epi32(_mm_srai_epi32(lo, 8), _mm_srai_epi32(hi, 8));
 	}
 	
 #else // add other architectures here
@@ -675,9 +663,9 @@ static noinline int FUNC(parse_slice_data_cabac);
 /**
  * Constants
  */
-static const v16qi sig_inc_4x4 =
+static const i8x16 sig_inc_4x4 =
 	{0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15};
-static const v16qi sig_inc_8x8[2][4] = {{
+static const i8x16 sig_inc_8x8[2][4] = {{
 	{ 0,  1,  2,  3,  4,  5,  5,  4,  4,  3,  3,  4,  4,  4,  5,  5},
 	{ 4,  4,  4,  4,  3,  3,  6,  7,  7,  7,  8,  9, 10,  9,  8,  7},
 	{ 7,  6, 11, 12, 13, 11,  6,  7,  8,  9, 14, 10,  9,  8,  6, 11},
@@ -688,21 +676,21 @@ static const v16qi sig_inc_8x8[2][4] = {{
 	{ 9,  9, 10, 10,  8, 11, 12, 11,  9,  9, 10, 10,  8, 13, 13,  9},
 	{ 9, 10, 10,  8, 13, 13,  9,  9, 10, 10, 14, 14, 14, 14, 14,  0},
 }};
-static const v16qi last_inc_8x8[4] = {
+static const i8x16 last_inc_8x8[4] = {
 	{0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1},
 	{2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2},
 	{3, 3, 3, 3, 3, 3, 3, 3, 4, 4, 4, 4, 4, 4, 4, 4},
 	{5, 5, 5, 5, 6, 6, 6, 6, 7, 7, 7, 7, 8, 8, 8, 8},
 };
-static const v16qi sig_inc_chromaDC[2] =
+static const i8x16 sig_inc_chromaDC[2] =
 	{{0, 1, 2, 0, 0, 1, 2, 0}, {0, 0, 1, 1, 2, 2, 2, 0, 0, 0, 1, 1, 2, 2, 2, 0}};
 
 // transposed scan tables
-static const v16qi scan_4x4[2] = {
+static const i8x16 scan_4x4[2] = {
 	{0, 4, 1, 2, 5, 8, 12, 9, 6, 3, 7, 10, 13, 14, 11, 15},
 	{0, 1, 4, 2, 3, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15},
 };
-static const v16qi scan_8x8_cabac[2][4] = {{
+static const i8x16 scan_8x8_cabac[2][4] = {{
 	{ 0,  8,  1,  2,  9, 16, 24, 17, 10,  3,  4, 11, 18, 25, 32, 40},
 	{33, 26, 19, 12,  5,  6, 13, 20, 27, 34, 41, 48, 56, 49, 42, 35},
 	{28, 21, 14,  7, 15, 22, 29, 36, 43, 50, 57, 58, 51, 44, 37, 30},
@@ -713,7 +701,7 @@ static const v16qi scan_8x8_cabac[2][4] = {{
 	{28, 29, 30, 31, 35, 41, 48, 42, 36, 37, 38, 39, 43, 49, 50, 44},
 	{45, 46, 47, 51, 56, 57, 52, 53, 54, 55, 58, 59, 60, 61, 62, 63},
 }};
-static const v16qi scan_8x8_cavlc[2][4] = {{
+static const i8x16 scan_8x8_cavlc[2][4] = {{
 	{ 0,  9, 10, 18, 33,  5, 27, 56, 28, 15, 43, 51, 23, 52, 46, 61},
 	{ 8, 16,  3, 25, 26,  6, 34, 49, 21, 22, 50, 44, 31, 59, 39, 62},
 	{ 1, 24,  4, 32, 19, 13, 41, 42, 14, 29, 57, 37, 38, 60, 47, 55},
@@ -724,31 +712,31 @@ static const v16qi scan_8x8_cavlc[2][4] = {{
 	{ 2,  4,  5, 17, 14, 32, 22, 40, 30, 48, 38, 50, 47, 52, 58, 62},
 	{ 8, 10,  6, 24, 15, 26, 23, 34, 31, 42, 39, 44, 51, 53, 59, 63},
 }};
-static const v16qi scan_chroma[2] = {
+static const i8x16 scan_chroma[2] = {
 	{0, 1, 2, 3, 4, 5, 6, 7},
 	{0, 2, 1, 4, 6, 3, 5, 7, 8, 10, 9, 12, 14, 11, 13, 15}
 };
 
-static const v4hi ctxIdxOffsets_16x16DC[3][2] = {
+static const i16x4 ctxIdxOffsets_16x16DC[3][2] = {
 	{{85, 105, 166, 227}, {85, 277, 338, 227}}, // ctxBlockCat==0
 	{{460, 484, 572, 952}, {460, 776, 864, 952}}, // ctxBlockCat==6
 	{{472, 528, 616, 982}, {472, 820, 908, 982}}, // ctxBlockCat==10
 };
-static const v4hi ctxIdxOffsets_16x16AC[3][2] = {
+static const i16x4 ctxIdxOffsets_16x16AC[3][2] = {
 	{{89, 119, 180, 237}, {89, 291, 352, 237}}, // ctxBlockCat==1
 	{{464, 498, 586, 962}, {464, 790, 878, 962}}, // ctxBlockCat==7
 	{{476, 542, 630, 992}, {476, 834, 922, 992}}, // ctxBlockCat==11
 };
-static const v4hi ctxIdxOffsets_chromaDC[2] =
+static const i16x4 ctxIdxOffsets_chromaDC[2] =
 	{{97, 149, 210, 257}, {97, 321, 382, 257}}; // ctxBlockCat==3
-static const v4hi ctxIdxOffsets_chromaAC[2] =
+static const i16x4 ctxIdxOffsets_chromaAC[2] =
 	{{101, 151, 212, 266}, {101, 323, 384, 266}}; // ctxBlockCat==4
-static const v4hi ctxIdxOffsets_4x4[3][2] = {
+static const i16x4 ctxIdxOffsets_4x4[3][2] = {
 	{{93, 134, 195, 247}, {93, 306, 367, 247}}, // ctxBlockCat==2
 	{{468, 528, 616, 972}, {468, 805, 893, 972}}, // ctxBlockCat==8
 	{{480, 557, 645, 1002}, {480, 849, 937, 1002}}, // ctxBlockCat==12
 };
-static const v4hi ctxIdxOffsets_8x8[3][2] = {
+static const i16x4 ctxIdxOffsets_8x8[3][2] = {
 	{{1012, 402, 417, 426}, {1012, 436, 451, 426}}, // ctxBlockCat==5
 	{{1016, 660, 690, 708}, {1016, 675, 699, 708}}, // ctxBlockCat==9
 	{{1020, 718, 748, 766}, {1020, 733, 757, 766}}, // ctxBlockCat==13

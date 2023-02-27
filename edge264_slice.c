@@ -338,7 +338,7 @@ static void CAFUNC(parse_mb_qp_delta)
 		if (mb_qp_delta) {
 			int sum = ctx->QP[0] + mb_qp_delta;
 			int QP_Y = (sum < 0) ? sum + 52 : (sum >= 52) ? sum - 52 : sum;
-			mb->QP_s = ctx->QP_s = (v4qi){QP_Y, ctx->QP_C[0][QP_Y], ctx->QP_C[1][QP_Y]};
+			mb->QP_s = ctx->QP_s = (i8x4){QP_Y, ctx->QP_C[0][QP_Y], ctx->QP_C[1][QP_Y]};
 		}
 	#else
 		int mb_qp_delta_nz = CALL(get_ae, 60 + ctx->mb_qp_delta_nz);
@@ -351,7 +351,7 @@ static void CAFUNC(parse_mb_qp_delta)
 			mb_qp_delta = count & 1 ? count / 2 + 1 : -(count / 2);
 			int sum = ctx->QP[0] + mb_qp_delta;
 			int QP_Y = (sum < 0) ? sum + 52 : (sum >= 52) ? sum - 52 : sum;
-			mb->QP_s = ctx->QP_s = (v4qi){QP_Y, ctx->QP_C[0][QP_Y], ctx->QP_C[1][QP_Y]};
+			mb->QP_s = ctx->QP_s = (i8x4){QP_Y, ctx->QP_C[0][QP_Y], ctx->QP_C[1][QP_Y]};
 		}
 	#endif
 	fprintf(stderr, "mb_qp_delta: %d\n", mb_qp_delta);
@@ -371,7 +371,7 @@ static void CAFUNC(parse_chroma_residual)
 			ctx->ctxIdxOffsets_l = ctxIdxOffsets_chromaDC[0]; // FIXME 4:2:2
 			ctx->sig_inc_v[0] = ctx->last_inc_v[0] = sig_inc_chromaDC[0];
 		#endif
-		ctx->c_v[0] = ctx->c_v[1] = ctx->c_v[2] = ctx->c_v[3] = (v4si){};
+		ctx->c_v[0] = ctx->c_v[1] = ctx->c_v[2] = ctx->c_v[3] = (i32x4){};
 		int token_or_cbf_Cb = CACOND(
 			CALL(parse_DC2x2_coeff_token_cavlc),
 			CALL(get_ae, ctx->ctxIdxOffsets[0] + ctx->inc.coded_block_flags_16x16[1]));
@@ -380,7 +380,7 @@ static void CAFUNC(parse_chroma_residual)
 				mb->f.coded_block_flags_16x16[1] = 1;
 			#endif
 			fprintf(stderr, "Cb DC coeffLevels:");
-			ctx->scan_s = (v4qi){0, 4, 2, 6};
+			ctx->scan_s = (i8x4){0, 4, 2, 6};
 			CACALL(parse_residual_block, 0, 3, token_or_cbf_Cb);
 		}
 		int token_or_cbf_Cr = CACOND(
@@ -391,7 +391,7 @@ static void CAFUNC(parse_chroma_residual)
 				mb->f.coded_block_flags_16x16[2] = 1;
 			#endif
 			fprintf(stderr, "Cr DC coeffLevels:");
-			ctx->scan_s = (v4qi){1, 5, 3, 7};
+			ctx->scan_s = (i8x4){1, 5, 3, 7};
 			CACALL(parse_residual_block, 0, 3, token_or_cbf_Cr);
 		}
 		CALL(transform_dc2x2);
@@ -412,10 +412,10 @@ static void CAFUNC(parse_chroma_residual)
 					CALL(get_ae, ctx->ctxIdxOffsets[0] + nA + nB * 2));
 				if (token_or_cbf) {
 					mb->nC[1][i4x4] = CACOND(token_or_cbf >> 2, 1);
-					ctx->c_v[0] = ctx->c_v[1] = ctx->c_v[2] = ctx->c_v[3] = (v4si){};
+					ctx->c_v[0] = ctx->c_v[1] = ctx->c_v[2] = ctx->c_v[3] = (i32x4){};
 					fprintf(stderr, "Chroma AC coeffLevels[%d]:", i4x4);
 					CACALL(parse_residual_block, 1, 15, token_or_cbf);
-					v16qu wS = ctx->ps.weightScale4x4_v[iYCbCr + mb->f.mbIsInterFlag * 3];
+					i8x16 wS = ctx->ps.weightScale4x4_v[iYCbCr + mb->f.mbIsInterFlag * 3];
 					CALL(add_idct4x4, iYCbCr, ctx->QP[iYCbCr], wS, i4x4, samples);
 				} else {
 					CALL(add_dc4x4, iYCbCr, i4x4, samples);
@@ -453,13 +453,13 @@ static void CAFUNC(parse_Intra16x16_residual)
 			#ifdef CABAC
 				mb->f.coded_block_flags_16x16[iYCbCr] = 1;
 			#endif
-			ctx->c_v[0] = ctx->c_v[1] = ctx->c_v[2] = ctx->c_v[3] = (v4si){};
+			ctx->c_v[0] = ctx->c_v[1] = ctx->c_v[2] = ctx->c_v[3] = (i32x4){};
 			fprintf(stderr, "16x16 DC coeffLevels[%d]:", iYCbCr);
 			CACALL(parse_residual_block, 0, 15, token_or_cbf);
 			CALL(transform_dc4x4, iYCbCr);
 		} else {
 			if (mb->bits[0] & 1 << 5)
-				ctx->c_v[4] = ctx->c_v[5] = ctx->c_v[6] = ctx->c_v[7] = (v4si){};
+				ctx->c_v[4] = ctx->c_v[5] = ctx->c_v[6] = ctx->c_v[7] = (i32x4){};
 		}
 		
 		// All AC blocks pick a DC coeff, then go to ctx->c[1..15]
@@ -475,7 +475,7 @@ static void CAFUNC(parse_Intra16x16_residual)
 					CALL(get_ae, ctx->ctxIdxOffsets[0] + nA + nB * 2));
 				if (token_or_cbf) {
 					mb->nC[iYCbCr][i4x4] = CACOND(token_or_cbf >> 2, 1);
-					ctx->c_v[0] = ctx->c_v[1] = ctx->c_v[2] = ctx->c_v[3] = (v4si){};
+					ctx->c_v[0] = ctx->c_v[1] = ctx->c_v[2] = ctx->c_v[3] = (i32x4){};
 					fprintf(stderr, "16x16 AC coeffLevels[%d]:", iYCbCr * 16 + i4x4);
 					CACALL(parse_residual_block, 1, 15, token_or_cbf);
 					CALL(add_idct4x4, iYCbCr, ctx->QP[0], ctx->ps.weightScale4x4_v[iYCbCr], i4x4, samples);
@@ -551,11 +551,11 @@ static void CAFUNC(parse_NxN_residual)
 						CALL(get_ae, ctx->ctxIdxOffsets[0] + nA + nB * 2));
 					if (token_or_cbf) {
 						mb->nC[iYCbCr][i4x4] = CACOND(token_or_cbf >> 2, 1);
-						ctx->c_v[0] = ctx->c_v[1] = ctx->c_v[2] = ctx->c_v[3] = (v4si){};
+						ctx->c_v[0] = ctx->c_v[1] = ctx->c_v[2] = ctx->c_v[3] = (i32x4){};
 						fprintf(stderr, "4x4 coeffLevels[%d]:", iYCbCr * 16 + i4x4);
 						CACALL(parse_residual_block, 0, 15, token_or_cbf);
 						// DC blocks are marginal here (about 16%) so we do not handle them separately
-						v16qu wS = ctx->ps.weightScale4x4_v[iYCbCr + mb->f.mbIsInterFlag * 3];
+						i8x16 wS = ctx->ps.weightScale4x4_v[iYCbCr + mb->f.mbIsInterFlag * 3];
 						CALL(add_idct4x4, iYCbCr, ctx->QP[0], wS, -1, samples); // FIXME 4:4:4
 					}
 				}
@@ -576,7 +576,7 @@ static void CAFUNC(parse_NxN_residual)
 				if (mb->bits[0] & 1 << bit8x8[i8x8]) {
 					#ifndef CABAC
 						for (int i = 0; i < 16; i++)
-							ctx->c_v[i] = (v4si){};
+							ctx->c_v[i] = (i32x4){};
 						for (int i4x4 = 0; i4x4 < 4; i4x4++) {
 							ctx->scan_v[0] = scan_8x8_cavlc[0][i4x4];
 							int nA = *(mb->nC[iYCbCr] + ctx->A4x4_int8[i8x8 * 4 + i4x4]);
@@ -592,7 +592,7 @@ static void CAFUNC(parse_NxN_residual)
 					#else
 						if (ctx->ps.ChromaArrayType < 3 || CALL(get_ae, ctx->ctxIdxOffsets[0] + (mb->bits[1] >> inc8x8[iYCbCr * 4 + i8x8] & 3))) {
 							for (int i = 0; i < 16; i++)
-								ctx->c_v[i] = (v4si){};
+								ctx->c_v[i] = (i32x4){};
 							mb->bits[1] |= 1 << bit8x8[iYCbCr * 4 + i8x8];
 							mb->nC_s[iYCbCr][i8x8] = 0x01010101;
 							fprintf(stderr, "8x8 coeffLevels[%d]:", iYCbCr * 4 + i8x8);
@@ -729,14 +729,14 @@ static noinline void CAFUNC(parse_I_mb, int mb_type_or_ctxIdx)
 	if (ctx->unavail16x16 & 1) {
 		mb->bits[1] |= 0x111111; // FIXME 4:2:2
 		#ifdef CABAC
-			mb[-1].nC_v[0] = mb[-1].nC_v[1] = mb[-1].nC_v[2] = (v16qi){1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1};
+			mb[-1].nC_v[0] = mb[-1].nC_v[1] = mb[-1].nC_v[2] = (i8x16){1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1};
 		#endif
 		ctx->inc.coded_block_flags_16x16_s |= 0x010101;
 	}
 	if (ctx->unavail16x16 & 2) {
 		mb->bits[1] |= 0x424242;
 		#ifdef CABAC
-			mbB->nC_v[0] = mbB->nC_v[1] = mbB->nC_v[2] = (v16qi){1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1};
+			mbB->nC_v[0] = mbB->nC_v[1] = mbB->nC_v[2] = (i8x16){1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1};
 		#endif
 		ctx->inc.coded_block_flags_16x16_s |= 0x020202;
 	}
@@ -744,7 +744,7 @@ static noinline void CAFUNC(parse_I_mb, int mb_type_or_ctxIdx)
 	mb->inter_eqs_s = little_endian32(0x1b5fbbff);
 	mb->refIdx_l = -1;
 	mb->refPic_l = -1;
-	mb->mvs_v[0] = mb->mvs_v[1] = mb->mvs_v[2] = mb->mvs_v[3] = mb->mvs_v[4] = mb->mvs_v[5] = mb->mvs_v[6] = mb->mvs_v[7] = (v8hi){};
+	mb->mvs_v[0] = mb->mvs_v[1] = mb->mvs_v[2] = mb->mvs_v[3] = mb->mvs_v[4] = mb->mvs_v[5] = mb->mvs_v[6] = mb->mvs_v[7] = (i16x8){};
 	
 	// I_NxN
 	if (CACOND(mb_type_or_ctxIdx == 0, !CALL(get_ae, mb_type_or_ctxIdx))) {
@@ -809,7 +809,7 @@ static noinline void CAFUNC(parse_I_mb, int mb_type_or_ctxIdx)
 			{I16x16_DC_8, I16x16_DCA_8, I16x16_DCB_8, I16x16_DCAB_8},
 			{I16x16_P_8 , I16x16_DCA_8, I16x16_DCB_8, I16x16_DCAB_8},
 		};
-		mb->Intra4x4PredMode_v = (v16qi){2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2};
+		mb->Intra4x4PredMode_v = (i8x16){2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2};
 		CALL(decode_intra16x16, intra16x16_modes[mode][ctx->unavail16x16 & 3], ctx->samples_mb[0], ctx->stride[0], 0); // FIXME 4:4:4
 		CACALL(parse_intra_chroma_pred_mode);
 		CAJUMP(parse_Intra16x16_residual);
@@ -826,12 +826,12 @@ static noinline void CAFUNC(parse_I_mb, int mb_type_or_ctxIdx)
 		
 		ctx->mb_qp_delta_nz = 0;
 		mb->f.v |= flags_PCM.v; // FIXME reuse flags_twice
-		mb->QP_s = (v4qi){0, ctx->QP_C[0][0], ctx->QP_C[1][0]};
-		mb->bits_l = (uint64_t)(v2su){0xac, 0xacacac}; // FIXME 4:2:2
+		mb->QP_s = (i8x4){0, ctx->QP_C[0][0], ctx->QP_C[1][0]};
+		mb->bits_l = (uint64_t)(i32x2){0xac, 0xacacac}; // FIXME 4:2:2
 		mb->nC_v[0] = mb->nC_v[1] = mb->nC_v[2] = CACOND(
-			((v16qi){16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16}),
-			((v16qi){1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1}));
-		mb->Intra4x4PredMode_v = (v16qi){2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2};
+			((i8x16){16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16}),
+			((i8x16){1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1}));
+		mb->Intra4x4PredMode_v = (i8x16){2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2};
 		
 		// PCM is so rare that it should be compact rather than fast
 		uint8_t *p = ctx->samples_mb[0];
@@ -888,13 +888,13 @@ static void CAFUNC(parse_inter_residual)
 	
 	if (ctx->unavail16x16 & 1) {
 		#ifdef CABAC
-			mb[-1].nC_v[0] = mb[-1].nC_v[1] = mb[-1].nC_v[2] = (v16qi){};
+			mb[-1].nC_v[0] = mb[-1].nC_v[1] = mb[-1].nC_v[2] = (i8x16){};
 		#endif
 		ctx->inc.coded_block_flags_16x16_s &= 0x020202;
 	}
 	if (ctx->unavail16x16 & 2) {
 		#ifdef CABAC
-			mbB->nC_v[0] = mbB->nC_v[1] = mbB->nC_v[2] = (v16qi){};
+			mbB->nC_v[0] = mbB->nC_v[1] = mbB->nC_v[2] = (i8x16){};
 		#endif
 		ctx->inc.coded_block_flags_16x16_s &= 0x010101;
 	}
@@ -912,14 +912,14 @@ static void CAFUNC(parse_inter_residual)
  * Exp-Golomb, so we need a single division on 64-bit machines and two on
  * 32-bit machines.
  */
-static v8hi CAFUNC(parse_mvd_pair, const uint8_t *absMvd_lx, int i4x4) {
+static i16x8 CAFUNC(parse_mvd_pair, const uint8_t *absMvd_lx, int i4x4) {
 	#ifndef CABAC
 		int x = CALL(get_se32, -32768, 32767);
 		int y = CALL(get_se32, -32768, 32767);
 		fprintf(stderr, "mvd[%lu]: %d,%d\n", absMvd_lx - mb->absMvd + i4x4, x, y);
-		return (v8hi){x, y};
+		return (i16x8){x, y};
 	#else
-		v8hi res;
+		i16x8 res;
 		for (int ctxBase = 40, i = 0;;) {
 			int sum = absMvd_lx[ctx->absMvd_A[i4x4] + i] + absMvd_lx[ctx->absMvd_B[i4x4] + i];
 			int ctxIdx = ctxBase + (sum >= 3) + (sum > 32);
@@ -966,7 +966,7 @@ static v8hi CAFUNC(parse_mvd_pair, const uint8_t *absMvd_lx, int i4x4) {
 				return res;
 			}
 			ctxBase = 47;
-			res = (v8hi){mvd};
+			res = (i16x8){mvd};
 		}
 	#endif
 }
@@ -982,9 +982,9 @@ static v8hi CAFUNC(parse_mvd_pair, const uint8_t *absMvd_lx, int i4x4) {
  * This function also clips all values to valid ones.
  */
 static inline void CAFUNC(parse_ref_idx, unsigned f) {
-	v16qu v = {f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f};
-	v16qu bits = {1, 2, 4, 8, 16, 32, 64, 128};
-	mb->refIdx_l = ((v2li){mb->refIdx_l} & ~(v2li)((v & bits) == bits))[0]; // set to 0 if parsed
+	u8x16 v = {f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f};
+	u8x16 bits = {1, 2, 4, 8, 16, 32, 64, 128};
+	mb->refIdx_l = ((i64x2){mb->refIdx_l} & ~(i64x2)((v & bits) == bits))[0]; // set to 0 if parsed
 	for (unsigned u = f & ctx->num_ref_idx_mask; u; u &= u - 1) {
 		int i = __builtin_ctz(u);
 		int ref_idx = 0;
@@ -1006,28 +1006,28 @@ static inline void CAFUNC(parse_ref_idx, unsigned f) {
 	}
 	
 	// clip and broadcast the values
-	v16qi refIdx_v = (v16qi)(v2li){mb->refIdx_l};
+	i8x16 refIdx_v = (i64x2){mb->refIdx_l};
 	#ifdef CABAC
-		refIdx_v = min_v16qi(refIdx_v, (v16qi)(v2li){(int64_t)ctx->clip_ref_idx_v});
+		refIdx_v = min_i8x16(refIdx_v, (i64x2){(int64_t)ctx->clip_ref_idx_v});
 	#endif
 	if (!(f & 0x122)) { // 16xN
-		refIdx_v = shuffle(refIdx_v, (v16qi){0, 0, 2, 2, 4, 4, 6, 6, -1, -1, -1, -1, -1, -1, -1, -1});
+		refIdx_v = shuffle(refIdx_v, (i8x16){0, 0, 2, 2, 4, 4, 6, 6, -1, -1, -1, -1, -1, -1, -1, -1});
 		#ifdef CABAC
 			mb->bits[0] |= (mb->bits[0] >> 2 & 0x080800) | (mb->bits[0] << 5 & 0x808000);
 		#endif
 	}
 	if (!(f & 0x144)) { // Nx16
-		refIdx_v = shuffle(refIdx_v, (v16qi){0, 1, 0, 1, 4, 5, 4, 5, -1, -1, -1, -1, -1, -1, -1, -1});
+		refIdx_v = shuffle(refIdx_v, (i8x16){0, 1, 0, 1, 4, 5, 4, 5, -1, -1, -1, -1, -1, -1, -1, -1});
 		#ifdef CABAC
 			mb->bits[0] |= (mb->bits[0] >> 3 & 0x040400) | (mb->bits[0] << 4 & 0x808000);
 		#endif
 	}
-	mb->refIdx_l = ((v2li)refIdx_v)[0];
+	mb->refIdx_l = ((i64x2)refIdx_v)[0];
 	fprintf(stderr, "ref_idx: %d %d %d %d %d %d %d %d\n", mb->refIdx[0], mb->refIdx[1], mb->refIdx[2], mb->refIdx[3], mb->refIdx[4], mb->refIdx[5], mb->refIdx[6], mb->refIdx[7]);
 	
 	// compute reference picture numbers
-	mb->refPic_s[0] = ((v4si)ifelse_msb(refIdx_v, refIdx_v, shuffle(ctx->RefPicList_v[0], refIdx_v)))[0];
-	mb->refPic_s[1] = ((v4si)ifelse_msb(refIdx_v, refIdx_v, shuffle(ctx->RefPicList_v[2], refIdx_v)))[1];
+	mb->refPic_s[0] = ((i32x4)ifelse_msb(refIdx_v, refIdx_v, shuffle(ctx->RefPicList_v[0], refIdx_v)))[0];
+	mb->refPic_s[1] = ((i32x4)ifelse_msb(refIdx_v, refIdx_v, shuffle(ctx->RefPicList_v[2], refIdx_v)))[1];
 }
 
 
@@ -1121,26 +1121,26 @@ static void CAFUNC(parse_B_sub_mb) {
 	CACALL(parse_ref_idx, 0x100 | mvd_flags2ref_idx(mvd_flags));
 	
 	// load neighbouring refIdx values and shuffle them into A/B/C/D
-	v16qi BC = (v16qi)(v2li){(int64_t)mbB->refIdx_l, (int64_t)mbB[1].refIdx_l};
-	v16qi Ar = (v16qi)(v2li){(int64_t)mb[-1].refIdx_l, (int64_t)mb->refIdx_l};
-	v16qi BCAr0 = (v16qi)__builtin_shufflevector((v4si)BC, (v4si)Ar, 0, 2, 4, 6);
-	v16qi BCAr1 = (v16qi)__builtin_shufflevector((v4si)BC, (v4si)Ar, 1, 3, 5, 7);
-	v16qi r0 = __builtin_shufflevector(BCAr0, BCAr0, 12, 12, 12, 12, 13, 13, 13, 13, 14, 14, 14, 14, 15, 15, 15, 15);
-	v16qi r1 = __builtin_shufflevector(BCAr1, BCAr1, 12, 12, 12, 12, 13, 13, 13, 13, 14, 14, 14, 14, 15, 15, 15, 15);
-	v16qi A0 = __builtin_shufflevector(BCAr0, BCAr0, 9, 12, 9, 12, 12, 13, 12, 13, 11, 14, 11, 14, 14, 15, 14, 15);
-	v16qi A1 = __builtin_shufflevector(BCAr1, BCAr1, 9, 12, 9, 12, 12, 13, 12, 13, 11, 14, 11, 14, 14, 15, 14, 15);
-	v16qi B0 = __builtin_shufflevector(BCAr0, BCAr0, 2, 2, 12, 12, 3, 3, 13, 13, 12, 12, 14, 14, 13, 13, 15, 15);
-	v16qi B1 = __builtin_shufflevector(BCAr1, BCAr1, 2, 2, 12, 12, 3, 3, 13, 13, 12, 12, 14, 14, 13, 13, 15, 15);
-	v16qi C0 = shuffle(BCAr0, ctx->refIdx4x4_C_v);
-	v16qi C1 = shuffle(BCAr1, ctx->refIdx4x4_C_v);
-	v16qi D0 = __builtin_shufflevector(BCAr0, BCAr0, -1, 2, 9, 12, 2, 3, 12, 13, 9, 12, 11, 14, 12, 13, 14, 15);
-	v16qi D1 = __builtin_shufflevector(BCAr1, BCAr1, -1, 2, 9, 12, 2, 3, 12, 13, 9, 12, 11, 14, 12, 13, 14, 15);
+	i8x16 BC = (i64x2){(int64_t)mbB->refIdx_l, (int64_t)mbB[1].refIdx_l};
+	i8x16 Ar = (i64x2){(int64_t)mb[-1].refIdx_l, (int64_t)mb->refIdx_l};
+	i8x16 BCAr0 = __builtin_shufflevector((i32x4)BC, (i32x4)Ar, 0, 2, 4, 6);
+	i8x16 BCAr1 = __builtin_shufflevector((i32x4)BC, (i32x4)Ar, 1, 3, 5, 7);
+	i8x16 r0 = __builtin_shufflevector(BCAr0, BCAr0, 12, 12, 12, 12, 13, 13, 13, 13, 14, 14, 14, 14, 15, 15, 15, 15);
+	i8x16 r1 = __builtin_shufflevector(BCAr1, BCAr1, 12, 12, 12, 12, 13, 13, 13, 13, 14, 14, 14, 14, 15, 15, 15, 15);
+	i8x16 A0 = __builtin_shufflevector(BCAr0, BCAr0, 9, 12, 9, 12, 12, 13, 12, 13, 11, 14, 11, 14, 14, 15, 14, 15);
+	i8x16 A1 = __builtin_shufflevector(BCAr1, BCAr1, 9, 12, 9, 12, 12, 13, 12, 13, 11, 14, 11, 14, 14, 15, 14, 15);
+	i8x16 B0 = __builtin_shufflevector(BCAr0, BCAr0, 2, 2, 12, 12, 3, 3, 13, 13, 12, 12, 14, 14, 13, 13, 15, 15);
+	i8x16 B1 = __builtin_shufflevector(BCAr1, BCAr1, 2, 2, 12, 12, 3, 3, 13, 13, 12, 12, 14, 14, 13, 13, 15, 15);
+	i8x16 C0 = shuffle(BCAr0, ctx->refIdx4x4_C_v);
+	i8x16 C1 = shuffle(BCAr1, ctx->refIdx4x4_C_v);
+	i8x16 D0 = __builtin_shufflevector(BCAr0, BCAr0, -1, 2, 9, 12, 2, 3, 12, 13, 9, 12, 11, 14, 12, 13, 14, 15);
+	i8x16 D1 = __builtin_shufflevector(BCAr1, BCAr1, -1, 2, 9, 12, 2, 3, 12, 13, 9, 12, 11, 14, 12, 13, 14, 15);
 	D0[0] = mbB->refIdx[3];
 	D1[0] = mbB->refIdx[7];
 	
 	// combine them into a vector of 4-bit equality masks
-	v16qi u = ctx->unavail4x4_v;
-	v16qi uC = u & 4;
+	i8x16 u = ctx->unavail4x4_v;
+	i8x16 uC = u & 4;
 	ctx->refIdx4x4_eq_v[0] = (uC - ifelse_mask(uC==4, r0==D0, r0==C0) * 2 - (r0==B0)) * 2 - (r0==A0 | u==14);
 	ctx->refIdx4x4_eq_v[1] = (uC - ifelse_mask(uC==4, r1==D1, r1==C1) * 2 - (r1==B1)) * 2 - (r1==A1 | u==14);
 	
@@ -1149,21 +1149,21 @@ static void CAFUNC(parse_B_sub_mb) {
 		int i = __builtin_ctz(mvd_flags);
 		int i4x4 = i & 15;
 		uint8_t *absMvd_p = mb->absMvd + (i & 16) * 2;
-		v8hi mvd = CACALL(parse_mvd_pair, absMvd_p, i4x4);
+		i16x8 mvd = CACALL(parse_mvd_pair, absMvd_p, i4x4);
 		
 		// branch on equality mask
 		int32_t *mvs_p = mb->mvs_s + (i & 16);
-		v8hi mvp;
+		i16x8 mvp;
 		int eq = ctx->refIdx4x4_eq[i];
 		int mvs_DC = eq & 8 ? ctx->mvs_D[i4x4] : ctx->mvs_C[i4x4];
 		if (__builtin_expect(0xe9e9 >> eq & 1, 1)) {
-			v8hi mvA = (v8hi)(v4si){mvs_p[ctx->mvs_A[i4x4]]};
-			v8hi mvB = (v8hi)(v4si){mvs_p[ctx->mvs_B[i4x4]]};
-			v8hi mvDC = (v8hi)(v4si){mvs_p[mvs_DC]};
-			mvp = median_v8hi(mvA, mvB, mvDC);
+			i16x8 mvA = (i32x4){mvs_p[ctx->mvs_A[i4x4]]};
+			i16x8 mvB = (i32x4){mvs_p[ctx->mvs_B[i4x4]]};
+			i16x8 mvDC = (i32x4){mvs_p[mvs_DC]};
+			mvp = median_i16x8(mvA, mvB, mvDC);
 		} else {
 			int mvs_AB = eq & 1 ? ctx->mvs_A[i4x4] : ctx->mvs_B[i4x4];
-			mvp = (v8hi)(v4si){mvs_p[eq & 4 ? mvs_DC : mvs_AB]};
+			mvp = (i32x4){mvs_p[eq & 4 ? mvs_DC : mvs_AB]};
 		}
 		
 		// broadcast absMvd and mvs to memory then call decoding
@@ -1173,12 +1173,12 @@ static void CAFUNC(parse_B_sub_mb) {
 		int type = mvd_flags >> (i & -4) & 15;
 		int m = masks[type];
 		int i8x8 = i >> 2;
-		v8hi bits = {1, 2, 4, 8};
-		v8hi absMvd_mask = ((v8hi){m, m, m, m, m, m, m, m} & bits) == bits;
-		v8hi absMvd_old = (v8hi)(v2li){mb->absMvd_l[i8x8]};
-		v8hi mvs_mask = __builtin_shufflevector(absMvd_mask, (v8hi){}, 0, 0, 1, 1, 2, 2, 3, 3);
-		v8hi mvs = (v8hi)__builtin_shufflevector((v4si)(mvp + mvd), (v4si){}, 0, 0, 0, 0);
-		mb->absMvd_l[i8x8] = ((v2li)ifelse_mask(absMvd_mask, (v8hi)pack_absMvd(mvd), absMvd_old))[0];
+		i16x8 bits = {1, 2, 4, 8};
+		i16x8 absMvd_mask = ((i16x8){m, m, m, m, m, m, m, m} & bits) == bits;
+		i16x8 absMvd_old = (i64x2){mb->absMvd_l[i8x8]};
+		i16x8 mvs_mask = __builtin_shufflevector(absMvd_mask, (i16x8){}, 0, 0, 1, 1, 2, 2, 3, 3);
+		i16x8 mvs = __builtin_shufflevector((i32x4)(mvp + mvd), (i32x4){}, 0, 0, 0, 0);
+		mb->absMvd_l[i8x8] = ((i64x2)ifelse_mask(absMvd_mask, pack_absMvd(mvd), absMvd_old))[0];
 		mb->mvs_v[i8x8] = ifelse_mask(mvs_mask, mvs, mb->mvs_v[i8x8]);
 		CALL(decode_inter, i, widths[type], heights[type]);
 	} while (mvd_flags &= mvd_flags - 1);
@@ -1220,9 +1220,9 @@ static inline void CAFUNC(parse_B_mb)
 {
 	// Inter initializations
 	mb->f.mbIsInterFlag = 1;
-	mb->Intra4x4PredMode_v = (v16qi){2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2};
+	mb->Intra4x4PredMode_v = (i8x16){2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2};
 	#ifdef CABAC
-		mb->absMvd_v[0] = mb->absMvd_v[1] = mb->absMvd_v[2] = mb->absMvd_v[3] = (v16qu){};
+		mb->absMvd_v[0] = mb->absMvd_v[1] = mb->absMvd_v[2] = mb->absMvd_v[3] = (i8x16){};
 	#endif
 	
 	// parse mb_skip_run/flag
@@ -1270,7 +1270,7 @@ static inline void CAFUNC(parse_B_mb)
 		if (mb_type > 22)
 			CAJUMP(parse_I_mb, mb_type - 23);
 		mb->refIdx_l = -1;
-		mb->mvs_v[0] = mb->mvs_v[1] = mb->mvs_v[2] = mb->mvs_v[3] = mb->mvs_v[4] = mb->mvs_v[5] = mb->mvs_v[6] = mb->mvs_v[7] = (v8hi){};
+		mb->mvs_v[0] = mb->mvs_v[1] = mb->mvs_v[2] = mb->mvs_v[3] = mb->mvs_v[4] = mb->mvs_v[5] = mb->mvs_v[6] = mb->mvs_v[7] = (i16x8){};
 		if (mb_type == 22)
 			CAJUMP(parse_B_sub_mb);
 		static const uint8_t mb_type2flags[22] = {0, 0x01, 0x10, 0x11, 0x05, 0x03,
@@ -1292,7 +1292,7 @@ static inline void CAFUNC(parse_B_mb)
 			0, 0, 11, 22, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21};
 		fprintf(stderr, "mb_type: %u\n", str2mb_type[str]);
 		mb->refIdx_l = -1;
-		mb->mvs_v[0] = mb->mvs_v[1] = mb->mvs_v[2] = mb->mvs_v[3] = mb->mvs_v[4] = mb->mvs_v[5] = mb->mvs_v[6] = mb->mvs_v[7] = (v8hi){};
+		mb->mvs_v[0] = mb->mvs_v[1] = mb->mvs_v[2] = mb->mvs_v[3] = mb->mvs_v[4] = mb->mvs_v[5] = mb->mvs_v[6] = mb->mvs_v[7] = (i16x8){};
 		if (str == 15)
 			CAJUMP(parse_B_sub_mb);
 		static const uint8_t str2flags[26] = {0x11, 0x05, 0x03, 0x50, 0x30, 0x41,
@@ -1306,47 +1306,47 @@ static inline void CAFUNC(parse_B_mb)
 	if (!(flags8x8 & 0xee)) { // 16x16
 		mb->inter_eqs_s = little_endian32(0x1b5fbbff);
 		if (flags8x8 & 0x01) {
-			v8hi mvd = CACALL(parse_mvd_pair, mb->absMvd, 0);
+			i16x8 mvd = CACALL(parse_mvd_pair, mb->absMvd, 0);
 			CALL(decode_inter_16x16, mvd, 0);
 		}
 		if (flags8x8 & 0x10) {
-			v8hi mvd = CACALL(parse_mvd_pair, mb->absMvd + 32, 0);
+			i16x8 mvd = CACALL(parse_mvd_pair, mb->absMvd + 32, 0);
 			CALL(decode_inter_16x16, mvd, 1);
 		}
 	} else if (!(flags8x8 & 0xcc)) { // 8x16
 		mb->inter_eqs_s = little_endian32(0x1b1bbbbb);
 		if (flags8x8 & 0x01) {
-			v8hi mvd = CACALL(parse_mvd_pair, mb->absMvd, 0);
+			i16x8 mvd = CACALL(parse_mvd_pair, mb->absMvd, 0);
 			CALL(decode_inter_8x16_left, mvd, 0);
 		}
 		if (flags8x8 & 0x02) {
-			v8hi mvd = CACALL(parse_mvd_pair, mb->absMvd, 4);
+			i16x8 mvd = CACALL(parse_mvd_pair, mb->absMvd, 4);
 			CALL(decode_inter_8x16_right, mvd, 0);
 		}
 		if (flags8x8 & 0x10) {
-			v8hi mvd = CACALL(parse_mvd_pair, mb->absMvd + 32, 0);
+			i16x8 mvd = CACALL(parse_mvd_pair, mb->absMvd + 32, 0);
 			CALL(decode_inter_8x16_left, mvd, 1);
 		}
 		if (flags8x8 & 0x20) {
-			v8hi mvd = CACALL(parse_mvd_pair, mb->absMvd + 32, 4);
+			i16x8 mvd = CACALL(parse_mvd_pair, mb->absMvd + 32, 4);
 			CALL(decode_inter_8x16_right, mvd, 1);
 		}
 	} else { // 16x8
 		mb->inter_eqs_s = little_endian32(0x1b5f1b5f);
 		if (flags8x8 & 0x01) {
-			v8hi mvd = CACALL(parse_mvd_pair, mb->absMvd, 0);
+			i16x8 mvd = CACALL(parse_mvd_pair, mb->absMvd, 0);
 			CALL(decode_inter_16x8_top, mvd, 0);
 		}
 		if (flags8x8 & 0x04) {
-			v8hi mvd = CACALL(parse_mvd_pair, mb->absMvd, 8);
+			i16x8 mvd = CACALL(parse_mvd_pair, mb->absMvd, 8);
 			CALL(decode_inter_16x8_bottom, mvd, 0);
 		}
 		if (flags8x8 & 0x10) {
-			v8hi mvd = CACALL(parse_mvd_pair, mb->absMvd + 32, 0);
+			i16x8 mvd = CACALL(parse_mvd_pair, mb->absMvd + 32, 0);
 			CALL(decode_inter_16x8_top, mvd, 1);
 		}
 		if (flags8x8 & 0x40) {
-			v8hi mvd = CACALL(parse_mvd_pair, mb->absMvd + 32, 8);
+			i16x8 mvd = CACALL(parse_mvd_pair, mb->absMvd + 32, 8);
 			CALL(decode_inter_16x8_bottom, mvd, 1);
 		}
 	}
@@ -1397,38 +1397,38 @@ static void CAFUNC(parse_P_sub_mb, unsigned ref_idx_flags)
 	CACALL(parse_ref_idx, ref_idx_flags);
 	
 	// load neighbouring refIdx values and shuffle them into A/B/C/D
-	v16qi BC = (v16qi)(v2li){(int64_t)mbB->refIdx_l, (int64_t)mbB[1].refIdx_l};
-	v16qi Ar = (v16qi)(v2li){(int64_t)mb[-1].refIdx_l, (int64_t)mb->refIdx_l};
-	v16qi BCAr0 = (v16qi)__builtin_shufflevector((v4si)BC, (v4si)Ar, 0, 2, 4, 6);
-	v16qi r0 = __builtin_shufflevector(BCAr0, BCAr0, 12, 12, 12, 12, 13, 13, 13, 13, 14, 14, 14, 14, 15, 15, 15, 15);
-	v16qi A0 = __builtin_shufflevector(BCAr0, BCAr0, 9, 12, 9, 12, 12, 13, 12, 13, 11, 14, 11, 14, 14, 15, 14, 15);
-	v16qi B0 = __builtin_shufflevector(BCAr0, BCAr0, 2, 2, 12, 12, 3, 3, 13, 13, 12, 12, 14, 14, 13, 13, 15, 15);
-	v16qi C0 = shuffle(BCAr0, ctx->refIdx4x4_C_v);
-	v16qi D0 = __builtin_shufflevector(BCAr0, BCAr0, -1, 2, 9, 12, 2, 3, 12, 13, 9, 12, 11, 14, 12, 13, 14, 15);
+	i8x16 BC = (i64x2){(int64_t)mbB->refIdx_l, (int64_t)mbB[1].refIdx_l};
+	i8x16 Ar = (i64x2){(int64_t)mb[-1].refIdx_l, (int64_t)mb->refIdx_l};
+	i8x16 BCAr0 = __builtin_shufflevector((i32x4)BC, (i32x4)Ar, 0, 2, 4, 6);
+	i8x16 r0 = __builtin_shufflevector(BCAr0, BCAr0, 12, 12, 12, 12, 13, 13, 13, 13, 14, 14, 14, 14, 15, 15, 15, 15);
+	i8x16 A0 = __builtin_shufflevector(BCAr0, BCAr0, 9, 12, 9, 12, 12, 13, 12, 13, 11, 14, 11, 14, 14, 15, 14, 15);
+	i8x16 B0 = __builtin_shufflevector(BCAr0, BCAr0, 2, 2, 12, 12, 3, 3, 13, 13, 12, 12, 14, 14, 13, 13, 15, 15);
+	i8x16 C0 = shuffle(BCAr0, ctx->refIdx4x4_C_v);
+	i8x16 D0 = __builtin_shufflevector(BCAr0, BCAr0, -1, 2, 9, 12, 2, 3, 12, 13, 9, 12, 11, 14, 12, 13, 14, 15);
 	D0[0] = mbB->refIdx[3];
 	
 	// combine them into a vector of 4-bit equality masks
-	v16qi u = ctx->unavail4x4_v;
-	v16qi uC = u & 4;
+	i8x16 u = ctx->unavail4x4_v;
+	i8x16 uC = u & 4;
 	ctx->refIdx4x4_eq_v[0] = (uC - ifelse_mask(uC==4, r0==D0, r0==C0) * 2 - (r0==B0)) * 2 - (r0==A0 | u==14);
 	
 	// loop on mvs
 	do {
 		int i = __builtin_ctz(mvd_flags);
-		v8hi mvd = CACALL(parse_mvd_pair, mb->absMvd, i);
+		i16x8 mvd = CACALL(parse_mvd_pair, mb->absMvd, i);
 		
 		// branch on equality mask
-		v8hi mvp;
+		i16x8 mvp;
 		int eq = ctx->refIdx4x4_eq[i];
 		int mvs_DC = eq & 8 ? ctx->mvs_D[i] : ctx->mvs_C[i];
 		if (__builtin_expect(0xe9e9 >> eq & 1, 1)) {
-			v8hi mvA = (v8hi)(v4si){*(mb->mvs_s + ctx->mvs_A[i])};
-			v8hi mvB = (v8hi)(v4si){*(mb->mvs_s + ctx->mvs_B[i])};
-			v8hi mvDC = (v8hi)(v4si){*(mb->mvs_s + mvs_DC)};
-			mvp = median_v8hi(mvA, mvB, mvDC);
+			i16x8 mvA = (i32x4){*(mb->mvs_s + ctx->mvs_A[i])};
+			i16x8 mvB = (i32x4){*(mb->mvs_s + ctx->mvs_B[i])};
+			i16x8 mvDC = (i32x4){*(mb->mvs_s + mvs_DC)};
+			mvp = median_i16x8(mvA, mvB, mvDC);
 		} else {
 			int mvs_AB = eq & 1 ? ctx->mvs_A[i] : ctx->mvs_B[i];
-			mvp = (v8hi)(v4si){*(mb->mvs_s + (eq & 4 ? mvs_DC : mvs_AB))};
+			mvp = (i32x4){*(mb->mvs_s + (eq & 4 ? mvs_DC : mvs_AB))};
 		}
 		
 		// broadcast absMvd and mvs to memory then call decoding
@@ -1438,12 +1438,12 @@ static void CAFUNC(parse_P_sub_mb, unsigned ref_idx_flags)
 		int type = mvd_flags >> (i & -4) & 15;
 		int m = masks[type];
 		int i8x8 = i >> 2;
-		v8hi bits = {1, 2, 4, 8};
-		v8hi absMvd_mask = ((v8hi){m, m, m, m, m, m, m, m} & bits) == bits;
-		v8hi absMvd_old = (v8hi)(v2li){mb->absMvd_l[i8x8]};
-		v8hi mvs_mask = __builtin_shufflevector(absMvd_mask, (v8hi){}, 0, 0, 1, 1, 2, 2, 3, 3);
-		v8hi mvs = (v8hi)__builtin_shufflevector((v4si)(mvp + mvd), (v4si){}, 0, 0, 0, 0);
-		mb->absMvd_l[i8x8] = ((v2li)ifelse_mask(absMvd_mask, (v8hi)pack_absMvd(mvd), absMvd_old))[0];
+		i16x8 bits = {1, 2, 4, 8};
+		i16x8 absMvd_mask = ((i16x8){m, m, m, m, m, m, m, m} & bits) == bits;
+		i16x8 absMvd_old = (i64x2){mb->absMvd_l[i8x8]};
+		i16x8 mvs_mask = __builtin_shufflevector(absMvd_mask, (i16x8){}, 0, 0, 1, 1, 2, 2, 3, 3);
+		i16x8 mvs = __builtin_shufflevector((i32x4)(mvp + mvd), (i32x4){}, 0, 0, 0, 0);
+		mb->absMvd_l[i8x8] = ((i64x2)ifelse_mask(absMvd_mask, pack_absMvd(mvd), absMvd_old))[0];
 		mb->mvs_v[i8x8] = ifelse_mask(mvs_mask, mvs, mb->mvs_v[i8x8]);
 		CALL(decode_inter, i, widths[type], heights[type]);
 	} while (mvd_flags &= mvd_flags - 1);
@@ -1478,8 +1478,8 @@ static inline void CAFUNC(parse_P_mb)
 {
 	// Inter initializations
 	mb->f.mbIsInterFlag = 1;
-	mb->Intra4x4PredMode_v = (v16qi){2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2};
-	mb->refIdx_l = (int64_t)(v8qi){0, 0, 0, 0, -1, -1, -1, -1};
+	mb->Intra4x4PredMode_v = (i8x16){2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2};
+	mb->refIdx_l = (int64_t)(i8x8){0, 0, 0, 0, -1, -1, -1, -1};
 	
 	// parse mb_skip_run/flag
 	#ifndef CABAC
@@ -1500,13 +1500,13 @@ static inline void CAFUNC(parse_P_mb)
 			ctx->mb_qp_delta_nz = 0;
 		#endif
 		mb->inter_eqs_s = little_endian32(0x1b5fbbff);
-		v16qi refIdx_v = (v16qi)(v2li){mb->refIdx_l};
-		mb->refPic_l = ((v2li)(shuffle(ctx->RefPicList_v[0], refIdx_v) | refIdx_v))[0];
+		i8x16 refIdx_v = (i64x2){mb->refIdx_l};
+		mb->refPic_l = ((i64x2)(shuffle(ctx->RefPicList_v[0], refIdx_v) | refIdx_v))[0];
 		int refIdxA = mb[-1].refIdx[1];
 		int refIdxB = mbB->refIdx[2];
 		int mvA = *(mb->mvs_s + ctx->mvs_A[0]);
 		int mvB = *(mb->mvs_s + ctx->mvs_B[0]);
-		v8hi mv = {};
+		i16x8 mv = {};
 		if ((refIdxA | mvA) && (refIdxB | mvB) && !(ctx->unavail16x16 & 3)) {
 			int refIdxC, mvs_C;
 			if (__builtin_expect(ctx->unavail16x16 & 4, 0)) {
@@ -1519,18 +1519,18 @@ static inline void CAFUNC(parse_P_mb)
 			// B/C unavailability (->A) was ruled out, thus not tested here
 			int eq = !refIdxA + !refIdxB * 2 + !refIdxC * 4;
 			if (__builtin_expect(0xe9 >> eq & 1, 1)) {
-				mv = median_v8hi((v8hi)(v4si){mvA}, (v8hi)(v4si){mvB}, (v8hi)(v4si){*(mb->mvs_s + mvs_C)});
+				mv = median_i16x8((i32x4){mvA}, (i32x4){mvB}, (i32x4){*(mb->mvs_s + mvs_C)});
 			} else if (eq == 4) {
-				mv = (v8hi)(v4si){*(mb->mvs_s + mvs_C)};
+				mv = (i32x4){*(mb->mvs_s + mvs_C)};
 			} else {
-				mv = (v8hi)(v4si){(eq == 1) ? mvA : mvB};
+				mv = (i32x4){(eq == 1) ? mvA : mvB};
 			}
 		}
-		v8hi mvs = (v8hi)__builtin_shufflevector((v4si)mv, (v4si){}, 0, 0, 0, 0);
+		i16x8 mvs = __builtin_shufflevector((i32x4)mv, (i32x4){}, 0, 0, 0, 0);
 		mb->mvs_v[0] = mb->mvs_v[1] = mb->mvs_v[2] = mb->mvs_v[3] = mvs;
-		mb->mvs_v[4] = mb->mvs_v[5] = mb->mvs_v[6] = mb->mvs_v[7] = (v8hi){};
+		mb->mvs_v[4] = mb->mvs_v[5] = mb->mvs_v[6] = mb->mvs_v[7] = (i16x8){};
 		#ifdef CABAC
-			mb->absMvd_v[0] = mb->absMvd_v[1] = (v16qu){};
+			mb->absMvd_v[0] = mb->absMvd_v[1] = (i8x16){};
 		#endif
 		JUMP(decode_inter, 0, 16, 16);
 	}
@@ -1542,25 +1542,25 @@ static inline void CAFUNC(parse_P_mb)
 		fprintf(stderr, "mb_type: %u\n", mb_type);
 		if (mb_type > 4) {
 			#ifdef CABAC
-				mb->absMvd_v[0] = mb->absMvd_v[1] = (v16qu){};
+				mb->absMvd_v[0] = mb->absMvd_v[1] = (i8x16){};
 			#endif
 			CAJUMP(parse_I_mb, mb_type - 5);
 		}
-		mb->mvs_v[4] = mb->mvs_v[5] = mb->mvs_v[6] = mb->mvs_v[7] = (v8hi){};
+		mb->mvs_v[4] = mb->mvs_v[5] = mb->mvs_v[6] = mb->mvs_v[7] = (i16x8){};
 		if (mb_type > 2)
 			CAJUMP(parse_P_sub_mb, (mb_type + 12) & 15); // 3->15, 4->0
 		CACALL(parse_ref_idx, 0x351 >> (mb_type << 2) & 15); // 0->1, 1->5, 2->3
 	#else
 		if (CALL(get_ae, 14)) { // Intra
 			#ifdef CABAC
-				mb->absMvd_v[0] = mb->absMvd_v[1] = (v16qu){};
+				mb->absMvd_v[0] = mb->absMvd_v[1] = (i8x16){};
 			#endif
 			CAJUMP(parse_I_mb, 17);
 		}
 		int mb_type = CALL(get_ae, 15); // actually 1 and 3 are swapped
 		mb_type += mb_type + CALL(get_ae, 16 + mb_type);
 		fprintf(stderr, "mb_type: %u\n", (4 - mb_type) & 3);
-		mb->mvs_v[4] = mb->mvs_v[5] = mb->mvs_v[6] = mb->mvs_v[7] = (v8hi){};
+		mb->mvs_v[4] = mb->mvs_v[5] = mb->mvs_v[6] = mb->mvs_v[7] = (i16x8){};
 		if (mb_type == 1)
 			CAJUMP(parse_P_sub_mb, 15);
 		CACALL(parse_ref_idx, (mb_type + 1) | 1); // 0->1, 2->3, 3->5
@@ -1569,19 +1569,19 @@ static inline void CAFUNC(parse_P_mb)
 	// decoding large blocks
 	if (mb_type == 0) { // 16x16
 		mb->inter_eqs_s = little_endian32(0x1b5fbbff);
-		v8hi mvd = CACALL(parse_mvd_pair, mb->absMvd, 0);
+		i16x8 mvd = CACALL(parse_mvd_pair, mb->absMvd, 0);
 		CALL(decode_inter_16x16, mvd, 0);
 	} else if (mb_type == 2) { // 8x16
 		mb->inter_eqs_s = little_endian32(0x1b1bbbbb);
-		v8hi mvd0 = CACALL(parse_mvd_pair, mb->absMvd, 0);
+		i16x8 mvd0 = CACALL(parse_mvd_pair, mb->absMvd, 0);
 		CALL(decode_inter_8x16_left, mvd0, 0);
-		v8hi mvd1 = CACALL(parse_mvd_pair, mb->absMvd, 4);
+		i16x8 mvd1 = CACALL(parse_mvd_pair, mb->absMvd, 4);
 		CALL(decode_inter_8x16_right, mvd1, 0);
 	} else { // 16x8
 		mb->inter_eqs_s = little_endian32(0x1b5f1b5f);
-		v8hi mvd0 = CACALL(parse_mvd_pair, mb->absMvd, 0);
+		i16x8 mvd0 = CACALL(parse_mvd_pair, mb->absMvd, 0);
 		CALL(decode_inter_16x8_top, mvd0, 0);
-		v8hi mvd1 = CACALL(parse_mvd_pair, mb->absMvd, 8);
+		i16x8 mvd1 = CACALL(parse_mvd_pair, mb->absMvd, 8);
 		CALL(decode_inter_16x8_bottom, mvd1, 0);
 	}
 	CAJUMP(parse_inter_residual);
@@ -1595,7 +1595,7 @@ static inline void CAFUNC(parse_P_mb)
  */
 static noinline int CAFUNC(parse_slice_data)
 {
-	static const v16qi block_unavailability[16] = {
+	static const i8x16 block_unavailability[16] = {
 		{ 0,  0,  0,  4,  0,  0,  0,  4,  0,  0,  0,  4,  0,  4,  0,  4},
 		{ 1,  0,  9,  4,  0,  0,  0,  4,  9,  0,  9,  4,  0,  4,  0,  4},
 		{ 6, 14,  0,  4, 14, 10,  0,  4,  0,  0,  0,  4,  0,  4,  0,  4},
@@ -1620,12 +1620,12 @@ static noinline int CAFUNC(parse_slice_data)
 		// replace neighbouring data with unavailable values on slice edge
 		int unavail16x16 = mb->unavail16x16;
 		int filter_edges = (ctx->disable_deblocking_filter_idc == 1) ? 0 : ~(mb->unavail16x16 << 1) & 7;
-		v16qi fA = mb[-1].f.v;
-		v16qi fB = mbB->f.v;
+		i8x16 fA = mb[-1].f.v;
+		i8x16 fB = mbB->f.v;
 		uint64_t bitsA = mb[-1].bits_l;
 		uint64_t bitsB = mbB->bits_l;
 		if (ctx->first_mb_in_slice) {
-			v16qi zero = {};
+			i8x16 zero = {};
 			if (ctx->CurrMbAddr <= ctx->first_mb_in_slice + ctx->ps.pic_width_in_mbs) { // D is unavailable
 				unavail16x16 |= 8;
 				ctx->refIdx_copy[3] = mbB[-1].refIdx_l;
@@ -1646,9 +1646,9 @@ static noinline int CAFUNC(parse_slice_data)
 					ctx->mvs_copy_l[10] = mbB->mvs_l[13];
 					ctx->mvs_copy_l[11] = mbB->mvs_l[15];
 					mbB->refIdx_l = -1;
-					mbB->nC_v[0] = mbB->nC_v[1] = mbB->nC_v[2] = (v16qi){};
+					mbB->nC_v[0] = mbB->nC_v[1] = mbB->nC_v[2] = zero;
 					mbB->Intra4x4PredMode_v = unavail_mb.Intra4x4PredMode_v;
-					mbB->absMvd_v[1] = mbB->absMvd_v[3] = (v16qu)zero;
+					mbB->absMvd_v[1] = mbB->absMvd_v[3] = zero;
 					mbB->mvs_l[5] = mbB->mvs_l[7] = mbB->mvs_l[13] = mbB->mvs_l[15] = 0;
 					filter_edges &= ~(ctx->disable_deblocking_filter_idc << 1); // impacts only bit 2
 					if (ctx->CurrMbAddr < ctx->first_mb_in_slice + ctx->ps.pic_width_in_mbs - 1) { // C is unavailable
@@ -1671,10 +1671,10 @@ static noinline int CAFUNC(parse_slice_data)
 							ctx->mvs_copy_v[2] = mb[-1].mvs_v[5];
 							ctx->mvs_copy_v[3] = mb[-1].mvs_v[7];
 							mb[-1].refIdx_l = -1;
-							mb[-1].nC_v[0] = mb[-1].nC_v[1] = mb[-1].nC_v[2] = (v16qi)zero;
+							mb[-1].nC_v[0] = mb[-1].nC_v[1] = mb[-1].nC_v[2] = zero;
 							mb[-1].Intra4x4PredMode_v = unavail_mb.Intra4x4PredMode_v;
-							mb[-1].absMvd_v[0] = mb[-1].absMvd_v[1] = mb[-1].absMvd_v[2] = mb[-1].absMvd_v[3] = (v16qu)zero;
-							mb[-1].mvs_v[1] = mb[-1].mvs_v[3] = mb[-1].mvs_v[5] = mb[-1].mvs_v[7] = (v8hi)zero;
+							mb[-1].absMvd_v[0] = mb[-1].absMvd_v[1] = mb[-1].absMvd_v[2] = mb[-1].absMvd_v[3] = zero;
+							mb[-1].mvs_v[1] = mb[-1].mvs_v[3] = mb[-1].mvs_v[5] = mb[-1].mvs_v[7] = zero;
 							filter_edges &= ~ctx->disable_deblocking_filter_idc; // impacts only bit 1
 						}
 					}
@@ -1687,12 +1687,12 @@ static noinline int CAFUNC(parse_slice_data)
 		ctx->unavail16x16 = unavail16x16;
 		ctx->unavail4x4_v = block_unavailability[unavail16x16];
 		ctx->inc.v = fA + fB + (fB & flags_twice.v);
-		mb->f.v = (v16qi){};
+		mb->f.v = (i8x16){};
 		mb->QP_s = ctx->QP_s;
 		if (ctx->ps.ChromaArrayType == 1) { // FIXME 4:2:2
 			mb->bits_l = (bitsA >> 3 & 0x11111100111111) | (bitsB >> 1 & 0x42424200424242);
 		}
-		mb->nC_v[0] = mb->nC_v[1] = mb->nC_v[2] = (v16qi){};
+		mb->nC_v[0] = mb->nC_v[1] = mb->nC_v[2] = (i8x16){};
 		
 		// Would it actually help to push this test outside the loop?
 		if (ctx->slice_type == 0) {

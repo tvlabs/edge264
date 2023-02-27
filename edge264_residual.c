@@ -160,7 +160,7 @@ void FUNC(add_idct8x8, int iYCbCr, uint8_t *samples)
 		// loading and scaling
 		int div = qP / 6;
 		i8x16 zero = {};
-		u8x16 *wS = ctx->ps.weightScale8x8_v[iYCbCr * 2 + mb->f.mbIsInterFlag];
+		i8x16 *wS = ctx->ps.weightScale8x8_v[iYCbCr * 2 + mb->f.mbIsInterFlag];
 		const i8x16 *nA = &normAdjust8x8[qP % 6 * 4];
 		i16x8 LS0 = cvt8zx16(wS[0]) * cvt8zx16(nA[0]);
 		i16x8 LS1 = (i16x8)unpackhi8(wS[0], zero) * (i16x8)unpackhi8(nA[0], zero);

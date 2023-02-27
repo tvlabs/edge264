@@ -58,7 +58,11 @@ static always_inline size_t FUNC(get_bytes, int nbytes)
 	
 	// increment CPB and return the requested bytes in upper part of the result
 	ctx->CPB = after;
-	return big_endian(((v16u)x)[0]);
+	#if SIZE_BIT == 32
+		return big_endian32(((i32x4)x)[0]);
+	#elif SIZE_BIT == 64
+		return big_endian64(((i64x2)x)[0]);
+	#endif
 }
 
 

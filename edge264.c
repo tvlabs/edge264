@@ -1,9 +1,8 @@
 /** MAYDO:
- * _ allow compilation of decoding with clang and parsing with GCC
+ * _ test all versions of GCC and select it in Makefile if not specified on command line
+ * _ fix crash with gcc (all versions) and -O0
  * _ check that P/B slice cannot start without at least 1 reference
  * _ add a message to play.c if it ends on ERROR or UNSUPPORTED
- * _ make a proper install+usage howto in README.md
- * _ try to select GCC-9 if available in Makefile
  * _ add a version function
  * _ add an option to store N more frames, to tolerate lags in process scheduling
  * _ try using epb for context pointer, and email GCC when it fails
@@ -18,7 +17,7 @@
  */
 
 
-// Storing bitstream caches in GRVs provides a big performance gain for GCC
+// Storing bitstream caches in GRVs provides a decent performance gain for GCC
 #if defined(__SSSE3__) && !defined(__clang__) && SIZE_BIT == 64
 	register size_t rbsp_reg0 asm("r14");
 	register size_t rbsp_reg1 asm("r15");

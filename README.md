@@ -2,18 +2,19 @@ edge264
 =======
 
 This is a minimalist software decoder for the H.264 video codec, written from scratch to experiment new programming techniques in order to improve performance and code simplicity over existing decoders.
-It used to be only a research project, but is now geared towards a production-ready decoder.
+It is in open beta at the moment, please fill issues in particular for missing API features (and how you would like them implemented), or planned features that are most important to you.
 
 
 Supported features
 ------------------
 
-* Any resolution up to 8K UHD (level 6.2)
+* Progressive High Profile and level 6.2
+* Any resolution up to 8K UHD
 * 8-bit 4:2:0 planar YUV output
 * CAVLC/CABAC
 * I/P/B frames
 * Deblocking
-* 8x8 transforms
+* 4x4 and 8x8 transforms
 * Slices and Arbitrary Slice Order
 * Per-slice reference lists
 * Memory Management Control Operations
@@ -34,21 +35,21 @@ Planned features
 * PAFF and MBAFF
 
 
-Technical details
------------------
+Compiling
+---------
 
-edge264 is built and tested with GNU GCC and LLVM Clang, supports 32/64 bit architectures, and requires 128 bit SIMD support. Processor support is currently limited to Intel x86/x64 with at least SSSE3. [GLFW3](https://www.glfw.org/) development headers should be installed to compile `edge264_play`.
+edge264 is built and tested with GNU GCC and LLVM Clang, supports 32/64 bit architectures, and requires 128 bit SIMD support. Processor support is currently limited to Intel x86 or x64 with at least SSSE3. [GLFW3](https://www.glfw.org/) development headers should be installed to compile `edge264_play`. `gcc-9` is selected by default since it provides the fastest performance in practice.
 
 ```sh
+$ make # add CC=clang to use clang instead
 $ ffmpeg -i video.mp4 -vcodec copy -bsf h264_mp4toannexb -an video.264 # optional, converts from MP4 format
-$ make
-$ ./edge264_play-cc video.264
+$ ./edge264_play-gcc-9 video.264 # add -b to benchmark without display
 ```
 
 When debugging, the make flag `TRACE=1` enables printing headers to stdout in HTML format, and `TRACE=2` adds the dumping of all other symbols to stderr (*very large*). A test program is also provided, that browses files in a `conformance` directory, decoding each `<video>.264` and comparing its output with the pair `<video>.yuv`. On the set of official [conformance bitstreams](https://www.itu.int/wftp3/av-arch/jvt-site/draft_conformance/), 88 files are known to decode perfectly, the rest using yet unsupported features.
 
 ```sh
-$ ./edge264_test-cc
+$ ./edge264_test-gcc-9
 ```
 
 

@@ -1251,12 +1251,12 @@ void FUNC(decode_inter, int i, int w, int h) {
 	i64x2 logWD_Y, logWD_C;
 	int refIdx = mb->refIdx[i8x8];
 	int refIdxX = mb->refIdx[i8x8 ^ 4];
-	if (ctx->ps.weighted_bipred_idc != 1) {
+	if (ctx->pps.weighted_bipred_idc != 1) {
 		if (((i8x8 - 4) | refIdxX) < 0) { // no_weight
 			biweights_Y = biweights_Cb = biweights_Cr = (i8x16){0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1};
 			bioffsets_Y = bioffsets_Cb = bioffsets_Cr = (i16x8){};
 			logWD_Y = logWD_C = (i64x2){};
-		} else if (ctx->ps.weighted_bipred_idc == 0) { // default2
+		} else if (ctx->pps.weighted_bipred_idc == 0) { // default2
 			biweights_Y = biweights_Cb = biweights_Cr = (i8x16){1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1};
 			bioffsets_Y = bioffsets_Cb = bioffsets_Cr = (i16x8){1, 1, 1, 1, 1, 1, 1, 1};
 			logWD_Y = logWD_C = (i64x2){1};

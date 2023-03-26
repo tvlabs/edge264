@@ -160,7 +160,7 @@ void FUNC(add_idct8x8, int iYCbCr, uint8_t *samples)
 		// loading and scaling
 		int div = qP / 6;
 		i8x16 zero = {};
-		i8x16 *wS = ctx->ps.weightScale8x8_v[iYCbCr * 2 + mb->f.mbIsInterFlag];
+		i8x16 *wS = ctx->pps.weightScale8x8_v + (iYCbCr * 2 + mb->f.mbIsInterFlag) * 4;
 		const i8x16 *nA = &normAdjust8x8[qP % 6 * 4];
 		i16x8 LS0 = cvt8zx16(wS[0]) * cvt8zx16(nA[0]);
 		i16x8 LS1 = (i16x8)unpackhi8(wS[0], zero) * (i16x8)unpackhi8(nA[0], zero);
@@ -345,7 +345,7 @@ void FUNC(transform_dc4x4, int iYCbCr)
 	// scale
 	unsigned qP = ctx->QP[0]; // FIXME 4:4:4
 	i32x4 s32 = set32(32);
-	i32x4 LS = set32((ctx->ps.weightScale4x4[iYCbCr][0] * normAdjust4x4[qP % 6][0]) << (qP / 6));
+	i32x4 LS = set32((ctx->pps.weightScale4x4[iYCbCr][0] * normAdjust4x4[qP % 6][0]) << (qP / 6));
 	i32x4 dc0 = (f0 * LS + s32) >> 6;
 	i32x4 dc1 = (f1 * LS + s32) >> 6;
 	i32x4 dc2 = (f2 * LS + s32) >> 6;
@@ -435,8 +435,8 @@ void FUNC(transform_dc2x2)
 	// deinterlace and scale
 	unsigned qPb = ctx->QP[1];
 	unsigned qPr = ctx->QP[2];
-	i32x4 LSb = set32((ctx->ps.weightScale4x4[1 + mb->f.mbIsInterFlag * 3][0] * normAdjust4x4[qPb % 6][0]) << (qPb / 6));
-	i32x4 LSr = set32((ctx->ps.weightScale4x4[2 + mb->f.mbIsInterFlag * 3][0] * normAdjust4x4[qPr % 6][0]) << (qPr / 6));
+	i32x4 LSb = set32((ctx->pps.weightScale4x4[1 + mb->f.mbIsInterFlag * 3][0] * normAdjust4x4[qPb % 6][0]) << (qPb / 6));
+	i32x4 LSr = set32((ctx->pps.weightScale4x4[2 + mb->f.mbIsInterFlag * 3][0] * normAdjust4x4[qPr % 6][0]) << (qPr / 6));
 	i32x4 fb = shuffleps(f0, f1, 0, 2, 0, 2);
 	i32x4 fr = shuffleps(f0, f1, 1, 3, 1, 3);
 	i32x4 dcCb = (fb * LSb) >> 5;
@@ -520,7 +520,7 @@ void FUNC(transform_dc2x4)
 {
 	int iYCbCr = (0/*BlkIdx*/ - 8) >> 3; // BlkIdx is 16 or 24
 	unsigned qP_DC = 0; //mb->QP[iYCbCr] + 3;
-	int w = ctx->ps.weightScale4x4[iYCbCr + mb->f.mbIsInterFlag * 3][0];
+	int w = ctx->pps.weightScale4x4[iYCbCr + mb->f.mbIsInterFlag * 3][0];
 	int nA = normAdjust4x4[qP_DC % 6][0];
 	__m128i x0 = (__m128i)ctx->c_v[0]; // {c00, c01, c10, c11} as per 8.5.11.1
 	__m128i x1 = (__m128i)ctx->c_v[1]; // {c20, c21, c30, c31}

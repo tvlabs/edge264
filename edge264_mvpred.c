@@ -262,7 +262,7 @@ static always_inline void FUNC(decode_direct_spatial_mv_pred, unsigned direct_fl
 			i16x8 mvCol2 = *(i16x8*)(mbCol->mvs + offsets[2] + 16);
 			i16x8 mvCol3 = *(i16x8*)(mbCol->mvs + offsets[3] + 24);
 			i8x16 refCol = ifelse_msb(refColL0, (i32x4){mbCol->refIdx_s[1]}, refColL0);
-			if (ctx->ps.direct_8x8_inference_flag) {
+			if (ctx->sps.direct_8x8_inference_flag) {
 				mvCol0 = __builtin_shufflevector((i32x4)mvCol0, (i32x4)mvCol0, 0, 0, 0, 0);
 				mvCol1 = __builtin_shufflevector((i32x4)mvCol1, (i32x4)mvCol1, 1, 1, 1, 1);
 				mvCol2 = __builtin_shufflevector((i32x4)mvCol2, (i32x4)mvCol2, 2, 2, 2, 2);
@@ -379,7 +379,7 @@ static always_inline void FUNC(decode_direct_temporal_mv_pred, unsigned direct_f
 	i16x8 mvCol3 = *(i16x8*)(mbCol->mvs + offsets[3] + 24);
 	i8x16 refPicCol = ifelse_msb(refPicColL0, (i32x4){mbCol->refPic_s[1]}, refPicColL0);
 	unsigned inter_eqs = little_endian32(mbCol->inter_eqs_s);
-	if (ctx->ps.direct_8x8_inference_flag) {
+	if (ctx->sps.direct_8x8_inference_flag) {
 		mvCol0 = __builtin_shufflevector((i32x4)mvCol0, (i32x4)mvCol0, 0, 0, 0, 0);
 		mvCol1 = __builtin_shufflevector((i32x4)mvCol1, (i32x4)mvCol1, 1, 1, 1, 1);
 		mvCol2 = __builtin_shufflevector((i32x4)mvCol2, (i32x4)mvCol2, 2, 2, 2, 2);

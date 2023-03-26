@@ -217,7 +217,7 @@ static inline void FUNC(init_alpha_beta_tC0)
 		
 		// for 8x8 blocks with CAVLC, broadcast transform tokens beforehand
 		i8x16 nC = mb->nC_v[0];
-		if (!ctx->ps.entropy_coding_mode_flag && mb->f.transform_size_8x8_flag) {
+		if (!ctx->pps.entropy_coding_mode_flag && mb->f.transform_size_8x8_flag) {
 			i8x16 x = (i32x4)mb->nC_v[0] > 0;
 			mb->nC_v[0] = nC = sign8(x, x);
 		}
@@ -854,7 +854,7 @@ void FUNC(deblock_frame, uint8_t *samples)
 	ctx->samples_mb[1] = ctx->samples_mb[0] + ctx->plane_size_Y;
 	ctx->samples_mb[2] = ctx->samples_mb[1] + ctx->plane_size_C;
 	mbB = (Edge264_macroblock *)(ctx->samples_mb[2] + ctx->plane_size_C) + 1;
-	mb = mbB + ctx->SPS.pic_width_in_mbs + 1;
+	mb = mbB + ctx->sps.pic_width_in_mbs + 1;
 	ctx->CurrMbAddr = 0;
 	
 	do {

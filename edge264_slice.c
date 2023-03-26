@@ -415,7 +415,7 @@ static void CAFUNC(parse_chroma_residual)
 					ctx->c_v[0] = ctx->c_v[1] = ctx->c_v[2] = ctx->c_v[3] = (i32x4){};
 					fprintf(stderr, "Chroma AC coeffLevels[%d]:", i4x4);
 					CACALL(parse_residual_block, 1, 15, token_or_cbf);
-					i8x16 wS = ctx->ps.weightScale4x4_v[iYCbCr + mb->f.mbIsInterFlag * 3];
+					i8x16 wS = ctx->pps.weightScale4x4_v[iYCbCr + mb->f.mbIsInterFlag * 3];
 					CALL(add_idct4x4, iYCbCr, ctx->QP[iYCbCr], wS, i4x4, samples);
 				} else {
 					CALL(add_dc4x4, iYCbCr, i4x4, samples);
@@ -478,7 +478,7 @@ static void CAFUNC(parse_Intra16x16_residual)
 					ctx->c_v[0] = ctx->c_v[1] = ctx->c_v[2] = ctx->c_v[3] = (i32x4){};
 					fprintf(stderr, "16x16 AC coeffLevels[%d]:", iYCbCr * 16 + i4x4);
 					CACALL(parse_residual_block, 1, 15, token_or_cbf);
-					CALL(add_idct4x4, iYCbCr, ctx->QP[0], ctx->ps.weightScale4x4_v[iYCbCr], i4x4, samples);
+					CALL(add_idct4x4, iYCbCr, ctx->QP[0], ctx->pps.weightScale4x4_v[iYCbCr], i4x4, samples);
 				} else {
 					CALL(add_dc4x4, iYCbCr, i4x4, samples);
 				}
@@ -486,7 +486,7 @@ static void CAFUNC(parse_Intra16x16_residual)
 		}
 		
 		// here is how we share the decoding of luma coefficients with 4:4:4 modes
-		if (ctx->ps.ChromaArrayType <3)
+		if (ctx->sps.ChromaArrayType <3)
 			CAJUMP(parse_chroma_residual);
 	}
 }
@@ -555,7 +555,7 @@ static void CAFUNC(parse_NxN_residual)
 						fprintf(stderr, "4x4 coeffLevels[%d]:", iYCbCr * 16 + i4x4);
 						CACALL(parse_residual_block, 0, 15, token_or_cbf);
 						// DC blocks are marginal here (about 16%) so we do not handle them separately
-						i8x16 wS = ctx->ps.weightScale4x4_v[iYCbCr + mb->f.mbIsInterFlag * 3];
+						i8x16 wS = ctx->pps.weightScale4x4_v[iYCbCr + mb->f.mbIsInterFlag * 3];
 						CALL(add_idct4x4, iYCbCr, ctx->QP[0], wS, -1, samples); // FIXME 4:4:4
 					}
 				}
@@ -590,7 +590,7 @@ static void CAFUNC(parse_NxN_residual)
 						}
 						CALL(add_idct8x8, iYCbCr, samples);
 					#else
-						if (ctx->ps.ChromaArrayType < 3 || CALL(get_ae, ctx->ctxIdxOffsets[0] + (mb->bits[1] >> inc8x8[iYCbCr * 4 + i8x8] & 3))) {
+						if (ctx->sps.ChromaArrayType < 3 || CALL(get_ae, ctx->ctxIdxOffsets[0] + (mb->bits[1] >> inc8x8[iYCbCr * 4 + i8x8] & 3))) {
 							for (int i = 0; i < 16; i++)
 								ctx->c_v[i] = (i32x4){};
 							mb->bits[1] |= 1 << bit8x8[iYCbCr * 4 + i8x8];
@@ -605,7 +605,7 @@ static void CAFUNC(parse_NxN_residual)
 		}
 		
 		// nice optimisation for 4:4:4 modes
-		if (ctx->ps.ChromaArrayType <3)
+		if (ctx->sps.ChromaArrayType <3)
 			CAJUMP(parse_chroma_residual);
 	}
 }
@@ -634,7 +634,7 @@ static void CAFUNC(parse_coded_block_pattern, const uint8_t *map_me)
 	#endif
 	
 	// Chroma suffix
-	if ((ctx->ps.ChromaArrayType == 1 || ctx->ps.ChromaArrayType == 2) &&
+	if ((ctx->sps.ChromaArrayType == 1 || ctx->sps.ChromaArrayType == 2) &&
 		CACOND(cbp & 3, CALL(get_ae, 77 + ctx->inc.CodedBlockPatternChromaDC)))
 	{
 		mb->f.CodedBlockPatternChromaDC = 1;
@@ -661,7 +661,7 @@ static void CAFUNC(parse_intra_chroma_pred_mode)
 	};
 	
 	// Do not optimise too hard to keep the code understandable here.
-	int type = ctx->ps.ChromaArrayType;
+	int type = ctx->sps.ChromaArrayType;
 	if (type == 1 || type == 2) {
 		#ifndef CABAC
 			int mode = CALL(get_ue16, 3);
@@ -757,7 +757,7 @@ static noinline void CAFUNC(parse_I_mb, int mb_type_or_ctxIdx)
 		
 		// 7.3.5, 7.4.5, 9.3.3.1.1.10 and table 9-34
 		int transform_size_8x8_flag = 0;
-		if (ctx->ps.transform_8x8_mode_flag) {
+		if (ctx->pps.transform_8x8_mode_flag) {
 			transform_size_8x8_flag = CACOND(CALL(get_u1), CALL(get_ae, 399 + ctx->inc.transform_size_8x8_flag));
 			fprintf(stderr, "transform_size_8x8_flag: %x\n", transform_size_8x8_flag);
 		}
@@ -837,30 +837,30 @@ static noinline void CAFUNC(parse_I_mb, int mb_type_or_ctxIdx)
 		uint8_t *p = ctx->samples_mb[0];
 		for (int y = 16; y-- > 0; p += ctx->stride[0]) {
 			for (int x = 0; x < 16; x++) {
-				if (ctx->ps.BitDepth_Y == 8)
+				if (ctx->sps.BitDepth_Y == 8)
 					p[x] = CALL(get_uv, 8);
 				else
-					((uint16_t *)p)[x] = CALL(get_uv, ctx->ps.BitDepth_Y);
+					((uint16_t *)p)[x] = CALL(get_uv, ctx->sps.BitDepth_Y);
 			}
 		}
 		p = ctx->samples_mb[1];
-		int MbWidthC = (ctx->ps.ChromaArrayType < 3) ? 8 : 16;
+		int MbWidthC = (ctx->sps.ChromaArrayType < 3) ? 8 : 16;
 		static int8_t MbHeightC[4] = {0, 8, 16, 16};
-		for (int y = MbHeightC[ctx->ps.ChromaArrayType]; y-- > 0; p += ctx->stride[1]) {
+		for (int y = MbHeightC[ctx->sps.ChromaArrayType]; y-- > 0; p += ctx->stride[1]) {
 			for (int x = 0; x < MbWidthC; x++) {
-				if (ctx->ps.BitDepth_Y == 8)
+				if (ctx->sps.BitDepth_Y == 8)
 					p[x] = CALL(get_uv, 8);
 				else
-					((uint16_t *)p)[x] = CALL(get_uv, ctx->ps.BitDepth_Y);
+					((uint16_t *)p)[x] = CALL(get_uv, ctx->sps.BitDepth_Y);
 			}
 		}
 		p = ctx->samples_mb[2];
-		for (int y = MbHeightC[ctx->ps.ChromaArrayType]; y-- > 0; p += ctx->stride[1]) {
+		for (int y = MbHeightC[ctx->sps.ChromaArrayType]; y-- > 0; p += ctx->stride[1]) {
 			for (int x = 0; x < MbWidthC; x++) {
-				if (ctx->ps.BitDepth_Y == 8)
+				if (ctx->sps.BitDepth_Y == 8)
 					p[x] = CALL(get_uv, 8);
 				else
-					((uint16_t *)p)[x] = CALL(get_uv, ctx->ps.BitDepth_Y);
+					((uint16_t *)p)[x] = CALL(get_uv, ctx->sps.BitDepth_Y);
 			}
 		}
 		#ifdef CABAC
@@ -1065,7 +1065,7 @@ static void CAFUNC(parse_B_sub_mb) {
 		#endif
 		if (CACOND(sub_mb_type == 0, !CALL(get_ae, 36))) { // B_Direct_8x8
 			mb->inter_eqs[i8x8] = 0x1b;
-			if (!ctx->ps.direct_8x8_inference_flag)
+			if (!ctx->sps.direct_8x8_inference_flag)
 				ctx->transform_8x8_mode_flag = 0;
 			#ifdef CABAC
 				fprintf(stderr, " 0");
@@ -1258,12 +1258,12 @@ static inline void CAFUNC(parse_B_mb)
 		#ifdef CABAC
 			mb->f.mb_type_B_Direct = 1;
 		#endif
-		ctx->transform_8x8_mode_flag = ctx->ps.transform_8x8_mode_flag & ctx->ps.direct_8x8_inference_flag;
+		ctx->transform_8x8_mode_flag = ctx->pps.transform_8x8_mode_flag & ctx->sps.direct_8x8_inference_flag;
 		mb->inter_eqs_s = 0;
 		CALL(decode_direct_mv_pred, 0xffffffff);
 		CAJUMP(parse_inter_residual);
 	}
-	ctx->transform_8x8_mode_flag = ctx->ps.transform_8x8_mode_flag;
+	ctx->transform_8x8_mode_flag = ctx->pps.transform_8x8_mode_flag;
 	
 	// initializations and jumps for mb_type
 	#ifndef CABAC
@@ -1536,7 +1536,7 @@ static inline void CAFUNC(parse_P_mb)
 		#endif
 		JUMP(decode_inter, 0, 16, 16);
 	}
-	ctx->transform_8x8_mode_flag = ctx->ps.transform_8x8_mode_flag;
+	ctx->transform_8x8_mode_flag = ctx->pps.transform_8x8_mode_flag;
 	
 	// initializations and jumps for mb_type
 	#ifndef CABAC
@@ -1628,14 +1628,14 @@ static noinline int CAFUNC(parse_slice_data)
 		uint64_t bitsB = mbB->bits_l;
 		if (ctx->first_mb_in_slice) {
 			i8x16 zero = {};
-			if (ctx->CurrMbAddr <= ctx->first_mb_in_slice + ctx->ps.pic_width_in_mbs) { // D is unavailable
+			if (ctx->CurrMbAddr <= ctx->first_mb_in_slice + ctx->sps.pic_width_in_mbs) { // D is unavailable
 				unavail16x16 |= 8;
 				ctx->refIdx_copy[3] = mbB[-1].refIdx_l;
 				ctx->mvs_copy_s[30] = mbB[-1].mvs_s[15];
 				ctx->mvs_copy_s[31] = mbB[-1].mvs_s[31];
 				mbB[-1].refIdx_l = -1;
 				mbB[-1].mvs_s[15] = mbB[-1].mvs_s[31] = 0;
-				if (ctx->CurrMbAddr < ctx->first_mb_in_slice + ctx->ps.pic_width_in_mbs) { // B is unavailable
+				if (ctx->CurrMbAddr < ctx->first_mb_in_slice + ctx->sps.pic_width_in_mbs) { // B is unavailable
 					unavail16x16 |= 2;
 					fB = unavail_mb.f.v;
 					bitsB = unavail_mb.bits_l;
@@ -1653,7 +1653,7 @@ static noinline int CAFUNC(parse_slice_data)
 					mbB->absMvd_v[1] = mbB->absMvd_v[3] = zero;
 					mbB->mvs_l[5] = mbB->mvs_l[7] = mbB->mvs_l[13] = mbB->mvs_l[15] = 0;
 					filter_edges &= ~(ctx->disable_deblocking_filter_idc << 1); // impacts only bit 2
-					if (ctx->CurrMbAddr < ctx->first_mb_in_slice + ctx->ps.pic_width_in_mbs - 1) { // C is unavailable
+					if (ctx->CurrMbAddr < ctx->first_mb_in_slice + ctx->sps.pic_width_in_mbs - 1) { // C is unavailable
 						unavail16x16 |= 4;
 						ctx->refIdx_copy[2] = mbB[1].refIdx_l;
 						ctx->mvs_copy_s[28] = mbB[1].mvs_s[10];
@@ -1691,7 +1691,7 @@ static noinline int CAFUNC(parse_slice_data)
 		ctx->inc.v = fA + fB + (fB & flags_twice.v);
 		mb->f.v = (i8x16){};
 		mb->QP_s = ctx->QP_s;
-		if (ctx->ps.ChromaArrayType == 1) { // FIXME 4:2:2
+		if (ctx->sps.ChromaArrayType == 1) { // FIXME 4:2:2
 			mb->bits_l = (bitsA >> 3 & 0x11111100111111) | (bitsB >> 1 & 0x42424200424242);
 		}
 		mb->nC_v[0] = mb->nC_v[1] = mb->nC_v[2] = (i8x16){};
@@ -1711,11 +1711,11 @@ static noinline int CAFUNC(parse_slice_data)
 		
 		// restore neighbouring data on slice edge
 		if (ctx->first_mb_in_slice) {
-			if (ctx->CurrMbAddr <= ctx->first_mb_in_slice + ctx->ps.pic_width_in_mbs) { // D is unavailable
+			if (ctx->CurrMbAddr <= ctx->first_mb_in_slice + ctx->sps.pic_width_in_mbs) { // D is unavailable
 				mbB[-1].refIdx_l = ctx->refIdx_copy[3];
 				mbB[-1].mvs_s[15] = ctx->mvs_copy_s[30];
 				mbB[-1].mvs_s[31] = ctx->mvs_copy_s[31];
-				if (ctx->CurrMbAddr < ctx->first_mb_in_slice + ctx->ps.pic_width_in_mbs) { // B is unavailable
+				if (ctx->CurrMbAddr < ctx->first_mb_in_slice + ctx->sps.pic_width_in_mbs) { // B is unavailable
 					mbB->refIdx_l = ctx->refIdx_copy[1];
 					mbB->nC_v[0] = ctx->nC_copy[3];
 					mbB->nC_v[1] = ctx->nC_copy[4];
@@ -1724,7 +1724,7 @@ static noinline int CAFUNC(parse_slice_data)
 					mbB->mvs_l[7] = ctx->mvs_copy_l[9];
 					mbB->mvs_l[13] = ctx->mvs_copy_l[10];
 					mbB->mvs_l[15] = ctx->mvs_copy_l[11];
-					if (ctx->CurrMbAddr < ctx->first_mb_in_slice + ctx->ps.pic_width_in_mbs - 1) { // C is unavailable
+					if (ctx->CurrMbAddr < ctx->first_mb_in_slice + ctx->sps.pic_width_in_mbs - 1) { // C is unavailable
 						mbB[1].refIdx_l = ctx->refIdx_copy[2];
 						mbB[1].mvs_s[10] = ctx->mvs_copy_s[28];
 						mbB[1].mvs_s[26] = ctx->mvs_copy_s[29];

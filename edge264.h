@@ -1,6 +1,6 @@
 /**
  * Copyright (c) 2013-2014, Celticom / TVLabs
- * Copyright (c) 2014-2022 Thibault Raffaillac <traf@kth.se>
+ * Copyright (c) 2014-2023 Thibault Raffaillac <traf@kth.se>
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -48,10 +48,7 @@ typedef struct Edge264_stream {
 	int16_t stride_Y;
 	int16_t stride_C;
 	int32_t PicOrderCnt;
-	int16_t frame_crop_left_offset __attribute__((aligned(8))); // in luma samples, already included in samples_Y/Cb/cr and width/height_Y/C
-	int16_t frame_crop_right_offset;
-	int16_t frame_crop_top_offset;
-	int16_t frame_crop_bottom_offset;
+	int16_t frame_crop_offsets[4]; // {top,right,bottom,left}, in luma samples, already included in samples_Y/Cb/cr and width/height_Y/C
 } Edge264_stream;
 
 const uint8_t *Edge264_find_start_code(int n, const uint8_t *CPB, const uint8_t *end);

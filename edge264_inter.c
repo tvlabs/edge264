@@ -1,4 +1,3 @@
-// TODO merge C and D ?
 #include "edge264_internal.h"
 
 

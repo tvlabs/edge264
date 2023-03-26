@@ -1,7 +1,23 @@
 /** MAYDO:
+ * _ implement MVC
+ * 	_ parse and print SPS extension (when seen in a conformance bitstream)
+ * 	_ parse and print SSPS (when seen in a conformance bitstream)
+ * 	_ parse and print SPS MVC extension (when seen in a conformance bitstream)
+ * 	_ if view_id[0]==0 (check in spec) then we can assume view_id[1]==1
+ * 	_ add view_id to the detection of a new picture (H.7.4.1.2.4)
+ * 	_ for each SSPS, ignore the 8 bytes of DPB format in favor of SPS format
+ * 	_ implement the initialization of RefPicLists with views
+ * 	_ implement the modification of RefPicLists with views
+ * 
+ * _ layout README like https://github.com/nolanlawson/emoji-picker-element
+ * _ name files with numbers to set an explicit order for reading them
  * _ test all versions of GCC and select it in Makefile if not specified on command line
+ * _ add an FAQ with (1) how to optimize latency, (2) what can be removed from stream without issue, (3) how to finish a frame with an AUD
  * _ check that P/B slice cannot start without at least 1 reference
+ * _ try debugging with concolic testing (ex. CREST, KLEE, Triton)
  * _ add a version function
+ * _ return SEI/HRD/VUI structures as JSON in a persistent malloc'ed metadata field (rather than bloat headers with structures), initialized with max size from conformance streams
+ * _ make a debugging pass by looking at shall/"shall not" clauses in spec and checking that we are robust against each violation
  * _ add an option to store N more frames, to tolerate lags in process scheduling
  * _ try using epb for context pointer, and email GCC when it fails
  * _ group ctx fields by frequency of accesses and force them manually into L1/L2/L3
@@ -762,22 +778,6 @@ static int FUNC(parse_slice_layer_without_partitioning)
 
 
 /**
- * AUDs are used to delimit the start of a new frame and the end of the
- * previous one. This is particularly useful in low-latency situations to
- * force ending a frame even if we did not receive all slices.
- */
-static int FUNC(parse_access_unit_delimiter)
-{
-	int primary_pic_type = CALL(get_uv, 3);
-	printf("<tr><th>primary_pic_type</th><td>%d</td></tr>\n", primary_pic_type);
-	if (ctx->DPB != NULL && ctx->currPic >= 0)
-		CALL(finish_frame);
-	return 0;
-}
-
-
-
-/**
  * Parses the scaling lists into ctx->ps.weightScaleNxN (7.3.2.1 and Table 7-2).
  *
  * Fall-back rules for indices 0, 3, 6 and 7 are applied by keeping the
@@ -982,11 +982,11 @@ static int FUNC(parse_pic_parameter_set)
 	// seq_parameter_set_id was ignored so far since no SPS data was read.
 	if (CALL(get_uv, 24) != 0x800000 || ctx->DPB == NULL)
 		return 2;
-	if (seq_parameter_set_id > 0 || pic_parameter_set_id >= 4 ||
-		num_slice_groups > 1 || ctx->ps.constrained_intra_pred_flag ||
-		redundant_pic_cnt_present_flag)
+	if (pic_parameter_set_id >= 4 || num_slice_groups > 1 ||
+		ctx->ps.constrained_intra_pred_flag || redundant_pic_cnt_present_flag)
 		return 1;
-	ctx->PPSs[pic_parameter_set_id] = ctx->ps;
+	if (seq_parameter_set_id == 0)
+		ctx->PPSs[pic_parameter_set_id] = ctx->ps;
 	return 0;
 }
 
@@ -1379,12 +1379,12 @@ static int FUNC(parse_seq_parameter_set)
 		unsigned shiftY = (ctx->ps.ChromaArrayType == 1);
 		int limX = (ctx->ps.pic_width_in_mbs << 4 >> shiftX) - 1;
 		int limY = (ctx->ps.pic_height_in_mbs << 4 >> shiftY) - 1;
-		frame_crop_offsets[0] = CALL(get_ue16, limX) << shiftX;
-		frame_crop_offsets[1] = CALL(get_ue16, limX - (frame_crop_offsets[0] >> shiftX)) << shiftX;
-		frame_crop_offsets[2] = CALL(get_ue16, limY) << shiftY;
-		frame_crop_offsets[3] = CALL(get_ue16, limY - (frame_crop_offsets[2] >> shiftY)) << shiftY;
+		frame_crop_offsets[3] = CALL(get_ue16, limX) << shiftX;
+		frame_crop_offsets[1] = CALL(get_ue16, limX - (frame_crop_offsets[3] >> shiftX)) << shiftX;
+		frame_crop_offsets[0] = CALL(get_ue16, limY) << shiftY;
+		frame_crop_offsets[2] = CALL(get_ue16, limY - (frame_crop_offsets[0] >> shiftY)) << shiftY;
 		printf("<tr><th>frame_crop_offsets</th><td>left %u, right %u, top %u, bottom %u</td></tr>\n",
-			frame_crop_offsets[0], frame_crop_offsets[1], frame_crop_offsets[2], frame_crop_offsets[3]);
+			frame_crop_offsets[3], frame_crop_offsets[1], frame_crop_offsets[0], frame_crop_offsets[2]);
 	} else {
 		printf("<tr><th>frame_crop_offsets (inferred)</th><td>left 0, right 0, top 0, bottom 0</td></tr>\n");
 	}
@@ -1406,13 +1406,16 @@ static int FUNC(parse_seq_parameter_set)
 		return 1;
 	
 	// reallocate the DPB when the image format changes
-	if (ctx->ps.format != ctx->SPS.format || (int64_t)frame_crop_offsets != *(int64_t *)&ctx->s.frame_crop_left_offset) {
+	int64_t offsets;
+	memcpy(&offsets, ctx->s.frame_crop_offsets, 8);
+	if (ctx->ps.format != ctx->DPB_format || (int64_t)frame_crop_offsets != offsets) {
 		if (ctx->DPB != NULL)
 			free(ctx->DPB);
 		//memset(&ctx->s, 0, sizeof(ctx->s)); // FIXME clear only the important stuff
+		ctx->DPB_format = ctx->ps.format;
+		memcpy(ctx->s.frame_crop_offsets, &frame_crop_offsets, 8);
 		
 		// An offset might be added to stride if cache alignment shows a significant impact.
-		*(int64_t *)&ctx->s.frame_crop_left_offset = (int64_t)frame_crop_offsets;
 		int PicWidthInMbs = ctx->ps.pic_width_in_mbs;
 		int PicHeightInMbs = ctx->ps.pic_height_in_mbs;
 		int width = PicWidthInMbs << 4;
@@ -1420,8 +1423,8 @@ static int FUNC(parse_seq_parameter_set)
 		ctx->currPic = -1;
 		ctx->s.pixel_depth_Y = ctx->ps.BitDepth_Y > 8;
 		ctx->clip[0] = (1 << ctx->ps.BitDepth_Y) - 1;
-		ctx->s.width_Y = width - ctx->s.frame_crop_left_offset - ctx->s.frame_crop_right_offset;
-		ctx->s.height_Y = height - ctx->s.frame_crop_top_offset - ctx->s.frame_crop_bottom_offset;
+		ctx->s.width_Y = width - ctx->s.frame_crop_offsets[3] - ctx->s.frame_crop_offsets[1];
+		ctx->s.height_Y = height - ctx->s.frame_crop_offsets[0] - ctx->s.frame_crop_offsets[2];
 		ctx->stride[0] = ctx->s.stride_Y = width << ctx->s.pixel_depth_Y;
 		ctx->plane_size_Y = ctx->s.stride_Y * height;
 		if (ctx->ps.chroma_format_idc > 0) {
@@ -1548,7 +1551,7 @@ int Edge264_decode_NAL(Edge264_stream *s)
 		[5] = parse_slice_layer_without_partitioning,
 		[7] = parse_seq_parameter_set,
 		[8] = parse_pic_parameter_set,
-		[9] = parse_access_unit_delimiter,
+		[15] = parse_seq_parameter_set,
 	};
 	
 	// initial checks before parsing
@@ -1557,41 +1560,85 @@ int Edge264_decode_NAL(Edge264_stream *s)
 	if (s->CPB >= s->end)
 		return -3;
 	SET_CTX((void *)s - offsetof(Edge264_ctx, s));
-	int nal_ref_idc = *ctx->s.CPB >> 5;
-	int nal_unit_type = *ctx->s.CPB & 0x1f;
+	ctx->nal_ref_idc = *ctx->s.CPB >> 5;
+	ctx->nal_unit_type = *ctx->s.CPB & 0x1f;
 	printf("<table>\n"
 		"<tr><th>nal_ref_idc</th><td>%u</td></tr>\n"
 		"<tr><th>nal_unit_type</th><td>%u (%s)</td></tr>\n",
-		nal_ref_idc,
-		nal_unit_type, nal_unit_type_names[nal_unit_type]);
+		ctx->nal_ref_idc,
+		ctx->nal_unit_type, nal_unit_type_names[ctx->nal_unit_type]);
 	
-	// initialize the parsing context if we can parse the current NAL
-	ctx->CPB = ctx->s.CPB + 3; // first byte that might be escaped
+	// parse AUD and MVC prefix that require no escaping
 	int ret = 0;
-	if (parse_nal_unit[nal_unit_type] != NULL && ctx->s.CPB + 2 < ctx->s.end) {
-		size_t _codIRange = codIRange; // backup if stored in a Register Variable
-		size_t _codIOffset = codIOffset;
-		ctx->nal_ref_idc = nal_ref_idc;
-		ctx->nal_unit_type = nal_unit_type;
-		// prefill the bitstream cache with 2 bytes (guaranteed unescaped)
-		msb_cache = (size_t)ctx->s.CPB[1] << (SIZE_BIT - 8) | (size_t)ctx->s.CPB[2] << (SIZE_BIT - 16) | (size_t)1 << (SIZE_BIT - 17);
-		CALL(refill, 0);
-		
-		ret = CALL(parse_nal_unit[nal_unit_type]);
-		if (ret == -2)
-			printf("<tr style='background-color:#f77'><th colspan=2 style='text-align:center'>DPB is full</th></tr>\n");
-		if (ret == 1)
-			printf("<tr style='background-color:#f77'><th colspan=2 style='text-align:center'>Unsupported stream</th></tr>\n");
-		if (ret == 2)
-			printf("<tr style='background-color:#f77'><th colspan=2 style='text-align:center'>Decoding error</th></tr>\n");
-		
-		// restore registers
-		codIRange = _codIRange;
-		codIOffset = _codIOffset;
+	ctx->CPB = ctx->s.CPB + 3; // first byte that might be escaped
+	Parser parser = parse_nal_unit[ctx->nal_unit_type];
+	if (ctx->nal_unit_type == 9) {
+		if (ctx->s.CPB + 1 >= ctx->s.end || (ctx->s.CPB[1] & 31) != 16) {
+			ret = 2;
+		} else {
+			printf("<tr><th>primary_pic_type</th><td>%d</td></tr>\n", ctx->s.CPB[1] >> 5);
+			if (ctx->DPB != NULL && ctx->currPic >= 0)
+				CALL(finish_frame);
+		}
+	} else if (0x104000 & 1 << ctx->nal_unit_type) {
+		if (ctx->s.CPB + 4 >= ctx->s.end) {
+			ret = 2;
+			parser = NULL;
+		} else {
+			uint32_t u;
+			memcpy(&u, ctx->s.CPB, 4);
+			ctx->CPB = ctx->s.CPB + 6;
+			u = big_endian32(u);
+			int svc_extension_flag = u >> 23 & 1;
+			printf("<tr%s><th>svc_extension_flag</th><td>%x</td></tr>\n",
+				red_if(svc_extension_flag), svc_extension_flag);
+			if (svc_extension_flag) {
+				ret = 1;
+				parser = NULL;
+			} else {
+				printf("<tr><th>non_idr_flag</th><td>%x</td></tr>\n"
+					"<tr><th>priority_id</th><td>%d</td></tr>\n"
+					"<tr><th>view_id</th><td>%d</td></tr>\n"
+					"<tr><th>temporal_id</th><td>%d</td></tr>\n"
+					"<tr><th>anchor_pic_flag</th><td>%x</td></tr>\n"
+					"<tr><th>inter_view_flag</th><td>%x</td></tr>\n",
+					u >> 22 & 1,
+					u >> 16 & 0x3f,
+					u >> 6 & 0x3ff,
+					u >> 3 & 7,
+					u >> 2 & 1,
+					u >> 1 & 1);
+				// spec doesn't mention rbsp_trailing_bits at the end of prefix_nal_unit_rbsp
+			}
+		}
 	}
 	
+	// initialize the parsing context if we can parse the current NAL
+	if (parser != NULL) {
+		if (ctx->CPB > ctx->s.end) {
+			ret = 2;
+		} else {
+			size_t _codIRange = codIRange; // backup if stored in a Register Variable
+			size_t _codIOffset = codIOffset;
+			// prefill the bitstream cache with 2 bytes (guaranteed unescaped)
+			msb_cache = (size_t)ctx->CPB[-2] << (SIZE_BIT - 8) | (size_t)ctx->CPB[-1] << (SIZE_BIT - 16) | (size_t)1 << (SIZE_BIT - 17);
+			CALL(refill, 0);
+			ret = CALL(parser);
+			// restore registers
+			codIRange = _codIRange;
+			codIOffset = _codIOffset;
+		}
+	}
+	
+	if (ret == -2)
+		printf("<tr style='background-color:#f77'><th colspan=2 style='text-align:center'>DPB is full</th></tr>\n");
+	else if (ret == 1)
+		printf("<tr style='background-color:#f77'><th colspan=2 style='text-align:center'>Unsupported stream</th></tr>\n");
+	else if (ret == 2)
+		printf("<tr style='background-color:#f77'><th colspan=2 style='text-align:center'>Decoding error</th></tr>\n");
+	
 	// CPB may point anywhere up to the last byte of the next start code
-	if (ret != -2)
+	if (ret >= 0)
 		ctx->s.CPB = Edge264_find_start_code(1, ctx->CPB - 2, ctx->s.end);
 	RESET_CTX();
 	printf("</table>\n");
@@ -1623,8 +1670,8 @@ int Edge264_get_frame(Edge264_stream *s, int drain) {
 	if (res >= 0) {
 		ctx->output_flags ^= 1 << res;
 		const uint8_t *samples = ctx->DPB + res * ctx->frame_size;
-		int top = ctx->s.frame_crop_top_offset;
-		int left = ctx->s.frame_crop_left_offset;
+		int top = ctx->s.frame_crop_offsets[0];
+		int left = ctx->s.frame_crop_offsets[3];
 		int topC = ctx->SPS.chroma_format_idc == 3 ? top : top >> 1;
 		int leftC = ctx->SPS.chroma_format_idc == 1 ? left >> 1 : left;
 		int offC = ctx->plane_size_Y + topC * ctx->s.stride_C + (leftC << ctx->s.pixel_depth_C);

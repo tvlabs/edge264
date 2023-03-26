@@ -119,10 +119,10 @@ static void init_display()
 static int check_frame(const Edge264_stream *e)
 {
 	int poc = e->PicOrderCnt;
-	int top = e->frame_crop_top_offset;
-	int left = e->frame_crop_left_offset;
-	int right = e->frame_crop_right_offset;
-	int bottom = e->frame_crop_bottom_offset;
+	int top = e->frame_crop_offsets[0];
+	int left = e->frame_crop_offsets[3];
+	int right = e->frame_crop_offsets[1];
+	int bottom = e->frame_crop_offsets[2];
 	for (int row = -top; row < e->height_Y + bottom; row += 16) {
 		for (int col = -left; col < e->width_Y + right; col += 16) {
 			int sh_row = 0;

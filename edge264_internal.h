@@ -244,7 +244,8 @@ typedef struct
 	union { int32_t tC0_s[16]; int64_t tC0_l[8]; i8x16 tC0_v[4]; i8x32 tC0_V[2]; }; // 4 bytes per edge in deblocking order -> 8 luma edges then 8 alternating Cb/Cr edges
 	
 	// Picture buffer and parameter sets
-	uint8_t *DPB; // NULL before the first SPS is decoded
+	uint8_t *DPB; // NULL before the first frame is decoded
+	int64_t DPB_format; // should match format in SPS otherwise triggers resize
 	int32_t plane_size_Y;
 	int32_t plane_size_C;
 	int32_t frame_size;

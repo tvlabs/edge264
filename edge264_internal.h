@@ -49,7 +49,7 @@ typedef struct {
 			uint16_t pic_width_in_mbs; // 10 significant bits
 			int16_t pic_height_in_mbs; // 10 significant bits
 		};
-		int64_t format;
+		int64_t DPB_format;
 	};
 	int8_t ChromaArrayType; // 2 significant bits
 	int8_t qpprime_y_zero_transform_bypass_flag; // 1 significant bit
@@ -161,21 +161,20 @@ static const Edge264_macroblock unavail_mb = {
 typedef struct
 {
 	// header context
-	uint8_t field_pic_flag:1;
-	uint8_t bottom_field_flag:1;
-	uint8_t MbaffFrameFlag:1;
-	uint8_t direct_spatial_mv_pred_flag:1;
 	int8_t nal_ref_idc; // 2 significant bits
 	int8_t nal_unit_type; // 5 significant bits
 	int8_t slice_type; // 3 significant bits
+	int8_t field_pic_flag; // 1 significant bit
+	int8_t bottom_field_flag; // 1 significant bit
+	int8_t MbaffFrameFlag; // 1 significant bit
+	int8_t direct_spatial_mv_pred_flag; // 1 significant bit
 	int8_t luma_log2_weight_denom; // 3 significant bits
 	int8_t chroma_log2_weight_denom; // 3 significant bits
-	int8_t no_output_of_prior_pics_flag; // 1 significant bit
 	int8_t disable_deblocking_filter_idc; // 2 significant bits
 	int8_t FilterOffsetA; // 5 significant bits
 	int8_t FilterOffsetB;
 	int8_t mb_qp_delta_nz;
-	uint32_t first_mb_in_slice;
+	uint32_t first_mb_in_slice; // unsigned to speed up integer division
 	int32_t FrameNum;
 	int32_t PicOrderCnt;
 	Edge264_pic_parameter_set pps;

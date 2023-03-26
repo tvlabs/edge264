@@ -10,6 +10,7 @@
  * 	_ implement the modification of RefPicLists with views
  * 
  * _ get_frame should check that DPB is initialized
+ * _ resetting the DPB should clear reference_flags and other fields!
  * _ layout README like https://github.com/nolanlawson/emoji-picker-element
  * _ name files with numbers to set an explicit order for reading them
  * _ test all versions of GCC and select it in Makefile if not specified on command line
@@ -27,7 +28,6 @@
 
 /** Notes:
  * _ to benchmark ffmpeg: ffmpeg -hide_banner -benchmark -threads 1 -i video.264 -f null -
- * _ current x264 options in HandBrake to output compatible video: no-8x8dct
  * _ don't allocate images separately, because for desktop it will contribute to fragmentation if other allocs happen inbetween, and for embedded systems it will be easier to bypass malloc and manage memory by hand with a single alloc
  */
 
@@ -596,6 +596,93 @@ static int FUNC(assign_currPic, int gap, int TopFieldOrderCnt, int BottomFieldOr
 
 
 /**
+ * This function allocates a new DPB and initializes dependent variables
+ * based on ctx->sps.DPB_format and ctx->sps.frame_crop_offsets.
+ * Test ctx->DPB!=NULL to check that a DPB has been initialized and is correct.
+ */
+static int FUNC(realloc_DPB) {
+	if (ctx->DPB != NULL)
+		free(ctx->DPB);
+	//memset(&ctx->s, 0, sizeof(ctx->s)); // FIXME clear only the important stuff
+	ctx->DPB_format = ctx->sps.DPB_format;
+	memcpy(ctx->s.frame_crop_offsets, &ctx->sps.frame_crop_offsets_l, 8);
+	
+	// An offset might be added to stride if cache alignment shows a significant impact.
+	int PicWidthInMbs = ctx->sps.pic_width_in_mbs;
+	int PicHeightInMbs = ctx->sps.pic_height_in_mbs;
+	int width = PicWidthInMbs << 4;
+	int height = PicHeightInMbs << 4;
+	ctx->currPic = -1;
+	ctx->s.pixel_depth_Y = ctx->sps.BitDepth_Y > 8;
+	ctx->clip[0] = (1 << ctx->sps.BitDepth_Y) - 1;
+	ctx->s.width_Y = width - ctx->s.frame_crop_offsets[3] - ctx->s.frame_crop_offsets[1];
+	ctx->s.height_Y = height - ctx->s.frame_crop_offsets[0] - ctx->s.frame_crop_offsets[2];
+	ctx->stride[0] = ctx->s.stride_Y = width << ctx->s.pixel_depth_Y;
+	ctx->plane_size_Y = ctx->s.stride_Y * height;
+	if (ctx->sps.chroma_format_idc > 0) {
+		ctx->s.pixel_depth_C = ctx->sps.BitDepth_C > 8;
+		ctx->clip[1] = ctx->clip[2] = (1 << ctx->sps.BitDepth_C) - 1;
+		ctx->s.width_C = ctx->sps.chroma_format_idc == 3 ? ctx->s.width_Y : ctx->s.width_Y >> 1;
+		ctx->stride[1] = ctx->stride[2] = ctx->s.stride_C = (ctx->sps.chroma_format_idc == 3 ? width : width >> 1) << ctx->s.pixel_depth_C;
+		ctx->s.height_C = ctx->sps.chroma_format_idc == 1 ? ctx->s.height_Y >> 1 : ctx->s.height_Y;
+		ctx->plane_size_C = (ctx->sps.chroma_format_idc == 1 ? height >> 1 : height) * ctx->s.stride_C;
+	}
+	for (int i = 1; i < 4; i++) {
+		ctx->sig_inc_v[i] = sig_inc_8x8[0][i];
+		ctx->last_inc_v[i] = last_inc_8x8[i];
+		ctx->scan_v[i] = scan_8x8_cabac[0][i];
+	}
+	
+	// initialize macroblock offsets with vectors for the sake of readability
+	int offA_int8 = -(int)sizeof(*mb);
+	int offB_int8 = -(PicWidthInMbs + 1) * sizeof(*mb);
+	int offA_int32 = offA_int8 >> 2;
+	int offB_int32 = offB_int8 >> 2;
+	int offC_int32 = offB_int32 + (sizeof(*mb) >> 2);
+	int offD_int32 = offB_int32 - (sizeof(*mb) >> 2);
+	ctx->A4x4_int8_v = (i16x16){5 + offA_int8, 0, 7 + offA_int8, 2, 1, 4, 3, 6, 13 + offA_int8, 8, 15 + offA_int8, 10, 9, 12, 11, 14};
+	ctx->B4x4_int8_v = (i32x16){10 + offB_int8, 11 + offB_int8, 0, 1, 14 + offB_int8, 15 + offB_int8, 4, 5, 2, 3, 8, 9, 6, 7, 12, 13};
+	if (ctx->sps.ChromaArrayType == 1) {
+		ctx->ACbCr_int8_v = (i16x16){1 + offA_int8, 0, 3 + offA_int8, 2, 5 + offA_int8, 4, 7 + offA_int8, 6};
+		ctx->BCbCr_int8_v = (i32x16){2 + offB_int8, 3 + offB_int8, 0, 1, 6 + offB_int8, 7 + offB_int8, 4, 5};
+	}
+	ctx->refIdx4x4_C_v = (i8x16){2, 3, 12, -1, 3, 6, 13, -1, 12, 13, 14, -1, 13, -1, 15, -1};
+	ctx->absMvd_A_v = (i16x16){10 + offA_int8, 0, 14 + offA_int8, 4, 2, 8, 6, 12, 26 + offA_int8, 16, 30 + offA_int8, 20, 18, 24, 22, 28};
+	ctx->absMvd_B_v = (i32x16){20 + offB_int8, 22 + offB_int8, 0, 2, 28 + offB_int8, 30 + offB_int8, 8, 10, 4, 6, 16, 18, 12, 14, 24, 26};
+	ctx->mvs_A_v = (i16x16){5 + offA_int32, 0, 7 + offA_int32, 2, 1, 4, 3, 6, 13 + offA_int32, 8, 15 + offA_int32, 10, 9, 12, 11, 14};
+	ctx->mvs_B_v = (i32x16){10 + offB_int32, 11 + offB_int32, 0, 1, 14 + offB_int32, 15 + offB_int32, 4, 5, 2, 3, 8, 9, 6, 7, 12, 13};
+	ctx->mvs_C_v = (i32x16){11 + offB_int32, 14 + offB_int32, 1, -1, 15 + offB_int32, 10 + offC_int32, 5, -1, 3, 6, 9, -1, 7, -1, 13, -1};
+	ctx->mvs_D_v = (i32x16){15 + offD_int32, 10 + offB_int32, 5 + offA_int32, 0, 11 + offB_int32, 14 + offB_int32, 1, 4, 7 + offA_int32, 2, 13 + offA_int32, 8, 3, 6, 9, 12};
+	
+	// Each picture in the DPB is three planes and a group of macroblocks
+	int mbs = (PicWidthInMbs + 1) * (PicHeightInMbs + 1);
+	ctx->frame_size = (ctx->plane_size_Y + ctx->plane_size_C * 2 + mbs * sizeof(Edge264_macroblock) + 15) & -16;
+	ctx->DPB = malloc(ctx->frame_size * (ctx->sps.max_dec_frame_buffering + 1));
+	if (ctx->DPB == NULL)
+		return 1;
+	
+	// initialise the macroblocks
+	for (int i = 0; i <= ctx->sps.max_dec_frame_buffering; i++) {
+		Edge264_macroblock *m = (Edge264_macroblock *)(ctx->DPB + i * ctx->frame_size + ctx->plane_size_Y + ctx->plane_size_C * 2);
+		for (int j = 0; j <= PicWidthInMbs + 1; j++) {
+			m[j] = unavail_mb;
+			m[PicWidthInMbs + 1 + j].unavail16x16 = 14;
+		}
+		for (int j = PicWidthInMbs * 2 + 4; j < mbs; j++)
+			m[j].unavail16x16 = 0;
+		for (int j = PicWidthInMbs * 2 + 2; j < mbs; j += PicWidthInMbs + 1) {
+			m[j] = unavail_mb;
+			m[j + 1].unavail16x16 = 9;
+			m[j + PicWidthInMbs].unavail16x16 = 4;
+		}
+		m[PicWidthInMbs + 2].unavail16x16 = 15;
+	}
+	return 0;
+}
+
+
+
+/**
  * This function matches slice_header() in 7.3.3, which it parses while updating
  * the DPB and initialising slice data for further decoding.
  */
@@ -620,6 +707,12 @@ static int FUNC(parse_slice_layer_without_partitioning)
 	if (ctx->PPS[pic_parameter_set_id].num_ref_idx_active[0] == 0)
 		return 2;
 	ctx->pps = ctx->PPS[pic_parameter_set_id];
+	
+	// at this point we know the video can and will be decoded, thus allocate the DPB
+	int64_t offsets;
+	memcpy(&offsets, ctx->s.frame_crop_offsets, 8);
+	if ((ctx->sps.DPB_format != ctx->DPB_format || ctx->sps.frame_crop_offsets_l != offsets) && CALL(realloc_DPB))
+		return 1;
 	
 	// parse frame_num
 	int frame_num = CALL(get_uv, ctx->sps.log2_max_frame_num);
@@ -985,13 +1078,13 @@ static int FUNC(parse_pic_parameter_set)
 			pps.second_chroma_qp_index_offset);
 	}
 	
-	// seq_parameter_set_id was ignored so far since no SPS data was read.
-	if (CALL(get_uv, 24) != 0x800000 || ctx->DPB == NULL)
+	// check for trailing_bits
+	if (CALL(get_uv, 24) != 0x800000)
 		return 2;
 	if (pic_parameter_set_id >= 4 || num_slice_groups > 1 ||
 		pps.constrained_intra_pred_flag || redundant_pic_cnt_present_flag)
 		return 1;
-	if (seq_parameter_set_id == 0)
+	if (seq_parameter_set_id == 0 && ctx->sps.DPB_format != 0)
 		ctx->PPS[pic_parameter_set_id] = pps;
 	return 0;
 }
@@ -1377,18 +1470,17 @@ static int FUNC(parse_seq_parameter_set)
 		sps.direct_8x8_inference_flag);
 	
 	// frame_cropping_flag
-	i16x4 frame_crop_offsets = {};
 	if (CALL(get_u1)) {
 		unsigned shiftX = (sps.ChromaArrayType == 1) | (sps.ChromaArrayType == 2);
 		unsigned shiftY = (sps.ChromaArrayType == 1);
 		int limX = (sps.pic_width_in_mbs << 4 >> shiftX) - 1;
 		int limY = (sps.pic_height_in_mbs << 4 >> shiftY) - 1;
-		frame_crop_offsets[3] = CALL(get_ue16, limX) << shiftX;
-		frame_crop_offsets[1] = CALL(get_ue16, limX - (frame_crop_offsets[3] >> shiftX)) << shiftX;
-		frame_crop_offsets[0] = CALL(get_ue16, limY) << shiftY;
-		frame_crop_offsets[2] = CALL(get_ue16, limY - (frame_crop_offsets[0] >> shiftY)) << shiftY;
+		sps.frame_crop_offsets[3] = CALL(get_ue16, limX) << shiftX;
+		sps.frame_crop_offsets[1] = CALL(get_ue16, limX - (sps.frame_crop_offsets[3] >> shiftX)) << shiftX;
+		sps.frame_crop_offsets[0] = CALL(get_ue16, limY) << shiftY;
+		sps.frame_crop_offsets[2] = CALL(get_ue16, limY - (sps.frame_crop_offsets[0] >> shiftY)) << shiftY;
 		printf("<tr><th>frame_crop_offsets</th><td>left %u, right %u, top %u, bottom %u</td></tr>\n",
-			frame_crop_offsets[3], frame_crop_offsets[1], frame_crop_offsets[0], frame_crop_offsets[2]);
+			sps.frame_crop_offsets[3], sps.frame_crop_offsets[1], sps.frame_crop_offsets[0], sps.frame_crop_offsets[2]);
 	} else {
 		printf("<tr><th>frame_crop_offsets (inferred)</th><td>left 0, right 0, top 0, bottom 0</td></tr>\n");
 	}
@@ -1402,6 +1494,7 @@ static int FUNC(parse_seq_parameter_set)
 			sps.max_dec_frame_buffering);
 	}
 	
+	// check for trailing_bits
 	if (CALL(get_uv, 24) != 0x800000)
 		return 2;
 	if (seq_parameter_set_id > 0 || sps.ChromaArrayType != 1 ||
@@ -1409,88 +1502,6 @@ static int FUNC(parse_seq_parameter_set)
 		sps.qpprime_y_zero_transform_bypass_flag || !sps.frame_mbs_only_flag)
 		return 1;
 	ctx->sps = sps;
-	
-	// reallocate the DPB when the image format changes
-	int64_t offsets;
-	memcpy(&offsets, ctx->s.frame_crop_offsets, 8);
-	if (ctx->sps.format != ctx->DPB_format || (int64_t)frame_crop_offsets != offsets) {
-		if (ctx->DPB != NULL)
-			free(ctx->DPB);
-		//memset(&ctx->s, 0, sizeof(ctx->s)); // FIXME clear only the important stuff
-		ctx->DPB_format = ctx->sps.format;
-		memcpy(ctx->s.frame_crop_offsets, &frame_crop_offsets, 8);
-		
-		// An offset might be added to stride if cache alignment shows a significant impact.
-		int PicWidthInMbs = ctx->sps.pic_width_in_mbs;
-		int PicHeightInMbs = ctx->sps.pic_height_in_mbs;
-		int width = PicWidthInMbs << 4;
-		int height = PicHeightInMbs << 4;
-		ctx->currPic = -1;
-		ctx->s.pixel_depth_Y = ctx->sps.BitDepth_Y > 8;
-		ctx->clip[0] = (1 << ctx->sps.BitDepth_Y) - 1;
-		ctx->s.width_Y = width - ctx->s.frame_crop_offsets[3] - ctx->s.frame_crop_offsets[1];
-		ctx->s.height_Y = height - ctx->s.frame_crop_offsets[0] - ctx->s.frame_crop_offsets[2];
-		ctx->stride[0] = ctx->s.stride_Y = width << ctx->s.pixel_depth_Y;
-		ctx->plane_size_Y = ctx->s.stride_Y * height;
-		if (ctx->sps.chroma_format_idc > 0) {
-			ctx->s.pixel_depth_C = ctx->sps.BitDepth_C > 8;
-			ctx->clip[1] = ctx->clip[2] = (1 << ctx->sps.BitDepth_C) - 1;
-			ctx->s.width_C = ctx->sps.chroma_format_idc == 3 ? ctx->s.width_Y : ctx->s.width_Y >> 1;
-			ctx->stride[1] = ctx->stride[2] = ctx->s.stride_C = (ctx->sps.chroma_format_idc == 3 ? width : width >> 1) << ctx->s.pixel_depth_C;
-			ctx->s.height_C = ctx->sps.chroma_format_idc == 1 ? ctx->s.height_Y >> 1 : ctx->s.height_Y;
-			ctx->plane_size_C = (ctx->sps.chroma_format_idc == 1 ? height >> 1 : height) * ctx->s.stride_C;
-		}
-		for (int i = 1; i < 4; i++) {
-			ctx->sig_inc_v[i] = sig_inc_8x8[0][i];
-			ctx->last_inc_v[i] = last_inc_8x8[i];
-			ctx->scan_v[i] = scan_8x8_cabac[0][i];
-		}
-		
-		// initialize macroblock offsets with vectors for the sake of readability
-		int offA_int8 = -(int)sizeof(*mb);
-		int offB_int8 = -(PicWidthInMbs + 1) * sizeof(*mb);
-		int offA_int32 = offA_int8 >> 2;
-		int offB_int32 = offB_int8 >> 2;
-		int offC_int32 = offB_int32 + (sizeof(*mb) >> 2);
-		int offD_int32 = offB_int32 - (sizeof(*mb) >> 2);
-		ctx->A4x4_int8_v = (i16x16){5 + offA_int8, 0, 7 + offA_int8, 2, 1, 4, 3, 6, 13 + offA_int8, 8, 15 + offA_int8, 10, 9, 12, 11, 14};
-		ctx->B4x4_int8_v = (i32x16){10 + offB_int8, 11 + offB_int8, 0, 1, 14 + offB_int8, 15 + offB_int8, 4, 5, 2, 3, 8, 9, 6, 7, 12, 13};
-		if (sps.ChromaArrayType == 1) {
-			ctx->ACbCr_int8_v = (i16x16){1 + offA_int8, 0, 3 + offA_int8, 2, 5 + offA_int8, 4, 7 + offA_int8, 6};
-			ctx->BCbCr_int8_v = (i32x16){2 + offB_int8, 3 + offB_int8, 0, 1, 6 + offB_int8, 7 + offB_int8, 4, 5};
-		}
-		ctx->refIdx4x4_C_v = (i8x16){2, 3, 12, -1, 3, 6, 13, -1, 12, 13, 14, -1, 13, -1, 15, -1};
-		ctx->absMvd_A_v = (i16x16){10 + offA_int8, 0, 14 + offA_int8, 4, 2, 8, 6, 12, 26 + offA_int8, 16, 30 + offA_int8, 20, 18, 24, 22, 28};
-		ctx->absMvd_B_v = (i32x16){20 + offB_int8, 22 + offB_int8, 0, 2, 28 + offB_int8, 30 + offB_int8, 8, 10, 4, 6, 16, 18, 12, 14, 24, 26};
-		ctx->mvs_A_v = (i16x16){5 + offA_int32, 0, 7 + offA_int32, 2, 1, 4, 3, 6, 13 + offA_int32, 8, 15 + offA_int32, 10, 9, 12, 11, 14};
-		ctx->mvs_B_v = (i32x16){10 + offB_int32, 11 + offB_int32, 0, 1, 14 + offB_int32, 15 + offB_int32, 4, 5, 2, 3, 8, 9, 6, 7, 12, 13};
-		ctx->mvs_C_v = (i32x16){11 + offB_int32, 14 + offB_int32, 1, -1, 15 + offB_int32, 10 + offC_int32, 5, -1, 3, 6, 9, -1, 7, -1, 13, -1};
-		ctx->mvs_D_v = (i32x16){15 + offD_int32, 10 + offB_int32, 5 + offA_int32, 0, 11 + offB_int32, 14 + offB_int32, 1, 4, 7 + offA_int32, 2, 13 + offA_int32, 8, 3, 6, 9, 12};
-		
-		// Each picture in the DPB is three planes and a group of macroblocks
-		int mbs = (PicWidthInMbs + 1) * (PicHeightInMbs + 1);
-		ctx->frame_size = (ctx->plane_size_Y + ctx->plane_size_C * 2 + mbs * sizeof(Edge264_macroblock) + 15) & -16;
-		ctx->DPB = malloc(ctx->frame_size * (ctx->sps.max_dec_frame_buffering + 1));
-		if (ctx->DPB == NULL)
-			return 1;
-		
-		// initialise the macroblocks
-		for (int i = 0; i <= ctx->sps.max_dec_frame_buffering; i++) {
-			Edge264_macroblock *m = (Edge264_macroblock *)(ctx->DPB + i * ctx->frame_size + ctx->plane_size_Y + ctx->plane_size_C * 2);
-			for (int j = 0; j <= PicWidthInMbs + 1; j++) {
-				m[j] = unavail_mb;
-				m[PicWidthInMbs + 1 + j].unavail16x16 = 14;
-			}
-			for (int j = PicWidthInMbs * 2 + 4; j < mbs; j++)
-				m[j].unavail16x16 = 0;
-			for (int j = PicWidthInMbs * 2 + 2; j < mbs; j += PicWidthInMbs + 1) {
-				m[j] = unavail_mb;
-				m[j + 1].unavail16x16 = 9;
-				m[j + PicWidthInMbs].unavail16x16 = 4;
-			}
-			m[PicWidthInMbs + 2].unavail16x16 = 15;
-		}
-	}
 	return 0;
 }
 

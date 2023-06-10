@@ -24,15 +24,16 @@ Supported features
 Planned features
 ----------------
 
-* AVX-2 enhancements
+* MVC 3D support (work in progress)
+* SEI messages
 * Error concealment
-* MVC 3D support
 * ARM support
+* PAFF and MBAFF
+* AVX-2 enhancements
 * 4:0:0, 4:2:2 and 4:4:4
 * 9-14 bit depths with possibility of different luma/chroma depths
 * Transform-bypass for macroblocks with QP==0
 * Slice-multithreading
-* PAFF and MBAFF
 
 
 Compiling and testing

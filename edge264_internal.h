@@ -63,6 +63,7 @@ typedef struct {
 	int8_t mb_adaptive_frame_field_flag; // 1 significant bit
 	int8_t direct_8x8_inference_flag; // 1 significant bit
 	int8_t max_num_reorder_frames; // 5 significant bits
+	int8_t num_view_buffers; // 1 significant bit
 	int16_t offset_for_non_ref_pic; // pic_order_cnt_type==1
 	int16_t offset_for_top_to_bottom_field; // pic_order_cnt_type==1
 	int16_t PicOrderCntDeltas[256]; // pic_order_cnt_type==1

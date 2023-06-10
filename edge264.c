@@ -657,12 +657,12 @@ static int FUNC(realloc_DPB) {
 	// Each picture in the DPB is three planes and a group of macroblocks
 	int mbs = (PicWidthInMbs + 1) * (PicHeightInMbs + 1);
 	ctx->frame_size = (ctx->plane_size_Y + ctx->plane_size_C * 2 + mbs * sizeof(Edge264_macroblock) + 15) & -16;
-	ctx->DPB = malloc(ctx->frame_size * (ctx->sps.max_dec_frame_buffering + 1));
+	ctx->DPB = malloc(ctx->frame_size * ctx->sps.num_view_buffers);
 	if (ctx->DPB == NULL)
 		return 1;
 	
 	// initialise the macroblocks
-	for (int i = 0; i <= ctx->sps.max_dec_frame_buffering; i++) {
+	for (int i = 0; i < ctx->sps.num_view_buffers; i++) {
 		Edge264_macroblock *m = (Edge264_macroblock *)(ctx->DPB + i * ctx->frame_size + ctx->plane_size_Y + ctx->plane_size_C * 2);
 		for (int j = 0; j <= PicWidthInMbs + 1; j++) {
 			m[j] = unavail_mb;
@@ -704,7 +704,7 @@ static int FUNC(parse_slice_layer_without_partitioning)
 		red_if(pic_parameter_set_id >= 4 || ctx->PPS[pic_parameter_set_id].num_ref_idx_active[0] == 0), pic_parameter_set_id);
 	if (ctx->slice_type > 2 || pic_parameter_set_id >= 4)
 		return 1;
-	if (ctx->PPS[pic_parameter_set_id].num_ref_idx_active[0] == 0)
+	if (ctx->PPS[pic_parameter_set_id].num_ref_idx_active[0] == 0) // if PPS wasn't initialized
 		return 2;
 	ctx->pps = ctx->PPS[pic_parameter_set_id];
 	
@@ -970,12 +970,12 @@ static int FUNC(parse_pic_parameter_set)
 	pps.bottom_field_pic_order_in_frame_present_flag = CALL(get_u1);
 	int num_slice_groups = CALL(get_ue16, 7) + 1;
 	printf("<tr%s><th>pic_parameter_set_id</th><td>%u</td></tr>\n"
-		"<tr%s><th>seq_parameter_set_id</th><td>%u</td></tr>\n"
+		"<tr><th>seq_parameter_set_id</th><td>%u</td></tr>\n"
 		"<tr><th>entropy_coding_mode_flag</th><td>%x</td></tr>\n"
 		"<tr><th>bottom_field_pic_order_in_frame_present_flag</th><td>%x</td></tr>\n"
 		"<tr%s><th>num_slice_groups</th><td>%u</td></tr>\n",
 		red_if(pic_parameter_set_id >= 4), pic_parameter_set_id,
-		red_if(seq_parameter_set_id > 0), seq_parameter_set_id,
+		seq_parameter_set_id,
 		pps.entropy_coding_mode_flag,
 		pps.bottom_field_pic_order_in_frame_present_flag,
 		red_if(num_slice_groups > 1), num_slice_groups);
@@ -1078,13 +1078,13 @@ static int FUNC(parse_pic_parameter_set)
 			pps.second_chroma_qp_index_offset);
 	}
 	
-	// check for trailing_bits
+	// check for trailing_bits before unsupported features (in case errors enabled them)
 	if (CALL(get_uv, 24) != 0x800000)
 		return 2;
 	if (pic_parameter_set_id >= 4 || num_slice_groups > 1 ||
 		pps.constrained_intra_pred_flag || redundant_pic_cnt_present_flag)
 		return 1;
-	if (seq_parameter_set_id == 0 && ctx->sps.DPB_format != 0)
+	if (ctx->sps.DPB_format != 0)
 		ctx->PPS[pic_parameter_set_id] = pps;
 	return 0;
 }
@@ -1271,6 +1271,7 @@ static void FUNC(parse_vui_parameters, Edge264_seq_parameter_set *sps)
 		
 		// we don't enforce MaxDpbFrames here since violating the level is harmless
 		sps->max_dec_frame_buffering = max(CALL(get_ue16, 16), sps->max_num_ref_frames);
+		sps->num_view_buffers = sps->max_dec_frame_buffering + 1;
 		sps->max_num_reorder_frames = min(max_num_reorder_frames, sps->max_dec_frame_buffering);
 		printf("<tr><th>motion_vectors_over_pic_boundaries_flag</th><td>%x</td></tr>\n"
 			"<tr><th>max_bytes_per_pic_denom</th><td>%u</td></tr>\n"
@@ -1292,6 +1293,75 @@ static void FUNC(parse_vui_parameters, Edge264_seq_parameter_set *sps)
 			sps->max_num_reorder_frames,
 			sps->max_dec_frame_buffering);
 	}
+}
+
+
+
+/**
+ * Parses the SPS extension for MVC.
+ */
+static int FUNC(parse_seq_parameter_set_mvc_extension, Edge264_seq_parameter_set *sps, int profile_idc)
+{
+	// returning unsupported here is more efficient than keeping tedious code afterwards
+	int num_views = CALL(get_ue16, 1023) + 1;
+	int view_id0 = CALL(get_ue16, 1023);
+	int view_id1 = CALL(get_ue16, 1023);
+	printf("<tr%s><th>num_views {view_id<sub>0</sub>, view_id<sub>1</sub>}</th><td>%u {%u, %u}</td></tr>\n",
+		red_if(num_views != 2 || view_id0 != 0 || view_id1 != 1), num_views, view_id0, view_id1);
+	if (num_views != 2 || view_id0 != 0 || view_id1 != 1)
+		return 1;
+	sps->num_view_buffers <<= 1;
+	
+	// we might optimize this afterwards if streams always have all zeros
+	int num_anchor_refs_l0 = CALL(get_ue16, 1);
+	int num_anchor_refs_l1 = CALL(get_ue16, 1);
+	int num_non_anchor_refs_l0 = CALL(get_ue16, 1);
+	int num_non_anchor_refs_l1 = CALL(get_ue16, 1);
+	printf("<tr%s><th>View 1 anchors {l0, l1, non_l0, non_l1}</th><td>%u, %u, %u, %u</td></tr>\n",
+		red_if(num_anchor_refs_l0 | num_anchor_refs_l1 | num_non_anchor_refs_l0 | num_non_anchor_refs_l1), num_anchor_refs_l0, num_anchor_refs_l1, num_non_anchor_refs_l0, num_non_anchor_refs_l1);
+	if (num_anchor_refs_l0 | num_anchor_refs_l1 | num_non_anchor_refs_l0 | num_non_anchor_refs_l1)
+		return 1;
+	
+	// at this point we keep verbose output to check the variance of different streams
+	int num_level_values_signalled = CALL(get_ue16, 63) + 1;
+	printf("<tr><th>num_level_values_signalled</th><td>%u</td></tr>\n", num_level_values_signalled);
+	for (int i = 0; i < num_level_values_signalled; i++) {
+		int level_idc = CALL(get_uv, 8);
+		printf("<tr><th>level_idc</th><td>%u</td></tr>\n", level_idc);
+		int num_applicable_ops = CALL(get_ue16, 1023) + 1;
+		printf("<tr><th>num_applicable_ops</th><td>%u</td></tr>\n", num_applicable_ops);
+		for (int j = 0; j < num_applicable_ops; j++) {
+			int applicable_op_temporal_id = CALL(get_uv, 3);
+			printf("<tr><th>applicable_op_temporal_id</th><td>%u</td></tr>\n", applicable_op_temporal_id);
+			int applicable_op_num_target_views = CALL(get_ue16, 1023) + 1;
+			printf("<tr><th>applicable_op_num_target_views</th><td>%u</td></tr>\n", applicable_op_num_target_views);
+			for (int k = 0; k < applicable_op_num_target_views; k++) {
+				int applicable_op_target_view_id = CALL(get_ue16, 1023);
+				printf("<tr><th>applicable_op_target_view_id</th><td>%u</td></tr>\n", applicable_op_target_view_id);
+			}
+			int applicable_op_num_views = CALL(get_ue16, 1023) + 1;
+			printf("<tr><th>applicable_op_num_views</th><td>%u</td></tr>\n", applicable_op_num_views);
+		}
+	}
+	if (profile_idc == 134) {
+		int mfc_format_idc = CALL(get_uv, 6);
+		printf("<tr><th>mfc_format_idc</th><td>%u</td></tr>\n", mfc_format_idc);
+		if (mfc_format_idc == 0 || mfc_format_idc == 1) {
+			if (!CALL(get_u1)) {
+				int view0_grid_position_x = CALL(get_uv, 4);
+				printf("<tr><th>view0_grid_position_x</th><td>%u</td></tr>\n", view0_grid_position_x);
+				int view0_grid_position_y = CALL(get_uv, 4);
+				printf("<tr><th>view0_grid_position_y</th><td>%u</td></tr>\n", view0_grid_position_y);
+				int view1_grid_position_x = CALL(get_uv, 4);
+				printf("<tr><th>view1_grid_position_x</th><td>%u</td></tr>\n", view1_grid_position_x);
+				int view1_grid_position_y = CALL(get_uv, 4);
+				printf("<tr><th>view1_grid_position_y</th><td>%u</td></tr>\n", view1_grid_position_y);
+			}
+		}
+		int rpu_filter_enabled_flag = CALL(get_u1);
+		printf("<tr><th>rpu_filter_enabled_flag</th><td>%x</td></tr>\n", rpu_filter_enabled_flag);
+	}
+	return 0;
 }
 
 
@@ -1355,11 +1425,11 @@ static int FUNC(parse_seq_parameter_set)
 	printf("<tr><th>profile_idc</th><td>%u (%s)</td></tr>\n"
 		"<tr><th>constraint_set_flags</th><td>%x, %x, %x, %x, %x, %x</td></tr>\n"
 		"<tr><th>level_idc</th><td>%.1f</td></tr>\n"
-		"<tr%s><th>seq_parameter_set_id</th><td>%u</td></tr>\n",
+		"<tr><th>seq_parameter_set_id</th><td>%u</td></tr>\n",
 		profile_idc, profile_idc_names[profile_idc],
 		constraint_set_flags >> 7, (constraint_set_flags >> 6) & 1, (constraint_set_flags >> 5) & 1, (constraint_set_flags >> 4) & 1, (constraint_set_flags >> 3) & 1, (constraint_set_flags >> 2) & 1,
 		(double)level_idc / 10,
-		red_if(seq_parameter_set_id > 0), seq_parameter_set_id);
+		seq_parameter_set_id);
 	
 	int seq_scaling_matrix_present_flag = 0;
 	if (profile_idc != 66 && profile_idc != 77 && profile_idc != 88) {
@@ -1394,13 +1464,13 @@ static int FUNC(parse_seq_parameter_set)
 	printf("<tr><th>ScalingList4x4%s</th><td><small>", (seq_scaling_matrix_present_flag) ? "" : " (inferred)");
 	for (int i = 0; i < 6; i++) {
 		for (int j = 0; j < 16; j++)
-			printf("%u%s", pps.weightScale4x4[i][((int8_t *)scan_4x4)[j]], (j < 15) ? ", " : (i < 6) ? "<br>" : "</small></td></tr>\n");
+			printf("%u%s", sps.weightScale4x4[i][((int8_t *)scan_4x4)[j]], (j < 15) ? ", " : (i < 6) ? "<br>" : "</small></td></tr>\n");
 	}
 	if (profile_idc != 66 && profile_idc != 77 && profile_idc != 88) {
 		printf("<tr><th>ScalingList8x8%s</th><td><small>", (seq_scaling_matrix_present_flag) ? "" : " (inferred)");
 		for (int i = 0; i < (sps.chroma_format_idc < 3 ? 2 : 6); i++) {
 			for (int j = 0; j < 64; j++)
-				printf("%u%s", pps.weightScale8x8[i][((int8_t *)scan_8x8_cabac)[j]], (j < 63) ? ", " : (i < 6) ? "<br>" : "</small></td></tr>\n");
+				printf("%u%s", sps.weightScale8x8[i][((int8_t *)scan_8x8_cabac)[j]], (j < 63) ? ", " : (i < 6) ? "<br>" : "</small></td></tr>\n");
 		}
 	}
 	
@@ -1450,6 +1520,7 @@ static int FUNC(parse_seq_parameter_set)
 		((profile_idc == 44 || profile_idc == 86 || profile_idc == 100 ||
 		profile_idc == 110 || profile_idc == 122 || profile_idc == 244) &&
 		(constraint_set_flags & 1 << 4)) ? 0 : MaxDpbFrames;
+	sps.num_view_buffers = sps.max_dec_frame_buffering + 1;
 	sps.mb_adaptive_frame_field_flag = 0;
 	if (sps.frame_mbs_only_flag == 0)
 		sps.mb_adaptive_frame_field_flag = CALL(get_u1);
@@ -1494,11 +1565,22 @@ static int FUNC(parse_seq_parameter_set)
 			sps.max_dec_frame_buffering);
 	}
 	
-	// check for trailing_bits
+	// additional stuff for subset_seq_parameter_set
+	if (ctx->nal_unit_type == 15 && (profile_idc == 118 || profile_idc == 128 || profile_idc == 134)) {
+		if (!CALL(get_u1))
+			return 2;
+		if (CALL(parse_seq_parameter_set_mvc_extension, &sps, profile_idc))
+			return 1;
+		if (CALL(get_u1)) {
+			
+		}
+		CALL(get_u1);
+	}
+	
+	// check for trailing_bits before unsupported features (in case errors enabled them)
 	if (CALL(get_uv, 24) != 0x800000)
 		return 2;
-	if (seq_parameter_set_id > 0 || sps.ChromaArrayType != 1 ||
-		sps.BitDepth_Y != 8 || sps.BitDepth_C != 8 ||
+	if (sps.ChromaArrayType != 1 || sps.BitDepth_Y != 8 || sps.BitDepth_C != 8 ||
 		sps.qpprime_y_zero_transform_bypass_flag || !sps.frame_mbs_only_flag)
 		return 1;
 	ctx->sps = sps;

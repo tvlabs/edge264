@@ -1,5 +1,12 @@
 /** MAYDO:
  * _ implement MVC
+ *    _ add MVC to initial construction of ref lists
+ *    _ add storage of view_id
+ *    _ enable decoding of slices with nal_unit_types == 20
+ *    _ add pointers to return the 2nd view, and return it if present
+ *    _ in edge264_play, display both views on overlay
+ *    _ in edge264_play, add 3rd file for 2nd view
+ *    _ in edge264_test, add support for 2nd view
  * 	_ parse and print SPS extension (when seen in a conformance bitstream)
  * 	_ parse and print SSPS (when seen in a conformance bitstream)
  * 	_ parse and print SPS MVC extension (when seen in a conformance bitstream)
@@ -9,6 +16,7 @@
  * 	_ implement the initialization of RefPicLists with views
  * 	_ implement the modification of RefPicLists with views
  * 
+ * _ add Edge264_stream definition to documentation, and replace "documentation" with "reference"
  * _ get_frame should check that DPB is initialized
  * _ resetting the DPB should clear reference_flags and other fields!
  * _ layout README like https://github.com/nolanlawson/emoji-picker-element
@@ -414,9 +422,11 @@ static void FUNC(parse_ref_pic_list_modification)
 		int modification_of_pic_nums_idc;
 		if (CALL(get_u1)) { // ref_pic_list_modification_flag
 			printf("<tr><th>ref_pic_list_modifications_l%x</th><td>", l);
-			for (int refIdx = 0; (modification_of_pic_nums_idc = CALL(get_ue16, 3)) < 3 && refIdx < 32; refIdx++) {
+			for (int refIdx = 0; (modification_of_pic_nums_idc = CALL(get_ue16, 5)) != 3 && refIdx < 32; refIdx++) {
 				int num = CALL(get_ue32, 4294967294);
-				printf("%s%d%s", refIdx ? ", " : "", !modification_of_pic_nums_idc ? -num - 1 : num + 2 - modification_of_pic_nums_idc, (modification_of_pic_nums_idc == 2) ? "*" : "");
+				printf("%s%d%s", refIdx ? ", " : "",
+					modification_of_pic_nums_idc % 4 == 0 ? -num - 1 : num + (modification_of_pic_nums_idc != 2),
+					modification_of_pic_nums_idc == 2 ? "l" : modification_of_pic_nums_idc > 3 ? "v" : "");
 				unsigned MaskFrameNum = -1;
 				unsigned short_long = ctx->long_term_flags;
 				if (modification_of_pic_nums_idc < 2) {
@@ -430,7 +440,7 @@ static void FUNC(parse_ref_pic_list_modification)
 				unsigned FrameNum = MaskFrameNum & (ctx->field_pic_flag ? num >> 1 : num);
 				for (unsigned r = ctx->reference_flags & short_long; r; r &= r - 1) {
 					int pic = __builtin_ctz(r);
-					if (modification_of_pic_nums_idc < 2 ? (ctx->FrameNums[pic] & MaskFrameNum) == FrameNum : ctx->LongTermFrameIdx[pic] == FrameNum) {
+					if (FrameNum == (modification_of_pic_nums_idc < 2 ? ctx->FrameNums[pic] & MaskFrameNum : ctx->LongTermFrameIdx[pic])) {
 						// initialization placed pic exactly once in RefPicList, so shift it down to refIdx position
 						int buf = pic;
 						int cIdx = refIdx;
@@ -523,74 +533,6 @@ static void FUNC(finish_frame)
 			printf((i < ctx->sps.max_dec_frame_buffering) ? ", " : "</small></td></tr>\n");
 		}
 	#endif
-}
-
-
-
-/**
- * This function checks for gaps in frame_num (8.2.5.2), then reserves a slot
- * for the current frame in the DPB.
- * It returns -2 if the DPB is full and should be drained beforehand.
- */
-static int FUNC(assign_currPic, int gap, int TopFieldOrderCnt, int BottomFieldOrderCnt)
-{
-	// when detecting a gap, dereference enough frames to fit the last non-existing frames
-	if (__builtin_expect(gap > 1, 0)) { // cannot happen for IDR frames
-		int non_existing = min(gap - 1, ctx->sps.max_num_ref_frames - __builtin_popcount(ctx->long_term_flags));
-		int excess = __builtin_popcount(ctx->reference_flags) + non_existing - ctx->sps.max_num_ref_frames;
-		for (int unref; excess > 0; excess--) {
-			int best = INT_MAX;
-			for (unsigned r = ctx->reference_flags & ~ctx->long_term_flags; r; r &= r - 1) {
-				int i = __builtin_ctz(r);
-				if (ctx->FrameNums[i] < best)
-					best = ctx->FrameNums[unref = i];
-			}
-			ctx->reference_flags ^= 1 << unref;
-		}
-		
-		// make enough frames immediately displayable until there are enough DPB slots available
-		unsigned output_flags = ctx->output_flags;
-		while (__builtin_popcount(ctx->reference_flags | output_flags) + non_existing > ctx->sps.max_dec_frame_buffering) {
-			int disp, best = INT_MAX;
-			for (unsigned o = output_flags; o; o &= o - 1) {
-				int i = __builtin_ctz(o);
-				if (ctx->FieldOrderCnt[0][i] < best)
-					best = ctx->FieldOrderCnt[0][disp = i];
-			}
-			output_flags ^= 1 << disp;
-			ctx->dispPicOrderCnt = max(ctx->dispPicOrderCnt, best);
-		}
-		if (output_flags != ctx->output_flags)
-			return -2;
-		
-		// finally insert the last non-existing frames one by one
-		for (unsigned FrameNum = ctx->FrameNum - non_existing; FrameNum < ctx->FrameNum; FrameNum++) {
-			int i = __builtin_ctz(~(ctx->reference_flags | output_flags));
-			ctx->reference_flags |= 1 << i;
-			ctx->FrameNums[i] = FrameNum;
-			int PicOrderCnt = 0;
-			if (ctx->sps.pic_order_cnt_type == 2) {
-				PicOrderCnt = FrameNum * 2;
-			} else if (ctx->sps.num_ref_frames_in_pic_order_cnt_cycle > 0) {
-				PicOrderCnt = (FrameNum / ctx->sps.num_ref_frames_in_pic_order_cnt_cycle) *
-					ctx->sps.PicOrderCntDeltas[ctx->sps.num_ref_frames_in_pic_order_cnt_cycle] +
-					ctx->sps.PicOrderCntDeltas[FrameNum % ctx->sps.num_ref_frames_in_pic_order_cnt_cycle];
-			}
-			ctx->FieldOrderCnt[0][i] = ctx->FieldOrderCnt[1][i] = PicOrderCnt;
-		}
-		ctx->pic_reference_flags = ctx->reference_flags;
-	}
-	
-	// find a DPB slot for the upcoming frame
-	unsigned unavail = ctx->pic_reference_flags | ctx->output_flags;
-	if (__builtin_popcount(unavail) > ctx->sps.max_dec_frame_buffering)
-		return -2;
-	ctx->currPic = __builtin_ctz(~unavail);
-	ctx->pic_remaining_mbs = ctx->sps.pic_width_in_mbs * ctx->sps.pic_height_in_mbs;
-	ctx->FrameNums[ctx->currPic] = ctx->FrameNum;
-	ctx->FieldOrderCnt[0][ctx->currPic] = TopFieldOrderCnt;
-	ctx->FieldOrderCnt[1][ctx->currPic] = BottomFieldOrderCnt;
-	return 0;
 }
 
 
@@ -723,6 +665,53 @@ static int FUNC(parse_slice_layer_without_partitioning)
 	ctx->FrameNum = prevRefFrameNum + ((frame_num - prevRefFrameNum) & FrameNumMask);
 	printf("<tr><th>frame_num => FrameNum</th><td>%u => %u</td></tr>\n", frame_num, ctx->FrameNum);
 	
+	// Check for gaps in frame_num (8.2.5.2)
+	int gap = ctx->FrameNum - prevRefFrameNum;
+	if (__builtin_expect(gap > 1, 0)) { // cannot happen for IDR frames
+		int non_existing = min(gap - 1, ctx->sps.max_num_ref_frames - __builtin_popcount(ctx->long_term_flags));
+		int excess = __builtin_popcount(ctx->reference_flags) + non_existing - ctx->sps.max_num_ref_frames;
+		for (int unref; excess > 0; excess--) {
+			int best = INT_MAX;
+			for (unsigned r = ctx->reference_flags & ~ctx->long_term_flags; r; r &= r - 1) {
+				int i = __builtin_ctz(r);
+				if (ctx->FrameNums[i] < best)
+					best = ctx->FrameNums[unref = i];
+			}
+			ctx->reference_flags ^= 1 << unref;
+		}
+		
+		// make enough frames immediately displayable until there are enough DPB slots available
+		unsigned output_flags = ctx->output_flags;
+		while (__builtin_popcount(ctx->reference_flags | output_flags) + non_existing > ctx->sps.max_dec_frame_buffering) {
+			int disp, best = INT_MAX;
+			for (unsigned o = output_flags; o; o &= o - 1) {
+				int i = __builtin_ctz(o);
+				if (ctx->FieldOrderCnt[0][i] < best)
+					best = ctx->FieldOrderCnt[0][disp = i];
+			}
+			output_flags ^= 1 << disp;
+			ctx->dispPicOrderCnt = max(ctx->dispPicOrderCnt, best);
+		}
+		if (output_flags != ctx->output_flags)
+			return -2;
+		
+		// finally insert the last non-existing frames one by one
+		for (unsigned FrameNum = ctx->FrameNum - non_existing; FrameNum < ctx->FrameNum; FrameNum++) {
+			int i = __builtin_ctz(~(ctx->reference_flags | output_flags));
+			ctx->reference_flags |= 1 << i;
+			ctx->FrameNums[i] = FrameNum;
+			int PicOrderCnt = 0;
+			if (ctx->sps.pic_order_cnt_type == 2) {
+				PicOrderCnt = FrameNum * 2;
+			} else if (ctx->sps.num_ref_frames_in_pic_order_cnt_cycle > 0) {
+				PicOrderCnt = (FrameNum / ctx->sps.num_ref_frames_in_pic_order_cnt_cycle) *
+					ctx->sps.PicOrderCntDeltas[ctx->sps.num_ref_frames_in_pic_order_cnt_cycle] +
+					ctx->sps.PicOrderCntDeltas[FrameNum % ctx->sps.num_ref_frames_in_pic_order_cnt_cycle];
+			}
+			ctx->FieldOrderCnt[0][i] = ctx->FieldOrderCnt[1][i] = PicOrderCnt;
+		}
+	}
+	
 	// As long as PAFF/MBAFF are unsupported, this code won't execute (but is still kept).
 	ctx->field_pic_flag = 0;
 	ctx->bottom_field_flag = 0;
@@ -785,10 +774,17 @@ static int FUNC(parse_slice_layer_without_partitioning)
 	if (abs(TopFieldOrderCnt) >= 1 << 25 || abs(BottomFieldOrderCnt) >= 1 << 25)
 		return 1;
 	ctx->PicOrderCnt = min(TopFieldOrderCnt, BottomFieldOrderCnt);
+	
+	// find a DPB slot for the upcoming frame
 	if (ctx->currPic < 0) {
-		int gap = (ctx->nal_unit_type == 5) ? 0 : ctx->FrameNum - ctx->prevRefFrameNum;
-		if (CALL(assign_currPic, gap, TopFieldOrderCnt, BottomFieldOrderCnt))
-			return -2; // last return, after this point unless error the slice will be decoded
+		unsigned unavail = ctx->reference_flags | ctx->output_flags;
+		if (__builtin_popcount(unavail) > ctx->sps.max_dec_frame_buffering)
+			return -2;
+		ctx->currPic = __builtin_ctz(~unavail);
+		ctx->pic_remaining_mbs = ctx->sps.pic_width_in_mbs * ctx->sps.pic_height_in_mbs;
+		ctx->FrameNums[ctx->currPic] = ctx->FrameNum;
+		ctx->FieldOrderCnt[0][ctx->currPic] = TopFieldOrderCnt;
+		ctx->FieldOrderCnt[1][ctx->currPic] = BottomFieldOrderCnt;
 	}
 	
 	// That could be optimised into a fast bit test, but would be less readable :)
@@ -800,16 +796,15 @@ static int FUNC(parse_slice_layer_without_partitioning)
 		}
 		
 		// num_ref_idx_active_override_flag
+		int lim = (ctx->sps.num_view_buffers == ctx->sps.max_dec_frame_buffering + 1 ? 16 : 8) << ctx->field_pic_flag;
 		if (CALL(get_u1)) {
 			for (int l = 0; l <= ctx->slice_type; l++)
-				ctx->pps.num_ref_idx_active[l] = CALL(get_ue16, ctx->field_pic_flag ? 31 : 15) + 1;
+				ctx->pps.num_ref_idx_active[l] = CALL(get_ue16, lim - 1) + 1;
 			printf(ctx->slice_type ? "<tr><th>num_ref_idx_active</th><td>%u, %u</td></tr>\n": "<tr><th>num_ref_idx_active</th><td>%u</td></tr>\n",
 				ctx->pps.num_ref_idx_active[0], ctx->pps.num_ref_idx_active[1]);
 		} else {
-			if (!ctx->field_pic_flag) {
-				ctx->pps.num_ref_idx_active[0] = min(ctx->pps.num_ref_idx_active[0], 16);
-				ctx->pps.num_ref_idx_active[1] = min(ctx->pps.num_ref_idx_active[1], 16);
-			}
+			ctx->pps.num_ref_idx_active[0] = min(ctx->pps.num_ref_idx_active[0], lim);
+			ctx->pps.num_ref_idx_active[1] = min(ctx->pps.num_ref_idx_active[1], lim);
 			printf(ctx->slice_type ? "<tr><th>num_ref_idx_active (inferred)</th><td>%u, %u</td></tr>\n": "<tr><th>num_ref_idx_active (inferred)</th><td>%u</td></tr>\n",
 				ctx->pps.num_ref_idx_active[0], ctx->pps.num_ref_idx_active[1]);
 		}
@@ -1310,6 +1305,7 @@ static int FUNC(parse_seq_parameter_set_mvc_extension, Edge264_seq_parameter_set
 		red_if(num_views != 2 || view_id0 != 0 || view_id1 != 1), num_views, view_id0, view_id1);
 	if (num_views != 2 || view_id0 != 0 || view_id1 != 1)
 		return 1;
+	sps->mvc_offset = sps->num_view_buffers;
 	sps->num_view_buffers <<= 1;
 	
 	// we might optimize this afterwards if streams always have all zeros
@@ -1412,6 +1408,7 @@ static int FUNC(parse_seq_parameter_set)
 		.qpprime_y_zero_transform_bypass_flag = 0,
 		.log2_max_pic_order_cnt_lsb = 16,
 		.mb_adaptive_frame_field_flag = 0,
+		.mvc_offset = 0,
 		.PicOrderCntDeltas[0] = 0,
 		.weightScale4x4_v = {[0 ... 5] = {16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16}},
 		.weightScale8x8_v = {[0 ... 23] = {16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16}},
@@ -1683,11 +1680,8 @@ int Edge264_decode_NAL(Edge264_stream *s)
 			uint32_t u;
 			memcpy(&u, ctx->s.CPB, 4);
 			ctx->CPB = ctx->s.CPB + 6;
-			u = big_endian32(u);
-			int svc_extension_flag = u >> 23 & 1;
-			printf("<tr%s><th>svc_extension_flag</th><td>%x</td></tr>\n",
-				red_if(svc_extension_flag), svc_extension_flag);
-			if (svc_extension_flag) {
+			ctx->mvc_extension = u = big_endian32(u);
+			if (u >> 23 & 1) {
 				ret = 1;
 				parser = NULL;
 			} else {

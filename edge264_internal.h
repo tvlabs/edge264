@@ -45,7 +45,7 @@ typedef struct {
 			int8_t chroma_format_idc; // 2 significant bits
 			int8_t BitDepth_Y; // 4 significant bits
 			int8_t BitDepth_C;
-			int8_t max_dec_frame_buffering; // 5 significant bits
+			int8_t num_view_buffers; // 5 significant bit
 			uint16_t pic_width_in_mbs; // 10 significant bits
 			int16_t pic_height_in_mbs; // 10 significant bits
 		};
@@ -63,7 +63,8 @@ typedef struct {
 	int8_t mb_adaptive_frame_field_flag; // 1 significant bit
 	int8_t direct_8x8_inference_flag; // 1 significant bit
 	int8_t max_num_reorder_frames; // 5 significant bits
-	int8_t num_view_buffers; // 1 significant bit
+	int8_t max_dec_frame_buffering; // 5 significant bits
+	int8_t mvc_offset; // 0 or index of the first right view
 	int16_t offset_for_non_ref_pic; // pic_order_cnt_type==1
 	int16_t offset_for_top_to_bottom_field; // pic_order_cnt_type==1
 	int16_t PicOrderCntDeltas[256]; // pic_order_cnt_type==1
@@ -247,7 +248,7 @@ typedef struct
 	// Deblocking context
 	union { uint8_t alpha[16]; i8x16 alpha_v; }; // {internal_Y,internal_Cb,internal_Cr,0,0,0,0,0,left_Y,left_Cb,left_Cr,0,top_Y,top_Cb,top_Cr,0}
 	union { uint8_t beta[16]; i8x16 beta_v; };
-	i8x32 alpha_beta_V;
+	i8x32 alpha_beta_V; // work in progress on AVX-2 deblocking
 	union { int32_t tC0_s[16]; int64_t tC0_l[8]; i8x16 tC0_v[4]; i8x32 tC0_V[2]; }; // 4 bytes per edge in deblocking order -> 8 luma edges then 8 alternating Cb/Cr edges
 	
 	// Picture buffer and parameter sets
@@ -256,24 +257,29 @@ typedef struct
 	int32_t plane_size_Y;
 	int32_t plane_size_C;
 	int32_t frame_size;
-	uint32_t reference_flags; // bitfield for indices of reference frames
-	uint32_t pic_reference_flags; // to be applied after decoding all slices of the current frame
-	uint32_t long_term_flags; // bitfield for indices of long-term frames
-	uint32_t pic_long_term_flags; // to be applied after decoding all slices of the current frame
+	uint32_t reference_flags; // bitfield for indices of reference views
+	uint32_t pic_reference_flags; // to be applied after decoding all slices of the current picture
+	uint32_t long_term_flags; // bitfield for indices of long-term views
+	uint32_t pic_long_term_flags; // to be applied after decoding all slices of the current picture
+	uint32_t anchor_flags; // bitfield for indices of anchor frames
+	uint32_t pic_anchor_flags; // to be applied after decoding all slices of the current picture
+	uint32_t inter_view_flags; // bitfield for indices of views
+	uint32_t pic_inter_view_flags; // to be applied after decoding all slices of the current picture
 	uint32_t output_flags; // bitfield for frames waiting to be output
-	int8_t pic_idr_or_mmco5; // when set, all POCs will be decreased after completing the current frame
+	int8_t pic_idr_or_mmco5; // when set, all other POCs will be decreased after completing the current frame
 	int8_t currPic; // index of current incomplete frame, or -1
+	int32_t mvc_extension; // 3 bytes of nal_unit_header_mvc_extension
 	int32_t pic_remaining_mbs; // when zero the picture is complete
 	int32_t prevRefFrameNum;
 	int32_t prevPicOrderCnt;
-	int32_t dispPicOrderCnt;
+	int32_t dispPicOrderCnt; // all POCs lower or equal than this are ready for output
 	int32_t FrameNums[32];
 	union { int8_t LongTermFrameIdx[32]; i8x16 LongTermFrameIdx_v[2]; };
 	union { int8_t pic_LongTermFrameIdx[32]; i8x16 pic_LongTermFrameIdx_v[2]; }; // to be applied after decoding all slices of the current frame
 	union { int32_t FieldOrderCnt[2][32]; i32x4 FieldOrderCnt_v[2][8]; }; // lower/higher half for top/bottom fields
 	Edge264_seq_parameter_set sps;
 	Edge264_pic_parameter_set PPS[4];
-	Edge264_stream s;
+	Edge264_stream s; // public structure, kept last to leave room for extension in future versions
 } Edge264_ctx;
 
 

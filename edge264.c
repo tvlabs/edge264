@@ -1,5 +1,7 @@
 /** MAYDO:
  * _ implement MVC
+ * 	_ don't double DPB size since max_dpb is in units of views
+ * 	_ returning -2 at slice should ensure that a view pair is ready for output
  *    _ add MVC to initial construction of ref lists
  *    _ add storage of view_id
  *    _ enable decoding of slices with nal_unit_types == 20
@@ -16,6 +18,7 @@
  * 	_ implement the initialization of RefPicLists with views
  * 	_ implement the modification of RefPicLists with views
  * 
+ * _ check on https://kodi.wiki/view/Samples#3D_Test_Clips
  * _ add Edge264_stream definition to documentation, and replace "documentation" with "reference"
  * _ get_frame should check that DPB is initialized
  * _ resetting the DPB should clear reference_flags and other fields!
@@ -195,7 +198,7 @@ static void FUNC(parse_dec_ref_pic_marking)
 		"%s6 (assign long-term index %u to current picture)"};
 	
 	// while the exact release time of non-ref frames in C.4.5.2 is ambiguous, we ignore no_output_of_prior_pics_flag
-	if (ctx->nal_unit_type == 5) {
+	if (ctx->IdrPicFlag) {
 		ctx->pic_idr_or_mmco5 = 1;
 		ctx->pic_reference_flags = 1 << ctx->currPic;
 		int no_output_of_prior_pics_flag = CALL(get_u1);
@@ -501,13 +504,13 @@ static void FUNC(finish_frame)
 		ctx->long_term_flags = ctx->pic_long_term_flags;
 		ctx->LongTermFrameIdx_v[0] = ctx->pic_LongTermFrameIdx_v[0];
 		ctx->LongTermFrameIdx_v[1] = ctx->pic_LongTermFrameIdx_v[1];
-		ctx->prevRefFrameNum = ctx->FrameNums[ctx->currPic];
+		ctx->prevRefFrameNum[ctx->view_ids >> ctx->currPic & 1] = ctx->FrameNums[ctx->currPic];
 		ctx->prevPicOrderCnt = ctx->FieldOrderCnt[0][ctx->currPic];
 	} else { // IDR or mmco5
 		ctx->reference_flags = ctx->pic_reference_flags;
 		ctx->long_term_flags = ctx->pic_long_term_flags;
 		ctx->LongTermFrameIdx_v[0] = ctx->LongTermFrameIdx_v[1] = (i8x16){};
-		ctx->LongTermFrameIdx[ctx->currPic] = ctx->FrameNums[ctx->currPic] = ctx->prevRefFrameNum = 0;
+		ctx->LongTermFrameIdx[ctx->currPic] = ctx->FrameNums[ctx->currPic] = ctx->prevRefFrameNum[ctx->view_ids >> ctx->currPic & 1] = 0;
 		for (unsigned o = ctx->output_flags; o; o &= o - 1) {
 			int i = __builtin_ctz(o);
 			ctx->FieldOrderCnt[0][i] -= 1 << 26; // make all buffered pictures precede the next ones
@@ -518,6 +521,8 @@ static void FUNC(finish_frame)
 		ctx->prevPicOrderCnt = ctx->FieldOrderCnt[0][ctx->currPic] -= tempPicOrderCnt;
 		ctx->FieldOrderCnt[1][ctx->currPic] -= tempPicOrderCnt;
 	}
+	ctx->anchor_flags |= ctx->pic_anchor_flag << ctx->currPic; // FIXME set the one for base view too
+	ctx->inter_view_flags |= ctx->pic_inter_view_flag << ctx->currPic;
 	ctx->output_flags |= 1 << ctx->currPic;
 	CALL(deblock_frame, ctx->DPB + ctx->currPic * ctx->frame_size);
 	ctx->currPic = -1;
@@ -599,12 +604,12 @@ static int FUNC(realloc_DPB) {
 	// Each picture in the DPB is three planes and a group of macroblocks
 	int mbs = (PicWidthInMbs + 1) * (PicHeightInMbs + 1);
 	ctx->frame_size = (ctx->plane_size_Y + ctx->plane_size_C * 2 + mbs * sizeof(Edge264_macroblock) + 15) & -16;
-	ctx->DPB = malloc(ctx->frame_size * ctx->sps.num_view_buffers);
+	ctx->DPB = malloc(ctx->frame_size * (ctx->sps.max_dec_frame_buffering + 1));
 	if (ctx->DPB == NULL)
 		return 1;
 	
 	// initialise the macroblocks
-	for (int i = 0; i < ctx->sps.num_view_buffers; i++) {
+	for (int i = 0; i <= ctx->sps.max_dec_frame_buffering; i++) {
 		Edge264_macroblock *m = (Edge264_macroblock *)(ctx->DPB + i * ctx->frame_size + ctx->plane_size_Y + ctx->plane_size_C * 2);
 		for (int j = 0; j <= PicWidthInMbs + 1; j++) {
 			m[j] = unavail_mb;
@@ -656,18 +661,30 @@ static int FUNC(parse_slice_layer_without_partitioning)
 	if ((ctx->sps.DPB_format != ctx->DPB_format || ctx->sps.frame_crop_offsets_l != offsets) && CALL(realloc_DPB))
 		return 1;
 	
+	// parse view_id for MVC streams
+	int view_id = 0;
+	if (ctx->sps.mvc) {
+		ctx->pic_anchor_flag = ctx->mvc_extension >> 2 & 1;
+		ctx->pic_inter_view_flag = ctx->mvc_extension >> 1 & 1;
+		view_id = ctx->mvc_extension >> 6 & 1;
+		if (ctx->currPic >= 0 && view_id != (ctx->view_ids >> ctx->currPic & 1))
+			CALL(finish_frame);
+	}
+	ctx->view_mask = ctx->view_ids ^ (view_id - 1); // invert if view_id==0
+	
 	// parse frame_num
 	int frame_num = CALL(get_uv, ctx->sps.log2_max_frame_num);
 	int FrameNumMask = (1 << ctx->sps.log2_max_frame_num) - 1;
 	if (ctx->currPic >= 0 && frame_num != (ctx->FrameNums[ctx->currPic] & FrameNumMask))
 		CALL(finish_frame);
-	int prevRefFrameNum = (ctx->nal_unit_type == 5) ? 0 : ctx->prevRefFrameNum;
+	ctx->IdrPicFlag = ctx->nal_unit_type == 5 || (ctx->nal_unit_type == 20 && (~ctx->mvc_extension >> 22 & 1));
+	int prevRefFrameNum = ctx->IdrPicFlag ? 0 : ctx->prevRefFrameNum[view_id];
 	ctx->FrameNum = prevRefFrameNum + ((frame_num - prevRefFrameNum) & FrameNumMask);
 	printf("<tr><th>frame_num => FrameNum</th><td>%u => %u</td></tr>\n", frame_num, ctx->FrameNum);
 	
 	// Check for gaps in frame_num (8.2.5.2)
 	int gap = ctx->FrameNum - prevRefFrameNum;
-	if (__builtin_expect(gap > 1, 0)) { // cannot happen for IDR frames
+	if (__builtin_expect(gap > 1 && !ctx->sps.mvc, 0)) { // handling of gaps is ill-specified for MVC
 		int non_existing = min(gap - 1, ctx->sps.max_num_ref_frames - __builtin_popcount(ctx->long_term_flags));
 		int excess = __builtin_popcount(ctx->reference_flags) + non_existing - ctx->sps.max_num_ref_frames;
 		for (int unref; excess > 0; excess--) {
@@ -727,7 +744,7 @@ static int FUNC(parse_slice_layer_without_partitioning)
 	ctx->MbaffFrameFlag = ctx->sps.mb_adaptive_frame_field_flag & ~ctx->field_pic_flag;
 	
 	// I did not get the point of idr_pic_id yet.
-	if (ctx->nal_unit_type == 5) {
+	if (ctx->IdrPicFlag) {
 		int idr_pic_id = CALL(get_ue32, 65535);
 		printf("<tr><th>idr_pic_id</th><td>%u</td></tr>\n", idr_pic_id);
 	}
@@ -739,7 +756,7 @@ static int FUNC(parse_slice_layer_without_partitioning)
 		int shift = WORD_BIT - ctx->sps.log2_max_pic_order_cnt_lsb;
 		if (ctx->currPic >= 0 && pic_order_cnt_lsb != ((unsigned)ctx->FieldOrderCnt[0][ctx->currPic] << shift >> shift))
 			CALL(finish_frame);
-		int prevPicOrderCnt = (ctx->nal_unit_type == 5) ? 0 : ctx->prevPicOrderCnt;
+		int prevPicOrderCnt = ctx->IdrPicFlag ? 0 : ctx->prevPicOrderCnt;
 		int inc = (pic_order_cnt_lsb - prevPicOrderCnt) << shift >> shift;
 		TopFieldOrderCnt = prevPicOrderCnt + inc;
 		int delta_pic_order_cnt_bottom = 0;
@@ -785,6 +802,7 @@ static int FUNC(parse_slice_layer_without_partitioning)
 		ctx->FrameNums[ctx->currPic] = ctx->FrameNum;
 		ctx->FieldOrderCnt[0][ctx->currPic] = TopFieldOrderCnt;
 		ctx->FieldOrderCnt[1][ctx->currPic] = BottomFieldOrderCnt;
+		ctx->view_ids = ctx->view_ids & ~(1 << ctx->currPic) | view_id << ctx->currPic;
 	}
 	
 	// That could be optimised into a fast bit test, but would be less readable :)
@@ -796,7 +814,7 @@ static int FUNC(parse_slice_layer_without_partitioning)
 		}
 		
 		// num_ref_idx_active_override_flag
-		int lim = (ctx->sps.num_view_buffers == ctx->sps.max_dec_frame_buffering + 1 ? 16 : 8) << ctx->field_pic_flag;
+		int lim = 16 >> ctx->sps.mvc << ctx->field_pic_flag;
 		if (CALL(get_u1)) {
 			for (int l = 0; l <= ctx->slice_type; l++)
 				ctx->pps.num_ref_idx_active[l] = CALL(get_ue16, lim - 1) + 1;
@@ -1266,7 +1284,6 @@ static void FUNC(parse_vui_parameters, Edge264_seq_parameter_set *sps)
 		
 		// we don't enforce MaxDpbFrames here since violating the level is harmless
 		sps->max_dec_frame_buffering = max(CALL(get_ue16, 16), sps->max_num_ref_frames);
-		sps->num_view_buffers = sps->max_dec_frame_buffering + 1;
 		sps->max_num_reorder_frames = min(max_num_reorder_frames, sps->max_dec_frame_buffering);
 		printf("<tr><th>motion_vectors_over_pic_boundaries_flag</th><td>%x</td></tr>\n"
 			"<tr><th>max_bytes_per_pic_denom</th><td>%u</td></tr>\n"
@@ -1305,8 +1322,7 @@ static int FUNC(parse_seq_parameter_set_mvc_extension, Edge264_seq_parameter_set
 		red_if(num_views != 2 || view_id0 != 0 || view_id1 != 1), num_views, view_id0, view_id1);
 	if (num_views != 2 || view_id0 != 0 || view_id1 != 1)
 		return 1;
-	sps->mvc_offset = sps->num_view_buffers;
-	sps->num_view_buffers <<= 1;
+	sps->mvc = 1;
 	
 	// we might optimize this afterwards if streams always have all zeros
 	int num_anchor_refs_l0 = CALL(get_ue16, 1);
@@ -1408,7 +1424,7 @@ static int FUNC(parse_seq_parameter_set)
 		.qpprime_y_zero_transform_bypass_flag = 0,
 		.log2_max_pic_order_cnt_lsb = 16,
 		.mb_adaptive_frame_field_flag = 0,
-		.mvc_offset = 0,
+		.mvc = 0,
 		.PicOrderCntDeltas[0] = 0,
 		.weightScale4x4_v = {[0 ... 5] = {16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16}},
 		.weightScale8x8_v = {[0 ... 23] = {16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16}},
@@ -1517,7 +1533,6 @@ static int FUNC(parse_seq_parameter_set)
 		((profile_idc == 44 || profile_idc == 86 || profile_idc == 100 ||
 		profile_idc == 110 || profile_idc == 122 || profile_idc == 244) &&
 		(constraint_set_flags & 1 << 4)) ? 0 : MaxDpbFrames;
-	sps.num_view_buffers = sps.max_dec_frame_buffering + 1;
 	sps.mb_adaptive_frame_field_flag = 0;
 	if (sps.frame_mbs_only_flag == 0)
 		sps.mb_adaptive_frame_field_flag = CALL(get_u1);
@@ -1644,6 +1659,7 @@ int Edge264_decode_NAL(Edge264_stream *s)
 		[7] = parse_seq_parameter_set,
 		[8] = parse_pic_parameter_set,
 		[15] = parse_seq_parameter_set,
+		[20] = parse_slice_layer_without_partitioning,
 	};
 	
 	// initial checks before parsing
@@ -1672,7 +1688,7 @@ int Edge264_decode_NAL(Edge264_stream *s)
 			if (ctx->DPB != NULL && ctx->currPic >= 0)
 				CALL(finish_frame);
 		}
-	} else if (0x104000 & 1 << ctx->nal_unit_type) {
+	} else if (ctx->nal_unit_type == 14 || ctx->nal_unit_type == 20) {
 		if (ctx->s.CPB + 4 >= ctx->s.end) {
 			ret = 2;
 			parser = NULL;
@@ -1713,6 +1729,7 @@ int Edge264_decode_NAL(Edge264_stream *s)
 			msb_cache = (size_t)ctx->CPB[-2] << (SIZE_BIT - 8) | (size_t)ctx->CPB[-1] << (SIZE_BIT - 16) | (size_t)1 << (SIZE_BIT - 17);
 			CALL(refill, 0);
 			ret = CALL(parser);
+			ctx->mvc_extension = 0x000041;
 			// restore registers
 			codIRange = _codIRange;
 			codIOffset = _codIOffset;

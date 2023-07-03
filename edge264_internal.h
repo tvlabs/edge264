@@ -45,7 +45,7 @@ typedef struct {
 			int8_t chroma_format_idc; // 2 significant bits
 			int8_t BitDepth_Y; // 4 significant bits
 			int8_t BitDepth_C;
-			int8_t num_view_buffers; // 5 significant bit
+			int8_t max_dec_frame_buffering; // 5 significant bits
 			uint16_t pic_width_in_mbs; // 10 significant bits
 			int16_t pic_height_in_mbs; // 10 significant bits
 		};
@@ -63,8 +63,7 @@ typedef struct {
 	int8_t mb_adaptive_frame_field_flag; // 1 significant bit
 	int8_t direct_8x8_inference_flag; // 1 significant bit
 	int8_t max_num_reorder_frames; // 5 significant bits
-	int8_t max_dec_frame_buffering; // 5 significant bits
-	int8_t mvc_offset; // 0 or index of the first right view
+	int8_t mvc; // 1 significant bit
 	int16_t offset_for_non_ref_pic; // pic_order_cnt_type==1
 	int16_t offset_for_top_to_bottom_field; // pic_order_cnt_type==1
 	int16_t PicOrderCntDeltas[256]; // pic_order_cnt_type==1
@@ -169,6 +168,7 @@ typedef struct
 	int8_t field_pic_flag; // 1 significant bit
 	int8_t bottom_field_flag; // 1 significant bit
 	int8_t MbaffFrameFlag; // 1 significant bit
+	int8_t IdrPicFlag; // 1 significant bit
 	int8_t direct_spatial_mv_pred_flag; // 1 significant bit
 	int8_t luma_log2_weight_denom; // 3 significant bits
 	int8_t chroma_log2_weight_denom; // 3 significant bits
@@ -177,6 +177,7 @@ typedef struct
 	int8_t FilterOffsetB;
 	int8_t mb_qp_delta_nz;
 	uint32_t first_mb_in_slice; // unsigned to speed up integer division
+	uint32_t view_mask;
 	int32_t FrameNum;
 	int32_t PicOrderCnt;
 	Edge264_pic_parameter_set pps;
@@ -262,15 +263,16 @@ typedef struct
 	uint32_t long_term_flags; // bitfield for indices of long-term views
 	uint32_t pic_long_term_flags; // to be applied after decoding all slices of the current picture
 	uint32_t anchor_flags; // bitfield for indices of anchor frames
-	uint32_t pic_anchor_flags; // to be applied after decoding all slices of the current picture
 	uint32_t inter_view_flags; // bitfield for indices of views
-	uint32_t pic_inter_view_flags; // to be applied after decoding all slices of the current picture
+	uint32_t view_ids; // bitfield for the values of view_id per DPB indices
 	uint32_t output_flags; // bitfield for frames waiting to be output
 	int8_t pic_idr_or_mmco5; // when set, all other POCs will be decreased after completing the current frame
 	int8_t currPic; // index of current incomplete frame, or -1
+	int8_t pic_anchor_flag; // to be applied after decoding all slices of the current picture
+	int8_t pic_inter_view_flag; // to be applied after decoding all slices of the current picture
 	int32_t mvc_extension; // 3 bytes of nal_unit_header_mvc_extension
 	int32_t pic_remaining_mbs; // when zero the picture is complete
-	int32_t prevRefFrameNum;
+	int32_t prevRefFrameNum[2];
 	int32_t prevPicOrderCnt;
 	int32_t dispPicOrderCnt; // all POCs lower or equal than this are ready for output
 	int32_t FrameNums[32];

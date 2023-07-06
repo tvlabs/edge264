@@ -36,9 +36,9 @@ typedef struct Edge264_stream {
 	const uint8_t *end; // first byte past the end of the buffer
 	
 	// public read-only fields
-	const uint8_t *samples_Y;
-	const uint8_t *samples_Cb;
-	const uint8_t *samples_Cr;
+	const uint8_t *samples_Y[2];
+	const uint8_t *samples_Cb[2];
+	const uint8_t *samples_Cr[2];
 	int8_t pixel_depth_Y; // 0 for 8-bit, 1 for 16-bit
 	int8_t pixel_depth_C;
 	int16_t width_Y;
@@ -47,7 +47,8 @@ typedef struct Edge264_stream {
 	int16_t height_C;
 	int16_t stride_Y;
 	int16_t stride_C;
-	int32_t PicOrderCnt;
+   int32_t TopFieldOrderCnt;
+   int32_t BottomFieldOrderCnt;
 	int16_t frame_crop_offsets[4]; // {top,right,bottom,left}, in luma samples, already included in samples_Y/Cb/cr and width/height_Y/C
 } Edge264_stream;
 

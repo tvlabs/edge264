@@ -177,7 +177,6 @@ typedef struct
 	int8_t FilterOffsetB;
 	int8_t mb_qp_delta_nz;
 	uint32_t first_mb_in_slice; // unsigned to speed up integer division
-	uint32_t view_mask;
 	int32_t FrameNum;
 	int32_t PicOrderCnt;
 	Edge264_pic_parameter_set pps;
@@ -265,9 +264,11 @@ typedef struct
 	uint32_t anchor_flags; // bitfield for indices of anchor frames
 	uint32_t inter_view_flags; // bitfield for indices of views
 	uint32_t view_ids; // bitfield for the values of view_id per DPB indices
+	uint32_t view_mask; // masks all indices of same valued view_ids for the current picture
 	uint32_t output_flags; // bitfield for frames waiting to be output
 	int8_t pic_idr_or_mmco5; // when set, all other POCs will be decreased after completing the current frame
 	int8_t currPic; // index of current incomplete frame, or -1
+	int8_t unpairedView; // index of last MVC view waiting to be paired with an opposite view
 	int8_t pic_anchor_flag; // to be applied after decoding all slices of the current picture
 	int8_t pic_inter_view_flag; // to be applied after decoding all slices of the current picture
 	int32_t mvc_extension; // 3 bytes of nal_unit_header_mvc_extension

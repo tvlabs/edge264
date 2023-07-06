@@ -1,10 +1,10 @@
 /** MAYDO:
  * _ implement MVC
- * 	_ don't double DPB size since max_dpb is in units of views
- * 	_ returning -2 at slice should ensure that a view pair is ready for output
+ * 	_ make dispPicOrderCnt different for both views
+ * 	_ fix example in README
+ * 	_ fix documentation of get_frame
+ * 	_ reset anchor flags and others at output
  *    _ add MVC to initial construction of ref lists
- *    _ add storage of view_id
- *    _ enable decoding of slices with nal_unit_types == 20
  *    _ add pointers to return the 2nd view, and return it if present
  *    _ in edge264_play, display both views on overlay
  *    _ in edge264_play, add 3rd file for 2nd view
@@ -18,7 +18,9 @@
  * 	_ implement the initialization of RefPicLists with views
  * 	_ implement the modification of RefPicLists with views
  * 
+ * _ check that sliding window cannot be defeated by multiview if DPB size equals max_frame_num
  * _ check on https://kodi.wiki/view/Samples#3D_Test_Clips
+ * _ returning -2 at slice should ensure that a view pair is ready for output
  * _ add Edge264_stream definition to documentation, and replace "documentation" with "reference"
  * _ get_frame should check that DPB is initialized
  * _ resetting the DPB should clear reference_flags and other fields!
@@ -211,8 +213,6 @@ static void FUNC(parse_dec_ref_pic_marking)
 	}
 	
 	// 8.2.5.4 - Adaptive memory control marking process.
-	ctx->pic_reference_flags = ctx->reference_flags;
-	ctx->pic_long_term_flags = ctx->long_term_flags;
 	ctx->pic_idr_or_mmco5 = 0;
 	ctx->pic_LongTermFrameIdx_v[0] = ctx->LongTermFrameIdx_v[0];
 	ctx->pic_LongTermFrameIdx_v[1] = ctx->LongTermFrameIdx_v[1];
@@ -353,14 +353,14 @@ static void FUNC(parse_ref_pic_list_modification)
 		(i8x16){-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1};
 	
 	// sort all short and long term references for RefPicListL0
-	for (unsigned refs = ctx->reference_flags, next = 0; refs; refs ^= 1 << next) {
+	for (unsigned refs = ctx->pic_reference_flags, next = 0; refs; refs ^= 1 << next) {
 		int best = INT_MAX;
 		for (unsigned r = refs; r; r &= r - 1) {
 			int i = __builtin_ctz(r);
 			int diff = values[i] - pic_value;
 			int ShortTermNum = (diff <= 0) ? -diff : 0x10000 + diff;
 			int LongTermNum = ctx->LongTermFrameIdx[i] + 0x20000;
-			int v = (ctx->long_term_flags & 1 << i) ? LongTermNum : ShortTermNum;
+			int v = (ctx->pic_long_term_flags & 1 << i) ? LongTermNum : ShortTermNum;
 			if (v < best)
 				best = v, next = i;
 		}
@@ -431,7 +431,7 @@ static void FUNC(parse_ref_pic_list_modification)
 					modification_of_pic_nums_idc % 4 == 0 ? -num - 1 : num + (modification_of_pic_nums_idc != 2),
 					modification_of_pic_nums_idc == 2 ? "l" : modification_of_pic_nums_idc > 3 ? "v" : "");
 				unsigned MaskFrameNum = -1;
-				unsigned short_long = ctx->long_term_flags;
+				unsigned short_long = ctx->pic_long_term_flags;
 				if (modification_of_pic_nums_idc < 2) {
 					num = (modification_of_pic_nums_idc == 0) ? picNumLX - (num + 1) : picNumLX + (num + 1);
 					picNumLX = num;
@@ -441,7 +441,7 @@ static void FUNC(parse_ref_pic_list_modification)
 				
 				// LongTerm and ShortTerm share this same picture search.
 				unsigned FrameNum = MaskFrameNum & (ctx->field_pic_flag ? num >> 1 : num);
-				for (unsigned r = ctx->reference_flags & short_long; r; r &= r - 1) {
+				for (unsigned r = ctx->pic_reference_flags & short_long; r; r &= r - 1) {
 					int pic = __builtin_ctz(r);
 					if (FrameNum == (modification_of_pic_nums_idc < 2 ? ctx->FrameNums[pic] & MaskFrameNum : ctx->LongTermFrameIdx[pic])) {
 						// initialization placed pic exactly once in RefPicList, so shift it down to refIdx position
@@ -497,20 +497,21 @@ static void FUNC(parse_ref_pic_list_modification)
 static void FUNC(finish_frame)
 {
 	// apply the frame headers to e
+	int view_id = ctx->view_ids >> ctx->currPic & 1;
 	if (!(ctx->pic_reference_flags & 1 << ctx->currPic)) { // non ref
 		ctx->dispPicOrderCnt = ctx->FieldOrderCnt[0][ctx->currPic]; // all frames with lower POCs are now ready for output
 	} else if (!ctx->pic_idr_or_mmco5) { // ref without IDR or mmco5
-		ctx->reference_flags = ctx->pic_reference_flags;
-		ctx->long_term_flags = ctx->pic_long_term_flags;
+		ctx->reference_flags = (ctx->reference_flags & ~ctx->view_mask) | ctx->pic_reference_flags;
+		ctx->long_term_flags = (ctx->long_term_flags & ~ctx->view_mask) | ctx->pic_long_term_flags;
 		ctx->LongTermFrameIdx_v[0] = ctx->pic_LongTermFrameIdx_v[0];
 		ctx->LongTermFrameIdx_v[1] = ctx->pic_LongTermFrameIdx_v[1];
-		ctx->prevRefFrameNum[ctx->view_ids >> ctx->currPic & 1] = ctx->FrameNums[ctx->currPic];
+		ctx->prevRefFrameNum[view_id] = ctx->FrameNums[ctx->currPic];
 		ctx->prevPicOrderCnt = ctx->FieldOrderCnt[0][ctx->currPic];
 	} else { // IDR or mmco5
-		ctx->reference_flags = ctx->pic_reference_flags;
-		ctx->long_term_flags = ctx->pic_long_term_flags;
+		ctx->reference_flags = (ctx->reference_flags & ~ctx->view_mask) | ctx->pic_reference_flags;
+		ctx->long_term_flags = (ctx->long_term_flags & ~ctx->view_mask) | ctx->pic_long_term_flags;
 		ctx->LongTermFrameIdx_v[0] = ctx->LongTermFrameIdx_v[1] = (i8x16){};
-		ctx->LongTermFrameIdx[ctx->currPic] = ctx->FrameNums[ctx->currPic] = ctx->prevRefFrameNum[ctx->view_ids >> ctx->currPic & 1] = 0;
+		ctx->LongTermFrameIdx[ctx->currPic] = ctx->FrameNums[ctx->currPic] = ctx->prevRefFrameNum[view_id] = 0;
 		for (unsigned o = ctx->output_flags; o; o &= o - 1) {
 			int i = __builtin_ctz(o);
 			ctx->FieldOrderCnt[0][i] -= 1 << 26; // make all buffered pictures precede the next ones
@@ -521,9 +522,20 @@ static void FUNC(finish_frame)
 		ctx->prevPicOrderCnt = ctx->FieldOrderCnt[0][ctx->currPic] -= tempPicOrderCnt;
 		ctx->FieldOrderCnt[1][ctx->currPic] -= tempPicOrderCnt;
 	}
-	ctx->anchor_flags |= ctx->pic_anchor_flag << ctx->currPic; // FIXME set the one for base view too
-	ctx->inter_view_flags |= ctx->pic_inter_view_flag << ctx->currPic;
 	ctx->output_flags |= 1 << ctx->currPic;
+	
+	// for MVC keep track of the current base view to tell get_frame not to return it yet
+	if (ctx->sps.mvc) {
+		ctx->anchor_flags |= ctx->pic_anchor_flag << ctx->currPic;
+		ctx->inter_view_flags |= ctx->pic_inter_view_flag << ctx->currPic;
+		if (view_id == 0) {
+			ctx->unpairedView = ctx->currPic;
+		} else {
+			ctx->anchor_flags |= ctx->pic_anchor_flag << ctx->unpairedView; // override anchor_flag of the base view
+			ctx->unpairedView = -1;
+		}
+	}
+	
 	CALL(deblock_frame, ctx->DPB + ctx->currPic * ctx->frame_size);
 	ctx->currPic = -1;
 	
@@ -560,6 +572,7 @@ static int FUNC(realloc_DPB) {
 	int width = PicWidthInMbs << 4;
 	int height = PicHeightInMbs << 4;
 	ctx->currPic = -1;
+	ctx->unpairedView = -1;
 	ctx->s.pixel_depth_Y = ctx->sps.BitDepth_Y > 8;
 	ctx->clip[0] = (1 << ctx->sps.BitDepth_Y) - 1;
 	ctx->s.width_Y = width - ctx->s.frame_crop_offsets[3] - ctx->s.frame_crop_offsets[1];
@@ -670,7 +683,6 @@ static int FUNC(parse_slice_layer_without_partitioning)
 		if (ctx->currPic >= 0 && view_id != (ctx->view_ids >> ctx->currPic & 1))
 			CALL(finish_frame);
 	}
-	ctx->view_mask = ctx->view_ids ^ (view_id - 1); // invert if view_id==0
 	
 	// parse frame_num
 	int frame_num = CALL(get_uv, ctx->sps.log2_max_frame_num);
@@ -803,7 +815,10 @@ static int FUNC(parse_slice_layer_without_partitioning)
 		ctx->FieldOrderCnt[0][ctx->currPic] = TopFieldOrderCnt;
 		ctx->FieldOrderCnt[1][ctx->currPic] = BottomFieldOrderCnt;
 		ctx->view_ids = ctx->view_ids & ~(1 << ctx->currPic) | view_id << ctx->currPic;
+		ctx->view_mask = ctx->view_ids ^ (view_id - 1); // invert if view_id==0
 	}
+	ctx->pic_reference_flags = ctx->reference_flags & ctx->view_mask;
+	ctx->pic_long_term_flags = ctx->long_term_flags & ctx->view_mask;
 	
 	// That could be optimised into a fast bit test, but would be less readable :)
 	if (ctx->slice_type == 0 || ctx->slice_type == 1) {
@@ -833,8 +848,6 @@ static int FUNC(parse_slice_layer_without_partitioning)
 	
 	if (ctx->nal_ref_idc)
 		CALL(parse_dec_ref_pic_marking);
-	else
-		ctx->pic_reference_flags = ctx->reference_flags;
 	
 	int cabac_init_idc = 0;
 	if (ctx->pps.entropy_coding_mode_flag && ctx->slice_type != 2) {
@@ -1765,26 +1778,44 @@ int Edge264_get_frame(Edge264_stream *s, int drain) {
 	if (s == NULL)
 		return -1;
 	SET_CTX((void *)s - offsetof(Edge264_ctx, s));
-	int res = -2;
+	int pic[2] = {-1, -1};
 	int best = (drain || __builtin_popcount(ctx->output_flags) > ctx->sps.max_num_reorder_frames ||
 		__builtin_popcount(ctx->reference_flags | ctx->output_flags) > ctx->sps.max_dec_frame_buffering) ? INT_MAX : ctx->dispPicOrderCnt;
 	for (int o = ctx->output_flags; o != 0; o &= o - 1) {
 		int i = __builtin_ctz(o);
-		if (ctx->FieldOrderCnt[0][i] <= best)
-			best = ctx->FieldOrderCnt[0][res = i];
+		if (ctx->FieldOrderCnt[0][i] <= best) {
+			int view_id = ctx->view_ids >> i & 1;
+			if (ctx->FieldOrderCnt[0][i] < best) {
+				best = ctx->FieldOrderCnt[0][i];
+				pic[view_id ^ 1] = -1;
+			}
+			pic[view_id] = i;
+		}
 	}
-	if (res >= 0) {
-		ctx->output_flags ^= 1 << res;
-		const uint8_t *samples = ctx->DPB + res * ctx->frame_size;
-		int top = ctx->s.frame_crop_offsets[0];
-		int left = ctx->s.frame_crop_offsets[3];
-		int topC = ctx->sps.chroma_format_idc == 3 ? top : top >> 1;
-		int leftC = ctx->sps.chroma_format_idc == 1 ? left >> 1 : left;
-		int offC = ctx->plane_size_Y + topC * ctx->s.stride_C + (leftC << ctx->s.pixel_depth_C);
-		ctx->s.samples_Y = samples + top * ctx->s.stride_Y + (left << ctx->s.pixel_depth_Y);
-		ctx->s.samples_Cb = samples + offC;
-		ctx->s.samples_Cr = samples + ctx->plane_size_C + offC;
-		ctx->s.PicOrderCnt = best << 6 >> 6;
+	int top = ctx->s.frame_crop_offsets[0];
+	int left = ctx->s.frame_crop_offsets[3];
+	int topC = ctx->sps.chroma_format_idc == 3 ? top : top >> 1;
+	int leftC = ctx->sps.chroma_format_idc == 1 ? left >> 1 : left;
+	int offC = ctx->plane_size_Y + topC * ctx->s.stride_C + (leftC << ctx->s.pixel_depth_C);
+	int res = -2;
+	if (pic[0] >= 0 && pic[0] != ctx->unpairedView) {
+		ctx->output_flags ^= 1 << pic[0];
+		const uint8_t *samples = ctx->DPB + pic[0] * ctx->frame_size;
+		ctx->s.samples_Y[0] = samples + top * ctx->s.stride_Y + (left << ctx->s.pixel_depth_Y);
+		ctx->s.samples_Cb[0] = samples + offC;
+		ctx->s.samples_Cr[0] = samples + ctx->plane_size_C + offC;
+		ctx->s.TopFieldOrderCnt = best << 6 >> 6;
+		ctx->s.BottomFieldOrderCnt = ctx->FieldOrderCnt[1][pic[0]] << 6 >> 6;
+		res = 0;
+	}
+	if (pic[1] >= 0) {
+		ctx->output_flags ^= 1 << pic[1];
+		const uint8_t *samples = ctx->DPB + pic[1] * ctx->frame_size;
+		ctx->s.samples_Y[1] = samples + top * ctx->s.stride_Y + (left << ctx->s.pixel_depth_Y);
+		ctx->s.samples_Cb[1] = samples + offC;
+		ctx->s.samples_Cr[1] = samples + ctx->plane_size_C + offC;
+		ctx->s.TopFieldOrderCnt = best << 6 >> 6;
+		ctx->s.BottomFieldOrderCnt = ctx->FieldOrderCnt[1][pic[1]] << 6 >> 6;
 		res = 0;
 	}
 	RESET_CTX();

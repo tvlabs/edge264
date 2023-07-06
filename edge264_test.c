@@ -86,11 +86,11 @@ int main(int argc, char *argv[])
 			if (!Edge264_get_frame(s, res == -3)) {
 				int diff = 0;
 				for (int y = 0; y < s->height_Y; y++, cmp += s->width_Y << s->pixel_depth_Y)
-					diff |= memcmp(s->samples_Y + y * s->stride_Y, cmp, s->width_Y << s->pixel_depth_Y);
+					diff |= memcmp(s->samples_Y[0] + y * s->stride_Y, cmp, s->width_Y << s->pixel_depth_Y);
 				for (int y = 0; y < s->height_C; y++, cmp += s->width_C << s->pixel_depth_C)
-					diff |= memcmp(s->samples_Cb + y * s->stride_C, cmp, s->width_C << s->pixel_depth_C);
+					diff |= memcmp(s->samples_Cb[0] + y * s->stride_C, cmp, s->width_C << s->pixel_depth_C);
 				for (int y = 0; y < s->height_C; y++, cmp += s->width_C << s->pixel_depth_C)
-					diff |= memcmp(s->samples_Cr + y * s->stride_C, cmp, s->width_C << s->pixel_depth_C);
+					diff |= memcmp(s->samples_Cr[0] + y * s->stride_C, cmp, s->width_C << s->pixel_depth_C);
 				if (diff)
 					res = 2;
 			} else if (res == -3) {

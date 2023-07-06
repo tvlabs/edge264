@@ -32,11 +32,11 @@ static inline int max(int a, int b) { return (a > b) ? a : b; }
 static GLFWwindow *window;
 static int width, height;
 static const uint8_t *cmp;
-static unsigned textures[3];
+static unsigned textures[6];
 
 
 
-static void init_display()
+static void init_display(int mvc)
 {
 	static const char* vsource =
 		"attribute vec4 aCoord;"
@@ -45,22 +45,36 @@ static void init_display()
 			"gl_Position = vec4(aCoord.xy, 0.0, 1.0);"
 			"vTex = aCoord.zw;"
 		"}";
-	static const char* fsource =
+	static const char* fsource[2] = {
 		"varying vec2 vTex;"
-		"uniform sampler2D texY;"
-		"uniform sampler2D texCb;"
-		"uniform sampler2D texCr;"
+		"uniform sampler2D texY0, texCb0, texCr0;"
 		"const mat4 YCbCr_RGB = mat4("
 			" 1.164383,  1.164383,  1.164383, 0.0,"
 			" 0.000000, -0.391762,  2.017232, 0.0,"
 			" 1.596027, -0.812968,  0.000000, 0.0,"
 			"-0.870787,  0.529591, -1.081390, 1.0);"
 		"void main() {"
-			"float Y = texture2D(texY, vTex).r;"
-			"float Cb = texture2D(texCb, vTex).r;"
-			"float Cr = texture2D(texCr, vTex).r;"
+			"float Y = texture2D(texY0, vTex).r;"
+			"float Cb = texture2D(texCb0, vTex).r;"
+			"float Cr = texture2D(texCr0, vTex).r;"
 			"gl_FragColor = YCbCr_RGB * vec4(Y, Cb, Cr, 1.0);"
-		"}";
+		"}",
+		"varying vec2 vTex;"
+		"uniform sampler2D texY0, texCb0, texCr0, texY1, texCb1, texCr1;"
+		"const mat4 YCbCr_RGB = mat4("
+			" 1.164383,  1.164383,  1.164383, 0.0,"
+			" 0.000000, -0.391762,  2.017232, 0.0,"
+			" 1.596027, -0.812968,  0.000000, 0.0,"
+			"-0.870787,  0.529591, -1.081390, 1.0);"
+		"void main() {"
+			"float Y0 = texture2D(texY0, vTex).r;"
+			"float Cb0 = texture2D(texCb0, vTex).r;"
+			"float Cr0 = texture2D(texCr0, vTex).r;"
+			"float Y1 = texture2D(texY1, vTex).r;"
+			"float Cb1 = texture2D(texCb1, vTex).r;"
+			"float Cr1 = texture2D(texCr1, vTex).r;"
+			"gl_FragColor = YCbCr_RGB * (vec4(Y0, Cb0, Cr0, 1.0) * 0.5 + vec4(Y1, Cb1, Cr1, 1.0) * 0.5);"
+		"}"};
 	static const float quad[16] = {
 		-1.0,  1.0, 0.0, 0.0,
 		-1.0, -1.0, 0.0, 1.0,
@@ -81,7 +95,7 @@ static void init_display()
 	unsigned vshader = glCreateShader(GL_VERTEX_SHADER);
 	unsigned fshader = glCreateShader(GL_FRAGMENT_SHADER);
 	glShaderSource(vshader, 1, (const char*const*)&vsource, NULL);
-	glShaderSource(fshader, 1, (const char*const*)&fsource, NULL);
+	glShaderSource(fshader, 1, (const char*const*)&fsource[mvc], NULL);
 	glCompileShader(vshader);
 	glCompileShader(fshader);
 	glAttachShader(program, vshader);
@@ -90,9 +104,9 @@ static void init_display()
 	glLinkProgram(program);
 	glUseProgram(program);
 	glEnableVertexAttribArray(0);
-	glUniform1i(glGetUniformLocation(program, "texY"), 0);
-	glUniform1i(glGetUniformLocation(program, "texCb"), 1);
-	glUniform1i(glGetUniformLocation(program, "texCr"), 2);
+	glUniform1i(glGetUniformLocation(program, "texY0"), 0);
+	glUniform1i(glGetUniformLocation(program, "texCb0"), 1);
+	glUniform1i(glGetUniformLocation(program, "texCr0"), 2);
 	
 	// upload the quad with texture coordinates
 	unsigned vbo;
@@ -101,7 +115,7 @@ static void init_display()
 	glBufferData(GL_ARRAY_BUFFER, sizeof(quad), quad, GL_STATIC_DRAW);
 	
 	// setup texture units
-	glGenTextures(3, textures);
+	glGenTextures(3 << mvc, textures);
 	glBindTexture(GL_TEXTURE_2D, textures[0]);
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
@@ -111,6 +125,22 @@ static void init_display()
 	glBindTexture(GL_TEXTURE_2D, textures[2]);
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+	
+	// additional textures for MVC
+	if (mvc) {
+		glUniform1i(glGetUniformLocation(program, "texY1"), 3);
+		glUniform1i(glGetUniformLocation(program, "texCb1"), 4);
+		glUniform1i(glGetUniformLocation(program, "texCr1"), 5);
+		glBindTexture(GL_TEXTURE_2D, textures[3]);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+		glBindTexture(GL_TEXTURE_2D, textures[4]);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+		glBindTexture(GL_TEXTURE_2D, textures[5]);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+	}
 }
 
 
@@ -118,7 +148,7 @@ static void init_display()
 // should be reworked when implementing 16-bits
 static int check_frame(const Edge264_stream *e)
 {
-	int poc = e->PicOrderCnt;
+	int poc = e->TopFieldOrderCnt;
 	int top = e->frame_crop_offsets[0];
 	int left = e->frame_crop_offsets[3];
 	int right = e->frame_crop_offsets[1];
@@ -127,7 +157,7 @@ static int check_frame(const Edge264_stream *e)
 		for (int col = -left; col < e->width_Y + right; col += 16) {
 			int sh_row = 0;
 			int sh_col = 0;
-			const uint8_t *p = e->samples_Y;
+			const uint8_t *p = e->samples_Y[0];
 			const uint8_t *q = cmp;
 			for (int iYCbCr = 0; iYCbCr < 3; iYCbCr++) {
 				int invalid = 0;
@@ -156,7 +186,7 @@ static int check_frame(const Edge264_stream *e)
 				}
 				sh_row = e->height_C < e->height_Y;
 				sh_col = e->width_C < e->width_Y;
-				p = (iYCbCr == 0) ? e->samples_Cb : e->samples_Cr;
+				p = (iYCbCr == 0) ? e->samples_Cb[0] : e->samples_Cr[0];
 				q += (iYCbCr == 0) ? e->width_Y * e->height_Y : e->width_C * e->height_C;
 			}
 		}
@@ -172,6 +202,7 @@ int process_frame(Edge264_stream *e)
 {
 	// resize the window if necessary
 	if (width != e->width_Y || height != e->height_Y) {
+		init_display(e->samples_Y[1] != NULL); // initialize OpenGL with GLFW
 		glfwSetWindowSize(window, width = e->width_Y, height = e->height_Y);
 		glfwShowWindow(window);
 	}
@@ -182,14 +213,27 @@ int process_frame(Edge264_stream *e)
 	glPixelStorei(GL_UNPACK_ROW_LENGTH, e->stride_Y);
 	glActiveTexture(GL_TEXTURE0);
 	glBindTexture(GL_TEXTURE_2D, textures[0]);
-	glTexImage2D(GL_TEXTURE_2D, 0, GL_LUMINANCE, e->width_Y >> e->pixel_depth_Y, e->height_Y, 0, GL_LUMINANCE, e->pixel_depth_Y ? GL_UNSIGNED_SHORT : GL_UNSIGNED_BYTE, e->samples_Y);
+	glTexImage2D(GL_TEXTURE_2D, 0, GL_LUMINANCE, e->width_Y >> e->pixel_depth_Y, e->height_Y, 0, GL_LUMINANCE, e->pixel_depth_Y ? GL_UNSIGNED_SHORT : GL_UNSIGNED_BYTE, e->samples_Y[0]);
 	glPixelStorei(GL_UNPACK_ROW_LENGTH, e->stride_C);
 	glActiveTexture(GL_TEXTURE1);
 	glBindTexture(GL_TEXTURE_2D, textures[1]);
-	glTexImage2D(GL_TEXTURE_2D, 0, GL_LUMINANCE, e->width_C >> e->pixel_depth_C, e->height_C, 0, GL_LUMINANCE, e->pixel_depth_C ? GL_UNSIGNED_SHORT : GL_UNSIGNED_BYTE, e->samples_Cb);
+	glTexImage2D(GL_TEXTURE_2D, 0, GL_LUMINANCE, e->width_C >> e->pixel_depth_C, e->height_C, 0, GL_LUMINANCE, e->pixel_depth_C ? GL_UNSIGNED_SHORT : GL_UNSIGNED_BYTE, e->samples_Cb[0]);
 	glActiveTexture(GL_TEXTURE2);
 	glBindTexture(GL_TEXTURE_2D, textures[2]);
-	glTexImage2D(GL_TEXTURE_2D, 0, GL_LUMINANCE, e->width_C >> e->pixel_depth_C, e->height_C, 0, GL_LUMINANCE, e->pixel_depth_C ? GL_UNSIGNED_SHORT : GL_UNSIGNED_BYTE, e->samples_Cr);
+	glTexImage2D(GL_TEXTURE_2D, 0, GL_LUMINANCE, e->width_C >> e->pixel_depth_C, e->height_C, 0, GL_LUMINANCE, e->pixel_depth_C ? GL_UNSIGNED_SHORT : GL_UNSIGNED_BYTE, e->samples_Cr[0]);
+	if (e->samples_Y[1]) {
+		glPixelStorei(GL_UNPACK_ROW_LENGTH, e->stride_Y);
+		glActiveTexture(GL_TEXTURE3);
+		glBindTexture(GL_TEXTURE_2D, textures[3]);
+		glTexImage2D(GL_TEXTURE_2D, 0, GL_LUMINANCE, e->width_Y >> e->pixel_depth_Y, e->height_Y, 0, GL_LUMINANCE, e->pixel_depth_Y ? GL_UNSIGNED_SHORT : GL_UNSIGNED_BYTE, e->samples_Y[1]);
+		glPixelStorei(GL_UNPACK_ROW_LENGTH, e->stride_C);
+		glActiveTexture(GL_TEXTURE4);
+		glBindTexture(GL_TEXTURE_2D, textures[4]);
+		glTexImage2D(GL_TEXTURE_2D, 0, GL_LUMINANCE, e->width_C >> e->pixel_depth_C, e->height_C, 0, GL_LUMINANCE, e->pixel_depth_C ? GL_UNSIGNED_SHORT : GL_UNSIGNED_BYTE, e->samples_Cb[1]);
+		glActiveTexture(GL_TEXTURE5);
+		glBindTexture(GL_TEXTURE_2D, textures[5]);
+		glTexImage2D(GL_TEXTURE_2D, 0, GL_LUMINANCE, e->width_C >> e->pixel_depth_C, e->height_C, 0, GL_LUMINANCE, e->pixel_depth_C ? GL_UNSIGNED_SHORT : GL_UNSIGNED_BYTE, e->samples_Cr[1]);
+	}
 	glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
 	glfwSwapBuffers(window);
 	
@@ -272,10 +316,6 @@ int main(int argc, char *argv[])
 		cmp = dpb;
 	}
 	
-	// initialize OpenGL with GLFW
-	if (!bench)
-		init_display();
-	
 	// parse and dump the file to HTML
 	setbuf(stdout, NULL);
 	printf("<!doctype html>\n"
@@ -295,7 +335,7 @@ int main(int argc, char *argv[])
 	int res;
 	do {
 		res = Edge264_decode_NAL(s);
-		if (Edge264_get_frame(s, res == -3) >= 0 && !bench)
+		if (Edge264_get_frame(s, res == -3) == 0 && !bench)
 			process_frame(s);
 		else if (res == -3)
 			break;

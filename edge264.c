@@ -1,12 +1,10 @@
 /** MAYDO:
  * _ implement MVC
- * 	_ make dispPicOrderCnt different for both views
  * 	_ fix example in README
  * 	_ fix documentation of get_frame
  * 	_ reset anchor flags and others at output
  *    _ add MVC to initial construction of ref lists
  *    _ add pointers to return the 2nd view, and return it if present
- *    _ in edge264_play, display both views on overlay
  *    _ in edge264_play, add 3rd file for 2nd view
  *    _ in edge264_test, add support for 2nd view
  * 	_ parse and print SPS extension (when seen in a conformance bitstream)
@@ -213,7 +211,6 @@ static void FUNC(parse_dec_ref_pic_marking)
 	}
 	
 	// 8.2.5.4 - Adaptive memory control marking process.
-	ctx->pic_idr_or_mmco5 = 0;
 	ctx->pic_LongTermFrameIdx_v[0] = ctx->LongTermFrameIdx_v[0];
 	ctx->pic_LongTermFrameIdx_v[1] = ctx->LongTermFrameIdx_v[1];
 	int memory_management_control_operation;
@@ -498,29 +495,31 @@ static void FUNC(finish_frame)
 {
 	// apply the frame headers to e
 	int view_id = ctx->view_ids >> ctx->currPic & 1;
-	if (!(ctx->pic_reference_flags & 1 << ctx->currPic)) { // non ref
-		ctx->dispPicOrderCnt = ctx->FieldOrderCnt[0][ctx->currPic]; // all frames with lower POCs are now ready for output
-	} else if (!ctx->pic_idr_or_mmco5) { // ref without IDR or mmco5
+	if (ctx->pic_idr_or_mmco5) { // IDR or mmco5 access unit
+		ctx->reference_flags = (ctx->reference_flags & ~ctx->view_mask) | ctx->pic_reference_flags;
+		ctx->long_term_flags = (ctx->long_term_flags & ~ctx->view_mask) | ctx->pic_long_term_flags;
+		ctx->LongTermFrameIdx_v[0] = ctx->LongTermFrameIdx_v[1] = (i8x16){};
+		ctx->LongTermFrameIdx[ctx->currPic] = ctx->FrameNums[ctx->currPic] = ctx->prevRefFrameNum[view_id] = 0;
+		int tempPicOrderCnt = min(ctx->FieldOrderCnt[0][ctx->currPic], ctx->FieldOrderCnt[1][ctx->currPic]);
+		ctx->prevPicOrderCnt = ctx->FieldOrderCnt[0][ctx->currPic] -= tempPicOrderCnt;
+		ctx->FieldOrderCnt[1][ctx->currPic] -= tempPicOrderCnt;
+		if (!ctx->sps.mvc || ctx->unpairedView >= 0) {
+			for (unsigned o = ctx->output_flags & (ctx->unpairedView < 0 ? -1 : ~(1 << ctx->unpairedView)); o; o &= o - 1) {
+				int i = __builtin_ctz(o);
+				ctx->FieldOrderCnt[0][i] -= 1 << 26; // make all buffered pictures precede the next ones
+				ctx->FieldOrderCnt[1][i] -= 1 << 26;
+			}
+			ctx->dispPicOrderCnt = -(1 << 25); // make all buffered pictures ready for display
+		}
+	} else if (ctx->pic_reference_flags & 1 << ctx->currPic) { // ref without IDR or mmco5
 		ctx->reference_flags = (ctx->reference_flags & ~ctx->view_mask) | ctx->pic_reference_flags;
 		ctx->long_term_flags = (ctx->long_term_flags & ~ctx->view_mask) | ctx->pic_long_term_flags;
 		ctx->LongTermFrameIdx_v[0] = ctx->pic_LongTermFrameIdx_v[0];
 		ctx->LongTermFrameIdx_v[1] = ctx->pic_LongTermFrameIdx_v[1];
 		ctx->prevRefFrameNum[view_id] = ctx->FrameNums[ctx->currPic];
 		ctx->prevPicOrderCnt = ctx->FieldOrderCnt[0][ctx->currPic];
-	} else { // IDR or mmco5
-		ctx->reference_flags = (ctx->reference_flags & ~ctx->view_mask) | ctx->pic_reference_flags;
-		ctx->long_term_flags = (ctx->long_term_flags & ~ctx->view_mask) | ctx->pic_long_term_flags;
-		ctx->LongTermFrameIdx_v[0] = ctx->LongTermFrameIdx_v[1] = (i8x16){};
-		ctx->LongTermFrameIdx[ctx->currPic] = ctx->FrameNums[ctx->currPic] = ctx->prevRefFrameNum[view_id] = 0;
-		for (unsigned o = ctx->output_flags; o; o &= o - 1) {
-			int i = __builtin_ctz(o);
-			ctx->FieldOrderCnt[0][i] -= 1 << 26; // make all buffered pictures precede the next ones
-			ctx->FieldOrderCnt[1][i] -= 1 << 26;
-		}
-		ctx->dispPicOrderCnt = -(1 << 25); // make all buffered pictures ready for display
-		int tempPicOrderCnt = min(ctx->FieldOrderCnt[0][ctx->currPic], ctx->FieldOrderCnt[1][ctx->currPic]);
-		ctx->prevPicOrderCnt = ctx->FieldOrderCnt[0][ctx->currPic] -= tempPicOrderCnt;
-		ctx->FieldOrderCnt[1][ctx->currPic] -= tempPicOrderCnt;
+	} else if (!ctx->sps.mvc || (ctx->unpairedView >= 0 && !(ctx->reference_flags & 1 << ctx->unpairedView))) { // non ref
+		ctx->dispPicOrderCnt = ctx->FieldOrderCnt[0][ctx->currPic]; // all frames with lower POCs are now ready for output
 	}
 	ctx->output_flags |= 1 << ctx->currPic;
 	
@@ -817,6 +816,7 @@ static int FUNC(parse_slice_layer_without_partitioning)
 		ctx->view_ids = ctx->view_ids & ~(1 << ctx->currPic) | view_id << ctx->currPic;
 		ctx->view_mask = ctx->view_ids ^ (view_id - 1); // invert if view_id==0
 	}
+	ctx->pic_idr_or_mmco5 = 0;
 	ctx->pic_reference_flags = ctx->reference_flags & ctx->view_mask;
 	ctx->pic_long_term_flags = ctx->long_term_flags & ctx->view_mask;
 	

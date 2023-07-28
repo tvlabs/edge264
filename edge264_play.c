@@ -31,7 +31,7 @@ static inline int max(int a, int b) { return (a > b) ? a : b; }
 
 static GLFWwindow *window;
 static int width, height;
-static const uint8_t *cmp;
+static const uint8_t *cmp[3];
 static unsigned textures[6];
 
 
@@ -153,45 +153,47 @@ static int check_frame(const Edge264_stream *e)
 	int left = e->frame_crop_offsets[3];
 	int right = e->frame_crop_offsets[1];
 	int bottom = e->frame_crop_offsets[2];
-	for (int row = -top; row < e->height_Y + bottom; row += 16) {
-		for (int col = -left; col < e->width_Y + right; col += 16) {
-			int sh_row = 0;
-			int sh_col = 0;
-			const uint8_t *p = e->samples_Y[0];
-			const uint8_t *q = cmp;
-			for (int iYCbCr = 0; iYCbCr < 3; iYCbCr++) {
-				int invalid = 0;
-				int x0 = max(col, 0) >> sh_col;
-				int x1 = min(col + 16, e->width_Y) >> sh_col;
-				for (int y = max(row, 0) >> sh_row; x0 < x1 && y < min(row + 16, e->height_Y) >> sh_row; y++)
-					invalid |= memcmp(p + y * (e->stride_Y >> sh_col) + x0, q + y * (e->width_Y >> sh_col) + x0, x1 - x0);
-				if (invalid) {
-					printf("<h4 style='color:red'>Erroneous macroblock (PicOrderCnt %d, row %d, column %d, %s plane):<pre style='color:black'>\n",
-						poc, (top + row) >> 4, (left + col) >> 4, (iYCbCr == 0) ? "Luma" : (iYCbCr == 1) ? "Cb" : "Cr");
-					for (int y = row >> sh_row; y < (row + 16) >> sh_row; y++) {
-						for (int x = col >> sh_col; x < (col + 16) >> sh_col; x++) {
-							printf(y < 0 || y >= e->height_Y >> sh_row || x < 0 || x >= e->width_Y >> sh_col ? "    " :
-								p[y * (e->stride_Y >> sh_col) + x] == q[y * (e->width_Y >> sh_col) + x] ? "%3d " :
-								"<span style='color:red'>%3d</span> ", p[y * (e->stride_Y >> sh_col) + x]);
+	for (int view = 0; cmp[view] != NULL; view += 1) {
+		for (int row = -top; row < e->height_Y + bottom; row += 16) {
+			for (int col = -left; col < e->width_Y + right; col += 16) {
+				int sh_row = 0;
+				int sh_col = 0;
+				const uint8_t *p = e->samples_Y[view];
+				const uint8_t *q = cmp[view];
+				for (int iYCbCr = 0; iYCbCr < 3; iYCbCr++) {
+					int invalid = 0;
+					int x0 = max(col, 0) >> sh_col;
+					int x1 = min(col + 16, e->width_Y) >> sh_col;
+					for (int y = max(row, 0) >> sh_row; x0 < x1 && y < min(row + 16, e->height_Y) >> sh_row; y++)
+						invalid |= memcmp(p + y * (e->stride_Y >> sh_col) + x0, q + y * (e->width_Y >> sh_col) + x0, x1 - x0);
+					if (invalid) {
+						printf("<h4 style='color:red'>Erroneous macroblock (PicOrderCnt %d, view %d, row %d, column %d, %s plane):<pre style='color:black'>\n",
+							poc, view, (top + row) >> 4, (left + col) >> 4, (iYCbCr == 0) ? "Luma" : (iYCbCr == 1) ? "Cb" : "Cr");
+						for (int y = row >> sh_row; y < (row + 16) >> sh_row; y++) {
+							for (int x = col >> sh_col; x < (col + 16) >> sh_col; x++) {
+								printf(y < 0 || y >= e->height_Y >> sh_row || x < 0 || x >= e->width_Y >> sh_col ? "    " :
+									p[y * (e->stride_Y >> sh_col) + x] == q[y * (e->width_Y >> sh_col) + x] ? "%3d " :
+									"<span style='color:red'>%3d</span> ", p[y * (e->stride_Y >> sh_col) + x]);
+							}
+							printf("\t");
+							for (int x = col >> sh_col; x < (col + 16) >> sh_col; x++) {
+								printf(y < 0 || y >= e->height_Y >> sh_row || x < 0 || x >= e->width_Y >> sh_col ? "    " :
+									"%3d ", q[y * (e->width_Y >> sh_col) + x]);
+							}
+							printf("\n");
 						}
-						printf("\t");
-						for (int x = col >> sh_col; x < (col + 16) >> sh_col; x++) {
-							printf(y < 0 || y >= e->height_Y >> sh_row || x < 0 || x >= e->width_Y >> sh_col ? "    " :
-								"%3d ", q[y * (e->width_Y >> sh_col) + x]);
-						}
-						printf("\n");
+						printf("</pre></h4>\n");
+						return -2;
 					}
-					printf("</pre></h4>\n");
-					return -2;
+					sh_row = e->height_C < e->height_Y;
+					sh_col = e->width_C < e->width_Y;
+					p = (iYCbCr == 0) ? e->samples_Cb[view] : e->samples_Cr[view];
+					q += (iYCbCr == 0) ? e->width_Y * e->height_Y : e->width_C * e->height_C;
 				}
-				sh_row = e->height_C < e->height_Y;
-				sh_col = e->width_C < e->width_Y;
-				p = (iYCbCr == 0) ? e->samples_Cb[0] : e->samples_Cr[0];
-				q += (iYCbCr == 0) ? e->width_Y * e->height_Y : e->width_C * e->height_C;
 			}
 		}
+		cmp[view] += e->width_Y * e->height_Y + e->width_C * e->height_C * 2;
 	}
-	cmp += e->width_Y * e->height_Y + e->width_C * e->height_C * 2;
 	printf("<h4 style='color:green'>Output frame with PicOrderCnt %d is correct</h4>\n", poc);
 	return 0;
 }
@@ -245,7 +247,7 @@ int process_frame(Edge264_stream *e)
 	}
 	
 	// Does this frame match the reference?
-	if (cmp != NULL) {
+	if (cmp[0] != NULL) {
 		if (check_frame(e)) {
 			while (!glfwWindowShouldClose(window))
 				glfwWaitEvents();
@@ -262,7 +264,7 @@ int main(int argc, char *argv[])
 {
 	// read command-line options
 	int bench = 0, help = 0;
-	char *input_name = NULL, *yuv_name = NULL;
+	char *input_name = NULL, *yuv_name = NULL, *yuv1_name = NULL;
 	for (int i = 1; i < argc; i++) {
 		if (strcmp(argv[i], "-b") == 0) {
 			bench = 1;
@@ -272,6 +274,8 @@ int main(int argc, char *argv[])
 			input_name = argv[i];
 		} else if (yuv_name == NULL) {
 			yuv_name = argv[i];
+		} else if (yuv1_name == NULL) {
+			yuv1_name = argv[i];
 		} else {
 			help = 1;
 		}
@@ -279,7 +283,7 @@ int main(int argc, char *argv[])
 	
 	// print help if called with -h, --help, or no argument
 	if (help || argc == 1) {
-		fprintf(stdout, "Usage: %s [-b] video.264 [video.yuv]\n"
+		fprintf(stdout, "Usage: %s [-b] video.264 [video.yuv] [secondView.yuv]\n"
 		                "-b\tBenchmark decoding time and memory usage (disables display)\n", argv[0]);
 		return 0;
 	}
@@ -300,10 +304,10 @@ int main(int argc, char *argv[])
 	s->CPB = cpb + 3 + (cpb[2] == 0);
 	s->end = cpb + stC.st_size;
 	
-	// memory-map the optional yuv reference file
-	int yuv = -1;
-	struct stat stD;
-	uint8_t *dpb = NULL;
+	// memory-map the optional yuv reference files
+	int yuv = -1, yuv1 = -1;
+	struct stat stD, stD1;
+	uint8_t *dpb = NULL, *dpb1 = NULL;
 	if (yuv_name != NULL) {
 		yuv = open(yuv_name, O_RDONLY);
 		if (yuv < 0) {
@@ -312,9 +316,19 @@ int main(int argc, char *argv[])
 		}
 		fstat(yuv, &stD);
 		dpb = mmap(NULL, stD.st_size, PROT_READ, MAP_SHARED, yuv, 0);
-		assert(dpb!=NULL);
-		cmp = dpb;
+		cmp[0] = dpb;
+		if (yuv1_name != NULL) {
+			yuv1 = open(yuv1_name, O_RDONLY);
+			if (yuv1 < 0) {
+				perror(yuv1_name);
+				return 0;
+			}
+			fstat(yuv1, &stD1);
+			dpb1 = mmap(NULL, stD1.st_size, PROT_READ, MAP_SHARED, yuv1, 0);
+			cmp[1] = dpb1;
+		}
 	}
+	assert(dpb!=MAP_FAILED&&dpb1!=MAP_FAILED);
 	
 	// parse and dump the file to HTML
 	setbuf(stdout, NULL);
@@ -354,6 +368,10 @@ int main(int argc, char *argv[])
 	if (yuv >= 0) {
 		munmap(dpb, stD.st_size);
 		close(yuv);
+		if (yuv1 >= 0) {
+			munmap(dpb1, stD1.st_size);
+			close(yuv1);
+		}
 	}
 	if (bench) {
 		struct rusage rusage;

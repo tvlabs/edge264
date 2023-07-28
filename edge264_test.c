@@ -41,7 +41,7 @@ int main(int argc, char *argv[])
 	
 	// fill the stack now
 	struct dirent *entry;
-	struct stat stC, stD;
+	struct stat stC, stD, stD1;
 	int counts[7] = {};
 	
 	// parse all clips in the conformance directory
@@ -57,27 +57,36 @@ int main(int argc, char *argv[])
 		if (ext == NULL || strcmp(ext, ".264") != 0)
 			continue;
 		
-		// open the clip file and the corresponding yuv file
+		// open the clip file and the corresponding yuv file(s)
 		int clip = open(entry->d_name, O_RDONLY);
 		memcpy(ext, ".yuv", 4);
 		int yuv = open(entry->d_name, O_RDONLY);
 		*ext = 0;
+		char name1[ext - entry->d_name + 7];
+		sprintf(name1, "%s.1.yuv", entry->d_name);
+		int yuv1 = open(name1, O_RDONLY);
 		if (clip < 0 || yuv < 0) {
 			fprintf(stderr, "open(%s) failed: ", entry->d_name);
 			perror(NULL);
 			return 0;
 		}
 		
-		// memory-map the two files
+		// memory-map the files
 		fstat(clip, &stC);
 		uint8_t *cpb = mmap(NULL, stC.st_size, PROT_READ, MAP_SHARED, clip, 0);
 		fstat(yuv, &stD);
 		uint8_t *dpb = mmap(NULL, stD.st_size, PROT_READ, MAP_SHARED, yuv, 0);
-		assert(cpb!=MAP_FAILED&&dpb!=MAP_FAILED);
+		uint8_t *dpb1 = NULL;
+		if (yuv1 >= 0) {
+			fstat(yuv1, &stD1);
+			dpb1 = mmap(NULL, stD1.st_size, PROT_READ, MAP_SHARED, yuv1, 0);
+		}
+		assert(cpb!=MAP_FAILED&&dpb!=MAP_FAILED&&dpb1!=MAP_FAILED);
 		Edge264_stream *s = Edge264_alloc();
 		s->CPB = cpb + 3 + (cpb[2] == 0);
 		s->end = cpb + stC.st_size;
 		const uint8_t *cmp = dpb;
+		const uint8_t *cmp1 = dpb1;
 		
 		// decode the entire file and FAIL on any error
 		int res;
@@ -91,6 +100,14 @@ int main(int argc, char *argv[])
 					diff |= memcmp(s->samples_Cb[0] + y * s->stride_C, cmp, s->width_C << s->pixel_depth_C);
 				for (int y = 0; y < s->height_C; y++, cmp += s->width_C << s->pixel_depth_C)
 					diff |= memcmp(s->samples_Cr[0] + y * s->stride_C, cmp, s->width_C << s->pixel_depth_C);
+				if (cmp1 != NULL) {
+					for (int y = 0; y < s->height_Y; y++, cmp1 += s->width_Y << s->pixel_depth_Y)
+						diff |= memcmp(s->samples_Y[1] + y * s->stride_Y, cmp1, s->width_Y << s->pixel_depth_Y);
+					for (int y = 0; y < s->height_C; y++, cmp1 += s->width_C << s->pixel_depth_C)
+						diff |= memcmp(s->samples_Cb[1] + y * s->stride_C, cmp1, s->width_C << s->pixel_depth_C);
+					for (int y = 0; y < s->height_C; y++, cmp1 += s->width_C << s->pixel_depth_C)
+						diff |= memcmp(s->samples_Cr[1] + y * s->stride_C, cmp1, s->width_C << s->pixel_depth_C);
+				}
 				if (diff)
 					res = 2;
 			} else if (res == -3) {
@@ -124,6 +141,10 @@ int main(int argc, char *argv[])
 		munmap(dpb, stD.st_size);
 		close(clip);
 		close(yuv);
+		if (yuv1 >= 0) {
+			munmap(dpb1, stD1.st_size);
+			close(yuv1);
+		}
 	}
 	closedir(dir);
 	return counts[5];

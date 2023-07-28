@@ -1,12 +1,11 @@
 /** MAYDO:
  * _ implement MVC
+ * 	_ investigate critical bug in MVCRP_2 -> DPB is full and does not drain
  * 	_ fix example in README
  * 	_ fix documentation of get_frame
  * 	_ reset anchor flags and others at output
  *    _ add MVC to initial construction of ref lists
  *    _ add pointers to return the 2nd view, and return it if present
- *    _ in edge264_play, add 3rd file for 2nd view
- *    _ in edge264_test, add support for 2nd view
  * 	_ parse and print SPS extension (when seen in a conformance bitstream)
  * 	_ parse and print SSPS (when seen in a conformance bitstream)
  * 	_ parse and print SPS MVC extension (when seen in a conformance bitstream)

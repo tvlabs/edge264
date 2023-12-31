@@ -119,12 +119,18 @@ Return codes are:
 
 #### `int Edge264_get_frame(Edge264_stream *s, int drain)`
 
-Check the Decoded Picture Buffer for a pending output frame, and pass it in `s`.
-While H.264 assigns a Picture Order Count to each frame to allow their reordering, a frame is considered ready for output when either (1) it is or precedes a non-reference frame, (2) it precedes a refresh (IDR) frame, (3) it is the next in order while the buffer is full, or (4) it is the next in order while the maximum number of frames held for reordering is reached.
-If `drain` is set then *all* frames will be considered for output, which can help reduce latency if you know that no frame reordering can occur (e.g. for videoconferencing, or at end of stream).
+Check the Decoded Picture Buffer for a pending displayable frame, and pass it in `s`.
+While reference frames may be decoded ahead of their actual display (ex. B-Pyramid technique), all frames are buffered for reordering before being released for display:
+
+* Decoding a non-reference frame releases it and all frames set to be displayed before it.
+* Decoding a key frame releases all stored frames (but not the key frame itself which might be reordered later).
+* Exceeding the maximum number of frames held for reordering releases the next frame in display order.
+* Lacking an available frame buffer releases the next non-reference frame in display order (to salvage its buffer) and all reference frames displayed before it.
+* Setting `drain` considers all frames ready for display, which may help reduce latency if you know that no frame reordering will occur (e.g. for videoconferencing or at end of stream). This is especially useful since the base spec offers no way to signal that a stored frame is ready for display, so many streams will fill the frame buffer before actually getting frames.
+
 Return codes are:
 
-* **-2** if there is no frame pending for output
+* **-2** if there is no frame pending for display
 * **-1** if the function was called with `s == NULL`
 * **0** on success (one frame is returned)
 

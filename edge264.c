@@ -1,8 +1,6 @@
 /** MAYDO:
  * _ implement MVC
- * 	_ investigate critical bug in MVCRP_2 -> DPB is full and does not drain
- * 	_ fix example in README
- * 	_ fix documentation of get_frame
+ * 	_ fix RefPicList initialization for MVC
  * 	_ reset anchor flags and others at output
  *    _ add MVC to initial construction of ref lists
  *    _ add pointers to return the 2nd view, and return it if present
@@ -270,13 +268,13 @@ static void FUNC(parse_dec_ref_pic_marking)
 	// 8.2.5.3 - Sliding window marking process
 	if (__builtin_popcount(ctx->pic_reference_flags | (ctx->reference_flags & ~ctx->view_mask)) >= ctx->sps.max_num_ref_frames) {
 		int best = INT_MAX;
-		int next = 0;
+		int next = __builtin_ctz(ctx->pic_reference_flags); // fallback if all references are long-term
 		for (unsigned r = ctx->pic_reference_flags ^ ctx->pic_long_term_flags; r != 0; r &= r - 1) {
 			int i = __builtin_ctz(r);
 			if (best > ctx->FrameNums[i])
 				best = ctx->FrameNums[next = i];
 		}
-		ctx->pic_reference_flags &= ~(1 << next); // don't use xor here since r may be zero
+		ctx->pic_reference_flags ^= 1 << next;
 	}
 	ctx->pic_reference_flags |= 1 << ctx->currPic;
 }

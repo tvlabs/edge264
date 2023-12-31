@@ -491,7 +491,7 @@ static void FUNC(parse_ref_pic_list_modification)
  */
 static void FUNC(finish_frame)
 {
-	// apply the frame headers to e
+	// apply the reference flags
 	int view_id = ctx->view_ids >> ctx->currPic & 1;
 	if (ctx->pic_idr_or_mmco5) { // IDR or mmco5 access unit
 		ctx->reference_flags = (ctx->reference_flags & ~ctx->view_mask) | ctx->pic_reference_flags;
@@ -501,14 +501,12 @@ static void FUNC(finish_frame)
 		int tempPicOrderCnt = min(ctx->FieldOrderCnt[0][ctx->currPic], ctx->FieldOrderCnt[1][ctx->currPic]);
 		ctx->prevPicOrderCnt = ctx->FieldOrderCnt[0][ctx->currPic] -= tempPicOrderCnt;
 		ctx->FieldOrderCnt[1][ctx->currPic] -= tempPicOrderCnt;
-		if (!ctx->sps.mvc || ctx->unpairedView >= 0) {
-			for (unsigned o = ctx->output_flags & (ctx->unpairedView < 0 ? -1 : ~(1 << ctx->unpairedView)); o; o &= o - 1) {
-				int i = __builtin_ctz(o);
-				ctx->FieldOrderCnt[0][i] -= 1 << 26; // make all buffered pictures precede the next ones
-				ctx->FieldOrderCnt[1][i] -= 1 << 26;
-			}
-			ctx->dispPicOrderCnt = -(1 << 25); // make all buffered pictures ready for display
+		for (unsigned o = ctx->output_flags; o; o &= o - 1) {
+			int i = __builtin_ctz(o);
+			ctx->FieldOrderCnt[0][i] -= 1 << 26; // make all buffered pictures precede the next ones
+			ctx->FieldOrderCnt[1][i] -= 1 << 26;
 		}
+		ctx->dispPicOrderCnt = -(1 << 25); // make all buffered pictures ready for display
 	} else if (ctx->pic_reference_flags & 1 << ctx->currPic) { // ref without IDR or mmco5
 		ctx->reference_flags = (ctx->reference_flags & ~ctx->view_mask) | ctx->pic_reference_flags;
 		ctx->long_term_flags = (ctx->long_term_flags & ~ctx->view_mask) | ctx->pic_long_term_flags;
@@ -519,15 +517,17 @@ static void FUNC(finish_frame)
 	} else if (!ctx->sps.mvc || (ctx->unpairedView >= 0 && !(ctx->reference_flags & 1 << ctx->unpairedView))) { // non ref
 		ctx->dispPicOrderCnt = ctx->FieldOrderCnt[0][ctx->currPic]; // all frames with lower POCs are now ready for output
 	}
-	ctx->output_flags |= 1 << ctx->currPic;
 	
 	// for MVC keep track of the current base view to tell get_frame not to return it yet
-	if (ctx->sps.mvc) {
+	if (!ctx->sps.mvc) {
+		ctx->output_flags |= 1 << ctx->currPic;
+	} else {
 		ctx->anchor_flags |= ctx->pic_anchor_flag << ctx->currPic;
 		ctx->inter_view_flags |= ctx->pic_inter_view_flag << ctx->currPic;
 		if (view_id == 0) {
 			ctx->unpairedView = ctx->currPic;
 		} else {
+			ctx->output_flags |= 1 << ctx->unpairedView | 1 << ctx->currPic;
 			ctx->anchor_flags |= ctx->pic_anchor_flag << ctx->unpairedView; // override anchor_flag of the base view
 			ctx->unpairedView = -1;
 		}
@@ -539,11 +539,12 @@ static void FUNC(finish_frame)
 	#ifdef TRACE
 		printf("<tr><th>DPB after completing last frame (FrameNum/PicOrderCnt)</th><td><small>");
 		for (int i = 0; i < ctx->sps.num_frame_buffers; i++) {
-			int r = ctx->reference_flags >> i & 1;
-			int l = ctx->long_term_flags >> i & 1;
-			int o = ctx->output_flags >> i & 1;
-			printf(!r ? "_/" : l ? "%u*/" : "%u/", l ? ctx->LongTermFrameIdx[i] : ctx->FrameNums[i]);
-			printf(o ? "%d" : "_", min(ctx->FieldOrderCnt[0][i], ctx->FieldOrderCnt[1][i]) << 6 >> 6);
+			int r = ctx->reference_flags & 1 << i;
+			int l = ctx->long_term_flags & 1 << i;
+			int o = ctx->output_flags & 1 << i;
+			int u = i == ctx->unpairedView;
+			printf(l ? "%u*/" : r ? "%u/" : "_/", l ? ctx->LongTermFrameIdx[i] : ctx->FrameNums[i]);
+			printf(u ? "%u*" : o ? "%u" : "_", min(ctx->FieldOrderCnt[0][i], ctx->FieldOrderCnt[1][i]) << 6 >> 6);
 			printf((i < ctx->sps.num_frame_buffers - 1) ? ", " : "</small></td></tr>\n");
 		}
 	#endif
@@ -803,7 +804,7 @@ static int FUNC(parse_slice_layer_without_partitioning)
 	
 	// find a DPB slot for the upcoming frame
 	if (ctx->currPic < 0) {
-		unsigned unavail = ctx->reference_flags | ctx->output_flags;
+		unsigned unavail = ctx->reference_flags | ctx->output_flags | (ctx->unpairedView < 0 ? 0 : 1 << ctx->unpairedView);
 		if (__builtin_popcount(unavail) >= ctx->sps.num_frame_buffers)
 			return -2;
 		ctx->currPic = __builtin_ctz(~unavail);
@@ -1778,8 +1779,9 @@ int Edge264_get_frame(Edge264_stream *s, int drain) {
 		return -1;
 	SET_CTX((void *)s - offsetof(Edge264_ctx, s));
 	int pic[2] = {-1, -1};
+	unsigned unavail = ctx->reference_flags | ctx->output_flags | (ctx->unpairedView < 0 ? 0 : 1 << ctx->unpairedView);
 	int best = (drain || __builtin_popcount(ctx->output_flags) > ctx->sps.max_num_reorder_frames ||
-		__builtin_popcount(ctx->reference_flags | ctx->output_flags) >= ctx->sps.num_frame_buffers) ? INT_MAX : ctx->dispPicOrderCnt;
+		__builtin_popcount(unavail) >= ctx->sps.num_frame_buffers) ? INT_MAX : ctx->dispPicOrderCnt;
 	for (int o = ctx->output_flags; o != 0; o &= o - 1) {
 		int i = __builtin_ctz(o);
 		if (ctx->FieldOrderCnt[0][i] <= best) {

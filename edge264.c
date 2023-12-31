@@ -268,11 +268,10 @@ static void FUNC(parse_dec_ref_pic_marking)
 	}
 	
 	// 8.2.5.3 - Sliding window marking process
-	unsigned r = ctx->pic_reference_flags;
-	if (__builtin_popcount(r) >= ctx->sps.max_num_ref_frames) {
+	if (__builtin_popcount(ctx->pic_reference_flags | (ctx->reference_flags & ~ctx->view_mask)) >= ctx->sps.max_num_ref_frames) {
 		int best = INT_MAX;
 		int next = 0;
-		for (r ^= ctx->pic_long_term_flags; r != 0; r &= r - 1) {
+		for (unsigned r = ctx->pic_reference_flags ^ ctx->pic_long_term_flags; r != 0; r &= r - 1) {
 			int i = __builtin_ctz(r);
 			if (best > ctx->FrameNums[i])
 				best = ctx->FrameNums[next = i];
@@ -539,13 +538,13 @@ static void FUNC(finish_frame)
 	
 	#ifdef TRACE
 		printf("<tr><th>DPB after completing last frame (FrameNum/PicOrderCnt)</th><td><small>");
-		for (int i = 0; i <= ctx->sps.max_dec_frame_buffering; i++) {
+		for (int i = 0; i < ctx->sps.num_frame_buffers; i++) {
 			int r = ctx->reference_flags >> i & 1;
 			int l = ctx->long_term_flags >> i & 1;
 			int o = ctx->output_flags >> i & 1;
 			printf(!r ? "_/" : l ? "%u*/" : "%u/", l ? ctx->LongTermFrameIdx[i] : ctx->FrameNums[i]);
 			printf(o ? "%d" : "_", min(ctx->FieldOrderCnt[0][i], ctx->FieldOrderCnt[1][i]) << 6 >> 6);
-			printf((i < ctx->sps.max_dec_frame_buffering) ? ", " : "</small></td></tr>\n");
+			printf((i < ctx->sps.num_frame_buffers - 1) ? ", " : "</small></td></tr>\n");
 		}
 	#endif
 }
@@ -615,12 +614,12 @@ static int FUNC(realloc_DPB) {
 	// Each picture in the DPB is three planes and a group of macroblocks
 	int mbs = (PicWidthInMbs + 1) * (PicHeightInMbs + 1);
 	ctx->frame_size = (ctx->plane_size_Y + ctx->plane_size_C * 2 + mbs * sizeof(Edge264_macroblock) + 15) & -16;
-	ctx->DPB = malloc(ctx->frame_size * (ctx->sps.max_dec_frame_buffering + 1));
+	ctx->DPB = malloc(ctx->frame_size * ctx->sps.num_frame_buffers);
 	if (ctx->DPB == NULL)
 		return 1;
 	
 	// initialise the macroblocks
-	for (int i = 0; i <= ctx->sps.max_dec_frame_buffering; i++) {
+	for (int i = 0; i < ctx->sps.num_frame_buffers; i++) {
 		Edge264_macroblock *m = (Edge264_macroblock *)(ctx->DPB + i * ctx->frame_size + ctx->plane_size_Y + ctx->plane_size_C * 2);
 		for (int j = 0; j <= PicWidthInMbs + 1; j++) {
 			m[j] = unavail_mb;
@@ -709,7 +708,7 @@ static int FUNC(parse_slice_layer_without_partitioning)
 		
 		// make enough frames immediately displayable until there are enough DPB slots available
 		unsigned output_flags = ctx->output_flags;
-		while (__builtin_popcount(ctx->reference_flags | output_flags) + non_existing > ctx->sps.max_dec_frame_buffering) {
+		while (__builtin_popcount(ctx->reference_flags | output_flags) + non_existing >= ctx->sps.num_frame_buffers) {
 			int disp, best = INT_MAX;
 			for (unsigned o = output_flags; o; o &= o - 1) {
 				int i = __builtin_ctz(o);
@@ -805,7 +804,7 @@ static int FUNC(parse_slice_layer_without_partitioning)
 	// find a DPB slot for the upcoming frame
 	if (ctx->currPic < 0) {
 		unsigned unavail = ctx->reference_flags | ctx->output_flags;
-		if (__builtin_popcount(unavail) > ctx->sps.max_dec_frame_buffering)
+		if (__builtin_popcount(unavail) >= ctx->sps.num_frame_buffers)
 			return -2;
 		ctx->currPic = __builtin_ctz(~unavail);
 		ctx->pic_remaining_mbs = ctx->sps.pic_width_in_mbs * ctx->sps.pic_height_in_mbs;
@@ -1295,8 +1294,8 @@ static void FUNC(parse_vui_parameters, Edge264_seq_parameter_set *sps)
 		int max_num_reorder_frames = CALL(get_ue16, 16);
 		
 		// we don't enforce MaxDpbFrames here since violating the level is harmless
-		sps->max_dec_frame_buffering = max(CALL(get_ue16, 16), sps->max_num_ref_frames);
-		sps->max_num_reorder_frames = min(max_num_reorder_frames, sps->max_dec_frame_buffering);
+		sps->num_frame_buffers = max(CALL(get_ue16, 16), sps->max_num_ref_frames) + 1;
+		sps->max_num_reorder_frames = min(max_num_reorder_frames, sps->num_frame_buffers - 1);
 		printf("<tr><th>motion_vectors_over_pic_boundaries_flag</th><td>%x</td></tr>\n"
 			"<tr><th>max_bytes_per_pic_denom</th><td>%u</td></tr>\n"
 			"<tr><th>max_bits_per_mb_denom</th><td>%u</td></tr>\n"
@@ -1310,12 +1309,12 @@ static void FUNC(parse_vui_parameters, Edge264_seq_parameter_set *sps)
 			1 << log2_max_mv_length_horizontal,
 			1 << log2_max_mv_length_vertical,
 			sps->max_num_reorder_frames,
-			sps->max_dec_frame_buffering);
+			sps->num_frame_buffers - 1);
 	} else {
 		printf("<tr><th>max_num_reorder_frames (inferred)</th><td>%u</td></tr>\n"
 			"<tr><th>max_dec_frame_buffering (inferred)</th><td>%u</td></tr>\n",
 			sps->max_num_reorder_frames,
-			sps->max_dec_frame_buffering);
+			sps->num_frame_buffers - 1);
 	}
 }
 
@@ -1335,6 +1334,7 @@ static int FUNC(parse_seq_parameter_set_mvc_extension, Edge264_seq_parameter_set
 	if (num_views != 2 || view_id0 != 0 || view_id1 != 1)
 		return 1;
 	sps->mvc = 1;
+	sps->num_frame_buffers += 1;
 	
 	// we might optimize this afterwards if streams always have all zeros
 	int num_anchor_refs_l0 = CALL(get_ue16, 1);
@@ -1442,7 +1442,7 @@ static int FUNC(parse_seq_parameter_set)
 		.weightScale8x8_v = {[0 ... 23] = {16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16}},
 	};
 	
-	// Profiles are only useful to initialize max_num_reorder_frames/max_dec_frame_buffering.
+	// Profiles are only useful to initialize max_num_reorder_frames/num_frame_buffers.
 	int profile_idc = CALL(get_uv, 8);
 	int constraint_set_flags = CALL(get_uv, 8);
 	int level_idc = CALL(get_uv, 8);
@@ -1541,10 +1541,10 @@ static int FUNC(parse_seq_parameter_set)
 	sps.pic_height_in_mbs = pic_height_in_map_units << 1 >> sps.frame_mbs_only_flag;
 	int MaxDpbFrames = min(MaxDpbMbs[min(level_idc, 63)] / (sps.pic_width_in_mbs * sps.pic_height_in_mbs), 16);
 	sps.max_num_ref_frames = min(max_num_ref_frames, MaxDpbFrames);
-	sps.max_num_reorder_frames = sps.max_dec_frame_buffering =
-		((profile_idc == 44 || profile_idc == 86 || profile_idc == 100 ||
-		profile_idc == 110 || profile_idc == 122 || profile_idc == 244) &&
-		(constraint_set_flags & 1 << 4)) ? 0 : MaxDpbFrames;
+	sps.max_num_reorder_frames = ((profile_idc == 44 || profile_idc == 86 ||
+		profile_idc == 100 || profile_idc == 110 || profile_idc == 122 ||
+		profile_idc == 244) && (constraint_set_flags & 1 << 4)) ? 0 : MaxDpbFrames;
+	sps.num_frame_buffers = sps.max_num_reorder_frames + 1;
 	sps.mb_adaptive_frame_field_flag = 0;
 	if (sps.frame_mbs_only_flag == 0)
 		sps.mb_adaptive_frame_field_flag = CALL(get_u1);
@@ -1586,7 +1586,7 @@ static int FUNC(parse_seq_parameter_set)
 		printf("<tr><th>max_num_reorder_frames (inferred)</th><td>%u</td></tr>\n"
 			"<tr><th>max_dec_frame_buffering (inferred)</th><td>%u</td></tr>\n",
 			sps.max_num_reorder_frames,
-			sps.max_dec_frame_buffering);
+			sps.num_frame_buffers - 1);
 	}
 	
 	// additional stuff for subset_seq_parameter_set
@@ -1779,7 +1779,7 @@ int Edge264_get_frame(Edge264_stream *s, int drain) {
 	SET_CTX((void *)s - offsetof(Edge264_ctx, s));
 	int pic[2] = {-1, -1};
 	int best = (drain || __builtin_popcount(ctx->output_flags) > ctx->sps.max_num_reorder_frames ||
-		__builtin_popcount(ctx->reference_flags | ctx->output_flags) > ctx->sps.max_dec_frame_buffering) ? INT_MAX : ctx->dispPicOrderCnt;
+		__builtin_popcount(ctx->reference_flags | ctx->output_flags) >= ctx->sps.num_frame_buffers) ? INT_MAX : ctx->dispPicOrderCnt;
 	for (int o = ctx->output_flags; o != 0; o &= o - 1) {
 		int i = __builtin_ctz(o);
 		if (ctx->FieldOrderCnt[0][i] <= best) {

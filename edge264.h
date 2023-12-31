@@ -1,6 +1,6 @@
 /**
  * Copyright (c) 2013-2014, Celticom / TVLabs
- * Copyright (c) 2014-2023 Thibault Raffaillac <traf@kth.se>
+ * Copyright (c) 2014-2024 Thibault Raffaillac <traf@kth.se>
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -36,9 +36,8 @@ typedef struct Edge264_stream {
 	const uint8_t *end; // first byte past the end of the buffer
 	
 	// public read-only fields
-	const uint8_t *samples_Y[2];
-	const uint8_t *samples_Cb[2];
-	const uint8_t *samples_Cr[2];
+	const uint8_t *samples[3]; // Y/Cb/Cr planes
+	const uint8_t *samples_mvc[3]; // second view
 	int8_t pixel_depth_Y; // 0 for 8-bit, 1 for 16-bit
 	int8_t pixel_depth_C;
 	int16_t width_Y;

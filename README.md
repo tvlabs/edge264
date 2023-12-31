@@ -82,11 +82,11 @@ int main(int argc, char *argv[]) {
 		res = Edge264_decode_NAL(s);
 		if (Edge264_get_frame(s, res == -3) >= 0) { // drain remaining frames when at end of buffer
 			for (int y = 0; y < s->height_Y; y++)
-				write(1, s->samples_Y + y * s->stride_Y, s->width_Y);
+				write(1, s->samples[0] + y * s->stride_Y, s->width_Y);
 			for (int y = 0; y < s->height_C; y++)
-				write(1, s->samples_Cb + y * s->stride_C, s->width_C);
+				write(1, s->samples[1] + y * s->stride_C, s->width_C);
 			for (int y = 0; y < s->height_C; y++)
-				write(1, s->samples_Cr + y * s->stride_C, s->width_C);
+				write(1, s->samples[2] + y * s->stride_C, s->width_C);
 		} else if (res == -3) {
 			break;
 		}

@@ -158,9 +158,9 @@ static int check_frame(const Edge264_stream *e)
 			for (int col = -left; col < e->width_Y + right; col += 16) {
 				int sh_row = 0;
 				int sh_col = 0;
-				const uint8_t *p = e->samples_Y[view];
 				const uint8_t *q = cmp[view];
 				for (int iYCbCr = 0; iYCbCr < 3; iYCbCr++) {
+					const uint8_t *p = (view ? e->samples_mvc : e->samples)[iYCbCr];
 					int invalid = 0;
 					int x0 = max(col, 0) >> sh_col;
 					int x1 = min(col + 16, e->width_Y) >> sh_col;
@@ -187,7 +187,6 @@ static int check_frame(const Edge264_stream *e)
 					}
 					sh_row = e->height_C < e->height_Y;
 					sh_col = e->width_C < e->width_Y;
-					p = (iYCbCr == 0) ? e->samples_Cb[view] : e->samples_Cr[view];
 					q += (iYCbCr == 0) ? e->width_Y * e->height_Y : e->width_C * e->height_C;
 				}
 			}
@@ -204,7 +203,7 @@ int process_frame(Edge264_stream *e)
 {
 	// resize the window if necessary
 	if (width != e->width_Y || height != e->height_Y) {
-		init_display(e->samples_Y[1] != NULL); // initialize OpenGL with GLFW
+		init_display(e->samples_mvc[0] != NULL); // initialize OpenGL with GLFW
 		glfwSetWindowSize(window, width = e->width_Y, height = e->height_Y);
 		glfwShowWindow(window);
 	}
@@ -215,26 +214,26 @@ int process_frame(Edge264_stream *e)
 	glPixelStorei(GL_UNPACK_ROW_LENGTH, e->stride_Y);
 	glActiveTexture(GL_TEXTURE0);
 	glBindTexture(GL_TEXTURE_2D, textures[0]);
-	glTexImage2D(GL_TEXTURE_2D, 0, GL_LUMINANCE, e->width_Y >> e->pixel_depth_Y, e->height_Y, 0, GL_LUMINANCE, e->pixel_depth_Y ? GL_UNSIGNED_SHORT : GL_UNSIGNED_BYTE, e->samples_Y[0]);
+	glTexImage2D(GL_TEXTURE_2D, 0, GL_LUMINANCE, e->width_Y >> e->pixel_depth_Y, e->height_Y, 0, GL_LUMINANCE, e->pixel_depth_Y ? GL_UNSIGNED_SHORT : GL_UNSIGNED_BYTE, e->samples[0]);
 	glPixelStorei(GL_UNPACK_ROW_LENGTH, e->stride_C);
 	glActiveTexture(GL_TEXTURE1);
 	glBindTexture(GL_TEXTURE_2D, textures[1]);
-	glTexImage2D(GL_TEXTURE_2D, 0, GL_LUMINANCE, e->width_C >> e->pixel_depth_C, e->height_C, 0, GL_LUMINANCE, e->pixel_depth_C ? GL_UNSIGNED_SHORT : GL_UNSIGNED_BYTE, e->samples_Cb[0]);
+	glTexImage2D(GL_TEXTURE_2D, 0, GL_LUMINANCE, e->width_C >> e->pixel_depth_C, e->height_C, 0, GL_LUMINANCE, e->pixel_depth_C ? GL_UNSIGNED_SHORT : GL_UNSIGNED_BYTE, e->samples[1]);
 	glActiveTexture(GL_TEXTURE2);
 	glBindTexture(GL_TEXTURE_2D, textures[2]);
-	glTexImage2D(GL_TEXTURE_2D, 0, GL_LUMINANCE, e->width_C >> e->pixel_depth_C, e->height_C, 0, GL_LUMINANCE, e->pixel_depth_C ? GL_UNSIGNED_SHORT : GL_UNSIGNED_BYTE, e->samples_Cr[0]);
-	if (e->samples_Y[1]) {
+	glTexImage2D(GL_TEXTURE_2D, 0, GL_LUMINANCE, e->width_C >> e->pixel_depth_C, e->height_C, 0, GL_LUMINANCE, e->pixel_depth_C ? GL_UNSIGNED_SHORT : GL_UNSIGNED_BYTE, e->samples[2]);
+	if (e->samples_mvc[0]) {
 		glPixelStorei(GL_UNPACK_ROW_LENGTH, e->stride_Y);
 		glActiveTexture(GL_TEXTURE3);
 		glBindTexture(GL_TEXTURE_2D, textures[3]);
-		glTexImage2D(GL_TEXTURE_2D, 0, GL_LUMINANCE, e->width_Y >> e->pixel_depth_Y, e->height_Y, 0, GL_LUMINANCE, e->pixel_depth_Y ? GL_UNSIGNED_SHORT : GL_UNSIGNED_BYTE, e->samples_Y[1]);
+		glTexImage2D(GL_TEXTURE_2D, 0, GL_LUMINANCE, e->width_Y >> e->pixel_depth_Y, e->height_Y, 0, GL_LUMINANCE, e->pixel_depth_Y ? GL_UNSIGNED_SHORT : GL_UNSIGNED_BYTE, e->samples_mvc[0]);
 		glPixelStorei(GL_UNPACK_ROW_LENGTH, e->stride_C);
 		glActiveTexture(GL_TEXTURE4);
 		glBindTexture(GL_TEXTURE_2D, textures[4]);
-		glTexImage2D(GL_TEXTURE_2D, 0, GL_LUMINANCE, e->width_C >> e->pixel_depth_C, e->height_C, 0, GL_LUMINANCE, e->pixel_depth_C ? GL_UNSIGNED_SHORT : GL_UNSIGNED_BYTE, e->samples_Cb[1]);
+		glTexImage2D(GL_TEXTURE_2D, 0, GL_LUMINANCE, e->width_C >> e->pixel_depth_C, e->height_C, 0, GL_LUMINANCE, e->pixel_depth_C ? GL_UNSIGNED_SHORT : GL_UNSIGNED_BYTE, e->samples_mvc[1]);
 		glActiveTexture(GL_TEXTURE5);
 		glBindTexture(GL_TEXTURE_2D, textures[5]);
-		glTexImage2D(GL_TEXTURE_2D, 0, GL_LUMINANCE, e->width_C >> e->pixel_depth_C, e->height_C, 0, GL_LUMINANCE, e->pixel_depth_C ? GL_UNSIGNED_SHORT : GL_UNSIGNED_BYTE, e->samples_Cr[1]);
+		glTexImage2D(GL_TEXTURE_2D, 0, GL_LUMINANCE, e->width_C >> e->pixel_depth_C, e->height_C, 0, GL_LUMINANCE, e->pixel_depth_C ? GL_UNSIGNED_SHORT : GL_UNSIGNED_BYTE, e->samples_mvc[2]);
 	}
 	glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
 	glfwSwapBuffers(window);

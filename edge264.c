@@ -1800,9 +1800,9 @@ int Edge264_get_frame(Edge264_stream *s, int drain) {
 	if (pic[0] >= 0 && pic[0] != ctx->unpairedView) {
 		ctx->output_flags ^= 1 << pic[0];
 		const uint8_t *samples = ctx->DPB + pic[0] * ctx->frame_size;
-		ctx->s.samples_Y[0] = samples + top * ctx->s.stride_Y + (left << ctx->s.pixel_depth_Y);
-		ctx->s.samples_Cb[0] = samples + offC;
-		ctx->s.samples_Cr[0] = samples + ctx->plane_size_C + offC;
+		ctx->s.samples[0] = samples + top * ctx->s.stride_Y + (left << ctx->s.pixel_depth_Y);
+		ctx->s.samples[1] = samples + offC;
+		ctx->s.samples[2] = samples + ctx->plane_size_C + offC;
 		ctx->s.TopFieldOrderCnt = best << 6 >> 6;
 		ctx->s.BottomFieldOrderCnt = ctx->FieldOrderCnt[1][pic[0]] << 6 >> 6;
 		res = 0;
@@ -1810,9 +1810,9 @@ int Edge264_get_frame(Edge264_stream *s, int drain) {
 	if (pic[1] >= 0) {
 		ctx->output_flags ^= 1 << pic[1];
 		const uint8_t *samples = ctx->DPB + pic[1] * ctx->frame_size;
-		ctx->s.samples_Y[1] = samples + top * ctx->s.stride_Y + (left << ctx->s.pixel_depth_Y);
-		ctx->s.samples_Cb[1] = samples + offC;
-		ctx->s.samples_Cr[1] = samples + ctx->plane_size_C + offC;
+		ctx->s.samples_mvc[0] = samples + top * ctx->s.stride_Y + (left << ctx->s.pixel_depth_Y);
+		ctx->s.samples_mvc[1] = samples + offC;
+		ctx->s.samples_mvc[2] = samples + ctx->plane_size_C + offC;
 		ctx->s.TopFieldOrderCnt = best << 6 >> 6;
 		ctx->s.BottomFieldOrderCnt = ctx->FieldOrderCnt[1][pic[1]] << 6 >> 6;
 		res = 0;

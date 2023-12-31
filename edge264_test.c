@@ -95,18 +95,18 @@ int main(int argc, char *argv[])
 			if (!Edge264_get_frame(s, res == -3)) {
 				int diff = 0;
 				for (int y = 0; y < s->height_Y; y++, cmp += s->width_Y << s->pixel_depth_Y)
-					diff |= memcmp(s->samples_Y[0] + y * s->stride_Y, cmp, s->width_Y << s->pixel_depth_Y);
+					diff |= memcmp(s->samples[0] + y * s->stride_Y, cmp, s->width_Y << s->pixel_depth_Y);
 				for (int y = 0; y < s->height_C; y++, cmp += s->width_C << s->pixel_depth_C)
-					diff |= memcmp(s->samples_Cb[0] + y * s->stride_C, cmp, s->width_C << s->pixel_depth_C);
+					diff |= memcmp(s->samples[1] + y * s->stride_C, cmp, s->width_C << s->pixel_depth_C);
 				for (int y = 0; y < s->height_C; y++, cmp += s->width_C << s->pixel_depth_C)
-					diff |= memcmp(s->samples_Cr[0] + y * s->stride_C, cmp, s->width_C << s->pixel_depth_C);
+					diff |= memcmp(s->samples[2] + y * s->stride_C, cmp, s->width_C << s->pixel_depth_C);
 				if (cmp1 != NULL) {
 					for (int y = 0; y < s->height_Y; y++, cmp1 += s->width_Y << s->pixel_depth_Y)
-						diff |= memcmp(s->samples_Y[1] + y * s->stride_Y, cmp1, s->width_Y << s->pixel_depth_Y);
+						diff |= memcmp(s->samples_mvc[0] + y * s->stride_Y, cmp1, s->width_Y << s->pixel_depth_Y);
 					for (int y = 0; y < s->height_C; y++, cmp1 += s->width_C << s->pixel_depth_C)
-						diff |= memcmp(s->samples_Cb[1] + y * s->stride_C, cmp1, s->width_C << s->pixel_depth_C);
+						diff |= memcmp(s->samples_mvc[1] + y * s->stride_C, cmp1, s->width_C << s->pixel_depth_C);
 					for (int y = 0; y < s->height_C; y++, cmp1 += s->width_C << s->pixel_depth_C)
-						diff |= memcmp(s->samples_Cr[1] + y * s->stride_C, cmp1, s->width_C << s->pixel_depth_C);
+						diff |= memcmp(s->samples_mvc[2] + y * s->stride_C, cmp1, s->width_C << s->pixel_depth_C);
 				}
 				if (diff)
 					res = 2;

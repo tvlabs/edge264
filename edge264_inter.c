@@ -1339,8 +1339,10 @@ void FUNC(decode_inter, int i, int w, int h) {
 	const uint8_t *src_Cr = ref + xInt_C + yInt_C + ctx->plane_size_C;
 	
 	// edge propagation is an annoying but beautiful piece of code
-	if (__builtin_expect((unsigned)xInt_Y - 2 >= sstride_Y - w - 4 ||
-		(unsigned)yInt_Y - sstride_Y * 2 >= ctx->plane_size_Y - (h + 4) * sstride_Y, 0))
+	int xWide = (x & 7) != 0;
+	int yWide = (y & 7) != 0;
+	if (__builtin_expect((unsigned)xInt_Y - xWide * 2 >= sstride_Y - w + 1 - xWide * 5 ||
+		(unsigned)yInt_Y - sstride_Y * yWide * 2 >= ctx->plane_size_Y - (h - 1 + yWide * 5) * sstride_Y, 0))
 	{
 		i8x16 shuf0 = load128(shift_Y_8bit + 15 + clip3(-15, 0, xInt_Y - 2) + clip3(0, 15, xInt_Y + 14 - sstride_Y));
 		i8x16 shuf1 = load128(shift_Y_8bit + 15 + clip3(-15, 0, xInt_Y + 14) + clip3(0, 15, xInt_Y + 30 - sstride_Y));
@@ -1355,29 +1357,25 @@ void FUNC(decode_inter, int i, int w, int h) {
 		sstride_Y = 32;
 		src_Y = ctx->edge_buf + 66;
 		
-		// chroma test is separate from luma to speed up xInt_C==yInt_C==0
-		if (__builtin_expect((unsigned)xInt_C >= sstride_C - (w >> 1) ||
-			(unsigned)yInt_C - ctx->plane_size_Y >= ctx->plane_size_C - (h >> 1) * sstride_C, 0))
-		{
-			i8x16 shuf = {}, v0, v1;
-			memcpy(&shuf, shift_C_8bit + 7 + clip3(-7, 0, xInt_C) + clip3(0, 7, xInt_C + 8 - sstride_C), 8);
-			const uint8_t *src0 = ref + clip3(0, sstride_C - 8, xInt_C);
-			const uint8_t *src1 = ref + clip3(0, sstride_C - 1, xInt_C + 8);
-			for (int j = 0; j <= h >> 1; j++, yInt_C += sstride_C) {
-				int cb = clip3(ctx->plane_size_Y, ctx->plane_size_Y + ctx->plane_size_C - sstride_C, yInt_C);
-				int cr = clip3(ctx->plane_size_Y + ctx->plane_size_C, ctx->plane_size_Y + ctx->plane_size_C * 2 - sstride_C, yInt_C + ctx->plane_size_C);
-				memcpy(&v0, src0 + cb, 8);
-				memcpy(&v1, src0 + cr, 8);
-				// each line has 2 writes to support 8px strides
-				ctx->edge_buf_l[j * 2 +  84] = ((i64x2)shuffle8(v0, shuf))[0];
-				ctx->edge_buf_l[j * 2 + 168] = ((i64x2)shuffle8(v1, shuf))[0];
-				ctx->edge_buf[j * 16 +  680] = *(src1 + cb);
-				ctx->edge_buf[j * 16 + 1352] = *(src1 + cr);
-			}
-			sstride_C = 16;
-			src_Cb = ctx->edge_buf +  672;
-			src_Cr = ctx->edge_buf + 1344;
+		// chroma may read (and ignore) 1 bottom row and 1 right col out of bounds
+		i8x16 shuf = {}, v0, v1;
+		memcpy(&shuf, shift_C_8bit + 7 + clip3(-7, 0, xInt_C) + clip3(0, 7, xInt_C + 8 - sstride_C), 8);
+		src0 = ref + clip3(0, sstride_C - 8, xInt_C);
+		src1 = ref + clip3(0, sstride_C - 1, xInt_C + 8);
+		for (int j = 0; j <= h >> 1; j++, yInt_C += sstride_C) {
+			int cb = clip3(ctx->plane_size_Y, ctx->plane_size_Y + ctx->plane_size_C - sstride_C, yInt_C);
+			int cr = clip3(ctx->plane_size_Y + ctx->plane_size_C, ctx->plane_size_Y + ctx->plane_size_C * 2 - sstride_C, yInt_C + ctx->plane_size_C);
+			memcpy(&v0, src0 + cb, 8);
+			memcpy(&v1, src0 + cr, 8);
+			// each line has 2 writes to support 8px strides
+			ctx->edge_buf_l[j * 2 +  84] = ((i64x2)shuffle8(v0, shuf))[0];
+			ctx->edge_buf_l[j * 2 + 168] = ((i64x2)shuffle8(v1, shuf))[0];
+			ctx->edge_buf[j * 16 +  680] = *(src1 + cb);
+			ctx->edge_buf[j * 16 + 1352] = *(src1 + cr);
 		}
+		sstride_C = 16;
+		src_Cb = ctx->edge_buf +  672;
+		src_Cr = ctx->edge_buf + 1344;
 	}
 	
 	// chroma prediction comes first since it is inlined

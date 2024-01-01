@@ -268,13 +268,13 @@ static void FUNC(parse_dec_ref_pic_marking)
 	// 8.2.5.3 - Sliding window marking process
 	if (__builtin_popcount(ctx->pic_reference_flags | (ctx->reference_flags & ~ctx->view_mask)) >= ctx->sps.max_num_ref_frames) {
 		int best = INT_MAX;
-		int next = __builtin_ctz(ctx->pic_reference_flags); // fallback if all references are long-term
+		int next = 0;
 		for (unsigned r = ctx->pic_reference_flags ^ ctx->pic_long_term_flags; r != 0; r &= r - 1) {
 			int i = __builtin_ctz(r);
 			if (best > ctx->FrameNums[i])
 				best = ctx->FrameNums[next = i];
 		}
-		ctx->pic_reference_flags ^= 1 << next;
+		ctx->pic_reference_flags &= ~(1 << next); // don't use XOR as r might be zero (if MVC with all refs on other view)
 	}
 	ctx->pic_reference_flags |= 1 << ctx->currPic;
 }
@@ -332,7 +332,7 @@ static void FUNC(parse_pred_weight_table)
  * Initialises and updates the reference picture lists (8.2.4).
  *
  * Both initialisation and parsing of ref_pic_list_modification are fit into a
- * single function to foster code reduction and compactness. Performance is not
+ * single function to foster compactness and maintenance. Performance is not
  * crucial here.
  */
 static void FUNC(parse_ref_pic_list_modification)
@@ -346,6 +346,7 @@ static void FUNC(parse_ref_pic_list_modification)
 		(i8x16){-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1};
 	
 	// sort all short and long term references for RefPicListL0
+	// FIXME stop if size reaches num_ref_idx_active?
 	for (unsigned refs = ctx->pic_reference_flags, next = 0; refs; refs ^= 1 << next) {
 		int best = INT_MAX;
 		for (unsigned r = refs; r; r &= r - 1) {
@@ -462,14 +463,10 @@ static void FUNC(parse_ref_pic_list_modification)
 	ctx->RefPicList_v[3] = ifelse_msb(ctx->RefPicList_v[3], ref0l1, ctx->RefPicList_v[3]);
 	
 	#ifdef TRACE
-		printf("<tr><th>RefPicLists (FrameNum/PicOrderCnt)</th><td>");
+		printf("<tr><th>RefPicLists</th><td>");
 		for (int lx = 0; lx <= ctx->slice_type; lx++) {
-			for (int i = 0; i < ctx->pps.num_ref_idx_active[lx]; i++) {
-				int pic = ctx->RefPicList[lx][i];
-				int poc = min(ctx->FieldOrderCnt[0][pic], ctx->FieldOrderCnt[1][pic]) << 6 >> 6;
-				int l = ctx->long_term_flags >> pic & 1;
-				printf("%u%s/%u%s", l ? ctx->LongTermFrameIdx[pic] : ctx->FrameNums[pic], l ? "*" : "", poc, (i < ctx->pps.num_ref_idx_active[lx] - 1) ? ", " : (ctx->slice_type - lx == 1) ? "<br>" : "");
-			}
+			for (int i = 0; i < ctx->pps.num_ref_idx_active[lx]; i++)
+				printf("%u%s", ctx->RefPicList[lx][i], (i < ctx->pps.num_ref_idx_active[lx] - 1) ? ", " : (ctx->slice_type - lx == 1) ? "<br>" : "");
 		}
 		printf("</td></tr>\n");
 	#endif

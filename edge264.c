@@ -1,5 +1,6 @@
 /** MAYDO:
  * _ implement MVC
+ * 	_ replace reference_flags with short_term_flags
  * 	_ fix RefPicList initialization for MVC
  * 	_ reset anchor flags and others at output
  *    _ add MVC to initial construction of ref lists
@@ -346,7 +347,6 @@ static void FUNC(parse_ref_pic_list_modification)
 		(i8x16){-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1};
 	
 	// sort all short and long term references for RefPicListL0
-	// FIXME stop if size reaches num_ref_idx_active?
 	for (unsigned refs = ctx->pic_reference_flags, next = 0; refs; refs ^= 1 << next) {
 		int best = INT_MAX;
 		for (unsigned r = refs; r; r &= r - 1) {
@@ -361,6 +361,8 @@ static void FUNC(parse_ref_pic_list_modification)
 		ctx->RefPicList[0][size++] = next;
 		count[best >> 16]++;
 	}
+	if (ctx->unpairedView >= 0)
+		ctx->RefPicList[0][size++] = ctx->unpairedView; // add inter-view ref for MVC
 	
 	// fill RefPicListL1 by swapping before/after references
 	for (int src = 0; src < size; src++) {
@@ -416,45 +418,43 @@ static void FUNC(parse_ref_pic_list_modification)
 	// parse the ref_pic_list_modification() header
 	for (int l = 0; l <= ctx->slice_type; l++) {
 		unsigned picNumLX = (ctx->field_pic_flag) ? ctx->FrameNum * 2 + 1 : ctx->FrameNum;
-		int modification_of_pic_nums_idc;
 		if (CALL(get_u1)) { // ref_pic_list_modification_flag
 			printf("<tr><th>ref_pic_list_modifications_l%x</th><td>", l);
-			for (int refIdx = 0; (modification_of_pic_nums_idc = CALL(get_ue16, 5)) != 3 && refIdx < 32; refIdx++) {
+			for (int refIdx = 0, modification_of_pic_nums_idc; (modification_of_pic_nums_idc = CALL(get_ue16, 5)) != 3 && refIdx < 32; refIdx++) {
 				int num = CALL(get_ue32, 4294967294);
 				printf("%s%d%s", refIdx ? ", " : "",
 					modification_of_pic_nums_idc % 4 == 0 ? -num - 1 : num + (modification_of_pic_nums_idc != 2),
 					modification_of_pic_nums_idc == 2 ? "l" : modification_of_pic_nums_idc > 3 ? "v" : "");
-				unsigned MaskFrameNum = -1;
-				unsigned short_long = ctx->pic_long_term_flags;
+				int pic = ctx->unpairedView;
 				if (modification_of_pic_nums_idc < 2) {
-					num = (modification_of_pic_nums_idc == 0) ? picNumLX - (num + 1) : picNumLX + (num + 1);
-					picNumLX = num;
-					MaskFrameNum = (1 << ctx->sps.log2_max_frame_num) - 1;
-					short_long = ~short_long;
-				}
-				
-				// LongTerm and ShortTerm share this same picture search.
-				unsigned FrameNum = MaskFrameNum & (ctx->field_pic_flag ? num >> 1 : num);
-				for (unsigned r = ctx->pic_reference_flags & short_long; r; r &= r - 1) {
-					int pic = __builtin_ctz(r);
-					if (FrameNum == (modification_of_pic_nums_idc < 2 ? ctx->FrameNums[pic] & MaskFrameNum : ctx->LongTermFrameIdx[pic])) {
-						// initialization placed pic exactly once in RefPicList, so shift it down to refIdx position
-						int buf = pic;
-						int cIdx = refIdx;
-						do {
-							int swap = ctx->RefPicList[l][cIdx];
-							ctx->RefPicList[l][cIdx] = buf;
-							buf = swap;
-						} while (++cIdx < size && buf != pic);
-						break;
+					picNumLX = (modification_of_pic_nums_idc == 0) ? picNumLX - (num + 1) : picNumLX + (num + 1);
+					unsigned MaskFrameNum = (1 << ctx->sps.log2_max_frame_num) - 1;
+					for (unsigned r = ctx->pic_reference_flags & ~ctx->pic_long_term_flags; r; r &= r - 1) {
+						pic = __builtin_ctz(r);
+						if (!((ctx->FrameNums[pic] ^ picNumLX) & MaskFrameNum))
+							break;
+					}
+				} else if (modification_of_pic_nums_idc == 2) {
+					for (unsigned r = ctx->pic_reference_flags & ctx->pic_long_term_flags; r; r &= r - 1) {
+						pic = __builtin_ctz(r);
+						if (ctx->LongTermFrameIdx[pic] == num)
+							break;
 					}
 				}
+				int buf = pic;
+				int cIdx = refIdx;
+				do {
+					int swap = ctx->RefPicList[l][cIdx];
+					ctx->RefPicList[l][cIdx] = buf;
+					buf = swap;
+				} while (++cIdx < ctx->pps.num_ref_idx_active[l] && buf != pic);
 			}
 			printf("</td></tr>\n");
 		}
 	}
 	
 	// fill all uninitialized references with ref 0 in case num_ref_idx_active is too high
+	// FIXME frame 0 instead
 	i8x16 ref0l0 = shuffle8(ctx->RefPicList_v[0], (i8x16){});
 	i8x16 ref0l1 = shuffle8(ctx->RefPicList_v[2], (i8x16){});
 	ctx->RefPicList_v[0] = ifelse_msb(ctx->RefPicList_v[0], ref0l0, ctx->RefPicList_v[0]);
@@ -466,7 +466,7 @@ static void FUNC(parse_ref_pic_list_modification)
 		printf("<tr><th>RefPicLists</th><td>");
 		for (int lx = 0; lx <= ctx->slice_type; lx++) {
 			for (int i = 0; i < ctx->pps.num_ref_idx_active[lx]; i++)
-				printf("%u%s", ctx->RefPicList[lx][i], (i < ctx->pps.num_ref_idx_active[lx] - 1) ? ", " : (ctx->slice_type - lx == 1) ? "<br>" : "");
+				printf("%d%s", ctx->RefPicList[lx][i], (i < ctx->pps.num_ref_idx_active[lx] - 1) ? ", " : (ctx->slice_type - lx == 1) ? "<br>" : "");
 		}
 		printf("</td></tr>\n");
 	#endif
@@ -1321,7 +1321,7 @@ static void FUNC(parse_vui_parameters, Edge264_seq_parameter_set *sps)
  */
 static int FUNC(parse_seq_parameter_set_mvc_extension, Edge264_seq_parameter_set *sps, int profile_idc)
 {
-	// returning unsupported here is more efficient than keeping tedious code afterwards
+	// returning unsupported asap is more efficient than keeping tedious code afterwards
 	int num_views = CALL(get_ue16, 1023) + 1;
 	int view_id0 = CALL(get_ue16, 1023);
 	int view_id1 = CALL(get_ue16, 1023);
@@ -1332,15 +1332,21 @@ static int FUNC(parse_seq_parameter_set_mvc_extension, Edge264_seq_parameter_set
 	sps->mvc = 1;
 	sps->num_frame_buffers += 1;
 	
-	// we might optimize this afterwards if streams always have all zeros
+	// inter-view refs are ignored since we always add them anyway
 	int num_anchor_refs_l0 = CALL(get_ue16, 1);
+	if (num_anchor_refs_l0)
+		CALL(get_u1); // depends on view_id0 being 0
 	int num_anchor_refs_l1 = CALL(get_ue16, 1);
+	if (num_anchor_refs_l1)
+		CALL(get_u1);
 	int num_non_anchor_refs_l0 = CALL(get_ue16, 1);
+	if (num_non_anchor_refs_l0)
+		CALL(get_u1);
 	int num_non_anchor_refs_l1 = CALL(get_ue16, 1);
-	printf("<tr%s><th>View 1 anchors {l0, l1, non_l0, non_l1}</th><td>%u, %u, %u, %u</td></tr>\n",
-		red_if(num_anchor_refs_l0 | num_anchor_refs_l1 | num_non_anchor_refs_l0 | num_non_anchor_refs_l1), num_anchor_refs_l0, num_anchor_refs_l1, num_non_anchor_refs_l0, num_non_anchor_refs_l1);
-	if (num_anchor_refs_l0 | num_anchor_refs_l1 | num_non_anchor_refs_l0 | num_non_anchor_refs_l1)
-		return 1;
+	if (num_non_anchor_refs_l1)
+		CALL(get_u1);
+	printf("<tr><th>Inter-view refs in anchors/non-anchors</th><td>%u, %u / %u, %u</td></tr>\n",
+		num_anchor_refs_l0, num_anchor_refs_l1, num_non_anchor_refs_l0, num_non_anchor_refs_l1);
 	
 	// at this point we keep verbose output to check the variance of different streams
 	int num_level_values_signalled = CALL(get_ue16, 63) + 1;

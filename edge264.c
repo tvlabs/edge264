@@ -1,8 +1,6 @@
 /** MAYDO:
  * _ implement MVC
- * 	_ replace reference_flags with short_term_flags
- * 	_ fix RefPicList initialization for MVC
- * 	_ reset anchor flags and others at output
+ * 	_ remove view_mask
  *    _ add MVC to initial construction of ref lists
  *    _ add pointers to return the 2nd view, and return it if present
  * 	_ parse and print SPS extension (when seen in a conformance bitstream)
@@ -267,7 +265,8 @@ static void FUNC(parse_dec_ref_pic_marking)
 	}
 	
 	// 8.2.5.3 - Sliding window marking process
-	if (__builtin_popcount(ctx->pic_reference_flags | (ctx->reference_flags & ~ctx->view_mask)) >= ctx->sps.max_num_ref_frames) {
+	unsigned other_refs = ctx->reference_flags & (ctx->right_views & 1 << ctx->currPic ? ~ctx->right_views : ctx->right_views);
+	if (__builtin_popcount(ctx->pic_reference_flags | other_refs) >= ctx->sps.max_num_ref_frames) {
 		int best = INT_MAX;
 		int next = 0;
 		for (unsigned r = ctx->pic_reference_flags ^ ctx->pic_long_term_flags; r != 0; r &= r - 1) {
@@ -487,12 +486,13 @@ static void FUNC(parse_ref_pic_list_modification)
 static void FUNC(finish_frame)
 {
 	// apply the reference flags
-	int view_id = ctx->view_ids >> ctx->currPic & 1;
+	int right_view = ctx->right_views >> ctx->currPic & 1;
+	unsigned other_views = ctx->right_views ^ -right_view; // invert if right_view==1
 	if (ctx->pic_idr_or_mmco5) { // IDR or mmco5 access unit
-		ctx->reference_flags = (ctx->reference_flags & ~ctx->view_mask) | ctx->pic_reference_flags;
-		ctx->long_term_flags = (ctx->long_term_flags & ~ctx->view_mask) | ctx->pic_long_term_flags;
+		ctx->reference_flags = (ctx->reference_flags & other_views) | ctx->pic_reference_flags;
+		ctx->long_term_flags = (ctx->long_term_flags & other_views) | ctx->pic_long_term_flags;
 		ctx->LongTermFrameIdx_v[0] = ctx->LongTermFrameIdx_v[1] = (i8x16){};
-		ctx->LongTermFrameIdx[ctx->currPic] = ctx->FrameNums[ctx->currPic] = ctx->prevRefFrameNum[view_id] = 0;
+		ctx->LongTermFrameIdx[ctx->currPic] = ctx->FrameNums[ctx->currPic] = ctx->prevRefFrameNum[right_view] = 0;
 		int tempPicOrderCnt = min(ctx->FieldOrderCnt[0][ctx->currPic], ctx->FieldOrderCnt[1][ctx->currPic]);
 		ctx->prevPicOrderCnt = ctx->FieldOrderCnt[0][ctx->currPic] -= tempPicOrderCnt;
 		ctx->FieldOrderCnt[1][ctx->currPic] -= tempPicOrderCnt;
@@ -503,11 +503,11 @@ static void FUNC(finish_frame)
 		}
 		ctx->dispPicOrderCnt = -(1 << 25); // make all buffered pictures ready for display
 	} else if (ctx->pic_reference_flags & 1 << ctx->currPic) { // ref without IDR or mmco5
-		ctx->reference_flags = (ctx->reference_flags & ~ctx->view_mask) | ctx->pic_reference_flags;
-		ctx->long_term_flags = (ctx->long_term_flags & ~ctx->view_mask) | ctx->pic_long_term_flags;
+		ctx->reference_flags = (ctx->reference_flags & other_views) | ctx->pic_reference_flags;
+		ctx->long_term_flags = (ctx->long_term_flags & other_views) | ctx->pic_long_term_flags;
 		ctx->LongTermFrameIdx_v[0] = ctx->pic_LongTermFrameIdx_v[0];
 		ctx->LongTermFrameIdx_v[1] = ctx->pic_LongTermFrameIdx_v[1];
-		ctx->prevRefFrameNum[view_id] = ctx->FrameNums[ctx->currPic];
+		ctx->prevRefFrameNum[right_view] = ctx->FrameNums[ctx->currPic];
 		ctx->prevPicOrderCnt = ctx->FieldOrderCnt[0][ctx->currPic];
 	} else if (!ctx->sps.mvc || (ctx->unpairedView >= 0 && !(ctx->reference_flags & 1 << ctx->unpairedView))) { // non ref
 		ctx->dispPicOrderCnt = ctx->FieldOrderCnt[0][ctx->currPic]; // all frames with lower POCs are now ready for output
@@ -517,13 +517,10 @@ static void FUNC(finish_frame)
 	if (!ctx->sps.mvc) {
 		ctx->output_flags |= 1 << ctx->currPic;
 	} else {
-		ctx->anchor_flags |= ctx->pic_anchor_flag << ctx->currPic;
-		ctx->inter_view_flags |= ctx->pic_inter_view_flag << ctx->currPic;
-		if (view_id == 0) {
+		if (ctx->unpairedView < 0) {
 			ctx->unpairedView = ctx->currPic;
 		} else {
 			ctx->output_flags |= 1 << ctx->unpairedView | 1 << ctx->currPic;
-			ctx->anchor_flags |= ctx->pic_anchor_flag << ctx->unpairedView; // override anchor_flag of the base view
 			ctx->unpairedView = -1;
 		}
 	}
@@ -668,12 +665,10 @@ static int FUNC(parse_slice_layer_without_partitioning)
 		return 1;
 	
 	// parse view_id for MVC streams
-	int view_id = 0;
+	int right_view = 0;
 	if (ctx->sps.mvc) {
-		ctx->pic_anchor_flag = ctx->mvc_extension >> 2 & 1;
-		ctx->pic_inter_view_flag = ctx->mvc_extension >> 1 & 1;
-		view_id = ctx->mvc_extension >> 6 & 1;
-		if (ctx->currPic >= 0 && view_id != (ctx->view_ids >> ctx->currPic & 1))
+		right_view = (ctx->mvc_extension >> 6 & 1023) != ctx->sps.view_id0;
+		if (ctx->currPic >= 0 && right_view != (ctx->right_views >> ctx->currPic & 1))
 			CALL(finish_frame);
 	}
 	
@@ -683,7 +678,7 @@ static int FUNC(parse_slice_layer_without_partitioning)
 	if (ctx->currPic >= 0 && frame_num != (ctx->FrameNums[ctx->currPic] & FrameNumMask))
 		CALL(finish_frame);
 	ctx->IdrPicFlag = ctx->nal_unit_type == 5 || (ctx->nal_unit_type == 20 && (~ctx->mvc_extension >> 22 & 1));
-	int prevRefFrameNum = ctx->IdrPicFlag ? 0 : ctx->prevRefFrameNum[view_id];
+	int prevRefFrameNum = ctx->IdrPicFlag ? 0 : ctx->prevRefFrameNum[right_view];
 	ctx->FrameNum = prevRefFrameNum + ((frame_num - prevRefFrameNum) & FrameNumMask);
 	printf("<tr><th>frame_num => FrameNum</th><td>%u => %u</td></tr>\n", frame_num, ctx->FrameNum);
 	
@@ -807,12 +802,12 @@ static int FUNC(parse_slice_layer_without_partitioning)
 		ctx->FrameNums[ctx->currPic] = ctx->FrameNum;
 		ctx->FieldOrderCnt[0][ctx->currPic] = TopFieldOrderCnt;
 		ctx->FieldOrderCnt[1][ctx->currPic] = BottomFieldOrderCnt;
-		ctx->view_ids = ctx->view_ids & ~(1 << ctx->currPic) | view_id << ctx->currPic;
-		ctx->view_mask = ctx->view_ids ^ (view_id - 1); // invert if view_id==0
+		ctx->right_views = ctx->right_views & ~(1 << ctx->currPic) | right_view << ctx->currPic;
 	}
 	ctx->pic_idr_or_mmco5 = 0;
-	ctx->pic_reference_flags = ctx->reference_flags & ctx->view_mask;
-	ctx->pic_long_term_flags = ctx->long_term_flags & ctx->view_mask;
+	unsigned view_mask = ctx->right_views ^ (right_view - 1); // invert if right_view==0
+	ctx->pic_reference_flags = ctx->reference_flags & view_mask;
+	ctx->pic_long_term_flags = ctx->long_term_flags & view_mask;
 	
 	// That could be optimised into a fast bit test, but would be less readable :)
 	if (ctx->slice_type == 0 || ctx->slice_type == 1) {
@@ -1323,11 +1318,11 @@ static int FUNC(parse_seq_parameter_set_mvc_extension, Edge264_seq_parameter_set
 {
 	// returning unsupported asap is more efficient than keeping tedious code afterwards
 	int num_views = CALL(get_ue16, 1023) + 1;
-	int view_id0 = CALL(get_ue16, 1023);
+	sps->view_id0 = CALL(get_ue16, 1023);
 	int view_id1 = CALL(get_ue16, 1023);
 	printf("<tr%s><th>num_views {view_id<sub>0</sub>, view_id<sub>1</sub>}</th><td>%u {%u, %u}</td></tr>\n",
-		red_if(num_views != 2 || view_id0 != 0 || view_id1 != 1), num_views, view_id0, view_id1);
-	if (num_views != 2 || view_id0 != 0 || view_id1 != 1)
+		red_if(num_views != 2), num_views, sps->view_id0, view_id1);
+	if (num_views != 2)
 		return 1;
 	sps->mvc = 1;
 	sps->num_frame_buffers += 1;
@@ -1335,16 +1330,16 @@ static int FUNC(parse_seq_parameter_set_mvc_extension, Edge264_seq_parameter_set
 	// inter-view refs are ignored since we always add them anyway
 	int num_anchor_refs_l0 = CALL(get_ue16, 1);
 	if (num_anchor_refs_l0)
-		CALL(get_u1); // depends on view_id0 being 0
+		CALL(get_ue16, 1023);
 	int num_anchor_refs_l1 = CALL(get_ue16, 1);
 	if (num_anchor_refs_l1)
-		CALL(get_u1);
+		CALL(get_ue16, 1023);
 	int num_non_anchor_refs_l0 = CALL(get_ue16, 1);
 	if (num_non_anchor_refs_l0)
-		CALL(get_u1);
+		CALL(get_ue16, 1023);
 	int num_non_anchor_refs_l1 = CALL(get_ue16, 1);
 	if (num_non_anchor_refs_l1)
-		CALL(get_u1);
+		CALL(get_ue16, 1023);
 	printf("<tr><th>Inter-view refs in anchors/non-anchors</th><td>%u, %u / %u, %u</td></tr>\n",
 		num_anchor_refs_l0, num_anchor_refs_l1, num_non_anchor_refs_l0, num_non_anchor_refs_l1);
 	
@@ -1786,12 +1781,12 @@ int Edge264_get_frame(Edge264_stream *s, int drain) {
 	for (int o = ctx->output_flags; o != 0; o &= o - 1) {
 		int i = __builtin_ctz(o);
 		if (ctx->FieldOrderCnt[0][i] <= best) {
-			int view_id = ctx->view_ids >> i & 1;
+			int right = ctx->right_views >> i & 1;
 			if (ctx->FieldOrderCnt[0][i] < best) {
 				best = ctx->FieldOrderCnt[0][i];
-				pic[view_id ^ 1] = -1;
+				pic[right ^ 1] = -1;
 			}
-			pic[view_id] = i;
+			pic[right] = i;
 		}
 	}
 	int top = ctx->s.frame_crop_offsets[0];

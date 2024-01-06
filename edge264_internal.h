@@ -66,6 +66,7 @@ typedef struct {
 	int8_t mvc; // 1 significant bit
 	int16_t offset_for_non_ref_pic; // pic_order_cnt_type==1
 	int16_t offset_for_top_to_bottom_field; // pic_order_cnt_type==1
+	int16_t view_id0; // value of view_id for the first view, 10 significant bits
 	int16_t PicOrderCntDeltas[256]; // pic_order_cnt_type==1
 	union { int16_t frame_crop_offsets[4]; int64_t frame_crop_offsets_l; }; // {top,right,bottom,left}
 	union { uint8_t weightScale4x4[6][16]; i8x16 weightScale4x4_v[6]; };
@@ -257,20 +258,15 @@ typedef struct
 	int32_t plane_size_Y;
 	int32_t plane_size_C;
 	int32_t frame_size;
-	uint32_t reference_flags; // bitfield for indices of reference views
+	uint32_t reference_flags; // bitfield for indices of reference frames/views
 	uint32_t pic_reference_flags; // to be applied after decoding all slices of the current picture
-	uint32_t long_term_flags; // bitfield for indices of long-term views
+	uint32_t long_term_flags; // bitfield for indices of long-term frames/views
 	uint32_t pic_long_term_flags; // to be applied after decoding all slices of the current picture
-	uint32_t anchor_flags; // bitfield for indices of anchor frames
-	uint32_t inter_view_flags; // bitfield for indices of views
-	uint32_t view_ids; // bitfield for the values of view_id per DPB indices
-	uint32_t view_mask; // masks all indices of same valued view_ids for the current picture
 	uint32_t output_flags; // bitfield for frames waiting to be output
+	uint32_t right_views; // bitfield for indices of views output in 2nd position (but may still be base views)
 	int8_t pic_idr_or_mmco5; // when set, all other POCs will be decreased after completing the current frame
 	int8_t currPic; // index of current incomplete frame, or -1
 	int8_t unpairedView; // index of last MVC view waiting to be paired with an opposite view
-	int8_t pic_anchor_flag; // to be applied after decoding all slices of the current picture
-	int8_t pic_inter_view_flag; // to be applied after decoding all slices of the current picture
 	int32_t mvc_extension; // 3 bytes of nal_unit_header_mvc_extension
 	int32_t pic_remaining_mbs; // when zero the picture is complete
 	int32_t prevRefFrameNum[2];

@@ -4,6 +4,7 @@
  * 	_ remove unused prints in SSPS
  * 	_ add view_id to the detection of a new picture (H.7.4.1.2.4)
  * 
+ * _ Allow grouped flags in play&test (ex. -pfu)
  * _ check that sliding window cannot be defeated by multiview if DPB size equals max_frame_num
  * _ check on https://kodi.wiki/view/Samples#3D_Test_Clips
  * _ returning -2 at slice should ensure that a view pair is ready for output

@@ -676,22 +676,25 @@ static int FUNC(parse_slice_layer_without_partitioning)
 	
 	// Check for gaps in frame_num (8.2.5.2)
 	int gap = ctx->FrameNum - prevRefFrameNum;
-	if (__builtin_expect(gap > 1 && !ctx->sps.mvc, 0)) { // handling of gaps is ill-specified for MVC
-		int non_existing = min(gap - 1, ctx->sps.max_num_ref_frames - __builtin_popcount(ctx->long_term_flags));
-		int excess = __builtin_popcount(ctx->reference_flags) + non_existing - ctx->sps.max_num_ref_frames;
+	if (__builtin_expect(gap > 1, 0)) {
+		unsigned view_mask = ctx->right_views ^ (right_view - 1); // invert if right_view==0
+		unsigned reference_flags = ctx->reference_flags & view_mask;
+		int non_existing = min(gap - 1, ctx->sps.max_num_ref_frames - __builtin_popcount(ctx->long_term_flags & view_mask));
+		int excess = __builtin_popcount(reference_flags) + non_existing - ctx->sps.max_num_ref_frames;
 		for (int unref; excess > 0; excess--) {
 			int best = INT_MAX;
-			for (unsigned r = ctx->reference_flags & ~ctx->long_term_flags; r; r &= r - 1) {
+			for (unsigned r = reference_flags & ~ctx->long_term_flags; r; r &= r - 1) {
 				int i = __builtin_ctz(r);
 				if (ctx->FrameNums[i] < best)
 					best = ctx->FrameNums[unref = i];
 			}
-			ctx->reference_flags ^= 1 << unref;
+			reference_flags ^= 1 << unref;
 		}
+		reference_flags |= ctx->reference_flags & ~view_mask;
 		
 		// make enough frames immediately displayable until there are enough DPB slots available
 		unsigned output_flags = ctx->output_flags;
-		while (__builtin_popcount(ctx->reference_flags | output_flags) + non_existing >= ctx->sps.num_frame_buffers) {
+		while (__builtin_popcount(reference_flags | output_flags) + non_existing >= ctx->sps.num_frame_buffers) {
 			int disp, best = INT_MAX;
 			for (unsigned o = output_flags; o; o &= o - 1) {
 				int i = __builtin_ctz(o);
@@ -706,8 +709,8 @@ static int FUNC(parse_slice_layer_without_partitioning)
 		
 		// finally insert the last non-existing frames one by one
 		for (unsigned FrameNum = ctx->FrameNum - non_existing; FrameNum < ctx->FrameNum; FrameNum++) {
-			int i = __builtin_ctz(~(ctx->reference_flags | output_flags));
-			ctx->reference_flags |= 1 << i;
+			int i = __builtin_ctz(~(reference_flags | output_flags));
+			reference_flags |= 1 << i;
 			ctx->FrameNums[i] = FrameNum;
 			int PicOrderCnt = 0;
 			if (ctx->sps.pic_order_cnt_type == 2) {
@@ -719,6 +722,7 @@ static int FUNC(parse_slice_layer_without_partitioning)
 			}
 			ctx->FieldOrderCnt[0][i] = ctx->FieldOrderCnt[1][i] = PicOrderCnt;
 		}
+		ctx->reference_flags = reference_flags;
 	}
 	
 	// As long as PAFF/MBAFF are unsupported, this code won't execute (but is still kept).

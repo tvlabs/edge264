@@ -1,16 +1,8 @@
 /** MAYDO:
  * _ implement MVC
- * 	_ remove view_mask
- *    _ add MVC to initial construction of ref lists
- *    _ add pointers to return the 2nd view, and return it if present
- * 	_ parse and print SPS extension (when seen in a conformance bitstream)
- * 	_ parse and print SSPS (when seen in a conformance bitstream)
- * 	_ parse and print SPS MVC extension (when seen in a conformance bitstream)
- * 	_ if view_id[0]==0 (check in spec) then we can assume view_id[1]==1
+ * 	_ fix right_view madness
+ * 	_ remove unused prints in SSPS
  * 	_ add view_id to the detection of a new picture (H.7.4.1.2.4)
- * 	_ for each SSPS, ignore the 8 bytes of DPB format in favor of SPS format
- * 	_ implement the initialization of RefPicLists with views
- * 	_ implement the modification of RefPicLists with views
  * 
  * _ check that sliding window cannot be defeated by multiview if DPB size equals max_frame_num
  * _ check on https://kodi.wiki/view/Samples#3D_Test_Clips
@@ -265,8 +257,7 @@ static void FUNC(parse_dec_ref_pic_marking)
 	}
 	
 	// 8.2.5.3 - Sliding window marking process
-	unsigned other_refs = ctx->reference_flags & (ctx->right_views & 1 << ctx->currPic ? ~ctx->right_views : ctx->right_views);
-	if (__builtin_popcount(ctx->pic_reference_flags | other_refs) >= ctx->sps.max_num_ref_frames) {
+	if (__builtin_popcount(ctx->pic_reference_flags) >= ctx->sps.max_num_ref_frames) {
 		int best = INT_MAX;
 		int next = 0;
 		for (unsigned r = ctx->pic_reference_flags ^ ctx->pic_long_term_flags; r != 0; r &= r - 1) {
@@ -274,6 +265,7 @@ static void FUNC(parse_dec_ref_pic_marking)
 			if (best > ctx->FrameNums[i])
 				best = ctx->FrameNums[next = i];
 		}
+		// FIXME is it still possible??
 		ctx->pic_reference_flags &= ~(1 << next); // don't use XOR as r might be zero (if MVC with all refs on other view)
 	}
 	ctx->pic_reference_flags |= 1 << ctx->currPic;
@@ -677,7 +669,7 @@ static int FUNC(parse_slice_layer_without_partitioning)
 	int FrameNumMask = (1 << ctx->sps.log2_max_frame_num) - 1;
 	if (ctx->currPic >= 0 && frame_num != (ctx->FrameNums[ctx->currPic] & FrameNumMask))
 		CALL(finish_frame);
-	ctx->IdrPicFlag = ctx->nal_unit_type == 5 || (ctx->nal_unit_type == 20 && (~ctx->mvc_extension >> 22 & 1));
+	ctx->IdrPicFlag = ctx->nal_unit_type == 5 || (ctx->nal_unit_type == 20 && !(ctx->mvc_extension & 1 << 22));
 	int prevRefFrameNum = ctx->IdrPicFlag ? 0 : ctx->prevRefFrameNum[right_view];
 	ctx->FrameNum = prevRefFrameNum + ((frame_num - prevRefFrameNum) & FrameNumMask);
 	printf("<tr><th>frame_num => FrameNum</th><td>%u => %u</td></tr>\n", frame_num, ctx->FrameNum);
@@ -1282,11 +1274,9 @@ static void FUNC(parse_vui_parameters, Edge264_seq_parameter_set *sps)
 		int max_bits_per_mb_denom = CALL(get_ue16, 16);
 		int log2_max_mv_length_horizontal = CALL(get_ue16, 16);
 		int log2_max_mv_length_vertical = CALL(get_ue16, 16);
-		int max_num_reorder_frames = CALL(get_ue16, 16);
-		
 		// we don't enforce MaxDpbFrames here since violating the level is harmless
-		sps->num_frame_buffers = max(CALL(get_ue16, 16), sps->max_num_ref_frames) + 1;
-		sps->max_num_reorder_frames = min(max_num_reorder_frames, sps->num_frame_buffers - 1);
+		sps->max_num_reorder_frames = CALL(get_ue16, 16);
+		sps->num_frame_buffers = max(CALL(get_ue16, 16), max(sps->max_num_ref_frames, sps->max_num_reorder_frames)) + 1;
 		printf("<tr><th>motion_vectors_over_pic_boundaries_flag</th><td>%x</td></tr>\n"
 			"<tr><th>max_bytes_per_pic_denom</th><td>%u</td></tr>\n"
 			"<tr><th>max_bits_per_mb_denom</th><td>%u</td></tr>\n"
@@ -1318,14 +1308,15 @@ static int FUNC(parse_seq_parameter_set_mvc_extension, Edge264_seq_parameter_set
 {
 	// returning unsupported asap is more efficient than keeping tedious code afterwards
 	int num_views = CALL(get_ue16, 1023) + 1;
-	sps->view_id0 = CALL(get_ue16, 1023);
+	sps->view_id0 = CALL(get_ue16, 1023); // FIXME pas bon
 	int view_id1 = CALL(get_ue16, 1023);
 	printf("<tr%s><th>num_views {view_id<sub>0</sub>, view_id<sub>1</sub>}</th><td>%u {%u, %u}</td></tr>\n",
 		red_if(num_views != 2), num_views, sps->view_id0, view_id1);
 	if (num_views != 2)
 		return 1;
 	sps->mvc = 1;
-	sps->num_frame_buffers += 1;
+	sps->max_num_reorder_frames = min(sps->max_num_reorder_frames * 2 + 1, 17);
+	sps->num_frame_buffers = min(sps->num_frame_buffers * 2, 18);
 	
 	// inter-view refs are ignored since we always add them anyway
 	int num_anchor_refs_l0 = CALL(get_ue16, 1);
@@ -1409,7 +1400,7 @@ static int FUNC(parse_seq_parameter_set)
 		[244] = "High 4:4:4 Predictive",
 	};
 	static const char * const chroma_format_idc_names[4] = {"4:0:0", "4:2:0", "4:2:2", "4:4:4"};
-	static const int32_t MaxDpbMbs[64] = {
+	static const uint32_t MaxDpbMbs[64] = {
 		396, 396, 396, 396, 396, 396, 396, 396, 396, 396, 396, // level 1
 		900, // levels 1b and 1.1
 		2376, 2376, 2376, 2376, 2376, 2376, 2376, 2376, 2376, // levels 1.2, 1.3 and 2
@@ -1421,7 +1412,8 @@ static int FUNC(parse_seq_parameter_set)
 		34816, // level 4.2
 		110400, 110400, 110400, 110400, 110400, 110400, 110400, 110400, // level 5
 		184320, 184320, // levels 5.1 and 5.2
-		696320, 696320, 696320, 696320, 696320, 696320, 696320, 696320, 696320, 696320, 696320, // levels 6, 6.1 and 6.2
+		696320, 696320, 696320, 696320, 696320, 696320, 696320, 696320, 696320, 696320, // levels 6, 6.1 and 6.2
+		UINT_MAX // no limit beyond
 	};
 	
 	// temp storage, committed if entire NAL is correct
@@ -1530,18 +1522,17 @@ static int FUNC(parse_seq_parameter_set)
 	}
 	
 	// Max width is imposed by some int16 storage, wait for actual needs to push it.
-	int max_num_ref_frames = CALL(get_ue16, 16);
+	sps.max_num_ref_frames = CALL(get_ue16, 16);
 	int gaps_in_frame_num_value_allowed_flag = CALL(get_u1);
 	sps.pic_width_in_mbs = CALL(get_ue16, 1022) + 1;
 	int pic_height_in_map_units = CALL(get_ue16, 1054) + 1;
 	sps.frame_mbs_only_flag = CALL(get_u1);
 	sps.pic_height_in_mbs = pic_height_in_map_units << 1 >> sps.frame_mbs_only_flag;
 	int MaxDpbFrames = min(MaxDpbMbs[min(level_idc, 63)] / (sps.pic_width_in_mbs * sps.pic_height_in_mbs), 16);
-	sps.max_num_ref_frames = min(max_num_ref_frames, MaxDpbFrames);
 	sps.max_num_reorder_frames = ((profile_idc == 44 || profile_idc == 86 ||
 		profile_idc == 100 || profile_idc == 110 || profile_idc == 122 ||
 		profile_idc == 244) && (constraint_set_flags & 1 << 4)) ? 0 : MaxDpbFrames;
-	sps.num_frame_buffers = sps.max_num_reorder_frames + 1;
+	sps.num_frame_buffers = max(sps.max_num_reorder_frames, sps.max_num_ref_frames) + 1;
 	sps.mb_adaptive_frame_field_flag = 0;
 	if (sps.frame_mbs_only_flag == 0)
 		sps.mb_adaptive_frame_field_flag = CALL(get_u1);
@@ -1553,7 +1544,7 @@ static int FUNC(parse_seq_parameter_set)
 		"<tr%s><th>frame_mbs_only_flag</th><td>%x</td></tr>\n"
 		"<tr%s><th>mb_adaptive_frame_field_flag%s</th><td>%x</td></tr>\n"
 		"<tr><th>direct_8x8_inference_flag</th><td>%x</td></tr>\n",
-		max_num_ref_frames,
+		sps.max_num_ref_frames,
 		gaps_in_frame_num_value_allowed_flag,
 		sps.pic_width_in_mbs,
 		sps.pic_height_in_mbs,
@@ -1593,7 +1584,7 @@ static int FUNC(parse_seq_parameter_set)
 		if (CALL(parse_seq_parameter_set_mvc_extension, &sps, profile_idc))
 			return 1;
 		if (CALL(get_u1)) {
-			
+			// FIXME
 		}
 		CALL(get_u1);
 	}

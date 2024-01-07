@@ -48,10 +48,10 @@ $ ffmpeg -i video.mp4 -vcodec copy -bsf h264_mp4toannexb -an video.264 # optiona
 $ ./edge264_play-gcc-9 video.264 # add -b to benchmark without display
 ```
 
-When debugging, the make flag `TRACE=1` enables printing headers to stdout in HTML format, and `TRACE=2` adds the dumping of all other symbols to stderr (*very large*). A test program is also provided, that browses files in a `conformance` directory, decoding each `<video>.264` and comparing its output with the pair `<video>.yuv`. On the set of official [conformance bitstreams](https://www.itu.int/wftp3/av-arch/jvt-site/draft_conformance/), 89 files are known to decode perfectly, the rest using yet unsupported features.
+When debugging, the make flag `TRACE=1` enables printing headers to stdout in HTML format, and `TRACE=2` adds the dumping of all other symbols to stderr (*very large*). An automated test program is also provided, that browses files in a given directory, decoding each `<video>.264` and comparing its output with the pair `<video>.yuv` if found. On the set of official [conformance bitstreams](https://www.itu.int/wftp3/av-arch/jvt-site/draft_conformance/), 89 files are known to decode perfectly, the rest using yet unsupported features.
 
 ```sh
-$ ./edge264_test-gcc-9
+$ ./edge264_test-gcc-9 --help
 ```
 
 
@@ -75,7 +75,7 @@ int main(int argc, char *argv[]) {
 	fstat(f, &st);
 	uint8_t *buf = mmap(NULL, st.st_size, PROT_READ, MAP_SHARED, f, 0);
 	Edge264_stream *s = Edge264_alloc();
-	s->CPB = buf + 3 + (buf[2] == 0);
+	s->CPB = buf + 4; // skip the 0001 delimiter
 	s->end = buf + st.st_size;
 	int res;
 	do {

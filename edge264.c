@@ -1,6 +1,8 @@
 /** MAYDO:
  * _ implement MVC
  * 	_ fix right_view madness
+ * 	_ return unsupported for all files in unsupported directory
+ * 	_ add option in play to find yuv files automatically
  * 	_ remove unused prints in SSPS
  * 	_ add view_id to the detection of a new picture (H.7.4.1.2.4)
  * 

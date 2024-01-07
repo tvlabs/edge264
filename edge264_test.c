@@ -17,6 +17,10 @@
 #define YELLOW "\033[33m"
 #define BLUE   "\033[34m"
 
+static int flt(const struct dirent *a) {
+	char *ext = strrchr(a->d_name, '.');
+	return ext != NULL && strcmp(ext, ".264") == 0;
+}
 static int cmp(const struct dirent **a, const struct dirent **b) {
 	return -strcasecmp((*a)->d_name, (*b)->d_name);
 }
@@ -53,22 +57,17 @@ int main(int argc, char *argv[])
 		}
 	}
 	
-	// fill the stack now
-	struct dirent **entries;
-	struct stat stC, stD, stD1;
-	int counts[7] = {};
-	
 	// parse all clips in the conformance directory
 	if (chdir(dir_name) < 0) {
 		perror(dir_name);
 		return 0;
 	}
-	int n = scandir(".", &entries, NULL, cmp);
+	struct dirent **entries;
+	int n = scandir(".", &entries, flt, cmp);
 	assert(n>=0);
+	struct stat stC, stD, stD1;
+	int counts[7] = {};
 	while (n--) {
-		char *ext = strrchr(entries[n]->d_name, '.');
-		if (ext == NULL || strcmp(ext, ".264") != 0)
-			continue;
 		
 		// open and mmap the clip file
 		int clip = open(entries[n]->d_name, O_RDONLY);
@@ -77,6 +76,7 @@ int main(int argc, char *argv[])
 		uint8_t *cpb = mmap(NULL, stC.st_size, PROT_READ, MAP_SHARED, clip, 0);
 		
 		// open and mmap the yuv file(s)
+		char *ext = strrchr(entries[n]->d_name, '.');
 		memcpy(ext, ".yuv", 4);
 		int yuv = open(entries[n]->d_name, O_RDONLY);
 		*ext = 0;
@@ -106,7 +106,7 @@ int main(int argc, char *argv[])
 		
 		// decode the entire file and FAIL on any error
 		Edge264_stream *s = Edge264_alloc();
-		s->CPB = cpb + 3 + (cpb[2] == 0);
+		s->CPB = cpb + 4; // skip the 0001 delimiter
 		s->end = cpb + stC.st_size;
 		const uint8_t *cmp = dpb;
 		const uint8_t *cmp1 = dpb1;
@@ -145,7 +145,6 @@ int main(int argc, char *argv[])
 		counts[3 + res]++;
 		
 		// close everything
-		free(entries[n]);
 		munmap(cpb, stC.st_size);
 		close(clip);
 		if (yuv >= 0) {
@@ -168,6 +167,7 @@ int main(int argc, char *argv[])
 		} else if (res == 3) {
 			printf("%s: " BLUE "FLAGGED" RESET "\n", entries[n]->d_name);
 		}
+		free(entries[n]);
 	}
 	printf("%d " GREEN "PASS" RESET ", %d " YELLOW "UNSUPPORTED" RESET ", %d " RED "FAIL" RESET,
 		counts[0], counts[4], counts[5]);

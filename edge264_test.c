@@ -25,10 +25,11 @@ static int cmp(const struct dirent **a, const struct dirent **b) {
 	return -strcasecmp((*a)->d_name, (*b)->d_name);
 }
 
-int main(int argc, char *argv[])
+int main(int argc, const char *argv[])
 {
 	// read command-line options
 	const char *dir_name = "conformance";
+	int help = 0;
 	int print_passed = 0;
 	int print_unsupported = 0;
 	int print_failed = 0;
@@ -36,25 +37,31 @@ int main(int argc, char *argv[])
 	for (int i = 1; i < argc; i++) {
 		if (argv[i][0] != '-') {
 			dir_name = argv[i];
-		} else if (argv[i][1] == 'h' || strcmp(argv[i], "--help") == 0) {
-			printf("Usage: %s [dir] [-pfu]\n"
-			       "dir\twhere the .264 files should be found (default=conformance)\n"
-			       "-f\tprint names of failed files\n"
-			       "-p\tprint names of passed files\n"
-			       "-u\tprint names of unsupported files\n"
-			       "-y\tprint names of files without a yuv pair\n", argv[0]);
-			return 0;
 		} else for (int j = 1; argv[i][j]; j++) {
-			if (argv[i][j] == 'p') {
+			if (argv[i][j] == 'f') {
+				print_failed = 1;
+			} else if (argv[i][j] == 'p') {
 				print_passed = 1;
 			} else if (argv[i][j] == 'u') {
 				print_unsupported = 1;
-			} else if (argv[i][j] == 'f') {
-				print_failed = 1;
 			} else if (argv[i][j] == 'y') {
 				print_orphans = 1;
+			} else {
+				help = 1;
 			}
 		}
+	}
+	
+	// print help if any command-line option was unknown
+	if (help) {
+		printf("Usage: %s [dir] [-fhpuy]\n"
+		       "dir\twhere the .264 files should be found (default=conformance)\n"
+		       "-f\tprint names of failed files\n"
+		       "-h\tprint this help and exit\n"
+		       "-p\tprint names of passed files\n"
+		       "-u\tprint names of unsupported files\n"
+		       "-y\tprint names of files without a yuv pair\n", argv[0]);
+		return 0;
 	}
 	
 	// parse all clips in the conformance directory

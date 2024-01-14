@@ -9,6 +9,7 @@ Supported features
 ------------------
 
 * Progressive High Profile and level 6.2
+* MVC 3D support
 * Any resolution up to 8K UHD
 * 8-bit 4:2:0 planar YUV output
 * CAVLC/CABAC
@@ -24,12 +25,11 @@ Supported features
 Planned features
 ----------------
 
-* MVC 3D support (work in progress)
 * SEI messages
 * Error concealment
 * ARM support
 * PAFF and MBAFF
-* AVX-2 enhancements
+* AVX-2 optimizations
 * 4:0:0, 4:2:2 and 4:4:4
 * 9-14 bit depths with possibility of different luma/chroma depths
 * Transform-bypass for macroblocks with QP==0

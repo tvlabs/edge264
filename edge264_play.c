@@ -259,75 +259,88 @@ int process_frame(Edge264_stream *e)
 
 
 
-int main(int argc, char *argv[])
+int main(int argc, const char *argv[])
 {
 	// read command-line options
-	int bench = 0, help = 0;
-	char *input_name = NULL, *yuv_name = NULL, *yuv1_name = NULL;
+	const char *vid_name = NULL;
+	const char *yuv_name = NULL;
+	const char *sec_name = NULL;
+	int bench = 0;
+	int help = 0;
+	int infer = 0;
 	for (int i = 1; i < argc; i++) {
-		if (strcmp(argv[i], "-b") == 0) {
-			bench = 1;
-		} else if (strcmp(argv[i], "--help") == 0 || strcmp(argv[i], "-h") == 0) {
-			help = 1;
-		} else if (input_name == NULL) {
-			input_name = argv[i];
+		if (argv[i][0] == '-') {
+			for (int j = 1; argv[i][j]; j++) {
+				if (argv[i][j] == 'b') {
+					bench = 1;
+				} else if (argv[i][j] == 'y') {
+					infer = 1;
+				} else {
+					help = 1;
+				}
+			}
+		} else if (vid_name == NULL) {
+			vid_name = argv[i];
 		} else if (yuv_name == NULL) {
 			yuv_name = argv[i];
-		} else if (yuv1_name == NULL) {
-			yuv1_name = argv[i];
 		} else {
-			help = 1;
+			sec_name = argv[i];
 		}
 	}
 	
-	// print help if called with -h, --help, or no argument
+	// print help if called without arguments or some was unknown
 	if (help || argc == 1) {
-		fprintf(stdout, "Usage: %s [-b] video.264 [video.yuv] [secondView.yuv]\n"
-		                "-b\tBenchmark decoding time and memory usage (disables display)\n", argv[0]);
+		fprintf(stdout, "Usage: %s video.264 [video.yuv] [second_view.yuv] [-bhy]\n"
+		                "-b\tbenchmark decoding time and memory usage (disables display)\n"
+		                "-h\tprint this help and exit\n"
+		                "-y\tinfer yuv files automatically (.yuv and .1.yuv extensions)\n", argv[0]);
 		return 0;
 	}
 	
-	// memory-map the input file
-	int input = open(input_name, O_RDONLY);
-	if (input < 0) {
-		perror(input_name);
-		return 0;
+	// open and mmap the file(s)
+	struct stat stA, stB, stC;
+	int fdA = open(vid_name, O_RDONLY);
+	if (fdA < 0)
+		return perror(vid_name), EXIT_FAILURE;
+	fstat(fdA, &stA);
+	uint8_t *mmA = mmap(NULL, stA.st_size, PROT_READ, MAP_SHARED, fdA, 0);
+	const char *ext = strrchr(vid_name, '.');
+	if (ext == NULL)
+		ext = strchr(vid_name, 0);
+	int iext = ext - vid_name;
+	char yuv_buf[iext + 5], sec_buf[iext + 7];
+	if (infer && yuv_name == NULL) {
+		snprintf(yuv_buf, iext + 5, "%.*s.yuv", iext, vid_name);
+		snprintf(sec_buf, iext + 7, "%.*s.1.yuv", iext, vid_name);
+		yuv_name = yuv_buf;
+		sec_name = sec_buf;
 	}
-	struct stat stC;
-	fstat(input, &stC);
-	uint8_t *cpb = mmap(NULL, stC.st_size, PROT_READ, MAP_SHARED, input, 0);
-	assert(cpb!=MAP_FAILED);
+	int fdB = -1, fdC = -1;
+	uint8_t *mmB = NULL, *mmC = NULL;
+	if (yuv_name != NULL) {
+		fdB = open(yuv_name, O_RDONLY);
+		if (fdB < 0)
+			return perror(yuv_name), EXIT_FAILURE;
+		fstat(fdB, &stB);
+		mmB = mmap(NULL, stB.st_size, PROT_READ, MAP_SHARED, fdB, 0);
+		cmp[0] = mmB;
+		if (sec_name != NULL) {
+			fdC = open(sec_name, O_RDONLY);
+			if (fdC >= 0) {
+				fstat(fdC, &stC);
+				mmC = mmap(NULL, stC.st_size, PROT_READ, MAP_SHARED, fdC, 0);
+				cmp[1] = mmC;
+			} else if (!infer) {
+				return perror(sec_name), EXIT_FAILURE;
+			}
+		}
+	}
+	assert(mmA!=MAP_FAILED&&mmB!=MAP_FAILED&&mmC!=MAP_FAILED);
 	
 	// allocate and setup the main Edge264 structure
 	Edge264_stream *s = Edge264_alloc();
-	s->CPB = cpb + 3 + (cpb[2] == 0);
-	s->end = cpb + stC.st_size;
-	
-	// memory-map the optional yuv reference files
-	int yuv = -1, yuv1 = -1;
-	struct stat stD, stD1;
-	uint8_t *dpb = NULL, *dpb1 = NULL;
-	if (yuv_name != NULL) {
-		yuv = open(yuv_name, O_RDONLY);
-		if (yuv < 0) {
-			perror(yuv_name);
-			return 0;
-		}
-		fstat(yuv, &stD);
-		dpb = mmap(NULL, stD.st_size, PROT_READ, MAP_SHARED, yuv, 0);
-		cmp[0] = dpb;
-		if (yuv1_name != NULL) {
-			yuv1 = open(yuv1_name, O_RDONLY);
-			if (yuv1 < 0) {
-				perror(yuv1_name);
-				return 0;
-			}
-			fstat(yuv1, &stD1);
-			dpb1 = mmap(NULL, stD1.st_size, PROT_READ, MAP_SHARED, yuv1, 0);
-			cmp[1] = dpb1;
-		}
-	}
-	assert(dpb!=MAP_FAILED&&dpb1!=MAP_FAILED);
+	s->CPB = mmA + 4; // skip the 0001 delimiter
+	s->end = mmA + stA.st_size;
 	
 	// parse and dump the file to HTML
 	setbuf(stdout, NULL);
@@ -348,11 +361,11 @@ int main(int argc, char *argv[])
 	int res;
 	do {
 		res = Edge264_decode_NAL(s);
-		if (Edge264_get_frame(s, res == -3) == 0 && !bench)
-			process_frame(s);
-		else if (res == -3)
-			break;
-	} while (res <= 0);
+		while (!Edge264_get_frame(s, res == -3)) {
+			if (!bench)
+				process_frame(s);
+		}
+	} while (!res);
 	Edge264_free(&s);
 	printf("</body>\n"
 		"</html>\n");
@@ -362,21 +375,21 @@ int main(int argc, char *argv[])
 		fprintf(stderr, "Decoding ended prematurely on " BOLD "decoding error" RESET "\n");
 	
 	// cleanup everything
-	munmap(cpb, stC.st_size);
-	close(input);
-	if (yuv >= 0) {
-		munmap(dpb, stD.st_size);
-		close(yuv);
-		if (yuv1 >= 0) {
-			munmap(dpb1, stD1.st_size);
-			close(yuv1);
+	munmap(mmA, stA.st_size);
+	close(fdA);
+	if (fdB >= 0) {
+		munmap(mmB, stB.st_size);
+		close(fdB);
+		if (fdC >= 0) {
+			munmap(mmC, stC.st_size);
+			close(fdC);
 		}
 	}
 	if (bench) {
 		struct rusage rusage;
 		getrusage(RUSAGE_SELF, &rusage);
-		fprintf(stdout, "CPU: %ld μs\nmemory: %ld B\n",
-			rusage.ru_utime.tv_sec * 1000000 + rusage.ru_utime.tv_usec, rusage.ru_maxrss);
+		fprintf(stdout, "CPU: %u.%us\nmemory: %u.%uMB\n",
+			(unsigned)rusage.ru_utime.tv_sec, (unsigned)rusage.ru_utime.tv_usec / 1000, (unsigned)rusage.ru_maxrss / 1000000, (unsigned)rusage.ru_maxrss / 1000 % 1000);
 	} else {
 		glfwTerminate();
 	}

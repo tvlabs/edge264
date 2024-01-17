@@ -478,7 +478,7 @@ static noinline int FUNC(parse_slice_data_cabac);
 	#define avg16(a, b) (i16x8)_mm_avg_epu16(a, b)
 	#define hadd16(a, b) (i16x8)_mm_hadd_epi16(a, b)
 	#define load32(p) (i32x4)_mm_loadu_si32(p) // no distinction with unaligned for now
-	#define load64(p) (i64x2)_mm_loadu_si64(p) // same
+	#define load64(p) (i64x2)_mm_loadl_epi64((__m128i*)(p)) // same
 	#define load128(p) (i8x16)_mm_loadu_si128((__m128i*)(p))
 	#define madd16(a, b) (i32x4)_mm_madd_epi16(a, b)
 	#define maddubs(a, b) (i16x8)_mm_maddubs_epi16(a, b)
@@ -530,14 +530,14 @@ static noinline int FUNC(parse_slice_data_cabac);
 		#define cvt16zx32(a) (i32x4)_mm_cvtepu16_epi32(a)
 		#define ifelse_mask(v, t, f) (i8x16)_mm_blendv_epi8(f, t, v)
 		#define ifelse_msb(v, t, f) (i8x16)_mm_blendv_epi8(f, t, v)
-		#define load8zx16(p) (i16x8)_mm_cvtepu8_epi16(_mm_loadu_si64(p))
+		#define load8zx16(p) (i16x8)_mm_cvtepu8_epi16(_mm_loadl_epi64((__m128i*)(p)))
 		#define load8zx32(p) (i32x4)_mm_cvtepu8_epi32(_mm_loadu_si32(p))
 	#else // most macros require a zero variable around
 		#define cvt8zx16(a) (i16x8)_mm_unpacklo_epi8(a, zero)
 		#define cvt16zx32(a) (i32x4)_mm_unpacklo_epi16(a, zero)
 		#define ifelse_mask(v, t, f) ({__m128i _v = (v); (i8x16)_mm_or_si128(_mm_andnot_si128(_v, f), _mm_and_si128(t, _v));})
 		#define ifelse_msb(v, t, f) ({__m128i _v = _mm_cmpgt_epi8(zero, v); (i8x16)_mm_or_si128(_mm_andnot_si128(_v, f), _mm_and_si128(t, _v));})
-		#define load8zx16(p) (i16x8)_mm_unpacklo_epi8(_mm_loadu_si64(p), zero)
+		#define load8zx16(p) (i16x8)_mm_unpacklo_epi8(_mm_loadl_epi64((__m128i*)(p)), zero)
 		#define load8zx32(p) (i32x4)_mm_unpacklo_epi8(_mm_unpacklo_epi8(_mm_loadu_si32(p), zero), zero)
 	#endif
 	

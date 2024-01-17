@@ -1,3 +1,5 @@
+### Hot news 🎉: I'll present the main coding techniques used in edge264 at [FOSDEM'24](https://fosdem.org/2024/schedule/event/fosdem-2024-2931-innovations-in-h-264-avc-software-decoding-architecture-and-optimization-of-a-block-based-video-decoder-to-reach-10-faster-speed-and-3x-code-reduction-over-the-state-of-the-art-/), Open Media room, Brussels, 4 February 2024. See you there!
+
 edge264
 =======
 
@@ -80,17 +82,15 @@ int main(int argc, char *argv[]) {
 	int res;
 	do {
 		res = Edge264_decode_NAL(s);
-		if (Edge264_get_frame(s, res == -3) >= 0) { // drain remaining frames when at end of buffer
+		while (!Edge264_get_frame(s, res == -3)) { // drain remaining frames when at end of buffer
 			for (int y = 0; y < s->height_Y; y++)
 				write(1, s->samples[0] + y * s->stride_Y, s->width_Y);
 			for (int y = 0; y < s->height_C; y++)
 				write(1, s->samples[1] + y * s->stride_C, s->width_C);
 			for (int y = 0; y < s->height_C; y++)
 				write(1, s->samples[2] + y * s->stride_C, s->width_C);
-		} else if (res == -3) {
-			break;
 		}
-	} while (res <= 0);
+	} while (!res);
 	Edge264_free(&s);
 	munmap(buf, st.st_size);
 	close(f);

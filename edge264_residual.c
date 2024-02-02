@@ -44,7 +44,7 @@ static const i8x16 normAdjust8x8[24] = {
  * Here we try to stay close to the spec's pseudocode, avoiding minor
  * optimisations that would make the code hard to understand.
  */
-void FUNC(add_idct4x4, int iYCbCr, int qP, i8x16 wS, int DCidx, uint8_t *samples)
+void noinline FUNC(add_idct4x4, int iYCbCr, int qP, i8x16 wS, int DCidx, uint8_t *samples)
 {
 	// loading and scaling
 	i8x16 zero = {};
@@ -152,7 +152,7 @@ void FUNC(add_dc4x4, int iYCbCr, int DCidx, uint8_t *samples) {
 /**
  * Inverse 8x8 transform
  */
-void FUNC(add_idct8x8, int iYCbCr, uint8_t *samples)
+void noinline FUNC(add_idct8x8, int iYCbCr, uint8_t *samples)
 {
 	int qP = ctx->QP[iYCbCr];
 	size_t stride = ctx->stride[iYCbCr];
@@ -310,7 +310,7 @@ void FUNC(add_idct8x8, int iYCbCr, uint8_t *samples)
  * 
  * These functions do not gain enough from 8bit to justify distinct versions.
  */
-void FUNC(transform_dc4x4, int iYCbCr)
+void noinline FUNC(transform_dc4x4, int iYCbCr)
 {
 	// load matrix in column order and multiply right
 	i32x4 x0 = ctx->c_v[0] + ctx->c_v[1];
@@ -420,7 +420,7 @@ void FUNC(transform_dc4x4, int iYCbCr)
 	}
 }
 
-void FUNC(transform_dc2x2)
+void noinline FUNC(transform_dc2x2)
 {
 	// load both matrices interlaced+transposed and multiply right
 	i32x4 d0 = ctx->c_v[0] + ctx->c_v[1];

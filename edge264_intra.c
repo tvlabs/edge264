@@ -34,7 +34,7 @@ static always_inline i16x8 lowpass16(i16x8 l, i16x8 m, i16x8 r) {
 /**
  * Intra4x4
  */
-void _decode_intra4x4(int mode, uint8_t *px1, size_t stride, ssize_t nstride, i16x8 clip, i8x16 zero) {
+void noinline _decode_intra4x4(int mode, uint8_t *px1, size_t stride, ssize_t nstride, i16x8 clip, i8x16 zero) {
 	i16x8 dc, top;
 	switch (mode) {
 	
@@ -202,7 +202,7 @@ static i8x16 filter_h2a_8bit(ssize_t dstride, uint8_t *px0, uint8_t *px7, size_t
 	return shr(lowpass8(i2b, h2a, g2a), 8);
 }
 
-void _decode_intra8x8(int mode, uint8_t *px0, uint8_t *px7, size_t stride, ssize_t nstride, i16x8 clip) {
+void noinline _decode_intra8x8(int mode, uint8_t *px0, uint8_t *px7, size_t stride, ssize_t nstride, i16x8 clip) {
 	static const i8x16 shr8_8bit = {1, 2, 3, 4, 5, 6, 7, 7, -1, -1, -1, -1, -1, -1};
 	static const i8x16 shl_8bit = {0, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14};
 	static const i8x16 shr16_8bit = {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 15};
@@ -553,7 +553,7 @@ void _decode_intra8x8(int mode, uint8_t *px0, uint8_t *px7, size_t stride, ssize
 /**
  * Intra16x16
  */
-void _decode_intra16x16(int mode, uint8_t *px0, uint8_t *px7, uint8_t *pxE, size_t stride, ssize_t nstride, i16x8 clip) {
+void noinline _decode_intra16x16(int mode, uint8_t *px0, uint8_t *px7, uint8_t *pxE, size_t stride, ssize_t nstride, i16x8 clip) {
 	i8x16 top, left, pred;
 	switch (mode) {
 	
@@ -846,7 +846,7 @@ static always_inline void chroma8x8_plane_8bit(uint8_t *px0, uint8_t *px7, size_
 	*(int64_t *)(px7              ) = xE[1];
 }
 
-void _decode_intraChroma(int mode, uint8_t *Cb0, uint8_t *Cb7, uint8_t *Cr0, uint8_t *Cr7, size_t stride, ssize_t nstride, i16x8 clip) {
+void noinline _decode_intraChroma(int mode, uint8_t *Cb0, uint8_t *Cb7, uint8_t *Cr0, uint8_t *Cr7, size_t stride, ssize_t nstride, i16x8 clip) {
 	switch (mode) {
 	case IC8x8_DC_8:
 		chroma8x8_DC_8bit(Cb0, Cb7, stride, nstride);

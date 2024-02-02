@@ -389,16 +389,16 @@ static int FUNC(cabac_terminate);
 static void FUNC(cabac_init, int idc);
 
 // edge264_deblock_*.c
-void FUNC(deblock_frame, uint8_t *samples);
+void noinline FUNC(deblock_frame, uint8_t *samples);
 
 // edge264_inter_*.c
-void FUNC(decode_inter, int i, int w, int h);
+void noinline FUNC(decode_inter, int i, int w, int h);
 
 // edge264_intra_*.c
-void _decode_intra4x4(int mode, uint8_t *px1, size_t stride, ssize_t nstride, i16x8 clip, i8x16 zero);
-void _decode_intra8x8(int mode, uint8_t *px0, uint8_t *px7, size_t stride, ssize_t nstride, i16x8 clip);
-void _decode_intra16x16(int mode, uint8_t *px0, uint8_t *px7, uint8_t *pxE, size_t stride, ssize_t nstride, i16x8 clip);
-void _decode_intraChroma(int mode, uint8_t *Cb0, uint8_t *Cb7, uint8_t *Cr0, uint8_t *Cr7, size_t stride, ssize_t nstride, i16x8 clip);
+void noinline _decode_intra4x4(int mode, uint8_t *px1, size_t stride, ssize_t nstride, i16x8 clip, i8x16 zero);
+void noinline _decode_intra8x8(int mode, uint8_t *px0, uint8_t *px7, size_t stride, ssize_t nstride, i16x8 clip);
+void noinline _decode_intra16x16(int mode, uint8_t *px0, uint8_t *px7, uint8_t *pxE, size_t stride, ssize_t nstride, i16x8 clip);
+void noinline _decode_intraChroma(int mode, uint8_t *Cb0, uint8_t *Cb7, uint8_t *Cr0, uint8_t *Cr7, size_t stride, ssize_t nstride, i16x8 clip);
 static always_inline void FUNC(decode_intra4x4, int mode, uint8_t *samples, size_t stride, int iYCbCr) {
 	_decode_intra4x4(mode, samples + stride, stride, -stride, (i16x8){ctx->clip[iYCbCr]}, (i8x16){}); }
 static always_inline void FUNC(decode_intra8x8, int mode, uint8_t *samples, size_t stride, int iYCbCr) {
@@ -417,12 +417,11 @@ static inline void FUNC(decode_inter_16x8_bottom, i16x8 mvd, int lx);
 static noinline void FUNC(decode_direct_mv_pred, unsigned direct_mask);
 
 // edge264_residual_*.c
-void FUNC(add_idct4x4, int iYCbCr, int qP, i8x16 wS, int DCidx, uint8_t *samples);
-void FUNC(add_dc4x4, int iYCbCr, int DCidx, uint8_t *samples);
-void FUNC(add_idct8x8, int iYCbCr, uint8_t *samples);
-void FUNC(transform_dc4x4, int iYCbCr);
-void FUNC(transform_dc2x2);
-void FUNC(transform_dc2x4);
+void noinline FUNC(add_idct4x4, int iYCbCr, int qP, i8x16 wS, int DCidx, uint8_t *samples);
+void noinline FUNC(add_dc4x4, int iYCbCr, int DCidx, uint8_t *samples);
+void noinline FUNC(add_idct8x8, int iYCbCr, uint8_t *samples);
+void noinline FUNC(transform_dc4x4, int iYCbCr);
+void noinline FUNC(transform_dc2x2);
 
 // edge264_slice.c
 static noinline int FUNC(parse_slice_data_cavlc);

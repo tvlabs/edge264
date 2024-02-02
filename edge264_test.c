@@ -33,7 +33,7 @@ int main(int argc, const char *argv[])
 	int print_passed = 0;
 	int print_unsupported = 0;
 	int print_failed = 0;
-	int print_orphans = 0;
+	int enable_yuv = 1;
 	for (int i = 1; i < argc; i++) {
 		if (argv[i][0] != '-') {
 			dir_name = argv[i];
@@ -45,7 +45,7 @@ int main(int argc, const char *argv[])
 			} else if (argv[i][j] == 'u') {
 				print_unsupported = 1;
 			} else if (argv[i][j] == 'y') {
-				print_orphans = 1;
+				enable_yuv = 0;
 			} else {
 				help = 1;
 			}
@@ -60,7 +60,7 @@ int main(int argc, const char *argv[])
 		       "-h\tprint this help and exit\n"
 		       "-p\tprint names of passed files\n"
 		       "-u\tprint names of unsupported files\n"
-		       "-y\tprint names of files without a yuv pair\n", argv[0]);
+		       "-y\tdisable comparison against yuv pairs\n", argv[0]);
 		return 0;
 	}
 	
@@ -83,25 +83,28 @@ int main(int argc, const char *argv[])
 		uint8_t *cpb = mmap(NULL, stC.st_size, PROT_READ, MAP_SHARED, clip, 0);
 		
 		// open and mmap the yuv file(s)
-		char *ext = strrchr(entries[n]->d_name, '.');
-		memcpy(ext, ".yuv", 4);
-		int yuv = open(entries[n]->d_name, O_RDONLY);
-		*ext = 0;
-		int yuv1 = -1;
+		int yuv = -1, yuv1 = -1;
 		uint8_t *dpb = NULL, *dpb1 = NULL;
-		if (yuv >= 0) {
-			fstat(yuv, &stD);
-			dpb = mmap(NULL, stD.st_size, PROT_READ, MAP_SHARED, yuv, 0);
-			char name1[ext - entries[n]->d_name + 7];
-			sprintf(name1, "%s.1.yuv", entries[n]->d_name);
-			int yuv1 = open(name1, O_RDONLY);
-			if (yuv1 >= 0) {
-				fstat(yuv1, &stD1);
-				dpb1 = mmap(NULL, stD1.st_size, PROT_READ, MAP_SHARED, yuv1, 0);
+		char *ext = strrchr(entries[n]->d_name, '.');
+		if (enable_yuv) {
+			memcpy(ext, ".yuv", 4);
+			yuv = open(entries[n]->d_name, O_RDONLY);
+			if (yuv < 0) {
+				printf("%s not found\n", entries[n]->d_name);
+			} else {
+				fstat(yuv, &stD);
+				dpb = mmap(NULL, stD.st_size, PROT_READ, MAP_SHARED, yuv, 0);
+				char name1[ext - entries[n]->d_name + 7];
+				*ext = 0;
+				sprintf(name1, "%s.1.yuv", entries[n]->d_name);
+				yuv1 = open(name1, O_RDONLY);
+				if (yuv1 >= 0) {
+					fstat(yuv1, &stD1);
+					dpb1 = mmap(NULL, stD1.st_size, PROT_READ, MAP_SHARED, yuv1, 0);
+				}
 			}
-		} else if (print_orphans) {
-			printf("%s.yuv not found\n", entries[n]->d_name);
 		}
+		*ext = 0;
 		assert(cpb!=MAP_FAILED&&dpb!=MAP_FAILED&&dpb1!=MAP_FAILED);
 		
 		// print status line

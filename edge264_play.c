@@ -388,7 +388,7 @@ int main(int argc, const char *argv[])
 	if (bench) {
 		struct rusage rusage;
 		getrusage(RUSAGE_SELF, &rusage);
-		fprintf(stdout, "CPU: %u.%us\nmemory: %u.%uMB\n",
+		fprintf(stdout, "CPU: %u.%03us\nmemory: %u.%03uMB\n",
 			(unsigned)rusage.ru_utime.tv_sec, (unsigned)rusage.ru_utime.tv_usec / 1000, (unsigned)rusage.ru_maxrss / 1000000, (unsigned)rusage.ru_maxrss / 1000 % 1000);
 	} else {
 		glfwTerminate();

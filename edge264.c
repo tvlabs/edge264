@@ -5,7 +5,12 @@
  * 	_ add option in play to find yuv files automatically
  * 	_ remove unused prints in SSPS
  * 	_ add view_id to the detection of a new picture (H.7.4.1.2.4)
- * 
+ * _ add test option to disable comparison against yuv
+ * _ disable binary division for residuals?
+ * _ Remove all occurences of __builtin_shufflevector
+ * _ Replace memcpy with load16?
+ * _ include sign bit in binary division tricks
+ * _ Find start code & escape sequences with 1 less movemask
  * _ Allow grouped flags in play&test (ex. -pfu)
  * _ check that sliding window cannot be defeated by multiview if DPB size equals max_frame_num
  * _ check on https://kodi.wiki/view/Samples#3D_Test_Clips
@@ -34,8 +39,8 @@
  */
 
 
-// Storing bitstream caches in GRVs provides a decent performance gain for GCC
-#if defined(__SSSE3__) && !defined(__clang__) && SIZE_BIT == 64
+// Storing bitstream caches in GRVs may provide a performance gain in the future
+#if 0//defined(__SSSE3__) && !defined(__clang__) && SIZE_BIT == 64
 	register size_t rbsp_reg0 asm("r14");
 	register size_t rbsp_reg1 asm("r15");
 	#define codIRange rbsp_reg0
@@ -51,7 +56,11 @@
 
 #include "edge264_internal.h"
 #include "edge264_bitstream.c"
+#include "edge264_deblock.c"
+#include "edge264_inter.c"
+#include "edge264_intra.c"
 #include "edge264_mvpred.c"
+#include "edge264_residual.c"
 #include "edge264_slice.c"
 #define CABAC 1
 #include "edge264_slice.c"

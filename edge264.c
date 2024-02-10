@@ -1075,7 +1075,7 @@ static int FUNC(parse_pic_parameter_set)
 		red_if(redundant_pic_cnt_present_flag), redundant_pic_cnt_present_flag);
 	
 	// short for peek-24-bits-without-having-to-define-a-single-use-function
-	if (msb_cache >> (SIZE_BIT - 24) != 0x800000) {
+	if (msb_cache != (size_t)1 << (SIZE_BIT - 1) || (lsb_cache & (lsb_cache - 1)) || !ctx->end_of_NAL) {
 		pps.transform_8x8_mode_flag = CALL(get_u1);
 		printf("<tr><th>transform_8x8_mode_flag</th><td>%x</td></tr>\n",
 			pps.transform_8x8_mode_flag);
@@ -1102,7 +1102,7 @@ static int FUNC(parse_pic_parameter_set)
 	}
 	
 	// check for trailing_bits before unsupported features (in case errors enabled them)
-	if (CALL(get_uv, 24) != 0x800000)
+	if (msb_cache != (size_t)1 << (SIZE_BIT - 1) || (lsb_cache & (lsb_cache - 1)) || !ctx->end_of_NAL)
 		return 2;
 	if (pic_parameter_set_id >= 4 || num_slice_groups > 1 ||
 		pps.constrained_intra_pred_flag || redundant_pic_cnt_present_flag)
@@ -1606,7 +1606,7 @@ static int FUNC(parse_seq_parameter_set)
 	}
 	
 	// check for trailing_bits before unsupported features (in case errors enabled them)
-	if (CALL(get_uv, 24) != 0x800000)
+	if (msb_cache != (size_t)1 << (SIZE_BIT - 1) || (lsb_cache & (lsb_cache - 1)) || !ctx->end_of_NAL)
 		return 2;
 	if (sps.ChromaArrayType != 1 || sps.BitDepth_Y != 8 || sps.BitDepth_C != 8 ||
 		sps.qpprime_y_zero_transform_bypass_flag || !sps.frame_mbs_only_flag)
@@ -1695,6 +1695,7 @@ int Edge264_decode_NAL(Edge264_stream *s)
 	// parse AUD and MVC prefix that require no escaping
 	int ret = 0;
 	ctx->CPB = ctx->s.CPB + 3; // first byte that might be escaped
+	ctx->end_of_NAL = 0;
 	Parser parser = parse_nal_unit[ctx->nal_unit_type];
 	if (ctx->nal_unit_type == 9) {
 		if (ctx->s.CPB + 1 >= ctx->s.end || (ctx->s.CPB[1] & 31) != 16) {

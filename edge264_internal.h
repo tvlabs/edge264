@@ -197,6 +197,7 @@ typedef struct
 	uint8_t *samples_mb[3]; // address of top-left byte of each plane in current macroblock
 	uint16_t stride[3]; // [iYCbCr], 16 significant bits (8K, 16bit, field pic)
 	int16_t clip[3]; // [iYCbCr], maximum sample value
+	uint8_t end_of_NAL; // flag set by get_bytes when reading an escape code signalling the end of the NAL unit
 	uint8_t unavail16x16;  // unavailability of neighbouring A/B/C/D macroblocks in slice
 	union { int8_t unavail4x4[16]; i8x16 unavail4x4_v; }; // unavailability of neighbouring A/B/C/D blocks
 	Edge264_flags inc; // increments for CABAC indices of macroblock syntax elements

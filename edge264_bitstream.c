@@ -4,9 +4,16 @@
 #include "edge264_internal.h"
 
 
+/**
+ * Extract nbytes from the bitstream and return them as big endian.
+ * 
+ * The process reads an unaligned 16-byte chunk and will not read past the last
+ * aligned 16-byte chunk containing the last bytes before ctx->end.
+ */
 static always_inline size_t FUNC(get_bytes, int nbytes)
 {
-	static const int8_t shr_data[32] = {
+	static const int8_t sh_data[48] = {
+		-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
 		 0,  1,  2,  3,  4,  5,  6,  7,  8,  9, 10, 11, 12, 13, 14, 15,
 		-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
 	};
@@ -21,43 +28,49 @@ static always_inline size_t FUNC(get_bytes, int nbytes)
 		{0, 1, 2, 3, 4, 5, 6, 8, 9, 10, 11, 12, 13, 14, 15, 15},
 	};
 	
-	// load 16 bytes without ever reading past the end
+	// load 16 bytes without reading past aligned buffer boundaries
 	const uint8_t *CPB = ctx->CPB;
 	const uint8_t *end = ctx->s.end;
-	const uint8_t *after;
-	i8x16 x;
+	u8x16 v;
 	if (__builtin_expect(CPB + 14 <= end, 1)) {
-		after = CPB + nbytes;
-		x = load128(CPB - 2);
+		v = load128(CPB - 2);
 	} else {
-		after = CPB + nbytes < end ? CPB + nbytes : end;
-		i8x16 shr_mask = load128(shr_data + (CPB + 14 - end));
-		x = shuffle8(load128(end - 16), shr_mask);
+		const uint8_t *last = (uint8_t *)((uintptr_t)(end - 1) & -16);
+		const uint8_t *p = CPB - 2 < last ? CPB - 2 : last;
+		u8x16 shl_mask = load128(sh_data + 16 - (p + 16 - end));
+		u8x16 shr_mask = load128(sh_data + 16 + (CPB + 14 - end));
+		v = shuffle8(shuffle8(load128(p), shl_mask), shr_mask);
+		if (end - CPB < nbytes) {
+			nbytes = end - CPB;
+			ctx->end_of_NAL = 1;
+		}
 	}
 	
-	// create a bitmask for the positions of 00n escape sequences
-	unsigned bytes0 = movemask(x == 0);
-	x = shr(x, 2);
-	unsigned bytes03 = movemask(x == umin8(x, set8(3)));
-	unsigned esc = bytes0 & bytes0 >> 1 & bytes03;
+	// create a bitmask for the positions of 00n escape sequences, with n<=3
+	u8x16 eq0 = v == 0;
+	u8x16 x = shr(v, 2);
+	u8x16 eq0123 = x <= 3;
+	unsigned esc = movemask(eq0 & shr(eq0, 1) & eq0123);
 	
 	// iterate on escape sequences that fall inside the bytes to refill
 	while (__builtin_expect(esc & ((1 << nbytes) - 1), 0)) {
 		int i = __builtin_ctz(esc);
 		// when hitting a start code, point at the 3rd byte to stall future refills there
 		if (CPB[i] <3) {
-			after = CPB + i;
+			ctx->end_of_NAL = 1;
+			x = shuffle8(shuffle8(x, load128(sh_data + i)), load128(sh_data + 32 - i));
+			nbytes = i;
 			break;
 		}
 		// otherwise this is an emulation_prevention_three_byte -> remove it
 		x = shuffle8(x, shuf[i]);
 		esc = (esc & (esc - 1)) >> 1;
 		CPB++;
-		after = after + 1 < end ? after + 1 : end;
+		nbytes = min(nbytes, end - CPB);
 	}
 	
 	// increment CPB and return the requested bytes in upper part of the result
-	ctx->CPB = after;
+	ctx->CPB = CPB + nbytes;
 	#if SIZE_BIT == 32
 		return big_endian32(((i32x4)x)[0]);
 	#elif SIZE_BIT == 64

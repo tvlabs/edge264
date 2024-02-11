@@ -5,9 +5,6 @@
  * 	_ add option in play to find yuv files automatically
  * 	_ remove unused prints in SSPS
  * 	_ add view_id to the detection of a new picture (H.7.4.1.2.4)
- * _ add test option to disable comparison against yuv
- * _ disable binary division for residuals?
- * _ Remove all occurences of __builtin_shufflevector
  * _ Replace memcpy with load16?
  * _ include sign bit in binary division tricks
  * _ Find start code & escape sequences with 1 less movemask
@@ -31,6 +28,7 @@
  * _ try using epb for context pointer, and email GCC when it fails
  * _ group ctx fields by frequency of accesses and force them manually into L1/L2/L3
  * _ when implementing fields and MBAFF, keep the same pic coding struct (no FLD/AFRM) and just add mb_field_decoding_flag
+ * _ try disabling the binary division trick after enabling precise profiling
  */
 
 /** Notes:

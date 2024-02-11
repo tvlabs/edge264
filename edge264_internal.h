@@ -463,6 +463,11 @@ static noinline int FUNC(parse_slice_data_cabac);
  */
 #ifdef __SSSE3__
 	#include <x86intrin.h>
+	static const int8_t sh_data[48] = {
+		-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
+		 0,  1,  2,  3,  4,  5,  6,  7,  8,  9, 10, 11, 12, 13, 14, 15,
+		-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
+	};
 	
 	// fixing a strange bug from GCC
 	#if !defined(__clang__) && __GNUC__ < 12
@@ -495,10 +500,12 @@ static noinline int FUNC(parse_slice_data_cabac);
 	#define set8(i) (i8x16)_mm_set1_epi8(i)
 	#define set16(i) (i16x8)_mm_set1_epi16(i)
 	#define set32(i) (i32x4)_mm_set1_epi32(i)
-	#define shl(a, i) (i8x16)_mm_slli_si128(a, i)
+	#define shl(a, i) (i8x16)_mm_shuffle_epi8(a, load128(sh_data + 16 - (i)))
+	#define shlc(a, i) (i8x16)_mm_slli_si128(a, i)
 	#define shl16(a, b) (i16x8)_mm_sll_epi16(a, b)
 	#define shl32(a, b) (i32x4)_mm_sll_epi32(a, b)
-	#define shr(a, i) (i8x16)_mm_srli_si128(a, i)
+	#define shr(a, i) (i8x16)_mm_shuffle_epi8(a, load128(sh_data + 16 + (i)))
+	#define shrc(a, i) (i8x16)_mm_srli_si128(a, i)
 	#define shr16(a, b) (i16x8)_mm_sra_epi16(a, b)
 	#define shr32(a, b) (i32x4)_mm_sra_epi32(a, b)
 	#define shuffle8(a, m) (i8x16)_mm_shuffle_epi8(a, m) // -1 indices make 0
@@ -585,10 +592,6 @@ static noinline int FUNC(parse_slice_data_cabac);
 	#endif
 #else // add other architectures here
 	#error "Add -mssse3 or more recent"
-#endif
-
-#if !defined(__clang__) && __GNUC__ < 12
-	#define __builtin_shufflevector(a, b, ...) __builtin_shuffle(a, b, (typeof(a)){__VA_ARGS__})
 #endif
 
 

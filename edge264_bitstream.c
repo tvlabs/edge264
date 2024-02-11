@@ -12,11 +12,6 @@
  */
 static always_inline size_t FUNC(get_bytes, int nbytes)
 {
-	static const int8_t sh_data[48] = {
-		-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
-		 0,  1,  2,  3,  4,  5,  6,  7,  8,  9, 10, 11, 12, 13, 14, 15,
-		-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
-	};
 	static const i8x16 shuf[8] = {
 		{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 15},
 		{0, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 15},
@@ -37,9 +32,7 @@ static always_inline size_t FUNC(get_bytes, int nbytes)
 	} else {
 		const uint8_t *last = (uint8_t *)((uintptr_t)(end - 1) & -16);
 		const uint8_t *p = CPB - 2 < last ? CPB - 2 : last;
-		u8x16 shl_mask = load128(sh_data + 16 - (p + 16 - end));
-		u8x16 shr_mask = load128(sh_data + 16 + (CPB + 14 - end));
-		v = shuffle8(shuffle8(load128(p), shl_mask), shr_mask);
+		v = shr(shl(load128(p), p + 16 - end), CPB + 14 - end);
 		if (end - CPB < nbytes) {
 			nbytes = end - CPB;
 			ctx->end_of_NAL = 1;
@@ -48,9 +41,9 @@ static always_inline size_t FUNC(get_bytes, int nbytes)
 	
 	// create a bitmask for the positions of 00n escape sequences, with n<=3
 	u8x16 eq0 = v == 0;
-	u8x16 x = shr(v, 2);
+	u8x16 x = shrc(v, 2);
 	u8x16 eq0123 = x <= 3;
-	unsigned esc = movemask(eq0 & shr(eq0, 1) & eq0123);
+	unsigned esc = movemask(eq0 & shrc(eq0, 1) & eq0123);
 	
 	// iterate on escape sequences that fall inside the bytes to refill
 	while (__builtin_expect(esc & ((1 << nbytes) - 1), 0)) {
@@ -58,7 +51,7 @@ static always_inline size_t FUNC(get_bytes, int nbytes)
 		// when hitting a start code, point at the 3rd byte to stall future refills there
 		if (CPB[i] <3) {
 			ctx->end_of_NAL = 1;
-			x = shuffle8(shuffle8(x, load128(sh_data + i)), load128(sh_data + 32 - i));
+			x = shr(shl(x, 16 - i), 16 - i);
 			nbytes = i;
 			break;
 		}

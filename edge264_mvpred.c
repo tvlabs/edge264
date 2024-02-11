@@ -36,7 +36,7 @@ static inline void FUNC(decode_inter_16x16, i16x8 mvd, int lx)
 	
 	// sum mvp and mvd, broadcast everything to memory and tail-jump to decoding
 	i32x4 mv = mvp + mvd;
-	i16x8 mvs = __builtin_shufflevector(mv, mv, 0, 0, 0, 0);
+	i16x8 mvs = shuffle32(mv, 0, 0, 0, 0);
 	mb->absMvd_v[lx * 2] = mb->absMvd_v[lx * 2 + 1] = pack_absMvd(mvd);
 	mb->mvs_v[lx * 4] = mb->mvs_v[lx * 4 + 1] = mb->mvs_v[lx * 4 + 2] = mb->mvs_v[lx * 4 + 3] = mvs;
 	CALL(decode_inter, lx * 16, 16, 16);
@@ -79,7 +79,7 @@ static inline void FUNC(decode_inter_8x16_left, i16x8 mvd, int lx)
 	
 	// sum mvp and mvd, broadcast everything to memory and call decoding
 	i32x4 mv = mvp + mvd;
-	i16x8 mvs = __builtin_shufflevector(mv, mv, 0, 0, 0, 0);
+	i16x8 mvs = shuffle32(mv, 0, 0, 0, 0);
 	mb->absMvd_l[lx * 4] = mb->absMvd_l[lx * 4 + 2] = ((i64x2)pack_absMvd(mvd))[0];
 	mb->mvs_v[lx * 4] = mb->mvs_v[lx * 4 + 2] = mvs;
 	CALL(decode_inter, lx * 16, 8, 16);
@@ -122,7 +122,7 @@ static inline void FUNC(decode_inter_8x16_right, i16x8 mvd, int lx)
 	
 	// sum mvp and mvd, broadcast everything to memory and call decoding
 	i32x4 mv = mvp + mvd;
-	i16x8 mvs = __builtin_shufflevector(mv, mv, 0, 0, 0, 0);
+	i16x8 mvs = shuffle32(mv, 0, 0, 0, 0);
 	mb->absMvd_l[lx * 4 + 1] = mb->absMvd_l[lx * 4 + 3] = ((i64x2)pack_absMvd(mvd))[0];
 	mb->mvs_v[lx * 4 + 1] = mb->mvs_v[lx * 4 + 3] = mvs;
 	CALL(decode_inter, lx * 16 + 4, 8, 16);
@@ -165,7 +165,7 @@ static inline void FUNC(decode_inter_16x8_top, i16x8 mvd, int lx)
 	
 	// sum mvp and mvd, broadcast everything to memory and tail-jump to decoding
 	i32x4 mv = mvp + mvd;
-	i16x8 mvs = __builtin_shufflevector(mv, mv, 0, 0, 0, 0);
+	i16x8 mvs = shuffle32(mv, 0, 0, 0, 0);
 	mb->absMvd_v[lx * 2] = pack_absMvd(mvd);
 	mb->mvs_v[lx * 4 + 0] = mb->mvs_v[lx * 4 + 1] = mvs;
 	CALL(decode_inter, lx * 16, 16, 8);
@@ -201,7 +201,7 @@ static inline void FUNC(decode_inter_16x8_bottom, i16x8 mvd, int lx)
 	
 	// sum mvp and mvd, broadcast everything to memory and tail-jump to decoding
 	i32x4 mv = mvp + mvd;
-	i16x8 mvs = __builtin_shufflevector(mv, mv, 0, 0, 0, 0);
+	i16x8 mvs = shuffle32(mv, 0, 0, 0, 0);
 	mb->absMvd_v[lx * 2 + 1] = pack_absMvd(mvd);
 	mb->mvs_v[lx * 4 + 2] = mb->mvs_v[lx * 4 + 3] = mvs;
 	CALL(decode_inter, lx * 16 + 8, 16, 8);
@@ -220,12 +220,12 @@ static always_inline void FUNC(decode_direct_spatial_mv_pred, unsigned direct_fl
 	i16x8 mvA = (i32x4){*(mb->mvs_s + ctx->mvs_A[0]), *(mb->mvs_s + ctx->mvs_A[0] + 16)};
 	i16x8 mvB = (i32x4){*(mb->mvs_s + ctx->mvs_B[0]), *(mb->mvs_s + ctx->mvs_B[0] + 16)};
 	i16x8 mvC = (i32x4){*(mb->mvs_s + ctx->mvs_C[5]), *(mb->mvs_s + ctx->mvs_C[5] + 16)};
-	i8x16 refIdxA = shuffle8(shr((i64x2){mb[-1].refIdx_l}, 1), shuf);
-	i8x16 refIdxB = shuffle8(shr((i64x2){mbB->refIdx_l}, 2), shuf);
-	i8x16 refIdxC = shuffle8(shr((i64x2){mbB[1].refIdx_l}, 2), shuf);
+	i8x16 refIdxA = shuffle8(shrc((i64x2){mb[-1].refIdx_l}, 1), shuf);
+	i8x16 refIdxB = shuffle8(shrc((i64x2){mbB->refIdx_l}, 2), shuf);
+	i8x16 refIdxC = shuffle8(shrc((i64x2){mbB[1].refIdx_l}, 2), shuf);
 	if (__builtin_expect(ctx->unavail16x16 & 4, 0)) {
 		mvC = (i32x4){*(mb->mvs_s + ctx->mvs_D[0]), *(mb->mvs_s + ctx->mvs_D[0] + 16)};
-		refIdxC = shuffle8(shr((i64x2){mbB[-1].refIdx_l}, 3), shuf);
+		refIdxC = shuffle8(shrc((i64x2){mbB[-1].refIdx_l}, 3), shuf);
 	}
 	
 	// initialize mv along refIdx since it will equal one of refIdxA/B/C
@@ -240,8 +240,8 @@ static always_inline void FUNC(decode_direct_spatial_mv_pred, unsigned direct_fl
 	// select median if refIdx equals another of refIdxA/B/C
 	i8x16 cmp_med = (refIdxm == refIdxC) | (refIdx == refIdxM); // 3 cases: A=B<C, A=C<B, B=C<A
 	i16x8 mv01 = ifelse_mask(cmp_med, median16(mvA, mvB, mvC), mvmm);
-	i16x8 mvs0 = __builtin_shufflevector((i32x4)mv01, (i32x4)mv01, 0, 0, 0, 0);
-	i16x8 mvs4 = __builtin_shufflevector((i32x4)mv01, (i32x4)mv01, 1, 1, 1, 1);
+	i16x8 mvs0 = shuffle32(mv01, 0, 0, 0, 0);
+	i16x8 mvs4 = shuffle32(mv01, 1, 1, 1, 1);
 	
 	// direct zero prediction applies only to refIdx (mvLX are zero already)
 	refIdx ^= (i8x16)((i64x2)refIdx == -1);
@@ -263,10 +263,10 @@ static always_inline void FUNC(decode_direct_spatial_mv_pred, unsigned direct_fl
 			i16x8 mvCol3 = *(i16x8*)(mbCol->mvs + offsets[3] + 24);
 			i8x16 refCol = ifelse_msb(refColL0, (i32x4){mbCol->refIdx_s[1]}, refColL0);
 			if (ctx->sps.direct_8x8_inference_flag) {
-				mvCol0 = __builtin_shufflevector((i32x4)mvCol0, (i32x4)mvCol0, 0, 0, 0, 0);
-				mvCol1 = __builtin_shufflevector((i32x4)mvCol1, (i32x4)mvCol1, 1, 1, 1, 1);
-				mvCol2 = __builtin_shufflevector((i32x4)mvCol2, (i32x4)mvCol2, 2, 2, 2, 2);
-				mvCol3 = __builtin_shufflevector((i32x4)mvCol3, (i32x4)mvCol3, 3, 3, 3, 3);
+				mvCol0 = shuffle32(mvCol0, 0, 0, 0, 0);
+				mvCol1 = shuffle32(mvCol1, 1, 1, 1, 1);
+				mvCol2 = shuffle32(mvCol2, 2, 2, 2, 2);
+				mvCol3 = shuffle32(mvCol3, 3, 3, 3, 3);
 			}
 			
 			// initialize colZeroFlags and masks for motion vectors
@@ -380,10 +380,10 @@ static always_inline void FUNC(decode_direct_temporal_mv_pred, unsigned direct_f
 	i8x16 refPicCol = ifelse_msb(refPicColL0, (i32x4){mbCol->refPic_s[1]}, refPicColL0);
 	unsigned inter_eqs = little_endian32(mbCol->inter_eqs_s);
 	if (ctx->sps.direct_8x8_inference_flag) {
-		mvCol0 = __builtin_shufflevector((i32x4)mvCol0, (i32x4)mvCol0, 0, 0, 0, 0);
-		mvCol1 = __builtin_shufflevector((i32x4)mvCol1, (i32x4)mvCol1, 1, 1, 1, 1);
-		mvCol2 = __builtin_shufflevector((i32x4)mvCol2, (i32x4)mvCol2, 2, 2, 2, 2);
-		mvCol3 = __builtin_shufflevector((i32x4)mvCol3, (i32x4)mvCol3, 3, 3, 3, 3);
+		mvCol0 = shuffle32(mvCol0, 0, 0, 0, 0);
+		mvCol1 = shuffle32(mvCol1, 1, 1, 1, 1);
+		mvCol2 = shuffle32(mvCol2, 2, 2, 2, 2);
+		mvCol3 = shuffle32(mvCol3, 3, 3, 3, 3);
 		inter_eqs |= 0x1b1b1b1b;
 	}
 	

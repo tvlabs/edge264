@@ -71,7 +71,7 @@ void noinline _decode_intra4x4(int mode, uint8_t *px1, size_t stride, ssize_t ns
 		i8x16 x2 = load32(px1 +  stride     - 4);
 		i8x16 x3 = load32(px1 +  stride * 2 - 4);
 		i8x16 x4 = unpacklo16(unpacklo8(x0, x1), unpacklo8(x2, x3));
-		dc = sad8(shr(x4, 12), zero) >> 1;
+		dc = sad8(shrc(x4, 12), zero) >> 1;
 		goto dc_4x4; }
 	case I4x4_DCAB_8:
 		dc = broadcast16(clip);
@@ -80,13 +80,13 @@ void noinline _decode_intra4x4(int mode, uint8_t *px1, size_t stride, ssize_t ns
 	case I4x4_DDL_8:
 		top = load8zx16(px1 + nstride * 2);
 	diagonal_down_left_4x4: {
-		i16x8 x1 = shr(top, 2);
+		i16x8 x1 = shrc(top, 2);
 		i16x8 x2 = shufflehi(shuffle32(top, 1, 2, 3, 3), 0, 1, 1, 1);
 		i8x16 x3 = packus16(lowpass16(top, x1, x2), zero);
 		*(int32_t *)(px1 + nstride    ) = ((i32x4)x3)[0];
-		*(int32_t *)(px1              ) = ((i32x4)shr(x3, 1))[0];
-		*(int32_t *)(px1 +  stride    ) = ((i32x4)shr(x3, 2))[0];
-		*(int32_t *)(px1 +  stride * 2) = ((i32x4)shr(x3, 3))[0];
+		*(int32_t *)(px1              ) = ((i32x4)shrc(x3, 1))[0];
+		*(int32_t *)(px1 +  stride    ) = ((i32x4)shrc(x3, 2))[0];
+		*(int32_t *)(px1 +  stride * 2) = ((i32x4)shrc(x3, 3))[0];
 		return; }
 	case I4x4_DDLC_8:
 		top = shuffle8(load32(px1 + nstride * 2), ((i8x16){0, -1, 1, -1, 2, -1, 3, -1, 3, -1, 3, -1, 3, -1, 3, -1}));
@@ -101,9 +101,9 @@ void noinline _decode_intra4x4(int mode, uint8_t *px1, size_t stride, ssize_t ns
 		i16x8 x5 = unpackhi8(unpacklo16(unpacklo8(x4, x3), unpacklo8(x2, x1)), zero); // ....0123
 		i16x8 x6 = lowpass16(alignr(x0, x5, 8), alignr(x0, x5, 10), alignr(x0, x5, 12));
 		i8x16 x7 = packus16(x6, x6);
-		*(int32_t *)(px1 + nstride    ) = ((i32x4)shr(x7, 3))[0];
-		*(int32_t *)(px1              ) = ((i32x4)shr(x7, 2))[0];
-		*(int32_t *)(px1 +  stride    ) = ((i32x4)shr(x7, 1))[0];
+		*(int32_t *)(px1 + nstride    ) = ((i32x4)shrc(x7, 3))[0];
+		*(int32_t *)(px1              ) = ((i32x4)shrc(x7, 2))[0];
+		*(int32_t *)(px1 +  stride    ) = ((i32x4)shrc(x7, 1))[0];
 		*(int32_t *)(px1 +  stride * 2) = ((i32x4)x7)[0];
 		return; }
 	
@@ -114,7 +114,7 @@ void noinline _decode_intra4x4(int mode, uint8_t *px1, size_t stride, ssize_t ns
 		i8x16 x3 = load32(px1 +  stride     - 4); // ...0............
 		i8x16 x4 = unpacklo16(unpacklo8(x3, x3), unpacklo8(x2, x1)); // .............012
 		i16x8 x5 = cvt8zx16(alignr(x0, x4, 13));
-		i16x8 x6 = shl(x5, 2);
+		i16x8 x6 = shlc(x5, 2);
 		i8x16 x7 = packus16(avg16(x5, x6), lowpass16(x5, x6, shuffle32(x5, 0, 0, 1, 2)));
 		i32x4 pred = shuffle8(x7, ((i8x16){4, 5, 6, 7, 12, 13, 14, 15, 11, 4, 5, 6, 10, 12, 13, 14}));
 		*(int32_t *)(px1 + nstride    ) = pred[0];
@@ -131,7 +131,7 @@ void noinline _decode_intra4x4(int mode, uint8_t *px1, size_t stride, ssize_t ns
 		i8x16 x4 = load32(px1 +  stride * 2 - 4); // ...0............
 		i8x16 x5 = unpacklo16(unpacklo8(x4, x3), unpacklo8(x2, x1)); // ............0123
 		i16x8 x6 = cvt8zx16(alignr(x0, x5, 12));
-		i16x8 x7 = shr(x6, 2);
+		i16x8 x7 = shrc(x6, 2);
 		i8x16 x8 = packus16(avg16(x6, x7), lowpass16(x6, x7, shuffle32(x6, 1, 2, 3, 3)));
 		i32x4 pred = shuffle8(x8, ((i8x16){3, 11, 12, 13, 2, 10, 3, 11, 1, 9, 2, 10, 0, 8, 1, 9}));
 		*(int32_t *)(px1 + nstride    ) = pred[0];
@@ -143,13 +143,13 @@ void noinline _decode_intra4x4(int mode, uint8_t *px1, size_t stride, ssize_t ns
 	case I4x4_VL_8:
 		top = load8zx16(px1 + nstride * 2);
 	vertical_left_4x4: {
-		i16x8 x0 = shr(top, 2);
+		i16x8 x0 = shrc(top, 2);
 		i16x8 x1 = shufflehi(shuffle32(top, 1, 2, 3, 3), 0, 1, 1, 1);
 		i8x16 x2 = packus16(avg16(top, x0), lowpass16(top, x0, x1));
 		*(int32_t *)(px1 + nstride    ) = ((i32x4)x2)[0];
 		*(int32_t *)(px1              ) = ((i32x4)x2)[2];
-		*(int32_t *)(px1 +  stride    ) = ((i32x4)shr(x2, 1))[0];
-		*(int32_t *)(px1 +  stride * 2) = ((i32x4)shr(x2, 9))[0];
+		*(int32_t *)(px1 +  stride    ) = ((i32x4)shrc(x2, 1))[0];
+		*(int32_t *)(px1 +  stride * 2) = ((i32x4)shrc(x2, 9))[0];
 		return; }
 	case I4x4_VLC_8:
 		top = shuffle8(load32(px1 + nstride * 2), ((i8x16){0, -1, 1, -1, 2, -1, 3, -1, 3, -1, 3, -1, 3, -1, 3, -1}));
@@ -199,7 +199,7 @@ static i8x16 filter_h2a_8bit(ssize_t dstride, uint8_t *px0, uint8_t *px7, size_t
 	i8x16 i2b = unpackhi32(i2f, e2b);
 	i8x16 h2a = alignr(a, i2b, 1);
 	i8x16 g2a = alignr(a, h2a, 1);
-	return shr(lowpass8(i2b, h2a, g2a), 8);
+	return shrc(lowpass8(i2b, h2a, g2a), 8);
 }
 
 void noinline _decode_intra8x8(int mode, uint8_t *px0, uint8_t *px7, size_t stride, ssize_t nstride, i16x8 clip) {
@@ -378,14 +378,14 @@ void noinline _decode_intra8x8(int mode, uint8_t *px0, uint8_t *px7, size_t stri
 		i8x16 l2z = shuffle8(k2z, shr16_8bit);
 		i8x16 x0 = lowpass8(j2y, k2z, l2z);
 		i8x16 x1 = shuffle8(x0, shr16_8bit);
-		p0 = lowpass8(x0, x1, shr(x1, 1));
-		p1 = shr(p0, 1);
-		p2 = shr(p0, 2);
-		p3 = shr(p0, 3);
-		p4 = shr(p0, 4);
-		p5 = shr(p0, 5);
-		p6 = shr(p0, 6);
-		p7 = shr(p0, 7);
+		p0 = lowpass8(x0, x1, shrc(x1, 1));
+		p1 = shrc(p0, 1);
+		p2 = shrc(p0, 2);
+		p3 = shrc(p0, 3);
+		p4 = shrc(p0, 4);
+		p5 = shrc(p0, 5);
+		p6 = shrc(p0, 6);
+		p7 = shrc(p0, 7);
 		break; }
 	case I8x8_DDL_C_8:
 		j2y = shuffle8(load128(px0 + nstride     - 1), C8_8bit);
@@ -421,14 +421,14 @@ void noinline _decode_intra8x8(int mode, uint8_t *px0, uint8_t *px7, size_t stri
 		i8x16 b2r = alignr(j2s, a2h, 9);
 		i8x16 x0 = lowpass8(shuffle8(a2q, shl_8bit), a2q, b2r);
 		i8x16 x1 = lowpass8(a2q, b2r, alignr(j2s, a2h, 10));
-		p7 = lowpass8(x0, x1, shr(x1, 1));
-		p6 = shr(p7, 1);
-		p5 = shr(p7, 2);
-		p4 = shr(p7, 3);
-		p3 = shr(p7, 4);
-		p2 = shr(p7, 5);
-		p1 = shr(p7, 6);
-		p0 = shr(p7, 7);
+		p7 = lowpass8(x0, x1, shrc(x1, 1));
+		p6 = shrc(p7, 1);
+		p5 = shrc(p7, 2);
+		p4 = shrc(p7, 3);
+		p3 = shrc(p7, 4);
+		p2 = shrc(p7, 5);
+		p1 = shrc(p7, 6);
+		p0 = shrc(p7, 7);
 		break; }
 	
 	case I8x8_VR_C_8:
@@ -452,16 +452,16 @@ void noinline _decode_intra8x8(int mode, uint8_t *px0, uint8_t *px7, size_t stri
 		i8x16 b2r = alignr(j2s, a2h, 9);
 		i8x16 c2s = alignr(j2s, a2h, 10);
 		i8x16 x0 = lowpass8(a2q, b2r, c2s);
-		i8x16 x1 = shl(x0, 1);
-		i8x16 x2 = lowpass8(x0, x1, shl(x0, 2));
-		p0 = shr(avg8(x0, x1), 8);
-		p1 = shr(x2, 8);
-		p2 = alignr(p0, shl(x2, 8), 15);
-		p3 = alignr(p1, shl(x2, 9), 15);
-		p4 = alignr(p2, shl(x2, 10), 15);
-		p5 = alignr(p3, shl(x2, 11), 15);
-		p6 = alignr(p4, shl(x2, 12), 15);
-		p7 = alignr(p5, shl(x2, 13), 15);
+		i8x16 x1 = shlc(x0, 1);
+		i8x16 x2 = lowpass8(x0, x1, shlc(x0, 2));
+		p0 = shrc(avg8(x0, x1), 8);
+		p1 = shrc(x2, 8);
+		p2 = alignr(p0, shlc(x2, 8), 15);
+		p3 = alignr(p1, shlc(x2, 9), 15);
+		p4 = alignr(p2, shlc(x2, 10), 15);
+		p5 = alignr(p3, shlc(x2, 11), 15);
+		p6 = alignr(p4, shlc(x2, 12), 15);
+		p7 = alignr(p5, shlc(x2, 13), 15);
 		break; }
 	
 	case I8x8_HD_8: {
@@ -480,36 +480,36 @@ void noinline _decode_intra8x8(int mode, uint8_t *px0, uint8_t *px7, size_t stri
 		i8x16 a2q = alignr(j2s, a2h, 8);
 		i8x16 b2r = alignr(j2s, a2h, 9);
 		i8x16 x0 = lowpass8(shuffle8(a2q, shl_8bit), a2q, b2r);
-		i8x16 x1 = shr(x0, 1);
-		i8x16 x2 = lowpass8(x0, x1, shr(x0, 2));
+		i8x16 x1 = shrc(x0, 1);
+		i8x16 x2 = lowpass8(x0, x1, shrc(x0, 2));
 		p7 = unpacklo8(avg8(x0, x1), x2);
-		p6 = shr(p7, 2);
-		p5 = shr(p7, 4);
-		p4 = shr(p7, 6);
+		p6 = shrc(p7, 2);
+		p5 = shrc(p7, 4);
+		p4 = shrc(p7, 6);
 		p3 = unpackhi64(p7, x2);
-		p2 = shr(p3, 2);
-		p1 = shr(p3, 4);
-		p0 = shr(p3, 6);
+		p2 = shrc(p3, 2);
+		p1 = shrc(p3, 4);
+		p0 = shrc(p3, 6);
 		break; }
 	
 	case I8x8_VL_8:
 		j2y = load128(px0 + nstride     - 1);
 		k2z = load128(px0 + nstride        );
 	vertical_left_8x8: {
-		i8x16 x0 = lowpass8(j2y, k2z, shr(k2z, 1));
-		i8x16 x1 = shr(x0, 1);
+		i8x16 x0 = lowpass8(j2y, k2z, shrc(k2z, 1));
+		i8x16 x1 = shrc(x0, 1);
 		p0 = avg8(x0, x1);
-		p1 = lowpass8(x0, x1, shr(x0, 2));
-		p2 = shr(p0, 1);
-		p3 = shr(p1, 1);
-		p4 = shr(p2, 1);
-		p5 = shr(p3, 1);
-		p6 = shr(p4, 1);
-		p7 = shr(p5, 1);
+		p1 = lowpass8(x0, x1, shrc(x0, 2));
+		p2 = shrc(p0, 1);
+		p3 = shrc(p1, 1);
+		p4 = shrc(p2, 1);
+		p5 = shrc(p3, 1);
+		p6 = shrc(p4, 1);
+		p7 = shrc(p5, 1);
 		break; }
 	case I8x8_VL_C_8:
 		j2y = shuffle8(load128(px0 + nstride     - 1), C8_8bit);
-		k2z = shr(j2y, 1);
+		k2z = shrc(j2y, 1);
 		goto vertical_left_8x8;
 	case I8x8_VL_D_8:
 		k2z = load128(px0 + nstride        );
@@ -525,15 +525,15 @@ void noinline _decode_intra8x8(int mode, uint8_t *px0, uint8_t *px7, size_t stri
 		// PASSTHROUGH
 	case I8x8_HU_8: {
 		i8x16 x0 = shuffle8(filter_h2a_8bit(dstride, px0, px7, stride, nstride), C7_8bit);
-		i8x16 x1 = shr(x0, 1);
-		p0 = unpacklo8(avg8(x0, x1), lowpass8(x0, x1, shr(x0, 2)));
-		p1 = shr(p0, 2);
-		p2 = shr(p0, 4);
-		p3 = shr(p0, 6);
+		i8x16 x1 = shrc(x0, 1);
+		p0 = unpacklo8(avg8(x0, x1), lowpass8(x0, x1, shrc(x0, 2)));
+		p1 = shrc(p0, 2);
+		p2 = shrc(p0, 4);
+		p3 = shrc(p0, 6);
 		p4 = unpackhi64(p0, x0);
-		p5 = shr(p4, 2);
-		p6 = shr(p4, 4);
-		p7 = shr(p4, 6);
+		p5 = shrc(p4, 2);
+		p6 = shrc(p4, 4);
+		p7 = shrc(p4, 6);
 		break; }
 	
 	default: __builtin_unreachable();
@@ -657,7 +657,7 @@ void noinline _decode_intra16x16(int mode, uint8_t *px0, uint8_t *px7, uint8_t *
 		i8x16 lD = load32(pxE + nstride     - 4);
 		i8x16 lE = load32(pxE               - 4);
 		i8x16 lF = load32(pxE +  stride     - 4);
-		i8x16 lG = unpacklo16(unpacklo8(shl(top, 3), l0), unpacklo8(l1, l2));
+		i8x16 lG = unpacklo16(unpacklo8(shlc(top, 3), l0), unpacklo8(l1, l2));
 		i8x16 lH = unpacklo16(unpacklo8(l3, l4), unpacklo8(l5, l6));
 		i8x16 lI = unpacklo16(unpacklo8(l8, l9), unpacklo8(lA, lB));
 		i8x16 lJ = unpacklo16(unpacklo8(lC, lD), unpacklo8(lE, lF));
@@ -674,7 +674,7 @@ void noinline _decode_intra16x16(int mode, uint8_t *px0, uint8_t *px7, uint8_t *
 		i16x8 HV = hadd16(x4, x5); // H in lower half, V in upper half, both in [-9180,9180]
 		i16x8 cm1 = set16(-1);
 		i16x8 x6 = ((HV + (HV >> 2)) - (cm1 << 3)) >> 4; // (5 * HV + 32) >> 6
-		i16x8 a = (broadcast16((i16x8)shr(top, 15) + (i16x8)shr(left, 15)) - cm1) << 4; // in [16,8176]
+		i16x8 a = (broadcast16((i16x8)shrc(top, 15) + (i16x8)shrc(left, 15)) - cm1) << 4; // in [16,8176]
 		i16x8 b = (i16x8)shuffle32(x6, 0, 1, 0, 1); // in [-717,717]
 		i16x8 c = (i16x8)shuffle32(x6, 2, 3, 2, 3); // in [-717,717]
 		
@@ -824,7 +824,7 @@ static always_inline void chroma8x8_plane_8bit(uint8_t *px0, uint8_t *px7, size_
 	i16x8 VH = x6 + shufflelo(x6, 1, 0, 3, 2); // V in 1st quarter, H in 2nd, both in [-2550,2550]
 	i16x8 cm1 = set16(-1);
 	i16x8 x7 = (VH + (VH >> 4) - cm1) >> 1; // (17 * VH + 16) >> 5
-	i16x8 a = (broadcast16((i16x8)shr(l7, 7) + (i16x8)shr(t1, 3)) - cm1) << 4; // in [16,8176]
+	i16x8 a = (broadcast16((i16x8)shrc(l7, 7) + (i16x8)shrc(t1, 3)) - cm1) << 4; // in [16,8176]
 	i16x8 b = shuffle32(x7, 1, 1, 1, 1);
 	i16x8 c = shuffle32(x7, 0, 0, 0, 0);
 	

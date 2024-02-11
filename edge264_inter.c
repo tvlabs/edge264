@@ -334,16 +334,16 @@ INTER4xH_QPEL_13_33(qpel33, 3, shuffle8(l73, shuf_m1))
 			i16x8 l80 = cvt8zx16(l8);\
 			i16x8 x30 = filter_36tapU(l30, l40, l50, l60, l70, l80);\
 			i16x8 r08 = cvt8zx16(r1);\
-			i16x8 r18 = shr(r08, 2);\
-			i16x8 r28 = shr(r08, 4);\
-			i16x8 r38 = shr(r08, 6);\
-			i16x8 r48 = shr(r08, 8);\
-			i16x8 r58 = cvt8zx16(shr(shuffleps(r1, l8, 0, 1, 2, 3), 5));\
+			i16x8 r18 = shrc(r08, 2);\
+			i16x8 r28 = shrc(r08, 4);\
+			i16x8 r38 = shrc(r08, 6);\
+			i16x8 r48 = shrc(r08, 8);\
+			i16x8 r58 = cvt8zx16(shrc(shuffleps(r1, l8, 0, 1, 2, 3), 5));\
 			i16x8 x08 = filter_36tapU(r08, r18, r28, r38, r48, r58);\
 			i16x8 x01 = alignr(x08, x00, 2);\
-			i16x8 x11 = alignr(shr(x08, 2), x10, 2);\
-			i16x8 x21 = alignr(shr(x08, 4), x20, 2);\
-			i16x8 x31 = alignr(shr(x08, 6), x30, 2);\
+			i16x8 x11 = alignr(shrc(x08, 2), x10, 2);\
+			i16x8 x21 = alignr(shrc(x08, 4), x20, 2);\
+			i16x8 x31 = alignr(shrc(x08, 6), x30, 2);\
 			i16x8 y00 = shuffleps(x00, x10, 0, 1, 0, 1);\
 			i16x8 y01 = shuffleps(x01, x11, 0, 1, 0, 1);\
 			i16x8 y02 = shuffleps(x00, x10, 1, 2, 1, 2);\
@@ -397,11 +397,11 @@ INTER4xH_QPEL_12_32(qpel32, filter_6tapD(y03, y23, vh))
 		i8x16 l4 = load128(src + sstride * 2 - 2);\
 		i8x16 zero = {};\
 		i16x8 l40 = cvt8zx16(l4);\
-		i16x8 l41 = shr(l40, 2);\
-		i16x8 l42 = shr(l40, 4);\
-		i16x8 l43 = shr(l40, 6);\
-		i16x8 l44 = shr(l40, 8);\
-		i16x8 l45 = cvt8zx16(shr(l4, 5));\
+		i16x8 l41 = shrc(l40, 2);\
+		i16x8 l42 = shrc(l40, 4);\
+		i16x8 l43 = shrc(l40, 6);\
+		i16x8 l44 = shrc(l40, 8);\
+		i16x8 l45 = cvt8zx16(shrc(l4, 5));\
 		i16x8 x30 = alignr(filter_36tapU(l40, l41, l42, l43, l44, l45), x20, 8);\
 		do {\
 			src += sstride * 4;\
@@ -554,9 +554,9 @@ INTER8xH_QPEL_01_02_03(qpel03, avg8(v01, packus16(l30, l40)))
 			i8x16 h01 = packus16(h0, h1);\
 			i8x16 l5 = load128(src + sstride     - 2);\
 			i8x16 l6 = load128(src + sstride * 2 - 2);\
-			i16x8 l4##C = cvt8zx16(shr(l4, C));\
-			i16x8 l5##C = cvt8zx16(shr(l5, C));\
-			i16x8 l6##C = cvt8zx16(shr(l6, C));\
+			i16x8 l4##C = cvt8zx16(shrc(l4, C));\
+			i16x8 l5##C = cvt8zx16(shrc(l5, C));\
+			i16x8 l6##C = cvt8zx16(shrc(l6, C));\
 			i16x8 v0 = filter_6tap(l0##C, l1##C, l2##C, l3##C, l4##C, l5##C);\
 			i16x8 v1 = filter_6tap(l1##C, l2##C, l3##C, l4##C, l5##C, l6##C);\
 			i8x16 v01 = packus16(v0, v1);\
@@ -600,8 +600,8 @@ INTER8xH_QPEL_11_31(qpel31, 3)
 			i8x16 h01 = packus16(h0, h1);\
 			i8x16 l5 = load128(src + sstride     - 2);\
 			i8x16 l6 = load128(src + sstride * 2 - 2);\
-			i16x8 l5##C = cvt8zx16(shr(l5, C));\
-			i16x8 l6##C = cvt8zx16(shr(l6, C));\
+			i16x8 l5##C = cvt8zx16(shrc(l5, C));\
+			i16x8 l6##C = cvt8zx16(shrc(l6, C));\
 			i16x8 v0 = filter_6tap(l0##C, l1##C, l2##C, l3##C, l4##C, l5##C);\
 			i16x8 v1 = filter_6tap(l1##C, l2##C, l3##C, l4##C, l5##C, l6##C);\
 			i8x16 v01 = packus16(v0, v1);\
@@ -1139,7 +1139,7 @@ static always_inline void inter2xH_chroma_8bit(int h, size_t dstride, uint8_t * 
 	i8x16 zero = {};
 	if (h == 2) {
 		i8x16 x0 = shuffle8(((i32x4){*(int32_t *)src, *(int32_t *)(src + sstride), *(int32_t *)(src + sstride * 2)}), shuf);
-		i16x8 x1 = maddubs(x0, AB) + maddubs(shr(x0, 4), CD);
+		i16x8 x1 = maddubs(x0, AB) + maddubs(shrc(x0, 4), CD);
 		i8x16 p = packus16(avg16(x1 >> 5, zero), zero);
 		i16x8 q = {*(int16_t *)dst, *(int16_t *)(dst + dstride)};
 		i16x8 v = packus16(shr16(maddubs(unpacklo8(q, p), W) + O, logWD), zero);
@@ -1162,12 +1162,12 @@ static always_inline void inter2xH_chroma_8bit(int h, size_t dstride, uint8_t * 
 static always_inline void inter4xH_chroma_8bit(int h, size_t dstride, uint8_t * restrict dst, size_t sstride, const uint8_t *src, i8x16 AB, i8x16 CD, i8x16 W, i16x8 O, i64x2 logWD) {
 	i8x16 zero = {};
 	i8x16 x0 = load64(src              );
-	i8x16 x1 = unpacklo8(x0, shr(x0, 1));
+	i8x16 x1 = unpacklo8(x0, shrc(x0, 1));
 	do {
 		i8x16 x2 = load64(src + sstride    );
-		i8x16 x3 = unpacklo8(x2, shr(x2, 1));
+		i8x16 x3 = unpacklo8(x2, shrc(x2, 1));
 		i8x16 x4 = load64(src + sstride * 2);
-		i8x16 x5 = unpacklo8(x4, shr(x4, 1));
+		i8x16 x5 = unpacklo8(x4, shrc(x4, 1));
 		i16x8 x6 = maddubs(unpacklo64(x1, x3), AB) + maddubs(unpacklo64(x3, x5), CD);
 		i8x16 p = packus16(avg16(x6 >> 5, zero), zero);
 		i32x4 q = {*(int32_t *)(dst          ), *(int32_t *)(dst + dstride)};
@@ -1183,12 +1183,12 @@ static always_inline void inter4xH_chroma_8bit(int h, size_t dstride, uint8_t * 
 static always_inline void inter8xH_chroma_8bit(int h, size_t dstride, uint8_t * restrict dst, size_t sstride, const uint8_t *src, i8x16 AB, i8x16 CD, i8x16 W, i16x8 O, i64x2 logWD) {
 	i8x16 zero = {};
 	i8x16 x0 = load128(src              );
-	i8x16 x1 = unpacklo8(x0, shr(x0, 1));
+	i8x16 x1 = unpacklo8(x0, shrc(x0, 1));
 	do {
 		i8x16 x2 = load128(src + sstride    );
-		i8x16 x3 = unpacklo8(x2, shr(x2, 1));
+		i8x16 x3 = unpacklo8(x2, shrc(x2, 1));
 		i8x16 x4 = load128(src + sstride * 2);
-		i8x16 x5 = unpacklo8(x4, shr(x4, 1));
+		i8x16 x5 = unpacklo8(x4, shrc(x4, 1));
 		i16x8 x6 = avg16((maddubs(x1, AB) + maddubs(x3, CD)) >> 5, zero);
 		i16x8 x7 = avg16((maddubs(x3, AB) + maddubs(x5, CD)) >> 5, zero);
 		i8x16 p = packus16(x6, x7);

@@ -275,49 +275,55 @@ static void CAFUNC(parse_residual_block, int startIdx, int endIdx, int token_or_
 		int ctxIdx1 = ctx->ctxIdxOffsets[3] + 5;
 		do {
 			int coeff_level = 1;
-			int ctxIdx = ctxIdx0;
-			while (coeff_level < 15 && CALL(get_ae, ctxIdx))
-				coeff_level++, ctxIdx = ctxIdx1;
-			if (coeff_level >= 15) {
+			if (!CALL(get_ae, ctxIdx0)) {
+				static const int8_t trans[5] = {0, 2, 3, 4, 4};
+				ctxIdx0 = ctx->ctxIdxOffsets[3] + trans[ctxIdx0 - ctx->ctxIdxOffsets[3]];
+				coeff_level = CALL(get_bypass) ? -coeff_level : coeff_level;
+			} else {
+				coeff_level++;
+				while (coeff_level < 15 && CALL(get_ae, ctxIdx1))
+					coeff_level++;
+				ctxIdx0 = ctx->ctxIdxOffsets[3];
+				ctxIdx1 = ctxIdx0 + ctx->coeff_abs_inc[ctxIdx1 - ctxIdx0 - 5];
 				#if SIZE_BIT == 32
-					// the biggest value to encode is 2^(14+7)-14, for which k=20 (see 9.3.2.3)
-					int k = 0;
-					while (CALL(get_bypass) && k < 20)
-						k++;
-					coeff_level = 1;
-					while (k--)
-						coeff_level += coeff_level + CALL(get_bypass);
-					coeff_level += 14;
-				#elif SIZE_BIT == 64
-					// we need at least 50 bits in codIOffset to get 41 bits with a division by 9 bits
-					int zeros = clz(codIRange);
-					if (zeros > 64 - 50) {
-						codIOffset = lsd(codIOffset, CALL(get_bytes, zeros >> 3), zeros & -8);
-						codIRange <<= zeros & -8;
-						zeros = clz(codIRange);
+					if (coeff_level >= 15) {
+						// the biggest value to encode is 2^(14+7)-14, for which k=20 (see 9.3.2.3)
+						int k = 0;
+						while (CALL(get_bypass) && k < 20)
+							k++;
+						coeff_level = 1;
+						while (k--)
+							coeff_level += coeff_level + CALL(get_bypass);
+						coeff_level += 14;
 					}
-					codIRange >>= 64 - 9 - zeros;
-					size_t quo = codIOffset / codIRange; // requested bits are in lsb and zeros+9 empty bits above
-					size_t rem = codIOffset % codIRange;
-					int k = min(clz(~quo << (zeros + 9)), 20);
-					int unused = 64 - 9 - zeros - k * 2 - 1;
-					coeff_level = 14 + (1 << k | (quo >> unused & (((size_t)1 << k) - 1)));
-					codIOffset = (quo & (((size_t)1 << unused) - 1)) * codIRange + rem;
-					codIRange <<= unused;
+					coeff_level = CALL(get_bypass) ? -coeff_level : coeff_level;
+				#elif SIZE_BIT == 64
+					if (coeff_level >= 15) {
+						// we need at least 51 bits in codIOffset to get 42 bits with a division by 9 bits
+						int zeros = clz(codIRange);
+						if (zeros > 64 - 51) {
+							codIOffset = lsd(codIOffset, CALL(get_bytes, zeros >> 3), zeros & -8);
+							codIRange <<= zeros & -8;
+							zeros &= 7;
+						}
+						codIRange >>= 64 - 9 - zeros;
+						size_t quo = codIOffset / codIRange; // requested bits are in lsb and zeros+9 empty bits above
+						size_t rem = codIOffset % codIRange;
+						int k = clz(~quo << (zeros + 9) | (size_t)1 << (SIZE_BIT - 21));
+						int unused = 64 - 9 - zeros - k * 2 - 2;
+						coeff_level = 14 + (1 << k | (quo >> unused >> 1 & (((size_t)1 << k) - 1)));
+						coeff_level = (quo & (size_t)1 << unused) ? -coeff_level : coeff_level;
+						codIOffset = (quo & (((size_t)1 << unused) - 1)) * codIRange + rem;
+						codIRange <<= unused;
+					} else {
+						coeff_level = CALL(get_bypass) ? -coeff_level : coeff_level;
+					}
 				#endif
 			}
-			
-			// not the brightest part of spec (9.3.3.1.3), I did my best
-			static const int8_t trans[5] = {0, 2, 3, 4, 4};
-			int last_sig_offset = ctx->ctxIdxOffsets[3];
-			int ctxIdxInc = trans[ctxIdx0 - last_sig_offset];
-			ctxIdx0 = last_sig_offset + (coeff_level > 1 ? 0 : ctxIdxInc);
-			ctxIdx1 = min(ctxIdx1 + (coeff_level > 1), (last_sig_offset == 257 ? last_sig_offset + 8 : last_sig_offset + 9));
 		
 			// scale and store
-			int c = CALL(get_bypass) ? -coeff_level : coeff_level;
 			int i = 63 - clz64(significant_coeff_flags);
-			ctx->c[ctx->scan[i]] = c; // beware, scan is transposed already
+			ctx->c[ctx->scan[i]] = coeff_level; // beware, scan is transposed already
 			significant_coeff_flags &= ~((uint64_t)1 << i);
 		} while (significant_coeff_flags != 0);
 	#endif
@@ -370,6 +376,7 @@ static void CAFUNC(parse_chroma_residual)
 		#ifdef CABAC
 			ctx->ctxIdxOffsets_l = ctxIdxOffsets_chromaDC[0]; // FIXME 4:2:2
 			ctx->sig_inc_v[0] = ctx->last_inc_v[0] = sig_inc_chromaDC[0];
+			ctx->coeff_abs_inc_l = (i8x8){6, 7, 8, 8};
 		#endif
 		ctx->c_v[0] = ctx->c_v[1] = ctx->c_v[2] = ctx->c_v[3] = (i32x4){};
 		int token_or_cbf_Cb = CACOND(
@@ -401,6 +408,7 @@ static void CAFUNC(parse_chroma_residual)
 			#ifdef CABAC
 				ctx->sig_inc_v[0] = ctx->last_inc_v[0] = sig_inc_4x4;
 				ctx->ctxIdxOffsets_l = ctxIdxOffsets_chromaAC[0];
+				ctx->coeff_abs_inc_l = (i8x8){6, 7, 8, 9, 9};
 			#endif
 			ctx->scan_v[0] = scan_4x4[0];
 			for (int i4x4 = 0; i4x4 < 8; i4x4++) {
@@ -445,6 +453,7 @@ static void CAFUNC(parse_Intra16x16_residual)
 		// Parse a DC block, then transform it to ctx->c[16..31]
 		#ifdef CABAC
 			ctx->ctxIdxOffsets_l = ctxIdxOffsets_16x16DC[iYCbCr][0];
+			ctx->coeff_abs_inc_l = (i8x8){6, 7, 8, 9, 9};
 		#endif
 		int token_or_cbf = CACOND(
 			CALL(parse_coeff_token_cavlc, 0, mb[-1].nC[iYCbCr][5], mbB->nC[iYCbCr][10]),
@@ -466,6 +475,7 @@ static void CAFUNC(parse_Intra16x16_residual)
 		if (mb->bits[0] & 1 << 5) {
 			#ifdef CABAC
 				ctx->ctxIdxOffsets_l = ctxIdxOffsets_16x16AC[iYCbCr][0];
+				ctx->coeff_abs_inc_l = (i8x8){6, 7, 8, 9, 9};
 			#endif
 			for (int i4x4 = 0; i4x4 < 16; i4x4++) {
 				uint8_t *samples = ctx->samples_mb[iYCbCr] + y444[i4x4] * ctx->stride[iYCbCr] + x444[i4x4];
@@ -534,6 +544,7 @@ static void CAFUNC(parse_NxN_residual)
 		if (!mb->f.transform_size_8x8_flag) {
 			#ifdef CABAC
 				ctx->ctxIdxOffsets_l = ctxIdxOffsets_4x4[iYCbCr][0];
+				ctx->coeff_abs_inc_l = (i8x8){6, 7, 8, 9, 9};
 				ctx->sig_inc_v[0] = ctx->last_inc_v[0] = sig_inc_4x4;
 			#endif
 			ctx->scan_v[0] = scan_4x4[0];
@@ -563,6 +574,7 @@ static void CAFUNC(parse_NxN_residual)
 		} else {
 			#ifdef CABAC
 				ctx->ctxIdxOffsets_l = ctxIdxOffsets_8x8[iYCbCr][0];
+				ctx->coeff_abs_inc_l = (i8x8){6, 7, 8, 9, 9};
 				ctx->sig_inc_v[0] = sig_inc_8x8[0][0];
 				ctx->last_inc_v[0] = last_inc_8x8[0];
 				ctx->scan_v[0] = scan_8x8_cabac[0][0];
@@ -908,7 +920,7 @@ static void CAFUNC(parse_inter_residual)
  * 9.3.3.1.1.7 and tables 9-34 and 9-39).
  * 
  * As with residual coefficients, bypass bits can be extracted all at once
- * using a binary division. mvd expects at most 2^15-9, i.e 28 bits as
+ * using a binary division. The maximum mvd value is 2^15, i.e 26 bits as
  * Exp-Golomb, so we need a single division on 64-bit machines and two on
  * 32-bit machines.
  */
@@ -928,19 +940,19 @@ static i16x8 CAFUNC(parse_mvd_pair, const uint8_t *absMvd_lx, int i4x4) {
 			while (mvd < 9 && CALL(get_ae, ctxIdx))
 				ctxIdx = ctxBase + min(mvd++, 3);
 			if (mvd >= 9) {
-				// we need at least 37 (or 22) bits in codIOffset to get 28 (or 13) bypass bits
+				// we need at least 35 (or 21) bits in codIOffset to get 26 (or 12) bypass bits
 				int zeros = clz(codIRange);
-				if (zeros > (SIZE_BIT == 64 ? 64 - 37 : 32 - 22)) {
+				if (zeros > (SIZE_BIT == 64 ? 64 - 35 : 32 - 21)) {
 					codIOffset = lsd(codIOffset, CALL(get_bytes, zeros >> 3), zeros & -8);
 					codIRange <<= zeros & -8;
-					zeros = clz(codIRange);
+					zeros &= 7;
 				}
-				// for 64-bit we could shift codIOffset down to 37 bits to help iterative hardware dividers, but this code isn't critical enough
+				// for 64-bit we could shift codIOffset down to 37 bits to help iterative hardware dividers, but that would make the code harder to maintain
 				codIRange >>= SIZE_BIT - 9 - zeros;
 				size_t quo = codIOffset / codIRange; // requested bits are in lsb and zeros+9 empty bits above
 				size_t rem = codIOffset % codIRange;
-				int k = 3 + min(clz(~quo << (zeros + 9)), 12);
-				int unused = SIZE_BIT - 9 - zeros - k * 2 + 2;
+				int k = 3 + clz(~quo << (zeros + 9) | (size_t)1 << (SIZE_BIT - 12));
+				int unused = SIZE_BIT - 9 - zeros - k * 2 + 1;
 				#if SIZE_BIT == 32
 					if (__builtin_expect(unused < 0, 0)) { // FIXME needs testing
 						// refill codIOffset with 16 bits then make a new division
@@ -950,15 +962,13 @@ static i16x8 CAFUNC(parse_mvd_pair, const uint8_t *absMvd_lx, int i4x4) {
 						unused += 16;
 					}
 				#endif
-				mvd = 1 + (1 << k | (quo >> unused & (((size_t)1 << k) - 1)));
+				mvd = 1 + (1 << k | (quo >> unused >> 1 & (((size_t)1 << k) - 1)));
+				mvd = (quo & (size_t)1 << unused) ? -mvd : mvd;
 				codIOffset = (quo & (((size_t)1 << unused) - 1)) * codIRange + rem;
 				codIRange <<= unused;
-			}
-			
-			// Parse the sign flag.
-			if (mvd > 0)
+			} else if (mvd > 0) {
 				mvd = CALL(get_bypass) ? -mvd : mvd;
-			// fprintf(stderr, "mvd_l%x: %d\n", pos >> 1 & 1, mvd);
+			}
 			
 			if (++i == 2) {
 				res[1] = mvd;

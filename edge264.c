@@ -5,10 +5,6 @@
  * 	_ add option in play to find yuv files automatically
  * 	_ remove unused prints in SSPS
  * 	_ add view_id to the detection of a new picture (H.7.4.1.2.4)
- * _ Replace memcpy with load16?
- * _ include sign bit in binary division tricks
- * _ Find start code & escape sequences with 1 less movemask
- * _ Allow grouped flags in play&test (ex. -pfu)
  * _ check that sliding window cannot be defeated by multiview if DPB size equals max_frame_num
  * _ check on https://kodi.wiki/view/Samples#3D_Test_Clips
  * _ returning -2 at slice should ensure that a view pair is ready for output
@@ -109,14 +105,14 @@ static void FUNC(initialise_decoding_context)
 	ctx->samples_mb[0] = ctx->samples_row[0] + mbx * 16;
 	ctx->samples_mb[1] = ctx->samples_row[1] + mbx * 8;
 	ctx->samples_mb[2] = ctx->samples_row[2] + mbx * 8;
-	memcpy(ctx->QP_C_v    , QP_Y2C + clip3(0, 63, 15 + ctx->pps.chroma_qp_index_offset), 16);
-	memcpy(ctx->QP_C_v + 1, QP_Y2C + clip3(0, 63, 31 + ctx->pps.chroma_qp_index_offset), 16);
-	memcpy(ctx->QP_C_v + 2, QP_Y2C + clip3(0, 63, 47 + ctx->pps.chroma_qp_index_offset), 16);
-	memcpy(ctx->QP_C_v + 3, QP_Y2C + clip3(0, 63, 63 + ctx->pps.chroma_qp_index_offset), 16);
-	memcpy(ctx->QP_C_v + 4, QP_Y2C + clip3(0, 63, 15 + ctx->pps.second_chroma_qp_index_offset), 16);
-	memcpy(ctx->QP_C_v + 5, QP_Y2C + clip3(0, 63, 31 + ctx->pps.second_chroma_qp_index_offset), 16);
-	memcpy(ctx->QP_C_v + 6, QP_Y2C + clip3(0, 63, 47 + ctx->pps.second_chroma_qp_index_offset), 16);
-	memcpy(ctx->QP_C_v + 7, QP_Y2C + clip3(0, 63, 63 + ctx->pps.second_chroma_qp_index_offset), 16);
+	ctx->QP_C_v[0] = load128(QP_Y2C + clip3(0, 63, 15 + ctx->pps.chroma_qp_index_offset));
+	ctx->QP_C_v[1] = load128(QP_Y2C + clip3(0, 63, 31 + ctx->pps.chroma_qp_index_offset));
+	ctx->QP_C_v[2] = load128(QP_Y2C + clip3(0, 63, 47 + ctx->pps.chroma_qp_index_offset));
+	ctx->QP_C_v[3] = load128(QP_Y2C + clip3(0, 63, 63 + ctx->pps.chroma_qp_index_offset));
+	ctx->QP_C_v[4] = load128(QP_Y2C + clip3(0, 63, 15 + ctx->pps.second_chroma_qp_index_offset));
+	ctx->QP_C_v[5] = load128(QP_Y2C + clip3(0, 63, 31 + ctx->pps.second_chroma_qp_index_offset));
+	ctx->QP_C_v[6] = load128(QP_Y2C + clip3(0, 63, 47 + ctx->pps.second_chroma_qp_index_offset));
+	ctx->QP_C_v[7] = load128(QP_Y2C + clip3(0, 63, 63 + ctx->pps.second_chroma_qp_index_offset));
 	ctx->QP[1] = ctx->QP_C[0][ctx->QP[0]];
 	ctx->QP[2] = ctx->QP_C[1][ctx->QP[0]];
 	int offB_int8 = -(ctx->sps.pic_width_in_mbs + 1) * sizeof(*mb);

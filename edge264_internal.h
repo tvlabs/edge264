@@ -243,6 +243,7 @@ typedef struct
 	union { int16_t ctxIdxOffsets[4]; i16x4 ctxIdxOffsets_l; }; // {cbf,sig_flag,last_sig_flag,coeff_abs}
 	union { int8_t sig_inc[64]; i8x8 sig_inc_l; i8x16 sig_inc_v[4]; };
 	union { int8_t last_inc[64]; i8x8 last_inc_l; i8x16 last_inc_v[4]; };
+	union { int8_t coeff_abs_inc[8]; i8x8 coeff_abs_inc_l; };
 	union { int8_t scan[64]; i8x4 scan_s; i8x8 scan_l; i8x16 scan_v[4]; };
 	union { int8_t QP_C[2][64]; i8x16 QP_C_v[8]; };
 	union { int32_t c[64]; i32x4 c_v[16]; i32x8 c_V[8]; }; // non-scaled residual coefficients

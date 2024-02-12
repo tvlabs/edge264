@@ -5,12 +5,10 @@
  * 	_ add option in play to find yuv files automatically
  * 	_ remove unused prints in SSPS
  * 	_ add view_id to the detection of a new picture (H.7.4.1.2.4)
- * _ check that sliding window cannot be defeated by multiview if DPB size equals max_frame_num
+ * _ merge play into test to ease the debugging of changing videos
+ * _ replace calloc with malloc and reuse Edge264_ctx across new videos
  * _ check on https://kodi.wiki/view/Samples#3D_Test_Clips
- * _ returning -2 at slice should ensure that a view pair is ready for output
  * _ add Edge264_stream definition to documentation, and replace "documentation" with "reference"
- * _ get_frame should check that DPB is initialized
- * _ resetting the DPB should clear reference_flags and other fields!
  * _ layout README like https://github.com/nolanlawson/emoji-picker-element
  * _ name files with numbers to set an explicit order for reading them
  * _ test all versions of GCC and select it in Makefile if not specified on command line
@@ -550,7 +548,6 @@ static void FUNC(finish_frame)
 static int FUNC(realloc_DPB) {
 	if (ctx->DPB != NULL)
 		free(ctx->DPB);
-	//memset(&ctx->s, 0, sizeof(ctx->s)); // FIXME clear only the important stuff
 	ctx->DPB_format = ctx->sps.DPB_format;
 	memcpy(ctx->s.frame_crop_offsets, &ctx->sps.frame_crop_offsets_l, 8);
 	
@@ -559,8 +556,6 @@ static int FUNC(realloc_DPB) {
 	int PicHeightInMbs = ctx->sps.pic_height_in_mbs;
 	int width = PicWidthInMbs << 4;
 	int height = PicHeightInMbs << 4;
-	ctx->currPic = -1;
-	ctx->unpairedView = -1;
 	ctx->s.pixel_depth_Y = ctx->sps.BitDepth_Y > 8;
 	ctx->clip[0] = (1 << ctx->sps.BitDepth_Y) - 1;
 	ctx->s.width_Y = width - ctx->s.frame_crop_offsets[3] - ctx->s.frame_crop_offsets[1];
@@ -575,11 +570,8 @@ static int FUNC(realloc_DPB) {
 		ctx->s.height_C = ctx->sps.chroma_format_idc == 1 ? ctx->s.height_Y >> 1 : ctx->s.height_Y;
 		ctx->plane_size_C = (ctx->sps.chroma_format_idc == 1 ? height >> 1 : height) * ctx->s.stride_C;
 	}
-	for (int i = 1; i < 4; i++) {
-		ctx->sig_inc_v[i] = sig_inc_8x8[0][i];
-		ctx->last_inc_v[i] = last_inc_8x8[i];
-		ctx->scan_v[i] = scan_8x8_cabac[0][i];
-	}
+	ctx->s.samples[0] = ctx->s.samples[1] = ctx->s.samples[2] = NULL;
+	ctx->s.samples_mvc[0] = ctx->s.samples_mvc[1] = ctx->s.samples_mvc[2] = NULL;
 	
 	// initialize macroblock offsets with vectors for the sake of readability
 	int offA_int8 = -(int)sizeof(*mb);
@@ -588,16 +580,12 @@ static int FUNC(realloc_DPB) {
 	int offB_int32 = offB_int8 >> 2;
 	int offC_int32 = offB_int32 + (sizeof(*mb) >> 2);
 	int offD_int32 = offB_int32 - (sizeof(*mb) >> 2);
-	ctx->A4x4_int8_v = (i16x16){5 + offA_int8, 0, 7 + offA_int8, 2, 1, 4, 3, 6, 13 + offA_int8, 8, 15 + offA_int8, 10, 9, 12, 11, 14};
 	ctx->B4x4_int8_v = (i32x16){10 + offB_int8, 11 + offB_int8, 0, 1, 14 + offB_int8, 15 + offB_int8, 4, 5, 2, 3, 8, 9, 6, 7, 12, 13};
 	if (ctx->sps.ChromaArrayType == 1) {
 		ctx->ACbCr_int8_v = (i16x16){1 + offA_int8, 0, 3 + offA_int8, 2, 5 + offA_int8, 4, 7 + offA_int8, 6};
 		ctx->BCbCr_int8_v = (i32x16){2 + offB_int8, 3 + offB_int8, 0, 1, 6 + offB_int8, 7 + offB_int8, 4, 5};
 	}
-	ctx->refIdx4x4_C_v = (i8x16){2, 3, 12, -1, 3, 6, 13, -1, 12, 13, 14, -1, 13, -1, 15, -1};
-	ctx->absMvd_A_v = (i16x16){10 + offA_int8, 0, 14 + offA_int8, 4, 2, 8, 6, 12, 26 + offA_int8, 16, 30 + offA_int8, 20, 18, 24, 22, 28};
 	ctx->absMvd_B_v = (i32x16){20 + offB_int8, 22 + offB_int8, 0, 2, 28 + offB_int8, 30 + offB_int8, 8, 10, 4, 6, 16, 18, 12, 14, 24, 26};
-	ctx->mvs_A_v = (i16x16){5 + offA_int32, 0, 7 + offA_int32, 2, 1, 4, 3, 6, 13 + offA_int32, 8, 15 + offA_int32, 10, 9, 12, 11, 14};
 	ctx->mvs_B_v = (i32x16){10 + offB_int32, 11 + offB_int32, 0, 1, 14 + offB_int32, 15 + offB_int32, 4, 5, 2, 3, 8, 9, 6, 7, 12, 13};
 	ctx->mvs_C_v = (i32x16){11 + offB_int32, 14 + offB_int32, 1, -1, 15 + offB_int32, 10 + offC_int32, 5, -1, 3, 6, 9, -1, 7, -1, 13, -1};
 	ctx->mvs_D_v = (i32x16){15 + offD_int32, 10 + offB_int32, 5 + offA_int32, 0, 11 + offB_int32, 14 + offB_int32, 1, 4, 7 + offA_int32, 2, 13 + offA_int32, 8, 3, 6, 9, 12};
@@ -608,6 +596,8 @@ static int FUNC(realloc_DPB) {
 	ctx->DPB = malloc(ctx->frame_size * ctx->sps.num_frame_buffers);
 	if (ctx->DPB == NULL)
 		return 1;
+	ctx->reference_flags = ctx->long_term_flags = ctx->output_flags = ctx->right_views = 0;
+	ctx->currPic = ctx->unpairedView = -1;
 	
 	// initialise the macroblocks
 	for (int i = 0; i < ctx->sps.num_frame_buffers; i++) {
@@ -1631,7 +1621,23 @@ const uint8_t *Edge264_find_start_code(int n, const uint8_t *CPB, const uint8_t 
 
 Edge264_stream *Edge264_alloc() {
 	void *p = calloc(1, sizeof(Edge264_ctx));
-	return (p != NULL) ? p + offsetof(Edge264_ctx, s) : NULL;
+	if (p == NULL)
+		return p;
+	SET_CTX(p);
+	ctx->DPB = NULL;
+	int offA_int8 = -(int)sizeof(*mb);
+	int offA_int32 = offA_int8 >> 2;
+	ctx->A4x4_int8_v = (i16x16){5 + offA_int8, 0, 7 + offA_int8, 2, 1, 4, 3, 6, 13 + offA_int8, 8, 15 + offA_int8, 10, 9, 12, 11, 14};
+	ctx->refIdx4x4_C_v = (i8x16){2, 3, 12, -1, 3, 6, 13, -1, 12, 13, 14, -1, 13, -1, 15, -1};
+	ctx->absMvd_A_v = (i16x16){10 + offA_int8, 0, 14 + offA_int8, 4, 2, 8, 6, 12, 26 + offA_int8, 16, 30 + offA_int8, 20, 18, 24, 22, 28};
+	ctx->mvs_A_v = (i16x16){5 + offA_int32, 0, 7 + offA_int32, 2, 1, 4, 3, 6, 13 + offA_int32, 8, 15 + offA_int32, 10, 9, 12, 11, 14};
+	for (int i = 1; i < 4; i++) {
+		ctx->sig_inc_v[i] = sig_inc_8x8[0][i];
+		ctx->last_inc_v[i] = last_inc_8x8[i];
+		ctx->scan_v[i] = scan_8x8_cabac[0][i];
+	}
+	RESET_CTX();
+	return p + offsetof(Edge264_ctx, s);
 }
 
 
@@ -1776,6 +1782,10 @@ int Edge264_get_frame(Edge264_stream *s, int drain) {
 	if (s == NULL)
 		return -1;
 	SET_CTX((void *)s - offsetof(Edge264_ctx, s));
+	if (ctx->DPB == NULL) {
+		RESET_CTX();
+		return -2;
+	}
 	int pic[2] = {-1, -1};
 	unsigned unavail = ctx->reference_flags | ctx->output_flags | (ctx->unpairedView < 0 ? 0 : 1 << ctx->unpairedView);
 	int best = (drain || __builtin_popcount(ctx->output_flags) > ctx->sps.max_num_reorder_frames ||

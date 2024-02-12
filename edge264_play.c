@@ -367,8 +367,7 @@ int main(int argc, const char *argv[])
 		}
 	} while (!res);
 	Edge264_free(&s);
-	printf("</body>\n"
-		"</html>\n");
+	printf("</body>\n</html>\n");
 	if (res == 1 && width == 0)
 		fprintf(stderr, "Decoding ended prematurely on " BOLD "unsupported stream" RESET "\n");
 	if (res == 2 && width == 0)

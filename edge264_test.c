@@ -17,6 +17,10 @@
 #define YELLOW "\033[33m"
 #define BLUE   "\033[34m"
 
+#ifndef TRACE
+#define printf(...) ((void)0)
+#endif
+
 static int flt(const struct dirent *a) {
 	char *ext = strrchr(a->d_name, '.');
 	return ext != NULL && strcmp(ext, ".264") == 0;
@@ -54,7 +58,7 @@ int main(int argc, const char *argv[])
 	
 	// print help if any command-line option was unknown
 	if (help) {
-		printf("Usage: %s [dir] [-fhpuy]\n"
+		fprintf(stderr, "Usage: %s [dir] [-fhpuy]\n"
 		       "dir\twhere the .264 files should be found (default=conformance)\n"
 		       "-f\tprint names of failed files\n"
 		       "-h\tprint this help and exit\n"
@@ -74,6 +78,20 @@ int main(int argc, const char *argv[])
 	assert(n>=0);
 	struct stat stC, stD, stD1;
 	int counts[7] = {};
+	printf("<!doctype html>\n"
+		"<html>\n"
+		"<head>\n"
+		"<title>NAL headers</title>\n"
+		"<style>\n"
+		"h4 { margin: -1em 0 1em 0 }\n"
+		"table { border-collapse: collapse; border: 2px solid black; margin-bottom: 2em }\n"
+		"tr { border-bottom: 1px solid black; vertical-align: top }\n"
+		"tr>*:first-child { text-align: right }\n"
+		"th,td { padding: .2em .4em }\n"
+		"</style>\n"
+		"<link rel=stylesheet href=style.css>\n"
+		"</head>\n"
+		"<body>\n");
 	while (n--) {
 		
 		// open and mmap the clip file
@@ -90,7 +108,7 @@ int main(int argc, const char *argv[])
 			memcpy(ext, ".yuv", 4);
 			yuv = open(entries[n]->d_name, O_RDONLY);
 			if (yuv < 0) {
-				printf("%s not found\n", entries[n]->d_name);
+				fprintf(stderr, "%s not found\n", entries[n]->d_name);
 			} else {
 				fstat(yuv, &stD);
 				dpb = mmap(NULL, stD.st_size, PROT_READ, MAP_SHARED, yuv, 0);
@@ -108,11 +126,10 @@ int main(int argc, const char *argv[])
 		assert(cpb!=MAP_FAILED&&dpb!=MAP_FAILED&&dpb1!=MAP_FAILED);
 		
 		// print status line
-		printf("%d " GREEN "PASS" RESET ", %d " YELLOW "UNSUPPORTED" RESET ", %d " RED "FAIL" RESET,
-			counts[0], counts[4], counts[5]);
+		fprintf(stderr, "%d " GREEN "PASS" RESET ", %d " YELLOW "UNSUPPORTED" RESET ", %d " RED "FAIL" RESET, counts[0], counts[4], counts[5]);
 		if (counts[6] > 0)
-			printf(", %d " BLUE "FLAGGED" RESET, counts[6]);
-		printf(" (%s)\n", entries[n]->d_name);
+			fprintf(stderr, ", %d " BLUE "FLAGGED" RESET, counts[6]);
+		fprintf(stderr, " (%s)\n", entries[n]->d_name);
 		
 		// decode the entire file and FAIL on any error
 		Edge264_stream *s = Edge264_alloc();
@@ -149,12 +166,12 @@ int main(int argc, const char *argv[])
 				}
 			}
 		} while (!res);
-		Edge264_free(&s);
 		if (res == -2 || (res == -3 && cmp != NULL && cmp != dpb + stD.st_size))
 			res = 2;
 		counts[3 + res]++;
 		
 		// close everything
+		Edge264_free(&s);
 		munmap(cpb, stC.st_size);
 		close(clip);
 		if (yuv >= 0) {
@@ -167,23 +184,23 @@ int main(int argc, const char *argv[])
 		}
 		
 		// print result
-		printf("\033[A\033[K"); // move cursor up and clear line
+		fprintf(stderr, "\033[A\033[K"); // move cursor up and clear line
 		if (res == -3 && print_passed) {
-			printf("%s: " GREEN "PASS" RESET "\n", entries[n]->d_name);
+			fprintf(stderr, "%s: " GREEN "PASS" RESET "\n", entries[n]->d_name);
 		} else if (res == 1 && print_unsupported) {
-			printf("%s: " YELLOW "UNSUPPORTED" RESET "\n", entries[n]->d_name);
+			fprintf(stderr, "%s: " YELLOW "UNSUPPORTED" RESET "\n", entries[n]->d_name);
 		} else if (res == 2 && print_failed) {
-			printf("%s: " RED "FAIL" RESET "\n", entries[n]->d_name);
+			fprintf(stderr, "%s: " RED "FAIL" RESET "\n", entries[n]->d_name);
 		} else if (res == 3) {
-			printf("%s: " BLUE "FLAGGED" RESET "\n", entries[n]->d_name);
+			fprintf(stderr, "%s: " BLUE "FLAGGED" RESET "\n", entries[n]->d_name);
 		}
 		free(entries[n]);
 	}
-	printf("%d " GREEN "PASS" RESET ", %d " YELLOW "UNSUPPORTED" RESET ", %d " RED "FAIL" RESET,
-		counts[0], counts[4], counts[5]);
+	printf("</body>\n</html>\n");
+	fprintf(stderr, "%d " GREEN "PASS" RESET ", %d " YELLOW "UNSUPPORTED" RESET ", %d " RED "FAIL" RESET, counts[0], counts[4], counts[5]);
 	if (counts[6] > 0)
-		printf(", %d " BLUE "FLAGGED" RESET, counts[6]);
-	putchar('\n');
+		fprintf(stderr, ", %d " BLUE "FLAGGED" RESET, counts[6]);
+	putc('\n', stderr);
 	free(entries);
 	return counts[5];
 }

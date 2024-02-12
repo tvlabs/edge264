@@ -23,7 +23,7 @@ endif
 
 edge264$(SUF).o: edge264*.c edge264*.h Makefile
 	$(CC) -c -o edge264$(SUF).o $(CFLAGS) edge264.c
-ifeq ($(TRACE),)
+ifneq ($(TRACE),2)
 	$(CC) -o edge264_test$(SUF) $(CFLAGS) edge264_test.c edge264$(SUF).o
 endif
 	$(CC) $(GLFW3) $(CFLAGS) -o edge264_play$(SUF) edge264_play.c edge264$(SUF).o

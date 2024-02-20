@@ -312,7 +312,6 @@ INTER4xH_QPEL_13_33(qpel33, 3, shuffle8(l73, shuf_m1))
 		i8x16 l3 = load128(src + sstride     - 2);\
 		i8x16 l4 = load128(src + sstride * 2 - 2);\
 		i8x16 r0 = unpacklo16(unpackhi8(l0, l1), unpackhi8(l2, l3));\
-		i8x16 zero = {};\
 		i16x8 l00 = cvt8zx16(l0);\
 		i16x8 l10 = cvt8zx16(l1);\
 		i16x8 l20 = cvt8zx16(l2);\
@@ -395,7 +394,6 @@ INTER4xH_QPEL_12_32(qpel32, filter_6tapD(y03, y23, vh))
 		i16x8 m25 = shuffle8(l23, shuf_m3);\
 		i16x8 x20 = filter_36tapU(m20, m21, m22, m23, m24, m25);\
 		i8x16 l4 = load128(src + sstride * 2 - 2);\
-		i8x16 zero = {};\
 		i16x8 l40 = cvt8zx16(l4);\
 		i16x8 l41 = shrc(l40, 2);\
 		i16x8 l42 = shrc(l40, 4);\
@@ -467,10 +465,10 @@ static void inter8xH_qpel00_8bit(int h, size_t dstride, uint8_t * restrict dst, 
 
 #define INTER8xH_QPEL_10_20_30(QPEL, P)\
 	static void inter8xH_ ## QPEL ## _8bit(int h, size_t dstride, uint8_t * restrict dst, size_t sstride, const uint8_t *src, i8x16 w, i16x8 o, i64x2 logWD) {\
-		i8x16 zero = {};\
 		do {\
 			i8x16 l0 = load128(src           - 2);\
 			i8x16 l1 = load128(src + sstride - 2);\
+			i8x16 zero = {};\
 			i16x8 l00 = cvt8zx16(l0);\
 			i16x8 l10 = cvt8zx16(l1);\
 			i16x8 l08 = unpackhi8(l0, zero);\
@@ -501,7 +499,6 @@ INTER8xH_QPEL_10_20_30(qpel30, avg8(h01, packus16(l03, l13)))
 #define INTER8xH_QPEL_01_02_03(QPEL, P)\
 	static void inter8xH_ ## QPEL ## _8bit(int h, size_t dstride, uint8_t * restrict dst, size_t sstride, const uint8_t *src, i8x16 w, i16x8 o, i64x2 logWD) {\
 		ssize_t nstride = -sstride;\
-		i8x16 zero = {};\
 		i16x8 l00 = load8zx16(src + nstride * 2);\
 		i16x8 l10 = load8zx16(src + nstride    );\
 		i16x8 l20 = load8zx16(src              );\
@@ -527,7 +524,6 @@ INTER8xH_QPEL_01_02_03(qpel03, avg8(v01, packus16(l30, l40)))
 #define INTER8xH_QPEL_11_31(QPEL, C)\
 	static void inter8xH_ ## QPEL ## _8bit(int h, size_t dstride, uint8_t * restrict dst, size_t sstride, const uint8_t *src, i8x16 w, i16x8 o, i64x2 logWD) {\
 		ssize_t nstride = -sstride;\
-		i8x16 zero = {};\
 		i16x8 l0##C = load8zx16(src + nstride * 2 - 2 + C);\
 		i16x8 l1##C = load8zx16(src + nstride     - 2 + C);\
 		i8x16 l2 = load128(src               - 2);\
@@ -535,6 +531,7 @@ INTER8xH_QPEL_01_02_03(qpel03, avg8(v01, packus16(l30, l40)))
 		i8x16 l4 = load128(src + sstride * 2 - 2);\
 		do {\
 			src += sstride * 2;\
+			i8x16 zero = {};\
 			i16x8 l20 = cvt8zx16(l2);\
 			i16x8 l28 = unpackhi8(l2, zero);\
 			i16x8 l21 = alignr(l28, l20, 2);\
@@ -573,7 +570,6 @@ INTER8xH_QPEL_11_31(qpel31, 3)
 #define INTER8xH_QPEL_13_33(QPEL, C)\
 	static void inter8xH_ ## QPEL ## _8bit(int h, size_t dstride, uint8_t * restrict dst, size_t sstride, const uint8_t *src, i8x16 w, i16x8 o, i64x2 logWD) {\
 		ssize_t nstride = -sstride;\
-		i8x16 zero = {};\
 		i16x8 l0##C = load8zx16(src + nstride * 2 - 2 + C);\
 		i16x8 l1##C = load8zx16(src + nstride     - 2 + C);\
 		i16x8 l2##C = load8zx16(src               - 2 + C);\
@@ -581,6 +577,7 @@ INTER8xH_QPEL_11_31(qpel31, 3)
 		i8x16 l4 = load128(src + sstride * 2 - 2);\
 		do {\
 			src += sstride * 2;\
+			i8x16 zero = {};\
 			i16x8 l30 = cvt8zx16(l3);\
 			i16x8 l38 = unpackhi8(l3, zero);\
 			i16x8 l31 = alignr(l38, l30, 2);\
@@ -770,9 +767,9 @@ static void inter16xH_qpel00_8bit(int h, size_t dstride, uint8_t * restrict dst,
 
 #define INTER16xH_QPEL_10_20_30(QPEL, P)\
 	static void inter16xH_ ## QPEL ## _8bit(int h, size_t dstride, uint8_t * restrict dst, size_t sstride, const uint8_t *src, i8x16 w, i16x8 o, i64x2 logWD) {\
-		i8x16 zero = {};\
 		do {\
 			i8x16 l0 = load128(src - 2);\
+			i8x16 zero = {};\
 			i16x8 l0G = load8zx16(src + 14);\
 			i16x8 l08 = unpackhi8(l0, zero);\
 			i16x8 l00 = cvt8zx16(l0);\
@@ -951,7 +948,6 @@ INTER16xH_QPEL_31_33(qpel33, 3, 2)
 #define INTER16xH_QPEL_12_32(QPEL, P)\
 	static void inter16xH_ ## QPEL ## _8bit(int h, size_t dstride, uint8_t * restrict dst, size_t sstride, const uint8_t *src, i8x16 w, i16x8 o, i64x2 logWD) {\
 		ssize_t nstride= -sstride;\
-		i8x16 zero = {};\
 		i8x16 l0 = load128(src + nstride * 2 - 2);\
 		i16x8 l0G = load8zx16(src + nstride * 2 + 14);\
 		i8x16 l1 = load128(src + nstride     - 2);\
@@ -1009,8 +1005,8 @@ INTER16xH_QPEL_12_32(qpel32, filter_6tapD(v03, v0B, vh))
 #define INTER16xH_QPEL_21_22_23(QPEL, P)\
 	static void inter16xH_ ## QPEL ## _8bit(int h, size_t dstride, uint8_t * restrict dst, size_t sstride, const uint8_t *src, i8x16 w, i16x8 o, i64x2 logWD) {\
 		ssize_t nstride= -sstride;\
-		i8x16 zero = {};\
 		i8x16 l0 = load128(src + nstride * 2 - 2);\
+		i8x16 zero = {};\
 		i16x8 l0G = load8zx16(src + nstride * 2 + 14);\
 		i16x8 l00 = cvt8zx16(l0);\
 		i16x8 l08 = unpackhi8(l0, zero);\

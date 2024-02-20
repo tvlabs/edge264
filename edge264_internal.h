@@ -487,11 +487,8 @@ static noinline int FUNC(parse_slice_data_cabac);
 	#define load128(p) (i8x16)_mm_loadu_si128((__m128i*)(p))
 	#define madd16(a, b) (i32x4)_mm_madd_epi16(a, b)
 	#define maddubs(a, b) (i16x8)_mm_maddubs_epi16(a, b)
-	#define max8(a, b) (i8x16)_mm_max_epi8(a, b)
 	#define max16(a, b) (i16x8)_mm_max_epi16(a, b)
-	#define min8(a, b) (i8x16)_mm_min_epi8(a, b)
 	#define min16(a, b) (i16x8)_mm_min_epi16(a, b)
-	#define min32(a, b) (i32x4)_mm_min_epi32(a, b)
 	#define movemask(a) _mm_movemask_epi8(a)
 	#define packs16(a, b) (i8x16)_mm_packs_epi16(a, b)
 	#define packs32(a, b) (i16x8)_mm_packs_epi32(a, b)
@@ -525,13 +522,6 @@ static noinline int FUNC(parse_slice_data_cabac);
 	#define unpackhi16(a, b) (i16x8)_mm_unpackhi_epi16(a, b)
 	#define unpackhi32(a, b) (i32x4)_mm_unpackhi_epi32(a, b)
 	#define unpackhi64(a, b) (i64x2)_mm_unpackhi_epi64(a, b)
-	#ifdef __AVX_2__
-		#define broadcast8(a) (i8x16)_mm_broadcastb_epi8(a)
-		#define broadcast16(a) (i16x8)_mm_broadcastw_epi16(a)
-	#else // broadcast8 requires a zero variable around
-		#define broadcast8(a) (i8x16)_mm_shuffle_epi8(a, zero)
-		#define broadcast16(a) (i16x8)_mm_shuffle_epi32(_mm_shufflelo_epi16(a, _MM_SHUFFLE(0, 0, 0, 0)), _MM_SHUFFLE(1, 0, 1, 0))
-	#endif
 	#ifdef __SSE4_1__
 		#define cvt8zx16(a) (i16x8)_mm_cvtepu8_epi16(a)
 		#define cvt16zx32(a) (i32x4)_mm_cvtepu16_epi32(a)
@@ -539,13 +529,26 @@ static noinline int FUNC(parse_slice_data_cabac);
 		#define ifelse_msb(v, t, f) (i8x16)_mm_blendv_epi8(f, t, v)
 		#define load8zx16(p) (i16x8)_mm_cvtepu8_epi16(_mm_loadl_epi64((__m128i*)(p)))
 		#define load8zx32(p) (i32x4)_mm_cvtepu8_epi32(_mm_loadu_si32(p))
-	#else // most macros require a zero variable around
-		#define cvt8zx16(a) (i16x8)_mm_unpacklo_epi8(a, zero)
-		#define cvt16zx32(a) (i32x4)_mm_unpacklo_epi16(a, zero)
+		#define min8(a, b) (i8x16)_mm_min_epi8(a, b)
+		#define min32(a, b) (i32x4)_mm_min_epi32(a, b)
+		#define max8(a, b) (i8x16)_mm_max_epi8(a, b)
+	#else
+		#define cvt8zx16(a) (i16x8)_mm_unpacklo_epi8(a, _mm_setzero_si128())
+		#define cvt16zx32(a) (i32x4)_mm_unpacklo_epi16(a, _mm_setzero_si128())
 		#define ifelse_mask(v, t, f) ({__m128i _v = (v); (i8x16)_mm_or_si128(_mm_andnot_si128(_v, f), _mm_and_si128(t, _v));})
-		#define ifelse_msb(v, t, f) ({__m128i _v = _mm_cmpgt_epi8(zero, v); (i8x16)_mm_or_si128(_mm_andnot_si128(_v, f), _mm_and_si128(t, _v));})
-		#define load8zx16(p) (i16x8)_mm_unpacklo_epi8(_mm_loadl_epi64((__m128i*)(p)), zero)
-		#define load8zx32(p) (i32x4)_mm_unpacklo_epi8(_mm_unpacklo_epi8(_mm_loadu_si32(p), zero), zero)
+		#define ifelse_msb(v, t, f) ({__m128i _v = _mm_cmpgt_epi8(_mm_setzero_si128(), v); (i8x16)_mm_or_si128(_mm_andnot_si128(_v, f), _mm_and_si128(t, _v));})
+		#define load8zx16(p) (i16x8)_mm_unpacklo_epi8(_mm_loadl_epi64((__m128i*)(p)), _mm_setzero_si128())
+		#define load8zx32(p) ({__m128i z = _mm_setzero_si128(); (i32x4)_mm_unpacklo_epi8(_mm_unpacklo_epi8(_mm_loadu_si32(p), z), z);})
+		#define min8(a, b) ({__m128i c = _mm_cmpgt_epi8(b, a); (i8x16)_mm_or_si128(_mm_and_si128(a, c), _mm_andnot_si128(c, b));})
+		#define min32(a, b) ({__m128i c = _mm_cmpgt_epi32(b, a); (i32x4)_mm_or_si128(_mm_and_si128(a, c), _mm_andnot_si128(c, b));})
+		#define max8(a, b) ({__m128i c = _mm_cmpgt_epi8(a, b); (i8x16)_mm_or_si128(_mm_and_si128(a, c), _mm_andnot_si128(c, b));})
+	#endif
+	#ifdef __AVX_2__
+		#define broadcast8(a) (i8x16)_mm_broadcastb_epi8(a)
+		#define broadcast16(a) (i16x8)_mm_broadcastw_epi16(a)
+	#else
+		#define broadcast8(a) (i8x16)_mm_shuffle_epi8(a, _mm_setzero_si128())
+		#define broadcast16(a) (i16x8)_mm_shuffle_epi32(_mm_shufflelo_epi16(a, _MM_SHUFFLE(0, 0, 0, 0)), _MM_SHUFFLE(1, 0, 1, 0))
 	#endif
 	
 	// hardware accelerated helper functions

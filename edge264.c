@@ -11,6 +11,8 @@
  * _ add Edge264_stream definition to documentation, and replace "documentation" with "reference"
  * _ layout README like https://github.com/nolanlawson/emoji-picker-element
  * _ name files with numbers to set an explicit order for reading them
+ * _ put per-mb deblocking inside a function and add a NextDeblockMb pointer that is deblocked and incremented in main loop iff CurrMbAddr is exactly above it, then finish deblocking rest of picture in finish_frame.
+ * _ try vectorizing loops on get_ae with movemask trick, starting with residual block parsing
  * _ test all versions of GCC and select it in Makefile if not specified on command line
  * _ add an FAQ with (1) how to optimize latency, (2) what can be removed from stream without issue, (3) how to finish a frame with an AUD
  * _ check that P/B slice cannot start without at least 1 reference

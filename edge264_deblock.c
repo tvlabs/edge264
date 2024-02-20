@@ -413,6 +413,7 @@ static always_inline i8x16 expand2(int64_t a) {
  */
 static noinline void FUNC(deblock_Y_8bit, size_t stride, ssize_t nstride, size_t stride7)
 {
+	i8x16 zero = {};
 	i8x16 v0, v1, v2, v3, v4, v5, v6, v7;
 	if (mb->filter_edges & 2) {
 		// load and transpose the left 12x16 matrix

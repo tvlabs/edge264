@@ -245,8 +245,6 @@ static noinline int FUNC(get_ae, int ctxIdx)
 	};
 	size_t state = ctx->cabac[ctxIdx];
 	size_t shift = SIZE_BIT - 3 - clz(codIRange); // [6..SIZE_BIT-3]
-	//fprintf(stderr, "%u/%u: (%u,%x)", (int)(codIOffset >> (shift - 6)), (int)(codIRange >> (shift - 6)), (int)state >> 2, (int)state & 1);
-	//fprintf(stderr, "%u/%u[%d]: (%u,%x)", (int)(codIOffset >> (shift - 6)), (int)(codIRange >> (shift - 6)), ctxIdx, (int)state >> 2, (int)state & 1);
 	size_t idx = (state & -4) + (codIRange >> shift);
 	size_t codIRangeLPS = (size_t)(rangeTabLPS - 4)[idx] << (shift - 6);
 	codIRange -= codIRangeLPS;
@@ -256,7 +254,6 @@ static noinline int FUNC(get_ae, int ctxIdx)
 		codIRange = codIRangeLPS;
 	}
 	ctx->cabac[ctxIdx] = transIdx[state];
-	//fprintf(stderr, "->(%u,%x)\n", transIdx[state] >> 2, transIdx[state] & 1);
 	int binVal = state & 1;
 	if (__builtin_expect(codIRange < 256, 0)) {
 		codIOffset = lsd(codIOffset, CALL(get_bytes, SIZE_BIT / 8 - 1), SIZE_BIT - 8);

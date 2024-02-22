@@ -12,12 +12,14 @@
  * _ layout README like https://github.com/nolanlawson/emoji-picker-element
  * _ name files with numbers to set an explicit order for reading them
  * _ put per-mb deblocking inside a function and add a NextDeblockMb pointer that is deblocked and incremented in main loop iff CurrMbAddr is exactly above it, then finish deblocking rest of picture in finish_frame.
+ * _ try eliminating valMPS in favor of a 7-bit probability state in CABAC
  * _ try vectorizing loops on get_ae with movemask trick, starting with residual block parsing
  * _ test all versions of GCC and select it in Makefile if not specified on command line
  * _ add an FAQ with (1) how to optimize latency, (2) what can be removed from stream without issue, (3) how to finish a frame with an AUD
  * _ check that P/B slice cannot start without at least 1 reference
  * _ try debugging with concolic testing (ex. CREST, KLEE, Triton)
  * _ add a version function
+ * _ Review the entire inlining scheme (in particular bitstream functions)
  * _ return SEI/HRD/VUI structures as JSON in a persistent malloc'ed metadata field (rather than bloat headers with structures), initialized with max size from conformance streams
  * _ make a debugging pass by looking at shall/"shall not" clauses in spec and checking that we are robust against each violation
  * _ add an option to store N more frames, to tolerate lags in process scheduling
@@ -98,7 +100,6 @@ static void FUNC(initialise_decoding_context)
 	ctx->CurrMbAddr = ctx->first_mb_in_slice;
 	int mby = ctx->first_mb_in_slice / ctx->sps.pic_width_in_mbs;
 	int mbx = ctx->first_mb_in_slice % ctx->sps.pic_width_in_mbs;
-	ctx->samples_pic = ctx->DPB + ctx->currPic * ctx->frame_size;
 	ctx->samples_row[0] = ctx->samples_pic + mby * ctx->s.stride_Y * 16;
 	ctx->samples_row[1] = ctx->samples_pic + ctx->plane_size_Y + mby * ctx->s.stride_C * 8;
 	ctx->samples_row[2] = ctx->samples_row[1] + ctx->plane_size_C;
@@ -523,7 +524,7 @@ static void FUNC(finish_frame)
 		}
 	}
 	
-	CALL(deblock_frame, ctx->DPB + ctx->currPic * ctx->frame_size);
+	CALL(deblock_frame);
 	ctx->currPic = -1;
 	
 	#ifdef TRACE
@@ -792,6 +793,7 @@ static int FUNC(parse_slice_layer_without_partitioning)
 		if (__builtin_popcount(unavail) >= ctx->sps.num_frame_buffers)
 			return -2;
 		ctx->currPic = __builtin_ctz(~unavail);
+		ctx->samples_pic = ctx->DPB + ctx->currPic * ctx->frame_size;
 		ctx->pic_remaining_mbs = ctx->sps.pic_width_in_mbs * ctx->sps.pic_height_in_mbs;
 		ctx->FrameNums[ctx->currPic] = ctx->FrameNum;
 		ctx->FieldOrderCnt[0][ctx->currPic] = TopFieldOrderCnt;

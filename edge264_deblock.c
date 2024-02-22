@@ -2,254 +2,6 @@
 
 
 /**
- * Compute alpha, beta and tC0 for all planes and all edges (labeled a to h in
- * deblocking order) of the current macroblock.
- * 
- * One of the hard parts here is computing a mask for bS=1. Edges a/c/e/g and
- * b/d/f/h are handled separately, and we calculate 4 values per edge:
- * _ differences of references in parallel (l0 vs l0, l1 vs l1) -> refs_p
- *   (zero on b/d/f/h edges)
- * _ differences of references in cross (l0 vs l1, l1 vs l0) -> refs_c
- *   (zero on P macroblocks)
- * _ differences of motion vectors in parallel -> mvs_p
- * _ differences of motion vectors in cross -> mvs_c
- *   (zero on P macroblocks)
- * 
- * Then bS is inferred with the help of a Karnaugh map, where the AND operation
- * is achieved using umin8:
- *                 |      refs_p=0       |      refs_p>0       |
- *                 | refs_c=0 | refs_c>0 | refs_c>0 | refs_c=0 |
- * ----------------+----------+----------+----------+----------+
- *         mvs_c=0 |    0     |    0     |    1     |    0     |
- * mvs_p=0 --------+----------+----------+----------+----------+
- *         mvs_c>0 |    0     |    0     |    1     |    1     |
- * ----------------+----------+----------+----------+----------+
- *         mvs_c>0 |    1     |    1     |    1     |    1     |
- * mvs_p>0 --------+----------+----------+----------+----------+
- *         mvs_c=0 |    0     |    1     |    1     |    0     |
- * ----------------+----------+----------+----------+----------+
- */
-static inline void FUNC(init_alpha_beta_tC0)
-{
-	static const u8x16 idx2alpha[3] =
-		{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 4, 4, 5, 6, 7, 8, 9, 10, 12, 13, 15, 17, 20, 22, 25, 28, 32, 36, 40, 45, 50, 56, 63, 71, 80, 90, 101, 113, 127, 144, 162, 182, 203, 226, 255, 255};
-	static const i8x16 idx2beta[3] =
-		{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 2, 2, 3, 3, 3, 3, 4, 4, 4, 6, 6, 7, 7, 8, 8, 9, 9, 10, 10, 11, 11, 12, 12, 13, 13, 14, 14, 15, 15, 16, 16, 17, 17, 18, 18};
-	static const i8x16 idx2tC0[3][3] = { // modified to disable deblocking when alpha or beta is zero
-		{-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 2, 2, 2, 2, 3, 3, 3, 4, 4, 4, 5, 6, 6, 7, 8, 9, 10, 11, 13},
-		{-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 2, 2, 2, 2, 3, 3, 3, 4, 4, 5, 5, 6, 7, 8, 8, 10, 11, 12, 13, 15, 17},
-		{-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 2, 2, 2, 2, 3, 3, 3, 4, 4, 4, 5, 6, 6, 7, 8, 9, 10, 11, 13, 14, 16, 18, 20, 23, 25},
-	};
-	
-	// compute all values of indexA and indexB for each of the color planes first
-	i8x16 zero = {};
-	i8x16 qP = set32((int32_t)mb->QP_s);
-	i32x4 qPAB = {(int32_t)mb[-1].QP_s, (int32_t)mbB->QP_s};
-	i8x16 qPav = avg8(qP, unpacklo64(qP, qPAB)); // mid/mid/A/B
-	i8x16 c51 = set8(51);
-	i8x16 indexA = umin8(max8(qPav + set8(ctx->FilterOffsetA), zero), c51);
-	i8x16 indexB = umin8(max8(qPav + set8(ctx->FilterOffsetB), zero), c51);
-	
-	// compute all values of alpha and beta using vectorized array accesses
-	i8x16 c4 = set8(4);
-	i8x16 c15 = set8(15);
-	i8x16 c31 = set8(31);
-	i8x16 Am4 = indexA - c4;
-	i8x16 Bm4 = indexB - c4;
-	i8x16 Agte20 = Am4 > c15;
-	i8x16 Agte36 = Am4 > c31;
-	i8x16 Bgte20 = Bm4 > c15;
-	i8x16 Bgte36 = Bm4 > c31;
-	i8x16 alphalo = shuffle8(idx2alpha[0], Am4);
-	i8x16 alphamd = shuffle8(idx2alpha[1], Am4);
-	i8x16 alphahi = shuffle8(idx2alpha[2], Am4);
-	i8x16 betalo = shuffle8(idx2beta[0], Bm4);
-	i8x16 betamd = shuffle8(idx2beta[1], Bm4);
-	i8x16 betahi = shuffle8(idx2beta[2], Bm4);
-	ctx->alpha_v = ifelse_mask(Agte36, alphahi, ifelse_mask(Agte20, alphamd, alphalo));
-	ctx->beta_v = ifelse_mask(Bgte36, betahi, ifelse_mask(Bgte20, betamd, betalo));
-	
-	// initialize tC0 with bS=3 for internal edges of Intra macroblock
-	i8x16 tC0neg = zero > Am4;
-	if (!mb->f.mbIsInterFlag) {
-		i8x16 tC03lo = shuffle8(idx2tC0[2][0], Am4);
-		i8x16 tC03md = shuffle8(idx2tC0[2][1], Am4);
-		i8x16 tC03hi = shuffle8(idx2tC0[2][2], Am4);
-		i8x16 tC03 = ifelse_mask(Agte36, tC03hi, ifelse_mask(Agte20, tC03md, tC03lo)) | tC0neg;
-		ctx->tC0_v[0] = ctx->tC0_v[1] = shuffle8(tC03, zero);
-		ctx->tC0_v[2] = ctx->tC0_v[3] = shuffle8(tC03, ((i8x16){-1, -1, -1, -1, -1, -1, -1, -1, 1, 1, 1, 1, 2, 2, 2, 2}));
-	} else {
-		// compute all values of tC0 for bS=1 and bS=2
-		i8x16 tC01lo = shuffle8(idx2tC0[0][0], Am4);
-		i8x16 tC01md = shuffle8(idx2tC0[0][1], Am4);
-		i8x16 tC01hi = shuffle8(idx2tC0[0][2], Am4);
-		i8x16 tC01 = ifelse_mask(Agte36, tC01hi, ifelse_mask(Agte20, tC01md, tC01lo)) | tC0neg;
-		i8x16 tC02lo = shuffle8(idx2tC0[1][0], Am4);
-		i8x16 tC02md = shuffle8(idx2tC0[1][1], Am4);
-		i8x16 tC02hi = shuffle8(idx2tC0[1][2], Am4);
-		i8x16 tC02 = ifelse_mask(Agte36, tC02hi, ifelse_mask(Agte20, tC02md, tC02lo)) | tC0neg;
-		
-		// compute masks for bS!=1 based on equality of references and motion vectors
-		i8x16 bS0aceg, bS0bdfh;
-		i8x16 c3 = set8(3);
-		static const i8x16 shufVHAB = {0, 2, 1, 3, 0, 1, 2, 3, 9, 11, 0, 2, 14, 15, 0, 1};
-		if (mb->inter_eqs_s == little_endian32(0x1b5fbbff)) { // 16x16 macroblock
-			i16x8 mvsv0l0 = shuffleps(mb[-1].mvs_v[1], mb[-1].mvs_v[3], 1, 3, 1, 3);
-			i16x8 mvsv1l0 = shuffleps(mb->mvs_v[0], mb->mvs_v[2], 0, 2, 0, 2);
-			i16x8 mvsv0l1 = shuffleps(mb[-1].mvs_v[5], mb[-1].mvs_v[7], 1, 3, 1, 3);
-			i16x8 mvsv1l1 = shuffleps(mb->mvs_v[4], mb->mvs_v[6], 0, 2, 0, 2);
-			i16x8 mvsh0l0 = unpackhi64(mbB->mvs_v[2], mbB->mvs_v[3]);
-			i16x8 mvsh1l0 = unpacklo64(mb->mvs_v[0], mb->mvs_v[1]);
-			i16x8 mvsh0l1 = unpackhi64(mbB->mvs_v[6], mbB->mvs_v[7]);
-			i16x8 mvsh1l1 = unpacklo64(mb->mvs_v[4], mb->mvs_v[5]);
-			i8x16 mvsael00 = packs16(mvsv0l0 - mvsv1l0, mvsh0l0 - mvsh1l0);
-			i8x16 mvsael01 = packs16(mvsv0l0 - mvsv1l1, mvsh0l0 - mvsh1l1);
-			i8x16 mvsael10 = packs16(mvsv0l1 - mvsv1l0, mvsh0l1 - mvsh1l0);
-			i8x16 mvsael11 = packs16(mvsv0l1 - mvsv1l1, mvsh0l1 - mvsh1l1);
-			i8x16 mvsaep = subus8(umax8(abs8(mvsael00), abs8(mvsael11)), c3);
-			i8x16 mvsaec = subus8(umax8(abs8(mvsael01), abs8(mvsael10)), c3);
-			i8x16 mvsacegp = shuffle32(packs16(mvsaep, zero), 0, 2, 1, 3);
-			i8x16 mvsacegc = shuffle32(packs16(mvsaec, zero), 0, 2, 1, 3);
-			i64x2 refPic = {mb->refPic_l};
-			i64x2 refPicAB = {mb[-1].refPic_l, mbB->refPic_l};
-			i8x16 refs0 = shuffle8(shuffleps(refPic, refPicAB, 0, 0, 0, 2), shufVHAB); // (v0,h0,A0,B0)
-			i8x16 refs1 = shuffle8(shuffleps(refPic, refPicAB, 1, 1, 1, 3), shufVHAB); // (v1,h1,A1,B1)
-			i8x16 neq0 = refs0 ^ (i8x16)shuffleps(refs1, refs0, 2, 3, 0, 1); // (v0^A1,h0^B1,A0^v0,B0^h0)
-			i8x16 neq1 = refs1 ^ (i8x16)shuffleps(refs0, refs1, 2, 3, 0, 1); // (v1^A0,h1^B0,A1^v1,B1^h1)
-			i8x16 refsaceg = neq0 | neq1; // low=cross, high=parallel
-			i8x16 refsacegc = unpacklo8(refsaceg, refsaceg);
-			i8x16 refsacegp = unpackhi8(refsaceg, refsaceg);
-			i8x16 neq3 = umin8(refsacegp, refsacegc) | umin8(mvsacegp, mvsacegc);
-			i8x16 neq4 = umin8(refsacegp, mvsacegc) | umin8(mvsacegp, refsacegc);
-			bS0aceg = (neq3 | neq4) == zero;
-			bS0bdfh = set8(-1);
-		} else if ((mb->refIdx_s[1] & mb[-1].refIdx_s[1] & mbB->refIdx_s[1]) == -1) { // P macroblocks
-			i16x8 mvsv0 = shuffleps(mb[-1].mvs_v[1], mb[-1].mvs_v[3], 1, 3, 1, 3);
-			i16x8 mvsv1 = shuffleps(mb->mvs_v[0], mb->mvs_v[2], 0, 2, 0, 2);
-			i16x8 mvsv2 = shuffleps(mb->mvs_v[0], mb->mvs_v[2], 1, 3, 1, 3);
-			i16x8 mvsv3 = shuffleps(mb->mvs_v[1], mb->mvs_v[3], 0, 2, 0, 2);
-			i16x8 mvsv4 = shuffleps(mb->mvs_v[1], mb->mvs_v[3], 1, 3, 1, 3);
-			i16x8 mvsh0 = unpackhi64(mbB->mvs_v[2], mbB->mvs_v[3]);
-			i16x8 mvsh1 = unpacklo64(mb->mvs_v[0], mb->mvs_v[1]);
-			i16x8 mvsh2 = unpackhi64(mb->mvs_v[0], mb->mvs_v[1]);
-			i16x8 mvsh3 = unpacklo64(mb->mvs_v[2], mb->mvs_v[3]);
-			i16x8 mvsh4 = unpackhi64(mb->mvs_v[2], mb->mvs_v[3]);
-			i8x16 mvsac = packs16(mvsv0 - mvsv1, mvsv2 - mvsv3);
-			i8x16 mvsbd = packs16(mvsv1 - mvsv2, mvsv3 - mvsv4);
-			i8x16 mvseg = packs16(mvsh0 - mvsh1, mvsh2 - mvsh3);
-			i8x16 mvsfh = packs16(mvsh1 - mvsh2, mvsh3 - mvsh4);
-			i8x16 mvsaceg = packs16(subus8(abs8(mvsac), c3), subus8(abs8(mvseg), c3));
-			i8x16 mvsbdfh = packs16(subus8(abs8(mvsbd), c3), subus8(abs8(mvsfh), c3));
-			i8x16 refs = shuffle8(((i32x4){mb->refPic_s[0], 0, mb[-1].refPic_s[0], mbB->refPic_s[0]}), shufVHAB); // (v0,h0,A0,B0)
-			i8x16 neq = refs ^ (i8x16)unpackhi64(refs, refs); // (v0^A0,h0^B0,0,0)
-			i8x16 refsaceg = unpacklo8(neq, neq);
-			bS0aceg = (refsaceg | mvsaceg) == zero;
-			bS0bdfh = mvsbdfh == zero;
-		} else { // B macroblocks
-			i16x8 mvsv0l0 = shuffleps(mb[-1].mvs_v[1], mb[-1].mvs_v[3], 1, 3, 1, 3);
-			i16x8 mvsv1l0 = shuffleps(mb->mvs_v[0], mb->mvs_v[2], 0, 2, 0, 2);
-			i16x8 mvsv2l0 = shuffleps(mb->mvs_v[0], mb->mvs_v[2], 1, 3, 1, 3);
-			i16x8 mvsv3l0 = shuffleps(mb->mvs_v[1], mb->mvs_v[3], 0, 2, 0, 2);
-			i16x8 mvsv4l0 = shuffleps(mb->mvs_v[1], mb->mvs_v[3], 1, 3, 1, 3);
-			i16x8 mvsv0l1 = shuffleps(mb[-1].mvs_v[5], mb[-1].mvs_v[7], 1, 3, 1, 3);
-			i16x8 mvsv1l1 = shuffleps(mb->mvs_v[4], mb->mvs_v[6], 0, 2, 0, 2);
-			i16x8 mvsv2l1 = shuffleps(mb->mvs_v[4], mb->mvs_v[6], 1, 3, 1, 3);
-			i16x8 mvsv3l1 = shuffleps(mb->mvs_v[5], mb->mvs_v[7], 0, 2, 0, 2);
-			i16x8 mvsv4l1 = shuffleps(mb->mvs_v[5], mb->mvs_v[7], 1, 3, 1, 3);
-			i8x16 mvsacl00 = packs16(mvsv0l0 - mvsv1l0, mvsv2l0 - mvsv3l0);
-			i8x16 mvsbdl00 = packs16(mvsv1l0 - mvsv2l0, mvsv3l0 - mvsv4l0);
-			i8x16 mvsacl01 = packs16(mvsv0l0 - mvsv1l1, mvsv2l0 - mvsv3l1);
-			i8x16 mvsbdl01 = packs16(mvsv1l0 - mvsv2l1, mvsv3l0 - mvsv4l1);
-			i8x16 mvsacl10 = packs16(mvsv0l1 - mvsv1l0, mvsv2l1 - mvsv3l0);
-			i8x16 mvsbdl10 = packs16(mvsv1l1 - mvsv2l0, mvsv3l1 - mvsv4l0);
-			i8x16 mvsacl11 = packs16(mvsv0l1 - mvsv1l1, mvsv2l1 - mvsv3l1);
-			i8x16 mvsbdl11 = packs16(mvsv1l1 - mvsv2l1, mvsv3l1 - mvsv4l1);
-			i8x16 mvsacp = subus8(umax8(abs8(mvsacl00), abs8(mvsacl11)), c3);
-			i8x16 mvsbdp = subus8(umax8(abs8(mvsbdl00), abs8(mvsbdl11)), c3);
-			i8x16 mvsacc = subus8(umax8(abs8(mvsacl01), abs8(mvsacl10)), c3);
-			i8x16 mvsbdc = subus8(umax8(abs8(mvsbdl01), abs8(mvsbdl10)), c3);
-			i16x8 mvsh0l0 = unpackhi64(mbB->mvs_v[2], mbB->mvs_v[3]);
-			i16x8 mvsh1l0 = unpacklo64(mb->mvs_v[0], mb->mvs_v[1]);
-			i16x8 mvsh2l0 = unpackhi64(mb->mvs_v[0], mb->mvs_v[1]);
-			i16x8 mvsh3l0 = unpacklo64(mb->mvs_v[2], mb->mvs_v[3]);
-			i16x8 mvsh4l0 = unpackhi64(mb->mvs_v[2], mb->mvs_v[3]);
-			i16x8 mvsh0l1 = unpackhi64(mbB->mvs_v[6], mbB->mvs_v[7]);
-			i16x8 mvsh1l1 = unpacklo64(mb->mvs_v[4], mb->mvs_v[5]);
-			i16x8 mvsh2l1 = unpackhi64(mb->mvs_v[4], mb->mvs_v[5]);
-			i16x8 mvsh3l1 = unpacklo64(mb->mvs_v[6], mb->mvs_v[7]);
-			i16x8 mvsh4l1 = unpackhi64(mb->mvs_v[6], mb->mvs_v[7]);
-			i8x16 mvsegl00 = packs16(mvsh0l0 - mvsh1l0, mvsh2l0 - mvsh3l0);
-			i8x16 mvsfhl00 = packs16(mvsh1l0 - mvsh2l0, mvsh3l0 - mvsh4l0);
-			i8x16 mvsegl01 = packs16(mvsh0l0 - mvsh1l1, mvsh2l0 - mvsh3l1);
-			i8x16 mvsfhl01 = packs16(mvsh1l0 - mvsh2l1, mvsh3l0 - mvsh4l1);
-			i8x16 mvsegl10 = packs16(mvsh0l1 - mvsh1l0, mvsh2l1 - mvsh3l0);
-			i8x16 mvsfhl10 = packs16(mvsh1l1 - mvsh2l0, mvsh3l1 - mvsh4l0);
-			i8x16 mvsegl11 = packs16(mvsh0l1 - mvsh1l1, mvsh2l1 - mvsh3l1);
-			i8x16 mvsfhl11 = packs16(mvsh1l1 - mvsh2l1, mvsh3l1 - mvsh4l1);
-			i8x16 mvsegp = subus8(umax8(abs8(mvsegl00), abs8(mvsegl11)), c3);
-			i8x16 mvsfhp = subus8(umax8(abs8(mvsfhl00), abs8(mvsfhl11)), c3);
-			i8x16 mvsegc = subus8(umax8(abs8(mvsegl01), abs8(mvsegl10)), c3);
-			i8x16 mvsfhc = subus8(umax8(abs8(mvsfhl01), abs8(mvsfhl10)), c3);
-			i8x16 mvsacegp = packs16(mvsacp, mvsegp);
-			i8x16 mvsbdfhp = packs16(mvsbdp, mvsfhp);
-			i8x16 mvsacegc = packs16(mvsacc, mvsegc);
-			i8x16 mvsbdfhc = packs16(mvsbdc, mvsfhc);
-			i64x2 refPic = {mb->refPic_l};
-			i64x2 refPicAB = {mb[-1].refPic_l, mbB->refPic_l};
-			i8x16 refs0 = shuffle8(shuffleps(refPic, refPicAB, 0, 0, 0, 2), shufVHAB); // (v0,h0,A0,B0)
-			i8x16 refs1 = shuffle8(shuffleps(refPic, refPicAB, 1, 1, 1, 3), shufVHAB); // (v1,h1,A1,B1)
-			i8x16 neq0 = refs0 ^ (i8x16)shuffleps(refs1, refs0, 2, 3, 0, 1); // (v0^A1,h0^B1,A0^v0,B0^h0)
-			i8x16 neq1 = refs1 ^ (i8x16)shuffleps(refs0, refs1, 2, 3, 0, 1); // (v1^A0,h1^B0,A1^v1,B1^h1)
-			i8x16 neq2 = refs0 ^ refs1;
-			i8x16 refsaceg = neq0 | neq1; // low=cross, high=parallel
-			i8x16 refsacegc = unpacklo8(refsaceg, refsaceg);
-			i8x16 refsacegp = unpackhi8(refsaceg, refsaceg);
-			i8x16 refsbdfhc = unpacklo8(neq2, neq2);
-			i8x16 neq3 = umin8(refsacegp, refsacegc) | umin8(mvsacegp, mvsacegc);
-			i8x16 neq4 = umin8(refsacegp, mvsacegc) | umin8(mvsacegp, refsacegc);
-			bS0aceg = (neq3 | neq4) == zero;
-			bS0bdfh = umin8(mvsbdfhp, refsbdfhc | mvsbdfhc) == zero;
-		}
-		i8x16 bS0abcd = unpacklo32(bS0aceg, bS0bdfh);
-		i8x16 bS0efgh = unpackhi32(bS0aceg, bS0bdfh);
-		i8x16 bS0aacc = unpacklo32(bS0aceg, bS0aceg);
-		i8x16 bS0eegg = unpackhi32(bS0aceg, bS0aceg);
-		
-		// for 8x8 blocks with CAVLC, broadcast transform tokens beforehand
-		i8x16 nC = mb->nC_v[0];
-		if (!ctx->pps.entropy_coding_mode_flag && mb->f.transform_size_8x8_flag) {
-			i8x16 x = (i32x4)mb->nC_v[0] > 0;
-			mb->nC_v[0] = nC = sign8(x, x);
-		}
-		
-		// compute masks for edges with bS=2
-		static const i8x16 shufV = {0, 2, 8, 10, 1, 3, 9, 11, 4, 6, 12, 14, 5, 7, 13, 15};
-		static const i8x16 shufH = {0, 1, 4, 5, 2, 3, 6, 7, 8, 9, 12, 13, 10, 11, 14, 15};
-		i8x16 nnzv = shuffle8(nC, shufV);
-		i8x16 nnzl = shuffle8(mb[-1].nC_v[0], shufV);
-		i8x16 nnzh = shuffle8(nC, shufH);
-		i8x16 nnzt = shuffle8(mbB->nC_v[0], shufH);
-		i8x16 bS2abcd = (nnzv | alignr(nnzv, nnzl, 12)) > zero;
-		i8x16 bS2efgh = (nnzh | alignr(nnzh, nnzt, 12)) > zero;
-		i8x16 bS2aacc = shuffle32(bS2abcd, 0, 0, 2, 2);
-		i8x16 bS2eegg = shuffle32(bS2efgh, 0, 0, 2, 2);
-		
-		// shuffle, blend and store tC0 values
-		i8x16 tC00 = set8(-1);
-		static const i8x16 shuf0 = {8, 8, 8, 8, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
-		static const i8x16 shuf1 = {12, 12, 12, 12, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
-		static const i8x16 shuf2 = {9, 9, 9, 9, 10, 10, 10, 10, 1, 1, 1, 1, 2, 2, 2, 2};
-		static const i8x16 shuf3 = {13, 13, 13, 13, 14, 14, 14, 14, 1, 1, 1, 1, 2, 2, 2, 2};
-		ctx->tC0_v[0] = ifelse_mask(bS2abcd, shuffle8(tC02, shuf0), ifelse_mask(bS0abcd, tC00, shuffle8(tC01, shuf0)));
-		ctx->tC0_v[1] = ifelse_mask(bS2efgh, shuffle8(tC02, shuf1), ifelse_mask(bS0efgh, tC00, shuffle8(tC01, shuf1)));
-		ctx->tC0_v[2] = ifelse_mask(bS2aacc, shuffle8(tC02, shuf2), ifelse_mask(bS0aacc, tC00, shuffle8(tC01, shuf2)));
-		ctx->tC0_v[3] = ifelse_mask(bS2eegg, shuffle8(tC02, shuf3), ifelse_mask(bS0eegg, tC00, shuffle8(tC01, shuf3)));
-	}
-}
-
-
-
-/**
  * Filter a single edge in place for bS in [0..3].
  * tC0 should equal -1 for each position where bS=0 or beta=0.
  * 
@@ -1026,13 +778,269 @@ static noinline void FUNC(deblock_CbCr_8bit, size_t stride, ssize_t nstride, siz
 
 
 /**
+ * Compute alpha, beta and tC0 for all planes and all edges (labeled a to h in
+ * deblocking order) of the current macroblock, then branch to filter functions.
+ * 
+ * One of the hard parts here is computing a mask for bS=1. Edges a/c/e/g and
+ * b/d/f/h are handled separately, and we calculate 4 values per edge:
+ * _ differences of references in parallel (l0 vs l0, l1 vs l1) -> refs_p
+ *   (zero on b/d/f/h edges)
+ * _ differences of references in cross (l0 vs l1, l1 vs l0) -> refs_c
+ *   (zero on P macroblocks)
+ * _ differences of motion vectors in parallel -> mvs_p
+ * _ differences of motion vectors in cross -> mvs_c
+ *   (zero on P macroblocks)
+ * 
+ * Then bS is inferred with the help of a Karnaugh map, where the AND operation
+ * is achieved using umin8:
+ *                 |      refs_p=0       |      refs_p>0       |
+ *                 | refs_c=0 | refs_c>0 | refs_c>0 | refs_c=0 |
+ * ----------------+----------+----------+----------+----------+
+ *         mvs_c=0 |    0     |    0     |    1     |    0     |
+ * mvs_p=0 --------+----------+----------+----------+----------+
+ *         mvs_c>0 |    0     |    0     |    1     |    1     |
+ * ----------------+----------+----------+----------+----------+
+ *         mvs_c>0 |    1     |    1     |    1     |    1     |
+ * mvs_p>0 --------+----------+----------+----------+----------+
+ *         mvs_c=0 |    0     |    1     |    1     |    0     |
+ * ----------------+----------+----------+----------+----------+
+ */
+noinline void FUNC(deblock_mb)
+{
+	static const u8x16 idx2alpha[3] =
+		{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 4, 4, 5, 6, 7, 8, 9, 10, 12, 13, 15, 17, 20, 22, 25, 28, 32, 36, 40, 45, 50, 56, 63, 71, 80, 90, 101, 113, 127, 144, 162, 182, 203, 226, 255, 255};
+	static const i8x16 idx2beta[3] =
+		{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 2, 2, 3, 3, 3, 3, 4, 4, 4, 6, 6, 7, 7, 8, 8, 9, 9, 10, 10, 11, 11, 12, 12, 13, 13, 14, 14, 15, 15, 16, 16, 17, 17, 18, 18};
+	static const i8x16 idx2tC0[3][3] = { // modified to disable deblocking when alpha or beta is zero
+		{-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 2, 2, 2, 2, 3, 3, 3, 4, 4, 4, 5, 6, 6, 7, 8, 9, 10, 11, 13},
+		{-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 2, 2, 2, 2, 3, 3, 3, 4, 4, 5, 5, 6, 7, 8, 8, 10, 11, 12, 13, 15, 17},
+		{-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 2, 2, 2, 2, 3, 3, 3, 4, 4, 4, 5, 6, 6, 7, 8, 9, 10, 11, 13, 14, 16, 18, 20, 23, 25},
+	};
+	if (!mb->filter_edges)
+		return;
+	
+	// compute all values of indexA and indexB for each of the color planes first
+	i8x16 zero = {};
+	i8x16 qP = set32((int32_t)mb->QP_s);
+	i32x4 qPAB = {(int32_t)mb[-1].QP_s, (int32_t)mbB->QP_s};
+	i8x16 qPav = avg8(qP, unpacklo64(qP, qPAB)); // mid/mid/A/B
+	i8x16 c51 = set8(51);
+	i8x16 indexA = umin8(max8(qPav + set8(ctx->FilterOffsetA), zero), c51);
+	i8x16 indexB = umin8(max8(qPav + set8(ctx->FilterOffsetB), zero), c51);
+	
+	// compute all values of alpha and beta using vectorized array accesses
+	i8x16 c4 = set8(4);
+	i8x16 c15 = set8(15);
+	i8x16 c31 = set8(31);
+	i8x16 Am4 = indexA - c4;
+	i8x16 Bm4 = indexB - c4;
+	i8x16 Agte20 = Am4 > c15;
+	i8x16 Agte36 = Am4 > c31;
+	i8x16 Bgte20 = Bm4 > c15;
+	i8x16 Bgte36 = Bm4 > c31;
+	i8x16 alphalo = shuffle8(idx2alpha[0], Am4);
+	i8x16 alphamd = shuffle8(idx2alpha[1], Am4);
+	i8x16 alphahi = shuffle8(idx2alpha[2], Am4);
+	i8x16 betalo = shuffle8(idx2beta[0], Bm4);
+	i8x16 betamd = shuffle8(idx2beta[1], Bm4);
+	i8x16 betahi = shuffle8(idx2beta[2], Bm4);
+	ctx->alpha_v = ifelse_mask(Agte36, alphahi, ifelse_mask(Agte20, alphamd, alphalo));
+	ctx->beta_v = ifelse_mask(Bgte36, betahi, ifelse_mask(Bgte20, betamd, betalo));
+	
+	// initialize tC0 with bS=3 for internal edges of Intra macroblock
+	i8x16 tC0neg = zero > Am4;
+	if (!mb->f.mbIsInterFlag) {
+		i8x16 tC03lo = shuffle8(idx2tC0[2][0], Am4);
+		i8x16 tC03md = shuffle8(idx2tC0[2][1], Am4);
+		i8x16 tC03hi = shuffle8(idx2tC0[2][2], Am4);
+		i8x16 tC03 = ifelse_mask(Agte36, tC03hi, ifelse_mask(Agte20, tC03md, tC03lo)) | tC0neg;
+		ctx->tC0_v[0] = ctx->tC0_v[1] = shuffle8(tC03, zero);
+		ctx->tC0_v[2] = ctx->tC0_v[3] = shuffle8(tC03, ((i8x16){-1, -1, -1, -1, -1, -1, -1, -1, 1, 1, 1, 1, 2, 2, 2, 2}));
+	} else {
+		// compute all values of tC0 for bS=1 and bS=2
+		i8x16 tC01lo = shuffle8(idx2tC0[0][0], Am4);
+		i8x16 tC01md = shuffle8(idx2tC0[0][1], Am4);
+		i8x16 tC01hi = shuffle8(idx2tC0[0][2], Am4);
+		i8x16 tC01 = ifelse_mask(Agte36, tC01hi, ifelse_mask(Agte20, tC01md, tC01lo)) | tC0neg;
+		i8x16 tC02lo = shuffle8(idx2tC0[1][0], Am4);
+		i8x16 tC02md = shuffle8(idx2tC0[1][1], Am4);
+		i8x16 tC02hi = shuffle8(idx2tC0[1][2], Am4);
+		i8x16 tC02 = ifelse_mask(Agte36, tC02hi, ifelse_mask(Agte20, tC02md, tC02lo)) | tC0neg;
+		
+		// compute masks for bS!=1 based on equality of references and motion vectors
+		i8x16 bS0aceg, bS0bdfh;
+		i8x16 c3 = set8(3);
+		static const i8x16 shufVHAB = {0, 2, 1, 3, 0, 1, 2, 3, 9, 11, 0, 2, 14, 15, 0, 1};
+		if (mb->inter_eqs_s == little_endian32(0x1b5fbbff)) { // 16x16 macroblock
+			i16x8 mvsv0l0 = shuffleps(mb[-1].mvs_v[1], mb[-1].mvs_v[3], 1, 3, 1, 3);
+			i16x8 mvsv1l0 = shuffleps(mb->mvs_v[0], mb->mvs_v[2], 0, 2, 0, 2);
+			i16x8 mvsv0l1 = shuffleps(mb[-1].mvs_v[5], mb[-1].mvs_v[7], 1, 3, 1, 3);
+			i16x8 mvsv1l1 = shuffleps(mb->mvs_v[4], mb->mvs_v[6], 0, 2, 0, 2);
+			i16x8 mvsh0l0 = unpackhi64(mbB->mvs_v[2], mbB->mvs_v[3]);
+			i16x8 mvsh1l0 = unpacklo64(mb->mvs_v[0], mb->mvs_v[1]);
+			i16x8 mvsh0l1 = unpackhi64(mbB->mvs_v[6], mbB->mvs_v[7]);
+			i16x8 mvsh1l1 = unpacklo64(mb->mvs_v[4], mb->mvs_v[5]);
+			i8x16 mvsael00 = packs16(mvsv0l0 - mvsv1l0, mvsh0l0 - mvsh1l0);
+			i8x16 mvsael01 = packs16(mvsv0l0 - mvsv1l1, mvsh0l0 - mvsh1l1);
+			i8x16 mvsael10 = packs16(mvsv0l1 - mvsv1l0, mvsh0l1 - mvsh1l0);
+			i8x16 mvsael11 = packs16(mvsv0l1 - mvsv1l1, mvsh0l1 - mvsh1l1);
+			i8x16 mvsaep = subus8(umax8(abs8(mvsael00), abs8(mvsael11)), c3);
+			i8x16 mvsaec = subus8(umax8(abs8(mvsael01), abs8(mvsael10)), c3);
+			i8x16 mvsacegp = shuffle32(packs16(mvsaep, zero), 0, 2, 1, 3);
+			i8x16 mvsacegc = shuffle32(packs16(mvsaec, zero), 0, 2, 1, 3);
+			i64x2 refPic = {mb->refPic_l};
+			i64x2 refPicAB = {mb[-1].refPic_l, mbB->refPic_l};
+			i8x16 refs0 = shuffle8(shuffleps(refPic, refPicAB, 0, 0, 0, 2), shufVHAB); // (v0,h0,A0,B0)
+			i8x16 refs1 = shuffle8(shuffleps(refPic, refPicAB, 1, 1, 1, 3), shufVHAB); // (v1,h1,A1,B1)
+			i8x16 neq0 = refs0 ^ (i8x16)shuffleps(refs1, refs0, 2, 3, 0, 1); // (v0^A1,h0^B1,A0^v0,B0^h0)
+			i8x16 neq1 = refs1 ^ (i8x16)shuffleps(refs0, refs1, 2, 3, 0, 1); // (v1^A0,h1^B0,A1^v1,B1^h1)
+			i8x16 refsaceg = neq0 | neq1; // low=cross, high=parallel
+			i8x16 refsacegc = unpacklo8(refsaceg, refsaceg);
+			i8x16 refsacegp = unpackhi8(refsaceg, refsaceg);
+			i8x16 neq3 = umin8(refsacegp, refsacegc) | umin8(mvsacegp, mvsacegc);
+			i8x16 neq4 = umin8(refsacegp, mvsacegc) | umin8(mvsacegp, refsacegc);
+			bS0aceg = (neq3 | neq4) == zero;
+			bS0bdfh = set8(-1);
+		} else if ((mb->refIdx_s[1] & mb[-1].refIdx_s[1] & mbB->refIdx_s[1]) == -1) { // P macroblocks
+			i16x8 mvsv0 = shuffleps(mb[-1].mvs_v[1], mb[-1].mvs_v[3], 1, 3, 1, 3);
+			i16x8 mvsv1 = shuffleps(mb->mvs_v[0], mb->mvs_v[2], 0, 2, 0, 2);
+			i16x8 mvsv2 = shuffleps(mb->mvs_v[0], mb->mvs_v[2], 1, 3, 1, 3);
+			i16x8 mvsv3 = shuffleps(mb->mvs_v[1], mb->mvs_v[3], 0, 2, 0, 2);
+			i16x8 mvsv4 = shuffleps(mb->mvs_v[1], mb->mvs_v[3], 1, 3, 1, 3);
+			i16x8 mvsh0 = unpackhi64(mbB->mvs_v[2], mbB->mvs_v[3]);
+			i16x8 mvsh1 = unpacklo64(mb->mvs_v[0], mb->mvs_v[1]);
+			i16x8 mvsh2 = unpackhi64(mb->mvs_v[0], mb->mvs_v[1]);
+			i16x8 mvsh3 = unpacklo64(mb->mvs_v[2], mb->mvs_v[3]);
+			i16x8 mvsh4 = unpackhi64(mb->mvs_v[2], mb->mvs_v[3]);
+			i8x16 mvsac = packs16(mvsv0 - mvsv1, mvsv2 - mvsv3);
+			i8x16 mvsbd = packs16(mvsv1 - mvsv2, mvsv3 - mvsv4);
+			i8x16 mvseg = packs16(mvsh0 - mvsh1, mvsh2 - mvsh3);
+			i8x16 mvsfh = packs16(mvsh1 - mvsh2, mvsh3 - mvsh4);
+			i8x16 mvsaceg = packs16(subus8(abs8(mvsac), c3), subus8(abs8(mvseg), c3));
+			i8x16 mvsbdfh = packs16(subus8(abs8(mvsbd), c3), subus8(abs8(mvsfh), c3));
+			i8x16 refs = shuffle8(((i32x4){mb->refPic_s[0], 0, mb[-1].refPic_s[0], mbB->refPic_s[0]}), shufVHAB); // (v0,h0,A0,B0)
+			i8x16 neq = refs ^ (i8x16)unpackhi64(refs, refs); // (v0^A0,h0^B0,0,0)
+			i8x16 refsaceg = unpacklo8(neq, neq);
+			bS0aceg = (refsaceg | mvsaceg) == zero;
+			bS0bdfh = mvsbdfh == zero;
+		} else { // B macroblocks
+			i16x8 mvsv0l0 = shuffleps(mb[-1].mvs_v[1], mb[-1].mvs_v[3], 1, 3, 1, 3);
+			i16x8 mvsv1l0 = shuffleps(mb->mvs_v[0], mb->mvs_v[2], 0, 2, 0, 2);
+			i16x8 mvsv2l0 = shuffleps(mb->mvs_v[0], mb->mvs_v[2], 1, 3, 1, 3);
+			i16x8 mvsv3l0 = shuffleps(mb->mvs_v[1], mb->mvs_v[3], 0, 2, 0, 2);
+			i16x8 mvsv4l0 = shuffleps(mb->mvs_v[1], mb->mvs_v[3], 1, 3, 1, 3);
+			i16x8 mvsv0l1 = shuffleps(mb[-1].mvs_v[5], mb[-1].mvs_v[7], 1, 3, 1, 3);
+			i16x8 mvsv1l1 = shuffleps(mb->mvs_v[4], mb->mvs_v[6], 0, 2, 0, 2);
+			i16x8 mvsv2l1 = shuffleps(mb->mvs_v[4], mb->mvs_v[6], 1, 3, 1, 3);
+			i16x8 mvsv3l1 = shuffleps(mb->mvs_v[5], mb->mvs_v[7], 0, 2, 0, 2);
+			i16x8 mvsv4l1 = shuffleps(mb->mvs_v[5], mb->mvs_v[7], 1, 3, 1, 3);
+			i8x16 mvsacl00 = packs16(mvsv0l0 - mvsv1l0, mvsv2l0 - mvsv3l0);
+			i8x16 mvsbdl00 = packs16(mvsv1l0 - mvsv2l0, mvsv3l0 - mvsv4l0);
+			i8x16 mvsacl01 = packs16(mvsv0l0 - mvsv1l1, mvsv2l0 - mvsv3l1);
+			i8x16 mvsbdl01 = packs16(mvsv1l0 - mvsv2l1, mvsv3l0 - mvsv4l1);
+			i8x16 mvsacl10 = packs16(mvsv0l1 - mvsv1l0, mvsv2l1 - mvsv3l0);
+			i8x16 mvsbdl10 = packs16(mvsv1l1 - mvsv2l0, mvsv3l1 - mvsv4l0);
+			i8x16 mvsacl11 = packs16(mvsv0l1 - mvsv1l1, mvsv2l1 - mvsv3l1);
+			i8x16 mvsbdl11 = packs16(mvsv1l1 - mvsv2l1, mvsv3l1 - mvsv4l1);
+			i8x16 mvsacp = subus8(umax8(abs8(mvsacl00), abs8(mvsacl11)), c3);
+			i8x16 mvsbdp = subus8(umax8(abs8(mvsbdl00), abs8(mvsbdl11)), c3);
+			i8x16 mvsacc = subus8(umax8(abs8(mvsacl01), abs8(mvsacl10)), c3);
+			i8x16 mvsbdc = subus8(umax8(abs8(mvsbdl01), abs8(mvsbdl10)), c3);
+			i16x8 mvsh0l0 = unpackhi64(mbB->mvs_v[2], mbB->mvs_v[3]);
+			i16x8 mvsh1l0 = unpacklo64(mb->mvs_v[0], mb->mvs_v[1]);
+			i16x8 mvsh2l0 = unpackhi64(mb->mvs_v[0], mb->mvs_v[1]);
+			i16x8 mvsh3l0 = unpacklo64(mb->mvs_v[2], mb->mvs_v[3]);
+			i16x8 mvsh4l0 = unpackhi64(mb->mvs_v[2], mb->mvs_v[3]);
+			i16x8 mvsh0l1 = unpackhi64(mbB->mvs_v[6], mbB->mvs_v[7]);
+			i16x8 mvsh1l1 = unpacklo64(mb->mvs_v[4], mb->mvs_v[5]);
+			i16x8 mvsh2l1 = unpackhi64(mb->mvs_v[4], mb->mvs_v[5]);
+			i16x8 mvsh3l1 = unpacklo64(mb->mvs_v[6], mb->mvs_v[7]);
+			i16x8 mvsh4l1 = unpackhi64(mb->mvs_v[6], mb->mvs_v[7]);
+			i8x16 mvsegl00 = packs16(mvsh0l0 - mvsh1l0, mvsh2l0 - mvsh3l0);
+			i8x16 mvsfhl00 = packs16(mvsh1l0 - mvsh2l0, mvsh3l0 - mvsh4l0);
+			i8x16 mvsegl01 = packs16(mvsh0l0 - mvsh1l1, mvsh2l0 - mvsh3l1);
+			i8x16 mvsfhl01 = packs16(mvsh1l0 - mvsh2l1, mvsh3l0 - mvsh4l1);
+			i8x16 mvsegl10 = packs16(mvsh0l1 - mvsh1l0, mvsh2l1 - mvsh3l0);
+			i8x16 mvsfhl10 = packs16(mvsh1l1 - mvsh2l0, mvsh3l1 - mvsh4l0);
+			i8x16 mvsegl11 = packs16(mvsh0l1 - mvsh1l1, mvsh2l1 - mvsh3l1);
+			i8x16 mvsfhl11 = packs16(mvsh1l1 - mvsh2l1, mvsh3l1 - mvsh4l1);
+			i8x16 mvsegp = subus8(umax8(abs8(mvsegl00), abs8(mvsegl11)), c3);
+			i8x16 mvsfhp = subus8(umax8(abs8(mvsfhl00), abs8(mvsfhl11)), c3);
+			i8x16 mvsegc = subus8(umax8(abs8(mvsegl01), abs8(mvsegl10)), c3);
+			i8x16 mvsfhc = subus8(umax8(abs8(mvsfhl01), abs8(mvsfhl10)), c3);
+			i8x16 mvsacegp = packs16(mvsacp, mvsegp);
+			i8x16 mvsbdfhp = packs16(mvsbdp, mvsfhp);
+			i8x16 mvsacegc = packs16(mvsacc, mvsegc);
+			i8x16 mvsbdfhc = packs16(mvsbdc, mvsfhc);
+			i64x2 refPic = {mb->refPic_l};
+			i64x2 refPicAB = {mb[-1].refPic_l, mbB->refPic_l};
+			i8x16 refs0 = shuffle8(shuffleps(refPic, refPicAB, 0, 0, 0, 2), shufVHAB); // (v0,h0,A0,B0)
+			i8x16 refs1 = shuffle8(shuffleps(refPic, refPicAB, 1, 1, 1, 3), shufVHAB); // (v1,h1,A1,B1)
+			i8x16 neq0 = refs0 ^ (i8x16)shuffleps(refs1, refs0, 2, 3, 0, 1); // (v0^A1,h0^B1,A0^v0,B0^h0)
+			i8x16 neq1 = refs1 ^ (i8x16)shuffleps(refs0, refs1, 2, 3, 0, 1); // (v1^A0,h1^B0,A1^v1,B1^h1)
+			i8x16 neq2 = refs0 ^ refs1;
+			i8x16 refsaceg = neq0 | neq1; // low=cross, high=parallel
+			i8x16 refsacegc = unpacklo8(refsaceg, refsaceg);
+			i8x16 refsacegp = unpackhi8(refsaceg, refsaceg);
+			i8x16 refsbdfhc = unpacklo8(neq2, neq2);
+			i8x16 neq3 = umin8(refsacegp, refsacegc) | umin8(mvsacegp, mvsacegc);
+			i8x16 neq4 = umin8(refsacegp, mvsacegc) | umin8(mvsacegp, refsacegc);
+			bS0aceg = (neq3 | neq4) == zero;
+			bS0bdfh = umin8(mvsbdfhp, refsbdfhc | mvsbdfhc) == zero;
+		}
+		i8x16 bS0abcd = unpacklo32(bS0aceg, bS0bdfh);
+		i8x16 bS0efgh = unpackhi32(bS0aceg, bS0bdfh);
+		i8x16 bS0aacc = unpacklo32(bS0aceg, bS0aceg);
+		i8x16 bS0eegg = unpackhi32(bS0aceg, bS0aceg);
+		
+		// for 8x8 blocks with CAVLC, broadcast transform tokens beforehand
+		i8x16 nC = mb->nC_v[0];
+		if (!ctx->pps.entropy_coding_mode_flag && mb->f.transform_size_8x8_flag) {
+			i8x16 x = (i32x4)mb->nC_v[0] > 0;
+			mb->nC_v[0] = nC = sign8(x, x);
+		}
+		
+		// compute masks for edges with bS=2
+		static const i8x16 shufV = {0, 2, 8, 10, 1, 3, 9, 11, 4, 6, 12, 14, 5, 7, 13, 15};
+		static const i8x16 shufH = {0, 1, 4, 5, 2, 3, 6, 7, 8, 9, 12, 13, 10, 11, 14, 15};
+		i8x16 nnzv = shuffle8(nC, shufV);
+		i8x16 nnzl = shuffle8(mb[-1].nC_v[0], shufV);
+		i8x16 nnzh = shuffle8(nC, shufH);
+		i8x16 nnzt = shuffle8(mbB->nC_v[0], shufH);
+		i8x16 bS2abcd = (nnzv | alignr(nnzv, nnzl, 12)) > zero;
+		i8x16 bS2efgh = (nnzh | alignr(nnzh, nnzt, 12)) > zero;
+		i8x16 bS2aacc = shuffle32(bS2abcd, 0, 0, 2, 2);
+		i8x16 bS2eegg = shuffle32(bS2efgh, 0, 0, 2, 2);
+		
+		// shuffle, blend and store tC0 values
+		i8x16 tC00 = set8(-1);
+		static const i8x16 shuf0 = {8, 8, 8, 8, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+		static const i8x16 shuf1 = {12, 12, 12, 12, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+		static const i8x16 shuf2 = {9, 9, 9, 9, 10, 10, 10, 10, 1, 1, 1, 1, 2, 2, 2, 2};
+		static const i8x16 shuf3 = {13, 13, 13, 13, 14, 14, 14, 14, 1, 1, 1, 1, 2, 2, 2, 2};
+		ctx->tC0_v[0] = ifelse_mask(bS2abcd, shuffle8(tC02, shuf0), ifelse_mask(bS0abcd, tC00, shuffle8(tC01, shuf0)));
+		ctx->tC0_v[1] = ifelse_mask(bS2efgh, shuffle8(tC02, shuf1), ifelse_mask(bS0efgh, tC00, shuffle8(tC01, shuf1)));
+		ctx->tC0_v[2] = ifelse_mask(bS2aacc, shuffle8(tC02, shuf2), ifelse_mask(bS0aacc, tC00, shuffle8(tC01, shuf2)));
+		ctx->tC0_v[3] = ifelse_mask(bS2eegg, shuffle8(tC02, shuf3), ifelse_mask(bS0eegg, tC00, shuffle8(tC01, shuf3)));
+	}
+	
+	// branch to filters
+	size_t strideY = ctx->s.stride_Y;
+	CALL(deblock_Y_8bit, strideY, -strideY, strideY * 7);
+	size_t strideC = ctx->s.stride_C;
+	JUMP(deblock_CbCr_8bit, strideC, -strideC, strideC * 7);
+}
+
+
+
+/**
  * Loop through an entire frame to apply the deblocking filter on all
  * macroblocks.
  */
-void FUNC(deblock_frame, uint8_t *samples)
+void FUNC(deblock_frame)
 {
 	// point at the first macroblock
-	ctx->samples_mb[0] = ctx->samples_row[0] = ctx->samples_pic = samples;
+	ctx->samples_mb[0] = ctx->samples_row[0] = ctx->samples_pic;
 	ctx->samples_mb[1] = ctx->samples_mb[0] + ctx->plane_size_Y;
 	ctx->samples_mb[2] = ctx->samples_mb[1] + ctx->plane_size_C;
 	mbB = (Edge264_macroblock *)(ctx->samples_mb[2] + ctx->plane_size_C) + 1;
@@ -1040,14 +1048,7 @@ void FUNC(deblock_frame, uint8_t *samples)
 	ctx->CurrMbAddr = 0;
 	
 	do {
-		// deblock a single macroblock
-		if (mb->filter_edges & 1) {
-			CALL(init_alpha_beta_tC0);
-			size_t strideY = ctx->s.stride_Y;
-			CALL(deblock_Y_8bit, strideY, -strideY, strideY * 7);
-			size_t strideC = ctx->s.stride_C;
-			CALL(deblock_CbCr_8bit, strideC, -strideC, strideC * 7);
-		}
+		CALL(deblock_mb);
 		
 		// point at the next macroblock
 		mb++;

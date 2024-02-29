@@ -161,7 +161,260 @@ static always_inline i8x16 expand2(int64_t a) {
 
 
 /**
- * Deblock the luma plane of the current macroblock in place.
+ * Deblock both chroma planes of the current macroblock in place.
+ */
+static noinline void FUNC(deblock_CbCr_8bit, size_t stride, ssize_t nstride, size_t stride7)
+{
+	static const i8x16 shuf_a = {9, 9, 9, 9, 9, 9, 9, 9, 10, 10, 10, 10, 10, 10, 10, 10};
+	static const i8x16 shuf_cg = {1, 1, 1, 1, 1, 1, 1, 1, 2, 2, 2, 2, 2, 2, 2, 2};
+	static const i8x16 shuf_e = {13, 13, 13, 13, 13, 13, 13, 13, 14, 14, 14, 14, 14, 14, 14, 14};
+	i8x16 v0, v1, v2, v3, v4, v5, v6, v7;
+	if (mb->filter_edges & 2) {
+		// load and transpose both 12x8 matrices (with left macroblock)
+		uint8_t * restrict Cb0 = ctx->samples_mb[1] - 8;
+		i8x16 xa0 = load128(Cb0              );
+		i8x16 xa1 = load128(Cb0 +  stride    );
+		i8x16 xa2 = load128(Cb0 +  stride * 2);
+		uint8_t * restrict Cb7 = Cb0 + stride7;
+		i8x16 xa3 = load128(Cb7 + nstride * 4);
+		i8x16 xa4 = load128(Cb0 +  stride * 4);
+		i8x16 xa5 = load128(Cb7 + nstride * 2);
+		i8x16 xa6 = load128(Cb7 + nstride    );
+		i8x16 xa7 = load128(Cb7              );
+		i8x16 xb0 = unpacklo8(xa0, xa1);
+		i8x16 xb1 = unpackhi8(xa0, xa1);
+		i8x16 xb2 = unpacklo8(xa2, xa3);
+		i8x16 xb3 = unpackhi8(xa2, xa3);
+		i8x16 xb4 = unpacklo8(xa4, xa5);
+		i8x16 xb5 = unpackhi8(xa4, xa5);
+		i8x16 xb6 = unpacklo8(xa6, xa7);
+		i8x16 xb7 = unpackhi8(xa6, xa7);
+		i8x16 xc0 = unpackhi16(xb0, xb2);
+		i8x16 xc1 = unpacklo16(xb1, xb3);
+		i8x16 xc2 = unpackhi16(xb1, xb3);
+		i8x16 xc3 = unpackhi16(xb4, xb6);
+		i8x16 xc4 = unpacklo16(xb5, xb7);
+		i8x16 xc5 = unpackhi16(xb5, xb7);
+		uint8_t * restrict Cr0 = ctx->samples_mb[2] - 8;
+		i8x16 xa8 = load128(Cr0              );
+		i8x16 xa9 = load128(Cr0 +  stride    );
+		i8x16 xaA = load128(Cr0 +  stride * 2);
+		uint8_t * restrict Cr7 = Cr0 + stride7;
+		i8x16 xaB = load128(Cr7 + nstride * 4);
+		i8x16 xaC = load128(Cr0 +  stride * 4);
+		i8x16 xaD = load128(Cr7 + nstride * 2);
+		i8x16 xaE = load128(Cr7 + nstride    );
+		i8x16 xaF = load128(Cr7              );
+		i8x16 xb8 = unpacklo8(xa8, xa9);
+		i8x16 xb9 = unpackhi8(xa8, xa9);
+		i8x16 xbA = unpacklo8(xaA, xaB);
+		i8x16 xbB = unpackhi8(xaA, xaB);
+		i8x16 xbC = unpacklo8(xaC, xaD);
+		i8x16 xbD = unpackhi8(xaC, xaD);
+		i8x16 xbE = unpacklo8(xaE, xaF);
+		i8x16 xbF = unpackhi8(xaE, xaF);
+		i8x16 xc6 = unpackhi16(xb8, xbA);
+		i8x16 xc7 = unpacklo16(xb9, xbB);
+		i8x16 xc8 = unpackhi16(xb9, xbB);
+		i8x16 xc9 = unpackhi16(xbC, xbE);
+		i8x16 xcA = unpacklo16(xbD, xbF);
+		i8x16 xcB = unpackhi16(xbD, xbF);
+		i8x16 xd0 = unpackhi32(xc0, xc3);
+		i8x16 xd1 = unpacklo32(xc1, xc4);
+		i8x16 xd2 = unpackhi32(xc1, xc4);
+		i8x16 xd3 = unpacklo32(xc2, xc5);
+		i8x16 xd4 = unpackhi32(xc2, xc5);
+		i8x16 xd5 = unpackhi32(xc6, xc9);
+		i8x16 xd6 = unpacklo32(xc7, xcA);
+		i8x16 xd7 = unpackhi32(xc7, xcA);
+		i8x16 xd8 = unpacklo32(xc8, xcB);
+		i8x16 xd9 = unpackhi32(xc8, xcB);
+		i8x16 vY = unpacklo64(xd0, xd5);
+		i8x16 vZ = unpackhi64(xd0, xd5);
+		v0 = unpacklo64(xd1, xd6);
+		v1 = unpackhi64(xd1, xd6);
+		v2 = unpacklo64(xd2, xd7);
+		v3 = unpackhi64(xd2, xd7);
+		v4 = unpacklo64(xd3, xd8);
+		v5 = unpackhi64(xd3, xd8);
+		v6 = unpacklo64(xd4, xd9);
+		v7 = unpackhi64(xd4, xd9);
+		
+		// first vertical edge
+		if (mb[-1].f.mbIsInterFlag & mb->f.mbIsInterFlag) {
+			int64_t tC0a = ctx->tC0_l[4];
+			if (tC0a != -1)
+				DEBLOCK_CHROMA_SOFT(vY, vZ, v0, v1, shuf_a, tC0a);
+		} else {
+			DEBLOCK_CHROMA_HARD(vY, vZ, v0, v1, shuf_a);
+		}
+		
+		// store vY/vZ into the left macroblock
+		i16x8 xf0 = unpacklo8(vY, vZ);
+		i16x8 xf1 = unpackhi8(vY, vZ);
+		Cb0 = ctx->samples_mb[1] - 2;
+		*(int16_t *)(Cb0              ) = xf0[0];
+		*(int16_t *)(Cb0 +  stride    ) = xf0[1];
+		*(int16_t *)(Cb0 +  stride * 2) = xf0[2];
+		Cb7 = Cb0 + stride7;
+		*(int16_t *)(Cb7 + nstride * 4) = xf0[3];
+		*(int16_t *)(Cb0 +  stride * 4) = xf0[4];
+		*(int16_t *)(Cb7 + nstride * 2) = xf0[5];
+		*(int16_t *)(Cb7 + nstride    ) = xf0[6];
+		*(int16_t *)(Cb7              ) = xf0[7];
+		Cr0 = ctx->samples_mb[2] - 2;
+		*(int16_t *)(Cr0              ) = xf1[0];
+		*(int16_t *)(Cr0 +  stride    ) = xf1[1];
+		*(int16_t *)(Cr0 +  stride * 2) = xf1[2];
+		Cr7 = Cr0 + stride7;
+		*(int16_t *)(Cr7 + nstride * 4) = xf1[3];
+		*(int16_t *)(Cr0 +  stride * 4) = xf1[4];
+		*(int16_t *)(Cr7 + nstride * 2) = xf1[5];
+		*(int16_t *)(Cr7 + nstride    ) = xf1[6];
+		*(int16_t *)(Cr7              ) = xf1[7];
+	} else {
+		// load and transpose both 8x8 matrices
+		uint8_t * restrict Cb0 = ctx->samples_mb[1];
+		i8x16 xa0 = load64(Cb0              );
+		i8x16 xa1 = load64(Cb0 +  stride    );
+		i8x16 xa2 = load64(Cb0 +  stride * 2);
+		uint8_t * restrict Cb7 = Cb0 + stride7;
+		i8x16 xa3 = load64(Cb7 + nstride * 4);
+		i8x16 xa4 = load64(Cb0 +  stride * 4);
+		i8x16 xa5 = load64(Cb7 + nstride * 2);
+		i8x16 xa6 = load64(Cb7 + nstride    );
+		i8x16 xa7 = load64(Cb7              );
+		i8x16 xb0 = unpacklo8(xa0, xa1);
+		i8x16 xb1 = unpacklo8(xa2, xa3);
+		i8x16 xb2 = unpacklo8(xa4, xa5);
+		i8x16 xb3 = unpacklo8(xa6, xa7);
+		uint8_t * restrict Cr0 = ctx->samples_mb[2];
+		i8x16 xa8 = load64(Cr0              );
+		i8x16 xa9 = load64(Cr0 +  stride    );
+		i8x16 xaA = load64(Cr0 +  stride * 2);
+		uint8_t * restrict Cr7 = Cr0 + stride7;
+		i8x16 xaB = load64(Cr7 + nstride * 4);
+		i8x16 xaC = load64(Cr0 +  stride * 4);
+		i8x16 xaD = load64(Cr7 + nstride * 2);
+		i8x16 xaE = load64(Cr7 + nstride    );
+		i8x16 xaF = load64(Cr7              );
+		i8x16 xb4 = unpacklo8(xa8, xa9);
+		i8x16 xb5 = unpacklo8(xaA, xaB);
+		i8x16 xb6 = unpacklo8(xaC, xaD);
+		i8x16 xb7 = unpacklo8(xaE, xaF);
+		i8x16 xc0 = unpacklo16(xb0, xb1);
+		i8x16 xc1 = unpackhi16(xb0, xb1);
+		i8x16 xc2 = unpacklo16(xb2, xb3);
+		i8x16 xc3 = unpackhi16(xb2, xb3);
+		i8x16 xc4 = unpacklo16(xb4, xb5);
+		i8x16 xc5 = unpackhi16(xb4, xb5);
+		i8x16 xc6 = unpacklo16(xb6, xb7);
+		i8x16 xc7 = unpackhi16(xb6, xb7);
+		i8x16 xd0 = unpacklo32(xc0, xc2);
+		i8x16 xd1 = unpackhi32(xc0, xc2);
+		i8x16 xd2 = unpacklo32(xc1, xc3);
+		i8x16 xd3 = unpackhi32(xc1, xc3);
+		i8x16 xd4 = unpacklo32(xc4, xc6);
+		i8x16 xd5 = unpackhi32(xc4, xc6);
+		i8x16 xd6 = unpacklo32(xc5, xc7);
+		i8x16 xd7 = unpackhi32(xc5, xc7);
+		v0 = unpacklo64(xd0, xd4);
+		v1 = unpackhi64(xd0, xd4);
+		v2 = unpacklo64(xd1, xd5);
+		v3 = unpackhi64(xd1, xd5);
+		v4 = unpacklo64(xd2, xd6);
+		v5 = unpackhi64(xd2, xd6);
+		v6 = unpacklo64(xd3, xd7);
+		v7 = unpackhi64(xd3, xd7);
+	}
+	
+	// second vertical edge
+	int64_t tC0c = ctx->tC0_l[5];
+	if (tC0c != -1)
+		DEBLOCK_CHROMA_SOFT(v2, v3, v4, v5, shuf_cg, tC0c);
+	
+	// transpose both 8x8 matrices
+	i8x16 xa0 = unpacklo8(v0, v1);
+	i8x16 xa1 = unpackhi8(v0, v1);
+	i8x16 xa2 = unpacklo8(v2, v3);
+	i8x16 xa3 = unpackhi8(v2, v3);
+	i8x16 xa4 = unpacklo8(v4, v5);
+	i8x16 xa5 = unpackhi8(v4, v5);
+	i8x16 xa6 = unpacklo8(v6, v7);
+	i8x16 xa7 = unpackhi8(v6, v7);
+	i8x16 xb0 = unpacklo16(xa0, xa2);
+	i8x16 xb1 = unpackhi16(xa0, xa2);
+	i8x16 xb2 = unpacklo16(xa1, xa3);
+	i8x16 xb3 = unpackhi16(xa1, xa3);
+	i8x16 xb4 = unpacklo16(xa4, xa6);
+	i8x16 xb5 = unpackhi16(xa4, xa6);
+	i8x16 xb6 = unpacklo16(xa5, xa7);
+	i8x16 xb7 = unpackhi16(xa5, xa7);
+	i8x16 xc0 = unpacklo32(xb0, xb4);
+	i8x16 xc1 = unpackhi32(xb0, xb4);
+	i8x16 xc2 = unpacklo32(xb1, xb5);
+	i8x16 xc3 = unpackhi32(xb1, xb5);
+	i8x16 xc4 = unpacklo32(xb2, xb6);
+	i8x16 xc5 = unpackhi32(xb2, xb6);
+	i8x16 xc6 = unpacklo32(xb3, xb7);
+	i8x16 xc7 = unpackhi32(xb3, xb7);
+	i8x16 h0 = unpacklo64(xc0, xc4);
+	i8x16 h1 = unpackhi64(xc0, xc4);
+	i8x16 h2 = unpacklo64(xc1, xc5);
+	i8x16 h3 = unpackhi64(xc1, xc5);
+	i8x16 h4 = unpacklo64(xc2, xc6);
+	i8x16 h5 = unpackhi64(xc2, xc6);
+	i8x16 h6 = unpacklo64(xc3, xc7);
+	i8x16 h7 = unpackhi64(xc3, xc7);
+	
+	// first horizontal edge
+	uint8_t * restrict Cb0 = ctx->samples_mb[1];
+	uint8_t * restrict Cr0 = ctx->samples_mb[2];
+	if (mb->filter_edges & 4) {
+		i8x16 hY = (i64x2){*(int64_t *)(Cb0 + nstride * 2), *(int64_t *)(Cr0 + nstride * 2)};
+		i8x16 hZ = (i64x2){*(int64_t *)(Cb0 + nstride    ), *(int64_t *)(Cr0 + nstride    )};
+		if (mbB->f.mbIsInterFlag & mb->f.mbIsInterFlag) {
+			int64_t tC0e = ctx->tC0_l[6];
+			if (tC0e != -1)
+				DEBLOCK_CHROMA_SOFT(hY, hZ, h0, h1, shuf_e, tC0e);
+		} else {
+			DEBLOCK_CHROMA_HARD(hY, hZ, h0, h1, shuf_e);
+		}
+		*(int64_t *)(Cb0 + nstride * 2) = ((i64x2)hY)[0];
+		*(int64_t *)(Cr0 + nstride * 2) = ((i64x2)hY)[1];
+		*(int64_t *)(Cb0 + nstride    ) = ((i64x2)hZ)[0];
+		*(int64_t *)(Cr0 + nstride    ) = ((i64x2)hZ)[1];
+	}
+	*(int64_t *)(Cb0              ) = ((i64x2)h0)[0];
+	*(int64_t *)(Cr0              ) = ((i64x2)h0)[1];
+	*(int64_t *)(Cb0 +  stride    ) = ((i64x2)h1)[0];
+	*(int64_t *)(Cr0 +  stride    ) = ((i64x2)h1)[1];
+	
+	// second horizontal edge
+	int64_t tC0g = ctx->tC0_l[7];
+	if (tC0g != -1)
+		DEBLOCK_CHROMA_SOFT(h2, h3, h4, h5, shuf_cg, tC0g);
+	*(int64_t *)(Cb0 +  stride * 2) = ((i64x2)h2)[0];
+	*(int64_t *)(Cr0 +  stride * 2) = ((i64x2)h2)[1];
+	uint8_t * restrict Cb7 = Cb0 + stride7;
+	uint8_t * restrict Cr7 = Cr0 + stride7;
+	*(int64_t *)(Cb7 + nstride * 4) = ((i64x2)h3)[0];
+	*(int64_t *)(Cr7 + nstride * 4) = ((i64x2)h3)[1];
+	*(int64_t *)(Cb0 +  stride * 4) = ((i64x2)h4)[0];
+	*(int64_t *)(Cr0 +  stride * 4) = ((i64x2)h4)[1];
+	*(int64_t *)(Cb7 + nstride * 2) = ((i64x2)h5)[0];
+	*(int64_t *)(Cr7 + nstride * 2) = ((i64x2)h5)[1];
+	*(int64_t *)(Cb7 + nstride    ) = ((i64x2)h6)[0];
+	*(int64_t *)(Cr7 + nstride    ) = ((i64x2)h6)[1];
+	*(int64_t *)(Cb7              ) = ((i64x2)h7)[0];
+	*(int64_t *)(Cr7              ) = ((i64x2)h7)[1];
+}
+
+
+
+/**
+ * Deblock the luma plane of the current macroblock in place, then tail call to
+ * chroma deblocking.
  */
 static noinline void FUNC(deblock_Y_8bit, size_t stride, ssize_t nstride, size_t stride7)
 {
@@ -521,265 +774,17 @@ static noinline void FUNC(deblock_Y_8bit, size_t stride, ssize_t nstride, size_t
 	*(i8x16 *)(pxE + nstride    ) = hD;
 	*(i8x16 *)(pxE              ) = hE;
 	*(i8x16 *)(pxE +  stride    ) = hF;
-}
-
-
-
-/**
- * Deblock both chroma planes of the current macroblock in place.
- */
-static noinline void FUNC(deblock_CbCr_8bit, size_t stride, ssize_t nstride, size_t stride7)
-{
-	static const i8x16 shuf_a = {9, 9, 9, 9, 9, 9, 9, 9, 10, 10, 10, 10, 10, 10, 10, 10};
-	static const i8x16 shuf_cg = {1, 1, 1, 1, 1, 1, 1, 1, 2, 2, 2, 2, 2, 2, 2, 2};
-	static const i8x16 shuf_e = {13, 13, 13, 13, 13, 13, 13, 13, 14, 14, 14, 14, 14, 14, 14, 14};
-	i8x16 v0, v1, v2, v3, v4, v5, v6, v7;
-	if (mb->filter_edges & 2) {
-		// load and transpose both 12x8 matrices (with left macroblock)
-		uint8_t * restrict Cb0 = ctx->samples_mb[1] - 8;
-		i8x16 xa0 = load128(Cb0              );
-		i8x16 xa1 = load128(Cb0 +  stride    );
-		i8x16 xa2 = load128(Cb0 +  stride * 2);
-		uint8_t * restrict Cb7 = Cb0 + stride7;
-		i8x16 xa3 = load128(Cb7 + nstride * 4);
-		i8x16 xa4 = load128(Cb0 +  stride * 4);
-		i8x16 xa5 = load128(Cb7 + nstride * 2);
-		i8x16 xa6 = load128(Cb7 + nstride    );
-		i8x16 xa7 = load128(Cb7              );
-		i8x16 xb0 = unpacklo8(xa0, xa1);
-		i8x16 xb1 = unpackhi8(xa0, xa1);
-		i8x16 xb2 = unpacklo8(xa2, xa3);
-		i8x16 xb3 = unpackhi8(xa2, xa3);
-		i8x16 xb4 = unpacklo8(xa4, xa5);
-		i8x16 xb5 = unpackhi8(xa4, xa5);
-		i8x16 xb6 = unpacklo8(xa6, xa7);
-		i8x16 xb7 = unpackhi8(xa6, xa7);
-		i8x16 xc0 = unpackhi16(xb0, xb2);
-		i8x16 xc1 = unpacklo16(xb1, xb3);
-		i8x16 xc2 = unpackhi16(xb1, xb3);
-		i8x16 xc3 = unpackhi16(xb4, xb6);
-		i8x16 xc4 = unpacklo16(xb5, xb7);
-		i8x16 xc5 = unpackhi16(xb5, xb7);
-		uint8_t * restrict Cr0 = ctx->samples_mb[2] - 8;
-		i8x16 xa8 = load128(Cr0              );
-		i8x16 xa9 = load128(Cr0 +  stride    );
-		i8x16 xaA = load128(Cr0 +  stride * 2);
-		uint8_t * restrict Cr7 = Cr0 + stride7;
-		i8x16 xaB = load128(Cr7 + nstride * 4);
-		i8x16 xaC = load128(Cr0 +  stride * 4);
-		i8x16 xaD = load128(Cr7 + nstride * 2);
-		i8x16 xaE = load128(Cr7 + nstride    );
-		i8x16 xaF = load128(Cr7              );
-		i8x16 xb8 = unpacklo8(xa8, xa9);
-		i8x16 xb9 = unpackhi8(xa8, xa9);
-		i8x16 xbA = unpacklo8(xaA, xaB);
-		i8x16 xbB = unpackhi8(xaA, xaB);
-		i8x16 xbC = unpacklo8(xaC, xaD);
-		i8x16 xbD = unpackhi8(xaC, xaD);
-		i8x16 xbE = unpacklo8(xaE, xaF);
-		i8x16 xbF = unpackhi8(xaE, xaF);
-		i8x16 xc6 = unpackhi16(xb8, xbA);
-		i8x16 xc7 = unpacklo16(xb9, xbB);
-		i8x16 xc8 = unpackhi16(xb9, xbB);
-		i8x16 xc9 = unpackhi16(xbC, xbE);
-		i8x16 xcA = unpacklo16(xbD, xbF);
-		i8x16 xcB = unpackhi16(xbD, xbF);
-		i8x16 xd0 = unpackhi32(xc0, xc3);
-		i8x16 xd1 = unpacklo32(xc1, xc4);
-		i8x16 xd2 = unpackhi32(xc1, xc4);
-		i8x16 xd3 = unpacklo32(xc2, xc5);
-		i8x16 xd4 = unpackhi32(xc2, xc5);
-		i8x16 xd5 = unpackhi32(xc6, xc9);
-		i8x16 xd6 = unpacklo32(xc7, xcA);
-		i8x16 xd7 = unpackhi32(xc7, xcA);
-		i8x16 xd8 = unpacklo32(xc8, xcB);
-		i8x16 xd9 = unpackhi32(xc8, xcB);
-		i8x16 vY = unpacklo64(xd0, xd5);
-		i8x16 vZ = unpackhi64(xd0, xd5);
-		v0 = unpacklo64(xd1, xd6);
-		v1 = unpackhi64(xd1, xd6);
-		v2 = unpacklo64(xd2, xd7);
-		v3 = unpackhi64(xd2, xd7);
-		v4 = unpacklo64(xd3, xd8);
-		v5 = unpackhi64(xd3, xd8);
-		v6 = unpacklo64(xd4, xd9);
-		v7 = unpackhi64(xd4, xd9);
-		
-		// first vertical edge
-		if (mb[-1].f.mbIsInterFlag & mb->f.mbIsInterFlag) {
-			int64_t tC0a = ctx->tC0_l[4];
-			if (tC0a != -1)
-				DEBLOCK_CHROMA_SOFT(vY, vZ, v0, v1, shuf_a, tC0a);
-		} else {
-			DEBLOCK_CHROMA_HARD(vY, vZ, v0, v1, shuf_a);
-		}
-		
-		// store vY/vZ into the left macroblock
-		i16x8 xf0 = unpacklo8(vY, vZ);
-		i16x8 xf1 = unpackhi8(vY, vZ);
-		Cb0 = ctx->samples_mb[1] - 2;
-		*(int16_t *)(Cb0              ) = xf0[0];
-		*(int16_t *)(Cb0 +  stride    ) = xf0[1];
-		*(int16_t *)(Cb0 +  stride * 2) = xf0[2];
-		Cb7 = Cb0 + stride7;
-		*(int16_t *)(Cb7 + nstride * 4) = xf0[3];
-		*(int16_t *)(Cb0 +  stride * 4) = xf0[4];
-		*(int16_t *)(Cb7 + nstride * 2) = xf0[5];
-		*(int16_t *)(Cb7 + nstride    ) = xf0[6];
-		*(int16_t *)(Cb7              ) = xf0[7];
-		Cr0 = ctx->samples_mb[2] - 2;
-		*(int16_t *)(Cr0              ) = xf1[0];
-		*(int16_t *)(Cr0 +  stride    ) = xf1[1];
-		*(int16_t *)(Cr0 +  stride * 2) = xf1[2];
-		Cr7 = Cr0 + stride7;
-		*(int16_t *)(Cr7 + nstride * 4) = xf1[3];
-		*(int16_t *)(Cr0 +  stride * 4) = xf1[4];
-		*(int16_t *)(Cr7 + nstride * 2) = xf1[5];
-		*(int16_t *)(Cr7 + nstride    ) = xf1[6];
-		*(int16_t *)(Cr7              ) = xf1[7];
-	} else {
-		// load and transpose both 8x8 matrices
-		uint8_t * restrict Cb0 = ctx->samples_mb[1];
-		i8x16 xa0 = load64(Cb0              );
-		i8x16 xa1 = load64(Cb0 +  stride    );
-		i8x16 xa2 = load64(Cb0 +  stride * 2);
-		uint8_t * restrict Cb7 = Cb0 + stride7;
-		i8x16 xa3 = load64(Cb7 + nstride * 4);
-		i8x16 xa4 = load64(Cb0 +  stride * 4);
-		i8x16 xa5 = load64(Cb7 + nstride * 2);
-		i8x16 xa6 = load64(Cb7 + nstride    );
-		i8x16 xa7 = load64(Cb7              );
-		i8x16 xb0 = unpacklo8(xa0, xa1);
-		i8x16 xb1 = unpacklo8(xa2, xa3);
-		i8x16 xb2 = unpacklo8(xa4, xa5);
-		i8x16 xb3 = unpacklo8(xa6, xa7);
-		uint8_t * restrict Cr0 = ctx->samples_mb[2];
-		i8x16 xa8 = load64(Cr0              );
-		i8x16 xa9 = load64(Cr0 +  stride    );
-		i8x16 xaA = load64(Cr0 +  stride * 2);
-		uint8_t * restrict Cr7 = Cr0 + stride7;
-		i8x16 xaB = load64(Cr7 + nstride * 4);
-		i8x16 xaC = load64(Cr0 +  stride * 4);
-		i8x16 xaD = load64(Cr7 + nstride * 2);
-		i8x16 xaE = load64(Cr7 + nstride    );
-		i8x16 xaF = load64(Cr7              );
-		i8x16 xb4 = unpacklo8(xa8, xa9);
-		i8x16 xb5 = unpacklo8(xaA, xaB);
-		i8x16 xb6 = unpacklo8(xaC, xaD);
-		i8x16 xb7 = unpacklo8(xaE, xaF);
-		i8x16 xc0 = unpacklo16(xb0, xb1);
-		i8x16 xc1 = unpackhi16(xb0, xb1);
-		i8x16 xc2 = unpacklo16(xb2, xb3);
-		i8x16 xc3 = unpackhi16(xb2, xb3);
-		i8x16 xc4 = unpacklo16(xb4, xb5);
-		i8x16 xc5 = unpackhi16(xb4, xb5);
-		i8x16 xc6 = unpacklo16(xb6, xb7);
-		i8x16 xc7 = unpackhi16(xb6, xb7);
-		i8x16 xd0 = unpacklo32(xc0, xc2);
-		i8x16 xd1 = unpackhi32(xc0, xc2);
-		i8x16 xd2 = unpacklo32(xc1, xc3);
-		i8x16 xd3 = unpackhi32(xc1, xc3);
-		i8x16 xd4 = unpacklo32(xc4, xc6);
-		i8x16 xd5 = unpackhi32(xc4, xc6);
-		i8x16 xd6 = unpacklo32(xc5, xc7);
-		i8x16 xd7 = unpackhi32(xc5, xc7);
-		v0 = unpacklo64(xd0, xd4);
-		v1 = unpackhi64(xd0, xd4);
-		v2 = unpacklo64(xd1, xd5);
-		v3 = unpackhi64(xd1, xd5);
-		v4 = unpacklo64(xd2, xd6);
-		v5 = unpackhi64(xd2, xd6);
-		v6 = unpacklo64(xd3, xd7);
-		v7 = unpackhi64(xd3, xd7);
-	}
 	
-	// second vertical edge
-	int64_t tC0c = ctx->tC0_l[5];
-	if (tC0c != -1)
-		DEBLOCK_CHROMA_SOFT(v2, v3, v4, v5, shuf_cg, tC0c);
-	
-	// transpose both 8x8 matrices
-	i8x16 xa0 = unpacklo8(v0, v1);
-	i8x16 xa1 = unpackhi8(v0, v1);
-	i8x16 xa2 = unpacklo8(v2, v3);
-	i8x16 xa3 = unpackhi8(v2, v3);
-	i8x16 xa4 = unpacklo8(v4, v5);
-	i8x16 xa5 = unpackhi8(v4, v5);
-	i8x16 xa6 = unpacklo8(v6, v7);
-	i8x16 xa7 = unpackhi8(v6, v7);
-	i8x16 xb0 = unpacklo16(xa0, xa2);
-	i8x16 xb1 = unpackhi16(xa0, xa2);
-	i8x16 xb2 = unpacklo16(xa1, xa3);
-	i8x16 xb3 = unpackhi16(xa1, xa3);
-	i8x16 xb4 = unpacklo16(xa4, xa6);
-	i8x16 xb5 = unpackhi16(xa4, xa6);
-	i8x16 xb6 = unpacklo16(xa5, xa7);
-	i8x16 xb7 = unpackhi16(xa5, xa7);
-	i8x16 xc0 = unpacklo32(xb0, xb4);
-	i8x16 xc1 = unpackhi32(xb0, xb4);
-	i8x16 xc2 = unpacklo32(xb1, xb5);
-	i8x16 xc3 = unpackhi32(xb1, xb5);
-	i8x16 xc4 = unpacklo32(xb2, xb6);
-	i8x16 xc5 = unpackhi32(xb2, xb6);
-	i8x16 xc6 = unpacklo32(xb3, xb7);
-	i8x16 xc7 = unpackhi32(xb3, xb7);
-	i8x16 h0 = unpacklo64(xc0, xc4);
-	i8x16 h1 = unpackhi64(xc0, xc4);
-	i8x16 h2 = unpacklo64(xc1, xc5);
-	i8x16 h3 = unpackhi64(xc1, xc5);
-	i8x16 h4 = unpacklo64(xc2, xc6);
-	i8x16 h5 = unpackhi64(xc2, xc6);
-	i8x16 h6 = unpacklo64(xc3, xc7);
-	i8x16 h7 = unpackhi64(xc3, xc7);
-	
-	// first horizontal edge
-	uint8_t * restrict Cb0 = ctx->samples_mb[1];
-	uint8_t * restrict Cr0 = ctx->samples_mb[2];
-	if (mb->filter_edges & 4) {
-		i8x16 hY = (i64x2){*(int64_t *)(Cb0 + nstride * 2), *(int64_t *)(Cr0 + nstride * 2)};
-		i8x16 hZ = (i64x2){*(int64_t *)(Cb0 + nstride    ), *(int64_t *)(Cr0 + nstride    )};
-		if (mbB->f.mbIsInterFlag & mb->f.mbIsInterFlag) {
-			int64_t tC0e = ctx->tC0_l[6];
-			if (tC0e != -1)
-				DEBLOCK_CHROMA_SOFT(hY, hZ, h0, h1, shuf_e, tC0e);
-		} else {
-			DEBLOCK_CHROMA_HARD(hY, hZ, h0, h1, shuf_e);
-		}
-		*(int64_t *)(Cb0 + nstride * 2) = ((i64x2)hY)[0];
-		*(int64_t *)(Cr0 + nstride * 2) = ((i64x2)hY)[1];
-		*(int64_t *)(Cb0 + nstride    ) = ((i64x2)hZ)[0];
-		*(int64_t *)(Cr0 + nstride    ) = ((i64x2)hZ)[1];
-	}
-	*(int64_t *)(Cb0              ) = ((i64x2)h0)[0];
-	*(int64_t *)(Cr0              ) = ((i64x2)h0)[1];
-	*(int64_t *)(Cb0 +  stride    ) = ((i64x2)h1)[0];
-	*(int64_t *)(Cr0 +  stride    ) = ((i64x2)h1)[1];
-	
-	// second horizontal edge
-	int64_t tC0g = ctx->tC0_l[7];
-	if (tC0g != -1)
-		DEBLOCK_CHROMA_SOFT(h2, h3, h4, h5, shuf_cg, tC0g);
-	*(int64_t *)(Cb0 +  stride * 2) = ((i64x2)h2)[0];
-	*(int64_t *)(Cr0 +  stride * 2) = ((i64x2)h2)[1];
-	uint8_t * restrict Cb7 = Cb0 + stride7;
-	uint8_t * restrict Cr7 = Cr0 + stride7;
-	*(int64_t *)(Cb7 + nstride * 4) = ((i64x2)h3)[0];
-	*(int64_t *)(Cr7 + nstride * 4) = ((i64x2)h3)[1];
-	*(int64_t *)(Cb0 +  stride * 4) = ((i64x2)h4)[0];
-	*(int64_t *)(Cr0 +  stride * 4) = ((i64x2)h4)[1];
-	*(int64_t *)(Cb7 + nstride * 2) = ((i64x2)h5)[0];
-	*(int64_t *)(Cr7 + nstride * 2) = ((i64x2)h5)[1];
-	*(int64_t *)(Cb7 + nstride    ) = ((i64x2)h6)[0];
-	*(int64_t *)(Cr7 + nstride    ) = ((i64x2)h6)[1];
-	*(int64_t *)(Cb7              ) = ((i64x2)h7)[0];
-	*(int64_t *)(Cr7              ) = ((i64x2)h7)[1];
+	// jump to chroma deblocking filter
+	size_t strideC = ctx->s.stride_C;
+	JUMP(deblock_CbCr_8bit, strideC, -strideC, strideC * 7);
 }
 
 
 
 /**
  * Compute alpha, beta and tC0 for all planes and all edges (labeled a to h in
- * deblocking order) of the current macroblock, then branch to filter functions.
+ * deblocking order) of the current macroblock, then tail-call to luma filter.
  * 
  * One of the hard parts here is computing a mask for bS=1. Edges a/c/e/g and
  * b/d/f/h are handled separately, and we calculate 4 values per edge:
@@ -1024,11 +1029,9 @@ noinline void FUNC(deblock_mb)
 		ctx->tC0_v[3] = ifelse_mask(bS2eegg, shuffle8(tC02, shuf3), ifelse_mask(bS0eegg, tC00, shuffle8(tC01, shuf3)));
 	}
 	
-	// branch to filters
+	// jump to luma deblocking filter
 	size_t strideY = ctx->s.stride_Y;
-	CALL(deblock_Y_8bit, strideY, -strideY, strideY * 7);
-	size_t strideC = ctx->s.stride_C;
-	JUMP(deblock_CbCr_8bit, strideC, -strideC, strideC * 7);
+	JUMP(deblock_Y_8bit, strideY, -strideY, strideY * 7);
 }
 
 

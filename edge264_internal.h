@@ -270,6 +270,7 @@ typedef struct
 	int8_t unpairedView; // index of last MVC view waiting to be paired with an opposite view
 	int32_t mvc_extension; // 3 bytes of nal_unit_header_mvc_extension
 	int32_t pic_remaining_mbs; // when zero the picture is complete
+	uint32_t pic_next_deblock_addr; // next CurrMbAddr value for which mbB will be deblocked
 	int32_t prevRefFrameNum[2];
 	int32_t prevPicOrderCnt;
 	int32_t dispPicOrderCnt; // all POCs lower or equal than this are ready for output

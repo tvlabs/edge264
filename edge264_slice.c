@@ -1753,6 +1753,29 @@ static noinline int CAFUNC(parse_slice_data)
 			}
 		}
 		
+		// deblock mbB while in cache, then point to the next macroblock
+		if (ctx->CurrMbAddr == ctx->pic_next_deblock_addr) {
+			ctx->pic_next_deblock_addr += 1;
+			mb = mbB;
+			mbB -= ctx->sps.pic_width_in_mbs + 1;
+			ctx->samples_mb[0] -= ctx->stride[0] * 16;
+			ctx->samples_mb[1] -= ctx->stride[1] * 8;
+			ctx->samples_mb[2] -= ctx->stride[1] * 8;
+			CALL(deblock_mb);
+			mbB = mb + 1;
+			mb += ctx->sps.pic_width_in_mbs + 2;
+			ctx->samples_mb[0] += ctx->stride[0] * 16 + 16;
+			ctx->samples_mb[1] += ctx->stride[1] * 8 + 8;
+			ctx->samples_mb[2] += ctx->stride[1] * 8 + 8;
+		} else {
+			mb++;
+			mbB++;
+			ctx->samples_mb[0] += 16; // FIXME 16bit
+			ctx->samples_mb[1] += 8; // FIXME 4:2:2, 16bit
+			ctx->samples_mb[2] += 8;
+		}
+		ctx->mbCol++;
+		
 		// break at end of slice
 		ctx->CurrMbAddr++;
 		#ifdef CABAC
@@ -1761,14 +1784,6 @@ static noinline int CAFUNC(parse_slice_data)
 		#endif
 		if (CACOND(ctx->mb_skip_run <= 0 && msb_cache == (size_t)1 << (SIZE_BIT - 1) && !(lsb_cache & (lsb_cache - 1)) && ctx->end_of_NAL, end_of_slice_flag))
 			return ctx->CurrMbAddr - ctx->first_mb_in_slice;
-		
-		// point to the next macroblock
-		mb++;
-		mbB++;
-		ctx->mbCol++;
-		ctx->samples_mb[0] += 16; // FIXME 16bit
-		ctx->samples_mb[1] += 8; // FIXME 4:2:2, 16bit
-		ctx->samples_mb[2] += 8;
 		
 		// end of row
 		if (ctx->samples_mb[0] - ctx->samples_row[0] >= ctx->stride[0]) {

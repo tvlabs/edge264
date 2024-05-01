@@ -795,6 +795,7 @@ static int FUNC(parse_slice_layer_without_partitioning)
 		ctx->currPic = __builtin_ctz(~unavail);
 		ctx->samples_pic = ctx->DPB + ctx->currPic * ctx->frame_size;
 		ctx->pic_remaining_mbs = ctx->sps.pic_width_in_mbs * ctx->sps.pic_height_in_mbs;
+		ctx->pic_next_deblock_addr = ctx->sps.pic_width_in_mbs;
 		ctx->FrameNums[ctx->currPic] = ctx->FrameNum;
 		ctx->FieldOrderCnt[0][ctx->currPic] = TopFieldOrderCnt;
 		ctx->FieldOrderCnt[1][ctx->currPic] = BottomFieldOrderCnt;

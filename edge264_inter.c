@@ -1238,7 +1238,7 @@ void noinline FUNC(decode_inter, int i, int w, int h) {
 	int y = mb->mvs[i * 2 + 1];
 	int i8x8 = i >> 2;
 	int i4x4 = i & 15;
-	const uint8_t *ref = ctx->DPB + ctx->frame_size * mb->refPic[i8x8];
+	const uint8_t *ref = ctx->frame_buffers[mb->refPic[i8x8]];
 	//printf("<tr><td colspan=2>CurrMbAddr=%d, i=%d, w=%d, h=%d, x=%d, y=%d, idx=%d, pic=%d</td></tr>\n", ctx->CurrMbAddr, i, w, h, x, y, mb->refIdx[i8x8], mb->refPic[i8x8]);
 	
 	// initialize prediction weights (not vectorized since most often 1~2 calls per mb)
@@ -1326,10 +1326,11 @@ void noinline FUNC(decode_inter, int i, int w, int h) {
 	// compute source pointers
 	size_t sstride_Y = ctx->stride[0];
 	size_t sstride_C = ctx->stride[1];
+	uint8_t *frame_buffer = ctx->frame_buffers[ctx->currPic];
 	int xInt_Y = ctx->samples_mb[0] - ctx->samples_row[0] + x444[i4x4] + (x >> 2);
 	int xInt_C = ctx->samples_mb[1] - ctx->samples_row[1] + (x444[i4x4] >> 1) + (x >> 3);
-	int yInt_Y = ctx->samples_row[0] - ctx->samples_pic + (y444[i4x4] + (y >> 2)) * sstride_Y;
-	int yInt_C = ctx->samples_row[1] - ctx->samples_pic + ((y444[i4x4] >> 1) + (y >> 3)) * sstride_C;
+	int yInt_Y = ctx->samples_row[0] - frame_buffer + (y444[i4x4] + (y >> 2)) * sstride_Y;
+	int yInt_C = ctx->samples_row[1] - frame_buffer + ((y444[i4x4] >> 1) + (y >> 3)) * sstride_C;
 	const uint8_t *src_Y = ref + xInt_Y + yInt_Y;
 	const uint8_t *src_Cb = ref + xInt_C + yInt_C;
 	const uint8_t *src_Cr = ref + xInt_C + yInt_C + ctx->plane_size_C;

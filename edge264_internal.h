@@ -66,7 +66,7 @@ typedef struct {
 	int8_t mvc; // 1 significant bit
 	int16_t offset_for_non_ref_pic; // pic_order_cnt_type==1
 	int16_t offset_for_top_to_bottom_field; // pic_order_cnt_type==1
-	int16_t view_id0; // value of view_id for the first view, 10 significant bits
+	int16_t view_id0; // value of view_id for the base view, 10 significant bits
 	int16_t PicOrderCntDeltas[256]; // pic_order_cnt_type==1
 	union { int16_t frame_crop_offsets[4]; int64_t frame_crop_offsets_l; }; // {top,right,bottom,left}
 	union { uint8_t weightScale4x4[6][16]; i8x16 weightScale4x4_v[6]; };
@@ -192,7 +192,6 @@ typedef struct
 	Edge264_macroblock * restrict _mbB; // backup storage for macro mbB
 	int32_t CurrMbAddr;
 	int32_t mb_skip_run;
-	uint8_t *samples_pic; // address of top-left byte of current picture
 	uint8_t *samples_row[3]; // address of top-left byte of each plane in current row of macroblocks
 	uint8_t *samples_mb[3]; // address of top-left byte of each plane in current macroblock
 	uint16_t stride[3]; // [iYCbCr], 16 significant bits (8K, 16bit, field pic)
@@ -254,7 +253,7 @@ typedef struct
 	union { int32_t tC0_s[16]; int64_t tC0_l[8]; i8x16 tC0_v[4]; i8x32 tC0_V[2]; }; // 4 bytes per edge in deblocking order -> 8 luma edges then 8 alternating Cb/Cr edges
 	
 	// Picture buffer and parameter sets
-	uint8_t *DPB; // NULL before the first frame is decoded
+	uint8_t *frame_buffers[32];
 	int64_t DPB_format; // should match format in SPS otherwise triggers resize
 	int32_t plane_size_Y;
 	int32_t plane_size_C;

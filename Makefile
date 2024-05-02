@@ -28,6 +28,6 @@ ifneq ($(TRACE),2)
 endif
 	$(CC) $(GLFW3) $(CFLAGS) -o edge264_play$(SUF) edge264_play.c edge264$(SUF).o
 
-.PHONY: clean
-clean:
+.PHONY: clean clear
+clean clear:
 	rm edge264*.o edge264_play-* edge264_test-*

@@ -1793,7 +1793,7 @@ static noinline int CAFUNC(parse_slice_data)
 			ctx->samples_mb[0] = ctx->samples_row[0] += ctx->stride[0] * 16;
 			ctx->samples_mb[1] = ctx->samples_row[1] += ctx->stride[1] * 8; // FIXME 4:2:2
 			ctx->samples_mb[2] = ctx->samples_row[2] += ctx->stride[1] * 8;
-			if (ctx->samples_row[0] - ctx->samples_pic >= ctx->plane_size_Y)
+			if (ctx->samples_row[0] - ctx->frame_buffers[ctx->currPic] >= ctx->plane_size_Y)
 				return 0;
 		}
 	}

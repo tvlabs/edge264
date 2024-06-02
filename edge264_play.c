@@ -339,7 +339,7 @@ int main(int argc, const char *argv[])
 	
 	// allocate and setup the main Edge264 structure
 	Edge264_stream *s = Edge264_alloc();
-	s->CPB = mmA + 4; // skip the 0001 delimiter
+	s->CPB = mmA + 3 + (mmA[2] == 0); // skip the [0]001 delimiter
 	s->end = mmA + stA.st_size;
 	
 	// parse and dump the file to HTML

@@ -133,7 +133,7 @@ int main(int argc, const char *argv[])
 		
 		// decode the entire file and FAIL on any error
 		Edge264_stream *s = Edge264_alloc();
-		s->CPB = cpb + 4; // skip the 0001 delimiter
+		s->CPB = cpb + 3 + (cpb[2] == 0); // skip the [0]001 delimiter
 		s->end = cpb + stC.st_size;
 		const uint8_t *cmp = dpb;
 		const uint8_t *cmp1 = dpb1;

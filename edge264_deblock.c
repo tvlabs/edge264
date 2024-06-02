@@ -1043,8 +1043,8 @@ noinline void FUNC(deblock_mb)
 void FUNC(deblock_frame)
 {
 	// point at the first unfiltered macroblock
-	int mby = ctx->pic_next_deblock_addr / ctx->sps.pic_width_in_mbs - 1;
-	int mbx = ctx->pic_next_deblock_addr % ctx->sps.pic_width_in_mbs;
+	int mby = (unsigned)ctx->pic_next_deblock_addr / (unsigned)ctx->sps.pic_width_in_mbs - 1;
+	int mbx = (unsigned)ctx->pic_next_deblock_addr % (unsigned)ctx->sps.pic_width_in_mbs;
 	uint8_t *frame_buffer = ctx->frame_buffers[ctx->currPic];
 	ctx->samples_row[0] = frame_buffer + mby * ctx->s.stride_Y * 16;
 	ctx->samples_mb[0] = ctx->samples_row[0] + mbx * 16;

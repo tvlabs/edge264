@@ -42,10 +42,9 @@ typedef struct {
 	// The first 8 bytes uniquely determine the frame buffer size and format.
 	union {
 		struct {
-			int8_t chroma_format_idc; // 2 significant bits
+			int16_t chroma_format_idc; // 2 significant bits
 			int8_t BitDepth_Y; // 4 significant bits
 			int8_t BitDepth_C;
-			int8_t num_frame_buffers; // 5 significant bits
 			uint16_t pic_width_in_mbs; // 10 significant bits
 			int16_t pic_height_in_mbs; // 10 significant bits
 		};
@@ -62,11 +61,11 @@ typedef struct {
 	int8_t frame_mbs_only_flag; // 1 significant bit
 	int8_t mb_adaptive_frame_field_flag; // 1 significant bit
 	int8_t direct_8x8_inference_flag; // 1 significant bit
+	int8_t num_frame_buffers; // 5 significant bits
 	int8_t max_num_reorder_frames; // 5 significant bits
 	int8_t mvc; // 1 significant bit
 	int16_t offset_for_non_ref_pic; // pic_order_cnt_type==1
 	int16_t offset_for_top_to_bottom_field; // pic_order_cnt_type==1
-	int16_t view_id0; // value of view_id for the base view, 10 significant bits
 	int16_t PicOrderCntDeltas[256]; // pic_order_cnt_type==1
 	union { int16_t frame_crop_offsets[4]; int64_t frame_crop_offsets_l; }; // {top,right,bottom,left}
 	union { uint8_t weightScale4x4[6][16]; i8x16 weightScale4x4_v[6]; };
@@ -263,11 +262,9 @@ typedef struct
 	uint32_t long_term_flags; // bitfield for indices of long-term frames/views
 	uint32_t pic_long_term_flags; // to be applied after decoding all slices of the current picture
 	uint32_t output_flags; // bitfield for frames waiting to be output
-	uint32_t right_views; // bitfield for indices of views output in 2nd position (but may still be base views)
 	int8_t pic_idr_or_mmco5; // when set, all other POCs will be decreased after completing the current frame
 	int8_t currPic; // index of current incomplete frame, or -1
-	int8_t unpairedView; // index of last MVC view waiting to be paired with an opposite view
-	int32_t mvc_extension; // 3 bytes of nal_unit_header_mvc_extension
+	int8_t basePic; // index of last MVC base view
 	int32_t pic_remaining_mbs; // when zero the picture is complete
 	uint32_t pic_next_deblock_addr; // next CurrMbAddr value for which mbB will be deblocked
 	int32_t prevRefFrameNum[2];

@@ -1,10 +1,5 @@
 /** MAYDO:
  * _ implement MVC
- * 	_ fix right_view madness
- * 		_ replace right_views with non_base_views
- * 		_ allocate non base views always at odd indices
- * 		_ remove right_views
- * 	_ return unsupported for all files in unsupported directory
  * 	_ add option in play to find yuv files automatically
  * 	_ remove unused prints in SSPS
  * 	_ add view_id to the detection of a new picture (H.7.4.1.2.4)
@@ -101,8 +96,8 @@ static void FUNC(initialise_decoding_context)
 	
 	// This code is not critical so we do not optimize away first_mb_in_slice==0.
 	ctx->CurrMbAddr = ctx->first_mb_in_slice;
-	int mby = ctx->first_mb_in_slice / ctx->sps.pic_width_in_mbs;
-	int mbx = ctx->first_mb_in_slice % ctx->sps.pic_width_in_mbs;
+	int mby = (unsigned)ctx->first_mb_in_slice / (unsigned)ctx->sps.pic_width_in_mbs;
+	int mbx = (unsigned)ctx->first_mb_in_slice % (unsigned)ctx->sps.pic_width_in_mbs;
 	uint8_t *frame_buffer = ctx->frame_buffers[ctx->currPic];
 	ctx->samples_row[0] = frame_buffer + mby * ctx->s.stride_Y * 16;
 	ctx->samples_row[1] = frame_buffer + ctx->plane_size_Y + mby * ctx->s.stride_C * 8;
@@ -363,8 +358,8 @@ static void FUNC(parse_ref_pic_list_modification)
 		ctx->RefPicList[0][size++] = next;
 		count[best >> 16]++;
 	}
-	if (ctx->unpairedView >= 0)
-		ctx->RefPicList[0][size++] = ctx->unpairedView; // add inter-view ref for MVC
+	if (ctx->basePic >= 0)
+		ctx->RefPicList[0][size++] = ctx->basePic; // add inter-view ref for MVC
 	
 	// fill RefPicListL1 by swapping before/after references
 	for (int src = 0; src < size; src++) {
@@ -427,7 +422,7 @@ static void FUNC(parse_ref_pic_list_modification)
 				printf("%s%d%s", refIdx ? ", " : "",
 					modification_of_pic_nums_idc % 4 == 0 ? -num - 1 : num + (modification_of_pic_nums_idc != 2),
 					modification_of_pic_nums_idc == 2 ? "l" : modification_of_pic_nums_idc > 3 ? "v" : "");
-				int pic = ctx->unpairedView;
+				int pic = ctx->basePic;
 				if (modification_of_pic_nums_idc < 2) {
 					picNumLX = (modification_of_pic_nums_idc == 0) ? picNumLX - (num + 1) : picNumLX + (num + 1);
 					unsigned MaskFrameNum = (1 << ctx->sps.log2_max_frame_num) - 1;
@@ -489,13 +484,13 @@ static void FUNC(parse_ref_pic_list_modification)
 static void FUNC(finish_frame)
 {
 	// apply the reference flags
-	int right_view = ctx->right_views >> ctx->currPic & 1;
-	unsigned other_views = ctx->right_views ^ -right_view; // invert if right_view==1
+	int non_base_view = ctx->sps.mvc & ctx->currPic & 1;
+	unsigned other_views = -ctx->sps.mvc & (0xaaaaaaaa ^ -non_base_view); // invert if non_base_view==1
 	if (ctx->pic_idr_or_mmco5) { // IDR or mmco5 access unit
 		ctx->reference_flags = (ctx->reference_flags & other_views) | ctx->pic_reference_flags;
 		ctx->long_term_flags = (ctx->long_term_flags & other_views) | ctx->pic_long_term_flags;
 		ctx->LongTermFrameIdx_v[0] = ctx->LongTermFrameIdx_v[1] = (i8x16){};
-		ctx->LongTermFrameIdx[ctx->currPic] = ctx->FrameNums[ctx->currPic] = ctx->prevRefFrameNum[right_view] = 0;
+		ctx->LongTermFrameIdx[ctx->currPic] = ctx->FrameNums[ctx->currPic] = ctx->prevRefFrameNum[non_base_view] = 0;
 		int tempPicOrderCnt = min(ctx->FieldOrderCnt[0][ctx->currPic], ctx->FieldOrderCnt[1][ctx->currPic]);
 		ctx->prevPicOrderCnt = ctx->FieldOrderCnt[0][ctx->currPic] -= tempPicOrderCnt;
 		ctx->FieldOrderCnt[1][ctx->currPic] -= tempPicOrderCnt;
@@ -510,9 +505,9 @@ static void FUNC(finish_frame)
 		ctx->long_term_flags = (ctx->long_term_flags & other_views) | ctx->pic_long_term_flags;
 		ctx->LongTermFrameIdx_v[0] = ctx->pic_LongTermFrameIdx_v[0];
 		ctx->LongTermFrameIdx_v[1] = ctx->pic_LongTermFrameIdx_v[1];
-		ctx->prevRefFrameNum[right_view] = ctx->FrameNums[ctx->currPic];
+		ctx->prevRefFrameNum[non_base_view] = ctx->FrameNums[ctx->currPic];
 		ctx->prevPicOrderCnt = ctx->FieldOrderCnt[0][ctx->currPic];
-	} else if (!ctx->sps.mvc || (ctx->unpairedView >= 0 && !(ctx->reference_flags & 1 << ctx->unpairedView))) { // non ref
+	} else if (!ctx->sps.mvc || (ctx->basePic >= 0 && !(ctx->reference_flags & 1 << ctx->basePic))) { // non ref
 		ctx->dispPicOrderCnt = ctx->FieldOrderCnt[0][ctx->currPic]; // all frames with lower POCs are now ready for output
 	}
 	
@@ -520,11 +515,11 @@ static void FUNC(finish_frame)
 	if (!ctx->sps.mvc) {
 		ctx->output_flags |= 1 << ctx->currPic;
 	} else {
-		if (ctx->unpairedView < 0) {
-			ctx->unpairedView = ctx->currPic;
+		if (ctx->basePic < 0) {
+			ctx->basePic = ctx->currPic;
 		} else {
-			ctx->output_flags |= 1 << ctx->unpairedView | 1 << ctx->currPic;
-			ctx->unpairedView = -1;
+			ctx->output_flags |= 1 << ctx->basePic | 1 << ctx->currPic;
+			ctx->basePic = -1;
 		}
 	}
 	
@@ -537,7 +532,7 @@ static void FUNC(finish_frame)
 			int r = ctx->reference_flags & 1 << i;
 			int l = ctx->long_term_flags & 1 << i;
 			int o = ctx->output_flags & 1 << i;
-			int u = i == ctx->unpairedView;
+			int u = i == ctx->basePic;
 			printf(l ? "%u*/" : r ? "%u/" : "_/", l ? ctx->LongTermFrameIdx[i] : ctx->FrameNums[i]);
 			printf(u ? "%u*" : o ? "%u" : "_", min(ctx->FieldOrderCnt[0][i], ctx->FieldOrderCnt[1][i]) << 6 >> 6);
 			printf((i < ctx->sps.num_frame_buffers - 1) ? ", " : "</small></td></tr>\n");
@@ -574,10 +569,10 @@ static int FUNC(parse_slice_layer_without_partitioning)
 	ctx->pps = ctx->PPS[pic_parameter_set_id];
 	
 	// parse view_id for MVC streams
-	int right_view = 0;
+	int non_base_view = 0;
 	if (ctx->sps.mvc) {
-		right_view = (ctx->mvc_extension >> 6 & 1023) != ctx->sps.view_id0;
-		if (ctx->currPic >= 0 && right_view != (ctx->right_views >> ctx->currPic & 1))
+		non_base_view = ctx->nal_unit_type == 20;
+		if (ctx->currPic >= 0 && non_base_view != (ctx->currPic & 1))
 			CALL(finish_frame);
 	}
 	
@@ -586,15 +581,16 @@ static int FUNC(parse_slice_layer_without_partitioning)
 	int FrameNumMask = (1 << ctx->sps.log2_max_frame_num) - 1;
 	if (ctx->currPic >= 0 && frame_num != (ctx->FrameNums[ctx->currPic] & FrameNumMask))
 		CALL(finish_frame);
-	ctx->IdrPicFlag = ctx->nal_unit_type == 5 || (ctx->nal_unit_type == 20 && !(ctx->mvc_extension & 1 << 22));
-	int prevRefFrameNum = ctx->IdrPicFlag ? 0 : ctx->prevRefFrameNum[right_view];
+	if (ctx->nal_unit_type != 20)
+		ctx->IdrPicFlag = ctx->nal_unit_type == 5;
+	int prevRefFrameNum = ctx->IdrPicFlag ? 0 : ctx->prevRefFrameNum[non_base_view];
 	ctx->FrameNum = prevRefFrameNum + ((frame_num - prevRefFrameNum) & FrameNumMask);
 	printf("<tr><th>frame_num => FrameNum</th><td>%u => %u</td></tr>\n", frame_num, ctx->FrameNum);
 	
 	// Check for gaps in frame_num (8.2.5.2)
 	int gap = ctx->FrameNum - prevRefFrameNum;
 	if (__builtin_expect(gap > 1, 0)) {
-		unsigned view_mask = ctx->right_views ^ (right_view - 1); // invert if right_view==0
+		unsigned view_mask = (ctx->sps.mvc - 1) | (0x55555555 ^ -non_base_view); // invert if non_base_view==1
 		unsigned reference_flags = ctx->reference_flags & view_mask;
 		int non_existing = min(gap - 1, ctx->sps.max_num_ref_frames - __builtin_popcount(ctx->long_term_flags & view_mask));
 		int excess = __builtin_popcount(reference_flags) + non_existing - ctx->sps.max_num_ref_frames;
@@ -707,10 +703,10 @@ static int FUNC(parse_slice_layer_without_partitioning)
 	
 	// find and possibly allocate a DPB slot for the upcoming frame
 	if (ctx->currPic < 0) {
-		unsigned unavail = ctx->reference_flags | ctx->output_flags | (ctx->unpairedView < 0 ? 0 : 1 << ctx->unpairedView);
+		unsigned unavail = ctx->reference_flags | ctx->output_flags | (ctx->basePic < 0 ? 0 : 1 << ctx->basePic);
 		if (__builtin_popcount(unavail) >= ctx->sps.num_frame_buffers)
 			return -2;
-		ctx->currPic = __builtin_ctz(~unavail);
+		ctx->currPic = __builtin_ctz(!ctx->sps.mvc ? ~unavail : ~unavail & (ctx->nal_unit_type == 20 ? 0xaaaaaaaa : 0x55555555));
 		if (ctx->frame_buffers[ctx->currPic] == NULL) {
 			ctx->frame_buffers[ctx->currPic] = malloc(ctx->frame_size);
 			if (ctx->frame_buffers[ctx->currPic] == NULL)
@@ -735,10 +731,9 @@ static int FUNC(parse_slice_layer_without_partitioning)
 		ctx->FrameNums[ctx->currPic] = ctx->FrameNum;
 		ctx->FieldOrderCnt[0][ctx->currPic] = TopFieldOrderCnt;
 		ctx->FieldOrderCnt[1][ctx->currPic] = BottomFieldOrderCnt;
-		ctx->right_views = ctx->right_views & ~(1 << ctx->currPic) | right_view << ctx->currPic;
 	}
 	ctx->pic_idr_or_mmco5 = 0;
-	unsigned view_mask = ctx->right_views ^ (right_view - 1); // invert if right_view==0
+	unsigned view_mask = (ctx->sps.mvc - 1) | (0x55555555 ^ -non_base_view); // invert if non_base_view==1
 	ctx->pic_reference_flags = ctx->reference_flags & view_mask;
 	ctx->pic_long_term_flags = ctx->long_term_flags & view_mask;
 	
@@ -751,7 +746,7 @@ static int FUNC(parse_slice_layer_without_partitioning)
 		}
 		
 		// num_ref_idx_active_override_flag
-		int lim = 16 >> ctx->sps.mvc << ctx->field_pic_flag;
+		int lim = 16 << ctx->field_pic_flag >> ctx->sps.mvc;
 		if (CALL(get_u1)) {
 			for (int l = 0; l <= ctx->slice_type; l++)
 				ctx->pps.num_ref_idx_active[l] = CALL(get_ue16, lim - 1) + 1;
@@ -1249,10 +1244,10 @@ static int FUNC(parse_seq_parameter_set_mvc_extension, Edge264_seq_parameter_set
 {
 	// returning unsupported asap is more efficient than keeping tedious code afterwards
 	int num_views = CALL(get_ue16, 1023) + 1;
-	sps->view_id0 = CALL(get_ue16, 1023); // FIXME pas bon
+	int view_id0 = CALL(get_ue16, 1023);
 	int view_id1 = CALL(get_ue16, 1023);
 	printf("<tr%s><th>num_views {view_id<sub>0</sub>, view_id<sub>1</sub>}</th><td>%u {%u, %u}</td></tr>\n",
-		red_if(num_views != 2), num_views, sps->view_id0, view_id1);
+		red_if(num_views != 2), num_views, view_id0, view_id1);
 	if (num_views != 2)
 		return 1;
 	sps->mvc = 1;
@@ -1469,7 +1464,7 @@ static int FUNC(parse_seq_parameter_set)
 	int pic_height_in_map_units = CALL(get_ue16, 1054) + 1;
 	sps.frame_mbs_only_flag = CALL(get_u1);
 	sps.pic_height_in_mbs = pic_height_in_map_units << 1 >> sps.frame_mbs_only_flag;
-	int MaxDpbFrames = min(MaxDpbMbs[min(level_idc, 63)] / (sps.pic_width_in_mbs * sps.pic_height_in_mbs), 16);
+	int MaxDpbFrames = min(MaxDpbMbs[min(level_idc, 63)] / (unsigned)(sps.pic_width_in_mbs * sps.pic_height_in_mbs), 16);
 	sps.max_num_reorder_frames = ((profile_idc == 44 || profile_idc == 86 ||
 		profile_idc == 100 || profile_idc == 110 || profile_idc == 122 ||
 		profile_idc == 244) && (constraint_set_flags & 1 << 4)) ? 0 : MaxDpbFrames;
@@ -1520,6 +1515,8 @@ static int FUNC(parse_seq_parameter_set)
 	
 	// additional stuff for subset_seq_parameter_set
 	if (ctx->nal_unit_type == 15 && (profile_idc == 118 || profile_idc == 128 || profile_idc == 134)) {
+		if (memcmp(&sps, &ctx->sps, sizeof(sps)) != 0)
+			return 1;
 		if (!CALL(get_u1))
 			return 2;
 		if (CALL(parse_seq_parameter_set_mvc_extension, &sps, profile_idc))
@@ -1579,8 +1576,8 @@ static int FUNC(parse_seq_parameter_set)
 		ctx->mvs_D_v = (i32x16){15 + offD_int32, 10 + offB_int32, 5 + offA_int32, 0, 11 + offB_int32, 14 + offB_int32, 1, 4, 7 + offA_int32, 2, 13 + offA_int32, 8, 3, 6, 9, 12};
 		int mbs = (sps.pic_width_in_mbs + 1) * (ctx->sps.pic_height_in_mbs + 1);
 		ctx->frame_size = (ctx->plane_size_Y + ctx->plane_size_C * 2 + mbs * sizeof(Edge264_macroblock) + 15) & -16;
-		ctx->reference_flags = ctx->long_term_flags = ctx->output_flags = ctx->right_views = 0;
-		ctx->currPic = ctx->unpairedView = -1;
+		ctx->reference_flags = ctx->long_term_flags = ctx->output_flags = 0;
+		ctx->currPic = ctx->basePic = -1;
 		for (int i = 0; i < 32; i++) {
 			if (ctx->frame_buffers[i] != NULL) {
 				free(ctx->frame_buffers[i]);
@@ -1589,6 +1586,29 @@ static int FUNC(parse_seq_parameter_set)
 		}
 	}
 	return 0;
+}
+
+
+
+/**
+ * This NAL type for transparent videos is unsupported until encoders actually
+ * support it.
+ */
+static int FUNC(parse_seq_parameter_set_extension) {
+	int seq_parameter_set_id = CALL(get_ue16, 31);
+	int aux_format_idc = CALL(get_ue16, 3);
+	printf("<tr><th>seq_parameter_set_id</th><td>%u</td></tr>\n"
+		"<tr%s><th>aux_format_idc</th><td>%u</td></tr>\n",
+		seq_parameter_set_id,
+		red_if(aux_format_idc), aux_format_idc);
+	if (aux_format_idc != 0) {
+		int bit_depth_aux = CALL(get_ue16, 4) + 8;
+		CALL(get_uv, 3 + bit_depth_aux * 2);
+	}
+	CALL(get_u1);
+	if (msb_cache != (size_t)1 << (SIZE_BIT - 1) || (lsb_cache & (lsb_cache - 1)) || !ctx->end_of_NAL) // rbsp_trailing_bits
+		return 2;
+	return aux_format_idc != 0; // unsupported if transparent
 }
 
 
@@ -1667,6 +1687,7 @@ int Edge264_decode_NAL(Edge264_stream *s)
 		[5] = parse_slice_layer_without_partitioning,
 		[7] = parse_seq_parameter_set,
 		[8] = parse_pic_parameter_set,
+		[13] = parse_seq_parameter_set_extension,
 		[15] = parse_seq_parameter_set,
 		[20] = parse_slice_layer_without_partitioning,
 	};
@@ -1706,7 +1727,8 @@ int Edge264_decode_NAL(Edge264_stream *s)
 			uint32_t u;
 			memcpy(&u, ctx->s.CPB, 4);
 			ctx->CPB = ctx->s.CPB + 6;
-			ctx->mvc_extension = u = big_endian32(u);
+			u = big_endian32(u);
+			ctx->IdrPicFlag = u >> 22 & 1 ^ 1;
 			if (u >> 23 & 1) {
 				ret = 1;
 				parser = NULL;
@@ -1739,7 +1761,6 @@ int Edge264_decode_NAL(Edge264_stream *s)
 			msb_cache = (size_t)ctx->CPB[-2] << (SIZE_BIT - 8) | (size_t)ctx->CPB[-1] << (SIZE_BIT - 16) | (size_t)1 << (SIZE_BIT - 17);
 			CALL(refill, 0);
 			ret = CALL(parser);
-			ctx->mvc_extension = 0x000041;
 			// restore registers
 			codIRange = _codIRange;
 			codIOffset = _codIOffset;
@@ -1776,18 +1797,18 @@ int Edge264_get_frame(Edge264_stream *s, int drain) {
 		return -1;
 	SET_CTX((void *)s - offsetof(Edge264_ctx, s));
 	int pic[2] = {-1, -1};
-	unsigned unavail = ctx->reference_flags | ctx->output_flags | (ctx->unpairedView < 0 ? 0 : 1 << ctx->unpairedView);
+	unsigned unavail = ctx->reference_flags | ctx->output_flags | (ctx->basePic < 0 ? 0 : 1 << ctx->basePic);
 	int best = (drain || __builtin_popcount(ctx->output_flags) > ctx->sps.max_num_reorder_frames ||
 		__builtin_popcount(unavail) >= ctx->sps.num_frame_buffers) ? INT_MAX : ctx->dispPicOrderCnt;
 	for (int o = ctx->output_flags; o != 0; o &= o - 1) {
 		int i = __builtin_ctz(o);
 		if (ctx->FieldOrderCnt[0][i] <= best) {
-			int right = ctx->right_views >> i & 1;
+			int non_base = ctx->sps.mvc & i & 1;
 			if (ctx->FieldOrderCnt[0][i] < best) {
 				best = ctx->FieldOrderCnt[0][i];
-				pic[right ^ 1] = -1;
+				pic[non_base ^ 1] = -1;
 			}
-			pic[right] = i;
+			pic[non_base] = i;
 		}
 	}
 	int top = ctx->s.frame_crop_offsets[0];
@@ -1796,7 +1817,7 @@ int Edge264_get_frame(Edge264_stream *s, int drain) {
 	int leftC = ctx->sps.chroma_format_idc == 1 ? left >> 1 : left;
 	int offC = ctx->plane_size_Y + topC * ctx->s.stride_C + (leftC << ctx->s.pixel_depth_C);
 	int res = -2;
-	if (pic[0] >= 0 && pic[0] != ctx->unpairedView) { // FIXME bug if unpairedView is a right view
+	if (pic[0] >= 0) {
 		ctx->output_flags ^= 1 << pic[0];
 		const uint8_t *samples = ctx->frame_buffers[pic[0]];
 		ctx->s.samples[0] = samples + top * ctx->s.stride_Y + (left << ctx->s.pixel_depth_Y);
@@ -1805,16 +1826,13 @@ int Edge264_get_frame(Edge264_stream *s, int drain) {
 		ctx->s.TopFieldOrderCnt = best << 6 >> 6;
 		ctx->s.BottomFieldOrderCnt = ctx->FieldOrderCnt[1][pic[0]] << 6 >> 6;
 		res = 0;
-	}
-	if (pic[1] >= 0) {
-		ctx->output_flags ^= 1 << pic[1];
-		const uint8_t *samples = ctx->frame_buffers[pic[1]];
-		ctx->s.samples_mvc[0] = samples + top * ctx->s.stride_Y + (left << ctx->s.pixel_depth_Y);
-		ctx->s.samples_mvc[1] = samples + offC;
-		ctx->s.samples_mvc[2] = samples + ctx->plane_size_C + offC;
-		ctx->s.TopFieldOrderCnt = best << 6 >> 6;
-		ctx->s.BottomFieldOrderCnt = ctx->FieldOrderCnt[1][pic[1]] << 6 >> 6;
-		res = 0;
+		if (pic[1] >= 0) {
+			ctx->output_flags ^= 1 << pic[1];
+			samples = ctx->frame_buffers[pic[1]];
+			ctx->s.samples_mvc[0] = samples + top * ctx->s.stride_Y + (left << ctx->s.pixel_depth_Y);
+			ctx->s.samples_mvc[1] = samples + offC;
+			ctx->s.samples_mvc[2] = samples + ctx->plane_size_C + offC;
+		}
 	}
 	RESET_CTX();
 	return res;

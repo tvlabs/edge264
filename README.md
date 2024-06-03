@@ -77,7 +77,7 @@ int main(int argc, char *argv[]) {
 	fstat(f, &st);
 	uint8_t *buf = mmap(NULL, st.st_size, PROT_READ, MAP_SHARED, f, 0);
 	Edge264_stream *s = Edge264_alloc();
-	s->CPB = buf + 4; // skip the 0001 delimiter
+	s->CPB = buf + 3 + (buf[2] == 0); // skip the [0]001 delimiter
 	s->end = buf + st.st_size;
 	int res;
 	do {

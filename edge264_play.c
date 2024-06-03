@@ -293,7 +293,7 @@ int main(int argc, const char *argv[])
 		fprintf(stdout, "Usage: %s video.264 [video.yuv] [second_view.yuv] [-bhy]\n"
 		                "-b\tbenchmark decoding time and memory usage (disables display)\n"
 		                "-h\tprint this help and exit\n"
-		                "-y\tinfer yuv files automatically (.yuv and .1.yuv extensions)\n", argv[0]);
+		                "-y\tinfer YUV files automatically (.yuv and .1.yuv extensions)\n", argv[0]);
 		return 0;
 	}
 	

@@ -64,7 +64,7 @@ int main(int argc, const char *argv[])
 		       "-h\tprint this help and exit\n"
 		       "-p\tprint names of passed files\n"
 		       "-u\tprint names of unsupported files\n"
-		       "-y\tdisable comparison against yuv pairs\n", argv[0]);
+		       "-y\tdisable comparison against YUV pairs\n", argv[0]);
 		return 0;
 	}
 	

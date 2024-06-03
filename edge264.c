@@ -1,8 +1,4 @@
 /** MAYDO:
- * _ implement MVC
- * 	_ add option in play to find yuv files automatically
- * 	_ remove unused prints in SSPS
- * 	_ add view_id to the detection of a new picture (H.7.4.1.2.4)
  * _ unreferencing an image waiting for output should make it displayable instantly
  * _ merge play into test to ease the debugging of changing videos
  * _ replace calloc with malloc and reuse Edge264_ctx across new videos
@@ -185,11 +181,11 @@ static void FUNC(parse_dec_ref_pic_marking)
 {
 	static const char * const memory_management_control_operation_names[6] = {
 		"%s1 (dereference frame %u)",
-		"%s2 (dereference long-term frame %u)",
+		"%s2 (dereference long-term frame %3$u)",
 		"%s3 (convert frame %u into long-term index %u)",
-		"%s4 (dereference long-term frames above %d)",
+		"%s4 (dereference long-term frames above %3$d)",
 		"%s5 (convert current picture to IDR and dereference all frames)",
-		"%s6 (assign long-term index %u to current picture)"};
+		"%s6 (assign long-term index %3$u to current picture)"};
 	
 	// while the exact release time of non-ref frames in C.4.5.2 is ambiguous, we ignore no_output_of_prior_pics_flag
 	if (ctx->IdrPicFlag) {
@@ -211,53 +207,43 @@ static void FUNC(parse_dec_ref_pic_marking)
 	int i = 32;
 	if (CALL(get_u1)) {
 		while ((memory_management_control_operation = CALL(get_ue16, 6)) != 0 && i-- > 0) {
-			int num0 = 0, num1 = 0;
-			if (memory_management_control_operation == 4) {
-				num0 = CALL(get_ue16, ctx->sps.max_num_ref_frames) - 1;
-				for (unsigned r = ctx->pic_long_term_flags; r != 0; r &= r - 1) {
+			int target = ctx->currPic, long_term_frame_idx = 0;
+			if (10 & 1 << memory_management_control_operation) { // 1 or 3
+				int FrameNum = ctx->FrameNum - 1 - CALL(get_ue32, 4294967294);
+				for (unsigned r = ctx->pic_reference_flags & ~ctx->pic_long_term_flags; r; r &= r - 1) {
 					int j = __builtin_ctz(r);
-					if (ctx->pic_LongTermFrameIdx[j] > num0) {
-						ctx->pic_reference_flags ^= 1 << j;
-						ctx->pic_long_term_flags ^= 1 << j;
-					}
-				}
-			} else if (memory_management_control_operation == 5) {
-				ctx->pic_reference_flags = 0;
-				ctx->pic_long_term_flags = 0;
-				ctx->pic_idr_or_mmco5 = 1;
-			} else if (memory_management_control_operation == 6) {
-				ctx->pic_long_term_flags |= 1 << ctx->currPic;
-				ctx->pic_LongTermFrameIdx[ctx->currPic] = num0 = CALL(get_ue16, ctx->sps.max_num_ref_frames - 1);
-			} else {
-				
-				// The remaining three operations share the search for num0.
-				int pic_num = CALL(get_ue32, 4294967294);
-				int FrameNum = (ctx->field_pic_flag) ? pic_num >> 1 : pic_num;
-				num0 = (memory_management_control_operation != 2) ?
-					ctx->FrameNum - 1 - FrameNum : FrameNum;
-				unsigned short_long = (memory_management_control_operation != 2) ? ~ctx->pic_long_term_flags : ctx->pic_long_term_flags;
-				for (unsigned r = ctx->pic_reference_flags & short_long; r; r &= r - 1) {
-					int j = __builtin_ctz(r);
-					if ((memory_management_control_operation == 2 ? ctx->LongTermFrameIdx[j] : ctx->FrameNums[j]) != num0)
-						continue;
-					if (memory_management_control_operation == 1) {
-						ctx->pic_reference_flags ^= 1 << j;
-					} else if (memory_management_control_operation == 2) {
-						ctx->pic_reference_flags ^= 1 << j;
-						ctx->pic_long_term_flags ^= 1 << j;
-					} else if (memory_management_control_operation == 3) {
-						ctx->pic_LongTermFrameIdx[j] = num1 = CALL(get_ue16, ctx->sps.max_num_ref_frames - 1);
-						for (unsigned l = ctx->pic_long_term_flags; l; l &= l - 1) {
-							int k = __builtin_ctz(l);
-							if (ctx->pic_LongTermFrameIdx[k] == num1)
-								ctx->pic_long_term_flags ^= 1 << k;
+					if (ctx->FrameNums[j] == FrameNum) {
+						target = j;
+						if (memory_management_control_operation == 1) {
+							ctx->pic_reference_flags ^= 1 << j;
+							ctx->pic_long_term_flags &= ~(1 << j);
 						}
-						ctx->pic_long_term_flags |= 1 << j;
 					}
 				}
 			}
+			if (92 & 1 << memory_management_control_operation) { // 2 or 3 or 4 or 6
+				long_term_frame_idx = CALL(get_ue16, ctx->sps.max_num_ref_frames - (memory_management_control_operation != 4));
+				for (unsigned r = ctx->pic_long_term_flags; r; r &= r - 1) {
+					int j = __builtin_ctz(r);
+					if (ctx->pic_LongTermFrameIdx[j] == long_term_frame_idx ||
+						(ctx->pic_LongTermFrameIdx[j] > long_term_frame_idx &&
+						memory_management_control_operation == 4)) {
+						ctx->pic_reference_flags ^= 1 << j;
+						ctx->pic_long_term_flags ^= 1 << j;
+					}
+				}
+				if (72 & 1 << memory_management_control_operation) { // 3 or 6
+					ctx->pic_LongTermFrameIdx[target] = long_term_frame_idx;
+					ctx->pic_long_term_flags |= 1 << target;
+				}
+			}
+			if (memory_management_control_operation == 5) {
+				ctx->pic_reference_flags = 0;
+				ctx->pic_long_term_flags = 0;
+				ctx->pic_idr_or_mmco5 = 1;
+			}
 			printf(memory_management_control_operation_names[memory_management_control_operation - 1],
-				(i == 31) ? "<tr><th>memory_management_control_operations</th><td>" : "<br>", num0, num1);
+				(i == 31) ? "<tr><th>memory_management_control_operations</th><td>" : "<br>", target, long_term_frame_idx);
 		}
 		printf("</td></tr>\n");
 	}
@@ -271,7 +257,6 @@ static void FUNC(parse_dec_ref_pic_marking)
 			if (best > ctx->FrameNums[i])
 				best = ctx->FrameNums[next = i];
 		}
-		// FIXME is it still possible??
 		ctx->pic_reference_flags &= ~(1 << next); // don't use XOR as r might be zero (if MVC with all refs on other view)
 	}
 	ctx->pic_reference_flags |= 1 << ctx->currPic;
@@ -450,14 +435,11 @@ static void FUNC(parse_ref_pic_list_modification)
 		}
 	}
 	
-	// fill all uninitialized references with ref 0 in case num_ref_idx_active is too high
-	// FIXME frame 0 instead
-	i8x16 ref0l0 = shuffle8(ctx->RefPicList_v[0], (i8x16){});
-	i8x16 ref0l1 = shuffle8(ctx->RefPicList_v[2], (i8x16){});
-	ctx->RefPicList_v[0] = ifelse_msb(ctx->RefPicList_v[0], ref0l0, ctx->RefPicList_v[0]);
-	ctx->RefPicList_v[1] = ifelse_msb(ctx->RefPicList_v[1], ref0l0, ctx->RefPicList_v[1]);
-	ctx->RefPicList_v[2] = ifelse_msb(ctx->RefPicList_v[2], ref0l1, ctx->RefPicList_v[2]);
-	ctx->RefPicList_v[3] = ifelse_msb(ctx->RefPicList_v[3], ref0l1, ctx->RefPicList_v[3]);
+	// fill all uninitialized references with frame 0 in case num_ref_idx_active is too high
+	ctx->RefPicList_v[0] = ifelse_msb(ctx->RefPicList_v[0], (i8x16){}, ctx->RefPicList_v[0]);
+	ctx->RefPicList_v[1] = ifelse_msb(ctx->RefPicList_v[1], (i8x16){}, ctx->RefPicList_v[1]);
+	ctx->RefPicList_v[2] = ifelse_msb(ctx->RefPicList_v[2], (i8x16){}, ctx->RefPicList_v[2]);
+	ctx->RefPicList_v[3] = ifelse_msb(ctx->RefPicList_v[3], (i8x16){}, ctx->RefPicList_v[3]);
 	
 	#ifdef TRACE
 		printf("<tr><th>RefPicLists</th><td>");
@@ -532,9 +514,8 @@ static void FUNC(finish_frame)
 			int r = ctx->reference_flags & 1 << i;
 			int l = ctx->long_term_flags & 1 << i;
 			int o = ctx->output_flags & 1 << i;
-			int u = i == ctx->basePic;
-			printf(l ? "%u*/" : r ? "%u/" : "_/", l ? ctx->LongTermFrameIdx[i] : ctx->FrameNums[i]);
-			printf(u ? "%u*" : o ? "%u" : "_", min(ctx->FieldOrderCnt[0][i], ctx->FieldOrderCnt[1][i]) << 6 >> 6);
+			printf(l ? "<sup>%u</sup>/" : r ? "%u/" : "_/", l ? ctx->LongTermFrameIdx[i] : ctx->FrameNums[i]);
+			printf(o ? "<b>%u</b>" : r ? "%u" : "_", min(ctx->FieldOrderCnt[0][i], ctx->FieldOrderCnt[1][i]) << 6 >> 6);
 			printf((i < ctx->sps.num_frame_buffers - 1) ? ", " : "</small></td></tr>\n");
 		}
 	#endif
@@ -1196,7 +1177,7 @@ static void FUNC(parse_vui_parameters, Edge264_seq_parameter_set *sps)
 	int vcl_hrd_parameters_present_flag = CALL(get_u1);
 	if (vcl_hrd_parameters_present_flag)
 		CALL(parse_hrd_parameters);
-	if (nal_hrd_parameters_present_flag || vcl_hrd_parameters_present_flag) {
+	if (nal_hrd_parameters_present_flag | vcl_hrd_parameters_present_flag) {
 		int low_delay_hrd_flag = CALL(get_u1);
 		printf("<tr><th>low_delay_hrd_flag</th><td>%x</td></tr>\n",
 			low_delay_hrd_flag);
@@ -1238,6 +1219,33 @@ static void FUNC(parse_vui_parameters, Edge264_seq_parameter_set *sps)
 
 
 /**
+ * Parses the MVC VUI parameters extension, only advancing the stream pointer
+ * for error detection, and ignoring it until requested in the future.
+ */
+static void FUNC(parse_mvc_vui_parameters_extension)
+{
+	for (int i = CALL(get_ue16, 1023); i-- >= 0;) {
+		CALL(get_uv, 3);
+		for (int j = CALL(get_ue16, 1023); j-- >= 0; CALL(get_ue16, 1023));
+		if (CALL(get_u1)) {
+			CALL(get_uv, 32);
+			CALL(get_uv, 32);
+			CALL(get_u1);
+		}
+		int vui_mvc_nal_hrd_parameters_present_flag = CALL(get_u1);
+		if (vui_mvc_nal_hrd_parameters_present_flag)
+			CALL(parse_hrd_parameters);
+		int vui_mvc_vcl_hrd_parameters_present_flag = CALL(get_u1);
+		if (vui_mvc_vcl_hrd_parameters_present_flag)
+			CALL(parse_hrd_parameters);
+		if (vui_mvc_nal_hrd_parameters_present_flag | vui_mvc_vcl_hrd_parameters_present_flag)
+			CALL(get_u1);
+	}
+}
+
+
+
+/**
  * Parses the SPS extension for MVC.
  */
 static int FUNC(parse_seq_parameter_set_mvc_extension, Edge264_seq_parameter_set *sps, int profile_idc)
@@ -1270,46 +1278,20 @@ static int FUNC(parse_seq_parameter_set_mvc_extension, Edge264_seq_parameter_set
 	printf("<tr><th>Inter-view refs in anchors/non-anchors</th><td>%u, %u / %u, %u</td></tr>\n",
 		num_anchor_refs_l0, num_anchor_refs_l1, num_non_anchor_refs_l0, num_non_anchor_refs_l1);
 	
-	// at this point we keep verbose output to check the variance of different streams
+	// level values and operation points are similarly ignored
+	printf("<tr><th>level_values_signalled</th><td>");
 	int num_level_values_signalled = CALL(get_ue16, 63) + 1;
-	printf("<tr><th>num_level_values_signalled</th><td>%u</td></tr>\n", num_level_values_signalled);
 	for (int i = 0; i < num_level_values_signalled; i++) {
 		int level_idc = CALL(get_uv, 8);
-		printf("<tr><th>level_idc</th><td>%u</td></tr>\n", level_idc);
-		int num_applicable_ops = CALL(get_ue16, 1023) + 1;
-		printf("<tr><th>num_applicable_ops</th><td>%u</td></tr>\n", num_applicable_ops);
-		for (int j = 0; j < num_applicable_ops; j++) {
-			int applicable_op_temporal_id = CALL(get_uv, 3);
-			printf("<tr><th>applicable_op_temporal_id</th><td>%u</td></tr>\n", applicable_op_temporal_id);
-			int applicable_op_num_target_views = CALL(get_ue16, 1023) + 1;
-			printf("<tr><th>applicable_op_num_target_views</th><td>%u</td></tr>\n", applicable_op_num_target_views);
-			for (int k = 0; k < applicable_op_num_target_views; k++) {
-				int applicable_op_target_view_id = CALL(get_ue16, 1023);
-				printf("<tr><th>applicable_op_target_view_id</th><td>%u</td></tr>\n", applicable_op_target_view_id);
-			}
-			int applicable_op_num_views = CALL(get_ue16, 1023) + 1;
-			printf("<tr><th>applicable_op_num_views</th><td>%u</td></tr>\n", applicable_op_num_views);
+		printf("%s%.1f", (i == 0) ? "" : ", ", (double)level_idc / 10);
+		for (int j = CALL(get_ue16, 1023); j-- >= 0;) {
+			CALL(get_uv, 3);
+			for (int k = CALL(get_ue16, 1023); k-- >= 0; CALL(get_ue16, 1023));
+			CALL(get_ue16, 1023);
 		}
 	}
-	if (profile_idc == 134) {
-		int mfc_format_idc = CALL(get_uv, 6);
-		printf("<tr><th>mfc_format_idc</th><td>%u</td></tr>\n", mfc_format_idc);
-		if (mfc_format_idc == 0 || mfc_format_idc == 1) {
-			if (!CALL(get_u1)) {
-				int view0_grid_position_x = CALL(get_uv, 4);
-				printf("<tr><th>view0_grid_position_x</th><td>%u</td></tr>\n", view0_grid_position_x);
-				int view0_grid_position_y = CALL(get_uv, 4);
-				printf("<tr><th>view0_grid_position_y</th><td>%u</td></tr>\n", view0_grid_position_y);
-				int view1_grid_position_x = CALL(get_uv, 4);
-				printf("<tr><th>view1_grid_position_x</th><td>%u</td></tr>\n", view1_grid_position_x);
-				int view1_grid_position_y = CALL(get_uv, 4);
-				printf("<tr><th>view1_grid_position_y</th><td>%u</td></tr>\n", view1_grid_position_y);
-			}
-		}
-		int rpu_filter_enabled_flag = CALL(get_u1);
-		printf("<tr><th>rpu_filter_enabled_flag</th><td>%x</td></tr>\n", rpu_filter_enabled_flag);
-	}
-	return 0;
+	printf("</td></tr>\n");
+	return profile_idc == 134; // MFC is unsupported until streams actually use it
 }
 
 
@@ -1521,9 +1503,8 @@ static int FUNC(parse_seq_parameter_set)
 			return 2;
 		if (CALL(parse_seq_parameter_set_mvc_extension, &sps, profile_idc))
 			return 1;
-		if (CALL(get_u1)) {
-			// FIXME
-		}
+		if (CALL(get_u1))
+			CALL(parse_mvc_vui_parameters_extension);
 		CALL(get_u1);
 	}
 	

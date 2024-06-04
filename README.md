@@ -1,5 +1,3 @@
-### Hot news 🎉: I'll present the main coding techniques used in edge264 at [FOSDEM'24](https://fosdem.org/2024/schedule/event/fosdem-2024-2931-innovations-in-h-264-avc-software-decoding-architecture-and-optimization-of-a-block-based-video-decoder-to-reach-10-faster-speed-and-3x-code-reduction-over-the-state-of-the-art-/), Open Media room, Brussels, 4 February 2024. See you there!
-
 edge264
 =======
 
@@ -50,7 +48,7 @@ $ ffmpeg -i video.mp4 -vcodec copy -bsf h264_mp4toannexb -an video.264 # optiona
 $ ./edge264_play-gcc-9 video.264 # add -b to benchmark without display
 ```
 
-When debugging, the make flag `TRACE=1` enables printing headers to stdout in HTML format, and `TRACE=2` adds the dumping of all other symbols to stderr (*very large*). An automated test program is also provided, that browses files in a given directory, decoding each `<video>.264` and comparing its output with the pair `<video>.yuv` if found. On the set of official [conformance bitstreams](https://www.itu.int/wftp3/av-arch/jvt-site/draft_conformance/), 89 files are known to decode perfectly, the rest using yet unsupported features.
+When debugging, the make flag `TRACE=1` enables printing headers to stdout in HTML format, and `TRACE=2` adds the dumping of all other symbols to stderr (*very large*). An automated test program is also provided, that browses files in a given directory, decoding each `<video>.264` and comparing its output with the pair `<video>.yuv` if found. On the set of official [conformance bitstreams](https://www.itu.int/wftp3/av-arch/jvt-site/draft_conformance/), 109 files are known to decode perfectly, the rest using yet unsupported features.
 
 ```sh
 $ ./edge264_test-gcc-9 --help
@@ -90,7 +88,7 @@ int main(int argc, char *argv[]) {
 			for (int y = 0; y < s->height_C; y++)
 				write(1, s->samples[2] + y * s->stride_C, s->width_C);
 		}
-	} while (!res);
+	} while (res == 0 || res == -2);
 	Edge264_free(&s);
 	munmap(buf, st.st_size);
 	close(f);
@@ -145,6 +143,8 @@ Scan memory for the next three-byte 00n pattern, returning a pointer to the firs
 
 Key takeaways
 -------------
+
+### I presented a few of these techniques at FOSDEM'24, Open Media room, on 4 February 2024. Be sure to check the [video](https://fosdem.org/2024/schedule/event/fosdem-2024-2931-innovations-in-h-264-avc-software-decoding-architecture-and-optimization-of-a-block-based-video-decoder-to-reach-10-faster-speed-and-3x-code-reduction-over-the-state-of-the-art-/).
 
 * [Minimalistic API](edge264.h) with FFI-friendly design (5 functions and 1 structure).
 * [The input bitstream](edge264_bitstream.c) is unescaped on the fly using vector code, avoiding a full preprocessing pass to remove escape sequences, and thus reducing memory reads/writes.

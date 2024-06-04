@@ -183,7 +183,7 @@ static void FUNC(parse_dec_ref_pic_marking)
 		"%s1 (dereference frame %u)",
 		"%s2 (dereference long-term frame %3$u)",
 		"%s3 (convert frame %u into long-term index %u)",
-		"%s4 (dereference long-term frames above %3$d)",
+		"%s4 (dereference long-term frames on and above %3$d)",
 		"%s5 (convert current picture to IDR and dereference all frames)",
 		"%s6 (assign long-term index %3$u to current picture)"};
 	

@@ -165,7 +165,7 @@ int main(int argc, const char *argv[])
 						res = 2;
 				}
 			}
-		} while (!res);
+		} while (res == 0 || res == -2);
 		if (res == -2 || (res == -3 && cmp != NULL && cmp != dpb + stD.st_size))
 			res = 2;
 		counts[3 + res]++;

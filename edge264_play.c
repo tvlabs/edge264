@@ -361,7 +361,6 @@ int main(int argc, const char *argv[])
 	int res;
 	do {
 		res = Edge264_decode_NAL(s);
-		printf("<div>%d</div>\n", res);
 		while (!Edge264_get_frame(s, res == -3)) {
 			if (!bench)
 				process_frame(s);

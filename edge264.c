@@ -13,6 +13,7 @@
  * _ add an FAQ with (1) how to optimize latency, (2) what can be removed from stream without issue, (3) how to finish a frame with an AUD
  * _ check that P/B slice cannot start without at least 1 reference
  * _ try debugging with concolic testing (ex. CREST, KLEE, Triton)
+ * _ check that gaps in frame_num cannot result in using NULL buffers in inter pred
  * _ add a version function
  * _ Review the entire inlining scheme (in particular bitstream functions)
  * _ return SEI/HRD/VUI structures as JSON in a persistent malloc'ed metadata field (rather than bloat headers with structures), initialized with max size from conformance streams
@@ -243,7 +244,7 @@ static void FUNC(parse_dec_ref_pic_marking)
 				ctx->pic_idr_or_mmco5 = 1;
 			}
 			printf(memory_management_control_operation_names[memory_management_control_operation - 1],
-				(i == 31) ? "<tr><th>memory_management_control_operations</th><td>" : "<br>", target, long_term_frame_idx);
+				(i == 31) ? "<tr><th>memory_management_control_operations</th><td>" : "<br>", ctx->FrameNums[target], long_term_frame_idx);
 		}
 		printf("</td></tr>\n");
 	}
@@ -257,7 +258,7 @@ static void FUNC(parse_dec_ref_pic_marking)
 			if (best > ctx->FrameNums[i])
 				best = ctx->FrameNums[next = i];
 		}
-		ctx->pic_reference_flags &= ~(1 << next); // don't use XOR as r might be zero (if MVC with all refs on other view)
+		ctx->pic_reference_flags ^= 1 << next;
 	}
 	ctx->pic_reference_flags |= 1 << ctx->currPic;
 }
@@ -584,7 +585,7 @@ static int FUNC(parse_slice_layer_without_partitioning)
 			}
 			reference_flags ^= 1 << unref;
 		}
-		reference_flags |= ctx->reference_flags & ~view_mask;
+		ctx->reference_flags = reference_flags |= ctx->reference_flags & ~view_mask;
 		
 		// make enough frames immediately displayable until there are enough DPB slots available
 		unsigned output_flags = ctx->output_flags;

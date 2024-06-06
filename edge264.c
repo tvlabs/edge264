@@ -1,5 +1,4 @@
 /** MAYDO:
- * _ unreferencing an image waiting for output should make it displayable instantly
  * _ merge play into test to ease the debugging of changing videos
  * _ replace calloc with malloc and reuse Edge264_ctx across new videos
  * _ check on https://kodi.wiki/view/Samples#3D_Test_Clips
@@ -23,6 +22,7 @@
  * _ group ctx fields by frequency of accesses and force them manually into L1/L2/L3
  * _ when implementing fields and MBAFF, keep the same pic coding struct (no FLD/AFRM) and just add mb_field_decoding_flag
  * _ try disabling the binary division trick after enabling precise profiling
+ * _ fuzz with H26Forge
  */
 
 /** Notes:
@@ -113,7 +113,7 @@ static void FUNC(initialise_decoding_context)
 	ctx->QP[1] = ctx->QP_C[0][ctx->QP[0]];
 	ctx->QP[2] = ctx->QP_C[1][ctx->QP[0]];
 	int mb_offset = sizeof(*mb) * (1 + mbx + (1 + mby) * (ctx->sps.pic_width_in_mbs + 1));
-	mb = (Edge264_macroblock *)(frame_buffer + ctx->plane_size_Y + ctx->plane_size_C * 2 + mb_offset);
+	ctx->mbCol = mb = (Edge264_macroblock *)(frame_buffer + ctx->plane_size_Y + ctx->plane_size_C * 2 + mb_offset);
 	mbB = mb - ctx->sps.pic_width_in_mbs - 1;
 	
 	// P/B slices

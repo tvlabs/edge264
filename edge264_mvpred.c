@@ -217,14 +217,14 @@ static always_inline void FUNC(decode_direct_spatial_mv_pred, unsigned direct_fl
 {
 	// load all refIdxN and mvN in vector registers
 	i8x16 shuf = {0, 0, 0, 0, 4, 4, 4, 4, -1, -1, -1, -1, -1, -1, -1, -1};
-	i16x8 mvA = (i32x4){*(mb->mvs_s + ctx->mvs_A[0]), *(mb->mvs_s + ctx->mvs_A[0] + 16)};
-	i16x8 mvB = (i32x4){*(mb->mvs_s + ctx->mvs_B[0]), *(mb->mvs_s + ctx->mvs_B[0] + 16)};
-	i16x8 mvC = (i32x4){*(mb->mvs_s + ctx->mvs_C[5]), *(mb->mvs_s + ctx->mvs_C[5] + 16)};
+	i16x8 mvA = unpacklo32(load32((int32_t *)mb->mvs_s + ctx->mvs_A[0]), load32((int32_t *)mb->mvs_s + ctx->mvs_A[0] + 16));
+	i16x8 mvB = unpacklo32(load32((int32_t *)mb->mvs_s + ctx->mvs_B[0]), load32((int32_t *)mb->mvs_s + ctx->mvs_B[0] + 16));
+	i16x8 mvC = unpacklo32(load32((int32_t *)mb->mvs_s + ctx->mvs_C[5]), load32((int32_t *)mb->mvs_s + ctx->mvs_C[5] + 16));
 	i8x16 refIdxA = shuffle8(shrc((i64x2){mb[-1].refIdx_l}, 1), shuf);
 	i8x16 refIdxB = shuffle8(shrc((i64x2){mbB->refIdx_l}, 2), shuf);
 	i8x16 refIdxC = shuffle8(shrc((i64x2){mbB[1].refIdx_l}, 2), shuf);
 	if (__builtin_expect(ctx->unavail16x16 & 4, 0)) {
-		mvC = (i32x4){*(mb->mvs_s + ctx->mvs_D[0]), *(mb->mvs_s + ctx->mvs_D[0] + 16)};
+		mvC = unpacklo32(load32((int32_t *)mb->mvs_s + ctx->mvs_D[0]), load32((int32_t *)mb->mvs_s + ctx->mvs_D[0] + 16));
 		refIdxC = shuffle8(shrc((i64x2){mbB[-1].refIdx_l}, 3), shuf);
 	}
 	
@@ -347,7 +347,7 @@ static always_inline void FUNC(decode_direct_spatial_mv_pred, unsigned direct_fl
 				i16x8 mt = (u16x8){t, t, t, t, t, t, t, t} & masks;
 				i16x8 mc = (u16x8){c, c, c, c, c, c, c, c};
 				int type = first_true(((mt & mc) == masks) | ((mt & ~mc) == masks));
-				mvd_flags ^= ((uint16_t *)&masks)[type] << i;
+				mvd_flags ^= (unsigned)((uint16_t *)&masks)[type] << i;
 				inter_eqs |= (uint64_t)eqs[type] << i * 2;
 				CALL(decode_inter, i, widths[type], heights[type]);
 			} while (mvd_flags);

@@ -118,8 +118,7 @@ static always_inline void store16x1_8bit(size_t stride, uint8_t * restrict dst, 
  */
 static void inter4xH_qpel00_8bit(int h, size_t dstride, uint8_t * restrict dst, size_t sstride, const uint8_t *src, i8x16 w, i16x8 o, i64x2 logWD) {
 	do {
-		i32x4 p = {*(int32_t *)(src              ), *(int32_t *)(src + sstride    ),
-		           *(int32_t *)(src + sstride * 2), *(int32_t *)(src + sstride * 3)};
+		i32x4 p = unpacklo64(unpacklo32(load32(src), load32(src + sstride)), unpacklo32(load32(src + sstride * 2), load32(src + sstride * 3)));
 		store4x4_8bit(dstride, dst, p, w, o, logWD);
 		dst += dstride * 4;
 		src += sstride * 4;
@@ -456,7 +455,7 @@ INTER4xH_QPEL_21_22_23(qpel23, filter_6tapD(x30, x50, hv))
  */
 static void inter8xH_qpel00_8bit(int h, size_t dstride, uint8_t * restrict dst, size_t sstride, const uint8_t *src, i8x16 w, i16x8 o, i64x2 logWD) {
 	do {
-		i64x2 p = {*(int64_t *)(src              ), *(int64_t *)(src + sstride    )};
+		i64x2 p = loadh64(load64(src              ), src + sstride    );
 		store8x2_8bit(dstride, dst, p, w, o, logWD);
 		src += sstride * 2;
 		dst += dstride * 2;
@@ -1134,7 +1133,7 @@ static always_inline void inter2xH_chroma_8bit(int h, size_t dstride, uint8_t * 
 	static const i8x16 shuf = {0, 1, 1, 2, 4, 5, 5, 6, 8, 9, 9, 10, 12, 13, 13, 14};
 	i8x16 zero = {};
 	if (h == 2) {
-		i8x16 x0 = shuffle8(((i32x4){*(int32_t *)src, *(int32_t *)(src + sstride), *(int32_t *)(src + sstride * 2)}), shuf);
+		i8x16 x0 = shuffle8(unpacklo64(unpacklo32(load32(src), load32(src + sstride)), load32(src + sstride * 2)), shuf);
 		i16x8 x1 = maddubs(x0, AB) + maddubs(shrc(x0, 4), CD);
 		i8x16 p = packus16(avg16(x1 >> 5, zero), zero);
 		i16x8 q = {*(int16_t *)dst, *(int16_t *)(dst + dstride)};
@@ -1142,7 +1141,7 @@ static always_inline void inter2xH_chroma_8bit(int h, size_t dstride, uint8_t * 
 		*(int16_t *)(dst) = v[0];
 		*(int16_t *)(dst + dstride) = v[1];
 	} else {
-		i32x4 x0 = {*(int32_t *)src, *(int32_t *)(src + sstride), *(int32_t *)(src + sstride * 2), *(int32_t *)(src + sstride * 3)};
+		i32x4 x0 = unpacklo64(unpacklo32(load32(src), load32(src + sstride)), unpacklo32(load32(src + sstride * 2), load32(src + sstride * 3)));
 		i8x16 x1 = alignr(load32(src + sstride * 4), x0, 4);
 		i16x8 x2 = maddubs(shuffle8(x0, shuf), AB) + maddubs(shuffle8(x1, shuf), CD);
 		i8x16 p = packus16(avg16(x2 >> 5, zero), zero);

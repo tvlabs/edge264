@@ -246,7 +246,7 @@ static noinline int FUNC(get_ae, int ctxIdx)
 	size_t state = ctx->cabac[ctxIdx];
 	size_t shift = SIZE_BIT - 3 - clz(codIRange); // [6..SIZE_BIT-3]
 	size_t idx = (state & -4) + (codIRange >> shift);
-	size_t codIRangeLPS = (size_t)(rangeTabLPS - 4)[idx] << (shift - 6);
+	size_t codIRangeLPS = (size_t)((uint8_t *)rangeTabLPS - 4)[idx] << (shift - 6);
 	codIRange -= codIRangeLPS;
 	if (codIOffset >= codIRange) {
 		state ^= 255;
@@ -279,7 +279,7 @@ static int FUNC(cabac_start) {
 	int shift = extra_bits & 7;
 	int ret = shift > 0 && (ssize_t)msb_cache >> (SIZE_BIT - shift) != -1; // return 1 if not all alignment bits are ones
 	codIOffset = lsd(msb_cache, lsb_cache, shift); // codIOffset and msb_cache are the same register when a GRV is used
-	lsb_cache >>= SIZE_BIT - extra_bits;
+	lsb_cache >>= (SIZE_BIT - extra_bits) & (SIZE_BIT - 1);
 	while (extra_bits >= 8) {
 		int32_t i;
 		memcpy(&i, ctx->CPB - 3, 4);

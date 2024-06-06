@@ -481,6 +481,7 @@ static noinline int FUNC(parse_slice_data_cabac);
 	#define hadd16(a, b) (i16x8)_mm_hadd_epi16(a, b)
 	#define load32(p) (i32x4)_mm_loadu_si32(p) // no distinction with unaligned for now
 	#define load64(p) (i64x2)_mm_loadl_epi64((__m128i*)(p)) // same
+	#define loadh64(a, p) (i64x2)_mm_loadh_pd((__m128d)(a), (double*)(p))
 	#define load128(p) (i8x16)_mm_loadu_si128((__m128i*)(p))
 	#define madd16(a, b) (i32x4)_mm_madd_epi16(a, b)
 	#define maddubs(a, b) (i16x8)_mm_maddubs_epi16(a, b)

@@ -641,7 +641,7 @@ void noinline _decode_intra16x16(int mode, uint8_t *px0, uint8_t *px7, uint8_t *
 	
 	case I16x16_P_8: {
 		// load neighbouring values in vector registers
-		top = (i64x2){*(int64_t *)(px0 + nstride     - 1), *(int64_t *)(px0 + nstride     + 8)};
+		top = loadh64(load64(px0 + nstride     - 1), px0 + nstride     + 8);
 		i8x16 l0 = load32(px0               - 4);
 		i8x16 l1 = load32(px0 +  stride     - 4);
 		i8x16 l2 = load32(px0 +  stride * 2 - 4);

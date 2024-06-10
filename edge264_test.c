@@ -433,6 +433,7 @@ int main(int argc, const char *argv[])
 			"<head>\n"
 			"<title>NAL headers</title>\n"
 			"<style>\n"
+			"h2 { font-size: 100%% }\n"
 			"table { border-collapse: collapse; border: 2px solid black }\n"
 			"tr { border-bottom: 1px solid black; vertical-align: top }\n"
 			"tr>*:first-child { text-align: right }\n"
@@ -444,23 +445,20 @@ int main(int argc, const char *argv[])
 	#endif
 	
 	// check if input is a directory by trying to move into it
+	s = Edge264_alloc();
 	if (chdir(file_name) < 0) {
-		s = Edge264_alloc();
 		int res = decode_file(file_name, 0);
 		if (!TRACE && res == 1)
 			printf("Decoding ended prematurely on " BOLD "unsupported stream" RESET "\n");
 		if (!TRACE && res == 2)
 			printf("Decoding ended prematurely on " BOLD "decoding error" RESET "\n");
-		Edge264_free(&s);
 	} else {
 		struct dirent **entries;
 		int n = scandir(".", &entries, flt, cmp);
 		assert(n>=0);
 		while (n--) {
-			s = Edge264_alloc();
 			decode_file(entries[n]->d_name, 1);
 			free(entries[n]);
-			Edge264_free(&s);
 		}
 		if (!TRACE) {
 			printf("%d " GREEN "PASS" RESET ", %d " YELLOW "UNSUPPORTED" RESET ", %d " RED "FAIL" RESET, counts[0], counts[4], counts[5]);
@@ -470,6 +468,7 @@ int main(int argc, const char *argv[])
 		}
 		free(entries);
 	}
+	Edge264_free(&s);
 	
 	// closing information
 	#if !TRACE

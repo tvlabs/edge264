@@ -1,5 +1,4 @@
 /** MAYDO:
- * _ merge play into test to ease the debugging of changing videos
  * _ replace calloc with malloc and reuse Edge264_ctx across new videos
  * _ check on https://kodi.wiki/view/Samples#3D_Test_Clips
  * _ add Edge264_stream definition to documentation, and replace "documentation" with "reference"
@@ -223,7 +222,7 @@ static void FUNC(parse_dec_ref_pic_marking)
 				}
 			}
 			if (92 & 1 << memory_management_control_operation) { // 2 or 3 or 4 or 6
-				long_term_frame_idx = CALL(get_ue16, ctx->sps.max_num_ref_frames - (memory_management_control_operation != 4));
+				long_term_frame_idx = CALL(get_ue16, (ctx->sps.max_num_ref_frames >> ctx->sps.mvc) - (memory_management_control_operation != 4));
 				for (unsigned r = ctx->pic_long_term_flags; r; r &= r - 1) {
 					int j = __builtin_ctz(r);
 					if (ctx->pic_LongTermFrameIdx[j] == long_term_frame_idx ||
@@ -250,7 +249,7 @@ static void FUNC(parse_dec_ref_pic_marking)
 	}
 	
 	// 8.2.5.3 - Sliding window marking process
-	if (__builtin_popcount(ctx->pic_reference_flags) >= ctx->sps.max_num_ref_frames) {
+	if (__builtin_popcount(ctx->pic_reference_flags) >= (ctx->sps.max_num_ref_frames >> ctx->sps.mvc)) {
 		int best = INT_MAX;
 		int next = 0;
 		for (unsigned r = ctx->pic_reference_flags ^ ctx->pic_long_term_flags; r != 0; r &= r - 1) {
@@ -574,8 +573,9 @@ static int FUNC(parse_slice_layer_without_partitioning)
 	if (__builtin_expect(gap > 1, 0)) {
 		unsigned view_mask = (ctx->sps.mvc - 1) | (0x55555555 ^ -non_base_view); // invert if non_base_view==1
 		unsigned reference_flags = ctx->reference_flags & view_mask;
-		int non_existing = min(gap - 1, ctx->sps.max_num_ref_frames - __builtin_popcount(ctx->long_term_flags & view_mask));
-		int excess = __builtin_popcount(reference_flags) + non_existing - ctx->sps.max_num_ref_frames;
+		int max_num_ref_frames = ctx->sps.max_num_ref_frames >> ctx->sps.mvc;
+		int non_existing = min(gap - 1, max_num_ref_frames - __builtin_popcount(ctx->long_term_flags & view_mask));
+		int excess = __builtin_popcount(reference_flags) + non_existing - max_num_ref_frames;
 		for (int unref; excess > 0; excess--) {
 			int best = INT_MAX;
 			for (unsigned r = reference_flags & ~ctx->long_term_flags; r; r &= r - 1) {
@@ -1260,6 +1260,7 @@ static int FUNC(parse_seq_parameter_set_mvc_extension, Edge264_seq_parameter_set
 	if (num_views != 2)
 		return 1;
 	sps->mvc = 1;
+	sps->max_num_ref_frames = min(sps->max_num_ref_frames * 2, 16);
 	sps->max_num_reorder_frames = min(sps->max_num_reorder_frames * 2 + 1, 17);
 	sps->num_frame_buffers = min(sps->num_frame_buffers * 2, 18);
 	

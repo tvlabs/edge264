@@ -42,9 +42,10 @@ typedef struct {
 	// The first 8 bytes uniquely determine the frame buffer size and format.
 	union {
 		struct {
-			int16_t chroma_format_idc; // 2 significant bits
+			int8_t chroma_format_idc; // 2 significant bits
 			int8_t BitDepth_Y; // 4 significant bits
 			int8_t BitDepth_C;
+			int8_t max_num_ref_frames; // 5 significant bits
 			uint16_t pic_width_in_mbs; // 10 significant bits
 			int16_t pic_height_in_mbs; // 10 significant bits
 		};
@@ -57,7 +58,6 @@ typedef struct {
 	int8_t log2_max_pic_order_cnt_lsb; // 5 significant bits, pic_order_cnt_type==0
 	int8_t delta_pic_order_always_zero_flag; // pic_order_cnt_type==1, 1 significant bit
 	uint8_t num_ref_frames_in_pic_order_cnt_cycle; // pic_order_cnt_type==1
-	int8_t max_num_ref_frames; // 5 significant bits
 	int8_t frame_mbs_only_flag; // 1 significant bit
 	int8_t mb_adaptive_frame_field_flag; // 1 significant bit
 	int8_t direct_8x8_inference_flag; // 1 significant bit

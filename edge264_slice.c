@@ -738,20 +738,18 @@ static noinline void CAFUNC(parse_I_mb, int mb_type_or_ctxIdx)
 	static const uint8_t me_intra[48] = {174, 173, 172, 0, 45, 169, 165, 141, 44, 168, 164, 140, 46, 170, 166, 142, 1, 40, 36, 136, 132, 41, 37, 137, 133, 42, 38, 138, 134, 32, 8, 4, 128, 33, 9, 5, 129, 12, 160, 13, 161, 2, 34, 10, 6, 130, 14, 162};
 	
 	// Intra-specific initialisations
-	if (ctx->unavail16x16 & 1) {
-		mb->bits[1] |= 0x111111; // FIXME 4:2:2
-		#ifdef CABAC
+	#ifdef CABAC
+		if (ctx->unavail16x16 & 1) {
+			mb->bits[1] |= 0x111111; // FIXME 4:2:2
 			mb[-1].nC_v[0] = mb[-1].nC_v[1] = mb[-1].nC_v[2] = (i8x16){1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1};
-		#endif
-		ctx->inc.coded_block_flags_16x16_s |= 0x010101;
-	}
-	if (ctx->unavail16x16 & 2) {
-		mb->bits[1] |= 0x424242;
-		#ifdef CABAC
+			ctx->inc.coded_block_flags_16x16_s |= 0x010101;
+		}
+		if (ctx->unavail16x16 & 2) {
+			mb->bits[1] |= 0x424242;
 			mbB->nC_v[0] = mbB->nC_v[1] = mbB->nC_v[2] = (i8x16){1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1};
-		#endif
-		ctx->inc.coded_block_flags_16x16_s |= 0x020202;
-	}
+			ctx->inc.coded_block_flags_16x16_s |= 0x020202;
+		}
+	#endif
 	mb->f.mbIsInterFlag = 0;
 	mb->inter_eqs_s = little_endian32(0x1b5fbbff);
 	mb->refIdx_l = -1;
@@ -787,7 +785,7 @@ static noinline void CAFUNC(parse_I_mb, int mb_type_or_ctxIdx)
 		
 		CACALL(parse_intra_chroma_pred_mode);
 		CACALL(parse_coded_block_pattern, me_intra);
-		CAJUMP(parse_NxN_residual);
+		CACALL(parse_NxN_residual);
 	
 	// Intra_16x16
 	} else if (CACOND(mb_type_or_ctxIdx < 25, !CALL(cabac_terminate))) {
@@ -824,7 +822,7 @@ static noinline void CAFUNC(parse_I_mb, int mb_type_or_ctxIdx)
 		mb->Intra4x4PredMode_v = (i8x16){2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2};
 		CALL(decode_intra16x16, intra16x16_modes[mode][ctx->unavail16x16 & 3], ctx->samples_mb[0], ctx->stride[0], 0); // FIXME 4:4:4
 		CACALL(parse_intra_chroma_pred_mode);
-		CAJUMP(parse_Intra16x16_residual);
+		CACALL(parse_Intra16x16_residual);
 		
 	// I_PCM
 	} else {
@@ -879,6 +877,14 @@ static noinline void CAFUNC(parse_I_mb, int mb_type_or_ctxIdx)
 			CALL(cabac_start);
 		#endif
 	}
+	
+	// restore neighbours
+	#ifdef CABAC
+		if (ctx->unavail16x16 & 1)
+			mb[-1].nC_v[0] = mb[-1].nC_v[1] = mb[-1].nC_v[2] = (i8x16){};
+		if (ctx->unavail16x16 & 2)
+			mbB->nC_v[0] = mbB->nC_v[1] = mbB->nC_v[2] = (i8x16){};
+	#endif
 }
 
 
@@ -898,18 +904,16 @@ static void CAFUNC(parse_inter_residual)
 		fprintf(stderr, "transform_size_8x8_flag: %x\n", mb->f.transform_size_8x8_flag);
 	}
 	
-	if (ctx->unavail16x16 & 1) {
-		#ifdef CABAC
+	#ifdef CABAC
+		if (ctx->unavail16x16 & 1) {
 			mb[-1].nC_v[0] = mb[-1].nC_v[1] = mb[-1].nC_v[2] = (i8x16){};
-		#endif
-		ctx->inc.coded_block_flags_16x16_s &= 0x020202;
-	}
-	if (ctx->unavail16x16 & 2) {
-		#ifdef CABAC
+			ctx->inc.coded_block_flags_16x16_s &= 0x020202;
+		}
+		if (ctx->unavail16x16 & 2) {
 			mbB->nC_v[0] = mbB->nC_v[1] = mbB->nC_v[2] = (i8x16){};
-		#endif
-		ctx->inc.coded_block_flags_16x16_s &= 0x010101;
-	}
+			ctx->inc.coded_block_flags_16x16_s &= 0x010101;
+		}
+	#endif
 	CAJUMP(parse_NxN_residual);
 }
 
@@ -1780,7 +1784,7 @@ static noinline int CAFUNC(parse_slice_data)
 		ctx->CurrMbAddr++;
 		#ifdef CABAC
 			int end_of_slice_flag = CALL(cabac_terminate);
-			fprintf(stderr, "end_of_slice_flag: %x\n\n", end_of_slice_flag);
+			fprintf(stderr, "end_of_slice_flag: %x\n", end_of_slice_flag);
 		#endif
 		if (CACOND(ctx->mb_skip_run <= 0 && msb_cache == (size_t)1 << (SIZE_BIT - 1) && !(lsb_cache & (lsb_cache - 1)) && ctx->end_of_NAL, end_of_slice_flag))
 			return ctx->CurrMbAddr - ctx->first_mb_in_slice;

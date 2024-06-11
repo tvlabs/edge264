@@ -17,18 +17,18 @@ Compiling and testing
 ---------------------
 
 edge264 is built and tested with GNU GCC and LLVM Clang, supports 32/64 bit architectures, and requires 128 bit SIMD support. Processor support is currently limited to Intel x86 or x64 with at least SSSE3. [GLFW3](https://www.glfw.org/) development headers should be installed to compile `edge264_play`. `gcc-9` is recommended since it provides the fastest performance in practice.
-The build process will output an object file (e.g. `edge264-gcc-9.o`), which you may then use to link to your code.
+The build process will output an object file (e.g. `edge264.o`), which you may then use to link to your code.
 
 ```sh
-$ make CC=gcc-9 # best performance
+$ make # automatically selects gcc-9 if available
 $ ffmpeg -i video.mp4 -vcodec copy -bsf h264_mp4toannexb -an video.264 # optional, converts from MP4 format
-$ ./edge264_test-gcc-9 -d video.264 # replace -d with -b to benchmark instead of display
+$ ./edge264_test -d video.264 # replace -d with -b to benchmark instead of display
 ```
 
 When debugging, the make flag `TRACE=1` enables printing headers to stdout in HTML format, and `TRACE=2` adds the dumping of all other symbols to stderr (*very large*). The automated test program can browse files in a given directory, decoding each `<video>.264` and comparing its output with the pair `<video>.yuv` if found. On the set of AVCv1, FRExt and MVC [conformance bitstreams](https://www.itu.int/wftp3/av-arch/jvt-site/draft_conformance/), 109/224 files are known to decode perfectly, the rest using yet unsupported features.
 
 ```sh
-$ ./edge264_test-gcc-9 --help
+$ ./edge264_test --help
 ```
 
 

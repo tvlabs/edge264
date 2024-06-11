@@ -12,6 +12,7 @@
  * 	_ try vectorizing loops on get_ae with movemask trick, starting with residual block parsing
  * 	_ Group ctx fields by frequency of accesses and force them manually into L1/L2/L3
  * 	_ Add an offset to stride to counter cache alignment issues
+ * 	_ try combining clang and gcc over decoding and parsing
  * _ Documentation
  * 	_ add an FAQ with (1) how to optimize latency, (2) what can be removed from stream without issue, (3) how to finish a frame with an AUD
  * _ when implementing fields and MBAFF, keep the same pic coding struct (no FLD/AFRM) and just add mb_field_decoding_flag

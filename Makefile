@@ -5,9 +5,7 @@ ifneq ($(shell command -v gcc-9),)
 	CC = gcc-9
 endif
 
-ifeq ($(TRACE),)
-	SUF = -$(CC)
-else
+ifneq ($(TRACE),)
 	override CFLAGS := -DTRACE=$(TRACE) $(CFLAGS)
 	SUF = -trace$(TRACE)
 endif

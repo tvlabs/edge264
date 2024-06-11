@@ -1,39 +1,16 @@
 edge264
 =======
 
-This is a minimalist software decoder for the H.264 video codec, written from scratch to experiment new programming techniques in order to improve performance and code simplicity over existing decoders.
-It is in open beta at the moment, please fill issues in particular for missing API features (and how you would like them implemented), or planned features that are most important to you.
+A minimalist software decoder for the H.264 video format.
 
+**Features:**
 
-Supported features
-------------------
-
-* Progressive High Profile and level 6.2
-* MVC 3D support
+* Supports *Progressive High* and *MVC 3D* profiles, up to level 6.2
 * Any resolution up to 8K UHD
 * 8-bit 4:2:0 planar YUV output
-* CAVLC/CABAC
-* I/P/B frames
-* Deblocking
-* 4x4 and 8x8 transforms
 * Slices and Arbitrary Slice Order
-* Per-slice reference lists
 * Memory Management Control Operations
-* Long-term reference pictures
-
-
-Planned features
-----------------
-
-* SEI messages
-* Error concealment
-* ARM support
-* PAFF and MBAFF
-* AVX-2 optimizations
-* 4:0:0, 4:2:2 and 4:4:4
-* 9-14 bit depths with possibility of different luma/chroma depths
-* Transform-bypass for macroblocks with QP==0
-* Slice-multithreading
+* Long-term reference frames
 
 
 Compiling and testing
@@ -48,17 +25,18 @@ $ ffmpeg -i video.mp4 -vcodec copy -bsf h264_mp4toannexb -an video.264 # optiona
 $ ./edge264_test-gcc-9 -d video.264 # replace -d with -b to benchmark instead of display
 ```
 
-When debugging, the make flag `TRACE=1` enables printing headers to stdout in HTML format, and `TRACE=2` adds the dumping of all other symbols to stderr (*very large*). The automated test program can browse files in a given directory, decoding each `<video>.264` and comparing its output with the pair `<video>.yuv` if found. On the set of official [conformance bitstreams](https://www.itu.int/wftp3/av-arch/jvt-site/draft_conformance/), 109/224 files are known to decode perfectly, the rest using yet unsupported features.
+When debugging, the make flag `TRACE=1` enables printing headers to stdout in HTML format, and `TRACE=2` adds the dumping of all other symbols to stderr (*very large*). The automated test program can browse files in a given directory, decoding each `<video>.264` and comparing its output with the pair `<video>.yuv` if found. On the set of AVCv1, FRExt and MVC [conformance bitstreams](https://www.itu.int/wftp3/av-arch/jvt-site/draft_conformance/), 109/224 files are known to decode perfectly, the rest using yet unsupported features.
 
 ```sh
 $ ./edge264_test-gcc-9 --help
 ```
 
 
-API documentation
------------------
+Example code
+------------
 
-Here is a complete example that opens an input file from command line and dumps its decoded frames in planar YUV order to standard output.
+Here is a complete example that opens an input file in Annex B format from command line, and dumps its decoded frames in planar YUV order to standard output.
+See [](edge264_test.c) for a more complete example with display of the frames.
 
 ```c
 #include <fcntl.h>
@@ -97,13 +75,37 @@ int main(int argc, char *argv[]) {
 ```
 
 
-#### `Edge264_stream *Edge264_alloc()`
+API reference
+-------------
 
+**`Edge264_stream *Edge264_alloc()`**
 Allocate and return a decoding context, that is used to pass and receive parameters.
 The private decoding context is actually hidden at negative offsets from the pointer returned.
 
-#### `int Edge264_decode_NAL(Edge264_stream *s)`
+```c
+typedef struct Edge264_stream {
+	// These fields must be set prior to decoding.
+	const uint8_t *CPB; // should always point to a NAL unit (after the 001 prefix)
+	const uint8_t *end; // first byte past the end of the buffer
+	
+	// These fields will be set when returning a frame
+	const uint8_t *samples[3]; // Y/Cb/Cr planes
+	const uint8_t *samples_mvc[3]; // second view
+	int8_t pixel_depth_Y; // 0 for 8-bit, 1 for 16-bit
+	int8_t pixel_depth_C;
+	int16_t width_Y;
+	int16_t width_C;
+	int16_t height_Y;
+	int16_t height_C;
+	int16_t stride_Y;
+	int16_t stride_C;
+	int32_t TopFieldOrderCnt;
+	int32_t BottomFieldOrderCnt;
+	int16_t frame_crop_offsets[4]; // {top,right,bottom,left}, in luma samples, already included in samples_Y/Cb/cr and width/height_Y/C
+} Edge264_stream;
+```
 
+**`int Edge264_decode_NAL(Edge264_stream *s)`**
 Decode a single NAL unit, for which `s->CPB` should point to its first byte (containing `nal_unit_type`) and `s->end` should point to the first byte past the buffer.
 After decoding the NAL, `s->CPB` is automatically advanced past the next start code (for Annex B streams).
 Return codes are:
@@ -115,8 +117,7 @@ Return codes are:
 * **1** on unsupported stream (decoding may proceed but could return zero frames)
 * **2** on decoding error (decoding may proceed but could show visual artefacts, if you can check with another decoder that the stream is actually flawless, please consider filling a bug report 🙏)
 
-#### `int Edge264_get_frame(Edge264_stream *s, int drain)`
-
+**`int Edge264_get_frame(Edge264_stream *s, int drain)`**
 Check the Decoded Picture Buffer for a pending displayable frame, and pass it in `s`.
 While reference frames may be decoded ahead of their actual display (ex. B-Pyramid technique), all frames are buffered for reordering before being released for display:
 
@@ -132,19 +133,37 @@ Return codes are:
 * **-1** if the function was called with `s == NULL`
 * **0** on success (one frame is returned)
 
-#### `void Edge264_free(Edge264_stream **s)`
-
+**`void Edge264_free(Edge264_stream **s)`**
 Deallocate the entire decoding context, and unset the stream pointer.
 
-#### `const uint8_t *Edge264_find_start_code(int n, const uint8_t *CPB, const uint8_t *end)`
-
+**`const uint8_t *Edge264_find_start_code(int n, const uint8_t *CPB, const uint8_t *end)`**
 Scan memory for the next three-byte 00n pattern, returning a pointer to the first following byte (or `end` if no pattern was found).
 
 
-Key takeaways
--------------
+FAQ
+---
 
-I presented a few of these techniques at FOSDEM'24, Open Media room, on 4 February 2024. Be sure to check the [video](https://fosdem.org/2024/schedule/event/fosdem-2024-2931-innovations-in-h-264-avc-software-decoding-architecture-and-optimization-of-a-block-based-video-decoder-to-reach-10-faster-speed-and-3x-code-reduction-over-the-state-of-the-art-/).
+
+
+Roadmap
+-------
+
+* Multithreading
+* Integration in VLC/ffmpeg/GStreamer
+* ARM support
+* 4:0:0, 4:2:2 and 4:4:4
+* 9-14 bit depths with possibility of different luma/chroma depths
+* Transform-bypass for macroblocks with QP==0
+* SEI messages
+* Error concealment
+* PAFF and MBAFF
+* AVX-2 optimizations
+
+
+Programming techniques
+----------------------
+
+edge264 originated as an experiment on new programming techniques to improve performance and code simplicity over existing decoders. I presented a few of these techniques at FOSDEM'24, Open Media room, on 4 February 2024. Be sure to check the [video](https://fosdem.org/2024/schedule/event/fosdem-2024-2931-innovations-in-h-264-avc-software-decoding-architecture-and-optimization-of-a-block-based-video-decoder-to-reach-10-faster-speed-and-3x-code-reduction-over-the-state-of-the-art-/).
 
 * [Minimalistic API](edge264.h) with FFI-friendly design (5 functions and 1 structure).
 * [The input bitstream](edge264_bitstream.c) is unescaped on the fly using vector code, avoiding a full preprocessing pass to remove escape sequences, and thus reducing memory reads/writes.

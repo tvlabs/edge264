@@ -1,9 +1,10 @@
 override CFLAGS := -std=gnu99 -march=native -O3 -flax-vector-conversions $(CFLAGS)
 # override CFLAGS := -std=gnu99 -march=native -g -fsanitize=address -fno-omit-frame-pointer -flax-vector-conversions $(CFLAGS)
 
-# TRACE:
-# 1 - Prints NAL headers to stdout
-# 2 - Also prints decoded symbols to stderr (VERY LARGE)
+ifneq ($(shell command -v gcc-9),)
+	CC = gcc-9
+endif
+
 ifeq ($(TRACE),)
 	SUF = -$(CC)
 else

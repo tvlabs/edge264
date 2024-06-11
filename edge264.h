@@ -35,7 +35,7 @@ typedef struct Edge264_stream {
 	const uint8_t *CPB; // should always point to a NAL unit (after the 001 prefix)
 	const uint8_t *end; // first byte past the end of the buffer
 	
-	// public read-only fields
+	// These fields will be set when returning a frame
 	const uint8_t *samples[3]; // Y/Cb/Cr planes
 	const uint8_t *samples_mvc[3]; // second view
 	int8_t pixel_depth_Y; // 0 for 8-bit, 1 for 16-bit
@@ -46,15 +46,15 @@ typedef struct Edge264_stream {
 	int16_t height_C;
 	int16_t stride_Y;
 	int16_t stride_C;
-   int32_t TopFieldOrderCnt;
-   int32_t BottomFieldOrderCnt;
+	int32_t TopFieldOrderCnt;
+	int32_t BottomFieldOrderCnt;
 	int16_t frame_crop_offsets[4]; // {top,right,bottom,left}, in luma samples, already included in samples_Y/Cb/cr and width/height_Y/C
 } Edge264_stream;
 
-const uint8_t *Edge264_find_start_code(int n, const uint8_t *CPB, const uint8_t *end);
 Edge264_stream *Edge264_alloc();
 int Edge264_decode_NAL(Edge264_stream *s);
 int Edge264_get_frame(Edge264_stream *s, int drain);
 void Edge264_free(Edge264_stream **s);
+const uint8_t *Edge264_find_start_code(int n, const uint8_t *CPB, const uint8_t *end);
 
 #endif

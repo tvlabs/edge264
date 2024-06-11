@@ -1,27 +1,20 @@
 /** MAYDO:
- * _ replace calloc with malloc and reuse Edge264_ctx across new videos
- * _ check on https://kodi.wiki/view/Samples#3D_Test_Clips
- * _ add Edge264_stream definition to documentation, and replace "documentation" with "reference"
- * _ layout README like https://github.com/nolanlawson/emoji-picker-element
- * _ name files with numbers to set an explicit order for reading them
- * _ put per-mb deblocking inside a function and add a NextDeblockMb pointer that is deblocked and incremented in main loop iff CurrMbAddr is exactly above it, then finish deblocking rest of picture in finish_frame.
- * _ try eliminating valMPS in favor of a 7-bit probability state in CABAC
- * _ try vectorizing loops on get_ae with movemask trick, starting with residual block parsing
- * _ test all versions of GCC and select it in Makefile if not specified on command line
- * _ add an FAQ with (1) how to optimize latency, (2) what can be removed from stream without issue, (3) how to finish a frame with an AUD
- * _ check that P/B slice cannot start without at least 1 reference
- * _ try debugging with concolic testing (ex. CREST, KLEE, Triton)
- * _ check that gaps in frame_num cannot result in using NULL buffers in inter pred
- * _ add a version function
- * _ Review the entire inlining scheme (in particular bitstream functions)
- * _ return SEI/HRD/VUI structures as JSON in a persistent malloc'ed metadata field (rather than bloat headers with structures), initialized with max size from conformance streams
- * _ make a debugging pass by looking at shall/"shall not" clauses in spec and checking that we are robust against each violation
- * _ add an option to store N more frames, to tolerate lags in process scheduling
- * _ try using epb for context pointer, and email GCC when it fails
- * _ group ctx fields by frequency of accesses and force them manually into L1/L2/L3
+ * _ Multithreading
+ * 	_ add an option to store N more frames, to tolerate lags in process scheduling
+ * _ Fuzzing and bug hunting
+ * 	_ fuzz with H26Forge
+ * 	_ replace calloc with malloc+memset(127), determine a policy for ensuring the validity of variables over time, and setup a solver (ex. KLEE, Crest, Triton) to test their intervals
+ * 	_ check that gaps in frame_num cannot result in using NULL buffers in inter pred
+ * 	_ Review the entire inlining scheme (in particular bitstream functions)
+ * 	_ make a debugging pass by looking at shall/"shall not" clauses in spec and checking that we are robust against each violation
+ * 	_ check on https://kodi.wiki/view/Samples#3D_Test_Clips
+ * _ Optimizations
+ * 	_ try vectorizing loops on get_ae with movemask trick, starting with residual block parsing
+ * 	_ Group ctx fields by frequency of accesses and force them manually into L1/L2/L3
+ * 	_ Add an offset to stride to counter cache alignment issues
+ * _ Documentation
+ * 	_ add an FAQ with (1) how to optimize latency, (2) what can be removed from stream without issue, (3) how to finish a frame with an AUD
  * _ when implementing fields and MBAFF, keep the same pic coding struct (no FLD/AFRM) and just add mb_field_decoding_flag
- * _ try disabling the binary division trick after enabling precise profiling
- * _ fuzz with H26Forge
  */
 
 /** Notes:

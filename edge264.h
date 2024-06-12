@@ -35,7 +35,7 @@ typedef struct Edge264_stream {
 	const uint8_t *CPB; // should always point to a NAL unit (after the 001 prefix)
 	const uint8_t *end; // first byte past the end of the buffer
 	
-	// These fields will be set when returning a frame
+	// These fields will be set when returning a frame.
 	const uint8_t *samples[3]; // Y/Cb/Cr planes
 	const uint8_t *samples_mvc[3]; // second view
 	int8_t pixel_depth_Y; // 0 for 8-bit, 1 for 16-bit

@@ -1,11 +1,13 @@
 edge264
 =======
 
-A minimalist software decoder for the H.264 video format.
+Minimalist software decoder for the H.264 video format.
 
-**Features:**
 
-* Supports *Progressive High* and *MVC 3D* profiles, up to level 6.2
+Features
+--------
+
+* Supports **Progressive High** and **MVC 3D** profiles, up to level 6.2
 * Any resolution up to 8K UHD
 * 8-bit 4:2:0 planar YUV output
 * Slices and Arbitrary Slice Order
@@ -21,11 +23,15 @@ The build process will output an object file (e.g. `edge264.o`), which you may t
 
 ```sh
 $ make # automatically selects gcc-9 if available
-$ ffmpeg -i video.mp4 -vcodec copy -bsf h264_mp4toannexb -an video.264 # optional, converts from MP4 format
 $ ./edge264_test -d video.264 # replace -d with -b to benchmark instead of display
 ```
 
-When debugging, the make flag `TRACE=1` enables printing headers to stdout in HTML format, and `TRACE=2` adds the dumping of all other symbols to stderr (*very large*). The automated test program can browse files in a given directory, decoding each `<video>.264` and comparing its output with the pair `<video>.yuv` if found. On the set of AVCv1, FRExt and MVC [conformance bitstreams](https://www.itu.int/wftp3/av-arch/jvt-site/draft_conformance/), 109/224 files are known to decode perfectly, the rest using yet unsupported features.
+```sh
+# optional, converts from MP4 format
+$ ffmpeg -i video.mp4 -vcodec copy -bsf h264_mp4toannexb -an video.264
+```
+
+When debugging, the make flag `TRACE=1` enables printing headers to stdout in HTML format, and `TRACE=2` adds the dumping of all other symbols to stderr (*very large*). The automated test program can browse files in a given directory, decoding each `<video>.264` file and comparing its output with the pair `<video>.yuv` if found. On the set of AVCv1, FRExt and MVC [conformance bitstreams](https://www.itu.int/wftp3/av-arch/jvt-site/draft_conformance/), 109/224 files are decoded perfectly, the rest using yet unsupported features.
 
 ```sh
 $ ./edge264_test --help
@@ -36,7 +42,7 @@ Example code
 ------------
 
 Here is a complete example that opens an input file in Annex B format from command line, and dumps its decoded frames in planar YUV order to standard output.
-See [](edge264_test.c) for a more complete example with display of the frames.
+See [edge264_test.c](edge264_test.c) for a more complete example which displays frames.
 
 ```c
 #include <fcntl.h>
@@ -58,7 +64,7 @@ int main(int argc, char *argv[]) {
 	int res;
 	do {
 		res = Edge264_decode_NAL(s);
-		while (!Edge264_get_frame(s, res == -3)) { // drain remaining frames when at end of buffer
+		while (!Edge264_get_frame(s, res == -3)) { // drain remaining frames at end of buffer
 			for (int y = 0; y < s->height_Y; y++)
 				write(1, s->samples[0] + y * s->stride_Y, s->width_Y);
 			for (int y = 0; y < s->height_C; y++)
@@ -88,7 +94,7 @@ typedef struct Edge264_stream {
 	const uint8_t *CPB; // should always point to a NAL unit (after the 001 prefix)
 	const uint8_t *end; // first byte past the end of the buffer
 	
-	// These fields will be set when returning a frame
+	// These fields will be set when returning a frame.
 	const uint8_t *samples[3]; // Y/Cb/Cr planes
 	const uint8_t *samples_mvc[3]; // second view
 	int8_t pixel_depth_Y; // 0 for 8-bit, 1 for 16-bit
@@ -140,15 +146,10 @@ Deallocate the entire decoding context, and unset the stream pointer.
 Scan memory for the next three-byte 00n pattern, returning a pointer to the first following byte (or `end` if no pattern was found).
 
 
-FAQ
----
-
-
-
 Roadmap
 -------
 
-* Multithreading
+* Multithreading (work in progress)
 * Integration in VLC/ffmpeg/GStreamer
 * ARM support
 * 4:0:0, 4:2:2 and 4:4:4
@@ -163,7 +164,7 @@ Roadmap
 Programming techniques
 ----------------------
 
-edge264 originated as an experiment on new programming techniques to improve performance and code simplicity over existing decoders. I presented a few of these techniques at FOSDEM'24, Open Media room, on 4 February 2024. Be sure to check the [video](https://fosdem.org/2024/schedule/event/fosdem-2024-2931-innovations-in-h-264-avc-software-decoding-architecture-and-optimization-of-a-block-based-video-decoder-to-reach-10-faster-speed-and-3x-code-reduction-over-the-state-of-the-art-/).
+edge264 originated as an experiment on new programming techniques to improve performance and code simplicity over existing decoders. I presented a few of these techniques at FOSDEM'24 on 4 February 2024. Be sure to check the [video](https://fosdem.org/2024/schedule/event/fosdem-2024-2931-innovations-in-h-264-avc-software-decoding-architecture-and-optimization-of-a-block-based-video-decoder-to-reach-10-faster-speed-and-3x-code-reduction-over-the-state-of-the-art-/)!
 
 * [Minimalistic API](edge264.h) with FFI-friendly design (5 functions and 1 structure).
 * [The input bitstream](edge264_bitstream.c) is unescaped on the fly using vector code, avoiding a full preprocessing pass to remove escape sequences, and thus reducing memory reads/writes.

@@ -310,7 +310,7 @@ static int decode_file(const char *name, int print_counts)
 		snprintf(yname, sizeof(yname), "%s.yuv", name);
 		yuv = open(yname, O_RDONLY);
 		if (yuv < 0) {
-			printf("%s not found\n", yname);
+			fprintf(stderr, "%s not found\n", yname);
 		} else {
 			fstat(yuv, &stD);
 			conf[0] = dpb = mmap(NULL, stD.st_size, PROT_READ, MAP_SHARED, yuv, 0);

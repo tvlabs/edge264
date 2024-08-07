@@ -15,6 +15,7 @@
  * 	_ try combining clang and gcc over decoding and parsing
  * _ Documentation
  * 	_ add an FAQ with (1) how to optimize latency, (2) what can be removed from stream without issue, (3) how to finish a frame with an AUD
+ * _ add an option to get_frame to poll without consuming
  * _ when implementing fields and MBAFF, keep the same pic coding struct (no FLD/AFRM) and just add mb_field_decoding_flag
  */
 

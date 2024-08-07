@@ -18,7 +18,7 @@ Features
 Compiling and testing
 ---------------------
 
-edge264 is built and tested with GNU GCC and LLVM Clang, supports 32/64 bit architectures, and requires 128 bit SIMD support. Processor support is currently limited to Intel x86 or x64 with at least SSSE3. [GLFW3](https://www.glfw.org/) development headers should be installed to compile `edge264_play`. `gcc-9` is recommended since it provides the fastest performance in practice.
+edge264 is built and tested with GNU GCC and LLVM Clang, supports 32/64 bit architectures, and requires 128 bit SIMD support. Processor support is currently limited to Intel x86 or x64 with at least SSSE3. [GLFW3](https://www.glfw.org/) development headers should be installed to compile `edge264_test`. `gcc-9` is recommended since it provides the fastest performance in practice.
 The build process will output an object file (e.g. `edge264.o`), which you may then use to link to your code.
 
 ```sh

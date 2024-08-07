@@ -1,5 +1,10 @@
 /** MAYDO:
  * _ Multithreading
+ * 	_ all header functions now take the context structure as argument, then slice copies it on stack and register
+ * 	_ slice struct copy field by field
+ * 	_ replace context passed to headers with new struct stream, removing all decoding fields
+ * 	_ remove all stream fields from context struct
+ * 	_ add task array to stream, and use context here
  * 	_ add an option to store N more frames, to tolerate lags in process scheduling
  * _ Fuzzing and bug hunting
  * 	_ fuzz with H26Forge
@@ -90,8 +95,8 @@ static void FUNC(initialise_decoding_context)
 	int mby = (unsigned)ctx->first_mb_in_slice / (unsigned)ctx->sps.pic_width_in_mbs;
 	int mbx = (unsigned)ctx->first_mb_in_slice % (unsigned)ctx->sps.pic_width_in_mbs;
 	uint8_t *frame_buffer = ctx->frame_buffers[ctx->currPic];
-	ctx->samples_row[0] = frame_buffer + mby * ctx->s.stride_Y * 16;
-	ctx->samples_row[1] = frame_buffer + ctx->plane_size_Y + mby * ctx->s.stride_C * 8;
+	ctx->samples_row[0] = frame_buffer + mby * ctx->d.stride_Y * 16;
+	ctx->samples_row[1] = frame_buffer + ctx->plane_size_Y + mby * ctx->d.stride_C * 8;
 	ctx->samples_row[2] = ctx->samples_row[1] + ctx->plane_size_C;
 	ctx->samples_mb[0] = ctx->samples_row[0] + mbx * 16;
 	ctx->samples_mb[1] = ctx->samples_row[1] + mbx * 8;
@@ -1515,28 +1520,28 @@ static int FUNC(parse_seq_parameter_set)
 	
 	// apply the changes on the dependent variables if the frame format changed
 	int64_t offsets;
-	memcpy(&offsets, ctx->s.frame_crop_offsets, 8);
+	memcpy(&offsets, ctx->d.frame_crop_offsets, 8);
 	if (sps.DPB_format != ctx->DPB_format || sps.frame_crop_offsets_l != offsets) {
 		ctx->DPB_format = ctx->sps.DPB_format;
-		memcpy(ctx->s.frame_crop_offsets, &sps.frame_crop_offsets_l, 8);
+		memcpy(ctx->d.frame_crop_offsets, &sps.frame_crop_offsets_l, 8);
 		int width = sps.pic_width_in_mbs << 4;
 		int height = sps.pic_height_in_mbs << 4;
-		ctx->s.pixel_depth_Y = sps.BitDepth_Y > 8;
+		ctx->d.pixel_depth_Y = sps.BitDepth_Y > 8;
 		ctx->clip[0] = (1 << sps.BitDepth_Y) - 1;
-		ctx->s.width_Y = width - ctx->s.frame_crop_offsets[3] - ctx->s.frame_crop_offsets[1];
-		ctx->s.height_Y = height - ctx->s.frame_crop_offsets[0] - ctx->s.frame_crop_offsets[2];
-		ctx->stride[0] = ctx->s.stride_Y = width << ctx->s.pixel_depth_Y;
-		ctx->plane_size_Y = ctx->s.stride_Y * height;
+		ctx->d.width_Y = width - ctx->d.frame_crop_offsets[3] - ctx->d.frame_crop_offsets[1];
+		ctx->d.height_Y = height - ctx->d.frame_crop_offsets[0] - ctx->d.frame_crop_offsets[2];
+		ctx->stride[0] = ctx->d.stride_Y = width << ctx->d.pixel_depth_Y;
+		ctx->plane_size_Y = ctx->d.stride_Y * height;
 		if (sps.chroma_format_idc > 0) {
-			ctx->s.pixel_depth_C = sps.BitDepth_C > 8;
+			ctx->d.pixel_depth_C = sps.BitDepth_C > 8;
 			ctx->clip[1] = ctx->clip[2] = (1 << sps.BitDepth_C) - 1;
-			ctx->s.width_C = sps.chroma_format_idc == 3 ? ctx->s.width_Y : ctx->s.width_Y >> 1;
-			ctx->stride[1] = ctx->stride[2] = ctx->s.stride_C = (sps.chroma_format_idc == 3 ? width : width >> 1) << ctx->s.pixel_depth_C;
-			ctx->s.height_C = sps.chroma_format_idc == 1 ? ctx->s.height_Y >> 1 : ctx->s.height_Y;
-			ctx->plane_size_C = (sps.chroma_format_idc == 1 ? height >> 1 : height) * ctx->s.stride_C;
+			ctx->d.width_C = sps.chroma_format_idc == 3 ? ctx->d.width_Y : ctx->d.width_Y >> 1;
+			ctx->stride[1] = ctx->stride[2] = ctx->d.stride_C = (sps.chroma_format_idc == 3 ? width : width >> 1) << ctx->d.pixel_depth_C;
+			ctx->d.height_C = sps.chroma_format_idc == 1 ? ctx->d.height_Y >> 1 : ctx->d.height_Y;
+			ctx->plane_size_C = (sps.chroma_format_idc == 1 ? height >> 1 : height) * ctx->d.stride_C;
 		}
-		ctx->s.samples[0] = ctx->s.samples[1] = ctx->s.samples[2] = NULL;
-		ctx->s.samples_mvc[0] = ctx->s.samples_mvc[1] = ctx->s.samples_mvc[2] = NULL;
+		ctx->d.samples[0] = ctx->d.samples[1] = ctx->d.samples[2] = NULL;
+		ctx->d.samples_mvc[0] = ctx->d.samples_mvc[1] = ctx->d.samples_mvc[2] = NULL;
 		int offA_int8 = -(int)sizeof(*mb);
 		int offB_int8 = -(sps.pic_width_in_mbs + 1) * sizeof(*mb);
 		int offA_int32 = offA_int8 >> 2;
@@ -1609,7 +1614,7 @@ const uint8_t *Edge264_find_start_code(int n, const uint8_t *CPB, const uint8_t 
 
 
 
-Edge264_stream *Edge264_alloc() {
+Edge264_decoder *Edge264_alloc() {
 	void *p = calloc(1, sizeof(Edge264_ctx));
 	if (p == NULL)
 		return NULL;
@@ -1628,12 +1633,12 @@ Edge264_stream *Edge264_alloc() {
 		ctx->scan_v[i] = scan_8x8_cabac[0][i];
 	}
 	RESET_CTX();
-	return p + offsetof(Edge264_ctx, s);
+	return p + offsetof(Edge264_ctx, d);
 }
 
 
 
-int Edge264_decode_NAL(Edge264_stream *s)
+int Edge264_decode_NAL(Edge264_decoder *d)
 {
 	static const char * const nal_unit_type_names[32] = {
 		[0] = "Unknown",
@@ -1671,13 +1676,13 @@ int Edge264_decode_NAL(Edge264_stream *s)
 	};
 	
 	// initial checks before parsing
-	if (s == NULL)
+	if (d == NULL)
 		return -1;
-	if (s->CPB >= s->end)
+	if (d->CPB >= d->end)
 		return -3;
-	SET_CTX((void *)s - offsetof(Edge264_ctx, s));
-	ctx->nal_ref_idc = *ctx->s.CPB >> 5;
-	ctx->nal_unit_type = *ctx->s.CPB & 0x1f;
+	SET_CTX((void *)d - offsetof(Edge264_ctx, d));
+	ctx->nal_ref_idc = *ctx->d.CPB >> 5;
+	ctx->nal_unit_type = *ctx->d.CPB & 0x1f;
 	printf("<table>\n"
 		"<tr><th>nal_ref_idc</th><td>%u</td></tr>\n"
 		"<tr><th>nal_unit_type</th><td>%u (%s)</td></tr>\n",
@@ -1686,25 +1691,25 @@ int Edge264_decode_NAL(Edge264_stream *s)
 	
 	// parse AUD and MVC prefix that require no escaping
 	int ret = 0;
-	ctx->CPB = ctx->s.CPB + 3; // first byte that might be escaped
+	ctx->CPB = ctx->d.CPB + 3; // first byte that might be escaped
 	ctx->end_of_NAL = 0;
 	Parser parser = parse_nal_unit[ctx->nal_unit_type];
 	if (ctx->nal_unit_type == 9) {
-		if (ctx->s.CPB + 1 >= ctx->s.end || (ctx->s.CPB[1] & 31) != 16) {
+		if (ctx->d.CPB + 1 >= ctx->d.end || (ctx->d.CPB[1] & 31) != 16) {
 			ret = 2;
 		} else {
-			printf("<tr><th>primary_pic_type</th><td>%d</td></tr>\n", ctx->s.CPB[1] >> 5);
+			printf("<tr><th>primary_pic_type</th><td>%d</td></tr>\n", ctx->d.CPB[1] >> 5);
 			if (ctx->currPic >= 0 && ctx->frame_buffers[ctx->currPic] != NULL)
 				CALL(finish_frame);
 		}
 	} else if (ctx->nal_unit_type == 14 || ctx->nal_unit_type == 20) {
-		if (ctx->s.CPB + 4 >= ctx->s.end) {
+		if (ctx->d.CPB + 4 >= ctx->d.end) {
 			ret = 2;
 			parser = NULL;
 		} else {
 			uint32_t u;
-			memcpy(&u, ctx->s.CPB, 4);
-			ctx->CPB = ctx->s.CPB + 6;
+			memcpy(&u, ctx->d.CPB, 4);
+			ctx->CPB = ctx->d.CPB + 6;
 			u = big_endian32(u);
 			ctx->IdrPicFlag = u >> 22 & 1 ^ 1;
 			if (u >> 23 & 1) {
@@ -1730,7 +1735,7 @@ int Edge264_decode_NAL(Edge264_stream *s)
 	
 	// initialize the parsing context if we can parse the current NAL
 	if (parser != NULL) {
-		if (ctx->CPB > ctx->s.end) {
+		if (ctx->CPB > ctx->d.end) {
 			ret = 2;
 		} else {
 			size_t _codIRange = codIRange; // backup if stored in a Register Variable
@@ -1754,7 +1759,7 @@ int Edge264_decode_NAL(Edge264_stream *s)
 	
 	// CPB may point anywhere up to the last byte of the next start code
 	if (ret >= 0)
-		ctx->s.CPB = Edge264_find_start_code(1, ctx->CPB - 2, ctx->s.end);
+		ctx->d.CPB = Edge264_find_start_code(1, ctx->CPB - 2, ctx->d.end);
 	RESET_CTX();
 	printf("</table>\n");
 	return ret;
@@ -1770,10 +1775,10 @@ int Edge264_decode_NAL(Edge264_stream *s)
  * _ there is no empty slot for the next frame
  * _ drain is set
  */
-int Edge264_get_frame(Edge264_stream *s, int drain) {
-	if (s == NULL)
+int Edge264_get_frame(Edge264_decoder *d, int drain) {
+	if (d == NULL)
 		return -1;
-	SET_CTX((void *)s - offsetof(Edge264_ctx, s));
+	SET_CTX((void *)d - offsetof(Edge264_ctx, d));
 	int pic[2] = {-1, -1};
 	unsigned unavail = ctx->reference_flags | ctx->output_flags | (ctx->basePic < 0 ? 0 : 1 << ctx->basePic);
 	int best = (drain || __builtin_popcount(ctx->output_flags) > ctx->sps.max_num_reorder_frames ||
@@ -1789,27 +1794,27 @@ int Edge264_get_frame(Edge264_stream *s, int drain) {
 			pic[non_base] = i;
 		}
 	}
-	int top = ctx->s.frame_crop_offsets[0];
-	int left = ctx->s.frame_crop_offsets[3];
+	int top = ctx->d.frame_crop_offsets[0];
+	int left = ctx->d.frame_crop_offsets[3];
 	int topC = ctx->sps.chroma_format_idc == 3 ? top : top >> 1;
 	int leftC = ctx->sps.chroma_format_idc == 1 ? left >> 1 : left;
-	int offC = ctx->plane_size_Y + topC * ctx->s.stride_C + (leftC << ctx->s.pixel_depth_C);
+	int offC = ctx->plane_size_Y + topC * ctx->d.stride_C + (leftC << ctx->d.pixel_depth_C);
 	int res = -2;
 	if (pic[0] >= 0) {
 		ctx->output_flags ^= 1 << pic[0];
 		const uint8_t *samples = ctx->frame_buffers[pic[0]];
-		ctx->s.samples[0] = samples + top * ctx->s.stride_Y + (left << ctx->s.pixel_depth_Y);
-		ctx->s.samples[1] = samples + offC;
-		ctx->s.samples[2] = samples + ctx->plane_size_C + offC;
-		ctx->s.TopFieldOrderCnt = best << 6 >> 6;
-		ctx->s.BottomFieldOrderCnt = ctx->FieldOrderCnt[1][pic[0]] << 6 >> 6;
+		ctx->d.samples[0] = samples + top * ctx->d.stride_Y + (left << ctx->d.pixel_depth_Y);
+		ctx->d.samples[1] = samples + offC;
+		ctx->d.samples[2] = samples + ctx->plane_size_C + offC;
+		ctx->d.TopFieldOrderCnt = best << 6 >> 6;
+		ctx->d.BottomFieldOrderCnt = ctx->FieldOrderCnt[1][pic[0]] << 6 >> 6;
 		res = 0;
 		if (pic[1] >= 0) {
 			ctx->output_flags ^= 1 << pic[1];
 			samples = ctx->frame_buffers[pic[1]];
-			ctx->s.samples_mvc[0] = samples + top * ctx->s.stride_Y + (left << ctx->s.pixel_depth_Y);
-			ctx->s.samples_mvc[1] = samples + offC;
-			ctx->s.samples_mvc[2] = samples + ctx->plane_size_C + offC;
+			ctx->d.samples_mvc[0] = samples + top * ctx->d.stride_Y + (left << ctx->d.pixel_depth_Y);
+			ctx->d.samples_mvc[1] = samples + offC;
+			ctx->d.samples_mvc[2] = samples + ctx->plane_size_C + offC;
 		}
 	}
 	RESET_CTX();
@@ -1818,15 +1823,15 @@ int Edge264_get_frame(Edge264_stream *s, int drain) {
 
 
 
-void Edge264_free(Edge264_stream **s) {
-	if (s != NULL && *s != NULL) {
-		SET_CTX((void *)*s - offsetof(Edge264_ctx, s));
+void Edge264_free(Edge264_decoder **d) {
+	if (d != NULL && *d != NULL) {
+		SET_CTX((void *)*d - offsetof(Edge264_ctx, d));
 		for (int i = 0; i < 32; i++) {
 			if (ctx->frame_buffers[i] != NULL)
 				free(ctx->frame_buffers[i]);
 		}
 		free(ctx);
-		*s = NULL;
+		*d = NULL;
 		RESET_CTX();
 	}
 }

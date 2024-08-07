@@ -20,7 +20,7 @@ else
 	GLFW3 = `pkg-config --cflags --static --libs glfw3`
 endif
 
-edge264$(SUF).o: edge264*.c edge264*.h Makefile
+edge264_test$(SUF): edge264*.c edge264*.h Makefile
 	$(CC) -c -o edge264$(SUF).o $(CFLAGS) edge264.c
 	$(CC) -o edge264_test$(SUF) $(GLFW3) $(CFLAGS) edge264_test.c edge264$(SUF).o
 

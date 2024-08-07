@@ -29,7 +29,7 @@ static int print_failed = 0;
 static int print_passed = 0;
 static int print_unsupported = 0;
 static int enable_yuv = 1;
-static Edge264_stream *s;
+static Edge264_decoder *s;
 static const uint8_t *conf[3];
 static GLFWwindow *window;
 static int width, height, mvc_display;

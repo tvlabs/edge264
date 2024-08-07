@@ -276,7 +276,7 @@ typedef struct
 	union { int32_t FieldOrderCnt[2][32]; i32x4 FieldOrderCnt_v[2][8]; }; // lower/higher half for top/bottom fields
 	Edge264_seq_parameter_set sps;
 	Edge264_pic_parameter_set PPS[4];
-	Edge264_stream s; // public structure, kept last to leave room for extension in future versions
+	Edge264_decoder d; // public structure, kept last to leave room for extension in future versions
 } Edge264_ctx;
 
 

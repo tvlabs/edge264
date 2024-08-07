@@ -776,7 +776,7 @@ static noinline void FUNC(deblock_Y_8bit, size_t stride, ssize_t nstride, size_t
 	*(i8x16 *)(pxE +  stride    ) = hF;
 	
 	// jump to chroma deblocking filter
-	size_t strideC = ctx->s.stride_C;
+	size_t strideC = ctx->d.stride_C;
 	JUMP(deblock_CbCr_8bit, strideC, -strideC, strideC * 7);
 }
 
@@ -1030,7 +1030,7 @@ noinline void FUNC(deblock_mb)
 	}
 	
 	// jump to luma deblocking filter
-	size_t strideY = ctx->s.stride_Y;
+	size_t strideY = ctx->d.stride_Y;
 	JUMP(deblock_Y_8bit, strideY, -strideY, strideY * 7);
 }
 
@@ -1046,9 +1046,9 @@ void FUNC(deblock_frame)
 	int mby = (unsigned)ctx->pic_next_deblock_addr / (unsigned)ctx->sps.pic_width_in_mbs - 1;
 	int mbx = (unsigned)ctx->pic_next_deblock_addr % (unsigned)ctx->sps.pic_width_in_mbs;
 	uint8_t *frame_buffer = ctx->frame_buffers[ctx->currPic];
-	ctx->samples_row[0] = frame_buffer + mby * ctx->s.stride_Y * 16;
+	ctx->samples_row[0] = frame_buffer + mby * ctx->d.stride_Y * 16;
 	ctx->samples_mb[0] = ctx->samples_row[0] + mbx * 16;
-	ctx->samples_mb[1] = frame_buffer + ctx->plane_size_Y + mby * ctx->s.stride_C * 8 + mbx * 8;
+	ctx->samples_mb[1] = frame_buffer + ctx->plane_size_Y + mby * ctx->d.stride_C * 8 + mbx * 8;
 	ctx->samples_mb[2] = ctx->samples_mb[1] + ctx->plane_size_C;
 	mbB = (Edge264_macroblock *)(frame_buffer + ctx->plane_size_Y + ctx->plane_size_C * 2) + 1 + mby * (ctx->sps.pic_width_in_mbs + 1) + mbx;
 	mb = mbB + ctx->sps.pic_width_in_mbs + 1;
@@ -1064,12 +1064,12 @@ void FUNC(deblock_frame)
 		ctx->samples_mb[2] += 8;
 		
 		// end of row
-		if (ctx->samples_mb[0] - ctx->samples_row[0] < ctx->s.stride_Y)
+		if (ctx->samples_mb[0] - ctx->samples_row[0] < ctx->d.stride_Y)
 			continue;
 		mb++;
 		mbB++;
-		ctx->samples_mb[0] = ctx->samples_row[0] += ctx->s.stride_Y * 16;
-		ctx->samples_mb[1] += ctx->s.stride_C * 7;
-		ctx->samples_mb[2] += ctx->s.stride_C * 7;
+		ctx->samples_mb[0] = ctx->samples_row[0] += ctx->d.stride_Y * 16;
+		ctx->samples_mb[1] += ctx->d.stride_C * 7;
+		ctx->samples_mb[2] += ctx->d.stride_C * 7;
 	} while (ctx->samples_mb[0] - frame_buffer < ctx->plane_size_Y);
 }

@@ -18,7 +18,7 @@ Features
 Compiling and testing
 ---------------------
 
-edge264 is built and tested with GNU GCC and LLVM Clang, supports 32/64 bit architectures, and requires 128 bit SIMD support. Processor support is currently limited to Intel x86 or x64 with at least SSSE3. [GLFW3](https://www.glfw.org/) development headers should be installed to compile `edge264_test`. `gcc-9` is recommended since it provides the fastest performance in practice.
+edge264 is built and tested with GNU GCC and LLVM Clang, supports 32/64 bit architectures, and requires 128 bit SIMD support. Processor support is currently limited to Intel x86 or x64 with at least SSSE3. [GLFW3](https://www.glfw.org/) development headers and `pkg-config` should be installed to compile `edge264_test`. `gcc-9` is recommended since it provides the fastest performance in practice.
 The build process will output an object file (e.g. `edge264.o`), which you may then use to link to your code.
 
 ```sh
@@ -58,7 +58,7 @@ int main(int argc, char *argv[]) {
 	struct stat st;
 	fstat(f, &st);
 	uint8_t *buf = mmap(NULL, st.st_size, PROT_READ, MAP_SHARED, f, 0);
-	Edge264_stream *s = Edge264_alloc();
+	Edge264_decoder *s = Edge264_alloc();
 	s->CPB = buf + 3 + (buf[2] == 0); // skip the [0]001 delimiter
 	s->end = buf + st.st_size;
 	int res;
@@ -84,12 +84,12 @@ int main(int argc, char *argv[]) {
 API reference
 -------------
 
-**`Edge264_stream *Edge264_alloc()`**
+**`Edge264_decoder *Edge264_alloc()`**
 Allocate and return a decoding context, that is used to pass and receive parameters.
 The private decoding context is actually hidden at negative offsets from the pointer returned.
 
 ```c
-typedef struct Edge264_stream {
+typedef struct Edge264_decoder {
 	// These fields must be set prior to decoding.
 	const uint8_t *CPB; // should always point to a NAL unit (after the 001 prefix)
 	const uint8_t *end; // first byte past the end of the buffer
@@ -108,10 +108,10 @@ typedef struct Edge264_stream {
 	int32_t TopFieldOrderCnt;
 	int32_t BottomFieldOrderCnt;
 	int16_t frame_crop_offsets[4]; // {top,right,bottom,left}, in luma samples, already included in samples_Y/Cb/cr and width/height_Y/C
-} Edge264_stream;
+} Edge264_decoder;
 ```
 
-**`int Edge264_decode_NAL(Edge264_stream *s)`**
+**`int Edge264_decode_NAL(Edge264_decoder *s)`**
 Decode a single NAL unit, for which `s->CPB` should point to its first byte (containing `nal_unit_type`) and `s->end` should point to the first byte past the buffer.
 After decoding the NAL, `s->CPB` is automatically advanced past the next start code (for Annex B streams).
 Return codes are:
@@ -123,7 +123,7 @@ Return codes are:
 * **1** on unsupported stream (decoding may proceed but could return zero frames)
 * **2** on decoding error (decoding may proceed but could show visual artefacts, if you can check with another decoder that the stream is actually flawless, please consider filling a bug report 🙏)
 
-**`int Edge264_get_frame(Edge264_stream *s, int drain)`**
+**`int Edge264_get_frame(Edge264_decoder *s, int drain)`**
 Check the Decoded Picture Buffer for a pending displayable frame, and pass it in `s`.
 While reference frames may be decoded ahead of their actual display (ex. B-Pyramid technique), all frames are buffered for reordering before being released for display:
 
@@ -139,7 +139,7 @@ Return codes are:
 * **-1** if the function was called with `s == NULL`
 * **0** on success (one frame is returned)
 
-**`void Edge264_free(Edge264_stream **s)`**
+**`void Edge264_free(Edge264_decoder **s)`**
 Deallocate the entire decoding context, and unset the stream pointer.
 
 **`const uint8_t *Edge264_find_start_code(int n, const uint8_t *CPB, const uint8_t *end)`**

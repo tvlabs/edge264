@@ -25,7 +25,7 @@ static always_inline size_t FUNC(get_bytes, int nbytes)
 	
 	// load 16 bytes without reading past aligned buffer boundaries
 	const uint8_t *CPB = ctx->CPB;
-	const uint8_t *end = ctx->s.end;
+	const uint8_t *end = ctx->d.end;
 	u8x16 v;
 	if (__builtin_expect(CPB + 14 <= end, 1)) {
 		v = load128(CPB - 2);

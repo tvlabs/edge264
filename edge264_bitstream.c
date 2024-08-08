@@ -8,7 +8,7 @@
  * Extract nbytes from the bitstream and return them as big endian.
  * 
  * The process reads an unaligned 16-byte chunk and will not read past the last
- * aligned 16-byte chunk containing the last bytes before ctx->end.
+ * aligned 16-byte chunk containing the last bytes before n->end.
  */
 static always_inline size_t FUNC(get_bytes, int nbytes)
 {
@@ -24,8 +24,8 @@ static always_inline size_t FUNC(get_bytes, int nbytes)
 	};
 	
 	// load 16 bytes without reading past aligned buffer boundaries
-	const uint8_t *CPB = ctx->CPB;
-	const uint8_t *end = ctx->d.end;
+	const uint8_t *CPB = n->CPB;
+	const uint8_t *end = n->end;
 	u8x16 v;
 	if (__builtin_expect(CPB + 14 <= end, 1)) {
 		v = load128(CPB - 2);
@@ -35,7 +35,7 @@ static always_inline size_t FUNC(get_bytes, int nbytes)
 		v = shr(shl(load128(p), p + 16 - end), CPB + 14 - end);
 		if (end - CPB < nbytes) {
 			nbytes = end - CPB;
-			ctx->end_of_NAL = 1;
+			n->end_of_NAL = 1;
 		}
 	}
 	
@@ -50,7 +50,7 @@ static always_inline size_t FUNC(get_bytes, int nbytes)
 		int i = __builtin_ctz(esc);
 		// when hitting a start code, point at the 3rd byte to stall future refills there
 		if (CPB[i] <3) {
-			ctx->end_of_NAL = 1;
+			n->end_of_NAL = 1;
 			x = shr(shl(x, 16 - i), 16 - i);
 			nbytes = i;
 			break;
@@ -63,7 +63,7 @@ static always_inline size_t FUNC(get_bytes, int nbytes)
 	}
 	
 	// increment CPB and return the requested bytes in upper part of the result
-	ctx->CPB = CPB + nbytes;
+	n->CPB = CPB + nbytes;
 	#if SIZE_BIT == 32
 		return big_endian32(((i32x4)x)[0]);
 	#elif SIZE_BIT == 64
@@ -243,7 +243,7 @@ static noinline int FUNC(get_ae, int ctxIdx)
 		228, 229,  21,  20, 232, 233,  17,  16, 236, 237,  17,  16, 240, 241,   9,   8,
 		244, 245,   9,   8, 248, 249,   5,   4, 248, 249,   1,   0, 252, 253,   0,   1,
 	};
-	size_t state = ctx->cabac[ctxIdx];
+	size_t state = n->cabac[ctxIdx];
 	size_t shift = SIZE_BIT - 3 - clz(codIRange); // [6..SIZE_BIT-3]
 	size_t idx = (state & -4) + (codIRange >> shift);
 	size_t codIRangeLPS = (size_t)((uint8_t *)rangeTabLPS - 4)[idx] << (shift - 6);
@@ -253,7 +253,7 @@ static noinline int FUNC(get_ae, int ctxIdx)
 		codIOffset -= codIRange;
 		codIRange = codIRangeLPS;
 	}
-	ctx->cabac[ctxIdx] = transIdx[state];
+	n->cabac[ctxIdx] = transIdx[state];
 	int binVal = state & 1;
 	if (__builtin_expect(codIRange < 256, 0)) {
 		codIOffset = lsd(codIOffset, CALL(get_bytes, SIZE_BIT / 8 - 1), SIZE_BIT - 8);
@@ -282,9 +282,9 @@ static int FUNC(cabac_start) {
 	lsb_cache >>= (SIZE_BIT - extra_bits) & (SIZE_BIT - 1);
 	while (extra_bits >= 8) {
 		int32_t i;
-		memcpy(&i, ctx->CPB - 3, 4);
-		ctx->CPB -= big_endian32(i) >> 8 == 3;
-		ctx->CPB -= (lsb_cache & 255) == ctx->CPB[-1]; // zeros might have been inserted if CPB reached end of RBSP
+		memcpy(&i, n->CPB - 3, 4);
+		n->CPB -= big_endian32(i) >> 8 == 3;
+		n->CPB -= (lsb_cache & 255) == n->CPB[-1]; // zeros might have been inserted if CPB reached end of RBSP
 		lsb_cache >>= 8;
 		extra_bits -= 8;
 	}
@@ -1008,10 +1008,10 @@ static const int8_t context_init[4][1024][2] __attribute__((aligned(16))) = {{
 }};
 
 static void FUNC(cabac_init, int idc) {
-	i8x16 mul = set16(max(ctx->QP[0], 0) + 4096);
+	i8x16 mul = set16(max(n->QP[0], 0) + 4096);
 	i8x16 c1 = set8(1), c64 = set8(64), c126 = set8(126);
 	const i8x16 *src = (i8x16 *)context_init[idc];
-	for (i8x16 *dst = ctx->cabac_v; dst < ctx->cabac_v + 64; dst++, src += 2) {
+	for (i8x16 *dst = n->cabac_v; dst < n->cabac_v + 64; dst++, src += 2) {
 		i16x8 sum0 = maddubs(mul, src[0]) >> 4;
 		i16x8 sum1 = maddubs(mul, src[1]) >> 4;
 		i8x16 min = umin8(packus16(sum0, sum1), c126);
@@ -1021,5 +1021,5 @@ static void FUNC(cabac_init, int idc) {
 		i8x16 shift = pStateIdx + pStateIdx;
 		*dst = shift + shift + mask + c1; // pStateIdx << 2 | valMPS (middle bit is for transIdxLPS/MPS)
 	}
-	ctx->cabac[276] = 252;
+	n->cabac[276] = 252;
 }

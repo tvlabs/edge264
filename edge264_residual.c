@@ -57,12 +57,12 @@ void noinline FUNC(add_idct4x4, int iYCbCr, int qP, i8x16 wS, int DCidx, uint8_t
 	i32x4 mul2 = shl32(cvt16zx32(LS1), sh);
 	i32x4 mul3 = shl32(unpackhi16(LS1, zero), sh);
 	i32x4 s8 = set32(8);
-	i32x4 d0 = (mul0 * ctx->c_v[0] + s8) >> 4;
-	i32x4 d1 = (mul1 * ctx->c_v[1] + s8) >> 4;
-	i32x4 d2 = (mul2 * ctx->c_v[2] + s8) >> 4;
-	i32x4 d3 = (mul3 * ctx->c_v[3] + s8) >> 4;
+	i32x4 d0 = (mul0 * n->c_v[0] + s8) >> 4;
+	i32x4 d1 = (mul1 * n->c_v[1] + s8) >> 4;
+	i32x4 d2 = (mul2 * n->c_v[2] + s8) >> 4;
+	i32x4 d3 = (mul3 * n->c_v[3] + s8) >> 4;
 	if (DCidx >= 0)
-		d0[0] = ctx->c[16 + DCidx];
+		d0[0] = n->c[16 + DCidx];
 	
 	// horizontal 1D transform
 	i32x4 e0 = d0 + d2;
@@ -99,8 +99,8 @@ void noinline FUNC(add_idct4x4, int iYCbCr, int qP, i8x16 wS, int DCidx, uint8_t
 	__m128i r1 = packs32(h2 >> 6, h3 >> 6);
 	
 	// addition to values in place, clipping and storage
-	size_t stride = ctx->stride[iYCbCr];
-	if (ctx->clip[iYCbCr] == 255) {
+	size_t stride = n->stride[iYCbCr];
+	if (n->samples_clip[iYCbCr][0] == 255) {
 		i16x8 p0 = cvt8zx16(((i32x4){*(int32_t*)(samples             ), *(int32_t*)(samples + stride    )}));
 		i16x8 p1 = cvt8zx16(((i32x4){*(int32_t*)(samples + stride * 2), *(int32_t*)(samples + stride * 3)}));
 		i32x4 u = packus16(adds16(p0, r0), adds16(p1, r1));
@@ -111,7 +111,7 @@ void noinline FUNC(add_idct4x4, int iYCbCr, int qP, i8x16 wS, int DCidx, uint8_t
 	} else {
 		i64x2 p0 = {*(int64_t *)(samples             ), *(int64_t *)(samples + stride    )};
 		i64x2 p1 = {*(int64_t *)(samples + stride * 2), *(int64_t *)(samples + stride * 3)};
-		i16x8 clip = set16(ctx->clip[iYCbCr]);
+		i16x8 clip = n->samples_clip_v[iYCbCr];
 		i64x2 u0 = min16(max16(adds16(p0, r0), zero), clip);
 		i64x2 u1 = min16(max16(adds16(p1, r1), zero), clip);
 		*(int64_t *)(samples             ) = u0[0];
@@ -122,11 +122,11 @@ void noinline FUNC(add_idct4x4, int iYCbCr, int qP, i8x16 wS, int DCidx, uint8_t
 }
 
 void FUNC(add_dc4x4, int iYCbCr, int DCidx, uint8_t *samples) {
-	i32x4 x = (set32(ctx->c[16 + DCidx]) + set32(32)) >> 6;
+	i32x4 x = (set32(n->c[16 + DCidx]) + set32(32)) >> 6;
 	i32x4 r = packs32(x, x);
 	i8x16 zero = {};
-	size_t stride = ctx->stride[iYCbCr];
-	if (ctx->clip[iYCbCr] == 255) {
+	size_t stride = n->stride[iYCbCr];
+	if (n->samples_clip[iYCbCr][0] == 255) {
 		i16x8 p0 = cvt8zx16(((i32x4){*(int32_t*)(samples             ), *(int32_t*)(samples + stride    )}));
 		i16x8 p1 = cvt8zx16(((i32x4){*(int32_t*)(samples + stride * 2), *(int32_t*)(samples + stride * 3)}));
 		i32x4 u = packus16(adds16(p0, r), adds16(p1, r));
@@ -137,7 +137,7 @@ void FUNC(add_dc4x4, int iYCbCr, int DCidx, uint8_t *samples) {
 	} else {
 		i64x2 p0 = {*(int64_t *)(samples             ), *(int64_t *)(samples + stride    )};
 		i64x2 p1 = {*(int64_t *)(samples + stride * 2), *(int64_t *)(samples + stride * 3)};
-		i16x8 clip = set16(ctx->clip[iYCbCr]);
+		i16x8 clip = n->samples_clip_v[iYCbCr];
 		i64x2 u0 = min16(max16(adds16(p0, r), zero), clip);
 		i64x2 u1 = min16(max16(adds16(p1, r), zero), clip);
 		*(int64_t *)(samples             ) = u0[0];
@@ -154,13 +154,13 @@ void FUNC(add_dc4x4, int iYCbCr, int DCidx, uint8_t *samples) {
  */
 void noinline FUNC(add_idct8x8, int iYCbCr, uint8_t *samples)
 {
-	int qP = ctx->QP[iYCbCr];
-	size_t stride = ctx->stride[iYCbCr];
-	if (ctx->clip[iYCbCr] == 255) {
+	int qP = n->QP[iYCbCr];
+	size_t stride = n->stride[iYCbCr];
+	if (n->samples_clip[iYCbCr][0] == 255) {
 		// loading and scaling
 		int div = qP / 6;
 		i8x16 zero = {};
-		i8x16 *wS = ctx->pps.weightScale8x8_v + (iYCbCr * 2 + mb->f.mbIsInterFlag) * 4;
+		i8x16 *wS = n->pps.weightScale8x8_v + (iYCbCr * 2 + mb->f.mbIsInterFlag) * 4;
 		const i8x16 *nA = &normAdjust8x8[qP % 6 * 4];
 		i16x8 LS0 = cvt8zx16(wS[0]) * cvt8zx16(nA[0]);
 		i16x8 LS1 = (i16x8)unpackhi8(wS[0], zero) * (i16x8)unpackhi8(nA[0], zero);
@@ -170,7 +170,7 @@ void noinline FUNC(add_idct8x8, int iYCbCr, uint8_t *samples)
 		i16x8 LS5 = (i16x8)unpackhi8(wS[2], zero) * (i16x8)unpackhi8(nA[2], zero);
 		i16x8 LS6 = cvt8zx16(wS[3]) * cvt8zx16(nA[3]);
 		i16x8 LS7 = (i16x8)unpackhi8(wS[3], zero) * (i16x8)unpackhi8(nA[3], zero);
-		i32x4 *c = ctx->c_v;
+		i32x4 *c = n->c_v;
 		i16x8 d0, d1, d2, d3, d4, d5, d6, d7;
 		if (div < 6) {
 			i32x4 mul0 = madd16(cvt16zx32(LS0), c[0]);
@@ -313,10 +313,10 @@ void noinline FUNC(add_idct8x8, int iYCbCr, uint8_t *samples)
 void noinline FUNC(transform_dc4x4, int iYCbCr)
 {
 	// load matrix in column order and multiply right
-	i32x4 x0 = ctx->c_v[0] + ctx->c_v[1];
-	i32x4 x1 = ctx->c_v[2] + ctx->c_v[3];
-	i32x4 x2 = ctx->c_v[0] - ctx->c_v[1];
-	i32x4 x3 = ctx->c_v[2] - ctx->c_v[3];
+	i32x4 x0 = n->c_v[0] + n->c_v[1];
+	i32x4 x1 = n->c_v[2] + n->c_v[3];
+	i32x4 x2 = n->c_v[0] - n->c_v[1];
+	i32x4 x3 = n->c_v[2] - n->c_v[3];
 	i32x4 x4 = x0 + x1;
 	i32x4 x5 = x0 - x1;
 	i32x4 x6 = x2 - x3;
@@ -343,9 +343,9 @@ void noinline FUNC(transform_dc4x4, int iYCbCr)
 	i32x4 f3 = xI + xJ;
 	
 	// scale
-	unsigned qP = ctx->QP[0]; // FIXME 4:4:4
+	unsigned qP = n->QP[0]; // FIXME 4:4:4
 	i32x4 s32 = set32(32);
-	i32x4 LS = set32((ctx->pps.weightScale4x4[iYCbCr][0] * normAdjust4x4[qP % 6][0]) << (qP / 6));
+	i32x4 LS = set32((n->pps.weightScale4x4[iYCbCr][0] * normAdjust4x4[qP % 6][0]) << (qP / 6));
 	i32x4 dc0 = (f0 * LS + s32) >> 6;
 	i32x4 dc1 = (f1 * LS + s32) >> 6;
 	i32x4 dc2 = (f2 * LS + s32) >> 6;
@@ -353,16 +353,16 @@ void noinline FUNC(transform_dc4x4, int iYCbCr)
 	
 	// store in zigzag order if needed later ...
 	if (mb->bits[0] & 1 << 5) {
-		ctx->c_v[4] = unpacklo64(dc0, dc1);
-		ctx->c_v[5] = unpackhi64(dc0, dc1);
-		ctx->c_v[6] = unpacklo64(dc2, dc3);
-		ctx->c_v[7] = unpackhi64(dc2, dc3);
+		n->c_v[4] = unpacklo64(dc0, dc1);
+		n->c_v[5] = unpackhi64(dc0, dc1);
+		n->c_v[6] = unpacklo64(dc2, dc3);
+		n->c_v[7] = unpackhi64(dc2, dc3);
 		
 	// ... or prepare for storage in place
 	} else {
-		size_t stride = ctx->stride[iYCbCr];
+		size_t stride = n->stride[iYCbCr];
 		size_t stride3 = stride * 3;
-		uint8_t *p = ctx->samples_mb[iYCbCr];
+		uint8_t *p = n->samples_mb[iYCbCr];
 		uint8_t *q = p + stride * 4;
 		uint8_t *r = p + stride * 8;
 		uint8_t *s = q + stride * 8;
@@ -382,7 +382,7 @@ void noinline FUNC(transform_dc4x4, int iYCbCr)
 		i16x8 hi3 = shuffle8(r3, shufhi);
 		
 		// add to predicted samples
-		if (ctx->clip[iYCbCr] == 255) {
+		if (n->samples_clip[iYCbCr][0] == 255) {
 			i8x16 zero = {};
 			i8x16 p0 = *(i8x16 *)(p             );
 			i8x16 p1 = *(i8x16 *)(p + stride    );
@@ -423,8 +423,8 @@ void noinline FUNC(transform_dc4x4, int iYCbCr)
 void noinline FUNC(transform_dc2x2)
 {
 	// load both matrices interlaced+transposed and multiply right
-	i32x4 d0 = ctx->c_v[0] + ctx->c_v[1];
-	i32x4 d1 = ctx->c_v[0] - ctx->c_v[1];
+	i32x4 d0 = n->c_v[0] + n->c_v[1];
+	i32x4 d1 = n->c_v[0] - n->c_v[1];
 	
 	// transpose and multiply left
 	i32x4 e0 = unpacklo64(d0, d1);
@@ -433,10 +433,10 @@ void noinline FUNC(transform_dc2x2)
 	i32x4 f1 = e0 - e1;
 	
 	// deinterlace and scale
-	unsigned qPb = ctx->QP[1];
-	unsigned qPr = ctx->QP[2];
-	i32x4 LSb = set32((ctx->pps.weightScale4x4[1 + mb->f.mbIsInterFlag * 3][0] * normAdjust4x4[qPb % 6][0]) << (qPb / 6));
-	i32x4 LSr = set32((ctx->pps.weightScale4x4[2 + mb->f.mbIsInterFlag * 3][0] * normAdjust4x4[qPr % 6][0]) << (qPr / 6));
+	unsigned qPb = n->QP[1];
+	unsigned qPr = n->QP[2];
+	i32x4 LSb = set32((n->pps.weightScale4x4[1 + mb->f.mbIsInterFlag * 3][0] * normAdjust4x4[qPb % 6][0]) << (qPb / 6));
+	i32x4 LSr = set32((n->pps.weightScale4x4[2 + mb->f.mbIsInterFlag * 3][0] * normAdjust4x4[qPr % 6][0]) << (qPr / 6));
 	i32x4 fb = shuffleps(f0, f1, 0, 2, 0, 2);
 	i32x4 fr = shuffleps(f0, f1, 1, 3, 1, 3);
 	i32x4 dcCb = (fb * LSb) >> 5;
@@ -444,15 +444,15 @@ void noinline FUNC(transform_dc2x2)
 	
 	// store if needed later ...
 	if (mb->f.CodedBlockPatternChromaAC) {
-		ctx->c_v[4] = dcCb;
-		ctx->c_v[5] = dcCr;
+		n->c_v[4] = dcCb;
+		n->c_v[5] = dcCr;
 		
 	// ... or prepare for storage in place
 	} else {
-		size_t stride = ctx->stride[1];
+		size_t stride = n->stride[1];
 		size_t stride3 = stride * 3;
-		uint8_t *pb = ctx->samples_mb[1];
-		uint8_t *pr = ctx->samples_mb[2];
+		uint8_t *pb = n->samples_mb[1];
+		uint8_t *pr = n->samples_mb[2];
 		uint8_t *qb = pb + stride * 4;
 		uint8_t *qr = pr + stride * 4;
 		i32x4 s32 = set32(32);
@@ -467,7 +467,7 @@ void noinline FUNC(transform_dc2x2)
 		i8x16 zero = {};
 		
 		// add to predicted samples
-		if (ctx->clip[1] == 255) {
+		if (n->samples_clip[1][0] == 255) {
 			i16x8 b0 = adds16(load8zx16(pb             ), lob);
 			i16x8 b1 = adds16(load8zx16(pb + stride    ), lob);
 			i16x8 b2 = adds16(load8zx16(pb + stride * 2), lob);
@@ -520,10 +520,10 @@ void FUNC(transform_dc2x4)
 {
 	int iYCbCr = (0/*BlkIdx*/ - 8) >> 3; // BlkIdx is 16 or 24
 	unsigned qP_DC = 0; //mb->QP[iYCbCr] + 3;
-	int w = ctx->pps.weightScale4x4[iYCbCr + mb->f.mbIsInterFlag * 3][0];
+	int w = n->pps.weightScale4x4[iYCbCr + mb->f.mbIsInterFlag * 3][0];
 	int nA = normAdjust4x4[qP_DC % 6][0];
-	__m128i x0 = (__m128i)ctx->c_v[0]; // {c00, c01, c10, c11} as per 8.5.11.1
-	__m128i x1 = (__m128i)ctx->c_v[1]; // {c20, c21, c30, c31}
+	__m128i x0 = (__m128i)n->c_v[0]; // {c00, c01, c10, c11} as per 8.5.11.1
+	__m128i x1 = (__m128i)n->c_v[1]; // {c20, c21, c30, c31}
 	__m128i x2 = _mm_add_epi32(x0, x1); // {c00+c20, c01+c21, c10+c30, c11+c31}
 	__m128i x3 = _mm_sub_epi32(x0, x1); // {c00-c20, c01-c21, c10-c30, c11-c31}
 	__m128i x4 = unpacklo64(x2, x3); // {c00+c20, c01+c21, c00-c20, c01-c21}
@@ -532,11 +532,11 @@ void FUNC(transform_dc2x4)
 	__m128i x7 = _mm_sub_epi32(x4, x5); // {d30, d31, d20, d21}
 	__m128i x8 = _mm_hadd_epi32(x6, x7); // {f00, f10, f30, f20}
 	__m128i x9 = _mm_hsub_epi32(x6, x7); // {f01, f11, f31, f21}
-	__m128i s = set32((w * nA) << (qP_DC / 6 + ctx->ps.BitDepth_C - 8));
+	__m128i s = set32((w * nA) << (qP_DC / 6 + st->ps.BitDepth_C - 8));
 	__m128i s32 = set32(32);
 	__m128i dc0 = _mm_srai_epi32(_mm_add_epi32(_mm_mullo_epi32(x8, s), s32), 6);
 	__m128i dc1 = _mm_srai_epi32(_mm_add_epi32(_mm_mullo_epi32(x9, s), s32), 6);
-	__m128i *c = (__m128i *)ctx->c_v + 2 + iYCbCr * 2;
+	__m128i *c = (__m128i *)n->c_v + 2 + iYCbCr * 2;
 	c[0] = unpacklo32(dc0, dc1);
 	c[1] = _mm_shuffle_epi32(unpackhi64(dc0, dc1), _MM_SHUFFLE(2, 0, 3, 1));
 }
@@ -544,14 +544,14 @@ void FUNC(transform_dc2x4)
 #ifdef __AVX2__
 		// loading
 		// FIXME scaling
-		__m256i d0 = (__m256i)ctx->c_V[0];
-		__m256i d1 = (__m256i)ctx->c_V[1];
-		__m256i d2 = (__m256i)ctx->c_V[2];
-		__m256i d3 = (__m256i)ctx->c_V[3];
-		__m256i d4 = (__m256i)ctx->c_V[4];
-		__m256i d5 = (__m256i)ctx->c_V[5];
-		__m256i d6 = (__m256i)ctx->c_V[6];
-		__m256i d7 = (__m256i)ctx->c_V[7];
+		__m256i d0 = (__m256i)n->c_V[0];
+		__m256i d1 = (__m256i)n->c_V[1];
+		__m256i d2 = (__m256i)n->c_V[2];
+		__m256i d3 = (__m256i)n->c_V[3];
+		__m256i d4 = (__m256i)n->c_V[4];
+		__m256i d5 = (__m256i)n->c_V[5];
+		__m256i d6 = (__m256i)n->c_V[6];
+		__m256i d7 = (__m256i)n->c_V[7];
 		
 		for (int i = 2;;) {
 			// 1D transform
@@ -622,12 +622,12 @@ void FUNC(transform_dc2x4)
 		__m256i r3 = _mm256_permute4x64_epi64(yJ, _MM_SHUFFLE(3, 1, 2, 0));
 		
 		// addition to values in place, clipping and storage
-		size_t stride = ctx->stride[0]; // FIXME 4:4:4
+		size_t stride = n->stride[0]; // FIXME 4:4:4
 		size_t stride3 = stride * 3;
-		uint8_t *p = NULL; //ctx->frame + ctx->frame_offsets_x[0/*BlkIdx2i4x4[BlkIdx]*/] + ctx->frame_offsets_y[0/*BlkIdx2i4x4[BlkIdx]*/];
+		uint8_t *p = NULL; //st->frame + st->frame_offsets_x[0/*BlkIdx2i4x4[BlkIdx]*/] + st->frame_offsets_y[0/*BlkIdx2i4x4[BlkIdx]*/];
 		uint8_t *q = p + stride * 4;
 		__m256i zero = _mm256_setzero_si256();
-		__m256i clip = _mm256_set1_epi16(ctx->clip[0]); // FIXME 4:4:4
+		__m256i clip = _mm256_set1_epi16(n->samples_clip[0]); // FIXME 4:4:4
 		__m256i p0 = _mm256_setr_m128i(*(__m128i *)(p             ), *(__m128i *)(p + stride ));
 		__m256i p1 = _mm256_setr_m128i(*(__m128i *)(p + stride * 2), *(__m128i *)(p + stride3));
 		__m256i p2 = _mm256_setr_m128i(*(__m128i *)(q             ), *(__m128i *)(q + stride ));
@@ -648,14 +648,14 @@ void FUNC(transform_dc2x4)
 #else // !defined(__AVX2__)
 		// load half of samples
 		// FIXME scaline
-		__m128i d0 = (__m128i)ctx->c_v[0];
-		__m128i d1 = (__m128i)ctx->c_v[2];
-		__m128i d2 = (__m128i)ctx->c_v[4];
-		__m128i d3 = (__m128i)ctx->c_v[6];
-		__m128i d4 = (__m128i)ctx->c_v[8];
-		__m128i d5 = (__m128i)ctx->c_v[10];
-		__m128i d6 = (__m128i)ctx->c_v[12];
-		__m128i d7 = (__m128i)ctx->c_v[14];
+		__m128i d0 = (__m128i)n->c_v[0];
+		__m128i d1 = (__m128i)n->c_v[2];
+		__m128i d2 = (__m128i)n->c_v[4];
+		__m128i d3 = (__m128i)n->c_v[6];
+		__m128i d4 = (__m128i)n->c_v[8];
+		__m128i d5 = (__m128i)n->c_v[10];
+		__m128i d6 = (__m128i)n->c_v[12];
+		__m128i d7 = (__m128i)n->c_v[14];
 		
 		// This (crappy) version uses a nested loop trick to reduce code size
 		for (int i = 2;; ) {
@@ -689,49 +689,49 @@ void FUNC(transform_dc2x4)
 					break;
 				
 				// load other half of samples
-				ctx->c_v[0] = (v4si)d0;
-				d0 = (__m128i)ctx->c_v[1];
-				ctx->c_v[2] = (v4si)d1;
-				d1 = (__m128i)ctx->c_v[3];
-				ctx->c_v[4] = (v4si)d2;
-				d2 = (__m128i)ctx->c_v[5];
-				ctx->c_v[6] = (v4si)d3;
-				d3 = (__m128i)ctx->c_v[7];
-				ctx->c_v[8] = (v4si)d4;
-				d4 = (__m128i)ctx->c_v[9];
-				ctx->c_v[10] = (v4si)d5;
-				d5 = (__m128i)ctx->c_v[11];
-				ctx->c_v[12] = (v4si)d6;
-				d6 = (__m128i)ctx->c_v[13];
-				ctx->c_v[14] = (v4si)d7;
-				d7 = (__m128i)ctx->c_v[15];
+				n->c_v[0] = (v4si)d0;
+				d0 = (__m128i)n->c_v[1];
+				n->c_v[2] = (v4si)d1;
+				d1 = (__m128i)n->c_v[3];
+				n->c_v[4] = (v4si)d2;
+				d2 = (__m128i)n->c_v[5];
+				n->c_v[6] = (v4si)d3;
+				d3 = (__m128i)n->c_v[7];
+				n->c_v[8] = (v4si)d4;
+				d4 = (__m128i)n->c_v[9];
+				n->c_v[10] = (v4si)d5;
+				d5 = (__m128i)n->c_v[11];
+				n->c_v[12] = (v4si)d6;
+				d6 = (__m128i)n->c_v[13];
+				n->c_v[14] = (v4si)d7;
+				d7 = (__m128i)n->c_v[15];
 			}
 			if (--i == 0)
 				break;
 			
 			// transpose the half matrix going to memory
-			__m128i x0 = unpacklo32((__m128i)ctx->c_v[8], (__m128i)ctx->c_v[10]);
-			__m128i x1 = unpacklo32((__m128i)ctx->c_v[12], (__m128i)ctx->c_v[14]);
-			__m128i x2 = unpackhi32((__m128i)ctx->c_v[8], (__m128i)ctx->c_v[10]);
-			__m128i x3 = unpackhi32((__m128i)ctx->c_v[12], (__m128i)ctx->c_v[14]);
+			__m128i x0 = unpacklo32((__m128i)n->c_v[8], (__m128i)n->c_v[10]);
+			__m128i x1 = unpacklo32((__m128i)n->c_v[12], (__m128i)n->c_v[14]);
+			__m128i x2 = unpackhi32((__m128i)n->c_v[8], (__m128i)n->c_v[10]);
+			__m128i x3 = unpackhi32((__m128i)n->c_v[12], (__m128i)n->c_v[14]);
 			__m128i x4 = unpacklo32(d4, d5);
 			__m128i x5 = unpacklo32(d6, d7);
 			__m128i x6 = unpackhi32(d4, d5);
 			__m128i x7 = unpackhi32(d6, d7);
-			ctx->c_v[1] = (v4si)_mm_add_epi32(unpacklo64(x0, x1), set32(32));
-			ctx->c_v[3] = (v4si)unpackhi64(x0, x1);
-			ctx->c_v[5] = (v4si)unpacklo64(x2, x3);
-			ctx->c_v[7] = (v4si)unpackhi64(x2, x3);
-			ctx->c_v[9] = (v4si)unpacklo64(x4, x5);
-			ctx->c_v[11] = (v4si)unpackhi64(x4, x5);
-			ctx->c_v[13] = (v4si)unpacklo64(x6, x7);
-			ctx->c_v[15] = (v4si)unpackhi64(x6, x7);
+			n->c_v[1] = (v4si)_mm_add_epi32(unpacklo64(x0, x1), set32(32));
+			n->c_v[3] = (v4si)unpackhi64(x0, x1);
+			n->c_v[5] = (v4si)unpacklo64(x2, x3);
+			n->c_v[7] = (v4si)unpackhi64(x2, x3);
+			n->c_v[9] = (v4si)unpacklo64(x4, x5);
+			n->c_v[11] = (v4si)unpackhi64(x4, x5);
+			n->c_v[13] = (v4si)unpacklo64(x6, x7);
+			n->c_v[15] = (v4si)unpackhi64(x6, x7);
 			
 			// transpose the half matrix staying in registers
-			__m128i x8 = unpacklo32((__m128i)ctx->c_v[0], (__m128i)ctx->c_v[2]);
-			__m128i x9 = unpacklo32((__m128i)ctx->c_v[4], (__m128i)ctx->c_v[6]);
-			__m128i xA = unpackhi32((__m128i)ctx->c_v[0], (__m128i)ctx->c_v[2]);
-			__m128i xB = unpackhi32((__m128i)ctx->c_v[4], (__m128i)ctx->c_v[6]);
+			__m128i x8 = unpacklo32((__m128i)n->c_v[0], (__m128i)n->c_v[2]);
+			__m128i x9 = unpacklo32((__m128i)n->c_v[4], (__m128i)n->c_v[6]);
+			__m128i xA = unpackhi32((__m128i)n->c_v[0], (__m128i)n->c_v[2]);
+			__m128i xB = unpackhi32((__m128i)n->c_v[4], (__m128i)n->c_v[6]);
 			__m128i xC = unpacklo32(d0, d1);
 			__m128i xD = unpacklo32(d2, d3);
 			__m128i xE = unpackhi32(d0, d1);
@@ -747,22 +747,22 @@ void FUNC(transform_dc2x4)
 		}
 		
 		// final residual values
-		__m128i r0 = packs32(_mm_srai_epi32((__m128i)ctx->c_v[0], 6), _mm_srai_epi32(d0, 6));
-		__m128i r1 = packs32(_mm_srai_epi32((__m128i)ctx->c_v[2], 6), _mm_srai_epi32(d1, 6));
-		__m128i r2 = packs32(_mm_srai_epi32((__m128i)ctx->c_v[4], 6), _mm_srai_epi32(d2, 6));
-		__m128i r3 = packs32(_mm_srai_epi32((__m128i)ctx->c_v[6], 6), _mm_srai_epi32(d3, 6));
-		__m128i r4 = packs32(_mm_srai_epi32((__m128i)ctx->c_v[8], 6), _mm_srai_epi32(d4, 6));
-		__m128i r5 = packs32(_mm_srai_epi32((__m128i)ctx->c_v[10], 6), _mm_srai_epi32(d5, 6));
-		__m128i r6 = packs32(_mm_srai_epi32((__m128i)ctx->c_v[12], 6), _mm_srai_epi32(d6, 6));
-		__m128i r7 = packs32(_mm_srai_epi32((__m128i)ctx->c_v[14], 6), _mm_srai_epi32(d7, 6));
+		__m128i r0 = packs32(_mm_srai_epi32((__m128i)n->c_v[0], 6), _mm_srai_epi32(d0, 6));
+		__m128i r1 = packs32(_mm_srai_epi32((__m128i)n->c_v[2], 6), _mm_srai_epi32(d1, 6));
+		__m128i r2 = packs32(_mm_srai_epi32((__m128i)n->c_v[4], 6), _mm_srai_epi32(d2, 6));
+		__m128i r3 = packs32(_mm_srai_epi32((__m128i)n->c_v[6], 6), _mm_srai_epi32(d3, 6));
+		__m128i r4 = packs32(_mm_srai_epi32((__m128i)n->c_v[8], 6), _mm_srai_epi32(d4, 6));
+		__m128i r5 = packs32(_mm_srai_epi32((__m128i)n->c_v[10], 6), _mm_srai_epi32(d5, 6));
+		__m128i r6 = packs32(_mm_srai_epi32((__m128i)n->c_v[12], 6), _mm_srai_epi32(d6, 6));
+		__m128i r7 = packs32(_mm_srai_epi32((__m128i)n->c_v[14], 6), _mm_srai_epi32(d7, 6));
 		
 		// addition to values in place, clipping and storage
-		size_t stride = ctx->stride[0]; // FIXME 4:4:4
+		size_t stride = n->stride[0]; // FIXME 4:4:4
 		size_t stride3 = stride * 3;
-		uint8_t *p = NULL; //ctx->frame + ctx->frame_offsets_x[0/*BlkIdx2i4x4[BlkIdx]*/] + ctx->frame_offsets_y[0/*BlkIdx2i4x4[BlkIdx]*/];
+		uint8_t *p = NULL; //st->frame + st->frame_offsets_x[0/*BlkIdx2i4x4[BlkIdx]*/] + st->frame_offsets_y[0/*BlkIdx2i4x4[BlkIdx]*/];
 		uint8_t *q = p + stride * 4;
 		__m128i zero = _mm_setzero_si128();
-		__m128i clip = set16(ctx->clip[0]); // FIXME 4:4:4
+		__m128i clip = set16(n->samples_clip[0]); // FIXME 4:4:4
 		__m128i p0 = *(__m128i *)(p             );
 		__m128i p1 = *(__m128i *)(p + stride    );
 		__m128i p2 = *(__m128i *)(p + stride * 2);

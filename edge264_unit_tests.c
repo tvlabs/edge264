@@ -94,7 +94,7 @@ int main() {
 		p[32 * i - 1] = 186 - i * 4;
 	for (int i = -1; i < 16; i++)
 		p[i - 32] = 194 + i * 4;
-	Edge264_ctx c = {
+	Edge264_stream c = {
 		.plane = p,
 		.clip = (i16x8){255, 255, 255, 255, 255, 255, 255, 255},
 		.stride = 32,
@@ -205,8 +205,8 @@ int main() {
 	for (int i = -1; i < 16; i++)
 		q[i - 32] = 16322 + i * 4;
 	ctx->plane = p;
-	ctx->clip_v = (i16x8){16383, 16383, 16383, 16383, 16383, 16383, 16383, 16383},
-	ctx->stride = 64;
+	t->samples_clip_v[0] = (i16x8){16383, 16383, 16383, 16383, 16383, 16383, 16383, 16383},
+	t->stride = 64;
 	ctx->plane_offsets_v[0] += ctx->plane_offsets_v[0];
 	ctx->plane_offsets_v[1] = (v4si){16, 24, 272, 280};
 	ctx->plane_offsets_v[2] += ctx->plane_offsets_v[2];
@@ -396,10 +396,10 @@ int main() {
 		p[x - 32] = 194 + x * 4;
 	for (int y = 0; y < 16; y++)
 		p[y * 32 - 1] = 186 - y * 4;
-	Edge264_ctx c = {
+	Edge264_stream c = {
 		.clip = {255, 255, 255},
 	};
-	Edge264_ctx *ctx = &c;
+	Edge264_stream *ctx = &c;
 	
 #define test(str, ...) CALL(test_intra4x4_8bit, str, #str , p, (uint8_t[]){__VA_ARGS__})
 	test(I4x4_V_8, 194, 198, 202, 206, 194, 198, 202, 206, 194, 198, 202, 206, 194, 198, 202, 206);

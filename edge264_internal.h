@@ -193,6 +193,7 @@ typedef struct {
 	size_t _codIOffset;
 	Edge264_macroblock * restrict _mb; // backup storage for macro mb
 	Edge264_macroblock * restrict _mbB; // backup storage for macro mbB
+	struct Edge264_stream * st;
 	int32_t CurrMbAddr;
 	int32_t mb_skip_run;
 	uint8_t *samples_base;
@@ -259,7 +260,7 @@ typedef struct {
 /**
  * This structure stores all variables scoped to the entire stream.
  */
-typedef struct {
+typedef struct Edge264_stream {
 	uint8_t *frame_buffers[32];
 	int64_t DPB_format; // should match format in SPS otherwise triggers resize
 	int32_t plane_size_Y;
@@ -329,22 +330,22 @@ typedef struct {
  * speed gain is negligible, but the binary is noticeably smaller.
  */
 #if defined(__SSSE3__) && !defined(__clang__)
-	register Edge264_stream * restrict st asm("ebx");
-	#define SET_CTX(p) Edge264_stream *old = st; st = p
-	#define RESET_CTX() st = old
+	register Edge264_nal * restrict n asm("ebx");
+	#define SETN(p) Edge264_nal *old = n; n = p
+	#define RESETN() n = old
 	#define FUNC(f, ...) f(__VA_ARGS__)
 	#define CALL(f, ...) f(__VA_ARGS__)
 	#define JUMP(f, ...) {f(__VA_ARGS__); return;}
 #else
-	#define SET_CTX(p) Edge264_stream * restrict st = p
-	#define RESET_CTX()
-	#define FUNC(f, ...) f(Edge264_stream * restrict st, ## __VA_ARGS__)
-	#define CALL(f, ...) f(st, ## __VA_ARGS__)
-	#define JUMP(f, ...) {f(st, ## __VA_ARGS__); return;}
+	#define SETN(p) Edge264_nal * restrict n = p
+	#define RESETN()
+	#define FUNC(f, ...) f(Edge264_nal * restrict n, ## __VA_ARGS__)
+	#define CALL(f, ...) f(n, ## __VA_ARGS__)
+	#define JUMP(f, ...) {f(n, ## __VA_ARGS__); return;}
 #endif
 #define mb n->_mb
 #define mbB n->_mbB
-static Edge264_nal * restrict n;
+static Edge264_stream * restrict st;
 
 
 

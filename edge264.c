@@ -1,10 +1,11 @@
 /** MAYDO:
  * _ Multithreading
- * 	_ all header functions now take the context structure as argument, then slice copies it on stack and register
- * 	_ slice struct copy field by field
- * 	_ replace context passed to headers with new struct stream, removing all decoding fields
- * 	_ remove all stream fields from context struct
- * 	_ add task array to stream, and use context here
+ * 	_ Reduce the use of stream structure everywhere and remove it as global
+ * 	_ Add a semaphore/mutex to stream structure and lock it at headers and end of slice
+ * 	_ Make arrays for remaining_mbs and next_deblock_mb to allow frame-threading
+ * 	_ Make an array of tasks with a priority queue to pick from
+ * 	_ Create a single worker thread and use it to decode each slice
+ * 	_ Add debug output to signal start and end of worker assignment
  * 	_ add an option to store N more frames, to tolerate lags in process scheduling
  * _ Fuzzing and bug hunting
  * 	_ fuzz with H26Forge
@@ -19,6 +20,7 @@
  * 	_ Add an offset to stride to counter cache alignment issues
  * 	_ try combining clang and gcc over decoding and parsing
  * 	_ merge Cb and Cr functions in inter to reduce jumps and mutualize vectors
+ * 	_ for the second slice in a frame, we know the bit-size of the previous header thus can skip it!
  * _ Documentation
  * 	_ add an FAQ with (1) how to optimize latency, (2) what can be removed from stream without issue, (3) how to finish a frame with an AUD
  * _ add an option to get_frame to poll without consuming
@@ -495,7 +497,7 @@ static void FUNC(parse_ref_pic_list_modification)
  * its pending memory management operations. It is called when either:
  * _ a sufficient number of macroblocks have been decoded for the current frame (only for single thread)
  * _ a slice is decoded with a frame_num/POC different than the current frame
- * _ an access unit delimiter is received
+ * _ an access unit delimiter is received FIXME
  * 
  * The test on POC alone is not sufficient without frame_num, because the
  * correct POC value depends on FrameNum which needs an up-to-date PrevFrameNum.
@@ -1686,9 +1688,9 @@ int Edge264_decode_NAL(Edge264_decoder *d)
 		return -1;
 	if (d->CPB >= d->end)
 		return -3;
-	SET_CTX((void *)d - offsetof(Edge264_stream, d));
+	st = (void *)d - offsetof(Edge264_stream, d);
 	Edge264_nal nal = {}; // FIXME use an available task slot from stream
-	n = &nal;
+	SETN(&nal);
 	n->nal_ref_idc = *st->d.CPB >> 5;
 	n->nal_unit_type = *st->d.CPB & 0x1f;
 	printf("<table>\n"
@@ -1769,7 +1771,7 @@ int Edge264_decode_NAL(Edge264_decoder *d)
 	// CPB may point anywhere up to the last byte of the next start code
 	if (ret >= 0)
 		st->d.CPB = Edge264_find_start_code(1, n->CPB - 2, st->d.end);
-	RESET_CTX();
+	RESETN();
 	printf("</table>\n");
 	return ret;
 }
@@ -1787,7 +1789,7 @@ int Edge264_decode_NAL(Edge264_decoder *d)
 int Edge264_get_frame(Edge264_decoder *d, int drain) {
 	if (d == NULL)
 		return -1;
-	SET_CTX((void *)d - offsetof(Edge264_stream, d));
+	st = (void *)d - offsetof(Edge264_stream, d);
 	int pic[2] = {-1, -1};
 	unsigned unavail = st->reference_flags | st->output_flags | (st->basePic < 0 ? 0 : 1 << st->basePic);
 	int best = (drain || __builtin_popcount(st->output_flags) > st->sps.max_num_reorder_frames ||
@@ -1826,7 +1828,6 @@ int Edge264_get_frame(Edge264_decoder *d, int drain) {
 			st->d.samples_mvc[2] = samples + st->plane_size_C + offC;
 		}
 	}
-	RESET_CTX();
 	return res;
 }
 
@@ -1834,13 +1835,12 @@ int Edge264_get_frame(Edge264_decoder *d, int drain) {
 
 void Edge264_free(Edge264_decoder **d) {
 	if (d != NULL && *d != NULL) {
-		SET_CTX((void *)*d - offsetof(Edge264_stream, d));
+		st = (void *)*d - offsetof(Edge264_stream, d);
 		for (int i = 0; i < 32; i++) {
 			if (st->frame_buffers[i] != NULL)
 				free(st->frame_buffers[i]);
 		}
 		free(st);
 		*d = NULL;
-		RESET_CTX();
 	}
 }

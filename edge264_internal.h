@@ -191,9 +191,10 @@ typedef struct {
 	size_t _msb_cache;
 	size_t _codIRange; // same as _lsb_cache/_msb_cache
 	size_t _codIOffset;
+	struct Edge264_stream * restrict _st;
 	Edge264_macroblock * restrict _mb; // backup storage for macro mb
 	Edge264_macroblock * restrict _mbB; // backup storage for macro mbB
-	struct Edge264_stream * st;
+	int8_t currPic;
 	int32_t CurrMbAddr;
 	int32_t mb_skip_run;
 	uint8_t *samples_base;
@@ -325,7 +326,7 @@ typedef struct Edge264_stream {
 
 
 /**
- * Macro-ed function defs/calls allow removing ctx from args and keeping it in
+ * Macro-ed function defs/calls allow removing n from args and keeping it in
  * a Global Register Variable if permitted by the compiler. On my machine the
  * speed gain is negligible, but the binary is noticeably smaller.
  */
@@ -343,9 +344,9 @@ typedef struct Edge264_stream {
 	#define CALL(f, ...) f(n, ## __VA_ARGS__)
 	#define JUMP(f, ...) {f(n, ## __VA_ARGS__); return;}
 #endif
+#define st n->_st
 #define mb n->_mb
 #define mbB n->_mbB
-static Edge264_stream * restrict st;
 
 
 

@@ -1,6 +1,5 @@
 /** MAYDO:
  * _ Multithreading
- * 	_ Reduce the use of stream structure everywhere and remove it as global
  * 	_ Add a semaphore/mutex to stream structure and lock it at headers and end of slice
  * 	_ Make arrays for remaining_mbs and next_deblock_mb to allow frame-threading
  * 	_ Make an array of tasks with a priority queue to pick from
@@ -93,26 +92,28 @@ static void FUNC(initialise_decoding_context)
 		1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 29, 30, 31, 32, 32, 33, 34, 34, 35, 35, 36, 36, 37, 37, 37, 38, 38, 38,
 		39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39};
 	
-	// This code is not critical so we do not optimize away first_mb_in_slice==0.
-	n->ChromaArrayType = st->sps.ChromaArrayType;
+	// copy most essential fields from st
 	n->direct_8x8_inference_flag = st->sps.direct_8x8_inference_flag;
 	n->pic_width_in_mbs = st->sps.pic_width_in_mbs;
-	n->CurrMbAddr = n->first_mb_in_slice;
-	int mby = (unsigned)n->first_mb_in_slice / (unsigned)st->sps.pic_width_in_mbs;
-	int mbx = (unsigned)n->first_mb_in_slice % (unsigned)st->sps.pic_width_in_mbs;
-	n->samples_base = st->frame_buffers[st->currPic];
+	n->currPic = st->currPic;
+	n->samples_base = st->frame_buffers[n->currPic];
 	n->plane_size_Y = st->plane_size_Y;
 	n->plane_size_C = st->plane_size_C;
-	n->samples_row[0] = n->samples_base + mby * st->d.stride_Y * 16;
-	n->samples_row[1] = n->samples_base + n->plane_size_Y + mby * st->d.stride_C * 8;
-	n->samples_row[2] = n->samples_row[1] + n->plane_size_C;
-	n->samples_mb[0] = n->samples_row[0] + mbx * 16;
-	n->samples_mb[1] = n->samples_row[1] + mbx * 8;
-	n->samples_mb[2] = n->samples_row[2] + mbx * 8;
 	n->stride[0] = st->d.stride_Y;
 	n->stride[1] = n->stride[2] = st->d.stride_C;
 	n->samples_clip_v[0] = set16((1 << st->sps.BitDepth_Y) - 1);
 	n->samples_clip_v[1] = n->samples_clip_v[2] = set16((1 << st->sps.BitDepth_C) - 1);
+	
+	// non-critical code thus we do not optimize away first_mb_in_slice==0
+	n->CurrMbAddr = n->first_mb_in_slice;
+	int mby = (unsigned)n->first_mb_in_slice / (unsigned)n->pic_width_in_mbs;
+	int mbx = (unsigned)n->first_mb_in_slice % (unsigned)n->pic_width_in_mbs;
+	n->samples_row[0] = n->samples_base + mby * n->stride[0] * 16;
+	n->samples_row[1] = n->samples_base + n->plane_size_Y + mby * n->stride[1] * 8;
+	n->samples_row[2] = n->samples_row[1] + n->plane_size_C;
+	n->samples_mb[0] = n->samples_row[0] + mbx * 16;
+	n->samples_mb[1] = n->samples_row[1] + mbx * 8;
+	n->samples_mb[2] = n->samples_row[2] + mbx * 8;
 	n->QP_C_v[0] = load128(QP_Y2C + clip3(0, 63, 15 + n->pps.chroma_qp_index_offset));
 	n->QP_C_v[1] = load128(QP_Y2C + clip3(0, 63, 31 + n->pps.chroma_qp_index_offset));
 	n->QP_C_v[2] = load128(QP_Y2C + clip3(0, 63, 47 + n->pps.chroma_qp_index_offset));
@@ -123,9 +124,9 @@ static void FUNC(initialise_decoding_context)
 	n->QP_C_v[7] = load128(QP_Y2C + clip3(0, 63, 63 + n->pps.second_chroma_qp_index_offset));
 	n->QP[1] = n->QP_C[0][n->QP[0]];
 	n->QP[2] = n->QP_C[1][n->QP[0]];
-	int mb_offset = sizeof(*mb) * (1 + mbx + (1 + mby) * (st->sps.pic_width_in_mbs + 1));
+	int mb_offset = sizeof(*mb) * (1 + mbx + (1 + mby) * (n->pic_width_in_mbs + 1));
 	n->mbCol = mb = (Edge264_macroblock *)(n->samples_base + n->plane_size_Y + n->plane_size_C * 2 + mb_offset);
-	mbB = mb - st->sps.pic_width_in_mbs - 1;
+	mbB = mb - n->pic_width_in_mbs - 1;
 	for (int i = 1; i < 4; i++) {
 		n->sig_inc_v[i] = sig_inc_8x8[0][i];
 		n->last_inc_v[i] = last_inc_8x8[i];
@@ -134,14 +135,14 @@ static void FUNC(initialise_decoding_context)
 	
 	// neighbouring offsets
 	int offA_int8 = -(int)sizeof(*mb);
-	int offB_int8 = -(st->sps.pic_width_in_mbs + 1) * sizeof(*mb);
+	int offB_int8 = -(n->pic_width_in_mbs + 1) * sizeof(*mb);
 	int offA_int32 = offA_int8 >> 2;
 	int offB_int32 = offB_int8 >> 2;
 	int offC_int32 = offB_int32 + (sizeof(*mb) >> 2);
 	int offD_int32 = offB_int32 - (sizeof(*mb) >> 2);
 	n->A4x4_int8_v = (i16x16){5 + offA_int8, 0, 7 + offA_int8, 2, 1, 4, 3, 6, 13 + offA_int8, 8, 15 + offA_int8, 10, 9, 12, 11, 14};
 	n->B4x4_int8_v = (i32x16){10 + offB_int8, 11 + offB_int8, 0, 1, 14 + offB_int8, 15 + offB_int8, 4, 5, 2, 3, 8, 9, 6, 7, 12, 13};
-	if (st->sps.ChromaArrayType == 1) {
+	if (n->ChromaArrayType == 1) {
 		n->ACbCr_int8_v = (i16x16){1 + offA_int8, 0, 3 + offA_int8, 2, 5 + offA_int8, 4, 7 + offA_int8, 6};
 		n->BCbCr_int8_v = (i32x16){2 + offB_int8, 3 + offB_int8, 0, 1, 6 + offB_int8, 7 + offB_int8, 4, 5};
 	}
@@ -165,7 +166,7 @@ static void FUNC(initialise_decoding_context)
 		// B slices
 		if (n->slice_type == 1) {
 			int colPic = n->RefPicList[1][0];
-			n->mbCol = (Edge264_macroblock *)(st->frame_buffers[colPic] + st->plane_size_Y + st->plane_size_C * 2 + mb_offset);
+			n->mbCol = (Edge264_macroblock *)(n->frame_buffers[colPic] + n->plane_size_Y + n->plane_size_C * 2 + mb_offset);
 			n->col_short_term = (st->long_term_flags >> colPic & 1) ^ 1;
 			
 			// initializations for temporal prediction and implicit weights
@@ -315,7 +316,7 @@ static void FUNC(parse_pred_weight_table)
 	// parse explicit weights/offsets
 	if (n->pps.weighted_bipred_idc == 1) {
 		n->luma_log2_weight_denom = CALL(get_ue16, 7);
-		if (st->sps.ChromaArrayType != 0)
+		if (n->ChromaArrayType != 0)
 			n->chroma_log2_weight_denom = CALL(get_ue16, 7);
 		for (int l = 0; l <= n->slice_type; l++) {
 			printf("<tr><th>Prediction weights L%x (weight/offset)</th><td>", l);
@@ -327,7 +328,7 @@ static void FUNC(parse_pred_weight_table)
 					n->explicit_weights[0][i] = 1 << n->luma_log2_weight_denom;
 					n->explicit_offsets[0][i] = 0;
 				}
-				if (st->sps.ChromaArrayType != 0 && CALL(get_u1)) {
+				if (n->ChromaArrayType != 0 && CALL(get_u1)) {
 					n->explicit_weights[1][i] = CALL(get_se16, -128, 127);
 					n->explicit_offsets[1][i] = CALL(get_se16, -128, 127);
 					n->explicit_weights[2][i] = CALL(get_se16, -128, 127);
@@ -338,7 +339,7 @@ static void FUNC(parse_pred_weight_table)
 					n->explicit_weights[2][i] = 1 << n->chroma_log2_weight_denom;
 					n->explicit_offsets[2][i] = 0;
 				}
-				printf((st->sps.ChromaArrayType == 0) ? "*%d/%u+%d" : "*%d/%u+%d : *%d/%u+%d : *%d/%u+%d",
+				printf((n->ChromaArrayType == 0) ? "*%d/%u+%d" : "*%d/%u+%d : *%d/%u+%d : *%d/%u+%d",
 					n->explicit_weights[0][i], 1 << n->luma_log2_weight_denom, n->explicit_offsets[0][i] << (st->sps.BitDepth_Y - 8),
 					n->explicit_weights[1][i], 1 << n->chroma_log2_weight_denom, n->explicit_offsets[1][i] << (st->sps.BitDepth_C - 8),
 					n->explicit_weights[2][i], 1 << n->chroma_log2_weight_denom, n->explicit_offsets[2][i] << (st->sps.BitDepth_C - 8));
@@ -497,7 +498,7 @@ static void FUNC(parse_ref_pic_list_modification)
  * its pending memory management operations. It is called when either:
  * _ a sufficient number of macroblocks have been decoded for the current frame (only for single thread)
  * _ a slice is decoded with a frame_num/POC different than the current frame
- * _ an access unit delimiter is received FIXME
+ * _ an access unit delimiter is received
  * 
  * The test on POC alone is not sufficient without frame_num, because the
  * correct POC value depends on FrameNum which needs an up-to-date PrevFrameNum.
@@ -584,9 +585,10 @@ static int FUNC(parse_slice_layer_without_partitioning)
 		red_if(pic_parameter_set_id >= 4 || st->PPS[pic_parameter_set_id].num_ref_idx_active[0] == 0), pic_parameter_set_id);
 	if (n->slice_type > 2 || pic_parameter_set_id >= 4)
 		return 1;
-	if (st->PPS[pic_parameter_set_id].num_ref_idx_active[0] == 0) // if PPS wasn't initialized
-		return 2;
 	n->pps = st->PPS[pic_parameter_set_id];
+	if (n->pps.num_ref_idx_active[0] == 0) // if PPS wasn't initialized
+		return 2;
+	n->ChromaArrayType = st->sps.ChromaArrayType;
 	
 	// parse view_id for MVC streams
 	int non_base_view = 0;
@@ -1688,11 +1690,14 @@ int Edge264_decode_NAL(Edge264_decoder *d)
 		return -1;
 	if (d->CPB >= d->end)
 		return -3;
-	st = (void *)d - offsetof(Edge264_stream, d);
+	Edge264_stream *s = (void *)d - offsetof(Edge264_stream, d);
 	Edge264_nal nal = {}; // FIXME use an available task slot from stream
 	SETN(&nal);
-	n->nal_ref_idc = *st->d.CPB >> 5;
-	n->nal_unit_type = *st->d.CPB & 0x1f;
+	st = s;
+	n->CPB = st->d.CPB + 3; // first byte that might be escaped
+	n->end = st->d.end;
+	n->nal_ref_idc = n->CPB[-3] >> 5;
+	n->nal_unit_type = n->CPB[-3] & 0x1f;
 	printf("<table>\n"
 		"<tr><th>nal_ref_idc</th><td>%u</td></tr>\n"
 		"<tr><th>nal_unit_type</th><td>%u (%s)</td></tr>\n",
@@ -1701,26 +1706,24 @@ int Edge264_decode_NAL(Edge264_decoder *d)
 	
 	// parse AUD and MVC prefix that require no escaping
 	int ret = 0;
-	n->CPB = st->d.CPB + 3; // first byte that might be escaped
-	n->end = st->d.end;
 	n->end_of_NAL = 0;
 	Parser parser = parse_nal_unit[n->nal_unit_type];
 	if (n->nal_unit_type == 9) {
-		if (st->d.CPB + 1 >= st->d.end || (st->d.CPB[1] & 31) != 16) {
+		if (n->CPB - 2 >= n->end || (n->CPB[-2] & 31) != 16) {
 			ret = 2;
 		} else {
-			printf("<tr><th>primary_pic_type</th><td>%d</td></tr>\n", st->d.CPB[1] >> 5);
+			printf("<tr><th>primary_pic_type</th><td>%d</td></tr>\n", n->CPB[-2] >> 5);
 			if (st->currPic >= 0 && st->frame_buffers[st->currPic] != NULL)
 				CALL(finish_frame);
 		}
 	} else if (n->nal_unit_type == 14 || n->nal_unit_type == 20) {
-		if (st->d.CPB + 4 >= st->d.end) {
+		if (n->CPB + 1 >= n->end) {
 			ret = 2;
 			parser = NULL;
 		} else {
 			uint32_t u;
-			memcpy(&u, st->d.CPB, 4);
-			n->CPB = st->d.CPB + 6;
+			memcpy(&u, n->CPB - 3, 4);
+			n->CPB += 3;
 			u = big_endian32(u);
 			n->IdrPicFlag = u >> 22 & 1 ^ 1;
 			if (u >> 23 & 1) {
@@ -1746,7 +1749,7 @@ int Edge264_decode_NAL(Edge264_decoder *d)
 	
 	// initialize the parsing context if we can parse the current NAL
 	if (parser != NULL) {
-		if (n->CPB > st->d.end) {
+		if (n->CPB > n->end) {
 			ret = 2;
 		} else {
 			size_t _codIRange = codIRange; // backup if stored in a Register Variable
@@ -1770,7 +1773,7 @@ int Edge264_decode_NAL(Edge264_decoder *d)
 	
 	// CPB may point anywhere up to the last byte of the next start code
 	if (ret >= 0)
-		st->d.CPB = Edge264_find_start_code(1, n->CPB - 2, st->d.end);
+		st->d.CPB = Edge264_find_start_code(1, n->CPB - 2, n->end);
 	RESETN();
 	printf("</table>\n");
 	return ret;
@@ -1789,43 +1792,43 @@ int Edge264_decode_NAL(Edge264_decoder *d)
 int Edge264_get_frame(Edge264_decoder *d, int drain) {
 	if (d == NULL)
 		return -1;
-	st = (void *)d - offsetof(Edge264_stream, d);
+	Edge264_stream *s = (void *)d - offsetof(Edge264_stream, d);
 	int pic[2] = {-1, -1};
-	unsigned unavail = st->reference_flags | st->output_flags | (st->basePic < 0 ? 0 : 1 << st->basePic);
-	int best = (drain || __builtin_popcount(st->output_flags) > st->sps.max_num_reorder_frames ||
-		__builtin_popcount(unavail) >= st->sps.num_frame_buffers) ? INT_MAX : st->dispPicOrderCnt;
-	for (int o = st->output_flags; o != 0; o &= o - 1) {
+	unsigned unavail = s->reference_flags | s->output_flags | (s->basePic < 0 ? 0 : 1 << s->basePic);
+	int best = (drain || __builtin_popcount(s->output_flags) > s->sps.max_num_reorder_frames ||
+		__builtin_popcount(unavail) >= s->sps.num_frame_buffers) ? INT_MAX : s->dispPicOrderCnt;
+	for (int o = s->output_flags; o != 0; o &= o - 1) {
 		int i = __builtin_ctz(o);
-		if (st->FieldOrderCnt[0][i] <= best) {
-			int non_base = st->sps.mvc & i & 1;
-			if (st->FieldOrderCnt[0][i] < best) {
-				best = st->FieldOrderCnt[0][i];
+		if (s->FieldOrderCnt[0][i] <= best) {
+			int non_base = s->sps.mvc & i & 1;
+			if (s->FieldOrderCnt[0][i] < best) {
+				best = s->FieldOrderCnt[0][i];
 				pic[non_base ^ 1] = -1;
 			}
 			pic[non_base] = i;
 		}
 	}
-	int top = st->d.frame_crop_offsets[0];
-	int left = st->d.frame_crop_offsets[3];
-	int topC = st->sps.chroma_format_idc == 3 ? top : top >> 1;
-	int leftC = st->sps.chroma_format_idc == 1 ? left >> 1 : left;
-	int offC = st->plane_size_Y + topC * st->d.stride_C + (leftC << st->d.pixel_depth_C);
+	int top = s->d.frame_crop_offsets[0];
+	int left = s->d.frame_crop_offsets[3];
+	int topC = s->sps.chroma_format_idc == 3 ? top : top >> 1;
+	int leftC = s->sps.chroma_format_idc == 1 ? left >> 1 : left;
+	int offC = s->plane_size_Y + topC * s->d.stride_C + (leftC << s->d.pixel_depth_C);
 	int res = -2;
 	if (pic[0] >= 0) {
-		st->output_flags ^= 1 << pic[0];
-		const uint8_t *samples = st->frame_buffers[pic[0]];
-		st->d.samples[0] = samples + top * st->d.stride_Y + (left << st->d.pixel_depth_Y);
-		st->d.samples[1] = samples + offC;
-		st->d.samples[2] = samples + st->plane_size_C + offC;
-		st->d.TopFieldOrderCnt = best << 6 >> 6;
-		st->d.BottomFieldOrderCnt = st->FieldOrderCnt[1][pic[0]] << 6 >> 6;
+		s->output_flags ^= 1 << pic[0];
+		const uint8_t *samples = s->frame_buffers[pic[0]];
+		s->d.samples[0] = samples + top * s->d.stride_Y + (left << s->d.pixel_depth_Y);
+		s->d.samples[1] = samples + offC;
+		s->d.samples[2] = samples + s->plane_size_C + offC;
+		s->d.TopFieldOrderCnt = best << 6 >> 6;
+		s->d.BottomFieldOrderCnt = s->FieldOrderCnt[1][pic[0]] << 6 >> 6;
 		res = 0;
 		if (pic[1] >= 0) {
-			st->output_flags ^= 1 << pic[1];
-			samples = st->frame_buffers[pic[1]];
-			st->d.samples_mvc[0] = samples + top * st->d.stride_Y + (left << st->d.pixel_depth_Y);
-			st->d.samples_mvc[1] = samples + offC;
-			st->d.samples_mvc[2] = samples + st->plane_size_C + offC;
+			s->output_flags ^= 1 << pic[1];
+			samples = s->frame_buffers[pic[1]];
+			s->d.samples_mvc[0] = samples + top * s->d.stride_Y + (left << s->d.pixel_depth_Y);
+			s->d.samples_mvc[1] = samples + offC;
+			s->d.samples_mvc[2] = samples + s->plane_size_C + offC;
 		}
 	}
 	return res;
@@ -1835,12 +1838,12 @@ int Edge264_get_frame(Edge264_decoder *d, int drain) {
 
 void Edge264_free(Edge264_decoder **d) {
 	if (d != NULL && *d != NULL) {
-		st = (void *)*d - offsetof(Edge264_stream, d);
+		Edge264_stream *s = (void *)*d - offsetof(Edge264_stream, d);
 		for (int i = 0; i < 32; i++) {
-			if (st->frame_buffers[i] != NULL)
-				free(st->frame_buffers[i]);
+			if (s->frame_buffers[i] != NULL)
+				free(s->frame_buffers[i]);
 		}
-		free(st);
+		free(s);
 		*d = NULL;
 	}
 }

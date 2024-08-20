@@ -7,6 +7,7 @@
 
 #include <assert.h>
 #include <limits.h>
+#include <pthread.h>
 #include <stddef.h>
 #include <stdint.h>
 #include <stdlib.h>
@@ -262,6 +263,7 @@ typedef struct {
  * This structure stores all variables scoped to the entire stream.
  */
 typedef struct Edge264_stream {
+	pthread_mutex_t mutex;
 	uint8_t *frame_buffers[32];
 	int64_t DPB_format; // should match format in SPS otherwise triggers resize
 	int32_t plane_size_Y;

@@ -1,7 +1,7 @@
 /** MAYDO:
  * _ Multithreading
- * 	_ Add a semaphore/mutex to stream structure and lock it at headers and end of slice
  * 	_ Make arrays for remaining_mbs and next_deblock_mb to allow frame-threading
+ * 	_ release mutex at slice decoding and relock it at end to write stuff
  * 	_ Make an array of tasks with a priority queue to pick from
  * 	_ Create a single worker thread and use it to decode each slice
  * 	_ Add debug output to signal start and end of worker assignment
@@ -1638,11 +1638,13 @@ const uint8_t *Edge264_find_start_code(int n, const uint8_t *CPB, const uint8_t 
 
 
 Edge264_decoder *Edge264_alloc() {
-	Edge264_stream *p = calloc(1, sizeof(Edge264_stream));
+	Edge264_stream *p = calloc(1, sizeof(Edge264_stream)); // FIXME selectively zero?
 	if (p == NULL)
 		return NULL;
-	for (int i = 0; i < 32; i++)
-		p->frame_buffers[i] = NULL;
+	if (pthread_mutex_init(&p->mutex, NULL)) {
+		free(p);
+		return NULL;
+	}
 	return (void *)p + offsetof(Edge264_stream, d);
 }
 
@@ -1691,7 +1693,8 @@ int Edge264_decode_NAL(Edge264_decoder *d)
 	if (d->CPB >= d->end)
 		return -3;
 	Edge264_stream *s = (void *)d - offsetof(Edge264_stream, d);
-	Edge264_nal nal = {}; // FIXME use an available task slot from stream
+	pthread_mutex_lock(&s->mutex);
+	Edge264_nal nal; // FIXME use an available task slot from stream
 	SETN(&nal);
 	st = s;
 	n->CPB = st->d.CPB + 3; // first byte that might be escaped
@@ -1774,6 +1777,7 @@ int Edge264_decode_NAL(Edge264_decoder *d)
 	// CPB may point anywhere up to the last byte of the next start code
 	if (ret >= 0)
 		st->d.CPB = Edge264_find_start_code(1, n->CPB - 2, n->end);
+	pthread_mutex_unlock(&st->mutex);
 	RESETN();
 	printf("</table>\n");
 	return ret;
@@ -1793,6 +1797,7 @@ int Edge264_get_frame(Edge264_decoder *d, int drain) {
 	if (d == NULL)
 		return -1;
 	Edge264_stream *s = (void *)d - offsetof(Edge264_stream, d);
+	pthread_mutex_lock(&s->mutex);
 	int pic[2] = {-1, -1};
 	unsigned unavail = s->reference_flags | s->output_flags | (s->basePic < 0 ? 0 : 1 << s->basePic);
 	int best = (drain || __builtin_popcount(s->output_flags) > s->sps.max_num_reorder_frames ||
@@ -1831,6 +1836,7 @@ int Edge264_get_frame(Edge264_decoder *d, int drain) {
 			s->d.samples_mvc[2] = samples + s->plane_size_C + offC;
 		}
 	}
+	pthread_mutex_unlock(&s->mutex);
 	return res;
 }
 
@@ -1839,6 +1845,7 @@ int Edge264_get_frame(Edge264_decoder *d, int drain) {
 void Edge264_free(Edge264_decoder **d) {
 	if (d != NULL && *d != NULL) {
 		Edge264_stream *s = (void *)*d - offsetof(Edge264_stream, d);
+		pthread_mutex_destroy(&s->mutex);
 		for (int i = 0; i < 32; i++) {
 			if (s->frame_buffers[i] != NULL)
 				free(s->frame_buffers[i]);

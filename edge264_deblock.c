@@ -776,7 +776,7 @@ static noinline void FUNC(deblock_Y_8bit, size_t stride, ssize_t nstride, size_t
 	*(i8x16 *)(pxE +  stride    ) = hF;
 	
 	// jump to chroma deblocking filter
-	size_t strideC = st->d.stride_C;
+	size_t strideC = n->stride[1];
 	JUMP(deblock_CbCr_8bit, strideC, -strideC, strideC * 7);
 }
 
@@ -1030,7 +1030,7 @@ noinline void FUNC(deblock_mb)
 	}
 	
 	// jump to luma deblocking filter
-	size_t strideY = st->d.stride_Y;
+	size_t strideY = n->stride[0];
 	JUMP(deblock_Y_8bit, strideY, -strideY, strideY * 7);
 }
 
@@ -1038,20 +1038,20 @@ noinline void FUNC(deblock_mb)
 
 /**
  * Loop through an entire frame to apply the deblocking filter on all
- * macroblocks.
+ * macroblocks. This function is expected to be called from a worker thread
+ * after decoding a slice from the same picture.
  */
-void FUNC(deblock_frame)
+void FUNC(deblock_frame, unsigned next_deblock_addr)
 {
 	// point at the first unfiltered macroblock
-	int mby = (unsigned)st->pic_next_deblock_addr / (unsigned)st->sps.pic_width_in_mbs - 1;
-	int mbx = (unsigned)st->pic_next_deblock_addr % (unsigned)st->sps.pic_width_in_mbs;
-	uint8_t *frame_buffer = st->frame_buffers[st->currPic];
-	n->samples_row[0] = frame_buffer + mby * st->d.stride_Y * 16;
+	int mby = next_deblock_addr / (unsigned)n->pic_width_in_mbs - 1;
+	int mbx = next_deblock_addr % (unsigned)n->pic_width_in_mbs;
+	n->samples_row[0] = n->samples_base + mby * n->stride[0] * 16;
 	n->samples_mb[0] = n->samples_row[0] + mbx * 16;
-	n->samples_mb[1] = frame_buffer + st->plane_size_Y + mby * st->d.stride_C * 8 + mbx * 8;
-	n->samples_mb[2] = n->samples_mb[1] + st->plane_size_C;
-	mbB = (Edge264_macroblock *)(frame_buffer + st->plane_size_Y + st->plane_size_C * 2) + 1 + mby * (st->sps.pic_width_in_mbs + 1) + mbx;
-	mb = mbB + st->sps.pic_width_in_mbs + 1;
+	n->samples_mb[1] = n->samples_base + n->plane_size_Y + mby * n->stride[1] * 8 + mbx * 8;
+	n->samples_mb[2] = n->samples_mb[1] + n->plane_size_C;
+	mbB = (Edge264_macroblock *)(n->samples_base + n->plane_size_Y + n->plane_size_C * 2) + 1 + mby * (n->pic_width_in_mbs + 1) + mbx;
+	mb = mbB + n->pic_width_in_mbs + 1;
 	
 	do {
 		CALL(deblock_mb);
@@ -1064,12 +1064,12 @@ void FUNC(deblock_frame)
 		n->samples_mb[2] += 8;
 		
 		// end of row
-		if (n->samples_mb[0] - n->samples_row[0] < st->d.stride_Y)
+		if (n->samples_mb[0] - n->samples_row[0] < n->stride[0])
 			continue;
 		mb++;
 		mbB++;
-		n->samples_mb[0] = n->samples_row[0] += st->d.stride_Y * 16;
-		n->samples_mb[1] += st->d.stride_C * 7;
-		n->samples_mb[2] += st->d.stride_C * 7;
-	} while (n->samples_mb[0] - frame_buffer < st->plane_size_Y);
+		n->samples_mb[0] = n->samples_row[0] += n->stride[0] * 16;
+		n->samples_mb[1] += n->stride[1] * 7;
+		n->samples_mb[2] += n->stride[1] * 7;
+	} while (n->samples_mb[0] - n->samples_base < n->plane_size_Y);
 }

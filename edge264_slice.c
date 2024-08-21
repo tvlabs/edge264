@@ -1600,7 +1600,7 @@ static inline void CAFUNC(parse_P_mb)
  * This function loops through the macroblocks of a slice, initialising their
  * data and calling parse_{I/P/B}_mb for each one.
  */
-static noinline int CAFUNC(parse_slice_data)
+static noinline void CAFUNC(parse_slice_data)
 {
 	static const i8x16 block_unavailability[16] = {
 		{ 0,  0,  0,  4,  0,  0,  0,  4,  0,  0,  0,  4,  0,  4,  0,  4},
@@ -1749,8 +1749,8 @@ static noinline int CAFUNC(parse_slice_data)
 		}
 		
 		// deblock mbB while in cache, then point to the next macroblock
-		if (n->CurrMbAddr == st->pic_next_deblock_addr) {
-			st->pic_next_deblock_addr += 1;
+		if (n->CurrMbAddr == n->next_deblock_addr) {
+			n->next_deblock_addr += 1;
 			mb = mbB;
 			mbB -= n->pic_width_in_mbs + 1;
 			n->samples_mb[0] -= n->stride[0] * 16;
@@ -1778,7 +1778,7 @@ static noinline int CAFUNC(parse_slice_data)
 			fprintf(stderr, "end_of_slice_flag: %x\n", end_of_slice_flag);
 		#endif
 		if (CACOND(n->mb_skip_run <= 0 && msb_cache == (size_t)1 << (SIZE_BIT - 1) && !(lsb_cache & (lsb_cache - 1)) && n->end_of_NAL, end_of_slice_flag))
-			return n->CurrMbAddr - n->first_mb_in_slice;
+			break;
 		
 		// end of row
 		if (n->samples_mb[0] - n->samples_row[0] >= n->stride[0]) {
@@ -1789,7 +1789,17 @@ static noinline int CAFUNC(parse_slice_data)
 			n->samples_mb[1] = n->samples_row[1] += n->stride[1] * 8; // FIXME 4:2:2
 			n->samples_mb[2] = n->samples_row[2] += n->stride[1] * 8;
 			if (n->samples_row[0] - n->samples_base >= n->plane_size_Y)
-				return 0;
+				break;
 		}
 	}
+	
+	// when the total number of decoded mbs is enough, finish the frame
+	pthread_mutex_lock(&st->mutex);
+	st->pic_next_deblock_addr[st->currPic] = max(st->pic_next_deblock_addr[st->currPic], n->next_deblock_addr);
+	st->pic_remaining_mbs[st->currPic] -= n->CurrMbAddr - n->first_mb_in_slice;
+	if (st->pic_remaining_mbs[st->currPic] == 0) {
+		CALL(deblock_frame, st->pic_next_deblock_addr[st->currPic]);
+		CALL(finish_frame);
+	}
+	pthread_mutex_unlock(&st->mutex);
 }

@@ -1,7 +1,5 @@
 /** MAYDO:
  * _ Multithreading
- * 	_ Make arrays for remaining_mbs and next_deblock_mb to allow frame-threading
- * 	_ release mutex at slice decoding and relock it at end to write stuff
  * 	_ Make an array of tasks with a priority queue to pick from
  * 	_ Create a single worker thread and use it to decode each slice
  * 	_ Add debug output to signal start and end of worker assignment
@@ -96,6 +94,7 @@ static void FUNC(initialise_decoding_context)
 	n->direct_8x8_inference_flag = st->sps.direct_8x8_inference_flag;
 	n->pic_width_in_mbs = st->sps.pic_width_in_mbs;
 	n->currPic = st->currPic;
+	n->next_deblock_addr = st->pic_next_deblock_addr[n->currPic];
 	n->samples_base = st->frame_buffers[n->currPic];
 	n->plane_size_Y = st->plane_size_Y;
 	n->plane_size_C = st->plane_size_C;
@@ -503,7 +502,7 @@ static void FUNC(parse_ref_pic_list_modification)
  * The test on POC alone is not sufficient without frame_num, because the
  * correct POC value depends on FrameNum which needs an up-to-date PrevFrameNum.
  */
-static void FUNC(finish_frame)
+void FUNC(finish_frame)
 {
 	// apply the reference flags
 	int non_base_view = st->sps.mvc & st->currPic & 1;
@@ -545,7 +544,6 @@ static void FUNC(finish_frame)
 		}
 	}
 	
-	CALL(deblock_frame);
 	st->currPic = -1;
 	
 	#ifdef TRACE
@@ -749,8 +747,8 @@ static int FUNC(parse_slice_layer_without_partitioning)
 			}
 			m[st->sps.pic_width_in_mbs + 2].unavail16x16 = 15;
 		}
-		st->pic_remaining_mbs = st->sps.pic_width_in_mbs * st->sps.pic_height_in_mbs;
-		st->pic_next_deblock_addr = st->sps.pic_width_in_mbs;
+		st->pic_remaining_mbs[st->currPic] = st->sps.pic_width_in_mbs * st->sps.pic_height_in_mbs;
+		st->pic_next_deblock_addr[st->currPic] = st->sps.pic_width_in_mbs;
 		st->FrameNums[st->currPic] = n->FrameNum;
 		st->FieldOrderCnt[0][st->currPic] = TopFieldOrderCnt;
 		st->FieldOrderCnt[1][st->currPic] = BottomFieldOrderCnt;
@@ -817,21 +815,18 @@ static int FUNC(parse_slice_layer_without_partitioning)
 	
 	// fill the context with useful values and start decoding
 	CALL(initialise_decoding_context);
+	pthread_mutex_unlock(&st->mutex);
 	if (!n->pps.entropy_coding_mode_flag) {
 		n->mb_skip_run = -1;
-		st->pic_remaining_mbs -= CALL(parse_slice_data_cavlc);
+		CALL(parse_slice_data_cavlc);
 	} else {
 		// cabac_alignment_one_bit gives a good probability to catch random errors.
 		if (CALL(cabac_start))
 			return 2;
 		CALL(cabac_init, cabac_init_idc);
 		n->mb_qp_delta_nz = 0;
-		st->pic_remaining_mbs -= CALL(parse_slice_data_cabac);
+		CALL(parse_slice_data_cabac);
 	}
-	
-	// when the total number of decoded mbs is enough, finish the frame
-	if (st->pic_remaining_mbs == 0)
-		CALL(finish_frame);
 	return 0;
 }
 

@@ -197,6 +197,7 @@ typedef struct {
 	Edge264_macroblock * restrict _mbB; // backup storage for macro mbB
 	int8_t currPic;
 	int32_t CurrMbAddr;
+	int32_t next_deblock_addr;
 	int32_t mb_skip_run;
 	uint8_t *samples_base;
 	uint8_t *samples_row[3]; // address of top-left byte of each plane in current row of macroblocks
@@ -277,8 +278,8 @@ typedef struct Edge264_stream {
 	int8_t pic_idr_or_mmco5; // when set, all other POCs will be decreased after completing the current frame
 	int8_t currPic; // index of current incomplete frame, or -1
 	int8_t basePic; // index of last MVC base view
-	int32_t pic_remaining_mbs; // when zero the picture is complete
-	uint32_t pic_next_deblock_addr; // next CurrMbAddr value for which mbB will be deblocked
+	int32_t pic_remaining_mbs[32]; // when zero the picture is complete
+	int32_t pic_next_deblock_addr[32]; // next CurrMbAddr value for which mbB will be deblocked
 	int32_t prevRefFrameNum[2];
 	int32_t prevPicOrderCnt;
 	int32_t dispPicOrderCnt; // all POCs lower or equal than this are ready for output
@@ -399,8 +400,11 @@ static int FUNC(cabac_start);
 static int FUNC(cabac_terminate);
 static void FUNC(cabac_init, int idc);
 
+// edge264.c
+void FUNC(finish_frame);
+
 // edge264_deblock_*.c
-void noinline FUNC(deblock_frame);
+void noinline FUNC(deblock_frame, unsigned next_deblock_addr);
 
 // edge264_inter_*.c
 void noinline FUNC(decode_inter, int i, int w, int h);
@@ -435,8 +439,8 @@ void noinline FUNC(transform_dc4x4, int iYCbCr);
 void noinline FUNC(transform_dc2x2);
 
 // edge264_slice.c
-static noinline int FUNC(parse_slice_data_cavlc);
-static noinline int FUNC(parse_slice_data_cabac);
+static noinline void FUNC(parse_slice_data_cavlc);
+static noinline void FUNC(parse_slice_data_cabac);
 
 // debugging functions
 #define print_i8x16(a) {\

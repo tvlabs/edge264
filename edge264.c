@@ -1,6 +1,16 @@
 /** MAYDO:
  * _ Multithreading
  * 	_ Make an array of tasks with a priority queue to pick from
+ * 	_ Add an array of ref dependency masks for tasks based on RefPictList
+ * 	_ Add a function to compute sum of tasks deps
+ * 	_ Update DPB availability checks to take deps into account
+ * 	_ Add a mask of pending tasks
+ * 	_ Add an option for number of threads and max_frame_delay
+ * 	_ Give back frame delay when returning a frame
+ * 	_ Add a notion of reference ownership for CPB pointer, and return last CPB byte rather than next start code
+ * 	_ Create a pool of worker threads and make them consume tasks as soon as possible
+ * 	_ Add a loop when picking an available slot to wait until enough tasks are done
+ * 	_ Add a wait when looking for an available task slot
  * 	_ Create a single worker thread and use it to decode each slice
  * 	_ Add debug output to signal start and end of worker assignment
  * 	_ add an option to store N more frames, to tolerate lags in process scheduling
@@ -747,7 +757,7 @@ static int FUNC(parse_slice_layer_without_partitioning)
 			}
 			m[st->sps.pic_width_in_mbs + 2].unavail16x16 = 15;
 		}
-		st->pic_remaining_mbs[st->currPic] = st->sps.pic_width_in_mbs * st->sps.pic_height_in_mbs;
+		st->remaining_mbs[st->currPic] = st->sps.pic_width_in_mbs * st->sps.pic_height_in_mbs;
 		st->pic_next_deblock_addr[st->currPic] = st->sps.pic_width_in_mbs;
 		st->FrameNums[st->currPic] = n->FrameNum;
 		st->FieldOrderCnt[0][st->currPic] = TopFieldOrderCnt;

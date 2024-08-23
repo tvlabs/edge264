@@ -278,7 +278,7 @@ typedef struct Edge264_stream {
 	int8_t pic_idr_or_mmco5; // when set, all other POCs will be decreased after completing the current frame
 	int8_t currPic; // index of current incomplete frame, or -1
 	int8_t basePic; // index of last MVC base view
-	int32_t pic_remaining_mbs[32]; // when zero the picture is complete
+	union { int32_t remaining_mbs[32]; i32x4 remaining_mbs_v[8]; i32x8 remaining_mbs_V[4]; }; // when zero the picture is complete
 	int32_t pic_next_deblock_addr[32]; // next CurrMbAddr value for which mbB will be deblocked
 	int32_t prevRefFrameNum[2];
 	int32_t prevPicOrderCnt;
@@ -606,6 +606,21 @@ static noinline void FUNC(parse_slice_data_cabac);
 			int b = a | a >> 3;
 			int c = b | b >> 6;
 			return (c & 0xf) | (c >> 12 & 0xf0);
+		}
+	#endif
+	#ifdef __AVX_2__
+		static always_inline unsigned FUNC(completed_frames) {
+			i32x8 a = _mm256_packs_epi32(st->remaining_mbs_V[0] == 0, st->remaining_mbs_V[1] == 0);
+			i32x8 b = _mm256_packs_epi32(st->remaining_mbs_V[2] == 0, st->remaining_mbs_V[3] == 0);
+			return _mm256_movemask_epi8(_mm256_packs_epi16(a, b));
+		}
+	#else
+		static always_inline unsigned FUNC(completed_frames) {
+			i32x4 a = packs32(st->remaining_mbs_v[0] == 0, st->remaining_mbs_v[1] == 0);
+			i32x4 b = packs32(st->remaining_mbs_v[2] == 0, st->remaining_mbs_v[3] == 0);
+			i32x4 c = packs32(st->remaining_mbs_v[4] == 0, st->remaining_mbs_v[5] == 0);
+			i32x4 d = packs32(st->remaining_mbs_v[6] == 0, st->remaining_mbs_v[7] == 0);
+			return movemask(packs16(a, b)) | movemask(packs16(c, d)) << 16;
 		}
 	#endif
 #else // add other architectures here

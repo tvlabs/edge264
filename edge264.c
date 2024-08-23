@@ -1,7 +1,5 @@
 /** MAYDO:
  * _ Multithreading
- * 	_ Make an array of tasks with a priority queue to pick from
- * 	_ Add an array of ref dependency masks for tasks based on RefPictList
  * 	_ Add a function to compute sum of tasks deps
  * 	_ Update DPB availability checks to take deps into account
  * 	_ Add a mask of pending tasks
@@ -483,6 +481,7 @@ static void FUNC(parse_ref_pic_list_modification)
 			printf("</td></tr>\n");
 		}
 	}
+	st->task_dependencies[n - st->tasks] = CALL(refs_to_mask);
 	
 	// fill all uninitialized references with frame 0 in case num_ref_idx_active is too high
 	n->RefPicList_v[0] = ifelse_msb(n->RefPicList_v[0], (i8x16){}, n->RefPicList_v[0]);
@@ -1699,8 +1698,8 @@ int Edge264_decode_NAL(Edge264_decoder *d)
 		return -3;
 	Edge264_stream *s = (void *)d - offsetof(Edge264_stream, d);
 	pthread_mutex_lock(&s->mutex);
-	Edge264_nal nal; // FIXME use an available task slot from stream
-	SETN(&nal);
+	SETN(&s->tasks[0]);
+	s->task_dependencies[0] = 0;
 	st = s;
 	n->CPB = st->d.CPB + 3; // first byte that might be escaped
 	n->end = st->d.end;

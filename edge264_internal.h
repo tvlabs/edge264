@@ -235,7 +235,7 @@ typedef struct {
 	uint8_t *frame_buffers[32];
 	union { int8_t MapPicToList0[32]; i8x16 MapPicToList0_v[2]; };
 	union { int8_t clip_ref_idx[8]; i8x8 clip_ref_idx_v; };
-	union { int8_t RefPicList[2][32]; i8x16 RefPicList_v[4]; };
+	union { int8_t RefPicList[2][32]; int64_t RefPicList_l[8]; i8x16 RefPicList_v[4]; };
 	int16_t DistScaleFactor[32]; // [refIdxL0]
 	union { int8_t implicit_weights[32][32]; i8x16 implicit_weights_v[32][2]; }; // w1 for [ref0][ref1]
 	int16_t explicit_weights[3][64]; // [iYCbCr][LX][RefIdx]
@@ -289,6 +289,9 @@ typedef struct Edge264_stream {
 	union { int32_t FieldOrderCnt[2][32]; i32x4 FieldOrderCnt_v[2][8]; }; // lower/higher half for top/bottom fields
 	Edge264_seq_parameter_set sps;
 	Edge264_pic_parameter_set PPS[4];
+	uint16_t pending_tasks;
+	union { uint32_t task_dependencies[16]; i32x4 task_dependencies_v[4]; }; // frames on which each task depends to start
+	Edge264_nal tasks[16];
 	Edge264_decoder d; // public structure, kept last to leave room for extension in future versions
 } Edge264_stream;
 
@@ -558,7 +561,7 @@ static noinline void FUNC(parse_slice_data_cabac);
 		#define min32(a, b) ({__m128i c = _mm_cmpgt_epi32(b, a); (i32x4)_mm_or_si128(_mm_and_si128(a, c), _mm_andnot_si128(c, b));})
 		#define max8(a, b) ({__m128i c = _mm_cmpgt_epi8(a, b); (i8x16)_mm_or_si128(_mm_and_si128(a, c), _mm_andnot_si128(c, b));})
 	#endif
-	#ifdef __AVX_2__
+	#ifdef __AVX2__
 		#define broadcast8(a) (i8x16)_mm_broadcastb_epi8(a)
 		#define broadcast16(a) (i16x8)_mm_broadcastw_epi16(a)
 	#else
@@ -608,11 +611,22 @@ static noinline void FUNC(parse_slice_data_cabac);
 			return (c & 0xf) | (c >> 12 & 0xf0);
 		}
 	#endif
-	#ifdef __AVX_2__
+	#ifdef __AVX2__
 		static always_inline unsigned FUNC(completed_frames) {
 			i32x8 a = _mm256_packs_epi32(st->remaining_mbs_V[0] == 0, st->remaining_mbs_V[1] == 0);
 			i32x8 b = _mm256_packs_epi32(st->remaining_mbs_V[2] == 0, st->remaining_mbs_V[3] == 0);
 			return _mm256_movemask_epi8(_mm256_packs_epi16(a, b));
+		}
+		static always_inline unsigned FUNC(refs_to_mask) {
+			i32x8 ones = {1, 1, 1, 1, 1, 1, 1, 1};
+			i32x8 a = _mm256_sllv_epi32(ones, _mm256_cvtepi8_epi32(load64(n->RefPicList_l + 0))) |
+			          _mm256_sllv_epi32(ones, _mm256_cvtepi8_epi32(load64(n->RefPicList_l + 1))) |
+			          _mm256_sllv_epi32(ones, _mm256_cvtepi8_epi32(load64(n->RefPicList_l + 2))) |
+			          _mm256_sllv_epi32(ones, _mm256_cvtepi8_epi32(load64(n->RefPicList_l + 3)));
+			i32x4 b = _mm256_castsi256_si128(a) | _mm256_extracti128_si256(a, 1);
+			i32x4 c = b | shuffle32(b, 2, 3, 0, 1);
+			i32x4 d = c | shuffle32(c, 1, 0, 3, 2);
+			return d[0];
 		}
 	#else
 		static always_inline unsigned FUNC(completed_frames) {
@@ -621,6 +635,22 @@ static noinline void FUNC(parse_slice_data_cabac);
 			i32x4 c = packs32(st->remaining_mbs_v[4] == 0, st->remaining_mbs_v[5] == 0);
 			i32x4 d = packs32(st->remaining_mbs_v[6] == 0, st->remaining_mbs_v[7] == 0);
 			return movemask(packs16(a, b)) | movemask(packs16(c, d)) << 16;
+		}
+		static always_inline unsigned FUNC(refs_to_mask) {
+			u8x16 a = n->RefPicList_v[0] + 127;
+			u8x16 b = n->RefPicList_v[2] + 127;
+			i8x16 zero = {};
+			i16x8 c = (i16x8)unpacklo8(a, zero) << 7;
+			i16x8 d = (i16x8)unpackhi8(a, zero) << 7;
+			i16x8 e = (i16x8)unpacklo8(b, zero) << 7;
+			i16x8 f = (i16x8)unpackhi8(b, zero) << 7;
+			i32x4 g = _mm_cvtps_epi32(unpacklo16(zero, c)) | _mm_cvtps_epi32(unpackhi16(zero, c)) |
+			          _mm_cvtps_epi32(unpacklo16(zero, d)) | _mm_cvtps_epi32(unpackhi16(zero, d)) |
+			          _mm_cvtps_epi32(unpacklo16(zero, e)) | _mm_cvtps_epi32(unpackhi16(zero, e)) |
+			          _mm_cvtps_epi32(unpacklo16(zero, f)) | _mm_cvtps_epi32(unpackhi16(zero, f));
+			i32x4 h = g | shuffle32(g, 2, 3, 0, 1);
+			i32x4 i = h | shuffle32(h, 1, 0, 3, 2);
+			return i[0];
 		}
 	#endif
 #else // add other architectures here

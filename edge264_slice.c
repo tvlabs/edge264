@@ -1795,10 +1795,10 @@ static noinline void CAFUNC(parse_slice_data)
 	
 	// when the total number of decoded mbs is enough, finish the frame
 	pthread_mutex_lock(&st->mutex);
-	st->pic_next_deblock_addr[st->currPic] = max(st->pic_next_deblock_addr[st->currPic], n->next_deblock_addr);
+	st->next_deblock_addr[st->currPic] = max(st->next_deblock_addr[st->currPic], n->next_deblock_addr);
 	st->remaining_mbs[st->currPic] -= n->CurrMbAddr - n->first_mb_in_slice;
 	if (st->remaining_mbs[st->currPic] == 0) {
-		CALL(deblock_frame, st->pic_next_deblock_addr[st->currPic]);
+		CALL(deblock_frame, st->next_deblock_addr[st->currPic]);
 		CALL(finish_frame);
 	}
 	pthread_mutex_unlock(&st->mutex);

@@ -279,7 +279,7 @@ typedef struct Edge264_stream {
 	int8_t currPic; // index of current incomplete frame, or -1
 	int8_t basePic; // index of last MVC base view
 	union { int32_t remaining_mbs[32]; i32x4 remaining_mbs_v[8]; i32x8 remaining_mbs_V[4]; }; // when zero the picture is complete
-	int32_t pic_next_deblock_addr[32]; // next CurrMbAddr value for which mbB will be deblocked
+	int32_t next_deblock_addr[32]; // next CurrMbAddr value for which mbB will be deblocked
 	int32_t prevRefFrameNum[2];
 	int32_t prevPicOrderCnt;
 	int32_t dispPicOrderCnt; // all POCs lower or equal than this are ready for output
@@ -596,6 +596,13 @@ static noinline void FUNC(parse_slice_data_cabac);
 		i32x4 lo = madd16(unpacklo16(mvCol, neg), mul);
 		i32x4 hi = madd16(unpackhi16(mvCol, neg), mul);
 		return packs32(lo >> 8, hi >> 8);
+	}
+	static always_inline unsigned FUNC(depended_frames) {
+		i32x4 a = st->task_dependencies_v[0] | st->task_dependencies_v[1] |
+		          st->task_dependencies_v[2] | st->task_dependencies_v[3];
+		i32x4 b = a | shuffle32(a, 2, 3, 0, 1);
+		i32x4 c = b | shuffle32(b, 1, 0, 3, 2);
+		return c[0];
 	}
 	#ifdef __BMI2__
 		static always_inline int extract_neighbours(unsigned f) { return _pext_u32(f, 0x27); }

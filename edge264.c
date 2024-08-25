@@ -1,6 +1,5 @@
 /** MAYDO:
  * _ Multithreading
- * 	_ Add a function to compute sum of tasks deps
  * 	_ Update DPB availability checks to take deps into account
  * 	_ Add a mask of pending tasks
  * 	_ Add an option for number of threads and max_frame_delay
@@ -102,7 +101,7 @@ static void FUNC(initialise_decoding_context)
 	n->direct_8x8_inference_flag = st->sps.direct_8x8_inference_flag;
 	n->pic_width_in_mbs = st->sps.pic_width_in_mbs;
 	n->currPic = st->currPic;
-	n->next_deblock_addr = st->pic_next_deblock_addr[n->currPic];
+	n->next_deblock_addr = st->next_deblock_addr[n->currPic];
 	n->samples_base = st->frame_buffers[n->currPic];
 	n->plane_size_Y = st->plane_size_Y;
 	n->plane_size_C = st->plane_size_C;
@@ -757,7 +756,7 @@ static int FUNC(parse_slice_layer_without_partitioning)
 			m[st->sps.pic_width_in_mbs + 2].unavail16x16 = 15;
 		}
 		st->remaining_mbs[st->currPic] = st->sps.pic_width_in_mbs * st->sps.pic_height_in_mbs;
-		st->pic_next_deblock_addr[st->currPic] = st->sps.pic_width_in_mbs;
+		st->next_deblock_addr[st->currPic] = st->sps.pic_width_in_mbs;
 		st->FrameNums[st->currPic] = n->FrameNum;
 		st->FieldOrderCnt[0][st->currPic] = TopFieldOrderCnt;
 		st->FieldOrderCnt[1][st->currPic] = BottomFieldOrderCnt;

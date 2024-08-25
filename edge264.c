@@ -632,11 +632,12 @@ static int FUNC(parse_slice_layer_without_partitioning)
 			}
 			reference_flags ^= 1 << unref;
 		}
-		st->reference_flags = reference_flags |= st->reference_flags & ~view_mask;
+		st->reference_flags = reference_flags | st->reference_flags & ~view_mask;
 		
 		// make enough frames immediately displayable until there are enough DPB slots available
-		unsigned output_flags = st->output_flags;
-		while (__builtin_popcount(reference_flags | output_flags) + non_existing >= st->sps.num_frame_buffers) {
+		unsigned output_flags = st->output_flags & view_mask;
+		int num_frame_buffers = st->sps.num_frame_buffers >> st->sps.mvc;
+		while (__builtin_popcount(reference_flags | output_flags) + non_existing >= num_frame_buffers) {
 			int disp, best = INT_MAX;
 			for (unsigned o = output_flags; o; o &= o - 1) {
 				int i = __builtin_ctz(o);
@@ -646,12 +647,12 @@ static int FUNC(parse_slice_layer_without_partitioning)
 			output_flags ^= 1 << disp;
 			st->dispPicOrderCnt = max(st->dispPicOrderCnt, best);
 		}
-		if (output_flags != st->output_flags)
+		if (output_flags != (st->output_flags & view_mask))
 			return -2;
 		
 		// finally insert the last non-existing frames one by one
 		for (unsigned FrameNum = n->FrameNum - non_existing; FrameNum < n->FrameNum; FrameNum++) {
-			int i = __builtin_ctz(~(reference_flags | output_flags));
+			int i = __builtin_ctz(view_mask & ~(reference_flags | output_flags));
 			reference_flags |= 1 << i;
 			st->FrameNums[i] = FrameNum;
 			int PicOrderCnt = 0;
@@ -664,7 +665,7 @@ static int FUNC(parse_slice_layer_without_partitioning)
 			}
 			st->FieldOrderCnt[0][i] = st->FieldOrderCnt[1][i] = PicOrderCnt;
 		}
-		st->reference_flags = reference_flags;
+		st->reference_flags |= reference_flags;
 	}
 	
 	// As long as PAFF/MBAFF are unsupported, this code won't execute (but is still kept).

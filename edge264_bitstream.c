@@ -8,9 +8,9 @@
  * Extract nbytes from the bitstream and return them as big endian.
  * 
  * The process reads an unaligned 16-byte chunk and will not read past the last
- * aligned 16-byte chunk containing the last bytes before n->end.
+ * aligned 16-byte chunk containing the last bytes before tsk->_gb.end.
  */
-static always_inline size_t FUNC(get_bytes, int nbytes)
+static inline size_t FUNC_GB(get_bytes, int nbytes)
 {
 	static const i8x16 shuf[8] = {
 		{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 15},
@@ -24,8 +24,8 @@ static always_inline size_t FUNC(get_bytes, int nbytes)
 	};
 	
 	// load 16 bytes without reading past aligned buffer boundaries
-	const uint8_t *CPB = n->CPB;
-	const uint8_t *end = n->end;
+	const uint8_t *CPB = gb->CPB;
+	const uint8_t *end = gb->end;
 	u8x16 v;
 	if (__builtin_expect(CPB + 14 <= end, 1)) {
 		v = load128(CPB - 2);
@@ -35,7 +35,7 @@ static always_inline size_t FUNC(get_bytes, int nbytes)
 		v = shr(shl(load128(p), p + 16 - end), CPB + 14 - end);
 		if (end - CPB < nbytes) {
 			nbytes = end - CPB;
-			n->end_of_NAL = 1;
+			gb->end_of_NAL = 1;
 		}
 	}
 	
@@ -50,7 +50,7 @@ static always_inline size_t FUNC(get_bytes, int nbytes)
 		int i = __builtin_ctz(esc);
 		// when hitting a start code, point at the 3rd byte to stall future refills there
 		if (CPB[i] <3) {
-			n->end_of_NAL = 1;
+			gb->end_of_NAL = 1;
 			x = shr(shl(x, 16 - i), 16 - i);
 			nbytes = i;
 			break;
@@ -63,7 +63,7 @@ static always_inline size_t FUNC(get_bytes, int nbytes)
 	}
 	
 	// increment CPB and return the requested bytes in upper part of the result
-	n->CPB = CPB + nbytes;
+	gb->CPB = CPB + nbytes;
 	#if SIZE_BIT == 32
 		return big_endian32(((i32x4)x)[0]);
 	#elif SIZE_BIT == 64
@@ -95,74 +95,74 @@ static always_inline size_t FUNC(get_bytes, int nbytes)
  *   The main context then fits in 2 variables, which are easier to store in
  *   Global Register Variables.
  */
-static noinline int FUNC(refill, int ret) {
-	size_t bytes = CALL(get_bytes, SIZE_BIT >> 3);
-	int trailing_bit = ctz(msb_cache); // [0..SIZE_BIT-1]
-	msb_cache = (msb_cache ^ (size_t)1 << trailing_bit) | bytes >> (SIZE_BIT - 1 - trailing_bit);
-	lsb_cache = (bytes * 2 + 1) << trailing_bit;
+static noinline int FUNC_GB(refill, int ret) {
+	size_t bytes = CALL_GB(get_bytes, SIZE_BIT >> 3);
+	int trailing_bit = ctz(gb->msb_cache); // [0..SIZE_BIT-1]
+	gb->msb_cache = (gb->msb_cache ^ (size_t)1 << trailing_bit) | bytes >> (SIZE_BIT - 1 - trailing_bit);
+	gb->lsb_cache = (bytes * 2 + 1) << trailing_bit;
 	return ret;
 }
 
-static noinline int FUNC(get_u1) {
-	int ret = msb_cache >> (SIZE_BIT - 1);
-	msb_cache = lsd(msb_cache, lsb_cache, 1);
-	if (lsb_cache <<= 1)
+static noinline int FUNC_GB(get_u1) {
+	int ret = gb->msb_cache >> (SIZE_BIT - 1);
+	gb->msb_cache = lsd(gb->msb_cache, gb->lsb_cache, 1);
+	if (gb->lsb_cache <<= 1)
 		return ret;
-	return CALL(refill, ret);
+	return CALL_GB(refill, ret);
 }
 
 // Parses a 1~32-bit fixed size code
-static noinline unsigned FUNC(get_uv, unsigned v) {
-	unsigned ret = msb_cache >> (SIZE_BIT - v);
+static noinline unsigned FUNC_GB(get_uv, unsigned v) {
+	unsigned ret = gb->msb_cache >> (SIZE_BIT - v);
 	if (SIZE_BIT == 32 && __builtin_expect(v == 32, 0)) {
-		msb_cache = lsb_cache;
-		lsb_cache = 0;
+		gb->msb_cache = gb->lsb_cache;
+		gb->lsb_cache = 0;
 	} else {
-		msb_cache = lsd(msb_cache, lsb_cache, v);
-		lsb_cache <<= v;
+		gb->msb_cache = lsd(gb->msb_cache, gb->lsb_cache, v);
+		gb->lsb_cache <<= v;
 	}
-	if (lsb_cache)
+	if (gb->lsb_cache)
 		return ret;
-	return CALL(refill, ret);
+	return CALL_GB(refill, ret);
 }
 
 // Parses a Exp-Golomb code in one read, up to 2^16-2 (2^32-2 on 64-bit machines)
-static noinline unsigned FUNC(get_ue16, unsigned upper) {
-	unsigned v = clz(msb_cache | (size_t)1 << (SIZE_BIT / 2)) * 2 + 1; // [1..SIZE_BIT-1]
-	unsigned ret = umin((msb_cache >> (SIZE_BIT - v)) - 1, upper);
-	msb_cache = lsd(msb_cache, lsb_cache, v);
-	if (lsb_cache <<= v)
+static noinline unsigned FUNC_GB(get_ue16, unsigned upper) {
+	unsigned v = clz(gb->msb_cache | (size_t)1 << (SIZE_BIT / 2)) * 2 + 1; // [1..SIZE_BIT-1]
+	unsigned ret = umin((gb->msb_cache >> (SIZE_BIT - v)) - 1, upper);
+	gb->msb_cache = lsd(gb->msb_cache, gb->lsb_cache, v);
+	if (gb->lsb_cache <<= v)
 		return ret;
-	return CALL(refill, ret);
+	return CALL_GB(refill, ret);
 }
 
 // Parses a signed Exp-Golomb code in one read, from -2^15+1 to 2^15-1 (-2^31+1 to 2^31-1 on 64-bit machines)
-static noinline int FUNC(get_se16, int lower, int upper) {
-	unsigned v = clz(msb_cache | (size_t)1 << (SIZE_BIT / 2)) * 2 + 1; // [1..SIZE_BIT-1]
-	unsigned ue = (msb_cache >> (SIZE_BIT - v)) - 1;
+static noinline int FUNC_GB(get_se16, int lower, int upper) {
+	unsigned v = clz(gb->msb_cache | (size_t)1 << (SIZE_BIT / 2)) * 2 + 1; // [1..SIZE_BIT-1]
+	unsigned ue = (gb->msb_cache >> (SIZE_BIT - v)) - 1;
 	int ret = min(max((ue & 1) ? ue / 2 + 1 : -(ue / 2), lower), upper);
-	msb_cache = lsd(msb_cache, lsb_cache, v);
-	if (lsb_cache <<= v)
+	gb->msb_cache = lsd(gb->msb_cache, gb->lsb_cache, v);
+	if (gb->lsb_cache <<= v)
 		return ret;
-	return CALL(refill, ret);
+	return CALL_GB(refill, ret);
 }
 
 // Extensions to [0,2^32-2] and [-2^31+1,2^31-1] for 32-bit machines
 #if SIZE_BIT == 32
-	static noinline unsigned FUNC(get_ue32, unsigned upper) {
-		unsigned leadingZeroBits = clz(msb_cache | 1); // [0..31]
-		msb_cache = lsd(msb_cache, lsb_cache, leadingZeroBits);
-		if (!(lsb_cache <<= leadingZeroBits))
-			CALL(refill, 0);
-		return umin(CALL(get_uv, leadingZeroBits + 1) - 1, upper);
+	static noinline unsigned FUNC_GB(get_ue32, unsigned upper) {
+		unsigned leadingZeroBits = clz(gb->msb_cache | 1); // [0..31]
+		gb->msb_cache = lsd(gb->msb_cache, gb->lsb_cache, leadingZeroBits);
+		if (!(gb->lsb_cache <<= leadingZeroBits))
+			CALL_GB(refill, 0);
+		return umin(CALL_T2B(get_uv, leadingZeroBits + 1) - 1, upper);
 	}
 
-	static noinline int FUNC(get_se32, int lower, int upper) {
-		unsigned leadingZeroBits = clz(msb_cache | 1); // [0..31]
-		msb_cache = lsd(msb_cache, lsb_cache, leadingZeroBits);
-		if (!(lsb_cache <<= leadingZeroBits))
-			CALL(refill, 0);
-		unsigned ue = CALL(get_uv, leadingZeroBits + 1) - 1;
+	static noinline int FUNC_GB(get_se32, int lower, int upper) {
+		unsigned leadingZeroBits = clz(gb->msb_cache | 1); // [0..31]
+		gb->msb_cache = lsd(gb->msb_cache, gb->lsb_cache, leadingZeroBits);
+		if (!(gb->lsb_cache <<= leadingZeroBits))
+			CALL_GB(refill, 0);
+		unsigned ue = CALL_T2B(get_uv, leadingZeroBits + 1) - 1;
 		return min(max(ue & 1 ? ue / 2 + 1 : -(ue / 2), lower), upper);
 	}
 #endif
@@ -205,7 +205,7 @@ static noinline int FUNC(get_se16, int lower, int upper) {
  *   since renormalization will now leave 25~32 bits in codIOffset, but the
  *   algorithm needs at least 29 to remain simple.
  */
-static noinline int FUNC(get_ae, int ctxIdx)
+static noinline int FUNC_TSK(get_ae, int ctxIdx)
 {
 	static const uint8_t rangeTabLPS[64 * 4] = {
 		128, 176, 208, 240, 128, 167, 197, 227, 128, 158, 187, 216, 123, 150, 178, 205,
@@ -243,67 +243,67 @@ static noinline int FUNC(get_ae, int ctxIdx)
 		228, 229,  21,  20, 232, 233,  17,  16, 236, 237,  17,  16, 240, 241,   9,   8,
 		244, 245,   9,   8, 248, 249,   5,   4, 248, 249,   1,   0, 252, 253,   0,   1,
 	};
-	size_t state = n->cabac[ctxIdx];
-	size_t shift = SIZE_BIT - 3 - clz(codIRange); // [6..SIZE_BIT-3]
-	size_t idx = (state & -4) + (codIRange >> shift);
+	size_t state = tsk->cabac[ctxIdx];
+	size_t shift = SIZE_BIT - 3 - clz(tsk->_gb.codIRange); // [6..SIZE_BIT-3]
+	size_t idx = (state & -4) + (tsk->_gb.codIRange >> shift);
 	size_t codIRangeLPS = (size_t)((uint8_t *)rangeTabLPS - 4)[idx] << (shift - 6);
-	codIRange -= codIRangeLPS;
-	if (codIOffset >= codIRange) {
+	tsk->_gb.codIRange -= codIRangeLPS;
+	if (tsk->_gb.codIOffset >= tsk->_gb.codIRange) {
 		state ^= 255;
-		codIOffset -= codIRange;
-		codIRange = codIRangeLPS;
+		tsk->_gb.codIOffset -= tsk->_gb.codIRange;
+		tsk->_gb.codIRange = codIRangeLPS;
 	}
-	n->cabac[ctxIdx] = transIdx[state];
+	tsk->cabac[ctxIdx] = transIdx[state];
 	int binVal = state & 1;
-	if (__builtin_expect(codIRange < 256, 0)) {
-		codIOffset = lsd(codIOffset, CALL(get_bytes, SIZE_BIT / 8 - 1), SIZE_BIT - 8);
-		codIRange <<= SIZE_BIT - 8;
+	if (__builtin_expect(tsk->_gb.codIRange < 256, 0)) {
+		tsk->_gb.codIOffset = lsd(tsk->_gb.codIOffset, CALL_T2B(get_bytes, SIZE_BIT / 8 - 1), SIZE_BIT - 8);
+		tsk->_gb.codIRange <<= SIZE_BIT - 8;
 	}
 	return binVal;
 }
 
-static inline int FUNC(get_bypass) {
-	if (codIRange < 512) {
-		codIOffset = lsd(codIOffset, CALL(get_bytes, SIZE_BIT / 8 - 2), SIZE_BIT - 16);
-		codIRange <<= SIZE_BIT - 16;
+static inline int FUNC_TSK(get_bypass) {
+	if (tsk->_gb.codIRange < 512) {
+		tsk->_gb.codIOffset = lsd(tsk->_gb.codIOffset, CALL_T2B(get_bytes, SIZE_BIT / 8 - 2), SIZE_BIT - 16);
+		tsk->_gb.codIRange <<= SIZE_BIT - 16;
 	}
-	codIRange >>= 1;
-	size_t binVal = codIOffset >= codIRange;
-	codIOffset = binVal ? codIOffset - codIRange : codIOffset;
+	tsk->_gb.codIRange >>= 1;
+	size_t binVal = tsk->_gb.codIOffset >= tsk->_gb.codIRange;
+	tsk->_gb.codIOffset = binVal ? tsk->_gb.codIOffset - tsk->_gb.codIRange : tsk->_gb.codIOffset;
 	return binVal;
 }
 
-static int FUNC(cabac_start) {
+static int FUNC_TSK(cabac_start) {
 	// reclaim bits from cache while realigning with CPB on a byte boundary
-	int extra_bits = SIZE_BIT - 1 - ctz(lsb_cache);
+	int extra_bits = SIZE_BIT - 1 - ctz(tsk->_gb.lsb_cache);
 	int shift = extra_bits & 7;
-	int ret = shift > 0 && (ssize_t)msb_cache >> (SIZE_BIT - shift) != -1; // return 1 if not all alignment bits are ones
-	codIOffset = lsd(msb_cache, lsb_cache, shift); // codIOffset and msb_cache are the same register when a GRV is used
-	lsb_cache >>= (SIZE_BIT - extra_bits) & (SIZE_BIT - 1);
+	int ret = shift > 0 && (ssize_t)tsk->_gb.msb_cache >> (SIZE_BIT - shift) != -1; // return 1 if not all alignment bits are ones
+	tsk->_gb.codIOffset = lsd(tsk->_gb.msb_cache, tsk->_gb.lsb_cache, shift); // tsk->_gb.codIOffset and tsk->_gb.msb_cache are the same register when a GRV is used
+	tsk->_gb.lsb_cache >>= (SIZE_BIT - extra_bits) & (SIZE_BIT - 1);
 	while (extra_bits >= 8) {
 		int32_t i;
-		memcpy(&i, n->CPB - 3, 4);
-		n->CPB -= big_endian32(i) >> 8 == 3;
-		n->CPB -= (lsb_cache & 255) == n->CPB[-1]; // zeros might have been inserted if CPB reached end of RBSP
-		lsb_cache >>= 8;
+		memcpy(&i, tsk->_gb.CPB - 3, 4);
+		tsk->_gb.CPB -= big_endian32(i) >> 8 == 3;
+		tsk->_gb.CPB -= (tsk->_gb.lsb_cache & 255) == tsk->_gb.CPB[-1]; // zeros might have been inserted if CPB reached end of RBSP
+		tsk->_gb.lsb_cache >>= 8;
 		extra_bits -= 8;
 	}
-	codIRange = (size_t)510 << (SIZE_BIT - 9);
-	codIOffset = (codIOffset < codIRange) ? codIOffset : codIRange - 1; // protection against invalid bitstream
+	tsk->_gb.codIRange = (size_t)510 << (SIZE_BIT - 9);
+	tsk->_gb.codIOffset = (tsk->_gb.codIOffset < tsk->_gb.codIRange) ? tsk->_gb.codIOffset : tsk->_gb.codIRange - 1; // protection against invalid bitstream
 	return ret;
 }
 
-static int FUNC(cabac_terminate) {
-	int extra = SIZE_BIT - 9 - clz(codIRange); // [0..SIZE_BIT-9]
-	codIRange -= (size_t)2 << extra;
-	if (codIOffset >= codIRange) {
+static int FUNC_TSK(cabac_terminate) {
+	int extra = SIZE_BIT - 9 - clz(tsk->_gb.codIRange); // [0..SIZE_BIT-9]
+	tsk->_gb.codIRange -= (size_t)2 << extra;
+	if (tsk->_gb.codIOffset >= tsk->_gb.codIRange) {
 		// reclaim the extra bits minus alignment bits, then refill the cache
-		msb_cache = (codIOffset * 2 + 1) << (SIZE_BIT - 1 - (extra & -8));
-		return CALL(refill, 1);
+		tsk->_gb.msb_cache = (tsk->_gb.codIOffset * 2 + 1) << (SIZE_BIT - 1 - (extra & -8));
+		return CALL_T2B(refill, 1);
 	}
-	if (__builtin_expect(codIRange < 256, 0)) {
-		codIOffset = lsd(codIOffset, CALL(get_bytes, SIZE_BIT / 8 - 1), SIZE_BIT - 8);
-		codIRange <<= SIZE_BIT - 8;
+	if (__builtin_expect(tsk->_gb.codIRange < 256, 0)) {
+		tsk->_gb.codIOffset = lsd(tsk->_gb.codIOffset, CALL_T2B(get_bytes, SIZE_BIT / 8 - 1), SIZE_BIT - 8);
+		tsk->_gb.codIRange <<= SIZE_BIT - 8;
 	}
 	return 0;
 }
@@ -1007,11 +1007,11 @@ static const int8_t context_init[4][1024][2] __attribute__((aligned(16))) = {{
 	{  -5,  79}, { -11, 104}, { -11,  91}, { -30, 127},
 }};
 
-static void FUNC(cabac_init, int idc) {
-	i8x16 mul = set16(max(n->QP[0], 0) + 4096);
+static void FUNC_TSK(cabac_init, int idc) {
+	i8x16 mul = set16(max(tsk->QP[0], 0) + 4096);
 	i8x16 c1 = set8(1), c64 = set8(64), c126 = set8(126);
 	const i8x16 *src = (i8x16 *)context_init[idc];
-	for (i8x16 *dst = n->cabac_v; dst < n->cabac_v + 64; dst++, src += 2) {
+	for (i8x16 *dst = tsk->cabac_v; dst < tsk->cabac_v + 64; dst++, src += 2) {
 		i16x8 sum0 = maddubs(mul, src[0]) >> 4;
 		i16x8 sum1 = maddubs(mul, src[1]) >> 4;
 		i8x16 min = umin8(packus16(sum0, sum1), c126);
@@ -1021,5 +1021,5 @@ static void FUNC(cabac_init, int idc) {
 		i8x16 shift = pStateIdx + pStateIdx;
 		*dst = shift + shift + mask + c1; // pStateIdx << 2 | valMPS (middle bit is for transIdxLPS/MPS)
 	}
-	n->cabac[276] = 252;
+	tsk->cabac[276] = 252;
 }

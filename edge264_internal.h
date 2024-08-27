@@ -35,6 +35,21 @@ typedef int32_t i32x16 __attribute__((vector_size(64))); // for initialization o
 
 
 /**
+ * Bitstream parsing context is put in a struct so that it can be included at
+ * the start of both stream and nal structures, thus their pointers can be
+ * directly sent and cast to bitstream functions.
+ */
+typedef struct {
+	const uint8_t *CPB; // memory address of the next byte to load in rbsp[0]
+	const uint8_t *end;
+	union { size_t lsb_cache; size_t codIRange; };
+	union { size_t msb_cache; size_t codIOffset; };
+	uint8_t end_of_NAL; // flag set by get_bytes when reading an escape code signalling the end of the NAL unit
+} Edge264_getbits;
+
+
+
+/**
  * In 9.3.3.1.1, ctxIdxInc is always the result of flagA+flagB or flagA+2*flagB,
  * so we pack macroblock flags together to allow adding them in parallel with
  * flagsA + flagsB + (flagsB & twice).
@@ -161,6 +176,8 @@ typedef struct {
  * we can dedicate a single register pointer to it.
  */
 typedef struct {
+	Edge264_getbits _gb; // must be first in the struct to use the same pointer for bitstream functions
+	
 	// header context
 	int8_t nal_ref_idc; // 2 significant bits
 	int8_t nal_unit_type; // 5 significant bits
@@ -178,7 +195,6 @@ typedef struct {
 	int8_t mb_qp_delta_nz; // 1 significant bit
 	int8_t ChromaArrayType; // 2 significant bits
 	int8_t direct_8x8_inference_flag; // 1 significant flag
-	uint8_t end_of_NAL; // flag set by get_bytes when reading an escape code signalling the end of the NAL unit
 	uint16_t pic_width_in_mbs; // 10 significant bits
 	uint32_t first_mb_in_slice; // unsigned to speed up integer division
 	int32_t FrameNum;
@@ -186,13 +202,7 @@ typedef struct {
 	Edge264_pic_parameter_set pps;
 	
 	// parsing context
-	const uint8_t *CPB; // memory address of the next byte to load in lsb_cache
-	const uint8_t *end;
-	size_t _lsb_cache; // base storage if not in a Global Register
-	size_t _msb_cache;
-	size_t _codIRange; // same as _lsb_cache/_msb_cache
-	size_t _codIOffset;
-	struct Edge264_stream * restrict _st;
+	struct Edge264_context * restrict _ctx;
 	Edge264_macroblock * restrict _mb; // backup storage for macro mb
 	Edge264_macroblock * restrict _mbB; // backup storage for macro mbB
 	int8_t currPic;
@@ -256,14 +266,14 @@ typedef struct {
 	union { uint8_t alpha[16]; i8x16 alpha_v; }; // {internal_Y,internal_Cb,internal_Cr,0,0,0,0,0,left_Y,left_Cb,left_Cr,0,top_Y,top_Cb,top_Cr,0}
 	union { uint8_t beta[16]; i8x16 beta_v; };
 	union { int32_t tC0_s[16]; int64_t tC0_l[8]; i8x16 tC0_v[4]; i8x32 tC0_V[2]; }; // 4 bytes per edge in deblocking order -> 8 luma edges then 8 alternating Cb/Cr edges
-} Edge264_nal;
+} Edge264_task;
 
 
 
 /**
  * This structure stores all variables scoped to the entire stream.
  */
-typedef struct Edge264_stream {
+typedef struct Edge264_context {
 	pthread_mutex_t mutex;
 	uint8_t *frame_buffers[32];
 	int64_t DPB_format; // should match format in SPS otherwise triggers resize
@@ -292,9 +302,9 @@ typedef struct Edge264_stream {
 	uint16_t pending_tasks;
 	union { uint32_t task_dependencies[16]; i32x4 task_dependencies_v[4]; }; // frames on which each task depends to start
 	union { int8_t tasks_per_frame[32]; i8x16 tasks_per_frame_v[2]; i8x32 tasks_per_frame_V; }; // number of tasks targeting each frame as output (when zero the frame is ready for output/reference)
-	Edge264_nal tasks[16];
+	Edge264_task tasks[16];
 	Edge264_decoder d; // public structure, kept last to leave room for extension in future versions
-} Edge264_stream;
+} Edge264_context;
 
 
 
@@ -333,27 +343,42 @@ typedef struct Edge264_stream {
 
 
 /**
- * Macro-ed function defs/calls allow removing n from args and keeping it in
- * a Global Register Variable if permitted by the compiler. On my machine the
- * speed gain is negligible, but the binary is noticeably smaller.
+ * Macro-ed function defs/calls allow removing ctx/tsk/gb from args and keeping
+ * them in a Global Register Variable if permitted by the compiler. On my
+ * machine the speed gain is negligible, but the binary is noticeably smaller.
  */
 #if defined(__SSSE3__) && !defined(__clang__)
-	register Edge264_nal * restrict n asm("ebx");
-	#define SETN(p) Edge264_nal *old = n; n = p
-	#define RESETN() n = old
-	#define FUNC(f, ...) f(__VA_ARGS__)
-	#define CALL(f, ...) f(__VA_ARGS__)
-	#define JUMP(f, ...) {f(__VA_ARGS__); return;}
+	register Edge264_task * restrict tsk asm("ebx");
+	#define SET_TSK(p) Edge264_task *old = tsk; tsk = p
+	#define RESET_TSK() tsk = old
+	#define FUNC_CTX(f, ...) f(__VA_ARGS__)
+	#define FUNC_TSK(f, ...) f(__VA_ARGS__)
+	#define FUNC_GB(f, ...) f(__VA_ARGS__)
+	#define CALL_CTX(f, ...) f(__VA_ARGS__)
+	#define CALL_C2B(f, ...) f(__VA_ARGS__)
+	#define CALL_TSK(f, ...) f(__VA_ARGS__)
+	#define CALL_T2B(f, ...) f(__VA_ARGS__)
+	#define CALL_GB(f, ...) f(__VA_ARGS__)
+	#define JUMP_TSK(f, ...) {f(__VA_ARGS__); return;}
+	#define gb (&tsk->_gb) // FIXME
 #else
-	#define SETN(p) Edge264_nal * restrict n = p
-	#define RESETN()
-	#define FUNC(f, ...) f(Edge264_nal * restrict n, ## __VA_ARGS__)
-	#define CALL(f, ...) f(n, ## __VA_ARGS__)
-	#define JUMP(f, ...) {f(n, ## __VA_ARGS__); return;}
+	#define SET_CTX(p) Edge264_context * restrict ctx = p
+	#define SET_TSK(p) Edge264_task * restrict tsk = p
+	#define RESET_CTX()
+	#define RESET_TSK()
+	#define FUNC_CTX(f, ...) f(Edge264_context * restrict ctx, ## __VA_ARGS__)
+	#define FUNC_TSK(f, ...) f(Edge264_task * restrict tsk, ## __VA_ARGS__)
+	#define FUNC_GB(f, ...) f(Edge264_getbits * restrict gb, ## __VA_ARGS__)
+	#define CALL_CTX(f, ...) f(ctx, ## __VA_ARGS__)
+	#define CALL_C2B(f, ...) f(&ctx->_gb, ## __VA_ARGS__)
+	#define CALL_TSK(f, ...) f(tsk, ## __VA_ARGS__)
+	#define CALL_T2B(f, ...) f(&tsk->_gb, ## __VA_ARGS__)
+	#define CALL_GB(f, ...) f(gb, ## __VA_ARGS__)
+	#define JUMP_TSK(f, ...) {f(tsk, ## __VA_ARGS__); return;}
 #endif
-#define st n->_st
-#define mb n->_mb
-#define mbB n->_mbB
+#define ctx tsk->_ctx
+#define mb tsk->_mb
+#define mbB tsk->_mbB
 
 
 
@@ -386,65 +411,66 @@ static always_inline unsigned umin(unsigned a, unsigned b) { return (a < b) ? a 
 static always_inline unsigned umax(unsigned a, unsigned b) { return (a > b) ? a : b; }
 
 // edge264_bitstream.c
-static noinline int FUNC(refill, int ret);
-static noinline int FUNC(get_u1);
-static noinline unsigned FUNC(get_uv, unsigned v);
-static noinline unsigned FUNC(get_ue16, unsigned upper);
-static noinline int FUNC(get_se16, int lower, int upper);
+static inline size_t FUNC_GB(get_bytes, int nbytes);
+static noinline int FUNC_GB(refill, int ret);
+static noinline int FUNC_GB(get_u1);
+static noinline unsigned FUNC_GB(get_uv, unsigned v);
+static noinline unsigned FUNC_GB(get_ue16, unsigned upper);
+static noinline int FUNC_GB(get_se16, int lower, int upper);
 #if SIZE_BIT == 32
-	static noinline unsigned FUNC(get_ue32, unsigned upper);
-	static noinline int FUNC(get_se32, int lower, int upper);
+	static noinline unsigned FUNC_GB(get_ue32, unsigned upper);
+	static noinline int FUNC_GB(get_se32, int lower, int upper);
 #else
 	#define get_ue32 get_ue16
 	#define get_se32 get_se16
 #endif
-static noinline int FUNC(get_ae, int ctxIdx);
-static always_inline int FUNC(get_bypass);
-static int FUNC(cabac_start);
-static int FUNC(cabac_terminate);
-static void FUNC(cabac_init, int idc);
+static noinline int FUNC_TSK(get_ae, int ctxIdx);
+static always_inline int FUNC_TSK(get_bypass);
+static int FUNC_TSK(cabac_start);
+static int FUNC_TSK(cabac_terminate);
+static void FUNC_TSK(cabac_init, int idc);
 
 // edge264.c
-void FUNC(finish_frame);
+void FUNC_TSK(finish_frame);
 
 // edge264_deblock_*.c
-void noinline FUNC(deblock_frame, unsigned next_deblock_addr);
+void noinline FUNC_TSK(deblock_frame, unsigned next_deblock_addr);
 
 // edge264_inter_*.c
-void noinline FUNC(decode_inter, int i, int w, int h);
+void noinline FUNC_TSK(decode_inter, int i, int w, int h);
 
 // edge264_intra_*.c
 void noinline _decode_intra4x4(int mode, uint8_t *px1, size_t stride, ssize_t nstride, i16x8 clip, i8x16 zero);
 void noinline _decode_intra8x8(int mode, uint8_t *px0, uint8_t *px7, size_t stride, ssize_t nstride, i16x8 clip);
 void noinline _decode_intra16x16(int mode, uint8_t *px0, uint8_t *px7, uint8_t *pxE, size_t stride, ssize_t nstride, i16x8 clip);
 void noinline _decode_intraChroma(int mode, uint8_t *Cb0, uint8_t *Cb7, uint8_t *Cr0, uint8_t *Cr7, size_t stride, ssize_t nstride, i16x8 clip);
-static always_inline void FUNC(decode_intra4x4, int mode, uint8_t *samples, size_t stride, int iYCbCr) {
-	_decode_intra4x4(mode, samples + stride, stride, -stride, n->samples_clip_v[iYCbCr], (i8x16){}); }
-static always_inline void FUNC(decode_intra8x8, int mode, uint8_t *samples, size_t stride, int iYCbCr) {
-	_decode_intra8x8(mode, samples, samples + stride * 7, stride, -stride, n->samples_clip_v[iYCbCr]); }
-static always_inline void FUNC(decode_intra16x16, int mode, uint8_t *samples, size_t stride, int iYCbCr) {
-	_decode_intra16x16(mode, samples, samples + stride * 7, samples + stride * 14, stride, -stride, n->samples_clip_v[iYCbCr]); }
-static always_inline void FUNC(decode_intraChroma, int mode, uint8_t *samplesCb, uint8_t *samplesCr, size_t stride) {
-	_decode_intraChroma(mode, samplesCb, samplesCb + stride * 7, samplesCr, samplesCr + stride * 7, stride, -stride, n->samples_clip_v[1]); }
+static always_inline void FUNC_TSK(decode_intra4x4, int mode, uint8_t *samples, size_t stride, int iYCbCr) {
+	_decode_intra4x4(mode, samples + stride, stride, -stride, tsk->samples_clip_v[iYCbCr], (i8x16){}); }
+static always_inline void FUNC_TSK(decode_intra8x8, int mode, uint8_t *samples, size_t stride, int iYCbCr) {
+	_decode_intra8x8(mode, samples, samples + stride * 7, stride, -stride, tsk->samples_clip_v[iYCbCr]); }
+static always_inline void FUNC_TSK(decode_intra16x16, int mode, uint8_t *samples, size_t stride, int iYCbCr) {
+	_decode_intra16x16(mode, samples, samples + stride * 7, samples + stride * 14, stride, -stride, tsk->samples_clip_v[iYCbCr]); }
+static always_inline void FUNC_TSK(decode_intraChroma, int mode, uint8_t *samplesCb, uint8_t *samplesCr, size_t stride) {
+	_decode_intraChroma(mode, samplesCb, samplesCb + stride * 7, samplesCr, samplesCr + stride * 7, stride, -stride, tsk->samples_clip_v[1]); }
 
 // edge264_mvpred.c
-static inline void FUNC(decode_inter_16x16, i16x8 mvd, int lx);
-static inline void FUNC(decode_inter_8x16_left, i16x8 mvd, int lx);
-static inline void FUNC(decode_inter_8x16_right, i16x8 mvd, int lx);
-static inline void FUNC(decode_inter_16x8_top, i16x8 mvd, int lx);
-static inline void FUNC(decode_inter_16x8_bottom, i16x8 mvd, int lx);
-static noinline void FUNC(decode_direct_mv_pred, unsigned direct_mask);
+static inline void FUNC_TSK(decode_inter_16x16, i16x8 mvd, int lx);
+static inline void FUNC_TSK(decode_inter_8x16_left, i16x8 mvd, int lx);
+static inline void FUNC_TSK(decode_inter_8x16_right, i16x8 mvd, int lx);
+static inline void FUNC_TSK(decode_inter_16x8_top, i16x8 mvd, int lx);
+static inline void FUNC_TSK(decode_inter_16x8_bottom, i16x8 mvd, int lx);
+static noinline void FUNC_TSK(decode_direct_mv_pred, unsigned direct_mask);
 
 // edge264_residual_*.c
-void noinline FUNC(add_idct4x4, int iYCbCr, int qP, i8x16 wS, int DCidx, uint8_t *samples);
-void noinline FUNC(add_dc4x4, int iYCbCr, int DCidx, uint8_t *samples);
-void noinline FUNC(add_idct8x8, int iYCbCr, uint8_t *samples);
-void noinline FUNC(transform_dc4x4, int iYCbCr);
-void noinline FUNC(transform_dc2x2);
+void noinline FUNC_TSK(add_idct4x4, int iYCbCr, int qP, i8x16 wS, int DCidx, uint8_t *samples);
+void noinline FUNC_TSK(add_dc4x4, int iYCbCr, int DCidx, uint8_t *samples);
+void noinline FUNC_TSK(add_idct8x8, int iYCbCr, uint8_t *samples);
+void noinline FUNC_TSK(transform_dc4x4, int iYCbCr);
+void noinline FUNC_TSK(transform_dc2x2);
 
 // edge264_slice.c
-static noinline void FUNC(parse_slice_data_cavlc);
-static noinline void FUNC(parse_slice_data_cabac);
+static noinline void FUNC_TSK(parse_slice_data_cavlc);
+static noinline void FUNC_TSK(parse_slice_data_cabac);
 
 // debugging functions
 #define print_i8x16(a) {\
@@ -598,9 +624,9 @@ static noinline void FUNC(parse_slice_data_cabac);
 		i32x4 hi = madd16(unpackhi16(mvCol, neg), mul);
 		return packs32(lo >> 8, hi >> 8);
 	}
-	static always_inline unsigned FUNC(depended_frames) {
-		i32x4 a = st->task_dependencies_v[0] | st->task_dependencies_v[1] |
-		          st->task_dependencies_v[2] | st->task_dependencies_v[3];
+	static always_inline unsigned FUNC_TSK(depended_frames) {
+		i32x4 a = ctx->task_dependencies_v[0] | ctx->task_dependencies_v[1] |
+		          ctx->task_dependencies_v[2] | ctx->task_dependencies_v[3];
 		i32x4 b = a | shuffle32(a, 2, 3, 0, 1);
 		i32x4 c = b | shuffle32(b, 1, 0, 3, 2);
 		return c[0];
@@ -620,27 +646,27 @@ static noinline void FUNC(parse_slice_data_cabac);
 		}
 	#endif
 	#ifdef __AVX2__
-		static always_inline unsigned FUNC(completed_frames) {
-			return _mm256_movemask_epi8(st->tasks_per_frame_V == 0);
+		static always_inline unsigned FUNC_TSK(completed_frames) {
+			return _mm256_movemask_epi8(ctx->tasks_per_frame_V == 0);
 		}
-		static always_inline unsigned FUNC(refs_to_mask) {
+		static always_inline unsigned FUNC_TSK(refs_to_mask) {
 			i32x8 ones = {1, 1, 1, 1, 1, 1, 1, 1};
-			i32x8 a = _mm256_sllv_epi32(ones, _mm256_cvtepi8_epi32(load64(n->RefPicList_l + 0))) |
-			          _mm256_sllv_epi32(ones, _mm256_cvtepi8_epi32(load64(n->RefPicList_l + 1))) |
-			          _mm256_sllv_epi32(ones, _mm256_cvtepi8_epi32(load64(n->RefPicList_l + 2))) |
-			          _mm256_sllv_epi32(ones, _mm256_cvtepi8_epi32(load64(n->RefPicList_l + 3)));
+			i32x8 a = _mm256_sllv_epi32(ones, _mm256_cvtepi8_epi32(load64(tsk->RefPicList_l + 0))) |
+			          _mm256_sllv_epi32(ones, _mm256_cvtepi8_epi32(load64(tsk->RefPicList_l + 1))) |
+			          _mm256_sllv_epi32(ones, _mm256_cvtepi8_epi32(load64(tsk->RefPicList_l + 2))) |
+			          _mm256_sllv_epi32(ones, _mm256_cvtepi8_epi32(load64(tsk->RefPicList_l + 3)));
 			i32x4 b = _mm256_castsi256_si128(a) | _mm256_extracti128_si256(a, 1);
 			i32x4 c = b | shuffle32(b, 2, 3, 0, 1);
 			i32x4 d = c | shuffle32(c, 1, 0, 3, 2);
 			return d[0];
 		}
 	#else
-		static always_inline unsigned FUNC(completed_frames) {
-			return movemask(st->tasks_per_frame_v[0] == 0) | movemask(st->tasks_per_frame_v[1] == 0) << 16;
+		static always_inline unsigned FUNC_TSK(completed_frames) {
+			return movemask(ctx->tasks_per_frame_v[0] == 0) | movemask(ctx->tasks_per_frame_v[1] == 0) << 16;
 		}
-		static always_inline unsigned FUNC(refs_to_mask) {
-			u8x16 a = n->RefPicList_v[0] + 127;
-			u8x16 b = n->RefPicList_v[2] + 127;
+		static always_inline unsigned FUNC_TSK(refs_to_mask) {
+			u8x16 a = tsk->RefPicList_v[0] + 127;
+			u8x16 b = tsk->RefPicList_v[2] + 127;
 			i8x16 zero = {};
 			i16x8 c = (i16x8)unpacklo8(a, zero) << 7;
 			i16x8 d = (i16x8)unpackhi8(a, zero) << 7;

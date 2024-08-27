@@ -1,6 +1,9 @@
 /** MAYDO:
  * _ Multithreading
- * 	_ Update DPB availability checks to take deps into account
+ * 	_ Create a GetBits structure, put it at the start of nal and make a special CALL for getbits with a cast from nal pointer
+ * 	_ Replace n with a generic _p, and make a new CALL/FUNC domain for headers in edge264.c, with a transition before slice decoding
+ * 	_ Update DPB availability checks to take deps into account, and make sure we wait until there is a frame ready before returning -2
+ * 	_ Add currPic to task_dependencies
  * 	_ Add a mask of pending tasks
  * 	_ Add an option for number of threads and max_frame_delay
  * 	_ Give back frame delay when returning a frame
@@ -637,22 +640,30 @@ static int FUNC(parse_slice_layer_without_partitioning)
 		// make enough frames immediately displayable until there are enough DPB slots available
 		unsigned output_flags = st->output_flags & view_mask;
 		int num_frame_buffers = st->sps.num_frame_buffers >> st->sps.mvc;
-		while (__builtin_popcount(reference_flags | output_flags) + non_existing >= num_frame_buffers) {
-			int disp, best = INT_MAX;
-			for (unsigned o = output_flags; o; o &= o - 1) {
-				int i = __builtin_ctz(o);
-				if (st->FieldOrderCnt[0][i] < best)
-					best = st->FieldOrderCnt[0][disp = i];
-			}
-			output_flags ^= 1 << disp;
-			st->dispPicOrderCnt = max(st->dispPicOrderCnt, best);
-		}
-		if (output_flags != (st->output_flags & view_mask))
+		if (__builtin_popcount(reference_flags | output_flags) + non_existing >= num_frame_buffers) {
+			do {
+				int disp, best = INT_MAX;
+				for (unsigned o = output_flags; o; o &= o - 1) {
+					int i = __builtin_ctz(o);
+					if (st->FieldOrderCnt[0][i] < best)
+						best = st->FieldOrderCnt[0][disp = i];
+				}
+				output_flags ^= 1 << disp;
+				st->dispPicOrderCnt = max(st->dispPicOrderCnt, best);
+			} while (__builtin_popcount(reference_flags | output_flags) + non_existing >= num_frame_buffers);
 			return -2;
+		}
+		
+		// wait until enough empty slots are undepended
+		unsigned avail = view_mask & ~(reference_flags | output_flags), ready;
+		while (__builtin_popcount(ready = avail & ~CALL(depended_frames)) < non_existing) {
+			// FIXME unlock and wait until next thread completion
+		}
 		
 		// finally insert the last non-existing frames one by one
 		for (unsigned FrameNum = n->FrameNum - non_existing; FrameNum < n->FrameNum; FrameNum++) {
-			int i = __builtin_ctz(view_mask & ~(reference_flags | output_flags));
+			int i = __builtin_ctz(ready);
+			ready ^= 1 << i;
 			reference_flags |= 1 << i;
 			st->FrameNums[i] = FrameNum;
 			int PicOrderCnt = 0;
@@ -733,10 +744,18 @@ static int FUNC(parse_slice_layer_without_partitioning)
 	
 	// find and possibly allocate a DPB slot for the upcoming frame
 	if (st->currPic < 0) {
-		unsigned unavail = st->reference_flags | st->output_flags | (st->basePic < 0 ? 0 : 1 << st->basePic);
+		unsigned unavail = st->reference_flags | st->output_flags;
 		if (__builtin_popcount(unavail) >= st->sps.num_frame_buffers)
 			return -2;
-		st->currPic = __builtin_ctz(!st->sps.mvc ? ~unavail : ~unavail & (n->nal_unit_type == 20 ? 0xaaaaaaaa : 0x55555555));
+		
+		// wait until at least one empty slot is undepended
+		unsigned avail = !st->sps.mvc ? ~unavail : ~unavail & (n->nal_unit_type == 20 ? 0xaaaaaaaa : 0x55555555), ready;
+		while (!(ready = avail & ~CALL(depended_frames))) {
+			// FIXME unlock and wait until next thread completion
+		}
+		
+		// allocate the frame if not already done, then initialize it
+		st->currPic = __builtin_ctz(ready);
 		if (st->frame_buffers[st->currPic] == NULL) {
 			st->frame_buffers[st->currPic] = malloc(st->frame_size);
 			if (st->frame_buffers[st->currPic] == NULL)

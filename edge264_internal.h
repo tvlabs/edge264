@@ -291,6 +291,7 @@ typedef struct Edge264_stream {
 	Edge264_pic_parameter_set PPS[4];
 	uint16_t pending_tasks;
 	union { uint32_t task_dependencies[16]; i32x4 task_dependencies_v[4]; }; // frames on which each task depends to start
+	union { int8_t tasks_per_frame[32]; i8x16 tasks_per_frame_v[2]; i8x32 tasks_per_frame_V; }; // number of tasks targeting each frame as output (when zero the frame is ready for output/reference)
 	Edge264_nal tasks[16];
 	Edge264_decoder d; // public structure, kept last to leave room for extension in future versions
 } Edge264_stream;
@@ -620,9 +621,7 @@ static noinline void FUNC(parse_slice_data_cabac);
 	#endif
 	#ifdef __AVX2__
 		static always_inline unsigned FUNC(completed_frames) {
-			i32x8 a = _mm256_packs_epi32(st->remaining_mbs_V[0] == 0, st->remaining_mbs_V[1] == 0);
-			i32x8 b = _mm256_packs_epi32(st->remaining_mbs_V[2] == 0, st->remaining_mbs_V[3] == 0);
-			return _mm256_movemask_epi8(_mm256_packs_epi16(a, b));
+			return _mm256_movemask_epi8(st->tasks_per_frame_V == 0);
 		}
 		static always_inline unsigned FUNC(refs_to_mask) {
 			i32x8 ones = {1, 1, 1, 1, 1, 1, 1, 1};
@@ -637,11 +636,7 @@ static noinline void FUNC(parse_slice_data_cabac);
 		}
 	#else
 		static always_inline unsigned FUNC(completed_frames) {
-			i32x4 a = packs32(st->remaining_mbs_v[0] == 0, st->remaining_mbs_v[1] == 0);
-			i32x4 b = packs32(st->remaining_mbs_v[2] == 0, st->remaining_mbs_v[3] == 0);
-			i32x4 c = packs32(st->remaining_mbs_v[4] == 0, st->remaining_mbs_v[5] == 0);
-			i32x4 d = packs32(st->remaining_mbs_v[6] == 0, st->remaining_mbs_v[7] == 0);
-			return movemask(packs16(a, b)) | movemask(packs16(c, d)) << 16;
+			return movemask(st->tasks_per_frame_v[0] == 0) | movemask(st->tasks_per_frame_v[1] == 0) << 16;
 		}
 		static always_inline unsigned FUNC(refs_to_mask) {
 			u8x16 a = n->RefPicList_v[0] + 127;

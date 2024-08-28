@@ -274,7 +274,6 @@ typedef struct {
  * This structure stores all variables scoped to the entire stream.
  */
 typedef struct Edge264_context {
-	pthread_mutex_t mutex;
 	uint8_t *frame_buffers[32];
 	int64_t DPB_format; // should match format in SPS otherwise triggers resize
 	int32_t plane_size_Y;
@@ -299,6 +298,7 @@ typedef struct Edge264_context {
 	union { int32_t FieldOrderCnt[2][32]; i32x4 FieldOrderCnt_v[2][8]; }; // lower/higher half for top/bottom fields
 	Edge264_seq_parameter_set sps;
 	Edge264_pic_parameter_set PPS[4];
+	pthread_mutex_t tasks_lock;
 	uint16_t pending_tasks;
 	union { uint32_t task_dependencies[16]; i32x4 task_dependencies_v[4]; }; // frames on which each task depends to start
 	union { int8_t tasks_per_frame[32]; i8x16 tasks_per_frame_v[2]; i8x32 tasks_per_frame_V; }; // number of tasks targeting each frame as output (when zero the frame is ready for output/reference)
@@ -348,9 +348,11 @@ typedef struct Edge264_context {
  * machine the speed gain is negligible, but the binary is noticeably smaller.
  */
 #if defined(__SSSE3__) && !defined(__clang__)
-	register Edge264_task * restrict tsk asm("ebx");
-	#define SET_TSK(p) Edge264_task *old = tsk; tsk = p
-	#define RESET_TSK() tsk = old
+	register void * restrict _p asm("ebx");
+	#define SET_CTX(p) Edge264_context *old = _p; _p = p
+	#define SET_TSK(p) Edge264_task *old = _p; _p = p
+	#define RESET_CTX() _p = old
+	#define RESET_TSK() _p = old
 	#define FUNC_CTX(f, ...) f(__VA_ARGS__)
 	#define FUNC_TSK(f, ...) f(__VA_ARGS__)
 	#define FUNC_GB(f, ...) f(__VA_ARGS__)
@@ -360,17 +362,19 @@ typedef struct Edge264_context {
 	#define CALL_T2B(f, ...) f(__VA_ARGS__)
 	#define CALL_GB(f, ...) f(__VA_ARGS__)
 	#define JUMP_TSK(f, ...) {f(__VA_ARGS__); return;}
-	#define gb (&tsk->_gb) // FIXME
+	#define xxx ((Edge264_context *)_p)
+	#define tsk ((Edge264_task *)_p)
+	#define gb ((Edge264_getbits *)_p)
 #else
-	#define SET_CTX(p) Edge264_context * restrict ctx = p
+	#define SET_CTX(p) Edge264_context * restrict xxx = p
 	#define SET_TSK(p) Edge264_task * restrict tsk = p
 	#define RESET_CTX()
 	#define RESET_TSK()
-	#define FUNC_CTX(f, ...) f(Edge264_context * restrict ctx, ## __VA_ARGS__)
+	#define FUNC_CTX(f, ...) f(Edge264_context * restrict xxx, ## __VA_ARGS__)
 	#define FUNC_TSK(f, ...) f(Edge264_task * restrict tsk, ## __VA_ARGS__)
 	#define FUNC_GB(f, ...) f(Edge264_getbits * restrict gb, ## __VA_ARGS__)
-	#define CALL_CTX(f, ...) f(ctx, ## __VA_ARGS__)
-	#define CALL_C2B(f, ...) f(&ctx->_gb, ## __VA_ARGS__)
+	#define CALL_CTX(f, ...) f(xxx, ## __VA_ARGS__)
+	#define CALL_C2B(f, ...) f(&xxx->_gb, ## __VA_ARGS__)
 	#define CALL_TSK(f, ...) f(tsk, ## __VA_ARGS__)
 	#define CALL_T2B(f, ...) f(&tsk->_gb, ## __VA_ARGS__)
 	#define CALL_GB(f, ...) f(gb, ## __VA_ARGS__)

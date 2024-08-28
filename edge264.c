@@ -468,7 +468,7 @@ static void FUNC_TSK(parse_ref_pic_list_modification)
 			printf("</td></tr>\n");
 		}
 	}
-	ctx->task_dependencies[tsk - ctx->tasks] = CALL_TSK(refs_to_mask);
+	//ctx->task_dependencies[tsk - ctx->tasks] = CALL_TSK(refs_to_mask);
 	
 	// fill all uninitialized references with frame 0 in case num_ref_idx_active is too high
 	tsk->RefPicList_v[0] = ifelse_msb(tsk->RefPicList_v[0], (i8x16){}, tsk->RefPicList_v[0]);
@@ -828,7 +828,7 @@ static int FUNC_TSK(parse_slice_layer_without_partitioning)
 	
 	// fill the context with useful values and start decoding
 	CALL_TSK(initialise_decoding_context);
-	pthread_mutex_unlock(&ctx->mutex);
+	pthread_mutex_unlock(&ctx->tasks_lock);
 	if (!tsk->pps.entropy_coding_mode_flag) {
 		tsk->mb_skip_run = -1;
 		CALL_TSK(parse_slice_data_cavlc);
@@ -1649,7 +1649,7 @@ Edge264_decoder *Edge264_alloc() {
 	Edge264_context *p = calloc(1, sizeof(Edge264_context)); // FIXME selectively zero?
 	if (p == NULL)
 		return NULL;
-	if (pthread_mutex_init(&p->mutex, NULL)) {
+	if (pthread_mutex_init(&p->tasks_lock, NULL)) {
 		free(p);
 		return NULL;
 	}
@@ -1701,9 +1701,7 @@ int Edge264_decode_NAL(Edge264_decoder *d)
 	if (d->CPB >= d->end)
 		return -3;
 	Edge264_context *s = (void *)d - offsetof(Edge264_context, d);
-	pthread_mutex_lock(&s->mutex);
 	SET_TSK(&s->tasks[0]);
-	s->task_dependencies[0] = 0;
 	ctx = s;
 	tsk->_gb.CPB = ctx->d.CPB + 3; // first byte that might be escaped
 	tsk->_gb.end = ctx->d.end;
@@ -1780,7 +1778,6 @@ int Edge264_decode_NAL(Edge264_decoder *d)
 	// CPB may point anywhere up to the last byte of the next start code
 	if (ret >= 0)
 		ctx->d.CPB = Edge264_find_start_code(1, tsk->_gb.CPB - 2, tsk->_gb.end);
-	pthread_mutex_unlock(&ctx->mutex);
 	RESET_TSK();
 	printf("</table>\n");
 	return ret;
@@ -1799,47 +1796,46 @@ int Edge264_decode_NAL(Edge264_decoder *d)
 int Edge264_get_frame(Edge264_decoder *d, int drain) {
 	if (d == NULL)
 		return -1;
-	Edge264_context *s = (void *)d - offsetof(Edge264_context, d);
-	pthread_mutex_lock(&s->mutex);
+	SET_CTX((void *)d - offsetof(Edge264_context, d));
 	int pic[2] = {-1, -1};
-	unsigned unavail = s->reference_flags | s->output_flags | (s->basePic < 0 ? 0 : 1 << s->basePic);
-	int best = (drain || __builtin_popcount(s->output_flags) > s->sps.max_num_reorder_frames ||
-		__builtin_popcount(unavail) >= s->sps.num_frame_buffers) ? INT_MAX : s->dispPicOrderCnt;
-	for (int o = s->output_flags; o != 0; o &= o - 1) {
+	unsigned unavail = xxx->reference_flags | xxx->output_flags | (xxx->basePic < 0 ? 0 : 1 << xxx->basePic);
+	int best = (drain || __builtin_popcount(xxx->output_flags) > xxx->sps.max_num_reorder_frames ||
+		__builtin_popcount(unavail) >= xxx->sps.num_frame_buffers) ? INT_MAX : xxx->dispPicOrderCnt;
+	for (int o = xxx->output_flags; o != 0; o &= o - 1) {
 		int i = __builtin_ctz(o);
-		if (s->FieldOrderCnt[0][i] <= best) {
-			int non_base = s->sps.mvc & i & 1;
-			if (s->FieldOrderCnt[0][i] < best) {
-				best = s->FieldOrderCnt[0][i];
+		if (xxx->FieldOrderCnt[0][i] <= best) {
+			int non_base = xxx->sps.mvc & i & 1;
+			if (xxx->FieldOrderCnt[0][i] < best) {
+				best = xxx->FieldOrderCnt[0][i];
 				pic[non_base ^ 1] = -1;
 			}
 			pic[non_base] = i;
 		}
 	}
-	int top = s->d.frame_crop_offsets[0];
-	int left = s->d.frame_crop_offsets[3];
-	int topC = s->sps.chroma_format_idc == 3 ? top : top >> 1;
-	int leftC = s->sps.chroma_format_idc == 1 ? left >> 1 : left;
-	int offC = s->plane_size_Y + topC * s->d.stride_C + (leftC << s->d.pixel_depth_C);
+	int top = xxx->d.frame_crop_offsets[0];
+	int left = xxx->d.frame_crop_offsets[3];
+	int topC = xxx->sps.chroma_format_idc == 3 ? top : top >> 1;
+	int leftC = xxx->sps.chroma_format_idc == 1 ? left >> 1 : left;
+	int offC = xxx->plane_size_Y + topC * xxx->d.stride_C + (leftC << xxx->d.pixel_depth_C);
 	int res = -2;
 	if (pic[0] >= 0) {
-		s->output_flags ^= 1 << pic[0];
-		const uint8_t *samples = s->frame_buffers[pic[0]];
-		s->d.samples[0] = samples + top * s->d.stride_Y + (left << s->d.pixel_depth_Y);
-		s->d.samples[1] = samples + offC;
-		s->d.samples[2] = samples + s->plane_size_C + offC;
-		s->d.TopFieldOrderCnt = best << 6 >> 6;
-		s->d.BottomFieldOrderCnt = s->FieldOrderCnt[1][pic[0]] << 6 >> 6;
+		xxx->output_flags ^= 1 << pic[0];
+		const uint8_t *samples = xxx->frame_buffers[pic[0]];
+		xxx->d.samples[0] = samples + top * xxx->d.stride_Y + (left << xxx->d.pixel_depth_Y);
+		xxx->d.samples[1] = samples + offC;
+		xxx->d.samples[2] = samples + xxx->plane_size_C + offC;
+		xxx->d.TopFieldOrderCnt = best << 6 >> 6;
+		xxx->d.BottomFieldOrderCnt = xxx->FieldOrderCnt[1][pic[0]] << 6 >> 6;
 		res = 0;
 		if (pic[1] >= 0) {
-			s->output_flags ^= 1 << pic[1];
-			samples = s->frame_buffers[pic[1]];
-			s->d.samples_mvc[0] = samples + top * s->d.stride_Y + (left << s->d.pixel_depth_Y);
-			s->d.samples_mvc[1] = samples + offC;
-			s->d.samples_mvc[2] = samples + s->plane_size_C + offC;
+			xxx->output_flags ^= 1 << pic[1];
+			samples = xxx->frame_buffers[pic[1]];
+			xxx->d.samples_mvc[0] = samples + top * xxx->d.stride_Y + (left << xxx->d.pixel_depth_Y);
+			xxx->d.samples_mvc[1] = samples + offC;
+			xxx->d.samples_mvc[2] = samples + xxx->plane_size_C + offC;
 		}
 	}
-	pthread_mutex_unlock(&s->mutex);
+	RESET_CTX();
 	return res;
 }
 
@@ -1847,13 +1843,14 @@ int Edge264_get_frame(Edge264_decoder *d, int drain) {
 
 void Edge264_free(Edge264_decoder **d) {
 	if (d != NULL && *d != NULL) {
-		Edge264_context *s = (void *)*d - offsetof(Edge264_context, d);
-		pthread_mutex_destroy(&s->mutex);
+		SET_CTX((void *)*d - offsetof(Edge264_context, d));
+		pthread_mutex_destroy(&xxx->tasks_lock);
 		for (int i = 0; i < 32; i++) {
-			if (s->frame_buffers[i] != NULL)
-				free(s->frame_buffers[i]);
+			if (xxx->frame_buffers[i] != NULL)
+				free(xxx->frame_buffers[i]);
 		}
-		free(s);
+		free(xxx);
 		*d = NULL;
+		RESET_CTX();
 	}
 }

@@ -179,13 +179,10 @@ typedef struct {
 	Edge264_getbits _gb; // must be first in the struct to use the same pointer for bitstream functions
 	
 	// header context
-	int8_t nal_ref_idc; // 2 significant bits
-	int8_t nal_unit_type; // 5 significant bits
 	int8_t slice_type; // 3 significant bits
 	int8_t field_pic_flag; // 1 significant bit
 	int8_t bottom_field_flag; // 1 significant bit
 	int8_t MbaffFrameFlag; // 1 significant bit
-	int8_t IdrPicFlag; // 1 significant bit
 	int8_t direct_spatial_mv_pred_flag; // 1 significant bit
 	int8_t luma_log2_weight_denom; // 3 significant bits
 	int8_t chroma_log2_weight_denom; // 3 significant bits
@@ -274,6 +271,13 @@ typedef struct {
  * This structure stores all variables scoped to the entire stream.
  */
 typedef struct Edge264_context {
+	Edge264_getbits _gb; // must be first in the struct to use the same pointer for bitstream functions
+	int8_t nal_ref_idc; // 2 significant bits
+	int8_t nal_unit_type; // 5 significant bits
+	int8_t IdrPicFlag; // 1 significant bit
+	int8_t pic_idr_or_mmco5; // when set, all other POCs will be decreased after completing the current frame
+	int8_t currPic; // index of current incomplete frame, or -1
+	int8_t basePic; // index of last MVC base view
 	uint8_t *frame_buffers[32];
 	int64_t DPB_format; // should match format in SPS otherwise triggers resize
 	int32_t plane_size_Y;
@@ -284,9 +288,6 @@ typedef struct Edge264_context {
 	uint32_t long_term_flags; // bitfield for indices of long-term frames/views
 	uint32_t pic_long_term_flags; // to be applied after decoding all slices of the current picture
 	uint32_t output_flags; // bitfield for frames waiting to be output
-	int8_t pic_idr_or_mmco5; // when set, all other POCs will be decreased after completing the current frame
-	int8_t currPic; // index of current incomplete frame, or -1
-	int8_t basePic; // index of last MVC base view
 	union { int32_t remaining_mbs[32]; i32x4 remaining_mbs_v[8]; i32x8 remaining_mbs_V[4]; }; // when zero the picture is complete
 	int32_t next_deblock_addr[32]; // next CurrMbAddr value for which mbB will be deblocked
 	int32_t prevRefFrameNum[2];
@@ -362,25 +363,24 @@ typedef struct Edge264_context {
 	#define CALL_T2B(f, ...) f(__VA_ARGS__)
 	#define CALL_GB(f, ...) f(__VA_ARGS__)
 	#define JUMP_TSK(f, ...) {f(__VA_ARGS__); return;}
-	#define xxx ((Edge264_context *)_p)
+	#define ctx ((Edge264_context *)_p)
 	#define tsk ((Edge264_task *)_p)
 	#define gb ((Edge264_getbits *)_p)
 #else
-	#define SET_CTX(p) Edge264_context * restrict xxx = p
+	#define SET_CTX(p) Edge264_context * restrict ctx = p
 	#define SET_TSK(p) Edge264_task * restrict tsk = p
 	#define RESET_CTX()
 	#define RESET_TSK()
-	#define FUNC_CTX(f, ...) f(Edge264_context * restrict xxx, ## __VA_ARGS__)
+	#define FUNC_CTX(f, ...) f(Edge264_context * restrict ctx, ## __VA_ARGS__)
 	#define FUNC_TSK(f, ...) f(Edge264_task * restrict tsk, ## __VA_ARGS__)
 	#define FUNC_GB(f, ...) f(Edge264_getbits * restrict gb, ## __VA_ARGS__)
-	#define CALL_CTX(f, ...) f(xxx, ## __VA_ARGS__)
-	#define CALL_C2B(f, ...) f(&xxx->_gb, ## __VA_ARGS__)
+	#define CALL_CTX(f, ...) f(ctx, ## __VA_ARGS__)
+	#define CALL_C2B(f, ...) f(&ctx->_gb, ## __VA_ARGS__)
 	#define CALL_TSK(f, ...) f(tsk, ## __VA_ARGS__)
 	#define CALL_T2B(f, ...) f(&tsk->_gb, ## __VA_ARGS__)
 	#define CALL_GB(f, ...) f(gb, ## __VA_ARGS__)
 	#define JUMP_TSK(f, ...) {f(tsk, ## __VA_ARGS__); return;}
 #endif
-#define ctx tsk->_ctx
 #define mb tsk->_mb
 #define mbB tsk->_mbB
 
@@ -433,9 +433,6 @@ static always_inline int FUNC_TSK(get_bypass);
 static int FUNC_TSK(cabac_start);
 static int FUNC_TSK(cabac_terminate);
 static void FUNC_TSK(cabac_init, int idc);
-
-// edge264.c
-void FUNC_TSK(finish_frame);
 
 // edge264_deblock_*.c
 void noinline FUNC_TSK(deblock_frame, unsigned next_deblock_addr);
@@ -628,7 +625,7 @@ static noinline void FUNC_TSK(parse_slice_data_cabac);
 		i32x4 hi = madd16(unpackhi16(mvCol, neg), mul);
 		return packs32(lo >> 8, hi >> 8);
 	}
-	static always_inline unsigned FUNC_TSK(depended_frames) {
+	static always_inline unsigned FUNC_CTX(depended_frames) {
 		i32x4 a = ctx->task_dependencies_v[0] | ctx->task_dependencies_v[1] |
 		          ctx->task_dependencies_v[2] | ctx->task_dependencies_v[3];
 		i32x4 b = a | shuffle32(a, 2, 3, 0, 1);
@@ -650,7 +647,7 @@ static noinline void FUNC_TSK(parse_slice_data_cabac);
 		}
 	#endif
 	#ifdef __AVX2__
-		static always_inline unsigned FUNC_TSK(completed_frames) {
+		static always_inline unsigned FUNC_CTX(completed_frames) {
 			return _mm256_movemask_epi8(ctx->tasks_per_frame_V == 0);
 		}
 		static always_inline unsigned FUNC_TSK(refs_to_mask) {
@@ -665,7 +662,7 @@ static noinline void FUNC_TSK(parse_slice_data_cabac);
 			return d[0];
 		}
 	#else
-		static always_inline unsigned FUNC_TSK(completed_frames) {
+		static always_inline unsigned FUNC_CTX(completed_frames) {
 			return movemask(ctx->tasks_per_frame_v[0] == 0) | movemask(ctx->tasks_per_frame_v[1] == 0) << 16;
 		}
 		static always_inline unsigned FUNC_TSK(refs_to_mask) {

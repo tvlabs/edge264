@@ -1792,14 +1792,4 @@ static noinline void CAFUNC(parse_slice_data)
 				break;
 		}
 	}
-	
-	// when the total number of decoded mbs is enough, finish the frame
-	pthread_mutex_lock(&ctx->tasks_lock);
-	ctx->next_deblock_addr[ctx->currPic] = max(ctx->next_deblock_addr[ctx->currPic], tsk->next_deblock_addr);
-	ctx->remaining_mbs[ctx->currPic] -= tsk->CurrMbAddr - tsk->first_mb_in_slice;
-	if (ctx->remaining_mbs[ctx->currPic] == 0) {
-		CALL_TSK(deblock_frame, ctx->next_deblock_addr[ctx->currPic]);
-		CALL_TSK(finish_frame);
-	}
-	pthread_mutex_unlock(&ctx->tasks_lock);
 }

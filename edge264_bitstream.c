@@ -29,37 +29,39 @@ static inline size_t FUNC_GB(get_bytes, int nbytes)
 	u8x16 v;
 	if (__builtin_expect(CPB + 14 <= end, 1)) {
 		v = load128(CPB - 2);
+	} else if (end == NULL) {
+		return 0;
 	} else {
 		const uint8_t *last = (uint8_t *)((uintptr_t)(end - 1) & -16);
 		const uint8_t *p = CPB - 2 < last ? CPB - 2 : last;
 		v = shr(shl(load128(p), p + 16 - end), CPB + 14 - end);
 		if (end - CPB < nbytes) {
 			nbytes = end - CPB;
-			gb->end_of_NAL = 1;
+			gb->end = NULL;
 		}
 	}
 	
-	// create a bitmask for the positions of 00n escape sequences, with n<=3
+	// create a bitmask for the positions of 001 and 003 escape sequences
 	u8x16 eq0 = v == 0;
 	u8x16 x = shrc(v, 2);
-	u8x16 eq0123 = x <= 3;
-	unsigned esc = movemask(eq0 & shrc(eq0, 1) & eq0123);
+	u8x16 eq13 = (x & 253) == 1;
+	unsigned esc = movemask(eq0 & shrc(eq0, 1) & eq13);
 	
 	// iterate on escape sequences that fall inside the bytes to refill
 	while (__builtin_expect(esc & ((1 << nbytes) - 1), 0)) {
 		int i = __builtin_ctz(esc);
-		// when hitting a start code, point at the 3rd byte to stall future refills there
-		if (CPB[i] <3) {
-			gb->end_of_NAL = 1;
+		// at a start code, advance CPB past it and reset end to signal end of buffer
+		if (CPB[i] == 1) {
+			nbytes = i + 1;
+			gb->end = NULL;
 			x = shr(shl(x, 16 - i), 16 - i);
-			nbytes = i;
 			break;
 		}
 		// otherwise this is an emulation_prevention_three_byte -> remove it
 		x = shuffle8(x, shuf[i]);
 		esc = (esc & (esc - 1)) >> 1;
 		CPB++;
-		nbytes = min(nbytes, end - CPB);
+		nbytes = umin(nbytes, end - CPB);
 	}
 	
 	// increment CPB and return the requested bytes in upper part of the result
@@ -278,7 +280,7 @@ static int FUNC_TSK(cabac_start) {
 	int extra_bits = SIZE_BIT - 1 - ctz(tsk->_gb.lsb_cache);
 	int shift = extra_bits & 7;
 	int ret = shift > 0 && (ssize_t)tsk->_gb.msb_cache >> (SIZE_BIT - shift) != -1; // return 1 if not all alignment bits are ones
-	tsk->_gb.codIOffset = lsd(tsk->_gb.msb_cache, tsk->_gb.lsb_cache, shift); // tsk->_gb.codIOffset and tsk->_gb.msb_cache are the same register when a GRV is used
+	tsk->_gb.codIOffset = lsd(tsk->_gb.msb_cache, tsk->_gb.lsb_cache, shift); // codIOffset and msb_cache are the same memory slot
 	tsk->_gb.lsb_cache >>= (SIZE_BIT - extra_bits) & (SIZE_BIT - 1);
 	while (extra_bits >= 8) {
 		int32_t i;

@@ -41,10 +41,9 @@ typedef int32_t i32x16 __attribute__((vector_size(64))); // for initialization o
  */
 typedef struct {
 	const uint8_t *CPB; // memory address of the next byte to load in rbsp[0]
-	const uint8_t *end;
+	const uint8_t *end; // first byte past end of buffer, set to NULL when CPB reaches it or a start code
 	union { size_t lsb_cache; size_t codIRange; };
 	union { size_t msb_cache; size_t codIOffset; };
-	uint8_t end_of_NAL; // flag set by get_bytes when reading an escape code signalling the end of the NAL unit
 } Edge264_getbits;
 
 

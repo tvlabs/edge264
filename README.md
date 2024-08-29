@@ -1,7 +1,7 @@
 edge264
 =======
 
-Minimalist software decoder for the H.264 video format.
+Minimalist software decoder with state-of-the-art performance for the H.264 video format.
 
 
 Features

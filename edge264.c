@@ -1,6 +1,5 @@
 /** MAYDO:
  * _ Multithreading
- * 	_ Replace end_of_NAL with end==NULL ?
  * 	_ Update DPB availability checks to take deps into account, and make sure we wait until there is a frame ready before returning -2
  * 	_ Add currPic to task_dependencies
  * 	_ Add a mask of pending tasks
@@ -107,7 +106,7 @@ static void FUNC_CTX(initialise_decoding_context, Edge264_task *t)
 	t->samples_mb[0] = t->samples_row[0] + mbx * 16;
 	t->samples_mb[1] = t->samples_row[1] + mbx * 8;
 	t->samples_mb[2] = t->samples_row[2] + mbx * 8;
-	t->QP_C_v[0] = load128(QP_Y2C + clip3(0, 63, 15 + t->pps.chroma_qp_index_offset));
+	t->QP_C_v[0] = load128(QP_Y2C + clip3(0, 63, 15 + t->pps.chroma_qp_index_offset)); // FIXME optimize ???
 	t->QP_C_v[1] = load128(QP_Y2C + clip3(0, 63, 31 + t->pps.chroma_qp_index_offset));
 	t->QP_C_v[2] = load128(QP_Y2C + clip3(0, 63, 47 + t->pps.chroma_qp_index_offset));
 	t->QP_C_v[3] = load128(QP_Y2C + clip3(0, 63, 63 + t->pps.chroma_qp_index_offset));
@@ -1044,7 +1043,7 @@ static int FUNC_CTX(parse_pic_parameter_set)
 		red_if(redundant_pic_cnt_present_flag), redundant_pic_cnt_present_flag);
 	
 	// short for peek-24-bits-without-having-to-define-a-single-use-function
-	if (ctx->_gb.msb_cache != (size_t)1 << (SIZE_BIT - 1) || (ctx->_gb.lsb_cache & (ctx->_gb.lsb_cache - 1)) || !ctx->_gb.end_of_NAL) {
+	if (ctx->_gb.msb_cache != (size_t)1 << (SIZE_BIT - 1) || (ctx->_gb.lsb_cache & (ctx->_gb.lsb_cache - 1)) || ctx->_gb.end) {
 		pps.transform_8x8_mode_flag = CALL_C2B(get_u1);
 		printf("<tr><th>transform_8x8_mode_flag</th><td>%x</td></tr>\n",
 			pps.transform_8x8_mode_flag);
@@ -1071,7 +1070,7 @@ static int FUNC_CTX(parse_pic_parameter_set)
 	}
 	
 	// check for trailing_bits before unsupported features (in case errors enabled them)
-	if (ctx->_gb.msb_cache != (size_t)1 << (SIZE_BIT - 1) || (ctx->_gb.lsb_cache & (ctx->_gb.lsb_cache - 1)) || !ctx->_gb.end_of_NAL)
+	if (ctx->_gb.msb_cache != (size_t)1 << (SIZE_BIT - 1) || (ctx->_gb.lsb_cache & (ctx->_gb.lsb_cache - 1)) || ctx->_gb.end)
 		return 2;
 	if (pic_parameter_set_id >= 4 || num_slice_groups > 1 ||
 		pps.constrained_intra_pred_flag || redundant_pic_cnt_present_flag)
@@ -1578,7 +1577,7 @@ static int FUNC_CTX(parse_seq_parameter_set)
 	}
 	
 	// check for trailing_bits before unsupported features (in case errors enabled them)
-	if (ctx->_gb.msb_cache != (size_t)1 << (SIZE_BIT - 1) || (ctx->_gb.lsb_cache & (ctx->_gb.lsb_cache - 1)) || !ctx->_gb.end_of_NAL)
+	if (ctx->_gb.msb_cache != (size_t)1 << (SIZE_BIT - 1) || (ctx->_gb.lsb_cache & (ctx->_gb.lsb_cache - 1)) || ctx->_gb.end)
 		return 2;
 	if (sps.ChromaArrayType != 1 || sps.BitDepth_Y != 8 || sps.BitDepth_C != 8 ||
 		sps.qpprime_y_zero_transform_bypass_flag || !sps.frame_mbs_only_flag)
@@ -1639,7 +1638,7 @@ static int FUNC_CTX(parse_seq_parameter_set_extension) {
 		CALL_C2B(get_uv, 3 + bit_depth_aux * 2);
 	}
 	CALL_C2B(get_u1);
-	if (ctx->_gb.msb_cache != (size_t)1 << (SIZE_BIT - 1) || (ctx->_gb.lsb_cache & (ctx->_gb.lsb_cache - 1)) || !ctx->_gb.end_of_NAL) // rbsp_trailing_bits
+	if (ctx->_gb.msb_cache != (size_t)1 << (SIZE_BIT - 1) || (ctx->_gb.lsb_cache & (ctx->_gb.lsb_cache - 1)) || ctx->_gb.end) // rbsp_trailing_bits
 		return 2;
 	return aux_format_idc != 0; // unsupported if transparent
 }
@@ -1732,7 +1731,6 @@ int Edge264_decode_NAL(Edge264_decoder *d)
 	
 	// parse AUD and MVC prefix that require no escaping
 	int ret = 0;
-	ctx->_gb.end_of_NAL = 0;
 	Parser parser = parse_nal_unit[ctx->nal_unit_type];
 	if (ctx->nal_unit_type == 9) {
 		if (ctx->_gb.CPB - 2 >= ctx->_gb.end || (ctx->_gb.CPB[-2] & 31) != 16) {
@@ -1792,9 +1790,9 @@ int Edge264_decode_NAL(Edge264_decoder *d)
 	else if (ret == 2)
 		printf("<tr style='background-color:#f77'><th colspan=2 style='text-align:center'>Decoding error</th></tr>\n");
 	
-	// CPB may point anywhere up to the last byte of the next start code
+	// CPB may point anywhere up to the byte past the next start code
 	if (ret >= 0)
-		ctx->d.CPB = Edge264_find_start_code(1, ctx->_gb.CPB - 2, ctx->_gb.end);
+		ctx->d.CPB = Edge264_find_start_code(1, ctx->_gb.CPB - 3, ctx->d.end);
 	RESET_CTX();
 	printf("</table>\n");
 	return ret;

@@ -349,8 +349,8 @@ typedef struct Edge264_context {
  */
 #if defined(__SSSE3__) && !defined(__clang__)
 	register void * restrict _p asm("ebx");
-	#define SET_CTX(p) Edge264_context *old = _p; _p = p
-	#define SET_TSK(p) Edge264_task *old = _p; _p = p
+	#define SET_CTX(p, b) Edge264_context *old = _p; {Edge264_context *_c = (p); _c->_gb = (b); _p = _c;}
+	#define SET_TSK(p, b) Edge264_task *old = _p; {Edge264_task *_t = (p); _t->_gb = (b); _p = _t;}
 	#define RESET_CTX() _p = old
 	#define RESET_TSK() _p = old
 	#define FUNC_CTX(f, ...) f(__VA_ARGS__)
@@ -366,8 +366,8 @@ typedef struct Edge264_context {
 	#define tsk ((Edge264_task *)_p)
 	#define gb ((Edge264_getbits *)_p)
 #else
-	#define SET_CTX(p) Edge264_context * restrict ctx = p
-	#define SET_TSK(p) Edge264_task * restrict tsk = p
+	#define SET_CTX(p, b) Edge264_context * restrict ctx = (p); ctx->_gb = (b)
+	#define SET_TSK(p, b) Edge264_task * restrict tsk = (p); tsk->_gb = (b)
 	#define RESET_CTX()
 	#define RESET_TSK()
 	#define FUNC_CTX(f, ...) f(Edge264_context * restrict ctx, ## __VA_ARGS__)
@@ -474,28 +474,28 @@ static noinline void FUNC_TSK(parse_slice_data_cabac);
 
 // debugging functions
 #define print_i8x16(a) {\
-	i8x16 v = a;\
+	i8x16 _v = a;\
 	printf("<tr><th>" #a "</th><td>");\
-	for (int i = 0; i < 16; i++)\
-		printf("%4d ", v[i]);\
+	for (int _i = 0; _i < 16; _i++)\
+		printf("%4d ", _v[_i]);\
 	printf("</td></tr>\n");}
 #define print_u8x16(a) {\
-	u8x16 v = a;\
+	u8x16 _v = a;\
 	printf("<tr><th>" #a "</th><td>");\
-	for (int i = 0; i < 16; i++)\
-		printf("%3u ", v[i]);\
+	for (int _i = 0; _i < 16; _i++)\
+		printf("%3u ", _v[_i]);\
 	printf("</td></tr>\n");}
 #define print_i16x8(a) {\
-	i16x8 v = a;\
+	i16x8 _v = a;\
 	printf("<tr><th>" #a "</th><td>");\
-	for (int i = 0; i < 8; i++)\
-		printf("%6d ", v[i]);\
+	for (int _i = 0; _i < 8; _i++)\
+		printf("%6d ", _v[_i]);\
 	printf("</td></tr>\n");}
 #define print_i32x4(a) {\
-	i32x4 v = a;\
+	i32x4 _v = a;\
 	printf("<tr><th>" #a "</th><td>");\
-	for (int i = 0; i < 4; i++)\
-		printf("%6d ", v[i]);\
+	for (int _i = 0; _i < 4; _i++)\
+		printf("%6d ", _v[_i]);\
 	printf("</td></tr>\n");}
 
 

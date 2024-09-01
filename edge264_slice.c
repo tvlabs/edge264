@@ -1772,12 +1772,12 @@ static noinline void CAFUNC(parse_slice_data)
 		tsk->mbCol++;
 		
 		// break at end of slice
-		tsk->CurrMbAddr++;
 		#ifdef CABAC
 			int end_of_slice_flag = CALL_TSK(cabac_terminate);
 			fprintf(stderr, "end_of_slice_flag: %x\n", end_of_slice_flag);
 		#endif
-		if (CACOND(tsk->mb_skip_run <= 0 && tsk->_gb.msb_cache == (size_t)1 << (SIZE_BIT - 1) && !(tsk->_gb.lsb_cache & (tsk->_gb.lsb_cache - 1)) && !tsk->_gb.end, end_of_slice_flag))
+		tsk->CurrMbAddr++;
+		if (CACOND(tsk->mb_skip_run <= 0 && tsk->_gb.msb_cache == (size_t)1 << (SIZE_BIT - 1) && !(tsk->_gb.lsb_cache & (tsk->_gb.lsb_cache - 1)) && tsk->_gb.CPB >= tsk->_gb.end, end_of_slice_flag))
 			break;
 		
 		// end of row

@@ -829,33 +829,35 @@ static int FUNC_CTX(parse_slice_layer_without_partitioning)
 	
 	// fill the context with useful values and start decoding
 	CALL_CTX(initialise_decoding_context, t);
-	t->_gb = ctx->_gb;
-	SET_TSK(t);
+	SET_TSK(t, ctx->_gb);
 	if (!tsk->pps.entropy_coding_mode_flag) {
 		tsk->mb_skip_run = -1;
 		CALL_TSK(parse_slice_data_cavlc);
 	} else {
 		// cabac_alignment_one_bit gives a good probability to catch random errors.
 		if (CALL_TSK(cabac_start)) {
-			SET_CTX(tsk->_ctx);
+			SET_CTX(tsk->_ctx, tsk->_gb);
 			return 2;
 		}
 		CALL_TSK(cabac_init, cabac_init_idc);
 		tsk->mb_qp_delta_nz = 0;
 		CALL_TSK(parse_slice_data_cabac);
+		if (tsk->_gb.msb_cache != 0 || (tsk->_gb.lsb_cache & (tsk->_gb.lsb_cache - 1))) {
+			SET_CTX(tsk->_ctx, tsk->_gb);
+			return 2;
+		}
 	}
 	Edge264_context *c = tsk->_ctx;
-	c->_gb = tsk->_gb;
 	
 	// when the total number of decoded mbs is enough, finish the frame
 	c->next_deblock_addr[tsk->currPic] = max(c->next_deblock_addr[tsk->currPic], tsk->next_deblock_addr);
 	c->remaining_mbs[tsk->currPic] -= tsk->CurrMbAddr - tsk->first_mb_in_slice;
 	if (c->remaining_mbs[tsk->currPic] == 0) {
 		CALL_TSK(deblock_frame, c->next_deblock_addr[tsk->currPic]);
-		SET_CTX(c);
+		SET_CTX(c, tsk->_gb);
 		CALL_CTX(finish_frame);
 	} else {
-		SET_CTX(tsk->_ctx);
+		SET_CTX(tsk->_ctx, tsk->_gb);
 	}
 	return 0;
 }
@@ -1043,7 +1045,7 @@ static int FUNC_CTX(parse_pic_parameter_set)
 		red_if(redundant_pic_cnt_present_flag), redundant_pic_cnt_present_flag);
 	
 	// short for peek-24-bits-without-having-to-define-a-single-use-function
-	if (ctx->_gb.msb_cache != (size_t)1 << (SIZE_BIT - 1) || (ctx->_gb.lsb_cache & (ctx->_gb.lsb_cache - 1)) || ctx->_gb.end) {
+	if (ctx->_gb.msb_cache != (size_t)1 << (SIZE_BIT - 1) || (ctx->_gb.lsb_cache & (ctx->_gb.lsb_cache - 1)) || ctx->_gb.CPB < ctx->_gb.end) {
 		pps.transform_8x8_mode_flag = CALL_C2B(get_u1);
 		printf("<tr><th>transform_8x8_mode_flag</th><td>%x</td></tr>\n",
 			pps.transform_8x8_mode_flag);
@@ -1070,7 +1072,7 @@ static int FUNC_CTX(parse_pic_parameter_set)
 	}
 	
 	// check for trailing_bits before unsupported features (in case errors enabled them)
-	if (ctx->_gb.msb_cache != (size_t)1 << (SIZE_BIT - 1) || (ctx->_gb.lsb_cache & (ctx->_gb.lsb_cache - 1)) || ctx->_gb.end)
+	if (ctx->_gb.msb_cache != (size_t)1 << (SIZE_BIT - 1) || (ctx->_gb.lsb_cache & (ctx->_gb.lsb_cache - 1)) || ctx->_gb.CPB < ctx->_gb.end)
 		return 2;
 	if (pic_parameter_set_id >= 4 || num_slice_groups > 1 ||
 		pps.constrained_intra_pred_flag || redundant_pic_cnt_present_flag)
@@ -1577,7 +1579,7 @@ static int FUNC_CTX(parse_seq_parameter_set)
 	}
 	
 	// check for trailing_bits before unsupported features (in case errors enabled them)
-	if (ctx->_gb.msb_cache != (size_t)1 << (SIZE_BIT - 1) || (ctx->_gb.lsb_cache & (ctx->_gb.lsb_cache - 1)) || ctx->_gb.end)
+	if (ctx->_gb.msb_cache != (size_t)1 << (SIZE_BIT - 1) || (ctx->_gb.lsb_cache & (ctx->_gb.lsb_cache - 1)) || ctx->_gb.CPB < ctx->_gb.end)
 		return 2;
 	if (sps.ChromaArrayType != 1 || sps.BitDepth_Y != 8 || sps.BitDepth_C != 8 ||
 		sps.qpprime_y_zero_transform_bypass_flag || !sps.frame_mbs_only_flag)
@@ -1638,7 +1640,7 @@ static int FUNC_CTX(parse_seq_parameter_set_extension) {
 		CALL_C2B(get_uv, 3 + bit_depth_aux * 2);
 	}
 	CALL_C2B(get_u1);
-	if (ctx->_gb.msb_cache != (size_t)1 << (SIZE_BIT - 1) || (ctx->_gb.lsb_cache & (ctx->_gb.lsb_cache - 1)) || ctx->_gb.end) // rbsp_trailing_bits
+	if (ctx->_gb.msb_cache != (size_t)1 << (SIZE_BIT - 1) || (ctx->_gb.lsb_cache & (ctx->_gb.lsb_cache - 1)) || ctx->_gb.CPB < ctx->_gb.end) // rbsp_trailing_bits
 		return 2;
 	return aux_format_idc != 0; // unsupported if transparent
 }
@@ -1718,9 +1720,7 @@ int Edge264_decode_NAL(Edge264_decoder *d)
 		return -1;
 	if (d->CPB >= d->end)
 		return -3;
-	SET_CTX((void *)d - offsetof(Edge264_context, d));
-	ctx->_gb.CPB = ctx->d.CPB + 3; // first byte that might be escaped
-	ctx->_gb.end = ctx->d.end;
+	SET_CTX((void *)d - offsetof(Edge264_context, d), ((Edge264_getbits){.CPB = d->CPB + 3, .end = d->end}));
 	ctx->nal_ref_idc = ctx->_gb.CPB[-3] >> 5;
 	ctx->nal_unit_type = ctx->_gb.CPB[-3] & 0x1f;
 	printf("<table>\n"
@@ -1783,18 +1783,16 @@ int Edge264_decode_NAL(Edge264_decoder *d)
 		}
 	}
 	
-	if (ret == -2)
-		printf("<tr style='background-color:#f77'><th colspan=2 style='text-align:center'>DPB is full</th></tr>\n");
-	else if (ret == 1)
-		printf("<tr style='background-color:#f77'><th colspan=2 style='text-align:center'>Unsupported stream</th></tr>\n");
-	else if (ret == 2)
-		printf("<tr style='background-color:#f77'><th colspan=2 style='text-align:center'>Decoding error</th></tr>\n");
-	
-	// CPB may point anywhere up to the byte past the next start code
+	// end may have been set to the next start code thanks to escape code detection in get_bytes
 	if (ret >= 0)
-		ctx->d.CPB = Edge264_find_start_code(1, ctx->_gb.CPB - 3, ctx->d.end);
+		ctx->d.CPB = Edge264_find_start_code(1, ctx->_gb.CPB - 2 < ctx->_gb.end ? ctx->_gb.CPB - 2 : ctx->_gb.end, ctx->d.end);
+	if (ret == -2)
+		printf("<tr style='background-color:#f77'><th colspan=2 style='text-align:center'>DPB is full</th></tr>\n</table>\n");
+	else if (ret == 1)
+		printf("<tr style='background-color:#f77'><th colspan=2 style='text-align:center'>Unsupported stream</th></tr>\n</table>\n");
+	else if (ret == 2)
+		printf("<tr style='background-color:#f77'><th colspan=2 style='text-align:center'>Decoding error</th></tr>\n</table>\n");
 	RESET_CTX();
-	printf("</table>\n");
 	return ret;
 }
 
@@ -1811,7 +1809,7 @@ int Edge264_decode_NAL(Edge264_decoder *d)
 int Edge264_get_frame(Edge264_decoder *d, int drain) {
 	if (d == NULL)
 		return -1;
-	SET_CTX((void *)d - offsetof(Edge264_context, d));
+	SET_CTX((void *)d - offsetof(Edge264_context, d), (Edge264_getbits){});
 	int pic[2] = {-1, -1};
 	unsigned unavail = ctx->reference_flags | ctx->output_flags | (ctx->basePic < 0 ? 0 : 1 << ctx->basePic);
 	int best = (drain || __builtin_popcount(ctx->output_flags) > ctx->sps.max_num_reorder_frames ||
@@ -1858,7 +1856,7 @@ int Edge264_get_frame(Edge264_decoder *d, int drain) {
 
 void Edge264_free(Edge264_decoder **d) {
 	if (d != NULL && *d != NULL) {
-		SET_CTX((void *)*d - offsetof(Edge264_context, d));
+		SET_CTX((void *)*d - offsetof(Edge264_context, d), (Edge264_getbits){});
 		pthread_mutex_destroy(&ctx->tasks_lock);
 		for (int i = 0; i < 32; i++) {
 			if (ctx->frame_buffers[i] != NULL)

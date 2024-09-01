@@ -29,39 +29,34 @@ static inline size_t FUNC_GB(get_bytes, int nbytes)
 	u8x16 v;
 	if (__builtin_expect(CPB + 14 <= end, 1)) {
 		v = load128(CPB - 2);
-	} else if (end == NULL) {
+	} else if (CPB >= end) {
+		gb->CPB = CPB + nbytes;
 		return 0;
 	} else {
 		const uint8_t *last = (uint8_t *)((uintptr_t)(end - 1) & -16);
 		const uint8_t *p = CPB - 2 < last ? CPB - 2 : last;
-		v = shr(shl(load128(p), p + 16 - end), CPB + 14 - end);
-		if (end - CPB < nbytes) {
-			nbytes = end - CPB;
-			gb->end = NULL;
-		}
+		v = shr(shl(load128(p), p + 16 - end), min(CPB + 14 - end, 16));
 	}
 	
 	// create a bitmask for the positions of 001 and 003 escape sequences
 	u8x16 eq0 = v == 0;
 	u8x16 x = shrc(v, 2);
-	u8x16 eq13 = (x & 253) == 1;
+	u8x16 eq13 = x <= 3;
 	unsigned esc = movemask(eq0 & shrc(eq0, 1) & eq13);
 	
 	// iterate on escape sequences that fall inside the bytes to refill
 	while (__builtin_expect(esc & ((1 << nbytes) - 1), 0)) {
 		int i = __builtin_ctz(esc);
-		// at a start code, advance CPB past it and reset end to signal end of buffer
-		if (CPB[i] == 1) {
-			nbytes = i + 1;
-			gb->end = NULL;
+		// if we find a 000 or 001 delimiter sequence, set end to its first byte
+		if (CPB[i] <3) {
+			gb->end = CPB + i - 2;
 			x = shr(shl(x, 16 - i), 16 - i);
-			break;
+			break; // we cannot iterate more since now x differs from esc
 		}
 		// otherwise this is an emulation_prevention_three_byte -> remove it
 		x = shuffle8(x, shuf[i]);
 		esc = (esc & (esc - 1)) >> 1;
 		CPB++;
-		nbytes = umin(nbytes, end - CPB);
 	}
 	
 	// increment CPB and return the requested bytes in upper part of the result
@@ -283,10 +278,10 @@ static int FUNC_TSK(cabac_start) {
 	tsk->_gb.codIOffset = lsd(tsk->_gb.msb_cache, tsk->_gb.lsb_cache, shift); // codIOffset and msb_cache are the same memory slot
 	tsk->_gb.lsb_cache >>= (SIZE_BIT - extra_bits) & (SIZE_BIT - 1);
 	while (extra_bits >= 8) {
-		int32_t i;
-		memcpy(&i, tsk->_gb.CPB - 3, 4);
-		tsk->_gb.CPB -= big_endian32(i) >> 8 == 3;
-		tsk->_gb.CPB -= (tsk->_gb.lsb_cache & 255) == tsk->_gb.CPB[-1]; // zeros might have been inserted if CPB reached end of RBSP
+		int32_t i = 0;
+		if (tsk->_gb.CPB < tsk->_gb.end)
+			memcpy(&i, tsk->_gb.CPB - 3, 4);
+		tsk->_gb.CPB -= 1 + (big_endian32(i) >> 8 == 3);
 		tsk->_gb.lsb_cache >>= 8;
 		extra_bits -= 8;
 	}

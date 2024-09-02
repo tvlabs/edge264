@@ -36,12 +36,12 @@ typedef int32_t i32x16 __attribute__((vector_size(64))); // for initialization o
 
 /**
  * Bitstream parsing context is put in a struct so that it can be included at
- * the start of both stream and nal structures, thus their pointers can be
- * directly sent and cast to bitstream functions.
+ * the start of both stream and nal structures, thus their pointers can be sent
+ * to bitstream functions without offsets.
  */
 typedef struct {
-	const uint8_t *CPB; // memory address of the next byte to load in rbsp[0]
-	const uint8_t *end; // first byte past end of buffer, set to NULL when CPB reaches it or a start code
+	const uint8_t *CPB; // memory address of the next byte to load in caches
+	const uint8_t *end; // first byte past end of buffer, capped to 001 or 000 sequence when detected
 	union { size_t lsb_cache; size_t codIRange; };
 	union { size_t msb_cache; size_t codIOffset; };
 } Edge264_getbits;
@@ -191,6 +191,7 @@ typedef struct {
 	int8_t mb_qp_delta_nz; // 1 significant bit
 	int8_t ChromaArrayType; // 2 significant bits
 	int8_t direct_8x8_inference_flag; // 1 significant flag
+	int8_t cabac_init_idc; // 2 significant bits
 	uint16_t pic_width_in_mbs; // 10 significant bits
 	uint32_t first_mb_in_slice; // unsigned to speed up integer division
 	int32_t FrameNum;
@@ -298,9 +299,12 @@ typedef struct Edge264_context {
 	union { int32_t FieldOrderCnt[2][32]; i32x4 FieldOrderCnt_v[2][8]; }; // lower/higher half for top/bottom fields
 	Edge264_seq_parameter_set sps;
 	Edge264_pic_parameter_set PPS[4];
-	pthread_mutex_t tasks_lock;
-	uint16_t pending_tasks;
-	union { uint32_t task_dependencies[16]; i32x4 task_dependencies_v[4]; }; // frames on which each task depends to start
+	
+	pthread_mutex_t task_lock;
+	pthread_cond_t task_added;
+	uint16_t unavail_tasks; // bitmask for tasks that are either in queue or processed in a thread
+	volatile union { int8_t task_queue[16]; i8x16 task_queue_v; }; // list of tasks identifiers in the order they are received
+	volatile union { uint32_t task_dependencies[16]; i32x4 task_dependencies_v[4]; }; // frames on which each task depends to start
 	union { int8_t tasks_per_frame[32]; i8x16 tasks_per_frame_v[2]; i8x32 tasks_per_frame_V; }; // number of tasks targeting each frame as output (when zero the frame is ready for output/reference)
 	Edge264_task tasks[16];
 	Edge264_decoder d; // public structure, kept last to leave room for extension in future versions
@@ -350,7 +354,7 @@ typedef struct Edge264_context {
 #if defined(__SSSE3__) && !defined(__clang__)
 	register void * restrict _p asm("ebx");
 	#define SET_CTX(p, b) Edge264_context *old = _p; {Edge264_context *_c = (p); _c->_gb = (b); _p = _c;}
-	#define SET_TSK(p, b) Edge264_task *old = _p; {Edge264_task *_t = (p); _t->_gb = (b); _p = _t;}
+	#define SET_TSK(p) Edge264_task *old = _p; _p = (p)
 	#define RESET_CTX() _p = old
 	#define RESET_TSK() _p = old
 	#define FUNC_CTX(f, ...) f(__VA_ARGS__)
@@ -367,7 +371,7 @@ typedef struct Edge264_context {
 	#define gb ((Edge264_getbits *)_p)
 #else
 	#define SET_CTX(p, b) Edge264_context * restrict ctx = (p); ctx->_gb = (b)
-	#define SET_TSK(p, b) Edge264_task * restrict tsk = (p); tsk->_gb = (b)
+	#define SET_TSK(p) Edge264_task * restrict tsk = (p)
 	#define RESET_CTX()
 	#define RESET_TSK()
 	#define FUNC_CTX(f, ...) f(Edge264_context * restrict ctx, ## __VA_ARGS__)
@@ -387,8 +391,8 @@ typedef struct Edge264_context {
 
 /**
  * Function declarations are put in a single block here instead of .h files
- * because they are so few. Functions used across compilation units are defined
- * without static.
+ * because they are so few. Functions which might be compiled separately in the
+ * future are not declared static yet.
  */
 #ifndef noinline
 	#define noinline __attribute__((noinline))
@@ -431,7 +435,7 @@ static noinline int FUNC_TSK(get_ae, int ctxIdx);
 static always_inline int FUNC_TSK(get_bypass);
 static int FUNC_TSK(cabac_start);
 static int FUNC_TSK(cabac_terminate);
-static void FUNC_TSK(cabac_init, int idc);
+static void FUNC_TSK(cabac_init);
 
 // edge264_deblock_*.c
 void noinline FUNC_TSK(deblock_frame, unsigned next_deblock_addr);

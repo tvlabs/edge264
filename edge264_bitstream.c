@@ -1004,10 +1004,10 @@ static const int8_t context_init[4][1024][2] __attribute__((aligned(16))) = {{
 	{  -5,  79}, { -11, 104}, { -11,  91}, { -30, 127},
 }};
 
-static void FUNC_TSK(cabac_init, int idc) {
+static void FUNC_TSK(cabac_init) {
 	i8x16 mul = set16(max(tsk->QP[0], 0) + 4096);
 	i8x16 c1 = set8(1), c64 = set8(64), c126 = set8(126);
-	const i8x16 *src = (i8x16 *)context_init[idc];
+	const i8x16 *src = (i8x16 *)context_init[tsk->cabac_init_idc];
 	for (i8x16 *dst = tsk->cabac_v; dst < tsk->cabac_v + 64; dst++, src += 2) {
 		i16x8 sum0 = maddubs(mul, src[0]) >> 4;
 		i16x8 sum1 = maddubs(mul, src[1]) >> 4;

@@ -1,6 +1,8 @@
 /** MAYDO:
  * _ Multithreading
+ * 	_ Change finish_frame convention to be compatible with frame threading
  * 	_ Implement a basic task queue yet in decoding order and with 1 thread
+ * 	_ Change slice neighbouring management with A/B/C/D copies to allow slice multithreading!
  * 	_ Update DPB availability checks to take deps into account, and make sure we wait until there is a frame ready before returning -2
  * 	_ Add currPic to task_dependencies
  * 	_ Add a mask of pending tasks
@@ -85,6 +87,7 @@ static void FUNC_CTX(initialise_decoding_context, Edge264_task *t)
 		39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39};
 	
 	// copy most essential fields from st
+	t->_gb = ctx->_gb;
 	t->ChromaArrayType = ctx->sps.ChromaArrayType;
 	t->direct_8x8_inference_flag = ctx->sps.direct_8x8_inference_flag;
 	t->pic_width_in_mbs = ctx->sps.pic_width_in_mbs;
@@ -359,8 +362,6 @@ static void FUNC_CTX(parse_ref_pic_list_modification, Edge264_task *t)
 	int pic_value = (t->slice_type == 0) ? t->FrameNum : t->PicOrderCnt;
 	int count[3] = {0, 0, 0}; // number of refs before/after/long
 	int size = 0;
-	t->RefPicList_v[0] = t->RefPicList_v[1] = t->RefPicList_v[2] = t->RefPicList_v[3] =
-		(i8x16){-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1};
 	
 	// sort all short and long term references for RefPicListL0
 	for (unsigned refs = ctx->pic_reference_flags, next = 0; refs; refs ^= 1 << next) {
@@ -468,7 +469,6 @@ static void FUNC_CTX(parse_ref_pic_list_modification, Edge264_task *t)
 			printf("</td></tr>\n");
 		}
 	}
-	//ctx->task_dependencies[t - ctx->tasks] = CALL_CTX(refs_to_mask);
 	
 	// fill all uninitialized references with frame 0 in case num_ref_idx_active is too high
 	t->RefPicList_v[0] = ifelse_msb(t->RefPicList_v[0], (i8x16){}, t->RefPicList_v[0]);
@@ -558,6 +558,50 @@ static void FUNC_CTX(finish_frame)
 
 
 /**
+ * This function is the entry point for each worker thread, where it consumes
+ * tasks continuously until killed by the parent process.
+ */
+static void *worker_loop(Edge264_context *c) {
+	pthread_mutex_lock(&c->task_lock);
+	if (1) {
+		SET_TSK(c->tasks + c->task_queue[0]);
+		c->task_queue_v = alignr(set8(-1), c->task_queue_v, 1);
+		pthread_mutex_unlock(&c->task_lock);
+		if (!tsk->pps.entropy_coding_mode_flag) {
+			tsk->mb_skip_run = -1;
+			CALL_TSK(parse_slice_data_cavlc);
+		} else {
+			// cabac_alignment_one_bit gives a good probability to catch random errors.
+			if (CALL_TSK(cabac_start)) {
+				__atomic_store_n(c->remaining_mbs + tsk->currPic, -1, __ATOMIC_RELAXED);
+			} else {
+				CALL_TSK(cabac_init);
+				tsk->mb_qp_delta_nz = 0;
+				CALL_TSK(parse_slice_data_cabac);
+				// the possibility of cabac_zero_word implies we should not expect a start code yet
+				if (tsk->_gb.msb_cache != 0 || (tsk->_gb.lsb_cache & (tsk->_gb.lsb_cache - 1)))
+					__atomic_store_n(c->remaining_mbs + tsk->currPic, -1, __ATOMIC_RELAXED);
+			}
+		}
+		
+		// when the total number of decoded mbs is enough, finish the frame
+		c->next_deblock_addr[tsk->currPic] = max(c->next_deblock_addr[tsk->currPic], tsk->next_deblock_addr);
+		c->remaining_mbs[tsk->currPic] -= tsk->CurrMbAddr - tsk->first_mb_in_slice;
+		if (c->remaining_mbs[tsk->currPic] == 0) {
+			CALL_TSK(deblock_frame, c->next_deblock_addr[tsk->currPic]);
+			SET_CTX(c, tsk->_gb);
+			CALL_CTX(finish_frame);
+			RESET_CTX();
+		}
+		__atomic_fetch_sub(&c->unavail_tasks, 1 << (tsk - c->tasks), __ATOMIC_RELAXED);
+		RESET_TSK();
+	}
+	return NULL;
+}
+
+
+
+/**
  * This function matches slice_header() in 7.3.3, which it parses while updating
  * the DPB and initialising slice data for further decoding.
  */
@@ -567,8 +611,8 @@ static int FUNC_CTX(parse_slice_layer_without_partitioning)
 	static const char * const disable_deblocking_filter_idc_names[3] = {"enabled", "disabled", "disabled across slices"};
 	
 	// reserve an empty task slot to fill it
-	ctx->tasks[0]._ctx = ctx;
-	Edge264_task *t = ctx->tasks;
+	Edge264_task *t = ctx->tasks + __builtin_ctz(0xffff & ~ctx->unavail_tasks);
+	t->_ctx = ctx;
 	
 	// first important fields and checks before decoding the slice header
 	t->first_mb_in_slice = CALL_C2B(get_ue32, 139263);
@@ -775,6 +819,8 @@ static int FUNC_CTX(parse_slice_layer_without_partitioning)
 	ctx->pic_long_term_flags = ctx->long_term_flags & view_mask;
 	
 	// That could be optimised into a fast bit test, but would be less readable :)
+	t->RefPicList_v[0] = t->RefPicList_v[1] = t->RefPicList_v[2] = t->RefPicList_v[3] =
+		(i8x16){-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1};
 	if (t->slice_type == 0 || t->slice_type == 1) {
 		if (t->slice_type == 1) {
 			t->direct_spatial_mv_pred_flag = CALL_C2B(get_u1);
@@ -803,10 +849,10 @@ static int FUNC_CTX(parse_slice_layer_without_partitioning)
 	if (ctx->nal_ref_idc)
 		CALL_CTX(parse_dec_ref_pic_marking);
 	
-	int cabac_init_idc = 0;
+	t->cabac_init_idc = 0;
 	if (t->pps.entropy_coding_mode_flag && t->slice_type != 2) {
-		cabac_init_idc = 1 + CALL_C2B(get_ue16, 2);
-		printf("<tr><th>cabac_init_idc</th><td>%u</td></tr>\n", cabac_init_idc - 1);
+		t->cabac_init_idc = 1 + CALL_C2B(get_ue16, 2);
+		printf("<tr><th>cabac_init_idc</th><td>%u</td></tr>\n", t->cabac_init_idc - 1);
 	}
 	t->QP[0] = t->pps.QPprime_Y + CALL_C2B(get_se16, -t->pps.QPprime_Y, 51 - t->pps.QPprime_Y); // FIXME QpBdOffset
 	printf("<tr><th>SliceQP<sub>Y</sub></th><td>%d</td></tr>\n", t->QP[0]);
@@ -828,40 +874,16 @@ static int FUNC_CTX(parse_slice_layer_without_partitioning)
 		printf("<tr><th>disable_deblocking_filter_idc (inferred)</th><td>0 (enabled)</td></tr>\n"
 			"<tr><th>FilterOffsets (inferred)</th><td>0, 0</td></tr>\n");
 	}
-	
-	// fill the context with useful values and start decoding
 	CALL_CTX(initialise_decoding_context, t);
-	SET_TSK(t, ctx->_gb);
-	if (!tsk->pps.entropy_coding_mode_flag) {
-		tsk->mb_skip_run = -1;
-		CALL_TSK(parse_slice_data_cavlc);
-	} else {
-		// cabac_alignment_one_bit gives a good probability to catch random errors.
-		if (CALL_TSK(cabac_start)) {
-			SET_CTX(tsk->_ctx, tsk->_gb);
-			return 2;
-		}
-		CALL_TSK(cabac_init, cabac_init_idc);
-		tsk->mb_qp_delta_nz = 0;
-		CALL_TSK(parse_slice_data_cabac);
-		// the possibility of cabac_zero_word implies we should not expect a start code yet
-		if (tsk->_gb.msb_cache != 0 || (tsk->_gb.lsb_cache & (tsk->_gb.lsb_cache - 1))) {
-			SET_CTX(tsk->_ctx, tsk->_gb);
-			return 2;
-		}
-	}
-	Edge264_context *c = tsk->_ctx;
 	
-	// when the total number of decoded mbs is enough, finish the frame
-	c->next_deblock_addr[tsk->currPic] = max(c->next_deblock_addr[tsk->currPic], tsk->next_deblock_addr);
-	c->remaining_mbs[tsk->currPic] -= tsk->CurrMbAddr - tsk->first_mb_in_slice;
-	if (c->remaining_mbs[tsk->currPic] == 0) {
-		CALL_TSK(deblock_frame, c->next_deblock_addr[tsk->currPic]);
-		SET_CTX(c, tsk->_gb);
-		CALL_CTX(finish_frame);
-	} else {
-		SET_CTX(tsk->_ctx, tsk->_gb);
-	}
+	// add the task to the queue and wake it up
+	pthread_mutex_lock(&ctx->task_lock);
+	int task_idx = t - ctx->tasks;
+	ctx->unavail_tasks |= 1 << task_idx;
+	ctx->task_queue[__builtin_ctz(movemask(ctx->task_queue_v))] = task_idx;
+	//ctx->task_dependencies[task_idx] = CALL_CTX(refs_to_mask);
+	pthread_mutex_unlock(&ctx->task_lock);
+	worker_loop(ctx);
 	return 0;
 }
 
@@ -1670,13 +1692,16 @@ const uint8_t *Edge264_find_start_code(int n, const uint8_t *CPB, const uint8_t 
 
 Edge264_decoder *Edge264_alloc() {
 	Edge264_context *p = calloc(1, sizeof(Edge264_context)); // FIXME selectively zero?
-	if (p == NULL)
-		return NULL;
-	if (pthread_mutex_init(&p->tasks_lock, NULL)) {
+	if (p != NULL) {
+		if (pthread_mutex_init(&p->task_lock, NULL) == 0) {
+			if (pthread_cond_init(&p->task_added, NULL) == 0) {
+				return (void *)p + offsetof(Edge264_context, d);
+			}
+			pthread_mutex_destroy(&p->task_lock);
+		}
 		free(p);
-		return NULL;
 	}
-	return (void *)p + offsetof(Edge264_context, d);
+	return NULL;
 }
 
 
@@ -1858,7 +1883,8 @@ int Edge264_get_frame(Edge264_decoder *d, int drain) {
 void Edge264_free(Edge264_decoder **d) {
 	if (d != NULL && *d != NULL) {
 		SET_CTX((void *)*d - offsetof(Edge264_context, d), (Edge264_getbits){});
-		pthread_mutex_destroy(&ctx->tasks_lock);
+		pthread_mutex_destroy(&ctx->task_lock);
+		pthread_cond_destroy(&ctx->task_added);
 		for (int i = 0; i < 32; i++) {
 			if (ctx->frame_buffers[i] != NULL)
 				free(ctx->frame_buffers[i]);

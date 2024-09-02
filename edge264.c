@@ -1,5 +1,6 @@
 /** MAYDO:
  * _ Multithreading
+ * 	_ Implement a basic task queue yet in decoding order and with 1 thread
  * 	_ Update DPB availability checks to take deps into account, and make sure we wait until there is a frame ready before returning -2
  * 	_ Add currPic to task_dependencies
  * 	_ Add a mask of pending tasks
@@ -12,6 +13,7 @@
  * 	_ Create a single worker thread and use it to decode each slice
  * 	_ Add debug output to signal start and end of worker assignment
  * 	_ add an option to store N more frames, to tolerate lags in process scheduling
+ * 	_ Windows fallback functions
  * _ Fuzzing and bug hunting
  * 	_ fuzz with H26Forge
  * 	_ replace calloc with malloc+memset(127), determine a policy for ensuring the validity of variables over time, and setup a solver (ex. KLEE, Crest, Triton) to test their intervals
@@ -842,6 +844,7 @@ static int FUNC_CTX(parse_slice_layer_without_partitioning)
 		CALL_TSK(cabac_init, cabac_init_idc);
 		tsk->mb_qp_delta_nz = 0;
 		CALL_TSK(parse_slice_data_cabac);
+		// the possibility of cabac_zero_word implies we should not expect a start code yet
 		if (tsk->_gb.msb_cache != 0 || (tsk->_gb.lsb_cache & (tsk->_gb.lsb_cache - 1))) {
 			SET_CTX(tsk->_ctx, tsk->_gb);
 			return 2;
@@ -1714,6 +1717,8 @@ int Edge264_decode_NAL(Edge264_decoder *d)
 		[15] = parse_seq_parameter_set,
 		[20] = parse_slice_layer_without_partitioning,
 	};
+	static const char * const ret_names[6] = {"CPB is past end",
+		"Frame buffer is full", NULL, NULL, "Unsupported stream", "Decoding error"};
 	
 	// initial checks before parsing
 	if (d == NULL)
@@ -1786,12 +1791,8 @@ int Edge264_decode_NAL(Edge264_decoder *d)
 	// end may have been set to the next start code thanks to escape code detection in get_bytes
 	if (ret >= 0)
 		ctx->d.CPB = Edge264_find_start_code(1, ctx->_gb.CPB - 2 < ctx->_gb.end ? ctx->_gb.CPB - 2 : ctx->_gb.end, ctx->d.end);
-	if (ret == -2)
-		printf("<tr style='background-color:#f77'><th colspan=2 style='text-align:center'>DPB is full</th></tr>\n</table>\n");
-	else if (ret == 1)
-		printf("<tr style='background-color:#f77'><th colspan=2 style='text-align:center'>Unsupported stream</th></tr>\n</table>\n");
-	else if (ret == 2)
-		printf("<tr style='background-color:#f77'><th colspan=2 style='text-align:center'>Decoding error</th></tr>\n</table>\n");
+	if (ret != 0)
+		printf("<tr style='background-color:#f77'><th colspan=2 style='text-align:center'>%s</th></tr>\n</table>\n", ret_names[ret - 3]);
 	RESET_CTX();
 	return ret;
 }

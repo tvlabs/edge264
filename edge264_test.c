@@ -410,7 +410,11 @@ int main(int argc, const char *argv[])
 	
 	// print help if any argument was unknown
 	if (help) {
-		fprintf(stderr, "Usage: " BOLD "%s [video.264|directory] [-hdy]" RESET "\n"
+		fprintf(stderr, "Usage: " BOLD "%s [video.264|directory] [-hdy"
+		#if !TRACE
+			"bfpu"
+		#endif
+			"]" RESET "\n"
 			"Decodes a video or all videos inside a directory (conformance by default),\n"
 			"comparing their outputs with inferred YUV pairs (.yuv and .1.yuv extensions).\n"
 			"-h\tprint this help and exit\n"

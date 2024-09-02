@@ -26,4 +26,4 @@ edge264_test$(SUF): edge264*.c edge264*.h Makefile
 
 .PHONY: clean clear
 clean clear:
-	rm edge264*.o edge264_play-* edge264_test-*
+	rm edge264*.o edge264_test edge264_test-trace*

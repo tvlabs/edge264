@@ -892,17 +892,6 @@ static void CAFUNC(parse_inter_residual)
 		mb->f.transform_size_8x8_flag = CACOND(CALL_T2B(get_u1), CALL_TSK(get_ae, 399 + tsk->inc.transform_size_8x8_flag));
 		fprintf(stderr, "transform_size_8x8_flag: %x\n", mb->f.transform_size_8x8_flag);
 	}
-	
-	#ifdef CABAC
-		if (tsk->unavail16x16 & 1) {
-			mbA->nC_v[0] = mbA->nC_v[1] = mbA->nC_v[2] = (i8x16){};
-			tsk->inc.coded_block_flags_16x16_s &= 0x020202;
-		}
-		if (tsk->unavail16x16 & 2) {
-			mbB->nC_v[0] = mbB->nC_v[1] = mbB->nC_v[2] = (i8x16){};
-			tsk->inc.coded_block_flags_16x16_s &= 0x010101;
-		}
-	#endif
 	CAJUMP(parse_NxN_residual);
 }
 
@@ -1138,8 +1127,8 @@ static void CAFUNC(parse_B_sub_mb) {
 	i8x16 C1 = shuffle8(BCAr1, tsk->refIdx4x4_C_v);
 	i8x16 D0 = shuffle8(BCAr0, ((i8x16){-1, 2, 9, 12, 2, 3, 12, 13, 9, 12, 11, 14, 12, 13, 14, 15}));
 	i8x16 D1 = shuffle8(BCAr1, ((i8x16){-1, 2, 9, 12, 2, 3, 12, 13, 9, 12, 11, 14, 12, 13, 14, 15}));
-	D0[0] = mbB->refIdx[3];
-	D1[0] = mbB->refIdx[7];
+	D0[0] = mbB[-1].refIdx[3];
+	D1[0] = mbB[-1].refIdx[7];
 	
 	// combine them into a vector of 4-bit equality masks
 	union { int8_t q[32]; i8x16 v[2]; } refIdx4x4_eq;
@@ -1410,7 +1399,7 @@ static void CAFUNC(parse_P_sub_mb, unsigned ref_idx_flags)
 	i8x16 B0 = shuffle8(BCAr0, ((i8x16){2, 2, 12, 12, 3, 3, 13, 13, 12, 12, 14, 14, 13, 13, 15, 15}));
 	i8x16 C0 = shuffle8(BCAr0, tsk->refIdx4x4_C_v);
 	i8x16 D0 = shuffle8(BCAr0, ((i8x16){-1, 2, 9, 12, 2, 3, 12, 13, 9, 12, 11, 14, 12, 13, 14, 15}));
-	D0[0] = mbB->refIdx[3];
+	D0[0] = mbB[-1].refIdx[3];
 	
 	// combine them into a vector of 4-bit equality masks
 	union { int8_t q[16]; i8x16 v; } refIdx4x4_eq;

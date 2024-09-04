@@ -201,6 +201,7 @@ typedef struct {
 	// parsing context
 	struct Edge264_context * restrict _ctx;
 	Edge264_macroblock * restrict _mb; // backup storage for macro mb
+	Edge264_macroblock * restrict _mbA; // backup storage for macro mbA
 	Edge264_macroblock * restrict _mbB; // backup storage for macro mbB
 	int8_t currPic;
 	int32_t CurrMbAddr;
@@ -385,6 +386,7 @@ typedef struct Edge264_context {
 	#define JUMP_TSK(f, ...) {f(tsk, ## __VA_ARGS__); return;}
 #endif
 #define mb tsk->_mb
+#define mbA tsk->_mbA
 #define mbB tsk->_mbB
 
 

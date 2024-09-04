@@ -1,8 +1,13 @@
 /** MAYDO:
  * _ Multithreading
+ * 	_ Change slice neighbouring management with A/B/C/D copies to allow slice multithreading!
+ * 		_ enumerate fields accessed through mbB, check their values, then replace mbB with a pointer to unavail_mb
+ * 		_ enumerate fields accessed through neighbouring offsets, then make sure last index of each is init with unavail value
+ * 		_ progressively alter neighbouring offsets to point to last index on slice unavailability
+ * 		_ remove swapping of neighbouring values now that they are unused
+ * 		_ use the slice mechanism to handle top row unavailability too, then remove this row in memory allocation
  * 	_ Change finish_frame convention to be compatible with frame threading
  * 	_ Implement a basic task queue yet in decoding order and with 1 thread
- * 	_ Change slice neighbouring management with A/B/C/D copies to allow slice multithreading!
  * 	_ Update DPB availability checks to take deps into account, and make sure we wait until there is a frame ready before returning -2
  * 	_ Add currPic to task_dependencies
  * 	_ Add a mask of pending tasks
@@ -123,7 +128,6 @@ static void FUNC_CTX(initialise_decoding_context, Edge264_task *t)
 	t->QP[2] = t->QP_C[1][t->QP[0]];
 	int mb_offset = sizeof(*t->_mb) * (1 + mbx + (1 + mby) * (ctx->sps.pic_width_in_mbs + 1));
 	t->mbCol = t->_mb = (Edge264_macroblock *)(t->samples_base + ctx->plane_size_Y + ctx->plane_size_C * 2 + mb_offset);
-	t->_mbB = t->_mb - ctx->sps.pic_width_in_mbs - 1;
 	for (int i = 1; i < 4; i++) {
 		t->sig_inc_v[i] = sig_inc_8x8[0][i];
 		t->last_inc_v[i] = last_inc_8x8[i];

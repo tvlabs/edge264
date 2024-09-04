@@ -11,7 +11,7 @@ static inline void FUNC_TSK(decode_inter_16x16, i16x8 mvd, int lx)
 	// compare neighbouring indices and compute mvp
 	i16x8 mvp;
 	int refIdx = mb->refIdx[lx * 4];
-	int refIdxA = mb[-1].refIdx[lx * 4 + 1];
+	int refIdxA = mbA->refIdx[lx * 4 + 1];
 	int refIdxB = mbB->refIdx[lx * 4 + 2];
 	int eqA = refIdx==refIdxA;
 	int refIdxC, mvs_C;
@@ -47,7 +47,7 @@ static inline void FUNC_TSK(decode_inter_8x16_left, i16x8 mvd, int lx)
 	// compare neighbouring indices and compute mvp
 	i16x8 mvp;
 	int refIdx = mb->refIdx[lx * 4];
-	int refIdxA = mb[-1].refIdx[lx * 4 + 1];
+	int refIdxA = mbA->refIdx[lx * 4 + 1];
 	if (refIdx == refIdxA || tsk->unavail4x4[0] == 14) {
 		mvp = (i32x4){*(mb->mvs_s + lx * 16 + tsk->mvs_A[0])};
 	} else {
@@ -137,7 +137,7 @@ static inline void FUNC_TSK(decode_inter_16x8_top, i16x8 mvd, int lx)
 	if (refIdx == refIdxB) {
 		mvp = (i32x4){*(mb->mvs_s + lx * 16 + tsk->mvs_B[0])};
 	} else {
-		int refIdxA = mb[-1].refIdx[lx * 4 + 1];
+		int refIdxA = mbA->refIdx[lx * 4 + 1];
 		int refIdxC, mvs_C;
 		if (__builtin_expect(tsk->unavail16x16 & 4, 0)) {
 			refIdxC = mbB[-1].refIdx[lx * 4 + 3];
@@ -176,12 +176,12 @@ static inline void FUNC_TSK(decode_inter_16x8_bottom, i16x8 mvd, int lx)
 	// compare neighbouring indices and compute mvp
 	i16x8 mvp;
 	int refIdx = mb->refIdx[lx * 4 + 2];
-	int refIdxA = mb[-1].refIdx[lx * 4 + 3];
+	int refIdxA = mbA->refIdx[lx * 4 + 3];
 	if (refIdx == refIdxA) {
 		mvp = (i32x4){*(mb->mvs_s + lx * 16 + tsk->mvs_A[8])};
 	} else {
 		int refIdxB = mb->refIdx[lx * 4];
-		int refIdxC = mb[-1].refIdx[lx * 4 + 1];
+		int refIdxC = mbA->refIdx[lx * 4 + 1];
 		if (refIdx == refIdxB) {
 			mvp = (i32x4){*(mb->mvs_s + lx * 16)};
 			if (refIdx == refIdxC) {
@@ -220,7 +220,7 @@ static always_inline void FUNC_TSK(decode_direct_spatial_mv_pred, unsigned direc
 	i16x8 mvA = unpacklo32(load32((int32_t *)mb->mvs_s + tsk->mvs_A[0]), load32((int32_t *)mb->mvs_s + tsk->mvs_A[0] + 16));
 	i16x8 mvB = unpacklo32(load32((int32_t *)mb->mvs_s + tsk->mvs_B[0]), load32((int32_t *)mb->mvs_s + tsk->mvs_B[0] + 16));
 	i16x8 mvC = unpacklo32(load32((int32_t *)mb->mvs_s + tsk->mvs_C[5]), load32((int32_t *)mb->mvs_s + tsk->mvs_C[5] + 16));
-	i8x16 refIdxA = shuffle8(shrc((i64x2){mb[-1].refIdx_l}, 1), shuf);
+	i8x16 refIdxA = shuffle8(shrc((i64x2){mbA->refIdx_l}, 1), shuf);
 	i8x16 refIdxB = shuffle8(shrc((i64x2){mbB->refIdx_l}, 2), shuf);
 	i8x16 refIdxC = shuffle8(shrc((i64x2){mbB[1].refIdx_l}, 2), shuf);
 	if (__builtin_expect(tsk->unavail16x16 & 4, 0)) {

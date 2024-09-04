@@ -241,7 +241,7 @@ static noinline void FUNC_TSK(deblock_CbCr_8bit, size_t stride, ssize_t nstride,
 		v7 = unpackhi64(xd4, xd9);
 		
 		// first vertical edge
-		if (mb[-1].f.mbIsInterFlag & mb->f.mbIsInterFlag) {
+		if (mbA->f.mbIsInterFlag & mb->f.mbIsInterFlag) {
 			int64_t tC0a = tsk->tC0_l[4];
 			if (tC0a != -1)
 				DEBLOCK_CHROMA_SOFT(vY, vZ, v0, v1, shuf_a, tC0a);
@@ -495,7 +495,7 @@ static noinline void FUNC_TSK(deblock_Y_8bit, size_t stride, ssize_t nstride, si
 		v7 = unpackhi64(xd5, xdB);
 		
 		// first vertical edge
-		if (mb[-1].f.mbIsInterFlag & mb->f.mbIsInterFlag) {
+		if (mbA->f.mbIsInterFlag & mb->f.mbIsInterFlag) {
 			int tC0a = tsk->tC0_s[0];
 			if (tC0a != -1)
 				DEBLOCK_LUMA_SOFT(vX, vY, vZ, v0, v1, v2, tsk->alpha + 8, tsk->beta + 8, tC0a);
@@ -825,9 +825,11 @@ noinline void FUNC_TSK(deblock_mb)
 		return;
 	
 	// compute all values of indexA and indexB for each of the color planes first
+	mbA = mb - 1;
+	mbB = mbA - tsk->pic_width_in_mbs;
 	i8x16 zero = {};
 	i8x16 qP = set32((int32_t)mb->QP_s);
-	i32x4 qPAB = {(int32_t)mb[-1].QP_s, (int32_t)mbB->QP_s};
+	i32x4 qPAB = {(int32_t)mbA->QP_s, (int32_t)mbB->QP_s};
 	i8x16 qPav = avg8(qP, unpacklo64(qP, qPAB)); // mid/mid/A/B
 	i8x16 c51 = set8(51);
 	i8x16 indexA = umin8(max8(qPav + set8(tsk->FilterOffsetA), zero), c51);
@@ -877,9 +879,9 @@ noinline void FUNC_TSK(deblock_mb)
 		i8x16 c3 = set8(3);
 		static const i8x16 shufVHAB = {0, 2, 1, 3, 0, 1, 2, 3, 9, 11, 0, 2, 14, 15, 0, 1};
 		if (mb->inter_eqs_s == little_endian32(0x1b5fbbff)) { // 16x16 macroblock
-			i16x8 mvsv0l0 = shuffleps(mb[-1].mvs_v[1], mb[-1].mvs_v[3], 1, 3, 1, 3);
+			i16x8 mvsv0l0 = shuffleps(mbA->mvs_v[1], mbA->mvs_v[3], 1, 3, 1, 3);
 			i16x8 mvsv1l0 = shuffleps(mb->mvs_v[0], mb->mvs_v[2], 0, 2, 0, 2);
-			i16x8 mvsv0l1 = shuffleps(mb[-1].mvs_v[5], mb[-1].mvs_v[7], 1, 3, 1, 3);
+			i16x8 mvsv0l1 = shuffleps(mbA->mvs_v[5], mbA->mvs_v[7], 1, 3, 1, 3);
 			i16x8 mvsv1l1 = shuffleps(mb->mvs_v[4], mb->mvs_v[6], 0, 2, 0, 2);
 			i16x8 mvsh0l0 = unpackhi64(mbB->mvs_v[2], mbB->mvs_v[3]);
 			i16x8 mvsh1l0 = unpacklo64(mb->mvs_v[0], mb->mvs_v[1]);
@@ -894,7 +896,7 @@ noinline void FUNC_TSK(deblock_mb)
 			i8x16 mvsacegp = shuffle32(packs16(mvsaep, zero), 0, 2, 1, 3);
 			i8x16 mvsacegc = shuffle32(packs16(mvsaec, zero), 0, 2, 1, 3);
 			i64x2 refPic = {mb->refPic_l};
-			i64x2 refPicAB = {mb[-1].refPic_l, mbB->refPic_l};
+			i64x2 refPicAB = {mbA->refPic_l, mbB->refPic_l};
 			i8x16 refs0 = shuffle8(shuffleps(refPic, refPicAB, 0, 0, 0, 2), shufVHAB); // (v0,h0,A0,B0)
 			i8x16 refs1 = shuffle8(shuffleps(refPic, refPicAB, 1, 1, 1, 3), shufVHAB); // (v1,h1,A1,B1)
 			i8x16 neq0 = refs0 ^ (i8x16)shuffleps(refs1, refs0, 2, 3, 0, 1); // (v0^A1,h0^B1,A0^v0,B0^h0)
@@ -906,8 +908,8 @@ noinline void FUNC_TSK(deblock_mb)
 			i8x16 neq4 = umin8(refsacegp, mvsacegc) | umin8(mvsacegp, refsacegc);
 			bS0aceg = (neq3 | neq4) == zero;
 			bS0bdfh = set8(-1);
-		} else if ((mb->refIdx_s[1] & mb[-1].refIdx_s[1] & mbB->refIdx_s[1]) == -1) { // P macroblocks
-			i16x8 mvsv0 = shuffleps(mb[-1].mvs_v[1], mb[-1].mvs_v[3], 1, 3, 1, 3);
+		} else if ((mb->refIdx_s[1] & mbA->refIdx_s[1] & mbB->refIdx_s[1]) == -1) { // P macroblocks
+			i16x8 mvsv0 = shuffleps(mbA->mvs_v[1], mbA->mvs_v[3], 1, 3, 1, 3);
 			i16x8 mvsv1 = shuffleps(mb->mvs_v[0], mb->mvs_v[2], 0, 2, 0, 2);
 			i16x8 mvsv2 = shuffleps(mb->mvs_v[0], mb->mvs_v[2], 1, 3, 1, 3);
 			i16x8 mvsv3 = shuffleps(mb->mvs_v[1], mb->mvs_v[3], 0, 2, 0, 2);
@@ -923,18 +925,18 @@ noinline void FUNC_TSK(deblock_mb)
 			i8x16 mvsfh = packs16(mvsh1 - mvsh2, mvsh3 - mvsh4);
 			i8x16 mvsaceg = packs16(subus8(abs8(mvsac), c3), subus8(abs8(mvseg), c3));
 			i8x16 mvsbdfh = packs16(subus8(abs8(mvsbd), c3), subus8(abs8(mvsfh), c3));
-			i8x16 refs = shuffle8(((i32x4){mb->refPic_s[0], 0, mb[-1].refPic_s[0], mbB->refPic_s[0]}), shufVHAB); // (v0,h0,A0,B0)
+			i8x16 refs = shuffle8(((i32x4){mb->refPic_s[0], 0, mbA->refPic_s[0], mbB->refPic_s[0]}), shufVHAB); // (v0,h0,A0,B0)
 			i8x16 neq = refs ^ (i8x16)unpackhi64(refs, refs); // (v0^A0,h0^B0,0,0)
 			i8x16 refsaceg = unpacklo8(neq, neq);
 			bS0aceg = (refsaceg | mvsaceg) == zero;
 			bS0bdfh = mvsbdfh == zero;
 		} else { // B macroblocks
-			i16x8 mvsv0l0 = shuffleps(mb[-1].mvs_v[1], mb[-1].mvs_v[3], 1, 3, 1, 3);
+			i16x8 mvsv0l0 = shuffleps(mbA->mvs_v[1], mbA->mvs_v[3], 1, 3, 1, 3);
 			i16x8 mvsv1l0 = shuffleps(mb->mvs_v[0], mb->mvs_v[2], 0, 2, 0, 2);
 			i16x8 mvsv2l0 = shuffleps(mb->mvs_v[0], mb->mvs_v[2], 1, 3, 1, 3);
 			i16x8 mvsv3l0 = shuffleps(mb->mvs_v[1], mb->mvs_v[3], 0, 2, 0, 2);
 			i16x8 mvsv4l0 = shuffleps(mb->mvs_v[1], mb->mvs_v[3], 1, 3, 1, 3);
-			i16x8 mvsv0l1 = shuffleps(mb[-1].mvs_v[5], mb[-1].mvs_v[7], 1, 3, 1, 3);
+			i16x8 mvsv0l1 = shuffleps(mbA->mvs_v[5], mbA->mvs_v[7], 1, 3, 1, 3);
 			i16x8 mvsv1l1 = shuffleps(mb->mvs_v[4], mb->mvs_v[6], 0, 2, 0, 2);
 			i16x8 mvsv2l1 = shuffleps(mb->mvs_v[4], mb->mvs_v[6], 1, 3, 1, 3);
 			i16x8 mvsv3l1 = shuffleps(mb->mvs_v[5], mb->mvs_v[7], 0, 2, 0, 2);
@@ -978,7 +980,7 @@ noinline void FUNC_TSK(deblock_mb)
 			i8x16 mvsacegc = packs16(mvsacc, mvsegc);
 			i8x16 mvsbdfhc = packs16(mvsbdc, mvsfhc);
 			i64x2 refPic = {mb->refPic_l};
-			i64x2 refPicAB = {mb[-1].refPic_l, mbB->refPic_l};
+			i64x2 refPicAB = {mbA->refPic_l, mbB->refPic_l};
 			i8x16 refs0 = shuffle8(shuffleps(refPic, refPicAB, 0, 0, 0, 2), shufVHAB); // (v0,h0,A0,B0)
 			i8x16 refs1 = shuffle8(shuffleps(refPic, refPicAB, 1, 1, 1, 3), shufVHAB); // (v1,h1,A1,B1)
 			i8x16 neq0 = refs0 ^ (i8x16)shuffleps(refs1, refs0, 2, 3, 0, 1); // (v0^A1,h0^B1,A0^v0,B0^h0)
@@ -1009,7 +1011,7 @@ noinline void FUNC_TSK(deblock_mb)
 		static const i8x16 shufV = {0, 2, 8, 10, 1, 3, 9, 11, 4, 6, 12, 14, 5, 7, 13, 15};
 		static const i8x16 shufH = {0, 1, 4, 5, 2, 3, 6, 7, 8, 9, 12, 13, 10, 11, 14, 15};
 		i8x16 nnzv = shuffle8(nC, shufV);
-		i8x16 nnzl = shuffle8(mb[-1].nC_v[0], shufV);
+		i8x16 nnzl = shuffle8(mbA->nC_v[0], shufV);
 		i8x16 nnzh = shuffle8(nC, shufH);
 		i8x16 nnzt = shuffle8(mbB->nC_v[0], shufH);
 		i8x16 bS2abcd = (nnzv | alignr(nnzv, nnzl, 12)) > zero;
@@ -1050,15 +1052,13 @@ void FUNC_TSK(deblock_frame, unsigned next_deblock_addr)
 	tsk->samples_mb[0] = tsk->samples_row[0] + mbx * 16;
 	tsk->samples_mb[1] = tsk->samples_base + tsk->plane_size_Y + mby * tsk->stride[1] * 8 + mbx * 8;
 	tsk->samples_mb[2] = tsk->samples_mb[1] + tsk->plane_size_C;
-	mbB = (Edge264_macroblock *)(tsk->samples_base + tsk->plane_size_Y + tsk->plane_size_C * 2) + 1 + mby * (tsk->pic_width_in_mbs + 1) + mbx;
-	mb = mbB + tsk->pic_width_in_mbs + 1;
+	mb = (Edge264_macroblock *)(tsk->samples_base + tsk->plane_size_Y + tsk->plane_size_C * 2) + 1 + (mby + 1) * (tsk->pic_width_in_mbs + 1) + mbx;
 	
 	do {
 		CALL_TSK(deblock_mb);
 		
 		// point at the next macroblock
 		mb++;
-		mbB++;
 		tsk->samples_mb[0] += 16;
 		tsk->samples_mb[1] += 8;
 		tsk->samples_mb[2] += 8;
@@ -1067,7 +1067,6 @@ void FUNC_TSK(deblock_frame, unsigned next_deblock_addr)
 		if (tsk->samples_mb[0] - tsk->samples_row[0] < tsk->stride[0])
 			continue;
 		mb++;
-		mbB++;
 		tsk->samples_mb[0] = tsk->samples_row[0] += tsk->stride[0] * 16;
 		tsk->samples_mb[1] += tsk->stride[1] * 7;
 		tsk->samples_mb[2] += tsk->stride[1] * 7;

@@ -776,6 +776,7 @@ static noinline void CAFUNC(parse_I_mb, int mb_type_or_ctxIdx)
 		}
 		
 		fprintf(stderr, "rem_intra_pred_modes:");
+		mb->Intra4x4PredMode[15] = -2; // value pointed to when A or B is unavailable
 		if (transform_size_8x8_flag) {
 			mb->f.transform_size_8x8_flag = transform_size_8x8_flag;
 			for (int i = 0; i < 16; i += 4)
@@ -1217,6 +1218,7 @@ static inline void CAFUNC(parse_B_mb)
 	#ifdef CABAC
 		mb->absMvd_v[0] = mb->absMvd_v[1] = mb->absMvd_v[2] = mb->absMvd_v[3] = (i8x16){};
 	#endif
+	mb->mvs_v[0] = mb->mvs_v[1] = mb->mvs_v[2] = mb->mvs_v[3] = mb->mvs_v[4] = mb->mvs_v[5] = mb->mvs_v[6] = mb->mvs_v[7] = (i16x8){};
 	
 	// parse mb_skip_run/flag
 	#ifndef CABAC
@@ -1416,13 +1418,13 @@ static void CAFUNC(parse_P_sub_mb, unsigned ref_idx_flags)
 		int eq = refIdx4x4_eq.q[i];
 		int mvs_DC = eq & 8 ? tsk->mvs_D[i] : tsk->mvs_C[i];
 		if (__builtin_expect(0xe9e9 >> eq & 1, 1)) {
-			i16x8 mvA = load32((int32_t *)mb->mvs_s + tsk->mvs_A[i]);
-			i16x8 mvB = load32((int32_t *)mb->mvs_s + tsk->mvs_B[i]);
-			i16x8 mvDC = load32((int32_t *)mb->mvs_s + mvs_DC);
+			i16x8 mvA = (i32x4){mb->mvs_s[tsk->mvs_A[i]]};
+			i16x8 mvB = (i32x4){mb->mvs_s[tsk->mvs_B[i]]};
+			i16x8 mvDC = (i32x4){mb->mvs_s[mvs_DC]};
 			mvp = median16(mvA, mvB, mvDC);
 		} else {
 			int mvs_AB = eq & 1 ? tsk->mvs_A[i] : tsk->mvs_B[i];
-			mvp = load32((int32_t *)mb->mvs_s + (eq & 4 ? mvs_DC : mvs_AB));
+			mvp = (i32x4){mb->mvs_s[(eq & 4 ? mvs_DC : mvs_AB)]};
 		}
 		
 		// broadcast absMvd and mvs to memory then call decoding
@@ -1475,6 +1477,10 @@ static inline void CAFUNC(parse_P_mb)
 	mb->f.mbIsInterFlag = 1;
 	mb->Intra4x4PredMode_v = (i8x16){2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2};
 	mb->refIdx_l = (int64_t)(i8x8){0, 0, 0, 0, -1, -1, -1, -1};
+	#ifdef CABAC
+		mb->absMvd_v[0] = mb->absMvd_v[1] = (i8x16){};
+	#endif
+	mb->mvs_v[0] = mb->mvs_v[1] = mb->mvs_v[2] = mb->mvs_v[3] = mb->mvs_v[4] = mb->mvs_v[5] = mb->mvs_v[6] = mb->mvs_v[7] = (i16x8){};
 	
 	// parse mb_skip_run/flag
 	#ifndef CABAC
@@ -1499,34 +1505,29 @@ static inline void CAFUNC(parse_P_mb)
 		mb->refPic_l = ((i64x2)(shuffle8(tsk->RefPicList_v[0], refIdx_v) | refIdx_v))[0];
 		int refIdxA = mbA->refIdx[1];
 		int refIdxB = mbB->refIdx[2];
-		int mvA = *((int32_t *)mb->mvs_s + tsk->mvs_A[0]);
-		int mvB = *((int32_t *)mb->mvs_s + tsk->mvs_B[0]);
-		i32x4 mv = {};
+		int mvA = mbA->mvs_s[5];
+		int mvB = mbB->mvs_s[10];
+		i16x8 mv = {};
 		if ((refIdxA | mvA) && (refIdxB | mvB) && !(tsk->unavail16x16 & 3)) {
-			int refIdxC, mvs_C;
+			int refIdxC;
 			if (__builtin_expect(tsk->unavail16x16 & 4, 0)) {
 				refIdxC = mbD->refIdx[3];
-				mvs_C = tsk->mvs_D[0];
+				mv = (i32x4){mbD->mvs_s[15]};
 			} else {
 				refIdxC = mbC->refIdx[2];
-				mvs_C = tsk->mvs_C[5];
+				mv = (i32x4){mbC->mvs_s[10]};
 			}
 			// B/C unavailability (->A) was ruled out, thus not tested here
 			int eq = !refIdxA + !refIdxB * 2 + !refIdxC * 4;
 			if (__builtin_expect(0xe9 >> eq & 1, 1)) {
-				mv = median16((i32x4){mvA}, (i32x4){mvB}, load32((int32_t *)mb->mvs_s + mvs_C));
-			} else if (eq == 4) {
-				mv = load32((int32_t *)mb->mvs_s + mvs_C);
-			} else {
+				mv = median16((i32x4){mvA}, (i32x4){mvB}, mv);
+			} else if (eq != 4) {
 				mv = (i32x4){(eq == 1) ? mvA : mvB};
 			}
 		}
 		i16x8 mvs = shuffle32(mv, 0, 0, 0, 0);
 		mb->mvs_v[0] = mb->mvs_v[1] = mb->mvs_v[2] = mb->mvs_v[3] = mvs;
 		mb->mvs_v[4] = mb->mvs_v[5] = mb->mvs_v[6] = mb->mvs_v[7] = (i16x8){};
-		#ifdef CABAC
-			mb->absMvd_v[0] = mb->absMvd_v[1] = (i8x16){};
-		#endif
 		JUMP_TSK(decode_inter, 0, 16, 16);
 	}
 	tsk->transform_8x8_mode_flag = tsk->pps.transform_8x8_mode_flag;
@@ -1536,9 +1537,6 @@ static inline void CAFUNC(parse_P_mb)
 		int mb_type = CALL_T2B(get_ue16, 30);
 		fprintf(stderr, "mb_type: %u\n", mb_type);
 		if (mb_type > 4) {
-			#ifdef CABAC
-				mb->absMvd_v[0] = mb->absMvd_v[1] = (i8x16){};
-			#endif
 			CAJUMP(parse_I_mb, mb_type - 5);
 		}
 		mb->mvs_v[4] = mb->mvs_v[5] = mb->mvs_v[6] = mb->mvs_v[7] = (i16x8){};
@@ -1547,9 +1545,6 @@ static inline void CAFUNC(parse_P_mb)
 		CACALL(parse_ref_idx, 0x351 >> (mb_type << 2) & 15); // 0->1, 1->5, 2->3
 	#else
 		if (CALL_TSK(get_ae, 14)) { // Intra
-			#ifdef CABAC
-				mb->absMvd_v[0] = mb->absMvd_v[1] = (i8x16){};
-			#endif
 			CAJUMP(parse_I_mb, 17);
 		}
 		int mb_type = CALL_TSK(get_ae, 15); // actually 1 and 3 are swapped
@@ -1623,6 +1618,52 @@ static noinline void CAFUNC(parse_slice_data)
 		i8x16 fB = mbB->f.v;
 		uint64_t bitsA = mbA->bits_l;
 		uint64_t bitsB = mbB->bits_l;
+		
+		// FIXME correct for width==1|2?
+		int decoded = tsk->CurrMbAddr - tsk->first_mb_in_slice;
+		if (decoded <= tsk->pic_width_in_mbs + 1) {
+			if (decoded == 0) {
+				
+			} else if (decoded == 1) { // A is now available
+				tsk->A4x4_int8[0] = 5 - (int)sizeof(*mb);
+				tsk->A4x4_int8[2] = 7 - (int)sizeof(*mb);
+				tsk->A4x4_int8[8] = 13 - (int)sizeof(*mb);
+				tsk->A4x4_int8[10] = 15 - (int)sizeof(*mb);
+				tsk->absMvd_A[0] = 10 - (int)sizeof(*mb);
+				tsk->absMvd_A[2] = 14 - (int)sizeof(*mb);
+				tsk->absMvd_A[8] = 26 - (int)sizeof(*mb);
+				tsk->absMvd_A[10] = 30 - (int)sizeof(*mb);
+				if (tsk->ChromaArrayType == 1) {
+					tsk->ACbCr_int8[0] = 1 - (int)sizeof(*mb);
+					tsk->ACbCr_int8[2] = 3 - (int)sizeof(*mb);
+					tsk->ACbCr_int8[4] = 5 - (int)sizeof(*mb);
+					tsk->ACbCr_int8[6] = 7 - (int)sizeof(*mb);
+				}
+			} else if (decoded < tsk->pic_width_in_mbs - 1) {
+				
+			} else if (decoded == tsk->pic_width_in_mbs - 1) { // C is now available
+				
+			} else if (decoded == tsk->pic_width_in_mbs) { // B is now available
+				int offB_int8 = (tsk->pic_width_in_mbs + 1) * sizeof(*mb);
+				tsk->B4x4_int8[0] = 10 - offB_int8;
+				tsk->B4x4_int8[1] = 11 - offB_int8;
+				tsk->B4x4_int8[4] = 14 - offB_int8;
+				tsk->B4x4_int8[5] = 15 - offB_int8;
+				tsk->absMvd_B[0] = 20 - offB_int8;
+				tsk->absMvd_B[1] = 22 - offB_int8;
+				tsk->absMvd_B[4] = 28 - offB_int8;
+				tsk->absMvd_B[5] = 30 - offB_int8;
+				if (tsk->ChromaArrayType == 1) {
+					tsk->BCbCr_int8[0] = 2 - offB_int8;
+					tsk->BCbCr_int8[1] = 3 - offB_int8;
+					tsk->BCbCr_int8[4] = 6 - offB_int8;
+					tsk->BCbCr_int8[5] = 7 - offB_int8;
+				}
+			} else { // D is now available
+				
+			}
+		}
+		
 		if (tsk->first_mb_in_slice) {
 			i8x16 zero = {};
 			if (tsk->CurrMbAddr <= tsk->first_mb_in_slice + tsk->pic_width_in_mbs) { // D is unavailable

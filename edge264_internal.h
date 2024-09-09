@@ -228,8 +228,8 @@ typedef struct {
 	// neighbouring offsets (relative to the start of each array in mb)
 	union { int16_t A4x4_int8[16]; i16x16 A4x4_int8_v; };
 	union { int32_t B4x4_int8[16]; i32x16 B4x4_int8_v; };
-	union { int16_t ACbCr_int8[16]; i16x16 ACbCr_int8_v; };
-	union { int32_t BCbCr_int8[16]; i32x16 BCbCr_int8_v; };
+	union { int16_t ACbCr_int8[16]; i16x8 ACbCr_int8_v[2]; };
+	union { int32_t BCbCr_int8[16]; i32x8 BCbCr_int8_v[2]; };
 	union { int8_t refIdx4x4_C[16]; int32_t refIdx4x4_C_s[4]; i8x16 refIdx4x4_C_v; }; // shuffle vector for mv prediction
 	union { int16_t absMvd_A[16]; i16x16 absMvd_A_v; };
 	union { int32_t absMvd_B[16]; i32x16 absMvd_B_v; };
@@ -683,10 +683,10 @@ static noinline void FUNC_TSK(parse_slice_data_cabac);
 			i16x8 d = (i16x8)unpackhi8(a, zero) << 7;
 			i16x8 e = (i16x8)unpacklo8(b, zero) << 7;
 			i16x8 f = (i16x8)unpackhi8(b, zero) << 7;
-			i32x4 g = _mm_cvtps_epi32(unpacklo16(zero, c)) | _mm_cvtps_epi32(unpackhi16(zero, c)) |
-			          _mm_cvtps_epi32(unpacklo16(zero, d)) | _mm_cvtps_epi32(unpackhi16(zero, d)) |
-			          _mm_cvtps_epi32(unpacklo16(zero, e)) | _mm_cvtps_epi32(unpackhi16(zero, e)) |
-			          _mm_cvtps_epi32(unpacklo16(zero, f)) | _mm_cvtps_epi32(unpackhi16(zero, f));
+			i32x4 g = _mm_cvtps_epi32((__m128)unpacklo16(zero, c)) | _mm_cvtps_epi32((__m128)unpackhi16(zero, c)) |
+			          _mm_cvtps_epi32((__m128)unpacklo16(zero, d)) | _mm_cvtps_epi32((__m128)unpackhi16(zero, d)) |
+			          _mm_cvtps_epi32((__m128)unpacklo16(zero, e)) | _mm_cvtps_epi32((__m128)unpackhi16(zero, e)) |
+			          _mm_cvtps_epi32((__m128)unpacklo16(zero, f)) | _mm_cvtps_epi32((__m128)unpackhi16(zero, f));
 			i32x4 h = g | shuffle32(g, 2, 3, 0, 1);
 			i32x4 i = h | shuffle32(h, 1, 0, 3, 2);
 			return i[0];

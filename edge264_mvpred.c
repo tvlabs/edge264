@@ -9,33 +9,33 @@
 static inline void FUNC_TSK(decode_inter_16x16, i16x8 mvd, int lx)
 {
 	// compare neighbouring indices and compute mvp
-	i16x8 mvp;
 	int refIdx = mb->refIdx[lx * 4];
 	int refIdxA = mbA->refIdx[lx * 4 + 1];
 	int refIdxB = mbB->refIdx[lx * 4 + 2];
 	int eqA = refIdx==refIdxA;
-	int refIdxC, mvs_C;
+	int refIdxC;
+	i16x8 mvp;
 	if (__builtin_expect(tsk->unavail16x16 & 4, 0)) {
 		refIdxC = mbD->refIdx[lx * 4 + 3];
-		mvs_C = tsk->mvs_D[0];
+		mvp = (i32x4){mbD->mvs_s[lx * 16 + 15]};
 		eqA |= tsk->unavail16x16==14;
 	} else {
 		refIdxC = mbC->refIdx[lx * 4 + 2];
-		mvs_C = tsk->mvs_C[5];
+		mvp = (i32x4){mbC->mvs_s[lx * 16 + 10]};
 	}
 	int eq = eqA + (refIdx==refIdxB) * 2 + (refIdx==refIdxC) * 4;
 	if (__builtin_expect(0xe9 >> eq & 1, 1)) {
-		i16x8 mvA = (i32x4){*(mb->mvs_s + lx * 16 + tsk->mvs_A[0])};
-		i16x8 mvB = (i32x4){*(mb->mvs_s + lx * 16 + tsk->mvs_B[0])};
-		i16x8 mvC = (i32x4){*(mb->mvs_s + lx * 16 + mvs_C)};
-		mvp = median16(mvA, mvB, mvC);
-	} else {
-		int mvs_N = (eq == 1) ? tsk->mvs_A[0] : (eq == 2) ? tsk->mvs_B[0] : mvs_C;
-		mvp = (i32x4){*(mb->mvs_s + lx * 16 + mvs_N)};
+		i16x8 mvA = (i32x4){mbA->mvs_s[lx * 16 + 5]};
+		i16x8 mvB = (i32x4){mbB->mvs_s[lx * 16 + 10]};
+		mvp = median16(mvA, mvB, mvp);
+	} else if (eq == 1) {
+		mvp = (i32x4){mbA->mvs_s[lx * 16 + 5]};
+	} else if (eq == 2) {
+		mvp = (i32x4){mbB->mvs_s[lx * 16 + 10]};
 	}
 	
 	// sum mvp and mvd, broadcast everything to memory and tail-jump to decoding
-	i32x4 mv = mvp + mvd;
+	i16x8 mv = mvp + mvd;
 	i16x8 mvs = shuffle32(mv, 0, 0, 0, 0);
 	mb->absMvd_v[lx * 2] = mb->absMvd_v[lx * 2 + 1] = pack_absMvd(mvd);
 	mb->mvs_v[lx * 4] = mb->mvs_v[lx * 4 + 1] = mb->mvs_v[lx * 4 + 2] = mb->mvs_v[lx * 4 + 3] = mvs;
@@ -45,40 +45,39 @@ static inline void FUNC_TSK(decode_inter_16x16, i16x8 mvd, int lx)
 static inline void FUNC_TSK(decode_inter_8x16_left, i16x8 mvd, int lx)
 {
 	// compare neighbouring indices and compute mvp
-	i16x8 mvp;
+	i16x8 mvp, mvC;
 	int refIdx = mb->refIdx[lx * 4];
 	int refIdxA = mbA->refIdx[lx * 4 + 1];
 	if (refIdx == refIdxA || tsk->unavail4x4[0] == 14) {
-		mvp = (i32x4){*(mb->mvs_s + lx * 16 + tsk->mvs_A[0])};
+		mvp = (i32x4){mbA->mvs_s[lx * 16 + 5]};
 	} else {
 		int refIdxB = mbB->refIdx[lx * 4 + 2];
-		int refIdxC, mvs_C;
+		int refIdxC;
 		if (__builtin_expect(tsk->unavail16x16 & 2, 0)) {
 			refIdxC = mbD->refIdx[lx * 4 + 3];
-			mvs_C = tsk->mvs_D[0];
+			mvC = (i32x4){mbD->mvs_s[lx * 16 + 15]};
 		} else {
 			refIdxC = mbB->refIdx[lx * 4 + 3];
-			mvs_C = tsk->mvs_C[1];
+			mvC = (i32x4){mbB->mvs_s[lx * 16 + 14]};
 		}
 		if (refIdx == refIdxB) {
-			mvp = (i32x4){*(mb->mvs_s + lx * 16 + tsk->mvs_B[0])};
+			mvp = (i32x4){mbB->mvs_s[lx * 16 + 10]};
 			if (refIdx == refIdxC) {
-				i16x8 mvA = (i32x4){*(mb->mvs_s + lx * 16 + tsk->mvs_A[0])};
-				i16x8 mvC = (i32x4){*(mb->mvs_s + lx * 16 + mvs_C)};
+				i16x8 mvA = (i32x4){mbA->mvs_s[lx * 16 + 5]};
 				mvp = median16(mvA, mvp, mvC);
 			}
 		} else { // refIdx != refIdxA/B
-			mvp = (i32x4){*(mb->mvs_s + lx * 16 + mvs_C)};
+			mvp = mvC;
 			if (refIdx != refIdxC) {
-				i16x8 mvA = (i32x4){*(mb->mvs_s + lx * 16 + tsk->mvs_A[0])};
-				i16x8 mvB = (i32x4){*(mb->mvs_s + lx * 16 + tsk->mvs_B[0])};
+				i16x8 mvA = (i32x4){mbA->mvs_s[lx * 16 + 5]};
+				i16x8 mvB = (i32x4){mbB->mvs_s[lx * 16 + 10]};
 				mvp = median16(mvA, mvB, mvp);
 			}
 		}
 	}
 	
 	// sum mvp and mvd, broadcast everything to memory and call decoding
-	i32x4 mv = mvp + mvd;
+	i16x8 mv = mvp + mvd;
 	i16x8 mvs = shuffle32(mv, 0, 0, 0, 0);
 	mb->absMvd_l[lx * 4] = mb->absMvd_l[lx * 4 + 2] = ((i64x2)pack_absMvd(mvd))[0];
 	mb->mvs_v[lx * 4] = mb->mvs_v[lx * 4 + 2] = mvs;
@@ -88,40 +87,38 @@ static inline void FUNC_TSK(decode_inter_8x16_left, i16x8 mvd, int lx)
 static inline void FUNC_TSK(decode_inter_8x16_right, i16x8 mvd, int lx)
 {
 	// compare neighbouring indices and compute mvp
-	i16x8 mvp;
+	i16x8 mvp, mvC;
 	int refIdx = mb->refIdx[lx * 4 + 1];
-	int refIdxC, mvs_C;
+	int refIdxC;
 	if (__builtin_expect(tsk->unavail16x16 & 4, 0)) {
 		refIdxC = mbB->refIdx[lx * 4 + 2];
-		mvs_C = tsk->mvs_D[4];
+		mvC = (i32x4){mbB->mvs_s[lx * 16 + 11]};
 	} else {
 		refIdxC = mbC->refIdx[lx * 4 + 2];
-		mvs_C = tsk->mvs_C[5];
+		mvC = (i32x4){mbC->mvs_s[lx * 16 + 10]};
 	}
 	if (refIdx == refIdxC) {
-		mvp = (i32x4){*(mb->mvs_s + lx * 16 + mvs_C)};
+		mvp = mvC;
 	} else {
 		int refIdxA = mb->refIdx[lx * 4];
 		int refIdxB = mbB->refIdx[lx * 4 + 3];
 		if (refIdx == refIdxB) {
-			mvp = (i32x4){*(mb->mvs_s + lx * 16 + tsk->mvs_B[4])};
+			mvp = (i32x4){mbB->mvs_s[lx * 16 + 14]};
 			if (refIdx == refIdxA) {
-				i16x8 mvA = (i32x4){*(mb->mvs_s + lx * 16 + tsk->mvs_A[4])};
-				i16x8 mvC = (i32x4){*(mb->mvs_s + lx * 16 + mvs_C)};
+				i16x8 mvA = (i32x4){mb->mvs_s[lx * 16]};
 				mvp = median16(mvA, mvp, mvC);
 			}
 		} else { // refIdx != B/C
-			mvp = (i32x4){*(mb->mvs_s + lx * 16 + tsk->mvs_A[4])};
+			mvp = (i32x4){mb->mvs_s[lx * 16]};
 			if (refIdx != refIdxA && tsk->unavail4x4[5] != 14) {
-				i16x8 mvB = (i32x4){*(mb->mvs_s + lx * 16 + tsk->mvs_B[4])};
-				i16x8 mvC = (i32x4){*(mb->mvs_s + lx * 16 + mvs_C)};
+				i16x8 mvB = (i32x4){mbB->mvs_s[lx * 16 + 14]};
 				mvp = median16(mvp, mvB, mvC);
 			}
 		}
 	}
 	
 	// sum mvp and mvd, broadcast everything to memory and call decoding
-	i32x4 mv = mvp + mvd;
+	i16x8 mv = mvp + mvd;
 	i16x8 mvs = shuffle32(mv, 0, 0, 0, 0);
 	mb->absMvd_l[lx * 4 + 1] = mb->absMvd_l[lx * 4 + 3] = ((i64x2)pack_absMvd(mvd))[0];
 	mb->mvs_v[lx * 4 + 1] = mb->mvs_v[lx * 4 + 3] = mvs;
@@ -131,40 +128,39 @@ static inline void FUNC_TSK(decode_inter_8x16_right, i16x8 mvd, int lx)
 static inline void FUNC_TSK(decode_inter_16x8_top, i16x8 mvd, int lx)
 {
 	// compare neighbouring indices and compute mvp
-	i16x8 mvp;
+	i16x8 mvp, mvC;
 	int refIdx = mb->refIdx[lx * 4];
 	int refIdxB = mbB->refIdx[lx * 4 + 2];
 	if (refIdx == refIdxB) {
-		mvp = (i32x4){*(mb->mvs_s + lx * 16 + tsk->mvs_B[0])};
+		mvp = (i32x4){mbB->mvs_s[lx * 16 + 10]};
 	} else {
 		int refIdxA = mbA->refIdx[lx * 4 + 1];
-		int refIdxC, mvs_C;
+		int refIdxC;
 		if (__builtin_expect(tsk->unavail16x16 & 4, 0)) {
 			refIdxC = mbD->refIdx[lx * 4 + 3];
-			mvs_C = tsk->mvs_D[0];
+			mvC = (i32x4){mbD->mvs_s[lx * 16 + 15]};
 		} else {
 			refIdxC = mbC->refIdx[lx * 4 + 2];
-			mvs_C = tsk->mvs_C[5];
+			mvC = (i32x4){mbC->mvs_s[lx * 16 + 10]};
 		}
 		if (refIdx == refIdxC) {
-			mvp = (i32x4){*(mb->mvs_s + lx * 16 + mvs_C)};
+			mvp = mvC;
 			if (refIdx == refIdxA) {
-				i16x8 mvA = (i32x4){*(mb->mvs_s + lx * 16 + tsk->mvs_A[0])};
-				i16x8 mvB = (i32x4){*(mb->mvs_s + lx * 16 + tsk->mvs_B[0])};
+				i16x8 mvA = (i32x4){mbA->mvs_s[lx * 16 + 5]};
+				i16x8 mvB = (i32x4){mbB->mvs_s[lx * 16 + 10]};
 				mvp = median16(mvA, mvB, mvp);
 			}
 		} else { // refIdx != refIdxB/C
-			mvp = (i32x4){*(mb->mvs_s + lx * 16 + tsk->mvs_A[0])};
+			mvp = (i32x4){mbA->mvs_s[lx * 16 + 5]};
 			if (refIdx != refIdxA && tsk->unavail16x16 != 14) {
-				i16x8 mvB = (i32x4){*(mb->mvs_s + lx * 16 + tsk->mvs_B[0])};
-				i16x8 mvC = (i32x4){*(mb->mvs_s + lx * 16 + mvs_C)};
+				i16x8 mvB = (i32x4){mbB->mvs_s[lx * 16 + 10]};
 				mvp = median16(mvp, mvB, mvC);
 			}
 		}
 	}
 	
 	// sum mvp and mvd, broadcast everything to memory and tail-jump to decoding
-	i32x4 mv = mvp + mvd;
+	i16x8 mv = mvp + mvd;
 	i16x8 mvs = shuffle32(mv, 0, 0, 0, 0);
 	mb->absMvd_v[lx * 2] = pack_absMvd(mvd);
 	mb->mvs_v[lx * 4 + 0] = mb->mvs_v[lx * 4 + 1] = mvs;
@@ -178,29 +174,29 @@ static inline void FUNC_TSK(decode_inter_16x8_bottom, i16x8 mvd, int lx)
 	int refIdx = mb->refIdx[lx * 4 + 2];
 	int refIdxA = mbA->refIdx[lx * 4 + 3];
 	if (refIdx == refIdxA) {
-		mvp = (i32x4){*(mb->mvs_s + lx * 16 + tsk->mvs_A[8])};
+		mvp = (i32x4){mbA->mvs_s[lx * 16 + 13]};
 	} else {
 		int refIdxB = mb->refIdx[lx * 4];
 		int refIdxC = mbA->refIdx[lx * 4 + 1];
 		if (refIdx == refIdxB) {
-			mvp = (i32x4){*(mb->mvs_s + lx * 16)};
+			mvp = (i32x4){mb->mvs_s[lx * 16]};
 			if (refIdx == refIdxC) {
-				i16x8 mvA = (i32x4){*(mb->mvs_s + lx * 16 + tsk->mvs_A[8])};
-				i16x8 mvC = (i32x4){*(mb->mvs_s + lx * 16 + tsk->mvs_D[8])};
+				i16x8 mvA = (i32x4){mbA->mvs_s[lx * 16 + 13]};
+				i16x8 mvC = (i32x4){mbA->mvs_s[lx * 16 + 7]};
 				mvp = median16(mvA, mvp, mvC);
 			}
 		} else {
-			mvp = (i32x4){*(mb->mvs_s + lx * 16 + tsk->mvs_D[8])};
+			mvp = (i32x4){mbA->mvs_s[lx * 16 + 7]};
 			if (refIdx != refIdxC) {
-				i16x8 mvA = (i32x4){*(mb->mvs_s + lx * 16 + tsk->mvs_A[8])};
-				i16x8 mvB = (i32x4){*(mb->mvs_s + lx * 16)};
+				i16x8 mvA = (i32x4){mbA->mvs_s[lx * 16 + 13]};
+				i16x8 mvB = (i32x4){mb->mvs_s[lx * 16]};
 				mvp = median16(mvA, mvB, mvp);
 			}
 		}
 	}
 	
 	// sum mvp and mvd, broadcast everything to memory and tail-jump to decoding
-	i32x4 mv = mvp + mvd;
+	i16x8 mv = mvp + mvd;
 	i16x8 mvs = shuffle32(mv, 0, 0, 0, 0);
 	mb->absMvd_v[lx * 2 + 1] = pack_absMvd(mvd);
 	mb->mvs_v[lx * 4 + 2] = mb->mvs_v[lx * 4 + 3] = mvs;
@@ -217,15 +213,18 @@ static always_inline void FUNC_TSK(decode_direct_spatial_mv_pred, unsigned direc
 {
 	// load all refIdxN and mvN in vector registers
 	i8x16 shuf = {0, 0, 0, 0, 4, 4, 4, 4, -1, -1, -1, -1, -1, -1, -1, -1};
-	i16x8 mvA = unpacklo32(load32((int32_t *)mb->mvs_s + tsk->mvs_A[0]), load32((int32_t *)mb->mvs_s + tsk->mvs_A[0] + 16));
-	i16x8 mvB = unpacklo32(load32((int32_t *)mb->mvs_s + tsk->mvs_B[0]), load32((int32_t *)mb->mvs_s + tsk->mvs_B[0] + 16));
-	i16x8 mvC = unpacklo32(load32((int32_t *)mb->mvs_s + tsk->mvs_C[5]), load32((int32_t *)mb->mvs_s + tsk->mvs_C[5] + 16));
+	i16x8 mvA = (i32x4){mbA->mvs_s[5], mbA->mvs_s[21]};
+	i16x8 mvB = (i32x4){mbB->mvs_s[10], mbB->mvs_s[26]};
+	i16x8 mvC;
 	i8x16 refIdxA = shuffle8(shrc((i64x2){mbA->refIdx_l}, 1), shuf);
 	i8x16 refIdxB = shuffle8(shrc((i64x2){mbB->refIdx_l}, 2), shuf);
-	i8x16 refIdxC = shuffle8(shrc((i64x2){mbC->refIdx_l}, 2), shuf);
+	i8x16 refIdxC;
 	if (__builtin_expect(tsk->unavail16x16 & 4, 0)) {
-		mvC = unpacklo32(load32((int32_t *)mb->mvs_s + tsk->mvs_D[0]), load32((int32_t *)mb->mvs_s + tsk->mvs_D[0] + 16));
+		mvC = (i32x4){mbD->mvs_s[15], mbD->mvs_s[31]};
 		refIdxC = shuffle8(shrc((i64x2){mbD->refIdx_l}, 3), shuf);
+	} else {
+		mvC = (i32x4){mbC->mvs_s[10], mbC->mvs_s[26]};
+		refIdxC = shuffle8(shrc((i64x2){mbC->refIdx_l}, 2), shuf);
 	}
 	
 	// initialize mv along refIdx since it will equal one of refIdxA/B/C

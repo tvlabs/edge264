@@ -141,18 +141,18 @@ static void FUNC_CTX(initialise_decoding_context, Edge264_task *t)
 	int offB_int32 = offB_int8 >> 2;
 	int offC_int32 = offB_int32 + (sizeof(*t->_mb) >> 2);
 	int offD_int32 = offB_int32 - (sizeof(*t->_mb) >> 2);
-	t->A4x4_int8_v = (i16x16){5 + offA_int8, 0, 7 + offA_int8, 2, 1, 4, 3, 6, 13 + offA_int8, 8, 15 + offA_int8, 10, 9, 12, 11, 14};
-	t->B4x4_int8_v = (i32x16){10 + offB_int8, 11 + offB_int8, 0, 1, 14 + offB_int8, 15 + offB_int8, 4, 5, 2, 3, 8, 9, 6, 7, 12, 13};
+	t->A4x4_int8_v = (i16x16){15, 0, 15, 2, 1, 4, 3, 6, 15, 8, 15, 10, 9, 12, 11, 14};
+	t->B4x4_int8_v = (i32x16){15, 15, 0, 1, 15, 15, 4, 5, 2, 3, 8, 9, 6, 7, 12, 13};
 	if (t->ChromaArrayType == 1) {
-		t->ACbCr_int8_v = (i16x16){1 + offA_int8, 0, 3 + offA_int8, 2, 5 + offA_int8, 4, 7 + offA_int8, 6};
-		t->BCbCr_int8_v = (i32x16){2 + offB_int8, 3 + offB_int8, 0, 1, 6 + offB_int8, 7 + offB_int8, 4, 5};
+		t->ACbCr_int8_v[0] = (i16x8){7, 0, 7, 2, 7, 4, 7, 6};
+		t->BCbCr_int8_v[0] = (i32x8){7, 7, 0, 1, 7, 7, 4, 5};
 	}
 	
 	// P/B slices
 	if (t->slice_type < 2) {
 		t->refIdx4x4_C_v = (i8x16){2, 3, 12, -1, 3, 6, 13, -1, 12, 13, 14, -1, 13, -1, 15, -1};
-		t->absMvd_A_v = (i16x16){10 + offA_int8, 0, 14 + offA_int8, 4, 2, 8, 6, 12, 26 + offA_int8, 16, 30 + offA_int8, 20, 18, 24, 22, 28};
-		t->absMvd_B_v = (i32x16){20 + offB_int8, 22 + offB_int8, 0, 2, 28 + offB_int8, 30 + offB_int8, 8, 10, 4, 6, 16, 18, 12, 14, 24, 26};
+		t->absMvd_A_v = (i16x16){30, 0, 30, 4, 2, 8, 6, 12, 30, 16, 30, 20, 18, 24, 22, 28};
+		t->absMvd_B_v = (i32x16){30, 30, 0, 2, 30, 30, 8, 10, 4, 6, 16, 18, 12, 14, 24, 26};
 		t->mvs_A_v = (i16x16){5 + offA_int32, 0, 7 + offA_int32, 2, 1, 4, 3, 6, 13 + offA_int32, 8, 15 + offA_int32, 10, 9, 12, 11, 14};
 		t->mvs_B_v = (i32x16){10 + offB_int32, 11 + offB_int32, 0, 1, 14 + offB_int32, 15 + offB_int32, 4, 5, 2, 3, 8, 9, 6, 7, 12, 13};
 		t->mvs_C_v = (i32x16){11 + offB_int32, 14 + offB_int32, 1, -1, 15 + offB_int32, 10 + offC_int32, 5, -1, 3, 6, 9, -1, 7, -1, 13, -1};

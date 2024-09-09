@@ -203,6 +203,8 @@ typedef struct {
 	Edge264_macroblock * restrict _mb; // backup storage for macro mb
 	Edge264_macroblock * restrict _mbA; // backup storage for macro mbA
 	Edge264_macroblock * restrict _mbB; // backup storage for macro mbB
+	Edge264_macroblock * restrict _mbC; // backup storage for macro mbC
+	Edge264_macroblock * restrict _mbD; // backup storage for macro mbD
 	int8_t currPic;
 	int32_t CurrMbAddr;
 	int32_t next_deblock_addr;
@@ -388,6 +390,8 @@ typedef struct Edge264_context {
 #define mb tsk->_mb
 #define mbA tsk->_mbA
 #define mbB tsk->_mbB
+#define mbC tsk->_mbC
+#define mbD tsk->_mbD
 
 
 
@@ -637,7 +641,7 @@ static noinline void FUNC_TSK(parse_slice_data_cabac);
 		i32x4 c = b | shuffle32(b, 1, 0, 3, 2);
 		return c[0];
 	}
-	#ifdef __BMI2__
+	#ifdef __BMI2__ // FIXME and not AMD
 		static always_inline int extract_neighbours(unsigned f) { return _pext_u32(f, 0x27); }
 		static always_inline int mvd_flags2ref_idx(unsigned f) { return _pext_u32(f, 0x11111111); }
 	#else

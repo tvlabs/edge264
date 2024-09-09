@@ -223,6 +223,7 @@ typedef struct {
 	i8x16 nC_copy[6]; // slice neighbouring storage
 	int64_t refIdx_copy[4];
 	union { int32_t mvs_copy_s[32]; int64_t mvs_copy_l[16]; i16x8 mvs_copy_v[8]; };
+	union { int8_t nC_inc[3][16]; i8x16 nC_inc_v[3]; }; // stores the intra/inter default increment from unavailable neighbours (9.3.3.1.1.9)
 	
 	// neighbouring offsets (relative to the start of each array in mb)
 	union { int16_t A4x4_int8[16]; i16x16 A4x4_int8_v; };

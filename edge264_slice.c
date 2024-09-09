@@ -417,7 +417,7 @@ static void CAFUNC(parse_chroma_residual)
 				int nA = *((int8_t *)mb->nC[1] + tsk->ACbCr_int8[i4x4]);
 				int nB = *((int8_t *)mb->nC[1] + tsk->BCbCr_int8[i4x4]);
 				int token_or_cbf = CACOND(CALL_TSK(parse_coeff_token_cavlc, i4x4 << 2 & 15, nA, nB),
-					CALL_TSK(get_ae, tsk->ctxIdxOffsets[0] + nA + nB * 2));
+					CALL_TSK(get_ae, tsk->ctxIdxOffsets[0] + tsk->nC_inc[1][i4x4] + nA + nB * 2));
 				if (token_or_cbf) {
 					mb->nC[1][i4x4] = CACOND(token_or_cbf >> 2, 1);
 					tsk->c_v[0] = tsk->c_v[1] = tsk->c_v[2] = tsk->c_v[3] = (i32x4){};
@@ -482,7 +482,7 @@ static void CAFUNC(parse_Intra16x16_residual)
 				int nA = *((int8_t *)mb->nC[iYCbCr] + tsk->A4x4_int8[i4x4]);
 				int nB = *((int8_t *)mb->nC[iYCbCr] + tsk->B4x4_int8[i4x4]);
 				int token_or_cbf = CACOND(CALL_TSK(parse_coeff_token_cavlc, i4x4, nA, nB),
-					CALL_TSK(get_ae, tsk->ctxIdxOffsets[0] + nA + nB * 2));
+					CALL_TSK(get_ae, tsk->ctxIdxOffsets[0] + tsk->nC_inc[iYCbCr][i4x4] + nA + nB * 2));
 				if (token_or_cbf) {
 					mb->nC[iYCbCr][i4x4] = CACOND(token_or_cbf >> 2, 1);
 					tsk->c_v[0] = tsk->c_v[1] = tsk->c_v[2] = tsk->c_v[3] = (i32x4){};
@@ -559,7 +559,7 @@ static void CAFUNC(parse_NxN_residual)
 					int nA = *((int8_t *)mb->nC[iYCbCr] + tsk->A4x4_int8[i4x4]);
 					int nB = *((int8_t *)mb->nC[iYCbCr] + tsk->B4x4_int8[i4x4]);
 					int token_or_cbf = CACOND(CALL_TSK(parse_coeff_token_cavlc, i4x4, nA, nB),
-						CALL_TSK(get_ae, tsk->ctxIdxOffsets[0] + nA + nB * 2));
+						CALL_TSK(get_ae, tsk->ctxIdxOffsets[0] + tsk->nC_inc[iYCbCr][i4x4] + nA + nB * 2));
 					if (token_or_cbf) {
 						mb->nC[iYCbCr][i4x4] = CACOND(token_or_cbf >> 2, 1);
 						tsk->c_v[0] = tsk->c_v[1] = tsk->c_v[2] = tsk->c_v[3] = (i32x4){};
@@ -739,14 +739,17 @@ static noinline void CAFUNC(parse_I_mb, int mb_type_or_ctxIdx)
 	
 	// Intra-specific initialisations
 	#ifdef CABAC
+		tsk->nC_inc_v[0] = tsk->nC_inc_v[1] = tsk->nC_inc_v[2] = (i8x16){};
 		if (tsk->unavail16x16 & 1) {
 			mb->bits[1] |= 0x111111; // FIXME 4:2:2
-			mbA->nC_v[0] = mbA->nC_v[1] = mbA->nC_v[2] = (i8x16){1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1};
+			tsk->nC_inc_v[0] += (i8x16){1, 0, 1, 0, 0, 0, 0, 0, 1, 0, 1, 0, 0, 0, 0, 0};
+			tsk->nC_inc_v[1] += (i8x16){1, 0, 1, 0, 1, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0};
 			tsk->inc.coded_block_flags_16x16_s |= 0x010101;
 		}
 		if (tsk->unavail16x16 & 2) {
 			mb->bits[1] |= 0x424242;
-			mbB->nC_v[0] = mbB->nC_v[1] = mbB->nC_v[2] = (i8x16){1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1};
+			tsk->nC_inc_v[0] += (i8x16){2, 2, 0, 0, 2, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+			tsk->nC_inc_v[1] += (i8x16){2, 2, 0, 0, 2, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
 			tsk->inc.coded_block_flags_16x16_s |= 0x020202;
 		}
 	#endif
@@ -785,7 +788,7 @@ static noinline void CAFUNC(parse_I_mb, int mb_type_or_ctxIdx)
 		
 		CACALL(parse_intra_chroma_pred_mode);
 		CACALL(parse_coded_block_pattern, me_intra);
-		CACALL(parse_NxN_residual);
+		CAJUMP(parse_NxN_residual);
 	
 	// Intra_16x16
 	} else if (__builtin_expect(CACOND(mb_type_or_ctxIdx < 25, !CALL_TSK(cabac_terminate)), 1)) {
@@ -822,7 +825,7 @@ static noinline void CAFUNC(parse_I_mb, int mb_type_or_ctxIdx)
 		mb->Intra4x4PredMode_v = (i8x16){2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2};
 		CALL_TSK(decode_intra16x16, intra16x16_modes[mode][tsk->unavail16x16 & 3], tsk->samples_mb[0], tsk->stride[0], 0); // FIXME 4:4:4
 		CACALL(parse_intra_chroma_pred_mode);
-		CACALL(parse_Intra16x16_residual);
+		CAJUMP(parse_Intra16x16_residual);
 		
 	// I_PCM
 	} else {
@@ -863,17 +866,9 @@ static noinline void CAFUNC(parse_I_mb, int mb_type_or_ctxIdx)
 			y = (int8_t[4]){0, 8, 16, 16}[tsk->ChromaArrayType];
 		}
 		#ifdef CABAC
-			CALL_TSK(cabac_start);
+			JUMP_TSK(cabac_start);
 		#endif
 	}
-	
-	// restore neighbours
-	#ifdef CABAC
-		if (tsk->unavail16x16 & 1)
-			mbA->nC_v[0] = mbA->nC_v[1] = mbA->nC_v[2] = (i8x16){};
-		if (tsk->unavail16x16 & 2)
-			mbB->nC_v[0] = mbB->nC_v[1] = mbB->nC_v[2] = (i8x16){};
-	#endif
 }
 
 
@@ -892,6 +887,10 @@ static void CAFUNC(parse_inter_residual)
 		mb->f.transform_size_8x8_flag = CACOND(CALL_T2B(get_u1), CALL_TSK(get_ae, 399 + tsk->inc.transform_size_8x8_flag));
 		fprintf(stderr, "transform_size_8x8_flag: %x\n", mb->f.transform_size_8x8_flag);
 	}
+	
+	#ifdef CABAC
+		tsk->nC_inc_v[0] = tsk->nC_inc_v[1] = tsk->nC_inc_v[2] = (i8x16){};
+	#endif
 	CAJUMP(parse_NxN_residual);
 }
 

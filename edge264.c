@@ -1,7 +1,5 @@
 /** MAYDO:
  * _ Multithreading
- * 	_ Change slice neighbouring management with A/B/C/D copies to allow slice multithreading!
- * 		_ use the slice mechanism to handle top row unavailability too, then remove this row in memory allocation
  * 	_ Change finish_frame convention to be compatible with frame threading
  * 	_ Implement a basic task queue yet in decoding order and with 1 thread
  * 	_ Update DPB availability checks to take deps into account, and make sure we wait until there is a frame ready before returning -2
@@ -122,8 +120,8 @@ static void FUNC_CTX(initialise_decoding_context, Edge264_task *t)
 	t->QP_C_v[7] = load128(QP_Y2C + clip3(0, 63, 63 + t->pps.second_chroma_qp_index_offset));
 	t->QP[1] = t->QP_C[0][t->QP[0]];
 	t->QP[2] = t->QP_C[1][t->QP[0]];
-	int mb_offset = sizeof(*t->_mb) * (1 + mbx + (1 + mby) * (ctx->sps.pic_width_in_mbs + 1));
-	t->mbCol = t->_mb = (Edge264_macroblock *)(t->samples_base + ctx->plane_size_Y + ctx->plane_size_C * 2 + mb_offset);
+	int mb_offset = ctx->plane_size_Y + ctx->plane_size_C * 2 + sizeof(*t->_mb) * (mbx + mby * (ctx->sps.pic_width_in_mbs + 1));
+	t->mbCol = t->_mb = (Edge264_macroblock *)(t->samples_base + mb_offset);
 	for (int i = 1; i < 4; i++) {
 		t->sig_inc_v[i] = sig_inc_8x8[0][i];
 		t->last_inc_v[i] = last_inc_8x8[i];
@@ -155,7 +153,7 @@ static void FUNC_CTX(initialise_decoding_context, Edge264_task *t)
 		// B slices
 		if (t->slice_type == 1) {
 			int colPic = t->RefPicList[1][0];
-			t->mbCol = (Edge264_macroblock *)(t->frame_buffers[colPic] + ctx->plane_size_Y + ctx->plane_size_C * 2 + mb_offset);
+			t->mbCol = (Edge264_macroblock *)(t->frame_buffers[colPic] + mb_offset);
 			t->col_short_term = (ctx->long_term_flags >> colPic & 1) ^ 1;
 			
 			// initializations for temporal prediction and implicit weights
@@ -785,19 +783,17 @@ static int FUNC_CTX(parse_slice_layer_without_partitioning)
 			if (ctx->frame_buffers[ctx->currPic] == NULL)
 				return 1;
 			Edge264_macroblock *m = (Edge264_macroblock *)(ctx->frame_buffers[ctx->currPic] + ctx->plane_size_Y + ctx->plane_size_C * 2);
-			for (int i = 0; i <= ctx->sps.pic_width_in_mbs + 1; i++) {
-				m[i] = unavail_mb;
-				m[ctx->sps.pic_width_in_mbs + 1 + i].unavail16x16 = 14;
-			}
-			int mbs = (ctx->sps.pic_width_in_mbs + 1) * (ctx->sps.pic_height_in_mbs + 1);
-			for (int i = ctx->sps.pic_width_in_mbs * 2 + 4; i < mbs; i++)
-				m[i].unavail16x16 = 0;
-			for (int i = ctx->sps.pic_width_in_mbs * 2 + 2; i < mbs; i += ctx->sps.pic_width_in_mbs + 1) {
+			m[0].unavail16x16 = 15;
+			for (int i = 1; i < ctx->sps.pic_width_in_mbs; i++)
+				m[i].unavail16x16 = 14;
+			int mbs = (ctx->sps.pic_width_in_mbs + 1) * ctx->sps.pic_height_in_mbs - 1;
+			for (int i = ctx->sps.pic_width_in_mbs; i < mbs; i += ctx->sps.pic_width_in_mbs + 1) {
 				m[i] = unavail_mb;
 				m[i + 1].unavail16x16 = 9;
+				for (int j = 2; j < ctx->sps.pic_width_in_mbs; j++)
+					m[i + j].unavail16x16 = 0;
 				m[i + ctx->sps.pic_width_in_mbs].unavail16x16 = 4;
 			}
-			m[ctx->sps.pic_width_in_mbs + 2].unavail16x16 = 15;
 		}
 		ctx->remaining_mbs[ctx->currPic] = ctx->sps.pic_width_in_mbs * ctx->sps.pic_height_in_mbs;
 		ctx->next_deblock_addr[ctx->currPic] = ctx->sps.pic_width_in_mbs;
@@ -1625,7 +1621,7 @@ static int FUNC_CTX(parse_seq_parameter_set)
 		}
 		ctx->d.samples[0] = ctx->d.samples[1] = ctx->d.samples[2] = NULL;
 		ctx->d.samples_mvc[0] = ctx->d.samples_mvc[1] = ctx->d.samples_mvc[2] = NULL;
-		int mbs = (sps.pic_width_in_mbs + 1) * (ctx->sps.pic_height_in_mbs + 1);
+		int mbs = (sps.pic_width_in_mbs + 1) * ctx->sps.pic_height_in_mbs - 1;
 		ctx->frame_size = ctx->plane_size_Y + ctx->plane_size_C * 2 + mbs * sizeof(Edge264_macroblock);
 		ctx->reference_flags = ctx->long_term_flags = ctx->output_flags = 0;
 		ctx->currPic = ctx->basePic = -1;

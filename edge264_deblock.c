@@ -1052,7 +1052,7 @@ void FUNC_TSK(deblock_frame, unsigned next_deblock_addr)
 	tsk->samples_mb[0] = tsk->samples_row[0] + mbx * 16;
 	tsk->samples_mb[1] = tsk->samples_base + tsk->plane_size_Y + mby * tsk->stride[1] * 8 + mbx * 8;
 	tsk->samples_mb[2] = tsk->samples_mb[1] + tsk->plane_size_C;
-	mb = (Edge264_macroblock *)(tsk->samples_base + tsk->plane_size_Y + tsk->plane_size_C * 2) + 1 + (mby + 1) * (tsk->pic_width_in_mbs + 1) + mbx;
+	mb = (Edge264_macroblock *)(tsk->samples_base + tsk->plane_size_Y + tsk->plane_size_C * 2) + mbx + mby * (tsk->pic_width_in_mbs + 1);
 	
 	do {
 		CALL_TSK(deblock_mb);

@@ -1,10 +1,6 @@
 /** MAYDO:
  * _ Multithreading
  * 	_ Change slice neighbouring management with A/B/C/D copies to allow slice multithreading!
- * 		_ enumerate fields accessed through mbB, check their values, then replace mbB with a pointer to unavail_mb
- * 		_ enumerate fields accessed through neighbouring offsets, then make sure last index of each is init with unavail value
- * 		_ progressively alter neighbouring offsets to point to last index on slice unavailability
- * 		_ remove swapping of neighbouring values now that they are unused
  * 		_ use the slice mechanism to handle top row unavailability too, then remove this row in memory allocation
  * 	_ Change finish_frame convention to be compatible with frame threading
  * 	_ Implement a basic task queue yet in decoding order and with 1 thread
@@ -133,30 +129,22 @@ static void FUNC_CTX(initialise_decoding_context, Edge264_task *t)
 		t->last_inc_v[i] = last_inc_8x8[i];
 		t->scan_v[i] = scan_8x8_cabac[0][i];
 	}
-	
-	// neighbouring offsets
-	int offA_int8 = -(int)sizeof(*t->_mb);
-	int offB_int8 = -(ctx->sps.pic_width_in_mbs + 1) * sizeof(*t->_mb);
-	int offA_int32 = offA_int8 >> 2;
-	int offB_int32 = offB_int8 >> 2;
-	int offC_int32 = offB_int32 + (sizeof(*t->_mb) >> 2);
-	int offD_int32 = offB_int32 - (sizeof(*t->_mb) >> 2);
-	t->A4x4_int8_v = (i16x16){15, 0, 15, 2, 1, 4, 3, 6, 15, 8, 15, 10, 9, 12, 11, 14};
-	t->B4x4_int8_v = (i32x16){15, 15, 0, 1, 15, 15, 4, 5, 2, 3, 8, 9, 6, 7, 12, 13};
+	t->A4x4_int8_v = (i16x16){0, 0, 2, 2, 1, 4, 3, 6, 8, 8, 10, 10, 9, 12, 11, 14};
+	t->B4x4_int8_v = (i32x16){0, 1, 0, 1, 4, 5, 4, 5, 2, 3, 8, 9, 6, 7, 12, 13};
 	if (t->ChromaArrayType == 1) {
-		t->ACbCr_int8_v[0] = (i16x8){7, 0, 7, 2, 7, 4, 7, 6};
-		t->BCbCr_int8_v[0] = (i32x8){7, 7, 0, 1, 7, 7, 4, 5};
+		t->ACbCr_int8_v[0] = (i16x8){0, 0, 2, 2, 4, 4, 6, 6};
+		t->BCbCr_int8_v[0] = (i32x8){0, 1, 0, 1, 4, 5, 4, 5};
 	}
 	
 	// P/B slices
 	if (t->slice_type < 2) {
 		t->refIdx4x4_C_v = (i8x16){2, 3, 12, -1, 3, 6, 13, -1, 12, 13, 14, -1, 13, -1, 15, -1};
-		t->absMvd_A_v = (i16x16){30, 0, 30, 4, 2, 8, 6, 12, 30, 16, 30, 20, 18, 24, 22, 28};
-		t->absMvd_B_v = (i32x16){30, 30, 0, 2, 30, 30, 8, 10, 4, 6, 16, 18, 12, 14, 24, 26};
-		t->mvs_A_v = (i16x16){5 + offA_int32, 0, 7 + offA_int32, 2, 1, 4, 3, 6, 13 + offA_int32, 8, 15 + offA_int32, 10, 9, 12, 11, 14};
-		t->mvs_B_v = (i32x16){10 + offB_int32, 11 + offB_int32, 0, 1, 14 + offB_int32, 15 + offB_int32, 4, 5, 2, 3, 8, 9, 6, 7, 12, 13};
-		t->mvs_C_v = (i32x16){11 + offB_int32, 14 + offB_int32, 1, -1, 15 + offB_int32, 10 + offC_int32, 5, -1, 3, 6, 9, -1, 7, -1, 13, -1};
-		t->mvs_D_v = (i32x16){15 + offD_int32, 10 + offB_int32, 5 + offA_int32, 0, 11 + offB_int32, 14 + offB_int32, 1, 4, 7 + offA_int32, 2, 13 + offA_int32, 8, 3, 6, 9, 12};
+		t->absMvd_A_v = (i16x16){0, 0, 4, 4, 2, 8, 6, 12, 16, 16, 20, 20, 18, 24, 22, 28};
+		t->absMvd_B_v = (i32x16){0, 2, 0, 2, 8, 10, 8, 10, 4, 6, 16, 18, 12, 14, 24, 26};
+		t->mvs_A_v = (i16x16){0, 0, 2, 2, 1, 4, 3, 6, 8, 8, 10, 10, 9, 12, 11, 14};
+		t->mvs_B_v = (i32x16){0, 1, 0, 1, 4, 5, 4, 5, 2, 3, 8, 9, 6, 7, 12, 13};
+		t->mvs_C_v = (i32x16){0, 1, 1, -1, 4, 5, 5, -1, 3, 6, 9, -1, 7, -1, 13, -1};
+		t->mvs_D_v = (i32x16){0, 1, 2, 0, 4, 5, 1, 4, 8, 2, 10, 8, 3, 6, 9, 12};
 		t->num_ref_idx_mask = (t->pps.num_ref_idx_active[0] > 1) * 0x0f + (t->pps.num_ref_idx_active[1] > 1) * 0xf0;
 		t->transform_8x8_mode_flag = t->pps.transform_8x8_mode_flag; // for P slices this value is constant
 		int max0 = t->pps.num_ref_idx_active[0] - 1;

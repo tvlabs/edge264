@@ -776,7 +776,7 @@ static noinline void CAFUNC(parse_I_mb, int mb_type_or_ctxIdx)
 		}
 		
 		fprintf(stderr, "rem_intra_pred_modes:");
-		mb->Intra4x4PredMode[15] = -2; // value pointed to when A or B is unavailable
+		mb->Intra4x4PredMode_v = (i8x16){-2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2}; // default values when A/B is unavailable
 		if (transform_size_8x8_flag) {
 			mb->f.transform_size_8x8_flag = transform_size_8x8_flag;
 			for (int i = 0; i < 16; i += 4)
@@ -1141,6 +1141,7 @@ static void CAFUNC(parse_B_sub_mb) {
 	do {
 		int i = __builtin_ctz(mvd_flags);
 		int i4x4 = i & 15;
+		mb->mvs_s[i] = 0; // value pointed to when A/B/C/D are unavailable
 		uint8_t *absMvd_p = mb->absMvd + (i & 16) * 2;
 		i16x8 mvd = CACALL(parse_mvd_pair, absMvd_p, i4x4);
 		
@@ -1361,8 +1362,9 @@ static void CAFUNC(parse_P_sub_mb, unsigned ref_idx_flags)
 {
 	// initializations for sub_mb_type
 	fprintf(stderr, "sub_mb_types:");
-	unsigned mvd_flags = 0;
+	mb->mvs_v[0] = mb->mvs_v[1] = mb->mvs_v[2] = (i16x8){}; // values pointed to when A/B/C/D are unavailable
 	mb->inter_eqs_s = 0;
+	unsigned mvd_flags = 0;
 	for (int i8x8 = 0; i8x8 < 4; i8x8++) {
 		int i4x4 = i8x8 * 4;
 		int flags = 1;
@@ -1480,7 +1482,6 @@ static inline void CAFUNC(parse_P_mb)
 	#ifdef CABAC
 		mb->absMvd_v[0] = mb->absMvd_v[1] = (i8x16){};
 	#endif
-	mb->mvs_v[0] = mb->mvs_v[1] = mb->mvs_v[2] = mb->mvs_v[3] = mb->mvs_v[4] = mb->mvs_v[5] = mb->mvs_v[6] = mb->mvs_v[7] = (i16x8){};
 	
 	// parse mb_skip_run/flag
 	#ifndef CABAC
@@ -1607,7 +1608,7 @@ static noinline void CAFUNC(parse_slice_data)
 	while (1) {
 		fprintf(stderr, "********** POC=%u MB=%u **********\n", tsk->PicOrderCnt, tsk->CurrMbAddr);
 		
-		// replace neighbouring data with unavailable values on slice edge
+		// set and reset neighbouring pointers depending on their availability
 		int unavail16x16 = mb->unavail16x16;
 		int filter_edges = (tsk->disable_deblocking_filter_idc == 1) ? 0 : ~(mb->unavail16x16 << 1) & 7;
 		mbA = mb - 1;
@@ -1618,13 +1619,9 @@ static noinline void CAFUNC(parse_slice_data)
 		i8x16 fB = mbB->f.v;
 		uint64_t bitsA = mbA->bits_l;
 		uint64_t bitsB = mbB->bits_l;
-		
-		// FIXME correct for width==1|2?
 		int decoded = tsk->CurrMbAddr - tsk->first_mb_in_slice;
 		if (decoded <= tsk->pic_width_in_mbs + 1) {
-			if (decoded == 0) {
-				
-			} else if (decoded == 1) { // A is now available
+			if (decoded == 1) { // A becomes available
 				tsk->A4x4_int8[0] = 5 - (int)sizeof(*mb);
 				tsk->A4x4_int8[2] = 7 - (int)sizeof(*mb);
 				tsk->A4x4_int8[8] = 13 - (int)sizeof(*mb);
@@ -1633,96 +1630,77 @@ static noinline void CAFUNC(parse_slice_data)
 				tsk->absMvd_A[2] = 14 - (int)sizeof(*mb);
 				tsk->absMvd_A[8] = 26 - (int)sizeof(*mb);
 				tsk->absMvd_A[10] = 30 - (int)sizeof(*mb);
+				tsk->mvs_A[0] = 5 - (int)(sizeof(*mb) >> 2);
+				tsk->mvs_A[2] = 7 - (int)(sizeof(*mb) >> 2);
+				tsk->mvs_A[8] = 13 - (int)(sizeof(*mb) >> 2);
+				tsk->mvs_A[10] = 15 - (int)(sizeof(*mb) >> 2);
+				tsk->mvs_D[2] = 5 - (int)(sizeof(*mb) >> 2);
+				tsk->mvs_D[8] = 7 - (int)(sizeof(*mb) >> 2);
+				tsk->mvs_D[10] = 13 - (int)(sizeof(*mb) >> 2);
 				if (tsk->ChromaArrayType == 1) {
 					tsk->ACbCr_int8[0] = 1 - (int)sizeof(*mb);
 					tsk->ACbCr_int8[2] = 3 - (int)sizeof(*mb);
 					tsk->ACbCr_int8[4] = 5 - (int)sizeof(*mb);
 					tsk->ACbCr_int8[6] = 7 - (int)sizeof(*mb);
 				}
-			} else if (decoded < tsk->pic_width_in_mbs - 1) {
-				
-			} else if (decoded == tsk->pic_width_in_mbs - 1) { // C is now available
-				
-			} else if (decoded == tsk->pic_width_in_mbs) { // B is now available
-				int offB_int8 = (tsk->pic_width_in_mbs + 1) * sizeof(*mb);
-				tsk->B4x4_int8[0] = 10 - offB_int8;
-				tsk->B4x4_int8[1] = 11 - offB_int8;
-				tsk->B4x4_int8[4] = 14 - offB_int8;
-				tsk->B4x4_int8[5] = 15 - offB_int8;
-				tsk->absMvd_B[0] = 20 - offB_int8;
-				tsk->absMvd_B[1] = 22 - offB_int8;
-				tsk->absMvd_B[4] = 28 - offB_int8;
-				tsk->absMvd_B[5] = 30 - offB_int8;
-				if (tsk->ChromaArrayType == 1) {
-					tsk->BCbCr_int8[0] = 2 - offB_int8;
-					tsk->BCbCr_int8[1] = 3 - offB_int8;
-					tsk->BCbCr_int8[4] = 6 - offB_int8;
-					tsk->BCbCr_int8[5] = 7 - offB_int8;
-				}
-			} else { // D is now available
-				
+			} else if (decoded == 0) { // A is unavailable
+				mbA = &unavail_mb;
+				unavail16x16 |= 1;
+				fA = unavail_mb.f.v;
+				bitsA = unavail_mb.bits_l;
+				filter_edges &= ~tsk->disable_deblocking_filter_idc; // impacts only bit 1
 			}
-		}
-		
-		if (tsk->first_mb_in_slice) {
-			i8x16 zero = {};
-			if (tsk->CurrMbAddr <= tsk->first_mb_in_slice + tsk->pic_width_in_mbs) { // D is unavailable
+			if (decoded == tsk->pic_width_in_mbs + 1) { // D becomes available
+				int offD_int32 = ((tsk->pic_width_in_mbs + 2) * (int)sizeof(*mb)) >> 2;
+				tsk->mvs_D[0] = 15 - offD_int32;
+			} else { // D is unavailable
+				mbD = &unavail_mb;
 				unavail16x16 |= 8;
-				tsk->refIdx_copy[3] = mbD->refIdx_l;
-				tsk->mvs_copy_s[30] = mbD->mvs_s[15];
-				tsk->mvs_copy_s[31] = mbD->mvs_s[31];
-				mbD->refIdx_l = -1;
-				mbD->mvs_s[15] = mbD->mvs_s[31] = 0;
-				if (tsk->CurrMbAddr < tsk->first_mb_in_slice + tsk->pic_width_in_mbs) { // B is unavailable
+				if (decoded == tsk->pic_width_in_mbs) { // B becomes available
+					int offB_int8 = (tsk->pic_width_in_mbs + 1) * (int)sizeof(*mb);
+					int offB_int32 = offB_int8 >> 2;
+					tsk->B4x4_int8[0] = 10 - offB_int8;
+					tsk->B4x4_int8[1] = 11 - offB_int8;
+					tsk->B4x4_int8[4] = 14 - offB_int8;
+					tsk->B4x4_int8[5] = 15 - offB_int8;
+					tsk->absMvd_B[0] = 20 - offB_int8;
+					tsk->absMvd_B[1] = 22 - offB_int8;
+					tsk->absMvd_B[4] = 28 - offB_int8;
+					tsk->absMvd_B[5] = 30 - offB_int8;
+					tsk->mvs_B[0] = 10 - offB_int32;
+					tsk->mvs_B[1] = 11 - offB_int32;
+					tsk->mvs_B[4] = 14 - offB_int32;
+					tsk->mvs_B[5] = 15 - offB_int32;
+					tsk->mvs_C[0] = 11 - offB_int32;
+					tsk->mvs_C[1] = 14 - offB_int32;
+					tsk->mvs_C[4] = 15 - offB_int32;
+					tsk->mvs_D[1] = 10 - offB_int32;
+					tsk->mvs_D[4] = 11 - offB_int32;
+					tsk->mvs_D[5] = 14 - offB_int32;
+					if (tsk->ChromaArrayType == 1) {
+						tsk->BCbCr_int8[0] = 2 - offB_int8;
+						tsk->BCbCr_int8[1] = 3 - offB_int8;
+						tsk->BCbCr_int8[4] = 6 - offB_int8;
+						tsk->BCbCr_int8[5] = 7 - offB_int8;
+					}
+				} else { // B is unavailable
+					mbB = &unavail_mb;
 					unavail16x16 |= 2;
 					fB = unavail_mb.f.v;
 					bitsB = unavail_mb.bits_l;
-					tsk->refIdx_copy[1] = mbB->refIdx_l;
-					tsk->nC_copy[3] = mbB->nC_v[0];
-					tsk->nC_copy[4] = mbB->nC_v[1];
-					tsk->nC_copy[5] = mbB->nC_v[2];
-					tsk->mvs_copy_l[8] = mbB->mvs_l[5];
-					tsk->mvs_copy_l[9] = mbB->mvs_l[7];
-					tsk->mvs_copy_l[10] = mbB->mvs_l[13];
-					tsk->mvs_copy_l[11] = mbB->mvs_l[15];
-					mbB->refIdx_l = -1;
-					mbB->nC_v[0] = mbB->nC_v[1] = mbB->nC_v[2] = zero;
-					mbB->Intra4x4PredMode_v = unavail_mb.Intra4x4PredMode_v;
-					mbB->absMvd_v[1] = mbB->absMvd_v[3] = zero;
-					mbB->mvs_l[5] = mbB->mvs_l[7] = mbB->mvs_l[13] = mbB->mvs_l[15] = 0;
 					filter_edges &= ~(tsk->disable_deblocking_filter_idc << 1); // impacts only bit 2
-					if (tsk->CurrMbAddr < tsk->first_mb_in_slice + tsk->pic_width_in_mbs - 1) { // C is unavailable
+					if (decoded == tsk->pic_width_in_mbs - 1) { // C becomes available
+						int offC_int32 = (tsk->pic_width_in_mbs * (int)sizeof(*mb)) >> 2;
+						tsk->mvs_C[5] = 10 - offC_int32;
+					} else { // C is unavailable
+						mbC = &unavail_mb;
 						unavail16x16 |= 4;
-						tsk->refIdx_copy[2] = mbC->refIdx_l;
-						tsk->mvs_copy_s[28] = mbC->mvs_s[10];
-						tsk->mvs_copy_s[29] = mbC->mvs_s[26];
-						mbC->refIdx_l = -1;
-						mbC->mvs_s[10] = mbC->mvs_s[26] = 0;
-						if (tsk->CurrMbAddr == tsk->first_mb_in_slice) { // A is unavailable
-							unavail16x16 |= 1;
-							fA = unavail_mb.f.v;
-							bitsA = unavail_mb.bits_l;
-							tsk->refIdx_copy[0] = mbA->refIdx_l;
-							tsk->nC_copy[0] = mbA->nC_v[0];
-							tsk->nC_copy[1] = mbA->nC_v[1];
-							tsk->nC_copy[2] = mbA->nC_v[2];
-							tsk->mvs_copy_v[0] = mbA->mvs_v[1];
-							tsk->mvs_copy_v[1] = mbA->mvs_v[3];
-							tsk->mvs_copy_v[2] = mbA->mvs_v[5];
-							tsk->mvs_copy_v[3] = mbA->mvs_v[7];
-							mbA->refIdx_l = -1;
-							mbA->nC_v[0] = mbA->nC_v[1] = mbA->nC_v[2] = zero;
-							mbA->Intra4x4PredMode_v = unavail_mb.Intra4x4PredMode_v;
-							mbA->absMvd_v[0] = mbA->absMvd_v[1] = mbA->absMvd_v[2] = mbA->absMvd_v[3] = zero;
-							mbA->mvs_v[1] = mbA->mvs_v[3] = mbA->mvs_v[5] = mbA->mvs_v[7] = zero;
-							filter_edges &= ~tsk->disable_deblocking_filter_idc; // impacts only bit 1
-						}
 					}
 				}
 			}
 		}
 		
-		// initialize current macroblock
+		// initialize common macroblock values
 		mb->filter_edges = filter_edges;
 		tsk->unavail16x16 = unavail16x16;
 		tsk->unavail4x4_v = block_unavailability[unavail16x16];
@@ -1745,40 +1723,6 @@ static noinline void CAFUNC(parse_slice_data)
 				fprintf(stderr, "mb_type: %u\n", mb_type_or_ctxIdx);
 			#endif
 			CACALL(parse_I_mb, mb_type_or_ctxIdx);
-		}
-		
-		// restore neighbouring data on slice edge
-		if (tsk->first_mb_in_slice) {
-			if (tsk->CurrMbAddr <= tsk->first_mb_in_slice + tsk->pic_width_in_mbs) { // D is unavailable
-				mbD->refIdx_l = tsk->refIdx_copy[3];
-				mbD->mvs_s[15] = tsk->mvs_copy_s[30];
-				mbD->mvs_s[31] = tsk->mvs_copy_s[31];
-				if (tsk->CurrMbAddr < tsk->first_mb_in_slice + tsk->pic_width_in_mbs) { // B is unavailable
-					mbB->refIdx_l = tsk->refIdx_copy[1];
-					mbB->nC_v[0] = tsk->nC_copy[3];
-					mbB->nC_v[1] = tsk->nC_copy[4];
-					mbB->nC_v[2] = tsk->nC_copy[5];
-					mbB->mvs_l[5] = tsk->mvs_copy_l[8];
-					mbB->mvs_l[7] = tsk->mvs_copy_l[9];
-					mbB->mvs_l[13] = tsk->mvs_copy_l[10];
-					mbB->mvs_l[15] = tsk->mvs_copy_l[11];
-					if (tsk->CurrMbAddr < tsk->first_mb_in_slice + tsk->pic_width_in_mbs - 1) { // C is unavailable
-						mbC->refIdx_l = tsk->refIdx_copy[2];
-						mbC->mvs_s[10] = tsk->mvs_copy_s[28];
-						mbC->mvs_s[26] = tsk->mvs_copy_s[29];
-						if (tsk->CurrMbAddr == tsk->first_mb_in_slice) { // A is unavailable
-							mbA->refIdx_l = tsk->refIdx_copy[0];
-							mbA->nC_v[0] = tsk->nC_copy[0];
-							mbA->nC_v[1] = tsk->nC_copy[1];
-							mbA->nC_v[2] = tsk->nC_copy[2];
-							mbA->mvs_v[1] = tsk->mvs_copy_v[0];
-							mbA->mvs_v[3] = tsk->mvs_copy_v[1];
-							mbA->mvs_v[5] = tsk->mvs_copy_v[2];
-							mbA->mvs_v[7] = tsk->mvs_copy_v[3];
-						}
-					}
-				}
-			}
 		}
 		
 		// deblock mbB while in cache, then point to the next macroblock

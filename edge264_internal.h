@@ -103,7 +103,7 @@ typedef struct {
 	union { uint8_t absMvd[64]; uint64_t absMvd_l[8]; i8x16 absMvd_v[4]; }; // [LX][i4x4][compIdx]
 	union { int16_t mvs[64]; int32_t mvs_s[32]; int64_t mvs_l[16]; i16x8 mvs_v[8]; }; // [LX][i4x4][compIdx]
 } Edge264_macroblock;
-static const Edge264_macroblock unavail_mb = {
+static Edge264_macroblock unavail_mb = {
 	.f.mb_skip_flag = 1,
 	.f.mb_type_I_NxN = 1,
 	.f.mb_type_B_Direct = 1,
@@ -220,9 +220,6 @@ typedef struct {
 	union { int8_t unavail4x4[16]; i8x16 unavail4x4_v; }; // unavailability of neighbouring A/B/C/D blocks
 	Edge264_flags inc; // increments for CABAC indices of macroblock syntax elements
 	union { uint8_t cabac[1024]; i8x16 cabac_v[64]; };
-	i8x16 nC_copy[6]; // slice neighbouring storage
-	int64_t refIdx_copy[4];
-	union { int32_t mvs_copy_s[32]; int64_t mvs_copy_l[16]; i16x8 mvs_copy_v[8]; };
 	union { int8_t nC_inc[3][16]; i8x16 nC_inc_v[3]; }; // stores the intra/inter default increment from unavailable neighbours (9.3.3.1.1.9)
 	
 	// neighbouring offsets (relative to the start of each array in mb)

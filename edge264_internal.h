@@ -200,11 +200,11 @@ typedef struct {
 	
 	// parsing context
 	struct Edge264_context * restrict _ctx;
-	Edge264_macroblock * restrict _mb; // backup storage for macro mb
-	Edge264_macroblock * restrict _mbA; // backup storage for macro mbA
-	Edge264_macroblock * restrict _mbB; // backup storage for macro mbB
-	Edge264_macroblock * restrict _mbC; // backup storage for macro mbC
-	Edge264_macroblock * restrict _mbD; // backup storage for macro mbD
+	Edge264_macroblock * _mb; // backup storage for macro mb
+	const Edge264_macroblock * _mbA; // backup storage for macro mbA
+	const Edge264_macroblock * _mbB; // backup storage for macro mbB
+	const Edge264_macroblock * _mbC; // backup storage for macro mbC
+	const Edge264_macroblock * _mbD; // backup storage for macro mbD
 	int8_t currPic;
 	int32_t CurrMbAddr;
 	int32_t next_deblock_addr;
@@ -306,7 +306,6 @@ typedef struct Edge264_context {
 	uint16_t unavail_tasks; // bitmask for tasks that are either in queue or processed in a thread
 	volatile union { int8_t task_queue[16]; i8x16 task_queue_v; }; // list of tasks identifiers in the order they are received
 	volatile union { uint32_t task_dependencies[16]; i32x4 task_dependencies_v[4]; }; // frames on which each task depends to start
-	union { int8_t tasks_per_frame[32]; i8x16 tasks_per_frame_v[2]; i8x32 tasks_per_frame_V; }; // number of tasks targeting each frame as output (when zero the frame is ready for output/reference)
 	Edge264_task tasks[16];
 	Edge264_decoder d; // public structure, kept last to leave room for extension in future versions
 } Edge264_context;
@@ -531,6 +530,7 @@ static noinline void FUNC_TSK(parse_slice_data_cabac);
 	#define adds16(a, b) (i16x8)_mm_adds_epi16(a, b)
 	#define addus8(a, b) (i8x16)_mm_adds_epu8(a, b)
 	#define alignr(h, l, i) (i8x16)_mm_alignr_epi8(h, l, i)
+	#define and(a, b) (i8x16)_mm_and_si128(a, b)
 	#define avg8(a, b) (i8x16)_mm_avg_epu8(a, b)
 	#define avg16(a, b) (i16x8)_mm_avg_epu16(a, b)
 	#define hadd16(a, b) (i16x8)_mm_hadd_epi16(a, b)
@@ -654,9 +654,6 @@ static noinline void FUNC_TSK(parse_slice_data_cabac);
 		}
 	#endif
 	#ifdef __AVX2__
-		static always_inline unsigned FUNC_CTX(completed_frames) {
-			return _mm256_movemask_epi8(ctx->tasks_per_frame_V == 0);
-		}
 		static always_inline unsigned FUNC_TSK(refs_to_mask) {
 			i32x8 ones = {1, 1, 1, 1, 1, 1, 1, 1};
 			i32x8 a = _mm256_sllv_epi32(ones, _mm256_cvtepi8_epi32(load64(tsk->RefPicList_l + 0))) |
@@ -669,9 +666,6 @@ static noinline void FUNC_TSK(parse_slice_data_cabac);
 			return d[0];
 		}
 	#else
-		static always_inline unsigned FUNC_CTX(completed_frames) {
-			return movemask(ctx->tasks_per_frame_v[0] == 0) | movemask(ctx->tasks_per_frame_v[1] == 0) << 16;
-		}
 		static always_inline unsigned FUNC_TSK(refs_to_mask) {
 			u8x16 a = tsk->RefPicList_v[0] + 127;
 			u8x16 b = tsk->RefPicList_v[2] + 127;

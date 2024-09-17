@@ -1,21 +1,36 @@
+// FIXME swap src and dst in arguments to push stack reload further in functions
 #include "edge264_internal.h"
 
 
 
-static const i8x16 shuf_m1 = {10, -1, 11, -1, 12, -1, 13, -1, 1, -1, 2, -1, 3, -1, 4, -1};
-static const i8x16 shuf_m2 = {11, -1, 12, -1, 13, -1, 14, -1, 2, -1, 3, -1, 4, -1, 5, -1};
-static const i8x16 shuf_m3 = {12, -1, 13, -1, 14, -1, 15, -1, 3, -1, 4, -1, 5, -1, 6, -1};
+static const i8x16 pairs0 = {0, 1, 1, 2, 2, 3, 3, 4, 4, 5, 5, 6, 6, 7, 7, 8};
+static const i8x16 pairs8 = {8, 9, 9, 10, 10, 11, 11, 12};
+static const i8x16 mask_even = {-1, 0, -1, 0, -1, 0, -1, 0, -1, 0, -1, 0, -1, 0, -1, 0};
+static const i8x16 shuf_odd = {1, -1, 3, -1, 5, -1, 7, -1, 9, -1, 11, -1, 13, -1, 15, -1};
+static const i8x16 shuf2 = {2, -1, 3, -1, 4, -1, 5, -1, 6, -1, 7, -1, 8, -1, 9, -1};
+static const i8x16 shuf3 = {3, -1, 4, -1, 5, -1, 6, -1, 7, -1, 8, -1, 9, -1, 10, -1};
+static const i8x16 mul_15 = {1, -5, 1, -5, 1, -5, 1, -5, 1, -5, 1, -5, 1, -5, 1, -5};
+static const i8x16 mul_20 = {20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20};
+static const i8x16 mul_51 = {-5, 1, -5, 1, -5, 1, -5, 1, -5, 1, -5, 1, -5, 1, -5, 1};
 
 /**
- * This function sums opposite pairs of values, computes (a-5b+20c+16)/32,
- * and packs it to [0..sample_max].
- * The sum is actually computed as (((a-b)/4-(b-c))/4+(c+1))/2.
+ * These functions compute (a-5b+20c+20d-5e+f+16)>>5.
+ * The first version uses pmadd to compute the sum, and expects samples to be
+ * packed as 8-bit pairs.
+ * The second version computes (((af-be)/4-(be-cd))/4+(cd+1))/2.
  */
-static always_inline i16x8 filter_6tap(i16x8 x0, i16x8 x1, i16x8 x2, i16x8 x3, i16x8 x4, i16x8 x5) {
-	i16x8 a = x0 + x5;
-	i16x8 b = x1 + x4;
-	i16x8 c = x2 + x3;
-	return (((((a - b) >> 2) - (b - c)) >> 2) + (c - set16(-1))) >> 1;
+static always_inline i16x8 filter8(i8x16 ab, i8x16 cd, i8x16 ef) {
+	i16x8 x0 = maddubs(ab, mul_15);
+	i16x8 x1 = maddubs(cd, mul_20);
+	i16x8 x2 = maddubs(ef, mul_51);
+	return (x0 + x1 + x2 + 16) >> 5;
+}
+
+static always_inline i16x8 filter16(i16x8 a, i16x8 b, i16x8 c, i16x8 d, i16x8 e, i16x8 f) {
+	i16x8 af = a + f;
+	i16x8 be = b + e;
+	i16x8 cd = c + d;
+	return (((((af - be) >> 2) - (be - cd)) >> 2) + (cd - -1)) >> 1;
 }
 
 /**
@@ -23,26 +38,32 @@ static always_inline i16x8 filter_6tap(i16x8 x0, i16x8 x1, i16x8 x2, i16x8 x3, i
  * First we shift Up and sum values in one dimension (horizontal or vertical),
  * then we shift Down accumulated values and sum them in the other dimension.
  * The last function is used for qpel12/21/23/32, to compute 6-tap values from
- * 36-tap sums, then averaging them with the original qpel22 values.
+ * intermediate sums, then averaging them with the original qpel22 values.
  */
-static always_inline i16x8 filter_36tapU(i16x8 x0, i16x8 x1, i16x8 x2, i16x8 x3, i16x8 x4, i16x8 x5) {
-	i16x8 a = x0 + x5;
-	i16x8 b = x1 + x4;
-	i16x8 c = x2 + x3;
-	i16x8 x6 = (c << 2) - b; // c*4-b
-	return (a + x6) + (x6 << 2); // a+(c*4-b)*5
+static always_inline i16x8 filter8U(i8x16 ab, i8x16 cd, i8x16 ef) {
+	i16x8 x0 = maddubs(ab, mul_15);
+	i16x8 x1 = maddubs(cd, mul_20);
+	i16x8 x2 = maddubs(ef, mul_51);
+	return x0 + x1 + x2;
 }
 
-static always_inline i16x8 filter_36tapD(i16x8 x0, i16x8 x1, i16x8 x2, i16x8 x3, i16x8 x4, i16x8 x5) {
-	i16x8 a = x0 + x5;
-	i16x8 b = x1 + x4;
-	i16x8 c = x2 + x3;
-	return (((((a - b) >> 2) - (b - c)) >> 2) + (c + set16(32))) >> 6;
+static always_inline i16x8 filter16U(i16x8 a, i16x8 b, i16x8 c, i16x8 d, i16x8 e, i16x8 f) {
+	i16x8 af = a + f;
+	i16x8 be = b + e;
+	i16x8 cd = c + d;
+	i16x8 x = (cd << 2) - be; // cd*4-be
+	return (af + x) + (x << 2); // af+(cd*4-be)*5
 }
 
-static always_inline i8x16 filter_6tapD(i16x8 sum0, i16x8 sum1, i8x16 avg) {
-	i16x8 c16 = set16(16);
-	return avg8(packus16((sum0 + c16) >> 5, (sum1 + c16) >> 5), avg);
+static always_inline i16x8 filter16UD(i16x8 a, i16x8 b, i16x8 c, i16x8 d, i16x8 e, i16x8 f) {
+	i16x8 af = a + f;
+	i16x8 be = b + e;
+	i16x8 cd = c + d;
+	return (((((af - be) >> 2) - (be - cd)) >> 2) + (cd + 32)) >> 6;
+}
+
+static always_inline i8x16 filter16D(i16x8 sum0, i16x8 sum1, i8x16 qpel22) {
+	return avg8(packus16((sum0 + 16) >> 5, (sum1 + 16) >> 5), qpel22);
 }
 
 /**
@@ -107,13 +128,16 @@ static always_inline void store16x1_8bit(size_t stride, uint8_t * restrict dst, 
  * _ reading each 9-byte row with two pmovzxbw, then obtaining every mRC with
  *   shufps (still used in QPEL_12_32). However it resulted in two reads per
  *   row, which may be prohibitive if outside of cache.
+ * _ splitting horizontal filters in 3 to pmadd then padd (instead of phadd),
+ *   when the equivalent code using filter16 uses at least 4 more shuffles
+ *   (roughly the latency penalty from using pmadd).
  *
  * While it is impossible for functions to return multiple values in multiple
  * registers (stupid ABI), we cannot put redundant loads in functions and have
- * to duplicate a lot of code. The same goes for filter_6tap, which would force
+ * to duplicate a lot of code. The same goes for filter16, which would force
  * all live vector registers on stack if not inlined.
  * Also, although I_HATE_MACROS they are very useful here to reduce 16 (big)
- * functions down to 7. This is a lot of code, but all qpel interpolations are
+ * functions down to 6. This is a lot of code, but all qpel interpolations are
  * done each in one pass without intermediate storage!
  */
 static void inter4xH_qpel00_8bit(int h, size_t dstride, uint8_t * restrict dst, size_t sstride, const uint8_t *src, i8x16 w, i16x8 o, i64x2 logWD) {
@@ -128,28 +152,14 @@ static void inter4xH_qpel00_8bit(int h, size_t dstride, uint8_t * restrict dst, 
 #define INTER4xH_QPEL_10_20_30(QPEL, P)\
 	static void inter4xH_ ## QPEL ## _8bit(int h, size_t dstride, uint8_t * restrict dst, size_t sstride, const uint8_t *src, i8x16 w, i16x8 o, i64x2 logWD) {\
 		do {\
-			i8x16 l2 = load128(src               - 2);\
-			i8x16 l3 = load128(src + sstride     - 9);\
-			i8x16 l4 = load128(src + sstride * 2 - 2);\
-			i8x16 l5 = load128(src + sstride * 3 - 9);\
-			i8x16 l20 = alignr(l2, l3, 6);\
-			i8x16 l23 = alignr(l2, l3, 9);\
-			i8x16 l40 = alignr(l4, l5, 6);\
-			i8x16 l43 = alignr(l4, l5, 9);\
-			i16x8 m20 = shuffle8(l20, shuf_m1);\
-			i16x8 m21 = shuffle8(l20, shuf_m2);\
-			i16x8 m22 = shuffle8(l20, shuf_m3);\
-			i16x8 m23 = shuffle8(l23, shuf_m1);\
-			i16x8 m24 = shuffle8(l23, shuf_m2);\
-			i16x8 m25 = shuffle8(l23, shuf_m3);\
-			i16x8 m40 = shuffle8(l40, shuf_m1);\
-			i16x8 m41 = shuffle8(l40, shuf_m2);\
-			i16x8 m42 = shuffle8(l40, shuf_m3);\
-			i16x8 m43 = shuffle8(l43, shuf_m1);\
-			i16x8 m44 = shuffle8(l43, shuf_m2);\
-			i16x8 m45 = shuffle8(l43, shuf_m3);\
-			i16x8 h0 = filter_6tap(m20, m21, m22, m23, m24, m25);\
-			i16x8 h1 = filter_6tap(m40, m41, m42, m43, m44, m45);\
+			i8x16 l2 = shuffle8(load128(src               - 2), pairs0);\
+			i8x16 l3 = shuffle8(load128(src + sstride     - 2), pairs0);\
+			i8x16 l4 = shuffle8(load128(src + sstride * 2 - 2), pairs0);\
+			i8x16 l5 = shuffle8(load128(src + sstride * 3 - 2), pairs0); /* overreads 7 bytes */\
+			i8x16 m22 = shuffleps(l2, l3, 1, 2, 1, 2);\
+			i8x16 m42 = shuffleps(l4, l5, 1, 2, 1, 2);\
+			i16x8 h0 = filter8(unpacklo64(l2, l3), m22, unpackhi64(l2, l3));\
+			i16x8 h1 = filter8(unpacklo64(l4, l5), m42, unpackhi64(l4, l5));\
 			i8x16 h01 = packus16(h0, h1);\
 			store4x4_8bit(dstride, dst, P, w, o, logWD);\
 			dst += dstride * 4;\
@@ -157,150 +167,87 @@ static void inter4xH_qpel00_8bit(int h, size_t dstride, uint8_t * restrict dst, 
 		} while (h -= 4);\
 	}\
 
-INTER4xH_QPEL_10_20_30(qpel10, avg8(h01, packus16(m22, m42)))
+INTER4xH_QPEL_10_20_30(qpel10, avg8(h01, packus16(m22 & mask_even, m42 & mask_even)))
 INTER4xH_QPEL_10_20_30(qpel20, h01)
-INTER4xH_QPEL_10_20_30(qpel30, avg8(h01, packus16(m23, m43)))
+INTER4xH_QPEL_10_20_30(qpel30, avg8(h01, packus16(shuffle8(m22, shuf_odd), shuffle8(m42, shuf_odd))))
 
 #define INTER4xH_QPEL_01_02_03(QPEL, P)\
 	static void inter4xH_ ## QPEL ## _8bit(int h, size_t dstride, uint8_t * restrict dst, size_t sstride, const uint8_t *src, i8x16 w, i16x8 o, i64x2 logWD) {\
 		ssize_t nstride = -sstride;\
-		i32x4 l0 = load8zx32(src + nstride * 2);\
-		i32x4 l1 = load8zx32(src + nstride    );\
-		i32x4 l2 = load8zx32(src              );\
-		i32x4 l3 = load8zx32(src + sstride    );\
-		i32x4 l4 = load8zx32(src + sstride * 2);\
-		i16x8 m02 = packs32(l0, l1);\
-		i16x8 m12 = packs32(l1, l2);\
-		i16x8 m22 = packs32(l2, l3);\
-		i16x8 m32 = packs32(l3, l4);\
+		i8x16 l0 = load32(src + nstride * 2);\
+		i8x16 l1 = load32(src + nstride    );\
+		i8x16 l2 = load32(src              );\
+		i8x16 l3 = load32(src + sstride    );\
+		i8x16 l4 = load32(src + sstride * 2);\
+		i8x16 m02 = unpacklo32(l0, l1);\
+		i8x16 m12 = unpacklo32(l1, l2);\
+		i8x16 m22 = unpacklo32(l2, l3);\
+		i8x16 m32 = unpacklo32(l3, l4);\
 		do {\
 			src += sstride * 4;\
-			i32x4 l5 = load8zx32(src + nstride    );\
-			i32x4 l6 = load8zx32(src              );\
-			i32x4 l7 = load8zx32(src + sstride    );\
-			i32x4 l8 = load8zx32(src + sstride * 2);\
-			i16x8 m42 = packs32(l4, l5);\
-			i16x8 m52 = packs32(l5, l6);\
-			i16x8 m62 = packs32(l6, l7);\
-			i16x8 m72 = packs32(l7, l8);\
-			i16x8 v0 = filter_6tap(m02, m12, m22, m32, m42, m52);\
-			i16x8 v1 = filter_6tap(m22, m32, m42, m52, m62, m72);\
-			i8x16 v01 = packus16(v0, v1);\
+			i8x16 l5 = load32(src + nstride    );\
+			i8x16 l6 = load32(src              );\
+			i8x16 l7 = load32(src + sstride    );\
+			i8x16 l8 = load32(src + sstride * 2);\
+			i8x16 m42 = unpacklo32(l4, l5);\
+			i8x16 m52 = unpacklo32(l5, l6);\
+			i8x16 m62 = unpacklo32(l6, l7);\
+			i8x16 m72 = unpacklo32(l7, l8);\
+			i8x16 x0 = unpacklo8(m02, m12);\
+			i8x16 x1 = unpacklo8(m22, m32);\
+			i8x16 x2 = unpacklo8(m42, m52);\
+			i8x16 x3 = unpacklo8(m62, m72);\
+			i8x16 v01 = packus16(filter8(x0, x1, x2), filter8(x1, x2, x3));\
 			store4x4_8bit(dstride, dst, P, w, o, logWD);\
 			l4 = l8, m02 = m42, m12 = m52, m22 = m62, m32 = m72;\
 			dst += dstride * 4;\
 		} while (h -= 4);\
 	}\
 
-INTER4xH_QPEL_01_02_03(qpel01, avg8(v01, packus16(m22, m42)))
+INTER4xH_QPEL_01_02_03(qpel01, avg8(v01, unpacklo64(m22, m42)))
 INTER4xH_QPEL_01_02_03(qpel02, v01)
-INTER4xH_QPEL_01_02_03(qpel03, avg8(v01, packus16(m32, m52)))
+INTER4xH_QPEL_01_02_03(qpel03, avg8(v01, unpacklo64(m32, m52)))
 
-#define INTER4xH_QPEL_11_31(QPEL, C, M6)\
+#define INTER4xH_QPEL_11_31_13_33(QPEL, R0, R1, R2, R3, C, F, ARG)\
 	static void inter4xH_ ## QPEL ## _8bit(int h, size_t dstride, uint8_t * restrict dst, size_t sstride, const uint8_t *src, i8x16 w, i16x8 o, i64x2 logWD) {\
 		ssize_t nstride = -sstride;\
-		i32x4 l0 = load8zx32(src + nstride * 2 - 2 + C);\
-		i32x4 l1 = load8zx32(src + nstride     - 2 + C);\
-		i8x16 l2 = load128(src               - 2);\
-		i8x16 l3 = load128(src + sstride     - 9);\
-		i8x16 l4 = load128(src + sstride * 2 - 2);\
-		i16x8 m0##C = packs32(l0, l1);\
-		i8x16 l20 = alignr(l2, l3, 6);\
-		i8x16 l23 = alignr(l2, l3, 9);\
+		i8x16 l0 = load32(src + nstride * 2 - 2 + C);\
+		i8x16 l1 = load32(src + nstride     - 2 + C);\
+		i8x16 l2 = shuffle8(load128(src               - 2), pairs0);\
+		i8x16 l3 = shuffle8(load128(src + sstride     - 2), pairs0);\
+		i8x16 l4 = shuffle8(load128(src + sstride * 2 - 2), pairs0);\
+		i16x8 m02 = cvt8zx16(unpacklo32(l0, l1));\
 		do {\
 			src += sstride * 4;\
-			i16x8 m20 = shuffle8(l20, shuf_m1);\
-			i16x8 m21 = shuffle8(l20, shuf_m2);\
-			i16x8 m22 = shuffle8(l20, shuf_m3);\
-			i16x8 m23 = shuffle8(l23, shuf_m1);\
-			i16x8 m24 = shuffle8(l23, shuf_m2);\
-			i16x8 m25 = shuffle8(l23, shuf_m3);\
-			i16x8 h0 = filter_6tap(m20, m21, m22, m23, m24, m25);\
-			i8x16 l5 = load128(src + nstride     - 9);\
-			i8x16 l40 = alignr(l4, l5, 6);\
-			i8x16 l43 = alignr(l4, l5, 9);\
-			i16x8 m40 = shuffle8(l40, shuf_m1);\
-			i16x8 m41 = shuffle8(l40, shuf_m2);\
-			i16x8 m42 = shuffle8(l40, shuf_m3);\
-			i16x8 m43 = shuffle8(l43, shuf_m1);\
-			i16x8 m44 = shuffle8(l43, shuf_m2);\
-			i16x8 m45 = shuffle8(l43, shuf_m3);\
-			i16x8 h1 = filter_6tap(m40, m41, m42, m43, m44, m45);\
+			i8x16 l5 = shuffle8(load128(src + nstride     - 2), pairs0);\
+			i8x16 l6 = shuffle8(load128(src               - 2), pairs0);\
+			i8x16 x0 = shuffleps(R0, R1, 1, 2, 1, 2);\
+			i8x16 x1 = shuffleps(R2, R3, 1, 2, 1, 2);\
+			i16x8 h0 = filter8(unpacklo64(R0, R1), x0, unpackhi64(R0, R1));\
+			i16x8 h1 = filter8(unpacklo64(R2, R3), x1, unpackhi64(R2, R3));\
 			i8x16 h01 = packus16(h0, h1);\
-			i8x16 l6 = load128(src               - 2);\
-			i8x16 l7 = load128(src + sstride     - 9);\
-			i8x16 l8 = load128(src + sstride * 2 - 2);\
-			i8x16 l60 = alignr(l6, l7, 6);\
-			i8x16 l63 = alignr(l6, l7, 9);\
-			i16x8 m6##C = M6;\
-			i16x8 m1##C = alignr(m2##C, m0##C, 8);\
-			i16x8 m3##C = alignr(m4##C, m2##C, 8);\
-			i16x8 m5##C = alignr(m6##C, m4##C, 8);\
-			i16x8 m7##C = unpackhi64(m6##C, shuffle8(l8, shuf_m##C));\
-			i16x8 v0 = filter_6tap(m0##C, m1##C, m2##C, m3##C, m4##C, m5##C);\
-			i16x8 v1 = filter_6tap(m2##C, m3##C, m4##C, m5##C, m6##C, m7##C);\
+			i8x16 l7 = shuffle8(load128(src + sstride     - 2), pairs0);\
+			i8x16 l8 = shuffle8(load128(src + sstride * 2 - 2), pairs0);\
+			i16x8 m22 = F(shuffleps(l2, l3, 1, 2, 1, 2), ARG);\
+			i16x8 m32 = F(shuffleps(l3, l4, 1, 2, 1, 2), ARG);\
+			i16x8 m42 = F(shuffleps(l4, l5, 1, 2, 1, 2), ARG);\
+			i16x8 m52 = F(shuffleps(l5, l6, 1, 2, 1, 2), ARG);\
+			i16x8 m72 = F(shuffleps(l7, l8, 1, 2, 1, 2), ARG);\
+			i16x8 m12 = alignr(m22, m02, 8);\
+			i16x8 m62 = alignr(m72, m52, 8);\
+			i16x8 v0 = filter16(m02, m12, m22, m32, m42, m52);\
+			i16x8 v1 = filter16(m22, m32, m42, m52, m62, m72);\
 			i8x16 v01 = packus16(v0, v1);\
 			store4x4_8bit(dstride, dst, avg8(v01, h01), w, o, logWD);\
-			l4 = l8, l20 = l60, l23 = l63, m0##C = m4##C;\
+			l2 = l6, l3 = l7, l4 = l8, m02 = m42;\
 			dst += dstride * 4;\
 		} while (h -= 4);\
 	}\
 
-INTER4xH_QPEL_11_31(qpel11, 2, shuffle8(l60, shuf_m3))
-INTER4xH_QPEL_11_31(qpel31, 3, shuffle8(l63, shuf_m1))
-
-#define INTER4xH_QPEL_13_33(QPEL, C, M7)\
-	static void inter4xH_ ## QPEL ## _8bit(int h, size_t dstride, uint8_t * restrict dst, size_t sstride, const uint8_t *src, i8x16 w, i16x8 o, i64x2 logWD) {\
-		ssize_t nstride = -sstride;\
-		i32x4 l0 = load8zx32(src + nstride * 2 - 2 + C);\
-		i32x4 l1 = load8zx32(src + nstride     - 2 + C);\
-		i32x4 l2 = load8zx32(src               - 2 + C);\
-		i8x16 l3 = load128(src + sstride     - 2);\
-		i8x16 l4 = load128(src + sstride * 2 - 9);\
-		i16x8 m0##C = packs32(l0, l1);\
-		i16x8 m1##C = packs32(l1, l2);\
-		i8x16 l30 = alignr(l3, l4, 6);\
-		i8x16 l33 = alignr(l3, l4, 9);\
-		do {\
-			src += sstride * 4;\
-			i16x8 m30 = shuffle8(l30, shuf_m1);\
-			i16x8 m31 = shuffle8(l30, shuf_m2);\
-			i16x8 m32 = shuffle8(l30, shuf_m3);\
-			i16x8 m33 = shuffle8(l33, shuf_m1);\
-			i16x8 m34 = shuffle8(l33, shuf_m2);\
-			i16x8 m35 = shuffle8(l33, shuf_m3);\
-			i16x8 h0 = filter_6tap(m30, m31, m32, m33, m34, m35);\
-			i8x16 l5 = load128(src + nstride     - 2);\
-			i8x16 l6 = load128(src               - 9);\
-			i8x16 l50 = alignr(l5, l6, 6);\
-			i8x16 l53 = alignr(l5, l6, 9);\
-			i16x8 m50 = shuffle8(l50, shuf_m1);\
-			i16x8 m51 = shuffle8(l50, shuf_m2);\
-			i16x8 m52 = shuffle8(l50, shuf_m3);\
-			i16x8 m53 = shuffle8(l53, shuf_m1);\
-			i16x8 m54 = shuffle8(l53, shuf_m2);\
-			i16x8 m55 = shuffle8(l53, shuf_m3);\
-			i16x8 h1 = filter_6tap(m50, m51, m52, m53, m54, m55);\
-			i8x16 h01 = packus16(h0, h1);\
-			i8x16 l7 = load128(src + sstride     - 2);\
-			i8x16 l8 = load128(src + sstride * 2 - 9);\
-			i8x16 l70 = alignr(l7, l8, 6);\
-			i8x16 l73 = alignr(l7, l8, 9);\
-			i16x8 m7##C = M7;\
-			i16x8 m2##C = alignr(m3##C, m1##C, 8);\
-			i16x8 m4##C = alignr(m5##C, m3##C, 8);\
-			i16x8 m6##C = alignr(m7##C, m5##C, 8);\
-			i16x8 v0 = filter_6tap(m0##C, m1##C, m2##C, m3##C, m4##C, m5##C);\
-			i16x8 v1 = filter_6tap(m2##C, m3##C, m4##C, m5##C, m6##C, m7##C);\
-			i8x16 v01 = packus16(v0, v1);\
-			store4x4_8bit(dstride, dst, avg8(v01, h01), w, o, logWD);\
-			l30 = l70, l33 = l73, m0##C = m4##C, m1##C = m5##C;\
-			dst += dstride * 4;\
-		} while (h -= 4);\
-	}\
-
-INTER4xH_QPEL_13_33(qpel13, 2, shuffle8(l70, shuf_m3))
-INTER4xH_QPEL_13_33(qpel33, 3, shuffle8(l73, shuf_m1))
+INTER4xH_QPEL_11_31_13_33(qpel11, l2, l3, l4, l5, 2, and, mask_even)
+INTER4xH_QPEL_11_31_13_33(qpel31, l2, l3, l4, l5, 3, shuffle8, shuf_odd)
+INTER4xH_QPEL_11_31_13_33(qpel13, l3, l4, l5, l6, 2, and, mask_even)
+INTER4xH_QPEL_11_31_13_33(qpel33, l3, l4, l5, l6, 3, shuffle8, shuf_odd)
 
 #define INTER4xH_QPEL_12_32(QPEL, P)\
 	static void inter4xH_ ## QPEL ## _8bit(int h, size_t dstride, uint8_t * restrict dst, size_t sstride, const uint8_t *src, i8x16 w, i16x8 o, i64x2 logWD) {\
@@ -320,28 +267,23 @@ INTER4xH_QPEL_13_33(qpel33, 3, shuffle8(l73, shuf_m1))
 			i8x16 l5 = load128(src + nstride     - 2);\
 			i16x8 l40 = cvt8zx16(l4);\
 			i16x8 l50 = cvt8zx16(l5);\
-			i16x8 x00 = filter_36tapU(l00, l10, l20, l30, l40, l50);\
+			i16x8 x00 = filter16U(l00, l10, l20, l30, l40, l50);\
 			i8x16 l6 = load128(src               - 2);\
 			i16x8 l60 = cvt8zx16(l6);\
-			i16x8 x10 = filter_36tapU(l10, l20, l30, l40, l50, l60);\
+			i16x8 x10 = filter16U(l10, l20, l30, l40, l50, l60);\
 			i8x16 l7 = load128(src + sstride     - 2);\
 			i8x16 r1 = unpacklo32(r0, unpacklo16(unpackhi8(l4, l5), unpackhi8(l6, l7)));\
 			i16x8 l70 = cvt8zx16(l7);\
-			i16x8 x20 = filter_36tapU(l20, l30, l40, l50, l60, l70);\
+			i16x8 x20 = filter16U(l20, l30, l40, l50, l60, l70);\
 			i8x16 l8 = load128(src + sstride * 2 - 2);\
+			i8x16 r2 = shuffle8(shuffleps(r1, l8, 0, 1, 2, 3), pairs0);\
 			i16x8 l80 = cvt8zx16(l8);\
-			i16x8 x30 = filter_36tapU(l30, l40, l50, l60, l70, l80);\
-			i16x8 r08 = cvt8zx16(r1);\
-			i16x8 r18 = shrc(r08, 2);\
-			i16x8 r28 = shrc(r08, 4);\
-			i16x8 r38 = shrc(r08, 6);\
-			i16x8 r48 = shrc(r08, 8);\
-			i16x8 r58 = cvt8zx16(shrc(shuffleps(r1, l8, 0, 1, 2, 3), 5));\
-			i16x8 x08 = filter_36tapU(r08, r18, r28, r38, r48, r58);\
+			i16x8 x30 = filter16U(l30, l40, l50, l60, l70, l80);\
+			i16x8 x08 = filter8U(r2, shuffle32(r2, 1, 2, 3, 3), shuffle32(r2, 2, 3, 3, 3));\
 			i16x8 x01 = alignr(x08, x00, 2);\
-			i16x8 x11 = alignr(shrc(x08, 2), x10, 2);\
-			i16x8 x21 = alignr(shrc(x08, 4), x20, 2);\
-			i16x8 x31 = alignr(shrc(x08, 6), x30, 2);\
+			i16x8 x11 = alignr(shufflelo(x08, 1, 1, 1, 1), x10, 2);\
+			i16x8 x21 = alignr(shufflelo(x08, 2, 2, 2, 2), x20, 2);\
+			i16x8 x31 = alignr(shufflelo(x08, 3, 3, 3, 3), x30, 2);\
 			i16x8 y00 = shuffleps(x00, x10, 0, 1, 0, 1);\
 			i16x8 y01 = shuffleps(x01, x11, 0, 1, 0, 1);\
 			i16x8 y02 = shuffleps(x00, x10, 1, 2, 1, 2);\
@@ -354,81 +296,48 @@ INTER4xH_QPEL_13_33(qpel33, 3, shuffle8(l73, shuf_m1))
 			i16x8 y23 = shuffleps(x21, x31, 1, 2, 1, 2);\
 			i16x8 y24 = shuffleps(x20, x30, 2, 3, 2, 3);\
 			i16x8 y25 = shuffleps(x21, x31, 2, 3, 2, 3);\
-			i16x8 vh0 = filter_36tapD(y00, y01, y02, y03, y04, y05);\
-			i16x8 vh1 = filter_36tapD(y20, y21, y22, y23, y24, y25);\
+			i16x8 vh0 = filter16UD(y00, y01, y02, y03, y04, y05);\
+			i16x8 vh1 = filter16UD(y20, y21, y22, y23, y24, y25);\
 			i8x16 vh = packus16(vh0, vh1);\
 			store4x4_8bit(dstride, dst, P, w, o, logWD);\
 			l00 = l40, l10 = l50, l20 = l60, l30 = l70;\
-			l4 = l8, r0 = packus16(r48, r48);\
+			l4 = l8, r0 = shuffle32(r1, 1, 1, 1, 1);\
 			dst += dstride * 4;\
 		} while (h -= 4);\
 	}\
 
-INTER4xH_QPEL_12_32(qpel12, filter_6tapD(y02, y22, vh))
-INTER4xH_QPEL_12_32(qpel32, filter_6tapD(y03, y23, vh))
+INTER4xH_QPEL_12_32(qpel12, filter16D(y02, y22, vh))
+INTER4xH_QPEL_12_32(qpel32, filter16D(y03, y23, vh))
 
 #define INTER4xH_QPEL_21_22_23(QPEL, P)\
 	static void inter4xH_ ## QPEL ## _8bit(int h, size_t dstride, uint8_t * restrict dst, size_t sstride, const uint8_t *src, i8x16 w, i16x8 o, i64x2 logWD) {\
 		ssize_t nstride = -sstride;\
-		i8x16 l0 = load128(src + nstride * 2 - 2);\
-		i8x16 l1 = load128(src + nstride     - 9);\
-		i8x16 l00 = alignr(l0, l1, 6);\
-		i8x16 l03 = alignr(l0, l1, 9);\
-		i16x8 m00 = shuffle8(l00, shuf_m1);\
-		i16x8 m01 = shuffle8(l00, shuf_m2);\
-		i16x8 m02 = shuffle8(l00, shuf_m3);\
-		i16x8 m03 = shuffle8(l03, shuf_m1);\
-		i16x8 m04 = shuffle8(l03, shuf_m2);\
-		i16x8 m05 = shuffle8(l03, shuf_m3);\
-		i16x8 x00 = filter_36tapU(m00, m01, m02, m03, m04, m05);\
-		i8x16 l2 = load128(src               - 2);\
-		i8x16 l3 = load128(src + sstride     - 9);\
-		i8x16 l20 = alignr(l2, l3, 6);\
-		i8x16 l23 = alignr(l2, l3, 9);\
-		i16x8 m20 = shuffle8(l20, shuf_m1);\
-		i16x8 m21 = shuffle8(l20, shuf_m2);\
-		i16x8 m22 = shuffle8(l20, shuf_m3);\
-		i16x8 m23 = shuffle8(l23, shuf_m1);\
-		i16x8 m24 = shuffle8(l23, shuf_m2);\
-		i16x8 m25 = shuffle8(l23, shuf_m3);\
-		i16x8 x20 = filter_36tapU(m20, m21, m22, m23, m24, m25);\
-		i8x16 l4 = load128(src + sstride * 2 - 2);\
-		i16x8 l40 = cvt8zx16(l4);\
-		i16x8 l41 = shrc(l40, 2);\
-		i16x8 l42 = shrc(l40, 4);\
-		i16x8 l43 = shrc(l40, 6);\
-		i16x8 l44 = shrc(l40, 8);\
-		i16x8 l45 = cvt8zx16(shrc(l4, 5));\
-		i16x8 x30 = alignr(filter_36tapU(l40, l41, l42, l43, l44, l45), x20, 8);\
+		i8x16 l0 = shuffle8(load128(src + nstride * 2 - 2), pairs0);\
+		i8x16 l1 = shuffle8(load128(src + nstride     - 2), pairs0);\
+		i8x16 l2 = shuffle8(load128(src               - 2), pairs0);\
+		i8x16 l3 = shuffle8(load128(src + sstride     - 2), pairs0);\
+		i8x16 l4 = shuffle8(load128(src + sstride * 2 - 2), pairs0);\
+		i16x8 x0 = shuffleps(l0, l1, 1, 2, 1, 2);\
+		i16x8 x1 = shuffleps(l2, l3, 1, 2, 1, 2);\
+		i16x8 x2 = shuffleps(l3, l4, 1, 2, 1, 2);\
+		i16x8 x00 = filter8U(unpacklo64(l0, l1), x0, unpackhi64(l0, l1));\
+		i16x8 x20 = filter8U(unpacklo64(l2, l3), x1, unpackhi64(l2, l3));\
+		i16x8 x30 = filter8U(unpacklo64(l3, l4), x2, unpackhi64(l3, l4));\
 		do {\
 			src += sstride * 4;\
-			i8x16 l5 = load128(src + nstride     - 2);\
-			i8x16 l6 = load128(src               - 9);\
-			i8x16 l50 = alignr(l5, l6, 6);\
-			i8x16 l53 = alignr(l5, l6, 9);\
-			i16x8 m50 = shuffle8(l50, shuf_m1);\
-			i16x8 m51 = shuffle8(l50, shuf_m2);\
-			i16x8 m52 = shuffle8(l50, shuf_m3);\
-			i16x8 m53 = shuffle8(l53, shuf_m1);\
-			i16x8 m54 = shuffle8(l53, shuf_m2);\
-			i16x8 m55 = shuffle8(l53, shuf_m3);\
-			i16x8 x50 = filter_36tapU(m50, m51, m52, m53, m54, m55);\
-			i8x16 l7 = load128(src + sstride     - 2);\
-			i8x16 l8 = load128(src + sstride * 2 - 9);\
-			i8x16 l70 = alignr(l7, l8, 6);\
-			i8x16 l73 = alignr(l7, l8, 9);\
-			i16x8 m70 = shuffle8(l70, shuf_m1);\
-			i16x8 m71 = shuffle8(l70, shuf_m2);\
-			i16x8 m72 = shuffle8(l70, shuf_m3);\
-			i16x8 m73 = shuffle8(l73, shuf_m1);\
-			i16x8 m74 = shuffle8(l73, shuf_m2);\
-			i16x8 m75 = shuffle8(l73, shuf_m3);\
-			i16x8 x70 = filter_36tapU(m70, m71, m72, m73, m74, m75);\
+			i8x16 l5 = shuffle8(load128(src + nstride     - 2), pairs0);\
+			i8x16 l6 = shuffle8(load128(src               - 2), pairs0);\
+			i8x16 l7 = shuffle8(load128(src + sstride     - 2), pairs0);\
+			i8x16 l8 = shuffle8(load128(src + sstride * 2 - 2), pairs0);\
+			i16x8 x3 = shuffleps(l5, l6, 1, 2, 1, 2);\
+			i16x8 x4 = shuffleps(l7, l8, 1, 2, 1, 2);\
+			i16x8 x50 = filter8U(unpacklo64(l5, l6), x3, unpackhi64(l5, l6));\
+			i16x8 x70 = filter8U(unpacklo64(l7, l8), x4, unpackhi64(l7, l8));\
 			i16x8 x10 = alignr(x20, x00, 8);\
 			i16x8 x40 = alignr(x50, x30, 8);\
 			i16x8 x60 = alignr(x70, x50, 8);\
-			i16x8 hv0 = filter_36tapD(x00, x10, x20, x30, x40, x50);\
-			i16x8 hv1 = filter_36tapD(x20, x30, x40, x50, x60, x70);\
+			i16x8 hv0 = filter16UD(x00, x10, x20, x30, x40, x50);\
+			i16x8 hv1 = filter16UD(x20, x30, x40, x50, x60, x70);\
 			i16x8 hv = packus16(hv0, hv1);\
 			store4x4_8bit(dstride, dst, P, w, o, logWD);\
 			x00 = x40, x20 = x60, x30 = x70;\
@@ -436,9 +345,9 @@ INTER4xH_QPEL_12_32(qpel32, filter_6tapD(y03, y23, vh))
 		} while (h -= 4);\
 	}\
 
-INTER4xH_QPEL_21_22_23(qpel21, filter_6tapD(x20, x40, hv))
+INTER4xH_QPEL_21_22_23(qpel21, filter16D(x20, x40, hv))
 INTER4xH_QPEL_21_22_23(qpel22, hv)
-INTER4xH_QPEL_21_22_23(qpel23, filter_6tapD(x30, x50, hv))
+INTER4xH_QPEL_21_22_23(qpel23, filter16D(x30, x50, hv))
 
 
 
@@ -455,35 +364,26 @@ INTER4xH_QPEL_21_22_23(qpel23, filter_6tapD(x30, x50, hv))
  */
 static void inter8xH_qpel00_8bit(int h, size_t dstride, uint8_t * restrict dst, size_t sstride, const uint8_t *src, i8x16 w, i16x8 o, i64x2 logWD) {
 	do {
-		i64x2 p = loadh64(load64(src              ), src + sstride    );
-		store8x2_8bit(dstride, dst, p, w, o, logWD);
-		src += sstride * 2;
-		dst += dstride * 2;
-	} while (h -= 2);
+		i64x2 p0 = loadh64(load64(src              ), src + sstride    );
+		i64x2 p1 = loadh64(load64(src + sstride * 2), src + sstride * 3);
+		store8x2_8bit(dstride, dst              , p0, w, o, logWD);
+		store8x2_8bit(dstride, dst + dstride * 2, p1, w, o, logWD);
+		src += sstride * 4;
+		dst += dstride * 4;
+	} while (h -= 4);
 }
 
 #define INTER8xH_QPEL_10_20_30(QPEL, P)\
 	static void inter8xH_ ## QPEL ## _8bit(int h, size_t dstride, uint8_t * restrict dst, size_t sstride, const uint8_t *src, i8x16 w, i16x8 o, i64x2 logWD) {\
 		do {\
-			i8x16 l0 = load128(src           - 2);\
+			i8x16 l0 = load128(src           - 2); /* overreads 3 bytes */\
 			i8x16 l1 = load128(src + sstride - 2);\
-			i8x16 zero = {};\
-			i16x8 l00 = cvt8zx16(l0);\
-			i16x8 l10 = cvt8zx16(l1);\
-			i16x8 l08 = unpackhi8(l0, zero);\
-			i16x8 l18 = unpackhi8(l1, zero);\
-			i16x8 l01 = alignr(l08, l00, 2);\
-			i16x8 l11 = alignr(l18, l10, 2);\
-			i16x8 l02 = alignr(l08, l00, 4);\
-			i16x8 l12 = alignr(l18, l10, 4);\
-			i16x8 l03 = alignr(l08, l00, 6);\
-			i16x8 l13 = alignr(l18, l10, 6);\
-			i16x8 l04 = alignr(l08, l00, 8);\
-			i16x8 l14 = alignr(l18, l10, 8);\
-			i16x8 l05 = alignr(l08, l00, 10);\
-			i16x8 l15 = alignr(l18, l10, 10);\
-			i16x8 h0 = filter_6tap(l00, l01, l02, l03, l04, l05);\
-			i16x8 h1 = filter_6tap(l10, l11, l12, l13, l14, l15);\
+			i8x16 x0 = shuffle8(l0, pairs0);\
+			i8x16 x1 = shuffle8(l0, pairs8);\
+			i8x16 x2 = shuffle8(l1, pairs0);\
+			i8x16 x3 = shuffle8(l1, pairs8);\
+			i16x8 h0 = filter8(x0, alignr(x1, x0, 4), alignr(x1, x0, 8));\
+			i16x8 h1 = filter8(x2, alignr(x3, x2, 4), alignr(x3, x2, 8));\
 			i8x16 h01 = packus16(h0, h1);\
 			store8x2_8bit(dstride, dst, P, w, o, logWD);\
 			src += sstride * 2;\
@@ -491,9 +391,9 @@ static void inter8xH_qpel00_8bit(int h, size_t dstride, uint8_t * restrict dst, 
 		} while (h -= 2);\
 	}\
 
-INTER8xH_QPEL_10_20_30(qpel10, avg8(h01, packus16(l02, l12)))
+INTER8xH_QPEL_10_20_30(qpel10, avg8(h01, unpacklo64(shrc(l0, 2), shrc(l1, 2))))
 INTER8xH_QPEL_10_20_30(qpel20, h01)
-INTER8xH_QPEL_10_20_30(qpel30, avg8(h01, packus16(l03, l13)))
+INTER8xH_QPEL_10_20_30(qpel30, avg8(h01, unpacklo64(shrc(l0, 3), shrc(l1, 3))))
 
 #define INTER8xH_QPEL_01_02_03(QPEL, P)\
 	static void inter8xH_ ## QPEL ## _8bit(int h, size_t dstride, uint8_t * restrict dst, size_t sstride, const uint8_t *src, i8x16 w, i16x8 o, i64x2 logWD) {\
@@ -507,8 +407,8 @@ INTER8xH_QPEL_10_20_30(qpel30, avg8(h01, packus16(l03, l13)))
 			src += sstride * 2;\
 			i16x8 l50 = load8zx16(src + sstride    );\
 			i16x8 l60 = load8zx16(src + sstride * 2);\
-			i16x8 v0 = filter_6tap(l00, l10, l20, l30, l40, l50);\
-			i16x8 v1 = filter_6tap(l10, l20, l30, l40, l50, l60);\
+			i16x8 v0 = filter16(l00, l10, l20, l30, l40, l50);\
+			i16x8 v1 = filter16(l10, l20, l30, l40, l50, l60);\
 			i8x16 v01 = packus16(v0, v1);\
 			store8x2_8bit(dstride, dst, P, w, o, logWD);\
 			l00 = l20, l10 = l30, l20 = l40, l30 = l50, l40 = l60;\
@@ -520,99 +420,47 @@ INTER8xH_QPEL_01_02_03(qpel01, avg8(v01, packus16(l20, l30)))
 INTER8xH_QPEL_01_02_03(qpel02, v01)
 INTER8xH_QPEL_01_02_03(qpel03, avg8(v01, packus16(l30, l40)))
 
-#define INTER8xH_QPEL_11_31(QPEL, C)\
+#define INTER8xH_QPEL_11_31_13_33(QPEL, R0, R1, C)\
 	static void inter8xH_ ## QPEL ## _8bit(int h, size_t dstride, uint8_t * restrict dst, size_t sstride, const uint8_t *src, i8x16 w, i16x8 o, i64x2 logWD) {\
 		ssize_t nstride = -sstride;\
-		i16x8 l0##C = load8zx16(src + nstride * 2 - 2 + C);\
-		i16x8 l1##C = load8zx16(src + nstride     - 2 + C);\
+		i16x8 l02 = load8zx16(src + nstride * 2 - 2 + C);\
+		i16x8 l12 = load8zx16(src + nstride     - 2 + C);\
 		i8x16 l2 = load128(src               - 2);\
 		i8x16 l3 = load128(src + sstride     - 2);\
 		i8x16 l4 = load128(src + sstride * 2 - 2);\
 		do {\
 			src += sstride * 2;\
-			i8x16 zero = {};\
-			i16x8 l20 = cvt8zx16(l2);\
-			i16x8 l28 = unpackhi8(l2, zero);\
-			i16x8 l21 = alignr(l28, l20, 2);\
-			i16x8 l22 = alignr(l28, l20, 4);\
-			i16x8 l23 = alignr(l28, l20, 6);\
-			i16x8 l24 = alignr(l28, l20, 8);\
-			i16x8 l25 = alignr(l28, l20, 10);\
-			i16x8 h0 = filter_6tap(l20, l21, l22, l23, l24, l25);\
-			i16x8 l30 = cvt8zx16(l3);\
-			i16x8 l38 = unpackhi8(l3, zero);\
-			i16x8 l31 = alignr(l38, l30, 2);\
-			i16x8 l32 = alignr(l38, l30, 4);\
-			i16x8 l33 = alignr(l38, l30, 6);\
-			i16x8 l34 = alignr(l38, l30, 8);\
-			i16x8 l35 = alignr(l38, l30, 10);\
-			i16x8 h1 = filter_6tap(l30, l31, l32, l33, l34, l35);\
+			i8x16 x0 = shuffle8(R0, pairs0);\
+			i8x16 x1 = shuffle8(R0, pairs8);\
+			i8x16 x2 = shuffle8(R1, pairs0);\
+			i8x16 x3 = shuffle8(R1, pairs8);\
+			i16x8 h0 = filter8(x0, alignr(x1, x0, 4), alignr(x1, x0, 8));\
+			i16x8 h1 = filter8(x2, alignr(x3, x2, 4), alignr(x3, x2, 8));\
 			i8x16 h01 = packus16(h0, h1);\
 			i8x16 l5 = load128(src + sstride     - 2);\
 			i8x16 l6 = load128(src + sstride * 2 - 2);\
-			i16x8 l4##C = cvt8zx16(shrc(l4, C));\
-			i16x8 l5##C = cvt8zx16(shrc(l5, C));\
-			i16x8 l6##C = cvt8zx16(shrc(l6, C));\
-			i16x8 v0 = filter_6tap(l0##C, l1##C, l2##C, l3##C, l4##C, l5##C);\
-			i16x8 v1 = filter_6tap(l1##C, l2##C, l3##C, l4##C, l5##C, l6##C);\
+			i16x8 l22 = shuffle8(l2, shuf##C);\
+			i16x8 l32 = shuffle8(l3, shuf##C);\
+			i16x8 l42 = shuffle8(l4, shuf##C);\
+			i16x8 l52 = shuffle8(l5, shuf##C);\
+			i16x8 l62 = shuffle8(l6, shuf##C);\
+			i16x8 v0 = filter16(l02, l12, l22, l32, l42, l52);\
+			i16x8 v1 = filter16(l12, l22, l32, l42, l52, l62);\
 			i8x16 v01 = packus16(v0, v1);\
 			store8x2_8bit(dstride, dst, avg8(v01, h01), w, o, logWD);\
-			l0##C = l2##C, l1##C = l3##C, l2 = l4, l3 = l5;\
+			l02 = l22, l12 = l32, l2 = l4, l3 = l5;\
 			l4 = l6;\
 			dst += dstride * 2;\
 		} while (h -= 2);\
 	}\
 
-INTER8xH_QPEL_11_31(qpel11, 2)
-INTER8xH_QPEL_11_31(qpel31, 3)
-
-#define INTER8xH_QPEL_13_33(QPEL, C)\
-	static void inter8xH_ ## QPEL ## _8bit(int h, size_t dstride, uint8_t * restrict dst, size_t sstride, const uint8_t *src, i8x16 w, i16x8 o, i64x2 logWD) {\
-		ssize_t nstride = -sstride;\
-		i16x8 l0##C = load8zx16(src + nstride * 2 - 2 + C);\
-		i16x8 l1##C = load8zx16(src + nstride     - 2 + C);\
-		i16x8 l2##C = load8zx16(src               - 2 + C);\
-		i8x16 l3 = load128(src + sstride     - 2);\
-		i8x16 l4 = load128(src + sstride * 2 - 2);\
-		do {\
-			src += sstride * 2;\
-			i8x16 zero = {};\
-			i16x8 l30 = cvt8zx16(l3);\
-			i16x8 l38 = unpackhi8(l3, zero);\
-			i16x8 l31 = alignr(l38, l30, 2);\
-			i16x8 l32 = alignr(l38, l30, 4);\
-			i16x8 l33 = alignr(l38, l30, 6);\
-			i16x8 l34 = alignr(l38, l30, 8);\
-			i16x8 l35 = alignr(l38, l30, 10);\
-			i16x8 h0 = filter_6tap(l30, l31, l32, l33, l34, l35);\
-			i16x8 l40 = cvt8zx16(l4);\
-			i16x8 l48 = unpackhi8(l4, zero);\
-			i16x8 l41 = alignr(l48, l40, 2);\
-			i16x8 l42 = alignr(l48, l40, 4);\
-			i16x8 l43 = alignr(l48, l40, 6);\
-			i16x8 l44 = alignr(l48, l40, 8);\
-			i16x8 l45 = alignr(l48, l40, 10);\
-			i16x8 h1 = filter_6tap(l40, l41, l42, l43, l44, l45);\
-			i8x16 h01 = packus16(h0, h1);\
-			i8x16 l5 = load128(src + sstride     - 2);\
-			i8x16 l6 = load128(src + sstride * 2 - 2);\
-			i16x8 l5##C = cvt8zx16(shrc(l5, C));\
-			i16x8 l6##C = cvt8zx16(shrc(l6, C));\
-			i16x8 v0 = filter_6tap(l0##C, l1##C, l2##C, l3##C, l4##C, l5##C);\
-			i16x8 v1 = filter_6tap(l1##C, l2##C, l3##C, l4##C, l5##C, l6##C);\
-			i8x16 v01 = packus16(v0, v1);\
-			store8x2_8bit(dstride, dst, avg8(v01, h01), w, o, logWD);\
-			l0##C = l2##C, l1##C = l3##C;\
-			l2##C = l4##C, l3 = l5, l4 = l6;\
-			dst += dstride * 2;\
-		} while (h -= 2);\
-	}\
-
-INTER8xH_QPEL_13_33(qpel13, 2)
-INTER8xH_QPEL_13_33(qpel33, 3)
+INTER8xH_QPEL_11_31_13_33(qpel11, l2, l3, 2)
+INTER8xH_QPEL_11_31_13_33(qpel31, l2, l3, 3)
+INTER8xH_QPEL_11_31_13_33(qpel13, l3, l4, 2)
+INTER8xH_QPEL_11_31_13_33(qpel33, l3, l4, 3)
 
 #define INTER8xH_QPEL_12_32(QPEL, P)\
-	void inter8xH_ ## QPEL ## _8bit(int h, size_t dstride, uint8_t * restrict dst, size_t sstride, const uint8_t *src, i8x16 w, i16x8 o, i64x2 logWD) {\
+	static void inter8xH_ ## QPEL ## _8bit(int h, size_t dstride, uint8_t * restrict dst, size_t sstride, const uint8_t *src, i8x16 w, i16x8 o, i64x2 logWD) {\
 		ssize_t nstride = -sstride;\
 		i8x16 l0 = load128(src + nstride * 2 - 2);\
 		i8x16 l1 = load128(src + nstride     - 2);\
@@ -631,8 +479,8 @@ INTER8xH_QPEL_13_33(qpel33, 3)
 			i16x8 l48 = unpackhi8(l4, zero);\
 			i16x8 l58 = unpackhi8(l5, zero);\
 			i16x8 l68 = unpackhi8(l6, zero);\
-			i16x8 x08 = filter_36tapU(l08, l18, l28, l38, l48, l58);\
-			i16x8 x18 = filter_36tapU(l18, l28, l38, l48, l58, l68);\
+			i16x8 x08 = filter16U(l08, l18, l28, l38, l48, l58);\
+			i16x8 x18 = filter16U(l18, l28, l38, l48, l58, l68);\
 			i16x8 l00 = cvt8zx16(l0);\
 			i16x8 l10 = cvt8zx16(l1);\
 			i16x8 l20 = cvt8zx16(l2);\
@@ -640,8 +488,8 @@ INTER8xH_QPEL_13_33(qpel33, 3)
 			i16x8 l40 = cvt8zx16(l4);\
 			i16x8 l50 = cvt8zx16(l5);\
 			i16x8 l60 = cvt8zx16(l6);\
-			i16x8 x00 = filter_36tapU(l00, l10, l20, l30, l40, l50);\
-			i16x8 x10 = filter_36tapU(l10, l20, l30, l40, l50, l60);\
+			i16x8 x00 = filter16U(l00, l10, l20, l30, l40, l50);\
+			i16x8 x10 = filter16U(l10, l20, l30, l40, l50, l60);\
 			i16x8 x01 = alignr(x08, x00, 2);\
 			i16x8 x11 = alignr(x18, x10, 2);\
 			i16x8 x02 = alignr(x08, x00, 4);\
@@ -652,8 +500,8 @@ INTER8xH_QPEL_13_33(qpel33, 3)
 			i16x8 x14 = alignr(x18, x10, 8);\
 			i16x8 x05 = alignr(x08, x00, 10);\
 			i16x8 x15 = alignr(x18, x10, 10);\
-			i16x8 vh0 = filter_36tapD(x00, x01, x02, x03, x04, x05);\
-			i16x8 vh1 = filter_36tapD(x10, x11, x12, x13, x14, x15);\
+			i16x8 vh0 = filter16UD(x00, x01, x02, x03, x04, x05);\
+			i16x8 vh1 = filter16UD(x10, x11, x12, x13, x14, x15);\
 			i8x16 vh = packus16(vh0, vh1);\
 			store8x2_8bit(dstride, dst, P, w, o, logWD);\
 			l0 = l2, l1 = l3, l2 = l4, l3 = l5, l4 = l6;\
@@ -661,80 +509,44 @@ INTER8xH_QPEL_13_33(qpel33, 3)
 		} while (h -= 2);\
 	}\
 
-INTER8xH_QPEL_12_32(qpel12, filter_6tapD(x02, x12, vh))
-INTER8xH_QPEL_12_32(qpel32, filter_6tapD(x03, x13, vh))
+INTER8xH_QPEL_12_32(qpel12, filter16D(x02, x12, vh))
+INTER8xH_QPEL_12_32(qpel32, filter16D(x03, x13, vh))
 
 #define INTER8xH_QPEL_21_22_23(QPEL, P)\
 	static void inter8xH_ ## QPEL ## _8bit(int h, size_t dstride, uint8_t * restrict dst, size_t sstride, const uint8_t *src, i8x16 w, i16x8 o, i64x2 logWD) {\
 		ssize_t nstride = -sstride;\
-		i8x16 zero = {};\
 		i8x16 l0 = load128(src + nstride * 2 - 2);\
-		i16x8 l00 = cvt8zx16(l0);\
-		i16x8 l08 = unpackhi8(l0, zero);\
-		i16x8 l01 = alignr(l08, l00, 2);\
-		i16x8 l02 = alignr(l08, l00, 4);\
-		i16x8 l03 = alignr(l08, l00, 6);\
-		i16x8 l04 = alignr(l08, l00, 8);\
-		i16x8 l05 = alignr(l08, l00, 10);\
-		i16x8 x00 = filter_36tapU(l00, l01, l02, l03, l04, l05);\
+		i8x16 l00 = shuffle8(l0, pairs0);\
+		i8x16 l08 = shuffle8(l0, pairs8);\
+		i16x8 x00 = filter8U(l00, alignr(l08, l00, 4), alignr(l08, l00, 8));\
 		i8x16 l1 = load128(src + nstride     - 2);\
-		i16x8 l10 = cvt8zx16(l1);\
-		i16x8 l18 = unpackhi8(l1, zero);\
-		i16x8 l11 = alignr(l18, l10, 2);\
-		i16x8 l12 = alignr(l18, l10, 4);\
-		i16x8 l13 = alignr(l18, l10, 6);\
-		i16x8 l14 = alignr(l18, l10, 8);\
-		i16x8 l15 = alignr(l18, l10, 10);\
-		i16x8 x10 = filter_36tapU(l10, l11, l12, l13, l14, l15);\
+		i8x16 l10 = shuffle8(l1, pairs0);\
+		i8x16 l18 = shuffle8(l1, pairs8);\
+		i16x8 x10 = filter8U(l10, alignr(l18, l10, 4), alignr(l18, l10, 8));\
 		i8x16 l2 = load128(src               - 2);\
-		i16x8 l20 = cvt8zx16(l2);\
-		i16x8 l28 = unpackhi8(l2, zero);\
-		i16x8 l21 = alignr(l28, l20, 2);\
-		i16x8 l22 = alignr(l28, l20, 4);\
-		i16x8 l23 = alignr(l28, l20, 6);\
-		i16x8 l24 = alignr(l28, l20, 8);\
-		i16x8 l25 = alignr(l28, l20, 10);\
-		i16x8 x20 = filter_36tapU(l20, l21, l22, l23, l24, l25);\
+		i8x16 l20 = shuffle8(l2, pairs0);\
+		i8x16 l28 = shuffle8(l2, pairs8);\
+		i16x8 x20 = filter8U(l20, alignr(l28, l20, 4), alignr(l28, l20, 8));\
 		i8x16 l3 = load128(src + sstride     - 2);\
-		i16x8 l30 = cvt8zx16(l3);\
-		i16x8 l38 = unpackhi8(l3, zero);\
-		i16x8 l31 = alignr(l38, l30, 2);\
-		i16x8 l32 = alignr(l38, l30, 4);\
-		i16x8 l33 = alignr(l38, l30, 6);\
-		i16x8 l34 = alignr(l38, l30, 8);\
-		i16x8 l35 = alignr(l38, l30, 10);\
-		i16x8 x30 = filter_36tapU(l30, l31, l32, l33, l34, l35);\
+		i8x16 l30 = shuffle8(l3, pairs0);\
+		i8x16 l38 = shuffle8(l3, pairs8);\
+		i16x8 x30 = filter8U(l30, alignr(l38, l30, 4), alignr(l38, l30, 8));\
 		i8x16 l4 = load128(src + sstride * 2 - 2);\
-		i16x8 l40 = cvt8zx16(l4);\
-		i16x8 l48 = unpackhi8(l4, zero);\
-		i16x8 l41 = alignr(l48, l40, 2);\
-		i16x8 l42 = alignr(l48, l40, 4);\
-		i16x8 l43 = alignr(l48, l40, 6);\
-		i16x8 l44 = alignr(l48, l40, 8);\
-		i16x8 l45 = alignr(l48, l40, 10);\
-		i16x8 x40 = filter_36tapU(l40, l41, l42, l43, l44, l45);\
+		i8x16 l40 = shuffle8(l4, pairs0);\
+		i8x16 l48 = shuffle8(l4, pairs8);\
+		i16x8 x40 = filter8U(l40, alignr(l48, l40, 4), alignr(l48, l40, 8));\
 		do {\
 			src += sstride * 2;\
 			i8x16 l5 = load128(src + sstride     - 2);\
-			i16x8 l50 = cvt8zx16(l5);\
-			i16x8 l58 = unpackhi8(l5, zero);\
-			i16x8 l51 = alignr(l58, l50, 2);\
-			i16x8 l52 = alignr(l58, l50, 4);\
-			i16x8 l53 = alignr(l58, l50, 6);\
-			i16x8 l54 = alignr(l58, l50, 8);\
-			i16x8 l55 = alignr(l58, l50, 10);\
-			i16x8 x50 = filter_36tapU(l50, l51, l52, l53, l54, l55);\
+			i8x16 l50 = shuffle8(l5, pairs0);\
+			i8x16 l58 = shuffle8(l5, pairs8);\
+			i16x8 x50 = filter8U(l50, alignr(l58, l50, 4), alignr(l58, l50, 8));\
 			i8x16 l6 = load128(src + sstride * 2 - 2);\
-			i16x8 l60 = cvt8zx16(l6);\
-			i16x8 l68 = unpackhi8(l6, zero);\
-			i16x8 l61 = alignr(l68, l60, 2);\
-			i16x8 l62 = alignr(l68, l60, 4);\
-			i16x8 l63 = alignr(l68, l60, 6);\
-			i16x8 l64 = alignr(l68, l60, 8);\
-			i16x8 l65 = alignr(l68, l60, 10);\
-			i16x8 x60 = filter_36tapU(l60, l61, l62, l63, l64, l65);\
-			i16x8 hv0 = filter_36tapD(x00, x10, x20, x30, x40, x50);\
-			i16x8 hv1 = filter_36tapD(x10, x20, x30, x40, x50, x60);\
+			i8x16 l60 = shuffle8(l6, pairs0);\
+			i8x16 l68 = shuffle8(l6, pairs8);\
+			i16x8 x60 = filter8U(l60, alignr(l68, l60, 4), alignr(l68, l60, 8));\
+			i16x8 hv0 = filter16UD(x00, x10, x20, x30, x40, x50);\
+			i16x8 hv1 = filter16UD(x10, x20, x30, x40, x50, x60);\
 			i8x16 hv = packus16(hv0, hv1);\
 			store8x2_8bit(dstride, dst, P, w, o, logWD);\
 			x00 = x20, x10 = x30, x20 = x40, x30 = x50, x40 = x60;\
@@ -742,9 +554,9 @@ INTER8xH_QPEL_12_32(qpel32, filter_6tapD(x03, x13, vh))
 		} while (h -= 2);\
 	}\
 
-INTER8xH_QPEL_21_22_23(qpel21, filter_6tapD(x20, x30, hv))
+INTER8xH_QPEL_21_22_23(qpel21, filter16D(x20, x30, hv))
 INTER8xH_QPEL_21_22_23(qpel22, hv)
-INTER8xH_QPEL_21_22_23(qpel23, filter_6tapD(x30, x40, hv))
+INTER8xH_QPEL_21_22_23(qpel23, filter16D(x30, x40, hv))
 
 
 
@@ -757,33 +569,25 @@ INTER8xH_QPEL_21_22_23(qpel23, filter_6tapD(x30, x40, hv))
  */
 static void inter16xH_qpel00_8bit(int h, size_t dstride, uint8_t * restrict dst, size_t sstride, const uint8_t *src, i8x16 w, i16x8 o, i64x2 logWD) {
 	do {
-		store16x1_8bit(dstride, dst          , load128(src          ), w, o, logWD);
-		store16x1_8bit(dstride, dst + dstride, load128(src + sstride), w, o, logWD);
-		src += sstride * 2;
-		dst += dstride * 2;
-	} while (h -= 2);
+		store16x1_8bit(dstride, dst              , load128(src              ), w, o, logWD);
+		store16x1_8bit(dstride, dst + dstride    , load128(src + sstride    ), w, o, logWD);
+		store16x1_8bit(dstride, dst + dstride * 2, load128(src + sstride * 2), w, o, logWD);
+		store16x1_8bit(dstride, dst + dstride * 3, load128(src + sstride * 3), w, o, logWD);
+		src += sstride * 4;
+		dst += dstride * 4;
+	} while (h -= 4);
 }
 
 #define INTER16xH_QPEL_10_20_30(QPEL, P)\
 	static void inter16xH_ ## QPEL ## _8bit(int h, size_t dstride, uint8_t * restrict dst, size_t sstride, const uint8_t *src, i8x16 w, i16x8 o, i64x2 logWD) {\
 		do {\
 			i8x16 l0 = load128(src - 2);\
-			i8x16 zero = {};\
-			i16x8 l0G = load8zx16(src + 14);\
-			i16x8 l08 = unpackhi8(l0, zero);\
-			i16x8 l00 = cvt8zx16(l0);\
-			i16x8 l01 = alignr(l08, l00, 2);\
-			i16x8 l02 = alignr(l08, l00, 4);\
-			i16x8 l03 = alignr(l08, l00, 6);\
-			i16x8 l04 = alignr(l08, l00, 8);\
-			i16x8 l05 = alignr(l08, l00, 10);\
-			i16x8 l09 = alignr(l0G, l08, 2);\
-			i16x8 l0A = alignr(l0G, l08, 4);\
-			i16x8 l0B = alignr(l0G, l08, 6);\
-			i16x8 l0C = alignr(l0G, l08, 8);\
-			i16x8 l0D = alignr(l0G, l08, 10);\
-			i16x8 h0 = filter_6tap(l00, l01, l02, l03, l04, l05);\
-			i16x8 h1 = filter_6tap(l08, l09, l0A, l0B, l0C, l0D);\
+			i8x16 l8 = load128(src + 6); /* overreads 3 bytes */\
+			i8x16 x0 = shuffle8(l0, pairs0);\
+			i8x16 x8 = shuffle8(l8, pairs0);\
+			i8x16 xG = shuffle8(l8, pairs8);\
+			i16x8 h0 = filter8(x0, alignr(x8, x0, 4), alignr(x8, x0, 8));\
+			i16x8 h1 = filter8(x8, alignr(xG, x8, 4), alignr(xG, x8, 8));\
 			i8x16 h01 = packus16(h0, h1);\
 			store16x1_8bit(dstride, dst, P, w, o, logWD);\
 			src += sstride;\
@@ -791,9 +595,9 @@ static void inter16xH_qpel00_8bit(int h, size_t dstride, uint8_t * restrict dst,
 		} while (--h);\
 	}\
 
-INTER16xH_QPEL_10_20_30(qpel10, avg8(h01, packus16(l02, l0A)))
+INTER16xH_QPEL_10_20_30(qpel10, avg8(h01, alignr(shrc(l8, 8), l0, 2)))
 INTER16xH_QPEL_10_20_30(qpel20, h01)
-INTER16xH_QPEL_10_20_30(qpel30, avg8(h01, packus16(l03, l0B)))
+INTER16xH_QPEL_10_20_30(qpel30, avg8(h01, alignr(shrc(l8, 8), l0, 3)))
 
 #define INTER16xH_QPEL_01_02_03(QPEL, P)\
 	static void inter16xH_ ## QPEL ## _8bit(int h, size_t dstride, uint8_t * restrict dst, size_t sstride, const uint8_t *src, i8x16 w, i16x8 o, i64x2 logWD) {\
@@ -806,21 +610,21 @@ INTER16xH_QPEL_10_20_30(qpel30, avg8(h01, packus16(l03, l0B)))
 		do {\
 			src += sstride;\
 			i8x16 l5 = load128(src + sstride * 2);\
-			i8x16 zero = {};\
 			i16x8 l00 = cvt8zx16(l0);\
 			i16x8 l10 = cvt8zx16(l1);\
 			i16x8 l20 = cvt8zx16(l2);\
 			i16x8 l30 = cvt8zx16(l3);\
 			i16x8 l40 = cvt8zx16(l4);\
 			i16x8 l50 = cvt8zx16(l5);\
-			i16x8 v0 = filter_6tap(l00, l10, l20, l30, l40, l50);\
+			i16x8 v0 = filter16(l00, l10, l20, l30, l40, l50);\
+			i8x16 zero = {};\
 			i16x8 l08 = unpackhi8(l0, zero);\
 			i16x8 l18 = unpackhi8(l1, zero);\
 			i16x8 l28 = unpackhi8(l2, zero);\
 			i16x8 l38 = unpackhi8(l3, zero);\
 			i16x8 l48 = unpackhi8(l4, zero);\
 			i16x8 l58 = unpackhi8(l5, zero);\
-			i16x8 v1 = filter_6tap(l08, l18, l28, l38, l48, l58);\
+			i16x8 v1 = filter16(l08, l18, l28, l38, l48, l58);\
 			i8x16 v01 = packus16(v0, v1);\
 			store16x1_8bit(dstride, dst, P, w, o, logWD);\
 			l0 = l1, l1 = l2, l2 = l3, l3 = l4, l4 = l5;\
@@ -832,117 +636,54 @@ INTER16xH_QPEL_01_02_03(qpel01, avg8(v01, packus16(l20, l28)))
 INTER16xH_QPEL_01_02_03(qpel02, v01)
 INTER16xH_QPEL_01_02_03(qpel03, avg8(v01, packus16(l30, l38)))
 
-#define INTER16xH_QPEL_11_13(QPEL, R, S)\
+#define INTER16xH_QPEL_11_31_13_33(QPEL, R, C)\
 	static void inter16xH_ ## QPEL ## _8bit(int h, size_t dstride, uint8_t * restrict dst, size_t sstride, const uint8_t *src, i8x16 w, i16x8 o, i64x2 logWD) {\
 		ssize_t nstride= -sstride;\
-		i8x16 l0 = load128(src + nstride * 2);\
-		i8x16 l1 = load128(src + nstride    );\
-		i8x16 l2 = load128(src               - 8);\
-		i8x16 L2 = load128(src               + 8);\
-		i8x16 l3 = load128(src + sstride     - 8);\
-		i8x16 L3 = load128(src + sstride     + 8);\
-		i8x16 l4 = load128(src + sstride * 2 - 8);\
-		i8x16 L4 = load128(src + sstride * 2 + 8);\
+		i8x16 l02 = load128(src + nstride * 2 - 2 + C);\
+		i8x16 l12 = load128(src + nstride     - 2 + C);\
+		i8x16 l20 = load128(src               - 2);\
+		i8x16 l28 = load128(src               + 6);\
+		i8x16 l30 = load128(src + sstride     - 2);\
+		i8x16 l38 = load128(src + sstride     + 6);\
+		i8x16 l40 = load128(src + sstride * 2 - 2);\
+		i8x16 l48 = load128(src + sstride * 2 + 6);\
 		do {\
 			src += sstride;\
-			i8x16 zero = {};\
-			i16x8 l##R##U = cvt8zx16(l##R);\
-			i16x8 l##R##2 = unpackhi8(l##R, zero);\
-			i16x8 l##R##A = cvt8zx16(L##R);\
-			i16x8 l##R##I = unpackhi8(L##R, zero);\
-			i16x8 l##R##0 = alignr(l##R##2, l##R##U, 12);\
-			i16x8 l##R##1 = alignr(l##R##2, l##R##U, 14);\
-			i16x8 l##R##3 = alignr(l##R##A, l##R##2, 2);\
-			i16x8 l##R##4 = alignr(l##R##A, l##R##2, 4);\
-			i16x8 l##R##5 = alignr(l##R##A, l##R##2, 6);\
-			i16x8 h0 = filter_6tap(l##R##0, l##R##1, l##R##2, l##R##3, l##R##4, l##R##5);\
-			i16x8 l##R##8 = alignr(l##R##A, l##R##2, 12);\
-			i16x8 l##R##9 = alignr(l##R##A, l##R##2, 14);\
-			i16x8 l##R##B = alignr(l##R##I, l##R##A, 2);\
-			i16x8 l##R##C = alignr(l##R##I, l##R##A, 4);\
-			i16x8 l##R##D = alignr(l##R##I, l##R##A, 6);\
-			i16x8 h1 = filter_6tap(l##R##8, l##R##9, l##R##A, l##R##B, l##R##C, l##R##D);\
+			i8x16 x0 = shuffle8(l##R##0, pairs0);\
+			i8x16 x8 = shuffle8(l##R##8, pairs0);\
+			i8x16 xG = shuffle8(l##R##8, pairs8);\
+			i16x8 h0 = filter8(x0, alignr(x8, x0, 4), alignr(x8, x0, 8));\
+			i16x8 h1 = filter8(x8, alignr(xG, x8, 4), alignr(xG, x8, 8));\
 			i8x16 h01 = packus16(h0, h1);\
-			i8x16 l5 = load128(src + sstride * 2 - 8);\
-			i8x16 L5 = load128(src + sstride * 2 + 8);\
-			i16x8 l02 = cvt8zx16(l0);\
-			i16x8 l12 = cvt8zx16(l1);\
-			i16x8 l##S##2 = unpackhi8(l##S, zero);\
-			i16x8 l42 = unpackhi8(l4, zero);\
-			i16x8 l52 = unpackhi8(l5, zero);\
-			i16x8 v0 = filter_6tap(l02, l12, l22, l32, l42, l52);\
-			i16x8 l0A = unpackhi8(l0, zero);\
-			i16x8 l1A = unpackhi8(l1, zero);\
-			i16x8 l##S##A = cvt8zx16(L##S);\
-			i16x8 l4A = cvt8zx16(L4);\
-			i16x8 l5A = cvt8zx16(L5);\
-			i16x8 v1 = filter_6tap(l0A, l1A, l2A, l3A, l4A, l5A);\
+			i8x16 l50 = load128(src + sstride * 2 - 2);\
+			i8x16 l58 = load128(src + sstride * 2 + 6);\
+			i16x8 L02 = cvt8zx16(l02);\
+			i16x8 L12 = cvt8zx16(l12);\
+			i16x8 L22 = shuffle8(l20, shuf##C);\
+			i16x8 L32 = shuffle8(l30, shuf##C);\
+			i16x8 L42 = shuffle8(l40, shuf##C);\
+			i16x8 L52 = shuffle8(l50, shuf##C);\
+			i16x8 v0 = filter16(L02, L12, L22, L32, L42, L52);\
+			i8x16 zero = {};\
+			i16x8 L0A = unpackhi8(l02, zero);\
+			i16x8 L1A = unpackhi8(l12, zero);\
+			i16x8 L2A = shuffle8(l28, shuf##C);\
+			i16x8 L3A = shuffle8(l38, shuf##C);\
+			i16x8 L4A = shuffle8(l48, shuf##C);\
+			i16x8 L5A = shuffle8(l58, shuf##C);\
+			i16x8 v1 = filter16(L0A, L1A, L2A, L3A, L4A, L5A);\
 			i8x16 v01 = packus16(v0, v1);\
 			store16x1_8bit(dstride, dst, avg8(v01, h01), w, o, logWD);\
-			l0 = l1, l1 = alignr(L2, l2, 8);\
-			l2 = l3, L2 = L3, l3 = l4, L3 = L4, l4 = l5, L4 = L5;\
+			l02 = l12, l12 = packus16(L22, L2A);\
+			l20 = l30, l28 = l38, l30 = l40, l38 = l48, l40 = l50, l48 = l58;\
 			dst += dstride;\
 		} while (--h);\
 	}\
 
-INTER16xH_QPEL_11_13(qpel11, 2, 3)
-INTER16xH_QPEL_11_13(qpel13, 3, 2)
-
-#define INTER16xH_QPEL_31_33(QPEL, R, S)\
-	static void inter16xH_ ## QPEL ## _8bit(int h, size_t dstride, uint8_t * restrict dst, size_t sstride, const uint8_t *src, i8x16 w, i16x8 o, i64x2 logWD) {\
-		ssize_t nstride= -sstride;\
-		i8x16 l0 = load128(src + nstride * 2 + 1);\
-		i8x16 l1 = load128(src + nstride     + 1);\
-		i8x16 l2 = load128(src               - 7);\
-		i8x16 L2 = load128(src               + 9);\
-		i8x16 l3 = load128(src + sstride     - 7);\
-		i8x16 L3 = load128(src + sstride     + 9);\
-		i8x16 l4 = load128(src + sstride * 2 - 7);\
-		i8x16 L4 = load128(src + sstride * 2 + 9);\
-		do {\
-			src += sstride;\
-			i8x16 zero = {};\
-			i16x8 l##R##V = cvt8zx16(l##R);\
-			i16x8 l##R##3 = unpackhi8(l##R, zero);\
-			i16x8 l##R##B = cvt8zx16(L##R);\
-			i16x8 l##R##J = unpackhi8(L##R, zero);\
-			i16x8 l##R##0 = alignr(l##R##3, l##R##V, 10);\
-			i16x8 l##R##1 = alignr(l##R##3, l##R##V, 12);\
-			i16x8 l##R##2 = alignr(l##R##3, l##R##V, 14);\
-			i16x8 l##R##4 = alignr(l##R##B, l##R##3, 2);\
-			i16x8 l##R##5 = alignr(l##R##B, l##R##3, 4);\
-			i16x8 h0 = filter_6tap(l##R##0, l##R##1, l##R##2, l##R##3, l##R##4, l##R##5);\
-			i16x8 l##R##8 = alignr(l##R##B, l##R##3, 10);\
-			i16x8 l##R##9 = alignr(l##R##B, l##R##3, 12);\
-			i16x8 l##R##A = alignr(l##R##B, l##R##3, 14);\
-			i16x8 l##R##C = alignr(l##R##J, l##R##B, 2);\
-			i16x8 l##R##D = alignr(l##R##J, l##R##B, 4);\
-			i16x8 h1 = filter_6tap(l##R##8, l##R##9, l##R##A, l##R##B, l##R##C, l##R##D);\
-			i8x16 h01 = packus16(h0, h1);\
-			i8x16 l5 = load128(src + sstride * 2 - 7);\
-			i8x16 L5 = load128(src + sstride * 2 + 9);\
-			i16x8 l03 = cvt8zx16(l0);\
-			i16x8 l13 = cvt8zx16(l1);\
-			i16x8 l##S##3 = unpackhi8(l##S, zero);\
-			i16x8 l43 = unpackhi8(l4, zero);\
-			i16x8 l53 = unpackhi8(l5, zero);\
-			i16x8 v0 = filter_6tap(l03, l13, l23, l33, l43, l53);\
-			i16x8 l0B = unpackhi8(l0, zero);\
-			i16x8 l1B = unpackhi8(l1, zero);\
-			i16x8 l##S##B = cvt8zx16(L##S);\
-			i16x8 l4B = cvt8zx16(L4);\
-			i16x8 l5B = cvt8zx16(L5);\
-			i16x8 v1 = filter_6tap(l0B, l1B, l2B, l3B, l4B, l5B);\
-			i8x16 v01 = packus16(v0, v1);\
-			store16x1_8bit(dstride, dst, avg8(v01, h01), w, o, logWD);\
-			l0 = l1, l1 = alignr(L2, l2, 8);\
-			l2 = l3, L2 = L3, l3 = l4, L3 = L4, l4 = l5, L4 = L5;\
-			dst += dstride;\
-		} while (--h);\
-	}\
-
-INTER16xH_QPEL_31_33(qpel31, 2, 3)
-INTER16xH_QPEL_31_33(qpel33, 3, 2)
+INTER16xH_QPEL_11_31_13_33(qpel11, 2, 2)
+INTER16xH_QPEL_11_31_13_33(qpel31, 2, 3)
+INTER16xH_QPEL_11_31_13_33(qpel13, 3, 2)
+INTER16xH_QPEL_11_31_13_33(qpel33, 3, 3)
 
 #define INTER16xH_QPEL_12_32(QPEL, P)\
 	static void inter16xH_ ## QPEL ## _8bit(int h, size_t dstride, uint8_t * restrict dst, size_t sstride, const uint8_t *src, i8x16 w, i16x8 o, i64x2 logWD) {\
@@ -966,7 +707,7 @@ INTER16xH_QPEL_31_33(qpel33, 3, 2)
 			i16x8 l30 = cvt8zx16(l3);\
 			i16x8 l40 = cvt8zx16(l4);\
 			i16x8 l50 = cvt8zx16(l5);\
-			i16x8 v00 = filter_36tapU(l00, l10, l20, l30, l40, l50);\
+			i16x8 v00 = filter16U(l00, l10, l20, l30, l40, l50);\
 			i8x16 zero = {};\
 			i16x8 l08 = unpackhi8(l0, zero);\
 			i16x8 l18 = unpackhi8(l1, zero);\
@@ -974,9 +715,9 @@ INTER16xH_QPEL_31_33(qpel33, 3, 2)
 			i16x8 l38 = unpackhi8(l3, zero);\
 			i16x8 l48 = unpackhi8(l4, zero);\
 			i16x8 l58 = unpackhi8(l5, zero);\
-			i16x8 v08 = filter_36tapU(l08, l18, l28, l38, l48, l58);\
+			i16x8 v08 = filter16U(l08, l18, l28, l38, l48, l58);\
 			i16x8 l5G = load8zx16(src + sstride * 2 + 14);\
-			i16x8 v0G = filter_36tapU(l0G, l1G, l2G, l3G, l4G, l5G);\
+			i16x8 v0G = filter16U(l0G, l1G, l2G, l3G, l4G, l5G);\
 			i16x8 v01 = alignr(v08, v00, 2);\
 			i16x8 v02 = alignr(v08, v00, 4);\
 			i16x8 v03 = alignr(v08, v00, 6);\
@@ -987,8 +728,8 @@ INTER16xH_QPEL_31_33(qpel33, 3, 2)
 			i16x8 v0B = alignr(v0G, v08, 6);\
 			i16x8 v0C = alignr(v0G, v08, 8);\
 			i16x8 v0D = alignr(v0G, v08, 10);\
-			i16x8 vh0 = filter_36tapD(v00, v01, v02, v03, v04, v05);\
-			i16x8 vh1 = filter_36tapD(v08, v09, v0A, v0B, v0C, v0D);\
+			i16x8 vh0 = filter16UD(v00, v01, v02, v03, v04, v05);\
+			i16x8 vh1 = filter16UD(v08, v09, v0A, v0B, v0C, v0D);\
 			i8x16 vh = packus16(vh0, vh1);\
 			store16x1_8bit(dstride, dst, P, w, o, logWD);\
 			l0 = l1, l1 = l2, l2 = l3, l3 = l4, l4 = l5;\
@@ -997,114 +738,59 @@ INTER16xH_QPEL_31_33(qpel33, 3, 2)
 		} while (--h);\
 	}\
 
-INTER16xH_QPEL_12_32(qpel12, filter_6tapD(v02, v0A, vh))
-INTER16xH_QPEL_12_32(qpel32, filter_6tapD(v03, v0B, vh))
+INTER16xH_QPEL_12_32(qpel12, filter16D(v02, v0A, vh))
+INTER16xH_QPEL_12_32(qpel32, filter16D(v03, v0B, vh))
 
 // with an array on stack or a preliminary loop, both compilers would get crazy
 #define INTER16xH_QPEL_21_22_23(QPEL, P)\
 	static void inter16xH_ ## QPEL ## _8bit(int h, size_t dstride, uint8_t * restrict dst, size_t sstride, const uint8_t *src, i8x16 w, i16x8 o, i64x2 logWD) {\
 		ssize_t nstride= -sstride;\
-		i8x16 l0 = load128(src + nstride * 2 - 2);\
-		i8x16 zero = {};\
-		i16x8 l0G = load8zx16(src + nstride * 2 + 14);\
-		i16x8 l00 = cvt8zx16(l0);\
-		i16x8 l08 = unpackhi8(l0, zero);\
-		i16x8 l01 = alignr(l08, l00, 2);\
-		i16x8 l02 = alignr(l08, l00, 4);\
-		i16x8 l03 = alignr(l08, l00, 6);\
-		i16x8 l04 = alignr(l08, l00, 8);\
-		i16x8 l05 = alignr(l08, l00, 10);\
-		i16x8 h00 = filter_36tapU(l00, l01, l02, l03, l04, l05);\
-		i16x8 l09 = alignr(l0G, l08, 2);\
-		i16x8 l0A = alignr(l0G, l08, 4);\
-		i16x8 l0B = alignr(l0G, l08, 6);\
-		i16x8 l0C = alignr(l0G, l08, 8);\
-		i16x8 l0D = alignr(l0G, l08, 10);\
-		i16x8 h08 = filter_36tapU(l08, l09, l0A, l0B, l0C, l0D);\
-		i8x16 l1 = load128(src + nstride     - 2);\
-		i16x8 l1G = load8zx16(src + nstride     + 14);\
-		i16x8 l10 = cvt8zx16(l1);\
-		i16x8 l18 = unpackhi8(l1, zero);\
-		i16x8 l11 = alignr(l18, l10, 2);\
-		i16x8 l12 = alignr(l18, l10, 4);\
-		i16x8 l13 = alignr(l18, l10, 6);\
-		i16x8 l14 = alignr(l18, l10, 8);\
-		i16x8 l15 = alignr(l18, l10, 10);\
-		i16x8 h10 = filter_36tapU(l10, l11, l12, l13, l14, l15);\
-		i16x8 l19 = alignr(l1G, l18, 2);\
-		i16x8 l1A = alignr(l1G, l18, 4);\
-		i16x8 l1B = alignr(l1G, l18, 6);\
-		i16x8 l1C = alignr(l1G, l18, 8);\
-		i16x8 l1D = alignr(l1G, l18, 10);\
-		i16x8 h18 = filter_36tapU(l18, l19, l1A, l1B, l1C, l1D);\
-		i8x16 l2 = load128(src               - 2);\
-		i16x8 l2G = load8zx16(src               + 14);\
-		i16x8 l20 = cvt8zx16(l2);\
-		i16x8 l28 = unpackhi8(l2, zero);\
-		i16x8 l21 = alignr(l28, l20, 2);\
-		i16x8 l22 = alignr(l28, l20, 4);\
-		i16x8 l23 = alignr(l28, l20, 6);\
-		i16x8 l24 = alignr(l28, l20, 8);\
-		i16x8 l25 = alignr(l28, l20, 10);\
-		i16x8 h20 = filter_36tapU(l20, l21, l22, l23, l24, l25);\
-		i16x8 l29 = alignr(l2G, l28, 2);\
-		i16x8 l2A = alignr(l2G, l28, 4);\
-		i16x8 l2B = alignr(l2G, l28, 6);\
-		i16x8 l2C = alignr(l2G, l28, 8);\
-		i16x8 l2D = alignr(l2G, l28, 10);\
-		i16x8 h28 = filter_36tapU(l28, l29, l2A, l2B, l2C, l2D);\
-		i8x16 l3 = load128(src + sstride     - 2);\
-		i16x8 l3G = load8zx16(src + sstride     + 14);\
-		i16x8 l30 = cvt8zx16(l3);\
-		i16x8 l38 = unpackhi8(l3, zero);\
-		i16x8 l31 = alignr(l38, l30, 2);\
-		i16x8 l32 = alignr(l38, l30, 4);\
-		i16x8 l33 = alignr(l38, l30, 6);\
-		i16x8 l34 = alignr(l38, l30, 8);\
-		i16x8 l35 = alignr(l38, l30, 10);\
-		i16x8 h30 = filter_36tapU(l30, l31, l32, l33, l34, l35);\
-		i16x8 l39 = alignr(l3G, l38, 2);\
-		i16x8 l3A = alignr(l3G, l38, 4);\
-		i16x8 l3B = alignr(l3G, l38, 6);\
-		i16x8 l3C = alignr(l3G, l38, 8);\
-		i16x8 l3D = alignr(l3G, l38, 10);\
-		i16x8 h38 = filter_36tapU(l38, l39, l3A, l3B, l3C, l3D);\
-		i8x16 l4 = load128(src + sstride * 2 - 2);\
-		i16x8 l4G = load8zx16(src + sstride * 2 + 14);\
-		i16x8 l40 = cvt8zx16(l4);\
-		i16x8 l48 = unpackhi8(l4, zero);\
-		i16x8 l41 = alignr(l48, l40, 2);\
-		i16x8 l42 = alignr(l48, l40, 4);\
-		i16x8 l43 = alignr(l48, l40, 6);\
-		i16x8 l44 = alignr(l48, l40, 8);\
-		i16x8 l45 = alignr(l48, l40, 10);\
-		i16x8 h40 = filter_36tapU(l40, l41, l42, l43, l44, l45);\
-		i16x8 l49 = alignr(l4G, l48, 2);\
-		i16x8 l4A = alignr(l4G, l48, 4);\
-		i16x8 l4B = alignr(l4G, l48, 6);\
-		i16x8 l4C = alignr(l4G, l48, 8);\
-		i16x8 l4D = alignr(l4G, l48, 10);\
-		i16x8 h48 = filter_36tapU(l48, l49, l4A, l4B, l4C, l4D);\
+		i8x16 l00 = load128(src + nstride * 2 - 2);\
+		i8x16 l08 = load128(src + nstride * 2 + 6);\
+		i8x16 x00 = shuffle8(l00, pairs0);\
+		i8x16 x08 = shuffle8(l08, pairs0);\
+		i8x16 x0G = shuffle8(l08, pairs8);\
+		i16x8 h00 = filter8U(x00, alignr(x08, x00, 4), alignr(x08, x00, 8));\
+		i16x8 h08 = filter8U(x08, alignr(x0G, x08, 4), alignr(x0G, x08, 8));\
+		i8x16 l10 = load128(src + nstride     - 2);\
+		i8x16 l18 = load128(src + nstride     + 6);\
+		i8x16 x10 = shuffle8(l10, pairs0);\
+		i8x16 x18 = shuffle8(l18, pairs0);\
+		i8x16 x1G = shuffle8(l18, pairs8);\
+		i16x8 h10 = filter8U(x10, alignr(x18, x10, 4), alignr(x18, x10, 8));\
+		i16x8 h18 = filter8U(x18, alignr(x1G, x18, 4), alignr(x1G, x18, 8));\
+		i8x16 l20 = load128(src               - 2);\
+		i8x16 l28 = load128(src               + 6);\
+		i8x16 x20 = shuffle8(l20, pairs0);\
+		i8x16 x28 = shuffle8(l28, pairs0);\
+		i8x16 x2G = shuffle8(l28, pairs8);\
+		i16x8 h20 = filter8U(x20, alignr(x28, x20, 4), alignr(x28, x20, 8));\
+		i16x8 h28 = filter8U(x28, alignr(x2G, x28, 4), alignr(x2G, x28, 8));\
+		i8x16 l30 = load128(src + sstride     - 2);\
+		i8x16 l38 = load128(src + sstride     + 6);\
+		i8x16 x30 = shuffle8(l30, pairs0);\
+		i8x16 x38 = shuffle8(l38, pairs0);\
+		i8x16 x3G = shuffle8(l38, pairs8);\
+		i16x8 h30 = filter8U(x30, alignr(x38, x30, 4), alignr(x38, x30, 8));\
+		i16x8 h38 = filter8U(x38, alignr(x3G, x38, 4), alignr(x3G, x38, 8));\
+		i8x16 l40 = load128(src + sstride * 2 - 2);\
+		i8x16 l48 = load128(src + sstride * 2 + 6);\
+		i8x16 x40 = shuffle8(l40, pairs0);\
+		i8x16 x48 = shuffle8(l48, pairs0);\
+		i8x16 x4G = shuffle8(l48, pairs8);\
+		i16x8 h40 = filter8U(x40, alignr(x48, x40, 4), alignr(x48, x40, 8));\
+		i16x8 h48 = filter8U(x48, alignr(x4G, x48, 4), alignr(x4G, x48, 8));\
 		do {\
 			src += sstride;\
-			i8x16 l5 = load128(src + sstride * 2 - 2);\
-			i16x8 l5G = load8zx16(src + sstride * 2 + 14);\
-			i16x8 l50 = cvt8zx16(l5);\
-			i16x8 l58 = unpackhi8(l5, zero);\
-			i16x8 l51 = alignr(l58, l50, 2);\
-			i16x8 l52 = alignr(l58, l50, 4);\
-			i16x8 l53 = alignr(l58, l50, 6);\
-			i16x8 l54 = alignr(l58, l50, 8);\
-			i16x8 l55 = alignr(l58, l50, 10);\
-			i16x8 h50 = filter_36tapU(l50, l51, l52, l53, l54, l55);\
-			i16x8 l59 = alignr(l5G, l58, 2);\
-			i16x8 l5A = alignr(l5G, l58, 4);\
-			i16x8 l5B = alignr(l5G, l58, 6);\
-			i16x8 l5C = alignr(l5G, l58, 8);\
-			i16x8 l5D = alignr(l5G, l58, 10);\
-			i16x8 h58 = filter_36tapU(l58, l59, l5A, l5B, l5C, l5D);\
-			i16x8 hv0 = filter_36tapD(h00, h10, h20, h30, h40, h50);\
-			i16x8 hv1 = filter_36tapD(h08, h18, h28, h38, h48, h58);\
+			i8x16 l50 = load128(src + sstride * 2 - 2);\
+			i8x16 l58 = load128(src + sstride * 2 + 6);\
+			i8x16 x50 = shuffle8(l50, pairs0);\
+			i8x16 x58 = shuffle8(l58, pairs0);\
+			i8x16 x5G = shuffle8(l58, pairs8);\
+			i16x8 h50 = filter8U(x50, alignr(x58, x50, 4), alignr(x58, x50, 8));\
+			i16x8 h58 = filter8U(x58, alignr(x5G, x58, 4), alignr(x5G, x58, 8));\
+			i16x8 hv0 = filter16UD(h00, h10, h20, h30, h40, h50);\
+			i16x8 hv1 = filter16UD(h08, h18, h28, h38, h48, h58);\
 			i8x16 hv = packus16(hv0, hv1);\
 			store16x1_8bit(dstride, dst, P, w, o, logWD);\
 			h00 = h10, h08 = h18;\
@@ -1116,9 +802,9 @@ INTER16xH_QPEL_12_32(qpel32, filter_6tapD(v03, v0B, vh))
 		} while (--h);\
 	}\
 
-INTER16xH_QPEL_21_22_23(qpel21, filter_6tapD(h20, h28, hv))
+INTER16xH_QPEL_21_22_23(qpel21, filter16D(h20, h28, hv))
 INTER16xH_QPEL_21_22_23(qpel22, hv)
-INTER16xH_QPEL_21_22_23(qpel23, filter_6tapD(h30, h38, hv))
+INTER16xH_QPEL_21_22_23(qpel23, filter16D(h30, h38, hv))
 
 
 

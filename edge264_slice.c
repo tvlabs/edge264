@@ -1605,7 +1605,8 @@ static noinline void CAFUNC(parse_slice_data)
 		{15, 14,  9,  4, 14, 14,  0,  4,  9,  0,  9,  4,  0,  4,  0,  4},
 	};
 	
-	while (1) {
+	int end_of_slice_flag = 0;
+	do {
 		fprintf(stderr, "********** POC=%u MB=%u **********\n", tsk->PicOrderCnt, tsk->CurrMbAddr);
 		
 		// set and reset neighbouring pointers depending on their availability
@@ -1724,6 +1725,10 @@ static noinline void CAFUNC(parse_slice_data)
 			#endif
 			CACALL(parse_I_mb, mb_type_or_ctxIdx);
 		}
+		#ifdef CABAC
+			end_of_slice_flag = CALL_TSK(cabac_terminate);
+			fprintf(stderr, "end_of_slice_flag: %x\n", end_of_slice_flag);
+		#endif
 		
 		// deblock mbB while in cache, then point to the next macroblock
 		if (tsk->CurrMbAddr - tsk->pic_width_in_mbs == tsk->next_deblock_addr) {
@@ -1743,18 +1748,8 @@ static noinline void CAFUNC(parse_slice_data)
 			tsk->samples_mb[1] += 8; // FIXME 4:2:2, 16bit
 			tsk->samples_mb[2] += 8;
 		}
-		tsk->mbCol++;
-		
-		// break at end of slice
-		#ifdef CABAC
-			int end_of_slice_flag = CALL_TSK(cabac_terminate);
-			fprintf(stderr, "end_of_slice_flag: %x\n", end_of_slice_flag);
-		#endif
 		tsk->CurrMbAddr++;
-		if (CACOND(tsk->mb_skip_run <= 0 && tsk->_gb.msb_cache == (size_t)1 << (SIZE_BIT - 1) && !(tsk->_gb.lsb_cache & (tsk->_gb.lsb_cache - 1)) && tsk->_gb.CPB >= tsk->_gb.end, end_of_slice_flag))
-			break;
-		
-		// end of row
+		tsk->mbCol++;
 		if (tsk->samples_mb[0] - tsk->samples_row[0] >= tsk->stride[0]) {
 			mb++; // skip the empty macroblock at the edge
 			tsk->mbCol++;
@@ -1764,5 +1759,5 @@ static noinline void CAFUNC(parse_slice_data)
 			if (tsk->samples_row[0] - tsk->samples_base >= tsk->plane_size_Y)
 				break;
 		}
-	}
+	} while (CACOND(tsk->mb_skip_run > 0 || tsk->_gb.msb_cache != (size_t)1 << (SIZE_BIT - 1) || (tsk->_gb.lsb_cache & (tsk->_gb.lsb_cache - 1)) || tsk->_gb.CPB < tsk->_gb.end, !end_of_slice_flag));
 }

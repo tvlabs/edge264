@@ -1,7 +1,6 @@
 /** MAYDO:
  * _ Multithreading
  * 	_ Change finish_frame convention to be compatible with frame threading
- * 		_ set fields before & after decoding (remaining_mbs, next_deblock_addr, task_dependencies, taskPics)
  * 		_ add checks when returning a frame, when allocating a frame, and when touching the DPB
  * 		_ review finish_frame with these new conventions
  * 	_ Implement a basic task queue yet in decoding order and with 1 thread
@@ -93,7 +92,8 @@ static void FUNC_CTX(initialise_decoding_context, Edge264_task *t)
 	t->ChromaArrayType = ctx->sps.ChromaArrayType;
 	t->direct_8x8_inference_flag = ctx->sps.direct_8x8_inference_flag;
 	t->pic_width_in_mbs = ctx->sps.pic_width_in_mbs;
-	t->next_deblock_addr = ctx->next_deblock_addr[ctx->currPic];
+	t->next_deblock_addr = (ctx->next_deblock_addr[ctx->currPic] == t->first_mb_in_slice) ?
+		ctx->next_deblock_addr[ctx->currPic] : -t->pic_width_in_mbs - 1;
 	t->samples_base = ctx->frame_buffers[ctx->currPic];
 	t->plane_size_Y = ctx->plane_size_Y;
 	t->plane_size_C = ctx->plane_size_C;
@@ -556,7 +556,9 @@ static void FUNC_CTX(finish_frame)
 static void *worker_loop(Edge264_context *c) {
 	pthread_mutex_lock(&c->task_lock);
 	if (1) {
-		SET_TSK(c->tasks + c->task_queue[0]);
+		int task_id = c->task_queue[0];
+		int currPic = c->taskPics[task_id];
+		SET_TSK(c->tasks + task_id);
 		c->task_queue_v = alignr(set8(-1), c->task_queue_v, 1);
 		pthread_mutex_unlock(&c->task_lock);
 		if (!tsk->pps.entropy_coding_mode_flag) {
@@ -565,29 +567,54 @@ static void *worker_loop(Edge264_context *c) {
 		} else {
 			// cabac_alignment_one_bit gives a good probability to catch random errors.
 			if (CALL_TSK(cabac_start)) {
-				__atomic_store_n(c->remaining_mbs + c->taskPics[tsk - c->tasks], -1, __ATOMIC_RELAXED);
+				c->error_flags |= 1 << currPic;
 			} else {
 				CALL_TSK(cabac_init);
 				tsk->mb_qp_delta_nz = 0;
 				CALL_TSK(parse_slice_data_cabac);
 				// the possibility of cabac_zero_word implies we should not expect a start code yet
 				if (tsk->_gb.msb_cache != 0 || (tsk->_gb.lsb_cache & (tsk->_gb.lsb_cache - 1)))
-					__atomic_store_n(c->remaining_mbs + c->taskPics[tsk - c->tasks], -1, __ATOMIC_RELAXED);
+					c->error_flags |= 1 << currPic;
 			}
 		}
 		
-		// when the total number of decoded mbs is enough, finish the frame
-		int task_id = tsk - c->tasks;
-		int currPic = c->taskPics[task_id];
-		c->next_deblock_addr[currPic] = max(c->next_deblock_addr[currPic], tsk->next_deblock_addr);
+		// deblock the rest of mbs in this slice or the rest of the frame if all mbs have been decoded
 		c->remaining_mbs[currPic] -= tsk->CurrMbAddr - tsk->first_mb_in_slice;
+		if (c->next_deblock_addr[currPic] == tsk->first_mb_in_slice ||
+			(tsk->CurrMbAddr = tsk->pic_width_in_mbs * c->sps.pic_height_in_mbs, c->remaining_mbs[currPic] == 0)) {
+			tsk->next_deblock_addr = max(tsk->next_deblock_addr, c->next_deblock_addr[currPic]);
+			int mby = (unsigned)tsk->next_deblock_addr / (unsigned)tsk->pic_width_in_mbs;
+			int mbx = (unsigned)tsk->next_deblock_addr % (unsigned)tsk->pic_width_in_mbs;
+			tsk->samples_row[0] = tsk->samples_base + mby * tsk->stride[0] * 16;
+			tsk->samples_mb[0] = tsk->samples_row[0] + mbx * 16;
+			tsk->samples_mb[1] = tsk->samples_base + tsk->plane_size_Y + mby * tsk->stride[1] * 8 + mbx * 8;
+			tsk->samples_mb[2] = tsk->samples_mb[1] + tsk->plane_size_C;
+			mb = (Edge264_macroblock *)(tsk->samples_base + tsk->plane_size_Y + tsk->plane_size_C * 2) + mbx + mby * (tsk->pic_width_in_mbs + 1);
+			while (tsk->next_deblock_addr < tsk->CurrMbAddr) {
+				CALL_TSK(deblock_mb);
+				tsk->next_deblock_addr++;
+				mb++;
+				tsk->samples_mb[0] += 16;
+				tsk->samples_mb[1] += 8;
+				tsk->samples_mb[2] += 8;
+				if (tsk->samples_mb[0] - tsk->samples_row[0] >= tsk->stride[0]) {
+					mb++;
+					tsk->samples_mb[0] = tsk->samples_row[0] += tsk->stride[0] * 16;
+					tsk->samples_mb[1] += tsk->stride[1] * 7;
+					tsk->samples_mb[2] += tsk->stride[1] * 7;
+				}
+			}
+			c->next_deblock_addr[currPic] = tsk->next_deblock_addr;
+		}
+		
+		// when the total number of decoded mbs is enough, finish the frame
 		if (c->remaining_mbs[currPic] == 0) {
-			CALL_TSK(deblock_frame, c->next_deblock_addr[currPic]);
 			SET_CTX(c, tsk->_gb);
 			CALL_CTX(finish_frame);
 			RESET_CTX();
 		}
-		__atomic_fetch_sub(&c->unavail_tasks, 1 << task_id, __ATOMIC_RELAXED);
+		c->unavail_tasks &= ~(1 << task_id);
+		c->task_dependencies[task_id] = 0;
 		c->taskPics[task_id] = -1;
 		RESET_TSK();
 	}
@@ -874,7 +901,7 @@ static int FUNC_CTX(parse_slice_layer_without_partitioning)
 	int task_id = t - ctx->tasks;
 	ctx->unavail_tasks |= 1 << task_id;
 	ctx->task_queue[__builtin_ctz(movemask(ctx->task_queue_v))] = task_id;
-	//ctx->task_dependencies[task_id] = CALL_CTX(refs_to_mask);
+	ctx->task_dependencies[task_id] = CALL_CTX(refs_to_mask);
 	ctx->taskPics[task_id] = ctx->currPic;
 	pthread_mutex_unlock(&ctx->task_lock);
 	worker_loop(ctx);
@@ -1854,6 +1881,7 @@ int Edge264_get_frame(Edge264_decoder *d, int drain) {
 	int res = -2;
 	if (pic[0] >= 0) {
 		ctx->output_flags ^= 1 << pic[0];
+		ctx->error_flags &= ~(1 << pic[0]);
 		const uint8_t *samples = ctx->frame_buffers[pic[0]];
 		ctx->d.samples[0] = samples + top * ctx->d.stride_Y + (left << ctx->d.pixel_depth_Y);
 		ctx->d.samples[1] = samples + offC;
@@ -1863,6 +1891,7 @@ int Edge264_get_frame(Edge264_decoder *d, int drain) {
 		res = 0;
 		if (pic[1] >= 0) {
 			ctx->output_flags ^= 1 << pic[1];
+			ctx->error_flags &= ~(1 << pic[1]);
 			samples = ctx->frame_buffers[pic[1]];
 			ctx->d.samples_mvc[0] = samples + top * ctx->d.stride_Y + (left << ctx->d.pixel_depth_Y);
 			ctx->d.samples_mvc[1] = samples + offC;

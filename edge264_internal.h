@@ -288,6 +288,7 @@ typedef struct Edge264_context {
 	uint32_t long_term_flags; // bitfield for indices of long-term frames/views
 	uint32_t pic_long_term_flags; // to be applied after decoding all slices of the current picture
 	uint32_t output_flags; // bitfield for frames waiting to be output
+	uint32_t error_flags; // bitfield for erroneous frames
 	union { int32_t remaining_mbs[32]; i32x4 remaining_mbs_v[8]; i32x8 remaining_mbs_V[4]; }; // when zero the picture is complete
 	int32_t next_deblock_addr[32]; // next CurrMbAddr value for which mbB will be deblocked
 	int32_t prevRefFrameNum[2];
@@ -441,7 +442,7 @@ static int FUNC_TSK(cabac_terminate);
 static void FUNC_TSK(cabac_init);
 
 // edge264_deblock_*.c
-void noinline FUNC_TSK(deblock_frame, unsigned next_deblock_addr);
+noinline void FUNC_TSK(deblock_mb);
 
 // edge264_inter_*.c
 void noinline FUNC_TSK(decode_inter, int i, int w, int h);

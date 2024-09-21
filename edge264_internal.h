@@ -205,7 +205,6 @@ typedef struct {
 	const Edge264_macroblock * _mbB; // backup storage for macro mbB
 	const Edge264_macroblock * _mbC; // backup storage for macro mbC
 	const Edge264_macroblock * _mbD; // backup storage for macro mbD
-	int8_t currPic;
 	int32_t CurrMbAddr;
 	int32_t next_deblock_addr;
 	int32_t mb_skip_run;
@@ -306,6 +305,7 @@ typedef struct Edge264_context {
 	uint16_t unavail_tasks; // bitmask for tasks that are either in queue or processed in a thread
 	volatile union { int8_t task_queue[16]; i8x16 task_queue_v; }; // list of tasks identifiers in the order they are received
 	volatile union { uint32_t task_dependencies[16]; i32x4 task_dependencies_v[4]; }; // frames on which each task depends to start
+	union { int8_t taskPics[16]; i8x16 taskPics_v; }; // values of currPic for each task
 	Edge264_task tasks[16];
 	Edge264_decoder d; // public structure, kept last to leave room for extension in future versions
 } Edge264_context;
@@ -435,7 +435,7 @@ static noinline int FUNC_GB(get_se16, int lower, int upper);
 	#define get_se32 get_se16
 #endif
 static noinline int FUNC_TSK(get_ae, int ctxIdx);
-static always_inline int FUNC_TSK(get_bypass);
+static inline int FUNC_TSK(get_bypass);
 static int FUNC_TSK(cabac_start);
 static int FUNC_TSK(cabac_terminate);
 static void FUNC_TSK(cabac_init);

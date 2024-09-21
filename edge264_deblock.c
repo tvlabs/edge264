@@ -1046,7 +1046,7 @@ noinline void FUNC_TSK(deblock_mb)
 void FUNC_TSK(deblock_frame, unsigned next_deblock_addr)
 {
 	// point at the first unfiltered macroblock
-	int mby = next_deblock_addr / (unsigned)tsk->pic_width_in_mbs - 1;
+	int mby = next_deblock_addr / (unsigned)tsk->pic_width_in_mbs;
 	int mbx = next_deblock_addr % (unsigned)tsk->pic_width_in_mbs;
 	tsk->samples_row[0] = tsk->samples_base + mby * tsk->stride[0] * 16;
 	tsk->samples_mb[0] = tsk->samples_row[0] + mbx * 16;

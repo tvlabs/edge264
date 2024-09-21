@@ -1726,7 +1726,7 @@ static noinline void CAFUNC(parse_slice_data)
 		}
 		
 		// deblock mbB while in cache, then point to the next macroblock
-		if (tsk->CurrMbAddr == tsk->next_deblock_addr) {
+		if (tsk->CurrMbAddr - tsk->pic_width_in_mbs == tsk->next_deblock_addr) {
 			tsk->next_deblock_addr += 1;
 			mb -= tsk->pic_width_in_mbs + 1;
 			tsk->samples_mb[0] -= tsk->stride[0] * 16;

@@ -303,6 +303,7 @@ typedef struct Edge264_context {
 	
 	pthread_mutex_t task_lock;
 	pthread_cond_t task_added;
+	pthread_cond_t task_completed;
 	uint16_t unavail_tasks; // bitmask for tasks that are either in queue or processed in a thread
 	volatile union { int8_t task_queue[16]; i8x16 task_queue_v; }; // list of tasks identifiers in the order they are received
 	volatile union { uint32_t task_dependencies[16]; i32x4 task_dependencies_v[4]; }; // frames on which each task depends to start

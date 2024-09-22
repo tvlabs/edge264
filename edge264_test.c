@@ -432,6 +432,7 @@ int main(int argc, const char *argv[])
 	
 	// stdout will be in HTML format if TRACE > 0
 	#if TRACE
+		setvbuf(stdout, NULL, _IONBF, BUFSIZ);
 		printf("<!doctype html>\n"
 			"<html>\n"
 			"<head>\n"

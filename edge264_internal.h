@@ -194,8 +194,6 @@ typedef struct {
 	int8_t cabac_init_idc; // 2 significant bits
 	uint16_t pic_width_in_mbs; // 10 significant bits
 	uint32_t first_mb_in_slice; // unsigned to speed up integer division
-	int32_t FrameNum;
-	int32_t PicOrderCnt;
 	Edge264_pic_parameter_set pps;
 	
 	// parsing context
@@ -275,7 +273,6 @@ typedef struct Edge264_context {
 	int8_t nal_ref_idc; // 2 significant bits
 	int8_t nal_unit_type; // 5 significant bits
 	int8_t IdrPicFlag; // 1 significant bit
-	int8_t pic_idr_or_mmco5; // when set, all other POCs will be decreased after completing the current frame
 	int8_t currPic; // index of current incomplete frame, or -1
 	int8_t basePic; // index of last MVC base view
 	uint8_t *frame_buffers[32];
@@ -283,6 +280,9 @@ typedef struct Edge264_context {
 	int32_t plane_size_Y;
 	int32_t plane_size_C;
 	int32_t frame_size;
+	int32_t FrameNum; // value for the current incomplete frame, unaffected by mmco5
+	int32_t TopFieldOrderCnt; // same
+	int32_t BottomFieldOrderCnt;
 	uint32_t reference_flags; // bitfield for indices of reference frames/views
 	uint32_t pic_reference_flags; // to be applied after decoding all slices of the current picture
 	uint32_t long_term_flags; // bitfield for indices of long-term frames/views

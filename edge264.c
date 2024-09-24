@@ -1,8 +1,6 @@
 /** MAYDO:
  * _ Multithreading
- * 	_ Change finish_frame convention to be compatible with frame threading
- * 		_ review finish_frame with these new conventions and remove call after finishing frame
- * 		_ protect all task fields for multithreading
+ *		_ protect all task fields for multithreading
  * 	_ Implement a basic task queue yet in decoding order and with 1 thread
  * 	_ Update DPB availability checks to take deps into account, and make sure we wait until there is a frame ready before returning -2
  * 	_ Add currPic to task_dependencies
@@ -163,7 +161,7 @@ static void FUNC_CTX(initialise_decoding_context, Edge264_task *t)
 			if (t->pps.weighted_bipred_idc == 2 || (rangeL1 = 1, !t->direct_spatial_mv_pred_flag)) {
 				union { int16_t h[32]; i16x8 v[4]; } diff;
 				union { int8_t q[32]; i8x16 v[2]; } tb, td;
-				i32x4 poc = {t->PicOrderCnt, t->PicOrderCnt, t->PicOrderCnt, t->PicOrderCnt};
+				i32x4 poc = set32(min(ctx->TopFieldOrderCnt, ctx->BottomFieldOrderCnt));
 				diff.v[0] = packs32(poc - min32(ctx->FieldOrderCnt_v[0][0], ctx->FieldOrderCnt_v[1][0]),
 				                    poc - min32(ctx->FieldOrderCnt_v[0][1], ctx->FieldOrderCnt_v[1][1]));
 				diff.v[1] = packs32(poc - min32(ctx->FieldOrderCnt_v[0][2], ctx->FieldOrderCnt_v[1][2]),
@@ -218,10 +216,10 @@ static void FUNC_CTX(parse_dec_ref_pic_marking)
 	
 	// while the exact release time of non-ref frames in C.4.5.2 is ambiguous, we ignore no_output_of_prior_pics_flag
 	if (ctx->IdrPicFlag) {
-		ctx->pic_idr_or_mmco5 = 1;
-		ctx->pic_reference_flags = 1 << ctx->currPic;
 		int no_output_of_prior_pics_flag = CALL_C2B(get_u1);
+		ctx->pic_reference_flags = 1 << ctx->currPic;
 		ctx->pic_long_term_flags = CALL_C2B(get_u1) << ctx->currPic;
+		ctx->pic_LongTermFrameIdx_v[0] = ctx->pic_LongTermFrameIdx_v[1] = (i8x16){};
 		printf("<tr><th>no_output_of_prior_pics_flag</th><td>%x</td></tr>\n"
 			"<tr><th>long_term_reference_flag</th><td>%x</td></tr>\n",
 			no_output_of_prior_pics_flag,
@@ -230,15 +228,13 @@ static void FUNC_CTX(parse_dec_ref_pic_marking)
 	}
 	
 	// 8.2.5.4 - Adaptive memory control marking process.
-	ctx->pic_LongTermFrameIdx_v[0] = ctx->LongTermFrameIdx_v[0];
-	ctx->pic_LongTermFrameIdx_v[1] = ctx->LongTermFrameIdx_v[1];
 	int memory_management_control_operation;
 	int i = 32;
 	if (CALL_C2B(get_u1)) {
 		while ((memory_management_control_operation = CALL_C2B(get_ue16, 6)) != 0 && i-- > 0) {
 			int target = ctx->currPic, long_term_frame_idx = 0;
 			if (10 & 1 << memory_management_control_operation) { // 1 or 3
-				int FrameNum = ctx->FrameNums[ctx->currPic] - 1 - CALL_C2B(get_ue32, 4294967294);
+				int FrameNum = ctx->FrameNum - 1 - CALL_C2B(get_ue32, 4294967294);
 				for (unsigned r = ctx->pic_reference_flags & ~ctx->pic_long_term_flags; r; r &= r - 1) {
 					int j = __builtin_ctz(r);
 					if (ctx->FrameNums[j] == FrameNum) {
@@ -267,9 +263,14 @@ static void FUNC_CTX(parse_dec_ref_pic_marking)
 				}
 			}
 			if (memory_management_control_operation == 5) {
+				ctx->IdrPicFlag = 1;
 				ctx->pic_reference_flags = 0;
+				ctx->FrameNums[ctx->currPic] = 0;
 				ctx->pic_long_term_flags = 0;
-				ctx->pic_idr_or_mmco5 = 1;
+				ctx->pic_LongTermFrameIdx_v[0] = ctx->pic_LongTermFrameIdx_v[1] = (i8x16){};
+				int tempPicOrderCnt = min(ctx->TopFieldOrderCnt, ctx->BottomFieldOrderCnt);
+				ctx->FieldOrderCnt[0][ctx->currPic] = ctx->TopFieldOrderCnt - tempPicOrderCnt;
+				ctx->FieldOrderCnt[1][ctx->currPic] = ctx->BottomFieldOrderCnt - tempPicOrderCnt;
 			}
 			printf(memory_management_control_operation_names[memory_management_control_operation - 1],
 				(i == 31) ? "<tr><th>memory_management_control_operations</th><td>" : "<br>", ctx->FrameNums[target], long_term_frame_idx);
@@ -351,7 +352,7 @@ static void FUNC_CTX(parse_ref_pic_list_modification, Edge264_task *t)
 {
 	// For P we sort on FrameNum, for B we sort on PicOrderCnt.
 	const int32_t *values = (t->slice_type == 0) ? ctx->FrameNums : ctx->FieldOrderCnt[0];
-	int pic_value = (t->slice_type == 0) ? t->FrameNum : t->PicOrderCnt;
+	int pic_value = (t->slice_type == 0) ? ctx->FrameNum : ctx->TopFieldOrderCnt;
 	int count[3] = {0, 0, 0}; // number of refs before/after/long
 	int size = 0;
 	
@@ -426,7 +427,7 @@ static void FUNC_CTX(parse_ref_pic_list_modification, Edge264_task *t)
 	
 	// parse the ref_pic_list_modification() header
 	for (int l = 0; l <= t->slice_type; l++) {
-		unsigned picNumLX = (t->field_pic_flag) ? t->FrameNum * 2 + 1 : t->FrameNum;
+		unsigned picNumLX = (t->field_pic_flag) ? ctx->FrameNum * 2 + 1 : ctx->FrameNum;
 		if (CALL_C2B(get_u1)) { // ref_pic_list_modification_flag
 			printf("<tr><th>ref_pic_list_modifications_l%x</th><td>", l);
 			for (int refIdx = 0, modification_of_pic_nums_idc; (modification_of_pic_nums_idc = CALL_C2B(get_ue16, 5)) != 3 && refIdx < 32; refIdx++) {
@@ -502,69 +503,25 @@ static int FUNC_CTX(alloc_frame, int id) {
 
 
 /**
- * This function deblocks the current frame, flags it for output and applies
- * its pending memory management operations. It is called when either:
- * _ a sufficient number of macroblocks have been decoded for the current frame (only for single thread)
- * _ a slice is decoded with a frame_num/POC different than the current frame
- * _ an access unit delimiter is received
+ * This function applies the updates required for the next picture. It is
+ * called when a slice is received with a different frame_num/POC/view_id.
+ * pair_view is set if the picture differs only by view_id.
  * 
  * The test on POC alone is not sufficient without frame_num, because the
  * correct POC value depends on FrameNum which needs an up-to-date PrevFrameNum.
  */
-static void FUNC_CTX(finish_frame)
-{
-	// apply the reference flags
-	int non_base_view = ctx->sps.mvc & ctx->currPic & 1;
-	unsigned other_views = -ctx->sps.mvc & (0xaaaaaaaa ^ -non_base_view); // invert if non_base_view==1
-	if (ctx->pic_idr_or_mmco5) { // IDR or mmco5 access unit
-		ctx->reference_flags = (ctx->reference_flags & other_views) | ctx->pic_reference_flags;
-		ctx->long_term_flags = (ctx->long_term_flags & other_views) | ctx->pic_long_term_flags;
-		ctx->LongTermFrameIdx_v[0] = ctx->LongTermFrameIdx_v[1] = (i8x16){};
-		ctx->LongTermFrameIdx[ctx->currPic] = ctx->FrameNums[ctx->currPic] = ctx->prevRefFrameNum[non_base_view] = 0;
-		int tempPicOrderCnt = min(ctx->FieldOrderCnt[0][ctx->currPic], ctx->FieldOrderCnt[1][ctx->currPic]);
-		ctx->prevPicOrderCnt = ctx->FieldOrderCnt[0][ctx->currPic] -= tempPicOrderCnt;
-		ctx->FieldOrderCnt[1][ctx->currPic] -= tempPicOrderCnt;
-		for (unsigned o = ctx->output_flags; o; o &= o - 1) {
-			int i = __builtin_ctz(o);
-			ctx->FieldOrderCnt[0][i] -= 1 << 26; // make all buffered pictures precede the next ones
-			ctx->FieldOrderCnt[1][i] -= 1 << 26;
-		}
-		ctx->dispPicOrderCnt = -(1 << 25); // make all buffered pictures ready for display
-	} else if (ctx->pic_reference_flags & 1 << ctx->currPic) { // ref without IDR or mmco5
-		ctx->reference_flags = (ctx->reference_flags & other_views) | ctx->pic_reference_flags;
-		ctx->long_term_flags = (ctx->long_term_flags & other_views) | ctx->pic_long_term_flags;
-		ctx->LongTermFrameIdx_v[0] = ctx->pic_LongTermFrameIdx_v[0];
-		ctx->LongTermFrameIdx_v[1] = ctx->pic_LongTermFrameIdx_v[1];
+static void FUNC_CTX(finish_frame, int pair_view) {
+	if (ctx->pic_reference_flags & 1 << ctx->currPic)
 		ctx->prevPicOrderCnt = ctx->FieldOrderCnt[0][ctx->currPic];
-	} else if (!ctx->sps.mvc || (ctx->basePic >= 0 && !(ctx->reference_flags & 1 << ctx->basePic))) { // non ref
-		ctx->dispPicOrderCnt = ctx->FieldOrderCnt[0][ctx->currPic]; // all frames with lower POCs are now ready for output
-	}
-	
-	// for MVC keep track of the current base view to tell get_frame not to return it yet
-	if (!ctx->sps.mvc) {
-		ctx->output_flags |= 1 << ctx->currPic;
-	} else {
-		if (ctx->basePic < 0) {
-			ctx->basePic = ctx->currPic;
-		} else {
-			ctx->output_flags |= 1 << ctx->basePic | 1 << ctx->currPic;
-			ctx->basePic = -1;
-		}
-	}
-	
+	int non_base_view = ctx->sps.mvc & ctx->currPic & 1;
+	unsigned other_views = -ctx->sps.mvc & 0xaaaaaaaa >> non_base_view;
+	ctx->reference_flags = (ctx->reference_flags & other_views) | ctx->pic_reference_flags;
+	ctx->long_term_flags = (ctx->long_term_flags & other_views) | ctx->pic_long_term_flags;
+	ctx->LongTermFrameIdx_v[0] = ctx->pic_LongTermFrameIdx_v[0];
+	ctx->LongTermFrameIdx_v[1] = ctx->pic_LongTermFrameIdx_v[1];
+	ctx->prevRefFrameNum[non_base_view] = ctx->FrameNums[ctx->currPic]; // for mmco5
+	ctx->basePic = (ctx->sps.mvc & ~non_base_view & pair_view) ? ctx->currPic : -1;
 	ctx->currPic = -1;
-	
-	#ifdef TRACE
-		printf("<tr><th>DPB after completing last frame (FrameNum/PicOrderCnt)</th><td><small>");
-		for (int i = 0; i < ctx->sps.num_frame_buffers; i++) {
-			int r = ctx->reference_flags & 1 << i;
-			int l = ctx->long_term_flags & 1 << i;
-			int o = ctx->output_flags & 1 << i;
-			printf(l ? "<sup>%u</sup>/" : r ? "%u/" : "_/", l ? ctx->LongTermFrameIdx[i] : ctx->FrameNums[i]);
-			printf(o ? "<b>%u</b>" : r ? "%u" : "_", min(ctx->FieldOrderCnt[0][i], ctx->FieldOrderCnt[1][i]) << 6 >> 6);
-			printf((i < ctx->sps.num_frame_buffers - 1) ? ", " : "</small></td></tr>\n");
-		}
-	#endif
 }
 
 
@@ -626,11 +583,6 @@ static void *worker_loop(Edge264_context *c) {
 		}
 		
 		// when the total number of decoded mbs is enough, finish the frame
-		if (c->remaining_mbs[currPic] == 0) {
-			SET_CTX(c, tsk->_gb);
-			CALL_CTX(finish_frame);
-			RESET_CTX();
-		}
 		RESET_TSK();
 		c->unavail_tasks &= ~(1 << task_id);
 		c->task_dependencies[task_id] = 0;
@@ -652,7 +604,10 @@ static int FUNC_CTX(parse_slice_layer_without_partitioning)
 	static const char * const disable_deblocking_filter_idc_names[3] = {"enabled", "disabled", "disabled across slices"};
 	
 	// reserve an empty task slot to fill it
-	Edge264_task *t = ctx->tasks + __builtin_ctz(0xffff & ~ctx->unavail_tasks);
+	unsigned avail_tasks;
+	while (!(avail_tasks = 0xffff & ~ctx->unavail_tasks))
+		pthread_cond_wait(&ctx->task_completed, &ctx->task_lock);
+	Edge264_task *t = ctx->tasks + __builtin_ctz(avail_tasks);
 	t->_ctx = ctx;
 	
 	// first important fields and checks before decoding the slice header
@@ -672,29 +627,24 @@ static int FUNC_CTX(parse_slice_layer_without_partitioning)
 	if (t->pps.num_ref_idx_active[0] == 0) // if PPS wasn't initialized
 		return 2;
 	
-	// parse view_id for MVC streams
-	int non_base_view = 0;
-	if (ctx->sps.mvc) {
-		non_base_view = ctx->nal_unit_type == 20;
-		if (ctx->currPic >= 0 && non_base_view != (ctx->currPic & 1))
-			CALL_CTX(finish_frame);
-	}
-	
 	// parse frame_num
 	int frame_num = CALL_C2B(get_uv, ctx->sps.log2_max_frame_num);
 	int FrameNumMask = (1 << ctx->sps.log2_max_frame_num) - 1;
-	if (ctx->currPic >= 0 && frame_num != (ctx->FrameNums[ctx->currPic] & FrameNumMask))
-		CALL_CTX(finish_frame);
-	if (ctx->nal_unit_type != 20)
+	if (ctx->currPic >= 0 && frame_num != (ctx->FrameNum & FrameNumMask))
+		CALL_CTX(finish_frame, 0);
+	int non_base_view = 1;
+	if (ctx->nal_unit_type != 20) {
 		ctx->IdrPicFlag = ctx->nal_unit_type == 5;
+		non_base_view = 0;
+	}
+	unsigned view_mask = ((ctx->sps.mvc - 1) | 0x55555555 << non_base_view) & ((1 << ctx->sps.num_frame_buffers) - 1);
 	int prevRefFrameNum = ctx->IdrPicFlag ? 0 : ctx->prevRefFrameNum[non_base_view];
-	t->FrameNum = prevRefFrameNum + ((frame_num - prevRefFrameNum) & FrameNumMask);
-	printf("<tr><th>frame_num => FrameNum</th><td>%u => %u</td></tr>\n", frame_num, t->FrameNum);
+	ctx->FrameNum = prevRefFrameNum + ((frame_num - prevRefFrameNum) & FrameNumMask);
+	printf("<tr><th>frame_num => FrameNum</th><td>%u => %u</td></tr>\n", frame_num, ctx->FrameNum);
 	
 	// Check for gaps in frame_num (8.2.5.2)
-	int gap = t->FrameNum - prevRefFrameNum;
+	int gap = ctx->FrameNum - prevRefFrameNum;
 	if (__builtin_expect(gap > 1, 0)) {
-		unsigned view_mask = (ctx->sps.mvc - 1) | (0x55555555 ^ -non_base_view); // invert if non_base_view==1
 		unsigned reference_flags = ctx->reference_flags & view_mask;
 		int max_num_ref_frames = ctx->sps.max_num_ref_frames >> ctx->sps.mvc;
 		int non_existing = min(gap - 1, max_num_ref_frames - __builtin_popcount(ctx->long_term_flags & view_mask));
@@ -728,14 +678,14 @@ static int FUNC_CTX(parse_slice_layer_without_partitioning)
 		}
 		
 		// wait until enough empty slots are undepended
-		unsigned avail = view_mask & ~(reference_flags | output_flags), ready;
-		while (__builtin_popcount(ready = avail & ~CALL_CTX(depended_frames)) < non_existing)
+		unsigned avail;
+		while (__builtin_popcount(avail = view_mask & ~(reference_flags | output_flags) & ~CALL_CTX(depended_frames)) < non_existing)
 			pthread_cond_wait(&ctx->task_completed, &ctx->task_lock);
 		
 		// finally insert the last non-existing frames one by one
-		for (unsigned FrameNum = t->FrameNum - non_existing; FrameNum < t->FrameNum; FrameNum++) {
-			int i = __builtin_ctz(ready);
-			ready ^= 1 << i;
+		for (unsigned FrameNum = ctx->FrameNum - non_existing; FrameNum < ctx->FrameNum; FrameNum++) {
+			int i = __builtin_ctz(avail);
+			avail ^= 1 << i;
 			reference_flags |= 1 << i;
 			ctx->FrameNums[i] = FrameNum;
 			int PicOrderCnt = 0;
@@ -751,10 +701,10 @@ static int FUNC_CTX(parse_slice_layer_without_partitioning)
 				return 1;
 		}
 		ctx->reference_flags |= reference_flags;
-		ctx->prevRefFrameNum[non_base_view] = t->FrameNum - 1;
+		ctx->prevRefFrameNum[non_base_view] = ctx->FrameNum - 1;
 	}
 	if (ctx->nal_ref_idc)
-		ctx->prevRefFrameNum[non_base_view] = t->FrameNum;
+		ctx->prevRefFrameNum[non_base_view] = ctx->FrameNum;
 	
 	// As long as PAFF/MBAFF are unsupported, this code won't execute (but is still kept).
 	t->field_pic_flag = 0;
@@ -777,26 +727,25 @@ static int FUNC_CTX(parse_slice_layer_without_partitioning)
 	}
 	
 	// Compute Top/BottomFieldOrderCnt (8.2.1).
-	int TopFieldOrderCnt, BottomFieldOrderCnt;
 	if (ctx->sps.pic_order_cnt_type == 0) {
 		int pic_order_cnt_lsb = CALL_C2B(get_uv, ctx->sps.log2_max_pic_order_cnt_lsb);
 		int shift = WORD_BIT - ctx->sps.log2_max_pic_order_cnt_lsb;
 		if (ctx->currPic >= 0 && pic_order_cnt_lsb != ((unsigned)ctx->FieldOrderCnt[0][ctx->currPic] << shift >> shift))
-			CALL_CTX(finish_frame);
+			CALL_CTX(finish_frame, 0);
 		int prevPicOrderCnt = ctx->IdrPicFlag ? 0 : ctx->prevPicOrderCnt;
 		int inc = (pic_order_cnt_lsb - prevPicOrderCnt) << shift >> shift;
-		TopFieldOrderCnt = prevPicOrderCnt + inc;
+		ctx->TopFieldOrderCnt = prevPicOrderCnt + inc;
 		int delta_pic_order_cnt_bottom = 0;
 		if (t->pps.bottom_field_pic_order_in_frame_present_flag && !t->field_pic_flag)
 			delta_pic_order_cnt_bottom = CALL_C2B(get_se32, (-1u << 31) + 1, (1u << 31) - 1);
-		BottomFieldOrderCnt = TopFieldOrderCnt + delta_pic_order_cnt_bottom;
+		ctx->BottomFieldOrderCnt = ctx->TopFieldOrderCnt + delta_pic_order_cnt_bottom;
 		printf("<tr><th>pic_order_cnt_lsb/delta_pic_order_cnt_bottom => Top/Bottom POC</th><td>%u/%d => %d/%d</td></tr>\n",
-			pic_order_cnt_lsb, delta_pic_order_cnt_bottom, TopFieldOrderCnt, BottomFieldOrderCnt);
+			pic_order_cnt_lsb, delta_pic_order_cnt_bottom, ctx->TopFieldOrderCnt, ctx->BottomFieldOrderCnt);
 	} else if (ctx->sps.pic_order_cnt_type == 1) {
-		unsigned absFrameNum = t->FrameNum + (ctx->nal_ref_idc != 0) - 1;
-		TopFieldOrderCnt = (ctx->nal_ref_idc) ? 0 : ctx->sps.offset_for_non_ref_pic;
+		unsigned absFrameNum = ctx->FrameNum + (ctx->nal_ref_idc != 0) - 1;
+		ctx->TopFieldOrderCnt = (ctx->nal_ref_idc) ? 0 : ctx->sps.offset_for_non_ref_pic;
 		if (ctx->sps.num_ref_frames_in_pic_order_cnt_cycle > 0) {
-			TopFieldOrderCnt += (absFrameNum / ctx->sps.num_ref_frames_in_pic_order_cnt_cycle) *
+			ctx->TopFieldOrderCnt += (absFrameNum / ctx->sps.num_ref_frames_in_pic_order_cnt_cycle) *
 				ctx->sps.PicOrderCntDeltas[ctx->sps.num_ref_frames_in_pic_order_cnt_cycle] +
 				ctx->sps.PicOrderCntDeltas[absFrameNum % ctx->sps.num_ref_frames_in_pic_order_cnt_cycle];
 		}
@@ -806,48 +755,46 @@ static int FUNC_CTX(parse_slice_layer_without_partitioning)
 			if (t->pps.bottom_field_pic_order_in_frame_present_flag && !t->field_pic_flag)
 				delta_pic_order_cnt1 = CALL_C2B(get_se32, (-1u << 31) + 1, (1u << 31) - 1);
 		}
-		TopFieldOrderCnt += delta_pic_order_cnt0;
-		if (ctx->currPic >= 0 && TopFieldOrderCnt != ctx->FieldOrderCnt[0][ctx->currPic])
-			CALL_CTX(finish_frame);
-		BottomFieldOrderCnt = TopFieldOrderCnt + delta_pic_order_cnt1;
-		printf("<tr><th>delta_pic_order_cnt[0/1] => Top/Bottom POC</th><td>%d/%d => %d/%d</td></tr>\n", delta_pic_order_cnt0, delta_pic_order_cnt1, TopFieldOrderCnt, BottomFieldOrderCnt);
+		ctx->TopFieldOrderCnt += delta_pic_order_cnt0;
+		if (ctx->currPic >= 0 && ctx->TopFieldOrderCnt != ctx->FieldOrderCnt[0][ctx->currPic])
+			CALL_CTX(finish_frame, 0);
+		ctx->BottomFieldOrderCnt = ctx->TopFieldOrderCnt + delta_pic_order_cnt1;
+		printf("<tr><th>delta_pic_order_cnt[0/1] => Top/Bottom POC</th><td>%d/%d => %d/%d</td></tr>\n", delta_pic_order_cnt0, delta_pic_order_cnt1, ctx->TopFieldOrderCnt, ctx->BottomFieldOrderCnt);
 	} else {
-		TopFieldOrderCnt = BottomFieldOrderCnt = t->FrameNum * 2 + (ctx->nal_ref_idc != 0) - 1;
-		printf("<tr><th>PicOrderCnt</th><td>%d</td></tr>\n", TopFieldOrderCnt);
+		ctx->TopFieldOrderCnt = ctx->BottomFieldOrderCnt = ctx->FrameNum * 2 + (ctx->nal_ref_idc != 0) - 1;
+		printf("<tr><th>PicOrderCnt</th><td>%d</td></tr>\n", ctx->TopFieldOrderCnt);
 	}
-	if (abs(TopFieldOrderCnt) >= 1 << 25 || abs(BottomFieldOrderCnt) >= 1 << 25)
+	if (abs(ctx->TopFieldOrderCnt) >= 1 << 25 || abs(ctx->BottomFieldOrderCnt) >= 1 << 25)
 		return 1;
-	t->PicOrderCnt = min(TopFieldOrderCnt, BottomFieldOrderCnt);
 	
 	// find and possibly allocate a DPB slot for the upcoming frame
+	if (ctx->currPic >= 0 && non_base_view != (ctx->currPic & ctx->sps.mvc))
+		CALL_CTX(finish_frame, 1);
+	int is_first_slice = 0;
 	if (ctx->currPic < 0) {
-		unsigned unavail = ctx->reference_flags | ctx->output_flags;
-		if (__builtin_popcount(unavail) >= ctx->sps.num_frame_buffers)
+		unsigned avail = view_mask & ~(ctx->reference_flags | ctx->output_flags);
+		if (!avail)
 			return -2;
-		
-		// wait until at least one empty slot is undepended
-		unsigned avail = !ctx->sps.mvc ? ~unavail : ~unavail & (ctx->nal_unit_type == 20 ? 0xaaaaaaaa : 0x55555555), ready;
-		while (!(ready = avail & ~CALL_CTX(depended_frames)))
-			pthread_cond_wait(&ctx->task_completed, &ctx->task_lock);
-		
-		// allocate the frame if not already done, then initialize it
-		ctx->currPic = __builtin_ctz(ready);
+		while (!(avail = view_mask & ~(ctx->reference_flags | ctx->output_flags) & ~CALL_CTX(depended_frames)))
+			pthread_cond_wait(&ctx->task_completed, &ctx->task_lock); // wait until at least one slot is undepended
+		ctx->currPic = __builtin_ctz(avail);
 		if (ctx->frame_buffers[ctx->currPic] == NULL && CALL_CTX(alloc_frame, ctx->currPic))
 			return 1;
 		ctx->remaining_mbs[ctx->currPic] = ctx->sps.pic_width_in_mbs * ctx->sps.pic_height_in_mbs;
 		ctx->next_deblock_addr[ctx->currPic] = 0;
-		ctx->FrameNums[ctx->currPic] = t->FrameNum;
-		ctx->FieldOrderCnt[0][ctx->currPic] = TopFieldOrderCnt;
-		ctx->FieldOrderCnt[1][ctx->currPic] = BottomFieldOrderCnt;
+		ctx->FrameNums[ctx->currPic] = ctx->FrameNum;
+		ctx->FieldOrderCnt[0][ctx->currPic] = ctx->TopFieldOrderCnt;
+		ctx->FieldOrderCnt[1][ctx->currPic] = ctx->BottomFieldOrderCnt;
+		is_first_slice = 1;
 	}
-	ctx->pic_idr_or_mmco5 = 0;
-	unsigned view_mask = (ctx->sps.mvc - 1) | (0x55555555 ^ -non_base_view); // invert if non_base_view==1
-	ctx->pic_reference_flags = ctx->reference_flags & view_mask;
-	ctx->pic_long_term_flags = ctx->long_term_flags & view_mask;
 	
-	// That could be optimised into a fast bit test, but would be less readable :)
+	// The first test could be optimised into a fast bit test, but would be less readable :)
 	t->RefPicList_v[0] = t->RefPicList_v[1] = t->RefPicList_v[2] = t->RefPicList_v[3] =
 		(i8x16){-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1};
+	ctx->pic_reference_flags = ctx->reference_flags & view_mask;
+	ctx->pic_long_term_flags = ctx->long_term_flags & view_mask;
+	ctx->pic_LongTermFrameIdx_v[0] = ctx->LongTermFrameIdx_v[0];
+	ctx->pic_LongTermFrameIdx_v[1] = ctx->LongTermFrameIdx_v[1];
 	if (t->slice_type == 0 || t->slice_type == 1) {
 		if (t->slice_type == 1) {
 			t->direct_spatial_mv_pred_flag = CALL_C2B(get_u1);
@@ -901,9 +848,36 @@ static int FUNC_CTX(parse_slice_layer_without_partitioning)
 		printf("<tr><th>disable_deblocking_filter_idc (inferred)</th><td>0 (enabled)</td></tr>\n"
 			"<tr><th>FilterOffsets (inferred)</th><td>0, 0</td></tr>\n");
 	}
-	CALL_CTX(initialise_decoding_context, t);
 	
-	// add the task to the queue and wake it up
+	// update output flags now that we know if mmco5 happened
+	unsigned to_output = 1 << ctx->currPic;
+	if (is_first_slice && (!ctx->sps.mvc || (to_output |= 1 << ctx->basePic, ctx->basePic >= 0))) {
+		if (ctx->IdrPicFlag) {
+			ctx->dispPicOrderCnt = -(1 << 25);
+			for (unsigned o = ctx->output_flags; o; o &= o - 1) {
+				int i = __builtin_ctz(o);
+				ctx->FieldOrderCnt[0][i] -= 1 << 26;
+				ctx->FieldOrderCnt[1][i] -= 1 << 26;
+			}
+		}
+		ctx->output_flags |= to_output;
+		if (!((ctx->pic_reference_flags | ctx->reference_flags & ~view_mask) & to_output))
+			ctx->dispPicOrderCnt = ctx->FieldOrderCnt[0][ctx->currPic]; // make all frames with lower POCs ready for output
+		#ifdef TRACE
+			printf("<tr><th>updated DPB (FrameNum/PicOrderCnt)</th><td><small>");
+			for (int i = 0; i < ctx->sps.num_frame_buffers; i++) {
+				int r = (ctx->pic_reference_flags | ctx->reference_flags & ~view_mask) & 1 << i;
+				int l = (ctx->pic_long_term_flags | ctx->long_term_flags & ~view_mask) & 1 << i;
+				int o = ctx->output_flags & 1 << i;
+				printf(l ? "<sup>%u</sup>/" : r ? "%u/" : "_/", l ? ctx->pic_LongTermFrameIdx[i] : ctx->FrameNums[i]);
+				printf(o ? "<b>%u</b>" : r ? "%u" : "_", min(ctx->FieldOrderCnt[0][i], ctx->FieldOrderCnt[1][i]) << 6 >> 6);
+				printf((i < ctx->sps.num_frame_buffers - 1) ? ", " : "</small></td></tr>\n");
+			}
+		#endif
+	}
+	
+	// prepare the task and signal it
+	CALL_CTX(initialise_decoding_context, t);
 	int task_id = t - ctx->tasks;
 	ctx->unavail_tasks |= 1 << task_id;
 	ctx->task_queue[__builtin_ctz(movemask(ctx->task_queue_v))] = task_id;
@@ -1793,13 +1767,10 @@ int Edge264_decode_NAL(Edge264_decoder *d)
 	int ret = 0;
 	Parser parser = parse_nal_unit[ctx->nal_unit_type];
 	if (ctx->nal_unit_type == 9) {
-		if (ctx->_gb.CPB - 2 >= ctx->_gb.end || (ctx->_gb.CPB[-2] & 31) != 16) {
+		if (ctx->_gb.CPB - 2 >= ctx->_gb.end || (ctx->_gb.CPB[-2] & 31) != 16)
 			ret = 2;
-		} else {
+		else
 			printf("<tr><th>primary_pic_type</th><td>%d</td></tr>\n", ctx->_gb.CPB[-2] >> 5);
-			if (ctx->currPic >= 0 && ctx->frame_buffers[ctx->currPic] != NULL)
-				CALL_CTX(finish_frame);
-		}
 	} else if (ctx->nal_unit_type == 14 || ctx->nal_unit_type == 20) {
 		if (ctx->_gb.CPB + 1 >= ctx->_gb.end) {
 			ret = 2;
@@ -1846,8 +1817,7 @@ int Edge264_decode_NAL(Edge264_decoder *d)
 	// end may have been set to the next start code thanks to escape code detection in get_bytes
 	if (ret >= 0)
 		ctx->d.CPB = Edge264_find_start_code(1, ctx->_gb.CPB - 2 < ctx->_gb.end ? ctx->_gb.CPB - 2 : ctx->_gb.end, ctx->d.end);
-	if (ret != 0)
-		printf("<tr style='background-color:#f77'><th colspan=2 style='text-align:center'>%s</th></tr>\n</table>\n", ret_names[ret + 3]);
+	printf(ret ? "<tr style='background-color:#f77'><th colspan=2 style='text-align:center'>%s</th></tr>\n</table>\n" : "</table>\n", ret_names[ret + 3]);
 	RESET_CTX();
 	return ret;
 }

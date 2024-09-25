@@ -1,5 +1,6 @@
 /** MAYDO:
  * _ Multithreading
+ * 	_ add proper checks for task availability
  *		_ protect all task fields for multithreading
  * 	_ Implement a basic task queue yet in decoding order and with 1 thread
  * 	_ Update DPB availability checks to take deps into account, and make sure we wait until there is a frame ready before returning -2
@@ -80,10 +81,10 @@ static const i8x16 Default_8x8_Inter[4] = {
  */
 static void FUNC_CTX(initialise_decoding_context, Edge264_task *t)
 {
-	static const int8_t QP_Y2C[79] = {
-		0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-		1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 29, 30, 31, 32, 32, 33, 34, 34, 35, 35, 36, 36, 37, 37, 37, 38, 38, 38,
-		39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39};
+	static const int8_t QP_Y2C[88] = {
+		0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+		0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 29, 30, 31, 32, 32, 33, 34, 34, 35, 35, 36, 36, 37, 37, 37, 38, 38, 38, 39, 39, 39, 39,
+		39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39};
 	
 	// copy most essential fields from st
 	t->_gb = ctx->_gb;
@@ -110,14 +111,14 @@ static void FUNC_CTX(initialise_decoding_context, Edge264_task *t)
 	t->samples_mb[0] = t->samples_row[0] + mbx * 16;
 	t->samples_mb[1] = t->samples_row[1] + mbx * 8;
 	t->samples_mb[2] = t->samples_row[2] + mbx * 8;
-	t->QP_C_v[0] = load128(QP_Y2C + clip3(0, 63, 15 + t->pps.chroma_qp_index_offset)); // FIXME optimize ???
-	t->QP_C_v[1] = load128(QP_Y2C + clip3(0, 63, 31 + t->pps.chroma_qp_index_offset));
-	t->QP_C_v[2] = load128(QP_Y2C + clip3(0, 63, 47 + t->pps.chroma_qp_index_offset));
-	t->QP_C_v[3] = load128(QP_Y2C + clip3(0, 63, 63 + t->pps.chroma_qp_index_offset));
-	t->QP_C_v[4] = load128(QP_Y2C + clip3(0, 63, 15 + t->pps.second_chroma_qp_index_offset));
-	t->QP_C_v[5] = load128(QP_Y2C + clip3(0, 63, 31 + t->pps.second_chroma_qp_index_offset));
-	t->QP_C_v[6] = load128(QP_Y2C + clip3(0, 63, 47 + t->pps.second_chroma_qp_index_offset));
-	t->QP_C_v[7] = load128(QP_Y2C + clip3(0, 63, 63 + t->pps.second_chroma_qp_index_offset));
+	t->QP_C_v[0] = load128(QP_Y2C + 12 + t->pps.chroma_qp_index_offset);
+	t->QP_C_v[1] = load128(QP_Y2C + 28 + t->pps.chroma_qp_index_offset);
+	t->QP_C_v[2] = load128(QP_Y2C + 44 + t->pps.chroma_qp_index_offset);
+	t->QP_C_v[3] = load128(QP_Y2C + 60 + t->pps.chroma_qp_index_offset);
+	t->QP_C_v[4] = load128(QP_Y2C + 12 + t->pps.second_chroma_qp_index_offset);
+	t->QP_C_v[5] = load128(QP_Y2C + 28 + t->pps.second_chroma_qp_index_offset);
+	t->QP_C_v[6] = load128(QP_Y2C + 44 + t->pps.second_chroma_qp_index_offset);
+	t->QP_C_v[7] = load128(QP_Y2C + 60 + t->pps.second_chroma_qp_index_offset);
 	t->QP[1] = t->QP_C[0][t->QP[0]];
 	t->QP[2] = t->QP_C[1][t->QP[0]];
 	int mb_offset = ctx->plane_size_Y + ctx->plane_size_C * 2 + sizeof(*t->_mb) * (mbx + mby * (ctx->sps.pic_width_in_mbs + 1));

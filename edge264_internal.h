@@ -274,27 +274,29 @@ typedef struct Edge264_context {
 	int8_t nal_unit_type; // 5 significant bits
 	int8_t IdrPicFlag; // 1 significant bit
 	int8_t currPic; // index of current incomplete frame, or -1
-	int8_t basePic; // index of last MVC base view
-	uint8_t *frame_buffers[32];
-	int64_t DPB_format; // should match format in SPS otherwise triggers resize
+	int8_t basePic; // index of last MVC base view, or -1
+	uint16_t busy_tasks; // bitmask for tasks that are either pending or processed in a thread
+	uint16_t pending_tasks;
+	uint16_t ready_tasks;
 	int32_t plane_size_Y;
 	int32_t plane_size_C;
 	int32_t frame_size;
 	int32_t FrameNum; // value for the current incomplete frame, unaffected by mmco5
+	int32_t prevRefFrameNum[2];
 	int32_t TopFieldOrderCnt; // same
 	int32_t BottomFieldOrderCnt;
+	int32_t prevPicOrderCnt;
+	int32_t dispPicOrderCnt; // all POCs lower or equal than this are ready for output
+	int32_t FrameNums[32];
+	int32_t remaining_mbs[32]; // when zero the picture is complete
 	uint32_t reference_flags; // bitfield for indices of reference frames/views
 	uint32_t pic_reference_flags; // to be applied after decoding all slices of the current picture
 	uint32_t long_term_flags; // bitfield for indices of long-term frames/views
 	uint32_t pic_long_term_flags; // to be applied after decoding all slices of the current picture
 	uint32_t output_flags; // bitfield for frames waiting to be output
-	uint32_t error_flags; // bitfield for erroneous frames
-	union { int32_t remaining_mbs[32]; i32x4 remaining_mbs_v[8]; i32x8 remaining_mbs_V[4]; }; // when zero the picture is complete
-	int32_t next_deblock_addr[32]; // next CurrMbAddr value for which mbB will be deblocked
-	int32_t prevRefFrameNum[2];
-	int32_t prevPicOrderCnt;
-	int32_t dispPicOrderCnt; // all POCs lower or equal than this are ready for output
-	int32_t FrameNums[32];
+	int64_t DPB_format; // should match format in SPS otherwise triggers resize
+	uint8_t *frame_buffers[32];
+	union { int32_t next_deblock_addr[32]; i32x4 next_deblock_addr_v[8]; i32x8 next_deblock_addr_V[4]; }; // next CurrMbAddr value for which mbB will be deblocked
 	union { int8_t LongTermFrameIdx[32]; i8x16 LongTermFrameIdx_v[2]; };
 	union { int8_t pic_LongTermFrameIdx[32]; i8x16 pic_LongTermFrameIdx_v[2]; }; // to be applied after decoding all slices of the current frame
 	union { int32_t FieldOrderCnt[2][32]; i32x4 FieldOrderCnt_v[2][8]; }; // lower/higher half for top/bottom fields
@@ -302,11 +304,9 @@ typedef struct Edge264_context {
 	Edge264_pic_parameter_set PPS[4];
 	
 	pthread_mutex_t task_lock;
-	pthread_cond_t task_added;
-	pthread_cond_t task_completed;
-	uint16_t unavail_tasks; // bitmask for tasks that are either in queue or processed in a thread
-	volatile union { int8_t task_queue[16]; i8x16 task_queue_v; }; // list of tasks identifiers in the order they are received
-	volatile union { uint32_t task_dependencies[16]; i32x4 task_dependencies_v[4]; }; // frames on which each task depends to start
+	pthread_cond_t task_ready;
+	pthread_cond_t task_complete;
+	volatile union { uint32_t task_dependencies[16]; i32x4 task_dependencies_v[4]; i32x8 task_dependencies_V[2]; }; // frames on which each task depends to start
 	union { int8_t taskPics[16]; i8x16 taskPics_v; }; // values of currPic for each task
 	Edge264_task tasks[16];
 	Edge264_decoder d; // public structure, kept last to leave room for extension in future versions
@@ -634,14 +634,7 @@ static noinline void FUNC_TSK(parse_slice_data_cabac);
 		i32x4 hi = madd16(unpackhi16(mvCol, neg), mul);
 		return packs32(lo >> 8, hi >> 8);
 	}
-	static always_inline unsigned FUNC_CTX(depended_frames) {
-		i32x4 a = ctx->task_dependencies_v[0] | ctx->task_dependencies_v[1] |
-		          ctx->task_dependencies_v[2] | ctx->task_dependencies_v[3];
-		i32x4 b = a | shuffle32(a, 2, 3, 0, 1);
-		i32x4 c = b | shuffle32(b, 1, 0, 3, 2);
-		return c[0];
-	}
-	#ifdef __BMI2__ // FIXME and not AMD
+	#ifdef __BMI2__ // FIXME and not AMD pre-Zen3
 		static always_inline int extract_neighbours(unsigned f) { return _pext_u32(f, 0x27); }
 		static always_inline int mvd_flags2ref_idx(unsigned f) { return _pext_u32(f, 0x11111111); }
 	#else
@@ -655,36 +648,46 @@ static noinline void FUNC_TSK(parse_slice_data_cabac);
 			return (c & 0xf) | (c >> 12 & 0xf0);
 		}
 	#endif
-	#ifdef __AVX2__
-		static always_inline unsigned FUNC_TSK(refs_to_mask) {
-			i32x8 ones = {1, 1, 1, 1, 1, 1, 1, 1};
-			i32x8 a = _mm256_sllv_epi32(ones, _mm256_cvtepi8_epi32(load64(tsk->RefPicList_l + 0))) |
-			          _mm256_sllv_epi32(ones, _mm256_cvtepi8_epi32(load64(tsk->RefPicList_l + 1))) |
-			          _mm256_sllv_epi32(ones, _mm256_cvtepi8_epi32(load64(tsk->RefPicList_l + 2))) |
-			          _mm256_sllv_epi32(ones, _mm256_cvtepi8_epi32(load64(tsk->RefPicList_l + 3)));
-			i32x4 b = _mm256_castsi256_si128(a) | _mm256_extracti128_si256(a, 1);
-			i32x4 c = b | shuffle32(b, 2, 3, 0, 1);
-			i32x4 d = c | shuffle32(c, 1, 0, 3, 2);
-			return d[0];
-		}
-	#else
-		static always_inline unsigned FUNC_TSK(refs_to_mask) {
-			u8x16 a = tsk->RefPicList_v[0] + 127;
-			u8x16 b = tsk->RefPicList_v[2] + 127;
-			i8x16 zero = {};
-			i16x8 c = (i16x8)unpacklo8(a, zero) << 7;
-			i16x8 d = (i16x8)unpackhi8(a, zero) << 7;
-			i16x8 e = (i16x8)unpacklo8(b, zero) << 7;
-			i16x8 f = (i16x8)unpackhi8(b, zero) << 7;
-			i32x4 g = _mm_cvtps_epi32((__m128)unpacklo16(zero, c)) | _mm_cvtps_epi32((__m128)unpackhi16(zero, c)) |
-			          _mm_cvtps_epi32((__m128)unpacklo16(zero, d)) | _mm_cvtps_epi32((__m128)unpackhi16(zero, d)) |
-			          _mm_cvtps_epi32((__m128)unpacklo16(zero, e)) | _mm_cvtps_epi32((__m128)unpackhi16(zero, e)) |
-			          _mm_cvtps_epi32((__m128)unpacklo16(zero, f)) | _mm_cvtps_epi32((__m128)unpackhi16(zero, f));
-			i32x4 h = g | shuffle32(g, 2, 3, 0, 1);
-			i32x4 i = h | shuffle32(h, 1, 0, 3, 2);
-			return i[0];
-		}
-	#endif
+	// These functions are not critical enough to deserve AVX-2 versions
+	static always_inline unsigned FUNC_CTX(depended_frames) {
+		i32x4 a = ctx->task_dependencies_v[0] | ctx->task_dependencies_v[1] |
+		          ctx->task_dependencies_v[2] | ctx->task_dependencies_v[3];
+		i32x4 b = a | shuffle32(a, 2, 3, 0, 1);
+		i32x4 c = b | shuffle32(b, 1, 0, 3, 2);
+		return c[0];
+	}
+	static always_inline unsigned refs_to_mask(Edge264_task *t) {
+		u8x16 a = t->RefPicList_v[0] + 127;
+		u8x16 b = t->RefPicList_v[2] + 127;
+		i8x16 zero = {};
+		i16x8 c = (i16x8)unpacklo8(a, zero) << 7;
+		i16x8 d = (i16x8)unpackhi8(a, zero) << 7;
+		i16x8 e = (i16x8)unpacklo8(b, zero) << 7;
+		i16x8 f = (i16x8)unpackhi8(b, zero) << 7;
+		i32x4 g = _mm_cvtps_epi32((__m128)unpacklo16(zero, c)) | _mm_cvtps_epi32((__m128)unpackhi16(zero, c)) |
+		          _mm_cvtps_epi32((__m128)unpacklo16(zero, d)) | _mm_cvtps_epi32((__m128)unpackhi16(zero, d)) |
+		          _mm_cvtps_epi32((__m128)unpacklo16(zero, e)) | _mm_cvtps_epi32((__m128)unpackhi16(zero, e)) |
+		          _mm_cvtps_epi32((__m128)unpacklo16(zero, f)) | _mm_cvtps_epi32((__m128)unpackhi16(zero, f));
+		i32x4 h = g | shuffle32(g, 2, 3, 0, 1);
+		i32x4 i = h | shuffle32(h, 1, 0, 3, 2);
+		return i[0];
+	}
+	static always_inline unsigned ready_frames(Edge264_context *c) {
+		i32x4 last = set32(c->sps.pic_width_in_mbs * c->sps.pic_height_in_mbs);
+		i16x8 a = packs32(c->next_deblock_addr_v[0] == last, c->next_deblock_addr_v[1] == last);
+		i16x8 b = packs32(c->next_deblock_addr_v[2] == last, c->next_deblock_addr_v[3] == last);
+		i16x8 d = packs32(c->next_deblock_addr_v[4] == last, c->next_deblock_addr_v[5] == last);
+		i16x8 e = packs32(c->next_deblock_addr_v[6] == last, c->next_deblock_addr_v[7] == last);
+		return movemask(packs16(a, b)) | movemask(packs16(d, e)) << 16;
+	}
+	static always_inline unsigned ready_tasks(Edge264_context *c) {
+		i32x4 rf = set32(ready_frames(c));
+		i32x4 a = (i32x4)_mm_andnot_si128(rf, c->task_dependencies_v[0]) == 0;
+		i32x4 b = (i32x4)_mm_andnot_si128(rf, c->task_dependencies_v[1]) == 0;
+		i32x4 d = (i32x4)_mm_andnot_si128(rf, c->task_dependencies_v[2]) == 0;
+		i32x4 e = (i32x4)_mm_andnot_si128(rf, c->task_dependencies_v[3]) == 0;
+		return c->pending_tasks & movemask(packs16(packs32(a, b), packs32(d, e)));
+	}
 #else // add other architectures here
 	#error "Add -mssse3 or more recent"
 #endif

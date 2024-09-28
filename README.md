@@ -64,7 +64,7 @@ int main(int argc, char *argv[]) {
 	int res;
 	do {
 		res = Edge264_decode_NAL(s);
-		while (!Edge264_get_frame(s, res == -3)) { // drain remaining frames at end of buffer
+		while (!Edge264_get_frame(s, res == -3, res == -3)) { // drain and block at end of buffer
 			for (int y = 0; y < s->height_Y; y++)
 				write(1, s->samples[0] + y * s->stride_Y, s->width_Y);
 			for (int y = 0; y < s->height_C; y++)
@@ -135,6 +135,7 @@ While reference frames may be decoded ahead of their actual display (ex. B-Pyram
 
 Return codes are:
 
+* **-3** if get_frame would have to block to return the next frame
 * **-2** if there is no frame pending for display
 * **-1** if the function was called with `s == NULL`
 * **0** on success (one frame is returned)

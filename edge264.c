@@ -1,6 +1,5 @@
 /** MAYDO:
  * _ Multithreading
- * 	_ add blocking option on get_frame
  * 	_ Implement a basic task queue yet in decoding order and with 1 thread
  * 	_ Update DPB availability checks to take deps into account, and make sure we wait until there is a frame ready before returning -2
  * 	_ Add currPic to task_dependencies
@@ -588,7 +587,7 @@ static void *worker_loop(Edge264_context *c) {
 					tsk->samples_mb[2] += tsk->stride[1] * 7;
 				}
 			}
-			__atomic_thread_fence(); // ensures the next line implies the frame was deblocked in memory
+			__atomic_thread_fence(__ATOMIC_SEQ_CST); // ensures the next line implies the frame was deblocked in memory
 			c->next_deblock_addr[currPic] = tsk->next_deblock_addr;
 		}
 		RESET_TSK();
@@ -1871,7 +1870,7 @@ int Edge264_decode_NAL(Edge264_decoder *d)
  * _ there is no empty slot for the next frame
  * _ drain is set
  */
-int Edge264_get_frame(Edge264_decoder *d, int drain) {
+int Edge264_get_frame(Edge264_decoder *d, int drain, int blocking) {
 	if (d == NULL)
 		return -1;
 	SET_CTX((void *)d - offsetof(Edge264_context, d), (Edge264_getbits){});
@@ -1890,33 +1889,45 @@ int Edge264_get_frame(Edge264_decoder *d, int drain) {
 			pic[non_base] = i;
 		}
 	}
-	int last_deblock_addr = ctx->sps.pic_width_in_mbs * ctx->sps.pic_height_in_mbs;
+	if (pic[0] < 0) {
+		RESET_CTX();
+		return -2;
+	}
+	
+	int last = ctx->sps.pic_width_in_mbs * ctx->sps.pic_height_in_mbs;
+	if (ctx->next_deblock_addr[pic[0]] != last || pic[1] >= 0 && ctx->next_deblock_addr[pic[1]] != last) {
+		if (blocking) {
+			pthread_mutex_lock(&ctx->task_lock);
+			while (ctx->next_deblock_addr[pic[0]] != last || pic[1] >= 0 && ctx->next_deblock_addr[pic[1]] != last)
+				pthread_cond_wait(&ctx->task_complete, &ctx->task_lock);
+			pthread_mutex_unlock(&ctx->task_lock);
+		} else {
+			RESET_CTX();
+			return -3;
+		}
+	}
+	
 	int top = ctx->d.frame_crop_offsets[0];
 	int left = ctx->d.frame_crop_offsets[3];
 	int topC = ctx->sps.chroma_format_idc == 3 ? top : top >> 1;
 	int leftC = ctx->sps.chroma_format_idc == 1 ? left >> 1 : left;
 	int offC = ctx->plane_size_Y + topC * ctx->d.stride_C + (leftC << ctx->d.pixel_depth_C);
-	int res = -2;
-	if (pic[0] >= 0 && ctx->next_deblock_addr[pic[0]] == last_deblock_addr &&
-		(pic[1] < 0 || ctx->next_deblock_addr[pic[1]] == last_deblock_addr)) {
-		ctx->output_flags ^= 1 << pic[0];
-		const uint8_t *samples = ctx->frame_buffers[pic[0]];
-		ctx->d.samples[0] = samples + top * ctx->d.stride_Y + (left << ctx->d.pixel_depth_Y);
-		ctx->d.samples[1] = samples + offC;
-		ctx->d.samples[2] = samples + ctx->plane_size_C + offC;
-		ctx->d.TopFieldOrderCnt = best << 6 >> 6;
-		ctx->d.BottomFieldOrderCnt = ctx->FieldOrderCnt[1][pic[0]] << 6 >> 6;
-		res = 0;
-		if (pic[1] >= 0) {
-			ctx->output_flags ^= 1 << pic[1];
-			samples = ctx->frame_buffers[pic[1]];
-			ctx->d.samples_mvc[0] = samples + top * ctx->d.stride_Y + (left << ctx->d.pixel_depth_Y);
-			ctx->d.samples_mvc[1] = samples + offC;
-			ctx->d.samples_mvc[2] = samples + ctx->plane_size_C + offC;
-		}
+	ctx->output_flags ^= 1 << pic[0];
+	const uint8_t *samples = ctx->frame_buffers[pic[0]];
+	ctx->d.samples[0] = samples + top * ctx->d.stride_Y + (left << ctx->d.pixel_depth_Y);
+	ctx->d.samples[1] = samples + offC;
+	ctx->d.samples[2] = samples + ctx->plane_size_C + offC;
+	ctx->d.TopFieldOrderCnt = best << 6 >> 6;
+	ctx->d.BottomFieldOrderCnt = ctx->FieldOrderCnt[1][pic[0]] << 6 >> 6;
+	if (pic[1] >= 0) {
+		ctx->output_flags ^= 1 << pic[1];
+		samples = ctx->frame_buffers[pic[1]];
+		ctx->d.samples_mvc[0] = samples + top * ctx->d.stride_Y + (left << ctx->d.pixel_depth_Y);
+		ctx->d.samples_mvc[1] = samples + offC;
+		ctx->d.samples_mvc[2] = samples + ctx->plane_size_C + offC;
 	}
 	RESET_CTX();
-	return res;
+	return 0;
 }
 
 

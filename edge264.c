@@ -14,6 +14,7 @@
  * 	_ Add debug output to signal start and end of worker assignment
  * 	_ add an option to store N more frames, to tolerate lags in process scheduling
  * 	_ Windows fallback functions
+ * 	_ Switch back convention to never allow CPB past end because of risk of pointer overflow!
  * _ Fuzzing and bug hunting
  * 	_ fuzz with H26Forge
  * 	_ replace calloc with malloc+memset(127), determine a policy for ensuring the validity of variables over time, and setup a solver (ex. KLEE, Crest, Triton) to test their intervals
@@ -534,7 +535,7 @@ static void *worker_loop(Edge264_context *c) {
 	if (1) {
 		while (!c->ready_tasks)
 			pthread_cond_wait(&c->task_ready, &c->task_lock);
-		int task_id = __builtin_ctz(c->ready_tasks);
+		int task_id = __builtin_ctz(c->ready_tasks); // FIXME arbitrary selection for now
 		int currPic = c->taskPics[task_id];
 		c->pending_tasks &= ~(1 << task_id);
 		c->ready_tasks &= ~(1 << task_id);
@@ -1710,9 +1711,9 @@ static int FUNC_CTX(parse_seq_parameter_set_extension) {
 
 
 
-const uint8_t *Edge264_find_start_code(int n, const uint8_t *CPB, const uint8_t *end) {
+const uint8_t *Edge264_find_start_code(const uint8_t *CPB, const uint8_t *end) {
 	i8x16 zero = {};
-	i8x16 xN = set8(n);
+	i8x16 xN = set8(1);
 	const i8x16 *p = (i8x16 *)((uintptr_t)CPB & -16);
 	unsigned z = (movemask(*p == zero) & -1u << ((uintptr_t)CPB & 15)) << 2, c;
 	
@@ -1788,13 +1789,14 @@ int Edge264_decode_NAL(Edge264_decoder *d)
 		"Frame buffer is full", NULL, NULL, "Unsupported stream", "Decoding error"};
 	
 	// initial checks before parsing
-	if (d == NULL)
+	if (d == NULL || d->CPB == NULL)
 		return -1;
-	if (d->CPB >= d->end)
+	const uint8_t *CPB = d->CPB, *end = d->end;
+	if (CPB >= end)
 		return -3;
-	SET_CTX((void *)d - offsetof(Edge264_context, d), ((Edge264_getbits){.CPB = d->CPB + 3, .end = d->end}));
-	ctx->nal_ref_idc = ctx->_gb.CPB[-3] >> 5;
-	ctx->nal_unit_type = ctx->_gb.CPB[-3] & 0x1f;
+	SET_CTX((void *)d - offsetof(Edge264_context, d));
+	ctx->nal_ref_idc = CPB[0] >> 5;
+	ctx->nal_unit_type = CPB[0] & 0x1f;
 	printf("<table>\n"
 		"<tr><th>nal_ref_idc</th><td>%u</td></tr>\n"
 		"<tr><th>nal_unit_type</th><td>%u (%s)</td></tr>\n",
@@ -1805,18 +1807,18 @@ int Edge264_decode_NAL(Edge264_decoder *d)
 	int ret = 0;
 	Parser parser = parse_nal_unit[ctx->nal_unit_type];
 	if (ctx->nal_unit_type == 9) {
-		if (ctx->_gb.CPB - 2 >= ctx->_gb.end || (ctx->_gb.CPB[-2] & 31) != 16)
+		if (CPB + 1 >= end || (CPB[1] & 31) != 16)
 			ret = 2;
 		else
-			printf("<tr><th>primary_pic_type</th><td>%d</td></tr>\n", ctx->_gb.CPB[-2] >> 5);
+			printf("<tr><th>primary_pic_type</th><td>%d</td></tr>\n", CPB[1] >> 5);
 	} else if (ctx->nal_unit_type == 14 || ctx->nal_unit_type == 20) {
-		if (ctx->_gb.CPB + 1 >= ctx->_gb.end) {
+		if (CPB + 4 >= end) {
 			ret = 2;
 			parser = NULL;
 		} else {
 			uint32_t u;
-			memcpy(&u, ctx->_gb.CPB - 3, 4);
-			ctx->_gb.CPB += 3;
+			memcpy(&u, CPB, 4);
+			CPB += 3;
 			u = big_endian32(u);
 			ctx->IdrPicFlag = u >> 22 & 1 ^ 1;
 			if (u >> 23 & 1) {
@@ -1842,19 +1844,24 @@ int Edge264_decode_NAL(Edge264_decoder *d)
 	
 	// initialize the parsing context if we can parse the current NAL
 	if (parser != NULL) {
-		if (ctx->_gb.CPB > ctx->_gb.end) {
+		if (CPB + 3 > end) {
 			ret = 2;
 		} else {
 			// prefill the bitstream cache with 2 bytes (guaranteed unescaped)
-			ctx->_gb.msb_cache = (size_t)ctx->_gb.CPB[-2] << (SIZE_BIT - 8) | (size_t)ctx->_gb.CPB[-1] << (SIZE_BIT - 16) | (size_t)1 << (SIZE_BIT - 17);
+			ctx->_gb.msb_cache = (size_t)CPB[1] << (SIZE_BIT - 8) | (size_t)CPB[2] << (SIZE_BIT - 16) | (size_t)1 << (SIZE_BIT - 17);
+			ctx->_gb.CPB = CPB + 3;
+			ctx->_gb.end = end;
 			CALL_C2B(refill, 0);
 			ret = CALL_CTX(parser);
+			// end may have been set to the next start code thanks to escape code detection in get_bytes
+			end = ctx->_gb.end;
+			CPB = ctx->_gb.CPB - 2 < end ? ctx->_gb.CPB - 2 : end;
 		}
 	}
 	
-	// end may have been set to the next start code thanks to escape code detection in get_bytes
-	if (ret >= 0)
-		ctx->d.CPB = Edge264_find_start_code(1, ctx->_gb.CPB - 2 < ctx->_gb.end ? ctx->_gb.CPB - 2 : ctx->_gb.end, ctx->d.end);
+	// negative codes do not advance the CPB pointer
+	if (ctx->d.annex_B && ret >= 0)
+		ctx->d.CPB = Edge264_find_start_code(CPB, end);
 	printf(ret ? "<tr style='background-color:#f77'><th colspan=2 style='text-align:center'>%s</th></tr>\n</table>\n" : "</table>\n", ret_names[ret + 3]);
 	RESET_CTX();
 	return ret;
@@ -1873,7 +1880,7 @@ int Edge264_decode_NAL(Edge264_decoder *d)
 int Edge264_get_frame(Edge264_decoder *d, int drain, int blocking) {
 	if (d == NULL)
 		return -1;
-	SET_CTX((void *)d - offsetof(Edge264_context, d), (Edge264_getbits){});
+	SET_CTX((void *)d - offsetof(Edge264_context, d));
 	int pic[2] = {-1, -1};
 	unsigned unavail = ctx->reference_flags | ctx->output_flags | (ctx->basePic < 0 ? 0 : 1 << ctx->basePic);
 	int best = (drain || __builtin_popcount(ctx->output_flags) > ctx->sps.max_num_reorder_frames ||
@@ -1934,7 +1941,7 @@ int Edge264_get_frame(Edge264_decoder *d, int drain, int blocking) {
 
 void Edge264_free(Edge264_decoder **d) {
 	if (d != NULL && *d != NULL) {
-		SET_CTX((void *)*d - offsetof(Edge264_context, d), (Edge264_getbits){});
+		SET_CTX((void *)*d - offsetof(Edge264_context, d));
 		pthread_mutex_destroy(&ctx->task_lock);
 		pthread_cond_destroy(&ctx->task_ready);
 		pthread_cond_destroy(&ctx->task_complete);

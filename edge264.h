@@ -34,7 +34,8 @@ typedef struct Edge264_decoder {
 	// These fields must be set prior to decoding.
 	const uint8_t *CPB; // should always point to a NAL unit (after the 001 prefix)
 	const uint8_t *end; // first byte past the end of the buffer
-	
+	int8_t annex_B; // set to 1 to call find_start_code at the end of each decode_NAL
+   
 	// These fields will be set when returning a frame.
 	const uint8_t *samples[3]; // Y/Cb/Cr planes
 	const uint8_t *samples_mvc[3]; // second view
@@ -55,6 +56,6 @@ Edge264_decoder *Edge264_alloc();
 int Edge264_decode_NAL(Edge264_decoder *s);
 int Edge264_get_frame(Edge264_decoder *s, int drain, int blocking);
 void Edge264_free(Edge264_decoder **s);
-const uint8_t *Edge264_find_start_code(int n, const uint8_t *CPB, const uint8_t *end);
+const uint8_t *Edge264_find_start_code(const uint8_t *CPB, const uint8_t *end);
 
 #endif

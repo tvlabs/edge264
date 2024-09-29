@@ -355,7 +355,7 @@ typedef struct Edge264_context {
  */
 #if defined(__SSSE3__) && !defined(__clang__)
 	register void * restrict _p asm("ebx");
-	#define SET_CTX(p, b) Edge264_context *old = _p; {Edge264_context *_c = (p); _c->_gb = (b); _p = _c;}
+	#define SET_CTX(p) Edge264_context *old = _p; _p = (p)
 	#define SET_TSK(p) Edge264_task *old = _p; _p = (p)
 	#define RESET_CTX() _p = old
 	#define RESET_TSK() _p = old
@@ -372,7 +372,7 @@ typedef struct Edge264_context {
 	#define tsk ((Edge264_task *)_p)
 	#define gb ((Edge264_getbits *)_p)
 #else
-	#define SET_CTX(p, b) Edge264_context * restrict ctx = (p); ctx->_gb = (b)
+	#define SET_CTX(p) Edge264_context * restrict ctx = (p)
 	#define SET_TSK(p) Edge264_task * restrict tsk = (p)
 	#define RESET_CTX()
 	#define RESET_TSK()

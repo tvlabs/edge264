@@ -451,6 +451,7 @@ int main(int argc, const char *argv[])
 	
 	// check if input is a directory by trying to move into it
 	s = Edge264_alloc();
+	s->annex_B = 1;
 	if (chdir(file_name) < 0) {
 		int res = decode_file(file_name, 0);
 		if (!TRACE && res == 1)

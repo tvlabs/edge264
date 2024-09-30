@@ -99,6 +99,8 @@ static void FUNC_CTX(initialise_decoding_context, Edge264_task *t)
 	t->stride[1] = t->stride[2] = ctx->d.stride_C;
 	t->samples_clip_v[0] = set16((1 << ctx->sps.BitDepth_Y) - 1);
 	t->samples_clip_v[1] = t->samples_clip_v[2] = set16((1 << ctx->sps.BitDepth_C) - 1);
+	t->free_cb = ctx->d.free_cb;
+	t->free_arg = ctx->d.free_arg;
 	
 	// non-critical code thus we do not optimize away first_mb_in_slice==0
 	t->CurrMbAddr = t->first_mb_in_slice;
@@ -559,6 +561,8 @@ static void *worker_loop(Edge264_context *c) {
 				}
 			}
 		}
+		if (tsk->free_cb)
+			tsk->free_cb(tsk->free_arg);
 		
 		// deblock the rest of mbs in this slice or the rest of the frame if all mbs have been decoded
 		int remaining_mbs = __atomic_sub_fetch(c->remaining_mbs + currPic, tsk->CurrMbAddr - tsk->first_mb_in_slice, __ATOMIC_SEQ_CST);
@@ -1711,11 +1715,11 @@ static int FUNC_CTX(parse_seq_parameter_set_extension) {
 
 
 
-const uint8_t *Edge264_find_start_code(const uint8_t *CPB, const uint8_t *end) {
+const uint8_t *Edge264_find_start_code(const uint8_t *buf, const uint8_t *end) {
 	i8x16 zero = {};
 	i8x16 xN = set8(1);
-	const i8x16 *p = (i8x16 *)((uintptr_t)CPB & -16);
-	unsigned z = (movemask(*p == zero) & -1u << ((uintptr_t)CPB & 15)) << 2, c;
+	const i8x16 *p = (i8x16 *)((uintptr_t)buf & -16);
+	unsigned z = (movemask(*p == zero) & -1u << ((uintptr_t)buf & 15)) << 2, c;
 	
 	// no heuristic here since we are limited by memory bandwidth anyway
 	while (!(c = z & z >> 1 & movemask(*p == xN))) {
@@ -1789,9 +1793,9 @@ int Edge264_decode_NAL(Edge264_decoder *d)
 		"Frame buffer is full", NULL, NULL, "Unsupported stream", "Decoding error"};
 	
 	// initial checks before parsing
-	if (d == NULL || d->CPB == NULL)
+	if (d == NULL || d->buf == NULL)
 		return -1;
-	const uint8_t *CPB = d->CPB, *end = d->end;
+	const uint8_t *CPB = d->buf, *end = d->end;
 	if (CPB >= end)
 		return -3;
 	SET_CTX((void *)d - offsetof(Edge264_context, d));
@@ -1858,11 +1862,15 @@ int Edge264_decode_NAL(Edge264_decoder *d)
 			CPB = ctx->_gb.CPB - 2 < end ? ctx->_gb.CPB - 2 : end;
 		}
 	}
-	
-	// negative codes do not advance the CPB pointer
-	if (ctx->d.annex_B && ret >= 0)
-		ctx->d.CPB = Edge264_find_start_code(CPB, end);
 	printf(ret ? "<tr style='background-color:#f77'><th colspan=2 style='text-align:center'>%s</th></tr>\n</table>\n" : "</table>\n", ret_names[ret + 3]);
+	
+	// negative codes do not consume and advance the buffer pointer
+	if (ret >= 0) {
+		if (ctx->d.free_cb && !(ret == 0 && 1048610 & 1 << ctx->nal_unit_type)) // 1, 5 or 20
+			ctx->d.free_cb(ctx->d.free_arg);
+		if (ctx->d.annex_B)
+			ctx->d.buf = Edge264_find_start_code(CPB, end);
+	}
 	RESET_CTX();
 	return ret;
 }

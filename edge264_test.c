@@ -297,7 +297,7 @@ static int decode_file(const char *name, int print_counts)
 	if (clip < 0)
 		return perror(name), EXIT_FAILURE;
 	fstat(clip, &stC);
-	uint8_t *cpb = mmap(NULL, stC.st_size, PROT_READ, MAP_SHARED, clip, 0);
+	uint8_t *buf = mmap(NULL, stC.st_size, PROT_READ, MAP_SHARED, clip, 0);
 	
 	// open and mmap the yuv file(s)
 	int yuv = -1, yuv1 = -1;
@@ -322,7 +322,7 @@ static int decode_file(const char *name, int print_counts)
 			}
 		}
 	}
-	assert(cpb!=MAP_FAILED&&dpb!=MAP_FAILED&&dpb1!=MAP_FAILED);
+	assert(buf!=MAP_FAILED&&dpb!=MAP_FAILED&&dpb1!=MAP_FAILED);
 	
 	// print the success counts
 	if (!TRACE && print_counts) {
@@ -333,8 +333,8 @@ static int decode_file(const char *name, int print_counts)
 	}
 	
 	// decode the entire file and FAIL on any error
-	s->CPB = cpb + 3 + (cpb[2] == 0); // skip the [0]001 delimiter
-	s->end = cpb + stC.st_size;
+	s->buf = buf + 3 + (buf[2] == 0); // skip the [0]001 delimiter
+	s->end = buf + stC.st_size;
 	int res;
 	do {
 		res = Edge264_decode_NAL(s);
@@ -371,7 +371,7 @@ static int decode_file(const char *name, int print_counts)
 	}
 	
 	// close everything
-	munmap(cpb, stC.st_size);
+	munmap(buf, stC.st_size);
 	close(clip);
 	if (yuv >= 0) {
 		munmap(dpb, stD.st_size);

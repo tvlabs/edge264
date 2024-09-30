@@ -1,7 +1,7 @@
 edge264
 =======
 
-Minimalist software decoder with state-of-the-art performance for the H.264 video format.
+Minimalist software decoder with state-of-the-art performance for the H.264/AVC video format.
 
 
 Features
@@ -59,7 +59,7 @@ int main(int argc, char *argv[]) {
 	fstat(f, &st);
 	uint8_t *buf = mmap(NULL, st.st_size, PROT_READ, MAP_SHARED, f, 0);
 	Edge264_decoder *s = Edge264_alloc();
-	s->CPB = buf + 3 + (buf[2] == 0); // skip the [0]001 delimiter
+	s->buf = buf + 3 + (buf[2] == 0); // skip the [0]001 delimiter
 	s->end = buf + st.st_size;
 	s->annex_B = 1; // enable searching for the next start code after each NAL
 	int res;
@@ -92,8 +92,10 @@ The private decoding context is actually hidden at negative offsets from the poi
 ```c
 typedef struct Edge264_decoder {
 	// These fields must be set prior to decoding.
-	const uint8_t *CPB; // should always point to a NAL unit (after the 001 prefix)
+	const uint8_t *buf; // should always point to a NAL unit (after the 001 prefix)
 	const uint8_t *end; // first byte past the end of the buffer
+   void (*free_cb)(void *free_arg); // called from decode_NAL or a worker thread when the NAL starting at buf has been read
+   void *free_arg; // passed to the above function
 	int8_t annex_B; // set to 1 to call find_start_code at the end of each decode_NAL
 	
 	// These fields will be set when returning a frame.
@@ -114,13 +116,13 @@ typedef struct Edge264_decoder {
 ```
 
 **`int Edge264_decode_NAL(Edge264_decoder *s)`**
-Decode a single NAL unit, for which `s->CPB` should point to its first byte (containing `nal_unit_type`) and `s->end` should point to the first byte past the buffer.
-After decoding the NAL, if `s->annex_B` is set and the return code is positive or zero then `s->CPB` is advanced past the next start code.
+Decode a single NAL unit, for which `s->buf` should point to its first byte (containing `nal_unit_type`) and `s->end` should point to the first byte past the buffer.
+After decoding the NAL, if `s->annex_B` is set and the return code is positive or zero then `s->buf` is advanced past the next start code.
 Return codes are:
 
-* **-3** if the function was called while `s->CPB >= s->end`
+* **-3** if the function was called while `s->buf >= s->end`
 * **-2** if the Decoded Picture Buffer is full and `Edge264_get_frame` should be called before proceeding
-* **-1** if the function was called with `s == NULL` or `s->CPB == NULL`
+* **-1** if the function was called with `s == NULL` or `s->buf == NULL`
 * **0** on success
 * **1** on unsupported stream (decoding may proceed but could return zero frames)
 * **2** on decoding error (decoding may proceed but could show visual artefacts, if you can check with another decoder that the stream is actually flawless, please consider filling a bug report 🙏)
@@ -145,7 +147,7 @@ Return codes are:
 **`void Edge264_free(Edge264_decoder **s)`**
 Deallocate the entire decoding context, and unset the stream pointer.
 
-**`const uint8_t *Edge264_find_start_code(const uint8_t *CPB, const uint8_t *end)`**
+**`const uint8_t *Edge264_find_start_code(const uint8_t *buf, const uint8_t *end)`**
 Scan memory for the next three-byte 001 sequence, returning a pointer to the first following byte (or `end` if no pattern was found).
 
 

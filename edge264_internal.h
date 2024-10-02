@@ -277,9 +277,6 @@ typedef struct Edge264_context {
 	int8_t IdrPicFlag; // 1 significant bit
 	int8_t currPic; // index of current incomplete frame, or -1
 	int8_t basePic; // index of last MVC base view, or -1
-	uint16_t busy_tasks; // bitmask for tasks that are either pending or processed in a thread
-	uint16_t pending_tasks;
-	uint16_t ready_tasks;
 	int32_t plane_size_Y;
 	int32_t plane_size_C;
 	int32_t frame_size;
@@ -296,6 +293,7 @@ typedef struct Edge264_context {
 	uint32_t long_term_flags; // bitfield for indices of long-term frames/views
 	uint32_t pic_long_term_flags; // to be applied after decoding all slices of the current picture
 	uint32_t output_flags; // bitfield for frames waiting to be output
+	uint32_t processing_flags; // bitfield for frames that are being created or have not yet been returned after get_frame
 	int64_t DPB_format; // should match format in SPS otherwise triggers resize
 	uint8_t *frame_buffers[32];
 	union { int32_t next_deblock_addr[32]; i32x4 next_deblock_addr_v[8]; i32x8 next_deblock_addr_V[4]; }; // next CurrMbAddr value for which mbB will be deblocked
@@ -308,7 +306,10 @@ typedef struct Edge264_context {
 	pthread_mutex_t task_lock;
 	pthread_cond_t task_ready;
 	pthread_cond_t task_complete;
-	volatile union { uint32_t task_dependencies[16]; i32x4 task_dependencies_v[4]; i32x8 task_dependencies_V[2]; }; // frames on which each task depends to start
+	uint16_t busy_tasks; // bitmask for tasks that are either pending or processed in a thread
+	uint16_t pending_tasks;
+	uint16_t ready_tasks;
+	volatile union { uint32_t task_dependencies[16]; i32x4 task_dependencies_v[4]; }; // frames on which each task depends to start
 	union { int8_t taskPics[16]; i8x16 taskPics_v; }; // values of currPic for each task
 	Edge264_task tasks[16];
 	Edge264_decoder d; // public structure, kept last to leave room for extension in future versions

@@ -85,16 +85,25 @@ int main(int argc, char *argv[]) {
 API reference
 -------------
 
+**`const uint8_t *Edge264_find_start_code(const uint8_t *buf, const uint8_t *end)`**
+Scan memory for the next three-byte 001 sequence, returning a pointer to the first following byte (or `end` if no pattern was found).
+
 **`Edge264_decoder *Edge264_alloc()`**
 Allocate and return a decoding context, that is used to pass and receive parameters.
 The private decoding context is actually hidden at negative offsets from the pointer returned.
+
+**`int Edge264_reset(Edge264_decoder *s)`**
+For use when seeking, stop all background processing and clear the picture buffer. The parameter sets are kept, thus do not need to be sent again if they did not change.
+
+**`void Edge264_free(Edge264_decoder **s)`**
+Deallocate the entire decoding context, and unset the stream pointer.
 
 ```c
 typedef struct Edge264_decoder {
 	// These fields must be set prior to decoding.
 	const uint8_t *buf; // should always point to a NAL unit (after the 001 prefix)
 	const uint8_t *end; // first byte past the end of the buffer
-   void (*free_cb)(void *free_arg); // called from decode_NAL or a worker thread when the NAL starting at buf has been read
+   void (*free_cb)(void *free_arg); // called from decode_NAL or a worker thread when the NAL starting at buf is done parsing
    void *free_arg; // passed to the above function
 	int8_t annex_B; // set to 1 to call find_start_code at the end of each decode_NAL
 	
@@ -121,7 +130,7 @@ After decoding the NAL, if `s->annex_B` is set and the return code is positive o
 Return codes are:
 
 * **-3** if the function was called while `s->buf >= s->end`
-* **-2** if the Decoded Picture Buffer is full and `Edge264_get_frame` should be called before proceeding
+* **-2** if more frames should be consumed and returned after `Edge264_get_frame` before resuming the call
 * **-1** if the function was called with `s == NULL` or `s->buf == NULL`
 * **0** on success
 * **1** on unsupported stream (decoding may proceed but could return zero frames)
@@ -144,12 +153,6 @@ Return codes are:
 * **-1** if the function was called with `s == NULL`
 * **0** on success (one frame is returned)
 
-**`void Edge264_free(Edge264_decoder **s)`**
-Deallocate the entire decoding context, and unset the stream pointer.
-
-**`const uint8_t *Edge264_find_start_code(const uint8_t *buf, const uint8_t *end)`**
-Scan memory for the next three-byte 001 sequence, returning a pointer to the first following byte (or `end` if no pattern was found).
-
 
 Roadmap
 -------
@@ -171,7 +174,7 @@ Programming techniques
 
 edge264 originated as an experiment on new programming techniques to improve performance and code simplicity over existing decoders. I presented a few of these techniques at FOSDEM'24 on 4 February 2024. Be sure to check the [video](https://fosdem.org/2024/schedule/event/fosdem-2024-2931-innovations-in-h-264-avc-software-decoding-architecture-and-optimization-of-a-block-based-video-decoder-to-reach-10-faster-speed-and-3x-code-reduction-over-the-state-of-the-art-/)!
 
-* [Minimalistic API](edge264.h) with FFI-friendly design (5 functions and 1 structure).
+* [Minimalistic API](edge264.h) with FFI-friendly design (6 functions and 1 structure).
 * [The input bitstream](edge264_bitstream.c) is unescaped on the fly using vector code, avoiding a full preprocessing pass to remove escape sequences, and thus reducing memory reads/writes.
 * [Error detection](edge264.c) is performed once in each type of NAL unit (search for `return` statements), by clamping all input values to their expected ranges, then expecting `rbsp_trailing_bit` afterwards (with _very high_ probability of catching an error if the stream is corrupted). This design choice is discussed in [A case about parsing errors](https://traffaillac.github.io/parsing.html).
 * [The bitstream caches](edge264_internal.h) for CAVLC and CABAC (search for `rbsp_reg`) are stored in two size_t variables each, mapped on Global Register Variables if possible, speeding up the _very frequent_ calls to input functions. The main context pointer is also assigned to a GRV, to help reduce the binary size (\~200k).

@@ -338,7 +338,7 @@ static int decode_file(const char *name, int print_counts)
 	int res;
 	do {
 		res = Edge264_decode_NAL(s);
-		while (!Edge264_get_frame(s, res == -3, res == -3)) {
+		while (!Edge264_get_frame(s, res == -3, res == -3, 0)) {
 			if (display)
 				draw_frame();
 			if (conf[0] != NULL && check_frame()) {

@@ -52,6 +52,7 @@ typedef struct Edge264_decoder {
    int32_t TopFieldOrderCnt;
    int32_t BottomFieldOrderCnt;
    int16_t frame_crop_offsets[4]; // {top,right,bottom,left}, in luma samples, already included in samples_Y/Cb/cr and width/height_Y/C
+   void *return_arg;
 } Edge264_decoder;
 
 const uint8_t *Edge264_find_start_code(const uint8_t *buf, const uint8_t *end);
@@ -59,6 +60,7 @@ Edge264_decoder *Edge264_alloc();
 int Edge264_reset(Edge264_decoder *d);
 void Edge264_free(Edge264_decoder **d);
 int Edge264_decode_NAL(Edge264_decoder *d);
-int Edge264_get_frame(Edge264_decoder *d, int drain, int blocking);
+int Edge264_get_frame(Edge264_decoder *d, int drain, int blocking, int borrow);
+void Edge264_return_frame(Edge264_decoder *d, void *return_arg);
 
 #endif

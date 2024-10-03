@@ -289,11 +289,11 @@ typedef struct Edge264_context {
 	int32_t FrameNums[32];
 	int32_t remaining_mbs[32]; // when zero the picture is complete
 	uint32_t reference_flags; // bitfield for indices of reference frames/views
-	uint32_t pic_reference_flags; // to be applied after decoding all slices of the current picture
 	uint32_t long_term_flags; // bitfield for indices of long-term frames/views
-	uint32_t pic_long_term_flags; // to be applied after decoding all slices of the current picture
 	uint32_t output_flags; // bitfield for frames waiting to be output
-	uint32_t processing_flags; // bitfield for frames that are being created or have not yet been returned after get_frame
+	uint32_t borrow_flags; // bitfield for frames that are owned by the caller after get_frame and not yet returned
+	uint32_t pic_reference_flags; // to be applied after decoding all slices of the current picture
+	uint32_t pic_long_term_flags; // to be applied after decoding all slices of the current picture
 	int64_t DPB_format; // should match format in SPS otherwise triggers resize
 	uint8_t *frame_buffers[32];
 	union { int32_t next_deblock_addr[32]; i32x4 next_deblock_addr_v[8]; i32x8 next_deblock_addr_V[4]; }; // next CurrMbAddr value for which mbB will be deblocked

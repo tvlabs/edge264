@@ -136,7 +136,7 @@ Return codes are:
 * **1** on unsupported stream (decoding may proceed but could return zero frames)
 * **2** on decoding error (decoding may proceed but could show visual artefacts, if you can check with another decoder that the stream is actually flawless, please consider filling a bug report 🙏)
 
-**`int Edge264_get_frame(Edge264_decoder *s, int drain, int blocking)`**
+**`int Edge264_get_frame(Edge264_decoder *s, int drain, int blocking, int borrow)`**
 Check the Decoded Picture Buffer for a pending displayable frame, and pass it in `s`.
 While reference frames may be decoded ahead of their actual display (ex. B-Pyramid technique), all frames are buffered for reordering before being released for display:
 
@@ -152,6 +152,9 @@ Return codes are:
 * **-2** if more NALs should be sent before returning a frame
 * **-1** if the function was called with `s == NULL`
 * **0** on success (one frame is returned)
+
+**`void Edge264_return_frame(Edge264_decoder *d, void *return_arg)`**
+Give back ownership of the frame if it was borrowed from a previous call to `Edge264_get_frame`.
 
 
 Roadmap

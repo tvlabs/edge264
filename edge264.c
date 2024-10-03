@@ -1,6 +1,11 @@
 /** MAYDO:
  * _ Multithreading
+ * 	_ update all waits to consider the possibility of unreturned frames
+ * 	_ add an option to make decode_NAL non blocking
+ * 	_ replace error codes with text versions to be more explicit
+ * 	_ replace API arguments with text to be more explicit
  * 	_ review task_lock so that it allows calling get_frame in parallel
+ * 	_ receiving a different SPS should return -2 if there are unreturned frames left
  * 	_ Implement a basic task queue yet in decoding order and with 1 thread
  * 	_ Update DPB availability checks to take deps into account, and make sure we wait until there is a frame ready before returning -2
  * 	_ Add currPic to task_dependencies
@@ -671,50 +676,46 @@ static int FUNC_CTX(parse_slice_layer_without_partitioning)
 	// Check for gaps in frame_num (8.2.5.2)
 	int gap = ctx->FrameNum - prevRefFrameNum;
 	if (__builtin_expect(gap > 1, 0)) {
-		unsigned reference_flags = ctx->reference_flags & view_mask;
+		// make enough non-referenced slots by dereferencing frames
 		int max_num_ref_frames = ctx->sps.max_num_ref_frames >> ctx->sps.mvc;
 		int non_existing = min(gap - 1, max_num_ref_frames - __builtin_popcount(ctx->long_term_flags & view_mask));
-		int excess = __builtin_popcount(reference_flags) + non_existing - max_num_ref_frames;
-		for (int unref; excess > 0; excess--) {
-			int best = INT_MAX;
-			for (unsigned r = reference_flags & ~ctx->long_term_flags; r; r &= r - 1) {
+		for (int excess = __builtin_popcount(view_mask & ctx->reference_flags) + non_existing - max_num_ref_frames; excess > 0; excess--) {
+			int unref, poc = INT_MAX;
+			for (unsigned r = view_mask & ctx->reference_flags & ~ctx->long_term_flags; r; r &= r - 1) {
 				int i = __builtin_ctz(r);
-				if (ctx->FrameNums[i] < best)
-					best = ctx->FrameNums[unref = i];
+				if (ctx->FrameNums[i] < poc)
+					poc = ctx->FrameNums[unref = i];
 			}
-			reference_flags ^= 1 << unref;
+			ctx->reference_flags &= ~(1 << unref);
 		}
-		ctx->reference_flags = reference_flags | ctx->reference_flags & ~view_mask;
-		
-		// make enough frames displayable until there are enough DPB slots available
-		unsigned output_flags = ctx->output_flags & view_mask;
-		int num_frame_buffers = ctx->sps.num_frame_buffers >> ctx->sps.mvc;
-		unsigned avail = view_mask & ~reference_flags & ~output_flags, ready;
+		// make enough non-outputable slots by raising dispPicOrderCnt
 		pthread_mutex_lock(&ctx->task_lock);
-		if (__builtin_popcount(ready = avail & ~CALL_CTX(depended_frames)) < non_existing) {
-			while (__builtin_popcount(avail) < non_existing) {
-				int disp, best = INT_MAX;
-				for (unsigned o = output_flags; o; o &= o - 1) {
+		unsigned avail = view_mask & ~ctx->reference_flags & ~ctx->output_flags;
+		unsigned ready = avail & ~CALL_CTX(depended_frames);
+		if (__builtin_popcount(ready) < non_existing) {
+			for (int excess = non_existing - __builtin_popcount(avail); excess > 0; excess--) {
+				int disp, poc = INT_MAX;
+				for (unsigned o = view_mask & ~ctx->reference_flags & ~avail; o; o &= o - 1) {
 					int i = __builtin_ctz(o);
-					if (ctx->FieldOrderCnt[0][i] < best)
-						best = ctx->FieldOrderCnt[0][disp = i];
+					if (ctx->FieldOrderCnt[0][i] < poc)
+						poc = ctx->FieldOrderCnt[0][disp = i];
 				}
-				output_flags &= ~(1 << disp);
-				ctx->dispPicOrderCnt = max(ctx->dispPicOrderCnt, best);
-				avail = view_mask & ~reference_flags & ~output_flags;
+				avail |= 1 << disp;
+				ctx->dispPicOrderCnt = max(ctx->dispPicOrderCnt, poc);
 			}
+			// wait until enough of the slots we freed are undepended
 			while (__builtin_popcount(ready = avail & ~CALL_CTX(depended_frames)) < non_existing)
 				pthread_cond_wait(&ctx->task_complete, &ctx->task_lock);
 		}
 		pthread_mutex_unlock(&ctx->task_lock);
-		if (output_flags != (ctx->output_flags & view_mask))
+		// stop here if we must wait for get_frame to consume and return enough frames
+		if (ready & (ctx->output_flags | ctx->borrow_flags))
 			return -2;
-		
 		// finally insert the last non-existing frames one by one
 		for (unsigned FrameNum = ctx->FrameNum - non_existing; FrameNum < ctx->FrameNum; FrameNum++) {
 			int i = __builtin_ctz(ready);
 			ready ^= 1 << i;
-			reference_flags |= 1 << i;
+			ctx->reference_flags |= 1 << i;
 			ctx->FrameNums[i] = FrameNum;
 			int PicOrderCnt = 0;
 			if (ctx->sps.pic_order_cnt_type == 2) {
@@ -728,7 +729,6 @@ static int FUNC_CTX(parse_slice_layer_without_partitioning)
 			if (ctx->frame_buffers[i] == NULL && CALL_CTX(alloc_frame, i))
 				return 1;
 		}
-		ctx->reference_flags |= reference_flags;
 		ctx->prevRefFrameNum[non_base_view] = ctx->FrameNum - 1;
 	}
 	if (ctx->nal_ref_idc)
@@ -800,10 +800,11 @@ static int FUNC_CTX(parse_slice_layer_without_partitioning)
 		CALL_CTX(finish_frame, 1);
 	int is_first_slice = 0;
 	if (ctx->currPic < 0) {
-		unsigned avail = view_mask & ~(ctx->reference_flags | ctx->output_flags), ready;
-		int poc = INT_MAX;
+		// get a mask of free slots or find the next to be released by get_frame
+		unsigned avail = view_mask & ~ctx->reference_flags & ~ctx->output_flags, ready;
 		if (!avail) {
-			for (unsigned o = ctx->output_flags; o; o &= o - 1) {
+			int poc = INT_MAX;
+			for (unsigned o = view_mask & ~ctx->reference_flags & ~avail; o; o &= o - 1) {
 				int i = __builtin_ctz(o);
 				if (ctx->FieldOrderCnt[0][i] < poc) {
 					poc = ctx->FieldOrderCnt[0][i];
@@ -811,13 +812,15 @@ static int FUNC_CTX(parse_slice_layer_without_partitioning)
 				}
 			}
 		}
+		// wait until at least one of these slots is undepended
 		pthread_mutex_lock(&ctx->task_lock);
 		while (!(ready = avail & ~CALL_CTX(depended_frames)))
-			pthread_cond_wait(&ctx->task_complete, &ctx->task_lock); // wait until at least one slot is undepended
+			pthread_cond_wait(&ctx->task_complete, &ctx->task_lock);
 		pthread_mutex_unlock(&ctx->task_lock);
-		if (poc != INT_MAX)
+		// stop here if we must wait for get_frame to consume and return a non-ref frame
+		if (ready & (ctx->output_flags | ctx->borrow_flags))
 			return -2;
-		ctx->currPic = __builtin_ctz(avail);
+		ctx->currPic = __builtin_ctz(ready);
 		if (ctx->frame_buffers[ctx->currPic] == NULL && CALL_CTX(alloc_frame, ctx->currPic))
 			return 1;
 		ctx->remaining_mbs[ctx->currPic] = ctx->sps.pic_width_in_mbs * ctx->sps.pic_height_in_mbs;
@@ -1754,7 +1757,7 @@ int Edge264_reset(Edge264_decoder *d) {
 	Edge264_context *c = (void *)d - offsetof(Edge264_context, d);
 	pthread_mutex_lock(&c->task_lock);
 	c->currPic = c->basePic = -1;
-	c->reference_flags = c->long_term_flags = c->output_flags = 0;
+	c->reference_flags = c->long_term_flags = c->output_flags = c->borrow_flags = 0;
 	// FIXME interrupt all threads
 	for (unsigned b = c->busy_tasks; b; b &= b - 1) {
 		Edge264_task *t = c->tasks + __builtin_ctz(b);
@@ -1926,7 +1929,7 @@ int Edge264_decode_NAL(Edge264_decoder *d)
  * _ there is no empty slot for the next frame
  * _ drain is set
  */
-int Edge264_get_frame(Edge264_decoder *d, int drain, int blocking) {
+int Edge264_get_frame(Edge264_decoder *d, int drain, int blocking, int borrow) {
 	if (d == NULL)
 		return -1;
 	SET_CTX((void *)d - offsetof(Edge264_context, d));
@@ -1975,13 +1978,26 @@ int Edge264_get_frame(Edge264_decoder *d, int drain, int blocking) {
 	ctx->d.samples[2] = samples + ctx->plane_size_C + offC;
 	ctx->d.TopFieldOrderCnt = best << 6 >> 6;
 	ctx->d.BottomFieldOrderCnt = ctx->FieldOrderCnt[1][pic[0]] << 6 >> 6;
+	ctx->d.return_arg = (void *)((size_t)1 << pic[0]);
 	if (pic[1] >= 0) {
 		ctx->output_flags ^= 1 << pic[1];
 		samples = ctx->frame_buffers[pic[1]];
 		ctx->d.samples_mvc[0] = samples + top * ctx->d.stride_Y + (left << ctx->d.pixel_depth_Y);
 		ctx->d.samples_mvc[1] = samples + offC;
 		ctx->d.samples_mvc[2] = samples + ctx->plane_size_C + offC;
+		ctx->d.return_arg = (void *)((size_t)1 << pic[0] | (size_t)1 << pic[1]);
 	}
+	if (borrow)
+		ctx->borrow_flags |= (size_t)ctx->d.return_arg;
 	RESET_CTX();
 	return 0;
+}
+
+
+
+void Edge264_return_frame(Edge264_decoder *d, void *return_arg) {
+	if (d != NULL) {
+		Edge264_context *c = (void *)d - offsetof(Edge264_context, d);
+		c->borrow_flags &= ~(size_t)return_arg;
+	}
 }

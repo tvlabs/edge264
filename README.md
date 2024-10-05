@@ -65,7 +65,7 @@ int main(int argc, char *argv[]) {
 	int res;
 	do {
 		res = Edge264_decode_NAL(s);
-		while (!Edge264_get_frame(s, res == -3, res == -3)) { // drain and block at end of buffer
+		while (!Edge264_get_frame(s, res == ENODATA, res == ENODATA)) { // drain and block at end of buffer
 			for (int y = 0; y < s->height_Y; y++)
 				write(1, s->samples[0] + y * s->stride_Y, s->width_Y);
 			for (int y = 0; y < s->height_C; y++)
@@ -73,7 +73,7 @@ int main(int argc, char *argv[]) {
 			for (int y = 0; y < s->height_C; y++)
 				write(1, s->samples[2] + y * s->stride_C, s->width_C);
 		}
-	} while (res == 0 || res == -2);
+	} while (res == 0 || res == ENOBUFS);
 	Edge264_free(&s);
 	munmap(buf, st.st_size);
 	close(f);
@@ -95,7 +95,7 @@ The private decoding context is actually hidden at negative offsets from the poi
 **`int Edge264_reset(Edge264_decoder *s)`**
 For use when seeking, stop all background processing and clear the picture buffer.
 The parameter sets are kept, thus do not need to be sent again if they did not change.
-This function does not block but may fail with **EBUSY** if a frame has not been returned from a previous `Edge264_get_frame`.
+This function does not block but may fail with `EBUSY` if a frame has not been returned from a previous `Edge264_get_frame`.
 
 **`void Edge264_free(Edge264_decoder **s)`**
 Deallocate the entire decoding context, and unset the stream pointer.
@@ -105,8 +105,8 @@ typedef struct Edge264_decoder {
 	// These fields must be set prior to decoding.
 	const uint8_t *buf; // should always point to a NAL unit (after the 001 prefix)
 	const uint8_t *end; // first byte past the end of the buffer
-   void (*free_cb)(void *free_arg); // called from decode_NAL or a worker thread when the NAL starting at buf is done parsing
-   void *free_arg; // passed to the above function
+	void (*free_cb)(void *free_arg); // called from decode_NAL or a worker thread when the NAL starting at buf is done parsing
+	void *free_arg; // passed to the above function
 	int8_t annex_B; // set to 1 to call find_start_code at the end of each decode_NAL
 	
 	// These fields will be set when returning a frame.
@@ -131,14 +131,14 @@ Decode a single NAL unit, for which `s->buf` should point to its first byte (con
 After decoding the NAL, if `s->annex_B` is set and the return code is positive or zero then `s->buf` is advanced past the next start code.
 It will return:
 
-* **0** on success
-* **ENOTSUP** on unsupported stream (decoding may proceed but could return zero frames)
-* **EBADMSG** on invalid stream (decoding may proceed but could show visual artefacts, if you can check with another decoder that the stream is actually flawless, please consider filling a bug report 🙏)
-* **EINVAL** if the function was called with `s == NULL` or `s->buf == NULL`
-* **ENODATA** if the function was called while `s->buf >= s->end`
-* **ENOMEM** if `malloc` failed to allocate memory
-* **ENOBUFS** if more frames should be consumed and returned with `Edge264_get_frame` to release a picture slot before resuming the call
-* **EWOULDBLOCK** if the non-blocking function must wait before a picture slot is available
+* `0` on success
+* `ENOTSUP` on unsupported stream (decoding may proceed but could return zero frames)
+* `EBADMSG` on invalid stream (decoding may proceed but could show visual artefacts, if you can check with another decoder that the stream is actually flawless, please consider filling a bug report 🙏)
+* `EINVAL` if the function was called with `s == NULL` or `s->buf == NULL`
+* `ENODATA` if the function was called while `s->buf >= s->end`
+* `ENOMEM` if `malloc` failed to allocate memory
+* `ENOBUFS` if more frames should be consumed with `Edge264_get_frame` to release a picture slot
+* `EWOULDBLOCK` if the non-blocking function would have to wait before a picture slot is available
 
 **`int Edge264_get_frame(Edge264_decoder *s, int drain, int blocking, int borrow)`**
 Check the Decoded Picture Buffer for a pending displayable frame, and pass it in `s`.
@@ -152,10 +152,10 @@ While reference frames may be decoded ahead of their actual display (ex. B-Pyram
 
 It will return:
 
-* **0** on success (one frame is returned)
-* **EINVAL** if the function was called with `s == NULL`
-* **ENOMSG** if there is no frame to output and more NALs have to be sent beforehand
-* **EWOULDBLOCK** if there will be a frame to output soon but it is not finished processing yet
+* `0` on success (one frame is returned)
+* `EINVAL` if the function was called with `s == NULL`
+* `ENOMSG` if there is no frame to output and more NALs have to be sent beforehand
+* `EWOULDBLOCK` if the non-blocking function would have to wait until a frame is finished processing
 
 **`void Edge264_return_frame(Edge264_decoder *d, void *return_arg)`**
 Give back ownership of the frame if it was borrowed from a previous call to `Edge264_get_frame`.

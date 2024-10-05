@@ -28,6 +28,7 @@
 #ifndef EDGE264_H
 #define EDGE264_H
 
+#include <errno.h>
 #include <stdint.h>
 
 typedef struct Edge264_decoder {

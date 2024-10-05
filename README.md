@@ -93,7 +93,9 @@ Allocate and return a decoding context, that is used to pass and receive paramet
 The private decoding context is actually hidden at negative offsets from the pointer returned.
 
 **`int Edge264_reset(Edge264_decoder *s)`**
-For use when seeking, stop all background processing and clear the picture buffer. The parameter sets are kept, thus do not need to be sent again if they did not change.
+For use when seeking, stop all background processing and clear the picture buffer.
+The parameter sets are kept, thus do not need to be sent again if they did not change.
+This function does not block but may fail with **EBUSY** if a frame has not been returned from a previous `Edge264_get_frame`.
 
 **`void Edge264_free(Edge264_decoder **s)`**
 Deallocate the entire decoding context, and unset the stream pointer.
@@ -127,14 +129,16 @@ typedef struct Edge264_decoder {
 **`int Edge264_decode_NAL(Edge264_decoder *s)`**
 Decode a single NAL unit, for which `s->buf` should point to its first byte (containing `nal_unit_type`) and `s->end` should point to the first byte past the buffer.
 After decoding the NAL, if `s->annex_B` is set and the return code is positive or zero then `s->buf` is advanced past the next start code.
-Return codes are:
+It will return:
 
-* **-3** if the function was called while `s->buf >= s->end`
-* **-2** if more frames should be consumed and returned after `Edge264_get_frame` before resuming the call
-* **-1** if the function was called with `s == NULL` or `s->buf == NULL`
 * **0** on success
-* **1** on unsupported stream (decoding may proceed but could return zero frames)
-* **2** on decoding error (decoding may proceed but could show visual artefacts, if you can check with another decoder that the stream is actually flawless, please consider filling a bug report 🙏)
+* **ENOTSUP** on unsupported stream (decoding may proceed but could return zero frames)
+* **EBADMSG** on invalid stream (decoding may proceed but could show visual artefacts, if you can check with another decoder that the stream is actually flawless, please consider filling a bug report 🙏)
+* **EINVAL** if the function was called with `s == NULL` or `s->buf == NULL`
+* **ENODATA** if the function was called while `s->buf >= s->end`
+* **ENOMEM** if `malloc` failed to allocate memory
+* **ENOBUFS** if more frames should be consumed and returned with `Edge264_get_frame` to release a picture slot before resuming the call
+* **EWOULDBLOCK** if the non-blocking function must wait before a picture slot is available
 
 **`int Edge264_get_frame(Edge264_decoder *s, int drain, int blocking, int borrow)`**
 Check the Decoded Picture Buffer for a pending displayable frame, and pass it in `s`.
@@ -146,12 +150,12 @@ While reference frames may be decoded ahead of their actual display (ex. B-Pyram
 * Lacking an available frame buffer releases the next non-reference frame in display order (to salvage its buffer) and all reference frames displayed before it.
 * Setting `drain` considers all frames ready for display, which may help reduce latency if you know that no frame reordering will occur (e.g. for videoconferencing or at end of stream). This is especially useful since the base spec offers no way to signal that a stored frame is ready for display, so many streams will fill the frame buffer before actually getting frames.
 
-Return codes are:
+It will return:
 
-* **-3** if get_frame would have to block to return a frame but `blocking` is not set
-* **-2** if more NALs should be sent before returning a frame
-* **-1** if the function was called with `s == NULL`
 * **0** on success (one frame is returned)
+* **EINVAL** if the function was called with `s == NULL`
+* **ENOMSG** if there is no frame to output and more NALs have to be sent beforehand
+* **EWOULDBLOCK** if there will be a frame to output soon but it is not finished processing yet
 
 **`void Edge264_return_frame(Edge264_decoder *d, void *return_arg)`**
 Give back ownership of the frame if it was borrowed from a previous call to `Edge264_get_frame`.

@@ -35,7 +35,7 @@ static GLFWwindow *window;
 static int width, height, mvc_display;
 static int program0, program1;
 static unsigned textures[6];
-static int counts[7];
+static int count_pass, count_unsup, count_fail, count_flag;
 
 static inline int min(int a, int b) { return (a < b) ? a : b; }
 static inline int max(int a, int b) { return (a > b) ? a : b; }
@@ -326,9 +326,9 @@ static int decode_file(const char *name, int print_counts)
 	
 	// print the success counts
 	if (!TRACE && print_counts) {
-		printf("%d " GREEN "PASS" RESET ", %d " YELLOW "UNSUPPORTED" RESET ", %d " RED "FAIL" RESET, counts[0], counts[4], counts[5]);
-		if (counts[6] > 0)
-			printf(", %d " BLUE "FLAGGED" RESET, counts[6]);
+		printf("%d " GREEN "PASS" RESET ", %d " YELLOW "UNSUPPORTED" RESET ", %d " RED "FAIL" RESET, count_pass, count_unsup, count_fail);
+		if (count_flag > 0)
+			printf(", %d " BLUE "FLAGGED" RESET, count_flag);
 		printf(" (%s)\n", name);
 	}
 	
@@ -338,7 +338,7 @@ static int decode_file(const char *name, int print_counts)
 	int res;
 	do {
 		res = Edge264_decode_NAL(s);
-		while (!Edge264_get_frame(s, res == -3, res == -3, 0)) {
+		while (!Edge264_get_frame(s, res == ENODATA, res == ENODATA, 0)) {
 			if (display)
 				draw_frame();
 			if (conf[0] != NULL && check_frame()) {
@@ -348,24 +348,27 @@ static int decode_file(const char *name, int print_counts)
 					glfwTerminate();
 					exit(0);
 				}
-				res = 2;
+				res = EBADMSG;
 			}
 		}
-	} while (res == 0 || res == -2);
-	if (res == -2 || (res == -3 && conf[0] != NULL && conf[0] != dpb + stD.st_size))
-		res = 2;
-	counts[3 + res]++;
+	} while (res == 0 || res == ENOBUFS);
+	if (res == ENOBUFS || (res == ENODATA && conf[0] != NULL && conf[0] != dpb + stD.st_size))
+		res = EBADMSG;
 	
 	// print the file that was decoded
 	if (!TRACE && print_counts) {
+		count_pass += res == ENODATA;
+		count_unsup += res == ENOTSUP;
+		count_fail += res == EBADMSG;
+		count_flag += res == EAUTH;
 		printf("\e[A\e[K"); // move cursor up and clear line
-		if (res == -3 && print_passed) {
+		if (res == ENODATA && print_passed) {
 			printf("%s: " GREEN "PASS" RESET "\n", name);
-		} else if (res == 1 && print_unsupported) {
+		} else if (res == ENOTSUP && print_unsupported) {
 			printf("%s: " YELLOW "UNSUPPORTED" RESET "\n", name);
-		} else if (res == 2 && print_failed) {
+		} else if (res == EBADMSG && print_failed) {
 			printf("%s: " RED "FAIL" RESET "\n", name);
-		} else if (res == 3) {
+		} else if (res == EAUTH) {
 			printf("%s: " BLUE "FLAGGED" RESET "\n", name);
 		}
 	}
@@ -454,9 +457,9 @@ int main(int argc, const char *argv[])
 	s->annex_B = 1;
 	if (chdir(file_name) < 0) {
 		int res = decode_file(file_name, 0);
-		if (!TRACE && res == 1)
+		if (!TRACE && res == ENOTSUP)
 			printf("Decoding ended prematurely on " BOLD "unsupported stream" RESET "\n");
-		if (!TRACE && res == 2)
+		if (!TRACE && res == EBADMSG)
 			printf("Decoding ended prematurely on " BOLD "decoding error" RESET "\n");
 	} else {
 		struct dirent **entries;
@@ -467,9 +470,9 @@ int main(int argc, const char *argv[])
 			free(entries[n]);
 		}
 		if (!TRACE) {
-			printf("%d " GREEN "PASS" RESET ", %d " YELLOW "UNSUPPORTED" RESET ", %d " RED "FAIL" RESET, counts[0], counts[4], counts[5]);
-			if (counts[6] > 0)
-				printf(", %d " BLUE "FLAGGED" RESET, counts[6]);
+			printf("%d " GREEN "PASS" RESET ", %d " YELLOW "UNSUPPORTED" RESET ", %d " RED "FAIL" RESET, count_pass, count_unsup, count_fail);
+			if (count_flag > 0)
+				printf(", %d " BLUE "FLAGGED" RESET, count_flag);
 			putc('\n', stdout);
 		}
 		free(entries);

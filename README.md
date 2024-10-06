@@ -58,23 +58,23 @@ int main(int argc, char *argv[]) {
 	struct stat st;
 	fstat(f, &st);
 	uint8_t *buf = mmap(NULL, st.st_size, PROT_READ, MAP_SHARED, f, 0);
-	Edge264_decoder *s = Edge264_alloc();
-	s->buf = buf + 3 + (buf[2] == 0); // skip the [0]001 delimiter
-	s->end = buf + st.st_size;
-	s->annex_B = 1; // enable searching for the next start code after each NAL
+	Edge264_decoder *d = Edge264_alloc();
+	d->buf = buf + 3 + (buf[2] == 0); // skip the [0]001 delimiter
+	d->end = buf + st.st_size;
+	d->annex_B = 1; // enable searching for the next start code after each NAL
 	int res;
 	do {
-		res = Edge264_decode_NAL(s);
-		while (!Edge264_get_frame(s, res == ENODATA, res == ENODATA)) { // drain and block at end of buffer
-			for (int y = 0; y < s->height_Y; y++)
-				write(1, s->samples[0] + y * s->stride_Y, s->width_Y);
-			for (int y = 0; y < s->height_C; y++)
-				write(1, s->samples[1] + y * s->stride_C, s->width_C);
-			for (int y = 0; y < s->height_C; y++)
-				write(1, s->samples[2] + y * s->stride_C, s->width_C);
+		res = Edge264_decode_NAL(d);
+		while (!Edge264_get_frame(d, 0)) {
+			for (int y = 0; y < d->height_Y; y++)
+				write(1, d->samples[0] + y * d->stride_Y, d->width_Y);
+			for (int y = 0; y < d->height_C; y++)
+				write(1, d->samples[1] + y * d->stride_C, d->width_C);
+			for (int y = 0; y < d->height_C; y++)
+				write(1, d->samples[2] + y * d->stride_C, d->width_C);
 		}
 	} while (res == 0 || res == ENOBUFS);
-	Edge264_free(&s);
+	Edge264_free(&d);
 	munmap(buf, st.st_size);
 	close(f);
 	return 0;
@@ -92,13 +92,12 @@ Scan memory for the next three-byte 001 sequence, returning a pointer to the fir
 Allocate and return a decoding context, that is used to pass and receive parameters.
 The private decoding context is actually hidden at negative offsets from the pointer returned.
 
-**`int Edge264_reset(Edge264_decoder *s)`**
-For use when seeking, stop all background processing and clear the picture buffer.
+**`void Edge264_flush(Edge264_decoder *d)`**
+For use when seeking, stop all background processing and clear all delayed frames.
 The parameter sets are kept, thus do not need to be sent again if they did not change.
-This function does not block but may fail with `EBUSY` if a frame has not been returned from a previous `Edge264_get_frame`.
 
-**`void Edge264_free(Edge264_decoder **s)`**
-Deallocate the entire decoding context, and unset the stream pointer.
+**`void Edge264_free(Edge264_decoder **d)`**
+Deallocate the entire decoding context, and unset the pointer.
 
 ```c
 typedef struct Edge264_decoder {
@@ -126,36 +125,34 @@ typedef struct Edge264_decoder {
 } Edge264_decoder;
 ```
 
-**`int Edge264_decode_NAL(Edge264_decoder *s)`**
-Decode a single NAL unit, for which `s->buf` should point to its first byte (containing `nal_unit_type`) and `s->end` should point to the first byte past the buffer.
-After decoding the NAL, if `s->annex_B` is set and the return code is positive or zero then `s->buf` is advanced past the next start code.
+**`int Edge264_decode_NAL(Edge264_decoder *d)`**
+Decode a single NAL unit, for which `d->buf` should point to its first byte (containing `nal_unit_type`) and `d->end` should point to the first byte past the buffer.
+After decoding the NAL, if `d->annex_B` is set and the return code is `0`, `ENOTSUP` or `EBADMSG` then `d->buf` is advanced past the next start code.
 It will return:
 
 * `0` on success
 * `ENOTSUP` on unsupported stream (decoding may proceed but could return zero frames)
 * `EBADMSG` on invalid stream (decoding may proceed but could show visual artefacts, if you can check with another decoder that the stream is actually flawless, please consider filling a bug report 🙏)
-* `EINVAL` if the function was called with `s == NULL` or `s->buf == NULL`
-* `ENODATA` if the function was called while `s->buf >= s->end`
+* `EINVAL` if the function was called with `d == NULL` or `d->buf == NULL`
+* `ENODATA` if the function was called while `d->buf >= d->end`
 * `ENOMEM` if `malloc` failed to allocate memory
 * `ENOBUFS` if more frames should be consumed with `Edge264_get_frame` to release a picture slot
 * `EWOULDBLOCK` if the non-blocking function would have to wait before a picture slot is available
 
-**`int Edge264_get_frame(Edge264_decoder *s, int drain, int blocking, int borrow)`**
-Check the Decoded Picture Buffer for a pending displayable frame, and pass it in `s`.
+**`int Edge264_get_frame(Edge264_decoder *d, int borrow)`**
+Check the Decoded Picture Buffer for a pending displayable frame, and pass it in `d`.
 While reference frames may be decoded ahead of their actual display (ex. B-Pyramid technique), all frames are buffered for reordering before being released for display:
 
 * Decoding a non-reference frame releases it and all frames set to be displayed before it.
 * Decoding a key frame releases all stored frames (but not the key frame itself which might be reordered later).
 * Exceeding the maximum number of frames held for reordering releases the next frame in display order.
 * Lacking an available frame buffer releases the next non-reference frame in display order (to salvage its buffer) and all reference frames displayed before it.
-* Setting `drain` considers all frames ready for display, which may help reduce latency if you know that no frame reordering will occur (e.g. for videoconferencing or at end of stream). This is especially useful since the base spec offers no way to signal that a stored frame is ready for display, so many streams will fill the frame buffer before actually getting frames.
 
 It will return:
 
 * `0` on success (one frame is returned)
-* `EINVAL` if the function was called with `s == NULL`
-* `ENOMSG` if there is no frame to output and more NALs have to be sent beforehand
-* `EWOULDBLOCK` if the non-blocking function would have to wait until a frame is finished processing
+* `EINVAL` if the function was called with `d == NULL`
+* `ENOMSG` if there is no frame to output at the moment
 
 **`void Edge264_return_frame(Edge264_decoder *d, void *return_arg)`**
 Give back ownership of the frame if it was borrowed from a previous call to `Edge264_get_frame`.
@@ -181,7 +178,7 @@ Programming techniques
 
 edge264 originated as an experiment on new programming techniques to improve performance and code simplicity over existing decoders. I presented a few of these techniques at FOSDEM'24 on 4 February 2024. Be sure to check the [video](https://fosdem.org/2024/schedule/event/fosdem-2024-2931-innovations-in-h-264-avc-software-decoding-architecture-and-optimization-of-a-block-based-video-decoder-to-reach-10-faster-speed-and-3x-code-reduction-over-the-state-of-the-art-/)!
 
-* [Minimalistic API](edge264.h) with FFI-friendly design (6 functions and 1 structure).
+* [Minimalistic API](edge264.h) with FFI-friendly design (7 functions and 1 structure).
 * [The input bitstream](edge264_bitstream.c) is unescaped on the fly using vector code, avoiding a full preprocessing pass to remove escape sequences, and thus reducing memory reads/writes.
 * [Error detection](edge264.c) is performed once in each type of NAL unit (search for `return` statements), by clamping all input values to their expected ranges, then expecting `rbsp_trailing_bit` afterwards (with _very high_ probability of catching an error if the stream is corrupted). This design choice is discussed in [A case about parsing errors](https://traffaillac.github.io/parsing.html).
 * [The bitstream caches](edge264_internal.h) for CAVLC and CABAC (search for `rbsp_reg`) are stored in two size_t variables each, mapped on Global Register Variables if possible, speeding up the _very frequent_ calls to input functions. The main context pointer is also assigned to a GRV, to help reduce the binary size (\~200k).

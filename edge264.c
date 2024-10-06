@@ -2,6 +2,7 @@
  * _ Multithreading
  * 	_ add an option to make decode_NAL non blocking
  * 	_ replace API arguments with text to be more explicit
+ * 	_ change API names to be like Dav1d
  * 	_ review task_lock so that it allows calling get_frame in parallel
  * 	_ receiving a different SPS should return -2 if there are unreturned frames left
  * 	_ Implement a basic task queue yet in decoding order and with 1 thread
@@ -1659,8 +1660,15 @@ static int FUNC_CTX(parse_seq_parameter_set)
 	int64_t offsets;
 	memcpy(&offsets, ctx->d.frame_crop_offsets, 8);
 	if (sps.DPB_format != ctx->DPB_format || sps.frame_crop_offsets_l != offsets) {
-		if (Edge264_reset(&ctx->d))
-			return EBUSY;
+		if (ctx->output_flags | ctx->borrow_flags) {
+			for (unsigned o = ctx->output_flags; o; o &= o - 1)
+				ctx->dispPicOrderCnt = max(ctx->dispPicOrderCnt, ctx->FieldOrderCnt[0][__builtin_ctz(o)]);
+			pthread_mutex_lock(&ctx->task_lock);
+			while (ctx->output_flags & CALL_CTX(depended_frames))
+				pthread_cond_wait(&ctx->task_complete, &ctx->task_lock);
+			pthread_mutex_unlock(&ctx->task_lock);
+			return ENOBUFS;
+		}
 		ctx->DPB_format = sps.DPB_format;
 		memcpy(ctx->d.frame_crop_offsets, &sps.frame_crop_offsets_l, 8);
 		int width = sps.pic_width_in_mbs << 4;
@@ -1681,6 +1689,14 @@ static int FUNC_CTX(parse_seq_parameter_set)
 		ctx->d.samples_mvc[0] = ctx->d.samples_mvc[1] = ctx->d.samples_mvc[2] = NULL;
 		int mbs = (sps.pic_width_in_mbs + 1) * sps.pic_height_in_mbs - 1;
 		ctx->frame_size = ctx->plane_size_Y + ctx->plane_size_C * 2 + mbs * sizeof(Edge264_macroblock);
+		ctx->currPic = ctx->basePic = -1;
+		ctx->reference_flags = ctx->long_term_flags = 0;
+		for (int i = 0; i < 32; i++) {
+			if (ctx->frame_buffers[i] != NULL) {
+				free(ctx->frame_buffers[i]);
+				ctx->frame_buffers[i] = NULL;
+			}
+		}
 	}
 	ctx->sps = sps;
 	return 0;
@@ -1749,30 +1765,24 @@ Edge264_decoder *Edge264_alloc() {
 
 
 
-int Edge264_reset(Edge264_decoder *d) {
+void Edge264_flush(Edge264_decoder *d) {
 	if (d == NULL)
-		return EINVAL;
-	Edge264_context *c = (void *)d - offsetof(Edge264_context, d);
-	pthread_mutex_lock(&c->task_lock);
-	c->currPic = c->basePic = -1;
-	c->reference_flags = c->long_term_flags = c->output_flags = c->borrow_flags = 0;
+		return;
+	SET_CTX((void *)d - offsetof(Edge264_context, d));
+	pthread_mutex_lock(&ctx->task_lock);
+	ctx->currPic = ctx->basePic = -1;
+	ctx->reference_flags = ctx->long_term_flags = ctx->output_flags = 0;
 	// FIXME interrupt all threads
-	for (unsigned b = c->busy_tasks; b; b &= b - 1) {
-		Edge264_task *t = c->tasks + __builtin_ctz(b);
+	for (unsigned b = ctx->busy_tasks; b; b &= b - 1) {
+		Edge264_task *t = ctx->tasks + __builtin_ctz(b);
 		if (t->free_cb)
 			t->free_cb(t->free_arg);
 	}
-	c->busy_tasks = c->pending_tasks = c->ready_tasks = 0;
-	c->task_dependencies_v[0] = c->task_dependencies_v[1] = c->task_dependencies_v[2] = c->task_dependencies_v[3] = (i32x4){};
-	c->taskPics_v = set8(-1);
-	for (int i = 0; i < 32; i++) {
-		if (c->frame_buffers[i] != NULL) {
-			free(c->frame_buffers[i]);
-			c->frame_buffers[i] = NULL;
-		}
-	}
-	pthread_mutex_unlock(&c->task_lock);
-	return 0;
+	ctx->busy_tasks = ctx->pending_tasks = ctx->ready_tasks = 0;
+	ctx->task_dependencies_v[0] = ctx->task_dependencies_v[1] = ctx->task_dependencies_v[2] = ctx->task_dependencies_v[3] = (i32x4){};
+	ctx->taskPics_v = set8(-1);
+	pthread_mutex_unlock(&ctx->task_lock);
+	RESET_CTX();
 }
 
 
@@ -1836,9 +1846,17 @@ int Edge264_decode_NAL(Edge264_decoder *d)
 	if (d == NULL || d->buf == NULL)
 		return EINVAL;
 	const uint8_t *CPB = d->buf, *end = d->end;
-	if (CPB >= end)
-		return ENODATA;
 	SET_CTX((void *)d - offsetof(Edge264_context, d));
+	if (CPB >= end) {
+		for (unsigned o = ctx->output_flags; o; o &= o - 1)
+			ctx->dispPicOrderCnt = max(ctx->dispPicOrderCnt, ctx->FieldOrderCnt[0][__builtin_ctz(o)]);
+		pthread_mutex_lock(&ctx->task_lock);
+		while (ctx->output_flags & CALL_CTX(depended_frames))
+			pthread_cond_wait(&ctx->task_complete, &ctx->task_lock);
+		pthread_mutex_unlock(&ctx->task_lock);
+		RESET_CTX();
+		return ENODATA;
+	}
 	ctx->nal_ref_idc = CPB[0] >> 5;
 	ctx->nal_unit_type = CPB[0] & 0x1f;
 	printf("<table>\n"
@@ -1923,15 +1941,14 @@ int Edge264_decode_NAL(Edge264_decoder *d)
  * This function will consider all frames instead if either:
  * _ there are more frames to output than max_num_reorder_frames
  * _ there is no empty slot for the next frame
- * _ drain is set
  */
-int Edge264_get_frame(Edge264_decoder *d, int drain, int blocking, int borrow) {
+int Edge264_get_frame(Edge264_decoder *d, int borrow) {
 	if (d == NULL)
 		return EINVAL;
 	SET_CTX((void *)d - offsetof(Edge264_context, d));
 	int pic[2] = {-1, -1};
 	unsigned unavail = ctx->reference_flags | ctx->output_flags | (ctx->basePic < 0 ? 0 : 1 << ctx->basePic);
-	int best = (drain || __builtin_popcount(ctx->output_flags) > ctx->sps.max_num_reorder_frames ||
+	int best = (__builtin_popcount(ctx->output_flags) > ctx->sps.max_num_reorder_frames ||
 		__builtin_popcount(unavail) >= ctx->sps.num_frame_buffers) ? INT_MAX : ctx->dispPicOrderCnt;
 	for (int o = ctx->output_flags; o != 0; o &= o - 1) {
 		int i = __builtin_ctz(o);
@@ -1944,22 +1961,10 @@ int Edge264_get_frame(Edge264_decoder *d, int drain, int blocking, int borrow) {
 			pic[non_base] = i;
 		}
 	}
-	if (pic[0] < 0) {
+	int last = ctx->sps.pic_width_in_mbs * ctx->sps.pic_height_in_mbs;
+	if (pic[0] < 0 || ctx->next_deblock_addr[pic[0]] != last || pic[1] >= 0 && ctx->next_deblock_addr[pic[1]] != last) {
 		RESET_CTX();
 		return ENOMSG;
-	}
-	
-	int last = ctx->sps.pic_width_in_mbs * ctx->sps.pic_height_in_mbs;
-	if (ctx->next_deblock_addr[pic[0]] != last || pic[1] >= 0 && ctx->next_deblock_addr[pic[1]] != last) {
-		if (blocking) {
-			pthread_mutex_lock(&ctx->task_lock);
-			while (ctx->next_deblock_addr[pic[0]] != last || pic[1] >= 0 && ctx->next_deblock_addr[pic[1]] != last)
-				pthread_cond_wait(&ctx->task_complete, &ctx->task_lock);
-			pthread_mutex_unlock(&ctx->task_lock);
-		} else {
-			RESET_CTX();
-			return EWOULDBLOCK;
-		}
 	}
 	
 	int top = ctx->d.frame_crop_offsets[0];

@@ -25,13 +25,13 @@
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF
  * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
-#ifndef EDGE264_H
-#define EDGE264_H
+#ifndef edge264_H
+#define edge264_H
 
 #include <errno.h>
 #include <stdint.h>
 
-typedef struct Edge264_decoder {
+typedef struct Edge264Decoder {
 	// These fields must be set prior to decoding.
 	const uint8_t *buf; // should always point to a NAL unit (after the 001 prefix)
 	const uint8_t *end; // first byte past the end of the buffer
@@ -39,7 +39,7 @@ typedef struct Edge264_decoder {
 	void *free_arg; // passed to the above function
 	int8_t annex_B; // set to 1 to call find_start_code at the end of each decode_NAL
 	
-	// These fields will be set when returning a frame.
+	// These static fields are set when returning a frame.
 	const uint8_t *samples[3]; // Y/Cb/Cr planes
 	const uint8_t *samples_mvc[3]; // second view
 	int8_t pixel_depth_Y; // 0 for 8-bit, 1 for 16-bit
@@ -54,14 +54,14 @@ typedef struct Edge264_decoder {
 	int32_t BottomFieldOrderCnt;
 	int16_t frame_crop_offsets[4]; // {top,right,bottom,left}, in luma samples, already included in samples_Y/Cb/cr and width/height_Y/C
 	void *return_arg;
-} Edge264_decoder;
+} Edge264Decoder;
 
-const uint8_t *Edge264_find_start_code(const uint8_t *buf, const uint8_t *end);
-Edge264_decoder *Edge264_alloc();
-void Edge264_flush(Edge264_decoder *d);
-void Edge264_free(Edge264_decoder **d);
-int Edge264_decode_NAL(Edge264_decoder *d);
-int Edge264_get_frame(Edge264_decoder *d, int borrow);
-void Edge264_return_frame(Edge264_decoder *d, void *return_arg);
+const uint8_t *edge264_find_start_code(const uint8_t *buf, const uint8_t *end);
+Edge264Decoder *edge264_alloc();
+void edge264_flush(Edge264Decoder *d);
+void edge264_free(Edge264Decoder **d);
+int edge264_decode_NAL(Edge264Decoder *d);
+int edge264_get_frame(Edge264Decoder *d, int borrow);
+void edge264_return_frame(Edge264Decoder *d, void *return_arg);
 
 #endif

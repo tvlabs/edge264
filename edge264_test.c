@@ -29,7 +29,7 @@ static int print_failed = 0;
 static int print_passed = 0;
 static int print_unsupported = 0;
 static int enable_yuv = 1;
-static Edge264_decoder *d;
+static Edge264Decoder *d;
 static const uint8_t *conf[3];
 static GLFWwindow *window;
 static int width, height, mvc_display;
@@ -337,8 +337,8 @@ static int decode_file(const char *name, int print_counts)
 	d->end = buf + stC.st_size;
 	int res;
 	do {
-		res = Edge264_decode_NAL(d);
-		while (!Edge264_get_frame(d, 0)) {
+		res = edge264_decode_NAL(d);
+		while (!edge264_get_frame(d, 0)) {
 			if (display)
 				draw_frame();
 			if (conf[0] != NULL && check_frame()) {
@@ -453,7 +453,7 @@ int main(int argc, const char *argv[])
 	#endif
 	
 	// check if input is a directory by trying to move into it
-	d = Edge264_alloc();
+	d = edge264_alloc();
 	d->annex_B = 1;
 	if (chdir(file_name) < 0) {
 		int res = decode_file(file_name, 0);
@@ -477,7 +477,7 @@ int main(int argc, const char *argv[])
 		}
 		free(entries);
 	}
-	Edge264_free(&d);
+	edge264_free(&d);
 	
 	// closing information
 	#if !TRACE

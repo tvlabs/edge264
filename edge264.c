@@ -83,7 +83,7 @@ static const i8x16 Default_8x8_Inter[4] = {
  * This function sets the context pointers to the frame about to be decoded,
  * and fills the context caches with useful values.
  */
-static void FUNC_CTX(initialise_decoding_context, Edge264_task *t)
+static void FUNC_CTX(initialise_decoding_context, Edge264Task *t)
 {
 	static const int8_t QP_Y2C[88] = {
 		0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
@@ -128,7 +128,7 @@ static void FUNC_CTX(initialise_decoding_context, Edge264_task *t)
 	t->QP[1] = t->QP_C[0][t->QP[0]];
 	t->QP[2] = t->QP_C[1][t->QP[0]];
 	int mb_offset = ctx->plane_size_Y + ctx->plane_size_C * 2 + sizeof(*t->_mb) * (mbx + mby * (ctx->sps.pic_width_in_mbs + 1));
-	t->mbCol = t->_mb = (Edge264_macroblock *)(t->samples_base + mb_offset);
+	t->mbCol = t->_mb = (Edge264Macroblock *)(t->samples_base + mb_offset);
 	for (int i = 1; i < 4; i++) {
 		t->sig_inc_v[i] = sig_inc_8x8[0][i];
 		t->last_inc_v[i] = last_inc_8x8[i];
@@ -160,7 +160,7 @@ static void FUNC_CTX(initialise_decoding_context, Edge264_task *t)
 		// B slices
 		if (t->slice_type == 1) {
 			int colPic = t->RefPicList[1][0];
-			t->mbCol = (Edge264_macroblock *)(t->frame_buffers[colPic] + mb_offset);
+			t->mbCol = (Edge264Macroblock *)(t->frame_buffers[colPic] + mb_offset);
 			t->col_short_term = (ctx->long_term_flags >> colPic & 1) ^ 1;
 			
 			// initializations for temporal prediction and implicit weights
@@ -304,7 +304,7 @@ static void FUNC_CTX(parse_dec_ref_pic_marking)
 /**
  * Parses coefficients for weighted sample prediction (7.4.3.2 and 8.4.2.3).
  */
-static void FUNC_CTX(parse_pred_weight_table, Edge264_task *t)
+static void FUNC_CTX(parse_pred_weight_table, Edge264Task *t)
 {
 	// further tests will depend only on weighted_bipred_idc
 	if (t->slice_type == 0)
@@ -355,7 +355,7 @@ static void FUNC_CTX(parse_pred_weight_table, Edge264_task *t)
  * single function to foster compactness and maintenance. Performance is not
  * crucial here.
  */
-static void FUNC_CTX(parse_ref_pic_list_modification, Edge264_task *t)
+static void FUNC_CTX(parse_ref_pic_list_modification, Edge264Task *t)
 {
 	// For P we sort on FrameNum, for B we sort on PicOrderCnt.
 	const int32_t *values = (t->slice_type == 0) ? ctx->FrameNums : ctx->FieldOrderCnt[0];
@@ -492,7 +492,7 @@ static int FUNC_CTX(alloc_frame, int id) {
 	ctx->frame_buffers[id] = malloc(ctx->frame_size);
 	if (ctx->frame_buffers[id] == NULL)
 		return ENOMEM;
-	Edge264_macroblock *m = (Edge264_macroblock *)(ctx->frame_buffers[id] + ctx->plane_size_Y + ctx->plane_size_C * 2);
+	Edge264Macroblock *m = (Edge264Macroblock *)(ctx->frame_buffers[id] + ctx->plane_size_Y + ctx->plane_size_C * 2);
 	m[0].unavail16x16 = 15;
 	for (int i = 1; i < ctx->sps.pic_width_in_mbs; i++)
 		m[i].unavail16x16 = 14;
@@ -537,7 +537,7 @@ static void FUNC_CTX(finish_frame, int pair_view) {
  * This function is the entry point for each worker thread, where it consumes
  * tasks continuously until killed by the parent process.
  */
-static void *worker_loop(Edge264_context *c) {
+static void *worker_loop(Edge264Context *c) {
 	pthread_mutex_lock(&c->task_lock);
 	if (1) {
 		while (!c->ready_tasks)
@@ -580,7 +580,7 @@ static void *worker_loop(Edge264_context *c) {
 			tsk->samples_mb[0] = tsk->samples_row[0] + mbx * 16;
 			tsk->samples_mb[1] = tsk->samples_base + tsk->plane_size_Y + mby * tsk->stride[1] * 8 + mbx * 8;
 			tsk->samples_mb[2] = tsk->samples_mb[1] + tsk->plane_size_C;
-			mb = (Edge264_macroblock *)(tsk->samples_base + tsk->plane_size_Y + tsk->plane_size_C * 2) + mbx + mby * (tsk->pic_width_in_mbs + 1);
+			mb = (Edge264Macroblock *)(tsk->samples_base + tsk->plane_size_Y + tsk->plane_size_C * 2) + mbx + mby * (tsk->pic_width_in_mbs + 1);
 			while (tsk->next_deblock_addr < tsk->CurrMbAddr) {
 				CALL_TSK(deblock_mb);
 				tsk->next_deblock_addr++;
@@ -637,7 +637,7 @@ static int FUNC_CTX(parse_slice_layer_without_partitioning)
 			pthread_cond_wait(&ctx->task_complete, &ctx->task_lock);
 		pthread_mutex_unlock(&ctx->task_lock);
 	}
-	Edge264_task *t = ctx->tasks + __builtin_ctz(avail_tasks);
+	Edge264Task *t = ctx->tasks + __builtin_ctz(avail_tasks);
 	t->_ctx = ctx;
 	
 	// first important fields and checks before decoding the slice header
@@ -1020,7 +1020,7 @@ static int FUNC_CTX(parse_pic_parameter_set)
 	static const char * const weighted_pred_names[3] = {"average", "explicit", "implicit"};
 	
 	// temp storage, committed if entire NAL is correct
-	Edge264_pic_parameter_set pps;
+	Edge264PicParameterSet pps;
 	pps.transform_8x8_mode_flag = 0;
 	for (int i = 0; i < 6; i++)
 		pps.weightScale4x4_v[i] = ctx->sps.weightScale4x4_v[i];
@@ -1201,7 +1201,7 @@ static void FUNC_CTX(parse_hrd_parameters) {
  * To avoid cluttering the memory layout with unused data, VUI parameters are
  * mostly ignored until explicitly asked in the future.
  */
-static void FUNC_CTX(parse_vui_parameters, Edge264_seq_parameter_set *sps)
+static void FUNC_CTX(parse_vui_parameters, Edge264SeqParameterSet *sps)
 {
 	static const unsigned ratio2sar[32] = {0, 0x00010001, 0x000c000b,
 		0x000a000b, 0x0010000b, 0x00280021, 0x0018000b, 0x0014000b, 0x0020000b,
@@ -1388,7 +1388,7 @@ static void FUNC_CTX(parse_mvc_vui_parameters_extension)
 /**
  * Parses the SPS extension for MVC.
  */
-static int FUNC_CTX(parse_seq_parameter_set_mvc_extension, Edge264_seq_parameter_set *sps, int profile_idc)
+static int FUNC_CTX(parse_seq_parameter_set_mvc_extension, Edge264SeqParameterSet *sps, int profile_idc)
 {
 	// returning unsupported asap is more efficient than keeping tedious code afterwards
 	int num_views = CALL_C2B(get_ue16, 1023) + 1;
@@ -1438,7 +1438,7 @@ static int FUNC_CTX(parse_seq_parameter_set_mvc_extension, Edge264_seq_parameter
 
 
 /**
- * Parses the SPS into a Edge264_parameter_set structure, then saves it if a
+ * Parses the SPS into a edge264_parameter_set structure, then saves it if a
  * rbsp_trailing_bits pattern follows.
  */
 static int FUNC_CTX(parse_seq_parameter_set)
@@ -1476,7 +1476,7 @@ static int FUNC_CTX(parse_seq_parameter_set)
 	};
 	
 	// temp storage, committed if entire NAL is correct
-	Edge264_seq_parameter_set sps = {
+	Edge264SeqParameterSet sps = {
 		.chroma_format_idc = 1,
 		.ChromaArrayType = 1,
 		.BitDepth_Y = 8,
@@ -1688,7 +1688,7 @@ static int FUNC_CTX(parse_seq_parameter_set)
 		ctx->d.samples[0] = ctx->d.samples[1] = ctx->d.samples[2] = NULL;
 		ctx->d.samples_mvc[0] = ctx->d.samples_mvc[1] = ctx->d.samples_mvc[2] = NULL;
 		int mbs = (sps.pic_width_in_mbs + 1) * sps.pic_height_in_mbs - 1;
-		ctx->frame_size = ctx->plane_size_Y + ctx->plane_size_C * 2 + mbs * sizeof(Edge264_macroblock);
+		ctx->frame_size = ctx->plane_size_Y + ctx->plane_size_C * 2 + mbs * sizeof(Edge264Macroblock);
 		ctx->currPic = ctx->basePic = -1;
 		ctx->reference_flags = ctx->long_term_flags = 0;
 		for (int i = 0; i < 32; i++) {
@@ -1727,7 +1727,7 @@ static int FUNC_CTX(parse_seq_parameter_set_extension) {
 
 
 
-const uint8_t *Edge264_find_start_code(const uint8_t *buf, const uint8_t *end) {
+const uint8_t *edge264_find_start_code(const uint8_t *buf, const uint8_t *end) {
 	i8x16 zero = {};
 	i8x16 xN = set8(1);
 	const i8x16 *p = (i8x16 *)((uintptr_t)buf & -16);
@@ -1745,14 +1745,14 @@ const uint8_t *Edge264_find_start_code(const uint8_t *buf, const uint8_t *end) {
 
 
 
-Edge264_decoder *Edge264_alloc() {
-	Edge264_context *c = calloc(1, sizeof(Edge264_context));
+Edge264Decoder *edge264_alloc() {
+	Edge264Context *c = calloc(1, sizeof(Edge264Context));
 	if (c != NULL) {
 		if (pthread_mutex_init(&c->task_lock, NULL) == 0) {
 			if (pthread_cond_init(&c->task_ready, NULL) == 0) {
 				if (pthread_cond_init(&c->task_complete, NULL) == 0) {
 					c->taskPics_v = set8(-1);
-					return (void *)c + offsetof(Edge264_context, d);
+					return (void *)c + offsetof(Edge264Context, d);
 				}
 				pthread_cond_destroy(&c->task_complete);
 			}
@@ -1765,16 +1765,16 @@ Edge264_decoder *Edge264_alloc() {
 
 
 
-void Edge264_flush(Edge264_decoder *d) {
+void edge264_flush(Edge264Decoder *d) {
 	if (d == NULL)
 		return;
-	SET_CTX((void *)d - offsetof(Edge264_context, d));
+	SET_CTX((void *)d - offsetof(Edge264Context, d));
 	pthread_mutex_lock(&ctx->task_lock);
 	ctx->currPic = ctx->basePic = -1;
 	ctx->reference_flags = ctx->long_term_flags = ctx->output_flags = 0;
 	// FIXME interrupt all threads
 	for (unsigned b = ctx->busy_tasks; b; b &= b - 1) {
-		Edge264_task *t = ctx->tasks + __builtin_ctz(b);
+		Edge264Task *t = ctx->tasks + __builtin_ctz(b);
 		if (t->free_cb)
 			t->free_cb(t->free_arg);
 	}
@@ -1787,9 +1787,9 @@ void Edge264_flush(Edge264_decoder *d) {
 
 
 
-void Edge264_free(Edge264_decoder **d) {
+void edge264_free(Edge264Decoder **d) {
 	if (d != NULL && *d != NULL) {
-		SET_CTX((void *)*d - offsetof(Edge264_context, d));
+		SET_CTX((void *)*d - offsetof(Edge264Context, d));
 		pthread_mutex_destroy(&ctx->task_lock);
 		pthread_cond_destroy(&ctx->task_ready);
 		pthread_cond_destroy(&ctx->task_complete);
@@ -1805,7 +1805,7 @@ void Edge264_free(Edge264_decoder **d) {
 
 
 
-int Edge264_decode_NAL(Edge264_decoder *d)
+int edge264_decode_NAL(Edge264Decoder *d)
 {
 	static const char * const nal_unit_type_names[32] = {
 		[0] = "Unknown",
@@ -1843,10 +1843,10 @@ int Edge264_decode_NAL(Edge264_decoder *d)
 	};
 	
 	// initial checks before parsing
-	if (d == NULL || d->buf == NULL)
+	if (d == NULL || d->buf == NULL && d->end != NULL)
 		return EINVAL;
 	const uint8_t *CPB = d->buf, *end = d->end;
-	SET_CTX((void *)d - offsetof(Edge264_context, d));
+	SET_CTX((void *)d - offsetof(Edge264Context, d));
 	if (CPB >= end) {
 		for (unsigned o = ctx->output_flags; o; o &= o - 1)
 			ctx->dispPicOrderCnt = max(ctx->dispPicOrderCnt, ctx->FieldOrderCnt[0][__builtin_ctz(o)]);
@@ -1927,7 +1927,7 @@ int Edge264_decode_NAL(Edge264_decoder *d)
 		if (ctx->d.free_cb && !(ret == 0 && 1048610 & 1 << ctx->nal_unit_type)) // 1, 5 or 20
 			ctx->d.free_cb(ctx->d.free_arg);
 		if (ctx->d.annex_B)
-			ctx->d.buf = Edge264_find_start_code(CPB, end);
+			ctx->d.buf = edge264_find_start_code(CPB, end);
 	}
 	RESET_CTX();
 	return ret;
@@ -1942,10 +1942,10 @@ int Edge264_decode_NAL(Edge264_decoder *d)
  * _ there are more frames to output than max_num_reorder_frames
  * _ there is no empty slot for the next frame
  */
-int Edge264_get_frame(Edge264_decoder *d, int borrow) {
+int edge264_get_frame(Edge264Decoder *d, int borrow) {
 	if (d == NULL)
 		return EINVAL;
-	SET_CTX((void *)d - offsetof(Edge264_context, d));
+	SET_CTX((void *)d - offsetof(Edge264Context, d));
 	int pic[2] = {-1, -1};
 	unsigned unavail = ctx->reference_flags | ctx->output_flags | (ctx->basePic < 0 ? 0 : 1 << ctx->basePic);
 	int best = (__builtin_popcount(ctx->output_flags) > ctx->sps.max_num_reorder_frames ||
@@ -1996,9 +1996,9 @@ int Edge264_get_frame(Edge264_decoder *d, int borrow) {
 
 
 
-void Edge264_return_frame(Edge264_decoder *d, void *return_arg) {
+void edge264_return_frame(Edge264Decoder *d, void *return_arg) {
 	if (d != NULL) {
-		Edge264_context *c = (void *)d - offsetof(Edge264_context, d);
+		Edge264Context *c = (void *)d - offsetof(Edge264Context, d);
 		c->borrow_flags &= ~(size_t)return_arg;
 	}
 }

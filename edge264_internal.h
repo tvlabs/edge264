@@ -2,8 +2,8 @@
  * Every file should be compilable on its own by including this file.
  */
 
-#ifndef EDGE264_COMMON_H
-#define EDGE264_COMMON_H
+#ifndef edge264_COMMON_H
+#define edge264_COMMON_H
 
 #include <assert.h>
 #include <limits.h>
@@ -44,7 +44,7 @@ typedef struct {
 	const uint8_t *end; // first byte past end of buffer, capped to 001 or 000 sequence when detected
 	union { size_t lsb_cache; size_t codIRange; };
 	union { size_t msb_cache; size_t codIOffset; };
-} Edge264_getbits;
+} Edge264GetBits;
 
 
 
@@ -67,8 +67,8 @@ typedef union {
 		union { int8_t coded_block_flags_16x16[3]; int32_t coded_block_flags_16x16_s; };
 	};
 	i8x16 v;
-} Edge264_flags;
-static const Edge264_flags flags_twice = {
+} Edge264Flags;
+static const Edge264Flags flags_twice = {
 	.CodedBlockPatternChromaDC = 1,
 	.CodedBlockPatternChromaAC = 1,
 	.coded_block_flags_16x16 = {1, 1, 1},
@@ -90,7 +90,7 @@ static const Edge264_flags flags_twice = {
  * 4|2 7
  */
 typedef struct {
-	Edge264_flags f;
+	Edge264Flags f;
 	uint8_t unavail16x16; // unavailability of neighbouring A/B/C/D macroblocks in frame
 	uint8_t filter_edges; // 3 bits to enable deblocking of internal/left/top edges
 	union { uint8_t inter_eqs[4]; uint32_t inter_eqs_s; }; // 2 flags per 4x4 block storing right/bottom equality of mvs&ref, in little endian
@@ -102,8 +102,8 @@ typedef struct {
 	union { int8_t refPic[8]; int32_t refPic_s[2]; int64_t refPic_l; }; // [LX][i8x8]
 	union { uint8_t absMvd[64]; uint64_t absMvd_l[8]; i8x16 absMvd_v[4]; }; // [LX][i4x4][compIdx]
 	union { int16_t mvs[64]; int32_t mvs_s[32]; int64_t mvs_l[16]; i16x8 mvs_v[8]; }; // [LX][i4x4][compIdx]
-} Edge264_macroblock;
-static Edge264_macroblock unavail_mb = {
+} Edge264Macroblock;
+static Edge264Macroblock unavail_mb = {
 	.f.mb_skip_flag = 1,
 	.f.mb_type_I_NxN = 1,
 	.f.mb_type_B_Direct = 1,
@@ -151,7 +151,7 @@ typedef struct {
 	union { int16_t frame_crop_offsets[4]; int64_t frame_crop_offsets_l; }; // {top,right,bottom,left}
 	union { uint8_t weightScale4x4[6][16]; i8x16 weightScale4x4_v[6]; };
 	union { uint8_t weightScale8x8[6][64]; i8x16 weightScale8x8_v[6*4]; };
-} Edge264_seq_parameter_set;
+} Edge264SeqParameterSet;
 typedef struct {
 	int8_t entropy_coding_mode_flag; // 1 significant bit
 	int8_t bottom_field_pic_order_in_frame_present_flag; // 1 significant bit
@@ -166,7 +166,7 @@ typedef struct {
 	int8_t second_chroma_qp_index_offset; // 5 significant bits
 	union { uint8_t weightScale4x4[6][16]; i8x16 weightScale4x4_v[6]; };
 	union { uint8_t weightScale8x8[6][64]; i8x16 weightScale8x8_v[6*4]; };
-} Edge264_pic_parameter_set;
+} Edge264PicParameterSet;
 
 
 
@@ -175,7 +175,7 @@ typedef struct {
  * we can dedicate a single register pointer to it.
  */
 typedef struct {
-	Edge264_getbits _gb; // must be first in the struct to use the same pointer for bitstream functions
+	Edge264GetBits _gb; // must be first in the struct to use the same pointer for bitstream functions
 	
 	// header context
 	int8_t slice_type; // 3 significant bits
@@ -194,15 +194,15 @@ typedef struct {
 	int8_t cabac_init_idc; // 2 significant bits
 	uint16_t pic_width_in_mbs; // 10 significant bits
 	uint32_t first_mb_in_slice; // unsigned to speed up integer division
-	Edge264_pic_parameter_set pps;
+	Edge264PicParameterSet pps;
 	
 	// parsing context
-	struct Edge264_context * restrict _ctx;
-	Edge264_macroblock * _mb; // backup storage for macro mb
-	const Edge264_macroblock * _mbA; // backup storage for macro mbA
-	const Edge264_macroblock * _mbB; // backup storage for macro mbB
-	const Edge264_macroblock * _mbC; // backup storage for macro mbC
-	const Edge264_macroblock * _mbD; // backup storage for macro mbD
+	struct Edge264Context * restrict _ctx;
+	Edge264Macroblock * _mb; // backup storage for macro mb
+	const Edge264Macroblock * _mbA; // backup storage for macro mbA
+	const Edge264Macroblock * _mbB; // backup storage for macro mbB
+	const Edge264Macroblock * _mbC; // backup storage for macro mbC
+	const Edge264Macroblock * _mbD; // backup storage for macro mbD
 	int32_t CurrMbAddr;
 	int32_t next_deblock_addr;
 	int32_t mb_skip_run;
@@ -217,7 +217,7 @@ typedef struct {
    void (*free_cb)(void *free_arg); // copy from ctx
    void *free_arg; // copy from ctx
 	union { int8_t unavail4x4[16]; i8x16 unavail4x4_v; }; // unavailability of neighbouring A/B/C/D blocks
-	Edge264_flags inc; // increments for CABAC indices of macroblock syntax elements
+	Edge264Flags inc; // increments for CABAC indices of macroblock syntax elements
 	union { uint8_t cabac[1024]; i8x16 cabac_v[64]; };
 	union { int8_t nC_inc[3][16]; i8x16 nC_inc_v[3]; }; // stores the intra/inter default increment from unavailable neighbours (9.3.3.1.1.9)
 	
@@ -235,7 +235,7 @@ typedef struct {
 	union { int32_t mvs_D[16]; i32x16 mvs_D_v; };
 	
 	// Inter context
-	const Edge264_macroblock *mbCol;
+	const Edge264Macroblock *mbCol;
 	uint8_t num_ref_idx_mask;
 	int8_t transform_8x8_mode_flag; // updated during parsing to replace noSubMbPartSizeLessThan8x8Flag
 	int8_t col_short_term;
@@ -263,15 +263,15 @@ typedef struct {
 	union { uint8_t alpha[16]; i8x16 alpha_v; }; // {internal_Y,internal_Cb,internal_Cr,0,0,0,0,0,left_Y,left_Cb,left_Cr,0,top_Y,top_Cb,top_Cr,0}
 	union { uint8_t beta[16]; i8x16 beta_v; };
 	union { int32_t tC0_s[16]; int64_t tC0_l[8]; i8x16 tC0_v[4]; i8x32 tC0_V[2]; }; // 4 bytes per edge in deblocking order -> 8 luma edges then 8 alternating Cb/Cr edges
-} Edge264_task;
+} Edge264Task;
 
 
 
 /**
  * This structure stores all variables scoped to the entire stream.
  */
-typedef struct Edge264_context {
-	Edge264_getbits _gb; // must be first in the struct to use the same pointer for bitstream functions
+typedef struct Edge264Context {
+	Edge264GetBits _gb; // must be first in the struct to use the same pointer for bitstream functions
 	int8_t nal_ref_idc; // 2 significant bits
 	int8_t nal_unit_type; // 5 significant bits
 	int8_t IdrPicFlag; // 1 significant bit
@@ -300,8 +300,8 @@ typedef struct Edge264_context {
 	union { int8_t LongTermFrameIdx[32]; i8x16 LongTermFrameIdx_v[2]; };
 	union { int8_t pic_LongTermFrameIdx[32]; i8x16 pic_LongTermFrameIdx_v[2]; }; // to be applied after decoding all slices of the current frame
 	union { int32_t FieldOrderCnt[2][32]; i32x4 FieldOrderCnt_v[2][8]; }; // lower/higher half for top/bottom fields
-	Edge264_seq_parameter_set sps;
-	Edge264_pic_parameter_set PPS[4];
+	Edge264SeqParameterSet sps;
+	Edge264PicParameterSet PPS[4];
 	
 	pthread_mutex_t task_lock;
 	pthread_cond_t task_ready;
@@ -311,9 +311,9 @@ typedef struct Edge264_context {
 	uint16_t ready_tasks;
 	volatile union { uint32_t task_dependencies[16]; i32x4 task_dependencies_v[4]; }; // frames on which each task depends to start
 	union { int8_t taskPics[16]; i8x16 taskPics_v; }; // values of currPic for each task
-	Edge264_task tasks[16];
-	Edge264_decoder d; // public structure, kept last to leave room for extension in future versions
-} Edge264_context;
+	Edge264Task tasks[16];
+	Edge264Decoder d; // public structure, kept last to leave room for extension in future versions
+} Edge264Context;
 
 
 
@@ -358,8 +358,8 @@ typedef struct Edge264_context {
  */
 #if defined(__SSSE3__) && !defined(__clang__)
 	register void * restrict _p asm("ebx");
-	#define SET_CTX(p) Edge264_context *old = _p; _p = (p)
-	#define SET_TSK(p) Edge264_task *old = _p; _p = (p)
+	#define SET_CTX(p) Edge264Context *old = _p; _p = (p)
+	#define SET_TSK(p) Edge264Task *old = _p; _p = (p)
 	#define RESET_CTX() _p = old
 	#define RESET_TSK() _p = old
 	#define FUNC_CTX(f, ...) f(__VA_ARGS__)
@@ -371,17 +371,17 @@ typedef struct Edge264_context {
 	#define CALL_T2B(f, ...) f(__VA_ARGS__)
 	#define CALL_GB(f, ...) f(__VA_ARGS__)
 	#define JUMP_TSK(f, ...) {f(__VA_ARGS__); return;}
-	#define ctx ((Edge264_context *)_p)
-	#define tsk ((Edge264_task *)_p)
-	#define gb ((Edge264_getbits *)_p)
+	#define ctx ((Edge264Context *)_p)
+	#define tsk ((Edge264Task *)_p)
+	#define gb ((Edge264GetBits *)_p)
 #else
-	#define SET_CTX(p) Edge264_context * restrict ctx = (p)
-	#define SET_TSK(p) Edge264_task * restrict tsk = (p)
+	#define SET_CTX(p) Edge264Context * restrict ctx = (p)
+	#define SET_TSK(p) Edge264Task * restrict tsk = (p)
 	#define RESET_CTX()
 	#define RESET_TSK()
-	#define FUNC_CTX(f, ...) f(Edge264_context * restrict ctx, ## __VA_ARGS__)
-	#define FUNC_TSK(f, ...) f(Edge264_task * restrict tsk, ## __VA_ARGS__)
-	#define FUNC_GB(f, ...) f(Edge264_getbits * restrict gb, ## __VA_ARGS__)
+	#define FUNC_CTX(f, ...) f(Edge264Context * restrict ctx, ## __VA_ARGS__)
+	#define FUNC_TSK(f, ...) f(Edge264Task * restrict tsk, ## __VA_ARGS__)
+	#define FUNC_GB(f, ...) f(Edge264GetBits * restrict gb, ## __VA_ARGS__)
 	#define CALL_CTX(f, ...) f(ctx, ## __VA_ARGS__)
 	#define CALL_C2B(f, ...) f(&ctx->_gb, ## __VA_ARGS__)
 	#define CALL_TSK(f, ...) f(tsk, ## __VA_ARGS__)
@@ -659,7 +659,7 @@ static noinline void FUNC_TSK(parse_slice_data_cabac);
 		i32x4 c = b | shuffle32(b, 1, 0, 3, 2);
 		return c[0];
 	}
-	static always_inline unsigned refs_to_mask(Edge264_task *t) {
+	static always_inline unsigned refs_to_mask(Edge264Task *t) {
 		u8x16 a = t->RefPicList_v[0] + 127;
 		u8x16 b = t->RefPicList_v[2] + 127;
 		i8x16 zero = {};
@@ -675,7 +675,7 @@ static noinline void FUNC_TSK(parse_slice_data_cabac);
 		i32x4 i = h | shuffle32(h, 1, 0, 3, 2);
 		return i[0];
 	}
-	static always_inline unsigned ready_frames(Edge264_context *c) {
+	static always_inline unsigned ready_frames(Edge264Context *c) {
 		i32x4 last = set32(c->sps.pic_width_in_mbs * c->sps.pic_height_in_mbs);
 		i16x8 a = packs32(c->next_deblock_addr_v[0] == last, c->next_deblock_addr_v[1] == last);
 		i16x8 b = packs32(c->next_deblock_addr_v[2] == last, c->next_deblock_addr_v[3] == last);
@@ -683,7 +683,7 @@ static noinline void FUNC_TSK(parse_slice_data_cabac);
 		i16x8 e = packs32(c->next_deblock_addr_v[6] == last, c->next_deblock_addr_v[7] == last);
 		return movemask(packs16(a, b)) | movemask(packs16(d, e)) << 16;
 	}
-	static always_inline unsigned ready_tasks(Edge264_context *c) {
+	static always_inline unsigned ready_tasks(Edge264Context *c) {
 		i32x4 rf = set32(ready_frames(c));
 		i32x4 a = (i32x4)_mm_andnot_si128(rf, c->task_dependencies_v[0]) == 0;
 		i32x4 b = (i32x4)_mm_andnot_si128(rf, c->task_dependencies_v[1]) == 0;
@@ -795,7 +795,7 @@ static const int8_t bit4x4[16] = {15, 22, 21, 28, 29, 13, 12, 19, 27, 11, 10, 17
  * Each intraNxN mode is converted to one of these modes right before decoding
  * to select the proper internal routine.
  */
-enum Intra4x4_modes {
+enum Intra4x4Modes {
 	I4x4_V_8,
 	I4x4_H_8,
 	I4x4_DC_8,
@@ -812,7 +812,7 @@ enum Intra4x4_modes {
 	I4x4_HU_8,
 };
 
-enum Intra8x8_modes {
+enum Intra8x8Modes {
 	I8x8_V_8,
 	I8x8_V_C_8,
 	I8x8_V_D_8,
@@ -847,7 +847,7 @@ enum Intra8x8_modes {
 	I8x8_HU_D_8,
 };
 
-enum Intra16x16_modes {
+enum Intra16x16Modes {
 	I16x16_V_8,
 	I16x16_H_8,
 	I16x16_DC_8,
@@ -857,7 +857,7 @@ enum Intra16x16_modes {
 	I16x16_P_8,
 };
 
-enum IntraChroma_modes {
+enum IntraChromaModes {
 	IC8x8_DC_8,
 	IC8x8_DCA_8,
 	IC8x8_DCB_8,

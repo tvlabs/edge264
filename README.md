@@ -58,14 +58,14 @@ int main(int argc, char *argv[]) {
 	struct stat st;
 	fstat(f, &st);
 	uint8_t *buf = mmap(NULL, st.st_size, PROT_READ, MAP_SHARED, f, 0);
-	Edge264_decoder *d = Edge264_alloc();
+	Edge264Decoder *d = edge264_alloc();
 	d->buf = buf + 3 + (buf[2] == 0); // skip the [0]001 delimiter
 	d->end = buf + st.st_size;
 	d->annex_B = 1; // enable searching for the next start code after each NAL
 	int res;
 	do {
-		res = Edge264_decode_NAL(d);
-		while (!Edge264_get_frame(d, 0)) {
+		res = edge264_decode_NAL(d);
+		while (!edge264_get_frame(d, 0)) {
 			for (int y = 0; y < d->height_Y; y++)
 				write(1, d->samples[0] + y * d->stride_Y, d->width_Y);
 			for (int y = 0; y < d->height_C; y++)
@@ -74,7 +74,7 @@ int main(int argc, char *argv[]) {
 				write(1, d->samples[2] + y * d->stride_C, d->width_C);
 		}
 	} while (res == 0 || res == ENOBUFS);
-	Edge264_free(&d);
+	edge264_free(&d);
 	munmap(buf, st.st_size);
 	close(f);
 	return 0;
@@ -85,22 +85,22 @@ int main(int argc, char *argv[]) {
 API reference
 -------------
 
-**`const uint8_t *Edge264_find_start_code(const uint8_t *buf, const uint8_t *end)`**
+**`const uint8_t *edge264_find_start_code(const uint8_t *buf, const uint8_t *end)`**
 Scan memory for the next three-byte 001 sequence, returning a pointer to the first following byte (or `end` if no pattern was found).
 
-**`Edge264_decoder *Edge264_alloc()`**
+**`Edge264Decoder *edge264_alloc()`**
 Allocate and return a decoding context, that is used to pass and receive parameters.
 The private decoding context is actually hidden at negative offsets from the pointer returned.
 
-**`void Edge264_flush(Edge264_decoder *d)`**
+**`void edge264_flush(Edge264Decoder *d)`**
 For use when seeking, stop all background processing and clear all delayed frames.
 The parameter sets are kept, thus do not need to be sent again if they did not change.
 
-**`void Edge264_free(Edge264_decoder **d)`**
+**`void edge264_free(Edge264Decoder **d)`**
 Deallocate the entire decoding context, and unset the pointer.
 
 ```c
-typedef struct Edge264_decoder {
+typedef struct Edge264Decoder {
 	// These fields must be set prior to decoding.
 	const uint8_t *buf; // should always point to a NAL unit (after the 001 prefix)
 	const uint8_t *end; // first byte past the end of the buffer
@@ -122,10 +122,10 @@ typedef struct Edge264_decoder {
 	int32_t TopFieldOrderCnt;
 	int32_t BottomFieldOrderCnt;
 	int16_t frame_crop_offsets[4]; // {top,right,bottom,left}, in luma samples, already included in samples_Y/Cb/cr and width/height_Y/C
-} Edge264_decoder;
+} Edge264Decoder;
 ```
 
-**`int Edge264_decode_NAL(Edge264_decoder *d)`**
+**`int edge264_decode_NAL(Edge264Decoder *d)`**
 Decode a single NAL unit, for which `d->buf` should point to its first byte (containing `nal_unit_type`) and `d->end` should point to the first byte past the buffer.
 After decoding the NAL, if `d->annex_B` is set and the return code is `0`, `ENOTSUP` or `EBADMSG` then `d->buf` is advanced past the next start code.
 It will return:
@@ -136,10 +136,10 @@ It will return:
 * `EINVAL` if the function was called with `d == NULL` or `d->buf == NULL`
 * `ENODATA` if the function was called while `d->buf >= d->end`
 * `ENOMEM` if `malloc` failed to allocate memory
-* `ENOBUFS` if more frames should be consumed with `Edge264_get_frame` to release a picture slot
+* `ENOBUFS` if more frames should be consumed with `edge264_get_frame` to release a picture slot
 * `EWOULDBLOCK` if the non-blocking function would have to wait before a picture slot is available
 
-**`int Edge264_get_frame(Edge264_decoder *d, int borrow)`**
+**`int edge264_get_frame(Edge264Decoder *d, int borrow)`**
 Check the Decoded Picture Buffer for a pending displayable frame, and pass it in `d`.
 While reference frames may be decoded ahead of their actual display (ex. B-Pyramid technique), all frames are buffered for reordering before being released for display:
 
@@ -154,8 +154,8 @@ It will return:
 * `EINVAL` if the function was called with `d == NULL`
 * `ENOMSG` if there is no frame to output at the moment
 
-**`void Edge264_return_frame(Edge264_decoder *d, void *return_arg)`**
-Give back ownership of the frame if it was borrowed from a previous call to `Edge264_get_frame`.
+**`void edge264_return_frame(Edge264Decoder *d, void *return_arg)`**
+Give back ownership of the frame if it was borrowed from a previous call to `edge264_get_frame`.
 
 
 Roadmap

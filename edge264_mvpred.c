@@ -253,7 +253,7 @@ static always_inline void FUNC_TSK(decode_direct_spatial_mv_pred, unsigned direc
 		i16x8 colZeroMask0 = {}, colZeroMask1 = {}, colZeroMask2 = {}, colZeroMask3 = {};
 		unsigned colZeroFlags = 0;
 		if (tsk->col_short_term) {
-			const Edge264_macroblock *mbCol = tsk->mbCol;
+			const Edge264Macroblock *mbCol = tsk->mbCol;
 			i8x16 refColL0 = (i32x4){mbCol->refIdx_s[0]};
 			i8x16 offsets = refColL0 & 32;
 			i16x8 mvCol0 = *(i16x8*)(mbCol->mvs + offsets[0]);
@@ -369,7 +369,7 @@ static always_inline void FUNC_TSK(decode_direct_spatial_mv_pred, unsigned direc
 static always_inline void FUNC_TSK(decode_direct_temporal_mv_pred, unsigned direct_flags)
 {
 	// load refPicCol and mvCol
-	const Edge264_macroblock *mbCol = tsk->mbCol;
+	const Edge264Macroblock *mbCol = tsk->mbCol;
 	i8x16 refPicColL0 = (i32x4){mbCol->refPic_s[0]};
 	i8x16 offsets = refPicColL0 & 32;
 	i16x8 mvCol0 = *(i16x8*)(mbCol->mvs + offsets[0]);

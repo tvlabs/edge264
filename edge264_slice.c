@@ -509,7 +509,7 @@ static void CAFUNC(parse_Intra16x16_residual)
  */
 static void CAFUNC(parse_NxN_residual)
 {
-	static const int8_t intra4x4_modes[9][16] = {
+	static const int8_t Intra4x4Modes[9][16] = {
 		{I4x4_V_8  , I4x4_V_8   , I4x4_DCAB_8, I4x4_DCAB_8, I4x4_V_8   , I4x4_V_8   , I4x4_DCAB_8, I4x4_DCAB_8, I4x4_V_8   , I4x4_V_8   , I4x4_DCAB_8, I4x4_DCAB_8, I4x4_V_8   , I4x4_V_8   , I4x4_DCAB_8, I4x4_DCAB_8},
 		{I4x4_H_8  , I4x4_DCAB_8, I4x4_H_8   , I4x4_DCAB_8, I4x4_H_8   , I4x4_DCAB_8, I4x4_H_8   , I4x4_DCAB_8, I4x4_H_8   , I4x4_DCAB_8, I4x4_H_8   , I4x4_DCAB_8, I4x4_H_8   , I4x4_DCAB_8, I4x4_H_8   , I4x4_DCAB_8},
 		{I4x4_DC_8 , I4x4_DCA_8 , I4x4_DCB_8 , I4x4_DCAB_8, I4x4_DC_8  , I4x4_DCA_8 , I4x4_DCB_8 , I4x4_DCAB_8, I4x4_DC_8  , I4x4_DCA_8 , I4x4_DCB_8 , I4x4_DCAB_8, I4x4_DC_8  , I4x4_DCA_8 , I4x4_DCB_8 , I4x4_DCAB_8},
@@ -520,7 +520,7 @@ static void CAFUNC(parse_NxN_residual)
 		{I4x4_VL_8 , I4x4_VL_8  , I4x4_DCAB_8, I4x4_DCAB_8, I4x4_VLC_8 , I4x4_VLC_8 , I4x4_DCAB_8, I4x4_DCAB_8, I4x4_VL_8  , I4x4_VL_8  , I4x4_DCAB_8, I4x4_DCAB_8, I4x4_VLC_8 , I4x4_VLC_8 , I4x4_DCAB_8, I4x4_DCAB_8},
 		{I4x4_HU_8 , I4x4_DCAB_8, I4x4_HU_8  , I4x4_DCAB_8, I4x4_HU_8  , I4x4_DCAB_8, I4x4_HU_8  , I4x4_DCAB_8, I4x4_HU_8  , I4x4_DCAB_8, I4x4_HU_8  , I4x4_DCAB_8, I4x4_HU_8  , I4x4_DCAB_8, I4x4_HU_8  , I4x4_DCAB_8},
 	};
-	static const int8_t intra8x8_modes[9][16] = {
+	static const int8_t Intra8x8Modes[9][16] = {
 		{I8x8_V_8  , I8x8_V_8    , I8x8_DC_AB_8, I8x8_DC_AB_8, I8x8_V_C_8  , I8x8_V_C_8  , I8x8_DC_AB_8, I8x8_DC_AB_8, I8x8_V_D_8  , I8x8_V_D_8  , I8x8_DC_AB_8, I8x8_DC_AB_8, I8x8_V_CD_8  , I8x8_V_CD_8  , I8x8_DC_AB_8, I8x8_DC_AB_8},
 		{I8x8_H_8  , I8x8_DC_AB_8, I8x8_H_8    , I8x8_DC_AB_8, I8x8_H_8    , I8x8_DC_AB_8, I8x8_H_8    , I8x8_DC_AB_8, I8x8_H_D_8  , I8x8_DC_AB_8, I8x8_H_D_8  , I8x8_DC_AB_8, I8x8_H_D_8   , I8x8_DC_AB_8 , I8x8_H_D_8  , I8x8_DC_AB_8},
 		{I8x8_DC_8 , I8x8_DC_A_8 , I8x8_DC_B_8 , I8x8_DC_AB_8, I8x8_DC_C_8 , I8x8_DC_AC_8, I8x8_DC_B_8 , I8x8_DC_AB_8, I8x8_DC_D_8 , I8x8_DC_AD_8, I8x8_DC_BD_8, I8x8_DC_AB_8, I8x8_DC_CD_8 , I8x8_DC_ACD_8, I8x8_DC_BD_8, I8x8_DC_AB_8},
@@ -554,7 +554,7 @@ static void CAFUNC(parse_NxN_residual)
 				size_t stride = tsk->stride[iYCbCr];
 				uint8_t *samples = tsk->samples_mb[iYCbCr] + y444[i4x4] * stride + x444[i4x4];
 				if (!mb->f.mbIsInterFlag)
-					CALL_TSK(decode_intra4x4, intra4x4_modes[mb->Intra4x4PredMode[i4x4]][tsk->unavail4x4[i4x4]], samples, stride, iYCbCr);
+					CALL_TSK(decode_intra4x4, Intra4x4Modes[mb->Intra4x4PredMode[i4x4]][tsk->unavail4x4[i4x4]], samples, stride, iYCbCr);
 				if (mb->bits[0] & 1 << bit8x8[i4x4 >> 2]) {
 					int nA = *((int8_t *)mb->nC[iYCbCr] + tsk->A4x4_int8[i4x4]);
 					int nB = *((int8_t *)mb->nC[iYCbCr] + tsk->B4x4_int8[i4x4]);
@@ -584,7 +584,7 @@ static void CAFUNC(parse_NxN_residual)
 				size_t stride = tsk->stride[iYCbCr];
 				uint8_t *samples = tsk->samples_mb[iYCbCr] + y444[i8x8 * 4] * stride + x444[i8x8 * 4];
 				if (!mb->f.mbIsInterFlag)
-					CALL_TSK(decode_intra8x8, intra8x8_modes[mb->Intra4x4PredMode[i8x8 * 4 + 1]][tsk->unavail4x4[i8x8 * 5]], samples, stride, iYCbCr);
+					CALL_TSK(decode_intra8x8, Intra8x8Modes[mb->Intra4x4PredMode[i8x8 * 4 + 1]][tsk->unavail4x4[i8x8 * 5]], samples, stride, iYCbCr);
 				if (mb->bits[0] & 1 << bit8x8[i8x8]) {
 					#ifndef CABAC
 						for (int i = 0; i < 16; i++)
@@ -665,7 +665,7 @@ static void CAFUNC(parse_coded_block_pattern, const uint8_t *map_me)
  */
 static void CAFUNC(parse_intra_chroma_pred_mode)
 {
-	static const int8_t intraChroma_modes[4][4] = {
+	static const int8_t IntraChromaModes[4][4] = {
 		{IC8x8_DC_8, IC8x8_DCA_8, IC8x8_DCB_8, IC8x8_DCAB_8},
 		{IC8x8_H_8 , IC8x8_DCA_8, IC8x8_H_8  , IC8x8_DCAB_8},
 		{IC8x8_V_8 , IC8x8_V_8  , IC8x8_DCB_8, IC8x8_DCAB_8},
@@ -685,7 +685,7 @@ static void CAFUNC(parse_intra_chroma_pred_mode)
 			mb->f.intra_chroma_pred_mode_non_zero = (mode > 0);
 		#endif
 		fprintf(stderr, "intra_chroma_pred_mode: %u\n", mode);
-		CALL_TSK(decode_intraChroma, intraChroma_modes[mode][tsk->unavail16x16 & 3], tsk->samples_mb[1], tsk->samples_mb[2], tsk->stride[1]);
+		CALL_TSK(decode_intraChroma, IntraChromaModes[mode][tsk->unavail16x16 & 3], tsk->samples_mb[1], tsk->samples_mb[2], tsk->stride[1]);
 	}
 }
 
@@ -730,7 +730,7 @@ static int CAFUNC(parse_intraNxN_pred_mode, int luma4x4BlkIdx)
  */
 static noinline void CAFUNC(parse_I_mb, int mb_type_or_ctxIdx)
 {
-	static const Edge264_flags flags_PCM = {
+	static const Edge264Flags flags_PCM = {
 		.CodedBlockPatternChromaDC = 1,
 		.CodedBlockPatternChromaAC = 1,
 		.coded_block_flags_16x16 = {1, 1, 1},
@@ -817,14 +817,14 @@ static noinline void CAFUNC(parse_I_mb, int mb_type_or_ctxIdx)
 		#endif
 		
 		// decode the samples before parsing residuals
-		static const int8_t intra16x16_modes[4][4] = {
+		static const int8_t Intra16x16Modes[4][4] = {
 			{I16x16_V_8 , I16x16_V_8  , I16x16_DCB_8, I16x16_DCAB_8},
 			{I16x16_H_8 , I16x16_DCA_8, I16x16_H_8  , I16x16_DCAB_8},
 			{I16x16_DC_8, I16x16_DCA_8, I16x16_DCB_8, I16x16_DCAB_8},
 			{I16x16_P_8 , I16x16_DCA_8, I16x16_DCB_8, I16x16_DCAB_8},
 		};
 		mb->Intra4x4PredMode_v = (i8x16){2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2};
-		CALL_TSK(decode_intra16x16, intra16x16_modes[mode][tsk->unavail16x16 & 3], tsk->samples_mb[0], tsk->stride[0], 0); // FIXME 4:4:4
+		CALL_TSK(decode_intra16x16, Intra16x16Modes[mode][tsk->unavail16x16 & 3], tsk->samples_mb[0], tsk->stride[0], 0); // FIXME 4:4:4
 		CACALL(parse_intra_chroma_pred_mode);
 		CAJUMP(parse_Intra16x16_residual);
 		

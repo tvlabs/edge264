@@ -197,7 +197,6 @@ typedef struct {
 	Edge264PicParameterSet pps;
 	
 	// parsing context
-	struct Edge264Context * restrict _ctx;
 	Edge264Macroblock * _mb; // backup storage for macro mb
 	const Edge264Macroblock * _mbA; // backup storage for macro mbA
 	const Edge264Macroblock * _mbB; // backup storage for macro mbB
@@ -270,7 +269,7 @@ typedef struct {
 /**
  * This structure stores all variables scoped to the entire stream.
  */
-typedef struct Edge264Context {
+typedef struct Edge264Decoder {
 	Edge264GetBits _gb; // must be first in the struct to use the same pointer for bitstream functions
 	int8_t nal_ref_idc; // 2 significant bits
 	int8_t nal_unit_type; // 5 significant bits
@@ -300,10 +299,11 @@ typedef struct Edge264Context {
 	union { int8_t LongTermFrameIdx[32]; i8x16 LongTermFrameIdx_v[2]; };
 	union { int8_t pic_LongTermFrameIdx[32]; i8x16 pic_LongTermFrameIdx_v[2]; }; // to be applied after decoding all slices of the current frame
 	union { int32_t FieldOrderCnt[2][32]; i32x4 FieldOrderCnt_v[2][8]; }; // lower/higher half for top/bottom fields
+	Edge264Frame out;
 	Edge264SeqParameterSet sps;
 	Edge264PicParameterSet PPS[4];
 	
-	pthread_mutex_t task_lock;
+	pthread_mutex_t lock;
 	pthread_cond_t task_ready;
 	pthread_cond_t task_complete;
 	uint16_t busy_tasks; // bitmask for tasks that are either pending or processed in a thread
@@ -312,8 +312,7 @@ typedef struct Edge264Context {
 	volatile union { uint32_t task_dependencies[16]; i32x4 task_dependencies_v[4]; }; // frames on which each task depends to start
 	union { int8_t taskPics[16]; i8x16 taskPics_v; }; // values of currPic for each task
 	Edge264Task tasks[16];
-	Edge264Decoder d; // public structure, kept last to leave room for extension in future versions
-} Edge264Context;
+} Edge264Decoder;
 
 
 
@@ -358,7 +357,7 @@ typedef struct Edge264Context {
  */
 #if defined(__SSSE3__) && !defined(__clang__)
 	register void * restrict _p asm("ebx");
-	#define SET_CTX(p) Edge264Context *old = _p; _p = (p)
+	#define SET_CTX(p) Edge264Decoder *old = _p; _p = (p)
 	#define SET_TSK(p) Edge264Task *old = _p; _p = (p)
 	#define RESET_CTX() _p = old
 	#define RESET_TSK() _p = old
@@ -371,15 +370,15 @@ typedef struct Edge264Context {
 	#define CALL_T2B(f, ...) f(__VA_ARGS__)
 	#define CALL_GB(f, ...) f(__VA_ARGS__)
 	#define JUMP_TSK(f, ...) {f(__VA_ARGS__); return;}
-	#define ctx ((Edge264Context *)_p)
+	#define ctx ((Edge264Decoder *)_p)
 	#define tsk ((Edge264Task *)_p)
 	#define gb ((Edge264GetBits *)_p)
 #else
-	#define SET_CTX(p) Edge264Context * restrict ctx = (p)
+	#define SET_CTX(p) Edge264Decoder * restrict ctx = (p)
 	#define SET_TSK(p) Edge264Task * restrict tsk = (p)
 	#define RESET_CTX()
 	#define RESET_TSK()
-	#define FUNC_CTX(f, ...) f(Edge264Context * restrict ctx, ## __VA_ARGS__)
+	#define FUNC_CTX(f, ...) f(Edge264Decoder * restrict ctx, ## __VA_ARGS__)
 	#define FUNC_TSK(f, ...) f(Edge264Task * restrict tsk, ## __VA_ARGS__)
 	#define FUNC_GB(f, ...) f(Edge264GetBits * restrict gb, ## __VA_ARGS__)
 	#define CALL_CTX(f, ...) f(ctx, ## __VA_ARGS__)
@@ -675,7 +674,7 @@ static noinline void FUNC_TSK(parse_slice_data_cabac);
 		i32x4 i = h | shuffle32(h, 1, 0, 3, 2);
 		return i[0];
 	}
-	static always_inline unsigned ready_frames(Edge264Context *c) {
+	static always_inline unsigned ready_frames(Edge264Decoder *c) {
 		i32x4 last = set32(c->sps.pic_width_in_mbs * c->sps.pic_height_in_mbs);
 		i16x8 a = packs32(c->next_deblock_addr_v[0] == last, c->next_deblock_addr_v[1] == last);
 		i16x8 b = packs32(c->next_deblock_addr_v[2] == last, c->next_deblock_addr_v[3] == last);
@@ -683,7 +682,7 @@ static noinline void FUNC_TSK(parse_slice_data_cabac);
 		i16x8 e = packs32(c->next_deblock_addr_v[6] == last, c->next_deblock_addr_v[7] == last);
 		return movemask(packs16(a, b)) | movemask(packs16(d, e)) << 16;
 	}
-	static always_inline unsigned ready_tasks(Edge264Context *c) {
+	static always_inline unsigned ready_tasks(Edge264Decoder *c) {
 		i32x4 rf = set32(ready_frames(c));
 		i32x4 a = (i32x4)_mm_andnot_si128(rf, c->task_dependencies_v[0]) == 0;
 		i32x4 b = (i32x4)_mm_andnot_si128(rf, c->task_dependencies_v[1]) == 0;

@@ -1,9 +1,6 @@
 /** MAYDO:
  * _ Multithreading
- * 	_ add an option to make decode_NAL non blocking
- * 	_ replace API arguments with text to be more explicit
- * 	_ change API names to be like Dav1d
- * 	_ review task_lock so that it allows calling get_frame in parallel
+ * 	_ review lock so that it allows calling get_frame in parallel
  * 	_ receiving a different SPS should return -2 if there are unreturned frames left
  * 	_ Implement a basic task queue yet in decoding order and with 1 thread
  * 	_ Update DPB availability checks to take deps into account, and make sure we wait until there is a frame ready before returning -2
@@ -100,19 +97,17 @@ static void FUNC_CTX(initialise_decoding_context, Edge264Task *t)
 	t->samples_base = ctx->frame_buffers[ctx->currPic];
 	t->plane_size_Y = ctx->plane_size_Y;
 	t->plane_size_C = ctx->plane_size_C;
-	t->stride[0] = ctx->d.stride_Y;
-	t->stride[1] = t->stride[2] = ctx->d.stride_C;
+	t->stride[0] = ctx->out.stride_Y;
+	t->stride[1] = t->stride[2] = ctx->out.stride_C;
 	t->samples_clip_v[0] = set16((1 << ctx->sps.BitDepth_Y) - 1);
 	t->samples_clip_v[1] = t->samples_clip_v[2] = set16((1 << ctx->sps.BitDepth_C) - 1);
-	t->free_cb = ctx->d.free_cb;
-	t->free_arg = ctx->d.free_arg;
 	
 	// non-critical code thus we do not optimize away first_mb_in_slice==0
 	t->CurrMbAddr = t->first_mb_in_slice;
 	int mby = (unsigned)t->first_mb_in_slice / (unsigned)ctx->sps.pic_width_in_mbs;
 	int mbx = (unsigned)t->first_mb_in_slice % (unsigned)ctx->sps.pic_width_in_mbs;
-	t->samples_row[0] = t->samples_base + mby * ctx->d.stride_Y * 16;
-	t->samples_row[1] = t->samples_base + ctx->plane_size_Y + mby * ctx->d.stride_C * 8;
+	t->samples_row[0] = t->samples_base + mby * ctx->out.stride_Y * 16;
+	t->samples_row[1] = t->samples_base + ctx->plane_size_Y + mby * ctx->out.stride_C * 8;
 	t->samples_row[2] = t->samples_row[1] + ctx->plane_size_C;
 	t->samples_mb[0] = t->samples_row[0] + mbx * 16;
 	t->samples_mb[1] = t->samples_row[1] + mbx * 8;
@@ -537,16 +532,16 @@ static void FUNC_CTX(finish_frame, int pair_view) {
  * This function is the entry point for each worker thread, where it consumes
  * tasks continuously until killed by the parent process.
  */
-static void *worker_loop(Edge264Context *c) {
-	pthread_mutex_lock(&c->task_lock);
+static void *worker_loop(Edge264Decoder *c) {
+	pthread_mutex_lock(&c->lock);
 	if (1) {
 		while (!c->ready_tasks)
-			pthread_cond_wait(&c->task_ready, &c->task_lock);
+			pthread_cond_wait(&c->task_ready, &c->lock);
 		int task_id = __builtin_ctz(c->ready_tasks); // FIXME arbitrary selection for now
 		int currPic = c->taskPics[task_id];
 		c->pending_tasks &= ~(1 << task_id);
 		c->ready_tasks &= ~(1 << task_id);
-		pthread_mutex_unlock(&c->task_lock);
+		pthread_mutex_unlock(&c->lock);
 		SET_TSK(c->tasks + task_id);
 		if (!tsk->pps.entropy_coding_mode_flag) {
 			tsk->mb_skip_run = -1;
@@ -600,7 +595,7 @@ static void *worker_loop(Edge264Context *c) {
 		}
 		
 		// update the task queue
-		pthread_mutex_lock(&c->task_lock);
+		pthread_mutex_lock(&c->lock);
 		if (tsk->free_cb)
 			tsk->free_cb(tsk->free_arg);
 		c->busy_tasks &= ~(1 << task_id);
@@ -614,7 +609,7 @@ static void *worker_loop(Edge264Context *c) {
 		}
 		RESET_TSK();
 	}
-	pthread_mutex_unlock(&c->task_lock);
+	pthread_mutex_unlock(&c->lock);
 	return NULL;
 }
 
@@ -624,21 +619,21 @@ static void *worker_loop(Edge264Context *c) {
  * This function matches slice_header() in 7.3.3, which it parses while updating
  * the DPB and initialising slice data for further decoding.
  */
-static int FUNC_CTX(parse_slice_layer_without_partitioning)
+static int FUNC_CTX(parse_slice_layer_without_partitioning, int non_blocking, void(*free_cb)(void*), void *free_arg)
 {
 	static const char * const slice_type_names[5] = {"P", "B", "I", "SP", "SI"};
 	static const char * const disable_deblocking_filter_idc_names[3] = {"enabled", "disabled", "disabled across slices"};
 	
 	// reserving a slot without locking is fine since workers can only unset busy_tasks
 	unsigned avail_tasks;
-	if (!(avail_tasks = 0xffff & ~ctx->busy_tasks)) {
-		pthread_mutex_lock(&ctx->task_lock);
-		while (!(avail_tasks = 0xffff & ~ctx->busy_tasks)) // avail_tasks may have changed since before lock
-			pthread_cond_wait(&ctx->task_complete, &ctx->task_lock);
-		pthread_mutex_unlock(&ctx->task_lock);
+	while (!(avail_tasks = 0xffff & ~ctx->busy_tasks)) {
+		if (non_blocking)
+			return EWOULDBLOCK;
+		pthread_cond_wait(&ctx->task_complete, &ctx->lock);
 	}
 	Edge264Task *t = ctx->tasks + __builtin_ctz(avail_tasks);
-	t->_ctx = ctx;
+	t->free_cb = free_cb;
+	t->free_arg = free_arg;
 	
 	// first important fields and checks before decoding the slice header
 	t->first_mb_in_slice = CALL_C2B(get_ue32, 139263);
@@ -688,32 +683,32 @@ static int FUNC_CTX(parse_slice_layer_without_partitioning)
 			ctx->reference_flags &= ~(1 << unref);
 		}
 		// make enough non-outputable slots by raising dispPicOrderCnt
-		pthread_mutex_lock(&ctx->task_lock);
-		unsigned avail = view_mask & ~ctx->reference_flags & ~ctx->output_flags;
-		unsigned ready = avail & ~CALL_CTX(depended_frames);
-		if (__builtin_popcount(ready) < non_existing) {
-			for (int excess = non_existing - __builtin_popcount(avail); excess > 0; excess--) {
-				int disp, poc = INT_MAX;
-				for (unsigned o = view_mask & ~ctx->reference_flags & ~avail; o; o &= o - 1) {
-					int i = __builtin_ctz(o);
-					if (ctx->FieldOrderCnt[0][i] < poc)
-						poc = ctx->FieldOrderCnt[0][disp = i];
-				}
-				avail |= 1 << disp;
-				ctx->dispPicOrderCnt = max(ctx->dispPicOrderCnt, poc);
+		unsigned output_flags = ctx->output_flags;
+		for (int excess = non_existing - __builtin_popcount(view_mask & ~ctx->reference_flags & ~output_flags); excess > 0; excess--) {
+			int disp, poc = INT_MAX;
+			for (unsigned o = view_mask & ~ctx->reference_flags & output_flags; o; o &= o - 1) {
+				int i = __builtin_ctz(o);
+				if (ctx->FieldOrderCnt[0][i] < poc)
+					poc = ctx->FieldOrderCnt[0][disp = i];
 			}
-			// wait until enough of the slots we freed are undepended
-			while (__builtin_popcount(ready = avail & ~CALL_CTX(depended_frames)) < non_existing)
-				pthread_cond_wait(&ctx->task_complete, &ctx->task_lock);
+			output_flags &= ~(1 << disp);
+			ctx->dispPicOrderCnt = max(ctx->dispPicOrderCnt, poc);
 		}
-		pthread_mutex_unlock(&ctx->task_lock);
+		// wait until enough of the slots we freed are undepended
+		unsigned avail;
+		while (__builtin_popcount(avail = view_mask & ~ctx->reference_flags & ~output_flags & ~CALL_CTX(depended_frames)) < non_existing) {
+			if (non_blocking)
+				return EWOULDBLOCK;
+			pthread_cond_wait(&ctx->task_complete, &ctx->lock);
+		}
 		// stop here if we must wait for get_frame to consume and return enough frames
-		if (ready & (ctx->output_flags | ctx->borrow_flags))
+		avail &= ~ctx->borrow_flags;
+		if (output_flags != ctx->output_flags || __builtin_popcount(avail) < non_existing)
 			return ENOBUFS;
 		// finally insert the last non-existing frames one by one
 		for (unsigned FrameNum = ctx->FrameNum - non_existing; FrameNum < ctx->FrameNum; FrameNum++) {
-			int i = __builtin_ctz(ready);
-			ready ^= 1 << i;
+			int i = __builtin_ctz(avail);
+			avail ^= 1 << i;
 			ctx->reference_flags |= 1 << i;
 			ctx->FrameNums[i] = FrameNum;
 			int PicOrderCnt = 0;
@@ -812,10 +807,11 @@ static int FUNC_CTX(parse_slice_layer_without_partitioning)
 			}
 		}
 		// wait until at least one of these slots is undepended
-		pthread_mutex_lock(&ctx->task_lock);
-		while (!(ready = avail & ~CALL_CTX(depended_frames)))
-			pthread_cond_wait(&ctx->task_complete, &ctx->task_lock);
-		pthread_mutex_unlock(&ctx->task_lock);
+		while (!(ready = avail & ~CALL_CTX(depended_frames))) {
+			if (non_blocking)
+				return EWOULDBLOCK;
+			pthread_cond_wait(&ctx->task_complete, &ctx->lock);
+		}
 		// stop here if we must wait for get_frame to consume and return a non-ref frame
 		if (ready & (ctx->output_flags | ctx->borrow_flags))
 			return ENOBUFS;
@@ -920,7 +916,6 @@ static int FUNC_CTX(parse_slice_layer_without_partitioning)
 	
 	// prepare the task and signal it
 	CALL_CTX(initialise_decoding_context, t);
-	pthread_mutex_lock(&ctx->task_lock);
 	int task_id = t - ctx->tasks;
 	ctx->busy_tasks |= 1 << task_id;
 	ctx->pending_tasks |= 1 << task_id;
@@ -928,8 +923,9 @@ static int FUNC_CTX(parse_slice_layer_without_partitioning)
 	ctx->task_dependencies[task_id] = refs_to_mask(t);
 	ctx->taskPics[task_id] = ctx->currPic;
 	pthread_cond_signal(&ctx->task_ready);
-	pthread_mutex_unlock(&ctx->task_lock);
+	pthread_mutex_unlock(&ctx->lock);
 	worker_loop(ctx);
+	pthread_mutex_lock(&ctx->lock);
 	return 0;
 }
 
@@ -1012,7 +1008,7 @@ static void FUNC_CTX(parse_scaling_lists, i8x16 *w4x4, i8x16 *w8x8, int transfor
  * Parses the PPS into a copy of the current SPS, then saves it into one of four
  * PPS slots if a rbsp_trailing_bits pattern follows.
  */
-static int FUNC_CTX(parse_pic_parameter_set)
+static int FUNC_CTX(parse_pic_parameter_set, int non_blocking,  void(*free_cb)(void*), void *free_arg)
 {
 	static const char * const slice_group_map_type_names[7] = {"interleaved",
 		"dispersed", "foreground with left-over", "box-out", "raster scan",
@@ -1441,7 +1437,7 @@ static int FUNC_CTX(parse_seq_parameter_set_mvc_extension, Edge264SeqParameterSe
  * Parses the SPS into a edge264_parameter_set structure, then saves it if a
  * rbsp_trailing_bits pattern follows.
  */
-static int FUNC_CTX(parse_seq_parameter_set)
+static int FUNC_CTX(parse_seq_parameter_set, int non_blocking, void(*free_cb)(void*), void *free_arg)
 {
 	static const char * const profile_idc_names[256] = {
 		[44] = "CAVLC 4:4:4 Intra",
@@ -1658,35 +1654,36 @@ static int FUNC_CTX(parse_seq_parameter_set)
 	
 	// apply the changes on the dependent variables if the frame format changed
 	int64_t offsets;
-	memcpy(&offsets, ctx->d.frame_crop_offsets, 8);
+	memcpy(&offsets, ctx->out.frame_crop_offsets, 8);
 	if (sps.DPB_format != ctx->DPB_format || sps.frame_crop_offsets_l != offsets) {
 		if (ctx->output_flags | ctx->borrow_flags) {
 			for (unsigned o = ctx->output_flags; o; o &= o - 1)
 				ctx->dispPicOrderCnt = max(ctx->dispPicOrderCnt, ctx->FieldOrderCnt[0][__builtin_ctz(o)]);
-			pthread_mutex_lock(&ctx->task_lock);
-			while (ctx->output_flags & CALL_CTX(depended_frames))
-				pthread_cond_wait(&ctx->task_complete, &ctx->task_lock);
-			pthread_mutex_unlock(&ctx->task_lock);
+			while (ctx->output_flags & CALL_CTX(depended_frames)) {
+				if (non_blocking)
+					return EWOULDBLOCK;
+				pthread_cond_wait(&ctx->task_complete, &ctx->lock);
+			}
 			return ENOBUFS;
 		}
 		ctx->DPB_format = sps.DPB_format;
-		memcpy(ctx->d.frame_crop_offsets, &sps.frame_crop_offsets_l, 8);
+		memcpy(ctx->out.frame_crop_offsets, &sps.frame_crop_offsets_l, 8);
 		int width = sps.pic_width_in_mbs << 4;
 		int height = sps.pic_height_in_mbs << 4;
-		ctx->d.pixel_depth_Y = sps.BitDepth_Y > 8;
-		ctx->d.width_Y = width - ctx->d.frame_crop_offsets[3] - ctx->d.frame_crop_offsets[1];
-		ctx->d.height_Y = height - ctx->d.frame_crop_offsets[0] - ctx->d.frame_crop_offsets[2];
-		ctx->d.stride_Y = width << ctx->d.pixel_depth_Y;
-		ctx->plane_size_Y = ctx->d.stride_Y * height;
+		ctx->out.pixel_depth_Y = sps.BitDepth_Y > 8;
+		ctx->out.width_Y = width - ctx->out.frame_crop_offsets[3] - ctx->out.frame_crop_offsets[1];
+		ctx->out.height_Y = height - ctx->out.frame_crop_offsets[0] - ctx->out.frame_crop_offsets[2];
+		ctx->out.stride_Y = width << ctx->out.pixel_depth_Y;
+		ctx->plane_size_Y = ctx->out.stride_Y * height;
 		if (sps.chroma_format_idc > 0) {
-			ctx->d.pixel_depth_C = sps.BitDepth_C > 8;
-			ctx->d.width_C = sps.chroma_format_idc == 3 ? ctx->d.width_Y : ctx->d.width_Y >> 1;
-			ctx->d.stride_C = (sps.chroma_format_idc == 3 ? width : width >> 1) << ctx->d.pixel_depth_C;
-			ctx->d.height_C = sps.chroma_format_idc == 1 ? ctx->d.height_Y >> 1 : ctx->d.height_Y;
-			ctx->plane_size_C = (sps.chroma_format_idc == 1 ? height >> 1 : height) * ctx->d.stride_C;
+			ctx->out.pixel_depth_C = sps.BitDepth_C > 8;
+			ctx->out.width_C = sps.chroma_format_idc == 3 ? ctx->out.width_Y : ctx->out.width_Y >> 1;
+			ctx->out.stride_C = (sps.chroma_format_idc == 3 ? width : width >> 1) << ctx->out.pixel_depth_C;
+			ctx->out.height_C = sps.chroma_format_idc == 1 ? ctx->out.height_Y >> 1 : ctx->out.height_Y;
+			ctx->plane_size_C = (sps.chroma_format_idc == 1 ? height >> 1 : height) * ctx->out.stride_C;
 		}
-		ctx->d.samples[0] = ctx->d.samples[1] = ctx->d.samples[2] = NULL;
-		ctx->d.samples_mvc[0] = ctx->d.samples_mvc[1] = ctx->d.samples_mvc[2] = NULL;
+		ctx->out.samples[0] = ctx->out.samples[1] = ctx->out.samples[2] = NULL;
+		ctx->out.samples_mvc[0] = ctx->out.samples_mvc[1] = ctx->out.samples_mvc[2] = NULL;
 		int mbs = (sps.pic_width_in_mbs + 1) * sps.pic_height_in_mbs - 1;
 		ctx->frame_size = ctx->plane_size_Y + ctx->plane_size_C * 2 + mbs * sizeof(Edge264Macroblock);
 		ctx->currPic = ctx->basePic = -1;
@@ -1708,7 +1705,7 @@ static int FUNC_CTX(parse_seq_parameter_set)
  * This NAL type for transparent videos is unsupported until encoders actually
  * support it.
  */
-static int FUNC_CTX(parse_seq_parameter_set_extension) {
+static int FUNC_CTX(parse_seq_parameter_set_extension, int non_blocking, void(*free_cb)(void*), void *free_arg) {
 	int seq_parameter_set_id = CALL_C2B(get_ue16, 31);
 	int aux_format_idc = CALL_C2B(get_ue16, 3);
 	printf("<tr><th>seq_parameter_set_id</th><td>%u</td></tr>\n"
@@ -1746,19 +1743,19 @@ const uint8_t *edge264_find_start_code(const uint8_t *buf, const uint8_t *end) {
 
 
 Edge264Decoder *edge264_alloc() {
-	Edge264Context *c = calloc(1, sizeof(Edge264Context));
-	if (c != NULL) {
-		if (pthread_mutex_init(&c->task_lock, NULL) == 0) {
-			if (pthread_cond_init(&c->task_ready, NULL) == 0) {
-				if (pthread_cond_init(&c->task_complete, NULL) == 0) {
-					c->taskPics_v = set8(-1);
-					return (void *)c + offsetof(Edge264Context, d);
+	Edge264Decoder *d = calloc(1, sizeof(Edge264Decoder));
+	if (d != NULL) {
+		if (pthread_mutex_init(&d->lock, NULL) == 0) {
+			if (pthread_cond_init(&d->task_ready, NULL) == 0) {
+				if (pthread_cond_init(&d->task_complete, NULL) == 0) {
+					d->taskPics_v = set8(-1);
+					return d;
 				}
-				pthread_cond_destroy(&c->task_complete);
+				pthread_cond_destroy(&d->task_complete);
 			}
-			pthread_mutex_destroy(&c->task_lock);
+			pthread_mutex_destroy(&d->lock);
 		}
-		free(c);
+		free(d);
 	}
 	return NULL;
 }
@@ -1768,8 +1765,8 @@ Edge264Decoder *edge264_alloc() {
 void edge264_flush(Edge264Decoder *d) {
 	if (d == NULL)
 		return;
-	SET_CTX((void *)d - offsetof(Edge264Context, d));
-	pthread_mutex_lock(&ctx->task_lock);
+	SET_CTX(d);
+	pthread_mutex_lock(&ctx->lock);
 	ctx->currPic = ctx->basePic = -1;
 	ctx->reference_flags = ctx->long_term_flags = ctx->output_flags = 0;
 	// FIXME interrupt all threads
@@ -1781,7 +1778,7 @@ void edge264_flush(Edge264Decoder *d) {
 	ctx->busy_tasks = ctx->pending_tasks = ctx->ready_tasks = 0;
 	ctx->task_dependencies_v[0] = ctx->task_dependencies_v[1] = ctx->task_dependencies_v[2] = ctx->task_dependencies_v[3] = (i32x4){};
 	ctx->taskPics_v = set8(-1);
-	pthread_mutex_unlock(&ctx->task_lock);
+	pthread_mutex_unlock(&ctx->lock);
 	RESET_CTX();
 }
 
@@ -1789,8 +1786,9 @@ void edge264_flush(Edge264Decoder *d) {
 
 void edge264_free(Edge264Decoder **d) {
 	if (d != NULL && *d != NULL) {
-		SET_CTX((void *)*d - offsetof(Edge264Context, d));
-		pthread_mutex_destroy(&ctx->task_lock);
+		SET_CTX(*d);
+		*d = NULL;
+		pthread_mutex_destroy(&ctx->lock);
 		pthread_cond_destroy(&ctx->task_ready);
 		pthread_cond_destroy(&ctx->task_complete);
 		for (int i = 0; i < 32; i++) {
@@ -1798,14 +1796,13 @@ void edge264_free(Edge264Decoder **d) {
 				free(ctx->frame_buffers[i]);
 		}
 		free(ctx);
-		*d = NULL;
 		RESET_CTX();
 	}
 }
 
 
 
-int edge264_decode_NAL(Edge264Decoder *d)
+int edge264_decode_NAL(Edge264Decoder *d, const uint8_t *buf, const uint8_t *end, int non_blocking, void(*free_cb)(void*), void *free_arg, const uint8_t **next_NAL)
 {
 	static const char * const nal_unit_type_names[32] = {
 		[0] = "Unknown",
@@ -1831,7 +1828,7 @@ int edge264_decode_NAL(Edge264Decoder *d)
 		[21] = "Coded slice extension for a depth view component or a 3D-AVC texture view component",
 		[22 ... 31] = "Unknown",
 	};
-	typedef int FUNC_CTX((*Parser));
+	typedef int FUNC_CTX((*Parser), int non_blocking, void(*free_cb)(void*), void *free_arg);
 	static const Parser parse_nal_unit[32] = {
 		[1] = parse_slice_layer_without_partitioning,
 		[5] = parse_slice_layer_without_partitioning,
@@ -1843,22 +1840,22 @@ int edge264_decode_NAL(Edge264Decoder *d)
 	};
 	
 	// initial checks before parsing
-	if (d == NULL || d->buf == NULL && d->end != NULL)
+	if (d == NULL || buf == NULL && end != NULL)
 		return EINVAL;
-	const uint8_t *CPB = d->buf, *end = d->end;
-	SET_CTX((void *)d - offsetof(Edge264Context, d));
-	if (CPB >= end) {
+	SET_CTX(d);
+	pthread_mutex_lock(&ctx->lock);
+	if (buf >= end) {
 		for (unsigned o = ctx->output_flags; o; o &= o - 1)
 			ctx->dispPicOrderCnt = max(ctx->dispPicOrderCnt, ctx->FieldOrderCnt[0][__builtin_ctz(o)]);
-		pthread_mutex_lock(&ctx->task_lock);
-		while (ctx->output_flags & CALL_CTX(depended_frames))
-			pthread_cond_wait(&ctx->task_complete, &ctx->task_lock);
-		pthread_mutex_unlock(&ctx->task_lock);
+		unsigned depended;
+		while ((depended = ctx->output_flags & CALL_CTX(depended_frames)) && !non_blocking)
+			pthread_cond_wait(&ctx->task_complete, &ctx->lock);
+		pthread_mutex_unlock(&ctx->lock);
 		RESET_CTX();
-		return ENODATA;
+		return depended ? EWOULDBLOCK : ENODATA;
 	}
-	ctx->nal_ref_idc = CPB[0] >> 5;
-	ctx->nal_unit_type = CPB[0] & 0x1f;
+	ctx->nal_ref_idc = buf[0] >> 5;
+	ctx->nal_unit_type = buf[0] & 0x1f;
 	printf("<table>\n"
 		"<tr><th>nal_ref_idc</th><td>%u</td></tr>\n"
 		"<tr><th>nal_unit_type</th><td>%u (%s)</td></tr>\n",
@@ -1869,18 +1866,18 @@ int edge264_decode_NAL(Edge264Decoder *d)
 	int ret = 0;
 	Parser parser = parse_nal_unit[ctx->nal_unit_type];
 	if (ctx->nal_unit_type == 9) {
-		if (CPB + 1 >= end || (CPB[1] & 31) != 16)
+		if (buf + 1 >= end || (buf[1] & 31) != 16)
 			ret = EBADMSG;
 		else
-			printf("<tr><th>primary_pic_type</th><td>%d</td></tr>\n", CPB[1] >> 5);
+			printf("<tr><th>primary_pic_type</th><td>%d</td></tr>\n", buf[1] >> 5);
 	} else if (ctx->nal_unit_type == 14 || ctx->nal_unit_type == 20) {
-		if (CPB + 4 >= end) {
+		if (buf + 4 >= end) {
 			ret = EBADMSG;
 			parser = NULL;
 		} else {
 			uint32_t u;
-			memcpy(&u, CPB, 4);
-			CPB += 3;
+			memcpy(&u, buf, 4);
+			buf += 3;
 			u = big_endian32(u);
 			ctx->IdrPicFlag = u >> 22 & 1 ^ 1;
 			if (u >> 23 & 1) {
@@ -1906,29 +1903,30 @@ int edge264_decode_NAL(Edge264Decoder *d)
 	
 	// initialize the parsing context if we can parse the current NAL
 	if (parser != NULL) {
-		if (CPB + 3 > end) {
+		if (buf + 3 > end) {
 			ret = EBADMSG;
 		} else {
 			// prefill the bitstream cache with 2 bytes (guaranteed unescaped)
-			ctx->_gb.msb_cache = (size_t)CPB[1] << (SIZE_BIT - 8) | (size_t)CPB[2] << (SIZE_BIT - 16) | (size_t)1 << (SIZE_BIT - 17);
-			ctx->_gb.CPB = CPB + 3;
+			ctx->_gb.msb_cache = (size_t)buf[1] << (SIZE_BIT - 8) | (size_t)buf[2] << (SIZE_BIT - 16) | (size_t)1 << (SIZE_BIT - 17);
+			ctx->_gb.CPB = buf + 3;
 			ctx->_gb.end = end;
 			CALL_C2B(refill, 0);
-			ret = CALL_CTX(parser);
+			ret = CALL_CTX(parser, non_blocking, free_cb, free_arg);
 			// end may have been set to the next start code thanks to escape code detection in get_bytes
 			end = ctx->_gb.end;
-			CPB = ctx->_gb.CPB - 2 < end ? ctx->_gb.CPB - 2 : end;
+			buf = ctx->_gb.CPB - 2 < end ? ctx->_gb.CPB - 2 : end;
 		}
 	}
 	printf(ret ? "<tr style='background-color:#f77'><th colspan=2 style='text-align:center'>%s</th></tr>\n</table>\n" : "</table>\n", strerror(ret));
 	
 	// for 0, ENOTSUP and EBADMSG we may free or advance the buffer pointer
 	if (ret == 0 || ret == ENOTSUP || ret == EBADMSG) {
-		if (ctx->d.free_cb && !(ret == 0 && 1048610 & 1 << ctx->nal_unit_type)) // 1, 5 or 20
-			ctx->d.free_cb(ctx->d.free_arg);
-		if (ctx->d.annex_B)
-			ctx->d.buf = edge264_find_start_code(CPB, end);
+		if (free_cb && !(ret == 0 && 1048610 & 1 << ctx->nal_unit_type)) // 1, 5 or 20
+			free_cb(free_arg);
+		if (next_NAL)
+			*next_NAL = edge264_find_start_code(buf, end);
 	}
+	pthread_mutex_unlock(&ctx->lock);
 	RESET_CTX();
 	return ret;
 }
@@ -1942,10 +1940,11 @@ int edge264_decode_NAL(Edge264Decoder *d)
  * _ there are more frames to output than max_num_reorder_frames
  * _ there is no empty slot for the next frame
  */
-int edge264_get_frame(Edge264Decoder *d, int borrow) {
-	if (d == NULL)
+int edge264_get_frame(Edge264Decoder *d, Edge264Frame *out, int borrow) {
+	if (d == NULL || out == NULL)
 		return EINVAL;
-	SET_CTX((void *)d - offsetof(Edge264Context, d));
+	SET_CTX(d);
+	pthread_mutex_lock(&ctx->lock);
 	int pic[2] = {-1, -1};
 	unsigned unavail = ctx->reference_flags | ctx->output_flags | (ctx->basePic < 0 ? 0 : 1 << ctx->basePic);
 	int best = (__builtin_popcount(ctx->output_flags) > ctx->sps.max_num_reorder_frames ||
@@ -1961,44 +1960,44 @@ int edge264_get_frame(Edge264Decoder *d, int borrow) {
 			pic[non_base] = i;
 		}
 	}
-	int last = ctx->sps.pic_width_in_mbs * ctx->sps.pic_height_in_mbs;
-	if (pic[0] < 0 || ctx->next_deblock_addr[pic[0]] != last || pic[1] >= 0 && ctx->next_deblock_addr[pic[1]] != last) {
-		RESET_CTX();
-		return ENOMSG;
-	}
 	
-	int top = ctx->d.frame_crop_offsets[0];
-	int left = ctx->d.frame_crop_offsets[3];
-	int topC = ctx->sps.chroma_format_idc == 3 ? top : top >> 1;
-	int leftC = ctx->sps.chroma_format_idc == 1 ? left >> 1 : left;
-	int offC = ctx->plane_size_Y + topC * ctx->d.stride_C + (leftC << ctx->d.pixel_depth_C);
-	ctx->output_flags ^= 1 << pic[0];
-	const uint8_t *samples = ctx->frame_buffers[pic[0]];
-	ctx->d.samples[0] = samples + top * ctx->d.stride_Y + (left << ctx->d.pixel_depth_Y);
-	ctx->d.samples[1] = samples + offC;
-	ctx->d.samples[2] = samples + ctx->plane_size_C + offC;
-	ctx->d.TopFieldOrderCnt = best << 6 >> 6;
-	ctx->d.BottomFieldOrderCnt = ctx->FieldOrderCnt[1][pic[0]] << 6 >> 6;
-	ctx->d.return_arg = (void *)((size_t)1 << pic[0]);
-	if (pic[1] >= 0) {
-		ctx->output_flags ^= 1 << pic[1];
-		samples = ctx->frame_buffers[pic[1]];
-		ctx->d.samples_mvc[0] = samples + top * ctx->d.stride_Y + (left << ctx->d.pixel_depth_Y);
-		ctx->d.samples_mvc[1] = samples + offC;
-		ctx->d.samples_mvc[2] = samples + ctx->plane_size_C + offC;
-		ctx->d.return_arg = (void *)((size_t)1 << pic[0] | (size_t)1 << pic[1]);
+	int last = ctx->sps.pic_width_in_mbs * ctx->sps.pic_height_in_mbs;
+	int res = ENOMSG;
+	if (pic[0] >= 0 && ctx->next_deblock_addr[pic[0]] == last && (pic[1] < 0 || ctx->next_deblock_addr[pic[1]] == last)) {
+		*out = ctx->out;
+		int top = ctx->out.frame_crop_offsets[0];
+		int left = ctx->out.frame_crop_offsets[3];
+		int topC = ctx->sps.chroma_format_idc == 3 ? top : top >> 1;
+		int leftC = ctx->sps.chroma_format_idc == 1 ? left >> 1 : left;
+		int offC = ctx->plane_size_Y + topC * ctx->out.stride_C + (leftC << ctx->out.pixel_depth_C);
+		ctx->output_flags ^= 1 << pic[0];
+		const uint8_t *samples = ctx->frame_buffers[pic[0]];
+		out->samples[0] = samples + top * ctx->out.stride_Y + (left << ctx->out.pixel_depth_Y);
+		out->samples[1] = samples + offC;
+		out->samples[2] = samples + ctx->plane_size_C + offC;
+		out->TopFieldOrderCnt = best << 6 >> 6;
+		out->BottomFieldOrderCnt = ctx->FieldOrderCnt[1][pic[0]] << 6 >> 6;
+		out->return_arg = (void *)((size_t)1 << pic[0]);
+		if (pic[1] >= 0) {
+			ctx->output_flags ^= 1 << pic[1];
+			samples = ctx->frame_buffers[pic[1]];
+			out->samples_mvc[0] = samples + top * ctx->out.stride_Y + (left << ctx->out.pixel_depth_Y);
+			out->samples_mvc[1] = samples + offC;
+			out->samples_mvc[2] = samples + ctx->plane_size_C + offC;
+			out->return_arg = (void *)((size_t)1 << pic[0] | (size_t)1 << pic[1]);
+		}
+		res = 0;
+		if (borrow)
+			ctx->borrow_flags |= (size_t)out->return_arg;
 	}
-	if (borrow)
-		ctx->borrow_flags |= (size_t)ctx->d.return_arg;
+	pthread_mutex_unlock(&ctx->lock);
 	RESET_CTX();
-	return 0;
+	return res;
 }
 
 
 
 void edge264_return_frame(Edge264Decoder *d, void *return_arg) {
-	if (d != NULL) {
-		Edge264Context *c = (void *)d - offsetof(Edge264Context, d);
-		c->borrow_flags &= ~(size_t)return_arg;
-	}
+	if (d != NULL)
+		d->borrow_flags &= ~(size_t)return_arg;
 }

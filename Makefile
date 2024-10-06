@@ -1,5 +1,5 @@
-override CFLAGS := -std=gnu99 -march=native -O3 -flax-vector-conversions $(CFLAGS)
-# override CFLAGS := -std=gnu99 -march=native -g -fsanitize=address -fno-omit-frame-pointer -flax-vector-conversions $(CFLAGS)
+override CFLAGS := -std=gnu11 -march=native -O3 -flax-vector-conversions $(CFLAGS)
+# override CFLAGS := -std=gnu11 -march=native -g -fsanitize=address -fno-omit-frame-pointer -flax-vector-conversions $(CFLAGS)
 
 ifneq ($(shell command -v gcc-9),)
 	CC = gcc-9

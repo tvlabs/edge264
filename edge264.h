@@ -31,15 +31,9 @@
 #include <errno.h>
 #include <stdint.h>
 
-typedef struct Edge264Decoder {
-	// These fields must be set prior to decoding.
-	const uint8_t *buf; // should always point to a NAL unit (after the 001 prefix)
-	const uint8_t *end; // first byte past the end of the buffer
-	void (*free_cb)(void *free_arg); // called from decode_NAL or a worker thread when the NAL starting at buf is done parsing
-	void *free_arg; // passed to the above function
-	int8_t annex_B; // set to 1 to call find_start_code at the end of each decode_NAL
-	
-	// These static fields are set when returning a frame.
+typedef struct Edge264Decoder Edge264Decoder;
+
+typedef struct Edge264Frame {
 	const uint8_t *samples[3]; // Y/Cb/Cr planes
 	const uint8_t *samples_mvc[3]; // second view
 	int8_t pixel_depth_Y; // 0 for 8-bit, 1 for 16-bit
@@ -54,14 +48,14 @@ typedef struct Edge264Decoder {
 	int32_t BottomFieldOrderCnt;
 	int16_t frame_crop_offsets[4]; // {top,right,bottom,left}, in luma samples, already included in samples_Y/Cb/cr and width/height_Y/C
 	void *return_arg;
-} Edge264Decoder;
+} Edge264Frame;
 
 const uint8_t *edge264_find_start_code(const uint8_t *buf, const uint8_t *end);
 Edge264Decoder *edge264_alloc();
 void edge264_flush(Edge264Decoder *d);
 void edge264_free(Edge264Decoder **d);
-int edge264_decode_NAL(Edge264Decoder *d);
-int edge264_get_frame(Edge264Decoder *d, int borrow);
+int edge264_decode_NAL(Edge264Decoder *d, const uint8_t *buf, const uint8_t *end, int non_blocking, void(*free_cb)(void*), void *free_arg, const uint8_t **next_NAL);
+int edge264_get_frame(Edge264Decoder *d, Edge264Frame *out, int borrow);
 void edge264_return_frame(Edge264Decoder *d, void *return_arg);
 
 #endif

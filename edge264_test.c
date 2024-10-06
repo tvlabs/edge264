@@ -30,6 +30,7 @@ static int print_passed = 0;
 static int print_unsupported = 0;
 static int enable_yuv = 1;
 static Edge264Decoder *d;
+static Edge264Frame out;
 static const uint8_t *conf[3];
 static GLFWwindow *window;
 static int width, height, mvc_display;
@@ -161,8 +162,8 @@ static void init_display()
 static void draw_frame()
 {
 	// resize the window if necessary
-	int has_second_view = d->samples_mvc[0] != NULL;
-	if (width != d->width_Y || height != d->height_Y || mvc_display != has_second_view) {
+	int has_second_view = out.samples_mvc[0] != NULL;
+	if (width != out.width_Y || height != out.height_Y || mvc_display != has_second_view) {
 		mvc_display = has_second_view;
 		if (window == NULL)
 			init_display();
@@ -176,36 +177,36 @@ static void draw_frame()
 			glUniform1i(glGetUniformLocation(program, "texCb1"), 4);
 			glUniform1i(glGetUniformLocation(program, "texCr1"), 5);
 		}
-		glfwSetWindowSize(window, width = d->width_Y, height = d->height_Y);
+		glfwSetWindowSize(window, width = out.width_Y, height = out.height_Y);
 		glfwShowWindow(window);
 	}
 	
 	// upload the image to OpenGL and render!
 	glClear(GL_COLOR_BUFFER_BIT);
 	glVertexAttribPointer(0, 4, GL_FLOAT, GL_FALSE, 0, 0);
-	glPixelStorei(GL_UNPACK_ROW_LENGTH, d->stride_Y);
+	glPixelStorei(GL_UNPACK_ROW_LENGTH, out.stride_Y);
 	glActiveTexture(GL_TEXTURE0);
 	glBindTexture(GL_TEXTURE_2D, textures[0]);
-	glTexImage2D(GL_TEXTURE_2D, 0, GL_LUMINANCE, d->width_Y >> d->pixel_depth_Y, d->height_Y, 0, GL_LUMINANCE, d->pixel_depth_Y ? GL_UNSIGNED_SHORT : GL_UNSIGNED_BYTE, d->samples[0]);
-	glPixelStorei(GL_UNPACK_ROW_LENGTH, d->stride_C);
+	glTexImage2D(GL_TEXTURE_2D, 0, GL_LUMINANCE, out.width_Y >> out.pixel_depth_Y, out.height_Y, 0, GL_LUMINANCE, out.pixel_depth_Y ? GL_UNSIGNED_SHORT : GL_UNSIGNED_BYTE, out.samples[0]);
+	glPixelStorei(GL_UNPACK_ROW_LENGTH, out.stride_C);
 	glActiveTexture(GL_TEXTURE1);
 	glBindTexture(GL_TEXTURE_2D, textures[1]);
-	glTexImage2D(GL_TEXTURE_2D, 0, GL_LUMINANCE, d->width_C >> d->pixel_depth_C, d->height_C, 0, GL_LUMINANCE, d->pixel_depth_C ? GL_UNSIGNED_SHORT : GL_UNSIGNED_BYTE, d->samples[1]);
+	glTexImage2D(GL_TEXTURE_2D, 0, GL_LUMINANCE, out.width_C >> out.pixel_depth_C, out.height_C, 0, GL_LUMINANCE, out.pixel_depth_C ? GL_UNSIGNED_SHORT : GL_UNSIGNED_BYTE, out.samples[1]);
 	glActiveTexture(GL_TEXTURE2);
 	glBindTexture(GL_TEXTURE_2D, textures[2]);
-	glTexImage2D(GL_TEXTURE_2D, 0, GL_LUMINANCE, d->width_C >> d->pixel_depth_C, d->height_C, 0, GL_LUMINANCE, d->pixel_depth_C ? GL_UNSIGNED_SHORT : GL_UNSIGNED_BYTE, d->samples[2]);
+	glTexImage2D(GL_TEXTURE_2D, 0, GL_LUMINANCE, out.width_C >> out.pixel_depth_C, out.height_C, 0, GL_LUMINANCE, out.pixel_depth_C ? GL_UNSIGNED_SHORT : GL_UNSIGNED_BYTE, out.samples[2]);
 	if (mvc_display) {
-		glPixelStorei(GL_UNPACK_ROW_LENGTH, d->stride_Y);
+		glPixelStorei(GL_UNPACK_ROW_LENGTH, out.stride_Y);
 		glActiveTexture(GL_TEXTURE3);
 		glBindTexture(GL_TEXTURE_2D, textures[3]);
-		glTexImage2D(GL_TEXTURE_2D, 0, GL_LUMINANCE, d->width_Y >> d->pixel_depth_Y, d->height_Y, 0, GL_LUMINANCE, d->pixel_depth_Y ? GL_UNSIGNED_SHORT : GL_UNSIGNED_BYTE, d->samples_mvc[0]);
-		glPixelStorei(GL_UNPACK_ROW_LENGTH, d->stride_C);
+		glTexImage2D(GL_TEXTURE_2D, 0, GL_LUMINANCE, out.width_Y >> out.pixel_depth_Y, out.height_Y, 0, GL_LUMINANCE, out.pixel_depth_Y ? GL_UNSIGNED_SHORT : GL_UNSIGNED_BYTE, out.samples_mvc[0]);
+		glPixelStorei(GL_UNPACK_ROW_LENGTH, out.stride_C);
 		glActiveTexture(GL_TEXTURE4);
 		glBindTexture(GL_TEXTURE_2D, textures[4]);
-		glTexImage2D(GL_TEXTURE_2D, 0, GL_LUMINANCE, d->width_C >> d->pixel_depth_C, d->height_C, 0, GL_LUMINANCE, d->pixel_depth_C ? GL_UNSIGNED_SHORT : GL_UNSIGNED_BYTE, d->samples_mvc[1]);
+		glTexImage2D(GL_TEXTURE_2D, 0, GL_LUMINANCE, out.width_C >> out.pixel_depth_C, out.height_C, 0, GL_LUMINANCE, out.pixel_depth_C ? GL_UNSIGNED_SHORT : GL_UNSIGNED_BYTE, out.samples_mvc[1]);
 		glActiveTexture(GL_TEXTURE5);
 		glBindTexture(GL_TEXTURE_2D, textures[5]);
-		glTexImage2D(GL_TEXTURE_2D, 0, GL_LUMINANCE, d->width_C >> d->pixel_depth_C, d->height_C, 0, GL_LUMINANCE, d->pixel_depth_C ? GL_UNSIGNED_SHORT : GL_UNSIGNED_BYTE, d->samples_mvc[2]);
+		glTexImage2D(GL_TEXTURE_2D, 0, GL_LUMINANCE, out.width_C >> out.pixel_depth_C, out.height_C, 0, GL_LUMINANCE, out.pixel_depth_C ? GL_UNSIGNED_SHORT : GL_UNSIGNED_BYTE, out.samples_mvc[2]);
 	}
 	glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
 	glfwSwapBuffers(window);
@@ -223,46 +224,46 @@ static void draw_frame()
 static int check_frame()
 {
 	// check that the number of returned views is as expected
-	if ((d->samples_mvc[0] != NULL) != (conf[1] != NULL)) {
+	if ((out.samples_mvc[0] != NULL) != (conf[1] != NULL)) {
 		#if TRACE
-			printf("<h2 style='color:red'>The number of returned views (%d) does not match the number of YUV files found (%d)", (d->samples_mvc[0] != NULL) + 1, (conf[1] != NULL) + 1);
+			printf("<h2 style='color:red'>The number of returned views (%d) does not match the number of YUV files found (%d)", (out.samples_mvc[0] != NULL) + 1, (conf[1] != NULL) + 1);
 		#endif
 		return -2;
 	}
 	
 	// check that each macroblock matches the conformance buffer
-	int poc = d->TopFieldOrderCnt;
-	int top = d->frame_crop_offsets[0];
-	int left = d->frame_crop_offsets[3];
-	int right = d->frame_crop_offsets[1];
-	int bottom = d->frame_crop_offsets[2];
+	int poc = out.TopFieldOrderCnt;
+	int top = out.frame_crop_offsets[0];
+	int left = out.frame_crop_offsets[3];
+	int right = out.frame_crop_offsets[1];
+	int bottom = out.frame_crop_offsets[2];
 	for (int view = 0; conf[view] != NULL; view += 1) {
-		for (int row = -top; row < d->height_Y + bottom; row += 16) {
-			for (int col = -left; col < d->width_Y + right; col += 16) {
+		for (int row = -top; row < out.height_Y + bottom; row += 16) {
+			for (int col = -left; col < out.width_Y + right; col += 16) {
 				int sh_row = 0;
 				int sh_col = 0;
 				const uint8_t *q = conf[view];
 				for (int iYCbCr = 0; iYCbCr < 3; iYCbCr++) {
-					const uint8_t *p = (view ? d->samples_mvc : d->samples)[iYCbCr];
+					const uint8_t *p = (view ? out.samples_mvc : out.samples)[iYCbCr];
 					int x0 = max(col, 0) >> sh_col;
-					int x1 = min(col + 16, d->width_Y) >> sh_col;
+					int x1 = min(col + 16, out.width_Y) >> sh_col;
 					int invalid = 0;
-					for (int y = max(row, 0) >> sh_row; x0 < x1 && y < min(row + 16, d->height_Y) >> sh_row; y++)
-						invalid |= memcmp(p + y * (d->stride_Y >> sh_col) + x0, q + y * (d->width_Y >> sh_col) + x0, x1 - x0);
+					for (int y = max(row, 0) >> sh_row; x0 < x1 && y < min(row + 16, out.height_Y) >> sh_row; y++)
+						invalid |= memcmp(p + y * (out.stride_Y >> sh_col) + x0, q + y * (out.width_Y >> sh_col) + x0, x1 - x0);
 					if (invalid) {
 						#if TRACE
 							printf("<h2 style='color:red'>Erroneous macroblock (PicOrderCnt %d, view %d, row %d, column %d, %s plane):<pre style='color:black'>\n",
 								poc, view, (top + row) >> 4, (left + col) >> 4, (iYCbCr == 0) ? "Luma" : (iYCbCr == 1) ? "Cb" : "Cr");
 							for (int y = row >> sh_row; y < (row + 16) >> sh_row; y++) {
 								for (int x = col >> sh_col; x < (col + 16) >> sh_col; x++) {
-									printf(y < 0 || y >= d->height_Y >> sh_row || x < 0 || x >= d->width_Y >> sh_col ? "    " :
-										p[y * (d->stride_Y >> sh_col) + x] == q[y * (d->width_Y >> sh_col) + x] ? "%3d " :
-										"<span style='color:red'>%3d</span> ", p[y * (d->stride_Y >> sh_col) + x]);
+									printf(y < 0 || y >= out.height_Y >> sh_row || x < 0 || x >= out.width_Y >> sh_col ? "    " :
+										p[y * (out.stride_Y >> sh_col) + x] == q[y * (out.width_Y >> sh_col) + x] ? "%3d " :
+										"<span style='color:red'>%3d</span> ", p[y * (out.stride_Y >> sh_col) + x]);
 								}
 								printf("\t");
 								for (int x = col >> sh_col; x < (col + 16) >> sh_col; x++) {
-									printf(y < 0 || y >= d->height_Y >> sh_row || x < 0 || x >= d->width_Y >> sh_col ? "    " :
-										"%3d ", q[y * (d->width_Y >> sh_col) + x]);
+									printf(y < 0 || y >= out.height_Y >> sh_row || x < 0 || x >= out.width_Y >> sh_col ? "    " :
+										"%3d ", q[y * (out.width_Y >> sh_col) + x]);
 								}
 								printf("\n");
 							}
@@ -270,13 +271,13 @@ static int check_frame()
 						#endif
 						return -2;
 					}
-					sh_row = d->height_C < d->height_Y;
-					sh_col = d->width_C < d->width_Y;
-					q += (iYCbCr == 0) ? d->width_Y * d->height_Y : d->width_C * d->height_C;
+					sh_row = out.height_C < out.height_Y;
+					sh_col = out.width_C < out.width_Y;
+					q += (iYCbCr == 0) ? out.width_Y * out.height_Y : out.width_C * out.height_C;
 				}
 			}
 		}
-		conf[view] += d->width_Y * d->height_Y + d->width_C * d->height_C * 2;
+		conf[view] += out.width_Y * out.height_Y + out.width_C * out.height_C * 2;
 	}
 	#if TRACE
 		printf("<h2 style='color:green'>Output frame with PicOrderCnt %d is correct</h2>\n", poc);
@@ -333,12 +334,12 @@ static int decode_file(const char *name, int print_counts)
 	}
 	
 	// decode the entire file and FAIL on any error
-	d->buf = buf + 3 + (buf[2] == 0); // skip the [0]001 delimiter
-	d->end = buf + stC.st_size;
+	const uint8_t *nal = buf + 3 + (buf[2] == 0); // skip the [0]001 delimiter
+	const uint8_t *end = buf + stC.st_size;
 	int res;
 	do {
-		res = edge264_decode_NAL(d);
-		while (!edge264_get_frame(d, 0)) {
+		res = edge264_decode_NAL(d, nal, end, 0, NULL, NULL, &nal);
+		while (!edge264_get_frame(d, &out, 0)) {
 			if (display)
 				draw_frame();
 			if (conf[0] != NULL && check_frame()) {
@@ -454,7 +455,6 @@ int main(int argc, const char *argv[])
 	
 	// check if input is a directory by trying to move into it
 	d = edge264_alloc();
-	d->annex_B = 1;
 	if (chdir(file_name) < 0) {
 		int res = decode_file(file_name, 0);
 		if (!TRACE && res == ENOTSUP)

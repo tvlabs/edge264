@@ -685,7 +685,7 @@ static void CAFUNC(parse_intra_chroma_pred_mode)
 			mb->f.intra_chroma_pred_mode_non_zero = (mode > 0);
 		#endif
 		fprintf(stderr, "intra_chroma_pred_mode: %u\n", mode);
-		CALL_TSK(decode_intraChroma, IntraChromaModes[mode][tsk->unavail16x16 & 3], tsk->samples_mb[1], tsk->samples_mb[2], tsk->stride[1]);
+		CALL_TSK(decode_intraChroma, IntraChromaModes[mode][tsk->unavail4x4[0] & 3], tsk->samples_mb[1], tsk->samples_mb[2], tsk->stride[1]);
 	}
 }
 
@@ -740,13 +740,13 @@ static noinline void CAFUNC(parse_I_mb, int mb_type_or_ctxIdx)
 	// Intra-specific initialisations
 	#ifdef CABAC
 		tsk->nC_inc_v[0] = tsk->nC_inc_v[1] = tsk->nC_inc_v[2] = (i8x16){};
-		if (tsk->unavail16x16 & 1) {
+		if (tsk->unavail4x4[0] & 1) {
 			mb->bits[1] |= 0x111111; // FIXME 4:2:2
 			tsk->nC_inc_v[0] += (i8x16){1, 0, 1, 0, 0, 0, 0, 0, 1, 0, 1, 0, 0, 0, 0, 0};
 			tsk->nC_inc_v[1] += (i8x16){1, 0, 1, 0, 1, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0};
 			tsk->inc.coded_block_flags_16x16_s |= 0x010101;
 		}
-		if (tsk->unavail16x16 & 2) {
+		if (tsk->unavail4x4[0] & 2) {
 			mb->bits[1] |= 0x424242;
 			tsk->nC_inc_v[0] += (i8x16){2, 2, 0, 0, 2, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
 			tsk->nC_inc_v[1] += (i8x16){2, 2, 0, 0, 2, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
@@ -824,7 +824,7 @@ static noinline void CAFUNC(parse_I_mb, int mb_type_or_ctxIdx)
 			{I16x16_P_8 , I16x16_DCA_8, I16x16_DCB_8, I16x16_DCAB_8},
 		};
 		mb->Intra4x4PredMode_v = (i8x16){2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2};
-		CALL_TSK(decode_intra16x16, Intra16x16Modes[mode][tsk->unavail16x16 & 3], tsk->samples_mb[0], tsk->stride[0], 0); // FIXME 4:4:4
+		CALL_TSK(decode_intra16x16, Intra16x16Modes[mode][tsk->unavail4x4[0] & 3], tsk->samples_mb[0], tsk->stride[0], 0); // FIXME 4:4:4
 		CACALL(parse_intra_chroma_pred_mode);
 		CAJUMP(parse_Intra16x16_residual);
 		
@@ -1509,9 +1509,9 @@ static inline void CAFUNC(parse_P_mb)
 		int mvA = mbA->mvs_s[5];
 		int mvB = mbB->mvs_s[10];
 		i16x8 mv = {};
-		if ((refIdxA | mvA) && (refIdxB | mvB) && !(tsk->unavail16x16 & 3)) {
+		if ((refIdxA | mvA) && (refIdxB | mvB) && !(tsk->unavail4x4[0] & 3)) {
 			int refIdxC;
-			if (__builtin_expect(tsk->unavail16x16 & 4, 0)) {
+			if (__builtin_expect(tsk->unavail4x4[5] & 4, 0)) {
 				refIdxC = mbD->refIdx[3];
 				mv = (i32x4){mbD->mvs_s[15]};
 			} else {
@@ -1610,8 +1610,10 @@ static noinline void CAFUNC(parse_slice_data)
 		fprintf(stderr, "********** POC=%u MB=%u **********\n", tsk->PicOrderCnt, tsk->CurrMbAddr);
 		
 		// set and reset neighbouring pointers depending on their availability
-		int unavail16x16 = mb->unavail16x16;
-		int filter_edges = (tsk->disable_deblocking_filter_idc == 1) ? 0 : ~(mb->unavail16x16 << 1) & 7;
+		int x = tsk->samples_mb[0] - tsk->samples_row[0];
+		int y = tsk->samples_row[0] - tsk->samples_base; // FIXME remove after filter_edges is reviewed
+		int unavail16x16 = (x == 0 ? 9 : x == tsk->pic_width_in_mbs * 16 - 16 ? 4 : 0) | (y == 0 ? 14 : 0);
+		int filter_edges = (tsk->disable_deblocking_filter_idc == 1) ? 0 : ~(unavail16x16 << 1) & 7;
 		mbA = mb - 1;
 		mbB = mbA - tsk->pic_width_in_mbs;
 		mbC = mbB + 1;
@@ -1703,7 +1705,6 @@ static noinline void CAFUNC(parse_slice_data)
 		
 		// initialize common macroblock values
 		mb->filter_edges = filter_edges;
-		tsk->unavail16x16 = unavail16x16;
 		tsk->unavail4x4_v = block_unavailability[unavail16x16];
 		tsk->inc.v = fA + fB + (fB & flags_twice.v);
 		mb->f.v = (i8x16){};
@@ -1750,7 +1751,7 @@ static noinline void CAFUNC(parse_slice_data)
 		}
 		tsk->CurrMbAddr++;
 		tsk->mbCol++;
-		if (tsk->samples_mb[0] - tsk->samples_row[0] >= tsk->stride[0]) {
+		if (tsk->samples_mb[0] - tsk->samples_row[0] >= tsk->stride[0]) { // FIXME incompatible with stride offset
 			mb++; // skip the empty macroblock at the edge
 			tsk->mbCol++;
 			tsk->samples_mb[0] = tsk->samples_row[0] += tsk->stride[0] * 16;

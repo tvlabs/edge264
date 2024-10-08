@@ -1,7 +1,10 @@
 /** MAYDO:
  * _ Multithreading
- * 	_ review lock so that it allows calling get_frame in parallel
- * 	_ receiving a different SPS should return -2 if there are unreturned frames left
+ * 	_ remove tsk->unavail16x16 in favor of unavail4x4
+ * 	_ remove mb->filter_edges in favor of an argument passed to deblock_mb
+ * 	_ redo deblocking logic by assuming disable_deblocking_idc is the same in all slices (FIXME error_flag AND ENOTSUP if otherwise)
+ * 	_ fix worker function to prevent two slices deblocking at the same time if the second catches mb_remaining==0 too soon
+ * 	_ fix void NALs in brcm_freh9
  * 	_ Implement a basic task queue yet in decoding order and with 1 thread
  * 	_ Update DPB availability checks to take deps into account, and make sure we wait until there is a frame ready before returning -2
  * 	_ Add currPic to task_dependencies
@@ -488,17 +491,9 @@ static int FUNC_CTX(alloc_frame, int id) {
 	if (ctx->frame_buffers[id] == NULL)
 		return ENOMEM;
 	Edge264Macroblock *m = (Edge264Macroblock *)(ctx->frame_buffers[id] + ctx->plane_size_Y + ctx->plane_size_C * 2);
-	m[0].unavail16x16 = 15;
-	for (int i = 1; i < ctx->sps.pic_width_in_mbs; i++)
-		m[i].unavail16x16 = 14;
 	int mbs = (ctx->sps.pic_width_in_mbs + 1) * ctx->sps.pic_height_in_mbs - 1;
-	for (int i = ctx->sps.pic_width_in_mbs; i < mbs; i += ctx->sps.pic_width_in_mbs + 1) {
+	for (int i = ctx->sps.pic_width_in_mbs; i < mbs; i += ctx->sps.pic_width_in_mbs + 1)
 		m[i] = unavail_mb;
-		m[i + 1].unavail16x16 = 9;
-		for (int j = 2; j < ctx->sps.pic_width_in_mbs; j++)
-			m[i + j].unavail16x16 = 0;
-		m[i + ctx->sps.pic_width_in_mbs].unavail16x16 = 4;
-	}
 	return 0;
 }
 

@@ -1,6 +1,5 @@
 /** MAYDO:
  * _ Multithreading
- * 	_ remove tsk->unavail16x16 in favor of unavail4x4
  * 	_ remove mb->filter_edges in favor of an argument passed to deblock_mb
  * 	_ redo deblocking logic by assuming disable_deblocking_idc is the same in all slices (FIXME error_flag AND ENOTSUP if otherwise)
  * 	_ fix worker function to prevent two slices deblocking at the same time if the second catches mb_remaining==0 too soon
@@ -561,8 +560,11 @@ static void *worker_loop(Edge264Decoder *c) {
 		int remaining_mbs = __atomic_sub_fetch(c->remaining_mbs + currPic, tsk->CurrMbAddr - tsk->first_mb_in_slice, __ATOMIC_SEQ_CST);
 		int next_deblock_addr = c->next_deblock_addr[currPic]; // in the absence of duplicate slices only one can react on any value
 		if (next_deblock_addr == tsk->first_mb_in_slice || remaining_mbs == 0) {
-			if (remaining_mbs == 0)
+			if (remaining_mbs == 0) {
 				tsk->CurrMbAddr = tsk->pic_width_in_mbs * c->sps.pic_height_in_mbs;
+				if (next_deblock_addr < 0)
+					tsk->next_deblock_addr = tsk->CurrMbAddr;
+			}
 			tsk->next_deblock_addr = max(tsk->next_deblock_addr, next_deblock_addr);
 			int mby = (unsigned)tsk->next_deblock_addr / (unsigned)tsk->pic_width_in_mbs;
 			int mbx = (unsigned)tsk->next_deblock_addr % (unsigned)tsk->pic_width_in_mbs;
@@ -873,6 +875,8 @@ static int FUNC_CTX(parse_slice_layer_without_partitioning, int non_blocking, vo
 			t->FilterOffsetB = CALL_C2B(get_se16, -6, 6) * 2;
 			printf("<tr><th>FilterOffsets</th><td>%d, %d</td></tr>\n",
 				t->FilterOffsetA, t->FilterOffsetB);
+		} else {
+			ctx->next_deblock_addr[ctx->currPic] = -ctx->sps.pic_width_in_mbs - 1;
 		}
 	} else {
 		t->disable_deblocking_filter_idc = 0;

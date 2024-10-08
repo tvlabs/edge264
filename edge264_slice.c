@@ -1613,7 +1613,7 @@ static noinline void CAFUNC(parse_slice_data)
 		int x = tsk->samples_mb[0] - tsk->samples_row[0];
 		int y = tsk->samples_row[0] - tsk->samples_base; // FIXME remove after filter_edges is reviewed
 		int unavail16x16 = (x == 0 ? 9 : x == tsk->pic_width_in_mbs * 16 - 16 ? 4 : 0) | (y == 0 ? 14 : 0);
-		int filter_edges = (tsk->disable_deblocking_filter_idc == 1) ? 0 : ~(unavail16x16 << 1) & 7;
+		int filter_edges = ~unavail16x16;
 		mbA = mb - 1;
 		mbB = mbA - tsk->pic_width_in_mbs;
 		mbC = mbB + 1;
@@ -1651,7 +1651,7 @@ static noinline void CAFUNC(parse_slice_data)
 				unavail16x16 |= 1;
 				fA = unavail_mb.f.v;
 				bitsA = unavail_mb.bits_l;
-				filter_edges &= ~tsk->disable_deblocking_filter_idc; // impacts only bit 1
+				filter_edges &= ~(tsk->disable_deblocking_filter_idc >> 1); // impacts only bit 0
 			}
 			if (decoded == tsk->pic_width_in_mbs + 1) { // D becomes available
 				int offD_int32 = ((tsk->pic_width_in_mbs + 2) * (int)sizeof(*mb)) >> 2;
@@ -1691,7 +1691,7 @@ static noinline void CAFUNC(parse_slice_data)
 					unavail16x16 |= 2;
 					fB = unavail_mb.f.v;
 					bitsB = unavail_mb.bits_l;
-					filter_edges &= ~(tsk->disable_deblocking_filter_idc << 1); // impacts only bit 2
+					filter_edges &= ~tsk->disable_deblocking_filter_idc; // impacts only bit 1
 					if (decoded == tsk->pic_width_in_mbs - 1) { // C becomes available
 						int offC_int32 = (tsk->pic_width_in_mbs * (int)sizeof(*mb)) >> 2;
 						tsk->mvs_C[5] = 10 - offC_int32;
@@ -1704,10 +1704,10 @@ static noinline void CAFUNC(parse_slice_data)
 		}
 		
 		// initialize common macroblock values
-		mb->filter_edges = filter_edges;
 		tsk->unavail4x4_v = block_unavailability[unavail16x16];
 		tsk->inc.v = fA + fB + (fB & flags_twice.v);
 		mb->f.v = (i8x16){};
+		mb->f.filter_edges = filter_edges;
 		mb->QP_s = tsk->QP_s;
 		if (tsk->ChromaArrayType == 1) { // FIXME 4:2:2
 			mb->bits_l = (bitsA >> 3 & 0x11111100111111) | (bitsB >> 1 & 0x42424200424242);

@@ -55,6 +55,7 @@ typedef struct {
  */
 typedef union {
 	struct {
+		int8_t filter_edges; // 2 bits to enable deblocking of A/B edges
 		int8_t mb_field_decoding_flag;
 		int8_t mb_skip_flag;
 		int8_t mb_type_I_NxN;
@@ -91,7 +92,6 @@ static const Edge264Flags flags_twice = {
  */
 typedef struct {
 	Edge264Flags f;
-	uint8_t filter_edges; // 3 bits to enable deblocking of internal/left/top edges
 	union { uint8_t inter_eqs[4]; uint32_t inter_eqs_s; }; // 2 flags per 4x4 block storing right/bottom equality of mvs&ref, in little endian
 	union { uint8_t QP[3]; i8x4 QP_s; }; // [iYCbCr]
 	union { uint32_t bits[2]; uint64_t bits_l; }; // {cbp/ref_idx_nz, cbf_Y/Cb/Cr 8x8}

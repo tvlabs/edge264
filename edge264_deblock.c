@@ -169,7 +169,7 @@ static noinline void FUNC_TSK(deblock_CbCr_8bit, size_t stride, ssize_t nstride,
 	static const i8x16 shuf_cg = {1, 1, 1, 1, 1, 1, 1, 1, 2, 2, 2, 2, 2, 2, 2, 2};
 	static const i8x16 shuf_e = {13, 13, 13, 13, 13, 13, 13, 13, 14, 14, 14, 14, 14, 14, 14, 14};
 	i8x16 v0, v1, v2, v3, v4, v5, v6, v7;
-	if (mb->filter_edges & 2) {
+	if (mb->f.filter_edges & 1) {
 		// load and transpose both 12x8 matrices (with left macroblock)
 		uint8_t * restrict Cb0 = tsk->samples_mb[1] - 8;
 		i8x16 xa0 = load128(Cb0              );
@@ -370,7 +370,7 @@ static noinline void FUNC_TSK(deblock_CbCr_8bit, size_t stride, ssize_t nstride,
 	// first horizontal edge
 	uint8_t * restrict Cb0 = tsk->samples_mb[1];
 	uint8_t * restrict Cr0 = tsk->samples_mb[2];
-	if (mb->filter_edges & 4) {
+	if (mb->f.filter_edges & 2) {
 		i8x16 hY = (i64x2){*(int64_t *)(Cb0 + nstride * 2), *(int64_t *)(Cr0 + nstride * 2)};
 		i8x16 hZ = (i64x2){*(int64_t *)(Cb0 + nstride    ), *(int64_t *)(Cr0 + nstride    )};
 		if (mbB->f.mbIsInterFlag & mb->f.mbIsInterFlag) {
@@ -420,7 +420,7 @@ static noinline void FUNC_TSK(deblock_Y_8bit, size_t stride, ssize_t nstride, si
 {
 	i8x16 zero = {};
 	i8x16 v0, v1, v2, v3, v4, v5, v6, v7;
-	if (mb->filter_edges & 2) {
+	if (mb->f.filter_edges & 1) {
 		// load and transpose the left 12x16 matrix
 		uint8_t * restrict px0 = tsk->samples_mb[0] - 8;
 		i8x16 xa0 = load128(px0              );
@@ -694,7 +694,7 @@ static noinline void FUNC_TSK(deblock_Y_8bit, size_t stride, ssize_t nstride, si
 	
 	// first horizontal edge
 	px0 = tsk->samples_mb[0];
-	if (mb->filter_edges & 4) {
+	if (mb->f.filter_edges & 2) {
 		if (mbB->f.mbIsInterFlag & mb->f.mbIsInterFlag) {
 			int tC0e = tsk->tC0_s[4];
 			if (tC0e != -1)
@@ -821,8 +821,6 @@ noinline void FUNC_TSK(deblock_mb)
 		{-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 2, 2, 2, 2, 3, 3, 3, 4, 4, 5, 5, 6, 7, 8, 8, 10, 11, 12, 13, 15, 17},
 		{-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 2, 2, 2, 2, 3, 3, 3, 4, 4, 4, 5, 6, 6, 7, 8, 9, 10, 11, 13, 14, 16, 18, 20, 23, 25},
 	};
-	if (!mb->filter_edges)
-		return;
 	
 	// compute all values of indexA and indexB for each of the color planes first
 	mbA = mb - 1;

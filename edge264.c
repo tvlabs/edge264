@@ -1,8 +1,5 @@
 /** MAYDO:
  * _ Multithreading
- * 	_ remove mb->filter_edges in favor of an argument passed to deblock_mb
- * 	_ redo deblocking logic by assuming disable_deblocking_idc is the same in all slices (FIXME error_flag AND ENOTSUP if otherwise)
- * 	_ fix worker function to prevent two slices deblocking at the same time if the second catches mb_remaining==0 too soon
  * 	_ fix void NALs in brcm_freh9
  * 	_ Implement a basic task queue yet in decoding order and with 1 thread
  * 	_ Update DPB availability checks to take deps into account, and make sure we wait until there is a frame ready before returning -2
@@ -94,8 +91,8 @@ static void FUNC_CTX(initialise_decoding_context, Edge264Task *t)
 	t->ChromaArrayType = ctx->sps.ChromaArrayType;
 	t->direct_8x8_inference_flag = ctx->sps.direct_8x8_inference_flag;
 	t->pic_width_in_mbs = ctx->sps.pic_width_in_mbs;
-	t->next_deblock_addr = (ctx->next_deblock_addr[ctx->currPic] == t->first_mb_in_slice) ?
-		ctx->next_deblock_addr[ctx->currPic] : -t->pic_width_in_mbs - 1;
+	t->next_deblock_addr = (ctx->next_deblock_addr[ctx->currPic] == t->first_mb_in_slice ||
+		t->disable_deblocking_filter_idc == 2) ? t->first_mb_in_slice : -t->pic_width_in_mbs - 1;
 	t->samples_base = ctx->frame_buffers[ctx->currPic];
 	t->plane_size_Y = ctx->plane_size_Y;
 	t->plane_size_C = ctx->plane_size_C;
@@ -556,16 +553,9 @@ static void *worker_loop(Edge264Decoder *c) {
 			}
 		}
 		
-		// deblock the rest of mbs in this slice or the rest of the frame if all mbs have been decoded
-		int remaining_mbs = __atomic_sub_fetch(c->remaining_mbs + currPic, tsk->CurrMbAddr - tsk->first_mb_in_slice, __ATOMIC_SEQ_CST);
-		int next_deblock_addr = c->next_deblock_addr[currPic]; // in the absence of duplicate slices only one can react on any value
-		if (next_deblock_addr == tsk->first_mb_in_slice || remaining_mbs == 0) {
-			if (remaining_mbs == 0) {
-				tsk->CurrMbAddr = tsk->pic_width_in_mbs * c->sps.pic_height_in_mbs;
-				if (next_deblock_addr < 0)
-					tsk->next_deblock_addr = tsk->CurrMbAddr;
-			}
-			tsk->next_deblock_addr = max(tsk->next_deblock_addr, next_deblock_addr);
+		// deblock the rest of mbs in this slice
+		if (tsk->next_deblock_addr >= 0) {
+			tsk->next_deblock_addr = max(tsk->next_deblock_addr, tsk->first_mb_in_slice);
 			int mby = (unsigned)tsk->next_deblock_addr / (unsigned)tsk->pic_width_in_mbs;
 			int mbx = (unsigned)tsk->next_deblock_addr % (unsigned)tsk->pic_width_in_mbs;
 			tsk->samples_row[0] = tsk->samples_base + mby * tsk->stride[0] * 16;
@@ -587,8 +577,40 @@ static void *worker_loop(Edge264Decoder *c) {
 					tsk->samples_mb[2] += tsk->stride[1] * 7;
 				}
 			}
-			__atomic_thread_fence(__ATOMIC_SEQ_CST); // ensures the next line implies the frame was deblocked in memory
-			c->next_deblock_addr[currPic] = tsk->next_deblock_addr;
+			if (c->next_deblock_addr[currPic] == tsk->first_mb_in_slice)
+				c->next_deblock_addr[currPic] = tsk->CurrMbAddr;
+		}
+		
+		// deblock the rest of the frame if all mbs have been decoded
+		__atomic_thread_fence(__ATOMIC_SEQ_CST); // ensures the next line implies the frame was decoded and deblocked in memory
+		int remaining_mbs = __atomic_sub_fetch(c->remaining_mbs + currPic, tsk->CurrMbAddr - tsk->first_mb_in_slice, __ATOMIC_SEQ_CST);
+		if (remaining_mbs == 0) {
+			tsk->next_deblock_addr = c->next_deblock_addr[currPic];
+			tsk->CurrMbAddr = tsk->pic_width_in_mbs * c->sps.pic_height_in_mbs;
+			if ((unsigned)tsk->next_deblock_addr < tsk->CurrMbAddr) {
+				int mby = (unsigned)tsk->next_deblock_addr / (unsigned)tsk->pic_width_in_mbs;
+				int mbx = (unsigned)tsk->next_deblock_addr % (unsigned)tsk->pic_width_in_mbs;
+				tsk->samples_row[0] = tsk->samples_base + mby * tsk->stride[0] * 16;
+				tsk->samples_mb[0] = tsk->samples_row[0] + mbx * 16;
+				tsk->samples_mb[1] = tsk->samples_base + tsk->plane_size_Y + mby * tsk->stride[1] * 8 + mbx * 8;
+				tsk->samples_mb[2] = tsk->samples_mb[1] + tsk->plane_size_C;
+				mb = (Edge264Macroblock *)(tsk->samples_base + tsk->plane_size_Y + tsk->plane_size_C * 2) + mbx + mby * (tsk->pic_width_in_mbs + 1);
+				while (tsk->next_deblock_addr < tsk->CurrMbAddr) {
+					CALL_TSK(deblock_mb);
+					tsk->next_deblock_addr++;
+					mb++;
+					tsk->samples_mb[0] += 16;
+					tsk->samples_mb[1] += 8;
+					tsk->samples_mb[2] += 8;
+					if (tsk->samples_mb[0] - tsk->samples_row[0] >= tsk->stride[0]) {
+						mb++;
+						tsk->samples_mb[0] = tsk->samples_row[0] += tsk->stride[0] * 16;
+						tsk->samples_mb[1] += tsk->stride[1] * 7;
+						tsk->samples_mb[2] += tsk->stride[1] * 7;
+					}
+				}
+			}
+			c->next_deblock_addr[currPic] = tsk->CurrMbAddr;
 		}
 		
 		// update the task queue
@@ -816,7 +838,6 @@ static int FUNC_CTX(parse_slice_layer_without_partitioning, int non_blocking, vo
 		if (ctx->frame_buffers[ctx->currPic] == NULL && CALL_CTX(alloc_frame, ctx->currPic))
 			return ENOMEM;
 		ctx->remaining_mbs[ctx->currPic] = ctx->sps.pic_width_in_mbs * ctx->sps.pic_height_in_mbs;
-		ctx->next_deblock_addr[ctx->currPic] = 0;
 		ctx->FrameNums[ctx->currPic] = ctx->FrameNum;
 		ctx->FieldOrderCnt[0][ctx->currPic] = ctx->TopFieldOrderCnt;
 		ctx->FieldOrderCnt[1][ctx->currPic] = ctx->BottomFieldOrderCnt;
@@ -875,8 +896,6 @@ static int FUNC_CTX(parse_slice_layer_without_partitioning, int non_blocking, vo
 			t->FilterOffsetB = CALL_C2B(get_se16, -6, 6) * 2;
 			printf("<tr><th>FilterOffsets</th><td>%d, %d</td></tr>\n",
 				t->FilterOffsetA, t->FilterOffsetB);
-		} else {
-			ctx->next_deblock_addr[ctx->currPic] = -ctx->sps.pic_width_in_mbs - 1;
 		}
 	} else {
 		t->disable_deblocking_filter_idc = 0;
@@ -888,18 +907,21 @@ static int FUNC_CTX(parse_slice_layer_without_partitioning, int non_blocking, vo
 	
 	// update output flags now that we know if mmco5 happened
 	unsigned to_output = 1 << ctx->currPic;
-	if (is_first_slice && (!ctx->sps.mvc || (to_output |= 1 << ctx->basePic, ctx->basePic >= 0))) {
-		if (ctx->IdrPicFlag) {
-			ctx->dispPicOrderCnt = -(1 << 25);
-			for (unsigned o = ctx->output_flags; o; o &= o - 1) {
-				int i = __builtin_ctz(o);
-				ctx->FieldOrderCnt[0][i] -= 1 << 26;
-				ctx->FieldOrderCnt[1][i] -= 1 << 26;
+	if (is_first_slice) {
+		if (!ctx->sps.mvc || (to_output |= 1 << ctx->basePic, ctx->basePic >= 0)) {
+			if (ctx->IdrPicFlag) {
+				ctx->dispPicOrderCnt = -(1 << 25);
+				for (unsigned o = ctx->output_flags; o; o &= o - 1) {
+					int i = __builtin_ctz(o);
+					ctx->FieldOrderCnt[0][i] -= 1 << 26;
+					ctx->FieldOrderCnt[1][i] -= 1 << 26;
+				}
 			}
+			ctx->output_flags |= to_output;
+			if (!((ctx->pic_reference_flags | ctx->reference_flags & ~view_mask) & to_output))
+				ctx->dispPicOrderCnt = ctx->FieldOrderCnt[0][ctx->currPic]; // make all frames with lower POCs ready for output
 		}
-		ctx->output_flags |= to_output;
-		if (!((ctx->pic_reference_flags | ctx->reference_flags & ~view_mask) & to_output))
-			ctx->dispPicOrderCnt = ctx->FieldOrderCnt[0][ctx->currPic]; // make all frames with lower POCs ready for output
+		ctx->next_deblock_addr[ctx->currPic] = t->disable_deblocking_filter_idc == 0 ? 0 : -ctx->sps.pic_width_in_mbs - 1;
 		#ifdef TRACE
 			printf("<tr><th>updated DPB (FrameNum/PicOrderCnt)</th><td><small>");
 			for (int i = 0; i < ctx->sps.num_frame_buffers; i++) {
@@ -922,10 +944,13 @@ static int FUNC_CTX(parse_slice_layer_without_partitioning, int non_blocking, vo
 	ctx->task_dependencies[task_id] = refs_to_mask(t);
 	ctx->taskPics[task_id] = ctx->currPic;
 	pthread_cond_signal(&ctx->task_ready);
+	int res = 0;
+	if ((t->disable_deblocking_filter_idc > 0) != (ctx->next_deblock_addr[ctx->currPic] < 0))
+		res = ENOTSUP; // FIXME error_flag
 	pthread_mutex_unlock(&ctx->lock);
 	worker_loop(ctx);
 	pthread_mutex_lock(&ctx->lock);
-	return 0;
+	return res;
 }
 
 

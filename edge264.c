@@ -1,6 +1,5 @@
 /** MAYDO:
  * _ Multithreading
- * 	_ fix void NALs in brcm_freh9
  * 	_ Implement a basic task queue yet in decoding order and with 1 thread
  * 	_ Update DPB availability checks to take deps into account, and make sure we wait until there is a frame ready before returning -2
  * 	_ Add currPic to task_dependencies
@@ -534,6 +533,7 @@ static void *worker_loop(Edge264Decoder *c) {
 		c->ready_tasks &= ~(1 << task_id);
 		pthread_mutex_unlock(&c->lock);
 		SET_TSK(c->tasks + task_id);
+		int ret = 0;
 		if (!tsk->pps.entropy_coding_mode_flag) {
 			tsk->mb_skip_run = -1;
 			CALL_TSK(parse_slice_data_cavlc);
@@ -541,14 +541,14 @@ static void *worker_loop(Edge264Decoder *c) {
 		} else {
 			// cabac_alignment_one_bit gives a good probability to catch random errors.
 			if (CALL_TSK(cabac_start)) {
-				// FIXME signal error
+				ret = EBADMSG; // FIXME error_flag
 			} else {
 				CALL_TSK(cabac_init);
 				tsk->mb_qp_delta_nz = 0;
 				CALL_TSK(parse_slice_data_cabac);
 				// the possibility of cabac_zero_word implies we should not expect a start code yet
 				if (tsk->_gb.msb_cache != 0 || (tsk->_gb.lsb_cache & (tsk->_gb.lsb_cache - 1))) {
-					// FIXME signal error
+					ret = EBADMSG; // FIXME error_flag
 				}
 			}
 		}
@@ -616,7 +616,7 @@ static void *worker_loop(Edge264Decoder *c) {
 		// update the task queue
 		pthread_mutex_lock(&c->lock);
 		if (tsk->free_cb)
-			tsk->free_cb(tsk->free_arg);
+			tsk->free_cb(tsk->free_arg, ret);
 		c->busy_tasks &= ~(1 << task_id);
 		c->task_dependencies[task_id] = 0;
 		c->taskPics[task_id] = -1;
@@ -638,7 +638,7 @@ static void *worker_loop(Edge264Decoder *c) {
  * This function matches slice_header() in 7.3.3, which it parses while updating
  * the DPB and initialising slice data for further decoding.
  */
-static int FUNC_CTX(parse_slice_layer_without_partitioning, int non_blocking, void(*free_cb)(void*), void *free_arg)
+static int FUNC_CTX(parse_slice_layer_without_partitioning, int non_blocking, void(*free_cb)(void*,int), void *free_arg)
 {
 	static const char * const slice_type_names[5] = {"P", "B", "I", "SP", "SI"};
 	static const char * const disable_deblocking_filter_idc_names[3] = {"enabled", "disabled", "disabled across slices"};
@@ -1032,7 +1032,7 @@ static void FUNC_CTX(parse_scaling_lists, i8x16 *w4x4, i8x16 *w8x8, int transfor
  * Parses the PPS into a copy of the current SPS, then saves it into one of four
  * PPS slots if a rbsp_trailing_bits pattern follows.
  */
-static int FUNC_CTX(parse_pic_parameter_set, int non_blocking,  void(*free_cb)(void*), void *free_arg)
+static int FUNC_CTX(parse_pic_parameter_set, int non_blocking,  void(*free_cb)(void*,int), void *free_arg)
 {
 	static const char * const slice_group_map_type_names[7] = {"interleaved",
 		"dispersed", "foreground with left-over", "box-out", "raster scan",
@@ -1461,7 +1461,7 @@ static int FUNC_CTX(parse_seq_parameter_set_mvc_extension, Edge264SeqParameterSe
  * Parses the SPS into a edge264_parameter_set structure, then saves it if a
  * rbsp_trailing_bits pattern follows.
  */
-static int FUNC_CTX(parse_seq_parameter_set, int non_blocking, void(*free_cb)(void*), void *free_arg)
+static int FUNC_CTX(parse_seq_parameter_set, int non_blocking, void(*free_cb)(void*,int), void *free_arg)
 {
 	static const char * const profile_idc_names[256] = {
 		[44] = "CAVLC 4:4:4 Intra",
@@ -1729,7 +1729,7 @@ static int FUNC_CTX(parse_seq_parameter_set, int non_blocking, void(*free_cb)(vo
  * This NAL type for transparent videos is unsupported until encoders actually
  * support it.
  */
-static int FUNC_CTX(parse_seq_parameter_set_extension, int non_blocking, void(*free_cb)(void*), void *free_arg) {
+static int FUNC_CTX(parse_seq_parameter_set_extension, int non_blocking, void(*free_cb)(void*,int), void *free_arg) {
 	int seq_parameter_set_id = CALL_C2B(get_ue16, 31);
 	int aux_format_idc = CALL_C2B(get_ue16, 3);
 	printf("<tr><th>seq_parameter_set_id</th><td>%u</td></tr>\n"
@@ -1797,7 +1797,7 @@ void edge264_flush(Edge264Decoder *d) {
 	for (unsigned b = ctx->busy_tasks; b; b &= b - 1) {
 		Edge264Task *t = ctx->tasks + __builtin_ctz(b);
 		if (t->free_cb)
-			t->free_cb(t->free_arg);
+			t->free_cb(t->free_arg, 0);
 	}
 	ctx->busy_tasks = ctx->pending_tasks = ctx->ready_tasks = 0;
 	ctx->task_dependencies_v[0] = ctx->task_dependencies_v[1] = ctx->task_dependencies_v[2] = ctx->task_dependencies_v[3] = (i32x4){};
@@ -1826,7 +1826,7 @@ void edge264_free(Edge264Decoder **d) {
 
 
 
-int edge264_decode_NAL(Edge264Decoder *d, const uint8_t *buf, const uint8_t *end, int non_blocking, void(*free_cb)(void*), void *free_arg, const uint8_t **next_NAL)
+int edge264_decode_NAL(Edge264Decoder *d, const uint8_t *buf, const uint8_t *end, int non_blocking, void(*free_cb)(void*,int), void *free_arg, const uint8_t **next_NAL)
 {
 	static const char * const nal_unit_type_names[32] = {
 		[0] = "Unknown",
@@ -1852,7 +1852,7 @@ int edge264_decode_NAL(Edge264Decoder *d, const uint8_t *buf, const uint8_t *end
 		[21] = "Coded slice extension for a depth view component or a 3D-AVC texture view component",
 		[22 ... 31] = "Unknown",
 	};
-	typedef int FUNC_CTX((*Parser), int non_blocking, void(*free_cb)(void*), void *free_arg);
+	typedef int FUNC_CTX((*Parser), int non_blocking, void(*free_cb)(void*,int), void *free_arg);
 	static const Parser parse_nal_unit[32] = {
 		[1] = parse_slice_layer_without_partitioning,
 		[5] = parse_slice_layer_without_partitioning,
@@ -1937,8 +1937,7 @@ int edge264_decode_NAL(Edge264Decoder *d, const uint8_t *buf, const uint8_t *end
 			CALL_C2B(refill, 0);
 			ret = CALL_CTX(parser, non_blocking, free_cb, free_arg);
 			// end may have been set to the next start code thanks to escape code detection in get_bytes
-			end = ctx->_gb.end;
-			buf = ctx->_gb.CPB - 2 < end ? ctx->_gb.CPB - 2 : end;
+			buf = ctx->_gb.CPB - 2 < ctx->_gb.end ? ctx->_gb.CPB - 2 : ctx->_gb.end;
 		}
 	}
 	printf(ret ? "<tr style='background-color:#f77'><th colspan=2 style='text-align:center'>%s</th></tr>\n</table>\n" : "</table>\n", strerror(ret));
@@ -1946,7 +1945,7 @@ int edge264_decode_NAL(Edge264Decoder *d, const uint8_t *buf, const uint8_t *end
 	// for 0, ENOTSUP and EBADMSG we may free or advance the buffer pointer
 	if (ret == 0 || ret == ENOTSUP || ret == EBADMSG) {
 		if (free_cb && !(ret == 0 && 1048610 & 1 << ctx->nal_unit_type)) // 1, 5 or 20
-			free_cb(free_arg);
+			free_cb(free_arg, ret);
 		if (next_NAL)
 			*next_NAL = edge264_find_start_code(buf, end);
 	}

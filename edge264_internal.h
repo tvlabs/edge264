@@ -211,8 +211,8 @@ typedef struct {
 	union { uint16_t samples_clip[3][8]; i16x8 samples_clip_v[3]; }; // [iYCbCr], maximum sample value
 	int32_t plane_size_Y;
 	int32_t plane_size_C;
-   void (*free_cb)(void *free_arg); // copy from ctx
-   void *free_arg; // copy from ctx
+   void (*free_cb)(void *free_arg, int ret); // copy from decode_NAL
+   void *free_arg; // copy from decode_NAL
 	union { int8_t unavail4x4[16]; i8x16 unavail4x4_v; }; // unavailability of neighbouring A/B/C/D blocks
 	Edge264Flags inc; // increments for CABAC indices of macroblock syntax elements
 	union { uint8_t cabac[1024]; i8x16 cabac_v[64]; };

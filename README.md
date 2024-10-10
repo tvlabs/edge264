@@ -99,7 +99,7 @@ The parameter sets are kept, thus do not need to be sent again if they did not c
 **`void edge264_free(Edge264Decoder **d)`**
 Deallocate the entire decoding context, and unset the pointer.
 
-**`int edge264_decode_NAL(Edge264Decoder *d, const uint8_t *buf, const uint8_t *end, int non_blocking, void(*free_cb)(void*), void *free_arg, const uint8_t **next_NAL)`**
+**`int edge264_decode_NAL(Edge264Decoder *d, const uint8_t *buf, const uint8_t *end, int non_blocking, void (*free_cb)(void *free_arg, int ret), void *free_arg, const uint8_t **next_NAL)`**
 Decode a single NAL unit, for which `buf` should point to its first byte (containing `nal_unit_type`) and `end` should point to the first byte past the buffer.
 After decoding the NAL, if `next_NAL` is non-null and the return code is `0`, `ENOTSUP` or `EBADMSG` then it is advanced past the next start code.
 The function returns:

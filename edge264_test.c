@@ -252,7 +252,7 @@ static int check_frame()
 						invalid |= memcmp(p + y * (out.stride_Y >> sh_col) + x0, q + y * (out.width_Y >> sh_col) + x0, x1 - x0);
 					if (invalid) {
 						#if TRACE
-							printf("<h>Erroneous macroblock (PicOrderCnt %d, view %d, row %d, column %d, %s plane):<pre>\n",
+							printf("<e>Erroneous macroblock (PicOrderCnt %d, view %d, row %d, column %d, %s plane):<pre>\n",
 								poc, view, (top + row) >> 4, (left + col) >> 4, (iYCbCr == 0) ? "Luma" : (iYCbCr == 1) ? "Cb" : "Cr");
 							for (int y = row >> sh_row; y < (row + 16) >> sh_row; y++) {
 								for (int x = col >> sh_col; x < (col + 16) >> sh_col; x++) {
@@ -267,7 +267,7 @@ static int check_frame()
 								}
 								printf("\n");
 							}
-							printf("</pre></h>\n");
+							printf("</pre></e>\n");
 						#endif
 						return -2;
 					}
@@ -280,7 +280,7 @@ static int check_frame()
 		conf[view] += out.width_Y * out.height_Y + out.width_C * out.height_C * 2;
 	}
 	#if TRACE
-		printf("<g>Output frame with PicOrderCnt %d is correct</g>\n", poc);
+		printf("<g>Output frame %d is correct</g>\n", poc);
 	#endif
 	return 0;
 }
@@ -444,11 +444,12 @@ int main(int argc, const char *argv[])
 			"<style>\n"
 			"body { display: grid; grid-template-columns: max-content auto; margin: 0 }\n"
 			"body>* { padding: 2px 5px; border-bottom: 1px solid lightgrey }\n"
-			"t,h,g,e { grid-column: 1/3; font-weight: bold; text-align: center }\n"
+			"t,s,h,g,e { grid-column: 1/3; font-weight: bold; text-align: center }\n"
 			"t { background-color: #eee; font-size: 200%% }\n"
 			"k { grid-column: 1; text-align: right; font-weight: bold }\n"
 			"v { grid-column: 2 }\n"
-			"h { background-color: #eef }\n"
+			"s { background-color: #eef; text-decoration: none }\n"
+			"h { background-color: #ffe }\n"
 			"g { background-color: #efe }\n"
 			"e { background-color: #fee }\n"
 			"</style>\n"

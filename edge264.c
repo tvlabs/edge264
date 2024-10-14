@@ -1,7 +1,9 @@
 /** MAYDO:
  * _ Multithreading
- * 	_ Implement a basic task queue yet in decoding order and with 1 thread
- * 	_ replace width*height value with INT_MAX to signal a frame is complete
+ * 	_ ensure n_threads==0 results in single threading without locks and threads
+ * 	_ make each thread store its context on stack and copy task data at startup
+ * 	_ make references update next_deblock_addr at each row, and inter frames wait for the minimum value of it
+ * 	_ try to improve parallel decoding of frames with disable_deblocking_idc==2
  * 	_ Update DPB availability checks to take deps into account, and make sure we wait until there is a frame ready before returning -2
  * 	_ Add currPic to task_dependencies
  * 	_ Add a mask of pending tasks
@@ -95,7 +97,7 @@ static void FUNC_CTX(initialise_decoding_context, Edge264Task *t)
 	t->direct_8x8_inference_flag = ctx->sps.direct_8x8_inference_flag;
 	t->pic_width_in_mbs = ctx->sps.pic_width_in_mbs;
 	t->next_deblock_addr = (ctx->next_deblock_addr[ctx->currPic] == t->first_mb_in_slice ||
-		t->disable_deblocking_filter_idc == 2) ? t->first_mb_in_slice : -t->pic_width_in_mbs - 1;
+		t->disable_deblocking_filter_idc == 2) ? t->first_mb_in_slice : INT_MIN;
 	t->samples_base = ctx->frame_buffers[ctx->currPic];
 	t->plane_size_Y = ctx->plane_size_Y;
 	t->plane_size_C = ctx->plane_size_C;
@@ -531,6 +533,7 @@ static void *worker_loop(Edge264Decoder *c) {
 		c->ready_tasks &= ~(1 << task_id);
 		pthread_mutex_unlock(&c->lock);
 		SET_TSK(c->tasks + task_id);
+		printf("<h>Thread started decoding frame %d at macroblock %d</h>\n", c->FieldOrderCnt[0][currPic], tsk->first_mb_in_slice);
 		int ret = 0;
 		if (!tsk->pps.entropy_coding_mode_flag) {
 			tsk->mb_skip_run = -1;
@@ -608,7 +611,7 @@ static void *worker_loop(Edge264Decoder *c) {
 					}
 				}
 			}
-			c->next_deblock_addr[currPic] = tsk->CurrMbAddr;
+			c->next_deblock_addr[currPic] = INT_MAX; // signals the frame is complete
 		}
 		
 		// update the task queue
@@ -624,6 +627,7 @@ static void *worker_loop(Edge264Decoder *c) {
 			for (int i = 0; i < __builtin_popcount(c->ready_tasks) - 1; i++)
 				pthread_cond_signal(&c->task_ready);
 		}
+		printf("<h>Thread finished decoding frame %d at macroblock %d</h>\n", c->FieldOrderCnt[0][currPic], tsk->first_mb_in_slice);
 		RESET_TSK();
 	}
 	pthread_mutex_unlock(&c->lock);
@@ -919,7 +923,7 @@ static int FUNC_CTX(parse_slice_layer_without_partitioning, int non_blocking, vo
 			if (!((ctx->pic_reference_flags | ctx->reference_flags & ~view_mask) & to_output))
 				ctx->dispPicOrderCnt = ctx->FieldOrderCnt[0][ctx->currPic]; // make all frames with lower POCs ready for output
 		}
-		ctx->next_deblock_addr[ctx->currPic] = t->disable_deblocking_filter_idc == 0 ? 0 : -ctx->sps.pic_width_in_mbs - 1;
+		ctx->next_deblock_addr[ctx->currPic] = t->disable_deblocking_filter_idc == 0 ? 0 : INT_MIN;
 		#ifdef TRACE
 			printf("<k>updated DPB (FrameNum/PicOrderCnt)</k><v><small>");
 			for (int i = 0; i < ctx->sps.num_frame_buffers; i++) {
@@ -1946,7 +1950,7 @@ int edge264_decode_NAL(Edge264Decoder *d, const uint8_t *buf, const uint8_t *end
 			buf = ctx->_gb.CPB - 2 < ctx->_gb.end ? ctx->_gb.CPB - 2 : ctx->_gb.end;
 		}
 	}
-	printf(ret ? "<e>%s</e>\n" : "<h>Success</h>\n", strerror(ret));
+	printf(ret ? "<e>%s</e>\n" : "<s>Success</s>\n", strerror(ret));
 	
 	// for 0, ENOTSUP and EBADMSG we may free or advance the buffer pointer
 	if (ret == 0 || ret == ENOTSUP || ret == EBADMSG) {
@@ -1990,9 +1994,8 @@ int edge264_get_frame(Edge264Decoder *d, Edge264Frame *out, int borrow) {
 		}
 	}
 	
-	int last = ctx->sps.pic_width_in_mbs * ctx->sps.pic_height_in_mbs;
 	int res = ENOMSG;
-	if (pic[0] >= 0 && ctx->next_deblock_addr[pic[0]] == last && (pic[1] < 0 || ctx->next_deblock_addr[pic[1]] == last)) {
+	if (pic[0] >= 0 && ctx->next_deblock_addr[pic[0]] == INT_MAX && (pic[1] < 0 || ctx->next_deblock_addr[pic[1]] == INT_MAX)) {
 		*out = ctx->out;
 		int top = ctx->out.frame_crop_offsets[0];
 		int left = ctx->out.frame_crop_offsets[3];

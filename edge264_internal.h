@@ -294,7 +294,7 @@ typedef struct Edge264Decoder {
 	uint32_t pic_long_term_flags; // to be applied after decoding all slices of the current picture
 	int64_t DPB_format; // should match format in SPS otherwise triggers resize
 	uint8_t *frame_buffers[32];
-	union { int32_t next_deblock_addr[32]; i32x4 next_deblock_addr_v[8]; i32x8 next_deblock_addr_V[4]; }; // next CurrMbAddr value for which mbB will be deblocked
+	union { int32_t next_deblock_addr[32]; i32x4 next_deblock_addr_v[8]; }; // next CurrMbAddr value for which mbB will be deblocked
 	union { int8_t LongTermFrameIdx[32]; i8x16 LongTermFrameIdx_v[2]; };
 	union { int8_t pic_LongTermFrameIdx[32]; i8x16 pic_LongTermFrameIdx_v[2]; }; // to be applied after decoding all slices of the current frame
 	union { int32_t FieldOrderCnt[2][32]; i32x4 FieldOrderCnt_v[2][8]; }; // lower/higher half for top/bottom fields
@@ -676,7 +676,7 @@ static noinline void FUNC_TSK(parse_slice_data_cabac);
 		return i[0];
 	}
 	static always_inline unsigned ready_frames(Edge264Decoder *c) {
-		i32x4 last = set32(c->sps.pic_width_in_mbs * c->sps.pic_height_in_mbs);
+		i32x4 last = set32(INT_MAX);
 		i16x8 a = packs32(c->next_deblock_addr_v[0] == last, c->next_deblock_addr_v[1] == last);
 		i16x8 b = packs32(c->next_deblock_addr_v[2] == last, c->next_deblock_addr_v[3] == last);
 		i16x8 d = packs32(c->next_deblock_addr_v[4] == last, c->next_deblock_addr_v[5] == last);

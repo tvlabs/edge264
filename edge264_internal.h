@@ -193,6 +193,7 @@ typedef struct {
 	int8_t direct_8x8_inference_flag; // 1 significant flag
 	int8_t cabac_init_idc; // 2 significant bits
 	uint16_t pic_width_in_mbs; // 10 significant bits
+	uint16_t pic_height_in_mbs; // 10 significant bits
 	uint32_t first_mb_in_slice; // unsigned to speed up integer division
 	Edge264PicParameterSet pps;
 	
@@ -270,6 +271,7 @@ typedef struct {
  */
 typedef struct Edge264Decoder {
 	Edge264GetBits _gb; // must be first in the struct to use the same pointer for bitstream functions
+	int8_t n_threads; // 0 to disable multithreading
 	int8_t nal_ref_idc; // 2 significant bits
 	int8_t nal_unit_type; // 5 significant bits
 	int8_t IdrPicFlag; // 1 significant bit
@@ -285,7 +287,6 @@ typedef struct Edge264Decoder {
 	int32_t prevPicOrderCnt;
 	int32_t dispPicOrderCnt; // all POCs lower or equal than this are ready for output
 	int32_t FrameNums[32];
-	int32_t remaining_mbs[32]; // when zero the picture is complete
 	uint32_t reference_flags; // bitfield for indices of reference frames/views
 	uint32_t long_term_flags; // bitfield for indices of long-term frames/views
 	uint32_t output_flags; // bitfield for frames waiting to be output
@@ -294,22 +295,23 @@ typedef struct Edge264Decoder {
 	uint32_t pic_long_term_flags; // to be applied after decoding all slices of the current picture
 	int64_t DPB_format; // should match format in SPS otherwise triggers resize
 	uint8_t *frame_buffers[32];
-	union { int32_t next_deblock_addr[32]; i32x4 next_deblock_addr_v[8]; }; // next CurrMbAddr value for which mbB will be deblocked
 	union { int8_t LongTermFrameIdx[32]; i8x16 LongTermFrameIdx_v[2]; };
 	union { int8_t pic_LongTermFrameIdx[32]; i8x16 pic_LongTermFrameIdx_v[2]; }; // to be applied after decoding all slices of the current frame
 	union { int32_t FieldOrderCnt[2][32]; i32x4 FieldOrderCnt_v[2][8]; }; // lower/higher half for top/bottom fields
 	Edge264Frame out;
 	Edge264SeqParameterSet sps;
 	Edge264PicParameterSet PPS[4];
+	pthread_t threads[16];
 	
+	// fields accessed concurrently from multiple threads
 	pthread_mutex_t lock;
 	pthread_cond_t task_ready;
 	pthread_cond_t task_complete;
-	uint8_t n_threads;
 	uint16_t busy_tasks; // bitmask for tasks that are either pending or processed in a thread
 	uint16_t pending_tasks;
 	uint16_t ready_tasks;
-	pthread_t threads[16];
+	int32_t remaining_mbs[32]; // when zero the picture is complete
+	union { int32_t next_deblock_addr[32]; i32x4 next_deblock_addr_v[8]; }; // next CurrMbAddr value for which mbB will be deblocked
 	volatile union { uint32_t task_dependencies[16]; i32x4 task_dependencies_v[4]; }; // frames on which each task depends to start
 	union { int8_t taskPics[16]; i8x16 taskPics_v; }; // values of currPic for each task
 	Edge264Task tasks[16];

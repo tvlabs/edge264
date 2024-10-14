@@ -1,8 +1,8 @@
 /** MAYDO:
  * _ Multithreading
- * 	_ ensure n_threads==0 results in single threading without locks and threads
  * 	_ make each thread store its context on stack and copy task data at startup
  * 	_ make references update next_deblock_addr at each row, and inter frames wait for the minimum value of it
+ * 	_ remove taskPic now to remove a source of false sharing
  * 	_ try to improve parallel decoding of frames with disable_deblocking_idc==2
  * 	_ Update DPB availability checks to take deps into account, and make sure we wait until there is a frame ready before returning -2
  * 	_ Add currPic to task_dependencies
@@ -96,6 +96,7 @@ static void FUNC_CTX(initialise_decoding_context, Edge264Task *t)
 	t->ChromaArrayType = ctx->sps.ChromaArrayType;
 	t->direct_8x8_inference_flag = ctx->sps.direct_8x8_inference_flag;
 	t->pic_width_in_mbs = ctx->sps.pic_width_in_mbs;
+	t->pic_height_in_mbs = ctx->sps.pic_height_in_mbs;
 	t->next_deblock_addr = (ctx->next_deblock_addr[ctx->currPic] == t->first_mb_in_slice ||
 		t->disable_deblocking_filter_idc == 2) ? t->first_mb_in_slice : INT_MIN;
 	t->samples_base = ctx->frame_buffers[ctx->currPic];
@@ -523,18 +524,22 @@ static void FUNC_CTX(finish_frame, int pair_view) {
  * tasks continuously until killed by the parent process.
  */
 static void *worker_loop(Edge264Decoder *c) {
-	pthread_mutex_lock(&c->lock);
+	int n_threads = c->n_threads; // move to stack to avoid false sharing
+	if (n_threads)
+		pthread_mutex_lock(&c->lock);
 	for (;;) {
-		while (!c->ready_tasks)
+		while (n_threads && !c->ready_tasks)
 			pthread_cond_wait(&c->task_ready, &c->lock);
 		int task_id = __builtin_ctz(c->ready_tasks); // FIXME arbitrary selection for now
 		int currPic = c->taskPics[task_id];
 		c->pending_tasks &= ~(1 << task_id);
 		c->ready_tasks &= ~(1 << task_id);
-		pthread_mutex_unlock(&c->lock);
+		if (n_threads) {
+			pthread_mutex_unlock(&c->lock);
+			printf("<h>Thread started decoding frame %d at macroblock %d</h>\n", c->FieldOrderCnt[0][currPic], c->tasks[task_id].first_mb_in_slice);
+		}
 		SET_TSK(c->tasks + task_id);
-		printf("<h>Thread started decoding frame %d at macroblock %d</h>\n", c->FieldOrderCnt[0][currPic], tsk->first_mb_in_slice);
-		int ret = 0;
+		size_t ret = 0;
 		if (!tsk->pps.entropy_coding_mode_flag) {
 			tsk->mb_skip_run = -1;
 			CALL_TSK(parse_slice_data_cavlc);
@@ -587,7 +592,7 @@ static void *worker_loop(Edge264Decoder *c) {
 		int remaining_mbs = __atomic_sub_fetch(c->remaining_mbs + currPic, tsk->CurrMbAddr - tsk->first_mb_in_slice, __ATOMIC_SEQ_CST);
 		if (remaining_mbs == 0) {
 			tsk->next_deblock_addr = c->next_deblock_addr[currPic];
-			tsk->CurrMbAddr = tsk->pic_width_in_mbs * c->sps.pic_height_in_mbs;
+			tsk->CurrMbAddr = tsk->pic_width_in_mbs * tsk->pic_height_in_mbs;
 			if ((unsigned)tsk->next_deblock_addr < tsk->CurrMbAddr) {
 				int mby = (unsigned)tsk->next_deblock_addr / (unsigned)tsk->pic_width_in_mbs;
 				int mbx = (unsigned)tsk->next_deblock_addr % (unsigned)tsk->pic_width_in_mbs;
@@ -615,22 +620,25 @@ static void *worker_loop(Edge264Decoder *c) {
 		}
 		
 		// update the task queue
-		pthread_mutex_lock(&c->lock);
+		if (n_threads) {
+			printf("<h>Thread finished decoding frame %d at macroblock %d</h>\n", c->FieldOrderCnt[0][currPic], tsk->first_mb_in_slice);
+			pthread_mutex_lock(&c->lock);
+			pthread_cond_signal(&c->task_complete);
+			if (remaining_mbs == 0) {
+				c->ready_tasks = ready_tasks(c);
+				for (int i = 0; i < __builtin_popcount(c->ready_tasks) - 1; i++)
+					pthread_cond_signal(&c->task_ready);
+			}
+		}
 		if (tsk->free_cb)
-			tsk->free_cb(tsk->free_arg, ret);
+			tsk->free_cb(tsk->free_arg, (int)ret);
 		c->busy_tasks &= ~(1 << task_id);
 		c->task_dependencies[task_id] = 0;
 		c->taskPics[task_id] = -1;
-		pthread_cond_signal(&c->task_complete);
-		if (remaining_mbs == 0) {
-			c->ready_tasks = ready_tasks(c);
-			for (int i = 0; i < __builtin_popcount(c->ready_tasks) - 1; i++)
-				pthread_cond_signal(&c->task_ready);
-		}
-		printf("<h>Thread finished decoding frame %d at macroblock %d</h>\n", c->FieldOrderCnt[0][currPic], tsk->first_mb_in_slice);
 		RESET_TSK();
+		if (!n_threads) // single iteration if single-threaded
+			return (void *)ret;
 	}
-	pthread_mutex_unlock(&c->lock);
 	return NULL;
 }
 
@@ -945,10 +953,11 @@ static int FUNC_CTX(parse_slice_layer_without_partitioning, int non_blocking, vo
 	ctx->task_dependencies[task_id] = refs_to_mask(t);
 	ctx->ready_tasks |= ((ctx->task_dependencies[task_id] & ~ready_frames(ctx)) == 0) << task_id;
 	ctx->taskPics[task_id] = ctx->currPic;
-	pthread_cond_signal(&ctx->task_ready);
-	int res = 0;
-	if ((t->disable_deblocking_filter_idc > 0) != (ctx->next_deblock_addr[ctx->currPic] < 0))
-		res = ENOTSUP; // FIXME error_flag
+	int res = (t->disable_deblocking_filter_idc > 0) != (ctx->next_deblock_addr[ctx->currPic] < 0) ? ENOTSUP : 0;
+	if (ctx->n_threads)
+		pthread_cond_signal(&ctx->task_ready);
+	else if (worker_loop(ctx))
+		res = EBADMSG;
 	return res;
 }
 
@@ -1763,35 +1772,33 @@ const uint8_t *edge264_find_start_code(const uint8_t *buf, const uint8_t *end) {
 
 
 Edge264Decoder *edge264_alloc(int n_threads) {
-	SET_CTX(calloc(1, sizeof(Edge264Decoder)));
-	if (ctx != NULL) {
-		if (pthread_mutex_init(&ctx->lock, NULL) == 0) {
-			if (pthread_cond_init(&ctx->task_ready, NULL) == 0) {
-				if (pthread_cond_init(&ctx->task_complete, NULL) == 0) {
-					if (n_threads < 0) {
+	Edge264Decoder *d = calloc(1, sizeof(Edge264Decoder));
+	if (d != NULL) {
+		d->taskPics_v = set8(-1);
+		if (n_threads == 0)
+			return d;
+		if (pthread_mutex_init(&d->lock, NULL) == 0) {
+			if (pthread_cond_init(&d->task_ready, NULL) == 0) {
+				if (pthread_cond_init(&d->task_complete, NULL) == 0) {
+					if (n_threads < 0)
 						n_threads = min(sysconf(_SC_NPROCESSORS_ONLN), 16);
-					}
-					ctx->n_threads = n_threads;
+					d->n_threads = n_threads;
 					int i = 0;
-					while (i < ctx->n_threads && pthread_create(&ctx->threads[i], NULL, (void*(*)(void*))worker_loop, ctx) == 0)
+					while (i < n_threads && pthread_create(&d->threads[i], NULL, (void*(*)(void*))worker_loop, d) == 0)
 						i++;
 					if (i == n_threads) {
-						ctx->taskPics_v = set8(-1);
-						Edge264Decoder *d = ctx;
-						RESET_CTX();
 						return d;
 					}
 					while (i-- > 0)
-						pthread_cancel(ctx->threads[i]);
-					pthread_cond_destroy(&ctx->task_complete);
+						pthread_cancel(d->threads[i]);
+					pthread_cond_destroy(&d->task_complete);
 				}
-				pthread_cond_destroy(&ctx->task_ready);
+				pthread_cond_destroy(&d->task_ready);
 			}
-			pthread_mutex_destroy(&ctx->lock);
+			pthread_mutex_destroy(&d->lock);
 		}
-		free(ctx);
+		free(d);
 	}
-	RESET_CTX();
 	return NULL;
 }
 
@@ -1801,10 +1808,11 @@ void edge264_flush(Edge264Decoder *d) {
 	if (d == NULL)
 		return;
 	SET_CTX(d);
-	pthread_mutex_lock(&ctx->lock);
+	if (ctx->n_threads)
+		pthread_mutex_lock(&ctx->lock);
+	// FIXME interrupt all threads
 	ctx->currPic = ctx->basePic = -1;
 	ctx->reference_flags = ctx->long_term_flags = ctx->output_flags = 0;
-	// FIXME interrupt all threads
 	for (unsigned b = ctx->busy_tasks; b; b &= b - 1) {
 		Edge264Task *t = ctx->tasks + __builtin_ctz(b);
 		if (t->free_cb)
@@ -1813,7 +1821,8 @@ void edge264_flush(Edge264Decoder *d) {
 	ctx->busy_tasks = ctx->pending_tasks = ctx->ready_tasks = 0;
 	ctx->task_dependencies_v[0] = ctx->task_dependencies_v[1] = ctx->task_dependencies_v[2] = ctx->task_dependencies_v[3] = (i32x4){};
 	ctx->taskPics_v = set8(-1);
-	pthread_mutex_unlock(&ctx->lock);
+	if (ctx->n_threads)
+		pthread_mutex_unlock(&ctx->lock);
 	RESET_CTX();
 }
 
@@ -1823,9 +1832,13 @@ void edge264_free(Edge264Decoder **d) {
 	if (d != NULL && *d != NULL) {
 		SET_CTX(*d);
 		*d = NULL;
-		pthread_mutex_destroy(&ctx->lock);
-		pthread_cond_destroy(&ctx->task_ready);
-		pthread_cond_destroy(&ctx->task_complete);
+		if (ctx->n_threads) {
+			for (int i = 0; i < ctx->n_threads; i++)
+				pthread_cancel(ctx->threads[i]);
+			pthread_mutex_destroy(&ctx->lock);
+			pthread_cond_destroy(&ctx->task_ready);
+			pthread_cond_destroy(&ctx->task_complete);
+		}
 		for (int i = 0; i < 32; i++) {
 			if (ctx->frame_buffers[i] != NULL)
 				free(ctx->frame_buffers[i]);
@@ -1878,14 +1891,16 @@ int edge264_decode_NAL(Edge264Decoder *d, const uint8_t *buf, const uint8_t *end
 	if (d == NULL || buf == NULL && end != NULL)
 		return EINVAL;
 	SET_CTX(d);
-	pthread_mutex_lock(&ctx->lock);
+	if (ctx->n_threads)
+		pthread_mutex_lock(&ctx->lock);
 	if (buf >= end) {
 		for (unsigned o = ctx->output_flags; o; o &= o - 1)
 			ctx->dispPicOrderCnt = max(ctx->dispPicOrderCnt, ctx->FieldOrderCnt[0][__builtin_ctz(o)]);
 		unsigned busy;
 		while ((busy = ctx->busy_tasks) && !non_blocking)
 			pthread_cond_wait(&ctx->task_complete, &ctx->lock);
-		pthread_mutex_unlock(&ctx->lock);
+		if (ctx->n_threads)
+			pthread_mutex_unlock(&ctx->lock);
 		RESET_CTX();
 		return busy ? EWOULDBLOCK : ENODATA;
 	}
@@ -1959,7 +1974,8 @@ int edge264_decode_NAL(Edge264Decoder *d, const uint8_t *buf, const uint8_t *end
 		if (next_NAL)
 			*next_NAL = edge264_find_start_code(buf, end);
 	}
-	pthread_mutex_unlock(&ctx->lock);
+	if (ctx->n_threads)
+		pthread_mutex_unlock(&ctx->lock);
 	RESET_CTX();
 	return ret;
 }
@@ -1977,7 +1993,8 @@ int edge264_get_frame(Edge264Decoder *d, Edge264Frame *out, int borrow) {
 	if (d == NULL || out == NULL)
 		return EINVAL;
 	SET_CTX(d);
-	pthread_mutex_lock(&ctx->lock);
+	if (ctx->n_threads)
+		pthread_mutex_lock(&ctx->lock);
 	int pic[2] = {-1, -1};
 	unsigned unavail = ctx->reference_flags | ctx->output_flags | (ctx->basePic < 0 ? 0 : 1 << ctx->basePic);
 	int best = (__builtin_popcount(ctx->output_flags) > ctx->sps.max_num_reorder_frames ||
@@ -2022,7 +2039,8 @@ int edge264_get_frame(Edge264Decoder *d, Edge264Frame *out, int borrow) {
 		if (borrow)
 			ctx->borrow_flags |= (size_t)out->return_arg;
 	}
-	pthread_mutex_unlock(&ctx->lock);
+	if (ctx->n_threads)
+		pthread_mutex_unlock(&ctx->lock);
 	RESET_CTX();
 	return res;
 }

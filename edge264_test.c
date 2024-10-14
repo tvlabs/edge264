@@ -4,6 +4,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 #include <unistd.h>
 #include <sys/mman.h>
 #include <sys/stat.h>
@@ -396,6 +397,7 @@ int main(int argc, const char *argv[])
 	const char *file_name = "conformance";
 	int benchmark = 0;
 	int help = 0;
+	int n_threads = -1;
 	for (int i = 1; i < argc; i++) {
 		if (argv[i][0] != '-') {
 			file_name = argv[i];
@@ -405,6 +407,7 @@ int main(int argc, const char *argv[])
 				case 'd': display = 1; break;
 				case 'f': print_failed = 1; break;
 				case 'p': print_passed = 1; break;
+				case 's': n_threads = 0; break;
 				case 'u': print_unsupported = 1; break;
 				case 'y': enable_yuv = 0; break;
 				default: help = 1; break;
@@ -423,6 +426,7 @@ int main(int argc, const char *argv[])
 			"comparing their outputs with inferred YUV pairs (.yuv and .1.yuv extensions).\n"
 			"-h\tprint this help and exit\n"
 			"-d\tenable display of the videos\n"
+			"-s\tsingle-threaded operation\n"
 			"-y\tdisable comparison against YUV pairs\n"
 		#if !TRACE
 			"-b\tbenchmark decoding time and memory usage\n"
@@ -456,10 +460,13 @@ int main(int argc, const char *argv[])
 			"<link rel=stylesheet href=style.css>\n"
 			"</head>\n"
 			"<body>\n");
+	#else
+		struct timespec t0, t1;
+		clock_gettime(CLOCK_MONOTONIC, &t0);
 	#endif
 	
 	// check if input is a directory by trying to move into it
-	d = edge264_alloc(1);
+	d = edge264_alloc(n_threads);
 	if (chdir(file_name) < 0) {
 		int res = decode_file(file_name, 0);
 		if (!TRACE && res == ENOTSUP)
@@ -487,10 +494,13 @@ int main(int argc, const char *argv[])
 	// closing information
 	#if !TRACE
 		if (benchmark) {
+			clock_gettime(CLOCK_MONOTONIC, &t1);
 			struct rusage rusage;
 			getrusage(RUSAGE_SELF, &rusage);
-			printf("CPU: %u.%03us\nmemory: %u.%03uMB\n",
-				(unsigned)rusage.ru_utime.tv_sec, (unsigned)rusage.ru_utime.tv_usec / 1000, (unsigned)rusage.ru_maxrss / 1000000, (unsigned)rusage.ru_maxrss / 1000 % 1000);
+			printf("time: %u.%03us\nCPU: %u.%03us\nmemory: %u.%03uMB\n",
+				t1.tv_sec - t0.tv_sec - (t1.tv_nsec < t0.tv_nsec), (unsigned)(t1.tv_nsec - t0.tv_nsec) / 1000000 % 1000,
+				rusage.ru_utime.tv_sec, (unsigned)rusage.ru_utime.tv_usec / 1000,
+				(unsigned)rusage.ru_maxrss / 1000000, (unsigned)rusage.ru_maxrss / 1000 % 1000);
 		}
 	#else
 		printf("</body>\n</html>\n");

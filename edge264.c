@@ -1678,12 +1678,9 @@ static int FUNC_CTX(parse_seq_parameter_set, int non_blocking, void(*free_cb)(vo
 		if (ctx->output_flags | ctx->borrow_flags) {
 			for (unsigned o = ctx->output_flags; o; o &= o - 1)
 				ctx->dispPicOrderCnt = max(ctx->dispPicOrderCnt, ctx->FieldOrderCnt[0][__builtin_ctz(o)]);
-			while (ctx->output_flags & CALL_CTX(depended_frames)) {
-				if (non_blocking)
-					return EWOULDBLOCK;
+			while (!non_blocking && ctx->busy_tasks)
 				pthread_cond_wait(&ctx->task_complete, &ctx->lock);
-			}
-			return ENOBUFS;
+			return ctx->busy_tasks ? EWOULDBLOCK : ENOBUFS;
 		}
 		ctx->DPB_format = sps.DPB_format;
 		memcpy(ctx->out.frame_crop_offsets, &sps.frame_crop_offsets_l, 8);
@@ -1881,12 +1878,12 @@ int edge264_decode_NAL(Edge264Decoder *d, const uint8_t *buf, const uint8_t *end
 	if (buf >= end) {
 		for (unsigned o = ctx->output_flags; o; o &= o - 1)
 			ctx->dispPicOrderCnt = max(ctx->dispPicOrderCnt, ctx->FieldOrderCnt[0][__builtin_ctz(o)]);
-		unsigned depended;
-		while ((depended = ctx->output_flags & CALL_CTX(depended_frames)) && !non_blocking)
+		unsigned busy;
+		while ((busy = ctx->busy_tasks) && !non_blocking)
 			pthread_cond_wait(&ctx->task_complete, &ctx->lock);
 		pthread_mutex_unlock(&ctx->lock);
 		RESET_CTX();
-		return depended ? EWOULDBLOCK : ENODATA;
+		return busy ? EWOULDBLOCK : ENODATA;
 	}
 	ctx->nal_ref_idc = buf[0] >> 5;
 	ctx->nal_unit_type = buf[0] & 0x1f;

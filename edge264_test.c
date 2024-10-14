@@ -445,7 +445,7 @@ int main(int argc, const char *argv[])
 			"body { display: grid; grid-template-columns: max-content auto; margin: 0 }\n"
 			"body>* { padding: 2px 5px; border-bottom: 1px solid lightgrey }\n"
 			"t,h,g,e { grid-column: 1/3; font-weight: bold; text-align: center }\n"
-			"t { background-color: #eee; font-size: 150%% }\n"
+			"t { background-color: #eee; font-size: 200%% }\n"
 			"k { grid-column: 1; text-align: right; font-weight: bold }\n"
 			"v { grid-column: 2 }\n"
 			"h { background-color: #eef }\n"

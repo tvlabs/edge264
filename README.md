@@ -88,9 +88,9 @@ API reference
 **`const uint8_t *edge264_find_start_code(const uint8_t *buf, const uint8_t *end)`**
 Scan memory for the next three-byte 001 sequence, returning a pointer to the first following byte (or `end` if no pattern was found).
 
-**`Edge264Decoder *edge264_alloc()`**
-Allocate and return a decoding context, that is used to pass and receive parameters.
-The private decoding context is actually hidden at negative offsets from the pointer returned.
+**`Edge264Decoder *edge264_alloc(int n_threads)`**
+Allocate and return a decoding context.
+`n_threads` is the number of background worker threads, set it to `0` to disable multithreading and `-1` to set to the number of logical cores on the host CPU.
 
 **`void edge264_flush(Edge264Decoder *d)`**
 For use when seeking, stop all background processing and clear all delayed frames.

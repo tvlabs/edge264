@@ -454,7 +454,7 @@ int main(int argc, const char *argv[])
 	#endif
 	
 	// check if input is a directory by trying to move into it
-	d = edge264_alloc();
+	d = edge264_alloc(1);
 	if (chdir(file_name) < 0) {
 		int res = decode_file(file_name, 0);
 		if (!TRACE && res == ENOTSUP)

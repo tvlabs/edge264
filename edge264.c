@@ -1,6 +1,7 @@
 /** MAYDO:
  * _ Multithreading
  * 	_ Implement a basic task queue yet in decoding order and with 1 thread
+ * 	_ replace width*height value with INT_MAX to signal a frame is complete
  * 	_ Update DPB availability checks to take deps into account, and make sure we wait until there is a frame ready before returning -2
  * 	_ Add currPic to task_dependencies
  * 	_ Add a mask of pending tasks
@@ -13,9 +14,11 @@
  * 	_ Create a single worker thread and use it to decode each slice
  * 	_ Add debug output to signal start and end of worker assignment
  * 	_ add an option to store N more frames, to tolerate lags in process scheduling
+ * 	_ make reference dependencies be waited in each mb with conditions on minimum values of next_deblock_addr, like ffmpeg does
  * 	_ Windows fallback functions
  * 	_ Switch back convention to never allow CPB past end because of risk of pointer overflow!
  * _ Fuzzing and bug hunting
+ * 	_ Protect again for possibility of not enough ref frames in RefPicList
  * 	_ fuzz with H26Forge
  * 	_ replace calloc with malloc+memset(127), determine a policy for ensuring the validity of variables over time, and setup a solver (ex. KLEE, Crest, Triton) to test their intervals
  * 	_ check that gaps in frame_num cannot result in using NULL buffers in inter pred
@@ -23,6 +26,7 @@
  * 	_ make a debugging pass by looking at shall/"shall not" clauses in spec and checking that we are robust against each violation
  * 	_ check on https://kodi.wiki/view/Samples#3D_Test_Clips
  * _ Optimizations
+ * 	_ set COLD and hot functions
  * 	_ try vectorizing loops on get_ae with movemask trick, starting with residual block parsing
  * 	_ Group ctx fields by frequency of accesses and force them manually into L1/L2/L3
  * 	_ Add an offset to stride to counter cache alignment issues
@@ -463,12 +467,6 @@ static void FUNC_CTX(parse_ref_pic_list_modification, Edge264Task *t)
 		}
 	}
 	
-	// fill all uninitialized references with frame 0 in case num_ref_idx_active is too high
-	t->RefPicList_v[0] = ifelse_msb(t->RefPicList_v[0], (i8x16){}, t->RefPicList_v[0]);
-	t->RefPicList_v[1] = ifelse_msb(t->RefPicList_v[1], (i8x16){}, t->RefPicList_v[1]);
-	t->RefPicList_v[2] = ifelse_msb(t->RefPicList_v[2], (i8x16){}, t->RefPicList_v[2]);
-	t->RefPicList_v[3] = ifelse_msb(t->RefPicList_v[3], (i8x16){}, t->RefPicList_v[3]);
-	
 	#ifdef TRACE
 		printf("<tr><th>RefPicLists</th><td>");
 		for (int lx = 0; lx <= t->slice_type; lx++) {
@@ -524,7 +522,7 @@ static void FUNC_CTX(finish_frame, int pair_view) {
  */
 static void *worker_loop(Edge264Decoder *c) {
 	pthread_mutex_lock(&c->lock);
-	if (1) {
+	for (;;) {
 		while (!c->ready_tasks)
 			pthread_cond_wait(&c->task_ready, &c->lock);
 		int task_id = __builtin_ctz(c->ready_tasks); // FIXME arbitrary selection for now
@@ -622,7 +620,7 @@ static void *worker_loop(Edge264Decoder *c) {
 		c->taskPics[task_id] = -1;
 		pthread_cond_signal(&c->task_complete);
 		if (remaining_mbs == 0) {
-			c->ready_tasks = ready_frames(c);
+			c->ready_tasks = ready_tasks(c);
 			for (int i = 0; i < __builtin_popcount(c->ready_tasks) - 1; i++)
 				pthread_cond_signal(&c->task_ready);
 		}
@@ -940,16 +938,13 @@ static int FUNC_CTX(parse_slice_layer_without_partitioning, int non_blocking, vo
 	int task_id = t - ctx->tasks;
 	ctx->busy_tasks |= 1 << task_id;
 	ctx->pending_tasks |= 1 << task_id;
-	ctx->ready_tasks |= 1 << task_id;
 	ctx->task_dependencies[task_id] = refs_to_mask(t);
+	ctx->ready_tasks |= ((ctx->task_dependencies[task_id] & ~ready_frames(ctx)) == 0) << task_id;
 	ctx->taskPics[task_id] = ctx->currPic;
 	pthread_cond_signal(&ctx->task_ready);
 	int res = 0;
 	if ((t->disable_deblocking_filter_idc > 0) != (ctx->next_deblock_addr[ctx->currPic] < 0))
 		res = ENOTSUP; // FIXME error_flag
-	pthread_mutex_unlock(&ctx->lock);
-	worker_loop(ctx);
-	pthread_mutex_lock(&ctx->lock);
 	return res;
 }
 
@@ -1766,21 +1761,36 @@ const uint8_t *edge264_find_start_code(const uint8_t *buf, const uint8_t *end) {
 
 
 
-Edge264Decoder *edge264_alloc() {
-	Edge264Decoder *d = calloc(1, sizeof(Edge264Decoder));
-	if (d != NULL) {
-		if (pthread_mutex_init(&d->lock, NULL) == 0) {
-			if (pthread_cond_init(&d->task_ready, NULL) == 0) {
-				if (pthread_cond_init(&d->task_complete, NULL) == 0) {
-					d->taskPics_v = set8(-1);
-					return d;
+Edge264Decoder *edge264_alloc(int n_threads) {
+	SET_CTX(calloc(1, sizeof(Edge264Decoder)));
+	if (ctx != NULL) {
+		if (pthread_mutex_init(&ctx->lock, NULL) == 0) {
+			if (pthread_cond_init(&ctx->task_ready, NULL) == 0) {
+				if (pthread_cond_init(&ctx->task_complete, NULL) == 0) {
+					if (n_threads < 0) {
+						n_threads = min(sysconf(_SC_NPROCESSORS_ONLN), 16);
+					}
+					ctx->n_threads = n_threads;
+					int i = 0;
+					while (i < ctx->n_threads && pthread_create(&ctx->threads[i], NULL, (void*(*)(void*))worker_loop, ctx) == 0)
+						i++;
+					if (i == n_threads) {
+						ctx->taskPics_v = set8(-1);
+						Edge264Decoder *d = ctx;
+						RESET_CTX();
+						return d;
+					}
+					while (i-- > 0)
+						pthread_cancel(ctx->threads[i]);
+					pthread_cond_destroy(&ctx->task_complete);
 				}
-				pthread_cond_destroy(&d->task_complete);
+				pthread_cond_destroy(&ctx->task_ready);
 			}
-			pthread_mutex_destroy(&d->lock);
+			pthread_mutex_destroy(&ctx->lock);
 		}
-		free(d);
+		free(ctx);
 	}
+	RESET_CTX();
 	return NULL;
 }
 

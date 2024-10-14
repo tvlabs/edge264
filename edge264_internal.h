@@ -12,6 +12,7 @@
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
 
 #include "edge264.h"
 
@@ -304,9 +305,11 @@ typedef struct Edge264Decoder {
 	pthread_mutex_t lock;
 	pthread_cond_t task_ready;
 	pthread_cond_t task_complete;
+	uint8_t n_threads;
 	uint16_t busy_tasks; // bitmask for tasks that are either pending or processed in a thread
 	uint16_t pending_tasks;
 	uint16_t ready_tasks;
+	pthread_t threads[16];
 	volatile union { uint32_t task_dependencies[16]; i32x4 task_dependencies_v[4]; }; // frames on which each task depends to start
 	union { int8_t taskPics[16]; i8x16 taskPics_v; }; // values of currPic for each task
 	Edge264Task tasks[16];

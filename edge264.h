@@ -51,7 +51,7 @@ typedef struct Edge264Frame {
 } Edge264Frame;
 
 const uint8_t *edge264_find_start_code(const uint8_t *buf, const uint8_t *end);
-Edge264Decoder *edge264_alloc();
+Edge264Decoder *edge264_alloc(int n_threads);
 void edge264_flush(Edge264Decoder *d);
 void edge264_free(Edge264Decoder **d);
 int edge264_decode_NAL(Edge264Decoder *d, const uint8_t *buf, const uint8_t *end, int non_blocking, void (*free_cb)(void *free_arg, int ret), void *free_arg, const uint8_t **next_NAL);

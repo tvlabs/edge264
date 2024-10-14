@@ -226,7 +226,7 @@ static int check_frame()
 	// check that the number of returned views is as expected
 	if ((out.samples_mvc[0] != NULL) != (conf[1] != NULL)) {
 		#if TRACE
-			printf("<h2 style='color:red'>The number of returned views (%d) does not match the number of YUV files found (%d)", (out.samples_mvc[0] != NULL) + 1, (conf[1] != NULL) + 1);
+			printf("<e>The number of returned views (%d) does not match the number of YUV files found (%d)</e>", (out.samples_mvc[0] != NULL) + 1, (conf[1] != NULL) + 1);
 		#endif
 		return -2;
 	}
@@ -252,7 +252,7 @@ static int check_frame()
 						invalid |= memcmp(p + y * (out.stride_Y >> sh_col) + x0, q + y * (out.width_Y >> sh_col) + x0, x1 - x0);
 					if (invalid) {
 						#if TRACE
-							printf("<h2 style='color:red'>Erroneous macroblock (PicOrderCnt %d, view %d, row %d, column %d, %s plane):<pre style='color:black'>\n",
+							printf("<h>Erroneous macroblock (PicOrderCnt %d, view %d, row %d, column %d, %s plane):<pre>\n",
 								poc, view, (top + row) >> 4, (left + col) >> 4, (iYCbCr == 0) ? "Luma" : (iYCbCr == 1) ? "Cb" : "Cr");
 							for (int y = row >> sh_row; y < (row + 16) >> sh_row; y++) {
 								for (int x = col >> sh_col; x < (col + 16) >> sh_col; x++) {
@@ -267,7 +267,7 @@ static int check_frame()
 								}
 								printf("\n");
 							}
-							printf("</pre></h2>\n");
+							printf("</pre></h>\n");
 						#endif
 						return -2;
 					}
@@ -280,7 +280,7 @@ static int check_frame()
 		conf[view] += out.width_Y * out.height_Y + out.width_C * out.height_C * 2;
 	}
 	#if TRACE
-		printf("<h2 style='color:green'>Output frame with PicOrderCnt %d is correct</h2>\n", poc);
+		printf("<g>Output frame with PicOrderCnt %d is correct</g>\n", poc);
 	#endif
 	return 0;
 }
@@ -291,7 +291,7 @@ static int decode_file(const char *name, int print_counts)
 {
 	// open and mmap the clip file
 	#if TRACE
-		printf("<h1>%s</h1>\n", name);
+		printf("<t>%s</t>\n", name);
 	#endif
 	struct stat stC, stD, stD1;
 	int clip = open(name, O_RDONLY);
@@ -434,7 +434,7 @@ int main(int argc, const char *argv[])
 		return 0;
 	}
 	
-	// stdout will be in HTML format if TRACE > 0
+	// tags used: t=title, k=key, v=value, h=highlight, g=green, e=error, hr=ruler
 	#if TRACE
 		setvbuf(stdout, NULL, _IONBF, BUFSIZ);
 		printf("<!doctype html>\n"
@@ -442,11 +442,15 @@ int main(int argc, const char *argv[])
 			"<head>\n"
 			"<title>NAL headers</title>\n"
 			"<style>\n"
-			"h2 { font-size: 100%% }\n"
-			"table { border-collapse: collapse; border: 2px solid black }\n"
-			"tr { border-bottom: 1px solid black; vertical-align: top }\n"
-			"tr>*:first-child { text-align: right }\n"
-			"th,td { padding: .2em .4em }\n"
+			"body { display: grid; grid-template-columns: max-content auto; margin: 0 }\n"
+			"body>* { padding: 2px 5px; border-bottom: 1px solid lightgrey }\n"
+			"t,h,g,e { grid-column: 1/3; font-weight: bold; text-align: center }\n"
+			"t { background-color: #eee; font-size: 150%% }\n"
+			"k { grid-column: 1; text-align: right; font-weight: bold }\n"
+			"v { grid-column: 2 }\n"
+			"h { background-color: #eef }\n"
+			"g { background-color: #efe }\n"
+			"e { background-color: #fee }\n"
 			"</style>\n"
 			"<link rel=stylesheet href=style.css>\n"
 			"</head>\n"

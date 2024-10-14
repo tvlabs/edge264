@@ -411,7 +411,7 @@ typedef struct Edge264Decoder {
 
 #ifdef TRACE
 	#include <stdio.h>
-	static inline const char *red_if(int cond) { return (cond) ? " style='background-color:#f77'" : ""; }
+	static inline const char *red_if(int cond) { return (cond) ? " style='background-color:#fee'" : ""; }
 #else
 	#define printf(...) ((void)0)
 #endif

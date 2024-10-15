@@ -254,7 +254,7 @@ static always_inline void FUNC_CTX(decode_direct_spatial_mv_pred, unsigned direc
 	if (((i64x2)mv01)[0] != 0 || direct_flags != 0xffffffff) {
 		i16x8 colZeroMask0 = {}, colZeroMask1 = {}, colZeroMask2 = {}, colZeroMask3 = {};
 		unsigned colZeroFlags = 0;
-		if (ctx->t.col_short_term) {
+		if (ctx->col_short_term) {
 			const Edge264Macroblock *mbCol = ctx->mbCol;
 			i8x16 refColL0 = (i32x4){mbCol->refIdx_s[0]};
 			i8x16 offsets = refColL0 & 32;
@@ -397,7 +397,7 @@ static always_inline void FUNC_CTX(decode_direct_temporal_mv_pred, unsigned dire
 	if (direct_flags & 1) {
 		mb->refIdx[0] = refIdx[0];
 		mb->refIdx[4] = 0;
-		mb->mvs_v[0] = temporal_scale(mvCol0, ctx->t.DistScaleFactor[refIdx[0]]);
+		mb->mvs_v[0] = temporal_scale(mvCol0, ctx->DistScaleFactor[refIdx[0]]);
 		mb->mvs_v[4] = mb->mvs_v[0] - mvCol0;
 	} else {
 		inter_eqs &= ~0x000000ff;
@@ -405,7 +405,7 @@ static always_inline void FUNC_CTX(decode_direct_temporal_mv_pred, unsigned dire
 	if (direct_flags & 1 << 4) {
 		mb->refIdx[1] = refIdx[1];
 		mb->refIdx[5] = 0;
-		mb->mvs_v[1] = temporal_scale(mvCol1, ctx->t.DistScaleFactor[refIdx[1]]);
+		mb->mvs_v[1] = temporal_scale(mvCol1, ctx->DistScaleFactor[refIdx[1]]);
 		mb->mvs_v[5] = mb->mvs_v[1] - mvCol1;
 	} else {
 		inter_eqs &= ~0x0000bb44;
@@ -413,7 +413,7 @@ static always_inline void FUNC_CTX(decode_direct_temporal_mv_pred, unsigned dire
 	if (direct_flags & 1 << 8) {
 		mb->refIdx[2] = refIdx[2];
 		mb->refIdx[6] = 0;
-		mb->mvs_v[2] = temporal_scale(mvCol2, ctx->t.DistScaleFactor[refIdx[2]]);
+		mb->mvs_v[2] = temporal_scale(mvCol2, ctx->DistScaleFactor[refIdx[2]]);
 		mb->mvs_v[6] = mb->mvs_v[2] - mvCol2;
 	} else {
 		inter_eqs &= ~0x005f00a0;
@@ -421,7 +421,7 @@ static always_inline void FUNC_CTX(decode_direct_temporal_mv_pred, unsigned dire
 	if (direct_flags & 1 << 12) {
 		mb->refIdx[3] = refIdx[3];
 		mb->refIdx[7] = 0;
-		mb->mvs_v[3] = temporal_scale(mvCol3, ctx->t.DistScaleFactor[refIdx[3]]);
+		mb->mvs_v[3] = temporal_scale(mvCol3, ctx->DistScaleFactor[refIdx[3]]);
 		mb->mvs_v[7] = mb->mvs_v[3] - mvCol3;
 	} else { // edge case: 16x16 with a direct8x8 block on the bottom-right corner
 		inter_eqs = (inter_eqs == 0x1b5fbbff) ? 0x001b1b5f : inter_eqs & ~0x1b44a000;

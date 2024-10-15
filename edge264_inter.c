@@ -942,7 +942,7 @@ void noinline FUNC_CTX(decode_inter, int i, int w, int h) {
 			bioffsets_Y = bioffsets_Cb = bioffsets_Cr = (i16x8){1, 1, 1, 1, 1, 1, 1, 1};
 			logWD_Y = logWD_C = (i64x2){1};
 		} else { // implicit2
-			int w1 = ctx->t.implicit_weights[refIdxX][refIdx];
+			int w1 = ctx->implicit_weights[refIdxX][refIdx];
 			if (__builtin_expect((unsigned)w1 + 63 < 191, 1)) { // w0 or w1 will overflow if w1 is 128 or -64
 				bioffsets_Y = bioffsets_Cb = bioffsets_Cr = (i16x8){32, 32, 32, 32, 32, 32, 32, 32};
 				logWD_Y = logWD_C = (i64x2){6};
@@ -1031,13 +1031,13 @@ void noinline FUNC_CTX(decode_inter, int i, int w, int h) {
 		const uint8_t *src0 = ref + clip3(0, sstride_Y - 16, xInt_Y - 2);
 		const uint8_t *src1 = ref + clip3(0, sstride_Y - 16, xInt_Y + 14);
 		yInt_Y -= sstride_Y * 2;
-		for (i8x16 *buf = ctx->t.edge_buf_v; buf < ctx->t.edge_buf_v + 10 + h * 2; buf += 2, yInt_Y += sstride_Y) {
+		for (i8x16 *buf = ctx->edge_buf_v; buf < ctx->edge_buf_v + 10 + h * 2; buf += 2, yInt_Y += sstride_Y) {
 			int c = clip3(0, ctx->t.plane_size_Y - sstride_Y, yInt_Y);
 			buf[0] = shuffle8(load128(src0 + c), shuf0);
 			buf[1] = shuffle8(load128(src1 + c), shuf1);
 		}
 		sstride_Y = 32;
-		src_Y = ctx->t.edge_buf + 66;
+		src_Y = ctx->edge_buf + 66;
 		
 		// chroma may read (and ignore) 1 bottom row and 1 right col out of bounds
 		i8x16 shuf = {}, v0, v1;
@@ -1050,14 +1050,14 @@ void noinline FUNC_CTX(decode_inter, int i, int w, int h) {
 			memcpy(&v0, src0 + cb, 8);
 			memcpy(&v1, src0 + cr, 8);
 			// each line has 2 writes to support 8px strides
-			ctx->t.edge_buf_l[j * 2 +  84] = ((i64x2)shuffle8(v0, shuf))[0];
-			ctx->t.edge_buf_l[j * 2 + 168] = ((i64x2)shuffle8(v1, shuf))[0];
-			ctx->t.edge_buf[j * 16 +  680] = *(src1 + cb);
-			ctx->t.edge_buf[j * 16 + 1352] = *(src1 + cr);
+			ctx->edge_buf_l[j * 2 +  84] = ((i64x2)shuffle8(v0, shuf))[0];
+			ctx->edge_buf_l[j * 2 + 168] = ((i64x2)shuffle8(v1, shuf))[0];
+			ctx->edge_buf[j * 16 +  680] = *(src1 + cb);
+			ctx->edge_buf[j * 16 + 1352] = *(src1 + cr);
 		}
 		sstride_C = 16;
-		src_Cb = ctx->t.edge_buf +  672;
-		src_Cr = ctx->t.edge_buf + 1344;
+		src_Cb = ctx->edge_buf +  672;
+		src_Cr = ctx->edge_buf + 1344;
 	}
 	
 	// chroma prediction comes first since it is inlined

@@ -58,8 +58,8 @@
 	i8x16 abs0 = pq0 | qp0;\
 	i8x16 abs1 = subus8(p1, p0) | subus8(p0, p1);\
 	i8x16 abs2 = subus8(q1, q0) | subus8(q0, q1);\
-	i8x16 alpha = shuffle8(ctx->t.alpha_v, shufab);\
-	i8x16 beta = shuffle8(ctx->t.beta_v, shufab);\
+	i8x16 alpha = shuffle8(ctx->alpha_v, shufab);\
+	i8x16 beta = shuffle8(ctx->beta_v, shufab);\
 	i8x16 and = umin8(subus8(alpha, abs0), subus8(beta, umax8(abs1, abs2)));\
 	i8x16 ignoreSamplesFlags = and == 0;\
 	i8x16 cm1 = set8(-1);\
@@ -132,8 +132,8 @@
 	i8x16 abs0 = subus8(p0, q0) | subus8(q0, p0);\
 	i8x16 abs1 = subus8(p1, p0) | subus8(p0, p1);\
 	i8x16 abs2 = subus8(q1, q0) | subus8(q0, q1);\
-	i8x16 alpha = shuffle8(ctx->t.alpha_v, shufab);\
-	i8x16 beta = shuffle8(ctx->t.beta_v, shufab);\
+	i8x16 alpha = shuffle8(ctx->alpha_v, shufab);\
+	i8x16 beta = shuffle8(ctx->beta_v, shufab);\
 	i8x16 and = umin8(subus8(alpha, abs0), subus8(beta, umax8(abs1, abs2)));\
 	i8x16 ignoreSamplesFlags = and == 0;\
 	/* compute p'0 and q'0 */\
@@ -242,7 +242,7 @@ static noinline void FUNC_CTX(deblock_CbCr_8bit, size_t stride, ssize_t nstride,
 		
 		// first vertical edge
 		if (mbA->f.mbIsInterFlag & mb->f.mbIsInterFlag) {
-			int64_t tC0a = ctx->t.tC0_l[4];
+			int64_t tC0a = ctx->tC0_l[4];
 			if (tC0a != -1)
 				DEBLOCK_CHROMA_SOFT(vY, vZ, v0, v1, shuf_a, tC0a);
 		} else {
@@ -329,7 +329,7 @@ static noinline void FUNC_CTX(deblock_CbCr_8bit, size_t stride, ssize_t nstride,
 	}
 	
 	// second vertical edge
-	int64_t tC0c = ctx->t.tC0_l[5];
+	int64_t tC0c = ctx->tC0_l[5];
 	if (tC0c != -1)
 		DEBLOCK_CHROMA_SOFT(v2, v3, v4, v5, shuf_cg, tC0c);
 	
@@ -374,7 +374,7 @@ static noinline void FUNC_CTX(deblock_CbCr_8bit, size_t stride, ssize_t nstride,
 		i8x16 hY = (i64x2){*(int64_t *)(Cb0 + nstride * 2), *(int64_t *)(Cr0 + nstride * 2)};
 		i8x16 hZ = (i64x2){*(int64_t *)(Cb0 + nstride    ), *(int64_t *)(Cr0 + nstride    )};
 		if (mbB->f.mbIsInterFlag & mb->f.mbIsInterFlag) {
-			int64_t tC0e = ctx->t.tC0_l[6];
+			int64_t tC0e = ctx->tC0_l[6];
 			if (tC0e != -1)
 				DEBLOCK_CHROMA_SOFT(hY, hZ, h0, h1, shuf_e, tC0e);
 		} else {
@@ -391,7 +391,7 @@ static noinline void FUNC_CTX(deblock_CbCr_8bit, size_t stride, ssize_t nstride,
 	*(int64_t *)(Cr0 +  stride    ) = ((i64x2)h1)[1];
 	
 	// second horizontal edge
-	int64_t tC0g = ctx->t.tC0_l[7];
+	int64_t tC0g = ctx->tC0_l[7];
 	if (tC0g != -1)
 		DEBLOCK_CHROMA_SOFT(h2, h3, h4, h5, shuf_cg, tC0g);
 	*(int64_t *)(Cb0 +  stride * 2) = ((i64x2)h2)[0];
@@ -496,11 +496,11 @@ static noinline void FUNC_CTX(deblock_Y_8bit, size_t stride, ssize_t nstride, si
 		
 		// first vertical edge
 		if (mbA->f.mbIsInterFlag & mb->f.mbIsInterFlag) {
-			int tC0a = ctx->t.tC0_s[0];
+			int tC0a = ctx->tC0_s[0];
 			if (tC0a != -1)
-				DEBLOCK_LUMA_SOFT(vX, vY, vZ, v0, v1, v2, ctx->t.alpha + 8, ctx->t.beta + 8, tC0a);
-		} else if (ctx->t.alpha[8] != 0) {
-			DEBLOCK_LUMA_HARD(vW, vX, vY, vZ, v0, v1, v2, v3, ctx->t.alpha + 8, ctx->t.beta + 8);
+				DEBLOCK_LUMA_SOFT(vX, vY, vZ, v0, v1, v2, ctx->alpha + 8, ctx->beta + 8, tC0a);
+		} else if (ctx->alpha[8] != 0) {
+			DEBLOCK_LUMA_HARD(vW, vX, vY, vZ, v0, v1, v2, v3, ctx->alpha + 8, ctx->beta + 8);
 		}
 		
 		// store vW/vX/vY/vZ into the left macroblock
@@ -588,9 +588,9 @@ static noinline void FUNC_CTX(deblock_Y_8bit, size_t stride, ssize_t nstride, si
 	
 	// second vertical edge
 	if (!mb->f.transform_size_8x8_flag) {
-		int tC0b = ctx->t.tC0_s[1];
+		int tC0b = ctx->tC0_s[1];
 		if (tC0b != -1)
-			DEBLOCK_LUMA_SOFT(v1, v2, v3, v4, v5, v6, ctx->t.alpha + 0, ctx->t.beta + 0, tC0b);
+			DEBLOCK_LUMA_SOFT(v1, v2, v3, v4, v5, v6, ctx->alpha + 0, ctx->beta + 0, tC0b);
 	}
 	
 	// load and transpose the right 8x16 matrix
@@ -647,15 +647,15 @@ static noinline void FUNC_CTX(deblock_Y_8bit, size_t stride, ssize_t nstride, si
 	i8x16 vF = unpackhi64(xd3, xd7);
 	
 	// third vertical edge
-	int tC0c = ctx->t.tC0_s[2];
+	int tC0c = ctx->tC0_s[2];
 	if (tC0c != -1)
-		DEBLOCK_LUMA_SOFT(v5, v6, v7, v8, v9, vA, ctx->t.alpha + 0, ctx->t.beta + 0, tC0c);
+		DEBLOCK_LUMA_SOFT(v5, v6, v7, v8, v9, vA, ctx->alpha + 0, ctx->beta + 0, tC0c);
 	
 	// fourth vertical edge
 	if (!mb->f.transform_size_8x8_flag) {
-		int tC0d = ctx->t.tC0_s[3];
+		int tC0d = ctx->tC0_s[3];
 		if (tC0d != -1)
-			DEBLOCK_LUMA_SOFT(v9, vA, vB, vC, vD, vE, ctx->t.alpha + 0, ctx->t.beta + 0, tC0d);
+			DEBLOCK_LUMA_SOFT(v9, vA, vB, vC, vD, vE, ctx->alpha + 0, ctx->beta + 0, tC0d);
 	}
 	
 	// transpose the top 16x8 matrix
@@ -696,11 +696,11 @@ static noinline void FUNC_CTX(deblock_Y_8bit, size_t stride, ssize_t nstride, si
 	px0 = ctx->samples_mb[0];
 	if (mb->f.filter_edges & 2) {
 		if (mbB->f.mbIsInterFlag & mb->f.mbIsInterFlag) {
-			int tC0e = ctx->t.tC0_s[4];
+			int tC0e = ctx->tC0_s[4];
 			if (tC0e != -1)
-				DEBLOCK_LUMA_SOFT(*(i8x16 *)(px0 + nstride * 3), *(i8x16 *)(px0 + nstride * 2), *(i8x16 *)(px0 + nstride    ), h0, h1, h2, ctx->t.alpha + 12, ctx->t.beta + 12, tC0e);
-		} else if (ctx->t.alpha[12] != 0) {
-			DEBLOCK_LUMA_HARD(*(i8x16 *)(px0 + nstride * 4), *(i8x16 *)(px0 + nstride * 3), *(i8x16 *)(px0 + nstride * 2), *(i8x16 *)(px0 + nstride    ), h0, h1, h2, h3, ctx->t.alpha + 12, ctx->t.beta + 12);
+				DEBLOCK_LUMA_SOFT(*(i8x16 *)(px0 + nstride * 3), *(i8x16 *)(px0 + nstride * 2), *(i8x16 *)(px0 + nstride    ), h0, h1, h2, ctx->alpha + 12, ctx->beta + 12, tC0e);
+		} else if (ctx->alpha[12] != 0) {
+			DEBLOCK_LUMA_HARD(*(i8x16 *)(px0 + nstride * 4), *(i8x16 *)(px0 + nstride * 3), *(i8x16 *)(px0 + nstride * 2), *(i8x16 *)(px0 + nstride    ), h0, h1, h2, h3, ctx->alpha + 12, ctx->beta + 12);
 		}
 	}
 	*(i8x16 *)(px0              ) = h0;
@@ -708,9 +708,9 @@ static noinline void FUNC_CTX(deblock_Y_8bit, size_t stride, ssize_t nstride, si
 	
 	// second horizontal edge
 	if (!mb->f.transform_size_8x8_flag) {
-		int tC0f = ctx->t.tC0_s[5];
+		int tC0f = ctx->tC0_s[5];
 		if (tC0f != -1)
-			DEBLOCK_LUMA_SOFT(h1, h2, h3, h4, h5, h6, ctx->t.alpha + 0, ctx->t.beta + 0, tC0f);
+			DEBLOCK_LUMA_SOFT(h1, h2, h3, h4, h5, h6, ctx->alpha + 0, ctx->beta + 0, tC0f);
 	}
 	px7 = px0 + stride7;
 	*(i8x16 *)(px0 +  stride * 2) = h2;
@@ -753,9 +753,9 @@ static noinline void FUNC_CTX(deblock_Y_8bit, size_t stride, ssize_t nstride, si
 	i8x16 hF = unpackhi64(xj3, xj7);
 	
 	// third horizontal edge
-	int tC0g = ctx->t.tC0_s[6];
+	int tC0g = ctx->tC0_s[6];
 	if (tC0g != -1)
-		DEBLOCK_LUMA_SOFT(h5, h6, h7, h8, h9, hA, ctx->t.alpha + 0, ctx->t.beta + 0, tC0g);
+		DEBLOCK_LUMA_SOFT(h5, h6, h7, h8, h9, hA, ctx->alpha + 0, ctx->beta + 0, tC0g);
 	*(i8x16 *)(px7 + nstride    ) = h6;
 	*(i8x16 *)(px7              ) = h7;
 	*(i8x16 *)(px7 +  stride    ) = h8;
@@ -763,9 +763,9 @@ static noinline void FUNC_CTX(deblock_Y_8bit, size_t stride, ssize_t nstride, si
 	
 	// fourth horizontal edge
 	if (!mb->f.transform_size_8x8_flag) {
-		int tC0h = ctx->t.tC0_s[7];
+		int tC0h = ctx->tC0_s[7];
 		if (tC0h != -1)
-			DEBLOCK_LUMA_SOFT(h9, hA, hB, hC, hD, hE, ctx->t.alpha + 0, ctx->t.beta + 0, tC0h);
+			DEBLOCK_LUMA_SOFT(h9, hA, hB, hC, hD, hE, ctx->alpha + 0, ctx->beta + 0, tC0h);
 	}
 	pxE = px7 + stride7;
 	*(i8x16 *)(pxE + nstride * 4) = hA;
@@ -849,8 +849,8 @@ noinline void FUNC_CTX(deblock_mb)
 	i8x16 betalo = shuffle8(idx2beta[0], Bm4);
 	i8x16 betamd = shuffle8(idx2beta[1], Bm4);
 	i8x16 betahi = shuffle8(idx2beta[2], Bm4);
-	ctx->t.alpha_v = ifelse_mask(Agte36, alphahi, ifelse_mask(Agte20, alphamd, alphalo));
-	ctx->t.beta_v = ifelse_mask(Bgte36, betahi, ifelse_mask(Bgte20, betamd, betalo));
+	ctx->alpha_v = ifelse_mask(Agte36, alphahi, ifelse_mask(Agte20, alphamd, alphalo));
+	ctx->beta_v = ifelse_mask(Bgte36, betahi, ifelse_mask(Bgte20, betamd, betalo));
 	
 	// initialize tC0 with bS=3 for internal edges of Intra macroblock
 	i8x16 tC0neg = zero > Am4;
@@ -859,8 +859,8 @@ noinline void FUNC_CTX(deblock_mb)
 		i8x16 tC03md = shuffle8(idx2tC0[2][1], Am4);
 		i8x16 tC03hi = shuffle8(idx2tC0[2][2], Am4);
 		i8x16 tC03 = ifelse_mask(Agte36, tC03hi, ifelse_mask(Agte20, tC03md, tC03lo)) | tC0neg;
-		ctx->t.tC0_v[0] = ctx->t.tC0_v[1] = shuffle8(tC03, zero);
-		ctx->t.tC0_v[2] = ctx->t.tC0_v[3] = shuffle8(tC03, ((i8x16){-1, -1, -1, -1, -1, -1, -1, -1, 1, 1, 1, 1, 2, 2, 2, 2}));
+		ctx->tC0_v[0] = ctx->tC0_v[1] = shuffle8(tC03, zero);
+		ctx->tC0_v[2] = ctx->tC0_v[3] = shuffle8(tC03, ((i8x16){-1, -1, -1, -1, -1, -1, -1, -1, 1, 1, 1, 1, 2, 2, 2, 2}));
 	} else {
 		// compute all values of tC0 for bS=1 and bS=2
 		i8x16 tC01lo = shuffle8(idx2tC0[0][0], Am4);
@@ -1023,10 +1023,10 @@ noinline void FUNC_CTX(deblock_mb)
 		static const i8x16 shuf1 = {12, 12, 12, 12, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
 		static const i8x16 shuf2 = {9, 9, 9, 9, 10, 10, 10, 10, 1, 1, 1, 1, 2, 2, 2, 2};
 		static const i8x16 shuf3 = {13, 13, 13, 13, 14, 14, 14, 14, 1, 1, 1, 1, 2, 2, 2, 2};
-		ctx->t.tC0_v[0] = ifelse_mask(bS2abcd, shuffle8(tC02, shuf0), ifelse_mask(bS0abcd, tC00, shuffle8(tC01, shuf0)));
-		ctx->t.tC0_v[1] = ifelse_mask(bS2efgh, shuffle8(tC02, shuf1), ifelse_mask(bS0efgh, tC00, shuffle8(tC01, shuf1)));
-		ctx->t.tC0_v[2] = ifelse_mask(bS2aacc, shuffle8(tC02, shuf2), ifelse_mask(bS0aacc, tC00, shuffle8(tC01, shuf2)));
-		ctx->t.tC0_v[3] = ifelse_mask(bS2eegg, shuffle8(tC02, shuf3), ifelse_mask(bS0eegg, tC00, shuffle8(tC01, shuf3)));
+		ctx->tC0_v[0] = ifelse_mask(bS2abcd, shuffle8(tC02, shuf0), ifelse_mask(bS0abcd, tC00, shuffle8(tC01, shuf0)));
+		ctx->tC0_v[1] = ifelse_mask(bS2efgh, shuffle8(tC02, shuf1), ifelse_mask(bS0efgh, tC00, shuffle8(tC01, shuf1)));
+		ctx->tC0_v[2] = ifelse_mask(bS2aacc, shuffle8(tC02, shuf2), ifelse_mask(bS0aacc, tC00, shuffle8(tC01, shuf2)));
+		ctx->tC0_v[3] = ifelse_mask(bS2eegg, shuffle8(tC02, shuf3), ifelse_mask(bS0eegg, tC00, shuffle8(tC01, shuf3)));
 	}
 	
 	// jump to luma deblocking filter

@@ -1,6 +1,5 @@
 /** MAYDO:
  * _ Multithreading
- * 	_ make each thread store its context on stack and copy task data at startup
  * 	_ make references update next_deblock_addr at each row, and inter frames wait for the minimum value of it
  * 	_ remove taskPic now to remove a source of false sharing
  * 	_ try to improve parallel decoding of frames with disable_deblocking_idc==2
@@ -82,100 +81,18 @@ static const i8x16 Default_8x8_Inter[4] = {
 
 
 
-static void FUNC_DEC(initialize_task, Edge264Task *t)
+/**
+ * This function sets the context pointers to the frame about to be decoded,
+ * and fills the context caches with useful values.
+ */
+static void FUNC_CTX(initialize_context)
 {
 	static const int8_t QP_Y2C[88] = {
 		0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
 		0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 29, 30, 31, 32, 32, 33, 34, 34, 35, 35, 36, 36, 37, 37, 37, 38, 38, 38, 39, 39, 39, 39,
 		39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39};
 	
-	// copy most essential fields from st
-	t->_gb = dec->_gb;
-	t->ChromaArrayType = dec->sps.ChromaArrayType;
-	t->direct_8x8_inference_flag = dec->sps.direct_8x8_inference_flag;
-	t->pic_width_in_mbs = dec->sps.pic_width_in_mbs;
-	t->pic_height_in_mbs = dec->sps.pic_height_in_mbs;
-	t->next_deblock_addr = (dec->next_deblock_addr[dec->currPic] == t->first_mb_in_slice ||
-		t->disable_deblocking_filter_idc == 2) ? t->first_mb_in_slice : INT_MIN;
-	t->samples_base = dec->frame_buffers[dec->currPic];
-	t->plane_size_Y = dec->plane_size_Y;
-	t->plane_size_C = dec->plane_size_C;
-	t->stride[0] = dec->out.stride_Y;
-	t->stride[1] = t->stride[2] = dec->out.stride_C;
-	t->samples_clip_v[0] = set16((1 << dec->sps.BitDepth_Y) - 1);
-	t->samples_clip_v[1] = t->samples_clip_v[2] = set16((1 << dec->sps.BitDepth_C) - 1);
-	
-	// non-critical code thus we do not optimize away first_mb_in_slice==0
-	t->QP_C_v[0] = load128(QP_Y2C + 12 + t->pps.chroma_qp_index_offset);
-	t->QP_C_v[1] = load128(QP_Y2C + 28 + t->pps.chroma_qp_index_offset);
-	t->QP_C_v[2] = load128(QP_Y2C + 44 + t->pps.chroma_qp_index_offset);
-	t->QP_C_v[3] = load128(QP_Y2C + 60 + t->pps.chroma_qp_index_offset);
-	t->QP_C_v[4] = load128(QP_Y2C + 12 + t->pps.second_chroma_qp_index_offset);
-	t->QP_C_v[5] = load128(QP_Y2C + 28 + t->pps.second_chroma_qp_index_offset);
-	t->QP_C_v[6] = load128(QP_Y2C + 44 + t->pps.second_chroma_qp_index_offset);
-	t->QP_C_v[7] = load128(QP_Y2C + 60 + t->pps.second_chroma_qp_index_offset);
-	t->QP[1] = t->QP_C[0][t->QP[0]];
-	t->QP[2] = t->QP_C[1][t->QP[0]];
-	for (int i = 1; i < 4; i++) {
-		t->sig_inc_v[i] = sig_inc_8x8[0][i];
-		t->last_inc_v[i] = last_inc_8x8[i];
-		t->scan_v[i] = scan_8x8_cabac[0][i];
-	}
-	
-	// P/B slices
-	if (t->slice_type < 2) {
-		memcpy(t->frame_buffers, dec->frame_buffers, sizeof(t->frame_buffers));
-		
-		// B slices
-		if (t->slice_type == 1) {
-			t->col_short_term = 1 & ~(dec->long_term_flags >> t->RefPicList[1][0]);
-			
-			// initializations for temporal prediction and implicit weights
-			int rangeL1 = t->pps.num_ref_idx_active[1];
-			if (t->pps.weighted_bipred_idc == 2 || (rangeL1 = 1, !t->direct_spatial_mv_pred_flag)) {
-				union { int8_t q[32]; i8x16 v[2]; } tb, td;
-				i32x4 poc = set32(min(dec->TopFieldOrderCnt, dec->BottomFieldOrderCnt));
-				t->diff_poc_v[0] = packs32(poc - min32(dec->FieldOrderCnt_v[0][0], dec->FieldOrderCnt_v[1][0]),
-				                    poc - min32(dec->FieldOrderCnt_v[0][1], dec->FieldOrderCnt_v[1][1]));
-				t->diff_poc_v[1] = packs32(poc - min32(dec->FieldOrderCnt_v[0][2], dec->FieldOrderCnt_v[1][2]),
-				                    poc - min32(dec->FieldOrderCnt_v[0][3], dec->FieldOrderCnt_v[1][3]));
-				t->diff_poc_v[2] = packs32(poc - min32(dec->FieldOrderCnt_v[0][4], dec->FieldOrderCnt_v[1][4]),
-				                    poc - min32(dec->FieldOrderCnt_v[0][5], dec->FieldOrderCnt_v[1][5]));
-				t->diff_poc_v[3] = packs32(poc - min32(dec->FieldOrderCnt_v[0][6], dec->FieldOrderCnt_v[1][6]),
-				                    poc - min32(dec->FieldOrderCnt_v[0][7], dec->FieldOrderCnt_v[1][7]));
-				tb.v[0] = packs16(t->diff_poc_v[0], t->diff_poc_v[1]);
-				tb.v[1] = packs16(t->diff_poc_v[2], t->diff_poc_v[3]);
-				for (int refIdxL0 = t->pps.num_ref_idx_active[0], DistScaleFactor; refIdxL0-- > 0; ) {
-					int pic0 = t->RefPicList[0][refIdxL0];
-					i16x8 diff0 = set16(t->diff_poc[pic0]);
-					td.v[0] = packs16(diff0 - t->diff_poc_v[0], diff0 - t->diff_poc_v[1]);
-					td.v[1] = packs16(diff0 - t->diff_poc_v[2], diff0 - t->diff_poc_v[3]);
-					for (int refIdxL1 = rangeL1, implicit_weight; refIdxL1-- > 0; ) {
-						int pic1 = t->RefPicList[1][refIdxL1];
-						if (td.q[pic1] != 0 && !(dec->long_term_flags & 1 << pic0)) {
-							int tx = (16384 + abs(td.q[pic1] / 2)) / td.q[pic1];
-							DistScaleFactor = min(max((tb.q[pic0] * tx + 32) >> 6, -1024), 1023);
-							implicit_weight = (!(dec->long_term_flags & 1 << pic1) && DistScaleFactor >= -256 && DistScaleFactor <= 515) ? DistScaleFactor >> 2 : 32;
-						} else {
-							DistScaleFactor = 256;
-							implicit_weight = 32;
-						}
-						t->implicit_weights[refIdxL0][refIdxL1] = implicit_weight;
-					}
-					t->DistScaleFactor[refIdxL0] = DistScaleFactor;
-				}
-			}
-		}
-	}
-}
-
-
-
-/**
- * This function sets the context pointers to the frame about to be decoded,
- * and fills the context caches with useful values.
- */
-static void FUNC_CTX(initialize_context) {
+	union { int8_t q[32]; i8x16 v[2]; } tb, td;
 	ctx->CurrMbAddr = ctx->t.first_mb_in_slice;
 	int mby = (unsigned)ctx->t.first_mb_in_slice / (unsigned)ctx->t.pic_width_in_mbs;
 	int mbx = (unsigned)ctx->t.first_mb_in_slice % (unsigned)ctx->t.pic_width_in_mbs;
@@ -192,6 +109,22 @@ static void FUNC_CTX(initialize_context) {
 	if (ctx->t.ChromaArrayType == 1) {
 		ctx->ACbCr_int8_v[0] = (i16x8){0, 0, 2, 2, 4, 4, 6, 6};
 		ctx->BCbCr_int8_v[0] = (i32x8){0, 1, 0, 1, 4, 5, 4, 5};
+	}
+	
+	ctx->QP_C_v[0] = load128(QP_Y2C + 12 + ctx->t.pps.chroma_qp_index_offset);
+	ctx->QP_C_v[1] = load128(QP_Y2C + 28 + ctx->t.pps.chroma_qp_index_offset);
+	ctx->QP_C_v[2] = load128(QP_Y2C + 44 + ctx->t.pps.chroma_qp_index_offset);
+	ctx->QP_C_v[3] = load128(QP_Y2C + 60 + ctx->t.pps.chroma_qp_index_offset);
+	ctx->QP_C_v[4] = load128(QP_Y2C + 12 + ctx->t.pps.second_chroma_qp_index_offset);
+	ctx->QP_C_v[5] = load128(QP_Y2C + 28 + ctx->t.pps.second_chroma_qp_index_offset);
+	ctx->QP_C_v[6] = load128(QP_Y2C + 44 + ctx->t.pps.second_chroma_qp_index_offset);
+	ctx->QP_C_v[7] = load128(QP_Y2C + 60 + ctx->t.pps.second_chroma_qp_index_offset);
+	ctx->t.QP[1] = ctx->QP_C[0][ctx->t.QP[0]];
+	ctx->t.QP[2] = ctx->QP_C[1][ctx->t.QP[0]];
+	for (int i = 1; i < 4; i++) {
+		ctx->sig_inc_v[i] = sig_inc_8x8[0][i];
+		ctx->last_inc_v[i] = last_inc_8x8[i];
+		ctx->scan_v[i] = scan_8x8_cabac[0][i];
 	}
 	
 	// P/B slices
@@ -212,14 +145,165 @@ static void FUNC_CTX(initialize_context) {
 		// B slides
 		if (ctx->t.slice_type == 1) {
 			ctx->mbCol = (Edge264Macroblock *)(ctx->t.frame_buffers[ctx->t.RefPicList[1][0]] + mb_offset);
+			ctx->col_short_term = 1 & ~(ctx->t.long_term_flags >> ctx->t.RefPicList[1][0]);
 			
-			if (!ctx->t.direct_spatial_mv_pred_flag) {
+			// initializations for temporal prediction and implicit weights
+			int rangeL1 = ctx->t.pps.num_ref_idx_active[1];
+			if (ctx->t.pps.weighted_bipred_idc == 2 || (rangeL1 = 1, !ctx->t.direct_spatial_mv_pred_flag)) {
+				tb.v[0] = packs16(ctx->t.diff_poc_v[0], ctx->t.diff_poc_v[1]);
+				tb.v[1] = packs16(ctx->t.diff_poc_v[2], ctx->t.diff_poc_v[3]);
 				ctx->MapPicToList0_v[0] = ctx->MapPicToList0_v[1] = (i8x16){}; // FIXME pictures not found in RefPicList0 should point to self
-				for (int refIdxL0 = ctx->t.pps.num_ref_idx_active[0]; refIdxL0-- > 0; )
-					ctx->MapPicToList0[ctx->t.RefPicList[0][refIdxL0]] = refIdxL0;
+				for (int refIdxL0 = ctx->t.pps.num_ref_idx_active[0], DistScaleFactor; refIdxL0-- > 0; ) {
+					int pic0 = ctx->t.RefPicList[0][refIdxL0];
+					ctx->MapPicToList0[pic0] = refIdxL0;
+					i16x8 diff0 = set16(ctx->t.diff_poc[pic0]);
+					td.v[0] = packs16(diff0 - ctx->t.diff_poc_v[0], diff0 - ctx->t.diff_poc_v[1]);
+					td.v[1] = packs16(diff0 - ctx->t.diff_poc_v[2], diff0 - ctx->t.diff_poc_v[3]);
+					for (int refIdxL1 = rangeL1, implicit_weight; refIdxL1-- > 0; ) {
+						int pic1 = ctx->t.RefPicList[1][refIdxL1];
+						if (td.q[pic1] != 0 && !(ctx->t.long_term_flags & 1 << pic0)) {
+							int tx = (16384 + abs(td.q[pic1] / 2)) / td.q[pic1];
+							DistScaleFactor = min(max((tb.q[pic0] * tx + 32) >> 6, -1024), 1023);
+							implicit_weight = (!(ctx->t.long_term_flags & 1 << pic1) && DistScaleFactor >= -256 && DistScaleFactor <= 515) ? DistScaleFactor >> 2 : 32;
+						} else {
+							DistScaleFactor = 256;
+							implicit_weight = 32;
+						}
+						ctx->implicit_weights[refIdxL0][refIdxL1] = implicit_weight;
+					}
+					ctx->DistScaleFactor[refIdxL0] = DistScaleFactor;
+				}
 			}
 		}
 	}
+}
+
+
+
+/**
+ * This function is the entry point for each worker thread, where it consumes
+ * tasks continuously until killed by the parent process.
+ */
+static void *worker_loop(Edge264Decoder *d) {
+	Edge264Context c;
+	SET_CTX(&c);
+	ctx->n_threads = d->n_threads;
+	if (ctx->n_threads)
+		pthread_mutex_lock(&d->lock);
+	for (;;) {
+		while (ctx->n_threads && !d->ready_tasks)
+			pthread_cond_wait(&d->task_ready, &d->lock);
+		int task_id = __builtin_ctz(d->ready_tasks); // FIXME arbitrary selection for now
+		int currPic = d->taskPics[task_id];
+		d->pending_tasks &= ~(1 << task_id);
+		d->ready_tasks &= ~(1 << task_id);
+		if (ctx->n_threads) {
+			pthread_mutex_unlock(&d->lock);
+			printf("<h>Thread started decoding frame %d at macroblock %d</h>\n", d->FieldOrderCnt[0][currPic], d->tasks[task_id].first_mb_in_slice);
+		}
+		ctx->t = d->tasks[task_id];
+		CALL_CTX(initialize_context);
+		size_t ret = 0;
+		if (!ctx->t.pps.entropy_coding_mode_flag) {
+			ctx->mb_skip_run = -1;
+			CALL_CTX(parse_slice_data_cavlc);
+			// FIXME detect and signal error
+		} else {
+			// cabac_alignment_one_bit gives a good probability to catch random errors.
+			if (CALL_CTX(cabac_start)) {
+				ret = EBADMSG; // FIXME error_flag
+			} else {
+				CALL_CTX(cabac_init);
+				ctx->mb_qp_delta_nz = 0;
+				CALL_CTX(parse_slice_data_cabac);
+				// the possibility of cabac_zero_word implies we should not expect a start code yet
+				if (ctx->t._gb.msb_cache != 0 || (ctx->t._gb.lsb_cache & (ctx->t._gb.lsb_cache - 1))) {
+					ret = EBADMSG; // FIXME error_flag
+				}
+			}
+		}
+		
+		// deblock the rest of mbs in this slice
+		if (ctx->t.next_deblock_addr >= 0) {
+			ctx->t.next_deblock_addr = max(ctx->t.next_deblock_addr, ctx->t.first_mb_in_slice);
+			int mby = (unsigned)ctx->t.next_deblock_addr / (unsigned)ctx->t.pic_width_in_mbs;
+			int mbx = (unsigned)ctx->t.next_deblock_addr % (unsigned)ctx->t.pic_width_in_mbs;
+			ctx->samples_row[0] = ctx->t.samples_base + mby * ctx->t.stride[0] * 16;
+			ctx->samples_mb[0] = ctx->samples_row[0] + mbx * 16;
+			ctx->samples_mb[1] = ctx->t.samples_base + ctx->t.plane_size_Y + mby * ctx->t.stride[1] * 8 + mbx * 8;
+			ctx->samples_mb[2] = ctx->samples_mb[1] + ctx->t.plane_size_C;
+			mb = (Edge264Macroblock *)(ctx->t.samples_base + ctx->t.plane_size_Y + ctx->t.plane_size_C * 2) + mbx + mby * (ctx->t.pic_width_in_mbs + 1);
+			while (ctx->t.next_deblock_addr < ctx->CurrMbAddr) {
+				CALL_CTX(deblock_mb);
+				ctx->t.next_deblock_addr++;
+				mb++;
+				ctx->samples_mb[0] += 16;
+				ctx->samples_mb[1] += 8;
+				ctx->samples_mb[2] += 8;
+				if (ctx->samples_mb[0] - ctx->samples_row[0] >= ctx->t.stride[0]) {
+					mb++;
+					ctx->samples_mb[0] = ctx->samples_row[0] += ctx->t.stride[0] * 16;
+					ctx->samples_mb[1] += ctx->t.stride[1] * 7;
+					ctx->samples_mb[2] += ctx->t.stride[1] * 7;
+				}
+			}
+			if (d->next_deblock_addr[currPic] == ctx->t.first_mb_in_slice)
+				d->next_deblock_addr[currPic] = ctx->CurrMbAddr;
+		}
+		
+		// deblock the rest of the frame if all mbs have been decoded
+		__atomic_thread_fence(__ATOMIC_SEQ_CST); // ensures the next line implies the frame was decoded and deblocked in memory
+		int remaining_mbs = __atomic_sub_fetch(d->remaining_mbs + currPic, ctx->CurrMbAddr - ctx->t.first_mb_in_slice, __ATOMIC_SEQ_CST);
+		if (remaining_mbs == 0) {
+			ctx->t.next_deblock_addr = d->next_deblock_addr[currPic];
+			ctx->CurrMbAddr = ctx->t.pic_width_in_mbs * ctx->t.pic_height_in_mbs;
+			if ((unsigned)ctx->t.next_deblock_addr < ctx->CurrMbAddr) {
+				int mby = (unsigned)ctx->t.next_deblock_addr / (unsigned)ctx->t.pic_width_in_mbs;
+				int mbx = (unsigned)ctx->t.next_deblock_addr % (unsigned)ctx->t.pic_width_in_mbs;
+				ctx->samples_row[0] = ctx->t.samples_base + mby * ctx->t.stride[0] * 16;
+				ctx->samples_mb[0] = ctx->samples_row[0] + mbx * 16;
+				ctx->samples_mb[1] = ctx->t.samples_base + ctx->t.plane_size_Y + mby * ctx->t.stride[1] * 8 + mbx * 8;
+				ctx->samples_mb[2] = ctx->samples_mb[1] + ctx->t.plane_size_C;
+				mb = (Edge264Macroblock *)(ctx->t.samples_base + ctx->t.plane_size_Y + ctx->t.plane_size_C * 2) + mbx + mby * (ctx->t.pic_width_in_mbs + 1);
+				while (ctx->t.next_deblock_addr < ctx->CurrMbAddr) {
+					CALL_CTX(deblock_mb);
+					ctx->t.next_deblock_addr++;
+					mb++;
+					ctx->samples_mb[0] += 16;
+					ctx->samples_mb[1] += 8;
+					ctx->samples_mb[2] += 8;
+					if (ctx->samples_mb[0] - ctx->samples_row[0] >= ctx->t.stride[0]) {
+						mb++;
+						ctx->samples_mb[0] = ctx->samples_row[0] += ctx->t.stride[0] * 16;
+						ctx->samples_mb[1] += ctx->t.stride[1] * 7;
+						ctx->samples_mb[2] += ctx->t.stride[1] * 7;
+					}
+				}
+			}
+			d->next_deblock_addr[currPic] = INT_MAX; // signals the frame is complete
+		}
+		
+		// update the task queue
+		if (ctx->n_threads) {
+			printf("<h>Thread finished decoding frame %d at macroblock %d</h>\n", d->FieldOrderCnt[0][currPic], ctx->t.first_mb_in_slice);
+			pthread_mutex_lock(&d->lock);
+			pthread_cond_signal(&d->task_complete);
+			if (remaining_mbs == 0) {
+				d->ready_tasks = ready_tasks(d);
+				for (int i = 0; i < __builtin_popcount(d->ready_tasks) - 1; i++)
+					pthread_cond_signal(&d->task_ready);
+			}
+		}
+		if (ctx->t.free_cb)
+			ctx->t.free_cb(ctx->t.free_arg, (int)ret);
+		d->busy_tasks &= ~(1 << task_id);
+		d->task_dependencies[task_id] = 0;
+		d->taskPics[task_id] = -1;
+		if (!ctx->n_threads) // single iteration if single-threaded
+			return (void *)ret;
+	}
+	RESET_CTX();
+	return NULL;
 }
 
 
@@ -537,129 +621,42 @@ static void FUNC_DEC(finish_frame, int pair_view) {
 
 
 /**
- * This function is the entry point for each worker thread, where it consumes
- * tasks continuously until killed by the parent process.
+ * This fonction copies the last set of fields to finish initializing the task.
  */
-static void *worker_loop(Edge264Decoder *d) {
-	Edge264Context c;
-	SET_CTX(&c);
-	ctx->n_threads = d->n_threads;
-	if (ctx->n_threads)
-		pthread_mutex_lock(&d->lock);
-	for (;;) {
-		while (ctx->n_threads && !d->ready_tasks)
-			pthread_cond_wait(&d->task_ready, &d->lock);
-		int task_id = __builtin_ctz(d->ready_tasks); // FIXME arbitrary selection for now
-		int currPic = d->taskPics[task_id];
-		d->pending_tasks &= ~(1 << task_id);
-		d->ready_tasks &= ~(1 << task_id);
-		if (ctx->n_threads) {
-			pthread_mutex_unlock(&d->lock);
-			printf("<h>Thread started decoding frame %d at macroblock %d</h>\n", d->FieldOrderCnt[0][currPic], d->tasks[task_id].first_mb_in_slice);
+static void FUNC_DEC(initialize_task, Edge264Task *t)
+{
+	// copy most essential fields from st
+	t->_gb = dec->_gb;
+	t->ChromaArrayType = dec->sps.ChromaArrayType;
+	t->direct_8x8_inference_flag = dec->sps.direct_8x8_inference_flag;
+	t->pic_width_in_mbs = dec->sps.pic_width_in_mbs;
+	t->pic_height_in_mbs = dec->sps.pic_height_in_mbs;
+	t->stride[0] = dec->out.stride_Y;
+	t->stride[1] = t->stride[2] = dec->out.stride_C;
+	t->plane_size_Y = dec->plane_size_Y;
+	t->plane_size_C = dec->plane_size_C;
+	t->next_deblock_addr = (dec->next_deblock_addr[dec->currPic] == t->first_mb_in_slice ||
+		t->disable_deblocking_filter_idc == 2) ? t->first_mb_in_slice : INT_MIN;
+	t->long_term_flags = dec->long_term_flags;
+	t->samples_base = dec->frame_buffers[dec->currPic];
+	t->samples_clip_v[0] = set16((1 << dec->sps.BitDepth_Y) - 1);
+	t->samples_clip_v[1] = t->samples_clip_v[2] = set16((1 << dec->sps.BitDepth_C) - 1);
+	
+	// P/B slices
+	if (t->slice_type < 2) {
+		memcpy(t->frame_buffers, dec->frame_buffers, sizeof(t->frame_buffers));
+		if (t->slice_type == 1 && (t->pps.weighted_bipred_idc == 2 || !t->direct_spatial_mv_pred_flag)) {
+			i32x4 poc = set32(min(dec->TopFieldOrderCnt, dec->BottomFieldOrderCnt));
+			t->diff_poc_v[0] = packs32(poc - min32(dec->FieldOrderCnt_v[0][0], dec->FieldOrderCnt_v[1][0]),
+			                           poc - min32(dec->FieldOrderCnt_v[0][1], dec->FieldOrderCnt_v[1][1]));
+			t->diff_poc_v[1] = packs32(poc - min32(dec->FieldOrderCnt_v[0][2], dec->FieldOrderCnt_v[1][2]),
+			                           poc - min32(dec->FieldOrderCnt_v[0][3], dec->FieldOrderCnt_v[1][3]));
+			t->diff_poc_v[2] = packs32(poc - min32(dec->FieldOrderCnt_v[0][4], dec->FieldOrderCnt_v[1][4]),
+			                           poc - min32(dec->FieldOrderCnt_v[0][5], dec->FieldOrderCnt_v[1][5]));
+			t->diff_poc_v[3] = packs32(poc - min32(dec->FieldOrderCnt_v[0][6], dec->FieldOrderCnt_v[1][6]),
+			                           poc - min32(dec->FieldOrderCnt_v[0][7], dec->FieldOrderCnt_v[1][7]));
 		}
-		ctx->t = d->tasks[task_id];
-		CALL_CTX(initialize_context);
-		size_t ret = 0;
-		if (!ctx->t.pps.entropy_coding_mode_flag) {
-			ctx->mb_skip_run = -1;
-			CALL_CTX(parse_slice_data_cavlc);
-			// FIXME detect and signal error
-		} else {
-			// cabac_alignment_one_bit gives a good probability to catch random errors.
-			if (CALL_CTX(cabac_start)) {
-				ret = EBADMSG; // FIXME error_flag
-			} else {
-				CALL_CTX(cabac_init);
-				ctx->mb_qp_delta_nz = 0;
-				CALL_CTX(parse_slice_data_cabac);
-				// the possibility of cabac_zero_word implies we should not expect a start code yet
-				if (ctx->t._gb.msb_cache != 0 || (ctx->t._gb.lsb_cache & (ctx->t._gb.lsb_cache - 1))) {
-					ret = EBADMSG; // FIXME error_flag
-				}
-			}
-		}
-		
-		// deblock the rest of mbs in this slice
-		if (ctx->t.next_deblock_addr >= 0) {
-			ctx->t.next_deblock_addr = max(ctx->t.next_deblock_addr, ctx->t.first_mb_in_slice);
-			int mby = (unsigned)ctx->t.next_deblock_addr / (unsigned)ctx->t.pic_width_in_mbs;
-			int mbx = (unsigned)ctx->t.next_deblock_addr % (unsigned)ctx->t.pic_width_in_mbs;
-			ctx->samples_row[0] = ctx->t.samples_base + mby * ctx->t.stride[0] * 16;
-			ctx->samples_mb[0] = ctx->samples_row[0] + mbx * 16;
-			ctx->samples_mb[1] = ctx->t.samples_base + ctx->t.plane_size_Y + mby * ctx->t.stride[1] * 8 + mbx * 8;
-			ctx->samples_mb[2] = ctx->samples_mb[1] + ctx->t.plane_size_C;
-			mb = (Edge264Macroblock *)(ctx->t.samples_base + ctx->t.plane_size_Y + ctx->t.plane_size_C * 2) + mbx + mby * (ctx->t.pic_width_in_mbs + 1);
-			while (ctx->t.next_deblock_addr < ctx->CurrMbAddr) {
-				CALL_CTX(deblock_mb);
-				ctx->t.next_deblock_addr++;
-				mb++;
-				ctx->samples_mb[0] += 16;
-				ctx->samples_mb[1] += 8;
-				ctx->samples_mb[2] += 8;
-				if (ctx->samples_mb[0] - ctx->samples_row[0] >= ctx->t.stride[0]) {
-					mb++;
-					ctx->samples_mb[0] = ctx->samples_row[0] += ctx->t.stride[0] * 16;
-					ctx->samples_mb[1] += ctx->t.stride[1] * 7;
-					ctx->samples_mb[2] += ctx->t.stride[1] * 7;
-				}
-			}
-			if (d->next_deblock_addr[currPic] == ctx->t.first_mb_in_slice)
-				d->next_deblock_addr[currPic] = ctx->CurrMbAddr;
-		}
-		
-		// deblock the rest of the frame if all mbs have been decoded
-		__atomic_thread_fence(__ATOMIC_SEQ_CST); // ensures the next line implies the frame was decoded and deblocked in memory
-		int remaining_mbs = __atomic_sub_fetch(d->remaining_mbs + currPic, ctx->CurrMbAddr - ctx->t.first_mb_in_slice, __ATOMIC_SEQ_CST);
-		if (remaining_mbs == 0) {
-			ctx->t.next_deblock_addr = d->next_deblock_addr[currPic];
-			ctx->CurrMbAddr = ctx->t.pic_width_in_mbs * ctx->t.pic_height_in_mbs;
-			if ((unsigned)ctx->t.next_deblock_addr < ctx->CurrMbAddr) {
-				int mby = (unsigned)ctx->t.next_deblock_addr / (unsigned)ctx->t.pic_width_in_mbs;
-				int mbx = (unsigned)ctx->t.next_deblock_addr % (unsigned)ctx->t.pic_width_in_mbs;
-				ctx->samples_row[0] = ctx->t.samples_base + mby * ctx->t.stride[0] * 16;
-				ctx->samples_mb[0] = ctx->samples_row[0] + mbx * 16;
-				ctx->samples_mb[1] = ctx->t.samples_base + ctx->t.plane_size_Y + mby * ctx->t.stride[1] * 8 + mbx * 8;
-				ctx->samples_mb[2] = ctx->samples_mb[1] + ctx->t.plane_size_C;
-				mb = (Edge264Macroblock *)(ctx->t.samples_base + ctx->t.plane_size_Y + ctx->t.plane_size_C * 2) + mbx + mby * (ctx->t.pic_width_in_mbs + 1);
-				while (ctx->t.next_deblock_addr < ctx->CurrMbAddr) {
-					CALL_CTX(deblock_mb);
-					ctx->t.next_deblock_addr++;
-					mb++;
-					ctx->samples_mb[0] += 16;
-					ctx->samples_mb[1] += 8;
-					ctx->samples_mb[2] += 8;
-					if (ctx->samples_mb[0] - ctx->samples_row[0] >= ctx->t.stride[0]) {
-						mb++;
-						ctx->samples_mb[0] = ctx->samples_row[0] += ctx->t.stride[0] * 16;
-						ctx->samples_mb[1] += ctx->t.stride[1] * 7;
-						ctx->samples_mb[2] += ctx->t.stride[1] * 7;
-					}
-				}
-			}
-			d->next_deblock_addr[currPic] = INT_MAX; // signals the frame is complete
-		}
-		
-		// update the task queue
-		if (ctx->n_threads) {
-			printf("<h>Thread finished decoding frame %d at macroblock %d</h>\n", d->FieldOrderCnt[0][currPic], ctx->t.first_mb_in_slice);
-			pthread_mutex_lock(&d->lock);
-			pthread_cond_signal(&d->task_complete);
-			if (remaining_mbs == 0) {
-				d->ready_tasks = ready_tasks(d);
-				for (int i = 0; i < __builtin_popcount(d->ready_tasks) - 1; i++)
-					pthread_cond_signal(&d->task_ready);
-			}
-		}
-		if (ctx->t.free_cb)
-			ctx->t.free_cb(ctx->t.free_arg, (int)ret);
-		d->busy_tasks &= ~(1 << task_id);
-		d->task_dependencies[task_id] = 0;
-		d->taskPics[task_id] = -1;
-		if (!ctx->n_threads) // single iteration if single-threaded
-			return (void *)ret;
 	}
-	RESET_CTX();
-	return NULL;
 }
 
 

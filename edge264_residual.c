@@ -57,12 +57,12 @@ void noinline FUNC_CTX(add_idct4x4, int iYCbCr, int qP, i8x16 wS, int DCidx, uin
 	i32x4 mul2 = shl32(cvt16zx32(LS1), sh);
 	i32x4 mul3 = shl32(unpackhi16(LS1, zero), sh);
 	i32x4 s8 = set32(8);
-	i32x4 d0 = (mul0 * ctx->t.c_v[0] + s8) >> 4;
-	i32x4 d1 = (mul1 * ctx->t.c_v[1] + s8) >> 4;
-	i32x4 d2 = (mul2 * ctx->t.c_v[2] + s8) >> 4;
-	i32x4 d3 = (mul3 * ctx->t.c_v[3] + s8) >> 4;
+	i32x4 d0 = (mul0 * ctx->c_v[0] + s8) >> 4;
+	i32x4 d1 = (mul1 * ctx->c_v[1] + s8) >> 4;
+	i32x4 d2 = (mul2 * ctx->c_v[2] + s8) >> 4;
+	i32x4 d3 = (mul3 * ctx->c_v[3] + s8) >> 4;
 	if (DCidx >= 0)
-		d0[0] = ctx->t.c[16 + DCidx];
+		d0[0] = ctx->c[16 + DCidx];
 	
 	// horizontal 1D transform
 	i32x4 e0 = d0 + d2;
@@ -122,7 +122,7 @@ void noinline FUNC_CTX(add_idct4x4, int iYCbCr, int qP, i8x16 wS, int DCidx, uin
 }
 
 void FUNC_CTX(add_dc4x4, int iYCbCr, int DCidx, uint8_t *samples) {
-	i32x4 x = (set32(ctx->t.c[16 + DCidx]) + set32(32)) >> 6;
+	i32x4 x = (set32(ctx->c[16 + DCidx]) + set32(32)) >> 6;
 	i32x4 r = packs32(x, x);
 	i8x16 zero = {};
 	size_t stride = ctx->t.stride[iYCbCr];
@@ -170,7 +170,7 @@ void noinline FUNC_CTX(add_idct8x8, int iYCbCr, uint8_t *samples)
 		i16x8 LS5 = (i16x8)unpackhi8(wS[2], zero) * (i16x8)unpackhi8(nA[2], zero);
 		i16x8 LS6 = cvt8zx16(wS[3]) * cvt8zx16(nA[3]);
 		i16x8 LS7 = (i16x8)unpackhi8(wS[3], zero) * (i16x8)unpackhi8(nA[3], zero);
-		i32x4 *c = ctx->t.c_v;
+		i32x4 *c = ctx->c_v;
 		i16x8 d0, d1, d2, d3, d4, d5, d6, d7;
 		if (div < 6) {
 			i32x4 mul0 = madd16(cvt16zx32(LS0), c[0]);
@@ -313,10 +313,10 @@ void noinline FUNC_CTX(add_idct8x8, int iYCbCr, uint8_t *samples)
 void noinline FUNC_CTX(transform_dc4x4, int iYCbCr)
 {
 	// load matrix in column order and multiply right
-	i32x4 x0 = ctx->t.c_v[0] + ctx->t.c_v[1];
-	i32x4 x1 = ctx->t.c_v[2] + ctx->t.c_v[3];
-	i32x4 x2 = ctx->t.c_v[0] - ctx->t.c_v[1];
-	i32x4 x3 = ctx->t.c_v[2] - ctx->t.c_v[3];
+	i32x4 x0 = ctx->c_v[0] + ctx->c_v[1];
+	i32x4 x1 = ctx->c_v[2] + ctx->c_v[3];
+	i32x4 x2 = ctx->c_v[0] - ctx->c_v[1];
+	i32x4 x3 = ctx->c_v[2] - ctx->c_v[3];
 	i32x4 x4 = x0 + x1;
 	i32x4 x5 = x0 - x1;
 	i32x4 x6 = x2 - x3;
@@ -353,10 +353,10 @@ void noinline FUNC_CTX(transform_dc4x4, int iYCbCr)
 	
 	// store in zigzag order if needed later ...
 	if (mb->bits[0] & 1 << 5) {
-		ctx->t.c_v[4] = unpacklo64(dc0, dc1);
-		ctx->t.c_v[5] = unpackhi64(dc0, dc1);
-		ctx->t.c_v[6] = unpacklo64(dc2, dc3);
-		ctx->t.c_v[7] = unpackhi64(dc2, dc3);
+		ctx->c_v[4] = unpacklo64(dc0, dc1);
+		ctx->c_v[5] = unpackhi64(dc0, dc1);
+		ctx->c_v[6] = unpacklo64(dc2, dc3);
+		ctx->c_v[7] = unpackhi64(dc2, dc3);
 		
 	// ... or prepare for storage in place
 	} else {
@@ -423,8 +423,8 @@ void noinline FUNC_CTX(transform_dc4x4, int iYCbCr)
 void noinline FUNC_CTX(transform_dc2x2)
 {
 	// load both matrices interlaced+transposed and multiply right
-	i32x4 d0 = ctx->t.c_v[0] + ctx->t.c_v[1];
-	i32x4 d1 = ctx->t.c_v[0] - ctx->t.c_v[1];
+	i32x4 d0 = ctx->c_v[0] + ctx->c_v[1];
+	i32x4 d1 = ctx->c_v[0] - ctx->c_v[1];
 	
 	// transpose and multiply left
 	i32x4 e0 = unpacklo64(d0, d1);
@@ -444,8 +444,8 @@ void noinline FUNC_CTX(transform_dc2x2)
 	
 	// store if needed later ...
 	if (mb->f.CodedBlockPatternChromaAC) {
-		ctx->t.c_v[4] = dcCb;
-		ctx->t.c_v[5] = dcCr;
+		ctx->c_v[4] = dcCb;
+		ctx->c_v[5] = dcCr;
 		
 	// ... or prepare for storage in place
 	} else {
@@ -522,8 +522,8 @@ void FUNC_CTX(transform_dc2x4)
 	unsigned qP_DC = 0; //mb->QP[iYCbCr] + 3;
 	int w = ctx->t.pps.weightScale4x4[iYCbCr + mb->f.mbIsInterFlag * 3][0];
 	int nA = normAdjust4x4[qP_DC % 6][0];
-	__m128i x0 = (__m128i)ctx->t.c_v[0]; // {c00, c01, c10, c11} as per 8.5.11.1
-	__m128i x1 = (__m128i)ctx->t.c_v[1]; // {c20, c21, c30, c31}
+	__m128i x0 = (__m128i)ctx->c_v[0]; // {c00, c01, c10, c11} as per 8.5.11.1
+	__m128i x1 = (__m128i)ctx->c_v[1]; // {c20, c21, c30, c31}
 	__m128i x2 = _mm_add_epi32(x0, x1); // {c00+c20, c01+c21, c10+c30, c11+c31}
 	__m128i x3 = _mm_sub_epi32(x0, x1); // {c00-c20, c01-c21, c10-c30, c11-c31}
 	__m128i x4 = unpacklo64(x2, x3); // {c00+c20, c01+c21, c00-c20, c01-c21}
@@ -536,7 +536,7 @@ void FUNC_CTX(transform_dc2x4)
 	__m128i s32 = set32(32);
 	__m128i dc0 = _mm_srai_epi32(_mm_add_epi32(_mm_mullo_epi32(x8, s), s32), 6);
 	__m128i dc1 = _mm_srai_epi32(_mm_add_epi32(_mm_mullo_epi32(x9, s), s32), 6);
-	__m128i *c = (__m128i *)ctx->t.c_v + 2 + iYCbCr * 2;
+	__m128i *c = (__m128i *)ctx->c_v + 2 + iYCbCr * 2;
 	c[0] = unpacklo32(dc0, dc1);
 	c[1] = _mm_shuffle_epi32(unpackhi64(dc0, dc1), _MM_SHUFFLE(2, 0, 3, 1));
 }
@@ -544,14 +544,14 @@ void FUNC_CTX(transform_dc2x4)
 #ifdef __AVX2__
 		// loading
 		// FIXME scaling
-		__m256i d0 = (__m256i)ctx->t.c_V[0];
-		__m256i d1 = (__m256i)ctx->t.c_V[1];
-		__m256i d2 = (__m256i)ctx->t.c_V[2];
-		__m256i d3 = (__m256i)ctx->t.c_V[3];
-		__m256i d4 = (__m256i)ctx->t.c_V[4];
-		__m256i d5 = (__m256i)ctx->t.c_V[5];
-		__m256i d6 = (__m256i)ctx->t.c_V[6];
-		__m256i d7 = (__m256i)ctx->t.c_V[7];
+		__m256i d0 = (__m256i)ctx->c_V[0];
+		__m256i d1 = (__m256i)ctx->c_V[1];
+		__m256i d2 = (__m256i)ctx->c_V[2];
+		__m256i d3 = (__m256i)ctx->c_V[3];
+		__m256i d4 = (__m256i)ctx->c_V[4];
+		__m256i d5 = (__m256i)ctx->c_V[5];
+		__m256i d6 = (__m256i)ctx->c_V[6];
+		__m256i d7 = (__m256i)ctx->c_V[7];
 		
 		for (int i = 2;;) {
 			// 1D transform
@@ -648,14 +648,14 @@ void FUNC_CTX(transform_dc2x4)
 #else // !defined(__AVX2__)
 		// load half of samples
 		// FIXME scaline
-		__m128i d0 = (__m128i)ctx->t.c_v[0];
-		__m128i d1 = (__m128i)ctx->t.c_v[2];
-		__m128i d2 = (__m128i)ctx->t.c_v[4];
-		__m128i d3 = (__m128i)ctx->t.c_v[6];
-		__m128i d4 = (__m128i)ctx->t.c_v[8];
-		__m128i d5 = (__m128i)ctx->t.c_v[10];
-		__m128i d6 = (__m128i)ctx->t.c_v[12];
-		__m128i d7 = (__m128i)ctx->t.c_v[14];
+		__m128i d0 = (__m128i)ctx->c_v[0];
+		__m128i d1 = (__m128i)ctx->c_v[2];
+		__m128i d2 = (__m128i)ctx->c_v[4];
+		__m128i d3 = (__m128i)ctx->c_v[6];
+		__m128i d4 = (__m128i)ctx->c_v[8];
+		__m128i d5 = (__m128i)ctx->c_v[10];
+		__m128i d6 = (__m128i)ctx->c_v[12];
+		__m128i d7 = (__m128i)ctx->c_v[14];
 		
 		// This (crappy) version uses a nested loop trick to reduce code size
 		for (int i = 2;; ) {
@@ -689,49 +689,49 @@ void FUNC_CTX(transform_dc2x4)
 					break;
 				
 				// load other half of samples
-				ctx->t.c_v[0] = (v4si)d0;
-				d0 = (__m128i)ctx->t.c_v[1];
-				ctx->t.c_v[2] = (v4si)d1;
-				d1 = (__m128i)ctx->t.c_v[3];
-				ctx->t.c_v[4] = (v4si)d2;
-				d2 = (__m128i)ctx->t.c_v[5];
-				ctx->t.c_v[6] = (v4si)d3;
-				d3 = (__m128i)ctx->t.c_v[7];
-				ctx->t.c_v[8] = (v4si)d4;
-				d4 = (__m128i)ctx->t.c_v[9];
-				ctx->t.c_v[10] = (v4si)d5;
-				d5 = (__m128i)ctx->t.c_v[11];
-				ctx->t.c_v[12] = (v4si)d6;
-				d6 = (__m128i)ctx->t.c_v[13];
-				ctx->t.c_v[14] = (v4si)d7;
-				d7 = (__m128i)ctx->t.c_v[15];
+				ctx->c_v[0] = (v4si)d0;
+				d0 = (__m128i)ctx->c_v[1];
+				ctx->c_v[2] = (v4si)d1;
+				d1 = (__m128i)ctx->c_v[3];
+				ctx->c_v[4] = (v4si)d2;
+				d2 = (__m128i)ctx->c_v[5];
+				ctx->c_v[6] = (v4si)d3;
+				d3 = (__m128i)ctx->c_v[7];
+				ctx->c_v[8] = (v4si)d4;
+				d4 = (__m128i)ctx->c_v[9];
+				ctx->c_v[10] = (v4si)d5;
+				d5 = (__m128i)ctx->c_v[11];
+				ctx->c_v[12] = (v4si)d6;
+				d6 = (__m128i)ctx->c_v[13];
+				ctx->c_v[14] = (v4si)d7;
+				d7 = (__m128i)ctx->c_v[15];
 			}
 			if (--i == 0)
 				break;
 			
 			// transpose the half matrix going to memory
-			__m128i x0 = unpacklo32((__m128i)ctx->t.c_v[8], (__m128i)ctx->t.c_v[10]);
-			__m128i x1 = unpacklo32((__m128i)ctx->t.c_v[12], (__m128i)ctx->t.c_v[14]);
-			__m128i x2 = unpackhi32((__m128i)ctx->t.c_v[8], (__m128i)ctx->t.c_v[10]);
-			__m128i x3 = unpackhi32((__m128i)ctx->t.c_v[12], (__m128i)ctx->t.c_v[14]);
+			__m128i x0 = unpacklo32((__m128i)ctx->c_v[8], (__m128i)ctx->c_v[10]);
+			__m128i x1 = unpacklo32((__m128i)ctx->c_v[12], (__m128i)ctx->c_v[14]);
+			__m128i x2 = unpackhi32((__m128i)ctx->c_v[8], (__m128i)ctx->c_v[10]);
+			__m128i x3 = unpackhi32((__m128i)ctx->c_v[12], (__m128i)ctx->c_v[14]);
 			__m128i x4 = unpacklo32(d4, d5);
 			__m128i x5 = unpacklo32(d6, d7);
 			__m128i x6 = unpackhi32(d4, d5);
 			__m128i x7 = unpackhi32(d6, d7);
-			ctx->t.c_v[1] = (v4si)_mm_add_epi32(unpacklo64(x0, x1), set32(32));
-			ctx->t.c_v[3] = (v4si)unpackhi64(x0, x1);
-			ctx->t.c_v[5] = (v4si)unpacklo64(x2, x3);
-			ctx->t.c_v[7] = (v4si)unpackhi64(x2, x3);
-			ctx->t.c_v[9] = (v4si)unpacklo64(x4, x5);
-			ctx->t.c_v[11] = (v4si)unpackhi64(x4, x5);
-			ctx->t.c_v[13] = (v4si)unpacklo64(x6, x7);
-			ctx->t.c_v[15] = (v4si)unpackhi64(x6, x7);
+			ctx->c_v[1] = (v4si)_mm_add_epi32(unpacklo64(x0, x1), set32(32));
+			ctx->c_v[3] = (v4si)unpackhi64(x0, x1);
+			ctx->c_v[5] = (v4si)unpacklo64(x2, x3);
+			ctx->c_v[7] = (v4si)unpackhi64(x2, x3);
+			ctx->c_v[9] = (v4si)unpacklo64(x4, x5);
+			ctx->c_v[11] = (v4si)unpackhi64(x4, x5);
+			ctx->c_v[13] = (v4si)unpacklo64(x6, x7);
+			ctx->c_v[15] = (v4si)unpackhi64(x6, x7);
 			
 			// transpose the half matrix staying in registers
-			__m128i x8 = unpacklo32((__m128i)ctx->t.c_v[0], (__m128i)ctx->t.c_v[2]);
-			__m128i x9 = unpacklo32((__m128i)ctx->t.c_v[4], (__m128i)ctx->t.c_v[6]);
-			__m128i xA = unpackhi32((__m128i)ctx->t.c_v[0], (__m128i)ctx->t.c_v[2]);
-			__m128i xB = unpackhi32((__m128i)ctx->t.c_v[4], (__m128i)ctx->t.c_v[6]);
+			__m128i x8 = unpacklo32((__m128i)ctx->c_v[0], (__m128i)ctx->c_v[2]);
+			__m128i x9 = unpacklo32((__m128i)ctx->c_v[4], (__m128i)ctx->c_v[6]);
+			__m128i xA = unpackhi32((__m128i)ctx->c_v[0], (__m128i)ctx->c_v[2]);
+			__m128i xB = unpackhi32((__m128i)ctx->c_v[4], (__m128i)ctx->c_v[6]);
 			__m128i xC = unpacklo32(d0, d1);
 			__m128i xD = unpacklo32(d2, d3);
 			__m128i xE = unpackhi32(d0, d1);
@@ -747,14 +747,14 @@ void FUNC_CTX(transform_dc2x4)
 		}
 		
 		// final residual values
-		__m128i r0 = packs32(_mm_srai_epi32((__m128i)ctx->t.c_v[0], 6), _mm_srai_epi32(d0, 6));
-		__m128i r1 = packs32(_mm_srai_epi32((__m128i)ctx->t.c_v[2], 6), _mm_srai_epi32(d1, 6));
-		__m128i r2 = packs32(_mm_srai_epi32((__m128i)ctx->t.c_v[4], 6), _mm_srai_epi32(d2, 6));
-		__m128i r3 = packs32(_mm_srai_epi32((__m128i)ctx->t.c_v[6], 6), _mm_srai_epi32(d3, 6));
-		__m128i r4 = packs32(_mm_srai_epi32((__m128i)ctx->t.c_v[8], 6), _mm_srai_epi32(d4, 6));
-		__m128i r5 = packs32(_mm_srai_epi32((__m128i)ctx->t.c_v[10], 6), _mm_srai_epi32(d5, 6));
-		__m128i r6 = packs32(_mm_srai_epi32((__m128i)ctx->t.c_v[12], 6), _mm_srai_epi32(d6, 6));
-		__m128i r7 = packs32(_mm_srai_epi32((__m128i)ctx->t.c_v[14], 6), _mm_srai_epi32(d7, 6));
+		__m128i r0 = packs32(_mm_srai_epi32((__m128i)ctx->c_v[0], 6), _mm_srai_epi32(d0, 6));
+		__m128i r1 = packs32(_mm_srai_epi32((__m128i)ctx->c_v[2], 6), _mm_srai_epi32(d1, 6));
+		__m128i r2 = packs32(_mm_srai_epi32((__m128i)ctx->c_v[4], 6), _mm_srai_epi32(d2, 6));
+		__m128i r3 = packs32(_mm_srai_epi32((__m128i)ctx->c_v[6], 6), _mm_srai_epi32(d3, 6));
+		__m128i r4 = packs32(_mm_srai_epi32((__m128i)ctx->c_v[8], 6), _mm_srai_epi32(d4, 6));
+		__m128i r5 = packs32(_mm_srai_epi32((__m128i)ctx->c_v[10], 6), _mm_srai_epi32(d5, 6));
+		__m128i r6 = packs32(_mm_srai_epi32((__m128i)ctx->c_v[12], 6), _mm_srai_epi32(d6, 6));
+		__m128i r7 = packs32(_mm_srai_epi32((__m128i)ctx->c_v[14], 6), _mm_srai_epi32(d7, 6));
 		
 		// addition to values in place, clipping and storage
 		size_t stride = ctx->t.stride[0]; // FIXME 4:4:4

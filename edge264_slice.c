@@ -221,8 +221,8 @@ static void CAFUNC(parse_residual_block, int startIdx, int endIdx, int token_or_
 		int zerosLeft = 0;
 		if (TotalCoeff <= endIdx - startIdx)
 			zerosLeft = CALL_CTX(parse_total_zeros, endIdx, TotalCoeff);
-		int8_t *scan = ctx->t.scan + startIdx + zerosLeft + TotalCoeff - 1;
-		ctx->t.c[*scan] = level[0];
+		int8_t *scan = ctx->scan + startIdx + zerosLeft + TotalCoeff - 1;
+		ctx->c[*scan] = level[0];
 		for (int i = 1, v, run_before; i < TotalCoeff; i++) {
 			scan--;
 			if (zerosLeft > 0) {
@@ -251,7 +251,7 @@ static void CAFUNC(parse_residual_block, int startIdx, int endIdx, int token_or_
 				ctx->t._gb.msb_cache = lsd(ctx->t._gb.msb_cache, ctx->t._gb.lsb_cache, v);
 				ctx->t._gb.lsb_cache <<= v;
 			}
-			ctx->t.c[*scan] = level[i];
+			ctx->c[*scan] = level[i];
 		}
 		
 		// trailing_ones_sign_flags+total_zeros+run_before consumed at most 31 bits, so we can delay refill here
@@ -262,29 +262,29 @@ static void CAFUNC(parse_residual_block, int startIdx, int endIdx, int token_or_
 		uint64_t significant_coeff_flags = 0;
 		int i = startIdx;
 		do {
-			if (CALL_CTX(get_ae, ctx->t.ctxIdxOffsets[1] + ctx->t.sig_inc[i])) {
+			if (CALL_CTX(get_ae, ctx->ctxIdxOffsets[1] + ctx->sig_inc[i])) {
 				significant_coeff_flags |= (uint64_t)1 << i;
-				if (CALL_CTX(get_ae, ctx->t.ctxIdxOffsets[2] + ctx->t.last_inc[i]))
+				if (CALL_CTX(get_ae, ctx->ctxIdxOffsets[2] + ctx->last_inc[i]))
 					break;
 			}
 		} while (++i < endIdx);
 		significant_coeff_flags |= (uint64_t)1 << i;
 		
 		// Now loop on set bits to parse all non-zero coefficients.
-		int ctxIdx0 = ctx->t.ctxIdxOffsets[3] + 1;
-		int ctxIdx1 = ctx->t.ctxIdxOffsets[3] + 5;
+		int ctxIdx0 = ctx->ctxIdxOffsets[3] + 1;
+		int ctxIdx1 = ctx->ctxIdxOffsets[3] + 5;
 		do {
 			int coeff_level = 1;
 			if (!CALL_CTX(get_ae, ctxIdx0)) {
 				static const int8_t trans[5] = {0, 2, 3, 4, 4};
-				ctxIdx0 = ctx->t.ctxIdxOffsets[3] + trans[ctxIdx0 - ctx->t.ctxIdxOffsets[3]];
+				ctxIdx0 = ctx->ctxIdxOffsets[3] + trans[ctxIdx0 - ctx->ctxIdxOffsets[3]];
 				coeff_level = CALL_CTX(get_bypass) ? -coeff_level : coeff_level;
 			} else {
 				coeff_level++;
 				while (coeff_level < 15 && CALL_CTX(get_ae, ctxIdx1))
 					coeff_level++;
-				ctxIdx0 = ctx->t.ctxIdxOffsets[3];
-				ctxIdx1 = ctxIdx0 + ctx->t.coeff_abs_inc[ctxIdx1 - ctxIdx0 - 5];
+				ctxIdx0 = ctx->ctxIdxOffsets[3];
+				ctxIdx1 = ctxIdx0 + ctx->coeff_abs_inc[ctxIdx1 - ctxIdx0 - 5];
 				#if SIZE_BIT == 32
 					if (coeff_level >= 15) {
 						// the biggest value to encode is 2^(14+7)-14, for which k=20 (see 9.3.2.3)
@@ -323,12 +323,12 @@ static void CAFUNC(parse_residual_block, int startIdx, int endIdx, int token_or_
 		
 			// scale and store
 			int i = 63 - clz64(significant_coeff_flags);
-			ctx->t.c[ctx->t.scan[i]] = coeff_level; // beware, scan is transposed already
+			ctx->c[ctx->scan[i]] = coeff_level; // beware, scan is transposed already
 			significant_coeff_flags &= ~((uint64_t)1 << i);
 		} while (significant_coeff_flags != 0);
 	#endif
 	for (int i = startIdx; i <= endIdx; i++)
-		fprintf(stderr, " %d", ctx->t.c[ctx->t.scan[i]]);
+		fprintf(stderr, " %d", ctx->c[ctx->scan[i]]);
 	fprintf(stderr, "\n");
 }
 
@@ -344,7 +344,7 @@ static void CAFUNC(parse_mb_qp_delta)
 		if (mb_qp_delta) {
 			int sum = ctx->t.QP[0] + mb_qp_delta;
 			int QP_Y = (sum < 0) ? sum + 52 : (sum >= 52) ? sum - 52 : sum;
-			mb->QP_s = ctx->t.QP_s = (i8x4){QP_Y, ctx->t.QP_C[0][QP_Y], ctx->t.QP_C[1][QP_Y]};
+			mb->QP_s = ctx->t.QP_s = (i8x4){QP_Y, ctx->QP_C[0][QP_Y], ctx->QP_C[1][QP_Y]};
 		}
 	#else
 		int mb_qp_delta_nz = CALL_CTX(get_ae, 60 + ctx->mb_qp_delta_nz);
@@ -357,7 +357,7 @@ static void CAFUNC(parse_mb_qp_delta)
 			mb_qp_delta = count & 1 ? count / 2 + 1 : -(count / 2);
 			int sum = ctx->t.QP[0] + mb_qp_delta;
 			int QP_Y = (sum < 0) ? sum + 52 : (sum >= 52) ? sum - 52 : sum;
-			mb->QP_s = ctx->t.QP_s = (i8x4){QP_Y, ctx->t.QP_C[0][QP_Y], ctx->t.QP_C[1][QP_Y]};
+			mb->QP_s = ctx->t.QP_s = (i8x4){QP_Y, ctx->QP_C[0][QP_Y], ctx->QP_C[1][QP_Y]};
 		}
 	#endif
 	fprintf(stderr, "mb_qp_delta: %d\n", mb_qp_delta);
@@ -371,34 +371,34 @@ static void CAFUNC(parse_mb_qp_delta)
  */
 static void CAFUNC(parse_chroma_residual)
 {
-	// As in Intra16x16, DC blocks are parsed to ctx->t.c[0..15], then transformed to ctx->t.c[16..31]
+	// As in Intra16x16, DC blocks are parsed to ctx->c[0..15], then transformed to ctx->c[16..31]
 	if (mb->f.CodedBlockPatternChromaDC) { // valid also for 4:0:0
 		#ifdef CABAC
-			ctx->t.ctxIdxOffsets_l = ctxIdxOffsets_chromaDC[0]; // FIXME 4:2:2
-			ctx->t.sig_inc_v[0] = ctx->t.last_inc_v[0] = sig_inc_chromaDC[0];
-			ctx->t.coeff_abs_inc_l = (i8x8){6, 7, 8, 8};
+			ctx->ctxIdxOffsets_l = ctxIdxOffsets_chromaDC[0]; // FIXME 4:2:2
+			ctx->sig_inc_v[0] = ctx->last_inc_v[0] = sig_inc_chromaDC[0];
+			ctx->coeff_abs_inc_l = (i8x8){6, 7, 8, 8};
 		#endif
-		ctx->t.c_v[0] = ctx->t.c_v[1] = ctx->t.c_v[2] = ctx->t.c_v[3] = (i32x4){};
+		ctx->c_v[0] = ctx->c_v[1] = ctx->c_v[2] = ctx->c_v[3] = (i32x4){};
 		int token_or_cbf_Cb = CACOND(
 			CALL_CTX(parse_DC2x2_coeff_token_cavlc),
-			CALL_CTX(get_ae, ctx->t.ctxIdxOffsets[0] + ctx->inc.coded_block_flags_16x16[1]));
+			CALL_CTX(get_ae, ctx->ctxIdxOffsets[0] + ctx->inc.coded_block_flags_16x16[1]));
 		if (token_or_cbf_Cb) {
 			#ifdef CABAC
 				mb->f.coded_block_flags_16x16[1] = 1;
 			#endif
 			fprintf(stderr, "Cb DC coeffLevels:");
-			ctx->t.scan_s = (i8x4){0, 4, 2, 6};
+			ctx->scan_s = (i8x4){0, 4, 2, 6};
 			CACALL(parse_residual_block, 0, 3, token_or_cbf_Cb);
 		}
 		int token_or_cbf_Cr = CACOND(
 			CALL_CTX(parse_DC2x2_coeff_token_cavlc),
-			CALL_CTX(get_ae, ctx->t.ctxIdxOffsets[0] + ctx->inc.coded_block_flags_16x16[2]));
+			CALL_CTX(get_ae, ctx->ctxIdxOffsets[0] + ctx->inc.coded_block_flags_16x16[2]));
 		if (token_or_cbf_Cr) {
 			#ifdef CABAC
 				mb->f.coded_block_flags_16x16[2] = 1;
 			#endif
 			fprintf(stderr, "Cr DC coeffLevels:");
-			ctx->t.scan_s = (i8x4){1, 5, 3, 7};
+			ctx->scan_s = (i8x4){1, 5, 3, 7};
 			CACALL(parse_residual_block, 0, 3, token_or_cbf_Cr);
 		}
 		CALL_CTX(transform_dc2x2);
@@ -406,21 +406,21 @@ static void CAFUNC(parse_chroma_residual)
 		// Eight or sixteen 4x4 AC blocks for the Cb/Cr components
 		if (mb->f.CodedBlockPatternChromaAC) {
 			#ifdef CABAC
-				ctx->t.sig_inc_v[0] = ctx->t.last_inc_v[0] = sig_inc_4x4;
-				ctx->t.ctxIdxOffsets_l = ctxIdxOffsets_chromaAC[0];
-				ctx->t.coeff_abs_inc_l = (i8x8){6, 7, 8, 9, 9};
+				ctx->sig_inc_v[0] = ctx->last_inc_v[0] = sig_inc_4x4;
+				ctx->ctxIdxOffsets_l = ctxIdxOffsets_chromaAC[0];
+				ctx->coeff_abs_inc_l = (i8x8){6, 7, 8, 9, 9};
 			#endif
-			ctx->t.scan_v[0] = scan_4x4[0];
+			ctx->scan_v[0] = scan_4x4[0];
 			for (int i4x4 = 0; i4x4 < 8; i4x4++) {
 				int iYCbCr = 1 + (i4x4 >> 2);
 				uint8_t *samples = ctx->samples_mb[iYCbCr] + y420[i4x4] * ctx->t.stride[1] + x420[i4x4];
 				int nA = *((int8_t *)mb->nC[1] + ctx->ACbCr_int8[i4x4]);
 				int nB = *((int8_t *)mb->nC[1] + ctx->BCbCr_int8[i4x4]);
 				int token_or_cbf = CACOND(CALL_CTX(parse_coeff_token_cavlc, i4x4 << 2 & 15, nA, nB),
-					CALL_CTX(get_ae, ctx->t.ctxIdxOffsets[0] + ctx->nC_inc[1][i4x4] + nA + nB * 2));
+					CALL_CTX(get_ae, ctx->ctxIdxOffsets[0] + ctx->nC_inc[1][i4x4] + nA + nB * 2));
 				if (token_or_cbf) {
 					mb->nC[1][i4x4] = CACOND(token_or_cbf >> 2, 1);
-					ctx->t.c_v[0] = ctx->t.c_v[1] = ctx->t.c_v[2] = ctx->t.c_v[3] = (i32x4){};
+					ctx->c_v[0] = ctx->c_v[1] = ctx->c_v[2] = ctx->c_v[3] = (i32x4){};
 					fprintf(stderr, "Chroma AC coeffLevels[%d]:", i4x4);
 					CACALL(parse_residual_block, 1, 15, token_or_cbf);
 					i8x16 wS = ctx->t.pps.weightScale4x4_v[iYCbCr + mb->f.mbIsInterFlag * 3];
@@ -443,49 +443,49 @@ static void CAFUNC(parse_Intra16x16_residual)
 {
 	CACALL(parse_mb_qp_delta);
 	
-	// Both AC and DC coefficients are initially parsed to ctx->t.c[0..15]
-	ctx->t.scan_v[0] = scan_4x4[0];
+	// Both AC and DC coefficients are initially parsed to ctx->c[0..15]
+	ctx->scan_v[0] = scan_4x4[0];
 	#ifdef CABAC
-		ctx->t.sig_inc_v[0] = ctx->t.last_inc_v[0] = sig_inc_4x4;
+		ctx->sig_inc_v[0] = ctx->last_inc_v[0] = sig_inc_4x4;
 	#endif
 	for (int iYCbCr = 0; iYCbCr < 3; iYCbCr++) {
 		
-		// Parse a DC block, then transform it to ctx->t.c[16..31]
+		// Parse a DC block, then transform it to ctx->c[16..31]
 		#ifdef CABAC
-			ctx->t.ctxIdxOffsets_l = ctxIdxOffsets_16x16DC[iYCbCr][0];
-			ctx->t.coeff_abs_inc_l = (i8x8){6, 7, 8, 9, 9};
+			ctx->ctxIdxOffsets_l = ctxIdxOffsets_16x16DC[iYCbCr][0];
+			ctx->coeff_abs_inc_l = (i8x8){6, 7, 8, 9, 9};
 		#endif
 		int token_or_cbf = CACOND(
 			CALL_CTX(parse_coeff_token_cavlc, 0, mbA->nC[iYCbCr][5], mbB->nC[iYCbCr][10]),
-			CALL_CTX(get_ae, ctx->t.ctxIdxOffsets[0] + ctx->inc.coded_block_flags_16x16[iYCbCr]));
+			CALL_CTX(get_ae, ctx->ctxIdxOffsets[0] + ctx->inc.coded_block_flags_16x16[iYCbCr]));
 		if (token_or_cbf) {
 			#ifdef CABAC
 				mb->f.coded_block_flags_16x16[iYCbCr] = 1;
 			#endif
-			ctx->t.c_v[0] = ctx->t.c_v[1] = ctx->t.c_v[2] = ctx->t.c_v[3] = (i32x4){};
+			ctx->c_v[0] = ctx->c_v[1] = ctx->c_v[2] = ctx->c_v[3] = (i32x4){};
 			fprintf(stderr, "16x16 DC coeffLevels[%d]:", iYCbCr);
 			CACALL(parse_residual_block, 0, 15, token_or_cbf);
 			CALL_CTX(transform_dc4x4, iYCbCr);
 		} else {
 			if (mb->bits[0] & 1 << 5)
-				ctx->t.c_v[4] = ctx->t.c_v[5] = ctx->t.c_v[6] = ctx->t.c_v[7] = (i32x4){};
+				ctx->c_v[4] = ctx->c_v[5] = ctx->c_v[6] = ctx->c_v[7] = (i32x4){};
 		}
 		
-		// All AC blocks pick a DC coeff, then go to ctx->t.c[1..15]
+		// All AC blocks pick a DC coeff, then go to ctx->c[1..15]
 		if (mb->bits[0] & 1 << 5) {
 			#ifdef CABAC
-				ctx->t.ctxIdxOffsets_l = ctxIdxOffsets_16x16AC[iYCbCr][0];
-				ctx->t.coeff_abs_inc_l = (i8x8){6, 7, 8, 9, 9};
+				ctx->ctxIdxOffsets_l = ctxIdxOffsets_16x16AC[iYCbCr][0];
+				ctx->coeff_abs_inc_l = (i8x8){6, 7, 8, 9, 9};
 			#endif
 			for (int i4x4 = 0; i4x4 < 16; i4x4++) {
 				uint8_t *samples = ctx->samples_mb[iYCbCr] + y444[i4x4] * ctx->t.stride[iYCbCr] + x444[i4x4];
 				int nA = *((int8_t *)mb->nC[iYCbCr] + ctx->A4x4_int8[i4x4]);
 				int nB = *((int8_t *)mb->nC[iYCbCr] + ctx->B4x4_int8[i4x4]);
 				int token_or_cbf = CACOND(CALL_CTX(parse_coeff_token_cavlc, i4x4, nA, nB),
-					CALL_CTX(get_ae, ctx->t.ctxIdxOffsets[0] + ctx->nC_inc[iYCbCr][i4x4] + nA + nB * 2));
+					CALL_CTX(get_ae, ctx->ctxIdxOffsets[0] + ctx->nC_inc[iYCbCr][i4x4] + nA + nB * 2));
 				if (token_or_cbf) {
 					mb->nC[iYCbCr][i4x4] = CACOND(token_or_cbf >> 2, 1);
-					ctx->t.c_v[0] = ctx->t.c_v[1] = ctx->t.c_v[2] = ctx->t.c_v[3] = (i32x4){};
+					ctx->c_v[0] = ctx->c_v[1] = ctx->c_v[2] = ctx->c_v[3] = (i32x4){};
 					fprintf(stderr, "16x16 AC coeffLevels[%d]:", iYCbCr * 16 + i4x4);
 					CACALL(parse_residual_block, 1, 15, token_or_cbf);
 					CALL_CTX(add_idct4x4, iYCbCr, ctx->t.QP[0], ctx->t.pps.weightScale4x4_v[iYCbCr], i4x4, samples);
@@ -543,11 +543,11 @@ static void CAFUNC(parse_NxN_residual)
 	for (int iYCbCr = 0; iYCbCr < 3; iYCbCr++) {
 		if (!mb->f.transform_size_8x8_flag) {
 			#ifdef CABAC
-				ctx->t.ctxIdxOffsets_l = ctxIdxOffsets_4x4[iYCbCr][0];
-				ctx->t.coeff_abs_inc_l = (i8x8){6, 7, 8, 9, 9};
-				ctx->t.sig_inc_v[0] = ctx->t.last_inc_v[0] = sig_inc_4x4;
+				ctx->ctxIdxOffsets_l = ctxIdxOffsets_4x4[iYCbCr][0];
+				ctx->coeff_abs_inc_l = (i8x8){6, 7, 8, 9, 9};
+				ctx->sig_inc_v[0] = ctx->last_inc_v[0] = sig_inc_4x4;
 			#endif
-			ctx->t.scan_v[0] = scan_4x4[0];
+			ctx->scan_v[0] = scan_4x4[0];
 			
 			// Decoding directly follows parsing to avoid duplicate loops.
 			for (int i4x4 = 0; i4x4 < 16; i4x4++) {
@@ -559,10 +559,10 @@ static void CAFUNC(parse_NxN_residual)
 					int nA = *((int8_t *)mb->nC[iYCbCr] + ctx->A4x4_int8[i4x4]);
 					int nB = *((int8_t *)mb->nC[iYCbCr] + ctx->B4x4_int8[i4x4]);
 					int token_or_cbf = CACOND(CALL_CTX(parse_coeff_token_cavlc, i4x4, nA, nB),
-						CALL_CTX(get_ae, ctx->t.ctxIdxOffsets[0] + ctx->nC_inc[iYCbCr][i4x4] + nA + nB * 2));
+						CALL_CTX(get_ae, ctx->ctxIdxOffsets[0] + ctx->nC_inc[iYCbCr][i4x4] + nA + nB * 2));
 					if (token_or_cbf) {
 						mb->nC[iYCbCr][i4x4] = CACOND(token_or_cbf >> 2, 1);
-						ctx->t.c_v[0] = ctx->t.c_v[1] = ctx->t.c_v[2] = ctx->t.c_v[3] = (i32x4){};
+						ctx->c_v[0] = ctx->c_v[1] = ctx->c_v[2] = ctx->c_v[3] = (i32x4){};
 						fprintf(stderr, "4x4 coeffLevels[%d]:", iYCbCr * 16 + i4x4);
 						CACALL(parse_residual_block, 0, 15, token_or_cbf);
 						// DC blocks are marginal here (about 16%) so we do not handle them separately
@@ -573,11 +573,11 @@ static void CAFUNC(parse_NxN_residual)
 			}
 		} else {
 			#ifdef CABAC
-				ctx->t.ctxIdxOffsets_l = ctxIdxOffsets_8x8[iYCbCr][0];
-				ctx->t.coeff_abs_inc_l = (i8x8){6, 7, 8, 9, 9};
-				ctx->t.sig_inc_v[0] = sig_inc_8x8[0][0];
-				ctx->t.last_inc_v[0] = last_inc_8x8[0];
-				ctx->t.scan_v[0] = scan_8x8_cabac[0][0];
+				ctx->ctxIdxOffsets_l = ctxIdxOffsets_8x8[iYCbCr][0];
+				ctx->coeff_abs_inc_l = (i8x8){6, 7, 8, 9, 9};
+				ctx->sig_inc_v[0] = sig_inc_8x8[0][0];
+				ctx->last_inc_v[0] = last_inc_8x8[0];
+				ctx->scan_v[0] = scan_8x8_cabac[0][0];
 			#endif
 			
 			for (int i8x8 = 0; i8x8 < 4; i8x8++) {
@@ -588,9 +588,9 @@ static void CAFUNC(parse_NxN_residual)
 				if (mb->bits[0] & 1 << bit8x8[i8x8]) {
 					#ifndef CABAC
 						for (int i = 0; i < 16; i++)
-							ctx->t.c_v[i] = (i32x4){};
+							ctx->c_v[i] = (i32x4){};
 						for (int i4x4 = 0; i4x4 < 4; i4x4++) {
-							ctx->t.scan_v[0] = scan_8x8_cavlc[0][i4x4];
+							ctx->scan_v[0] = scan_8x8_cavlc[0][i4x4];
 							int nA = *((int8_t *)mb->nC[iYCbCr] + ctx->A4x4_int8[i8x8 * 4 + i4x4]);
 							int nB = *((int8_t *)mb->nC[iYCbCr] + ctx->B4x4_int8[i8x8 * 4 + i4x4]);
 							int token = CALL_CTX(parse_coeff_token_cavlc, i8x8 * 4 + i4x4, nA, nB);
@@ -602,9 +602,9 @@ static void CAFUNC(parse_NxN_residual)
 						}
 						CALL_CTX(add_idct8x8, iYCbCr, samples);
 					#else
-						if (ctx->t.ChromaArrayType < 3 || CALL_CTX(get_ae, ctx->t.ctxIdxOffsets[0] + (mb->bits[1] >> inc8x8[iYCbCr * 4 + i8x8] & 3))) {
+						if (ctx->t.ChromaArrayType < 3 || CALL_CTX(get_ae, ctx->ctxIdxOffsets[0] + (mb->bits[1] >> inc8x8[iYCbCr * 4 + i8x8] & 3))) {
 							for (int i = 0; i < 16; i++)
-								ctx->t.c_v[i] = (i32x4){};
+								ctx->c_v[i] = (i32x4){};
 							mb->bits[1] |= 1 << bit8x8[iYCbCr * 4 + i8x8];
 							mb->nC_s[iYCbCr][i8x8] = 0x01010101;
 							fprintf(stderr, "8x8 coeffLevels[%d]:", iYCbCr * 4 + i8x8);
@@ -840,7 +840,7 @@ static noinline void CAFUNC(parse_I_mb, int mb_type_or_ctxIdx)
 		
 		ctx->mb_qp_delta_nz = 0;
 		mb->f.v |= flags_PCM.v; // FIXME reuse flags_twice
-		mb->QP_s = (i8x4){0, ctx->t.QP_C[0][0], ctx->t.QP_C[1][0]};
+		mb->QP_s = (i8x4){0, ctx->QP_C[0][0], ctx->QP_C[1][0]};
 		mb->bits_l = (uint64_t)(i32x2){0xac, 0xacacac}; // FIXME 4:2:2
 		mb->nC_v[0] = mb->nC_v[1] = mb->nC_v[2] = CACOND(
 			((i8x16){16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16}),

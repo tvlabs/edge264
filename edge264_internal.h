@@ -123,47 +123,47 @@ typedef struct {
 	// The first 8 bytes uniquely determine the frame buffer size and format.
 	union {
 		struct {
-			int8_t chroma_format_idc; // 2 significant bits
-			int8_t BitDepth_Y; // 4 significant bits
+			int8_t chroma_format_idc; // 0..3
+			int8_t BitDepth_Y; // 8..14
 			int8_t BitDepth_C;
-			int8_t max_num_ref_frames; // 5 significant bits
-			uint16_t pic_width_in_mbs; // 10 significant bits
-			int16_t pic_height_in_mbs; // 10 significant bits
+			int8_t max_num_ref_frames; // 0..16
+			uint16_t pic_width_in_mbs; // 1..1023
+			int16_t pic_height_in_mbs; // 1..1055
 		};
 		int64_t DPB_format;
 	};
-	int8_t ChromaArrayType; // 2 significant bits
-	int8_t qpprime_y_zero_transform_bypass_flag; // 1 significant bit
-	int8_t log2_max_frame_num; // 5 significant bits
-	int8_t pic_order_cnt_type; // 2 significant bit
-	int8_t log2_max_pic_order_cnt_lsb; // 5 significant bits, pic_order_cnt_type==0
-	int8_t delta_pic_order_always_zero_flag; // pic_order_cnt_type==1, 1 significant bit
-	uint8_t num_ref_frames_in_pic_order_cnt_cycle; // pic_order_cnt_type==1
-	int8_t frame_mbs_only_flag; // 1 significant bit
-	int8_t mb_adaptive_frame_field_flag; // 1 significant bit
-	int8_t direct_8x8_inference_flag; // 1 significant bit
-	int8_t num_frame_buffers; // 5 significant bits
-	int8_t max_num_reorder_frames; // 5 significant bits
-	int8_t mvc; // 1 significant bit
-	int16_t offset_for_non_ref_pic; // pic_order_cnt_type==1
-	int16_t offset_for_top_to_bottom_field; // pic_order_cnt_type==1
-	int16_t PicOrderCntDeltas[256]; // pic_order_cnt_type==1
+	int8_t ChromaArrayType; // 0..3
+	int8_t qpprime_y_zero_transform_bypass_flag; // 0..1
+	int8_t log2_max_frame_num; // 4..16
+	int8_t pic_order_cnt_type; // 0..2
+	int8_t log2_max_pic_order_cnt_lsb; // 4..16, pic_order_cnt_type==0
+	int8_t delta_pic_order_always_zero_flag; // 0..1, pic_order_cnt_type==1
+	uint8_t num_ref_frames_in_pic_order_cnt_cycle; // 0..255, pic_order_cnt_type==1
+	int8_t frame_mbs_only_flag; // 0..1
+	int8_t mb_adaptive_frame_field_flag; // 0..1
+	int8_t direct_8x8_inference_flag; // 0..1
+	int8_t num_frame_buffers; // 1..18
+	int8_t max_num_reorder_frames; // 0..17
+	int8_t mvc; // 0..1
+	int16_t offset_for_non_ref_pic; // -32768..32767, pic_order_cnt_type==1
+	int16_t offset_for_top_to_bottom_field; // -32768..32767, pic_order_cnt_type==1
+	int16_t PicOrderCntDeltas[256]; // -32768..32767, pic_order_cnt_type==1
 	union { int16_t frame_crop_offsets[4]; int64_t frame_crop_offsets_l; }; // {top,right,bottom,left}
 	union { uint8_t weightScale4x4[6][16]; i8x16 weightScale4x4_v[6]; };
 	union { uint8_t weightScale8x8[6][64]; i8x16 weightScale8x8_v[6*4]; };
 } Edge264SeqParameterSet;
 typedef struct {
-	int8_t entropy_coding_mode_flag; // 1 significant bit
-	int8_t bottom_field_pic_order_in_frame_present_flag; // 1 significant bit
-	int8_t num_ref_idx_active[2]; // 6 significant bits
-	int8_t weighted_pred_flag; // 1 significant bit
-	int8_t weighted_bipred_idc; // 2 significant bits
-	int8_t QPprime_Y; // 7 significant bits
-	int8_t chroma_qp_index_offset; // 5 significant bits
-	int8_t deblocking_filter_control_present_flag; // 1 significant bit
-	int8_t constrained_intra_pred_flag; // 1 significant bit
-	int8_t transform_8x8_mode_flag; // 1 significant bit
-	int8_t second_chroma_qp_index_offset; // 5 significant bits
+	int8_t entropy_coding_mode_flag; // 0..1
+	int8_t bottom_field_pic_order_in_frame_present_flag; // 0..1
+	int8_t num_ref_idx_active[2]; // 0..32
+	int8_t weighted_pred_flag; // 0..1
+	int8_t weighted_bipred_idc; // 0..2
+	int8_t QPprime_Y; // 0..87
+	int8_t chroma_qp_index_offset; // -12..12
+	int8_t deblocking_filter_control_present_flag; // 0..1
+	int8_t constrained_intra_pred_flag; // 0..1
+	int8_t transform_8x8_mode_flag; // 0..1
+	int8_t second_chroma_qp_index_offset; // -12..12
 	union { uint8_t weightScale4x4[6][16]; i8x16 weightScale4x4_v[6]; };
 	union { uint8_t weightScale8x8[6][64]; i8x16 weightScale8x8_v[6*4]; };
 } Edge264PicParameterSet;
@@ -171,77 +171,41 @@ typedef struct {
 
 
 /**
- * This structure stores all variables scoped to a single NAL unit, such that
- * we can dedicate a single register pointer to it.
+ * This structure stores all the data necessary to decode a slice, such that it
+ * can be copied into Edge264Context when a worker starts decoding it.
  */
 typedef struct {
-	Edge264GetBits _gb; // must be first in the struct to use the same pointer for bitstream functions
-	
-	// header context
-	int8_t slice_type; // 3 significant bits
-	int8_t field_pic_flag; // 1 significant bit
-	int8_t bottom_field_flag; // 1 significant bit
-	int8_t MbaffFrameFlag; // 1 significant bit
-	int8_t direct_spatial_mv_pred_flag; // 1 significant bit
-	int8_t luma_log2_weight_denom; // 3 significant bits
-	int8_t chroma_log2_weight_denom; // 3 significant bits
-	int8_t disable_deblocking_filter_idc; // 2 significant bits
-	int8_t FilterOffsetA; // 5 significant bits
+	Edge264GetBits _gb; // must be first in struct to use the same pointer for bitstream functions
+	int8_t slice_type; // 0..2
+	int8_t field_pic_flag; // 0..1
+	int8_t bottom_field_flag; // 0..1
+	int8_t MbaffFrameFlag; // 0..1
+	int8_t direct_spatial_mv_pred_flag; // 0..1
+	int8_t luma_log2_weight_denom; // 0..7
+	int8_t chroma_log2_weight_denom; // 0..7
+	int8_t disable_deblocking_filter_idc; // 0..2
+	int8_t FilterOffsetA; // -12..12
 	int8_t FilterOffsetB;
-	int8_t mb_qp_delta_nz; // 1 significant bit
-	int8_t ChromaArrayType; // 2 significant bits
-	int8_t direct_8x8_inference_flag; // 1 significant flag
-	int8_t cabac_init_idc; // 2 significant bits
-	uint16_t pic_width_in_mbs; // 10 significant bits
-	uint16_t pic_height_in_mbs; // 10 significant bits
-	uint32_t first_mb_in_slice; // unsigned to speed up integer division
-	Edge264PicParameterSet pps;
-	
-	// parsing context
-	Edge264Macroblock * _mb; // backup storage for macro mb
-	const Edge264Macroblock * _mbA; // backup storage for macro mbA
-	const Edge264Macroblock * _mbB; // backup storage for macro mbB
-	const Edge264Macroblock * _mbC; // backup storage for macro mbC
-	const Edge264Macroblock * _mbD; // backup storage for macro mbD
-	int32_t CurrMbAddr;
-	int32_t next_deblock_addr;
-	int32_t mb_skip_run;
-	uint8_t *samples_base;
-	uint8_t *samples_row[3]; // address of top-left byte of each plane in current row of macroblocks
-	uint8_t *samples_mb[3]; // address of top-left byte of each plane in current macroblock
-	uint16_t stride[3]; // [iYCbCr], 16 significant bits (8K, 16bit, field pic)
-	union { uint16_t samples_clip[3][8]; i16x8 samples_clip_v[3]; }; // [iYCbCr], maximum sample value
+	int8_t ChromaArrayType; // 0..3
+	int8_t direct_8x8_inference_flag; // 0..1
+	int8_t cabac_init_idc; // 0..3
+	int8_t col_short_term; // 0..1
+	uint16_t pic_width_in_mbs; // 0..1023
+	uint16_t pic_height_in_mbs; // 0..1055
+	uint16_t stride[3]; // 0..65472 (at max width, 16bit & field pic), [iYCbCr]
 	int32_t plane_size_Y;
 	int32_t plane_size_C;
+	int32_t next_deblock_addr; // INT_MIN..INT_MAX
+	uint32_t first_mb_in_slice; // 0..139263
+	uint8_t *samples_base; // FIXME remove once currPic comes here again
+	uint8_t *frame_buffers[32];
    void (*free_cb)(void *free_arg, int ret); // copy from decode_NAL
    void *free_arg; // copy from decode_NAL
-	union { int8_t unavail4x4[16]; i8x16 unavail4x4_v; }; // unavailability of neighbouring A/B/C/D blocks
-	Edge264Flags inc; // increments for CABAC indices of macroblock syntax elements
-	union { uint8_t cabac[1024]; i8x16 cabac_v[64]; };
-	union { int8_t nC_inc[3][16]; i8x16 nC_inc_v[3]; }; // stores the intra/inter default increment from unavailable neighbours (9.3.3.1.1.9)
-	
-	// neighbouring offsets (relative to the start of each array in mb)
-	union { int16_t A4x4_int8[16]; i16x16 A4x4_int8_v; };
-	union { int32_t B4x4_int8[16]; i32x16 B4x4_int8_v; };
-	union { int16_t ACbCr_int8[16]; i16x8 ACbCr_int8_v[2]; };
-	union { int32_t BCbCr_int8[16]; i32x8 BCbCr_int8_v[2]; };
-	union { int8_t refIdx4x4_C[16]; int32_t refIdx4x4_C_s[4]; i8x16 refIdx4x4_C_v; }; // shuffle vector for mv prediction
-	union { int16_t absMvd_A[16]; i16x16 absMvd_A_v; };
-	union { int32_t absMvd_B[16]; i32x16 absMvd_B_v; };
-	union { int16_t mvs_A[16]; i16x16 mvs_A_v; };
-	union { int32_t mvs_B[16]; i32x16 mvs_B_v; };
-	union { int32_t mvs_C[16]; i32x16 mvs_C_v; };
-	union { int32_t mvs_D[16]; i32x16 mvs_D_v; };
-	
-	// Inter context
-	const Edge264Macroblock *mbCol;
-	uint8_t num_ref_idx_mask;
-	int8_t transform_8x8_mode_flag; // updated during parsing to replace noSubMbPartSizeLessThan8x8Flag
-	int8_t col_short_term;
-	uint8_t *frame_buffers[32];
-	union { int8_t MapPicToList0[32]; i8x16 MapPicToList0_v[2]; };
-	union { int8_t clip_ref_idx[8]; i8x8 clip_ref_idx_v; };
+	union { uint16_t samples_clip[3][8]; i16x8 samples_clip_v[3]; }; // [iYCbCr], maximum sample value
 	union { int8_t RefPicList[2][32]; int64_t RefPicList_l[8]; i8x16 RefPicList_v[4]; };
+	union { int16_t diff_poc[32]; i16x8 diff_poc_v[4]; };
+	Edge264PicParameterSet pps;
+	
 	int16_t DistScaleFactor[32]; // [refIdxL0]
 	union { int8_t implicit_weights[32][32]; i8x16 implicit_weights_v[32][2]; }; // w1 for [ref0][ref1]
 	int16_t explicit_weights[3][64]; // [iYCbCr][LX][RefIdx]
@@ -263,6 +227,51 @@ typedef struct {
 	union { uint8_t beta[16]; i8x16 beta_v; };
 	union { int32_t tC0_s[16]; int64_t tC0_l[8]; i8x16 tC0_v[4]; i8x32 tC0_V[2]; }; // 4 bytes per edge in deblocking order -> 8 luma edges then 8 alternating Cb/Cr edges
 } Edge264Task;
+
+
+
+/**
+ * This structure stores all variables scoped to a single NAL unit, such that
+ * we can dedicate a single register pointer to it.
+ */
+typedef struct Edge264Context {
+	Edge264Task t; // must be first in struct to use the same pointer for bitstream functions
+	int8_t n_threads;
+	int8_t mb_qp_delta_nz; // 0..1
+	int32_t CurrMbAddr;
+	int32_t mb_skip_run;
+	uint8_t *samples_row[3]; // address of top-left byte of each plane in current row of macroblocks
+	uint8_t *samples_mb[3]; // address of top-left byte of each plane in current macroblock
+	Edge264Macroblock * _mb; // backup storage for macro mb
+	const Edge264Macroblock * _mbA; // backup storage for macro mbA
+	const Edge264Macroblock * _mbB; // backup storage for macro mbB
+	const Edge264Macroblock * _mbC; // backup storage for macro mbC
+	const Edge264Macroblock * _mbD; // backup storage for macro mbD
+	const Edge264Macroblock *mbCol;
+	Edge264Flags inc; // increments for CABAC indices of macroblock syntax elements
+	union { int8_t unavail4x4[16]; i8x16 unavail4x4_v; }; // unavailability of neighbouring A/B/C/D blocks
+	union { int8_t nC_inc[3][16]; i8x16 nC_inc_v[3]; }; // stores the intra/inter default increment from unavailable neighbours (9.3.3.1.1.9)
+	union { uint8_t cabac[1024]; i8x16 cabac_v[64]; };
+	
+	// neighbouring offsets (relative to the start of each array in mb)
+	union { int16_t A4x4_int8[16]; i16x16 A4x4_int8_v; };
+	union { int32_t B4x4_int8[16]; i32x16 B4x4_int8_v; };
+	union { int16_t ACbCr_int8[16]; i16x8 ACbCr_int8_v[2]; };
+	union { int32_t BCbCr_int8[16]; i32x8 BCbCr_int8_v[2]; };
+	union { int8_t refIdx4x4_C[16]; int32_t refIdx4x4_C_s[4]; i8x16 refIdx4x4_C_v; }; // shuffle vector for mv prediction
+	union { int16_t absMvd_A[16]; i16x16 absMvd_A_v; };
+	union { int32_t absMvd_B[16]; i32x16 absMvd_B_v; };
+	union { int16_t mvs_A[16]; i16x16 mvs_A_v; };
+	union { int32_t mvs_B[16]; i32x16 mvs_B_v; };
+	union { int32_t mvs_C[16]; i32x16 mvs_C_v; };
+	union { int32_t mvs_D[16]; i32x16 mvs_D_v; };
+	
+	// Inter context
+	int8_t transform_8x8_mode_flag; // updated during parsing to account for noSubMbPartSizeLessThan8x8Flag
+	uint8_t num_ref_idx_mask;
+	union { int8_t clip_ref_idx[8]; i8x8 clip_ref_idx_v; };
+	union { int8_t MapPicToList0[32]; i8x16 MapPicToList0_v[2]; };
+} Edge264Context;
 
 
 
@@ -354,48 +363,48 @@ typedef struct Edge264Decoder {
 
 
 /**
- * Macro-ed function defs/calls allow removing ctx/tsk/gb from args and keeping
+ * Macro-ed function defs/calls allow removing dec/ctx/gb from args and keeping
  * them in a Global Register Variable if permitted by the compiler. On my
  * machine the speed gain is negligible, but the binary is noticeably smaller.
  */
 #if defined(__SSSE3__) && !defined(__clang__)
 	register void * restrict _p asm("ebx");
-	#define SET_CTX(p) Edge264Decoder *old = _p; _p = (p)
-	#define SET_TSK(p) Edge264Task *old = _p; _p = (p)
+	#define SET_DEC(p) Edge264Decoder *old = _p; _p = (p)
+	#define SET_CTX(p) Edge264Context *old = _p; _p = (p)
+	#define RESET_DEC() _p = old
 	#define RESET_CTX() _p = old
-	#define RESET_TSK() _p = old
+	#define FUNC_DEC(f, ...) f(__VA_ARGS__)
 	#define FUNC_CTX(f, ...) f(__VA_ARGS__)
-	#define FUNC_TSK(f, ...) f(__VA_ARGS__)
 	#define FUNC_GB(f, ...) f(__VA_ARGS__)
+	#define CALL_DEC(f, ...) f(__VA_ARGS__)
+	#define CALL_D2B(f, ...) f(__VA_ARGS__)
 	#define CALL_CTX(f, ...) f(__VA_ARGS__)
 	#define CALL_C2B(f, ...) f(__VA_ARGS__)
-	#define CALL_TSK(f, ...) f(__VA_ARGS__)
-	#define CALL_T2B(f, ...) f(__VA_ARGS__)
 	#define CALL_GB(f, ...) f(__VA_ARGS__)
-	#define JUMP_TSK(f, ...) {f(__VA_ARGS__); return;}
-	#define ctx ((Edge264Decoder *)_p)
-	#define tsk ((Edge264Task *)_p)
+	#define JUMP_CTX(f, ...) {f(__VA_ARGS__); return;}
+	#define dec ((Edge264Decoder *)_p)
+	#define ctx ((Edge264Context *)_p)
 	#define gb ((Edge264GetBits *)_p)
 #else
-	#define SET_CTX(p) Edge264Decoder * restrict ctx = (p)
-	#define SET_TSK(p) Edge264Task * restrict tsk = (p)
+	#define SET_DEC(p) Edge264Decoder * restrict dec = (p)
+	#define SET_CTX(p) Edge264Context * restrict ctx = (p)
+	#define RESET_DEC()
 	#define RESET_CTX()
-	#define RESET_TSK()
-	#define FUNC_CTX(f, ...) f(Edge264Decoder * restrict ctx, ## __VA_ARGS__)
-	#define FUNC_TSK(f, ...) f(Edge264Task * restrict tsk, ## __VA_ARGS__)
+	#define FUNC_DEC(f, ...) f(Edge264Decoder * restrict dec, ## __VA_ARGS__)
+	#define FUNC_CTX(f, ...) f(Edge264Context * restrict ctx, ## __VA_ARGS__)
 	#define FUNC_GB(f, ...) f(Edge264GetBits * restrict gb, ## __VA_ARGS__)
+	#define CALL_DEC(f, ...) f(dec, ## __VA_ARGS__)
+	#define CALL_D2B(f, ...) f(&dec->_gb, ## __VA_ARGS__)
 	#define CALL_CTX(f, ...) f(ctx, ## __VA_ARGS__)
-	#define CALL_C2B(f, ...) f(&ctx->_gb, ## __VA_ARGS__)
-	#define CALL_TSK(f, ...) f(tsk, ## __VA_ARGS__)
-	#define CALL_T2B(f, ...) f(&tsk->_gb, ## __VA_ARGS__)
+	#define CALL_C2B(f, ...) f(&ctx->t._gb, ## __VA_ARGS__)
 	#define CALL_GB(f, ...) f(gb, ## __VA_ARGS__)
-	#define JUMP_TSK(f, ...) {f(tsk, ## __VA_ARGS__); return;}
+	#define JUMP_CTX(f, ...) {f(ctx, ## __VA_ARGS__); return;}
 #endif
-#define mb tsk->_mb
-#define mbA tsk->_mbA
-#define mbB tsk->_mbB
-#define mbC tsk->_mbC
-#define mbD tsk->_mbD
+#define mb ctx->_mb
+#define mbA ctx->_mbA
+#define mbB ctx->_mbB
+#define mbC ctx->_mbC
+#define mbD ctx->_mbD
 
 
 
@@ -441,50 +450,50 @@ static noinline int FUNC_GB(get_se16, int lower, int upper);
 	#define get_ue32 get_ue16
 	#define get_se32 get_se16
 #endif
-static noinline int FUNC_TSK(get_ae, int ctxIdx);
-static inline int FUNC_TSK(get_bypass);
-static int FUNC_TSK(cabac_start);
-static int FUNC_TSK(cabac_terminate);
-static void FUNC_TSK(cabac_init);
+static noinline int FUNC_CTX(get_ae, int ctxIdx);
+static inline int FUNC_CTX(get_bypass);
+static int FUNC_CTX(cabac_start);
+static int FUNC_CTX(cabac_terminate);
+static void FUNC_CTX(cabac_init);
 
 // edge264_deblock_*.c
-noinline void FUNC_TSK(deblock_mb);
+noinline void FUNC_CTX(deblock_mb);
 
 // edge264_inter_*.c
-void noinline FUNC_TSK(decode_inter, int i, int w, int h);
+void noinline FUNC_CTX(decode_inter, int i, int w, int h);
 
 // edge264_intra_*.c
 void noinline _decode_intra4x4(int mode, uint8_t *px1, size_t stride, ssize_t nstride, i16x8 clip, i8x16 zero);
 void noinline _decode_intra8x8(int mode, uint8_t *px0, uint8_t *px7, size_t stride, ssize_t nstride, i16x8 clip);
 void noinline _decode_intra16x16(int mode, uint8_t *px0, uint8_t *px7, uint8_t *pxE, size_t stride, ssize_t nstride, i16x8 clip);
 void noinline _decode_intraChroma(int mode, uint8_t *Cb0, uint8_t *Cb7, uint8_t *Cr0, uint8_t *Cr7, size_t stride, ssize_t nstride, i16x8 clip);
-static always_inline void FUNC_TSK(decode_intra4x4, int mode, uint8_t *samples, size_t stride, int iYCbCr) {
-	_decode_intra4x4(mode, samples + stride, stride, -stride, tsk->samples_clip_v[iYCbCr], (i8x16){}); }
-static always_inline void FUNC_TSK(decode_intra8x8, int mode, uint8_t *samples, size_t stride, int iYCbCr) {
-	_decode_intra8x8(mode, samples, samples + stride * 7, stride, -stride, tsk->samples_clip_v[iYCbCr]); }
-static always_inline void FUNC_TSK(decode_intra16x16, int mode, uint8_t *samples, size_t stride, int iYCbCr) {
-	_decode_intra16x16(mode, samples, samples + stride * 7, samples + stride * 14, stride, -stride, tsk->samples_clip_v[iYCbCr]); }
-static always_inline void FUNC_TSK(decode_intraChroma, int mode, uint8_t *samplesCb, uint8_t *samplesCr, size_t stride) {
-	_decode_intraChroma(mode, samplesCb, samplesCb + stride * 7, samplesCr, samplesCr + stride * 7, stride, -stride, tsk->samples_clip_v[1]); }
+static always_inline void FUNC_CTX(decode_intra4x4, int mode, uint8_t *samples, size_t stride, int iYCbCr) {
+	_decode_intra4x4(mode, samples + stride, stride, -stride, ctx->t.samples_clip_v[iYCbCr], (i8x16){}); }
+static always_inline void FUNC_CTX(decode_intra8x8, int mode, uint8_t *samples, size_t stride, int iYCbCr) {
+	_decode_intra8x8(mode, samples, samples + stride * 7, stride, -stride, ctx->t.samples_clip_v[iYCbCr]); }
+static always_inline void FUNC_CTX(decode_intra16x16, int mode, uint8_t *samples, size_t stride, int iYCbCr) {
+	_decode_intra16x16(mode, samples, samples + stride * 7, samples + stride * 14, stride, -stride, ctx->t.samples_clip_v[iYCbCr]); }
+static always_inline void FUNC_CTX(decode_intraChroma, int mode, uint8_t *samplesCb, uint8_t *samplesCr, size_t stride) {
+	_decode_intraChroma(mode, samplesCb, samplesCb + stride * 7, samplesCr, samplesCr + stride * 7, stride, -stride, ctx->t.samples_clip_v[1]); }
 
 // edge264_mvpred.c
-static inline void FUNC_TSK(decode_inter_16x16, i16x8 mvd, int lx);
-static inline void FUNC_TSK(decode_inter_8x16_left, i16x8 mvd, int lx);
-static inline void FUNC_TSK(decode_inter_8x16_right, i16x8 mvd, int lx);
-static inline void FUNC_TSK(decode_inter_16x8_top, i16x8 mvd, int lx);
-static inline void FUNC_TSK(decode_inter_16x8_bottom, i16x8 mvd, int lx);
-static noinline void FUNC_TSK(decode_direct_mv_pred, unsigned direct_mask);
+static inline void FUNC_CTX(decode_inter_16x16, i16x8 mvd, int lx);
+static inline void FUNC_CTX(decode_inter_8x16_left, i16x8 mvd, int lx);
+static inline void FUNC_CTX(decode_inter_8x16_right, i16x8 mvd, int lx);
+static inline void FUNC_CTX(decode_inter_16x8_top, i16x8 mvd, int lx);
+static inline void FUNC_CTX(decode_inter_16x8_bottom, i16x8 mvd, int lx);
+static noinline void FUNC_CTX(decode_direct_mv_pred, unsigned direct_mask);
 
 // edge264_residual_*.c
-void noinline FUNC_TSK(add_idct4x4, int iYCbCr, int qP, i8x16 wS, int DCidx, uint8_t *samples);
-void noinline FUNC_TSK(add_dc4x4, int iYCbCr, int DCidx, uint8_t *samples);
-void noinline FUNC_TSK(add_idct8x8, int iYCbCr, uint8_t *samples);
-void noinline FUNC_TSK(transform_dc4x4, int iYCbCr);
-void noinline FUNC_TSK(transform_dc2x2);
+void noinline FUNC_CTX(add_idct4x4, int iYCbCr, int qP, i8x16 wS, int DCidx, uint8_t *samples);
+void noinline FUNC_CTX(add_dc4x4, int iYCbCr, int DCidx, uint8_t *samples);
+void noinline FUNC_CTX(add_idct8x8, int iYCbCr, uint8_t *samples);
+void noinline FUNC_CTX(transform_dc4x4, int iYCbCr);
+void noinline FUNC_CTX(transform_dc2x2);
 
 // edge264_slice.c
-static noinline void FUNC_TSK(parse_slice_data_cavlc);
-static noinline void FUNC_TSK(parse_slice_data_cabac);
+static noinline void FUNC_CTX(parse_slice_data_cavlc);
+static noinline void FUNC_CTX(parse_slice_data_cabac);
 
 // debugging functions
 #define print_i8x16(a) {\
@@ -654,9 +663,9 @@ static noinline void FUNC_TSK(parse_slice_data_cabac);
 		}
 	#endif
 	// These functions are not critical enough to deserve AVX-2 versions
-	static always_inline unsigned FUNC_CTX(depended_frames) {
-		i32x4 a = ctx->task_dependencies_v[0] | ctx->task_dependencies_v[1] |
-		          ctx->task_dependencies_v[2] | ctx->task_dependencies_v[3];
+	static always_inline unsigned FUNC_DEC(depended_frames) {
+		i32x4 a = dec->task_dependencies_v[0] | dec->task_dependencies_v[1] |
+		          dec->task_dependencies_v[2] | dec->task_dependencies_v[3];
 		i32x4 b = a | shuffle32(a, 2, 3, 0, 1);
 		i32x4 c = b | shuffle32(b, 1, 0, 3, 2);
 		return c[0];

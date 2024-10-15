@@ -498,8 +498,8 @@ int main(int argc, const char *argv[])
 			struct rusage rusage;
 			getrusage(RUSAGE_SELF, &rusage);
 			printf("time: %u.%03us\nCPU: %u.%03us\nmemory: %u.%03uMB\n",
-				t1.tv_sec - t0.tv_sec - (t1.tv_nsec < t0.tv_nsec), (unsigned)(t1.tv_nsec - t0.tv_nsec) / 1000000 % 1000,
-				rusage.ru_utime.tv_sec, (unsigned)rusage.ru_utime.tv_usec / 1000,
+				(unsigned)(t1.tv_sec - t0.tv_sec - (t1.tv_nsec < t0.tv_nsec)), (unsigned)(t1.tv_nsec - t0.tv_nsec) / 1000000 % 1000,
+				(unsigned)rusage.ru_utime.tv_sec, (unsigned)rusage.ru_utime.tv_usec / 1000,
 				(unsigned)rusage.ru_maxrss / 1000000, (unsigned)rusage.ru_maxrss / 1000 % 1000);
 		}
 	#else

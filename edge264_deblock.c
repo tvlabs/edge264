@@ -58,8 +58,8 @@
 	i8x16 abs0 = pq0 | qp0;\
 	i8x16 abs1 = subus8(p1, p0) | subus8(p0, p1);\
 	i8x16 abs2 = subus8(q1, q0) | subus8(q0, q1);\
-	i8x16 alpha = shuffle8(tsk->alpha_v, shufab);\
-	i8x16 beta = shuffle8(tsk->beta_v, shufab);\
+	i8x16 alpha = shuffle8(ctx->t.alpha_v, shufab);\
+	i8x16 beta = shuffle8(ctx->t.beta_v, shufab);\
 	i8x16 and = umin8(subus8(alpha, abs0), subus8(beta, umax8(abs1, abs2)));\
 	i8x16 ignoreSamplesFlags = and == 0;\
 	i8x16 cm1 = set8(-1);\
@@ -132,8 +132,8 @@
 	i8x16 abs0 = subus8(p0, q0) | subus8(q0, p0);\
 	i8x16 abs1 = subus8(p1, p0) | subus8(p0, p1);\
 	i8x16 abs2 = subus8(q1, q0) | subus8(q0, q1);\
-	i8x16 alpha = shuffle8(tsk->alpha_v, shufab);\
-	i8x16 beta = shuffle8(tsk->beta_v, shufab);\
+	i8x16 alpha = shuffle8(ctx->t.alpha_v, shufab);\
+	i8x16 beta = shuffle8(ctx->t.beta_v, shufab);\
 	i8x16 and = umin8(subus8(alpha, abs0), subus8(beta, umax8(abs1, abs2)));\
 	i8x16 ignoreSamplesFlags = and == 0;\
 	/* compute p'0 and q'0 */\
@@ -163,7 +163,7 @@ static always_inline i8x16 expand2(int64_t a) {
 /**
  * Deblock both chroma planes of the current macroblock in place.
  */
-static noinline void FUNC_TSK(deblock_CbCr_8bit, size_t stride, ssize_t nstride, size_t stride7)
+static noinline void FUNC_CTX(deblock_CbCr_8bit, size_t stride, ssize_t nstride, size_t stride7)
 {
 	static const i8x16 shuf_a = {9, 9, 9, 9, 9, 9, 9, 9, 10, 10, 10, 10, 10, 10, 10, 10};
 	static const i8x16 shuf_cg = {1, 1, 1, 1, 1, 1, 1, 1, 2, 2, 2, 2, 2, 2, 2, 2};
@@ -171,7 +171,7 @@ static noinline void FUNC_TSK(deblock_CbCr_8bit, size_t stride, ssize_t nstride,
 	i8x16 v0, v1, v2, v3, v4, v5, v6, v7;
 	if (mb->f.filter_edges & 1) {
 		// load and transpose both 12x8 matrices (with left macroblock)
-		uint8_t * restrict Cb0 = tsk->samples_mb[1] - 8;
+		uint8_t * restrict Cb0 = ctx->samples_mb[1] - 8;
 		i8x16 xa0 = load128(Cb0              );
 		i8x16 xa1 = load128(Cb0 +  stride    );
 		i8x16 xa2 = load128(Cb0 +  stride * 2);
@@ -195,7 +195,7 @@ static noinline void FUNC_TSK(deblock_CbCr_8bit, size_t stride, ssize_t nstride,
 		i8x16 xc3 = unpackhi16(xb4, xb6);
 		i8x16 xc4 = unpacklo16(xb5, xb7);
 		i8x16 xc5 = unpackhi16(xb5, xb7);
-		uint8_t * restrict Cr0 = tsk->samples_mb[2] - 8;
+		uint8_t * restrict Cr0 = ctx->samples_mb[2] - 8;
 		i8x16 xa8 = load128(Cr0              );
 		i8x16 xa9 = load128(Cr0 +  stride    );
 		i8x16 xaA = load128(Cr0 +  stride * 2);
@@ -242,7 +242,7 @@ static noinline void FUNC_TSK(deblock_CbCr_8bit, size_t stride, ssize_t nstride,
 		
 		// first vertical edge
 		if (mbA->f.mbIsInterFlag & mb->f.mbIsInterFlag) {
-			int64_t tC0a = tsk->tC0_l[4];
+			int64_t tC0a = ctx->t.tC0_l[4];
 			if (tC0a != -1)
 				DEBLOCK_CHROMA_SOFT(vY, vZ, v0, v1, shuf_a, tC0a);
 		} else {
@@ -252,7 +252,7 @@ static noinline void FUNC_TSK(deblock_CbCr_8bit, size_t stride, ssize_t nstride,
 		// store vY/vZ into the left macroblock
 		i16x8 xf0 = unpacklo8(vY, vZ);
 		i16x8 xf1 = unpackhi8(vY, vZ);
-		Cb0 = tsk->samples_mb[1] - 2;
+		Cb0 = ctx->samples_mb[1] - 2;
 		*(int16_t *)(Cb0              ) = xf0[0];
 		*(int16_t *)(Cb0 +  stride    ) = xf0[1];
 		*(int16_t *)(Cb0 +  stride * 2) = xf0[2];
@@ -262,7 +262,7 @@ static noinline void FUNC_TSK(deblock_CbCr_8bit, size_t stride, ssize_t nstride,
 		*(int16_t *)(Cb7 + nstride * 2) = xf0[5];
 		*(int16_t *)(Cb7 + nstride    ) = xf0[6];
 		*(int16_t *)(Cb7              ) = xf0[7];
-		Cr0 = tsk->samples_mb[2] - 2;
+		Cr0 = ctx->samples_mb[2] - 2;
 		*(int16_t *)(Cr0              ) = xf1[0];
 		*(int16_t *)(Cr0 +  stride    ) = xf1[1];
 		*(int16_t *)(Cr0 +  stride * 2) = xf1[2];
@@ -274,7 +274,7 @@ static noinline void FUNC_TSK(deblock_CbCr_8bit, size_t stride, ssize_t nstride,
 		*(int16_t *)(Cr7              ) = xf1[7];
 	} else {
 		// load and transpose both 8x8 matrices
-		uint8_t * restrict Cb0 = tsk->samples_mb[1];
+		uint8_t * restrict Cb0 = ctx->samples_mb[1];
 		i8x16 xa0 = load64(Cb0              );
 		i8x16 xa1 = load64(Cb0 +  stride    );
 		i8x16 xa2 = load64(Cb0 +  stride * 2);
@@ -288,7 +288,7 @@ static noinline void FUNC_TSK(deblock_CbCr_8bit, size_t stride, ssize_t nstride,
 		i8x16 xb1 = unpacklo8(xa2, xa3);
 		i8x16 xb2 = unpacklo8(xa4, xa5);
 		i8x16 xb3 = unpacklo8(xa6, xa7);
-		uint8_t * restrict Cr0 = tsk->samples_mb[2];
+		uint8_t * restrict Cr0 = ctx->samples_mb[2];
 		i8x16 xa8 = load64(Cr0              );
 		i8x16 xa9 = load64(Cr0 +  stride    );
 		i8x16 xaA = load64(Cr0 +  stride * 2);
@@ -329,7 +329,7 @@ static noinline void FUNC_TSK(deblock_CbCr_8bit, size_t stride, ssize_t nstride,
 	}
 	
 	// second vertical edge
-	int64_t tC0c = tsk->tC0_l[5];
+	int64_t tC0c = ctx->t.tC0_l[5];
 	if (tC0c != -1)
 		DEBLOCK_CHROMA_SOFT(v2, v3, v4, v5, shuf_cg, tC0c);
 	
@@ -368,13 +368,13 @@ static noinline void FUNC_TSK(deblock_CbCr_8bit, size_t stride, ssize_t nstride,
 	i8x16 h7 = unpackhi64(xc3, xc7);
 	
 	// first horizontal edge
-	uint8_t * restrict Cb0 = tsk->samples_mb[1];
-	uint8_t * restrict Cr0 = tsk->samples_mb[2];
+	uint8_t * restrict Cb0 = ctx->samples_mb[1];
+	uint8_t * restrict Cr0 = ctx->samples_mb[2];
 	if (mb->f.filter_edges & 2) {
 		i8x16 hY = (i64x2){*(int64_t *)(Cb0 + nstride * 2), *(int64_t *)(Cr0 + nstride * 2)};
 		i8x16 hZ = (i64x2){*(int64_t *)(Cb0 + nstride    ), *(int64_t *)(Cr0 + nstride    )};
 		if (mbB->f.mbIsInterFlag & mb->f.mbIsInterFlag) {
-			int64_t tC0e = tsk->tC0_l[6];
+			int64_t tC0e = ctx->t.tC0_l[6];
 			if (tC0e != -1)
 				DEBLOCK_CHROMA_SOFT(hY, hZ, h0, h1, shuf_e, tC0e);
 		} else {
@@ -391,7 +391,7 @@ static noinline void FUNC_TSK(deblock_CbCr_8bit, size_t stride, ssize_t nstride,
 	*(int64_t *)(Cr0 +  stride    ) = ((i64x2)h1)[1];
 	
 	// second horizontal edge
-	int64_t tC0g = tsk->tC0_l[7];
+	int64_t tC0g = ctx->t.tC0_l[7];
 	if (tC0g != -1)
 		DEBLOCK_CHROMA_SOFT(h2, h3, h4, h5, shuf_cg, tC0g);
 	*(int64_t *)(Cb0 +  stride * 2) = ((i64x2)h2)[0];
@@ -416,13 +416,13 @@ static noinline void FUNC_TSK(deblock_CbCr_8bit, size_t stride, ssize_t nstride,
  * Deblock the luma plane of the current macroblock in place, then tail call to
  * chroma deblocking.
  */
-static noinline void FUNC_TSK(deblock_Y_8bit, size_t stride, ssize_t nstride, size_t stride7)
+static noinline void FUNC_CTX(deblock_Y_8bit, size_t stride, ssize_t nstride, size_t stride7)
 {
 	i8x16 zero = {};
 	i8x16 v0, v1, v2, v3, v4, v5, v6, v7;
 	if (mb->f.filter_edges & 1) {
 		// load and transpose the left 12x16 matrix
-		uint8_t * restrict px0 = tsk->samples_mb[0] - 8;
+		uint8_t * restrict px0 = ctx->samples_mb[0] - 8;
 		i8x16 xa0 = load128(px0              );
 		i8x16 xa1 = load128(px0 +  stride    );
 		i8x16 xa2 = load128(px0 +  stride * 2);
@@ -496,11 +496,11 @@ static noinline void FUNC_TSK(deblock_Y_8bit, size_t stride, ssize_t nstride, si
 		
 		// first vertical edge
 		if (mbA->f.mbIsInterFlag & mb->f.mbIsInterFlag) {
-			int tC0a = tsk->tC0_s[0];
+			int tC0a = ctx->t.tC0_s[0];
 			if (tC0a != -1)
-				DEBLOCK_LUMA_SOFT(vX, vY, vZ, v0, v1, v2, tsk->alpha + 8, tsk->beta + 8, tC0a);
-		} else if (tsk->alpha[8] != 0) {
-			DEBLOCK_LUMA_HARD(vW, vX, vY, vZ, v0, v1, v2, v3, tsk->alpha + 8, tsk->beta + 8);
+				DEBLOCK_LUMA_SOFT(vX, vY, vZ, v0, v1, v2, ctx->t.alpha + 8, ctx->t.beta + 8, tC0a);
+		} else if (ctx->t.alpha[8] != 0) {
+			DEBLOCK_LUMA_HARD(vW, vX, vY, vZ, v0, v1, v2, v3, ctx->t.alpha + 8, ctx->t.beta + 8);
 		}
 		
 		// store vW/vX/vY/vZ into the left macroblock
@@ -512,7 +512,7 @@ static noinline void FUNC_TSK(deblock_Y_8bit, size_t stride, ssize_t nstride, si
 		i32x4 xe5 = unpackhi16(xe0, xe2);
 		i32x4 xe6 = unpacklo16(xe1, xe3);
 		i32x4 xe7 = unpackhi16(xe1, xe3);
-		px0 = tsk->samples_mb[0] - 4;
+		px0 = ctx->samples_mb[0] - 4;
 		*(int32_t *)(px0              ) = xe4[0];
 		*(int32_t *)(px0 +  stride    ) = xe4[1];
 		*(int32_t *)(px0 +  stride * 2) = xe4[2];
@@ -533,7 +533,7 @@ static noinline void FUNC_TSK(deblock_Y_8bit, size_t stride, ssize_t nstride, si
 		*(int32_t *)(pxE +  stride    ) = xe7[3];
 	} else {
 		// load and transpose the left 8x16 matrix
-		uint8_t * restrict px0 = tsk->samples_mb[0];
+		uint8_t * restrict px0 = ctx->samples_mb[0];
 		i8x16 xa0 = load64(px0              );
 		i8x16 xa1 = load64(px0 +  stride    );
 		i8x16 xa2 = load64(px0 +  stride * 2);
@@ -588,13 +588,13 @@ static noinline void FUNC_TSK(deblock_Y_8bit, size_t stride, ssize_t nstride, si
 	
 	// second vertical edge
 	if (!mb->f.transform_size_8x8_flag) {
-		int tC0b = tsk->tC0_s[1];
+		int tC0b = ctx->t.tC0_s[1];
 		if (tC0b != -1)
-			DEBLOCK_LUMA_SOFT(v1, v2, v3, v4, v5, v6, tsk->alpha + 0, tsk->beta + 0, tC0b);
+			DEBLOCK_LUMA_SOFT(v1, v2, v3, v4, v5, v6, ctx->t.alpha + 0, ctx->t.beta + 0, tC0b);
 	}
 	
 	// load and transpose the right 8x16 matrix
-	uint8_t * restrict px0 = tsk->samples_mb[0];
+	uint8_t * restrict px0 = ctx->samples_mb[0];
 	i8x16 xa0 = *(i8x16 *)(px0              );
 	i8x16 xa1 = *(i8x16 *)(px0 +  stride    );
 	i8x16 xa2 = *(i8x16 *)(px0 +  stride * 2);
@@ -647,15 +647,15 @@ static noinline void FUNC_TSK(deblock_Y_8bit, size_t stride, ssize_t nstride, si
 	i8x16 vF = unpackhi64(xd3, xd7);
 	
 	// third vertical edge
-	int tC0c = tsk->tC0_s[2];
+	int tC0c = ctx->t.tC0_s[2];
 	if (tC0c != -1)
-		DEBLOCK_LUMA_SOFT(v5, v6, v7, v8, v9, vA, tsk->alpha + 0, tsk->beta + 0, tC0c);
+		DEBLOCK_LUMA_SOFT(v5, v6, v7, v8, v9, vA, ctx->t.alpha + 0, ctx->t.beta + 0, tC0c);
 	
 	// fourth vertical edge
 	if (!mb->f.transform_size_8x8_flag) {
-		int tC0d = tsk->tC0_s[3];
+		int tC0d = ctx->t.tC0_s[3];
 		if (tC0d != -1)
-			DEBLOCK_LUMA_SOFT(v9, vA, vB, vC, vD, vE, tsk->alpha + 0, tsk->beta + 0, tC0d);
+			DEBLOCK_LUMA_SOFT(v9, vA, vB, vC, vD, vE, ctx->t.alpha + 0, ctx->t.beta + 0, tC0d);
 	}
 	
 	// transpose the top 16x8 matrix
@@ -693,14 +693,14 @@ static noinline void FUNC_TSK(deblock_Y_8bit, size_t stride, ssize_t nstride, si
 	i8x16 h7 = unpackhi64(xg3, xg7);
 	
 	// first horizontal edge
-	px0 = tsk->samples_mb[0];
+	px0 = ctx->samples_mb[0];
 	if (mb->f.filter_edges & 2) {
 		if (mbB->f.mbIsInterFlag & mb->f.mbIsInterFlag) {
-			int tC0e = tsk->tC0_s[4];
+			int tC0e = ctx->t.tC0_s[4];
 			if (tC0e != -1)
-				DEBLOCK_LUMA_SOFT(*(i8x16 *)(px0 + nstride * 3), *(i8x16 *)(px0 + nstride * 2), *(i8x16 *)(px0 + nstride    ), h0, h1, h2, tsk->alpha + 12, tsk->beta + 12, tC0e);
-		} else if (tsk->alpha[12] != 0) {
-			DEBLOCK_LUMA_HARD(*(i8x16 *)(px0 + nstride * 4), *(i8x16 *)(px0 + nstride * 3), *(i8x16 *)(px0 + nstride * 2), *(i8x16 *)(px0 + nstride    ), h0, h1, h2, h3, tsk->alpha + 12, tsk->beta + 12);
+				DEBLOCK_LUMA_SOFT(*(i8x16 *)(px0 + nstride * 3), *(i8x16 *)(px0 + nstride * 2), *(i8x16 *)(px0 + nstride    ), h0, h1, h2, ctx->t.alpha + 12, ctx->t.beta + 12, tC0e);
+		} else if (ctx->t.alpha[12] != 0) {
+			DEBLOCK_LUMA_HARD(*(i8x16 *)(px0 + nstride * 4), *(i8x16 *)(px0 + nstride * 3), *(i8x16 *)(px0 + nstride * 2), *(i8x16 *)(px0 + nstride    ), h0, h1, h2, h3, ctx->t.alpha + 12, ctx->t.beta + 12);
 		}
 	}
 	*(i8x16 *)(px0              ) = h0;
@@ -708,9 +708,9 @@ static noinline void FUNC_TSK(deblock_Y_8bit, size_t stride, ssize_t nstride, si
 	
 	// second horizontal edge
 	if (!mb->f.transform_size_8x8_flag) {
-		int tC0f = tsk->tC0_s[5];
+		int tC0f = ctx->t.tC0_s[5];
 		if (tC0f != -1)
-			DEBLOCK_LUMA_SOFT(h1, h2, h3, h4, h5, h6, tsk->alpha + 0, tsk->beta + 0, tC0f);
+			DEBLOCK_LUMA_SOFT(h1, h2, h3, h4, h5, h6, ctx->t.alpha + 0, ctx->t.beta + 0, tC0f);
 	}
 	px7 = px0 + stride7;
 	*(i8x16 *)(px0 +  stride * 2) = h2;
@@ -753,9 +753,9 @@ static noinline void FUNC_TSK(deblock_Y_8bit, size_t stride, ssize_t nstride, si
 	i8x16 hF = unpackhi64(xj3, xj7);
 	
 	// third horizontal edge
-	int tC0g = tsk->tC0_s[6];
+	int tC0g = ctx->t.tC0_s[6];
 	if (tC0g != -1)
-		DEBLOCK_LUMA_SOFT(h5, h6, h7, h8, h9, hA, tsk->alpha + 0, tsk->beta + 0, tC0g);
+		DEBLOCK_LUMA_SOFT(h5, h6, h7, h8, h9, hA, ctx->t.alpha + 0, ctx->t.beta + 0, tC0g);
 	*(i8x16 *)(px7 + nstride    ) = h6;
 	*(i8x16 *)(px7              ) = h7;
 	*(i8x16 *)(px7 +  stride    ) = h8;
@@ -763,9 +763,9 @@ static noinline void FUNC_TSK(deblock_Y_8bit, size_t stride, ssize_t nstride, si
 	
 	// fourth horizontal edge
 	if (!mb->f.transform_size_8x8_flag) {
-		int tC0h = tsk->tC0_s[7];
+		int tC0h = ctx->t.tC0_s[7];
 		if (tC0h != -1)
-			DEBLOCK_LUMA_SOFT(h9, hA, hB, hC, hD, hE, tsk->alpha + 0, tsk->beta + 0, tC0h);
+			DEBLOCK_LUMA_SOFT(h9, hA, hB, hC, hD, hE, ctx->t.alpha + 0, ctx->t.beta + 0, tC0h);
 	}
 	pxE = px7 + stride7;
 	*(i8x16 *)(pxE + nstride * 4) = hA;
@@ -776,8 +776,8 @@ static noinline void FUNC_TSK(deblock_Y_8bit, size_t stride, ssize_t nstride, si
 	*(i8x16 *)(pxE +  stride    ) = hF;
 	
 	// jump to chroma deblocking filter
-	size_t strideC = tsk->stride[1];
-	JUMP_TSK(deblock_CbCr_8bit, strideC, -strideC, strideC * 7);
+	size_t strideC = ctx->t.stride[1];
+	JUMP_CTX(deblock_CbCr_8bit, strideC, -strideC, strideC * 7);
 }
 
 
@@ -810,7 +810,7 @@ static noinline void FUNC_TSK(deblock_Y_8bit, size_t stride, ssize_t nstride, si
  *         mvs_c=0 |    0     |    1     |    1     |    0     |
  * ----------------+----------+----------+----------+----------+
  */
-noinline void FUNC_TSK(deblock_mb)
+noinline void FUNC_CTX(deblock_mb)
 {
 	static const u8x16 idx2alpha[3] =
 		{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 4, 4, 5, 6, 7, 8, 9, 10, 12, 13, 15, 17, 20, 22, 25, 28, 32, 36, 40, 45, 50, 56, 63, 71, 80, 90, 101, 113, 127, 144, 162, 182, 203, 226, 255, 255};
@@ -824,14 +824,14 @@ noinline void FUNC_TSK(deblock_mb)
 	
 	// compute all values of indexA and indexB for each of the color planes first
 	mbA = mb - 1;
-	mbB = mbA - tsk->pic_width_in_mbs;
+	mbB = mbA - ctx->t.pic_width_in_mbs;
 	i8x16 zero = {};
 	i8x16 qP = set32((int32_t)mb->QP_s);
 	i32x4 qPAB = {(int32_t)mbA->QP_s, (int32_t)mbB->QP_s};
 	i8x16 qPav = avg8(qP, unpacklo64(qP, qPAB)); // mid/mid/A/B
 	i8x16 c51 = set8(51);
-	i8x16 indexA = umin8(max8(qPav + set8(tsk->FilterOffsetA), zero), c51);
-	i8x16 indexB = umin8(max8(qPav + set8(tsk->FilterOffsetB), zero), c51);
+	i8x16 indexA = umin8(max8(qPav + set8(ctx->t.FilterOffsetA), zero), c51);
+	i8x16 indexB = umin8(max8(qPav + set8(ctx->t.FilterOffsetB), zero), c51);
 	
 	// compute all values of alpha and beta using vectorized array accesses
 	i8x16 c4 = set8(4);
@@ -849,8 +849,8 @@ noinline void FUNC_TSK(deblock_mb)
 	i8x16 betalo = shuffle8(idx2beta[0], Bm4);
 	i8x16 betamd = shuffle8(idx2beta[1], Bm4);
 	i8x16 betahi = shuffle8(idx2beta[2], Bm4);
-	tsk->alpha_v = ifelse_mask(Agte36, alphahi, ifelse_mask(Agte20, alphamd, alphalo));
-	tsk->beta_v = ifelse_mask(Bgte36, betahi, ifelse_mask(Bgte20, betamd, betalo));
+	ctx->t.alpha_v = ifelse_mask(Agte36, alphahi, ifelse_mask(Agte20, alphamd, alphalo));
+	ctx->t.beta_v = ifelse_mask(Bgte36, betahi, ifelse_mask(Bgte20, betamd, betalo));
 	
 	// initialize tC0 with bS=3 for internal edges of Intra macroblock
 	i8x16 tC0neg = zero > Am4;
@@ -859,8 +859,8 @@ noinline void FUNC_TSK(deblock_mb)
 		i8x16 tC03md = shuffle8(idx2tC0[2][1], Am4);
 		i8x16 tC03hi = shuffle8(idx2tC0[2][2], Am4);
 		i8x16 tC03 = ifelse_mask(Agte36, tC03hi, ifelse_mask(Agte20, tC03md, tC03lo)) | tC0neg;
-		tsk->tC0_v[0] = tsk->tC0_v[1] = shuffle8(tC03, zero);
-		tsk->tC0_v[2] = tsk->tC0_v[3] = shuffle8(tC03, ((i8x16){-1, -1, -1, -1, -1, -1, -1, -1, 1, 1, 1, 1, 2, 2, 2, 2}));
+		ctx->t.tC0_v[0] = ctx->t.tC0_v[1] = shuffle8(tC03, zero);
+		ctx->t.tC0_v[2] = ctx->t.tC0_v[3] = shuffle8(tC03, ((i8x16){-1, -1, -1, -1, -1, -1, -1, -1, 1, 1, 1, 1, 2, 2, 2, 2}));
 	} else {
 		// compute all values of tC0 for bS=1 and bS=2
 		i8x16 tC01lo = shuffle8(idx2tC0[0][0], Am4);
@@ -1000,7 +1000,7 @@ noinline void FUNC_TSK(deblock_mb)
 		
 		// for 8x8 blocks with CAVLC, broadcast transform tokens beforehand
 		i8x16 nC = mb->nC_v[0];
-		if (!tsk->pps.entropy_coding_mode_flag && mb->f.transform_size_8x8_flag) {
+		if (!ctx->t.pps.entropy_coding_mode_flag && mb->f.transform_size_8x8_flag) {
 			i8x16 x = (i32x4)mb->nC_v[0] > 0;
 			mb->nC_v[0] = nC = sign8(x, x);
 		}
@@ -1023,13 +1023,13 @@ noinline void FUNC_TSK(deblock_mb)
 		static const i8x16 shuf1 = {12, 12, 12, 12, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
 		static const i8x16 shuf2 = {9, 9, 9, 9, 10, 10, 10, 10, 1, 1, 1, 1, 2, 2, 2, 2};
 		static const i8x16 shuf3 = {13, 13, 13, 13, 14, 14, 14, 14, 1, 1, 1, 1, 2, 2, 2, 2};
-		tsk->tC0_v[0] = ifelse_mask(bS2abcd, shuffle8(tC02, shuf0), ifelse_mask(bS0abcd, tC00, shuffle8(tC01, shuf0)));
-		tsk->tC0_v[1] = ifelse_mask(bS2efgh, shuffle8(tC02, shuf1), ifelse_mask(bS0efgh, tC00, shuffle8(tC01, shuf1)));
-		tsk->tC0_v[2] = ifelse_mask(bS2aacc, shuffle8(tC02, shuf2), ifelse_mask(bS0aacc, tC00, shuffle8(tC01, shuf2)));
-		tsk->tC0_v[3] = ifelse_mask(bS2eegg, shuffle8(tC02, shuf3), ifelse_mask(bS0eegg, tC00, shuffle8(tC01, shuf3)));
+		ctx->t.tC0_v[0] = ifelse_mask(bS2abcd, shuffle8(tC02, shuf0), ifelse_mask(bS0abcd, tC00, shuffle8(tC01, shuf0)));
+		ctx->t.tC0_v[1] = ifelse_mask(bS2efgh, shuffle8(tC02, shuf1), ifelse_mask(bS0efgh, tC00, shuffle8(tC01, shuf1)));
+		ctx->t.tC0_v[2] = ifelse_mask(bS2aacc, shuffle8(tC02, shuf2), ifelse_mask(bS0aacc, tC00, shuffle8(tC01, shuf2)));
+		ctx->t.tC0_v[3] = ifelse_mask(bS2eegg, shuffle8(tC02, shuf3), ifelse_mask(bS0eegg, tC00, shuffle8(tC01, shuf3)));
 	}
 	
 	// jump to luma deblocking filter
-	size_t strideY = tsk->stride[0];
-	JUMP_TSK(deblock_Y_8bit, strideY, -strideY, strideY * 7);
+	size_t strideY = ctx->t.stride[0];
+	JUMP_CTX(deblock_Y_8bit, strideY, -strideY, strideY * 7);
 }

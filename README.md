@@ -60,7 +60,7 @@ int main(int argc, char *argv[]) {
 	uint8_t *buf = mmap(NULL, st.st_size, PROT_READ, MAP_SHARED, fd, 0);
 	const uint8_t *nal = buf + 3 + (buf[2] == 0); // skip the [0]001 delimiter
 	const uint8_t *end = buf + st.st_size;
-	Edge264Decoder *dec = edge264_alloc();
+	Edge264Decoder *dec = edge264_alloc(-1); // auto number of threads
 	Edge264Frame frm;
 	int res;
 	do {

@@ -900,7 +900,7 @@ static always_inline void inter8xH_chroma_8bit(int h, size_t dstride, uint8_t * 
  * | bipred=2 | no_weight  | no_weight    | no_weight  | implicit2    |
  * +----------+------------+--------------+------------+--------------+
  */
-void noinline FUNC_TSK(decode_inter, int i, int w, int h) {
+void noinline FUNC_CTX(decode_inter, int i, int w, int h) {
 	static int8_t shift_Y_8bit[46] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15};
 	static int8_t shift_C_8bit[22] = {0, 0, 0, 0, 0, 0, 0, 0, 1, 2, 3, 4, 5, 6, 7, 7, 7, 7, 7, 7, 7, 7};
 	static void (*luma_fcts[48])(int, size_t, uint8_t*, size_t, const uint8_t*, i8x16, i16x8, i64x2) = {
@@ -923,8 +923,8 @@ void noinline FUNC_TSK(decode_inter, int i, int w, int h) {
 	int y = mb->mvs[i * 2 + 1];
 	int i8x8 = i >> 2;
 	int i4x4 = i & 15;
-	const uint8_t *ref = tsk->frame_buffers[mb->refPic[i8x8]];
-	//printf("<tr><td colspan=2>CurrMbAddr=%d, i=%d, w=%d, h=%d, x=%d, y=%d, idx=%d, pic=%d</td></tr>\n", tsk->CurrMbAddr, i, w, h, x, y, mb->refIdx[i8x8], mb->refPic[i8x8]);
+	const uint8_t *ref = ctx->t.frame_buffers[mb->refPic[i8x8]];
+	//printf("<tr><td colspan=2>CurrMbAddr=%d, i=%d, w=%d, h=%d, x=%d, y=%d, idx=%d, pic=%d</td></tr>\n", ctx->CurrMbAddr, i, w, h, x, y, mb->refIdx[i8x8], mb->refPic[i8x8]);
 	
 	// initialize prediction weights (not vectorized since most often 1~2 calls per mb)
 	i8x16 biweights_Y, biweights_Cb, biweights_Cr;
@@ -932,17 +932,17 @@ void noinline FUNC_TSK(decode_inter, int i, int w, int h) {
 	i64x2 logWD_Y, logWD_C;
 	int refIdx = mb->refIdx[i8x8];
 	int refIdxX = mb->refIdx[i8x8 ^ 4];
-	if (tsk->pps.weighted_bipred_idc != 1) {
+	if (ctx->t.pps.weighted_bipred_idc != 1) {
 		if (((i8x8 - 4) | refIdxX) < 0) { // no_weight
 			biweights_Y = biweights_Cb = biweights_Cr = (i8x16){0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1};
 			bioffsets_Y = bioffsets_Cb = bioffsets_Cr = (i16x8){};
 			logWD_Y = logWD_C = (i64x2){};
-		} else if (tsk->pps.weighted_bipred_idc == 0) { // default2
+		} else if (ctx->t.pps.weighted_bipred_idc == 0) { // default2
 			biweights_Y = biweights_Cb = biweights_Cr = (i8x16){1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1};
 			bioffsets_Y = bioffsets_Cb = bioffsets_Cr = (i16x8){1, 1, 1, 1, 1, 1, 1, 1};
 			logWD_Y = logWD_C = (i64x2){1};
 		} else { // implicit2
-			int w1 = tsk->implicit_weights[refIdxX][refIdx];
+			int w1 = ctx->t.implicit_weights[refIdxX][refIdx];
 			if (__builtin_expect((unsigned)w1 + 63 < 191, 1)) { // w0 or w1 will overflow if w1 is 128 or -64
 				bioffsets_Y = bioffsets_Cb = bioffsets_Cr = (i16x8){32, 32, 32, 32, 32, 32, 32, 32};
 				logWD_Y = logWD_C = (i64x2){6};
@@ -955,21 +955,21 @@ void noinline FUNC_TSK(decode_inter, int i, int w, int h) {
 		}
 	} else if (refIdxX < 0) { // explicit1
 		refIdx += (i8x8 & 4) * 8;
-		if (__builtin_expect(tsk->explicit_weights[0][refIdx] < 128, 1)) {
-			biweights_Y = pack_weights(0, tsk->explicit_weights[0][refIdx]);
-			bioffsets_Y = set16((tsk->explicit_offsets[0][refIdx] * 2 + 1) << tsk->luma_log2_weight_denom >> 1);
-			logWD_Y = (i64x2){tsk->luma_log2_weight_denom};
+		if (__builtin_expect(ctx->t.explicit_weights[0][refIdx] < 128, 1)) {
+			biweights_Y = pack_weights(0, ctx->t.explicit_weights[0][refIdx]);
+			bioffsets_Y = set16((ctx->t.explicit_offsets[0][refIdx] * 2 + 1) << ctx->t.luma_log2_weight_denom >> 1);
+			logWD_Y = (i64x2){ctx->t.luma_log2_weight_denom};
 		} else {
 			biweights_Y = (i8x16){0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1};
 			bioffsets_Y = (i16x8){};
 			logWD_Y = (i64x2){};
 		}
-		if (__builtin_expect(tsk->explicit_weights[1][refIdx] < 128, 1)) {
-			biweights_Cb = pack_weights(0, tsk->explicit_weights[1][refIdx]);
-			biweights_Cr = pack_weights(0, tsk->explicit_weights[2][refIdx]);
-			bioffsets_Cb = set16((tsk->explicit_offsets[1][refIdx] * 2 + 1) << tsk->chroma_log2_weight_denom >> 1);
-			bioffsets_Cr = set16((tsk->explicit_offsets[2][refIdx] * 2 + 1) << tsk->chroma_log2_weight_denom >> 1);
-			logWD_C = (i64x2){tsk->chroma_log2_weight_denom};
+		if (__builtin_expect(ctx->t.explicit_weights[1][refIdx] < 128, 1)) {
+			biweights_Cb = pack_weights(0, ctx->t.explicit_weights[1][refIdx]);
+			biweights_Cr = pack_weights(0, ctx->t.explicit_weights[2][refIdx]);
+			bioffsets_Cb = set16((ctx->t.explicit_offsets[1][refIdx] * 2 + 1) << ctx->t.chroma_log2_weight_denom >> 1);
+			bioffsets_Cr = set16((ctx->t.explicit_offsets[2][refIdx] * 2 + 1) << ctx->t.chroma_log2_weight_denom >> 1);
+			logWD_C = (i64x2){ctx->t.chroma_log2_weight_denom};
 		} else {
 			biweights_Cb = biweights_Cr = (i8x16){0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1};
 			bioffsets_Cb = bioffsets_Cr = (i16x8){};
@@ -981,63 +981,63 @@ void noinline FUNC_TSK(decode_inter, int i, int w, int h) {
 		logWD_Y = logWD_C = (i64x2){};
 	} else { // explicit2
 		refIdx += 32;
-		bioffsets_Y = set16(((tsk->explicit_offsets[0][refIdxX] +
-			tsk->explicit_offsets[0][refIdx] + 1) | 1) << tsk->luma_log2_weight_denom);
-		if (__builtin_expect((tsk->explicit_weights[0][refIdxX] & tsk->explicit_weights[0][refIdx]) != 128, 1)) {
-			biweights_Y = pack_weights(tsk->explicit_weights[0][refIdxX], tsk->explicit_weights[0][refIdx]);
-			logWD_Y = (i64x2){tsk->luma_log2_weight_denom + 1};
+		bioffsets_Y = set16(((ctx->t.explicit_offsets[0][refIdxX] +
+			ctx->t.explicit_offsets[0][refIdx] + 1) | 1) << ctx->t.luma_log2_weight_denom);
+		if (__builtin_expect((ctx->t.explicit_weights[0][refIdxX] & ctx->t.explicit_weights[0][refIdx]) != 128, 1)) {
+			biweights_Y = pack_weights(ctx->t.explicit_weights[0][refIdxX], ctx->t.explicit_weights[0][refIdx]);
+			logWD_Y = (i64x2){ctx->t.luma_log2_weight_denom + 1};
 		} else {
-			biweights_Y = pack_weights(tsk->explicit_weights[0][refIdxX] >> 1, tsk->explicit_weights[0][refIdx] >> 1);
+			biweights_Y = pack_weights(ctx->t.explicit_weights[0][refIdxX] >> 1, ctx->t.explicit_weights[0][refIdx] >> 1);
 			bioffsets_Y >>= 1;
-			logWD_Y = (i64x2){tsk->luma_log2_weight_denom};
+			logWD_Y = (i64x2){ctx->t.luma_log2_weight_denom};
 		}
-		bioffsets_Cb = set16(((tsk->explicit_offsets[1][refIdxX] +
-			tsk->explicit_offsets[1][refIdx] + 1) | 1) << tsk->chroma_log2_weight_denom);
-		bioffsets_Cr = set16(((tsk->explicit_offsets[2][refIdxX] +
-			tsk->explicit_offsets[2][refIdx] + 1) | 1) << tsk->chroma_log2_weight_denom);
-		if (__builtin_expect((tsk->explicit_weights[1][refIdxX] & tsk->explicit_weights[1][refIdx]) != 128, 1)) {
-			biweights_Cb = pack_weights(tsk->explicit_weights[1][refIdxX], tsk->explicit_weights[1][refIdx]);
-			biweights_Cr = pack_weights(tsk->explicit_weights[2][refIdxX], tsk->explicit_weights[2][refIdx]);
-			logWD_C = (i64x2){tsk->chroma_log2_weight_denom + 1};
+		bioffsets_Cb = set16(((ctx->t.explicit_offsets[1][refIdxX] +
+			ctx->t.explicit_offsets[1][refIdx] + 1) | 1) << ctx->t.chroma_log2_weight_denom);
+		bioffsets_Cr = set16(((ctx->t.explicit_offsets[2][refIdxX] +
+			ctx->t.explicit_offsets[2][refIdx] + 1) | 1) << ctx->t.chroma_log2_weight_denom);
+		if (__builtin_expect((ctx->t.explicit_weights[1][refIdxX] & ctx->t.explicit_weights[1][refIdx]) != 128, 1)) {
+			biweights_Cb = pack_weights(ctx->t.explicit_weights[1][refIdxX], ctx->t.explicit_weights[1][refIdx]);
+			biweights_Cr = pack_weights(ctx->t.explicit_weights[2][refIdxX], ctx->t.explicit_weights[2][refIdx]);
+			logWD_C = (i64x2){ctx->t.chroma_log2_weight_denom + 1};
 		} else {
-			biweights_Cb = pack_weights(tsk->explicit_weights[1][refIdxX] >> 1, tsk->explicit_weights[1][refIdx] >> 1);
-			biweights_Cr = pack_weights(tsk->explicit_weights[2][refIdxX] >> 1, tsk->explicit_weights[2][refIdx] >> 1);
+			biweights_Cb = pack_weights(ctx->t.explicit_weights[1][refIdxX] >> 1, ctx->t.explicit_weights[1][refIdx] >> 1);
+			biweights_Cr = pack_weights(ctx->t.explicit_weights[2][refIdxX] >> 1, ctx->t.explicit_weights[2][refIdx] >> 1);
 			bioffsets_Cb >>= 1;
 			bioffsets_Cr >>= 1;
-			logWD_C = (i64x2){tsk->chroma_log2_weight_denom};
+			logWD_C = (i64x2){ctx->t.chroma_log2_weight_denom};
 		}
 	}
 	
 	// compute source pointers
-	size_t sstride_Y = tsk->stride[0];
-	size_t sstride_C = tsk->stride[1];
-	uint8_t *frame_buffer = tsk->samples_base;
-	int xInt_Y = tsk->samples_mb[0] - tsk->samples_row[0] + x444[i4x4] + (x >> 2);
-	int xInt_C = tsk->samples_mb[1] - tsk->samples_row[1] + (x444[i4x4] >> 1) + (x >> 3);
-	int yInt_Y = tsk->samples_row[0] - frame_buffer + (y444[i4x4] + (y >> 2)) * sstride_Y;
-	int yInt_C = tsk->samples_row[1] - frame_buffer + ((y444[i4x4] >> 1) + (y >> 3)) * sstride_C;
+	size_t sstride_Y = ctx->t.stride[0];
+	size_t sstride_C = ctx->t.stride[1];
+	uint8_t *frame_buffer = ctx->t.samples_base;
+	int xInt_Y = ctx->samples_mb[0] - ctx->samples_row[0] + x444[i4x4] + (x >> 2);
+	int xInt_C = ctx->samples_mb[1] - ctx->samples_row[1] + (x444[i4x4] >> 1) + (x >> 3);
+	int yInt_Y = ctx->samples_row[0] - frame_buffer + (y444[i4x4] + (y >> 2)) * sstride_Y;
+	int yInt_C = ctx->samples_row[1] - frame_buffer + ((y444[i4x4] >> 1) + (y >> 3)) * sstride_C;
 	const uint8_t *src_Y = ref + xInt_Y + yInt_Y;
 	const uint8_t *src_Cb = ref + xInt_C + yInt_C;
-	const uint8_t *src_Cr = ref + xInt_C + yInt_C + tsk->plane_size_C;
+	const uint8_t *src_Cr = ref + xInt_C + yInt_C + ctx->t.plane_size_C;
 	
 	// edge propagation is an annoying but beautiful piece of code
 	int xWide = (x & 7) != 0;
 	int yWide = (y & 7) != 0;
 	if (__builtin_expect((unsigned)xInt_Y - xWide * 2 >= sstride_Y - w + 1 - xWide * 5 ||
-		(unsigned)yInt_Y - sstride_Y * yWide * 2 >= tsk->plane_size_Y - (h - 1 + yWide * 5) * sstride_Y, 0))
+		(unsigned)yInt_Y - sstride_Y * yWide * 2 >= ctx->t.plane_size_Y - (h - 1 + yWide * 5) * sstride_Y, 0))
 	{
 		i8x16 shuf0 = load128(shift_Y_8bit + 15 + clip3(-15, 0, xInt_Y - 2) + clip3(0, 15, xInt_Y + 14 - sstride_Y));
 		i8x16 shuf1 = load128(shift_Y_8bit + 15 + clip3(-15, 0, xInt_Y + 14) + clip3(0, 15, xInt_Y + 30 - sstride_Y));
 		const uint8_t *src0 = ref + clip3(0, sstride_Y - 16, xInt_Y - 2);
 		const uint8_t *src1 = ref + clip3(0, sstride_Y - 16, xInt_Y + 14);
 		yInt_Y -= sstride_Y * 2;
-		for (i8x16 *buf = tsk->edge_buf_v; buf < tsk->edge_buf_v + 10 + h * 2; buf += 2, yInt_Y += sstride_Y) {
-			int c = clip3(0, tsk->plane_size_Y - sstride_Y, yInt_Y);
+		for (i8x16 *buf = ctx->t.edge_buf_v; buf < ctx->t.edge_buf_v + 10 + h * 2; buf += 2, yInt_Y += sstride_Y) {
+			int c = clip3(0, ctx->t.plane_size_Y - sstride_Y, yInt_Y);
 			buf[0] = shuffle8(load128(src0 + c), shuf0);
 			buf[1] = shuffle8(load128(src1 + c), shuf1);
 		}
 		sstride_Y = 32;
-		src_Y = tsk->edge_buf + 66;
+		src_Y = ctx->t.edge_buf + 66;
 		
 		// chroma may read (and ignore) 1 bottom row and 1 right col out of bounds
 		i8x16 shuf = {}, v0, v1;
@@ -1045,25 +1045,25 @@ void noinline FUNC_TSK(decode_inter, int i, int w, int h) {
 		src0 = ref + clip3(0, sstride_C - 8, xInt_C);
 		src1 = ref + clip3(0, sstride_C - 1, xInt_C + 8);
 		for (int j = 0; j <= h >> 1; j++, yInt_C += sstride_C) {
-			int cb = clip3(tsk->plane_size_Y, tsk->plane_size_Y + tsk->plane_size_C - sstride_C, yInt_C);
-			int cr = clip3(tsk->plane_size_Y + tsk->plane_size_C, tsk->plane_size_Y + tsk->plane_size_C * 2 - sstride_C, yInt_C + tsk->plane_size_C);
+			int cb = clip3(ctx->t.plane_size_Y, ctx->t.plane_size_Y + ctx->t.plane_size_C - sstride_C, yInt_C);
+			int cr = clip3(ctx->t.plane_size_Y + ctx->t.plane_size_C, ctx->t.plane_size_Y + ctx->t.plane_size_C * 2 - sstride_C, yInt_C + ctx->t.plane_size_C);
 			memcpy(&v0, src0 + cb, 8);
 			memcpy(&v1, src0 + cr, 8);
 			// each line has 2 writes to support 8px strides
-			tsk->edge_buf_l[j * 2 +  84] = ((i64x2)shuffle8(v0, shuf))[0];
-			tsk->edge_buf_l[j * 2 + 168] = ((i64x2)shuffle8(v1, shuf))[0];
-			tsk->edge_buf[j * 16 +  680] = *(src1 + cb);
-			tsk->edge_buf[j * 16 + 1352] = *(src1 + cr);
+			ctx->t.edge_buf_l[j * 2 +  84] = ((i64x2)shuffle8(v0, shuf))[0];
+			ctx->t.edge_buf_l[j * 2 + 168] = ((i64x2)shuffle8(v1, shuf))[0];
+			ctx->t.edge_buf[j * 16 +  680] = *(src1 + cb);
+			ctx->t.edge_buf[j * 16 + 1352] = *(src1 + cr);
 		}
 		sstride_C = 16;
-		src_Cb = tsk->edge_buf +  672;
-		src_Cr = tsk->edge_buf + 1344;
+		src_Cb = ctx->t.edge_buf +  672;
+		src_Cr = ctx->t.edge_buf + 1344;
 	}
 	
 	// chroma prediction comes first since it is inlined
-	size_t dstride_C = tsk->stride[1];
-	uint8_t *dst_Cb = tsk->samples_mb[1] + (y444[i4x4] >> 1) * dstride_C + (x444[i4x4] >> 1);
-	uint8_t *dst_Cr = dst_Cb + tsk->plane_size_C;
+	size_t dstride_C = ctx->t.stride[1];
+	uint8_t *dst_Cb = ctx->samples_mb[1] + (y444[i4x4] >> 1) * dstride_C + (x444[i4x4] >> 1);
+	uint8_t *dst_Cr = dst_Cb + ctx->t.plane_size_C;
 	int xFrac_C = x & 7;
 	int yFrac_C = y & 7;
 	int mul = 8 - xFrac_C + (xFrac_C << 8);
@@ -1083,8 +1083,8 @@ void noinline FUNC_TSK(decode_inter, int i, int w, int h) {
 	// tail jump to luma prediction
 	int xFrac_Y = x & 3;
 	int yFrac_Y = y & 3;
-	size_t dstride_Y = tsk->stride[0];
-	uint8_t *dst_Y = tsk->samples_mb[0] + y444[i4x4] * dstride_Y + x444[i4x4];
+	size_t dstride_Y = ctx->t.stride[0];
+	uint8_t *dst_Y = ctx->samples_mb[0] + y444[i4x4] * dstride_Y + x444[i4x4];
 	luma_fcts[(w == 4 ? 0 : w == 8 ? 16 : 32) + yFrac_Y * 4 + xFrac_Y]
 		(h, dstride_Y, dst_Y, sstride_Y, src_Y, biweights_Y, bioffsets_Y, logWD_Y);
 }

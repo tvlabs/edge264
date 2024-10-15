@@ -8,7 +8,7 @@
  * Extract nbytes from the bitstream and return them as big endian.
  * 
  * The process reads an unaligned 16-byte chunk and will not read past the last
- * aligned 16-byte chunk containing the last bytes before tsk->_gb.end.
+ * aligned 16-byte chunk containing the last bytes before ctx->t._gb.end.
  */
 static inline size_t FUNC_GB(get_bytes, int nbytes)
 {
@@ -151,7 +151,7 @@ static noinline int FUNC_GB(get_se16, int lower, int upper) {
 		gb->msb_cache = lsd(gb->msb_cache, gb->lsb_cache, leadingZeroBits);
 		if (!(gb->lsb_cache <<= leadingZeroBits))
 			CALL_GB(refill, 0);
-		return umin(CALL_T2B(get_uv, leadingZeroBits + 1) - 1, upper);
+		return umin(CALL_C2B(get_uv, leadingZeroBits + 1) - 1, upper);
 	}
 
 	static noinline int FUNC_GB(get_se32, int lower, int upper) {
@@ -159,7 +159,7 @@ static noinline int FUNC_GB(get_se16, int lower, int upper) {
 		gb->msb_cache = lsd(gb->msb_cache, gb->lsb_cache, leadingZeroBits);
 		if (!(gb->lsb_cache <<= leadingZeroBits))
 			CALL_GB(refill, 0);
-		unsigned ue = CALL_T2B(get_uv, leadingZeroBits + 1) - 1;
+		unsigned ue = CALL_C2B(get_uv, leadingZeroBits + 1) - 1;
 		return min(max(ue & 1 ? ue / 2 + 1 : -(ue / 2), lower), upper);
 	}
 #endif
@@ -202,7 +202,7 @@ static noinline int FUNC_GB(get_se16, int lower, int upper) {
  *   since renormalization will now leave 25~32 bits in codIOffset, but the
  *   algorithm needs at least 29 to remain simple.
  */
-static noinline int FUNC_TSK(get_ae, int ctxIdx)
+static noinline int FUNC_CTX(get_ae, int ctxIdx)
 {
 	static const uint8_t rangeTabLPS[64 * 4] = {
 		128, 176, 208, 240, 128, 167, 197, 227, 128, 158, 187, 216, 123, 150, 178, 205,
@@ -240,67 +240,67 @@ static noinline int FUNC_TSK(get_ae, int ctxIdx)
 		228, 229,  21,  20, 232, 233,  17,  16, 236, 237,  17,  16, 240, 241,   9,   8,
 		244, 245,   9,   8, 248, 249,   5,   4, 248, 249,   1,   0, 252, 253,   0,   1,
 	};
-	size_t state = tsk->cabac[ctxIdx];
-	size_t shift = SIZE_BIT - 3 - clz(tsk->_gb.codIRange); // [6..SIZE_BIT-3]
-	size_t idx = (state & -4) + (tsk->_gb.codIRange >> shift);
+	size_t state = ctx->cabac[ctxIdx];
+	size_t shift = SIZE_BIT - 3 - clz(ctx->t._gb.codIRange); // [6..SIZE_BIT-3]
+	size_t idx = (state & -4) + (ctx->t._gb.codIRange >> shift);
 	size_t codIRangeLPS = (size_t)((uint8_t *)rangeTabLPS - 4)[idx] << (shift - 6);
-	tsk->_gb.codIRange -= codIRangeLPS;
-	if (tsk->_gb.codIOffset >= tsk->_gb.codIRange) {
+	ctx->t._gb.codIRange -= codIRangeLPS;
+	if (ctx->t._gb.codIOffset >= ctx->t._gb.codIRange) {
 		state ^= 255;
-		tsk->_gb.codIOffset -= tsk->_gb.codIRange;
-		tsk->_gb.codIRange = codIRangeLPS;
+		ctx->t._gb.codIOffset -= ctx->t._gb.codIRange;
+		ctx->t._gb.codIRange = codIRangeLPS;
 	}
-	tsk->cabac[ctxIdx] = transIdx[state];
+	ctx->cabac[ctxIdx] = transIdx[state];
 	int binVal = state & 1;
-	if (__builtin_expect(tsk->_gb.codIRange < 256, 0)) {
-		tsk->_gb.codIOffset = lsd(tsk->_gb.codIOffset, CALL_T2B(get_bytes, SIZE_BIT / 8 - 1), SIZE_BIT - 8);
-		tsk->_gb.codIRange <<= SIZE_BIT - 8;
+	if (__builtin_expect(ctx->t._gb.codIRange < 256, 0)) {
+		ctx->t._gb.codIOffset = lsd(ctx->t._gb.codIOffset, CALL_C2B(get_bytes, SIZE_BIT / 8 - 1), SIZE_BIT - 8);
+		ctx->t._gb.codIRange <<= SIZE_BIT - 8;
 	}
 	return binVal;
 }
 
-static inline int FUNC_TSK(get_bypass) {
-	if (tsk->_gb.codIRange < 512) {
-		tsk->_gb.codIOffset = lsd(tsk->_gb.codIOffset, CALL_T2B(get_bytes, SIZE_BIT / 8 - 2), SIZE_BIT - 16);
-		tsk->_gb.codIRange <<= SIZE_BIT - 16;
+static inline int FUNC_CTX(get_bypass) {
+	if (ctx->t._gb.codIRange < 512) {
+		ctx->t._gb.codIOffset = lsd(ctx->t._gb.codIOffset, CALL_C2B(get_bytes, SIZE_BIT / 8 - 2), SIZE_BIT - 16);
+		ctx->t._gb.codIRange <<= SIZE_BIT - 16;
 	}
-	tsk->_gb.codIRange >>= 1;
-	size_t binVal = tsk->_gb.codIOffset >= tsk->_gb.codIRange;
-	tsk->_gb.codIOffset = binVal ? tsk->_gb.codIOffset - tsk->_gb.codIRange : tsk->_gb.codIOffset;
+	ctx->t._gb.codIRange >>= 1;
+	size_t binVal = ctx->t._gb.codIOffset >= ctx->t._gb.codIRange;
+	ctx->t._gb.codIOffset = binVal ? ctx->t._gb.codIOffset - ctx->t._gb.codIRange : ctx->t._gb.codIOffset;
 	return binVal;
 }
 
-static int FUNC_TSK(cabac_start) {
+static int FUNC_CTX(cabac_start) {
 	// reclaim bits from cache while realigning with CPB on a byte boundary
-	int extra_bits = SIZE_BIT - 1 - ctz(tsk->_gb.lsb_cache);
+	int extra_bits = SIZE_BIT - 1 - ctz(ctx->t._gb.lsb_cache);
 	int shift = extra_bits & 7;
-	int ret = shift > 0 && (ssize_t)tsk->_gb.msb_cache >> (SIZE_BIT - shift) != -1; // return 1 if not all alignment bits are ones
-	tsk->_gb.codIOffset = lsd(tsk->_gb.msb_cache, tsk->_gb.lsb_cache, shift); // codIOffset and msb_cache are the same memory slot
-	tsk->_gb.lsb_cache >>= (SIZE_BIT - extra_bits) & (SIZE_BIT - 1);
+	int ret = shift > 0 && (ssize_t)ctx->t._gb.msb_cache >> (SIZE_BIT - shift) != -1; // return 1 if not all alignment bits are ones
+	ctx->t._gb.codIOffset = lsd(ctx->t._gb.msb_cache, ctx->t._gb.lsb_cache, shift); // codIOffset and msb_cache are the same memory slot
+	ctx->t._gb.lsb_cache >>= (SIZE_BIT - extra_bits) & (SIZE_BIT - 1);
 	while (extra_bits >= 8) {
 		int32_t i = 0;
-		if (tsk->_gb.CPB < tsk->_gb.end)
-			memcpy(&i, tsk->_gb.CPB - 3, 4);
-		tsk->_gb.CPB -= 1 + (big_endian32(i) >> 8 == 3);
-		tsk->_gb.lsb_cache >>= 8;
+		if (ctx->t._gb.CPB < ctx->t._gb.end)
+			memcpy(&i, ctx->t._gb.CPB - 3, 4);
+		ctx->t._gb.CPB -= 1 + (big_endian32(i) >> 8 == 3);
+		ctx->t._gb.lsb_cache >>= 8;
 		extra_bits -= 8;
 	}
-	tsk->_gb.codIRange = (size_t)510 << (SIZE_BIT - 9);
-	tsk->_gb.codIOffset = (tsk->_gb.codIOffset < tsk->_gb.codIRange) ? tsk->_gb.codIOffset : tsk->_gb.codIRange - 1; // protection against invalid bitstream
+	ctx->t._gb.codIRange = (size_t)510 << (SIZE_BIT - 9);
+	ctx->t._gb.codIOffset = (ctx->t._gb.codIOffset < ctx->t._gb.codIRange) ? ctx->t._gb.codIOffset : ctx->t._gb.codIRange - 1; // protection against invalid bitstream
 	return ret;
 }
 
-static int FUNC_TSK(cabac_terminate) {
-	int extra = SIZE_BIT - 9 - clz(tsk->_gb.codIRange); // [0..SIZE_BIT-9]
-	tsk->_gb.codIRange -= (size_t)2 << extra;
-	if (tsk->_gb.codIOffset >= tsk->_gb.codIRange) {
+static int FUNC_CTX(cabac_terminate) {
+	int extra = SIZE_BIT - 9 - clz(ctx->t._gb.codIRange); // [0..SIZE_BIT-9]
+	ctx->t._gb.codIRange -= (size_t)2 << extra;
+	if (ctx->t._gb.codIOffset >= ctx->t._gb.codIRange) {
 		// reclaim the extra bits minus alignment bits, then refill the cache
-		tsk->_gb.msb_cache = (tsk->_gb.codIOffset * 2 + 1) << (SIZE_BIT - 1 - (extra & -8));
-		return CALL_T2B(refill, 1);
+		ctx->t._gb.msb_cache = (ctx->t._gb.codIOffset * 2 + 1) << (SIZE_BIT - 1 - (extra & -8));
+		return CALL_C2B(refill, 1);
 	}
-	if (__builtin_expect(tsk->_gb.codIRange < 256, 0)) {
-		tsk->_gb.codIOffset = lsd(tsk->_gb.codIOffset, CALL_T2B(get_bytes, SIZE_BIT / 8 - 1), SIZE_BIT - 8);
-		tsk->_gb.codIRange <<= SIZE_BIT - 8;
+	if (__builtin_expect(ctx->t._gb.codIRange < 256, 0)) {
+		ctx->t._gb.codIOffset = lsd(ctx->t._gb.codIOffset, CALL_C2B(get_bytes, SIZE_BIT / 8 - 1), SIZE_BIT - 8);
+		ctx->t._gb.codIRange <<= SIZE_BIT - 8;
 	}
 	return 0;
 }
@@ -1004,11 +1004,11 @@ static const int8_t context_init[4][1024][2] __attribute__((aligned(16))) = {{
 	{  -5,  79}, { -11, 104}, { -11,  91}, { -30, 127},
 }};
 
-static void FUNC_TSK(cabac_init) {
-	i8x16 mul = set16(max(tsk->QP[0], 0) + 4096);
+static void FUNC_CTX(cabac_init) {
+	i8x16 mul = set16(max(ctx->t.QP[0], 0) + 4096);
 	i8x16 c1 = set8(1), c64 = set8(64), c126 = set8(126);
-	const i8x16 *src = (i8x16 *)context_init[tsk->cabac_init_idc];
-	for (i8x16 *dst = tsk->cabac_v; dst < tsk->cabac_v + 64; dst++, src += 2) {
+	const i8x16 *src = (i8x16 *)context_init[ctx->t.cabac_init_idc];
+	for (i8x16 *dst = ctx->cabac_v; dst < ctx->cabac_v + 64; dst++, src += 2) {
 		i16x8 sum0 = maddubs(mul, src[0]) >> 4;
 		i16x8 sum1 = maddubs(mul, src[1]) >> 4;
 		i8x16 min = umin8(packus16(sum0, sum1), c126);
@@ -1018,5 +1018,5 @@ static void FUNC_TSK(cabac_init) {
 		i8x16 shift = pStateIdx + pStateIdx;
 		*dst = shift + shift + mask + c1; // pStateIdx << 2 | valMPS (middle bit is for transIdxLPS/MPS)
 	}
-	tsk->cabac[276] = 252;
+	ctx->cabac[276] = 252;
 }

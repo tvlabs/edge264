@@ -1610,9 +1610,7 @@ static noinline void CAFUNC(parse_slice_data)
 		fprintf(stderr, "********** POC=%u MB=%u **********\n", ctx->t.PicOrderCnt, ctx->CurrMbAddr);
 		
 		// set and reset neighbouring pointers depending on their availability
-		int x = ctx->samples_mb[0] - ctx->samples_row[0];
-		int y = ctx->samples_row[0] - ctx->t.samples_base;
-		int unavail16x16 = (x == 0 ? 9 : 0) | (x == ctx->t.pic_width_in_mbs * 16 - 16) << 2 | (y == 0 ? 14 : 0);
+		int unavail16x16 = (ctx->mbx == 0 ? 9 : 0) | (ctx->mbx == ctx->t.pic_width_in_mbs - 1) << 2 | (ctx->mby == 0 ? 14 : 0);
 		int filter_edges = ~unavail16x16;
 		mbA = mb - 1;
 		mbB = mbA - ctx->t.pic_width_in_mbs;
@@ -1750,14 +1748,17 @@ static noinline void CAFUNC(parse_slice_data)
 			ctx->samples_mb[1] += 8; // FIXME 4:2:2, 16bit
 			ctx->samples_mb[2] += 8;
 		}
+		ctx->mbx++;
 		ctx->CurrMbAddr++;
 		ctx->mbCol++;
-		if (ctx->samples_mb[0] - ctx->samples_row[0] >= ctx->t.stride[0]) { // FIXME incompatible with stride offset
+		if (ctx->mbx >= ctx->t.pic_width_in_mbs) {
 			mb++; // skip the empty macroblock at the edge
 			ctx->mbCol++;
-			ctx->samples_mb[0] = ctx->samples_row[0] += ctx->t.stride[0] * 16;
-			ctx->samples_mb[1] = ctx->samples_row[1] += ctx->t.stride[1] * 8; // FIXME 4:2:2
-			ctx->samples_mb[2] = ctx->samples_row[2] += ctx->t.stride[1] * 8;
+			ctx->mby++;
+			ctx->mbx = 0;
+			ctx->samples_mb[0] += ctx->t.stride[0] * 16 - ctx->t.pic_width_in_mbs * 16;
+			ctx->samples_mb[1] += ctx->t.stride[1] * 8 - ctx->t.pic_width_in_mbs * 8; // FIXME 4:2:2
+			ctx->samples_mb[2] += ctx->t.stride[1] * 8 - ctx->t.pic_width_in_mbs * 8;
 			if (ctx->t.next_deblock_idc >= 0) {
 				__atomic_thread_fence(__ATOMIC_SEQ_CST); // ensures the next line implies the frame was deblocked up to next_deblock_addr
 				ctx->d->next_deblock_addr[ctx->t.next_deblock_idc] =
@@ -1765,7 +1766,7 @@ static noinline void CAFUNC(parse_slice_data)
 				// not locking mutex here is fine since the last progress broadcast will lock it
 				pthread_cond_broadcast(&ctx->d->task_progress);
 			}
-			if (ctx->samples_row[0] - ctx->t.samples_base >= ctx->t.plane_size_Y)
+			if (ctx->mby >= ctx->t.pic_height_in_mbs)
 				break;
 		}
 	} while (CACOND(ctx->mb_skip_run > 0 || ctx->t._gb.msb_cache != (size_t)1 << (SIZE_BIT - 1) || (ctx->t._gb.lsb_cache & (ctx->t._gb.lsb_cache - 1)) || ctx->t._gb.CPB < ctx->t._gb.end, !end_of_slice_flag));

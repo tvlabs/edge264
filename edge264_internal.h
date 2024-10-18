@@ -190,8 +190,8 @@ typedef struct {
 	int8_t direct_8x8_inference_flag; // 0..1
 	int8_t cabac_init_idc; // 0..3
 	int8_t next_deblock_idc; // -1..31, -1 if next_deblock_addr is not written back to dec, currPic otherwise
-	uint16_t pic_width_in_mbs; // 0..1023
-	uint16_t pic_height_in_mbs; // 0..1055
+	int16_t pic_width_in_mbs; // 0..1023
+	int16_t pic_height_in_mbs; // 0..1055
 	uint16_t stride[3]; // 0..65472 (at max width, 16bit & field pic), [iYCbCr]
 	int32_t plane_size_Y;
 	int32_t plane_size_C;
@@ -222,9 +222,10 @@ typedef struct Edge264Context {
 	int8_t n_threads;
 	int8_t mb_qp_delta_nz; // 0..1
 	int8_t col_short_term; // 0..1
+	int16_t mbx;
+	int16_t mby;
 	int32_t CurrMbAddr;
 	int32_t mb_skip_run;
-	uint8_t *samples_row[3]; // address of top-left byte of each plane in current row of macroblocks
 	uint8_t *samples_mb[3]; // address of top-left byte of each plane in current macroblock
 	Edge264Macroblock * _mb; // backup storage for macro mb
 	const Edge264Macroblock * _mbA; // backup storage for macro mbA

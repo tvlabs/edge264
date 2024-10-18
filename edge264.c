@@ -1,6 +1,7 @@
 /** MAYDO:
  * _ Multithreading
- * 	_ make references update next_deblock_addr at each row, and inter frames wait for the minimum value of it
+ * 	_ make tasks start without waiting for availabilities, and wait inside all separate mv parsers
+ * 	_ progressively replace waits with per-mb waits
  * 	_ remove taskPic now to remove a source of false sharing
  * 	_ try to improve parallel decoding of frames with disable_deblocking_idc==2
  * 	_ Update DPB availability checks to take deps into account, and make sure we wait until there is a frame ready before returning -2
@@ -30,6 +31,7 @@
  * 	_ limit width to 16384 to prevent overflow in stride with 16bit+field (check also relative offsets to mbD!)
  * 	_ check on https://kodi.wiki/view/Samples#3D_Test_Clips
  * _ Optimizations
+ * 	_ Setup AMD CodeXL IBS to monitor pipeline stalls and cache misses
  * 	_ set COLD and hot functions
  * 	_ try vectorizing loops on get_ae with movemask trick, starting with residual block parsing
  * 	_ Group dec fields by frequency of accesses and force them manually into L1/L2/L3
@@ -96,15 +98,12 @@ static void FUNC_CTX(initialize_context)
 	
 	union { int8_t q[32]; i8x16 v[2]; } tb, td;
 	ctx->CurrMbAddr = ctx->t.first_mb_in_slice;
-	int mby = (unsigned)ctx->t.first_mb_in_slice / (unsigned)ctx->t.pic_width_in_mbs;
-	int mbx = (unsigned)ctx->t.first_mb_in_slice % (unsigned)ctx->t.pic_width_in_mbs;
-	ctx->samples_row[0] = ctx->t.samples_base + mby * ctx->t.stride[0] * 16;
-	ctx->samples_row[1] = ctx->t.samples_base + ctx->t.plane_size_Y + mby * ctx->t.stride[1] * 8;
-	ctx->samples_row[2] = ctx->samples_row[1] + ctx->t.plane_size_C;
-	ctx->samples_mb[0] = ctx->samples_row[0] + mbx * 16;
-	ctx->samples_mb[1] = ctx->samples_row[1] + mbx * 8;
-	ctx->samples_mb[2] = ctx->samples_row[2] + mbx * 8;
-	int mb_offset = ctx->t.plane_size_Y + ctx->t.plane_size_C * 2 + sizeof(Edge264Macroblock) * (mbx + mby * (ctx->t.pic_width_in_mbs + 1));
+	ctx->mby = (unsigned)ctx->t.first_mb_in_slice / (unsigned)ctx->t.pic_width_in_mbs;
+	ctx->mbx = (unsigned)ctx->t.first_mb_in_slice % (unsigned)ctx->t.pic_width_in_mbs;
+	ctx->samples_mb[0] = ctx->t.samples_base + (ctx->mbx + ctx->mby * ctx->t.stride[0]) * 16;
+	ctx->samples_mb[1] = ctx->t.samples_base + ctx->t.plane_size_Y + (ctx->mbx + ctx->mby * ctx->t.stride[1]) * 8;
+	ctx->samples_mb[2] = ctx->samples_mb[1] + ctx->t.plane_size_C;
+	int mb_offset = ctx->t.plane_size_Y + ctx->t.plane_size_C * 2 + sizeof(Edge264Macroblock) * (ctx->mbx + ctx->mby * (ctx->t.pic_width_in_mbs + 1));
 	ctx->mbCol = ctx->_mb = (Edge264Macroblock *)(ctx->t.samples_base + mb_offset);
 	ctx->A4x4_int8_v = (i16x16){0, 0, 2, 2, 1, 4, 3, 6, 8, 8, 10, 10, 9, 12, 11, 14};
 	ctx->B4x4_int8_v = (i32x16){0, 1, 0, 1, 4, 5, 4, 5, 2, 3, 8, 9, 6, 7, 12, 13};
@@ -228,25 +227,26 @@ static void *worker_loop(Edge264Decoder *d) {
 		// deblock the rest of mbs in this slice
 		if (c.t.next_deblock_addr >= 0) {
 			c.t.next_deblock_addr = max(c.t.next_deblock_addr, c.t.first_mb_in_slice);
-			int mby = (unsigned)c.t.next_deblock_addr / (unsigned)c.t.pic_width_in_mbs;
-			int mbx = (unsigned)c.t.next_deblock_addr % (unsigned)c.t.pic_width_in_mbs;
-			c.samples_row[0] = c.t.samples_base + mby * c.t.stride[0] * 16;
-			c.samples_mb[0] = c.samples_row[0] + mbx * 16;
-			c.samples_mb[1] = c.t.samples_base + c.t.plane_size_Y + mby * c.t.stride[1] * 8 + mbx * 8;
+			c.mby = (unsigned)c.t.next_deblock_addr / (unsigned)c.t.pic_width_in_mbs;
+			c.mbx = (unsigned)c.t.next_deblock_addr % (unsigned)c.t.pic_width_in_mbs;
+			c.samples_mb[0] = c.t.samples_base + (c.mbx + c.mby * c.t.stride[0]) * 16;
+			c.samples_mb[1] = c.t.samples_base + c.t.plane_size_Y + (c.mbx + c.mby * c.t.stride[1]) * 8;
 			c.samples_mb[2] = c.samples_mb[1] + c.t.plane_size_C;
-			mb = (Edge264Macroblock *)(c.t.samples_base + c.t.plane_size_Y + c.t.plane_size_C * 2) + mbx + mby * (c.t.pic_width_in_mbs + 1);
+			mb = (Edge264Macroblock *)(c.t.samples_base + c.t.plane_size_Y + c.t.plane_size_C * 2) + c.mbx + c.mby * (c.t.pic_width_in_mbs + 1);
 			while (c.t.next_deblock_addr < c.CurrMbAddr) {
 				CALL_CTX(deblock_mb);
 				c.t.next_deblock_addr++;
 				mb++;
+				c.mbx++;
 				c.samples_mb[0] += 16;
 				c.samples_mb[1] += 8;
 				c.samples_mb[2] += 8;
-				if (c.samples_mb[0] - c.samples_row[0] >= c.t.stride[0]) {
+				if (c.mbx >= c.t.pic_width_in_mbs) {
 					mb++;
-					c.samples_mb[0] = c.samples_row[0] += c.t.stride[0] * 16;
-					c.samples_mb[1] += c.t.stride[1] * 7;
-					c.samples_mb[2] += c.t.stride[1] * 7;
+					c.mbx = 0;
+					c.samples_mb[0] += c.t.stride[0] * 16 - c.t.pic_width_in_mbs * 16;
+					c.samples_mb[1] += c.t.stride[1] * 8 - c.t.pic_width_in_mbs * 8;
+					c.samples_mb[2] += c.t.stride[1] * 8 - c.t.pic_width_in_mbs * 8;
 				}
 			}
 		}
@@ -266,25 +266,26 @@ static void *worker_loop(Edge264Decoder *d) {
 			c.t.next_deblock_addr = c.d->next_deblock_addr[currPic];
 			c.CurrMbAddr = c.t.pic_width_in_mbs * c.t.pic_height_in_mbs;
 			if ((unsigned)c.t.next_deblock_addr < c.CurrMbAddr) {
-				int mby = (unsigned)c.t.next_deblock_addr / (unsigned)c.t.pic_width_in_mbs;
-				int mbx = (unsigned)c.t.next_deblock_addr % (unsigned)c.t.pic_width_in_mbs;
-				c.samples_row[0] = c.t.samples_base + mby * c.t.stride[0] * 16;
-				c.samples_mb[0] = c.samples_row[0] + mbx * 16;
-				c.samples_mb[1] = c.t.samples_base + c.t.plane_size_Y + mby * c.t.stride[1] * 8 + mbx * 8;
+				c.mby = (unsigned)c.t.next_deblock_addr / (unsigned)c.t.pic_width_in_mbs;
+				c.mbx = (unsigned)c.t.next_deblock_addr % (unsigned)c.t.pic_width_in_mbs;
+				c.samples_mb[0] = c.t.samples_base + (c.mbx + c.mby * c.t.stride[0]) * 16;
+				c.samples_mb[1] = c.t.samples_base + c.t.plane_size_Y + (c.mbx + c.mby * c.t.stride[1]) * 8;
 				c.samples_mb[2] = c.samples_mb[1] + c.t.plane_size_C;
-				mb = (Edge264Macroblock *)(c.t.samples_base + c.t.plane_size_Y + c.t.plane_size_C * 2) + mbx + mby * (c.t.pic_width_in_mbs + 1);
+				mb = (Edge264Macroblock *)(c.t.samples_base + c.t.plane_size_Y + c.t.plane_size_C * 2) + c.mbx + c.mby * (c.t.pic_width_in_mbs + 1);
 				while (c.t.next_deblock_addr < c.CurrMbAddr) {
 					CALL_CTX(deblock_mb);
 					c.t.next_deblock_addr++;
 					mb++;
+					c.mbx++;
 					c.samples_mb[0] += 16;
 					c.samples_mb[1] += 8;
 					c.samples_mb[2] += 8;
-					if (c.samples_mb[0] - c.samples_row[0] >= c.t.stride[0]) {
+					if (c.mbx >= c.t.pic_width_in_mbs) {
 						mb++;
-						c.samples_mb[0] = c.samples_row[0] += c.t.stride[0] * 16;
-						c.samples_mb[1] += c.t.stride[1] * 7;
-						c.samples_mb[2] += c.t.stride[1] * 7;
+						c.mbx = 0;
+						c.samples_mb[0] += c.t.stride[0] * 16 - c.t.pic_width_in_mbs * 16;
+						c.samples_mb[1] += c.t.stride[1] * 8 - c.t.pic_width_in_mbs * 8;
+						c.samples_mb[2] += c.t.stride[1] * 8 - c.t.pic_width_in_mbs * 8;
 					}
 				}
 			}

@@ -1011,28 +1011,27 @@ void noinline FUNC_CTX(decode_inter, int i, int w, int h) {
 	// compute source pointers
 	size_t sstride_Y = ctx->t.stride[0];
 	size_t sstride_C = ctx->t.stride[1];
-	uint8_t *frame_buffer = ctx->t.samples_base;
-	int xInt_Y = ctx->samples_mb[0] - ctx->samples_row[0] + x444[i4x4] + (x >> 2);
-	int xInt_C = ctx->samples_mb[1] - ctx->samples_row[1] + (x444[i4x4] >> 1) + (x >> 3);
-	int yInt_Y = ctx->samples_row[0] - frame_buffer + (y444[i4x4] + (y >> 2)) * sstride_Y;
-	int yInt_C = ctx->samples_row[1] - frame_buffer + ((y444[i4x4] >> 1) + (y >> 3)) * sstride_C;
-	const uint8_t *src_Y = ref + xInt_Y + yInt_Y;
-	const uint8_t *src_Cb = ref + xInt_C + yInt_C;
-	const uint8_t *src_Cr = ref + xInt_C + yInt_C + ctx->t.plane_size_C;
+	int xInt_Y = ctx->mbx * 16 + x444[i4x4] + (x >> 2);
+	int xInt_C = ctx->mbx * 8 + (x444[i4x4] >> 1) + (x >> 3);
+	int yInt_Y = ctx->mby * 16 + y444[i4x4] + (y >> 2);
+	int yInt_C = ctx->mby * 8 + (y444[i4x4] >> 1) + (y >> 3);
+	const uint8_t *src_Y = ref + xInt_Y + yInt_Y * sstride_Y;
+	const uint8_t *src_Cb = ref + xInt_C + yInt_C * sstride_C + ctx->t.plane_size_Y;
+	const uint8_t *src_Cr = src_Cb + ctx->t.plane_size_C;
 	
 	// edge propagation is an annoying but beautiful piece of code
 	int xWide = (x & 7) != 0;
 	int yWide = (y & 7) != 0;
-	if (__builtin_expect((unsigned)xInt_Y - xWide * 2 >= sstride_Y - w + 1 - xWide * 5 ||
-		(unsigned)yInt_Y - sstride_Y * yWide * 2 >= ctx->t.plane_size_Y - (h - 1 + yWide * 5) * sstride_Y, 0))
+	if (__builtin_expect((unsigned)xInt_Y - xWide * 2 >= ctx->t.pic_width_in_mbs * 16 - w + 1 - xWide * 5 ||
+		(unsigned)yInt_Y - yWide * 2 >= ctx->t.pic_height_in_mbs * 16 - h + 1 - yWide * 5, 0))
 	{
 		i8x16 shuf0 = load128(shift_Y_8bit + 15 + clip3(-15, 0, xInt_Y - 2) + clip3(0, 15, xInt_Y + 14 - sstride_Y));
 		i8x16 shuf1 = load128(shift_Y_8bit + 15 + clip3(-15, 0, xInt_Y + 14) + clip3(0, 15, xInt_Y + 30 - sstride_Y));
 		const uint8_t *src0 = ref + clip3(0, sstride_Y - 16, xInt_Y - 2);
 		const uint8_t *src1 = ref + clip3(0, sstride_Y - 16, xInt_Y + 14);
-		yInt_Y -= sstride_Y * 2;
-		for (i8x16 *buf = ctx->edge_buf_v; buf < ctx->edge_buf_v + 10 + h * 2; buf += 2, yInt_Y += sstride_Y) {
-			int c = clip3(0, ctx->t.plane_size_Y - sstride_Y, yInt_Y);
+		yInt_Y -= 2;
+		for (i8x16 *buf = ctx->edge_buf_v; buf < ctx->edge_buf_v + 10 + h * 2; buf += 2, yInt_Y++) {
+			int c = clip3(0, ctx->t.plane_size_Y - sstride_Y, yInt_Y * sstride_Y);
 			buf[0] = shuffle8(load128(src0 + c), shuf0);
 			buf[1] = shuffle8(load128(src1 + c), shuf1);
 		}
@@ -1044,9 +1043,9 @@ void noinline FUNC_CTX(decode_inter, int i, int w, int h) {
 		memcpy(&shuf, shift_C_8bit + 7 + clip3(-7, 0, xInt_C) + clip3(0, 7, xInt_C + 8 - sstride_C), 8);
 		src0 = ref + clip3(0, sstride_C - 8, xInt_C);
 		src1 = ref + clip3(0, sstride_C - 1, xInt_C + 8);
-		for (int j = 0; j <= h >> 1; j++, yInt_C += sstride_C) {
-			int cb = clip3(ctx->t.plane_size_Y, ctx->t.plane_size_Y + ctx->t.plane_size_C - sstride_C, yInt_C);
-			int cr = clip3(ctx->t.plane_size_Y + ctx->t.plane_size_C, ctx->t.plane_size_Y + ctx->t.plane_size_C * 2 - sstride_C, yInt_C + ctx->t.plane_size_C);
+		for (int j = 0; j <= h >> 1; j++, yInt_C++) {
+			int cb = ctx->t.plane_size_Y + clip3(0, ctx->t.plane_size_C - sstride_C, yInt_C * sstride_C);
+			int cr = ctx->t.plane_size_C + cb;
 			memcpy(&v0, src0 + cb, 8);
 			memcpy(&v1, src0 + cr, 8);
 			// each line has 2 writes to support 8px strides

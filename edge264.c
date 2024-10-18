@@ -18,6 +18,8 @@
  * 	_ make reference dependencies be waited in each mb with conditions on minimum values of next_deblock_addr, like ffmpeg does
  * 	_ Windows fallback functions
  * 	_ Switch back convention to never allow CPB past end because of risk of pointer overflow!
+ * 	_ Change edge264_test to avoid counting mmap time in benchmark (check if ffmpeg does it too to be fair)
+ * 	_ fix segfault on videos/geek.264, mvc.264 and shrinkage.264
  * _ Fuzzing and bug hunting
  * 	_ Protect again for possibility of not enough ref frames in RefPicList
  * 	_ fuzz with H26Forge
@@ -187,25 +189,25 @@ static void FUNC_CTX(initialize_context)
 static void *worker_loop(Edge264Decoder *d) {
 	Edge264Context c;
 	SET_CTX(&c);
-	ctx->n_threads = d->n_threads;
-	if (ctx->n_threads)
-		pthread_mutex_lock(&d->lock);
+	c.d = d;
+	c.n_threads = c.d->n_threads;
+	if (c.n_threads)
+		pthread_mutex_lock(&c.d->lock);
 	for (;;) {
-		while (ctx->n_threads && !d->ready_tasks)
-			pthread_cond_wait(&d->task_ready, &d->lock);
-		int task_id = __builtin_ctz(d->ready_tasks); // FIXME arbitrary selection for now
-		int currPic = d->taskPics[task_id];
-		d->pending_tasks &= ~(1 << task_id);
-		d->ready_tasks &= ~(1 << task_id);
-		if (ctx->n_threads) {
-			pthread_mutex_unlock(&d->lock);
-			printf("<h>Thread started decoding frame %d at macroblock %d</h>\n", d->FieldOrderCnt[0][currPic], d->tasks[task_id].first_mb_in_slice);
+		while (c.n_threads && !c.d->ready_tasks)
+			pthread_cond_wait(&c.d->task_ready, &c.d->lock);
+		int task_id = __builtin_ctz(c.d->ready_tasks); // FIXME arbitrary selection for now
+		c.d->pending_tasks &= ~(1 << task_id);
+		c.d->ready_tasks &= ~(1 << task_id);
+		if (c.n_threads) {
+			pthread_mutex_unlock(&c.d->lock);
+			printf("<h>Thread started decoding frame %d at macroblock %d</h>\n", c.d->FieldOrderCnt[0][c.d->taskPics[task_id]], c.d->tasks[task_id].first_mb_in_slice);
 		}
-		ctx->t = d->tasks[task_id];
+		c.t = c.d->tasks[task_id];
 		CALL_CTX(initialize_context);
 		size_t ret = 0;
-		if (!ctx->t.pps.entropy_coding_mode_flag) {
-			ctx->mb_skip_run = -1;
+		if (!c.t.pps.entropy_coding_mode_flag) {
+			c.mb_skip_run = -1;
 			CALL_CTX(parse_slice_data_cavlc);
 			// FIXME detect and signal error
 		} else {
@@ -214,92 +216,99 @@ static void *worker_loop(Edge264Decoder *d) {
 				ret = EBADMSG; // FIXME error_flag
 			} else {
 				CALL_CTX(cabac_init);
-				ctx->mb_qp_delta_nz = 0;
+				c.mb_qp_delta_nz = 0;
 				CALL_CTX(parse_slice_data_cabac);
 				// the possibility of cabac_zero_word implies we should not expect a start code yet
-				if (ctx->t._gb.msb_cache != 0 || (ctx->t._gb.lsb_cache & (ctx->t._gb.lsb_cache - 1))) {
+				if (c.t._gb.msb_cache != 0 || (c.t._gb.lsb_cache & (c.t._gb.lsb_cache - 1))) {
 					ret = EBADMSG; // FIXME error_flag
 				}
 			}
 		}
 		
 		// deblock the rest of mbs in this slice
-		if (ctx->t.next_deblock_addr >= 0) {
-			ctx->t.next_deblock_addr = max(ctx->t.next_deblock_addr, ctx->t.first_mb_in_slice);
-			int mby = (unsigned)ctx->t.next_deblock_addr / (unsigned)ctx->t.pic_width_in_mbs;
-			int mbx = (unsigned)ctx->t.next_deblock_addr % (unsigned)ctx->t.pic_width_in_mbs;
-			ctx->samples_row[0] = ctx->t.samples_base + mby * ctx->t.stride[0] * 16;
-			ctx->samples_mb[0] = ctx->samples_row[0] + mbx * 16;
-			ctx->samples_mb[1] = ctx->t.samples_base + ctx->t.plane_size_Y + mby * ctx->t.stride[1] * 8 + mbx * 8;
-			ctx->samples_mb[2] = ctx->samples_mb[1] + ctx->t.plane_size_C;
-			mb = (Edge264Macroblock *)(ctx->t.samples_base + ctx->t.plane_size_Y + ctx->t.plane_size_C * 2) + mbx + mby * (ctx->t.pic_width_in_mbs + 1);
-			while (ctx->t.next_deblock_addr < ctx->CurrMbAddr) {
+		if (c.t.next_deblock_addr >= 0) {
+			c.t.next_deblock_addr = max(c.t.next_deblock_addr, c.t.first_mb_in_slice);
+			int mby = (unsigned)c.t.next_deblock_addr / (unsigned)c.t.pic_width_in_mbs;
+			int mbx = (unsigned)c.t.next_deblock_addr % (unsigned)c.t.pic_width_in_mbs;
+			c.samples_row[0] = c.t.samples_base + mby * c.t.stride[0] * 16;
+			c.samples_mb[0] = c.samples_row[0] + mbx * 16;
+			c.samples_mb[1] = c.t.samples_base + c.t.plane_size_Y + mby * c.t.stride[1] * 8 + mbx * 8;
+			c.samples_mb[2] = c.samples_mb[1] + c.t.plane_size_C;
+			mb = (Edge264Macroblock *)(c.t.samples_base + c.t.plane_size_Y + c.t.plane_size_C * 2) + mbx + mby * (c.t.pic_width_in_mbs + 1);
+			while (c.t.next_deblock_addr < c.CurrMbAddr) {
 				CALL_CTX(deblock_mb);
-				ctx->t.next_deblock_addr++;
+				c.t.next_deblock_addr++;
 				mb++;
-				ctx->samples_mb[0] += 16;
-				ctx->samples_mb[1] += 8;
-				ctx->samples_mb[2] += 8;
-				if (ctx->samples_mb[0] - ctx->samples_row[0] >= ctx->t.stride[0]) {
+				c.samples_mb[0] += 16;
+				c.samples_mb[1] += 8;
+				c.samples_mb[2] += 8;
+				if (c.samples_mb[0] - c.samples_row[0] >= c.t.stride[0]) {
 					mb++;
-					ctx->samples_mb[0] = ctx->samples_row[0] += ctx->t.stride[0] * 16;
-					ctx->samples_mb[1] += ctx->t.stride[1] * 7;
-					ctx->samples_mb[2] += ctx->t.stride[1] * 7;
+					c.samples_mb[0] = c.samples_row[0] += c.t.stride[0] * 16;
+					c.samples_mb[1] += c.t.stride[1] * 7;
+					c.samples_mb[2] += c.t.stride[1] * 7;
 				}
 			}
-			if (d->next_deblock_addr[currPic] == ctx->t.first_mb_in_slice)
-				d->next_deblock_addr[currPic] = ctx->CurrMbAddr;
+		}
+		
+		// update d->next_deblock_addr, considering it might have reached first_mb_in_slice since start
+		int currPic = c.d->taskPics[task_id];
+		if (c.d->next_deblock_addr[currPic] >= c.t.first_mb_in_slice &&
+		    !(c.t.disable_deblocking_filter_idc == 0 && c.t.next_deblock_addr < 0)) {
+			c.d->next_deblock_addr[currPic] = c.CurrMbAddr;
+			pthread_cond_broadcast(&c.d->task_progress);
 		}
 		
 		// deblock the rest of the frame if all mbs have been decoded
 		__atomic_thread_fence(__ATOMIC_SEQ_CST); // ensures the next line implies the frame was decoded and deblocked in memory
-		int remaining_mbs = __atomic_sub_fetch(d->remaining_mbs + currPic, ctx->CurrMbAddr - ctx->t.first_mb_in_slice, __ATOMIC_SEQ_CST);
+		int remaining_mbs = __atomic_sub_fetch(c.d->remaining_mbs + currPic, c.CurrMbAddr - c.t.first_mb_in_slice, __ATOMIC_SEQ_CST);
 		if (remaining_mbs == 0) {
-			ctx->t.next_deblock_addr = d->next_deblock_addr[currPic];
-			ctx->CurrMbAddr = ctx->t.pic_width_in_mbs * ctx->t.pic_height_in_mbs;
-			if ((unsigned)ctx->t.next_deblock_addr < ctx->CurrMbAddr) {
-				int mby = (unsigned)ctx->t.next_deblock_addr / (unsigned)ctx->t.pic_width_in_mbs;
-				int mbx = (unsigned)ctx->t.next_deblock_addr % (unsigned)ctx->t.pic_width_in_mbs;
-				ctx->samples_row[0] = ctx->t.samples_base + mby * ctx->t.stride[0] * 16;
-				ctx->samples_mb[0] = ctx->samples_row[0] + mbx * 16;
-				ctx->samples_mb[1] = ctx->t.samples_base + ctx->t.plane_size_Y + mby * ctx->t.stride[1] * 8 + mbx * 8;
-				ctx->samples_mb[2] = ctx->samples_mb[1] + ctx->t.plane_size_C;
-				mb = (Edge264Macroblock *)(ctx->t.samples_base + ctx->t.plane_size_Y + ctx->t.plane_size_C * 2) + mbx + mby * (ctx->t.pic_width_in_mbs + 1);
-				while (ctx->t.next_deblock_addr < ctx->CurrMbAddr) {
+			c.t.next_deblock_addr = c.d->next_deblock_addr[currPic];
+			c.CurrMbAddr = c.t.pic_width_in_mbs * c.t.pic_height_in_mbs;
+			if ((unsigned)c.t.next_deblock_addr < c.CurrMbAddr) {
+				int mby = (unsigned)c.t.next_deblock_addr / (unsigned)c.t.pic_width_in_mbs;
+				int mbx = (unsigned)c.t.next_deblock_addr % (unsigned)c.t.pic_width_in_mbs;
+				c.samples_row[0] = c.t.samples_base + mby * c.t.stride[0] * 16;
+				c.samples_mb[0] = c.samples_row[0] + mbx * 16;
+				c.samples_mb[1] = c.t.samples_base + c.t.plane_size_Y + mby * c.t.stride[1] * 8 + mbx * 8;
+				c.samples_mb[2] = c.samples_mb[1] + c.t.plane_size_C;
+				mb = (Edge264Macroblock *)(c.t.samples_base + c.t.plane_size_Y + c.t.plane_size_C * 2) + mbx + mby * (c.t.pic_width_in_mbs + 1);
+				while (c.t.next_deblock_addr < c.CurrMbAddr) {
 					CALL_CTX(deblock_mb);
-					ctx->t.next_deblock_addr++;
+					c.t.next_deblock_addr++;
 					mb++;
-					ctx->samples_mb[0] += 16;
-					ctx->samples_mb[1] += 8;
-					ctx->samples_mb[2] += 8;
-					if (ctx->samples_mb[0] - ctx->samples_row[0] >= ctx->t.stride[0]) {
+					c.samples_mb[0] += 16;
+					c.samples_mb[1] += 8;
+					c.samples_mb[2] += 8;
+					if (c.samples_mb[0] - c.samples_row[0] >= c.t.stride[0]) {
 						mb++;
-						ctx->samples_mb[0] = ctx->samples_row[0] += ctx->t.stride[0] * 16;
-						ctx->samples_mb[1] += ctx->t.stride[1] * 7;
-						ctx->samples_mb[2] += ctx->t.stride[1] * 7;
+						c.samples_mb[0] = c.samples_row[0] += c.t.stride[0] * 16;
+						c.samples_mb[1] += c.t.stride[1] * 7;
+						c.samples_mb[2] += c.t.stride[1] * 7;
 					}
 				}
 			}
-			d->next_deblock_addr[currPic] = INT_MAX; // signals the frame is complete
+			c.d->next_deblock_addr[currPic] = INT_MAX; // signals the frame is complete
 		}
 		
 		// update the task queue
-		if (ctx->n_threads) {
-			printf("<h>Thread finished decoding frame %d at macroblock %d</h>\n", d->FieldOrderCnt[0][currPic], ctx->t.first_mb_in_slice);
-			pthread_mutex_lock(&d->lock);
-			pthread_cond_signal(&d->task_complete);
+		if (c.n_threads) {
+			printf("<h>Thread finished decoding frame %d at macroblock %d</h>\n", c.d->FieldOrderCnt[0][currPic], c.t.first_mb_in_slice);
+			pthread_mutex_lock(&c.d->lock);
+			pthread_cond_signal(&c.d->task_complete);
 			if (remaining_mbs == 0) {
-				d->ready_tasks = ready_tasks(d);
-				for (int i = 0; i < __builtin_popcount(d->ready_tasks) - 1; i++)
-					pthread_cond_signal(&d->task_ready);
+				pthread_cond_broadcast(&c.d->task_progress);
+				c.d->ready_tasks = ready_tasks(d);
+				if (c.d->ready_tasks)
+					pthread_cond_broadcast(&c.d->task_ready);
 			}
 		}
-		if (ctx->t.free_cb)
-			ctx->t.free_cb(ctx->t.free_arg, (int)ret);
-		d->busy_tasks &= ~(1 << task_id);
-		d->task_dependencies[task_id] = 0;
-		d->taskPics[task_id] = -1;
-		if (!ctx->n_threads) // single iteration if single-threaded
+		if (c.t.free_cb)
+			c.t.free_cb(c.t.free_arg, (int)ret);
+		c.d->busy_tasks &= ~(1 << task_id);
+		c.d->task_dependencies[task_id] = 0;
+		c.d->taskPics[task_id] = -1;
+		if (!c.n_threads) // single iteration if single-threaded
 			return (void *)ret;
 	}
 	RESET_CTX();
@@ -635,6 +644,8 @@ static void FUNC_DEC(initialize_task, Edge264Task *t)
 	t->stride[1] = t->stride[2] = dec->out.stride_C;
 	t->plane_size_Y = dec->plane_size_Y;
 	t->plane_size_C = dec->plane_size_C;
+	t->next_deblock_idc = (dec->next_deblock_addr[dec->currPic] == t->first_mb_in_slice &&
+		dec->nal_ref_idc) ? dec->currPic : -1;
 	t->next_deblock_addr = (dec->next_deblock_addr[dec->currPic] == t->first_mb_in_slice ||
 		t->disable_deblocking_filter_idc == 2) ? t->first_mb_in_slice : INT_MIN;
 	t->long_term_flags = dec->long_term_flags;
@@ -865,6 +876,7 @@ static int FUNC_DEC(parse_slice_layer_without_partitioning, int non_blocking, vo
 		if (dec->frame_buffers[dec->currPic] == NULL && CALL_DEC(alloc_frame, dec->currPic))
 			return ENOMEM;
 		dec->remaining_mbs[dec->currPic] = dec->sps.pic_width_in_mbs * dec->sps.pic_height_in_mbs;
+		dec->next_deblock_addr[dec->currPic] = 0;
 		dec->FrameNums[dec->currPic] = dec->FrameNum;
 		dec->FieldOrderCnt[0][dec->currPic] = dec->TopFieldOrderCnt;
 		dec->FieldOrderCnt[1][dec->currPic] = dec->BottomFieldOrderCnt;
@@ -948,7 +960,6 @@ static int FUNC_DEC(parse_slice_layer_without_partitioning, int non_blocking, vo
 			if (!((dec->pic_reference_flags | dec->reference_flags & ~view_mask) & to_output))
 				dec->dispPicOrderCnt = dec->FieldOrderCnt[0][dec->currPic]; // make all frames with lower POCs ready for output
 		}
-		dec->next_deblock_addr[dec->currPic] = t->disable_deblocking_filter_idc == 0 ? 0 : INT_MIN;
 		#ifdef TRACE
 			printf("<k>updated DPB (FrameNum/PicOrderCnt)</k><v><small>");
 			for (int i = 0; i < dec->sps.num_frame_buffers; i++) {
@@ -970,12 +981,10 @@ static int FUNC_DEC(parse_slice_layer_without_partitioning, int non_blocking, vo
 	dec->task_dependencies[task_id] = refs_to_mask(t);
 	dec->ready_tasks |= ((dec->task_dependencies[task_id] & ~ready_frames(dec)) == 0) << task_id;
 	dec->taskPics[task_id] = dec->currPic;
-	int res = (t->disable_deblocking_filter_idc > 0) != (dec->next_deblock_addr[dec->currPic] < 0) ? ENOTSUP : 0;
-	if (dec->n_threads)
-		pthread_cond_signal(&dec->task_ready);
-	else if (worker_loop(dec))
-		res = EBADMSG;
-	return res;
+	if (!dec->n_threads)
+		return (size_t)worker_loop(dec);
+	pthread_cond_signal(&dec->task_ready);
+	return 0;
 }
 
 
@@ -1175,7 +1184,7 @@ static int FUNC_DEC(parse_pic_parameter_set, int non_blocking,  void(*free_cb)(v
 			printf("<k>ScalingList8x8</k><v><small>");
 			for (int i = 0; i < (dec->sps.chroma_format_idc < 3 ? 2 : 6); i++) {
 				for (int j = 0; j < 64; j++)
-					printf("%u%s", pps.weightScale8x8[i][((int8_t *)scan_8x8_cabac)[j]], (j < 63) ? ", " : (i < 5) ? "<br>" : "</small></v>\n");
+					printf("%u%s", pps.weightScale8x8[i][((int8_t *)scan_8x8_cabac)[j]], (j < 63) ? ", " : (i < (dec->sps.chroma_format_idc < 3 ? 1 : 5)) ? "<br>" : "</small></v>\n");
 			}
 		}
 		pps.second_chroma_qp_index_offset = CALL_D2B(get_se16, -12, 12);
@@ -1588,7 +1597,7 @@ static int FUNC_DEC(parse_seq_parameter_set, int non_blocking, void(*free_cb)(vo
 		printf("<k>ScalingList8x8%s</k><v><small>", (seq_scaling_matrix_present_flag) ? "" : " (inferred)");
 		for (int i = 0; i < (sps.chroma_format_idc < 3 ? 2 : 6); i++) {
 			for (int j = 0; j < 64; j++)
-				printf("%u%s", sps.weightScale8x8[i][((int8_t *)scan_8x8_cabac)[j]], (j < 63) ? ", " : (i < 5) ? "<br>" : "</small></v>\n");
+				printf("%u%s", sps.weightScale8x8[i][((int8_t *)scan_8x8_cabac)[j]], (j < 63) ? ", " : (i < (dec->sps.chroma_format_idc < 3 ? 1 : 5)) ? "<br>" : "</small></v>\n");
 		}
 	}
 	
@@ -1796,19 +1805,22 @@ Edge264Decoder *edge264_alloc(int n_threads) {
 			return d;
 		if (pthread_mutex_init(&d->lock, NULL) == 0) {
 			if (pthread_cond_init(&d->task_ready, NULL) == 0) {
-				if (pthread_cond_init(&d->task_complete, NULL) == 0) {
-					if (n_threads < 0)
-						n_threads = min(sysconf(_SC_NPROCESSORS_ONLN), 16);
-					d->n_threads = n_threads;
-					int i = 0;
-					while (i < n_threads && pthread_create(&d->threads[i], NULL, (void*(*)(void*))worker_loop, d) == 0)
-						i++;
-					if (i == n_threads) {
-						return d;
+				if (pthread_cond_init(&d->task_progress, NULL) == 0) {
+					if (pthread_cond_init(&d->task_complete, NULL) == 0) {
+						if (n_threads < 0)
+							n_threads = min(sysconf(_SC_NPROCESSORS_ONLN), 16);
+						d->n_threads = n_threads;
+						int i = 0;
+						while (i < n_threads && pthread_create(&d->threads[i], NULL, (void*(*)(void*))worker_loop, d) == 0)
+							i++;
+						if (i == n_threads) {
+							return d;
+						}
+						while (i-- > 0)
+							pthread_cancel(d->threads[i]);
+						pthread_cond_destroy(&d->task_complete);
 					}
-					while (i-- > 0)
-						pthread_cancel(d->threads[i]);
-					pthread_cond_destroy(&d->task_complete);
+					pthread_cond_destroy(&d->task_progress);
 				}
 				pthread_cond_destroy(&d->task_ready);
 			}
@@ -1854,6 +1866,7 @@ void edge264_free(Edge264Decoder **d) {
 				pthread_cancel(dec->threads[i]);
 			pthread_mutex_destroy(&dec->lock);
 			pthread_cond_destroy(&dec->task_ready);
+			pthread_cond_destroy(&dec->task_progress);
 			pthread_cond_destroy(&dec->task_complete);
 		}
 		for (int i = 0; i < 32; i++) {

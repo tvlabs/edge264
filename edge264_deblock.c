@@ -385,6 +385,7 @@ static noinline void FUNC_CTX(deblock_CbCr_8bit, size_t stride, ssize_t nstride,
 		*(int64_t *)(Cb0 + nstride    ) = ((i64x2)hZ)[0];
 		*(int64_t *)(Cr0 + nstride    ) = ((i64x2)hZ)[1];
 	}
+	mb->f.filter_edges = 0; // prevent redundant deblocking with deblock_idc==2 and ASO
 	*(int64_t *)(Cb0              ) = ((i64x2)h0)[0];
 	*(int64_t *)(Cr0              ) = ((i64x2)h0)[1];
 	*(int64_t *)(Cb0 +  stride    ) = ((i64x2)h1)[0];
@@ -821,6 +822,8 @@ noinline void FUNC_CTX(deblock_mb)
 		{-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 2, 2, 2, 2, 3, 3, 3, 4, 4, 5, 5, 6, 7, 8, 8, 10, 11, 12, 13, 15, 17},
 		{-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 2, 2, 2, 2, 3, 3, 3, 4, 4, 4, 5, 6, 6, 7, 8, 9, 10, 11, 13, 14, 16, 18, 20, 23, 25},
 	};
+	if (!mb->f.filter_edges)
+		return;
 	
 	// compute all values of indexA and indexB for each of the color planes first
 	mbA = mb - 1;

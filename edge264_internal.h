@@ -189,6 +189,7 @@ typedef struct {
 	int8_t ChromaArrayType; // 0..3
 	int8_t direct_8x8_inference_flag; // 0..1
 	int8_t cabac_init_idc; // 0..3
+	int8_t next_deblock_idc; // -1..31, -1 if next_deblock_addr is not written back to dec, currPic otherwise
 	uint16_t pic_width_in_mbs; // 0..1023
 	uint16_t pic_height_in_mbs; // 0..1055
 	uint16_t stride[3]; // 0..65472 (at max width, 16bit & field pic), [iYCbCr]
@@ -231,6 +232,7 @@ typedef struct Edge264Context {
 	const Edge264Macroblock * _mbC; // backup storage for macro mbC
 	const Edge264Macroblock * _mbD; // backup storage for macro mbD
 	const Edge264Macroblock *mbCol;
+	Edge264Decoder *d;
 	Edge264Flags inc; // increments for CABAC indices of macroblock syntax elements
 	union { int8_t unavail4x4[16]; i8x16 unavail4x4_v; }; // unavailability of neighbouring A/B/C/D blocks
 	union { int8_t nC_inc[3][16]; i8x16 nC_inc_v[3]; }; // stores the intra/inter default increment from unavailable neighbours (9.3.3.1.1.9)
@@ -315,6 +317,7 @@ typedef struct Edge264Decoder {
 	// fields accessed concurrently from multiple threads
 	pthread_mutex_t lock;
 	pthread_cond_t task_ready;
+	pthread_cond_t task_progress; // signals next_deblock_addr has been updated
 	pthread_cond_t task_complete;
 	uint16_t busy_tasks; // bitmask for tasks that are either pending or processed in a thread
 	uint16_t pending_tasks;

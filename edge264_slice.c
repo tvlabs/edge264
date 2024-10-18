@@ -1611,8 +1611,8 @@ static noinline void CAFUNC(parse_slice_data)
 		
 		// set and reset neighbouring pointers depending on their availability
 		int x = ctx->samples_mb[0] - ctx->samples_row[0];
-		int y = ctx->samples_row[0] - ctx->t.samples_base; // FIXME remove after filter_edges is reviewed
-		int unavail16x16 = (x == 0 ? 9 : x == ctx->t.pic_width_in_mbs * 16 - 16 ? 4 : 0) | (y == 0 ? 14 : 0);
+		int y = ctx->samples_row[0] - ctx->t.samples_base;
+		int unavail16x16 = (x == 0 ? 9 : 0) | (x == ctx->t.pic_width_in_mbs * 16 - 16) << 2 | (y == 0 ? 14 : 0);
 		int filter_edges = ~unavail16x16;
 		mbA = mb - 1;
 		mbB = mbA - ctx->t.pic_width_in_mbs;
@@ -1707,7 +1707,8 @@ static noinline void CAFUNC(parse_slice_data)
 		ctx->unavail4x4_v = block_unavailability[unavail16x16];
 		ctx->inc.v = fA + fB + (fB & flags_twice.v);
 		mb->f.v = (i8x16){};
-		mb->f.filter_edges = filter_edges;
+		if (ctx->t.disable_deblocking_filter_idc != 1)
+			mb->f.filter_edges = filter_edges;
 		mb->QP_s = ctx->t.QP_s;
 		if (ctx->t.ChromaArrayType == 1) { // FIXME 4:2:2
 			mb->bits_l = (bitsA >> 3 & 0x11111100111111) | (bitsB >> 1 & 0x42424200424242);
@@ -1757,6 +1758,13 @@ static noinline void CAFUNC(parse_slice_data)
 			ctx->samples_mb[0] = ctx->samples_row[0] += ctx->t.stride[0] * 16;
 			ctx->samples_mb[1] = ctx->samples_row[1] += ctx->t.stride[1] * 8; // FIXME 4:2:2
 			ctx->samples_mb[2] = ctx->samples_row[2] += ctx->t.stride[1] * 8;
+			if (ctx->t.next_deblock_idc >= 0) {
+				__atomic_thread_fence(__ATOMIC_SEQ_CST); // ensures the next line implies the frame was deblocked up to next_deblock_addr
+				ctx->d->next_deblock_addr[ctx->t.next_deblock_idc] =
+					(ctx->t.disable_deblocking_filter_idc != 1) ? ctx->t.next_deblock_addr : ctx->CurrMbAddr;
+				// not locking mutex here is fine since the last progress broadcast will lock it
+				pthread_cond_broadcast(&ctx->d->task_progress);
+			}
 			if (ctx->samples_row[0] - ctx->t.samples_base >= ctx->t.plane_size_Y)
 				break;
 		}

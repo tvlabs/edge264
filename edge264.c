@@ -1,7 +1,10 @@
 /** MAYDO:
  * _ Multithreading
+ * 	_ measure the time it takes to decode each type of slice
+ * 	_ initialize next_deblock_idc at context_init rather than task to catch the latest nda value
  * 	_ make tasks start without waiting for availabilities, and wait inside all separate mv parsers
  * 	_ progressively replace waits with per-mb waits
+ * 	_ limit n_threads and inferred CPUs to 16
  * 	_ remove taskPic now to remove a source of false sharing
  * 	_ try to improve parallel decoding of frames with disable_deblocking_idc==2
  * 	_ Update DPB availability checks to take deps into account, and make sure we wait until there is a frame ready before returning -2
@@ -35,7 +38,6 @@
  * 	_ set COLD and hot functions
  * 	_ try vectorizing loops on get_ae with movemask trick, starting with residual block parsing
  * 	_ Group dec fields by frequency of accesses and force them manually into L1/L2/L3
- * 	_ Add an offset to stride to counter cache alignment issues
  * 	_ store Cb & Cr by interleaving rows instead of separate planes (check it does not overflow stride for future 4:2:2)
  * 	_ try combining clang and gcc over decoding and parsing
  * 	_ merge Cb and Cr functions in inter to reduce jumps and mutualize vectors
@@ -1730,16 +1732,18 @@ static int FUNC_DEC(parse_seq_parameter_set, int non_blocking, void(*free_cb)(vo
 		dec->out.width_Y = width - dec->out.frame_crop_offsets[3] - dec->out.frame_crop_offsets[1];
 		dec->out.height_Y = height - dec->out.frame_crop_offsets[0] - dec->out.frame_crop_offsets[2];
 		dec->out.stride_Y = width << dec->out.pixel_depth_Y;
+		if (!(dec->out.stride_Y & 2047)) // add an offset to stride if it is a multiple of 2048
+			dec->out.stride_Y += 16 << dec->out.pixel_depth_Y;
 		dec->plane_size_Y = dec->out.stride_Y * height;
 		if (sps.chroma_format_idc > 0) {
 			dec->out.pixel_depth_C = sps.BitDepth_C > 8;
 			dec->out.width_C = sps.chroma_format_idc == 3 ? dec->out.width_Y : dec->out.width_Y >> 1;
 			dec->out.stride_C = (sps.chroma_format_idc == 3 ? width : width >> 1) << dec->out.pixel_depth_C;
+			if (!(dec->out.stride_C & 4095)) // add an offset to stride if it is a multiple of 4096
+				dec->out.stride_C += (sps.chroma_format_idc == 3 ? 16 : 8) << dec->out.pixel_depth_C;
 			dec->out.height_C = sps.chroma_format_idc == 1 ? dec->out.height_Y >> 1 : dec->out.height_Y;
 			dec->plane_size_C = (sps.chroma_format_idc == 1 ? height >> 1 : height) * dec->out.stride_C;
 		}
-		dec->out.samples[0] = dec->out.samples[1] = dec->out.samples[2] = NULL;
-		dec->out.samples_mvc[0] = dec->out.samples_mvc[1] = dec->out.samples_mvc[2] = NULL;
 		int mbs = (sps.pic_width_in_mbs + 1) * sps.pic_height_in_mbs - 1;
 		dec->frame_size = dec->plane_size_Y + dec->plane_size_C * 2 + mbs * sizeof(Edge264Macroblock);
 		dec->currPic = dec->basePic = -1;
@@ -2047,12 +2051,13 @@ int edge264_get_frame(Edge264Decoder *d, Edge264Frame *out, int borrow) {
 		*out = dec->out;
 		int top = dec->out.frame_crop_offsets[0];
 		int left = dec->out.frame_crop_offsets[3];
+		int offY = top * dec->out.stride_Y + (left << dec->out.pixel_depth_Y);
 		int topC = dec->sps.chroma_format_idc == 3 ? top : top >> 1;
 		int leftC = dec->sps.chroma_format_idc == 1 ? left >> 1 : left;
 		int offC = dec->plane_size_Y + topC * dec->out.stride_C + (leftC << dec->out.pixel_depth_C);
 		dec->output_flags ^= 1 << pic[0];
 		const uint8_t *samples = dec->frame_buffers[pic[0]];
-		out->samples[0] = samples + top * dec->out.stride_Y + (left << dec->out.pixel_depth_Y);
+		out->samples[0] = samples + offY;
 		out->samples[1] = samples + offC;
 		out->samples[2] = samples + dec->plane_size_C + offC;
 		out->TopFieldOrderCnt = best << 6 >> 6;
@@ -2061,7 +2066,7 @@ int edge264_get_frame(Edge264Decoder *d, Edge264Frame *out, int borrow) {
 		if (pic[1] >= 0) {
 			dec->output_flags ^= 1 << pic[1];
 			samples = dec->frame_buffers[pic[1]];
-			out->samples_mvc[0] = samples + top * dec->out.stride_Y + (left << dec->out.pixel_depth_Y);
+			out->samples_mvc[0] = samples + offY;
 			out->samples_mvc[1] = samples + offC;
 			out->samples_mvc[2] = samples + dec->plane_size_C + offC;
 			out->return_arg = (void *)((size_t)1 << pic[0] | (size_t)1 << pic[1]);

@@ -1,9 +1,7 @@
 .RECIPEPREFIX := > # don't use tabs for recipes, only cosmetic indent
+CFLAGS += -std=gnu11 -march=native -O3 -flax-vector-conversions -pthread
 OS ?= $(shell uname)
-WHICH := $(if $(filter Windows_NT,$(OS)),where.exe 2>$$null,which)
-
-override CFLAGS := -std=gnu11 -march=native -O3 -flax-vector-conversions $(CFLAGS)
-# override CFLAGS := -std=gnu11 -march=native -g -fsanitize=address -fno-omit-frame-pointer -flax-vector-conversions $(CFLAGS)
+WHICH := $(if $(filter Windows_NT,$(OS)),where.exe 2>nul,which)
 
 # choose a compiler
 ifdef CC
@@ -19,22 +17,28 @@ else ifneq ($(shell $(WHICH) gcc),)
 	CC := gcc # last pick is any other version of gcc
 endif
 
+# find SDL2
+SDL2 := $(shell pkg-config --cflags --static --libs --silence-errors sdl2)
+ifeq ($(SDL2),)
+	SDL2_DIR := SDL2
+	ifeq ($(OS),Windows_NT)
+		SDL2 := -I$(SDL2_DIR)/include -L$(SDL2_DIR)/lib -lmingw32 -lSDL2main -lSDL2
+	endif
+endif
+
+# set suffixes
 ifdef TRACE
 	override CFLAGS := -DTRACE=$(TRACE) $(CFLAGS)
 	SUF := -trace$(TRACE)
 endif
+EXE := $(if $(filter Windows_NT,$(OS)),.exe,)
 
-# point to GLFW3
-GLFW3 := $(shell pkg-config --cflags --static glfw3)
-ifeq ($(OS),Darwin)
-	GLFW3 += -lglfw -framework Cocoa -framework IOKit -framework CoreFoundation -framework OpenGL
-else ifeq ($(OS),Windows_NT)
-	GLFW3 += -lgdi32 -lopengl32
-endif
+# rules
+edge264_test$(SUF)$(EXE): edge264_test.c edge264.h edge264$(SUF).o Makefile
+>	$(CC) edge264_test.c edge264$(SUF).o $(CFLAGS) $(SDL2) -o edge264_test$(SUF)$(EXE)
 
-edge264_test$(SUF): edge264*.c edge264*.h Makefile
->	$(CC) -c -o edge264$(SUF).o $(CFLAGS) edge264.c
->	$(CC) -o edge264_test$(SUF) $(CFLAGS) $(GLFW3) edge264_test.c edge264$(SUF).o
+edge264$(SUF).o: edge264*.c edge264*.h Makefile
+>	$(CC) edge264.c -c $(CFLAGS) -o edge264$(SUF).o
 
 .PHONY: clean clear
 clean clear:

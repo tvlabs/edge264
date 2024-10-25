@@ -5,16 +5,13 @@
 #include <string.h>
 #include <time.h>
 #include <sys/stat.h>
-#define GL_SILENCE_DEPRECATION // for macOS 10.14 and later
-#define GLFW_INCLUDE_GLEXT
-#include <GLFW/glfw3.h>
+#include <SDL2/SDL.h>
 
 // quick and dirty mmap fallback
 #ifdef _WIN32
 	#include <windows.h>
 	#include <psapi.h>
 	#define open(filename, flags) (ssize_t)CreateFileA(filename, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_READONLY, NULL)
-	#define fstat(fd, buf) ((void)0)
 	// the mapping handle won't be freed until application exit but that's fine for testing
 	#define mmap(addr, length, prot, flags, fd, offset) MapViewOfFile(CreateFileMappingA((HANDLE)fd, NULL, PAGE_READONLY, 0, 0, NULL), FILE_MAP_READ | FILE_MAP_COPY, 0, 0, 0)
 	#define MAP_FAILED NULL
@@ -48,10 +45,10 @@ static int enable_yuv = 1;
 static Edge264Decoder *d;
 static Edge264Frame out;
 static const uint8_t *conf[3];
-static GLFWwindow *window;
+static SDL_Window *window;
+static SDL_Renderer *renderer;
+static SDL_Texture *texture0, *texture1;
 static int width, height, mvc_display;
-static int program0, program1;
-static unsigned textures[6];
 static int count_pass, count_unsup, count_fail, count_flag;
 
 #ifndef min
@@ -69,172 +66,49 @@ static int cmp(const struct dirent **a, const struct dirent **b) {
 
 
 
-static void init_display()
-{
-	static const char* vsource =
-		"attribute vec4 aCoord;"
-		"varying vec2 vTex;"
-		"void main() {"
-			"gl_Position = vec4(aCoord.xy, 0.0, 1.0);"
-			"vTex = aCoord.zw;"
-		"}";
-	static const char* fsource0 =
-		"varying vec2 vTex;"
-		"uniform sampler2D texY0, texCb0, texCr0;"
-		"const mat4 YCbCr_RGB = mat4("
-			" 1.164383,  1.164383,  1.164383, 0.0,"
-			" 0.000000, -0.391762,  2.017232, 0.0,"
-			" 1.596027, -0.812968,  0.000000, 0.0,"
-			"-0.870787,  0.529591, -1.081390, 1.0);"
-		"void main() {"
-			"float Y = texture2D(texY0, vTex).r;"
-			"float Cb = texture2D(texCb0, vTex).r;"
-			"float Cr = texture2D(texCr0, vTex).r;"
-			"gl_FragColor = YCbCr_RGB * vec4(Y, Cb, Cr, 1.0);"
-		"}";
-	static const char* fsource1 =
-		"varying vec2 vTex;"
-		"uniform sampler2D texY0, texCb0, texCr0, texY1, texCb1, texCr1;"
-		"const mat4 YCbCr_RGB = mat4("
-			" 1.164383,  1.164383,  1.164383, 0.0,"
-			" 0.000000, -0.391762,  2.017232, 0.0,"
-			" 1.596027, -0.812968,  0.000000, 0.0,"
-			"-0.870787,  0.529591, -1.081390, 1.0);"
-		"void main() {"
-			"float Y0 = texture2D(texY0, vTex).r;"
-			"float Cb0 = texture2D(texCb0, vTex).r;"
-			"float Cr0 = texture2D(texCr0, vTex).r;"
-			"float Y1 = texture2D(texY1, vTex).r;"
-			"float Cb1 = texture2D(texCb1, vTex).r;"
-			"float Cr1 = texture2D(texCr1, vTex).r;"
-			"gl_FragColor = YCbCr_RGB * (vec4(Y0, Cb0, Cr0, 1.0) * 0.5 + vec4(Y1, Cb1, Cr1, 1.0) * 0.5);"
-		"}";
-	static const float quad[16] = {
-		-1.0,  1.0, 0.0, 0.0,
-		-1.0, -1.0, 0.0, 1.0,
-		 1.0,  1.0, 1.0, 0.0,
-		 1.0, -1.0, 1.0, 1.0};
-	
-	// window and basic GL initializations
-	glfwInit();
-	glfwWindowHint(GLFW_VISIBLE, GLFW_FALSE);
-	window = glfwCreateWindow(1, 1, "Test", NULL, NULL);
-	glfwMakeContextCurrent(window);
-	glfwSwapInterval(1);
-	glClearColor(0.5, 0.5, 0.5, 1);
-	glDisable(GL_DEPTH_TEST);
-	glEnable(GL_MULTISAMPLE);
-	
-	// compile and link the shaders
-	program0 = glCreateProgram();
-	program1 = glCreateProgram();
-	unsigned vshader = glCreateShader(GL_VERTEX_SHADER);
-	unsigned fshader0 = glCreateShader(GL_FRAGMENT_SHADER);
-	unsigned fshader1 = glCreateShader(GL_FRAGMENT_SHADER);
-	glShaderSource(vshader, 1, (const char*const*)&vsource, NULL);
-	glShaderSource(fshader0, 1, (const char*const*)&fsource0, NULL);
-	glShaderSource(fshader1, 1, (const char*const*)&fsource1, NULL);
-	glCompileShader(vshader);
-	glCompileShader(fshader0);
-	glCompileShader(fshader1);
-	glAttachShader(program0, vshader);
-	glAttachShader(program1, vshader);
-	glAttachShader(program0, fshader0);
-	glAttachShader(program1, fshader1);
-	glBindAttribLocation(program0, 0, "aCoord");
-	glBindAttribLocation(program1, 0, "aCoord");
-	glLinkProgram(program0);
-	glLinkProgram(program1);
-	glEnableVertexAttribArray(0);
-	
-	// upload the quad with texture coordinates
-	unsigned vbo;
-	glGenBuffers(1, &vbo);
-	glBindBuffer(GL_ARRAY_BUFFER, vbo);
-	glBufferData(GL_ARRAY_BUFFER, sizeof(quad), quad, GL_STATIC_DRAW);
-	
-	// setup texture units
-	glGenTextures(6, textures);
-	glBindTexture(GL_TEXTURE_2D, textures[0]);
-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
-	glBindTexture(GL_TEXTURE_2D, textures[1]);
-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
-	glBindTexture(GL_TEXTURE_2D, textures[2]);
-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
-	glBindTexture(GL_TEXTURE_2D, textures[3]);
-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
-	glBindTexture(GL_TEXTURE_2D, textures[4]);
-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
-	glBindTexture(GL_TEXTURE_2D, textures[5]);
-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
-}
-
-
-
-static void draw_frame()
+static int draw_frame()
 {
 	// resize the window if necessary
 	int has_second_view = out.samples_mvc[0] != NULL;
 	if (width != out.width_Y || height != out.height_Y || mvc_display != has_second_view) {
+		width = out.width_Y;
+		height = out.height_Y;
 		mvc_display = has_second_view;
-		if (window == NULL)
-			init_display();
-		int program = mvc_display ? program1 : program0;
-		glUseProgram(program);
-		glUniform1i(glGetUniformLocation(program, "texY0"), 0);
-		glUniform1i(glGetUniformLocation(program, "texCb0"), 1);
-		glUniform1i(glGetUniformLocation(program, "texCr0"), 2);
-		if (mvc_display) {
-			glUniform1i(glGetUniformLocation(program, "texY1"), 3);
-			glUniform1i(glGetUniformLocation(program, "texCb1"), 4);
-			glUniform1i(glGetUniformLocation(program, "texCr1"), 5);
+		if (window == NULL) {
+			SDL_Init(SDL_INIT_VIDEO | SDL_INIT_EVENTS);
+			window = SDL_CreateWindow("edge264_test", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, width, height, SDL_WINDOW_SHOWN | SDL_WINDOW_BORDERLESS);
+			renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_ACCELERATED | SDL_RENDERER_PRESENTVSYNC);
+		} else {
+			SDL_SetWindowSize(window, width, height);
+			SDL_SetWindowPosition(window, SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED);
+			SDL_DestroyTexture(texture0);
+			SDL_DestroyTexture(texture1);
 		}
-		glfwSetWindowSize(window, width = out.width_Y, height = out.height_Y);
-		glfwShowWindow(window);
+		texture0 = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_IYUV, SDL_TEXTUREACCESS_STREAMING, width, height);
+		texture1 = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_IYUV, SDL_TEXTUREACCESS_STREAMING, width, height);
+		SDL_SetTextureBlendMode(texture1, SDL_BLENDMODE_BLEND);
+		SDL_SetTextureAlphaMod(texture1, 128);
 	}
 	
-	// upload the image to OpenGL and render!
-	glClear(GL_COLOR_BUFFER_BIT);
-	glVertexAttribPointer(0, 4, GL_FLOAT, GL_FALSE, 0, 0);
-	glPixelStorei(GL_UNPACK_ROW_LENGTH, out.stride_Y);
-	glActiveTexture(GL_TEXTURE0);
-	glBindTexture(GL_TEXTURE_2D, textures[0]);
-	glTexImage2D(GL_TEXTURE_2D, 0, GL_LUMINANCE, out.width_Y >> out.pixel_depth_Y, out.height_Y, 0, GL_LUMINANCE, out.pixel_depth_Y ? GL_UNSIGNED_SHORT : GL_UNSIGNED_BYTE, out.samples[0]);
-	glPixelStorei(GL_UNPACK_ROW_LENGTH, out.stride_C);
-	glActiveTexture(GL_TEXTURE1);
-	glBindTexture(GL_TEXTURE_2D, textures[1]);
-	glTexImage2D(GL_TEXTURE_2D, 0, GL_LUMINANCE, out.width_C >> out.pixel_depth_C, out.height_C, 0, GL_LUMINANCE, out.pixel_depth_C ? GL_UNSIGNED_SHORT : GL_UNSIGNED_BYTE, out.samples[1]);
-	glActiveTexture(GL_TEXTURE2);
-	glBindTexture(GL_TEXTURE_2D, textures[2]);
-	glTexImage2D(GL_TEXTURE_2D, 0, GL_LUMINANCE, out.width_C >> out.pixel_depth_C, out.height_C, 0, GL_LUMINANCE, out.pixel_depth_C ? GL_UNSIGNED_SHORT : GL_UNSIGNED_BYTE, out.samples[2]);
+	// upload the image to a texture and render!
+	SDL_UpdateYUVTexture(texture0, NULL, out.samples[0], out.stride_Y, out.samples[1], out.stride_C, out.samples[2], out.stride_C);
+	SDL_RenderClear(renderer);
+	SDL_RenderCopy(renderer, texture0, NULL, NULL);
 	if (mvc_display) {
-		glPixelStorei(GL_UNPACK_ROW_LENGTH, out.stride_Y);
-		glActiveTexture(GL_TEXTURE3);
-		glBindTexture(GL_TEXTURE_2D, textures[3]);
-		glTexImage2D(GL_TEXTURE_2D, 0, GL_LUMINANCE, out.width_Y >> out.pixel_depth_Y, out.height_Y, 0, GL_LUMINANCE, out.pixel_depth_Y ? GL_UNSIGNED_SHORT : GL_UNSIGNED_BYTE, out.samples_mvc[0]);
-		glPixelStorei(GL_UNPACK_ROW_LENGTH, out.stride_C);
-		glActiveTexture(GL_TEXTURE4);
-		glBindTexture(GL_TEXTURE_2D, textures[4]);
-		glTexImage2D(GL_TEXTURE_2D, 0, GL_LUMINANCE, out.width_C >> out.pixel_depth_C, out.height_C, 0, GL_LUMINANCE, out.pixel_depth_C ? GL_UNSIGNED_SHORT : GL_UNSIGNED_BYTE, out.samples_mvc[1]);
-		glActiveTexture(GL_TEXTURE5);
-		glBindTexture(GL_TEXTURE_2D, textures[5]);
-		glTexImage2D(GL_TEXTURE_2D, 0, GL_LUMINANCE, out.width_C >> out.pixel_depth_C, out.height_C, 0, GL_LUMINANCE, out.pixel_depth_C ? GL_UNSIGNED_SHORT : GL_UNSIGNED_BYTE, out.samples_mvc[2]);
+		SDL_UpdateYUVTexture(texture1, NULL, out.samples_mvc[0], out.stride_Y, out.samples_mvc[1], out.stride_C, out.samples_mvc[2], out.stride_C);
+		SDL_RenderCopy(renderer, texture1, NULL, NULL);
 	}
-	glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
-	glfwSwapBuffers(window);
+	SDL_RenderPresent(renderer);
 	
 	// Is user closing the window?
-	glfwPollEvents();
-	if (glfwWindowShouldClose(window)) {
-		glfwTerminate();
-		exit(0);
+	SDL_Event event;
+	while (SDL_PollEvent(&event)) {
+		if (event.type == SDL_QUIT ||
+			(event.type == SDL_KEYDOWN && event.key.keysym.sym == SDLK_ESCAPE)) {
+			return 1;
+		}
 	}
+	return 0;
 }
 
 
@@ -305,110 +179,152 @@ static int check_frame()
 
 
 
-static int decode_file(const char *name, int print_counts)
+static int decode_file(const char *name0, int print_counts)
 {
-	// open and mmap the clip file
+	// process file names
 	#if TRACE
-		printf("<t>%s</t>\n", name);
+		printf("<t>%s</t>\n", name0);
 	#endif
-	struct stat stC, stD, stD1;
-	ssize_t clip = open(name, O_RDONLY);
-	if (clip < 0)
-		return perror(name), EXIT_FAILURE;
-	fstat(clip, &stC);
-	uint8_t *buf = mmap(NULL, stC.st_size, PROT_READ, MAP_SHARED, clip, 0);
+	int len = strrchr(name0, '.') - name0;
+	if (strcmp(name0 + len + 1, "264") != 0)
+		return 0;
+	char name1[len + 5], name2[len + 7];
+	snprintf(name1, sizeof(name1), "%.*s.yuv", len, name0);
+	snprintf(name2, sizeof(name2), "%.*s.1.yuv", len, name0);
 	
-	// open and mmap the yuv file(s)
-	ssize_t yuv = -1, yuv1 = -1;
-	uint8_t *dpb = NULL, *dpb1 = NULL;
+	// open and memory map all input files
+	int quit = 0;
 	conf[0] = conf[1] = NULL;
-	char *ext = strrchr(name, '.');
-	*ext = 0;
-	if (enable_yuv) {
-		char yname[ext - name + 7];
-		snprintf(yname, sizeof(yname), "%s.yuv", name);
-		yuv = open(yname, O_RDONLY);
-		if (yuv < 0) {
-			fprintf(stderr, "%s not found\n", yname);
-		} else {
-			fstat(yuv, &stD);
-			conf[0] = dpb = mmap(NULL, stD.st_size, PROT_READ, MAP_SHARED, yuv, 0);
-			snprintf(yname, sizeof(yname), "%s.1.yuv", name);
-			yuv1 = open(yname, O_RDONLY);
-			if (yuv1 >= 0) {
-				fstat(yuv1, &stD1);
-				conf[1] = dpb1 = mmap(NULL, stD1.st_size, PROT_READ, MAP_SHARED, yuv1, 0);
+	#ifdef _WIN32
+		HANDLE f0 = NULL, f1 = NULL, f2 = NULL, m0 = NULL, m1 = NULL, m2 = NULL;
+		void *v0 = NULL, *v1 = NULL, *v2 = NULL;
+		if ((f0 = CreateFileA(name0, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL)) == INVALID_HANDLE_VALUE ||
+			(m0 = CreateFileMappingA(f0, NULL, PAGE_READONLY, 0, 0, NULL)) == NULL ||
+			(v0 = MapViewOfFile(m0, FILE_MAP_READ, 0, 0, 0)) == NULL) {
+			fprintf(stderr, "Error opening file %s: %lu\n", name0, GetLastError());
+			quit = 1;
+		}
+		if (enable_yuv) {
+			if ((f1 = CreateFileA(name1, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL)) == INVALID_HANDLE_VALUE) {
+				fprintf(stderr, "%s not found\n", name1);
+			} else if ((m1 = CreateFileMappingA(f1, NULL, PAGE_READONLY, 0, 0, NULL)) == NULL ||
+				(conf[0] = v1 = MapViewOfFile(m1, FILE_MAP_READ, 0, 0, 0)) == NULL) {
+				fprintf(stderr, "Error opening file %s: %lu\n", name1, GetLastError());
+				quit = 1;
+			}
+			f2 = CreateFileA(name2, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
+			if (f2 != INVALID_HANDLE_VALUE &&
+				((m2 = CreateFileMappingA(f2, NULL, PAGE_READONLY, 0, 0, NULL)) == NULL ||
+				(conf[1] = v2 = MapViewOfFile(m2, FILE_MAP_READ, 0, 0, 0)) == NULL)) {
+				fprintf(stderr, "Error opening file %s: %lu\n", name2, GetLastError());
+				quit = 1;
 			}
 		}
-	}
-	assert(buf!=MAP_FAILED&&dpb!=MAP_FAILED&&dpb1!=MAP_FAILED);
+		const uint8_t *nal = v0;
+		const uint8_t *end0 = v0 + GetFileSize(f0, NULL);
+		const uint8_t *end1 = v1 + GetFileSize(f1, NULL);
+	#else
+		int fd0 = -1, fd1 = -1, fd2 = -1;
+		struct stat st0, st1, st2;
+		uint8_t *mm0 = MAP_FAILED, *mm1 = MAP_FAILED, *mm2 = MAP_FAILED;
+		if ((fd0 = open(name0, O_RDONLY)) < 0 ||
+			fstat(fd0, &st0) < 0 ||
+			(mm0 = mmap(NULL, st0.st_size, PROT_READ, MAP_SHARED, fd0, 0)) == MAP_FAILED) {
+			perror(name0);
+			quit = 1;
+		}
+		if (enable_yuv) {
+			if ((fd1 = open(name1, O_RDONLY)) < 0) {
+				fprintf(stderr, "%s not found\n", name1);
+			} else if (fstat(fd1, &st1) < 0 ||
+				(conf[0] = mm1 = mmap(NULL, st1.st_size, PROT_READ, MAP_SHARED, yuv, 0)) == MAP_FAILED) {
+				perror(name1);
+				quit = 1;
+			}
+			fd2 = open(name1, O_RDONLY);
+			if (fd2 >= 0 && (fstat(fd2, &st2) < 0 ||
+				(conf[1] = mm2 = mmap(NULL, st2.st_size, PROT_READ, MAP_SHARED, fd2, 0)) == MAP_FAILED)) {
+				perror(name2);
+				quit = 1;
+			}
+		}
+		const uint8_t *nal = mm0;
+		const uint8_t *end0 = mm0 + st0.st_size;
+		const uint8_t *end1 = mm1 + st1.st_size;
+	#endif
 	
 	// print the success counts
-	if (!TRACE && print_counts) {
-		printf("%d " GREEN "PASS" RESET ", %d " YELLOW "UNSUPPORTED" RESET ", %d " RED "FAIL" RESET, count_pass, count_unsup, count_fail);
-		if (count_flag > 0)
-			printf(", %d " BLUE "FLAGGED" RESET, count_flag);
-		printf(" (%s)\n", name);
-	}
-	
-	// decode the entire file and FAIL on any error
-	const uint8_t *nal = buf + 3 + (buf[2] == 0); // skip the [0]001 delimiter
-	const uint8_t *end = buf + stC.st_size;
-	int res;
-	do {
-		res = edge264_decode_NAL(d, nal, end, 0, NULL, NULL, &nal);
-		while (!edge264_get_frame(d, &out, 0)) {
-			if (display)
-				draw_frame();
-			if (conf[0] != NULL && check_frame()) {
-				if (display) {
-					while (!glfwWindowShouldClose(window))
-						glfwWaitEvents();
-					glfwTerminate();
-					exit(0);
-				}
-				res = EBADMSG;
-			}
+	if (!quit) {
+		if (!TRACE && print_counts) {
+			printf("%d " GREEN "PASS" RESET ", %d " YELLOW "UNSUPPORTED" RESET ", %d " RED "FAIL" RESET, count_pass, count_unsup, count_fail);
+			if (count_flag > 0)
+				printf(", %d " BLUE "FLAGGED" RESET, count_flag);
+			printf(" (%s)\n", name0);
 		}
-	} while (res == 0 || res == ENOBUFS);
-	if (res == ENOBUFS || (res == ENODATA && conf[0] != NULL && conf[0] != dpb + stD.st_size))
-		res = EBADMSG;
-	
-	// print the file that was decoded
-	if (!TRACE && print_counts) {
-		count_pass += res == ENODATA;
-		count_unsup += res == ENOTSUP;
-		count_fail += res == EBADMSG;
-		count_flag += res == ESRCH;
-		printf("\e[A\e[K"); // move cursor up and clear line
-		if (res == ENODATA && print_passed) {
-			printf("%s: " GREEN "PASS" RESET "\n", name);
-		} else if (res == ENOTSUP && print_unsupported) {
-			printf("%s: " YELLOW "UNSUPPORTED" RESET "\n", name);
-		} else if (res == EBADMSG && print_failed) {
-			printf("%s: " RED "FAIL" RESET "\n", name);
-		} else if (res == ESRCH) {
-			printf("%s: " BLUE "FLAGGED" RESET "\n", name);
+		
+		// decode the entire file and FAIL on any error
+		nal += 3 + (nal[2] == 0); // skip the [0]001 delimiter
+		int res;
+		do {
+			res = edge264_decode_NAL(d, nal, end0, 0, NULL, NULL, &nal);
+			while (!edge264_get_frame(d, &out, 0)) {
+				if (conf[0] != NULL && check_frame()) {
+					res = EBADMSG;
+					break;
+				} else if (display && draw_frame()) {
+					res = ENODATA;
+					quit = 1;
+					break;
+				}
+			}
+		} while (res == 0 || res == ENOBUFS);
+		if (res == ENOBUFS || (res == ENODATA && conf[0] != NULL && conf[0] != end1))
+			res = EBADMSG;
+		
+		// print the file that was decoded
+		if (!TRACE && print_counts) {
+			count_pass += res == ENODATA;
+			count_unsup += res == ENOTSUP;
+			count_fail += res == EBADMSG;
+			count_flag += res == ESRCH;
+			printf("\e[A\e[K"); // move cursor up and clear line
+			if (res == ENODATA && print_passed) {
+				printf("%s: " GREEN "PASS" RESET "\n", name0);
+			} else if (res == ENOTSUP && print_unsupported) {
+				printf("%s: " YELLOW "UNSUPPORTED" RESET "\n", name0);
+			} else if (res == EBADMSG && print_failed) {
+				printf("%s: " RED "FAIL" RESET "\n", name0);
+			} else if (res == ESRCH) {
+				printf("%s: " BLUE "FLAGGED" RESET "\n", name0);
+			}
 		}
 	}
 	
 	// close everything
-	munmap(buf, stC.st_size);
-	close(clip);
-	if (yuv >= 0) {
-		munmap(dpb, stD.st_size);
-		close(yuv);
-		if (yuv1 >= 0) {
-			munmap(dpb1, stD1.st_size);
-			close(yuv1);
-		}
-	}
-	return res;
+	#ifdef _WIN32
+		UnmapViewOfFile(v0);
+		UnmapViewOfFile(v1);
+		UnmapViewOfFile(v2);
+		CloseHandle(m0);
+		CloseHandle(m1);
+		CloseHandle(m2);
+		CloseHandle(f0);
+		CloseHandle(f1);
+		CloseHandle(f2);
+	#else
+		munmap(mm0, st0.st_size);
+		munmap(mm1, st1.st_size);
+		munmap(mm2, st2.st_size);
+		close(fd0);
+		close(fd1);
+		close(fd2);
+	#endif
+	return quit;
 }
 
 
 
-int main(int argc, const char *argv[])
+int main(int argc, char *argv[])
 {
 	// read command-line options
 	const char *file_name = "conformance";
@@ -495,16 +411,13 @@ int main(int argc, const char *argv[])
 			DIR *dp;
 			struct dirent *ep;
 			dp = opendir(".");
-			while ((ep = readdir(dp)))
-				decode_file(ep->d_name, 1);
+			while ((ep = readdir(dp)) && !decode_file(ep->d_name, 1));
 			closedir(dp);
 		#else
 			struct dirent **entries;
 			int n = scandir(".", &entries, flt, cmp);
-			while (n-- > 0) {
-				decode_file(entries[n]->d_name, 1);
+			while (n-- > 0 && !decode_file(entries[n]->d_name, 1))
 				free(entries[n]);
-			}
 			free(entries);
 		#endif
 		if (!TRACE) {
@@ -515,6 +428,15 @@ int main(int argc, const char *argv[])
 		}
 	}
 	edge264_free(&d);
+	
+	// close SDL if initialized
+	if (display) {
+		SDL_DestroyTexture(texture0);
+		SDL_DestroyTexture(texture1);
+		SDL_DestroyRenderer(renderer);
+		SDL_DestroyWindow(window);
+		SDL_Quit();
+	}
 	
 	// closing information
 	#if !TRACE

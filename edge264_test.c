@@ -1,16 +1,31 @@
 #include <assert.h>
 #include <dirent.h>
-#include <fcntl.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
-#include <unistd.h>
-#include <sys/mman.h>
 #include <sys/stat.h>
-#include <sys/types.h>
 #define GL_SILENCE_DEPRECATION // for macOS 10.14 and later
+#define GLFW_INCLUDE_GLEXT
 #include <GLFW/glfw3.h>
+
+// quick and dirty mmap fallback
+#ifdef _WIN32
+	#include <windows.h>
+	#include <psapi.h>
+	#define open(filename, flags) (ssize_t)CreateFileA(filename, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_READONLY, NULL)
+	#define fstat(fd, buf) ((void)0)
+	// the mapping handle won't be freed until application exit but that's fine for testing
+	#define mmap(addr, length, prot, flags, fd, offset) MapViewOfFile(CreateFileMappingA((HANDLE)fd, NULL, PAGE_READONLY, 0, 0, NULL), FILE_MAP_READ | FILE_MAP_COPY, 0, 0, 0)
+	#define MAP_FAILED NULL
+	#define munmap(addr, len) UnmapViewOfFile(addr)
+	#define close(fd) CloseHandle((HANDLE)fd)
+#else
+	#include <fcntl.h>
+	#include <sys/mman.h>
+	#include <sys/types.h>
+	#include <unistd.h>
+#endif
 
 #include "edge264.h"
 
@@ -39,8 +54,10 @@ static int program0, program1;
 static unsigned textures[6];
 static int count_pass, count_unsup, count_fail, count_flag;
 
-static inline int min(int a, int b) { return (a < b) ? a : b; }
-static inline int max(int a, int b) { return (a > b) ? a : b; }
+#ifndef min
+	static inline int min(int a, int b) { return (a < b) ? a : b; }
+	static inline int max(int a, int b) { return (a > b) ? a : b; }
+#endif
 
 static int flt(const struct dirent *a) {
 	char *ext = strrchr(a->d_name, '.');
@@ -295,14 +312,14 @@ static int decode_file(const char *name, int print_counts)
 		printf("<t>%s</t>\n", name);
 	#endif
 	struct stat stC, stD, stD1;
-	int clip = open(name, O_RDONLY);
+	ssize_t clip = open(name, O_RDONLY);
 	if (clip < 0)
 		return perror(name), EXIT_FAILURE;
 	fstat(clip, &stC);
 	uint8_t *buf = mmap(NULL, stC.st_size, PROT_READ, MAP_SHARED, clip, 0);
 	
 	// open and mmap the yuv file(s)
-	int yuv = -1, yuv1 = -1;
+	ssize_t yuv = -1, yuv1 = -1;
 	uint8_t *dpb = NULL, *dpb1 = NULL;
 	conf[0] = conf[1] = NULL;
 	char *ext = strrchr(name, '.');
@@ -362,7 +379,7 @@ static int decode_file(const char *name, int print_counts)
 		count_pass += res == ENODATA;
 		count_unsup += res == ENOTSUP;
 		count_fail += res == EBADMSG;
-		count_flag += res == EAUTH;
+		count_flag += res == ESRCH;
 		printf("\e[A\e[K"); // move cursor up and clear line
 		if (res == ENODATA && print_passed) {
 			printf("%s: " GREEN "PASS" RESET "\n", name);
@@ -370,7 +387,7 @@ static int decode_file(const char *name, int print_counts)
 			printf("%s: " YELLOW "UNSUPPORTED" RESET "\n", name);
 		} else if (res == EBADMSG && print_failed) {
 			printf("%s: " RED "FAIL" RESET "\n", name);
-		} else if (res == EAUTH) {
+		} else if (res == ESRCH) {
 			printf("%s: " BLUE "FLAGGED" RESET "\n", name);
 		}
 	}
@@ -474,20 +491,28 @@ int main(int argc, const char *argv[])
 		if (!TRACE && res == EBADMSG)
 			printf("Decoding ended prematurely on " BOLD "decoding error" RESET "\n");
 	} else {
-		struct dirent **entries;
-		int n = scandir(".", &entries, flt, cmp);
-		assert(n>=0);
-		while (n--) {
-			decode_file(entries[n]->d_name, 1);
-			free(entries[n]);
-		}
+		#ifdef _WIN32
+			DIR *dp;
+			struct dirent *ep;
+			dp = opendir(".");
+			while ((ep = readdir(dp)))
+				decode_file(ep->d_name, 1);
+			closedir(dp);
+		#else
+			struct dirent **entries;
+			int n = scandir(".", &entries, flt, cmp);
+			while (n-- > 0) {
+				decode_file(entries[n]->d_name, 1);
+				free(entries[n]);
+			}
+			free(entries);
+		#endif
 		if (!TRACE) {
 			printf("%d " GREEN "PASS" RESET ", %d " YELLOW "UNSUPPORTED" RESET ", %d " RED "FAIL" RESET, count_pass, count_unsup, count_fail);
 			if (count_flag > 0)
 				printf(", %d " BLUE "FLAGGED" RESET, count_flag);
 			putc('\n', stdout);
 		}
-		free(entries);
 	}
 	edge264_free(&d);
 	
@@ -495,12 +520,22 @@ int main(int argc, const char *argv[])
 	#if !TRACE
 		if (benchmark) {
 			clock_gettime(CLOCK_MONOTONIC, &t1);
-			struct rusage rusage;
-			getrusage(RUSAGE_SELF, &rusage);
-			printf("time: %u.%03us\nCPU: %u.%03us\nmemory: %u.%03uMB\n",
-				(unsigned)(t1.tv_sec - t0.tv_sec - (t1.tv_nsec < t0.tv_nsec)), (unsigned)(t1.tv_nsec - t0.tv_nsec) / 1000000 % 1000,
-				(unsigned)rusage.ru_utime.tv_sec, (unsigned)rusage.ru_utime.tv_usec / 1000,
-				(unsigned)rusage.ru_maxrss / 1000000, (unsigned)rusage.ru_maxrss / 1000 % 1000);
+			int64_t time_msec = (int64_t)(t1.tv_sec - t0.tv_sec) * 1000 + (t1.tv_nsec - t0.tv_nsec) / 1000000;
+			#ifdef _WIN32
+				HANDLE p = GetCurrentProcess();
+				FILETIME c, e, k, u;
+				GetProcessTimes(p, &c, &e, &k, &u);
+				int64_t cpu_msec = ((int64_t)u.dwHighDateTime << 32 | u.dwLowDateTime) / 10000;
+				PROCESS_MEMORY_COUNTERS m;
+				GetProcessMemoryInfo(p, &m, sizeof(m));
+				int mem_kb = m.PeakPagefileUsage / 1000;
+			#else
+				struct rusage rusage;
+				getrusage(RUSAGE_SELF, &rusage);
+				int64_t cpu_msec = (int64_t)rusage.ru_utime.tv_sec * 1000 + rusage.ru_utime.tv_usec / 1000;
+				long mem_kb = rusage.ru_maxrss / 1000;
+			#endif
+			printf("time: %.3lfs\nCPU: %.3lfs\nmemory: %.3lfMB\n", (double)time_msec / 1000, (double)cpu_msec / 1000, (double)mem_kb / 1000);
 		}
 	#else
 		printf("</body>\n</html>\n");

@@ -41,7 +41,6 @@
  * 	_ store Cb & Cr by interleaving rows instead of separate planes (check it does not overflow stride for future 4:2:2)
  * 	_ try combining clang and gcc over decoding and parsing
  * 	_ merge Cb and Cr functions in inter to reduce jumps and mutualize vectors
- * 	_ for the second slice in a frame, we know the bit-size of the previous header thus can skip it!
  * _ Documentation
  * 	_ add an FAQ with (1) how to optimize latency, (2) what can be removed from stream without issue, (3) how to finish a frame with an AUD
  * _ add an option to get_frame to poll without consuming
@@ -1803,6 +1802,15 @@ const uint8_t *edge264_find_start_code(const uint8_t *buf, const uint8_t *end) {
 
 
 Edge264Decoder *edge264_alloc(int n_threads) {
+	if (n_threads < 0) {
+		#ifdef _WIN32
+			int n_cpus = atoi(getenv("NUMBER_OF_PROCESSORS"));
+		#else
+			int n_cpus = sysconf(_SC_NPROCESSORS_ONLN);
+		#endif
+		n_threads = min(n_cpus, 16);
+	}
+	
 	Edge264Decoder *d = calloc(1, sizeof(Edge264Decoder));
 	if (d != NULL) {
 		d->taskPics_v = set8(-1);
@@ -1812,8 +1820,6 @@ Edge264Decoder *edge264_alloc(int n_threads) {
 			if (pthread_cond_init(&d->task_ready, NULL) == 0) {
 				if (pthread_cond_init(&d->task_progress, NULL) == 0) {
 					if (pthread_cond_init(&d->task_complete, NULL) == 0) {
-						if (n_threads < 0)
-							n_threads = min(sysconf(_SC_NPROCESSORS_ONLN), 16);
 						d->n_threads = n_threads;
 						int i = 0;
 						while (i < n_threads && pthread_create(&d->threads[i], NULL, (void*(*)(void*))worker_loop, d) == 0)

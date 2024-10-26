@@ -1,25 +1,16 @@
-#include <assert.h>
 #include <dirent.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
-#include <sys/stat.h>
 #include <SDL2/SDL.h>
-
-// quick and dirty mmap fallback
 #ifdef _WIN32
 	#include <windows.h>
 	#include <psapi.h>
-	#define open(filename, flags) (ssize_t)CreateFileA(filename, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_READONLY, NULL)
-	// the mapping handle won't be freed until application exit but that's fine for testing
-	#define mmap(addr, length, prot, flags, fd, offset) MapViewOfFile(CreateFileMappingA((HANDLE)fd, NULL, PAGE_READONLY, 0, 0, NULL), FILE_MAP_READ | FILE_MAP_COPY, 0, 0, 0)
-	#define MAP_FAILED NULL
-	#define munmap(addr, len) UnmapViewOfFile(addr)
-	#define close(fd) CloseHandle((HANDLE)fd)
 #else
 	#include <fcntl.h>
 	#include <sys/mman.h>
+	#include <sys/stat.h>
 	#include <sys/types.h>
 	#include <unistd.h>
 #endif
@@ -44,7 +35,7 @@ static int print_unsupported = 0;
 static int enable_yuv = 1;
 static Edge264Decoder *d;
 static Edge264Frame out;
-static const uint8_t *conf[3];
+static const uint8_t *conf[2];
 static SDL_Window *window;
 static SDL_Renderer *renderer;
 static SDL_Texture *texture0, *texture1;
@@ -68,7 +59,7 @@ static int cmp(const struct dirent **a, const struct dirent **b) {
 
 static int draw_frame()
 {
-	// resize the window if necessary
+	// create or resize the window if necessary
 	int has_second_view = out.samples_mvc[0] != NULL;
 	if (width != out.width_Y || height != out.height_Y || mvc_display != has_second_view) {
 		width = out.width_Y;
@@ -129,7 +120,7 @@ static int check_frame()
 	int left = out.frame_crop_offsets[3];
 	int right = out.frame_crop_offsets[1];
 	int bottom = out.frame_crop_offsets[2];
-	for (int view = 0; conf[view] != NULL; view += 1) {
+	for (int view = 0; view < 2 && conf[view] != NULL; view += 1) {
 		for (int row = -top; row < out.height_Y + bottom; row += 16) {
 			for (int col = -left; col < out.width_Y + right; col += 16) {
 				int sh_row = 0;
@@ -237,11 +228,11 @@ static int decode_file(const char *name0, int print_counts)
 			if ((fd1 = open(name1, O_RDONLY)) < 0) {
 				fprintf(stderr, "%s not found\n", name1);
 			} else if (fstat(fd1, &st1) < 0 ||
-				(conf[0] = mm1 = mmap(NULL, st1.st_size, PROT_READ, MAP_SHARED, yuv, 0)) == MAP_FAILED) {
+				(conf[0] = mm1 = mmap(NULL, st1.st_size, PROT_READ, MAP_SHARED, fd1, 0)) == MAP_FAILED) {
 				perror(name1);
 				quit = 1;
 			}
-			fd2 = open(name1, O_RDONLY);
+			fd2 = open(name2, O_RDONLY);
 			if (fd2 >= 0 && (fstat(fd2, &st2) < 0 ||
 				(conf[1] = mm2 = mmap(NULL, st2.st_size, PROT_READ, MAP_SHARED, fd2, 0)) == MAP_FAILED)) {
 				perror(name2);
@@ -280,6 +271,7 @@ static int decode_file(const char *name0, int print_counts)
 		} while (res == 0 || res == ENOBUFS);
 		if (res == ENOBUFS || (res == ENODATA && conf[0] != NULL && conf[0] != end1))
 			res = EBADMSG;
+		// FIXME interrupt all threads before closing the files!
 		
 		// print the file that was decoded
 		if (!TRACE && print_counts) {
@@ -416,7 +408,7 @@ int main(int argc, char *argv[])
 		#else
 			struct dirent **entries;
 			int n = scandir(".", &entries, flt, cmp);
-			while (n-- > 0 && !decode_file(entries[n]->d_name, 1))
+			while (--n >= 0 && !decode_file(entries[n]->d_name, 1))
 				free(entries[n]);
 			free(entries);
 		#endif

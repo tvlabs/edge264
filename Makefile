@@ -1,4 +1,3 @@
-.RECIPEPREFIX := > # don't use tabs for recipes, only cosmetic indent
 CFLAGS += -std=gnu11 -march=native -O3 -flax-vector-conversions -pthread
 OS ?= $(shell uname)
 WHICH := $(if $(filter Windows_NT,$(OS)),where.exe 2>nul,which)
@@ -35,11 +34,11 @@ EXE := $(if $(filter Windows_NT,$(OS)),.exe,)
 
 # rules
 edge264_test$(SUF)$(EXE): edge264_test.c edge264.h edge264$(SUF).o Makefile
->	$(CC) edge264_test.c edge264$(SUF).o $(CFLAGS) $(SDL2) -o edge264_test$(SUF)$(EXE)
+	$(CC) edge264_test.c edge264$(SUF).o $(CFLAGS) $(SDL2) -o edge264_test$(SUF)$(EXE)
 
 edge264$(SUF).o: edge264*.c edge264*.h Makefile
->	$(CC) edge264.c -c $(CFLAGS) -o edge264$(SUF).o
+	$(CC) edge264.c -c $(CFLAGS) -o edge264$(SUF).o
 
 .PHONY: clean clear
 clean clear:
->	rm edge264*.o edge264_test edge264_test-trace*
+	rm edge264*.o edge264_test edge264_test-trace*

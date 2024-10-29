@@ -10,7 +10,7 @@
  * The process reads an unaligned 16-byte chunk and will not read past the last
  * aligned 16-byte chunk containing the last bytes before ctx->t._gb.end.
  */
-static inline size_t FUNC_GB(get_bytes, int nbytes)
+static inline size_t get_bytes(Edge264GetBits *gb, int nbytes)
 {
 	static const i8x16 shuf[8] = {
 		{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, -1},
@@ -92,24 +92,24 @@ static inline size_t FUNC_GB(get_bytes, int nbytes)
  *   The main context then fits in 2 variables, which are easier to store in
  *   Global Register Variables.
  */
-static noinline int FUNC_GB(refill, int ret) {
-	size_t bytes = CALL_GB(get_bytes, SIZE_BIT >> 3);
+static noinline int refill(Edge264GetBits *gb, int ret) {
+	size_t bytes = get_bytes(gb, SIZE_BIT >> 3);
 	int trailing_bit = ctz(gb->msb_cache); // [0..SIZE_BIT-1]
 	gb->msb_cache = (gb->msb_cache ^ (size_t)1 << trailing_bit) | bytes >> (SIZE_BIT - 1 - trailing_bit);
 	gb->lsb_cache = (bytes * 2 + 1) << trailing_bit;
 	return ret;
 }
 
-static noinline int FUNC_GB(get_u1) {
+static noinline int get_u1(Edge264GetBits *gb) {
 	int ret = gb->msb_cache >> (SIZE_BIT - 1);
 	gb->msb_cache = lsd(gb->msb_cache, gb->lsb_cache, 1);
 	if (gb->lsb_cache <<= 1)
 		return ret;
-	return CALL_GB(refill, ret);
+	return refill(gb, ret);
 }
 
 // Parses a 1~32-bit fixed size code
-static noinline unsigned FUNC_GB(get_uv, unsigned v) {
+static noinline unsigned get_uv(Edge264GetBits *gb, unsigned v) {
 	unsigned ret = gb->msb_cache >> (SIZE_BIT - v);
 	if (SIZE_BIT == 32 && __builtin_expect(v == 32, 0)) {
 		gb->msb_cache = gb->lsb_cache;
@@ -120,46 +120,46 @@ static noinline unsigned FUNC_GB(get_uv, unsigned v) {
 	}
 	if (gb->lsb_cache)
 		return ret;
-	return CALL_GB(refill, ret);
+	return refill(gb, ret);
 }
 
 // Parses a Exp-Golomb code in one read, up to 2^16-2 (2^32-2 on 64-bit machines)
-static noinline unsigned FUNC_GB(get_ue16, unsigned upper) {
+static noinline unsigned get_ue16(Edge264GetBits *gb, unsigned upper) {
 	unsigned v = clz(gb->msb_cache | (size_t)1 << (SIZE_BIT / 2)) * 2 + 1; // [1..SIZE_BIT-1]
 	unsigned ret = umin((gb->msb_cache >> (SIZE_BIT - v)) - 1, upper);
 	gb->msb_cache = lsd(gb->msb_cache, gb->lsb_cache, v);
 	if (gb->lsb_cache <<= v)
 		return ret;
-	return CALL_GB(refill, ret);
+	return refill(gb, ret);
 }
 
 // Parses a signed Exp-Golomb code in one read, from -2^15+1 to 2^15-1 (-2^31+1 to 2^31-1 on 64-bit machines)
-static noinline int FUNC_GB(get_se16, int lower, int upper) {
+static noinline int get_se16(Edge264GetBits *gb, int lower, int upper) {
 	unsigned v = clz(gb->msb_cache | (size_t)1 << (SIZE_BIT / 2)) * 2 + 1; // [1..SIZE_BIT-1]
 	unsigned ue = (gb->msb_cache >> (SIZE_BIT - v)) - 1;
 	int ret = min(max((ue & 1) ? ue / 2 + 1 : -(ue / 2), lower), upper);
 	gb->msb_cache = lsd(gb->msb_cache, gb->lsb_cache, v);
 	if (gb->lsb_cache <<= v)
 		return ret;
-	return CALL_GB(refill, ret);
+	return refill(gb, ret);
 }
 
 // Extensions to [0,2^32-2] and [-2^31+1,2^31-1] for 32-bit machines
 #if SIZE_BIT == 32
-	static noinline unsigned FUNC_GB(get_ue32, unsigned upper) {
+	static noinline unsigned get_ue32(Edge264GetBits *gb, unsigned upper) {
 		unsigned leadingZeroBits = clz(gb->msb_cache | 1); // [0..31]
 		gb->msb_cache = lsd(gb->msb_cache, gb->lsb_cache, leadingZeroBits);
 		if (!(gb->lsb_cache <<= leadingZeroBits))
-			CALL_GB(refill, 0);
-		return umin(CALL_C2B(get_uv, leadingZeroBits + 1) - 1, upper);
+			refill(gb, 0);
+		return umin(get_uv(&ctx->t._gb, leadingZeroBits + 1) - 1, upper);
 	}
 
-	static noinline int FUNC_GB(get_se32, int lower, int upper) {
+	static noinline int get_se32(Edge264GetBits *gb, int lower, int upper) {
 		unsigned leadingZeroBits = clz(gb->msb_cache | 1); // [0..31]
 		gb->msb_cache = lsd(gb->msb_cache, gb->lsb_cache, leadingZeroBits);
 		if (!(gb->lsb_cache <<= leadingZeroBits))
-			CALL_GB(refill, 0);
-		unsigned ue = CALL_C2B(get_uv, leadingZeroBits + 1) - 1;
+			refill(gb, 0);
+		unsigned ue = get_uv(&ctx->t._gb, leadingZeroBits + 1) - 1;
 		return min(max(ue & 1 ? ue / 2 + 1 : -(ue / 2), lower), upper);
 	}
 #endif
@@ -202,7 +202,7 @@ static noinline int FUNC_GB(get_se16, int lower, int upper) {
  *   since renormalization will now leave 25~32 bits in codIOffset, but the
  *   algorithm needs at least 29 to remain simple.
  */
-static noinline int FUNC_CTX(get_ae, int ctxIdx)
+static noinline int get_ae(Edge264Context *ctx, int ctxIdx)
 {
 	static const uint8_t rangeTabLPS[64 * 4] = {
 		128, 176, 208, 240, 128, 167, 197, 227, 128, 158, 187, 216, 123, 150, 178, 205,
@@ -253,15 +253,15 @@ static noinline int FUNC_CTX(get_ae, int ctxIdx)
 	ctx->cabac[ctxIdx] = transIdx[state];
 	int binVal = state & 1;
 	if (__builtin_expect(ctx->t._gb.codIRange < 256, 0)) {
-		ctx->t._gb.codIOffset = lsd(ctx->t._gb.codIOffset, CALL_C2B(get_bytes, SIZE_BIT / 8 - 1), SIZE_BIT - 8);
+		ctx->t._gb.codIOffset = lsd(ctx->t._gb.codIOffset, get_bytes(&ctx->t._gb, SIZE_BIT / 8 - 1), SIZE_BIT - 8);
 		ctx->t._gb.codIRange <<= SIZE_BIT - 8;
 	}
 	return binVal;
 }
 
-static inline int FUNC_CTX(get_bypass) {
+static inline int get_bypass(Edge264Context *ctx) {
 	if (ctx->t._gb.codIRange < 512) {
-		ctx->t._gb.codIOffset = lsd(ctx->t._gb.codIOffset, CALL_C2B(get_bytes, SIZE_BIT / 8 - 2), SIZE_BIT - 16);
+		ctx->t._gb.codIOffset = lsd(ctx->t._gb.codIOffset, get_bytes(&ctx->t._gb, SIZE_BIT / 8 - 2), SIZE_BIT - 16);
 		ctx->t._gb.codIRange <<= SIZE_BIT - 16;
 	}
 	ctx->t._gb.codIRange >>= 1;
@@ -270,7 +270,7 @@ static inline int FUNC_CTX(get_bypass) {
 	return binVal;
 }
 
-static int FUNC_CTX(cabac_start) {
+static int cabac_start(Edge264Context *ctx) {
 	// reclaim bits from cache while realigning with CPB on a byte boundary
 	int extra_bits = SIZE_BIT - 1 - ctz(ctx->t._gb.lsb_cache);
 	int shift = extra_bits & 7;
@@ -290,16 +290,16 @@ static int FUNC_CTX(cabac_start) {
 	return ret;
 }
 
-static int FUNC_CTX(cabac_terminate) {
+static int cabac_terminate(Edge264Context *ctx) {
 	int extra = SIZE_BIT - 9 - clz(ctx->t._gb.codIRange); // [0..SIZE_BIT-9]
 	ctx->t._gb.codIRange -= (size_t)2 << extra;
 	if (ctx->t._gb.codIOffset >= ctx->t._gb.codIRange) {
 		// reclaim the extra bits minus alignment bits, then refill the cache
 		ctx->t._gb.msb_cache = (ctx->t._gb.codIOffset * 2 + 1) << (SIZE_BIT - 1 - (extra & -8));
-		return CALL_C2B(refill, 1);
+		return refill(&ctx->t._gb, 1);
 	}
 	if (__builtin_expect(ctx->t._gb.codIRange < 256, 0)) {
-		ctx->t._gb.codIOffset = lsd(ctx->t._gb.codIOffset, CALL_C2B(get_bytes, SIZE_BIT / 8 - 1), SIZE_BIT - 8);
+		ctx->t._gb.codIOffset = lsd(ctx->t._gb.codIOffset, get_bytes(&ctx->t._gb, SIZE_BIT / 8 - 1), SIZE_BIT - 8);
 		ctx->t._gb.codIRange <<= SIZE_BIT - 8;
 	}
 	return 0;
@@ -1004,7 +1004,7 @@ static const int8_t context_init[4][1024][2] __attribute__((aligned(16))) = {{
 	{  -5,  79}, { -11, 104}, { -11,  91}, { -30, 127},
 }};
 
-static void FUNC_CTX(cabac_init) {
+static void cabac_init(Edge264Context *ctx) {
 	i8x16 mul = set16(max(ctx->t.QP[0], 0) + 4096);
 	i8x16 c1 = set8(1), c64 = set8(64), c126 = set8(126);
 	const i8x16 *src = (i8x16 *)context_init[ctx->t.cabac_init_idc];

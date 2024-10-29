@@ -277,6 +277,11 @@ typedef struct Edge264Context {
 	union { uint8_t beta[16]; i8x16 beta_v; };
 	union { int32_t tC0_s[16]; int64_t tC0_l[8]; i8x16 tC0_v[4]; i8x32 tC0_V[2]; }; // 4 bytes per edge in deblocking order -> 8 luma edges then 8 alternating Cb/Cr edges
 } Edge264Context;
+#define mb ctx->_mb
+#define mbA ctx->_mbA
+#define mbB ctx->_mbB
+#define mbC ctx->_mbC
+#define mbD ctx->_mbD
 
 
 
@@ -544,52 +549,6 @@ enum IntraChromaModes {
 	IC8x8_V_8,
 	IC8x8_P_8,
 };
-
-
-
-/**
- * Macro-ed function defs/calls allow removing dec/ctx/gb from args and keeping
- * them in a Global Register Variable if permitted by the compiler. On my
- * machine the speed gain is negligible, but the binary is noticeably smaller.
- */
-#if defined(__SSSE3__) && !defined(__clang__)
-	register void * restrict _p asm("ebx");
-	#define SET_DEC(p) Edge264Decoder *old = _p; _p = (p)
-	#define SET_CTX(p) Edge264Context *old = _p; _p = (p)
-	#define RESET_DEC() _p = old
-	#define RESET_CTX() _p = old
-	#define FUNC_DEC(f, ...) f(__VA_ARGS__)
-	#define FUNC_CTX(f, ...) f(__VA_ARGS__)
-	#define FUNC_GB(f, ...) f(__VA_ARGS__)
-	#define CALL_DEC(f, ...) f(__VA_ARGS__)
-	#define CALL_D2B(f, ...) f(__VA_ARGS__)
-	#define CALL_CTX(f, ...) f(__VA_ARGS__)
-	#define CALL_C2B(f, ...) f(__VA_ARGS__)
-	#define CALL_GB(f, ...) f(__VA_ARGS__)
-	#define JUMP_CTX(f, ...) {f(__VA_ARGS__); return;}
-	#define dec ((Edge264Decoder *)_p)
-	#define ctx ((Edge264Context *)_p)
-	#define gb ((Edge264GetBits *)_p)
-#else
-	#define SET_DEC(p) Edge264Decoder * restrict dec = (p)
-	#define SET_CTX(p) Edge264Context * restrict ctx = (p)
-	#define RESET_DEC()
-	#define RESET_CTX()
-	#define FUNC_DEC(f, ...) f(Edge264Decoder * restrict dec, ## __VA_ARGS__)
-	#define FUNC_CTX(f, ...) f(Edge264Context * restrict ctx, ## __VA_ARGS__)
-	#define FUNC_GB(f, ...) f(Edge264GetBits * restrict gb, ## __VA_ARGS__)
-	#define CALL_DEC(f, ...) f(dec, ## __VA_ARGS__)
-	#define CALL_D2B(f, ...) f(&dec->_gb, ## __VA_ARGS__)
-	#define CALL_CTX(f, ...) f(ctx, ## __VA_ARGS__)
-	#define CALL_C2B(f, ...) f(&ctx->t._gb, ## __VA_ARGS__)
-	#define CALL_GB(f, ...) f(gb, ## __VA_ARGS__)
-	#define JUMP_CTX(f, ...) {f(ctx, ## __VA_ARGS__); return;}
-#endif
-#define mb ctx->_mb
-#define mbA ctx->_mbA
-#define mbB ctx->_mbB
-#define mbC ctx->_mbC
-#define mbD ctx->_mbD
 
 
 
@@ -869,7 +828,7 @@ static always_inline i8x16 pack_absMvd(i16x8 a) {
 	i16x8 x = abs16(shuffle32(a, 0, 0, 0, 0));
 	return packus16(x, x);
 }
-static always_inline unsigned FUNC_DEC(depended_frames) {
+static always_inline unsigned depended_frames(Edge264Decoder *dec) {
 	i32x4 a = dec->task_dependencies_v[0] | dec->task_dependencies_v[1] |
 	          dec->task_dependencies_v[2] | dec->task_dependencies_v[3];
 	i32x4 b = a | shuffle32(a, 2, 3, 0, 1);
@@ -894,62 +853,62 @@ static always_inline unsigned ready_tasks(Edge264Decoder *c) {
 }
 
 // edge264_bitstream.c
-static inline size_t FUNC_GB(get_bytes, int nbytes);
-static noinline int FUNC_GB(refill, int ret);
-static noinline int FUNC_GB(get_u1);
-static noinline unsigned FUNC_GB(get_uv, unsigned v);
-static noinline unsigned FUNC_GB(get_ue16, unsigned upper);
-static noinline int FUNC_GB(get_se16, int lower, int upper);
+static inline size_t get_bytes(Edge264GetBits *gb, int nbytes);
+static noinline int refill(Edge264GetBits *gb, int ret);
+static noinline int get_u1(Edge264GetBits *gb);
+static noinline unsigned get_uv(Edge264GetBits *gb, unsigned v);
+static noinline unsigned get_ue16(Edge264GetBits *gb, unsigned upper);
+static noinline int get_se16(Edge264GetBits *gb, int lower, int upper);
 #if SIZE_BIT == 32
-	static noinline unsigned FUNC_GB(get_ue32, unsigned upper);
-	static noinline int FUNC_GB(get_se32, int lower, int upper);
+	static noinline unsigned get_ue32(Edge264GetBits *gb, unsigned upper);
+	static noinline int get_se32(Edge264GetBits *gb, int lower, int upper);
 #else
 	#define get_ue32 get_ue16
 	#define get_se32 get_se16
 #endif
-static noinline int FUNC_CTX(get_ae, int ctxIdx);
-static inline int FUNC_CTX(get_bypass);
-static int FUNC_CTX(cabac_start);
-static int FUNC_CTX(cabac_terminate);
-static void FUNC_CTX(cabac_init);
+static noinline int get_ae(Edge264Context *ctx, int ctxIdx);
+static inline int get_bypass(Edge264Context *ctx);
+static int cabac_start(Edge264Context *ctx);
+static int cabac_terminate(Edge264Context *ctx);
+static void cabac_init(Edge264Context *ctx);
 
 // edge264_deblock_*.c
-noinline void FUNC_CTX(deblock_mb);
+noinline void deblock_mb(Edge264Context *ctx);
 
 // edge264_inter_*.c
-void noinline FUNC_CTX(decode_inter, int i, int w, int h);
+void noinline decode_inter(Edge264Context *ctx, int i, int w, int h);
 
 // edge264_intra_*.c
 void noinline _decode_intra4x4(int mode, uint8_t *px1, size_t stride, ssize_t nstride, i16x8 clip, i8x16 zero);
 void noinline _decode_intra8x8(int mode, uint8_t *px0, uint8_t *px7, size_t stride, ssize_t nstride, i16x8 clip);
 void noinline _decode_intra16x16(int mode, uint8_t *px0, uint8_t *px7, uint8_t *pxE, size_t stride, ssize_t nstride, i16x8 clip);
 void noinline _decode_intraChroma(int mode, uint8_t *Cb0, uint8_t *Cb7, uint8_t *Cr0, uint8_t *Cr7, size_t stride, ssize_t nstride, i16x8 clip);
-static always_inline void FUNC_CTX(decode_intra4x4, int mode, uint8_t *samples, size_t stride, int iYCbCr) {
+static always_inline void decode_intra4x4(Edge264Context *ctx, int mode, uint8_t *samples, size_t stride, int iYCbCr) {
 	_decode_intra4x4(mode, samples + stride, stride, -stride, ctx->t.samples_clip_v[iYCbCr], (i8x16){}); }
-static always_inline void FUNC_CTX(decode_intra8x8, int mode, uint8_t *samples, size_t stride, int iYCbCr) {
+static always_inline void decode_intra8x8(Edge264Context *ctx, int mode, uint8_t *samples, size_t stride, int iYCbCr) {
 	_decode_intra8x8(mode, samples, samples + stride * 7, stride, -stride, ctx->t.samples_clip_v[iYCbCr]); }
-static always_inline void FUNC_CTX(decode_intra16x16, int mode, uint8_t *samples, size_t stride, int iYCbCr) {
+static always_inline void decode_intra16x16(Edge264Context *ctx, int mode, uint8_t *samples, size_t stride, int iYCbCr) {
 	_decode_intra16x16(mode, samples, samples + stride * 7, samples + stride * 14, stride, -stride, ctx->t.samples_clip_v[iYCbCr]); }
-static always_inline void FUNC_CTX(decode_intraChroma, int mode, uint8_t *samplesCb, uint8_t *samplesCr, size_t stride) {
+static always_inline void decode_intraChroma(Edge264Context *ctx, int mode, uint8_t *samplesCb, uint8_t *samplesCr, size_t stride) {
 	_decode_intraChroma(mode, samplesCb, samplesCb + stride * 7, samplesCr, samplesCr + stride * 7, stride, -stride, ctx->t.samples_clip_v[1]); }
 
 // edge264_mvpred.c
-static inline void FUNC_CTX(decode_inter_16x16, i16x8 mvd, int lx);
-static inline void FUNC_CTX(decode_inter_8x16_left, i16x8 mvd, int lx);
-static inline void FUNC_CTX(decode_inter_8x16_right, i16x8 mvd, int lx);
-static inline void FUNC_CTX(decode_inter_16x8_top, i16x8 mvd, int lx);
-static inline void FUNC_CTX(decode_inter_16x8_bottom, i16x8 mvd, int lx);
-static noinline void FUNC_CTX(decode_direct_mv_pred, unsigned direct_mask);
+static inline void decode_inter_16x16(Edge264Context *ctx, i16x8 mvd, int lx);
+static inline void decode_inter_8x16_left(Edge264Context *ctx, i16x8 mvd, int lx);
+static inline void decode_inter_8x16_right(Edge264Context *ctx, i16x8 mvd, int lx);
+static inline void decode_inter_16x8_top(Edge264Context *ctx, i16x8 mvd, int lx);
+static inline void decode_inter_16x8_bottom(Edge264Context *ctx, i16x8 mvd, int lx);
+static noinline void decode_direct_mv_pred(Edge264Context *ctx, unsigned direct_mask);
 
 // edge264_residual_*.c
-void noinline FUNC_CTX(add_idct4x4, int iYCbCr, int qP, i8x16 wS, int DCidx, uint8_t *samples);
-void noinline FUNC_CTX(add_dc4x4, int iYCbCr, int DCidx, uint8_t *samples);
-void noinline FUNC_CTX(add_idct8x8, int iYCbCr, uint8_t *samples);
-void noinline FUNC_CTX(transform_dc4x4, int iYCbCr);
-void noinline FUNC_CTX(transform_dc2x2);
+void noinline add_idct4x4(Edge264Context *ctx, int iYCbCr, int qP, i8x16 wS, int DCidx, uint8_t *samples);
+void noinline add_dc4x4(Edge264Context *ctx, int iYCbCr, int DCidx, uint8_t *samples);
+void noinline add_idct8x8(Edge264Context *ctx, int iYCbCr, uint8_t *samples);
+void noinline transform_dc4x4(Edge264Context *ctx, int iYCbCr);
+void noinline transform_dc2x2(Edge264Context *ctx);
 
 // edge264_slice.c
-static noinline void FUNC_CTX(parse_slice_data_cavlc);
-static noinline void FUNC_CTX(parse_slice_data_cabac);
+static noinline void parse_slice_data_cavlc(Edge264Context *ctx);
+static noinline void parse_slice_data_cabac(Edge264Context *ctx);
 
 #endif

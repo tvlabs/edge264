@@ -861,7 +861,7 @@ static always_inline void inter8xH_chroma_8bit(int h, size_t dstride, uint8_t * 
  * | bipred=2 | no_weight  | no_weight    | no_weight  | implicit2    |
  * +----------+------------+--------------+------------+--------------+
  */
-void noinline FUNC_CTX(decode_inter, int i, int w, int h) {
+void noinline decode_inter(Edge264Context *ctx, int i, int w, int h) {
 	static int8_t shift_Y_8bit[46] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15};
 	static int8_t shift_C_8bit[22] = {0, 0, 0, 0, 0, 0, 0, 0, 1, 2, 3, 4, 5, 6, 7, 7, 7, 7, 7, 7, 7, 7};
 	static void (*luma_fcts[48])(int, size_t, uint8_t*, size_t, const uint8_t*, i8x16, i16x8, i64x2) = {

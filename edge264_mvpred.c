@@ -20,7 +20,7 @@ static always_inline i16x8 temporal_scale(i16x8 mvCol, int16_t DistScaleFactor) 
  * block sizes 16x16, 8x16 and 16x8. Each call computes a prediction from
  * neighbours, adds the mvd pair, then ends with a call to decode_inter.
  */
-static inline void FUNC_CTX(decode_inter_16x16, i16x8 mvd, int lx)
+static inline void decode_inter_16x16(Edge264Context *ctx, i16x8 mvd, int lx)
 {
 	// compare neighbouring indices and compute mvp
 	int refIdx = mb->refIdx[lx * 4];
@@ -53,10 +53,10 @@ static inline void FUNC_CTX(decode_inter_16x16, i16x8 mvd, int lx)
 	i16x8 mvs = shuffle32(mv, 0, 0, 0, 0);
 	mb->absMvd_v[lx * 2] = mb->absMvd_v[lx * 2 + 1] = pack_absMvd(mvd);
 	mb->mvs_v[lx * 4] = mb->mvs_v[lx * 4 + 1] = mb->mvs_v[lx * 4 + 2] = mb->mvs_v[lx * 4 + 3] = mvs;
-	CALL_CTX(decode_inter, lx * 16, 16, 16);
+	decode_inter(ctx, lx * 16, 16, 16);
 }
 
-static inline void FUNC_CTX(decode_inter_8x16_left, i16x8 mvd, int lx)
+static inline void decode_inter_8x16_left(Edge264Context *ctx, i16x8 mvd, int lx)
 {
 	// compare neighbouring indices and compute mvp
 	i16x8 mvp, mvC;
@@ -95,10 +95,10 @@ static inline void FUNC_CTX(decode_inter_8x16_left, i16x8 mvd, int lx)
 	i16x8 mvs = shuffle32(mv, 0, 0, 0, 0);
 	mb->absMvd_l[lx * 4] = mb->absMvd_l[lx * 4 + 2] = ((i64x2)pack_absMvd(mvd))[0];
 	mb->mvs_v[lx * 4] = mb->mvs_v[lx * 4 + 2] = mvs;
-	CALL_CTX(decode_inter, lx * 16, 8, 16);
+	decode_inter(ctx, lx * 16, 8, 16);
 }
 
-static inline void FUNC_CTX(decode_inter_8x16_right, i16x8 mvd, int lx)
+static inline void decode_inter_8x16_right(Edge264Context *ctx, i16x8 mvd, int lx)
 {
 	// compare neighbouring indices and compute mvp
 	i16x8 mvp, mvC;
@@ -136,10 +136,10 @@ static inline void FUNC_CTX(decode_inter_8x16_right, i16x8 mvd, int lx)
 	i16x8 mvs = shuffle32(mv, 0, 0, 0, 0);
 	mb->absMvd_l[lx * 4 + 1] = mb->absMvd_l[lx * 4 + 3] = ((i64x2)pack_absMvd(mvd))[0];
 	mb->mvs_v[lx * 4 + 1] = mb->mvs_v[lx * 4 + 3] = mvs;
-	CALL_CTX(decode_inter, lx * 16 + 4, 8, 16);
+	decode_inter(ctx, lx * 16 + 4, 8, 16);
 }
 
-static inline void FUNC_CTX(decode_inter_16x8_top, i16x8 mvd, int lx)
+static inline void decode_inter_16x8_top(Edge264Context *ctx, i16x8 mvd, int lx)
 {
 	// compare neighbouring indices and compute mvp
 	i16x8 mvp, mvC;
@@ -180,10 +180,10 @@ static inline void FUNC_CTX(decode_inter_16x8_top, i16x8 mvd, int lx)
 	i16x8 mvs = shuffle32(mv, 0, 0, 0, 0);
 	mb->absMvd_v[lx * 2] = pack_absMvd(mvd);
 	mb->mvs_v[lx * 4 + 0] = mb->mvs_v[lx * 4 + 1] = mvs;
-	CALL_CTX(decode_inter, lx * 16, 16, 8);
+	decode_inter(ctx, lx * 16, 16, 8);
 }
 
-static inline void FUNC_CTX(decode_inter_16x8_bottom, i16x8 mvd, int lx)
+static inline void decode_inter_16x8_bottom(Edge264Context *ctx, i16x8 mvd, int lx)
 {
 	// compare neighbouring indices and compute mvp
 	i16x8 mvp;
@@ -216,7 +216,7 @@ static inline void FUNC_CTX(decode_inter_16x8_bottom, i16x8 mvd, int lx)
 	i16x8 mvs = shuffle32(mv, 0, 0, 0, 0);
 	mb->absMvd_v[lx * 2 + 1] = pack_absMvd(mvd);
 	mb->mvs_v[lx * 4 + 2] = mb->mvs_v[lx * 4 + 3] = mvs;
-	CALL_CTX(decode_inter, lx * 16 + 8, 16, 8);
+	decode_inter(ctx, lx * 16 + 8, 16, 8);
 }
 
 
@@ -225,7 +225,7 @@ static inline void FUNC_CTX(decode_inter_16x8_bottom, i16x8 mvd, int lx)
  * Initialise the reference indices and motion vectors of an entire macroblock
  * with direct prediction (8.4.1.2).
  */
-static always_inline void FUNC_CTX(decode_direct_spatial_mv_pred, unsigned direct_flags)
+static always_inline void decode_direct_spatial_mv_pred(Edge264Context *ctx, unsigned direct_flags)
 {
 	// load all refIdxN and mvN in vector registers
 	i8x16 shuf = {0, 0, 0, 0, 4, 4, 4, 4, -1, -1, -1, -1, -1, -1, -1, -1};
@@ -364,7 +364,7 @@ static always_inline void FUNC_CTX(decode_direct_spatial_mv_pred, unsigned direc
 				int type = __builtin_ctz(movemask(((mt & mc) == masks) | ((mt & ~mc) == masks))) >> 1;
 				mvd_flags ^= (unsigned)((uint16_t *)&masks)[type] << i;
 				inter_eqs |= (uint64_t)eqs[type] << i * 2;
-				CALL_CTX(decode_inter, i, widths[type], heights[type]);
+				decode_inter(ctx, i, widths[type], heights[type]);
 			} while (mvd_flags);
 			mb->inter_eqs_s |= little_endian32(inter_eqs & inter_eqs >> 32);
 			return;
@@ -377,12 +377,12 @@ static always_inline void FUNC_CTX(decode_direct_spatial_mv_pred, unsigned direc
 	mb->mvs_v[4] = mb->mvs_v[5] = mb->mvs_v[6] = mb->mvs_v[7] = mvs4;
 	mb->inter_eqs_s = little_endian32(0x1b5fbbff);
 	if (refIdx[0] >= 0)
-		CALL_CTX(decode_inter, 0, 16, 16);
+		decode_inter(ctx, 0, 16, 16);
 	if (refIdx[4] >= 0)
-		CALL_CTX(decode_inter, 16, 16, 16);
+		decode_inter(ctx, 16, 16, 16);
 }
 
-static always_inline void FUNC_CTX(decode_direct_temporal_mv_pred, unsigned direct_flags)
+static always_inline void decode_direct_temporal_mv_pred(Edge264Context *ctx, unsigned direct_flags)
 {
 	// load refPicCol and mvCol
 	const Edge264Macroblock *mbCol = ctx->mbCol;
@@ -449,15 +449,15 @@ static always_inline void FUNC_CTX(decode_direct_temporal_mv_pred, unsigned dire
 		int i = __builtin_ctz(direct_flags);
 		int type = extract_neighbours(inter_eqs >> i * 2) & ~i;
 		direct_flags ^= masks[type] << i;
-		CALL_CTX(decode_inter, i, widths[type], heights[type]);
-		CALL_CTX(decode_inter, i + 16, widths[type], heights[type]);
+		decode_inter(ctx, i, widths[type], heights[type]);
+		decode_inter(ctx, i + 16, widths[type], heights[type]);
 	} while (direct_flags);
 }
 
-static noinline void FUNC_CTX(decode_direct_mv_pred, unsigned direct_flags) {
+static noinline void decode_direct_mv_pred(Edge264Context *ctx, unsigned direct_flags) {
 	if (ctx->t.direct_spatial_mv_pred_flag) {
-		CALL_CTX(decode_direct_spatial_mv_pred, direct_flags);
+		decode_direct_spatial_mv_pred(ctx, direct_flags);
 	} else {
-		CALL_CTX(decode_direct_temporal_mv_pred, direct_flags);
+		decode_direct_temporal_mv_pred(ctx, direct_flags);
 	}
 }

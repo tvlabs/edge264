@@ -163,7 +163,7 @@ static always_inline i8x16 expand2(int64_t a) {
 /**
  * Deblock both chroma planes of the current macroblock in place.
  */
-static noinline void FUNC_CTX(deblock_CbCr_8bit, size_t stride, ssize_t nstride, size_t stride7)
+static noinline void deblock_CbCr_8bit(Edge264Context *ctx, size_t stride, ssize_t nstride, size_t stride7)
 {
 	static const i8x16 shuf_a = {9, 9, 9, 9, 9, 9, 9, 9, 10, 10, 10, 10, 10, 10, 10, 10};
 	static const i8x16 shuf_cg = {1, 1, 1, 1, 1, 1, 1, 1, 2, 2, 2, 2, 2, 2, 2, 2};
@@ -417,7 +417,7 @@ static noinline void FUNC_CTX(deblock_CbCr_8bit, size_t stride, ssize_t nstride,
  * Deblock the luma plane of the current macroblock in place, then tail call to
  * chroma deblocking.
  */
-static noinline void FUNC_CTX(deblock_Y_8bit, size_t stride, ssize_t nstride, size_t stride7)
+static noinline void deblock_Y_8bit(Edge264Context *ctx, size_t stride, ssize_t nstride, size_t stride7)
 {
 	i8x16 zero = {};
 	i8x16 v0, v1, v2, v3, v4, v5, v6, v7;
@@ -778,7 +778,7 @@ static noinline void FUNC_CTX(deblock_Y_8bit, size_t stride, ssize_t nstride, si
 	
 	// jump to chroma deblocking filter
 	size_t strideC = ctx->t.stride[1];
-	JUMP_CTX(deblock_CbCr_8bit, strideC, -strideC, strideC * 7);
+	deblock_CbCr_8bit(ctx, strideC, -strideC, strideC * 7);
 }
 
 
@@ -811,7 +811,7 @@ static noinline void FUNC_CTX(deblock_Y_8bit, size_t stride, ssize_t nstride, si
  *         mvs_c=0 |    0     |    1     |    1     |    0     |
  * ----------------+----------+----------+----------+----------+
  */
-noinline void FUNC_CTX(deblock_mb)
+noinline void deblock_mb(Edge264Context *ctx)
 {
 	static const u8x16 idx2alpha[3] =
 		{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 4, 4, 5, 6, 7, 8, 9, 10, 12, 13, 15, 17, 20, 22, 25, 28, 32, 36, 40, 45, 50, 56, 63, 71, 80, 90, 101, 113, 127, 144, 162, 182, 203, 226, 255, 255};
@@ -1007,5 +1007,5 @@ noinline void FUNC_CTX(deblock_mb)
 	
 	// jump to luma deblocking filter
 	size_t strideY = ctx->t.stride[0];
-	JUMP_CTX(deblock_Y_8bit, strideY, -strideY, strideY * 7);
+	deblock_Y_8bit(ctx, strideY, -strideY, strideY * 7);
 }

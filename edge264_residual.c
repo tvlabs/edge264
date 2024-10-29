@@ -372,14 +372,14 @@ void noinline FUNC_CTX(transform_dc4x4, int iYCbCr)
 		i32x4 r3 = (dc3 + s32) >> 6;
 		i8x16 shuflo = {0, 1, 0, 1, 0, 1, 0, 1, 4, 5, 4, 5, 4, 5, 4, 5};
 		i8x16 shufhi = {8, 9, 8, 9, 8, 9, 8, 9, 12, 13, 12, 13, 12, 13, 12, 13};
-		i16x8 lo0 = shuffle8(r0, shuflo);
-		i16x8 lo1 = shuffle8(r1, shuflo);
-		i16x8 lo2 = shuffle8(r2, shuflo);
-		i16x8 lo3 = shuffle8(r3, shuflo);
-		i16x8 hi0 = shuffle8(r0, shufhi);
-		i16x8 hi1 = shuffle8(r1, shufhi);
-		i16x8 hi2 = shuffle8(r2, shufhi);
-		i16x8 hi3 = shuffle8(r3, shufhi);
+		i16x8 lo0 = shuffle(r0, shuflo);
+		i16x8 lo1 = shuffle(r1, shuflo);
+		i16x8 lo2 = shuffle(r2, shuflo);
+		i16x8 lo3 = shuffle(r3, shuflo);
+		i16x8 hi0 = shuffle(r0, shufhi);
+		i16x8 hi1 = shuffle(r1, shufhi);
+		i16x8 hi2 = shuffle(r2, shufhi);
+		i16x8 hi3 = shuffle(r3, shufhi);
 		
 		// add to predicted samples
 		if (ctx->t.samples_clip[iYCbCr][0] == 255) {
@@ -460,10 +460,10 @@ void noinline FUNC_CTX(transform_dc2x2)
 		i32x4 rr = (dcCr + s32) >> 6;
 		i8x16 shuflo = {0, 1, 0, 1, 0, 1, 0, 1, 4, 5, 4, 5, 4, 5, 4, 5};
 		i8x16 shufhi = {8, 9, 8, 9, 8, 9, 8, 9, 12, 13, 12, 13, 12, 13, 12, 13};
-		i16x8 lob = shuffle8(rb, shuflo);
-		i16x8 hib = shuffle8(rb, shufhi);
-		i16x8 lor = shuffle8(rr, shuflo);
-		i16x8 hir = shuffle8(rr, shufhi);
+		i16x8 lob = shuffle(rb, shuflo);
+		i16x8 hib = shuffle(rb, shufhi);
+		i16x8 lor = shuffle(rr, shuflo);
+		i16x8 hir = shuffle(rr, shufhi);
 		i8x16 zero = {};
 		
 		// add to predicted samples

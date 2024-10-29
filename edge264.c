@@ -90,7 +90,7 @@ static const i8x16 Default_8x8_Inter[4] = {
  * This function sets the context pointers to the frame about to be decoded,
  * and fills the context caches with useful values.
  */
-static void FUNC_CTX(initialize_context)
+static void FUNC_CTX(initialize_context, int currPic)
 {
 	static const int8_t QP_Y2C[88] = {
 		0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
@@ -98,6 +98,7 @@ static void FUNC_CTX(initialize_context)
 		39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39};
 	
 	union { int8_t q[32]; i8x16 v[2]; } tb, td;
+	ctx->PicOrderCnt = min(ctx->d->FieldOrderCnt[0][currPic], ctx->d->FieldOrderCnt[1][currPic]);
 	ctx->CurrMbAddr = ctx->t.first_mb_in_slice;
 	ctx->mby = (unsigned)ctx->t.first_mb_in_slice / (unsigned)ctx->t.pic_width_in_mbs;
 	ctx->mbx = (unsigned)ctx->t.first_mb_in_slice % (unsigned)ctx->t.pic_width_in_mbs;
@@ -197,6 +198,7 @@ static void *worker_loop(Edge264Decoder *d) {
 		while (c.n_threads && !c.d->ready_tasks)
 			pthread_cond_wait(&c.d->task_ready, &c.d->lock);
 		int task_id = __builtin_ctz(c.d->ready_tasks); // FIXME arbitrary selection for now
+		int currPic = c.d->taskPics[task_id];
 		c.d->pending_tasks &= ~(1 << task_id);
 		c.d->ready_tasks &= ~(1 << task_id);
 		if (c.n_threads) {
@@ -204,7 +206,7 @@ static void *worker_loop(Edge264Decoder *d) {
 			printf("<h>Thread started decoding frame %d at macroblock %d</h>\n", c.d->FieldOrderCnt[0][c.d->taskPics[task_id]], c.d->tasks[task_id].first_mb_in_slice);
 		}
 		c.t = c.d->tasks[task_id];
-		CALL_CTX(initialize_context);
+		CALL_CTX(initialize_context, currPic);
 		size_t ret = 0;
 		if (!c.t.pps.entropy_coding_mode_flag) {
 			c.mb_skip_run = -1;
@@ -253,7 +255,6 @@ static void *worker_loop(Edge264Decoder *d) {
 		}
 		
 		// update d->next_deblock_addr, considering it might have reached first_mb_in_slice since start
-		int currPic = c.d->taskPics[task_id];
 		if (c.d->next_deblock_addr[currPic] >= c.t.first_mb_in_slice &&
 		    !(c.t.disable_deblocking_filter_idc == 0 && c.t.next_deblock_addr < 0)) {
 			c.d->next_deblock_addr[currPic] = c.CurrMbAddr;

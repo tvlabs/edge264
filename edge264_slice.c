@@ -1003,13 +1003,13 @@ static inline void CAFUNC(parse_ref_idx, unsigned f) {
 		refIdx_v = min8(refIdx_v, (i64x2){(int64_t)ctx->clip_ref_idx_v});
 	#endif
 	if (!(f & 0x122)) { // 16xN
-		refIdx_v = shuffle8(refIdx_v, ((i8x16){0, 0, 2, 2, 4, 4, 6, 6, -1, -1, -1, -1, -1, -1, -1, -1}));
+		refIdx_v = shuffle(refIdx_v, ((i8x16){0, 0, 2, 2, 4, 4, 6, 6, -1, -1, -1, -1, -1, -1, -1, -1}));
 		#ifdef CABAC
 			mb->bits[0] |= (mb->bits[0] >> 2 & 0x080800) | (mb->bits[0] << 5 & 0x808000);
 		#endif
 	}
 	if (!(f & 0x144)) { // Nx16
-		refIdx_v = shuffle8(refIdx_v, ((i8x16){0, 1, 0, 1, 4, 5, 4, 5, -1, -1, -1, -1, -1, -1, -1, -1}));
+		refIdx_v = shuffle(refIdx_v, ((i8x16){0, 1, 0, 1, 4, 5, 4, 5, -1, -1, -1, -1, -1, -1, -1, -1}));
 		#ifdef CABAC
 			mb->bits[0] |= (mb->bits[0] >> 3 & 0x040400) | (mb->bits[0] << 4 & 0x808000);
 		#endif
@@ -1018,8 +1018,8 @@ static inline void CAFUNC(parse_ref_idx, unsigned f) {
 	fprintf(stderr, "ref_idx: %d %d %d %d %d %d %d %d\n", mb->refIdx[0], mb->refIdx[1], mb->refIdx[2], mb->refIdx[3], mb->refIdx[4], mb->refIdx[5], mb->refIdx[6], mb->refIdx[7]);
 	
 	// compute reference picture numbers
-	mb->refPic_s[0] = ((i32x4)ifelse_msb(refIdx_v, refIdx_v, shuffle8(ctx->t.RefPicList_v[0], refIdx_v)))[0];
-	mb->refPic_s[1] = ((i32x4)ifelse_msb(refIdx_v, refIdx_v, shuffle8(ctx->t.RefPicList_v[2], refIdx_v)))[1];
+	mb->refPic_s[0] = ((i32x4)shufflen(ctx->t.RefPicList_v[0], refIdx_v))[0];
+	mb->refPic_s[1] = ((i32x4)shufflen(ctx->t.RefPicList_v[2], refIdx_v))[1];
 }
 
 
@@ -1117,16 +1117,16 @@ static void CAFUNC(parse_B_sub_mb) {
 	i8x16 Ar = (i64x2){(int64_t)mbA->refIdx_l, (int64_t)mb->refIdx_l};
 	i8x16 BCAr0 = shuffleps(BC, Ar, 0, 2, 0, 2);
 	i8x16 BCAr1 = shuffleps(BC, Ar, 1, 3, 1, 3);
-	i8x16 r0 = shuffle8(BCAr0, ((i8x16){12, 12, 12, 12, 13, 13, 13, 13, 14, 14, 14, 14, 15, 15, 15, 15}));
-	i8x16 r1 = shuffle8(BCAr1, ((i8x16){12, 12, 12, 12, 13, 13, 13, 13, 14, 14, 14, 14, 15, 15, 15, 15}));
-	i8x16 A0 = shuffle8(BCAr0, ((i8x16){9, 12, 9, 12, 12, 13, 12, 13, 11, 14, 11, 14, 14, 15, 14, 15}));
-	i8x16 A1 = shuffle8(BCAr1, ((i8x16){9, 12, 9, 12, 12, 13, 12, 13, 11, 14, 11, 14, 14, 15, 14, 15}));
-	i8x16 B0 = shuffle8(BCAr0, ((i8x16){2, 2, 12, 12, 3, 3, 13, 13, 12, 12, 14, 14, 13, 13, 15, 15}));
-	i8x16 B1 = shuffle8(BCAr1, ((i8x16){2, 2, 12, 12, 3, 3, 13, 13, 12, 12, 14, 14, 13, 13, 15, 15}));
-	i8x16 C0 = shuffle8(BCAr0, ctx->refIdx4x4_C_v);
-	i8x16 C1 = shuffle8(BCAr1, ctx->refIdx4x4_C_v);
-	i8x16 D0 = shuffle8(BCAr0, ((i8x16){-1, 2, 9, 12, 2, 3, 12, 13, 9, 12, 11, 14, 12, 13, 14, 15}));
-	i8x16 D1 = shuffle8(BCAr1, ((i8x16){-1, 2, 9, 12, 2, 3, 12, 13, 9, 12, 11, 14, 12, 13, 14, 15}));
+	i8x16 r0 = shuffle(BCAr0, ((i8x16){12, 12, 12, 12, 13, 13, 13, 13, 14, 14, 14, 14, 15, 15, 15, 15}));
+	i8x16 r1 = shuffle(BCAr1, ((i8x16){12, 12, 12, 12, 13, 13, 13, 13, 14, 14, 14, 14, 15, 15, 15, 15}));
+	i8x16 A0 = shuffle(BCAr0, ((i8x16){9, 12, 9, 12, 12, 13, 12, 13, 11, 14, 11, 14, 14, 15, 14, 15}));
+	i8x16 A1 = shuffle(BCAr1, ((i8x16){9, 12, 9, 12, 12, 13, 12, 13, 11, 14, 11, 14, 14, 15, 14, 15}));
+	i8x16 B0 = shuffle(BCAr0, ((i8x16){2, 2, 12, 12, 3, 3, 13, 13, 12, 12, 14, 14, 13, 13, 15, 15}));
+	i8x16 B1 = shuffle(BCAr1, ((i8x16){2, 2, 12, 12, 3, 3, 13, 13, 12, 12, 14, 14, 13, 13, 15, 15}));
+	i8x16 C0 = shuffle(BCAr0, ctx->refIdx4x4_C_v);
+	i8x16 C1 = shuffle(BCAr1, ctx->refIdx4x4_C_v);
+	i8x16 D0 = shuffle(BCAr0, ((i8x16){-1, 2, 9, 12, 2, 3, 12, 13, 9, 12, 11, 14, 12, 13, 14, 15}));
+	i8x16 D1 = shuffle(BCAr1, ((i8x16){-1, 2, 9, 12, 2, 3, 12, 13, 9, 12, 11, 14, 12, 13, 14, 15}));
 	D0[0] = mbD->refIdx[3];
 	D1[0] = mbD->refIdx[7];
 	
@@ -1397,11 +1397,11 @@ static void CAFUNC(parse_P_sub_mb, unsigned ref_idx_flags)
 	i8x16 BC = (i64x2){(int64_t)mbB->refIdx_l, (int64_t)mbC->refIdx_l};
 	i8x16 Ar = (i64x2){(int64_t)mbA->refIdx_l, (int64_t)mb->refIdx_l};
 	i8x16 BCAr0 = shuffleps(BC, Ar, 0, 2, 0, 2);
-	i8x16 r0 = shuffle8(BCAr0, ((i8x16){12, 12, 12, 12, 13, 13, 13, 13, 14, 14, 14, 14, 15, 15, 15, 15}));
-	i8x16 A0 = shuffle8(BCAr0, ((i8x16){9, 12, 9, 12, 12, 13, 12, 13, 11, 14, 11, 14, 14, 15, 14, 15}));
-	i8x16 B0 = shuffle8(BCAr0, ((i8x16){2, 2, 12, 12, 3, 3, 13, 13, 12, 12, 14, 14, 13, 13, 15, 15}));
-	i8x16 C0 = shuffle8(BCAr0, ctx->refIdx4x4_C_v);
-	i8x16 D0 = shuffle8(BCAr0, ((i8x16){-1, 2, 9, 12, 2, 3, 12, 13, 9, 12, 11, 14, 12, 13, 14, 15}));
+	i8x16 r0 = shuffle(BCAr0, ((i8x16){12, 12, 12, 12, 13, 13, 13, 13, 14, 14, 14, 14, 15, 15, 15, 15}));
+	i8x16 A0 = shuffle(BCAr0, ((i8x16){9, 12, 9, 12, 12, 13, 12, 13, 11, 14, 11, 14, 14, 15, 14, 15}));
+	i8x16 B0 = shuffle(BCAr0, ((i8x16){2, 2, 12, 12, 3, 3, 13, 13, 12, 12, 14, 14, 13, 13, 15, 15}));
+	i8x16 C0 = shuffle(BCAr0, ctx->refIdx4x4_C_v);
+	i8x16 D0 = shuffle(BCAr0, ((i8x16){-1, 2, 9, 12, 2, 3, 12, 13, 9, 12, 11, 14, 12, 13, 14, 15}));
 	D0[0] = mbD->refIdx[3];
 	
 	// combine them into a vector of 4-bit equality masks
@@ -1503,7 +1503,7 @@ static inline void CAFUNC(parse_P_mb)
 		#endif
 		mb->inter_eqs_s = little_endian32(0x1b5fbbff);
 		i8x16 refIdx_v = (i64x2){mb->refIdx_l};
-		mb->refPic_l = ((i64x2)(shuffle8(ctx->t.RefPicList_v[0], refIdx_v) | refIdx_v))[0];
+		mb->refPic_l = ((i64x2)(shuffle(ctx->t.RefPicList_v[0], refIdx_v) | refIdx_v))[0];
 		int refIdxA = mbA->refIdx[1];
 		int refIdxB = mbB->refIdx[2];
 		int mvA = mbA->mvs_s[5];
@@ -1607,7 +1607,7 @@ static noinline void CAFUNC(parse_slice_data)
 	
 	int end_of_slice_flag = 0;
 	do {
-		fprintf(stderr, "********** POC=%u MB=%u **********\n", ctx->t.PicOrderCnt, ctx->CurrMbAddr);
+		fprintf(stderr, "********** POC=%u MB=%u **********\n", ctx->PicOrderCnt, ctx->CurrMbAddr);
 		
 		// set and reset neighbouring pointers depending on their availability
 		int unavail16x16 = (ctx->mbx == 0 ? 9 : 0) | (ctx->mbx == ctx->t.pic_width_in_mbs - 1) << 2 | (ctx->mby == 0 ? 14 : 0);

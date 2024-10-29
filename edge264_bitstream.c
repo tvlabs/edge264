@@ -13,14 +13,14 @@
 static inline size_t FUNC_GB(get_bytes, int nbytes)
 {
 	static const i8x16 shuf[8] = {
-		{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 15},
-		{0, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 15},
-		{0, 1, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 15},
-		{0, 1, 2, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 15},
-		{0, 1, 2, 3, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 15},
-		{0, 1, 2, 3, 4, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 15},
-		{0, 1, 2, 3, 4, 5, 7, 8, 9, 10, 11, 12, 13, 14, 15, 15},
-		{0, 1, 2, 3, 4, 5, 6, 8, 9, 10, 11, 12, 13, 14, 15, 15},
+		{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, -1},
+		{0, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, -1},
+		{0, 1, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, -1},
+		{0, 1, 2, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, -1},
+		{0, 1, 2, 3, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, -1},
+		{0, 1, 2, 3, 4, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, -1},
+		{0, 1, 2, 3, 4, 5, 7, 8, 9, 10, 11, 12, 13, 14, 15, -1},
+		{0, 1, 2, 3, 4, 5, 6, 8, 9, 10, 11, 12, 13, 14, 15, -1},
 	};
 	
 	// load 16 bytes without reading past aligned buffer boundaries
@@ -50,11 +50,11 @@ static inline size_t FUNC_GB(get_bytes, int nbytes)
 		// if we find a 000 or 001 delimiter sequence, set end to its first byte
 		if (CPB[i] <3) {
 			gb->end = CPB + i - 2;
-			x = shr(shl(x, 16 - i), 16 - i);
+			x &= ~shl(set8(-1), i);
 			break; // we cannot iterate more since now x differs from esc
 		}
 		// otherwise this is an emulation_prevention_three_byte -> remove it
-		x = shuffle8(x, shuf[i]);
+		x = shuffle(x, shuf[i]);
 		esc = (esc & (esc - 1)) >> 1;
 		CPB++;
 	}

@@ -1,5 +1,19 @@
 #include "edge264_internal.h"
 
+static always_inline i16x8 mvs_near_zero(i16x8 mvCol, i32x4 zero) {
+	return (i32x4)(abs16(mvCol) >> 1) == zero;
+}
+
+static always_inline i16x8 temporal_scale(i16x8 mvCol, int16_t DistScaleFactor) {
+	i32x4 neg = set32(-1);
+	i32x4 mul = set32(DistScaleFactor + 0xff800000u);
+	i32x4 lo = madd16(unpacklo16(mvCol, neg), mul);
+	i32x4 hi = madd16(unpackhi16(mvCol, neg), mul);
+	return packs32(lo >> 8, hi >> 8);
+}
+
+
+
 
 /**
  * These functions are designed to optimize the parsing of motion vectors for
@@ -218,15 +232,15 @@ static always_inline void FUNC_CTX(decode_direct_spatial_mv_pred, unsigned direc
 	i16x8 mvA = (i32x4){mbA->mvs_s[5], mbA->mvs_s[21]};
 	i16x8 mvB = (i32x4){mbB->mvs_s[10], mbB->mvs_s[26]};
 	i16x8 mvC;
-	i8x16 refIdxA = shuffle8(shrc((i64x2){mbA->refIdx_l}, 1), shuf);
-	i8x16 refIdxB = shuffle8(shrc((i64x2){mbB->refIdx_l}, 2), shuf);
+	i8x16 refIdxA = shuffle(shrc((i64x2){mbA->refIdx_l}, 1), shuf);
+	i8x16 refIdxB = shuffle(shrc((i64x2){mbB->refIdx_l}, 2), shuf);
 	i8x16 refIdxC;
 	if (__builtin_expect(ctx->unavail4x4[5] & 4, 0)) {
 		mvC = (i32x4){mbD->mvs_s[15], mbD->mvs_s[31]};
-		refIdxC = shuffle8(shrc((i64x2){mbD->refIdx_l}, 3), shuf);
+		refIdxC = shuffle(shrc((i64x2){mbD->refIdx_l}, 3), shuf);
 	} else {
 		mvC = (i32x4){mbC->mvs_s[10], mbC->mvs_s[26]};
-		refIdxC = shuffle8(shrc((i64x2){mbC->refIdx_l}, 2), shuf);
+		refIdxC = shuffle(shrc((i64x2){mbC->refIdx_l}, 2), shuf);
 	}
 	
 	// initialize mv along refIdx since it will equal one of refIdxA/B/C
@@ -246,8 +260,8 @@ static always_inline void FUNC_CTX(decode_direct_spatial_mv_pred, unsigned direc
 	
 	// direct zero prediction applies only to refIdx (mvLX are zero already)
 	refIdx ^= (i8x16)((i64x2)refIdx == -1);
-	mb->refPic_s[0] = ((i32x4)ifelse_msb(refIdx, refIdx, shuffle8(ctx->t.RefPicList_v[0], refIdx)))[0];
-	mb->refPic_s[1] = ((i32x4)ifelse_msb(refIdx, refIdx, shuffle8(ctx->t.RefPicList_v[2], refIdx)))[1];
+	mb->refPic_s[0] = ((i32x4)shufflen(ctx->t.RefPicList_v[0], refIdx))[0];
+	mb->refPic_s[1] = ((i32x4)shufflen(ctx->t.RefPicList_v[2], refIdx))[1];
 	//printf("<li>refIdxL0A/B/C=%d/%d/%d, refIdxL1A/B/C=%d/%d/%d, mvsL0A/B/C=[%d,%d]/[%d,%d]/[%d,%d], mvsL1A/B/C=[%d,%d]/[%d,%d]/[%d,%d] -> refIdxL0/1=%d/%d, mvsL0/1=[%d,%d]/[%d,%d]</li>\n", refIdxA[0], refIdxB[0], refIdxC[0], refIdxA[4], refIdxB[4], refIdxC[4], mvA[0], mvA[1], mvB[0], mvB[1], mvC[0], mvC[1], mvA[2], mvA[3], mvB[2], mvB[3], mvC[2], mvC[3], refIdx[0], refIdx[4], mv01[0], mv01[1], mv01[2], mv01[3]);
 	
 	// trick from ffmpeg: skip computations on refCol/mvCol if both mvs are zero
@@ -281,7 +295,7 @@ static always_inline void FUNC_CTX(decode_direct_spatial_mv_pred, unsigned direc
 				colZeroMask2 = mvs_near_zero(mvCol2, zero);
 			if (refColZero & 1 << 24)
 				colZeroMask3 = mvs_near_zero(mvCol3, zero);
-			colZeroFlags = colZero_mask_to_flags(colZeroMask0, colZeroMask1, colZeroMask2, colZeroMask3);
+			colZeroFlags = movemask(packs16(packs32(colZeroMask0, colZeroMask1), packs32(colZeroMask2, colZeroMask3)));
 		}
 		
 		// skip computations on colZeroFlags if none are set
@@ -347,7 +361,7 @@ static always_inline void FUNC_CTX(decode_direct_spatial_mv_pred, unsigned direc
 				unsigned c = colZeroFlags >> i;
 				i16x8 mt = (u16x8){t, t, t, t, t, t, t, t} & masks;
 				i16x8 mc = (u16x8){c, c, c, c, c, c, c, c};
-				int type = first_true(((mt & mc) == masks) | ((mt & ~mc) == masks));
+				int type = __builtin_ctz(movemask(((mt & mc) == masks) | ((mt & ~mc) == masks))) >> 1;
 				mvd_flags ^= (unsigned)((uint16_t *)&masks)[type] << i;
 				inter_eqs |= (uint64_t)eqs[type] << i * 2;
 				CALL_CTX(decode_inter, i, widths[type], heights[type]);
@@ -389,11 +403,9 @@ static always_inline void FUNC_CTX(decode_direct_temporal_mv_pred, unsigned dire
 	}
 	
 	// conditional memory storage
-	i8x16 lo = shuffle8(ctx->MapPicToList0_v[0], refPicCol);
-	i8x16 hi = shuffle8(ctx->MapPicToList0_v[1], refPicCol);
-	i8x16 refIdx = ifelse_mask(refPicCol > 15, hi, lo);
-	mb->refPic_s[0] = ((i32x4)ifelse_msb(refIdx, refIdx, shuffle8(ctx->t.RefPicList_v[0], refIdx)))[0]; // overwritten by parse_ref_idx later if refIdx!=0
-	mb->refPic_s[1] = ((i32x4)shuffle8(ctx->t.RefPicList_v[2], (i8x16){}))[0]; // refIdxL1 is 0
+	i8x16 refIdx = shufflez2(ctx->MapPicToList0_v, refPicCol);
+	mb->refPic_s[0] = ((i32x4)shufflen(ctx->t.RefPicList_v[0], refIdx))[0]; // overwritten by parse_ref_idx later if refIdx!=0
+	mb->refPic_s[1] = ((i32x4)broadcast8(ctx->t.RefPicList_v[2]))[0]; // refIdxL1 is 0
 	if (direct_flags & 1) {
 		mb->refIdx[0] = refIdx[0];
 		mb->refIdx[4] = 0;

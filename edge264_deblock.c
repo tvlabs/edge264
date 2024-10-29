@@ -15,62 +15,62 @@
  */
 #define DEBLOCK_LUMA_SOFT(p2, p1, p0, q0, q1, q2, palpha, pbeta, itC0) {\
 	/* compute the opposite of filterSamplesFlags as a mask, and transfer the mask bS=0 from tC0 */\
-	i8x16 pq0 = subus8(p0, q0);\
-	i8x16 qp0 = subus8(q0, p0);\
-	i8x16 sub0 = subus8(addus8(qp0, set8(-128)), pq0); /* save 128+q0-p0 for later */\
+	i8x16 pq0 = usubs8(p0, q0);\
+	i8x16 qp0 = usubs8(q0, p0);\
+	i8x16 sub0 = usubs8(uadds8(qp0, set8(-128)), pq0); /* save 128+q0-p0 for later */\
 	i8x16 abs0 = pq0 | qp0;\
-	i8x16 abs1 = subus8(p1, p0) | subus8(p0, p1);\
-	i8x16 abs2 = subus8(q1, q0) | subus8(q0, q1);\
+	i8x16 abs1 = usubs8(p1, p0) | usubs8(p0, p1);\
+	i8x16 abs2 = usubs8(q1, q0) | usubs8(q0, q1);\
 	i8x16 beta = set8(*(pbeta));\
-	i8x16 and = umin8(subus8(set8(*(palpha)), abs0), subus8(beta, umax8(abs1, abs2)));\
+	i8x16 and = umin8(usubs8(set8(*(palpha)), abs0), usubs8(beta, umax8(abs1, abs2)));\
 	i8x16 tC0 = expand4(itC0);\
-	i8x16 ignoreSamplesFlags = ifelse_msb(tC0, tC0, and == 0);\
+	i8x16 ignoreSamplesFlags = (and == 0) | (tC0 < 0);\
 	i8x16 ftC0 = tC0 & ~ignoreSamplesFlags;\
 	/* filter p1 and q1 (same as ffmpeg, I couldn't find better) */\
 	i8x16 c1 = set8(1);\
 	i8x16 x0 = avg8(p0, q0); /* (p0+q0+1)>>1 */\
 	i8x16 x1 = avg8(p2, x0) - ((p2 ^ x0) & c1); /* (p2+((p0+q0+1)>>1))>>1 */\
 	i8x16 x2 = avg8(q2, x0) - ((q2 ^ x0) & c1); /* (q2+((p0+q0+1)>>1))>>1 */\
-	i8x16 pp1 = umin8(umax8(x1, subus8(p1, ftC0)), addus8(p1, ftC0));\
-	i8x16 qp1 = umin8(umax8(x2, subus8(q1, ftC0)), addus8(q1, ftC0));\
+	i8x16 pp1 = umin8(umax8(x1, usubs8(p1, ftC0)), uadds8(p1, ftC0));\
+	i8x16 qp1 = umin8(umax8(x2, usubs8(q1, ftC0)), uadds8(q1, ftC0));\
 	i8x16 cm1 = set8(-1);\
 	i8x16 bm1 = (i8x16)beta + cm1;\
 	i8x16 sub1 = avg8(p1, q1 ^ cm1); /* save 128+((p1-q1)>>1) for later */\
-	i8x16 apltb = subus8(subus8(p2, p0), bm1) == subus8(subus8(p0, p2), bm1);\
-	i8x16 aqltb = subus8(subus8(q2, q0), bm1) == subus8(subus8(q0, q2), bm1);\
+	i8x16 apltb = usubs8(usubs8(p2, p0), bm1) == usubs8(usubs8(p0, p2), bm1);\
+	i8x16 aqltb = usubs8(usubs8(q2, q0), bm1) == usubs8(usubs8(q0, q2), bm1);\
 	p1 = ifelse_mask(apltb, pp1, p1);\
 	q1 = ifelse_mask(aqltb, qp1, q1);\
 	/* filter p0 and q0 (by offsetting signed to unsigned to apply pavg) */\
 	i8x16 ftC = (ftC0 - apltb - aqltb) & ~ignoreSamplesFlags;\
 	i8x16 x3 = avg8(sub0, avg8(sub1, set8(127))); /* 128+((q0-p0+((p1-q1)>>2)+1)>>1) */\
 	i8x16 c128 = set8(-128);\
-	i8x16 delta = umin8(subus8(x3, c128), ftC); /* delta if delta>0 */\
-	i8x16 ndelta = umin8(subus8(c128, x3), ftC); /* -delta if delta<0 */\
-	p0 = subus8(addus8(p0, delta), ndelta);\
-	q0 = subus8(addus8(q0, ndelta), delta);}
+	i8x16 delta = umin8(usubs8(x3, c128), ftC); /* delta if delta>0 */\
+	i8x16 ndelta = umin8(usubs8(c128, x3), ftC); /* -delta if delta<0 */\
+	p0 = usubs8(uadds8(p0, delta), ndelta);\
+	q0 = usubs8(uadds8(q0, ndelta), delta);}
 
 #define DEBLOCK_CHROMA_SOFT(p1, p0, q0, q1, shufab, itC0) {\
 	/* compute the opposite of filterSamplesFlags and apply if to tC */\
 	i8x16 c128 = set8(-128);\
-	i8x16 pq0 = subus8(p0, q0);\
-	i8x16 qp0 = subus8(q0, p0);\
-	i8x16 sub0 = subus8(addus8(qp0, c128), pq0); /* save 128+q0-p0 for later */\
+	i8x16 pq0 = usubs8(p0, q0);\
+	i8x16 qp0 = usubs8(q0, p0);\
+	i8x16 sub0 = usubs8(uadds8(qp0, c128), pq0); /* save 128+q0-p0 for later */\
 	i8x16 abs0 = pq0 | qp0;\
-	i8x16 abs1 = subus8(p1, p0) | subus8(p0, p1);\
-	i8x16 abs2 = subus8(q1, q0) | subus8(q0, q1);\
-	i8x16 alpha = shuffle8(ctx->alpha_v, shufab);\
-	i8x16 beta = shuffle8(ctx->beta_v, shufab);\
-	i8x16 and = umin8(subus8(alpha, abs0), subus8(beta, umax8(abs1, abs2)));\
+	i8x16 abs1 = usubs8(p1, p0) | usubs8(p0, p1);\
+	i8x16 abs2 = usubs8(q1, q0) | usubs8(q0, q1);\
+	i8x16 alpha = shuffle(ctx->alpha_v, shufab);\
+	i8x16 beta = shuffle(ctx->beta_v, shufab);\
+	i8x16 and = umin8(usubs8(alpha, abs0), usubs8(beta, umax8(abs1, abs2)));\
 	i8x16 ignoreSamplesFlags = and == 0;\
 	i8x16 cm1 = set8(-1);\
 	i8x16 ftC = (expand2(itC0) - cm1) & ~ignoreSamplesFlags;\
 	/* filter p0 and q0 (by offsetting signed to unsigned to apply pavg) */\
 	i8x16 sub1 = avg8(p1, q1 ^ cm1); /* 128+((p1-q1)>>1) */\
 	i8x16 x3 = avg8(sub0, avg8(sub1, set8(127))); /* 128+((q0-p0+((p1-q1)>>2)+1)>>1) */\
-	i8x16 delta = umin8(subus8(x3, c128), ftC); /* delta if delta>0 */\
-	i8x16 ndelta = umin8(subus8(c128, x3), ftC); /* -delta if delta<0 */\
-	p0 = subus8(addus8(p0, delta), ndelta);\
-	q0 = subus8(addus8(q0, ndelta), delta);}
+	i8x16 delta = umin8(usubs8(x3, c128), ftC); /* delta if delta>0 */\
+	i8x16 ndelta = umin8(usubs8(c128, x3), ftC); /* -delta if delta<0 */\
+	p0 = usubs8(uadds8(p0, delta), ndelta);\
+	q0 = usubs8(uadds8(q0, ndelta), delta);}
 
 
 
@@ -83,15 +83,15 @@
 	/* compute the opposite of filterSamplesFlags, and condition masks for filtering modes */\
 	i8x16 alpha = set8(*(palpha));\
 	i8x16 beta = set8(*(pbeta));\
-	i8x16 abs0 = subus8(p0, q0) | subus8(q0, p0);\
-	i8x16 abs1 = subus8(p1, p0) | subus8(p0, p1);\
-	i8x16 abs2 = subus8(q1, q0) | subus8(q0, q1);\
-	i8x16 ignoreSamplesFlags = umin8(subus8(alpha, abs0), subus8(beta, umax8(abs1, abs2))) == 0;\
+	i8x16 abs0 = usubs8(p0, q0) | usubs8(q0, p0);\
+	i8x16 abs1 = usubs8(p1, p0) | usubs8(p0, p1);\
+	i8x16 abs2 = usubs8(q1, q0) | usubs8(q0, q1);\
+	i8x16 ignoreSamplesFlags = umin8(usubs8(alpha, abs0), usubs8(beta, umax8(abs1, abs2))) == 0;\
 	i8x16 c1 = set8(1);\
-	i8x16 condpq = subus8(abs0, avg8(avg8(alpha, c1), (i8x16){})); /* abs0-((alpha>>2)+1) */\
+	i8x16 condpq = usubs8(abs0, avg8(avg8(alpha, c1), (i8x16){})); /* abs0-((alpha>>2)+1) */\
 	i8x16 bm1 = (i8x16)beta - c1;\
-	i8x16 condp = (subus8(subus8(p2, p0) | subus8(p0, p2), bm1) | condpq) == 0;\
-	i8x16 condq = (subus8(subus8(q2, q0) | subus8(q0, q2), bm1) | condpq) == 0;\
+	i8x16 condp = (usubs8(usubs8(p2, p0) | usubs8(p0, p2), bm1) | condpq) == 0;\
+	i8x16 condq = (usubs8(usubs8(q2, q0) | usubs8(q0, q2), bm1) | condpq) == 0;\
 	/* compute p'0 and q'0 */\
 	i8x16 fix0 = (p0 ^ q0) & c1;\
 	i8x16 pq0 = avg8(p0, q0) - fix0;\
@@ -129,12 +129,12 @@
 
 #define DEBLOCK_CHROMA_HARD(p1, p0, q0, q1, shufab) {\
 	/* compute the opposite of filterSamplesFlags */\
-	i8x16 abs0 = subus8(p0, q0) | subus8(q0, p0);\
-	i8x16 abs1 = subus8(p1, p0) | subus8(p0, p1);\
-	i8x16 abs2 = subus8(q1, q0) | subus8(q0, q1);\
-	i8x16 alpha = shuffle8(ctx->alpha_v, shufab);\
-	i8x16 beta = shuffle8(ctx->beta_v, shufab);\
-	i8x16 and = umin8(subus8(alpha, abs0), subus8(beta, umax8(abs1, abs2)));\
+	i8x16 abs0 = usubs8(p0, q0) | usubs8(q0, p0);\
+	i8x16 abs1 = usubs8(p1, p0) | usubs8(p0, p1);\
+	i8x16 abs2 = usubs8(q1, q0) | usubs8(q0, q1);\
+	i8x16 alpha = shuffle(ctx->alpha_v, shufab);\
+	i8x16 beta = shuffle(ctx->beta_v, shufab);\
+	i8x16 and = umin8(usubs8(alpha, abs0), usubs8(beta, umax8(abs1, abs2)));\
 	i8x16 ignoreSamplesFlags = and == 0;\
 	/* compute p'0 and q'0 */\
 	i8x16 c1 = set8(1);\
@@ -825,7 +825,7 @@ noinline void FUNC_CTX(deblock_mb)
 	if (!mb->f.filter_edges)
 		return;
 	
-	// compute all values of indexA and indexB for each of the color planes first
+	// compute all values of alpha and beta for each of the color planes first
 	mbA = mb - 1;
 	mbB = mbA - ctx->t.pic_width_in_mbs;
 	i8x16 zero = {};
@@ -835,45 +835,19 @@ noinline void FUNC_CTX(deblock_mb)
 	i8x16 c51 = set8(51);
 	i8x16 indexA = umin8(max8(qPav + set8(ctx->t.FilterOffsetA), zero), c51);
 	i8x16 indexB = umin8(max8(qPav + set8(ctx->t.FilterOffsetB), zero), c51);
-	
-	// compute all values of alpha and beta using vectorized array accesses
 	i8x16 c4 = set8(4);
-	i8x16 c15 = set8(15);
-	i8x16 c31 = set8(31);
-	i8x16 Am4 = indexA - c4;
-	i8x16 Bm4 = indexB - c4;
-	i8x16 Agte20 = Am4 > c15;
-	i8x16 Agte36 = Am4 > c31;
-	i8x16 Bgte20 = Bm4 > c15;
-	i8x16 Bgte36 = Bm4 > c31;
-	i8x16 alphalo = shuffle8(idx2alpha[0], Am4);
-	i8x16 alphamd = shuffle8(idx2alpha[1], Am4);
-	i8x16 alphahi = shuffle8(idx2alpha[2], Am4);
-	i8x16 betalo = shuffle8(idx2beta[0], Bm4);
-	i8x16 betamd = shuffle8(idx2beta[1], Bm4);
-	i8x16 betahi = shuffle8(idx2beta[2], Bm4);
-	ctx->alpha_v = ifelse_mask(Agte36, alphahi, ifelse_mask(Agte20, alphamd, alphalo));
-	ctx->beta_v = ifelse_mask(Bgte36, betahi, ifelse_mask(Bgte20, betamd, betalo));
+	i8x16 Am4 = usubs8(indexA, c4);
+	ctx->alpha_v = shuffle3((const i8x16 *)idx2alpha, Am4);
+	ctx->beta_v = shuffle3(idx2beta, usubs8(indexB, c4));
 	
-	// initialize tC0 with bS=3 for internal edges of Intra macroblock
-	i8x16 tC0neg = zero > Am4;
+	// initialize tC0 for bS=1/2/3
 	if (!mb->f.mbIsInterFlag) {
-		i8x16 tC03lo = shuffle8(idx2tC0[2][0], Am4);
-		i8x16 tC03md = shuffle8(idx2tC0[2][1], Am4);
-		i8x16 tC03hi = shuffle8(idx2tC0[2][2], Am4);
-		i8x16 tC03 = ifelse_mask(Agte36, tC03hi, ifelse_mask(Agte20, tC03md, tC03lo)) | tC0neg;
-		ctx->tC0_v[0] = ctx->tC0_v[1] = shuffle8(tC03, zero);
-		ctx->tC0_v[2] = ctx->tC0_v[3] = shuffle8(tC03, ((i8x16){-1, -1, -1, -1, -1, -1, -1, -1, 1, 1, 1, 1, 2, 2, 2, 2}));
+		i8x16 tC03 = shuffle3(idx2tC0[2], Am4);
+		ctx->tC0_v[0] = ctx->tC0_v[1] = broadcast8(tC03);
+		ctx->tC0_v[2] = ctx->tC0_v[3] = shuffle(tC03, (i8x16){-1, -1, -1, -1, -1, -1, -1, -1, 1, 1, 1, 1, 2, 2, 2, 2});
 	} else {
-		// compute all values of tC0 for bS=1 and bS=2
-		i8x16 tC01lo = shuffle8(idx2tC0[0][0], Am4);
-		i8x16 tC01md = shuffle8(idx2tC0[0][1], Am4);
-		i8x16 tC01hi = shuffle8(idx2tC0[0][2], Am4);
-		i8x16 tC01 = ifelse_mask(Agte36, tC01hi, ifelse_mask(Agte20, tC01md, tC01lo)) | tC0neg;
-		i8x16 tC02lo = shuffle8(idx2tC0[1][0], Am4);
-		i8x16 tC02md = shuffle8(idx2tC0[1][1], Am4);
-		i8x16 tC02hi = shuffle8(idx2tC0[1][2], Am4);
-		i8x16 tC02 = ifelse_mask(Agte36, tC02hi, ifelse_mask(Agte20, tC02md, tC02lo)) | tC0neg;
+		i8x16 tC01 = shuffle3(idx2tC0[0], Am4);
+		i8x16 tC02 = shuffle3(idx2tC0[1], Am4);
 		
 		// compute masks for bS!=1 based on equality of references and motion vectors
 		i8x16 bS0aceg, bS0bdfh;
@@ -892,14 +866,14 @@ noinline void FUNC_CTX(deblock_mb)
 			i8x16 mvsael01 = packs16(mvsv0l0 - mvsv1l1, mvsh0l0 - mvsh1l1);
 			i8x16 mvsael10 = packs16(mvsv0l1 - mvsv1l0, mvsh0l1 - mvsh1l0);
 			i8x16 mvsael11 = packs16(mvsv0l1 - mvsv1l1, mvsh0l1 - mvsh1l1);
-			i8x16 mvsaep = subus8(umax8(abs8(mvsael00), abs8(mvsael11)), c3);
-			i8x16 mvsaec = subus8(umax8(abs8(mvsael01), abs8(mvsael10)), c3);
+			i8x16 mvsaep = usubs8(umax8(abs8(mvsael00), abs8(mvsael11)), c3);
+			i8x16 mvsaec = usubs8(umax8(abs8(mvsael01), abs8(mvsael10)), c3);
 			i8x16 mvsacegp = shuffle32(packs16(mvsaep, zero), 0, 2, 1, 3);
 			i8x16 mvsacegc = shuffle32(packs16(mvsaec, zero), 0, 2, 1, 3);
 			i64x2 refPic = {mb->refPic_l};
 			i64x2 refPicAB = {mbA->refPic_l, mbB->refPic_l};
-			i8x16 refs0 = shuffle8(shuffleps(refPic, refPicAB, 0, 0, 0, 2), shufVHAB); // (v0,h0,A0,B0)
-			i8x16 refs1 = shuffle8(shuffleps(refPic, refPicAB, 1, 1, 1, 3), shufVHAB); // (v1,h1,A1,B1)
+			i8x16 refs0 = shuffle(shuffleps(refPic, refPicAB, 0, 0, 0, 2), shufVHAB); // (v0,h0,A0,B0)
+			i8x16 refs1 = shuffle(shuffleps(refPic, refPicAB, 1, 1, 1, 3), shufVHAB); // (v1,h1,A1,B1)
 			i8x16 neq0 = refs0 ^ (i8x16)shuffleps(refs1, refs0, 2, 3, 0, 1); // (v0^A1,h0^B1,A0^v0,B0^h0)
 			i8x16 neq1 = refs1 ^ (i8x16)shuffleps(refs0, refs1, 2, 3, 0, 1); // (v1^A0,h1^B0,A1^v1,B1^h1)
 			i8x16 refsaceg = neq0 | neq1; // low=cross, high=parallel
@@ -924,9 +898,9 @@ noinline void FUNC_CTX(deblock_mb)
 			i8x16 mvsbd = packs16(mvsv1 - mvsv2, mvsv3 - mvsv4);
 			i8x16 mvseg = packs16(mvsh0 - mvsh1, mvsh2 - mvsh3);
 			i8x16 mvsfh = packs16(mvsh1 - mvsh2, mvsh3 - mvsh4);
-			i8x16 mvsaceg = packs16(subus8(abs8(mvsac), c3), subus8(abs8(mvseg), c3));
-			i8x16 mvsbdfh = packs16(subus8(abs8(mvsbd), c3), subus8(abs8(mvsfh), c3));
-			i8x16 refs = shuffle8(((i32x4){mb->refPic_s[0], 0, mbA->refPic_s[0], mbB->refPic_s[0]}), shufVHAB); // (v0,h0,A0,B0)
+			i8x16 mvsaceg = packs16(usubs8(abs8(mvsac), c3), usubs8(abs8(mvseg), c3));
+			i8x16 mvsbdfh = packs16(usubs8(abs8(mvsbd), c3), usubs8(abs8(mvsfh), c3));
+			i8x16 refs = shuffle((i32x4){mb->refPic_s[0], 0, mbA->refPic_s[0], mbB->refPic_s[0]}, shufVHAB); // (v0,h0,A0,B0)
 			i8x16 neq = refs ^ (i8x16)unpackhi64(refs, refs); // (v0^A0,h0^B0,0,0)
 			i8x16 refsaceg = unpacklo8(neq, neq);
 			bS0aceg = (refsaceg | mvsaceg) == zero;
@@ -950,10 +924,10 @@ noinline void FUNC_CTX(deblock_mb)
 			i8x16 mvsbdl10 = packs16(mvsv1l1 - mvsv2l0, mvsv3l1 - mvsv4l0);
 			i8x16 mvsacl11 = packs16(mvsv0l1 - mvsv1l1, mvsv2l1 - mvsv3l1);
 			i8x16 mvsbdl11 = packs16(mvsv1l1 - mvsv2l1, mvsv3l1 - mvsv4l1);
-			i8x16 mvsacp = subus8(umax8(abs8(mvsacl00), abs8(mvsacl11)), c3);
-			i8x16 mvsbdp = subus8(umax8(abs8(mvsbdl00), abs8(mvsbdl11)), c3);
-			i8x16 mvsacc = subus8(umax8(abs8(mvsacl01), abs8(mvsacl10)), c3);
-			i8x16 mvsbdc = subus8(umax8(abs8(mvsbdl01), abs8(mvsbdl10)), c3);
+			i8x16 mvsacp = usubs8(umax8(abs8(mvsacl00), abs8(mvsacl11)), c3);
+			i8x16 mvsbdp = usubs8(umax8(abs8(mvsbdl00), abs8(mvsbdl11)), c3);
+			i8x16 mvsacc = usubs8(umax8(abs8(mvsacl01), abs8(mvsacl10)), c3);
+			i8x16 mvsbdc = usubs8(umax8(abs8(mvsbdl01), abs8(mvsbdl10)), c3);
 			i16x8 mvsh0l0 = unpackhi64(mbB->mvs_v[2], mbB->mvs_v[3]);
 			i16x8 mvsh1l0 = unpacklo64(mb->mvs_v[0], mb->mvs_v[1]);
 			i16x8 mvsh2l0 = unpackhi64(mb->mvs_v[0], mb->mvs_v[1]);
@@ -972,18 +946,18 @@ noinline void FUNC_CTX(deblock_mb)
 			i8x16 mvsfhl10 = packs16(mvsh1l1 - mvsh2l0, mvsh3l1 - mvsh4l0);
 			i8x16 mvsegl11 = packs16(mvsh0l1 - mvsh1l1, mvsh2l1 - mvsh3l1);
 			i8x16 mvsfhl11 = packs16(mvsh1l1 - mvsh2l1, mvsh3l1 - mvsh4l1);
-			i8x16 mvsegp = subus8(umax8(abs8(mvsegl00), abs8(mvsegl11)), c3);
-			i8x16 mvsfhp = subus8(umax8(abs8(mvsfhl00), abs8(mvsfhl11)), c3);
-			i8x16 mvsegc = subus8(umax8(abs8(mvsegl01), abs8(mvsegl10)), c3);
-			i8x16 mvsfhc = subus8(umax8(abs8(mvsfhl01), abs8(mvsfhl10)), c3);
+			i8x16 mvsegp = usubs8(umax8(abs8(mvsegl00), abs8(mvsegl11)), c3);
+			i8x16 mvsfhp = usubs8(umax8(abs8(mvsfhl00), abs8(mvsfhl11)), c3);
+			i8x16 mvsegc = usubs8(umax8(abs8(mvsegl01), abs8(mvsegl10)), c3);
+			i8x16 mvsfhc = usubs8(umax8(abs8(mvsfhl01), abs8(mvsfhl10)), c3);
 			i8x16 mvsacegp = packs16(mvsacp, mvsegp);
 			i8x16 mvsbdfhp = packs16(mvsbdp, mvsfhp);
 			i8x16 mvsacegc = packs16(mvsacc, mvsegc);
 			i8x16 mvsbdfhc = packs16(mvsbdc, mvsfhc);
 			i64x2 refPic = {mb->refPic_l};
 			i64x2 refPicAB = {mbA->refPic_l, mbB->refPic_l};
-			i8x16 refs0 = shuffle8(shuffleps(refPic, refPicAB, 0, 0, 0, 2), shufVHAB); // (v0,h0,A0,B0)
-			i8x16 refs1 = shuffle8(shuffleps(refPic, refPicAB, 1, 1, 1, 3), shufVHAB); // (v1,h1,A1,B1)
+			i8x16 refs0 = shuffle(shuffleps(refPic, refPicAB, 0, 0, 0, 2), shufVHAB); // (v0,h0,A0,B0)
+			i8x16 refs1 = shuffle(shuffleps(refPic, refPicAB, 1, 1, 1, 3), shufVHAB); // (v1,h1,A1,B1)
 			i8x16 neq0 = refs0 ^ (i8x16)shuffleps(refs1, refs0, 2, 3, 0, 1); // (v0^A1,h0^B1,A0^v0,B0^h0)
 			i8x16 neq1 = refs1 ^ (i8x16)shuffleps(refs0, refs1, 2, 3, 0, 1); // (v1^A0,h1^B0,A1^v1,B1^h1)
 			i8x16 neq2 = refs0 ^ refs1;
@@ -1004,19 +978,18 @@ noinline void FUNC_CTX(deblock_mb)
 		// for 8x8 blocks with CAVLC, broadcast transform tokens beforehand
 		i8x16 nC = mb->nC_v[0];
 		if (!ctx->t.pps.entropy_coding_mode_flag && mb->f.transform_size_8x8_flag) {
-			i8x16 x = (i32x4)mb->nC_v[0] > 0;
-			mb->nC_v[0] = nC = sign8(x, x);
+			mb->nC_v[0] = nC = (i8x16)((i32x4)nC == 0) - -1;
 		}
 		
 		// compute masks for edges with bS=2
 		static const i8x16 shufV = {0, 2, 8, 10, 1, 3, 9, 11, 4, 6, 12, 14, 5, 7, 13, 15};
 		static const i8x16 shufH = {0, 1, 4, 5, 2, 3, 6, 7, 8, 9, 12, 13, 10, 11, 14, 15};
-		i8x16 nnzv = shuffle8(nC, shufV);
-		i8x16 nnzl = shuffle8(mbA->nC_v[0], shufV);
-		i8x16 nnzh = shuffle8(nC, shufH);
-		i8x16 nnzt = shuffle8(mbB->nC_v[0], shufH);
-		i8x16 bS2abcd = (nnzv | alignr(nnzv, nnzl, 12)) > zero;
-		i8x16 bS2efgh = (nnzh | alignr(nnzh, nnzt, 12)) > zero;
+		i8x16 nnzv = shuffle(nC, shufV);
+		i8x16 nnzl = shuffle(mbA->nC_v[0], shufV);
+		i8x16 nnzh = shuffle(nC, shufH);
+		i8x16 nnzt = shuffle(mbB->nC_v[0], shufH);
+		i8x16 bS2abcd = (nnzv | alignr(nnzl, nnzv, 12)) > zero;
+		i8x16 bS2efgh = (nnzh | alignr(nnzt, nnzh, 12)) > zero;
 		i8x16 bS2aacc = shuffle32(bS2abcd, 0, 0, 2, 2);
 		i8x16 bS2eegg = shuffle32(bS2efgh, 0, 0, 2, 2);
 		
@@ -1026,10 +999,10 @@ noinline void FUNC_CTX(deblock_mb)
 		static const i8x16 shuf1 = {12, 12, 12, 12, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
 		static const i8x16 shuf2 = {9, 9, 9, 9, 10, 10, 10, 10, 1, 1, 1, 1, 2, 2, 2, 2};
 		static const i8x16 shuf3 = {13, 13, 13, 13, 14, 14, 14, 14, 1, 1, 1, 1, 2, 2, 2, 2};
-		ctx->tC0_v[0] = ifelse_mask(bS2abcd, shuffle8(tC02, shuf0), ifelse_mask(bS0abcd, tC00, shuffle8(tC01, shuf0)));
-		ctx->tC0_v[1] = ifelse_mask(bS2efgh, shuffle8(tC02, shuf1), ifelse_mask(bS0efgh, tC00, shuffle8(tC01, shuf1)));
-		ctx->tC0_v[2] = ifelse_mask(bS2aacc, shuffle8(tC02, shuf2), ifelse_mask(bS0aacc, tC00, shuffle8(tC01, shuf2)));
-		ctx->tC0_v[3] = ifelse_mask(bS2eegg, shuffle8(tC02, shuf3), ifelse_mask(bS0eegg, tC00, shuffle8(tC01, shuf3)));
+		ctx->tC0_v[0] = ifelse_mask(bS2abcd, shuffle(tC02, shuf0), ifelse_mask(bS0abcd, tC00, shuffle(tC01, shuf0)));
+		ctx->tC0_v[1] = ifelse_mask(bS2efgh, shuffle(tC02, shuf1), ifelse_mask(bS0efgh, tC00, shuffle(tC01, shuf1)));
+		ctx->tC0_v[2] = ifelse_mask(bS2aacc, shuffle(tC02, shuf2), ifelse_mask(bS0aacc, tC00, shuffle(tC01, shuf2)));
+		ctx->tC0_v[3] = ifelse_mask(bS2eegg, shuffle(tC02, shuf3), ifelse_mask(bS0eegg, tC00, shuffle(tC01, shuf3)));
 	}
 	
 	// jump to luma deblocking filter

@@ -1,4 +1,4 @@
-CFLAGS += -std=gnu11 -march=native -O3 -flax-vector-conversions -pthread
+override CFLAGS := -std=gnu11 -march=native -O3 -flax-vector-conversions -pthread $(CFLAGS)
 OS ?= $(shell uname)
 WHICH := $(if $(filter Windows_NT,$(OS)),where.exe 2>nul,which)
 

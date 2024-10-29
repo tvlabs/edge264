@@ -3,6 +3,8 @@ edge264
 
 Minimalist software decoder with state-of-the-art performance for the H.264/AVC video format.
 
+*Please note this is a work in progress and will be ready for use after making GStreamer/VLC plugins.*
+
 
 Features
 --------

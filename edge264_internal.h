@@ -811,8 +811,7 @@ enum IntraChromaModes {
 
 /**
  * Function declarations are put in a single block here instead of .h files
- * because they are so few. Functions which might be compiled separately in the
- * future are not declared static yet.
+ * because they are so few.
  */
 
 // helper functions
@@ -872,25 +871,21 @@ static int cabac_start(Edge264Context *ctx);
 static int cabac_terminate(Edge264Context *ctx);
 static void cabac_init(Edge264Context *ctx);
 
-// edge264_deblock_*.c
-noinline void deblock_mb(Edge264Context *ctx);
+// edge264_deblock.c
+static noinline void deblock_mb(Edge264Context *ctx);
 
-// edge264_inter_*.c
-void noinline decode_inter(Edge264Context *ctx, int i, int w, int h);
+// edge264_inter.c
+static void noinline decode_inter(Edge264Context *ctx, int i, int w, int h);
 
-// edge264_intra_*.c
-void noinline _decode_intra4x4(int mode, uint8_t *px1, size_t stride, ssize_t nstride, i16x8 clip, i8x16 zero);
-void noinline _decode_intra8x8(int mode, uint8_t *px0, uint8_t *px7, size_t stride, ssize_t nstride, i16x8 clip);
-void noinline _decode_intra16x16(int mode, uint8_t *px0, uint8_t *px7, uint8_t *pxE, size_t stride, ssize_t nstride, i16x8 clip);
-void noinline _decode_intraChroma(int mode, uint8_t *Cb0, uint8_t *Cb7, uint8_t *Cr0, uint8_t *Cr7, size_t stride, ssize_t nstride, i16x8 clip);
-static always_inline void decode_intra4x4(Edge264Context *ctx, int mode, uint8_t *samples, size_t stride, int iYCbCr) {
-	_decode_intra4x4(mode, samples + stride, stride, -stride, ctx->t.samples_clip_v[iYCbCr], (i8x16){}); }
-static always_inline void decode_intra8x8(Edge264Context *ctx, int mode, uint8_t *samples, size_t stride, int iYCbCr) {
-	_decode_intra8x8(mode, samples, samples + stride * 7, stride, -stride, ctx->t.samples_clip_v[iYCbCr]); }
-static always_inline void decode_intra16x16(Edge264Context *ctx, int mode, uint8_t *samples, size_t stride, int iYCbCr) {
-	_decode_intra16x16(mode, samples, samples + stride * 7, samples + stride * 14, stride, -stride, ctx->t.samples_clip_v[iYCbCr]); }
-static always_inline void decode_intraChroma(Edge264Context *ctx, int mode, uint8_t *samplesCb, uint8_t *samplesCr, size_t stride) {
-	_decode_intraChroma(mode, samplesCb, samplesCb + stride * 7, samplesCr, samplesCr + stride * 7, stride, -stride, ctx->t.samples_clip_v[1]); }
+// edge264_intra.c
+static void noinline _decode_intra4x4(int mode, uint8_t *px1, size_t stride, ssize_t nstride, i16x8 clip, i8x16 zero);
+static void noinline _decode_intra8x8(int mode, uint8_t *px0, uint8_t *px7, size_t stride, ssize_t nstride, i16x8 clip);
+static void noinline _decode_intra16x16(int mode, uint8_t *px0, uint8_t *px7, uint8_t *pxE, size_t stride, ssize_t nstride, i16x8 clip);
+static void noinline _decode_intraChroma(int mode, uint8_t *Cb0, uint8_t *Cb7, uint8_t *Cr0, uint8_t *Cr7, size_t stride, ssize_t nstride, i16x8 clip);
+#define decode_intra4x4(ctx, mode, samples, stride, iYCbCr) _decode_intra4x4(mode, (samples) + (stride), stride, -(stride), ctx->t.samples_clip_v[iYCbCr], (i8x16){})
+#define decode_intra8x8(ctx, mode, samples, stride, iYCbCr) _decode_intra8x8(mode, samples, (samples) + (stride) * 7, stride, -(stride), ctx->t.samples_clip_v[iYCbCr])
+#define decode_intra16x16(ctx, mode, samples, stride, iYCbCr) _decode_intra16x16(mode, samples, (samples) + (stride) * 7, (samples) + (stride) * 14, stride, -(stride), ctx->t.samples_clip_v[iYCbCr])
+#define decode_intraChroma(ctx, mode, samplesCb, samplesCr, stride) _decode_intraChroma(mode, samplesCb, (samplesCb) + (stride) * 7, samplesCr, (samplesCr) + (stride) * 7, stride, -(stride), ctx->t.samples_clip_v[1])
 
 // edge264_mvpred.c
 static inline void decode_inter_16x16(Edge264Context *ctx, i16x8 mvd, int lx);
@@ -900,15 +895,15 @@ static inline void decode_inter_16x8_top(Edge264Context *ctx, i16x8 mvd, int lx)
 static inline void decode_inter_16x8_bottom(Edge264Context *ctx, i16x8 mvd, int lx);
 static noinline void decode_direct_mv_pred(Edge264Context *ctx, unsigned direct_mask);
 
-// edge264_residual_*.c
-void noinline add_idct4x4(Edge264Context *ctx, int iYCbCr, int qP, i8x16 wS, int DCidx, uint8_t *samples);
-void noinline add_dc4x4(Edge264Context *ctx, int iYCbCr, int DCidx, uint8_t *samples);
-void noinline add_idct8x8(Edge264Context *ctx, int iYCbCr, uint8_t *samples);
-void noinline transform_dc4x4(Edge264Context *ctx, int iYCbCr);
-void noinline transform_dc2x2(Edge264Context *ctx);
+// edge264_residual.c
+static void noinline add_idct4x4(Edge264Context *ctx, int iYCbCr, int qP, i8x16 wS, int DCidx, uint8_t *samples);
+static void noinline add_dc4x4(Edge264Context *ctx, int iYCbCr, int DCidx, uint8_t *samples);
+static void noinline add_idct8x8(Edge264Context *ctx, int iYCbCr, uint8_t *samples);
+static void noinline transform_dc4x4(Edge264Context *ctx, int iYCbCr);
+static void noinline transform_dc2x2(Edge264Context *ctx);
 
 // edge264_slice.c
-static noinline void parse_slice_data_cavlc(Edge264Context *ctx);
-static noinline void parse_slice_data_cabac(Edge264Context *ctx);
+static void parse_slice_data_cavlc(Edge264Context *ctx);
+static void parse_slice_data_cabac(Edge264Context *ctx);
 
 #endif

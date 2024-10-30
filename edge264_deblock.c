@@ -811,7 +811,7 @@ static noinline void deblock_Y_8bit(Edge264Context *ctx, size_t stride, ssize_t 
  *         mvs_c=0 |    0     |    1     |    1     |    0     |
  * ----------------+----------+----------+----------+----------+
  */
-noinline void deblock_mb(Edge264Context *ctx)
+static noinline void deblock_mb(Edge264Context *ctx)
 {
 	static const u8x16 idx2alpha[3] =
 		{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 4, 4, 5, 6, 7, 8, 9, 10, 12, 13, 15, 17, 20, 22, 25, 28, 32, 36, 40, 45, 50, 56, 63, 71, 80, 90, 101, 113, 127, 144, 162, 182, 203, 226, 255, 255};

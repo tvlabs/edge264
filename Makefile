@@ -1,20 +1,7 @@
-override CFLAGS := -std=gnu11 -march=native -O3 -flax-vector-conversions -pthread $(CFLAGS)
+ARCH := native
 OS ?= $(shell uname)
 WHICH := $(if $(filter Windows_NT,$(OS)),where.exe 2>nul,which)
-
-# choose a compiler
-ifdef CC
-	ifeq ($(shell $(WHICH) $(CC)),)
-		unexport CC # unset CC if it does not point to a valid command
-	endif
-endif
-ifneq ($(shell $(WHICH) gcc-9),)
-	CC := gcc-9 # set gcc-9 unless set on the command line
-else ifneq ($(shell $(WHICH) clang),)
-	CC := clang -target x86_64-pc-windows-gnu # otherwise clang is better
-else ifneq ($(shell $(WHICH) gcc),)
-	CC := gcc # last pick is any other version of gcc
-endif
+override CFLAGS := -std=gnu11 -march=$(ARCH) -O3 -flax-vector-conversions -pthread $(CFLAGS)
 
 # find SDL2
 SDL2 := $(shell pkg-config --cflags --static --libs --silence-errors sdl2)
@@ -33,12 +20,13 @@ endif
 EXE := $(if $(filter Windows_NT,$(OS)),.exe,)
 
 # rules
-edge264_test$(SUF)$(EXE): edge264_test.c edge264.h edge264$(SUF).o Makefile
-	$(CC) edge264_test.c edge264$(SUF).o $(CFLAGS) $(SDL2) -o edge264_test$(SUF)$(EXE)
+edge264_test$(SUF)$(EXE): edge264_test.c edge264.h edge264$(SUF).so Makefile
+	$(CC) edge264_test.c edge264$(SUF).so $(CFLAGS) $(SDL2) -o edge264_test$(SUF)$(EXE)
 
-edge264$(SUF).o: edge264*.c edge264*.h Makefile
-	$(CC) edge264.c -c $(CFLAGS) -o edge264$(SUF).o
+edge264$(SUF).so: edge264*.c edge264*.h Makefile
+	$(CC) edge264.c -c -fPIC $(CFLAGS) -o edge264$(SUF).o
+	$(CC) edge264$(SUF).o -shared -o edge264$(SUF).so
 
 .PHONY: clean clear
 clean clear:
-	rm edge264*.o edge264_test edge264_test-trace*
+	rm edge264*.o edge264*.so edge264_test edge264_test-trace*

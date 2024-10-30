@@ -41,7 +41,7 @@
  * 	_ Group dec fields by frequency of accesses and force them manually into L1/L2/L3
  * 	_ store Cb & Cr by interleaving rows instead of separate planes (check it does not overflow stride for future 4:2:2)
  * 	_ try combining clang and gcc over decoding and parsing
- * 	_ merge Cb and Cr functions in inter to reduce jumps and mutualize vectors
+ * 	_ merge Cb and Cr functions in inter and intra to reduce jumps and mutualize vectors
  * _ Documentation
  * 	_ add an FAQ with (1) how to optimize latency, (2) what can be removed from stream without issue, (3) how to finish a frame with an AUD
  * _ add an option to get_frame to poll without consuming
@@ -59,6 +59,7 @@
 #include "edge264_intra.c"
 #include "edge264_mvpred.c"
 #include "edge264_residual.c"
+#define CABAC 0
 #include "edge264_slice.c"
 #define CABAC 1
 #include "edge264_slice.c"

@@ -844,7 +844,7 @@ static noinline void deblock_mb(Edge264Context *ctx)
 	if (!mb->f.mbIsInterFlag) {
 		i8x16 tC03 = shuffle3(idx2tC0[2], Am4);
 		ctx->tC0_v[0] = ctx->tC0_v[1] = broadcast8(tC03);
-		ctx->tC0_v[2] = ctx->tC0_v[3] = shuffle(tC03, (i8x16){-1, -1, -1, -1, -1, -1, -1, -1, 1, 1, 1, 1, 2, 2, 2, 2});
+		ctx->tC0_v[2] = ctx->tC0_v[3] = shuffle(tC03, ((i8x16){-1, -1, -1, -1, -1, -1, -1, -1, 1, 1, 1, 1, 2, 2, 2, 2}));
 	} else {
 		i8x16 tC01 = shuffle3(idx2tC0[0], Am4);
 		i8x16 tC02 = shuffle3(idx2tC0[1], Am4);
@@ -900,7 +900,7 @@ static noinline void deblock_mb(Edge264Context *ctx)
 			i8x16 mvsfh = packs16(mvsh1 - mvsh2, mvsh3 - mvsh4);
 			i8x16 mvsaceg = packs16(usubs8(abs8(mvsac), c3), usubs8(abs8(mvseg), c3));
 			i8x16 mvsbdfh = packs16(usubs8(abs8(mvsbd), c3), usubs8(abs8(mvsfh), c3));
-			i8x16 refs = shuffle((i32x4){mb->refPic_s[0], 0, mbA->refPic_s[0], mbB->refPic_s[0]}, shufVHAB); // (v0,h0,A0,B0)
+			i8x16 refs = shuffle(((i32x4){mb->refPic_s[0], 0, mbA->refPic_s[0], mbB->refPic_s[0]}), shufVHAB); // (v0,h0,A0,B0)
 			i8x16 neq = refs ^ (i8x16)unpackhi64(refs, refs); // (v0^A0,h0^B0,0,0)
 			i8x16 refsaceg = unpacklo8(neq, neq);
 			bS0aceg = (refsaceg | mvsaceg) == zero;

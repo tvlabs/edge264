@@ -31,6 +31,10 @@
 #include <errno.h>
 #include <stdint.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 typedef struct Edge264Decoder Edge264Decoder;
 
 typedef struct Edge264Frame {
@@ -57,5 +61,9 @@ void edge264_free(Edge264Decoder **d);
 int edge264_decode_NAL(Edge264Decoder *d, const uint8_t *buf, const uint8_t *end, int non_blocking, void (*free_cb)(void *free_arg, int ret), void *free_arg, const uint8_t **next_NAL);
 int edge264_get_frame(Edge264Decoder *d, Edge264Frame *out, int borrow);
 void edge264_return_frame(Edge264Decoder *d, void *return_arg);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

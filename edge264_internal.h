@@ -657,11 +657,8 @@ enum IntraChromaModes {
 		#define alignr(l, h, i) (shrc(l, i) | shlc(h, 16 - (i)))
 		static always_inline i16x8 hadd16(i16x8 a, i16x8 b) { return _mm_packs_epi32((i32x4)((i16x8)((i32x4)a << 16) + a) >> 16, (i32x4)((i16x8)((i32x4)b << 16) + b) >> 16); }
 		static always_inline i16x8 maddubs(u8x16 a, i8x16 b) { return adds16(((u16x8)a << 8 >> 8) * ((i16x8)b << 8 >> 8), ((u16x8)a >> 8) * ((i16x8)b >> 8)); }
-		#ifdef __clang__ // no way to make it use __builtin_shufflevector :(
-			static always_inline i8x16 shuffle(i8x16 a, i8x16 m) { m &= 15; return (i8x16){a[m[0]], a[m[1]], a[m[2]], a[m[3]], a[m[4]], a[m[5]], a[m[6]], a[m[7]], a[m[8]], a[m[9]], a[m[10]], a[m[11]], a[m[12]], a[m[13]], a[m[14]], a[m[15]]}; }
-		#else
-			static always_inline i8x16 shuffle(i8x16 a, i8x16 m) { return __builtin_shuffle(a, m); }
-		#endif
+		// no way to make clang use __builtin_shufflevector, and GCC performs worse with __builtin_shuffle :(
+		static always_inline i8x16 shuffle(i8x16 a, i8x16 m) { m &= 15; return (i8x16){a[m[0]], a[m[1]], a[m[2]], a[m[3]], a[m[4]], a[m[5]], a[m[6]], a[m[7]], a[m[8]], a[m[9]], a[m[10]], a[m[11]], a[m[12]], a[m[13]], a[m[14]], a[m[15]]}; }
 	#endif
 	#ifdef __SSE4_1__
 		#define cvt8zx16(a) (i16x8)_mm_cvtepu8_epi16(a)

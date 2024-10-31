@@ -288,6 +288,7 @@ typedef struct Edge264Context {
 /**
  * This structure stores all variables scoped to the entire stream.
  */
+typedef int (*Parser)(Edge264Decoder *dec, int non_blocking, void(*free_cb)(void*,int), void *free_arg);
 typedef struct Edge264Decoder {
 	Edge264GetBits _gb; // must be first in the struct to use the same pointer for bitstream functions
 	int8_t n_threads; // 0 to disable multithreading
@@ -314,6 +315,7 @@ typedef struct Edge264Decoder {
 	uint32_t pic_long_term_flags; // to be applied after decoding all slices of the current picture
 	int64_t DPB_format; // should match format in SPS otherwise triggers resize
 	uint8_t *frame_buffers[32];
+	Parser parse_nal_unit[32];
 	union { int8_t LongTermFrameIdx[32]; i8x16 LongTermFrameIdx_v[2]; };
 	union { int8_t pic_LongTermFrameIdx[32]; i8x16 pic_LongTermFrameIdx_v[2]; }; // to be applied after decoding all slices of the current frame
 	union { int32_t FieldOrderCnt[2][32]; i32x4 FieldOrderCnt_v[2][8]; }; // lower/higher half for top/bottom fields
@@ -381,46 +383,12 @@ typedef struct Edge264Decoder {
 
 
 /**
- * Constants
+ * Constants that are common to several files
  */
-static const i8x16 sig_inc_4x4 =
-	{0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15};
-static const i8x16 sig_inc_8x8[2][4] = {{
-	{ 0,  1,  2,  3,  4,  5,  5,  4,  4,  3,  3,  4,  4,  4,  5,  5},
-	{ 4,  4,  4,  4,  3,  3,  6,  7,  7,  7,  8,  9, 10,  9,  8,  7},
-	{ 7,  6, 11, 12, 13, 11,  6,  7,  8,  9, 14, 10,  9,  8,  6, 11},
-	{12, 13, 11,  6,  9, 14, 10,  9, 11, 12, 13, 11, 14, 10, 12,  0},
-	}, {
-	{ 0,  1,  1,  2,  2,  3,  3,  4,  5,  6,  7,  7,  7,  8,  4,  5},
-	{ 6,  9, 10, 10,  8, 11, 12, 11,  9,  9, 10, 10,  8, 11, 12, 11},
-	{ 9,  9, 10, 10,  8, 11, 12, 11,  9,  9, 10, 10,  8, 13, 13,  9},
-	{ 9, 10, 10,  8, 13, 13,  9,  9, 10, 10, 14, 14, 14, 14, 14,  0},
-}};
-static const i8x16 last_inc_8x8[4] = {
-	{0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1},
-	{2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2},
-	{3, 3, 3, 3, 3, 3, 3, 3, 4, 4, 4, 4, 4, 4, 4, 4},
-	{5, 5, 5, 5, 6, 6, 6, 6, 7, 7, 7, 7, 8, 8, 8, 8},
-};
-static const i8x16 sig_inc_chromaDC[2] =
-	{{0, 1, 2, 0, 0, 1, 2, 0}, {0, 0, 1, 1, 2, 2, 2, 0, 0, 0, 1, 1, 2, 2, 2, 0}};
-
-// transposed scan tables
 static const i8x16 scan_4x4[2] = {
 	{0, 4, 1, 2, 5, 8, 12, 9, 6, 3, 7, 10, 13, 14, 11, 15},
 	{0, 1, 4, 2, 3, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15},
 };
-static const i8x16 scan_8x8_cabac[2][4] = {{
-	{ 0,  8,  1,  2,  9, 16, 24, 17, 10,  3,  4, 11, 18, 25, 32, 40},
-	{33, 26, 19, 12,  5,  6, 13, 20, 27, 34, 41, 48, 56, 49, 42, 35},
-	{28, 21, 14,  7, 15, 22, 29, 36, 43, 50, 57, 58, 51, 44, 37, 30},
-	{23, 31, 38, 45, 52, 59, 60, 53, 46, 39, 47, 54, 61, 62, 55, 63},
-}, {
-	{ 0,  1,  2,  8,  9,  3,  4, 10, 16, 11,  5,  6,  7, 12, 17, 24},
-	{18, 13, 14, 15, 19, 25, 32, 26, 20, 21, 22, 23, 27, 33, 40, 34},
-	{28, 29, 30, 31, 35, 41, 48, 42, 36, 37, 38, 39, 43, 49, 50, 44},
-	{45, 46, 47, 51, 56, 57, 52, 53, 54, 55, 58, 59, 60, 61, 62, 63},
-}};
 static const i8x16 scan_8x8_cavlc[2][4] = {{
 	{ 0,  9, 10, 18, 33,  5, 27, 56, 28, 15, 43, 51, 23, 52, 46, 61},
 	{ 8, 16,  3, 25, 26,  6, 34, 49, 21, 22, 50, 44, 31, 59, 39, 62},
@@ -432,45 +400,32 @@ static const i8x16 scan_8x8_cavlc[2][4] = {{
 	{ 2,  4,  5, 17, 14, 32, 22, 40, 30, 48, 38, 50, 47, 52, 58, 62},
 	{ 8, 10,  6, 24, 15, 26, 23, 34, 31, 42, 39, 44, 51, 53, 59, 63},
 }};
+static const i8x16 scan_8x8_cabac[2][4] = {{
+	{ 0,  8,  1,  2,  9, 16, 24, 17, 10,  3,  4, 11, 18, 25, 32, 40},
+	{33, 26, 19, 12,  5,  6, 13, 20, 27, 34, 41, 48, 56, 49, 42, 35},
+	{28, 21, 14,  7, 15, 22, 29, 36, 43, 50, 57, 58, 51, 44, 37, 30},
+	{23, 31, 38, 45, 52, 59, 60, 53, 46, 39, 47, 54, 61, 62, 55, 63},
+}, {
+	{ 0,  1,  2,  8,  9,  3,  4, 10, 16, 11,  5,  6,  7, 12, 17, 24},
+	{18, 13, 14, 15, 19, 25, 32, 26, 20, 21, 22, 23, 27, 33, 40, 34},
+	{28, 29, 30, 31, 35, 41, 48, 42, 36, 37, 38, 39, 43, 49, 50, 44},
+	{45, 46, 47, 51, 56, 57, 52, 53, 54, 55, 58, 59, 60, 61, 62, 63},
+}};
 static const i8x16 scan_chroma[2] = {
 	{0, 1, 2, 3, 4, 5, 6, 7},
 	{0, 2, 1, 4, 6, 3, 5, 7, 8, 10, 9, 12, 14, 11, 13, 15}
 };
 
-static const i16x4 ctxIdxOffsets_16x16DC[3][2] = {
-	{{85, 105, 166, 227}, {85, 277, 338, 227}}, // ctxBlockCat==0
-	{{460, 484, 572, 952}, {460, 776, 864, 952}}, // ctxBlockCat==6
-	{{472, 528, 616, 982}, {472, 820, 908, 982}}, // ctxBlockCat==10
-};
-static const i16x4 ctxIdxOffsets_16x16AC[3][2] = {
-	{{89, 119, 180, 237}, {89, 291, 352, 237}}, // ctxBlockCat==1
-	{{464, 498, 586, 962}, {464, 790, 878, 962}}, // ctxBlockCat==7
-	{{476, 542, 630, 992}, {476, 834, 922, 992}}, // ctxBlockCat==11
-};
-static const i16x4 ctxIdxOffsets_chromaDC[2] =
-	{{97, 149, 210, 257}, {97, 321, 382, 257}}; // ctxBlockCat==3
-static const i16x4 ctxIdxOffsets_chromaAC[2] =
-	{{101, 151, 212, 266}, {101, 323, 384, 266}}; // ctxBlockCat==4
-static const i16x4 ctxIdxOffsets_4x4[3][2] = {
-	{{93, 134, 195, 247}, {93, 306, 367, 247}}, // ctxBlockCat==2
-	{{468, 528, 616, 972}, {468, 805, 893, 972}}, // ctxBlockCat==8
-	{{480, 557, 645, 1002}, {480, 849, 937, 1002}}, // ctxBlockCat==12
-};
-static const i16x4 ctxIdxOffsets_8x8[3][2] = {
-	{{1012, 402, 417, 426}, {1012, 436, 451, 426}}, // ctxBlockCat==5
-	{{1016, 660, 690, 708}, {1016, 675, 699, 708}}, // ctxBlockCat==9
-	{{1020, 718, 748, 766}, {1020, 733, 757, 766}}, // ctxBlockCat==13
-};
+static const int8_t inc8x8[12] = {0, 5, 4, 2, 8, 13, 12, 10, 16, 21, 20, 18};
+static const int8_t bit8x8[12] = {5, 3, 2, 7, 13, 11, 10, 15, 21, 19, 18, 23};
 
 static const int8_t x444[16] = {0, 4, 0, 4, 8, 12, 8, 12, 0, 4, 0, 4, 8, 12, 8, 12};
 static const int8_t y444[16] = {0, 0, 4, 4, 0, 0, 4, 4, 8, 8, 12, 12, 8, 8, 12, 12};
 static const int8_t x420[8] = {0, 4, 0, 4, 0, 4, 0, 4};
 static const int8_t y420[8] = {0, 0, 4, 4, 0, 0, 4, 4};
 
-static const int8_t inc8x8[12] = {0, 5, 4, 2, 8, 13, 12, 10, 16, 21, 20, 18};
-static const int8_t bit8x8[12] = {5, 3, 2, 7, 13, 11, 10, 15, 21, 19, 18, 23};
-static const int8_t inc4x4[16] = {8, 15, 14, 21, 22, 29, 28, 12, 20, 27, 26, 10, 11, 18, 17, 24};
-static const int8_t bit4x4[16] = {15, 22, 21, 28, 29, 13, 12, 19, 27, 11, 10, 17, 18, 25, 24, 31};
+// really big, defined in edge264.c
+extern const int8_t cabac_context_init[4][1024][2] __attribute__((aligned(16)));
 
 
 
@@ -899,8 +854,25 @@ static void noinline add_idct8x8(Edge264Context *ctx, int iYCbCr, uint8_t *sampl
 static void noinline transform_dc4x4(Edge264Context *ctx, int iYCbCr);
 static void noinline transform_dc2x2(Edge264Context *ctx);
 
-// edge264_slice.c
+// edge264_slice.c (compiled 2x)
 static void parse_slice_data_cavlc(Edge264Context *ctx);
 static void parse_slice_data_cabac(Edge264Context *ctx);
+
+// edge264_headers.c (compiled 3x)
+void *worker_loop(Edge264Decoder *d);
+void *worker_loop_v2(Edge264Decoder *d);
+void *worker_loop_v3(Edge264Decoder *d);
+int parse_slice_layer_without_partitioning(Edge264Decoder *dec, int non_blocking, void(*free_cb)(void*,int), void *free_arg);
+int parse_slice_layer_without_partitioning_v2(Edge264Decoder *dec, int non_blocking, void(*free_cb)(void*,int), void *free_arg);
+int parse_slice_layer_without_partitioning_v3(Edge264Decoder *dec, int non_blocking, void(*free_cb)(void*,int), void *free_arg);
+int parse_pic_parameter_set(Edge264Decoder *dec, int non_blocking,  void(*free_cb)(void*,int), void *free_arg);
+int parse_pic_parameter_set_v2(Edge264Decoder *dec, int non_blocking,  void(*free_cb)(void*,int), void *free_arg);
+int parse_pic_parameter_set_v3(Edge264Decoder *dec, int non_blocking,  void(*free_cb)(void*,int), void *free_arg);
+int parse_seq_parameter_set(Edge264Decoder *dec, int non_blocking, void(*free_cb)(void*,int), void *free_arg);
+int parse_seq_parameter_set_v2(Edge264Decoder *dec, int non_blocking, void(*free_cb)(void*,int), void *free_arg);
+int parse_seq_parameter_set_v3(Edge264Decoder *dec, int non_blocking, void(*free_cb)(void*,int), void *free_arg);
+int parse_seq_parameter_set_extension(Edge264Decoder *dec, int non_blocking, void(*free_cb)(void*,int), void *free_arg);
+int parse_seq_parameter_set_extension_v2(Edge264Decoder *dec, int non_blocking, void(*free_cb)(void*,int), void *free_arg);
+int parse_seq_parameter_set_extension_v3(Edge264Decoder *dec, int non_blocking, void(*free_cb)(void*,int), void *free_arg);
 
 #endif

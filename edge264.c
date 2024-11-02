@@ -1,6 +1,7 @@
 /** MAYDO:
  * _ Plugins
  * 	_ Make a release target that cross-compiles to macOS/Windows/Linux for all variants
+ * 	_ Read https://tldp.org/HOWTO/Program-Library-HOWTO/shared-libraries.html
  * 	_ Make a test target that builds locally and runs edge264_test
  * 	_ Make a default target that builds locally
  * 	_ Make a install target that installs on host machine
@@ -103,14 +104,27 @@ Edge264Decoder *edge264_alloc(int n_threads) {
 			if (pthread_cond_init(&dec->task_ready, NULL) == 0) {
 				if (pthread_cond_init(&dec->task_progress, NULL) == 0) {
 					if (pthread_cond_init(&dec->task_complete, NULL) == 0) {
-						void *(*w)(Edge264Decoder *) = worker_loop;
-						dec->parse_nal_unit[1] = dec->parse_nal_unit[5] = dec->parse_nal_unit[20] = parse_slice_layer_without_partitioning;
-						dec->parse_nal_unit[7] = dec->parse_nal_unit[15] = parse_seq_parameter_set;
-						dec->parse_nal_unit[8] = parse_pic_parameter_set;
-						dec->parse_nal_unit[13] = parse_seq_parameter_set_extension;
-						#ifdef MULTILEVEL
-							__builtin_cpu_init();
+						void *(*w)(Edge264Decoder *) = ADD_ARCH(worker_loop);
+						dec->parse_nal_unit[1] = dec->parse_nal_unit[5] = dec->parse_nal_unit[20] = ADD_ARCH(parse_slice_layer_without_partitioning);
+						dec->parse_nal_unit[7] = dec->parse_nal_unit[15] = ADD_ARCH(parse_seq_parameter_set);
+						dec->parse_nal_unit[8] = ADD_ARCH(parse_pic_parameter_set);
+						dec->parse_nal_unit[13] = ADD_ARCH(parse_seq_parameter_set_extension);
+						__builtin_cpu_init();
+						#ifdef LINK_X86_64_V2
 							// macOS's clang does not support x86-64-v3/v2 feature string yet
+							if (__builtin_cpu_supports("popcnt") &&
+								__builtin_cpu_supports("sse3") &&
+								__builtin_cpu_supports("sse4.1") &&
+								__builtin_cpu_supports("sse4.2") &&
+								__builtin_cpu_supports("ssse3")) {
+								dec->parse_nal_unit[1] = dec->parse_nal_unit[5] = dec->parse_nal_unit[20] = parse_slice_layer_without_partitioning_v2;
+								dec->parse_nal_unit[7] = dec->parse_nal_unit[15] = parse_seq_parameter_set_v2;
+								dec->parse_nal_unit[8] = parse_pic_parameter_set_v2;
+								dec->parse_nal_unit[13] = parse_seq_parameter_set_extension_v2;
+								w = worker_loop_v2;
+							}
+						#endif
+						#ifdef LINK_X86_64_V3
 							if (__builtin_cpu_supports("avx") &&
 								__builtin_cpu_supports("avx2") &&
 								__builtin_cpu_supports("bmi") &&
@@ -121,16 +135,6 @@ Edge264Decoder *edge264_alloc(int n_threads) {
 								dec->parse_nal_unit[8] = parse_pic_parameter_set_v3;
 								dec->parse_nal_unit[13] = parse_seq_parameter_set_extension_v3;
 								w = worker_loop_v3;
-							} else if (__builtin_cpu_supports("popcnt") &&
-								__builtin_cpu_supports("sse3") &&
-								__builtin_cpu_supports("sse4.1") &&
-								__builtin_cpu_supports("sse4.2") &&
-								__builtin_cpu_supports("ssse3")) {
-								dec->parse_nal_unit[1] = dec->parse_nal_unit[5] = dec->parse_nal_unit[20] = parse_slice_layer_without_partitioning_v2;
-								dec->parse_nal_unit[7] = dec->parse_nal_unit[15] = parse_seq_parameter_set_v2;
-								dec->parse_nal_unit[8] = parse_pic_parameter_set_v2;
-								dec->parse_nal_unit[13] = parse_seq_parameter_set_extension_v2;
-								w = worker_loop_v2;
 							}
 						#endif
 						dec->n_threads = n_threads;
@@ -298,7 +302,6 @@ int edge264_decode_NAL(Edge264Decoder *dec, const uint8_t *buf, const uint8_t *e
 			dec->_gb.msb_cache = (size_t)buf[1] << (SIZE_BIT - 8) | (size_t)buf[2] << (SIZE_BIT - 16) | (size_t)1 << (SIZE_BIT - 17);
 			dec->_gb.CPB = buf + 3;
 			dec->_gb.end = end;
-			refill(&dec->_gb, 0);
 			ret = parser(dec, non_blocking, free_cb, free_arg);
 			// end may have been set to the next start code thanks to escape code detection in get_bytes
 			buf = dec->_gb.CPB - 2 < dec->_gb.end ? dec->_gb.CPB - 2 : dec->_gb.end;

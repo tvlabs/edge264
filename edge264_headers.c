@@ -11,10 +11,6 @@
 #define CABAC 1
 #include "edge264_slice.c"
 
-#ifndef ADD_LEVEL
-	#define ADD_LEVEL(f) f
-#endif
-
 
 
 /**
@@ -140,7 +136,7 @@ static void initialize_context(Edge264Context *ctx, int currPic)
  * This function is the entry point for each worker thread, where it consumes
  * tasks continuously until killed by the parent process.
  */
-void *ADD_LEVEL(worker_loop)(Edge264Decoder *d) {
+void *ADD_ARCH(worker_loop)(Edge264Decoder *d) {
 	Edge264Context c;
 	c.d = d;
 	c.n_threads = c.d->n_threads;
@@ -630,7 +626,7 @@ static void initialize_task(Edge264Decoder *dec, Edge264Task *t)
  * This function matches slice_header() in 7.3.3, which it parses while updating
  * the DPB and initialising slice data for further decoding.
  */
-int ADD_LEVEL(parse_slice_layer_without_partitioning)(Edge264Decoder *dec, int non_blocking, void(*free_cb)(void*,int), void *free_arg)
+int ADD_ARCH(parse_slice_layer_without_partitioning)(Edge264Decoder *dec, int non_blocking, void(*free_cb)(void*,int), void *free_arg)
 {
 	static const char * const slice_type_names[5] = {"P", "B", "I", "SP", "SI"};
 	static const char * const disable_deblocking_filter_idc_names[3] = {"enabled", "disabled", "disabled across slices"};
@@ -647,6 +643,7 @@ int ADD_LEVEL(parse_slice_layer_without_partitioning)(Edge264Decoder *dec, int n
 	t->free_arg = free_arg;
 	
 	// first important fields and checks before decoding the slice header
+	refill(&dec->_gb, 0);
 	t->first_mb_in_slice = get_ue32(&dec->_gb, 139263);
 	int slice_type = get_ue16(&dec->_gb, 9);
 	t->slice_type = (slice_type < 5) ? slice_type : slice_type - 5;
@@ -936,7 +933,7 @@ int ADD_LEVEL(parse_slice_layer_without_partitioning)(Edge264Decoder *dec, int n
 	dec->ready_tasks |= ((dec->task_dependencies[task_id] & ~ready_frames(dec)) == 0) << task_id;
 	dec->taskPics[task_id] = dec->currPic;
 	if (!dec->n_threads)
-		return (size_t)ADD_LEVEL(worker_loop)(dec);
+		return (size_t)ADD_ARCH(worker_loop)(dec);
 	pthread_cond_signal(&dec->task_ready);
 	return 0;
 }
@@ -1020,7 +1017,7 @@ static void parse_scaling_lists(Edge264Decoder *dec, i8x16 *w4x4, i8x16 *w8x8, i
  * Parses the PPS into a copy of the current SPS, then saves it into one of four
  * PPS slots if a rbsp_trailing_bits pattern follows.
  */
-int ADD_LEVEL(parse_pic_parameter_set)(Edge264Decoder *dec, int non_blocking,  void(*free_cb)(void*,int), void *free_arg)
+int ADD_ARCH(parse_pic_parameter_set)(Edge264Decoder *dec, int non_blocking,  void(*free_cb)(void*,int), void *free_arg)
 {
 	static const char * const slice_group_map_type_names[7] = {"interleaved",
 		"dispersed", "foreground with left-over", "box-out", "raster scan",
@@ -1036,6 +1033,7 @@ int ADD_LEVEL(parse_pic_parameter_set)(Edge264Decoder *dec, int non_blocking,  v
 		pps.weightScale8x8_v[i] = dec->sps.weightScale8x8_v[i];
 	
 	// Actual streams never use more than 4 PPSs (I, P, B, b).
+	refill(&dec->_gb, 0);
 	int pic_parameter_set_id = get_ue16(&dec->_gb, 255);
 	int seq_parameter_set_id = get_ue16(&dec->_gb, 31);
 	pps.entropy_coding_mode_flag = get_u1(&dec->_gb);
@@ -1449,7 +1447,7 @@ static int parse_seq_parameter_set_mvc_extension(Edge264Decoder *dec, Edge264Seq
  * Parses the SPS into a edge264_parameter_set structure, then saves it if a
  * rbsp_trailing_bits pattern follows.
  */
-int ADD_LEVEL(parse_seq_parameter_set)(Edge264Decoder *dec, int non_blocking, void(*free_cb)(void*,int), void *free_arg)
+int ADD_ARCH(parse_seq_parameter_set)(Edge264Decoder *dec, int non_blocking, void(*free_cb)(void*,int), void *free_arg)
 {
 	static const char * const profile_idc_names[256] = {
 		[44] = "CAVLC 4:4:4 Intra",
@@ -1499,6 +1497,7 @@ int ADD_LEVEL(parse_seq_parameter_set)(Edge264Decoder *dec, int non_blocking, vo
 	};
 	
 	// Profiles are only useful to initialize max_num_reorder_frames/num_frame_buffers.
+	refill(&dec->_gb, 0);
 	int profile_idc = get_uv(&dec->_gb, 8);
 	int constraint_set_flags = get_uv(&dec->_gb, 8);
 	int level_idc = get_uv(&dec->_gb, 8);
@@ -1716,7 +1715,8 @@ int ADD_LEVEL(parse_seq_parameter_set)(Edge264Decoder *dec, int non_blocking, vo
  * This NAL type for transparent videos is unsupported until encoders actually
  * support it.
  */
-int ADD_LEVEL(parse_seq_parameter_set_extension)(Edge264Decoder *dec, int non_blocking, void(*free_cb)(void*,int), void *free_arg) {
+int ADD_ARCH(parse_seq_parameter_set_extension)(Edge264Decoder *dec, int non_blocking, void(*free_cb)(void*,int), void *free_arg) {
+	refill(&dec->_gb, 0);
 	int seq_parameter_set_id = get_ue16(&dec->_gb, 31);
 	int aux_format_idc = get_ue16(&dec->_gb, 3);
 	printf("<k>seq_parameter_set_id</k><v>%u</v>\n"

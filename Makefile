@@ -41,8 +41,12 @@ clean clear:
 
 
 # hard-coded for my machine (mac-x64), edit to make them work on your own
-LINUX32_TOOLCHAIN := /usr/local/Cellar/i686-unknown-linux-gnu/13.3.0.reinstall/toolchain
-LINUX64_TOOLCHAIN := /usr/local/Cellar/x86_64-unknown-linux-gnu/13.3.0.reinstall/toolchain
+LINUX32_SYSROOT := /usr/local/Cellar/i686-unknown-linux-gnu/13.3.0.reinstall/toolchain/i686-unknown-linux-gnu/sysroot
+LINUX32_GCC := /usr/local/Cellar/i686-unknown-linux-gnu/13.3.0.reinstall/toolchain/bin/i686-linux-gnu-gcc
+LINUX64_SYSROOT := /usr/local/Cellar/x86_64-unknown-linux-gnu/13.3.0.reinstall/toolchain/x86_64-unknown-linux-gnu/sysroot
+LINUX64_GCC := /usr/local/Cellar/x86_64-unknown-linux-gnu/13.3.0.reinstall/toolchain/bin/x86_64-linux-gnu-gcc
+MINGW32_TOOLCHAIN := /usr/local/Cellar/mingw-w64/12.0.0_1/toolchain-i686
+MINGW64_TOOLCHAIN := /usr/local/Cellar/mingw-w64/12.0.0_1/toolchain-x86_64
 .PHONY: release
 release: edge264*.c edge264*.h Makefile
 	mkdir -p release
@@ -51,24 +55,24 @@ release: edge264*.c edge264*.h Makefile
 	clang edge264.c edge264_headers_v3.o -shared -fpic -march=core2 -mtune=ivybridge -DLINK_X86_64_V3 $(CFLAGS) -o libedge264.$(VERSION).dylib
 	zip release/edge264-$(VERSION)-macos64.zip libedge264.$(VERSION).dylib
 	# i686-linux-gnu
-	clang edge264_headers.c -c -fpic --target=i686-linux-gnu --sysroot=$(LINUX32_TOOLCHAIN)/i686-unknown-linux-gnu/sysroot -march=nehalem -mtune=ivybridge "-DADD_ARCH(f)=f##_v2" $(CFLAGS) -o edge264_headers_v2.o
-	clang edge264_headers.c -c -fpic --target=i686-linux-gnu --sysroot=$(LINUX32_TOOLCHAIN)/i686-unknown-linux-gnu/sysroot -march=haswell -mtune=generic "-DADD_ARCH(f)=f##_v3" $(CFLAGS) -o edge264_headers_v3.o
-	clang edge264.c -c -fpic --target=i686-linux-gnu --sysroot=$(LINUX32_TOOLCHAIN)/i686-unknown-linux-gnu/sysroot -march=pentium-m -mtune=core2 "-DADD_ARCH(f)=f##_v1" -DLINK_X86_64_V2 -DLINK_X86_64_V3 $(CFLAGS) -o edge264.o
-	$(LINUX32_TOOLCHAIN)/bin/i686-linux-gnu-gcc -shared edge264.o edge264_headers_v2.o edge264_headers_v3.o -pthread -o libedge264.so.$(VERSION)
+	clang edge264_headers.c -c -fpic --target=i686-linux-gnu --sysroot=$(LINUX32_SYSROOT) -march=nehalem -mtune=ivybridge "-DADD_ARCH(f)=f##_v2" $(CFLAGS) -o edge264_headers_v2.o
+	clang edge264_headers.c -c -fpic --target=i686-linux-gnu --sysroot=$(LINUX32_SYSROOT) -march=haswell -mtune=generic "-DADD_ARCH(f)=f##_v3" $(CFLAGS) -o edge264_headers_v3.o
+	clang edge264.c -c -fpic --target=i686-linux-gnu --sysroot=$(LINUX32_SYSROOT) -march=pentium-m -mtune=core2 "-DADD_ARCH(f)=f##_v1" -DLINK_X86_64_V2 -DLINK_X86_64_V3 $(CFLAGS) -o edge264.o
+	$(LINUX32_GCC) -shared edge264.o edge264_headers_v2.o edge264_headers_v3.o -pthread -o libedge264.so.$(VERSION)
 	zip release/edge264-$(VERSION)-linux32.zip libedge264.so.$(VERSION)
 	# x86_64-linux-gnu
-	clang edge264_headers.c -c -fpic --target=x86_64-linux-gnu --sysroot=$(LINUX64_TOOLCHAIN)/x86_64-unknown-linux-gnu/sysroot -march=x86-64-v2 "-DADD_ARCH(f)=f##_v2" $(CFLAGS) -o edge264_headers_v2.o
-	clang edge264_headers.c -c -fpic --target=x86_64-linux-gnu --sysroot=$(LINUX64_TOOLCHAIN)/x86_64-unknown-linux-gnu/sysroot -march=x86-64-v3 "-DADD_ARCH(f)=f##_v3" $(CFLAGS) -o edge264_headers_v3.o
-	clang edge264.c -c -fpic --target=x86_64-linux-gnu --sysroot=$(LINUX64_TOOLCHAIN)/x86_64-unknown-linux-gnu/sysroot -march=x86-64 "-DADD_ARCH(f)=f##_v1" -DLINK_X86_64_V2 -DLINK_X86_64_V3 $(CFLAGS) -o edge264.o
-	$(LINUX64_TOOLCHAIN)/bin/x86_64-linux-gnu-gcc -shared edge264.o edge264_headers_v2.o edge264_headers_v3.o -pthread -o libedge264.so.$(VERSION)
+	clang edge264_headers.c -c -fpic --target=x86_64-linux-gnu --sysroot=$(LINUX64_SYSROOT) -march=x86-64-v2 "-DADD_ARCH(f)=f##_v2" $(CFLAGS) -o edge264_headers_v2.o
+	clang edge264_headers.c -c -fpic --target=x86_64-linux-gnu --sysroot=$(LINUX64_SYSROOT) -march=x86-64-v3 "-DADD_ARCH(f)=f##_v3" $(CFLAGS) -o edge264_headers_v3.o
+	clang edge264.c -c -fpic --target=x86_64-linux-gnu --sysroot=$(LINUX64_SYSROOT) -march=x86-64 "-DADD_ARCH(f)=f##_v1" -DLINK_X86_64_V2 -DLINK_X86_64_V3 $(CFLAGS) -o edge264.o
+	$(LINUX64_GCC) -shared edge264.o edge264_headers_v2.o edge264_headers_v3.o -pthread -o libedge264.so.$(VERSION)
 	zip release/edge264-$(VERSION)-linux64.zip libedge264.so.$(VERSION)
 	# i686-w64-mingw32
-	clang edge264_headers.c -c --target=i686-w64-mingw32 --sysroot=/usr/local/Cellar/mingw-w64/12.0.0_1/toolchain-i686 -march=nehalem -mtune=ivybridge "-DADD_ARCH(f)=f##_v2" $(CFLAGS) -o edge264_headers_v2.o
-	clang edge264_headers.c -c --target=i686-w64-mingw32 --sysroot=/usr/local/Cellar/mingw-w64/12.0.0_1/toolchain-i686 -march=haswell -mtune=generic "-DADD_ARCH(f)=f##_v3" $(CFLAGS) -o edge264_headers_v3.o
-	clang edge264.c edge264_headers_v2.o edge264_headers_v3.o -shared --target=i686-w64-mingw32 --sysroot=/usr/local/Cellar/mingw-w64/12.0.0_1/toolchain-i686 -march=pentium-m -mtune=core2 "-DADD_ARCH(f)=f##_v1" -DLINK_X86_64_V2 -DLINK_X86_64_V3 -pthread $(CFLAGS) -o edge264.dll
+	clang edge264_headers.c -c --target=i686-w64-mingw32 --sysroot=$(MINGW32_TOOLCHAIN) -march=nehalem -mtune=ivybridge "-DADD_ARCH(f)=f##_v2" $(CFLAGS) -o edge264_headers_v2.o
+	clang edge264_headers.c -c --target=i686-w64-mingw32 --sysroot=$(MINGW32_TOOLCHAIN) -march=haswell -mtune=generic "-DADD_ARCH(f)=f##_v3" $(CFLAGS) -o edge264_headers_v3.o
+	clang edge264.c edge264_headers_v2.o edge264_headers_v3.o -shared --target=i686-w64-mingw32 --sysroot=$(MINGW32_TOOLCHAIN) -march=pentium-m -mtune=core2 "-DADD_ARCH(f)=f##_v1" -DLINK_X86_64_V2 -DLINK_X86_64_V3 -pthread $(CFLAGS) -o edge264.dll
 	zip release/edge264-$(VERSION)-mingw32.zip edge264.dll
 	# x86_64-w64-mingw32
-	clang edge264_headers.c -c --target=x86_64-w64-mingw32 --sysroot=/usr/local/Cellar/mingw-w64/12.0.0_1/toolchain-x86_64 -march=x86-64-v2 "-DADD_ARCH(f)=f##_v2" $(CFLAGS) -o edge264_headers_v2.o
-	clang edge264_headers.c -c --target=x86_64-w64-mingw32 --sysroot=/usr/local/Cellar/mingw-w64/12.0.0_1/toolchain-x86_64 -march=x86-64-v3 "-DADD_ARCH(f)=f##_v3" $(CFLAGS) -o edge264_headers_v3.o
-	clang edge264.c edge264_headers_v2.o edge264_headers_v3.o -shared --target=x86_64-w64-mingw32 --sysroot=/usr/local/Cellar/mingw-w64/12.0.0_1/toolchain-x86_64 -march=x86-64 "-DADD_ARCH(f)=f##_v1" -DLINK_X86_64_V2 -DLINK_X86_64_V3 -pthread $(CFLAGS) -o edge264.dll
+	clang edge264_headers.c -c --target=x86_64-w64-mingw32 --sysroot=$(MINGW64_TOOLCHAIN) -march=x86-64-v2 "-DADD_ARCH(f)=f##_v2" $(CFLAGS) -o edge264_headers_v2.o
+	clang edge264_headers.c -c --target=x86_64-w64-mingw32 --sysroot=$(MINGW64_TOOLCHAIN) -march=x86-64-v3 "-DADD_ARCH(f)=f##_v3" $(CFLAGS) -o edge264_headers_v3.o
+	clang edge264.c edge264_headers_v2.o edge264_headers_v3.o -shared --target=x86_64-w64-mingw32 --sysroot=$(MINGW64_TOOLCHAIN) -march=x86-64 "-DADD_ARCH(f)=f##_v1" -DLINK_X86_64_V2 -DLINK_X86_64_V3 -pthread $(CFLAGS) -o edge264.dll
 	zip release/edge264-$(VERSION)-mingw64.zip edge264.dll

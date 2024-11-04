@@ -44,7 +44,7 @@ static const i8x16 normAdjust8x8[24] = {
  * Here we try to stay close to the spec's pseudocode, avoiding minor
  * optimisations that would make the code hard to understand.
  */
-void noinline add_idct4x4(Edge264Context *ctx, int iYCbCr, int qP, i8x16 wS, int DCidx, uint8_t *samples)
+static void noinline add_idct4x4(Edge264Context *ctx, int iYCbCr, int qP, i8x16 wS, int DCidx, uint8_t *samples)
 {
 	// loading and scaling
 	i8x16 zero = {};
@@ -121,7 +121,7 @@ void noinline add_idct4x4(Edge264Context *ctx, int iYCbCr, int qP, i8x16 wS, int
 	}
 }
 
-void add_dc4x4(Edge264Context *ctx, int iYCbCr, int DCidx, uint8_t *samples) {
+static void add_dc4x4(Edge264Context *ctx, int iYCbCr, int DCidx, uint8_t *samples) {
 	i32x4 x = (set32(ctx->c[16 + DCidx]) + set32(32)) >> 6;
 	i32x4 r = packs32(x, x);
 	i8x16 zero = {};
@@ -152,7 +152,7 @@ void add_dc4x4(Edge264Context *ctx, int iYCbCr, int DCidx, uint8_t *samples) {
 /**
  * Inverse 8x8 transform
  */
-void noinline add_idct8x8(Edge264Context *ctx, int iYCbCr, uint8_t *samples)
+static void noinline add_idct8x8(Edge264Context *ctx, int iYCbCr, uint8_t *samples)
 {
 	int qP = ctx->t.QP[iYCbCr];
 	size_t stride = ctx->t.stride[iYCbCr];
@@ -310,7 +310,7 @@ void noinline add_idct8x8(Edge264Context *ctx, int iYCbCr, uint8_t *samples)
  * 
  * These functions do not gain enough from 8bit to justify distinct versions.
  */
-void noinline transform_dc4x4(Edge264Context *ctx, int iYCbCr)
+static void noinline transform_dc4x4(Edge264Context *ctx, int iYCbCr)
 {
 	// load matrix in column order and multiply right
 	i32x4 x0 = ctx->c_v[0] + ctx->c_v[1];
@@ -420,7 +420,7 @@ void noinline transform_dc4x4(Edge264Context *ctx, int iYCbCr)
 	}
 }
 
-void noinline transform_dc2x2(Edge264Context *ctx)
+static void noinline transform_dc2x2(Edge264Context *ctx)
 {
 	// load both matrices interlaced+transposed and multiply right
 	i32x4 d0 = ctx->c_v[0] + ctx->c_v[1];

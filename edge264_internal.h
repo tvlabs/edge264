@@ -260,7 +260,7 @@ typedef struct Edge264Context {
 	int16_t DistScaleFactor[32]; // [refIdxL0]
 	union { int8_t clip_ref_idx[8]; i8x8 clip_ref_idx_v; };
 	union { int8_t MapPicToList0[32]; i8x16 MapPicToList0_v[2]; };
-	union { int8_t implicit_weights[32][32]; i8x16 implicit_weights_v[32][2]; }; // w1 for [ref0][ref1]
+	union { uint8_t implicit_weights[32][32]; i8x16 implicit_weights_v[32][2]; }; // w1 for [ref0][ref1], stored with +64 offset
 	union { uint8_t edge_buf[2016]; int64_t edge_buf_l[252]; i8x16 edge_buf_v[126]; };
 	
 	// Residuals context
@@ -634,19 +634,10 @@ enum IntraChromaModes {
 		static always_inline i32x4 min32(i32x4 a, i32x4 b) { i32x4 v = b > a; return a & v | b & ~v; }
 		static always_inline i8x16 max8(i8x16 a, i8x16 b) { i8x16 v = a > b; return a & v | b & ~v; }
 	#endif
-	#ifdef __AVX2__
-		#define broadcast8(a) (i8x16)_mm_broadcastb_epi8(a)
-		#define broadcast16(a) (i16x8)_mm_broadcastw_epi16(a)
-	#else
-		#ifdef __SSSE3__
-			#define broadcast8(a) shuffle(a, (i8x16){})
-		#else
-			static always_inline i8x16 broadcast8(i8x16 a) { return shuffle32(shufflelo(unpacklo8(a, a), 0, 0, 0, 0), 0, 0, 0, 0); }
-		#endif
-		#define broadcast16(a) (i16x8)_mm_shuffle_epi32(_mm_shufflelo_epi16(a, _MM_SHUFFLE(0, 0, 0, 0)), _MM_SHUFFLE(1, 0, 1, 0))
-	#endif
 	
 	// hardware-specific helper functions
+	#define broadcast8(a, i) shuffle(a, set8(i))
+	#define broadcast16(a, i) (i16x8)__builtin_choose_expr((i) < 4, shuffle32(shufflelo(a, i, i, 0, 0), 0, 0, 0, 0), shuffle32(shufflehi(a, i - 4, i - 4, 0, 0), 2, 2, 2, 2))
 	static always_inline size_t lsd(size_t msb, size_t lsb, unsigned shift) {
 		__asm__("shld %%cl, %1, %0" : "+rm" (msb) : "r" (lsb), "c" (shift));
 		return msb;

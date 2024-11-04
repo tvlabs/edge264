@@ -843,7 +843,7 @@ static noinline void deblock_mb(Edge264Context *ctx)
 	// initialize tC0 for bS=1/2/3
 	if (!mb->f.mbIsInterFlag) {
 		i8x16 tC03 = shuffle3(idx2tC0[2], Am4);
-		ctx->tC0_v[0] = ctx->tC0_v[1] = broadcast8(tC03);
+		ctx->tC0_v[0] = ctx->tC0_v[1] = broadcast8(tC03, 0);
 		ctx->tC0_v[2] = ctx->tC0_v[3] = shuffle(tC03, ((i8x16){-1, -1, -1, -1, -1, -1, -1, -1, 1, 1, 1, 1, 2, 2, 2, 2}));
 	} else {
 		i8x16 tC01 = shuffle3(idx2tC0[0], Am4);

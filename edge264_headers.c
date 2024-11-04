@@ -121,7 +121,7 @@ static void initialize_context(Edge264Context *ctx, int currPic)
 							DistScaleFactor = 256;
 							implicit_weight = 32;
 						}
-						ctx->implicit_weights[refIdxL0][refIdxL1] = implicit_weight;
+						ctx->implicit_weights[refIdxL0][refIdxL1] = implicit_weight + 64;
 					}
 					ctx->DistScaleFactor[refIdxL0] = DistScaleFactor;
 				}

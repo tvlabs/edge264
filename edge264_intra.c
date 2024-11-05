@@ -843,7 +843,9 @@ static always_inline void chroma8x8_plane_8bit(uint8_t *px0, uint8_t *px7, size_
 	*(int64_t *)(px7              ) = xE[1];
 }
 
-static void noinline _decode_intraChroma(int mode, uint8_t *Cb0, uint8_t *Cb7, uint8_t *Cr0, uint8_t *Cr7, size_t stride, ssize_t nstride, i16x8 clip) {
+static void noinline _decode_intraChroma(int mode, uint8_t *Cb0, uint8_t *Cb7, size_t stride, ssize_t nstride, i16x8 clip) {
+	uint8_t *Cr0 = Cb0 + (stride >> 1);
+	uint8_t *Cr7 = Cb7 + (stride >> 1);
 	switch (mode) {
 	case IC8x8_DC_8:
 		chroma8x8_DC_8bit(Cb0, Cb7, stride, nstride);

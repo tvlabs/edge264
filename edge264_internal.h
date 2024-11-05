@@ -822,11 +822,11 @@ static void noinline decode_inter(Edge264Context *ctx, int i, int w, int h);
 static void noinline _decode_intra4x4(int mode, uint8_t *px1, size_t stride, ssize_t nstride, i16x8 clip, i8x16 zero);
 static void noinline _decode_intra8x8(int mode, uint8_t *px0, uint8_t *px7, size_t stride, ssize_t nstride, i16x8 clip);
 static void noinline _decode_intra16x16(int mode, uint8_t *px0, uint8_t *px7, uint8_t *pxE, size_t stride, ssize_t nstride, i16x8 clip);
-static void noinline _decode_intraChroma(int mode, uint8_t *Cb0, uint8_t *Cb7, uint8_t *Cr0, uint8_t *Cr7, size_t stride, ssize_t nstride, i16x8 clip);
+static void noinline _decode_intraChroma(int mode, uint8_t *Cb0, uint8_t *Cb7, size_t stride, ssize_t nstride, i16x8 clip);
 #define decode_intra4x4(ctx, mode, samples, stride, iYCbCr) _decode_intra4x4(mode, (samples) + (stride), stride, -(stride), ctx->t.samples_clip_v[iYCbCr], (i8x16){})
 #define decode_intra8x8(ctx, mode, samples, stride, iYCbCr) _decode_intra8x8(mode, samples, (samples) + (stride) * 7, stride, -(stride), ctx->t.samples_clip_v[iYCbCr])
 #define decode_intra16x16(ctx, mode, samples, stride, iYCbCr) _decode_intra16x16(mode, samples, (samples) + (stride) * 7, (samples) + (stride) * 14, stride, -(stride), ctx->t.samples_clip_v[iYCbCr])
-#define decode_intraChroma(ctx, mode, samplesCb, samplesCr, stride) _decode_intraChroma(mode, samplesCb, (samplesCb) + (stride) * 7, samplesCr, (samplesCr) + (stride) * 7, stride, -(stride), ctx->t.samples_clip_v[1])
+#define decode_intraChroma(ctx, mode, samplesCb, stride) _decode_intraChroma(mode, samplesCb, (samplesCb) + (stride) * 7, stride, -(stride), ctx->t.samples_clip_v[1])
 
 // edge264_mvpred.c
 static inline void decode_inter_16x16(Edge264Context *ctx, i16x8 mvd, int lx);

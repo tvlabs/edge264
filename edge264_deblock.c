@@ -171,51 +171,50 @@ static noinline void deblock_CbCr_8bit(Edge264Context *ctx, size_t stride, ssize
 	i8x16 v0, v1, v2, v3, v4, v5, v6, v7;
 	if (mb->f.filter_edges & 1) {
 		// load and transpose both 12x8 matrices (with left macroblock)
-		uint8_t * restrict Cb0 = ctx->samples_mb[1] - 8;
-		i8x16 xa0 = load128(Cb0              );
-		i8x16 xa1 = load128(Cb0 +  stride    );
-		i8x16 xa2 = load128(Cb0 +  stride * 2);
-		uint8_t * restrict Cb7 = Cb0 + stride7;
-		i8x16 xa3 = load128(Cb7 + nstride * 4);
-		i8x16 xa4 = load128(Cb0 +  stride * 4);
-		i8x16 xa5 = load128(Cb7 + nstride * 2);
-		i8x16 xa6 = load128(Cb7 + nstride    );
-		i8x16 xa7 = load128(Cb7              );
+		uint8_t * restrict px0 = ctx->samples_mb[1] - 8;
+		uint8_t * restrict px7 = px0 + stride7;
+		uint8_t * restrict pxE = px7 + stride7;
+		i8x16 xa0 = load128(px0              );
+		i8x16 xa8 = load128(px0 +  stride    );
+		i8x16 xa1 = load128(px0 +  stride * 2);
+		i8x16 xa9 = load128(px7 + nstride * 4);
+		i8x16 xa2 = load128(px0 +  stride * 4);
+		i8x16 xaA = load128(px7 + nstride * 2);
+		i8x16 xa3 = load128(px7 + nstride    );
+		i8x16 xaB = load128(px7              );
 		i8x16 xb0 = unpacklo8(xa0, xa1);
 		i8x16 xb1 = unpackhi8(xa0, xa1);
 		i8x16 xb2 = unpacklo8(xa2, xa3);
 		i8x16 xb3 = unpackhi8(xa2, xa3);
-		i8x16 xb4 = unpacklo8(xa4, xa5);
-		i8x16 xb5 = unpackhi8(xa4, xa5);
-		i8x16 xb6 = unpacklo8(xa6, xa7);
-		i8x16 xb7 = unpackhi8(xa6, xa7);
-		i8x16 xc0 = unpackhi16(xb0, xb2);
-		i8x16 xc1 = unpacklo16(xb1, xb3);
-		i8x16 xc2 = unpackhi16(xb1, xb3);
-		i8x16 xc3 = unpackhi16(xb4, xb6);
-		i8x16 xc4 = unpacklo16(xb5, xb7);
-		i8x16 xc5 = unpackhi16(xb5, xb7);
-		uint8_t * restrict Cr0 = ctx->samples_mb[2] - 8;
-		i8x16 xa8 = load128(Cr0              );
-		i8x16 xa9 = load128(Cr0 +  stride    );
-		i8x16 xaA = load128(Cr0 +  stride * 2);
-		uint8_t * restrict Cr7 = Cr0 + stride7;
-		i8x16 xaB = load128(Cr7 + nstride * 4);
-		i8x16 xaC = load128(Cr0 +  stride * 4);
-		i8x16 xaD = load128(Cr7 + nstride * 2);
-		i8x16 xaE = load128(Cr7 + nstride    );
-		i8x16 xaF = load128(Cr7              );
 		i8x16 xb8 = unpacklo8(xa8, xa9);
 		i8x16 xb9 = unpackhi8(xa8, xa9);
 		i8x16 xbA = unpacklo8(xaA, xaB);
 		i8x16 xbB = unpackhi8(xaA, xaB);
+		i8x16 xc0 = unpackhi16(xb0, xb2);
+		i8x16 xc1 = unpacklo16(xb1, xb3);
+		i8x16 xc2 = unpackhi16(xb1, xb3);
+		i8x16 xc6 = unpackhi16(xb8, xbA);
+		i8x16 xc7 = unpacklo16(xb9, xbB);
+		i8x16 xc8 = unpackhi16(xb9, xbB);
+		i8x16 xa4 = load128(px7 +  stride    );
+		i8x16 xaC = load128(px7 +  stride * 2);
+		i8x16 xa5 = load128(pxE + nstride * 4);
+		i8x16 xaD = load128(px7 +  stride * 4);
+		i8x16 xa6 = load128(pxE + nstride * 2);
+		i8x16 xaE = load128(pxE + nstride    );
+		i8x16 xa7 = load128(pxE              );
+		i8x16 xaF = load128(pxE +  stride    );
+		i8x16 xb4 = unpacklo8(xa4, xa5);
+		i8x16 xb5 = unpackhi8(xa4, xa5);
+		i8x16 xb6 = unpacklo8(xa6, xa7);
+		i8x16 xb7 = unpackhi8(xa6, xa7);
+		i8x16 xc3 = unpackhi16(xb4, xb6);
+		i8x16 xc4 = unpacklo16(xb5, xb7);
+		i8x16 xc5 = unpackhi16(xb5, xb7);
 		i8x16 xbC = unpacklo8(xaC, xaD);
 		i8x16 xbD = unpackhi8(xaC, xaD);
 		i8x16 xbE = unpacklo8(xaE, xaF);
 		i8x16 xbF = unpackhi8(xaE, xaF);
-		i8x16 xc6 = unpackhi16(xb8, xbA);
-		i8x16 xc7 = unpacklo16(xb9, xbB);
-		i8x16 xc8 = unpackhi16(xb9, xbB);
 		i8x16 xc9 = unpackhi16(xbC, xbE);
 		i8x16 xcA = unpacklo16(xbD, xbF);
 		i8x16 xcB = unpackhi16(xbD, xbF);
@@ -252,62 +251,60 @@ static noinline void deblock_CbCr_8bit(Edge264Context *ctx, size_t stride, ssize
 		// store vY/vZ into the left macroblock
 		i16x8 xf0 = unpacklo8(vY, vZ);
 		i16x8 xf1 = unpackhi8(vY, vZ);
-		Cb0 = ctx->samples_mb[1] - 2;
-		*(int16_t *)(Cb0              ) = xf0[0];
-		*(int16_t *)(Cb0 +  stride    ) = xf0[1];
-		*(int16_t *)(Cb0 +  stride * 2) = xf0[2];
-		Cb7 = Cb0 + stride7;
-		*(int16_t *)(Cb7 + nstride * 4) = xf0[3];
-		*(int16_t *)(Cb0 +  stride * 4) = xf0[4];
-		*(int16_t *)(Cb7 + nstride * 2) = xf0[5];
-		*(int16_t *)(Cb7 + nstride    ) = xf0[6];
-		*(int16_t *)(Cb7              ) = xf0[7];
-		Cr0 = ctx->samples_mb[2] - 2;
-		*(int16_t *)(Cr0              ) = xf1[0];
-		*(int16_t *)(Cr0 +  stride    ) = xf1[1];
-		*(int16_t *)(Cr0 +  stride * 2) = xf1[2];
-		Cr7 = Cr0 + stride7;
-		*(int16_t *)(Cr7 + nstride * 4) = xf1[3];
-		*(int16_t *)(Cr0 +  stride * 4) = xf1[4];
-		*(int16_t *)(Cr7 + nstride * 2) = xf1[5];
-		*(int16_t *)(Cr7 + nstride    ) = xf1[6];
-		*(int16_t *)(Cr7              ) = xf1[7];
+		px0 = ctx->samples_mb[1] - 2;
+		px7 = px0 + stride7;
+		pxE = px7 + stride7;
+		*(int16_t *)(px0              ) = xf0[0];
+		*(int16_t *)(px0 +  stride    ) = xf1[0];
+		*(int16_t *)(px0 +  stride * 2) = xf0[1];
+		*(int16_t *)(px7 + nstride * 4) = xf1[1];
+		*(int16_t *)(px0 +  stride * 4) = xf0[2];
+		*(int16_t *)(px7 + nstride * 2) = xf1[2];
+		*(int16_t *)(px7 + nstride    ) = xf0[3];
+		*(int16_t *)(px7              ) = xf1[3];
+		*(int16_t *)(px7 +  stride    ) = xf0[4];
+		*(int16_t *)(px7 +  stride * 2) = xf1[4];
+		*(int16_t *)(pxE + nstride * 4) = xf0[5];
+		*(int16_t *)(px7 +  stride * 4) = xf1[5];
+		*(int16_t *)(pxE + nstride * 2) = xf0[6];
+		*(int16_t *)(pxE + nstride    ) = xf1[6];
+		*(int16_t *)(pxE              ) = xf0[7];
+		*(int16_t *)(pxE +  stride    ) = xf1[7];
 	} else {
 		// load and transpose both 8x8 matrices
-		uint8_t * restrict Cb0 = ctx->samples_mb[1];
-		i8x16 xa0 = load64(Cb0              );
-		i8x16 xa1 = load64(Cb0 +  stride    );
-		i8x16 xa2 = load64(Cb0 +  stride * 2);
-		uint8_t * restrict Cb7 = Cb0 + stride7;
-		i8x16 xa3 = load64(Cb7 + nstride * 4);
-		i8x16 xa4 = load64(Cb0 +  stride * 4);
-		i8x16 xa5 = load64(Cb7 + nstride * 2);
-		i8x16 xa6 = load64(Cb7 + nstride    );
-		i8x16 xa7 = load64(Cb7              );
+		uint8_t * restrict px0 = ctx->samples_mb[1];
+		uint8_t * restrict px7 = px0 + stride7;
+		uint8_t * restrict pxE = px7 + stride7;
+		i8x16 xa0 = load64(px0              );
+		i8x16 xa8 = load64(px0 +  stride    );
+		i8x16 xa1 = load64(px0 +  stride * 2);
+		i8x16 xa9 = load64(px7 + nstride * 4);
+		i8x16 xa2 = load64(px0 +  stride * 4);
+		i8x16 xaA = load64(px7 + nstride * 2);
+		i8x16 xa3 = load64(px7 + nstride    );
+		i8x16 xaB = load64(px7              );
 		i8x16 xb0 = unpacklo8(xa0, xa1);
 		i8x16 xb1 = unpacklo8(xa2, xa3);
-		i8x16 xb2 = unpacklo8(xa4, xa5);
-		i8x16 xb3 = unpacklo8(xa6, xa7);
-		uint8_t * restrict Cr0 = ctx->samples_mb[2];
-		i8x16 xa8 = load64(Cr0              );
-		i8x16 xa9 = load64(Cr0 +  stride    );
-		i8x16 xaA = load64(Cr0 +  stride * 2);
-		uint8_t * restrict Cr7 = Cr0 + stride7;
-		i8x16 xaB = load64(Cr7 + nstride * 4);
-		i8x16 xaC = load64(Cr0 +  stride * 4);
-		i8x16 xaD = load64(Cr7 + nstride * 2);
-		i8x16 xaE = load64(Cr7 + nstride    );
-		i8x16 xaF = load64(Cr7              );
 		i8x16 xb4 = unpacklo8(xa8, xa9);
 		i8x16 xb5 = unpacklo8(xaA, xaB);
-		i8x16 xb6 = unpacklo8(xaC, xaD);
-		i8x16 xb7 = unpacklo8(xaE, xaF);
 		i8x16 xc0 = unpacklo16(xb0, xb1);
 		i8x16 xc1 = unpackhi16(xb0, xb1);
-		i8x16 xc2 = unpacklo16(xb2, xb3);
-		i8x16 xc3 = unpackhi16(xb2, xb3);
 		i8x16 xc4 = unpacklo16(xb4, xb5);
 		i8x16 xc5 = unpackhi16(xb4, xb5);
+		i8x16 xa4 = load64(px7 +  stride    );
+		i8x16 xaC = load64(px7 +  stride * 2);
+		i8x16 xa5 = load64(pxE + nstride * 4);
+		i8x16 xaD = load64(px7 +  stride * 4);
+		i8x16 xa6 = load64(pxE + nstride * 2);
+		i8x16 xaE = load64(pxE + nstride    );
+		i8x16 xa7 = load64(pxE              );
+		i8x16 xaF = load64(pxE +  stride    );
+		i8x16 xb2 = unpacklo8(xa4, xa5);
+		i8x16 xb3 = unpacklo8(xa6, xa7);
+		i8x16 xb6 = unpacklo8(xaC, xaD);
+		i8x16 xb7 = unpacklo8(xaE, xaF);
+		i8x16 xc2 = unpacklo16(xb2, xb3);
+		i8x16 xc3 = unpackhi16(xb2, xb3);
 		i8x16 xc6 = unpacklo16(xb6, xb7);
 		i8x16 xc7 = unpackhi16(xb6, xb7);
 		i8x16 xd0 = unpacklo32(xc0, xc2);
@@ -368,11 +365,12 @@ static noinline void deblock_CbCr_8bit(Edge264Context *ctx, size_t stride, ssize
 	i8x16 h7 = unpackhi64(xc3, xc7);
 	
 	// first horizontal edge
-	uint8_t * restrict Cb0 = ctx->samples_mb[1];
-	uint8_t * restrict Cr0 = ctx->samples_mb[2];
+	uint8_t * restrict px0 = ctx->samples_mb[1];
+	uint8_t * restrict px7 = px0 + stride7;
+	uint8_t * restrict pxE = px7 + stride7;
 	if (mb->f.filter_edges & 2) {
-		i8x16 hY = (i64x2){*(int64_t *)(Cb0 + nstride * 2), *(int64_t *)(Cr0 + nstride * 2)};
-		i8x16 hZ = (i64x2){*(int64_t *)(Cb0 + nstride    ), *(int64_t *)(Cr0 + nstride    )};
+		i8x16 hY = (i64x2){*(int64_t *)(px0 + nstride * 4), *(int64_t *)(px0 + nstride * 3)};
+		i8x16 hZ = (i64x2){*(int64_t *)(px0 + nstride * 2), *(int64_t *)(px0 + nstride    )};
 		if (mbB->f.mbIsInterFlag & mb->f.mbIsInterFlag) {
 			int64_t tC0e = ctx->tC0_l[6];
 			if (tC0e != -1)
@@ -380,35 +378,33 @@ static noinline void deblock_CbCr_8bit(Edge264Context *ctx, size_t stride, ssize
 		} else {
 			DEBLOCK_CHROMA_HARD(hY, hZ, h0, h1, shuf_e);
 		}
-		*(int64_t *)(Cb0 + nstride * 2) = ((i64x2)hY)[0];
-		*(int64_t *)(Cr0 + nstride * 2) = ((i64x2)hY)[1];
-		*(int64_t *)(Cb0 + nstride    ) = ((i64x2)hZ)[0];
-		*(int64_t *)(Cr0 + nstride    ) = ((i64x2)hZ)[1];
+		*(int64_t *)(px0 + nstride * 4) = ((i64x2)hY)[0];
+		*(int64_t *)(px0 + nstride * 3) = ((i64x2)hY)[1];
+		*(int64_t *)(px0 + nstride * 2) = ((i64x2)hZ)[0];
+		*(int64_t *)(px0 + nstride    ) = ((i64x2)hZ)[1];
 	}
 	mb->f.filter_edges = 0; // prevent redundant deblocking with deblock_idc==2 and ASO
-	*(int64_t *)(Cb0              ) = ((i64x2)h0)[0];
-	*(int64_t *)(Cr0              ) = ((i64x2)h0)[1];
-	*(int64_t *)(Cb0 +  stride    ) = ((i64x2)h1)[0];
-	*(int64_t *)(Cr0 +  stride    ) = ((i64x2)h1)[1];
+	*(int64_t *)(px0              ) = ((i64x2)h0)[0];
+	*(int64_t *)(px0 +  stride    ) = ((i64x2)h0)[1];
+	*(int64_t *)(px0 +  stride * 2) = ((i64x2)h1)[0];
+	*(int64_t *)(px7 + nstride * 4) = ((i64x2)h1)[1];
 	
 	// second horizontal edge
 	int64_t tC0g = ctx->tC0_l[7];
 	if (tC0g != -1)
 		DEBLOCK_CHROMA_SOFT(h2, h3, h4, h5, shuf_cg, tC0g);
-	*(int64_t *)(Cb0 +  stride * 2) = ((i64x2)h2)[0];
-	*(int64_t *)(Cr0 +  stride * 2) = ((i64x2)h2)[1];
-	uint8_t * restrict Cb7 = Cb0 + stride7;
-	uint8_t * restrict Cr7 = Cr0 + stride7;
-	*(int64_t *)(Cb7 + nstride * 4) = ((i64x2)h3)[0];
-	*(int64_t *)(Cr7 + nstride * 4) = ((i64x2)h3)[1];
-	*(int64_t *)(Cb0 +  stride * 4) = ((i64x2)h4)[0];
-	*(int64_t *)(Cr0 +  stride * 4) = ((i64x2)h4)[1];
-	*(int64_t *)(Cb7 + nstride * 2) = ((i64x2)h5)[0];
-	*(int64_t *)(Cr7 + nstride * 2) = ((i64x2)h5)[1];
-	*(int64_t *)(Cb7 + nstride    ) = ((i64x2)h6)[0];
-	*(int64_t *)(Cr7 + nstride    ) = ((i64x2)h6)[1];
-	*(int64_t *)(Cb7              ) = ((i64x2)h7)[0];
-	*(int64_t *)(Cr7              ) = ((i64x2)h7)[1];
+	*(int64_t *)(px0 +  stride * 4) = ((i64x2)h2)[0];
+	*(int64_t *)(px7 + nstride * 2) = ((i64x2)h2)[1];
+	*(int64_t *)(px7 + nstride    ) = ((i64x2)h3)[0];
+	*(int64_t *)(px7              ) = ((i64x2)h3)[1];
+	*(int64_t *)(px7 +  stride    ) = ((i64x2)h4)[0];
+	*(int64_t *)(px7 +  stride * 2) = ((i64x2)h4)[1];
+	*(int64_t *)(pxE + nstride * 4) = ((i64x2)h5)[0];
+	*(int64_t *)(px7 +  stride * 4) = ((i64x2)h5)[1];
+	*(int64_t *)(pxE + nstride * 2) = ((i64x2)h6)[0];
+	*(int64_t *)(pxE + nstride    ) = ((i64x2)h6)[1];
+	*(int64_t *)(pxE              ) = ((i64x2)h7)[0];
+	*(int64_t *)(pxE +  stride    ) = ((i64x2)h7)[1];
 }
 
 
@@ -777,7 +773,7 @@ static noinline void deblock_Y_8bit(Edge264Context *ctx, size_t stride, ssize_t 
 	*(i8x16 *)(pxE +  stride    ) = hF;
 	
 	// jump to chroma deblocking filter
-	size_t strideC = ctx->t.stride[1];
+	size_t strideC = ctx->t.stride[1] >> 1;
 	deblock_CbCr_8bit(ctx, strideC, -strideC, strideC * 7);
 }
 

@@ -449,12 +449,9 @@ static void noinline transform_dc2x2(Edge264Context *ctx)
 		
 	// ... or prepare for storage in place
 	} else {
-		size_t stride = ctx->t.stride[1];
+		uint8_t *p = ctx->samples_mb[1];
+		size_t stride = ctx->t.stride[1] >> 1;
 		size_t stride3 = stride * 3;
-		uint8_t *pb = ctx->samples_mb[1];
-		uint8_t *pr = ctx->samples_mb[2];
-		uint8_t *qb = pb + stride * 4;
-		uint8_t *qr = pr + stride * 4;
 		i32x4 s32 = set32(32);
 		i32x4 rb = (dcCb + s32) >> 6;
 		i32x4 rr = (dcCr + s32) >> 6;
@@ -468,46 +465,49 @@ static void noinline transform_dc2x2(Edge264Context *ctx)
 		
 		// add to predicted samples
 		if (ctx->t.samples_clip[1][0] == 255) {
-			i16x8 b0 = adds16(load8zx16(pb             ), lob);
-			i16x8 b1 = adds16(load8zx16(pb + stride    ), lob);
-			i16x8 b2 = adds16(load8zx16(pb + stride * 2), lob);
-			i16x8 b3 = adds16(load8zx16(pb + stride3   ), lob);
-			i16x8 b4 = adds16(load8zx16(qb             ), hib);
-			i16x8 b5 = adds16(load8zx16(qb + stride    ), hib);
-			i16x8 b6 = adds16(load8zx16(qb + stride * 2), hib);
-			i16x8 b7 = adds16(load8zx16(qb + stride3   ), hib);
+			i16x8 b0 = adds16(load8zx16(p             ), lob);
+			i16x8 r0 = adds16(load8zx16(p + stride    ), lor);
+			i16x8 b1 = adds16(load8zx16(p + stride * 2), lob);
+			i16x8 r1 = adds16(load8zx16(p + stride3   ), lor);
 			i64x2 b8 = packus16(b0, b1);
-			i64x2 b9 = packus16(b2, b3);
-			i64x2 bA = packus16(b4, b5);
-			i64x2 bB = packus16(b6, b7);
-			*(int64_t *)(pb             ) = b8[0];
-			*(int64_t *)(pb + stride    ) = b8[1];
-			*(int64_t *)(pb + stride * 2) = b9[0];
-			*(int64_t *)(pb + stride3   ) = b9[1];
-			*(int64_t *)(qb             ) = bA[0];
-			*(int64_t *)(qb + stride    ) = bA[1];
-			*(int64_t *)(qb + stride * 2) = bB[0];
-			*(int64_t *)(qb + stride3   ) = bB[1];
-			i16x8 r0 = adds16(load8zx16(pr             ), lor);
-			i16x8 r1 = adds16(load8zx16(pr + stride    ), lor);
-			i16x8 r2 = adds16(load8zx16(pr + stride * 2), lor);
-			i16x8 r3 = adds16(load8zx16(pr + stride3   ), lor);
-			i16x8 r4 = adds16(load8zx16(qr             ), hir);
-			i16x8 r5 = adds16(load8zx16(qr + stride    ), hir);
-			i16x8 r6 = adds16(load8zx16(qr + stride * 2), hir);
-			i16x8 r7 = adds16(load8zx16(qr + stride3   ), hir);
 			i64x2 r8 = packus16(r0, r1);
+			*(int64_t *)(p             ) = b8[0];
+			*(int64_t *)(p + stride    ) = r8[0];
+			*(int64_t *)(p + stride * 2) = b8[1];
+			*(int64_t *)(p + stride3   ) = r8[1];
+			p += stride * 4;
+			i16x8 b2 = adds16(load8zx16(p             ), lob);
+			i16x8 r2 = adds16(load8zx16(p + stride    ), lor);
+			i16x8 b3 = adds16(load8zx16(p + stride * 2), lob);
+			i16x8 r3 = adds16(load8zx16(p + stride3   ), lor);
+			i64x2 b9 = packus16(b2, b3);
 			i64x2 r9 = packus16(r2, r3);
+			*(int64_t *)(p             ) = b9[0];
+			*(int64_t *)(p + stride    ) = r9[0];
+			*(int64_t *)(p + stride * 2) = b9[1];
+			*(int64_t *)(p + stride3   ) = r9[1];
+			p += stride * 4;
+			i16x8 b4 = adds16(load8zx16(p             ), hib);
+			i16x8 r4 = adds16(load8zx16(p + stride    ), hir);
+			i16x8 b5 = adds16(load8zx16(p + stride * 2), hib);
+			i16x8 r5 = adds16(load8zx16(p + stride3   ), hir);
+			i64x2 bA = packus16(b4, b5);
 			i64x2 rA = packus16(r4, r5);
+			*(int64_t *)(p             ) = bA[0];
+			*(int64_t *)(p + stride    ) = rA[0];
+			*(int64_t *)(p + stride * 2) = bA[1];
+			*(int64_t *)(p + stride3   ) = rA[1];
+			p += stride * 4;
+			i16x8 b6 = adds16(load8zx16(p             ), hib);
+			i16x8 r6 = adds16(load8zx16(p + stride    ), hir);
+			i16x8 b7 = adds16(load8zx16(p + stride * 2), hib);
+			i16x8 r7 = adds16(load8zx16(p + stride3   ), hir);
+			i64x2 bB = packus16(b6, b7);
 			i64x2 rB = packus16(r6, r7);
-			*(int64_t *)(pr             ) = r8[0];
-			*(int64_t *)(pr + stride    ) = r8[1];
-			*(int64_t *)(pr + stride * 2) = r9[0];
-			*(int64_t *)(pr + stride3   ) = r9[1];
-			*(int64_t *)(qr             ) = rA[0];
-			*(int64_t *)(qr + stride    ) = rA[1];
-			*(int64_t *)(qr + stride * 2) = rB[0];
-			*(int64_t *)(qr + stride3   ) = rB[1];
+			*(int64_t *)(p             ) = bB[0];
+			*(int64_t *)(p + stride    ) = rB[0];
+			*(int64_t *)(p + stride * 2) = bB[1];
+			*(int64_t *)(p + stride3   ) = rB[1];
 		}
 	}
 }

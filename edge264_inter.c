@@ -774,82 +774,77 @@ INTER16xH_QPEL_21_22_23(qpel23, sixtapD16(h30, h38, hv))
 
 
 /**
- * Inter chroma prediction
- *
+ * Combined Cb & Cr inter chroma prediction
+ * 
+ * dstride and sstride are half the strides of src and dst chroma planes.
  * A/B/C/D coefficients are passed in vector registers since their computation
  * is shared by all sizes. These functions should be inlined, otherwise AB/CD
  * would be spilled on stack.
  */
-static always_inline void inter2xH_chroma_8bit(int h, size_t dstride, uint8_t *dst_Cb, uint8_t *dst_Cr, size_t sstride, const uint8_t *src_Cb, const uint8_t *src_Cr, i8x16 AB, i8x16 CD, i8x16 W, i16x8 O, i64x2 logWD) {
-	static const i8x16 shuf = {0, 1, 1, 2, 4, 5, 5, 6, 8, 9, 9, 10, 12, 13, 13, 14};
+static always_inline void inter8xH_chroma_8bit(int h, size_t dstride, uint8_t *dst, size_t sstride, const uint8_t *src, i8x16 AB, i8x16 CD, i8x16 Wb, i8x16 Wr, i16x8 Ob, i16x8 Or, i64x2 logWD) {
 	i8x16 zero = {};
-	i8x16 r0 = shuffle(unpacklo32(load32(src_Cb), load32(src_Cr)), shuf);
+	i8x16 r0 = shuffle(load128(src), pairs0);
+	i8x16 r1 = shuffle(load128(src + sstride), pairs0);
 	do {
-		i8x16 r1 = unpacklo32(load32(src_Cb + sstride), load32(src_Cr + sstride));
-		i8x16 r2 = unpacklo32(load32(src_Cb + sstride * 2), load32(src_Cr + sstride * 2));
-		i8x16 x0 = shuffle(unpacklo64(r1, r2), shuf);
-		i16x8 x1 = maddubs(unpacklo64(r0, x0), AB) + maddubs(x0, CD);
-		i8x16 p = packus16(avg16(x1 >> 5, zero), zero);
-		i16x8 q = {*(int16_t *)dst_Cb, *(int16_t *)dst_Cr, *(int16_t *)(dst_Cb + dstride), *(int16_t *)(dst_Cr + dstride)};
-		i16x8 v = packus16(shr16(adds16(maddubs(unpacklo8(q, p), W), O), logWD), zero);
-		*(int16_t *)dst_Cb = v[0];
-		*(int16_t *)dst_Cr = v[1];
-		*(int16_t *)(dst_Cb + dstride) = v[2];
-		*(int16_t *)(dst_Cr + dstride) = v[3];
-		src_Cb += sstride * 2;
-		src_Cr += sstride * 2;
-		dst_Cb += dstride * 2;
-		dst_Cr += dstride * 2;
-		r0 = shrc(x0, 8);
-	} while (h -= 2);
+		i8x16 r2 = shuffle(load128(src + sstride * 2), pairs0);
+		i8x16 r3 = shuffle(load128(src + sstride * 3), pairs0);
+		i16x8 x0 = maddubs(r0, AB) + maddubs(r2, CD);
+		i16x8 x1 = maddubs(r1, AB) + maddubs(r3, CD);
+		i8x16 p = packus16(avg16(x0 >> 5, zero), avg16(x1 >> 5, zero));
+		i64x2 q = {*(int64_t *)dst, *(int64_t *)(dst + dstride)};
+		i16x8 x2 = shr16(adds16(maddubs(unpacklo8(q, p), Wb), Ob), logWD);
+		i16x8 x3 = shr16(adds16(maddubs(unpackhi8(q, p), Wr), Or), logWD);
+		i64x2 v = packus16(x2, x3);
+		*(int64_t *)dst = v[0];
+		*(int64_t *)(dst + dstride) = v[1];
+		src += sstride * 2;
+		dst += dstride * 2;
+		r0 = r2, r1 = r3;
+	} while (h -= 1);
 }
 
-static always_inline void inter4xH_chroma_8bit(int h, size_t dstride, uint8_t *dst_Cb, uint8_t *dst_Cr, size_t sstride, const uint8_t *src_Cb, const uint8_t *src_Cr, i8x16 AB, i8x16 CD, i8x16 W, i16x8 O, i64x2 logWD) {
+static always_inline void inter4xH_chroma_8bit(int h, size_t dstride, uint8_t *dst, size_t sstride, const uint8_t *src, i8x16 AB, i8x16 CD, i8x16 W, i16x8 O, i64x2 logWD) {
 	static const i8x16 shuf = {0, 1, 1, 2, 2, 3, 3, 4, 8, 9, 9, 10, 10, 11, 11, 12};
 	i8x16 zero = {};
-	i8x16 r0 = shuffle(unpacklo64(load64(src_Cb), load64(src_Cr)), shuf);
+	i8x16 r0 = shuffle(unpacklo64(load64(src), load64(src + sstride)), shuf);
 	do {
-		i8x16 r1 = shuffle(unpacklo64(load64(src_Cb + sstride), load64(src_Cr + sstride)), shuf);
-		i8x16 r2 = shuffle(unpacklo64(load64(src_Cb + sstride * 2), load64(src_Cr + sstride * 2)), shuf);
+		i8x16 r1 = shuffle(unpacklo64(load64(src + sstride * 2), load64(src + sstride * 3)), shuf);
+		i8x16 r2 = shuffle(unpacklo64(load64(src + sstride * 4), load64(src + sstride * 5)), shuf);
 		i16x8 x0 = maddubs(r0, AB) + maddubs(r1, CD);
 		i16x8 x1 = maddubs(r1, AB) + maddubs(r2, CD);
 		i8x16 p = packus16(avg16(x0 >> 5, zero), avg16(x1 >> 5, zero));
-		i32x4 q = {*(int32_t *)dst_Cb, *(int32_t *)dst_Cr, *(int32_t *)(dst_Cb + dstride), *(int32_t *)(dst_Cr + dstride)};
+		i32x4 q = {*(int32_t *)dst, *(int32_t *)(dst + dstride), *(int32_t *)(dst + dstride * 2), *(int32_t *)(dst + dstride * 3)};
 		i32x4 v = weight_add8(q, p, W, O, logWD);
-		*(int32_t *)dst_Cb = v[0];
-		*(int32_t *)dst_Cr = v[1];
-		*(int32_t *)(dst_Cb + dstride) = v[2];
-		*(int32_t *)(dst_Cr + dstride) = v[3];
-		src_Cb += sstride * 2;
-		src_Cr += sstride * 2;
-		dst_Cb += dstride * 2;
-		dst_Cr += dstride * 2;
+		*(int32_t *)dst = v[0];
+		*(int32_t *)(dst + dstride) = v[1];
+		*(int32_t *)(dst + dstride * 2) = v[2];
+		*(int32_t *)(dst + dstride * 3) = v[3];
+		src += sstride * 4;
+		dst += dstride * 4;
 		r0 = r2;
 	} while (h -= 2);
 }
 
-static always_inline void inter8xH_chroma_8bit(int h, size_t dstride, uint8_t *dst_Cb, uint8_t *dst_Cr, size_t sstride, const uint8_t *src_Cb, const uint8_t *src_Cr, i8x16 AB, i8x16 CD, i8x16 Wb, i8x16 Wr, i16x8 Ob, i16x8 Or, i64x2 logWD) {
+static always_inline void inter2xH_chroma_8bit(int h, size_t dstride, uint8_t *dst, size_t sstride, const uint8_t *src, i8x16 AB, i8x16 CD, i8x16 W, i16x8 O, i64x2 logWD) {
+	static const i8x16 shuf = {0, 1, 1, 2, 4, 5, 5, 6, 8, 9, 9, 10, 12, 13, 13, 14};
 	i8x16 zero = {};
-	i8x16 r0 = shuffle(load128(src_Cb), pairs0);
-	i8x16 r1 = shuffle(load128(src_Cr), pairs0);
+	i8x16 r0 = shuffle(unpacklo32(load32(src), load32(src + sstride)), shuf);
 	do {
-		i8x16 r2 = shuffle(load128(src_Cb + sstride), pairs0);
-		i8x16 r3 = shuffle(load128(src_Cr + sstride), pairs0);
-		i16x8 x0 = maddubs(r0, AB) + maddubs(r2, CD);
-		i16x8 x1 = maddubs(r1, AB) + maddubs(r3, CD);
-		i8x16 p = packus16(avg16(x0 >> 5, zero), avg16(x1 >> 5, zero));
-		i64x2 q = {*(int64_t *)dst_Cb, *(int64_t *)dst_Cr};
-		i16x8 x2 = shr16(adds16(maddubs(unpacklo8(q, p), Wb), Ob), logWD);
-		i16x8 x3 = shr16(adds16(maddubs(unpackhi8(q, p), Wr), Or), logWD);
-		i64x2 v = packus16(x2, x3);
-		*(int64_t *)dst_Cb = v[0];
-		*(int64_t *)dst_Cr = v[1];
-		src_Cb += sstride;
-		src_Cr += sstride;
-		dst_Cb += dstride;
-		dst_Cr += dstride;
-		r0 = r2, r1 = r3;
-	} while (h -= 1);
+		i8x16 r1 = unpacklo32(load32(src + sstride * 2), load32(src + sstride * 3));
+		i8x16 r2 = unpacklo32(load32(src + sstride * 4), load32(src + sstride * 5));
+		i8x16 x0 = shuffle(unpacklo64(r1, r2), shuf);
+		i16x8 x1 = maddubs(unpacklo64(r0, x0), AB) + maddubs(x0, CD);
+		i8x16 p = packus16(avg16(x1 >> 5, zero), zero);
+		i16x8 q = {*(int16_t *)dst, *(int16_t *)(dst + dstride), *(int16_t *)(dst + dstride * 2), *(int16_t *)(dst + dstride * 3)};
+		i16x8 v = packus16(shr16(adds16(maddubs(unpacklo8(q, p), W), O), logWD), zero);
+		*(int16_t *)dst = v[0];
+		*(int16_t *)(dst + dstride) = v[1];
+		*(int16_t *)(dst + dstride * 2) = v[2];
+		*(int16_t *)(dst + dstride * 3) = v[3];
+		src += sstride * 4;
+		dst += dstride * 4;
+		r0 = shrc(x0, 8);
+	} while (h -= 2);
 }
 
 
@@ -953,15 +948,14 @@ static void noinline decode_inter(Edge264Context *ctx, int i, int w, int h) {
 	}
 	
 	// compute source pointers
-	size_t sstride_Y = ctx->t.stride[0];
-	size_t sstride_C = ctx->t.stride[1];
 	int xInt_Y = ctx->mbx * 16 + x444[i4x4] + (x >> 2);
 	int xInt_C = ctx->mbx * 8 + (x444[i4x4] >> 1) + (x >> 3);
 	int yInt_Y = ctx->mby * 16 + y444[i4x4] + (y >> 2);
 	int yInt_C = ctx->mby * 8 + (y444[i4x4] >> 1) + (y >> 3);
-	const uint8_t *src_Y = ref + xInt_Y + yInt_Y * sstride_Y;
-	const uint8_t *src_Cb = ref + xInt_C + yInt_C * sstride_C + ctx->t.plane_size_Y;
-	const uint8_t *src_Cr = src_Cb + ctx->t.plane_size_C;
+	const uint8_t *src_Y = ref + xInt_Y + yInt_Y * ctx->t.stride[0];
+	const uint8_t *src_C = ref + xInt_C + yInt_C * ctx->t.stride[1] + ctx->t.plane_size_Y;
+	size_t sstride_Y = ctx->t.stride[0];
+	size_t sstride_C = ctx->t.stride[1] >> 1;
 	
 	// edge propagation is an annoying but beautiful piece of code
 	int xWide = (x & 7) != 0;
@@ -989,34 +983,32 @@ static void noinline decode_inter(Edge264Context *ctx, int i, int w, int h) {
 		src0 = ref + clip3(0, width_C - 8, xInt_C);
 		src1 = ref + clip3(0, width_C - 1, xInt_C + 8);
 		for (int j = 0; j <= h >> 1; j++, yInt_C++) {
-			int cb = ctx->t.plane_size_Y + clip3(0, ctx->t.plane_size_C - sstride_C, yInt_C * sstride_C);
-			int cr = ctx->t.plane_size_C + cb;
+			int cb = ctx->t.plane_size_Y + clip3(0, ctx->t.plane_size_C - sstride_C * 2, yInt_C * sstride_C * 2);
+			int cr = sstride_C + cb;
 			// reads are split in 2 to support 8px-wide frames
-			ctx->edge_buf_l[j * 2 +  84] = ((i64x2)shuffle(load64(src0 + cb), shuf))[0];
-			ctx->edge_buf_l[j * 2 + 168] = ((i64x2)shuffle(load64(src0 + cr), shuf))[0];
-			ctx->edge_buf[j * 16 +  680] = *(src1 + cb);
-			ctx->edge_buf[j * 16 + 1352] = *(src1 + cr);
+			ctx->edge_buf_l[j * 4 + 84] = ((i64x2)shuffle(load64(src0 + cb), shuf))[0];
+			ctx->edge_buf[j * 32 + 680] = *(src1 + cb);
+			ctx->edge_buf_l[j * 4 + 86] = ((i64x2)shuffle(load64(src0 + cr), shuf))[0];
+			ctx->edge_buf[j * 32 + 696] = *(src1 + cr);
 		}
 		sstride_C = 16;
-		src_Cb = ctx->edge_buf +  672;
-		src_Cr = ctx->edge_buf + 1344;
+		src_C = ctx->edge_buf + 672;
 	}
 	
 	// chroma prediction comes first since it is inlined
-	size_t dstride_C = ctx->t.stride[1];
-	uint8_t *dst_Cb = ctx->samples_mb[1] + (y444[i4x4] >> 1) * dstride_C + (x444[i4x4] >> 1);
-	uint8_t *dst_Cr = dst_Cb + ctx->t.plane_size_C;
+	uint8_t *dst_C = ctx->samples_mb[1] + (y444[i4x4] >> 1) * ctx->t.stride[1] + (x444[i4x4] >> 1);
+	size_t dstride_C = ctx->t.stride[1] >> 1;
 	int xFrac_C = x & 7;
 	int yFrac_C = y & 7;
 	int mul = pack_w(8 - xFrac_C, xFrac_C);
 	i8x16 AB = set16(mul * (8 - yFrac_C));
 	i8x16 CD = set16(mul * yFrac_C);
 	if (w == 16) {
-		inter8xH_chroma_8bit(h >> 1, dstride_C, dst_Cb, dst_Cr, sstride_C, src_Cb, src_Cr, AB, CD, broadcast16(wod, 1), broadcast16(wod, 2), broadcast16(wod, 4), broadcast16(wod, 5), shrc(wod, 14));
+		inter8xH_chroma_8bit(h >> 1, dstride_C, dst_C, sstride_C, src_C, AB, CD, broadcast16(wod, 1), broadcast16(wod, 2), broadcast16(wod, 4), broadcast16(wod, 5), shrc(wod, 14));
 	} else if (w == 8) {
-		inter4xH_chroma_8bit(h >> 1, dstride_C, dst_Cb, dst_Cr, sstride_C, src_Cb, src_Cr, AB, CD, shuffle32(shufflelo(wod, 1, 1, 2, 2), 0, 0, 1, 1), shuffle32(shufflehi(wod, 0, 0, 1, 1), 2, 2, 3, 3), shrc(wod, 14));
+		inter4xH_chroma_8bit(h >> 1, dstride_C, dst_C, sstride_C, src_C, AB, CD, shuffle32(shufflelo(wod, 1, 1, 2, 2), 0, 0, 1, 1), shuffle32(shufflehi(wod, 0, 0, 1, 1), 2, 2, 3, 3), shrc(wod, 14));
 	} else {
-		inter2xH_chroma_8bit(h >> 1, dstride_C, dst_Cb, dst_Cr, sstride_C, src_Cb, src_Cr, AB, CD, shuffle32(shufflelo(wod, 1, 1, 2, 2), 0, 1, 0, 1), shuffle32(shufflehi(wod, 0, 0, 1, 1), 2, 3, 2, 3), shrc(wod, 14));
+		inter2xH_chroma_8bit(h >> 1, dstride_C, dst_C, sstride_C, src_C, AB, CD, shuffle32(shufflelo(wod, 1, 1, 2, 2), 0, 1, 0, 1), shuffle32(shufflehi(wod, 0, 0, 1, 1), 2, 3, 2, 3), shrc(wod, 14));
 	}
 	
 	// tail jump to luma prediction

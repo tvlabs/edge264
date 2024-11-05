@@ -735,7 +735,7 @@ static void CAFUNC(parse_intra_chroma_pred_mode)
 			mb->f.intra_chroma_pred_mode_non_zero = (mode > 0);
 		#endif
 		fprintf(stderr, "intra_chroma_pred_mode: %u\n", mode);
-		decode_intraChroma(ctx, IntraChromaModes[mode][ctx->unavail4x4[0] & 3], ctx->samples_mb[1], ctx->samples_mb[2], ctx->t.stride[1]);
+		decode_intraChroma(ctx, IntraChromaModes[mode][ctx->unavail4x4[0] & 3], ctx->samples_mb[1], ctx->t.stride[1]);
 	}
 }
 

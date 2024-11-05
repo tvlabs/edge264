@@ -53,8 +53,8 @@ static void initialize_context(Edge264Context *ctx, int currPic)
 	ctx->mbx = (unsigned)ctx->t.first_mb_in_slice % (unsigned)ctx->t.pic_width_in_mbs;
 	ctx->samples_mb[0] = ctx->t.samples_base + (ctx->mbx + ctx->mby * ctx->t.stride[0]) * 16;
 	ctx->samples_mb[1] = ctx->t.samples_base + ctx->t.plane_size_Y + (ctx->mbx + ctx->mby * ctx->t.stride[1]) * 8;
-	ctx->samples_mb[2] = ctx->samples_mb[1] + ctx->t.plane_size_C;
-	int mb_offset = ctx->t.plane_size_Y + ctx->t.plane_size_C * 2 + sizeof(Edge264Macroblock) * (ctx->mbx + ctx->mby * (ctx->t.pic_width_in_mbs + 1));
+	ctx->samples_mb[2] = ctx->samples_mb[1] + (ctx->t.stride[1] >> 1);
+	int mb_offset = ctx->t.plane_size_Y + ctx->t.plane_size_C + sizeof(Edge264Macroblock) * (ctx->mbx + ctx->mby * (ctx->t.pic_width_in_mbs + 1));
 	ctx->mbCol = ctx->_mb = (Edge264Macroblock *)(ctx->t.samples_base + mb_offset);
 	ctx->A4x4_int8_v = (i16x16){0, 0, 2, 2, 1, 4, 3, 6, 8, 8, 10, 10, 9, 12, 11, 14};
 	ctx->B4x4_int8_v = (i32x16){0, 1, 0, 1, 4, 5, 4, 5, 2, 3, 8, 9, 6, 7, 12, 13};
@@ -182,8 +182,8 @@ void *ADD_ARCH(worker_loop)(Edge264Decoder *d) {
 			c.mbx = (unsigned)c.t.next_deblock_addr % (unsigned)c.t.pic_width_in_mbs;
 			c.samples_mb[0] = c.t.samples_base + (c.mbx + c.mby * c.t.stride[0]) * 16;
 			c.samples_mb[1] = c.t.samples_base + c.t.plane_size_Y + (c.mbx + c.mby * c.t.stride[1]) * 8;
-			c.samples_mb[2] = c.samples_mb[1] + c.t.plane_size_C;
-			c._mb = (Edge264Macroblock *)(c.t.samples_base + c.t.plane_size_Y + c.t.plane_size_C * 2) + c.mbx + c.mby * (c.t.pic_width_in_mbs + 1);
+			c.samples_mb[2] = c.samples_mb[1] + (c.t.stride[1] >> 1);
+			c._mb = (Edge264Macroblock *)(c.t.samples_base + c.t.plane_size_Y + c.t.plane_size_C) + c.mbx + c.mby * (c.t.pic_width_in_mbs + 1);
 			while (c.t.next_deblock_addr < c.CurrMbAddr) {
 				deblock_mb(&c);
 				c.t.next_deblock_addr++;
@@ -220,8 +220,8 @@ void *ADD_ARCH(worker_loop)(Edge264Decoder *d) {
 				c.mbx = (unsigned)c.t.next_deblock_addr % (unsigned)c.t.pic_width_in_mbs;
 				c.samples_mb[0] = c.t.samples_base + (c.mbx + c.mby * c.t.stride[0]) * 16;
 				c.samples_mb[1] = c.t.samples_base + c.t.plane_size_Y + (c.mbx + c.mby * c.t.stride[1]) * 8;
-				c.samples_mb[2] = c.samples_mb[1] + c.t.plane_size_C;
-				c._mb = (Edge264Macroblock *)(c.t.samples_base + c.t.plane_size_Y + c.t.plane_size_C * 2) + c.mbx + c.mby * (c.t.pic_width_in_mbs + 1);
+				c.samples_mb[2] = c.samples_mb[1] + (c.t.stride[1] >> 1);
+				c._mb = (Edge264Macroblock *)(c.t.samples_base + c.t.plane_size_Y + c.t.plane_size_C) + c.mbx + c.mby * (c.t.pic_width_in_mbs + 1);
 				while (c.t.next_deblock_addr < c.CurrMbAddr) {
 					deblock_mb(&c);
 					c.t.next_deblock_addr++;
@@ -546,7 +546,7 @@ static int alloc_frame(Edge264Decoder *dec, int id) {
 	dec->frame_buffers[id] = malloc(dec->frame_size);
 	if (dec->frame_buffers[id] == NULL)
 		return ENOMEM;
-	Edge264Macroblock *m = (Edge264Macroblock *)(dec->frame_buffers[id] + dec->plane_size_Y + dec->plane_size_C * 2);
+	Edge264Macroblock *m = (Edge264Macroblock *)(dec->frame_buffers[id] + dec->plane_size_Y + dec->plane_size_C);
 	int mbs = (dec->sps.pic_width_in_mbs + 1) * dec->sps.pic_height_in_mbs - 1;
 	for (int i = dec->sps.pic_width_in_mbs; i < mbs; i += dec->sps.pic_width_in_mbs + 1)
 		m[i] = unavail_mb;
@@ -1688,14 +1688,15 @@ int ADD_ARCH(parse_seq_parameter_set)(Edge264Decoder *dec, int non_blocking, voi
 		if (sps.chroma_format_idc > 0) {
 			dec->out.pixel_depth_C = sps.BitDepth_C > 8;
 			dec->out.width_C = sps.chroma_format_idc == 3 ? dec->out.width_Y : dec->out.width_Y >> 1;
-			dec->out.stride_C = (sps.chroma_format_idc == 3 ? width : width >> 1) << dec->out.pixel_depth_C;
-			if (!(dec->out.stride_C & 4095)) // add an offset to stride if it is a multiple of 4096
-				dec->out.stride_C += (sps.chroma_format_idc == 3 ? 16 : 8) << dec->out.pixel_depth_C;
+			dec->out.stride_C = (sps.chroma_format_idc == 3 ? width << 1 : width) << dec->out.pixel_depth_C;
+			// FIXME
+			/*if (!(dec->out.stride_C & 4095)) // add an offset to stride if it is a multiple of 4096
+				dec->out.stride_C += (sps.chroma_format_idc == 3 ? 16 : 8) << dec->out.pixel_depth_C;*/
 			dec->out.height_C = sps.chroma_format_idc == 1 ? dec->out.height_Y >> 1 : dec->out.height_Y;
 			dec->plane_size_C = (sps.chroma_format_idc == 1 ? height >> 1 : height) * dec->out.stride_C;
 		}
 		int mbs = (sps.pic_width_in_mbs + 1) * sps.pic_height_in_mbs - 1;
-		dec->frame_size = dec->plane_size_Y + dec->plane_size_C * 2 + mbs * sizeof(Edge264Macroblock);
+		dec->frame_size = dec->plane_size_Y + dec->plane_size_C + mbs * sizeof(Edge264Macroblock);
 		dec->currPic = dec->basePic = -1;
 		dec->reference_flags = dec->long_term_flags = 0;
 		for (int i = 0; i < 32; i++) {

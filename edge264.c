@@ -53,6 +53,7 @@
  * 	_ merge Cb and Cr functions in inter and intra to reduce jumps and mutualize vectors
  * _ Documentation
  * 	_ add an FAQ with (1) how to optimize latency, (2) what can be removed from stream without issue, (3) how to finish a frame with an AUD
+ * 	_ Don't assume that stride_Y is multiple of stride_C, and give alignment of pointers
  * _ add an option to get_frame to poll without consuming
  * _ when implementing fields and MBAFF, keep the same pic coding struct (no FLD/AFRM) and just add mb_field_decoding_flag
  */

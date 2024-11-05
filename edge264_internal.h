@@ -637,7 +637,7 @@ enum IntraChromaModes {
 	
 	// hardware-specific helper functions
 	#define broadcast8(a, i) shuffle(a, set8(i))
-	#define broadcast16(a, i) (i16x8)__builtin_choose_expr((i) < 4, shuffle32(shufflelo(a, i, i, 0, 0), 0, 0, 0, 0), shuffle32(shufflehi(a, i - 4, i - 4, 0, 0), 2, 2, 2, 2))
+	#define broadcast16(a, i) (i16x8)__builtin_choose_expr((i) < 4, shuffle32(shufflelo(a, i, i, 0, 0), 0, 0, 0, 0), shuffle32(shufflehi(a, i & 3, i & 3, 0, 0), 2, 2, 2, 2))
 	static always_inline size_t lsd(size_t msb, size_t lsb, unsigned shift) {
 		__asm__("shld %%cl, %1, %0" : "+rm" (msb) : "r" (lsb), "c" (shift));
 		return msb;

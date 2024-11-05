@@ -116,37 +116,44 @@ static int check_frame()
 	
 	// check that each macroblock matches the conformance buffer
 	int poc = out.TopFieldOrderCnt;
-	int top = out.frame_crop_offsets[0];
-	int left = out.frame_crop_offsets[3];
-	int right = out.frame_crop_offsets[1];
-	int bottom = out.frame_crop_offsets[2];
+	int cropt = out.frame_crop_offsets[0];
+	int cropr = out.frame_crop_offsets[1];
+	int cropb = out.frame_crop_offsets[2];
+	int cropl = out.frame_crop_offsets[3];
+	int pic_width_in_mbs = (cropl + out.width_Y + cropr) >> 4;
+	int pic_height_in_mbs = (cropt + out.height_Y + cropb) >> 4;
 	for (int view = 0; view < 2 && conf[view] != NULL; view += 1) {
-		for (int row = -top; row < out.height_Y + bottom; row += 16) {
-			for (int col = -left; col < out.width_Y + right; col += 16) {
-				int sh_row = 0;
-				int sh_col = 0;
-				const uint8_t *q = conf[view];
+		for (int row = 0; row < pic_width_in_mbs; row += 1) {
+			for (int col = 0; col < pic_height_in_mbs; col += 1) {
 				for (int iYCbCr = 0; iYCbCr < 3; iYCbCr++) {
+					int stride = (iYCbCr == 0) ? out.stride_Y : out.stride_C;
+					int depth = (iYCbCr == 0) ? out.pixel_depth_Y : out.pixel_depth_C;
+					int sh_width = (iYCbCr > 0 && out.width_C < out.width_Y);
+					int sh_height = (iYCbCr > 0 && out.height_C < out.height_Y);
 					const uint8_t *p = (view ? out.samples_mvc : out.samples)[iYCbCr];
-					int x0 = max(col, 0) >> sh_col;
-					int x1 = min(col + 16, out.width_Y) >> sh_col;
+					const uint8_t *q = conf[view] +
+						(iYCbCr > 0) * (out.width_Y << out.pixel_depth_Y) * out.height_Y +
+						(iYCbCr > 1) * (out.width_C << out.pixel_depth_C) * out.height_C;
+					int xl = max(col * 16 - cropl, 0) >> sh_width;
+					int xr = min(col * 16 - cropl + 16, out.width_Y) >> sh_width;
 					int invalid = 0;
-					for (int y = max(row, 0) >> sh_row; x0 < x1 && y < min(row + 16, out.height_Y) >> sh_row; y++)
-						invalid |= memcmp(p + y * (out.stride_Y >> sh_col) + x0, q + y * (out.width_Y >> sh_col) + x0, x1 - x0);
+					for (int y = max(row * 16 - cropt, 0) >> sh_height; xl < xr && y < min(row * 16 - cropt + 16, out.height_Y) >> sh_height; y++)
+						invalid |= memcmp(p + y * stride + (xl << depth), q + y * (out.width_Y >> sh_width << depth) + (xl << depth), (xr - xl) << depth);
 					if (invalid) {
 						#if TRACE
 							printf("<e>Erroneous macroblock (PicOrderCnt %d, view %d, row %d, column %d, %s plane):<pre>\n",
-								poc, view, (top + row) >> 4, (left + col) >> 4, (iYCbCr == 0) ? "Luma" : (iYCbCr == 1) ? "Cb" : "Cr");
-							for (int y = row >> sh_row; y < (row + 16) >> sh_row; y++) {
-								for (int x = col >> sh_col; x < (col + 16) >> sh_col; x++) {
-									printf(y < 0 || y >= out.height_Y >> sh_row || x < 0 || x >= out.width_Y >> sh_col ? "    " :
-										p[y * (out.stride_Y >> sh_col) + x] == q[y * (out.width_Y >> sh_col) + x] ? "%3d " :
-										"<span style='color:red'>%3d</span> ", p[y * (out.stride_Y >> sh_col) + x]);
+								poc, view, row, col, (iYCbCr == 0) ? "Luma" : (iYCbCr == 1) ? "Cb" : "Cr");
+							for (int y = (row * 16 - cropt) >> sh_height; y < (row * 16 - cropt + 16) >> sh_height; y++) {
+								for (int x = (col * 16 - cropl) >> sh_width; x < (col * 16 - cropl + 16) >> sh_width; x++) {
+									// FIXME 16 bit
+									printf(y < 0 || y >= out.height_Y >> sh_height || x < 0 || x >= out.width_Y >> sh_width ? "    " :
+										p[y * stride + x] == q[y * (out.width_Y >> sh_width) + x] ? "%3d " :
+										"<span style='color:red'>%3d</span> ", p[y * stride + x]);
 								}
 								printf("\t");
-								for (int x = col >> sh_col; x < (col + 16) >> sh_col; x++) {
-									printf(y < 0 || y >= out.height_Y >> sh_row || x < 0 || x >= out.width_Y >> sh_col ? "    " :
-										"%3d ", q[y * (out.width_Y >> sh_col) + x]);
+								for (int x = (col * 16 - cropl) >> sh_width; x < (col * 16 - cropl + 16) >> sh_width; x++) {
+									printf(y < 0 || y >= out.height_Y >> sh_height || x < 0 || x >= out.width_Y >> sh_width ? "    " :
+										"%3d ", q[y * (out.width_Y >> sh_width) + x]);
 								}
 								printf("\n");
 							}
@@ -154,13 +161,10 @@ static int check_frame()
 						#endif
 						return -2;
 					}
-					sh_row = out.height_C < out.height_Y;
-					sh_col = out.width_C < out.width_Y;
-					q += (iYCbCr == 0) ? out.width_Y * out.height_Y : out.width_C * out.height_C;
 				}
 			}
 		}
-		conf[view] += out.width_Y * out.height_Y + out.width_C * out.height_C * 2;
+		conf[view] += (out.width_Y << out.pixel_depth_Y) * out.height_Y + (out.width_C << out.pixel_depth_C) * out.height_C * 2;
 	}
 	#if TRACE
 		printf("<g>Output frame %d is correct</g>\n", poc);

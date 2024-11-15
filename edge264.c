@@ -42,6 +42,7 @@
  * 	_ limit width to 16384 to prevent overflow in stride with 16bit+field (check also relative offsets to mbD!)
  * 	_ check on https://kodi.wiki/view/Samples#3D_Test_Clips
  * _ Optimizations
+ * 	_ reduce binary size of Inter by replacing macros with selection masks
  * 	_ Setup AMD CodeXL IBS to monitor pipeline stalls and cache misses
  * 	_ Do GCC/Clang use different call conventions for static functions? If not, do it!
  * 	_ set COLD and hot functions
@@ -50,7 +51,7 @@
  * 	_ Group dec fields by frequency of accesses and force them manually into L1/L2/L3
  * 	_ store Cb & Cr by interleaving rows instead of separate planes (check it does not overflow stride for future 4:2:2)
  * 	_ try combining clang and gcc over decoding and parsing
- * 	_ merge Cb and Cr functions in inter and intra to reduce jumps and mutualize vectors
+ * 	_ try reordering cases in intra to gather those that may belong to same active cache lines at any time (ex. all executed when top row is absent)
  * _ Documentation
  * 	_ add an FAQ with (1) how to optimize latency, (2) what can be removed from stream without issue, (3) how to finish a frame with an AUD
  * 	_ Don't assume that stride_Y is multiple of stride_C, and give alignment of pointers

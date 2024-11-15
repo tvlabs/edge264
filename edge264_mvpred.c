@@ -7,8 +7,8 @@ static always_inline i16x8 mvs_near_zero(i16x8 mvCol, i32x4 zero) {
 static always_inline i16x8 temporal_scale(i16x8 mvCol, int16_t DistScaleFactor) {
 	i32x4 neg = set32(-1);
 	i32x4 mul = set32(DistScaleFactor + 0xff800000u);
-	i32x4 lo = madd16(unpacklo16(mvCol, neg), mul);
-	i32x4 hi = madd16(unpackhi16(mvCol, neg), mul);
+	i32x4 lo = madd16(ziplo16(mvCol, neg), mul);
+	i32x4 hi = madd16(ziphi16(mvCol, neg), mul);
 	return packs32(lo >> 8, hi >> 8);
 }
 
@@ -232,15 +232,15 @@ static always_inline void decode_direct_spatial_mv_pred(Edge264Context *ctx, uns
 	i16x8 mvA = (i32x4){mbA->mvs_s[5], mbA->mvs_s[21]};
 	i16x8 mvB = (i32x4){mbB->mvs_s[10], mbB->mvs_s[26]};
 	i16x8 mvC;
-	i8x16 refIdxA = shuffle(shrc((i64x2){mbA->refIdx_l}, 1), shuf);
-	i8x16 refIdxB = shuffle(shrc((i64x2){mbB->refIdx_l}, 2), shuf);
+	i8x16 refIdxA = shuffle(shr128((i64x2){mbA->refIdx_l}, 1), shuf);
+	i8x16 refIdxB = shuffle(shr128((i64x2){mbB->refIdx_l}, 2), shuf);
 	i8x16 refIdxC;
 	if (__builtin_expect(ctx->unavail4x4[5] & 4, 0)) {
 		mvC = (i32x4){mbD->mvs_s[15], mbD->mvs_s[31]};
-		refIdxC = shuffle(shrc((i64x2){mbD->refIdx_l}, 3), shuf);
+		refIdxC = shuffle(shr128((i64x2){mbD->refIdx_l}, 3), shuf);
 	} else {
 		mvC = (i32x4){mbC->mvs_s[10], mbC->mvs_s[26]};
-		refIdxC = shuffle(shrc((i64x2){mbC->refIdx_l}, 2), shuf);
+		refIdxC = shuffle(shr128((i64x2){mbC->refIdx_l}, 2), shuf);
 	}
 	
 	// initialize mv along refIdx since it will equal one of refIdxA/B/C

@@ -35,14 +35,14 @@ static inline size_t get_bytes(Edge264GetBits *gb, int nbytes)
 	} else {
 		const uint8_t *last = (uint8_t *)((uintptr_t)(end - 1) & -16);
 		const uint8_t *p = CPB - 2 < last ? CPB - 2 : last;
-		v = shr(shl(load128(p), p + 16 - end), min(CPB + 14 - end, 16));
+		v = shrv128(shlv128(load128(p), p + 16 - end), min(CPB + 14 - end, 16));
 	}
 	
 	// create a bitmask for the positions of 001 and 003 escape sequences
 	u8x16 eq0 = v == 0;
-	u8x16 x = shrc(v, 2);
+	u8x16 x = shr128(v, 2);
 	u8x16 eq13 = x <= 3;
-	unsigned esc = movemask(eq0 & shrc(eq0, 1) & eq13);
+	unsigned esc = movemask(eq0 & shr128(eq0, 1) & eq13);
 	
 	// iterate on escape sequences that fall inside the bytes to refill
 	while (__builtin_expect(esc & ((1 << nbytes) - 1), 0)) {
@@ -50,7 +50,7 @@ static inline size_t get_bytes(Edge264GetBits *gb, int nbytes)
 		// if we find a 000 or 001 delimiter sequence, set end to its first byte
 		if (CPB[i] <3) {
 			gb->end = CPB + i - 2;
-			x &= ~shl(set8(-1), i);
+			x &= ~shlv128(set8(-1), i);
 			break; // we cannot iterate more since now x differs from esc
 		}
 		// otherwise this is an emulation_prevention_three_byte -> remove it

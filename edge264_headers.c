@@ -1689,9 +1689,8 @@ int ADD_ARCH(parse_seq_parameter_set)(Edge264Decoder *dec, int non_blocking, voi
 			dec->out.pixel_depth_C = sps.BitDepth_C > 8;
 			dec->out.width_C = sps.chroma_format_idc == 3 ? dec->out.width_Y : dec->out.width_Y >> 1;
 			dec->out.stride_C = (sps.chroma_format_idc == 3 ? width << 1 : width) << dec->out.pixel_depth_C;
-			// FIXME
-			/*if (!(dec->out.stride_C & 4095)) // add an offset to stride if it is a multiple of 4096
-				dec->out.stride_C += (sps.chroma_format_idc == 3 ? 16 : 8) << dec->out.pixel_depth_C;*/
+			if (!(dec->out.stride_C & 4095)) // add an offset to stride if it is a multiple of 4096
+				dec->out.stride_C += (sps.chroma_format_idc == 3 ? 16 : 8) << dec->out.pixel_depth_C;
 			dec->out.height_C = sps.chroma_format_idc == 1 ? dec->out.height_Y >> 1 : dec->out.height_Y;
 			dec->plane_size_C = (sps.chroma_format_idc == 1 ? height >> 1 : height) * dec->out.stride_C;
 		}

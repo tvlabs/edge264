@@ -29,10 +29,10 @@ LEXT := $(if $(filter Windows_NT,$(OS)),dll,$(if $(filter Linux,$(OS)),so,dylib)
 
 # rules
 edge264_test$(SUF)$(EXE): edge264_test.c edge264.h edge264$(SUF).$(LEXT) Makefile
-	$(CC) edge264_test.c edge264$(SUF).$(LEXT) -march=native $(CFLAGS) -pthread $(SDL2) -o edge264_test$(SUF)$(EXE)
+	$(CC) edge264_test.c edge264$(SUF).$(LEXT) -march=$(ARCH) $(CFLAGS) -pthread $(SDL2) -o edge264_test$(SUF)$(EXE)
 
 edge264$(SUF).$(LEXT): edge264*.c edge264*.h Makefile
-	$(CC) edge264.c -shared -march=native $(CFLAGS) -o edge264$(SUF).$(LEXT)
+	$(CC) edge264.c -shared -march=$(ARCH) $(CFLAGS) -o edge264$(SUF).$(LEXT)
 
 .PHONY: clean clear
 clean clear:

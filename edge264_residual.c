@@ -51,11 +51,11 @@ static void noinline add_idct4x4(Edge264Context *ctx, int iYCbCr, int qP, i8x16 
 	i32x4 sh = {qP / 6};
 	i8x16 nA = normAdjust4x4[qP % 6];
 	i16x8 LS0 = cvt8zx16(wS) * cvt8zx16(nA);
-	i16x8 LS1 = (i16x8)unpackhi8(wS, zero) * (i16x8)unpackhi8(nA, zero);
+	i16x8 LS1 = (i16x8)ziphi8(wS, zero) * (i16x8)ziphi8(nA, zero);
 	i32x4 mul0 = shl32(cvt16zx32(LS0), sh);
-	i32x4 mul1 = shl32(unpackhi16(LS0, zero), sh);
+	i32x4 mul1 = shl32(ziphi16(LS0, zero), sh);
 	i32x4 mul2 = shl32(cvt16zx32(LS1), sh);
-	i32x4 mul3 = shl32(unpackhi16(LS1, zero), sh);
+	i32x4 mul3 = shl32(ziphi16(LS1, zero), sh);
 	i32x4 s8 = set32(8);
 	i32x4 d0 = (mul0 * ctx->c_v[0] + s8) >> 4;
 	i32x4 d1 = (mul1 * ctx->c_v[1] + s8) >> 4;
@@ -75,14 +75,14 @@ static void noinline add_idct4x4(Edge264Context *ctx, int iYCbCr, int qP, i8x16 
 	i32x4 f3 = e0 - e3;
 	
 	// matrix transposition
-	i32x4 x0 = unpacklo32(f0, f1);
-	i32x4 x1 = unpacklo32(f2, f3);
-	i32x4 x2 = unpackhi32(f0, f1);
-	i32x4 x3 = unpackhi32(f2, f3);
-	f0 = (i32x4)unpacklo64(x0, x1) + set32(32);
-	f1 = unpackhi64(x0, x1);
-	f2 = unpacklo64(x2, x3);
-	f3 = unpackhi64(x2, x3);
+	i32x4 x0 = ziplo32(f0, f1);
+	i32x4 x1 = ziplo32(f2, f3);
+	i32x4 x2 = ziphi32(f0, f1);
+	i32x4 x3 = ziphi32(f2, f3);
+	f0 = (i32x4)ziplo64(x0, x1) + set32(32);
+	f1 = ziphi64(x0, x1);
+	f2 = ziplo64(x2, x3);
+	f3 = ziphi64(x2, x3);
 	
 	// vertical 1D transform
 	i32x4 g0 = f0 + f2;
@@ -163,32 +163,32 @@ static void noinline add_idct8x8(Edge264Context *ctx, int iYCbCr, uint8_t *sampl
 		i8x16 *wS = ctx->t.pps.weightScale8x8_v + (iYCbCr * 2 + mb->f.mbIsInterFlag) * 4;
 		const i8x16 *nA = &normAdjust8x8[qP % 6 * 4];
 		i16x8 LS0 = cvt8zx16(wS[0]) * cvt8zx16(nA[0]);
-		i16x8 LS1 = (i16x8)unpackhi8(wS[0], zero) * (i16x8)unpackhi8(nA[0], zero);
+		i16x8 LS1 = (i16x8)ziphi8(wS[0], zero) * (i16x8)ziphi8(nA[0], zero);
 		i16x8 LS2 = cvt8zx16(wS[1]) * cvt8zx16(nA[1]);
-		i16x8 LS3 = (i16x8)unpackhi8(wS[1], zero) * (i16x8)unpackhi8(nA[1], zero);
+		i16x8 LS3 = (i16x8)ziphi8(wS[1], zero) * (i16x8)ziphi8(nA[1], zero);
 		i16x8 LS4 = cvt8zx16(wS[2]) * cvt8zx16(nA[2]);
-		i16x8 LS5 = (i16x8)unpackhi8(wS[2], zero) * (i16x8)unpackhi8(nA[2], zero);
+		i16x8 LS5 = (i16x8)ziphi8(wS[2], zero) * (i16x8)ziphi8(nA[2], zero);
 		i16x8 LS6 = cvt8zx16(wS[3]) * cvt8zx16(nA[3]);
-		i16x8 LS7 = (i16x8)unpackhi8(wS[3], zero) * (i16x8)unpackhi8(nA[3], zero);
+		i16x8 LS7 = (i16x8)ziphi8(wS[3], zero) * (i16x8)ziphi8(nA[3], zero);
 		i32x4 *c = ctx->c_v;
 		i16x8 d0, d1, d2, d3, d4, d5, d6, d7;
 		if (div < 6) {
 			i32x4 mul0 = madd16(cvt16zx32(LS0), c[0]);
-			i32x4 mul1 = madd16(unpackhi16(LS0, zero), c[1]);
+			i32x4 mul1 = madd16(ziphi16(LS0, zero), c[1]);
 			i32x4 mul2 = madd16(cvt16zx32(LS1), c[2]);
-			i32x4 mul3 = madd16(unpackhi16(LS1, zero), c[3]);
+			i32x4 mul3 = madd16(ziphi16(LS1, zero), c[3]);
 			i32x4 mul4 = madd16(cvt16zx32(LS2), c[4]);
-			i32x4 mul5 = madd16(unpackhi16(LS2, zero), c[5]);
+			i32x4 mul5 = madd16(ziphi16(LS2, zero), c[5]);
 			i32x4 mul6 = madd16(cvt16zx32(LS3), c[6]);
-			i32x4 mul7 = madd16(unpackhi16(LS3, zero), c[7]);
+			i32x4 mul7 = madd16(ziphi16(LS3, zero), c[7]);
 			i32x4 mul8 = madd16(cvt16zx32(LS4), c[8]);
-			i32x4 mul9 = madd16(unpackhi16(LS4, zero), c[9]);
+			i32x4 mul9 = madd16(ziphi16(LS4, zero), c[9]);
 			i32x4 mulA = madd16(cvt16zx32(LS5), c[10]);
-			i32x4 mulB = madd16(unpackhi16(LS5, zero), c[11]);
+			i32x4 mulB = madd16(ziphi16(LS5, zero), c[11]);
 			i32x4 mulC = madd16(cvt16zx32(LS6), c[12]);
-			i32x4 mulD = madd16(unpackhi16(LS6, zero), c[13]);
+			i32x4 mulD = madd16(ziphi16(LS6, zero), c[13]);
 			i32x4 mulE = madd16(cvt16zx32(LS7), c[14]);
-			i32x4 mulF = madd16(unpackhi16(LS7, zero), c[15]);
+			i32x4 mulF = madd16(ziphi16(LS7, zero), c[15]);
 			i32x4 off = set32(1 << (5 - div));
 			i32x4 sh = {6 - div};
 			d0 = packs32(shr32((mul0 + off), sh), shr32((mul1 + off), sh));
@@ -243,30 +243,30 @@ static void noinline add_idct8x8(Edge264Context *ctx, int iYCbCr, uint8_t *sampl
 				break;
 			
 			// matrix transposition
-			i16x8 x0 = unpacklo16(d0, d1);
-			i16x8 x1 = unpacklo16(d2, d3);
-			i16x8 x2 = unpacklo16(d4, d5);
-			i16x8 x3 = unpacklo16(d6, d7);
-			i16x8 x4 = unpackhi16(d0, d1);
-			i16x8 x5 = unpackhi16(d2, d3);
-			i16x8 x6 = unpackhi16(d4, d5);
-			i16x8 x7 = unpackhi16(d6, d7);
-			i16x8 x8 = unpacklo32(x0, x1);
-			i16x8 x9 = unpacklo32(x2, x3);
-			i16x8 xA = unpacklo32(x4, x5);
-			i16x8 xB = unpacklo32(x6, x7);
-			i16x8 xC = unpackhi32(x0, x1);
-			i16x8 xD = unpackhi32(x2, x3);
-			i16x8 xE = unpackhi32(x4, x5);
-			i16x8 xF = unpackhi32(x6, x7);
-			d0 = (i16x8)unpacklo64(x8, x9) + set16(32);
-			d1 = unpackhi64(x8, x9);
-			d2 = unpacklo64(xC, xD);
-			d3 = unpackhi64(xC, xD);
-			d4 = unpacklo64(xA, xB);
-			d5 = unpackhi64(xA, xB);
-			d6 = unpacklo64(xE, xF);
-			d7 = unpackhi64(xE, xF);
+			i16x8 x0 = ziplo16(d0, d1);
+			i16x8 x1 = ziplo16(d2, d3);
+			i16x8 x2 = ziplo16(d4, d5);
+			i16x8 x3 = ziplo16(d6, d7);
+			i16x8 x4 = ziphi16(d0, d1);
+			i16x8 x5 = ziphi16(d2, d3);
+			i16x8 x6 = ziphi16(d4, d5);
+			i16x8 x7 = ziphi16(d6, d7);
+			i16x8 x8 = ziplo32(x0, x1);
+			i16x8 x9 = ziplo32(x2, x3);
+			i16x8 xA = ziplo32(x4, x5);
+			i16x8 xB = ziplo32(x6, x7);
+			i16x8 xC = ziphi32(x0, x1);
+			i16x8 xD = ziphi32(x2, x3);
+			i16x8 xE = ziphi32(x4, x5);
+			i16x8 xF = ziphi32(x6, x7);
+			d0 = (i16x8)ziplo64(x8, x9) + set16(32);
+			d1 = ziphi64(x8, x9);
+			d2 = ziplo64(xC, xD);
+			d3 = ziphi64(xC, xD);
+			d4 = ziplo64(xA, xB);
+			d5 = ziphi64(xA, xB);
+			d6 = ziplo64(xE, xF);
+			d7 = ziphi64(xE, xF);
 		}
 		
 		// final residual values
@@ -323,14 +323,14 @@ static void noinline transform_dc4x4(Edge264Context *ctx, int iYCbCr)
 	i32x4 x7 = x2 + x3;
 	
 	// transpose
-	i32x4 x8 = unpacklo32(x4, x5);
-	i32x4 x9 = unpacklo32(x6, x7);
-	i32x4 xA = unpackhi32(x4, x5);
-	i32x4 xB = unpackhi32(x6, x7);
-	i32x4 xC = unpacklo64(x8, x9);
-	i32x4 xD = unpackhi64(x8, x9);
-	i32x4 xE = unpacklo64(xA, xB);
-	i32x4 xF = unpackhi64(xA, xB);
+	i32x4 x8 = ziplo32(x4, x5);
+	i32x4 x9 = ziplo32(x6, x7);
+	i32x4 xA = ziphi32(x4, x5);
+	i32x4 xB = ziphi32(x6, x7);
+	i32x4 xC = ziplo64(x8, x9);
+	i32x4 xD = ziphi64(x8, x9);
+	i32x4 xE = ziplo64(xA, xB);
+	i32x4 xF = ziphi64(xA, xB);
 	
 	// multiply left
 	i32x4 xG = xC + xD;
@@ -353,10 +353,10 @@ static void noinline transform_dc4x4(Edge264Context *ctx, int iYCbCr)
 	
 	// store in zigzag order if needed later ...
 	if (mb->bits[0] & 1 << 5) {
-		ctx->c_v[4] = unpacklo64(dc0, dc1);
-		ctx->c_v[5] = unpackhi64(dc0, dc1);
-		ctx->c_v[6] = unpacklo64(dc2, dc3);
-		ctx->c_v[7] = unpackhi64(dc2, dc3);
+		ctx->c_v[4] = ziplo64(dc0, dc1);
+		ctx->c_v[5] = ziphi64(dc0, dc1);
+		ctx->c_v[6] = ziplo64(dc2, dc3);
+		ctx->c_v[7] = ziphi64(dc2, dc3);
 		
 	// ... or prepare for storage in place
 	} else {
@@ -388,34 +388,34 @@ static void noinline transform_dc4x4(Edge264Context *ctx, int iYCbCr)
 			i8x16 p1 = *(i8x16 *)(p + stride    );
 			i8x16 p2 = *(i8x16 *)(p + stride * 2);
 			i8x16 p3 = *(i8x16 *)(p + stride3   );
-			*(i8x16 *)(p             ) = packus16(adds16(cvt8zx16(p0), lo0), adds16(unpackhi8(p0, zero), hi0));
-			*(i8x16 *)(p + stride    ) = packus16(adds16(cvt8zx16(p1), lo0), adds16(unpackhi8(p1, zero), hi0));
-			*(i8x16 *)(p + stride * 2) = packus16(adds16(cvt8zx16(p2), lo0), adds16(unpackhi8(p2, zero), hi0));
-			*(i8x16 *)(p + stride3   ) = packus16(adds16(cvt8zx16(p3), lo0), adds16(unpackhi8(p3, zero), hi0));
+			*(i8x16 *)(p             ) = packus16(adds16(cvt8zx16(p0), lo0), adds16(ziphi8(p0, zero), hi0));
+			*(i8x16 *)(p + stride    ) = packus16(adds16(cvt8zx16(p1), lo0), adds16(ziphi8(p1, zero), hi0));
+			*(i8x16 *)(p + stride * 2) = packus16(adds16(cvt8zx16(p2), lo0), adds16(ziphi8(p2, zero), hi0));
+			*(i8x16 *)(p + stride3   ) = packus16(adds16(cvt8zx16(p3), lo0), adds16(ziphi8(p3, zero), hi0));
 			i8x16 p4 = *(i8x16 *)(q             );
 			i8x16 p5 = *(i8x16 *)(q + stride    );
 			i8x16 p6 = *(i8x16 *)(q + stride * 2);
 			i8x16 p7 = *(i8x16 *)(q + stride3   );
-			*(i8x16 *)(q             ) = packus16(adds16(cvt8zx16(p4), lo1), adds16(unpackhi8(p4, zero), hi1));
-			*(i8x16 *)(q + stride    ) = packus16(adds16(cvt8zx16(p5), lo1), adds16(unpackhi8(p5, zero), hi1));
-			*(i8x16 *)(q + stride * 2) = packus16(adds16(cvt8zx16(p6), lo1), adds16(unpackhi8(p6, zero), hi1));
-			*(i8x16 *)(q + stride3   ) = packus16(adds16(cvt8zx16(p7), lo1), adds16(unpackhi8(p7, zero), hi1));
+			*(i8x16 *)(q             ) = packus16(adds16(cvt8zx16(p4), lo1), adds16(ziphi8(p4, zero), hi1));
+			*(i8x16 *)(q + stride    ) = packus16(adds16(cvt8zx16(p5), lo1), adds16(ziphi8(p5, zero), hi1));
+			*(i8x16 *)(q + stride * 2) = packus16(adds16(cvt8zx16(p6), lo1), adds16(ziphi8(p6, zero), hi1));
+			*(i8x16 *)(q + stride3   ) = packus16(adds16(cvt8zx16(p7), lo1), adds16(ziphi8(p7, zero), hi1));
 			i8x16 p8 = *(i8x16 *)(r             );
 			i8x16 p9 = *(i8x16 *)(r + stride    );
 			i8x16 pA = *(i8x16 *)(r + stride * 2);
 			i8x16 pB = *(i8x16 *)(r + stride3   );
-			*(i8x16 *)(r             ) = packus16(adds16(cvt8zx16(p8), lo2), adds16(unpackhi8(p8, zero), hi2));
-			*(i8x16 *)(r + stride    ) = packus16(adds16(cvt8zx16(p9), lo2), adds16(unpackhi8(p9, zero), hi2));
-			*(i8x16 *)(r + stride * 2) = packus16(adds16(cvt8zx16(pA), lo2), adds16(unpackhi8(pA, zero), hi2));
-			*(i8x16 *)(r + stride3   ) = packus16(adds16(cvt8zx16(pB), lo2), adds16(unpackhi8(pB, zero), hi2));
+			*(i8x16 *)(r             ) = packus16(adds16(cvt8zx16(p8), lo2), adds16(ziphi8(p8, zero), hi2));
+			*(i8x16 *)(r + stride    ) = packus16(adds16(cvt8zx16(p9), lo2), adds16(ziphi8(p9, zero), hi2));
+			*(i8x16 *)(r + stride * 2) = packus16(adds16(cvt8zx16(pA), lo2), adds16(ziphi8(pA, zero), hi2));
+			*(i8x16 *)(r + stride3   ) = packus16(adds16(cvt8zx16(pB), lo2), adds16(ziphi8(pB, zero), hi2));
 			i8x16 pC = *(i8x16 *)(s             );
 			i8x16 pD = *(i8x16 *)(s + stride    );
 			i8x16 pE = *(i8x16 *)(s + stride * 2);
 			i8x16 pF = *(i8x16 *)(s + stride3   );
-			*(i8x16 *)(s             ) = packus16(adds16(cvt8zx16(pC), lo3), adds16(unpackhi8(pC, zero), hi3));
-			*(i8x16 *)(s + stride    ) = packus16(adds16(cvt8zx16(pD), lo3), adds16(unpackhi8(pD, zero), hi3));
-			*(i8x16 *)(s + stride * 2) = packus16(adds16(cvt8zx16(pE), lo3), adds16(unpackhi8(pE, zero), hi3));
-			*(i8x16 *)(s + stride3   ) = packus16(adds16(cvt8zx16(pF), lo3), adds16(unpackhi8(pF, zero), hi3));
+			*(i8x16 *)(s             ) = packus16(adds16(cvt8zx16(pC), lo3), adds16(ziphi8(pC, zero), hi3));
+			*(i8x16 *)(s + stride    ) = packus16(adds16(cvt8zx16(pD), lo3), adds16(ziphi8(pD, zero), hi3));
+			*(i8x16 *)(s + stride * 2) = packus16(adds16(cvt8zx16(pE), lo3), adds16(ziphi8(pE, zero), hi3));
+			*(i8x16 *)(s + stride3   ) = packus16(adds16(cvt8zx16(pF), lo3), adds16(ziphi8(pF, zero), hi3));
 		}
 	}
 }
@@ -427,8 +427,8 @@ static void noinline transform_dc2x2(Edge264Context *ctx)
 	i32x4 d1 = ctx->c_v[0] - ctx->c_v[1];
 	
 	// transpose and multiply left
-	i32x4 e0 = unpacklo64(d0, d1);
-	i32x4 e1 = unpackhi64(d0, d1);
+	i32x4 e0 = ziplo64(d0, d1);
+	i32x4 e1 = ziphi64(d0, d1);
 	i32x4 f0 = e0 + e1;
 	i32x4 f1 = e0 - e1;
 	
@@ -526,8 +526,8 @@ void FUNC_CTX(transform_dc2x4)
 	__m128i x1 = (__m128i)ctx->c_v[1]; // {c20, c21, c30, c31}
 	__m128i x2 = _mm_add_epi32(x0, x1); // {c00+c20, c01+c21, c10+c30, c11+c31}
 	__m128i x3 = _mm_sub_epi32(x0, x1); // {c00-c20, c01-c21, c10-c30, c11-c31}
-	__m128i x4 = unpacklo64(x2, x3); // {c00+c20, c01+c21, c00-c20, c01-c21}
-	__m128i x5 = unpackhi64(x2, x3); // {c10+c30, c11+c31, c10-c30, c11-c31}
+	__m128i x4 = ziplo64(x2, x3); // {c00+c20, c01+c21, c00-c20, c01-c21}
+	__m128i x5 = ziphi64(x2, x3); // {c10+c30, c11+c31, c10-c30, c11-c31}
 	__m128i x6 = _mm_add_epi32(x4, x5); // {d00, d01, d10, d11}
 	__m128i x7 = _mm_sub_epi32(x4, x5); // {d30, d31, d20, d21}
 	__m128i x8 = _mm_hadd_epi32(x6, x7); // {f00, f10, f30, f20}
@@ -537,8 +537,8 @@ void FUNC_CTX(transform_dc2x4)
 	__m128i dc0 = _mm_srai_epi32(_mm_add_epi32(_mm_mullo_epi32(x8, s), s32), 6);
 	__m128i dc1 = _mm_srai_epi32(_mm_add_epi32(_mm_mullo_epi32(x9, s), s32), 6);
 	__m128i *c = (__m128i *)ctx->c_v + 2 + iYCbCr * 2;
-	c[0] = unpacklo32(dc0, dc1);
-	c[1] = _mm_shuffle_epi32(unpackhi64(dc0, dc1), _MM_SHUFFLE(2, 0, 3, 1));
+	c[0] = ziplo32(dc0, dc1);
+	c[1] = _mm_shuffle_epi32(ziphi64(dc0, dc1), _MM_SHUFFLE(2, 0, 3, 1));
 }
 
 #ifdef __AVX2__
@@ -585,22 +585,22 @@ void FUNC_CTX(transform_dc2x4)
 				break;
 			
 			// matrix transposition
-			__m256i y0 = _mm256_unpacklo_epi32(d0, d1);
-			__m256i y1 = _mm256_unpacklo_epi32(d2, d3);
-			__m256i y2 = _mm256_unpacklo_epi32(d4, d5);
-			__m256i y3 = _mm256_unpacklo_epi32(d6, d7);
-			__m256i y4 = _mm256_unpackhi_epi32(d0, d1);
-			__m256i y5 = _mm256_unpackhi_epi32(d2, d3);
-			__m256i y6 = _mm256_unpackhi_epi32(d4, d5);
-			__m256i y7 = _mm256_unpackhi_epi32(d6, d7);
-			__m256i y8 = _mm256_unpacklo_epi64(y0, y1);
-			__m256i y9 = _mm256_unpacklo_epi64(y2, y3);
-			__m256i yA = _mm256_unpacklo_epi64(y4, y5);
-			__m256i yB = _mm256_unpacklo_epi64(y6, y7);
-			__m256i yC = _mm256_unpackhi_epi64(y0, y1);
-			__m256i yD = _mm256_unpackhi_epi64(y2, y3);
-			__m256i yE = _mm256_unpackhi_epi64(y4, y5);
-			__m256i yF = _mm256_unpackhi_epi64(y6, y7);
+			__m256i y0 = _mm256_ziplo_epi32(d0, d1);
+			__m256i y1 = _mm256_ziplo_epi32(d2, d3);
+			__m256i y2 = _mm256_ziplo_epi32(d4, d5);
+			__m256i y3 = _mm256_ziplo_epi32(d6, d7);
+			__m256i y4 = _mm256_ziphi_epi32(d0, d1);
+			__m256i y5 = _mm256_ziphi_epi32(d2, d3);
+			__m256i y6 = _mm256_ziphi_epi32(d4, d5);
+			__m256i y7 = _mm256_ziphi_epi32(d6, d7);
+			__m256i y8 = _mm256_ziplo_epi64(y0, y1);
+			__m256i y9 = _mm256_ziplo_epi64(y2, y3);
+			__m256i yA = _mm256_ziplo_epi64(y4, y5);
+			__m256i yB = _mm256_ziplo_epi64(y6, y7);
+			__m256i yC = _mm256_ziphi_epi64(y0, y1);
+			__m256i yD = _mm256_ziphi_epi64(y2, y3);
+			__m256i yE = _mm256_ziphi_epi64(y4, y5);
+			__m256i yF = _mm256_ziphi_epi64(y6, y7);
 			d0 = _mm256_add_epi32(_mm256_permute2x128_si256(y8, y9, _MM_SHUFFLE(0, 2, 0, 0)), _mm256_set1_epi32(32));
 			d1 = _mm256_permute2x128_si256(yC, yD, _MM_SHUFFLE(0, 2, 0, 0));
 			d2 = _mm256_permute2x128_si256(yA, yB, _MM_SHUFFLE(0, 2, 0, 0));
@@ -710,40 +710,40 @@ void FUNC_CTX(transform_dc2x4)
 				break;
 			
 			// transpose the half matrix going to memory
-			__m128i x0 = unpacklo32((__m128i)ctx->c_v[8], (__m128i)ctx->c_v[10]);
-			__m128i x1 = unpacklo32((__m128i)ctx->c_v[12], (__m128i)ctx->c_v[14]);
-			__m128i x2 = unpackhi32((__m128i)ctx->c_v[8], (__m128i)ctx->c_v[10]);
-			__m128i x3 = unpackhi32((__m128i)ctx->c_v[12], (__m128i)ctx->c_v[14]);
-			__m128i x4 = unpacklo32(d4, d5);
-			__m128i x5 = unpacklo32(d6, d7);
-			__m128i x6 = unpackhi32(d4, d5);
-			__m128i x7 = unpackhi32(d6, d7);
-			ctx->c_v[1] = (v4si)_mm_add_epi32(unpacklo64(x0, x1), set32(32));
-			ctx->c_v[3] = (v4si)unpackhi64(x0, x1);
-			ctx->c_v[5] = (v4si)unpacklo64(x2, x3);
-			ctx->c_v[7] = (v4si)unpackhi64(x2, x3);
-			ctx->c_v[9] = (v4si)unpacklo64(x4, x5);
-			ctx->c_v[11] = (v4si)unpackhi64(x4, x5);
-			ctx->c_v[13] = (v4si)unpacklo64(x6, x7);
-			ctx->c_v[15] = (v4si)unpackhi64(x6, x7);
+			__m128i x0 = ziplo32((__m128i)ctx->c_v[8], (__m128i)ctx->c_v[10]);
+			__m128i x1 = ziplo32((__m128i)ctx->c_v[12], (__m128i)ctx->c_v[14]);
+			__m128i x2 = ziphi32((__m128i)ctx->c_v[8], (__m128i)ctx->c_v[10]);
+			__m128i x3 = ziphi32((__m128i)ctx->c_v[12], (__m128i)ctx->c_v[14]);
+			__m128i x4 = ziplo32(d4, d5);
+			__m128i x5 = ziplo32(d6, d7);
+			__m128i x6 = ziphi32(d4, d5);
+			__m128i x7 = ziphi32(d6, d7);
+			ctx->c_v[1] = (v4si)_mm_add_epi32(ziplo64(x0, x1), set32(32));
+			ctx->c_v[3] = (v4si)ziphi64(x0, x1);
+			ctx->c_v[5] = (v4si)ziplo64(x2, x3);
+			ctx->c_v[7] = (v4si)ziphi64(x2, x3);
+			ctx->c_v[9] = (v4si)ziplo64(x4, x5);
+			ctx->c_v[11] = (v4si)ziphi64(x4, x5);
+			ctx->c_v[13] = (v4si)ziplo64(x6, x7);
+			ctx->c_v[15] = (v4si)ziphi64(x6, x7);
 			
 			// transpose the half matrix staying in registers
-			__m128i x8 = unpacklo32((__m128i)ctx->c_v[0], (__m128i)ctx->c_v[2]);
-			__m128i x9 = unpacklo32((__m128i)ctx->c_v[4], (__m128i)ctx->c_v[6]);
-			__m128i xA = unpackhi32((__m128i)ctx->c_v[0], (__m128i)ctx->c_v[2]);
-			__m128i xB = unpackhi32((__m128i)ctx->c_v[4], (__m128i)ctx->c_v[6]);
-			__m128i xC = unpacklo32(d0, d1);
-			__m128i xD = unpacklo32(d2, d3);
-			__m128i xE = unpackhi32(d0, d1);
-			__m128i xF = unpackhi32(d2, d3);
-			d0 = _mm_add_epi32(unpacklo64(x8, x9), set32(32));
-			d1 = unpackhi64(x8, x9);
-			d2 = unpacklo64(xA, xB);
-			d3 = unpackhi64(xA, xB);
-			d4 = unpacklo64(xC, xD);
-			d5 = unpackhi64(xC, xD);
-			d6 = unpacklo64(xE, xF);
-			d7 = unpackhi64(xE, xF);
+			__m128i x8 = ziplo32((__m128i)ctx->c_v[0], (__m128i)ctx->c_v[2]);
+			__m128i x9 = ziplo32((__m128i)ctx->c_v[4], (__m128i)ctx->c_v[6]);
+			__m128i xA = ziphi32((__m128i)ctx->c_v[0], (__m128i)ctx->c_v[2]);
+			__m128i xB = ziphi32((__m128i)ctx->c_v[4], (__m128i)ctx->c_v[6]);
+			__m128i xC = ziplo32(d0, d1);
+			__m128i xD = ziplo32(d2, d3);
+			__m128i xE = ziphi32(d0, d1);
+			__m128i xF = ziphi32(d2, d3);
+			d0 = _mm_add_epi32(ziplo64(x8, x9), set32(32));
+			d1 = ziphi64(x8, x9);
+			d2 = ziplo64(xA, xB);
+			d3 = ziphi64(xA, xB);
+			d4 = ziplo64(xC, xD);
+			d5 = ziphi64(xC, xD);
+			d6 = ziplo64(xE, xF);
+			d7 = ziphi64(xE, xF);
 		}
 		
 		// final residual values

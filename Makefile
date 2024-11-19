@@ -36,7 +36,7 @@ edge264$(SUF).$(LEXT): edge264*.c edge264*.h Makefile
 
 .PHONY: clean clear
 clean clear:
-	rm -f release/* edge264_test$(EXE) edge264_test-trace*$(EXE) edge264*.o libedge264.*.dylib libedge264.so.* edge264*.dll
+	rm -f release/* edge264_test$(EXE) edge264_test-trace*$(EXE) edge264*.o *edge264*.dylib libedge264.so.* edge264*.dll
 
 
 

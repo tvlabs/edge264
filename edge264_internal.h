@@ -555,7 +555,7 @@ enum IntraChromaModes {
  * size_t stride), then P(x,y) will return p + x + y * stride.
  */
 #if defined(__SSE2__)
-	#define INIT_P() uint8_t * restrict _p7 = p + stride * 7, * restrict _pE = p + stride * 14; ssize_t _strideT = -stride
+	#define INIT_P() ssize_t _strideT = -stride; uint8_t * restrict _p7 = p + stride * 8 + _strideT, * restrict _pE = _p7 + stride * 8 + _strideT
 	#define P(x, y) (__builtin_choose_expr(y == -2 || y == -1 || y == 0 || y == 1 || y == 2 || y == 4, p, __builtin_choose_expr(y == 3 || y == 5 || y == 6 || y == 7 || y == 8 || y == 9 || y == 11, _p7, _pE)) +\
 		x + __builtin_choose_expr(y == 0 || y == 7 || y == 14, 0, __builtin_choose_expr(y == 1 || y == 8 || y == 15, stride, __builtin_choose_expr(y == 2 || y == 9, stride * 2, __builtin_choose_expr(y == 3 || y == 10, _strideT * 4, __builtin_choose_expr(y == 4 || y == 11, stride * 4, __builtin_choose_expr(y == -2 || y == 5 || y == 12, _strideT * 2, _strideT)))))))
 #elif defined(__ARM_NEON)
@@ -599,10 +599,17 @@ enum IntraChromaModes {
 	#define broadcast8(a, i) (i8x16)vdupq_laneq_s8(a, i)
 	#define broadcast16(a, i) (i16x8)vdupq_laneq_s16(a, i)
 	#define broadcast32(a, i) (i32x4)vdupq_laneq_s32(a, i)
+	#define cvtlo8u16(a) (u16x8)vmovl_u8(vget_low_u8(a))
+	#define cvthi8u16(a) (u16x8)vmovl_high_u8(a)
+	#define cvtlo16u32(a) (u32x4)vmovl_u16(vget_low_u16(a))
+	#define cvthi16u32(a) (u32x4)vmovl_high_u16(a)
 	#define load32(p) ((i32x4){*(int32_t *)(p)})
 	#define load64(p) ((i64x2){*(int64_t *)(p)})
 	#define load128(p) (*(i8x16 *)(p))
+	#define packs32(a, b) (i16x8)vqmovn_high_s32(vqmovn_s32(a), b)
+	#define packus16(a, b) (u8x16)vqmovun_high_s16(vqmovun_s16(a), b)
 	#define set8(i) (i8x16)vdupq_n_s8(i)
+	#define set16(i) (i16x8)vdupq_n_s16(i)
 	#define set32(i) (i32x4)vdupq_n_s32(i)
 	#define shl128(a, i) (i8x16)({i8x16 _a = (a); vextq_s8(_a, _a, 16 - (i));})
 	#define shlc128(a, i) (i8x16)({i8x16 _a = (a); vextq_s8(vdupq_laneq_s8(_a, 0), _a, 16 - (i));})
@@ -636,6 +643,7 @@ enum IntraChromaModes {
 	#define broadcast8(a, i) shuffle(a, _mm_set1_epi8(i))
 	#define broadcast16(a, i) (i16x8)__builtin_choose_expr((i) < 4, shuffle32(shufflelo(a, i, i, 0, 0), 0, 0, 0, 0), shuffle32(shufflehi(a, i & 3, i & 3, 0, 0), 2, 2, 2, 2))
 	#define broadcast32(a, i) (i32x4)_mm_shuffle_epi32(a, _MM_SHUFFLE(i, i, i, i))
+	#define cvthi16u32(a) (u32x4)_mm_unpackhi_epi16(a, (i8x16){})
 	#define load32(p) ((i32x4){*(int32_t *)(p)}) // GCC < 12 doesn't define _mm_loadu_si32
 	#define load64(p) (i64x2)_mm_loadl_epi64((__m128i*)(p))
 	#define loadh64(a, p) (i64x2)_mm_loadh_pd((__m128d)(a), (double*)(p))
@@ -717,8 +725,8 @@ enum IntraChromaModes {
 		static always_inline i8x16 shufflez(i8x16 a, i8x16 m) {return shuffle(a, m) & ~(0 > m);}
 	#endif
 	#ifdef __SSE4_1__
-		#define cvt8zx16(a) (i16x8)_mm_cvtepu8_epi16(a)
-		#define cvt16zx32(a) (i32x4)_mm_cvtepu16_epi32(a)
+		#define cvtlo8u16(a) (i16x8)_mm_cvtepu8_epi16(a)
+		#define cvtlo16u32(a) (i32x4)_mm_cvtepu16_epi32(a)
 		#define ifelse_mask(v, t, f) (i8x16)_mm_blendv_epi8(f, t, v)
 		#define ifelse_msb(v, t, f) (i8x16)_mm_blendv_epi8(f, t, v)
 		#define load8zx16(p) (i16x8)_mm_cvtepu8_epi16(_mm_loadl_epi64((__m128i*)(p)))
@@ -726,8 +734,8 @@ enum IntraChromaModes {
 		#define min32(a, b) (i32x4)_mm_min_epi32(a, b)
 		#define max8(a, b) (i8x16)_mm_max_epi8(a, b)
 	#else
-		#define cvt8zx16(a) (i16x8)ziplo8(a, (i8x16){})
-		#define cvt16zx32(a) (i32x4)ziplo16(a, (i16x8){})
+		#define cvtlo8u16(a) (i16x8)ziplo8(a, (i8x16){})
+		#define cvtlo16u32(a) (i32x4)ziplo16(a, (i16x8){})
 		static always_inline i8x16 ifelse_mask(i8x16 v, i8x16 t, i8x16 f) { return t & v | f & ~v; }
 		static always_inline i8x16 ifelse_msb(i8x16 v, i8x16 t, i8x16 f) { v = (0 > v); return t & v | f & ~v; }
 		#define load8zx16(p) (i16x8)ziplo8(load64(p), (i8x16){})
@@ -913,11 +921,11 @@ static inline void decode_inter_16x8_bottom(Edge264Context *ctx, i16x8 mvd, int 
 static noinline void decode_direct_mv_pred(Edge264Context *ctx, unsigned direct_mask);
 
 // edge264_residual.c
-static void noinline add_idct4x4(Edge264Context *ctx, int iYCbCr, int qP, i8x16 wS, int DCidx, uint8_t *samples);
-static void noinline add_dc4x4(Edge264Context *ctx, int iYCbCr, int DCidx, uint8_t *samples);
-static void noinline add_idct8x8(Edge264Context *ctx, int iYCbCr, uint8_t *samples);
-static void noinline transform_dc4x4(Edge264Context *ctx, int iYCbCr);
-static void noinline transform_dc2x2(Edge264Context *ctx);
+static noinline void add_idct4x4(Edge264Context *ctx, int iYCbCr, int DCidx, uint8_t *p);
+static void add_dc4x4(Edge264Context *ctx, int iYCbCr, int DCidx, uint8_t *p);
+static void add_idct8x8(Edge264Context *ctx, int iYCbCr, uint8_t *p);
+static void transform_dc4x4(Edge264Context *ctx, int iYCbCr);
+static void transform_dc2x2(Edge264Context *ctx);
 
 // edge264_slice.c
 static void parse_slice_data_cavlc(Edge264Context *ctx);

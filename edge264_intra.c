@@ -23,29 +23,27 @@
 
 #include "edge264_internal.h"
 
-
-
 #if defined(__SSE2__)
+	#define ldedge4x4() shrd128(ziplo16(ziplo8(load32(P(-4, 3)), load32(P(-4, 2))), ziplo8(load32(P(-4, 1)), load32(P(-4, 0)))), load64(P(-1, -1)), 12)
+	#define ldedge8x8lo() ({i8x16 _v7 = load64(P(-8, 7)); shuffleps(_v7, ziphi32(ziphi16(ziplo8(_v7, load64(P(-8, 6))), ziplo8(load64(P(-8, 5)), load64(P(-8, 4)))), ziplo16(ziplo8(load32(P(-4, 3)), load32(P(-4, 2))), ziplo8(load32(P(-4, 1)), load32(P(-4, 0))))), 0, 1, 2, 3);})
 	#define ldleft3(v0, y1, y2, y3) shr128(ziplo16(ziplo8((u32x4)(v0) << 24, load32(P(-4, y1))), ziplo8(load32(P(-4, y2)), load32(P(-4, y3)))), 12)
 	#define ldleft4(y0, y1, y2, y3) shr128(ziplo16(ziplo8(load32(P(-4, y0)), load32(P(-4, y1))), ziplo8(load32(P(-4, y2)), load32(P(-4, y3)))), 12)
-	#define ldedge4x4() shrd128(ziplo16(ziplo8(load32(P(-4, 3)), load32(P(-4, 2))), ziplo8(load32(P(-4, 1)), load32(P(-4, 0)))), load64(P(-1, -1)), 12)
 	#define ldleft7(v0, y1, y2, y3, y4, y5, y6, y7) shr128(ziphi32(ziplo16(ziplo8((u32x4)(v0) << 24, load32(P(-4, y1))), ziplo8(load32(P(-4, y2)), load32(P(-4, y3)))), ziplo16(ziplo8(load32(P(-4, y4)), load32(P(-4, y5))), ziplo8(load32(P(-4, y6)), load32(P(-4, y7))))), 8)
 	#define ldleft8(y0, y1, y2, y3, y4, y5, y6, y7) shr128(ziphi32(ziplo16(ziplo8(load32(P(-4, y0)), load32(P(-4, y1))), ziplo8(load32(P(-4, y2)), load32(P(-4, y3)))), ziplo16(ziplo8(load32(P(-4, y4)), load32(P(-4, y5))), ziplo8(load32(P(-4, y6)), load32(P(-4, y7))))), 8)
-	#define ldedge8x8lo() ({i8x16 _v7 = load64(P(-8, 7)); shuffleps(_v7, ziphi32(ziphi16(ziplo8(_v7, load64(P(-8, 6))), ziplo8(load64(P(-8, 5)), load64(P(-8, 4)))), ziplo16(ziplo8(load32(P(-4, 3)), load32(P(-4, 2))), ziplo8(load32(P(-4, 1)), load32(P(-4, 0))))), 0, 1, 2, 3);})
 	#define ldleft16(y0, y1, y2, y3, y4, y5, y6, y7, y8, y9, yA, yB, yC, yD, yE, yF) ziphi64(ziphi32(ziplo16(ziplo8(load32(P(-4, y0)), load32(P(-4, y1))), ziplo8(load32(P(-4, y2)), load32(P(-4, y3)))), ziplo16(ziplo8(load32(P(-4, y4)), load32(P(-4, y5))), ziplo8(load32(P(-4, y6)), load32(P(-4, y7))))), ziphi32(ziplo16(ziplo8(load32(P(-4, y8)), load32(P(-4, y9))), ziplo8(load32(P(-4, yA)), load32(P(-4, yB)))), ziplo16(ziplo8(load32(P(-4, yC)), load32(P(-4, yD))), ziplo8(load32(P(-4, yE)), load32(P(-4, yF))))))
 	#define spreadh8(a) shuffle(a, (i8x16){0, 1, 2, 3, 4, 5, 6, 7, 7, 7, 7, 7, 7, 7, 7, 7})
 	#define spreadq8(a) shuffle(a, (i8x16){0, 1, 2, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3})
 	static always_inline i8x16 lowpass8(i8x16 l, i8x16 m, i8x16 r) {return avg8(usubs8(avg8(l, r), (l ^ r) & set8(1)), m);}
 #elif defined(__ARM_NEON)
 	#define addlou8(a, b) (i16x8)vaddl_u8(vget_low_s8(a), vget_low_s8(b))
-	#define lowpass8(l, m, r) (i8x16)vrhaddq_u8(vhaddq_u8(l, r), m)
+	#define ldedge4x4() ({i8x16 _v = load128(P(-5, -1)); _v[3] = *P(-1, 0); _v[2] = *P(-1, 1); _v[1] = *P(-1, 2); _v[0] = *P(-1, 3); _v;})
+	#define ldedge8x8lo() ({i8x16 _v = set8(*P(-1, 7)); _v[15] = *P(-1, 0); _v[14] = *P(-1, 1); _v[13] = *P(-1, 2); _v[12] = *P(-1, 3); _v[11] = *P(-1, 4); _v[10] = *P(-1, 5); _v[9] = *P(-1, 6); _v;})
 	#define ldleft3(v0, y1, y2, y3) ({i8x16 _v = v0; _v[1] = *P(-1, y1), _v[2] = *P(-1, y2), _v[3] = *P(-1, y3); _v;})
 	#define ldleft4(y0, y1, y2, y3) (i8x16){*P(-1, y0), *P(-1, y1), *P(-1, y2), *P(-1, y3)}
-	#define ldedge4x4() ({i8x16 _v = load128(P(-5, -1)); _v[3] = *P(-1, 0); _v[2] = *P(-1, 1); _v[1] = *P(-1, 2); _v[0] = *P(-1, 3); _v;})
 	#define ldleft7(v0, y1, y2, y3, y4, y5, y6, y7) ({i8x16 _v = v0; _v[1] = *P(-1, y1), _v[2] = *P(-1, y2), _v[3] = *P(-1, y3), _v[4] = *P(-1, y4), _v[5] = *P(-1, y5), _v[6] = *P(-1, y6), _v[7] = *P(-1, y7); _v;})
 	#define ldleft8(y0, y1, y2, y3, y4, y5, y6, y7) (i8x16){*P(-1, y0), *P(-1, y1), *P(-1, y2), *P(-1, y3), *P(-1, y4), *P(-1, y5), *P(-1, y6), *P(-1, y7)}
-	#define ldedge8x8lo() ({i8x16 _v = set8(*P(-1, 7)); _v[15] = *P(-1, 0); _v[14] = *P(-1, 1); _v[13] = *P(-1, 2); _v[12] = *P(-1, 3); _v[11] = *P(-1, 4); _v[10] = *P(-1, 5); _v[9] = *P(-1, 6); _v;})
 	#define ldleft16(y0, y1, y2, y3, y4, y5, y6, y7, y8, y9, yA, yB, yC, yD, yE, yF) (i8x16){*P(-1, y0), *P(-1, y1), *P(-1, y2), *P(-1, y3), *P(-1, y4), *P(-1, y5), *P(-1, y6), *P(-1, y7), *P(-1, y8), *P(-1, y9), *P(-1, yA), *P(-1, yB), *P(-1, yC), *P(-1, yD), *P(-1, yE), *P(-1, yF)}
+	#define lowpass8(l, m, r) (i8x16)vrhaddq_u8(vhaddq_u8(l, r), m)
 	#define sublou8(a, b) (i16x8)vsubl_u8(vget_low_s8(a), vget_low_s8(b))
 	static always_inline i8x16 spreadh8(i8x16 a) {return vzip1q_s64(a, vdupq_laneq_s8(a, 7));}
 	static always_inline i8x16 spreadq8(i8x16 a) {return vextq_s8(vextq_s8(a, a, 4), vdupq_laneq_s8(a, 3), 12);}
@@ -453,18 +451,10 @@ static void decode_intra16x16(int mode, uint8_t * restrict p, size_t stride, i16
 		i8x16 lt = ldleft7(tl, 0, 1, 2, 3, 4, 5, 6);
 		i8x16 lb = ldleft8(8, 9, 10, 11, 12, 13, 14, 15);
 		#if defined(__SSE2__)
-			i8x16 z = {};
-			#ifdef __SSSE3__
-				i8x16 m = {-8, -7, -6, -5, -4, -3, -2, -1, 1, 2, 3, 4, 5, 6, 7, 8};
-				i16x8 mul = ziphi8(m, z);
-				i16x8 v0 = maddubs(ziplo64(tl, tr), m);
-				i16x8 v1 = maddubs(ziplo64(lt, lb), m);
-			#else
-				i16x8 n = {-8, -7, -6, -5, -4, -3, -2, -1};
-				i16x8 mul = {1, 2, 3, 4, 5, 6, 7, 8};
-				i16x8 v0 = (i16x8)ziplo8(tl, z) * n + (i16x8)ziplo8(tr, z) * mul;
-				i16x8 v1 = (i16x8)ziplo8(lt, z) * n + (i16x8)ziplo8(lb, z) * mul;
-			#endif
+			i8x16 m = {-8, -7, -6, -5, -4, -3, -2, -1, 1, 2, 3, 4, 5, 6, 7, 8};
+			i16x8 mul = ziphi8(m, (i8x16){});
+			i16x8 v0 = maddubs(ziplo64(tl, tr), m);
+			i16x8 v1 = maddubs(ziplo64(lt, lb), m);
 			i16x8 v2 = (i16x8)ziplo32(v0, v1) + (i16x8)ziphi32(v0, v1);
 			i16x8 v3 = v2 + (i16x8)shr128(v2, 8);
 			i16x8 HV = v3 + shufflelo(v3, 1, 0, 3, 2); // H, H, V, V

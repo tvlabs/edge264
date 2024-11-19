@@ -473,8 +473,7 @@ static void CAFUNC(parse_chroma_residual)
 					ctx->c_v[0] = ctx->c_v[1] = ctx->c_v[2] = ctx->c_v[3] = (i32x4){};
 					fprintf(stderr, "Chroma AC coeffLevels[%d]:", i4x4);
 					CACALL(parse_residual_block, 1, 15, token_or_cbf);
-					i8x16 wS = ctx->t.pps.weightScale4x4_v[iYCbCr + mb->f.mbIsInterFlag * 3];
-					add_idct4x4(ctx, iYCbCr, ctx->t.QP[iYCbCr], wS, i4x4, samples);
+					add_idct4x4(ctx, iYCbCr, i4x4, samples);
 				} else {
 					add_dc4x4(ctx, iYCbCr, i4x4, samples);
 				}
@@ -538,7 +537,7 @@ static void CAFUNC(parse_Intra16x16_residual)
 					ctx->c_v[0] = ctx->c_v[1] = ctx->c_v[2] = ctx->c_v[3] = (i32x4){};
 					fprintf(stderr, "16x16 AC coeffLevels[%d]:", iYCbCr * 16 + i4x4);
 					CACALL(parse_residual_block, 1, 15, token_or_cbf);
-					add_idct4x4(ctx, iYCbCr, ctx->t.QP[0], ctx->t.pps.weightScale4x4_v[iYCbCr], i4x4, samples);
+					add_idct4x4(ctx, iYCbCr, i4x4, samples);
 				} else {
 					add_dc4x4(ctx, iYCbCr, i4x4, samples);
 				}
@@ -616,8 +615,7 @@ static void CAFUNC(parse_NxN_residual)
 						fprintf(stderr, "4x4 coeffLevels[%d]:", iYCbCr * 16 + i4x4);
 						CACALL(parse_residual_block, 0, 15, token_or_cbf);
 						// DC blocks are marginal here (about 16%) so we do not handle them separately
-						i8x16 wS = ctx->t.pps.weightScale4x4_v[iYCbCr + mb->f.mbIsInterFlag * 3];
-						add_idct4x4(ctx, iYCbCr, ctx->t.QP[0], wS, -1, samples); // FIXME 4:4:4
+						add_idct4x4(ctx, iYCbCr, -1, samples); // FIXME 4:4:4
 					}
 				}
 			}

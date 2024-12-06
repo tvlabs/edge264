@@ -603,6 +603,7 @@ enum IntraChromaModes {
 	#define cvthi8u16(a) (u16x8)vmovl_high_u8(a)
 	#define cvtlo16u32(a) (u32x4)vmovl_u16(vget_low_u16(a))
 	#define cvthi16u32(a) (u32x4)vmovl_high_u16(a)
+	#define ifelse_mask(v, t, f) (i8x16)vbslq_s8(v, t, f)
 	#define load32(p) ((i32x4){*(int32_t *)(p)})
 	#define load64(p) ((i64x2){*(int64_t *)(p)})
 	#define load128(p) (*(i8x16 *)(p))
@@ -619,8 +620,6 @@ enum IntraChromaModes {
 	#define shrrs16(a, i) (i16x8)vrshrq_n_s16(a, i)
 	#define shrru16(a, i) (i16x8)vrshrq_n_u16(a, i)
 	#define shrpus16(a, b, i) (u8x16)vqshrun_high_n_s16(vqshrun_n_s16(a, i), b, i)
-	// reimplement vqrshrun_n_s16 to return to wide register
-	#define shrrpus16(a, i) ({u8x16 _v; asm("sqrshrun %0.8B, %1.8H, %2" : "=w" (_v) : "w" (a), "i" (i)); _v;})
 	static always_inline i8x16 shuffle(i8x16 a, i8x16 m) { return vqtbl1q_s8(a, m); }
 	#define shufflez shuffle
 	// reimplement vaddlv_u8 to return to vector register
@@ -773,20 +772,6 @@ enum IntraChromaModes {
 		static always_inline i8x16 shuffle3(const i8x16 *p, i8x16 m) {
 			return ifelse_mask(m > 15, ifelse_mask(m > 31, shuffle(p[2], m), shuffle(p[1], m)), shuffle(p[0], m));
 		}
-		static const i8x16 mul_15 = {1, -5, 1, -5, 1, -5, 1, -5, 1, -5, 1, -5, 1, -5, 1, -5};
-		static const i8x16 mul_20 = {20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20};
-		static const i8x16 mul_51 = {-5, 1, -5, 1, -5, 1, -5, 1, -5, 1, -5, 1, -5, 1, -5, 1};
-		static always_inline i16x8 sixtapU8(i8x16 ab, i8x16 cd, i8x16 ef) {
-			i16x8 x0 = maddubs(ab, mul_15);
-			i16x8 x1 = maddubs(cd, mul_20);
-			i16x8 x2 = maddubs(ef, mul_51);
-			return x0 + x1 + x2;
-		}
-		static always_inline u8x16 weight_add8(u8x16 q, u8x16 p, i8x16 w, i16x8 o, i64x2 logWD) {
-			i16x8 x0 = adds16(maddubs(ziplo8(q, p), w), o);
-			i16x8 x1 = adds16(maddubs(ziphi8(q, p), w), o);
-			return packus16(shr16(x0, logWD), shr16(x1, logWD));
-		}
 	#else
 		static i8x16 shuffle2(const i8x16 *p, i8x16 m) {
 			union { int8_t q[16]; i8x16 v; } _m = {.v = m & 31};
@@ -800,23 +785,6 @@ enum IntraChromaModes {
 			for (int i = 0; i < 16; i++)
 				_m.q[i] = ((int8_t *)p)[_m.q[i]];
 			return _m.v;
-		}
-		static always_inline i16x8 sixtapU8(i8x16 ab, i8x16 cd, i8x16 ef) {
-			i16x8 a = (u16x8)ab << 8 >> 8;
-			i16x8 b = (u16x8)ab >> 8;
-			i16x8 c = (u16x8)cd << 8 >> 8;
-			i16x8 d = (u16x8)cd >> 8;
-			i16x8 e = (u16x8)ef << 8 >> 8;
-			i16x8 f = (u16x8)ef >> 8;
-			return a + (((c + d) << 2) -b - e) * 5 + f;
-		}
-		static always_inline u8x16 weight_add8(u8x16 q, u8x16 p, i8x16 w, i16x8 o, i64x2 logWD) {
-			i8x16 z = {};
-			i16x8 wq = (i16x8)w << 8 >> 8;
-			i16x8 wp = (i16x8)w >> 8;
-			i16x8 x0 = adds16(adds16((i16x8)ziplo8(q, z) * wq, (i16x8)ziplo8(p, z) * wp), o);
-			i16x8 x1 = adds16(adds16((i16x8)ziphi8(q, z) * wq, (i16x8)ziphi8(p, z) * wp), o);
-			return packus16(shr16(x0, logWD), shr16(x1, logWD));
 		}
 	#endif
 	#ifdef __BMI2__ // FIXME and not AMD pre-Zen3
@@ -865,7 +833,7 @@ enum IntraChromaModes {
 		return c->pending_tasks & movemask(packs16(packs32(a, b), packs32(d, e)));
 	}
 #else // add other architectures here
-	#error "Add -msse2 or more recent"
+	#error "Use a supported architecture (SSE or NEON)"
 #endif
 
 

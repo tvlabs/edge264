@@ -42,6 +42,7 @@
  * 	_ limit width to 16384 to prevent overflow in stride with 16bit+field (check also relative offsets to mbD!)
  * 	_ check on https://kodi.wiki/view/Samples#3D_Test_Clips
  * _ Optimizations
+ * 	_ improve column loads in Intra for SSE4.1 by using PINSRB
  * 	_ reduce binary size of Inter by replacing macros with selection masks
  * 	_ Setup AMD CodeXL IBS to monitor pipeline stalls and cache misses
  * 	_ Do GCC/Clang use different call conventions for static functions? If not, do it!

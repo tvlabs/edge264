@@ -169,6 +169,7 @@ static void add_idct8x8(Edge264Context *ctx, int iYCbCr, uint8_t *p)
 			d7 = scale32(c[14], c[15], LS7, mul, off, sh);
 		} else {
 			int sh = div - 6;
+			// FIXME use shift function for SSE
 			d0 = packs32(c[0], c[1]) * (LS0 << sh);
 			d1 = packs32(c[2], c[3]) * (LS1 << sh);
 			d2 = packs32(c[4], c[5]) * (LS2 << sh);

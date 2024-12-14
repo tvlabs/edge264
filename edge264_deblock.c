@@ -2,150 +2,6 @@
 
 
 /**
- * Filter a single edge in place for bS in [0..3].
- * tC0 should equal -1 for each position where bS=0 or beta=0.
- * 
- * I must acknowledge that I looked a LOT at ffmpeg's filters while developing
- * these filters. They taught me many tricks to handle 9~10 bit operations on
- * 8 bit hardware, so I owe them a lot of time saved. Thanks!
- * 
- * For 8-pixel chroma edges we filter both Cb and Cr in lower and upper halves
- * of registers. In these cases note that alpha and beta may contain zero and
- * non-zero values, so we cannot use alpha-1 or beta-1.
- */
-#define DEBLOCK_LUMA_SOFT(p2, p1, p0, q0, q1, q2, palpha, pbeta, itC0) {\
-	/* compute the opposite of filterSamplesFlags as a mask, and transfer the mask bS=0 from tC0 */\
-	i8x16 pq0 = usubs8(p0, q0);\
-	i8x16 qp0 = usubs8(q0, p0);\
-	i8x16 sub0 = usubs8(uadds8(qp0, set8(-128)), pq0); /* save 128+q0-p0 for later */\
-	i8x16 abs0 = pq0 | qp0;\
-	i8x16 abs1 = usubs8(p1, p0) | usubs8(p0, p1);\
-	i8x16 abs2 = usubs8(q1, q0) | usubs8(q0, q1);\
-	i8x16 beta = set8(*(pbeta));\
-	i8x16 and = umin8(usubs8(set8(*(palpha)), abs0), usubs8(beta, umax8(abs1, abs2)));\
-	i8x16 tC0 = expand4(itC0);\
-	i8x16 ignoreSamplesFlags = (and == 0) | (tC0 < 0);\
-	i8x16 ftC0 = tC0 & ~ignoreSamplesFlags;\
-	/* filter p1 and q1 (same as ffmpeg, I couldn't find better) */\
-	i8x16 c1 = set8(1);\
-	i8x16 x0 = avg8(p0, q0); /* (p0+q0+1)>>1 */\
-	i8x16 x1 = avg8(p2, x0) - ((p2 ^ x0) & c1); /* (p2+((p0+q0+1)>>1))>>1 */\
-	i8x16 x2 = avg8(q2, x0) - ((q2 ^ x0) & c1); /* (q2+((p0+q0+1)>>1))>>1 */\
-	i8x16 pp1 = umin8(umax8(x1, usubs8(p1, ftC0)), uadds8(p1, ftC0));\
-	i8x16 qp1 = umin8(umax8(x2, usubs8(q1, ftC0)), uadds8(q1, ftC0));\
-	i8x16 cm1 = set8(-1);\
-	i8x16 bm1 = (i8x16)beta + cm1;\
-	i8x16 sub1 = avg8(p1, q1 ^ cm1); /* save 128+((p1-q1)>>1) for later */\
-	i8x16 apltb = usubs8(usubs8(p2, p0), bm1) == usubs8(usubs8(p0, p2), bm1);\
-	i8x16 aqltb = usubs8(usubs8(q2, q0), bm1) == usubs8(usubs8(q0, q2), bm1);\
-	p1 = ifelse_mask(apltb, pp1, p1);\
-	q1 = ifelse_mask(aqltb, qp1, q1);\
-	/* filter p0 and q0 (by offsetting signed to unsigned to apply pavg) */\
-	i8x16 ftC = (ftC0 - apltb - aqltb) & ~ignoreSamplesFlags;\
-	i8x16 x3 = avg8(sub0, avg8(sub1, set8(127))); /* 128+((q0-p0+((p1-q1)>>2)+1)>>1) */\
-	i8x16 c128 = set8(-128);\
-	i8x16 delta = umin8(usubs8(x3, c128), ftC); /* delta if delta>0 */\
-	i8x16 ndelta = umin8(usubs8(c128, x3), ftC); /* -delta if delta<0 */\
-	p0 = usubs8(uadds8(p0, delta), ndelta);\
-	q0 = usubs8(uadds8(q0, ndelta), delta);}
-
-#define DEBLOCK_CHROMA_SOFT(p1, p0, q0, q1, shufab, itC0) {\
-	/* compute the opposite of filterSamplesFlags and apply if to tC */\
-	i8x16 c128 = set8(-128);\
-	i8x16 pq0 = usubs8(p0, q0);\
-	i8x16 qp0 = usubs8(q0, p0);\
-	i8x16 sub0 = usubs8(uadds8(qp0, c128), pq0); /* save 128+q0-p0 for later */\
-	i8x16 abs0 = pq0 | qp0;\
-	i8x16 abs1 = usubs8(p1, p0) | usubs8(p0, p1);\
-	i8x16 abs2 = usubs8(q1, q0) | usubs8(q0, q1);\
-	i8x16 alpha = shuffle(ctx->alpha_v, shufab);\
-	i8x16 beta = shuffle(ctx->beta_v, shufab);\
-	i8x16 and = umin8(usubs8(alpha, abs0), usubs8(beta, umax8(abs1, abs2)));\
-	i8x16 ignoreSamplesFlags = and == 0;\
-	i8x16 cm1 = set8(-1);\
-	i8x16 ftC = (expand2(itC0) - cm1) & ~ignoreSamplesFlags;\
-	/* filter p0 and q0 (by offsetting signed to unsigned to apply pavg) */\
-	i8x16 sub1 = avg8(p1, q1 ^ cm1); /* 128+((p1-q1)>>1) */\
-	i8x16 x3 = avg8(sub0, avg8(sub1, set8(127))); /* 128+((q0-p0+((p1-q1)>>2)+1)>>1) */\
-	i8x16 delta = umin8(usubs8(x3, c128), ftC); /* delta if delta>0 */\
-	i8x16 ndelta = umin8(usubs8(c128, x3), ftC); /* -delta if delta<0 */\
-	p0 = usubs8(uadds8(p0, delta), ndelta);\
-	q0 = usubs8(uadds8(q0, ndelta), delta);}
-
-
-
-/**
- * Filter a single edge in place for bS=4.
- * 
- * The luma filter uses beta-1 thus should not be used with beta=0.
- */
-#define DEBLOCK_LUMA_HARD(p3, p2, p1, p0, q0, q1, q2, q3, palpha, pbeta) {\
-	/* compute the opposite of filterSamplesFlags, and condition masks for filtering modes */\
-	i8x16 alpha = set8(*(palpha));\
-	i8x16 beta = set8(*(pbeta));\
-	i8x16 abs0 = usubs8(p0, q0) | usubs8(q0, p0);\
-	i8x16 abs1 = usubs8(p1, p0) | usubs8(p0, p1);\
-	i8x16 abs2 = usubs8(q1, q0) | usubs8(q0, q1);\
-	i8x16 ignoreSamplesFlags = umin8(usubs8(alpha, abs0), usubs8(beta, umax8(abs1, abs2))) == 0;\
-	i8x16 c1 = set8(1);\
-	i8x16 condpq = usubs8(abs0, avg8(avg8(alpha, c1), (i8x16){})); /* abs0-((alpha>>2)+1) */\
-	i8x16 bm1 = (i8x16)beta - c1;\
-	i8x16 condp = (usubs8(usubs8(p2, p0) | usubs8(p0, p2), bm1) | condpq) == 0;\
-	i8x16 condq = (usubs8(usubs8(q2, q0) | usubs8(q0, q2), bm1) | condpq) == 0;\
-	/* compute p'0 and q'0 */\
-	i8x16 fix0 = (p0 ^ q0) & c1;\
-	i8x16 pq0 = avg8(p0, q0) - fix0;\
-	i8x16 and0 = fix0 ^ c1;\
-	i8x16 p2q1 = avg8(p2, q1) - ((p2 ^ q1) & c1); /* (p2+q1)/2 */\
-	i8x16 q2p1 = avg8(q2, p1) - ((q2 ^ p1) & c1); /* (q2+p1)/2 */\
-	i8x16 p21q1 = avg8(p2q1, p1) - ((p2q1 ^ p1) & and0); /* p21q1+pq0 == (p2q1+p1+p0+q0)/2 */\
-	i8x16 q21p1 = avg8(q2p1, q1) - ((q2p1 ^ q1) & and0); /* q21p1+pq0 == (q2p1+q1+p0+q0)/2 */\
-	i8x16 pp0a = avg8(p21q1, pq0); /* p'0 (first formula) */\
-	i8x16 qp0a = avg8(q21p1, pq0); /* q'0 (first formula) */\
-	i8x16 pp0b = avg8(p1, avg8(p0, q1) - ((p0 ^ q1) & c1)); /* p'0 (second formula) */\
-	i8x16 qp0b = avg8(q1, avg8(q0, p1) - ((q0 ^ p1) & c1)); /* q'0 (second formula) */\
-	p0 = ifelse_mask(ignoreSamplesFlags, p0, ifelse_mask(condp, pp0a, pp0b));\
-	q0 = ifelse_mask(ignoreSamplesFlags, q0, ifelse_mask(condq, qp0a, qp0b));\
-	/* compute p'1 and q'1 */\
-	i8x16 fcondp = condp & ~ignoreSamplesFlags;\
-	i8x16 fcondq = condq & ~ignoreSamplesFlags;\
-	i8x16 p21 = avg8(p2, p1) - ((p2 ^ p1) & and0); /* p21+pq0 == (p2+p1+p0+q0)/2 */\
-	i8x16 q21 = avg8(q2, q1) - ((q2 ^ q1) & and0); /* q21+pq0 == (q2+q1+q0+p1)/2 */\
-	i8x16 pp1 = avg8(p21, pq0); /* p'1 */\
-	i8x16 qp1 = avg8(q21, pq0); /* q'1 */\
-	p1 = ifelse_mask(fcondp, pp1, p1);\
-	q1 = ifelse_mask(fcondq, qp1, q1);\
-	/* compute p'2 and q'2 */\
-	i8x16 fix1 = ((p21 ^ pq0) & c1);\
-	i8x16 fix2 = ((q21 ^ pq0) & c1);\
-	i8x16 p210q0 = pp1 - fix1; /* (p2+p1+p0+q0)/4 */\
-	i8x16 q210p0 = qp1 - fix2; /* (q2+q1+q0+p0)/4 */\
-	i8x16 p3p2 = avg8(p3, p2) - ((p3 ^ p2) & (fix1 ^ c1)); /* p3p2+p210q0 == (p3+p2+(p2+p1+p0+q0)/2)/2 */\
-	i8x16 q3q2 = avg8(q3, q2) - ((q3 ^ q2) & (fix2 ^ c1)); /* q3q2+q210p0 == (q3+q2+(q2+q1+p0+q0)/2)/2 */\
-	i8x16 pp2 = avg8(p3p2, p210q0); /* p'2 */\
-	i8x16 qp2 = avg8(q3q2, q210p0); /* q'2 */\
-	p2 = ifelse_mask(fcondp, pp2, p2);\
-	q2 = ifelse_mask(fcondq, qp2, q2);}
-
-#define DEBLOCK_CHROMA_HARD(p1, p0, q0, q1, shufab) {\
-	/* compute the opposite of filterSamplesFlags */\
-	i8x16 abs0 = usubs8(p0, q0) | usubs8(q0, p0);\
-	i8x16 abs1 = usubs8(p1, p0) | usubs8(p0, p1);\
-	i8x16 abs2 = usubs8(q1, q0) | usubs8(q0, q1);\
-	i8x16 alpha = shuffle(ctx->alpha_v, shufab);\
-	i8x16 beta = shuffle(ctx->beta_v, shufab);\
-	i8x16 and = umin8(usubs8(alpha, abs0), usubs8(beta, umax8(abs1, abs2)));\
-	i8x16 ignoreSamplesFlags = and == 0;\
-	/* compute p'0 and q'0 */\
-	i8x16 c1 = set8(1);\
-	i8x16 pp0b = avg8(p1, avg8(p0, q1) - ((p0 ^ q1) & c1)); /* p'0 (second formula) */\
-	i8x16 qp0b = avg8(q1, avg8(q0, p1) - ((q0 ^ p1) & c1)); /* q'0 (second formula) */\
-	p0 = ifelse_mask(ignoreSamplesFlags, p0, pp0b);\
-	q0 = ifelse_mask(ignoreSamplesFlags, q0, qp0b);}
-
-
-
-/**
  * Helper functions
  */
 static always_inline i8x16 expand4(int32_t a) {
@@ -161,27 +17,283 @@ static always_inline i8x16 expand2(int64_t a) {
 
 
 /**
+ * Filter a single edge in place for bS in [0..3].
+ * tC0 should equal -1 for each position where bS=0 or beta=0.
+ * 
+ * I must acknowledge that I looked a LOT at ffmpeg's filters while developing
+ * these filters. They taught me many tricks to handle 9~10 bit operations on
+ * 8 bit hardware, so I owe them a lot of time saved. Thanks!
+ * 
+ * For 8-pixel chroma edges we filter both Cb and Cr in lower and upper halves
+ * of registers. In these cases note that alpha and beta may contain zero and
+ * non-zero values, so we cannot use alpha-1 or beta-1.
+ */
+#if defined(__SSE2__)
+	#define DEBLOCK_LUMA_SOFT(p2, p1, p0, q0, q1, q2, ialpha, ibeta, itC0) {\
+		/* compute the opposite of filterSamplesFlags as a mask, and transfer the mask bS=0 from tC0 */\
+		i8x16 pq0 = usubs8(p0, q0);\
+		i8x16 qp0 = usubs8(q0, p0);\
+		i8x16 sub0 = usubs8(uadds8(qp0, set8(-128)), pq0); /* save 128+q0-p0 for later */\
+		i8x16 abs0 = pq0 | qp0;\
+		i8x16 abs1 = usubs8(p1, p0) | usubs8(p0, p1);\
+		i8x16 abs2 = usubs8(q1, q0) | usubs8(q0, q1);\
+		i8x16 beta = set8(ibeta);\
+		i8x16 and = umin8(usubs8(set8(ialpha), abs0), usubs8(beta, umax8(abs1, abs2)));\
+		i8x16 tC0 = expand4(itC0);\
+		i8x16 ignoreSamplesFlags = (and == 0) | (tC0 < 0);\
+		i8x16 ftC0 = tC0 & ~ignoreSamplesFlags;\
+		/* filter p1 and q1 (same as ffmpeg, I couldn't find better) */\
+		i8x16 c1 = set8(1);\
+		i8x16 x0 = avg8(p0, q0); /* (p0+q0+1)>>1 */\
+		i8x16 x1 = avg8(p2, x0) - ((p2 ^ x0) & c1); /* (p2+((p0+q0+1)>>1))>>1 */\
+		i8x16 x2 = avg8(q2, x0) - ((q2 ^ x0) & c1); /* (q2+((p0+q0+1)>>1))>>1 */\
+		i8x16 pp1 = umin8(umax8(x1, usubs8(p1, ftC0)), uadds8(p1, ftC0));\
+		i8x16 qp1 = umin8(umax8(x2, usubs8(q1, ftC0)), uadds8(q1, ftC0));\
+		i8x16 cm1 = set8(-1);\
+		i8x16 bm1 = (i8x16)beta + cm1;\
+		i8x16 sub1 = avg8(p1, q1 ^ cm1); /* save 128+((p1-q1)>>1) for later */\
+		i8x16 apltb = usubs8(usubs8(p2, p0), bm1) == usubs8(usubs8(p0, p2), bm1);\
+		i8x16 aqltb = usubs8(usubs8(q2, q0), bm1) == usubs8(usubs8(q0, q2), bm1);\
+		p1 = ifelse_mask(apltb, pp1, p1);\
+		q1 = ifelse_mask(aqltb, qp1, q1);\
+		/* filter p0 and q0 (by offsetting signed to unsigned to apply pavg) */\
+		i8x16 ftC = (ftC0 - apltb - aqltb) & ~ignoreSamplesFlags;\
+		i8x16 x3 = avg8(sub0, avg8(sub1, set8(127))); /* 128+((q0-p0+((p1-q1)>>2)+1)>>1) */\
+		i8x16 c128 = set8(-128);\
+		i8x16 delta = umin8(usubs8(x3, c128), ftC); /* delta if delta>0 */\
+		i8x16 ndelta = umin8(usubs8(c128, x3), ftC); /* -delta if delta<0 */\
+		p0 = usubs8(uadds8(p0, delta), ndelta);\
+		q0 = usubs8(uadds8(q0, ndelta), delta);}
+	#define DEBLOCK_CHROMA_SOFT(p1, p0, q0, q1, ialpha, ibeta, itC0) {\
+		/* compute the opposite of filterSamplesFlags and apply if to tC */\
+		i8x16 c128 = set8(-128);\
+		i8x16 pq0 = usubs8(p0, q0);\
+		i8x16 qp0 = usubs8(q0, p0);\
+		i8x16 sub0 = usubs8(uadds8(qp0, c128), pq0); /* save 128+q0-p0 for later */\
+		i8x16 abs0 = pq0 | qp0;\
+		i8x16 abs1 = usubs8(p1, p0) | usubs8(p0, p1);\
+		i8x16 abs2 = usubs8(q1, q0) | usubs8(q0, q1);\
+		i8x16 shufab = {1, 1, 1, 1, 1, 1, 1, 1, 2, 2, 2, 2, 2, 2, 2, 2};\
+		i8x16 alpha = shuffle((i32x4){ialpha}, shufab);\
+		i8x16 beta = shuffle((i32x4){ibeta}, shufab);\
+		i8x16 and = umin8(usubs8(alpha, abs0), usubs8(beta, umax8(abs1, abs2)));\
+		i8x16 ignoreSamplesFlags = and == 0;\
+		i8x16 cm1 = set8(-1);\
+		i8x16 ftC = (expand2(itC0) - cm1) & ~ignoreSamplesFlags;\
+		/* filter p0 and q0 (by offsetting signed to unsigned to apply pavg) */\
+		i8x16 sub1 = avg8(p1, q1 ^ cm1); /* 128+((p1-q1)>>1) */\
+		i8x16 x3 = avg8(sub0, avg8(sub1, set8(127))); /* 128+((q0-p0+((p1-q1)>>2)+1)>>1) */\
+		i8x16 delta = umin8(usubs8(x3, c128), ftC); /* delta if delta>0 */\
+		i8x16 ndelta = umin8(usubs8(c128, x3), ftC); /* -delta if delta<0 */\
+		p0 = usubs8(uadds8(p0, delta), ndelta);\
+		q0 = usubs8(uadds8(q0, ndelta), delta);}
+#elif defined(__ARM_NEON)
+	#define DEBLOCK_LUMA_SOFT(p2, p1, p0, q0, q1, q2, ialpha, ibeta, itC0) {\
+		/* compute all common masks */\
+		u8x16 alpha = set8(ialpha);\
+		u8x16 beta = set8(ibeta);\
+		i8x16 tC0 = expand4(itC0);\
+		u8x16 abs0 = vabdq_u8(p0, q0);\
+		u8x16 abs1 = vmaxq_u8(vabdq_u8(p1, p0), vabdq_u8(q1, q0));\
+		i8x16 filterSamplesFlag = (tC0 >= 0) & (abs0 < alpha) & (abs1 < beta);\
+		i8x16 ftC0 = tC0 & filterSamplesFlag;\
+		i8x16 apltb = (u8x16)vabdq_u8(p2, p0) < beta;\
+		i8x16 aqltb = (u8x16)vabdq_u8(q2, q0) < beta;\
+		/* filter p1 and q1 (same as ffmpeg, I couldn't find better) */\
+		u8x16 pq0 = vrhaddq_u8(p0, q0);\
+		i8x16 pq1 = vhsubq_u8(p1, q1); /* save (p1+q1)>>1 for later */\
+		u8x16 lop1 = vqsubq_u8(p1, ftC0);\
+		u8x16 hip1 = vqaddq_u8(p1, ftC0);\
+		u8x16 loq1 = vqsubq_u8(q1, ftC0);\
+		u8x16 hiq1 = vqaddq_u8(q1, ftC0);\
+		u8x16 pp1 = vminq_u8(vmaxq_u8(vhaddq_u8(p2, pq0), lop1), hip1);\
+		u8x16 qp1 = vminq_u8(vmaxq_u8(vhaddq_u8(q2, pq0), loq1), hiq1);\
+		p1 = ifelse_mask(apltb, pp1, p1);\
+		q1 = ifelse_mask(aqltb, qp1, q1);\
+		/* filter p0 and q0 (by offsetting unsigned to signed to properly saturate q0-p0) */\
+		i8x16 tC = (ftC0 - apltb - aqltb) & filterSamplesFlag;\
+		i8x16 v0 = vrhaddq_s8(vqsubq_s8(q0 + -128, p0 + -128), pq1 >> 1);\
+		i8x16 delta = vmaxq_s8(vminq_s8(v0, tC), -tC);\
+		p0 = vsqaddq_u8(p0, delta);\
+		q0 = vsqaddq_u8(q0, -delta);}
+	#define DEBLOCK_CHROMA_SOFT(p1, p0, q0, q1, ialpha, ibeta, itC0) {\
+		/* compute all common masks */\
+		i8x16 shufab = {1, 1, 1, 1, 1, 1, 1, 1, 2, 2, 2, 2, 2, 2, 2, 2};\
+		i8x16 alpha = shuffle((i32x4){ialpha}, shufab);\
+		i8x16 beta = shuffle((i32x4){ibeta}, shufab);\
+		i8x16 tC0 = expand2(itC0);\
+		u8x16 abs0 = vabdq_u8(p0, q0);\
+		u8x16 abs1 = vmaxq_u8(vabdq_u8(p1, p0), vabdq_u8(q1, q0));\
+		i8x16 filterSamplesFlag = (tC0 >= 0) & (abs0 < alpha) & (abs1 < beta);\
+		/* filter p0 and q0 (by offsetting unsigned to signed to properly saturate q0-p0) */\
+		i8x16 c128 = set8(-128);\
+		i8x16 pq1 = vhsubq_u8(p1, q1);\
+		i8x16 tC = (tC0 - -1) & filterSamplesFlag;\
+		i8x16 v0 = vrhaddq_s8(vqsubq_s8(q0 + c128, p0 + c128), pq1 >> 1);\
+		i8x16 delta = vmaxq_s8(vminq_s8(v0, tC), -tC);\
+		p0 = vsqaddq_u8(p0, delta);\
+		q0 = vsqaddq_u8(q0, -delta);}
+#endif
+
+
+
+/**
+ * Filter a single edge in place for bS=4.
+ * 
+ * The luma filter uses beta-1 thus should not be used with beta=0.
+ */
+#if defined(__SSE2__)
+	#define DEBLOCK_LUMA_HARD(p3, p2, p1, p0, q0, q1, q2, q3, ialpha, ibeta) {\
+		/* compute the opposite of filterSamplesFlags, and condition masks for filtering modes */\
+		i8x16 alpha = set8(ialpha);\
+		i8x16 beta = set8(ibeta);\
+		i8x16 abs0 = usubs8(p0, q0) | usubs8(q0, p0);\
+		i8x16 abs1 = usubs8(p1, p0) | usubs8(p0, p1);\
+		i8x16 abs2 = usubs8(q1, q0) | usubs8(q0, q1);\
+		i8x16 ignoreSamplesFlags = umin8(usubs8(alpha, abs0), usubs8(beta, umax8(abs1, abs2))) == 0;\
+		i8x16 c1 = set8(1);\
+		i8x16 zero = {};\
+		i8x16 condpq = usubs8(abs0, avg8(avg8(alpha, c1), zero)); /* abs0-((alpha>>2)+1) */\
+		i8x16 bm1 = (i8x16)beta - c1;\
+		i8x16 condp = (usubs8(usubs8(p2, p0) | usubs8(p0, p2), bm1) | condpq) == zero;\
+		i8x16 condq = (usubs8(usubs8(q2, q0) | usubs8(q0, q2), bm1) | condpq) == zero;\
+		/* compute p'0 and q'0 */\
+		i8x16 fix0 = (p0 ^ q0) & c1;\
+		i8x16 pq0 = avg8(p0, q0) - fix0;\
+		i8x16 and0 = fix0 ^ c1;\
+		i8x16 p2q1 = avg8(p2, q1) - ((p2 ^ q1) & c1); /* (p2+q1)/2 */\
+		i8x16 q2p1 = avg8(q2, p1) - ((q2 ^ p1) & c1); /* (q2+p1)/2 */\
+		i8x16 p21q1 = avg8(p2q1, p1) - ((p2q1 ^ p1) & and0); /* p21q1+pq0 == (p2q1+p1+p0+q0)/2 */\
+		i8x16 q21p1 = avg8(q2p1, q1) - ((q2p1 ^ q1) & and0); /* q21p1+pq0 == (q2p1+q1+p0+q0)/2 */\
+		i8x16 pp0a = avg8(p21q1, pq0); /* p'0 (first formula) */\
+		i8x16 qp0a = avg8(q21p1, pq0); /* q'0 (first formula) */\
+		i8x16 pp0b = avg8(p1, avg8(p0, q1) - ((p0 ^ q1) & c1)); /* p'0 (second formula) */\
+		i8x16 qp0b = avg8(q1, avg8(q0, p1) - ((q0 ^ p1) & c1)); /* q'0 (second formula) */\
+		p0 = ifelse_mask(ignoreSamplesFlags, p0, ifelse_mask(condp, pp0a, pp0b));\
+		q0 = ifelse_mask(ignoreSamplesFlags, q0, ifelse_mask(condq, qp0a, qp0b));\
+		/* compute p'1 and q'1 */\
+		i8x16 fcondp = condp & ~ignoreSamplesFlags;\
+		i8x16 fcondq = condq & ~ignoreSamplesFlags;\
+		i8x16 p21 = avg8(p2, p1) - ((p2 ^ p1) & and0); /* p21+pq0 == (p2+p1+p0+q0)/2 */\
+		i8x16 q21 = avg8(q2, q1) - ((q2 ^ q1) & and0); /* q21+pq0 == (q2+q1+q0+p1)/2 */\
+		i8x16 pp1 = avg8(p21, pq0); /* p'1 */\
+		i8x16 qp1 = avg8(q21, pq0); /* q'1 */\
+		p1 = ifelse_mask(fcondp, pp1, p1);\
+		q1 = ifelse_mask(fcondq, qp1, q1);\
+		/* compute p'2 and q'2 */\
+		i8x16 fix1 = ((p21 ^ pq0) & c1);\
+		i8x16 fix2 = ((q21 ^ pq0) & c1);\
+		i8x16 p210q0 = pp1 - fix1; /* (p2+p1+p0+q0)/4 */\
+		i8x16 q210p0 = qp1 - fix2; /* (q2+q1+q0+p0)/4 */\
+		i8x16 p3p2 = avg8(p3, p2) - ((p3 ^ p2) & (fix1 ^ c1)); /* p3p2+p210q0 == (p3+p2+(p2+p1+p0+q0)/2)/2 */\
+		i8x16 q3q2 = avg8(q3, q2) - ((q3 ^ q2) & (fix2 ^ c1)); /* q3q2+q210p0 == (q3+q2+(q2+q1+p0+q0)/2)/2 */\
+		i8x16 pp2 = avg8(p3p2, p210q0); /* p'2 */\
+		i8x16 qp2 = avg8(q3q2, q210p0); /* q'2 */\
+		p2 = ifelse_mask(fcondp, pp2, p2);\
+		q2 = ifelse_mask(fcondq, qp2, q2);}
+	#define DEBLOCK_CHROMA_HARD(p1, p0, q0, q1, ialpha, ibeta) {\
+		/* compute the opposite of filterSamplesFlags */\
+		i8x16 abs0 = usubs8(p0, q0) | usubs8(q0, p0);\
+		i8x16 abs1 = usubs8(p1, p0) | usubs8(p0, p1);\
+		i8x16 abs2 = usubs8(q1, q0) | usubs8(q0, q1);\
+		i8x16 shufab = {1, 1, 1, 1, 1, 1, 1, 1, 2, 2, 2, 2, 2, 2, 2, 2};\
+		i8x16 alpha = shuffle((i32x4){ialpha}, shufab);\
+		i8x16 beta = shuffle((i32x4){ibeta}, shufab);\
+		i8x16 and = umin8(usubs8(alpha, abs0), usubs8(beta, umax8(abs1, abs2)));\
+		i8x16 ignoreSamplesFlags = and == 0;\
+		/* compute p'0 and q'0 */\
+		i8x16 c1 = set8(1);\
+		i8x16 pp0b = avg8(p1, avg8(p0, q1) - ((p0 ^ q1) & c1)); /* p'0 (second formula) */\
+		i8x16 qp0b = avg8(q1, avg8(q0, p1) - ((q0 ^ p1) & c1)); /* q'0 (second formula) */\
+		p0 = ifelse_mask(ignoreSamplesFlags, p0, pp0b);\
+		q0 = ifelse_mask(ignoreSamplesFlags, q0, qp0b);}
+#elif defined(__ARM_NEON)
+	#define DEBLOCK_LUMA_HARD(p3, p2, p1, p0, q0, q1, q2, q3, ialpha, ibeta) {\
+		/* common masks */\
+		u8x16 alpha = set8(ialpha);\
+		u8x16 beta = set8(ibeta);\
+		u8x16 abs0 = vabdq_u8(p0, q0);\
+		u8x16 abs1 = vmaxq_u8(vabdq_u8(p1, p0), vabdq_u8(q1, q0));\
+		i8x16 filterSamplesFlag = (abs0 < alpha) & (abs1 < beta);\
+		i8x16 condpq = abs0 < (alpha >> 2) + 2;\
+		i8x16 condp = ((u8x16)vabdq_u8(p2, p0) < beta) & condpq;\
+		i8x16 condq = ((u8x16)vabdq_u8(q2, q0) < beta) & condpq;\
+		/* common wide sums */\
+		u16x8 p10l = vaddl_u8(vget_low_u8(p1), vget_low_u8(p0));\
+		u16x8 p10h = vaddl_high_u8(p1, p0);\
+		u16x8 q01l = vaddl_u8(vget_low_u8(q0), vget_low_u8(q1));\
+		u16x8 q01h = vaddl_high_u8(q0, q1);\
+		u16x8 p210q0l = p10l + (u16x8)vaddl_u8(vget_low_u8(p2), vget_low_u8(q0));\
+		u16x8 p210q0h = p10h + (u16x8)vaddl_high_u8(p2, q0);\
+		u16x8 p0q012l = q01l + (u16x8)vaddl_u8(vget_low_u8(p0), vget_low_u8(q2));\
+		u16x8 p0q012h = q01h + (u16x8)vaddl_high_u8(p0, q2);\
+		u16x8 p10q01l = p10l + q01l;\
+		u16x8 p10q01h = p10h + q01h;\
+		/* compute p'0 and q'0 */\
+		u8x16 pp0a = shrrpu16(p210q0l + p10q01l, p210q0h + p10q01h, 3); /* p'0 (first formula) */\
+		u8x16 qp0a = shrrpu16(p10q01l + p0q012l, p10q01h + p0q012h, 3); /* q'0 (first formula) */\
+		u8x16 pp0b = vrhaddq_u8(p1, vhaddq_u8(p0, q1)); /* p'0 (second formula) */\
+		u8x16 qp0b = vrhaddq_u8(q1, vhaddq_u8(q0, p1)); /* q'0 (second formula) */\
+		p0 = ifelse_mask(filterSamplesFlag, ifelse_mask(condp, pp0a, pp0b), p0);\
+		q0 = ifelse_mask(filterSamplesFlag, ifelse_mask(condq, qp0a, qp0b), q0);\
+		/* compute p'1 and q'1 */\
+		i8x16 fcondp = condp & filterSamplesFlag;\
+		i8x16 fcondq = condq & filterSamplesFlag;\
+		p1 = ifelse_mask(fcondp, shrrpu16(p210q0l, p210q0h, 2), p1);\
+		q1 = ifelse_mask(fcondq, shrrpu16(p0q012l, p0q012h, 2), q1);\
+		/* compute p'2 and q'2 */\
+		u16x8 p32l = vaddl_u8(vget_low_u8(p3), vget_low_u8(p2));\
+		u16x8 p32h = vaddl_high_u8(p3, p2);\
+		u16x8 q23l = vaddl_u8(vget_low_u8(q2), vget_low_u8(q3));\
+		u16x8 q23h = vaddl_high_u8(q2, q3);\
+		p2 = ifelse_mask(fcondp, shrrpu16(p32l + p210q0l, p32h + p210q0h, 3), p2);\
+		q2 = ifelse_mask(fcondq, shrrpu16(q23l + p0q012l, q23h + p0q012h, 3), q2);}
+	#define DEBLOCK_CHROMA_HARD(p1, p0, q0, q1, ialpha, ibeta) {\
+		i8x16 shufab = {1, 1, 1, 1, 1, 1, 1, 1, 2, 2, 2, 2, 2, 2, 2, 2};\
+		i8x16 alpha = shuffle((i32x4){ialpha}, shufab);\
+		i8x16 beta = shuffle((i32x4){ibeta}, shufab);\
+		u8x16 abs0 = vabdq_u8(p0, q0);\
+		u8x16 abs1 = vmaxq_u8(vabdq_u8(p1, p0), vabdq_u8(q1, q0));\
+		i8x16 filterSamplesFlag = (abs0 < alpha) & (abs1 < beta);\
+		p0 = ifelse_mask(filterSamplesFlag, vrhaddq_u8(p1, vhaddq_u8(p0, q1)), p0);\
+		q0 = ifelse_mask(filterSamplesFlag, vrhaddq_u8(q1, vhaddq_u8(q0, p1)), q0);}
+#endif
+
+
+
+/**
+ * Efficient addressing for both Intel and ARM architectures.
+ * Call INIT_PX(p, stride) once to compute anchor addresses, then PX(x,y) will
+ * return p + x + y * stride.
+ */
+#if defined(__SSE2__)
+	#define INIT_PX(p, stride) size_t _stride = (stride); ssize_t _nstride = -_stride; uint8_t * restrict _p0 = (p), * restrict _p7 = _p0 + _stride * 8 + _nstride, * restrict _pE = _p7 + _stride * 8 + _nstride
+	#define PX(x, y) (__builtin_choose_expr(y <= 2 || y == 4, _p0, __builtin_choose_expr(y <= 9 || y == 11, _p7, _pE)) +\
+		__builtin_choose_expr(y < 0, x - y * _nstride, __builtin_choose_expr(y == 0 || y == 7 || y == 14, x, __builtin_choose_expr(y == 1 || y == 8 || y == 15, x + _stride, __builtin_choose_expr(y == 2 || y == 9, x + _stride * 2, __builtin_choose_expr(y == 3 || y == 10, x + _nstride * 4, __builtin_choose_expr(y == 4 || y == 11, x + _stride * 4, __builtin_choose_expr(y == 5 || y == 12, x + _nstride * 2, x + _nstride))))))))
+#elif defined(__ARM_NEON)
+	#define INIT_PX(p, stride) size_t _stride = (stride), _stridem2 = _stride - 2, _stridem4 = _stride - 4, _stridem8 = _stride - 8; uint8_t * restrict _p0 = (p), * restrict _p2 = _p0 + _stride * 2, * restrict _p4 = _p0 + _stride * 4, * restrict _p6 = _p2 + _stride * 4, * restrict _p8 = _p0 + _stride * 8, * restrict _pA = _p2 + _stride * 8, * restrict _pC = _p4 + _stride * 8, * restrict _pE = _p6 + _stride * 8
+	#define PX(x, y) (__builtin_choose_expr(y < 2, _p0, __builtin_choose_expr(y < 4, _p2, __builtin_choose_expr(y < 6, _p4, __builtin_choose_expr(y < 8, _p6, __builtin_choose_expr(y < 10, _p8, __builtin_choose_expr(y < 12, _pA, __builtin_choose_expr(y < 14, _pC, _pE))))))) +\
+		__builtin_choose_expr(y < 0 || y > 15, x + y * _stride, __builtin_choose_expr((y & 1) == 0, x, __builtin_choose_expr(x == 0, _stride, __builtin_choose_expr(x == -2, _stridem2, __builtin_choose_expr(x == -4, _stridem4, __builtin_choose_expr(x == -8, _stridem8, x + _stride))))))
+#endif
+
+
+
+/**
  * Deblock both chroma planes of the current macroblock in place.
  */
-static noinline void deblock_CbCr_8bit(Edge264Context *ctx, size_t stride, ssize_t nstride, size_t stride7)
-{
-	static const i8x16 shuf_a = {9, 9, 9, 9, 9, 9, 9, 9, 10, 10, 10, 10, 10, 10, 10, 10};
-	static const i8x16 shuf_cg = {1, 1, 1, 1, 1, 1, 1, 1, 2, 2, 2, 2, 2, 2, 2, 2};
-	static const i8x16 shuf_e = {13, 13, 13, 13, 13, 13, 13, 13, 14, 14, 14, 14, 14, 14, 14, 14};
+static void deblock_CbCr_8bit(Edge264Context *ctx) {
+	INIT_PX(ctx->samples_mb[1], ctx->t.stride[1] >> 1);
 	i8x16 v0, v1, v2, v3, v4, v5, v6, v7;
 	if (mb->f.filter_edges & 1) {
 		// load and transpose both 12x8 matrices (with left macroblock)
-		uint8_t * restrict px0 = ctx->samples_mb[1] - 8;
-		uint8_t * restrict px7 = px0 + stride7;
-		uint8_t * restrict pxE = px7 + stride7;
-		i8x16 xa0 = load128(px0              );
-		i8x16 xa8 = load128(px0 +  stride    );
-		i8x16 xa1 = load128(px0 +  stride * 2);
-		i8x16 xa9 = load128(px7 + nstride * 4);
-		i8x16 xa2 = load128(px0 +  stride * 4);
-		i8x16 xaA = load128(px7 + nstride * 2);
-		i8x16 xa3 = load128(px7 + nstride    );
-		i8x16 xaB = load128(px7              );
+		i8x16 xa0 = load128(PX(-8, 0));
+		i8x16 xa8 = load128(PX(-8, 1));
+		i8x16 xa1 = load128(PX(-8, 2));
+		i8x16 xa9 = load128(PX(-8, 3));
+		i8x16 xa2 = load128(PX(-8, 4));
+		i8x16 xaA = load128(PX(-8, 5));
+		i8x16 xa3 = load128(PX(-8, 6));
+		i8x16 xaB = load128(PX(-8, 7));
 		i8x16 xb0 = ziplo8(xa0, xa1);
 		i8x16 xb1 = ziphi8(xa0, xa1);
 		i8x16 xb2 = ziplo8(xa2, xa3);
@@ -196,14 +308,14 @@ static noinline void deblock_CbCr_8bit(Edge264Context *ctx, size_t stride, ssize
 		i8x16 xc6 = ziphi16(xb8, xbA);
 		i8x16 xc7 = ziplo16(xb9, xbB);
 		i8x16 xc8 = ziphi16(xb9, xbB);
-		i8x16 xa4 = load128(px7 +  stride    );
-		i8x16 xaC = load128(px7 +  stride * 2);
-		i8x16 xa5 = load128(pxE + nstride * 4);
-		i8x16 xaD = load128(px7 +  stride * 4);
-		i8x16 xa6 = load128(pxE + nstride * 2);
-		i8x16 xaE = load128(pxE + nstride    );
-		i8x16 xa7 = load128(pxE              );
-		i8x16 xaF = load128(pxE +  stride    );
+		i8x16 xa4 = load128(PX(-8, 8));
+		i8x16 xaC = load128(PX(-8, 9));
+		i8x16 xa5 = load128(PX(-8, 10));
+		i8x16 xaD = load128(PX(-8, 11));
+		i8x16 xa6 = load128(PX(-8, 12));
+		i8x16 xaE = load128(PX(-8, 13));
+		i8x16 xa7 = load128(PX(-8, 14));
+		i8x16 xaF = load128(PX(-8, 15));
 		i8x16 xb4 = ziplo8(xa4, xa5);
 		i8x16 xb5 = ziphi8(xa4, xa5);
 		i8x16 xb6 = ziplo8(xa6, xa7);
@@ -243,46 +355,40 @@ static noinline void deblock_CbCr_8bit(Edge264Context *ctx, size_t stride, ssize
 		if (mbA->f.mbIsInterFlag & mb->f.mbIsInterFlag) {
 			int64_t tC0a = ctx->tC0_l[4];
 			if (tC0a != -1)
-				DEBLOCK_CHROMA_SOFT(vY, vZ, v0, v1, shuf_a, tC0a);
+				DEBLOCK_CHROMA_SOFT(vY, vZ, v0, v1, ctx->alpha_s[2], ctx->beta_s[2], tC0a);
 		} else {
-			DEBLOCK_CHROMA_HARD(vY, vZ, v0, v1, shuf_a);
+			DEBLOCK_CHROMA_HARD(vY, vZ, v0, v1, ctx->alpha_s[2], ctx->beta_s[2]);
 		}
 		
 		// store vY/vZ into the left macroblock
 		i16x8 xf0 = ziplo8(vY, vZ);
 		i16x8 xf1 = ziphi8(vY, vZ);
-		px0 = ctx->samples_mb[1] - 2;
-		px7 = px0 + stride7;
-		pxE = px7 + stride7;
-		*(int16_t *)(px0              ) = xf0[0];
-		*(int16_t *)(px0 +  stride    ) = xf1[0];
-		*(int16_t *)(px0 +  stride * 2) = xf0[1];
-		*(int16_t *)(px7 + nstride * 4) = xf1[1];
-		*(int16_t *)(px0 +  stride * 4) = xf0[2];
-		*(int16_t *)(px7 + nstride * 2) = xf1[2];
-		*(int16_t *)(px7 + nstride    ) = xf0[3];
-		*(int16_t *)(px7              ) = xf1[3];
-		*(int16_t *)(px7 +  stride    ) = xf0[4];
-		*(int16_t *)(px7 +  stride * 2) = xf1[4];
-		*(int16_t *)(pxE + nstride * 4) = xf0[5];
-		*(int16_t *)(px7 +  stride * 4) = xf1[5];
-		*(int16_t *)(pxE + nstride * 2) = xf0[6];
-		*(int16_t *)(pxE + nstride    ) = xf1[6];
-		*(int16_t *)(pxE              ) = xf0[7];
-		*(int16_t *)(pxE +  stride    ) = xf1[7];
+		*(int16_t *)PX(-2, 0) = xf0[0];
+		*(int16_t *)PX(-2, 1) = xf1[0];
+		*(int16_t *)PX(-2, 2) = xf0[1];
+		*(int16_t *)PX(-2, 3) = xf1[1];
+		*(int16_t *)PX(-2, 4) = xf0[2];
+		*(int16_t *)PX(-2, 5) = xf1[2];
+		*(int16_t *)PX(-2, 6) = xf0[3];
+		*(int16_t *)PX(-2, 7) = xf1[3];
+		*(int16_t *)PX(-2, 8) = xf0[4];
+		*(int16_t *)PX(-2, 9) = xf1[4];
+		*(int16_t *)PX(-2, 10) = xf0[5];
+		*(int16_t *)PX(-2, 11) = xf1[5];
+		*(int16_t *)PX(-2, 12) = xf0[6];
+		*(int16_t *)PX(-2, 13) = xf1[6];
+		*(int16_t *)PX(-2, 14) = xf0[7];
+		*(int16_t *)PX(-2, 15) = xf1[7];
 	} else {
 		// load and transpose both 8x8 matrices
-		uint8_t * restrict px0 = ctx->samples_mb[1];
-		uint8_t * restrict px7 = px0 + stride7;
-		uint8_t * restrict pxE = px7 + stride7;
-		i8x16 xa0 = load64(px0              );
-		i8x16 xa8 = load64(px0 +  stride    );
-		i8x16 xa1 = load64(px0 +  stride * 2);
-		i8x16 xa9 = load64(px7 + nstride * 4);
-		i8x16 xa2 = load64(px0 +  stride * 4);
-		i8x16 xaA = load64(px7 + nstride * 2);
-		i8x16 xa3 = load64(px7 + nstride    );
-		i8x16 xaB = load64(px7              );
+		i8x16 xa0 = load64(PX(0, 0));
+		i8x16 xa8 = load64(PX(0, 1));
+		i8x16 xa1 = load64(PX(0, 2));
+		i8x16 xa9 = load64(PX(0, 3));
+		i8x16 xa2 = load64(PX(0, 4));
+		i8x16 xaA = load64(PX(0, 5));
+		i8x16 xa3 = load64(PX(0, 6));
+		i8x16 xaB = load64(PX(0, 7));
 		i8x16 xb0 = ziplo8(xa0, xa1);
 		i8x16 xb1 = ziplo8(xa2, xa3);
 		i8x16 xb4 = ziplo8(xa8, xa9);
@@ -291,14 +397,14 @@ static noinline void deblock_CbCr_8bit(Edge264Context *ctx, size_t stride, ssize
 		i8x16 xc1 = ziphi16(xb0, xb1);
 		i8x16 xc4 = ziplo16(xb4, xb5);
 		i8x16 xc5 = ziphi16(xb4, xb5);
-		i8x16 xa4 = load64(px7 +  stride    );
-		i8x16 xaC = load64(px7 +  stride * 2);
-		i8x16 xa5 = load64(pxE + nstride * 4);
-		i8x16 xaD = load64(px7 +  stride * 4);
-		i8x16 xa6 = load64(pxE + nstride * 2);
-		i8x16 xaE = load64(pxE + nstride    );
-		i8x16 xa7 = load64(pxE              );
-		i8x16 xaF = load64(pxE +  stride    );
+		i8x16 xa4 = load64(PX(0, 8));
+		i8x16 xaC = load64(PX(0, 9));
+		i8x16 xa5 = load64(PX(0, 10));
+		i8x16 xaD = load64(PX(0, 11));
+		i8x16 xa6 = load64(PX(0, 12));
+		i8x16 xaE = load64(PX(0, 13));
+		i8x16 xa7 = load64(PX(0, 14));
+		i8x16 xaF = load64(PX(0, 15));
 		i8x16 xb2 = ziplo8(xa4, xa5);
 		i8x16 xb3 = ziplo8(xa6, xa7);
 		i8x16 xb6 = ziplo8(xaC, xaD);
@@ -328,7 +434,7 @@ static noinline void deblock_CbCr_8bit(Edge264Context *ctx, size_t stride, ssize
 	// second vertical edge
 	int64_t tC0c = ctx->tC0_l[5];
 	if (tC0c != -1)
-		DEBLOCK_CHROMA_SOFT(v2, v3, v4, v5, shuf_cg, tC0c);
+		DEBLOCK_CHROMA_SOFT(v2, v3, v4, v5, ctx->alpha_s[0], ctx->beta_s[0], tC0c);
 	
 	// transpose both 8x8 matrices
 	i8x16 xa0 = ziplo8(v0, v1);
@@ -365,46 +471,41 @@ static noinline void deblock_CbCr_8bit(Edge264Context *ctx, size_t stride, ssize
 	i8x16 h7 = ziphi64(xc3, xc7);
 	
 	// first horizontal edge
-	uint8_t * restrict px0 = ctx->samples_mb[1];
-	uint8_t * restrict px7 = px0 + stride7;
-	uint8_t * restrict pxE = px7 + stride7;
 	if (mb->f.filter_edges & 2) {
-		i8x16 hY = (i64x2){*(int64_t *)(px0 + nstride * 4), *(int64_t *)(px0 + nstride * 3)};
-		i8x16 hZ = (i64x2){*(int64_t *)(px0 + nstride * 2), *(int64_t *)(px0 + nstride    )};
+		i8x16 hY = (i64x2){*(int64_t *)(PX(0, -4)), *(int64_t *)(PX(0, -3))};
+		i8x16 hZ = (i64x2){*(int64_t *)(PX(0, -2)), *(int64_t *)(PX(0, -1))};
 		if (mbB->f.mbIsInterFlag & mb->f.mbIsInterFlag) {
 			int64_t tC0e = ctx->tC0_l[6];
 			if (tC0e != -1)
-				DEBLOCK_CHROMA_SOFT(hY, hZ, h0, h1, shuf_e, tC0e);
+				DEBLOCK_CHROMA_SOFT(hY, hZ, h0, h1, ctx->alpha_s[3], ctx->beta_s[3], tC0e);
 		} else {
-			DEBLOCK_CHROMA_HARD(hY, hZ, h0, h1, shuf_e);
+			DEBLOCK_CHROMA_HARD(hY, hZ, h0, h1, ctx->alpha_s[3], ctx->beta_s[3]);
 		}
-		*(int64_t *)(px0 + nstride * 4) = ((i64x2)hY)[0];
-		*(int64_t *)(px0 + nstride * 3) = ((i64x2)hY)[1];
-		*(int64_t *)(px0 + nstride * 2) = ((i64x2)hZ)[0];
-		*(int64_t *)(px0 + nstride    ) = ((i64x2)hZ)[1];
+		*(int64_t *)PX(0, -2) = ((i64x2)hZ)[0];
+		*(int64_t *)PX(0, -1) = ((i64x2)hZ)[1];
 	}
 	mb->f.filter_edges = 0; // prevent redundant deblocking with deblock_idc==2 and ASO
-	*(int64_t *)(px0              ) = ((i64x2)h0)[0];
-	*(int64_t *)(px0 +  stride    ) = ((i64x2)h0)[1];
-	*(int64_t *)(px0 +  stride * 2) = ((i64x2)h1)[0];
-	*(int64_t *)(px7 + nstride * 4) = ((i64x2)h1)[1];
+	*(int64_t *)PX(0, 0) = ((i64x2)h0)[0];
+	*(int64_t *)PX(0, 1) = ((i64x2)h0)[1];
+	*(int64_t *)PX(0, 2) = ((i64x2)h1)[0];
+	*(int64_t *)PX(0, 3) = ((i64x2)h1)[1];
 	
 	// second horizontal edge
 	int64_t tC0g = ctx->tC0_l[7];
 	if (tC0g != -1)
-		DEBLOCK_CHROMA_SOFT(h2, h3, h4, h5, shuf_cg, tC0g);
-	*(int64_t *)(px0 +  stride * 4) = ((i64x2)h2)[0];
-	*(int64_t *)(px7 + nstride * 2) = ((i64x2)h2)[1];
-	*(int64_t *)(px7 + nstride    ) = ((i64x2)h3)[0];
-	*(int64_t *)(px7              ) = ((i64x2)h3)[1];
-	*(int64_t *)(px7 +  stride    ) = ((i64x2)h4)[0];
-	*(int64_t *)(px7 +  stride * 2) = ((i64x2)h4)[1];
-	*(int64_t *)(pxE + nstride * 4) = ((i64x2)h5)[0];
-	*(int64_t *)(px7 +  stride * 4) = ((i64x2)h5)[1];
-	*(int64_t *)(pxE + nstride * 2) = ((i64x2)h6)[0];
-	*(int64_t *)(pxE + nstride    ) = ((i64x2)h6)[1];
-	*(int64_t *)(pxE              ) = ((i64x2)h7)[0];
-	*(int64_t *)(pxE +  stride    ) = ((i64x2)h7)[1];
+		DEBLOCK_CHROMA_SOFT(h2, h3, h4, h5, ctx->alpha_s[0], ctx->beta_s[0], tC0g);
+	*(int64_t *)PX(0, 4) = ((i64x2)h2)[0];
+	*(int64_t *)PX(0, 5) = ((i64x2)h2)[1];
+	*(int64_t *)PX(0, 6) = ((i64x2)h3)[0];
+	*(int64_t *)PX(0, 7) = ((i64x2)h3)[1];
+	*(int64_t *)PX(0, 8) = ((i64x2)h4)[0];
+	*(int64_t *)PX(0, 9) = ((i64x2)h4)[1];
+	*(int64_t *)PX(0, 10) = ((i64x2)h5)[0];
+	*(int64_t *)PX(0, 11) = ((i64x2)h5)[1];
+	*(int64_t *)PX(0, 12) = ((i64x2)h6)[0];
+	*(int64_t *)PX(0, 13) = ((i64x2)h6)[1];
+	*(int64_t *)PX(0, 14) = ((i64x2)h7)[0];
+	*(int64_t *)PX(0, 15) = ((i64x2)h7)[1];
 }
 
 
@@ -413,22 +514,19 @@ static noinline void deblock_CbCr_8bit(Edge264Context *ctx, size_t stride, ssize
  * Deblock the luma plane of the current macroblock in place, then tail call to
  * chroma deblocking.
  */
-static noinline void deblock_Y_8bit(Edge264Context *ctx, size_t stride, ssize_t nstride, size_t stride7)
-{
-	i8x16 zero = {};
+static void deblock_Y_8bit(Edge264Context *ctx) {
+	INIT_PX(ctx->samples_mb[0], ctx->t.stride[0]);
 	i8x16 v0, v1, v2, v3, v4, v5, v6, v7;
 	if (mb->f.filter_edges & 1) {
 		// load and transpose the left 12x16 matrix
-		uint8_t * restrict px0 = ctx->samples_mb[0] - 8;
-		i8x16 xa0 = load128(px0              );
-		i8x16 xa1 = load128(px0 +  stride    );
-		i8x16 xa2 = load128(px0 +  stride * 2);
-		uint8_t * restrict px7 = px0 + stride7;
-		i8x16 xa3 = load128(px7 + nstride * 4);
-		i8x16 xa4 = load128(px0 +  stride * 4);
-		i8x16 xa5 = load128(px7 + nstride * 2);
-		i8x16 xa6 = load128(px7 + nstride    );
-		i8x16 xa7 = load128(px7              );
+		i8x16 xa0 = load128(PX(-8, 0));
+		i8x16 xa1 = load128(PX(-8, 1));
+		i8x16 xa2 = load128(PX(-8, 2));
+		i8x16 xa3 = load128(PX(-8, 3));
+		i8x16 xa4 = load128(PX(-8, 4));
+		i8x16 xa5 = load128(PX(-8, 5));
+		i8x16 xa6 = load128(PX(-8, 6));
+		i8x16 xa7 = load128(PX(-8, 7));
 		i8x16 xb0 = ziplo8(xa0, xa1);
 		i8x16 xb1 = ziphi8(xa0, xa1);
 		i8x16 xb2 = ziplo8(xa2, xa3);
@@ -443,15 +541,14 @@ static noinline void deblock_Y_8bit(Edge264Context *ctx, size_t stride, ssize_t 
 		i8x16 xc3 = ziphi16(xb4, xb6);
 		i8x16 xc4 = ziplo16(xb5, xb7);
 		i8x16 xc5 = ziphi16(xb5, xb7);
-		i8x16 xa8 = load128(px7 +  stride    );
-		i8x16 xa9 = load128(px7 +  stride * 2);
-		uint8_t * restrict pxE = px7 + stride7;
-		i8x16 xaA = load128(pxE + nstride * 4);
-		i8x16 xaB = load128(px7 +  stride * 4);
-		i8x16 xaC = load128(pxE + nstride * 2);
-		i8x16 xaD = load128(pxE + nstride    );
-		i8x16 xaE = load128(pxE              );
-		i8x16 xaF = load128(pxE +  stride    );
+		i8x16 xa8 = load128(PX(-8, 8));
+		i8x16 xa9 = load128(PX(-8, 9));
+		i8x16 xaA = load128(PX(-8, 10));
+		i8x16 xaB = load128(PX(-8, 11));
+		i8x16 xaC = load128(PX(-8, 12));
+		i8x16 xaD = load128(PX(-8, 13));
+		i8x16 xaE = load128(PX(-8, 14));
+		i8x16 xaF = load128(PX(-8, 15));
 		i8x16 xb8 = ziplo8(xa8, xa9);
 		i8x16 xb9 = ziphi8(xa8, xa9);
 		i8x16 xbA = ziplo8(xaA, xaB);
@@ -495,9 +592,9 @@ static noinline void deblock_Y_8bit(Edge264Context *ctx, size_t stride, ssize_t 
 		if (mbA->f.mbIsInterFlag & mb->f.mbIsInterFlag) {
 			int tC0a = ctx->tC0_s[0];
 			if (tC0a != -1)
-				DEBLOCK_LUMA_SOFT(vX, vY, vZ, v0, v1, v2, ctx->alpha + 8, ctx->beta + 8, tC0a);
+				DEBLOCK_LUMA_SOFT(vX, vY, vZ, v0, v1, v2, ctx->alpha[8], ctx->beta[8], tC0a);
 		} else if (ctx->alpha[8] != 0) {
-			DEBLOCK_LUMA_HARD(vW, vX, vY, vZ, v0, v1, v2, v3, ctx->alpha + 8, ctx->beta + 8);
+			DEBLOCK_LUMA_HARD(vW, vX, vY, vZ, v0, v1, v2, v3, ctx->alpha[8], ctx->beta[8]);
 		}
 		
 		// store vW/vX/vY/vZ into the left macroblock
@@ -509,37 +606,32 @@ static noinline void deblock_Y_8bit(Edge264Context *ctx, size_t stride, ssize_t 
 		i32x4 xe5 = ziphi16(xe0, xe2);
 		i32x4 xe6 = ziplo16(xe1, xe3);
 		i32x4 xe7 = ziphi16(xe1, xe3);
-		px0 = ctx->samples_mb[0] - 4;
-		*(int32_t *)(px0              ) = xe4[0];
-		*(int32_t *)(px0 +  stride    ) = xe4[1];
-		*(int32_t *)(px0 +  stride * 2) = xe4[2];
-		px7 = px0 + stride7;
-		*(int32_t *)(px7 + nstride * 4) = xe4[3];
-		*(int32_t *)(px0 +  stride * 4) = xe5[0];
-		*(int32_t *)(px7 + nstride * 2) = xe5[1];
-		*(int32_t *)(px7 + nstride    ) = xe5[2];
-		*(int32_t *)(px7              ) = xe5[3];
-		*(int32_t *)(px7 +  stride    ) = xe6[0];
-		*(int32_t *)(px7 +  stride * 2) = xe6[1];
-		pxE = px7 + stride7;
-		*(int32_t *)(pxE + nstride * 4) = xe6[2];
-		*(int32_t *)(px7 +  stride * 4) = xe6[3];
-		*(int32_t *)(pxE + nstride * 2) = xe7[0];
-		*(int32_t *)(pxE + nstride    ) = xe7[1];
-		*(int32_t *)(pxE              ) = xe7[2];
-		*(int32_t *)(pxE +  stride    ) = xe7[3];
+		*(int32_t *)PX(-4, 0) = xe4[0];
+		*(int32_t *)PX(-4, 1) = xe4[1];
+		*(int32_t *)PX(-4, 2) = xe4[2];
+		*(int32_t *)PX(-4, 3) = xe4[3];
+		*(int32_t *)PX(-4, 4) = xe5[0];
+		*(int32_t *)PX(-4, 5) = xe5[1];
+		*(int32_t *)PX(-4, 6) = xe5[2];
+		*(int32_t *)PX(-4, 7) = xe5[3];
+		*(int32_t *)PX(-4, 8) = xe6[0];
+		*(int32_t *)PX(-4, 9) = xe6[1];
+		*(int32_t *)PX(-4, 10) = xe6[2];
+		*(int32_t *)PX(-4, 11) = xe6[3];
+		*(int32_t *)PX(-4, 12) = xe7[0];
+		*(int32_t *)PX(-4, 13) = xe7[1];
+		*(int32_t *)PX(-4, 14) = xe7[2];
+		*(int32_t *)PX(-4, 15) = xe7[3];
 	} else {
 		// load and transpose the left 8x16 matrix
-		uint8_t * restrict px0 = ctx->samples_mb[0];
-		i8x16 xa0 = load64(px0              );
-		i8x16 xa1 = load64(px0 +  stride    );
-		i8x16 xa2 = load64(px0 +  stride * 2);
-		uint8_t * restrict px7 = px0 + stride7;
-		i8x16 xa3 = load64(px7 + nstride * 4);
-		i8x16 xa4 = load64(px0 +  stride * 4);
-		i8x16 xa5 = load64(px7 + nstride * 2);
-		i8x16 xa6 = load64(px7 + nstride    );
-		i8x16 xa7 = load64(px7              );
+		i8x16 xa0 = load64(PX(0, 0));
+		i8x16 xa1 = load64(PX(0, 1));
+		i8x16 xa2 = load64(PX(0, 2));
+		i8x16 xa3 = load64(PX(0, 3));
+		i8x16 xa4 = load64(PX(0, 4));
+		i8x16 xa5 = load64(PX(0, 5));
+		i8x16 xa6 = load64(PX(0, 6));
+		i8x16 xa7 = load64(PX(0, 7));
 		i8x16 xb0 = ziplo8(xa0, xa1);
 		i8x16 xb1 = ziplo8(xa2, xa3);
 		i8x16 xb2 = ziplo8(xa4, xa5);
@@ -548,15 +640,14 @@ static noinline void deblock_Y_8bit(Edge264Context *ctx, size_t stride, ssize_t 
 		i8x16 xc1 = ziphi16(xb0, xb1);
 		i8x16 xc2 = ziplo16(xb2, xb3);
 		i8x16 xc3 = ziphi16(xb2, xb3);
-		i8x16 xa8 = load64(px7 +  stride    );
-		i8x16 xa9 = load64(px7 +  stride * 2);
-		uint8_t * restrict pxE = px7 + stride7;
-		i8x16 xaA = load64(pxE + nstride * 4);
-		i8x16 xaB = load64(px7 +  stride * 4);
-		i8x16 xaC = load64(pxE + nstride * 2);
-		i8x16 xaD = load64(pxE + nstride    );
-		i8x16 xaE = load64(pxE              );
-		i8x16 xaF = load64(pxE +  stride    );
+		i8x16 xa8 = load64(PX(0, 8));
+		i8x16 xa9 = load64(PX(0, 9));
+		i8x16 xaA = load64(PX(0, 10));
+		i8x16 xaB = load64(PX(0, 11));
+		i8x16 xaC = load64(PX(0, 12));
+		i8x16 xaD = load64(PX(0, 13));
+		i8x16 xaE = load64(PX(0, 14));
+		i8x16 xaF = load64(PX(0, 15));
 		i8x16 xb4 = ziplo8(xa8, xa9);
 		i8x16 xb5 = ziplo8(xaA, xaB);
 		i8x16 xb6 = ziplo8(xaC, xaD);
@@ -587,20 +678,18 @@ static noinline void deblock_Y_8bit(Edge264Context *ctx, size_t stride, ssize_t 
 	if (!mb->f.transform_size_8x8_flag) {
 		int tC0b = ctx->tC0_s[1];
 		if (tC0b != -1)
-			DEBLOCK_LUMA_SOFT(v1, v2, v3, v4, v5, v6, ctx->alpha + 0, ctx->beta + 0, tC0b);
+			DEBLOCK_LUMA_SOFT(v1, v2, v3, v4, v5, v6, ctx->alpha[0], ctx->beta[0], tC0b);
 	}
 	
 	// load and transpose the right 8x16 matrix
-	uint8_t * restrict px0 = ctx->samples_mb[0];
-	i8x16 xa0 = *(i8x16 *)(px0              );
-	i8x16 xa1 = *(i8x16 *)(px0 +  stride    );
-	i8x16 xa2 = *(i8x16 *)(px0 +  stride * 2);
-	uint8_t * restrict px7 = px0 + stride7;
-	i8x16 xa3 = *(i8x16 *)(px7 + nstride * 4);
-	i8x16 xa4 = *(i8x16 *)(px0 +  stride * 4);
-	i8x16 xa5 = *(i8x16 *)(px7 + nstride * 2);
-	i8x16 xa6 = *(i8x16 *)(px7 + nstride    );
-	i8x16 xa7 = *(i8x16 *)(px7              );
+	i8x16 xa0 = *(i8x16 *)PX(0, 0);
+	i8x16 xa1 = *(i8x16 *)PX(0, 1);
+	i8x16 xa2 = *(i8x16 *)PX(0, 2);
+	i8x16 xa3 = *(i8x16 *)PX(0, 3);
+	i8x16 xa4 = *(i8x16 *)PX(0, 4);
+	i8x16 xa5 = *(i8x16 *)PX(0, 5);
+	i8x16 xa6 = *(i8x16 *)PX(0, 6);
+	i8x16 xa7 = *(i8x16 *)PX(0, 7);
 	i8x16 xb0 = ziphi8(xa0, xa1);
 	i8x16 xb1 = ziphi8(xa2, xa3);
 	i8x16 xb2 = ziphi8(xa4, xa5);
@@ -609,15 +698,14 @@ static noinline void deblock_Y_8bit(Edge264Context *ctx, size_t stride, ssize_t 
 	i8x16 xc1 = ziphi16(xb0, xb1);
 	i8x16 xc2 = ziplo16(xb2, xb3);
 	i8x16 xc3 = ziphi16(xb2, xb3);
-	i8x16 xa8 = *(i8x16 *)(px7 +  stride    );
-	i8x16 xa9 = *(i8x16 *)(px7 +  stride * 2);
-	uint8_t * restrict pxE = px7 + stride7;
-	i8x16 xaA = *(i8x16 *)(pxE + nstride * 4);
-	i8x16 xaB = *(i8x16 *)(px7 +  stride * 4);
-	i8x16 xaC = *(i8x16 *)(pxE + nstride * 2);
-	i8x16 xaD = *(i8x16 *)(pxE + nstride    );
-	i8x16 xaE = *(i8x16 *)(pxE              );
-	i8x16 xaF = *(i8x16 *)(pxE +  stride    );
+	i8x16 xa8 = *(i8x16 *)PX(0, 8);
+	i8x16 xa9 = *(i8x16 *)PX(0, 9);
+	i8x16 xaA = *(i8x16 *)PX(0, 10);
+	i8x16 xaB = *(i8x16 *)PX(0, 11);
+	i8x16 xaC = *(i8x16 *)PX(0, 12);
+	i8x16 xaD = *(i8x16 *)PX(0, 13);
+	i8x16 xaE = *(i8x16 *)PX(0, 14);
+	i8x16 xaF = *(i8x16 *)PX(0, 15);
 	i8x16 xb4 = ziphi8(xa8, xa9);
 	i8x16 xb5 = ziphi8(xaA, xaB);
 	i8x16 xb6 = ziphi8(xaC, xaD);
@@ -646,13 +734,13 @@ static noinline void deblock_Y_8bit(Edge264Context *ctx, size_t stride, ssize_t 
 	// third vertical edge
 	int tC0c = ctx->tC0_s[2];
 	if (tC0c != -1)
-		DEBLOCK_LUMA_SOFT(v5, v6, v7, v8, v9, vA, ctx->alpha + 0, ctx->beta + 0, tC0c);
+		DEBLOCK_LUMA_SOFT(v5, v6, v7, v8, v9, vA, ctx->alpha[0], ctx->beta[0], tC0c);
 	
 	// fourth vertical edge
 	if (!mb->f.transform_size_8x8_flag) {
 		int tC0d = ctx->tC0_s[3];
 		if (tC0d != -1)
-			DEBLOCK_LUMA_SOFT(v9, vA, vB, vC, vD, vE, ctx->alpha + 0, ctx->beta + 0, tC0d);
+			DEBLOCK_LUMA_SOFT(v9, vA, vB, vC, vD, vE, ctx->alpha[0], ctx->beta[0], tC0d);
 	}
 	
 	// transpose the top 16x8 matrix
@@ -690,30 +778,35 @@ static noinline void deblock_Y_8bit(Edge264Context *ctx, size_t stride, ssize_t 
 	i8x16 h7 = ziphi64(xg3, xg7);
 	
 	// first horizontal edge
-	px0 = ctx->samples_mb[0];
 	if (mb->f.filter_edges & 2) {
+		i8x16 hx = *(i8x16 *)PX(0, -3);
+		i8x16 hy = *(i8x16 *)PX(0, -2);
+		i8x16 hz = *(i8x16 *)PX(0, -1);
 		if (mbB->f.mbIsInterFlag & mb->f.mbIsInterFlag) {
 			int tC0e = ctx->tC0_s[4];
 			if (tC0e != -1)
-				DEBLOCK_LUMA_SOFT(*(i8x16 *)(px0 + nstride * 3), *(i8x16 *)(px0 + nstride * 2), *(i8x16 *)(px0 + nstride    ), h0, h1, h2, ctx->alpha + 12, ctx->beta + 12, tC0e);
+				DEBLOCK_LUMA_SOFT(hx, hy, hz, h0, h1, h2, ctx->alpha[12], ctx->beta[12], tC0e);
 		} else if (ctx->alpha[12] != 0) {
-			DEBLOCK_LUMA_HARD(*(i8x16 *)(px0 + nstride * 4), *(i8x16 *)(px0 + nstride * 3), *(i8x16 *)(px0 + nstride * 2), *(i8x16 *)(px0 + nstride    ), h0, h1, h2, h3, ctx->alpha + 12, ctx->beta + 12);
+			i8x16 hw = *(i8x16 *)PX(0, -4);
+			DEBLOCK_LUMA_HARD(hw, hx, hy, hz, h0, h1, h2, h3, ctx->alpha[12], ctx->beta[12]);
+			*(i8x16 *)PX(0, -3) = hx;
 		}
+		*(i8x16 *)PX(0, -2) = hy;
+		*(i8x16 *)PX(0, -1) = hz;
 	}
-	*(i8x16 *)(px0              ) = h0;
-	*(i8x16 *)(px0 +  stride    ) = h1;
+	*(i8x16 *)PX(0, 0) = h0;
+	*(i8x16 *)PX(0, 1) = h1;
 	
 	// second horizontal edge
 	if (!mb->f.transform_size_8x8_flag) {
 		int tC0f = ctx->tC0_s[5];
 		if (tC0f != -1)
-			DEBLOCK_LUMA_SOFT(h1, h2, h3, h4, h5, h6, ctx->alpha + 0, ctx->beta + 0, tC0f);
+			DEBLOCK_LUMA_SOFT(h1, h2, h3, h4, h5, h6, ctx->alpha[0], ctx->beta[0], tC0f);
 	}
-	px7 = px0 + stride7;
-	*(i8x16 *)(px0 +  stride * 2) = h2;
-	*(i8x16 *)(px7 + nstride * 4) = h3;
-	*(i8x16 *)(px0 +  stride * 4) = h4;
-	*(i8x16 *)(px7 + nstride * 2) = h5;
+	*(i8x16 *)PX(0, 2) = h2;
+	*(i8x16 *)PX(0, 3) = h3;
+	*(i8x16 *)PX(0, 4) = h4;
+	*(i8x16 *)PX(0, 5) = h5;
 	
 	// transpose the bottom 16x8 matrix
 	i8x16 xh0 = ziphi8(v0, v1);
@@ -752,29 +845,28 @@ static noinline void deblock_Y_8bit(Edge264Context *ctx, size_t stride, ssize_t 
 	// third horizontal edge
 	int tC0g = ctx->tC0_s[6];
 	if (tC0g != -1)
-		DEBLOCK_LUMA_SOFT(h5, h6, h7, h8, h9, hA, ctx->alpha + 0, ctx->beta + 0, tC0g);
-	*(i8x16 *)(px7 + nstride    ) = h6;
-	*(i8x16 *)(px7              ) = h7;
-	*(i8x16 *)(px7 +  stride    ) = h8;
-	*(i8x16 *)(px7 +  stride * 2) = h9;
+		DEBLOCK_LUMA_SOFT(h5, h6, h7, h8, h9, hA, ctx->alpha[0], ctx->beta[0], tC0g);
+	*(i8x16 *)PX(0, 6) = h6;
+	*(i8x16 *)PX(0, 7) = h7;
+	*(i8x16 *)PX(0, 8) = h8;
+	*(i8x16 *)PX(0, 9) = h9;
 	
 	// fourth horizontal edge
 	if (!mb->f.transform_size_8x8_flag) {
 		int tC0h = ctx->tC0_s[7];
 		if (tC0h != -1)
-			DEBLOCK_LUMA_SOFT(h9, hA, hB, hC, hD, hE, ctx->alpha + 0, ctx->beta + 0, tC0h);
+			DEBLOCK_LUMA_SOFT(h9, hA, hB, hC, hD, hE, ctx->alpha[0], ctx->beta[0], tC0h);
 	}
-	pxE = px7 + stride7;
-	*(i8x16 *)(pxE + nstride * 4) = hA;
-	*(i8x16 *)(px7 +  stride * 4) = hB;
-	*(i8x16 *)(pxE + nstride * 2) = hC;
-	*(i8x16 *)(pxE + nstride    ) = hD;
-	*(i8x16 *)(pxE              ) = hE;
-	*(i8x16 *)(pxE +  stride    ) = hF;
+	*(i8x16 *)PX(0, 10) = hA;
+	*(i8x16 *)PX(0, 11) = hB;
+	*(i8x16 *)PX(0, 12) = hC;
+	*(i8x16 *)PX(0, 13) = hD;
+	*(i8x16 *)PX(0, 14) = hE;
+	*(i8x16 *)PX(0, 15) = hF;
 	
 	// jump to chroma deblocking filter
 	size_t strideC = ctx->t.stride[1] >> 1;
-	deblock_CbCr_8bit(ctx, strideC, -strideC, strideC * 7);
+	deblock_CbCr_8bit(ctx);
 }
 
 
@@ -1003,5 +1095,5 @@ static noinline void deblock_mb(Edge264Context *ctx)
 	
 	// jump to luma deblocking filter
 	size_t strideY = ctx->t.stride[0];
-	deblock_Y_8bit(ctx, strideY, -strideY, strideY * 7);
+	deblock_Y_8bit(ctx);
 }

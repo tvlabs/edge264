@@ -274,8 +274,8 @@ typedef struct Edge264Context {
 	union { int32_t c[64]; i32x4 c_v[16]; i32x8 c_V[8]; }; // non-scaled residual coefficients
 	
 	// Deblocking context
-	union { uint8_t alpha[16]; i8x16 alpha_v; }; // {internal_Y,internal_Cb,internal_Cr,0,0,0,0,0,left_Y,left_Cb,left_Cr,0,top_Y,top_Cb,top_Cr,0}
-	union { uint8_t beta[16]; i8x16 beta_v; };
+	union { uint8_t alpha[16]; int32_t alpha_s[4]; i8x16 alpha_v; }; // {internal_Y,internal_Cb,internal_Cr,0,0,0,0,0,left_Y,left_Cb,left_Cr,0,top_Y,top_Cb,top_Cr,0}
+	union { uint8_t beta[16]; int32_t beta_s[4]; i8x16 beta_v; };
 	union { int32_t tC0_s[16]; int64_t tC0_l[8]; i8x16 tC0_v[4]; i8x32 tC0_V[2]; }; // 4 bytes per edge in deblocking order -> 8 luma edges then 8 alternating Cb/Cr edges
 } Edge264Context;
 #define mb ctx->_mb
@@ -584,6 +584,7 @@ enum IntraChromaModes {
  * _ shrd128 - concatenate two vectors and shift positions down then extract a single vector
  * _ shrs16 - shift signed 16-bit values right with rounding
  * _ shrpus16 - shift signed 16-bit values right then pack to 8-bit unsigned values
+ * _ shrrpu16 - shift unsigned 16-bit values right with rounding then pack to 8-bit values
  * _ shuffle - permute a vector given a vector of indices without care for out-of-bounds indices
  * _ shufflen - permute a vector given a vector of indices while inserting -1 at negative indices
  * _ shufflez - permute a vector given a vector of indices while inserting zeros at negative indices
@@ -619,6 +620,7 @@ enum IntraChromaModes {
 	#define shrd128(l, h, i) (i8x16)vextq_s8(l, h, i)
 	#define shrrs16(a, i) (i16x8)vrshrq_n_s16(a, i)
 	#define shrru16(a, i) (i16x8)vrshrq_n_u16(a, i)
+	#define shrrpu16(a, b, i) (u8x16)vqrshrn_high_n_u16(vqrshrn_n_u16(a, i), b, i)
 	#define shrpus16(a, b, i) (u8x16)vqshrun_high_n_s16(vqshrun_n_s16(a, i), b, i)
 	static always_inline i8x16 shuffle(i8x16 a, i8x16 m) { return vqtbl1q_s8(a, m); }
 	#define shufflez shuffle
@@ -664,6 +666,7 @@ enum IntraChromaModes {
 	#define shr128(a, i) (i8x16)_mm_srli_si128(a, i)
 	#define shrrs16(a, i) (((i16x8)(a) + (1 << (i - 1))) >> i)
 	#define shrru16(a, i) _mm_avg_epu16((i16x8)(a) >> (i - 1), (i16x8){})
+	#define shrrpu16(a, b, i) packus16(avg16((a) >> (i - 1), (i8x16){}), avg16((b) >> (i - 1), (i8x16){}))
 	#define shr16(a, b) (i16x8)_mm_sra_epi16(a, b)
 	#define shr32(a, b) (i32x4)_mm_sra_epi32(a, b)
 	#define shrpus16(a, b, i) (u8x16)_mm_packus_epi16((i16x8)(a) >> i, (i16x8)(b) >> i)

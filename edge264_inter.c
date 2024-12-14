@@ -4,7 +4,6 @@
 	static const i8x16 mul15 = {1, -5, 1, -5, 1, -5, 1, -5, 1, -5, 1, -5, 1, -5, 1, -5};
 	static const i8x16 mul20 = {20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20};
 	static const i8x16 mul51 = {-5, 1, -5, 1, -5, 1, -5, 1, -5, 1, -5, 1, -5, 1, -5, 1};
-	#define shrrpu16(a, b, i) packus16(avg16((a) >> (i - 1), (i8x16){}), avg16((b) >> (i - 1), (i8x16){}))
 	#define shrrpus16(a, b, i) packus16(((i16x8)(a) + (1 << (i - 1))) >> i, ((i16x8)(b) + (1 << (i - 1))) >> i)
 	static always_inline u8x16 maddshr8(u8x16 q, u8x16 p, i8x16 w8, i16x8 w16, i16x8 o, i64x2 wd64, i16x8 wd16) {
 		i16x8 x0 = adds16(maddubs(ziplo8(q, p), w8), o);
@@ -55,7 +54,6 @@
 		#define mla16 vmlaq_s16
 		#define mlai16 vmlaq_laneq_s16
 	#endif
-	#define shrrpu16(a, b, i) (u8x16)vqrshrn_high_n_u16(vqrshrn_n_u16(a, i), b, i)
 	#define shrrpus16(a, b, i) (u8x16)vqrshrun_high_n_s16(vqrshrun_n_s16(a, i), b, i)
 	static always_inline u8x16 maddshr8(u8x16 q, u8x16 p, i8x16 w8, i16x8 w16, i16x8 o, i64x2 wd64, i16x8 wd16) {
 		i16x8 a = vmulq_laneq_s16(vmovl_u8(vget_low_u8(q)), w16, 0);

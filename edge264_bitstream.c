@@ -321,9 +321,9 @@ static void cabac_init(Edge264Context *ctx) {
 	for (i8x16 *dst = ctx->cabac_v; dst < ctx->cabac_v + 64; dst++, src += 2) {
 		i16x8 sum0 = maddubs(mul, src[0]) >> 4;
 		i16x8 sum1 = maddubs(mul, src[1]) >> 4;
-		i8x16 min = umin8(packus16(sum0, sum1), c126);
+		i8x16 min = minu8(packus16(sum0, sum1), c126);
 		i8x16 mask = c64 > min;
-		i8x16 preCtxState = umax8(min, c1);
+		i8x16 preCtxState = maxu8(min, c1);
 		i8x16 pStateIdx = preCtxState ^ mask;
 		i8x16 shift = pStateIdx + pStateIdx;
 		*dst = shift + shift + mask + c1; // pStateIdx << 2 | valMPS (middle bit is for transIdxLPS/MPS)

@@ -608,6 +608,9 @@ enum IntraChromaModes {
 	#define load32(p) ((i32x4){*(int32_t *)(p)})
 	#define load64(p) ((i64x2){*(int64_t *)(p)})
 	#define load128(p) (*(i8x16 *)(p))
+	#define minu8(a, b) (u8x16)vminq_u8(a, b)
+	#define maxu8(a, b) (u8x16)vmaxq_u8(a, b)
+	#define packs16(a, b) (i16x8)vqmovn_high_s16(vqmovn_s16(a), b)
 	#define packs32(a, b) (i16x8)vqmovn_high_s32(vqmovn_s32(a), b)
 	#define packus16(a, b) (u8x16)vqmovun_high_s16(vqmovun_s16(a), b)
 	#define set8(i) (i8x16)vdupq_n_s8(i)
@@ -625,9 +628,13 @@ enum IntraChromaModes {
 	static always_inline i8x16 shuffle(i8x16 a, i8x16 m) { return vqtbl1q_s8(a, m); }
 	#define shufflez shuffle
 	// reimplement vaddlv_u8 to return to vector register
+	static always_inline i8x16 shuffle3(const i8x16 *p, i8x16 m) {return vqtbl3q_s8(*(int8x16x3_t *)p, m);}
+	#define subu8(a, b) (u8x16)vqsubq_u8(a, b)
 	#define sum8(a) ({i16x8 _a; asm("uaddlv %h0, %1.16B" : "=w" (_a) : "w" (a)); _a;})
 	#define sumh8 sum8
 	#define sumd8(a, b) (sum8(a) + sum8(b))
+	#define unziplo32(a, b) (i32x4)vuzp1q_s32(a, b)
+	#define unziphi32(a, b) (i32x4)vuzp2q_s32(a, b)
 	#define ziplo8(a, b) (i8x16)vzip1q_s8(a, b)
 	#define ziphi8(a, b) (i8x16)vzip2q_s8(a, b)
 	#define ziplo16(a, b) (i16x8)vzip1q_s16(a, b)
@@ -639,6 +646,7 @@ enum IntraChromaModes {
 #elif defined(__SSE2__)
 	#include <x86intrin.h>
 	#define adds16(a, b) (i16x8)_mm_adds_epi16(a, b)
+	#define addu8(a, b) (i8x16)_mm_adds_epu8(a, b)
 	#define avg8(a, b) (i8x16)_mm_avg_epu8(a, b)
 	#define avg16(a, b) (i16x8)_mm_avg_epu16(a, b)
 	#define broadcast8(a, i) shuffle(a, _mm_set1_epi8(i))
@@ -650,6 +658,8 @@ enum IntraChromaModes {
 	#define loadh64(a, p) (i64x2)_mm_loadh_pd((__m128d)(a), (double*)(p))
 	#define load128(p) (i8x16)_mm_loadu_si128((__m128i*)(p))
 	#define madd16(a, b) (i32x4)_mm_madd_epi16(a, b)
+	#define maxu8(a, b) (i8x16)_mm_max_epu8(a, b)
+	#define minu8(a, b) (i8x16)_mm_min_epu8(a, b)
 	#define max16(a, b) (i16x8)_mm_max_epi16(a, b)
 	#define min16(a, b) (i16x8)_mm_min_epi16(a, b)
 	#define movemask(a) _mm_movemask_epi8(a)
@@ -674,13 +684,13 @@ enum IntraChromaModes {
 	#define shufflehi(a, i, j, k, l) (i16x8)_mm_shufflehi_epi16(a, _MM_SHUFFLE(l, k, j, i))
 	#define shufflelo(a, i, j, k, l) (i16x8)_mm_shufflelo_epi16(a, _MM_SHUFFLE(l, k, j, i))
 	#define shuffleps(a, b, i, j, k, l) (i32x4)_mm_shuffle_ps((__m128)(a), (__m128)(b), _MM_SHUFFLE(l, k, j, i))
+	#define subu8(a, b) (i8x16)_mm_subs_epu8(a, b)
+	#define subs16(a, b) (i16x8)_mm_subs_epi16(a, b)
 	#define sum8(a) ({i16x8 _v = _mm_sad_epu8(a, (i8x16){}); _v + (i16x8)_mm_srli_si128(_v, 8);})
 	#define sumh8(a) (i16x8)_mm_sad_epu8(a, (u8x16){})
 	#define sumd8(a, b) ({i16x8 zero = {}, _v = (i16x8)_mm_sad_epu8(a, (u8x16){}) + (i16x8)_mm_sad_epu8(b, (u8x16){}); _v + (i16x8)_mm_srli_si128(_v, 8);})
-	#define usubs8(a, b) (i8x16)_mm_subs_epu8(a, b)
-	#define uadds8(a, b) (i8x16)_mm_adds_epu8(a, b)
-	#define umax8(a, b) (i8x16)_mm_max_epu8(a, b)
-	#define umin8(a, b) (i8x16)_mm_min_epu8(a, b)
+	#define unziplo32(a, b) (i32x4)_mm_shuffle_ps((__m128)(a), (__m128)(b), _MM_SHUFFLE(2, 0, 2, 0))
+	#define unziphi32(a, b) (i32x4)_mm_shuffle_ps((__m128)(a), (__m128)(b), _MM_SHUFFLE(3, 1, 3, 1))
 	#define ziplo8(a, b) (i8x16)_mm_unpacklo_epi8(a, b)
 	#define ziplo16(a, b) (i16x8)_mm_unpacklo_epi16(a, b)
 	#define ziplo32(a, b) (i32x4)_mm_unpacklo_epi32(a, b)
@@ -784,7 +794,7 @@ enum IntraChromaModes {
 		}
 		static always_inline i8x16 shufflez2(const i8x16 *p, i8x16 m) { return shuffle2(p, m) & ~(0 > m); }
 		static i8x16 shuffle3(const i8x16 *p, i8x16 m) {
-			union { int8_t q[16]; i8x16 v; } _m = {.v = umin8(m, set8(47))};
+			union { int8_t q[16]; i8x16 v; } _m = {.v = minu8(m, set8(47))};
 			for (int i = 0; i < 16; i++)
 				_m.q[i] = ((int8_t *)p)[_m.q[i]];
 			return _m.v;

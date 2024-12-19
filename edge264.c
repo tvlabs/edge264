@@ -71,18 +71,31 @@
 
 
 const uint8_t *edge264_find_start_code(const uint8_t *buf, const uint8_t *end) {
-	i8x16 zero = {};
-	i8x16 xN = set8(1);
 	const i8x16 *p = (i8x16 *)((uintptr_t)buf & -16);
-	unsigned z = (movemask(*p == zero) & -1u << ((uintptr_t)buf & 15)) << 2, c;
-	
-	// no heuristic here since we are limited by memory bandwidth anyway
-	while (!(c = z & z >> 1 & movemask(*p == xN))) {
-		if ((uint8_t *)++p >= end)
-			return end;
-		z = z >> 16 | movemask(*p == zero) << 2;
-	}
-	const uint8_t *res = (uint8_t *)p + 1 + __builtin_ctz(c);
+	i8x16 zero = {};
+	i8x16 c1 = set8(1);
+	i8x16 lo0 = {};
+	i8x16 v = *p;
+	i8x16 hi0 = (v == zero) & shlv128(set8(-1), (uintptr_t)buf & 15);
+	#if defined(__SSE2__)
+		unsigned m;
+		while (!(m = movemask(shrd128(lo0, hi0, 14) & shrd128(lo0, hi0, 15) & (v == c1)))) {
+			if ((uint8_t *)++p >= end)
+				return end;
+			lo0 = hi0;
+			hi0 = ((v = *p) == zero);
+		}
+		const uint8_t *res = (uint8_t *)p + 1 + __builtin_ctz(m);
+	#elif defined(__ARM_NEON)
+		uint64_t m;
+		while (!(m = (uint64_t)vshrn_n_u16(shrd128(lo0, hi0, 14) & shrd128(lo0, hi0, 15) & (v == c1), 4))) {
+			if ((uint8_t *)++p >= end)
+				return end;
+			lo0 = hi0;
+			hi0 = ((v = *p) == zero);
+		}
+		const uint8_t *res = (uint8_t *)p + 1 + (__builtin_ctzll(m) >> 2);
+	#endif
 	return (res < end) ? res : end;
 }
 
@@ -95,9 +108,11 @@ Edge264Decoder *edge264_alloc(int n_threads) {
 	dec->taskPics_v = set8(-1);
 	
 	// select parser functions based on CPU capabilities
-	__builtin_cpu_init();
-	if (!__builtin_cpu_supports("cmov") || !__builtin_cpu_supports("sse2"))
-		return free(dec), NULL;
+	#if defined(__SSE2__) // if compiled for Intel
+		__builtin_cpu_init();
+		if (!__builtin_cpu_supports("cmov") || !__builtin_cpu_supports("sse2"))
+			return free(dec), NULL;
+	#endif
 	void *(*w)(Edge264Decoder *) = ADD_ARCH(worker_loop);
 	dec->parse_nal_unit[1] = dec->parse_nal_unit[5] = dec->parse_nal_unit[20] = ADD_ARCH(parse_slice_layer_without_partitioning);
 	dec->parse_nal_unit[7] = dec->parse_nal_unit[15] = ADD_ARCH(parse_seq_parameter_set);

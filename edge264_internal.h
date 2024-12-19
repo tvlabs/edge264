@@ -573,86 +573,59 @@ enum IntraChromaModes {
  * start of each file.
  * 
  * Common functions defined here are:
- * _ avg8 - unsigned elementwise average
+ * _ absN - elementwise absolute value
+ * _ avgu8 - unsigned elementwise average
  * _ broadcastN - copy a N-bit element to all elements
+ * _ cvtloNuM - extend the low unsigned N-bit elements to M bits
+ * _ cvthiNuM - extend the high unsigned N-bit elements to M bits
+ * _ cvtuf32 - convert 32-bit float elements to unsigned integers
+ * _ ifelse_mask - select each element from two vectors based on mask elements i a third vector
  * _ loadN - load N low bits given a pointer without alignment, zeroing the rest of the vector
+ * _ minN - minimum of signed 16-bit elements
+ * _ maxN - maximum of signed 16-bit elements
+ * _ minu8 - minimum of unsigned 8-bit elements
+ * _ maxu8 - maximum of unsigned 8-bit elements
+ * _ movemask - extract all sign bits from 8-bit elements into a 16-bit unsigned value
+ * _ packsN - saturate signed N-bit elements to half their size
+ * _ packus16 - saturate signed 16-bit elements to unsigned 8-bit elements
  * _ setN - copy a N-bit integer to all elements
+ * _ shld - concatenate two size_t values and shift them left to extract a single value
  * _ shl128 - shift positions up in byte increments without care for the values inserted
- * _ shlc128 - shift positions up in byte increments while inserting a copy of the lowest value
  * _ shr128 - shift positions down in byte increments without care for the values inserted
+ * _ shlc128 - shift positions up in byte increments while inserting a copy of the lowest value
  * _ shrc128 - shift positions down in byte increments while inserting a copy of the highest value
  * _ shrd128 - concatenate two vectors and shift positions down then extract a single vector
- * _ shrs16 - shift signed 16-bit values right with rounding
+ * _ shlv128 - shift positions up in byte increments by a variable amount while inserting zeros
+ * _ shrv128 - shift positions down in byte increments by a variable amount while inserting zeros
+ * _ shrrs16 - shift signed 16-bit values right with rounding
+ * _ shrru16 - shift unsigned 16-bit values right with rounding
  * _ shrpus16 - shift signed 16-bit values right then pack to 8-bit unsigned values
- * _ shrrpu16 - shift unsigned 16-bit values right with rounding then pack to 8-bit values
  * _ shuffle - permute a vector given a vector of indices without care for out-of-bounds indices
  * _ shufflen - permute a vector given a vector of indices while inserting -1 at negative indices
  * _ shufflez - permute a vector given a vector of indices while inserting zeros at negative indices
+ * _ shuffle2 - permute an array the size of two vectors without care for out-of-bounds indices
+ * _ shuffle2z - permute an array the size of two vectors while inserting zeros at negative indices
+ * _ shuffle3 - permute an array the size of three vectors without care for out-of-bounds indices
+ * _ subu8 - substract and saturate unsigned 8-bit elements
  * _ sum8 - sum 16 8-bit elements together and return a low 16-bit value, the rest being undefined
  * _ sumh8 - sum the 8 lowest 8-bit elements, assuming the highest are zeros
  * _ sumd8 - sum 32 8-bit elements together from two vectors
+ * _ unziploN - deinterleave the even N-bit elements from two vectors
+ * _ unziphiN - deinterleave the odd N-bit elements from two vectors
  * _ ziploN - interleave the low N-bit elements from two vectors
  * _ ziphiN - interleave the high N-bit elements from two vectors
  */
-#if defined(__ARM_NEON)
-	#include <arm_neon.h>
-	#define avg8(a, b) (u8x16)vrhaddq_u8(a, b)
-	#define broadcast8(a, i) (i8x16)vdupq_laneq_s8(a, i)
-	#define broadcast16(a, i) (i16x8)vdupq_laneq_s16(a, i)
-	#define broadcast32(a, i) (i32x4)vdupq_laneq_s32(a, i)
-	#define cvtlo8u16(a) (u16x8)vmovl_u8(vget_low_u8(a))
-	#define cvthi8u16(a) (u16x8)vmovl_high_u8(a)
-	#define cvtlo16u32(a) (u32x4)vmovl_u16(vget_low_u16(a))
-	#define cvthi16u32(a) (u32x4)vmovl_high_u16(a)
-	#define ifelse_mask(v, t, f) (i8x16)vbslq_s8(v, t, f)
-	#define load32(p) ((i32x4){*(int32_t *)(p)})
-	#define load64(p) ((i64x2){*(int64_t *)(p)})
-	#define load128(p) (*(i8x16 *)(p))
-	#define minu8(a, b) (u8x16)vminq_u8(a, b)
-	#define maxu8(a, b) (u8x16)vmaxq_u8(a, b)
-	#define packs16(a, b) (i16x8)vqmovn_high_s16(vqmovn_s16(a), b)
-	#define packs32(a, b) (i16x8)vqmovn_high_s32(vqmovn_s32(a), b)
-	#define packus16(a, b) (u8x16)vqmovun_high_s16(vqmovun_s16(a), b)
-	#define set8(i) (i8x16)vdupq_n_s8(i)
-	#define set16(i) (i16x8)vdupq_n_s16(i)
-	#define set32(i) (i32x4)vdupq_n_s32(i)
-	#define shl128(a, i) (i8x16)({i8x16 _a = (a); vextq_s8(_a, _a, 16 - (i));})
-	#define shlc128(a, i) (i8x16)({i8x16 _a = (a); vextq_s8(vdupq_laneq_s8(_a, 0), _a, 16 - (i));})
-	#define shr128(a, i) (i8x16)({i8x16 _a = (a); vextq_s8(_a, _a, i);})
-	#define shrc128(a, i) (i8x16)({i8x16 _a = (a); vextq_s8(_a, vdupq_laneq_s8(_a, 15), i);})
-	#define shrd128(l, h, i) (i8x16)vextq_s8(l, h, i)
-	#define shrrs16(a, i) (i16x8)vrshrq_n_s16(a, i)
-	#define shrru16(a, i) (i16x8)vrshrq_n_u16(a, i)
-	#define shrrpu16(a, b, i) (u8x16)vqrshrn_high_n_u16(vqrshrn_n_u16(a, i), b, i)
-	#define shrpus16(a, b, i) (u8x16)vqshrun_high_n_s16(vqshrun_n_s16(a, i), b, i)
-	static always_inline i8x16 shuffle(i8x16 a, i8x16 m) { return vqtbl1q_s8(a, m); }
-	#define shufflez shuffle
-	// reimplement vaddlv_u8 to return to vector register
-	static always_inline i8x16 shuffle3(const i8x16 *p, i8x16 m) {return vqtbl3q_s8(*(int8x16x3_t *)p, m);}
-	#define subu8(a, b) (u8x16)vqsubq_u8(a, b)
-	#define sum8(a) ({i16x8 _a; asm("uaddlv %h0, %1.16B" : "=w" (_a) : "w" (a)); _a;})
-	#define sumh8 sum8
-	#define sumd8(a, b) (sum8(a) + sum8(b))
-	#define unziplo32(a, b) (i32x4)vuzp1q_s32(a, b)
-	#define unziphi32(a, b) (i32x4)vuzp2q_s32(a, b)
-	#define ziplo8(a, b) (i8x16)vzip1q_s8(a, b)
-	#define ziphi8(a, b) (i8x16)vzip2q_s8(a, b)
-	#define ziplo16(a, b) (i16x8)vzip1q_s16(a, b)
-	#define ziphi16(a, b) (i16x8)vzip2q_s16(a, b)
-	#define ziplo32(a, b) (i16x8)vzip1q_s32(a, b)
-	#define ziphi32(a, b) (i16x8)vzip2q_s32(a, b)
-	#define ziplo64(a, b) (i64x2)vzip1q_s64(a, b)
-	#define ziphi64(a, b) (i64x2)vzip2q_s64(a, b)
-#elif defined(__SSE2__)
+#if defined(__SSE2__)
 	#include <x86intrin.h>
 	#define adds16(a, b) (i16x8)_mm_adds_epi16(a, b)
 	#define addu8(a, b) (i8x16)_mm_adds_epu8(a, b)
-	#define avg8(a, b) (i8x16)_mm_avg_epu8(a, b)
+	#define avgu8(a, b) (i8x16)_mm_avg_epu8(a, b)
 	#define avg16(a, b) (i16x8)_mm_avg_epu16(a, b)
 	#define broadcast8(a, i) shuffle(a, _mm_set1_epi8(i))
 	#define broadcast16(a, i) (i16x8)__builtin_choose_expr((i) < 4, shuffle32(shufflelo(a, i, i, 0, 0), 0, 0, 0, 0), shuffle32(shufflehi(a, i & 3, i & 3, 0, 0), 2, 2, 2, 2))
 	#define broadcast32(a, i) (i32x4)_mm_shuffle_epi32(a, _MM_SHUFFLE(i, i, i, i))
 	#define cvthi16u32(a) (u32x4)_mm_unpackhi_epi16(a, (i8x16){})
+	#define cvtuf32(a) (u32x4)_mm_cvtps_epi32((__m128)a)
 	#define load32(p) ((i32x4){*(int32_t *)(p)}) // GCC < 12 doesn't define _mm_loadu_si32
 	#define load64(p) (i64x2)_mm_loadl_epi64((__m128i*)(p))
 	#define loadh64(a, p) (i64x2)_mm_loadh_pd((__m128d)(a), (double*)(p))
@@ -666,19 +639,17 @@ enum IntraChromaModes {
 	#define packs16(a, b) (i8x16)_mm_packs_epi16(a, b)
 	#define packs32(a, b) (i16x8)_mm_packs_epi32(a, b)
 	#define packus16(a, b) (i8x16)_mm_packus_epi16(a, b)
-	#define sad8(a, b) (i16x8)_mm_sad_epu8(a, b) // deprecated
 	#define set8(i) (i8x16)_mm_set1_epi8(i)
 	#define set16(i) (i16x8)_mm_set1_epi16(i)
 	#define set32(i) (i32x4)_mm_set1_epi32(i)
-	#define shl128(a, i) (i8x16)_mm_slli_si128(a, i)
-	#define shl16(a, b) (i16x8)_mm_sll_epi16(a, b) // FIXME naming
+	#define shl16(a, b) (i16x8)_mm_sll_epi16(a, b)
+	#define shr16(a, b) (i16x8)_mm_sra_epi16(a, b)
 	#define shl32(a, b) (i32x4)_mm_sll_epi32(a, b)
+	#define shr32(a, b) (i32x4)_mm_sra_epi32(a, b)
+	#define shl128(a, i) (i8x16)_mm_slli_si128(a, i)
 	#define shr128(a, i) (i8x16)_mm_srli_si128(a, i)
 	#define shrrs16(a, i) (((i16x8)(a) + (1 << (i - 1))) >> i)
 	#define shrru16(a, i) _mm_avg_epu16((i16x8)(a) >> (i - 1), (i16x8){})
-	#define shrrpu16(a, b, i) packus16(avg16((a) >> (i - 1), (i8x16){}), avg16((b) >> (i - 1), (i8x16){}))
-	#define shr16(a, b) (i16x8)_mm_sra_epi16(a, b)
-	#define shr32(a, b) (i32x4)_mm_sra_epi32(a, b)
 	#define shrpus16(a, b, i) (u8x16)_mm_packus_epi16((i16x8)(a) >> i, (i16x8)(b) >> i)
 	#define shuffle32(a, i, j, k, l) (i32x4)_mm_shuffle_epi32(a, _MM_SHUFFLE(l, k, j, i))
 	#define shufflehi(a, i, j, k, l) (i16x8)_mm_shufflehi_epi16(a, _MM_SHUFFLE(l, k, j, i))
@@ -699,6 +670,26 @@ enum IntraChromaModes {
 	#define ziphi16(a, b) (i16x8)_mm_unpackhi_epi16(a, b)
 	#define ziphi32(a, b) (i32x4)_mm_unpackhi_epi32(a, b)
 	#define ziphi64(a, b) (i64x2)_mm_unpackhi_epi64(a, b)
+	static always_inline size_t shld(size_t l, size_t h, int i) {asm("shld %%cl, %1, %0" : "+rm" (h) : "r" (l), "c" (i)); return h;}
+	#ifdef __SSE4_1__
+		#define cvtlo8u16(a) (i16x8)_mm_cvtepu8_epi16(a)
+		#define cvtlo16u32(a) (i32x4)_mm_cvtepu16_epi32(a)
+		#define ifelse_mask(v, t, f) (i8x16)_mm_blendv_epi8(f, t, v)
+		#define ifelse_msb(v, t, f) (i8x16)_mm_blendv_epi8(f, t, v)
+		#define load8zx16(p) (i16x8)_mm_cvtepu8_epi16(_mm_loadl_epi64((__m128i*)(p)))
+		#define min8(a, b) (i8x16)_mm_min_epi8(a, b)
+		#define max8(a, b) (i8x16)_mm_max_epi8(a, b)
+		#define min32(a, b) (i32x4)_mm_min_epi32(a, b)
+	#else
+		#define cvtlo8u16(a) (i16x8)ziplo8(a, (i8x16){})
+		#define cvtlo16u32(a) (i32x4)ziplo16(a, (i16x8){})
+		static always_inline i8x16 ifelse_mask(i8x16 v, i8x16 t, i8x16 f) { return t & v | f & ~v; }
+		static always_inline i8x16 ifelse_msb(i8x16 v, i8x16 t, i8x16 f) { v = (0 > v); return t & v | f & ~v; }
+		#define load8zx16(p) (i16x8)ziplo8(load64(p), (i8x16){})
+		static always_inline i8x16 min8(i8x16 a, i8x16 b) { i8x16 v = b > a; return a & v | b & ~v; }
+		static always_inline i8x16 max8(i8x16 a, i8x16 b) { i8x16 v = a > b; return a & v | b & ~v; }
+		static always_inline i32x4 min32(i32x4 a, i32x4 b) { i32x4 v = b > a; return a & v | b & ~v; }
+	#endif
 	#ifdef __SSSE3__
 		static const int8_t shc_mask[48] = {
 			 0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,
@@ -719,7 +710,10 @@ enum IntraChromaModes {
 		#define shrv128(a, i) (i8x16)shuffle(a, load128(shz_mask + 16 + (i)))
 		static always_inline i8x16 shuffle(i8x16 a, i8x16 m) { return (i8x16)_mm_shuffle_epi8(a, m); }
 		static always_inline i8x16 shufflen(i8x16 a, i8x16 m) {return shuffle(a, m) | (0 > m);}
+		static always_inline i8x16 shuffle2(const i8x16 *p, i8x16 m) {return ifelse_mask(m > 15, shuffle(p[1], m), shuffle(p[0], m));}
+		static always_inline i8x16 shuffle3(const i8x16 *p, i8x16 m) {return ifelse_mask(m > 15, ifelse_mask(m > 31, shuffle(p[2], m), shuffle(p[1], m)), shuffle(p[0], m));}
 		#define shufflez shuffle
+		#define shufflez2 shuffle2
 	#else
 		#define shrd128(l, h, i) (shr128(l, i) | shl128(h, 16 - (i)))
 		#define shlc128(a, i) ({i8x16 _a = a; shrd128(shuffle32(shufflelo(ziplo8(_a, _a), 0, 0, 0, 0), 0, 0, 0, 0), _a, 16 - (i));})
@@ -735,116 +729,79 @@ enum IntraChromaModes {
 		static always_inline i8x16 shuffle(i8x16 a, i8x16 m) { m &= 15; return (i8x16){a[m[0]], a[m[1]], a[m[2]], a[m[3]], a[m[4]], a[m[5]], a[m[6]], a[m[7]], a[m[8]], a[m[9]], a[m[10]], a[m[11]], a[m[12]], a[m[13]], a[m[14]], a[m[15]]}; }
 		static always_inline i8x16 shufflen(i8x16 a, i8x16 m) {return shuffle(a, m) | (0 > m);}
 		static always_inline i8x16 shufflez(i8x16 a, i8x16 m) {return shuffle(a, m) & ~(0 > m);}
-	#endif
-	#ifdef __SSE4_1__
-		#define cvtlo8u16(a) (i16x8)_mm_cvtepu8_epi16(a)
-		#define cvtlo16u32(a) (i32x4)_mm_cvtepu16_epi32(a)
-		#define ifelse_mask(v, t, f) (i8x16)_mm_blendv_epi8(f, t, v)
-		#define ifelse_msb(v, t, f) (i8x16)_mm_blendv_epi8(f, t, v)
-		#define load8zx16(p) (i16x8)_mm_cvtepu8_epi16(_mm_loadl_epi64((__m128i*)(p)))
-		#define min8(a, b) (i8x16)_mm_min_epi8(a, b)
-		#define min32(a, b) (i32x4)_mm_min_epi32(a, b)
-		#define max8(a, b) (i8x16)_mm_max_epi8(a, b)
-	#else
-		#define cvtlo8u16(a) (i16x8)ziplo8(a, (i8x16){})
-		#define cvtlo16u32(a) (i32x4)ziplo16(a, (i16x8){})
-		static always_inline i8x16 ifelse_mask(i8x16 v, i8x16 t, i8x16 f) { return t & v | f & ~v; }
-		static always_inline i8x16 ifelse_msb(i8x16 v, i8x16 t, i8x16 f) { v = (0 > v); return t & v | f & ~v; }
-		#define load8zx16(p) (i16x8)ziplo8(load64(p), (i8x16){})
-		static always_inline i8x16 min8(i8x16 a, i8x16 b) { i8x16 v = b > a; return a & v | b & ~v; }
-		static always_inline i32x4 min32(i32x4 a, i32x4 b) { i32x4 v = b > a; return a & v | b & ~v; }
-		static always_inline i8x16 max8(i8x16 a, i8x16 b) { i8x16 v = a > b; return a & v | b & ~v; }
-	#endif
-	
-	// hardware-specific helper functions
-	static always_inline size_t lsd(size_t msb, size_t lsb, unsigned shift) {
-		__asm__("shld %%cl, %1, %0" : "+rm" (msb) : "r" (lsb), "c" (shift));
-		return msb;
-	}
-	static always_inline unsigned refs_to_mask(Edge264Task *t) {
-		u8x16 a = t->RefPicList_v[0] + 127;
-		u8x16 b = t->RefPicList_v[2] + 127;
-		i8x16 zero = {};
-		i16x8 c = (i16x8)ziplo8(a, zero) << 7;
-		i16x8 d = (i16x8)ziphi8(a, zero) << 7;
-		i16x8 e = (i16x8)ziplo8(b, zero) << 7;
-		i16x8 f = (i16x8)ziphi8(b, zero) << 7;
-		i32x4 g = _mm_cvtps_epi32((__m128)ziplo16(zero, c)) | _mm_cvtps_epi32((__m128)ziphi16(zero, c)) |
-		          _mm_cvtps_epi32((__m128)ziplo16(zero, d)) | _mm_cvtps_epi32((__m128)ziphi16(zero, d)) |
-		          _mm_cvtps_epi32((__m128)ziplo16(zero, e)) | _mm_cvtps_epi32((__m128)ziphi16(zero, e)) |
-		          _mm_cvtps_epi32((__m128)ziplo16(zero, f)) | _mm_cvtps_epi32((__m128)ziphi16(zero, f));
-		i32x4 h = g | shuffle32(g, 2, 3, 0, 1);
-		i32x4 i = h | shuffle32(h, 1, 0, 3, 2);
-		return i[0];
-	}
-	#ifdef __SSSE3__
-		static always_inline i8x16 shuffle2(const i8x16 *p, i8x16 m) {
-			return ifelse_mask(m > 15, shuffle(p[1], m), shuffle(p[0], m));
-		}
-		#define shufflez2 shuffle2
-		static always_inline i8x16 shuffle3(const i8x16 *p, i8x16 m) {
-			return ifelse_mask(m > 15, ifelse_mask(m > 31, shuffle(p[2], m), shuffle(p[1], m)), shuffle(p[0], m));
-		}
-	#else
-		static i8x16 shuffle2(const i8x16 *p, i8x16 m) {
-			union { int8_t q[16]; i8x16 v; } _m = {.v = m & 31};
-			for (int i = 0; i < 16; i++)
-				_m.q[i] = ((int8_t *)p)[_m.q[i]];
-			return _m.v;
-		}
+		static always_inline i8x16 shuffle2(const i8x16 *p, i8x16 m) {union { int8_t q[16]; i8x16 v; } _m = {.v = m & 31}; for (int i = 0; i < 16; i++) _m.q[i] = ((int8_t *)p)[_m.q[i]]; return _m.v;}
 		static always_inline i8x16 shufflez2(const i8x16 *p, i8x16 m) { return shuffle2(p, m) & ~(0 > m); }
-		static i8x16 shuffle3(const i8x16 *p, i8x16 m) {
-			union { int8_t q[16]; i8x16 v; } _m = {.v = minu8(m, set8(47))};
-			for (int i = 0; i < 16; i++)
-				_m.q[i] = ((int8_t *)p)[_m.q[i]];
-			return _m.v;
-		}
+		static always_inline i8x16 shuffle3(const i8x16 *p, i8x16 m) {union { int8_t q[16]; i8x16 v; } _m = {.v = minu8(m, set8(47))}; for (int i = 0; i < 16; i++) _m.q[i] = ((int8_t *)p)[_m.q[i]]; return _m.v;}
 	#endif
-	#ifdef __BMI2__ // FIXME and not AMD pre-Zen3
-		static always_inline int extract_neighbours(unsigned f) { return _pext_u32(f, 0x27); }
-		static always_inline int mvd_flags2ref_idx(unsigned f) { return _pext_u32(f, 0x11111111); }
-	#else
-		static always_inline int extract_neighbours(unsigned f) {
-			return (f & 7) | (f >> 2 & 8);
-		}
-		static always_inline int mvd_flags2ref_idx(unsigned f) {
-			int a = f & 0x11111111;
-			int b = a | a >> 3;
-			int c = b | b >> 6;
-			return (c & 0xf) | (c >> 12 & 0xf0);
-		}
-	#endif
-	
-	static always_inline i16x8 median16(i16x8 a, i16x8 b, i16x8 c) {
-		return max16(min16(max16(a, b), c), min16(a, b));
-	}
-	static always_inline i8x16 pack_absMvd(i16x8 a) {
-		i16x8 x = abs16(shuffle32(a, 0, 0, 0, 0));
-		return packus16(x, x);
-	}
-	static always_inline unsigned depended_frames(Edge264Decoder *dec) {
-		i32x4 a = dec->task_dependencies_v[0] | dec->task_dependencies_v[1] |
-		          dec->task_dependencies_v[2] | dec->task_dependencies_v[3];
-		i32x4 b = a | shuffle32(a, 2, 3, 0, 1);
-		i32x4 c = b | shuffle32(b, 1, 0, 3, 2);
-		return c[0];
-	}
-	static always_inline unsigned ready_frames(Edge264Decoder *c) {
-		i32x4 last = set32(INT_MAX);
-		i16x8 a = packs32(c->next_deblock_addr_v[0] == last, c->next_deblock_addr_v[1] == last);
-		i16x8 b = packs32(c->next_deblock_addr_v[2] == last, c->next_deblock_addr_v[3] == last);
-		i16x8 d = packs32(c->next_deblock_addr_v[4] == last, c->next_deblock_addr_v[5] == last);
-		i16x8 e = packs32(c->next_deblock_addr_v[6] == last, c->next_deblock_addr_v[7] == last);
-		return movemask(packs16(a, b)) | movemask(packs16(d, e)) << 16;
-	}
-	static always_inline unsigned ready_tasks(Edge264Decoder *c) {
-		i32x4 rf = set32(ready_frames(c));
-		i32x4 a = (i32x4)_mm_andnot_si128(rf, c->task_dependencies_v[0]) == 0;
-		i32x4 b = (i32x4)_mm_andnot_si128(rf, c->task_dependencies_v[1]) == 0;
-		i32x4 d = (i32x4)_mm_andnot_si128(rf, c->task_dependencies_v[2]) == 0;
-		i32x4 e = (i32x4)_mm_andnot_si128(rf, c->task_dependencies_v[3]) == 0;
-		return c->pending_tasks & movemask(packs16(packs32(a, b), packs32(d, e)));
-	}
+#elif defined(__ARM_NEON)
+	#include <arm_neon.h>
+	static const int8_t shz_mask[48] = {
+		-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
+		 0,  1,  2,  3,  4,  5,  6,  7,  8,  9, 10, 11, 12, 13, 14, 15,
+		-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1};
+	#define abs8(a) (u8x16)vabsq_s8(a)
+	#define abs16(a) (u16x8)vabsq_s16(a)
+	#define avgu8(a, b) (u8x16)vrhaddq_u8(a, b)
+	#define broadcast8(a, i) (i8x16)vdupq_laneq_s8(a, i)
+	#define broadcast16(a, i) (i16x8)vdupq_laneq_s16(a, i)
+	#define broadcast32(a, i) (i32x4)vdupq_laneq_s32(a, i)
+	#define cvtlo8u16(a) (u16x8)vmovl_u8(vget_low_u8(a))
+	#define cvthi8u16(a) (u16x8)vmovl_high_u8(a)
+	#define cvtlo16u32(a) (u32x4)vmovl_u16(vget_low_u16(a))
+	#define cvthi16u32(a) (u32x4)vmovl_high_u16(a)
+	#define cvtuf32(a) (u32x4)vcvtq_u32_f32((float32x4_t)a)
+	#define ifelse_mask(v, t, f) (i8x16)vbslq_s8(v, t, f)
+	#define ifelse_msb(v, t, f) (i8x16)vbslq_s8((i8x16)(v) >> 7, t, f)
+	#define load32(p) ((i32x4){*(int32_t *)(p)})
+	#define load64(p) ((i64x2){*(int64_t *)(p)})
+	#define load128(p) (*(i8x16 *)(p))
+	#define min8(a, b) (i8x16)vminq_s8(a, b)
+	#define max8(a, b) (i8x16)vmaxq_s8(a, b)
+	#define min16(a, b) (i16x8)vminq_s16(a, b)
+	#define max16(a, b) (i16x8)vmaxq_s16(a, b)
+	#define min32(a, b) (i32x4)vminq_s32(a, b)
+	#define minu8(a, b) (u8x16)vminq_u8(a, b)
+	#define maxu8(a, b) (u8x16)vmaxq_u8(a, b)
+	#define packs16(a, b) (i16x8)vqmovn_high_s16(vqmovn_s16(a), b)
+	#define packs32(a, b) (i16x8)vqmovn_high_s32(vqmovn_s32(a), b)
+	#define packus16(a, b) (u8x16)vqmovun_high_s16(vqmovun_s16(a), b)
+	#define set8(i) (i8x16)vdupq_n_s8(i)
+	#define set16(i) (i16x8)vdupq_n_s16(i)
+	#define set32(i) (i32x4)vdupq_n_s32(i)
+	#define shl128(a, i) (i8x16)({i8x16 _a = (a); vextq_s8(_a, _a, 16 - (i));})
+	#define shr128(a, i) (i8x16)({i8x16 _a = (a); vextq_s8(_a, _a, i);})
+	#define shlc128(a, i) (i8x16)({i8x16 _a = (a); vextq_s8(vdupq_laneq_s8(_a, 0), _a, 16 - (i));})
+	#define shrc128(a, i) (i8x16)({i8x16 _a = (a); vextq_s8(_a, vdupq_laneq_s8(_a, 15), i);})
+	#define shrd128(l, h, i) (i8x16)vextq_s8(l, h, i)
+	#define shlv128(a, i) (i8x16)vqtbl1q_s8(a, *(i8x16 *)(shz_mask + 16 - (i)))
+	#define shrv128(a, i) (i8x16)vqtbl1q_s8(a, *(i8x16 *)(shz_mask + 16 + (i)))
+	#define shrrs16(a, i) (i16x8)vrshrq_n_s16(a, i)
+	#define shrru16(a, i) (i16x8)vrshrq_n_u16(a, i)
+	#define shrrpu16(a, b, i) (u8x16)vqrshrn_high_n_u16(vqrshrn_n_u16(a, i), b, i)
+	#define shrpus16(a, b, i) (u8x16)vqshrun_high_n_s16(vqshrun_n_s16(a, i), b, i)
+	#define subu8(a, b) (u8x16)vqsubq_u8(a, b)
+	#define sumd8(a, b) (sum8(a) + sum8(b))
+	#define unziplo32(a, b) (i32x4)vuzp1q_s32(a, b)
+	#define unziphi32(a, b) (i32x4)vuzp2q_s32(a, b)
+	#define ziplo8(a, b) (i8x16)vzip1q_s8(a, b)
+	#define ziphi8(a, b) (i8x16)vzip2q_s8(a, b)
+	#define ziplo16(a, b) (i16x8)vzip1q_s16(a, b)
+	#define ziphi16(a, b) (i16x8)vzip2q_s16(a, b)
+	#define ziplo32(a, b) (i16x8)vzip1q_s32(a, b)
+	#define ziphi32(a, b) (i16x8)vzip2q_s32(a, b)
+	#define ziplo64(a, b) (i64x2)vzip1q_s64(a, b)
+	#define ziphi64(a, b) (i64x2)vzip2q_s64(a, b)
+	static always_inline unsigned movemask(i8x16 a) {u8x16 b = vshrq_n_u8(a, 7), c = vsraq_n_u16(b, b, 7), d = vsraq_n_u32(c, c, 14), e = vsraq_n_u64(d, d, 28); return e[0] | e[8] << 8;}
+	static always_inline size_t shld(size_t l, size_t h, int i) {return h << i | l >> (SIZE_BIT - i);}
+	static always_inline i8x16 shuffle(i8x16 a, i8x16 m) {return vqtbl1q_s8(a, m);}
+	static always_inline i8x16 shufflen(i8x16 a, i8x16 m) {return vqtbx1q_s8(m, a, m);}
+	static always_inline i8x16 shuffle2(const i8x16 *p, i8x16 m) {return vqtbl2q_s8(*(int8x16x2_t *)p, m);}
+	static always_inline i8x16 shuffle3(const i8x16 *p, i8x16 m) {return vqtbl3q_s8(*(int8x16x3_t *)p, m);}
+	// reimplement vaddlv_u8 to return to vector register
+	static always_inline i16x8 sum8(u8x16 a) {i16x8 b; asm("uaddlv %h0, %1.16b" : "=w" (b) : "w" (a)); return b;}
+	#define shufflez shuffle
+	#define shufflez2 shuffle2
+	#define sumh8 sum8
 #else // add other architectures here
 	#error "Use a supported architecture (SSE or NEON)"
 #endif
@@ -852,15 +809,80 @@ enum IntraChromaModes {
 
 
 /**
- * Function declarations are put in a single block here instead of .h files
- * because they are so few.
+ * Helper functions
  */
 static always_inline int min(int a, int b) { return (a < b) ? a : b; }
 static always_inline int max(int a, int b) { return (a > b) ? a : b; }
 static always_inline int clip3(int a, int b, int c) { return min(max(c, a), b); }
 static always_inline unsigned umin(unsigned a, unsigned b) { return (a < b) ? a : b; }
 static always_inline unsigned umax(unsigned a, unsigned b) { return (a > b) ? a : b; }
+static always_inline i16x8 median16(i16x8 a, i16x8 b, i16x8 c) {
+	return max16(min16(max16(a, b), c), min16(a, b));
+}
+static always_inline i8x16 pack_absMvd(i16x8 a) {
+	i16x8 x = broadcast32(a, 0);
+	return abs8(packs16(x, x));
+}
+#ifdef __BMI2__ // FIXME and not AMD pre-Zen3
+	static always_inline int extract_neighbours(unsigned f) { return _pext_u32(f, 0x27); }
+	static always_inline int mvd_flags2ref_idx(unsigned f) { return _pext_u32(f, 0x11111111); }
+#else
+	static always_inline int extract_neighbours(unsigned f) {
+		return (f & 7) | (f >> 2 & 8);
+	}
+	static always_inline int mvd_flags2ref_idx(unsigned f) {
+		int a = f & 0x11111111;
+		int b = a | a >> 3;
+		int c = b | b >> 6;
+		return (c & 0xf) | (c >> 12 & 0xf0);
+	}
+#endif
+static always_inline unsigned refs_to_mask(Edge264Task *t) {
+	u8x16 a = t->RefPicList_v[0] + 127;
+	u8x16 b = t->RefPicList_v[2] + 127;
+	i8x16 zero = {};
+	i16x8 c = (i16x8)ziplo8(a, zero) << 7;
+	i16x8 d = (i16x8)ziphi8(a, zero) << 7;
+	i16x8 e = (i16x8)ziplo8(b, zero) << 7;
+	i16x8 f = (i16x8)ziphi8(b, zero) << 7;
+	u32x4 g = cvtuf32(ziplo16(zero, c)) | cvtuf32(ziphi16(zero, c)) |
+	          cvtuf32(ziplo16(zero, d)) | cvtuf32(ziphi16(zero, d)) |
+	          cvtuf32(ziplo16(zero, e)) | cvtuf32(ziphi16(zero, e)) |
+	          cvtuf32(ziplo16(zero, f)) | cvtuf32(ziphi16(zero, f));
+	u32x4 h = g | (u32x4)shr128(g, 8);
+	u32x4 i = h | (u32x4)shr128(h, 4);
+	return i[0];
+}
+static always_inline unsigned ready_frames(Edge264Decoder *c) {
+	i32x4 last = set32(INT_MAX);
+	i16x8 a = packs32(c->next_deblock_addr_v[0] == last, c->next_deblock_addr_v[1] == last);
+	i16x8 b = packs32(c->next_deblock_addr_v[2] == last, c->next_deblock_addr_v[3] == last);
+	i16x8 d = packs32(c->next_deblock_addr_v[4] == last, c->next_deblock_addr_v[5] == last);
+	i16x8 e = packs32(c->next_deblock_addr_v[6] == last, c->next_deblock_addr_v[7] == last);
+	return movemask(packs16(a, b)) | movemask(packs16(d, e)) << 16;
+}
+static always_inline unsigned ready_tasks(Edge264Decoder *c) {
+	i32x4 not_ready = ~set32(ready_frames(c));
+	i32x4 a = (c->task_dependencies_v[0] & not_ready) == 0;
+	i32x4 b = (c->task_dependencies_v[1] & not_ready) == 0;
+	i32x4 d = (c->task_dependencies_v[2] & not_ready) == 0;
+	i32x4 e = (c->task_dependencies_v[3] & not_ready) == 0;
+	return c->pending_tasks & movemask(packs16(packs32(a, b), packs32(d, e)));
+}
+static always_inline unsigned depended_frames(Edge264Decoder *dec) {
+	u32x4 a = dec->task_dependencies_v[0] | dec->task_dependencies_v[1] |
+	          dec->task_dependencies_v[2] | dec->task_dependencies_v[3];
+	u32x4 b = a | (u32x4)shr128(a, 8);
+	u32x4 c = b | (u32x4)shr128(b, 4);
+	return c[0];
+}
 
+
+
+/**
+ * Function declarations are put in a single block here instead of .h files
+ * because they are so few.
+ */
 // edge264_bitstream.c
 static inline size_t get_bytes(Edge264GetBits *gb, int nbytes);
 static noinline int refill(Edge264GetBits *gb, int ret);

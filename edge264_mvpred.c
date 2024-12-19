@@ -1,17 +1,23 @@
 #include "edge264_internal.h"
 
+#if defined(__SSE2__)
+	static always_inline i16x8 temporal_scale(i16x8 mvCol, int16_t DistScaleFactor) {
+		i32x4 neg = set32(-1);
+		i32x4 mul = set32(DistScaleFactor + 0xff800000u);
+		i32x4 lo = madd16(ziplo16(mvCol, neg), mul);
+		i32x4 hi = madd16(ziphi16(mvCol, neg), mul);
+		return packs32(lo >> 8, hi >> 8);
+	}
+#elif defined(__ARM_NEON)
+	static always_inline i16x8 temporal_scale(i16x8 mvCol, int16_t DistScaleFactor) {
+		i32x4 lo = vmull_n_s16(vget_low_s16(mvCol), DistScaleFactor);
+		i32x4 hi = vmull_high_n_s16(mvCol, DistScaleFactor);
+		return vqrshrn_high_n_s32(vqrshrn_n_s32(lo, 8), hi, 8);
+	}
+#endif
 static always_inline i16x8 mvs_near_zero(i16x8 mvCol, i32x4 zero) {
-	return (i32x4)(abs16(mvCol) >> 1) == zero;
+	return (u32x4)(abs16(mvCol) >> 1) == zero;
 }
-
-static always_inline i16x8 temporal_scale(i16x8 mvCol, int16_t DistScaleFactor) {
-	i32x4 neg = set32(-1);
-	i32x4 mul = set32(DistScaleFactor + 0xff800000u);
-	i32x4 lo = madd16(ziplo16(mvCol, neg), mul);
-	i32x4 hi = madd16(ziphi16(mvCol, neg), mul);
-	return packs32(lo >> 8, hi >> 8);
-}
-
 
 
 
@@ -50,7 +56,7 @@ static inline void decode_inter_16x16(Edge264Context *ctx, i16x8 mvd, int lx)
 	
 	// sum mvp and mvd, broadcast everything to memory and tail-jump to decoding
 	i16x8 mv = mvp + mvd;
-	i16x8 mvs = shuffle32(mv, 0, 0, 0, 0);
+	i16x8 mvs = broadcast32(mv, 0);
 	mb->absMvd_v[lx * 2] = mb->absMvd_v[lx * 2 + 1] = pack_absMvd(mvd);
 	mb->mvs_v[lx * 4] = mb->mvs_v[lx * 4 + 1] = mb->mvs_v[lx * 4 + 2] = mb->mvs_v[lx * 4 + 3] = mvs;
 	decode_inter(ctx, lx * 16, 16, 16);
@@ -92,7 +98,7 @@ static inline void decode_inter_8x16_left(Edge264Context *ctx, i16x8 mvd, int lx
 	
 	// sum mvp and mvd, broadcast everything to memory and call decoding
 	i16x8 mv = mvp + mvd;
-	i16x8 mvs = shuffle32(mv, 0, 0, 0, 0);
+	i16x8 mvs = broadcast32(mv, 0);
 	mb->absMvd_l[lx * 4] = mb->absMvd_l[lx * 4 + 2] = ((i64x2)pack_absMvd(mvd))[0];
 	mb->mvs_v[lx * 4] = mb->mvs_v[lx * 4 + 2] = mvs;
 	decode_inter(ctx, lx * 16, 8, 16);
@@ -133,7 +139,7 @@ static inline void decode_inter_8x16_right(Edge264Context *ctx, i16x8 mvd, int l
 	
 	// sum mvp and mvd, broadcast everything to memory and call decoding
 	i16x8 mv = mvp + mvd;
-	i16x8 mvs = shuffle32(mv, 0, 0, 0, 0);
+	i16x8 mvs = broadcast32(mv, 0);
 	mb->absMvd_l[lx * 4 + 1] = mb->absMvd_l[lx * 4 + 3] = ((i64x2)pack_absMvd(mvd))[0];
 	mb->mvs_v[lx * 4 + 1] = mb->mvs_v[lx * 4 + 3] = mvs;
 	decode_inter(ctx, lx * 16 + 4, 8, 16);
@@ -177,7 +183,7 @@ static inline void decode_inter_16x8_top(Edge264Context *ctx, i16x8 mvd, int lx)
 	
 	// sum mvp and mvd, broadcast everything to memory and tail-jump to decoding
 	i16x8 mv = mvp + mvd;
-	i16x8 mvs = shuffle32(mv, 0, 0, 0, 0);
+	i16x8 mvs = broadcast32(mv, 0);
 	mb->absMvd_v[lx * 2] = pack_absMvd(mvd);
 	mb->mvs_v[lx * 4 + 0] = mb->mvs_v[lx * 4 + 1] = mvs;
 	decode_inter(ctx, lx * 16, 16, 8);
@@ -213,7 +219,7 @@ static inline void decode_inter_16x8_bottom(Edge264Context *ctx, i16x8 mvd, int 
 	
 	// sum mvp and mvd, broadcast everything to memory and tail-jump to decoding
 	i16x8 mv = mvp + mvd;
-	i16x8 mvs = shuffle32(mv, 0, 0, 0, 0);
+	i16x8 mvs = broadcast32(mv, 0);
 	mb->absMvd_v[lx * 2 + 1] = pack_absMvd(mvd);
 	mb->mvs_v[lx * 4 + 2] = mb->mvs_v[lx * 4 + 3] = mvs;
 	decode_inter(ctx, lx * 16 + 8, 16, 8);
@@ -255,8 +261,8 @@ static always_inline void decode_direct_spatial_mv_pred(Edge264Context *ctx, uns
 	// select median if refIdx equals another of refIdxA/B/C
 	i8x16 cmp_med = (refIdxm == refIdxC) | (refIdx == refIdxM); // 3 cases: A=B<C, A=C<B, B=C<A
 	i16x8 mv01 = ifelse_mask(cmp_med, median16(mvA, mvB, mvC), mvmm);
-	i16x8 mvs0 = shuffle32(mv01, 0, 0, 0, 0);
-	i16x8 mvs4 = shuffle32(mv01, 1, 1, 1, 1);
+	i16x8 mvs0 = broadcast32(mv01, 0);
+	i16x8 mvs4 = broadcast32(mv01, 1);
 	
 	// direct zero prediction applies only to refIdx (mvLX are zero already)
 	refIdx ^= (i8x16)((i64x2)refIdx == -1);
@@ -278,10 +284,10 @@ static always_inline void decode_direct_spatial_mv_pred(Edge264Context *ctx, uns
 			i16x8 mvCol3 = *(i16x8*)(mbCol->mvs + offsets[3] + 24);
 			i8x16 refCol = ifelse_msb(refColL0, (i32x4){mbCol->refIdx_s[1]}, refColL0);
 			if (ctx->t.direct_8x8_inference_flag) {
-				mvCol0 = shuffle32(mvCol0, 0, 0, 0, 0);
-				mvCol1 = shuffle32(mvCol1, 1, 1, 1, 1);
-				mvCol2 = shuffle32(mvCol2, 2, 2, 2, 2);
-				mvCol3 = shuffle32(mvCol3, 3, 3, 3, 3);
+				mvCol0 = broadcast32(mvCol0, 0);
+				mvCol1 = broadcast32(mvCol1, 1);
+				mvCol2 = broadcast32(mvCol2, 2);
+				mvCol3 = broadcast32(mvCol3, 3);
 			}
 			
 			// initialize colZeroFlags and masks for motion vectors
@@ -395,10 +401,10 @@ static always_inline void decode_direct_temporal_mv_pred(Edge264Context *ctx, un
 	i8x16 refPicCol = ifelse_msb(refPicColL0, (i32x4){mbCol->refPic_s[1]}, refPicColL0);
 	unsigned inter_eqs = little_endian32(mbCol->inter_eqs_s);
 	if (ctx->t.direct_8x8_inference_flag) {
-		mvCol0 = shuffle32(mvCol0, 0, 0, 0, 0);
-		mvCol1 = shuffle32(mvCol1, 1, 1, 1, 1);
-		mvCol2 = shuffle32(mvCol2, 2, 2, 2, 2);
-		mvCol3 = shuffle32(mvCol3, 3, 3, 3, 3);
+		mvCol0 = broadcast32(mvCol0, 0);
+		mvCol1 = broadcast32(mvCol1, 1);
+		mvCol2 = broadcast32(mvCol2, 2);
+		mvCol3 = broadcast32(mvCol3, 3);
 		inter_eqs |= 0x1b1b1b1b;
 	}
 	

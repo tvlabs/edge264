@@ -33,7 +33,7 @@
 	#define ldleft16(y0, y1, y2, y3, y4, y5, y6, y7, y8, y9, yA, yB, yC, yD, yE, yF) ziphi64(ziphi32(ziplo16(ziplo8(load32(P(-4, y0)), load32(P(-4, y1))), ziplo8(load32(P(-4, y2)), load32(P(-4, y3)))), ziplo16(ziplo8(load32(P(-4, y4)), load32(P(-4, y5))), ziplo8(load32(P(-4, y6)), load32(P(-4, y7))))), ziphi32(ziplo16(ziplo8(load32(P(-4, y8)), load32(P(-4, y9))), ziplo8(load32(P(-4, yA)), load32(P(-4, yB)))), ziplo16(ziplo8(load32(P(-4, yC)), load32(P(-4, yD))), ziplo8(load32(P(-4, yE)), load32(P(-4, yF))))))
 	#define spreadh8(a) shuffle(a, (i8x16){0, 1, 2, 3, 4, 5, 6, 7, 7, 7, 7, 7, 7, 7, 7, 7})
 	#define spreadq8(a) shuffle(a, (i8x16){0, 1, 2, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3})
-	static always_inline i8x16 lowpass8(i8x16 l, i8x16 m, i8x16 r) {return avg8(subu8(avg8(l, r), (l ^ r) & set8(1)), m);}
+	static always_inline i8x16 lowpass8(i8x16 l, i8x16 m, i8x16 r) {return avgu8(subu8(avgu8(l, r), (l ^ r) & set8(1)), m);}
 #elif defined(__ARM_NEON)
 	#define addlou8(a, b) (i16x8)vaddl_u8(vget_low_s8(a), vget_low_s8(b))
 	#define ldedge4x4() ({i8x16 _v = load128(P(-5, -1)); _v[3] = *P(-1, 0); _v[2] = *P(-1, 1); _v[1] = *P(-1, 2); _v[0] = *P(-1, 3); _v;})
@@ -312,7 +312,7 @@ static void decode_intra8x8(int mode, uint8_t * restrict p, size_t stride, i16x8
 		i8x16 v0 = lowpass8(a2q, b2r, c2s);
 		i8x16 v1 = shl128(v0, 1);
 		i8x16 v2 = lowpass8(v0, v1, shl128(v0, 2));
-		p0 = shr128(avg8(v0, v1), 8);
+		p0 = shr128(avgu8(v0, v1), 8);
 		p1 = shr128(v2, 8);
 		p2 = shrd128(shl128(v2, 8), p0, 15);
 		p3 = shrd128(shl128(v2, 9), p1, 15);
@@ -334,7 +334,7 @@ static void decode_intra8x8(int mode, uint8_t * restrict p, size_t stride, i16x8
 		i8x16 v0 = lowpass8(a2p, a2q, b2r);
 		i8x16 v1 = shr128(v0, 1);
 		i8x16 v2 = lowpass8(v0, v1, shr128(v0, 2));
-		p7 = ziplo8(avg8(v0, v1), v2);
+		p7 = ziplo8(avgu8(v0, v1), v2);
 		p6 = shr128(p7, 2);
 		p5 = shr128(p7, 4);
 		p4 = shr128(p7, 6);
@@ -350,7 +350,7 @@ static void decode_intra8x8(int mode, uint8_t * restrict p, size_t stride, i16x8
 	vertical_left_8x8_lowpass: {
 		i8x16 v0 = lowpass8(j2y, k2z, shr128(k2z, 1));
 		i8x16 v1 = shr128(v0, 1);
-		p0 = avg8(v0, v1);
+		p0 = avgu8(v0, v1);
 		p1 = lowpass8(v0, v1, shr128(v0, 2));
 		p2 = shr128(p0, 1);
 		p3 = shr128(p1, 1);
@@ -379,7 +379,7 @@ static void decode_intra8x8(int mode, uint8_t * restrict p, size_t stride, i16x8
 		i2a = ziplo64(ldleft7(i2a, 0, 1, 2, 3, 4, 5, 6), set8(*P(-1, 7)));
 		i8x16 v0 = spreadh8(lowpass8(shr128(i2a, 2), shr128(i2a, 1), i2a));
 		i8x16 v1 = shr128(v0, 1);
-		p0 = ziplo8(avg8(v0, v1), lowpass8(v0, v1, shr128(v0, 2)));
+		p0 = ziplo8(avgu8(v0, v1), lowpass8(v0, v1, shr128(v0, 2)));
 		p1 = shr128(p0, 2);
 		p2 = shr128(p0, 4);
 		p3 = shr128(p0, 6);

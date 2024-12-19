@@ -47,21 +47,21 @@ static always_inline i8x16 expand2(int64_t a) {
 		i8x16 ftC0 = tC0 & ~ignoreSamplesFlags;\
 		/* filter p1 and q1 (same as ffmpeg, I couldn't find better) */\
 		i8x16 c1 = set8(1);\
-		i8x16 x0 = avg8(p0, q0); /* (p0+q0+1)>>1 */\
-		i8x16 x1 = avg8(p2, x0) - ((p2 ^ x0) & c1); /* (p2+((p0+q0+1)>>1))>>1 */\
-		i8x16 x2 = avg8(q2, x0) - ((q2 ^ x0) & c1); /* (q2+((p0+q0+1)>>1))>>1 */\
+		i8x16 x0 = avgu8(p0, q0); /* (p0+q0+1)>>1 */\
+		i8x16 x1 = avgu8(p2, x0) - ((p2 ^ x0) & c1); /* (p2+((p0+q0+1)>>1))>>1 */\
+		i8x16 x2 = avgu8(q2, x0) - ((q2 ^ x0) & c1); /* (q2+((p0+q0+1)>>1))>>1 */\
 		i8x16 pp1 = minu8(maxu8(x1, subu8(p1, ftC0)), addu8(p1, ftC0));\
 		i8x16 qp1 = minu8(maxu8(x2, subu8(q1, ftC0)), addu8(q1, ftC0));\
 		i8x16 cm1 = set8(-1);\
 		i8x16 bm1 = (i8x16)beta + cm1;\
-		i8x16 sub1 = avg8(p1, q1 ^ cm1); /* save 128+((p1-q1)>>1) for later */\
+		i8x16 sub1 = avgu8(p1, q1 ^ cm1); /* save 128+((p1-q1)>>1) for later */\
 		i8x16 apltb = subu8(subu8(p2, p0), bm1) == subu8(subu8(p0, p2), bm1);\
 		i8x16 aqltb = subu8(subu8(q2, q0), bm1) == subu8(subu8(q0, q2), bm1);\
 		p1 = ifelse_mask(apltb, pp1, p1);\
 		q1 = ifelse_mask(aqltb, qp1, q1);\
 		/* filter p0 and q0 (by offsetting signed to unsigned to apply pavg) */\
 		i8x16 ftC = (ftC0 - apltb - aqltb) & ~ignoreSamplesFlags;\
-		i8x16 x3 = avg8(sub0, avg8(sub1, set8(127))); /* 128+((q0-p0+((p1-q1)>>2)+1)>>1) */\
+		i8x16 x3 = avgu8(sub0, avgu8(sub1, set8(127))); /* 128+((q0-p0+((p1-q1)>>2)+1)>>1) */\
 		i8x16 c128 = set8(-128);\
 		i8x16 delta = minu8(subu8(x3, c128), ftC); /* delta if delta>0 */\
 		i8x16 ndelta = minu8(subu8(c128, x3), ftC); /* -delta if delta<0 */\
@@ -84,8 +84,8 @@ static always_inline i8x16 expand2(int64_t a) {
 		i8x16 cm1 = set8(-1);\
 		i8x16 ftC = (expand2(itC0) - cm1) & ~ignoreSamplesFlags;\
 		/* filter p0 and q0 (by offsetting signed to unsigned to apply pavg) */\
-		i8x16 sub1 = avg8(p1, q1 ^ cm1); /* 128+((p1-q1)>>1) */\
-		i8x16 x3 = avg8(sub0, avg8(sub1, set8(127))); /* 128+((q0-p0+((p1-q1)>>2)+1)>>1) */\
+		i8x16 sub1 = avgu8(p1, q1 ^ cm1); /* 128+((p1-q1)>>1) */\
+		i8x16 x3 = avgu8(sub0, avgu8(sub1, set8(127))); /* 128+((q0-p0+((p1-q1)>>2)+1)>>1) */\
 		i8x16 delta = minu8(subu8(x3, c128), ftC); /* delta if delta>0 */\
 		i8x16 ndelta = minu8(subu8(c128, x3), ftC); /* -delta if delta<0 */\
 		p0 = subu8(addu8(p0, delta), ndelta);\
@@ -156,31 +156,31 @@ static always_inline i8x16 expand2(int64_t a) {
 		i8x16 ignoreSamplesFlags = minu8(subu8(alpha, abs0), subu8(beta, maxu8(abs1, abs2))) == 0;\
 		i8x16 c1 = set8(1);\
 		i8x16 zero = {};\
-		i8x16 condpq = subu8(abs0, avg8(avg8(alpha, c1), zero)); /* abs0-((alpha>>2)+1) */\
+		i8x16 condpq = subu8(abs0, avgu8(avgu8(alpha, c1), zero)); /* abs0-((alpha>>2)+1) */\
 		i8x16 bm1 = (i8x16)beta - c1;\
 		i8x16 condp = (subu8(subu8(p2, p0) | subu8(p0, p2), bm1) | condpq) == zero;\
 		i8x16 condq = (subu8(subu8(q2, q0) | subu8(q0, q2), bm1) | condpq) == zero;\
 		/* compute p'0 and q'0 */\
 		i8x16 fix0 = (p0 ^ q0) & c1;\
-		i8x16 pq0 = avg8(p0, q0) - fix0;\
+		i8x16 pq0 = avgu8(p0, q0) - fix0;\
 		i8x16 and0 = fix0 ^ c1;\
-		i8x16 p2q1 = avg8(p2, q1) - ((p2 ^ q1) & c1); /* (p2+q1)/2 */\
-		i8x16 q2p1 = avg8(q2, p1) - ((q2 ^ p1) & c1); /* (q2+p1)/2 */\
-		i8x16 p21q1 = avg8(p2q1, p1) - ((p2q1 ^ p1) & and0); /* p21q1+pq0 == (p2q1+p1+p0+q0)/2 */\
-		i8x16 q21p1 = avg8(q2p1, q1) - ((q2p1 ^ q1) & and0); /* q21p1+pq0 == (q2p1+q1+p0+q0)/2 */\
-		i8x16 pp0a = avg8(p21q1, pq0); /* p'0 (first formula) */\
-		i8x16 qp0a = avg8(q21p1, pq0); /* q'0 (first formula) */\
-		i8x16 pp0b = avg8(p1, avg8(p0, q1) - ((p0 ^ q1) & c1)); /* p'0 (second formula) */\
-		i8x16 qp0b = avg8(q1, avg8(q0, p1) - ((q0 ^ p1) & c1)); /* q'0 (second formula) */\
+		i8x16 p2q1 = avgu8(p2, q1) - ((p2 ^ q1) & c1); /* (p2+q1)/2 */\
+		i8x16 q2p1 = avgu8(q2, p1) - ((q2 ^ p1) & c1); /* (q2+p1)/2 */\
+		i8x16 p21q1 = avgu8(p2q1, p1) - ((p2q1 ^ p1) & and0); /* p21q1+pq0 == (p2q1+p1+p0+q0)/2 */\
+		i8x16 q21p1 = avgu8(q2p1, q1) - ((q2p1 ^ q1) & and0); /* q21p1+pq0 == (q2p1+q1+p0+q0)/2 */\
+		i8x16 pp0a = avgu8(p21q1, pq0); /* p'0 (first formula) */\
+		i8x16 qp0a = avgu8(q21p1, pq0); /* q'0 (first formula) */\
+		i8x16 pp0b = avgu8(p1, avgu8(p0, q1) - ((p0 ^ q1) & c1)); /* p'0 (second formula) */\
+		i8x16 qp0b = avgu8(q1, avgu8(q0, p1) - ((q0 ^ p1) & c1)); /* q'0 (second formula) */\
 		p0 = ifelse_mask(ignoreSamplesFlags, p0, ifelse_mask(condp, pp0a, pp0b));\
 		q0 = ifelse_mask(ignoreSamplesFlags, q0, ifelse_mask(condq, qp0a, qp0b));\
 		/* compute p'1 and q'1 */\
 		i8x16 fcondp = condp & ~ignoreSamplesFlags;\
 		i8x16 fcondq = condq & ~ignoreSamplesFlags;\
-		i8x16 p21 = avg8(p2, p1) - ((p2 ^ p1) & and0); /* p21+pq0 == (p2+p1+p0+q0)/2 */\
-		i8x16 q21 = avg8(q2, q1) - ((q2 ^ q1) & and0); /* q21+pq0 == (q2+q1+q0+p1)/2 */\
-		i8x16 pp1 = avg8(p21, pq0); /* p'1 */\
-		i8x16 qp1 = avg8(q21, pq0); /* q'1 */\
+		i8x16 p21 = avgu8(p2, p1) - ((p2 ^ p1) & and0); /* p21+pq0 == (p2+p1+p0+q0)/2 */\
+		i8x16 q21 = avgu8(q2, q1) - ((q2 ^ q1) & and0); /* q21+pq0 == (q2+q1+q0+p1)/2 */\
+		i8x16 pp1 = avgu8(p21, pq0); /* p'1 */\
+		i8x16 qp1 = avgu8(q21, pq0); /* q'1 */\
 		p1 = ifelse_mask(fcondp, pp1, p1);\
 		q1 = ifelse_mask(fcondq, qp1, q1);\
 		/* compute p'2 and q'2 */\
@@ -188,10 +188,10 @@ static always_inline i8x16 expand2(int64_t a) {
 		i8x16 fix2 = ((q21 ^ pq0) & c1);\
 		i8x16 p210q0 = pp1 - fix1; /* (p2+p1+p0+q0)/4 */\
 		i8x16 q210p0 = qp1 - fix2; /* (q2+q1+q0+p0)/4 */\
-		i8x16 p3p2 = avg8(p3, p2) - ((p3 ^ p2) & (fix1 ^ c1)); /* p3p2+p210q0 == (p3+p2+(p2+p1+p0+q0)/2)/2 */\
-		i8x16 q3q2 = avg8(q3, q2) - ((q3 ^ q2) & (fix2 ^ c1)); /* q3q2+q210p0 == (q3+q2+(q2+q1+p0+q0)/2)/2 */\
-		i8x16 pp2 = avg8(p3p2, p210q0); /* p'2 */\
-		i8x16 qp2 = avg8(q3q2, q210p0); /* q'2 */\
+		i8x16 p3p2 = avgu8(p3, p2) - ((p3 ^ p2) & (fix1 ^ c1)); /* p3p2+p210q0 == (p3+p2+(p2+p1+p0+q0)/2)/2 */\
+		i8x16 q3q2 = avgu8(q3, q2) - ((q3 ^ q2) & (fix2 ^ c1)); /* q3q2+q210p0 == (q3+q2+(q2+q1+p0+q0)/2)/2 */\
+		i8x16 pp2 = avgu8(p3p2, p210q0); /* p'2 */\
+		i8x16 qp2 = avgu8(q3q2, q210p0); /* q'2 */\
 		p2 = ifelse_mask(fcondp, pp2, p2);\
 		q2 = ifelse_mask(fcondq, qp2, q2);}
 	#define DEBLOCK_CHROMA_HARD(p1, p0, q0, q1, ialpha, ibeta) {\
@@ -206,8 +206,8 @@ static always_inline i8x16 expand2(int64_t a) {
 		i8x16 ignoreSamplesFlags = and == 0;\
 		/* compute p'0 and q'0 */\
 		i8x16 c1 = set8(1);\
-		i8x16 pp0b = avg8(p1, avg8(p0, q1) - ((p0 ^ q1) & c1)); /* p'0 (second formula) */\
-		i8x16 qp0b = avg8(q1, avg8(q0, p1) - ((q0 ^ p1) & c1)); /* q'0 (second formula) */\
+		i8x16 pp0b = avgu8(p1, avgu8(p0, q1) - ((p0 ^ q1) & c1)); /* p'0 (second formula) */\
+		i8x16 qp0b = avgu8(q1, avgu8(q0, p1) - ((q0 ^ p1) & c1)); /* q'0 (second formula) */\
 		p0 = ifelse_mask(ignoreSamplesFlags, p0, pp0b);\
 		q0 = ifelse_mask(ignoreSamplesFlags, q0, qp0b);}
 #elif defined(__ARM_NEON)
@@ -921,7 +921,7 @@ static noinline void deblock_mb(Edge264Context *ctx)
 	i8x16 zero = {};
 	i8x16 qP = set32((int32_t)mb->QP_s);
 	i32x4 qPAB = {(int32_t)mbA->QP_s, (int32_t)mbB->QP_s};
-	i8x16 qPav = avg8(qP, ziplo64(qP, qPAB)); // mid/mid/A/B
+	i8x16 qPav = avgu8(qP, ziplo64(qP, qPAB)); // mid/mid/A/B
 	i8x16 c51 = set8(51);
 	#if defined(__SSE2__)
 		i8x16 indexA = minu8(max8(qPav + set8(ctx->t.FilterOffsetA), zero), c51);

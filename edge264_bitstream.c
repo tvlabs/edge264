@@ -38,26 +38,43 @@ static inline size_t get_bytes(Edge264GetBits *gb, int nbytes)
 		v = shrv128(shlv128(load128(p), p + 16 - end), min(CPB + 14 - end, 16));
 	}
 	
-	// create a bitmask for the positions of 001 and 003 escape sequences
+	// make a bitmask for the positions of 00n escape sequences and iterate on it
 	u8x16 eq0 = v == 0;
 	u8x16 x = shr128(v, 2);
-	u8x16 eq13 = x <= 3;
-	unsigned esc = movemask(eq0 & shr128(eq0, 1) & eq13);
-	
-	// iterate on escape sequences that fall inside the bytes to refill
-	while (__builtin_expect(esc & ((1 << nbytes) - 1), 0)) {
-		int i = __builtin_ctz(esc);
-		// if we find a 000 or 001 delimiter sequence, set end to its first byte
-		if (CPB[i] <3) {
-			gb->end = CPB + i - 2;
-			x &= ~shlv128(set8(-1), i);
-			break; // we cannot iterate more since now x differs from esc
+	#if defined(__SSE2__)
+		unsigned esc = movemask(eq0 & shr128(eq0, 1) & (x <= 3));
+		if (__builtin_expect(esc, 0)) {
+			while (esc & ((1 << nbytes) - 1)) {
+				int i = __builtin_ctz(esc);
+				esc = (esc & (esc - 1)) >> 1;
+				if (CPB[i] <3) { // delimiter sequence, set end to its first byte
+					gb->end = CPB + i - 2;
+					x &= ~shlv128(set8(-1), i);
+					break; // we cannot iterate more since now x differs from esc
+				}
+				// otherwise this is an emulation_prevention_three_byte -> remove it
+				x = shuffle(x, shuf[i]);
+				CPB++;
+			}
 		}
-		// otherwise this is an emulation_prevention_three_byte -> remove it
-		x = shuffle(x, shuf[i]);
-		esc = (esc & (esc - 1)) >> 1;
-		CPB++;
-	}
+	#elif defined(__ARM_NEON)
+		uint64_t esc = (uint64_t)vshrn_n_u16(eq0 & shr128(eq0, 1) & (x <= 3), 4);
+		if (__builtin_expect(esc, 0)) {
+			esc &= 0x8888888888888888ULL;
+			while (esc & ((1ULL << (nbytes << 2)) - 1)) {
+				int i = __builtin_ctzll(esc) >> 2;
+				esc = (esc & (esc - 1)) >> 4;
+				if (CPB[i] <3) { // delimiter sequence, set end to its first byte
+					gb->end = CPB + i - 2;
+					x &= ~shlv128(set8(-1), i);
+					break; // we cannot iterate more since now x differs from esc
+				}
+				// otherwise this is an emulation_prevention_three_byte -> remove it
+				x = shuffle(x, shuf[i]);
+				CPB++;
+			}
+		}
+	#endif
 	
 	// increment CPB and return the requested bytes in upper part of the result
 	gb->CPB = CPB + nbytes;
@@ -102,7 +119,7 @@ static noinline int refill(Edge264GetBits *gb, int ret) {
 
 static noinline int get_u1(Edge264GetBits *gb) {
 	int ret = gb->msb_cache >> (SIZE_BIT - 1);
-	gb->msb_cache = lsd(gb->msb_cache, gb->lsb_cache, 1);
+	gb->msb_cache = shld(gb->lsb_cache, gb->msb_cache, 1);
 	if (gb->lsb_cache <<= 1)
 		return ret;
 	return refill(gb, ret);
@@ -115,7 +132,7 @@ static noinline unsigned get_uv(Edge264GetBits *gb, unsigned v) {
 		gb->msb_cache = gb->lsb_cache;
 		gb->lsb_cache = 0;
 	} else {
-		gb->msb_cache = lsd(gb->msb_cache, gb->lsb_cache, v);
+		gb->msb_cache = shld(gb->lsb_cache, gb->msb_cache, v);
 		gb->lsb_cache <<= v;
 	}
 	if (gb->lsb_cache)
@@ -127,7 +144,7 @@ static noinline unsigned get_uv(Edge264GetBits *gb, unsigned v) {
 static noinline unsigned get_ue16(Edge264GetBits *gb, unsigned upper) {
 	unsigned v = clz(gb->msb_cache | (size_t)1 << (SIZE_BIT / 2)) * 2 + 1; // [1..SIZE_BIT-1]
 	unsigned ret = umin((gb->msb_cache >> (SIZE_BIT - v)) - 1, upper);
-	gb->msb_cache = lsd(gb->msb_cache, gb->lsb_cache, v);
+	gb->msb_cache = shld(gb->lsb_cache, gb->msb_cache, v);
 	if (gb->lsb_cache <<= v)
 		return ret;
 	return refill(gb, ret);
@@ -138,7 +155,7 @@ static noinline int get_se16(Edge264GetBits *gb, int lower, int upper) {
 	unsigned v = clz(gb->msb_cache | (size_t)1 << (SIZE_BIT / 2)) * 2 + 1; // [1..SIZE_BIT-1]
 	unsigned ue = (gb->msb_cache >> (SIZE_BIT - v)) - 1;
 	int ret = min(max((ue & 1) ? ue / 2 + 1 : -(ue / 2), lower), upper);
-	gb->msb_cache = lsd(gb->msb_cache, gb->lsb_cache, v);
+	gb->msb_cache = shld(gb->lsb_cache, gb->msb_cache, v);
 	if (gb->lsb_cache <<= v)
 		return ret;
 	return refill(gb, ret);
@@ -148,7 +165,7 @@ static noinline int get_se16(Edge264GetBits *gb, int lower, int upper) {
 #if SIZE_BIT == 32
 	static noinline unsigned get_ue32(Edge264GetBits *gb, unsigned upper) {
 		unsigned leadingZeroBits = clz(gb->msb_cache | 1); // [0..31]
-		gb->msb_cache = lsd(gb->msb_cache, gb->lsb_cache, leadingZeroBits);
+		gb->msb_cache = shld(gb->lsb_cache, gb->msb_cache, leadingZeroBits);
 		if (!(gb->lsb_cache <<= leadingZeroBits))
 			refill(gb, 0);
 		return umin(get_uv(gb, leadingZeroBits + 1) - 1, upper);
@@ -156,7 +173,7 @@ static noinline int get_se16(Edge264GetBits *gb, int lower, int upper) {
 
 	static noinline int get_se32(Edge264GetBits *gb, int lower, int upper) {
 		unsigned leadingZeroBits = clz(gb->msb_cache | 1); // [0..31]
-		gb->msb_cache = lsd(gb->msb_cache, gb->lsb_cache, leadingZeroBits);
+		gb->msb_cache = shld(gb->lsb_cache, gb->msb_cache, leadingZeroBits);
 		if (!(gb->lsb_cache <<= leadingZeroBits))
 			refill(gb, 0);
 		unsigned ue = get_uv(gb, leadingZeroBits + 1) - 1;
@@ -253,7 +270,7 @@ static noinline int get_ae(Edge264Context *ctx, int ctxIdx)
 	ctx->cabac[ctxIdx] = transIdx[state];
 	int binVal = state & 1;
 	if (__builtin_expect(ctx->t._gb.codIRange < 256, 0)) {
-		ctx->t._gb.codIOffset = lsd(ctx->t._gb.codIOffset, get_bytes(&ctx->t._gb, SIZE_BIT / 8 - 1), SIZE_BIT - 8);
+		ctx->t._gb.codIOffset = shld(get_bytes(&ctx->t._gb, SIZE_BIT / 8 - 1), ctx->t._gb.codIOffset, SIZE_BIT - 8);
 		ctx->t._gb.codIRange <<= SIZE_BIT - 8;
 	}
 	return binVal;
@@ -261,7 +278,7 @@ static noinline int get_ae(Edge264Context *ctx, int ctxIdx)
 
 static inline int get_bypass(Edge264Context *ctx) {
 	if (ctx->t._gb.codIRange < 512) {
-		ctx->t._gb.codIOffset = lsd(ctx->t._gb.codIOffset, get_bytes(&ctx->t._gb, SIZE_BIT / 8 - 2), SIZE_BIT - 16);
+		ctx->t._gb.codIOffset = shld(get_bytes(&ctx->t._gb, SIZE_BIT / 8 - 2), ctx->t._gb.codIOffset, SIZE_BIT - 16);
 		ctx->t._gb.codIRange <<= SIZE_BIT - 16;
 	}
 	ctx->t._gb.codIRange >>= 1;
@@ -275,7 +292,7 @@ static int cabac_start(Edge264Context *ctx) {
 	int extra_bits = SIZE_BIT - 1 - ctz(ctx->t._gb.lsb_cache);
 	int shift = extra_bits & 7;
 	int ret = shift > 0 && (ssize_t)ctx->t._gb.msb_cache >> (SIZE_BIT - shift) != -1; // return 1 if not all alignment bits are ones
-	ctx->t._gb.codIOffset = lsd(ctx->t._gb.msb_cache, ctx->t._gb.lsb_cache, shift); // codIOffset and msb_cache are the same memory slot
+	ctx->t._gb.codIOffset = shld(ctx->t._gb.lsb_cache, ctx->t._gb.msb_cache, shift); // codIOffset and msb_cache are the same memory slot
 	ctx->t._gb.lsb_cache >>= (SIZE_BIT - extra_bits) & (SIZE_BIT - 1);
 	while (extra_bits >= 8) {
 		int32_t i = 0;
@@ -299,7 +316,7 @@ static int cabac_terminate(Edge264Context *ctx) {
 		return refill(&ctx->t._gb, 1);
 	}
 	if (__builtin_expect(ctx->t._gb.codIRange < 256, 0)) {
-		ctx->t._gb.codIOffset = lsd(ctx->t._gb.codIOffset, get_bytes(&ctx->t._gb, SIZE_BIT / 8 - 1), SIZE_BIT - 8);
+		ctx->t._gb.codIOffset = shld(get_bytes(&ctx->t._gb, SIZE_BIT / 8 - 1), ctx->t._gb.codIOffset, SIZE_BIT - 8);
 		ctx->t._gb.codIRange <<= SIZE_BIT - 8;
 	}
 	return 0;
@@ -319,8 +336,17 @@ static void cabac_init(Edge264Context *ctx) {
 	i8x16 c1 = set8(1), c64 = set8(64), c126 = set8(126);
 	const i8x16 *src = (i8x16 *)cabac_context_init[ctx->t.cabac_init_idc];
 	for (i8x16 *dst = ctx->cabac_v; dst < ctx->cabac_v + 64; dst++, src += 2) {
-		i16x8 sum0 = maddubs(mul, src[0]) >> 4;
-		i16x8 sum1 = maddubs(mul, src[1]) >> 4;
+		#if defined(__SSE2__)
+			i16x8 sum0 = maddubs(mul, src[0]) >> 4;
+			i16x8 sum1 = maddubs(mul, src[1]) >> 4;
+		#elif defined(__ARM_NEON)
+			i16x8 l0 = vmull_s8(vget_low_s8(mul), vget_low_s8(src[0]));
+			i16x8 h0 = vmull_high_s8(mul, src[0]);
+			i16x8 l1 = vmull_s8(vget_low_s8(mul), vget_low_s8(src[1]));
+			i16x8 h1 = vmull_high_s8(mul, src[1]);
+			i16x8 sum0 = (i16x8)vpaddq_s16(l0, h0) >> 4;
+			i16x8 sum1 = (i16x8)vpaddq_s16(l1, h1) >> 4;
+		#endif
 		i8x16 min = minu8(packus16(sum0, sum1), c126);
 		i8x16 mask = c64 > min;
 		i8x16 preCtxState = maxu8(min, c1);

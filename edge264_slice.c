@@ -135,7 +135,7 @@
 				coeff_token = 0;
 			v = 6;
 		}
-		ctx->t._gb.msb_cache = lsd(ctx->t._gb.msb_cache, ctx->t._gb.lsb_cache, v);
+		ctx->t._gb.msb_cache = shld(ctx->t._gb.lsb_cache, ctx->t._gb.msb_cache, v);
 		if (ctx->t._gb.lsb_cache <<= v)
 			return coeff_token;
 		return refill(&ctx->t._gb, coeff_token);
@@ -158,7 +158,7 @@
 		int token = tokens[leadingZeroBits * 4 + suffix];
 		int coeff_token = token & 127;
 		int v = token >> 7;
-		ctx->t._gb.msb_cache = lsd(ctx->t._gb.msb_cache, ctx->t._gb.lsb_cache, v);
+		ctx->t._gb.msb_cache = shld(ctx->t._gb.lsb_cache, ctx->t._gb.msb_cache, v);
 		if (ctx->t._gb.lsb_cache <<= v)
 			return coeff_token;
 		return refill(&ctx->t._gb, coeff_token);
@@ -206,7 +206,7 @@
 		int suffix = ctx->t._gb.msb_cache >> ((leadingZeroBits + 2) ^ (SIZE_BIT - 1)) & 3;
 		int code = codes[endIdx + TotalCoeff - 4][leadingZeroBits * 4 + suffix];
 		int v = code >> 4;
-		ctx->t._gb.msb_cache = lsd(ctx->t._gb.msb_cache, ctx->t._gb.lsb_cache, v);
+		ctx->t._gb.msb_cache = shld(ctx->t._gb.lsb_cache, ctx->t._gb.msb_cache, v);
 		ctx->t._gb.lsb_cache <<= v;
 		return code & 15;
 	}
@@ -238,7 +238,7 @@ static void CAFUNC(parse_residual_block, int startIdx, int endIdx, int token_or_
 		level[0] = (signs >> (SIZE_BIT - 2) & 2) - 1;
 		level[1] = (signs >> (SIZE_BIT - 3) & 2) - 1;
 		level[2] = (signs >> (SIZE_BIT - 4) & 2) - 1;
-		ctx->t._gb.msb_cache = lsd(ctx->t._gb.msb_cache, ctx->t._gb.lsb_cache, TrailingOnes);
+		ctx->t._gb.msb_cache = shld(ctx->t._gb.lsb_cache, ctx->t._gb.msb_cache, TrailingOnes);
 		ctx->t._gb.lsb_cache <<= TrailingOnes;
 		for (int i = TrailingOnes, suffixLength = 1, v, offset; i < TotalCoeff; i++) {
 			int level_prefix = clz(ctx->t._gb.msb_cache | (size_t)1 << (SIZE_BIT - 26)); // limit given in 9.2.2.1
@@ -257,7 +257,7 @@ static void CAFUNC(parse_residual_block, int startIdx, int endIdx, int token_or_
 			}
 			#if SIZE_BIT == 32
 				v -= level_prefix;
-				ctx->t._gb.msb_cache = lsd(ctx->t._gb.msb_cache, ctx->t._gb.lsb_cache, level_prefix);
+				ctx->t._gb.msb_cache = shld(ctx->t._gb.lsb_cache, ctx->t._gb.msb_cache, level_prefix);
 				if (!(ctx->t._gb.lsb_cache <<= level_prefix))
 					refill(&ctx->t._gb, 0);
 			#endif
@@ -298,7 +298,7 @@ static void CAFUNC(parse_residual_block, int startIdx, int endIdx, int token_or_
 				}
 				scan -= run_before;
 				zerosLeft -= run_before;
-				ctx->t._gb.msb_cache = lsd(ctx->t._gb.msb_cache, ctx->t._gb.lsb_cache, v);
+				ctx->t._gb.msb_cache = shld(ctx->t._gb.lsb_cache, ctx->t._gb.msb_cache, v);
 				ctx->t._gb.lsb_cache <<= v;
 			}
 			ctx->c[*scan] = level[i];
@@ -352,7 +352,7 @@ static void CAFUNC(parse_residual_block, int startIdx, int endIdx, int token_or_
 						// we need at least 51 bits in codIOffset to get 42 bits with a division by 9 bits
 						int zeros = clz(ctx->t._gb.codIRange);
 						if (zeros > 64 - 51) {
-							ctx->t._gb.codIOffset = lsd(ctx->t._gb.codIOffset, get_bytes(&ctx->t._gb, zeros >> 3), zeros & -8);
+							ctx->t._gb.codIOffset = shld(get_bytes(&ctx->t._gb, zeros >> 3), ctx->t._gb.codIOffset, zeros & -8);
 							ctx->t._gb.codIRange <<= zeros & -8;
 							zeros &= 7;
 						}
@@ -880,7 +880,7 @@ static noinline void CAFUNC(parse_I_mb, int mb_type_or_ctxIdx)
 	} else {
 		#if !CABAC
 			unsigned bits = (SIZE_BIT - 1 - ctz(ctx->t._gb.lsb_cache)) & 7;
-			ctx->t._gb.msb_cache = lsd(ctx->t._gb.msb_cache, ctx->t._gb.lsb_cache, bits);
+			ctx->t._gb.msb_cache = shld(ctx->t._gb.lsb_cache, ctx->t._gb.msb_cache, bits);
 			ctx->t._gb.lsb_cache = ctx->t._gb.lsb_cache << bits;
 		#else
 			fprintf(stderr, (mb_type_or_ctxIdx == 17) ? "mb_type: 30\n" : (mb_type_or_ctxIdx == 32) ? "mb_type: 48\n" : "mb_type: 25\n");
@@ -973,7 +973,7 @@ static i16x8 CAFUNC(parse_mvd_pair, const uint8_t *absMvd_lx, int i4x4) {
 				// we need at least 35 (or 21) bits in codIOffset to get 26 (or 12) bypass bits
 				int zeros = clz(ctx->t._gb.codIRange);
 				if (zeros > (SIZE_BIT == 64 ? 64 - 35 : 32 - 21)) {
-					ctx->t._gb.codIOffset = lsd(ctx->t._gb.codIOffset, get_bytes(&ctx->t._gb, zeros >> 3), zeros & -8);
+					ctx->t._gb.codIOffset = shld(get_bytes(&ctx->t._gb, zeros >> 3), ctx->t._gb.codIOffset, zeros & -8);
 					ctx->t._gb.codIRange <<= zeros & -8;
 					zeros &= 7;
 				}
@@ -986,8 +986,8 @@ static i16x8 CAFUNC(parse_mvd_pair, const uint8_t *absMvd_lx, int i4x4) {
 				#if SIZE_BIT == 32
 					if (__builtin_expect(unused < 0, 0)) { // FIXME needs testing
 						// refill codIOffset with 16 bits then make a new division
-						ctx->t._gb.codIOffset = lsd(rem, get_bytes(&ctx->t._gb, 2), 16);
-						quo = lsd(quo, (ctx->t._gb.codIOffset / ctx->t._gb.codIRange) << (SIZE_BIT - 16), 16);
+						ctx->t._gb.codIOffset = shld(get_bytes(&ctx->t._gb, 2), rem, 16);
+						quo = shld((ctx->t._gb.codIOffset / ctx->t._gb.codIRange) << (SIZE_BIT - 16), quo, 16);
 						rem = ctx->t._gb.codIOffset % ctx->t._gb.codIRange;
 						unused += 16;
 					}
@@ -1163,8 +1163,8 @@ static void CAFUNC(parse_B_sub_mb) {
 	// load neighbouring refIdx values and shuffle them into A/B/C/D
 	i8x16 BC = (i64x2){(int64_t)mbB->refIdx_l, (int64_t)mbC->refIdx_l};
 	i8x16 Ar = (i64x2){(int64_t)mbA->refIdx_l, (int64_t)mb->refIdx_l};
-	i8x16 BCAr0 = shuffleps(BC, Ar, 0, 2, 0, 2);
-	i8x16 BCAr1 = shuffleps(BC, Ar, 1, 3, 1, 3);
+	i8x16 BCAr0 = unziplo32(BC, Ar);
+	i8x16 BCAr1 = unziphi32(BC, Ar);
 	i8x16 r0 = shuffle(BCAr0, ((i8x16){12, 12, 12, 12, 13, 13, 13, 13, 14, 14, 14, 14, 15, 15, 15, 15}));
 	i8x16 r1 = shuffle(BCAr1, ((i8x16){12, 12, 12, 12, 13, 13, 13, 13, 14, 14, 14, 14, 15, 15, 15, 15}));
 	i8x16 A0 = shuffle(BCAr0, ((i8x16){9, 12, 9, 12, 12, 13, 12, 13, 11, 14, 11, 14, 14, 15, 14, 15}));
@@ -1220,7 +1220,7 @@ static void CAFUNC(parse_B_sub_mb) {
 		i16x8 absMvd_old = (i64x2){mb->absMvd_l[i8x8]};
 		i16x8 mvs_mask = ziplo16(absMvd_mask, absMvd_mask);
 		i32x4 mv = mvp + mvd;
-		i16x8 mvs = shuffle32(mv, 0, 0, 0, 0);
+		i16x8 mvs = broadcast32(mv, 0);
 		mb->absMvd_l[i8x8] = ((i64x2)ifelse_mask(absMvd_mask, pack_absMvd(mvd), absMvd_old))[0];
 		mb->mvs_v[i8x8] = ifelse_mask(mvs_mask, mvs, mb->mvs_v[i8x8]);
 		decode_inter(ctx, i, widths[type], heights[type]);
@@ -1445,7 +1445,7 @@ static void CAFUNC(parse_P_sub_mb, unsigned ref_idx_flags)
 	// load neighbouring refIdx values and shuffle them into A/B/C/D
 	i8x16 BC = (i64x2){(int64_t)mbB->refIdx_l, (int64_t)mbC->refIdx_l};
 	i8x16 Ar = (i64x2){(int64_t)mbA->refIdx_l, (int64_t)mb->refIdx_l};
-	i8x16 BCAr0 = shuffleps(BC, Ar, 0, 2, 0, 2);
+	i8x16 BCAr0 = unziplo32(BC, Ar);
 	i8x16 r0 = shuffle(BCAr0, ((i8x16){12, 12, 12, 12, 13, 13, 13, 13, 14, 14, 14, 14, 15, 15, 15, 15}));
 	i8x16 A0 = shuffle(BCAr0, ((i8x16){9, 12, 9, 12, 12, 13, 12, 13, 11, 14, 11, 14, 14, 15, 14, 15}));
 	i8x16 B0 = shuffle(BCAr0, ((i8x16){2, 2, 12, 12, 3, 3, 13, 13, 12, 12, 14, 14, 13, 13, 15, 15}));
@@ -1490,7 +1490,7 @@ static void CAFUNC(parse_P_sub_mb, unsigned ref_idx_flags)
 		i16x8 absMvd_old = (i64x2){mb->absMvd_l[i8x8]};
 		i16x8 mvs_mask = ziplo16(absMvd_mask, absMvd_mask);
 		i32x4 mv = mvp + mvd;
-		i16x8 mvs = shuffle32(mv, 0, 0, 0, 0);
+		i16x8 mvs = broadcast32(mv, 0);
 		mb->absMvd_l[i8x8] = ((i64x2)ifelse_mask(absMvd_mask, pack_absMvd(mvd), absMvd_old))[0];
 		mb->mvs_v[i8x8] = ifelse_mask(mvs_mask, mvs, mb->mvs_v[i8x8]);
 		decode_inter(ctx, i, widths[type], heights[type]);
@@ -1575,7 +1575,7 @@ static inline void CAFUNC(parse_P_mb)
 				mv = (i32x4){(eq == 1) ? mvA : mvB};
 			}
 		}
-		i16x8 mvs = shuffle32(mv, 0, 0, 0, 0);
+		i16x8 mvs = broadcast32(mv, 0);
 		mb->mvs_v[0] = mb->mvs_v[1] = mb->mvs_v[2] = mb->mvs_v[3] = mvs;
 		mb->mvs_v[4] = mb->mvs_v[5] = mb->mvs_v[6] = mb->mvs_v[7] = (i16x8){};
 		decode_inter(ctx, 0, 16, 16);

@@ -34,7 +34,7 @@ static inline size_t get_bytes(Edge264GetBits *gb, int nbytes)
 		return 0;
 	} else {
 		const uint8_t *last = (uint8_t *)((uintptr_t)(end - 1) & -16);
-		const uint8_t *p = CPB - 2 < last ? CPB - 2 : last;
+		const uint8_t *p = minp(CPB - 2, last);
 		v = shrv128(shlv128(load128(p), p + 16 - end), min(CPB + 14 - end, 16));
 	}
 	
@@ -143,7 +143,7 @@ static noinline unsigned get_uv(Edge264GetBits *gb, unsigned v) {
 // Parses a Exp-Golomb code in one read, up to 2^16-2 (2^32-2 on 64-bit machines)
 static noinline unsigned get_ue16(Edge264GetBits *gb, unsigned upper) {
 	unsigned v = clz(gb->msb_cache | (size_t)1 << (SIZE_BIT / 2)) * 2 + 1; // [1..SIZE_BIT-1]
-	unsigned ret = umin((gb->msb_cache >> (SIZE_BIT - v)) - 1, upper);
+	unsigned ret = minu((gb->msb_cache >> (SIZE_BIT - v)) - 1, upper);
 	gb->msb_cache = shld(gb->lsb_cache, gb->msb_cache, v);
 	if (gb->lsb_cache <<= v)
 		return ret;
@@ -168,7 +168,7 @@ static noinline int get_se16(Edge264GetBits *gb, int lower, int upper) {
 		gb->msb_cache = shld(gb->lsb_cache, gb->msb_cache, leadingZeroBits);
 		if (!(gb->lsb_cache <<= leadingZeroBits))
 			refill(gb, 0);
-		return umin(get_uv(gb, leadingZeroBits + 1) - 1, upper);
+		return minu(get_uv(gb, leadingZeroBits + 1) - 1, upper);
 	}
 
 	static noinline int get_se32(Edge264GetBits *gb, int lower, int upper) {

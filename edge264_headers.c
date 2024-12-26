@@ -259,8 +259,12 @@ void *ADD_ARCH(worker_loop)(Edge264Decoder *d) {
 		c.d->busy_tasks &= ~(1 << task_id);
 		c.d->task_dependencies[task_id] = 0;
 		c.d->taskPics[task_id] = -1;
-		if (!c.n_threads) // single iteration if single-threaded
+		
+		// in single-thread mode update the buffer pointer and return
+		if (!c.n_threads) {
+			c.d->_gb = c.t._gb;
 			return (void *)ret;
+		}
 	}
 	return NULL;
 }
@@ -584,8 +588,14 @@ static void finish_frame(Edge264Decoder *dec, int pair_view) {
  */
 static void initialize_task(Edge264Decoder *dec, Edge264Task *t)
 {
-	// copy most essential fields from st
+	// set task pointer to current pointer and current pointer to next start code
 	t->_gb = dec->_gb;
+	if (dec->n_threads) {
+		t->_gb.end = edge264_find_start_code(dec->_gb.CPB - 2, dec->_gb.end); // works if CPB already crossed end
+		dec->_gb.CPB = t->_gb.end + 2;
+	}
+	
+	// copy most essential fields from st
 	t->ChromaArrayType = dec->sps.ChromaArrayType;
 	t->direct_8x8_inference_flag = dec->sps.direct_8x8_inference_flag;
 	t->pic_width_in_mbs = dec->sps.pic_width_in_mbs;
@@ -933,7 +943,7 @@ int ADD_ARCH(parse_slice_layer_without_partitioning)(Edge264Decoder *dec, int no
 	dec->ready_tasks |= ((dec->task_dependencies[task_id] & ~ready_frames(dec)) == 0) << task_id;
 	dec->taskPics[task_id] = dec->currPic;
 	if (!dec->n_threads)
-		return (size_t)ADD_ARCH(worker_loop)(dec);
+		return (intptr_t)ADD_ARCH(worker_loop)(dec);
 	pthread_cond_signal(&dec->task_ready);
 	return 0;
 }

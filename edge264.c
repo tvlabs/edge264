@@ -85,7 +85,7 @@ const uint8_t *edge264_find_start_code(const uint8_t *buf, const uint8_t *end) {
 			lo0 = hi0;
 			hi0 = ((v = *p) == zero);
 		}
-		const uint8_t *res = (uint8_t *)p + 1 + __builtin_ctz(m);
+		const uint8_t *res = (uint8_t *)p - 2 + __builtin_ctz(m);
 	#elif defined(__ARM_NEON)
 		uint64_t m;
 		while (!(m = (uint64_t)vshrn_n_u16(shrd128(lo0, hi0, 14) & shrd128(lo0, hi0, 15) & (v == c1), 4))) {
@@ -94,9 +94,9 @@ const uint8_t *edge264_find_start_code(const uint8_t *buf, const uint8_t *end) {
 			lo0 = hi0;
 			hi0 = ((v = *p) == zero);
 		}
-		const uint8_t *res = (uint8_t *)p + 1 + (__builtin_ctzll(m) >> 2);
+		const uint8_t *res = (uint8_t *)p - 2 + (__builtin_ctzll(m) >> 2);
 	#endif
-	return (res < end) ? res : end;
+	return minp(res, end);
 }
 
 
@@ -329,7 +329,7 @@ int edge264_decode_NAL(Edge264Decoder *dec, const uint8_t *buf, const uint8_t *e
 			dec->_gb.end = end;
 			ret = parser(dec, non_blocking, free_cb, free_arg);
 			// end may have been set to the next start code thanks to escape code detection in get_bytes
-			buf = dec->_gb.CPB - 2 < dec->_gb.end ? dec->_gb.CPB - 2 : dec->_gb.end;
+			buf = minp(dec->_gb.CPB - 2, dec->_gb.end);
 		}
 	}
 	printf(ret ? "<e>%s</e>\n" : "<s>Success</s>\n", strerror(ret));
@@ -339,7 +339,7 @@ int edge264_decode_NAL(Edge264Decoder *dec, const uint8_t *buf, const uint8_t *e
 		if (free_cb && !(ret == 0 && 1048610 & 1 << dec->nal_unit_type)) // 1, 5 or 20
 			free_cb(free_arg, ret);
 		if (next_NAL)
-			*next_NAL = edge264_find_start_code(buf, end);
+			*next_NAL = edge264_find_start_code(buf, end) + 3;
 	}
 	if (dec->n_threads)
 		pthread_mutex_unlock(&dec->lock);

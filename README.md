@@ -88,7 +88,7 @@ API reference
 -------------
 
 **`const uint8_t *edge264_find_start_code(const uint8_t *buf, const uint8_t *end)`**
-Scan memory for the next three-byte 001 sequence, returning a pointer to the first following byte (or `end` if no pattern was found).
+Returns a pointer to the next three-byte 001 sequence (or `end` if no pattern was found).
 
 **`Edge264Decoder *edge264_alloc(int n_threads)`**
 Allocate and return a decoding context.

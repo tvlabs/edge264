@@ -79,6 +79,6 @@ release: edge264*.c edge264*.h Makefile
 	clang edge264.c edge264_headers_v2.o edge264_headers_v3.o -shared --target=x86_64-w64-mingw32 --sysroot=$(X64_WINDOWS_MINGW_TOOLCHAIN) -march=x86-64 "-DADD_ARCH(f)=f##_v1" -DLINK_X86_64_V2 -DLINK_X86_64_V3 -pthread $(CFLAGS) -o edge264.dll
 	zip release/edge264-$(VERSION)-x64-windows-mingw.zip edge264.dll
 	# aarch64-linux-musl
-	clang edge264.c -c -fpic --target=aarch64-linux-musl --sysroot=$(ARM64_LINUX_MUSL_SYSROOT) -o edge264.o
+	clang edge264.c -c -fpic --target=aarch64-linux-musl --sysroot=$(ARM64_LINUX_MUSL_SYSROOT) $(CFLAGS) -o edge264.o
 	$(ARM64_LINUX_MUSL_GCC) -shared edge264.o -pthread -o libedge264.so.$(VERSION)
 	zip release/edge264-$(VERSION)-arm64-linux-musl.zip libedge264.so.$(VERSION)

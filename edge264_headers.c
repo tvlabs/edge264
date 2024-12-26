@@ -1132,7 +1132,7 @@ int ADD_ARCH(parse_pic_parameter_set)(Edge264Decoder *dec, int non_blocking,  vo
 		red_if(redundant_pic_cnt_present_flag), redundant_pic_cnt_present_flag);
 	
 	// short for peek-24-bits-without-having-to-define-a-single-use-function
-	if (dec->_gb.msb_cache != (size_t)1 << (SIZE_BIT - 1) || (dec->_gb.lsb_cache & (dec->_gb.lsb_cache - 1)) || dec->_gb.CPB < dec->_gb.end) {
+	if (dec->_gb.msb_cache != (size_t)1 << (SIZE_BIT - 1) || (dec->_gb.lsb_cache & (dec->_gb.lsb_cache - 1)) || (intptr_t)(dec->_gb.end - dec->_gb.CPB) > 0) {
 		pps.transform_8x8_mode_flag = get_u1(&dec->_gb);
 		printf("<k>transform_8x8_mode_flag</k><v>%x</v>\n",
 			pps.transform_8x8_mode_flag);
@@ -1159,7 +1159,7 @@ int ADD_ARCH(parse_pic_parameter_set)(Edge264Decoder *dec, int non_blocking,  vo
 	}
 	
 	// check for trailing_bits before unsupported features (in case errors enabled them)
-	if (dec->_gb.msb_cache != (size_t)1 << (SIZE_BIT - 1) || (dec->_gb.lsb_cache & (dec->_gb.lsb_cache - 1)) || dec->_gb.CPB < dec->_gb.end)
+	if (dec->_gb.msb_cache != (size_t)1 << (SIZE_BIT - 1) || (dec->_gb.lsb_cache & (dec->_gb.lsb_cache - 1)) || (intptr_t)(dec->_gb.end - dec->_gb.CPB) > 0)
 		return EBADMSG;
 	if (pic_parameter_set_id >= 4 || num_slice_groups > 1 ||
 		pps.constrained_intra_pred_flag || redundant_pic_cnt_present_flag)
@@ -1667,7 +1667,7 @@ int ADD_ARCH(parse_seq_parameter_set)(Edge264Decoder *dec, int non_blocking, voi
 	}
 	
 	// check for trailing_bits before unsupported features (in case errors enabled them)
-	if (dec->_gb.msb_cache != (size_t)1 << (SIZE_BIT - 1) || (dec->_gb.lsb_cache & (dec->_gb.lsb_cache - 1)) || dec->_gb.CPB < dec->_gb.end)
+	if (dec->_gb.msb_cache != (size_t)1 << (SIZE_BIT - 1) || (dec->_gb.lsb_cache & (dec->_gb.lsb_cache - 1)) || (intptr_t)(dec->_gb.end - dec->_gb.CPB) > 0)
 		return EBADMSG;
 	if (sps.ChromaArrayType != 1 || sps.BitDepth_Y != 8 || sps.BitDepth_C != 8 ||
 		sps.qpprime_y_zero_transform_bypass_flag || !sps.frame_mbs_only_flag)
@@ -1738,7 +1738,7 @@ int ADD_ARCH(parse_seq_parameter_set_extension)(Edge264Decoder *dec, int non_blo
 		get_uv(&dec->_gb, 3 + bit_depth_aux * 2);
 	}
 	get_u1(&dec->_gb);
-	if (dec->_gb.msb_cache != (size_t)1 << (SIZE_BIT - 1) || (dec->_gb.lsb_cache & (dec->_gb.lsb_cache - 1)) || dec->_gb.CPB < dec->_gb.end) // rbsp_trailing_bits
+	if (dec->_gb.msb_cache != (size_t)1 << (SIZE_BIT - 1) || (dec->_gb.lsb_cache & (dec->_gb.lsb_cache - 1)) || (intptr_t)(dec->_gb.end - dec->_gb.CPB) > 0) // rbsp_trailing_bits
 		return EBADMSG;
 	return aux_format_idc != 0 ? ENOTSUP : 0; // unsupported if transparent
 }

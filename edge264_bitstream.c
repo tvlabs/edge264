@@ -26,16 +26,16 @@ static inline size_t get_bytes(Edge264GetBits *gb, int nbytes)
 	// load 16 bytes without reading past aligned buffer boundaries
 	const uint8_t *CPB = gb->CPB;
 	const uint8_t *end = gb->end;
+	intptr_t diff = CPB - end;
 	u8x16 v;
-	if (__builtin_expect(CPB + 14 <= end, 1)) {
+	if (__builtin_expect(diff <= -14, 1)) {
 		v = load128(CPB - 2);
-	} else if (CPB >= end) {
+	} else if (diff < 0) {
+		const uint8_t *p = minp(CPB - 2, (uint8_t *)((uintptr_t)(end - 1) & -16));
+		v = shrv128(shlv128(load128(p), p + 16 - end), min(14 + diff, 16));
+	} else {
 		gb->CPB = CPB + nbytes;
 		return 0;
-	} else {
-		const uint8_t *last = (uint8_t *)((uintptr_t)(end - 1) & -16);
-		const uint8_t *p = minp(CPB - 2, last);
-		v = shrv128(shlv128(load128(p), p + 16 - end), min(CPB + 14 - end, 16));
 	}
 	
 	// make a bitmask for the positions of 00n escape sequences and iterate on it
@@ -296,7 +296,7 @@ static int cabac_start(Edge264Context *ctx) {
 	ctx->t._gb.lsb_cache >>= (SIZE_BIT - extra_bits) & (SIZE_BIT - 1);
 	while (extra_bits >= 8) {
 		int32_t i = 0;
-		if (ctx->t._gb.CPB < ctx->t._gb.end)
+		if ((intptr_t)(ctx->t._gb.CPB - ctx->t._gb.end) > 0)
 			memcpy(&i, ctx->t._gb.CPB - 3, 4);
 		ctx->t._gb.CPB -= 1 + (big_endian32(i) >> 8 == 3);
 		ctx->t._gb.lsb_cache >>= 8;

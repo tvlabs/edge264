@@ -80,7 +80,7 @@ const uint8_t *edge264_find_start_code(const uint8_t *buf, const uint8_t *end) {
 	#if defined(__SSE2__)
 		unsigned m;
 		while (!(m = movemask(shrd128(lo0, hi0, 14) & shrd128(lo0, hi0, 15) & (v == c1)))) {
-			if ((uint8_t *)++p >= end)
+			if ((intptr_t)(end - (uint8_t *)++p) <= 0)
 				return end;
 			lo0 = hi0;
 			hi0 = ((v = *p) == zero);
@@ -89,7 +89,7 @@ const uint8_t *edge264_find_start_code(const uint8_t *buf, const uint8_t *end) {
 	#elif defined(__ARM_NEON)
 		uint64_t m;
 		while (!(m = (uint64_t)vshrn_n_u16(shrd128(lo0, hi0, 14) & shrd128(lo0, hi0, 15) & (v == c1), 4))) {
-			if ((uint8_t *)++p >= end)
+			if ((intptr_t)(end - (uint8_t *)++p) <= 0)
 				return end;
 			lo0 = hi0;
 			hi0 = ((v = *p) == zero);
@@ -230,6 +230,11 @@ void edge264_free(Edge264Decoder **pdec) {
 
 
 
+/**
+ * Maximum buffer size is 2^(SIZE_BIT-1)-1, and pointer comparisons are coded
+ * to allow wrapping around memory, so the buffer may be close to end of memory
+ * without risk.
+ */
 int edge264_decode_NAL(Edge264Decoder *dec, const uint8_t *buf, const uint8_t *end, int non_blocking, void(*free_cb)(void*,int), void *free_arg, const uint8_t **next_NAL)
 {
 	static const char * const nal_unit_type_names[32] = {
@@ -262,7 +267,7 @@ int edge264_decode_NAL(Edge264Decoder *dec, const uint8_t *buf, const uint8_t *e
 		return EINVAL;
 	if (dec->n_threads)
 		pthread_mutex_lock(&dec->lock);
-	if (buf >= end) {
+	if (__builtin_expect((intptr_t)(end - buf) <= 0, 0)) {
 		for (unsigned o = dec->output_flags; o; o &= o - 1)
 			dec->dispPicOrderCnt = max(dec->dispPicOrderCnt, dec->FieldOrderCnt[0][__builtin_ctz(o)]);
 		unsigned busy;
@@ -283,12 +288,12 @@ int edge264_decode_NAL(Edge264Decoder *dec, const uint8_t *buf, const uint8_t *e
 	int ret = 0;
 	Parser parser = dec->parse_nal_unit[dec->nal_unit_type];
 	if (dec->nal_unit_type == 9) {
-		if (buf + 1 >= end || (buf[1] & 31) != 16)
+		if ((intptr_t)(end - buf) <= 1 || (buf[1] & 31) != 16)
 			ret = EBADMSG;
 		else
 			printf("<k>primary_pic_type</k><v>%d</v>\n", buf[1] >> 5);
 	} else if (dec->nal_unit_type == 14 || dec->nal_unit_type == 20) {
-		if (buf + 4 >= end) {
+		if ((intptr_t)(end - buf) <= 4) {
 			ret = EBADMSG;
 			parser = NULL;
 		} else {
@@ -320,7 +325,7 @@ int edge264_decode_NAL(Edge264Decoder *dec, const uint8_t *buf, const uint8_t *e
 	
 	// initialize the parsing context if we can parse the current NAL
 	if (parser != NULL) {
-		if (buf + 3 > end) {
+		if ((intptr_t)(end - buf) < 3) {
 			ret = EBADMSG;
 		} else {
 			// prefill the bitstream cache with 2 bytes (guaranteed unescaped)

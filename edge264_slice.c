@@ -1819,7 +1819,7 @@ static void CAFUNC(parse_slice_data)
 			if (ctx->mby >= ctx->t.pic_height_in_mbs)
 				break;
 		}
-	} while (CACOND(ctx->mb_skip_run > 0 || ctx->t._gb.msb_cache != (size_t)1 << (SIZE_BIT - 1) || (ctx->t._gb.lsb_cache & (ctx->t._gb.lsb_cache - 1)) || ctx->t._gb.CPB < ctx->t._gb.end, !end_of_slice_flag));
+	} while (CACOND(ctx->mb_skip_run > 0 || ctx->t._gb.msb_cache != (size_t)1 << (SIZE_BIT - 1) || (ctx->t._gb.lsb_cache & (ctx->t._gb.lsb_cache - 1)) || (intptr_t)(ctx->t._gb.end - ctx->t._gb.CPB) > 0, !end_of_slice_flag));
 }
 
 #undef CABAC

@@ -13,38 +13,53 @@ Features
 * Any resolution up to 8K UHD
 * 8-bit 4:2:0 planar YUV output
 * Slices and Arbitrary Slice Order
+* Slice and frame multi-threading
+* Per-slice reference picture list
 * Memory Management Control Operations
 * Long-term reference frames
+
+
+Supported platforms
+-------------------
+
+* Windows: x86, x64
+* Linux: x86, x64, ARM64 (experimental)
+* Mac OS: x64
 
 
 Compiling and testing
 ---------------------
 
-edge264 is built and tested with GNU GCC and LLVM Clang, supports 32/64 bit architectures, and requires 128 bit SIMD support. Processor support is currently limited to Intel x86 or x64 with at least SSSE3. [GLFW3](https://www.glfw.org/) development headers and `pkg-config` should be installed to compile `edge264_test`. `gcc-9` is recommended since it provides the fastest performance in practice.
-The build process will output an object file (e.g. `edge264.o`), which you may then use to link to your code.
+edge264 is entirely developed in C using 128-bit vector extensions and vector intrinsics, and can be compiled with GNU GCC or LLVM Clang. [SDL2](https://www.libsdl.org/) development headers should be installed to compile `edge264_test`.
+
+Here are the `make` options for tuning the compiled library file:
+
+* `ARCH` - specifies the -march value that will be passed to the compiler (default `native`)
+* `TEST=No` - disables compilation of `edge264_test` (default `Yes`)
+* `SDL2_DIR` - pass the relative or absolute path to the SDL2 directory containing `lib` and `include` (default `SDL2`, overridden by `pkg-config` if found)
+* `VARIANTS` - comma-separated list of additional variants that will be included in the library and selected at runtime (default `debug`)
+	* `x86-64-v2` - variant compiled for x86-64 microarchitecture level 2 (SSSE3, SSE4.1 and POPCOUNT)
+	* `x86-64-v3` - variant compiled for x86-64 microarchitecture level 3 (AVX2, BMI, LZCNT, MOVBE)
+	* `debug` - variant compiled with -g and print calls for headers and slices
 
 ```sh
-$ make # automatically selects gcc-9 if available
-$ ./edge264_test -d video.264 # replace -d with -b to benchmark instead of display
+$ make TEST=No ARCH=x86-64-v1 VARIANTS=x86-64-v2,x86-64-v3 # typical release config
 ```
 
-```sh
-# optional, converts from MP4 format
-$ ffmpeg -i video.mp4 -vcodec copy -bsf h264_mp4toannexb -an video.264
-```
-
-When debugging, the make flag `TRACE=1` enables printing headers to stdout in HTML format, and `TRACE=2` adds the dumping of all other symbols to stderr (*very large*). The automated test program can browse files in a given directory, decoding each `<video>.264` file and comparing its output with the pair `<video>.yuv` if found. On the set of AVCv1, FRExt and MVC [conformance bitstreams](https://www.itu.int/wftp3/av-arch/jvt-site/draft_conformance/), 109/224 files are decoded perfectly, the rest using yet unsupported features.
+An automated test program is provided that can browse files in a given directory, decoding each `<video>.264` file and comparing its output with each sibling file `<video>.yuv` if found. On the set of AVCv1, FRExt and MVC [conformance bitstreams](https://www.itu.int/wftp3/av-arch/jvt-site/draft_conformance/), 109/224 files are decoded perfectly, the rest using yet unsupported features.
 
 ```sh
-$ ./edge264_test --help
+$ make
+$ ./edge264_test --help # prints all options available
+$ ffmpeg -i vid.mp4 -vcodec copy -bsf h264_mp4toannexb -an vid.264 # optional, converts from MP4 format
+$ ./edge264_test -d vid.264 # replace -d with -b to benchmark instead of display
 ```
 
 
 Example code
 ------------
 
-Here is a complete example that opens an input file in Annex B format from command line, and dumps its decoded frames in planar YUV order to standard output.
-See [edge264_test.c](edge264_test.c) for a more complete example which displays frames.
+Here is a complete example that opens an input file in Annex B format from command line, and dumps its decoded frames in planar YUV order to standard output. See [edge264_test.c](edge264_test.c) for a more complete example which can also display frames.
 
 ```c
 #include <fcntl.h>
@@ -88,7 +103,7 @@ API reference
 -------------
 
 **`const uint8_t *edge264_find_start_code(const uint8_t *buf, const uint8_t *end)`**
-Returns a pointer to the next three-byte 001 sequence (or `end` if no pattern was found).
+Return a pointer to the next three-byte 001 sequence (or `end` if no pattern was found).
 
 **`Edge264Decoder *edge264_alloc(int n_threads)`**
 Allocate and return a decoding context.
@@ -159,29 +174,36 @@ Roadmap
 -------
 
 * Multithreading (work in progress)
+* ARM support (work in progress)
+* Error recovery and tests based on fuzzying
 * Integration in VLC/ffmpeg/GStreamer
-* ARM support
+* PAFF and MBAFF
 * 4:0:0, 4:2:2 and 4:4:4
 * 9-14 bit depths with possibility of different luma/chroma depths
 * Transform-bypass for macroblocks with QP==0
 * SEI messages
-* Error concealment
-* PAFF and MBAFF
 * AVX-2 optimizations
 
 
 Programming techniques
 ----------------------
 
-edge264 originated as an experiment on new programming techniques to improve performance and code simplicity over existing decoders. I presented a few of these techniques at FOSDEM'24 on 4 February 2024. Be sure to check the [video](https://fosdem.org/2024/schedule/event/fosdem-2024-2931-innovations-in-h-264-avc-software-decoding-architecture-and-optimization-of-a-block-based-video-decoder-to-reach-10-faster-speed-and-3x-code-reduction-over-the-state-of-the-art-/)!
+edge264 originated as an experiment on new programming techniques to improve performance and code simplicity over existing decoders. I presented a few of these techniques at FOSDEM'24 on 4 February 2024 ([be sure to watch the video!](https://fosdem.org/2024/schedule/event/fosdem-2024-2931-innovations-in-h-264-avc-software-decoding-architecture-and-optimization-of-a-block-based-video-decoder-to-reach-10-faster-speed-and-3x-code-reduction-over-the-state-of-the-art-/)):
+
+1. [Single header file](edge264_internal.h) - It contains all struct definitions, common constants and enums, SIMD aliases, inline functions and macros, and exported functions for each source file. To understand the code base you should look at this file first.
+2. [Code blocks instead of functions](edge264_slice.c) - The main decoding loop is a forward pipeline designed as a DAG loosely resembling hardware decoders, with nodes being non-inlined functions and edges being tail calls. It helps mutualize code branches wherever possible, thus reduces code size to help fit in L1 cache.
+3. [Tree branching](edge264_intra.c) - Directional intra modes are implemented with a jump table to the leaves of a tree then unconditional jumps down to the trunk. It allows sharing the bottom code among directional modes, to reduce code size.
+4. ~~Global context register - The pointer to the main structure holding context data is assigned to a register when supported by the compiler (GCC).~~ This technique was dropped as Clang eventually reached on-par performance, so there is little incentive to maintain this hack.
+5. [Default neighboring values](edge264_internal.h) (search `unavail_mb`) - Tests for availability of neighbors are replaced with fake neighboring macroblocks around each frame. It reduces the number of conditional tests inside the main decoding loop, thus reduces code size and branch predictor pressure.
+6. [Relative neighboring offsets](edge264_internal.h) (look for `A4x4_int8` and related variables) - Access to left/top macroblock values is done with direct offsets in memory instead of copying their values to a buffer beforehand. It helps to reduce the reads and writes in the main decoding loop.
+7. [Parsing uneven block shapes](edge264_slice.c) (look at function `parse_P_sub_mb`) - Each Inter macroblock paving specified with mb_type and sub_mb_type is first converted to a bitmask, then iterated on set bits to fetch the correct number of reference indices and motion vectors. This helps to reduce code size and number of conditional blocks.
+8. [Using vector extensions](edge264_internal.h) - GCC's [vector extensions](https://gcc.gnu.org/onlinedocs/gcc/Vector-Extensions.html) are used along vector intrinsics to write more compact code. All intrinsics from Intel are aliased with shorter names, which also provides an enumeration of all SIMD instructions used in the decoder.
+9. [Register-saturating SIMD](edge264_deblock.c) - Some critical SIMD algorithms use more simultaneous vectors than available registers, effectively saturating the register bank and generating stack spills. In some cases this is more efficient than splitting the algorithm into smaller bits, and has the additional benefit of scaling well with later CPUs.
+
+Other yet-to-be-presented bits:
 
 * [Minimalistic API](edge264.h) with FFI-friendly design (7 functions and 1 structure).
 * [The input bitstream](edge264_bitstream.c) is unescaped on the fly using vector code, avoiding a full preprocessing pass to remove escape sequences, and thus reducing memory reads/writes.
 * [Error detection](edge264.c) is performed once in each type of NAL unit (search for `return` statements), by clamping all input values to their expected ranges, then expecting `rbsp_trailing_bit` afterwards (with _very high_ probability of catching an error if the stream is corrupted). This design choice is discussed in [A case about parsing errors](https://traffaillac.github.io/parsing.html).
-* [The bitstream caches](edge264_internal.h) for CAVLC and CABAC (search for `rbsp_reg`) are stored in two size_t variables each, mapped on Global Register Variables if possible, speeding up the _very frequent_ calls to input functions. The main context pointer is also assigned to a GRV, to help reduce the binary size (\~200k).
-* [The main decoding loop](edge264_slice.c) is carefully designed with the smallest code and fewest number of conditional branches, to ease its readability and upgradeability. Its architecture is a forward pipeline loosely resembling hardware decoders, using tail calls to pass execution between code blocks.
+* [The bitstream caches](edge264_internal.h) for CAVLC and CABAC (search for `rbsp_reg`) are stored in two size_t variables each, mapped on Global Register Variables if possible, speeding up the _very frequent_ calls to input functions.
 * [The decoding of input symbols](edge264_slice.c) is interspersed with their parsing (instead of parsing to a `struct` then decoding the data). It deduplicates branches and loops that are present in both parsing and decoding, and even eliminates the need to store some symbols (e.g. mb_type, sub_mb_type, mb_qp_delta).
-* [Neighbouring values](edge264_internal.h) are retrieved using precomputed memory offsets (search for `neighbouring offsets`) rather than intermediate caches. It spares the code for initializing caches and storing them back afterwards, thus reducing memory writes overall.
-* [Loops with nested conditions](edge264_slice.c) are implemented with bitmasks (`while (mask) { i = ctz(mask); ...; mask &= mask - 1; }` instead of `for (int i = 0; i < 32; i++) if (f(i)) { ...; }`). They are used to reduce branch mispredictions when conditionally parsing motion vectors and DCT coefficients.
-* [GCC's Vector Extensions](edge264_internal.h) are used extensively in the entire decoder, to exploit _any_ opportunity for vectorizing, and to reduce future efforts for porting edge264 to new architectures.
-* Machine-specific portions of the decoder are implemented with C intrinsics instead of assembly code. This is especially useful when designing kernels maximizing the use of vector registers, to avoid micro-managing spills on the stack (e.g. [8x8 IDCT](edge264_residual.c), [16x16 Inter predictors](edge264_inter.c)). It also simplifies the build process, and makes the code more readable by aligning sequences of identical instructions, rather than interspersing them with move instructions.

@@ -24,15 +24,12 @@
 #define YELLOW "\e[33m"
 #define BLUE   "\e[34m"
 
-#ifndef TRACE
-	#define TRACE 0
-#endif
-
 static int display = 0;
 static int print_failed = 0;
 static int print_passed = 0;
 static int print_unsupported = 0;
 static int enable_yuv = 1;
+FILE *trace_headers = NULL;
 static Edge264Decoder *d;
 static Edge264Frame out;
 static const uint8_t *conf[2];
@@ -108,9 +105,7 @@ static int check_frame()
 {
 	// check that the number of returned views is as expected
 	if ((out.samples_mvc[0] != NULL) != (conf[1] != NULL)) {
-		#if TRACE
-			printf("<e>The number of returned views (%d) does not match the number of YUV files found (%d)</e>", (out.samples_mvc[0] != NULL) + 1, (conf[1] != NULL) + 1);
-		#endif
+		fprintf(stderr, "The number of returned views (%d) does not match the number of YUV files found (%d)", (out.samples_mvc[0] != NULL) + 1, (conf[1] != NULL) + 1);
 		return -2;
 	}
 	
@@ -140,25 +135,25 @@ static int check_frame()
 					for (int y = max(row * 16 - cropt, 0) >> sh_height; xl < xr && y < min(row * 16 - cropt + 16, out.height_Y) >> sh_height; y++)
 						invalid |= memcmp(p + y * stride + (xl << depth), q + y * (out.width_Y >> sh_width << depth) + (xl << depth), (xr - xl) << depth);
 					if (invalid) {
-						#if TRACE
-							printf("<e>Erroneous macroblock (PicOrderCnt %d, view %d, row %d, column %d, %s plane):<pre>\n",
+						if (trace_headers) {
+							fprintf(trace_headers, "<e>Erroneous macroblock (PicOrderCnt %d, view %d, row %d, column %d, %s plane):<pre>\n",
 								poc, view, row, col, (iYCbCr == 0) ? "Luma" : (iYCbCr == 1) ? "Cb" : "Cr");
 							for (int y = (row * 16 - cropt) >> sh_height; y < (row * 16 - cropt + 16) >> sh_height; y++) {
 								for (int x = (col * 16 - cropl) >> sh_width; x < (col * 16 - cropl + 16) >> sh_width; x++) {
 									// FIXME 16 bit
-									printf(y < 0 || y >= out.height_Y >> sh_height || x < 0 || x >= out.width_Y >> sh_width ? "    " :
+									fprintf(trace_headers, y < 0 || y >= out.height_Y >> sh_height || x < 0 || x >= out.width_Y >> sh_width ? "    " :
 										p[y * stride + x] == q[y * (out.width_Y >> sh_width) + x] ? "%3d " :
 										"<span style='color:red'>%3d</span> ", p[y * stride + x]);
 								}
-								printf("\t");
+								fprintf(trace_headers, "\t");
 								for (int x = (col * 16 - cropl) >> sh_width; x < (col * 16 - cropl + 16) >> sh_width; x++) {
-									printf(y < 0 || y >= out.height_Y >> sh_height || x < 0 || x >= out.width_Y >> sh_width ? "    " :
+									fprintf(trace_headers, y < 0 || y >= out.height_Y >> sh_height || x < 0 || x >= out.width_Y >> sh_width ? "    " :
 										"%3d ", q[y * (out.width_Y >> sh_width) + x]);
 								}
-								printf("\n");
+								fprintf(trace_headers, "\n");
 							}
-							printf("</pre></e>\n");
-						#endif
+							fprintf(trace_headers, "</pre></e>\n");
+						}
 						return -2;
 					}
 				}
@@ -166,9 +161,8 @@ static int check_frame()
 		}
 		conf[view] += (out.width_Y << out.pixel_depth_Y) * out.height_Y + (out.width_C << out.pixel_depth_C) * out.height_C * 2;
 	}
-	#if TRACE
-		printf("<g>Output frame %d is correct</g>\n", poc);
-	#endif
+	if (trace_headers)
+		fprintf(trace_headers, "<g>Output frame %d is correct</g>\n", poc);
 	return 0;
 }
 
@@ -177,9 +171,8 @@ static int check_frame()
 static int decode_file(const char *name0, int print_counts)
 {
 	// process file names
-	#if TRACE
-		printf("<t>%s</t>\n", name0);
-	#endif
+	if (trace_headers)
+		fprintf(trace_headers, "<t>%s</t>\n", name0);
 	int len = strrchr(name0, '.') - name0;
 	if (strcmp(name0 + len + 1, "264") != 0)
 		return 0;
@@ -250,7 +243,7 @@ static int decode_file(const char *name0, int print_counts)
 	
 	// print the success counts
 	if (!quit) {
-		if (!TRACE && print_counts) {
+		if (print_counts) {
 			printf("%d " GREEN "PASS" RESET ", %d " YELLOW "UNSUPPORTED" RESET ", %d " RED "FAIL" RESET, count_pass, count_unsup, count_fail);
 			if (count_flag > 0)
 				printf(", %d " BLUE "FLAGGED" RESET, count_flag);
@@ -278,7 +271,7 @@ static int decode_file(const char *name0, int print_counts)
 		// FIXME interrupt all threads before closing the files!
 		
 		// print the file that was decoded
-		if (!TRACE && print_counts) {
+		if (print_counts) {
 			count_pass += res == ENODATA;
 			count_unsup += res == ENOTSUP;
 			count_fail += res == EBADMSG;
@@ -327,6 +320,7 @@ int main(int argc, char *argv[])
 	int benchmark = 0;
 	int help = 0;
 	int n_threads = -1;
+	FILE *trace_slices = NULL;
 	for (int i = 1; i < argc; i++) {
 		if (argv[i][0] != '-') {
 			file_name = argv[i];
@@ -338,6 +332,8 @@ int main(int argc, char *argv[])
 				case 'p': print_passed = 1; break;
 				case 's': n_threads = 0; break;
 				case 'u': print_unsupported = 1; break;
+				case 'v': trace_headers = fopen("trace.html", "w"); break;
+				case 'V': trace_slices = fopen("trace.txt", "w"); break;
 				case 'y': enable_yuv = 0; break;
 				default: help = 1; break;
 			}
@@ -346,31 +342,26 @@ int main(int argc, char *argv[])
 	
 	// print help if any argument was unknown
 	if (help) {
-		fprintf(stderr, "Usage: " BOLD "%s [video.264|directory] [-hdy"
-		#if !TRACE
-			"bfpu"
-		#endif
-			"]" RESET "\n"
-			"Decodes a video or all videos inside a directory (conformance by default),\n"
+		printf("Usage: " BOLD "%s [video.264|directory] [-hbdfpsuvVy]" RESET "\n"
+			"Decodes a video or all videos inside a directory (./conformance by default),\n"
 			"comparing their outputs with inferred YUV pairs (.yuv and .1.yuv extensions).\n"
 			"-h\tprint this help and exit\n"
-			"-d\tenable display of the videos\n"
-			"-s\tsingle-threaded operation\n"
-			"-y\tdisable comparison against YUV pairs\n"
-		#if !TRACE
 			"-b\tbenchmark decoding time and memory usage\n"
+			"-d\tenable display of the videos\n"
 			"-f\tprint names of failed files in directory\n"
 			"-p\tprint names of passed files in directory\n"
+			"-s\tsingle-threaded operation\n"
 			"-u\tprint names of unsupported files in directory\n"
-		#endif
+			"-v\tenable output of headers to file trace.html\n"
+			"-V\tenable output of slices to file trace.txt (very large)\n"
+			"-y\tdisable comparison against YUV pairs\n"
 			, argv[0]);
 		return 0;
 	}
 	
 	// tags used: t=title, k=key, v=value, h=highlight, g=green, e=error, hr=ruler
-	#if TRACE
-		setvbuf(stdout, NULL, _IONBF, BUFSIZ);
-		printf("<!doctype html>\n"
+	if (trace_headers) {
+		fprintf(trace_headers, "<!doctype html>\n"
 			"<html>\n"
 			"<head>\n"
 			"<title>NAL headers</title>\n"
@@ -389,19 +380,19 @@ int main(int argc, char *argv[])
 			"<link rel=stylesheet href=style.css>\n"
 			"</head>\n"
 			"<body>\n");
-	#else
-		struct timespec t0, t1;
-		clock_gettime(CLOCK_MONOTONIC, &t0);
-	#endif
+	}
+	
+	struct timespec t0, t1;
+	clock_gettime(CLOCK_MONOTONIC, &t0);
+	d = edge264_alloc(n_threads, trace_headers, trace_slices);
 	
 	// check if input is a directory by trying to move into it
-	d = edge264_alloc(n_threads);
 	if (chdir(file_name) < 0) {
 		int res = decode_file(file_name, 0);
-		if (!TRACE && res == ENOTSUP)
-			printf("Decoding ended prematurely on " BOLD "unsupported stream" RESET "\n");
-		if (!TRACE && res == EBADMSG)
-			printf("Decoding ended prematurely on " BOLD "decoding error" RESET "\n");
+		if (res == ENOTSUP)
+			fprintf(stderr, "Decoding ended prematurely on " BOLD "unsupported stream" RESET "\n");
+		if (res == EBADMSG)
+			fprintf(stderr, "Decoding ended prematurely on " BOLD "decoding error" RESET "\n");
 	} else {
 		#ifdef _WIN32
 			DIR *dp;
@@ -416,12 +407,10 @@ int main(int argc, char *argv[])
 				free(entries[n]);
 			free(entries);
 		#endif
-		if (!TRACE) {
-			printf("%d " GREEN "PASS" RESET ", %d " YELLOW "UNSUPPORTED" RESET ", %d " RED "FAIL" RESET, count_pass, count_unsup, count_fail);
-			if (count_flag > 0)
-				printf(", %d " BLUE "FLAGGED" RESET, count_flag);
-			putc('\n', stdout);
-		}
+		printf("%d " GREEN "PASS" RESET ", %d " YELLOW "UNSUPPORTED" RESET ", %d " RED "FAIL" RESET, count_pass, count_unsup, count_fail);
+		if (count_flag > 0)
+			printf(", %d " BLUE "FLAGGED" RESET, count_flag);
+		putc('\n', stdout);
 	}
 	edge264_free(&d);
 	
@@ -435,28 +424,30 @@ int main(int argc, char *argv[])
 	}
 	
 	// closing information
-	#if !TRACE
-		if (benchmark) {
-			clock_gettime(CLOCK_MONOTONIC, &t1);
-			int64_t time_msec = (int64_t)(t1.tv_sec - t0.tv_sec) * 1000 + (t1.tv_nsec - t0.tv_nsec) / 1000000;
-			#ifdef _WIN32
-				HANDLE p = GetCurrentProcess();
-				FILETIME c, e, k, u;
-				GetProcessTimes(p, &c, &e, &k, &u);
-				int64_t cpu_msec = ((int64_t)u.dwHighDateTime << 32 | u.dwLowDateTime) / 10000;
-				PROCESS_MEMORY_COUNTERS m;
-				GetProcessMemoryInfo(p, &m, sizeof(m));
-				int mem_kb = m.PeakPagefileUsage / 1000;
-			#else
-				struct rusage rusage;
-				getrusage(RUSAGE_SELF, &rusage);
-				int64_t cpu_msec = (int64_t)rusage.ru_utime.tv_sec * 1000 + rusage.ru_utime.tv_usec / 1000;
-				long mem_kb = rusage.ru_maxrss / 1000;
-			#endif
-			printf("time: %.3lfs\nCPU: %.3lfs\nmemory: %.3lfMB\n", (double)time_msec / 1000, (double)cpu_msec / 1000, (double)mem_kb / 1000);
-		}
-	#else
-		printf("</body>\n</html>\n");
-	#endif
+	if (benchmark) {
+		clock_gettime(CLOCK_MONOTONIC, &t1);
+		int64_t time_msec = (int64_t)(t1.tv_sec - t0.tv_sec) * 1000 + (t1.tv_nsec - t0.tv_nsec) / 1000000;
+		#ifdef _WIN32
+			HANDLE p = GetCurrentProcess();
+			FILETIME c, e, k, u;
+			GetProcessTimes(p, &c, &e, &k, &u);
+			int64_t cpu_msec = ((int64_t)u.dwHighDateTime << 32 | u.dwLowDateTime) / 10000;
+			PROCESS_MEMORY_COUNTERS m;
+			GetProcessMemoryInfo(p, &m, sizeof(m));
+			int mem_kb = m.PeakPagefileUsage / 1000;
+		#else
+			struct rusage rusage;
+			getrusage(RUSAGE_SELF, &rusage);
+			int64_t cpu_msec = (int64_t)rusage.ru_utime.tv_sec * 1000 + rusage.ru_utime.tv_usec / 1000;
+			long mem_kb = rusage.ru_maxrss / 1000;
+		#endif
+		printf("time: %.3lfs\nCPU: %.3lfs\nmemory: %.3lfMB\n", (double)time_msec / 1000, (double)cpu_msec / 1000, (double)mem_kb / 1000);
+	}
+	if (trace_headers) {
+		fprintf(trace_headers, "</body>\n</html>\n");
+		fclose(trace_headers);
+	}
+	if (trace_slices)
+		fclose(trace_slices);
 	return 0;
 }

@@ -10,6 +10,7 @@
 #include <pthread.h>
 #include <stddef.h>
 #include <stdint.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
@@ -237,6 +238,7 @@ typedef struct Edge264Context {
 	const Edge264Macroblock * _mbD; // backup storage for macro mbD
 	const Edge264Macroblock *mbCol;
 	Edge264Decoder *d;
+	FILE *trace_slices;
 	Edge264Flags inc; // increments for CABAC indices of macroblock syntax elements
 	union { int8_t unavail4x4[16]; i8x16 unavail4x4_v; }; // unavailability of neighbouring A/B/C/D blocks
 	union { int8_t nC_inc[3][16]; i8x16 nC_inc_v[3]; }; // stores the intra/inter default increment from unavailable neighbours (9.3.3.1.1.9)
@@ -315,6 +317,8 @@ typedef struct Edge264Decoder {
 	uint32_t pic_reference_flags; // to be applied after decoding all slices of the current picture
 	uint32_t pic_long_term_flags; // to be applied after decoding all slices of the current picture
 	int64_t DPB_format; // should match format in SPS otherwise triggers resize
+	FILE *trace_headers;
+	FILE *trace_slices;
 	uint8_t *frame_buffers[32];
 	Parser parse_nal_unit[32];
 	union { int8_t LongTermFrameIdx[32]; i8x16 LongTermFrameIdx_v[2]; };
@@ -513,15 +517,13 @@ enum IntraChromaModes {
  * Debugging functions
  */
 #ifdef TRACE
-	#include <stdio.h>
-	static inline const char *red_if(int cond) { return (cond) ? " style='background-color:#fee'" : ""; }
+	#define print_header(dec, ...) if (dec->trace_headers) { fprintf(dec->trace_headers, __VA_ARGS__); }
+	#define print_slice(ctx, ...) if (ctx->trace_slices) { fprintf(ctx->trace_slices, __VA_ARGS__); }
+	static always_inline const char *red_if(int cond) { return (cond) ? " style='background-color:#fee'" : ""; }
 #else
-	#define printf(...) ((void)0)
+	#define print_header(...) ((void)0)
+	#define print_slice(...) ((void)0)
 #endif
-#if TRACE < 2
-	#define fprintf(...) ((void)0)
-#endif
-
 #define print_i8x16(a) {\
 	i8x16 _v = a;\
 	printf("<k>" #a "</k><v>");\
@@ -936,28 +938,33 @@ static void parse_slice_data_cavlc(Edge264Context *ctx);
 static void parse_slice_data_cabac(Edge264Context *ctx);
 
 // edge264_headers.c
-#ifndef ADD_ARCH
-	#define ADD_ARCH(f) f
+#ifndef ADD_VARIANT
+	#define ADD_VARIANT(f) f
 #endif
 void *worker_loop(Edge264Decoder *d);
 void *worker_loop_v1(Edge264Decoder *d);
 void *worker_loop_v2(Edge264Decoder *d);
 void *worker_loop_v3(Edge264Decoder *d);
+void *worker_loop_debug(Edge264Decoder *d);
 int parse_slice_layer_without_partitioning(Edge264Decoder *dec, int non_blocking, void(*free_cb)(void*,int), void *free_arg);
 int parse_slice_layer_without_partitioning_v1(Edge264Decoder *dec, int non_blocking, void(*free_cb)(void*,int), void *free_arg);
 int parse_slice_layer_without_partitioning_v2(Edge264Decoder *dec, int non_blocking, void(*free_cb)(void*,int), void *free_arg);
 int parse_slice_layer_without_partitioning_v3(Edge264Decoder *dec, int non_blocking, void(*free_cb)(void*,int), void *free_arg);
+int parse_slice_layer_without_partitioning_debug(Edge264Decoder *dec, int non_blocking, void(*free_cb)(void*,int), void *free_arg);
 int parse_pic_parameter_set(Edge264Decoder *dec, int non_blocking,  void(*free_cb)(void*,int), void *free_arg);
 int parse_pic_parameter_set_v1(Edge264Decoder *dec, int non_blocking,  void(*free_cb)(void*,int), void *free_arg);
 int parse_pic_parameter_set_v2(Edge264Decoder *dec, int non_blocking,  void(*free_cb)(void*,int), void *free_arg);
 int parse_pic_parameter_set_v3(Edge264Decoder *dec, int non_blocking,  void(*free_cb)(void*,int), void *free_arg);
+int parse_pic_parameter_set_debug(Edge264Decoder *dec, int non_blocking,  void(*free_cb)(void*,int), void *free_arg);
 int parse_seq_parameter_set(Edge264Decoder *dec, int non_blocking, void(*free_cb)(void*,int), void *free_arg);
 int parse_seq_parameter_set_v1(Edge264Decoder *dec, int non_blocking, void(*free_cb)(void*,int), void *free_arg);
 int parse_seq_parameter_set_v2(Edge264Decoder *dec, int non_blocking, void(*free_cb)(void*,int), void *free_arg);
 int parse_seq_parameter_set_v3(Edge264Decoder *dec, int non_blocking, void(*free_cb)(void*,int), void *free_arg);
+int parse_seq_parameter_set_debug(Edge264Decoder *dec, int non_blocking, void(*free_cb)(void*,int), void *free_arg);
 int parse_seq_parameter_set_extension(Edge264Decoder *dec, int non_blocking, void(*free_cb)(void*,int), void *free_arg);
 int parse_seq_parameter_set_extension_v1(Edge264Decoder *dec, int non_blocking, void(*free_cb)(void*,int), void *free_arg);
 int parse_seq_parameter_set_extension_v2(Edge264Decoder *dec, int non_blocking, void(*free_cb)(void*,int), void *free_arg);
 int parse_seq_parameter_set_extension_v3(Edge264Decoder *dec, int non_blocking, void(*free_cb)(void*,int), void *free_arg);
+int parse_seq_parameter_set_extension_debug(Edge264Decoder *dec, int non_blocking, void(*free_cb)(void*,int), void *free_arg);
 
 #endif

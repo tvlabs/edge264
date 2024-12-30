@@ -35,8 +35,11 @@ edge264 is entirely developed in C using 128-bit [vector extensions](https://gcc
 
 Here are the `make` options for tuning the compiled library file:
 
+* `CC` - C compiler used to convert source file to object files (default `cc`)
+* `CFLAGS` - compilation flags passed to `CC` (default `-std=gnu11 -O3 -flax-vector-conversions -w`)
 * `ARCH` - target architecture that will be passed to -march (default `native`)
 * `OS` - target operating system (defaults to host)
+* `LINKER` - C compiler used to link object files into library file (defaults to `CC`)
 * `VARIANTS` - comma-separated list of additional variants included in the library and selected at runtime (default `debug`)
 	* `x86-64-v2` - variant compiled for x86-64 microarchitecture level 2 (SSSE3, SSE4.1 and POPCOUNT)
 	* `x86-64-v3` - variant compiled for x86-64 microarchitecture level 3 (AVX2, BMI, LZCNT, MOVBE)
@@ -45,7 +48,7 @@ Here are the `make` options for tuning the compiled library file:
 * `SDL2_DIR` - relative or absolute path to the SDL2 directory containing `lib` and `include` (default `./SDL2`, overridden by `pkg-config` if found)
 
 ```sh
-$ make TEST=No ARCH=x86-64-v1 VARIANTS=x86-64-v2,x86-64-v3 # typical release config
+$ make TEST=no ARCH=x86-64-v1 VARIANTS=x86-64-v2,x86-64-v3 # typical release config
 ```
 
 The automated test program `edge264_test` can browse files in a given directory, decoding each `<video>.264` file and comparing its output with each sibling file `<video>.yuv` if found. On the set of AVCv1, FRExt and MVC [conformance bitstreams](https://www.itu.int/wftp3/av-arch/jvt-site/draft_conformance/), 109/224 files are decoded without errors, the rest using yet unsupported features.
@@ -118,7 +121,7 @@ Return a pointer to the next three-byte sequence 001, or `end` if not found.
 Allocate and initialize a decoding context.
 
 * `int n_threads` - number of background worker threads, with 0 to disable multithreading and -1 to detect the number of logical cores at runtime
-* `FILE * trace_headers` - if not NULL, the file to print header values while decoding (⚠️ *large*, enabling it requires the `debug` variant, otherwise the function will fail)
+* `FILE * trace_headers` - if not NULL, the file to print header values while decoding (⚠️ *large*, enabling it requires the `debug` variant, otherwise the function will fail at runtime)
 * `FILE * trace_slices` - if not NULL, the file to print slice values while decoding (⚠️ *very large*, requires `debug`too)
 
 ---
@@ -145,7 +148,7 @@ Decode a single NAL unit containing any parameter set or slice.
 
 * `Edge264Decoder * dec` - initialized decoding context
 * `const uint8_t * buf` - first byte of NAL unit (containing `nal_unit_type`)
-* `const uint8_t * end` - first byte past the buffer (maximum buffer size is 2<sup>31</sup>-1 on 32-bit and 2<sup>63</sup>-1 on 64-bit)
+* `const uint8_t * end` - first byte past the buffer (max buffer size is 2<sup>31</sup>-1 on 32-bit and 2<sup>63</sup>-1 on 64-bit)
 * `int non_blocking` - set to 1 if the current thread has other processing thus cannot block here
 * `void (* free_cb)(void * free_arg, int ret)` - callback that may be called from another thread when multithreaded, to signal the end of parsing and release the NAL buffer
 * `void * free_arg` - custom value that will be passed to `free_cb`

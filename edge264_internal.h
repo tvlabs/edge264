@@ -13,7 +13,11 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#ifdef _WIN32
+#define ssize_t ptrdiff_t
+#else
 #include <unistd.h>
+#endif
 
 #include "edge264.h"
 

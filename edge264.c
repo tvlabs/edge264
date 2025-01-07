@@ -111,7 +111,7 @@ Edge264Decoder *edge264_alloc(int n_threads, FILE *trace_headers, FILE *trace_sl
 	dec->taskPics_v = set8(-1);
 	
 	// select parser functions based on CPU capabilities
-	#if defined(__SSE2__) // if compiled for Intel
+	#if defined(__SSE2__) && !defined(_MSC_VER) // if compiled for Intel
 		__builtin_cpu_init();
 		if (!__builtin_cpu_supports("cmov") || !__builtin_cpu_supports("sse2"))
 			return free(dec), NULL;

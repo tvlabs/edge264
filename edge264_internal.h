@@ -382,7 +382,13 @@ typedef struct Edge264Decoder {
 	#define noinline __attribute__((noinline))
 #endif
 #ifndef always_inline
+#if defined(__GNUC__) || defined(__clang__)
 	#define always_inline inline __attribute__((always_inline))
+#elif defined(_MSC_VER)
+	#define always_inline __forceinline
+#else
+	#define always_inline inline
+#endif
 #endif
 
 

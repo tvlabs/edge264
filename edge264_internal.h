@@ -813,8 +813,10 @@ enum IntraChromaModes {
 /**
  * Helper functions
  */
+#ifndef min
 static always_inline int min(int a, int b) { return (a < b) ? a : b; }
 static always_inline int max(int a, int b) { return (a > b) ? a : b; }
+#endif
 static always_inline unsigned minu(unsigned a, unsigned b) { return (a < b) ? a : b; }
 // compatible with any of the pointers wrapping around
 static always_inline void *minp(const void *a, const void *b) { return (void *)((intptr_t)(b - a) > 0 ? a : b); }

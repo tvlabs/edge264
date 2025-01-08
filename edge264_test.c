@@ -3,7 +3,9 @@
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
-#include <SDL2/SDL.h>
+#ifdef HAVE_SDL2
+	#include <SDL2/SDL.h>
+#endif
 #ifdef _WIN32
 	#include <windows.h>
 	#include <psapi.h>
@@ -33,9 +35,11 @@ FILE *trace_headers = NULL;
 static Edge264Decoder *d;
 static Edge264Frame out;
 static const uint8_t *conf[2];
+#ifdef HAVE_SDL2
 static SDL_Window *window;
 static SDL_Renderer *renderer;
 static SDL_Texture *texture0, *texture1;
+#endif
 static int width, height, mvc_display;
 static int count_pass, count_unsup, count_fail, count_flag;
 
@@ -56,6 +60,7 @@ static int cmp(const struct dirent **a, const struct dirent **b) {
 
 static int draw_frame()
 {
+#ifdef HAVE_SDL2
 	// create or resize the window if necessary
 	int has_second_view = out.samples_mvc[0] != NULL;
 	if (width != out.width_Y || height != out.height_Y || mvc_display != has_second_view) {
@@ -96,6 +101,7 @@ static int draw_frame()
 			return 1;
 		}
 	}
+#endif
 	return 0;
 }
 
@@ -414,6 +420,7 @@ int main(int argc, char *argv[])
 	}
 	edge264_free(&d);
 	
+#ifdef HAVE_SDL2
 	// close SDL if initialized
 	if (display) {
 		SDL_DestroyTexture(texture0);
@@ -422,6 +429,7 @@ int main(int argc, char *argv[])
 		SDL_DestroyWindow(window);
 		SDL_Quit();
 	}
+#endif
 	
 	// closing information
 	if (benchmark) {

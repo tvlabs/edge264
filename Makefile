@@ -19,7 +19,7 @@ ifeq ($(BUILD_TEST),yes)
 	SDL2 := $(shell pkg-config --cflags --static --libs --silence-errors sdl2)
 	ifeq ($(SDL2),)
 		ifneq (,$(findstring Windows,$(OS)))
-			SDL2 := -I$(SDL2_DIR)/include -L$(SDL2_DIR)/lib -lmingw32 -lSDL2main -lSDL2
+			SDL2 := -I$(SDL2_DIR)/include -L$(SDL2_DIR)/lib -lmingw32 -lSDL2main -lSDL2 -DHAVE_SDL2
 		endif
 	endif
 endif

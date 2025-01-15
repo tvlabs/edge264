@@ -1,4 +1,5 @@
 /** MAYDO:
+ * _ Replace P and INIT_P with PX versions
  * _ Plugins
  * 	_ Read https://tldp.org/HOWTO/Program-Library-HOWTO/shared-libraries.html
  * 	_ Make a test target that builds locally and runs edge264_test
@@ -7,6 +8,8 @@
  * 	_ Make a uninstall target
  * 	_ Add virtualization support and update the release target to test all cross-compiled files
  * _ Multithreading
+ * 	_ move MVC prefix parsing inside parse_slice_header
+ * 	_ add an option to forbid slice threading, to make redundant slices reliable
  * 	_ measure the time it takes to decode each type of slice
  * 	_ initialize next_deblock_idc at context_init rather than task to catch the latest nda value
  * 	_ make tasks start without waiting for availabilities, and wait inside all separate mv parsers

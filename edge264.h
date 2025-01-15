@@ -38,20 +38,22 @@ extern "C" {
 typedef struct Edge264Decoder Edge264Decoder;
 
 typedef struct Edge264Frame {
-	const uint8_t *samples[3]; // Y/Cb/Cr planes
-	const uint8_t *samples_mvc[3]; // second view
-	int8_t pixel_depth_Y; // 0 for 8-bit, 1 for 16-bit
-	int8_t pixel_depth_C;
-	int16_t width_Y;
-	int16_t width_C;
-	int16_t height_Y;
-	int16_t height_C;
-	int16_t stride_Y;
-	int16_t stride_C;
-	int32_t TopFieldOrderCnt;
-	int32_t BottomFieldOrderCnt;
-	int16_t frame_crop_offsets[4]; // {top,right,bottom,left}, in luma samples, already included in samples_Y/Cb/cr and width/height_Y/C
-	void *return_arg;
+   const uint8_t *samples[3]; // Y/Cb/Cr planes
+   const uint8_t *samples_mvc[3]; // second view
+   const uint8_t *mb_errors; // probabilities (0..255) for each macroblock to be erroneous, NULL if there are no errors, values are spaced by stride_mb in memory
+   int8_t pixel_depth_Y; // 0 for 8-bit, 1 for 16-bit
+   int8_t pixel_depth_C;
+   int16_t width_Y;
+   int16_t width_C;
+   int16_t height_Y;
+   int16_t height_C;
+   int16_t stride_Y;
+   int16_t stride_C;
+   int16_t stride_mb;
+   int32_t TopFieldOrderCnt;
+   int32_t BottomFieldOrderCnt;
+   int16_t frame_crop_offsets[4]; // {top,right,bottom,left}, useful to derive the original frame with 16x16 macroblocks
+   void *return_arg;
 } Edge264Frame;
 
 const uint8_t *edge264_find_start_code(const uint8_t *buf, const uint8_t *end);

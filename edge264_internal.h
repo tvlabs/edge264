@@ -53,13 +53,24 @@ typedef struct {
 
 
 /**
+ * Although we waste some space by storing some neighbouring values for more
+ * than their lifespans, packing everything in a single structure is arguably
+ * the simplest to maintain. Neighbouring values from the same or a different
+ * macroblock are obtained with memory offsets precomputed in ctx. With this
+ * technique we spare the use of intermediate caches thus reduce memory writes.
+ * 
  * In 9.3.3.1.1, ctxIdxInc is always the result of flagA+flagB or flagA+2*flagB,
- * so we pack macroblock flags together to allow adding them in parallel with
- * flagsA + flagsB + (flagsB & twice).
+ * so we use Edge264MbFlags to pack flags together to allow adding them in
+ * parallel with flagsA + flagsB + (flagsB & twice).
+ * 
+ * CABAC bit values of 8x8 blocks are stored in compact 8-bit patterns that
+ * allow retrieving A+B*2 efficiently:
+ *   1 6
+ * 0|5 3
+ * 4|2 7
  */
 typedef union {
 	struct {
-		int8_t filter_edges; // 2 bits to enable deblocking of A/B edges
 		int8_t mb_field_decoding_flag;
 		int8_t mb_skip_flag;
 		int8_t mb_type_I_NxN;
@@ -68,41 +79,28 @@ typedef union {
 		int8_t intra_chroma_pred_mode_non_zero;
 		int8_t CodedBlockPatternChromaDC;
 		int8_t CodedBlockPatternChromaAC;
-		int8_t mbIsInterFlag;
 		union { int8_t coded_block_flags_16x16[3]; int32_t coded_block_flags_16x16_s; };
+		union { uint8_t inter_eqs[4]; uint32_t inter_eqs_s; }; // 2 flags per 4x4 block storing right/bottom equality of mvs&ref, not part of ctxIdxInc but packed here to save space
 	};
 	i8x16 v;
-} Edge264Flags;
-static const Edge264Flags flags_twice = {
+} Edge264MbFlags;
+static const Edge264MbFlags flags_twice = {
 	.CodedBlockPatternChromaDC = 1,
 	.CodedBlockPatternChromaAC = 1,
 	.coded_block_flags_16x16 = {1, 1, 1},
 };
-
-
-
-/**
- * Although we waste some space by storing some neighbouring values for more
- * than their lifespans, packing everything in a single structure is arguably
- * the simplest to maintain. Neighbouring values from the same or a different
- * macroblock are obtained with memory offsets precomputed in ctx. With this
- * technique we spare the use of intermediate caches thus reduce memory writes.
- * 
- * CABAC bit values of 8x8 blocks are stored in compact 8-bit patterns that
- * allow retrieving A+B*2 efficiently:
- *   1 6
- * 0|5 3
- * 4|2 7
- */
 typedef struct {
-	Edge264Flags f;
-	union { uint8_t inter_eqs[4]; uint32_t inter_eqs_s; }; // 2 flags per 4x4 block storing right/bottom equality of mvs&ref, in little endian
+	int8_t error_probability; // 0..100
+	int8_t recovery_bits; // bit 0 is flipped for each new frame, bit 1 signals error
+	int8_t mbIsInterFlag;
+	int8_t filter_edges; // bits 0-1 enable deblocking of A/B edges, bit 2 signals that deblocking is pending
 	union { uint8_t QP[3]; i8x4 QP_s; }; // [iYCbCr]
 	union { uint32_t bits[2]; uint64_t bits_l; }; // {cbp/ref_idx_nz, cbf_Y/Cb/Cr 8x8}
-	union { int8_t nC[3][16]; int32_t nC_s[3][4]; int64_t nC_l[6]; i8x16 nC_v[3]; }; // for CAVLC and deblocking, 64 if unavailable
-	union { int8_t Intra4x4PredMode[16]; i8x16 Intra4x4PredMode_v; }; // [i4x4]
 	union { int8_t refIdx[8]; int32_t refIdx_s[2]; int64_t refIdx_l; }; // [LX][i8x8]
 	union { int8_t refPic[8]; int32_t refPic_s[2]; int64_t refPic_l; }; // [LX][i8x8]
+	Edge264MbFlags f;
+	union { int8_t Intra4x4PredMode[16]; i8x16 Intra4x4PredMode_v; }; // [i4x4]
+	union { int8_t nC[3][16]; int32_t nC_s[3][4]; int64_t nC_l[6]; i8x16 nC_v[3]; }; // for CAVLC and deblocking, 64 if unavailable
 	union { uint8_t absMvd[64]; uint64_t absMvd_l[8]; i8x16 absMvd_v[4]; }; // [LX][i4x4][compIdx]
 	union { int16_t mvs[64]; int32_t mvs_s[32]; int64_t mvs_l[16]; i16x8 mvs_v[8]; }; // [LX][i4x4][compIdx]
 } Edge264Macroblock;
@@ -193,6 +191,7 @@ typedef struct {
 	int8_t direct_8x8_inference_flag; // 0..1
 	int8_t cabac_init_idc; // 0..3
 	int8_t next_deblock_idc; // -1..31, -1 if next_deblock_addr is not written back to dec, currPic otherwise
+	int8_t frame_flip_bit; // 0..1
 	int16_t pic_width_in_mbs; // 0..1023
 	int16_t pic_height_in_mbs; // 0..1055
 	uint16_t stride[3]; // 0..65472 (at max width, 16bit & field pic), [iYCbCr]
@@ -204,8 +203,8 @@ typedef struct {
 	union { int8_t QP[3]; i8x4 QP_s; }; // same as mb
 	uint8_t *samples_base;
 	uint8_t *frame_buffers[32];
-   void (*free_cb)(void *free_arg, int ret); // copy from decode_NAL
-   void *free_arg; // copy from decode_NAL
+	void (*free_cb)(void *free_arg, int ret); // copy from decode_NAL
+	void *free_arg; // copy from decode_NAL
 	union { uint16_t samples_clip[3][8]; i16x8 samples_clip_v[3]; }; // [iYCbCr], maximum sample value
 	union { int8_t RefPicList[2][32]; int64_t RefPicList_l[8]; i8x16 RefPicList_v[4]; };
 	union { int16_t diff_poc[32]; i16x8 diff_poc_v[4]; };
@@ -239,7 +238,7 @@ typedef struct Edge264Context {
 	const Edge264Macroblock *mbCol;
 	Edge264Decoder *d;
 	FILE *trace_slices;
-	Edge264Flags inc; // increments for CABAC indices of macroblock syntax elements
+	Edge264MbFlags inc; // increments for CABAC indices of macroblock syntax elements
 	union { int8_t unavail4x4[16]; i8x16 unavail4x4_v; }; // unavailability of neighbouring A/B/C/D blocks
 	union { int8_t nC_inc[3][16]; i8x16 nC_inc_v[3]; }; // stores the intra/inter default increment from unavailable neighbours (9.3.3.1.1.9)
 	union { uint8_t cabac[1024]; i8x16 cabac_v[64]; };
@@ -314,6 +313,7 @@ typedef struct Edge264Decoder {
 	uint32_t long_term_flags; // bitfield for indices of long-term frames/views
 	uint32_t output_flags; // bitfield for frames waiting to be output
 	uint32_t borrow_flags; // bitfield for frames that are owned by the caller after get_frame and not yet returned
+	uint32_t frame_flip_bits; // target values for bit 0 of mb->recovery_bits in each frame
 	uint32_t pic_reference_flags; // to be applied after decoding all slices of the current picture
 	uint32_t pic_long_term_flags; // to be applied after decoding all slices of the current picture
 	int64_t DPB_format; // should match format in SPS otherwise triggers resize

@@ -36,19 +36,19 @@ edge264 is entirely developed in C using 128-bit [vector extensions](https://gcc
 Here are the `make` options for tuning the compiled library file:
 
 * `CC` - C compiler used to convert source file to object files (default `cc`)
-* `CFLAGS` - compilation flags passed to `CC` (default `-std=gnu11 -O3 -flax-vector-conversions -w`)
+* `CFLAGS` - additional compilation flags passed to `CC`
 * `ARCH` - target architecture that will be passed to -march (default `native`)
 * `OS` - target operating system (defaults to host)
 * `LINKER` - C compiler used to link object files into library file (defaults to `CC`)
 * `VARIANTS` - comma-separated list of additional variants included in the library and selected at runtime (default `debug`)
 	* `x86-64-v2` - variant compiled for x86-64 microarchitecture level 2 (SSSE3, SSE4.1 and POPCOUNT)
 	* `x86-64-v3` - variant compiled for x86-64 microarchitecture level 3 (AVX2, BMI, LZCNT, MOVBE)
-	* `debug` - variant compiled with -g and print calls for headers and slices
+	* `debug` - variant compiled with debugging support (-g and print calls for headers and slices)
 * `BUILD_TEST` - toggles compilation of `edge264_test` (default `yes`)
-* `SDL2_DIR` - relative or absolute path to the SDL2 directory containing `lib` and `include` (default `./SDL2`, overridden by `pkg-config` if found)
+* `SDL2_DIR` - path to SDL2 directory containing `lib` and `include` (default `./SDL2`, overridden by `pkg-config` if found)
 
 ```sh
-$ make TEST=no ARCH=x86-64-v1 VARIANTS=x86-64-v2,x86-64-v3 # typical release config
+$ make ARCH=x86-64 VARIANTS=x86-64-v2,x86-64-v3 BUILD_TEST=no # example release build
 ```
 
 The automated test program `edge264_test` can browse files in a given directory, decoding each `<video>.264` file and comparing its output with each sibling file `<video>.yuv` if found. On the set of AVCv1, FRExt and MVC [conformance bitstreams](https://www.itu.int/wftp3/av-arch/jvt-site/draft_conformance/), 109/224 files are decoded without errors, the rest using yet unsupported features.
@@ -201,6 +201,7 @@ Give back ownership of the frame if it was borrowed from a previous call to `edg
 typedef struct Edge264Frame {
 	const uint8_t *samples[3]; // Y/Cb/Cr planes
 	const uint8_t *samples_mvc[3]; // second view
+	const uint8_t *mb_errors; // probabilities (0..255) for each macroblock to be erroneous, NULL if there are no errors, values are spaced by stride_mb in memory
 	int8_t pixel_depth_Y; // 0 for 8-bit, 1 for 16-bit
 	int8_t pixel_depth_C;
 	int16_t width_Y;
@@ -209,12 +210,20 @@ typedef struct Edge264Frame {
 	int16_t height_C;
 	int16_t stride_Y;
 	int16_t stride_C;
+	int16_t stride_mb;
 	int32_t TopFieldOrderCnt;
 	int32_t BottomFieldOrderCnt;
-	int16_t frame_crop_offsets[4]; // {top,right,bottom,left}, in luma samples, already included in samples_Y/Cb/cr and width/height_Y/C
+	int16_t frame_crop_offsets[4]; // {top,right,bottom,left}, useful to derive the original frame with 16x16 macroblocks
 	void *return_arg;
 } Edge264Frame;
 ```
+
+
+Error recovery
+--------------
+
+* Any invalid or corrupted header is ignored by edge264, i.e. if an invalid parameter set is received then the previous one will still be kept.
+* Any invalid or corrupted frame will be signaled by setting `mb_errors` in `Edge264Frame`. Since edge264 cannot detect exactly where a corruption occurs, it returns a 0%-100% integer probability for each macroblock to contain errors caused by the corruption. This probability is rounded upward, such that all macroblocks inside a corrupted slice will at least have the value 1. edge264 does a basic job at reconstructing the corrupted macroblocks with neighboring frames, so media players are encouraged to use `mb_errors` to provide a better reconstruction.
 
 
 Roadmap
@@ -222,7 +231,7 @@ Roadmap
 
 * Multithreading (work in progress)
 * ARM support (work in progress)
-* Error recovery and tests based on fuzzying
+* Error concealment and tests based on fuzzying
 * Integration in VLC/ffmpeg/GStreamer
 * PAFF and MBAFF
 * 4:0:0, 4:2:2 and 4:4:4

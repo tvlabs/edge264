@@ -56,7 +56,7 @@ static noinline void add_idct4x4(Edge264Context *ctx, int iYCbCr, int DCidx, uin
 	int sh = qP / 6;
 	i8x16 vm = load32(&normAdjust4x4[qP % 6]);
 	i8x16 nA = shuffle(vm, (i8x16){0, 2, 0, 2, 2, 1, 2, 1, 0, 2, 0, 2, 2, 1, 2, 1});
-	i8x16 wS = ctx->t.pps.weightScale4x4_v[iYCbCr + mb->f.mbIsInterFlag * 3];
+	i8x16 wS = ctx->t.pps.weightScale4x4_v[iYCbCr + mb->mbIsInterFlag * 3];
 	i16x8 LS0 = mullou8(wS, nA);
 	i16x8 LS1 = mulhiu8(wS, nA);
 	i32x4 s8 = set32(8); // for SSE
@@ -142,7 +142,7 @@ static void add_idct8x8(Edge264Context *ctx, int iYCbCr, uint8_t *p)
 	if (ctx->t.samples_clip[iYCbCr][0] == 255) {
 		int div = qP / 6;
 		i8x16 vm = load64(&normAdjust8x8[qP % 6]);
-		i8x16 *wS = ctx->t.pps.weightScale8x8_v + (iYCbCr * 2 + mb->f.mbIsInterFlag) * 4;
+		i8x16 *wS = ctx->t.pps.weightScale8x8_v + (iYCbCr * 2 + mb->mbIsInterFlag) * 4;
 		i8x16 nA0 = shuffle(vm, (i8x16){0, 3, 4, 3, 0, 3, 4, 3, 3, 1, 5, 1, 3, 1, 5, 1});
 		i8x16 nA1 = shuffle(vm, (i8x16){4, 5, 2, 5, 4, 5, 2, 5, 3, 1, 5, 1, 3, 1, 5, 1});
 		i16x8 LS0 = mullou8(wS[0], nA0);
@@ -414,8 +414,8 @@ static void transform_dc2x2(Edge264Context *ctx)
 	// deinterlace and scale
 	unsigned qPb = ctx->t.QP[1];
 	unsigned qPr = ctx->t.QP[2];
-	i32x4 LSb = set32((ctx->t.pps.weightScale4x4[1 + mb->f.mbIsInterFlag * 3][0] * normAdjust4x4[qPb % 6][0]) << (qPb / 6));
-	i32x4 LSr = set32((ctx->t.pps.weightScale4x4[2 + mb->f.mbIsInterFlag * 3][0] * normAdjust4x4[qPr % 6][0]) << (qPr / 6));
+	i32x4 LSb = set32((ctx->t.pps.weightScale4x4[1 + mb->mbIsInterFlag * 3][0] * normAdjust4x4[qPb % 6][0]) << (qPb / 6));
+	i32x4 LSr = set32((ctx->t.pps.weightScale4x4[2 + mb->mbIsInterFlag * 3][0] * normAdjust4x4[qPr % 6][0]) << (qPr / 6));
 	i32x4 dcCb = ((i32x4)unziplo32(f0, f1) * LSb) >> 5;
 	i32x4 dcCr = ((i32x4)unziphi32(f0, f1) * LSr) >> 5;
 	
@@ -499,7 +499,7 @@ void FUNC_CTX(transform_dc2x4)
 {
 	int iYCbCr = (0/*BlkIdx*/ - 8) >> 3; // BlkIdx is 16 or 24
 	unsigned qP_DC = 0; //mb->QP[iYCbCr] + 3;
-	int w = ctx->t.pps.weightScale4x4[iYCbCr + mb->f.mbIsInterFlag * 3][0];
+	int w = ctx->t.pps.weightScale4x4[iYCbCr + mb->mbIsInterFlag * 3][0];
 	int nA = normAdjust4x4[qP_DC % 6][0];
 	__m128i x0 = (__m128i)ctx->c_v[0]; // {c00, c01, c10, c11} as per 8.5.11.1
 	__m128i x1 = (__m128i)ctx->c_v[1]; // {c20, c21, c30, c31}

@@ -287,7 +287,7 @@ static always_inline i8x16 expand2(int64_t a) {
 static void deblock_CbCr_8bit(Edge264Context *ctx) {
 	INIT_PX(ctx->samples_mb[1], ctx->t.stride[1] >> 1);
 	i8x16 v0, v1, v2, v3, v4, v5, v6, v7;
-	if (mb->f.filter_edges & 1) {
+	if (mb->filter_edges & 1) {
 		// load and transpose both 12x8 matrices (with left macroblock)
 		i8x16 xa0 = load128(PX(-8, 0));
 		i8x16 xa8 = load128(PX(-8, 1));
@@ -355,7 +355,7 @@ static void deblock_CbCr_8bit(Edge264Context *ctx) {
 		v7 = ziphi64(xd4, xd9);
 		
 		// first vertical edge
-		if (mbA->f.mbIsInterFlag & mb->f.mbIsInterFlag) {
+		if (mbA->mbIsInterFlag & mb->mbIsInterFlag) {
 			int64_t tC0a = ctx->tC0_l[4];
 			if (tC0a != -1)
 				DEBLOCK_CHROMA_SOFT(vY, vZ, v0, v1, ctx->alpha_s[2], ctx->beta_s[2], tC0a);
@@ -474,10 +474,10 @@ static void deblock_CbCr_8bit(Edge264Context *ctx) {
 	i8x16 h7 = ziphi64(xc3, xc7);
 	
 	// first horizontal edge
-	if (mb->f.filter_edges & 2) {
+	if (mb->filter_edges & 2) {
 		i8x16 hY = (i64x2){*(int64_t *)(PX(0, -4)), *(int64_t *)(PX(0, -3))};
 		i8x16 hZ = (i64x2){*(int64_t *)(PX(0, -2)), *(int64_t *)(PX(0, -1))};
-		if (mbB->f.mbIsInterFlag & mb->f.mbIsInterFlag) {
+		if (mbB->mbIsInterFlag & mb->mbIsInterFlag) {
 			int64_t tC0e = ctx->tC0_l[6];
 			if (tC0e != -1)
 				DEBLOCK_CHROMA_SOFT(hY, hZ, h0, h1, ctx->alpha_s[3], ctx->beta_s[3], tC0e);
@@ -487,7 +487,7 @@ static void deblock_CbCr_8bit(Edge264Context *ctx) {
 		*(int64_t *)PX(0, -2) = ((i64x2)hZ)[0];
 		*(int64_t *)PX(0, -1) = ((i64x2)hZ)[1];
 	}
-	mb->f.filter_edges = 0; // prevent redundant deblocking with deblock_idc==2 and ASO
+	mb->filter_edges = 0; // prevent redundant deblocking with deblock_idc==2 and ASO
 	*(int64_t *)PX(0, 0) = ((i64x2)h0)[0];
 	*(int64_t *)PX(0, 1) = ((i64x2)h0)[1];
 	*(int64_t *)PX(0, 2) = ((i64x2)h1)[0];
@@ -520,7 +520,7 @@ static void deblock_CbCr_8bit(Edge264Context *ctx) {
 static void deblock_Y_8bit(Edge264Context *ctx) {
 	INIT_PX(ctx->samples_mb[0], ctx->t.stride[0]);
 	i8x16 v0, v1, v2, v3, v4, v5, v6, v7;
-	if (mb->f.filter_edges & 1) {
+	if (mb->filter_edges & 1) {
 		// load and transpose the left 12x16 matrix
 		i8x16 xa0 = load128(PX(-8, 0));
 		i8x16 xa1 = load128(PX(-8, 1));
@@ -592,7 +592,7 @@ static void deblock_Y_8bit(Edge264Context *ctx) {
 		v7 = ziphi64(xd5, xdB);
 		
 		// first vertical edge
-		if (mbA->f.mbIsInterFlag & mb->f.mbIsInterFlag) {
+		if (mbA->mbIsInterFlag & mb->mbIsInterFlag) {
 			int tC0a = ctx->tC0_s[0];
 			if (tC0a != -1)
 				DEBLOCK_LUMA_SOFT(vX, vY, vZ, v0, v1, v2, ctx->alpha[8], ctx->beta[8], tC0a);
@@ -781,11 +781,11 @@ static void deblock_Y_8bit(Edge264Context *ctx) {
 	i8x16 h7 = ziphi64(xg3, xg7);
 	
 	// first horizontal edge
-	if (mb->f.filter_edges & 2) {
+	if (mb->filter_edges & 2) {
 		i8x16 hx = *(i8x16 *)PX(0, -3);
 		i8x16 hy = *(i8x16 *)PX(0, -2);
 		i8x16 hz = *(i8x16 *)PX(0, -1);
-		if (mbB->f.mbIsInterFlag & mb->f.mbIsInterFlag) {
+		if (mbB->mbIsInterFlag & mb->mbIsInterFlag) {
 			int tC0e = ctx->tC0_s[4];
 			if (tC0e != -1)
 				DEBLOCK_LUMA_SOFT(hx, hy, hz, h0, h1, h2, ctx->alpha[12], ctx->beta[12], tC0e);
@@ -912,7 +912,7 @@ static noinline void deblock_mb(Edge264Context *ctx)
 		{-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 2, 2, 2, 2, 3, 3, 3, 4, 4, 5, 5, 6, 7, 8, 8, 10, 11, 12, 13, 15, 17},
 		{-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 2, 2, 2, 2, 3, 3, 3, 4, 4, 4, 5, 6, 6, 7, 8, 9, 10, 11, 13, 14, 16, 18, 20, 23, 25},
 	};
-	if (!mb->f.filter_edges)
+	if (!mb->filter_edges)
 		return;
 	
 	// compute all values of alpha and beta for each of the color planes first
@@ -936,7 +936,7 @@ static noinline void deblock_mb(Edge264Context *ctx)
 	ctx->beta_v = shuffle3(idx2beta, subu8(indexB, c4));
 	
 	// initialize tC0 for bS=1/2/3
-	if (!mb->f.mbIsInterFlag) {
+	if (!mb->mbIsInterFlag) {
 		i8x16 tC03 = shuffle3(idx2tC0[2], Am4);
 		ctx->tC0_v[0] = ctx->tC0_v[1] = broadcast8(tC03, 0);
 		ctx->tC0_v[2] = ctx->tC0_v[3] = shuffle(tC03, ((i8x16){-1, -1, -1, -1, -1, -1, -1, -1, 1, 1, 1, 1, 2, 2, 2, 2}));
@@ -970,7 +970,7 @@ static noinline void deblock_mb(Edge264Context *ctx)
 			i8x16 refsaceg = ziplo8(neq, neq);
 			bS0aceg = (refsaceg | mvsaceg) == zero;
 			bS0bdfh = mvsbdfh == zero;
-		} else if (mb->inter_eqs_s == little_endian32(0x1b5fbbff)) { // 16x16 B macroblock
+		} else if (mb->f.inter_eqs_s == little_endian32(0x1b5fbbff)) { // 16x16 B macroblock
 			i16x8 mvsv0l0 = unziphi32(mbA->mvs_v[1], mbA->mvs_v[3]);
 			i16x8 mvsv1l0 = unziplo32(mb->mvs_v[0], mb->mvs_v[2]);
 			i16x8 mvsv0l1 = unziphi32(mbA->mvs_v[5], mbA->mvs_v[7]);

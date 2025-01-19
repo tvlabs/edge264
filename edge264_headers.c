@@ -163,30 +163,15 @@ static unsigned ppow(unsigned p65536, unsigned k) {
  * with max precision.
 */
 static void recover_slice(Edge264Context *ctx, int currPic) {
-	// upgrade I slice to P if possible
-	if (ctx->t.slice_type == 2) {
-		int ref = -1;
-		int best = INT_MAX;
-		for (unsigned o = (ctx->d->reference_flags | ctx->d->output_flags) & ~(1 << currPic) & ready_frames(ctx->d); o; o &= o - 1) {
-			int i = __builtin_clz(o);
-			int poc = min(ctx->d->FieldOrderCnt[0][i], ctx->d->FieldOrderCnt[1][i]);
-			int order = (poc > ctx->PicOrderCnt) ? ~poc : (unsigned)poc - ctx->PicOrderCnt - 1;
-			if (order > best)
-				best = order, ref = i;
-		}
-		if (ref >= 0) {
-			ctx->t.RefPicList[0][0] = ref;
-			ctx->t.slice_type = 0;
-		}
-	}
-	
 	// mark all previous mbs as erroneous and assign them an error probability
 	ctx->mby = (unsigned)ctx->t.first_mb_in_slice / (unsigned)ctx->t.pic_width_in_mbs;
 	ctx->mbx = (unsigned)ctx->t.first_mb_in_slice % (unsigned)ctx->t.pic_width_in_mbs;
 	ctx->samples_mb[0] = ctx->t.samples_base + (ctx->mbx + ctx->mby * ctx->t.stride[0]) * 16;
 	ctx->samples_mb[1] = ctx->t.samples_base + ctx->t.plane_size_Y + (ctx->mbx + ctx->mby * ctx->t.stride[1]) * 8;
 	ctx->samples_mb[2] = ctx->samples_mb[1] + (ctx->t.stride[1] >> 1);
-	ctx->_mb = (Edge264Macroblock *)(ctx->t.samples_base + ctx->t.plane_size_Y + ctx->t.plane_size_C) + ctx->mbx + ctx->mby * (ctx->t.pic_width_in_mbs + 1);
+	int mb_offset = ctx->t.plane_size_Y + ctx->t.plane_size_C + sizeof(Edge264Macroblock) * (ctx->mbx + ctx->mby * (ctx->t.pic_width_in_mbs + 1));
+	ctx->_mb = (Edge264Macroblock *)(ctx->t.samples_base + mb_offset);
+	ctx->mbCol = (Edge264Macroblock *)(ctx->t.frame_buffers[ctx->t.RefPicList[1][0]] + mb_offset);
 	unsigned num = ctx->CurrMbAddr - ctx->t.first_mb_in_slice;
 	unsigned div = 65536 - ppow(65194, num);
 	for (unsigned i = 0; i < num; i++) {
@@ -299,6 +284,18 @@ static void recover_slice(Edge264Context *ctx, int currPic) {
 			ctx->samples_mb[2] += ctx->t.stride[1] * 8 - ctx->t.pic_width_in_mbs * 8;
 		}
 	}
+}
+
+
+
+/**
+ * This function is called when a frame ends with a positive remaining_mbs.
+ * 
+ * It sets up recover_slice to go through all mbs and recover them while
+ * setting their error probability to 100%.
+ */
+static void recover_frame(Edge264Decoder *dec) {
+	
 }
 
 
@@ -417,11 +414,11 @@ void *ADD_VARIANT(worker_loop)(Edge264Decoder *dec) {
 			dec->next_deblock_addr[currPic] = INT_MAX; // signals the frame is complete
 		}
 		
-		// update the task queue
+		// if multi-threaded, check if we are the last task to touch this frame and ensure it is complete
 		if (c.n_threads) {
-			print_header(dec, "<h>Thread finished decoding frame %d at macroblock %d</h>\n", dec->FieldOrderCnt[0][currPic], c.t.first_mb_in_slice);
 			pthread_mutex_lock(&dec->lock);
 			pthread_cond_signal(&dec->task_complete);
+			print_header(dec, "<h>Thread finished decoding frame %d at macroblock %d</h>\n", dec->FieldOrderCnt[0][currPic], c.t.first_mb_in_slice);
 			if (remaining_mbs == 0) {
 				pthread_cond_broadcast(&dec->task_progress);
 				dec->ready_tasks = ready_tasks(dec);

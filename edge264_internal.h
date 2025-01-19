@@ -794,7 +794,7 @@ enum IntraChromaModes {
 	#define ziplo64(a, b) (i64x2)vzip1q_s64(a, b)
 	#define ziphi64(a, b) (i64x2)vzip2q_s64(a, b)
 	static always_inline unsigned movemask(i8x16 a) {u8x16 b = vshrq_n_u8(a, 7), c = vsraq_n_u16(b, b, 7), d = vsraq_n_u32(c, c, 14), e = vsraq_n_u64(d, d, 28); return e[0] | e[8] << 8;}
-	static always_inline size_t shld(size_t l, size_t h, int i) {return h << i | l >> (SIZE_BIT - i);}
+	static always_inline size_t shld(size_t l, size_t h, int i) {return h << i | l >> 1 >> (~i & (SIZE_BIT - 1));}
 	static always_inline i8x16 shuffle(i8x16 a, i8x16 m) {return vqtbl1q_s8(a, m);}
 	static always_inline i8x16 shufflen(i8x16 a, i8x16 m) {return vqtbx1q_s8(m, a, m);}
 	static always_inline i8x16 shuffle2(const i8x16 *p, i8x16 m) {return vqtbl2q_s8(*(int8x16x2_t *)p, m);}

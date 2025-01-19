@@ -1,22 +1,105 @@
 #include <dirent.h>
+#include <dlfcn.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
-#include <SDL2/SDL.h>
 #ifdef _WIN32
 	#include <windows.h>
 	#include <psapi.h>
 #else
 	#include <fcntl.h>
 	#include <sys/mman.h>
+	#include <sys/resource.h>
 	#include <sys/stat.h>
 	#include <sys/types.h>
 	#include <unistd.h>
 #endif
-
 #include "edge264.h"
 
+
+
+/**
+ * Using SDL2 without dependency on header file and development library
+ */
+#define SDL_INIT_VIDEO 0x20
+#define SDL_INIT_EVENTS 0x4000
+#define SDL_WINDOWPOS_CENTERED 0x2FFF0000
+#define SDL_WINDOW_SHOWN 0x4
+#define SDL_WINDOW_BORDERLESS 0x10
+#define SDL_RENDERER_ACCELERATED 0x2
+#define SDL_RENDERER_PRESENTVSYNC 0x4
+#define SDL_PIXELFORMAT_IYUV 0x56555949
+#define SDL_TEXTUREACCESS_STREAMING 1
+#define SDL_BLENDMODE_BLEND 0x1
+#define SDL_QUIT 0x100
+#define SDL_KEYDOWN 0x300
+#define SDLK_ESCAPE 27
+typedef struct SDL_Window SDL_Window;
+typedef struct SDL_Renderer SDL_Renderer;
+typedef struct SDL_Texture SDL_Texture;
+typedef union SDL_Event {
+	uint32_t type;
+	struct {
+		uint32_t _[4];
+		struct {
+			int _;
+			int32_t sym;
+		} keysym;
+	} key;
+	uint8_t padding[sizeof(void *) <= 8 ? 56 : sizeof(void *) == 16 ? 64 : 3 * sizeof(void *)];
+} SDL_Event;
+int (*SDL_Init)(uint32_t);
+SDL_Window *(*SDL_CreateWindow)(const char *, int, int, int, int, uint32_t);
+SDL_Renderer *(*SDL_CreateRenderer)(SDL_Window *, int, uint32_t);
+void (*SDL_SetWindowSize)(SDL_Window *, int, int);
+void (*SDL_SetWindowPosition)(SDL_Window *, int, int);
+void (*SDL_DestroyTexture)(SDL_Texture *);
+SDL_Texture *(*SDL_CreateTexture)(SDL_Renderer *, uint32_t, int, int, int);
+int (*SDL_SetTextureBlendMode)(SDL_Texture *, int);
+int (*SDL_SetTextureAlphaMod)(SDL_Texture *, uint8_t);
+int (*SDL_UpdateYUVTexture)(SDL_Texture *, void *, const uint8_t *, int, const uint8_t *, int, const uint8_t *, int);
+int (*SDL_RenderClear)(SDL_Renderer *);
+int (*SDL_RenderCopy)(SDL_Renderer *, SDL_Texture *, void *, void *);
+void (*SDL_RenderPresent)(SDL_Renderer *);
+int (*SDL_PollEvent)(SDL_Event *);
+void (*SDL_DestroyTexture)(SDL_Texture *);
+void (*SDL_DestroyRenderer)(SDL_Renderer *);
+void (*SDL_DestroyWindow)(SDL_Window *);
+void (*SDL_Quit)(void);
+static void *sdl2;
+static void *load_SDL2(void) {
+	sdl2 = dlopen("/Library/Frameworks/SDL2.framework/SDL2", RTLD_NOW | RTLD_GLOBAL) ?:
+		dlopen("SDL2.so", RTLD_NOW | RTLD_GLOBAL) ?:
+		dlopen("libSDL2.so", RTLD_NOW | RTLD_GLOBAL);
+	if (sdl2 != NULL) {
+		SDL_Init = dlsym(sdl2, "SDL_Init");
+		SDL_CreateWindow = dlsym(sdl2, "SDL_CreateWindow");
+		SDL_CreateRenderer = dlsym(sdl2, "SDL_CreateRenderer");
+		SDL_SetWindowSize = dlsym(sdl2, "SDL_SetWindowSize");
+		SDL_SetWindowPosition = dlsym(sdl2, "SDL_SetWindowPosition");
+		SDL_DestroyTexture = dlsym(sdl2, "SDL_DestroyTexture");
+		SDL_CreateTexture = dlsym(sdl2, "SDL_CreateTexture");
+		SDL_SetTextureBlendMode = dlsym(sdl2, "SDL_SetTextureBlendMode");
+		SDL_SetTextureAlphaMod = dlsym(sdl2, "SDL_SetTextureAlphaMod");
+		SDL_UpdateYUVTexture = dlsym(sdl2, "SDL_UpdateYUVTexture");
+		SDL_RenderClear = dlsym(sdl2, "SDL_RenderClear");
+		SDL_RenderCopy = dlsym(sdl2, "SDL_RenderCopy");
+		SDL_RenderPresent = dlsym(sdl2, "SDL_RenderPresent");
+		SDL_PollEvent = dlsym(sdl2, "SDL_PollEvent");
+		SDL_DestroyTexture = dlsym(sdl2, "SDL_DestroyTexture");
+		SDL_DestroyRenderer = dlsym(sdl2, "SDL_DestroyRenderer");
+		SDL_DestroyWindow = dlsym(sdl2, "SDL_DestroyWindow");
+		SDL_Quit = dlsym(sdl2, "SDL_Quit");
+	}
+	return sdl2;
+}
+
+
+
+/**
+ * Static variables and helper functions
+ */
 #define RESET  "\e[0m"
 #define BOLD   "\e[1m"
 #define RED    "\e[31m"
@@ -340,6 +423,12 @@ int main(int argc, char *argv[])
 		}
 	}
 	
+	// load SDL2 if requested and fail if not found
+	if (display && !load_SDL2()) {
+		fprintf(stderr, "SDL2 is needed for display but not found, download the library file for your system at https://www.libsdl.org/ and place it in the same folder as %s\n", argv[0]);
+		return 0;
+	}
+	
 	// print help if any argument was unknown
 	if (help) {
 		printf("Usage: " BOLD "%s [video.264|directory] [-hbdfpsuvVy]" RESET "\n"
@@ -347,7 +436,7 @@ int main(int argc, char *argv[])
 			"comparing their outputs with inferred YUV pairs (.yuv and .1.yuv extensions).\n"
 			"-h\tprint this help and exit\n"
 			"-b\tbenchmark decoding time and memory usage\n"
-			"-d\tenable display of the videos\n"
+			"-d\tenable display of the videos (requires SDL2)\n"
 			"-f\tprint names of failed files in directory\n"
 			"-p\tprint names of passed files in directory\n"
 			"-s\tsingle-threaded operation\n"
@@ -414,13 +503,14 @@ int main(int argc, char *argv[])
 	}
 	edge264_free(&d);
 	
-	// close SDL if initialized
+	// close SDL if enabled
 	if (display) {
 		SDL_DestroyTexture(texture0);
 		SDL_DestroyTexture(texture1);
 		SDL_DestroyRenderer(renderer);
 		SDL_DestroyWindow(window);
 		SDL_Quit();
+		dlclose(sdl2);
 	}
 	
 	// closing information

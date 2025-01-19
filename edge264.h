@@ -40,7 +40,7 @@ typedef struct Edge264Decoder Edge264Decoder;
 typedef struct Edge264Frame {
    const uint8_t *samples[3]; // Y/Cb/Cr planes
    const uint8_t *samples_mvc[3]; // second view
-   const uint8_t *mb_errors; // probabilities (0..255) for each macroblock to be erroneous, NULL if there are no errors, values are spaced by stride_mb in memory
+   const uint8_t *mb_errors; // probabilities (0..100) for each macroblock to be erroneous, NULL if there are no errors, values are spaced by stride_mb in memory
    int8_t pixel_depth_Y; // 0 for 8-bit, 1 for 16-bit
    int8_t pixel_depth_C;
    int16_t width_Y;

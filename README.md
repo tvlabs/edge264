@@ -24,7 +24,7 @@ Supported platforms
 -------------------
 
 * Windows: x86, x64
-* Linux: x86, x64, ARM64 (experimental)
+* Linux: x86, x64, ARM64
 * Mac OS: x64
 
 
@@ -230,9 +230,9 @@ Roadmap
 -------
 
 * Multithreading (work in progress)
-* ARM support (work in progress)
 * Error concealment and tests based on fuzzying
 * Integration in VLC/ffmpeg/GStreamer
+* ARM32
 * PAFF and MBAFF
 * 4:0:0, 4:2:2 and 4:4:4
 * 9-14 bit depths with possibility of different luma/chroma depths

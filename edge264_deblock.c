@@ -104,7 +104,7 @@ static always_inline i8x16 expand2(int64_t a) {
 		i8x16 aqltb = (u8x16)vabdq_u8(q2, q0) < beta;\
 		/* filter p1 and q1 (same as ffmpeg, I couldn't find better) */\
 		u8x16 pq0 = vrhaddq_u8(p0, q0);\
-		i8x16 pq1 = vhsubq_u8(p1, q1); /* save (p1+q1)>>1 for later */\
+		i8x16 pq1 = vhsubq_u8(p1, q1); /* save (p1-q1)>>1 for later */\
 		u8x16 lop1 = vqsubq_u8(p1, ftC0);\
 		u8x16 hip1 = vqaddq_u8(p1, ftC0);\
 		u8x16 loq1 = vqsubq_u8(q1, ftC0);\
@@ -115,8 +115,8 @@ static always_inline i8x16 expand2(int64_t a) {
 		q1 = ifelse_mask(aqltb, qp1, q1);\
 		/* filter p0 and q0 (by offsetting unsigned to signed to properly saturate q0-p0) */\
 		i8x16 tC = (ftC0 - apltb - aqltb) & filterSamplesFlag;\
-		i8x16 v0 = vrhaddq_s8(vqsubq_s8(q0 + -128, p0 + -128), pq1 >> 1);\
-		i8x16 delta = vmaxq_s8(vminq_s8(v0, tC), -tC);\
+		i8x16 x0 = vrhaddq_s8(vqsubq_s8(q0 + -128, p0 + -128), pq1 >> 1);\
+		i8x16 delta = vmaxq_s8(vminq_s8(x0, tC), -tC);\
 		p0 = vsqaddq_u8(p0, delta);\
 		q0 = vsqaddq_u8(q0, -delta);}
 	#define DEBLOCK_CHROMA_SOFT(p1, p0, q0, q1, ialpha, ibeta, itC0) {\
@@ -132,8 +132,8 @@ static always_inline i8x16 expand2(int64_t a) {
 		i8x16 c128 = set8(-128);\
 		i8x16 pq1 = vhsubq_u8(p1, q1);\
 		i8x16 tC = (tC0 - -1) & filterSamplesFlag;\
-		i8x16 v0 = vrhaddq_s8(vqsubq_s8(q0 + c128, p0 + c128), pq1 >> 1);\
-		i8x16 delta = vmaxq_s8(vminq_s8(v0, tC), -tC);\
+		i8x16 x0 = vrhaddq_s8(vqsubq_s8(q0 + c128, p0 + c128), pq1 >> 1);\
+		i8x16 delta = vmaxq_s8(vminq_s8(x0, tC), -tC);\
 		p0 = vsqaddq_u8(p0, delta);\
 		q0 = vsqaddq_u8(q0, -delta);}
 #endif
@@ -249,8 +249,8 @@ static always_inline i8x16 expand2(int64_t a) {
 		u16x8 p32h = vaddl_high_u8(p3, p2);\
 		u16x8 q23l = vaddl_u8(vget_low_u8(q2), vget_low_u8(q3));\
 		u16x8 q23h = vaddl_high_u8(q2, q3);\
-		p2 = ifelse_mask(fcondp, shrrpu16(p32l + p210q0l, p32h + p210q0h, 3), p2);\
-		q2 = ifelse_mask(fcondq, shrrpu16(q23l + p0q012l, q23h + p0q012h, 3), q2);}
+		p2 = ifelse_mask(fcondp, shrrpu16((p32l << 1) + p210q0l, (p32h << 1) + p210q0h, 3), p2);\
+		q2 = ifelse_mask(fcondq, shrrpu16((q23l << 1) + p0q012l, (q23h << 1) + p0q012h, 3), q2);}
 	#define DEBLOCK_CHROMA_HARD(p1, p0, q0, q1, ialpha, ibeta) {\
 		i8x16 shufab = {1, 1, 1, 1, 1, 1, 1, 1, 2, 2, 2, 2, 2, 2, 2, 2};\
 		i8x16 alpha = shuffle((i32x4){ialpha}, shufab);\

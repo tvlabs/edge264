@@ -524,30 +524,30 @@ enum IntraChromaModes {
 	#define print_header(...) ((void)0)
 	#define print_slice(...) ((void)0)
 #endif
-#define print_i8x16(a) {\
+#define print_i8x16(dec, a) {\
 	i8x16 _v = a;\
-	printf("<k>" #a "</k><v>");\
+	fprintf(dec->trace_headers, "<k>" #a "</k><v>");\
 	for (int _i = 0; _i < 16; _i++)\
-		printf("%4d ", _v[_i]);\
-	printf("</v>\n");}
-#define print_u8x16(a) {\
+		fprintf(dec->trace_headers, "%4d ", _v[_i]);\
+	fprintf(dec->trace_headers, "</v>\n");}
+#define print_u8x16(dec, a) {\
 	u8x16 _v = a;\
-	printf("<k>" #a "</k><v>");\
+	fprintf(dec->trace_headers, "<k>" #a "</k><v>");\
 	for (int _i = 0; _i < 16; _i++)\
-		printf("%3u ", _v[_i]);\
-	printf("</v>\n");}
-#define print_i16x8(a) {\
+		fprintf(dec->trace_headers, "%3u ", _v[_i]);\
+	fprintf(dec->trace_headers, "</v>\n");}
+#define print_i16x8(dec, a) {\
 	i16x8 _v = a;\
-	printf("<k>" #a "</k><v>");\
+	fprintf(dec->trace_headers, "<k>" #a "</k><v>");\
 	for (int _i = 0; _i < 8; _i++)\
-		printf("%6d ", _v[_i]);\
-	printf("</v>\n");}
-#define print_i32x4(a) {\
+		fprintf(dec->trace_headers, "%6d ", _v[_i]);\
+	fprintf(dec->trace_headers, "</v>\n");}
+#define print_i32x4(dec, a) {\
 	i32x4 _v = a;\
-	printf("<k>" #a "</k><v>");\
+	fprintf(dec->trace_headers, "<k>" #a "</k><v>");\
 	for (int _i = 0; _i < 4; _i++)\
-		printf("%6d ", _v[_i]);\
-	printf("</v>\n");}
+		fprintf(dec->trace_headers, "%6d ", _v[_i]);\
+	fprintf(dec->trace_headers, "</v>\n");}
 
 
 
@@ -579,6 +579,7 @@ enum IntraChromaModes {
  * _ avgu8 - unsigned elementwise average
  * _ broadcastN - copy a N-bit element to all elements
  * _ cvtloNuM - extend the low unsigned N-bit elements to M bits
+ * _ cvtloNsM - extend the low signed N-bit elements to M bits
  * _ cvthiNuM - extend the high unsigned N-bit elements to M bits
  * _ cvtuf32 - convert 32-bit float elements to unsigned integers
  * _ ifelse_mask - select each element from two vectors based on mask elements i a third vector
@@ -675,6 +676,7 @@ enum IntraChromaModes {
 	static always_inline size_t shld(size_t l, size_t h, int i) {asm("shld %%cl, %1, %0" : "+rm" (h) : "r" (l), "c" (i)); return h;}
 	#ifdef __SSE4_1__
 		#define cvtlo8u16(a) (i16x8)_mm_cvtepu8_epi16(a)
+		#define cvtlo8s16(a) (i16x8)_mm_cvtepi8_epi16(a)
 		#define cvtlo16u32(a) (i32x4)_mm_cvtepu16_epi32(a)
 		#define ifelse_mask(v, t, f) (i8x16)_mm_blendv_epi8(f, t, v)
 		#define ifelse_msb(v, t, f) (i8x16)_mm_blendv_epi8(f, t, v)
@@ -685,9 +687,10 @@ enum IntraChromaModes {
 	#else
 		#define cvtlo8u16(a) (i16x8)ziplo8(a, (i8x16){})
 		#define cvtlo16u32(a) (i32x4)ziplo16(a, (i16x8){})
+		#define load8zx16(p) (i16x8)ziplo8(load64(p), (i8x16){})
+		static always_inline i16x8 cvtlo8s16(i8x16 a) {return (i16x8)ziplo8(a, a) >> 8;}
 		static always_inline i8x16 ifelse_mask(i8x16 v, i8x16 t, i8x16 f) { return t & v | f & ~v; }
 		static always_inline i8x16 ifelse_msb(i8x16 v, i8x16 t, i8x16 f) { v = (0 > v); return t & v | f & ~v; }
-		#define load8zx16(p) (i16x8)ziplo8(load64(p), (i8x16){})
 		static always_inline i8x16 min8(i8x16 a, i8x16 b) { i8x16 v = b > a; return a & v | b & ~v; }
 		static always_inline i8x16 max8(i8x16 a, i8x16 b) { i8x16 v = a > b; return a & v | b & ~v; }
 		static always_inline i32x4 min32(i32x4 a, i32x4 b) { i32x4 v = b > a; return a & v | b & ~v; }
@@ -749,6 +752,7 @@ enum IntraChromaModes {
 	#define broadcast32(a, i) (i32x4)vdupq_laneq_s32(a, i)
 	#define cvtlo8u16(a) (u16x8)vmovl_u8(vget_low_u8(a))
 	#define cvthi8u16(a) (u16x8)vmovl_high_u8(a)
+	#define cvtlo8s16(a) (i16x8)vmovl_s8(vget_low_s8(a))
 	#define cvtlo16u32(a) (u32x4)vmovl_u16(vget_low_u16(a))
 	#define cvthi16u32(a) (u32x4)vmovl_high_u16(a)
 	#define cvtuf32(a) (u32x4)vcvtq_u32_f32((float32x4_t)a)

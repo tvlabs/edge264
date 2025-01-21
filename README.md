@@ -31,7 +31,7 @@ Supported platforms
 Compiling and testing
 ---------------------
 
-edge264 is entirely developed in C using 128-bit [vector extensions](https://gcc.gnu.org/onlinedocs/gcc/Vector-Extensions.html) and vector intrinsics, and can be compiled with GNU GCC or LLVM Clang. [SDL2](https://www.libsdl.org/) development headers should be installed to compile `edge264_test`.
+edge264 is entirely developed in C using 128-bit [vector extensions](https://gcc.gnu.org/onlinedocs/gcc/Vector-Extensions.html) and vector intrinsics, and can be compiled with GNU GCC or LLVM Clang. [SDL2](https://www.libsdl.org/) runtime library may be used (optional) to enable display for `edge264_test`.
 
 Here are the `make` options for tuning the compiled library file:
 
@@ -39,13 +39,13 @@ Here are the `make` options for tuning the compiled library file:
 * `CFLAGS` - additional compilation flags passed to `CC`
 * `ARCH` - target architecture that will be passed to -march (default `native`)
 * `OS` - target operating system (defaults to host)
-* `LINKER` - C compiler used to link object files into library file (defaults to `CC`)
+* `TARGETCC` - C compiler used to link object files into library file (defaults to `CC`)
+* `LDFLAGS` - additional compilation flags passed to `TARGETCC`
 * `VARIANTS` - comma-separated list of additional variants included in the library and selected at runtime (default `debug`)
 	* `x86-64-v2` - variant compiled for x86-64 microarchitecture level 2 (SSSE3, SSE4.1 and POPCOUNT)
 	* `x86-64-v3` - variant compiled for x86-64 microarchitecture level 3 (AVX2, BMI, LZCNT, MOVBE)
 	* `debug` - variant compiled with debugging support (-g and print calls for headers and slices)
 * `BUILD_TEST` - toggles compilation of `edge264_test` (default `yes`)
-* `SDL2_DIR` - path to SDL2 directory containing `lib` and `include` (default `./SDL2`, overridden by `pkg-config` if found)
 
 ```sh
 $ make ARCH=x86-64 VARIANTS=x86-64-v2,x86-64-v3 BUILD_TEST=no # example release build
@@ -229,8 +229,8 @@ Error recovery
 Roadmap
 -------
 
-* Multithreading (work in progress)
-* Error concealment and tests based on fuzzying
+* Multithreading (in progress)
+* Error recovery (in progress)
 * Integration in VLC/ffmpeg/GStreamer
 * ARM32
 * PAFF and MBAFF

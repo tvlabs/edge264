@@ -3,8 +3,6 @@ edge264
 
 Minimalist software decoder with state-of-the-art performance for the H.264/AVC video format.
 
-#### 🎉 I'll present some programming techniques at FOSDEM'25, 2 February 2025, [Open Media track](https://fosdem.org/2025/schedule/track/media/), see you there! 🎉
-
 *Please note this is a work in progress and will be ready for use after making GStreamer/VLC plugins.*
 
 Features
@@ -31,7 +29,7 @@ Supported platforms
 Compiling and testing
 ---------------------
 
-edge264 is entirely developed in C using 128-bit [vector extensions](https://gcc.gnu.org/onlinedocs/gcc/Vector-Extensions.html) and vector intrinsics, and can be compiled with GNU GCC or LLVM Clang. [SDL2](https://www.libsdl.org/) runtime library may be used (optional) to enable display for `edge264_test`.
+edge264 is entirely developed in C using 128-bit [vector extensions](https://gcc.gnu.org/onlinedocs/gcc/Vector-Extensions.html) and vector intrinsics, and can be compiled with GNU GCC or LLVM Clang. [SDL2](https://www.libsdl.org/) runtime library may be used (optional) to enable display with `edge264_test`.
 
 Here are the `make` options for tuning the compiled library file:
 
@@ -223,7 +221,7 @@ Error recovery
 --------------
 
 * Any invalid or corrupted header is ignored by edge264, i.e. if an invalid parameter set is received then the previous one will still be kept.
-* Any invalid or corrupted frame will be signaled by setting `mb_errors` in `Edge264Frame`. Since edge264 cannot detect exactly where a corruption occurs, it returns a 0%-100% integer probability for each macroblock to contain errors caused by the corruption. This probability is rounded upward, such that all macroblocks inside a corrupted slice will at least have the value 1. edge264 does a basic job at reconstructing the corrupted macroblocks with neighboring frames, so media players are encouraged to use `mb_errors` to provide a better reconstruction.
+* Any invalid or corrupted frame will be signaled by setting `mb_errors` in `Edge264Frame`. Since edge264 cannot detect exactly where a corruption occurs, it returns a 0-100% integer probability for each macroblock to contain errors caused by the corruption. This probability is rounded upward, such that all macroblocks inside a corrupted slice will at least have the value 1. edge264 does a basic job at reconstructing the corrupted macroblocks with neighboring frames, so media players are encouraged to use `mb_errors` to provide a better reconstruction.
 
 
 Roadmap
@@ -244,7 +242,7 @@ Roadmap
 Programming techniques
 ----------------------
 
-edge264 originated as an experiment on new programming techniques to improve performance and code simplicity over existing decoders. I presented a few of these techniques at FOSDEM'24 on 4 February 2024 ([be sure to watch the video!](https://fosdem.org/2024/schedule/event/fosdem-2024-2931-innovations-in-h-264-avc-software-decoding-architecture-and-optimization-of-a-block-based-video-decoder-to-reach-10-faster-speed-and-3x-code-reduction-over-the-state-of-the-art-/)):
+I use edge264 to experiment on new programming techniques to improve performance and code size over existing decoders, and presented a few of these techniques at [FOSDEM'24](https://fosdem.org/2024/schedule/event/fosdem-2024-2931-innovations-in-h-264-avc-software-decoding-architecture-and-optimization-of-a-block-based-video-decoder-to-reach-10-faster-speed-and-3x-code-reduction-over-the-state-of-the-art-/) and [FOSDEM'25](https://fosdem.org/2025/schedule/event/fosdem-2025-5455-more-innovations-in-h-264-avc-software-decoding/).
 
 1. [Single header file](edge264_internal.h) - It contains all struct definitions, common constants and enums, SIMD aliases, inline functions and macros, and exported functions for each source file. To understand the code base you should look at this file first.
 2. [Code blocks instead of functions](edge264_slice.c) - The main decoding loop is a forward pipeline designed as a DAG loosely resembling hardware decoders, with nodes being non-inlined functions and edges being tail calls. It helps mutualize code branches wherever possible, thus reduces code size to help fit in L1 cache.
@@ -254,12 +252,15 @@ edge264 originated as an experiment on new programming techniques to improve per
 6. [Relative neighboring offsets](edge264_internal.h) (look for `A4x4_int8` and related variables) - Access to left/top macroblock values is done with direct offsets in memory instead of copying their values to a buffer beforehand. It helps to reduce the reads and writes in the main decoding loop.
 7. [Parsing uneven block shapes](edge264_slice.c) (look at function `parse_P_sub_mb`) - Each Inter macroblock paving specified with mb_type and sub_mb_type is first converted to a bitmask, then iterated on set bits to fetch the correct number of reference indices and motion vectors. This helps to reduce code size and number of conditional blocks.
 8. [Using vector extensions](edge264_internal.h) - GCC's vector extensions are used along vector intrinsics to write more compact code. All intrinsics from Intel are aliased with shorter names, which also provides an enumeration of all SIMD instructions used in the decoder.
-9. [Register-saturating SIMD](edge264_deblock.c) - Some critical SIMD algorithms use more simultaneous vectors than available registers, effectively saturating the register bank and generating stack spills. In some cases this is more efficient than splitting the algorithm into smaller bits, and has the additional benefit of scaling well with later CPUs.
+9. [Register-saturating SIMD](edge264_deblock.c) - Some critical SIMD algorithms use more simultaneous vectors than available registers, effectively saturating the register bank and generating stack spills on purpose. In some cases this is more efficient than splitting the algorithm into smaller bits, and has the additional benefit of scaling well with later CPUs.
+10. [Piston cached bitstream reader](edge264_bitstream.c) - The bitstream bits are read in a size_t\[2\] intermediate cache with a trailing set bit to keep track of the number of cached bits, giving access to 32/64 bits per read from the cache, and allowing wide refills from memory.
+11. [On-the-fly SIMD unescaping](edge264_bitstream.c) - The input bitstream is unescaped on the fly using vector code, avoiding a full preprocessing pass to remove escape sequences, and thus reducing memory reads/writes.
+12. [Multiarch SIMD programming](edge264_internal.h) - Using vector extensions along with aliased intrinsics allows supporting both Intel SSE and ARM NEON with around 80% common code and few #if #else blocks, while keeping state-of-the-art performance for both architectures.
+13. [The Structure of Arrays pattern](edge264_internal.h) - The frame buffer is stored with arrays for each distinct field rather than an array of structures, to express operations on frames with bitwise and vector operators (see [AoS and SoA](https://en.wikipedia.org/wiki/AoS_and_SoA)). The task buffer for multithreading also relies on it partially.
+14. [Deferred error checking](edge264_headers.c) - Error detection is performed once in each type of NAL unit (search for `return` statements), by clamping all input values to their expected ranges, then expecting `rbsp_trailing_bit` afterwards (with _very high_ probability of catching an error if the stream is corrupted). This design choice is discussed in [A case about parsing errors](https://traffaillac.github.io/parsing.html).
 
 Other yet-to-be-presented bits:
 
 * [Minimalistic API](edge264.h) with FFI-friendly design (7 functions and 1 structure).
-* [The input bitstream](edge264_bitstream.c) is unescaped on the fly using vector code, avoiding a full preprocessing pass to remove escape sequences, and thus reducing memory reads/writes.
-* [Error detection](edge264.c) is performed once in each type of NAL unit (search for `return` statements), by clamping all input values to their expected ranges, then expecting `rbsp_trailing_bit` afterwards (with _very high_ probability of catching an error if the stream is corrupted). This design choice is discussed in [A case about parsing errors](https://traffaillac.github.io/parsing.html).
-* [The bitstream caches](edge264_internal.h) for CAVLC and CABAC (search for `rbsp_reg`) are stored in two size_t variables each, which may be mapped to Global Register Variables.
+* [The bitstream caches](edge264_internal.h) for CAVLC and CABAC (search for `rbsp_reg`) are stored in two size_t variables each, which may be mapped to Global Register Variables in the future.
 * [The decoding of input symbols](edge264_slice.c) is interspersed with their parsing (instead of parsing to a `struct` then decoding the data). It deduplicates branches and loops that are present in both parsing and decoding, and even eliminates the need to store some symbols (e.g. mb_type, sub_mb_type, mb_qp_delta).

@@ -1,5 +1,6 @@
 /** MAYDO:
  * _ Replace P and INIT_P with PX versions
+ * _ try to optimize shld with extr on ARM when shift is constant
  * _ Plugins
  * 	_ Read https://tldp.org/HOWTO/Program-Library-HOWTO/shared-libraries.html
  * 	_ Make a test target that builds locally and runs edge264_test

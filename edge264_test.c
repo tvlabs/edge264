@@ -70,35 +70,41 @@ void (*SDL_DestroyRenderer)(SDL_Renderer *);
 void (*SDL_DestroyWindow)(SDL_Window *);
 void (*SDL_Quit)(void);
 static void *sdl2;
-static void *load_SDL2(void) {
+static int load_SDL2(void) {
+	const char *lib, *func;
 	#ifdef _WIN32
-		sdl2 = LoadLibraryA("SDL2.dll");
+		sdl2 = LoadLibraryA(lib = "SDL2.dll");
 	#else
-		sdl2 = dlopen("/Library/Frameworks/SDL2.framework/SDL2", RTLD_NOW | RTLD_GLOBAL) ?:
-			dlopen("SDL2.so", RTLD_NOW | RTLD_GLOBAL) ?:
-			dlopen("libSDL2.so", RTLD_NOW | RTLD_GLOBAL);
+		sdl2 = dlopen(lib = "/Library/Frameworks/SDL2.framework/SDL2", RTLD_NOW | RTLD_GLOBAL) ?:
+			dlopen(lib = "SDL2.so", RTLD_NOW | RTLD_GLOBAL) ?:
+			dlopen(lib = "libSDL2.so", RTLD_NOW | RTLD_GLOBAL);
 	#endif
-	if (sdl2 != NULL) {
-		SDL_Init = dlsym(sdl2, "SDL_Init");
-		SDL_CreateWindow = dlsym(sdl2, "SDL_CreateWindow");
-		SDL_CreateRenderer = dlsym(sdl2, "SDL_CreateRenderer");
-		SDL_SetWindowSize = dlsym(sdl2, "SDL_SetWindowSize");
-		SDL_SetWindowPosition = dlsym(sdl2, "SDL_SetWindowPosition");
-		SDL_DestroyTexture = dlsym(sdl2, "SDL_DestroyTexture");
-		SDL_CreateTexture = dlsym(sdl2, "SDL_CreateTexture");
-		SDL_SetTextureBlendMode = dlsym(sdl2, "SDL_SetTextureBlendMode");
-		SDL_SetTextureAlphaMod = dlsym(sdl2, "SDL_SetTextureAlphaMod");
-		SDL_UpdateYUVTexture = dlsym(sdl2, "SDL_UpdateYUVTexture");
-		SDL_RenderClear = dlsym(sdl2, "SDL_RenderClear");
-		SDL_RenderCopy = dlsym(sdl2, "SDL_RenderCopy");
-		SDL_RenderPresent = dlsym(sdl2, "SDL_RenderPresent");
-		SDL_PollEvent = dlsym(sdl2, "SDL_PollEvent");
-		SDL_DestroyTexture = dlsym(sdl2, "SDL_DestroyTexture");
-		SDL_DestroyRenderer = dlsym(sdl2, "SDL_DestroyRenderer");
-		SDL_DestroyWindow = dlsym(sdl2, "SDL_DestroyWindow");
-		SDL_Quit = dlsym(sdl2, "SDL_Quit");
+	if (!sdl2) {
+		fprintf(stderr, "SDL2 is needed for display but not found, please download the library file at https://www.libsdl.org/ and place it in the current folder\n");
+		return 1;
 	}
-	return sdl2;
+	if (!(SDL_Init = dlsym(sdl2, func = "SDL_Init")) ||
+	    !(SDL_CreateWindow = dlsym(sdl2, func = "SDL_CreateWindow")) ||
+	    !(SDL_CreateRenderer = dlsym(sdl2, func = "SDL_CreateRenderer")) ||
+	    !(SDL_SetWindowSize = dlsym(sdl2, func = "SDL_SetWindowSize")) ||
+	    !(SDL_SetWindowPosition = dlsym(sdl2, func = "SDL_SetWindowPosition")) ||
+	    !(SDL_DestroyTexture = dlsym(sdl2, func = "SDL_DestroyTexture")) ||
+	    !(SDL_CreateTexture = dlsym(sdl2, func = "SDL_CreateTexture")) ||
+	    !(SDL_SetTextureBlendMode = dlsym(sdl2, func = "SDL_SetTextureBlendMode")) ||
+	    !(SDL_SetTextureAlphaMod = dlsym(sdl2, func = "SDL_SetTextureAlphaMod")) ||
+	    !(SDL_UpdateYUVTexture = dlsym(sdl2, func = "SDL_UpdateYUVTexture")) ||
+	    !(SDL_RenderClear = dlsym(sdl2, func = "SDL_RenderClear")) ||
+	    !(SDL_RenderCopy = dlsym(sdl2, func = "SDL_RenderCopy")) ||
+	    !(SDL_RenderPresent = dlsym(sdl2, func = "SDL_RenderPresent")) ||
+	    !(SDL_PollEvent = dlsym(sdl2, func = "SDL_PollEvent")) ||
+	    !(SDL_DestroyTexture = dlsym(sdl2, func = "SDL_DestroyTexture")) ||
+	    !(SDL_DestroyRenderer = dlsym(sdl2, func = "SDL_DestroyRenderer")) ||
+	    !(SDL_DestroyWindow = dlsym(sdl2, func = "SDL_DestroyWindow")) ||
+	    !(SDL_Quit = dlsym(sdl2, func = "SDL_Quit"))) {
+		fprintf(stderr, "Missing function %s in %s\n", func, lib);
+		return 1;
+	}
+	return 0;
 }
 
 
@@ -432,11 +438,9 @@ int main(int argc, char *argv[])
 		}
 	}
 	
-	// load SDL2 if requested and fail if not found
-	if (display && !load_SDL2()) {
-		fprintf(stderr, "SDL2 is needed for display but not found, download the library file for your system at https://www.libsdl.org/ and place it in the same folder as %s\n", argv[0]);
-		return 0;
-	}
+	// load SDL2 if requested
+	if (display && load_SDL2())
+		return 1;
 	
 	// print help if any argument was unknown
 	if (help) {

@@ -1,5 +1,4 @@
 #include <dirent.h>
-#include <dlfcn.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -7,7 +6,10 @@
 #ifdef _WIN32
 	#include <windows.h>
 	#include <psapi.h>
+	#define dlsym (void*)GetProcAddress
+	#define dlclose FreeLibrary
 #else
+	#include <dlfcn.h>
 	#include <fcntl.h>
 	#include <sys/mman.h>
 	#include <sys/resource.h>
@@ -69,9 +71,13 @@ void (*SDL_DestroyWindow)(SDL_Window *);
 void (*SDL_Quit)(void);
 static void *sdl2;
 static void *load_SDL2(void) {
-	sdl2 = dlopen("/Library/Frameworks/SDL2.framework/SDL2", RTLD_NOW | RTLD_GLOBAL) ?:
-		dlopen("SDL2.so", RTLD_NOW | RTLD_GLOBAL) ?:
-		dlopen("libSDL2.so", RTLD_NOW | RTLD_GLOBAL);
+	#ifdef _WIN32
+		sdl2 = LoadLibraryA("SDL2.dll");
+	#else
+		sdl2 = dlopen("/Library/Frameworks/SDL2.framework/SDL2", RTLD_NOW | RTLD_GLOBAL) ?:
+			dlopen("SDL2.so", RTLD_NOW | RTLD_GLOBAL) ?:
+			dlopen("libSDL2.so", RTLD_NOW | RTLD_GLOBAL);
+	#endif
 	if (sdl2 != NULL) {
 		SDL_Init = dlsym(sdl2, "SDL_Init");
 		SDL_CreateWindow = dlsym(sdl2, "SDL_CreateWindow");
@@ -112,6 +118,7 @@ static int print_failed = 0;
 static int print_passed = 0;
 static int print_unsupported = 0;
 static int enable_yuv = 1;
+static const char *moveup = "";
 FILE *trace_headers = NULL;
 static Edge264Decoder *d;
 static Edge264Frame out;
@@ -327,10 +334,10 @@ static int decode_file(const char *name0, int print_counts)
 	// print the success counts
 	if (!quit) {
 		if (print_counts) {
-			printf("%d " GREEN "PASS" RESET ", %d " YELLOW "UNSUPPORTED" RESET ", %d " RED "FAIL" RESET, count_pass, count_unsup, count_fail);
 			if (count_flag > 0)
-				printf(", %d " BLUE "FLAGGED" RESET, count_flag);
-			printf(" (%s)\n", name0);
+				printf("%s%d " GREEN "PASS" RESET ", %d " YELLOW "UNSUPPORTED" RESET ", %d " RED "FAIL" RESET ", %d " BLUE "FLAGGED" RESET " (%s)\n", moveup, count_pass, count_unsup, count_fail, count_flag, name0);
+			else
+				printf("%s%d " GREEN "PASS" RESET ", %d " YELLOW "UNSUPPORTED" RESET ", %d " RED "FAIL" RESET " (%s)\n", moveup, count_pass, count_unsup, count_fail, name0);
 		}
 		
 		// decode the entire file and FAIL on any error
@@ -359,15 +366,17 @@ static int decode_file(const char *name0, int print_counts)
 			count_unsup += res == ENOTSUP;
 			count_fail += res == EBADMSG;
 			count_flag += res == ESRCH;
-			printf("\e[A\e[K"); // move cursor up and clear line
+			moveup = "";
 			if (res == ENODATA && print_passed) {
-				printf("%s: " GREEN "PASS" RESET "\n", name0);
+				printf("\e[A\e[K%s: " GREEN "PASS" RESET "\n", name0);
 			} else if (res == ENOTSUP && print_unsupported) {
-				printf("%s: " YELLOW "UNSUPPORTED" RESET "\n", name0);
+				printf("\e[A\e[K%s: " YELLOW "UNSUPPORTED" RESET "\n", name0);
 			} else if (res == EBADMSG && print_failed) {
-				printf("%s: " RED "FAIL" RESET "\n", name0);
+				printf("\e[A\e[K%s: " RED "FAIL" RESET "\n", name0);
 			} else if (res == ESRCH) {
-				printf("%s: " BLUE "FLAGGED" RESET "\n", name0);
+				printf("\e[A\e[K%s: " BLUE "FLAGGED" RESET "\n", name0);
+			} else {
+				moveup = "\e[A\e[K";
 			}
 		}
 	}
@@ -496,10 +505,10 @@ int main(int argc, char *argv[])
 				free(entries[n]);
 			free(entries);
 		#endif
-		printf("%d " GREEN "PASS" RESET ", %d " YELLOW "UNSUPPORTED" RESET ", %d " RED "FAIL" RESET, count_pass, count_unsup, count_fail);
 		if (count_flag > 0)
-			printf(", %d " BLUE "FLAGGED" RESET, count_flag);
-		putc('\n', stdout);
+			printf("%s%d " GREEN "PASS" RESET ", %d " YELLOW "UNSUPPORTED" RESET ", %d " RED "FAIL" RESET ", %d " BLUE "FLAGGED" RESET "\n", moveup, count_pass, count_unsup, count_fail, count_flag);
+		else
+			printf("%s%d " GREEN "PASS" RESET ", %d " YELLOW "UNSUPPORTED" RESET ", %d " RED "FAIL" RESET "\n", moveup, count_pass, count_unsup, count_fail);
 	}
 	edge264_free(&d);
 	

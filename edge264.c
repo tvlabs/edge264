@@ -105,6 +105,19 @@ const uint8_t *edge264_find_start_code(const uint8_t *buf, const uint8_t *end) {
 
 
 
+// does not benefit much from variants so best kept here as a single version
+static int parse_access_unit_delimiter(Edge264Decoder *dec, int non_blocking, void(*free_cb)(void*,int), void *free_arg) {
+	refill(&dec->_gb, 0);
+	int primary_pic_type = get_uv(&dec->_gb, 3);
+	if (dec->trace_headers)
+		fprintf(dec->trace_headers, "<k>primary_pic_type</k><v>%d</v>\n", primary_pic_type);
+	if (dec->_gb.msb_cache != (size_t)1 << (SIZE_BIT - 1) || (dec->_gb.lsb_cache & (dec->_gb.lsb_cache - 1)) || (intptr_t)(dec->_gb.end - dec->_gb.CPB) > 0)
+		return EBADMSG;
+	return 0;
+}
+
+
+
 Edge264Decoder *edge264_alloc(int n_threads, FILE *trace_headers, FILE *trace_slices) {
 	Edge264Decoder *dec = calloc(1, sizeof(Edge264Decoder));
 	if (dec == NULL)
@@ -121,10 +134,12 @@ Edge264Decoder *edge264_alloc(int n_threads, FILE *trace_headers, FILE *trace_sl
 			return free(dec), NULL;
 	#endif
 	void *(*w)(Edge264Decoder *) = ADD_VARIANT(worker_loop);
-	dec->parse_nal_unit[1] = dec->parse_nal_unit[5] = dec->parse_nal_unit[20] = ADD_VARIANT(parse_slice_layer_without_partitioning);
+	dec->parse_nal_unit[1] = dec->parse_nal_unit[5] = ADD_VARIANT(parse_slice_layer_without_partitioning);
 	dec->parse_nal_unit[7] = dec->parse_nal_unit[15] = ADD_VARIANT(parse_seq_parameter_set);
 	dec->parse_nal_unit[8] = ADD_VARIANT(parse_pic_parameter_set);
+	dec->parse_nal_unit[9] = parse_access_unit_delimiter;
 	dec->parse_nal_unit[13] = ADD_VARIANT(parse_seq_parameter_set_extension);
+	dec->parse_nal_unit[14] = dec->parse_nal_unit[20] = ADD_VARIANT(parse_nal_unit_header_extension);
 	#ifdef TEST_X86_64_V2
 		// macOS's clang does not support x86-64-v3/v2 feature string yet
 		if (__builtin_cpu_supports("popcnt") &&
@@ -132,10 +147,11 @@ Edge264Decoder *edge264_alloc(int n_threads, FILE *trace_headers, FILE *trace_sl
 			__builtin_cpu_supports("sse4.1") &&
 			__builtin_cpu_supports("sse4.2") &&
 			__builtin_cpu_supports("ssse3")) {
-			dec->parse_nal_unit[1] = dec->parse_nal_unit[5] = dec->parse_nal_unit[20] = parse_slice_layer_without_partitioning_v2;
+			dec->parse_nal_unit[1] = dec->parse_nal_unit[5] = parse_slice_layer_without_partitioning_v2;
 			dec->parse_nal_unit[7] = dec->parse_nal_unit[15] = parse_seq_parameter_set_v2;
 			dec->parse_nal_unit[8] = parse_pic_parameter_set_v2;
 			dec->parse_nal_unit[13] = parse_seq_parameter_set_extension_v2;
+			dec->parse_nal_unit[14] = dec->parse_nal_unit[20] = parse_nal_unit_header_extension_v2;
 			w = worker_loop_v2;
 		}
 	#endif
@@ -145,19 +161,21 @@ Edge264Decoder *edge264_alloc(int n_threads, FILE *trace_headers, FILE *trace_sl
 			__builtin_cpu_supports("bmi") &&
 			__builtin_cpu_supports("bmi2") &&
 			__builtin_cpu_supports("fma")) {
-			dec->parse_nal_unit[1] = dec->parse_nal_unit[5] = dec->parse_nal_unit[20] = parse_slice_layer_without_partitioning_v3;
+			dec->parse_nal_unit[1] = dec->parse_nal_unit[5] = parse_slice_layer_without_partitioning_v3;
 			dec->parse_nal_unit[7] = dec->parse_nal_unit[15] = parse_seq_parameter_set_v3;
 			dec->parse_nal_unit[8] = parse_pic_parameter_set_v3;
 			dec->parse_nal_unit[13] = parse_seq_parameter_set_extension_v3;
+			dec->parse_nal_unit[14] = dec->parse_nal_unit[20] = parse_nal_unit_header_extension_v3;
 			w = worker_loop_v3;
 		}
 	#endif
 	if (trace_headers || trace_slices) {
 		#ifdef TEST_DEBUG
-			dec->parse_nal_unit[1] = dec->parse_nal_unit[5] = dec->parse_nal_unit[20] = parse_slice_layer_without_partitioning_debug;
+			dec->parse_nal_unit[1] = dec->parse_nal_unit[5] = parse_slice_layer_without_partitioning_debug;
 			dec->parse_nal_unit[7] = dec->parse_nal_unit[15] = parse_seq_parameter_set_debug;
 			dec->parse_nal_unit[8] = parse_pic_parameter_set_debug;
 			dec->parse_nal_unit[13] = parse_seq_parameter_set_extension_debug;
+			dec->parse_nal_unit[14] = dec->parse_nal_unit[20] = parse_nal_unit_header_extension_debug;
 			w = worker_loop_debug;
 		#else
 			return free(dec), NULL;
@@ -303,53 +321,17 @@ int edge264_decode_NAL(Edge264Decoder *dec, const uint8_t *buf, const uint8_t *e
 			dec->nal_unit_type, nal_unit_type_names[dec->nal_unit_type]);
 	}
 	
-	// parse AUD and MVC prefix that require no escaping
+	// initialize the parsing context if we can parse the current NAL
 	int ret = 0;
 	Parser parser = dec->parse_nal_unit[dec->nal_unit_type];
-	if (dec->nal_unit_type == 9) {
-		if ((intptr_t)(end - buf) <= 1 || (buf[1] & 31) != 16)
-			ret = EBADMSG;
-		else if (dec->trace_headers)
-			fprintf(dec->trace_headers, "<k>primary_pic_type</k><v>%d</v>\n", buf[1] >> 5);
-	} else if (dec->nal_unit_type == 14 || dec->nal_unit_type == 20) {
-		if ((intptr_t)(end - buf) <= 4) {
-			ret = EBADMSG;
-			parser = NULL;
-		} else {
-			uint32_t u;
-			memcpy(&u, buf, 4);
-			buf += 3;
-			u = big_endian32(u);
-			dec->IdrPicFlag = u >> 22 & 1 ^ 1;
-			if (u >> 23 & 1) {
-				ret = ENOTSUP;
-				parser = NULL;
-			} else if (dec->trace_headers) {
-				fprintf(dec->trace_headers, "<k>non_idr_flag</k><v>%x</v>\n"
-					"<k>priority_id</k><v>%d</v>\n"
-					"<k>view_id</k><v>%d</v>\n"
-					"<k>temporal_id</k><v>%d</v>\n"
-					"<k>anchor_pic_flag</k><v>%x</v>\n"
-					"<k>inter_view_flag</k><v>%x</v>\n",
-					u >> 22 & 1,
-					u >> 16 & 0x3f,
-					u >> 6 & 0x3ff,
-					u >> 3 & 7,
-					u >> 2 & 1,
-					u >> 1 & 1);
-				// spec doesn't mention rbsp_trailing_bits at the end of prefix_nal_unit_rbsp
-			}
-		}
-	}
-	
-	// initialize the parsing context if we can parse the current NAL
 	if (parser != NULL) {
-		if ((intptr_t)(end - buf) < 3) {
+		if ((intptr_t)(end - buf) < 2) {
 			ret = EBADMSG;
 		} else {
-			// prefill the bitstream cache with 2 bytes (guaranteed unescaped)
-			dec->_gb.msb_cache = (size_t)buf[1] << (SIZE_BIT - 8) | (size_t)buf[2] << (SIZE_BIT - 16) | (size_t)1 << (SIZE_BIT - 17);
-			dec->_gb.CPB = buf + 3;
+			// prefill the bitstream cache
+			dec->_gb.msb_cache = (size_t)buf[1] << (SIZE_BIT - 8) | (size_t)1 << (SIZE_BIT - 9);
+			dec->_gb.lsb_cache = 0;
+			dec->_gb.CPB = buf + 2;
 			dec->_gb.end = end;
 			ret = parser(dec, non_blocking, free_cb, free_arg);
 			// end may have been set to the next start code thanks to escape code detection in get_bytes

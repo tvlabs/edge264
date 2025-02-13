@@ -6,8 +6,9 @@ VARIANTS ?= debug
 VERSION := 1.0.0
 MAJOR := 1
 TARGETCC := $(CC)
+LDLINUX := -Wl,-soname,libedge264.so.$(MAJOR) -Wl,-rpath,'$$ORIGIN'
 override CFLAGS := -std=gnu11 -O3 -flax-vector-conversions -w $(if $(findstring Windows,$(OS)),,-fpic) $(CFLAGS)
-override LDFLAGS :=  -pthread -Wl,-soname,libedge264.so.$(MAJOR) -Wl,-rpath,'$$ORIGIN' $(LDFLAGS)
+override LDFLAGS := -pthread $(if $(findstring Linux,$(OS)),$(LDLINUX),) $(LDFLAGS)
 RUNTIME_TESTS := $(if $(findstring x86-64-v2,$(VARIANTS)),-DTEST_X86_64_V2,) $(if $(findstring x86-64-v3,$(VARIANTS)),-DTEST_X86_64_V3,) $(if $(findstring debug,$(VARIANTS)),-DTEST_DEBUG,)
 OBJ := edge264.o $(if $(findstring x86-64-v2,$(VARIANTS)),edge264_headers_v2.o,) $(if $(findstring x86-64-v3,$(VARIANTS)),edge264_headers_v3.o,) $(if $(findstring debug,$(VARIANTS)),edge264_headers_debug.o,)
 LIB := $(if $(findstring Windows,$(OS)),edge264.$(MAJOR).dll,$(if $(findstring Linux,$(OS)),libedge264.so.$(VERSION),libedge264.$(VERSION).dylib))
@@ -39,7 +40,7 @@ edge264_headers_v3.o: edge264.h edge264_internal.h edge264_bitstream.c edge264_d
 	$(CC) edge264_headers.c -c -march=x86-64-v3 $(CFLAGS) "-DADD_VARIANT(f)=f##_v3" -o edge264_headers_v3.o
 
 edge264_headers_debug.o: edge264.h edge264_internal.h edge264_bitstream.c edge264_deblock.c edge264_headers.c edge264_inter.c edge264_intra.c edge264_mvpred.c edge264_residual.c edge264_slice.c
-	$(CC) edge264_headers.c -c -march=$(ARCH) $(CFLAGS) -g -DTRACE "-DADD_VARIANT(f)=f##_debug" -o edge264_headers_debug.o
+	$(CC) edge264_headers.c -c -march=$(ARCH) $(CFLAGS) -DTRACE "-DADD_VARIANT(f)=f##_debug" -o edge264_headers_debug.o
 
 .PHONY: clean clear
 clean clear:

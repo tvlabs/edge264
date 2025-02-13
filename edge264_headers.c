@@ -830,7 +830,8 @@ int ADD_VARIANT(parse_slice_layer_without_partitioning)(Edge264Decoder *dec, int
 	t->free_arg = free_arg;
 	
 	// first important fields and checks before decoding the slice header
-	refill(&dec->_gb, 0);
+	if (!dec->_gb.lsb_cache)
+		refill(&dec->_gb, 0);
 	t->first_mb_in_slice = get_ue32(&dec->_gb, 139263);
 	int slice_type = get_ue16(&dec->_gb, 9);
 	t->slice_type = (slice_type < 5) ? slice_type : slice_type - 5;
@@ -1123,6 +1124,34 @@ int ADD_VARIANT(parse_slice_layer_without_partitioning)(Edge264Decoder *dec, int
 	if (!dec->n_threads)
 		return (intptr_t)ADD_VARIANT(worker_loop)(dec);
 	pthread_cond_signal(&dec->task_ready);
+	return 0;
+}
+
+
+
+int ADD_VARIANT(parse_nal_unit_header_extension)(Edge264Decoder *dec, int non_blocking, void(*free_cb)(void*,int), void *free_arg) {
+	refill(&dec->_gb, 0);
+	unsigned u = get_uv(&dec->_gb, 24);
+	if (u & 1 << 23)
+		return ENOTSUP;
+	dec->IdrPicFlag = u >> 22 & 1 ^ 1;
+	print_header(dec, "<k>non_idr_flag</k><v>%x</v>\n"
+		"<k>priority_id</k><v>%d</v>\n"
+		"<k>view_id</k><v>%d</v>\n"
+		"<k>temporal_id</k><v>%d</v>\n"
+		"<k>anchor_pic_flag</k><v>%x</v>\n"
+		"<k>inter_view_flag</k><v>%x</v>\n",
+		u >> 22 & 1,
+		u >> 16 & 0x3f,
+		u >> 6 & 0x3ff,
+		u >> 3 & 7,
+		u >> 2 & 1,
+		u >> 1 & 1);
+	if (dec->nal_unit_type == 20)
+		return ADD_VARIANT(parse_slice_layer_without_partitioning)(dec, non_blocking, free_cb, free_arg);
+	// spec doesn't mention rbsp_trailing_bits at the end of prefix_nal_unit_rbsp
+	if (dec->_gb.msb_cache != 0 || (dec->_gb.lsb_cache & (dec->_gb.lsb_cache - 1)) || (intptr_t)(dec->_gb.end - dec->_gb.CPB) > 0)
+		return EBADMSG;
 	return 0;
 }
 

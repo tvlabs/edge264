@@ -519,7 +519,6 @@ enum IntraChromaModes {
 #ifdef TRACE
 	#define print_header(dec, ...) if (dec->trace_headers) { fprintf(dec->trace_headers, __VA_ARGS__); }
 	#define print_slice(ctx, ...) if (ctx->trace_slices) { fprintf(ctx->trace_slices, __VA_ARGS__); }
-	static always_inline const char *red_if(int cond) { return (cond) ? " style='background-color:#fee'" : ""; }
 #else
 	#define print_header(...) ((void)0)
 	#define print_slice(...) ((void)0)

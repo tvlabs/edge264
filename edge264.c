@@ -9,7 +9,6 @@
  * 	_ Make a uninstall target
  * 	_ Add virtualization support and update the release target to test all cross-compiled files
  * _ Multithreading
- * 	_ move MVC prefix parsing inside parse_slice_header
  * 	_ add an option to forbid slice threading, to make redundant slices reliable
  * 	_ measure the time it takes to decode each type of slice
  * 	_ initialize next_deblock_idc at context_init rather than task to catch the latest nda value
@@ -37,6 +36,7 @@
  * 	_ fix segfault on videos/geek.264, mvc.264 and shrinkage.264
  * _ Fuzzing and bug hunting
  * 	_ check with clang-tidy
+ * 	_ check with CScout
  * 	_ Protect again for possibility of not enough ref frames in RefPicList
  * 	_ fuzz with H26Forge
  * 	_ replace calloc with malloc+memset(127), determine a policy for ensuring the validity of variables over time, and setup a solver (ex. KLEE, Crest, Triton) to test their intervals
@@ -110,7 +110,7 @@ static int parse_access_unit_delimiter(Edge264Decoder *dec, int non_blocking, vo
 	refill(&dec->_gb, 0);
 	int primary_pic_type = get_uv(&dec->_gb, 3);
 	if (dec->trace_headers)
-		fprintf(dec->trace_headers, "<k>primary_pic_type</k><v>%d</v>\n", primary_pic_type);
+		fprintf(dec->trace_headers, "  primary_pic_type: %d\n", primary_pic_type);
 	if (dec->_gb.msb_cache != (size_t)1 << (SIZE_BIT - 1) || (dec->_gb.lsb_cache & (dec->_gb.lsb_cache - 1)) || (intptr_t)(dec->_gb.end - dec->_gb.CPB) > 0)
 		return EBADMSG;
 	return 0;
@@ -315,8 +315,8 @@ int edge264_decode_NAL(Edge264Decoder *dec, const uint8_t *buf, const uint8_t *e
 	dec->nal_ref_idc = buf[0] >> 5;
 	dec->nal_unit_type = buf[0] & 0x1f;
 	if (dec->trace_headers) {
-		fprintf(dec->trace_headers, "<k>nal_ref_idc</k><v>%u</v>\n"
-			"<k>nal_unit_type</k><v>%u (%s)</v>\n",
+		fprintf(dec->trace_headers, "- nal_ref_idc: %u\n"
+			"  nal_unit_type: %u\n",
 			dec->nal_ref_idc,
 			dec->nal_unit_type, nal_unit_type_names[dec->nal_unit_type]);
 	}
@@ -339,7 +339,7 @@ int edge264_decode_NAL(Edge264Decoder *dec, const uint8_t *buf, const uint8_t *e
 		}
 	}
 	if (dec->trace_headers)
-		fprintf(dec->trace_headers, ret ? "<e>%s</e>\n" : "<s>Success</s>\n", strerror(ret));
+		fprintf(dec->trace_headers, ret ? "  return: %s\n\n" : "  return: Success\n\n", strerror(ret));
 	
 	// for 0, ENOTSUP and EBADMSG we may free or advance the buffer pointer
 	if (ret == 0 || ret == ENOTSUP || ret == EBADMSG) {

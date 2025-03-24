@@ -231,24 +231,24 @@ static int check_frame()
 					for (int y = max(row * 16 - cropt, 0) >> sh_height; xl < xr && y < min(row * 16 - cropt + 16, out.height_Y) >> sh_height; y++)
 						invalid |= memcmp(p + y * stride + (xl << depth), q + y * (out.width_Y >> sh_width << depth) + (xl << depth), (xr - xl) << depth);
 					if (invalid) {
-						if (trace_headers) {
-							fprintf(trace_headers, "<e>Erroneous macroblock (PicOrderCnt %d, view %d, row %d, column %d, %s plane):<pre>\n",
-								poc, view, row, col, (iYCbCr == 0) ? "Luma" : (iYCbCr == 1) ? "Cb" : "Cr");
-							for (int y = (row * 16 - cropt) >> sh_height; y < (row * 16 - cropt + 16) >> sh_height; y++) {
-								for (int x = (col * 16 - cropl) >> sh_width; x < (col * 16 - cropl + 16) >> sh_width; x++) {
-									// FIXME 16 bit
-									fprintf(trace_headers, y < 0 || y >= out.height_Y >> sh_height || x < 0 || x >= out.width_Y >> sh_width ? "    " :
-										p[y * stride + x] == q[y * (out.width_Y >> sh_width) + x] ? "%3d " :
-										"<span style='color:red'>%3d</span> ", p[y * stride + x]);
-								}
-								fprintf(trace_headers, "\t");
-								for (int x = (col * 16 - cropl) >> sh_width; x < (col * 16 - cropl + 16) >> sh_width; x++) {
-									fprintf(trace_headers, y < 0 || y >= out.height_Y >> sh_height || x < 0 || x >= out.width_Y >> sh_width ? "    " :
-										"%3d ", q[y * (out.width_Y >> sh_width) + x]);
-								}
-								fprintf(trace_headers, "\n");
+						fprintf(stderr, "Erroneous macroblock (poc %d, view %d, row %d, column %d, %s plane):\n",
+							poc, view, row, col, (iYCbCr == 0) ? "Luma" : (iYCbCr == 1) ? "Cb" : "Cr");
+						for (int y = (row * 16 - cropt) >> sh_height; y < (row * 16 - cropt + 16) >> sh_height; y++) {
+							for (int x = (col * 16 - cropl) >> sh_width; x < (col * 16 - cropl + 16) >> sh_width; x++) {
+								// FIXME 16 bit
+								fprintf(stderr, y < 0 || y >= out.height_Y >> sh_height || x < 0 || x >= out.width_Y >> sh_width ? "    " :
+									p[y * stride + x] == q[y * (out.width_Y >> sh_width) + x] ? " %3d" :
+									RED " %3d" RESET, p[y * stride + x]);
 							}
-							fprintf(trace_headers, "</pre></e>\n");
+							fprintf(stderr, "\n");
+						}
+						fprintf(stderr, "Expected macroblock:\n");
+						for (int y = (row * 16 - cropt) >> sh_height; y < (row * 16 - cropt + 16) >> sh_height; y++) {
+							for (int x = (col * 16 - cropl) >> sh_width; x < (col * 16 - cropl + 16) >> sh_width; x++) {
+								fprintf(stderr, y < 0 || y >= out.height_Y >> sh_height || x < 0 || x >= out.width_Y >> sh_width ? "    " :
+									" %3d", q[y * (out.width_Y >> sh_width) + x]);
+							}
+							fprintf(stderr, "\n");
 						}
 						return -2;
 					}
@@ -257,8 +257,6 @@ static int check_frame()
 		}
 		conf[view] += (out.width_Y << out.pixel_depth_Y) * out.height_Y + (out.width_C << out.pixel_depth_C) * out.height_C * 2;
 	}
-	if (trace_headers)
-		fprintf(trace_headers, "<g>Output frame %d is correct</g>\n", poc);
 	return 0;
 }
 
@@ -268,7 +266,7 @@ static int decode_file(const char *name0, int print_counts)
 {
 	// process file names
 	if (trace_headers)
-		fprintf(trace_headers, "<t>%s</t>\n", name0);
+		fprintf(trace_headers, "--- # %s\n", name0);
 	int len = strrchr(name0, '.') - name0;
 	if (strcmp(name0 + len + 1, "264") != 0)
 		return 0;
@@ -430,7 +428,7 @@ int main(int argc, char *argv[])
 				case 'p': print_passed = 1; break;
 				case 's': n_threads = 0; break;
 				case 'u': print_unsupported = 1; break;
-				case 'v': trace_headers = fopen("trace.html", "w"); break;
+				case 'v': trace_headers = fopen("trace.yaml", "w"); break;
 				case 'V': trace_slices = fopen("trace.txt", "w"); break;
 				case 'y': enable_yuv = 0; break;
 				default: help = 1; break;
@@ -454,34 +452,11 @@ int main(int argc, char *argv[])
 			"-p\tprint names of passed files in directory\n"
 			"-s\tsingle-threaded operation\n"
 			"-u\tprint names of unsupported files in directory\n"
-			"-v\tenable output of headers to file trace.html\n"
+			"-v\tenable output of headers to file trace.yaml (large)\n"
 			"-V\tenable output of slices to file trace.txt (very large)\n"
 			"-y\tdisable comparison against YUV pairs\n"
 			, argv[0]);
 		return 0;
-	}
-	
-	// tags used: t=title, k=key, v=value, h=highlight, g=green, e=error, hr=ruler
-	if (trace_headers) {
-		fprintf(trace_headers, "<!doctype html>\n"
-			"<html>\n"
-			"<head>\n"
-			"<title>NAL headers</title>\n"
-			"<style>\n"
-			"body { display: grid; grid-template-columns: max-content auto; margin: 0 }\n"
-			"body>* { padding: 2px 5px; border-bottom: 1px solid lightgrey }\n"
-			"t,s,h,g,e { grid-column: 1/3; font-weight: bold; text-align: center }\n"
-			"t { background-color: #eee; font-size: 200%% }\n"
-			"k { grid-column: 1; text-align: right; font-weight: bold }\n"
-			"v { grid-column: 2 }\n"
-			"s { background-color: #eef; text-decoration: none }\n"
-			"h { background-color: #ffe }\n"
-			"g { background-color: #efe }\n"
-			"e { background-color: #fee }\n"
-			"</style>\n"
-			"<link rel=stylesheet href=style.css>\n"
-			"</head>\n"
-			"<body>\n");
 	}
 	
 	struct timespec t0, t1;
@@ -546,10 +521,8 @@ int main(int argc, char *argv[])
 		#endif
 		printf("time: %.3lfs\nCPU: %.3lfs\nmemory: %.3lfMB\n", (double)time_msec / 1000, (double)cpu_msec / 1000, (double)mem_kb / 1000);
 	}
-	if (trace_headers) {
-		fprintf(trace_headers, "</body>\n</html>\n");
+	if (trace_headers)
 		fclose(trace_headers);
-	}
 	if (trace_slices)
 		fclose(trace_slices);
 	return 0;

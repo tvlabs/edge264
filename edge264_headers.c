@@ -611,8 +611,8 @@ static void parse_ref_pic_list_modification(Edge264Decoder *dec, Edge264Task *t)
 		t->RefPicList[0][size++] = next;
 		count[best >> 16]++;
 	}
-	if (dec->basePic >= 0)
-		t->RefPicList[0][size++] = dec->basePic; // add inter-view ref for MVC
+	if (dec->sps.mvc & dec->currPic) // if we're second view
+		t->RefPicList[0][size++] = dec->prevPic; // add inter-view ref for MVC
 	
 	// fill RefPicListL1 by swapping before/after references
 	for (int src = 0; src < size; src++) {
@@ -675,7 +675,7 @@ static void parse_ref_pic_list_modification(Edge264Decoder *dec, Edge264Task *t)
 				print_header(dec, refIdx ? ",%d%s" : "%d%s",
 					modification_of_pic_nums_idc % 4 == 0 ? -num - 1 : num + (modification_of_pic_nums_idc != 2),
 					modification_of_pic_nums_idc == 2 ? "l" : modification_of_pic_nums_idc > 3 ? "v" : "");
-				int pic = dec->basePic;
+				int pic = dec->prevPic;
 				if (modification_of_pic_nums_idc < 2) {
 					picNumLX = (modification_of_pic_nums_idc == 0) ? picNumLX - (num + 1) : picNumLX + (num + 1);
 					unsigned MaskFrameNum = (1 << dec->sps.log2_max_frame_num) - 1;
@@ -708,9 +708,9 @@ static void parse_ref_pic_list_modification(Edge264Decoder *dec, Edge264Task *t)
 			print_header(dec, "  RefPicList%u: [", lx);
 			for (int i = 0; i < t->pps.num_ref_idx_active[lx]; i++) {
 				int pic = t->RefPicList[lx][i];
-				print_header(dec, i ? ",%d" : "%d", dec->FieldOrderCnt[0][pic]); // FIXME find a unique identifier, ideally numeric
+				print_header(dec, (i < t->pps.num_ref_idx_active[lx] - 1) ? "%d," : "%d]\n",
+					dec->FrameIds[pic]);
 			}
-			print_header(dec, "]\n");
 		}
 	#endif
 }
@@ -751,8 +751,7 @@ static void finish_frame(Edge264Decoder *dec, int pair_view) {
 	dec->long_term_flags = (dec->long_term_flags & other_views) | dec->pic_long_term_flags;
 	dec->LongTermFrameIdx_v[0] = dec->pic_LongTermFrameIdx_v[0];
 	dec->LongTermFrameIdx_v[1] = dec->pic_LongTermFrameIdx_v[1];
-	dec->prevRefFrameNum[non_base_view] = dec->FrameNums[dec->currPic]; // for mmco5
-	dec->basePic = (dec->sps.mvc & ~non_base_view & pair_view) ? dec->currPic : -1;
+	dec->prevPic = dec->currPic;
 	dec->currPic = -1;
 }
 
@@ -836,11 +835,11 @@ int ADD_VARIANT(parse_slice_layer_without_partitioning)(Edge264Decoder *dec, int
 	t->slice_type = (slice_type < 5) ? slice_type : slice_type - 5;
 	int pic_parameter_set_id = get_ue16(&dec->_gb, 255);
 	print_header(dec, "  first_mb_in_slice: %u\n"
-		"  slice_type: %s\n"
-		"  pic_parameter_set_id: %u\n",
+		"  slice_type: %s%s\n"
+		"  pic_parameter_set_id: %u%s\n",
 		t->first_mb_in_slice,
-		slice_type_names[t->slice_type],
-		pic_parameter_set_id);
+		slice_type_names[t->slice_type], unsup_if(t->slice_type > 2),
+		pic_parameter_set_id, unsup_if(pic_parameter_set_id >= 4));
 	if (t->slice_type > 2 || pic_parameter_set_id >= 4)
 		return ENOTSUP;
 	t->pps = dec->PPS[pic_parameter_set_id];
@@ -858,7 +857,7 @@ int ADD_VARIANT(parse_slice_layer_without_partitioning)(Edge264Decoder *dec, int
 		non_base_view = 0;
 	}
 	unsigned view_mask = ((dec->sps.mvc - 1) | 0x55555555 << non_base_view) & ((1 << dec->sps.num_frame_buffers) - 1);
-	int prevRefFrameNum = dec->IdrPicFlag ? 0 : dec->prevRefFrameNum[non_base_view];
+	int prevRefFrameNum = dec->IdrPicFlag ? 0 : dec->FrameNums[dec->prevPic];
 	dec->FrameNum = prevRefFrameNum + ((frame_num - prevRefFrameNum) & FrameNumMask);
 	print_header(dec, "  FrameNum: %u\n", dec->FrameNum);
 	
@@ -902,7 +901,7 @@ int ADD_VARIANT(parse_slice_layer_without_partitioning)(Edge264Decoder *dec, int
 			return ENOBUFS;
 		// finally insert the last non-existing frames one by one
 		for (unsigned FrameNum = dec->FrameNum - non_existing; FrameNum < dec->FrameNum; FrameNum++) {
-			int i = __builtin_ctz(avail);
+			int i = dec->prevPic = __builtin_ctz(avail);
 			avail ^= 1 << i;
 			dec->reference_flags |= 1 << i;
 			dec->FrameNums[i] = FrameNum;
@@ -918,10 +917,7 @@ int ADD_VARIANT(parse_slice_layer_without_partitioning)(Edge264Decoder *dec, int
 			if (dec->frame_buffers[i] == NULL && alloc_frame(dec, i))
 				return ENOMEM;
 		}
-		dec->prevRefFrameNum[non_base_view] = dec->FrameNum - 1;
 	}
-	if (dec->nal_ref_idc)
-		dec->prevRefFrameNum[non_base_view] = dec->FrameNum;
 	
 	// As long as PAFF/MBAFF are unsupported, this code won't execute (but is still kept).
 	t->field_pic_flag = 0;
@@ -977,8 +973,9 @@ int ADD_VARIANT(parse_slice_layer_without_partitioning)(Edge264Decoder *dec, int
 	} else {
 		dec->TopFieldOrderCnt = dec->BottomFieldOrderCnt = dec->FrameNum * 2 + (dec->nal_ref_idc != 0) - 1;
 	}
-	print_header(dec, "  PicOrderCnt: %d\n", min(dec->TopFieldOrderCnt, dec->BottomFieldOrderCnt));
-	if (abs(dec->TopFieldOrderCnt) >= 1 << 25 || abs(dec->BottomFieldOrderCnt) >= 1 << 25)
+	print_header(dec, "  PicOrderCnt: %d%s\n", min(dec->TopFieldOrderCnt, dec->BottomFieldOrderCnt),
+		unsup_if(max(dec->TopFieldOrderCnt, dec->BottomFieldOrderCnt) >= 1 << 25));
+	if (max(dec->TopFieldOrderCnt, dec->BottomFieldOrderCnt) >= 1 << 25)
 		return ENOTSUP;
 	
 	// find and possibly allocate a DPB slot for the upcoming frame
@@ -1008,16 +1005,18 @@ int ADD_VARIANT(parse_slice_layer_without_partitioning)(Edge264Decoder *dec, int
 		if (ready & (dec->output_flags | dec->borrow_flags))
 			return ENOBUFS;
 		dec->currPic = __builtin_ctz(ready);
-		if (dec->frame_buffers[dec->currPic] == NULL && alloc_frame(dec, dec->currPic))
-			return ENOMEM;
 		dec->frame_flip_bits ^= 1 << dec->currPic;
 		dec->remaining_mbs[dec->currPic] = dec->sps.pic_width_in_mbs * dec->sps.pic_height_in_mbs;
 		dec->next_deblock_addr[dec->currPic] = 0;
 		dec->FrameNums[dec->currPic] = dec->FrameNum;
+		dec->FrameIds[dec->currPic] = (dec->prevPic >= 0) ? dec->FrameIds[dec->prevPic] + 1 : 0;
 		dec->FieldOrderCnt[0][dec->currPic] = dec->TopFieldOrderCnt;
 		dec->FieldOrderCnt[1][dec->currPic] = dec->BottomFieldOrderCnt;
 		is_first_slice = 1;
+		if (dec->frame_buffers[dec->currPic] == NULL && alloc_frame(dec, dec->currPic))
+			return ENOMEM;
 	}
+	print_header(dec, "  FrameId: %u\n", dec->FrameIds[dec->currPic]);
 	
 	// The first test could be optimised into a fast bit test, but would be less readable :)
 	t->RefPicList_v[0] = t->RefPicList_v[1] = t->RefPicList_v[2] = t->RefPicList_v[3] =
@@ -1077,7 +1076,7 @@ int ADD_VARIANT(parse_slice_layer_without_partitioning)(Edge264Decoder *dec, int
 	// update output flags now that we know if mmco5 happened
 	unsigned to_output = 1 << dec->currPic;
 	if (is_first_slice) {
-		if (!dec->sps.mvc || (to_output |= 1 << dec->basePic, dec->basePic >= 0)) {
+		if (!dec->sps.mvc || (to_output |= 1 << dec->prevPic, dec->currPic & 1)) {
 			if (dec->IdrPicFlag) {
 				dec->dispPicOrderCnt = -(1 << 25);
 				for (unsigned o = dec->output_flags; o; o &= o - 1) {
@@ -1096,11 +1095,11 @@ int ADD_VARIANT(parse_slice_layer_without_partitioning)(Edge264Decoder *dec, int
 				int r = (dec->pic_reference_flags | dec->reference_flags & ~view_mask) & 1 << i;
 				int l = (dec->pic_long_term_flags | dec->long_term_flags & ~view_mask) & 1 << i;
 				int o = dec->output_flags & 1 << i;
-				print_header(dec, i ? "," : "");
-				print_header(dec, l ? "%ul/" : r ? "%u/" : "_/", l ? dec->pic_LongTermFrameIdx[i] : dec->FrameNums[i]);
-				print_header(dec, o ? "%uo" : r ? "%u" : "_", min(dec->FieldOrderCnt[0][i], dec->FieldOrderCnt[1][i]) << 6 >> 6);
+				print_header(dec, o ? "    %u: %sreference frame with output order %d\n" : "    %u: %sreference frame\n",
+					dec->FrameIds[i],
+					l ? "long-term " : r ? "" : "non-",
+					min(dec->FieldOrderCnt[0][i], dec->FieldOrderCnt[1][i]) << 6 >> 6);
 			}
-			print_header(dec, "]\n");
 		#endif
 	}
 	
@@ -1244,14 +1243,14 @@ int ADD_VARIANT(parse_pic_parameter_set)(Edge264Decoder *dec, int non_blocking, 
 	pps.entropy_coding_mode_flag = get_u1(&dec->_gb);
 	pps.bottom_field_pic_order_in_frame_present_flag = get_u1(&dec->_gb);
 	int num_slice_groups = get_ue16(&dec->_gb, 7) + 1;
-	print_header(dec, "  pic_parameter_set_id: %u\n"
+	print_header(dec, "  pic_parameter_set_id: %u%s\n"
 		"  seq_parameter_set_id: %u\n"
 		"  entropy_coding_mode: %s\n"
-		"  num_slice_groups: %u\n",
-		pic_parameter_set_id,
+		"  num_slice_groups: %u%s\n",
+		pic_parameter_set_id, unsup_if(pic_parameter_set_id >= 4),
 		seq_parameter_set_id,
 		pps.entropy_coding_mode_flag ? "CABAC" : "CAVLC",
-		num_slice_groups);
+		num_slice_groups, unsup_if(num_slice_groups > 1));
 	
 	// Let's be nice enough to print the headers for unsupported stuff.
 	if (num_slice_groups > 1) {
@@ -1308,16 +1307,16 @@ int ADD_VARIANT(parse_pic_parameter_set)(Edge264Decoder *dec, int non_blocking, 
 		"  pic_init_qp: %u\n"
 		"  pic_init_qs: %u\n"
 		"  chroma_qp_index_offset: %d\n"
-		"  constrained_intra_pred_flag: %u\n"
-		"  redundant_pic_cnt_present_flag: %u\n",
+		"  constrained_intra_pred_flag: %u%s\n"
+		"  redundant_pic_cnt_present_flag: %u%s\n",
 		pps.num_ref_idx_active[0], pps.num_ref_idx_active[1],
 		weighted_pred_names[pps.weighted_pred_flag],
 		weighted_pred_names[pps.weighted_bipred_idc],
 		pps.QPprime_Y,
 		pic_init_qs,
 		pps.chroma_qp_index_offset,
-		pps.constrained_intra_pred_flag,
-		redundant_pic_cnt_present_flag);
+		pps.constrained_intra_pred_flag, unsup_if(pps.constrained_intra_pred_flag),
+		redundant_pic_cnt_present_flag, unsup_if(redundant_pic_cnt_present_flag));
 	
 	// short for peek-24-bits-without-having-to-define-a-single-use-function
 	if (dec->_gb.msb_cache != (size_t)1 << (SIZE_BIT - 1) || (dec->_gb.lsb_cache & (dec->_gb.lsb_cache - 1)) || (intptr_t)(dec->_gb.end - dec->_gb.CPB) > 0) {
@@ -1600,7 +1599,7 @@ static int parse_seq_parameter_set_mvc_extension(Edge264Decoder *dec, Edge264Seq
 		int view_id = get_ue16(&dec->_gb, 1023);
 		print_header(dec, i ? ",%u" : "  view_ids: [%u", view_id);
 	}
-	print_header(dec, "]\n");
+	print_header(dec, "]%s\n", unsup_if(num_views != 2));
 	if (num_views != 2)
 		return ENOTSUP;
 	sps->mvc = 1;
@@ -1662,10 +1661,10 @@ int ADD_VARIANT(parse_seq_parameter_set)(Edge264Decoder *dec, int non_blocking, 
 		[118] = "Multiview High",
 		[122] = "High 4:2:2",
 		[128] = "Stereo High",
-		[134] = "",
-		[135] = "",
+		[134] = "MFC High",
+		[135] = "MFC Depth High",
 		[138] = "Multiview Depth High",
-		[139] = "",
+		[139] = "Enhanced Multiview Depth High",
 		[244] = "High 4:4:4 Predictive",
 	};
 	static const char * const chroma_format_idc_names[4] = {"4:0:0", "4:2:0", "4:2:2", "4:4:4"};
@@ -1718,8 +1717,8 @@ int ADD_VARIANT(parse_seq_parameter_set)(Edge264Decoder *dec, int non_blocking, 
 	int seq_scaling_matrix_present_flag = 0;
 	if (profile_idc != 66 && profile_idc != 77 && profile_idc != 88) {
 		sps.ChromaArrayType = sps.chroma_format_idc = get_ue16(&dec->_gb, 3);
-		print_header(dec, "  chroma_format_idc: \"%s\"\n",
-			chroma_format_idc_names[sps.chroma_format_idc]);
+		print_header(dec, "  chroma_format_idc: \"%s\"%s\n",
+			chroma_format_idc_names[sps.chroma_format_idc], unsup_if(sps.ChromaArrayType != 1));
 		if (sps.chroma_format_idc == 3) {
 			int separate_colour_plane_flag = get_u1(&dec->_gb);
 			sps.ChromaArrayType = 3 - separate_colour_plane_flag * 3;
@@ -1729,10 +1728,10 @@ int ADD_VARIANT(parse_seq_parameter_set)(Edge264Decoder *dec, int non_blocking, 
 		sps.BitDepth_Y = 8 + get_ue16(&dec->_gb, 6);
 		sps.BitDepth_C = 8 + get_ue16(&dec->_gb, 6);
 		sps.qpprime_y_zero_transform_bypass_flag = get_u1(&dec->_gb);
-		print_header(dec, "  BitDepths: [%u,%u,%u]\n"
-			"  qpprime_y_zero_transform_bypass_flag: %u\n",
-			sps.BitDepth_Y, sps.BitDepth_C, sps.BitDepth_C,
-			sps.qpprime_y_zero_transform_bypass_flag);
+		print_header(dec, "  BitDepths: [%u,%u,%u]%s\n"
+			"  qpprime_y_zero_transform_bypass_flag: %u%s\n",
+			sps.BitDepth_Y, sps.BitDepth_C, sps.BitDepth_C, unsup_if(sps.BitDepth_Y + sps.BitDepth_Y != 16),
+			sps.qpprime_y_zero_transform_bypass_flag, unsup_if(sps.qpprime_y_zero_transform_bypass_flag));
 		if (seq_scaling_matrix_present_flag = get_u1(&dec->_gb)) {
 			sps.weightScale4x4_v[0] = Default_4x4_Intra;
 			sps.weightScale4x4_v[3] = Default_4x4_Inter;
@@ -1813,12 +1812,12 @@ int ADD_VARIANT(parse_seq_parameter_set)(Edge264Decoder *dec, int non_blocking, 
 		"  gaps_in_frame_num_value_allowed_flag: %u\n"
 		"  pic_width_in_mbs: %u\n"
 		"  pic_height_in_mbs: %u\n"
-		"  frame_mbs_only_flag: %u\n",
+		"  frame_mbs_only_flag: %u%s\n",
 		sps.max_num_ref_frames,
 		gaps_in_frame_num_value_allowed_flag,
 		sps.pic_width_in_mbs,
 		sps.pic_height_in_mbs,
-		sps.frame_mbs_only_flag);
+		sps.frame_mbs_only_flag, unsup_if(!sps.frame_mbs_only_flag));
 	if (sps.frame_mbs_only_flag == 0) {
 		sps.mb_adaptive_frame_field_flag = get_u1(&dec->_gb);
 		print_header(dec, "  mb_adaptive_frame_field_flag: %u\n",
@@ -1867,7 +1866,7 @@ int ADD_VARIANT(parse_seq_parameter_set)(Edge264Decoder *dec, int non_blocking, 
 	// check for trailing_bits before unsupported features (in case errors enabled them)
 	if (dec->_gb.msb_cache != (size_t)1 << (SIZE_BIT - 1) || (dec->_gb.lsb_cache & (dec->_gb.lsb_cache - 1)) || (intptr_t)(dec->_gb.end - dec->_gb.CPB) > 0)
 		return EBADMSG;
-	if (sps.ChromaArrayType != 1 || sps.BitDepth_Y != 8 || sps.BitDepth_C != 8 ||
+	if (sps.ChromaArrayType != 1 || sps.BitDepth_Y + sps.BitDepth_C != 16 ||
 		sps.qpprime_y_zero_transform_bypass_flag || !sps.frame_mbs_only_flag)
 		return ENOTSUP;
 	
@@ -1904,7 +1903,7 @@ int ADD_VARIANT(parse_seq_parameter_set)(Edge264Decoder *dec, int non_blocking, 
 		}
 		int mbs = (sps.pic_width_in_mbs + 1) * sps.pic_height_in_mbs - 1;
 		dec->frame_size = dec->plane_size_Y + dec->plane_size_C + mbs * sizeof(Edge264Macroblock);
-		dec->currPic = dec->basePic = -1;
+		dec->currPic = -1;
 		dec->reference_flags = dec->long_term_flags = dec->frame_flip_bits = 0;
 		for (int i = 0; i < 32; i++) {
 			if (dec->frame_buffers[i] != NULL) {
@@ -1928,9 +1927,9 @@ int ADD_VARIANT(parse_seq_parameter_set_extension)(Edge264Decoder *dec, int non_
 	int seq_parameter_set_id = get_ue16(&dec->_gb, 31);
 	int aux_format_idc = get_ue16(&dec->_gb, 3);
 	print_header(dec, "  seq_parameter_set_id: %u\n"
-		"  aux_format_idc: %u\n",
+		"  aux_format_idc: %u%s\n",
 		seq_parameter_set_id,
-		aux_format_idc);
+		aux_format_idc, unsup_if(aux_format_idc));
 	if (aux_format_idc != 0) {
 		int bit_depth_aux = get_ue16(&dec->_gb, 4) + 8;
 		get_uv(&dec->_gb, 3 + bit_depth_aux * 2);
@@ -1938,5 +1937,5 @@ int ADD_VARIANT(parse_seq_parameter_set_extension)(Edge264Decoder *dec, int non_
 	get_u1(&dec->_gb);
 	if (dec->_gb.msb_cache != (size_t)1 << (SIZE_BIT - 1) || (dec->_gb.lsb_cache & (dec->_gb.lsb_cache - 1)) || (intptr_t)(dec->_gb.end - dec->_gb.CPB) > 0) // rbsp_trailing_bits
 		return EBADMSG;
-	return aux_format_idc != 0 ? ENOTSUP : 0; // unsupported if transparent
+	return aux_format_idc ? ENOTSUP : 0; // unsupported if transparent
 }

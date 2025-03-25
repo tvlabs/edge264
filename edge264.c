@@ -125,6 +125,7 @@ Edge264Decoder *edge264_alloc(int n_threads, FILE *trace_headers, FILE *trace_sl
 	dec->n_threads = n_threads;
 	dec->trace_headers = trace_headers;
 	dec->trace_slices = trace_slices;
+	dec->currPic = dec->prevPic = -1;
 	dec->taskPics_v = set8(-1);
 	
 	// select parser functions based on CPU capabilities
@@ -227,7 +228,7 @@ void edge264_flush(Edge264Decoder *dec) {
 	if (dec->n_threads)
 		pthread_mutex_lock(&dec->lock);
 	// FIXME interrupt all threads
-	dec->currPic = dec->basePic = -1;
+	dec->currPic = dec->prevPic = -1;
 	dec->reference_flags = dec->long_term_flags = dec->output_flags = 0;
 	for (unsigned b = dec->busy_tasks; b; b &= b - 1) {
 		Edge264Task *t = dec->tasks + __builtin_ctz(b);
@@ -273,7 +274,7 @@ void edge264_free(Edge264Decoder **pdec) {
 int edge264_decode_NAL(Edge264Decoder *dec, const uint8_t *buf, const uint8_t *end, int non_blocking, void(*free_cb)(void*,int), void *free_arg, const uint8_t **next_NAL)
 {
 	static const char * const nal_unit_type_names[32] = {
-		[0] = "Unknown",
+		[0 ... 31] = "Unknown",
 		[1] = "Coded slice of a non-IDR picture",
 		[2] = "Coded slice data partition A",
 		[3] = "Coded slice data partition B",
@@ -290,11 +291,9 @@ int edge264_decode_NAL(Edge264Decoder *dec, const uint8_t *buf, const uint8_t *e
 		[14] = "Prefix NAL unit",
 		[15] = "Subset sequence parameter set",
 		[16] = "Depth parameter set",
-		[17 ... 18] = "Unknown",
 		[19] = "Coded slice of an auxiliary coded picture without partitioning",
 		[20] = "Coded slice extension",
 		[21] = "Coded slice extension for a depth view component or a 3D-AVC texture view component",
-		[22 ... 31] = "Unknown",
 	};
 	
 	// initial checks before parsing
@@ -316,9 +315,9 @@ int edge264_decode_NAL(Edge264Decoder *dec, const uint8_t *buf, const uint8_t *e
 	dec->nal_unit_type = buf[0] & 0x1f;
 	if (dec->trace_headers) {
 		fprintf(dec->trace_headers, "- nal_ref_idc: %u\n"
-			"  nal_unit_type: %u\n",
+			"  nal_unit_type: %s\n",
 			dec->nal_ref_idc,
-			dec->nal_unit_type, nal_unit_type_names[dec->nal_unit_type]);
+			nal_unit_type_names[dec->nal_unit_type]);
 	}
 	
 	// initialize the parsing context if we can parse the current NAL
@@ -368,7 +367,7 @@ int edge264_get_frame(Edge264Decoder *dec, Edge264Frame *out, int borrow) {
 	if (dec->n_threads)
 		pthread_mutex_lock(&dec->lock);
 	int pic[2] = {-1, -1};
-	unsigned unavail = dec->reference_flags | dec->output_flags | (dec->basePic < 0 ? 0 : 1 << dec->basePic);
+	unsigned unavail = dec->reference_flags | dec->output_flags | (dec->sps.mvc & ~dec->prevPic ? 1 << dec->prevPic : 0);
 	int best = (__builtin_popcount(dec->output_flags) > dec->sps.max_num_reorder_frames ||
 		__builtin_popcount(unavail) >= dec->sps.num_frame_buffers) ? INT_MAX : dec->dispPicOrderCnt;
 	for (int o = dec->output_flags; o != 0; o &= o - 1) {

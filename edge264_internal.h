@@ -298,17 +298,15 @@ typedef struct Edge264Decoder {
 	int8_t nal_unit_type; // 5 significant bits
 	int8_t IdrPicFlag; // 1 significant bit
 	int8_t currPic; // index of current incomplete frame, or -1
-	int8_t basePic; // index of last MVC base view, or -1
+	int8_t prevPic; // index of last completed frame, may possibly equal currPic
 	int32_t plane_size_Y;
 	int32_t plane_size_C;
 	int32_t frame_size;
 	int32_t FrameNum; // value for the current incomplete frame, unaffected by mmco5
-	int32_t prevRefFrameNum[2];
 	int32_t TopFieldOrderCnt; // same
 	int32_t BottomFieldOrderCnt;
 	int32_t prevPicOrderCnt;
 	int32_t dispPicOrderCnt; // all POCs lower or equal than this are ready for output
-	int32_t FrameNums[32];
 	uint32_t reference_flags; // bitfield for indices of reference frames/views
 	uint32_t long_term_flags; // bitfield for indices of long-term frames/views
 	uint32_t output_flags; // bitfield for frames waiting to be output
@@ -316,6 +314,8 @@ typedef struct Edge264Decoder {
 	uint32_t frame_flip_bits; // target values for bit 0 of mb->recovery_bits in each frame
 	uint32_t pic_reference_flags; // to be applied after decoding all slices of the current picture
 	uint32_t pic_long_term_flags; // to be applied after decoding all slices of the current picture
+	int32_t FrameNums[32]; // signed to be used along FieldOrderCnt in initial reference ordering
+	uint32_t FrameIds[32]; // unique identifiers for each frame, incremented in decoding order
 	int64_t DPB_format; // should match format in SPS otherwise triggers resize
 	FILE *trace_headers;
 	FILE *trace_slices;
@@ -523,6 +523,7 @@ enum IntraChromaModes {
 	#define print_header(...) ((void)0)
 	#define print_slice(...) ((void)0)
 #endif
+static always_inline const char *unsup_if(int cond) { return cond ? " # unsupported" : ""; }
 #define print_i8x16(dec, a) {\
 	i8x16 _v = a;\
 	fprintf(dec->trace_headers, "<k>" #a "</k><v>");\

@@ -429,7 +429,7 @@ int main(int argc, char *argv[])
 				case 's': n_threads = 0; break;
 				case 'u': print_unsupported = 1; break;
 				case 'v': trace_headers = fopen("trace.yaml", "w"); break;
-				case 'V': trace_slices = fopen("trace.txt", "w"); break;
+				case 'V': trace_slices = fopen("slices.yaml", "w"); break;
 				case 'y': enable_yuv = 0; break;
 				default: help = 1; break;
 			}
@@ -453,7 +453,7 @@ int main(int argc, char *argv[])
 			"-s\tsingle-threaded operation\n"
 			"-u\tprint names of unsupported files in directory\n"
 			"-v\tenable output of headers to file trace.yaml (large)\n"
-			"-V\tenable output of slices to file trace.txt (very large)\n"
+			"-V\tenable output of slices to file slices.yaml (very large)\n"
 			"-y\tdisable comparison against YUV pairs\n"
 			, argv[0]);
 		return 0;

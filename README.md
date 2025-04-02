@@ -80,7 +80,7 @@ int main(int argc, char *argv[]) {
 	uint8_t *buf = mmap(NULL, st.st_size, PROT_READ, MAP_SHARED, fd, 0);
 	const uint8_t *nal = buf + 3 + (buf[2] == 0); // skip the [0]001 delimiter
 	const uint8_t *end = buf + st.st_size;
-	Edge264Decoder *dec = edge264_alloc(-1, NULL, NULL); // auto number of threads
+	Edge264Decoder *dec = edge264_alloc(-1, NULL, NULL, NULL); // auto number of threads, no logging
 	Edge264Frame frm;
 	int res;
 	do {
@@ -114,13 +114,14 @@ Return a pointer to the next three-byte sequence 001, or `end` if not found.
 
 ---
 
-<code>Edge264Decoder * <b>edge264_alloc(n_threads, trace_headers, trace_slices)</b></code>
+<code>Edge264Decoder * <b>edge264_alloc(n_threads, log_sei, log_headers, log_slices)</b></code>
 
 Allocate and initialize a decoding context.
 
 * `int n_threads` - number of background worker threads, with 0 to disable multithreading and -1 to detect the number of logical cores at runtime
-* `FILE * trace_headers` - if not NULL, the file to print header values while decoding (⚠️ *large*, enabling it requires the `debug` variant, otherwise the function will fail at runtime)
-* `FILE * trace_slices` - if not NULL, the file to print slice values while decoding (⚠️ *very large*, requires `debug`too)
+* `FILE * log_sei` - if not NULL, the file to log Supplemental Enhancement Information units (see [H.264 annex D](https://www.itu.int/rec/T-REC-H.264))
+* `FILE * log_headers` - if not NULL, the file to log header values while decoding (⚠️ *large*, enabling it requires the `debug` variant, otherwise the function will fail at runtime)
+* `FILE * log_slices` - if not NULL, the file to log slice values while decoding (⚠️ *very large*, requires `debug`too)
 
 ---
 

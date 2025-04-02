@@ -6,6 +6,9 @@
 #include "edge264_intra.c"
 #include "edge264_mvpred.c"
 #include "edge264_residual.c"
+#ifndef TRACE
+	#include "edge264_sei.c"
+#endif
 #define CABAC 0
 #include "edge264_slice.c"
 #define CABAC 1
@@ -47,7 +50,7 @@ static void initialize_context(Edge264Context *ctx, int currPic)
 		39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39};
 	
 	union { int8_t q[32]; i8x16 v[2]; } tb, td;
-	ctx->PicOrderCnt = min(ctx->d->FieldOrderCnt[0][currPic], ctx->d->FieldOrderCnt[1][currPic]);
+	ctx->FrameId = ctx->d->FrameIds[currPic];
 	ctx->CurrMbAddr = ctx->t.first_mb_in_slice;
 	ctx->mby = (unsigned)ctx->t.first_mb_in_slice / (unsigned)ctx->t.pic_width_in_mbs;
 	ctx->mbx = (unsigned)ctx->t.first_mb_in_slice % (unsigned)ctx->t.pic_width_in_mbs;
@@ -308,7 +311,7 @@ void *ADD_VARIANT(worker_loop)(Edge264Decoder *dec) {
 	Edge264Context c;
 	c.d = dec;
 	c.n_threads = dec->n_threads;
-	c.trace_slices = dec->trace_slices;
+	c.log_slices = dec->log_slices;
 	if (c.n_threads)
 		pthread_mutex_lock(&dec->lock);
 	for (;;) {
@@ -1065,7 +1068,7 @@ int ADD_VARIANT(parse_slice_layer_without_partitioning)(Edge264Decoder *dec, int
 			t->FilterOffsetA = get_se16(&dec->_gb, -6, 6) * 2;
 			t->FilterOffsetB = get_se16(&dec->_gb, -6, 6) * 2;
 			print_header(dec, "  FilterOffsetA: %d\n"
-				"  FilterOffsetB: %d,", t->FilterOffsetA, t->FilterOffsetB);
+				"  FilterOffsetB: %d\n", t->FilterOffsetA, t->FilterOffsetB);
 		}
 	} else {
 		t->disable_deblocking_filter_idc = 0;
@@ -1090,12 +1093,12 @@ int ADD_VARIANT(parse_slice_layer_without_partitioning)(Edge264Decoder *dec, int
 				dec->dispPicOrderCnt = dec->FieldOrderCnt[0][dec->currPic]; // make all frames with lower POCs ready for output
 		}
 		#ifdef TRACE
-			print_header(dec, "  FrameBuffer: [");
+			print_header(dec, "  FrameBuffer:\n");
 			for (int i = 0; i < dec->sps.num_frame_buffers; i++) {
 				int r = (dec->pic_reference_flags | dec->reference_flags & ~view_mask) & 1 << i;
 				int l = (dec->pic_long_term_flags | dec->long_term_flags & ~view_mask) & 1 << i;
 				int o = dec->output_flags & 1 << i;
-				print_header(dec, o ? "    %u: %sreference frame with output order %d\n" : "    %u: %sreference frame\n",
+				print_header(dec, o ? "    %u: %sref frame with output order %d\n" : "    %u: %sref frame\n",
 					dec->FrameIds[i],
 					l ? "long-term " : r ? "" : "non-",
 					min(dec->FieldOrderCnt[0][i], dec->FieldOrderCnt[1][i]) << 6 >> 6);
@@ -1364,32 +1367,33 @@ int ADD_VARIANT(parse_pic_parameter_set)(Edge264Decoder *dec, int non_blocking, 
  * For the sake of implementation simplicity, the responsibility for timing
  * management is left to demuxing libraries, hence any HRD data is ignored.
  */
-static void parse_hrd_parameters(Edge264Decoder *dec) {
-	int cpb_cnt = get_ue16(&dec->_gb, 31) + 1;
+static void parse_hrd_parameters(Edge264Decoder *dec, Edge264SeqParameterSet *sps, int8_t *cpb_cnt) {
+	*cpb_cnt = get_ue16(&dec->_gb, 31) + 1;
 	int bit_rate_scale = get_uv(&dec->_gb, 4);
 	int cpb_size_scale = get_uv(&dec->_gb, 4);
-	for (int i = 0; i < cpb_cnt; i++) {
+	print_header(dec, "    CPBs:\n");
+	for (int i = 0; i < *cpb_cnt; i++) {
 		uint64_t bit_rate_value = get_ue32(&dec->_gb, 4294967294) + 1;
 		uint64_t cpb_size_value = get_ue32(&dec->_gb, 4294967294) + 1;
 		int cbr_flag = get_u1(&dec->_gb);
-		print_header(dec, i ? ",\"%llu,%llu,%u\"" : "    cpb_bitrate_size_cbr: [\"%llu,%llu,%u\"",
+		print_header(dec, "      - {bit_rate: %llu, size: %llu, cbr: %u}\n",
 			bit_rate_value << (6 + bit_rate_scale),
 			cpb_size_value << (4 + cpb_size_scale),
 			cbr_flag);
 	}
 	unsigned delays = get_uv(&dec->_gb, 20);
-	int initial_cpb_removal_delay_length = (delays >> 15) + 1;
-	int cpb_removal_delay_length = ((delays >> 10) & 0x1f) + 1;
-	int dpb_output_delay_length = ((delays >> 5) & 0x1f) + 1;
-	int time_offset_length = delays & 0x1f;
-	print_header(dec, "]\n    initial_cpb_removal_delay_length: %u\n"
+	sps->initial_cpb_removal_delay_length = (delays >> 15) + 1;
+	sps->cpb_removal_delay_length = ((delays >> 10) & 0x1f) + 1;
+	sps->dpb_output_delay_length = ((delays >> 5) & 0x1f) + 1;
+	sps->time_offset_length = delays & 0x1f;
+	print_header(dec, "    initial_cpb_removal_delay_length: %u\n"
 		"    cpb_removal_delay_length: %u\n"
 		"    dpb_output_delay_length: %u\n"
 		"    time_offset_length: %u\n",
-		initial_cpb_removal_delay_length,
-		cpb_removal_delay_length,
-		dpb_output_delay_length,
-		time_offset_length);
+		sps->initial_cpb_removal_delay_length,
+		sps->cpb_removal_delay_length,
+		sps->dpb_output_delay_length,
+		sps->time_offset_length);
 }
 
 
@@ -1491,34 +1495,34 @@ static void parse_vui_parameters(Edge264Decoder *dec, Edge264SeqParameterSet *sp
 			chroma_sample_loc_type_bottom_field);
 	}
 	if (get_u1(&dec->_gb)) {
-		unsigned num_units_in_tick = get_uv(&dec->_gb, 32);
-		unsigned time_scale = get_uv(&dec->_gb, 32);
+		sps->num_units_in_tick = maxu(get_uv(&dec->_gb, 32), 1);
+		sps->time_scale = maxu(get_uv(&dec->_gb, 32), 1);
 		int fixed_frame_rate_flag = get_u1(&dec->_gb);
 		print_header(dec, "  num_units_in_tick: %u\n"
 			"  time_scale: %u\n"
 			"  fixed_frame_rate_flag: %u\n",
-			num_units_in_tick,
-			time_scale,
+			sps->num_units_in_tick,
+			sps->time_scale,
 			fixed_frame_rate_flag);
 	}
 	int nal_hrd_parameters_present_flag = get_u1(&dec->_gb);
 	if (nal_hrd_parameters_present_flag) {
 		print_header(dec, "  nal_hrd_parameters:\n");
-		parse_hrd_parameters(dec);
+		parse_hrd_parameters(dec, sps, &sps->nal_hrd_cpb_cnt);
 	}
 	int vcl_hrd_parameters_present_flag = get_u1(&dec->_gb);
 	if (vcl_hrd_parameters_present_flag) {
 		print_header(dec, "  vcl_hrd_parameters:\n");
-		parse_hrd_parameters(dec);
+		parse_hrd_parameters(dec, sps, &sps->vcl_hrd_cpb_cnt);
 	}
 	if (nal_hrd_parameters_present_flag | vcl_hrd_parameters_present_flag) {
 		int low_delay_hrd_flag = get_u1(&dec->_gb);
 		print_header(dec, "  low_delay_hrd_flag: %u\n",
 			low_delay_hrd_flag);
 	}
-	int pic_struct_present_flag = get_u1(&dec->_gb);
+	sps->pic_struct_present_flag = get_u1(&dec->_gb);
 	print_header(dec, "  pic_struct_present_flag: %u\n",
-		pic_struct_present_flag);
+		sps->pic_struct_present_flag);
 	if (get_u1(&dec->_gb)) {
 		int motion_vectors_over_pic_boundaries_flag = get_u1(&dec->_gb);
 		print_header(dec, "  motion_vectors_over_pic_boundaries_flag: %u\n",
@@ -1561,7 +1565,7 @@ static void parse_vui_parameters(Edge264Decoder *dec, Edge264SeqParameterSet *sp
  * Parses the MVC VUI parameters extension, only advancing the stream pointer
  * for error detection, and ignoring it until requested in the future.
  */
-static void parse_mvc_vui_parameters_extension(Edge264Decoder *dec)
+static void parse_mvc_vui_parameters_extension(Edge264Decoder *dec, Edge264SeqParameterSet *sps)
 {
 	for (int i = get_ue16(&dec->_gb, 1023); i-- >= 0;) {
 		get_uv(&dec->_gb, 3);
@@ -1574,12 +1578,12 @@ static void parse_mvc_vui_parameters_extension(Edge264Decoder *dec)
 		int vui_mvc_nal_hrd_parameters_present_flag = get_u1(&dec->_gb);
 		if (vui_mvc_nal_hrd_parameters_present_flag) {
 			print_header(dec, "  vui_mvc_nal_hrd_parameters:\n");
-			parse_hrd_parameters(dec);
+			parse_hrd_parameters(dec, sps, &sps->nal_hrd_cpb_cnt);
 		}
 		int vui_mvc_vcl_hrd_parameters_present_flag = get_u1(&dec->_gb);
 		if (vui_mvc_vcl_hrd_parameters_present_flag) {
 			print_header(dec, "  vui_mvc_vcl_hrd_parameters:\n");
-			parse_hrd_parameters(dec);
+			parse_hrd_parameters(dec, sps, &sps->vcl_hrd_cpb_cnt);
 		}
 		if (vui_mvc_nal_hrd_parameters_present_flag | vui_mvc_vcl_hrd_parameters_present_flag)
 			get_u1(&dec->_gb);
@@ -1859,7 +1863,7 @@ int ADD_VARIANT(parse_seq_parameter_set)(Edge264Decoder *dec, int non_blocking, 
 		if (parse_seq_parameter_set_mvc_extension(dec, &sps, profile_idc))
 			return ENOTSUP;
 		if (get_u1(&dec->_gb))
-			parse_mvc_vui_parameters_extension(dec);
+			parse_mvc_vui_parameters_extension(dec, &sps);
 		get_u1(&dec->_gb);
 	}
 	

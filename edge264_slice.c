@@ -1096,14 +1096,14 @@ static void CAFUNC(parse_B_sub_mb) {
 		int i4x4 = i8x8 * 4;
 		#if !CABAC
 			int sub_mb_type = get_ue16(&ctx->t._gb, 12);
-			print_slice(ctx, (i8x8 < 4) ? "%u," : "%u]\n", sub_mb_type);
+			print_slice(ctx, (i8x8 < 3) ? "%u," : "%u]\n", sub_mb_type);
 		#endif
 		if (CACOND(sub_mb_type == 0, !get_ae(ctx, 36))) { // B_Direct_8x8
 			mb->f.inter_eqs[i8x8] = 0x1b;
 			if (!ctx->t.direct_8x8_inference_flag)
 				ctx->transform_8x8_mode_flag = 0;
 			#if CABAC
-				print_slice(ctx, (i8x8 < 4) ? "0," : "0]\n");
+				print_slice(ctx, (i8x8 < 3) ? "0," : "0]\n");
 			#endif
 		} else {
 			#if !CABAC
@@ -1129,7 +1129,7 @@ static void CAFUNC(parse_B_sub_mb) {
 				mvd_flags |= sub2flags[sub] << i4x4;
 				mb->f.inter_eqs[i8x8] = sub2eqs[sub];
 				static const uint8_t sub2mb_type[13] = {3, 4, 5, 6, 1, 2, 11, 12, 7, 8, 9, 10, 0};
-				print_slice(ctx, (i8x8 < 4) ? "%u," : "%u]\n", sub2mb_type[sub]);
+				print_slice(ctx, (i8x8 < 3) ? "%u," : "%u]\n", sub2mb_type[sub]);
 			#endif
 			if (CACOND(0x015f & 1 << sub_mb_type, 0x23b & 1 << sub)) { // 8xN
 				ctx->unavail4x4[i4x4] = (ctx->unavail4x4[i4x4] & 11) | (ctx->unavail4x4[i4x4 + 1] & 4);
@@ -1404,7 +1404,7 @@ static inline void CAFUNC(parse_B_mb)
 static void CAFUNC(parse_P_sub_mb, unsigned ref_idx_flags)
 {
 	// initializations for sub_mb_type
-	print_slice(ctx, "  sub_mb_types:");
+	print_slice(ctx, "  sub_mb_types: [");
 	mb->mvs_v[0] = mb->mvs_v[1] = mb->mvs_v[2] = (i16x8){}; // values pointed to when A/B/C/D are unavailable
 	mb->f.inter_eqs_s = 0;
 	unsigned mvd_flags = 0;
@@ -1431,7 +1431,7 @@ static void CAFUNC(parse_P_sub_mb, unsigned ref_idx_flags)
 		}
 		mvd_flags |= flags << i4x4;
 		mb->f.inter_eqs[i8x8] = eqs;
-		print_slice(ctx, (i8x8 < 4) ? "%u," : "%u]\n", 0xc0000480 >> flags * 2 & 3);
+		print_slice(ctx, (i8x8 < 3) ? "%u," : "%u]\n", 0xc0000480 >> flags * 2 & 3);
 	}
 	CACALL(parse_ref_idx, ref_idx_flags);
 	
@@ -1619,7 +1619,7 @@ static void CAFUNC(parse_slice_data)
 		{15, 14,  9,  4, 14, 14,  0,  4,  9,  0,  9,  4,  0,  4,  0,  4},
 	};
 	
-	print_slice(ctx, "--- # POC %u\n", ctx->PicOrderCnt);
+	print_slice(ctx, "--- # FrameId %u\n", ctx->FrameId);
 	int end_of_slice_flag = 0;
 	do {
 		print_slice(ctx, "- mbAddr: %u\n", ctx->CurrMbAddr);

@@ -30,13 +30,13 @@ $(EXE): edge264_test.c edge264.h $(LIB)
 $(LIB): $(OBJ)
 	$(TARGETCC) -shared $(OBJ) $(LDFLAGS) -o $(LIB)
 
-edge264.o: edge264.h edge264_internal.h edge264.c edge264_bitstream.c edge264_deblock.c edge264_headers.c edge264_inter.c edge264_intra.c edge264_mvpred.c edge264_residual.c edge264_slice.c
+edge264.o: edge264.h edge264_internal.h edge264.c edge264_bitstream.c edge264_deblock.c edge264_headers.c edge264_inter.c edge264_intra.c edge264_mvpred.c edge264_residual.c edge264_sei.c edge264_slice.c
 	$(CC) edge264.c -c -march=$(ARCH) $(CFLAGS) $(RUNTIME_TESTS) -o edge264.o
 
-edge264_headers_v2.o: edge264.h edge264_internal.h edge264_bitstream.c edge264_deblock.c edge264_headers.c edge264_inter.c edge264_intra.c edge264_mvpred.c edge264_residual.c edge264_slice.c
+edge264_headers_v2.o: edge264.h edge264_internal.h edge264_bitstream.c edge264_deblock.c edge264_headers.c edge264_inter.c edge264_intra.c edge264_mvpred.c edge264_residual.c edge264_sei.c edge264_slice.c
 	$(CC) edge264_headers.c -c -march=x86-64-v2 $(CFLAGS) "-DADD_VARIANT(f)=f##_v2" -o edge264_headers_v2.o
 
-edge264_headers_v3.o: edge264.h edge264_internal.h edge264_bitstream.c edge264_deblock.c edge264_headers.c edge264_inter.c edge264_intra.c edge264_mvpred.c edge264_residual.c edge264_slice.c
+edge264_headers_v3.o: edge264.h edge264_internal.h edge264_bitstream.c edge264_deblock.c edge264_headers.c edge264_inter.c edge264_intra.c edge264_mvpred.c edge264_residual.c edge264_sei.c edge264_slice.c
 	$(CC) edge264_headers.c -c -march=x86-64-v3 $(CFLAGS) "-DADD_VARIANT(f)=f##_v3" -o edge264_headers_v3.o
 
 edge264_headers_debug.o: edge264.h edge264_internal.h edge264_bitstream.c edge264_deblock.c edge264_headers.c edge264_inter.c edge264_intra.c edge264_mvpred.c edge264_residual.c edge264_slice.c

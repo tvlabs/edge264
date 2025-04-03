@@ -92,7 +92,7 @@ int ADD_VARIANT(parse_sei)(Edge264Decoder *dec, int non_blocking, void(*free_cb)
 	};
 	
 	refill(&dec->_gb, 0);
-	fprintf(dec->log_sei, "  sei_messages:\n");
+	fprintf(dec->log_headers, "  sei_messages:\n");
 	do {
 		int byte, payloadType = 0, payloadSize = 0;
 		do {

@@ -39,10 +39,10 @@ Here are the `make` options for tuning the compiled library file:
 * `OS` - target operating system (defaults to host)
 * `TARGETCC` - C compiler used to link object files into library file (defaults to `CC`)
 * `LDFLAGS` - additional compilation flags passed to `TARGETCC`
-* `VARIANTS` - comma-separated list of additional variants included in the library and selected at runtime (default `debug`)
+* `VARIANTS` - comma-separated list of additional variants included in the library and selected at runtime (default `logs`)
 	* `x86-64-v2` - variant compiled for x86-64 microarchitecture level 2 (SSSE3, SSE4.1 and POPCOUNT)
 	* `x86-64-v3` - variant compiled for x86-64 microarchitecture level 3 (AVX2, BMI, LZCNT, MOVBE)
-	* `debug` - variant compiled with debugging support (-g and print calls for headers and slices)
+	* `logs` - variant compiled with logging support in YAML format (headers and slices)
 * `BUILD_TEST` - toggles compilation of `edge264_test` (default `yes`)
 
 ```sh
@@ -114,14 +114,14 @@ Return a pointer to the next three-byte sequence 001, or `end` if not found.
 
 ---
 
-<code>Edge264Decoder * <b>edge264_alloc(n_threads, log_sei, log_headers, log_slices)</b></code>
+<code>Edge264Decoder * <b>edge264_alloc(n_threads, log_headers, log_sei, log_slices)</b></code>
 
 Allocate and initialize a decoding context.
 
 * `int n_threads` - number of background worker threads, with 0 to disable multithreading and -1 to detect the number of logical cores at runtime
-* `FILE * log_sei` - if not NULL, the file to log Supplemental Enhancement Information units (see [H.264 annex D](https://www.itu.int/rec/T-REC-H.264))
-* `FILE * log_headers` - if not NULL, the file to log header values while decoding (⚠️ *large*, enabling it requires the `debug` variant, otherwise the function will fail at runtime)
-* `FILE * log_slices` - if not NULL, the file to log slice values while decoding (⚠️ *very large*, requires `debug`too)
+* `FILE * log_headers` - if not NULL, the file to log header values while decoding (⚠️ *large*, enabling it requires the `logs` variant, otherwise the function will fail at runtime)
+* `FILE * log_sei` - if not NULL, the file to log Supplemental Enhancement Information messages (see [H.264 annex D](https://www.itu.int/rec/T-REC-H.264), requires `logs` too)
+* `FILE * log_slices` - if not NULL, the file to log slice values while decoding (⚠️ *very large*, requires `logs`too)
 
 ---
 

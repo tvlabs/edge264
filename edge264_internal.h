@@ -332,6 +332,7 @@ typedef struct Edge264Decoder {
 	FILE *log_sei;
 	FILE *log_headers;
 	FILE *log_slices;
+	void *(*worker_loop)(Edge264Decoder *);
 	uint8_t *frame_buffers[32];
 	Parser parse_nal_unit[32];
 	union { int8_t LongTermFrameIdx[32]; i8x16 LongTermFrameIdx_v[2]; };
@@ -529,7 +530,7 @@ enum IntraChromaModes {
 /**
  * Debugging functions
  */
-#ifdef TRACE
+#ifdef LOGS
 	#define print_header(dec, ...) if (dec->log_headers) { fprintf(dec->log_headers, __VA_ARGS__); }
 	#define print_slice(ctx, ...) if (ctx->log_slices) { fprintf(ctx->log_slices, __VA_ARGS__); }
 #else
@@ -962,29 +963,27 @@ static void parse_slice_data_cabac(Edge264Context *ctx);
 void *worker_loop(Edge264Decoder *d);
 void *worker_loop_v2(Edge264Decoder *d);
 void *worker_loop_v3(Edge264Decoder *d);
-void *worker_loop_debug(Edge264Decoder *d);
+void *worker_loop_logs(Edge264Decoder *d);
 int parse_slice_layer_without_partitioning(Edge264Decoder *dec, int non_blocking, void(*free_cb)(void*,int), void *free_arg);
 int parse_slice_layer_without_partitioning_v2(Edge264Decoder *dec, int non_blocking, void(*free_cb)(void*,int), void *free_arg);
 int parse_slice_layer_without_partitioning_v3(Edge264Decoder *dec, int non_blocking, void(*free_cb)(void*,int), void *free_arg);
-int parse_slice_layer_without_partitioning_debug(Edge264Decoder *dec, int non_blocking, void(*free_cb)(void*,int), void *free_arg);
-int parse_sei(Edge264Decoder *dec, int non_blocking, void(*free_cb)(void*,int), void *free_arg);
-int parse_sei_v2(Edge264Decoder *dec, int non_blocking, void(*free_cb)(void*,int), void *free_arg);
-int parse_sei_v3(Edge264Decoder *dec, int non_blocking, void(*free_cb)(void*,int), void *free_arg);
+int parse_slice_layer_without_partitioning_logs(Edge264Decoder *dec, int non_blocking, void(*free_cb)(void*,int), void *free_arg);
+int parse_sei_logs(Edge264Decoder *dec, int non_blocking, void(*free_cb)(void*,int), void *free_arg);
 int parse_nal_unit_header_extension(Edge264Decoder *dec, int non_blocking, void(*free_cb)(void*,int), void *free_arg);
 int parse_nal_unit_header_extension_v2(Edge264Decoder *dec, int non_blocking, void(*free_cb)(void*,int), void *free_arg);
 int parse_nal_unit_header_extension_v3(Edge264Decoder *dec, int non_blocking, void(*free_cb)(void*,int), void *free_arg);
-int parse_nal_unit_header_extension_debug(Edge264Decoder *dec, int non_blocking, void(*free_cb)(void*,int), void *free_arg);
+int parse_nal_unit_header_extension_logs(Edge264Decoder *dec, int non_blocking, void(*free_cb)(void*,int), void *free_arg);
 int parse_pic_parameter_set(Edge264Decoder *dec, int non_blocking,  void(*free_cb)(void*,int), void *free_arg);
 int parse_pic_parameter_set_v2(Edge264Decoder *dec, int non_blocking,  void(*free_cb)(void*,int), void *free_arg);
 int parse_pic_parameter_set_v3(Edge264Decoder *dec, int non_blocking,  void(*free_cb)(void*,int), void *free_arg);
-int parse_pic_parameter_set_debug(Edge264Decoder *dec, int non_blocking,  void(*free_cb)(void*,int), void *free_arg);
+int parse_pic_parameter_set_logs(Edge264Decoder *dec, int non_blocking,  void(*free_cb)(void*,int), void *free_arg);
 int parse_seq_parameter_set(Edge264Decoder *dec, int non_blocking, void(*free_cb)(void*,int), void *free_arg);
 int parse_seq_parameter_set_v2(Edge264Decoder *dec, int non_blocking, void(*free_cb)(void*,int), void *free_arg);
 int parse_seq_parameter_set_v3(Edge264Decoder *dec, int non_blocking, void(*free_cb)(void*,int), void *free_arg);
-int parse_seq_parameter_set_debug(Edge264Decoder *dec, int non_blocking, void(*free_cb)(void*,int), void *free_arg);
+int parse_seq_parameter_set_logs(Edge264Decoder *dec, int non_blocking, void(*free_cb)(void*,int), void *free_arg);
 int parse_seq_parameter_set_extension(Edge264Decoder *dec, int non_blocking, void(*free_cb)(void*,int), void *free_arg);
 int parse_seq_parameter_set_extension_v2(Edge264Decoder *dec, int non_blocking, void(*free_cb)(void*,int), void *free_arg);
 int parse_seq_parameter_set_extension_v3(Edge264Decoder *dec, int non_blocking, void(*free_cb)(void*,int), void *free_arg);
-int parse_seq_parameter_set_extension_debug(Edge264Decoder *dec, int non_blocking, void(*free_cb)(void*,int), void *free_arg);
+int parse_seq_parameter_set_extension_logs(Edge264Decoder *dec, int non_blocking, void(*free_cb)(void*,int), void *free_arg);
 
 #endif

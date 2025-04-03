@@ -6,7 +6,7 @@
 #include "edge264_intra.c"
 #include "edge264_mvpred.c"
 #include "edge264_residual.c"
-#ifndef TRACE
+#ifdef LOGS
 	#include "edge264_sei.c"
 #endif
 #define CABAC 0
@@ -706,7 +706,7 @@ static void parse_ref_pic_list_modification(Edge264Decoder *dec, Edge264Task *t)
 		}
 	}
 	
-	#ifdef TRACE
+	#ifdef LOGS
 		for (int lx = 0; lx <= t->slice_type; lx++) {
 			print_header(dec, "  RefPicList%u: [", lx);
 			for (int i = 0; i < t->pps.num_ref_idx_active[lx]; i++) {
@@ -1092,7 +1092,7 @@ int ADD_VARIANT(parse_slice_layer_without_partitioning)(Edge264Decoder *dec, int
 			if (!((dec->pic_reference_flags | dec->reference_flags & ~view_mask) & to_output))
 				dec->dispPicOrderCnt = dec->FieldOrderCnt[0][dec->currPic]; // make all frames with lower POCs ready for output
 		}
-		#ifdef TRACE
+		#ifdef LOGS
 			print_header(dec, "  FrameBuffer:\n");
 			for (int i = 0; i < dec->sps.num_frame_buffers; i++) {
 				int r = (dec->pic_reference_flags | dec->reference_flags & ~view_mask) & 1 << i;
@@ -1115,7 +1115,7 @@ int ADD_VARIANT(parse_slice_layer_without_partitioning)(Edge264Decoder *dec, int
 	dec->ready_tasks |= ((dec->task_dependencies[task_id] & ~ready_frames(dec)) == 0) << task_id;
 	dec->taskPics[task_id] = dec->currPic;
 	if (!dec->n_threads)
-		return (intptr_t)ADD_VARIANT(worker_loop)(dec);
+		return (intptr_t)dec->worker_loop(dec);
 	pthread_cond_signal(&dec->task_ready);
 	return 0;
 }

@@ -9,6 +9,7 @@
  * 	_ Make a uninstall target
  * 	_ Add virtualization support and update the release target to test all cross-compiled files
  * _ Multithreading
+ *    _ Fix bunny.264 looping on unavailable buffer in multithreading
  * 	_ add an option to forbid slice threading, to make redundant slices reliable
  * 	_ measure the time it takes to decode each type of slice
  * 	_ initialize next_deblock_idc at context_init rather than task to catch the latest nda value
@@ -118,76 +119,75 @@ static int parse_access_unit_delimiter(Edge264Decoder *dec, int non_blocking, vo
 
 
 
-Edge264Decoder *edge264_alloc(int n_threads, FILE *log_sei, FILE *log_headers, FILE *log_slices) {
+Edge264Decoder *edge264_alloc(int n_threads, FILE *log_headers, FILE *log_sei, FILE *log_slices) {
 	Edge264Decoder *dec = calloc(1, sizeof(Edge264Decoder));
 	if (dec == NULL)
 		return NULL;
 	dec->n_threads = n_threads;
-	dec->log_sei = log_sei;
 	dec->log_headers = log_headers;
+	dec->log_sei = log_sei;
 	dec->log_slices = log_slices;
 	dec->currPic = dec->prevPic = -1;
 	dec->taskPics_v = set8(-1);
 	
-	// select parser functions based on CPU capabilities and debug mode
+	// select parser functions based on CPU capabilities and logs mode
 	#if defined(__SSE2__) // if compiled for Intel
 		__builtin_cpu_init();
 		if (!__builtin_cpu_supports("cmov") || !__builtin_cpu_supports("sse2"))
 			return free(dec), NULL;
 	#endif
-	void *(*w)(Edge264Decoder *) = ADD_VARIANT(worker_loop);
+	dec->worker_loop = ADD_VARIANT(worker_loop);
 	dec->parse_nal_unit[1] = dec->parse_nal_unit[5] = ADD_VARIANT(parse_slice_layer_without_partitioning);
-	dec->parse_nal_unit[6] = ADD_VARIANT(parse_sei);
 	dec->parse_nal_unit[7] = dec->parse_nal_unit[15] = ADD_VARIANT(parse_seq_parameter_set);
 	dec->parse_nal_unit[8] = ADD_VARIANT(parse_pic_parameter_set);
 	dec->parse_nal_unit[9] = parse_access_unit_delimiter;
 	dec->parse_nal_unit[13] = ADD_VARIANT(parse_seq_parameter_set_extension);
 	dec->parse_nal_unit[14] = dec->parse_nal_unit[20] = ADD_VARIANT(parse_nal_unit_header_extension);
-	#ifdef TEST_X86_64_V2
+	#ifdef HAS_X86_64_V2
 		// macOS's clang does not support x86-64-v3/v2 feature string yet
 		if (__builtin_cpu_supports("popcnt") &&
 			__builtin_cpu_supports("sse3") &&
 			__builtin_cpu_supports("sse4.1") &&
 			__builtin_cpu_supports("sse4.2") &&
 			__builtin_cpu_supports("ssse3")) {
+			dec->worker_loop = worker_loop_v2;
 			dec->parse_nal_unit[1] = dec->parse_nal_unit[5] = parse_slice_layer_without_partitioning_v2;
-			dec->parse_nal_unit[6] = parse_sei_v2;
 			dec->parse_nal_unit[7] = dec->parse_nal_unit[15] = parse_seq_parameter_set_v2;
 			dec->parse_nal_unit[8] = parse_pic_parameter_set_v2;
 			dec->parse_nal_unit[13] = parse_seq_parameter_set_extension_v2;
 			dec->parse_nal_unit[14] = dec->parse_nal_unit[20] = parse_nal_unit_header_extension_v2;
-			w = worker_loop_v2;
 		}
 	#endif
-	#ifdef TEST_X86_64_V3
+	#ifdef HAS_X86_64_V3
 		if (__builtin_cpu_supports("avx") &&
 			__builtin_cpu_supports("avx2") &&
 			__builtin_cpu_supports("bmi") &&
 			__builtin_cpu_supports("bmi2") &&
 			__builtin_cpu_supports("fma")) {
+			dec->worker_loop = worker_loop_v3;
 			dec->parse_nal_unit[1] = dec->parse_nal_unit[5] = parse_slice_layer_without_partitioning_v3;
-			dec->parse_nal_unit[6] = parse_sei_v3;
 			dec->parse_nal_unit[7] = dec->parse_nal_unit[15] = parse_seq_parameter_set_v3;
 			dec->parse_nal_unit[8] = parse_pic_parameter_set_v3;
 			dec->parse_nal_unit[13] = parse_seq_parameter_set_extension_v3;
 			dec->parse_nal_unit[14] = dec->parse_nal_unit[20] = parse_nal_unit_header_extension_v3;
-			w = worker_loop_v3;
 		}
 	#endif
-	if (log_headers || log_slices) {
-		#ifdef TEST_DEBUG
-			dec->parse_nal_unit[1] = dec->parse_nal_unit[5] = parse_slice_layer_without_partitioning_debug;
-			dec->parse_nal_unit[7] = dec->parse_nal_unit[15] = parse_seq_parameter_set_debug;
-			dec->parse_nal_unit[8] = parse_pic_parameter_set_debug;
-			dec->parse_nal_unit[13] = parse_seq_parameter_set_extension_debug;
-			dec->parse_nal_unit[14] = dec->parse_nal_unit[20] = parse_nal_unit_header_extension_debug;
-			w = worker_loop_debug;
-		#else
+	#ifdef HAS_LOGS
+		if (log_headers) {
+			dec->parse_nal_unit[1] = dec->parse_nal_unit[5] = parse_slice_layer_without_partitioning_logs;
+			dec->parse_nal_unit[7] = dec->parse_nal_unit[15] = parse_seq_parameter_set_logs;
+			dec->parse_nal_unit[8] = parse_pic_parameter_set_logs;
+			dec->parse_nal_unit[13] = parse_seq_parameter_set_extension_logs;
+			dec->parse_nal_unit[14] = dec->parse_nal_unit[20] = parse_nal_unit_header_extension_logs;
+		}
+		if (log_sei)
+			dec->parse_nal_unit[6] = parse_sei_logs;
+		if (log_slices)
+			dec->worker_loop = worker_loop_logs;
+	#else
+		if (log_headers || log_sei || log_slices)
 			return free(dec), NULL;
-		#endif
-	}
-	if (!log_sei)
-		dec->parse_nal_unit[6] = NULL;
+	#endif
 	
 	// get the number of logical cores if requested
 	if (n_threads < 0) {
@@ -207,7 +207,7 @@ Edge264Decoder *edge264_alloc(int n_threads, FILE *log_sei, FILE *log_headers, F
 			if (pthread_cond_init(&dec->task_progress, NULL) == 0) {
 				if (pthread_cond_init(&dec->task_complete, NULL) == 0) {
 					int i = 0;
-					while (i < n_threads && pthread_create(&dec->threads[i], NULL, (void*(*)(void*))w, dec) == 0)
+					while (i < n_threads && pthread_create(&dec->threads[i], NULL, (void*(*)(void*))dec->worker_loop, dec) == 0)
 						i++;
 					if (i == n_threads) {
 						return dec;

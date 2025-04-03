@@ -531,8 +531,9 @@ enum IntraChromaModes {
  * Debugging functions
  */
 #ifdef LOGS
-	#define print_header(dec, ...) if (dec->log_headers) { fprintf(dec->log_headers, __VA_ARGS__); }
-	#define print_slice(ctx, ...) if (ctx->log_slices) { fprintf(ctx->log_slices, __VA_ARGS__); }
+	#define print_header(dec, ...) fprintf(dec->log_headers, __VA_ARGS__)
+	#define print_sei(dec, ...) fprintf(dec->log_sei, __VA_ARGS__)
+	#define print_slice(ctx, ...) fprintf(ctx->log_slices, __VA_ARGS__)
 #else
 	#define print_header(...) ((void)0)
 	#define print_slice(...) ((void)0)

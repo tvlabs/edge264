@@ -120,14 +120,15 @@ static int parse_access_unit_delimiter(Edge264Decoder *dec, int non_blocking, vo
 
 
 
-Edge264Decoder *edge264_alloc(int n_threads, FILE *log_header, FILE *log_sei, FILE *log_macroblock) {
+Edge264Decoder *edge264_alloc(int n_threads, void (*log_cb)(const char *str, void *log_arg), void *log_header_arg, void *log_sei_arg, void *log_mb_arg) {
 	Edge264Decoder *dec = calloc(1, sizeof(Edge264Decoder));
 	if (dec == NULL)
 		return NULL;
 	dec->n_threads = n_threads;
-	dec->log_header = log_header;
-	dec->log_sei = log_sei;
-	dec->log_macroblock = log_macroblock;
+	dec->log_cb = log_cb;
+	dec->log_header_arg = log_header_arg;
+	dec->log_sei_arg = log_sei_arg;
+	dec->log_mb_arg = log_mb_arg;
 	dec->currPic = dec->prevPic = -1;
 	dec->taskPics_v = set8(-1);
 	
@@ -174,19 +175,21 @@ Edge264Decoder *edge264_alloc(int n_threads, FILE *log_header, FILE *log_sei, FI
 		}
 	#endif
 	#ifdef HAS_LOGS
-		if (log_header) {
-			dec->parse_nal_unit[1] = dec->parse_nal_unit[5] = parse_slice_layer_without_partitioning_logs;
-			dec->parse_nal_unit[7] = dec->parse_nal_unit[15] = parse_seq_parameter_set_logs;
-			dec->parse_nal_unit[8] = parse_pic_parameter_set_logs;
-			dec->parse_nal_unit[13] = parse_seq_parameter_set_extension_logs;
-			dec->parse_nal_unit[14] = dec->parse_nal_unit[20] = parse_nal_unit_header_extension_logs;
+		if (log_cb) {
+			if (log_header_arg) {
+				dec->parse_nal_unit[1] = dec->parse_nal_unit[5] = parse_slice_layer_without_partitioning_logs;
+				dec->parse_nal_unit[7] = dec->parse_nal_unit[15] = parse_seq_parameter_set_logs;
+				dec->parse_nal_unit[8] = parse_pic_parameter_set_logs;
+				dec->parse_nal_unit[13] = parse_seq_parameter_set_extension_logs;
+				dec->parse_nal_unit[14] = dec->parse_nal_unit[20] = parse_nal_unit_header_extension_logs;
+			}
+			if (log_sei_arg)
+				dec->parse_nal_unit[6] = parse_sei_logs;
+			if (log_mb_arg)
+				dec->worker_loop = worker_loop_logs;
 		}
-		if (log_sei)
-			dec->parse_nal_unit[6] = parse_sei_logs;
-		if (log_macroblock)
-			dec->worker_loop = worker_loop_logs;
 	#else
-		if (log_header || log_sei || log_macroblock)
+		if (log_cb && (log_header_arg || log_sei_arg || log_mb_arg))
 			return free(dec), NULL;
 	#endif
 	
@@ -320,7 +323,7 @@ int edge264_decode_NAL(Edge264Decoder *dec, const uint8_t *buf, const uint8_t *e
 	}
 	dec->nal_ref_idc = buf[0] >> 5;
 	dec->nal_unit_type = buf[0] & 0x1f;
-	if (dec->log_header) {
+	if (dec->log_header_arg) { // no need to test log_cb since harmless otherwise
 		dec->log_pos = snprintf(dec->log_buf, sizeof(dec->log_buf),
 			"\n- nal_ref_idc: %u\n"
 			"  nal_unit_type: %s (%u)\n",

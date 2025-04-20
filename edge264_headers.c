@@ -311,7 +311,8 @@ void *ADD_VARIANT(worker_loop)(Edge264Decoder *dec) {
 	Edge264Context c;
 	c.d = dec;
 	c.n_threads = dec->n_threads;
-	c.log_macroblock = dec->log_macroblock;
+	c.log_cb = dec->log_cb;
+	c.log_mb_arg = dec->log_mb_arg;
 	if (c.n_threads)
 		pthread_mutex_lock(&dec->lock);
 	for (;;) {
@@ -1108,7 +1109,7 @@ int ADD_VARIANT(parse_slice_layer_without_partitioning)(Edge264Decoder *dec, int
 	
 	if (!dec->n_threads)
 		log_dec(dec, "  macroblocks:\n");
-	if (print_dec(dec, dec->log_header))
+	if (print_dec(dec, dec->log_header_arg))
 		return ENOTSUP;
 	
 	// prepare the task and signal it
@@ -1150,7 +1151,7 @@ int ADD_VARIANT(parse_nal_unit_header_extension)(Edge264Decoder *dec, int non_bl
 	// spec doesn't mention rbsp_trailing_bits at the end of prefix_nal_unit_rbsp
 	if (dec->_gb.msb_cache != 0 || (dec->_gb.lsb_cache & (dec->_gb.lsb_cache - 1)) || (intptr_t)(dec->_gb.end - dec->_gb.CPB) > 0)
 		return EBADMSG;
-	if (print_dec(dec, dec->log_header))
+	if (print_dec(dec, dec->log_header_arg))
 		return ENOTSUP;
 	return 0;
 }
@@ -1360,7 +1361,7 @@ int ADD_VARIANT(parse_pic_parameter_set)(Edge264Decoder *dec, int non_blocking, 
 	// check for trailing_bits before unsupported features (in case errors enabled them)
 	if (dec->_gb.msb_cache != (size_t)1 << (SIZE_BIT - 1) || (dec->_gb.lsb_cache & (dec->_gb.lsb_cache - 1)) || (intptr_t)(dec->_gb.end - dec->_gb.CPB) > 0)
 		return EBADMSG;
-	if (print_dec(dec, dec->log_header))
+	if (print_dec(dec, dec->log_header_arg))
 		return ENOTSUP;
 	if (pic_parameter_set_id >= 4 || num_slice_groups > 1 ||
 		pps.constrained_intra_pred_flag || redundant_pic_cnt_present_flag)
@@ -1879,7 +1880,7 @@ int ADD_VARIANT(parse_seq_parameter_set)(Edge264Decoder *dec, int non_blocking, 
 	// check for trailing_bits before unsupported features (in case errors enabled them)
 	if (dec->_gb.msb_cache != (size_t)1 << (SIZE_BIT - 1) || (dec->_gb.lsb_cache & (dec->_gb.lsb_cache - 1)) || (intptr_t)(dec->_gb.end - dec->_gb.CPB) > 0)
 		return EBADMSG;
-	if (print_dec(dec, dec->log_header))
+	if (print_dec(dec, dec->log_header_arg))
 		return ENOTSUP;
 	if (sps.ChromaArrayType != 1 || sps.BitDepth_Y + sps.BitDepth_C != 16 ||
 		sps.qpprime_y_zero_transform_bypass_flag || !sps.frame_mbs_only_flag)
@@ -1960,7 +1961,7 @@ int ADD_VARIANT(parse_seq_parameter_set_extension)(Edge264Decoder *dec, int non_
 	get_u1(&dec->_gb);
 	if (dec->_gb.msb_cache != (size_t)1 << (SIZE_BIT - 1) || (dec->_gb.lsb_cache & (dec->_gb.lsb_cache - 1)) || (intptr_t)(dec->_gb.end - dec->_gb.CPB) > 0) // rbsp_trailing_bits
 		return EBADMSG;
-	if (print_dec(dec, dec->log_header))
+	if (print_dec(dec, dec->log_header_arg))
 		return ENOTSUP;
 	return aux_format_idc ? ENOTSUP : 0; // unsupported if transparent
 }

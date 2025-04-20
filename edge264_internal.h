@@ -288,7 +288,8 @@ typedef struct Edge264Context {
 	union { int32_t tC0_s[16]; int64_t tC0_l[8]; i8x16 tC0_v[4]; i8x32 tC0_V[2]; }; // 4 bytes per edge in deblocking order -> 8 luma edges then 8 alternating Cb/Cr edges
 	
 	// Logging context (unused if disabled)
-	FILE *log_macroblock;
+	void (*log_cb)(const char*, void*);
+	void *log_mb_arg;
 	int16_t log_pos; // next writing position in log_buf
 	char log_buf[4096];
 } Edge264Context;
@@ -359,9 +360,10 @@ typedef struct Edge264Decoder {
 	Edge264Task tasks[16];
 	
 	// Logging context (unused if disabled)
-	FILE *log_sei;
-	FILE *log_header;
-	FILE *log_macroblock;
+	void (*log_cb)(const char*, void*);
+	void *log_sei_arg;
+	void *log_header_arg;
+	void *log_mb_arg;
 	int16_t log_pos; // next writing position in log_buf
 	char log_buf[2048];
 } Edge264Decoder;
@@ -542,12 +544,12 @@ enum IntraChromaModes {
 	#define log_dec(dec, ...) {\
 		if (dec->log_pos < sizeof(dec->log_buf))\
 			dec->log_pos += snprintf(dec->log_buf + dec->log_pos, sizeof(dec->log_buf) - dec->log_pos, __VA_ARGS__);}
-	static int print_dec(Edge264Decoder *dec, FILE *file) {
+	static int print_dec(Edge264Decoder *dec, void *arg) {
 		int pos = dec->log_pos;
 		dec->log_pos = 0;
 		if (pos >= sizeof(dec->log_buf))
 			return ENOTSUP;
-		fwrite(dec->log_buf, pos, 1, file);
+		dec->log_cb(dec->log_buf, arg);
 		return 0;
 	}
 	#define log_mb(ctx, ...) {\
@@ -558,7 +560,7 @@ enum IntraChromaModes {
 		ctx->log_pos = 0;
 		if (pos >= sizeof(ctx->log_buf))
 			return ENOTSUP;
-		fwrite(ctx->log_buf, pos, 1, ctx->log_macroblock);
+		ctx->log_cb(ctx->log_buf, ctx->log_mb_arg);
 		return 0;
 	}
 #else

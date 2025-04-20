@@ -125,7 +125,7 @@ static int print_passed = 0;
 static int print_unsupported = 0;
 static int enable_yuv = 1;
 static const char *moveup = "";
-FILE *trace_headers = NULL;
+FILE *trace_file = NULL;
 static Edge264Decoder *d;
 static Edge264Frame out;
 static const uint8_t *conf[2];
@@ -265,8 +265,8 @@ static int check_frame()
 static int decode_file(const char *name0, int print_counts)
 {
 	// process file names
-	if (trace_headers)
-		fprintf(trace_headers, "--- # %s\n", name0);
+	if (trace_file)
+		fprintf(trace_file, "--- # %s\n", name0);
 	int len = strrchr(name0, '.') - name0;
 	if (strcmp(name0 + len + 1, "264") != 0)
 		return 0;
@@ -416,7 +416,7 @@ int main(int argc, char *argv[])
 	int benchmark = 0;
 	int help = 0;
 	int n_threads = -1;
-	FILE *trace_slices = NULL;
+	int trace = 0;
 	for (int i = 1; i < argc; i++) {
 		if (argv[i][0] != '-') {
 			file_name = argv[i];
@@ -428,13 +428,15 @@ int main(int argc, char *argv[])
 				case 'p': print_passed = 1; break;
 				case 's': n_threads = 0; break;
 				case 'u': print_unsupported = 1; break;
-				case 'v': trace_headers = fopen("trace.yaml", "w"); break;
-				case 'V': trace_slices = fopen("slices.yaml", "w"); break;
+				case 'v': trace = 1; break;
+				case 'V': trace = 2; n_threads = 0; break;
 				case 'y': enable_yuv = 0; break;
 				default: help = 1; break;
 			}
 		}
 	}
+	if (trace)
+		trace_file = fopen("trace.yaml", "w");
 	
 	// load SDL2 if requested
 	if (display && load_SDL2())
@@ -453,7 +455,7 @@ int main(int argc, char *argv[])
 			"-s\tsingle-threaded operation\n"
 			"-u\tprint names of unsupported files in directory\n"
 			"-v\tenable output of headers to file trace.yaml (large)\n"
-			"-V\tenable output of slices to file slices.yaml (very large)\n"
+			"-V\tadd output of macroblocks to trace.yaml (very large, implies -vs)\n"
 			"-y\tdisable comparison against YUV pairs\n"
 			, argv[0]);
 		return 0;
@@ -461,7 +463,7 @@ int main(int argc, char *argv[])
 	
 	struct timespec t0, t1;
 	clock_gettime(CLOCK_MONOTONIC, &t0);
-	d = edge264_alloc(n_threads, trace_headers, trace_headers, trace_slices);
+	d = edge264_alloc(n_threads, trace_file, trace_file, (trace > 1) ? trace_file : NULL);
 	
 	// check if input is a directory by trying to move into it
 	if (chdir(file_name) < 0) {
@@ -521,9 +523,7 @@ int main(int argc, char *argv[])
 		#endif
 		printf("time: %.3lfs\nCPU: %.3lfs\nmemory: %.3lfMB\n", (double)time_msec / 1000, (double)cpu_msec / 1000, (double)mem_kb / 1000);
 	}
-	if (trace_headers)
-		fclose(trace_headers);
-	if (trace_slices)
-		fclose(trace_slices);
+	if (trace_file)
+		fclose(trace_file);
 	return 0;
 }

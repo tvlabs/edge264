@@ -110,8 +110,9 @@ const uint8_t *edge264_find_start_code(const uint8_t *buf, const uint8_t *end) {
 static int parse_access_unit_delimiter(Edge264Decoder *dec, int non_blocking, void(*free_cb)(void*,int), void *free_arg) {
 	refill(&dec->_gb, 0);
 	int primary_pic_type = get_uv(&dec->_gb, 3);
-	if (dec->log_headers)
-		fprintf(dec->log_headers, "  primary_pic_type: %d\n", primary_pic_type);
+	log_dec(dec, "  primary_pic_type: %d\n", primary_pic_type);
+	if (print_dec(dec, dec->log_header))
+		return ENOTSUP;
 	if (dec->_gb.msb_cache != (size_t)1 << (SIZE_BIT - 1) || (dec->_gb.lsb_cache & (dec->_gb.lsb_cache - 1)) || (intptr_t)(dec->_gb.end - dec->_gb.CPB) > 0)
 		return EBADMSG;
 	return 0;
@@ -119,14 +120,14 @@ static int parse_access_unit_delimiter(Edge264Decoder *dec, int non_blocking, vo
 
 
 
-Edge264Decoder *edge264_alloc(int n_threads, FILE *log_headers, FILE *log_sei, FILE *log_slices) {
+Edge264Decoder *edge264_alloc(int n_threads, FILE *log_header, FILE *log_sei, FILE *log_macroblock) {
 	Edge264Decoder *dec = calloc(1, sizeof(Edge264Decoder));
 	if (dec == NULL)
 		return NULL;
 	dec->n_threads = n_threads;
-	dec->log_headers = log_headers;
+	dec->log_header = log_header;
 	dec->log_sei = log_sei;
-	dec->log_slices = log_slices;
+	dec->log_macroblock = log_macroblock;
 	dec->currPic = dec->prevPic = -1;
 	dec->taskPics_v = set8(-1);
 	
@@ -173,7 +174,7 @@ Edge264Decoder *edge264_alloc(int n_threads, FILE *log_headers, FILE *log_sei, F
 		}
 	#endif
 	#ifdef HAS_LOGS
-		if (log_headers) {
+		if (log_header) {
 			dec->parse_nal_unit[1] = dec->parse_nal_unit[5] = parse_slice_layer_without_partitioning_logs;
 			dec->parse_nal_unit[7] = dec->parse_nal_unit[15] = parse_seq_parameter_set_logs;
 			dec->parse_nal_unit[8] = parse_pic_parameter_set_logs;
@@ -182,10 +183,10 @@ Edge264Decoder *edge264_alloc(int n_threads, FILE *log_headers, FILE *log_sei, F
 		}
 		if (log_sei)
 			dec->parse_nal_unit[6] = parse_sei_logs;
-		if (log_slices)
+		if (log_macroblock)
 			dec->worker_loop = worker_loop_logs;
 	#else
-		if (log_headers || log_sei || log_slices)
+		if (log_header || log_sei || log_macroblock)
 			return free(dec), NULL;
 	#endif
 	
@@ -319,11 +320,12 @@ int edge264_decode_NAL(Edge264Decoder *dec, const uint8_t *buf, const uint8_t *e
 	}
 	dec->nal_ref_idc = buf[0] >> 5;
 	dec->nal_unit_type = buf[0] & 0x1f;
-	if (dec->log_headers) {
-		fprintf(dec->log_headers, "- nal_ref_idc: %u\n"
-			"  nal_unit_type: %s\n",
+	if (dec->log_header) {
+		dec->log_pos = snprintf(dec->log_buf, sizeof(dec->log_buf),
+			"\n- nal_ref_idc: %u\n"
+			"  nal_unit_type: %s (%u)\n",
 			dec->nal_ref_idc,
-			nal_unit_type_names[dec->nal_unit_type]);
+			nal_unit_type_names[dec->nal_unit_type], dec->nal_unit_type);
 	}
 	
 	// initialize the parsing context if we can parse the current NAL
@@ -343,8 +345,6 @@ int edge264_decode_NAL(Edge264Decoder *dec, const uint8_t *buf, const uint8_t *e
 			buf = minp(dec->_gb.CPB - 2, dec->_gb.end);
 		}
 	}
-	if (dec->log_headers)
-		fprintf(dec->log_headers, ret ? "  return: %s\n\n" : "  return: Success\n\n", strerror(ret));
 	
 	// for 0, ENOTSUP and EBADMSG we may free or advance the buffer pointer
 	if (ret == 0 || ret == ENOTSUP || ret == EBADMSG) {

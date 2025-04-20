@@ -246,7 +246,6 @@ typedef struct Edge264Context {
 	const Edge264Macroblock * _mbD; // backup storage for macro mbD
 	const Edge264Macroblock *mbCol;
 	Edge264Decoder *d;
-	FILE *log_slices;
 	Edge264MbFlags inc; // increments for CABAC indices of macroblock syntax elements
 	union { int8_t unavail4x4[16]; i8x16 unavail4x4_v; }; // unavailability of neighbouring A/B/C/D blocks
 	union { int8_t nC_inc[3][16]; i8x16 nC_inc_v[3]; }; // stores the intra/inter default increment from unavailable neighbours (9.3.3.1.1.9)
@@ -287,6 +286,11 @@ typedef struct Edge264Context {
 	union { uint8_t alpha[16]; int32_t alpha_s[4]; i8x16 alpha_v; }; // {internal_Y,internal_Cb,internal_Cr,0,0,0,0,0,left_Y,left_Cb,left_Cr,0,top_Y,top_Cb,top_Cr,0}
 	union { uint8_t beta[16]; int32_t beta_s[4]; i8x16 beta_v; };
 	union { int32_t tC0_s[16]; int64_t tC0_l[8]; i8x16 tC0_v[4]; i8x32 tC0_V[2]; }; // 4 bytes per edge in deblocking order -> 8 luma edges then 8 alternating Cb/Cr edges
+	
+	// Logging context (unused if disabled)
+	FILE *log_macroblock;
+	int16_t log_pos; // next writing position in log_buf
+	char log_buf[4096];
 } Edge264Context;
 #define mb ctx->_mb
 #define mbA ctx->_mbA
@@ -329,9 +333,6 @@ typedef struct Edge264Decoder {
 	int32_t FrameNums[32]; // signed to be used along FieldOrderCnt in initial reference ordering
 	uint32_t FrameIds[32]; // unique identifiers for each frame, incremented in decoding order
 	int64_t DPB_format; // should match format in SPS otherwise triggers resize
-	FILE *log_sei;
-	FILE *log_headers;
-	FILE *log_slices;
 	void *(*worker_loop)(Edge264Decoder *);
 	uint8_t *frame_buffers[32];
 	Parser parse_nal_unit[32];
@@ -356,6 +357,13 @@ typedef struct Edge264Decoder {
 	volatile union { uint32_t task_dependencies[16]; i32x4 task_dependencies_v[4]; }; // frames on which each task depends to start
 	union { int8_t taskPics[16]; i8x16 taskPics_v; }; // values of currPic for each task
 	Edge264Task tasks[16];
+	
+	// Logging context (unused if disabled)
+	FILE *log_sei;
+	FILE *log_header;
+	FILE *log_macroblock;
+	int16_t log_pos; // next writing position in log_buf
+	char log_buf[2048];
 } Edge264Decoder;
 
 
@@ -531,38 +539,59 @@ enum IntraChromaModes {
  * Debugging functions
  */
 #ifdef LOGS
-	#define print_header(dec, ...) fprintf(dec->log_headers, __VA_ARGS__)
-	#define print_sei(dec, ...) fprintf(dec->log_sei, __VA_ARGS__)
-	#define print_slice(ctx, ...) fprintf(ctx->log_slices, __VA_ARGS__)
+	#define log_dec(dec, ...) {\
+		if (dec->log_pos < sizeof(dec->log_buf))\
+			dec->log_pos += snprintf(dec->log_buf + dec->log_pos, sizeof(dec->log_buf) - dec->log_pos, __VA_ARGS__);}
+	static int print_dec(Edge264Decoder *dec, FILE *file) {
+		int pos = dec->log_pos;
+		dec->log_pos = 0;
+		if (pos >= sizeof(dec->log_buf))
+			return ENOTSUP;
+		fwrite(dec->log_buf, pos, 1, file);
+		return 0;
+	}
+	#define log_mb(ctx, ...) {\
+		if (ctx->log_pos < sizeof(ctx->log_buf))\
+			ctx->log_pos += snprintf(ctx->log_buf + ctx->log_pos, sizeof(ctx->log_buf) - ctx->log_pos, __VA_ARGS__);}
+	static int print_mb(Edge264Context *ctx) {
+		int pos = ctx->log_pos;
+		ctx->log_pos = 0;
+		if (pos >= sizeof(ctx->log_buf))
+			return ENOTSUP;
+		fwrite(ctx->log_buf, pos, 1, ctx->log_macroblock);
+		return 0;
+	}
 #else
-	#define print_header(...) ((void)0)
-	#define print_slice(...) ((void)0)
+	#define log_dec(...) ((void)0)
+	#define print_dec(...) (0)
+	#define log_mb(...) ((void)0)
+	#define print_mb(...) (0)
 #endif
 static always_inline const char *unsup_if(int cond) { return cond ? " # unsupported" : ""; }
 #define print_i8x16(dec, a) {\
 	i8x16 _v = a;\
-	fprintf(dec->log_headers, "<k>" #a "</k><v>");\
+	fprintf(dec->log_header, "<k>" #a "</k><v>");\
 	for (int _i = 0; _i < 16; _i++)\
-		fprintf(dec->log_headers, "%4d ", _v[_i]);\
-	fprintf(dec->log_headers, "</v>\n");}
+		fprintf(dec->log_header, "%4d ", _v[_i]);\
+	fprintf(dec->log_header, "</v>\n");}
 #define print_u8x16(dec, a) {\
 	u8x16 _v = a;\
-	fprintf(dec->log_headers, "<k>" #a "</k><v>");\
+	fprintf(dec->log_header, "<k>" #a "</k><v>");\
 	for (int _i = 0; _i < 16; _i++)\
-		fprintf(dec->log_headers, "%3u ", _v[_i]);\
-	fprintf(dec->log_headers, "</v>\n");}
+		fprintf(dec->log_header, "%3u ", _v[_i]);\
+	fprintf(dec->log_header, "</v>\n");}
 #define print_i16x8(dec, a) {\
 	i16x8 _v = a;\
-	fprintf(dec->log_headers, "<k>" #a "</k><v>");\
+	fprintf(dec->log_header, "<k>" #a "</k><v>");\
 	for (int _i = 0; _i < 8; _i++)\
-		fprintf(dec->log_headers, "%6d ", _v[_i]);\
-	fprintf(dec->log_headers, "</v>\n");}
+		fprintf(dec->log_header, "%6d ", _v[_i]);\
+	fprintf(dec->log_header, "</v>\n");}
 #define print_i32x4(dec, a) {\
 	i32x4 _v = a;\
-	fprintf(dec->log_headers, "<k>" #a "</k><v>");\
+	fprintf(dec->log_header, "<k>" #a "</k><v>");\
 	for (int _i = 0; _i < 4; _i++)\
-		fprintf(dec->log_headers, "%6d ", _v[_i]);\
-	fprintf(dec->log_headers, "</v>\n");}
+		fprintf(dec->log_header, "%6d ", _v[_i]);\
+	fprintf(dec->log_header, "</v>\n");}
 
 
 

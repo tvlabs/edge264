@@ -114,14 +114,14 @@ Return a pointer to the next three-byte sequence 001, or `end` if not found.
 
 ---
 
-<code>Edge264Decoder * <b>edge264_alloc(n_threads, log_headers, log_sei, log_slices)</b></code>
+<code>Edge264Decoder * <b>edge264_alloc(n_threads, log_header, log_sei, log_macroblock)</b></code>
 
 Allocate and initialize a decoding context.
 
 * `int n_threads` - number of background worker threads, with 0 to disable multithreading and -1 to detect the number of logical cores at runtime
-* `FILE * log_headers` - if not NULL, the file to log header values while decoding (⚠️ *large*, enabling it requires the `logs` variant, otherwise the function will fail at runtime)
+* `FILE * log_header` - if not NULL, the file to log headers while decoding (⚠️ *large*, enabling it requires the `logs` variant, otherwise the function will fail at runtime)
 * `FILE * log_sei` - if not NULL, the file to log Supplemental Enhancement Information messages (see [H.264 annex D](https://www.itu.int/rec/T-REC-H.264), requires `logs` too)
-* `FILE * log_slices` - if not NULL, the file to log slice values while decoding (⚠️ *very large*, requires `logs`too)
+* `FILE * log_macroblock` - if not NULL, the file to log macroblocks while decoding (⚠️ *very large*, requires `logs`too)
 
 ---
 

@@ -141,7 +141,7 @@ int ADD_VARIANT(parse_sei)(Edge264Decoder *dec, int non_blocking, void(*free_cb)
 		if (payloadType <= 205 && parse_sei_message[payloadType])
 			res = parse_sei_message[payloadType](dec);
 		if (res) {
-			ret = ENOTSUP;
+			//ret = ENOTSUP;
 			dec->_gb = start;
 			while (payloadSize-- > 0)
 				get_uv(&dec->_gb, 8);

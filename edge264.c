@@ -36,6 +36,7 @@
  * 	_ Change edge264_test to avoid counting mmap time in benchmark (check if ffmpeg does it too to be fair)
  * 	_ fix segfault on videos/geek.264, mvc.264 and shrinkage.264
  * _ Fuzzing and bug hunting
+ * 	_ find a mechanism like assert to exit on coding error, but that can be caught by front end software
  * 	_ check with clang-tidy
  * 	_ check with CScout
  * 	_ Protect again for possibility of not enough ref frames in RefPicList
@@ -113,7 +114,8 @@ static int parse_access_unit_delimiter(Edge264Decoder *dec, int non_blocking, vo
 	log_dec(dec, "  primary_pic_type: %d\n", primary_pic_type);
 	if (print_dec(dec, dec->log_header))
 		return ENOTSUP;
-	if (dec->_gb.msb_cache != (size_t)1 << (SIZE_BIT - 1) || (dec->_gb.lsb_cache & (dec->_gb.lsb_cache - 1)) || (intptr_t)(dec->_gb.end - dec->_gb.CPB) > 0)
+	// Some streams miss the rbsp_trailing_bit here
+	if (!rbsp_end(&dec->_gb))
 		return EBADMSG;
 	return 0;
 }

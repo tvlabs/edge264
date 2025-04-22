@@ -80,7 +80,7 @@ static int load_SDL2(void) {
 			dlopen(lib = "libSDL2.so", RTLD_NOW | RTLD_GLOBAL);
 	#endif
 	if (!sdl2) {
-		fprintf(stderr, "SDL2 is needed for display but not found, please download the library file at https://www.libsdl.org/ and place it in the current folder\n");
+		printf("SDL2 is needed for display but not found, please download the library file at https://www.libsdl.org/ and place it in the current folder\n");
 		return 1;
 	}
 	if (!(SDL_Init = dlsym(sdl2, func = "SDL_Init")) ||
@@ -101,7 +101,7 @@ static int load_SDL2(void) {
 	    !(SDL_DestroyRenderer = dlsym(sdl2, func = "SDL_DestroyRenderer")) ||
 	    !(SDL_DestroyWindow = dlsym(sdl2, func = "SDL_DestroyWindow")) ||
 	    !(SDL_Quit = dlsym(sdl2, func = "SDL_Quit"))) {
-		fprintf(stderr, "Missing function %s in %s\n", func, lib);
+		printf("Missing function %s in %s\n", func, lib);
 		return 1;
 	}
 	return 0;
@@ -201,7 +201,7 @@ static int check_frame()
 {
 	// check that the number of returned views is as expected
 	if ((out.samples_mvc[0] != NULL) != (conf[1] != NULL)) {
-		fprintf(stderr, "The number of returned views (%d) does not match the number of YUV files found (%d)", (out.samples_mvc[0] != NULL) + 1, (conf[1] != NULL) + 1);
+		printf("The number of returned views (%d) does not match the number of YUV files found (%d)", (out.samples_mvc[0] != NULL) + 1, (conf[1] != NULL) + 1);
 		return -2;
 	}
 	
@@ -231,24 +231,24 @@ static int check_frame()
 					for (int y = max(row * 16 - cropt, 0) >> sh_height; xl < xr && y < min(row * 16 - cropt + 16, out.height_Y) >> sh_height; y++)
 						invalid |= memcmp(p + y * stride + (xl << depth), q + y * (out.width_Y >> sh_width << depth) + (xl << depth), (xr - xl) << depth);
 					if (invalid) {
-						fprintf(stderr, "Erroneous macroblock (poc %d, view %d, row %d, column %d, %s plane):\n",
+						printf("Erroneous macroblock (poc %d, view %d, row %d, column %d, %s plane):\n",
 							poc, view, row, col, (iYCbCr == 0) ? "Luma" : (iYCbCr == 1) ? "Cb" : "Cr");
 						for (int y = (row * 16 - cropt) >> sh_height; y < (row * 16 - cropt + 16) >> sh_height; y++) {
 							for (int x = (col * 16 - cropl) >> sh_width; x < (col * 16 - cropl + 16) >> sh_width; x++) {
 								// FIXME 16 bit
-								fprintf(stderr, y < 0 || y >= out.height_Y >> sh_height || x < 0 || x >= out.width_Y >> sh_width ? "    " :
+								printf(y < 0 || y >= out.height_Y >> sh_height || x < 0 || x >= out.width_Y >> sh_width ? "    " :
 									p[y * stride + x] == q[y * (out.width_Y >> sh_width) + x] ? " %3d" :
 									RED " %3d" RESET, p[y * stride + x]);
 							}
-							fprintf(stderr, "\n");
+							printf("\n");
 						}
-						fprintf(stderr, "Expected macroblock:\n");
+						printf("Expected macroblock:\n");
 						for (int y = (row * 16 - cropt) >> sh_height; y < (row * 16 - cropt + 16) >> sh_height; y++) {
 							for (int x = (col * 16 - cropl) >> sh_width; x < (col * 16 - cropl + 16) >> sh_width; x++) {
-								fprintf(stderr, y < 0 || y >= out.height_Y >> sh_height || x < 0 || x >= out.width_Y >> sh_width ? "    " :
+								printf(y < 0 || y >= out.height_Y >> sh_height || x < 0 || x >= out.width_Y >> sh_width ? "    " :
 									" %3d", q[y * (out.width_Y >> sh_width) + x]);
 							}
-							fprintf(stderr, "\n");
+							printf("\n");
 						}
 						return -2;
 					}
@@ -262,7 +262,7 @@ static int check_frame()
 
 
 
-static int decode_file(const char *name0, int print_counts)
+static int decode_file(const char *name0)
 {
 	// process file names
 	if (trace_file)
@@ -283,22 +283,23 @@ static int decode_file(const char *name0, int print_counts)
 		if ((f0 = CreateFileA(name0, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL)) == INVALID_HANDLE_VALUE ||
 			(m0 = CreateFileMappingA(f0, NULL, PAGE_READONLY, 0, 0, NULL)) == NULL ||
 			(v0 = MapViewOfFile(m0, FILE_MAP_READ, 0, 0, 0)) == NULL) {
-			fprintf(stderr, "Error opening file %s: %lu\n", name0, GetLastError());
+			printf("Error opening file %s: %lu\n", name0, GetLastError());
 			quit = 1;
 		}
 		if (enable_yuv) {
 			if ((f1 = CreateFileA(name1, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL)) == INVALID_HANDLE_VALUE) {
-				fprintf(stderr, "%s not found\n", name1);
+				printf("%s%s not found\n", moveup, name1);
+				moveup = "";
 			} else if ((m1 = CreateFileMappingA(f1, NULL, PAGE_READONLY, 0, 0, NULL)) == NULL ||
 				(conf[0] = v1 = MapViewOfFile(m1, FILE_MAP_READ, 0, 0, 0)) == NULL) {
-				fprintf(stderr, "Error opening file %s: %lu\n", name1, GetLastError());
+				printf("Error opening file %s: %lu\n", name1, GetLastError());
 				quit = 1;
 			}
 			f2 = CreateFileA(name2, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
 			if (f2 != INVALID_HANDLE_VALUE &&
 				((m2 = CreateFileMappingA(f2, NULL, PAGE_READONLY, 0, 0, NULL)) == NULL ||
 				(conf[1] = v2 = MapViewOfFile(m2, FILE_MAP_READ, 0, 0, 0)) == NULL)) {
-				fprintf(stderr, "Error opening file %s: %lu\n", name2, GetLastError());
+				printf("Error opening file %s: %lu\n", name2, GetLastError());
 				quit = 1;
 			}
 		}
@@ -317,7 +318,8 @@ static int decode_file(const char *name0, int print_counts)
 		}
 		if (enable_yuv) {
 			if ((fd1 = open(name1, O_RDONLY)) < 0) {
-				fprintf(stderr, "%s not found\n", name1);
+				printf("%s%s not found\n", moveup, name1);
+				moveup = "";
 			} else if (fstat(fd1, &st1) < 0 ||
 				(conf[0] = mm1 = mmap(NULL, st1.st_size, PROT_READ, MAP_SHARED, fd1, 0)) == MAP_FAILED) {
 				perror(name1);
@@ -337,12 +339,11 @@ static int decode_file(const char *name0, int print_counts)
 	
 	// print the success counts
 	if (!quit) {
-		if (print_counts) {
-			if (count_flag > 0)
-				printf("%s%d " GREEN "PASS" RESET ", %d " YELLOW "UNSUPPORTED" RESET ", %d " RED "FAIL" RESET ", %d " BLUE "FLAGGED" RESET " (%s)\n", moveup, count_pass, count_unsup, count_fail, count_flag, name0);
-			else
-				printf("%s%d " GREEN "PASS" RESET ", %d " YELLOW "UNSUPPORTED" RESET ", %d " RED "FAIL" RESET " (%s)\n", moveup, count_pass, count_unsup, count_fail, name0);
-		}
+		if (count_flag > 0)
+			printf("%s%d " GREEN "PASS" RESET ", %d " YELLOW "UNSUPPORTED" RESET ", %d " RED "FAIL" RESET ", %d " BLUE "FLAGGED" RESET " (%s)\n", moveup, count_pass, count_unsup, count_fail, count_flag, name0);
+		else
+			printf("%s%d " GREEN "PASS" RESET ", %d " YELLOW "UNSUPPORTED" RESET ", %d " RED "FAIL" RESET " (%s)\n", moveup, count_pass, count_unsup, count_fail, name0);
+		moveup = "";
 		
 		// decode the entire file and FAIL on any error
 		nal += 3 + (nal[2] == 0); // skip the [0]001 delimiter
@@ -365,23 +366,20 @@ static int decode_file(const char *name0, int print_counts)
 		// FIXME interrupt all threads before closing the files!
 		
 		// print the file that was decoded
-		if (print_counts) {
-			count_pass += res == ENODATA;
-			count_unsup += res == ENOTSUP;
-			count_fail += res == EBADMSG;
-			count_flag += res == ESRCH;
-			moveup = "";
-			if (res == ENODATA && print_passed) {
-				printf("\e[A\e[K%s: " GREEN "PASS" RESET "\n", name0);
-			} else if (res == ENOTSUP && print_unsupported) {
-				printf("\e[A\e[K%s: " YELLOW "UNSUPPORTED" RESET "\n", name0);
-			} else if (res == EBADMSG && print_failed) {
-				printf("\e[A\e[K%s: " RED "FAIL" RESET "\n", name0);
-			} else if (res == ESRCH) {
-				printf("\e[A\e[K%s: " BLUE "FLAGGED" RESET "\n", name0);
-			} else {
-				moveup = "\e[A\e[K";
-			}
+		count_pass += res == ENODATA;
+		count_unsup += res == ENOTSUP;
+		count_fail += res == EBADMSG;
+		count_flag += res == ESRCH;
+		if (res == ENODATA && print_passed) {
+			printf("\e[A\e[K%s: " GREEN "PASS" RESET "\n", name0);
+		} else if (res == ENOTSUP && print_unsupported) {
+			printf("\e[A\e[K%s: " YELLOW "UNSUPPORTED" RESET "\n", name0);
+		} else if (res == EBADMSG && print_failed) {
+			printf("\e[A\e[K%s: " RED "FAIL" RESET "\n", name0);
+		} else if (res == ESRCH) {
+			printf("\e[A\e[K%s: " BLUE "FLAGGED" RESET "\n", name0);
+		} else {
+			moveup = "\e[A\e[K";
 		}
 	}
 	
@@ -435,8 +433,10 @@ int main(int argc, char *argv[])
 			}
 		}
 	}
-	if (trace)
+	if (trace) {
 		trace_file = fopen("trace.yaml", "w");
+		setvbuf(trace_file, NULL, _IONBF, BUFSIZ);
+	}
 	
 	// load SDL2 if requested
 	if (display && load_SDL2())
@@ -467,30 +467,27 @@ int main(int argc, char *argv[])
 	
 	// check if input is a directory by trying to move into it
 	if (chdir(file_name) < 0) {
-		int res = decode_file(file_name, 0);
-		if (res == ENOTSUP)
-			fprintf(stderr, "Decoding ended prematurely on " BOLD "unsupported stream" RESET "\n");
-		if (res == EBADMSG)
-			fprintf(stderr, "Decoding ended prematurely on " BOLD "decoding error" RESET "\n");
+		decode_file(file_name);
 	} else {
 		#ifdef _WIN32
 			DIR *dp;
 			struct dirent *ep;
 			dp = opendir(".");
-			while ((ep = readdir(dp)) && !decode_file(ep->d_name, 1));
+			while ((ep = readdir(dp)) && !decode_file(ep->d_name));
 			closedir(dp);
 		#else
 			struct dirent **entries;
 			int n = scandir(".", &entries, flt, cmp);
-			while (--n >= 0 && !decode_file(entries[n]->d_name, 1))
+			while (--n >= 0 && !decode_file(entries[n]->d_name))
 				free(entries[n]);
 			free(entries);
 		#endif
-		if (count_flag > 0)
-			printf("%s%d " GREEN "PASS" RESET ", %d " YELLOW "UNSUPPORTED" RESET ", %d " RED "FAIL" RESET ", %d " BLUE "FLAGGED" RESET "\n", moveup, count_pass, count_unsup, count_fail, count_flag);
-		else
-			printf("%s%d " GREEN "PASS" RESET ", %d " YELLOW "UNSUPPORTED" RESET ", %d " RED "FAIL" RESET "\n", moveup, count_pass, count_unsup, count_fail);
 	}
+	
+	if (count_flag > 0)
+		printf("%s%d " GREEN "PASS" RESET ", %d " YELLOW "UNSUPPORTED" RESET ", %d " RED "FAIL" RESET ", %d " BLUE "FLAGGED" RESET "\n", moveup, count_pass, count_unsup, count_fail, count_flag);
+	else
+		printf("%s%d " GREEN "PASS" RESET ", %d " YELLOW "UNSUPPORTED" RESET ", %d " RED "FAIL" RESET "\n", moveup, count_pass, count_unsup, count_fail);
 	edge264_free(&d);
 	
 	// close SDL if enabled

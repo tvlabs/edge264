@@ -339,8 +339,8 @@ void *ADD_VARIANT(worker_loop)(Edge264Decoder *dec) {
 				cabac_init(&c);
 				c.mb_qp_delta_nz = 0;
 				parse_slice_data_cabac(&c);
-				// the possibility of cabac_zero_word implies we should not expect a start code yet
-				if (c.t._gb.msb_cache != 0 || (c.t._gb.lsb_cache & (c.t._gb.lsb_cache - 1))) {
+				// the possibility of cabac_zero_word implies we cannot rely on rbsp_end
+				if (c.t._gb.msb_cache || (c.t._gb.lsb_cache & (c.t._gb.lsb_cache - 1))) {
 					ret = EBADMSG; // FIXME error_flag
 				}
 			}
@@ -1149,7 +1149,7 @@ int ADD_VARIANT(parse_nal_unit_header_extension)(Edge264Decoder *dec, int non_bl
 	if (dec->nal_unit_type == 20)
 		return ADD_VARIANT(parse_slice_layer_without_partitioning)(dec, non_blocking, free_cb, free_arg);
 	// spec doesn't mention rbsp_trailing_bits at the end of prefix_nal_unit_rbsp
-	if (dec->_gb.msb_cache != 0 || (dec->_gb.lsb_cache & (dec->_gb.lsb_cache - 1)) || (intptr_t)(dec->_gb.end - dec->_gb.CPB) > 0)
+	if (!rbsp_end(&dec->_gb))
 		return EBADMSG;
 	if (print_dec(dec, dec->log_header_arg))
 		return ENOTSUP;
@@ -1329,8 +1329,7 @@ int ADD_VARIANT(parse_pic_parameter_set)(Edge264Decoder *dec, int non_blocking, 
 		pps.constrained_intra_pred_flag, unsup_if(pps.constrained_intra_pred_flag),
 		redundant_pic_cnt_present_flag, unsup_if(redundant_pic_cnt_present_flag));
 	
-	// short for peek-24-bits-without-having-to-define-a-single-use-function
-	if (dec->_gb.msb_cache != (size_t)1 << (SIZE_BIT - 1) || (dec->_gb.lsb_cache & (dec->_gb.lsb_cache - 1)) || (intptr_t)(dec->_gb.end - dec->_gb.CPB) > 0) {
+	if (!rbsp_end(&dec->_gb)) {
 		pps.transform_8x8_mode_flag = get_u1(&dec->_gb);
 		log_dec(dec, "  transform_8x8_mode_flag: %u\n",
 			pps.transform_8x8_mode_flag);
@@ -1359,7 +1358,7 @@ int ADD_VARIANT(parse_pic_parameter_set)(Edge264Decoder *dec, int non_blocking, 
 	}
 	
 	// check for trailing_bits before unsupported features (in case errors enabled them)
-	if (dec->_gb.msb_cache != (size_t)1 << (SIZE_BIT - 1) || (dec->_gb.lsb_cache & (dec->_gb.lsb_cache - 1)) || (intptr_t)(dec->_gb.end - dec->_gb.CPB) > 0)
+	if (!rbsp_end(&dec->_gb))
 		return EBADMSG;
 	if (print_dec(dec, dec->log_header_arg))
 		return ENOTSUP;
@@ -1878,7 +1877,7 @@ int ADD_VARIANT(parse_seq_parameter_set)(Edge264Decoder *dec, int non_blocking, 
 	}
 	
 	// check for trailing_bits before unsupported features (in case errors enabled them)
-	if (dec->_gb.msb_cache != (size_t)1 << (SIZE_BIT - 1) || (dec->_gb.lsb_cache & (dec->_gb.lsb_cache - 1)) || (intptr_t)(dec->_gb.end - dec->_gb.CPB) > 0)
+	if (!rbsp_end(&dec->_gb))
 		return EBADMSG;
 	if (print_dec(dec, dec->log_header_arg))
 		return ENOTSUP;
@@ -1959,7 +1958,7 @@ int ADD_VARIANT(parse_seq_parameter_set_extension)(Edge264Decoder *dec, int non_
 			u & ((1 << bit_depth_aux) - 1));
 	}
 	get_u1(&dec->_gb);
-	if (dec->_gb.msb_cache != (size_t)1 << (SIZE_BIT - 1) || (dec->_gb.lsb_cache & (dec->_gb.lsb_cache - 1)) || (intptr_t)(dec->_gb.end - dec->_gb.CPB) > 0) // rbsp_trailing_bits
+	if (!rbsp_end(&dec->_gb)) // rbsp_trailing_bits
 		return EBADMSG;
 	if (print_dec(dec, dec->log_header_arg))
 		return ENOTSUP;

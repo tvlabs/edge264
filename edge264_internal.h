@@ -538,7 +538,7 @@ enum IntraChromaModes {
 
 
 /**
- * Debugging functions
+ * Logging functions
  */
 #ifdef LOGS
 	#define log_dec(dec, ...) {\
@@ -876,6 +876,14 @@ static always_inline i16x8 median16(i16x8 a, i16x8 b, i16x8 c) {
 static always_inline i8x16 pack_absMvd(i16x8 a) {
 	i16x8 x = broadcast32(a, 0);
 	return abs8(packs16(x, x));
+}
+static always_inline int rbsp_end(Edge264GetBits *gb) {
+	unsigned trailing_bit = gb->msb_cache >> (SIZE_BIT - 1);
+	unsigned rem_bits = SIZE_BIT * 2 - 1 - ctz(gb->lsb_cache) - trailing_bit;
+	// all bits after optional trailing set bit must be zero AND bit position must be 1-7 inside end[-1] or 0 inside end[0]
+	return gb->msb_cache << trailing_bit == 0 &&
+	       (gb->lsb_cache & (gb->lsb_cache - 1)) == 0 &&
+	       (intptr_t)(gb->end - gb->CPB + (rem_bits >> 3)) == 0;
 }
 #ifdef __BMI2__ // FIXME and not AMD pre-Zen3
 	static always_inline int extract_neighbours(unsigned f) { return _pext_u32(f, 0x27); }

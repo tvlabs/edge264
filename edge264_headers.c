@@ -1128,6 +1128,19 @@ int ADD_VARIANT(parse_slice_layer_without_partitioning)(Edge264Decoder *dec, int
 
 
 
+int ADD_VARIANT(parse_access_unit_delimiter)(Edge264Decoder *dec, int non_blocking, void(*free_cb)(void*,int), void *free_arg) {
+	refill(&dec->_gb, 0);
+	int primary_pic_type = get_uv(&dec->_gb, 3);
+	log_dec(dec, "  primary_pic_type: %d\n", primary_pic_type);
+	if (print_dec(dec, dec->log_header_arg))
+		return ENOTSUP;
+	if (!rbsp_end(&dec->_gb))
+		return EBADMSG;
+	return 0;
+}
+
+
+
 int ADD_VARIANT(parse_nal_unit_header_extension)(Edge264Decoder *dec, int non_blocking, void(*free_cb)(void*,int), void *free_arg) {
 	refill(&dec->_gb, 0);
 	unsigned u = get_uv(&dec->_gb, 24);

@@ -10,7 +10,7 @@ LDLINUX := -Wl,-soname,libedge264.so.$(MAJOR) -Wl,-rpath,'$$ORIGIN'
 override CFLAGS := -std=gnu11 -O3 -flax-vector-conversions -w $(if $(findstring Windows,$(OS)),,-fpic) $(CFLAGS)
 override LDFLAGS := -pthread $(if $(findstring Linux,$(OS)),$(LDLINUX),) $(LDFLAGS)
 RUNTIME_TESTS := $(if $(findstring x86-64-v2,$(VARIANTS)),-DHAS_X86_64_V2,) $(if $(findstring x86-64-v3,$(VARIANTS)),-DHAS_X86_64_V3,) $(if $(findstring logs,$(VARIANTS)),-DHAS_LOGS,)
-OBJ := edge264.o $(if $(findstring x86-64-v2,$(VARIANTS)),edge264_headers_v2.o,) $(if $(findstring x86-64-v3,$(VARIANTS)),edge264_headers_v3.o,) $(if $(findstring logs,$(VARIANTS)),edge264_headers_logs.o,)
+OBJ := edge264.o $(if $(findstring x86-64-v2,$(VARIANTS)),edge264_headers_v2.o,) $(if $(findstring x86-64-v3,$(VARIANTS)),edge264_headers_v3.o,) $(if $(findstring logs,$(VARIANTS)),edge264_headers_log.o,)
 LIB := $(if $(findstring Windows,$(OS)),edge264.$(MAJOR).dll,$(if $(findstring Linux,$(OS)),libedge264.so.$(VERSION),libedge264.$(VERSION).dylib))
 EXE := $(if $(findstring Windows,$(OS)),edge264_test.exe,edge264_test)
 .DEFAULT_GOAL := $(if $(findstring yes,$(BUILD_TEST)),$(EXE),$(LIB))
@@ -39,8 +39,8 @@ edge264_headers_v2.o: edge264.h edge264_internal.h edge264_bitstream.c edge264_d
 edge264_headers_v3.o: edge264.h edge264_internal.h edge264_bitstream.c edge264_deblock.c edge264_headers.c edge264_inter.c edge264_intra.c edge264_mvpred.c edge264_residual.c edge264_slice.c
 	$(CC) edge264_headers.c -c -march=x86-64-v3 $(CFLAGS) "-DADD_VARIANT(f)=f##_v3" -o edge264_headers_v3.o
 
-edge264_headers_logs.o: edge264.h edge264_internal.h edge264_bitstream.c edge264_deblock.c edge264_headers.c edge264_inter.c edge264_intra.c edge264_mvpred.c edge264_residual.c edge264_sei.c edge264_slice.c
-	$(CC) edge264_headers.c -c -march=$(ARCH) $(CFLAGS) -DLOGS "-DADD_VARIANT(f)=f##_logs" -o edge264_headers_logs.o
+edge264_headers_log.o: edge264.h edge264_internal.h edge264_bitstream.c edge264_deblock.c edge264_headers.c edge264_inter.c edge264_intra.c edge264_mvpred.c edge264_residual.c edge264_sei.c edge264_slice.c
+	$(CC) edge264_headers.c -c -march=$(ARCH) $(CFLAGS) -DLOGS "-DADD_VARIANT(f)=f##_log" -o edge264_headers_log.o
 
 .PHONY: clean clear
 clean clear:

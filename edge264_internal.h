@@ -121,8 +121,7 @@ static Edge264Macroblock unavail_mb = {
  * trailing_bits are detected.
  */
 typedef struct {
-	// The first 8 bytes uniquely determine the frame buffer size and format.
-	union {
+	union { // The first 8 bytes uniquely determine the frame buffer size and format.
 		struct {
 			int8_t chroma_format_idc; // 0..3
 			int8_t BitDepth_Y; // 8..14
@@ -131,7 +130,7 @@ typedef struct {
 			uint16_t pic_width_in_mbs; // 1..1023
 			int16_t pic_height_in_mbs; // 1..1055
 		};
-		int64_t DPB_format;
+		int64_t DPB_format; // non-zero if SPS has been initialized
 	};
 	int8_t ChromaArrayType; // 0..3
 	int8_t qpprime_y_zero_transform_bypass_flag; // 0..1
@@ -173,6 +172,7 @@ typedef struct {
 	int8_t deblocking_filter_control_present_flag; // 0..1
 	int8_t constrained_intra_pred_flag; // 0..1
 	int8_t transform_8x8_mode_flag; // 0..1
+	int8_t pic_scaling_matrix_present_flag; // 0..1
 	int8_t second_chroma_qp_index_offset; // -12..12
 	union { uint8_t weightScale4x4[6][16]; i8x16 weightScale4x4_v[6]; };
 	union { uint8_t weightScale8x8[6][64]; i8x16 weightScale8x8_v[6*4]; };

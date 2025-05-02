@@ -679,7 +679,7 @@ static void parse_ref_pic_list_modification(Edge264Decoder *dec, Edge264Task *t)
 				log_dec(dec, refIdx ? ",%d%s" : "%d%s",
 					modification_of_pic_nums_idc % 4 == 0 ? -num - 1 : num + (modification_of_pic_nums_idc != 2),
 					modification_of_pic_nums_idc == 2 ? "l" : modification_of_pic_nums_idc > 3 ? "v" : "");
-				int pic = dec->prevPic;
+				int pic = dec->prevPic; // for modification_of_pic_nums_idc == 4 and 5
 				if (modification_of_pic_nums_idc < 2) {
 					picNumLX = (modification_of_pic_nums_idc == 0) ? picNumLX - (num + 1) : picNumLX + (num + 1);
 					unsigned MaskFrameNum = (1 << dec->sps.log2_max_frame_num) - 1;
@@ -773,12 +773,25 @@ static void initialize_task(Edge264Decoder *dec, Edge264Task *t)
 		dec->_gb.CPB = t->_gb.end + 2;
 	}
 	
-	// copy most essential fields from st
+	// copy most essential fields from dec
 	t->ChromaArrayType = dec->sps.ChromaArrayType;
 	t->direct_8x8_inference_flag = dec->sps.direct_8x8_inference_flag;
-	t->frame_flip_bit = dec->frame_flip_bits >> dec->currPic & 1;
 	t->pic_width_in_mbs = dec->sps.pic_width_in_mbs;
 	t->pic_height_in_mbs = dec->sps.pic_height_in_mbs;
+	if (t->pps.pic_scaling_matrix_present_flag) {
+		t->pps.weightScale4x4_v[0] = ifelse_mask(t->pps.weightScale4x4_v[0] == 0, dec->sps.weightScale4x4_v[0], t->pps.weightScale4x4_v[0]);
+		t->pps.weightScale4x4_v[1] = ifelse_mask(t->pps.weightScale4x4_v[1] == 0, dec->sps.weightScale4x4_v[0], t->pps.weightScale4x4_v[1]);
+		t->pps.weightScale4x4_v[2] = ifelse_mask(t->pps.weightScale4x4_v[2] == 0, dec->sps.weightScale4x4_v[0], t->pps.weightScale4x4_v[2]);
+		t->pps.weightScale4x4_v[3] = ifelse_mask(t->pps.weightScale4x4_v[3] == 0, dec->sps.weightScale4x4_v[3], t->pps.weightScale4x4_v[3]);
+		t->pps.weightScale4x4_v[4] = ifelse_mask(t->pps.weightScale4x4_v[4] == 0, dec->sps.weightScale4x4_v[3], t->pps.weightScale4x4_v[4]);
+		t->pps.weightScale4x4_v[5] = ifelse_mask(t->pps.weightScale4x4_v[5] == 0, dec->sps.weightScale4x4_v[3], t->pps.weightScale4x4_v[5]);
+		for (unsigned i = 0; i < 24; i++)
+			t->pps.weightScale8x8_v[i] = ifelse_mask(t->pps.weightScale8x8_v[i] == 0, dec->sps.weightScale8x8_v[i & 7], t->pps.weightScale8x8_v[i]);
+	} else {
+		memcpy(t->pps.weightScale4x4_v, dec->sps.weightScale4x4_v, 96);
+		memcpy(t->pps.weightScale8x8_v, dec->sps.weightScale8x8_v, 384);
+	}
+	t->frame_flip_bit = dec->frame_flip_bits >> dec->currPic & 1;
 	t->stride[0] = dec->out.stride_Y;
 	t->stride[1] = t->stride[2] = dec->out.stride_C;
 	t->plane_size_Y = dec->plane_size_Y;
@@ -1107,11 +1120,6 @@ int ADD_VARIANT(parse_slice_layer_without_partitioning)(Edge264Decoder *dec, int
 		#endif
 	}
 	
-	if (!dec->n_threads)
-		log_dec(dec, "  macroblocks:\n");
-	if (print_dec(dec, dec->log_header_arg))
-		return ENOTSUP;
-	
 	// prepare the task and signal it
 	initialize_task(dec, t);
 	int task_id = t - dec->tasks;
@@ -1120,6 +1128,10 @@ int ADD_VARIANT(parse_slice_layer_without_partitioning)(Edge264Decoder *dec, int
 	dec->task_dependencies[task_id] = refs_to_mask(t);
 	dec->ready_tasks |= ((dec->task_dependencies[task_id] & ~ready_frames(dec)) == 0) << task_id;
 	dec->taskPics[task_id] = dec->currPic;
+	if (!dec->n_threads)
+		log_dec(dec, "  macroblocks:\n");
+	if (print_dec(dec, dec->log_header_arg))
+		return ENOTSUP;
 	if (!dec->n_threads)
 		return (intptr_t)dec->worker_loop(dec);
 	pthread_cond_signal(&dec->task_ready);
@@ -1253,12 +1265,11 @@ int ADD_VARIANT(parse_pic_parameter_set)(Edge264Decoder *dec, int non_blocking, 
 	static const char * const weighted_pred_names[3] = {"average", "explicit", "implicit"};
 	
 	// temp storage, committed if entire NAL is correct
-	Edge264PicParameterSet pps;
-	pps.transform_8x8_mode_flag = 0;
-	for (int i = 0; i < 6; i++)
-		pps.weightScale4x4_v[i] = dec->sps.weightScale4x4_v[i];
-	for (int i = 0; i < 24; i++)
-		pps.weightScale8x8_v[i] = dec->sps.weightScale8x8_v[i];
+	Edge264PicParameterSet pps = {
+		.transform_8x8_mode_flag = 0,
+		.weightScale4x4_v = {},
+		.weightScale8x8_v = {},
+	};
 	
 	// Actual streams never use more than 4 PPSs (I, P, B, b).
 	refill(&dec->_gb, 0);
@@ -1346,7 +1357,8 @@ int ADD_VARIANT(parse_pic_parameter_set)(Edge264Decoder *dec, int non_blocking, 
 		pps.transform_8x8_mode_flag = get_u1(&dec->_gb);
 		log_dec(dec, "  transform_8x8_mode_flag: %u\n",
 			pps.transform_8x8_mode_flag);
-		if (get_u1(&dec->_gb)) {
+		pps.pic_scaling_matrix_present_flag = get_u1(&dec->_gb);
+		if (pps.pic_scaling_matrix_present_flag) {
 			parse_scaling_lists(dec, pps.weightScale4x4_v, pps.weightScale8x8_v, pps.transform_8x8_mode_flag, dec->sps.chroma_format_idc);
 			log_dec(dec, "  ScalingLists4x4:\n");
 			for (int i = 0; i < 6; i++) {

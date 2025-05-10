@@ -372,7 +372,7 @@ static void CAFUNC(parse_residual_block, int startIdx, int endIdx, int token_or_
 			}
 		
 			// scale and store
-			int i = 63 - clz64(significant_coeff_flags);
+			int i = 63 - __builtin_clzll(significant_coeff_flags);
 			ctx->c[ctx->scan[i]] = coeff_level; // beware, scan is transposed already
 			significant_coeff_flags &= ~((uint64_t)1 << i);
 		} while (significant_coeff_flags != 0);

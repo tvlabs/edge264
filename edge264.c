@@ -1,4 +1,5 @@
 /** MAYDO:
+ * _ receiving a different SPS should reset SSPS
  * _ Replace P and INIT_P with PX versions
  * _ try to optimize shld with extr on ARM when shift is constant
  * _ Plugins
@@ -36,6 +37,7 @@
  * 	_ Change edge264_test to avoid counting mmap time in benchmark (check if ffmpeg does it too to be fair)
  * 	_ fix segfault on videos/geek.264, mvc.264 and shrinkage.264
  * _ Fuzzing and bug hunting
+ * 	_ reducing DPB size to 16 entries and int16 should never crash
  * 	_ find a mechanism like assert to exit on coding error, but that can be caught by front end software
  * 	_ check with clang-tidy
  * 	_ check with CScout
@@ -229,7 +231,7 @@ void edge264_flush(Edge264Decoder *dec) {
 		pthread_mutex_lock(&dec->lock);
 	// FIXME interrupt all threads
 	dec->currPic = dec->prevPic = -1;
-	dec->reference_flags = dec->long_term_flags = dec->output_flags = 0;
+	dec->reference_flags = dec->long_term_flags = dec->output_flags = dec->second_views = 0;
 	for (unsigned b = dec->busy_tasks; b; b &= b - 1) {
 		Edge264Task *t = dec->tasks + __builtin_ctz(b);
 		if (t->free_cb)
@@ -366,13 +368,15 @@ int edge264_get_frame(Edge264Decoder *dec, Edge264Frame *out, int borrow) {
 	if (dec->n_threads)
 		pthread_mutex_lock(&dec->lock);
 	int pic[2] = {-1, -1};
-	unsigned unavail = dec->reference_flags | dec->output_flags | (dec->sps.mvc & ~dec->prevPic ? 1 << dec->prevPic : 0);
-	int best = (__builtin_popcount(dec->output_flags) > dec->sps.max_num_reorder_frames ||
-		__builtin_popcount(unavail) >= dec->sps.num_frame_buffers) ? INT_MAX : dec->dispPicOrderCnt;
+	unsigned used = dec->reference_flags | dec->output_flags;
+	int best = (__builtin_popcount(dec->output_flags & ~dec->second_views) > dec->sps.max_num_reorder_frames ||
+		(dec->second_views && __builtin_popcount(dec->output_flags & dec->second_views) > dec->ssps.max_num_reorder_frames) ||
+		__builtin_popcount(used & ~dec->second_views) >= dec->sps.num_frame_buffers ||
+		(dec->second_views && __builtin_popcount(used & dec->second_views) >= dec->ssps.num_frame_buffers)) ? INT_MAX : dec->dispPicOrderCnt;
 	for (int o = dec->output_flags; o != 0; o &= o - 1) {
 		int i = __builtin_ctz(o);
 		if (dec->FieldOrderCnt[0][i] <= best) {
-			int non_base = dec->sps.mvc & i & 1;
+			int non_base = dec->second_views >> i & 1;
 			if (dec->FieldOrderCnt[0][i] < best) {
 				best = dec->FieldOrderCnt[0][i];
 				pic[non_base ^ 1] = -1;
@@ -382,7 +386,7 @@ int edge264_get_frame(Edge264Decoder *dec, Edge264Frame *out, int borrow) {
 	}
 	
 	int res = ENOMSG;
-	if (pic[0] >= 0 && dec->next_deblock_addr[pic[0]] == INT_MAX && (pic[1] < 0 || dec->next_deblock_addr[pic[1]] == INT_MAX)) {
+	if (pic[0] >= 0 && dec->next_deblock_addr[pic[0]] == INT_MAX && (!dec->second_views || (pic[1] >= 0 && dec->next_deblock_addr[pic[1]] == INT_MAX))) {
 		*out = dec->out;
 		int top = dec->out.frame_crop_offsets[0];
 		int left = dec->out.frame_crop_offsets[3];

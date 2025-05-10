@@ -201,7 +201,8 @@ static int check_frame()
 {
 	// check that the number of returned views is as expected
 	if ((out.samples_mvc[0] != NULL) != (conf[1] != NULL)) {
-		printf("The number of returned views (%d) does not match the number of YUV files found (%d)", (out.samples_mvc[0] != NULL) + 1, (conf[1] != NULL) + 1);
+		printf("Number of returned views (%d) does not match number of YUV files found (%d)\n", (out.samples_mvc[0] != NULL) + 1, (conf[1] != NULL) + 1);
+		moveup = "";
 		return -2;
 	}
 	
@@ -250,6 +251,7 @@ static int check_frame()
 							}
 							printf("\n");
 						}
+						moveup = "";
 						return -2;
 					}
 				}
@@ -343,7 +345,7 @@ static int decode_file(const char *name0)
 			printf("%s%d " GREEN "PASS" RESET ", %d " YELLOW "UNSUPPORTED" RESET ", %d " RED "FAIL" RESET ", %d " BLUE "FLAGGED" RESET " (%s)\n", moveup, count_pass, count_unsup, count_fail, count_flag, name0);
 		else
 			printf("%s%d " GREEN "PASS" RESET ", %d " YELLOW "UNSUPPORTED" RESET ", %d " RED "FAIL" RESET " (%s)\n", moveup, count_pass, count_unsup, count_fail, name0);
-		moveup = "";
+		moveup = "\e[A\e[K";
 		
 		// decode the entire file and FAIL on any error
 		nal += 3 + (nal[2] == 0); // skip the [0]001 delimiter
@@ -371,15 +373,17 @@ static int decode_file(const char *name0)
 		count_fail += res == EBADMSG;
 		count_flag += res == ESRCH;
 		if (res == ENODATA && print_passed) {
-			printf("\e[A\e[K%s: " GREEN "PASS" RESET "\n", name0);
+			printf("%s%s: " GREEN "PASS" RESET "\n", moveup, name0);
+			moveup = "";
 		} else if (res == ENOTSUP && print_unsupported) {
-			printf("\e[A\e[K%s: " YELLOW "UNSUPPORTED" RESET "\n", name0);
+			printf("%s%s: " YELLOW "UNSUPPORTED" RESET "\n", moveup, name0);
+			moveup = "";
 		} else if (res == EBADMSG && print_failed) {
-			printf("\e[A\e[K%s: " RED "FAIL" RESET "\n", name0);
+			printf("%s%s: " RED "FAIL" RESET "\n", moveup, name0);
+			moveup = "";
 		} else if (res == ESRCH) {
-			printf("\e[A\e[K%s: " BLUE "FLAGGED" RESET "\n", name0);
-		} else {
-			moveup = "\e[A\e[K";
+			printf("%s%s: " BLUE "FLAGGED" RESET "\n", moveup, name0);
+			moveup = "";
 		}
 	}
 	

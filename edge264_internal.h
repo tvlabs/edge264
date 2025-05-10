@@ -151,7 +151,6 @@ typedef struct {
 	int8_t dpb_output_delay_length; // 1..32
 	int8_t time_offset_length; // 0..31
 	int8_t pic_struct_present_flag; // 0..1
-	int8_t mvc; // 0..1
 	int16_t offset_for_non_ref_pic; // -32768..32767, pic_order_cnt_type==1
 	int16_t offset_for_top_to_bottom_field; // -32768..32767, pic_order_cnt_type==1
 	uint32_t num_units_in_tick; // 1..2^32-1
@@ -164,7 +163,7 @@ typedef struct {
 typedef struct {
 	int8_t entropy_coding_mode_flag; // 0..1
 	int8_t bottom_field_pic_order_in_frame_present_flag; // 0..1
-	int8_t num_ref_idx_active[2]; // 0..32
+	int8_t num_ref_idx_active[2]; // 1..32, non-zero if PPS has been initialized
 	int8_t weighted_pred_flag; // 0..1
 	int8_t weighted_bipred_idc; // 0..2
 	int8_t QPprime_Y; // 0..87
@@ -331,9 +330,9 @@ typedef struct Edge264Decoder {
 	uint32_t frame_flip_bits; // target values for bit 0 of mb->recovery_bits in each frame
 	uint32_t pic_reference_flags; // to be applied after decoding all slices of the current picture
 	uint32_t pic_long_term_flags; // to be applied after decoding all slices of the current picture
+	uint32_t second_views; // bitfield for frames that are non-base views in MVC
 	int32_t FrameNums[32]; // signed to be used along FieldOrderCnt in initial reference ordering
 	uint32_t FrameIds[32]; // unique identifiers for each frame, incremented in decoding order
-	int64_t DPB_format; // should match format in SPS otherwise triggers resize
 	void *(*worker_loop)(Edge264Decoder *);
 	uint8_t *frame_buffers[32];
 	Parser parse_nal_unit[32];
@@ -342,6 +341,7 @@ typedef struct Edge264Decoder {
 	union { int32_t FieldOrderCnt[2][32]; i32x4 FieldOrderCnt_v[2][8]; }; // lower/higher half for top/bottom fields
 	Edge264Frame out;
 	Edge264SeqParameterSet sps;
+	Edge264SeqParameterSet ssps;
 	Edge264PicParameterSet PPS[4];
 	pthread_t threads[16];
 	
@@ -365,7 +365,7 @@ typedef struct Edge264Decoder {
 	void *log_header_arg;
 	void *log_mb_arg;
 	int16_t log_pos; // next writing position in log_buf
-	char log_buf[2048];
+	char log_buf[4096];
 } Edge264Decoder;
 
 
@@ -382,24 +382,20 @@ typedef struct Edge264Decoder {
 	#define big_endian64(x) (x)
 #endif
 
-#if UINT_MAX == 4294967295U && ULLONG_MAX == 18446744073709551615U
-	#define clz32 __builtin_clz
-	#define ctz32 __builtin_ctz
-	#define clz64 __builtin_clzll
-	#define ctz64 __builtin_ctzll
-	#ifndef WORD_BIT
-		#define WORD_BIT 32
-	#endif
+#if UINT_MAX != 4294967295U || ULLONG_MAX != 18446744073709551615U
+	#error "edge264 currently expects 32-bit int and 64-bit long long"
 #endif
-
+#ifndef WORD_BIT
+	#define WORD_BIT 32
+#endif
 #if SIZE_MAX == 4294967295U
 	#define SIZE_BIT 32
-	#define clz clz32
-	#define ctz ctz32
+	#define clz __builtin_clz
+	#define ctz __builtin_ctz
 #elif SIZE_MAX == 18446744073709551615U
 	#define SIZE_BIT 64
-	#define clz clz64
-	#define ctz ctz64
+	#define clz __builtin_clzll
+	#define ctz __builtin_ctzll
 #endif
 
 #ifndef noinline
@@ -885,6 +881,9 @@ static always_inline int rbsp_end(Edge264GetBits *gb) {
 	       (gb->lsb_cache & (gb->lsb_cache - 1)) == 0 &&
 	       (intptr_t)(gb->end - gb->CPB + (rem_bits >> 3)) == 0;
 }
+#ifndef __builtin_clzg // works as long as __builtin_clzg is a macro
+	static always_inline int __builtin_clzg(unsigned a, int b) { return a ? __builtin_clz(a) : b; }
+#endif
 #ifdef __BMI2__ // FIXME and not AMD pre-Zen3
 	static always_inline int extract_neighbours(unsigned f) { return _pext_u32(f, 0x27); }
 	static always_inline int mvd_flags2ref_idx(unsigned f) { return _pext_u32(f, 0x11111111); }

@@ -1606,6 +1606,7 @@ static void parse_mvc_vui_parameters_extension(Edge264Decoder *dec, Edge264SeqPa
 		}
 		if (vui_mvc_nal_hrd_parameters_present_flag | vui_mvc_vcl_hrd_parameters_present_flag)
 			get_u1(&dec->_gb);
+		get_u1(&dec->_gb);
 	}
 }
 

@@ -998,6 +998,9 @@ int ADD_VARIANT(parse_slice_layer_without_partitioning)(Edge264Decoder *dec, int
 		finish_frame(dec);
 	int is_first_slice = 0;
 	if (dec->currPic < 0) {
+		// reset refs if we jumped from a stream with higher limit
+		if (__builtin_popcount(same_views & dec->reference_flags) > sps->max_num_ref_frames)
+			dec->reference_flags = dec->long_term_flags = 0;
 		// stop here if we must wait for get_frame to consume and return a non-ref frame
 		if (__builtin_popcount(same_views & (dec->reference_flags | dec->output_flags | dec->borrow_flags)) >= sps->num_frame_buffers)
 			return ENOBUFS;
@@ -1919,6 +1922,7 @@ int ADD_VARIANT(parse_seq_parameter_set)(Edge264Decoder *dec, int non_blocking, 
 		dec->frame_size = dec->plane_size_Y + dec->plane_size_C + mbs * sizeof(Edge264Macroblock);
 		dec->currPic = -1;
 		dec->reference_flags = dec->long_term_flags = dec->frame_flip_bits = dec->second_views = 0;
+		dec->ssps.DPB_format = 0;
 		for (int i = 0; i < 32; i++) {
 			if (dec->frame_buffers[i] != NULL) {
 				free(dec->frame_buffers[i]);

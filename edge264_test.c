@@ -268,7 +268,7 @@ static int decode_file(const char *name0)
 {
 	// process file names
 	if (trace_file)
-		fprintf(trace_file, "--- # %s\n", name0);
+		fprintf(trace_file, "\n--- # %s\n", name0);
 	int len = strrchr(name0, '.') - name0;
 	if (strcmp(name0 + len + 1, "264") != 0)
 		return 0;
@@ -363,6 +363,7 @@ static int decode_file(const char *name0)
 				}
 			}
 		} while (res == 0 || res == ENOBUFS);
+		edge264_flush(d);
 		if (res == ENOBUFS || (res == ENODATA && conf[0] != NULL && conf[0] != end1))
 			res = EBADMSG;
 		// FIXME interrupt all threads before closing the files!

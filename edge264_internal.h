@@ -126,7 +126,6 @@ typedef struct {
 			int8_t chroma_format_idc; // 0..3
 			int8_t BitDepth_Y; // 8..14
 			int8_t BitDepth_C;
-			int8_t max_num_ref_frames; // 0..16
 			uint16_t pic_width_in_mbs; // 1..1023
 			int16_t pic_height_in_mbs; // 1..1055
 		};
@@ -139,6 +138,7 @@ typedef struct {
 	int8_t log2_max_pic_order_cnt_lsb; // 4..16, pic_order_cnt_type==0
 	int8_t delta_pic_order_always_zero_flag; // 0..1, pic_order_cnt_type==1
 	uint8_t num_ref_frames_in_pic_order_cnt_cycle; // 0..255, pic_order_cnt_type==1
+	int8_t max_num_ref_frames; // 0..16
 	int8_t frame_mbs_only_flag; // 0..1
 	int8_t mb_adaptive_frame_field_flag; // 0..1
 	int8_t direct_8x8_inference_flag; // 0..1

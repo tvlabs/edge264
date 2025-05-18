@@ -767,7 +767,7 @@ static void initialize_task(Edge264Decoder *dec, Edge264SeqParameterSet *sps, Ed
 	// set task pointer to current pointer and current pointer to next start code
 	t->_gb = dec->_gb;
 	if (dec->n_threads) {
-		t->_gb.end = edge264_find_start_code(dec->_gb.CPB - 2, dec->_gb.end); // works if CPB already crossed end
+		t->_gb.end = edge264_find_start_code(dec->_gb.CPB - 2, dec->_gb.end, 0); // works if CPB already crossed end
 		dec->_gb.CPB = t->_gb.end + 2;
 	}
 	

@@ -2,6 +2,8 @@
  * _ receiving a different SPS should reset SSPS
  * _ Replace P and INIT_P with PX versions
  * _ try to optimize shld with extr on ARM when shift is constant
+ * _ add support for https://gcc.gnu.org/wiki/Visibility ?
+ * _ swap numbers and text in header logging (ex: 7 (Sequence Parameter Set)) to facilitate automated extraction
  * _ Plugins
  * 	_ Read https://tldp.org/HOWTO/Program-Library-HOWTO/shared-libraries.html
  * 	_ Make a test target that builds locally and runs edge264_test
@@ -78,33 +80,35 @@
 
 
 
-const uint8_t *edge264_find_start_code(const uint8_t *buf, const uint8_t *end) {
+const uint8_t *edge264_find_start_code(const uint8_t *buf, const uint8_t *end, int four_byte) {
 	const i8x16 *p = (i8x16 *)((uintptr_t)buf & -16);
+	four_byte = four_byte != 0;
 	i8x16 zero = {};
 	i8x16 c1 = set8(1);
 	i8x16 lo0 = {};
 	i8x16 v = *p;
 	i8x16 hi0 = (v == zero) & shlv128(set8(-1), (uintptr_t)buf & 15);
-	#if defined(__SSE2__)
-		unsigned m;
-		while (!(m = movemask(shrd128(lo0, hi0, 14) & shrd128(lo0, hi0, 15) & (v == c1)))) {
-			if ((intptr_t)(end - (uint8_t *)++p) <= 0)
-				return end;
-			lo0 = hi0;
-			hi0 = ((v = *p) == zero);
-		}
-		const uint8_t *res = (uint8_t *)p - 2 + __builtin_ctz(m);
-	#elif defined(__ARM_NEON)
-		uint64_t m;
-		while (!(m = (uint64_t)vshrn_n_u16(shrd128(lo0, hi0, 14) & shrd128(lo0, hi0, 15) & (v == c1), 4))) {
-			if ((intptr_t)(end - (uint8_t *)++p) <= 0)
-				return end;
-			lo0 = hi0;
-			hi0 = ((v = *p) == zero);
-		}
-		const uint8_t *res = (uint8_t *)p - 2 + (__builtin_ctzll(m) >> 2);
-	#endif
-	return minp(res, end);
+	while (1) {
+		#if defined(__SSE2__)
+			unsigned m = movemask(shrd128(lo0, hi0, 14) & shrd128(lo0, hi0, 15) & (v == c1));
+			if (m) {
+				const uint8_t *res = (uint8_t *)p - 2 - four_byte + __builtin_ctz(m);
+				if (*res == 0)
+					return minp(res, end);
+			}
+		#elif defined(__ARM_NEON)
+			uint64_t m = (uint64_t)vshrn_n_u16(shrd128(lo0, hi0, 14) & shrd128(lo0, hi0, 15) & (v == c1), 4);
+			if (m) {
+				const uint8_t *res = (uint8_t *)p - 2 - four_byte + (__builtin_ctzll(m) >> 2);
+				if (*res == 0)
+					return minp(res, end);
+			}
+		#endif
+		if ((intptr_t)(end - (uint8_t *)++p) <= 0)
+			return end;
+		lo0 = hi0;
+		hi0 = ((v = *p) == zero);
+	}
 }
 
 
@@ -346,7 +350,7 @@ int edge264_decode_NAL(Edge264Decoder *dec, const uint8_t *buf, const uint8_t *e
 		if (free_cb && !(ret == 0 && 1048610 & 1 << dec->nal_unit_type)) // 1, 5 or 20
 			free_cb(free_arg, ret);
 		if (next_NAL)
-			*next_NAL = edge264_find_start_code(buf, end) + 3;
+			*next_NAL = edge264_find_start_code(buf, end, 0) + 3;
 	}
 	if (dec->n_threads)
 		pthread_mutex_unlock(&dec->lock);

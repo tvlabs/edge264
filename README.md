@@ -105,12 +105,13 @@ int main(int argc, char *argv[]) {
 API reference
 -------------
 
-<code>const uint8_t * <b>find_start_code(buf, end)</b></code>
+<code>const uint8_t * <b>edge264_find_start_code(buf, end, four_byte)</b></code>
 
-Return a pointer to the next three-byte sequence 001, or `end` if not found.
+Return a pointer to the next three or four byte (0)001 start code prefix, or `end` if not found.
 
 * `const uint8_t * buf` - first byte of buffer to search into
 * `const uint8_t * end` - first invalid byte past the buffer that stops the search
+* `int four_byte` - if 0 seek a 001 prefix, otherwise seek a 0001
 
 ---
 

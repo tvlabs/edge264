@@ -568,28 +568,28 @@ enum IntraChromaModes {
 static always_inline const char *unsup_if(int cond) { return cond ? " # unsupported" : ""; }
 #define print_i8x16(dec, a) {\
 	i8x16 _v = a;\
-	fprintf(dec->log_header, "<k>" #a "</k><v>");\
+	log_dec(dec, "  " #a ":");\
 	for (int _i = 0; _i < 16; _i++)\
-		fprintf(dec->log_header, "%4d ", _v[_i]);\
-	fprintf(dec->log_header, "</v>\n");}
+		log_dec(dec, " %d", _v[_i]);\
+	log_dec(dec, "\n");}
 #define print_u8x16(dec, a) {\
 	u8x16 _v = a;\
-	fprintf(dec->log_header, "<k>" #a "</k><v>");\
+	log_dec(dec, "  " #a ":");\
 	for (int _i = 0; _i < 16; _i++)\
-		fprintf(dec->log_header, "%3u ", _v[_i]);\
-	fprintf(dec->log_header, "</v>\n");}
+		log_dec(dec, " %3u", _v[_i]);\
+	log_dec(dec, "\n");}
 #define print_i16x8(dec, a) {\
 	i16x8 _v = a;\
-	fprintf(dec->log_header, "<k>" #a "</k><v>");\
+	log_dec(dec, "  " #a ":");\
 	for (int _i = 0; _i < 8; _i++)\
-		fprintf(dec->log_header, "%6d ", _v[_i]);\
-	fprintf(dec->log_header, "</v>\n");}
+		log_dec(dec, " %6d", _v[_i]);\
+	log_dec(dec, "\n");}
 #define print_i32x4(dec, a) {\
 	i32x4 _v = a;\
-	fprintf(dec->log_header, "<k>" #a "</k><v>");\
+	log_dec(dec, "  " #a ":");\
 	for (int _i = 0; _i < 4; _i++)\
-		fprintf(dec->log_header, "%6d ", _v[_i]);\
-	fprintf(dec->log_header, "</v>\n");}
+		log_dec(dec, " %6d", _v[_i]);\
+	log_dec(dec, "\n");}
 
 
 

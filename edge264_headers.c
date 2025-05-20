@@ -601,19 +601,21 @@ static void parse_ref_pic_list_modification(Edge264Decoder *dec, Edge264SeqParam
 	int size = 0;
 	
 	// sort all short and long term references for RefPicListL0
-	for (unsigned refs = dec->pic_reference_flags, next = 0; refs; refs ^= 1 << next) {
-		int best = INT_MAX;
-		for (unsigned r = refs; r; r &= r - 1) {
-			int i = __builtin_ctz(r);
-			int diff = values[i] - pic_value;
-			int ShortTermNum = (diff <= 0) ? -diff : 0x10000 + diff;
-			int LongTermNum = dec->LongTermFrameIdx[i] + 0x20000;
-			int v = (dec->pic_long_term_flags & 1 << i) ? LongTermNum : ShortTermNum;
-			if (v < best)
-				best = v, next = i;
+	if (!dec->IdrPicFlag) {
+		for (unsigned refs = dec->pic_reference_flags, next = 0; refs; refs ^= 1 << next) {
+			int best = INT_MAX;
+			for (unsigned r = refs; r; r &= r - 1) {
+				int i = __builtin_ctz(r);
+				int diff = values[i] - pic_value;
+				int ShortTermNum = (diff <= 0) ? -diff : 0x10000 + diff;
+				int LongTermNum = dec->LongTermFrameIdx[i] + 0x20000;
+				int v = (dec->pic_long_term_flags & 1 << i) ? LongTermNum : ShortTermNum;
+				if (v < best)
+					best = v, next = i;
+			}
+			t->RefPicList[0][size++] = next;
+			count[best >> 16]++;
 		}
-		t->RefPicList[0][size++] = next;
-		count[best >> 16]++;
 	}
 	if (dec->nal_unit_type == 20) // if we're second view
 		t->RefPicList[0][size++] = dec->prevPic; // add inter-view ref for MVC

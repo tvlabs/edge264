@@ -12,6 +12,7 @@
  * 	_ Make a uninstall target
  * 	_ Add virtualization support and update the release target to test all cross-compiled files
  * _ Multithreading
+ * 	_ pass thread id in alignment of context pointer, along with aligned_alloc to guarantee enough thread space
  *    _ Fix bunny.264 looping on unavailable buffer in multithreading
  * 	_ add an option to forbid slice threading, to make redundant slices reliable
  * 	_ measure the time it takes to decode each type of slice
@@ -344,6 +345,7 @@ int edge264_decode_NAL(Edge264Decoder *dec, const uint8_t *buf, const uint8_t *e
 			buf = minp(dec->_gb.CPB - 2, dec->_gb.end);
 		}
 	}
+	// printf("nal_unit_type=%d, ret=%d\n", dec->nal_unit_type, ret);
 	
 	// for 0, ENOTSUP and EBADMSG we may free or advance the buffer pointer
 	if (ret == 0 || ret == ENOTSUP || ret == EBADMSG) {

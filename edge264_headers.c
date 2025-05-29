@@ -843,6 +843,8 @@ int ADD_VARIANT(parse_slice_layer_without_partitioning)(Edge264Decoder *dec, int
 	Edge264Task *t = dec->tasks + __builtin_ctz(avail_tasks);
 	t->free_cb = free_cb;
 	t->free_arg = free_arg;
+	t->RefPicList_v[0] = t->RefPicList_v[1] = t->RefPicList_v[2] = t->RefPicList_v[3] =
+		(i8x16){-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1};
 	
 	// first important fields and checks before decoding the slice header
 	if (!dec->_gb.lsb_cache)
@@ -1026,15 +1028,13 @@ int ADD_VARIANT(parse_slice_layer_without_partitioning)(Edge264Decoder *dec, int
 		if (dec->frame_buffers[dec->currPic] == NULL && alloc_frame(dec, dec->currPic))
 			return ENOMEM;
 	}
-	log_dec(dec, "  FrameId: %u\n", dec->FrameIds[dec->currPic]);
-	
-	// The first test could be optimised into a fast bit test, but would be less readable :)
-	t->RefPicList_v[0] = t->RefPicList_v[1] = t->RefPicList_v[2] = t->RefPicList_v[3] =
-		(i8x16){-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1};
 	dec->pic_reference_flags = dec->reference_flags & same_views;
 	dec->pic_long_term_flags = dec->long_term_flags & same_views;
 	dec->pic_LongTermFrameIdx_v[0] = dec->LongTermFrameIdx_v[0];
 	dec->pic_LongTermFrameIdx_v[1] = dec->LongTermFrameIdx_v[1];
+	log_dec(dec, "  FrameId: %u\n", dec->FrameIds[dec->currPic]);
+	
+	// The first test could be optimised into a fast bit test, but would be less readable :)
 	if (t->slice_type == 0 || t->slice_type == 1) {
 		if (t->slice_type == 1) {
 			t->direct_spatial_mv_pred_flag = get_u1(&dec->_gb);
@@ -1282,19 +1282,17 @@ int ADD_VARIANT(parse_pic_parameter_set)(Edge264Decoder *dec, int non_blocking, 
 		log_dec(dec, "  slice_group_map_type: %u\n", slice_group_map_type);
 		if (slice_group_map_type == 0) {
 			log_dec(dec, "  run_lengths: [");
-			for (int i = 0; i < num_slice_groups; i++) {
+			for (int i = num_slice_groups; i > 0; i--) {
 				int run_length = get_ue32(&dec->_gb, 139263) + 1; // level 6.2
-				log_dec(dec, i ? ",%u" : "%u", run_length);
+				log_dec(dec, i ? "%u," : "%u]\n", run_length);
 			}
-			log_dec(dec, "]\n");
 		} else if (slice_group_map_type == 2) {
 			log_dec(dec, "  top_lefts_bottom_rights: [");
-			for (int i = 0; i < num_slice_groups - 1; i++) {
+			for (int i = num_slice_groups - 1; i > 0; i--) {
 				int top_left = get_ue32(&dec->_gb, 139264);
 				int bottom_right = get_ue32(&dec->_gb, 139264);
-				log_dec(dec, i ? ",%u-%u" : "%u-%u", top_left, bottom_right);
+				log_dec(dec, i ? "%u-%u," : "%u-%u]\n", top_left, bottom_right);
 			}
-			log_dec(dec, "]\n");
 		} else if (0b111000 & 1 << slice_group_map_type) { // 3, 4 or 5
 			int slice_group_change_direction_flag = get_u1(&dec->_gb);
 			int slice_group_change_rate = get_ue32(&dec->_gb, 139263) + 1;
@@ -1306,11 +1304,10 @@ int ADD_VARIANT(parse_pic_parameter_set)(Edge264Decoder *dec, int non_blocking, 
 			int PicSizeInMapUnits = get_ue32(&dec->_gb, 139263) + 1;
 			log_dec(dec, "  slice_group_ids: [");
 			int bits = WORD_BIT - __builtin_clz(num_slice_groups - 1);
-			for (int i = 0; i < PicSizeInMapUnits; i++) {
+			for (int i = PicSizeInMapUnits; i > 0; i--) {
 				int slice_group_id = get_uv(&dec->_gb, bits);
-				log_dec(dec, i ? ",%u" : "%u", slice_group_id);
+				log_dec(dec, i ? "%u" : "%u]\n", slice_group_id);
 			}
-			log_dec(dec, "]\n");
 		}
 	}
 	
@@ -1388,33 +1385,31 @@ int ADD_VARIANT(parse_pic_parameter_set)(Edge264Decoder *dec, int non_blocking, 
  * For the sake of implementation simplicity, the responsibility for timing
  * management is left to demuxing libraries, hence any HRD data is ignored.
  */
-static void parse_hrd_parameters(Edge264Decoder *dec, Edge264SeqParameterSet *sps, int8_t *cpb_cnt) {
+static void parse_hrd_parameters(Edge264Decoder *dec, Edge264SeqParameterSet *sps, int8_t *cpb_cnt, const char *indent) {
 	*cpb_cnt = get_ue16(&dec->_gb, 31) + 1;
 	int bit_rate_scale = get_uv(&dec->_gb, 4);
 	int cpb_size_scale = get_uv(&dec->_gb, 4);
-	log_dec(dec, "    CPBs:\n");
+	log_dec(dec, "%sCPBs:\n", indent);
 	for (int i = 0; i < *cpb_cnt; i++) {
 		uint64_t bit_rate_value = get_ue32(&dec->_gb, 4294967294) + 1;
 		uint64_t cpb_size_value = get_ue32(&dec->_gb, 4294967294) + 1;
 		int cbr_flag = get_u1(&dec->_gb);
-		log_dec(dec, "      - {bit_rate: %llu, size: %llu, cbr: %u}\n",
-			bit_rate_value << (6 + bit_rate_scale),
-			cpb_size_value << (4 + cpb_size_scale),
-			cbr_flag);
+		log_dec(dec, "%s  - {bit_rate: %llu, size: %llu, cbr: %u}\n",
+			indent, bit_rate_value << (6 + bit_rate_scale), cpb_size_value << (4 + cpb_size_scale), cbr_flag);
 	}
 	unsigned delays = get_uv(&dec->_gb, 20);
 	sps->initial_cpb_removal_delay_length = (delays >> 15) + 1;
 	sps->cpb_removal_delay_length = ((delays >> 10) & 0x1f) + 1;
 	sps->dpb_output_delay_length = ((delays >> 5) & 0x1f) + 1;
 	sps->time_offset_length = delays & 0x1f;
-	log_dec(dec, "    initial_cpb_removal_delay_length: %u\n"
-		"    cpb_removal_delay_length: %u\n"
-		"    dpb_output_delay_length: %u\n"
-		"    time_offset_length: %u\n",
-		sps->initial_cpb_removal_delay_length,
-		sps->cpb_removal_delay_length,
-		sps->dpb_output_delay_length,
-		sps->time_offset_length);
+	log_dec(dec, "%sinitial_cpb_removal_delay_length: %u\n"
+		"%scpb_removal_delay_length: %u\n"
+		"%sdpb_output_delay_length: %u\n"
+		"%stime_offset_length: %u\n",
+		indent, sps->initial_cpb_removal_delay_length,
+		indent, sps->cpb_removal_delay_length,
+		indent, sps->dpb_output_delay_length,
+		indent, sps->time_offset_length);
 }
 
 
@@ -1529,12 +1524,12 @@ static void parse_vui_parameters(Edge264Decoder *dec, Edge264SeqParameterSet *sp
 	int nal_hrd_parameters_present_flag = get_u1(&dec->_gb);
 	if (nal_hrd_parameters_present_flag) {
 		log_dec(dec, "  nal_hrd_parameters:\n");
-		parse_hrd_parameters(dec, sps, &sps->nal_hrd_cpb_cnt);
+		parse_hrd_parameters(dec, sps, &sps->nal_hrd_cpb_cnt, "    ");
 	}
 	int vcl_hrd_parameters_present_flag = get_u1(&dec->_gb);
 	if (vcl_hrd_parameters_present_flag) {
 		log_dec(dec, "  vcl_hrd_parameters:\n");
-		parse_hrd_parameters(dec, sps, &sps->vcl_hrd_cpb_cnt);
+		parse_hrd_parameters(dec, sps, &sps->vcl_hrd_cpb_cnt, "    ");
 	}
 	if (nal_hrd_parameters_present_flag | vcl_hrd_parameters_present_flag) {
 		int low_delay_hrd_flag = get_u1(&dec->_gb);
@@ -1588,27 +1583,40 @@ static void parse_vui_parameters(Edge264Decoder *dec, Edge264SeqParameterSet *sp
  */
 static void parse_mvc_vui_parameters_extension(Edge264Decoder *dec, Edge264SeqParameterSet *sps)
 {
+	log_dec(dec, "  vui_mvc_ops:\n");
 	for (int i = get_ue16(&dec->_gb, 1023); i-- >= 0;) {
-		get_uv(&dec->_gb, 3);
-		for (int j = get_ue16(&dec->_gb, 1023); j-- >= 0; get_ue16(&dec->_gb, 1023));
+		int temporal_id = get_uv(&dec->_gb, 3);
+		log_dec(dec, "    - temporal_id: %u\n"
+			"      target_output_views: [", temporal_id);
+		for (int j = get_ue16(&dec->_gb, 1023); j >= 0; j--) {
+			int view_id = get_ue16(&dec->_gb, 1023);
+			log_dec(dec, j ? "%u," : "%u]\n", view_id);
+		}
 		if (get_u1(&dec->_gb)) {
-			get_uv(&dec->_gb, 32);
-			get_uv(&dec->_gb, 32);
-			get_u1(&dec->_gb);
+			unsigned num_units_in_tick = get_uv(&dec->_gb, 32);
+			unsigned time_scale = get_uv(&dec->_gb, 32);
+			int fixed_frame_rate_flag = get_u1(&dec->_gb);
+			log_dec(dec, "      num_units_in_tick: %u\n"
+				"      time_scale: %u\n"
+				"      fixed_frame_rate_flag: %u\n",
+				num_units_in_tick, time_scale, fixed_frame_rate_flag);
 		}
 		int vui_mvc_nal_hrd_parameters_present_flag = get_u1(&dec->_gb);
 		if (vui_mvc_nal_hrd_parameters_present_flag) {
-			log_dec(dec, "  vui_mvc_nal_hrd_parameters:\n");
-			parse_hrd_parameters(dec, sps, &sps->nal_hrd_cpb_cnt);
+			log_dec(dec, "      vui_mvc_nal_hrd_parameters:\n");
+			parse_hrd_parameters(dec, sps, &sps->nal_hrd_cpb_cnt, "        ");
 		}
 		int vui_mvc_vcl_hrd_parameters_present_flag = get_u1(&dec->_gb);
 		if (vui_mvc_vcl_hrd_parameters_present_flag) {
-			log_dec(dec, "  vui_mvc_vcl_hrd_parameters:\n");
-			parse_hrd_parameters(dec, sps, &sps->vcl_hrd_cpb_cnt);
+			log_dec(dec, "      vui_mvc_vcl_hrd_parameters:\n");
+			parse_hrd_parameters(dec, sps, &sps->vcl_hrd_cpb_cnt, "        ");
 		}
-		if (vui_mvc_nal_hrd_parameters_present_flag | vui_mvc_vcl_hrd_parameters_present_flag)
-			get_u1(&dec->_gb);
-		get_u1(&dec->_gb);
+		if (vui_mvc_nal_hrd_parameters_present_flag | vui_mvc_vcl_hrd_parameters_present_flag) {
+			int low_delay_hrd_flag = get_u1(&dec->_gb);
+			log_dec(dec, "      low_delay_hrd_flag: %u\n", low_delay_hrd_flag);
+		}
+		int pic_struct_present_flag = get_u1(&dec->_gb);
+		log_dec(dec, "      pic_struct_present_flag: %u\n", pic_struct_present_flag);
 	}
 }
 
@@ -1643,22 +1651,21 @@ static int parse_seq_parameter_set_mvc_extension(Edge264Decoder *dec, int profil
 	if (num_non_anchor_refs_l1)
 		get_ue16(&dec->_gb, 1023);
 	log_dec(dec, "  num_anchor_refs_l0_l1: [%u,%u]\n"
-		"  num_non_anchor_refs_l0_l1: [%u,%u]\n",
+		"  num_non_anchor_refs_l0_l1: [%u,%u]\n"
+		"  levels: [",
 		num_anchor_refs_l0, num_anchor_refs_l1,
 		num_non_anchor_refs_l0, num_non_anchor_refs_l1);
 	
 	// level values and operation points are similarly ignored
-	int num_level_values_signalled = get_ue16(&dec->_gb, 63) + 1;
-	for (int i = 0; i < num_level_values_signalled; i++) {
+	for (int i = get_ue16(&dec->_gb, 63); i >= 0; i--) {
 		int level_idc = get_uv(&dec->_gb, 8);
-		log_dec(dec, i ? ",%.1f" : "  levels: [%.1f", (double)level_idc / 10);
+		log_dec(dec, i ? "%.1f," : "%.1f]\n", (double)level_idc / 10);
 		for (int j = get_ue16(&dec->_gb, 1023); j-- >= 0;) {
 			get_uv(&dec->_gb, 3);
 			for (int k = get_ue16(&dec->_gb, 1023); k-- >= 0; get_ue16(&dec->_gb, 1023));
 			get_ue16(&dec->_gb, 1023);
 		}
 	}
-	log_dec(dec, "]\n");
 	return profile_idc == 134 ? ENOTSUP : 0; // MFC is unsupported until streams actually use it
 }
 
@@ -1812,9 +1819,8 @@ int ADD_VARIANT(parse_seq_parameter_set)(Edge264Decoder *dec, int non_blocking, 
 		for (int i = 1, delta = 0; i <= sps.num_ref_frames_in_pic_order_cnt_cycle; i++) {
 			int offset_for_ref_frame = get_se32(&dec->_gb, (-1u << 31) + 1, (1u << 31) - 1);
 			sps.PicOrderCntDeltas[i] = delta += offset_for_ref_frame;
-			log_dec(dec, ",%d", sps.PicOrderCntDeltas[i]);
+			log_dec(dec, (i < sps.num_ref_frames_in_pic_order_cnt_cycle) ? ",%d" : ",%d]\n", sps.PicOrderCntDeltas[i]);
 		}
-		log_dec(dec, "]\n");
 	}
 	
 	// Max width is imposed by some int16 storage, wait for actual needs to push it.
@@ -1883,11 +1889,13 @@ int ADD_VARIANT(parse_seq_parameter_set)(Edge264Decoder *dec, int non_blocking, 
 		if (get_u1(&dec->_gb))
 			parse_mvc_vui_parameters_extension(dec, &sps);
 		get_u1(&dec->_gb);
+		// rbsp_trailing_bits are ignored at the moment since some streams seem to get it wrong
+	} else {
+		if (!rbsp_end(&dec->_gb))
+			return EBADMSG;
 	}
 	
-	// check for trailing_bits before unsupported features (in case errors enabled them)
-	if (!rbsp_end(&dec->_gb))
-		return EBADMSG;
+	// check for unsupported features
 	if (print_dec(dec, dec->log_header_arg) || sps.ChromaArrayType != 1 ||
 		sps.BitDepth_Y + sps.BitDepth_C != 16 ||
 		sps.qpprime_y_zero_transform_bypass_flag || !sps.frame_mbs_only_flag)

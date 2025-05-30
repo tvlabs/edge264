@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+from functools import reduce
 import sys
 import types
 import yaml
@@ -22,6 +23,9 @@ class SafeLoader(yaml.loader.Reader, yaml.loader.Scanner, yaml.loader.Parser, ya
 
 
 
+def ctz(v):
+	return (v & -v).bit_length() - 1
+
 def gen_ue(bits, v):
 	v += 1
 	return bits << (v.bit_length() * 2 - 1) | v
@@ -29,6 +33,24 @@ def gen_ue(bits, v):
 def gen_se(bits, v):
 	v = v * 2 if v > 0 else -v * 2 + 1
 	return bits << (v.bit_length() * 2 - 1) | v
+
+
+
+def gen_hrd_parameters(bits, hrd):
+	bits = gen_ue(bits, len(hrd.CPBs) - 1)
+	bit_rate_scale = min(ctz(reduce(lambda a, b: a | b, (cpb.bit_rate for cpb in hrd.CPBs))) - 6, 15)
+	cpb_size_scale = min(ctz(reduce(lambda a, b: a | b, (cpb.size for cpb in hrd.CPBs))) - 4, 15)
+	bits = bits << 4 | bit_rate_scale
+	bits = bits << 4 | cpb_size_scale
+	for cpb in hrd.CPBs:
+		bits = gen_ue(bits, cpb.bit_rate >> 6 >> bit_rate_scale)
+		bits = gen_ue(bits, cpb.size >> 4 >> cpb_size_scale)
+		bits = bits << 1 | cpb.cbr
+	bits = bits << 5 | hrd.initial_cpb_removal_delay_length - 1
+	bits = bits << 5 | hrd.cpb_removal_delay_length - 1
+	bits = bits << 5 | hrd.dpb_output_delay_length - 1
+	bits = bits << 5 | hrd.time_offset_length
+	return bits
 
 
 
@@ -72,7 +94,7 @@ def gen_vui_parameters(bits, sps, vui):
 	bits = bits << 1 | int("motion_vectors_over_pic_boundaries_flag" in vars(vui))
 	if "motion_vectors_over_pic_boundaries_flag" in vars(vui):
 		bits = bits << 1 | vui.motion_vectors_over_pic_boundaries_flag
-		PicSizeInMbs = sps.pic_width_in_mbs * sps.pic_height_in_mbs
+		PicSizeInMbs = sps.pic_size_in_mbs.width * sps.pic_size_in_mbs.height
 		RawMbBits = 256 * sps.bit_depth_luma + (64 << sps.chroma_format_idc & ~64) * sps.bit_depth_chroma
 		bits = gen_ue(bits, (PicSizeInMbs * RawMbBits) // vui.max_bytes_per_pic // 8 if "max_bytes_per_pic" in vars(vui) else 0)
 		bits = gen_ue(bits, (128 + RawMbBits) // vui.max_bits_per_mb if "max_bits_per_mb" in vars(vui) else 0)
@@ -88,13 +110,13 @@ def gen_seq_parameter_set(bits, sps):
 	bits = bits << 8 | sps.profile_idc
 	bits = bits << 8 | sum(f << (7 - i) for i, f in enumerate(sps.constraint_set_flags))
 	bits = bits << 8 | int(sps.level_idc * 10)
-	bits = gen_ue(bits, sps.seq_parameter_set_id)
+	bits = bits << 1 | 1 # seq_parameter_set_id
 	if sps.profile_idc in (100, 110, 122, 244, 44, 83, 86, 118, 128, 138, 139, 134, 135):
 		bits = gen_ue(bits, sps.chroma_format_idc)
 		if sps.chroma_format_idc == 3:
 			bits = bits << 1 | sps.separate_colour_plane_flag
-		bits = gen_ue(bits, sps.bit_depth_luma - 8)
-		bits = gen_ue(bits, sps.bit_depth_chroma - 8)
+		bits = gen_ue(bits, sps.bit_depth.luma - 8)
+		bits = gen_ue(bits, sps.bit_depth.chroma - 8)
 		bits = bits << 1 | sps.qpprime_y_zero_transform_bypass_flag
 		bits = bits << 1 | int("seq_scaling_matrix" in vars(sps))
 		if "seq_scaling_matrix" in vars(sps):
@@ -115,8 +137,8 @@ def gen_seq_parameter_set(bits, sps):
 			bits = gen_se(bits, offset)
 	bits = gen_ue(bits, sps.max_num_ref_frames)
 	bits = bits << 1 | sps.gaps_in_frame_num_value_allowed_flag
-	bits = gen_ue(bits, sps.pic_width_in_mbs - 1)
-	bits = gen_ue(bits, sps.pic_height_in_mbs - 1)
+	bits = gen_ue(bits, sps.pic_size_in_mbs.width - 1)
+	bits = gen_ue(bits, sps.pic_size_in_mbs.height - 1)
 	bits = bits << 1 | sps.frame_mbs_only_flag
 	if not sps.frame_mbs_only_flag:
 		bits = bits << 1 | sps.mb_adaptive_frame_field_flag
@@ -132,8 +154,96 @@ def gen_seq_parameter_set(bits, sps):
 
 
 
+def gen_pic_parameter_set(bits, pps):
+	bits = gen_ue(bits, pps.pic_parameter_set_id)
+	bits = bits << 1 | 1 # seq_parameter_set_id
+	bits = bits << 1 | pps.entropy_coding_mode_flag
+	bits = bits << 1 | pps.bottom_field_pic_order_in_frame_present_flag
+	bits = bits << 1 | 1 # num_slice_groups
+	bits = gen_ue(bits, pps.num_ref_idx_default_active.l0 - 1)
+	bits = gen_ue(bits, pps.num_ref_idx_default_active.l1 - 1)
+	bits = bits << 1 | pps.weighted_pred_flag
+	bits = bits << 2 | pps.weighted_bipred_idc
+	bits = gen_se(bits, pps.pic_init_qp - 26)
+	bits = bits << 1 | 1 # pic_init_qs
+	bits = gen_se(bits, pps.chroma_qp_index_offset)
+	bits = bits << 1 | pps.deblocking_filter_control_present_flag
+	bits = bits << 1 | pps.constrained_intra_pred_flag
+	bits = bits << 1 # redundant_pic_cnt_present_flag
+	if "transform_8x8_mode_flag" in vars(pps):
+		bits = bits << 1 | pps.transform_8x8_mode_flag
+		bits = bits << 1 | int("pic_scaling_matrix" in vars(pps))
+		if "pic_scaling_matrix" in vars(pps):
+			for scaling_list in pps.pic_scaling_matrix:
+				bits = bits << 1 | min(len(scaling_list), 1) # seq_scaling_list_present_flag
+				for lastScale, nextScale in zip([8] + scaling_list, scaling_list):
+					bits = gen_se(bits, (nextScale - lastScale + 128) % 256 - 128) # delta_scale
+		bits = gen_se(bits, pps.second_chroma_qp_index_offset)
+	return bits
+
+
+
+def gen_seq_parameter_set_extension(bits, spse):
+	bits = bits << 1 | 1 # seq_parameter_set_id
+	bits = gen_ue(bits, spse.aux_format_idc)
+	if spse.aux_format_idc:
+		bits = gen_ue(bits, spse.bit_depth_aux - 8)
+		bits = bits << 1 | spse.alpha_incr_flag
+		bits = bits << spse.bit_depth_aux << 1 | spse.alpha_opaque_value
+		bits = bits << spse.bit_depth_aux << 1 | spse.alpha_transparent_value
+	bits = bits << 1 # additional_extension_flag
+	return bits
+
+
+
+def gen_seq_parameter_set_mvc_extension(bits, ssps):
+	bits = gen_ue(bits, 1) # num_views_minus1
+	bits = gen_ue(bits, ssps.view_ids[0])
+	bits = gen_ue(bits, ssps.view_ids[1])
+	bits = gen_ue(bits, ssps.num_anchor_refs.l0)
+	if ssps.num_anchor_refs.l0:
+		bits = gen_ue(bits, ssps.view_ids[0])
+	bits = gen_ue(bits, ssps.num_anchor_refs.l1)
+	if ssps.num_anchor_refs.l1:
+		bits = gen_ue(bits, ssps.view_ids[0])
+	bits = gen_ue(bits, ssps.num_non_anchor_refs.l0)
+	if ssps.num_non_anchor_refs.l0:
+		bits = gen_ue(bits, ssps.view_ids[0])
+	bits = gen_ue(bits, ssps.num_non_anchor_refs.l1)
+	if ssps.num_non_anchor_refs.l1:
+		bits = gen_ue(bits, ssps.view_ids[0])
+	bits = gen_ue(bits, len(ssps.level_values_signalled) - 1)
+	for level in ssps.level_values_signalled:
+		bits = bits << 8 | level.idc
+		bits = gen_ue(bits, len(level.operation_points) - 1)
+		for op in level.operation_points:
+			bits = bits << 3 | op.temporal_id
+			bits = gen_ue(bits, len(op.target_view_ids) - 1)
+			for view_id in op.target_view_ids:
+				bits = gen_ue(bits, view_id)
+			bits = gen_ue(bits, op.num_views - 1)
+	return bits
+
+
+
+def gen_subset_seq_parameter_set(bits, ssps):
+	bits = gen_seq_parameter_set(bits, ssps)
+	if ssps.profile_idc in (118, 128, 134):
+		bits = bits << 1 | 1 # bit_equal_to_one
+		bits = gen_seq_parameter_set_mvc_extension(bits, ssps)
+		bits = bits << 1 | int("mvc_vui_parameters" in vars(ssps))
+		if "mvc_vui_parameters" in vars(ssps):
+			bits = gen_mvc_vui_parameters_extension(bits, ssps, ssps.mvc_vui_parameters)
+	bits = bits << 1 # additional_extension2_flag
+	return bits
+
+
+
 gen_bits = {
-	7: gen_seq_parameter_set
+	7: gen_seq_parameter_set,
+	8: gen_pic_parameter_set,
+	13: gen_seq_parameter_set_extension,
+	15: gen_subset_seq_parameter_set
 }
 
 def main():
@@ -149,6 +259,7 @@ def main():
 			bits = bits << 2 | nal.nal_ref_idc
 			bits = bits << 5 | nal.nal_unit_type
 			bits = gen_bits[nal.nal_unit_type](bits, nal)
+			bits = bits << 1 | 1 # rbsp_stop_one_bit
 			num = bits.bit_length() + 31
 			bits <<= -num % 8
 			f.write(bits.to_bytes((num + 7) // 8, byteorder="big"))

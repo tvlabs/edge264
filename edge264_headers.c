@@ -1275,17 +1275,15 @@ int ADD_VARIANT(parse_pic_parameter_set)(Edge264Decoder *dec, int non_blocking, 
 	// Actual streams never use more than 4 PPSs (I, P, B, b).
 	refill(&dec->_gb, 0);
 	int pic_parameter_set_id = get_ue16(&dec->_gb, 255);
-	int seq_parameter_set_id = get_ue16(&dec->_gb, 31);
+	get_ue16(&dec->_gb, 31); // seq_parameter_set_id
 	pps.entropy_coding_mode_flag = get_u1(&dec->_gb);
 	pps.bottom_field_pic_order_in_frame_present_flag = get_u1(&dec->_gb);
 	int num_slice_groups = get_ue16(&dec->_gb, 7) + 1;
 	log_dec(dec, "  pic_parameter_set_id: %u%s\n"
-		"  seq_parameter_set_id: %u\n"
-		"  entropy_coding_mode: %s\n"
+		"  entropy_coding_mode: %u # %s\n"
 		"  num_slice_groups: %u%s\n",
 		pic_parameter_set_id, unsup_if(pic_parameter_set_id >= 4),
-		seq_parameter_set_id,
-		pps.entropy_coding_mode_flag ? "CABAC" : "CAVLC",
+		pps.entropy_coding_mode_flag, pps.entropy_coding_mode_flag ? "CABAC" : "CAVLC",
 		num_slice_groups, unsup_if(num_slice_groups > 1));
 	
 	// Let's be nice enough to print the headers for unsupported stuff.
@@ -1329,25 +1327,25 @@ int ADD_VARIANT(parse_pic_parameter_set)(Edge264Decoder *dec, int non_blocking, 
 	pps.weighted_pred_flag = get_u1(&dec->_gb);
 	pps.weighted_bipred_idc = get_uv(&dec->_gb, 2);
 	pps.QPprime_Y = get_se16(&dec->_gb, -26, 25) + 26; // FIXME QpBdOffset
-	int pic_init_qs = get_se16(&dec->_gb, -26, 25) + 26;
+	get_se16(&dec->_gb, -26, 25) + 26; // pic_init_qs
 	pps.second_chroma_qp_index_offset = pps.chroma_qp_index_offset = get_se16(&dec->_gb, -12, 12);
 	pps.deblocking_filter_control_present_flag = get_u1(&dec->_gb);
 	pps.constrained_intra_pred_flag = get_u1(&dec->_gb);
 	int redundant_pic_cnt_present_flag = get_u1(&dec->_gb);
-	log_dec(dec, "  num_ref_idx_default_active: [%u,%u]\n"
-		"  weighted_pred: %s\n"
-		"  weighted_bipred: %s\n"
+	log_dec(dec, "  num_ref_idx_default_active: {l0: %u, l1: %u}\n"
+		"  weighted_pred: %u # %s\n"
+		"  weighted_bipred: %u # %s\n"
 		"  pic_init_qp: %u\n"
-		"  pic_init_qs: %u\n"
 		"  chroma_qp_index_offset: %d\n"
+		"  deblocking_filter_control_present_flag: %u\n"
 		"  constrained_intra_pred_flag: %u%s\n"
 		"  redundant_pic_cnt_present_flag: %u%s\n",
 		pps.num_ref_idx_active[0], pps.num_ref_idx_active[1],
-		weighted_pred_names[pps.weighted_pred_flag],
-		weighted_pred_names[pps.weighted_bipred_idc],
+		pps.weighted_pred_flag, weighted_pred_names[pps.weighted_pred_flag],
+		pps.weighted_bipred_idc, weighted_pred_names[pps.weighted_bipred_idc],
 		pps.QPprime_Y,
-		pic_init_qs,
 		pps.chroma_qp_index_offset,
+		pps.deblocking_filter_control_present_flag,
 		pps.constrained_intra_pred_flag, unsup_if(pps.constrained_intra_pred_flag),
 		redundant_pic_cnt_present_flag, unsup_if(redundant_pic_cnt_present_flag));
 	
@@ -1647,20 +1645,26 @@ static int parse_seq_parameter_set_mvc_extension(Edge264Decoder *dec, int profil
 	int num_non_anchor_refs_l1 = get_ue16(&dec->_gb, 1);
 	if (num_non_anchor_refs_l1)
 		get_ue16(&dec->_gb, 1023);
-	log_dec(dec, "  num_anchor_refs_l0_l1: [%u,%u]\n"
-		"  num_non_anchor_refs_l0_l1: [%u,%u]\n"
-		"  levels: [",
+	log_dec(dec, "  num_anchor_refs: {l0: %u, l1: %u}\n"
+		"  num_non_anchor_refs: {l0: %u, l1: %u}\n"
+		"  level_values_signalled:",
 		num_anchor_refs_l0, num_anchor_refs_l1,
 		num_non_anchor_refs_l0, num_non_anchor_refs_l1);
 	
 	// level values and operation points are similarly ignored
 	for (int i = get_ue16(&dec->_gb, 63); i >= 0; i--) {
 		int level_idc = get_uv(&dec->_gb, 8);
-		log_dec(dec, i ? "%.1f," : "%.1f]\n", (double)level_idc / 10);
-		for (int j = get_ue16(&dec->_gb, 1023); j-- >= 0;) {
-			get_uv(&dec->_gb, 3);
-			for (int k = get_ue16(&dec->_gb, 1023); k-- >= 0; get_ue16(&dec->_gb, 1023));
-			get_ue16(&dec->_gb, 1023);
+		log_dec(dec, "    - idc: %.1f\n"
+			"      operation_points: [", (float)level_idc / 10);
+		for (int j = get_ue16(&dec->_gb, 1023); j >= 0; j--) {
+			int applicable_op_temporal_id = get_uv(&dec->_gb, 3);
+			log_dec(dec, "{temporal_id: %u, target_view_ids: [", applicable_op_temporal_id);
+			for (int k = get_ue16(&dec->_gb, 1023); k >= 0; k--) {
+				int applicable_op_target_view_id = get_ue16(&dec->_gb, 1023);
+				log_dec(dec, k ? "%u," : "%u], num_views: ", applicable_op_target_view_id);
+			}
+			int applicable_op_num_views = get_ue16(&dec->_gb, 1023) + 1;
+			log_dec(dec, j ? "%u}" : "%u}]\n", applicable_op_num_views);
 		}
 	}
 	return profile_idc == 134 ? ENOTSUP : 0; // MFC is unsupported until streams actually use it
@@ -1729,15 +1733,13 @@ int ADD_VARIANT(parse_seq_parameter_set)(Edge264Decoder *dec, int non_blocking, 
 	int profile_idc = get_uv(&dec->_gb, 8);
 	unsigned constraint_set_flags = get_uv(&dec->_gb, 8);
 	int level_idc = get_uv(&dec->_gb, 8);
-	int seq_parameter_set_id = get_ue16(&dec->_gb, 31); // ignored until useful cases arise
+	get_ue16(&dec->_gb, 31); // seq_parameter_set_id is ignored until useful cases arise
 	log_dec(dec, "  profile_idc: %u # %s\n"
 		"  constraint_set_flags: [%u,%u,%u,%u,%u,%u]\n"
-		"  level_idc: %.1f\n"
-		"  seq_parameter_set_id: %u\n",
+		"  level_idc: %.1f\n",
 		profile_idc, profile_idc_names[profile_idc],
 		constraint_set_flags >> 7, (constraint_set_flags >> 6) & 1, (constraint_set_flags >> 5) & 1, (constraint_set_flags >> 4) & 1, (constraint_set_flags >> 3) & 1, (constraint_set_flags >> 2) & 1,
-		(double)level_idc / 10,
-		seq_parameter_set_id);
+		(float)level_idc / 10);
 	
 	int seq_scaling_matrix_present_flag = 0;
 	if (profile_idc != 66 && profile_idc != 77 && profile_idc != 88) {
@@ -1753,11 +1755,9 @@ int ADD_VARIANT(parse_seq_parameter_set)(Edge264Decoder *dec, int non_blocking, 
 		sps.BitDepth_Y = 8 + get_ue16(&dec->_gb, 6);
 		sps.BitDepth_C = 8 + get_ue16(&dec->_gb, 6);
 		sps.qpprime_y_zero_transform_bypass_flag = get_u1(&dec->_gb);
-		log_dec(dec, "  bit_depth_luma: %u%s\n"
-			"  bit_depth_chroma: %u%s\n"
+		log_dec(dec, "  bit_depth: {luma: %u, chroma: %u}%s\n"
 			"  qpprime_y_zero_transform_bypass_flag: %u%s\n",
-			sps.BitDepth_Y, unsup_if(sps.BitDepth_Y != 8),
-			sps.BitDepth_C, unsup_if(sps.BitDepth_C != 8),
+			sps.BitDepth_Y, sps.BitDepth_C, unsup_if(sps.BitDepth_Y + sps.BitDepth_Y != 16),
 			sps.qpprime_y_zero_transform_bypass_flag, unsup_if(sps.qpprime_y_zero_transform_bypass_flag));
 		if (seq_scaling_matrix_present_flag = get_u1(&dec->_gb)) {
 			sps.weightScale4x4_v[0] = Default_4x4_Intra;
@@ -1771,8 +1771,7 @@ int ADD_VARIANT(parse_seq_parameter_set)(Edge264Decoder *dec, int non_blocking, 
 		}
 	} else {
 		log_dec(dec, "  default_chroma_format_idc: 0 # 4:2:0\n"
-			"  default_bit_depth_luma: 8\n"
-			"  default_bit_depth_chroma: 8\n");
+			"  default_bit_depth: {luma: 8, chroma: 8}\n");
 	}
 	
 	sps.log2_max_frame_num = get_ue16(&dec->_gb, 12) + 4;
@@ -1821,8 +1820,7 @@ int ADD_VARIANT(parse_seq_parameter_set)(Edge264Decoder *dec, int non_blocking, 
 	sps.num_frame_buffers = max(sps.max_num_reorder_frames, sps.max_num_ref_frames) + 1;
 	log_dec(dec, "  max_num_ref_frames: %u\n"
 		"  gaps_in_frame_num_value_allowed_flag: %u\n"
-		"  pic_width_in_mbs: %u\n"
-		"  pic_height_in_mbs: %u\n"
+		"  pic_size_in_mbs: {width: %u, height: %u}\n"
 		"  frame_mbs_only_flag: %u%s\n",
 		sps.max_num_ref_frames,
 		gaps_in_frame_num_value_allowed_flag,
@@ -1938,11 +1936,9 @@ int ADD_VARIANT(parse_seq_parameter_set)(Edge264Decoder *dec, int non_blocking, 
  */
 int ADD_VARIANT(parse_seq_parameter_set_extension)(Edge264Decoder *dec, int non_blocking, void(*free_cb)(void*,int), void *free_arg) {
 	refill(&dec->_gb, 0);
-	int seq_parameter_set_id = get_ue16(&dec->_gb, 31);
+	get_ue16(&dec->_gb, 31);
 	int aux_format_idc = get_ue16(&dec->_gb, 3);
-	log_dec(dec, "  seq_parameter_set_id: %u\n"
-		"  aux_format_idc: %u%s\n",
-		seq_parameter_set_id,
+	log_dec(dec, "  aux_format_idc: %u%s\n",
 		aux_format_idc, unsup_if(aux_format_idc));
 	if (aux_format_idc) {
 		int bit_depth_aux = get_ue16(&dec->_gb, 4) + 8;

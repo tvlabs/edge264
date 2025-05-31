@@ -323,9 +323,9 @@ int edge264_decode_NAL(Edge264Decoder *dec, const uint8_t *buf, const uint8_t *e
 	if (dec->log_header_arg) { // no need to test log_cb since harmless otherwise
 		dec->log_pos = snprintf(dec->log_buf, sizeof(dec->log_buf),
 			"\n- nal_ref_idc: %u\n"
-			"  nal_unit_type: %s (%u)\n",
+			"  nal_unit_type: %u # %s\n",
 			dec->nal_ref_idc,
-			nal_unit_type_names[dec->nal_unit_type], dec->nal_unit_type);
+			dec->nal_unit_type, nal_unit_type_names[dec->nal_unit_type]);
 	}
 	
 	// initialize the parsing context if we can parse the current NAL

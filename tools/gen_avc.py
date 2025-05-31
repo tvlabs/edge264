@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 from functools import reduce
+import re
 import sys
 import types
 import yaml
@@ -33,6 +34,81 @@ def gen_ue(bits, v):
 def gen_se(bits, v):
 	v = v * 2 if v > 0 else -v * 2 + 1
 	return bits << (v.bit_length() * 2 - 1) | v
+
+
+
+def gen_slice_layer_without_partitioning(bits, slice):
+	bits = gen_ue(bits, slice.first_mb_in_slice)
+	bits = gen_ue(bits, slice.slice_type)
+	bits = gen_ue(bits, slice.pic_parameter_set_id)
+	if "colour_plane_id" in vars(slice):
+		bits = bits << 2 | slice.colour_plane_id
+	bits = bits << slice.frame_num.bits | (slice.frame_num.absolute & (1 << slice.frame_num.bits) - 1)
+	if "field_pic_flag" in vars(slice):
+		bits = bits << 1 | slice.field_pic_flag
+		if slice.field_pic_flag:
+			bits = bits << 1 | slice.bottom_field_flag
+	IdrPicFlag = slice.nal_unit_type == 5 or "non_idr_flag" in vars(slice) and not slice.non_idr_flag
+	if IdrPicFlag:
+		bits = gen_ue(bits, slice.idr_pic_id)
+	if slice.pic_order_cnt.type == 0:
+		bits = bits << slice.pic_order_cnt.bits | (slice.pic_order_cnt.absolute & (1 << slice.pic_order_cnt) - 1)
+		if "bottom" in vars(slice.pic_order_cnt):
+			bits = gen_se(bits, slice.pic_order_cnt.bottom - slice.pic_order_cnt.absolute)
+	if slice.pic_order_cnt.type == 1 and "delta0" in vars(slice.pic_order_cnt):
+		bits = gen_se(bits, slice.pic_order_cnt.delta0)
+		if "delta1" in vars(slice.pic_order_cnt):
+			bits = gen_se(bits, slice.pic_order_cnt.delta1)
+	if slice.slice_type in (1, 6):
+		bits = bits << 1 | slice.direct_spatial_mv_pred_flag
+	if slice.slice_type in (0, 1, 5, 6):
+		bits = bits << 1 | int("num_ref_idx_active" in vars(slice))
+		if "num_ref_idx_active" in vars(slice):
+			bits = gen_ue(bits, slice.num_ref_idx_active.l0)
+			if slice.slice_type in (1, 6):
+				bits = gen_ue(bits, slice.num_ref_idx_active.l1)
+	field_to_idc = {"sref": 1, "lref": 2, "view": 5}
+	for i in range(slice.slice_type % 5 + 1):
+		bits = bits << 1 | int(f"ref_pic_list_modification_l{i}" in vars(slice))
+		if f"ref_pic_list_modification_l{i}" in vars(slice):
+			for field, diff in slice[f"ref_pic_list_modification_l{i}"]:
+				bits = gen_ue(bits, field_to_idc[field] - (diff < 0))
+				bits = gen_ue(bits, diff if field == "lref" else abs(diff) - 1)
+			bits = gen_ue(bits, 3)
+	if "explicit_weights_l0" in vars(slice)::
+		bits = gen_ue(bits, int(re.findall(r"\d+", slice.explicit_weights_l0[0].Y)[1]))
+		bits = gen_ue(bits, int(re.findall(r"\d+", slice.explicit_weights_l0[0].Cb)[1]))
+		for i in range(slice.slice_type % 5 + 1):
+			for ref in slice[f"explicit_weights_l{i}"]:
+				for plane in ("Y", "Cb", "Cr"):
+					weight, denom, offset = map(int, re.findall(r"\-?\d+", ref[plane]))
+					bits = bits << 1 | int(weight != 2 ** denom or offset != 0)
+					if weight != 2 ** denom or offset != 0:
+						bits = gen_se(bits, weight)
+						bits = gen_se(bits, offset)
+	if slice.nal_ref_idc:
+		if IdrPicFlag:
+			bits = bits << 1 | slice.no_output_of_prior_pics_flag
+			bits = bits << 1 | slice.long_term_reference_flag
+		else:
+			bits = bits << 1 | int("memory_management_control_operations" in vars(slice))
+			if "memory_management_control_operations" in vars(slice):
+				for mmco in slice.memory_management_control_operations:
+					bits = gen_ue(bits, mmco.idc)
+					if "sref" in mmco:
+						bits = gen_ue(bits, -mmco.sref)
+					if "lref" in mmco:
+						bits = gen_ue(bits, mmco.lref)
+				bits = bits << 1 | 1 # memory_management_control_operation == 0
+	if "cabac_init_idc" in vars(slice):
+		bits = gen_ue(bits, slice.cabac_init_idc)
+	bits = gen_se(bits, slice.slice_qp_delta)
+	if "disable_deblocking_filter_idc" in vars(slice):
+		bits = gen_ue(bits, slice.disable_deblocking_filter_idc)
+		if slice.disable_deblocking_filter_idc != 1:
+			bits = gen_se(bits, slice.slice_alpha_c0_offset >> 1)
+			bits = gen_se(bits, slice.slice_beta_offset >> 1)
+	return bits
 
 
 
@@ -183,6 +259,12 @@ def gen_pic_parameter_set(bits, pps):
 
 
 
+def gen_access_unit_delimiter(bits, aud):
+	bits = bits << 3 | aud.primary_pic_type
+	return bits
+
+
+
 def gen_seq_parameter_set_extension(bits, spse):
 	bits = bits << 1 | 1 # seq_parameter_set_id
 	bits = gen_ue(bits, spse.aux_format_idc)
@@ -242,6 +324,7 @@ def gen_subset_seq_parameter_set(bits, ssps):
 gen_bits = {
 	7: gen_seq_parameter_set,
 	8: gen_pic_parameter_set,
+	9: gen_access_unit_delimiter,
 	13: gen_seq_parameter_set_extension,
 	15: gen_subset_seq_parameter_set
 }

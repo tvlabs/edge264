@@ -450,13 +450,13 @@ void *ADD_VARIANT(worker_loop)(Edge264Decoder *dec) {
  */
 static void parse_dec_ref_pic_marking(Edge264Decoder *dec, Edge264SeqParameterSet *sps)
 {
-	static const char * const memory_management_control_operation_desc[6] = {
-		"  - dereference frame %u\n",
-		"  - dereference long-term frame %3$u\n",
-		"  - convert frame %u into long-term index %u\n",
-		"  - dereference long-term frames on and above %3$d\n",
-		"  - convert current picture to IDR and dereference all frames\n",
-		"  - assign long-term index %3$u to current picture\n"};
+	static const char * const mmco_names[6] = {
+		"    - {idc: 1, sref: %u} # dereference\n",
+		"    - {idc: 2, lref: %2$u} # dereference\n",
+		"    - {idc: 3, sref: %u, lref: %u} # convert\n",
+		"    - {idc: 4, lref: %2$d} # dereference on and above\n",
+		"    - {idc: 5} # dereference all\n",
+		"    - {idc: 6, lref: %2$u} # convert current\n"};
 	
 	// while the exact release time of non-ref frames in C.4.5.2 is ambiguous, we ignore no_output_of_prior_pics_flag
 	if (dec->IdrPicFlag) {
@@ -477,9 +477,10 @@ static void parse_dec_ref_pic_marking(Edge264Decoder *dec, Edge264SeqParameterSe
 	if (get_u1(&dec->_gb)) {
 		log_dec(dec, "  memory_management_control_operations:\n");
 		while ((memory_management_control_operation = get_ue16(&dec->_gb, 6)) != 0 && i-- > 0) {
-			int target = dec->currPic, long_term_frame_idx = 0;
+			// FIXME should do nothing if target does not exist
+			int target = dec->currPic, FrameNum = 0, long_term_frame_idx = 0;
 			if (10 & 1 << memory_management_control_operation) { // 1 or 3
-				int FrameNum = dec->FrameNum - 1 - get_ue32(&dec->_gb, 4294967294);
+				FrameNum = dec->FrameNum - 1 - get_ue32(&dec->_gb, 4294967294);
 				for (unsigned r = dec->pic_reference_flags & ~dec->pic_long_term_flags; r; r &= r - 1) {
 					int j = __builtin_ctz(r);
 					if (dec->FrameNums[j] == FrameNum) {
@@ -517,8 +518,8 @@ static void parse_dec_ref_pic_marking(Edge264Decoder *dec, Edge264SeqParameterSe
 				dec->FieldOrderCnt[0][dec->currPic] = dec->TopFieldOrderCnt - tempPicOrderCnt;
 				dec->FieldOrderCnt[1][dec->currPic] = dec->BottomFieldOrderCnt - tempPicOrderCnt;
 			}
-			log_dec(dec, memory_management_control_operation_desc[memory_management_control_operation - 1],
-				dec->FrameNums[target], long_term_frame_idx);
+			log_dec(dec, mmco_names[memory_management_control_operation - 1],
+				FrameNum, long_term_frame_idx);
 		}
 	}
 	
@@ -553,7 +554,7 @@ static void parse_pred_weight_table(Edge264Decoder *dec, Edge264SeqParameterSet 
 		if (sps->ChromaArrayType != 0)
 			t->chroma_log2_weight_denom = get_ue16(&dec->_gb, 7);
 		for (int l = 0; l <= t->slice_type; l++) {
-			log_dec(dec, "  pred_weights_l%u:\n", l);
+			log_dec(dec, "  explicit_weights_l%u:\n", l);
 			for (int i = l * 32; i < l * 32 + t->pps.num_ref_idx_active[l]; i++) {
 				if (get_u1(&dec->_gb)) {
 					t->explicit_weights[0][i] = get_se16(&dec->_gb, -128, 127);
@@ -573,11 +574,11 @@ static void parse_pred_weight_table(Edge264Decoder *dec, Edge264SeqParameterSet 
 					t->explicit_weights[2][i] = 1 << t->chroma_log2_weight_denom;
 					t->explicit_offsets[2][i] = 0;
 				}
-				log_dec(dec, sps->ChromaArrayType ? "    - *%d/%u+%d : *%d/%u+%d : *%d/%u+%d\n" : "    - *%d/%u+%d\n",
+				log_dec(dec, sps->ChromaArrayType ? "    - {Y: \"*%d>>%u+%d\", Cb: \"*%d>>%u+%d\", Cr: \"*%d>>%u+%d\"}\n" : "    - {Y: \"*%d>>%u+%d\"}\n",
 					(i == l * 32) ? ' ' : ',',
-					t->explicit_weights[0][i], 1 << t->luma_log2_weight_denom, t->explicit_offsets[0][i] << (sps->BitDepth_Y - 8),
-					t->explicit_weights[1][i], 1 << t->chroma_log2_weight_denom, t->explicit_offsets[1][i] << (sps->BitDepth_C - 8),
-					t->explicit_weights[2][i], 1 << t->chroma_log2_weight_denom, t->explicit_offsets[2][i] << (sps->BitDepth_C - 8));
+					t->explicit_weights[0][i], t->luma_log2_weight_denom, t->explicit_offsets[0][i],
+					t->explicit_weights[1][i], t->chroma_log2_weight_denom, t->explicit_offsets[1][i],
+					t->explicit_weights[2][i], t->chroma_log2_weight_denom, t->explicit_offsets[2][i]);
 			}
 		}
 	}
@@ -678,9 +679,9 @@ static void parse_ref_pic_list_modification(Edge264Decoder *dec, Edge264SeqParam
 			log_dec(dec, "  ref_pic_list_modifications_l%u: [", l);
 			for (int refIdx = 0, modification_of_pic_nums_idc; (modification_of_pic_nums_idc = get_ue16(&dec->_gb, 5)) != 3 && refIdx < 32; refIdx++) {
 				int num = get_ue32(&dec->_gb, 4294967294);
-				log_dec(dec, refIdx ? ",%d%s" : "%d%s",
-					modification_of_pic_nums_idc % 4 == 0 ? -num - 1 : num + (modification_of_pic_nums_idc != 2),
-					modification_of_pic_nums_idc == 2 ? "l" : modification_of_pic_nums_idc > 3 ? "v" : "");
+				log_dec(dec, refIdx ? ",[\"%s\",%+d]" : "[\"%s\",%+d]",
+					modification_of_pic_nums_idc < 2 ? "sref" : modification_of_pic_nums_idc == 2 ? "lref" : "view",
+					modification_of_pic_nums_idc % 4 == 0 ? -num - 1 : num + (modification_of_pic_nums_idc != 2));
 				int pic = dec->prevPic; // for modification_of_pic_nums_idc == 4 and 5
 				if (modification_of_pic_nums_idc < 2) {
 					picNumLX = (modification_of_pic_nums_idc == 0) ? picNumLX - (num + 1) : picNumLX + (num + 1);
@@ -854,10 +855,10 @@ int ADD_VARIANT(parse_slice_layer_without_partitioning)(Edge264Decoder *dec, int
 	t->slice_type = (slice_type < 5) ? slice_type : slice_type - 5;
 	int pic_parameter_set_id = get_ue16(&dec->_gb, 255);
 	log_dec(dec, "  first_mb_in_slice: %u\n"
-		"  slice_type: %s%s\n"
+		"  slice_type: %u # %s%s\n"
 		"  pic_parameter_set_id: %u%s\n",
 		t->first_mb_in_slice,
-		slice_type_names[t->slice_type], unsup_if(t->slice_type > 2),
+		slice_type, slice_type_names[t->slice_type], unsup_if(t->slice_type > 2),
 		pic_parameter_set_id, unsup_if(pic_parameter_set_id >= 4));
 	Edge264SeqParameterSet *sps = (dec->nal_unit_type == 20) ? &dec->ssps : &dec->sps;
 	if (t->slice_type > 2 || pic_parameter_set_id >= 4)
@@ -885,7 +886,8 @@ int ADD_VARIANT(parse_slice_layer_without_partitioning)(Edge264Decoder *dec, int
 	// FIXME incorrect for MVC
 	int prevRefFrameNum = dec->IdrPicFlag ? 0 : dec->FrameNums[dec->prevPic];
 	dec->FrameNum = prevRefFrameNum + ((frame_num - prevRefFrameNum) & FrameNumMask);
-	log_dec(dec, "  FrameNum: %u\n", dec->FrameNum);
+	log_dec(dec, "  frame_num: {bits: %u, absolute: %u}\n",
+		sps->log2_max_frame_num, dec->FrameNum);
 	
 	// check for gaps in frame_num (8.2.5.2)
 	int gap = dec->FrameNum - prevRefFrameNum;
@@ -972,12 +974,16 @@ int ADD_VARIANT(parse_slice_layer_without_partitioning)(Edge264Decoder *dec, int
 			finish_frame(dec);
 		int prevPicOrderCnt = dec->IdrPicFlag ? 0 : dec->prevPicOrderCnt;
 		int inc = (pic_order_cnt_lsb - prevPicOrderCnt) << shift >> shift;
-		dec->TopFieldOrderCnt = prevPicOrderCnt + inc;
-		int delta_pic_order_cnt_bottom = 0;
-		if (t->pps.bottom_field_pic_order_in_frame_present_flag && !t->field_pic_flag)
-			delta_pic_order_cnt_bottom = get_se32(&dec->_gb, (-1u << 31) + 1, (1u << 31) - 1);
-		dec->BottomFieldOrderCnt = dec->TopFieldOrderCnt + delta_pic_order_cnt_bottom;
+		dec->BottomFieldOrderCnt = dec->TopFieldOrderCnt = prevPicOrderCnt + inc;
+		log_dec(dec, "  pic_order_cnt: {type: 0, bits: %u, absolute: %d",
+			sps->log2_max_pic_order_cnt_lsb, dec->TopFieldOrderCnt);
+		if (t->pps.bottom_field_pic_order_in_frame_present_flag && !t->field_pic_flag) {
+			dec->BottomFieldOrderCnt += get_se32(&dec->_gb, (-1u << 31) + 1, (1u << 31) - 1);
+			log_dec(dec, ", bottom: %d", dec->BottomFieldOrderCnt);
+		}
+		log_dec(dec, "}");
 	} else if (sps->pic_order_cnt_type == 1) {
+		log_dec(dec, "  pic_order_cnt: {type: 1");
 		unsigned absFrameNum = dec->FrameNum + (dec->nal_ref_idc != 0) - 1;
 		dec->TopFieldOrderCnt = (dec->nal_ref_idc) ? 0 : sps->offset_for_non_ref_pic;
 		if (sps->num_ref_frames_in_pic_order_cnt_cycle > 0) {
@@ -985,23 +991,32 @@ int ADD_VARIANT(parse_slice_layer_without_partitioning)(Edge264Decoder *dec, int
 				sps->PicOrderCntDeltas[sps->num_ref_frames_in_pic_order_cnt_cycle] +
 				sps->PicOrderCntDeltas[absFrameNum % sps->num_ref_frames_in_pic_order_cnt_cycle];
 		}
-		int delta_pic_order_cnt0 = 0, delta_pic_order_cnt1 = 0;
+		dec->BottomFieldOrderCnt = dec->TopFieldOrderCnt + sps->offset_for_top_to_bottom_field;
 		if (!sps->delta_pic_order_always_zero_flag) {
-			delta_pic_order_cnt0 = get_se32(&dec->_gb, (-1u << 31) + 1, (1u << 31) - 1);
-			if (t->pps.bottom_field_pic_order_in_frame_present_flag && !t->field_pic_flag)
-				delta_pic_order_cnt1 = get_se32(&dec->_gb, (-1u << 31) + 1, (1u << 31) - 1);
+			int delta_pic_order_cnt0 = get_se32(&dec->_gb, (-1u << 31) + 1, (1u << 31) - 1);
+			dec->TopFieldOrderCnt += delta_pic_order_cnt0;
+			dec->BottomFieldOrderCnt += delta_pic_order_cnt0;
+			log_dec(dec, ", delta0: %d", delta_pic_order_cnt0);
+			if (t->pps.bottom_field_pic_order_in_frame_present_flag && !t->field_pic_flag) {
+				int delta_pic_order_cnt1 = get_se32(&dec->_gb, (-1u << 31) + 1, (1u << 31) - 1);
+				dec->BottomFieldOrderCnt += delta_pic_order_cnt1;
+				log_dec(dec, ", delta1: %d", delta_pic_order_cnt1);
+			}
 		}
-		dec->TopFieldOrderCnt += delta_pic_order_cnt0;
+		log_dec(dec, (dec->TopFieldOrderCnt == dec->BottomFieldOrderCnt) ?
+			", absolute: %d}" : ", absolute: %d, bottom: %d}",
+			dec->TopFieldOrderCnt, dec->BottomFieldOrderCnt);
 		if (dec->currPic >= 0 && dec->TopFieldOrderCnt != dec->FieldOrderCnt[0][dec->currPic])
 			finish_frame(dec);
-		dec->BottomFieldOrderCnt = dec->TopFieldOrderCnt + delta_pic_order_cnt1;
 	} else {
 		dec->TopFieldOrderCnt = dec->BottomFieldOrderCnt = dec->FrameNum * 2 + (dec->nal_ref_idc != 0) - 1;
+		log_dec(dec, (dec->TopFieldOrderCnt == dec->BottomFieldOrderCnt) ?
+			"  pic_order_cnt: {type: 2, absolute: %d}" : "  pic_order_cnt: {type: 2, absolute: %d, bottom: %d}",
+			dec->TopFieldOrderCnt, dec->BottomFieldOrderCnt);
 	}
-	log_dec(dec, "  PicOrderCnt: %d%s\n", min(dec->TopFieldOrderCnt, dec->BottomFieldOrderCnt),
-		unsup_if(max(dec->TopFieldOrderCnt, dec->BottomFieldOrderCnt) >= 1 << 25));
+	log_dec(dec, "%s\n", unsup_if(max(dec->TopFieldOrderCnt, dec->BottomFieldOrderCnt) >= 1 << 25));
 	if (max(dec->TopFieldOrderCnt, dec->BottomFieldOrderCnt) >= 1 << 25)
-		return ENOTSUP;
+		return ENOTSUP; // FIXME won't commit log!
 	
 	// find and possibly allocate a DPB slot for the upcoming frame
 	int is_first_slice = 0;
@@ -1051,6 +1066,9 @@ int ADD_VARIANT(parse_slice_layer_without_partitioning)(Edge264Decoder *dec, int
 		if (get_u1(&dec->_gb)) {
 			for (int l = 0; l <= t->slice_type; l++)
 				t->pps.num_ref_idx_active[l] = get_ue16(&dec->_gb, lim - 1) + 1;
+			log_dec(dec, t->slice_type ? "  num_ref_idx_active: {l0: %u, l1: %u}\n" :
+				"  num_ref_idx_active: {l0: %u}\n",
+				t->pps.num_ref_idx_active[0], t->pps.num_ref_idx_active[1]);
 		} else {
 			t->pps.num_ref_idx_active[0] = min(t->pps.num_ref_idx_active[0], lim);
 			t->pps.num_ref_idx_active[1] = min(t->pps.num_ref_idx_active[1], lim);
@@ -1069,7 +1087,7 @@ int ADD_VARIANT(parse_slice_layer_without_partitioning)(Edge264Decoder *dec, int
 		log_dec(dec, "  cabac_init_idc: %u\n", t->cabac_init_idc - 1);
 	}
 	t->QP[0] = t->pps.QPprime_Y + get_se16(&dec->_gb, -t->pps.QPprime_Y, 51 - t->pps.QPprime_Y); // FIXME QpBdOffset
-	log_dec(dec, "  SliceQP_Y: %d\n", t->QP[0]);
+	log_dec(dec, "  slice_qp_delta: %d\n", t->QP[0] - t->pps.QPprime_Y);
 	
 	if (t->pps.deblocking_filter_control_present_flag) {
 		t->disable_deblocking_filter_idc = get_ue16(&dec->_gb, 2);
@@ -1078,8 +1096,8 @@ int ADD_VARIANT(parse_slice_layer_without_partitioning)(Edge264Decoder *dec, int
 		if (t->disable_deblocking_filter_idc != 1) {
 			t->FilterOffsetA = get_se16(&dec->_gb, -6, 6) * 2;
 			t->FilterOffsetB = get_se16(&dec->_gb, -6, 6) * 2;
-			log_dec(dec, "  FilterOffsetA: %d\n"
-				"  FilterOffsetB: %d\n", t->FilterOffsetA, t->FilterOffsetB);
+			log_dec(dec, "  slice_alpha_c0_offset: %d\n"
+				"  slice_beta_offset: %d\n", t->FilterOffsetA, t->FilterOffsetB);
 		}
 	} else {
 		t->disable_deblocking_filter_idc = 0;
@@ -1134,9 +1152,12 @@ int ADD_VARIANT(parse_slice_layer_without_partitioning)(Edge264Decoder *dec, int
 
 
 int ADD_VARIANT(parse_access_unit_delimiter)(Edge264Decoder *dec, int non_blocking, void(*free_cb)(void*,int), void *free_arg) {
+	const char primary_pic_type_names[8] =
+		{"I", "I,P", "I,P,B", "SI", "SI,SP", "I,SI", "I,SI,P,SP", "I,SI,P,SP,B"};
 	refill(&dec->_gb, 0);
 	int primary_pic_type = get_uv(&dec->_gb, 3);
-	log_dec(dec, "  primary_pic_type: %d\n", primary_pic_type);
+	log_dec(dec, "  primary_pic_type: %u # %s\n",
+		primary_pic_type, primary_pic_type_names[primary_pic_type]);
 	if (print_dec(dec, dec->log_header_arg))
 		return ENOTSUP;
 	if (!rbsp_end(&dec->_gb))
@@ -1851,7 +1872,7 @@ int ADD_VARIANT(parse_seq_parameter_set)(Edge264Decoder *dec, int non_blocking, 
 	}
 	
 	if (get_u1(&dec->_gb)) {
-		log_dec("  vui_parameters:\n");
+		log_dec(dec, "  vui_parameters:\n");
 		parse_vui_parameters(dec, &sps);
 	} else {
 		log_dec(dec, "  default_max_num_reorder_frames: %u\n"

@@ -575,7 +575,6 @@ static void parse_pred_weight_table(Edge264Decoder *dec, Edge264SeqParameterSet 
 					t->explicit_offsets[2][i] = 0;
 				}
 				log_dec(dec, sps->ChromaArrayType ? "    - {Y: \"*%d>>%u+%d\", Cb: \"*%d>>%u+%d\", Cr: \"*%d>>%u+%d\"}\n" : "    - {Y: \"*%d>>%u+%d\"}\n",
-					(i == l * 32) ? ' ' : ',',
 					t->explicit_weights[0][i], t->luma_log2_weight_denom, t->explicit_offsets[0][i],
 					t->explicit_weights[1][i], t->chroma_log2_weight_denom, t->explicit_offsets[1][i],
 					t->explicit_weights[2][i], t->chroma_log2_weight_denom, t->explicit_offsets[2][i]);
@@ -1123,10 +1122,14 @@ int ADD_VARIANT(parse_slice_layer_without_partitioning)(Edge264Decoder *dec, int
 			unsigned reference_flags = dec->pic_reference_flags | dec->reference_flags & ~same_views;
 			unsigned long_term_flags = dec->pic_long_term_flags | dec->long_term_flags & ~same_views;
 			for (int i = 0; i < 32 - __builtin_clzg(reference_flags | dec->output_flags, 32); i++) {
-				log_dec(dec, (dec->output_flags & 1 << i) ? "    %u: %sref frame with output order %d\n" : "    %u: %sref frame\n",
-					dec->FrameIds[i],
-					(long_term_flags & 1 << i) ? "long-term " : (reference_flags & 1 << i) ? "" : "non-",
-					min(dec->FieldOrderCnt[0][i], dec->FieldOrderCnt[1][i]) << 6 >> 6);
+				log_dec(dec, "    - {id: %u", dec->FrameIds[i]);
+				if (reference_flags & 1 << i)
+					log_dec(dec, long_term_flags & 1 << i ? ", lref: %u" : ", sref: %u", long_term_flags & 1 << i ? dec->LongTermFrameIdx[i] : dec->FrameNums[i]);
+				if (dec->output_flags & 1 << i)
+					log_dec(dec, ", poc: %d", min(dec->FieldOrderCnt[0][i], dec->FieldOrderCnt[1][i]) << 6 >> 6);
+				if (dec->second_views)
+					log_dec(dec, ", view: %u", dec->second_views >> i & 1);
+				log_dec(dec, "}\n");
 			}
 		#endif
 	}
@@ -1152,7 +1155,7 @@ int ADD_VARIANT(parse_slice_layer_without_partitioning)(Edge264Decoder *dec, int
 
 
 int ADD_VARIANT(parse_access_unit_delimiter)(Edge264Decoder *dec, int non_blocking, void(*free_cb)(void*,int), void *free_arg) {
-	const char primary_pic_type_names[8] =
+	const char *primary_pic_type_names[8] =
 		{"I", "I,P", "I,P,B", "SI", "SI,SP", "I,SI", "I,SI,P,SP", "I,SI,P,SP,B"};
 	refill(&dec->_gb, 0);
 	int primary_pic_type = get_uv(&dec->_gb, 3);
@@ -1668,7 +1671,7 @@ static int parse_seq_parameter_set_mvc_extension(Edge264Decoder *dec, int profil
 		get_ue16(&dec->_gb, 1023);
 	log_dec(dec, "  num_anchor_refs: {l0: %u, l1: %u}\n"
 		"  num_non_anchor_refs: {l0: %u, l1: %u}\n"
-		"  level_values_signalled:",
+		"  level_values_signalled:\n",
 		num_anchor_refs_l0, num_anchor_refs_l1,
 		num_non_anchor_refs_l0, num_non_anchor_refs_l1);
 	

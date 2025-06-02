@@ -71,17 +71,17 @@ def gen_slice_layer_without_partitioning(bits, slice):
 	for i in range(slice.slice_type % 5 + 1):
 		bits = bits << 1 | int(f"ref_pic_list_modification_l{i}" in vars(slice))
 		if f"ref_pic_list_modification_l{i}" in vars(slice):
-			for field, diff in slice[f"ref_pic_list_modification_l{i}"]:
+			for field, diff in vars(slice)[f"ref_pic_list_modification_l{i}"]:
 				bits = gen_ue(bits, field_to_idc[field] - (diff < 0))
 				bits = gen_ue(bits, diff if field == "lref" else abs(diff) - 1)
 			bits = gen_ue(bits, 3)
-	if "explicit_weights_l0" in vars(slice)::
+	if "explicit_weights_l0" in vars(slice):
 		bits = gen_ue(bits, int(re.findall(r"\d+", slice.explicit_weights_l0[0].Y)[1]))
 		bits = gen_ue(bits, int(re.findall(r"\d+", slice.explicit_weights_l0[0].Cb)[1]))
 		for i in range(slice.slice_type % 5 + 1):
-			for ref in slice[f"explicit_weights_l{i}"]:
+			for ref in vars(slice)[f"explicit_weights_l{i}"]:
 				for plane in ("Y", "Cb", "Cr"):
-					weight, denom, offset = map(int, re.findall(r"\-?\d+", ref[plane]))
+					weight, denom, offset = map(int, re.findall(r"\-?\d+", vars(ref)[plane]))
 					bits = bits << 1 | int(weight != 2 ** denom or offset != 0)
 					if weight != 2 ** denom or offset != 0:
 						bits = gen_se(bits, weight)
@@ -119,16 +119,14 @@ def gen_hrd_parameters(bits, hrd):
 	bits = bits << 4 | bit_rate_scale
 	bits = bits << 4 | cpb_size_scale
 	for cpb in hrd.CPBs:
-		bits = gen_ue(bits, cpb.bit_rate >> 6 >> bit_rate_scale)
-		bits = gen_ue(bits, cpb.size >> 4 >> cpb_size_scale)
-		bits = bits << 1 | cpb.cbr
+		bits = gen_ue(bits, (cpb.bit_rate >> 6 >> bit_rate_scale) - 1)
+		bits = gen_ue(bits, (cpb.size >> 4 >> cpb_size_scale) - 1)
+		bits = bits << 1 | cpb.cbr_flag
 	bits = bits << 5 | hrd.initial_cpb_removal_delay_length - 1
 	bits = bits << 5 | hrd.cpb_removal_delay_length - 1
 	bits = bits << 5 | hrd.dpb_output_delay_length - 1
 	bits = bits << 5 | hrd.time_offset_length
 	return bits
-
-
 
 def gen_vui_parameters(bits, sps, vui):
 	bits = bits << 1 | int("aspect_ratio" in vars(vui))
@@ -149,10 +147,10 @@ def gen_vui_parameters(bits, sps, vui):
 			bits = bits << 8 | vui.colour_primaries
 			bits = bits << 8 | vui.transfer_characteristics
 			bits = bits << 8 | vui.matrix_coefficients
-	bits = bits << 1 | int("chroma_sample_loc_type_top_field" in vars(vui))
-	if "chroma_sample_loc_type_top_field" in vars(vui):
-		bits = gen_ue(bits, vui.chroma_sample_loc_type_top_field)
-		bits = gen_ue(bits, vui.chroma_sample_loc_type_bottom_field)
+	bits = bits << 1 | int("chroma_sample_loc" in vars(vui))
+	if "chroma_sample_loc" in vars(vui):
+		bits = gen_ue(bits, vui.chroma_sample_loc.top)
+		bits = gen_ue(bits, vui.chroma_sample_loc.bottom)
 	bits = bits << 1 | int("num_units_in_tick" in vars(vui))
 	if "num_units_in_tick" in vars(vui):
 		bits = bits << 32 | vui.num_units_in_tick
@@ -171,16 +169,14 @@ def gen_vui_parameters(bits, sps, vui):
 	if "motion_vectors_over_pic_boundaries_flag" in vars(vui):
 		bits = bits << 1 | vui.motion_vectors_over_pic_boundaries_flag
 		PicSizeInMbs = sps.pic_size_in_mbs.width * sps.pic_size_in_mbs.height
-		RawMbBits = 256 * sps.bit_depth_luma + (64 << sps.chroma_format_idc & ~64) * sps.bit_depth_chroma
-		bits = gen_ue(bits, (PicSizeInMbs * RawMbBits) // vui.max_bytes_per_pic // 8 if "max_bytes_per_pic" in vars(vui) else 0)
-		bits = gen_ue(bits, (128 + RawMbBits) // vui.max_bits_per_mb if "max_bits_per_mb" in vars(vui) else 0)
+		RawMbBits = 256 * sps.bit_depth.luma + (64 << sps.chroma_format_idc & ~64) * sps.bit_depth.chroma
+		bits = gen_ue(bits, (PicSizeInMbs * RawMbBits) // vui.max_bytes_per_pic // 8 if vui.max_bytes_per_pic else 0)
+		bits = gen_ue(bits, (128 + RawMbBits) // vui.max_bits_per_mb if vui.max_bits_per_mb else 0)
 		bits = gen_ue(bits, vui.log2_max_mv_length_horizontal)
 		bits = gen_ue(bits, vui.log2_max_mv_length_vertical)
 		bits = gen_ue(bits, vui.max_num_reorder_frames)
 		bits = gen_ue(bits, vui.max_dec_frame_buffering)
 	return bits
-
-
 
 def gen_seq_parameter_set(bits, sps):
 	bits = bits << 8 | sps.profile_idc
@@ -222,7 +218,7 @@ def gen_seq_parameter_set(bits, sps):
 	bits = bits << 1 | int("frame_crop_offsets" in vars(sps))
 	if "frame_crop_offsets" in vars(sps):
 		for side in ("left", "right", "top", "bottom"):
-			bits = gen_ue(bits, sps.frame_crop_offsets[side])
+			bits = gen_ue(bits, vars(sps.frame_crop_offsets)[side])
 	bits = bits << 1 | int("vui_parameters" in vars(sps))
 	if "vui_parameters" in vars(sps):
 		bits = gen_vui_parameters(bits, sps, sps.vui_parameters)
@@ -278,41 +274,58 @@ def gen_seq_parameter_set_extension(bits, spse):
 
 
 
-def gen_seq_parameter_set_mvc_extension(bits, ssps):
-	bits = gen_ue(bits, 1) # num_views_minus1
-	bits = gen_ue(bits, ssps.view_ids[0])
-	bits = gen_ue(bits, ssps.view_ids[1])
-	bits = gen_ue(bits, ssps.num_anchor_refs.l0)
-	if ssps.num_anchor_refs.l0:
-		bits = gen_ue(bits, ssps.view_ids[0])
-	bits = gen_ue(bits, ssps.num_anchor_refs.l1)
-	if ssps.num_anchor_refs.l1:
-		bits = gen_ue(bits, ssps.view_ids[0])
-	bits = gen_ue(bits, ssps.num_non_anchor_refs.l0)
-	if ssps.num_non_anchor_refs.l0:
-		bits = gen_ue(bits, ssps.view_ids[0])
-	bits = gen_ue(bits, ssps.num_non_anchor_refs.l1)
-	if ssps.num_non_anchor_refs.l1:
-		bits = gen_ue(bits, ssps.view_ids[0])
-	bits = gen_ue(bits, len(ssps.level_values_signalled) - 1)
-	for level in ssps.level_values_signalled:
-		bits = bits << 8 | level.idc
-		bits = gen_ue(bits, len(level.operation_points) - 1)
-		for op in level.operation_points:
-			bits = bits << 3 | op.temporal_id
-			bits = gen_ue(bits, len(op.target_view_ids) - 1)
-			for view_id in op.target_view_ids:
-				bits = gen_ue(bits, view_id)
-			bits = gen_ue(bits, op.num_views - 1)
+def gen_mvc_vui_parameters_extension(bits, ssps, vui):
+	bits = gen_ue(bits, len(vui.vui_mvc_operation_points) - 1)
+	for op in vui.vui_mvc_operation_points:
+		bits = bits << 3 | op.temporal_id
+		bits = gen_ue(bits, len(op.target_views) - 1)
+		for view_id in op.target_views:
+			bits = gen_ue(bits, view_id)
+		bits = bits << 1 | int("num_units_in_tick" in vars(vui))
+		if "num_units_in_tick" in vars(vui):
+			bits = bits << 32 | vui.num_units_in_tick
+			bits = bits << 32 | vui.time_scale
+			bits = bits << 1 | vui.fixed_frame_rate_flag
+		bits = bits << 1 | int("nal_hrd_parameters" in vars(vui))
+		if "nal_hrd_parameters" in vars(vui):
+			bits = gen_hrd_parameters(bits, vui.nal_hrd_parameters)
+		bits = bits << 1 | int("vcl_hrd_parameters" in vars(vui))
+		if "vcl_hrd_parameters" in vars(vui):
+			bits = gen_hrd_parameters(bits, vui.vcl_hrd_parameters)
+		if "nal_hrd_parameters" in vars(vui) or "vcl_hrd_parameters" in vars(vui):
+			bits = bits << 1 | vui.low_delay_hrd_flag
+		bits = bits << 1 | vui.pic_struct_present_flag
 	return bits
-
-
 
 def gen_subset_seq_parameter_set(bits, ssps):
 	bits = gen_seq_parameter_set(bits, ssps)
 	if ssps.profile_idc in (118, 128, 134):
 		bits = bits << 1 | 1 # bit_equal_to_one
-		bits = gen_seq_parameter_set_mvc_extension(bits, ssps)
+		bits = gen_ue(bits, 1) # num_views_minus1
+		bits = gen_ue(bits, ssps.view_ids[0])
+		bits = gen_ue(bits, ssps.view_ids[1])
+		bits = gen_ue(bits, ssps.num_anchor_refs.l0)
+		if ssps.num_anchor_refs.l0:
+			bits = gen_ue(bits, ssps.view_ids[0])
+		bits = gen_ue(bits, ssps.num_anchor_refs.l1)
+		if ssps.num_anchor_refs.l1:
+			bits = gen_ue(bits, ssps.view_ids[0])
+		bits = gen_ue(bits, ssps.num_non_anchor_refs.l0)
+		if ssps.num_non_anchor_refs.l0:
+			bits = gen_ue(bits, ssps.view_ids[0])
+		bits = gen_ue(bits, ssps.num_non_anchor_refs.l1)
+		if ssps.num_non_anchor_refs.l1:
+			bits = gen_ue(bits, ssps.view_ids[0])
+		bits = gen_ue(bits, len(ssps.level_values_signalled) - 1)
+		for level in ssps.level_values_signalled:
+			bits = bits << 8 | level.idc
+			bits = gen_ue(bits, len(level.operation_points) - 1)
+			for op in level.operation_points:
+				bits = bits << 3 | op.temporal_id
+				bits = gen_ue(bits, len(op.target_views) - 1)
+				for view_id in op.target_views:
+					bits = gen_ue(bits, view_id)
+				bits = gen_ue(bits, op.num_views - 1)
 		bits = bits << 1 | int("mvc_vui_parameters" in vars(ssps))
 		if "mvc_vui_parameters" in vars(ssps):
 			bits = gen_mvc_vui_parameters_extension(bits, ssps, ssps.mvc_vui_parameters)

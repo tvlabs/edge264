@@ -1304,10 +1304,12 @@ int ADD_VARIANT(parse_pic_parameter_set)(Edge264Decoder *dec, int non_blocking, 
 	pps.bottom_field_pic_order_in_frame_present_flag = get_u1(&dec->_gb);
 	int num_slice_groups = get_ue16(&dec->_gb, 7) + 1;
 	log_dec(dec, "  pic_parameter_set_id: %u%s\n"
-		"  entropy_coding_mode: %u # %s\n"
+		"  entropy_coding_mode_flag: %u # %s\n"
+		"  bottom_field_pic_order_in_frame_present_flag: %u\n"
 		"  num_slice_groups: %u%s\n",
 		pic_parameter_set_id, unsup_if(pic_parameter_set_id >= 4),
 		pps.entropy_coding_mode_flag, pps.entropy_coding_mode_flag ? "CABAC" : "CAVLC",
+		pps.bottom_field_pic_order_in_frame_present_flag,
 		num_slice_groups, unsup_if(num_slice_groups > 1));
 	
 	// Let's be nice enough to print the headers for unsupported stuff.
@@ -1357,8 +1359,8 @@ int ADD_VARIANT(parse_pic_parameter_set)(Edge264Decoder *dec, int non_blocking, 
 	pps.constrained_intra_pred_flag = get_u1(&dec->_gb);
 	int redundant_pic_cnt_present_flag = get_u1(&dec->_gb);
 	log_dec(dec, "  num_ref_idx_default_active: {l0: %u, l1: %u}\n"
-		"  weighted_pred: %u # %s\n"
-		"  weighted_bipred: %u # %s\n"
+		"  weighted_pred_flag: %u # %s\n"
+		"  weighted_bipred_idc: %u # %s\n"
 		"  pic_init_qp: %u\n"
 		"  chroma_qp_index_offset: %d\n"
 		"  deblocking_filter_control_present_flag: %u\n"
@@ -1413,7 +1415,7 @@ static void parse_hrd_parameters(Edge264Decoder *dec, Edge264SeqParameterSet *sp
 		uint64_t bit_rate_value = get_ue32(&dec->_gb, 4294967294) + 1;
 		uint64_t cpb_size_value = get_ue32(&dec->_gb, 4294967294) + 1;
 		int cbr_flag = get_u1(&dec->_gb);
-		log_dec(dec, "%s  - {bit_rate: %llu, size: %llu, cbr: %u}\n",
+		log_dec(dec, "%s  - {bit_rate: %llu, size: %llu, cbr_flag: %u}\n",
 			indent, bit_rate_value << (6 + bit_rate_scale), cpb_size_value << (4 + cpb_size_scale), cbr_flag);
 	}
 	unsigned delays = get_uv(&dec->_gb, 20);
@@ -1524,10 +1526,8 @@ static void parse_vui_parameters(Edge264Decoder *dec, Edge264SeqParameterSet *sp
 	if (get_u1(&dec->_gb)) {
 		int chroma_sample_loc_type_top_field = get_ue16(&dec->_gb, 5);
 		int chroma_sample_loc_type_bottom_field = get_ue16(&dec->_gb, 5);
-		log_dec(dec, "    chroma_sample_loc_type_top_field: %u\n"
-			"    chroma_sample_loc_type_bottom_field: %u\n",
-			chroma_sample_loc_type_top_field,
-			chroma_sample_loc_type_bottom_field);
+		log_dec(dec, "    chroma_sample_loc: {top: %u, bottom: %u}\n",
+			chroma_sample_loc_type_top_field, chroma_sample_loc_type_bottom_field);
 	}
 	if (get_u1(&dec->_gb)) {
 		sps->num_units_in_tick = maxu(get_uv(&dec->_gb, 32), 1);
@@ -1564,15 +1564,11 @@ static void parse_vui_parameters(Edge264Decoder *dec, Edge264SeqParameterSet *sp
 			motion_vectors_over_pic_boundaries_flag);
 		int RawMbBits = 256 * sps->BitDepth_Y + (64 << sps->chroma_format_idc & ~64) * sps->BitDepth_C;
 		int max_bytes_per_pic_denom = get_ue16(&dec->_gb, 16);
-		if (max_bytes_per_pic_denom > 0) {
-			log_dec(dec, "    max_bytes_per_pic: %u\n",
-				(sps->pic_width_in_mbs * sps->pic_height_in_mbs * RawMbBits) / (8 * max_bytes_per_pic_denom));
-		}
+		log_dec(dec, "    max_bytes_per_pic: %u\n",
+			max_bytes_per_pic_denom ? (sps->pic_width_in_mbs * sps->pic_height_in_mbs * RawMbBits) / (8 * max_bytes_per_pic_denom) : 0);
 		int max_bits_per_mb_denom = get_ue16(&dec->_gb, 16);
-		if (max_bits_per_mb_denom > 0) {
-			log_dec(dec, "    max_bits_per_mb: %u\n",
-				(128 + RawMbBits) / max_bits_per_mb_denom);
-		}
+		log_dec(dec, "    max_bits_per_mb: %u\n",
+			max_bits_per_mb_denom ? (128 + RawMbBits) / max_bits_per_mb_denom : 0);
 		int log2_max_mv_length_horizontal = get_ue16(&dec->_gb, 15);
 		int log2_max_mv_length_vertical = get_ue16(&dec->_gb, 15);
 		// we don't enforce MaxDpbFrames here since violating the level is harmless
@@ -1602,11 +1598,11 @@ static void parse_vui_parameters(Edge264Decoder *dec, Edge264SeqParameterSet *sp
  */
 static void parse_mvc_vui_parameters_extension(Edge264Decoder *dec, Edge264SeqParameterSet *sps)
 {
-	log_dec(dec, "  vui_mvc_ops:\n");
+	log_dec(dec, "  vui_mvc_operation_points:\n");
 	for (int i = get_ue16(&dec->_gb, 1023); i-- >= 0;) {
 		int temporal_id = get_uv(&dec->_gb, 3);
 		log_dec(dec, "    - temporal_id: %u\n"
-			"      target_output_views: [", temporal_id);
+			"      target_views: [", temporal_id);
 		for (int j = get_ue16(&dec->_gb, 1023); j >= 0; j--) {
 			int view_id = get_ue16(&dec->_gb, 1023);
 			log_dec(dec, j ? "%u," : "%u]\n", view_id);
@@ -1682,7 +1678,7 @@ static int parse_seq_parameter_set_mvc_extension(Edge264Decoder *dec, int profil
 			"      operation_points: [", (float)level_idc / 10);
 		for (int j = get_ue16(&dec->_gb, 1023); j >= 0; j--) {
 			int applicable_op_temporal_id = get_uv(&dec->_gb, 3);
-			log_dec(dec, "{temporal_id: %u, target_view_ids: [", applicable_op_temporal_id);
+			log_dec(dec, "{temporal_id: %u, target_views: [", applicable_op_temporal_id);
 			for (int k = get_ue16(&dec->_gb, 1023); k >= 0; k--) {
 				int applicable_op_target_view_id = get_ue16(&dec->_gb, 1023);
 				log_dec(dec, k ? "%u," : "%u], num_views: ", applicable_op_target_view_id);
@@ -1818,7 +1814,7 @@ int ADD_VARIANT(parse_seq_parameter_set)(Edge264Decoder *dec, int non_blocking, 
 		sps.num_ref_frames_in_pic_order_cnt_cycle = get_ue16(&dec->_gb, 255);
 		log_dec(dec, "  delta_pic_order_always_zero_flag: %u\n"
 			"  offset_for_non_ref_pic: %d\n"
-			"  offset_for_top_to_bottom: %d\n"
+			"  offset_for_top_to_bottom_field: %d\n"
 			"  offsets_for_ref_frames: [",
 			sps.delta_pic_order_always_zero_flag,
 			sps.offset_for_non_ref_pic,
@@ -1903,6 +1899,7 @@ int ADD_VARIANT(parse_seq_parameter_set)(Edge264Decoder *dec, int non_blocking, 
 	}
 	
 	// check for unsupported features
+	// FIXME move before returning error
 	if (print_dec(dec, dec->log_header_arg) || sps.ChromaArrayType != 1 ||
 		sps.BitDepth_Y + sps.BitDepth_C != 16 ||
 		sps.qpprime_y_zero_transform_bypass_flag || !sps.frame_mbs_only_flag)

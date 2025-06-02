@@ -37,9 +37,33 @@ def gen_se(bits, v):
 
 
 
-def gen_slice_layer_without_partitioning(bits, slice):
+def gen_slice_data_cavlc(bits, f, slice_type, BitDepth_Y, BitDepth_C, macroblocks):
+	for mb in macroblocks:
+		# flush the bits buffer to file
+		num = bits.bit_length() - 1
+		bits ^= 1 << num
+		f.write(bits.to_bytes(num // 8, byteorder="big"))
+		bits = bits & ((1 << (num % 8)) - 1) | 1 << (num % 8)
+		if "mb_skip_run" in vars(mb):
+			bits = gen_ue(bits, mb.mb_skip_run)
+		if "mb_field_decoding_flag" in vars(mb):
+			bits = bits << 1 | mb.mb_field_decoding_flag
+		# macroblock_layer()
+		bits = gen_ue(bits, mb.mb_type)
+		if mb.mb_type == [30, 48, 25][slice_type]: # I_PCM
+			num = bits.bit_length() - 1
+			bits <<= -num % 8 # pcm_alignment_zero_bit
+			for sample in mb.pcm_samples_Y:
+				bits = bits << BitDepth_Y | sample
+			for sample in mb.pcm_samples_Cb + mb.pcm_samples_Cr:
+				bits = bits << BitDepth_C | sample
+		
+	return bits
+	
+def gen_slice_layer_without_partitioning(bits, f, slice):
 	bits = gen_ue(bits, slice.first_mb_in_slice)
 	bits = gen_ue(bits, slice.slice_type)
+	slice_type = slice.slice_type % 5
 	bits = gen_ue(bits, slice.pic_parameter_set_id)
 	if "colour_plane_id" in vars(slice):
 		bits = bits << 2 | slice.colour_plane_id
@@ -59,16 +83,16 @@ def gen_slice_layer_without_partitioning(bits, slice):
 		bits = gen_se(bits, slice.pic_order_cnt.delta0)
 		if "delta1" in vars(slice.pic_order_cnt):
 			bits = gen_se(bits, slice.pic_order_cnt.delta1)
-	if slice.slice_type in (1, 6):
+	if slice_type == 1:
 		bits = bits << 1 | slice.direct_spatial_mv_pred_flag
-	if slice.slice_type in (0, 1, 5, 6):
+	if slice_type <= 1:
 		bits = bits << 1 | int("num_ref_idx_active" in vars(slice))
 		if "num_ref_idx_active" in vars(slice):
 			bits = gen_ue(bits, slice.num_ref_idx_active.l0)
-			if slice.slice_type in (1, 6):
+			if slice_type == 1:
 				bits = gen_ue(bits, slice.num_ref_idx_active.l1)
 	field_to_idc = {"sref": 1, "lref": 2, "view": 5}
-	for i in range(slice.slice_type % 5 + 1):
+	for i in range(slice_type + 1):
 		bits = bits << 1 | int(f"ref_pic_list_modification_l{i}" in vars(slice))
 		if f"ref_pic_list_modification_l{i}" in vars(slice):
 			for field, diff in vars(slice)[f"ref_pic_list_modification_l{i}"]:
@@ -78,7 +102,7 @@ def gen_slice_layer_without_partitioning(bits, slice):
 	if "explicit_weights_l0" in vars(slice):
 		bits = gen_ue(bits, int(re.findall(r"\d+", slice.explicit_weights_l0[0].Y)[1]))
 		bits = gen_ue(bits, int(re.findall(r"\d+", slice.explicit_weights_l0[0].Cb)[1]))
-		for i in range(slice.slice_type % 5 + 1):
+		for i in range(slice_type + 1):
 			for ref in vars(slice)[f"explicit_weights_l{i}"]:
 				for plane in ("Y", "Cb", "Cr"):
 					weight, denom, offset = map(int, re.findall(r"\-?\d+", vars(ref)[plane]))
@@ -108,6 +132,10 @@ def gen_slice_layer_without_partitioning(bits, slice):
 		if slice.disable_deblocking_filter_idc != 1:
 			bits = gen_se(bits, slice.slice_alpha_c0_offset >> 1)
 			bits = gen_se(bits, slice.slice_beta_offset >> 1)
+	if "CAVLC_macroblocks" in vars(slice):
+		bits = gen_slice_data_cavlc(bits, f, slice_type, slice.FrameFormat.BitDepth_Y, slice.FrameFormat.BitDepth_C, slice.CAVLC_macroblocks)
+	else:
+		bits = gen_slice_data_cabac(bits, f, slice_type, slice.FrameFormat.BitDepth_Y, slice.FrameFormat.BitDepth_C, slice.CABAC_macroblocks)
 	return bits
 
 
@@ -178,8 +206,9 @@ def gen_vui_parameters(bits, sps, vui):
 		bits = gen_ue(bits, vui.max_dec_frame_buffering)
 	return bits
 
-def gen_seq_parameter_set(bits, sps):
+def gen_seq_parameter_set(bits, f, sps):
 	bits = bits << 8 | sps.profile_idc
+	print(sps.constraint_set_flags)
 	bits = bits << 8 | sum(f << (7 - i) for i, f in enumerate(sps.constraint_set_flags))
 	bits = bits << 8 | int(sps.level_idc * 10)
 	bits = bits << 1 | 1 # seq_parameter_set_id
@@ -226,7 +255,7 @@ def gen_seq_parameter_set(bits, sps):
 
 
 
-def gen_pic_parameter_set(bits, pps):
+def gen_pic_parameter_set(bits, f, pps):
 	bits = gen_ue(bits, pps.pic_parameter_set_id)
 	bits = bits << 1 | 1 # seq_parameter_set_id
 	bits = bits << 1 | pps.entropy_coding_mode_flag
@@ -255,13 +284,13 @@ def gen_pic_parameter_set(bits, pps):
 
 
 
-def gen_access_unit_delimiter(bits, aud):
+def gen_access_unit_delimiter(bits, f, aud):
 	bits = bits << 3 | aud.primary_pic_type
 	return bits
 
 
 
-def gen_seq_parameter_set_extension(bits, spse):
+def gen_seq_parameter_set_extension(bits, f, spse):
 	bits = bits << 1 | 1 # seq_parameter_set_id
 	bits = gen_ue(bits, spse.aux_format_idc)
 	if spse.aux_format_idc:
@@ -297,8 +326,8 @@ def gen_mvc_vui_parameters_extension(bits, ssps, vui):
 		bits = bits << 1 | vui.pic_struct_present_flag
 	return bits
 
-def gen_subset_seq_parameter_set(bits, ssps):
-	bits = gen_seq_parameter_set(bits, ssps)
+def gen_subset_seq_parameter_set(bits, f, ssps):
+	bits = gen_seq_parameter_set(bits, f, ssps)
 	if ssps.profile_idc in (118, 128, 134):
 		bits = bits << 1 | 1 # bit_equal_to_one
 		bits = gen_ue(bits, 1) # num_views_minus1
@@ -350,13 +379,15 @@ def main():
 		nals = yaml.load(f, Loader=SafeLoader)
 	with open(sys.argv[2], "wb") as f:
 		for nal in nals:
-			bits = 1 # start code leading set bit
+			bits = 1 # leading set bit
+			bits = bits << 32 | 1 # start code
 			bits <<= 1 # forbidden_zero_bit
 			bits = bits << 2 | nal.nal_ref_idc
 			bits = bits << 5 | nal.nal_unit_type
-			bits = gen_bits[nal.nal_unit_type](bits, nal)
+			bits = gen_bits[nal.nal_unit_type](bits, f, nal)
 			bits = bits << 1 | 1 # rbsp_stop_one_bit
-			num = bits.bit_length() + 31
+			num = bits.bit_length() - 1
+			bits ^= 1 << num
 			bits <<= -num % 8
 			f.write(bits.to_bytes((num + 7) // 8, byteorder="big"))
 

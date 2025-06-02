@@ -678,7 +678,7 @@ static void parse_ref_pic_list_modification(Edge264Decoder *dec, Edge264SeqParam
 			log_dec(dec, "  ref_pic_list_modifications_l%u: [", l);
 			for (int refIdx = 0, modification_of_pic_nums_idc; (modification_of_pic_nums_idc = get_ue16(&dec->_gb, 5)) != 3 && refIdx < 32; refIdx++) {
 				int num = get_ue32(&dec->_gb, 4294967294);
-				log_dec(dec, refIdx ? ",[\"%s\",%+d]" : "[\"%s\",%+d]",
+				log_dec(dec, "[\"%s\",%+d],",
 					modification_of_pic_nums_idc < 2 ? "sref" : modification_of_pic_nums_idc == 2 ? "lref" : "view",
 					modification_of_pic_nums_idc % 4 == 0 ? -num - 1 : num + (modification_of_pic_nums_idc != 2));
 				int pic = dec->prevPic; // for modification_of_pic_nums_idc == 4 and 5
@@ -714,9 +714,9 @@ static void parse_ref_pic_list_modification(Edge264Decoder *dec, Edge264SeqParam
 			log_dec(dec, "  RefPicList%u: [", lx);
 			for (int i = 0; i < t->pps.num_ref_idx_active[lx]; i++) {
 				int pic = t->RefPicList[lx][i];
-				log_dec(dec, (i < t->pps.num_ref_idx_active[lx] - 1) ? "%d," : "%d]\n",
-					dec->FrameIds[pic]);
+				log_dec(dec, "%d,", dec->FrameIds[pic]);
 			}
+			log_dec(dec, "]\n");
 		}
 	#endif
 }
@@ -1090,8 +1090,8 @@ int ADD_VARIANT(parse_slice_layer_without_partitioning)(Edge264Decoder *dec, int
 	
 	if (t->pps.deblocking_filter_control_present_flag) {
 		t->disable_deblocking_filter_idc = get_ue16(&dec->_gb, 2);
-		log_dec(dec, "  disable_deblocking_filter_idc: %s\n",
-			disable_deblocking_filter_idc_names[t->disable_deblocking_filter_idc]);
+		log_dec(dec, "  disable_deblocking_filter_idc: %u # %s\n",
+			t->disable_deblocking_filter_idc, disable_deblocking_filter_idc_names[t->disable_deblocking_filter_idc]);
 		if (t->disable_deblocking_filter_idc != 1) {
 			t->FilterOffsetA = get_se16(&dec->_gb, -6, 6) * 2;
 			t->FilterOffsetB = get_se16(&dec->_gb, -6, 6) * 2;
@@ -1118,7 +1118,9 @@ int ADD_VARIANT(parse_slice_layer_without_partitioning)(Edge264Decoder *dec, int
 		if (!(dec->pic_reference_flags & 1 << dec->currPic))
 			dec->dispPicOrderCnt = dec->FieldOrderCnt[0][dec->currPic]; // make all frames with lower POCs ready for output
 		#ifdef LOGS
-			log_dec(dec, "  FrameBuffer:\n");
+			log_dec(dec, "  FrameFormat: {ChromaArrayType: %u, BitDepth_Y: %u, BitDepth_C: %u}\n"
+				"  FrameBuffer:\n",
+				sps->ChromaArrayType, sps->BitDepth_Y, sps->BitDepth_C);
 			unsigned reference_flags = dec->pic_reference_flags | dec->reference_flags & ~same_views;
 			unsigned long_term_flags = dec->pic_long_term_flags | dec->long_term_flags & ~same_views;
 			for (int i = 0; i < 32 - __builtin_clzg(reference_flags | dec->output_flags, 32); i++) {
@@ -1143,7 +1145,7 @@ int ADD_VARIANT(parse_slice_layer_without_partitioning)(Edge264Decoder *dec, int
 	dec->ready_tasks |= ((dec->task_dependencies[task_id] & ~ready_frames(dec)) == 0) << task_id;
 	dec->taskPics[task_id] = dec->currPic;
 	if (!dec->n_threads)
-		log_dec(dec, "  macroblocks:\n");
+		log_dec(dec, t->pps.entropy_coding_mode_flag ? "  CABAC_macroblocks:\n" : "  CAVLC_macroblocks:\n");
 	if (print_dec(dec, dec->log_header_arg))
 		return ENOTSUP;
 	if (!dec->n_threads)
@@ -1318,13 +1320,13 @@ int ADD_VARIANT(parse_pic_parameter_set)(Edge264Decoder *dec, int non_blocking, 
 		log_dec(dec, "  slice_group_map_type: %u\n", slice_group_map_type);
 		if (slice_group_map_type == 0) {
 			log_dec(dec, "  run_lengths: [");
-			for (int i = num_slice_groups; i > 0; i--) {
+			for (int i = num_slice_groups; i-- > 0; ) {
 				int run_length = get_ue32(&dec->_gb, 139263) + 1; // level 6.2
 				log_dec(dec, i ? "%u," : "%u]\n", run_length);
 			}
 		} else if (slice_group_map_type == 2) {
 			log_dec(dec, "  top_lefts_bottom_rights: [");
-			for (int i = num_slice_groups - 1; i > 0; i--) {
+			for (int i = num_slice_groups - 1; i-- > 0; ) {
 				int top_left = get_ue32(&dec->_gb, 139264);
 				int bottom_right = get_ue32(&dec->_gb, 139264);
 				log_dec(dec, i ? "%u-%u," : "%u-%u]\n", top_left, bottom_right);
@@ -1340,7 +1342,7 @@ int ADD_VARIANT(parse_pic_parameter_set)(Edge264Decoder *dec, int non_blocking, 
 			int PicSizeInMapUnits = get_ue32(&dec->_gb, 139263) + 1;
 			log_dec(dec, "  slice_group_ids: [");
 			int bits = WORD_BIT - __builtin_clz(num_slice_groups - 1);
-			for (int i = PicSizeInMapUnits; i > 0; i--) {
+			for (int i = PicSizeInMapUnits; i-- > 0; ) {
 				int slice_group_id = get_uv(&dec->_gb, bits);
 				log_dec(dec, i ? "%u" : "%u]\n", slice_group_id);
 			}
@@ -1681,11 +1683,12 @@ static int parse_seq_parameter_set_mvc_extension(Edge264Decoder *dec, int profil
 			log_dec(dec, "{temporal_id: %u, target_views: [", applicable_op_temporal_id);
 			for (int k = get_ue16(&dec->_gb, 1023); k >= 0; k--) {
 				int applicable_op_target_view_id = get_ue16(&dec->_gb, 1023);
-				log_dec(dec, k ? "%u," : "%u], num_views: ", applicable_op_target_view_id);
+				log_dec(dec, "%u,", applicable_op_target_view_id);
 			}
 			int applicable_op_num_views = get_ue16(&dec->_gb, 1023) + 1;
-			log_dec(dec, j ? "%u}" : "%u}]\n", applicable_op_num_views);
+			log_dec(dec, "], num_views: %u},", applicable_op_num_views);
 		}
+		log_dec(dec, "]\n");
 	}
 	return profile_idc == 134 ? ENOTSUP : 0; // MFC is unsupported until streams actually use it
 }
@@ -1821,9 +1824,10 @@ int ADD_VARIANT(parse_seq_parameter_set)(Edge264Decoder *dec, int non_blocking, 
 			sps.offset_for_top_to_bottom_field);
 		for (int i = 1, delta = 0; i <= sps.num_ref_frames_in_pic_order_cnt_cycle; i++) {
 			int offset_for_ref_frame = get_se32(&dec->_gb, (-1u << 31) + 1, (1u << 31) - 1);
-			log_dec(dec, (i < sps.num_ref_frames_in_pic_order_cnt_cycle) ? ",%d" : ",%d]\n", offset_for_ref_frame);
+			log_dec(dec, "%d,", offset_for_ref_frame);
 			sps.PicOrderCntDeltas[i] = delta += offset_for_ref_frame;
 		}
+		log_dec(dec, "]\n");
 	}
 	
 	// Max width is imposed by some int16 storage, wait for actual needs to push it.

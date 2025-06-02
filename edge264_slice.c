@@ -893,19 +893,24 @@ static noinline void CAFUNC(parse_I_mb, int mb_type_or_ctxIdx)
 		// PCM is so rare that it should be compact rather than fast
 		int MbWidth = 16, y = 16;
 		for (int iYCbCr = 0; iYCbCr < 3; iYCbCr++) {
+			log_mb(ctx, "    pcm_samples_%s: [", "Y\0\0Cb\0Cr" + iYCbCr * 3);
 			int BitDepth = ctz(ctx->t.samples_clip[iYCbCr][0] + 1);
 			for (uint8_t *p = ctx->samples_mb[iYCbCr]; y-- > 0; p += ctx->t.stride[iYCbCr]) {
 				if (BitDepth == 8) {
 					((uint32_t *)p)[0] = big_endian32(get_uv(&ctx->t._gb, 32));
 					((uint32_t *)p)[1] = big_endian32(get_uv(&ctx->t._gb, 32));
+					log_mb(ctx, "%u,%u,%u,%u,%u,%u,%u,%u,", p[0], p[1], p[2], p[3], p[4], p[5], p[6], p[7]);
 					if (MbWidth == 16) {
 						((uint32_t *)p)[2] = big_endian32(get_uv(&ctx->t._gb, 32));
 						((uint32_t *)p)[3] = big_endian32(get_uv(&ctx->t._gb, 32));
+						log_mb(ctx, "%u,%u,%u,%u,%u,%u,%u,%u,", p[8], p[9], p[10], p[11], p[12], p[13], p[14], p[15]);
 					}
 				} else for (int x = 0; x < MbWidth; x++) {
 					((uint16_t *)p)[x] = get_uv(&ctx->t._gb, BitDepth);
+					log_mb(ctx, "%u,", ((uint16_t *)p)[x]);
 				}
 			}
+			log_mb(ctx, "]\n");
 			MbWidth = (ctx->t.ChromaArrayType < 3) ? 8 : 16;
 			y = (int8_t[4]){0, 8, 16, 16}[ctx->t.ChromaArrayType];
 		}

@@ -43,6 +43,7 @@ def gen_residual_block_cavlc(bits, nC, coeffs):
 	ct48 = [['1111'], ['001111', '1110'], ['001011', '01111', '1101'], ['001000', '01100', '01110', '1100'], ['0001111', '01010', '01011', '1011'], ['0001011', '01000', '01001', '1010'], ['0001001', '001110', '001101', '1001'], ['0001000', '001010', '001001', '1000'], ['00001111', '0001110', '0001101', '01101'], ['00001011', '00001110', '0001010', '001100'], ['000001111', '00001010', '00001101', '0001100'], ['000001011', '000001110', '00001001', '00001100'], ['000001000', '000001010', '000001101', '00001000'], ['0000001101', '000000111', '000001001', '000001100'], ['0000001001', '0000001100', '0000001011', '0000001010'], ['0000000101', '0000001000', '0000000111', '0000000110'], ['0000000001', '0000000100', '0000000011', '0000000010']]
 	ct8 = [['000011'], ['000000', '000001'], ['000100', '000101', '000110'], ['001000', '001001', '001010', '001011'], ['001100', '001101', '001110', '001111'], ['010000', '010001', '010010', '010011'], ['010100', '010101', '010110', '010111'], ['011000', '011001', '011010', '011011'], ['011100', '011101', '011110', '011111'], ['100000', '100001', '100010', '100011'], ['100100', '100101', '100110', '100111'], ['101000', '101001', '101010', '101011'], ['101100', '101101', '101110', '101111'], ['110000', '110001', '110010', '110011'], ['110100', '110101', '110110', '110111'], ['111000', '111001', '111010', '111011'], ['111100', '111101', '111110', '111111']]
 	ctn1 = [['01'],['000111','1'],['000100','000110','001'],['000011','0000011','0000010','000101'],['000010','00000011','00000010','0000000']]
+	ctn2 = [['1'],['0001111','01'],['0001110','0001101','001'],['000000111','0001100','0001011','00001'],['000000110','000000101','0001010','000001'],['0000000111','0000000110','000000100','0001001'],['00000000111','00000000110','0000000101','0001000'],['000000000111','000000000110','00000000101','0000000100'],['0000000000111','000000000101','000000000100','00000000100']]
 	tz4x4 = [['1', '011', '010', '0011', '0010', '00011', '00010', '000011', '000010', '0000011', '0000010', '00000011', '00000010', '000000011', '000000010', '000000001'], ['111', '110', '101', '100', '011', '0101', '0100', '0011', '0010', '00011', '00010', '000011', '000010', '000001', '000000'], ['0101', '111', '110', '101', '0100', '0011', '100', '011', '0010', '00011', '00010', '000001', '00001', '000000'], ['00011', '111', '0101', '0100', '110', '101', '100', '0011', '011', '0010', '00010', '00001', '00000'], ['0101', '0100', '0011', '111', '110', '101', '100', '011', '0010', '00001', '0001', '00000'], ['000001', '00001', '111', '110', '101', '100', '011', '010', '0001', '001', '000000'], ['000001', '00001', '101', '100', '011', '11', '010', '0001', '001', '000000'], ['000001', '0001', '00001', '011', '11', '10', '010', '001', '000000'], ['000001', '000000', '0001', '11', '10', '001', '01', '00001'], ['00001', '00000', '001', '11', '10', '01', '0001'], ['0000', '0001', '001', '010', '1', '011'], ['0000', '0001', '01', '1', '001'], ['000', '001', '1', '01'], ['00', '01', '1'], ['0', '1']]
 	tz2x4 = [['1', '010', '011', '0010', '0011', '0001', '00001', '00000'], ['000', '01', '001', '100', '101', '110', '111'], ['000', '001', '01', '10', '110', '111'], ['110', '00', '01', '10', '111'], ['00', '01', '10', '11'], ['00', '01', '1'], ['0', '1']]
 	tz2x2 = [['1', '01', '001', '000'], ['1', '01', '00'], ['1', '0']]
@@ -51,7 +52,7 @@ def gen_residual_block_cavlc(bits, nC, coeffs):
 	nzcoeffs = [c for c in coeffs if c != 0]
 	TotalCoeff = len(nzcoeffs)
 	TrailingOnes = min(3, next((s for s, c in enumerate(reversed(nzcoeffs)) if abs(c) > 1), TotalCoeff))
-	vlc = (ct02 if nC < 2 else ct24 if nC < 4 else ct48 if nC < 8 else ct8)[TotalCoeff][TrailingOnes]
+	vlc = (ctn2 if nC == -2 else ctn1 if nC == -1 else ct02 if nC < 2 else ct24 if nC < 4 else ct48 if nC < 8 else ct8)[TotalCoeff][TrailingOnes]
 	bits = bits << len(vlc) | int(vlc, 2)
 	if TotalCoeff > 0:
 		suffixLength = int(TotalCoeff > 10 and TrailingOnes < 3)
@@ -97,7 +98,7 @@ def gen_slice_data_cavlc(bits, f, slice, slice_type):
 		# flush the bits buffer to file
 		num = bits.bit_length() - 1
 		bits ^= 1 << num
-		f.write(bits.to_bytes(num // 8, byteorder="big"))
+		f.write((bits >> (num % 8)).to_bytes(num // 8, byteorder="big"))
 		bits = bits & ((1 << (num % 8)) - 1) | 1 << (num % 8)
 		if "mb_skip_run" in vars(mb):
 			bits = gen_ue(bits, mb.mb_skip_run)
@@ -177,25 +178,25 @@ def gen_slice_layer_without_partitioning(bits, f, slice):
 			bits = gen_ue(bits, slice.num_ref_idx_active.l0)
 			if slice_type == 1:
 				bits = gen_ue(bits, slice.num_ref_idx_active.l1)
-	field_to_idc = {"sref": 1, "lref": 2, "view": 5}
-	for i in range(slice_type + 1):
-		bits = bits << 1 | int(f"ref_pic_list_modification_l{i}" in vars(slice))
-		if f"ref_pic_list_modification_l{i}" in vars(slice):
-			for field, diff in vars(slice)[f"ref_pic_list_modification_l{i}"]:
-				bits = gen_ue(bits, field_to_idc[field] - (diff < 0))
-				bits = gen_ue(bits, diff if field == "lref" else abs(diff) - 1)
-			bits = gen_ue(bits, 3)
-	if "explicit_weights_l0" in vars(slice):
-		bits = gen_ue(bits, int(re.findall(r"\d+", slice.explicit_weights_l0[0].Y)[1]))
-		bits = gen_ue(bits, int(re.findall(r"\d+", slice.explicit_weights_l0[0].Cb)[1]))
+		field_to_idc = {"sref": 1, "lref": 2, "view": 5}
 		for i in range(slice_type + 1):
-			for ref in vars(slice)[f"explicit_weights_l{i}"]:
-				for plane in ("Y", "Cb", "Cr"):
-					weight, denom, offset = map(int, re.findall(r"\-?\d+", vars(ref)[plane]))
-					bits = bits << 1 | int(weight != 2 ** denom or offset != 0)
-					if weight != 2 ** denom or offset != 0:
-						bits = gen_se(bits, weight)
-						bits = gen_se(bits, offset)
+			bits = bits << 1 | int(f"ref_pic_list_modification_l{i}" in vars(slice))
+			if f"ref_pic_list_modification_l{i}" in vars(slice):
+				for field, diff in vars(slice)[f"ref_pic_list_modification_l{i}"]:
+					bits = gen_ue(bits, field_to_idc[field] - (diff < 0))
+					bits = gen_ue(bits, diff if field == "lref" else abs(diff) - 1)
+				bits = gen_ue(bits, 3)
+		if "explicit_weights_l0" in vars(slice):
+			bits = gen_ue(bits, int(re.findall(r"\d+", slice.explicit_weights_l0[0].Y)[1]))
+			bits = gen_ue(bits, int(re.findall(r"\d+", slice.explicit_weights_l0[0].Cb)[1]))
+			for i in range(slice_type + 1):
+				for ref in vars(slice)[f"explicit_weights_l{i}"]:
+					for plane in ("Y", "Cb", "Cr"):
+						weight, denom, offset = map(int, re.findall(r"\-?\d+", vars(ref)[plane]))
+						bits = bits << 1 | int(weight != 2 ** denom or offset != 0)
+						if weight != 2 ** denom or offset != 0:
+							bits = gen_se(bits, weight)
+							bits = gen_se(bits, offset)
 	if slice.nal_ref_idc:
 		if IdrPicFlag:
 			bits = bits << 1 | slice.no_output_of_prior_pics_flag
@@ -361,7 +362,7 @@ def gen_pic_parameter_set(bits, f, pps):
 		bits = bits << 1 | int("pic_scaling_matrix" in vars(pps))
 		if "pic_scaling_matrix" in vars(pps):
 			for scaling_list in pps.pic_scaling_matrix:
-				bits = bits << 1 | min(len(scaling_list), 1) # seq_scaling_list_present_flag
+				bits = bits << 1 | min(len(scaling_list), 1) # pic_scaling_list_present_flag
 				for lastScale, nextScale in zip([8] + scaling_list, scaling_list):
 					bits = gen_se(bits, (nextScale - lastScale + 128) % 256 - 128) # delta_scale
 		bits = gen_se(bits, pps.second_chroma_qp_index_offset)

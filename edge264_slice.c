@@ -898,8 +898,12 @@ static noinline void CAFUNC(parse_I_mb, int mb_type_or_ctxIdx)
 		
 		// PCM is so rare that it should be compact rather than fast
 		int MbWidth = 16, y = 16;
+		log_mb(ctx, "    pcm_samples:\n"
+			"      bits_Y: %u\n"
+			"      bits_C: %u\n",
+			ctz(ctx->t.samples_clip[0][0] + 1), ctz(ctx->t.samples_clip[1][0] + 1));
 		for (int iYCbCr = 0; iYCbCr < 3; iYCbCr++) {
-			log_mb(ctx, "    pcm_samples_%s: [", "Y\0\0Cb\0Cr" + iYCbCr * 3);
+			log_mb(ctx, "      %s: [", "Y\0\0Cb\0Cr" + iYCbCr * 3);
 			int BitDepth = ctz(ctx->t.samples_clip[iYCbCr][0] + 1);
 			for (uint8_t *p = ctx->samples_mb[iYCbCr]; y-- > 0; p += ctx->t.stride[iYCbCr]) {
 				if (BitDepth == 8) {
@@ -964,7 +968,7 @@ static i16x8 CAFUNC(parse_mvd_pair, const uint8_t *absMvd_lx, int i4x4) {
 	#if !CABAC
 		int x = get_se32(&ctx->t._gb, -32768, 32767);
 		int y = get_se32(&ctx->t._gb, -32768, 32767);
-		log_mb(ctx, "    mvd[%lu]: [%d,%d]\n", absMvd_lx - mb->absMvd + i4x4, x, y);
+		log_mb(ctx, "    \"%lu\": [%d,%d]\n", absMvd_lx - mb->absMvd + i4x4, x, y);
 		return (i16x8){x, y};
 	#else
 		i16x8 res;
@@ -1008,7 +1012,7 @@ static i16x8 CAFUNC(parse_mvd_pair, const uint8_t *absMvd_lx, int i4x4) {
 			
 			if (++i == 2) {
 				res[1] = mvd;
-				log_mb(ctx, "    mvd[%lu]: [%d,%d]\n", absMvd_lx - mb->absMvd + i4x4, res[0], mvd);
+				log_mb(ctx, "    \"%lu\": [%d,%d]\n", absMvd_lx - mb->absMvd + i4x4, res[0], mvd);
 				return res;
 			}
 			ctxBase = 47;
@@ -1031,6 +1035,7 @@ static inline void CAFUNC(parse_ref_idx, unsigned f) {
 	u8x16 v = {f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f};
 	u8x16 bits = {1, 2, 4, 8, 16, 32, 64, 128};
 	mb->refIdx_l = ((i64x2){mb->refIdx_l} & ~(i64x2)((v & bits) == bits))[0]; // set to 0 if parsed
+	log_mb(ctx, "    ref_idx: {");
 	for (unsigned u = f & ctx->num_ref_idx_mask; u; u &= u - 1) {
 		int i = __builtin_ctz(u);
 		int ref_idx = 0;
@@ -1049,7 +1054,9 @@ static inline void CAFUNC(parse_ref_idx, unsigned f) {
 			}
 		#endif
 		mb->refIdx[i] = ref_idx;
+		log_mb(ctx, "\"%u\": %u, ", i, ref_idx);
 	}
+	log_mb(ctx, "}\n");
 	
 	// clip and broadcast the values
 	i8x16 refIdx_v = (i64x2){mb->refIdx_l};
@@ -1069,7 +1076,6 @@ static inline void CAFUNC(parse_ref_idx, unsigned f) {
 		#endif
 	}
 	mb->refIdx_l = ((i64x2)refIdx_v)[0];
-	log_mb(ctx, "    ref_idx: [%d,%d,%d,%d,%d,%d,%d,%d]\n", mb->refIdx[0], mb->refIdx[1], mb->refIdx[2], mb->refIdx[3], mb->refIdx[4], mb->refIdx[5], mb->refIdx[6], mb->refIdx[7]);
 	
 	// compute reference picture numbers
 	mb->refPic_s[0] = ((i32x4)shufflen(ctx->t.RefPicList_v[0], refIdx_v))[0];
@@ -1191,6 +1197,7 @@ static void CAFUNC(parse_B_sub_mb) {
 	refIdx4x4_eq.v[1] = (uC - ifelse_mask(uC==4, r1==D1, r1==C1) * 2 - (r1==B1)) * 2 - (r1==A1 | u==14);
 	
 	// loop on mvs
+	log_mb(ctx, "    mvds:\n");
 	do {
 		int i = __builtin_ctz(mvd_flags);
 		int i4x4 = i & 15;
@@ -1353,6 +1360,7 @@ static inline void CAFUNC(parse_B_mb)
 	
 	// decoding large blocks
 	CACALL(parse_ref_idx, flags8x8);
+	log_mb(ctx, "    mvds:\n");
 	if (!(flags8x8 & 0xee)) { // 16x16
 		mb->f.inter_eqs_s = little_endian32(0x1b5fbbff);
 		if (flags8x8 & 0x01) {
@@ -1464,6 +1472,7 @@ static void CAFUNC(parse_P_sub_mb, unsigned ref_idx_flags)
 	refIdx4x4_eq.v = (uC - ifelse_mask(uC==4, r0==D0, r0==C0) * 2 - (r0==B0)) * 2 - (r0==A0 | u==14);
 	
 	// loop on mvs
+	log_mb(ctx, "    mvds:\n");
 	do {
 		int i = __builtin_ctz(mvd_flags);
 		i16x8 mvd = CACALL(parse_mvd_pair, mb->absMvd, i);
@@ -1583,6 +1592,7 @@ static inline void CAFUNC(parse_P_mb)
 	#endif
 	
 	// decoding large blocks
+	log_mb(ctx, "    mvds:\n");
 	if (mb_type == 0) { // 16x16
 		mb->f.inter_eqs_s = little_endian32(0x1b5fbbff);
 		i16x8 mvd = CACALL(parse_mvd_pair, mb->absMvd, 0);

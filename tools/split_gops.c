@@ -9,7 +9,7 @@
 	#include <unistd.h>
 #endif
 
-#include "./edge264.h"
+#include "../edge264.h"
 
 #define RESET  "\e[0m"
 #define BOLD   "\e[1m"

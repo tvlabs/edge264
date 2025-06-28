@@ -345,7 +345,7 @@ int edge264_decode_NAL(Edge264Decoder *dec, const uint8_t *buf, const uint8_t *e
 			buf = minp(dec->_gb.CPB - 2, dec->_gb.end);
 		}
 	}
-	// printf("nal_unit_type=%d, ret=%d\n", dec->nal_unit_type, ret);
+	// printf("nal_unit_type=%d, ret=%d\n\n", dec->nal_unit_type, ret);
 	
 	// for 0, ENOTSUP and EBADMSG we may free or advance the buffer pointer
 	if (ret == 0 || ret == ENOTSUP || ret == EBADMSG) {

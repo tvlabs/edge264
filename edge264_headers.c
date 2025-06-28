@@ -1118,9 +1118,7 @@ int ADD_VARIANT(parse_slice_layer_without_partitioning)(Edge264Decoder *dec, int
 		if (!(dec->pic_reference_flags & 1 << dec->currPic))
 			dec->dispPicOrderCnt = dec->FieldOrderCnt[0][dec->currPic]; // make all frames with lower POCs ready for output
 		#ifdef LOGS
-			log_dec(dec, "  FrameFormat: {ChromaArrayType: %u, BitDepth_Y: %u, BitDepth_C: %u}\n"
-				"  FrameBuffer:\n",
-				sps->ChromaArrayType, sps->BitDepth_Y, sps->BitDepth_C);
+			log_dec(dec, "  FrameBuffer:\n");
 			unsigned reference_flags = dec->pic_reference_flags | dec->reference_flags & ~same_views;
 			unsigned long_term_flags = dec->pic_long_term_flags | dec->long_term_flags & ~same_views;
 			for (int i = 0; i < 32 - __builtin_clzg(reference_flags | dec->output_flags, 32); i++) {
@@ -1145,7 +1143,7 @@ int ADD_VARIANT(parse_slice_layer_without_partitioning)(Edge264Decoder *dec, int
 	dec->ready_tasks |= ((dec->task_dependencies[task_id] & ~ready_frames(dec)) == 0) << task_id;
 	dec->taskPics[task_id] = dec->currPic;
 	if (!dec->n_threads)
-		log_dec(dec, t->pps.entropy_coding_mode_flag ? "  CABAC_macroblocks:\n" : "  CAVLC_macroblocks:\n");
+		log_dec(dec, t->pps.entropy_coding_mode_flag ? "  macroblocks_cabac:\n" : "  macroblocks_cavlc:\n");
 	if (print_dec(dec, dec->log_header_arg))
 		return ENOTSUP;
 	if (!dec->n_threads)

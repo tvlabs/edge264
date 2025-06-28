@@ -742,7 +742,7 @@ static void CAFUNC(parse_intra_chroma_pred_mode)
  * Parses prev_intraNxN_pred_mode_flag and rem_intraNxN_pred_mode, and returns
  * the given intra_pred_mode (7.3.5.1, 7.4.5.1, 8.3.1.1 and table 9-34).
  */
-static int CAFUNC(parse_intraNxN_pred_mode, int luma4x4BlkIdx)
+static inline int CAFUNC(parse_intraNxN_pred_mode, int luma4x4BlkIdx)
 {
 	// dcPredModePredictedFlag is enforced by putting -2
 	int intraMxMPredModeA = *((int8_t *)mb->Intra4x4PredMode + ctx->A4x4_int8[luma4x4BlkIdx]);
@@ -759,7 +759,7 @@ static int CAFUNC(parse_intraNxN_pred_mode, int luma4x4BlkIdx)
 		#endif
 		mode = rem_intra_pred_mode + (rem_intra_pred_mode >= mode);
 	}
-	log_mb(ctx, "%c%u", luma4x4BlkIdx ? ',' : '[', mode);
+	log_mb(ctx, luma4x4BlkIdx ? ",%d" : "%d", rem_intra_pred_mode);
 	return mode;
 }
 
@@ -820,15 +820,21 @@ static noinline void CAFUNC(parse_I_mb, int mb_type_or_ctxIdx)
 		mb->Intra4x4PredMode_v = (i8x16){-2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2}; // default values when A/B is unavailable
 		if (transform_size_8x8_flag) {
 			mb->f.transform_size_8x8_flag = transform_size_8x8_flag;
-			log_mb(ctx, "    Intra8x8PredModes: ");
+			log_mb(ctx, "    rem_intra8x8_pred_modes: [");
 			for (int i = 0; i < 16; i += 4)
 				mb->Intra4x4PredMode[i + 1] = mb->Intra4x4PredMode[i + 2] = mb->Intra4x4PredMode[i + 3] = CACALL(parse_intraNxN_pred_mode, i);
+			log_mb(ctx, "]\n    Intra8x8PredModes: [%u,%u,%u,%u]\n",
+				mb->Intra4x4PredMode[0], mb->Intra4x4PredMode[4], mb->Intra4x4PredMode[8], mb->Intra4x4PredMode[12]);
 		} else {
-			log_mb(ctx, "    Intra4x4PredModes: ");
+			log_mb(ctx, "    rem_intra4x4_pred_modes: [");
 			for (int i = 0; i < 16; i++)
 				mb->Intra4x4PredMode[i] = CACALL(parse_intraNxN_pred_mode, i);
+			log_mb(ctx, "]\n    Intra4x4PredModes: [%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u]\n",
+				mb->Intra4x4PredMode[0], mb->Intra4x4PredMode[1], mb->Intra4x4PredMode[2], mb->Intra4x4PredMode[3],
+				mb->Intra4x4PredMode[4], mb->Intra4x4PredMode[5], mb->Intra4x4PredMode[6], mb->Intra4x4PredMode[7],
+				mb->Intra4x4PredMode[8], mb->Intra4x4PredMode[9], mb->Intra4x4PredMode[10], mb->Intra4x4PredMode[11],
+				mb->Intra4x4PredMode[12], mb->Intra4x4PredMode[13], mb->Intra4x4PredMode[14], mb->Intra4x4PredMode[15]);
 		}
-		log_mb(ctx, "]\n");
 		
 		CACALL(parse_intra_chroma_pred_mode);
 		CACALL(parse_coded_block_pattern, me_intra);

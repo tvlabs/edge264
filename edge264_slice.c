@@ -70,105 +70,15 @@
 
 
 /**
- * Parse the coeff_token header for a non-ChromaDCLevel residual block encoded
- * with CAVLC (9.2.1)
- *
- * While both CAVLC and residual coefficients are not too critical to optimize,
- * this function is designed to be simple and compact.
- */
-#if !CABAC
-	static int parse_coeff_token_cavlc(Edge264Context *ctx, int i4x4, int nA, int nB) {
-		static const uint8_t nC_offset[8] = {184, 184, 80, 80, 0, 0, 0, 0};
-		static const int16_t tokens[38 * 8] = {
-			543, 539, 535, 531, 527, 522, 517, 512, // 4 <= nC < 8
-			661, 662, 657, 658, 653, 675, 654, 649,
-			780, 798, 797, 776, 807, 794, 793, 772,
-			924, 920, 934, 916, 939, 930, 929, 912,
-			1075, 1070, 1065, 1060, 1071, 1066, 1061, 1056,
-			1200, 1206, 1201, 1196, 1207, 1202, 1197, 1192,
-			1341, 1336, 1339, 1338, 1337, 1332, 1205, 1205,
-			1345, 1345, 1340, 1340, 1343, 1343, 1342, 1342,
-			1347, 1347, 1347, 1347, 1346, 1346, 1346, 1346,
-			1344, 1344, 1344, 1344, 1344, 1344, 1344, 1344,
-			261, 261, 261, 261, 256, 256, 256, 256, // 2 <= cN < 4
-			531, 531, 527, 527, 394, 394, 394, 394,
-			795, 782, 781, 772, 663, 663, 649, 649,
-			799, 799, 786, 786, 785, 785, 776, 776,
-			931, 931, 918, 918, 917, 917, 908, 908,
-			1044, 1044, 1050, 1050, 1049, 1049, 1040, 1040,
-			1191, 1191, 1182, 1182, 1181, 1181, 1176, 1176,
-			1455, 1446, 1445, 1440, 1451, 1442, 1441, 1436,
-			1580, 1582, 1581, 1576, 1587, 1578, 1577, 1572,
-			1723, 1718, 1717, 1716, 1719, 1714, 1713, 1712,
-			1853, 1852, 1854, 1849, 1722, 1722, 1720, 1720,
-			1859, 1859, 1858, 1858, 1857, 1857, 1856, 1856,
-			1727, 1727, 1727, 1727, 1727, 1727, 1727, 1727,
-			128, 128, 128, 128, 128, 128, 128, 128, // 0 <= nC < 2
-			261, 261, 261, 261, 261, 261, 261, 261,
-			394, 394, 394, 394, 394, 394, 394, 394,
-			777, 777, 772, 772, 655, 655, 655, 655,
-			919, 919, 910, 910, 787, 787, 787, 787,
-			1051, 1051, 1042, 1042, 1037, 1037, 1032, 1032,
-			1183, 1183, 1174, 1174, 1169, 1169, 1164, 1164,
-			1315, 1315, 1306, 1306, 1301, 1301, 1296, 1296,
-			1447, 1447, 1438, 1438, 1433, 1433, 1428, 1428,
-			1696, 1702, 1697, 1692, 1707, 1698, 1693, 1688,
-			1843, 1838, 1833, 1832, 1839, 1834, 1829, 1828,
-			1979, 1974, 1969, 1968, 1975, 1970, 1965, 1964,
-			2115, 2110, 2109, 2104, 2111, 2106, 2105, 2100,
-			2112, 2112, 2114, 2114, 2113, 2113, 2108, 2108,
-			1973, 1973, 1973, 1973, 1973, 1973, 1973, 1973,
-		};
-		
-		int sum = nA + nB;
-		int nC = !(ctx->unavail4x4[i4x4] & 3) ? (sum + 1) >> 1 : sum;
-		int coeff_token, v;
-		if (__builtin_expect(nC < 8, 1)) {
-			int leadingZeroBits = clz(ctx->t._gb.msb_cache | (size_t)1 << (SIZE_BIT - 15));
-			unsigned fourBits = ctx->t._gb.msb_cache >> (SIZE_BIT - 4 - leadingZeroBits);
-			int token = tokens[nC_offset[nC] + leadingZeroBits * 8 + fourBits - 8];
-			coeff_token = token & 127;
-			v = token >> 7;
-		} else {
-			coeff_token = (ctx->t._gb.msb_cache >> (SIZE_BIT - 6)) + 4;
-			if (coeff_token == 7)
-				coeff_token = 0;
-			v = 6;
-		}
-		ctx->t._gb.msb_cache = shld(ctx->t._gb.lsb_cache, ctx->t._gb.msb_cache, v);
-		if (ctx->t._gb.lsb_cache <<= v)
-			return coeff_token;
-		return refill(&ctx->t._gb, coeff_token);
-	}
-	
-	// 4:2:0 is best handled separately due to the open-ended 0000000 code and 3 bit suffixes
-	static int parse_DC2x2_coeff_token_cavlc(Edge264Context *ctx) {
-		static const int16_t tokens[] = {
-			133, 133, 133, 133,
-			256, 256, 256, 256,
-			394, 394, 394, 394,
-			776, 783, 777, 772,
-			784, 784, 780, 780,
-			910, 910, 909, 909,
-			1042, 1042, 1041, 1041,
-			915, 915, 915, 915,
-		};
-		int leadingZeroBits = clz(ctx->t._gb.msb_cache | (size_t)1 << (SIZE_BIT - 8));
-		unsigned suffix = ctx->t._gb.msb_cache >> (SIZE_BIT - 3 - leadingZeroBits) & 3;
-		int token = tokens[leadingZeroBits * 4 + suffix];
-		int coeff_token = token & 127;
-		int v = token >> 7;
-		ctx->t._gb.msb_cache = shld(ctx->t._gb.lsb_cache, ctx->t._gb.msb_cache, v);
-		if (ctx->t._gb.lsb_cache <<= v)
-			return coeff_token;
-		return refill(&ctx->t._gb, coeff_token);
-	}
-#endif
-
-
-
-/**
- * Temporary functions for two alternatives to parse total_zeros.
+ * Parse a CAVLC residual block (9.2).
+ * 
+ * There are 2 entry points here, parse_residual_block_4x4_cavlc and
+ * parse_residual_block_2x2_cavlc, which both tail jump to
+ * parse_residual_coeffs_cavlc.
+ * 
+ * For coeff_token/total_zeros/run_before, while the spec is quite convoluted
+ * level_prefix+level_suffix just look like Exp-Golomb codes, so we need only
+ * compute a code length (v) and an offset to add to the input bits.
  */
 #if !CABAC
 	static inline int parse_total_zeros(Edge264Context *ctx, int endIdx, int TotalCoeff) {
@@ -210,27 +120,10 @@
 		ctx->t._gb.lsb_cache <<= v;
 		return code & 15;
 	}
-#endif
-
-
-
-/**
- * Parse a CAVLC or CABAC residual block without coeff_token nor
- * coded_block_flag (9.2 and 9.3.2.3).
- * 
- * For CAVLC, while the spec is quite convoluted level_prefix+level_suffix just
- * look like Exp-Golomb codes, so we need only compute a code length (v) and an
- * offset to add to the input bits.
- * For CABAC, all bypass bits can be extracted using a binary division (!!).
- * coeff_abs_level expects at most 2^(7+14)-14, i.e 41 bits as Exp-Golomb, so
- * we can get all of them on 64 bit machines.
- * While residual coefficients are not too critical to optimize, both CAVLC and
- * CABAC versions of this function are designed to be simple and compact.
- */
-static void CAFUNC(parse_residual_block, int startIdx, int endIdx, int token_or_cbf) {
-	#if !CABAC
-		int TrailingOnes = token_or_cbf & 3;
-		int TotalCoeff = token_or_cbf >> 2;
+	
+	static noinline int parse_residual_coeffs_cavlc(Edge264Context *ctx, int startIdx, int endIdx, int token) {
+		int TrailingOnes = token & 3;
+		int TotalCoeff = token >> 2;
 		
 		// parse all level values from end to start
 		int32_t level[16];
@@ -305,9 +198,114 @@ static void CAFUNC(parse_residual_block, int startIdx, int endIdx, int token_or_
 		}
 		
 		// trailing_ones_sign_flags+total_zeros+run_before consumed at most 31 bits, so we can delay refill here
-		if (!ctx->t._gb.lsb_cache)
+		return ctx->t._gb.lsb_cache ? 1 : refill(&ctx->t._gb, 1);
+	}
+
+	static noinline int parse_residual_block_4x4_cavlc(Edge264Context *ctx, int i4x4, int nA, int nB, int startIdx) {
+		static const uint8_t nC_offset[8] = {184, 184, 80, 80, 0, 0, 0, 0};
+		static const int16_t tokens[38 * 8] = {
+			543, 539, 535, 531, 527, 522, 517, 512, // 4 <= nC < 8
+			661, 662, 657, 658, 653, 675, 654, 649,
+			780, 798, 797, 776, 807, 794, 793, 772,
+			924, 920, 934, 916, 939, 930, 929, 912,
+			1075, 1070, 1065, 1060, 1071, 1066, 1061, 1056,
+			1200, 1206, 1201, 1196, 1207, 1202, 1197, 1192,
+			1341, 1336, 1339, 1338, 1337, 1332, 1205, 1205,
+			1345, 1345, 1340, 1340, 1343, 1343, 1342, 1342,
+			1347, 1347, 1347, 1347, 1346, 1346, 1346, 1346,
+			1344, 1344, 1344, 1344, 1344, 1344, 1344, 1344,
+			261, 261, 261, 261, 256, 256, 256, 256, // 2 <= cN < 4
+			531, 531, 527, 527, 394, 394, 394, 394,
+			795, 782, 781, 772, 663, 663, 649, 649,
+			799, 799, 786, 786, 785, 785, 776, 776,
+			931, 931, 918, 918, 917, 917, 908, 908,
+			1044, 1044, 1050, 1050, 1049, 1049, 1040, 1040,
+			1191, 1191, 1182, 1182, 1181, 1181, 1176, 1176,
+			1455, 1446, 1445, 1440, 1451, 1442, 1441, 1436,
+			1580, 1582, 1581, 1576, 1587, 1578, 1577, 1572,
+			1723, 1718, 1717, 1716, 1719, 1714, 1713, 1712,
+			1853, 1852, 1854, 1849, 1722, 1722, 1720, 1720,
+			1859, 1859, 1858, 1858, 1857, 1857, 1856, 1856,
+			1727, 1727, 1727, 1727, 1727, 1727, 1727, 1727,
+			128, 128, 128, 128, 128, 128, 128, 128, // 0 <= nC < 2
+			261, 261, 261, 261, 261, 261, 261, 261,
+			394, 394, 394, 394, 394, 394, 394, 394,
+			777, 777, 772, 772, 655, 655, 655, 655,
+			919, 919, 910, 910, 787, 787, 787, 787,
+			1051, 1051, 1042, 1042, 1037, 1037, 1032, 1032,
+			1183, 1183, 1174, 1174, 1169, 1169, 1164, 1164,
+			1315, 1315, 1306, 1306, 1301, 1301, 1296, 1296,
+			1447, 1447, 1438, 1438, 1433, 1433, 1428, 1428,
+			1696, 1702, 1697, 1692, 1707, 1698, 1693, 1688,
+			1843, 1838, 1833, 1832, 1839, 1834, 1829, 1828,
+			1979, 1974, 1969, 1968, 1975, 1970, 1965, 1964,
+			2115, 2110, 2109, 2104, 2111, 2106, 2105, 2100,
+			2112, 2112, 2114, 2114, 2113, 2113, 2108, 2108,
+			1973, 1973, 1973, 1973, 1973, 1973, 1973, 1973,
+		};
+		
+		int sum = nA + nB;
+		int nC = !(ctx->unavail4x4[i4x4] & 3) ? (sum + 1) >> 1 : sum;
+		int coeff_token, v;
+		if (__builtin_expect(nC < 8, 1)) {
+			int leadingZeroBits = clz(ctx->t._gb.msb_cache | (size_t)1 << (SIZE_BIT - 15));
+			unsigned fourBits = ctx->t._gb.msb_cache >> (SIZE_BIT - 4 - leadingZeroBits);
+			int token = tokens[nC_offset[nC] + leadingZeroBits * 8 + fourBits - 8];
+			coeff_token = token & 127;
+			v = token >> 7;
+		} else {
+			coeff_token = (ctx->t._gb.msb_cache >> (SIZE_BIT - 6)) + 4;
+			if (coeff_token == 7)
+				coeff_token = 0;
+			v = 6;
+		}
+		ctx->t._gb.msb_cache = shld(ctx->t._gb.lsb_cache, ctx->t._gb.msb_cache, v);
+		if (!(ctx->t._gb.lsb_cache <<= v))
 			refill(&ctx->t._gb, 0);
-	#else // CABAC
+		if (!coeff_token)
+			return 0;
+		mb->nC[i4x4] = coeff_token >> 2;
+		return parse_residual_coeffs_cavlc(ctx, startIdx, 15, coeff_token);
+	}
+	
+	// 4:2:0 is best handled separately due to the open-ended 0000000 code and 3 bit suffixes
+	static noinline void parse_residual_block_2x2_cavlc(Edge264Context *ctx) {
+		static const int16_t tokens[] = {
+			133, 133, 133, 133,
+			256, 256, 256, 256,
+			394, 394, 394, 394,
+			776, 783, 777, 772,
+			784, 784, 780, 780,
+			910, 910, 909, 909,
+			1042, 1042, 1041, 1041,
+			915, 915, 915, 915,
+		};
+		int leadingZeroBits = clz(ctx->t._gb.msb_cache | (size_t)1 << (SIZE_BIT - 8));
+		unsigned suffix = ctx->t._gb.msb_cache >> (SIZE_BIT - 3 - leadingZeroBits) & 3;
+		int token = tokens[leadingZeroBits * 4 + suffix];
+		int coeff_token = token & 127;
+		int v = token >> 7;
+		ctx->t._gb.msb_cache = shld(ctx->t._gb.lsb_cache, ctx->t._gb.msb_cache, v);
+		if (!(ctx->t._gb.lsb_cache <<= v))
+			refill(&ctx->t._gb, 0);
+		if (coeff_token)
+			parse_residual_coeffs_cavlc(ctx, 0, 3, coeff_token);
+	}
+#endif
+
+
+
+/**
+ * Parse a CABAC residual block after coded_block_flag (9.3.2.3).
+ * 
+ * Here, all bypass bits can be extracted using a binary division (!!).
+ * coeff_abs_level expects at most 2^(7+14)-14, i.e 41 bits as Exp-Golomb, so
+ * we can get all of them on 64 bit machines.
+ * While residual coefficients are not too critical to optimize yet tricky to
+ * maintain, this function is designed to be simple and compact.
+ */
+#if CABAC
+	static noinline void parse_residual_coeffs_cabac(Edge264Context *ctx, int startIdx, int endIdx) {
 		// significant_coeff_flags are stored as a bit mask
 		uint64_t significant_coeff_flags = 0;
 		int i = startIdx;
@@ -376,10 +374,8 @@ static void CAFUNC(parse_residual_block, int startIdx, int endIdx, int token_or_
 			ctx->c[ctx->scan[i]] = coeff_level; // beware, scan is transposed already
 			significant_coeff_flags &= ~((uint64_t)1 << i);
 		} while (significant_coeff_flags != 0);
-	#endif
-	for (int i = startIdx; i <= endIdx; i++)
-		log_mb(ctx, (i < endIdx) ? "%d," : "%d]\n", ctx->c[ctx->scan[i]]);
-}
+	}
+#endif
 
 
 
@@ -422,34 +418,26 @@ static void CAFUNC(parse_chroma_residual)
 {
 	// As in Intra16x16, DC blocks are parsed to ctx->c[0..15], then transformed to ctx->c[16..31]
 	if (mb->f.CodedBlockPatternChromaDC) { // valid also for 4:0:0
-		#if CABAC
+		#if !CABAC
+			ctx->scan_s = (i8x4){0, 4, 2, 6};
+			parse_residual_block_2x2_cavlc(ctx);
+			ctx->scan_s = (i8x4){1, 5, 3, 7};
+			parse_residual_block_2x2_cavlc(ctx);
+		#else
 			ctx->ctxIdxOffsets_l = ctxIdxOffsets_chromaDC[0]; // FIXME 4:2:2
 			ctx->sig_inc_v[0] = ctx->last_inc_v[0] = sig_inc_chromaDC[0];
 			ctx->coeff_abs_inc_l = (i8x8){6, 7, 8, 8};
-		#endif
-		ctx->c_v[0] = ctx->c_v[1] = ctx->c_v[2] = ctx->c_v[3] = (i32x4){};
-		int token_or_cbf_Cb = CACOND(
-			parse_DC2x2_coeff_token_cavlc(ctx),
-			get_ae(ctx, ctx->ctxIdxOffsets[0] + ctx->inc.coded_block_flags_16x16[1]));
-		if (token_or_cbf_Cb) {
-			#if CABAC
+			if (get_ae(ctx, ctx->ctxIdxOffsets[0] + ctx->inc.coded_block_flags_16x16[1])) {
 				mb->f.coded_block_flags_16x16[1] = 1;
-			#endif
-			log_mb(ctx, "    I4x4_DC_coeffLevels[1]: [");
-			ctx->scan_s = (i8x4){0, 4, 2, 6};
-			CACALL(parse_residual_block, 0, 3, token_or_cbf_Cb);
-		}
-		int token_or_cbf_Cr = CACOND(
-			parse_DC2x2_coeff_token_cavlc(ctx),
-			get_ae(ctx, ctx->ctxIdxOffsets[0] + ctx->inc.coded_block_flags_16x16[2]));
-		if (token_or_cbf_Cr) {
-			#if CABAC
+				ctx->scan_s = (i8x4){0, 4, 2, 6};
+				parse_residual_coeffs_cabac(ctx, 0, 3);
+			}
+			if (get_ae(ctx, ctx->ctxIdxOffsets[0] + ctx->inc.coded_block_flags_16x16[2])) {
 				mb->f.coded_block_flags_16x16[2] = 1;
-			#endif
-			log_mb(ctx, "    I4x4_DC_coeffLevels[2]: [");
-			ctx->scan_s = (i8x4){1, 5, 3, 7};
-			CACALL(parse_residual_block, 0, 3, token_or_cbf_Cr);
-		}
+				ctx->scan_s = (i8x4){1, 5, 3, 7};
+				parse_residual_coeffs_cabac(ctx, 0, 3);
+			}
+		#endif
 		transform_dc2x2(ctx);
 		
 		// Eight or sixteen 4x4 AC blocks for the Cb/Cr components
@@ -463,21 +451,25 @@ static void CAFUNC(parse_chroma_residual)
 			for (int i4x4 = 0; i4x4 < 8; i4x4++) {
 				int iYCbCr = 1 + (i4x4 >> 2);
 				uint8_t *samples = ctx->samples_mb[iYCbCr] + y420[i4x4] * ctx->t.stride[1] + x420[i4x4];
-				int nA = *((int8_t *)mb->nC[1] + ctx->ACbCr_int8[i4x4]);
-				int nB = *((int8_t *)mb->nC[1] + ctx->BCbCr_int8[i4x4]);
-				int token_or_cbf = CACOND(parse_coeff_token_cavlc(ctx, i4x4 << 2 & 15, nA, nB),
-					get_ae(ctx, ctx->ctxIdxOffsets[0] + ctx->nC_inc[1][i4x4] + nA + nB * 2));
-				if (token_or_cbf) {
-					mb->nC[1][i4x4] = CACOND(token_or_cbf >> 2, 1);
-					ctx->c_v[0] = ctx->c_v[1] = ctx->c_v[2] = ctx->c_v[3] = (i32x4){};
-					log_mb(ctx, "    I4x4_AC_coeffLevels[%d]: [", 16 + i4x4);
-					CACALL(parse_residual_block, 1, 15, token_or_cbf);
-					add_idct4x4(ctx, iYCbCr, i4x4, samples);
-				} else {
-					add_dc4x4(ctx, iYCbCr, i4x4, samples);
-				}
+				int nA = *((int8_t *)mb->nC + 16 + ctx->ACbCr_int8[i4x4]);
+				int nB = *((int8_t *)mb->nC + 16 + ctx->BCbCr_int8[i4x4]);
+				#if !CABAC
+					if (parse_residual_block_4x4_cavlc(ctx, 16 + i4x4, nA, nB, 1))
+						add_idct4x4(ctx, iYCbCr, i4x4, samples);
+					else
+						add_dc4x4(ctx, iYCbCr, i4x4, samples);
+				#else
+					if (get_ae(ctx, ctx->ctxIdxOffsets[0] + ctx->nC_inc[1][i4x4] + nA + nB * 2)) {
+						mb->nC[16 + i4x4] = 1;
+						parse_residual_coeffs_cabac(ctx, 1, 15);
+						add_idct4x4(ctx, iYCbCr, i4x4, samples);
+					} else {
+						add_dc4x4(ctx, iYCbCr, i4x4, samples);
+					}
+				#endif
 			}
 		}
+		ctx->c_v[4] = ctx->c_v[5] = (i8x16){};
 	}
 }
 
@@ -499,25 +491,20 @@ static void CAFUNC(parse_Intra16x16_residual)
 	for (int iYCbCr = 0; iYCbCr < 3; iYCbCr++) {
 		
 		// Parse a DC block, then transform it to ctx->c[16..31]
-		#if CABAC
+		#if !CABAC
+			if (parse_residual_block_4x4_cavlc(ctx, 0, mbA->nC[iYCbCr * 16 + 5], mbB->nC[iYCbCr * 16 + 10], 0)) {
+				mb->nC[0] = 0;
+				transform_dc4x4(ctx, iYCbCr);
+			}
+		#else
 			ctx->ctxIdxOffsets_l = ctxIdxOffsets_16x16DC[iYCbCr][0];
-			ctx->coeff_abs_inc_l = (i8x8){6, 7, 8, 9, 9};
-		#endif
-		int token_or_cbf = CACOND(
-			parse_coeff_token_cavlc(ctx, 0, mbA->nC[iYCbCr][5], mbB->nC[iYCbCr][10]),
-			get_ae(ctx, ctx->ctxIdxOffsets[0] + ctx->inc.coded_block_flags_16x16[iYCbCr]));
-		if (token_or_cbf) {
-			#if CABAC
+			if (get_ae(ctx, ctx->ctxIdxOffsets[0] + ctx->inc.coded_block_flags_16x16[iYCbCr])) {
 				mb->f.coded_block_flags_16x16[iYCbCr] = 1;
-			#endif
-			ctx->c_v[0] = ctx->c_v[1] = ctx->c_v[2] = ctx->c_v[3] = (i32x4){};
-			log_mb(ctx, "    I16x16_DC_coeffLevels[%u]: [", iYCbCr);
-			CACALL(parse_residual_block, 0, 15, token_or_cbf);
-			transform_dc4x4(ctx, iYCbCr);
-		} else {
-			if (mb->bits[0] & 1 << 5)
-				ctx->c_v[4] = ctx->c_v[5] = ctx->c_v[6] = ctx->c_v[7] = (i32x4){};
-		}
+				ctx->coeff_abs_inc_l = (i8x8){6, 7, 8, 9, 9};
+				parse_residual_coeffs_cabac(ctx, 0, 15);
+				transform_dc4x4(ctx, iYCbCr);
+			}
+		#endif
 		
 		// All AC blocks pick a DC coeff, then go to ctx->c[1..15]
 		if (mb->bits[0] & 1 << 5) {
@@ -527,21 +514,25 @@ static void CAFUNC(parse_Intra16x16_residual)
 			#endif
 			for (int i4x4 = 0; i4x4 < 16; i4x4++) {
 				uint8_t *samples = ctx->samples_mb[iYCbCr] + y444[i4x4] * ctx->t.stride[iYCbCr] + x444[i4x4];
-				int nA = *((int8_t *)mb->nC[iYCbCr] + ctx->A4x4_int8[i4x4]);
-				int nB = *((int8_t *)mb->nC[iYCbCr] + ctx->B4x4_int8[i4x4]);
-				int token_or_cbf = CACOND(parse_coeff_token_cavlc(ctx, i4x4, nA, nB),
-					get_ae(ctx, ctx->ctxIdxOffsets[0] + ctx->nC_inc[iYCbCr][i4x4] + nA + nB * 2));
-				if (token_or_cbf) {
-					mb->nC[iYCbCr][i4x4] = CACOND(token_or_cbf >> 2, 1);
-					ctx->c_v[0] = ctx->c_v[1] = ctx->c_v[2] = ctx->c_v[3] = (i32x4){};
-					log_mb(ctx, "    I16x16_AC_coeffLevels[%u]: [", iYCbCr * 16 + i4x4);
-					CACALL(parse_residual_block, 1, 15, token_or_cbf);
-					add_idct4x4(ctx, iYCbCr, i4x4, samples);
-				} else {
-					add_dc4x4(ctx, iYCbCr, i4x4, samples);
-				}
+				int nA = *((int8_t *)mb->nC + iYCbCr * 16 + ctx->A4x4_int8[i4x4]);
+				int nB = *((int8_t *)mb->nC + iYCbCr * 16 + ctx->B4x4_int8[i4x4]);
+				#if !CABAC
+					if (parse_residual_block_4x4_cavlc(ctx, iYCbCr * 16 + i4x4, nA, nB, 1))
+						add_idct4x4(ctx, iYCbCr, i4x4, samples);
+					else
+						add_dc4x4(ctx, iYCbCr, i4x4, samples);
+				#else
+					if (get_ae(ctx, ctx->ctxIdxOffsets[0] + ctx->nC_inc[iYCbCr][i4x4] + nA + nB * 2)) {
+						mb->nC[iYCbCr * 16 + i4x4] = 1;
+						parse_residual_coeffs_cabac(ctx, 1, 15);
+						add_idct4x4(ctx, iYCbCr, i4x4, samples);
+					} else {
+						add_dc4x4(ctx, iYCbCr, i4x4, samples);
+					}
+				#endif
 			}
 		}
+		ctx->c_v[4] = ctx->c_v[5] = ctx->c_v[6] = ctx->c_v[7] = (i32x4){};
 		
 		// here is how we share the decoding of luma coefficients with 4:4:4 modes
 		if (ctx->t.ChromaArrayType <3)
@@ -604,18 +595,19 @@ static void CAFUNC(parse_NxN_residual)
 				if (!mb->mbIsInterFlag)
 					decode_intra4x4(Intra4x4Modes[mb->Intra4x4PredMode[i4x4]][ctx->unavail4x4[i4x4]], samples, stride, ctx->t.samples_clip_v[iYCbCr]);
 				if (mb->bits[0] & 1 << bit8x8[i4x4 >> 2]) {
-					int nA = *((int8_t *)mb->nC[iYCbCr] + ctx->A4x4_int8[i4x4]);
-					int nB = *((int8_t *)mb->nC[iYCbCr] + ctx->B4x4_int8[i4x4]);
-					int token_or_cbf = CACOND(parse_coeff_token_cavlc(ctx, i4x4, nA, nB),
-						get_ae(ctx, ctx->ctxIdxOffsets[0] + ctx->nC_inc[iYCbCr][i4x4] + nA + nB * 2));
-					if (token_or_cbf) {
-						mb->nC[iYCbCr][i4x4] = CACOND(token_or_cbf >> 2, 1);
-						ctx->c_v[0] = ctx->c_v[1] = ctx->c_v[2] = ctx->c_v[3] = (i32x4){};
-						log_mb(ctx, "    I4x4_coeffLevels[%u]: [", iYCbCr * 16 + i4x4);
-						CACALL(parse_residual_block, 0, 15, token_or_cbf);
-						// DC blocks are marginal here (about 16%) so we do not handle them separately
-						add_idct4x4(ctx, iYCbCr, -1, samples); // FIXME 4:4:4
-					}
+					int nA = *((int8_t *)mb->nC + iYCbCr * 16 + ctx->A4x4_int8[i4x4]);
+					int nB = *((int8_t *)mb->nC + iYCbCr * 16 + ctx->B4x4_int8[i4x4]);
+					// DC blocks are marginal here (about 16%) so we do not handle them separately
+					#if !CABAC
+						if (parse_residual_block_4x4_cavlc(ctx, iYCbCr * 16 + i4x4, nA, nB, 0))
+							add_idct4x4(ctx, iYCbCr, -1, samples); // FIXME 4:4:4
+					#else
+						if (get_ae(ctx, ctx->ctxIdxOffsets[0] + ctx->nC_inc[iYCbCr][i4x4] + nA + nB * 2)) {
+							mb->nC[iYCbCr * 16 + i4x4] = 1;
+							parse_residual_coeffs_cabac(ctx, 0, 15);
+							add_idct4x4(ctx, iYCbCr, -1, samples); // FIXME 4:4:4
+						}
+					#endif
 				}
 			}
 		} else {
@@ -634,28 +626,18 @@ static void CAFUNC(parse_NxN_residual)
 					decode_intra8x8(Intra8x8Modes[mb->Intra4x4PredMode[i8x8 * 4 + 1]][ctx->unavail4x4[i8x8 * 5]], samples, stride, ctx->t.samples_clip_v[iYCbCr]);
 				if (mb->bits[0] & 1 << bit8x8[i8x8]) {
 					#if !CABAC
-						for (int i = 0; i < 16; i++)
-							ctx->c_v[i] = (i32x4){};
 						for (int i4x4 = 0; i4x4 < 4; i4x4++) {
 							ctx->scan_v[0] = scan_8x8_cavlc[0][i4x4];
-							int nA = *((int8_t *)mb->nC[iYCbCr] + ctx->A4x4_int8[i8x8 * 4 + i4x4]);
-							int nB = *((int8_t *)mb->nC[iYCbCr] + ctx->B4x4_int8[i8x8 * 4 + i4x4]);
-							int token = parse_coeff_token_cavlc(ctx, i8x8 * 4 + i4x4, nA, nB);
-							if (token) {
-								mb->nC[iYCbCr][i8x8 * 4 + i4x4] = token >> 2;
-								log_mb(ctx, "    I8x8_coeffLevels[%u][%u]: [", iYCbCr * 4 + i8x8, i4x4);
-								parse_residual_block_cavlc(ctx, 0, 15, token);
-							}
+							int nA = *((int8_t *)mb->nC + iYCbCr * 16 + ctx->A4x4_int8[i8x8 * 4 + i4x4]);
+							int nB = *((int8_t *)mb->nC + iYCbCr * 16 + ctx->B4x4_int8[i8x8 * 4 + i4x4]);
+							parse_residual_block_4x4_cavlc(ctx, iYCbCr * 16 + i8x8 * 4 + i4x4, nA, nB, 0);
 						}
 						add_idct8x8(ctx, iYCbCr, samples);
 					#else
 						if (ctx->t.ChromaArrayType < 3 || get_ae(ctx, ctx->ctxIdxOffsets[0] + (mb->bits[1] >> inc8x8[iYCbCr * 4 + i8x8] & 3))) {
-							for (int i = 0; i < 16; i++)
-								ctx->c_v[i] = (i32x4){};
 							mb->bits[1] |= 1 << bit8x8[iYCbCr * 4 + i8x8];
-							mb->nC_s[iYCbCr][i8x8] = 0x01010101;
-							log_mb(ctx, "    I8x8_coeffLevels[%u]: [", iYCbCr * 4 + i8x8);
-							parse_residual_block_cabac(ctx, 0, 63, 1);
+							mb->nC_s[iYCbCr * 4 + i8x8] = 0x01010101;
+							parse_residual_coeffs_cabac(ctx, 0, 63);
 							add_idct8x8(ctx, iYCbCr, samples);
 						}
 					#endif
@@ -1191,7 +1173,7 @@ static void CAFUNC(parse_B_sub_mb) {
 	
 	// combine them into a vector of 4-bit equality masks
 	union { int8_t q[32]; i8x16 v[2]; } refIdx4x4_eq;
-	i8x16 u = ctx->unavail4x4_v;
+	i8x16 u = ctx->unavail4x4_v[0];
 	i8x16 uC = u & 4;
 	refIdx4x4_eq.v[0] = (uC - ifelse_mask(uC==4, r0==D0, r0==C0) * 2 - (r0==B0)) * 2 - (r0==A0 | u==14);
 	refIdx4x4_eq.v[1] = (uC - ifelse_mask(uC==4, r1==D1, r1==C1) * 2 - (r1==B1)) * 2 - (r1==A1 | u==14);
@@ -1467,7 +1449,7 @@ static void CAFUNC(parse_P_sub_mb, unsigned ref_idx_flags)
 	
 	// combine them into a vector of 4-bit equality masks
 	union { int8_t q[16]; i8x16 v; } refIdx4x4_eq;
-	i8x16 u = ctx->unavail4x4_v;
+	i8x16 u = ctx->unavail4x4_v[0];
 	i8x16 uC = u & 4;
 	refIdx4x4_eq.v = (uC - ifelse_mask(uC==4, r0==D0, r0==C0) * 2 - (r0==B0)) * 2 - (r0==A0 | u==14);
 	
@@ -1749,13 +1731,14 @@ static void CAFUNC(parse_slice_data)
 		}
 		
 		// initialize common macroblock values
-		ctx->unavail4x4_v = block_unavailability[unavail16x16];
+		ctx->unavail4x4_v[0] = block_unavailability[unavail16x16];
 		ctx->inc.v = fA + fB + (fB & flags_twice.v);
 		mb->f.v = (i8x16){};
 		if (ctx->t.disable_deblocking_filter_idc != 1)
 			mb->filter_edges = filter_edges;
 		mb->QP_s = ctx->t.QP_s;
 		if (ctx->t.ChromaArrayType == 1) { // FIXME 4:2:2
+			ctx->unavail4x4_v[1] = shuffle(ctx->unavail4x4_v[0], (i8x16){0, 4, 8, 12, 0, 4, 8, 12, -1, -1, -1, -1, -1, -1, -1, -1});
 			mb->bits_l = (bitsA >> 3 & 0x11111100111111) | (bitsB >> 1 & 0x42424200424242);
 		}
 		mb->nC_v[0] = mb->nC_v[1] = mb->nC_v[2] = (i8x16){};

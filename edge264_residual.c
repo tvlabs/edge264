@@ -64,6 +64,7 @@ static noinline void add_idct4x4(Edge264Context *ctx, int iYCbCr, int DCidx, uin
 	i32x4 d1 = shlrrs32(ctx->c_v[1] * cvthi16u32(LS0), sh, 4, s8);
 	i32x4 d2 = shlrrs32(ctx->c_v[2] * cvtlo16u32(LS1), sh, 4, s8);
 	i32x4 d3 = shlrrs32(ctx->c_v[3] * cvthi16u32(LS1), sh, 4, s8);
+	ctx->c_v[0] = ctx->c_v[1] = ctx->c_v[2] = ctx->c_v[3] = (i8x16){};
 	if (DCidx >= 0)
 		d0[0] = ctx->c[16 + DCidx];
 	
@@ -179,6 +180,7 @@ static void add_idct8x8(Edge264Context *ctx, int iYCbCr, uint8_t *p)
 			d6 = packs32(c[12], c[13]) * (LS6 << sh);
 			d7 = packs32(c[14], c[15]) * (LS7 << sh);
 		}
+		c[0] = c[1] = c[2] = c[3] = c[4] = c[5] = c[6] = c[7] = c[8] = c[9] = c[10] = c[11] = c[12] = c[13] = c[14] = c[15] = (i8x16){};
 		
 		for (int i = 2;;) {
 			// 1D transform
@@ -288,6 +290,7 @@ static void transform_dc4x4(Edge264Context *ctx, int iYCbCr)
 	i32x4 x1 = ctx->c_v[2] + ctx->c_v[3];
 	i32x4 x2 = ctx->c_v[0] - ctx->c_v[1];
 	i32x4 x3 = ctx->c_v[2] - ctx->c_v[3];
+	ctx->c_v[0] = ctx->c_v[1] = ctx->c_v[2] = ctx->c_v[3] = (i8x16){};
 	i32x4 x4 = x0 + x1;
 	i32x4 x5 = x0 - x1;
 	i32x4 x6 = x2 - x3;
@@ -404,6 +407,7 @@ static void transform_dc2x2(Edge264Context *ctx)
 	// load both matrices interlaced+transposed and multiply right
 	i32x4 d0 = ctx->c_v[0] + ctx->c_v[1];
 	i32x4 d1 = ctx->c_v[0] - ctx->c_v[1];
+	ctx->c_v[0] = ctx->c_v[1] = (i8x16){};
 	
 	// transpose and multiply left
 	i32x4 e0 = ziplo64(d0, d1);

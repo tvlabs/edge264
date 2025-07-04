@@ -81,6 +81,8 @@ static void initialize_context(Edge264Context *ctx, int currPic)
 		ctx->last_inc_v[i] = last_inc_8x8[i];
 		ctx->scan_v[i] = scan_8x8_cabac[0][i];
 	}
+	for (int i = 0; i < 16; i++)
+		ctx->c_v[i] = (i8x16){};
 	
 	// P/B slices
 	if (ctx->t.slice_type < 2) {

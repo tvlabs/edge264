@@ -62,7 +62,7 @@ def gen_residual_block_cavlc(bits, nC, coeffs):
 			if i < TrailingOnes:
 				bits = bits << 1 | int(c < 0)
 			else:
-				levelCode = abs(c) * 2 + int(c < 0) - 2 * (i == TrailingOnes < 3)
+				levelCode = abs(c) * 2 - 2 + int(c < 0) - 2 * (i == TrailingOnes < 3)
 				level_prefix = levelCode >> suffixLength
 				levelSuffixSize = suffixLength
 				if suffixLength == 0 and 14 <= levelCode < 30:
@@ -82,15 +82,13 @@ def gen_residual_block_cavlc(bits, nC, coeffs):
 			zerosLeft = icoeffs[-1] - len(icoeffs) + 1
 			vlc = (tz4x4 if len(coeffs) >= 15 else tz2x4 if len(coeffs) == 8 else tz2x2)[TotalCoeff - 1][zerosLeft]
 			bits = bits << len(vlc) | int(vlc, 2)
-		for i in range(TotalCoeff - 1, 0):
+		for i in range(TotalCoeff - 1, 0, -1):
 			if zerosLeft > 0:
 				run_before = icoeffs[i] - icoeffs[i - 1] - 1
-				zerosLeft -= run_before
-				vlc = rb[min(7, zerosLeft)][run_before]
+				vlc = rb[min(7, zerosLeft) - 1][run_before]
 				bits = bits << len(vlc) | int(vlc, 2)
+				zerosLeft -= run_before
 	return bits
-
-
 
 def gen_slice_data_cavlc(bits, f, slice, slice_type):
 	me_intra = [3, 29, 30, 17, 31, 18, 37, 8, 32, 38, 19, 9, 20, 10, 11, 2, 16, 33, 34, 21, 35, 22, 39, 4, 36, 40, 23, 5, 24, 6, 7, 1, 41, 42, 43, 25, 44, 26, 46, 12, 45, 47, 27, 13, 28, 14, 15, 0]
@@ -147,7 +145,7 @@ def gen_slice_data_cavlc(bits, f, slice, slice_type):
 			for block in mb.coeffLevels:
 				bits = gen_residual_block_cavlc(bits, block.nC, vars(block).get("c", []))
 	return bits
-	
+
 def gen_slice_layer_without_partitioning(bits, f, slice):
 	bits = gen_ue(bits, slice.first_mb_in_slice)
 	bits = gen_ue(bits, slice.slice_type)

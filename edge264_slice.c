@@ -962,7 +962,7 @@ static i16x8 CAFUNC(parse_mvd_pair, const uint8_t *absMvd_lx, int i4x4) {
 	#if !CABAC
 		int x = get_se32(&ctx->t._gb, -32768, 32767);
 		int y = get_se32(&ctx->t._gb, -32768, 32767);
-		log_mb(ctx, "    \"%lu\": [%d,%d]\n", absMvd_lx - mb->absMvd + i4x4, x, y);
+		log_mb(ctx, "[%d,%d],", x, y);
 		return (i16x8){x, y};
 	#else
 		i16x8 res;
@@ -1048,7 +1048,7 @@ static inline void CAFUNC(parse_ref_idx, unsigned f) {
 			}
 		#endif
 		mb->refIdx[i] = ref_idx;
-		log_mb(ctx, "\"%u\": %u, ", i, ref_idx);
+		log_mb(ctx, "\"%u\":%u,", i, ref_idx);
 	}
 	log_mb(ctx, "}\n");
 	
@@ -1191,7 +1191,7 @@ static void CAFUNC(parse_B_sub_mb) {
 	refIdx4x4_eq.v[1] = (uC - ifelse_mask(uC==4, r1==D1, r1==C1) * 2 - (r1==B1)) * 2 - (r1==A1 | u==14);
 	
 	// loop on mvs
-	log_mb(ctx, "    mvds:\n");
+	log_mb(ctx, "    mvds: [");
 	do {
 		int i = __builtin_ctz(mvd_flags);
 		int i4x4 = i & 15;
@@ -1231,6 +1231,7 @@ static void CAFUNC(parse_B_sub_mb) {
 		mb->mvs_v[i8x8] = ifelse_mask(mvs_mask, mvs, mb->mvs_v[i8x8]);
 		decode_inter(ctx, i, widths[type], heights[type]);
 	} while (mvd_flags &= mvd_flags - 1);
+	log_mb(ctx, "]\n");
 	CAJUMP(parse_inter_residual);
 }
 
@@ -1354,7 +1355,7 @@ static inline void CAFUNC(parse_B_mb)
 	
 	// decoding large blocks
 	CACALL(parse_ref_idx, flags8x8);
-	log_mb(ctx, "    mvds:\n");
+	log_mb(ctx, "    mvds: [");
 	if (!(flags8x8 & 0xee)) { // 16x16
 		mb->f.inter_eqs_s = little_endian32(0x1b5fbbff);
 		if (flags8x8 & 0x01) {
@@ -1402,6 +1403,7 @@ static inline void CAFUNC(parse_B_mb)
 			decode_inter_16x8_bottom(ctx, mvd, 1);
 		}
 	}
+	log_mb(ctx, "]\n");
 	CAJUMP(parse_inter_residual);
 }
 
@@ -1466,7 +1468,7 @@ static void CAFUNC(parse_P_sub_mb, unsigned ref_idx_flags)
 	refIdx4x4_eq.v = (uC - ifelse_mask(uC==4, r0==D0, r0==C0) * 2 - (r0==B0)) * 2 - (r0==A0 | u==14);
 	
 	// loop on mvs
-	log_mb(ctx, "    mvds:\n");
+	log_mb(ctx, "    mvds: [");
 	do {
 		int i = __builtin_ctz(mvd_flags);
 		i16x8 mvd = CACALL(parse_mvd_pair, mb->absMvd, i);
@@ -1502,6 +1504,7 @@ static void CAFUNC(parse_P_sub_mb, unsigned ref_idx_flags)
 		mb->mvs_v[i8x8] = ifelse_mask(mvs_mask, mvs, mb->mvs_v[i8x8]);
 		decode_inter(ctx, i, widths[type], heights[type]);
 	} while (mvd_flags &= mvd_flags - 1);
+	log_mb(ctx, "]\n");
 	CAJUMP(parse_inter_residual);
 }
 
@@ -1586,7 +1589,7 @@ static inline void CAFUNC(parse_P_mb)
 	#endif
 	
 	// decoding large blocks
-	log_mb(ctx, "    mvds:\n");
+	log_mb(ctx, "    mvds: [");
 	if (mb_type == 0) { // 16x16
 		mb->f.inter_eqs_s = little_endian32(0x1b5fbbff);
 		i16x8 mvd = CACALL(parse_mvd_pair, mb->absMvd, 0);
@@ -1604,6 +1607,7 @@ static inline void CAFUNC(parse_P_mb)
 		i16x8 mvd1 = CACALL(parse_mvd_pair, mb->absMvd, 8);
 		decode_inter_16x8_bottom(ctx, mvd1, 0);
 	}
+	log_mb(ctx, "]\n");
 	CAJUMP(parse_inter_residual);
 }
 

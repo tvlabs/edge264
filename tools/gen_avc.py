@@ -1,14 +1,16 @@
 #!/usr/bin/env python3
 from functools import reduce
+from os import path
 import re
 import sys
-import types
+from time import process_time
+from types import SimpleNamespace
 import yaml
 
 # make yaml use SimpleNamespace instead of dict
 class SafeConstructor(yaml.loader.SafeConstructor):
 	def construct_yaml_map(self, node):
-		data = types.SimpleNamespace()
+		data = SimpleNamespace()
 		yield data
 		value = self.construct_mapping(node)
 		vars(data).update(value)
@@ -129,15 +131,14 @@ def gen_slice_data_cavlc(bits, f, slice, slice_type):
 				bits = gen_ue(bits, sub_mb_type)
 		if mb.mb_type in [range(5), range(1, 23), []][slice_type]: # non-Direct Inter
 			for i, ref_idx in vars(mb.ref_idx).items():
-				# FIXME use non sparse array
-				if slice.num_ref_idx_active[int(i)] == 1:
+				if vars(slice.num_ref_idx_active)[f"l{int(i)//4}"] == 1:
 					bits = bits << 1 | ref_idx
 				else:
 					bits = gen_ue(bits, ref_idx)
-			for mvd in vars(mb.mvds).values():
-				bits = gen_se(bits, mvd[0])
-				bits = gen_se(bits, mvd[1])
-		if mb.mb_type in [range(30), range(48), [0]][slice_type]: # not Intra_16x16
+			for x, y in mb.mvds:
+				bits = gen_se(bits, x)
+				bits = gen_se(bits, y)
+		if mb.mb_type in [range(6), range(24), [0]][slice_type]: # not Intra_16x16 nor PCM
 			bits = gen_ue(bits, (me_inter if mb.mb_type < [5, 23, 0][slice_type] else me_intra)[mb.coded_block_pattern])
 		if mb.mb_type != [5, 23, 0][slice_type] and "transform_size_8x8_flag" in vars(mb): # not I_NxN
 			bits = bits << 1 | mb.transform_size_8x8_flag
@@ -463,8 +464,10 @@ def main():
 	if len(sys.argv) != 3:
 		print(f"Usage: {sys.argv[0]} input.yaml output.264")
 		exit()
+	print(f"Loading {sys.argv[1]}... (estimated {round(1.7437078849318695e-05 * path.getsize(sys.argv[1]))}s)")
 	with open(sys.argv[1], "r") as f:
 		nals = yaml.load(f, Loader=SafeLoader)
+	print(f"Generating {sys.argv[2]}...")
 	with open(sys.argv[2], "wb") as f:
 		for nal in nals:
 			bits = 1 # leading set bit
@@ -472,7 +475,6 @@ def main():
 			bits <<= 1 # forbidden_zero_bit
 			bits = bits << 2 | nal.nal_ref_idc
 			bits = bits << 5 | nal.nal_unit_type
-			print(f"Generate NAL with nal_unit_type={nal.nal_unit_type}")
 			bits = gen_bits[nal.nal_unit_type](bits, f, nal)
 			bits = bits << 1 | 1 # rbsp_stop_one_bit
 			num = bits.bit_length() - 1

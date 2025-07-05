@@ -196,6 +196,8 @@
 			}
 			ctx->c[*scan] = level[i];
 		}
+		for (int i = startIdx; i <= endIdx; i++)
+			log_mb(ctx, (i < endIdx) ? "%d," : "%d]}\n", ctx->c[ctx->scan[i]]);
 		
 		// trailing_ones_sign_flags+total_zeros+run_before consumed at most 31 bits, so we can delay refill here
 		return ctx->t._gb.lsb_cache ? 1 : refill(&ctx->t._gb, 1);
@@ -262,10 +264,14 @@
 		ctx->t._gb.msb_cache = shld(ctx->t._gb.lsb_cache, ctx->t._gb.msb_cache, v);
 		if (!(ctx->t._gb.lsb_cache <<= v))
 			refill(&ctx->t._gb, 0);
-		if (!coeff_token)
+		if (coeff_token) {
+			mb->nC[i4x4] = coeff_token >> 2;
+			log_mb(ctx, "    - {nC: %u, c: [", nC);
+			return parse_residual_coeffs_cavlc(ctx, startIdx, 15, coeff_token);
+		} else {
+			log_mb(ctx, "    - {nC: %u}\n", nC);
 			return 0;
-		mb->nC[i4x4] = coeff_token >> 2;
-		return parse_residual_coeffs_cavlc(ctx, startIdx, 15, coeff_token);
+		}
 	}
 	
 	// 4:2:0 is best handled separately due to the open-ended 0000000 code and 3 bit suffixes
@@ -288,8 +294,12 @@
 		ctx->t._gb.msb_cache = shld(ctx->t._gb.lsb_cache, ctx->t._gb.msb_cache, v);
 		if (!(ctx->t._gb.lsb_cache <<= v))
 			refill(&ctx->t._gb, 0);
-		if (coeff_token)
+		if (coeff_token) {
+			log_mb(ctx, "    - {nC: -1, c: [");
 			parse_residual_coeffs_cavlc(ctx, 0, 3, coeff_token);
+		} else {
+			log_mb(ctx, "    - {nC: -1}\n");
+		}
 	}
 #endif
 
@@ -482,6 +492,7 @@ static void CAFUNC(parse_chroma_residual)
 static void CAFUNC(parse_Intra16x16_residual)
 {
 	CACALL(parse_mb_qp_delta);
+	log_mb(ctx, "    coeffLevels:\n");
 	
 	// Both AC and DC coefficients are initially parsed to ctx->c[0..15]
 	ctx->scan_v[0] = scan_4x4[0];
@@ -577,6 +588,7 @@ static void CAFUNC(parse_NxN_residual)
 		else
 			ctx->mb_qp_delta_nz = 0;
 	#endif
+	log_mb(ctx, "    coeffLevels:\n");
 	
 	// next few blocks will share many parameters, so we cache them
 	for (int iYCbCr = 0; iYCbCr < 3; iYCbCr++) {

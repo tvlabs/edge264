@@ -472,6 +472,7 @@ def main():
 			bits <<= 1 # forbidden_zero_bit
 			bits = bits << 2 | nal.nal_ref_idc
 			bits = bits << 5 | nal.nal_unit_type
+			print(f"Generate NAL with nal_unit_type={nal.nal_unit_type}")
 			bits = gen_bits[nal.nal_unit_type](bits, f, nal)
 			bits = bits << 1 | 1 # rbsp_stop_one_bit
 			num = bits.bit_length() - 1

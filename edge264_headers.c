@@ -1067,13 +1067,14 @@ int ADD_VARIANT(parse_slice_layer_without_partitioning)(Edge264Decoder *dec, int
 		if (get_u1(&dec->_gb)) {
 			for (int l = 0; l <= t->slice_type; l++)
 				t->pps.num_ref_idx_active[l] = get_ue16(&dec->_gb, lim - 1) + 1;
-			log_dec(dec, t->slice_type ? "  num_ref_idx_active: {l0: %u, l1: %u}\n" :
-				"  num_ref_idx_active: {l0: %u}\n",
-				t->pps.num_ref_idx_active[0], t->pps.num_ref_idx_active[1]);
+			log_dec(dec, "  num_ref_idx_active: {override_flag: 1");
 		} else {
 			t->pps.num_ref_idx_active[0] = min(t->pps.num_ref_idx_active[0], lim);
 			t->pps.num_ref_idx_active[1] = min(t->pps.num_ref_idx_active[1], lim);
+			log_dec(dec, "  num_ref_idx_active: {override_flag: 0");
 		}
+		log_dec(dec, t->slice_type ? ", l0: %u, l1: %u}\n" : ", l0: %u}\n",
+			t->pps.num_ref_idx_active[0], t->pps.num_ref_idx_active[1]);
 		
 		parse_ref_pic_list_modification(dec, sps, t);
 		parse_pred_weight_table(dec, sps, t);

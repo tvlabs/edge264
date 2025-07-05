@@ -129,8 +129,8 @@ def gen_slice_data_cavlc(bits, f, slice, slice_type):
 				bits = gen_ue(bits, sub_mb_type)
 		if mb.mb_type in [range(5), range(1, 23), []][slice_type]: # non-Direct Inter
 			for i, ref_idx in vars(mb.ref_idx).items():
-				if vars(slice.num_ref_idx_active)[f"l{int(i)//4}"] == 1:
-					bits = bits << 1 | ref_idx
+				if vars(slice.num_ref_idx_active)[f"l{int(i)//4}"] == 2:
+					bits = bits << 1 | ref_idx ^ 1
 				else:
 					bits = gen_ue(bits, ref_idx)
 			for x, y in mb.mvds:
@@ -174,9 +174,9 @@ def gen_slice_layer_without_partitioning(bits, f, slice):
 	if slice_type <= 1:
 		bits = bits << 1 | slice.num_ref_idx_active.override_flag
 		if slice.num_ref_idx_active.override_flag:
-			bits = gen_ue(bits, slice.num_ref_idx_active.l0)
+			bits = gen_ue(bits, slice.num_ref_idx_active.l0 - 1)
 			if slice_type == 1:
-				bits = gen_ue(bits, slice.num_ref_idx_active.l1)
+				bits = gen_ue(bits, slice.num_ref_idx_active.l1 - 1)
 		field_to_idc = {"sref": 1, "lref": 2, "view": 5}
 		for i in range(slice_type + 1):
 			bits = bits << 1 | int(f"ref_pic_list_modification_l{i}" in vars(slice))

@@ -1580,7 +1580,7 @@ static void parse_vui_parameters(Edge264Decoder *dec, Edge264SeqParameterSet *sp
 		log_dec(dec, "    log2_max_mv_length_horizontal: %u\n"
 			"    log2_max_mv_length_vertical: %u\n"
 			"    max_num_reorder_frames: %u\n"
-			"    max_dec_frame_buffering: %u\n",
+			"    max_dec_frame_buffering: %u\n", // in units of view components (Annex C p.311)
 			log2_max_mv_length_horizontal,
 			log2_max_mv_length_vertical,
 			sps->max_num_reorder_frames,
@@ -1744,10 +1744,11 @@ int ADD_VARIANT(parse_seq_parameter_set)(Edge264Decoder *dec, int non_blocking, 
 		.ChromaArrayType = 1,
 		.BitDepth_Y = 8,
 		.BitDepth_C = 8,
-		.qpprime_y_zero_transform_bypass_flag = 0,
 		.log2_max_pic_order_cnt_lsb = 16,
-		.mb_adaptive_frame_field_flag = 0,
-		.PicOrderCntDeltas[0] = 0,
+		.initial_cpb_removal_delay_length = 24,
+		.cpb_removal_delay_length = 24,
+		.dpb_output_delay_length = 24,
+		.time_offset_length = 24,
 		.weightScale4x4_v = {[0 ... 5] = {16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16}},
 		.weightScale8x8_v = {[0 ... 23] = {16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16}},
 	};
@@ -1824,7 +1825,7 @@ int ADD_VARIANT(parse_seq_parameter_set)(Edge264Decoder *dec, int non_blocking, 
 			sps.offset_for_non_ref_pic,
 			sps.offset_for_top_to_bottom_field);
 		for (int i = 1, delta = 0; i <= sps.num_ref_frames_in_pic_order_cnt_cycle; i++) {
-			int offset_for_ref_frame = get_se32(&dec->_gb, (-1u << 31) + 1, (1u << 31) - 1);
+			int offset_for_ref_frame = get_se32(&dec->_gb, -65535, 65535);
 			log_dec(dec, "%d,", offset_for_ref_frame);
 			sps.PicOrderCntDeltas[i] = delta += offset_for_ref_frame;
 		}
@@ -1835,7 +1836,7 @@ int ADD_VARIANT(parse_seq_parameter_set)(Edge264Decoder *dec, int non_blocking, 
 	sps.max_num_ref_frames = get_ue16(&dec->_gb, 16);
 	int gaps_in_frame_num_value_allowed_flag = get_u1(&dec->_gb);
 	sps.pic_width_in_mbs = get_ue16(&dec->_gb, 1022) + 1;
-	int pic_height_in_map_units = get_ue16(&dec->_gb, 1054) + 1;
+	int pic_height_in_map_units = get_ue16(&dec->_gb, 527 << sps.frame_mbs_only_flag) + 1;
 	sps.frame_mbs_only_flag = get_u1(&dec->_gb);
 	sps.pic_height_in_mbs = pic_height_in_map_units << 1 >> sps.frame_mbs_only_flag;
 	int MaxDpbFrames = min(MaxDpbMbs[min(level_idc, 63)] / (unsigned)(sps.pic_width_in_mbs * sps.pic_height_in_mbs), 16);
@@ -1863,8 +1864,8 @@ int ADD_VARIANT(parse_seq_parameter_set)(Edge264Decoder *dec, int non_blocking, 
 	
 	// frame_cropping_flag
 	if (get_u1(&dec->_gb)) {
-		unsigned shiftX = (sps.ChromaArrayType == 1) | (sps.ChromaArrayType == 2);
-		unsigned shiftY = (sps.ChromaArrayType == 1);
+		unsigned shiftX = ((sps.ChromaArrayType == 1) | (sps.ChromaArrayType == 2));
+		unsigned shiftY = (sps.ChromaArrayType == 1) + 1 - sps.frame_mbs_only_flag;
 		int limX = (sps.pic_width_in_mbs << 4 >> shiftX) - 1;
 		int limY = (sps.pic_height_in_mbs << 4 >> shiftY) - 1;
 		sps.frame_crop_offsets[3] = get_ue16(&dec->_gb, limX) << shiftX;

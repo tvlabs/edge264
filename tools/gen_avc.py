@@ -1,4 +1,7 @@
 #!/usr/bin/env python3
+
+# FIXME emulation_prevention_three_byte !!!
+
 from functools import reduce
 from os import path
 import re
@@ -36,6 +39,9 @@ def gen_ue(bits, v):
 def gen_se(bits, v):
 	v = v * 2 if v > 0 else -v * 2 + 1
 	return bits << (v.bit_length() * 2 - 1) | v
+
+def escape(bytes):
+	return bytes.replace(b"\x00\x00", b"\x00\x00\x03")
 
 
 
@@ -98,7 +104,7 @@ def gen_slice_data_cavlc(bits, f, slice, slice_type):
 		# flush the bits buffer to file
 		num = bits.bit_length() - 1
 		bits ^= 1 << num
-		f.write((bits >> (num % 8)).to_bytes(num // 8, byteorder="big"))
+		f.write(escape((bits >> (num % 8)).to_bytes(num // 8, byteorder="big")))
 		bits = bits & ((1 << (num % 8)) - 1) | 1 << (num % 8)
 		if "mb_skip_run" in vars(mb):
 			bits = gen_ue(bits, mb.mb_skip_run)
@@ -324,15 +330,19 @@ def gen_seq_parameter_set(bits, f, sps):
 	bits = gen_ue(bits, sps.max_num_ref_frames)
 	bits = bits << 1 | sps.gaps_in_frame_num_value_allowed_flag
 	bits = gen_ue(bits, sps.pic_size_in_mbs.width - 1)
-	bits = gen_ue(bits, sps.pic_size_in_mbs.height - 1)
+	bits = gen_ue(bits, (sps.pic_size_in_mbs.height >> (1 - sps.frame_mbs_only_flag)) - 1)
 	bits = bits << 1 | sps.frame_mbs_only_flag
 	if not sps.frame_mbs_only_flag:
 		bits = bits << 1 | sps.mb_adaptive_frame_field_flag
 	bits = bits << 1 | sps.direct_8x8_inference_flag
 	bits = bits << 1 | int("frame_crop_offsets" in vars(sps))
 	if "frame_crop_offsets" in vars(sps):
-		for side in ("left", "right", "top", "bottom"):
-			bits = gen_ue(bits, vars(sps.frame_crop_offsets)[side])
+		shiftX = int(sps.chroma_format_idc in (1, 2))
+		shiftY = (sps.chroma_format_idc == 1) + 1 - sps.frame_mbs_only_flag
+		bits = gen_ue(bits, sps.frame_crop_offsets.left >> shiftX)
+		bits = gen_ue(bits, sps.frame_crop_offsets.right >> shiftX)
+		bits = gen_ue(bits, sps.frame_crop_offsets.top >> shiftY)
+		bits = gen_ue(bits, sps.frame_crop_offsets.bottom >> shiftY)
 	bits = bits << 1 | int("vui_parameters" in vars(sps))
 	if "vui_parameters" in vars(sps):
 		bits = gen_vui_parameters(bits, sps, sps.vui_parameters)
@@ -469,7 +479,6 @@ def main():
 	with open(sys.argv[2], "wb") as f:
 		for nal in nals:
 			bits = 1 # leading set bit
-			bits = bits << 32 | 1 # start code
 			bits <<= 1 # forbidden_zero_bit
 			bits = bits << 2 | nal.nal_ref_idc
 			bits = bits << 5 | nal.nal_unit_type
@@ -478,7 +487,7 @@ def main():
 			num = bits.bit_length() - 1
 			bits ^= 1 << num
 			bits <<= -num % 8
-			f.write(bits.to_bytes((num + 7) // 8, byteorder="big"))
+			f.write(b"\x00\x00\x00\x01" + escape(bits.to_bytes((num + 7) // 8, byteorder="big")))
 
 if __name__ == "__main__":
 	main()

@@ -365,7 +365,7 @@ typedef struct Edge264Decoder {
 	void *log_header_arg;
 	void *log_mb_arg;
 	int16_t log_pos; // next writing position in log_buf
-	char log_buf[4096];
+	char log_buf[10744];
 } Edge264Decoder;
 
 

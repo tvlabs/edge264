@@ -114,6 +114,7 @@
 		};
 		int leadingZeroBits = clz(ctx->t._gb.msb_cache | (size_t)1 << (SIZE_BIT - 9));
 		int suffix = ctx->t._gb.msb_cache >> ((leadingZeroBits + 2) ^ (SIZE_BIT - 1)) & 3;
+		assert(endIdx + TotalCoeff - 4 < 27 && leadingZeroBits * 4 + suffix < 36);
 		int code = codes[endIdx + TotalCoeff - 4][leadingZeroBits * 4 + suffix];
 		int v = code >> 4;
 		ctx->t._gb.msb_cache = shld(ctx->t._gb.lsb_cache, ctx->t._gb.msb_cache, v);
@@ -170,21 +171,18 @@
 			scan--;
 			if (zerosLeft > 0) {
 				int threeBits = ctx->t._gb.msb_cache >> (SIZE_BIT - 3);
-				if (zerosLeft <= 6) {
-					static int8_t run_before_codes[6][8] = {
+				if (zerosLeft <= 6 || threeBits > 0) {
+					static int8_t run_before_codes[7][8] = {
 						{9, 9, 9, 9, 8, 8, 8, 8},
 						{18, 18, 17, 17, 8, 8, 8, 8},
 						{19, 19, 18, 18, 17, 17, 16, 16},
 						{28, 27, 18, 18, 17, 17, 16, 16},
 						{29, 28, 27, 26, 17, 17, 16, 16},
 						{25, 26, 28, 27, 30, 29, 16, 16},
-					};
-					int code = run_before_codes[zerosLeft - 1][threeBits];
+						{0, 30, 29, 28, 27, 26, 25, 24}};
+					int code = run_before_codes[min(zerosLeft, 7) - 1][threeBits];
 					v = code >> 3;
 					run_before = code & 7;
-				} else if (threeBits > 0) {
-					v = 3;
-					run_before = threeBits ^ 7; // 7 - threeBits
 				} else {
 					v = clz(ctx->t._gb.msb_cache) + 1;
 					run_before = min(v + 3, zerosLeft);
@@ -251,8 +249,9 @@
 		int coeff_token, v;
 		if (__builtin_expect(nC < 8, 1)) {
 			int leadingZeroBits = clz(ctx->t._gb.msb_cache | (size_t)1 << (SIZE_BIT - 15));
-			unsigned fourBits = ctx->t._gb.msb_cache >> (SIZE_BIT - 4 - leadingZeroBits);
-			int token = tokens[nC_offset[nC] + leadingZeroBits * 8 + fourBits - 8];
+			unsigned suffix = ctx->t._gb.msb_cache >> (SIZE_BIT - 4 - leadingZeroBits) & 7;
+			assert(nC >= 0 && nC_offset[nC] + leadingZeroBits * 8 + suffix < 304);
+			int token = tokens[nC_offset[nC] + leadingZeroBits * 8 + suffix];
 			coeff_token = token & 127;
 			v = token >> 7;
 		} else {
@@ -262,7 +261,8 @@
 			v = 6;
 		}
 		ctx->t._gb.msb_cache = shld(ctx->t._gb.lsb_cache, ctx->t._gb.msb_cache, v);
-		if (!(ctx->t._gb.lsb_cache <<= v))
+		ctx->t._gb.lsb_cache <<= v;
+		if (!ctx->t._gb.lsb_cache)
 			refill(&ctx->t._gb, 0);
 		if (coeff_token) {
 			mb->nC[i4x4] = coeff_token >> 2;
@@ -276,7 +276,7 @@
 	
 	// 4:2:0 is best handled separately due to the open-ended 0000000 code and 3 bit suffixes
 	static noinline void parse_residual_block_2x2_cavlc(Edge264Context *ctx) {
-		static const int16_t tokens[] = {
+		static const int16_t tokens[8 * 4] = {
 			133, 133, 133, 133,
 			256, 256, 256, 256,
 			394, 394, 394, 394,

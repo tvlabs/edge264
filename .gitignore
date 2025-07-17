@@ -5,3 +5,5 @@
 !LICENSE_BSD.txt
 !Makefile
 !*.md
+!CMakeLists.txt
+!*.in

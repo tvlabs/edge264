@@ -365,7 +365,7 @@ typedef struct Edge264Decoder {
 	void *log_header_arg;
 	void *log_mb_arg;
 	int16_t log_pos; // next writing position in log_buf
-	char log_buf[10744];
+	char log_buf[9538];
 } Edge264Decoder;
 
 
@@ -540,7 +540,7 @@ enum IntraChromaModes {
 	#define log_dec(dec, ...) {\
 		if (dec->log_pos < sizeof(dec->log_buf))\
 			dec->log_pos += snprintf(dec->log_buf + dec->log_pos, sizeof(dec->log_buf) - dec->log_pos, __VA_ARGS__);}
-	static int print_dec(Edge264Decoder *dec, void *arg) {
+	static inline int print_dec(Edge264Decoder *dec, void *arg) {
 		int pos = dec->log_pos;
 		dec->log_pos = 0;
 		if (pos >= sizeof(dec->log_buf))
@@ -551,7 +551,7 @@ enum IntraChromaModes {
 	#define log_mb(ctx, ...) {\
 		if (ctx->log_pos < sizeof(ctx->log_buf))\
 			ctx->log_pos += snprintf(ctx->log_buf + ctx->log_pos, sizeof(ctx->log_buf) - ctx->log_pos, __VA_ARGS__);}
-	static int print_mb(Edge264Context *ctx) {
+	static inline int print_mb(Edge264Context *ctx) {
 		int pos = ctx->log_pos;
 		ctx->log_pos = 0;
 		if (pos >= sizeof(ctx->log_buf))

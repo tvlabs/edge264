@@ -582,13 +582,14 @@ static void CAFUNC(parse_NxN_residual)
 		{I8x8_HU_8 , I8x8_DC_AB_8, I8x8_HU_8   , I8x8_DC_AB_8, I8x8_HU_8   , I8x8_DC_AB_8, I8x8_HU_8   , I8x8_DC_AB_8, I8x8_HU_D_8 , I8x8_DC_AB_8, I8x8_HU_D_8 , I8x8_DC_AB_8, I8x8_HU_D_8  , I8x8_DC_AB_8 , I8x8_HU_D_8 , I8x8_DC_AB_8},
 	};
 	
-	if (mb->f.CodedBlockPatternChromaDC | (mb->bits[0] & 0xac))
+	if (mb->f.CodedBlockPatternChromaDC | (mb->bits[0] & 0xac)) {
 		CACALL(parse_mb_qp_delta);
+		log_mb(ctx, "    coeffLevels:\n");
+	}
 	#if CABAC
 		else
 			ctx->mb_qp_delta_nz = 0;
 	#endif
-	log_mb(ctx, "    coeffLevels:\n");
 	
 	// next few blocks will share many parameters, so we cache them
 	for (int iYCbCr = 0; iYCbCr < 3; iYCbCr++) {

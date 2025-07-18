@@ -716,9 +716,8 @@ static void parse_ref_pic_list_modification(Edge264Decoder *dec, Edge264SeqParam
 			log_dec(dec, "  RefPicList%u: [", lx);
 			for (int i = 0; i < t->pps.num_ref_idx_active[lx]; i++) {
 				int pic = t->RefPicList[lx][i];
-				log_dec(dec, "%d,", dec->FrameIds[pic]);
+				log_dec(dec, i < t->pps.num_ref_idx_active[lx] - 1 ? "%d," : "%d]\n", dec->FrameIds[pic]);
 			}
-			log_dec(dec, "]\n");
 		}
 	#endif
 }
@@ -1179,7 +1178,7 @@ int ADD_VARIANT(parse_nal_unit_header_extension)(Edge264Decoder *dec, int non_bl
 	if (u & 1 << 23)
 		return ENOTSUP;
 	dec->IdrPicFlag = u >> 22 & 1 ^ 1;
-	log_dec(dec, "  IdrPicFlag: %u\n"
+	log_dec(dec, "  idr_flag: %u\n"
 		"  priority_id: %d\n"
 		"  view_id: %d\n"
 		"  temporal_id: %d\n"
@@ -1393,7 +1392,7 @@ int ADD_VARIANT(parse_pic_parameter_set)(Edge264Decoder *dec, int non_blocking, 
 	}
 	
 	// check for trailing_bits before unsupported features (in case errors enabled them)
-	if (!rbsp_end(&dec->_gb) || !dec->sps.DPB_format)
+	if (!rbsp_end(&dec->_gb))
 		return EBADMSG;
 	if (print_dec(dec, dec->log_header_arg) || pic_parameter_set_id >= 4 ||
 		num_slice_groups > 1 || pps.constrained_intra_pred_flag ||
@@ -1567,11 +1566,11 @@ static void parse_vui_parameters(Edge264Decoder *dec, Edge264SeqParameterSet *sp
 			motion_vectors_over_pic_boundaries_flag);
 		int RawMbBits = 256 * sps->BitDepth_Y + (64 << sps->chroma_format_idc & ~64) * sps->BitDepth_C;
 		int max_bytes_per_pic_denom = get_ue16(&dec->_gb, 16);
-		log_dec(dec, "    max_bytes_per_pic: %u\n",
-			max_bytes_per_pic_denom ? (sps->pic_width_in_mbs * sps->pic_height_in_mbs * RawMbBits) / (8 * max_bytes_per_pic_denom) : 0);
+		if (max_bytes_per_pic_denom)
+			log_dec(dec, "    max_bytes_per_pic: %u\n", (sps->pic_width_in_mbs * sps->pic_height_in_mbs * RawMbBits) / (8 * max_bytes_per_pic_denom));
 		int max_bits_per_mb_denom = get_ue16(&dec->_gb, 16);
-		log_dec(dec, "    max_bits_per_mb: %u\n",
-			max_bits_per_mb_denom ? (128 + RawMbBits) / max_bits_per_mb_denom : 0);
+		if (max_bits_per_mb_denom)
+			log_dec(dec, "    max_bits_per_mb: %u\n", (128 + RawMbBits) / max_bits_per_mb_denom);
 		int log2_max_mv_length_horizontal = get_ue16(&dec->_gb, 15);
 		int log2_max_mv_length_vertical = get_ue16(&dec->_gb, 15);
 		// we don't enforce MaxDpbFrames here since violating the level is harmless
@@ -1684,7 +1683,7 @@ static int parse_seq_parameter_set_mvc_extension(Edge264Decoder *dec, int profil
 			log_dec(dec, "{temporal_id: %u, target_views: [", applicable_op_temporal_id);
 			for (int k = get_ue16(&dec->_gb, 1023); k >= 0; k--) {
 				int applicable_op_target_view_id = get_ue16(&dec->_gb, 1023);
-				log_dec(dec, "%u,", applicable_op_target_view_id);
+				log_dec(dec, k ? "%u," : "%u", applicable_op_target_view_id);
 			}
 			int applicable_op_num_views = get_ue16(&dec->_gb, 1023) + 1;
 			log_dec(dec, "], num_views: %u},", applicable_op_num_views);
@@ -1905,21 +1904,23 @@ int ADD_VARIANT(parse_seq_parameter_set)(Edge264Decoder *dec, int non_blocking, 
 	}
 	
 	// check for unsupported features
-	// FIXME move before returning error
-	if (print_dec(dec, dec->log_header_arg) || sps.ChromaArrayType != 1 ||
+	if (dec->log_pos >= sizeof(dec->log_buf) || sps.ChromaArrayType != 1 ||
 		sps.BitDepth_Y + sps.BitDepth_C != 16 ||
 		sps.qpprime_y_zero_transform_bypass_flag || !sps.frame_mbs_only_flag)
 		return ENOTSUP;
 	
 	// apply the changes on the dependent variables if the frame format changed
 	if (sps.DPB_format != dec->sps.DPB_format || sps.frame_crop_offsets_l != dec->sps.frame_crop_offsets_l) {
-		if (dec->output_flags | dec->borrow_flags) {
-			for (unsigned o = dec->output_flags; o; o &= o - 1)
-				dec->dispPicOrderCnt = max(dec->dispPicOrderCnt, dec->FieldOrderCnt[0][__builtin_ctz(o)]);
-			while (!non_blocking && dec->busy_tasks)
+		for (unsigned o = dec->output_flags; o; o &= o - 1)
+			dec->dispPicOrderCnt = max(dec->dispPicOrderCnt, dec->FieldOrderCnt[0][__builtin_ctz(o)]);
+		if (dec->busy_tasks) {
+			if (non_blocking)
+				return EWOULDBLOCK;
+			while (dec->busy_tasks)
 				pthread_cond_wait(&dec->task_complete, &dec->lock);
-			return dec->busy_tasks ? EWOULDBLOCK : ENOBUFS; // FIXME should not return halfway through DPB update?
 		}
+		if (dec->output_flags | dec->borrow_flags)
+			return ENOBUFS;
 		memcpy(dec->out.frame_crop_offsets, &sps.frame_crop_offsets_l, 8);
 		int width = sps.pic_width_in_mbs << 4;
 		int height = sps.pic_height_in_mbs << 4;
@@ -1952,6 +1953,7 @@ int ADD_VARIANT(parse_seq_parameter_set)(Edge264Decoder *dec, int non_blocking, 
 		}
 	}
 	*(dec->nal_unit_type == 7 ? &dec->sps : &dec->ssps) = sps;
+	print_dec(dec, dec->log_header_arg);
 	return 0;
 }
 

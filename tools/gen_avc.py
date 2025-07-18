@@ -1,7 +1,4 @@
 #!/usr/bin/env python3
-
-# FIXME emulation_prevention_three_byte !!!
-
 from functools import reduce
 from os import path
 import re
@@ -40,8 +37,10 @@ def gen_se(bits, v):
 	v = v * 2 if v > 0 else -v * 2 + 1
 	return bits << (v.bit_length() * 2 - 1) | v
 
+esc_pattern = re.compile(b"\x00\x00\x00|\x00\x00\x01|\x00\x00\x02|\x00\x00\x03")
+esc_values = [b"\x00\x00\x03\x00", b"\x00\x00\x03\x01", b"\x00\x00\x03\x02", b"\x00\x00\x03\x03"]
 def escape(bytes):
-	return bytes.replace(b"\x00\x00", b"\x00\x00\x03")
+	return esc_pattern.sub(lambda m: esc_values[m[0][2]], bytes)
 
 
 
@@ -164,7 +163,7 @@ def gen_slice_layer_without_partitioning(bits, f, slice):
 		bits = bits << 1 | slice.field_pic_flag
 		if slice.field_pic_flag:
 			bits = bits << 1 | slice.bottom_field_flag
-	IdrPicFlag = slice.nal_unit_type == 5 or "non_idr_flag" in vars(slice) and not slice.non_idr_flag
+	IdrPicFlag = slice.nal_unit_type == 5 or vars(slice).get("idr_flag", 0)
 	if IdrPicFlag:
 		bits = gen_ue(bits, slice.idr_pic_id)
 	if slice.pic_order_cnt.type == 0:
@@ -290,8 +289,8 @@ def gen_vui_parameters(bits, sps, vui):
 		bits = bits << 1 | vui.motion_vectors_over_pic_boundaries_flag
 		PicSizeInMbs = sps.pic_size_in_mbs.width * sps.pic_size_in_mbs.height
 		RawMbBits = 256 * sps.bit_depth.luma + (64 << sps.chroma_format_idc & ~64) * sps.bit_depth.chroma
-		bits = gen_ue(bits, (PicSizeInMbs * RawMbBits) // vui.max_bytes_per_pic // 8 if vui.max_bytes_per_pic else 0)
-		bits = gen_ue(bits, (128 + RawMbBits) // vui.max_bits_per_mb if vui.max_bits_per_mb else 0)
+		bits = gen_ue(bits, (PicSizeInMbs * RawMbBits) // vui.max_bytes_per_pic // 8 if "max_bytes_per_pic" in vars(vui) else 0)
+		bits = gen_ue(bits, (128 + RawMbBits) // vui.max_bits_per_mb if "max_bits_per_mb" in vars(vui) else 0)
 		bits = gen_ue(bits, vui.log2_max_mv_length_horizontal)
 		bits = gen_ue(bits, vui.log2_max_mv_length_vertical)
 		bits = gen_ue(bits, vui.max_num_reorder_frames)
@@ -301,7 +300,7 @@ def gen_vui_parameters(bits, sps, vui):
 def gen_seq_parameter_set(bits, f, sps):
 	bits = bits << 8 | sps.profile_idc
 	bits = bits << 8 | sum(f << (7 - i) for i, f in enumerate(sps.constraint_set_flags))
-	bits = bits << 8 | int(sps.level_idc * 10)
+	bits = bits << 8 | round(sps.level_idc * 10)
 	bits = bits << 1 | 1 # seq_parameter_set_id
 	if sps.profile_idc in (100, 110, 122, 244, 44, 83, 86, 118, 128, 138, 139, 134, 135):
 		bits = gen_ue(bits, sps.chroma_format_idc)
@@ -398,6 +397,19 @@ def gen_seq_parameter_set_extension(bits, f, spse):
 
 
 
+def gen_prefix_nal_unit(bits, f, nal):
+	bits = bits << 1 # svc_extension_flag
+	bits = bits << 1 | nal.idr_flag ^ 1
+	bits = bits << 6 | nal.priority_id
+	bits = bits << 10 | nal.view_id
+	bits = bits << 3 | nal.temporal_id
+	bits = bits << 1 | nal.anchor_pic_flag
+	bits = bits << 1 | nal.inter_view_flag
+	bits = bits << 1 | 1 # reserved_one_bit
+	return bits if nal.nal_unit_type == 14 else gen_slice_layer_without_partitioning(bits, f, nal)
+
+
+
 def gen_mvc_vui_parameters_extension(bits, ssps, vui):
 	bits = gen_ue(bits, len(vui.vui_mvc_operation_points) - 1)
 	for op in vui.vui_mvc_operation_points:
@@ -442,7 +454,7 @@ def gen_subset_seq_parameter_set(bits, f, ssps):
 			bits = gen_ue(bits, ssps.view_ids[0])
 		bits = gen_ue(bits, len(ssps.level_values_signalled) - 1)
 		for level in ssps.level_values_signalled:
-			bits = bits << 8 | level.idc
+			bits = bits << 8 | round(level.idc * 10)
 			bits = gen_ue(bits, len(level.operation_points) - 1)
 			for op in level.operation_points:
 				bits = bits << 3 | op.temporal_id
@@ -465,7 +477,9 @@ gen_bits = {
 	8: gen_pic_parameter_set,
 	9: gen_access_unit_delimiter,
 	13: gen_seq_parameter_set_extension,
-	15: gen_subset_seq_parameter_set
+	14: gen_prefix_nal_unit,
+	15: gen_subset_seq_parameter_set,
+	20: gen_prefix_nal_unit
 }
 
 def main():
@@ -478,6 +492,7 @@ def main():
 	print(f"Generating {sys.argv[2]}...")
 	with open(sys.argv[2], "wb") as f:
 		for nal in nals:
+			f.write(b"\x00\x00\x00\x01")
 			bits = 1 # leading set bit
 			bits <<= 1 # forbidden_zero_bit
 			bits = bits << 2 | nal.nal_ref_idc
@@ -487,7 +502,7 @@ def main():
 			num = bits.bit_length() - 1
 			bits ^= 1 << num
 			bits <<= -num % 8
-			f.write(b"\x00\x00\x00\x01" + escape(bits.to_bytes((num + 7) // 8, byteorder="big")))
+			f.write(escape(bits.to_bytes((num + 7) // 8, byteorder="big")))
 
 if __name__ == "__main__":
 	main()

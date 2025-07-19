@@ -516,7 +516,7 @@ static void parse_dec_ref_pic_marking(Edge264Decoder *dec, Edge264SeqParameterSe
 				dec->FrameNums[dec->currPic] = 0;
 				dec->pic_long_term_flags = 0;
 				dec->pic_LongTermFrameIdx_v[0] = dec->pic_LongTermFrameIdx_v[1] = (i8x16){};
-				int tempPicOrderCnt = min(dec->TopFieldOrderCnt, dec->BottomFieldOrderCnt);
+				int tempPicOrderCnt = minw(dec->TopFieldOrderCnt, dec->BottomFieldOrderCnt);
 				dec->FieldOrderCnt[0][dec->currPic] = dec->TopFieldOrderCnt - tempPicOrderCnt;
 				dec->FieldOrderCnt[1][dec->currPic] = dec->BottomFieldOrderCnt - tempPicOrderCnt;
 			}
@@ -810,15 +810,15 @@ static void initialize_task(Edge264Decoder *dec, Edge264SeqParameterSet *sps, Ed
 	if (t->slice_type < 2) {
 		memcpy(t->frame_buffers, dec->frame_buffers, sizeof(t->frame_buffers));
 		if (t->slice_type == 1 && (t->pps.weighted_bipred_idc == 2 || !t->direct_spatial_mv_pred_flag)) {
-			i32x4 poc = set32(min(dec->TopFieldOrderCnt, dec->BottomFieldOrderCnt));
-			t->diff_poc_v[0] = packs32(poc - min32(dec->FieldOrderCnt_v[0][0], dec->FieldOrderCnt_v[1][0]),
-			                           poc - min32(dec->FieldOrderCnt_v[0][1], dec->FieldOrderCnt_v[1][1]));
-			t->diff_poc_v[1] = packs32(poc - min32(dec->FieldOrderCnt_v[0][2], dec->FieldOrderCnt_v[1][2]),
-			                           poc - min32(dec->FieldOrderCnt_v[0][3], dec->FieldOrderCnt_v[1][3]));
-			t->diff_poc_v[2] = packs32(poc - min32(dec->FieldOrderCnt_v[0][4], dec->FieldOrderCnt_v[1][4]),
-			                           poc - min32(dec->FieldOrderCnt_v[0][5], dec->FieldOrderCnt_v[1][5]));
-			t->diff_poc_v[3] = packs32(poc - min32(dec->FieldOrderCnt_v[0][6], dec->FieldOrderCnt_v[1][6]),
-			                           poc - min32(dec->FieldOrderCnt_v[0][7], dec->FieldOrderCnt_v[1][7]));
+			u32x4 poc = set32(minw(dec->TopFieldOrderCnt, dec->BottomFieldOrderCnt));
+			t->diff_poc_v[0] = packs32(poc - minw32(dec->FieldOrderCnt_v[0][0], dec->FieldOrderCnt_v[1][0]),
+			                           poc - minw32(dec->FieldOrderCnt_v[0][1], dec->FieldOrderCnt_v[1][1]));
+			t->diff_poc_v[1] = packs32(poc - minw32(dec->FieldOrderCnt_v[0][2], dec->FieldOrderCnt_v[1][2]),
+			                           poc - minw32(dec->FieldOrderCnt_v[0][3], dec->FieldOrderCnt_v[1][3]));
+			t->diff_poc_v[2] = packs32(poc - minw32(dec->FieldOrderCnt_v[0][4], dec->FieldOrderCnt_v[1][4]),
+			                           poc - minw32(dec->FieldOrderCnt_v[0][5], dec->FieldOrderCnt_v[1][5]));
+			t->diff_poc_v[3] = packs32(poc - minw32(dec->FieldOrderCnt_v[0][6], dec->FieldOrderCnt_v[1][6]),
+			                           poc - minw32(dec->FieldOrderCnt_v[0][7], dec->FieldOrderCnt_v[1][7]));
 		}
 	}
 }
@@ -981,7 +981,7 @@ int ADD_VARIANT(parse_slice_layer_without_partitioning)(Edge264Decoder *dec, int
 			dec->BottomFieldOrderCnt += get_se32(&dec->_gb, (-1u << 31) + 1, (1u << 31) - 1);
 			log_dec(dec, ", bottom: %d", dec->BottomFieldOrderCnt);
 		}
-		log_dec(dec, "}");
+		log_dec(dec, "}\n");
 	} else if (sps->pic_order_cnt_type == 1) {
 		log_dec(dec, "  pic_order_cnt: {type: 1");
 		unsigned absFrameNum = dec->FrameNum + (dec->nal_ref_idc != 0) - 1;
@@ -1004,19 +1004,16 @@ int ADD_VARIANT(parse_slice_layer_without_partitioning)(Edge264Decoder *dec, int
 			}
 		}
 		log_dec(dec, (dec->TopFieldOrderCnt == dec->BottomFieldOrderCnt) ?
-			", absolute: %d}" : ", absolute: %d, bottom: %d}",
+			", absolute: %d}" : ", absolute: %d, bottom: %d}\n",
 			dec->TopFieldOrderCnt, dec->BottomFieldOrderCnt);
 		if (dec->currPic >= 0 && dec->TopFieldOrderCnt != dec->FieldOrderCnt[0][dec->currPic])
 			finish_frame(dec);
 	} else {
 		dec->TopFieldOrderCnt = dec->BottomFieldOrderCnt = dec->FrameNum * 2 + (dec->nal_ref_idc != 0) - 1;
 		log_dec(dec, (dec->TopFieldOrderCnt == dec->BottomFieldOrderCnt) ?
-			"  pic_order_cnt: {type: 2, absolute: %d}" : "  pic_order_cnt: {type: 2, absolute: %d, bottom: %d}",
+			"  pic_order_cnt: {type: 2, absolute: %d}" : "  pic_order_cnt: {type: 2, absolute: %d, bottom: %d}\n",
 			dec->TopFieldOrderCnt, dec->BottomFieldOrderCnt);
 	}
-	log_dec(dec, "%s\n", unsup_if(max(dec->TopFieldOrderCnt, dec->BottomFieldOrderCnt) >= 1 << 25));
-	if (max(dec->TopFieldOrderCnt, dec->BottomFieldOrderCnt) >= 1 << 25)
-		return ENOTSUP; // FIXME won't commit log!
 	
 	// find and possibly allocate a DPB slot for the upcoming frame
 	int is_first_slice = 0;
@@ -1109,11 +1106,14 @@ int ADD_VARIANT(parse_slice_layer_without_partitioning)(Edge264Decoder *dec, int
 	// update output flags now that we know if mmco5 happened
 	if (is_first_slice) {
 		if (dec->IdrPicFlag) {
-			dec->dispPicOrderCnt = -(1 << 25);
+			int max_poc = INT_MIN;
+			for (unsigned o = dec->output_flags & same_views; o; o &= o - 1)
+				max_poc = max(max_poc, dec->FieldOrderCnt[0][__builtin_ctz(o)]);
+			dec->dispPicOrderCnt = -1 << 16;
 			for (unsigned o = dec->output_flags & same_views; o; o &= o - 1) {
 				int i = __builtin_ctz(o);
-				dec->FieldOrderCnt[0][i] -= 1 << 26;
-				dec->FieldOrderCnt[1][i] -= 1 << 26;
+				dec->FieldOrderCnt[0][i] -= max_poc + (1 << 16);
+				dec->FieldOrderCnt[1][i] -= max_poc + (1 << 16);
 			}
 		}
 		dec->output_flags |= 1 << dec->currPic;
@@ -1128,7 +1128,7 @@ int ADD_VARIANT(parse_slice_layer_without_partitioning)(Edge264Decoder *dec, int
 				if (reference_flags & 1 << i)
 					log_dec(dec, long_term_flags & 1 << i ? ", lref: %u" : ", sref: %u", long_term_flags & 1 << i ? dec->LongTermFrameIdx[i] : dec->FrameNums[i]);
 				if (dec->output_flags & 1 << i)
-					log_dec(dec, ", poc: %d", min(dec->FieldOrderCnt[0][i], dec->FieldOrderCnt[1][i]) << 6 >> 6);
+					log_dec(dec, ", poc: %d", minw(dec->FieldOrderCnt[0][i], dec->FieldOrderCnt[1][i]));
 				if (dec->second_views)
 					log_dec(dec, ", view: %u", dec->second_views >> i & 1);
 				log_dec(dec, "}\n");

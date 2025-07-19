@@ -630,6 +630,7 @@ static always_inline const char *unsup_if(int cond) { return cond ? " # unsuppor
  * _ maxN - maximum of signed 16-bit elements
  * _ minu8 - minimum of unsigned 8-bit elements
  * _ maxu8 - maximum of unsigned 8-bit elements
+ * _ minw32 - minimum of unsigned 32-bit elements with wrapping allowed
  * _ movemask - extract all sign bits from 8-bit elements into a 16-bit unsigned value
  * _ packsN - saturate signed N-bit elements to half their size
  * _ packus16 - saturate signed 16-bit elements to unsigned 8-bit elements
@@ -725,7 +726,7 @@ static always_inline const char *unsup_if(int cond) { return cond ? " # unsuppor
 		#define load8zx16(p) (i16x8)_mm_cvtepu8_epi16(_mm_loadl_epi64((__m128i*)(p)))
 		#define min8(a, b) (i8x16)_mm_min_epi8(a, b)
 		#define max8(a, b) (i8x16)_mm_max_epi8(a, b)
-		#define min32(a, b) (i32x4)_mm_min_epi32(a, b)
+		static always_inline u32x4 minw32(u32x4 a, u32x4 b) { return (u32x4)_mm_blendv_ps((__m128)b, (__m128)a, (__m128)(a - b)); }
 	#else
 		#define cvtlo8u16(a) (i16x8)ziplo8(a, (i8x16){})
 		#define cvtlo16u32(a) (i32x4)ziplo16(a, (i16x8){})
@@ -735,7 +736,7 @@ static always_inline const char *unsup_if(int cond) { return cond ? " # unsuppor
 		static always_inline i8x16 ifelse_msb(i8x16 v, i8x16 t, i8x16 f) { v = (0 > v); return t & v | f & ~v; }
 		static always_inline i8x16 min8(i8x16 a, i8x16 b) { i8x16 v = b > a; return a & v | b & ~v; }
 		static always_inline i8x16 max8(i8x16 a, i8x16 b) { i8x16 v = a > b; return a & v | b & ~v; }
-		static always_inline i32x4 min32(i32x4 a, i32x4 b) { i32x4 v = b > a; return a & v | b & ~v; }
+		static always_inline u32x4 minw32(u32x4 a, u32x4 b) { i32x4 v = (i32x4)(a - b) < 0; return a & v | b & ~v; }
 	#endif
 	#ifdef __SSSE3__
 		static const int8_t shc_mask[48] = {
@@ -807,7 +808,6 @@ static always_inline const char *unsup_if(int cond) { return cond ? " # unsuppor
 	#define max8(a, b) (i8x16)vmaxq_s8(a, b)
 	#define min16(a, b) (i16x8)vminq_s16(a, b)
 	#define max16(a, b) (i16x8)vmaxq_s16(a, b)
-	#define min32(a, b) (i32x4)vminq_s32(a, b)
 	#define minu8(a, b) (u8x16)vminq_u8(a, b)
 	#define maxu8(a, b) (u8x16)vmaxq_u8(a, b)
 	#define packs16(a, b) (i16x8)vqmovn_high_s16(vqmovn_s16(a), b)
@@ -839,6 +839,7 @@ static always_inline const char *unsup_if(int cond) { return cond ? " # unsuppor
 	#define ziphi32(a, b) (i16x8)vzip2q_s32(a, b)
 	#define ziplo64(a, b) (i64x2)vzip1q_s64(a, b)
 	#define ziphi64(a, b) (i64x2)vzip2q_s64(a, b)
+	static always_inline u32x4 minw32(u32x4 a, u32x4 b) {return vbslq_s8((i32x4)(a - b) >> 31, a, b);}
 	static always_inline unsigned movemask(i8x16 a) {u8x16 b = vshrq_n_u8(a, 7), c = vsraq_n_u16(b, b, 7), d = vsraq_n_u32(c, c, 14), e = vsraq_n_u64(d, d, 28); return e[0] | e[8] << 8;}
 	static always_inline size_t shld(size_t l, size_t h, int i) {return h << i | l >> 1 >> (~i & (SIZE_BIT - 1));}
 	static always_inline i8x16 shuffle(i8x16 a, i8x16 m) {return vqtbl1q_s8(a, m);}
@@ -863,8 +864,11 @@ static always_inline int min(int a, int b) { return (a < b) ? a : b; }
 static always_inline int max(int a, int b) { return (a > b) ? a : b; }
 static always_inline unsigned minu(unsigned a, unsigned b) { return (a < b) ? a : b; }
 static always_inline unsigned maxu(unsigned a, unsigned b) { return (a > b) ? a : b; }
+// min/max on values that may wrap around
+static always_inline unsigned minw(unsigned a, unsigned b) { return (int)(a - b) < 0 ? a : b; }
+static always_inline unsigned maxw(unsigned a, unsigned b) { return (int)(a - b) < 0 ? b : a; }
 // compatible with any of the pointers wrapping around
-static always_inline void *minp(const void *a, const void *b) { return (void *)((intptr_t)(b - a) > 0 ? a : b); }
+static always_inline void *minp(const void *a, const void *b) { return (void *)((intptr_t)(a - b) < 0 ? a : b); }
 static always_inline int clip3(int a, int b, int c) { return min(max(c, a), b); }
 static always_inline i16x8 median16(i16x8 a, i16x8 b, i16x8 c) {
 	return max16(min16(max16(a, b), c), min16(a, b));

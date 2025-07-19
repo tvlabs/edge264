@@ -405,8 +405,7 @@ int edge264_get_frame(Edge264Decoder *dec, Edge264Frame *out, int borrow) {
 		out->samples[0] = samples + offY;
 		out->samples[1] = samples + offC;
 		out->samples[2] = samples + (dec->out.stride_C >> 1) + offC;
-		out->TopFieldOrderCnt = best << 6 >> 6;
-		out->BottomFieldOrderCnt = dec->FieldOrderCnt[1][pic[0]] << 6 >> 6;
+		out->FrameId = dec->FrameIds[pic[0]];
 		out->return_arg = (void *)((size_t)1 << pic[0]);
 		if (pic[1] >= 0) {
 			dec->output_flags ^= 1 << pic[1];
@@ -414,6 +413,7 @@ int edge264_get_frame(Edge264Decoder *dec, Edge264Frame *out, int borrow) {
 			out->samples_mvc[0] = samples + offY;
 			out->samples_mvc[1] = samples + offC;
 			out->samples_mvc[2] = samples + (dec->out.stride_C >> 1) + offC;
+			out->FrameId_mvc = dec->FrameIds[pic[1]];
 			out->return_arg = (void *)((size_t)1 << pic[0] | (size_t)1 << pic[1]);
 		}
 		res = 0;

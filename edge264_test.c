@@ -207,7 +207,6 @@ static int check_frame()
 	}
 	
 	// check that each macroblock matches the conformance buffer
-	int poc = out.TopFieldOrderCnt;
 	int cropt = out.frame_crop_offsets[0];
 	int cropr = out.frame_crop_offsets[1];
 	int cropb = out.frame_crop_offsets[2];
@@ -215,6 +214,7 @@ static int check_frame()
 	int pic_width_in_mbs = (cropl + out.width_Y + cropr) >> 4;
 	int pic_height_in_mbs = (cropt + out.height_Y + cropb) >> 4;
 	for (int view = 0; view < 2 && conf[view] != NULL; view += 1) {
+		int id = view ? out.FrameId_mvc : out.FrameId;
 		for (int row = 0; row < pic_width_in_mbs; row += 1) {
 			for (int col = 0; col < pic_height_in_mbs; col += 1) {
 				for (int iYCbCr = 0; iYCbCr < 3; iYCbCr++) {
@@ -232,8 +232,8 @@ static int check_frame()
 					for (int y = max(row * 16 - cropt, 0) >> sh_height; xl < xr && y < min(row * 16 - cropt + 16, out.height_Y) >> sh_height; y++)
 						invalid |= memcmp(p + y * stride + (xl << depth), q + y * (out.width_Y >> sh_width << depth) + (xl << depth), (xr - xl) << depth);
 					if (invalid) {
-						printf("Erroneous macroblock (poc %d, view %d, row %d, column %d, %s plane):\n",
-							poc, view, row, col, (iYCbCr == 0) ? "Luma" : (iYCbCr == 1) ? "Cb" : "Cr");
+						printf("Erroneous macroblock (id %d, row %d, column %d, %s plane):\n",
+							id, row, col, (iYCbCr == 0) ? "Luma" : (iYCbCr == 1) ? "Cb" : "Cr");
 						for (int y = (row * 16 - cropt) >> sh_height; y < (row * 16 - cropt + 16) >> sh_height; y++) {
 							for (int x = (col * 16 - cropl) >> sh_width; x < (col * 16 - cropl + 16) >> sh_width; x++) {
 								// FIXME 16 bit

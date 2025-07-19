@@ -50,8 +50,8 @@ typedef struct Edge264Frame {
    int16_t stride_Y;
    int16_t stride_C;
    int16_t stride_mb;
-   int32_t TopFieldOrderCnt;
-   int32_t BottomFieldOrderCnt;
+   uint32_t FrameId;
+   uint32_t FrameId_mvc; // second view
    int16_t frame_crop_offsets[4]; // {top,right,bottom,left}, useful to derive the original frame with 16x16 macroblocks
    void *return_arg;
 } Edge264Frame;

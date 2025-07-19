@@ -94,7 +94,7 @@
 
 - nal_ref_idc: 2
   nal_unit_type: 1 # Coded slice of a non-IDR picture
-  first_mb_in_slice: 0
+  first_mb_in_slice: 1
   slice_type: 2 # I
   pic_parameter_set_id: 0
   frame_num: {bits: 4, absolute: 0}

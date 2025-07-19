@@ -1016,7 +1016,6 @@ int ADD_VARIANT(parse_slice_layer_without_partitioning)(Edge264Decoder *dec, int
 	}
 	
 	// find and possibly allocate a DPB slot for the upcoming frame
-	int is_first_slice = 0;
 	if (dec->currPic < 0) {
 		// reset refs if we jumped from a stream with higher limit
 		if (__builtin_popcount(same_views & dec->reference_flags) > sps->max_num_ref_frames)
@@ -1032,6 +1031,7 @@ int ADD_VARIANT(parse_slice_layer_without_partitioning)(Edge264Decoder *dec, int
 			pthread_cond_wait(&dec->task_complete, &dec->lock);
 		}
 		dec->currPic = __builtin_ctz(~unavail);
+		dec->output_flags |= 1 << dec->currPic;
 		dec->second_views = dec->second_views & ~(1 << dec->currPic) | (dec->nal_unit_type == 20) << dec->currPic;
 		dec->frame_flip_bits ^= 1 << dec->currPic;
 		dec->remaining_mbs[dec->currPic] = sps->pic_width_in_mbs * sps->pic_height_in_mbs;
@@ -1040,7 +1040,6 @@ int ADD_VARIANT(parse_slice_layer_without_partitioning)(Edge264Decoder *dec, int
 		dec->FrameIds[dec->currPic] = (dec->prevPic >= 0) ? dec->FrameIds[dec->prevPic] + 1 : 0;
 		dec->FieldOrderCnt[0][dec->currPic] = dec->TopFieldOrderCnt;
 		dec->FieldOrderCnt[1][dec->currPic] = dec->BottomFieldOrderCnt;
-		is_first_slice = 1;
 		if (dec->frame_buffers[dec->currPic] == NULL && alloc_frame(dec, dec->currPic))
 			return ENOMEM;
 	}
@@ -1104,37 +1103,35 @@ int ADD_VARIANT(parse_slice_layer_without_partitioning)(Edge264Decoder *dec, int
 	}
 	
 	// update output flags now that we know if mmco5 happened
-	if (is_first_slice) {
-		if (dec->IdrPicFlag) {
-			int max_poc = INT_MIN;
-			for (unsigned o = dec->output_flags & same_views; o; o &= o - 1)
-				max_poc = max(max_poc, dec->FieldOrderCnt[0][__builtin_ctz(o)]);
-			dec->dispPicOrderCnt = -1 << 16;
-			for (unsigned o = dec->output_flags & same_views; o; o &= o - 1) {
-				int i = __builtin_ctz(o);
-				dec->FieldOrderCnt[0][i] -= max_poc + (1 << 16);
-				dec->FieldOrderCnt[1][i] -= max_poc + (1 << 16);
-			}
+	if (dec->IdrPicFlag) {
+		int max_poc = INT_MIN;
+		for (unsigned o = dec->output_flags & same_views & ~(1 << dec->currPic); o; o &= o - 1)
+			max_poc = max(max_poc, dec->FieldOrderCnt[0][__builtin_ctz(o)]);
+		dec->dispPicOrderCnt = -1 << 16;
+		for (unsigned o = dec->output_flags & same_views & ~(1 << dec->currPic); o; o &= o - 1) {
+			int i = __builtin_ctz(o);
+			dec->FieldOrderCnt[0][i] -= max_poc + (1 << 16);
+			dec->FieldOrderCnt[1][i] -= max_poc + (1 << 16);
 		}
-		dec->output_flags |= 1 << dec->currPic;
-		if (!(dec->pic_reference_flags & 1 << dec->currPic))
-			dec->dispPicOrderCnt = dec->FieldOrderCnt[0][dec->currPic]; // make all frames with lower POCs ready for output
-		#ifdef LOGS
-			log_dec(dec, "  FrameBuffer:\n");
-			unsigned reference_flags = dec->pic_reference_flags | dec->reference_flags & ~same_views;
-			unsigned long_term_flags = dec->pic_long_term_flags | dec->long_term_flags & ~same_views;
-			for (int i = 0; i < 32 - __builtin_clzg(reference_flags | dec->output_flags, 32); i++) {
-				log_dec(dec, "    - {id: %u", dec->FrameIds[i]);
-				if (reference_flags & 1 << i)
-					log_dec(dec, long_term_flags & 1 << i ? ", lref: %u" : ", sref: %u", long_term_flags & 1 << i ? dec->LongTermFrameIdx[i] : dec->FrameNums[i]);
-				if (dec->output_flags & 1 << i)
-					log_dec(dec, ", poc: %d", minw(dec->FieldOrderCnt[0][i], dec->FieldOrderCnt[1][i]));
-				if (dec->second_views)
-					log_dec(dec, ", view: %u", dec->second_views >> i & 1);
-				log_dec(dec, "}\n");
-			}
-		#endif
 	}
+	if (!dec->nal_ref_idc)
+		dec->dispPicOrderCnt = dec->TopFieldOrderCnt; // make all frames with lower POCs ready for output
+	
+	#ifdef LOGS
+		log_dec(dec, "  FrameBuffer:\n");
+		unsigned reference_flags = dec->pic_reference_flags | dec->reference_flags & ~same_views;
+		unsigned long_term_flags = dec->pic_long_term_flags | dec->long_term_flags & ~same_views;
+		for (int i = 0; i < 32 - __builtin_clzg(reference_flags | dec->output_flags, 32); i++) {
+			log_dec(dec, "    - {id: %u", dec->FrameIds[i]);
+			if (reference_flags & 1 << i)
+				log_dec(dec, long_term_flags & 1 << i ? ", lref: %u" : ", sref: %u", long_term_flags & 1 << i ? dec->LongTermFrameIdx[i] : dec->FrameNums[i]);
+			if (dec->output_flags & 1 << i)
+				log_dec(dec, ", poc: %d", minw(dec->FieldOrderCnt[0][i], dec->FieldOrderCnt[1][i]));
+			if (dec->second_views)
+				log_dec(dec, ", view: %u", dec->second_views >> i & 1);
+			log_dec(dec, "}\n");
+		}
+	#endif
 	
 	// prepare the task and signal it
 	initialize_task(dec, sps, t);

@@ -1683,12 +1683,11 @@ static int parse_seq_parameter_set_mvc_extension(Edge264Decoder *dec, int profil
 			log_dec(dec, "{temporal_id: %u, target_views: [", applicable_op_temporal_id);
 			for (int k = get_ue16(&dec->_gb, 1023); k >= 0; k--) {
 				int applicable_op_target_view_id = get_ue16(&dec->_gb, 1023);
-				log_dec(dec, k ? "%u," : "%u", applicable_op_target_view_id);
+				log_dec(dec, k ? "%u," : "%u], num_views: ", applicable_op_target_view_id);
 			}
 			int applicable_op_num_views = get_ue16(&dec->_gb, 1023) + 1;
-			log_dec(dec, "], num_views: %u},", applicable_op_num_views);
+			log_dec(dec, j ? "%u}," : "%u}]\n", applicable_op_num_views);
 		}
-		log_dec(dec, "]\n");
 	}
 	return profile_idc == 134 ? ENOTSUP : 0; // MFC is unsupported until streams actually use it
 }

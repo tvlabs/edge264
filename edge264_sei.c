@@ -121,10 +121,10 @@ int ADD_VARIANT(parse_sei)(Edge264Decoder *dec, int non_blocking, void(*free_cb)
 	
 	refill(&dec->_gb, 0);
 	log_dec(dec, "  sei_messages:\n");
-	if (print_dec(dec, dec->log_header_arg))
+	if (print_dec(dec))
 		return ENOTSUP;
 	int ret = 0;
-	do {
+	while (dec->_gb.msb_cache << 1 || (dec->_gb.lsb_cache & (dec->_gb.lsb_cache - 1)) || (intptr_t)(dec->_gb.end - dec->_gb.CPB) > 0) {
 		int byte, payloadType = 0, payloadSize = 0;
 		do {
 			byte = get_uv(&dec->_gb, 8);
@@ -150,8 +150,8 @@ int ADD_VARIANT(parse_sei)(Edge264Decoder *dec, int non_blocking, void(*free_cb)
 			if (skip)
 				get_uv(&dec->_gb, skip);
 		}
-		if (print_dec(dec, dec->log_sei_arg))
+		if (print_dec(dec))
 			return ENOTSUP;
-	} while (dec->_gb.msb_cache << 1 || (dec->_gb.lsb_cache & (dec->_gb.lsb_cache - 1)) || (intptr_t)(dec->_gb.end - dec->_gb.CPB) > 0);
-	return (dec->_gb.msb_cache & (size_t)1 << (SIZE_BIT - 1)) ? ret : EBADMSG;
+	}
+	return rbsp_end(&dec->_gb) ? ret : EBADMSG;
 }

@@ -80,7 +80,7 @@ int main(int argc, char *argv[]) {
 	uint8_t *buf = mmap(NULL, st.st_size, PROT_READ, MAP_SHARED, fd, 0);
 	const uint8_t *nal = buf + 3 + (buf[2] == 0); // skip the [0]001 delimiter
 	const uint8_t *end = buf + st.st_size;
-	Edge264Decoder *dec = edge264_alloc(-1, NULL, NULL, NULL, NULL); // auto number of threads, no logging
+	Edge264Decoder *dec = edge264_alloc(-1, NULL, NULL, 0); // auto number of threads, no logging
 	Edge264Frame frm;
 	int res;
 	do {
@@ -115,15 +115,14 @@ Return a pointer to the next three or four byte (0)001 start code prefix, or `en
 
 ---
 
-<code>Edge264Decoder * <b>edge264_alloc(n_threads, log_cb, log_header, log_sei, log_mb)</b></code>
+<code>Edge264Decoder * <b>edge264_alloc(n_threads, log_cb, log_arg, log_mbs)</b></code>
 
 Allocate and initialize a decoding context.
 
 * `int n_threads` - number of background worker threads, with 0 to disable multithreading and -1 to detect the number of logical cores at runtime
 * `void (* log_cb)(const char * str, void * log_arg)` - if not NULL, a `fputs`-compatible function pointer that will be called to log every header, SEI or macroblock
-* `void * log_header_arg` - if not NULL, the argument passed to `log_cb` when `edge264_decode_NAL` logs a header (⚠️ *large*, always called from the same thread, enabling it requires the `logs` variant otherwise the function will fail at runtime)
-* `void * log_sei_arg` - if not NULL, the argument passed to `log_cb` when `edge264_decode_NAL` logs a Supplemental Enhancement Information message (see [H.264 annex D](https://www.itu.int/rec/T-REC-H.264), always called from the same thread, requires `logs` too)
-* `void * log_mb_arg` - if not NULL, the argument passed to `log_cb` when `edge264_decode_NAL` logs a macroblock (⚠️ *very large*, may be called from another thread if multithreaded, requires `logs`too)
+* `void * log_arg` - custom value passed to `log_cb` when `edge264_decode_NAL` logs a NAL unit or SEI message (⚠️ *large*, always called from the same thread, enabling it requires the `logs` variant otherwise the function will fail at runtime)
+* `int log_mbs` - if set then `edge264_decode_NAL` will also log macroblocks (⚠️ *very large*, may be called from another thread if multithreaded, requires `logs`too)
 
 ---
 

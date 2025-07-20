@@ -288,7 +288,7 @@ typedef struct Edge264Context {
 	
 	// Logging context (unused if disabled)
 	void (*log_cb)(const char*, void*);
-	void *log_mb_arg;
+	void *log_arg;
 	int16_t log_pos; // next writing position in log_buf
 	char log_buf[4096];
 } Edge264Context;
@@ -361,9 +361,7 @@ typedef struct Edge264Decoder {
 	
 	// Logging context (unused if disabled)
 	void (*log_cb)(const char*, void*);
-	void *log_sei_arg;
-	void *log_header_arg;
-	void *log_mb_arg;
+	void *log_arg;
 	int16_t log_pos; // next writing position in log_buf
 	char log_buf[9538];
 } Edge264Decoder;
@@ -540,12 +538,12 @@ enum IntraChromaModes {
 	#define log_dec(dec, ...) {\
 		if (dec->log_pos < sizeof(dec->log_buf))\
 			dec->log_pos += snprintf(dec->log_buf + dec->log_pos, sizeof(dec->log_buf) - dec->log_pos, __VA_ARGS__);}
-	static inline int print_dec(Edge264Decoder *dec, void *arg) {
+	static inline int print_dec(Edge264Decoder *dec) {
 		int pos = dec->log_pos;
 		dec->log_pos = 0;
 		if (pos >= sizeof(dec->log_buf))
 			return ENOTSUP;
-		dec->log_cb(dec->log_buf, arg);
+		dec->log_cb(dec->log_buf, dec->log_arg);
 		return 0;
 	}
 	#define log_mb(ctx, ...) {\
@@ -556,7 +554,7 @@ enum IntraChromaModes {
 		ctx->log_pos = 0;
 		if (pos >= sizeof(ctx->log_buf))
 			return ENOTSUP;
-		ctx->log_cb(ctx->log_buf, ctx->log_mb_arg);
+		ctx->log_cb(ctx->log_buf, ctx->log_arg);
 		return 0;
 	}
 #else
@@ -1028,9 +1026,5 @@ int parse_seq_parameter_set(Edge264Decoder *dec, int non_blocking, void(*free_cb
 int parse_seq_parameter_set_v2(Edge264Decoder *dec, int non_blocking, void(*free_cb)(void*,int), void *free_arg);
 int parse_seq_parameter_set_v3(Edge264Decoder *dec, int non_blocking, void(*free_cb)(void*,int), void *free_arg);
 int parse_seq_parameter_set_log(Edge264Decoder *dec, int non_blocking, void(*free_cb)(void*,int), void *free_arg);
-int parse_seq_parameter_set_extension(Edge264Decoder *dec, int non_blocking, void(*free_cb)(void*,int), void *free_arg);
-int parse_seq_parameter_set_extension_v2(Edge264Decoder *dec, int non_blocking, void(*free_cb)(void*,int), void *free_arg);
-int parse_seq_parameter_set_extension_v3(Edge264Decoder *dec, int non_blocking, void(*free_cb)(void*,int), void *free_arg);
-int parse_seq_parameter_set_extension_log(Edge264Decoder *dec, int non_blocking, void(*free_cb)(void*,int), void *free_arg);
 
 #endif

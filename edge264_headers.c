@@ -314,7 +314,7 @@ void *ADD_VARIANT(worker_loop)(Edge264Decoder *dec) {
 	c.d = dec;
 	c.n_threads = dec->n_threads;
 	c.log_cb = dec->log_cb;
-	c.log_mb_arg = dec->log_mb_arg;
+	c.log_arg = dec->log_arg;
 	if (c.n_threads)
 		pthread_mutex_lock(&dec->lock);
 	for (;;) {
@@ -848,8 +848,6 @@ int ADD_VARIANT(parse_slice_layer_without_partitioning)(Edge264Decoder *dec, int
 		(i8x16){-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1};
 	
 	// first important fields and checks before decoding the slice header
-	if (!dec->_gb.lsb_cache)
-		refill(&dec->_gb, 0);
 	t->first_mb_in_slice = get_ue32(&dec->_gb, 139263);
 	int slice_type = get_ue16(&dec->_gb, 9);
 	t->slice_type = (slice_type < 5) ? slice_type : slice_type - 5;
@@ -1143,7 +1141,7 @@ int ADD_VARIANT(parse_slice_layer_without_partitioning)(Edge264Decoder *dec, int
 	dec->taskPics[task_id] = dec->currPic;
 	if (!dec->n_threads)
 		log_dec(dec, t->pps.entropy_coding_mode_flag ? "  macroblocks_cabac:\n" : "  macroblocks_cavlc:\n");
-	if (print_dec(dec, dec->log_header_arg))
+	if (print_dec(dec))
 		return ENOTSUP;
 	if (!dec->n_threads)
 		return (intptr_t)dec->worker_loop(dec);
@@ -1156,11 +1154,10 @@ int ADD_VARIANT(parse_slice_layer_without_partitioning)(Edge264Decoder *dec, int
 int ADD_VARIANT(parse_access_unit_delimiter)(Edge264Decoder *dec, int non_blocking, void(*free_cb)(void*,int), void *free_arg) {
 	const char *primary_pic_type_names[8] =
 		{"I", "I,P", "I,P,B", "SI", "SI,SP", "I,SI", "I,SI,P,SP", "I,SI,P,SP,B"};
-	refill(&dec->_gb, 0);
 	int primary_pic_type = get_uv(&dec->_gb, 3);
 	log_dec(dec, "  primary_pic_type: %u # %s\n",
 		primary_pic_type, primary_pic_type_names[primary_pic_type]);
-	if (print_dec(dec, dec->log_header_arg))
+	if (print_dec(dec))
 		return ENOTSUP;
 	if (!rbsp_end(&dec->_gb))
 		return EBADMSG;
@@ -1170,7 +1167,6 @@ int ADD_VARIANT(parse_access_unit_delimiter)(Edge264Decoder *dec, int non_blocki
 
 
 int ADD_VARIANT(parse_nal_unit_header_extension)(Edge264Decoder *dec, int non_blocking, void(*free_cb)(void*,int), void *free_arg) {
-	refill(&dec->_gb, 0);
 	unsigned u = get_uv(&dec->_gb, 24);
 	if (u & 1 << 23)
 		return ENOTSUP;
@@ -1192,7 +1188,7 @@ int ADD_VARIANT(parse_nal_unit_header_extension)(Edge264Decoder *dec, int non_bl
 	// spec doesn't mention rbsp_trailing_bits at the end of prefix_nal_unit_rbsp
 	if (!rbsp_end(&dec->_gb))
 		return EBADMSG;
-	if (print_dec(dec, dec->log_header_arg))
+	if (print_dec(dec))
 		return ENOTSUP;
 	return 0;
 }
@@ -1296,7 +1292,6 @@ int ADD_VARIANT(parse_pic_parameter_set)(Edge264Decoder *dec, int non_blocking, 
 	};
 	
 	// Actual streams never use more than 4 PPSs (I, P, B, b).
-	refill(&dec->_gb, 0);
 	int pic_parameter_set_id = get_ue16(&dec->_gb, 255);
 	get_ue16(&dec->_gb, 31); // seq_parameter_set_id
 	pps.entropy_coding_mode_flag = get_u1(&dec->_gb);
@@ -1391,7 +1386,7 @@ int ADD_VARIANT(parse_pic_parameter_set)(Edge264Decoder *dec, int non_blocking, 
 	// check for trailing_bits before unsupported features (in case errors enabled them)
 	if (!rbsp_end(&dec->_gb))
 		return EBADMSG;
-	if (print_dec(dec, dec->log_header_arg) || pic_parameter_set_id >= 4 ||
+	if (print_dec(dec) || pic_parameter_set_id >= 4 ||
 		num_slice_groups > 1 || pps.constrained_intra_pred_flag ||
 		redundant_pic_cnt_present_flag)
 		return ENOTSUP;
@@ -1749,7 +1744,6 @@ int ADD_VARIANT(parse_seq_parameter_set)(Edge264Decoder *dec, int non_blocking, 
 	};
 	
 	// Profiles are only useful to initialize max_num_reorder_frames/num_frame_buffers.
-	refill(&dec->_gb, 0);
 	int profile_idc = get_uv(&dec->_gb, 8);
 	unsigned constraint_set_flags = get_uv(&dec->_gb, 8);
 	int level_idc = get_uv(&dec->_gb, 8);
@@ -1949,38 +1943,6 @@ int ADD_VARIANT(parse_seq_parameter_set)(Edge264Decoder *dec, int non_blocking, 
 		}
 	}
 	*(dec->nal_unit_type == 7 ? &dec->sps : &dec->ssps) = sps;
-	print_dec(dec, dec->log_header_arg);
+	print_dec(dec);
 	return 0;
-}
-
-
-
-/**
- * This NAL type for transparent videos is unsupported until encoders actually
- * support it.
- */
-int ADD_VARIANT(parse_seq_parameter_set_extension)(Edge264Decoder *dec, int non_blocking, void(*free_cb)(void*,int), void *free_arg) {
-	refill(&dec->_gb, 0);
-	get_ue16(&dec->_gb, 31);
-	int aux_format_idc = get_ue16(&dec->_gb, 3);
-	log_dec(dec, "  aux_format_idc: %u%s\n",
-		aux_format_idc, unsup_if(aux_format_idc));
-	if (aux_format_idc) {
-		int bit_depth_aux = get_ue16(&dec->_gb, 4) + 8;
-		unsigned u = get_uv(&dec->_gb, 3 + bit_depth_aux * 2);
-		log_dec(dec, "  bit_depth_aux: %u\n"
-			"  alpha_incr_flag: %u\n"
-			"  alpha_opaque_value: %u\n"
-			"  alpha_transparent_value: %u\n",
-			bit_depth_aux,
-			u >> (bit_depth_aux * 2),
-			u >> bit_depth_aux & ((1 << bit_depth_aux) - 1),
-			u & ((1 << bit_depth_aux) - 1));
-	}
-	get_u1(&dec->_gb);
-	if (!rbsp_end(&dec->_gb)) // rbsp_trailing_bits
-		return EBADMSG;
-	if (print_dec(dec, dec->log_header_arg))
-		return ENOTSUP;
-	return aux_format_idc ? ENOTSUP : 0; // unsupported if transparent
 }

@@ -384,19 +384,6 @@ def gen_access_unit_delimiter(bits, f, aud):
 
 
 
-def gen_seq_parameter_set_extension(bits, f, spse):
-	bits = bits << 1 | 1 # seq_parameter_set_id
-	bits = gen_ue(bits, spse.aux_format_idc)
-	if spse.aux_format_idc:
-		bits = gen_ue(bits, spse.bit_depth_aux - 8)
-		bits = bits << 1 | spse.alpha_incr_flag
-		bits = bits << spse.bit_depth_aux << 1 | spse.alpha_opaque_value
-		bits = bits << spse.bit_depth_aux << 1 | spse.alpha_transparent_value
-	bits = bits << 1 # additional_extension_flag
-	return bits
-
-
-
 def gen_prefix_nal_unit(bits, f, nal):
 	bits = bits << 1 # svc_extension_flag
 	bits = bits << 1 | nal.idr_flag ^ 1
@@ -476,7 +463,6 @@ gen_bits = {
 	7: gen_seq_parameter_set,
 	8: gen_pic_parameter_set,
 	9: gen_access_unit_delimiter,
-	13: gen_seq_parameter_set_extension,
 	14: gen_prefix_nal_unit,
 	15: gen_subset_seq_parameter_set,
 	20: gen_prefix_nal_unit
@@ -497,7 +483,8 @@ def main():
 			bits <<= 1 # forbidden_zero_bit
 			bits = bits << 2 | nal.nal_ref_idc
 			bits = bits << 5 | nal.nal_unit_type
-			bits = gen_bits[nal.nal_unit_type](bits, f, nal)
+			if nal.nal_unit_type in gen_bits:
+				bits = gen_bits[nal.nal_unit_type](bits, f, nal)
 			bits = bits << 1 | 1 # rbsp_stop_one_bit
 			num = bits.bit_length() - 1
 			bits ^= 1 << num

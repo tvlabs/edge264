@@ -1,0 +1,64 @@
+--- # All unsupported types of NAL units
+
+- nal_ref_idc: 1
+  nal_unit_type: 0
+
+- nal_ref_idc: 0
+  nal_unit_type: 0
+
+- nal_ref_idc: 0
+  nal_unit_type: 2
+
+- nal_ref_idc: 0
+  nal_unit_type: 3
+
+- nal_ref_idc: 0
+  nal_unit_type: 4
+
+- nal_ref_idc: 0
+  nal_unit_type: 13
+
+- nal_ref_idc: 0
+  nal_unit_type: 16
+
+- nal_ref_idc: 0
+  nal_unit_type: 17
+
+- nal_ref_idc: 0
+  nal_unit_type: 18
+
+- nal_ref_idc: 0
+  nal_unit_type: 19
+
+- nal_ref_idc: 0
+  nal_unit_type: 21
+
+- nal_ref_idc: 0
+  nal_unit_type: 22
+
+- nal_ref_idc: 0
+  nal_unit_type: 23
+
+- nal_ref_idc: 0
+  nal_unit_type: 24
+
+- nal_ref_idc: 0
+  nal_unit_type: 25
+
+- nal_ref_idc: 0
+  nal_unit_type: 26
+
+- nal_ref_idc: 0
+  nal_unit_type: 27
+
+- nal_ref_idc: 0
+  nal_unit_type: 28
+
+- nal_ref_idc: 0
+  nal_unit_type: 29
+
+- nal_ref_idc: 0
+  nal_unit_type: 30
+
+- nal_ref_idc: 0
+  nal_unit_type: 31

@@ -319,7 +319,8 @@ typedef struct Edge264Decoder {
 	int32_t plane_size_C;
 	int32_t frame_size;
 	int32_t FrameNum; // value for the current incomplete frame, unaffected by mmco5
-	int32_t TopFieldOrderCnt; // same
+	int32_t idr_pic_id; // value for the last slice, used for detecting new frames
+	int32_t TopFieldOrderCnt; // value for the current incomplete frame, unaffected by mmco5
 	int32_t BottomFieldOrderCnt;
 	int32_t prevPicOrderCnt;
 	int32_t dispPicOrderCnt; // all POCs lower or equal than this are ready for output

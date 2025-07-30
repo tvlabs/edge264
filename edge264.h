@@ -38,22 +38,22 @@ extern "C" {
 typedef struct Edge264Decoder Edge264Decoder;
 
 typedef struct Edge264Frame {
-   const uint8_t *samples[3]; // Y/Cb/Cr planes
-   const uint8_t *samples_mvc[3]; // second view
-   const uint8_t *mb_errors; // probabilities (0..100) for each macroblock to be erroneous, NULL if there are no errors, values are spaced by stride_mb in memory
-   int8_t pixel_depth_Y; // 0 for 8-bit, 1 for 16-bit
-   int8_t pixel_depth_C;
-   int16_t width_Y;
-   int16_t width_C;
-   int16_t height_Y;
-   int16_t height_C;
-   int16_t stride_Y;
-   int16_t stride_C;
-   int16_t stride_mb;
-   uint32_t FrameId;
-   uint32_t FrameId_mvc; // second view
-   int16_t frame_crop_offsets[4]; // {top,right,bottom,left}, useful to derive the original frame with 16x16 macroblocks
-   void *return_arg;
+	const uint8_t *samples[3]; // Y/Cb/Cr planes
+	const uint8_t *samples_mvc[3]; // second view
+	const uint8_t *mb_errors; // probabilities (0..100) for each macroblock to be erroneous, NULL if there are no errors, values are spaced by stride_mb in memory
+	int8_t pixel_depth_Y; // 0 for 8-bit, 1 for 16-bit
+	int8_t pixel_depth_C;
+	int16_t width_Y;
+	int16_t width_C;
+	int16_t height_Y;
+	int16_t height_C;
+	int16_t stride_Y;
+	int16_t stride_C;
+	int16_t stride_mb;
+	uint32_t FrameId;
+	uint32_t FrameId_mvc; // second view
+	int16_t frame_crop_offsets[4]; // {top,right,bottom,left}, useful to derive the original frame with 16x16 macroblocks
+	void *return_arg;
 } Edge264Frame;
 
 const uint8_t *edge264_find_start_code(const uint8_t *buf, const uint8_t *end, int four_byte);

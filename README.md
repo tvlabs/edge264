@@ -80,7 +80,7 @@ int main(int argc, char *argv[]) {
 	uint8_t *buf = mmap(NULL, st.st_size, PROT_READ, MAP_SHARED, fd, 0);
 	const uint8_t *nal = buf + 3 + (buf[2] == 0); // skip the [0]001 delimiter
 	const uint8_t *end = buf + st.st_size;
-	Edge264Decoder *dec = edge264_alloc(-1, NULL, NULL, 0); // auto number of threads, no logging
+	Edge264Decoder *dec = edge264_alloc(-1, NULL, NULL, 0); // auto threads, no logs
 	Edge264Frame frm;
 	int res;
 	do {
@@ -211,8 +211,8 @@ typedef struct Edge264Frame {
 	int16_t stride_Y;
 	int16_t stride_C;
 	int16_t stride_mb;
-	int32_t TopFieldOrderCnt;
-	int32_t BottomFieldOrderCnt;
+	uint32_t FrameId;
+	uint32_t FrameId_mvc; // second view
 	int16_t frame_crop_offsets[4]; // {top,right,bottom,left}, useful to derive the original frame with 16x16 macroblocks
 	void *return_arg;
 } Edge264Frame;
@@ -229,6 +229,7 @@ Error recovery
 Roadmap
 -------
 
+* Stress testing (in progress)
 * Multithreading (in progress)
 * Error recovery (in progress)
 * Integration in VLC/ffmpeg/GStreamer

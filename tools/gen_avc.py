@@ -485,7 +485,8 @@ def main():
 			bits = bits << 5 | nal.nal_unit_type
 			if nal.nal_unit_type in gen_bits:
 				bits = gen_bits[nal.nal_unit_type](bits, f, nal)
-			bits = bits << 1 | 1 # rbsp_stop_one_bit
+			if vars(nal).get("rbsp_trailing_bit", 1):
+				bits = bits << 1 | 1
 			num = bits.bit_length() - 1
 			bits ^= 1 << num
 			bits <<= -num % 8

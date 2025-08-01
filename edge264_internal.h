@@ -879,10 +879,10 @@ static always_inline i8x16 pack_absMvd(i16x8 a) {
 static always_inline int rbsp_end(Edge264GetBits *gb) {
 	unsigned trailing_bit = gb->msb_cache >> (SIZE_BIT - 1);
 	unsigned rem_bits = SIZE_BIT * 2 - 1 - ctz(gb->lsb_cache) - trailing_bit;
-	// all bits after optional trailing set bit must be zero AND bit position must be 1-7 inside end[-1] or 0 inside end[0]
+	// all bits after optional trailing set bit must be zero AND bit position must be 1-7 inside end[-1], 0-7 inside end[0] or 0 inside end[1] (because a single 0x00 as the last byte may not be escaped and pull back end by 1 byte)
 	return gb->msb_cache << trailing_bit == 0 &&
 	       (gb->lsb_cache & (gb->lsb_cache - 1)) == 0 &&
-	       (intptr_t)(gb->end - gb->CPB + (rem_bits >> 3)) == 0;
+	       (unsigned)((intptr_t)(gb->CPB - gb->end) << 3) - rem_bits + 7 <= 15;
 }
 #ifndef __builtin_clzg // works as long as __builtin_clzg is a macro
 	static always_inline int __builtin_clzg(unsigned a, int b) { return a ? __builtin_clz(a) : b; }

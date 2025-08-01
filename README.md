@@ -219,13 +219,6 @@ typedef struct Edge264Frame {
 ```
 
 
-Error recovery
---------------
-
-* Any invalid or corrupted header is ignored by edge264, i.e. if an invalid parameter set is received then the previous one will still be kept.
-* Any invalid or corrupted frame will be signaled by setting `mb_errors` in `Edge264Frame`. Since edge264 cannot detect exactly where a corruption occurs, it returns a 0-100% integer probability for each macroblock to contain errors caused by the corruption. This probability is rounded upward, such that all macroblocks inside a corrupted slice will at least have the value 1. edge264 does a basic job at reconstructing the corrupted macroblocks with neighboring frames, so media players are encouraged to use `mb_errors` to provide a better reconstruction.
-
-
 Roadmap
 -------
 
@@ -267,3 +260,118 @@ Other yet-to-be-presented bits:
 * [Minimalistic API](edge264.h) with FFI-friendly design (7 functions and 1 structure).
 * [The bitstream caches](edge264_internal.h) for CAVLC and CABAC (search for `rbsp_reg`) are stored in two size_t variables each, which may be mapped to Global Register Variables in the future.
 * [The decoding of input symbols](edge264_slice.c) is interspersed with their parsing (instead of parsing to a `struct` then decoding the data). It deduplicates branches and loops that are present in both parsing and decoding, and even eliminates the need to store some symbols (e.g. mb_type, sub_mb_type, mb_qp_delta).
+
+
+Testing
+-------
+
+With the help of a [custom bitstream writer](tools/gen_avc.py) using the same YAML format edge264 outputs, a set of extensive tests are being created in [tools/raw_tests](tools/raw_tests) to stress the darkest corners of this decoder. The following table lists them all, along with the files implementing them.
+
+| General tests | Expected | Test files |
+| --- | --- | --- |
+| All supported types of NAL units | All OK | supp-nals |
+| All unsupported types of NAL units | All unsupp | unsupp-nals |
+| Maximal header log-wise | All OK | max-logs |
+| All conditions (detected and ignored) for detecting the start of a new frame (*non standard*) | All OK | finish_frame |
+| nal_ref_idc=0 on a IDR (*non standard*) | OK | nal_ref_idc |
+| Missing rbsp_trailing_bit for all supported NAL types (*non standard*) | All OK | no-trailing-bit |
+| SPS of less than 11 bytes starting at a page boundary with segfault on reads ahead |  |  |
+| SPS ending at the end of a page with segfault on reads after |  |  |
+| PPS/SEI/slice referencing an uninitialized SPS/PPS |  |  |
+| Mixing CAVLC and CABAC in a same frame |  |  |
+| Changing a SPS/PPS between slices of the same frame |  |  |
+| Sliced non-ref frame following non-ref frame with decreasing POC (7.4.1.2.2) |  |  |
+| poc_type=2 and non-ref frame followed by non-ref pic, and the opposite (7.4.2.1.1) |  |  |
+| direct_8x8_inference_flag=1 with frame_mbs_only_flag=0 |  |  |
+| horizontal/vertical cropping leaving zero/negative space |  |  |
+| SSPS with additional_extension2_flag=1 and more trailing data |  |  |
+| Single slice with at least 8 cabac_zero_word |  |  |
+| P/B slice with nal_unit_type=5 or max_num_ref_frames=0 (7.4.3) |  |  |
+| IDR slice with frame_num>0 (7.4.3) |  |  |
+| Two ref frames with the same frame_num but differing POC, then a third frame referencing both |  |  |
+| Gap in frame_num while gaps_in_frame_num_value_allowed_flag=0 |  |  |
+| Stream starting with non-IDR I frame |  |  |
+| Stream starting with P/B frame |  |  |
+| Ref slice with delta_pic_order_cnt_bottom=-2**31, then a second frame referencing it |  |  |
+| Two frames A/B with intersecting top/bottom POC intervals in all possible intersections |  |  |
+| A 32-bit POC overflow between 2 frames |  |  |
+| A B-frame referencing frames with more than 2**16 POC diff |  |  |
+| num_ref_idx_active>15 in SPS then no override in slice for L0 and L1 |  |  |
+| A slice with more ref_pic_list_modifications than num_ref_idx_active/16 for L0 and L1 |  |  |
+| A slice with ref_pic_list_modifications duplicating a ref then referencing the second one |  |  |
+| A slice with insufficient ref frames with and without override of num_ref_idx_active for L0 and L1 |  |  |
+| A modification of RefPicList[0/1] to a non-existing short/long term frame, then referencing it in mb |  |  |
+| 33 IDR with long_term_reference_flag=0/1 while max_num_ref_frames=0 (8.2.5.1) |  |  |
+| A new reference while max_num_ref_frames are already all long-term |  |  |
+| All combinations of mmco on all non-existing/short/long refs, with at least twice each mmco |  |  |
+| Two fields of the same frame being assigned different long-term frame indices then referenced |  |  |
+| While all max_num_ref_frames are long-term, a ref_pic_list_modification that references all of them |  |  |
+| An IDR picture with POC>0 |  |  |
+| A picture with mmco=5 decoded after a picture with greater POC (8.2.1) |  |  |
+| A P/B frame with zero references before or received with a gap in frame_num equal to max_ref_frames |  |  |
+| A P/B frame referencing a non-existing/erroneous ref |  |  |
+| A B frame with colPic set to a non-existing frame |  |  |
+| A current frame mmco'ed to long-term while all max_num_ref_frames are already long-term |  |  |
+| All combinations of IntraNxNPredMode with A/B/C/D unavailability with asserts for out-of-bounds reads |  |  |
+| A direct Inter reference from colPic that is not present in RefPicList0 |  |  |
+| A residual block with all coeffs at maximum 32-bit values |  |  |
+| Two slices of the same frame separated by a currPic reset (ex. AUD) |  |  |
+| Two frames with the same POC yet differing TopFieldOrderCnt/BottomFieldOrderCnt |  |  |
+| Differing mmcos on two slices of the same frame |  |  |
+| Sending 2 IDR, then reaching the lowest possible POC, then getting all frames |  |  |
+| Two slices with mmco=5 yet frame_num>0 (to make it look like a new frame) |  |  |
+| POCs spaced by more than half max bits, such that relying on a stale prevPicOrderCnt yields wrong POC |  |  |
+
+| Parameter sets tests | Expected | Test files |
+| --- | --- | --- |
+| Invalid profile_idc=0/255 |  |  |
+| Highest level_idc=255 |  |  |
+| All unsupported values of chroma_format_idc |  |  |
+| All unsupported values of bit_depth_luma/chroma |  |  |
+| qpprime_y_zero_transform_bypass_flag=1 |  |  |
+| All scaling lists default/fallback rules and repeated values for all indices, with residual macroblock |  |  |
+| log2_max_frame_num=4 and a frame referencing another with the same frame_num%4 |  |  |
+
+| Macroblock tests | Expected | Test files |
+| --- | --- | --- |
+| All valid total_zeros=0-8-prefix+3-bit-suffix for TotalCoeffs in [0;15] for 4x4 and 2x2 |  |  |
+| Invalid total_zeros=31/63/127-prefix for TotalCoeffs in [0;15] for 4x4 and 2x2 |  |  |
+| All valid coeff_token=0-14-prefix+4-bit-suffix for nC=0/2/4, and valid 6-bit-values for nC=8 |  |  |
+| Invalid coeff_token=31/63/127-prefix for nC=0/2/4, and invalid 6-bit-values for nC=8 |  |  |
+| All valid levelCode=25-prefix+suffixLength-bit-suffix for all values of suffixLength |  |  |
+| All valid run_before for all values of zerosLeft<=7 |  |  |
+| Invalid run_before=31/63/127 for zerosLeft=7 |  |  |
+| Macroblock of maximal size for all values of mb_type |  |  |
+| mb_qp_delta=-26/25 that overflows on both sides |  |  |
+| All valid inferences of nC for all values of nA/nB=unavail/other-slice/0-16 |  |  |
+| All coded_block_pattern=[0;47] for I and P/B slices |  |  |
+| All combinations of intra_chroma_pred_mode and Intra4x4/8x8/16x16PredMode with A/B-unavailability |  |  |
+| All values of mb_type+sub_mb_types for I/P/B with ref_idx/mvds different than values from B_Direct |  |  |
+| mvd=[-32768/0/32767,-32768/0/32767] in a single 16x16 macroblock |  |  |
+| TotalCoeff=16 for a Intra16x16 AC block |  |  |
+| A residual block with run_length=14 making zerosLeft negative |  |  |
+
+| MVC tests | Expected | Test files |
+| --- | --- | --- |
+| All wrong combinations of non_idr_flag with nal_unit_type=1/5 and nal_ref_idc=0/1 |  |  |
+| nal_unit_type=14 then filler unit then nal_unit_type=1/5 |  |  |
+| An nal_unit_type=5 view paired with a non_idr_flag=0 P view, or a non_idr_flag=1 view |  |  |
+| Missing a base or non-base view |  |  |
+| Receiving a SSPS yet only base views then |  |  |
+| 16 ref base views while non base are non-refs |  |  |
+| A SSPS with different pic_width_in_mbs/pic_height_in_mbs/chroma_format_idc than its SPS |  |  |
+| A SSPS with num_views=1 |  |  |
+| A non-base view with weighted_bipred_idc=2 |  |  |
+| A non-base view with its base in RefPicList1[0] and direct_spatial_mv_pred_flag=0 (H.7.4.3) |  |  |
+| A slice with num_ref_idx_l0_active>8 |  |  |
+| svc_extension_flag=1 on a MVC stream |  |  |
+
+| Error recovery tests | Expected | Test files |
+| --- | --- | --- |
+| Tests to implement |  |  |
+| A complete frame received twice |  |  |
+| A slice of a frame received twice |  |  |
+| Frame with correct and erroneous slice |  |  |
+| All combinations erroneous/correct and all interval intersections on 2 slices |  |  |
+| All failures of malloc |  |  |
+| All (dis-)allowed bit positions at the end without rbsp_trailing_bit |  |  |

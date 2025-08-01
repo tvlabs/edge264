@@ -275,8 +275,7 @@ With the help of a [custom bitstream writer](tools/gen_avc.py) using the same YA
 | All conditions (detected and ignored) for detecting the start of a new frame (*non standard*) | All OK | finish_frame |
 | nal_ref_idc=0 on a IDR (*non standard*) | OK | nal_ref_idc |
 | Missing rbsp_trailing_bit for all supported NAL types (*non standard*) | All OK | no-trailing-bit |
-| SPS of less than 11 bytes starting at a page boundary with segfault on reads ahead |  |  |
-| SPS ending at the end of a page with segfault on reads after |  |  |
+| NAL of less than 11 bytes starting/ending at page boundary | All OK | tiny-nal |
 | PPS/SEI/slice referencing an uninitialized SPS/PPS |  |  |
 | Mixing CAVLC and CABAC in a same frame |  |  |
 | Changing a SPS/PPS between slices of the same frame |  |  |

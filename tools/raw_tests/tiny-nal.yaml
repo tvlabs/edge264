@@ -1,0 +1,15 @@
+--- # Tiny NAL meant to test out-of-bound reads
+
+- nal_ref_idc: 3
+  nal_unit_type: 7 # Sequence parameter set
+  profile_idc: 66 # Baseline
+  constraint_set_flags: [0,0,0,0,0,0]
+  level_idc: 1.0
+  log2_max_frame_num: 4
+  pic_order_cnt_type: 0
+  log2_max_pic_order_cnt_lsb: 4
+  max_num_ref_frames: 2
+  gaps_in_frame_num_value_allowed_flag: 0
+  pic_size_in_mbs: {width: 2, height: 1}
+  frame_mbs_only_flag: 1
+  direct_8x8_inference_flag: 0

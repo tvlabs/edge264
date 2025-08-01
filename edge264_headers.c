@@ -1424,7 +1424,7 @@ static void parse_hrd_parameters(Edge264Decoder *dec, Edge264SeqParameterSet *sp
 	*cpb_cnt = get_ue16(&dec->_gb, 31) + 1;
 	int bit_rate_scale = get_uv(&dec->_gb, 4);
 	int cpb_size_scale = get_uv(&dec->_gb, 4);
-	log_dec(dec, "%sCPBs:\n", indent);
+	log_dec(dec, "%scpbs:\n", indent);
 	for (int i = 0; i < *cpb_cnt; i++) {
 		uint64_t bit_rate_value = get_ue32(&dec->_gb, 4294967294) + 1;
 		uint64_t cpb_size_value = get_ue32(&dec->_gb, 4294967294) + 1;

@@ -231,13 +231,37 @@ def gen_slice_layer_without_partitioning(bits, f, slice):
 
 
 
+def gen_sei(bits, f, nal):
+	for sei in nal.sei_messages:
+		bits = bits << (sei.payloadType // 255 * 8) | ((1 << (sei.payloadType // 255 * 8)) - 1)
+		bits = bits << 8 | (sei.payloadType % 255)
+		payload = 1
+		if sei.payloadType == 0:
+			payload = payload << 1 | 1 # seq_parameter_set_id
+			for cpb in vars(sei).get("nal_hrd_cpbs", []):
+				payload = payload << sei.delay_bits | cpb.initial_cpb_removal_delay
+				payload = payload << sei.delay_bits | cpb.initial_cpb_removal_delay_offset
+			for cpb in vars(sei).get("vcl_hrd_cpbs", []):
+				payload = payload << sei.delay_bits | cpb.initial_cpb_removal_delay
+				payload = payload << sei.delay_bits | cpb.initial_cpb_removal_delay_offset
+		num = payload.bit_length() - 1
+		payloadSize = (num + 7) // 8
+		bits = bits << (payloadSize // 255 * 8) | ((1 << (payloadSize // 255 * 8)) - 1)
+		bits = bits << 8 | payloadSize % 255
+		bits = bits << num | (payload ^ 1 << num)
+		if num % 8 > 0:
+			bits = bits << -num % 8 | 1 << -num % 8 >> 1
+		return bits
+
+
+
 def gen_hrd_parameters(bits, hrd):
-	bits = gen_ue(bits, len(hrd.CPBs) - 1)
-	bit_rate_scale = min(ctz(reduce(lambda a, b: a | b, (cpb.bit_rate for cpb in hrd.CPBs))) - 6, 15)
-	cpb_size_scale = min(ctz(reduce(lambda a, b: a | b, (cpb.size for cpb in hrd.CPBs))) - 4, 15)
+	bits = gen_ue(bits, len(hrd.cpbs) - 1)
+	bit_rate_scale = min(ctz(reduce(lambda a, b: a | b, (cpb.bit_rate for cpb in hrd.cpbs))) - 6, 15)
+	cpb_size_scale = min(ctz(reduce(lambda a, b: a | b, (cpb.size for cpb in hrd.cpbs))) - 4, 15)
 	bits = bits << 4 | bit_rate_scale
 	bits = bits << 4 | cpb_size_scale
-	for cpb in hrd.CPBs:
+	for cpb in hrd.cpbs:
 		bits = gen_ue(bits, (cpb.bit_rate >> 6 >> bit_rate_scale) - 1)
 		bits = gen_ue(bits, (cpb.size >> 4 >> cpb_size_scale) - 1)
 		bits = bits << 1 | cpb.cbr_flag
@@ -460,6 +484,7 @@ def gen_subset_seq_parameter_set(bits, f, ssps):
 gen_bits = {
 	1: gen_slice_layer_without_partitioning,
 	5: gen_slice_layer_without_partitioning,
+	6: gen_sei,
 	7: gen_seq_parameter_set,
 	8: gen_pic_parameter_set,
 	9: gen_access_unit_delimiter,

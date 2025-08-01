@@ -276,7 +276,7 @@ With the help of a [custom bitstream writer](tools/gen_avc.py) using the same YA
 | nal_ref_idc=0 on a IDR (*non standard*) | OK | nal_ref_idc |
 | Missing rbsp_trailing_bit for all supported NAL types (*non standard*) | All OK | no-trailing-bit |
 | NAL of less than 11 bytes starting/ending at page boundary | All OK | tiny-nal |
-| PPS/SEI/slice referencing an uninitialized SPS/PPS |  |  |
+| SEI/slice referencing an uninitialized SPS/PPS | 1 OK, 4 errors | missing-ps |
 | Mixing CAVLC and CABAC in a same frame |  |  |
 | Changing a SPS/PPS between slices of the same frame |  |  |
 | Sliced non-ref frame following non-ref frame with decreasing POC (7.4.1.2.2) |  |  |

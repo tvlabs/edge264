@@ -1,20 +1,24 @@
 static int parse_buffering_period(Edge264Decoder *dec) {
-	if (get_ue16(&dec->_gb, 31))
-		return ENOTSUP;
-	log_dec(dec, "    nal_hrd_parameters:\n");
+	get_ue16(&dec->_gb, 31);
+	if (!dec->sps.DPB_format) // if SPS wasn't initialized
+		return EBADMSG;
+	log_dec(dec, "    delay_bits: %u\n", dec->sps.initial_cpb_removal_delay_length);
+	if (dec->sps.nal_hrd_cpb_cnt)
+		log_dec(dec, "    nal_hrd_cpbs:\n");
 	for (int i = dec->sps.nal_hrd_cpb_cnt; i--; ) {
 		int initial_cpb_removal_delay = get_uv(&dec->_gb, dec->sps.initial_cpb_removal_delay_length);
 		int initial_cpb_removal_delay_offset = get_uv(&dec->_gb, dec->sps.initial_cpb_removal_delay_length);
-		log_dec(dec, "      - initial_cpb_removal_delay: %u\n"
-			"        initial_cpb_removal_delay_offset: %u\n",
+		log_dec(dec, "    - initial_cpb_removal_delay: %u\n"
+			"      initial_cpb_removal_delay_offset: %u\n",
 			initial_cpb_removal_delay, initial_cpb_removal_delay_offset);
 	}
-	log_dec(dec, "    vcl_hrd_parameters:\n");
+	if (dec->sps.vcl_hrd_cpb_cnt)
+		log_dec(dec, "    vcl_hrd_cpbs:\n");
 	for (int i = dec->sps.vcl_hrd_cpb_cnt; i--; ) {
 		int initial_cpb_removal_delay = get_uv(&dec->_gb, dec->sps.initial_cpb_removal_delay_length);
 		int initial_cpb_removal_delay_offset = get_uv(&dec->_gb, dec->sps.initial_cpb_removal_delay_length);
-		log_dec(dec, "      - initial_cpb_removal_delay: %u\n"
-			"        initial_cpb_removal_delay_offset: %u\n",
+		log_dec(dec, "    - initial_cpb_removal_delay: %u\n"
+			"      initial_cpb_removal_delay_offset: %u\n",
 			initial_cpb_removal_delay, initial_cpb_removal_delay_offset);
 	}
 	return 0;

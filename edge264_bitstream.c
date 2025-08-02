@@ -296,9 +296,9 @@ static int cabac_start(Edge264Context *ctx) {
 	ctx->t._gb.lsb_cache >>= (SIZE_BIT - extra_bits) & (SIZE_BIT - 1);
 	while (extra_bits >= 8) {
 		int32_t i = 0;
-		if ((intptr_t)(ctx->t._gb.CPB - ctx->t._gb.end) > 0)
-			memcpy(&i, ctx->t._gb.CPB - 3, 4);
-		ctx->t._gb.CPB -= 1 + (big_endian32(i) >> 8 == 3);
+		if ((intptr_t)(ctx->t._gb.end - ctx->t._gb.CPB) >= 0)
+			memcpy(&i, ctx->t._gb.CPB - 4, 4);
+		ctx->t._gb.CPB -= 1 + ((big_endian32(i) & 0xffffff) == 3);
 		ctx->t._gb.lsb_cache >>= 8;
 		extra_bits -= 8;
 	}

@@ -1,4 +1,9 @@
 /** MAYDO:
+ * _ receiving a different SPS should reset SSPS
+ * _ Replace P and INIT_P with PX versions
+ * _ try to optimize shld with extr on ARM when shift is constant
+ * _ add support for https://gcc.gnu.org/wiki/Visibility ?
+ * _ swap numbers and text in header logging (ex: 7 (Sequence Parameter Set)) to facilitate automated extraction
  * _ Plugins
  * 	_ Read https://tldp.org/HOWTO/Program-Library-HOWTO/shared-libraries.html
  * 	_ Make a test target that builds locally and runs edge264_test
@@ -7,6 +12,9 @@
  * 	_ Make a uninstall target
  * 	_ Add virtualization support and update the release target to test all cross-compiled files
  * _ Multithreading
+ * 	_ pass thread id in alignment of context pointer, along with aligned_alloc to guarantee enough thread space
+ *    _ Fix bunny.264 looping on unavailable buffer in multithreading
+ * 	_ add an option to forbid slice threading, to make redundant slices reliable
  * 	_ measure the time it takes to decode each type of slice
  * 	_ initialize next_deblock_idc at context_init rather than task to catch the latest nda value
  * 	_ make tasks start without waiting for availabilities, and wait inside all separate mv parsers
@@ -32,7 +40,10 @@
  * 	_ Change edge264_test to avoid counting mmap time in benchmark (check if ffmpeg does it too to be fair)
  * 	_ fix segfault on videos/geek.264, mvc.264 and shrinkage.264
  * _ Fuzzing and bug hunting
+ * 	_ reducing DPB size to 16 entries and int16 should never crash
+ * 	_ find a mechanism like assert to exit on coding error, but that can be caught by front end software
  * 	_ check with clang-tidy
+ * 	_ check with CScout
  * 	_ Protect again for possibility of not enough ref frames in RefPicList
  * 	_ fuzz with H26Forge
  * 	_ replace calloc with malloc+memset(127), determine a policy for ensuring the validity of variables over time, and setup a solver (ex. KLEE, Crest, Triton) to test their intervals
@@ -70,95 +81,116 @@
 
 
 
-const uint8_t *edge264_find_start_code(const uint8_t *buf, const uint8_t *end) {
+const uint8_t *edge264_find_start_code(const uint8_t *buf, const uint8_t *end, int four_byte) {
 	const i8x16 *p = (i8x16 *)((uintptr_t)buf & -16);
+	four_byte = four_byte != 0;
 	i8x16 zero = {};
 	i8x16 c1 = set8(1);
 	i8x16 lo0 = {};
 	i8x16 v = *p;
 	i8x16 hi0 = (v == zero) & shlv128(set8(-1), (uintptr_t)buf & 15);
-	#if defined(__SSE2__)
-		unsigned m;
-		while (!(m = movemask(shrd128(lo0, hi0, 14) & shrd128(lo0, hi0, 15) & (v == c1)))) {
-			if ((intptr_t)(end - (uint8_t *)++p) <= 0)
-				return end;
-			lo0 = hi0;
-			hi0 = ((v = *p) == zero);
-		}
-		const uint8_t *res = (uint8_t *)p - 2 + __builtin_ctz(m);
-	#elif defined(__ARM_NEON)
-		uint64_t m;
-		while (!(m = (uint64_t)vshrn_n_u16(shrd128(lo0, hi0, 14) & shrd128(lo0, hi0, 15) & (v == c1), 4))) {
-			if ((intptr_t)(end - (uint8_t *)++p) <= 0)
-				return end;
-			lo0 = hi0;
-			hi0 = ((v = *p) == zero);
-		}
-		const uint8_t *res = (uint8_t *)p - 2 + (__builtin_ctzll(m) >> 2);
-	#endif
-	return minp(res, end);
+	while (1) {
+		#if defined(__SSE2__)
+			unsigned m = movemask(shrd128(lo0, hi0, 14) & shrd128(lo0, hi0, 15) & (v == c1));
+			if (m) {
+				const uint8_t *res = (uint8_t *)p - 2 - four_byte + __builtin_ctz(m);
+				if (*res == 0)
+					return minp(res, end);
+			}
+		#elif defined(__ARM_NEON)
+			uint64_t m = (uint64_t)vshrn_n_u16(shrd128(lo0, hi0, 14) & shrd128(lo0, hi0, 15) & (v == c1), 4);
+			if (m) {
+				const uint8_t *res = (uint8_t *)p - 2 - four_byte + (__builtin_ctzll(m) >> 2);
+				if (*res == 0)
+					return minp(res, end);
+			}
+		#endif
+		if ((intptr_t)(end - (uint8_t *)++p) <= 0)
+			return end;
+		lo0 = hi0;
+		hi0 = ((v = *p) == zero);
+	}
 }
 
 
 
-Edge264Decoder *edge264_alloc(int n_threads, FILE *trace_headers, FILE *trace_slices) {
+static int ignore_NAL(Edge264Decoder *dec, int non_blocking, void(*free_cb)(void*,int), void *free_arg) {
+	if (dec->log_arg) {
+		dec->log_pos = 0;
+		dec->log_cb(dec->log_buf, dec->log_arg);
+	}
+	return 0;
+}
+
+
+
+Edge264Decoder *edge264_alloc(int n_threads, void (*log_cb)(const char *str, void *log_arg), void *log_arg, int log_mbs) {
 	Edge264Decoder *dec = calloc(1, sizeof(Edge264Decoder));
 	if (dec == NULL)
 		return NULL;
 	dec->n_threads = n_threads;
-	dec->trace_headers = trace_headers;
-	dec->trace_slices = trace_slices;
+	dec->log_cb = log_cb;
+	dec->log_arg = log_arg;
+	dec->currPic = dec->prevPic = -1;
 	dec->taskPics_v = set8(-1);
 	
-	// select parser functions based on CPU capabilities
+	// select parser functions based on CPU capabilities and logs mode
 	#if defined(__SSE2__) && !defined(_MSC_VER) // if compiled for Intel
 		__builtin_cpu_init();
 		if (!__builtin_cpu_supports("cmov") || !__builtin_cpu_supports("sse2"))
 			return free(dec), NULL;
 	#endif
-	void *(*w)(Edge264Decoder *) = ADD_VARIANT(worker_loop);
-	dec->parse_nal_unit[1] = dec->parse_nal_unit[5] = dec->parse_nal_unit[20] = ADD_VARIANT(parse_slice_layer_without_partitioning);
+	dec->worker_loop = ADD_VARIANT(worker_loop);
+	dec->parse_nal_unit[1] = dec->parse_nal_unit[5] = ADD_VARIANT(parse_slice_layer_without_partitioning);
+	dec->parse_nal_unit[6] = dec->parse_nal_unit[10] = dec->parse_nal_unit[11] = dec->parse_nal_unit[12] = ignore_NAL;
 	dec->parse_nal_unit[7] = dec->parse_nal_unit[15] = ADD_VARIANT(parse_seq_parameter_set);
 	dec->parse_nal_unit[8] = ADD_VARIANT(parse_pic_parameter_set);
-	dec->parse_nal_unit[13] = ADD_VARIANT(parse_seq_parameter_set_extension);
-	#ifdef TEST_X86_64_V2
+	dec->parse_nal_unit[9] = ADD_VARIANT(parse_access_unit_delimiter);
+	dec->parse_nal_unit[14] = dec->parse_nal_unit[20] = ADD_VARIANT(parse_nal_unit_header_extension);
+	#ifdef HAS_X86_64_V2
 		// macOS's clang does not support x86-64-v3/v2 feature string yet
 		if (__builtin_cpu_supports("popcnt") &&
 			__builtin_cpu_supports("sse3") &&
 			__builtin_cpu_supports("sse4.1") &&
 			__builtin_cpu_supports("sse4.2") &&
 			__builtin_cpu_supports("ssse3")) {
-			dec->parse_nal_unit[1] = dec->parse_nal_unit[5] = dec->parse_nal_unit[20] = parse_slice_layer_without_partitioning_v2;
+			dec->worker_loop = worker_loop_v2;
+			dec->parse_nal_unit[1] = dec->parse_nal_unit[5] = parse_slice_layer_without_partitioning_v2;
 			dec->parse_nal_unit[7] = dec->parse_nal_unit[15] = parse_seq_parameter_set_v2;
 			dec->parse_nal_unit[8] = parse_pic_parameter_set_v2;
-			dec->parse_nal_unit[13] = parse_seq_parameter_set_extension_v2;
-			w = worker_loop_v2;
+			dec->parse_nal_unit[9] = parse_access_unit_delimiter_v2;
+			dec->parse_nal_unit[14] = dec->parse_nal_unit[20] = parse_nal_unit_header_extension_v2;
 		}
 	#endif
-	#ifdef TEST_X86_64_V3
+	#ifdef HAS_X86_64_V3
 		if (__builtin_cpu_supports("avx") &&
 			__builtin_cpu_supports("avx2") &&
 			__builtin_cpu_supports("bmi") &&
 			__builtin_cpu_supports("bmi2") &&
 			__builtin_cpu_supports("fma")) {
-			dec->parse_nal_unit[1] = dec->parse_nal_unit[5] = dec->parse_nal_unit[20] = parse_slice_layer_without_partitioning_v3;
+			dec->worker_loop = worker_loop_v3;
+			dec->parse_nal_unit[1] = dec->parse_nal_unit[5] = parse_slice_layer_without_partitioning_v3;
 			dec->parse_nal_unit[7] = dec->parse_nal_unit[15] = parse_seq_parameter_set_v3;
 			dec->parse_nal_unit[8] = parse_pic_parameter_set_v3;
-			dec->parse_nal_unit[13] = parse_seq_parameter_set_extension_v3;
-			w = worker_loop_v3;
+			dec->parse_nal_unit[9] = parse_access_unit_delimiter_v3;
+			dec->parse_nal_unit[14] = dec->parse_nal_unit[20] = parse_nal_unit_header_extension_v3;
 		}
 	#endif
-	if (trace_headers || trace_slices) {
-		#ifdef TEST_DEBUG
-			dec->parse_nal_unit[1] = dec->parse_nal_unit[5] = dec->parse_nal_unit[20] = parse_slice_layer_without_partitioning_debug;
-			dec->parse_nal_unit[7] = dec->parse_nal_unit[15] = parse_seq_parameter_set_debug;
-			dec->parse_nal_unit[8] = parse_pic_parameter_set_debug;
-			dec->parse_nal_unit[13] = parse_seq_parameter_set_extension_debug;
-			w = worker_loop_debug;
-		#else
+	#ifdef HAS_LOGS
+		if (log_cb) {
+			dec->parse_nal_unit[1] = dec->parse_nal_unit[5] = parse_slice_layer_without_partitioning_log;
+			dec->parse_nal_unit[6] = parse_sei_log;
+			dec->parse_nal_unit[7] = dec->parse_nal_unit[15] = parse_seq_parameter_set_log;
+			dec->parse_nal_unit[8] = parse_pic_parameter_set_log;
+			dec->parse_nal_unit[9] = parse_access_unit_delimiter_log;
+			dec->parse_nal_unit[14] = dec->parse_nal_unit[20] = parse_nal_unit_header_extension_log;
+			if (log_mbs)
+				dec->worker_loop = worker_loop_log;
+		}
+	#else
+		if (log_cb)
 			return free(dec), NULL;
-		#endif
-	}
+	#endif
 	
 	// get the number of logical cores if requested
 	if (n_threads < 0) {
@@ -178,7 +210,7 @@ Edge264Decoder *edge264_alloc(int n_threads, FILE *trace_headers, FILE *trace_sl
 			if (pthread_cond_init(&dec->task_progress, NULL) == 0) {
 				if (pthread_cond_init(&dec->task_complete, NULL) == 0) {
 					int i = 0;
-					while (i < n_threads && pthread_create(&dec->threads[i], NULL, (void*(*)(void*))w, dec) == 0)
+					while (i < n_threads && pthread_create(&dec->threads[i], NULL, (void*(*)(void*))dec->worker_loop, dec) == 0)
 						i++;
 					if (i == n_threads) {
 						return dec;
@@ -205,8 +237,8 @@ void edge264_flush(Edge264Decoder *dec) {
 	if (dec->n_threads)
 		pthread_mutex_lock(&dec->lock);
 	// FIXME interrupt all threads
-	dec->currPic = dec->basePic = -1;
-	dec->reference_flags = dec->long_term_flags = dec->output_flags = 0;
+	dec->currPic = dec->prevPic = -1;
+	dec->reference_flags = dec->long_term_flags = dec->output_flags = dec->second_views = 0;
 	for (unsigned b = dec->busy_tasks; b; b &= b - 1) {
 		Edge264Task *t = dec->tasks + __builtin_ctz(b);
 		if (t->free_cb)
@@ -251,7 +283,7 @@ void edge264_free(Edge264Decoder **pdec) {
 int edge264_decode_NAL(Edge264Decoder *dec, const uint8_t *buf, const uint8_t *end, int non_blocking, void(*free_cb)(void*,int), void *free_arg, const uint8_t **next_NAL)
 {
 	static const char * const nal_unit_type_names[32] = {
-		[0] = "Unknown",
+		[0 ... 31] = "Unknown",
 		[1] = "Coded slice of a non-IDR picture",
 		[2] = "Coded slice data partition A",
 		[3] = "Coded slice data partition B",
@@ -268,11 +300,9 @@ int edge264_decode_NAL(Edge264Decoder *dec, const uint8_t *buf, const uint8_t *e
 		[14] = "Prefix NAL unit",
 		[15] = "Subset sequence parameter set",
 		[16] = "Depth parameter set",
-		[17 ... 18] = "Unknown",
 		[19] = "Coded slice of an auxiliary coded picture without partitioning",
 		[20] = "Coded slice extension",
 		[21] = "Coded slice extension for a depth view component or a 3D-AVC texture view component",
-		[22 ... 31] = "Unknown",
 	};
 	
 	// initial checks before parsing
@@ -292,75 +322,44 @@ int edge264_decode_NAL(Edge264Decoder *dec, const uint8_t *buf, const uint8_t *e
 	}
 	dec->nal_ref_idc = buf[0] >> 5;
 	dec->nal_unit_type = buf[0] & 0x1f;
-	if (dec->trace_headers) {
-		fprintf(dec->trace_headers, "<k>nal_ref_idc</k><v>%u</v>\n"
-			"<k>nal_unit_type</k><v>%u (%s)</v>\n",
-			dec->nal_ref_idc,
-			dec->nal_unit_type, nal_unit_type_names[dec->nal_unit_type]);
-	}
-	
-	// parse AUD and MVC prefix that require no escaping
-	int ret = 0;
 	Parser parser = dec->parse_nal_unit[dec->nal_unit_type];
-	if (dec->nal_unit_type == 9) {
-		if ((intptr_t)(end - buf) <= 1 || (buf[1] & 31) != 16)
-			ret = EBADMSG;
-		else if (dec->trace_headers)
-			fprintf(dec->trace_headers, "<k>primary_pic_type</k><v>%d</v>\n", buf[1] >> 5);
-	} else if (dec->nal_unit_type == 14 || dec->nal_unit_type == 20) {
-		if ((intptr_t)(end - buf) <= 4) {
-			ret = EBADMSG;
-			parser = NULL;
-		} else {
-			uint32_t u;
-			memcpy(&u, buf, 4);
-			buf += 3;
-			u = big_endian32(u);
-			dec->IdrPicFlag = u >> 22 & 1 ^ 1;
-			if (u >> 23 & 1) {
-				ret = ENOTSUP;
-				parser = NULL;
-			} else if (dec->trace_headers) {
-				fprintf(dec->trace_headers, "<k>non_idr_flag</k><v>%x</v>\n"
-					"<k>priority_id</k><v>%d</v>\n"
-					"<k>view_id</k><v>%d</v>\n"
-					"<k>temporal_id</k><v>%d</v>\n"
-					"<k>anchor_pic_flag</k><v>%x</v>\n"
-					"<k>inter_view_flag</k><v>%x</v>\n",
-					u >> 22 & 1,
-					u >> 16 & 0x3f,
-					u >> 6 & 0x3ff,
-					u >> 3 & 7,
-					u >> 2 & 1,
-					u >> 1 & 1);
-				// spec doesn't mention rbsp_trailing_bits at the end of prefix_nal_unit_rbsp
-			}
-		}
+	if (dec->log_arg) { // no need to test log_cb since harmless otherwise
+		dec->log_pos = snprintf(dec->log_buf, sizeof(dec->log_buf),
+			"\n- nal_ref_idc: %u\n"
+			"  nal_unit_type: %u # %s%s\n",
+			dec->nal_ref_idc,
+			dec->nal_unit_type, nal_unit_type_names[dec->nal_unit_type], unsup_if(!parser));
 	}
 	
 	// initialize the parsing context if we can parse the current NAL
+	int ret = ENOTSUP;
 	if (parser != NULL) {
-		if ((intptr_t)(end - buf) < 3) {
-			ret = EBADMSG;
+		// prefill the bitstream cache
+		if ((intptr_t)(end - buf) >= 2) {
+			dec->_gb.msb_cache = (size_t)buf[1] << (SIZE_BIT - 8) | (size_t)1 << (SIZE_BIT - 9);
+			dec->_gb.CPB = buf + 2;
 		} else {
-			// prefill the bitstream cache with 2 bytes (guaranteed unescaped)
-			dec->_gb.msb_cache = (size_t)buf[1] << (SIZE_BIT - 8) | (size_t)buf[2] << (SIZE_BIT - 16) | (size_t)1 << (SIZE_BIT - 17);
-			dec->_gb.CPB = buf + 3;
-			dec->_gb.end = end;
-			ret = parser(dec, non_blocking, free_cb, free_arg);
-			// end may have been set to the next start code thanks to escape code detection in get_bytes
-			buf = minp(dec->_gb.CPB - 2, dec->_gb.end);
+			dec->_gb.msb_cache = (size_t)1 << (SIZE_BIT - 1);
+			dec->_gb.CPB = buf + 1;
 		}
+		dec->_gb.lsb_cache = 0;
+		dec->_gb.end = end;
+		refill(&dec->_gb, 0);
+		ret = parser(dec, non_blocking, free_cb, free_arg);
+		// end may have been set to the next start code thanks to escape code detection in get_bytes
+		buf = minp(dec->_gb.CPB - 2, dec->_gb.end);
+	} else if (dec->log_arg) {
+		dec->log_pos = 0;
+		dec->log_cb(dec->log_buf, dec->log_arg);
 	}
-	if (dec->trace_headers)
-		fprintf(dec->trace_headers, ret ? "<e>%s</e>\n" : "<s>Success</s>\n", strerror(ret));
+	// printf("nal_unit_type=%d, ret=%d\n\n", dec->nal_unit_type, ret);
 	
 	// for 0, ENOTSUP and EBADMSG we may free or advance the buffer pointer
 	if (ret == 0 || ret == ENOTSUP || ret == EBADMSG) {
 		if (free_cb && !(ret == 0 && 1048610 & 1 << dec->nal_unit_type)) // 1, 5 or 20
 			free_cb(free_arg, ret);
 		if (next_NAL)
-			*next_NAL = edge264_find_start_code(buf, end) + 3;
+			*next_NAL = edge264_find_start_code(buf, end, 0) + 3;
 	}
 	if (dec->n_threads)
 		pthread_mutex_unlock(&dec->lock);
@@ -382,13 +381,15 @@ int edge264_get_frame(Edge264Decoder *dec, Edge264Frame *out, int borrow) {
 	if (dec->n_threads)
 		pthread_mutex_lock(&dec->lock);
 	int pic[2] = {-1, -1};
-	unsigned unavail = dec->reference_flags | dec->output_flags | (dec->basePic < 0 ? 0 : 1 << dec->basePic);
-	int best = (__builtin_popcount(dec->output_flags) > dec->sps.max_num_reorder_frames ||
-		__builtin_popcount(unavail) >= dec->sps.num_frame_buffers) ? INT_MAX : dec->dispPicOrderCnt;
+	unsigned used = dec->reference_flags | dec->output_flags;
+	int best = (__builtin_popcount(dec->output_flags & ~dec->second_views) > dec->sps.max_num_reorder_frames ||
+		(dec->second_views && __builtin_popcount(dec->output_flags & dec->second_views) > dec->ssps.max_num_reorder_frames) ||
+		__builtin_popcount(used & ~dec->second_views) >= dec->sps.num_frame_buffers ||
+		(dec->second_views && __builtin_popcount(used & dec->second_views) >= dec->ssps.num_frame_buffers)) ? INT_MAX : dec->dispPicOrderCnt;
 	for (int o = dec->output_flags; o != 0; o &= o - 1) {
 		int i = __builtin_ctz(o);
 		if (dec->FieldOrderCnt[0][i] <= best) {
-			int non_base = dec->sps.mvc & i & 1;
+			int non_base = dec->second_views >> i & 1;
 			if (dec->FieldOrderCnt[0][i] < best) {
 				best = dec->FieldOrderCnt[0][i];
 				pic[non_base ^ 1] = -1;
@@ -398,7 +399,7 @@ int edge264_get_frame(Edge264Decoder *dec, Edge264Frame *out, int borrow) {
 	}
 	
 	int res = ENOMSG;
-	if (pic[0] >= 0 && dec->next_deblock_addr[pic[0]] == INT_MAX && (pic[1] < 0 || dec->next_deblock_addr[pic[1]] == INT_MAX)) {
+	if (pic[0] >= 0 && dec->next_deblock_addr[pic[0]] == INT_MAX && (!dec->second_views || (pic[1] >= 0 && dec->next_deblock_addr[pic[1]] == INT_MAX))) {
 		*out = dec->out;
 		int top = dec->out.frame_crop_offsets[0];
 		int left = dec->out.frame_crop_offsets[3];
@@ -411,8 +412,7 @@ int edge264_get_frame(Edge264Decoder *dec, Edge264Frame *out, int borrow) {
 		out->samples[0] = samples + offY;
 		out->samples[1] = samples + offC;
 		out->samples[2] = samples + (dec->out.stride_C >> 1) + offC;
-		out->TopFieldOrderCnt = best << 6 >> 6;
-		out->BottomFieldOrderCnt = dec->FieldOrderCnt[1][pic[0]] << 6 >> 6;
+		out->FrameId = dec->FrameIds[pic[0]];
 		out->return_arg = (void *)((size_t)1 << pic[0]);
 		if (pic[1] >= 0) {
 			dec->output_flags ^= 1 << pic[1];
@@ -420,6 +420,7 @@ int edge264_get_frame(Edge264Decoder *dec, Edge264Frame *out, int borrow) {
 			out->samples_mvc[0] = samples + offY;
 			out->samples_mvc[1] = samples + offC;
 			out->samples_mvc[2] = samples + (dec->out.stride_C >> 1) + offC;
+			out->FrameId_mvc = dec->FrameIds[pic[1]];
 			out->return_arg = (void *)((size_t)1 << pic[0] | (size_t)1 << pic[1]);
 		}
 		res = 0;

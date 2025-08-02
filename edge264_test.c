@@ -3,20 +3,115 @@
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
-#include <SDL2/SDL.h>
 #ifdef _WIN32
 	#include <windows.h>
 	#include <psapi.h>
+	#define dlsym (void*)GetProcAddress
+	#define dlclose FreeLibrary
 #else
+	#include <dlfcn.h>
 	#include <fcntl.h>
 	#include <sys/mman.h>
+	#include <sys/resource.h>
 	#include <sys/stat.h>
 	#include <sys/types.h>
 	#include <unistd.h>
 #endif
-
 #include "edge264.h"
 
+
+
+/**
+ * Using SDL2 without dependency on header file and development library
+ */
+#define SDL_INIT_VIDEO 0x20
+#define SDL_INIT_EVENTS 0x4000
+#define SDL_WINDOWPOS_CENTERED 0x2FFF0000
+#define SDL_WINDOW_SHOWN 0x4
+#define SDL_WINDOW_BORDERLESS 0x10
+#define SDL_RENDERER_ACCELERATED 0x2
+#define SDL_RENDERER_PRESENTVSYNC 0x4
+#define SDL_PIXELFORMAT_IYUV 0x56555949
+#define SDL_TEXTUREACCESS_STREAMING 1
+#define SDL_BLENDMODE_BLEND 0x1
+#define SDL_QUIT 0x100
+#define SDL_KEYDOWN 0x300
+#define SDLK_ESCAPE 27
+typedef struct SDL_Window SDL_Window;
+typedef struct SDL_Renderer SDL_Renderer;
+typedef struct SDL_Texture SDL_Texture;
+typedef union SDL_Event {
+	uint32_t type;
+	struct {
+		uint32_t _[4];
+		struct {
+			int _;
+			int32_t sym;
+		} keysym;
+	} key;
+	uint8_t padding[sizeof(void *) <= 8 ? 56 : sizeof(void *) == 16 ? 64 : 3 * sizeof(void *)];
+} SDL_Event;
+int (*SDL_Init)(uint32_t);
+SDL_Window *(*SDL_CreateWindow)(const char *, int, int, int, int, uint32_t);
+SDL_Renderer *(*SDL_CreateRenderer)(SDL_Window *, int, uint32_t);
+void (*SDL_SetWindowSize)(SDL_Window *, int, int);
+void (*SDL_SetWindowPosition)(SDL_Window *, int, int);
+void (*SDL_DestroyTexture)(SDL_Texture *);
+SDL_Texture *(*SDL_CreateTexture)(SDL_Renderer *, uint32_t, int, int, int);
+int (*SDL_SetTextureBlendMode)(SDL_Texture *, int);
+int (*SDL_SetTextureAlphaMod)(SDL_Texture *, uint8_t);
+int (*SDL_UpdateYUVTexture)(SDL_Texture *, void *, const uint8_t *, int, const uint8_t *, int, const uint8_t *, int);
+int (*SDL_RenderClear)(SDL_Renderer *);
+int (*SDL_RenderCopy)(SDL_Renderer *, SDL_Texture *, void *, void *);
+void (*SDL_RenderPresent)(SDL_Renderer *);
+int (*SDL_PollEvent)(SDL_Event *);
+void (*SDL_DestroyTexture)(SDL_Texture *);
+void (*SDL_DestroyRenderer)(SDL_Renderer *);
+void (*SDL_DestroyWindow)(SDL_Window *);
+void (*SDL_Quit)(void);
+static void *sdl2;
+static int load_SDL2(void) {
+	const char *lib, *func;
+	#ifdef _WIN32
+		sdl2 = LoadLibraryA(lib = "SDL2.dll");
+	#else
+		sdl2 = dlopen(lib = "/Library/Frameworks/SDL2.framework/SDL2", RTLD_NOW | RTLD_GLOBAL) ?:
+			dlopen(lib = "SDL2.so", RTLD_NOW | RTLD_GLOBAL) ?:
+			dlopen(lib = "libSDL2.so", RTLD_NOW | RTLD_GLOBAL);
+	#endif
+	if (!sdl2) {
+		printf("SDL2 is needed for display but not found, please download the library file at https://www.libsdl.org/ and place it in the current folder\n");
+		return 1;
+	}
+	if (!(SDL_Init = dlsym(sdl2, func = "SDL_Init")) ||
+	    !(SDL_CreateWindow = dlsym(sdl2, func = "SDL_CreateWindow")) ||
+	    !(SDL_CreateRenderer = dlsym(sdl2, func = "SDL_CreateRenderer")) ||
+	    !(SDL_SetWindowSize = dlsym(sdl2, func = "SDL_SetWindowSize")) ||
+	    !(SDL_SetWindowPosition = dlsym(sdl2, func = "SDL_SetWindowPosition")) ||
+	    !(SDL_DestroyTexture = dlsym(sdl2, func = "SDL_DestroyTexture")) ||
+	    !(SDL_CreateTexture = dlsym(sdl2, func = "SDL_CreateTexture")) ||
+	    !(SDL_SetTextureBlendMode = dlsym(sdl2, func = "SDL_SetTextureBlendMode")) ||
+	    !(SDL_SetTextureAlphaMod = dlsym(sdl2, func = "SDL_SetTextureAlphaMod")) ||
+	    !(SDL_UpdateYUVTexture = dlsym(sdl2, func = "SDL_UpdateYUVTexture")) ||
+	    !(SDL_RenderClear = dlsym(sdl2, func = "SDL_RenderClear")) ||
+	    !(SDL_RenderCopy = dlsym(sdl2, func = "SDL_RenderCopy")) ||
+	    !(SDL_RenderPresent = dlsym(sdl2, func = "SDL_RenderPresent")) ||
+	    !(SDL_PollEvent = dlsym(sdl2, func = "SDL_PollEvent")) ||
+	    !(SDL_DestroyTexture = dlsym(sdl2, func = "SDL_DestroyTexture")) ||
+	    !(SDL_DestroyRenderer = dlsym(sdl2, func = "SDL_DestroyRenderer")) ||
+	    !(SDL_DestroyWindow = dlsym(sdl2, func = "SDL_DestroyWindow")) ||
+	    !(SDL_Quit = dlsym(sdl2, func = "SDL_Quit"))) {
+		printf("Missing function %s in %s\n", func, lib);
+		return 1;
+	}
+	return 0;
+}
+
+
+
+/**
+ * Static variables and helper functions
+ */
 #define RESET  "\e[0m"
 #define BOLD   "\e[1m"
 #define RED    "\e[31m"
@@ -29,7 +124,8 @@ static int print_failed = 0;
 static int print_passed = 0;
 static int print_unsupported = 0;
 static int enable_yuv = 1;
-FILE *trace_headers = NULL;
+static const char *moveup = "";
+FILE *trace_file = NULL;
 static Edge264Decoder *d;
 static Edge264Frame out;
 static const uint8_t *conf[2];
@@ -105,12 +201,12 @@ static int check_frame()
 {
 	// check that the number of returned views is as expected
 	if ((out.samples_mvc[0] != NULL) != (conf[1] != NULL)) {
-		fprintf(stderr, "The number of returned views (%d) does not match the number of YUV files found (%d)", (out.samples_mvc[0] != NULL) + 1, (conf[1] != NULL) + 1);
+		printf("Number of returned views (%d) does not match number of YUV files found (%d)\n", (out.samples_mvc[0] != NULL) + 1, (conf[1] != NULL) + 1);
+		moveup = "";
 		return -2;
 	}
 	
 	// check that each macroblock matches the conformance buffer
-	int poc = out.TopFieldOrderCnt;
 	int cropt = out.frame_crop_offsets[0];
 	int cropr = out.frame_crop_offsets[1];
 	int cropb = out.frame_crop_offsets[2];
@@ -118,6 +214,7 @@ static int check_frame()
 	int pic_width_in_mbs = (cropl + out.width_Y + cropr) >> 4;
 	int pic_height_in_mbs = (cropt + out.height_Y + cropb) >> 4;
 	for (int view = 0; view < 2 && conf[view] != NULL; view += 1) {
+		int id = view ? out.FrameId_mvc : out.FrameId;
 		for (int row = 0; row < pic_width_in_mbs; row += 1) {
 			for (int col = 0; col < pic_height_in_mbs; col += 1) {
 				for (int iYCbCr = 0; iYCbCr < 3; iYCbCr++) {
@@ -135,25 +232,26 @@ static int check_frame()
 					for (int y = max(row * 16 - cropt, 0) >> sh_height; xl < xr && y < min(row * 16 - cropt + 16, out.height_Y) >> sh_height; y++)
 						invalid |= memcmp(p + y * stride + (xl << depth), q + y * (out.width_Y >> sh_width << depth) + (xl << depth), (xr - xl) << depth);
 					if (invalid) {
-						if (trace_headers) {
-							fprintf(trace_headers, "<e>Erroneous macroblock (PicOrderCnt %d, view %d, row %d, column %d, %s plane):<pre>\n",
-								poc, view, row, col, (iYCbCr == 0) ? "Luma" : (iYCbCr == 1) ? "Cb" : "Cr");
-							for (int y = (row * 16 - cropt) >> sh_height; y < (row * 16 - cropt + 16) >> sh_height; y++) {
-								for (int x = (col * 16 - cropl) >> sh_width; x < (col * 16 - cropl + 16) >> sh_width; x++) {
-									// FIXME 16 bit
-									fprintf(trace_headers, y < 0 || y >= out.height_Y >> sh_height || x < 0 || x >= out.width_Y >> sh_width ? "    " :
-										p[y * stride + x] == q[y * (out.width_Y >> sh_width) + x] ? "%3d " :
-										"<span style='color:red'>%3d</span> ", p[y * stride + x]);
-								}
-								fprintf(trace_headers, "\t");
-								for (int x = (col * 16 - cropl) >> sh_width; x < (col * 16 - cropl + 16) >> sh_width; x++) {
-									fprintf(trace_headers, y < 0 || y >= out.height_Y >> sh_height || x < 0 || x >= out.width_Y >> sh_width ? "    " :
-										"%3d ", q[y * (out.width_Y >> sh_width) + x]);
-								}
-								fprintf(trace_headers, "\n");
+						printf("Erroneous macroblock (id %d, row %d, column %d, %s plane):\n",
+							id, row, col, (iYCbCr == 0) ? "Luma" : (iYCbCr == 1) ? "Cb" : "Cr");
+						for (int y = (row * 16 - cropt) >> sh_height; y < (row * 16 - cropt + 16) >> sh_height; y++) {
+							for (int x = (col * 16 - cropl) >> sh_width; x < (col * 16 - cropl + 16) >> sh_width; x++) {
+								// FIXME 16 bit
+								printf(y < 0 || y >= out.height_Y >> sh_height || x < 0 || x >= out.width_Y >> sh_width ? "    " :
+									p[y * stride + x] == q[y * (out.width_Y >> sh_width) + x] ? " %3d" :
+									RED " %3d" RESET, p[y * stride + x]);
 							}
-							fprintf(trace_headers, "</pre></e>\n");
+							printf("\n");
 						}
+						printf("Expected macroblock:\n");
+						for (int y = (row * 16 - cropt) >> sh_height; y < (row * 16 - cropt + 16) >> sh_height; y++) {
+							for (int x = (col * 16 - cropl) >> sh_width; x < (col * 16 - cropl + 16) >> sh_width; x++) {
+								printf(y < 0 || y >= out.height_Y >> sh_height || x < 0 || x >= out.width_Y >> sh_width ? "    " :
+									" %3d", q[y * (out.width_Y >> sh_width) + x]);
+							}
+							printf("\n");
+						}
+						moveup = "";
 						return -2;
 					}
 				}
@@ -161,18 +259,16 @@ static int check_frame()
 		}
 		conf[view] += (out.width_Y << out.pixel_depth_Y) * out.height_Y + (out.width_C << out.pixel_depth_C) * out.height_C * 2;
 	}
-	if (trace_headers)
-		fprintf(trace_headers, "<g>Output frame %d is correct</g>\n", poc);
 	return 0;
 }
 
 
 
-static int decode_file(const char *name0, int print_counts)
+static int decode_file(const char *name0)
 {
 	// process file names
-	if (trace_headers)
-		fprintf(trace_headers, "<t>%s</t>\n", name0);
+	if (trace_file)
+		fprintf(trace_file, "\n--- # %s\n", name0);
 	int len = strrchr(name0, '.') - name0;
 	if (strcmp(name0 + len + 1, "264") != 0)
 		return 0;
@@ -189,22 +285,23 @@ static int decode_file(const char *name0, int print_counts)
 		if ((f0 = CreateFileA(name0, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL)) == INVALID_HANDLE_VALUE ||
 			(m0 = CreateFileMappingA(f0, NULL, PAGE_READONLY, 0, 0, NULL)) == NULL ||
 			(v0 = MapViewOfFile(m0, FILE_MAP_READ, 0, 0, 0)) == NULL) {
-			fprintf(stderr, "Error opening file %s: %lu\n", name0, GetLastError());
+			printf("Error opening file %s: %lu\n", name0, GetLastError());
 			quit = 1;
 		}
 		if (enable_yuv) {
 			if ((f1 = CreateFileA(name1, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL)) == INVALID_HANDLE_VALUE) {
-				fprintf(stderr, "%s not found\n", name1);
+				printf("%s%s not found\n", moveup, name1);
+				moveup = "";
 			} else if ((m1 = CreateFileMappingA(f1, NULL, PAGE_READONLY, 0, 0, NULL)) == NULL ||
 				(conf[0] = v1 = MapViewOfFile(m1, FILE_MAP_READ, 0, 0, 0)) == NULL) {
-				fprintf(stderr, "Error opening file %s: %lu\n", name1, GetLastError());
+				printf("Error opening file %s: %lu\n", name1, GetLastError());
 				quit = 1;
 			}
 			f2 = CreateFileA(name2, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
 			if (f2 != INVALID_HANDLE_VALUE &&
 				((m2 = CreateFileMappingA(f2, NULL, PAGE_READONLY, 0, 0, NULL)) == NULL ||
 				(conf[1] = v2 = MapViewOfFile(m2, FILE_MAP_READ, 0, 0, 0)) == NULL)) {
-				fprintf(stderr, "Error opening file %s: %lu\n", name2, GetLastError());
+				printf("Error opening file %s: %lu\n", name2, GetLastError());
 				quit = 1;
 			}
 		}
@@ -223,7 +320,8 @@ static int decode_file(const char *name0, int print_counts)
 		}
 		if (enable_yuv) {
 			if ((fd1 = open(name1, O_RDONLY)) < 0) {
-				fprintf(stderr, "%s not found\n", name1);
+				printf("%s%s not found\n", moveup, name1);
+				moveup = "";
 			} else if (fstat(fd1, &st1) < 0 ||
 				(conf[0] = mm1 = mmap(NULL, st1.st_size, PROT_READ, MAP_SHARED, fd1, 0)) == MAP_FAILED) {
 				perror(name1);
@@ -243,12 +341,11 @@ static int decode_file(const char *name0, int print_counts)
 	
 	// print the success counts
 	if (!quit) {
-		if (print_counts) {
-			printf("%d " GREEN "PASS" RESET ", %d " YELLOW "UNSUPPORTED" RESET ", %d " RED "FAIL" RESET, count_pass, count_unsup, count_fail);
-			if (count_flag > 0)
-				printf(", %d " BLUE "FLAGGED" RESET, count_flag);
-			printf(" (%s)\n", name0);
-		}
+		if (count_flag > 0)
+			printf("%s%d " GREEN "PASS" RESET ", %d " YELLOW "UNSUPPORTED" RESET ", %d " RED "FAIL" RESET ", %d " BLUE "FLAGGED" RESET " (%s)\n", moveup, count_pass, count_unsup, count_fail, count_flag, name0);
+		else
+			printf("%s%d " GREEN "PASS" RESET ", %d " YELLOW "UNSUPPORTED" RESET ", %d " RED "FAIL" RESET " (%s)\n", moveup, count_pass, count_unsup, count_fail, name0);
+		moveup = "\e[A\e[K";
 		
 		// decode the entire file and FAIL on any error
 		nal += 3 + (nal[2] == 0); // skip the [0]001 delimiter
@@ -266,26 +363,28 @@ static int decode_file(const char *name0, int print_counts)
 				}
 			}
 		} while (res == 0 || res == ENOBUFS);
+		edge264_flush(d);
 		if (res == ENOBUFS || (res == ENODATA && conf[0] != NULL && conf[0] != end1))
 			res = EBADMSG;
 		// FIXME interrupt all threads before closing the files!
 		
 		// print the file that was decoded
-		if (print_counts) {
-			count_pass += res == ENODATA;
-			count_unsup += res == ENOTSUP;
-			count_fail += res == EBADMSG;
-			count_flag += res == ESRCH;
-			printf("\e[A\e[K"); // move cursor up and clear line
-			if (res == ENODATA && print_passed) {
-				printf("%s: " GREEN "PASS" RESET "\n", name0);
-			} else if (res == ENOTSUP && print_unsupported) {
-				printf("%s: " YELLOW "UNSUPPORTED" RESET "\n", name0);
-			} else if (res == EBADMSG && print_failed) {
-				printf("%s: " RED "FAIL" RESET "\n", name0);
-			} else if (res == ESRCH) {
-				printf("%s: " BLUE "FLAGGED" RESET "\n", name0);
-			}
+		count_pass += res == ENODATA;
+		count_unsup += res == ENOTSUP;
+		count_fail += res == EBADMSG;
+		count_flag += res == ESRCH;
+		if (res == ENODATA && print_passed) {
+			printf("%s%s: " GREEN "PASS" RESET "\n", moveup, name0);
+			moveup = "";
+		} else if (res == ENOTSUP && print_unsupported) {
+			printf("%s%s: " YELLOW "UNSUPPORTED" RESET "\n", moveup, name0);
+			moveup = "";
+		} else if (res == EBADMSG && print_failed) {
+			printf("%s%s: " RED "FAIL" RESET "\n", moveup, name0);
+			moveup = "";
+		} else if (res == ESRCH) {
+			printf("%s%s: " BLUE "FLAGGED" RESET "\n", moveup, name0);
+			moveup = "";
 		}
 	}
 	
@@ -320,7 +419,7 @@ int main(int argc, char *argv[])
 	int benchmark = 0;
 	int help = 0;
 	int n_threads = -1;
-	FILE *trace_slices = NULL;
+	int trace = 0;
 	for (int i = 1; i < argc; i++) {
 		if (argv[i][0] != '-') {
 			file_name = argv[i];
@@ -332,13 +431,21 @@ int main(int argc, char *argv[])
 				case 'p': print_passed = 1; break;
 				case 's': n_threads = 0; break;
 				case 'u': print_unsupported = 1; break;
-				case 'v': trace_headers = fopen("trace.html", "w"); break;
-				case 'V': trace_slices = fopen("trace.txt", "w"); break;
+				case 'v': trace = 1; break;
+				case 'V': trace = 2; n_threads = 0; break;
 				case 'y': enable_yuv = 0; break;
 				default: help = 1; break;
 			}
 		}
 	}
+	if (trace) {
+		trace_file = fopen("trace.yaml", "w");
+		setvbuf(trace_file, NULL, _IONBF, BUFSIZ);
+	}
+	
+	// load SDL2 if requested
+	if (display && load_SDL2())
+		return 1;
 	
 	// print help if any argument was unknown
 	if (help) {
@@ -347,80 +454,55 @@ int main(int argc, char *argv[])
 			"comparing their outputs with inferred YUV pairs (.yuv and .1.yuv extensions).\n"
 			"-h\tprint this help and exit\n"
 			"-b\tbenchmark decoding time and memory usage\n"
-			"-d\tenable display of the videos\n"
+			"-d\tenable display of the videos (requires SDL2)\n"
 			"-f\tprint names of failed files in directory\n"
 			"-p\tprint names of passed files in directory\n"
 			"-s\tsingle-threaded operation\n"
 			"-u\tprint names of unsupported files in directory\n"
-			"-v\tenable output of headers to file trace.html\n"
-			"-V\tenable output of slices to file trace.txt (very large)\n"
+			"-v\tenable output of headers to file trace.yaml (large)\n"
+			"-V\tadd output of macroblocks to trace.yaml (very large, implies -vs)\n"
 			"-y\tdisable comparison against YUV pairs\n"
 			, argv[0]);
 		return 0;
 	}
 	
-	// tags used: t=title, k=key, v=value, h=highlight, g=green, e=error, hr=ruler
-	if (trace_headers) {
-		fprintf(trace_headers, "<!doctype html>\n"
-			"<html>\n"
-			"<head>\n"
-			"<title>NAL headers</title>\n"
-			"<style>\n"
-			"body { display: grid; grid-template-columns: max-content auto; margin: 0 }\n"
-			"body>* { padding: 2px 5px; border-bottom: 1px solid lightgrey }\n"
-			"t,s,h,g,e { grid-column: 1/3; font-weight: bold; text-align: center }\n"
-			"t { background-color: #eee; font-size: 200%% }\n"
-			"k { grid-column: 1; text-align: right; font-weight: bold }\n"
-			"v { grid-column: 2 }\n"
-			"s { background-color: #eef; text-decoration: none }\n"
-			"h { background-color: #ffe }\n"
-			"g { background-color: #efe }\n"
-			"e { background-color: #fee }\n"
-			"</style>\n"
-			"<link rel=stylesheet href=style.css>\n"
-			"</head>\n"
-			"<body>\n");
-	}
-	
 	struct timespec t0, t1;
 	clock_gettime(CLOCK_MONOTONIC, &t0);
-	d = edge264_alloc(n_threads, trace_headers, trace_slices);
+	d = edge264_alloc(n_threads, trace ? (void(*)(const char*, void*))fputs : NULL, trace_file, trace > 1);
 	
 	// check if input is a directory by trying to move into it
 	if (chdir(file_name) < 0) {
-		int res = decode_file(file_name, 0);
-		if (res == ENOTSUP)
-			fprintf(stderr, "Decoding ended prematurely on " BOLD "unsupported stream" RESET "\n");
-		if (res == EBADMSG)
-			fprintf(stderr, "Decoding ended prematurely on " BOLD "decoding error" RESET "\n");
+		decode_file(file_name);
 	} else {
 		#ifdef _WIN32
 			DIR *dp;
 			struct dirent *ep;
 			dp = opendir(".");
-			while ((ep = readdir(dp)) && !decode_file(ep->d_name, 1));
+			while ((ep = readdir(dp)) && !decode_file(ep->d_name));
 			closedir(dp);
 		#else
 			struct dirent **entries;
 			int n = scandir(".", &entries, flt, cmp);
-			while (--n >= 0 && !decode_file(entries[n]->d_name, 1))
+			while (--n >= 0 && !decode_file(entries[n]->d_name))
 				free(entries[n]);
 			free(entries);
 		#endif
-		printf("%d " GREEN "PASS" RESET ", %d " YELLOW "UNSUPPORTED" RESET ", %d " RED "FAIL" RESET, count_pass, count_unsup, count_fail);
-		if (count_flag > 0)
-			printf(", %d " BLUE "FLAGGED" RESET, count_flag);
-		putc('\n', stdout);
 	}
+	
+	if (count_flag > 0)
+		printf("%s%d " GREEN "PASS" RESET ", %d " YELLOW "UNSUPPORTED" RESET ", %d " RED "FAIL" RESET ", %d " BLUE "FLAGGED" RESET "\n", moveup, count_pass, count_unsup, count_fail, count_flag);
+	else
+		printf("%s%d " GREEN "PASS" RESET ", %d " YELLOW "UNSUPPORTED" RESET ", %d " RED "FAIL" RESET "\n", moveup, count_pass, count_unsup, count_fail);
 	edge264_free(&d);
 	
-	// close SDL if initialized
+	// close SDL if enabled
 	if (display) {
 		SDL_DestroyTexture(texture0);
 		SDL_DestroyTexture(texture1);
 		SDL_DestroyRenderer(renderer);
 		SDL_DestroyWindow(window);
 		SDL_Quit();
+		dlclose(sdl2);
 	}
 	
 	// closing information
@@ -443,11 +525,7 @@ int main(int argc, char *argv[])
 		#endif
 		printf("time: %.3lfs\nCPU: %.3lfs\nmemory: %.3lfMB\n", (double)time_msec / 1000, (double)cpu_msec / 1000, (double)mem_kb / 1000);
 	}
-	if (trace_headers) {
-		fprintf(trace_headers, "</body>\n</html>\n");
-		fclose(trace_headers);
-	}
-	if (trace_slices)
-		fclose(trace_slices);
+	if (trace_file)
+		fclose(trace_file);
 	return 0;
 }

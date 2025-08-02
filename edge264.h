@@ -40,6 +40,7 @@ typedef struct Edge264Decoder Edge264Decoder;
 typedef struct Edge264Frame {
 	const uint8_t *samples[3]; // Y/Cb/Cr planes
 	const uint8_t *samples_mvc[3]; // second view
+	const uint8_t *mb_errors; // probabilities (0..100) for each macroblock to be erroneous, NULL if there are no errors, values are spaced by stride_mb in memory
 	int8_t pixel_depth_Y; // 0 for 8-bit, 1 for 16-bit
 	int8_t pixel_depth_C;
 	int16_t width_Y;
@@ -48,14 +49,15 @@ typedef struct Edge264Frame {
 	int16_t height_C;
 	int16_t stride_Y;
 	int16_t stride_C;
-	int32_t TopFieldOrderCnt;
-	int32_t BottomFieldOrderCnt;
-	int16_t frame_crop_offsets[4]; // {top,right,bottom,left}, in luma samples, already included in samples_Y/Cb/cr and width/height_Y/C
+	int16_t stride_mb;
+	uint32_t FrameId;
+	uint32_t FrameId_mvc; // second view
+	int16_t frame_crop_offsets[4]; // {top,right,bottom,left}, useful to derive the original frame with 16x16 macroblocks
 	void *return_arg;
 } Edge264Frame;
 
-const uint8_t *edge264_find_start_code(const uint8_t *buf, const uint8_t *end);
-Edge264Decoder *edge264_alloc(int n_threads, FILE *trace_headers, FILE *trace_slices);
+const uint8_t *edge264_find_start_code(const uint8_t *buf, const uint8_t *end, int four_byte);
+Edge264Decoder *edge264_alloc(int n_threads, void (*log_cb)(const char *str, void *log_arg), void *log_arg, int log_mbs);
 void edge264_flush(Edge264Decoder *dec);
 void edge264_free(Edge264Decoder **pdec);
 int edge264_decode_NAL(Edge264Decoder *dec, const uint8_t *buf, const uint8_t *end, int non_blocking, void (*free_cb)(void *free_arg, int ret), void *free_arg, const uint8_t **next_NAL);

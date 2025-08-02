@@ -70,14 +70,138 @@
 
 
 /**
- * Parse the coeff_token header for a non-ChromaDCLevel residual block encoded
- * with CAVLC (9.2.1)
- *
- * While both CAVLC and residual coefficients are not too critical to optimize,
- * this function is designed to be simple and compact.
+ * Parse a CAVLC residual block (9.2).
+ * 
+ * There are 2 entry points here, parse_residual_block_4x4_cavlc and
+ * parse_residual_block_2x2_cavlc, which both tail jump to
+ * parse_residual_coeffs_cavlc.
+ * 
+ * For coeff_token/total_zeros/run_before, while the spec is quite convoluted
+ * level_prefix+level_suffix just look like Exp-Golomb codes, so we need only
+ * compute a code length (v) and an offset to add to the input bits.
  */
 #if !CABAC
-	static int parse_coeff_token_cavlc(Edge264Context *ctx, int i4x4, int nA, int nB) {
+	static inline int parse_total_zeros(Edge264Context *ctx, int endIdx, int TotalCoeff) {
+		static const uint8_t codes[27][9 * 4] = { // [tzVlcIndex][leadingZeroBits][suffix]
+			// 2x2 blocks
+			{16, 16, 16, 16, 33, 33, 33, 33, 50, 50, 50, 50, 51, 51, 51, 51, 51, 51, 51, 51, 51, 51, 51, 51, 51, 51, 51, 51, 51, 51, 51, 51, 51, 51, 51, 51},
+			{16, 16, 16, 16, 33, 33, 33, 33, 34, 34, 34, 34, 34, 34, 34, 34, 34, 34, 34, 34, 34, 34, 34, 34, 34, 34, 34, 34, 34, 34, 34, 34, 34, 34, 34, 34},
+			{16, 16, 16, 16, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17},
+			{}, // 2x4 blocks
+			{16, 16, 16, 16, 49, 49, 50, 50, 67, 67, 68, 68, 69, 69, 69, 69, 86, 86, 86, 86, 87, 87, 87, 87, 87, 87, 87, 87, 87, 87, 87, 87, 87, 87, 87, 87},
+			{51, 52, 53, 54, 33, 33, 33, 33, 50, 50, 50, 50, 48, 48, 48, 48, 48, 48, 48, 48, 48, 48, 48, 48, 48, 48, 48, 48, 48, 48, 48, 48, 48, 48, 48, 48},
+			{35, 35, 52, 53, 34, 34, 34, 34, 49, 49, 49, 49, 48, 48, 48, 48, 48, 48, 48, 48, 48, 48, 48, 48, 48, 48, 48, 48, 48, 48, 48, 48, 48, 48, 48, 48},
+			{35, 35, 48, 52, 34, 34, 34, 34, 33, 33, 33, 33, 33, 33, 33, 33, 33, 33, 33, 33, 33, 33, 33, 33, 33, 33, 33, 33, 33, 33, 33, 33, 33, 33, 33, 33},
+			{34, 34, 35, 35, 33, 33, 33, 33, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32},
+			{18, 18, 18, 18, 33, 33, 33, 33, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32},
+			{17, 17, 17, 17, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16},
+			{}, // 4x4 blocks
+			{16, 16, 16, 16, 50, 50, 49, 49, 68, 68, 67, 67, 86, 86, 85, 85, 104, 104, 103, 103, 122, 122, 121, 121, 140, 140, 139, 139, 158, 158, 157, 157, 159, 159, 159, 159},
+			{51, 50, 49, 48, 70, 69, 52, 52, 72, 72, 71, 71, 90, 90, 89, 89, 108, 108, 107, 107, 109, 109, 109, 109, 110, 110, 110, 110, 110, 110, 110, 110, 110, 110, 110, 110},
+			{54, 51, 50, 49, 68, 64, 55, 55, 72, 72, 69, 69, 90, 90, 89, 89, 92, 92, 92, 92, 107, 107, 107, 107, 109, 109, 109, 109, 109, 109, 109, 109, 109, 109, 109, 109},
+			{54, 53, 52, 49, 67, 66, 56, 56, 73, 73, 71, 71, 90, 90, 80, 80, 91, 91, 91, 91, 92, 92, 92, 92, 92, 92, 92, 92, 92, 92, 92, 92, 92, 92, 92, 92},
+			{54, 53, 52, 51, 65, 64, 55, 55, 72, 72, 66, 66, 74, 74, 74, 74, 89, 89, 89, 89, 91, 91, 91, 91, 91, 91, 91, 91, 91, 91, 91, 91, 91, 91, 91, 91},
+			{53, 52, 51, 50, 55, 55, 54, 54, 57, 57, 57, 57, 72, 72, 72, 72, 81, 81, 81, 81, 96, 96, 96, 96, 106, 106, 106, 106, 106, 106, 106, 106, 106, 106, 106, 106},
+			{51, 50, 37, 37, 54, 54, 52, 52, 56, 56, 56, 56, 71, 71, 71, 71, 81, 81, 81, 81, 96, 96, 96, 96, 105, 105, 105, 105, 105, 105, 105, 105, 105, 105, 105, 105},
+			{37, 37, 36, 36, 54, 54, 51, 51, 55, 55, 55, 55, 65, 65, 65, 65, 82, 82, 82, 82, 96, 96, 96, 96, 104, 104, 104, 104, 104, 104, 104, 104, 104, 104, 104, 104},
+			{36, 36, 35, 35, 38, 38, 38, 38, 53, 53, 53, 53, 66, 66, 66, 66, 87, 87, 87, 87, 96, 96, 96, 96, 97, 97, 97, 97, 97, 97, 97, 97, 97, 97, 97, 97},
+			{36, 36, 35, 35, 37, 37, 37, 37, 50, 50, 50, 50, 70, 70, 70, 70, 80, 80, 80, 80, 81, 81, 81, 81, 81, 81, 81, 81, 81, 81, 81, 81, 81, 81, 81, 81},
+			{20, 20, 20, 20, 51, 51, 53, 53, 50, 50, 50, 50, 65, 65, 65, 65, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64},
+			{19, 19, 19, 19, 34, 34, 34, 34, 52, 52, 52, 52, 65, 65, 65, 65, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64},
+			{18, 18, 18, 18, 35, 35, 35, 35, 49, 49, 49, 49, 48, 48, 48, 48, 48, 48, 48, 48, 48, 48, 48, 48, 48, 48, 48, 48, 48, 48, 48, 48, 48, 48, 48, 48},
+			{18, 18, 18, 18, 33, 33, 33, 33, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32},
+			{17, 17, 17, 17, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16},
+		};
+		int leadingZeroBits = clz(ctx->t._gb.msb_cache | (size_t)1 << (SIZE_BIT - 9));
+		int suffix = ctx->t._gb.msb_cache >> ((leadingZeroBits + 2) ^ (SIZE_BIT - 1)) & 3;
+		assert(endIdx + TotalCoeff - 4 < 27 && leadingZeroBits * 4 + suffix < 36);
+		int code = codes[endIdx + TotalCoeff - 4][leadingZeroBits * 4 + suffix];
+		int v = code >> 4;
+		ctx->t._gb.msb_cache = shld(ctx->t._gb.lsb_cache, ctx->t._gb.msb_cache, v);
+		ctx->t._gb.lsb_cache <<= v;
+		return code & 15;
+	}
+	
+	static noinline int parse_residual_coeffs_cavlc(Edge264Context *ctx, int startIdx, int endIdx, int token) {
+		int TrailingOnes = token & 3;
+		int TotalCoeff = token >> 2;
+		
+		// parse all level values from end to start
+		int32_t level[16];
+		size_t signs = ~ctx->t._gb.msb_cache;
+		level[0] = (signs >> (SIZE_BIT - 2) & 2) - 1;
+		level[1] = (signs >> (SIZE_BIT - 3) & 2) - 1;
+		level[2] = (signs >> (SIZE_BIT - 4) & 2) - 1;
+		ctx->t._gb.msb_cache = shld(ctx->t._gb.lsb_cache, ctx->t._gb.msb_cache, TrailingOnes);
+		ctx->t._gb.lsb_cache <<= TrailingOnes;
+		for (int i = TrailingOnes, suffixLength = 1, v, offset; i < TotalCoeff; i++) {
+			int level_prefix = clz(ctx->t._gb.msb_cache | (size_t)1 << (SIZE_BIT - 26)); // limit given in 9.2.2.1
+			if (level_prefix >= 15) {
+				v = level_prefix * 2 - 2;
+				offset = (15 << suffixLength) - 4096;
+			} else if (i > TrailingOnes || (TotalCoeff > 10 && TrailingOnes < 3)) {
+				v = level_prefix + suffixLength + 1;
+				offset = (level_prefix - 1) << suffixLength;
+			} else if (level_prefix < 14) {
+				v = level_prefix + 1;
+				offset = level_prefix - 1;
+			} else {
+				v = 19;
+				offset = -2;
+			}
+			#if SIZE_BIT == 32
+				v -= level_prefix;
+				ctx->t._gb.msb_cache = shld(ctx->t._gb.lsb_cache, ctx->t._gb.msb_cache, level_prefix);
+				if (!(ctx->t._gb.lsb_cache <<= level_prefix))
+					refill(&ctx->t._gb, 0);
+			#endif
+			int levelCode = get_uv(&ctx->t._gb, v) + offset;
+			levelCode += (i == TrailingOnes && TrailingOnes < 3) * 2;
+			level[i] = (levelCode % 2) ? (-levelCode - 1) >> 1 : (levelCode + 2) >> 1;
+			suffixLength = min(suffixLength + (levelCode >= (3 << suffixLength)), 6);
+		}
+		
+		// store level values at proper positions in memory
+		int zerosLeft = 0;
+		if (TotalCoeff <= endIdx - startIdx)
+			zerosLeft = parse_total_zeros(ctx, endIdx, TotalCoeff);
+		int8_t *scan = ctx->scan + startIdx + zerosLeft + TotalCoeff - 1;
+		ctx->c[*scan] = level[0];
+		for (int i = 1, v, run_before; i < TotalCoeff; i++) {
+			scan--;
+			if (zerosLeft > 0) {
+				int threeBits = ctx->t._gb.msb_cache >> (SIZE_BIT - 3);
+				if (zerosLeft <= 6 || threeBits > 0) {
+					static int8_t run_before_codes[7][8] = {
+						{9, 9, 9, 9, 8, 8, 8, 8},
+						{18, 18, 17, 17, 8, 8, 8, 8},
+						{19, 19, 18, 18, 17, 17, 16, 16},
+						{28, 27, 18, 18, 17, 17, 16, 16},
+						{29, 28, 27, 26, 17, 17, 16, 16},
+						{25, 26, 28, 27, 30, 29, 16, 16},
+						{0, 30, 29, 28, 27, 26, 25, 24}};
+					int code = run_before_codes[min(zerosLeft, 7) - 1][threeBits];
+					v = code >> 3;
+					run_before = code & 7;
+				} else {
+					v = clz(ctx->t._gb.msb_cache) + 1;
+					run_before = min(v + 3, zerosLeft);
+				}
+				scan -= run_before;
+				zerosLeft -= run_before;
+				ctx->t._gb.msb_cache = shld(ctx->t._gb.lsb_cache, ctx->t._gb.msb_cache, v);
+				ctx->t._gb.lsb_cache <<= v;
+			}
+			ctx->c[*scan] = level[i];
+		}
+		for (int i = startIdx; i <= endIdx; i++)
+			log_mb(ctx, (i < endIdx) ? "%d," : "%d]}\n", ctx->c[ctx->scan[i]]);
+		
+		// trailing_ones_sign_flags+total_zeros+run_before consumed at most 31 bits, so we can delay refill here
+		return ctx->t._gb.lsb_cache ? 1 : refill(&ctx->t._gb, 1);
+	}
+
+	static noinline int parse_residual_block_4x4_cavlc(Edge264Context *ctx, int i4x4, int nA, int nB, int startIdx) {
 		static const uint8_t nC_offset[8] = {184, 184, 80, 80, 0, 0, 0, 0};
 		static const int16_t tokens[38 * 8] = {
 			543, 539, 535, 531, 527, 522, 517, 512, // 4 <= nC < 8
@@ -125,8 +249,9 @@
 		int coeff_token, v;
 		if (__builtin_expect(nC < 8, 1)) {
 			int leadingZeroBits = clz(ctx->t._gb.msb_cache | (size_t)1 << (SIZE_BIT - 15));
-			unsigned fourBits = ctx->t._gb.msb_cache >> (SIZE_BIT - 4 - leadingZeroBits);
-			int token = tokens[nC_offset[nC] + leadingZeroBits * 8 + fourBits - 8];
+			unsigned suffix = ctx->t._gb.msb_cache >> (SIZE_BIT - 4 - leadingZeroBits) & 7;
+			assert(nC >= 0 && nC_offset[nC] + leadingZeroBits * 8 + suffix < 304);
+			int token = tokens[nC_offset[nC] + leadingZeroBits * 8 + suffix];
 			coeff_token = token & 127;
 			v = token >> 7;
 		} else {
@@ -136,14 +261,22 @@
 			v = 6;
 		}
 		ctx->t._gb.msb_cache = shld(ctx->t._gb.lsb_cache, ctx->t._gb.msb_cache, v);
-		if (ctx->t._gb.lsb_cache <<= v)
-			return coeff_token;
-		return refill(&ctx->t._gb, coeff_token);
+		ctx->t._gb.lsb_cache <<= v;
+		if (!ctx->t._gb.lsb_cache)
+			refill(&ctx->t._gb, 0);
+		if (coeff_token) {
+			mb->nC[i4x4] = coeff_token >> 2;
+			log_mb(ctx, "    - {nC: %u, c: [", nC);
+			return parse_residual_coeffs_cavlc(ctx, startIdx, 15, coeff_token);
+		} else {
+			log_mb(ctx, "    - {nC: %u}\n", nC);
+			return 0;
+		}
 	}
 	
 	// 4:2:0 is best handled separately due to the open-ended 0000000 code and 3 bit suffixes
-	static int parse_DC2x2_coeff_token_cavlc(Edge264Context *ctx) {
-		static const int16_t tokens[] = {
+	static noinline void parse_residual_block_2x2_cavlc(Edge264Context *ctx) {
+		static const int16_t tokens[8 * 4] = {
 			133, 133, 133, 133,
 			256, 256, 256, 256,
 			394, 394, 394, 394,
@@ -159,155 +292,30 @@
 		int coeff_token = token & 127;
 		int v = token >> 7;
 		ctx->t._gb.msb_cache = shld(ctx->t._gb.lsb_cache, ctx->t._gb.msb_cache, v);
-		if (ctx->t._gb.lsb_cache <<= v)
-			return coeff_token;
-		return refill(&ctx->t._gb, coeff_token);
+		if (!(ctx->t._gb.lsb_cache <<= v))
+			refill(&ctx->t._gb, 0);
+		if (coeff_token) {
+			log_mb(ctx, "    - {nC: -1, c: [");
+			parse_residual_coeffs_cavlc(ctx, 0, 3, coeff_token);
+		} else {
+			log_mb(ctx, "    - {nC: -1}\n");
+		}
 	}
 #endif
 
 
 
 /**
- * Temporary functions for two alternatives to parse total_zeros.
- */
-#if !CABAC
-	static inline int parse_total_zeros(Edge264Context *ctx, int endIdx, int TotalCoeff) {
-		static const uint8_t codes[27][9 * 4] = { // [tzVlcIndex][leadingZeroBits][suffix]
-			// 2x2 blocks
-			{16, 16, 16, 16, 33, 33, 33, 33, 50, 50, 50, 50, 51, 51, 51, 51, 51, 51, 51, 51, 51, 51, 51, 51, 51, 51, 51, 51, 51, 51, 51, 51, 51, 51, 51, 51},
-			{16, 16, 16, 16, 33, 33, 33, 33, 34, 34, 34, 34, 34, 34, 34, 34, 34, 34, 34, 34, 34, 34, 34, 34, 34, 34, 34, 34, 34, 34, 34, 34, 34, 34, 34, 34},
-			{16, 16, 16, 16, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17},
-			{}, // 2x4 blocks
-			{16, 16, 16, 16, 49, 49, 50, 50, 67, 67, 68, 68, 69, 69, 69, 69, 86, 86, 86, 86, 87, 87, 87, 87, 87, 87, 87, 87, 87, 87, 87, 87, 87, 87, 87, 87},
-			{51, 52, 53, 54, 33, 33, 33, 33, 50, 50, 50, 50, 48, 48, 48, 48, 48, 48, 48, 48, 48, 48, 48, 48, 48, 48, 48, 48, 48, 48, 48, 48, 48, 48, 48, 48},
-			{35, 35, 52, 53, 34, 34, 34, 34, 49, 49, 49, 49, 48, 48, 48, 48, 48, 48, 48, 48, 48, 48, 48, 48, 48, 48, 48, 48, 48, 48, 48, 48, 48, 48, 48, 48},
-			{35, 35, 48, 52, 34, 34, 34, 34, 33, 33, 33, 33, 33, 33, 33, 33, 33, 33, 33, 33, 33, 33, 33, 33, 33, 33, 33, 33, 33, 33, 33, 33, 33, 33, 33, 33},
-			{34, 34, 35, 35, 33, 33, 33, 33, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32},
-			{18, 18, 18, 18, 33, 33, 33, 33, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32},
-			{17, 17, 17, 17, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16},
-			{}, // 4x4 blocks
-			{16, 16, 16, 16, 50, 50, 49, 49, 68, 68, 67, 67, 86, 86, 85, 85, 104, 104, 103, 103, 122, 122, 121, 121, 140, 140, 139, 139, 158, 158, 157, 157, 159, 159, 159, 159},
-			{51, 50, 49, 48, 70, 69, 52, 52, 72, 72, 71, 71, 90, 90, 89, 89, 108, 108, 107, 107, 109, 109, 109, 109, 110, 110, 110, 110, 110, 110, 110, 110, 110, 110, 110, 110},
-			{54, 51, 50, 49, 68, 64, 55, 55, 72, 72, 69, 69, 90, 90, 89, 89, 92, 92, 92, 92, 107, 107, 107, 107, 109, 109, 109, 109, 109, 109, 109, 109, 109, 109, 109, 109},
-			{54, 53, 52, 49, 67, 66, 56, 56, 73, 73, 71, 71, 90, 90, 80, 80, 91, 91, 91, 91, 92, 92, 92, 92, 92, 92, 92, 92, 92, 92, 92, 92, 92, 92, 92, 92},
-			{54, 53, 52, 51, 65, 64, 55, 55, 72, 72, 66, 66, 74, 74, 74, 74, 89, 89, 89, 89, 91, 91, 91, 91, 91, 91, 91, 91, 91, 91, 91, 91, 91, 91, 91, 91},
-			{53, 52, 51, 50, 55, 55, 54, 54, 57, 57, 57, 57, 72, 72, 72, 72, 81, 81, 81, 81, 96, 96, 96, 96, 106, 106, 106, 106, 106, 106, 106, 106, 106, 106, 106, 106},
-			{51, 50, 37, 37, 54, 54, 52, 52, 56, 56, 56, 56, 71, 71, 71, 71, 81, 81, 81, 81, 96, 96, 96, 96, 105, 105, 105, 105, 105, 105, 105, 105, 105, 105, 105, 105},
-			{37, 37, 36, 36, 54, 54, 51, 51, 55, 55, 55, 55, 65, 65, 65, 65, 82, 82, 82, 82, 96, 96, 96, 96, 104, 104, 104, 104, 104, 104, 104, 104, 104, 104, 104, 104},
-			{36, 36, 35, 35, 38, 38, 38, 38, 53, 53, 53, 53, 66, 66, 66, 66, 87, 87, 87, 87, 96, 96, 96, 96, 97, 97, 97, 97, 97, 97, 97, 97, 97, 97, 97, 97},
-			{36, 36, 35, 35, 37, 37, 37, 37, 50, 50, 50, 50, 70, 70, 70, 70, 80, 80, 80, 80, 81, 81, 81, 81, 81, 81, 81, 81, 81, 81, 81, 81, 81, 81, 81, 81},
-			{20, 20, 20, 20, 51, 51, 53, 53, 50, 50, 50, 50, 65, 65, 65, 65, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64},
-			{19, 19, 19, 19, 34, 34, 34, 34, 52, 52, 52, 52, 65, 65, 65, 65, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64},
-			{18, 18, 18, 18, 35, 35, 35, 35, 49, 49, 49, 49, 48, 48, 48, 48, 48, 48, 48, 48, 48, 48, 48, 48, 48, 48, 48, 48, 48, 48, 48, 48, 48, 48, 48, 48},
-			{18, 18, 18, 18, 33, 33, 33, 33, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32},
-			{17, 17, 17, 17, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16},
-		};
-		int leadingZeroBits = clz(ctx->t._gb.msb_cache | (size_t)1 << (SIZE_BIT - 9));
-		int suffix = ctx->t._gb.msb_cache >> ((leadingZeroBits + 2) ^ (SIZE_BIT - 1)) & 3;
-		int code = codes[endIdx + TotalCoeff - 4][leadingZeroBits * 4 + suffix];
-		int v = code >> 4;
-		ctx->t._gb.msb_cache = shld(ctx->t._gb.lsb_cache, ctx->t._gb.msb_cache, v);
-		ctx->t._gb.lsb_cache <<= v;
-		return code & 15;
-	}
-#endif
-
-
-
-/**
- * Parse a CAVLC or CABAC residual block without coeff_token nor
- * coded_block_flag (9.2 and 9.3.2.3).
+ * Parse a CABAC residual block after coded_block_flag (9.3.2.3).
  * 
- * For CAVLC, while the spec is quite convoluted level_prefix+level_suffix just
- * look like Exp-Golomb codes, so we need only compute a code length (v) and an
- * offset to add to the input bits.
- * For CABAC, all bypass bits can be extracted using a binary division (!!).
+ * Here, all bypass bits can be extracted using a binary division (!!).
  * coeff_abs_level expects at most 2^(7+14)-14, i.e 41 bits as Exp-Golomb, so
  * we can get all of them on 64 bit machines.
- * While residual coefficients are not too critical to optimize, both CAVLC and
- * CABAC versions of this function are designed to be simple and compact.
+ * While residual coefficients are not too critical to optimize yet tricky to
+ * maintain, this function is designed to be simple and compact.
  */
-static void CAFUNC(parse_residual_block, int startIdx, int endIdx, int token_or_cbf) {
-	#if !CABAC
-		int TrailingOnes = token_or_cbf & 3;
-		int TotalCoeff = token_or_cbf >> 2;
-		
-		// parse all level values from end to start
-		int32_t level[16];
-		size_t signs = ~ctx->t._gb.msb_cache;
-		level[0] = (signs >> (SIZE_BIT - 2) & 2) - 1;
-		level[1] = (signs >> (SIZE_BIT - 3) & 2) - 1;
-		level[2] = (signs >> (SIZE_BIT - 4) & 2) - 1;
-		ctx->t._gb.msb_cache = shld(ctx->t._gb.lsb_cache, ctx->t._gb.msb_cache, TrailingOnes);
-		ctx->t._gb.lsb_cache <<= TrailingOnes;
-		for (int i = TrailingOnes, suffixLength = 1, v, offset; i < TotalCoeff; i++) {
-			int level_prefix = clz(ctx->t._gb.msb_cache | (size_t)1 << (SIZE_BIT - 26)); // limit given in 9.2.2.1
-			if (level_prefix >= 15) {
-				v = level_prefix * 2 - 2;
-				offset = (15 << suffixLength) - 4096;
-			} else if (i > TrailingOnes || (TotalCoeff > 10 && TrailingOnes < 3)) {
-				v = level_prefix + suffixLength + 1;
-				offset = (level_prefix - 1) << suffixLength;
-			} else if (level_prefix < 14) {
-				v = level_prefix + 1;
-				offset = level_prefix - 1;
-			} else {
-				v = 19;
-				offset = -2;
-			}
-			#if SIZE_BIT == 32
-				v -= level_prefix;
-				ctx->t._gb.msb_cache = shld(ctx->t._gb.lsb_cache, ctx->t._gb.msb_cache, level_prefix);
-				if (!(ctx->t._gb.lsb_cache <<= level_prefix))
-					refill(&ctx->t._gb, 0);
-			#endif
-			int levelCode = get_uv(&ctx->t._gb, v) + offset;
-			levelCode += (i == TrailingOnes && TrailingOnes < 3) * 2;
-			level[i] = (levelCode % 2) ? (-levelCode - 1) >> 1 : (levelCode + 2) >> 1;
-			suffixLength = min(suffixLength + (levelCode >= (3 << suffixLength)), 6);
-		}
-		
-		// store level values at proper positions in memory
-		int zerosLeft = 0;
-		if (TotalCoeff <= endIdx - startIdx)
-			zerosLeft = parse_total_zeros(ctx, endIdx, TotalCoeff);
-		int8_t *scan = ctx->scan + startIdx + zerosLeft + TotalCoeff - 1;
-		ctx->c[*scan] = level[0];
-		for (int i = 1, v, run_before; i < TotalCoeff; i++) {
-			scan--;
-			if (zerosLeft > 0) {
-				int threeBits = ctx->t._gb.msb_cache >> (SIZE_BIT - 3);
-				if (zerosLeft <= 6) {
-					static int8_t run_before_codes[6][8] = {
-						{9, 9, 9, 9, 8, 8, 8, 8},
-						{18, 18, 17, 17, 8, 8, 8, 8},
-						{19, 19, 18, 18, 17, 17, 16, 16},
-						{28, 27, 18, 18, 17, 17, 16, 16},
-						{29, 28, 27, 26, 17, 17, 16, 16},
-						{25, 26, 28, 27, 30, 29, 16, 16},
-					};
-					int code = run_before_codes[zerosLeft - 1][threeBits];
-					v = code >> 3;
-					run_before = code & 7;
-				} else if (threeBits > 0) {
-					v = 3;
-					run_before = threeBits ^ 7; // 7 - threeBits
-				} else {
-					v = clz(ctx->t._gb.msb_cache) + 1;
-					run_before = min(v + 3, zerosLeft);
-				}
-				scan -= run_before;
-				zerosLeft -= run_before;
-				ctx->t._gb.msb_cache = shld(ctx->t._gb.lsb_cache, ctx->t._gb.msb_cache, v);
-				ctx->t._gb.lsb_cache <<= v;
-			}
-			ctx->c[*scan] = level[i];
-		}
-		
-		// trailing_ones_sign_flags+total_zeros+run_before consumed at most 31 bits, so we can delay refill here
-		if (!ctx->t._gb.lsb_cache)
-			refill(&ctx->t._gb, 0);
-	#else // CABAC
+#if CABAC
+	static noinline void parse_residual_coeffs_cabac(Edge264Context *ctx, int startIdx, int endIdx) {
 		// significant_coeff_flags are stored as a bit mask
 		uint64_t significant_coeff_flags = 0;
 		int i = startIdx;
@@ -372,15 +380,12 @@ static void CAFUNC(parse_residual_block, int startIdx, int endIdx, int token_or_
 			}
 		
 			// scale and store
-			int i = 63 - clz64(significant_coeff_flags);
+			int i = 63 - __builtin_clzll(significant_coeff_flags);
 			ctx->c[ctx->scan[i]] = coeff_level; // beware, scan is transposed already
 			significant_coeff_flags &= ~((uint64_t)1 << i);
 		} while (significant_coeff_flags != 0);
-	#endif
-	for (int i = startIdx; i <= endIdx; i++)
-		print_slice(ctx, " %d", ctx->c[ctx->scan[i]]);
-	print_slice(ctx, "\n");
-}
+	}
+#endif
 
 
 
@@ -410,7 +415,7 @@ static void CAFUNC(parse_mb_qp_delta)
 			mb->QP_s = ctx->t.QP_s = (i8x4){QP_Y, ctx->QP_C[0][QP_Y], ctx->QP_C[1][QP_Y]};
 		}
 	#endif
-	print_slice(ctx, "mb_qp_delta: %d\n", mb_qp_delta);
+	log_mb(ctx, "    mb_qp_delta: %d\n", mb_qp_delta);
 }
 
 
@@ -423,34 +428,26 @@ static void CAFUNC(parse_chroma_residual)
 {
 	// As in Intra16x16, DC blocks are parsed to ctx->c[0..15], then transformed to ctx->c[16..31]
 	if (mb->f.CodedBlockPatternChromaDC) { // valid also for 4:0:0
-		#if CABAC
+		#if !CABAC
+			ctx->scan_s = (i8x4){0, 4, 2, 6};
+			parse_residual_block_2x2_cavlc(ctx);
+			ctx->scan_s = (i8x4){1, 5, 3, 7};
+			parse_residual_block_2x2_cavlc(ctx);
+		#else
 			ctx->ctxIdxOffsets_l = ctxIdxOffsets_chromaDC[0]; // FIXME 4:2:2
 			ctx->sig_inc_v[0] = ctx->last_inc_v[0] = sig_inc_chromaDC[0];
 			ctx->coeff_abs_inc_l = (i8x8){6, 7, 8, 8};
-		#endif
-		ctx->c_v[0] = ctx->c_v[1] = ctx->c_v[2] = ctx->c_v[3] = (i32x4){};
-		int token_or_cbf_Cb = CACOND(
-			parse_DC2x2_coeff_token_cavlc(ctx),
-			get_ae(ctx, ctx->ctxIdxOffsets[0] + ctx->inc.coded_block_flags_16x16[1]));
-		if (token_or_cbf_Cb) {
-			#if CABAC
+			if (get_ae(ctx, ctx->ctxIdxOffsets[0] + ctx->inc.coded_block_flags_16x16[1])) {
 				mb->f.coded_block_flags_16x16[1] = 1;
-			#endif
-			print_slice(ctx, "Cb DC coeffLevels:");
-			ctx->scan_s = (i8x4){0, 4, 2, 6};
-			CACALL(parse_residual_block, 0, 3, token_or_cbf_Cb);
-		}
-		int token_or_cbf_Cr = CACOND(
-			parse_DC2x2_coeff_token_cavlc(ctx),
-			get_ae(ctx, ctx->ctxIdxOffsets[0] + ctx->inc.coded_block_flags_16x16[2]));
-		if (token_or_cbf_Cr) {
-			#if CABAC
+				ctx->scan_s = (i8x4){0, 4, 2, 6};
+				parse_residual_coeffs_cabac(ctx, 0, 3);
+			}
+			if (get_ae(ctx, ctx->ctxIdxOffsets[0] + ctx->inc.coded_block_flags_16x16[2])) {
 				mb->f.coded_block_flags_16x16[2] = 1;
-			#endif
-			print_slice(ctx, "Cr DC coeffLevels:");
-			ctx->scan_s = (i8x4){1, 5, 3, 7};
-			CACALL(parse_residual_block, 0, 3, token_or_cbf_Cr);
-		}
+				ctx->scan_s = (i8x4){1, 5, 3, 7};
+				parse_residual_coeffs_cabac(ctx, 0, 3);
+			}
+		#endif
 		transform_dc2x2(ctx);
 		
 		// Eight or sixteen 4x4 AC blocks for the Cb/Cr components
@@ -464,21 +461,25 @@ static void CAFUNC(parse_chroma_residual)
 			for (int i4x4 = 0; i4x4 < 8; i4x4++) {
 				int iYCbCr = 1 + (i4x4 >> 2);
 				uint8_t *samples = ctx->samples_mb[iYCbCr] + y420[i4x4] * ctx->t.stride[1] + x420[i4x4];
-				int nA = *((int8_t *)mb->nC[1] + ctx->ACbCr_int8[i4x4]);
-				int nB = *((int8_t *)mb->nC[1] + ctx->BCbCr_int8[i4x4]);
-				int token_or_cbf = CACOND(parse_coeff_token_cavlc(ctx, i4x4 << 2 & 15, nA, nB),
-					get_ae(ctx, ctx->ctxIdxOffsets[0] + ctx->nC_inc[1][i4x4] + nA + nB * 2));
-				if (token_or_cbf) {
-					mb->nC[1][i4x4] = CACOND(token_or_cbf >> 2, 1);
-					ctx->c_v[0] = ctx->c_v[1] = ctx->c_v[2] = ctx->c_v[3] = (i32x4){};
-					print_slice(ctx, "Chroma AC coeffLevels[%d]:", i4x4);
-					CACALL(parse_residual_block, 1, 15, token_or_cbf);
-					add_idct4x4(ctx, iYCbCr, i4x4, samples);
-				} else {
-					add_dc4x4(ctx, iYCbCr, i4x4, samples);
-				}
+				int nA = *((int8_t *)mb->nC + 16 + ctx->ACbCr_int8[i4x4]);
+				int nB = *((int8_t *)mb->nC + 16 + ctx->BCbCr_int8[i4x4]);
+				#if !CABAC
+					if (parse_residual_block_4x4_cavlc(ctx, 16 + i4x4, nA, nB, 1))
+						add_idct4x4(ctx, iYCbCr, i4x4, samples);
+					else
+						add_dc4x4(ctx, iYCbCr, i4x4, samples);
+				#else
+					if (get_ae(ctx, ctx->ctxIdxOffsets[0] + ctx->nC_inc[1][i4x4] + nA + nB * 2)) {
+						mb->nC[16 + i4x4] = 1;
+						parse_residual_coeffs_cabac(ctx, 1, 15);
+						add_idct4x4(ctx, iYCbCr, i4x4, samples);
+					} else {
+						add_dc4x4(ctx, iYCbCr, i4x4, samples);
+					}
+				#endif
 			}
 		}
+		ctx->c_v[4] = ctx->c_v[5] = (i8x16){};
 	}
 }
 
@@ -491,6 +492,7 @@ static void CAFUNC(parse_chroma_residual)
 static void CAFUNC(parse_Intra16x16_residual)
 {
 	CACALL(parse_mb_qp_delta);
+	log_mb(ctx, "    coeffLevels:\n");
 	
 	// Both AC and DC coefficients are initially parsed to ctx->c[0..15]
 	ctx->scan_v[0] = scan_4x4[0];
@@ -500,25 +502,20 @@ static void CAFUNC(parse_Intra16x16_residual)
 	for (int iYCbCr = 0; iYCbCr < 3; iYCbCr++) {
 		
 		// Parse a DC block, then transform it to ctx->c[16..31]
-		#if CABAC
+		#if !CABAC
+			if (parse_residual_block_4x4_cavlc(ctx, 0, mbA->nC[iYCbCr * 16 + 5], mbB->nC[iYCbCr * 16 + 10], 0)) {
+				mb->nC[0] = 0;
+				transform_dc4x4(ctx, iYCbCr);
+			}
+		#else
 			ctx->ctxIdxOffsets_l = ctxIdxOffsets_16x16DC[iYCbCr][0];
-			ctx->coeff_abs_inc_l = (i8x8){6, 7, 8, 9, 9};
-		#endif
-		int token_or_cbf = CACOND(
-			parse_coeff_token_cavlc(ctx, 0, mbA->nC[iYCbCr][5], mbB->nC[iYCbCr][10]),
-			get_ae(ctx, ctx->ctxIdxOffsets[0] + ctx->inc.coded_block_flags_16x16[iYCbCr]));
-		if (token_or_cbf) {
-			#if CABAC
+			if (get_ae(ctx, ctx->ctxIdxOffsets[0] + ctx->inc.coded_block_flags_16x16[iYCbCr])) {
 				mb->f.coded_block_flags_16x16[iYCbCr] = 1;
-			#endif
-			ctx->c_v[0] = ctx->c_v[1] = ctx->c_v[2] = ctx->c_v[3] = (i32x4){};
-			print_slice(ctx, "16x16 DC coeffLevels[%d]:", iYCbCr);
-			CACALL(parse_residual_block, 0, 15, token_or_cbf);
-			transform_dc4x4(ctx, iYCbCr);
-		} else {
-			if (mb->bits[0] & 1 << 5)
-				ctx->c_v[4] = ctx->c_v[5] = ctx->c_v[6] = ctx->c_v[7] = (i32x4){};
-		}
+				ctx->coeff_abs_inc_l = (i8x8){6, 7, 8, 9, 9};
+				parse_residual_coeffs_cabac(ctx, 0, 15);
+				transform_dc4x4(ctx, iYCbCr);
+			}
+		#endif
 		
 		// All AC blocks pick a DC coeff, then go to ctx->c[1..15]
 		if (mb->bits[0] & 1 << 5) {
@@ -528,21 +525,25 @@ static void CAFUNC(parse_Intra16x16_residual)
 			#endif
 			for (int i4x4 = 0; i4x4 < 16; i4x4++) {
 				uint8_t *samples = ctx->samples_mb[iYCbCr] + y444[i4x4] * ctx->t.stride[iYCbCr] + x444[i4x4];
-				int nA = *((int8_t *)mb->nC[iYCbCr] + ctx->A4x4_int8[i4x4]);
-				int nB = *((int8_t *)mb->nC[iYCbCr] + ctx->B4x4_int8[i4x4]);
-				int token_or_cbf = CACOND(parse_coeff_token_cavlc(ctx, i4x4, nA, nB),
-					get_ae(ctx, ctx->ctxIdxOffsets[0] + ctx->nC_inc[iYCbCr][i4x4] + nA + nB * 2));
-				if (token_or_cbf) {
-					mb->nC[iYCbCr][i4x4] = CACOND(token_or_cbf >> 2, 1);
-					ctx->c_v[0] = ctx->c_v[1] = ctx->c_v[2] = ctx->c_v[3] = (i32x4){};
-					print_slice(ctx, "16x16 AC coeffLevels[%d]:", iYCbCr * 16 + i4x4);
-					CACALL(parse_residual_block, 1, 15, token_or_cbf);
-					add_idct4x4(ctx, iYCbCr, i4x4, samples);
-				} else {
-					add_dc4x4(ctx, iYCbCr, i4x4, samples);
-				}
+				int nA = *((int8_t *)mb->nC + iYCbCr * 16 + ctx->A4x4_int8[i4x4]);
+				int nB = *((int8_t *)mb->nC + iYCbCr * 16 + ctx->B4x4_int8[i4x4]);
+				#if !CABAC
+					if (parse_residual_block_4x4_cavlc(ctx, iYCbCr * 16 + i4x4, nA, nB, 1))
+						add_idct4x4(ctx, iYCbCr, i4x4, samples);
+					else
+						add_dc4x4(ctx, iYCbCr, i4x4, samples);
+				#else
+					if (get_ae(ctx, ctx->ctxIdxOffsets[0] + ctx->nC_inc[iYCbCr][i4x4] + nA + nB * 2)) {
+						mb->nC[iYCbCr * 16 + i4x4] = 1;
+						parse_residual_coeffs_cabac(ctx, 1, 15);
+						add_idct4x4(ctx, iYCbCr, i4x4, samples);
+					} else {
+						add_dc4x4(ctx, iYCbCr, i4x4, samples);
+					}
+				#endif
 			}
 		}
+		ctx->c_v[4] = ctx->c_v[5] = ctx->c_v[6] = ctx->c_v[7] = (i32x4){};
 		
 		// here is how we share the decoding of luma coefficients with 4:4:4 modes
 		if (ctx->t.ChromaArrayType <3)
@@ -581,8 +582,10 @@ static void CAFUNC(parse_NxN_residual)
 		{I8x8_HU_8 , I8x8_DC_AB_8, I8x8_HU_8   , I8x8_DC_AB_8, I8x8_HU_8   , I8x8_DC_AB_8, I8x8_HU_8   , I8x8_DC_AB_8, I8x8_HU_D_8 , I8x8_DC_AB_8, I8x8_HU_D_8 , I8x8_DC_AB_8, I8x8_HU_D_8  , I8x8_DC_AB_8 , I8x8_HU_D_8 , I8x8_DC_AB_8},
 	};
 	
-	if (mb->f.CodedBlockPatternChromaDC | (mb->bits[0] & 0xac))
+	if (mb->f.CodedBlockPatternChromaDC | (mb->bits[0] & 0xac)) {
 		CACALL(parse_mb_qp_delta);
+		log_mb(ctx, "    coeffLevels:\n");
+	}
 	#if CABAC
 		else
 			ctx->mb_qp_delta_nz = 0;
@@ -602,21 +605,22 @@ static void CAFUNC(parse_NxN_residual)
 			for (int i4x4 = 0; i4x4 < 16; i4x4++) {
 				size_t stride = ctx->t.stride[iYCbCr];
 				uint8_t *samples = ctx->samples_mb[iYCbCr] + y444[i4x4] * stride + x444[i4x4];
-				if (!mb->f.mbIsInterFlag)
+				if (!mb->mbIsInterFlag)
 					decode_intra4x4(Intra4x4Modes[mb->Intra4x4PredMode[i4x4]][ctx->unavail4x4[i4x4]], samples, stride, ctx->t.samples_clip_v[iYCbCr]);
 				if (mb->bits[0] & 1 << bit8x8[i4x4 >> 2]) {
-					int nA = *((int8_t *)mb->nC[iYCbCr] + ctx->A4x4_int8[i4x4]);
-					int nB = *((int8_t *)mb->nC[iYCbCr] + ctx->B4x4_int8[i4x4]);
-					int token_or_cbf = CACOND(parse_coeff_token_cavlc(ctx, i4x4, nA, nB),
-						get_ae(ctx, ctx->ctxIdxOffsets[0] + ctx->nC_inc[iYCbCr][i4x4] + nA + nB * 2));
-					if (token_or_cbf) {
-						mb->nC[iYCbCr][i4x4] = CACOND(token_or_cbf >> 2, 1);
-						ctx->c_v[0] = ctx->c_v[1] = ctx->c_v[2] = ctx->c_v[3] = (i32x4){};
-						print_slice(ctx, "4x4 coeffLevels[%d]:", iYCbCr * 16 + i4x4);
-						CACALL(parse_residual_block, 0, 15, token_or_cbf);
-						// DC blocks are marginal here (about 16%) so we do not handle them separately
-						add_idct4x4(ctx, iYCbCr, -1, samples); // FIXME 4:4:4
-					}
+					int nA = *((int8_t *)mb->nC + iYCbCr * 16 + ctx->A4x4_int8[i4x4]);
+					int nB = *((int8_t *)mb->nC + iYCbCr * 16 + ctx->B4x4_int8[i4x4]);
+					// DC blocks are marginal here (about 16%) so we do not handle them separately
+					#if !CABAC
+						if (parse_residual_block_4x4_cavlc(ctx, iYCbCr * 16 + i4x4, nA, nB, 0))
+							add_idct4x4(ctx, iYCbCr, -1, samples); // FIXME 4:4:4
+					#else
+						if (get_ae(ctx, ctx->ctxIdxOffsets[0] + ctx->nC_inc[iYCbCr][i4x4] + nA + nB * 2)) {
+							mb->nC[iYCbCr * 16 + i4x4] = 1;
+							parse_residual_coeffs_cabac(ctx, 0, 15);
+							add_idct4x4(ctx, iYCbCr, -1, samples); // FIXME 4:4:4
+						}
+					#endif
 				}
 			}
 		} else {
@@ -631,32 +635,22 @@ static void CAFUNC(parse_NxN_residual)
 			for (int i8x8 = 0; i8x8 < 4; i8x8++) {
 				size_t stride = ctx->t.stride[iYCbCr];
 				uint8_t *samples = ctx->samples_mb[iYCbCr] + y444[i8x8 * 4] * stride + x444[i8x8 * 4];
-				if (!mb->f.mbIsInterFlag)
+				if (!mb->mbIsInterFlag)
 					decode_intra8x8(Intra8x8Modes[mb->Intra4x4PredMode[i8x8 * 4 + 1]][ctx->unavail4x4[i8x8 * 5]], samples, stride, ctx->t.samples_clip_v[iYCbCr]);
 				if (mb->bits[0] & 1 << bit8x8[i8x8]) {
 					#if !CABAC
-						for (int i = 0; i < 16; i++)
-							ctx->c_v[i] = (i32x4){};
 						for (int i4x4 = 0; i4x4 < 4; i4x4++) {
 							ctx->scan_v[0] = scan_8x8_cavlc[0][i4x4];
-							int nA = *((int8_t *)mb->nC[iYCbCr] + ctx->A4x4_int8[i8x8 * 4 + i4x4]);
-							int nB = *((int8_t *)mb->nC[iYCbCr] + ctx->B4x4_int8[i8x8 * 4 + i4x4]);
-							int token = parse_coeff_token_cavlc(ctx, i8x8 * 4 + i4x4, nA, nB);
-							if (token) {
-								mb->nC[iYCbCr][i8x8 * 4 + i4x4] = token >> 2;
-								print_slice(ctx, "8x8 coeffLevels[%d][%d]:", iYCbCr * 4 + i8x8, i4x4);
-								parse_residual_block_cavlc(ctx, 0, 15, token);
-							}
+							int nA = *((int8_t *)mb->nC + iYCbCr * 16 + ctx->A4x4_int8[i8x8 * 4 + i4x4]);
+							int nB = *((int8_t *)mb->nC + iYCbCr * 16 + ctx->B4x4_int8[i8x8 * 4 + i4x4]);
+							parse_residual_block_4x4_cavlc(ctx, iYCbCr * 16 + i8x8 * 4 + i4x4, nA, nB, 0);
 						}
 						add_idct8x8(ctx, iYCbCr, samples);
 					#else
 						if (ctx->t.ChromaArrayType < 3 || get_ae(ctx, ctx->ctxIdxOffsets[0] + (mb->bits[1] >> inc8x8[iYCbCr * 4 + i8x8] & 3))) {
-							for (int i = 0; i < 16; i++)
-								ctx->c_v[i] = (i32x4){};
 							mb->bits[1] |= 1 << bit8x8[iYCbCr * 4 + i8x8];
-							mb->nC_s[iYCbCr][i8x8] = 0x01010101;
-							print_slice(ctx, "8x8 coeffLevels[%d]:", iYCbCr * 4 + i8x8);
-							parse_residual_block_cabac(ctx, 0, 63, 1);
+							mb->nC_s[iYCbCr * 4 + i8x8] = 0x01010101;
+							parse_residual_coeffs_cabac(ctx, 0, 63);
 							add_idct8x8(ctx, iYCbCr, samples);
 						}
 					#endif
@@ -701,7 +695,7 @@ static void CAFUNC(parse_coded_block_pattern, const uint8_t *map_me)
 		mb->f.CodedBlockPatternChromaAC = CACOND(cbp >> 1 & 1, get_ae(ctx, 81 + ctx->inc.CodedBlockPatternChromaAC));
 	}
 	
-	print_slice(ctx, "coded_block_pattern: %u\n",
+	log_mb(ctx, "    coded_block_pattern: %u\n",
 		(mb->bits[0] >> 5 & 1) | (mb->bits[0] >> 2 & 2) | (mb->bits[0] & 4) | (mb->bits[0] >> 4 & 8) |
 		(mb->f.CodedBlockPatternChromaDC + mb->f.CodedBlockPatternChromaAC) << 4);
 }
@@ -732,7 +726,7 @@ static void CAFUNC(parse_intra_chroma_pred_mode)
 				mode++, ctxIdx = 67;
 			mb->f.intra_chroma_pred_mode_non_zero = (mode > 0);
 		#endif
-		print_slice(ctx, "intra_chroma_pred_mode: %u\n", mode);
+		log_mb(ctx, "    intra_chroma_pred_mode: %u\n", mode);
 		decode_intraChroma(IntraChromaModes[mode][ctx->unavail4x4[0] & 3], ctx->samples_mb[1], ctx->t.stride[1] >> 1, ctx->t.samples_clip_v[1]);
 	}
 }
@@ -743,7 +737,7 @@ static void CAFUNC(parse_intra_chroma_pred_mode)
  * Parses prev_intraNxN_pred_mode_flag and rem_intraNxN_pred_mode, and returns
  * the given intra_pred_mode (7.3.5.1, 7.4.5.1, 8.3.1.1 and table 9-34).
  */
-static int CAFUNC(parse_intraNxN_pred_mode, int luma4x4BlkIdx)
+static inline int CAFUNC(parse_intraNxN_pred_mode, int luma4x4BlkIdx)
 {
 	// dcPredModePredictedFlag is enforced by putting -2
 	int intraMxMPredModeA = *((int8_t *)mb->Intra4x4PredMode + ctx->A4x4_int8[luma4x4BlkIdx]);
@@ -760,7 +754,7 @@ static int CAFUNC(parse_intraNxN_pred_mode, int luma4x4BlkIdx)
 		#endif
 		mode = rem_intra_pred_mode + (rem_intra_pred_mode >= mode);
 	}
-	print_slice(ctx, " %d", rem_intra_pred_mode);
+	log_mb(ctx, luma4x4BlkIdx ? ",%d" : "%d", rem_intra_pred_mode);
 	return mode;
 }
 
@@ -778,11 +772,6 @@ static int CAFUNC(parse_intraNxN_pred_mode, int luma4x4BlkIdx)
  */
 static noinline void CAFUNC(parse_I_mb, int mb_type_or_ctxIdx)
 {
-	static const Edge264Flags flags_PCM = {
-		.CodedBlockPatternChromaDC = 1,
-		.CodedBlockPatternChromaAC = 1,
-		.coded_block_flags_16x16 = {1, 1, 1},
-	};
 	static const uint8_t me_intra[48] = {174, 173, 172, 0, 45, 169, 165, 141, 44, 168, 164, 140, 46, 170, 166, 142, 1, 40, 36, 136, 132, 41, 37, 137, 133, 42, 38, 138, 134, 32, 8, 4, 128, 33, 9, 5, 129, 12, 160, 13, 161, 2, 34, 10, 6, 130, 14, 162};
 	
 	// Intra-specific initialisations
@@ -801,8 +790,8 @@ static noinline void CAFUNC(parse_I_mb, int mb_type_or_ctxIdx)
 			ctx->inc.coded_block_flags_16x16_s |= 0x020202;
 		}
 	#endif
-	mb->f.mbIsInterFlag = 0;
-	mb->inter_eqs_s = little_endian32(0x1b5fbbff);
+	mb->mbIsInterFlag = 0;
+	mb->f.inter_eqs_s = little_endian32(0x1b5fbbff);
 	mb->refIdx_l = -1;
 	mb->refPic_l = -1;
 	mb->mvs_v[0] = mb->mvs_v[1] = mb->mvs_v[2] = mb->mvs_v[3] = mb->mvs_v[4] = mb->mvs_v[5] = mb->mvs_v[6] = mb->mvs_v[7] = (i16x8){};
@@ -811,29 +800,36 @@ static noinline void CAFUNC(parse_I_mb, int mb_type_or_ctxIdx)
 	if (CACOND(mb_type_or_ctxIdx == 0, !get_ae(ctx, mb_type_or_ctxIdx))) {
 		#if CABAC
 			mb->f.mb_type_I_NxN = 1;
-			print_slice(ctx, (mb_type_or_ctxIdx == 17) ? "mb_type: 5\n" : // in P slice
-								 (mb_type_or_ctxIdx == 32) ? "mb_type: 23\n" : // in B slice
-																	  "mb_type: 0\n"); // in I slice
+			log_mb(ctx, (mb_type_or_ctxIdx == 17) ? "    mb_type: 5\n" : // in P slice
+								 (mb_type_or_ctxIdx == 32) ? "    mb_type: 23\n" : // in B slice
+																	  "    mb_type: 0\n"); // in I slice
 		#endif
 		
 		// 7.3.5, 7.4.5, 9.3.3.1.1.10 and table 9-34
 		int transform_size_8x8_flag = 0;
 		if (ctx->t.pps.transform_8x8_mode_flag) {
 			transform_size_8x8_flag = CACOND(get_u1(&ctx->t._gb), get_ae(ctx, 399 + ctx->inc.transform_size_8x8_flag));
-			print_slice(ctx, "transform_size_8x8_flag: %x\n", transform_size_8x8_flag);
+			log_mb(ctx, "    transform_size_8x8_flag: %u\n", transform_size_8x8_flag);
 		}
 		
-		print_slice(ctx, "rem_intra_pred_modes:");
 		mb->Intra4x4PredMode_v = (i8x16){-2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2}; // default values when A/B is unavailable
 		if (transform_size_8x8_flag) {
 			mb->f.transform_size_8x8_flag = transform_size_8x8_flag;
+			log_mb(ctx, "    rem_intra8x8_pred_modes: [");
 			for (int i = 0; i < 16; i += 4)
 				mb->Intra4x4PredMode[i + 1] = mb->Intra4x4PredMode[i + 2] = mb->Intra4x4PredMode[i + 3] = CACALL(parse_intraNxN_pred_mode, i);
+			log_mb(ctx, "]\n    Intra8x8PredModes: [%u,%u,%u,%u]\n",
+				mb->Intra4x4PredMode[0], mb->Intra4x4PredMode[4], mb->Intra4x4PredMode[8], mb->Intra4x4PredMode[12]);
 		} else {
+			log_mb(ctx, "    rem_intra4x4_pred_modes: [");
 			for (int i = 0; i < 16; i++)
 				mb->Intra4x4PredMode[i] = CACALL(parse_intraNxN_pred_mode, i);
+			log_mb(ctx, "]\n    Intra4x4PredModes: [%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u]\n",
+				mb->Intra4x4PredMode[0], mb->Intra4x4PredMode[1], mb->Intra4x4PredMode[2], mb->Intra4x4PredMode[3],
+				mb->Intra4x4PredMode[4], mb->Intra4x4PredMode[5], mb->Intra4x4PredMode[6], mb->Intra4x4PredMode[7],
+				mb->Intra4x4PredMode[8], mb->Intra4x4PredMode[9], mb->Intra4x4PredMode[10], mb->Intra4x4PredMode[11],
+				mb->Intra4x4PredMode[12], mb->Intra4x4PredMode[13], mb->Intra4x4PredMode[14], mb->Intra4x4PredMode[15]);
 		}
-		print_slice(ctx, "\n");
 		
 		CACALL(parse_intra_chroma_pred_mode);
 		CACALL(parse_coded_block_pattern, me_intra);
@@ -859,7 +855,7 @@ static noinline void CAFUNC(parse_I_mb, int mb_type_or_ctxIdx)
 			}
 			int mode = get_ae(ctx, ctxIdx + 3) << 1;
 			mode += get_ae(ctx, max(ctxIdx + 3, 10));
-			print_slice(ctx, "mb_type: %u\n", (mb->bits[0] & 12) +
+			log_mb(ctx, "    mb_type: %u\n", (mb->bits[0] & 12) +
 				(mb->f.CodedBlockPatternChromaDC + mb->f.CodedBlockPatternChromaAC) * 4 +
 				mode + (ctxIdx == 17 ? 6 : ctxIdx == 32 ? 24 : 1));
 		#endif
@@ -883,11 +879,11 @@ static noinline void CAFUNC(parse_I_mb, int mb_type_or_ctxIdx)
 			ctx->t._gb.msb_cache = shld(ctx->t._gb.lsb_cache, ctx->t._gb.msb_cache, bits);
 			ctx->t._gb.lsb_cache = ctx->t._gb.lsb_cache << bits;
 		#else
-			print_slice(ctx, (mb_type_or_ctxIdx == 17) ? "mb_type: 30\n" : (mb_type_or_ctxIdx == 32) ? "mb_type: 48\n" : "mb_type: 25\n");
+			log_mb(ctx, (mb_type_or_ctxIdx == 17) ? "    mb_type: 30\n" : (mb_type_or_ctxIdx == 32) ? "    mb_type: 48\n" : "    mb_type: 25\n");
 		#endif
 		
 		ctx->mb_qp_delta_nz = 0;
-		mb->f.v |= flags_PCM.v; // FIXME reuse flags_twice
+		mb->f.v |= flags_twice.v; // ChromaDC, ChromaAC and flags_16x16, just what we need :)
 		mb->QP_s = (i8x4){0, ctx->QP_C[0][0], ctx->QP_C[1][0]};
 		mb->bits_l = (uint64_t)(i32x2){0xac, 0xacacac}; // FIXME 4:2:2
 		mb->nC_v[0] = mb->nC_v[1] = mb->nC_v[2] = CACOND(
@@ -897,20 +893,29 @@ static noinline void CAFUNC(parse_I_mb, int mb_type_or_ctxIdx)
 		
 		// PCM is so rare that it should be compact rather than fast
 		int MbWidth = 16, y = 16;
+		log_mb(ctx, "    pcm_samples:\n"
+			"      bits_Y: %u\n"
+			"      bits_C: %u\n",
+			ctz(ctx->t.samples_clip[0][0] + 1), ctz(ctx->t.samples_clip[1][0] + 1));
 		for (int iYCbCr = 0; iYCbCr < 3; iYCbCr++) {
+			log_mb(ctx, "      %s: [", "Y\0\0Cb\0Cr" + iYCbCr * 3);
 			int BitDepth = ctz(ctx->t.samples_clip[iYCbCr][0] + 1);
 			for (uint8_t *p = ctx->samples_mb[iYCbCr]; y-- > 0; p += ctx->t.stride[iYCbCr]) {
 				if (BitDepth == 8) {
 					((uint32_t *)p)[0] = big_endian32(get_uv(&ctx->t._gb, 32));
 					((uint32_t *)p)[1] = big_endian32(get_uv(&ctx->t._gb, 32));
+					log_mb(ctx, "%u,%u,%u,%u,%u,%u,%u,%u,", p[0], p[1], p[2], p[3], p[4], p[5], p[6], p[7]);
 					if (MbWidth == 16) {
 						((uint32_t *)p)[2] = big_endian32(get_uv(&ctx->t._gb, 32));
 						((uint32_t *)p)[3] = big_endian32(get_uv(&ctx->t._gb, 32));
+						log_mb(ctx, "%u,%u,%u,%u,%u,%u,%u,%u,", p[8], p[9], p[10], p[11], p[12], p[13], p[14], p[15]);
 					}
 				} else for (int x = 0; x < MbWidth; x++) {
 					((uint16_t *)p)[x] = get_uv(&ctx->t._gb, BitDepth);
+					log_mb(ctx, "%u,", ((uint16_t *)p)[x]);
 				}
 			}
+			log_mb(ctx, "]\n");
 			MbWidth = (ctx->t.ChromaArrayType < 3) ? 8 : 16;
 			y = (int8_t[4]){0, 8, 16, 16}[ctx->t.ChromaArrayType];
 		}
@@ -934,7 +939,7 @@ static void CAFUNC(parse_inter_residual)
 	
 	if ((mb->bits[0] & 0xac) && ctx->transform_8x8_mode_flag) {
 		mb->f.transform_size_8x8_flag = CACOND(get_u1(&ctx->t._gb), get_ae(ctx, 399 + ctx->inc.transform_size_8x8_flag));
-		print_slice(ctx, "transform_size_8x8_flag: %x\n", mb->f.transform_size_8x8_flag);
+		log_mb(ctx, "    transform_size_8x8_flag: %u\n", mb->f.transform_size_8x8_flag);
 	}
 	
 	#if CABAC
@@ -958,7 +963,7 @@ static i16x8 CAFUNC(parse_mvd_pair, const uint8_t *absMvd_lx, int i4x4) {
 	#if !CABAC
 		int x = get_se32(&ctx->t._gb, -32768, 32767);
 		int y = get_se32(&ctx->t._gb, -32768, 32767);
-		print_slice(ctx, "mvd[%lu]: %d,%d\n", absMvd_lx - mb->absMvd + i4x4, x, y);
+		log_mb(ctx, "[%d,%d],", x, y);
 		return (i16x8){x, y};
 	#else
 		i16x8 res;
@@ -1002,7 +1007,7 @@ static i16x8 CAFUNC(parse_mvd_pair, const uint8_t *absMvd_lx, int i4x4) {
 			
 			if (++i == 2) {
 				res[1] = mvd;
-				print_slice(ctx, "mvd[%lu]: %d,%d\n", absMvd_lx - mb->absMvd + i4x4, res[0], mvd);
+				log_mb(ctx, "    \"%lu\": [%d,%d]\n", absMvd_lx - mb->absMvd + i4x4, res[0], mvd);
 				return res;
 			}
 			ctxBase = 47;
@@ -1025,6 +1030,7 @@ static inline void CAFUNC(parse_ref_idx, unsigned f) {
 	u8x16 v = {f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f};
 	u8x16 bits = {1, 2, 4, 8, 16, 32, 64, 128};
 	mb->refIdx_l = ((i64x2){mb->refIdx_l} & ~(i64x2)((v & bits) == bits))[0]; // set to 0 if parsed
+	log_mb(ctx, "    ref_idx: {");
 	for (unsigned u = f & ctx->num_ref_idx_mask; u; u &= u - 1) {
 		int i = __builtin_ctz(u);
 		int ref_idx = 0;
@@ -1043,7 +1049,9 @@ static inline void CAFUNC(parse_ref_idx, unsigned f) {
 			}
 		#endif
 		mb->refIdx[i] = ref_idx;
+		log_mb(ctx, "\"%u\":%u,", i, ref_idx);
 	}
+	log_mb(ctx, "}\n");
 	
 	// clip and broadcast the values
 	i8x16 refIdx_v = (i64x2){mb->refIdx_l};
@@ -1063,7 +1071,6 @@ static inline void CAFUNC(parse_ref_idx, unsigned f) {
 		#endif
 	}
 	mb->refIdx_l = ((i64x2)refIdx_v)[0];
-	print_slice(ctx, "ref_idx: %d %d %d %d %d %d %d %d\n", mb->refIdx[0], mb->refIdx[1], mb->refIdx[2], mb->refIdx[3], mb->refIdx[4], mb->refIdx[5], mb->refIdx[6], mb->refIdx[7]);
 	
 	// compute reference picture numbers
 	mb->refPic_s[0] = ((i32x4)shufflen(ctx->t.RefPicList_v[0], refIdx_v))[0];
@@ -1094,21 +1101,21 @@ static inline void CAFUNC(parse_ref_idx, unsigned f) {
 static void CAFUNC(parse_B_sub_mb) {
 	
 	// initializations for sub_mb_type
-	print_slice(ctx, "sub_mb_types:");
+	log_mb(ctx, "    sub_mb_types: [");
 	unsigned mvd_flags = 0;
-	mb->inter_eqs_s = 0;
+	mb->f.inter_eqs_s = 0;
 	for (int i8x8 = 0; i8x8 < 4; i8x8++) {
 		int i4x4 = i8x8 * 4;
 		#if !CABAC
 			int sub_mb_type = get_ue16(&ctx->t._gb, 12);
-			print_slice(ctx, " %u", sub_mb_type);
+			log_mb(ctx, (i8x8 < 3) ? "%u," : "%u]\n", sub_mb_type);
 		#endif
 		if (CACOND(sub_mb_type == 0, !get_ae(ctx, 36))) { // B_Direct_8x8
-			mb->inter_eqs[i8x8] = 0x1b;
+			mb->f.inter_eqs[i8x8] = 0x1b;
 			if (!ctx->t.direct_8x8_inference_flag)
 				ctx->transform_8x8_mode_flag = 0;
 			#if CABAC
-				print_slice(ctx, " 0");
+				log_mb(ctx, (i8x8 < 3) ? "0," : "0]\n");
 			#endif
 		} else {
 			#if !CABAC
@@ -1118,7 +1125,7 @@ static void CAFUNC(parse_B_sub_mb) {
 				static const uint8_t sub_mb_type2eqs[13] = {0, 0x1b, 0x1b, 0x1b,
 					0x11, 0x0a, 0x11, 0x0a, 0x11, 0x0a, 0, 0, 0};
 				mvd_flags |= sub_mb_type2flags[sub_mb_type] << i4x4;
-				mb->inter_eqs[i8x8] = sub_mb_type2eqs[sub_mb_type];
+				mb->f.inter_eqs[i8x8] = sub_mb_type2eqs[sub_mb_type];
 			#else
 				int sub = 2;
 				if (!get_ae(ctx, 37) || (sub = get_ae(ctx, 38),
@@ -1132,9 +1139,9 @@ static void CAFUNC(parse_B_sub_mb) {
 				static const uint8_t sub2eqs[12] = {0x1b, 0x11, 0x0a, 0x11, 0x1b,
 					0x1b, 0, 0, 0x0a, 0x11, 0x0a, 0};
 				mvd_flags |= sub2flags[sub] << i4x4;
-				mb->inter_eqs[i8x8] = sub2eqs[sub];
+				mb->f.inter_eqs[i8x8] = sub2eqs[sub];
 				static const uint8_t sub2mb_type[13] = {3, 4, 5, 6, 1, 2, 11, 12, 7, 8, 9, 10, 0};
-				print_slice(ctx, " %u", sub2mb_type[sub]);
+				log_mb(ctx, (i8x8 < 3) ? "%u," : "%u]\n", sub2mb_type[sub]);
 			#endif
 			if (CACOND(0x015f & 1 << sub_mb_type, 0x23b & 1 << sub)) { // 8xN
 				ctx->unavail4x4[i4x4] = (ctx->unavail4x4[i4x4] & 11) | (ctx->unavail4x4[i4x4 + 1] & 4);
@@ -1150,7 +1157,6 @@ static void CAFUNC(parse_B_sub_mb) {
 			}
 		}
 	}
-	print_slice(ctx, "\n");
 	
 	// initialize direct prediction then parse all ref_idx values
 	unsigned direct_flags = (~((mvd_flags & 0xffff) | mvd_flags >> 16) & 0x1111) * 0xf000f;
@@ -1180,12 +1186,13 @@ static void CAFUNC(parse_B_sub_mb) {
 	
 	// combine them into a vector of 4-bit equality masks
 	union { int8_t q[32]; i8x16 v[2]; } refIdx4x4_eq;
-	i8x16 u = ctx->unavail4x4_v;
+	i8x16 u = ctx->unavail4x4_v[0];
 	i8x16 uC = u & 4;
 	refIdx4x4_eq.v[0] = (uC - ifelse_mask(uC==4, r0==D0, r0==C0) * 2 - (r0==B0)) * 2 - (r0==A0 | u==14);
 	refIdx4x4_eq.v[1] = (uC - ifelse_mask(uC==4, r1==D1, r1==C1) * 2 - (r1==B1)) * 2 - (r1==A1 | u==14);
 	
 	// loop on mvs
+	log_mb(ctx, "    mvds: [");
 	do {
 		int i = __builtin_ctz(mvd_flags);
 		int i4x4 = i & 15;
@@ -1225,6 +1232,7 @@ static void CAFUNC(parse_B_sub_mb) {
 		mb->mvs_v[i8x8] = ifelse_mask(mvs_mask, mvs, mb->mvs_v[i8x8]);
 		decode_inter(ctx, i, widths[type], heights[type]);
 	} while (mvd_flags &= mvd_flags - 1);
+	log_mb(ctx, "]\n");
 	CAJUMP(parse_inter_residual);
 }
 
@@ -1262,7 +1270,7 @@ static void CAFUNC(parse_B_sub_mb) {
 static inline void CAFUNC(parse_B_mb)
 {
 	// Inter initializations
-	mb->f.mbIsInterFlag = 1;
+	mb->mbIsInterFlag = 1;
 	mb->Intra4x4PredMode_v = (i8x16){2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2};
 	#if CABAC
 		mb->absMvd_v[0] = mb->absMvd_v[1] = mb->absMvd_v[2] = mb->absMvd_v[3] = (i8x16){};
@@ -1273,12 +1281,12 @@ static inline void CAFUNC(parse_B_mb)
 	#if !CABAC
 		if (ctx->mb_skip_run < 0) {
 			ctx->mb_skip_run = get_ue32(&ctx->t._gb, 139264);
-			print_slice(ctx, "mb_skip_run: %u\n", ctx->mb_skip_run);
+			log_mb(ctx, "    mb_skip_run: %u\n", ctx->mb_skip_run);
 		}
 		int mb_skip_flag = ctx->mb_skip_run-- > 0;
 	#else
 		int mb_skip_flag = get_ae(ctx, 26 - ctx->inc.mb_skip_flag);
-		print_slice(ctx, "mb_skip_flag: %x\n", mb_skip_flag);
+		log_mb(ctx, "    mb_skip_flag: %u\n", mb_skip_flag);
 	#endif
 	
 	// earliest handling for B_Skip
@@ -1288,7 +1296,7 @@ static inline void CAFUNC(parse_B_mb)
 			mb->f.mb_type_B_Direct = 1;
 			ctx->mb_qp_delta_nz = 0;
 		#endif
-		mb->inter_eqs_s = 0;
+		mb->f.inter_eqs_s = 0;
 		decode_direct_mv_pred(ctx, 0xffffffff);
 		return;
 	}
@@ -1298,12 +1306,12 @@ static inline void CAFUNC(parse_B_mb)
 		int mb_type = get_ue16(&ctx->t._gb, 48);
 	#endif
 	if (CACOND(mb_type == 0, !get_ae(ctx, 29 - ctx->inc.mb_type_B_Direct))) {
-		print_slice(ctx, "mb_type: 0\n");
+		log_mb(ctx, "    mb_type: 0\n");
 		#if CABAC
 			mb->f.mb_type_B_Direct = 1;
 		#endif
 		ctx->transform_8x8_mode_flag = ctx->t.pps.transform_8x8_mode_flag & ctx->t.direct_8x8_inference_flag;
-		mb->inter_eqs_s = 0;
+		mb->f.inter_eqs_s = 0;
 		decode_direct_mv_pred(ctx, 0xffffffff);
 		CAJUMP(parse_inter_residual);
 	}
@@ -1311,7 +1319,7 @@ static inline void CAFUNC(parse_B_mb)
 	
 	// initializations and jumps for mb_type
 	#if !CABAC
-		print_slice(ctx, "mb_type: %u\n", mb_type);
+		log_mb(ctx, "    mb_type: %u\n", mb_type);
 		if (mb_type > 22)
 			CAJUMP(parse_I_mb, mb_type - 23);
 		mb->refIdx_l = -1;
@@ -1335,7 +1343,7 @@ static inline void CAFUNC(parse_B_mb)
 			CAJUMP(parse_I_mb, 32);
 		static const uint8_t str2mb_type[26] = {3, 4, 5, 6, 7, 8, 9, 10, 1, 2, 0, 0,
 			0, 0, 11, 22, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21};
-		print_slice(ctx, "mb_type: %u\n", str2mb_type[str]);
+		log_mb(ctx, "    mb_type: %u\n", str2mb_type[str]);
 		mb->refIdx_l = -1;
 		mb->mvs_v[0] = mb->mvs_v[1] = mb->mvs_v[2] = mb->mvs_v[3] = mb->mvs_v[4] = mb->mvs_v[5] = mb->mvs_v[6] = mb->mvs_v[7] = (i16x8){};
 		if (str == 15)
@@ -1348,8 +1356,9 @@ static inline void CAFUNC(parse_B_mb)
 	
 	// decoding large blocks
 	CACALL(parse_ref_idx, flags8x8);
+	log_mb(ctx, "    mvds: [");
 	if (!(flags8x8 & 0xee)) { // 16x16
-		mb->inter_eqs_s = little_endian32(0x1b5fbbff);
+		mb->f.inter_eqs_s = little_endian32(0x1b5fbbff);
 		if (flags8x8 & 0x01) {
 			i16x8 mvd = CACALL(parse_mvd_pair, mb->absMvd, 0);
 			decode_inter_16x16(ctx, mvd, 0);
@@ -1359,7 +1368,7 @@ static inline void CAFUNC(parse_B_mb)
 			decode_inter_16x16(ctx, mvd, 1);
 		}
 	} else if (!(flags8x8 & 0xcc)) { // 8x16
-		mb->inter_eqs_s = little_endian32(0x1b1bbbbb);
+		mb->f.inter_eqs_s = little_endian32(0x1b1bbbbb);
 		if (flags8x8 & 0x01) {
 			i16x8 mvd = CACALL(parse_mvd_pair, mb->absMvd, 0);
 			decode_inter_8x16_left(ctx, mvd, 0);
@@ -1377,7 +1386,7 @@ static inline void CAFUNC(parse_B_mb)
 			decode_inter_8x16_right(ctx, mvd, 1);
 		}
 	} else { // 16x8
-		mb->inter_eqs_s = little_endian32(0x1b5f1b5f);
+		mb->f.inter_eqs_s = little_endian32(0x1b5f1b5f);
 		if (flags8x8 & 0x01) {
 			i16x8 mvd = CACALL(parse_mvd_pair, mb->absMvd, 0);
 			decode_inter_16x8_top(ctx, mvd, 0);
@@ -1395,6 +1404,7 @@ static inline void CAFUNC(parse_B_mb)
 			decode_inter_16x8_bottom(ctx, mvd, 1);
 		}
 	}
+	log_mb(ctx, "]\n");
 	CAJUMP(parse_inter_residual);
 }
 
@@ -1410,9 +1420,9 @@ static inline void CAFUNC(parse_B_mb)
 static void CAFUNC(parse_P_sub_mb, unsigned ref_idx_flags)
 {
 	// initializations for sub_mb_type
-	print_slice(ctx, "sub_mb_types:");
+	log_mb(ctx, "    sub_mb_types: [");
 	mb->mvs_v[0] = mb->mvs_v[1] = mb->mvs_v[2] = (i16x8){}; // values pointed to when A/B/C/D are unavailable
-	mb->inter_eqs_s = 0;
+	mb->f.inter_eqs_s = 0;
 	unsigned mvd_flags = 0;
 	for (int i8x8 = 0; i8x8 < 4; i8x8++) {
 		int i4x4 = i8x8 * 4;
@@ -1436,10 +1446,9 @@ static void CAFUNC(parse_P_sub_mb, unsigned ref_idx_flags)
 				flags = 15, eqs = 0;
 		}
 		mvd_flags |= flags << i4x4;
-		mb->inter_eqs[i8x8] = eqs;
-		print_slice(ctx, (flags == 1) ? " 0" : (flags == 5) ? " 1" : (flags == 3) ? " 2" : " 3");
+		mb->f.inter_eqs[i8x8] = eqs;
+		log_mb(ctx, (i8x8 < 3) ? "%u," : "%u]\n", 0xc0000480 >> flags * 2 & 3);
 	}
-	print_slice(ctx, "\n");
 	CACALL(parse_ref_idx, ref_idx_flags);
 	
 	// load neighbouring refIdx values and shuffle them into A/B/C/D
@@ -1455,11 +1464,12 @@ static void CAFUNC(parse_P_sub_mb, unsigned ref_idx_flags)
 	
 	// combine them into a vector of 4-bit equality masks
 	union { int8_t q[16]; i8x16 v; } refIdx4x4_eq;
-	i8x16 u = ctx->unavail4x4_v;
+	i8x16 u = ctx->unavail4x4_v[0];
 	i8x16 uC = u & 4;
 	refIdx4x4_eq.v = (uC - ifelse_mask(uC==4, r0==D0, r0==C0) * 2 - (r0==B0)) * 2 - (r0==A0 | u==14);
 	
 	// loop on mvs
+	log_mb(ctx, "    mvds: [");
 	do {
 		int i = __builtin_ctz(mvd_flags);
 		i16x8 mvd = CACALL(parse_mvd_pair, mb->absMvd, i);
@@ -1495,6 +1505,7 @@ static void CAFUNC(parse_P_sub_mb, unsigned ref_idx_flags)
 		mb->mvs_v[i8x8] = ifelse_mask(mvs_mask, mvs, mb->mvs_v[i8x8]);
 		decode_inter(ctx, i, widths[type], heights[type]);
 	} while (mvd_flags &= mvd_flags - 1);
+	log_mb(ctx, "]\n");
 	CAJUMP(parse_inter_residual);
 }
 
@@ -1525,7 +1536,7 @@ static void CAFUNC(parse_P_sub_mb, unsigned ref_idx_flags)
 static inline void CAFUNC(parse_P_mb)
 {
 	// Inter initializations
-	mb->f.mbIsInterFlag = 1;
+	mb->mbIsInterFlag = 1;
 	mb->Intra4x4PredMode_v = (i8x16){2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2};
 	mb->refIdx_l = (int64_t)(i8x8){0, 0, 0, 0, -1, -1, -1, -1};
 	#if CABAC
@@ -1536,12 +1547,12 @@ static inline void CAFUNC(parse_P_mb)
 	#if !CABAC
 		if (ctx->mb_skip_run < 0) {
 			ctx->mb_skip_run = get_ue32(&ctx->t._gb, 139264);
-			print_slice(ctx, "mb_skip_run: %u\n", ctx->mb_skip_run);
+			log_mb(ctx, "    mb_skip_run: %u\n", ctx->mb_skip_run);
 		}
 		int mb_skip_flag = ctx->mb_skip_run-- > 0;
 	#else
 		int mb_skip_flag = get_ae(ctx, 13 - ctx->inc.mb_skip_flag);
-		print_slice(ctx, "mb_skip_flag: %x\n", mb_skip_flag);
+		log_mb(ctx, "    mb_skip_flag: %u\n", mb_skip_flag);
 	#endif
 	
 	// earliest handling for P_Skip
@@ -1550,35 +1561,7 @@ static inline void CAFUNC(parse_P_mb)
 			mb->f.mb_skip_flag = 1;
 			ctx->mb_qp_delta_nz = 0;
 		#endif
-		mb->inter_eqs_s = little_endian32(0x1b5fbbff);
-		i8x16 refIdx_v = (i64x2){mb->refIdx_l};
-		mb->refPic_l = ((i64x2)(shuffle(ctx->t.RefPicList_v[0], refIdx_v) | refIdx_v))[0];
-		int refIdxA = mbA->refIdx[1];
-		int refIdxB = mbB->refIdx[2];
-		int mvA = mbA->mvs_s[5];
-		int mvB = mbB->mvs_s[10];
-		i16x8 mv = {};
-		if ((refIdxA | mvA) && (refIdxB | mvB) && !(ctx->unavail4x4[0] & 3)) {
-			int refIdxC;
-			if (__builtin_expect(ctx->unavail4x4[5] & 4, 0)) {
-				refIdxC = mbD->refIdx[3];
-				mv = (i32x4){mbD->mvs_s[15]};
-			} else {
-				refIdxC = mbC->refIdx[2];
-				mv = (i32x4){mbC->mvs_s[10]};
-			}
-			// B/C unavailability (->A) was ruled out, thus not tested here
-			int eq = !refIdxA + !refIdxB * 2 + !refIdxC * 4;
-			if (__builtin_expect(0xe9 >> eq & 1, 1)) {
-				mv = median16((i32x4){mvA}, (i32x4){mvB}, mv);
-			} else if (eq != 4) {
-				mv = (i32x4){(eq == 1) ? mvA : mvB};
-			}
-		}
-		i16x8 mvs = broadcast32(mv, 0);
-		mb->mvs_v[0] = mb->mvs_v[1] = mb->mvs_v[2] = mb->mvs_v[3] = mvs;
-		mb->mvs_v[4] = mb->mvs_v[5] = mb->mvs_v[6] = mb->mvs_v[7] = (i16x8){};
-		decode_inter(ctx, 0, 16, 16);
+		decode_P_skip(ctx);
 		return;
 	}
 	ctx->transform_8x8_mode_flag = ctx->t.pps.transform_8x8_mode_flag;
@@ -1586,10 +1569,9 @@ static inline void CAFUNC(parse_P_mb)
 	// initializations and jumps for mb_type
 	#if !CABAC
 		int mb_type = get_ue16(&ctx->t._gb, 30);
-		print_slice(ctx, "mb_type: %u\n", mb_type);
-		if (mb_type > 4) {
+		log_mb(ctx, "    mb_type: %u\n", mb_type);
+		if (mb_type > 4)
 			CAJUMP(parse_I_mb, mb_type - 5);
-		}
 		mb->mvs_v[4] = mb->mvs_v[5] = mb->mvs_v[6] = mb->mvs_v[7] = (i16x8){};
 		if (mb_type > 2)
 			CAJUMP(parse_P_sub_mb, (mb_type + 12) & 15); // 3->15, 4->0
@@ -1600,7 +1582,7 @@ static inline void CAFUNC(parse_P_mb)
 		}
 		int mb_type = get_ae(ctx, 15); // actually 1 and 3 are swapped
 		mb_type += mb_type + get_ae(ctx, 16 + mb_type);
-		print_slice(ctx, "mb_type: %u\n", (4 - mb_type) & 3);
+		log_mb(ctx, "    mb_type: %u\n", (4 - mb_type) & 3);
 		mb->mvs_v[4] = mb->mvs_v[5] = mb->mvs_v[6] = mb->mvs_v[7] = (i16x8){};
 		if (mb_type == 1)
 			CAJUMP(parse_P_sub_mb, 15);
@@ -1608,23 +1590,25 @@ static inline void CAFUNC(parse_P_mb)
 	#endif
 	
 	// decoding large blocks
+	log_mb(ctx, "    mvds: [");
 	if (mb_type == 0) { // 16x16
-		mb->inter_eqs_s = little_endian32(0x1b5fbbff);
+		mb->f.inter_eqs_s = little_endian32(0x1b5fbbff);
 		i16x8 mvd = CACALL(parse_mvd_pair, mb->absMvd, 0);
 		decode_inter_16x16(ctx, mvd, 0);
 	} else if (mb_type == 2) { // 8x16
-		mb->inter_eqs_s = little_endian32(0x1b1bbbbb);
+		mb->f.inter_eqs_s = little_endian32(0x1b1bbbbb);
 		i16x8 mvd0 = CACALL(parse_mvd_pair, mb->absMvd, 0);
 		decode_inter_8x16_left(ctx, mvd0, 0);
 		i16x8 mvd1 = CACALL(parse_mvd_pair, mb->absMvd, 4);
 		decode_inter_8x16_right(ctx, mvd1, 0);
 	} else { // 16x8
-		mb->inter_eqs_s = little_endian32(0x1b5f1b5f);
+		mb->f.inter_eqs_s = little_endian32(0x1b5f1b5f);
 		i16x8 mvd0 = CACALL(parse_mvd_pair, mb->absMvd, 0);
 		decode_inter_16x8_top(ctx, mvd0, 0);
 		i16x8 mvd1 = CACALL(parse_mvd_pair, mb->absMvd, 8);
 		decode_inter_16x8_bottom(ctx, mvd1, 0);
 	}
+	log_mb(ctx, "]\n");
 	CAJUMP(parse_inter_residual);
 }
 
@@ -1657,7 +1641,19 @@ static void CAFUNC(parse_slice_data)
 	
 	int end_of_slice_flag = 0;
 	do {
-		print_slice(ctx, "********** POC=%u MB=%u **********\n", ctx->PicOrderCnt, ctx->CurrMbAddr);
+		#ifdef LOGS
+			ctx->log_pos = snprintf(ctx->log_buf, sizeof(ctx->log_buf),
+				"  - mbAddr: %u\n", ctx->CurrMbAddr);
+			if (ctx->n_threads)
+				log_mb(ctx, "    FrameId: %u\n"
+					"    slice_type: %c (%u)\n",
+					ctx->FrameId, "PBI"[ctx->t.slice_type], ctx->t.slice_type);
+		#endif
+		
+		// update flip_bit atomically to signal mb is a priori decoded, otherwise end the slice
+		int prev_recovery_bits = __atomic_exchange_n(&mb->recovery_bits, ctx->t.frame_flip_bit, __ATOMIC_ACQ_REL);
+		if (prev_recovery_bits == ctx->t.frame_flip_bit)
+			return;
 		
 		// set and reset neighbouring pointers depending on their availability
 		int unavail16x16 = (ctx->mbx == 0 ? 9 : 0) | (ctx->mbx == ctx->t.pic_width_in_mbs - 1) << 2 | (ctx->mby == 0 ? 14 : 0);
@@ -1752,13 +1748,14 @@ static void CAFUNC(parse_slice_data)
 		}
 		
 		// initialize common macroblock values
-		ctx->unavail4x4_v = block_unavailability[unavail16x16];
+		ctx->unavail4x4_v[0] = block_unavailability[unavail16x16];
 		ctx->inc.v = fA + fB + (fB & flags_twice.v);
 		mb->f.v = (i8x16){};
 		if (ctx->t.disable_deblocking_filter_idc != 1)
-			mb->f.filter_edges = filter_edges;
+			mb->filter_edges = filter_edges;
 		mb->QP_s = ctx->t.QP_s;
 		if (ctx->t.ChromaArrayType == 1) { // FIXME 4:2:2
+			ctx->unavail4x4_v[1] = shuffle(ctx->unavail4x4_v[0], (i8x16){0, 4, 8, 12, 0, 4, 8, 12, -1, -1, -1, -1, -1, -1, -1, -1});
 			mb->bits_l = (bitsA >> 3 & 0x11111100111111) | (bitsB >> 1 & 0x42424200424242);
 		}
 		mb->nC_v[0] = mb->nC_v[1] = mb->nC_v[2] = (i8x16){};
@@ -1771,14 +1768,15 @@ static void CAFUNC(parse_slice_data)
 		} else {
 			int mb_type_or_ctxIdx = CACOND(get_ue16(&ctx->t._gb, 25), 5 - ctx->inc.mb_type_I_NxN);
 			#if !CABAC
-				print_slice(ctx, "mb_type: %u\n", mb_type_or_ctxIdx);
+				log_mb(ctx, "    mb_type: %u\n", mb_type_or_ctxIdx);
 			#endif
 			CACALL(parse_I_mb, mb_type_or_ctxIdx);
 		}
 		#if CABAC
 			end_of_slice_flag = cabac_terminate(ctx);
-			print_slice(ctx, "end_of_slice_flag: %x\n", end_of_slice_flag);
+			log_mb(ctx, "    end_of_slice_flag: %u\n", end_of_slice_flag);
 		#endif
+		print_mb(ctx);
 		
 		// deblock mbB while in cache, then point to the next macroblock
 		if (ctx->CurrMbAddr - ctx->t.pic_width_in_mbs == ctx->t.next_deblock_addr) {
@@ -1810,16 +1808,16 @@ static void CAFUNC(parse_slice_data)
 			ctx->samples_mb[1] += ctx->t.stride[1] * 8 - ctx->t.pic_width_in_mbs * 8; // FIXME 4:2:2
 			ctx->samples_mb[2] += ctx->t.stride[1] * 8 - ctx->t.pic_width_in_mbs * 8;
 			if (ctx->t.next_deblock_idc >= 0) {
-				__atomic_thread_fence(__ATOMIC_SEQ_CST); // ensures the next line implies the frame was deblocked up to next_deblock_addr
-				ctx->d->next_deblock_addr[ctx->t.next_deblock_idc] =
-					(ctx->t.disable_deblocking_filter_idc != 1) ? ctx->t.next_deblock_addr : ctx->CurrMbAddr;
+				__atomic_store_n(&ctx->d->next_deblock_addr[ctx->t.next_deblock_idc],
+					(ctx->t.disable_deblocking_filter_idc != 1) ? ctx->t.next_deblock_addr : ctx->CurrMbAddr,
+					__ATOMIC_RELEASE);
 				// not locking mutex here is fine since the last progress broadcast will lock it
 				pthread_cond_broadcast(&ctx->d->task_progress);
 			}
 			if (ctx->mby >= ctx->t.pic_height_in_mbs)
-				break;
+				return;
 		}
-	} while (CACOND(ctx->mb_skip_run > 0 || ctx->t._gb.msb_cache != (size_t)1 << (SIZE_BIT - 1) || (ctx->t._gb.lsb_cache & (ctx->t._gb.lsb_cache - 1)) || (intptr_t)(ctx->t._gb.end - ctx->t._gb.CPB) > 0, !end_of_slice_flag));
+	} while (CACOND(ctx->mb_skip_run > 0 || ctx->t._gb.msb_cache << 1 || (ctx->t._gb.lsb_cache & (ctx->t._gb.lsb_cache - 1)) || (intptr_t)(ctx->t._gb.end - ctx->t._gb.CPB) > 0, !end_of_slice_flag));
 }
 
 #undef CABAC

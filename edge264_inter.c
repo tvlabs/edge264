@@ -215,7 +215,7 @@ enum {
 static void decode_inter_luma(int mode, int h, size_t sstride, const uint8_t * restrict src2, size_t dstride, uint8_t * restrict dst, i8x16 wod) {
 	i16x8 o = broadcast16(wod, 3);
 	i8x16 w8 = broadcast16(wod, 0); // for SSE
-	i8x16 w16 = cvtlo8u16(wod); // for NEON
+	i8x16 w16 = cvtlo8s16(wod); // for NEON
 	i16x8 wd64 = shr128(shl128(wod, 2), 14); // for SSE
 	i16x8 wd16 = -broadcast16(wod, 6); // for NEON
 	i8x16 m0 = set8(-(0xd888 >> (mode & 15) & 1));
@@ -911,8 +911,8 @@ static void decode_inter_luma(int mode, int h, size_t sstride, const uint8_t * r
 	}
 #elif defined(__ARM_NEON)
 	static void decode_inter_chroma(int w, int h, size_t dstride, uint8_t *dst, size_t sstride, const uint8_t *src, i8x16 ABCD, i8x16 wod) {
-		i8x16 w16 = cvtlo8u16(wod);
-		i16x8 wd16 = broadcast16(wod, 7);
+		i16x8 w16 = vmovl_s8(vget_low_s8(wod));
+		i16x8 wd16 = -broadcast16(wod, 7);
 		i8x16 A = broadcast8(ABCD, 0);
 		i8x16 B = broadcast8(ABCD, 1);
 		i8x16 C = broadcast8(ABCD, 2);
@@ -1036,7 +1036,7 @@ static void noinline decode_inter(Edge264Context *ctx, int i, int w, int h) {
 	int i8x8 = i >> 2;
 	int i4x4 = i & 15;
 	const uint8_t *ref = ctx->t.frame_buffers[mb->refPic[i8x8]];
-	//printf("<tr><td colspan=2>CurrMbAddr=%d, i=%d, w=%d, h=%d, x=%d, y=%d, idx=%d, pic=%d</td></tr>\n", ctx->CurrMbAddr, i, w, h, x, y, mb->refIdx[i8x8], mb->refPic[i8x8]);
+	// print_header(ctx->d, "<k></k><v>CurrMbAddr=%d, i=%d, w=%d, h=%d, x=%d, y=%d, idx=%d, pic=%d</v>\n", ctx->CurrMbAddr, i, w, h, x, y, mb->refIdx[i8x8], mb->refPic[i8x8]);
 	
 	// prediction weights {wY, wCb, wCr, oY, oCb, oCr, logWD_Y, logWD_C}
 	i16x8 wod = {pack_w(0, 1), pack_w(0, 1), pack_w(0, 1), 0, 0, 0, 0, 0}; // no_weight

@@ -22,6 +22,43 @@ static always_inline i16x8 mvs_near_zero(i16x8 mvCol, i32x4 zero) {
 
 
 /**
+ * Decoding of P_Skip is put in a function for reuse when recovering a P slice.
+ */
+static noinline void decode_P_skip(Edge264Context *ctx) {
+	mb->f.inter_eqs_s = little_endian32(0x1b5fbbff);
+	mb->refPic_s[0] = ((i32x4)set8(ctx->t.RefPicList_v[0][0]))[0];
+	mb->refPic_s[1] = -1;
+	int refIdxA = mbA->refIdx[1];
+	int refIdxB = mbB->refIdx[2];
+	int mvA = mbA->mvs_s[5];
+	int mvB = mbB->mvs_s[10];
+	i16x8 mv = {};
+	if ((refIdxA | mvA) && (refIdxB | mvB) && !(ctx->unavail4x4[0] & 3)) {
+		int refIdxC;
+		if (__builtin_expect(ctx->unavail4x4[5] & 4, 0)) {
+			refIdxC = mbD->refIdx[3];
+			mv = (i32x4){mbD->mvs_s[15]};
+		} else {
+			refIdxC = mbC->refIdx[2];
+			mv = (i32x4){mbC->mvs_s[10]};
+		}
+		// B/C unavailability (->A) was ruled out, thus not tested here
+		int eq = !refIdxA + !refIdxB * 2 + !refIdxC * 4;
+		if (__builtin_expect(0xe9 >> eq & 1, 1)) {
+			mv = median16((i32x4){mvA}, (i32x4){mvB}, mv);
+		} else if (eq != 4) {
+			mv = (i32x4){(eq == 1) ? mvA : mvB};
+		}
+	}
+	i16x8 mvs = broadcast32(mv, 0);
+	mb->mvs_v[0] = mb->mvs_v[1] = mb->mvs_v[2] = mb->mvs_v[3] = mvs;
+	mb->mvs_v[4] = mb->mvs_v[5] = mb->mvs_v[6] = mb->mvs_v[7] = (i16x8){};
+	decode_inter(ctx, 0, 16, 16);
+}
+
+
+
+/**
  * These functions are designed to optimize the parsing of motion vectors for
  * block sizes 16x16, 8x16 and 16x8. Each call computes a prediction from
  * neighbours, adds the mvd pair, then ends with a call to decode_inter.
@@ -372,7 +409,7 @@ static always_inline void decode_direct_spatial_mv_pred(Edge264Context *ctx, uns
 				inter_eqs |= (uint64_t)eqs[type] << i * 2;
 				decode_inter(ctx, i, widths[type], heights[type]);
 			} while (mvd_flags);
-			mb->inter_eqs_s |= little_endian32(inter_eqs & inter_eqs >> 32);
+			mb->f.inter_eqs_s |= little_endian32(inter_eqs & inter_eqs >> 32);
 			return;
 		}
 	}
@@ -381,7 +418,7 @@ static always_inline void decode_direct_spatial_mv_pred(Edge264Context *ctx, uns
 	mb->refIdx_l = ((i64x2)refIdx)[0];
 	mb->mvs_v[0] = mb->mvs_v[1] = mb->mvs_v[2] = mb->mvs_v[3] = mvs0;
 	mb->mvs_v[4] = mb->mvs_v[5] = mb->mvs_v[6] = mb->mvs_v[7] = mvs4;
-	mb->inter_eqs_s = little_endian32(0x1b5fbbff);
+	mb->f.inter_eqs_s = little_endian32(0x1b5fbbff);
 	if (refIdx[0] >= 0)
 		decode_inter(ctx, 0, 16, 16);
 	if (refIdx[4] >= 0)
@@ -399,7 +436,7 @@ static always_inline void decode_direct_temporal_mv_pred(Edge264Context *ctx, un
 	i16x8 mvCol2 = *(i16x8*)(mbCol->mvs + offsets[2] + 16);
 	i16x8 mvCol3 = *(i16x8*)(mbCol->mvs + offsets[3] + 24);
 	i8x16 refPicCol = ifelse_msb(refPicColL0, (i32x4){mbCol->refPic_s[1]}, refPicColL0);
-	unsigned inter_eqs = little_endian32(mbCol->inter_eqs_s);
+	unsigned inter_eqs = little_endian32(mbCol->f.inter_eqs_s);
 	if (ctx->t.direct_8x8_inference_flag) {
 		mvCol0 = broadcast32(mvCol0, 0);
 		mvCol1 = broadcast32(mvCol1, 1);
@@ -446,7 +483,7 @@ static always_inline void decode_direct_temporal_mv_pred(Edge264Context *ctx, un
 	}
 	
 	// execute decode_inter for the positions given in the mask
-	mb->inter_eqs_s |= little_endian32(inter_eqs);
+	mb->f.inter_eqs_s |= little_endian32(inter_eqs);
 	direct_flags &= 0xffff;
 	do {
 		static uint16_t masks[16] = {0x1, 0x3, 0x5, 0xf, 0x1, 0x33, 0x5, 0xff, 0x1, 0x3, 0x0505, 0x0f0f, 0x1, 0x33, 0x0505, 0xffff};

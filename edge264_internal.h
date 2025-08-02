@@ -57,13 +57,24 @@ typedef struct {
 
 
 /**
+ * Although we waste some space by storing some neighbouring values for more
+ * than their lifespans, packing everything in a single structure is arguably
+ * the simplest to maintain. Neighbouring values from the same or a different
+ * macroblock are obtained with memory offsets precomputed in ctx. With this
+ * technique we spare the use of intermediate caches thus reduce memory writes.
+ * 
  * In 9.3.3.1.1, ctxIdxInc is always the result of flagA+flagB or flagA+2*flagB,
- * so we pack macroblock flags together to allow adding them in parallel with
- * flagsA + flagsB + (flagsB & twice).
+ * so we use Edge264MbFlags to pack flags together to allow adding them in
+ * parallel with flagsA + flagsB + (flagsB & twice).
+ * 
+ * CABAC bit values of 8x8 blocks are stored in compact 8-bit patterns that
+ * allow retrieving A+B*2 efficiently:
+ *   1 6
+ * 0|5 3
+ * 4|2 7
  */
 typedef union {
 	struct {
-		int8_t filter_edges; // 2 bits to enable deblocking of A/B edges
 		int8_t mb_field_decoding_flag;
 		int8_t mb_skip_flag;
 		int8_t mb_type_I_NxN;
@@ -72,41 +83,28 @@ typedef union {
 		int8_t intra_chroma_pred_mode_non_zero;
 		int8_t CodedBlockPatternChromaDC;
 		int8_t CodedBlockPatternChromaAC;
-		int8_t mbIsInterFlag;
 		union { int8_t coded_block_flags_16x16[3]; int32_t coded_block_flags_16x16_s; };
+		union { uint8_t inter_eqs[4]; uint32_t inter_eqs_s; }; // 2 flags per 4x4 block storing right/bottom equality of mvs&ref, not part of ctxIdxInc but packed here to save space
 	};
 	i8x16 v;
-} Edge264Flags;
-static const Edge264Flags flags_twice = {
+} Edge264MbFlags;
+static const Edge264MbFlags flags_twice = {
 	.CodedBlockPatternChromaDC = 1,
 	.CodedBlockPatternChromaAC = 1,
 	.coded_block_flags_16x16 = {1, 1, 1},
 };
-
-
-
-/**
- * Although we waste some space by storing some neighbouring values for more
- * than their lifespans, packing everything in a single structure is arguably
- * the simplest to maintain. Neighbouring values from the same or a different
- * macroblock are obtained with memory offsets precomputed in ctx. With this
- * technique we spare the use of intermediate caches thus reduce memory writes.
- * 
- * CABAC bit values of 8x8 blocks are stored in compact 8-bit patterns that
- * allow retrieving A+B*2 efficiently:
- *   1 6
- * 0|5 3
- * 4|2 7
- */
 typedef struct {
-	Edge264Flags f;
-	union { uint8_t inter_eqs[4]; uint32_t inter_eqs_s; }; // 2 flags per 4x4 block storing right/bottom equality of mvs&ref, in little endian
+	int8_t error_probability; // 0..100
+	int8_t recovery_bits; // bit 0 is flipped for each new frame, bit 1 signals error
+	int8_t mbIsInterFlag;
+	int8_t filter_edges; // bits 0-1 enable deblocking of A/B edges, bit 2 signals that deblocking is pending
 	union { uint8_t QP[3]; i8x4 QP_s; }; // [iYCbCr]
 	union { uint32_t bits[2]; uint64_t bits_l; }; // {cbp/ref_idx_nz, cbf_Y/Cb/Cr 8x8}
-	union { int8_t nC[3][16]; int32_t nC_s[3][4]; int64_t nC_l[6]; i8x16 nC_v[3]; }; // for CAVLC and deblocking, 64 if unavailable
-	union { int8_t Intra4x4PredMode[16]; i8x16 Intra4x4PredMode_v; }; // [i4x4]
 	union { int8_t refIdx[8]; int32_t refIdx_s[2]; int64_t refIdx_l; }; // [LX][i8x8]
 	union { int8_t refPic[8]; int32_t refPic_s[2]; int64_t refPic_l; }; // [LX][i8x8]
+	Edge264MbFlags f;
+	union { int8_t Intra4x4PredMode[16]; i8x16 Intra4x4PredMode_v; }; // [i4x4]
+	union { int8_t nC[48]; int32_t nC_s[12]; int64_t nC_l[6]; i8x16 nC_v[3]; }; // for CAVLC and deblocking, 64 if unavailable
 	union { uint8_t absMvd[64]; uint64_t absMvd_l[8]; i8x16 absMvd_v[4]; }; // [LX][i4x4][compIdx]
 	union { int16_t mvs[64]; int32_t mvs_s[32]; int64_t mvs_l[16]; i16x8 mvs_v[8]; }; // [LX][i4x4][compIdx]
 } Edge264Macroblock;
@@ -127,17 +125,15 @@ static Edge264Macroblock unavail_mb = {
  * trailing_bits are detected.
  */
 typedef struct {
-	// The first 8 bytes uniquely determine the frame buffer size and format.
-	union {
+	union { // The first 8 bytes uniquely determine the frame buffer size and format.
 		struct {
 			int8_t chroma_format_idc; // 0..3
 			int8_t BitDepth_Y; // 8..14
 			int8_t BitDepth_C;
-			int8_t max_num_ref_frames; // 0..16
 			uint16_t pic_width_in_mbs; // 1..1023
 			int16_t pic_height_in_mbs; // 1..1055
 		};
-		int64_t DPB_format;
+		int64_t DPB_format; // non-zero if SPS has been initialized
 	};
 	int8_t ChromaArrayType; // 0..3
 	int8_t qpprime_y_zero_transform_bypass_flag; // 0..1
@@ -146,14 +142,23 @@ typedef struct {
 	int8_t log2_max_pic_order_cnt_lsb; // 4..16, pic_order_cnt_type==0
 	int8_t delta_pic_order_always_zero_flag; // 0..1, pic_order_cnt_type==1
 	uint8_t num_ref_frames_in_pic_order_cnt_cycle; // 0..255, pic_order_cnt_type==1
+	int8_t max_num_ref_frames; // 0..16
 	int8_t frame_mbs_only_flag; // 0..1
 	int8_t mb_adaptive_frame_field_flag; // 0..1
 	int8_t direct_8x8_inference_flag; // 0..1
 	int8_t num_frame_buffers; // 1..18
 	int8_t max_num_reorder_frames; // 0..17
-	int8_t mvc; // 0..1
+	int8_t nal_hrd_cpb_cnt; // 1..32
+	int8_t vcl_hrd_cpb_cnt; // 1..32
+	int8_t initial_cpb_removal_delay_length; // 1..32
+	int8_t cpb_removal_delay_length; // 1..32
+	int8_t dpb_output_delay_length; // 1..32
+	int8_t time_offset_length; // 0..31
+	int8_t pic_struct_present_flag; // 0..1
 	int16_t offset_for_non_ref_pic; // -32768..32767, pic_order_cnt_type==1
 	int16_t offset_for_top_to_bottom_field; // -32768..32767, pic_order_cnt_type==1
+	uint32_t num_units_in_tick; // 1..2^32-1
+	uint32_t time_scale; // 1..2^32-1
 	int16_t PicOrderCntDeltas[256]; // -32768..32767, pic_order_cnt_type==1
 	union { int16_t frame_crop_offsets[4]; int64_t frame_crop_offsets_l; }; // {top,right,bottom,left}
 	union { uint8_t weightScale4x4[6][16]; i8x16 weightScale4x4_v[6]; };
@@ -162,7 +167,7 @@ typedef struct {
 typedef struct {
 	int8_t entropy_coding_mode_flag; // 0..1
 	int8_t bottom_field_pic_order_in_frame_present_flag; // 0..1
-	int8_t num_ref_idx_active[2]; // 0..32
+	int8_t num_ref_idx_active[2]; // 1..32, non-zero if PPS has been initialized
 	int8_t weighted_pred_flag; // 0..1
 	int8_t weighted_bipred_idc; // 0..2
 	int8_t QPprime_Y; // 0..87
@@ -170,6 +175,7 @@ typedef struct {
 	int8_t deblocking_filter_control_present_flag; // 0..1
 	int8_t constrained_intra_pred_flag; // 0..1
 	int8_t transform_8x8_mode_flag; // 0..1
+	int8_t pic_scaling_matrix_present_flag; // 0..1
 	int8_t second_chroma_qp_index_offset; // -12..12
 	union { uint8_t weightScale4x4[6][16]; i8x16 weightScale4x4_v[6]; };
 	union { uint8_t weightScale8x8[6][64]; i8x16 weightScale8x8_v[6*4]; };
@@ -197,6 +203,7 @@ typedef struct {
 	int8_t direct_8x8_inference_flag; // 0..1
 	int8_t cabac_init_idc; // 0..3
 	int8_t next_deblock_idc; // -1..31, -1 if next_deblock_addr is not written back to dec, currPic otherwise
+	int8_t frame_flip_bit; // 0..1
 	int16_t pic_width_in_mbs; // 0..1023
 	int16_t pic_height_in_mbs; // 0..1055
 	uint16_t stride[3]; // 0..65472 (at max width, 16bit & field pic), [iYCbCr]
@@ -208,8 +215,8 @@ typedef struct {
 	union { int8_t QP[3]; i8x4 QP_s; }; // same as mb
 	uint8_t *samples_base;
 	uint8_t *frame_buffers[32];
-   void (*free_cb)(void *free_arg, int ret); // copy from decode_NAL
-   void *free_arg; // copy from decode_NAL
+	void (*free_cb)(void *free_arg, int ret); // copy from decode_NAL
+	void *free_arg; // copy from decode_NAL
 	union { uint16_t samples_clip[3][8]; i16x8 samples_clip_v[3]; }; // [iYCbCr], maximum sample value
 	union { int8_t RefPicList[2][32]; int64_t RefPicList_l[8]; i8x16 RefPicList_v[4]; };
 	union { int16_t diff_poc[32]; i16x8 diff_poc_v[4]; };
@@ -232,7 +239,7 @@ typedef struct Edge264Context {
 	int16_t mbx;
 	int16_t mby;
 	int32_t CurrMbAddr;
-	int32_t PicOrderCnt;
+	uint32_t FrameId;
 	int32_t mb_skip_run;
 	uint8_t *samples_mb[3]; // address of top-left byte of each plane in current macroblock
 	Edge264Macroblock * _mb; // backup storage for macro mb
@@ -242,9 +249,8 @@ typedef struct Edge264Context {
 	const Edge264Macroblock * _mbD; // backup storage for macro mbD
 	const Edge264Macroblock *mbCol;
 	Edge264Decoder *d;
-	FILE *trace_slices;
-	Edge264Flags inc; // increments for CABAC indices of macroblock syntax elements
-	union { int8_t unavail4x4[16]; i8x16 unavail4x4_v; }; // unavailability of neighbouring A/B/C/D blocks
+	Edge264MbFlags inc; // increments for CABAC indices of macroblock syntax elements
+	union { int8_t unavail4x4[48]; i8x16 unavail4x4_v[3]; }; // unavailability of neighbouring A/B/C/D blocks
 	union { int8_t nC_inc[3][16]; i8x16 nC_inc_v[3]; }; // stores the intra/inter default increment from unavailable neighbours (9.3.3.1.1.9)
 	union { uint8_t cabac[1024]; i8x16 cabac_v[64]; };
 	
@@ -283,6 +289,12 @@ typedef struct Edge264Context {
 	union { uint8_t alpha[16]; int32_t alpha_s[4]; i8x16 alpha_v; }; // {internal_Y,internal_Cb,internal_Cr,0,0,0,0,0,left_Y,left_Cb,left_Cr,0,top_Y,top_Cb,top_Cr,0}
 	union { uint8_t beta[16]; int32_t beta_s[4]; i8x16 beta_v; };
 	union { int32_t tC0_s[16]; int64_t tC0_l[8]; i8x16 tC0_v[4]; i8x32 tC0_V[2]; }; // 4 bytes per edge in deblocking order -> 8 luma edges then 8 alternating Cb/Cr edges
+	
+	// Logging context (unused if disabled)
+	void (*log_cb)(const char*, void*);
+	void *log_arg;
+	int16_t log_pos; // next writing position in log_buf
+	char log_buf[4096];
 } Edge264Context;
 #define mb ctx->_mb
 #define mbA ctx->_mbA
@@ -303,26 +315,30 @@ typedef struct Edge264Decoder {
 	int8_t nal_unit_type; // 5 significant bits
 	int8_t IdrPicFlag; // 1 significant bit
 	int8_t currPic; // index of current incomplete frame, or -1
-	int8_t basePic; // index of last MVC base view, or -1
+	int8_t prevPic; // index of last completed frame, may possibly equal currPic
+	int8_t hH; // last decoded timestamp hours, 0..23
+	int8_t mM; // last decoded timestamp minutes, 0..59
+	int8_t sS; // last decoded timestamp seconds, 0..59
 	int32_t plane_size_Y;
 	int32_t plane_size_C;
 	int32_t frame_size;
 	int32_t FrameNum; // value for the current incomplete frame, unaffected by mmco5
-	int32_t prevRefFrameNum[2];
-	int32_t TopFieldOrderCnt; // same
+	int32_t idr_pic_id; // value for the last slice, used for detecting new frames
+	int32_t TopFieldOrderCnt; // value for the current incomplete frame, unaffected by mmco5
 	int32_t BottomFieldOrderCnt;
 	int32_t prevPicOrderCnt;
 	int32_t dispPicOrderCnt; // all POCs lower or equal than this are ready for output
-	int32_t FrameNums[32];
 	uint32_t reference_flags; // bitfield for indices of reference frames/views
 	uint32_t long_term_flags; // bitfield for indices of long-term frames/views
 	uint32_t output_flags; // bitfield for frames waiting to be output
 	uint32_t borrow_flags; // bitfield for frames that are owned by the caller after get_frame and not yet returned
+	uint32_t frame_flip_bits; // target values for bit 0 of mb->recovery_bits in each frame
 	uint32_t pic_reference_flags; // to be applied after decoding all slices of the current picture
 	uint32_t pic_long_term_flags; // to be applied after decoding all slices of the current picture
-	int64_t DPB_format; // should match format in SPS otherwise triggers resize
-	FILE *trace_headers;
-	FILE *trace_slices;
+	uint32_t second_views; // bitfield for frames that are non-base views in MVC
+	int32_t FrameNums[32]; // signed to be used along FieldOrderCnt in initial reference ordering
+	uint32_t FrameIds[32]; // unique identifiers for each frame, incremented in decoding order
+	void *(*worker_loop)(Edge264Decoder *);
 	uint8_t *frame_buffers[32];
 	Parser parse_nal_unit[32];
 	union { int8_t LongTermFrameIdx[32]; i8x16 LongTermFrameIdx_v[2]; };
@@ -330,6 +346,7 @@ typedef struct Edge264Decoder {
 	union { int32_t FieldOrderCnt[2][32]; i32x4 FieldOrderCnt_v[2][8]; }; // lower/higher half for top/bottom fields
 	Edge264Frame out;
 	Edge264SeqParameterSet sps;
+	Edge264SeqParameterSet ssps;
 	Edge264PicParameterSet PPS[4];
 	pthread_t threads[16];
 	
@@ -346,6 +363,12 @@ typedef struct Edge264Decoder {
 	volatile union { uint32_t task_dependencies[16]; i32x4 task_dependencies_v[4]; }; // frames on which each task depends to start
 	union { int8_t taskPics[16]; i8x16 taskPics_v; }; // values of currPic for each task
 	Edge264Task tasks[16];
+	
+	// Logging context (unused if disabled)
+	void (*log_cb)(const char*, void*);
+	void *log_arg;
+	int16_t log_pos; // next writing position in log_buf
+	char log_buf[9538];
 } Edge264Decoder;
 
 
@@ -362,24 +385,20 @@ typedef struct Edge264Decoder {
 	#define big_endian64(x) (x)
 #endif
 
-#if UINT_MAX == 4294967295U && ULLONG_MAX == 18446744073709551615U
-	#define clz32 __builtin_clz
-	#define ctz32 __builtin_ctz
-	#define clz64 __builtin_clzll
-	#define ctz64 __builtin_ctzll
-	#ifndef WORD_BIT
-		#define WORD_BIT 32
-	#endif
+#if UINT_MAX != 4294967295U || ULLONG_MAX != 18446744073709551615U
+	#error "edge264 currently expects 32-bit int and 64-bit long long"
 #endif
-
+#ifndef WORD_BIT
+	#define WORD_BIT 32
+#endif
 #if SIZE_MAX == 4294967295U
 	#define SIZE_BIT 32
-	#define clz clz32
-	#define ctz ctz32
+	#define clz __builtin_clz
+	#define ctz __builtin_ctz
 #elif SIZE_MAX == 18446744073709551615U
 	#define SIZE_BIT 64
-	#define clz clz64
-	#define ctz ctz64
+	#define clz __builtin_clzll
+	#define ctz __builtin_ctzll
 #endif
 
 #ifndef noinline
@@ -524,40 +543,62 @@ enum IntraChromaModes {
 
 
 /**
- * Debugging functions
+ * Logging functions
  */
-#ifdef TRACE
-	#define print_header(dec, ...) if (dec->trace_headers) { fprintf(dec->trace_headers, __VA_ARGS__); }
-	#define print_slice(ctx, ...) if (ctx->trace_slices) { fprintf(ctx->trace_slices, __VA_ARGS__); }
-	static always_inline const char *red_if(int cond) { return (cond) ? " style='background-color:#fee'" : ""; }
+#ifdef LOGS
+	#define log_dec(dec, ...) {\
+		if (dec->log_pos < sizeof(dec->log_buf))\
+			dec->log_pos += snprintf(dec->log_buf + dec->log_pos, sizeof(dec->log_buf) - dec->log_pos, __VA_ARGS__);}
+	static inline int print_dec(Edge264Decoder *dec) {
+		int pos = dec->log_pos;
+		dec->log_pos = 0;
+		if (pos >= sizeof(dec->log_buf))
+			return ENOTSUP;
+		dec->log_cb(dec->log_buf, dec->log_arg);
+		return 0;
+	}
+	#define log_mb(ctx, ...) {\
+		if (ctx->log_pos < sizeof(ctx->log_buf))\
+			ctx->log_pos += snprintf(ctx->log_buf + ctx->log_pos, sizeof(ctx->log_buf) - ctx->log_pos, __VA_ARGS__);}
+	static inline int print_mb(Edge264Context *ctx) {
+		int pos = ctx->log_pos;
+		ctx->log_pos = 0;
+		if (pos >= sizeof(ctx->log_buf))
+			return ENOTSUP;
+		ctx->log_cb(ctx->log_buf, ctx->log_arg);
+		return 0;
+	}
 #else
-	#define print_header(...) ((void)0)
-	#define print_slice(...) ((void)0)
+	#define log_dec(...) ((void)0)
+	#define print_dec(...) (0)
+	#define log_mb(...) ((void)0)
+	#define print_mb(...) (0)
 #endif
-#define print_i8x16(a) {\
+static always_inline const char *unsup_if(int cond) { return cond ? " # unsupported" : ""; }
+#define print_i8x16(dec, a) {\
 	i8x16 _v = a;\
-	printf("<k>" #a "</k><v>");\
+	log_dec(dec, "  " #a ":");\
 	for (int _i = 0; _i < 16; _i++)\
-		printf("%4d ", _v[_i]);\
-	printf("</v>\n");}
-#define print_u8x16(a) {\
+		log_dec(dec, " %d", _v[_i]);\
+	log_dec(dec, "\n");}
+#define print_u8x16(dec, a) {\
 	u8x16 _v = a;\
-	printf("<k>" #a "</k><v>");\
+	log_dec(dec, "  " #a ":");\
 	for (int _i = 0; _i < 16; _i++)\
-		printf("%3u ", _v[_i]);\
-	printf("</v>\n");}
-#define print_i16x8(a) {\
+		log_dec(dec, " %3u", _v[_i]);\
+	log_dec(dec, "\n");}
+#define print_i16x8(dec, a) {\
 	i16x8 _v = a;\
-	printf("<k>" #a "</k><v>");\
+	log_dec(dec, "  " #a ":");\
 	for (int _i = 0; _i < 8; _i++)\
-		printf("%6d ", _v[_i]);\
-	printf("</v>\n");}
-#define print_i32x4(a) {\
+		log_dec(dec, " %6d", _v[_i]);\
+	log_dec(dec, "\n");}
+#define print_i32x4(dec, a) {\
 	i32x4 _v = a;\
-	printf("<k>" #a "</k><v>");\
+	log_dec(dec, "  " #a ":");\
 	for (int _i = 0; _i < 4; _i++)\
-		printf("%6d ", _v[_i]);\
-	printf("</v>\n");}
+		log_dec(dec, " %6d", _v[_i]);\
+	log_dec(dec, "\n");}
 
 
 
@@ -589,6 +630,7 @@ enum IntraChromaModes {
  * _ avgu8 - unsigned elementwise average
  * _ broadcastN - copy a N-bit element to all elements
  * _ cvtloNuM - extend the low unsigned N-bit elements to M bits
+ * _ cvtloNsM - extend the low signed N-bit elements to M bits
  * _ cvthiNuM - extend the high unsigned N-bit elements to M bits
  * _ cvtuf32 - convert 32-bit float elements to unsigned integers
  * _ ifelse_mask - select each element from two vectors based on mask elements i a third vector
@@ -597,6 +639,7 @@ enum IntraChromaModes {
  * _ maxN - maximum of signed 16-bit elements
  * _ minu8 - minimum of unsigned 8-bit elements
  * _ maxu8 - maximum of unsigned 8-bit elements
+ * _ minw32 - minimum of unsigned 32-bit elements with wrapping allowed
  * _ movemask - extract all sign bits from 8-bit elements into a 16-bit unsigned value
  * _ packsN - saturate signed N-bit elements to half their size
  * _ packus16 - saturate signed 16-bit elements to unsigned 8-bit elements
@@ -685,22 +728,24 @@ enum IntraChromaModes {
 	static always_inline size_t shld(size_t l, size_t h, int i) {asm("shld %%cl, %1, %0" : "+rm" (h) : "r" (l), "c" (i)); return h;}
 	#ifdef __SSE4_1__
 		#define cvtlo8u16(a) (i16x8)_mm_cvtepu8_epi16(a)
+		#define cvtlo8s16(a) (i16x8)_mm_cvtepi8_epi16(a)
 		#define cvtlo16u32(a) (i32x4)_mm_cvtepu16_epi32(a)
 		#define ifelse_mask(v, t, f) (i8x16)_mm_blendv_epi8(f, t, v)
 		#define ifelse_msb(v, t, f) (i8x16)_mm_blendv_epi8(f, t, v)
 		#define load8zx16(p) (i16x8)_mm_cvtepu8_epi16(_mm_loadl_epi64((__m128i*)(p)))
 		#define min8(a, b) (i8x16)_mm_min_epi8(a, b)
 		#define max8(a, b) (i8x16)_mm_max_epi8(a, b)
-		#define min32(a, b) (i32x4)_mm_min_epi32(a, b)
+		static always_inline u32x4 minw32(u32x4 a, u32x4 b) { return (u32x4)_mm_blendv_ps((__m128)b, (__m128)a, (__m128)(a - b)); }
 	#else
 		#define cvtlo8u16(a) (i16x8)ziplo8(a, (i8x16){})
 		#define cvtlo16u32(a) (i32x4)ziplo16(a, (i16x8){})
+		#define load8zx16(p) (i16x8)ziplo8(load64(p), (i8x16){})
+		static always_inline i16x8 cvtlo8s16(i8x16 a) {return (i16x8)ziplo8(a, a) >> 8;}
 		static always_inline i8x16 ifelse_mask(i8x16 v, i8x16 t, i8x16 f) { return t & v | f & ~v; }
 		static always_inline i8x16 ifelse_msb(i8x16 v, i8x16 t, i8x16 f) { v = (0 > v); return t & v | f & ~v; }
-		#define load8zx16(p) (i16x8)ziplo8(load64(p), (i8x16){})
 		static always_inline i8x16 min8(i8x16 a, i8x16 b) { i8x16 v = b > a; return a & v | b & ~v; }
 		static always_inline i8x16 max8(i8x16 a, i8x16 b) { i8x16 v = a > b; return a & v | b & ~v; }
-		static always_inline i32x4 min32(i32x4 a, i32x4 b) { i32x4 v = b > a; return a & v | b & ~v; }
+		static always_inline u32x4 minw32(u32x4 a, u32x4 b) { i32x4 v = (i32x4)(a - b) < 0; return a & v | b & ~v; }
 	#endif
 	#ifdef __SSSE3__
 		static const int8_t shc_mask[48] = {
@@ -759,6 +804,7 @@ enum IntraChromaModes {
 	#define broadcast32(a, i) (i32x4)vdupq_laneq_s32(a, i)
 	#define cvtlo8u16(a) (u16x8)vmovl_u8(vget_low_u8(a))
 	#define cvthi8u16(a) (u16x8)vmovl_high_u8(a)
+	#define cvtlo8s16(a) (i16x8)vmovl_s8(vget_low_s8(a))
 	#define cvtlo16u32(a) (u32x4)vmovl_u16(vget_low_u16(a))
 	#define cvthi16u32(a) (u32x4)vmovl_high_u16(a)
 	#define cvtuf32(a) (u32x4)vcvtq_u32_f32((float32x4_t)a)
@@ -771,7 +817,6 @@ enum IntraChromaModes {
 	#define max8(a, b) (i8x16)vmaxq_s8(a, b)
 	#define min16(a, b) (i16x8)vminq_s16(a, b)
 	#define max16(a, b) (i16x8)vmaxq_s16(a, b)
-	#define min32(a, b) (i32x4)vminq_s32(a, b)
 	#define minu8(a, b) (u8x16)vminq_u8(a, b)
 	#define maxu8(a, b) (u8x16)vmaxq_u8(a, b)
 	#define packs16(a, b) (i16x8)vqmovn_high_s16(vqmovn_s16(a), b)
@@ -803,8 +848,9 @@ enum IntraChromaModes {
 	#define ziphi32(a, b) (i16x8)vzip2q_s32(a, b)
 	#define ziplo64(a, b) (i64x2)vzip1q_s64(a, b)
 	#define ziphi64(a, b) (i64x2)vzip2q_s64(a, b)
+	static always_inline u32x4 minw32(u32x4 a, u32x4 b) {return vbslq_s8((i32x4)(a - b) >> 31, a, b);}
 	static always_inline unsigned movemask(i8x16 a) {u8x16 b = vshrq_n_u8(a, 7), c = vsraq_n_u16(b, b, 7), d = vsraq_n_u32(c, c, 14), e = vsraq_n_u64(d, d, 28); return e[0] | e[8] << 8;}
-	static always_inline size_t shld(size_t l, size_t h, int i) {return h << i | l >> (SIZE_BIT - i);}
+	static always_inline size_t shld(size_t l, size_t h, int i) {return h << i | l >> 1 >> (~i & (SIZE_BIT - 1));}
 	static always_inline i8x16 shuffle(i8x16 a, i8x16 m) {return vqtbl1q_s8(a, m);}
 	static always_inline i8x16 shufflen(i8x16 a, i8x16 m) {return vqtbx1q_s8(m, a, m);}
 	static always_inline i8x16 shuffle2(const i8x16 *p, i8x16 m) {return vqtbl2q_s8(*(int8x16x2_t *)p, m);}
@@ -828,8 +874,12 @@ static always_inline int min(int a, int b) { return (a < b) ? a : b; }
 static always_inline int max(int a, int b) { return (a > b) ? a : b; }
 #endif
 static always_inline unsigned minu(unsigned a, unsigned b) { return (a < b) ? a : b; }
+static always_inline unsigned maxu(unsigned a, unsigned b) { return (a > b) ? a : b; }
+// min/max on values that may wrap around
+static always_inline unsigned minw(unsigned a, unsigned b) { return (int)(a - b) < 0 ? a : b; }
+static always_inline unsigned maxw(unsigned a, unsigned b) { return (int)(a - b) < 0 ? b : a; }
 // compatible with any of the pointers wrapping around
-static always_inline void *minp(const void *a, const void *b) { return (void *)((intptr_t)(b - a) > 0 ? a : b); }
+static always_inline void *minp(const void *a, const void *b) { return (void *)((intptr_t)(a - b) < 0 ? a : b); }
 static always_inline int clip3(int a, int b, int c) { return min(max(c, a), b); }
 static always_inline i16x8 median16(i16x8 a, i16x8 b, i16x8 c) {
 	return max16(min16(max16(a, b), c), min16(a, b));
@@ -838,6 +888,17 @@ static always_inline i8x16 pack_absMvd(i16x8 a) {
 	i16x8 x = broadcast32(a, 0);
 	return abs8(packs16(x, x));
 }
+static always_inline int rbsp_end(Edge264GetBits *gb) {
+	unsigned trailing_bit = gb->msb_cache >> (SIZE_BIT - 1);
+	unsigned rem_bits = SIZE_BIT * 2 - 1 - ctz(gb->lsb_cache) - trailing_bit;
+	// all bits after optional trailing set bit must be zero AND bit position must be 1-7 inside end[-1], 0-7 inside end[0] or 0 inside end[1] (because a single 0x00 as the last byte may not be escaped and pull back end by 1 byte)
+	return gb->msb_cache << trailing_bit == 0 &&
+	       (gb->lsb_cache & (gb->lsb_cache - 1)) == 0 &&
+	       (unsigned)((intptr_t)(gb->CPB - gb->end) << 3) - rem_bits + 7 <= 15;
+}
+#ifndef __builtin_clzg // works as long as __builtin_clzg is a macro
+	static always_inline int __builtin_clzg(unsigned a, int b) { return a ? __builtin_clz(a) : b; }
+#endif
 #ifdef __BMI2__ // FIXME and not AMD pre-Zen3
 	static always_inline int extract_neighbours(unsigned f) { return _pext_u32(f, 0x27); }
 	static always_inline int mvd_flags2ref_idx(unsigned f) { return _pext_u32(f, 0x11111111); }
@@ -954,29 +1015,29 @@ static void parse_slice_data_cabac(Edge264Context *ctx);
 	#define ADD_VARIANT(f) f
 #endif
 void *worker_loop(Edge264Decoder *d);
-void *worker_loop_v1(Edge264Decoder *d);
 void *worker_loop_v2(Edge264Decoder *d);
 void *worker_loop_v3(Edge264Decoder *d);
-void *worker_loop_debug(Edge264Decoder *d);
+void *worker_loop_log(Edge264Decoder *d);
 int parse_slice_layer_without_partitioning(Edge264Decoder *dec, int non_blocking, void(*free_cb)(void*,int), void *free_arg);
-int parse_slice_layer_without_partitioning_v1(Edge264Decoder *dec, int non_blocking, void(*free_cb)(void*,int), void *free_arg);
 int parse_slice_layer_without_partitioning_v2(Edge264Decoder *dec, int non_blocking, void(*free_cb)(void*,int), void *free_arg);
 int parse_slice_layer_without_partitioning_v3(Edge264Decoder *dec, int non_blocking, void(*free_cb)(void*,int), void *free_arg);
-int parse_slice_layer_without_partitioning_debug(Edge264Decoder *dec, int non_blocking, void(*free_cb)(void*,int), void *free_arg);
+int parse_slice_layer_without_partitioning_log(Edge264Decoder *dec, int non_blocking, void(*free_cb)(void*,int), void *free_arg);
+int parse_access_unit_delimiter(Edge264Decoder *dec, int non_blocking, void(*free_cb)(void*,int), void *free_arg);
+int parse_access_unit_delimiter_v2(Edge264Decoder *dec, int non_blocking, void(*free_cb)(void*,int), void *free_arg);
+int parse_access_unit_delimiter_v3(Edge264Decoder *dec, int non_blocking, void(*free_cb)(void*,int), void *free_arg);
+int parse_access_unit_delimiter_log(Edge264Decoder *dec, int non_blocking, void(*free_cb)(void*,int), void *free_arg);
+int parse_sei_log(Edge264Decoder *dec, int non_blocking, void(*free_cb)(void*,int), void *free_arg);
+int parse_nal_unit_header_extension(Edge264Decoder *dec, int non_blocking, void(*free_cb)(void*,int), void *free_arg);
+int parse_nal_unit_header_extension_v2(Edge264Decoder *dec, int non_blocking, void(*free_cb)(void*,int), void *free_arg);
+int parse_nal_unit_header_extension_v3(Edge264Decoder *dec, int non_blocking, void(*free_cb)(void*,int), void *free_arg);
+int parse_nal_unit_header_extension_log(Edge264Decoder *dec, int non_blocking, void(*free_cb)(void*,int), void *free_arg);
 int parse_pic_parameter_set(Edge264Decoder *dec, int non_blocking,  void(*free_cb)(void*,int), void *free_arg);
-int parse_pic_parameter_set_v1(Edge264Decoder *dec, int non_blocking,  void(*free_cb)(void*,int), void *free_arg);
 int parse_pic_parameter_set_v2(Edge264Decoder *dec, int non_blocking,  void(*free_cb)(void*,int), void *free_arg);
 int parse_pic_parameter_set_v3(Edge264Decoder *dec, int non_blocking,  void(*free_cb)(void*,int), void *free_arg);
-int parse_pic_parameter_set_debug(Edge264Decoder *dec, int non_blocking,  void(*free_cb)(void*,int), void *free_arg);
+int parse_pic_parameter_set_log(Edge264Decoder *dec, int non_blocking,  void(*free_cb)(void*,int), void *free_arg);
 int parse_seq_parameter_set(Edge264Decoder *dec, int non_blocking, void(*free_cb)(void*,int), void *free_arg);
-int parse_seq_parameter_set_v1(Edge264Decoder *dec, int non_blocking, void(*free_cb)(void*,int), void *free_arg);
 int parse_seq_parameter_set_v2(Edge264Decoder *dec, int non_blocking, void(*free_cb)(void*,int), void *free_arg);
 int parse_seq_parameter_set_v3(Edge264Decoder *dec, int non_blocking, void(*free_cb)(void*,int), void *free_arg);
-int parse_seq_parameter_set_debug(Edge264Decoder *dec, int non_blocking, void(*free_cb)(void*,int), void *free_arg);
-int parse_seq_parameter_set_extension(Edge264Decoder *dec, int non_blocking, void(*free_cb)(void*,int), void *free_arg);
-int parse_seq_parameter_set_extension_v1(Edge264Decoder *dec, int non_blocking, void(*free_cb)(void*,int), void *free_arg);
-int parse_seq_parameter_set_extension_v2(Edge264Decoder *dec, int non_blocking, void(*free_cb)(void*,int), void *free_arg);
-int parse_seq_parameter_set_extension_v3(Edge264Decoder *dec, int non_blocking, void(*free_cb)(void*,int), void *free_arg);
-int parse_seq_parameter_set_extension_debug(Edge264Decoder *dec, int non_blocking, void(*free_cb)(void*,int), void *free_arg);
+int parse_seq_parameter_set_log(Edge264Decoder *dec, int non_blocking, void(*free_cb)(void*,int), void *free_arg);
 
 #endif

@@ -1,0 +1,9 @@
+prefix=@CMAKE_INSTALL_PREFIX@
+libdir=${prefix}/lib
+includedir=${prefix}/include
+
+Name: edge264
+Description: edge264 H.264/MVC decoding library
+Version: @PROJECT_VERSION@
+Libs: -L${libdir} -ledge264 @EDGE264_LINK_LIBS@
+Cflags: -I${includedir}

@@ -13,7 +13,11 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#ifdef _WIN32
+#define ssize_t ptrdiff_t
+#else
 #include <unistd.h>
+#endif
 
 #include "edge264.h"
 
@@ -401,7 +405,13 @@ typedef struct Edge264Decoder {
 	#define noinline __attribute__((noinline))
 #endif
 #ifndef always_inline
+#if defined(__GNUC__) || defined(__clang__)
 	#define always_inline inline __attribute__((always_inline))
+#elif defined(_MSC_VER)
+	#define always_inline __forceinline
+#else
+	#define always_inline inline
+#endif
 #endif
 
 
@@ -859,8 +869,10 @@ static always_inline const char *unsup_if(int cond) { return cond ? " # unsuppor
 /**
  * Helper functions
  */
+#ifndef min
 static always_inline int min(int a, int b) { return (a < b) ? a : b; }
 static always_inline int max(int a, int b) { return (a > b) ? a : b; }
+#endif
 static always_inline unsigned minu(unsigned a, unsigned b) { return (a < b) ? a : b; }
 static always_inline unsigned maxu(unsigned a, unsigned b) { return (a > b) ? a : b; }
 // min/max on values that may wrap around

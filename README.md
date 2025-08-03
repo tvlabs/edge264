@@ -273,13 +273,11 @@ With the help of a [custom bitstream writer](tools/gen_avc.py) using the same YA
 | All unsupported types of NAL units | All unsupp | unsupp-nals |
 | Maximal header log-wise | All OK | max-logs |
 | All conditions (detected and ignored) for detecting the start of a new frame (*non standard*) | All OK | finish_frame |
-| nal_ref_idc=0 on a IDR (*non standard*) | OK | nal_ref_idc |
+| nal_ref_idc=0 on a IDR (*non standard*) | OK | non-ref-idr |
 | Missing rbsp_trailing_bit for all supported NAL types (*non standard*) | All OK | no-trailing-bit |
 | NAL of less than 11 bytes starting/ending at page boundary | All OK | tiny-nal |
 | SEI/slice referencing an uninitialized SPS/PPS | 1 OK, 4 errors | missing-ps |
-| Mixing CAVLC and CABAC in a same frame |  |  |
-| Changing a SPS/PPS between slices of the same frame |  |  |
-| Sliced non-ref frame following non-ref frame with decreasing POC (7.4.1.2.2) |  |  |
+| Two non-ref frames with decreasing POC (*non standard*) | All OK, output order doesn't matter | non-ref-dec-poc |
 | poc_type=2 and non-ref frame followed by non-ref pic, and the opposite (7.4.2.1.1) |  |  |
 | direct_8x8_inference_flag=1 with frame_mbs_only_flag=0 |  |  |
 | horizontal/vertical cropping leaving zero/negative space |  |  |
@@ -320,6 +318,9 @@ With the help of a [custom bitstream writer](tools/gen_avc.py) using the same YA
 | Sending 2 IDR, then reaching the lowest possible POC, then getting all frames |  |  |
 | Two slices with mmco=5 yet frame_num>0 (to make it look like a new frame) |  |  |
 | POCs spaced by more than half max bits, such that relying on a stale prevPicOrderCnt yields wrong POC |  |  |
+| Filling the DPB with 16 refs then setting max_num_ref_frames=1 and adding a new ref frame |  |  |
+| Adding a frame cropping after decoding a frame | Crop should not apply retroactively |  |
+| Mixing CAVLC and CABAC in a same frame |  |  |
 
 | Parameter sets tests | Expected | Test files |
 | --- | --- | --- |

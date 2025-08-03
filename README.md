@@ -272,18 +272,14 @@ With the help of a [custom bitstream writer](tools/gen_avc.py) using the same YA
 | All supported types of NAL units | All OK | supp-nals |
 | All unsupported types of NAL units | All unsupp | unsupp-nals |
 | Maximal header log-wise | All OK | max-logs |
-| All conditions (detected and ignored) for detecting the start of a new frame (*non standard*) | All OK | finish_frame |
-| nal_ref_idc=0 on a IDR (*non standard*) | OK | non-ref-idr |
-| Missing rbsp_trailing_bit for all supported NAL types (*non standard*) | All OK | no-trailing-bit |
+| All conditions (detected and ignored) for detecting the start of a new frame | All OK | finish_frame |
+| nal_ref_idc=0 on a IDR | OK | non-ref-idr |
+| Missing rbsp_trailing_bit for all supported NAL types | All OK | no-trailing-bit |
 | NAL of less than 11 bytes starting/ending at page boundary | All OK | tiny-nal |
 | SEI/slice referencing an uninitialized SPS/PPS | 1 OK, 4 errors | missing-ps |
-| Two non-ref frames with decreasing POC (*non standard*) | All OK, output order doesn't matter | non-ref-dec-poc |
-| poc_type=2 and non-ref frame followed by non-ref pic, and the opposite (7.4.2.1.1) |  |  |
-| direct_8x8_inference_flag=1 with frame_mbs_only_flag=0 |  |  |
-| horizontal/vertical cropping leaving zero/negative space |  |  |
-| SSPS with additional_extension2_flag=1 and more trailing data |  |  |
-| Single slice with at least 8 cabac_zero_word |  |  |
-| P/B slice with nal_unit_type=5 or max_num_ref_frames=0 (7.4.3) |  |  |
+| Two non-ref frames with decreasing POC | All OK, output order doesn't matter | non-ref-dec-poc |
+| Horizontal/vertical cropping leaving zero space | All OK, outputs 1x1 frames | zero-cropping |
+| P/B slice with nal_unit_type=5 or max_num_ref_frames=0 | 4 OK, 2 errors | no-refs-P-B-slice |
 | IDR slice with frame_num>0 (7.4.3) |  |  |
 | Two ref frames with the same frame_num but differing POC, then a third frame referencing both |  |  |
 | Gap in frame_num while gaps_in_frame_num_value_allowed_flag=0 |  |  |
@@ -320,7 +316,8 @@ With the help of a [custom bitstream writer](tools/gen_avc.py) using the same YA
 | POCs spaced by more than half max bits, such that relying on a stale prevPicOrderCnt yields wrong POC |  |  |
 | Filling the DPB with 16 refs then setting max_num_ref_frames=1 and adding a new ref frame |  |  |
 | Adding a frame cropping after decoding a frame | Crop should not apply retroactively |  |
-| Mixing CAVLC and CABAC in a same frame |  |  |
+| poc_type=2 and non-ref frame followed by non-ref pic, and the opposite (7.4.2.1.1) |  |  |
+| direct_8x8_inference_flag=1 with frame_mbs_only_flag=0 |  |  |
 
 | Parameter sets tests | Expected | Test files |
 | --- | --- | --- |
@@ -332,7 +329,7 @@ With the help of a [custom bitstream writer](tools/gen_avc.py) using the same YA
 | All scaling lists default/fallback rules and repeated values for all indices, with residual macroblock |  |  |
 | log2_max_frame_num=4 and a frame referencing another with the same frame_num%4 |  |  |
 
-| Macroblock tests | Expected | Test files |
+| CAVLC tests | Expected | Test files |
 | --- | --- | --- |
 | All valid total_zeros=0-8-prefix+3-bit-suffix for TotalCoeffs in [0;15] for 4x4 and 2x2 |  |  |
 | Invalid total_zeros=31/63/127-prefix for TotalCoeffs in [0;15] for 4x4 and 2x2 |  |  |
@@ -351,6 +348,11 @@ With the help of a [custom bitstream writer](tools/gen_avc.py) using the same YA
 | TotalCoeff=16 for a Intra16x16 AC block |  |  |
 | A residual block with run_length=14 making zerosLeft negative |  |  |
 
+| CABAC tests | Expected | Test files |
+| --- | --- | --- |
+| Mixing CAVLC and CABAC in a same frame |  |  |
+| Single slice with at least 8 cabac_zero_word |  |  |
+
 | MVC tests | Expected | Test files |
 | --- | --- | --- |
 | All wrong combinations of non_idr_flag with nal_unit_type=1/5 and nal_ref_idc=0/1 |  |  |
@@ -365,6 +367,7 @@ With the help of a [custom bitstream writer](tools/gen_avc.py) using the same YA
 | A non-base view with its base in RefPicList1[0] and direct_spatial_mv_pred_flag=0 (H.7.4.3) |  |  |
 | A slice with num_ref_idx_l0_active>8 |  |  |
 | svc_extension_flag=1 on a MVC stream |  |  |
+| SSPS with additional_extension2_flag=1 and more trailing data |  |  |
 
 | Error recovery tests | Expected | Test files |
 | --- | --- | --- |

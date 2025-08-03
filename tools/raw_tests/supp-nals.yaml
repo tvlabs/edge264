@@ -15,6 +15,21 @@
   direct_8x8_inference_flag: 0
 
 - nal_ref_idc: 3
+  nal_unit_type: 8 # Picture parameter set
+  pic_parameter_set_id: 0
+  entropy_coding_mode_flag: 0 # CAVLC
+  bottom_field_pic_order_in_frame_present_flag: 0
+  num_slice_groups: 1
+  num_ref_idx_default_active: {l0: 1, l1: 1}
+  weighted_pred_flag: 0 # average
+  weighted_bipred_idc: 0 # average
+  pic_init_qp: 0
+  chroma_qp_index_offset: 0
+  deblocking_filter_control_present_flag: 0
+  constrained_intra_pred_flag: 0
+  redundant_pic_cnt_present_flag: 0
+
+- nal_ref_idc: 3
   nal_unit_type: 15 # Subset sequence parameter set
   profile_idc: 128 # Stereo High
   constraint_set_flags: [0,0,0,0,0,0]
@@ -36,21 +51,6 @@
   level_values_signalled:
     - idc: 1.0
       operation_points: [{temporal_id: 0, target_views: [0,1], num_views: 2}]
-
-- nal_ref_idc: 3
-  nal_unit_type: 8 # Picture parameter set
-  pic_parameter_set_id: 0
-  entropy_coding_mode_flag: 0 # CAVLC
-  bottom_field_pic_order_in_frame_present_flag: 0
-  num_slice_groups: 1
-  num_ref_idx_default_active: {l0: 1, l1: 1}
-  weighted_pred_flag: 0 # average
-  weighted_bipred_idc: 0 # average
-  pic_init_qp: 0
-  chroma_qp_index_offset: 0
-  deblocking_filter_control_present_flag: 0
-  constrained_intra_pred_flag: 0
-  redundant_pic_cnt_present_flag: 0
 
 - nal_ref_idc: 3
   nal_unit_type: 8 # Picture parameter set

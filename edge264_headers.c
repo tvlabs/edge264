@@ -861,15 +861,19 @@ int ADD_VARIANT(parse_slice_layer_without_partitioning)(Edge264Decoder *dec, int
 	// check on view_id
 	int non_base_view = 1;
 	unsigned same_views = dec->second_views;
+	Edge264SeqParameterSet *sps = &dec->ssps;
 	if (dec->nal_unit_type != 20) {
 		non_base_view = 0;
 		same_views = ~same_views;
+		sps = &dec->sps;
 		dec->IdrPicFlag = dec->nal_unit_type == 5;
 	}
 	
 	// first important fields and checks before decoding the slice header
 	t->first_mb_in_slice = get_ue32(&dec->_gb, 139263);
 	int slice_type = get_ue16(&dec->_gb, 9);
+	if (dec->nal_unit_type == 5 || sps->max_num_ref_frames == 0)
+		slice_type = 2; // enforce condition in 7.4.3
 	t->slice_type = (slice_type < 5) ? slice_type : slice_type - 5;
 	int pic_parameter_set_id = get_ue16(&dec->_gb, 255);
 	log_dec(dec, "  first_mb_in_slice: %u\n"
@@ -878,7 +882,6 @@ int ADD_VARIANT(parse_slice_layer_without_partitioning)(Edge264Decoder *dec, int
 		t->first_mb_in_slice,
 		slice_type, slice_type_names[t->slice_type], unsup_if(t->slice_type > 2),
 		pic_parameter_set_id, unsup_if(pic_parameter_set_id >= 4));
-	Edge264SeqParameterSet *sps = (dec->nal_unit_type == 20) ? &dec->ssps : &dec->sps;
 	if (t->slice_type > 2 || pic_parameter_set_id >= 4)
 		return ENOTSUP;
 	t->pps = dec->PPS[pic_parameter_set_id];

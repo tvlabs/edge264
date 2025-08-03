@@ -272,15 +272,15 @@ With the help of a [custom bitstream writer](tools/gen_avc.py) using the same YA
 | All supported types of NAL units | All OK | supp-nals |
 | All unsupported types of NAL units | All unsupp | unsupp-nals |
 | Maximal header log-wise | All OK | max-logs |
-| All conditions (detected and ignored) for detecting the start of a new frame | All OK | finish_frame |
-| nal_ref_idc=0 on a IDR | OK | non-ref-idr |
+| All conditions (detected and ignored) for detecting the start of a new frame | All OK | finish-frame |
+| nal_ref_idc=0 on a IDR | All OK | non-ref-idr |
 | Missing rbsp_trailing_bit for all supported NAL types | All OK | no-trailing-bit |
 | NAL of less than 11 bytes starting/ending at page boundary | All OK | tiny-nal |
 | SEI/slice referencing an uninitialized SPS/PPS | 1 OK, 4 errors | missing-ps |
-| Two non-ref frames with decreasing POC | All OK, output order doesn't matter | non-ref-dec-poc |
-| Horizontal/vertical cropping leaving zero space | All OK, outputs 1x1 frames | zero-cropping |
+| Two non-ref frames with decreasing POC | All OK, any output order | non-ref-dec-poc |
+| Horizontal/vertical cropping leaving zero space | All OK, 1x1 frames | zero-cropping |
 | P/B slice with nal_unit_type=5 or max_num_ref_frames=0 | 4 OK, 2 errors | no-refs-P-B-slice |
-| IDR slice with frame_num>0 (7.4.3) |  |  |
+| IDR slice with frame_num > 0 | All OK, clamped to 0 | pos-frame-num-idr |
 | Two ref frames with the same frame_num but differing POC, then a third frame referencing both |  |  |
 | Gap in frame_num while gaps_in_frame_num_value_allowed_flag=0 |  |  |
 | Stream starting with non-IDR I frame |  |  |

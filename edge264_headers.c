@@ -872,8 +872,7 @@ int ADD_VARIANT(parse_slice_layer_without_partitioning)(Edge264Decoder *dec, int
 	// first important fields and checks before decoding the slice header
 	t->first_mb_in_slice = get_ue32(&dec->_gb, 139263);
 	int slice_type = get_ue16(&dec->_gb, 9);
-	if (dec->nal_unit_type == 5 || sps->max_num_ref_frames == 0)
-		slice_type = 2; // enforce condition in 7.4.3
+	slice_type = (dec->nal_unit_type == 5 || sps->max_num_ref_frames == 0) ? 2 : slice_type; // enforce condition in 7.4.3
 	t->slice_type = (slice_type < 5) ? slice_type : slice_type - 5;
 	int pic_parameter_set_id = get_ue16(&dec->_gb, 255);
 	log_dec(dec, "  first_mb_in_slice: %u\n"
@@ -890,6 +889,7 @@ int ADD_VARIANT(parse_slice_layer_without_partitioning)(Edge264Decoder *dec, int
 	
 	// parse frame_num and detect the start of a new frame (7.4.1.2.4)
 	int frame_num = get_uv(&dec->_gb, sps->log2_max_frame_num);
+	frame_num = dec->IdrPicFlag ? 0 : frame_num; // enforce condition in 7.4.3
 	int FrameNumMask = (1 << sps->log2_max_frame_num) - 1;
 	if (dec->currPic >= 0 && (frame_num != (dec->FrameNum & FrameNumMask) ||
 		(dec->nal_ref_idc > 0) != (dec->pic_reference_flags >> dec->currPic & 1) ||

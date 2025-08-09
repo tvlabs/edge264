@@ -323,11 +323,12 @@ typedef struct Edge264Decoder {
 	int32_t plane_size_C;
 	int32_t frame_size;
 	int32_t FrameNum; // value for the current incomplete frame, unaffected by mmco5
+	int32_t PrevRefFrameNum[2]; // one per view
 	int32_t idr_pic_id; // value for the last slice, used for detecting new frames
+	int32_t prevPicOrderCnt[2]; // one per view
 	int32_t TopFieldOrderCnt; // value for the current incomplete frame, unaffected by mmco5
 	int32_t BottomFieldOrderCnt;
-	int32_t prevPicOrderCnt;
-	int32_t dispPicOrderCnt; // all POCs lower or equal than this are ready for output
+	int32_t dispTopFieldOrderCnt; // all POCs lower or equal than this are ready for output
 	uint32_t reference_flags; // bitfield for indices of reference frames/views
 	uint32_t long_term_flags; // bitfield for indices of long-term frames/views
 	uint32_t output_flags; // bitfield for frames waiting to be output
@@ -335,7 +336,7 @@ typedef struct Edge264Decoder {
 	uint32_t frame_flip_bits; // target values for bit 0 of mb->recovery_bits in each frame
 	uint32_t pic_reference_flags; // to be applied after decoding all slices of the current picture
 	uint32_t pic_long_term_flags; // to be applied after decoding all slices of the current picture
-	uint32_t second_views; // bitfield for frames that are non-base views in MVC
+	uint32_t non_base_views; // bitfield for frames that are non-base views in MVC
 	int32_t FrameNums[32]; // signed to be used along FieldOrderCnt in initial reference ordering
 	uint32_t FrameIds[32]; // unique identifiers for each frame, incremented in decoding order
 	void *(*worker_loop)(Edge264Decoder *);

@@ -272,15 +272,15 @@ With the help of a [custom bitstream writer](tools/gen_avc.py) using the same YA
 | All supported types of NAL units | All OK | supp-nals |
 | All unsupported types of NAL units | All unsupp | unsupp-nals |
 | Maximal header log-wise | All OK | max-logs |
-| All conditions (detected and ignored) for detecting the start of a new frame | All OK | finish-frame |
+| All conditions (incl. ignored) for detecting the start of a new frame | All OK | finish-frame |
 | nal_ref_idc=0 on a IDR | All OK | non-ref-idr |
 | Missing rbsp_trailing_bit for all supported NAL types | All OK | no-trailing-bit |
 | NAL of less than 11 bytes starting/ending at page boundary | All OK | tiny-nal |
 | SEI/slice referencing an uninitialized SPS/PPS | 1 OK, 4 errors | missing-ps |
-| Two non-ref frames with decreasing POC | All OK, any output order | non-ref-dec-poc |
+| Two non-ref frames with decreasing POC | All OK, any order | non-ref-dec-poc |
 | Horizontal/vertical cropping leaving zero space | All OK, 1x1 frames | zero-cropping |
 | P/B slice with nal_unit_type=5 or max_num_ref_frames=0 | 4 OK, 2 errors | no-refs-P-B-slice |
-| IDR slice with frame_num > 0 | All OK, clamped to 0 | pos-frame-num-idr |
+| IDR slice with frame_num>0 | All OK, clamped to 0 | pos-frame-num-idr |
 | Two ref frames with the same frame_num but differing POC, then a third frame referencing both |  |  |
 | Gap in frame_num while gaps_in_frame_num_value_allowed_flag=0 |  |  |
 | Stream starting with non-IDR I frame |  |  |
@@ -316,6 +316,7 @@ With the help of a [custom bitstream writer](tools/gen_avc.py) using the same YA
 | POCs spaced by more than half max bits, such that relying on a stale prevPicOrderCnt yields wrong POC |  |  |
 | Filling the DPB with 16 refs then setting max_num_ref_frames=1 and adding a new ref frame |  |  |
 | Adding a frame cropping after decoding a frame | Crop should not apply retroactively |  |
+| Making a Direct ref_pic be used after it has been unreferenced |  |  |
 | poc_type=2 and non-ref frame followed by non-ref pic, and the opposite (7.4.2.1.1) |  |  |
 | direct_8x8_inference_flag=1 with frame_mbs_only_flag=0 |  |  |
 
@@ -368,6 +369,7 @@ With the help of a [custom bitstream writer](tools/gen_avc.py) using the same YA
 | A slice with num_ref_idx_l0_active>8 |  |  |
 | svc_extension_flag=1 on a MVC stream |  |  |
 | SSPS with additional_extension2_flag=1 and more trailing data |  |  |
+| Gap in frame_num of 16 frames on both views |  |  |
 
 | Error recovery tests | Expected | Test files |
 | --- | --- | --- |

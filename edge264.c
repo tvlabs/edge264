@@ -132,6 +132,7 @@ Edge264Decoder *edge264_alloc(int n_threads, void (*log_cb)(const char *str, voi
 	dec->log_cb = log_cb;
 	dec->log_arg = log_arg;
 	dec->currPic = dec->prevPic = -1;
+	dec->PrevRefFrameNum[0] = dec->PrevRefFrameNum[1] = -1;
 	dec->taskPics_v = set8(-1);
 	
 	// select parser functions based on CPU capabilities and logs mode
@@ -238,7 +239,9 @@ void edge264_flush(Edge264Decoder *dec) {
 		pthread_mutex_lock(&dec->lock);
 	// FIXME interrupt all threads
 	dec->currPic = dec->prevPic = -1;
-	dec->reference_flags = dec->long_term_flags = dec->output_flags = dec->second_views = 0;
+	dec->PrevRefFrameNum[0] = dec->PrevRefFrameNum[1] = -1;
+	dec->prevPicOrderCnt[0] = dec->prevPicOrderCnt[1] = 0;
+	dec->reference_flags = dec->long_term_flags = dec->output_flags = dec->non_base_views = 0;
 	for (unsigned b = dec->busy_tasks; b; b &= b - 1) {
 		Edge264Task *t = dec->tasks + __builtin_ctz(b);
 		if (t->free_cb)
@@ -312,7 +315,7 @@ int edge264_decode_NAL(Edge264Decoder *dec, const uint8_t *buf, const uint8_t *e
 		pthread_mutex_lock(&dec->lock);
 	if (__builtin_expect((intptr_t)(end - buf) <= 0, 0)) {
 		for (unsigned o = dec->output_flags; o; o &= o - 1)
-			dec->dispPicOrderCnt = max(dec->dispPicOrderCnt, dec->FieldOrderCnt[0][__builtin_ctz(o)]);
+			dec->dispTopFieldOrderCnt = max(dec->dispTopFieldOrderCnt, dec->FieldOrderCnt[0][__builtin_ctz(o)]);
 		unsigned busy;
 		while ((busy = dec->busy_tasks) && !non_blocking)
 			pthread_cond_wait(&dec->task_complete, &dec->lock);
@@ -382,14 +385,14 @@ int edge264_get_frame(Edge264Decoder *dec, Edge264Frame *out, int borrow) {
 		pthread_mutex_lock(&dec->lock);
 	int pic[2] = {-1, -1};
 	unsigned used = dec->reference_flags | dec->output_flags;
-	int best = (__builtin_popcount(dec->output_flags & ~dec->second_views) > dec->sps.max_num_reorder_frames ||
-		(dec->second_views && __builtin_popcount(dec->output_flags & dec->second_views) > dec->ssps.max_num_reorder_frames) ||
-		__builtin_popcount(used & ~dec->second_views) >= dec->sps.num_frame_buffers ||
-		(dec->second_views && __builtin_popcount(used & dec->second_views) >= dec->ssps.num_frame_buffers)) ? INT_MAX : dec->dispPicOrderCnt;
+	int best = (__builtin_popcount(dec->output_flags & ~dec->non_base_views) > dec->sps.max_num_reorder_frames ||
+		(dec->non_base_views && __builtin_popcount(dec->output_flags & dec->non_base_views) > dec->ssps.max_num_reorder_frames) ||
+		__builtin_popcount(used & ~dec->non_base_views) >= dec->sps.num_frame_buffers ||
+		(dec->non_base_views && __builtin_popcount(used & dec->non_base_views) >= dec->ssps.num_frame_buffers)) ? INT_MAX : dec->dispTopFieldOrderCnt;
 	for (int o = dec->output_flags; o != 0; o &= o - 1) {
 		int i = __builtin_ctz(o);
 		if (dec->FieldOrderCnt[0][i] <= best) {
-			int non_base = dec->second_views >> i & 1;
+			int non_base = dec->non_base_views >> i & 1;
 			if (dec->FieldOrderCnt[0][i] < best) {
 				best = dec->FieldOrderCnt[0][i];
 				pic[non_base ^ 1] = -1;
@@ -399,7 +402,7 @@ int edge264_get_frame(Edge264Decoder *dec, Edge264Frame *out, int borrow) {
 	}
 	
 	int res = ENOMSG;
-	if (pic[0] >= 0 && dec->next_deblock_addr[pic[0]] == INT_MAX && (!dec->second_views || (pic[1] >= 0 && dec->next_deblock_addr[pic[1]] == INT_MAX))) {
+	if (pic[0] >= 0 && dec->next_deblock_addr[pic[0]] == INT_MAX && (!dec->non_base_views || (pic[1] >= 0 && dec->next_deblock_addr[pic[1]] == INT_MAX))) {
 		*out = dec->out;
 		int top = dec->out.frame_crop_offsets[0];
 		int left = dec->out.frame_crop_offsets[3];

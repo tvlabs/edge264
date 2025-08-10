@@ -90,14 +90,14 @@ const uint8_t *edge264_find_start_code(const uint8_t *buf, const uint8_t *end, i
 	i8x16 v = *p;
 	i8x16 hi0 = (v == zero) & shlv128(set8(-1), (uintptr_t)buf & 15);
 	while (1) {
-		#if defined(__SSE2__)
+		#if defined(X86_INTRIN)
 			unsigned m = movemask(shrd128(lo0, hi0, 14) & shrd128(lo0, hi0, 15) & (v == c1));
 			if (m) {
 				const uint8_t *res = (uint8_t *)p - 2 - four_byte + __builtin_ctz(m);
 				if (*res == 0)
 					return minp(res, end);
 			}
-		#elif defined(__ARM_NEON)
+		#elif defined(ARM64_INTRIN)
 			uint64_t m = (uint64_t)vshrn_n_u16(shrd128(lo0, hi0, 14) & shrd128(lo0, hi0, 15) & (v == c1), 4);
 			if (m) {
 				const uint8_t *res = (uint8_t *)p - 2 - four_byte + (__builtin_ctzll(m) >> 2);
@@ -136,11 +136,6 @@ Edge264Decoder *edge264_alloc(int n_threads, void (*log_cb)(const char *str, voi
 	dec->taskPics_v = set8(-1);
 	
 	// select parser functions based on CPU capabilities and logs mode
-	#if defined(__SSE2__) && !defined(_MSC_VER) // if compiled for Intel
-		__builtin_cpu_init();
-		if (!__builtin_cpu_supports("cmov") || !__builtin_cpu_supports("sse2"))
-			return free(dec), NULL;
-	#endif
 	dec->worker_loop = ADD_VARIANT(worker_loop);
 	dec->parse_nal_unit[1] = dec->parse_nal_unit[5] = ADD_VARIANT(parse_slice_layer_without_partitioning);
 	dec->parse_nal_unit[6] = dec->parse_nal_unit[10] = dec->parse_nal_unit[11] = dec->parse_nal_unit[12] = ignore_NAL;
@@ -148,6 +143,9 @@ Edge264Decoder *edge264_alloc(int n_threads, void (*log_cb)(const char *str, voi
 	dec->parse_nal_unit[8] = ADD_VARIANT(parse_pic_parameter_set);
 	dec->parse_nal_unit[9] = ADD_VARIANT(parse_access_unit_delimiter);
 	dec->parse_nal_unit[14] = dec->parse_nal_unit[20] = ADD_VARIANT(parse_nal_unit_header_extension);
+	#if defined(HAS_X86_64_V2) || defined(HAS_X86_64_V3)
+		__builtin_cpu_init();
+	#endif
 	#ifdef HAS_X86_64_V2
 		// macOS's clang does not support x86-64-v3/v2 feature string yet
 		if (__builtin_cpu_supports("popcnt") &&
@@ -309,7 +307,7 @@ int edge264_decode_NAL(Edge264Decoder *dec, const uint8_t *buf, const uint8_t *e
 	};
 	
 	// initial checks before parsing
-	if (dec == NULL || buf == NULL && end != NULL)
+	if (dec == NULL || (buf == NULL && end != NULL))
 		return EINVAL;
 	if (dec->n_threads)
 		pthread_mutex_lock(&dec->lock);

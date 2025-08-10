@@ -1,6 +1,6 @@
 #include "edge264_internal.h"
 
-#if defined(__SSE2__)
+#if defined(X86_INTRIN)
 	#define addlou8s16(a, b) (cvtlo8u16(a) + (i16x8)b)
 	#define addhiu8s16(a, b) ((i16x8)ziphi8(a, (i8x16){}) + (i16x8)b)
 	#define mullou8(a, b) (cvtlo8u16(a) * cvtlo8u16(b))
@@ -8,10 +8,8 @@
 	#define shlrrs32(a, l, r, off) ((((i32x4)(a) << (l)) + (off)) >> (r))
 	#define shrrs32(a, i, off) (((i32x4)a + off) >> i)
 	#define shrps32(a, b, i) (i16x8)_mm_packs_epi32((i32x4)(a) >> i, (i32x4)(b) >> i)
-	#define unziplo32(a, b) shuffleps(a, b, 0, 2, 0, 2)
-	#define unziphi32(a, b) shuffleps(a, b, 1, 3, 1, 3)
 	static always_inline i16x8 scale32(i32x4 c0, i32x4 c1, u16x8 ls, int mul, i32x4 off, i32x4 sh) {return packs32(_mm_sra_epi32((i32x4)_mm_madd_epi16(cvtlo16u32(ls), c0) + off, sh), _mm_sra_epi32((i32x4)_mm_madd_epi16(ziphi16(ls, (i8x16){}), c1) + off, sh));}
-#elif defined(__ARM_NEON)
+#elif defined(ARM64_INTRIN)
 	#define addlou8s16(a, b) (i16x8)vaddw_u8(b, vget_low_u8(a))
 	#define addhiu8s16(a, b) (i16x8)vaddw_high_u8(b, a)
 	#define mullou8(a, b) (u16x8)vmull_u8(vget_low_u8(a), vget_low_u8(b))
@@ -19,8 +17,6 @@
 	#define shlrrs32(a, l, r, off) (i32x4)vrshlq_s32(a, vdupq_n_s32((l) - (r)))
 	#define shrrs32(a, i, off) (i32x4)vrshrq_n_s32(a, i)
 	#define shrps32(a, b, i) (u8x16)vqshrn_high_n_s32(vqshrn_n_s32(a, i), b, i)
-	#define unziplo32(a, b) (i32x4)vuzp1q_s32(a, b)
-	#define unziphi32(a, b) (i32x4)vuzp2q_s32(a, b)
 	static always_inline i16x8 scale32(i32x4 c0, i32x4 c1, u16x8 ls, int mul, i32x4 off, i32x4 sh) {return vrshrn_high_n_s32(vrshrn_n_s32((i32x4)vmull_n_s16(vget_low_s16(ls), mul) * c0, 6), (i32x4)vmull_high_n_s16(ls, mul) * c1, 6);}
 #endif
 
@@ -338,7 +334,7 @@ static void transform_dc4x4(Edge264Context *ctx, int iYCbCr)
 		i32x4 r1 = (dc1 + s32) >> 6;
 		i32x4 r2 = (dc2 + s32) >> 6;
 		i32x4 r3 = (dc3 + s32) >> 6;
-		#if defined(__SSE2__)
+		#if defined(X86_INTRIN)
 			i16x8 lo0 = shuffle32(shufflelo(r0, 0, 0, 2, 2), 0, 0, 1, 1);
 			i16x8 lo1 = shuffle32(shufflelo(r1, 0, 0, 2, 2), 0, 0, 1, 1);
 			i16x8 lo2 = shuffle32(shufflelo(r2, 0, 0, 2, 2), 0, 0, 1, 1);
@@ -347,7 +343,7 @@ static void transform_dc4x4(Edge264Context *ctx, int iYCbCr)
 			i16x8 hi1 = shuffle32(shufflehi(r1, 0, 0, 2, 2), 2, 2, 3, 3);
 			i16x8 hi2 = shuffle32(shufflehi(r2, 0, 0, 2, 2), 2, 2, 3, 3);
 			i16x8 hi3 = shuffle32(shufflehi(r3, 0, 0, 2, 2), 2, 2, 3, 3);
-		#elif defined(__ARM_NEON)
+		#elif defined(ARM64_INTRIN)
 			i16x8 v0 = vtrn1q_s16(r0, r0);
 			i16x8 v1 = vtrn1q_s16(r1, r1);
 			i16x8 v2 = vtrn1q_s16(r2, r2);
@@ -433,12 +429,12 @@ static void transform_dc2x2(Edge264Context *ctx)
 		i32x4 s32 = set32(32); // for SSE
 		i32x4 rb = shrrs32(dcCb, 6, s32);
 		i32x4 rr = shrrs32(dcCr, 6, s32);
-		#if defined(__SSE2__)
+		#if defined(X86_INTRIN)
 			i16x8 lob = shuffle32(shufflelo(rb, 0, 0, 2, 2), 0, 0, 1, 1);
 			i16x8 lor = shuffle32(shufflelo(rr, 0, 0, 2, 2), 0, 0, 1, 1);
 			i16x8 hib = shuffle32(shufflehi(rb, 0, 0, 2, 2), 2, 2, 3, 3);
 			i16x8 hir = shuffle32(shufflehi(rr, 0, 0, 2, 2), 2, 2, 3, 3);
-		#elif defined(__ARM_NEON)
+		#elif defined(ARM64_INTRIN)
 			i16x8 vb = vtrn1q_s16(rb, rb);
 			i16x8 vr = vtrn1q_s16(rr, rr);
 			i16x8 lob = ziplo32(vb, vb);

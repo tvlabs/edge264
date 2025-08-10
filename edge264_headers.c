@@ -110,7 +110,7 @@ static void initialize_context(Edge264Context *ctx, int currPic)
 				tb.v[0] = packs16(ctx->t.diff_poc_v[0], ctx->t.diff_poc_v[1]);
 				tb.v[1] = packs16(ctx->t.diff_poc_v[2], ctx->t.diff_poc_v[3]);
 				ctx->MapPicToList0_v[0] = ctx->MapPicToList0_v[1] = (i8x16){}; // FIXME pictures not found in RefPicList0 should point to self
-				for (int refIdxL0 = ctx->t.pps.num_ref_idx_active[0], DistScaleFactor; refIdxL0-- > 0; ) {
+				for (int refIdxL0 = ctx->t.pps.num_ref_idx_active[0], DistScaleFactor = 0; refIdxL0-- > 0; ) {
 					int pic0 = ctx->t.RefPicList[0][refIdxL0];
 					ctx->MapPicToList0[pic0] = refIdxL0;
 					i16x8 diff0 = set16(ctx->t.diff_poc[pic0]);
@@ -299,9 +299,9 @@ static void recover_slice(Edge264Context *ctx, int currPic) {
  * It sets up recover_slice to go through all mbs and recover them while
  * setting their error probability to 100%.
  */
-static void recover_frame(Edge264Decoder *dec) {
+/*static void recover_frame(Edge264Decoder *dec) {
 	
-}
+}*/
 
 
 
@@ -912,7 +912,7 @@ int ADD_VARIANT(parse_slice_layer_without_partitioning)(Edge264Decoder *dec, int
 		// make enough non-referenced slots by dereferencing frames
 		int non_existing = min(gap - 1, sps->max_num_ref_frames - __builtin_popcount(same_views & dec->long_term_flags));
 		for (int excess = __builtin_popcount(same_views & dec->reference_flags) - (sps->max_num_ref_frames - non_existing); excess > 0; excess--) {
-			int unref, poc = INT_MAX;
+			int unref = 0, poc = INT_MAX;
 			for (unsigned r = same_views & dec->reference_flags & ~dec->long_term_flags; r; r &= r - 1) {
 				int i = __builtin_ctz(r);
 				if (dec->FrameNums[i] < poc)
@@ -923,7 +923,7 @@ int ADD_VARIANT(parse_slice_layer_without_partitioning)(Edge264Decoder *dec, int
 		// make enough non-outputable slots by raising dispTopFieldOrderCnt
 		unsigned output_flags = dec->output_flags;
 		for (int excess = __builtin_popcount(same_views & (dec->reference_flags | output_flags)) - (sps->num_frame_buffers - non_existing); excess > 0; excess--) {
-			int disp, poc = INT_MAX;
+			int disp = 0, poc = INT_MAX;
 			for (unsigned o = same_views & ~dec->reference_flags & output_flags; o; o &= o - 1) {
 				int i = __builtin_ctz(o);
 				if (dec->FieldOrderCnt[0][i] < poc)
@@ -1073,8 +1073,8 @@ int ADD_VARIANT(parse_slice_layer_without_partitioning)(Edge264Decoder *dec, int
 	dec->pic_LongTermFrameIdx_v[1] = dec->LongTermFrameIdx_v[1];
 	log_dec(dec, "  FrameId: %u\n", dec->FrameIds[dec->currPic]);
 	
-	// The first test could be optimised into a fast bit test, but would be less readable :)
-	if (t->slice_type == 0 || t->slice_type == 1) {
+	// P/B slices
+	if (t->slice_type < 2) {
 		if (t->slice_type == 1) {
 			t->direct_spatial_mv_pred_flag = get_u1(&dec->_gb);
 			log_dec(dec, "  direct_spatial_mv_pred_flag: %u\n",
@@ -1131,7 +1131,7 @@ int ADD_VARIANT(parse_slice_layer_without_partitioning)(Edge264Decoder *dec, int
 		int max_poc = INT_MIN;
 		for (unsigned o = dec->output_flags & same_views & ~(1 << dec->currPic); o; o &= o - 1)
 			max_poc = max(max_poc, dec->FieldOrderCnt[0][__builtin_ctz(o)]);
-		dec->dispTopFieldOrderCnt = -1 << 16;
+		dec->dispTopFieldOrderCnt = (unsigned)-1 << 16;
 		for (unsigned o = dec->output_flags & same_views & ~(1 << dec->currPic); o; o &= o - 1) {
 			int i = __builtin_ctz(o);
 			dec->FieldOrderCnt[0][i] -= max_poc + (1 << 16);
@@ -1284,7 +1284,7 @@ static void parse_scaling_lists(Edge264Decoder *dec, i8x16 *w4x4, i8x16 *w8x8, i
 				w8x8[2] = d8x8[2];
 				w8x8[3] = d8x8[3];
 			} else {
-				for (unsigned j = 0, lastScale;;) {
+				for (unsigned j = 0, lastScale = 0;;) {
 					((uint8_t *)w8x8)[((int8_t *)scan_8x8_cabac)[j]] = nextScale ?: lastScale;
 					if (++j >= 64)
 						break;
@@ -1373,7 +1373,7 @@ int ADD_VARIANT(parse_pic_parameter_set)(Edge264Decoder *dec, int non_blocking, 
 	pps.weighted_pred_flag = get_u1(&dec->_gb);
 	pps.weighted_bipred_idc = get_uv(&dec->_gb, 2);
 	pps.QPprime_Y = get_se16(&dec->_gb, -26, 25) + 26; // FIXME QpBdOffset
-	get_se16(&dec->_gb, -26, 25) + 26; // pic_init_qs
+	get_se16(&dec->_gb, -26, 25); // pic_init_qs
 	pps.second_chroma_qp_index_offset = pps.chroma_qp_index_offset = get_se16(&dec->_gb, -12, 12);
 	pps.deblocking_filter_control_present_flag = get_u1(&dec->_gb);
 	pps.constrained_intra_pred_flag = get_u1(&dec->_gb);
@@ -1432,8 +1432,8 @@ static void parse_hrd_parameters(Edge264Decoder *dec, Edge264SeqParameterSet *sp
 	int cpb_size_scale = get_uv(&dec->_gb, 4);
 	log_dec(dec, "%scpbs:\n", indent);
 	for (int i = 0; i < *cpb_cnt; i++) {
-		uint64_t bit_rate_value = get_ue32(&dec->_gb, 4294967294) + 1;
-		uint64_t cpb_size_value = get_ue32(&dec->_gb, 4294967294) + 1;
+		unsigned long long bit_rate_value = get_ue32(&dec->_gb, 4294967294) + 1;
+		unsigned long long cpb_size_value = get_ue32(&dec->_gb, 4294967294) + 1;
 		int cbr_flag = get_u1(&dec->_gb);
 		log_dec(dec, "%s  - {bit_rate: %llu, size: %llu, cbr_flag: %u}\n",
 			indent, bit_rate_value << (6 + bit_rate_scale), cpb_size_value << (4 + cpb_size_scale), cbr_flag);
@@ -1518,9 +1518,7 @@ static void parse_vui_parameters(Edge264Decoder *dec, Edge264SeqParameterSet *sp
 		log_dec(dec, "    aspect_ratio: {idc: %u, width: %u, height: %u}\n",
 			aspect_ratio_idc, sar_width, sar_height);
 	}
-	int overscan_appropriate_flag = -1;
-	if (get_u1(&dec->_gb))
-		overscan_appropriate_flag = get_u1(&dec->_gb);
+	int overscan_appropriate_flag = get_u1(&dec->_gb) ? get_u1(&dec->_gb) : -1;
 	log_dec(dec, "    overscan_appropriate_flag: %d\n",
 		overscan_appropriate_flag);
 	if (get_u1(&dec->_gb)) {
@@ -1799,7 +1797,8 @@ int ADD_VARIANT(parse_seq_parameter_set)(Edge264Decoder *dec, int non_blocking, 
 			"  qpprime_y_zero_transform_bypass_flag: %u%s\n",
 			sps.BitDepth_Y, sps.BitDepth_C, unsup_if(sps.BitDepth_Y + sps.BitDepth_Y != 16),
 			sps.qpprime_y_zero_transform_bypass_flag, unsup_if(sps.qpprime_y_zero_transform_bypass_flag));
-		if (seq_scaling_matrix_present_flag = get_u1(&dec->_gb)) {
+		seq_scaling_matrix_present_flag = get_u1(&dec->_gb);
+		if (seq_scaling_matrix_present_flag) {
 			sps.weightScale4x4_v[0] = Default_4x4_Intra;
 			sps.weightScale4x4_v[3] = Default_4x4_Inter;
 			for (int i = 0; i < 4; i++) {

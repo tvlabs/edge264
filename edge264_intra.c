@@ -23,7 +23,7 @@
 
 #include "edge264_internal.h"
 
-#if defined(__SSE2__)
+#if defined(X86_INTRIN)
 	#define ldedge4x4() shrd128(ziplo16(ziplo8(load32(P(-4, 3)), load32(P(-4, 2))), ziplo8(load32(P(-4, 1)), load32(P(-4, 0)))), load64(P(-1, -1)), 12)
 	#define ldedge8x8lo() ({i8x16 _v7 = load64(P(-8, 7)); shuffleps(_v7, ziphi32(ziphi16(ziplo8(_v7, load64(P(-8, 6))), ziplo8(load64(P(-8, 5)), load64(P(-8, 4)))), ziplo16(ziplo8(load32(P(-4, 3)), load32(P(-4, 2))), ziplo8(load32(P(-4, 1)), load32(P(-4, 0))))), 0, 1, 2, 3);})
 	#define ldleft3(v0, y1, y2, y3) shr128(ziplo16(ziplo8((u32x4)(v0) << 24, load32(P(-4, y1))), ziplo8(load32(P(-4, y2)), load32(P(-4, y3)))), 12)
@@ -34,7 +34,7 @@
 	#define spreadh8(a) shuffle(a, (i8x16){0, 1, 2, 3, 4, 5, 6, 7, 7, 7, 7, 7, 7, 7, 7, 7})
 	#define spreadq8(a) shuffle(a, (i8x16){0, 1, 2, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3})
 	static always_inline i8x16 lowpass8(i8x16 l, i8x16 m, i8x16 r) {return avgu8(subu8(avgu8(l, r), (l ^ r) & set8(1)), m);}
-#elif defined(__ARM_NEON)
+#elif defined(ARM64_INTRIN)
 	#define addlou8(a, b) (i16x8)vaddl_u8(vget_low_s8(a), vget_low_s8(b))
 	#define ldedge4x4() ({i8x16 _v = load128(P(-5, -1)); _v[3] = *P(-1, 0); _v[2] = *P(-1, 1); _v[1] = *P(-1, 2); _v[0] = *P(-1, 3); _v;})
 	#define ldedge8x8lo() ({i8x16 _v = set8(*P(-1, 7)); _v[15] = *P(-1, 0); _v[14] = *P(-1, 1); _v[13] = *P(-1, 2); _v[12] = *P(-1, 3); _v[11] = *P(-1, 4); _v[10] = *P(-1, 5); _v[9] = *P(-1, 6); _v;})
@@ -450,7 +450,7 @@ static void decode_intra16x16(int mode, uint8_t * restrict p, size_t stride, i16
 		i8x16 tr = load64(P(8, -1));
 		i8x16 lt = ldleft7(tl, 0, 1, 2, 3, 4, 5, 6);
 		i8x16 lb = ldleft8(8, 9, 10, 11, 12, 13, 14, 15);
-		#if defined(__SSE2__)
+		#if defined(X86_INTRIN)
 			i8x16 m = {-8, -7, -6, -5, -4, -3, -2, -1, 1, 2, 3, 4, 5, 6, 7, 8};
 			i16x8 mul = ziphi8(m, (i8x16){});
 			i16x8 v0 = maddubs(ziplo64(tl, tr), m);
@@ -459,7 +459,7 @@ static void decode_intra16x16(int mode, uint8_t * restrict p, size_t stride, i16
 			i16x8 v3 = v2 + (i16x8)shr128(v2, 8);
 			i16x8 HV = v3 + shufflelo(v3, 1, 0, 3, 2); // H, H, V, V
 			i16x8 a = (broadcast16((i16x8)shr128(tr, 7) + (i16x8)shr128(lb, 7), 0) - -1) << 4;
-		#elif defined(__ARM_NEON)
+		#elif defined(ARM64_INTRIN)
 			i16x8 mul = {1, 2, 3, 4, 5, 6, 7, 8};
 			i16x8 v0 = sublou8(tr, vrev64q_s8(tl)) * mul;
 			i16x8 v1 = sublou8(lb, vrev64q_s8(lt)) * mul;
@@ -523,7 +523,7 @@ static void decode_intraChroma(int mode, uint8_t * restrict p, size_t stride, i1
 		rl = ldleft8(1, 3, 5, 7, 9, 11, 13, 15);
 		shuf = shufDC;
 	chroma_dc_8x8_sum: {
-		#if defined(__SSE2__)
+		#if defined(X86_INTRIN)
 			i8x16 b = ziplo64(bt, bl);
 			i8x16 r = ziplo64(rt, rl);
 			i16x8 b01 = sumh8(shuffle32(b, 0, 2, 1, 1));
@@ -532,7 +532,7 @@ static void decode_intraChroma(int mode, uint8_t * restrict p, size_t stride, i1
 			i16x8 r23 = sumh8(shuffle32(r, 3, 3, 1, 3));
 			bpred = shuffle(shrru16(packs32(b01, b23), 3), shuf);
 			rpred = shuffle(shrru16(packs32(r01, r23), 3), shuf);
-		#elif defined(__ARM_NEON)
+		#elif defined(ARM64_INTRIN)
 			i8x16 t = ziplo64(bt, rt);
 			i8x16 l = ziplo64(bl, rl);
 			i16x8 v0 = vpaddlq_u8(vtrn1q_s32(t, l)); // top-left sums
@@ -592,7 +592,7 @@ static void decode_intraChroma(int mode, uint8_t * restrict p, size_t stride, i1
 		i8x16 rlt = ldleft3(rtl, 1, 3, 5);
 		i8x16 blb = ldleft4(8, 10, 12, 14);
 		i8x16 rlb = ldleft4(9, 11, 13, 15);
-		#if defined(__SSE2__)
+		#if defined(X86_INTRIN)
 			i8x16 n = {-4, -3, -2, -1, -4, -3, -2, -1, -4, -3, -2, -1, -4, -3, -2, -1};
 			i8x16 m = {1, 2, 3, 4, 1, 2, 3, 4, 1, 2, 3, 4, 1, 2, 3, 4};
 			i8x16 v0 = ziplo32(btr, rtr);
@@ -604,7 +604,7 @@ static void decode_intraChroma(int mode, uint8_t * restrict p, size_t stride, i1
 			i16x8 HV = v4 + shufflelo(shufflehi(v4, 1, 0, 3, 2), 1, 0, 3, 2); // Hb,Hb,Hr,Hr,Vb,Vb,Vr,Vr
 			i16x8 ba = broadcast16(v5, 0); // 16..8176
 			i16x8 ra = broadcast16(v5, 2); // 16..8176
-		#elif defined(__ARM_NEON)
+		#elif defined(ARM64_INTRIN)
 			i16x8 v0 = sublou8(ziplo32(btr, rtr), vrev32q_s8(ziplo32(btl, rtl)));
 			i16x8 v1 = sublou8(ziplo32(blb, rlb), vrev32q_s8(ziplo32(blt, rlt)));
 			i16x8 m = {1, 2, 3, 4, 1, 2, 3, 4};

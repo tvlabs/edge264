@@ -570,9 +570,9 @@ enum IntraChromaModes {
 		return 0;
 	}
 #else
-	#define log_dec(...) ((void)0)
+	#define log_dec(...)
 	#define print_dec(...) (0)
-	#define log_mb(...) ((void)0)
+	#define log_mb(...)
 	#define print_mb(...) (0)
 #endif
 static always_inline const char *unsup_if(int cond) { return cond ? " # unsupported" : ""; }
@@ -604,15 +604,30 @@ static always_inline const char *unsup_if(int cond) { return cond ? " # unsuppor
 
 
 /**
+ * Select vector dialect if not specified.
+ */
+#if !defined(X86_INTRIN) && !defined(ARM64_INTRIN)
+	#if defined(__SSE2__)
+		#define X86_INTRIN
+	#elif defined(__ARM_NEON)
+		#define ARM64_INTRIN
+	#else
+		#error "Unsupported target architecture"
+	#endif
+#endif
+
+
+
+/**
  * These macros provide efficient addressing for different architectures.
  * Call INIT_P() to compute anchor addresses (expects variables uint8_t* p and
  * size_t stride), then P(x,y) will return p + x + y * stride.
  */
-#if defined(__SSE2__)
+#if defined(X86_INTRIN)
 	#define INIT_P() ssize_t _strideT = -stride; uint8_t * restrict _p7 = p + stride * 8 + _strideT, * restrict _pE = _p7 + stride * 8 + _strideT
 	#define P(x, y) (__builtin_choose_expr(y == -2 || y == -1 || y == 0 || y == 1 || y == 2 || y == 4, p, __builtin_choose_expr(y == 3 || y == 5 || y == 6 || y == 7 || y == 8 || y == 9 || y == 11, _p7, _pE)) +\
 		x + __builtin_choose_expr(y == 0 || y == 7 || y == 14, 0, __builtin_choose_expr(y == 1 || y == 8 || y == 15, stride, __builtin_choose_expr(y == 2 || y == 9, stride * 2, __builtin_choose_expr(y == 3 || y == 10, _strideT * 4, __builtin_choose_expr(y == 4 || y == 11, stride * 4, __builtin_choose_expr(y == -2 || y == 5 || y == 12, _strideT * 2, _strideT)))))))
-#elif defined(__ARM_NEON)
+#elif defined(ARM64_INTRIN)
 	#define INIT_P() uint8_t * restrict _p0 = p - 1, * restrict _p2 = _p0 + stride * 2, * restrict _p4 = _p0 + stride * 4, * restrict _p6 = _p2 + stride * 4, * restrict _p8 = _p0 + stride * 8, * restrict _pA = _p2 + stride * 8, * restrict _pC = _p4 + stride * 8, * restrict _pE = _p6 + stride * 8, * restrict _pT = _p0 - stride, * restrict _pU = _p0 - stride * 2;\
 		size_t _stride0 = stride + 1
 	#define P(x, y) (__builtin_choose_expr(y < -1, _pU, __builtin_choose_expr(y < 0, _pT, __builtin_choose_expr(y < 2, _p0, __builtin_choose_expr(y < 4, _p2, __builtin_choose_expr(y < 6, _p4, __builtin_choose_expr(y < 8, _p6, __builtin_choose_expr(y < 10, _p8, __builtin_choose_expr(y < 12, _pA, __builtin_choose_expr(y < 14, _pC, _pE))))))))) +\
@@ -671,8 +686,8 @@ static always_inline const char *unsup_if(int cond) { return cond ? " # unsuppor
  * _ ziploN - interleave the low N-bit elements from two vectors
  * _ ziphiN - interleave the high N-bit elements from two vectors
  */
-#if defined(__SSE2__)
-	#include <x86intrin.h>
+#if defined(X86_INTRIN)
+	#include <immintrin.h>
 	#define adds16(a, b) (i16x8)_mm_adds_epi16(a, b)
 	#define addu8(a, b) (i8x16)_mm_adds_epu8(a, b)
 	#define avgu8(a, b) (i8x16)_mm_avg_epu8(a, b)
@@ -726,7 +741,11 @@ static always_inline const char *unsup_if(int cond) { return cond ? " # unsuppor
 	#define ziphi16(a, b) (i16x8)_mm_unpackhi_epi16(a, b)
 	#define ziphi32(a, b) (i32x4)_mm_unpackhi_epi32(a, b)
 	#define ziphi64(a, b) (i64x2)_mm_unpackhi_epi64(a, b)
-	static always_inline size_t shld(size_t l, size_t h, int i) {asm("shld %%cl, %1, %0" : "+rm" (h) : "r" (l), "c" (i)); return h;}
+	#ifndef __wasm__ // does not support inline asm
+		static always_inline size_t shld(size_t l, size_t h, int i) {asm("shld %%cl, %1, %0" : "+rm" (h) : "r" (l), "c" (i)); return h;}
+	#else
+		static always_inline size_t shld(size_t l, size_t h, int i) {return h << i | l >> (SIZE_BIT - i);}
+	#endif
 	#ifdef __SSE4_1__
 		#define cvtlo8u16(a) (i16x8)_mm_cvtepu8_epi16(a)
 		#define cvtlo8s16(a) (i16x8)_mm_cvtepi8_epi16(a)
@@ -791,7 +810,7 @@ static always_inline const char *unsup_if(int cond) { return cond ? " # unsuppor
 		static always_inline i8x16 shufflez2(const i8x16 *p, i8x16 m) { return shuffle2(p, m) & ~(0 > m); }
 		static always_inline i8x16 shuffle3(const i8x16 *p, i8x16 m) {union { int8_t q[16]; i8x16 v; } _m = {.v = minu8(m, set8(47))}; for (int i = 0; i < 16; i++) _m.q[i] = ((int8_t *)p)[_m.q[i]]; return _m.v;}
 	#endif
-#elif defined(__ARM_NEON)
+#elif defined(ARM64_INTRIN)
 	#include <arm_neon.h>
 	static const int8_t shz_mask[48] = {
 		-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
@@ -861,8 +880,6 @@ static always_inline const char *unsup_if(int cond) { return cond ? " # unsuppor
 	#define shufflez shuffle
 	#define shufflez2 shuffle2
 	#define sumh8 sum8
-#else // add other architectures here
-	#error "Use a supported architecture (SSE or NEON)"
 #endif
 
 
@@ -871,8 +888,8 @@ static always_inline const char *unsup_if(int cond) { return cond ? " # unsuppor
  * Helper functions
  */
 #ifndef min
-static always_inline int min(int a, int b) { return (a < b) ? a : b; }
-static always_inline int max(int a, int b) { return (a > b) ? a : b; }
+	static always_inline int min(int a, int b) { return (a < b) ? a : b; }
+	static always_inline int max(int a, int b) { return (a > b) ? a : b; }
 #endif
 static always_inline unsigned minu(unsigned a, unsigned b) { return (a < b) ? a : b; }
 static always_inline unsigned maxu(unsigned a, unsigned b) { return (a > b) ? a : b; }

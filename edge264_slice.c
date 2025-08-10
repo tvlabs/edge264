@@ -898,7 +898,7 @@ static noinline void CAFUNC(parse_I_mb, int mb_type_or_ctxIdx)
 			"      bits_C: %u\n",
 			ctz(ctx->t.samples_clip[0][0] + 1), ctz(ctx->t.samples_clip[1][0] + 1));
 		for (int iYCbCr = 0; iYCbCr < 3; iYCbCr++) {
-			log_mb(ctx, "      %s: [", "Y\0\0Cb\0Cr" + iYCbCr * 3);
+			log_mb(ctx, "      %s: [", (const char *)"Y\0\0Cb\0Cr" + iYCbCr * 3);
 			int BitDepth = ctz(ctx->t.samples_clip[iYCbCr][0] + 1);
 			for (uint8_t *p = ctx->samples_mb[iYCbCr]; y-- > 0; p += ctx->t.stride[iYCbCr]) {
 				if (BitDepth == 8) {
@@ -1007,7 +1007,7 @@ static i16x8 CAFUNC(parse_mvd_pair, const uint8_t *absMvd_lx, int i4x4) {
 			
 			if (++i == 2) {
 				res[1] = mvd;
-				log_mb(ctx, "    \"%lu\": [%d,%d]\n", absMvd_lx - mb->absMvd + i4x4, res[0], mvd);
+				log_mb(ctx, "    \"%tu\": [%d,%d]\n", absMvd_lx - mb->absMvd + i4x4, res[0], mvd);
 				return res;
 			}
 			ctxBase = 47;

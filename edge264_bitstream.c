@@ -41,7 +41,7 @@ static inline size_t get_bytes(Edge264GetBits *gb, int nbytes)
 	// make a bitmask for the positions of 00n escape sequences and iterate on it
 	u8x16 eq0 = v == 0;
 	u8x16 x = shr128(v, 2);
-	#if defined(__SSE2__)
+	#if defined(X86_INTRIN)
 		unsigned esc = movemask(eq0 & shr128(eq0, 1) & (x <= 3));
 		if (__builtin_expect(esc, 0)) {
 			while (esc & ((1 << nbytes) - 1)) {
@@ -57,7 +57,7 @@ static inline size_t get_bytes(Edge264GetBits *gb, int nbytes)
 				CPB++;
 			}
 		}
-	#elif defined(__ARM_NEON)
+	#elif defined(ARM64_INTRIN)
 		uint64_t esc = (uint64_t)vshrn_n_u16(eq0 & shr128(eq0, 1) & (x <= 3), 4);
 		if (__builtin_expect(esc, 0)) {
 			esc &= 0x8888888888888888ULL;
@@ -336,10 +336,10 @@ static void cabac_init(Edge264Context *ctx) {
 	i8x16 c1 = set8(1), c64 = set8(64), c126 = set8(126);
 	const i8x16 *src = (i8x16 *)cabac_context_init[ctx->t.cabac_init_idc];
 	for (i8x16 *dst = ctx->cabac_v; dst < ctx->cabac_v + 64; dst++, src += 2) {
-		#if defined(__SSE2__)
+		#if defined(X86_INTRIN)
 			i16x8 sum0 = maddubs(mul, src[0]) >> 4;
 			i16x8 sum1 = maddubs(mul, src[1]) >> 4;
-		#elif defined(__ARM_NEON)
+		#elif defined(ARM64_INTRIN)
 			i16x8 l0 = vmull_s8(vget_low_s8(mul), vget_low_s8(src[0]));
 			i16x8 h0 = vmull_high_s8(mul, src[0]);
 			i16x8 l1 = vmull_s8(vget_low_s8(mul), vget_low_s8(src[1]));

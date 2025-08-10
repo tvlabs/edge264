@@ -33,12 +33,12 @@ edge264 is entirely developed in C using 128-bit [vector extensions](https://gcc
 
 Here are the `make` options for tuning the compiled library file:
 
-* `CC` - C compiler used to convert source file to object files (default `cc`)
-* `CFLAGS` - additional compilation flags passed to `CC`
-* `ARCH` - target architecture that will be passed to -march (default `native`)
-* `OS` - target operating system (defaults to host)
-* `TARGETCC` - C compiler used to link object files into library file (defaults to `CC`)
+* `CC` - C compiler used to convert source files to object files (default `cc`)
+* `CFLAGS` - additional compilation flags passed to `CC` and `TARGETCC`
+* `TARGETCC` - C compiler used to link object files into library file (default `CC`)
 * `LDFLAGS` - additional compilation flags passed to `TARGETCC`
+* `INTRINSICS` - vector dialect used among `x86`|`ARM64`|`Clang` (default based on [target](https://wiki.osdev.org/Target_Triplet))
+* `TARGETOS` - resulting file naming convention among `Windows`|`Linux`|`Darwin` (default host)
 * `VARIANTS` - comma-separated list of additional variants included in the library and selected at runtime (default `logs`)
 	* `x86-64-v2` - variant compiled for x86-64 microarchitecture level 2 (SSSE3, SSE4.1 and POPCOUNT)
 	* `x86-64-v3` - variant compiled for x86-64 microarchitecture level 3 (AVX2, BMI, LZCNT, MOVBE)
@@ -46,7 +46,7 @@ Here are the `make` options for tuning the compiled library file:
 * `BUILD_TEST` - toggles compilation of `edge264_test` (default `yes`)
 
 ```sh
-$ make ARCH=x86-64 VARIANTS=x86-64-v2,x86-64-v3 BUILD_TEST=no # example release build
+$ make CFLAGS="-march=x86-64" VARIANTS=x86-64-v2,x86-64-v3 BUILD_TEST=no # example x86 release build
 ```
 
 The automated test program `edge264_test` can browse files in a given directory, decoding each `<video>.264` file and comparing its output with each sibling file `<video>.yuv` if found. On the set of AVCv1, FRExt and MVC [conformance bitstreams](https://www.itu.int/wftp3/av-arch/jvt-site/draft_conformance/), 109/224 files are decoded without errors, the rest using yet unsupported features.

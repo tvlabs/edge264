@@ -37,7 +37,7 @@ Here are the `make` options for tuning the compiled library file:
 * `CFLAGS` - additional compilation flags passed to `CC` and `TARGETCC`
 * `TARGETCC` - C compiler used to link object files into library file (default `CC`)
 * `LDFLAGS` - additional compilation flags passed to `TARGETCC`
-* `INTRINSICS` - vector dialect used among `x86`|`ARM64`|`Clang` (default based on [target](https://wiki.osdev.org/Target_Triplet))
+* `INTRINSICS` - vector dialect used among `x86`|`ARM64` (default based on [target](https://wiki.osdev.org/Target_Triplet))
 * `TARGETOS` - resulting file naming convention among `Windows`|`Linux`|`Darwin` (default host)
 * `VARIANTS` - comma-separated list of additional variants included in the library and selected at runtime (default `logs`)
 	* `x86-64-v2` - variant compiled for x86-64 microarchitecture level 2 (SSSE3, SSE4.1 and POPCOUNT)

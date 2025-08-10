@@ -1,6 +1,6 @@
 #include "edge264_internal.h"
 
-#if defined(X86_INTRIN)
+#if defined(__SSE2__)
 	static const i8x16 mul15 = {1, -5, 1, -5, 1, -5, 1, -5, 1, -5, 1, -5, 1, -5, 1, -5};
 	static const i8x16 mul20 = {20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20};
 	static const i8x16 mul51 = {-5, 1, -5, 1, -5, 1, -5, 1, -5, 1, -5, 1, -5, 1, -5, 1};
@@ -45,7 +45,7 @@
 		i8x16 _##b##8 = ziphi8(b, _##b##1);\
 		i16x8 v0 = maddubs(_##a##0, mul15) + maddubs(shrd128(_##a##0, _##b##0, 4), mul20) + maddubs(shrd128(_##a##0, _##b##0, 8), mul51);\
 		i16x8 v1 = maddubs(_##b##0, mul15) + maddubs(shrd128(_##b##0, _##b##8, 4), mul20) + maddubs(shrd128(_##b##0, _##b##8, 8), mul51)
-#elif defined(ARM64_INTRIN)
+#elif defined(__ARM_NEON)
 	static const i16x8 mul205 = {20, -5};
 	#ifdef __clang__ // reimplement vmlaq_s16 to prevent clang from splitting it
 		#define mla16(a, b, c) ({i8x16 _a = a; asm("mla %0.8h, %1.8h, %2.8h" : "+w" (_a) : "w" (b), "w" (c)); _a;})
@@ -224,13 +224,13 @@ static void decode_inter_luma(int mode, int h, size_t sstride, const uint8_t * r
 	ssize_t nstride = -sstride, dstride3 = dstride * 3;
 	const uint8_t * restrict src0 = src2 - 2;
 	#define sstride3 (sstride * 3)
-	#if defined(X86_INTRIN)
+	#if defined(__SSE2__)
 		#define sstride2 (sstride * 2)
 		#define sstride4 (sstride * 4)
 		#define nstride2 (nstride * 2)
 		#define dstride2 (dstride * 2)
 		#define dstride4 (dstride * 4)
-	#elif defined(ARM64_INTRIN)
+	#elif defined(__ARM_NEON)
 		ssize_t sstride2 = sstride * 2, sstride4 = sstride * 4, nstride2 = nstride * 2;
 		ssize_t dstride2 = dstride * 2, dstride4 = dstride * 4;
 	#endif
@@ -263,9 +263,9 @@ static void decode_inter_luma(int mode, int h, size_t sstride, const uint8_t * r
 			i16x8 h01 = shrrpus16(sixtapH4(l2, l3), sixtapH4(l4, l5), 5);
 			i8x16 s0 = shuffle(ziplo64(l2, l3), shufx);
 			i8x16 s1 = shuffle(ziplo64(l4, l5), shufx);
-			#if defined(X86_INTRIN)
+			#if defined(__SSE2__)
 				i8x16 s = shuffleps(s0, s1, 0, 2, 0, 2);
-			#elif defined(ARM64_INTRIN)
+			#elif defined(__ARM_NEON)
 				i8x16 s = vuzp1q_s32(s0, s1);
 			#endif
 			i32x4 q = load4x4(dst, dst + dstride, dst + dstride2, dst + dstride3);
@@ -290,14 +290,14 @@ static void decode_inter_luma(int mode, int h, size_t sstride, const uint8_t * r
 			i8x16 m22 = shrd128(m12, m52, 4);
 			i8x16 m32 = shrd128(m12, m52, 8);
 			i8x16 m42 = shrd128(m12, m52, 12);
-			#if defined(X86_INTRIN)
+			#if defined(__SSE2__)
 				i8x16 x0 = ziplo8(m02, m12);
 				i8x16 x1 = ziplo8(m22, m32);
 				i8x16 x2 = ziplo8(m42, m52);
 				i8x16 x3 = ziphi8(m42, m52);
 				i16x8 v0 = maddubs(x0, mul15) + maddubs(x1, mul20) + maddubs(x2, mul51);
 				i16x8 v1 = maddubs(x1, mul15) + maddubs(x2, mul20) + maddubs(x3, mul51);
-			#elif defined(ARM64_INTRIN)
+			#elif defined(__ARM_NEON)
 				i16x8 v0 = sixtapVlo(m02, m12, m22, m32, m42, m52);
 				i16x8 v1 = sixtapVhi(m02, m12, m22, m32, m42, m52);
 			#endif
@@ -378,7 +378,7 @@ static void decode_inter_luma(int mode, int h, size_t sstride, const uint8_t * r
 			i8x16 l8 = load128(src0 + sstride2);
 			i8x16 r0 = ziplo16(ziphi8(l0, l1), ziphi8(l2, l3));
 			i8x16 r1 = ziplo16(ziphi8(l4, l5), ziphi8(l6, l7));
-			#if defined(X86_INTRIN)
+			#if defined(__SSE2__)
 				i8x16 r2 = shuffleps(ziplo32(r0, r1), l8, 0, 1, 2, 3);
 				i8x16 r3 = ziplo8(r2, shr128(r2, 1));
 				i8x16 r4 = shuffle32(r3, 1, 2, 0, 0); // only the first two indices matter
@@ -404,7 +404,7 @@ static void decode_inter_luma(int mode, int h, size_t sstride, const uint8_t * r
 				i16x8 m03 = shuffleps(v01, v11, 1, 2, 1, 2);
 				i16x8 m22 = shuffleps(v20, v30, 1, 2, 1, 2);
 				i16x8 m23 = shuffleps(v21, v31, 1, 2, 1, 2);
-			#elif defined(ARM64_INTRIN)
+			#elif defined(__ARM_NEON)
 				i8x16 r2 = vcopyq_laneq_s64(ziplo32(r0, r1), 1, l8, 1);
 				i16x8 v08 = sixtapH8(r2);
 				i16x8 v00 = sixtapVlo(l0, l1, l2, l3, l4, l5);
@@ -808,7 +808,7 @@ static void decode_inter_luma(int mode, int h, size_t sstride, const uint8_t * r
 		} return;
 	}
 	#undef sstride3
-	#if defined(X86_INTRIN)
+	#if defined(__SSE2__)
 		#undef sstride2
 		#undef sstride4
 		#undef nstride2
@@ -825,7 +825,7 @@ static void decode_inter_luma(int mode, int h, size_t sstride, const uint8_t * r
  * dstride and sstride are half the strides of src and dst chroma planes.
  * Here SSE and NEON algorithms are very different thus are kept separate.
  */
-#if defined(X86_INTRIN)
+#if defined(__SSE2__)
 	static void decode_inter_chroma(int w, int h, size_t dstride, uint8_t *dst, size_t sstride, const uint8_t *src, i8x16 ABCD, i8x16 wod) {
 		i8x16 wo32 = shufflehi(shufflelo(wod, 1, 1, 2, 2), 0, 0, 1, 1);
 		i64x2 wd64 = shr128(wod, 14);
@@ -909,7 +909,7 @@ static void decode_inter_luma(int mode, int h, size_t sstride, const uint8_t * r
 			} while (h -= 4);
 		}
 	}
-#elif defined(ARM64_INTRIN)
+#elif defined(__ARM_NEON)
 	static void decode_inter_chroma(int w, int h, size_t dstride, uint8_t *dst, size_t sstride, const uint8_t *src, i8x16 ABCD, i8x16 wod) {
 		i16x8 w16 = vmovl_s8(vget_low_s8(wod));
 		i16x8 wd16 = -broadcast16(wod, 7);

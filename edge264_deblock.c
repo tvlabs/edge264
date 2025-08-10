@@ -1,9 +1,9 @@
 #include "edge264_internal.h"
 
-#if defined(X86_INTRIN)
+#if defined(__SSE2__)
 	#define packabd16(a, b, c, d) abs8(packs16(subs16(a, b), subs16(c, d)))
 	#define trnlo32(a) shuffle32(a, 0, 0, 2, 2)
-#elif defined(ARM64_INTRIN)
+#elif defined(__ARM_NEON)
 	#define packabd16(a, b, c, d) vqmovn_high_u16(vqmovn_u16(vabdq_s16(a, b)), vabdq_s16(c, d))
 	static always_inline i32x4 trnlo32(i32x4 a) {return vtrn1q_s32(a, a);}
 #endif
@@ -31,7 +31,7 @@ static always_inline i8x16 expand2(int64_t a) {
  * of registers. In these cases note that alpha and beta may contain zero and
  * non-zero values, so we cannot use alpha-1 or beta-1.
  */
-#if defined(X86_INTRIN)
+#if defined(__SSE2__)
 	#define DEBLOCK_LUMA_SOFT(p2, p1, p0, q0, q1, q2, ialpha, ibeta, itC0) {\
 		/* compute the opposite of filterSamplesFlags as a mask, and transfer the mask bS=0 from tC0 */\
 		i8x16 pq0 = subu8(p0, q0);\
@@ -90,7 +90,7 @@ static always_inline i8x16 expand2(int64_t a) {
 		i8x16 ndelta = minu8(subu8(c128, x3), ftC); /* -delta if delta<0 */\
 		p0 = subu8(addu8(p0, delta), ndelta);\
 		q0 = subu8(addu8(q0, ndelta), delta);}
-#elif defined(ARM64_INTRIN)
+#elif defined(__ARM_NEON)
 	#define DEBLOCK_LUMA_SOFT(p2, p1, p0, q0, q1, q2, ialpha, ibeta, itC0) {\
 		/* compute all common masks */\
 		u8x16 alpha = set8(ialpha);\
@@ -145,7 +145,7 @@ static always_inline i8x16 expand2(int64_t a) {
  * 
  * The luma filter uses beta-1 thus should not be used with beta=0.
  */
-#if defined(X86_INTRIN)
+#if defined(__SSE2__)
 	#define DEBLOCK_LUMA_HARD(p3, p2, p1, p0, q0, q1, q2, q3, ialpha, ibeta) {\
 		/* compute the opposite of filterSamplesFlags, and condition masks for filtering modes */\
 		i8x16 alpha = set8(ialpha);\
@@ -210,7 +210,7 @@ static always_inline i8x16 expand2(int64_t a) {
 		i8x16 qp0b = avgu8(q1, avgu8(q0, p1) - ((q0 ^ p1) & c1)); /* q'0 (second formula) */\
 		p0 = ifelse_mask(ignoreSamplesFlags, p0, pp0b);\
 		q0 = ifelse_mask(ignoreSamplesFlags, q0, qp0b);}
-#elif defined(ARM64_INTRIN)
+#elif defined(__ARM_NEON)
 	#define DEBLOCK_LUMA_HARD(p3, p2, p1, p0, q0, q1, q2, q3, ialpha, ibeta) {\
 		/* common masks */\
 		u8x16 alpha = set8(ialpha);\
@@ -269,11 +269,11 @@ static always_inline i8x16 expand2(int64_t a) {
  * Call INIT_PX(p, stride) once to compute anchor addresses, then PX(x,y) will
  * return p + x + y * stride.
  */
-#if defined(X86_INTRIN)
+#if defined(__SSE2__)
 	#define INIT_PX(p, stride) size_t _stride = (stride); ssize_t _nstride = -_stride; uint8_t * restrict _p0 = (p), * restrict _p7 = _p0 + _stride * 8 + _nstride, * restrict _pE = _p7 + _stride * 8 + _nstride
 	#define PX(x, y) (__builtin_choose_expr(y <= 2 || y == 4, _p0, __builtin_choose_expr(y <= 9 || y == 11, _p7, _pE)) +\
 		__builtin_choose_expr(y < 0, x - y * _nstride, __builtin_choose_expr(y == 0 || y == 7 || y == 14, x, __builtin_choose_expr(y == 1 || y == 8 || y == 15, x + _stride, __builtin_choose_expr(y == 2 || y == 9, x + _stride * 2, __builtin_choose_expr(y == 3 || y == 10, x + _nstride * 4, __builtin_choose_expr(y == 4 || y == 11, x + _stride * 4, __builtin_choose_expr(y == 5 || y == 12, x + _nstride * 2, x + _nstride))))))))
-#elif defined(ARM64_INTRIN)
+#elif defined(__ARM_NEON)
 	#define INIT_PX(p, stride) size_t _stride = (stride), _stridem2 = _stride - 2, _stridem4 = _stride - 4, _stridem8 = _stride - 8; uint8_t * restrict _p0 = (p), * restrict _p2 = _p0 + _stride * 2, * restrict _p4 = _p0 + _stride * 4, * restrict _p6 = _p2 + _stride * 4, * restrict _p8 = _p0 + _stride * 8, * restrict _pA = _p2 + _stride * 8, * restrict _pC = _p4 + _stride * 8, * restrict _pE = _p6 + _stride * 8
 	#define PX(x, y) (__builtin_choose_expr(y < 2, _p0, __builtin_choose_expr(y < 4, _p2, __builtin_choose_expr(y < 6, _p4, __builtin_choose_expr(y < 8, _p6, __builtin_choose_expr(y < 10, _p8, __builtin_choose_expr(y < 12, _pA, __builtin_choose_expr(y < 14, _pC, _pE))))))) +\
 		__builtin_choose_expr(y < 0 || y > 15, x + y * _stride, __builtin_choose_expr((y & 1) == 0, x, __builtin_choose_expr(x == 0, _stride, __builtin_choose_expr(x == -2, _stridem2, __builtin_choose_expr(x == -4, _stridem4, __builtin_choose_expr(x == -8, _stridem8, x + _stride)))))))
@@ -923,10 +923,10 @@ static noinline void deblock_mb(Edge264Context *ctx)
 	i32x4 qPAB = {(int32_t)mbA->QP_s, (int32_t)mbB->QP_s};
 	i8x16 qPav = avgu8(qP, ziplo64(qP, qPAB)); // mid/mid/A/B
 	i8x16 c51 = set8(51);
-	#if defined(X86_INTRIN)
+	#if defined(__SSE2__)
 		i8x16 indexA = minu8(max8(qPav + set8(ctx->t.FilterOffsetA), zero), c51);
 		i8x16 indexB = minu8(max8(qPav + set8(ctx->t.FilterOffsetB), zero), c51);
-	#elif defined(ARM64_INTRIN)
+	#elif defined(__ARM_NEON)
 		i8x16 indexA = minu8(vsqaddq_u8(qPav, set8(ctx->t.FilterOffsetA)), c51);
 		i8x16 indexB = minu8(vsqaddq_u8(qPav, set8(ctx->t.FilterOffsetB)), c51);
 	#endif

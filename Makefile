@@ -10,7 +10,7 @@ WARNINGS := -Wno-override-init
 override CFLAGS := -march=native -std=gnu11 -O3 -flax-vector-conversions $(if $(findstring Windows,$(TARGETOS)),,-fpic) $(WARNINGS) $(CFLAGS)
 TCLINUX := -Wl,-soname,libedge264.so.$(MAJOR) -Wl,-rpath,'$$ORIGIN'
 override LDFLAGS := -pthread $(if $(findstring Linux,$(TARGETOS)),$(TCLINUX),) $(LDFLAGS)
-DINTRINSICS := $(if $(findstring x86,$(INTRINSICS)),-DX86_INTRIN,$(if $(findstring ARM64,$(INTRINSICS)),-DARM64_INTRIN,))
+DFORCEINTRIN := $(if $(findstring x86,$(FORCEINTRIN)),-D__SSE2__ -D__SSSE3__ -D__SSE4_1__ -D__AVX2__ -D__BMI2__,$(if $(findstring ARM64,$(FORCEINTRIN)),-D__ARM_NEON,))
 RUNTIME_TESTS := $(if $(findstring x86-64-v2,$(VARIANTS)),-DHAS_X86_64_V2,) $(if $(findstring x86-64-v3,$(VARIANTS)),-DHAS_X86_64_V3,) $(if $(findstring logs,$(VARIANTS)),-DHAS_LOGS,)
 OBJ := edge264.o $(if $(findstring x86-64-v2,$(VARIANTS)),edge264_headers_v2.o,) $(if $(findstring x86-64-v3,$(VARIANTS)),edge264_headers_v3.o,) $(if $(findstring logs,$(VARIANTS)),edge264_headers_log.o,)
 LIB := $(if $(findstring Windows,$(TARGETOS)),edge264.$(MAJOR).dll,$(if $(findstring Linux,$(TARGETOS)),libedge264.so.$(VERSION),libedge264.$(VERSION).dylib))
@@ -33,7 +33,7 @@ $(LIB): $(OBJ)
 	$(TARGETCC) -shared $(OBJ) $(LDFLAGS) -o $(LIB)
 
 edge264.o: edge264.h edge264_internal.h edge264.c edge264_bitstream.c edge264_deblock.c edge264_headers.c edge264_inter.c edge264_intra.c edge264_mvpred.c edge264_residual.c edge264_slice.c
-	$(CC) edge264.c -c $(CFLAGS) $(RUNTIME_TESTS) $(DINTRINSICS) -o edge264.o
+	$(CC) edge264.c -c $(CFLAGS) $(RUNTIME_TESTS) $(DFORCEINTRIN) -o edge264.o
 
 edge264_headers_v2.o: edge264.h edge264_internal.h edge264_bitstream.c edge264_deblock.c edge264_headers.c edge264_inter.c edge264_intra.c edge264_mvpred.c edge264_residual.c edge264_slice.c
 	$(CC) edge264_headers.c -c $(CFLAGS) -march=x86-64-v2 "-DADD_VARIANT(f)=f##_v2" -o edge264_headers_v2.o
@@ -42,7 +42,7 @@ edge264_headers_v3.o: edge264.h edge264_internal.h edge264_bitstream.c edge264_d
 	$(CC) edge264_headers.c -c $(CFLAGS) -march=x86-64-v3 "-DADD_VARIANT(f)=f##_v3" -o edge264_headers_v3.o
 
 edge264_headers_log.o: edge264.h edge264_internal.h edge264_bitstream.c edge264_deblock.c edge264_headers.c edge264_inter.c edge264_intra.c edge264_mvpred.c edge264_residual.c edge264_sei.c edge264_slice.c
-	$(CC) edge264_headers.c -c $(CFLAGS) -DLOGS $(DINTRINSICS) "-DADD_VARIANT(f)=f##_log" -o edge264_headers_log.o
+	$(CC) edge264_headers.c -c $(CFLAGS) -DLOGS $(DFORCEINTRIN) "-DADD_VARIANT(f)=f##_log" -o edge264_headers_log.o
 
 .PHONY: clean clear
 clean clear:

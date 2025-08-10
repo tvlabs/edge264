@@ -604,34 +604,21 @@ static always_inline const char *unsup_if(int cond) { return cond ? " # unsuppor
 
 
 /**
- * Select vector dialect if not specified.
- */
-#if !defined(X86_INTRIN) && !defined(ARM64_INTRIN)
-	#if defined(__SSE2__)
-		#define X86_INTRIN
-	#elif defined(__ARM_NEON)
-		#define ARM64_INTRIN
-	#else
-		#error "Unsupported target architecture"
-	#endif
-#endif
-
-
-
-/**
  * These macros provide efficient addressing for different architectures.
  * Call INIT_P() to compute anchor addresses (expects variables uint8_t* p and
  * size_t stride), then P(x,y) will return p + x + y * stride.
  */
-#if defined(X86_INTRIN)
+#if defined(__SSE2__)
 	#define INIT_P() ssize_t _strideT = -stride; uint8_t * restrict _p7 = p + stride * 8 + _strideT, * restrict _pE = _p7 + stride * 8 + _strideT
 	#define P(x, y) (__builtin_choose_expr(y == -2 || y == -1 || y == 0 || y == 1 || y == 2 || y == 4, p, __builtin_choose_expr(y == 3 || y == 5 || y == 6 || y == 7 || y == 8 || y == 9 || y == 11, _p7, _pE)) +\
 		x + __builtin_choose_expr(y == 0 || y == 7 || y == 14, 0, __builtin_choose_expr(y == 1 || y == 8 || y == 15, stride, __builtin_choose_expr(y == 2 || y == 9, stride * 2, __builtin_choose_expr(y == 3 || y == 10, _strideT * 4, __builtin_choose_expr(y == 4 || y == 11, stride * 4, __builtin_choose_expr(y == -2 || y == 5 || y == 12, _strideT * 2, _strideT)))))))
-#elif defined(ARM64_INTRIN)
+#elif defined(__ARM_NEON)
 	#define INIT_P() uint8_t * restrict _p0 = p - 1, * restrict _p2 = _p0 + stride * 2, * restrict _p4 = _p0 + stride * 4, * restrict _p6 = _p2 + stride * 4, * restrict _p8 = _p0 + stride * 8, * restrict _pA = _p2 + stride * 8, * restrict _pC = _p4 + stride * 8, * restrict _pE = _p6 + stride * 8, * restrict _pT = _p0 - stride, * restrict _pU = _p0 - stride * 2;\
 		size_t _stride0 = stride + 1
 	#define P(x, y) (__builtin_choose_expr(y < -1, _pU, __builtin_choose_expr(y < 0, _pT, __builtin_choose_expr(y < 2, _p0, __builtin_choose_expr(y < 4, _p2, __builtin_choose_expr(y < 6, _p4, __builtin_choose_expr(y < 8, _p6, __builtin_choose_expr(y < 10, _p8, __builtin_choose_expr(y < 12, _pA, __builtin_choose_expr(y < 14, _pC, _pE))))))))) +\
 		__builtin_choose_expr(y < 0 || (y & 1) == 0, x + 1, __builtin_choose_expr(x == 0, _stride0, stride + (x + 1))))
+#else
+	#error "Unsupported target architecture"
 #endif
 
 
@@ -686,7 +673,7 @@ static always_inline const char *unsup_if(int cond) { return cond ? " # unsuppor
  * _ ziploN - interleave the low N-bit elements from two vectors
  * _ ziphiN - interleave the high N-bit elements from two vectors
  */
-#if defined(X86_INTRIN)
+#if defined(__SSE2__)
 	#include <immintrin.h>
 	#define adds16(a, b) (i16x8)_mm_adds_epi16(a, b)
 	#define addu8(a, b) (i8x16)_mm_adds_epu8(a, b)
@@ -810,7 +797,7 @@ static always_inline const char *unsup_if(int cond) { return cond ? " # unsuppor
 		static always_inline i8x16 shufflez2(const i8x16 *p, i8x16 m) { return shuffle2(p, m) & ~(0 > m); }
 		static always_inline i8x16 shuffle3(const i8x16 *p, i8x16 m) {union { int8_t q[16]; i8x16 v; } _m = {.v = minu8(m, set8(47))}; for (int i = 0; i < 16; i++) _m.q[i] = ((int8_t *)p)[_m.q[i]]; return _m.v;}
 	#endif
-#elif defined(ARM64_INTRIN)
+#elif defined(__ARM_NEON)
 	#include <arm_neon.h>
 	static const int8_t shz_mask[48] = {
 		-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
@@ -875,8 +862,11 @@ static always_inline const char *unsup_if(int cond) { return cond ? " # unsuppor
 	static always_inline i8x16 shufflen(i8x16 a, i8x16 m) {return vqtbx1q_s8(m, a, m);}
 	static always_inline i8x16 shuffle2(const i8x16 *p, i8x16 m) {return vqtbl2q_s8(*(int8x16x2_t *)p, m);}
 	static always_inline i8x16 shuffle3(const i8x16 *p, i8x16 m) {return vqtbl3q_s8(*(int8x16x3_t *)p, m);}
-	// reimplement vaddlv_u8 to return to vector register
-	static always_inline i16x8 sum8(u8x16 a) {i16x8 b; asm("uaddlv %h0, %1.16b" : "=w" (b) : "w" (a)); return b;}
+	#ifndef __wasm__ // reimplement vaddlvq_u8 to return to vector register
+		static always_inline i16x8 sum8(u8x16 a) {i16x8 b; asm("uaddlv %h0, %1.16b" : "=w" (b) : "w" (a)); return b;}
+	#else
+		#define sum8(a) (i16x8){vaddlvq_u8(a)}
+	#endif
 	#define shufflez shuffle
 	#define shufflez2 shuffle2
 	#define sumh8 sum8

@@ -90,14 +90,14 @@ const uint8_t *edge264_find_start_code(const uint8_t *buf, const uint8_t *end, i
 	i8x16 v = *p;
 	i8x16 hi0 = (v == zero) & shlv128(set8(-1), (uintptr_t)buf & 15);
 	while (1) {
-		#if defined(X86_INTRIN)
+		#if defined(__SSE2__)
 			unsigned m = movemask(shrd128(lo0, hi0, 14) & shrd128(lo0, hi0, 15) & (v == c1));
 			if (m) {
 				const uint8_t *res = (uint8_t *)p - 2 - four_byte + __builtin_ctz(m);
 				if (*res == 0)
 					return minp(res, end);
 			}
-		#elif defined(ARM64_INTRIN)
+		#elif defined(__ARM_NEON)
 			uint64_t m = (uint64_t)vshrn_n_u16(shrd128(lo0, hi0, 14) & shrd128(lo0, hi0, 15) & (v == c1), 4);
 			if (m) {
 				const uint8_t *res = (uint8_t *)p - 2 - four_byte + (__builtin_ctzll(m) >> 2);

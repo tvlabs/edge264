@@ -239,7 +239,7 @@ void edge264_flush(Edge264Decoder *dec) {
 	dec->currPic = dec->prevPic = -1;
 	dec->PrevRefFrameNum[0] = dec->PrevRefFrameNum[1] = -1;
 	dec->prevPicOrderCnt[0] = dec->prevPicOrderCnt[1] = 0;
-	dec->reference_flags = dec->long_term_flags = dec->output_flags = dec->non_base_views = 0;
+	dec->short_term_frames = dec->long_term_frames = dec->output_flags = dec->non_base_views = 0;
 	for (unsigned b = dec->busy_tasks; b; b &= b - 1) {
 		Edge264Task *t = dec->tasks + __builtin_ctz(b);
 		if (t->free_cb)
@@ -382,7 +382,7 @@ int edge264_get_frame(Edge264Decoder *dec, Edge264Frame *out, int borrow) {
 	if (dec->n_threads)
 		pthread_mutex_lock(&dec->lock);
 	int pic[2] = {-1, -1};
-	unsigned used = dec->reference_flags | dec->output_flags;
+	unsigned used = dec->short_term_frames | dec->output_flags;
 	int best = (__builtin_popcount(dec->output_flags & ~dec->non_base_views) > dec->sps.max_num_reorder_frames ||
 		(dec->non_base_views && __builtin_popcount(dec->output_flags & dec->non_base_views) > dec->ssps.max_num_reorder_frames) ||
 		__builtin_popcount(used & ~dec->non_base_views) >= dec->sps.num_frame_buffers ||

@@ -211,7 +211,7 @@ typedef struct {
 	int32_t plane_size_C;
 	int32_t next_deblock_addr; // INT_MIN..INT_MAX
 	uint32_t first_mb_in_slice; // 0..139263
-	uint32_t long_term_flags;
+	uint32_t long_term_frames;
 	union { int8_t QP[3]; i8x4 QP_s; }; // same as mb
 	uint8_t *samples_base;
 	uint8_t *frame_buffers[32];
@@ -329,21 +329,21 @@ typedef struct Edge264Decoder {
 	int32_t TopFieldOrderCnt; // value for the current incomplete frame, unaffected by mmco5
 	int32_t BottomFieldOrderCnt;
 	int32_t dispTopFieldOrderCnt; // all POCs lower or equal than this are ready for output
-	uint32_t reference_flags; // bitfield for indices of reference frames/views
-	uint32_t long_term_flags; // bitfield for indices of long-term frames/views
+	uint32_t short_term_frames; // bitfield for indices of short-term or non-existing frame/view references
+	uint32_t long_term_frames; // bitfield for indices of long-term or non-existing frame/view references
 	uint32_t output_flags; // bitfield for frames waiting to be output
 	uint32_t borrow_flags; // bitfield for frames that are owned by the caller after get_frame and not yet returned
-	uint32_t frame_flip_bits; // target values for bit 0 of mb->recovery_bits in each frame
-	uint32_t pic_reference_flags; // to be applied after decoding all slices of the current picture
-	uint32_t pic_long_term_flags; // to be applied after decoding all slices of the current picture
 	uint32_t non_base_views; // bitfield for frames that are non-base views in MVC
+	uint32_t frame_flip_bits; // target values for bit 0 of mb->recovery_bits in each frame
+	uint32_t curr_short_term_frames; // to be applied after decoding all slices of the current picture
+	uint32_t curr_long_term_frames; // to be applied after decoding all slices of the current picture
 	int32_t FrameNums[32]; // signed to be used along FieldOrderCnt in initial reference ordering
 	uint32_t FrameIds[32]; // unique identifiers for each frame, incremented in decoding order
 	void *(*worker_loop)(Edge264Decoder *);
 	uint8_t *frame_buffers[32];
 	Parser parse_nal_unit[32];
 	union { int8_t LongTermFrameIdx[32]; i8x16 LongTermFrameIdx_v[2]; };
-	union { int8_t pic_LongTermFrameIdx[32]; i8x16 pic_LongTermFrameIdx_v[2]; }; // to be applied after decoding all slices of the current frame
+	union { int8_t curr_LongTermFrameIdx[32]; i8x16 curr_LongTermFrameIdx_v[2]; }; // to be applied after decoding all slices of the current frame
 	union { int32_t FieldOrderCnt[2][32]; i32x4 FieldOrderCnt_v[2][8]; }; // lower/higher half for top/bottom fields
 	Edge264Frame out;
 	Edge264SeqParameterSet sps;

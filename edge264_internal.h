@@ -188,7 +188,7 @@ typedef struct {
  * can be copied into Edge264Context when a worker starts decoding it.
  */
 typedef struct {
-	Edge264GetBits _gb; // must be first in struct to use the same pointer for bitstream functions
+	Edge264GetBits gb; // must be first in struct to use the same pointer for bitstream functions
 	int8_t slice_type; // 0..2
 	int8_t field_pic_flag; // 0..1
 	int8_t bottom_field_flag; // 0..1
@@ -309,7 +309,7 @@ typedef struct Edge264Context {
  */
 typedef int (*Parser)(Edge264Decoder *dec, int non_blocking, void(*free_cb)(void*,int), void *free_arg);
 typedef struct Edge264Decoder {
-	Edge264GetBits _gb; // must be first in the struct to use the same pointer for bitstream functions
+	Edge264GetBits gb; // must be first in the struct to use the same pointer for bitstream functions
 	int8_t n_threads; // 0 to disable multithreading
 	int8_t nal_ref_idc; // 2 significant bits
 	int8_t nal_unit_type; // 5 significant bits

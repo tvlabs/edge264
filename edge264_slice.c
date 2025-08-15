@@ -112,13 +112,13 @@
 			{18, 18, 18, 18, 33, 33, 33, 33, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32},
 			{17, 17, 17, 17, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16},
 		};
-		int leadingZeroBits = clz(ctx->t._gb.msb_cache | (size_t)1 << (SIZE_BIT - 9));
-		int suffix = ctx->t._gb.msb_cache >> ((leadingZeroBits + 2) ^ (SIZE_BIT - 1)) & 3;
+		int leadingZeroBits = clz(ctx->t.gb.msb_cache | (size_t)1 << (SIZE_BIT - 9));
+		int suffix = ctx->t.gb.msb_cache >> ((leadingZeroBits + 2) ^ (SIZE_BIT - 1)) & 3;
 		assert(endIdx + TotalCoeff - 4 < 27 && leadingZeroBits * 4 + suffix < 36);
 		int code = codes[endIdx + TotalCoeff - 4][leadingZeroBits * 4 + suffix];
 		int v = code >> 4;
-		ctx->t._gb.msb_cache = shld(ctx->t._gb.lsb_cache, ctx->t._gb.msb_cache, v);
-		ctx->t._gb.lsb_cache <<= v;
+		ctx->t.gb.msb_cache = shld(ctx->t.gb.lsb_cache, ctx->t.gb.msb_cache, v);
+		ctx->t.gb.lsb_cache <<= v;
 		return code & 15;
 	}
 	
@@ -128,14 +128,14 @@
 		
 		// parse all level values from end to start
 		int32_t level[16];
-		size_t signs = ~ctx->t._gb.msb_cache;
+		size_t signs = ~ctx->t.gb.msb_cache;
 		level[0] = (signs >> (SIZE_BIT - 2) & 2) - 1;
 		level[1] = (signs >> (SIZE_BIT - 3) & 2) - 1;
 		level[2] = (signs >> (SIZE_BIT - 4) & 2) - 1;
-		ctx->t._gb.msb_cache = shld(ctx->t._gb.lsb_cache, ctx->t._gb.msb_cache, TrailingOnes);
-		ctx->t._gb.lsb_cache <<= TrailingOnes;
+		ctx->t.gb.msb_cache = shld(ctx->t.gb.lsb_cache, ctx->t.gb.msb_cache, TrailingOnes);
+		ctx->t.gb.lsb_cache <<= TrailingOnes;
 		for (int i = TrailingOnes, suffixLength = 1, v, offset; i < TotalCoeff; i++) {
-			int level_prefix = clz(ctx->t._gb.msb_cache | (size_t)1 << (SIZE_BIT - 26)); // limit given in 9.2.2.1
+			int level_prefix = clz(ctx->t.gb.msb_cache | (size_t)1 << (SIZE_BIT - 26)); // limit given in 9.2.2.1
 			if (level_prefix >= 15) {
 				v = level_prefix * 2 - 2;
 				offset = (15 << suffixLength) - 4096;
@@ -151,11 +151,11 @@
 			}
 			#if SIZE_BIT == 32
 				v -= level_prefix;
-				ctx->t._gb.msb_cache = shld(ctx->t._gb.lsb_cache, ctx->t._gb.msb_cache, level_prefix);
-				if (!(ctx->t._gb.lsb_cache <<= level_prefix))
-					refill(&ctx->t._gb, 0);
+				ctx->t.gb.msb_cache = shld(ctx->t.gb.lsb_cache, ctx->t.gb.msb_cache, level_prefix);
+				if (!(ctx->t.gb.lsb_cache <<= level_prefix))
+					refill(&ctx->t.gb, 0);
 			#endif
-			int levelCode = get_uv(&ctx->t._gb, v) + offset;
+			int levelCode = get_uv(&ctx->t.gb, v) + offset;
 			levelCode += (i == TrailingOnes && TrailingOnes < 3) * 2;
 			level[i] = (levelCode % 2) ? (-levelCode - 1) >> 1 : (levelCode + 2) >> 1;
 			suffixLength = min(suffixLength + (levelCode >= (3 << suffixLength)), 6);
@@ -170,7 +170,7 @@
 		for (int i = 1, v, run_before; i < TotalCoeff; i++) {
 			scan--;
 			if (zerosLeft > 0) {
-				int threeBits = ctx->t._gb.msb_cache >> (SIZE_BIT - 3);
+				int threeBits = ctx->t.gb.msb_cache >> (SIZE_BIT - 3);
 				if (zerosLeft <= 6 || threeBits > 0) {
 					static int8_t run_before_codes[7][8] = {
 						{9, 9, 9, 9, 8, 8, 8, 8},
@@ -184,13 +184,13 @@
 					v = code >> 3;
 					run_before = code & 7;
 				} else {
-					v = clz(ctx->t._gb.msb_cache) + 1;
+					v = clz(ctx->t.gb.msb_cache) + 1;
 					run_before = min(v + 3, zerosLeft);
 				}
 				scan -= run_before;
 				zerosLeft -= run_before;
-				ctx->t._gb.msb_cache = shld(ctx->t._gb.lsb_cache, ctx->t._gb.msb_cache, v);
-				ctx->t._gb.lsb_cache <<= v;
+				ctx->t.gb.msb_cache = shld(ctx->t.gb.lsb_cache, ctx->t.gb.msb_cache, v);
+				ctx->t.gb.lsb_cache <<= v;
 			}
 			ctx->c[*scan] = level[i];
 		}
@@ -198,7 +198,7 @@
 			log_mb(ctx, (i < endIdx) ? "%d," : "%d]}\n", ctx->c[ctx->scan[i]]);
 		
 		// trailing_ones_sign_flags+total_zeros+run_before consumed at most 31 bits, so we can delay refill here
-		return ctx->t._gb.lsb_cache ? 1 : refill(&ctx->t._gb, 1);
+		return ctx->t.gb.lsb_cache ? 1 : refill(&ctx->t.gb, 1);
 	}
 
 	static noinline int parse_residual_block_4x4_cavlc(Edge264Context *ctx, int i4x4, int nA, int nB, int startIdx) {
@@ -248,22 +248,22 @@
 		int nC = !(ctx->unavail4x4[i4x4] & 3) ? (sum + 1) >> 1 : sum;
 		int coeff_token, v;
 		if (__builtin_expect(nC < 8, 1)) {
-			int leadingZeroBits = clz(ctx->t._gb.msb_cache | (size_t)1 << (SIZE_BIT - 15));
-			unsigned suffix = ctx->t._gb.msb_cache >> (SIZE_BIT - 4 - leadingZeroBits) & 7;
+			int leadingZeroBits = clz(ctx->t.gb.msb_cache | (size_t)1 << (SIZE_BIT - 15));
+			unsigned suffix = ctx->t.gb.msb_cache >> (SIZE_BIT - 4 - leadingZeroBits) & 7;
 			assert(nC >= 0 && nC_offset[nC] + leadingZeroBits * 8 + suffix < 304);
 			int token = tokens[nC_offset[nC] + leadingZeroBits * 8 + suffix];
 			coeff_token = token & 127;
 			v = token >> 7;
 		} else {
-			coeff_token = (ctx->t._gb.msb_cache >> (SIZE_BIT - 6)) + 4;
+			coeff_token = (ctx->t.gb.msb_cache >> (SIZE_BIT - 6)) + 4;
 			if (coeff_token == 7)
 				coeff_token = 0;
 			v = 6;
 		}
-		ctx->t._gb.msb_cache = shld(ctx->t._gb.lsb_cache, ctx->t._gb.msb_cache, v);
-		ctx->t._gb.lsb_cache <<= v;
-		if (!ctx->t._gb.lsb_cache)
-			refill(&ctx->t._gb, 0);
+		ctx->t.gb.msb_cache = shld(ctx->t.gb.lsb_cache, ctx->t.gb.msb_cache, v);
+		ctx->t.gb.lsb_cache <<= v;
+		if (!ctx->t.gb.lsb_cache)
+			refill(&ctx->t.gb, 0);
 		if (coeff_token) {
 			mb->nC[i4x4] = coeff_token >> 2;
 			log_mb(ctx, "    - {nC: %u, c: [", nC);
@@ -286,14 +286,14 @@
 			1042, 1042, 1041, 1041,
 			915, 915, 915, 915,
 		};
-		int leadingZeroBits = clz(ctx->t._gb.msb_cache | (size_t)1 << (SIZE_BIT - 8));
-		unsigned suffix = ctx->t._gb.msb_cache >> (SIZE_BIT - 3 - leadingZeroBits) & 3;
+		int leadingZeroBits = clz(ctx->t.gb.msb_cache | (size_t)1 << (SIZE_BIT - 8));
+		unsigned suffix = ctx->t.gb.msb_cache >> (SIZE_BIT - 3 - leadingZeroBits) & 3;
 		int token = tokens[leadingZeroBits * 4 + suffix];
 		int coeff_token = token & 127;
 		int v = token >> 7;
-		ctx->t._gb.msb_cache = shld(ctx->t._gb.lsb_cache, ctx->t._gb.msb_cache, v);
-		if (!(ctx->t._gb.lsb_cache <<= v))
-			refill(&ctx->t._gb, 0);
+		ctx->t.gb.msb_cache = shld(ctx->t.gb.lsb_cache, ctx->t.gb.msb_cache, v);
+		if (!(ctx->t.gb.lsb_cache <<= v))
+			refill(&ctx->t.gb, 0);
 		if (coeff_token) {
 			log_mb(ctx, "    - {nC: -1, c: [");
 			parse_residual_coeffs_cavlc(ctx, 0, 3, coeff_token);
@@ -358,21 +358,21 @@
 				#elif SIZE_BIT == 64
 					if (coeff_level >= 15) {
 						// we need at least 51 bits in codIOffset to get 42 bits with a division by 9 bits
-						int zeros = clz(ctx->t._gb.codIRange);
+						int zeros = clz(ctx->t.gb.codIRange);
 						if (zeros > 64 - 51) {
-							ctx->t._gb.codIOffset = shld(get_bytes(&ctx->t._gb, zeros >> 3), ctx->t._gb.codIOffset, zeros & -8);
-							ctx->t._gb.codIRange <<= zeros & -8;
+							ctx->t.gb.codIOffset = shld(get_bytes(&ctx->t.gb, zeros >> 3), ctx->t.gb.codIOffset, zeros & -8);
+							ctx->t.gb.codIRange <<= zeros & -8;
 							zeros &= 7;
 						}
-						ctx->t._gb.codIRange >>= 64 - 9 - zeros;
-						size_t quo = ctx->t._gb.codIOffset / ctx->t._gb.codIRange; // requested bits are in lsb and zeros+9 empty bits above
-						size_t rem = ctx->t._gb.codIOffset % ctx->t._gb.codIRange;
+						ctx->t.gb.codIRange >>= 64 - 9 - zeros;
+						size_t quo = ctx->t.gb.codIOffset / ctx->t.gb.codIRange; // requested bits are in lsb and zeros+9 empty bits above
+						size_t rem = ctx->t.gb.codIOffset % ctx->t.gb.codIRange;
 						int k = clz(~quo << (zeros + 9) | (size_t)1 << (SIZE_BIT - 21));
 						int unused = 64 - 9 - zeros - k * 2 - 2;
 						coeff_level = 14 + (1 << k | (quo >> unused >> 1 & (((size_t)1 << k) - 1)));
 						coeff_level = (quo & (size_t)1 << unused) ? -coeff_level : coeff_level;
-						ctx->t._gb.codIOffset = (quo & (((size_t)1 << unused) - 1)) * ctx->t._gb.codIRange + rem;
-						ctx->t._gb.codIRange <<= unused;
+						ctx->t.gb.codIOffset = (quo & (((size_t)1 << unused) - 1)) * ctx->t.gb.codIRange + rem;
+						ctx->t.gb.codIRange <<= unused;
 					} else {
 						coeff_level = get_bypass(ctx) ? -coeff_level : coeff_level;
 					}
@@ -395,7 +395,7 @@
 static void CAFUNC(parse_mb_qp_delta)
 {
 	#if !CABAC
-		int mb_qp_delta = get_se16(&ctx->t._gb, -26, 25); // FIXME QpBdOffset
+		int mb_qp_delta = get_se16(&ctx->t.gb, -26, 25); // FIXME QpBdOffset
 		if (mb_qp_delta) {
 			int sum = ctx->t.QP[0] + mb_qp_delta;
 			int QP_Y = (sum < 0) ? sum + 52 : (sum >= 52) ? sum - 52 : sum;
@@ -676,7 +676,7 @@ static void CAFUNC(parse_coded_block_pattern, const uint8_t *map_me)
 {
 	// Luma prefix
 	#if !CABAC
-		int cbp = map_me[get_ue16(&ctx->t._gb, 47)];
+		int cbp = map_me[get_ue16(&ctx->t.gb, 47)];
 		mb->bits[0] |= cbp & 0xac;
 	#else
 		int bits = mb->bits[0];
@@ -718,7 +718,7 @@ static void CAFUNC(parse_intra_chroma_pred_mode)
 	int type = ctx->t.ChromaArrayType;
 	if (type == 1 || type == 2) {
 		#if !CABAC
-			int mode = get_ue16(&ctx->t._gb, 3);
+			int mode = get_ue16(&ctx->t.gb, 3);
 		#else
 			int ctxIdx = 64 + ctx->inc.intra_chroma_pred_mode_non_zero;
 			int mode = 0;
@@ -744,9 +744,9 @@ static inline int CAFUNC(parse_intraNxN_pred_mode, int luma4x4BlkIdx)
 	int intraMxMPredModeB = *((int8_t *)mb->Intra4x4PredMode + ctx->B4x4_int8[luma4x4BlkIdx]);
 	int mode = abs(min(intraMxMPredModeA, intraMxMPredModeB));
 	int rem_intra_pred_mode = -1;
-	if (CACOND(!get_u1(&ctx->t._gb), !get_ae(ctx, 68))) {
+	if (CACOND(!get_u1(&ctx->t.gb), !get_ae(ctx, 68))) {
 		#if !CABAC
-			rem_intra_pred_mode = get_uv(&ctx->t._gb, 3);
+			rem_intra_pred_mode = get_uv(&ctx->t.gb, 3);
 		#else
 			rem_intra_pred_mode = get_ae(ctx, 69);
 			rem_intra_pred_mode += get_ae(ctx, 69) * 2;
@@ -808,7 +808,7 @@ static noinline void CAFUNC(parse_I_mb, int mb_type_or_ctxIdx)
 		// 7.3.5, 7.4.5, 9.3.3.1.1.10 and table 9-34
 		int transform_size_8x8_flag = 0;
 		if (ctx->t.pps.transform_8x8_mode_flag) {
-			transform_size_8x8_flag = CACOND(get_u1(&ctx->t._gb), get_ae(ctx, 399 + ctx->inc.transform_size_8x8_flag));
+			transform_size_8x8_flag = CACOND(get_u1(&ctx->t.gb), get_ae(ctx, 399 + ctx->inc.transform_size_8x8_flag));
 			log_mb(ctx, "    transform_size_8x8_flag: %u\n", transform_size_8x8_flag);
 		}
 		
@@ -875,9 +875,9 @@ static noinline void CAFUNC(parse_I_mb, int mb_type_or_ctxIdx)
 	// I_PCM
 	} else {
 		#if !CABAC
-			unsigned bits = (SIZE_BIT - 1 - ctz(ctx->t._gb.lsb_cache)) & 7;
-			ctx->t._gb.msb_cache = shld(ctx->t._gb.lsb_cache, ctx->t._gb.msb_cache, bits);
-			ctx->t._gb.lsb_cache = ctx->t._gb.lsb_cache << bits;
+			unsigned bits = (SIZE_BIT - 1 - ctz(ctx->t.gb.lsb_cache)) & 7;
+			ctx->t.gb.msb_cache = shld(ctx->t.gb.lsb_cache, ctx->t.gb.msb_cache, bits);
+			ctx->t.gb.lsb_cache = ctx->t.gb.lsb_cache << bits;
 		#else
 			log_mb(ctx, (mb_type_or_ctxIdx == 17) ? "    mb_type: 30\n" : (mb_type_or_ctxIdx == 32) ? "    mb_type: 48\n" : "    mb_type: 25\n");
 		#endif
@@ -902,16 +902,16 @@ static noinline void CAFUNC(parse_I_mb, int mb_type_or_ctxIdx)
 			int BitDepth = ctz(ctx->t.samples_clip[iYCbCr][0] + 1);
 			for (uint8_t *p = ctx->samples_mb[iYCbCr]; y-- > 0; p += ctx->t.stride[iYCbCr]) {
 				if (BitDepth == 8) {
-					((uint32_t *)p)[0] = big_endian32(get_uv(&ctx->t._gb, 32));
-					((uint32_t *)p)[1] = big_endian32(get_uv(&ctx->t._gb, 32));
+					((uint32_t *)p)[0] = big_endian32(get_uv(&ctx->t.gb, 32));
+					((uint32_t *)p)[1] = big_endian32(get_uv(&ctx->t.gb, 32));
 					log_mb(ctx, "%u,%u,%u,%u,%u,%u,%u,%u,", p[0], p[1], p[2], p[3], p[4], p[5], p[6], p[7]);
 					if (MbWidth == 16) {
-						((uint32_t *)p)[2] = big_endian32(get_uv(&ctx->t._gb, 32));
-						((uint32_t *)p)[3] = big_endian32(get_uv(&ctx->t._gb, 32));
+						((uint32_t *)p)[2] = big_endian32(get_uv(&ctx->t.gb, 32));
+						((uint32_t *)p)[3] = big_endian32(get_uv(&ctx->t.gb, 32));
 						log_mb(ctx, "%u,%u,%u,%u,%u,%u,%u,%u,", p[8], p[9], p[10], p[11], p[12], p[13], p[14], p[15]);
 					}
 				} else for (int x = 0; x < MbWidth; x++) {
-					((uint16_t *)p)[x] = get_uv(&ctx->t._gb, BitDepth);
+					((uint16_t *)p)[x] = get_uv(&ctx->t.gb, BitDepth);
 					log_mb(ctx, "%u,", ((uint16_t *)p)[x]);
 				}
 			}
@@ -938,7 +938,7 @@ static void CAFUNC(parse_inter_residual)
 	CACALL(parse_coded_block_pattern, me_inter);
 	
 	if ((mb->bits[0] & 0xac) && ctx->transform_8x8_mode_flag) {
-		mb->f.transform_size_8x8_flag = CACOND(get_u1(&ctx->t._gb), get_ae(ctx, 399 + ctx->inc.transform_size_8x8_flag));
+		mb->f.transform_size_8x8_flag = CACOND(get_u1(&ctx->t.gb), get_ae(ctx, 399 + ctx->inc.transform_size_8x8_flag));
 		log_mb(ctx, "    transform_size_8x8_flag: %u\n", mb->f.transform_size_8x8_flag);
 	}
 	
@@ -961,8 +961,8 @@ static void CAFUNC(parse_inter_residual)
  */
 static i16x8 CAFUNC(parse_mvd_pair, const uint8_t *absMvd_lx, int i4x4) {
 	#if !CABAC
-		int x = get_se32(&ctx->t._gb, -32768, 32767);
-		int y = get_se32(&ctx->t._gb, -32768, 32767);
+		int x = get_se32(&ctx->t.gb, -32768, 32767);
+		int y = get_se32(&ctx->t.gb, -32768, 32767);
 		log_mb(ctx, "[%d,%d],", x, y);
 		return (i16x8){x, y};
 	#else
@@ -976,31 +976,31 @@ static i16x8 CAFUNC(parse_mvd_pair, const uint8_t *absMvd_lx, int i4x4) {
 				ctxIdx = ctxBase + min(mvd++, 3);
 			if (mvd >= 9) {
 				// we need at least 35 (or 21) bits in codIOffset to get 26 (or 12) bypass bits
-				int zeros = clz(ctx->t._gb.codIRange);
+				int zeros = clz(ctx->t.gb.codIRange);
 				if (zeros > (SIZE_BIT == 64 ? 64 - 35 : 32 - 21)) {
-					ctx->t._gb.codIOffset = shld(get_bytes(&ctx->t._gb, zeros >> 3), ctx->t._gb.codIOffset, zeros & -8);
-					ctx->t._gb.codIRange <<= zeros & -8;
+					ctx->t.gb.codIOffset = shld(get_bytes(&ctx->t.gb, zeros >> 3), ctx->t.gb.codIOffset, zeros & -8);
+					ctx->t.gb.codIRange <<= zeros & -8;
 					zeros &= 7;
 				}
 				// for 64-bit we could shift codIOffset down to 37 bits to help iterative hardware dividers, but that would make the code harder to maintain
-				ctx->t._gb.codIRange >>= SIZE_BIT - 9 - zeros;
-				size_t quo = ctx->t._gb.codIOffset / ctx->t._gb.codIRange; // requested bits are in lsb and zeros+9 empty bits above
-				size_t rem = ctx->t._gb.codIOffset % ctx->t._gb.codIRange;
+				ctx->t.gb.codIRange >>= SIZE_BIT - 9 - zeros;
+				size_t quo = ctx->t.gb.codIOffset / ctx->t.gb.codIRange; // requested bits are in lsb and zeros+9 empty bits above
+				size_t rem = ctx->t.gb.codIOffset % ctx->t.gb.codIRange;
 				int k = 3 + clz(~quo << (zeros + 9) | (size_t)1 << (SIZE_BIT - 12));
 				int unused = SIZE_BIT - 9 - zeros - k * 2 + 1;
 				#if SIZE_BIT == 32
 					if (__builtin_expect(unused < 0, 0)) { // FIXME needs testing
 						// refill codIOffset with 16 bits then make a new division
-						ctx->t._gb.codIOffset = shld(get_bytes(&ctx->t._gb, 2), rem, 16);
-						quo = shld((ctx->t._gb.codIOffset / ctx->t._gb.codIRange) << (SIZE_BIT - 16), quo, 16);
-						rem = ctx->t._gb.codIOffset % ctx->t._gb.codIRange;
+						ctx->t.gb.codIOffset = shld(get_bytes(&ctx->t.gb, 2), rem, 16);
+						quo = shld((ctx->t.gb.codIOffset / ctx->t.gb.codIRange) << (SIZE_BIT - 16), quo, 16);
+						rem = ctx->t.gb.codIOffset % ctx->t.gb.codIRange;
 						unused += 16;
 					}
 				#endif
 				mvd = 1 + (1 << k | (quo >> unused >> 1 & (((size_t)1 << k) - 1)));
 				mvd = (quo & (size_t)1 << unused) ? -mvd : mvd;
-				ctx->t._gb.codIOffset = (quo & (((size_t)1 << unused) - 1)) * ctx->t._gb.codIRange + rem;
-				ctx->t._gb.codIRange <<= unused;
+				ctx->t.gb.codIOffset = (quo & (((size_t)1 << unused) - 1)) * ctx->t.gb.codIRange + rem;
+				ctx->t.gb.codIRange <<= unused;
 			} else if (mvd > 0) {
 				mvd = get_bypass(ctx) ? -mvd : mvd;
 			}
@@ -1036,9 +1036,9 @@ static inline void CAFUNC(parse_ref_idx, unsigned f) {
 		int ref_idx = 0;
 		#if !CABAC
 			if (ctx->clip_ref_idx[i] == 1)
-				ref_idx = get_u1(&ctx->t._gb) ^ 1;
+				ref_idx = get_u1(&ctx->t.gb) ^ 1;
 			else
-				ref_idx = get_ue16(&ctx->t._gb, ctx->clip_ref_idx[i]);
+				ref_idx = get_ue16(&ctx->t.gb, ctx->clip_ref_idx[i]);
 		#else
 			if (get_ae(ctx, 54 + (mb->bits[0] >> inc8x8[4 + i] & 3))) {
 				ref_idx = 1;
@@ -1107,7 +1107,7 @@ static void CAFUNC(parse_B_sub_mb) {
 	for (int i8x8 = 0; i8x8 < 4; i8x8++) {
 		int i4x4 = i8x8 * 4;
 		#if !CABAC
-			int sub_mb_type = get_ue16(&ctx->t._gb, 12);
+			int sub_mb_type = get_ue16(&ctx->t.gb, 12);
 			log_mb(ctx, (i8x8 < 3) ? "%u," : "%u]\n", sub_mb_type);
 		#endif
 		if (CACOND(sub_mb_type == 0, !get_ae(ctx, 36))) { // B_Direct_8x8
@@ -1280,7 +1280,7 @@ static inline void CAFUNC(parse_B_mb)
 	// parse mb_skip_run/flag
 	#if !CABAC
 		if (ctx->mb_skip_run < 0) {
-			ctx->mb_skip_run = get_ue32(&ctx->t._gb, 139264);
+			ctx->mb_skip_run = get_ue32(&ctx->t.gb, 139264);
 			log_mb(ctx, "    mb_skip_run: %u\n", ctx->mb_skip_run);
 		}
 		int mb_skip_flag = ctx->mb_skip_run-- > 0;
@@ -1303,7 +1303,7 @@ static inline void CAFUNC(parse_B_mb)
 		
 	// B_Direct_16x16
 	#if !CABAC
-		int mb_type = get_ue16(&ctx->t._gb, 48);
+		int mb_type = get_ue16(&ctx->t.gb, 48);
 	#endif
 	if (CACOND(mb_type == 0, !get_ae(ctx, 29 - ctx->inc.mb_type_B_Direct))) {
 		log_mb(ctx, "    mb_type: 0\n");
@@ -1429,7 +1429,7 @@ static void CAFUNC(parse_P_sub_mb, unsigned ref_idx_flags)
 		int flags = 1;
 		int eqs = 0x1b;
 		#if !CABAC
-			int sub_mb_type = get_ue16(&ctx->t._gb, 3);
+			int sub_mb_type = get_ue16(&ctx->t.gb, 3);
 		#endif
 		if (CACOND(sub_mb_type == 0, get_ae(ctx, 21)) || // 8x8
 			(ctx->transform_8x8_mode_flag = 0, flags = 5, eqs = 0x11, CACOND(sub_mb_type == 1, !get_ae(ctx, 22)))) { // 8x4
@@ -1546,7 +1546,7 @@ static inline void CAFUNC(parse_P_mb)
 	// parse mb_skip_run/flag
 	#if !CABAC
 		if (ctx->mb_skip_run < 0) {
-			ctx->mb_skip_run = get_ue32(&ctx->t._gb, 139264);
+			ctx->mb_skip_run = get_ue32(&ctx->t.gb, 139264);
 			log_mb(ctx, "    mb_skip_run: %u\n", ctx->mb_skip_run);
 		}
 		int mb_skip_flag = ctx->mb_skip_run-- > 0;
@@ -1568,7 +1568,7 @@ static inline void CAFUNC(parse_P_mb)
 	
 	// initializations and jumps for mb_type
 	#if !CABAC
-		int mb_type = get_ue16(&ctx->t._gb, 30);
+		int mb_type = get_ue16(&ctx->t.gb, 30);
 		log_mb(ctx, "    mb_type: %u\n", mb_type);
 		if (mb_type > 4)
 			CAJUMP(parse_I_mb, mb_type - 5);
@@ -1766,7 +1766,7 @@ static void CAFUNC(parse_slice_data)
 		} else if (ctx->t.slice_type == 1) {
 			CACALL(parse_B_mb);
 		} else {
-			int mb_type_or_ctxIdx = CACOND(get_ue16(&ctx->t._gb, 25), 5 - ctx->inc.mb_type_I_NxN);
+			int mb_type_or_ctxIdx = CACOND(get_ue16(&ctx->t.gb, 25), 5 - ctx->inc.mb_type_I_NxN);
 			#if !CABAC
 				log_mb(ctx, "    mb_type: %u\n", mb_type_or_ctxIdx);
 			#endif
@@ -1817,7 +1817,7 @@ static void CAFUNC(parse_slice_data)
 			if (ctx->mby >= ctx->t.pic_height_in_mbs)
 				return;
 		}
-	} while (CACOND(ctx->mb_skip_run > 0 || ctx->t._gb.msb_cache << 1 || (ctx->t._gb.lsb_cache & (ctx->t._gb.lsb_cache - 1)) || (intptr_t)(ctx->t._gb.end - ctx->t._gb.CPB) > 0, !end_of_slice_flag));
+	} while (CACOND(ctx->mb_skip_run > 0 || ctx->t.gb.msb_cache << 1 || (ctx->t.gb.lsb_cache & (ctx->t.gb.lsb_cache - 1)) || (intptr_t)(ctx->t.gb.end - ctx->t.gb.CPB) > 0, !end_of_slice_flag));
 }
 
 #undef CABAC

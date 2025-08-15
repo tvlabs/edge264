@@ -337,18 +337,18 @@ int edge264_decode_NAL(Edge264Decoder *dec, const uint8_t *buf, const uint8_t *e
 	if (parser != NULL) {
 		// prefill the bitstream cache
 		if ((intptr_t)(end - buf) >= 2) {
-			dec->_gb.msb_cache = (size_t)buf[1] << (SIZE_BIT - 8) | (size_t)1 << (SIZE_BIT - 9);
-			dec->_gb.CPB = buf + 2;
+			dec->gb.msb_cache = (size_t)buf[1] << (SIZE_BIT - 8) | (size_t)1 << (SIZE_BIT - 9);
+			dec->gb.CPB = buf + 2;
 		} else {
-			dec->_gb.msb_cache = (size_t)1 << (SIZE_BIT - 1);
-			dec->_gb.CPB = buf + 1;
+			dec->gb.msb_cache = (size_t)1 << (SIZE_BIT - 1);
+			dec->gb.CPB = buf + 1;
 		}
-		dec->_gb.lsb_cache = 0;
-		dec->_gb.end = end;
-		refill(&dec->_gb, 0);
+		dec->gb.lsb_cache = 0;
+		dec->gb.end = end;
+		refill(&dec->gb, 0);
 		ret = parser(dec, non_blocking, free_cb, free_arg);
 		// end may have been set to the next start code thanks to escape code detection in get_bytes
-		buf = minp(dec->_gb.CPB - 2, dec->_gb.end);
+		buf = minp(dec->gb.CPB - 2, dec->gb.end);
 	} else if (dec->log_arg) {
 		dec->log_pos = 0;
 		dec->log_cb(dec->log_buf, dec->log_arg);

@@ -209,7 +209,7 @@ def gen_slice_layer_without_partitioning(bits, f, slice):
 			bits = bits << 1 | int("memory_management_control_operations" in vars(slice))
 			if "memory_management_control_operations" in vars(slice):
 				for mmco in slice.memory_management_control_operations:
-					bits = gen_ue(bits, mmco.idc)
+					bits = gen_ue(bits, mmco.mmco)
 					if "sref" in mmco:
 						bits = gen_ue(bits, -mmco.sref)
 					if "lref" in mmco:

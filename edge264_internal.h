@@ -146,8 +146,8 @@ typedef struct {
 	int8_t frame_mbs_only_flag; // 0..1
 	int8_t mb_adaptive_frame_field_flag; // 0..1
 	int8_t direct_8x8_inference_flag; // 0..1
-	int8_t num_frame_buffers; // 1..18
-	int8_t max_num_reorder_frames; // 0..17
+	int8_t max_dec_frame_buffering; // 0..16
+	int8_t max_num_reorder_frames; // 0..16
 	int8_t nal_hrd_cpb_cnt; // 1..32
 	int8_t vcl_hrd_cpb_cnt; // 1..32
 	int8_t initial_cpb_removal_delay_length; // 1..32
@@ -211,7 +211,7 @@ typedef struct {
 	int32_t plane_size_C;
 	int32_t next_deblock_addr; // INT_MIN..INT_MAX
 	uint32_t first_mb_in_slice; // 0..139263
-	uint32_t long_term_frames;
+	uint32_t prev_long_term_frames;
 	union { int8_t QP[3]; i8x4 QP_s; }; // same as mb
 	uint8_t *samples_base;
 	uint8_t *frame_buffers[32];
@@ -306,6 +306,25 @@ typedef struct Edge264Context {
 
 /**
  * This structure stores all variables scoped to the entire stream.
+ * 
+ * The frame buffer stores empty and used frames with a Structure Of Arrays
+ * pattern, while using as few arrays as possible to avoid coping with
+ * forbidden storage patterns (e.g. a ref being both short and long term).
+ * 
+ * Ref flags are stored in prev_short_term_frames and prev_long_term_frames bitfields:
+ * _ short-term refs have values (1, 0)
+ * _ long-term refs have values (0, 1)
+ * _ non-existing refs from gaps in frame_num have values (1, 1)
+ * 
+ * Memory management control operations are captured by short_term_frames
+ * and long_term_frames which store the future state of references that
+ * will replace the previous one when the current frame is complete.
+ * 
+ * Output status is stored in to_get_frames and output_frames bitfields:
+ * _ pictures held for reordering in the DPB have values (1, 0)
+ * _ pictures that have been output from the DPB and are stored for future
+ *   retrieval in get_frames_queue have values (1, 1)
+ * _ pictures sent to get_frame and waiting to be returned have values (0, 1)
  */
 typedef int (*Parser)(Edge264Decoder *dec, int non_blocking, void(*free_cb)(void*,int), void *free_arg);
 typedef struct Edge264Decoder {
@@ -328,28 +347,32 @@ typedef struct Edge264Decoder {
 	int32_t prevPicOrderCnt[2]; // one per view
 	int32_t TopFieldOrderCnt; // value for the current incomplete frame, unaffected by mmco5
 	int32_t BottomFieldOrderCnt;
-	int32_t dispTopFieldOrderCnt; // all POCs lower or equal than this are ready for output
-	uint32_t short_term_frames; // bitfield for indices of short-term or non-existing frame/view references
-	uint32_t long_term_frames; // bitfield for indices of long-term or non-existing frame/view references
-	uint32_t output_flags; // bitfield for frames waiting to be output
-	uint32_t borrow_flags; // bitfield for frames that are owned by the caller after get_frame and not yet returned
-	uint32_t non_base_views; // bitfield for frames that are non-base views in MVC
-	uint32_t frame_flip_bits; // target values for bit 0 of mb->recovery_bits in each frame
-	uint32_t curr_short_term_frames; // to be applied after decoding all slices of the current picture
-	uint32_t curr_long_term_frames; // to be applied after decoding all slices of the current picture
-	int32_t FrameNums[32]; // signed to be used along FieldOrderCnt in initial reference ordering
-	uint32_t FrameIds[32]; // unique identifiers for each frame, incremented in decoding order
 	void *(*worker_loop)(Edge264Decoder *);
-	uint8_t *frame_buffers[32];
 	Parser parse_nal_unit[32];
-	union { int8_t LongTermFrameIdx[32]; i8x16 LongTermFrameIdx_v[2]; };
-	union { int8_t curr_LongTermFrameIdx[32]; i8x16 curr_LongTermFrameIdx_v[2]; }; // to be applied after decoding all slices of the current frame
-	union { int32_t FieldOrderCnt[2][32]; i32x4 FieldOrderCnt_v[2][8]; }; // lower/higher half for top/bottom fields
 	Edge264Frame out;
 	Edge264SeqParameterSet sps;
 	Edge264SeqParameterSet ssps;
 	Edge264PicParameterSet PPS[4];
 	pthread_t threads[16];
+	
+	// frame buffer as a Structure Of Arrays
+	uint32_t short_term_frames; // bitfield for indices of short-term or non-existing frame/view references for current view
+	uint32_t long_term_frames; // bitfield for indices of long-term or non-existing frame/view references for current view
+	uint32_t to_get_frames; // bitfield for frames waiting to be output
+	uint32_t output_frames; // bitfield for frames that are owned by the caller after get_frame and not yet returned
+	uint32_t non_base_frames; // bitfield for frames that are non-base views in MVC
+	uint32_t frame_flip_bits; // bitfield storing target values of bit 0 in mb->recovery_bits for each frame
+	uint32_t prev_short_term_frames; // state of short_term_frames for both views before current frame
+	uint32_t prev_long_term_frames; // state of long_term_frames for both views before current frame
+	int32_t FrameNums[32]; // signed to be used along FieldOrderCnt in initial reference ordering
+	uint32_t FrameIds[32]; // unique identifiers for each frame, incremented in decoding order
+	uint8_t *frame_buffers[32];
+	union { int8_t get_frame_queue[2][16]; i8x16 get_frame_queue_v[2]; }; // FIFO with insertion at 0 for both views, and empty slots having value -1
+	union { int8_t LongTermFrameIdx[32]; i8x16 LongTermFrameIdx_v[2]; };
+	union { int8_t prev_LongTermFrameIdx[32]; i8x16 prev_LongTermFrameIdx_v[2]; }; // state of LongTermFrameIdx before current frame
+	union { int32_t FieldOrderCnt[2][32]; i32x4 FieldOrderCnt_v[2][8]; }; // lower/higher half for top/bottom fields
+	int32_t remaining_mbs[32] __attribute__((aligned(64))); // when 0 all mbs have been decoded yet not deblocked
+	union { int32_t next_deblock_addr[32]; i32x4 next_deblock_addr_v[8]; }; // next CurrMbAddr value for which mbB will be deblocked, when INT_MAX the picture is complete
 	
 	// fields accessed concurrently from multiple threads
 	pthread_mutex_t lock;
@@ -359,8 +382,6 @@ typedef struct Edge264Decoder {
 	uint16_t busy_tasks; // bitmask for tasks that are either pending or processed in a thread
 	uint16_t pending_tasks;
 	uint16_t ready_tasks;
-	int32_t remaining_mbs[32]; // when zero the picture is complete
-	union { int32_t next_deblock_addr[32]; i32x4 next_deblock_addr_v[8]; }; // next CurrMbAddr value for which mbB will be deblocked
 	volatile union { uint32_t task_dependencies[16]; i32x4 task_dependencies_v[4]; }; // frames on which each task depends to start
 	union { int8_t taskPics[16]; i8x16 taskPics_v; }; // values of currPic for each task
 	Edge264Task tasks[16];
@@ -964,8 +985,8 @@ static always_inline unsigned depended_frames(Edge264Decoder *dec) {
 
 
 /**
- * Function declarations are put in a single block here instead of .h files
- * because they are so few.
+ * Function declarations used across files are put in a single block here
+ * instead of .h files because they are so few.
  */
 // edge264_bitstream.c
 static inline size_t get_bytes(Edge264GetBits *gb, int nbytes);

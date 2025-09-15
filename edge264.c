@@ -133,7 +133,7 @@ Edge264Decoder *edge264_alloc(int n_threads, void (*log_cb)(const char *str, voi
 	dec->log_arg = log_arg;
 	dec->currPic = dec->prevPic = -1;
 	dec->PrevRefFrameNum[0] = dec->PrevRefFrameNum[1] = -1;
-	dec->taskPics_v = set8(-1);
+	dec->taskPics_v = dec->get_frame_queue_v[0] = dec->get_frame_queue_v[1] = set8(-1);
 	
 	// select parser functions based on CPU capabilities and logs mode
 	dec->worker_loop = ADD_VARIANT(worker_loop);
@@ -230,6 +230,7 @@ Edge264Decoder *edge264_alloc(int n_threads, void (*log_cb)(const char *str, voi
 
 
 
+// FIXME cover all variables!!
 void edge264_flush(Edge264Decoder *dec) {
 	if (dec == NULL)
 		return;
@@ -239,7 +240,8 @@ void edge264_flush(Edge264Decoder *dec) {
 	dec->currPic = dec->prevPic = -1;
 	dec->PrevRefFrameNum[0] = dec->PrevRefFrameNum[1] = -1;
 	dec->prevPicOrderCnt[0] = dec->prevPicOrderCnt[1] = 0;
-	dec->short_term_frames = dec->long_term_frames = dec->output_flags = dec->non_base_views = 0;
+	dec->output_frames &= ~dec->to_get_frames; // stays 1 only if to_get is 0 (i.e. frames borrowed by get_frame)
+	dec->prev_short_term_frames = dec->prev_long_term_frames = dec->to_get_frames = dec->non_base_frames = 0;
 	for (unsigned b = dec->busy_tasks; b; b &= b - 1) {
 		Edge264Task *t = dec->tasks + __builtin_ctz(b);
 		if (t->free_cb)
@@ -247,7 +249,7 @@ void edge264_flush(Edge264Decoder *dec) {
 	}
 	dec->busy_tasks = dec->pending_tasks = dec->ready_tasks = 0;
 	dec->task_dependencies_v[0] = dec->task_dependencies_v[1] = dec->task_dependencies_v[2] = dec->task_dependencies_v[3] = (i32x4){};
-	dec->taskPics_v = set8(-1);
+	dec->taskPics_v = dec->get_frame_queue_v[0] = dec->get_frame_queue_v[1] = set8(-1);
 	if (dec->n_threads)
 		pthread_mutex_unlock(&dec->lock);
 }
@@ -311,9 +313,22 @@ int edge264_decode_NAL(Edge264Decoder *dec, const uint8_t *buf, const uint8_t *e
 		return EINVAL;
 	if (dec->n_threads)
 		pthread_mutex_lock(&dec->lock);
+	
+	// there has to be enough buffer space for any NAL to flush the DPB
+	int queued0 = __builtin_ctz(movemask(dec->get_frame_queue_v[0]) | 1 << 16);
+	int queued1 = __builtin_ctz(movemask(dec->get_frame_queue_v[1]) | 1 << 16);
+	int reordered = __builtin_popcount(dec->to_get_frames & ~dec->output_frames);
+	if (queued0 + queued1 + reordered > 16) {
+		if (dec->n_threads)
+			pthread_mutex_unlock(&dec->lock);
+		return ENOBUFS;
+	}
+	
+	// flush the DPB at end of buffer
 	if (__builtin_expect((intptr_t)(end - buf) <= 0, 0)) {
-		for (unsigned o = dec->output_flags; o; o &= o - 1)
-			dec->dispTopFieldOrderCnt = max(dec->dispTopFieldOrderCnt, dec->FieldOrderCnt[0][__builtin_ctz(o)]);
+		if (dec->currPic >= 0)
+			unset_currPic(dec);
+		while (bump_frame(dec, 0, 0) | bump_frame(dec, 1, 0));
 		unsigned busy;
 		while ((busy = dec->busy_tasks) && !non_blocking)
 			pthread_cond_wait(&dec->task_complete, &dec->lock);
@@ -321,6 +336,8 @@ int edge264_decode_NAL(Edge264Decoder *dec, const uint8_t *buf, const uint8_t *e
 			pthread_mutex_unlock(&dec->lock);
 		return busy ? EWOULDBLOCK : ENODATA;
 	}
+	
+	// NAL byte header
 	dec->nal_ref_idc = buf[0] >> 5;
 	dec->nal_unit_type = buf[0] & 0x1f;
 	Parser parser = dec->parse_nal_unit[dec->nal_unit_type];
@@ -381,26 +398,12 @@ int edge264_get_frame(Edge264Decoder *dec, Edge264Frame *out, int borrow) {
 		return EINVAL;
 	if (dec->n_threads)
 		pthread_mutex_lock(&dec->lock);
-	int pic[2] = {-1, -1};
-	unsigned used = dec->short_term_frames | dec->output_flags;
-	int best = (__builtin_popcount(dec->output_flags & ~dec->non_base_views) > dec->sps.max_num_reorder_frames ||
-		(dec->non_base_views && __builtin_popcount(dec->output_flags & dec->non_base_views) > dec->ssps.max_num_reorder_frames) ||
-		__builtin_popcount(used & ~dec->non_base_views) >= dec->sps.num_frame_buffers ||
-		(dec->non_base_views && __builtin_popcount(used & dec->non_base_views) >= dec->ssps.num_frame_buffers)) ? INT_MAX : dec->dispTopFieldOrderCnt;
-	for (int o = dec->output_flags; o != 0; o &= o - 1) {
-		int i = __builtin_ctz(o);
-		if (dec->FieldOrderCnt[0][i] <= best) {
-			int non_base = dec->non_base_views >> i & 1;
-			if (dec->FieldOrderCnt[0][i] < best) {
-				best = dec->FieldOrderCnt[0][i];
-				pic[non_base ^ 1] = -1;
-			}
-			pic[non_base] = i;
-		}
-	}
-	
-	int res = ENOMSG;
-	if (pic[0] >= 0 && dec->next_deblock_addr[pic[0]] == INT_MAX && (!dec->non_base_views || (pic[1] >= 0 && dec->next_deblock_addr[pic[1]] == INT_MAX))) {
+	int idx0 = __builtin_ctz(movemask(dec->get_frame_queue_v[0]) | 1 << 16) - 1;
+	int idx1 = __builtin_ctz(movemask(dec->get_frame_queue_v[1]) | 1 << 16) - 1;
+	int pic0, pic1, res = ENOMSG;
+	if (idx0 >= 0 && dec->next_deblock_addr[pic0 = dec->get_frame_queue[0][idx0]] == INT_MAX &&
+		(dec->non_base_frames == 0 || (idx1 >= 0 && dec->next_deblock_addr[pic1 = dec->get_frame_queue[1][idx1]] == INT_MAX))) {
+		dec->get_frame_queue[0][idx0] = -1;
 		*out = dec->out;
 		int top = dec->out.frame_crop_offsets[0];
 		int left = dec->out.frame_crop_offsets[3];
@@ -408,25 +411,28 @@ int edge264_get_frame(Edge264Decoder *dec, Edge264Frame *out, int borrow) {
 		int topC = dec->sps.chroma_format_idc == 3 ? top : top >> 1;
 		int leftC = dec->sps.chroma_format_idc == 1 ? left >> 1 : left;
 		int offC = dec->plane_size_Y + topC * dec->out.stride_C + (leftC << dec->out.pixel_depth_C);
-		dec->output_flags ^= 1 << pic[0];
-		const uint8_t *samples = dec->frame_buffers[pic[0]];
+		assert(dec->to_get_frames & dec->output_frames & 1 << pic0);
+		dec->to_get_frames &= ~(1 << pic0);
+		const uint8_t *samples = dec->frame_buffers[pic0];
 		out->samples[0] = samples + offY;
 		out->samples[1] = samples + offC;
 		out->samples[2] = samples + (dec->out.stride_C >> 1) + offC;
-		out->FrameId = dec->FrameIds[pic[0]];
-		out->return_arg = (void *)((size_t)1 << pic[0]);
-		if (pic[1] >= 0) {
-			dec->output_flags ^= 1 << pic[1];
-			samples = dec->frame_buffers[pic[1]];
+		out->FrameId = dec->FrameIds[pic0];
+		out->return_arg = (void *)((uintptr_t)1 << pic0);
+		if (idx1 >= 0) {
+			dec->get_frame_queue[1][idx1] = -1;
+			assert(dec->to_get_frames & dec->output_frames & 1 << pic1);
+			dec->to_get_frames ^= 1 << pic1;
+			samples = dec->frame_buffers[pic1];
 			out->samples_mvc[0] = samples + offY;
 			out->samples_mvc[1] = samples + offC;
 			out->samples_mvc[2] = samples + (dec->out.stride_C >> 1) + offC;
-			out->FrameId_mvc = dec->FrameIds[pic[1]];
-			out->return_arg = (void *)((size_t)1 << pic[0] | (size_t)1 << pic[1]);
+			out->FrameId_mvc = dec->FrameIds[pic1];
+			out->return_arg = (void *)((uintptr_t)1 << pic0 | (uintptr_t)1 << pic1);
 		}
 		res = 0;
-		if (borrow)
-			dec->borrow_flags |= (size_t)out->return_arg;
+		if (!borrow)
+			dec->output_frames &= ~(uintptr_t)out->return_arg;
 	}
 	if (dec->n_threads)
 		pthread_mutex_unlock(&dec->lock);
@@ -437,7 +443,7 @@ int edge264_get_frame(Edge264Decoder *dec, Edge264Frame *out, int borrow) {
 
 void edge264_return_frame(Edge264Decoder *d, void *return_arg) {
 	if (d != NULL)
-		d->borrow_flags &= ~(size_t)return_arg;
+		d->output_frames &= ~(size_t)return_arg;
 }
 
 

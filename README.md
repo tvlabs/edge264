@@ -281,6 +281,7 @@ With the help of a [custom bitstream writer](tools/gen_avc.py) using the same YA
 | Horizontal/vertical cropping leaving zero space | All OK, 1x1 frames | zero-cropping |
 | P/B slice with nal_unit_type=5 or max_num_ref_frames=0 | 4 OK, 2 errors | no-refs-P-B-slice |
 | IDR slice with frame_num>0 | All OK, clamped to 0 | pos-frame-num-idr |
+| A ref that must bump out higher POCs to enter DPB (C.4.5.2) | All OK, check output order | poc-out-of-order |
 | Two ref frames with the same frame_num but differing POC, then a third frame referencing both |  |  |
 | Gap in frame_num while gaps_in_frame_num_value_allowed_flag=0 |  |  |
 | Stream starting with non-IDR I frame |  |  |
@@ -305,6 +306,7 @@ With the help of a [custom bitstream writer](tools/gen_avc.py) using the same YA
 | A P/B frame referencing a non-existing/erroneous ref |  |  |
 | A B frame with colPic set to a non-existing frame |  |  |
 | A current frame mmco'ed to long-term while all max_num_ref_frames are already long-term |  |  |
+| A mmco marking a non-existing picture to long-term |  |  |
 | All combinations of IntraNxNPredMode with A/B/C/D unavailability with asserts for out-of-bounds reads |  |  |
 | A direct Inter reference from colPic that is not present in RefPicList0 |  |  |
 | A residual block with all coeffs at maximum 32-bit values |  |  |
@@ -319,6 +321,8 @@ With the help of a [custom bitstream writer](tools/gen_avc.py) using the same YA
 | Making a Direct ref_pic be used after it has been unreferenced |  |  |
 | poc_type=2 and non-ref frame followed by non-ref pic, and the opposite (7.4.2.1.1) |  |  |
 | direct_8x8_inference_flag=1 with frame_mbs_only_flag=0 |  |  |
+| checking that a gap in frame_num with poc_type==0 does not insert refs in B slices |  |  |
+| A SPS changing frame format while currPic>=0 |  |  |
 
 | Parameter sets tests | Expected | Test files |
 | --- | --- | --- |
@@ -370,6 +374,8 @@ With the help of a [custom bitstream writer](tools/gen_avc.py) using the same YA
 | svc_extension_flag=1 on a MVC stream |  |  |
 | SSPS with additional_extension2_flag=1 and more trailing data |  |  |
 | Gap in frame_num of 16 frames on both views |  |  |
+| Specifying extra_frames=1 |  |  |
+| Receiving a non-base view before its base |  |  |
 
 | Error recovery tests | Expected | Test files |
 | --- | --- | --- |

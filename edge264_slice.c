@@ -1642,8 +1642,7 @@ static void CAFUNC(parse_slice_data)
 	int end_of_slice_flag = 0;
 	do {
 		#ifdef LOGS
-			ctx->log_pos = snprintf(ctx->log_buf, sizeof(ctx->log_buf),
-				"  - mbAddr: %u\n", ctx->CurrMbAddr);
+			log_mb(ctx, "  - mbAddr: %u\n", ctx->CurrMbAddr);
 			if (ctx->n_threads)
 				log_mb(ctx, "    FrameId: %u\n"
 					"    slice_type: %c (%u)\n",

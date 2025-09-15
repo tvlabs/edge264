@@ -111,6 +111,7 @@ static int parse_pan_scan_rect(Edge264Decoder *dec) {
 typedef int (*SEI_Parser)(Edge264Decoder *dec);
 int ADD_VARIANT(parse_sei)(Edge264Decoder *dec, int non_blocking, void(*free_cb)(void*,int), void *free_arg)
 {
+	// FIXME reduce array size to minimum!
 	static const char * const payloadType_names[206] = {
 		[0 ... 205] = "Unknown",
 		[0] = "Buffering period",
@@ -123,7 +124,6 @@ int ADD_VARIANT(parse_sei)(Edge264Decoder *dec, int non_blocking, void(*free_cb)
 		[2] = parse_pan_scan_rect,
 	};
 	
-	refill(&dec->gb, 0);
 	log_dec(dec, "  sei_messages:\n");
 	if (print_dec(dec))
 		return ENOTSUP;

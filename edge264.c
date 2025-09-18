@@ -388,7 +388,7 @@ int edge264_get_frame(Edge264Decoder *dec, Edge264Frame *out, int borrow) {
 	int idx1 = __builtin_ctz(movemask(dec->get_frame_queue_v[1]) | 1 << 16) - 1;
 	int pic0, pic1, res = ENOMSG;
 	if (idx0 >= 0 && dec->next_deblock_addr[pic0 = dec->get_frame_queue[0][idx0]] == INT_MAX &&
-		(dec->non_base_frames == 0 || (idx1 >= 0 && dec->next_deblock_addr[pic1 = dec->get_frame_queue[1][idx1]] == INT_MAX))) {
+		(dec->ssps.BitDepth_Y == 0 || (idx1 >= 0 && dec->next_deblock_addr[pic1 = dec->get_frame_queue[1][idx1]] == INT_MAX))) {
 		dec->get_frame_queue[0][idx0] = -1;
 		*out = dec->out;
 		int top = dec->out.frame_crop_offsets[0];

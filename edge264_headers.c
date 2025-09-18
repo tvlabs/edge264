@@ -1186,7 +1186,7 @@ int ADD_VARIANT(parse_slice_layer_without_partitioning)(Edge264Decoder *dec, int
 					log_dec(dec, ~long_term_frames & 1 << i ? ", sref: %u" : ~short_term_frames & 1 << i ? ", lref: %u" : ", nref: %u", short_term_frames & 1 << i ? dec->FrameNums[i] : dec->LongTermFrameIdx[i]);
 				if (reordered_frames & 1 << i)
 					log_dec(dec, ", poc: %d", minw(dec->FieldOrderCnt[0][i], dec->FieldOrderCnt[1][i]));
-				if (dec->non_base_frames)
+				if (dec->ssps.BitDepth_Y)
 					log_dec(dec, ", view: %u", dec->non_base_frames >> i & 1);
 				log_dec(dec, "}\n");
 			}
@@ -1890,12 +1890,17 @@ int ADD_VARIANT(parse_seq_parameter_set)(Edge264Decoder *dec, int non_blocking, 
 	int pic_height_in_map_units = get_ue16(&dec->gb, 527 << sps.frame_mbs_only_flag) + 1;
 	sps.frame_mbs_only_flag = get_u1(&dec->gb);
 	sps.pic_height_in_mbs = pic_height_in_map_units << 1 >> sps.frame_mbs_only_flag;
-	int MaxDpbFrames = min(MaxDpbMbs[min(level_idc, 63)] / (unsigned)(sps.pic_width_in_mbs * sps.pic_height_in_mbs), 16);
-	sps.max_num_ref_frames = min(max_num_ref_frames, MaxDpbFrames);
-	sps.max_num_reorder_frames = sps.max_dec_frame_buffering =
-		((profile_idc == 44 || profile_idc == 86 || profile_idc == 100 ||
-		profile_idc == 110 || profile_idc == 122 || profile_idc == 244) &&
-		(constraint_set_flags & 1 << 4)) ? 0 : MaxDpbFrames;
+	int mvc = (dec->nal_unit_type == 15);
+	// contrary to H.10.2.1-f we force MaxDpbFrames a multiple of 2 for MVC
+	int MaxDpbFrames = min((MaxDpbMbs[min(level_idc, 63)] / (unsigned)(sps.pic_width_in_mbs * sps.pic_height_in_mbs)) << mvc, 16);
+	sps.max_num_ref_frames = min(max_num_ref_frames, MaxDpbFrames >> mvc);
+	if (movemask(set8(profile_idc) == ((u8x16){44, 86, 100, 110, 122, 244})) &&
+		(constraint_set_flags & 1 << 4)) {
+		sps.max_num_reorder_frames = 0;
+		sps.max_dec_frame_buffering = sps.max_num_ref_frames << mvc;
+	} else {
+		sps.max_num_reorder_frames = sps.max_dec_frame_buffering = MaxDpbFrames;
+	}
 	log_dec(dec, "  max_num_ref_frames: %u\n"
 		"  gaps_in_frame_num_value_allowed_flag: %u\n"
 		"  pic_size_in_mbs: {width: %u, height: %u}\n"
@@ -1932,8 +1937,8 @@ int ADD_VARIANT(parse_seq_parameter_set)(Edge264Decoder *dec, int non_blocking, 
 		log_dec(dec, "  vui_parameters:\n");
 		parse_vui_parameters(dec, &sps);
 	} else {
-		log_dec(dec, "  default_max_num_reorder_frames: %u\n"
-			"  default_max_dec_frame_buffering: %u\n",
+		log_dec(dec, "  max_num_reorder_frames: %u # inferred\n"
+			"  max_dec_frame_buffering: %u # inferred\n",
 			sps.max_num_reorder_frames,
 			sps.max_dec_frame_buffering);
 	}
@@ -1982,7 +1987,7 @@ int ADD_VARIANT(parse_seq_parameter_set)(Edge264Decoder *dec, int non_blocking, 
 			format.stride_C += (sps.chroma_format_idc == 3 ? 16 : 8) << (sps.BitDepth_C > 8);
 	}
 	
-	// flush the decoder if frame format changes
+	// flush the decoder if the frame format changes
 	if (memcmp(&format, &dec->out, sizeof(Edge264Frame))) {
 		while (bump_frame(dec, 0, 0) | bump_frame(dec, 1, 0));
 		if (dec->busy_tasks && non_blocking)
@@ -2005,5 +2010,13 @@ int ADD_VARIANT(parse_seq_parameter_set)(Edge264Decoder *dec, int non_blocking, 
 	}
 	print_dec(dec);
 	*((dec->nal_unit_type == 7) ? &dec->sps : &dec->ssps) = sps;
+	
+	// fix frame limits when MVC is detected
+	if (dec->ssps.BitDepth_Y > 0) {
+		dec->sps.max_num_ref_frames = min(dec->sps.max_num_ref_frames, 8);
+		dec->sps.max_dec_frame_buffering = dec->ssps.max_dec_frame_buffering =
+			max(dec->ssps.max_dec_frame_buffering, dec->sps.max_num_ref_frames + dec->ssps.max_num_ref_frames);
+		dec->sps.max_num_reorder_frames = dec->ssps.max_num_reorder_frames;
+	}
 	return 0;
 }

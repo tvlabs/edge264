@@ -376,6 +376,7 @@ With the help of a [custom bitstream writer](tools/gen_avc.py) using the same YA
 | Gap in frame_num of 16 frames on both views |  |  |
 | Specifying extra_frames=1 |  |  |
 | Receiving a non-base view before its base |  |  |
+| A stream sending non-base views after a few frames have been output |  |  |
 
 | Error recovery tests | Expected | Test files |
 | --- | --- | --- |

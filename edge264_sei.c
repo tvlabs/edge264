@@ -1,6 +1,6 @@
 static int parse_buffering_period(Edge264Decoder *dec) {
 	get_ue16(&dec->gb, 31);
-	if (!dec->sps.DPB_format) // if SPS wasn't initialized
+	if (!dec->sps.BitDepth_Y) // if SPS wasn't initialized
 		return EBADMSG;
 	log_dec(dec, "    delay_bits: %u\n", dec->sps.initial_cpb_removal_delay_length);
 	if (dec->sps.nal_hrd_cpb_cnt)

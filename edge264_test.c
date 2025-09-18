@@ -219,13 +219,13 @@ static int check_frame()
 			for (int col = 0; col < pic_height_in_mbs; col += 1) {
 				for (int iYCbCr = 0; iYCbCr < 3; iYCbCr++) {
 					int stride = (iYCbCr == 0) ? out.stride_Y : out.stride_C;
-					int depth = (iYCbCr == 0) ? out.pixel_depth_Y : out.pixel_depth_C;
+					int depth = (iYCbCr == 0 ? out.bit_depth_Y : out.bit_depth_C) > 8;
 					int sh_width = (iYCbCr > 0 && out.width_C < out.width_Y);
 					int sh_height = (iYCbCr > 0 && out.height_C < out.height_Y);
 					const uint8_t *p = (view ? out.samples_mvc : out.samples)[iYCbCr];
 					const uint8_t *q = conf[view] +
-						(iYCbCr > 0) * (out.width_Y << out.pixel_depth_Y) * out.height_Y +
-						(iYCbCr > 1) * (out.width_C << out.pixel_depth_C) * out.height_C;
+						(iYCbCr > 0) * (out.bit_depth_Y == 8 ? out.width_Y : out.width_Y << 1) * out.height_Y +
+						(iYCbCr > 1) * (out.bit_depth_C == 8 ? out.width_C : out.width_C << 1) * out.height_C;
 					int xl = max(col * 16 - cropl, 0) >> sh_width;
 					int xr = min(col * 16 - cropl + 16, out.width_Y) >> sh_width;
 					int invalid = 0;
@@ -257,7 +257,9 @@ static int check_frame()
 				}
 			}
 		}
-		conf[view] += (out.width_Y << out.pixel_depth_Y) * out.height_Y + (out.width_C << out.pixel_depth_C) * out.height_C * 2;
+		conf[view] +=
+			(out.bit_depth_Y == 8 ? out.width_Y : out.width_Y << 1) * out.height_Y +
+			(out.bit_depth_C == 8 ? out.width_C : out.width_C << 1) * out.height_C * 2;
 	}
 	return 0;
 }

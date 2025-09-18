@@ -125,17 +125,10 @@ static Edge264Macroblock unavail_mb = {
  * trailing_bits are detected.
  */
 typedef struct {
-	union { // The first 8 bytes uniquely determine the frame buffer size and format.
-		struct {
-			int8_t chroma_format_idc; // 0..3
-			int8_t BitDepth_Y; // 8..14
-			int8_t BitDepth_C;
-			uint16_t pic_width_in_mbs; // 1..1023
-			int16_t pic_height_in_mbs; // 1..1055
-		};
-		int64_t DPB_format; // non-zero if SPS has been initialized
-	};
+	int8_t chroma_format_idc; // 0..3
 	int8_t ChromaArrayType; // 0..3
+	int8_t BitDepth_Y; // 8..14
+	int8_t BitDepth_C;
 	int8_t qpprime_y_zero_transform_bypass_flag; // 0..1
 	int8_t log2_max_frame_num; // 4..16
 	int8_t pic_order_cnt_type; // 0..2
@@ -155,10 +148,12 @@ typedef struct {
 	int8_t dpb_output_delay_length; // 1..32
 	int8_t time_offset_length; // 0..31
 	int8_t pic_struct_present_flag; // 0..1
+	uint16_t pic_width_in_mbs; // 1..1023
+	int16_t pic_height_in_mbs; // 1..1055
 	int16_t offset_for_non_ref_pic; // -32768..32767, pic_order_cnt_type==1
 	int16_t offset_for_top_to_bottom_field; // -32768..32767, pic_order_cnt_type==1
-	uint32_t num_units_in_tick; // 1..2^32-1
-	uint32_t time_scale; // 1..2^32-1
+	uint32_t num_units_in_tick; // 0..2^32-1
+	uint32_t time_scale; // 0..2^32-1
 	int16_t PicOrderCntDeltas[256]; // -32768..32767, pic_order_cnt_type==1
 	union { int16_t frame_crop_offsets[4]; int64_t frame_crop_offsets_l; }; // {top,right,bottom,left}
 	union { uint8_t weightScale4x4[6][16]; i8x16 weightScale4x4_v[6]; };
@@ -308,8 +303,8 @@ typedef struct Edge264Context {
  * This structure stores all variables scoped to the entire stream.
  * 
  * The frame buffer stores empty and used frames with a Structure Of Arrays
- * pattern, while using as few arrays as possible to avoid coping with
- * forbidden storage patterns (e.g. a ref being both short and long term).
+ * pattern, while using as few arrays as possible to prevent impossible storage
+ * patterns (e.g. a ref being both short and long term).
  * 
  * Ref flags are stored in prev_short_term_frames and prev_long_term_frames bitfields:
  * _ short-term refs have values (1, 0)
@@ -328,32 +323,43 @@ typedef struct Edge264Context {
  */
 typedef int (*Parser)(Edge264Decoder *dec, int non_blocking, void(*free_cb)(void*,int), void *free_arg);
 typedef struct Edge264Decoder {
+	// minimal set of fields preserved across flushes
 	Edge264GetBits gb; // must be first in the struct to use the same pointer for bitstream functions
 	int8_t n_threads; // 0 to disable multithreading
-	int8_t nal_ref_idc; // 2 significant bits
 	int8_t nal_unit_type; // 5 significant bits
+	int32_t plane_size_Y;
+	int32_t plane_size_C;
+	int32_t frame_size;
+	uint32_t frame_flip_bits; // bitfield storing target values of bit 0 in mb->recovery_bits for each frame
+	void (*log_cb)(const char*, void*);
+	void *log_arg;
+	void *(*worker_loop)(Edge264Decoder *);
+	uint8_t *frame_buffers[32];
+	Parser parse_nal_unit[32];
+	pthread_t threads[16];
+	pthread_mutex_t lock;
+	pthread_cond_t task_ready;
+	pthread_cond_t task_progress; // signals next_deblock_addr has been updated
+	pthread_cond_t task_complete;
+	Edge264Frame out;
+	
+	// general contextual fields
+	int8_t nal_ref_idc; // 2 significant bits
 	int8_t IdrPicFlag; // 1 significant bit
 	int8_t currPic; // index of current incomplete frame, or -1
 	int8_t prevPic; // index of last completed frame, may possibly equal currPic
 	int8_t hH; // last decoded timestamp hours, 0..23
 	int8_t mM; // last decoded timestamp minutes, 0..59
 	int8_t sS; // last decoded timestamp seconds, 0..59
-	int32_t plane_size_Y;
-	int32_t plane_size_C;
-	int32_t frame_size;
 	int32_t FrameNum; // value for the current incomplete frame, unaffected by mmco5
 	int32_t PrevRefFrameNum[2]; // one per view
 	int32_t idr_pic_id; // value for the last slice, used for detecting new frames
 	int32_t prevPicOrderCnt[2]; // one per view
 	int32_t TopFieldOrderCnt; // value for the current incomplete frame, unaffected by mmco5
 	int32_t BottomFieldOrderCnt;
-	void *(*worker_loop)(Edge264Decoder *);
-	Parser parse_nal_unit[32];
-	Edge264Frame out;
 	Edge264SeqParameterSet sps;
 	Edge264SeqParameterSet ssps;
 	Edge264PicParameterSet PPS[4];
-	pthread_t threads[16];
 	
 	// frame buffer as a Structure Of Arrays
 	uint32_t short_term_frames; // bitfield for indices of short-term or non-existing frame/view references for current view
@@ -361,12 +367,10 @@ typedef struct Edge264Decoder {
 	uint32_t to_get_frames; // bitfield for frames waiting to be output
 	uint32_t output_frames; // bitfield for frames that are owned by the caller after get_frame and not yet returned
 	uint32_t non_base_frames; // bitfield for frames that are non-base views in MVC
-	uint32_t frame_flip_bits; // bitfield storing target values of bit 0 in mb->recovery_bits for each frame
 	uint32_t prev_short_term_frames; // state of short_term_frames for both views before current frame
 	uint32_t prev_long_term_frames; // state of long_term_frames for both views before current frame
 	int32_t FrameNums[32]; // signed to be used along FieldOrderCnt in initial reference ordering
 	uint32_t FrameIds[32]; // unique identifiers for each frame, incremented in decoding order
-	uint8_t *frame_buffers[32];
 	union { int8_t get_frame_queue[2][16]; i8x16 get_frame_queue_v[2]; }; // FIFO with insertion at 0 for both views, and empty slots having value -1
 	union { int8_t LongTermFrameIdx[32]; i8x16 LongTermFrameIdx_v[2]; };
 	union { int8_t prev_LongTermFrameIdx[32]; i8x16 prev_LongTermFrameIdx_v[2]; }; // state of LongTermFrameIdx before current frame
@@ -375,20 +379,14 @@ typedef struct Edge264Decoder {
 	union { int32_t next_deblock_addr[32]; i32x4 next_deblock_addr_v[8]; }; // next CurrMbAddr value for which mbB will be deblocked, when INT_MAX the picture is complete
 	
 	// fields accessed concurrently from multiple threads
-	pthread_mutex_t lock;
-	pthread_cond_t task_ready;
-	pthread_cond_t task_progress; // signals next_deblock_addr has been updated
-	pthread_cond_t task_complete;
-	uint16_t busy_tasks; // bitmask for tasks that are either pending or processed in a thread
 	uint16_t pending_tasks;
+	uint16_t busy_tasks; // bitmask for tasks that are either pending or processed in a thread
 	uint16_t ready_tasks;
 	volatile union { uint32_t task_dependencies[16]; i32x4 task_dependencies_v[4]; }; // frames on which each task depends to start
 	union { int8_t taskPics[16]; i8x16 taskPics_v; }; // values of currPic for each task
 	Edge264Task tasks[16];
 	
 	// Logging context (unused if disabled)
-	void (*log_cb)(const char*, void*);
-	void *log_arg;
 	int16_t log_pos; // next writing position in log_buf
 	char log_buf[9538];
 } Edge264Decoder;
@@ -980,6 +978,22 @@ static always_inline unsigned depended_frames(Edge264Decoder *dec) {
 	u32x4 b = a | (u32x4)shr128(a, 8);
 	u32x4 c = b | (u32x4)shr128(b, 4);
 	return c[0];
+}
+static always_inline void flush_decoder(Edge264Decoder *dec) {
+	for (unsigned m = dec->ready_tasks; m; m &= m - 1) {
+		Edge264Task *t = dec->tasks + __builtin_ctz(m);
+		if (t->free_cb)
+			t->free_cb(t->free_arg, 0);
+	}
+	dec->pending_tasks = dec->busy_tasks = dec->ready_tasks = 0;
+	// FIXME signal all threads to exit then wait until they are back to wait
+	assert(!(dec->n_threads == 0 && dec->busy_tasks));
+	while (dec->busy_tasks)
+		pthread_cond_wait(&dec->task_complete, &dec->lock);
+	memset((void *)dec + offsetof(Edge264Decoder, nal_ref_idc), 0, offsetof(Edge264Decoder, log_pos) - offsetof(Edge264Decoder, nal_ref_idc));
+	dec->currPic = dec->prevPic = -1;
+	dec->PrevRefFrameNum[0] = dec->PrevRefFrameNum[1] = -1;
+	dec->taskPics_v = dec->get_frame_queue_v[0] = dec->get_frame_queue_v[1] = set8(-1);
 }
 
 

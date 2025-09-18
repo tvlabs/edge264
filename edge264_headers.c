@@ -880,7 +880,7 @@ int ADD_VARIANT(parse_slice_layer_without_partitioning)(Edge264Decoder *dec, int
 	static const char * const disable_deblocking_filter_idc_names[3] = {"enabled", "disabled", "sliced"};
 	int ret;
 	
-	// reserving a slot without locking is fine since workers can only unset busy_tasks
+	// find and reserve an empty task to fill
 	unsigned avail_tasks;
 	while (!(avail_tasks = 0xffff & ~dec->busy_tasks)) {
 		if (non_blocking)
@@ -919,7 +919,7 @@ int ADD_VARIANT(parse_slice_layer_without_partitioning)(Edge264Decoder *dec, int
 	if (t->slice_type > 2 || pic_parameter_set_id >= 4)
 		return ENOTSUP;
 	t->pps = dec->PPS[pic_parameter_set_id];
-	if (!sps->DPB_format || !t->pps.num_ref_idx_active[0]) // if SPS or PPS wasn't initialized
+	if (!sps->BitDepth_Y || !t->pps.num_ref_idx_active[0]) // if SPS or PPS wasn't initialized
 		return EBADMSG;
 	
 	// parse frame_num and detect the start of a new frame (7.4.1.2.4)
@@ -1940,8 +1940,7 @@ int ADD_VARIANT(parse_seq_parameter_set)(Edge264Decoder *dec, int non_blocking, 
 	
 	// additional stuff for subset_seq_parameter_set
 	if (dec->nal_unit_type == 15) {
-		if ((profile_idc != 118 && profile_idc != 128 && profile_idc != 134) ||
-			sps.DPB_format != dec->sps.DPB_format)
+		if (profile_idc != 118 && profile_idc != 128 && profile_idc != 134)
 			return ENOTSUP;
 		if (!get_u1(&dec->gb))
 			return EBADMSG;
@@ -1962,43 +1961,41 @@ int ADD_VARIANT(parse_seq_parameter_set)(Edge264Decoder *dec, int non_blocking, 
 		sps.qpprime_y_zero_transform_bypass_flag || !sps.frame_mbs_only_flag)
 		return ENOTSUP;
 	
-	// apply the changes on the dependent variables if the frame format changed
-	if (sps.DPB_format != dec->sps.DPB_format || sps.frame_crop_offsets_l != dec->sps.frame_crop_offsets_l) {
+	// compute the resulting frame format
+	Edge264Frame format = {};
+	int width = sps.pic_width_in_mbs << 4;
+	int height = sps.pic_height_in_mbs << 4;
+	format.bit_depth_Y = sps.BitDepth_Y;
+	format.width_Y = width - sps.frame_crop_offsets[3] - sps.frame_crop_offsets[1];
+	format.height_Y = height - sps.frame_crop_offsets[0] - sps.frame_crop_offsets[2];
+	format.stride_Y = (sps.BitDepth_Y == 8) ? width : width << 1;
+	format.stride_mb = sps.pic_width_in_mbs * sizeof(Edge264Macroblock);
+	if (!(format.stride_Y & 2047)) // add an offset to stride if it is a multiple of 2048
+		format.stride_Y += (sps.BitDepth_Y == 8) ? 16 : 32;
+	memcpy(format.frame_crop_offsets, &sps.frame_crop_offsets_l, 8);
+	if (sps.chroma_format_idc > 0) {
+		format.bit_depth_C = sps.BitDepth_C;
+		format.width_C = sps.chroma_format_idc == 3 ? format.width_Y : format.width_Y >> 1;
+		format.height_C = sps.chroma_format_idc == 1 ? format.height_Y >> 1 : format.height_Y;
+		format.stride_C = (sps.chroma_format_idc == 3 ? width << 1 : width) << (sps.BitDepth_C > 8);
+		if (!(format.stride_C & 4095)) // add an offset to stride if it is a multiple of 4096
+			format.stride_C += (sps.chroma_format_idc == 3 ? 16 : 8) << (sps.BitDepth_C > 8);
+	}
+	
+	// flush the decoder if frame format changes
+	if (memcmp(&format, &dec->out, sizeof(Edge264Frame))) {
 		while (bump_frame(dec, 0, 0) | bump_frame(dec, 1, 0));
-		if (dec->busy_tasks) {
-			if (non_blocking)
-				return EWOULDBLOCK;
-			while (dec->busy_tasks)
-				pthread_cond_wait(&dec->task_complete, &dec->lock);
-		}
+		if (dec->busy_tasks && non_blocking)
+			return EWOULDBLOCK;
 		if (dec->to_get_frames | dec->output_frames)
 			return ENOBUFS;
-		memcpy(dec->out.frame_crop_offsets, &sps.frame_crop_offsets_l, 8);
-		int width = sps.pic_width_in_mbs << 4;
-		int height = sps.pic_height_in_mbs << 4;
-		dec->out.pixel_depth_Y = sps.BitDepth_Y > 8;
-		dec->out.width_Y = width - dec->out.frame_crop_offsets[3] - dec->out.frame_crop_offsets[1];
-		dec->out.height_Y = height - dec->out.frame_crop_offsets[0] - dec->out.frame_crop_offsets[2];
-		dec->out.stride_Y = width << dec->out.pixel_depth_Y;
-		if (!(dec->out.stride_Y & 2047)) // add an offset to stride if it is a multiple of 2048
-			dec->out.stride_Y += 16 << dec->out.pixel_depth_Y;
-		dec->plane_size_Y = dec->out.stride_Y * height;
-		if (sps.chroma_format_idc > 0) {
-			dec->out.pixel_depth_C = sps.BitDepth_C > 8;
-			dec->out.width_C = sps.chroma_format_idc == 3 ? dec->out.width_Y : dec->out.width_Y >> 1;
-			dec->out.stride_C = (sps.chroma_format_idc == 3 ? width << 1 : width) << dec->out.pixel_depth_C;
-			if (!(dec->out.stride_C & 4095)) // add an offset to stride if it is a multiple of 4096
-				dec->out.stride_C += (sps.chroma_format_idc == 3 ? 16 : 8) << dec->out.pixel_depth_C;
-			dec->out.height_C = sps.chroma_format_idc == 1 ? dec->out.height_Y >> 1 : dec->out.height_Y;
-			dec->plane_size_C = (sps.chroma_format_idc == 1 ? height >> 1 : height) * dec->out.stride_C;
-		}
+		flush_decoder(dec);
+		dec->out = format;
+		dec->plane_size_Y = format.stride_Y * height;
+		dec->plane_size_C = format.stride_C * (sps.chroma_format_idc == 1 ? height >> 1 : height);
 		int mbs = (sps.pic_width_in_mbs + 1) * sps.pic_height_in_mbs - 1;
 		dec->frame_size = dec->plane_size_Y + dec->plane_size_C + mbs * sizeof(Edge264Macroblock);
-		dec->currPic = -1;
-		dec->PrevRefFrameNum[0] = dec->PrevRefFrameNum[1] = -1;
-		dec->prevPicOrderCnt[0] = dec->prevPicOrderCnt[1] = 0;
-		dec->prev_short_term_frames = dec->prev_long_term_frames = dec->frame_flip_bits = dec->non_base_frames = 0;
-		dec->ssps.DPB_format = 0;
+		dec->frame_flip_bits = 0;
 		for (int i = 0; i < 32; i++) {
 			if (dec->frame_buffers[i] != NULL) {
 				free(dec->frame_buffers[i]);
@@ -2006,7 +2003,7 @@ int ADD_VARIANT(parse_seq_parameter_set)(Edge264Decoder *dec, int non_blocking, 
 			}
 		}
 	}
-	*(dec->nal_unit_type == 7 ? &dec->sps : &dec->ssps) = sps;
 	print_dec(dec);
+	*((dec->nal_unit_type == 7) ? &dec->sps : &dec->ssps) = sps;
 	return 0;
 }

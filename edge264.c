@@ -128,12 +128,12 @@ Edge264Decoder *edge264_alloc(int n_threads, void (*log_cb)(const char *str, voi
 	Edge264Decoder *dec = calloc(1, sizeof(Edge264Decoder));
 	if (dec == NULL)
 		return NULL;
-	dec->n_threads = n_threads;
-	dec->log_cb = log_cb;
-	dec->log_arg = log_arg;
 	dec->currPic = dec->prevPic = -1;
 	dec->PrevRefFrameNum[0] = dec->PrevRefFrameNum[1] = -1;
 	dec->taskPics_v = dec->get_frame_queue_v[0] = dec->get_frame_queue_v[1] = set8(-1);
+	dec->n_threads = n_threads;
+	dec->log_cb = log_cb;
+	dec->log_arg = log_arg;
 	
 	// select parser functions based on CPU capabilities and logs mode
 	dec->worker_loop = ADD_VARIANT(worker_loop);
@@ -230,26 +230,12 @@ Edge264Decoder *edge264_alloc(int n_threads, void (*log_cb)(const char *str, voi
 
 
 
-// FIXME cover all variables!!
 void edge264_flush(Edge264Decoder *dec) {
 	if (dec == NULL)
 		return;
 	if (dec->n_threads)
 		pthread_mutex_lock(&dec->lock);
-	// FIXME interrupt all threads
-	dec->currPic = dec->prevPic = -1;
-	dec->PrevRefFrameNum[0] = dec->PrevRefFrameNum[1] = -1;
-	dec->prevPicOrderCnt[0] = dec->prevPicOrderCnt[1] = 0;
-	dec->output_frames &= ~dec->to_get_frames; // stays 1 only if to_get is 0 (i.e. frames borrowed by get_frame)
-	dec->prev_short_term_frames = dec->prev_long_term_frames = dec->to_get_frames = dec->non_base_frames = 0;
-	for (unsigned b = dec->busy_tasks; b; b &= b - 1) {
-		Edge264Task *t = dec->tasks + __builtin_ctz(b);
-		if (t->free_cb)
-			t->free_cb(t->free_arg, 0);
-	}
-	dec->busy_tasks = dec->pending_tasks = dec->ready_tasks = 0;
-	dec->task_dependencies_v[0] = dec->task_dependencies_v[1] = dec->task_dependencies_v[2] = dec->task_dependencies_v[3] = (i32x4){};
-	dec->taskPics_v = dec->get_frame_queue_v[0] = dec->get_frame_queue_v[1] = set8(-1);
+	flush_decoder(dec);
 	if (dec->n_threads)
 		pthread_mutex_unlock(&dec->lock);
 }
@@ -317,8 +303,8 @@ int edge264_decode_NAL(Edge264Decoder *dec, const uint8_t *buf, const uint8_t *e
 	// there has to be enough buffer space for any NAL to flush the DPB
 	int queued0 = __builtin_ctz(movemask(dec->get_frame_queue_v[0]) | 1 << 16);
 	int queued1 = __builtin_ctz(movemask(dec->get_frame_queue_v[1]) | 1 << 16);
-	int reordered = __builtin_popcount(dec->to_get_frames & ~dec->output_frames);
-	if (queued0 + queued1 + reordered > 16) {
+	int bumpable = max(1, __builtin_popcount(dec->to_get_frames & ~dec->output_frames));
+	if (queued0 + queued1 + bumpable > 16) {
 		if (dec->n_threads)
 			pthread_mutex_unlock(&dec->lock);
 		return ENOBUFS;
@@ -407,10 +393,10 @@ int edge264_get_frame(Edge264Decoder *dec, Edge264Frame *out, int borrow) {
 		*out = dec->out;
 		int top = dec->out.frame_crop_offsets[0];
 		int left = dec->out.frame_crop_offsets[3];
-		int offY = top * dec->out.stride_Y + (left << dec->out.pixel_depth_Y);
+		int offY = top * dec->out.stride_Y + (dec->out.bit_depth_Y == 8 ? left : left << 1);
 		int topC = dec->sps.chroma_format_idc == 3 ? top : top >> 1;
 		int leftC = dec->sps.chroma_format_idc == 1 ? left >> 1 : left;
-		int offC = dec->plane_size_Y + topC * dec->out.stride_C + (leftC << dec->out.pixel_depth_C);
+		int offC = dec->plane_size_Y + topC * dec->out.stride_C + (dec->out.bit_depth_C == 8 ? leftC : leftC << 1);
 		assert(dec->to_get_frames & dec->output_frames & 1 << pic0);
 		dec->to_get_frames &= ~(1 << pic0);
 		const uint8_t *samples = dec->frame_buffers[pic0];
@@ -441,9 +427,9 @@ int edge264_get_frame(Edge264Decoder *dec, Edge264Frame *out, int borrow) {
 
 
 
-void edge264_return_frame(Edge264Decoder *d, void *return_arg) {
-	if (d != NULL)
-		d->output_frames &= ~(size_t)return_arg;
+void edge264_return_frame(Edge264Decoder *dec, void *return_arg) {
+	if (dec != NULL)
+		dec->output_frames &= ~(size_t)return_arg;
 }
 
 

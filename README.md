@@ -262,8 +262,8 @@ Other yet-to-be-presented bits:
 * [The decoding of input symbols](edge264_slice.c) is interspersed with their parsing (instead of parsing to a `struct` then decoding the data). It deduplicates branches and loops that are present in both parsing and decoding, and even eliminates the need to store some symbols (e.g. mb_type, sub_mb_type, mb_qp_delta).
 
 
-Testing
--------
+Testing (work in progress)
+--------------------------
 
 With the help of a [custom bitstream writer](tools/gen_avc.py) using the same YAML format edge264 outputs, a set of extensive tests are being created in [tools/raw_tests](tools/raw_tests) to stress the darkest corners of this decoder. The following table lists them all, along with the files implementing them.
 

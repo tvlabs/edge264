@@ -972,6 +972,8 @@ int ADD_VARIANT(parse_slice_layer_without_partitioning)(Edge264Decoder *dec, int
 		// finally insert the last non-existing frames one by one
 		for (unsigned FrameNum = dec->FrameNum - non_existing; FrameNum < dec->FrameNum; FrameNum++) {
 			int i = __builtin_ctz(~unavail);
+			if (dec->frame_buffers[i] == NULL && (ret = alloc_frame(dec, i)))
+				return i <= sps->max_dec_frame_buffering ? ENOMEM : ENOBUFS;
 			unavail |= 1 << i;
 			dec->prev_short_term_frames |= 1 << i;
 			dec->prev_long_term_frames |= 1 << i;
@@ -990,8 +992,6 @@ int ADD_VARIANT(parse_slice_layer_without_partitioning)(Edge264Decoder *dec, int
 			dec->FieldOrderCnt[0][i] = dec->FieldOrderCnt[1][i] = PicOrderCnt;
 			dec->remaining_mbs[i] = 0;
 			dec->next_deblock_addr[i] = INT_MAX;
-			if (dec->frame_buffers[i] == NULL && (ret = alloc_frame(dec, i)))
-				return ret;
 		}
 	}
 	
@@ -1084,18 +1084,19 @@ int ADD_VARIANT(parse_slice_layer_without_partitioning)(Edge264Decoder *dec, int
 				return EWOULDBLOCK;
 			pthread_cond_wait(&dec->task_complete, &dec->lock);
 		}
-		dec->currPic = __builtin_ctz(~unavail);
-		dec->non_base_frames = dec->non_base_frames & ~(1 << dec->currPic) | non_base_view << dec->currPic;
-		dec->frame_flip_bits ^= 1 << dec->currPic;
-		dec->FrameIds[dec->currPic] = (dec->prevPic >= 0) ? dec->FrameIds[dec->prevPic] + 1 : 0;
-		dec->FrameNums[dec->currPic] = dec->FrameNum;
-		dec->FieldOrderCnt[0][dec->currPic] = dec->TopFieldOrderCnt;
-		dec->FieldOrderCnt[1][dec->currPic] = dec->BottomFieldOrderCnt;
-		dec->remaining_mbs[dec->currPic] = dec->sps.pic_width_in_mbs * dec->sps.pic_height_in_mbs;
-		dec->next_deblock_addr[dec->currPic] = 0;
-		log_dec(dec, "  FrameId: %u\n", dec->FrameIds[dec->currPic]);
-		if (dec->frame_buffers[dec->currPic] == NULL && alloc_frame(dec, dec->currPic))
-			return ENOMEM;
+		int currPic = __builtin_ctz(~unavail);
+		if (dec->frame_buffers[currPic] == NULL && alloc_frame(dec, currPic))
+			return currPic <= sps->max_dec_frame_buffering ? ENOMEM : ENOBUFS;
+		dec->currPic = currPic;
+		dec->non_base_frames = dec->non_base_frames & ~(1 << currPic) | non_base_view << currPic;
+		dec->frame_flip_bits ^= 1 << currPic;
+		dec->FrameIds[currPic] = (dec->prevPic >= 0) ? dec->FrameIds[dec->prevPic] + 1 : 0;
+		dec->FrameNums[currPic] = dec->FrameNum;
+		dec->FieldOrderCnt[0][currPic] = dec->TopFieldOrderCnt;
+		dec->FieldOrderCnt[1][currPic] = dec->BottomFieldOrderCnt;
+		dec->remaining_mbs[currPic] = sps->pic_width_in_mbs * sps->pic_height_in_mbs;
+		dec->next_deblock_addr[currPic] = 0;
+		log_dec(dec, "  FrameId: %u\n", dec->FrameIds[currPic]);
 	}
 	
 	// each slice has the initial references state of the previous frame

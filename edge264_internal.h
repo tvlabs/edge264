@@ -208,10 +208,11 @@ typedef struct {
 	uint32_t first_mb_in_slice; // 0..139263
 	uint32_t prev_long_term_frames;
 	union { int8_t QP[3]; i8x4 QP_s; }; // same as mb
-	uint8_t *samples_base;
-	uint8_t *frame_buffers[32];
-	void (*free_cb)(void *free_arg, int ret); // copy from decode_NAL
-	void *free_arg; // copy from decode_NAL
+	Edge264UnrefCb unref_cb; // copy from decode_NAL
+	void *unref_arg; // copy from decode_NAL
+	Edge264Macroblock *mb_buffer;
+	Edge264Macroblock *mbCol_buffer;
+	uint8_t *samples_buffers[32];
 	union { uint16_t samples_clip[3][8]; i16x8 samples_clip_v[3]; }; // [iYCbCr], maximum sample value
 	union { int8_t RefPicList[2][32]; int64_t RefPicList_l[8]; i8x16 RefPicList_v[4]; };
 	union { int16_t diff_poc[32]; i16x8 diff_poc_v[4]; };
@@ -321,7 +322,7 @@ typedef struct Edge264Context {
  *   retrieval in get_frames_queue have values (1, 1)
  * _ pictures sent to get_frame and waiting to be returned have values (0, 1)
  */
-typedef int (*Parser)(Edge264Decoder *dec, int non_blocking, void(*free_cb)(void*,int), void *free_arg);
+typedef int (*Parser)(Edge264Decoder *dec, int non_blocking, Edge264UnrefCb unref_cb, void *unref_arg);
 typedef struct Edge264Decoder {
 	// minimal set of fields preserved across flushes
 	Edge264GetBits gb; // must be first in the struct to use the same pointer for bitstream functions
@@ -329,12 +330,15 @@ typedef struct Edge264Decoder {
 	int8_t nal_unit_type; // 5 significant bits
 	int32_t plane_size_Y;
 	int32_t plane_size_C;
-	int32_t frame_size;
 	uint32_t frame_flip_bits; // bitfield storing target values of bit 0 in mb->recovery_bits for each frame
-	void (*log_cb)(const char*, void*);
+	Edge264LogCb log_cb;
 	void *log_arg;
+	Edge264AllocCb alloc_cb;
+	Edge264FreeCb free_cb;
+	void *alloc_arg;
 	void *(*worker_loop)(Edge264Decoder *);
-	uint8_t *frame_buffers[32];
+	uint8_t *samples_buffers[32];
+	Edge264Macroblock *mb_buffers[32];
 	Parser parse_nal_unit[32];
 	pthread_t threads[16];
 	pthread_mutex_t lock;
@@ -982,8 +986,8 @@ static always_inline unsigned depended_frames(Edge264Decoder *dec) {
 static always_inline void flush_decoder(Edge264Decoder *dec) {
 	for (unsigned m = dec->ready_tasks; m; m &= m - 1) {
 		Edge264Task *t = dec->tasks + __builtin_ctz(m);
-		if (t->free_cb)
-			t->free_cb(t->free_arg, 0);
+		if (t->unref_cb)
+			t->unref_cb(0, t->unref_arg);
 	}
 	dec->pending_tasks = dec->busy_tasks = dec->ready_tasks = 0;
 	// FIXME signal all threads to exit then wait until they are back to wait
@@ -1061,26 +1065,26 @@ void *worker_loop(Edge264Decoder *d);
 void *worker_loop_v2(Edge264Decoder *d);
 void *worker_loop_v3(Edge264Decoder *d);
 void *worker_loop_log(Edge264Decoder *d);
-int parse_slice_layer_without_partitioning(Edge264Decoder *dec, int non_blocking, void(*free_cb)(void*,int), void *free_arg);
-int parse_slice_layer_without_partitioning_v2(Edge264Decoder *dec, int non_blocking, void(*free_cb)(void*,int), void *free_arg);
-int parse_slice_layer_without_partitioning_v3(Edge264Decoder *dec, int non_blocking, void(*free_cb)(void*,int), void *free_arg);
-int parse_slice_layer_without_partitioning_log(Edge264Decoder *dec, int non_blocking, void(*free_cb)(void*,int), void *free_arg);
-int parse_access_unit_delimiter(Edge264Decoder *dec, int non_blocking, void(*free_cb)(void*,int), void *free_arg);
-int parse_access_unit_delimiter_v2(Edge264Decoder *dec, int non_blocking, void(*free_cb)(void*,int), void *free_arg);
-int parse_access_unit_delimiter_v3(Edge264Decoder *dec, int non_blocking, void(*free_cb)(void*,int), void *free_arg);
-int parse_access_unit_delimiter_log(Edge264Decoder *dec, int non_blocking, void(*free_cb)(void*,int), void *free_arg);
-int parse_sei_log(Edge264Decoder *dec, int non_blocking, void(*free_cb)(void*,int), void *free_arg);
-int parse_nal_unit_header_extension(Edge264Decoder *dec, int non_blocking, void(*free_cb)(void*,int), void *free_arg);
-int parse_nal_unit_header_extension_v2(Edge264Decoder *dec, int non_blocking, void(*free_cb)(void*,int), void *free_arg);
-int parse_nal_unit_header_extension_v3(Edge264Decoder *dec, int non_blocking, void(*free_cb)(void*,int), void *free_arg);
-int parse_nal_unit_header_extension_log(Edge264Decoder *dec, int non_blocking, void(*free_cb)(void*,int), void *free_arg);
-int parse_pic_parameter_set(Edge264Decoder *dec, int non_blocking,  void(*free_cb)(void*,int), void *free_arg);
-int parse_pic_parameter_set_v2(Edge264Decoder *dec, int non_blocking,  void(*free_cb)(void*,int), void *free_arg);
-int parse_pic_parameter_set_v3(Edge264Decoder *dec, int non_blocking,  void(*free_cb)(void*,int), void *free_arg);
-int parse_pic_parameter_set_log(Edge264Decoder *dec, int non_blocking,  void(*free_cb)(void*,int), void *free_arg);
-int parse_seq_parameter_set(Edge264Decoder *dec, int non_blocking, void(*free_cb)(void*,int), void *free_arg);
-int parse_seq_parameter_set_v2(Edge264Decoder *dec, int non_blocking, void(*free_cb)(void*,int), void *free_arg);
-int parse_seq_parameter_set_v3(Edge264Decoder *dec, int non_blocking, void(*free_cb)(void*,int), void *free_arg);
-int parse_seq_parameter_set_log(Edge264Decoder *dec, int non_blocking, void(*free_cb)(void*,int), void *free_arg);
+int parse_slice_layer_without_partitioning(Edge264Decoder *dec, int non_blocking, Edge264UnrefCb unref_cb, void *unref_arg);
+int parse_slice_layer_without_partitioning_v2(Edge264Decoder *dec, int non_blocking, Edge264UnrefCb unref_cb, void *unref_arg);
+int parse_slice_layer_without_partitioning_v3(Edge264Decoder *dec, int non_blocking, Edge264UnrefCb unref_cb, void *unref_arg);
+int parse_slice_layer_without_partitioning_log(Edge264Decoder *dec, int non_blocking, Edge264UnrefCb unref_cb, void *unref_arg);
+int parse_access_unit_delimiter(Edge264Decoder *dec, int non_blocking, Edge264UnrefCb unref_cb, void *unref_arg);
+int parse_access_unit_delimiter_v2(Edge264Decoder *dec, int non_blocking, Edge264UnrefCb unref_cb, void *unref_arg);
+int parse_access_unit_delimiter_v3(Edge264Decoder *dec, int non_blocking, Edge264UnrefCb unref_cb, void *unref_arg);
+int parse_access_unit_delimiter_log(Edge264Decoder *dec, int non_blocking, Edge264UnrefCb unref_cb, void *unref_arg);
+int parse_sei_log(Edge264Decoder *dec, int non_blocking, Edge264UnrefCb unref_cb, void *unref_arg);
+int parse_nal_unit_header_extension(Edge264Decoder *dec, int non_blocking, Edge264UnrefCb unref_cb, void *unref_arg);
+int parse_nal_unit_header_extension_v2(Edge264Decoder *dec, int non_blocking, Edge264UnrefCb unref_cb, void *unref_arg);
+int parse_nal_unit_header_extension_v3(Edge264Decoder *dec, int non_blocking, Edge264UnrefCb unref_cb, void *unref_arg);
+int parse_nal_unit_header_extension_log(Edge264Decoder *dec, int non_blocking, Edge264UnrefCb unref_cb, void *unref_arg);
+int parse_pic_parameter_set(Edge264Decoder *dec, int non_blocking,  Edge264UnrefCb unref_cb, void *unref_arg);
+int parse_pic_parameter_set_v2(Edge264Decoder *dec, int non_blocking,  Edge264UnrefCb unref_cb, void *unref_arg);
+int parse_pic_parameter_set_v3(Edge264Decoder *dec, int non_blocking,  Edge264UnrefCb unref_cb, void *unref_arg);
+int parse_pic_parameter_set_log(Edge264Decoder *dec, int non_blocking,  Edge264UnrefCb unref_cb, void *unref_arg);
+int parse_seq_parameter_set(Edge264Decoder *dec, int non_blocking, Edge264UnrefCb unref_cb, void *unref_arg);
+int parse_seq_parameter_set_v2(Edge264Decoder *dec, int non_blocking, Edge264UnrefCb unref_cb, void *unref_arg);
+int parse_seq_parameter_set_v3(Edge264Decoder *dec, int non_blocking, Edge264UnrefCb unref_cb, void *unref_arg);
+int parse_seq_parameter_set_log(Edge264Decoder *dec, int non_blocking, Edge264UnrefCb unref_cb, void *unref_arg);
 
 #endif

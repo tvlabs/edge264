@@ -109,7 +109,7 @@ static int parse_pan_scan_rect(Edge264Decoder *dec) {
 
 
 typedef int (*SEI_Parser)(Edge264Decoder *dec);
-int ADD_VARIANT(parse_sei)(Edge264Decoder *dec, int non_blocking, void(*free_cb)(void*,int), void *free_arg)
+int ADD_VARIANT(parse_sei)(Edge264Decoder *dec, int non_blocking, Edge264UnrefCb unref_cb, void *unref_arg)
 {
 	// FIXME reduce array size to minimum!
 	static const char * const payloadType_names[206] = {

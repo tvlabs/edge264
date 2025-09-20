@@ -54,11 +54,11 @@ static void initialize_context(Edge264Context *ctx, int currPic)
 	ctx->CurrMbAddr = ctx->t.first_mb_in_slice;
 	ctx->mby = (unsigned)ctx->t.first_mb_in_slice / (unsigned)ctx->t.pic_width_in_mbs;
 	ctx->mbx = (unsigned)ctx->t.first_mb_in_slice % (unsigned)ctx->t.pic_width_in_mbs;
-	ctx->samples_mb[0] = ctx->t.samples_base + (ctx->mbx + ctx->mby * ctx->t.stride[0]) * 16;
-	ctx->samples_mb[1] = ctx->t.samples_base + ctx->t.plane_size_Y + (ctx->mbx + ctx->mby * ctx->t.stride[1]) * 8;
+	ctx->samples_mb[0] = ctx->t.samples_buffers[currPic] + (ctx->mbx + ctx->mby * ctx->t.stride[0]) * 16;
+	ctx->samples_mb[1] = ctx->t.samples_buffers[currPic] + (ctx->mbx + ctx->mby * ctx->t.stride[1]) * 8 + ctx->t.plane_size_Y;
 	ctx->samples_mb[2] = ctx->samples_mb[1] + (ctx->t.stride[1] >> 1);
-	int mb_offset = ctx->t.plane_size_Y + ctx->t.plane_size_C + sizeof(Edge264Macroblock) * (ctx->mbx + ctx->mby * (ctx->t.pic_width_in_mbs + 1));
-	ctx->mbCol = ctx->_mb = (Edge264Macroblock *)(ctx->t.samples_base + mb_offset);
+	int mb_offset = ctx->mbx + ctx->mby * (ctx->t.pic_width_in_mbs + 1);
+	ctx->mbCol = ctx->_mb = ctx->t.mb_buffer + mb_offset;
 	ctx->A4x4_int8_v = (i16x16){0, 0, 2, 2, 1, 4, 3, 6, 8, 8, 10, 10, 9, 12, 11, 14};
 	ctx->B4x4_int8_v = (i32x16){0, 1, 0, 1, 4, 5, 4, 5, 2, 3, 8, 9, 6, 7, 12, 13};
 	if (ctx->t.ChromaArrayType == 1) {
@@ -101,7 +101,7 @@ static void initialize_context(Edge264Context *ctx, int currPic)
 		
 		// B slides
 		if (ctx->t.slice_type == 1) {
-			ctx->mbCol = (Edge264Macroblock *)(ctx->t.frame_buffers[ctx->t.RefPicList[1][0]] + mb_offset);
+			ctx->mbCol = ctx->t.mbCol_buffer + mb_offset;
 			ctx->col_short_term = 1 & ~(ctx->t.prev_long_term_frames >> ctx->t.RefPicList[1][0]);
 			
 			// initializations for temporal prediction and implicit weights
@@ -171,12 +171,12 @@ static void recover_slice(Edge264Context *ctx, int currPic) {
 	// mark all previous mbs as erroneous and assign them an error probability
 	ctx->mby = (unsigned)ctx->t.first_mb_in_slice / (unsigned)ctx->t.pic_width_in_mbs;
 	ctx->mbx = (unsigned)ctx->t.first_mb_in_slice % (unsigned)ctx->t.pic_width_in_mbs;
-	ctx->samples_mb[0] = ctx->t.samples_base + (ctx->mbx + ctx->mby * ctx->t.stride[0]) * 16;
-	ctx->samples_mb[1] = ctx->t.samples_base + ctx->t.plane_size_Y + (ctx->mbx + ctx->mby * ctx->t.stride[1]) * 8;
+	ctx->samples_mb[0] = ctx->t.samples_buffers[currPic] + (ctx->mbx + ctx->mby * ctx->t.stride[0]) * 16;
+	ctx->samples_mb[1] = ctx->t.samples_buffers[currPic] + (ctx->mbx + ctx->mby * ctx->t.stride[1]) * 8 + ctx->t.plane_size_Y;
 	ctx->samples_mb[2] = ctx->samples_mb[1] + (ctx->t.stride[1] >> 1);
-	int mb_offset = ctx->t.plane_size_Y + ctx->t.plane_size_C + sizeof(Edge264Macroblock) * (ctx->mbx + ctx->mby * (ctx->t.pic_width_in_mbs + 1));
-	ctx->_mb = (Edge264Macroblock *)(ctx->t.samples_base + mb_offset);
-	ctx->mbCol = (Edge264Macroblock *)(ctx->t.frame_buffers[ctx->t.RefPicList[1][0]] + mb_offset);
+	int mb_offset = ctx->mbx + ctx->mby * (ctx->t.pic_width_in_mbs + 1);
+	ctx->_mb = ctx->t.mb_buffer + mb_offset;
+	ctx->mbCol = ctx->t.mbCol_buffer + mb_offset;
 	unsigned num = ctx->CurrMbAddr - ctx->t.first_mb_in_slice;
 	unsigned div = 65536 - ppow(65194, num);
 	for (unsigned i = 0; i < num; i++) {
@@ -353,10 +353,10 @@ void *ADD_VARIANT(worker_loop)(Edge264Decoder *dec) {
 			c.t.next_deblock_addr = max(c.t.next_deblock_addr, c.t.first_mb_in_slice);
 			c.mby = (unsigned)c.t.next_deblock_addr / (unsigned)c.t.pic_width_in_mbs;
 			c.mbx = (unsigned)c.t.next_deblock_addr % (unsigned)c.t.pic_width_in_mbs;
-			c.samples_mb[0] = c.t.samples_base + (c.mbx + c.mby * c.t.stride[0]) * 16;
-			c.samples_mb[1] = c.t.samples_base + c.t.plane_size_Y + (c.mbx + c.mby * c.t.stride[1]) * 8;
+			c.samples_mb[0] = c.t.samples_buffers[currPic] + (c.mbx + c.mby * c.t.stride[0]) * 16;
+			c.samples_mb[1] = c.t.samples_buffers[currPic] + (c.mbx + c.mby * c.t.stride[1]) * 8 + c.t.plane_size_Y;
 			c.samples_mb[2] = c.samples_mb[1] + (c.t.stride[1] >> 1);
-			c._mb = (Edge264Macroblock *)(c.t.samples_base + c.t.plane_size_Y + c.t.plane_size_C) + c.mbx + c.mby * (c.t.pic_width_in_mbs + 1);
+			c._mb = (Edge264Macroblock *)c.t.mb_buffer + c.mbx + c.mby * (c.t.pic_width_in_mbs + 1);
 			while (c.t.next_deblock_addr < c.CurrMbAddr) {
 				deblock_mb(&c);
 				c.t.next_deblock_addr++;
@@ -394,10 +394,10 @@ void *ADD_VARIANT(worker_loop)(Edge264Decoder *dec) {
 			if ((unsigned)c.t.next_deblock_addr < c.CurrMbAddr) {
 				c.mby = (unsigned)c.t.next_deblock_addr / (unsigned)c.t.pic_width_in_mbs;
 				c.mbx = (unsigned)c.t.next_deblock_addr % (unsigned)c.t.pic_width_in_mbs;
-				c.samples_mb[0] = c.t.samples_base + (c.mbx + c.mby * c.t.stride[0]) * 16;
-				c.samples_mb[1] = c.t.samples_base + c.t.plane_size_Y + (c.mbx + c.mby * c.t.stride[1]) * 8;
+				c.samples_mb[0] = c.t.samples_buffers[currPic] + (c.mbx + c.mby * c.t.stride[0]) * 16;
+				c.samples_mb[1] = c.t.samples_buffers[currPic] + (c.mbx + c.mby * c.t.stride[1]) * 8 + c.t.plane_size_Y;
 				c.samples_mb[2] = c.samples_mb[1] + (c.t.stride[1] >> 1);
-				c._mb = (Edge264Macroblock *)(c.t.samples_base + c.t.plane_size_Y + c.t.plane_size_C) + c.mbx + c.mby * (c.t.pic_width_in_mbs + 1);
+				c._mb = (Edge264Macroblock *)c.t.mb_buffer + c.mbx + c.mby * (c.t.pic_width_in_mbs + 1);
 				while (c.t.next_deblock_addr < c.CurrMbAddr) {
 					deblock_mb(&c);
 					c.t.next_deblock_addr++;
@@ -429,8 +429,8 @@ void *ADD_VARIANT(worker_loop)(Edge264Decoder *dec) {
 					pthread_cond_broadcast(&dec->task_ready);
 			}
 		}
-		if (c.t.free_cb)
-			c.t.free_cb(c.t.free_arg, (int)ret);
+		if (c.t.unref_cb)
+			c.t.unref_cb((int)ret, c.t.unref_arg);
 		dec->busy_tasks &= ~(1 << task_id);
 		dec->task_dependencies[task_id] = 0;
 		dec->taskPics[task_id] = -1;
@@ -754,19 +754,26 @@ static void parse_ref_pic_list_modification(Edge264Decoder *dec, Edge264SeqParam
 
 
 
-static int alloc_frame(Edge264Decoder *dec, int id) {
-	dec->frame_buffers[id] = malloc(dec->frame_size);
-	if (dec->frame_buffers[id] == NULL)
-		return ENOMEM;
-	Edge264Macroblock *m = (Edge264Macroblock *)(dec->frame_buffers[id] + dec->plane_size_Y + dec->plane_size_C);
+static int alloc_frame(Edge264Decoder *dec, int id, int errno_on_fail) {
 	int mbs = (dec->sps.pic_width_in_mbs + 1) * dec->sps.pic_height_in_mbs - 1;
-	for (int i = 0; i < mbs; i += dec->sps.pic_width_in_mbs + 1) {
-		for (int j = i; j < i + dec->sps.pic_width_in_mbs; j++)
-			m[j].recovery_bits = 0;
-		if (i + dec->sps.pic_width_in_mbs < mbs)
-			m[i + dec->sps.pic_width_in_mbs] = unavail_mb;
+	unsigned samples_size = dec->plane_size_Y + dec->plane_size_C;
+	unsigned mbs_size = sizeof(Edge264Macroblock) * mbs;
+	dec->alloc_cb((void **)&dec->samples_buffers[id], samples_size, (void **)&dec->mb_buffers[id], mbs_size, errno_on_fail, dec->alloc_arg);
+	Edge264Macroblock *m = dec->mb_buffers[id];
+	if (dec->samples_buffers[id] && m) {
+		for (int i = 0; i < mbs; i += dec->sps.pic_width_in_mbs + 1) {
+			for (int j = i; j < i + dec->sps.pic_width_in_mbs; j++)
+				m[j].recovery_bits = 0;
+			if (i + dec->sps.pic_width_in_mbs < mbs)
+				m[i + dec->sps.pic_width_in_mbs] = unavail_mb;
+		}
+		return 0;
+	} else {
+		dec->free_cb(dec->samples_buffers[id], m, dec->alloc_arg);
+		dec->samples_buffers[id] = NULL;
+		dec->mb_buffers[id] = NULL;
+		return errno_on_fail;
 	}
-	return 0;
 }
 
 
@@ -847,14 +854,13 @@ static void initialize_task(Edge264Decoder *dec, Edge264SeqParameterSet *sps, Ed
 	t->next_deblock_addr = (dec->next_deblock_addr[dec->currPic] == t->first_mb_in_slice ||
 		t->disable_deblocking_filter_idc == 2) ? t->first_mb_in_slice : INT_MIN;
 	t->prev_long_term_frames = dec->prev_long_term_frames & ~dec->prev_short_term_frames; // mask of only long-term frames
-	t->samples_base = dec->frame_buffers[dec->currPic];
+	t->mb_buffer = (Edge264Macroblock *)dec->mb_buffers[dec->currPic];
+	memcpy(t->samples_buffers, dec->samples_buffers, sizeof(t->samples_buffers));
 	t->samples_clip_v[0] = set16((1 << sps->BitDepth_Y) - 1);
 	t->samples_clip_v[1] = t->samples_clip_v[2] = set16((1 << sps->BitDepth_C) - 1);
-	
-	// P/B slices
-	if (t->slice_type < 2) {
-		memcpy(t->frame_buffers, dec->frame_buffers, sizeof(t->frame_buffers));
-		if (t->slice_type == 1 && (t->pps.weighted_bipred_idc == 2 || !t->direct_spatial_mv_pred_flag)) {
+	if (t->slice_type == 1) { // B slices
+		t->mbCol_buffer = (Edge264Macroblock *)dec->mb_buffers[t->RefPicList[1][0]];
+		if (t->pps.weighted_bipred_idc == 2 || !t->direct_spatial_mv_pred_flag) {
 			u32x4 poc = set32(minw(dec->TopFieldOrderCnt, dec->BottomFieldOrderCnt));
 			t->diff_poc_v[0] = packs32(poc - minw32(dec->FieldOrderCnt_v[0][0], dec->FieldOrderCnt_v[1][0]),
 			                           poc - minw32(dec->FieldOrderCnt_v[0][1], dec->FieldOrderCnt_v[1][1]));
@@ -874,7 +880,7 @@ static void initialize_task(Edge264Decoder *dec, Edge264SeqParameterSet *sps, Ed
  * This function matches slice_header() in 7.3.3, which it parses while updating
  * the DPB and initialising slice data for further decoding.
  */
-int ADD_VARIANT(parse_slice_layer_without_partitioning)(Edge264Decoder *dec, int non_blocking, void(*free_cb)(void*,int), void *free_arg)
+int ADD_VARIANT(parse_slice_layer_without_partitioning)(Edge264Decoder *dec, int non_blocking, Edge264UnrefCb unref_cb, void *unref_arg)
 {
 	static const char * const slice_type_names[5] = {"P", "B", "I", "SP", "SI"};
 	static const char * const disable_deblocking_filter_idc_names[3] = {"enabled", "disabled", "sliced"};
@@ -888,8 +894,8 @@ int ADD_VARIANT(parse_slice_layer_without_partitioning)(Edge264Decoder *dec, int
 		pthread_cond_wait(&dec->task_complete, &dec->lock);
 	}
 	Edge264Task *t = dec->tasks + __builtin_ctz(avail_tasks);
-	t->free_cb = free_cb;
-	t->free_arg = free_arg;
+	t->unref_cb = unref_cb;
+	t->unref_arg = unref_arg;
 	t->RefPicList_v[0] = t->RefPicList_v[1] = t->RefPicList_v[2] = t->RefPicList_v[3] =
 		(i8x16){-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1};
 	
@@ -972,8 +978,10 @@ int ADD_VARIANT(parse_slice_layer_without_partitioning)(Edge264Decoder *dec, int
 		// finally insert the last non-existing frames one by one
 		for (unsigned FrameNum = dec->FrameNum - non_existing; FrameNum < dec->FrameNum; FrameNum++) {
 			int i = __builtin_ctz(~unavail);
-			if (dec->frame_buffers[i] == NULL && (ret = alloc_frame(dec, i)))
-				return i <= sps->max_dec_frame_buffering ? ENOMEM : ENOBUFS;
+			if (dec->samples_buffers[i] == NULL && (ret = alloc_frame(dec, i,
+				i <= sps->max_dec_frame_buffering ? ENOMEM : ENOBUFS))) {
+				return ret;
+			}
 			unavail |= 1 << i;
 			dec->prev_short_term_frames |= 1 << i;
 			dec->prev_long_term_frames |= 1 << i;
@@ -1085,8 +1093,10 @@ int ADD_VARIANT(parse_slice_layer_without_partitioning)(Edge264Decoder *dec, int
 			pthread_cond_wait(&dec->task_complete, &dec->lock);
 		}
 		int currPic = __builtin_ctz(~unavail);
-		if (dec->frame_buffers[currPic] == NULL && alloc_frame(dec, currPic))
-			return currPic <= sps->max_dec_frame_buffering ? ENOMEM : ENOBUFS;
+		if (dec->samples_buffers[currPic] == NULL && (ret = alloc_frame(dec, currPic,
+			currPic <= sps->max_dec_frame_buffering ? ENOMEM : ENOBUFS))) {
+			return ret;
+		}
 		dec->currPic = currPic;
 		dec->non_base_frames = dec->non_base_frames & ~(1 << currPic) | non_base_view << currPic;
 		dec->frame_flip_bits ^= 1 << currPic;
@@ -1214,7 +1224,7 @@ int ADD_VARIANT(parse_slice_layer_without_partitioning)(Edge264Decoder *dec, int
 
 
 
-int ADD_VARIANT(parse_access_unit_delimiter)(Edge264Decoder *dec, int non_blocking, void(*free_cb)(void*,int), void *free_arg) {
+int ADD_VARIANT(parse_access_unit_delimiter)(Edge264Decoder *dec, int non_blocking, Edge264UnrefCb unref_cb, void *unref_arg) {
 	const char *primary_pic_type_names[8] =
 		{"I", "I,P", "I,P,B", "SI", "SI,SP", "I,SI", "I,SI,P,SP", "I,SI,P,SP,B"};
 	int primary_pic_type = get_uv(&dec->gb, 3);
@@ -1229,7 +1239,7 @@ int ADD_VARIANT(parse_access_unit_delimiter)(Edge264Decoder *dec, int non_blocki
 
 
 
-int ADD_VARIANT(parse_nal_unit_header_extension)(Edge264Decoder *dec, int non_blocking, void(*free_cb)(void*,int), void *free_arg) {
+int ADD_VARIANT(parse_nal_unit_header_extension)(Edge264Decoder *dec, int non_blocking, Edge264UnrefCb unref_cb, void *unref_arg) {
 	unsigned u = get_uv(&dec->gb, 24);
 	if (u & 1 << 23)
 		return ENOTSUP;
@@ -1247,7 +1257,7 @@ int ADD_VARIANT(parse_nal_unit_header_extension)(Edge264Decoder *dec, int non_bl
 		u >> 2 & 1,
 		u >> 1 & 1);
 	if (dec->nal_unit_type == 20)
-		return ADD_VARIANT(parse_slice_layer_without_partitioning)(dec, non_blocking, free_cb, free_arg);
+		return ADD_VARIANT(parse_slice_layer_without_partitioning)(dec, non_blocking, unref_cb, unref_arg);
 	// spec doesn't mention rbsp_trailing_bits at the end of prefix_nal_unit_rbsp
 	if (!rbsp_end(&dec->gb))
 		return EBADMSG;
@@ -1343,7 +1353,7 @@ static void parse_scaling_lists(Edge264Decoder *dec, i8x16 *w4x4, i8x16 *w8x8, i
  * Parses the PPS into a copy of the current SPS, then saves it into one of four
  * PPS slots if a rbsp_trailing_bits pattern follows.
  */
-int ADD_VARIANT(parse_pic_parameter_set)(Edge264Decoder *dec, int non_blocking,  void(*free_cb)(void*,int), void *free_arg)
+int ADD_VARIANT(parse_pic_parameter_set)(Edge264Decoder *dec, int non_blocking,  Edge264UnrefCb unref_cb, void *unref_arg)
 {
 	static const char * const weighted_pred_names[3] = {"average", "explicit", "implicit"};
 	
@@ -1752,7 +1762,7 @@ static int parse_seq_parameter_set_mvc_extension(Edge264Decoder *dec, int profil
  * Parses the SPS into a edge264_parameter_set structure, then saves it if a
  * rbsp_trailing_bits pattern follows.
  */
-int ADD_VARIANT(parse_seq_parameter_set)(Edge264Decoder *dec, int non_blocking, void(*free_cb)(void*,int), void *free_arg)
+int ADD_VARIANT(parse_seq_parameter_set)(Edge264Decoder *dec, int non_blocking, Edge264UnrefCb unref_cb, void *unref_arg)
 {
 	static const char * const profile_idc_names[256] = {
 		[0 ... 255] = "Unknown",
@@ -1999,13 +2009,12 @@ int ADD_VARIANT(parse_seq_parameter_set)(Edge264Decoder *dec, int non_blocking, 
 		dec->out = format;
 		dec->plane_size_Y = format.stride_Y * height;
 		dec->plane_size_C = format.stride_C * (sps.chroma_format_idc == 1 ? height >> 1 : height);
-		int mbs = (sps.pic_width_in_mbs + 1) * sps.pic_height_in_mbs - 1;
-		dec->frame_size = dec->plane_size_Y + dec->plane_size_C + mbs * sizeof(Edge264Macroblock);
 		dec->frame_flip_bits = 0;
 		for (int i = 0; i < 32; i++) {
-			if (dec->frame_buffers[i] != NULL) {
-				free(dec->frame_buffers[i]);
-				dec->frame_buffers[i] = NULL;
+			if (dec->samples_buffers[i] != NULL) {
+				dec->free_cb(dec->samples_buffers[i], dec->mb_buffers[i], dec->alloc_arg);
+				dec->samples_buffers[i] = NULL;
+				dec->mb_buffers[i] = NULL;
 			}
 		}
 	}

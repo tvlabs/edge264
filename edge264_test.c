@@ -470,7 +470,7 @@ int main(int argc, char *argv[])
 	
 	struct timespec t0, t1;
 	clock_gettime(CLOCK_MONOTONIC, &t0);
-	d = edge264_alloc(n_threads, trace ? (void(*)(const char*, void*))fputs : NULL, trace_file, trace > 1);
+	d = edge264_alloc(n_threads, trace ? (void(*)(const char*, void*))fputs : NULL, trace_file, trace > 1, NULL, NULL, NULL);
 	
 	// check if input is a directory by trying to move into it
 	if (chdir(file_name) < 0) {

@@ -996,7 +996,7 @@ static void decode_inter_luma(int mode, int h, size_t sstride, const uint8_t * r
 				i16x8 x0 = vmlal_high_u8(vmull_u8(vget_low_u8(r0), vget_low_u8(A)), r0, B);
 				i16x8 x1 = vmlal_high_u8(vmull_u8(vget_low_u8(r1), vget_low_u8(C)), r1, D);
 				i8x8 p = vqrshrn_n_u16(x0 + x1, 6);
-				i16x4 q = {*(int16_t *)dst, *(int16_t *)(dst + dstride), *(int16_t *)(dst + dstride * 2), *(int16_t *)(dst + dstride * 3)};
+				i16x4 q = {*(int16_t *)dst, *(int16_t *)(dst + dstride), *(int16_t *)(dst + dstride2), *(int16_t *)(dst + dstride3)};
 				i16x8 x2 = mla16(vmulq_s16(vmovl_u8(q), wq), vmovl_u8(p), wp);
 				i16x4 v = vqmovun_s16(vshlq_s16(vqaddq_s16(x2, obr), wd16));
 				*(int16_t *)dst = v[0];
@@ -1035,7 +1035,7 @@ static void noinline decode_inter(Edge264Context *ctx, int i, int w, int h) {
 	int y = mb->mvs[i * 2 + 1];
 	int i8x8 = i >> 2;
 	int i4x4 = i & 15;
-	const uint8_t *ref = ctx->t.frame_buffers[mb->refPic[i8x8]];
+	const uint8_t *ref = ctx->t.samples_buffers[mb->refPic[i8x8]];
 	// print_header(ctx->d, "<k></k><v>CurrMbAddr=%d, i=%d, w=%d, h=%d, x=%d, y=%d, idx=%d, pic=%d</v>\n", ctx->CurrMbAddr, i, w, h, x, y, mb->refIdx[i8x8], mb->refPic[i8x8]);
 	
 	// prediction weights {wY, wCb, wCr, oY, oCb, oCr, logWD_Y, logWD_C}

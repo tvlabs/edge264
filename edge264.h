@@ -1,6 +1,6 @@
 /**
  * Copyright (c) 2013-2014, Celticom / TVLabs
- * Copyright (c) 2014-2024 Thibault Raffaillac <traf@kth.se>
+ * Copyright (c) 2014-2025 Thibault Raffaillac <traf@kth.se>
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -37,6 +37,11 @@ extern "C" {
 
 typedef struct Edge264Decoder Edge264Decoder;
 
+typedef void (*Edge264LogCb)(const char *str, void *log_arg);
+typedef void (*Edge264UnrefCb)(int ret, void *unref_arg);
+typedef void (*Edge264AllocCb)(void **samples, unsigned samples_size, void **mbs, unsigned mbs_size, int errno_on_fail, void *alloc_arg);
+typedef void (*Edge264FreeCb)(void *samples, void *mbs, void *alloc_arg);
+
 typedef struct Edge264Frame {
 	const uint8_t *samples[3]; // Y/Cb/Cr planes
 	const uint8_t *samples_mvc[3]; // second view
@@ -57,10 +62,10 @@ typedef struct Edge264Frame {
 } Edge264Frame;
 
 const uint8_t *edge264_find_start_code(const uint8_t *buf, const uint8_t *end, int four_byte);
-Edge264Decoder *edge264_alloc(int n_threads, void (*log_cb)(const char *str, void *log_arg), void *log_arg, int log_mbs);
+Edge264Decoder *edge264_alloc(int n_threads, Edge264LogCb log_cb, void *log_arg, int log_mbs, Edge264AllocCb alloc_cb, Edge264FreeCb free_cb, void *alloc_arg);
 void edge264_flush(Edge264Decoder *dec);
 void edge264_free(Edge264Decoder **pdec);
-int edge264_decode_NAL(Edge264Decoder *dec, const uint8_t *buf, const uint8_t *end, int non_blocking, void (*free_cb)(void *free_arg, int ret), void *free_arg, const uint8_t **next_NAL);
+int edge264_decode_NAL(Edge264Decoder *dec, const uint8_t *buf, const uint8_t *end, int non_blocking, Edge264UnrefCb unref_cb, void *unref_arg, const uint8_t **next_NAL);
 int edge264_get_frame(Edge264Decoder *dec, Edge264Frame *out, int borrow);
 void edge264_return_frame(Edge264Decoder *dec, void *return_arg);
 

@@ -114,7 +114,20 @@ const uint8_t *edge264_find_start_code(const uint8_t *buf, const uint8_t *end, i
 
 
 
-static int ignore_NAL(Edge264Decoder *dec, int non_blocking, void(*free_cb)(void*,int), void *free_arg) {
+static void internal_alloc(void **samples, unsigned samples_size, void **mbs, unsigned mbs_size, int errno_on_fail, void *alloc_arg) {
+	*samples = malloc(samples_size + mbs_size);
+	*mbs = *samples + samples_size;
+}
+
+
+
+static void internal_free(void *samples, void *mbs, void *alloc_arg) {
+	free(samples);
+}
+
+
+
+static int ignore_NAL(Edge264Decoder *dec, int non_blocking, Edge264UnrefCb unref_cb, void *unref_arg) {
 	if (dec->log_arg) {
 		dec->log_pos = 0;
 		dec->log_cb(dec->log_buf, dec->log_arg);
@@ -124,7 +137,7 @@ static int ignore_NAL(Edge264Decoder *dec, int non_blocking, void(*free_cb)(void
 
 
 
-Edge264Decoder *edge264_alloc(int n_threads, void (*log_cb)(const char *str, void *log_arg), void *log_arg, int log_mbs) {
+Edge264Decoder *edge264_alloc(int n_threads, Edge264LogCb log_cb, void *log_arg, int log_mbs, Edge264AllocCb alloc_cb, Edge264FreeCb free_cb, void *alloc_arg) {
 	Edge264Decoder *dec = calloc(1, sizeof(Edge264Decoder));
 	if (dec == NULL)
 		return NULL;
@@ -134,6 +147,9 @@ Edge264Decoder *edge264_alloc(int n_threads, void (*log_cb)(const char *str, voi
 	dec->n_threads = n_threads;
 	dec->log_cb = log_cb;
 	dec->log_arg = log_arg;
+	dec->alloc_cb = alloc_cb && free_cb ? alloc_cb : internal_alloc;
+	dec->free_cb = alloc_cb && free_cb ? free_cb : internal_free;
+	dec->alloc_arg = alloc_arg;
 	
 	// select parser functions based on CPU capabilities and logs mode
 	dec->worker_loop = ADD_VARIANT(worker_loop);
@@ -255,8 +271,8 @@ void edge264_free(Edge264Decoder **pdec) {
 			pthread_cond_destroy(&dec->task_complete);
 		}
 		for (int i = 0; i < 32; i++) {
-			if (dec->frame_buffers[i] != NULL)
-				free(dec->frame_buffers[i]);
+			if (dec->samples_buffers[i] != NULL)
+				dec->free_cb(dec->samples_buffers[i], dec->mb_buffers[i], dec->alloc_arg);
 		}
 		free(dec);
 	}
@@ -269,7 +285,7 @@ void edge264_free(Edge264Decoder **pdec) {
  * to allow wrapping around memory, so the buffer may be close to end of memory
  * without risk.
  */
-int edge264_decode_NAL(Edge264Decoder *dec, const uint8_t *buf, const uint8_t *end, int non_blocking, void(*free_cb)(void*,int), void *free_arg, const uint8_t **next_NAL)
+int edge264_decode_NAL(Edge264Decoder *dec, const uint8_t *buf, const uint8_t *end, int non_blocking, Edge264UnrefCb unref_cb, void *unref_arg, const uint8_t **next_NAL)
 {
 	static const char * const nal_unit_type_names[32] = {
 		[0 ... 31] = "Unknown",
@@ -349,7 +365,7 @@ int edge264_decode_NAL(Edge264Decoder *dec, const uint8_t *buf, const uint8_t *e
 		dec->gb.lsb_cache = 0;
 		dec->gb.end = end;
 		refill(&dec->gb, 0);
-		ret = parser(dec, non_blocking, free_cb, free_arg);
+		ret = parser(dec, non_blocking, unref_cb, unref_arg);
 		// end may have been set to the next start code thanks to escape code detection in get_bytes
 		buf = minp(dec->gb.CPB - 2, dec->gb.end);
 	} else if (dec->log_arg) {
@@ -360,8 +376,8 @@ int edge264_decode_NAL(Edge264Decoder *dec, const uint8_t *buf, const uint8_t *e
 	
 	// for 0, ENOTSUP and EBADMSG we may free or advance the buffer pointer
 	if (ret == 0 || ret == ENOTSUP || ret == EBADMSG) {
-		if (free_cb && !(ret == 0 && 1048610 & 1 << dec->nal_unit_type)) // 1, 5 or 20
-			free_cb(free_arg, ret);
+		if (unref_cb && !(ret == 0 && 1048610 & 1 << dec->nal_unit_type)) // 1, 5 or 20
+			unref_cb(ret, unref_arg);
 		if (next_NAL)
 			*next_NAL = edge264_find_start_code(buf, end, 0) + 3;
 	}
@@ -399,20 +415,18 @@ int edge264_get_frame(Edge264Decoder *dec, Edge264Frame *out, int borrow) {
 		int offC = dec->plane_size_Y + topC * dec->out.stride_C + (dec->out.bit_depth_C == 8 ? leftC : leftC << 1);
 		assert(dec->to_get_frames & dec->output_frames & 1 << pic0);
 		dec->to_get_frames &= ~(1 << pic0);
-		const uint8_t *samples = dec->frame_buffers[pic0];
-		out->samples[0] = samples + offY;
-		out->samples[1] = samples + offC;
-		out->samples[2] = samples + (dec->out.stride_C >> 1) + offC;
+		out->samples[0] = dec->samples_buffers[pic0] + offY;
+		out->samples[1] = dec->samples_buffers[pic0] + offC;
+		out->samples[2] = dec->samples_buffers[pic0] + offC + (dec->out.stride_C >> 1);
 		out->FrameId = dec->FrameIds[pic0];
 		out->return_arg = (void *)((uintptr_t)1 << pic0);
 		if (idx1 >= 0) {
 			dec->get_frame_queue[1][idx1] = -1;
 			assert(dec->to_get_frames & dec->output_frames & 1 << pic1);
 			dec->to_get_frames ^= 1 << pic1;
-			samples = dec->frame_buffers[pic1];
-			out->samples_mvc[0] = samples + offY;
-			out->samples_mvc[1] = samples + offC;
-			out->samples_mvc[2] = samples + (dec->out.stride_C >> 1) + offC;
+			out->samples_mvc[0] = dec->samples_buffers[pic1] + offY;
+			out->samples_mvc[1] = dec->samples_buffers[pic1] + offC;
+			out->samples_mvc[2] = dec->samples_buffers[pic1] + offC + (dec->out.stride_C >> 1);
 			out->FrameId_mvc = dec->FrameIds[pic1];
 			out->return_arg = (void *)((uintptr_t)1 << pic0 | (uintptr_t)1 << pic1);
 		}

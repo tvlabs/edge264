@@ -80,7 +80,8 @@ int main(int argc, char *argv[]) {
 	uint8_t *buf = mmap(NULL, st.st_size, PROT_READ, MAP_SHARED, fd, 0);
 	const uint8_t *nal = buf + 3 + (buf[2] == 0); // skip the [0]001 delimiter
 	const uint8_t *end = buf + st.st_size;
-	Edge264Decoder *dec = edge264_alloc(-1, NULL, NULL, 0); // auto threads, no logs
+	// auto threads, no logs, auto allocs
+	Edge264Decoder *dec = edge264_alloc(-1, NULL, NULL, 0, NULL, NULL, NULL);
 	Edge264Frame frm;
 	int res;
 	do {
@@ -115,7 +116,7 @@ Return a pointer to the next three or four byte (0)001 start code prefix, or `en
 
 ---
 
-<code>Edge264Decoder * <b>edge264_alloc(n_threads, log_cb, log_arg, log_mbs)</b></code>
+<code>Edge264Decoder * <b>edge264_alloc(n_threads, log_cb, log_arg, log_mbs, alloc_cb, free_cb, alloc_arg)</b></code>
 
 Allocate and initialize a decoding context.
 
@@ -123,6 +124,9 @@ Allocate and initialize a decoding context.
 * `void (* log_cb)(const char * str, void * log_arg)` - if not NULL, a `fputs`-compatible function pointer that will be called to log every header, SEI or macroblock
 * `void * log_arg` - custom value passed to `log_cb` when `edge264_decode_NAL` logs a NAL unit or SEI message (⚠️ *large*, always called from the same thread, enabling it requires the `logs` variant otherwise the function will fail at runtime)
 * `int log_mbs` - if set then `edge264_decode_NAL` will also log macroblocks (⚠️ *very large*, may be called from another thread if multithreaded, requires `logs`too)
+* `void (* alloc_cb)(void ** samples, unsigned samples_size, void ** mbs, unsigned mbs_size, int errno_on_fail, void * alloc_arg)` - if not NULL, a function pointer that `edge264_decode_NAL` will call (on the same thread) instead of malloc to request allocation of samples and macroblock buffers for a frame (`errno_on_fail` is ENOMEM for mandatory allocations, or ENOBUFS for allocations that may fail to save memory but reduce playback smoothness)
+* `void (* free_cb)(void * samples, void * mbs, void * alloc_arg)` - if not NULL, a function pointer that `edge264_decode_NAL` and `edge264_free` will call (on the same thread) to free buffers allocated through `alloc_cb`
+* `void * alloc_arg` - custom value passed with all calls to `alloc_cb` and `free_cb`
 
 ---
 
@@ -323,6 +327,7 @@ With the help of a [custom bitstream writer](tools/gen_avc.py) using the same YA
 | direct_8x8_inference_flag=1 with frame_mbs_only_flag=0 |  |  |
 | checking that a gap in frame_num with poc_type==0 does not insert refs in B slices |  |  |
 | A SPS changing frame format while currPic>=0 |  |  |
+| A frame allocator putting all allocs at start/end of a page boundary |  |  |
 
 | Parameter sets tests | Expected | Test files |
 | --- | --- | --- |

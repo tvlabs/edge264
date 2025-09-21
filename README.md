@@ -121,28 +121,12 @@ Return a pointer to the next three or four byte (0)001 start code prefix, or `en
 Allocate and initialize a decoding context.
 
 * `int n_threads` - number of background worker threads, with 0 to disable multithreading and -1 to detect the number of logical cores at runtime
-* `void (* log_cb)(const char * str, void * log_arg)` - if not NULL, a `fputs`-compatible function pointer that will be called to log every header, SEI or macroblock
-* `void * log_arg` - custom value passed to `log_cb` when `edge264_decode_NAL` logs a NAL unit or SEI message (⚠️ *large*, always called from the same thread, enabling it requires the `logs` variant otherwise the function will fail at runtime)
-* `int log_mbs` - if set then `edge264_decode_NAL` will also log macroblocks (⚠️ *very large*, may be called from another thread if multithreaded, requires `logs`too)
-* `void (* alloc_cb)(void ** samples, unsigned samples_size, void ** mbs, unsigned mbs_size, int errno_on_fail, void * alloc_arg)` - if not NULL, a function pointer that `edge264_decode_NAL` will call (on the same thread) instead of malloc to request allocation of samples and macroblock buffers for a frame (`errno_on_fail` is ENOMEM for mandatory allocations, or ENOBUFS for allocations that may fail to save memory but reduce playback smoothness)
+* `void (* log_cb)(const char * str, void * log_arg)` - if not NULL, a `fputs`-compatible function pointer that `edge264_decode_NAL` will call to log every header, SEI or macroblock (requires the `logs` variant otherwise fails at runtime, called from the same thread except macroblocks in multithreaded decoding)
+* `void * log_arg` - custom value passed to `log_cb`
+* `int log_mbs` - set to 1 to enable logging of macroblocks
+* `void (* alloc_cb)(void ** samples, unsigned samples_size, void ** mbs, unsigned mbs_size, int errno_on_fail, void * alloc_arg)` - if not NULL, a function pointer that `edge264_decode_NAL` will call (on the same thread) instead of malloc to request allocation of samples and macroblock buffers for a frame (`errno_on_fail` is ENOMEM for mandatory allocations, or ENOBUFS for allocations that may be skipped to save memory but reduce playback smoothness)
 * `void (* free_cb)(void * samples, void * mbs, void * alloc_arg)` - if not NULL, a function pointer that `edge264_decode_NAL` and `edge264_free` will call (on the same thread) to free buffers allocated through `alloc_cb`
-* `void * alloc_arg` - custom value passed with all calls to `alloc_cb` and `free_cb`
-
----
-
-<code>void <b>edge264_flush(dec)</b></code>
-
-For use when seeking, stop all background processing and clear all delayed frames. The parameter sets are kept, thus do not need to be sent again if they did not change.
-
-* `Edge264Decoder * dec` - initialized decoding context
-
----
-
-<code>void <b>edge264_free(pdec)</b></code>
-
-Deallocate the entire decoding context, and unset the pointer.
-
-* `Edge264Decoder ** pdec` - pointer to a decoding context, initialized or not
+* `void * alloc_arg` - custom value passed to `alloc_cb` and `free_cb`
 
 ---
 
@@ -192,15 +176,6 @@ While reference frames may be decoded ahead of their actual display (ex. B-Pyram
 * Exceeding the maximum number of frames held for reordering releases the next frame in display order.
 * Lacking an available frame buffer releases the next non-reference frame in display order (to salvage its buffer) and all reference frames displayed before it.
 
----
-
-<code>void <b>edge264_return_frame(dec, return_arg)</b></code>
-
-Give back ownership of the frame if it was borrowed from a previous call to `edge264_get_frame`.
-
-* `Edge264Decoder * dec` - initialized decoding context
-* `void * return_arg` - the value stored inside the frame to return
-
 ```c
 typedef struct Edge264Frame {
 	const uint8_t *samples[3]; // Y/Cb/Cr planes
@@ -221,6 +196,31 @@ typedef struct Edge264Frame {
 	void *return_arg;
 } Edge264Frame;
 ```
+
+---
+
+<code>void <b>edge264_return_frame(dec, return_arg)</b></code>
+
+Give back ownership of the frame if it was borrowed from a previous call to `edge264_get_frame`.
+
+* `Edge264Decoder * dec` - initialized decoding context
+* `void * return_arg` - the value stored inside the frame to return
+
+---
+
+<code>void <b>edge264_flush(dec)</b></code>
+
+For use when seeking, stop all background processing, flush all delayed frames while keeping them allocated, and clear the internal decoder state.
+
+* `Edge264Decoder * dec` - initialized decoding context
+
+---
+
+<code>void <b>edge264_free(pdec)</b></code>
+
+Deallocate the entire decoding context, and unset the pointer.
+
+* `Edge264Decoder ** pdec` - pointer to a decoding context, initialized or not
 
 
 Roadmap

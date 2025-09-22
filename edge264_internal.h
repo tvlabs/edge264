@@ -202,6 +202,7 @@ typedef struct {
 	int16_t pic_width_in_mbs; // 0..1023
 	int16_t pic_height_in_mbs; // 0..1055
 	uint16_t stride[3]; // 0..65472 (at max width, 16bit & field pic), [iYCbCr]
+	int32_t FrameId;
 	int32_t plane_size_Y;
 	int32_t plane_size_C;
 	int32_t next_deblock_addr; // INT_MIN..INT_MAX
@@ -235,7 +236,6 @@ typedef struct Edge264Context {
 	int16_t mbx;
 	int16_t mby;
 	int32_t CurrMbAddr;
-	uint32_t FrameId;
 	int32_t mb_skip_run;
 	uint8_t *samples_mb[3]; // address of top-left byte of each plane in current macroblock
 	Edge264Macroblock * _mb; // backup storage for macro mb
@@ -330,6 +330,7 @@ typedef struct Edge264Decoder {
 	int8_t nal_unit_type; // 5 significant bits
 	int32_t plane_size_Y;
 	int32_t plane_size_C;
+	int32_t prevFrameId;
 	uint32_t frame_flip_bits; // bitfield storing target values of bit 0 in mb->recovery_bits for each frame
 	Edge264LogCb log_cb;
 	void *log_arg;
@@ -351,7 +352,7 @@ typedef struct Edge264Decoder {
 	int8_t nal_ref_idc; // 2 significant bits
 	int8_t IdrPicFlag; // 1 significant bit
 	int8_t currPic; // index of current incomplete frame, or -1
-	int8_t prevPic; // index of last completed frame, may possibly equal currPic
+	int8_t basePic; // index of last base frame for cross-reference in MVC
 	int8_t hH; // last decoded timestamp hours, 0..23
 	int8_t mM; // last decoded timestamp minutes, 0..59
 	int8_t sS; // last decoded timestamp seconds, 0..59
@@ -374,7 +375,7 @@ typedef struct Edge264Decoder {
 	uint32_t prev_short_term_frames; // state of short_term_frames for both views before current frame
 	uint32_t prev_long_term_frames; // state of long_term_frames for both views before current frame
 	int32_t FrameNums[32]; // signed to be used along FieldOrderCnt in initial reference ordering
-	uint32_t FrameIds[32]; // unique identifiers for each frame, incremented in decoding order
+	int32_t FrameIds[32]; // unique identifiers for each frame, incremented in decoding order
 	union { int8_t get_frame_queue[2][16]; i8x16 get_frame_queue_v[2]; }; // FIFO with insertion at 0 for both views, and empty slots having value -1
 	union { int8_t LongTermFrameIdx[32]; i8x16 LongTermFrameIdx_v[2]; };
 	union { int8_t prev_LongTermFrameIdx[32]; i8x16 prev_LongTermFrameIdx_v[2]; }; // state of LongTermFrameIdx before current frame
@@ -995,7 +996,7 @@ static always_inline void flush_decoder(Edge264Decoder *dec) {
 	while (dec->busy_tasks)
 		pthread_cond_wait(&dec->task_complete, &dec->lock);
 	memset((void *)dec + offsetof(Edge264Decoder, nal_ref_idc), 0, offsetof(Edge264Decoder, log_pos) - offsetof(Edge264Decoder, nal_ref_idc));
-	dec->currPic = dec->prevPic = -1;
+	dec->currPic = dec->basePic = -1;
 	dec->PrevRefFrameNum[0] = dec->PrevRefFrameNum[1] = -1;
 	dec->taskPics_v = dec->get_frame_queue_v[0] = dec->get_frame_queue_v[1] = set8(-1);
 }

@@ -1646,7 +1646,7 @@ static void CAFUNC(parse_slice_data)
 			if (ctx->n_threads)
 				log_mb(ctx, "    FrameId: %u\n"
 					"    slice_type: %c (%u)\n",
-					ctx->FrameId, "PBI"[ctx->t.slice_type], ctx->t.slice_type);
+					ctx->t.FrameId, "PBI"[ctx->t.slice_type], ctx->t.slice_type);
 		#endif
 		
 		// update flip_bit atomically to signal mb is a priori decoded, otherwise end the slice

@@ -142,8 +142,8 @@ Edge264Decoder *edge264_alloc(int n_threads, Edge264LogCb log_cb, void *log_arg,
 	Edge264Decoder *dec = calloc(1, sizeof(Edge264Decoder));
 	if (dec == NULL)
 		return NULL;
-	dec->currPic = dec->prevPic = -1;
-	dec->PrevRefFrameNum[0] = dec->PrevRefFrameNum[1] = -1;
+	dec->currPic = dec->basePic = -1;
+	dec->PrevRefFrameNum[0] = dec->PrevRefFrameNum[1] = dec->prevFrameId = -1;
 	dec->taskPics_v = dec->get_frame_queue_v[0] = dec->get_frame_queue_v[1] = set8(-1);
 	dec->n_threads = n_threads;
 	dec->log_cb = log_cb;

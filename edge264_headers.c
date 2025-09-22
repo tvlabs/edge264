@@ -50,7 +50,6 @@ static void initialize_context(Edge264Context *ctx, int currPic)
 		39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39};
 	
 	union { int8_t q[32]; i8x16 v[2]; } tb, td;
-	ctx->FrameId = ctx->d->FrameIds[currPic];
 	ctx->CurrMbAddr = ctx->t.first_mb_in_slice;
 	ctx->mby = (unsigned)ctx->t.first_mb_in_slice / (unsigned)ctx->t.pic_width_in_mbs;
 	ctx->mbx = (unsigned)ctx->t.first_mb_in_slice % (unsigned)ctx->t.pic_width_in_mbs;
@@ -648,7 +647,7 @@ static void parse_ref_pic_list_modification(Edge264Decoder *dec, Edge264SeqParam
 		}
 	}
 	if (dec->nal_unit_type == 20) // if we're second view
-		t->RefPicList[0][size++] = dec->prevPic; // add inter-view ref for MVC
+		t->RefPicList[0][size++] = dec->basePic; // add inter-view ref for MVC
 	
 	// fill RefPicListL1 by swapping before/after references
 	for (int src = 0; src < size; src++) {
@@ -711,7 +710,7 @@ static void parse_ref_pic_list_modification(Edge264Decoder *dec, Edge264SeqParam
 				log_dec(dec, "[\"%s\",%+d],",
 					modification_of_pic_nums_idc < 2 ? "sref" : modification_of_pic_nums_idc == 2 ? "lref" : "view",
 					modification_of_pic_nums_idc % 4 == 0 ? -num - 1 : num + (modification_of_pic_nums_idc != 2));
-				int pic = dec->prevPic; // for modification_of_pic_nums_idc == 4 and 5
+				int pic = dec->basePic; // for modification_of_pic_nums_idc == 4 and 5
 				if (modification_of_pic_nums_idc < 2) {
 					picNumLX = (modification_of_pic_nums_idc == 0) ? picNumLX - (num + 1) : picNumLX + (num + 1);
 					unsigned MaskFrameNum = (1 << sps->log2_max_frame_num) - 1;
@@ -798,8 +797,8 @@ static int alloc_frame(Edge264Decoder *dec, int id, int errno_on_fail) {
  */
 static void unset_currPic(Edge264Decoder *dec) {
 	assert(dec->currPic >= 0);
+	int non_base_view = dec->non_base_frames >> dec->currPic & 1;
 	if ((dec->short_term_frames | dec->long_term_frames) & 1 << dec->currPic) {
-		int non_base_view = dec->non_base_frames >> dec->currPic & 1;
 		unsigned same_views = non_base_view ? dec->non_base_frames : ~dec->non_base_frames;
 		dec->PrevRefFrameNum[non_base_view] = dec->FrameNums[dec->currPic];
 		dec->prevPicOrderCnt[non_base_view] = dec->FieldOrderCnt[0][dec->currPic];
@@ -808,7 +807,8 @@ static void unset_currPic(Edge264Decoder *dec) {
 		dec->prev_LongTermFrameIdx_v[0] = dec->LongTermFrameIdx_v[0];
 		dec->prev_LongTermFrameIdx_v[1] = dec->LongTermFrameIdx_v[1];
 	}
-	dec->prevPic = dec->currPic; // for FrameId
+	if (!non_base_view)
+		dec->basePic = dec->currPic;
 	dec->currPic = -1;
 }
 
@@ -847,6 +847,7 @@ static void initialize_task(Edge264Decoder *dec, Edge264SeqParameterSet *sps, Ed
 	t->frame_flip_bit = dec->frame_flip_bits >> dec->currPic & 1;
 	t->stride[0] = dec->out.stride_Y;
 	t->stride[1] = t->stride[2] = dec->out.stride_C;
+	t->FrameId = dec->FrameIds[dec->currPic];
 	t->plane_size_Y = dec->plane_size_Y;
 	t->plane_size_C = dec->plane_size_C;
 	t->next_deblock_idc = (dec->next_deblock_addr[dec->currPic] == t->first_mb_in_slice &&
@@ -987,8 +988,7 @@ int ADD_VARIANT(parse_slice_layer_without_partitioning)(Edge264Decoder *dec, int
 			dec->prev_long_term_frames |= 1 << i;
 			dec->non_base_frames = dec->non_base_frames & ~(1 << i) | non_base_view << i;
 			dec->FrameNums[i] = dec->PrevRefFrameNum[non_base_view] = FrameNum;
-			dec->FrameIds[i] = dec->FrameIds[dec->prevPic] + 1;
-			dec->prevPic = i;
+			dec->FrameIds[i] = ++dec->prevFrameId;
 			int PicOrderCnt = 0;
 			if (sps->pic_order_cnt_type == 2) {
 				PicOrderCnt = FrameNum * 2;
@@ -1100,7 +1100,7 @@ int ADD_VARIANT(parse_slice_layer_without_partitioning)(Edge264Decoder *dec, int
 		dec->currPic = currPic;
 		dec->non_base_frames = dec->non_base_frames & ~(1 << currPic) | non_base_view << currPic;
 		dec->frame_flip_bits ^= 1 << currPic;
-		dec->FrameIds[currPic] = (dec->prevPic >= 0) ? dec->FrameIds[dec->prevPic] + 1 : 0;
+		dec->FrameIds[currPic] = ++dec->prevFrameId;
 		dec->FrameNums[currPic] = dec->FrameNum;
 		dec->FieldOrderCnt[0][currPic] = dec->TopFieldOrderCnt;
 		dec->FieldOrderCnt[1][currPic] = dec->BottomFieldOrderCnt;

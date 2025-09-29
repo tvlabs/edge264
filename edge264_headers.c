@@ -622,16 +622,16 @@ static void parse_pred_weight_table(Edge264Decoder *dec, Edge264SeqParameterSet 
  */
 static void parse_ref_pic_list_modification(Edge264Decoder *dec, Edge264SeqParameterSet *sps, Edge264Task *t)
 {
-	// For P we sort on FrameNum, for B we sort on PicOrderCnt.
-	const int32_t *values = (t->slice_type == 0) ? dec->FrameNums : dec->FieldOrderCnt[0];
-	int pic_value = (t->slice_type == 0) ? dec->FrameNum : dec->TopFieldOrderCnt;
+	// initial sort on FrameNum for P, on PicOrderCnt for B
 	int count[3] = {0, 0, 0}; // number of refs before/after/long
 	int size = 0;
-	
-	// sort all short and long term references for RefPicListL0
-	// FIXME don't include B refs if pic_order_cnt_type==0 (8.2.4.2.3)
 	if (!dec->IdrPicFlag) {
-		for (unsigned refs = dec->short_term_frames | dec->long_term_frames, next = 0; refs; refs ^= 1 << next) {
+		const int32_t *values = (t->slice_type == 0) ? dec->FrameNums : dec->FieldOrderCnt[0];
+		int pic_value = (t->slice_type == 0) ? dec->FrameNum : dec->TopFieldOrderCnt;
+		unsigned refs = (t->slice_type != 0 && sps->pic_order_cnt_type == 0) ?
+			dec->short_term_frames ^ dec->long_term_frames :
+			dec->short_term_frames | dec->long_term_frames;
+		for (unsigned next = 0; refs; refs ^= 1 << next) {
 			int best = INT_MAX;
 			for (unsigned r = refs; r; r &= r - 1) {
 				int i = __builtin_ctz(r);

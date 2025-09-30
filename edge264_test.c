@@ -440,14 +440,6 @@ int main(int argc, char *argv[])
 			}
 		}
 	}
-	if (trace) {
-		trace_file = fopen("trace.yaml", "w");
-		setvbuf(trace_file, NULL, _IONBF, BUFSIZ);
-	}
-	
-	// load SDL2 if requested
-	if (display && load_SDL2())
-		return 1;
 	
 	// print help if any argument was unknown
 	if (help) {
@@ -467,6 +459,15 @@ int main(int argc, char *argv[])
 			, argv[0]);
 		return 0;
 	}
+	
+	if (trace) {
+		trace_file = fopen("trace.yaml", "w");
+		setvbuf(trace_file, NULL, _IONBF, BUFSIZ);
+	}
+	
+	// load SDL2 if requested
+	if (display && load_SDL2())
+		return 1;
 	
 	struct timespec t0, t1;
 	clock_gettime(CLOCK_MONOTONIC, &t0);

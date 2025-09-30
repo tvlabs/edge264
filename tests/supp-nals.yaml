@@ -73,6 +73,7 @@
 
 - nal_ref_idc: 3
   nal_unit_type: 6
+  sei_messages:
 
 - nal_ref_idc: 3
   nal_unit_type: 14 # Prefix NAL unit

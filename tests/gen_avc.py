@@ -232,7 +232,7 @@ def gen_slice_layer_without_partitioning(bits, f, slice):
 
 
 def gen_sei(bits, f, nal):
-	for sei in nal.sei_messages:
+	for sei in nal.sei_messages or []:
 		bits = bits << (sei.payloadType // 255 * 8) | ((1 << (sei.payloadType // 255 * 8)) - 1)
 		bits = bits << 8 | (sei.payloadType % 255)
 		payload = 1
@@ -251,7 +251,7 @@ def gen_sei(bits, f, nal):
 		bits = bits << num | (payload ^ 1 << num)
 		if num % 8 > 0:
 			bits = bits << -num % 8 | 1 << -num % 8 >> 1
-		return bits
+	return bits
 
 
 

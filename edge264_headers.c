@@ -1857,8 +1857,8 @@ int ADD_VARIANT(parse_seq_parameter_set)(Edge264Decoder *dec, int non_blocking, 
 			parse_scaling_lists(dec, sps.weightScale4x4_v, sps.weightScale8x8_v, 1, sps.chroma_format_idc);
 		}
 	} else {
-		log_dec(dec, "  default_chroma_format_idc: 0 # 4:2:0\n"
-			"  default_bit_depth: {luma: 8, chroma: 8}\n");
+		log_dec(dec, "  chroma_format_idc: 1 # 4:2:0 inferred\n"
+			"  bit_depth: {luma: 8, chroma: 8} # inferred\n");
 	}
 	
 	sps.log2_max_frame_num = get_ue16(&dec->gb, 12) + 4;

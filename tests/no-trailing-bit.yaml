@@ -78,6 +78,7 @@
 
 - nal_ref_idc: 3
   nal_unit_type: 6
+  sei_messages:
   rbsp_trailing_bit: 0
 
 - nal_ref_idc: 3

@@ -3,6 +3,7 @@ OS ?= $(shell uname)
 TARGETOS ?= $(OS)
 VARIANTS ?= logs
 BUILD_TEST ?= yes
+PY ?= python3
 
 VERSION := 1.0.0
 MAJOR := 1
@@ -15,6 +16,8 @@ RUNTIME_TESTS := $(if $(findstring x86-64-v2,$(VARIANTS)),-DHAS_X86_64_V2,) $(if
 OBJ := edge264.o $(if $(findstring x86-64-v2,$(VARIANTS)),edge264_headers_v2.o,) $(if $(findstring x86-64-v3,$(VARIANTS)),edge264_headers_v3.o,) $(if $(findstring logs,$(VARIANTS)),edge264_headers_log.o,)
 LIB := $(if $(findstring Windows,$(TARGETOS)),edge264.$(MAJOR).dll,$(if $(findstring Linux,$(TARGETOS)),libedge264.so.$(VERSION),libedge264.$(VERSION).dylib))
 EXE := $(if $(findstring Windows,$(TARGETOS)),edge264_test.exe,edge264_test)
+TESTS_YAML = $(wildcard tests/*.yaml)
+TESTS_264 = $(patsubst %.yaml,%.264,$(TESTS_YAML))
 .DEFAULT_GOAL := $(if $(findstring yes,$(BUILD_TEST)),$(EXE),$(LIB))
 
 
@@ -46,7 +49,17 @@ edge264_headers_log.o: edge264.h edge264_internal.h edge264_bitstream.c edge264_
 
 .PHONY: clean clear
 clean clear:
-	rm -f release/* $(EXE) edge264*.o libedge264*.dylib libedge264.so.* edge264*.dll
+	rm -f release/* $(EXE) edge264*.o libedge264*.dylib libedge264.so.* edge264*.dll tests/*.264
+
+.PHONY: test
+test: edge264_test2
+	./edge264_test2
+
+edge264_test2: edge264_test2.c edge264.h $(LIB) $(TESTS_264)
+	$(TARGETCC) edge264_test2.c $(LIB) $(LDFLAGS) -o edge264_test2
+
+%.264: %.yaml tests/gen_avc.py
+	$(PY) tests/gen_avc.py $< $@
 
 
 # hard-coded for my machine (mac-x64), edit to make them work on your own

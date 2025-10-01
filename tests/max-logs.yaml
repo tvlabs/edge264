@@ -42,7 +42,7 @@
     time_scale: 4294967295
     fixed_frame_rate_flag: 0
     nal_hrd_parameters:
-      CPBs:
+      cpbs:
         - {bit_rate: 9007199252643840, size: 2251799813160960, cbr_flag: 0}
         - {bit_rate: 9007199252643840, size: 2251799813160960, cbr_flag: 0}
         - {bit_rate: 9007199252643840, size: 2251799813160960, cbr_flag: 0}
@@ -80,7 +80,7 @@
       dpb_output_delay_length: 31
       time_offset_length: 31
     vcl_hrd_parameters:
-      CPBs:
+      cpbs:
         - {bit_rate: 9007199252643840, size: 2251799813160960, cbr_flag: 0}
         - {bit_rate: 9007199252643840, size: 2251799813160960, cbr_flag: 0}
         - {bit_rate: 9007199252643840, size: 2251799813160960, cbr_flag: 0}

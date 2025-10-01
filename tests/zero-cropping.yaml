@@ -1,6 +1,22 @@
 --- # Horizontal/vertical cropping leaving zero space
 
 - nal_ref_idc: 3
+  nal_unit_type: 7 # Sequence parameter set
+  profile_idc: 66 # Baseline
+  constraint_set_flags: [0,0,0,0,0,0]
+  level_idc: 1.0
+  chroma_format_idc: 1 # 4:2:0
+  log2_max_frame_num: 4
+  pic_order_cnt_type: 0
+  log2_max_pic_order_cnt_lsb: 4
+  max_num_ref_frames: 2
+  gaps_in_frame_num_value_allowed_flag: 0
+  pic_size_in_mbs: {width: 1, height: 1}
+  frame_mbs_only_flag: 1
+  direct_8x8_inference_flag: 0
+  frame_crop_offsets: {left: 0, right: 16, top: 0, bottom: 16}
+
+- nal_ref_idc: 3
   nal_unit_type: 8 # Picture parameter set
   pic_parameter_set_id: 0
   entropy_coding_mode_flag: 0 # CAVLC
@@ -14,21 +30,6 @@
   deblocking_filter_control_present_flag: 0
   constrained_intra_pred_flag: 0
   redundant_pic_cnt_present_flag: 0
-
-- nal_ref_idc: 3
-  nal_unit_type: 7 # Sequence parameter set
-  profile_idc: 66 # Baseline
-  constraint_set_flags: [0,0,0,0,0,0]
-  level_idc: 1.0
-  log2_max_frame_num: 4
-  pic_order_cnt_type: 0
-  log2_max_pic_order_cnt_lsb: 4
-  max_num_ref_frames: 2
-  gaps_in_frame_num_value_allowed_flag: 0
-  pic_size_in_mbs: {width: 1, height: 1}
-  frame_mbs_only_flag: 1
-  direct_8x8_inference_flag: 0
-  frame_crop_offsets: {left: 0, right: 16, top: 0, bottom: 16}
 
 - nal_ref_idc: 3
   nal_unit_type: 5 # Coded slice of an IDR picture
@@ -52,6 +53,7 @@
   profile_idc: 66 # Baseline
   constraint_set_flags: [0,0,0,0,0,0]
   level_idc: 1.0
+  chroma_format_idc: 1 # 4:2:0
   log2_max_frame_num: 4
   pic_order_cnt_type: 0
   log2_max_pic_order_cnt_lsb: 4

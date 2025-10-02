@@ -18,6 +18,7 @@
 	#include <unistd.h>
 #endif
 #include "edge264.h"
+#include "edge264_internal.h"
 
 
 
@@ -33,11 +34,6 @@
 
 static Edge264Decoder *dec;
 static int count_pass;
-
-#ifndef min
-	static inline int min(int a, int b) { return (a < b) ? a : b; }
-	static inline int max(int a, int b) { return (a > b) ? a : b; }
-#endif
 
 static int flt(const struct dirent *a) {
 	char *ext = strrchr(a->d_name, '.');
@@ -63,7 +59,20 @@ static const char *errno_str(int e) {
 
 
 
-static void test_generic(const char *name, const int8_t *expect)
+static void (*log_tester)(const char *);
+static void log_callback(const char *str, void *_) { log_tester(str); }
+static void null_logger(const char *str) {}
+static void print_logger(const char *str) { fputs(str, stdout); }
+static void max_logs_logger(const char *str) {
+	if (strlen(str) + 1 != sizeof(dec->log_buf)) {
+		printf(RED "max-logs: log length (%zd) differs from log_buf size (%zu)\n" RESET, strlen(str) + 1, sizeof(dec->log_buf));
+		exit(1);
+	}
+}
+
+
+
+static void test_generic(const char *name, void (*_log_tester)(const char *), const int8_t *expect)
 {
 	// open and memory map the input test file
 	printf("\e[A\e[K%d " GREEN "PASS" RESET " (%s)\n", count_pass, name);
@@ -96,18 +105,20 @@ static void test_generic(const char *name, const int8_t *expect)
 	#endif
 	
 	// parse all NALs from the test file
+	log_tester = _log_tester ?: null_logger;
 	nal += 3 + (nal[2] == 0); // skip the [0]001 delimiter
 	int res = 0;
 	Edge264Frame out;
-	for (int i = 0; res == 0 || res == ENOBUFS; i++) {
+	for (int i = 0; res != ENODATA; i++) {
 		res = edge264_decode_NAL(dec, nal, end, 0, NULL, NULL, &nal);
 		if (res != expect[i]) {
-			printf(RED "Test %s: NAL at index %d returned %s where %s was expected" RESET "\n", name, i, errno_str(res), errno_str(expect[i]));
+			printf(RED "%s: NAL at index %d returned %s where %s was expected\n" RESET, name, i, errno_str(res), errno_str(expect[i]));
 			exit(1);
 		}
 		while (!edge264_get_frame(dec, &out, 0));
 	}
 	count_pass += 1;
+	edge264_flush(dec);
 	
 	// close everything
 	#ifdef _WIN32
@@ -127,7 +138,6 @@ int main(int argc, char *argv[])
 	// read command-line options
 	int help = 0;
 	int n_threads = -1;
-	int trace = 0;
 	int compare_yuv = 1;
 	for (int i = 1; i < argc; i++) {
 		if (argv[i][0] != '-') {
@@ -135,8 +145,6 @@ int main(int argc, char *argv[])
 		} else for (int j = 1; argv[i][j]; j++) {
 			switch (argv[i][j]) {
 				case 's': n_threads = 0; break;
-				case 'v': trace = 1; break;
-				case 'V': trace = 2; n_threads = 0; break;
 				case 'y': compare_yuv = 0; break;
 				default: help = 1; break;
 			}
@@ -145,35 +153,26 @@ int main(int argc, char *argv[])
 	
 	// print help and exit if requested
 	if (help) {
-		printf("Usage: " BOLD "%s [-hsvVy]" RESET "\n"
+		printf("Usage: " BOLD "%s [-hsy]" RESET "\n"
 			"Runs all conformance tests, expecting a 'conformance' directory containing .264\n"
 			"files along with their expected .yuv results (and .1.yuv for MVC)\n"
 			"-h\tprint this help and exit\n"
 			"-s\tsingle-threaded operation\n"
-			"-v\tenable output of decoded headers to file trace.yaml\n"
-			"-V\tenable output of decoded macroblocks to file trace.yaml (implies -vs)\n"
 			"-y\tdisable comparison against YUV pairs\n"
 			, argv[0]);
 		return 0;
 	}
 	
-	// open trace file
-	FILE *trace_file = NULL;
-	if (trace) {
-		trace_file = fopen("trace.yaml", "w");
-		if (!trace_file)
-			perror("Cannot open trace.yaml for writing");
-	}
-	
 	// run all stress tests
-	dec = edge264_alloc(n_threads, trace ? (void(*)(const char*, void*))fputs : NULL, trace_file, trace > 1, NULL, NULL, NULL);
+	dec = edge264_alloc(n_threads, log_callback, NULL, 0, NULL, NULL, NULL);
 	putchar('\n');
-	test_generic("supp-nals", (int8_t[]){0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, ENODATA});
+	test_generic("supp-nals", NULL, (int8_t[]){0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, ENODATA});
+	test_generic("unsupp-nals", NULL, (int8_t[]){ENOTSUP, ENOTSUP, ENOTSUP, ENOTSUP, ENOTSUP, ENOTSUP, ENOTSUP, ENOTSUP, ENOTSUP, ENOTSUP, ENOTSUP, ENOTSUP, ENOTSUP, ENOTSUP, ENOTSUP, ENOTSUP, ENOTSUP, ENOTSUP, ENOTSUP, ENOTSUP, ENOTSUP, ENODATA});
+	test_generic("max-logs", max_logs_logger, (int8_t[]){0, ENODATA});
+	test_generic("finish-frame", NULL, (int8_t[]){0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, ENODATA});
 	printf("\e[A\e[K%d " GREEN "PASS" RESET "\n", count_pass);
 	
 	// clear all open stuff
 	edge264_free(&dec);
-	if (trace_file)
-		fclose(trace_file);
 	return 0;
 }

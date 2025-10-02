@@ -51,8 +51,8 @@ edge264_headers_log.o: edge264.h edge264_internal.h edge264_bitstream.c edge264_
 clean clear:
 	rm -f release/* $(EXE) edge264*.o libedge264*.dylib libedge264.so.* edge264*.dll tests/*.264
 
-.PHONY: test
-test: edge264_test2
+.PHONY: test tests
+test tests: edge264_test2
 	./edge264_test2
 
 edge264_test2: edge264_test2.c edge264.h $(LIB) $(TESTS_264)

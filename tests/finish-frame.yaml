@@ -61,6 +61,7 @@
     intra_chroma_pred_mode: 0
     coded_block_pattern: 0
 
+# changing pic_parameter_set_id (ignored)
 - nal_ref_idc: 1
   nal_unit_type: 5 # Coded slice of an IDR picture
   first_mb_in_slice: 1
@@ -78,6 +79,7 @@
     intra_chroma_pred_mode: 0
     coded_block_pattern: 0
 
+# changing idr_pic_id
 - nal_ref_idc: 1
   nal_unit_type: 5 # Coded slice of an IDR picture
   first_mb_in_slice: 0
@@ -95,6 +97,7 @@
     intra_chroma_pred_mode: 0
     coded_block_pattern: 0
 
+# changing BottomFieldOrderCnt (ignored)
 - nal_ref_idc: 1
   nal_unit_type: 5 # Coded slice of an IDR picture
   first_mb_in_slice: 1
@@ -112,6 +115,7 @@
     intra_chroma_pred_mode: 0
     coded_block_pattern: 0
 
+# changing nal_unit_type
 - nal_ref_idc: 1
   nal_unit_type: 1
   first_mb_in_slice: 0
@@ -130,6 +134,7 @@
     intra_chroma_pred_mode: 0
     coded_block_pattern: 0
 
+# changing frame_num
 - nal_ref_idc: 1
   nal_unit_type: 1
   first_mb_in_slice: 0
@@ -148,6 +153,7 @@
     intra_chroma_pred_mode: 0
     coded_block_pattern: 0
 
+# unsetting nal_ref_idc
 - nal_ref_idc: 0
   nal_unit_type: 1
   first_mb_in_slice: 0
@@ -166,6 +172,7 @@
     intra_chroma_pred_mode: 0
     coded_block_pattern: 0
 
+# changing pic_order_cnt on a non-ref
 - nal_ref_idc: 0
   nal_unit_type: 1
   first_mb_in_slice: 0
@@ -184,6 +191,7 @@
     intra_chroma_pred_mode: 0
     coded_block_pattern: 0
 
+# setting nal_ref_idc
 - nal_ref_idc: 1
   nal_unit_type: 1
   first_mb_in_slice: 0
@@ -202,6 +210,7 @@
     intra_chroma_pred_mode: 0
     coded_block_pattern: 0
 
+# changing pic_order_cnt on a ref
 - nal_ref_idc: 1
   nal_unit_type: 1
   first_mb_in_slice: 0
@@ -219,3 +228,5 @@
     rem_intra4x4_pred_modes: [-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1]
     intra_chroma_pred_mode: 0
     coded_block_pattern: 0
+
+# FIXME add ref frame with same frame_num differing on poc -> must detect gap!

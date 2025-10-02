@@ -169,13 +169,6 @@ Return codes are:
 * `EINVAL` if the function was called with `dec == NULL` or `out == NULL`
 * `ENOMSG` if there is no frame to output at the moment
 
-While reference frames may be decoded ahead of their actual display (ex. B-Pyramid technique), all frames are buffered for reordering before being released for display:
-
-* Decoding a non-reference frame releases it and all frames set to be displayed before it.
-* Decoding a key frame releases all stored frames (but not the key frame itself which might be reordered later).
-* Exceeding the maximum number of frames held for reordering releases the next frame in display order.
-* Lacking an available frame buffer releases the next non-reference frame in display order (to salvage its buffer) and all reference frames displayed before it.
-
 ```c
 typedef struct Edge264Frame {
 	const uint8_t *samples[3]; // Y/Cb/Cr planes

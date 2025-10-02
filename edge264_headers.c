@@ -489,7 +489,7 @@ static int parse_dec_ref_pic_marking(Edge264Decoder *dec, Edge264SeqParameterSet
 		dec->short_term_frames = (long_term_flag ^ 1) << dec->currPic;
 		dec->long_term_frames = long_term_flag << dec->currPic;
 		dec->LongTermFrameIdx_v[0] = dec->LongTermFrameIdx_v[1] = (i8x16){};
-		log_dec(dec, "  no_outpLongTermFrameIdx_vut_of_prior_pics_flag: %d\n"
+		log_dec(dec, "  no_output_of_prior_pics_flag: %d\n"
 			"  long_term_reference_flag: %d\n",
 			no_output_of_prior_pics_flag,
 			dec->long_term_frames >> dec->currPic);
@@ -929,23 +929,104 @@ int ADD_VARIANT(parse_slice_layer_without_partitioning)(Edge264Decoder *dec, int
 	if (!sps->BitDepth_Y || !t->pps.num_ref_idx_active[0]) // if SPS or PPS wasn't initialized
 		return EBADMSG;
 	
-	// parse frame_num and detect the start of a new frame (7.4.1.2.4)
+	// keep frame_num on stack until we can compute FrameNum after all unset_currPic
 	int frame_num = get_uv(&dec->gb, sps->log2_max_frame_num);
 	frame_num = dec->IdrPicFlag ? 0 : frame_num; // enforce condition in 7.4.3
+	
+	// As long as PAFF/MBAFF are unsupported, this code won't execute (but is still kept).
+	t->field_pic_flag = 0;
+	t->bottom_field_flag = 0;
+	if (!sps->frame_mbs_only_flag) {
+		t->field_pic_flag = get_u1(&dec->gb);
+		log_dec(dec, "  field_pic_flag: %u\n", t->field_pic_flag);
+		if (t->field_pic_flag) {
+			t->bottom_field_flag = get_u1(&dec->gb);
+			log_dec(dec, "  bottom_field_flag: %u\n",
+				t->bottom_field_flag);
+		}
+	}
+	t->MbaffFrameFlag = sps->mb_adaptive_frame_field_flag & ~t->field_pic_flag;
+	
+	// idr_pic_id is used to detect new frames in streams of IDRs
+	int idr_pic_id = -1;
+	if (dec->IdrPicFlag) {
+		idr_pic_id = get_ue32(&dec->gb, 65535);
+		log_dec(dec, "  idr_pic_id: %u\n", idr_pic_id);
+	}
+	
+	// detect the start of a new frame (7.4.1.2.4)
 	int FrameNumMask = (1 << sps->log2_max_frame_num) - 1;
 	if (dec->currPic >= 0 && (frame_num != (dec->FrameNum & FrameNumMask) ||
 		(dec->nal_ref_idc > 0) != ((dec->short_term_frames | dec->long_term_frames) >> dec->currPic & 1) ||
-		(dec->nal_unit_type == 20) != (dec->non_base_frames >> dec->currPic & 1))) {
+		(dec->nal_unit_type == 20) != (dec->non_base_frames >> dec->currPic & 1) ||
+		idr_pic_id != dec->idr_pic_id)) {
 		unset_currPic(dec);
 	}
-	// the test on frame_num must happen before PrevRefFrameNum to get an up-to-date value
+	dec->idr_pic_id = idr_pic_id;
+	
+	// Compute Top/BottomFieldOrderCnt (8.2.1).
+	int TopFieldOrderCnt, BottomFieldOrderCnt;
+	if (sps->pic_order_cnt_type == 0) {
+		int pic_order_cnt_lsb = get_uv(&dec->gb, sps->log2_max_pic_order_cnt_lsb);
+		int shift = WORD_BIT - sps->log2_max_pic_order_cnt_lsb;
+		if (dec->currPic >= 0 && pic_order_cnt_lsb != ((unsigned)dec->TopFieldOrderCnt << shift >> shift))
+			unset_currPic(dec);
+		// unset_currPic must happen before prevPicOrderCnt to get an up-to-date value
+		int prevPicOrderCnt = dec->prevPicOrderCnt[non_base_view];
+		int inc = (pic_order_cnt_lsb - prevPicOrderCnt) << shift >> shift;
+		BottomFieldOrderCnt = TopFieldOrderCnt = prevPicOrderCnt + inc;
+		log_dec(dec, "  pic_order_cnt: {type: 0, bits: %u, absolute: %d",
+			sps->log2_max_pic_order_cnt_lsb, TopFieldOrderCnt);
+		if (t->pps.bottom_field_pic_order_in_frame_present_flag && !t->field_pic_flag) {
+			BottomFieldOrderCnt += get_se32(&dec->gb, (-1u << 31) + 1, (1u << 31) - 1);
+			log_dec(dec, ", bottom: %d", BottomFieldOrderCnt);
+		}
+		log_dec(dec, "}\n");
+	} else if (sps->pic_order_cnt_type == 1) {
+		log_dec(dec, "  pic_order_cnt: {type: 1");
+		int delta_pic_order_cnt0 = 0;
+		int delta_pic_order_cnt1 = 0;
+		if (!sps->delta_pic_order_always_zero_flag) {
+			delta_pic_order_cnt0 = get_se32(&dec->gb, (-1u << 31) + 1, (1u << 31) - 1);
+			log_dec(dec, ", delta0: %d", delta_pic_order_cnt0);
+			if (t->pps.bottom_field_pic_order_in_frame_present_flag && !t->field_pic_flag) {
+				delta_pic_order_cnt1 = get_se32(&dec->gb, (-1u << 31) + 1, (1u << 31) - 1);
+				log_dec(dec, ", delta1: %d", delta_pic_order_cnt1);
+			}
+		}
+		if (dec->currPic >= 0 && delta_pic_order_cnt0 != dec->delta_pic_order_cnt0)
+			unset_currPic(dec);
+		dec->delta_pic_order_cnt0 = delta_pic_order_cnt0;
+		// unset_currPic must happen before FrameNum to get a definitive value
+		int PrevRefFrameNum = dec->PrevRefFrameNum[non_base_view];
+		int absFrameNum = (sps->num_ref_frames_in_pic_order_cnt_cycle > 0) ?
+			PrevRefFrameNum + 1 + ((frame_num - PrevRefFrameNum - 1) & FrameNumMask) : 0;
+		absFrameNum -= (dec->nal_ref_idc == 0 && absFrameNum > 0);
+		TopFieldOrderCnt = delta_pic_order_cnt0 + (dec->nal_ref_idc ? 0 : sps->offset_for_non_ref_pic);
+		if (absFrameNum > 0) {
+			TopFieldOrderCnt += ((absFrameNum - 1) / sps->num_ref_frames_in_pic_order_cnt_cycle) *
+				sps->PicOrderCntDeltas[sps->num_ref_frames_in_pic_order_cnt_cycle] +
+				sps->PicOrderCntDeltas[(absFrameNum - 1) % sps->num_ref_frames_in_pic_order_cnt_cycle];
+		}
+		BottomFieldOrderCnt = TopFieldOrderCnt + sps->offset_for_top_to_bottom_field + delta_pic_order_cnt1;
+		log_dec(dec, (TopFieldOrderCnt == BottomFieldOrderCnt) ?
+			", absolute: %d}" : ", absolute: %d, bottom: %d}\n",
+			TopFieldOrderCnt, BottomFieldOrderCnt);
+	} else {
+		TopFieldOrderCnt = BottomFieldOrderCnt = dec->FrameNum * 2 + (dec->nal_ref_idc != 0) - 1;
+		log_dec(dec, "  pic_order_cnt: {type: 2, absolute: %d}", TopFieldOrderCnt);
+	}
+	dec->TopFieldOrderCnt = TopFieldOrderCnt;
+	dec->BottomFieldOrderCnt = BottomFieldOrderCnt;
+	
+	// compute FrameNum now that we have a definitive PrevRefFrameNum
 	int PrevRefFrameNum = dec->PrevRefFrameNum[non_base_view];
 	dec->FrameNum = PrevRefFrameNum + 1 + ((frame_num - PrevRefFrameNum - 1) & FrameNumMask);
 	log_dec(dec, "  frame_num: {bits: %u, absolute: %u}\n",
 		sps->log2_max_frame_num, dec->FrameNum);
 	
 	// check for gaps in frame_num (8.2.5.2)
-	int gap = dec->FrameNum - PrevRefFrameNum;
+	int gap = dec->FrameNum - dec->PrevRefFrameNum[non_base_view];
 	if (__builtin_expect(gap > 1, 0)) {
 		// make enough non-reference slots by dereferencing short-term and non-existing frames
 		int sref_slots = sps->max_num_ref_frames - __builtin_popcount(same_views & dec->prev_long_term_frames & ~dec->prev_short_term_frames);
@@ -1002,82 +1083,6 @@ int ADD_VARIANT(parse_slice_layer_without_partitioning)(Edge264Decoder *dec, int
 			dec->next_deblock_addr[i] = INT_MAX;
 		}
 	}
-	
-	// As long as PAFF/MBAFF are unsupported, this code won't execute (but is still kept).
-	t->field_pic_flag = 0;
-	t->bottom_field_flag = 0;
-	if (!sps->frame_mbs_only_flag) {
-		t->field_pic_flag = get_u1(&dec->gb);
-		log_dec(dec, "  field_pic_flag: %u\n", t->field_pic_flag);
-		if (t->field_pic_flag) {
-			t->bottom_field_flag = get_u1(&dec->gb);
-			log_dec(dec, "  bottom_field_flag: %u\n",
-				t->bottom_field_flag);
-		}
-	}
-	t->MbaffFrameFlag = sps->mb_adaptive_frame_field_flag & ~t->field_pic_flag;
-	
-	// only the previous idr_pic_id is kept to help detect new frames in streams of IDRs
-	int idr_pic_id = -1;
-	if (dec->IdrPicFlag) {
-		idr_pic_id = get_ue32(&dec->gb, 65535);
-		log_dec(dec, "  idr_pic_id: %u\n", idr_pic_id);
-	}
-	if (dec->currPic >= 0 && idr_pic_id != dec->idr_pic_id)
-		unset_currPic(dec);
-	dec->idr_pic_id = idr_pic_id;
-	
-	// Compute Top/BottomFieldOrderCnt (8.2.1).
-	int TopFieldOrderCnt, BottomFieldOrderCnt;
-	if (sps->pic_order_cnt_type == 0) {
-		int pic_order_cnt_lsb = get_uv(&dec->gb, sps->log2_max_pic_order_cnt_lsb);
-		int shift = WORD_BIT - sps->log2_max_pic_order_cnt_lsb;
-		// unset_currPic triggers here only on non-ref to non-ref so prevRefFrameNum cannot change, thus no need to fix FrameNum computed above
-		if (dec->currPic >= 0 && pic_order_cnt_lsb != ((unsigned)dec->TopFieldOrderCnt << shift >> shift))
-			unset_currPic(dec);
-		// unset_currPic must execute before prevPicOrderCnt to get an up-to-date value
-		int prevPicOrderCnt = dec->prevPicOrderCnt[non_base_view];
-		int inc = (pic_order_cnt_lsb - prevPicOrderCnt) << shift >> shift;
-		BottomFieldOrderCnt = TopFieldOrderCnt = prevPicOrderCnt + inc;
-		log_dec(dec, "  pic_order_cnt: {type: 0, bits: %u, absolute: %d",
-			sps->log2_max_pic_order_cnt_lsb, TopFieldOrderCnt);
-		if (t->pps.bottom_field_pic_order_in_frame_present_flag && !t->field_pic_flag) {
-			BottomFieldOrderCnt += get_se32(&dec->gb, (-1u << 31) + 1, (1u << 31) - 1);
-			log_dec(dec, ", bottom: %d", BottomFieldOrderCnt);
-		}
-		log_dec(dec, "}\n");
-	} else if (sps->pic_order_cnt_type == 1) {
-		log_dec(dec, "  pic_order_cnt: {type: 1");
-		unsigned absFrameNum = dec->FrameNum + (dec->nal_ref_idc != 0) - 1;
-		TopFieldOrderCnt = (dec->nal_ref_idc) ? 0 : sps->offset_for_non_ref_pic;
-		if (sps->num_ref_frames_in_pic_order_cnt_cycle > 0) {
-			TopFieldOrderCnt += (absFrameNum / sps->num_ref_frames_in_pic_order_cnt_cycle) *
-				sps->PicOrderCntDeltas[sps->num_ref_frames_in_pic_order_cnt_cycle] +
-				sps->PicOrderCntDeltas[absFrameNum % sps->num_ref_frames_in_pic_order_cnt_cycle];
-		}
-		BottomFieldOrderCnt = TopFieldOrderCnt + sps->offset_for_top_to_bottom_field;
-		if (!sps->delta_pic_order_always_zero_flag) {
-			int delta_pic_order_cnt0 = get_se32(&dec->gb, (-1u << 31) + 1, (1u << 31) - 1);
-			TopFieldOrderCnt += delta_pic_order_cnt0;
-			BottomFieldOrderCnt += delta_pic_order_cnt0;
-			log_dec(dec, ", delta0: %d", delta_pic_order_cnt0);
-			if (t->pps.bottom_field_pic_order_in_frame_present_flag && !t->field_pic_flag) {
-				int delta_pic_order_cnt1 = get_se32(&dec->gb, (-1u << 31) + 1, (1u << 31) - 1);
-				BottomFieldOrderCnt += delta_pic_order_cnt1;
-				log_dec(dec, ", delta1: %d", delta_pic_order_cnt1);
-			}
-		}
-		if (dec->currPic >= 0 && TopFieldOrderCnt != dec->TopFieldOrderCnt)
-			unset_currPic(dec);
-		log_dec(dec, (TopFieldOrderCnt == BottomFieldOrderCnt) ?
-			", absolute: %d}" : ", absolute: %d, bottom: %d}\n",
-			TopFieldOrderCnt, BottomFieldOrderCnt);
-	} else {
-		TopFieldOrderCnt = BottomFieldOrderCnt = dec->FrameNum * 2 + (dec->nal_ref_idc != 0) - 1;
-		log_dec(dec, "  pic_order_cnt: {type: 2, absolute: %d}", TopFieldOrderCnt);
-	}
-	dec->TopFieldOrderCnt = TopFieldOrderCnt;
-	dec->BottomFieldOrderCnt = BottomFieldOrderCnt;
 	
 	// find and possibly allocate a memory slot for the upcoming frame
 	if (dec->currPic < 0) {
@@ -1857,7 +1862,7 @@ int ADD_VARIANT(parse_seq_parameter_set)(Edge264Decoder *dec, int non_blocking, 
 			parse_scaling_lists(dec, sps.weightScale4x4_v, sps.weightScale8x8_v, 1, sps.chroma_format_idc);
 		}
 	} else {
-		log_dec(dec, "  chroma_format_idc: 1 # 4:2:0 inferred\n"
+		log_dec(dec, "  chroma_format_idc: 1 # 4:2:0 # inferred\n"
 			"  bit_depth: {luma: 8, chroma: 8} # inferred\n");
 	}
 	

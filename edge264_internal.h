@@ -359,6 +359,7 @@ typedef struct Edge264Decoder {
 	int32_t FrameNum; // value for the current incomplete frame, unaffected by mmco5
 	int32_t PrevRefFrameNum[2]; // one per view
 	int32_t idr_pic_id; // value for the last slice, used for detecting new frames
+	int32_t delta_pic_order_cnt0; // value for the last slice, used for detecting new frames
 	int32_t prevPicOrderCnt[2]; // one per view
 	int32_t TopFieldOrderCnt; // value for the current incomplete frame, unaffected by mmco5
 	int32_t BottomFieldOrderCnt;

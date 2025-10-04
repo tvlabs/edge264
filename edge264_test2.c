@@ -181,6 +181,7 @@ int main(int argc, char *argv[])
 	test("max-logs", max_logs_logger, NULL, (int8_t[]){0, ENODATA});
 	test("finish-frame", NULL, finish_frame_post, (int8_t[]){0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, ENODATA});
 	test("nal-ref-idc-0", NULL, NULL, (int8_t[]){0, 0, 0, 0, 0, 0, 0, 0, 0, ENODATA});
+	test("no-trailing-bit", NULL, NULL, (int8_t[]){0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, ENODATA});
 	printf("\e[A\e[K%d " GREEN "PASS" RESET "\n", count_pass);
 	
 	// clear all open stuff

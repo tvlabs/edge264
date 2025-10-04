@@ -1,5 +1,6 @@
 --- # All conditions (detected and ignored) for detecting the start of a new frame
 
+# start with pic_order_cnt_type == 0
 - nal_ref_idc: 3
   nal_unit_type: 7 # Sequence parameter set
   profile_idc: 66 # Baseline
@@ -84,10 +85,10 @@
   nal_unit_type: 5 # Coded slice of an IDR picture
   first_mb_in_slice: 0
   slice_type: 2 # I
-  pic_parameter_set_id: 0
+  pic_parameter_set_id: 1
   frame_num: {bits: 4, absolute: 0}
   idr_pic_id: 1
-  pic_order_cnt: {type: 0, bits: 4, absolute: 0}
+  pic_order_cnt: {type: 0, bits: 4, absolute: 0, bottom: 0}
   no_output_of_prior_pics_flag: 0
   long_term_reference_flag: 0
   slice_qp_delta: 0
@@ -97,7 +98,7 @@
     intra_chroma_pred_mode: 0
     coded_block_pattern: 0
 
-# changing BottomFieldOrderCnt (ignored)
+# changing delta_pic_order_cnt_bottom (ignored)
 - nal_ref_idc: 1
   nal_unit_type: 5 # Coded slice of an IDR picture
   first_mb_in_slice: 1
@@ -172,7 +173,7 @@
     intra_chroma_pred_mode: 0
     coded_block_pattern: 0
 
-# changing pic_order_cnt on a non-ref
+# changing pic_order_cnt_lsb on a non-ref
 - nal_ref_idc: 0
   nal_unit_type: 1
   first_mb_in_slice: 0
@@ -210,7 +211,7 @@
     intra_chroma_pred_mode: 0
     coded_block_pattern: 0
 
-# changing pic_order_cnt on a ref
+# changing pic_order_cnt_lsb on a ref
 - nal_ref_idc: 1
   nal_unit_type: 1
   first_mb_in_slice: 0
@@ -229,4 +230,106 @@
     intra_chroma_pred_mode: 0
     coded_block_pattern: 0
 
-# FIXME add ref frame with same frame_num differing on poc -> must detect gap!
+# switch to pic_order_cnt_type == 1
+- nal_ref_idc: 3
+  nal_unit_type: 7 # Sequence parameter set
+  profile_idc: 66 # Baseline
+  constraint_set_flags: [0,0,0,0,0,0]
+  level_idc: 1.0
+  log2_max_frame_num: 4
+  pic_order_cnt_type: 1
+  delta_pic_order_always_zero_flag: 0
+  offset_for_non_ref_pic: 0
+  offset_for_top_to_bottom_field: 0
+  offsets_for_ref_frames: []
+  log2_max_pic_order_cnt_lsb: 4
+  max_num_ref_frames: 2
+  gaps_in_frame_num_value_allowed_flag: 0
+  pic_size_in_mbs: {width: 2, height: 1}
+  frame_mbs_only_flag: 1
+  direct_8x8_inference_flag: 0
+
+- nal_ref_idc: 1
+  nal_unit_type: 1 # Coded slice of a non-IDR picture
+  first_mb_in_slice: 0
+  slice_type: 2 # I
+  pic_parameter_set_id: 1
+  frame_num: {bits: 4, absolute: 2}
+  pic_order_cnt: {type: 1, delta0: 3, delta1: 0, absolute: 3}
+  slice_qp_delta: 0
+  macroblocks_cavlc:
+  - mb_type: 0
+    rem_intra4x4_pred_modes: [-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1]
+    intra_chroma_pred_mode: 0
+    coded_block_pattern: 0
+
+# changing delta_pic_order_cnt[1] (ignored)
+- nal_ref_idc: 1
+  nal_unit_type: 1 # Coded slice of a non-IDR picture
+  first_mb_in_slice: 0
+  slice_type: 2 # I
+  pic_parameter_set_id: 1
+  frame_num: {bits: 4, absolute: 2}
+  pic_order_cnt: {type: 1, delta0: 3, delta1: 1, absolute: 3, bottom: 4}
+  slice_qp_delta: 0
+  macroblocks_cavlc:
+  - mb_type: 0
+    rem_intra4x4_pred_modes: [-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1]
+    intra_chroma_pred_mode: 0
+    coded_block_pattern: 0
+
+# changing delta_pic_order_cnt[0] on a ref
+- nal_ref_idc: 1
+  nal_unit_type: 1 # Coded slice of a non-IDR picture
+  first_mb_in_slice: 0
+  slice_type: 2 # I
+  pic_parameter_set_id: 1
+  frame_num: {bits: 4, absolute: 2}
+  pic_order_cnt: {type: 1, delta0: 5, delta1: 1, absolute: 5, bottom: 6}
+  slice_qp_delta: 0
+  macroblocks_cavlc:
+  - mb_type: 0
+    rem_intra4x4_pred_modes: [-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1]
+    intra_chroma_pred_mode: 0
+    coded_block_pattern: 0
+  - mb_type: 0
+    rem_intra4x4_pred_modes: [-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1]
+    intra_chroma_pred_mode: 0
+    coded_block_pattern: 0
+
+- nal_ref_idc: 0
+  nal_unit_type: 1
+  first_mb_in_slice: 0
+  slice_type: 2 # I
+  pic_parameter_set_id: 0
+  frame_num: {bits: 4, absolute: 3}
+  pic_order_cnt: {type: 1, delta0: 7, absolute: 7}
+  slice_qp_delta: 0
+  macroblocks_cavlc:
+  - mb_type: 0
+    rem_intra4x4_pred_modes: [-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1]
+    intra_chroma_pred_mode: 0
+    coded_block_pattern: 0
+  - mb_type: 0
+    rem_intra4x4_pred_modes: [-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1]
+    intra_chroma_pred_mode: 0
+    coded_block_pattern: 0
+
+# changing delta_pic_order_cnt[0] on a non-ref
+- nal_ref_idc: 0
+  nal_unit_type: 1
+  first_mb_in_slice: 0
+  slice_type: 2 # I
+  pic_parameter_set_id: 0
+  frame_num: {bits: 4, absolute: 3}
+  pic_order_cnt: {type: 1, delta0: 8, absolute: 8}
+  slice_qp_delta: 0
+  macroblocks_cavlc:
+  - mb_type: 0
+    rem_intra4x4_pred_modes: [-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1]
+    intra_chroma_pred_mode: 0
+    coded_block_pattern: 0
+  - mb_type: 0
+    rem_intra4x4_pred_modes: [-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1]
+    intra_chroma_pred_mode: 0
+    coded_block_pattern: 0

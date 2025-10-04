@@ -152,9 +152,9 @@ typedef struct {
 	int16_t pic_height_in_mbs; // 1..1055
 	int16_t offset_for_non_ref_pic; // -32768..32767, pic_order_cnt_type==1
 	int16_t offset_for_top_to_bottom_field; // -32768..32767, pic_order_cnt_type==1
+	int16_t PicOrderCntDeltas[255]; // -32768..32767, pic_order_cnt_type==1
 	uint32_t num_units_in_tick; // 0..2^32-1
 	uint32_t time_scale; // 0..2^32-1
-	int16_t PicOrderCntDeltas[256]; // -32768..32767, pic_order_cnt_type==1
 	union { int16_t frame_crop_offsets[4]; int64_t frame_crop_offsets_l; }; // {top,right,bottom,left}
 	union { uint8_t weightScale4x4[6][16]; i8x16 weightScale4x4_v[6]; };
 	union { uint8_t weightScale8x8[6][64]; i8x16 weightScale8x8_v[6*4]; };
@@ -394,7 +394,7 @@ typedef struct Edge264Decoder {
 	
 	// Logging context (unused if disabled)
 	int16_t log_pos; // next writing position in log_buf
-	char log_buf[9538];
+	char log_buf[9537];
 } Edge264Decoder;
 
 

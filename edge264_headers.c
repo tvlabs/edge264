@@ -964,7 +964,7 @@ int ADD_VARIANT(parse_slice_layer_without_partitioning)(Edge264Decoder *dec, int
 	}
 	dec->idr_pic_id = idr_pic_id;
 	
-	// Compute Top/BottomFieldOrderCnt (8.2.1).
+	// Compute Top/BottomFieldOrderCnt (8.2.1), and FrameNum after the last possible unset_currPic
 	int TopFieldOrderCnt, BottomFieldOrderCnt;
 	if (sps->pic_order_cnt_type == 0) {
 		int pic_order_cnt_lsb = get_uv(&dec->gb, sps->log2_max_pic_order_cnt_lsb);
@@ -972,6 +972,8 @@ int ADD_VARIANT(parse_slice_layer_without_partitioning)(Edge264Decoder *dec, int
 		if (dec->currPic >= 0 && pic_order_cnt_lsb != ((unsigned)dec->TopFieldOrderCnt << shift >> shift))
 			unset_currPic(dec);
 		// unset_currPic must happen before prevPicOrderCnt to get an up-to-date value
+		int PrevRefFrameNum = dec->PrevRefFrameNum[non_base_view];
+		dec->FrameNum = PrevRefFrameNum + 1 + ((frame_num - PrevRefFrameNum - 1) & FrameNumMask);
 		int prevPicOrderCnt = dec->prevPicOrderCnt[non_base_view];
 		int inc = (pic_order_cnt_lsb - prevPicOrderCnt) << shift >> shift;
 		BottomFieldOrderCnt = TopFieldOrderCnt = prevPicOrderCnt + inc;
@@ -997,31 +999,29 @@ int ADD_VARIANT(parse_slice_layer_without_partitioning)(Edge264Decoder *dec, int
 		if (dec->currPic >= 0 && delta_pic_order_cnt0 != dec->delta_pic_order_cnt0)
 			unset_currPic(dec);
 		dec->delta_pic_order_cnt0 = delta_pic_order_cnt0;
-		// unset_currPic must happen before FrameNum to get a definitive value
+		// unset_currPic must happen before PrevRefFrameNum to get a definitive value
 		int PrevRefFrameNum = dec->PrevRefFrameNum[non_base_view];
-		int absFrameNum = (sps->num_ref_frames_in_pic_order_cnt_cycle > 0) ?
-			PrevRefFrameNum + 1 + ((frame_num - PrevRefFrameNum - 1) & FrameNumMask) : 0;
+		dec->FrameNum = PrevRefFrameNum + 1 + ((frame_num - PrevRefFrameNum - 1) & FrameNumMask);
+		int absFrameNum = (sps->num_ref_frames_in_pic_order_cnt_cycle > 0) ? dec->FrameNum : 0;
 		absFrameNum -= (dec->nal_ref_idc == 0 && absFrameNum > 0);
 		TopFieldOrderCnt = delta_pic_order_cnt0 + (dec->nal_ref_idc ? 0 : sps->offset_for_non_ref_pic);
 		if (absFrameNum > 0) {
 			TopFieldOrderCnt += ((absFrameNum - 1) / sps->num_ref_frames_in_pic_order_cnt_cycle) *
-				sps->PicOrderCntDeltas[sps->num_ref_frames_in_pic_order_cnt_cycle] +
+				sps->PicOrderCntDeltas[sps->num_ref_frames_in_pic_order_cnt_cycle - 1] +
 				sps->PicOrderCntDeltas[(absFrameNum - 1) % sps->num_ref_frames_in_pic_order_cnt_cycle];
 		}
 		BottomFieldOrderCnt = TopFieldOrderCnt + sps->offset_for_top_to_bottom_field + delta_pic_order_cnt1;
 		log_dec(dec, (TopFieldOrderCnt == BottomFieldOrderCnt) ?
-			", absolute: %d}" : ", absolute: %d, bottom: %d}\n",
+			", absolute: %d}\n" : ", absolute: %d, bottom: %d}\n",
 			TopFieldOrderCnt, BottomFieldOrderCnt);
 	} else {
+		int PrevRefFrameNum = dec->PrevRefFrameNum[non_base_view];
+		dec->FrameNum = PrevRefFrameNum + 1 + ((frame_num - PrevRefFrameNum - 1) & FrameNumMask);
 		TopFieldOrderCnt = BottomFieldOrderCnt = dec->FrameNum * 2 + (dec->nal_ref_idc != 0) - 1;
-		log_dec(dec, "  pic_order_cnt: {type: 2, absolute: %d}", TopFieldOrderCnt);
+		log_dec(dec, "  pic_order_cnt: {type: 2, absolute: %d}\n", TopFieldOrderCnt);
 	}
 	dec->TopFieldOrderCnt = TopFieldOrderCnt;
 	dec->BottomFieldOrderCnt = BottomFieldOrderCnt;
-	
-	// compute FrameNum now that we have a definitive PrevRefFrameNum
-	int PrevRefFrameNum = dec->PrevRefFrameNum[non_base_view];
-	dec->FrameNum = PrevRefFrameNum + 1 + ((frame_num - PrevRefFrameNum - 1) & FrameNumMask);
 	log_dec(dec, "  frame_num: {bits: %u, absolute: %u}\n",
 		sps->log2_max_frame_num, dec->FrameNum);
 	
@@ -1891,9 +1891,9 @@ int ADD_VARIANT(parse_seq_parameter_set)(Edge264Decoder *dec, int non_blocking, 
 			sps.delta_pic_order_always_zero_flag,
 			sps.offset_for_non_ref_pic,
 			sps.offset_for_top_to_bottom_field);
-		for (int i = 1, delta = 0; i <= sps.num_ref_frames_in_pic_order_cnt_cycle; i++) {
+		for (int i = 0, delta = 0; i < sps.num_ref_frames_in_pic_order_cnt_cycle; i++) {
 			int offset_for_ref_frame = get_se32(&dec->gb, -65535, 65535);
-			log_dec(dec, "%d,", offset_for_ref_frame);
+			log_dec(dec, (i < sps.num_ref_frames_in_pic_order_cnt_cycle - 1) ? "%d," : "%d", offset_for_ref_frame);
 			sps.PicOrderCntDeltas[i] = delta += offset_for_ref_frame;
 		}
 		log_dec(dec, "]\n");

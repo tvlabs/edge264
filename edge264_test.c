@@ -18,6 +18,7 @@
 	#include <unistd.h>
 #endif
 #include "edge264.h"
+#include "edge264_internal.h"
 
 
 
@@ -134,11 +135,6 @@ static SDL_Renderer *renderer;
 static SDL_Texture *texture0, *texture1;
 static int width, height, mvc_display;
 static int count_pass, count_unsup, count_fail, count_flag;
-
-#ifndef min
-	static inline int min(int a, int b) { return (a < b) ? a : b; }
-	static inline int max(int a, int b) { return (a > b) ? a : b; }
-#endif
 
 static int flt(const struct dirent *a) {
 	char *ext = strrchr(a->d_name, '.');

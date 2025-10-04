@@ -270,7 +270,7 @@ With the help of a [custom bitstream writer](tools/gen_avc.py) using the same YA
 | All unsupported types of NAL units | All unsupp | unsupp-nals |
 | Maximal header log-wise | All OK | max-logs |
 | All conditions (incl. ignored) for detecting the start of a new frame | All OK | finish-frame |
-| nal_ref_idc=0 on a IDR | All OK | non-ref-idr |
+| nal_ref_idc=0 on NAL types 5, 6, 7, 8, 9, 10, 11, 12 and 15 | All OK | nal-ref-idc-0 |
 | Missing rbsp_trailing_bit for all supported NAL types | All OK | no-trailing-bit |
 | NAL of less than 11 bytes starting/ending at page boundary | All OK | tiny-nal |
 | SEI/slice referencing an uninitialized SPS/PPS | 1 OK, 4 errors | missing-ps |

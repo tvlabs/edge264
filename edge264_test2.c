@@ -180,6 +180,7 @@ int main(int argc, char *argv[])
 	test("unsupp-nals", NULL, NULL, (int8_t[]){ENOTSUP, ENOTSUP, ENOTSUP, ENOTSUP, ENOTSUP, ENOTSUP, ENOTSUP, ENOTSUP, ENOTSUP, ENOTSUP, ENOTSUP, ENOTSUP, ENOTSUP, ENOTSUP, ENOTSUP, ENOTSUP, ENOTSUP, ENOTSUP, ENOTSUP, ENOTSUP, ENOTSUP, ENODATA});
 	test("max-logs", max_logs_logger, NULL, (int8_t[]){0, ENODATA});
 	test("finish-frame", NULL, finish_frame_post, (int8_t[]){0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, ENODATA});
+	test("nal-ref-idc-0", NULL, NULL, (int8_t[]){0, 0, 0, 0, 0, 0, 0, 0, 0, ENODATA});
 	printf("\e[A\e[K%d " GREEN "PASS" RESET "\n", count_pass);
 	
 	// clear all open stuff

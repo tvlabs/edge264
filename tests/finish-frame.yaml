@@ -266,7 +266,7 @@
 # changing delta_pic_order_cnt[1] (ignored)
 - nal_ref_idc: 1
   nal_unit_type: 1 # Coded slice of a non-IDR picture
-  first_mb_in_slice: 0
+  first_mb_in_slice: 1
   slice_type: 2 # I
   pic_parameter_set_id: 1
   frame_num: {bits: 4, absolute: 2}

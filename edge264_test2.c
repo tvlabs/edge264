@@ -34,6 +34,8 @@
 
 static Edge264Decoder *dec;
 static int count_pass;
+static int count_frames;
+static void (*log_tester)(const char *);
 
 static int flt(const struct dirent *a) {
 	char *ext = strrchr(a->d_name, '.');
@@ -59,21 +61,26 @@ static const char *errno_str(int e) {
 
 
 
-static void (*log_tester)(const char *);
-static void log_callback(const char *str, void *_) { log_tester(str); }
-static void null_logger(const char *str) {}
+#define ASSERT(cond, msg, ...) { if (cond) { printf(RED msg RESET, __VA_ARGS__); exit(1); } }
+static void log_callback(const char *str, void *_) { if (log_tester) log_tester(str); }
 static void print_logger(const char *str) { fputs(str, stdout); }
 static void max_logs_logger(const char *str) {
-	if (strlen(str) + 1 != sizeof(dec->log_buf)) {
-		printf(RED "max-logs: log length (%zd) differs from log_buf size (%zu)\n" RESET, strlen(str) + 1, sizeof(dec->log_buf));
-		exit(1);
-	}
+	ASSERT(strlen(str) + 1 != sizeof(dec->log_buf),
+		"max-logs: log length (%zd) differs from log_buf size (%zu)\n",
+		strlen(str) + 1, sizeof(dec->log_buf));
+}
+static void finish_frame_post() {
+	ASSERT(count_frames != 12,
+		"finish-frame: number of decoded frames (%d) differs from expected (12)\n",
+		count_frames);
 }
 
 
 
-static void test_generic(const char *name, void (*_log_tester)(const char *), const int8_t *expect)
+static void test(const char *name, void (*log_test)(const char *), void (*post_test)(), const int8_t *expect)
 {
+	log_tester = log_test;
+	
 	// open and memory map the input test file
 	printf("\e[A\e[K%d " GREEN "PASS" RESET " (%s)\n", count_pass, name);
 	char file_name[strlen(name) + 11];
@@ -105,19 +112,22 @@ static void test_generic(const char *name, void (*_log_tester)(const char *), co
 	#endif
 	
 	// parse all NALs from the test file
-	log_tester = _log_tester ?: null_logger;
 	nal += 3 + (nal[2] == 0); // skip the [0]001 delimiter
-	int res = 0;
 	Edge264Frame out;
+	int res = 0;
+	count_frames = 0;
 	for (int i = 0; res != ENODATA; i++) {
 		res = edge264_decode_NAL(dec, nal, end, 0, NULL, NULL, &nal);
 		if (res != expect[i]) {
 			printf(RED "%s: NAL at index %d returned %s where %s was expected\n" RESET, name, i, errno_str(res), errno_str(expect[i]));
 			exit(1);
 		}
-		while (!edge264_get_frame(dec, &out, 0));
+		while (!edge264_get_frame(dec, &out, 0))
+			count_frames += 1;
 	}
 	count_pass += 1;
+	if (post_test)
+		post_test();
 	edge264_flush(dec);
 	
 	// close everything
@@ -166,10 +176,10 @@ int main(int argc, char *argv[])
 	// run all stress tests
 	dec = edge264_alloc(n_threads, log_callback, NULL, 0, NULL, NULL, NULL);
 	putchar('\n');
-	test_generic("supp-nals", NULL, (int8_t[]){0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, ENODATA});
-	test_generic("unsupp-nals", NULL, (int8_t[]){ENOTSUP, ENOTSUP, ENOTSUP, ENOTSUP, ENOTSUP, ENOTSUP, ENOTSUP, ENOTSUP, ENOTSUP, ENOTSUP, ENOTSUP, ENOTSUP, ENOTSUP, ENOTSUP, ENOTSUP, ENOTSUP, ENOTSUP, ENOTSUP, ENOTSUP, ENOTSUP, ENOTSUP, ENODATA});
-	test_generic("max-logs", max_logs_logger, (int8_t[]){0, ENODATA});
-	test_generic("finish-frame", NULL, (int8_t[]){0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, ENODATA});
+	test("supp-nals", NULL, NULL, (int8_t[]){0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, ENODATA});
+	test("unsupp-nals", NULL, NULL, (int8_t[]){ENOTSUP, ENOTSUP, ENOTSUP, ENOTSUP, ENOTSUP, ENOTSUP, ENOTSUP, ENOTSUP, ENOTSUP, ENOTSUP, ENOTSUP, ENOTSUP, ENOTSUP, ENOTSUP, ENOTSUP, ENOTSUP, ENOTSUP, ENOTSUP, ENOTSUP, ENOTSUP, ENOTSUP, ENODATA});
+	test("max-logs", max_logs_logger, NULL, (int8_t[]){0, ENODATA});
+	test("finish-frame", NULL, finish_frame_post, (int8_t[]){0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, ENODATA});
 	printf("\e[A\e[K%d " GREEN "PASS" RESET "\n", count_pass);
 	
 	// clear all open stuff

@@ -42,34 +42,35 @@ static inline size_t get_bytes(Edge264GetBits *gb, int nbytes)
 	u8x16 eq0 = v == 0;
 	u8x16 x = shr128(v, 2);
 	#if defined(__SSE2__)
-		unsigned esc = movemask(eq0 & shr128(eq0, 1) & (x <= 3));
-		if (__builtin_expect(esc, 0)) {
-			while (esc & ((1 << nbytes) - 1)) {
+		unsigned test = movemask(eq0 & shr128(eq0, 1) & (x <= 3));
+		unsigned mask = (1 << nbytes) - 1;
+		if (__builtin_expect(test & mask, 0)) {
+			unsigned three = movemask(x == 3);
+			unsigned stop = test & mask & ~three;
+			if (stop) {
+				int i = __builtin_ctz(stop);
+				gb->end = CPB + i - 2;
+				x &= ~shlv128(set8(-1), i);
+			}
+			for (unsigned esc = test & three; esc & mask; esc = (esc & (esc - 1)) >> 1) {
 				int i = __builtin_ctz(esc);
-				esc = (esc & (esc - 1)) >> 1;
-				if (CPB[i] <3) { // delimiter sequence, set end to its first byte
-					gb->end = CPB + i - 2;
-					x &= ~shlv128(set8(-1), i);
-					break; // we cannot iterate more since now x differs from esc
-				}
-				// otherwise this is an emulation_prevention_three_byte -> remove it
 				x = shuffle(x, shuf[i]);
 				CPB++;
 			}
 		}
 	#elif defined(__ARM_NEON)
-		uint64_t esc = (uint64_t)vshrn_n_u16(eq0 & shr128(eq0, 1) & (x <= 3), 4);
-		if (__builtin_expect(esc, 0)) {
-			esc &= 0x8888888888888888ULL;
-			while (esc & ((1ULL << (nbytes << 2)) - 1)) {
-				int i = __builtin_ctzll(esc) >> 2;
-				esc = (esc & (esc - 1)) >> 4;
-				if (CPB[i] <3) { // delimiter sequence, set end to its first byte
-					gb->end = CPB + i - 2;
-					x &= ~shlv128(set8(-1), i);
-					break; // we cannot iterate more since now x differs from esc
-				}
-				// otherwise this is an emulation_prevention_three_byte -> remove it
+		uint64_t test = (uint64_t)vshrn_n_u16(eq0 & shr128(eq0, 1) & (x <= 3), 4);
+		uint64_t mask = (1ULL << (nbytes << 2)) - 1;
+		if (__builtin_expect(test & mask, 0)) {
+			uint64_t three = (uint64_t)vshrn_n_u16(x == 3, 4);
+			uint64_t stop = test & mask & ~three;
+			if (stop) {
+				int i = __builtin_ctzll(stop) >> 2;
+				gb->end = CPB + i - 2;
+				x &= ~shlv128(set8(-1), i);
+			}
+			for (uint64_t esc = test & three & 0x1111111111111111ULL; esc & mask; esc = (esc & (esc - 1)) >> 4) {
+				int i = __builtin_ctzll(esc);
 				x = shuffle(x, shuf[i]);
 				CPB++;
 			}

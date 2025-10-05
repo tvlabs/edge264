@@ -61,6 +61,7 @@ static const char *errno_str(int e) {
 
 
 
+#define ERROR(msg, ...) { printf(msg, __VA_ARGS__); perror(NULL); exit(1); }
 #define ASSERT(cond, msg, ...) { if (cond) { printf(RED msg RESET, __VA_ARGS__); exit(1); } }
 static void log_callback(const char *str, void *_) { if (log_tester) log_tester(str); }
 static void print_logger(const char *str) { fputs(str, stdout); }
@@ -77,12 +78,59 @@ static void finish_frame_post() {
 
 
 
+static void parse_NALs(const char *name, const uint8_t *nal, const uint8_t *end, void (*post_test)(), const int8_t *expect) {
+	nal += 3 + (nal[2] == 0); // skip the [0]001 delimiter
+	Edge264Frame out;
+	int res = 0;
+	count_frames = 0;
+	for (int i = 0; res != ENODATA; i++) {
+		res = edge264_decode_NAL(dec, nal, end, 0, NULL, NULL, &nal);
+		if (res != expect[i]) {
+			printf(RED "%s: NAL at index %d returned %s where %s was expected\n" RESET, name, i, errno_str(res), errno_str(expect[i]));
+			exit(1);
+		}
+		while (!edge264_get_frame(dec, &out, 0))
+			count_frames += 1;
+	}
+	if (post_test)
+		post_test();
+	edge264_flush(dec);
+}
+
+
+
+static void test_page_boundaries() {
+	printf("\e[A\e[K%d " GREEN "PASS" RESET " (page-boundaries)\n", count_pass);
+	log_tester = NULL;
+	long pagesize = sysconf(_SC_PAGESIZE);
+	uint8_t *page = mmap(0, pagesize * 3, PROT_NONE, MAP_PRIVATE|MAP_ANONYMOUS, -1, 0);
+	FILE *f = fopen("tests/page-boundaries.264", "r");
+	if (!f)
+		perror("Cannot open file tests/page-boundaries.264");
+	fseek(f, 0L, SEEK_END);
+	long filesize = ftell(f);
+	rewind(f);
+	mprotect(page + pagesize, pagesize, PROT_WRITE);
+	fread(page + pagesize, filesize, 1, f);
+	rewind(f);
+	fread(page + pagesize * 2 - filesize, filesize, 1, f);
+	mprotect(page + pagesize, pagesize, PROT_READ);
+	edge264_find_start_code(page + pagesize, page + pagesize + filesize, 1);
+	parse_NALs("page-boundaries", page + pagesize, page + pagesize + filesize, NULL, (int8_t[]){0, ENODATA});
+	parse_NALs("page-boundaries", page + pagesize * 2 - filesize, page + pagesize * 2, NULL, (int8_t[]){0, ENODATA});
+	fclose(f);
+	munmap(page, pagesize * 3);
+	count_pass += 1;
+}
+
+
+
 static void test(const char *name, void (*log_test)(const char *), void (*post_test)(), const int8_t *expect)
 {
+	printf("\e[A\e[K%d " GREEN "PASS" RESET " (%s)\n", count_pass, name);
 	log_tester = log_test;
 	
 	// open and memory map the input test file
-	printf("\e[A\e[K%d " GREEN "PASS" RESET " (%s)\n", count_pass, name);
 	char file_name[strlen(name) + 11];
 	snprintf(file_name, sizeof(file_name), "tests/%s.264", name);
 	#ifdef _WIN32
@@ -100,35 +148,14 @@ static void test(const char *name, void (*log_test)(const char *), void (*post_t
 		int fd = -1;
 		struct stat st;
 		uint8_t *mm = MAP_FAILED;
-		if ((fd = open(file_name, O_RDONLY)) < 0 ||
-			fstat(fd, &st) < 0 ||
-			(mm = mmap(NULL, st.st_size, PROT_READ, MAP_SHARED, fd, 0)) == MAP_FAILED) {
-			fprintf(stderr, "Error opening file %s for input: ", file_name);
-			perror(NULL);
-			exit(1);
-		}
+		if ((fd = open(file_name, O_RDONLY)) < 0 || fstat(fd, &st) < 0 ||
+			(mm = mmap(NULL, st.st_size, PROT_READ, MAP_SHARED, fd, 0)) == MAP_FAILED)
+			ERROR("Error opening file %s for input: ", file_name);
 		const uint8_t *nal = mm;
 		const uint8_t *end = mm + st.st_size;
 	#endif
 	
-	// parse all NALs from the test file
-	nal += 3 + (nal[2] == 0); // skip the [0]001 delimiter
-	Edge264Frame out;
-	int res = 0;
-	count_frames = 0;
-	for (int i = 0; res != ENODATA; i++) {
-		res = edge264_decode_NAL(dec, nal, end, 0, NULL, NULL, &nal);
-		if (res != expect[i]) {
-			printf(RED "%s: NAL at index %d returned %s where %s was expected\n" RESET, name, i, errno_str(res), errno_str(expect[i]));
-			exit(1);
-		}
-		while (!edge264_get_frame(dec, &out, 0))
-			count_frames += 1;
-	}
-	count_pass += 1;
-	if (post_test)
-		post_test();
-	edge264_flush(dec);
+	parse_NALs(name, nal, end, post_test, expect);
 	
 	// close everything
 	#ifdef _WIN32
@@ -139,6 +166,7 @@ static void test(const char *name, void (*log_test)(const char *), void (*post_t
 		munmap(mm, st.st_size);
 		close(fd);
 	#endif
+	count_pass += 1;
 }
 
 
@@ -182,6 +210,7 @@ int main(int argc, char *argv[])
 	test("finish-frame", NULL, finish_frame_post, (int8_t[]){0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, ENODATA});
 	test("nal-ref-idc-0", NULL, NULL, (int8_t[]){0, 0, 0, 0, 0, 0, 0, 0, 0, ENODATA});
 	test("no-trailing-bit", NULL, NULL, (int8_t[]){0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, ENODATA});
+	test_page_boundaries();
 	printf("\e[A\e[K%d " GREEN "PASS" RESET "\n", count_pass);
 	
 	// clear all open stuff

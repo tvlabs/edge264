@@ -83,8 +83,11 @@
 
 
 const uint8_t *edge264_find_start_code(const uint8_t *buf, const uint8_t *end, int four_byte) {
-	const i8x16 *p = (i8x16 *)((uintptr_t)buf & -16);
 	four_byte = four_byte != 0;
+	buf += four_byte;
+	if ((intptr_t)(end - buf) <= 0)
+		return end;
+	const i8x16 *p = (i8x16 *)((uintptr_t)buf & -16);
 	i8x16 zero = {};
 	i8x16 c1 = set8(1);
 	i8x16 lo0 = {};

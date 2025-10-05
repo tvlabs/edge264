@@ -560,15 +560,15 @@ static void CAFUNC(parse_Intra16x16_residual)
 static void CAFUNC(parse_NxN_residual)
 {
 	static const int8_t Intra4x4Modes[9][16] = {
-		{I4x4_V_8  , I4x4_V_8   , I4x4_DCAB_8, I4x4_DCAB_8, I4x4_V_8   , I4x4_V_8   , I4x4_DCAB_8, I4x4_DCAB_8, I4x4_V_8   , I4x4_V_8   , I4x4_DCAB_8, I4x4_DCAB_8, I4x4_V_8   , I4x4_V_8   , I4x4_DCAB_8, I4x4_DCAB_8},
-		{I4x4_H_8  , I4x4_DCAB_8, I4x4_H_8   , I4x4_DCAB_8, I4x4_H_8   , I4x4_DCAB_8, I4x4_H_8   , I4x4_DCAB_8, I4x4_H_8   , I4x4_DCAB_8, I4x4_H_8   , I4x4_DCAB_8, I4x4_H_8   , I4x4_DCAB_8, I4x4_H_8   , I4x4_DCAB_8},
-		{I4x4_DC_8 , I4x4_DCA_8 , I4x4_DCB_8 , I4x4_DCAB_8, I4x4_DC_8  , I4x4_DCA_8 , I4x4_DCB_8 , I4x4_DCAB_8, I4x4_DC_8  , I4x4_DCA_8 , I4x4_DCB_8 , I4x4_DCAB_8, I4x4_DC_8  , I4x4_DCA_8 , I4x4_DCB_8 , I4x4_DCAB_8},
-		{I4x4_DDL_8, I4x4_DDL_8 , I4x4_DCAB_8, I4x4_DCAB_8, I4x4_DDLC_8, I4x4_DDLC_8, I4x4_DCAB_8, I4x4_DCAB_8, I4x4_DDL_8 , I4x4_DDL_8 , I4x4_DCAB_8, I4x4_DCAB_8, I4x4_DDLC_8, I4x4_DDLC_8, I4x4_DCAB_8, I4x4_DCAB_8},
-		{I4x4_DDR_8, I4x4_DCAB_8, I4x4_DCAB_8, I4x4_DCAB_8, I4x4_DDR_8 , I4x4_DCAB_8, I4x4_DCAB_8, I4x4_DCAB_8, I4x4_DCAB_8, I4x4_DCAB_8, I4x4_DCAB_8, I4x4_DCAB_8, I4x4_DCAB_8, I4x4_DCAB_8, I4x4_DCAB_8, I4x4_DCAB_8},
-		{I4x4_VR_8 , I4x4_DCAB_8, I4x4_DCAB_8, I4x4_DCAB_8, I4x4_VR_8  , I4x4_DCAB_8, I4x4_DCAB_8, I4x4_DCAB_8, I4x4_DCAB_8, I4x4_DCAB_8, I4x4_DCAB_8, I4x4_DCAB_8, I4x4_DCAB_8, I4x4_DCAB_8, I4x4_DCAB_8, I4x4_DCAB_8},
-		{I4x4_HD_8 , I4x4_DCAB_8, I4x4_DCAB_8, I4x4_DCAB_8, I4x4_HD_8  , I4x4_DCAB_8, I4x4_DCAB_8, I4x4_DCAB_8, I4x4_DCAB_8, I4x4_DCAB_8, I4x4_DCAB_8, I4x4_DCAB_8, I4x4_DCAB_8, I4x4_DCAB_8, I4x4_DCAB_8, I4x4_DCAB_8},
-		{I4x4_VL_8 , I4x4_VL_8  , I4x4_DCAB_8, I4x4_DCAB_8, I4x4_VLC_8 , I4x4_VLC_8 , I4x4_DCAB_8, I4x4_DCAB_8, I4x4_VL_8  , I4x4_VL_8  , I4x4_DCAB_8, I4x4_DCAB_8, I4x4_VLC_8 , I4x4_VLC_8 , I4x4_DCAB_8, I4x4_DCAB_8},
-		{I4x4_HU_8 , I4x4_DCAB_8, I4x4_HU_8  , I4x4_DCAB_8, I4x4_HU_8  , I4x4_DCAB_8, I4x4_HU_8  , I4x4_DCAB_8, I4x4_HU_8  , I4x4_DCAB_8, I4x4_HU_8  , I4x4_DCAB_8, I4x4_HU_8  , I4x4_DCAB_8, I4x4_HU_8  , I4x4_DCAB_8},
+		{I4x4_V_8  , I4x4_V_8   , I4x4_DC_AB_8, I4x4_DC_AB_8, I4x4_V_8   , I4x4_V_8   , I4x4_DC_AB_8, I4x4_DC_AB_8, I4x4_V_8   , I4x4_V_8   , I4x4_DC_AB_8, I4x4_DC_AB_8, I4x4_V_8   , I4x4_V_8   , I4x4_DC_AB_8, I4x4_DC_AB_8},
+		{I4x4_H_8  , I4x4_DC_AB_8, I4x4_H_8   , I4x4_DC_AB_8, I4x4_H_8   , I4x4_DC_AB_8, I4x4_H_8   , I4x4_DC_AB_8, I4x4_H_8   , I4x4_DC_AB_8, I4x4_H_8   , I4x4_DC_AB_8, I4x4_H_8   , I4x4_DC_AB_8, I4x4_H_8   , I4x4_DC_AB_8},
+		{I4x4_DC_8 , I4x4_DC_A_8 , I4x4_DC_B_8 , I4x4_DC_AB_8, I4x4_DC_8  , I4x4_DC_A_8 , I4x4_DC_B_8 , I4x4_DC_AB_8, I4x4_DC_8  , I4x4_DC_A_8 , I4x4_DC_B_8 , I4x4_DC_AB_8, I4x4_DC_8  , I4x4_DC_A_8 , I4x4_DC_B_8 , I4x4_DC_AB_8},
+		{I4x4_DDL_8, I4x4_DDL_8 , I4x4_DC_AB_8, I4x4_DC_AB_8, I4x4_DDL_C_8, I4x4_DDL_C_8, I4x4_DC_AB_8, I4x4_DC_AB_8, I4x4_DDL_8 , I4x4_DDL_8 , I4x4_DC_AB_8, I4x4_DC_AB_8, I4x4_DDL_C_8, I4x4_DDL_C_8, I4x4_DC_AB_8, I4x4_DC_AB_8},
+		{I4x4_DDR_8, I4x4_DC_AB_8, I4x4_DC_AB_8, I4x4_DC_AB_8, I4x4_DDR_8 , I4x4_DC_AB_8, I4x4_DC_AB_8, I4x4_DC_AB_8, I4x4_DC_AB_8, I4x4_DC_AB_8, I4x4_DC_AB_8, I4x4_DC_AB_8, I4x4_DC_AB_8, I4x4_DC_AB_8, I4x4_DC_AB_8, I4x4_DC_AB_8},
+		{I4x4_VR_8 , I4x4_DC_AB_8, I4x4_DC_AB_8, I4x4_DC_AB_8, I4x4_VR_8  , I4x4_DC_AB_8, I4x4_DC_AB_8, I4x4_DC_AB_8, I4x4_DC_AB_8, I4x4_DC_AB_8, I4x4_DC_AB_8, I4x4_DC_AB_8, I4x4_DC_AB_8, I4x4_DC_AB_8, I4x4_DC_AB_8, I4x4_DC_AB_8},
+		{I4x4_HD_8 , I4x4_DC_AB_8, I4x4_DC_AB_8, I4x4_DC_AB_8, I4x4_HD_8  , I4x4_DC_AB_8, I4x4_DC_AB_8, I4x4_DC_AB_8, I4x4_DC_AB_8, I4x4_DC_AB_8, I4x4_DC_AB_8, I4x4_DC_AB_8, I4x4_DC_AB_8, I4x4_DC_AB_8, I4x4_DC_AB_8, I4x4_DC_AB_8},
+		{I4x4_VL_8 , I4x4_VL_8  , I4x4_DC_AB_8, I4x4_DC_AB_8, I4x4_VL_C_8 , I4x4_VL_C_8 , I4x4_DC_AB_8, I4x4_DC_AB_8, I4x4_VL_8  , I4x4_VL_8  , I4x4_DC_AB_8, I4x4_DC_AB_8, I4x4_VL_C_8 , I4x4_VL_C_8 , I4x4_DC_AB_8, I4x4_DC_AB_8},
+		{I4x4_HU_8 , I4x4_DC_AB_8, I4x4_HU_8  , I4x4_DC_AB_8, I4x4_HU_8  , I4x4_DC_AB_8, I4x4_HU_8  , I4x4_DC_AB_8, I4x4_HU_8  , I4x4_DC_AB_8, I4x4_HU_8  , I4x4_DC_AB_8, I4x4_HU_8  , I4x4_DC_AB_8, I4x4_HU_8  , I4x4_DC_AB_8},
 	};
 	static const int8_t Intra8x8Modes[9][16] = {
 		{I8x8_V_8  , I8x8_V_8    , I8x8_DC_AB_8, I8x8_DC_AB_8, I8x8_V_C_8  , I8x8_V_C_8  , I8x8_DC_AB_8, I8x8_DC_AB_8, I8x8_V_D_8  , I8x8_V_D_8  , I8x8_DC_AB_8, I8x8_DC_AB_8, I8x8_V_CD_8  , I8x8_V_CD_8  , I8x8_DC_AB_8, I8x8_DC_AB_8},
@@ -708,10 +708,10 @@ static void CAFUNC(parse_coded_block_pattern, const uint8_t *map_me)
 static void CAFUNC(parse_intra_chroma_pred_mode)
 {
 	static const int8_t IntraChromaModes[4][4] = {
-		{IC8x8_DC_8, IC8x8_DCA_8, IC8x8_DCB_8, IC8x8_DCAB_8},
-		{IC8x8_H_8 , IC8x8_DCA_8, IC8x8_H_8  , IC8x8_DCAB_8},
-		{IC8x8_V_8 , IC8x8_V_8  , IC8x8_DCB_8, IC8x8_DCAB_8},
-		{IC8x8_P_8 , IC8x8_DCA_8, IC8x8_DCB_8, IC8x8_DCAB_8},
+		{IC8x8_DC_8, IC8x8_DC_A_8, IC8x8_DC_B_8, IC8x8_DC_AB_8},
+		{IC8x8_H_8 , IC8x8_DC_A_8, IC8x8_H_8  , IC8x8_DC_AB_8},
+		{IC8x8_V_8 , IC8x8_V_8  , IC8x8_DC_B_8, IC8x8_DC_AB_8},
+		{IC8x8_P_8 , IC8x8_DC_A_8, IC8x8_DC_B_8, IC8x8_DC_AB_8},
 	};
 	
 	// Do not optimise too hard to keep the code understandable here.
@@ -862,10 +862,10 @@ static noinline void CAFUNC(parse_I_mb, int mb_type_or_ctxIdx)
 		
 		// decode the samples before parsing residuals
 		static const int8_t Intra16x16Modes[4][4] = {
-			{I16x16_V_8 , I16x16_V_8  , I16x16_DCB_8, I16x16_DCAB_8},
-			{I16x16_H_8 , I16x16_DCA_8, I16x16_H_8  , I16x16_DCAB_8},
-			{I16x16_DC_8, I16x16_DCA_8, I16x16_DCB_8, I16x16_DCAB_8},
-			{I16x16_P_8 , I16x16_DCA_8, I16x16_DCB_8, I16x16_DCAB_8},
+			{I16x16_V_8 , I16x16_V_8  , I16x16_DC_B_8, I16x16_DC_AB_8},
+			{I16x16_H_8 , I16x16_DC_A_8, I16x16_H_8  , I16x16_DC_AB_8},
+			{I16x16_DC_8, I16x16_DC_A_8, I16x16_DC_B_8, I16x16_DC_AB_8},
+			{I16x16_P_8 , I16x16_DC_A_8, I16x16_DC_B_8, I16x16_DC_AB_8},
 		};
 		mb->Intra4x4PredMode_v = (i8x16){2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2};
 		decode_intra16x16(Intra16x16Modes[mode][ctx->unavail4x4[0] & 3], ctx->samples_mb[0], ctx->t.stride[0], ctx->t.samples_clip_v[0]); // FIXME 4:4:4

@@ -77,15 +77,15 @@ static void decode_intra4x4(int mode, uint8_t * restrict p, size_t stride, i16x8
 	dc_4x4:
 		pred = broadcast8(shrru16(sumh8(v), 3), __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__);
 		goto store_4x4;
-	case I4x4_DCA_8: {
+	case I4x4_DC_A_8: {
 		i8x16 v0 = load32(P(0, -1));
 		v = ziplo32(v0, v0);
 		} goto dc_4x4;
-	case I4x4_DCB_8: {
+	case I4x4_DC_B_8: {
 		i8x16 v0 = ldleft4(0, 1, 2, 3);
 		v = ziplo32(v0, v0);
 		} goto dc_4x4;
-	case I4x4_DCAB_8:
+	case I4x4_DC_AB_8:
 		pred = set8(-128);
 		goto store_4x4;
 	
@@ -93,7 +93,7 @@ static void decode_intra4x4(int mode, uint8_t * restrict p, size_t stride, i16x8
 		v = spreadh8(load64(P(0, -1)));
 		shuf = (i8x16){0, 1, 2, 3, 1, 2, 3, 4, 2, 3, 4, 5, 3, 4, 5, 6};
 		goto lowpass_4x4;
-	case I4x4_DDLC_8:
+	case I4x4_DDL_C_8:
 		v = spreadq8(load32(P(0, -1)));
 		shuf = (i8x16){0, 1, 2, 3, 1, 2, 3, 4, 2, 3, 4, 5, 3, 4, 5, 6};
 		goto lowpass_4x4;
@@ -110,7 +110,7 @@ static void decode_intra4x4(int mode, uint8_t * restrict p, size_t stride, i16x8
 		v = load64(P(0, -1));
 		shuf = (i8x16){8, 9, 10, 11, 0, 1, 2, 3, 9, 10, 11, 12, 1, 2, 3, 4};
 		goto lowpass_4x4;
-	case I4x4_VLC_8:
+	case I4x4_VL_C_8:
 		v = spreadq8(load32(P(0, -1)));
 		shuf = (i8x16){8, 9, 10, 11, 0, 1, 2, 3, 9, 10, 11, 12, 1, 2, 3, 4};
 		goto lowpass_4x4;
@@ -433,15 +433,15 @@ static void decode_intra16x16(int mode, uint8_t * restrict p, size_t stride, i16
 		i8x16 l = ldleft16(0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15);
 		pred = broadcast8(shrru16(sumd8(t, l), 5), __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__);
 		} break;
-	case I16x16_DCA_8:
+	case I16x16_DC_A_8:
 		top = load128(P(0, -1));
 	dca_16x16_sum:
 		pred = broadcast8(shrru16(sum8(top), 4), __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__);
 		break;
-	case I16x16_DCB_8:
+	case I16x16_DC_B_8:
 		top = ldleft16(0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15);
 		goto dca_16x16_sum;
-	case I16x16_DCAB_8:
+	case I16x16_DC_AB_8:
 		pred = set8(-128);
 		break;
 	
@@ -544,17 +544,17 @@ static void decode_intraChroma(int mode, uint8_t * restrict p, size_t stride, i1
 			rpred = shuffle(shr128(v4, 2), shuf);
 		#endif
 		} break;
-	case IC8x8_DCA_8:
+	case IC8x8_DC_A_8:
 		bt = bl = load64(P(0, -2));
 		rt = rl = load64(P(0, -1));
 		shuf = shufDCA;
 		goto chroma_dc_8x8_sum;
-	case IC8x8_DCB_8:
+	case IC8x8_DC_B_8:
 		bt = bl = ldleft8(0, 2, 4, 6, 8, 10, 12, 14);
 		rt = rl = ldleft8(1, 3, 5, 7, 9, 11, 13, 15);
 		shuf = shufDCB;
 		goto chroma_dc_8x8_sum;
-	case IC8x8_DCAB_8:
+	case IC8x8_DC_AB_8:
 		bpred = rpred = set8(-128);
 		break;
 	

@@ -19,6 +19,7 @@
 #endif
 #include "edge264.h"
 #include "edge264_internal.h"
+#include "edge264_intra.c"
 
 
 
@@ -103,30 +104,47 @@ static void test_page_boundaries() {
 	printf("\e[A\e[K%d " GREEN "PASS" RESET " (page-boundaries)\n", count_pass);
 	log_tester = NULL;
 	long pagesize = sysconf(_SC_PAGESIZE);
-	uint8_t *page = mmap(0, pagesize * 3, PROT_NONE, MAP_PRIVATE|MAP_ANONYMOUS, -1, 0);
+	uint8_t *page = mmap(0, pagesize * 3, PROT_NONE, MAP_PRIVATE|MAP_ANONYMOUS, -1, 0) + pagesize;
 	FILE *f = fopen("tests/page-boundaries.264", "r");
 	if (!f)
 		perror("Cannot open file tests/page-boundaries.264");
 	fseek(f, 0L, SEEK_END);
 	long filesize = ftell(f);
 	rewind(f);
-	mprotect(page + pagesize, pagesize, PROT_WRITE);
-	fread(page + pagesize, filesize, 1, f);
+	
+	// CPB boundaries
+	mprotect(page, pagesize, PROT_WRITE);
+	fread(page, filesize, 1, f);
 	rewind(f);
-	fread(page + pagesize * 2 - filesize, filesize, 1, f);
-	mprotect(page + pagesize, pagesize, PROT_READ);
-	edge264_find_start_code(page + pagesize, page + pagesize + filesize, 1);
-	parse_NALs("page-boundaries", page + pagesize, page + pagesize + filesize, NULL, (int8_t[]){0, ENODATA});
-	parse_NALs("page-boundaries", page + pagesize * 2 - filesize, page + pagesize * 2, NULL, (int8_t[]){0, ENODATA});
+	fread(page + pagesize - filesize, filesize, 1, f);
+	mprotect(page, pagesize, PROT_READ);
+	edge264_find_start_code(page, page + filesize, 1);
+	parse_NALs("page-boundaries", page, page + filesize, NULL, (int8_t[]){0, ENODATA});
+	parse_NALs("page-boundaries", page + pagesize - filesize, page + pagesize, NULL, (int8_t[]){0, ENODATA});
+	
+	// Intra boundaries
+	mprotect(page, pagesize, PROT_READ | PROT_WRITE);
+	static const int8_t offI4x4[I4x4_HU_8 + 1] = {16, 4, 20, 16, 4, 0, 16, 16, 20, 20, 20, 16, 16, 4};
+	for (int i = 0; i <= I4x4_HU_8; i++)
+		decode_intra4x4(i, page + offI4x4[i], 16, (i16x8){});
+	static const int8_t offI8x8[I8x8_HU_D_8 + 1] = {24, 24, 16, 16, 24, 8, 24, 24, 24, 16, 16, 24, 8, 24, 16, 16, 0, 24, 24, 16, 16, 24, 24, 24, 24, 24, 24, 24, 16, 16, 24, 8};
+	for (int i = 0; i <= I8x8_HU_D_8; i++)
+		decode_intra8x8(i, page + offI8x8[i], 16, (i16x8){});
+	static const int8_t offI16x16[I16x16_P_8 + 1] = {16, 16, 16, 16, 16, 0, 32};
+	for (int i = 0; i <= I16x16_P_8; i++)
+		decode_intra16x16(i, page + offI16x16[i], 16, (i16x8){});
+	static const int8_t offIC8x8[IC8x8_P_8 + 1] = {16, 16, 8, 0, 8, 16, 24};
+	for (int i = 0; i <= IC8x8_P_8; i++)
+		decode_intraChroma(i, page + offIC8x8[i], 8, (i16x8){});
+	
 	fclose(f);
-	munmap(page, pagesize * 3);
+	munmap(page - pagesize, pagesize * 3);
 	count_pass += 1;
 }
 
 
 
-static void test(const char *name, void (*log_test)(const char *), void (*post_test)(), const int8_t *expect)
-{
+static void test(const char *name, void (*log_test)(const char *), void (*post_test)(), const int8_t *expect) {
 	printf("\e[A\e[K%d " GREEN "PASS" RESET " (%s)\n", count_pass, name);
 	log_tester = log_test;
 	
@@ -171,8 +189,7 @@ static void test(const char *name, void (*log_test)(const char *), void (*post_t
 
 
 
-int main(int argc, char *argv[])
-{
+int main(int argc, char *argv[]) {
 	// read command-line options
 	int help = 0;
 	int n_threads = -1;

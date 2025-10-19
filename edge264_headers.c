@@ -755,7 +755,7 @@ static void parse_ref_pic_list_modification(Edge264Decoder *dec, Edge264SeqParam
 
 static int alloc_frame(Edge264Decoder *dec, int id, int errno_on_fail) {
 	int mbs = (dec->sps.pic_width_in_mbs + 1) * dec->sps.pic_height_in_mbs - 1;
-	unsigned samples_size = dec->plane_size_Y + dec->plane_size_C;
+	unsigned samples_size = dec->plane_size_Y + dec->plane_size_C + 7; // plus margin for overreads
 	unsigned mbs_size = sizeof(Edge264Macroblock) * mbs;
 	dec->alloc_cb((void **)&dec->samples_buffers[id], samples_size, (void **)&dec->mb_buffers[id], mbs_size, errno_on_fail, dec->alloc_arg);
 	Edge264Macroblock *m = dec->mb_buffers[id];

@@ -324,7 +324,7 @@ make test
 | direct_8x8_inference_flag=1 with frame_mbs_only_flag=0 |  |  |
 | checking that a gap in frame_num with poc_type==0 does not insert refs in B slices |  |  |
 | A SPS changing frame format while currPic>=0 |  |  |
-| A frame allocator putting all allocs at start/end of a page boundary |  |  |
+| A frame allocator putting pic/mb allocs at start/end of a page boundary |  |  |
 
 | Parameter sets tests | Expected | Test files |
 | --- | --- | --- |

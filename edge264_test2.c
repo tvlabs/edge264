@@ -106,14 +106,14 @@ static void test_page_boundaries() {
 	log_tester = NULL;
 	long pagesize = sysconf(_SC_PAGESIZE);
 	uint8_t *page = mmap(0, pagesize * 3, PROT_NONE, MAP_PRIVATE|MAP_ANONYMOUS, -1, 0) + pagesize;
+	
+	// CPB boundaries
 	FILE *f = fopen("tests/page-boundaries.264", "r");
 	if (!f)
 		perror("Cannot open file tests/page-boundaries.264");
 	fseek(f, 0L, SEEK_END);
 	long filesize = ftell(f);
 	rewind(f);
-	
-	// CPB boundaries
 	mprotect(page, pagesize, PROT_WRITE);
 	fread(page, filesize, 1, f);
 	rewind(f);
@@ -122,6 +122,7 @@ static void test_page_boundaries() {
 	edge264_find_start_code(page, page + filesize, 1);
 	parse_NALs("page-boundaries", page, page + filesize, NULL, (int8_t[]){0, ENODATA});
 	parse_NALs("page-boundaries", page + pagesize - filesize, page + pagesize, NULL, (int8_t[]){0, ENODATA});
+	fclose(f);
 	
 	// Intra boundaries
 	mprotect(page, pagesize, PROT_READ | PROT_WRITE);
@@ -153,7 +154,6 @@ static void test_page_boundaries() {
 		}
 	}
 	
-	fclose(f);
 	munmap(page - pagesize, pagesize * 3);
 	count_pass += 1;
 }
@@ -208,14 +208,12 @@ static void test(const char *name, void (*log_test)(const char *), void (*post_t
 int main(int argc, char *argv[]) {
 	// read command-line options
 	int help = 0;
-	int n_threads = -1;
 	int compare_yuv = 1;
 	for (int i = 1; i < argc; i++) {
 		if (argv[i][0] != '-') {
 			help = 1;
 		} else for (int j = 1; argv[i][j]; j++) {
 			switch (argv[i][j]) {
-				case 's': n_threads = 0; break;
 				case 'y': compare_yuv = 0; break;
 				default: help = 1; break;
 			}
@@ -228,15 +226,18 @@ int main(int argc, char *argv[]) {
 			"Runs all conformance tests, expecting a 'conformance' directory containing .264\n"
 			"files along with their expected .yuv results (and .1.yuv for MVC)\n"
 			"-h\tprint this help and exit\n"
-			"-s\tsingle-threaded operation\n"
 			"-y\tdisable comparison against YUV pairs\n"
 			, argv[0]);
 		return 0;
 	}
 	
 	// run all stress tests
-	dec = edge264_alloc(n_threads, log_callback, NULL, 0, NULL, NULL, NULL);
 	putchar('\n');
+	dec = edge264_alloc(0, NULL, NULL, 0, NULL, NULL, NULL);
+	test("supp-nals", NULL, NULL, (int8_t[]){0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, ENODATA});
+	test("unsupp-nals", NULL, NULL, (int8_t[]){ENOTSUP, ENOTSUP, ENOTSUP, ENOTSUP, ENOTSUP, ENOTSUP, ENOTSUP, ENOTSUP, ENOTSUP, ENOTSUP, ENOTSUP, ENOTSUP, ENOTSUP, ENOTSUP, ENOTSUP, ENOTSUP, ENOTSUP, ENOTSUP, ENOTSUP, ENOTSUP, ENOTSUP, ENODATA});
+	edge264_free(&dec);
+	dec = edge264_alloc(0, log_callback, NULL, 0, NULL, NULL, NULL);
 	test("supp-nals", NULL, NULL, (int8_t[]){0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, ENODATA});
 	test("unsupp-nals", NULL, NULL, (int8_t[]){ENOTSUP, ENOTSUP, ENOTSUP, ENOTSUP, ENOTSUP, ENOTSUP, ENOTSUP, ENOTSUP, ENOTSUP, ENOTSUP, ENOTSUP, ENOTSUP, ENOTSUP, ENOTSUP, ENOTSUP, ENOTSUP, ENOTSUP, ENOTSUP, ENOTSUP, ENOTSUP, ENOTSUP, ENODATA});
 	test("max-logs", max_logs_logger, NULL, (int8_t[]){0, ENODATA});

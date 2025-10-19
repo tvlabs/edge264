@@ -270,8 +270,8 @@ make test
 
 | General tests | Expected | Test files |
 | --- | --- | --- |
-| All supported types of NAL units | All OK | supp-nals |
-| All unsupported types of NAL units | All unsupp | unsupp-nals |
+| All supported types of NAL units with/without logging | All OK | supp-nals |
+| All unsupported types of NAL units with/without logging | All unsupp | unsupp-nals |
 | Maximal header log-wise | All OK | max-logs |
 | All conditions (incl. ignored) for detecting the start of a new frame | All OK | finish-frame |
 | nal_ref_idc=0 on NAL types 5, 6, 7, 8, 9, 10, 11, 12 and 15 | All OK | nal-ref-idc-0 |

@@ -123,20 +123,25 @@ static void internal_alloc(void **samples, unsigned samples_size, void **mbs, un
 	*mbs = *samples + samples_size;
 }
 
-
-
 static void internal_free(void *samples, void *mbs, void *alloc_arg) {
 	free(samples);
 }
 
-
-
+// This could be optimized into 2 functions but at the expense of less simplicity
 static int ignore_NAL(Edge264Decoder *dec, int non_blocking, Edge264UnrefCb unref_cb, void *unref_arg) {
-	if (dec->log_arg) {
+	if (dec->log_cb) {
 		dec->log_pos = 0;
 		dec->log_cb(dec->log_buf, dec->log_arg);
 	}
 	return 0;
+}
+
+static int unsupp_NAL(Edge264Decoder *dec, int non_blocking, Edge264UnrefCb unref_cb, void *unref_arg) {
+	if (dec->log_cb) {
+		dec->log_pos = 0;
+		dec->log_cb(dec->log_buf, dec->log_arg);
+	}
+	return ENOTSUP;
 }
 
 
@@ -157,11 +162,12 @@ Edge264Decoder *edge264_alloc(int n_threads, Edge264LogCb log_cb, void *log_arg,
 	
 	// select parser functions based on CPU capabilities and logs mode
 	dec->worker_loop = ADD_VARIANT(worker_loop);
+	for (int i = 0; i < 32; i++)
+		dec->parse_nal_unit[i] = unsupp_NAL;
 	dec->parse_nal_unit[1] = dec->parse_nal_unit[5] = ADD_VARIANT(parse_slice_layer_without_partitioning);
-	dec->parse_nal_unit[6] = dec->parse_nal_unit[10] = dec->parse_nal_unit[11] = dec->parse_nal_unit[12] = ignore_NAL;
+	dec->parse_nal_unit[6] = dec->parse_nal_unit[9] = dec->parse_nal_unit[10] = dec->parse_nal_unit[11] = dec->parse_nal_unit[12] = ignore_NAL;
 	dec->parse_nal_unit[7] = dec->parse_nal_unit[15] = ADD_VARIANT(parse_seq_parameter_set);
 	dec->parse_nal_unit[8] = ADD_VARIANT(parse_pic_parameter_set);
-	dec->parse_nal_unit[9] = ADD_VARIANT(parse_access_unit_delimiter);
 	dec->parse_nal_unit[14] = dec->parse_nal_unit[20] = ADD_VARIANT(parse_nal_unit_header_extension);
 	#if defined(HAS_X86_64_V2) || defined(HAS_X86_64_V3)
 		__builtin_cpu_init();
@@ -347,7 +353,7 @@ int edge264_decode_NAL(Edge264Decoder *dec, const uint8_t *buf, const uint8_t *e
 	dec->nal_ref_idc = buf[0] >> 5;
 	dec->nal_unit_type = buf[0] & 0x1f;
 	Parser parser = dec->parse_nal_unit[dec->nal_unit_type];
-	if (dec->log_cb) { // no need to test log_cb since harmless otherwise
+	if (dec->log_cb) {
 		dec->log_pos = snprintf(dec->log_buf, sizeof(dec->log_buf),
 			"\n- nal_ref_idc: %u\n"
 			"  nal_unit_type: %u # %s%s\n",
@@ -355,35 +361,27 @@ int edge264_decode_NAL(Edge264Decoder *dec, const uint8_t *buf, const uint8_t *e
 			dec->nal_unit_type, nal_unit_type_names[dec->nal_unit_type], unsup_if(!parser));
 	}
 	
-	// initialize the parsing context if we can parse the current NAL
-	int ret = ENOTSUP;
-	if (parser != NULL) {
-		// prefill the bitstream cache
-		if ((intptr_t)(end - buf) >= 2) {
-			dec->gb.msb_cache = (size_t)buf[1] << (SIZE_BIT - 8) | (size_t)1 << (SIZE_BIT - 9);
-			dec->gb.CPB = buf + 2;
-		} else {
-			dec->gb.msb_cache = (size_t)1 << (SIZE_BIT - 1);
-			dec->gb.CPB = buf + 1;
-		}
-		dec->gb.lsb_cache = 0;
-		dec->gb.end = end;
-		refill(&dec->gb, 0);
-		ret = parser(dec, non_blocking, unref_cb, unref_arg);
-		// end may have been set to the next start code thanks to escape code detection in get_bytes
-		buf = minp(dec->gb.CPB - 2, dec->gb.end);
-	} else if (dec->log_arg) {
-		dec->log_pos = 0;
-		dec->log_cb(dec->log_buf, dec->log_arg);
+	// prefill the bitstream cache
+	if ((intptr_t)(end - buf) >= 2) {
+		dec->gb.msb_cache = (size_t)buf[1] << (SIZE_BIT - 8) | (size_t)1 << (SIZE_BIT - 9);
+		dec->gb.CPB = buf + 2;
+	} else {
+		dec->gb.msb_cache = (size_t)1 << (SIZE_BIT - 1);
+		dec->gb.CPB = buf + 1;
 	}
+	dec->gb.lsb_cache = 0;
+	dec->gb.end = end;
+	refill(&dec->gb, 0);
+	int ret = parser(dec, non_blocking, unref_cb, unref_arg);
 	// printf("nal_unit_type=%d, ret=%d\n\n", dec->nal_unit_type, ret);
 	
 	// for 0, ENOTSUP and EBADMSG we may free or advance the buffer pointer
 	if (ret == 0 || ret == ENOTSUP || ret == EBADMSG) {
 		if (unref_cb && !(ret == 0 && 1048610 & 1 << dec->nal_unit_type)) // 1, 5 or 20
 			unref_cb(ret, unref_arg);
+		// end may have been set to the next start code thanks to escape code detection in get_bytes
 		if (next_NAL)
-			*next_NAL = edge264_find_start_code(buf, end, 0) + 3;
+			*next_NAL = edge264_find_start_code(minp(dec->gb.CPB - 2, dec->gb.end), end, 0) + 3;
 	}
 	if (dec->n_threads)
 		pthread_mutex_unlock(&dec->lock);

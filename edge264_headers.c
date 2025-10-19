@@ -755,7 +755,7 @@ static void parse_ref_pic_list_modification(Edge264Decoder *dec, Edge264SeqParam
 
 static int alloc_frame(Edge264Decoder *dec, int id, int errno_on_fail) {
 	int mbs = (dec->sps.pic_width_in_mbs + 1) * dec->sps.pic_height_in_mbs - 1;
-	unsigned samples_size = dec->plane_size_Y + dec->plane_size_C + 7; // plus margin for overreads
+	unsigned samples_size = dec->plane_size_Y + dec->plane_size_C + 16; // plus margin for overreads
 	unsigned mbs_size = sizeof(Edge264Macroblock) * mbs;
 	dec->alloc_cb((void **)&dec->samples_buffers[id], samples_size, (void **)&dec->mb_buffers[id], mbs_size, errno_on_fail, dec->alloc_arg);
 	Edge264Macroblock *m = dec->mb_buffers[id];
@@ -1229,18 +1229,24 @@ int ADD_VARIANT(parse_slice_layer_without_partitioning)(Edge264Decoder *dec, int
 
 
 
-int ADD_VARIANT(parse_access_unit_delimiter)(Edge264Decoder *dec, int non_blocking, Edge264UnrefCb unref_cb, void *unref_arg) {
-	const char *primary_pic_type_names[8] =
-		{"I", "I,P", "I,P,B", "SI", "SI,SP", "I,SI", "I,SI,P,SP", "I,SI,P,SP,B"};
-	int primary_pic_type = get_uv(&dec->gb, 3);
-	log_dec(dec, "  primary_pic_type: %u # %s\n",
-		primary_pic_type, primary_pic_type_names[primary_pic_type]);
-	if (print_dec(dec))
-		return ENOTSUP;
-	if (!rbsp_end(&dec->gb))
-		return EBADMSG;
-	return 0;
-}
+/**
+ * AUDs are ignored outside logging, so that the behavior is equal whether they
+ * are included or not, hence a present AUD cannot cover an otherwise bug.
+ */
+#ifdef LOGS
+	int parse_access_unit_delimiter_log(Edge264Decoder *dec, int non_blocking, Edge264UnrefCb unref_cb, void *unref_arg) {
+		const char *primary_pic_type_names[8] =
+			{"I", "I,P", "I,P,B", "SI", "SI,SP", "I,SI", "I,SI,P,SP", "I,SI,P,SP,B"};
+		int primary_pic_type = get_uv(&dec->gb, 3);
+		log_dec(dec, "  primary_pic_type: %u # %s\n",
+			primary_pic_type, primary_pic_type_names[primary_pic_type]);
+		if (print_dec(dec))
+			return ENOTSUP;
+		if (!rbsp_end(&dec->gb))
+			return EBADMSG;
+		return 0;
+	}
+#endif
 
 
 

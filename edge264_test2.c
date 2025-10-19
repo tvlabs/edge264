@@ -20,6 +20,7 @@
 #include "edge264.h"
 #include "edge264_internal.h"
 #include "edge264_intra.c"
+#include "edge264_inter.c"
 
 
 
@@ -136,6 +137,21 @@ static void test_page_boundaries() {
 	static const int8_t offIC8x8[IC8x8_P_8 + 1] = {16, 16, 8, 0, 8, 16, 24};
 	for (int i = 0; i <= IC8x8_P_8; i++)
 		decode_intraChroma(i, page + offIC8x8[i], 8, (i16x8){});
+	
+	// Inter boundaries
+	static const int8_t offInterLo[16] = {0, 2, 2, 2, 64, 66, 66, 66, 64, 66, 66, 66, 64, 66, 66, 66};
+	static const int8_t offInterHi[48] = {28, 18, 18, 18, -68, -78, -78, -78, -68, -78, -78, -78, -68, -78, -78, -78, 24, 18, 18, 18, -72, -78, -78, -78, -72, -78, -78, -78, -72, -78, -78, -78, 16, 10, 10, 10, -80, -86, -86, -86, -80, -86, -86, -86, -80, -86, -86, -86};
+	static const int8_t offInterHiC[3] = {-36, -40, -48};
+	for (int h = 0; h < 3; h++) {
+		for (int i = 0; i < 48; i++) {
+			decode_inter_luma(i, 4 << h, 32, page + offInterLo[i & 15], 32, page, (i8x16){});
+			decode_inter_luma(i, 4 << h, 32, page + pagesize + offInterHi[i] - (4 << h) * 32, 32, page + pagesize - (4 << (i >> 4)) - ((4 << h) - 1) * 32, (i8x16){});
+		}
+		for (int w = 0; w < 3; w++) {
+			decode_inter_chroma(4 << w, 4 << h, 32, page, 32, page, (i8x16){}, (i8x16){});
+			decode_inter_chroma(4 << w, 4 << h, 32, page + pagesize + offInterHiC[w] - (4 << h) * 32, 32, page + pagesize - (4 << w) - ((4 << h) - 1) * 32, (i8x16){}, (i8x16){});
+		}
+	}
 	
 	fclose(f);
 	munmap(page - pagesize, pagesize * 3);

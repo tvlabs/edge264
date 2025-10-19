@@ -826,7 +826,7 @@ static void decode_inter_luma(int mode, int h, size_t sstride, const uint8_t * r
  * Here SSE and NEON algorithms are very different thus are kept separate.
  */
 #if defined(__SSE2__)
-	static void decode_inter_chroma(int w, int h, size_t dstride, uint8_t *dst, size_t sstride, const uint8_t *src, i8x16 ABCD, i8x16 wod) {
+	static void decode_inter_chroma(int w, int h, size_t sstride, const uint8_t *src, size_t dstride, uint8_t *dst, i8x16 ABCD, i8x16 wod) {
 		i8x16 wo32 = shufflehi(shufflelo(wod, 1, 1, 2, 2), 0, 0, 1, 1);
 		i64x2 wd64 = shr128(wod, 14);
 		i8x16 abcd = shufflelo(ABCD, 0, 0, 1, 1);
@@ -844,8 +844,9 @@ static void decode_inter_luma(int mode, int h, size_t sstride, const uint8_t * r
 			i8x16 r0 = ziplo8(l0, shr128(l0, 1));
 			i8x16 r1 = ziplo8(l1, shr128(l1, 1));
 			do {
-				i8x16 l2 = load128(src + sstride * 2);
-				i8x16 l3 = load128(src + sstride3);
+				src += sstride * 2;
+				i8x16 l2 = load128(src);
+				i8x16 l3 = load128(src + sstride);
 				i8x16 r2 = ziplo8(l2, shr128(l2, 1));
 				i8x16 r3 = ziplo8(l3, shr128(l3, 1));
 				i16x8 x0 = maddubs(r0, AB) + maddubs(r2, CD);
@@ -857,7 +858,6 @@ static void decode_inter_luma(int mode, int h, size_t sstride, const uint8_t * r
 				i64x2 v = packus16(vb, vr);
 				*(int64_t *)dst = v[0];
 				*(int64_t *)(dst + dstride) = v[1];
-				src += sstride * 2;
 				dst += dstride * 2;
 				r0 = r2, r1 = r3;
 			} while (h -= 2);
@@ -910,7 +910,7 @@ static void decode_inter_luma(int mode, int h, size_t sstride, const uint8_t * r
 		}
 	}
 #elif defined(__ARM_NEON)
-	static void decode_inter_chroma(int w, int h, size_t dstride, uint8_t *dst, size_t sstride, const uint8_t *src, i8x16 ABCD, i8x16 wod) {
+	static void decode_inter_chroma(int w, int h, size_t sstride, const uint8_t *src, size_t dstride, uint8_t *dst, i8x16 ABCD, i8x16 wod) {
 		i16x8 w16 = vmovl_s8(vget_low_s8(wod));
 		i16x8 wd16 = -broadcast16(wod, 7);
 		i8x16 A = broadcast8(ABCD, 0);
@@ -927,8 +927,9 @@ static void decode_inter_luma(int mode, int h, size_t sstride, const uint8_t * r
 			i8x16 r0 = shuffle(load128(src           ), shuf);
 			i8x16 r1 = shuffle(load128(src + sstride ), shuf);
 			do {
-				i8x16 r2 = shuffle(load128(src + sstride2), shuf);
-				i8x16 r3 = shuffle(load128(src + sstride3), shuf);
+				src += sstride2;
+				i8x16 r2 = shuffle(load128(src           ), shuf);
+				i8x16 r3 = shuffle(load128(src + sstride ), shuf);
 				i16x8 x0 = vmlal_high_u8(vmull_u8(vget_low_u8(r0), vget_low_u8(A)), r0, B);
 				i16x8 x1 = vmlal_high_u8(vmull_u8(vget_low_u8(r1), vget_low_u8(A)), r1, B);
 				i16x8 x2 = vmlal_high_u8(vmull_u8(vget_low_u8(r2), vget_low_u8(C)), r2, D);
@@ -942,7 +943,6 @@ static void decode_inter_luma(int mode, int h, size_t sstride, const uint8_t * r
 				i64x2 v = packus16(vb, vr);
 				*(int64_t *)(dst           ) = v[0];
 				*(int64_t *)(dst + dstride ) = v[1];
-				src += sstride2;
 				dst += dstride2;
 				r0 = r2, r1 = r3;
 			} while (h -= 2);
@@ -1151,7 +1151,7 @@ static void noinline decode_inter(Edge264Context *ctx, int i, int w, int h) {
 	int xFrac_C = x & 7;
 	int yFrac_C = y & 7;
 	i32x4 ABCD = {little_endian32(((8 - xFrac_C) | xFrac_C << 8) * ((8 - yFrac_C) | yFrac_C << 16))};
-	decode_inter_chroma(w, h, dstride_C, dst_C, sstride_C, src_C, ABCD, wod);
+	decode_inter_chroma(w, h, sstride_C, src_C, dstride_C, dst_C, ABCD, wod);
 	
 	// tail jump to luma prediction
 	int xFrac_Y = x & 3;

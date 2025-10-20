@@ -127,7 +127,7 @@ static void internal_free(void *samples, void *mbs, void *alloc_arg) {
 	free(samples);
 }
 
-// This could be optimized into 2 functions but at the expense of less simplicity
+// These could be optimized into log/nolog functions but be less simple then
 static int ignore_NAL(Edge264Decoder *dec, int non_blocking, Edge264UnrefCb unref_cb, void *unref_arg) {
 	if (dec->log_cb) {
 		dec->log_pos = 0;
@@ -142,6 +142,18 @@ static int unsupp_NAL(Edge264Decoder *dec, int non_blocking, Edge264UnrefCb unre
 		dec->log_cb(dec->log_buf, dec->log_arg);
 	}
 	return ENOTSUP;
+}
+
+static int parse_end_of_sequence(Edge264Decoder *dec, int non_blocking, Edge264UnrefCb unref_cb, void *unref_arg) {
+	if (dec->log_cb) {
+		dec->log_pos = 0;
+		dec->log_cb(dec->log_buf, dec->log_arg);
+	}
+	int ret = bump_all_frames(dec, non_blocking);
+	if (ret)
+		return ret;
+	clear_decoder(dec);
+	return 0;
 }
 
 
@@ -165,9 +177,10 @@ Edge264Decoder *edge264_alloc(int n_threads, Edge264LogCb log_cb, void *log_arg,
 	for (int i = 0; i < 32; i++)
 		dec->parse_nal_unit[i] = unsupp_NAL;
 	dec->parse_nal_unit[1] = dec->parse_nal_unit[5] = ADD_VARIANT(parse_slice_layer_without_partitioning);
-	dec->parse_nal_unit[6] = dec->parse_nal_unit[9] = dec->parse_nal_unit[10] = dec->parse_nal_unit[11] = dec->parse_nal_unit[12] = ignore_NAL;
+	dec->parse_nal_unit[6] = dec->parse_nal_unit[9] = dec->parse_nal_unit[11] = dec->parse_nal_unit[12] = ignore_NAL;
 	dec->parse_nal_unit[7] = dec->parse_nal_unit[15] = ADD_VARIANT(parse_seq_parameter_set);
 	dec->parse_nal_unit[8] = ADD_VARIANT(parse_pic_parameter_set);
+	dec->parse_nal_unit[10] = parse_end_of_sequence;
 	dec->parse_nal_unit[14] = dec->parse_nal_unit[20] = ADD_VARIANT(parse_nal_unit_header_extension);
 	#if defined(HAS_X86_64_V2) || defined(HAS_X86_64_V3)
 		__builtin_cpu_init();
@@ -261,7 +274,8 @@ void edge264_flush(Edge264Decoder *dec) {
 		return;
 	if (dec->n_threads)
 		pthread_mutex_lock(&dec->lock);
-	flush_decoder(dec);
+	flush_frames(dec);
+	clear_decoder(dec);
 	if (dec->n_threads)
 		pthread_mutex_unlock(&dec->lock);
 }
@@ -326,7 +340,7 @@ int edge264_decode_NAL(Edge264Decoder *dec, const uint8_t *buf, const uint8_t *e
 	if (dec->n_threads)
 		pthread_mutex_lock(&dec->lock);
 	
-	// there has to be enough buffer space for any NAL to flush the DPB
+	// there has to be enough buffer space for any NAL to flush the entire DPB
 	int queued0 = __builtin_ctz(movemask(dec->get_frame_queue_v[0]) | 1 << 16);
 	int queued1 = __builtin_ctz(movemask(dec->get_frame_queue_v[1]) | 1 << 16);
 	int bumpable = max(1, __builtin_popcount(dec->to_get_frames & ~dec->output_frames));
@@ -336,17 +350,12 @@ int edge264_decode_NAL(Edge264Decoder *dec, const uint8_t *buf, const uint8_t *e
 		return ENOBUFS;
 	}
 	
-	// flush the DPB at end of buffer
+	// bump all frames at the end of buffer
 	if (__builtin_expect((intptr_t)(end - buf) <= 0, 0)) {
-		if (dec->currPic >= 0)
-			unset_currPic(dec);
-		while (bump_frame(dec, 0, 0) | bump_frame(dec, 1, 0));
-		unsigned busy;
-		while ((busy = dec->busy_tasks) && !non_blocking)
-			pthread_cond_wait(&dec->task_complete, &dec->lock);
+		int ret = bump_all_frames(dec, non_blocking);
 		if (dec->n_threads)
 			pthread_mutex_unlock(&dec->lock);
-		return busy ? EWOULDBLOCK : ENODATA;
+		return ret ?: ENODATA;
 	}
 	
 	// NAL byte header

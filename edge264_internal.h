@@ -984,22 +984,6 @@ static always_inline unsigned depended_frames(Edge264Decoder *dec) {
 	u32x4 c = b | (u32x4)shr128(b, 4);
 	return c[0];
 }
-static always_inline void flush_decoder(Edge264Decoder *dec) {
-	for (unsigned m = dec->ready_tasks; m; m &= m - 1) {
-		Edge264Task *t = dec->tasks + __builtin_ctz(m);
-		if (t->unref_cb)
-			t->unref_cb(0, t->unref_arg);
-	}
-	dec->pending_tasks = dec->busy_tasks = dec->ready_tasks = 0;
-	// FIXME signal all threads to exit then wait until they are back to wait
-	assert(!(dec->n_threads == 0 && dec->busy_tasks));
-	while (dec->busy_tasks)
-		pthread_cond_wait(&dec->task_complete, &dec->lock);
-	memset((void *)dec + offsetof(Edge264Decoder, nal_ref_idc), 0, offsetof(Edge264Decoder, log_pos) - offsetof(Edge264Decoder, nal_ref_idc));
-	dec->currPic = dec->basePic = -1;
-	dec->PrevRefFrameNum[0] = dec->PrevRefFrameNum[1] = -1;
-	dec->taskPics_v = dec->get_frame_queue_v[0] = dec->get_frame_queue_v[1] = set8(-1);
-}
 
 
 

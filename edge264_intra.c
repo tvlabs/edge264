@@ -54,7 +54,7 @@
 /**
  * Intra 4x4
  */
-static void decode_intra4x4(int mode, uint8_t * restrict p, size_t stride, i16x8 clip) {
+static noinline void decode_intra4x4(int mode, uint8_t * restrict p, size_t stride, i16x8 clip) {
 	INIT_P();
 	i8x16 v, shuf;
 	i32x4 pred;
@@ -141,7 +141,7 @@ static void decode_intra4x4(int mode, uint8_t * restrict p, size_t stride, i16x8
  * Neighbouring samples are named a to z from bottom left to top right, with
  * i being p[-1,-1] or p[-1,0] if unavailable, and j being p[-1,-1] or p[0,-1].
  */
-static void decode_intra8x8(int mode, uint8_t * restrict p, size_t stride, i16x8 clip) {
+static noinline void decode_intra8x8(int mode, uint8_t * restrict p, size_t stride, i16x8 clip) {
 	INIT_P();
 	i8x16 i2a, j2s, j2y, k2z, j2q, k2r, l2s;
 	i64x2 pred, p0, p1, p2, p3, p4, p5, p6, p7;
@@ -399,7 +399,7 @@ static void decode_intra8x8(int mode, uint8_t * restrict p, size_t stride, i16x8
 /**
  * Intra 16x16
  */
-static void decode_intra16x16(int mode, uint8_t * restrict p, size_t stride, i16x8 clip) {
+static noinline void decode_intra16x16(int mode, uint8_t * restrict p, size_t stride, i16x8 clip) {
 	INIT_P();
 	i8x16 pred, top;
 	switch (mode) {
@@ -500,7 +500,7 @@ static void decode_intra16x16(int mode, uint8_t * restrict p, size_t stride, i16
 /**
  * Intra Chroma
  */
-static void decode_intraChroma(int mode, uint8_t * restrict p, size_t stride, i16x8 clip) {
+static noinline void decode_intraChroma(int mode, uint8_t * restrict p, size_t stride, i16x8 clip) {
 	#if __BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__
 		static const i8x16 shufDC = {0, 0, 0, 0, 4, 4, 4, 4, 8, 8, 8, 8, 12, 12, 12, 12};
 		static const i8x16 shufDCA = {0, 0, 0, 0, 12, 12, 12, 12, 0, 0, 0, 0, 12, 12, 12, 12};

@@ -1018,10 +1018,10 @@ static noinline void deblock_mb(Edge264Context *ctx);
 static void noinline decode_inter(Edge264Context *ctx, int i, int w, int h);
 
 // edge264_intra.c
-static void decode_intra4x4(int mode, uint8_t * restrict p, size_t stride, i16x8 clip);
-static void decode_intra8x8(int mode, uint8_t * restrict p, size_t stride, i16x8 clip);
-static void decode_intra16x16(int mode, uint8_t * restrict p, size_t stride, i16x8 clip);
-static void decode_intraChroma(int mode, uint8_t * restrict p, size_t stride, i16x8 clip);
+static noinline void decode_intra4x4(int mode, uint8_t * restrict p, size_t stride, i16x8 clip);
+static noinline void decode_intra8x8(int mode, uint8_t * restrict p, size_t stride, i16x8 clip);
+static noinline void decode_intra16x16(int mode, uint8_t * restrict p, size_t stride, i16x8 clip);
+static noinline void decode_intraChroma(int mode, uint8_t * restrict p, size_t stride, i16x8 clip);
 
 // edge264_mvpred.c
 static inline void decode_inter_16x16(Edge264Context *ctx, i16x8 mvd, int lx);
@@ -1039,8 +1039,8 @@ static void transform_dc4x4(Edge264Context *ctx, int iYCbCr);
 static void transform_dc2x2(Edge264Context *ctx);
 
 // edge264_slice.c
-static void parse_slice_data_cavlc(Edge264Context *ctx);
-static void parse_slice_data_cabac(Edge264Context *ctx);
+static noinline void parse_slice_data_cavlc(Edge264Context *ctx);
+static noinline void parse_slice_data_cabac(Edge264Context *ctx);
 
 // edge264_headers.c
 #ifndef ADD_VARIANT

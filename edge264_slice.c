@@ -275,7 +275,7 @@
 	}
 	
 	// 4:2:0 is best handled separately due to the open-ended 0000000 code and 3 bit suffixes
-	static noinline void parse_residual_block_2x2_cavlc(Edge264Context *ctx) {
+	static void parse_residual_block_2x2_cavlc(Edge264Context *ctx) {
 		static const int16_t tokens[8 * 4] = {
 			133, 133, 133, 133,
 			256, 256, 256, 256,
@@ -392,7 +392,7 @@
 /**
  * As its name says, parses mb_qp_delta (9.3.2.7 and 9.3.3.1.1.5).
  */
-static void CAFUNC(parse_mb_qp_delta)
+static inline void CAFUNC(parse_mb_qp_delta)
 {
 	#if !CABAC
 		int mb_qp_delta = get_se16(&ctx->t.gb, -26, 25); // FIXME QpBdOffset
@@ -424,7 +424,7 @@ static void CAFUNC(parse_mb_qp_delta)
  * Parsing for chroma 4:2:0 and 4:2:2 is put in a separate function to be
  * tail-called from parse_NxN_residual and parse_Intra16x16_residual.
  */
-static void CAFUNC(parse_chroma_residual)
+static noinline void CAFUNC(parse_chroma_residual)
 {
 	// As in Intra16x16, DC blocks are parsed to ctx->c[0..15], then transformed to ctx->c[16..31]
 	if (mb->f.CodedBlockPatternChromaDC) { // valid also for 4:0:0
@@ -489,7 +489,7 @@ static void CAFUNC(parse_chroma_residual)
  * Intra16x16 residual blocks have so many differences with Intra4x4 that they
  * deserve their own function.
  */
-static void CAFUNC(parse_Intra16x16_residual)
+static noinline void CAFUNC(parse_Intra16x16_residual)
 {
 	CACALL(parse_mb_qp_delta);
 	log_mb(ctx, "    coeffLevels:\n");
@@ -557,7 +557,7 @@ static void CAFUNC(parse_Intra16x16_residual)
  * This block is dedicated to the parsing of Intra_NxN and Inter_NxN residual
  * blocks, since they share much in common.
  */
-static void CAFUNC(parse_NxN_residual)
+static noinline void CAFUNC(parse_NxN_residual)
 {
 	static const int8_t Intra4x4Modes[9][16] = {
 		{I4x4_V_8  , I4x4_V_8   , I4x4_DC_AB_8, I4x4_DC_AB_8, I4x4_V_8   , I4x4_V_8   , I4x4_DC_AB_8, I4x4_DC_AB_8, I4x4_V_8   , I4x4_V_8   , I4x4_DC_AB_8, I4x4_DC_AB_8, I4x4_V_8   , I4x4_V_8   , I4x4_DC_AB_8, I4x4_DC_AB_8},
@@ -705,7 +705,7 @@ static void CAFUNC(parse_coded_block_pattern, const uint8_t *map_me)
 /**
  * Parses intra_chroma_pred_mode (9.3.2.2 and 9.3.3.1.1.8).
  */
-static void CAFUNC(parse_intra_chroma_pred_mode)
+static inline void CAFUNC(parse_intra_chroma_pred_mode)
 {
 	static const int8_t IntraChromaModes[4][4] = {
 		{IC8x8_DC_8, IC8x8_DC_A_8, IC8x8_DC_B_8, IC8x8_DC_AB_8},
@@ -954,18 +954,20 @@ static void CAFUNC(parse_inter_residual)
  * Parse both components of a motion vector (7.3.5.1, 7.4.5.1, 9.3.2.3,
  * 9.3.3.1.1.7 and tables 9-34 and 9-39).
  * 
- * As with residual coefficients, bypass bits can be extracted all at once
- * using a binary division. The maximum mvd value is 2^15, i.e 26 bits as
+ * As with residual coefficients in CABAC, bypass bits can be extracted all at
+ * once using a binary division. The maximum mvd value is 2^15, i.e 26 bits as
  * Exp-Golomb, so we need a single division on 64-bit machines and two on
  * 32-bit machines.
  */
-static i16x8 CAFUNC(parse_mvd_pair, const uint8_t *absMvd_lx, int i4x4) {
-	#if !CABAC
+#if !CABAC
+	static inline i16x8 parse_mvd_pair_cavlc(Edge264Context *ctx, const uint8_t *absMvd_lx, int i4x4) {
 		int x = get_se32(&ctx->t.gb, -32768, 32767);
 		int y = get_se32(&ctx->t.gb, -32768, 32767);
 		log_mb(ctx, "[%d,%d],", x, y);
 		return (i16x8){x, y};
-	#else
+	}
+#else
+	static noinline i16x8 parse_mvd_pair_cabac(Edge264Context *ctx, const uint8_t *absMvd_lx, int i4x4) {
 		i16x8 res;
 		for (int ctxBase = 40, i = 0;;) {
 			int sum = absMvd_lx[ctx->absMvd_A[i4x4] + i] + absMvd_lx[ctx->absMvd_B[i4x4] + i];
@@ -1013,8 +1015,8 @@ static i16x8 CAFUNC(parse_mvd_pair, const uint8_t *absMvd_lx, int i4x4) {
 			ctxBase = 47;
 			res = (i16x8){mvd};
 		}
-	#endif
-}
+	}
+#endif
 
 
 
@@ -1026,7 +1028,7 @@ static i16x8 CAFUNC(parse_mvd_pair, const uint8_t *absMvd_lx, int i4x4) {
  * shapes, unless bit 8 is set (to signal Direct_8x8).
  * This function also clips all values to valid ones.
  */
-static inline void CAFUNC(parse_ref_idx, unsigned f) {
+static noinline void CAFUNC(parse_ref_idx, unsigned f) {
 	u8x16 v = {f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f};
 	u8x16 bits = {1, 2, 4, 8, 16, 32, 64, 128};
 	mb->refIdx_l = ((i64x2){mb->refIdx_l} & ~(i64x2)((v & bits) == bits))[0]; // set to 0 if parsed
@@ -1267,7 +1269,7 @@ static void CAFUNC(parse_B_sub_mb) {
  * _ 24 = B_Bi_Bi_16x8
  * _ 25 = B_Bi_Bi_8x16
  */
-static inline void CAFUNC(parse_B_mb)
+static void CAFUNC(parse_B_mb)
 {
 	// Inter initializations
 	mb->mbIsInterFlag = 1;
@@ -1533,7 +1535,7 @@ static void CAFUNC(parse_P_sub_mb, unsigned ref_idx_flags)
  * _ then for each block in sequence, fetch the proper neighbouring mv(s) and
  *   combine them depending on the mask
  */
-static inline void CAFUNC(parse_P_mb)
+static void CAFUNC(parse_P_mb)
 {
 	// Inter initializations
 	mb->mbIsInterFlag = 1;
@@ -1618,7 +1620,7 @@ static inline void CAFUNC(parse_P_mb)
  * This function loops through the macroblocks of a slice, initialising their
  * data and calling parse_{I/P/B}_mb for each one.
  */
-static void CAFUNC(parse_slice_data)
+static noinline void CAFUNC(parse_slice_data)
 {
 	static const i8x16 block_unavailability[16] = {
 		{ 0,  0,  0,  4,  0,  0,  0,  4,  0,  0,  0,  4,  0,  4,  0,  4},

@@ -262,7 +262,7 @@ static noinline int get_ae(Edge264Context * restrict ctx, int ctxIdx) {
 	assert(ctx->t.gb.offset == (ctx->t.gb.codIOffset << 1 | 1) << (clz(ctx->t.gb.codIRange) - 1));
 	size_t state = ctx->cabac[ctxIdx];
 	size_t shift = SIZE_BIT - 3 - clz(ctx->t.gb.codIRange);\
-	size_t idx = (state & -4) + (ctx->t.gb.codIRange >> shift);\
+	size_t idx = (state & -4) + (ctx->t.gb.range >> (SIZE_BIT - 3) & 3);\
 	size_t codIRangeLPS = (size_t)((uint8_t *)rangeTabLPS - 4)[idx] << (shift - 6);\
 	ctx->t.gb.codIRange -= codIRangeLPS;\
 	if (ctx->t.gb.codIOffset >= ctx->t.gb.codIRange) {\

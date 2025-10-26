@@ -52,6 +52,8 @@ typedef struct {
 	const uint8_t *end; // first byte past end of buffer, capped to 001 or 000 sequence when detected
 	union { size_t lsb_cache; size_t codIRange; };
 	union { size_t msb_cache; size_t codIOffset; };
+	size_t range;
+	size_t offset;
 } Edge264GetBits;
 
 
@@ -1005,7 +1007,7 @@ static noinline int get_se16(Edge264GetBits *gb, int lower, int upper);
 	#define get_ue32 get_ue16
 	#define get_se32 get_se16
 #endif
-static noinline int get_ae(Edge264Context *ctx, int ctxIdx);
+static int get_ae(Edge264Context * restrict ctx, int ctxIdx);
 static inline int get_bypass(Edge264Context *ctx);
 static int cabac_start(Edge264Context *ctx);
 static int cabac_terminate(Edge264Context *ctx);

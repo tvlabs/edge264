@@ -220,64 +220,71 @@ static noinline int get_se16(Edge264GetBits *gb, int lower, int upper) {
  *   since renormalization will now leave 25~32 bits in codIOffset, but the
  *   algorithm needs at least 29 to remain simple.
  */
-static noinline int get_ae(Edge264Context *ctx, int ctxIdx)
-{
-	static const uint8_t rangeTabLPS[64 * 4] = {
-		128, 176, 208, 240, 128, 167, 197, 227, 128, 158, 187, 216, 123, 150, 178, 205,
-		116, 142, 169, 195, 111, 135, 160, 185, 105, 128, 152, 175, 100, 122, 144, 166,
-		 95, 116, 137, 158,  90, 110, 130, 150,  85, 104, 123, 142,  81,  99, 117, 135,
-		 77,  94, 111, 128,  73,  89, 105, 122,  69,  85, 100, 116,  66,  80,  95, 110,
-		 62,  76,  90, 104,  59,  72,  86,  99,  56,  69,  81,  94,  53,  65,  77,  89,
-		 51,  62,  73,  85,  48,  59,  69,  80,  46,  56,  66,  76,  43,  53,  63,  72,
-		 41,  50,  59,  69,  39,  48,  56,  65,  37,  45,  54,  62,  35,  43,  51,  59,
-		 33,  41,  48,  56,  32,  39,  46,  53,  30,  37,  43,  50,  29,  35,  41,  48,
-		 27,  33,  39,  45,  26,  31,  37,  43,  24,  30,  35,  41,  23,  28,  33,  39,
-		 22,  27,  32,  37,  21,  26,  30,  35,  20,  24,  29,  33,  19,  23,  27,  31,
-		 18,  22,  26,  30,  17,  21,  25,  28,  16,  20,  23,  27,  15,  19,  22,  25,
-		 14,  18,  21,  24,  14,  17,  20,  23,  13,  16,  19,  22,  12,  15,  18,  21,
-		 12,  14,  17,  20,  11,  14,  16,  19,  11,  13,  15,  18,  10,  12,  15,  17,
-		 10,  12,  14,  16,   9,  11,  13,  15,   9,  11,  12,  14,   8,  10,  12,  14,
-		  8,   9,  11,  13,   7,   9,  11,  12,   7,   9,  10,  12,   7,   8,  10,  11,
-		  6,   8,   9,  11,   6,   7,   9,  10,   6,   7,   8,   9,   2,   2,   2,   2,
-	};
-	static const uint8_t transIdx[256] = {
-		  4,   5, 253, 252,   8,   9, 153, 152,  12,  13, 153, 152,  16,  17, 149, 148,
-		 20,  21, 149, 148,  24,  25, 149, 148,  28,  29, 145, 144,  32,  33, 145, 144,
-		 36,  37, 145, 144,  40,  41, 141, 140,  44,  45, 141, 140,  48,  49, 141, 140,
-		 52,  53, 137, 136,  56,  57, 137, 136,  60,  61, 133, 132,  64,  65, 133, 132,
-		 68,  69, 133, 132,  72,  73, 129, 128,  76,  77, 129, 128,  80,  81, 125, 124,
-		 84,  85, 121, 120,  88,  89, 121, 120,  92,  93, 121, 120,  96,  97, 117, 116,
-		100, 101, 117, 116, 104, 105, 113, 112, 108, 109, 109, 108, 112, 113, 109, 108,
-		116, 117, 105, 104, 120, 121, 105, 104, 124, 125, 101, 100, 128, 129,  97,  96,
-		132, 133,  97,  96, 136, 137,  93,  92, 140, 141,  89,  88, 144, 145,  89,  88,
-		148, 149,  85,  84, 152, 153,  85,  84, 156, 157,  77,  76, 160, 161,  77,  76,
-		164, 165,  73,  72, 168, 169,  73,  72, 172, 173,  65,  64, 176, 177,  65,  64,
-		180, 181,  61,  60, 184, 185,  61,  60, 188, 189,  53,  52, 192, 193,  53,  52,
-		196, 197,  49,  48, 200, 201,  45,  44, 204, 205,  45,  44, 208, 209,  37,  36,
-		212, 213,  37,  36, 216, 217,  33,  32, 220, 221,  29,  28, 224, 225,  25,  24,
-		228, 229,  21,  20, 232, 233,  17,  16, 236, 237,  17,  16, 240, 241,   9,   8,
-		244, 245,   9,   8, 248, 249,   5,   4, 248, 249,   1,   0, 252, 253,   0,   1,
-	};
+static const uint8_t rangeTabLPS[64 * 4] = {
+	128, 176, 208, 240, 128, 167, 197, 227, 128, 158, 187, 216, 123, 150, 178, 205,
+	116, 142, 169, 195, 111, 135, 160, 185, 105, 128, 152, 175, 100, 122, 144, 166,
+	 95, 116, 137, 158,  90, 110, 130, 150,  85, 104, 123, 142,  81,  99, 117, 135,
+	 77,  94, 111, 128,  73,  89, 105, 122,  69,  85, 100, 116,  66,  80,  95, 110,
+	 62,  76,  90, 104,  59,  72,  86,  99,  56,  69,  81,  94,  53,  65,  77,  89,
+	 51,  62,  73,  85,  48,  59,  69,  80,  46,  56,  66,  76,  43,  53,  63,  72,
+	 41,  50,  59,  69,  39,  48,  56,  65,  37,  45,  54,  62,  35,  43,  51,  59,
+	 33,  41,  48,  56,  32,  39,  46,  53,  30,  37,  43,  50,  29,  35,  41,  48,
+	 27,  33,  39,  45,  26,  31,  37,  43,  24,  30,  35,  41,  23,  28,  33,  39,
+	 22,  27,  32,  37,  21,  26,  30,  35,  20,  24,  29,  33,  19,  23,  27,  31,
+	 18,  22,  26,  30,  17,  21,  25,  28,  16,  20,  23,  27,  15,  19,  22,  25,
+	 14,  18,  21,  24,  14,  17,  20,  23,  13,  16,  19,  22,  12,  15,  18,  21,
+	 12,  14,  17,  20,  11,  14,  16,  19,  11,  13,  15,  18,  10,  12,  15,  17,
+	 10,  12,  14,  16,   9,  11,  13,  15,   9,  11,  12,  14,   8,  10,  12,  14,
+	  8,   9,  11,  13,   7,   9,  11,  12,   7,   9,  10,  12,   7,   8,  10,  11,
+	  6,   8,   9,  11,   6,   7,   9,  10,   6,   7,   8,   9,   2,   2,   2,   2,
+};
+static const uint8_t transIdx[256] = {
+	  4,   5, 253, 252,   8,   9, 153, 152,  12,  13, 153, 152,  16,  17, 149, 148,
+	 20,  21, 149, 148,  24,  25, 149, 148,  28,  29, 145, 144,  32,  33, 145, 144,
+	 36,  37, 145, 144,  40,  41, 141, 140,  44,  45, 141, 140,  48,  49, 141, 140,
+	 52,  53, 137, 136,  56,  57, 137, 136,  60,  61, 133, 132,  64,  65, 133, 132,
+	 68,  69, 133, 132,  72,  73, 129, 128,  76,  77, 129, 128,  80,  81, 125, 124,
+	 84,  85, 121, 120,  88,  89, 121, 120,  92,  93, 121, 120,  96,  97, 117, 116,
+	100, 101, 117, 116, 104, 105, 113, 112, 108, 109, 109, 108, 112, 113, 109, 108,
+	116, 117, 105, 104, 120, 121, 105, 104, 124, 125, 101, 100, 128, 129,  97,  96,
+	132, 133,  97,  96, 136, 137,  93,  92, 140, 141,  89,  88, 144, 145,  89,  88,
+	148, 149,  85,  84, 152, 153,  85,  84, 156, 157,  77,  76, 160, 161,  77,  76,
+	164, 165,  73,  72, 168, 169,  73,  72, 172, 173,  65,  64, 176, 177,  65,  64,
+	180, 181,  61,  60, 184, 185,  61,  60, 188, 189,  53,  52, 192, 193,  53,  52,
+	196, 197,  49,  48, 200, 201,  45,  44, 204, 205,  45,  44, 208, 209,  37,  36,
+	212, 213,  37,  36, 216, 217,  33,  32, 220, 221,  29,  28, 224, 225,  25,  24,
+	228, 229,  21,  20, 232, 233,  17,  16, 236, 237,  17,  16, 240, 241,   9,   8,
+	244, 245,   9,   8, 248, 249,   5,   4, 248, 249,   1,   0, 252, 253,   0,   1,
+};
+
+static noinline int get_ae(Edge264Context * restrict ctx, int ctxIdx) {
+	assert(ctx->t.gb.range == ctx->t.gb.codIRange << clz(ctx->t.gb.codIRange));
+	assert(ctx->t.gb.offset == (ctx->t.gb.codIOffset << 1 | 1) << (clz(ctx->t.gb.codIRange) - 1));
 	size_t state = ctx->cabac[ctxIdx];
-	size_t shift = SIZE_BIT - 3 - clz(ctx->t.gb.codIRange); // [6..SIZE_BIT-3]
-	size_t idx = (state & -4) + (ctx->t.gb.codIRange >> shift);
-	size_t codIRangeLPS = (size_t)((uint8_t *)rangeTabLPS - 4)[idx] << (shift - 6);
-	ctx->t.gb.codIRange -= codIRangeLPS;
-	if (ctx->t.gb.codIOffset >= ctx->t.gb.codIRange) {
-		state ^= 255;
-		ctx->t.gb.codIOffset -= ctx->t.gb.codIRange;
-		ctx->t.gb.codIRange = codIRangeLPS;
-	}
-	ctx->cabac[ctxIdx] = transIdx[state];
-	int binVal = state & 1;
-	if (__builtin_expect(ctx->t.gb.codIRange < 256, 0)) {
-		ctx->t.gb.codIOffset = shld(get_bytes(&ctx->t.gb, SIZE_BIT / 8 - 1), ctx->t.gb.codIOffset, SIZE_BIT - 8);
-		ctx->t.gb.codIRange <<= SIZE_BIT - 8;
-	}
+	size_t shift = SIZE_BIT - 3 - clz(ctx->t.gb.codIRange);\
+	size_t idx = (state & -4) + (ctx->t.gb.codIRange >> shift);\
+	size_t codIRangeLPS = (size_t)((uint8_t *)rangeTabLPS - 4)[idx] << (shift - 6);\
+	ctx->t.gb.codIRange -= codIRangeLPS;\
+	if (ctx->t.gb.codIOffset >= ctx->t.gb.codIRange) {\
+		state ^= 255;\
+		ctx->t.gb.codIOffset -= ctx->t.gb.codIRange;\
+		ctx->t.gb.codIRange = codIRangeLPS;\
+	}\
+	ctx->cabac[ctxIdx] = transIdx[state];\
+	int binVal = state & 1;\
+	if (__builtin_expect(ctx->t.gb.codIRange < 256, 0)) {\
+		ctx->t.gb.codIOffset = shld(get_bytes(&ctx->t.gb, SIZE_BIT / 8 - 2), ctx->t.gb.codIOffset, SIZE_BIT - 16);\
+		ctx->t.gb.codIRange <<= SIZE_BIT - 16;\
+	}\
+	ctx->t.gb.range = ctx->t.gb.codIRange << clz(ctx->t.gb.codIRange);
+	ctx->t.gb.offset = (ctx->t.gb.codIOffset << 1 | 1) << (clz(ctx->t.gb.codIRange) - 1);
 	return binVal;
 }
 
 static inline int get_bypass(Edge264Context *ctx) {
+	assert(ctx->t.gb.range == ctx->t.gb.codIRange << clz(ctx->t.gb.codIRange));
+	assert(ctx->t.gb.offset == (ctx->t.gb.codIOffset << 1 | 1) << (clz(ctx->t.gb.codIRange) - 1));
+	// FIXME move the refill out of get_bypass to the caller
 	if (ctx->t.gb.codIRange < 512) {
 		ctx->t.gb.codIOffset = shld(get_bytes(&ctx->t.gb, SIZE_BIT / 8 - 2), ctx->t.gb.codIOffset, SIZE_BIT - 16);
 		ctx->t.gb.codIRange <<= SIZE_BIT - 16;
@@ -285,40 +292,48 @@ static inline int get_bypass(Edge264Context *ctx) {
 	ctx->t.gb.codIRange >>= 1;
 	size_t binVal = ctx->t.gb.codIOffset >= ctx->t.gb.codIRange;
 	ctx->t.gb.codIOffset = binVal ? ctx->t.gb.codIOffset - ctx->t.gb.codIRange : ctx->t.gb.codIOffset;
+	ctx->t.gb.range = ctx->t.gb.codIRange << clz(ctx->t.gb.codIRange);
+	ctx->t.gb.offset = (ctx->t.gb.codIOffset << 1 | 1) << (clz(ctx->t.gb.codIRange) - 1);
 	return binVal;
 }
 
 static int cabac_start(Edge264Context *ctx) {
 	// reclaim bits from cache while realigning with CPB on a byte boundary
-	int extra_bits = SIZE_BIT - 1 - ctz(ctx->t.gb.lsb_cache);
-	int shift = extra_bits & 7;
+	int cached_bits = SIZE_BIT * 2 - 1 - ctz(ctx->t.gb.lsb_cache);
+	int shift = cached_bits & 7;
 	int ret = shift > 0 && (ssize_t)ctx->t.gb.msb_cache >> (SIZE_BIT - shift) != -1; // return 1 if not all alignment bits are ones
-	ctx->t.gb.codIOffset = shld(ctx->t.gb.lsb_cache, ctx->t.gb.msb_cache, shift); // codIOffset and msb_cache are the same memory slot
-	ctx->t.gb.lsb_cache >>= (SIZE_BIT - extra_bits) & (SIZE_BIT - 1);
-	while (extra_bits >= 8) {
+	ctx->t.gb.codIOffset = ctx->t.gb.msb_cache << shift >> 8;
+	while (cached_bits >= SIZE_BIT) {
 		int32_t i = 0;
 		if ((intptr_t)(ctx->t.gb.end - ctx->t.gb.CPB) >= 0)
 			memcpy(&i, ctx->t.gb.CPB - 4, 4);
 		ctx->t.gb.CPB -= 1 + ((big_endian32(i) & 0xffffff) == 3);
-		ctx->t.gb.lsb_cache >>= 8;
-		extra_bits -= 8;
+		cached_bits -= 8;
 	}
-	ctx->t.gb.codIRange = (size_t)510 << (SIZE_BIT - 9);
+	ctx->t.gb.codIRange = (size_t)510 << (SIZE_BIT - 17);
 	ctx->t.gb.codIOffset = (ctx->t.gb.codIOffset < ctx->t.gb.codIRange) ? ctx->t.gb.codIOffset : ctx->t.gb.codIRange - 1; // protection against invalid bitstream
+	ctx->t.gb.range = ctx->t.gb.codIRange << clz(ctx->t.gb.codIRange);
+	ctx->t.gb.offset = (ctx->t.gb.codIOffset << 1 | 1) << (clz(ctx->t.gb.codIRange) - 1);
 	return ret;
 }
 
 static int cabac_terminate(Edge264Context *ctx) {
+	assert(ctx->t.gb.range == ctx->t.gb.codIRange << clz(ctx->t.gb.codIRange));
+	assert(ctx->t.gb.offset == (ctx->t.gb.codIOffset << 1 | 1) << (clz(ctx->t.gb.codIRange) - 1));
 	int extra = SIZE_BIT - 9 - clz(ctx->t.gb.codIRange); // [0..SIZE_BIT-9]
 	ctx->t.gb.codIRange -= (size_t)2 << extra;
+	ctx->t.gb.range = ctx->t.gb.codIRange << clz(ctx->t.gb.codIRange);
+	ctx->t.gb.offset = (ctx->t.gb.codIOffset << 1 | 1) << (clz(ctx->t.gb.codIRange) - 1);
 	if (ctx->t.gb.codIOffset >= ctx->t.gb.codIRange) {
 		// reclaim the extra bits minus alignment bits, then refill the cache
 		ctx->t.gb.msb_cache = (ctx->t.gb.codIOffset * 2 + 1) << (SIZE_BIT - 1 - (extra & -8));
 		return refill(&ctx->t.gb, 1);
 	}
 	if (__builtin_expect(ctx->t.gb.codIRange < 256, 0)) {
-		ctx->t.gb.codIOffset = shld(get_bytes(&ctx->t.gb, SIZE_BIT / 8 - 1), ctx->t.gb.codIOffset, SIZE_BIT - 8);
-		ctx->t.gb.codIRange <<= SIZE_BIT - 8;
+		ctx->t.gb.codIOffset = shld(get_bytes(&ctx->t.gb, SIZE_BIT / 8 - 2), ctx->t.gb.codIOffset, SIZE_BIT - 16);
+		ctx->t.gb.codIRange <<= SIZE_BIT - 16;
+		ctx->t.gb.range = ctx->t.gb.codIRange << clz(ctx->t.gb.codIRange);
+		ctx->t.gb.offset = (ctx->t.gb.codIOffset << 1 | 1) << (clz(ctx->t.gb.codIRange) - 1);
 	}
 	return 0;
 }

@@ -358,6 +358,8 @@
 				#elif SIZE_BIT == 64
 					if (coeff_level >= 15) {
 						// we need at least 51 bits in codIOffset to get 42 bits with a division by 9 bits
+						assert(ctx->t.gb.range == ctx->t.gb.codIRange << clz(ctx->t.gb.codIRange));
+						assert(ctx->t.gb.offset == (ctx->t.gb.codIOffset << 1 | 1) << (clz(ctx->t.gb.codIRange) - 1));
 						int zeros = clz(ctx->t.gb.codIRange);
 						if (zeros > 64 - 51) {
 							ctx->t.gb.codIOffset = shld(get_bytes(&ctx->t.gb, zeros >> 3), ctx->t.gb.codIOffset, zeros & -8);
@@ -373,6 +375,8 @@
 						coeff_level = (quo & (size_t)1 << unused) ? -coeff_level : coeff_level;
 						ctx->t.gb.codIOffset = (quo & (((size_t)1 << unused) - 1)) * ctx->t.gb.codIRange + rem;
 						ctx->t.gb.codIRange <<= unused;
+						ctx->t.gb.range = ctx->t.gb.codIRange << clz(ctx->t.gb.codIRange);
+						ctx->t.gb.offset = (ctx->t.gb.codIOffset << 1 | 1) << (clz(ctx->t.gb.codIRange) - 1);
 					} else {
 						coeff_level = get_bypass(ctx) ? -coeff_level : coeff_level;
 					}
@@ -672,7 +676,7 @@ static noinline void CAFUNC(parse_NxN_residual)
  * As with mb_qp_delta, coded_block_pattern is parsed in two distinct code
  * paths, thus put in a distinct function.
  */
-static void CAFUNC(parse_coded_block_pattern, const uint8_t *map_me)
+static always_inline void CAFUNC(parse_coded_block_pattern, const uint8_t *map_me)
 {
 	// Luma prefix
 	#if !CABAC
@@ -932,7 +936,7 @@ static noinline void CAFUNC(parse_I_mb, int mb_type_or_ctxIdx)
  * It parses coded_block_pattern and transform_size_8x8_flag, that are parsed
  * in different orders than Intra macroblocks.
  */
-static void CAFUNC(parse_inter_residual)
+static noinline void CAFUNC(parse_inter_residual)
 {
 	static const uint8_t me_inter[48] = {0, 1, 32, 8, 4, 128, 2, 40, 36, 136, 132, 172, 174, 44, 168, 164, 140, 12, 160, 173, 42, 38, 138, 134, 34, 10, 6, 130, 46, 170, 166, 142, 33, 9, 5, 129, 41, 37, 137, 133, 45, 169, 165, 141, 13, 161, 14, 162};
 	CACALL(parse_coded_block_pattern, me_inter);
@@ -978,6 +982,8 @@ static void CAFUNC(parse_inter_residual)
 				ctxIdx = ctxBase + min(mvd++, 3);
 			if (mvd >= 9) {
 				// we need at least 35 (or 21) bits in codIOffset to get 26 (or 12) bypass bits
+				assert(ctx->t.gb.range == ctx->t.gb.codIRange << clz(ctx->t.gb.codIRange));
+				assert(ctx->t.gb.offset == (ctx->t.gb.codIOffset << 1 | 1) << (clz(ctx->t.gb.codIRange) - 1));
 				int zeros = clz(ctx->t.gb.codIRange);
 				if (zeros > (SIZE_BIT == 64 ? 64 - 35 : 32 - 21)) {
 					ctx->t.gb.codIOffset = shld(get_bytes(&ctx->t.gb, zeros >> 3), ctx->t.gb.codIOffset, zeros & -8);
@@ -1003,6 +1009,8 @@ static void CAFUNC(parse_inter_residual)
 				mvd = (quo & (size_t)1 << unused) ? -mvd : mvd;
 				ctx->t.gb.codIOffset = (quo & (((size_t)1 << unused) - 1)) * ctx->t.gb.codIRange + rem;
 				ctx->t.gb.codIRange <<= unused;
+				ctx->t.gb.range = ctx->t.gb.codIRange << clz(ctx->t.gb.codIRange);
+				ctx->t.gb.offset = (ctx->t.gb.codIOffset << 1 | 1) << (clz(ctx->t.gb.codIRange) - 1);
 			} else if (mvd > 0) {
 				mvd = get_bypass(ctx) ? -mvd : mvd;
 			}
@@ -1027,6 +1035,9 @@ static void CAFUNC(parse_inter_residual)
  * are then broadcast to other positions according to the inferred block
  * shapes, unless bit 8 is set (to signal Direct_8x8).
  * This function also clips all values to valid ones.
+ * 
+ * This function may be safely used as noinline since it is never called in the
+ * middle of a stateful computation.
  */
 static noinline void CAFUNC(parse_ref_idx, unsigned f) {
 	u8x16 v = {f, f, f, f, f, f, f, f, f, f, f, f, f, f, f, f};

@@ -50,10 +50,8 @@ typedef int32_t i32x16 __attribute__((vector_size(64))); // for initialization o
 typedef struct {
 	const uint8_t *CPB; // memory address of the next byte to load in caches
 	const uint8_t *end; // first byte past end of buffer, capped to 001 or 000 sequence when detected
-	union { size_t lsb_cache; size_t codIRange; };
-	union { size_t msb_cache; size_t codIOffset; };
-	size_t range;
-	size_t offset;
+	union { size_t lsb_cache; size_t range; };
+	union { size_t msb_cache; size_t offset; };
 } Edge264GetBits;
 
 

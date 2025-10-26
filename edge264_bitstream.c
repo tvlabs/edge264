@@ -258,42 +258,38 @@ static const uint8_t transIdx[256] = {
 };
 
 static noinline int get_ae(Edge264Context * restrict ctx, int ctxIdx) {
-	assert(ctx->t.gb.range == ctx->t.gb.codIRange << clz(ctx->t.gb.codIRange));
-	assert(ctx->t.gb.offset == (ctx->t.gb.codIOffset << 1 | 1) << (clz(ctx->t.gb.codIRange) - 1));
 	size_t state = ctx->cabac[ctxIdx];
-	size_t shift = SIZE_BIT - 3 - clz(ctx->t.gb.codIRange);\
-	size_t idx = (state & -4) + (ctx->t.gb.range >> (SIZE_BIT - 3) & 3);\
-	size_t codIRangeLPS = (size_t)((uint8_t *)rangeTabLPS - 4)[idx] << (shift - 6);\
-	ctx->t.gb.codIRange -= codIRangeLPS;\
-	if (ctx->t.gb.codIOffset >= ctx->t.gb.codIRange) {\
-		state ^= 255;\
-		ctx->t.gb.codIOffset -= ctx->t.gb.codIRange;\
-		ctx->t.gb.codIRange = codIRangeLPS;\
-	}\
-	ctx->cabac[ctxIdx] = transIdx[state];\
-	int binVal = state & 1;\
-	if (__builtin_expect(ctx->t.gb.codIRange < 256, 0)) {\
-		ctx->t.gb.codIOffset = shld(get_bytes(&ctx->t.gb, SIZE_BIT / 8 - 2), ctx->t.gb.codIOffset, SIZE_BIT - 16);\
-		ctx->t.gb.codIRange <<= SIZE_BIT - 16;\
-	}\
-	ctx->t.gb.range = ctx->t.gb.codIRange << clz(ctx->t.gb.codIRange);
-	ctx->t.gb.offset = (ctx->t.gb.codIOffset << 1 | 1) << (clz(ctx->t.gb.codIRange) - 1);
+	size_t idx = (state & -4) + (ctx->t.gb.range >> 6);
+	size_t rangeLPS = (size_t)((uint8_t *)rangeTabLPS - 4)[idx];
+	ctx->t.gb.range -= rangeLPS;
+	if (ctx->t.gb.offset >= ctx->t.gb.range << (SIZE_BIT - 9)) {
+		state ^= 255;
+		ctx->t.gb.offset -= ctx->t.gb.range << (SIZE_BIT - 9);
+		ctx->t.gb.range = rangeLPS;
+	}
+	int consumed = clz(ctx->t.gb.range) - (SIZE_BIT - 9);
+	ctx->t.gb.range <<= consumed;
+	ctx->t.gb.offset <<= consumed;
+	ctx->cabac[ctxIdx] = transIdx[state];
+	int binVal = state & 1;
+	if (__builtin_expect(!(ctx->t.gb.offset << 9), 0)) {
+		int z = ctz(ctx->t.gb.offset);
+		size_t b = shld(get_bytes(&ctx->t.gb, z >> 3), ctx->t.gb.offset >> z >> 1, z & -8);
+		ctx->t.gb.offset = (b * 2 + 1) << (z & 7);
+	}
 	return binVal;
 }
 
 static inline int get_bypass(Edge264Context *ctx) {
-	assert(ctx->t.gb.range == ctx->t.gb.codIRange << clz(ctx->t.gb.codIRange));
-	assert(ctx->t.gb.offset == (ctx->t.gb.codIOffset << 1 | 1) << (clz(ctx->t.gb.codIRange) - 1));
 	// FIXME move the refill out of get_bypass to the caller
-	if (ctx->t.gb.codIRange < 512) {
-		ctx->t.gb.codIOffset = shld(get_bytes(&ctx->t.gb, SIZE_BIT / 8 - 2), ctx->t.gb.codIOffset, SIZE_BIT - 16);
-		ctx->t.gb.codIRange <<= SIZE_BIT - 16;
+	if (__builtin_expect(!(ctx->t.gb.offset << 10), 0)) {
+		int z = ctz(ctx->t.gb.offset);
+		size_t b = shld(get_bytes(&ctx->t.gb, z >> 3), ctx->t.gb.offset >> z >> 1, z & -8);
+		ctx->t.gb.offset = (b * 2 + 1) << (z & 7);
 	}
-	ctx->t.gb.codIRange >>= 1;
-	size_t binVal = ctx->t.gb.codIOffset >= ctx->t.gb.codIRange;
-	ctx->t.gb.codIOffset = binVal ? ctx->t.gb.codIOffset - ctx->t.gb.codIRange : ctx->t.gb.codIOffset;
-	ctx->t.gb.range = ctx->t.gb.codIRange << clz(ctx->t.gb.codIRange);
-	ctx->t.gb.offset = (ctx->t.gb.codIOffset << 1 | 1) << (clz(ctx->t.gb.codIRange) - 1);
+	size_t binVal = ctx->t.gb.offset >= ctx->t.gb.range << (SIZE_BIT - 10);
+	ctx->t.gb.offset = binVal ? ctx->t.gb.offset - (ctx->t.gb.range << (SIZE_BIT - 10)) : ctx->t.gb.offset;
+	ctx->t.gb.offset <<= 1;
 	return binVal;
 }
 
@@ -302,7 +298,7 @@ static int cabac_start(Edge264Context *ctx) {
 	int cached_bits = SIZE_BIT * 2 - 1 - ctz(ctx->t.gb.lsb_cache);
 	int shift = cached_bits & 7;
 	int ret = shift > 0 && (ssize_t)ctx->t.gb.msb_cache >> (SIZE_BIT - shift) != -1; // return 1 if not all alignment bits are ones
-	ctx->t.gb.codIOffset = ctx->t.gb.msb_cache << shift >> 8;
+	ctx->t.gb.offset = ctx->t.gb.msb_cache << shift & -256 | 128;
 	while (cached_bits >= SIZE_BIT) {
 		int32_t i = 0;
 		if ((intptr_t)(ctx->t.gb.end - ctx->t.gb.CPB) >= 0)
@@ -310,30 +306,26 @@ static int cabac_start(Edge264Context *ctx) {
 		ctx->t.gb.CPB -= 1 + ((big_endian32(i) & 0xffffff) == 3);
 		cached_bits -= 8;
 	}
-	ctx->t.gb.codIRange = (size_t)510 << (SIZE_BIT - 17);
-	ctx->t.gb.codIOffset = (ctx->t.gb.codIOffset < ctx->t.gb.codIRange) ? ctx->t.gb.codIOffset : ctx->t.gb.codIRange - 1; // protection against invalid bitstream
-	ctx->t.gb.range = ctx->t.gb.codIRange << clz(ctx->t.gb.codIRange);
-	ctx->t.gb.offset = (ctx->t.gb.codIOffset << 1 | 1) << (clz(ctx->t.gb.codIRange) - 1);
+	ctx->t.gb.range = 510;
+	ctx->t.gb.offset = (ctx->t.gb.offset <= ctx->t.gb.range << (SIZE_BIT - 9)) ? ctx->t.gb.offset : ctx->t.gb.range << (SIZE_BIT - 9); // protection against invalid bitstream
 	return ret;
 }
 
 static int cabac_terminate(Edge264Context *ctx) {
-	assert(ctx->t.gb.range == ctx->t.gb.codIRange << clz(ctx->t.gb.codIRange));
-	assert(ctx->t.gb.offset == (ctx->t.gb.codIOffset << 1 | 1) << (clz(ctx->t.gb.codIRange) - 1));
-	int extra = SIZE_BIT - 9 - clz(ctx->t.gb.codIRange); // [0..SIZE_BIT-9]
-	ctx->t.gb.codIRange -= (size_t)2 << extra;
-	ctx->t.gb.range = ctx->t.gb.codIRange << clz(ctx->t.gb.codIRange);
-	ctx->t.gb.offset = (ctx->t.gb.codIOffset << 1 | 1) << (clz(ctx->t.gb.codIRange) - 1);
-	if (ctx->t.gb.codIOffset >= ctx->t.gb.codIRange) {
+	ctx->t.gb.range -= 2;
+	if (ctx->t.gb.offset >= ctx->t.gb.range << (SIZE_BIT - 9)) {
 		// reclaim the extra bits minus alignment bits, then refill the cache
-		ctx->t.gb.msb_cache = (ctx->t.gb.codIOffset * 2 + 1) << (SIZE_BIT - 1 - (extra & -8));
+		int extra = SIZE_BIT - 10 - ctz(ctx->t.gb.offset); // [0..SIZE_BIT-9]
+		ctx->t.gb.msb_cache = ctx->t.gb.offset << 9 << (extra & 7);
 		return refill(&ctx->t.gb, 1);
 	}
-	if (__builtin_expect(ctx->t.gb.codIRange < 256, 0)) {
-		ctx->t.gb.codIOffset = shld(get_bytes(&ctx->t.gb, SIZE_BIT / 8 - 2), ctx->t.gb.codIOffset, SIZE_BIT - 16);
-		ctx->t.gb.codIRange <<= SIZE_BIT - 16;
-		ctx->t.gb.range = ctx->t.gb.codIRange << clz(ctx->t.gb.codIRange);
-		ctx->t.gb.offset = (ctx->t.gb.codIOffset << 1 | 1) << (clz(ctx->t.gb.codIRange) - 1);
+	int consumed = clz(ctx->t.gb.range) - (SIZE_BIT - 9);
+	ctx->t.gb.range <<= consumed;
+	ctx->t.gb.offset <<= consumed;
+	if (__builtin_expect(!(ctx->t.gb.offset << 9), 0)) {
+		int z = ctz(ctx->t.gb.offset);
+		size_t b = shld(get_bytes(&ctx->t.gb, z >> 3), ctx->t.gb.offset >> z >> 1, z & -8);
+		ctx->t.gb.offset = (b * 2 + 1) << (z & 7);
 	}
 	return 0;
 }

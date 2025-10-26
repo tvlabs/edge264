@@ -153,7 +153,7 @@
 				v -= level_prefix;
 				ctx->t.gb.msb_cache = shld(ctx->t.gb.lsb_cache, ctx->t.gb.msb_cache, level_prefix);
 				if (!(ctx->t.gb.lsb_cache <<= level_prefix))
-					refill(&ctx->t.gb, 0);
+					refill_bits(&ctx->t.gb, 0);
 			#endif
 			int levelCode = get_uv(&ctx->t.gb, v) + offset;
 			levelCode += (i == TrailingOnes && TrailingOnes < 3) * 2;
@@ -198,7 +198,7 @@
 			log_mb(ctx, (i < endIdx) ? "%d," : "%d]}\n", ctx->c[ctx->scan[i]]);
 		
 		// trailing_ones_sign_flags+total_zeros+run_before consumed at most 31 bits, so we can delay refill here
-		return ctx->t.gb.lsb_cache ? 1 : refill(&ctx->t.gb, 1);
+		return ctx->t.gb.lsb_cache ? 1 : refill_bits(&ctx->t.gb, 1);
 	}
 
 	static noinline int parse_residual_block_4x4_cavlc(Edge264Context *ctx, int i4x4, int nA, int nB, int startIdx) {
@@ -263,7 +263,7 @@
 		ctx->t.gb.msb_cache = shld(ctx->t.gb.lsb_cache, ctx->t.gb.msb_cache, v);
 		ctx->t.gb.lsb_cache <<= v;
 		if (!ctx->t.gb.lsb_cache)
-			refill(&ctx->t.gb, 0);
+			refill_bits(&ctx->t.gb, 0);
 		if (coeff_token) {
 			mb->nC[i4x4] = coeff_token >> 2;
 			log_mb(ctx, "    - {nC: %u, c: [", nC);
@@ -293,7 +293,7 @@
 		int v = token >> 7;
 		ctx->t.gb.msb_cache = shld(ctx->t.gb.lsb_cache, ctx->t.gb.msb_cache, v);
 		if (!(ctx->t.gb.lsb_cache <<= v))
-			refill(&ctx->t.gb, 0);
+			refill_bits(&ctx->t.gb, 0);
 		if (coeff_token) {
 			log_mb(ctx, "    - {nC: -1, c: [");
 			parse_residual_coeffs_cavlc(ctx, 0, 3, coeff_token);
@@ -357,21 +357,21 @@
 					coeff_level = get_bypass(ctx) ? -coeff_level : coeff_level;
 				#elif SIZE_BIT == 64
 					if (coeff_level >= 15) {
-						// we need at least 51 bits in codIOffset to get 42 bits with a division by 9 bits
-						if (!(ctx->t.gb.offset << 51)) {
-							int z = ctz(ctx->t.gb.offset);
-							size_t b = shld(get_bytes(&ctx->t.gb, z >> 3), ctx->t.gb.offset >> z >> 1, z & -8);
-							ctx->t.gb.offset = (b * 2 + 1) << (z & 7);
+						// we need at least 51 bits in offset to get 42 bits with a division by 9 bits
+						int zeros = clz(ctx->t.gb.range);
+						if (zeros > 64 - 51) {
+							refill_ae(ctx, zeros >> 3, 0);
+							zeros &= 7;
 						}
-						size_t offset51 = ctx->t.gb.offset >> 13;
-						size_t quo = offset51 / ctx->t.gb.range; // requested bits are in lsb and 22 empty bits above
-						size_t rem = offset51 % ctx->t.gb.range;
-						int k = clz(~quo << 22 | (size_t)1 << (SIZE_BIT - 21));
-						int unused = 42 - k * 2 - 2;
+						ctx->t.gb.range >>= 64 - 9 - zeros;
+						size_t quo = ctx->t.gb.offset / ctx->t.gb.range; // requested bits are in lsb and zeros+9 empty bits above
+						size_t rem = ctx->t.gb.offset % ctx->t.gb.range;
+						int k = clz(~quo << (zeros + 9) | (size_t)1 << (SIZE_BIT - 21));
+						int unused = 64 - 9 - zeros - k * 2 - 2;
 						coeff_level = 14 + (1 << k | (quo >> unused >> 1 & (((size_t)1 << k) - 1)));
 						coeff_level = (quo & (size_t)1 << unused) ? -coeff_level : coeff_level;
-						offset51 = (quo & (((size_t)1 << unused) - 1)) * ctx->t.gb.range + rem;
-						ctx->t.gb.offset = shld(ctx->t.gb.offset << 51, offset51, 13 + k * 2 + 2);
+						ctx->t.gb.offset = (quo & (((size_t)1 << unused) - 1)) * ctx->t.gb.range + rem;
+						ctx->t.gb.range <<= unused;
 					} else {
 						coeff_level = get_bypass(ctx) ? -coeff_level : coeff_level;
 					}
@@ -976,32 +976,32 @@ static noinline void CAFUNC(parse_inter_residual)
 			while (mvd < 9 && get_ae(ctx, ctxIdx))
 				ctxIdx = ctxBase + min(mvd++, 3);
 			if (mvd >= 9) {
-				// we need at least 35 (or 21) bits in codIOffset to get 26 (or 12) bypass bits
+				// we need at least 35 (or 21) bits in offset to get 26 (or 12) bypass bits
 				// FIXME review max numbers, seem to miss sign bit
-				int bits = SIZE_BIT == 64 ? 35 : 21;
-				if (!(ctx->t.gb.offset << bits)) {
-					int z = ctz(ctx->t.gb.offset);
-					size_t b = shld(get_bytes(&ctx->t.gb, z >> 3), ctx->t.gb.offset >> z >> 1, z & -8);
-					ctx->t.gb.offset = (b * 2 + 1) << (z & 7);
+				int zeros = clz(ctx->t.gb.range);
+				if (zeros > (SIZE_BIT == 64 ? 64 - 35 : 32 - 21)) {
+					refill_ae(ctx, zeros >> 3, 0);
+					zeros &= 7;
 				}
-				size_t offset = ctx->t.gb.offset >> (SIZE_BIT - bits);
-				size_t quo = offset / ctx->t.gb.range; // requested bits are in lsb and 38/20 empty bits above
-				size_t rem = offset % ctx->t.gb.range;
-				int k = 3 + clz(~quo << (SIZE_BIT + 9 - bits) | (size_t)1 << (SIZE_BIT - 12));
-				int unused = bits - 9 - k * 2 + 1;
+				// for 64-bit we could shift offset down to 37 bits to help iterative hardware dividers, but that would make the code harder to maintain
+				ctx->t.gb.range >>= SIZE_BIT - 9 - zeros;
+				size_t quo = ctx->t.gb.offset / ctx->t.gb.range; // requested bits are in lsb and zeros+9 empty bits above
+				size_t rem = ctx->t.gb.offset % ctx->t.gb.range;
+				int k = 3 + clz(~quo << (zeros + 9) | (size_t)1 << (SIZE_BIT - 12));
+				int unused = SIZE_BIT - 9 - zeros - k * 2 + 1;
 				#if SIZE_BIT == 32
 					if (__builtin_expect(unused < 0, 0)) { // FIXME needs testing
-						// refill codIOffset with 16 bits then make a new division
-						offset = shld(get_bytes(&ctx->t.gb, 2), rem, 16);
-						quo = shld((offset / ctx->t.gb.range) << (SIZE_BIT - 16), quo, 16);
-						rem = offset % ctx->t.gb.range;
+						// refill offset with 16 bits then make a new division
+						ctx->t.gb.offset = shld(get_bytes(&ctx->t.gb, 2), rem, 16);
+						quo = shld((ctx->t.gb.offset / ctx->t.gb.range) << (SIZE_BIT - 16), quo, 16);
+						rem = ctx->t.gb.offset % ctx->t.gb.range;
 						unused += 16;
 					}
 				#endif
 				mvd = 1 + (1 << k | (quo >> unused >> 1 & (((size_t)1 << k) - 1)));
 				mvd = (quo & (size_t)1 << unused) ? -mvd : mvd;
-				offset = (quo & (((size_t)1 << unused) - 1)) * ctx->t.gb.range + rem;
-				ctx->t.gb.offset = shld(ctx->t.gb.offset << bits, offset, SIZE_BIT - bits + k * 2 - 1);
+				ctx->t.gb.offset = (quo & (((size_t)1 << unused) - 1)) * ctx->t.gb.range + rem;
+				ctx->t.gb.range <<= unused;
 			} else if (mvd > 0) {
 				mvd = get_bypass(ctx) ? -mvd : mvd;
 			}

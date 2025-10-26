@@ -110,7 +110,7 @@ static inline size_t get_bytes(Edge264GetBits *gb, int nbytes)
  *   The main context then fits in 2 variables, which are easier to store in
  *   Global Register Variables.
  */
-static noinline int refill(Edge264GetBits *gb, int ret) {
+static noinline int refill_bits(Edge264GetBits *gb, int ret) {
 	size_t bytes = get_bytes(gb, SIZE_BIT >> 3);
 	int trailing_bit = ctz(gb->msb_cache); // [0..SIZE_BIT-1]
 	gb->msb_cache = (gb->msb_cache ^ (size_t)1 << trailing_bit) | bytes >> (SIZE_BIT - 1 - trailing_bit);
@@ -123,7 +123,7 @@ static noinline int get_u1(Edge264GetBits *gb) {
 	gb->msb_cache = shld(gb->lsb_cache, gb->msb_cache, 1);
 	if (gb->lsb_cache <<= 1)
 		return ret;
-	return refill(gb, ret);
+	return refill_bits(gb, ret);
 }
 
 // Parses a 1~32-bit fixed size code
@@ -138,7 +138,7 @@ static noinline unsigned get_uv(Edge264GetBits *gb, unsigned v) {
 	}
 	if (gb->lsb_cache)
 		return ret;
-	return refill(gb, ret);
+	return refill_bits(gb, ret);
 }
 
 // Parses a Exp-Golomb code in one read, up to 2^16-2 (2^32-2 on 64-bit machines)
@@ -148,7 +148,7 @@ static noinline unsigned get_ue16(Edge264GetBits *gb, unsigned upper) {
 	gb->msb_cache = shld(gb->lsb_cache, gb->msb_cache, v);
 	if (gb->lsb_cache <<= v)
 		return ret;
-	return refill(gb, ret);
+	return refill_bits(gb, ret);
 }
 
 // Parses a signed Exp-Golomb code in one read, from -2^15+1 to 2^15-1 (-2^31+1 to 2^31-1 on 64-bit machines)
@@ -159,7 +159,7 @@ static noinline int get_se16(Edge264GetBits *gb, int lower, int upper) {
 	gb->msb_cache = shld(gb->lsb_cache, gb->msb_cache, v);
 	if (gb->lsb_cache <<= v)
 		return ret;
-	return refill(gb, ret);
+	return refill_bits(gb, ret);
 }
 
 // Extensions to [0,2^32-2] and [-2^31+1,2^31-1] for 32-bit machines
@@ -168,7 +168,7 @@ static noinline int get_se16(Edge264GetBits *gb, int lower, int upper) {
 		unsigned leadingZeroBits = clz(gb->msb_cache | 1); // [0..31]
 		gb->msb_cache = shld(gb->lsb_cache, gb->msb_cache, leadingZeroBits);
 		if (!(gb->lsb_cache <<= leadingZeroBits))
-			refill(gb, 0);
+			refill_bits(gb, 0);
 		return minu(get_uv(gb, leadingZeroBits + 1) - 1, upper);
 	}
 
@@ -176,7 +176,7 @@ static noinline int get_se16(Edge264GetBits *gb, int lower, int upper) {
 		unsigned leadingZeroBits = clz(gb->msb_cache | 1); // [0..31]
 		gb->msb_cache = shld(gb->lsb_cache, gb->msb_cache, leadingZeroBits);
 		if (!(gb->lsb_cache <<= leadingZeroBits))
-			refill(gb, 0);
+			refill_bits(gb, 0);
 		unsigned ue = get_uv(gb, leadingZeroBits + 1) - 1;
 		return min(max(ue & 1 ? ue / 2 + 1 : -(ue / 2), lower), upper);
 	}
@@ -188,28 +188,28 @@ static noinline int get_se16(Edge264GetBits *gb, int lower, int upper) {
  * Read CABAC bins (9.3.3.2).
  * 
  * History of versions and updates:
- * _ Storing codIOffset and codIRange in two size_t variables, along with a
- *   counter to indicate how many extra bits are present in codIOffset.
- *   codIRange corresponds with the spec, and codIOffset is shifted with extra
+ * _ Storing offset and range in two size_t variables, along with a
+ *   counter to indicate how many extra bits are present in offset.
+ *   range corresponds with the spec, and offset is shifted with extra
  *   least significant bits. It dramatically reduces the number of memory reads
- *   to refill codIOffset compared to the specification, at the expense of more
+ *   to refill offset compared to the specification, at the expense of more
  *   complex shift math.
- * _ Same as above but using the leading set bit of codIRange instead of a
- *   variable to count the remaining bits in codIOffset. codIRange is now
- *   shifted along with codIOffset. It requires one less memory load and
+ * _ Same as above but using the leading set bit of range instead of a
+ *   variable to count the remaining bits in offset. range is now
+ *   shifted along with offset. It requires one less memory load and
  *   shortens the dependency chain of critical function get_ae, thus improving
  *   overall performance.
  * _ Using a division instruction to get bypass bits ahead of time, since the
  *   process described in 9.3.3.2.3 is actually equivalent with a binary
  *   division. It is unclear whether it actually improves performance, but it
  *   looks very cool!
- * _ Storing codIOffset and codIRange in Global Register Variables (possible
+ * _ Storing offset and range in Global Register Variables (possible
  *   with GCC), since they account for a lot of reads/writes otherwise. It
  *   improves performance overall, and was later followed by the storage of
  *   CAVLC's context in GRVs. However the renormalization is now quite complex
  *   as it involves swapping CABAC and CAVLC in GRVs to fetch bits before
- *   inserting them into codIOffset.
- * _ Increasing the codIRange lower bound to trigger a refill from 256 to 512,
+ *   inserting them into offset.
+ * _ Increasing the range lower bound to trigger a refill from 256 to 512,
  *   to spare the refill test when parsing coeff_sign_flag. It was later
  *   abandoned since it required additional comments to explain divergence from
  *   specification.
@@ -217,7 +217,7 @@ static noinline int get_se16(Edge264GetBits *gb, int lower, int upper) {
  *   fetch bytes without restoring CAVLC's context. It spared a test for
  *   calling CAVLC's refill (not well predicted), thus improving performance.
  *   However the bypass division trick is now unavailable on 32 bit machines,
- *   since renormalization will now leave 25~32 bits in codIOffset, but the
+ *   since renormalization will now leave 25~32 bits in offset, but the
  *   algorithm needs at least 29 to remain simple.
  */
 static const uint8_t rangeTabLPS[64 * 4] = {
@@ -257,76 +257,68 @@ static const uint8_t transIdx[256] = {
 	244, 245,   9,   8, 248, 249,   5,   4, 248, 249,   1,   0, 252, 253,   0,   1,
 };
 
+static inline int refill_ae(Edge264Context * restrict ctx, int nbytes, int ret) {
+	size_t bytes = get_bytes(&ctx->t.gb, nbytes);
+	ctx->t.gb.offset = shld(bytes, ctx->t.gb.offset, nbytes << 3);
+	ctx->t.gb.range <<= nbytes << 3;
+	return ret;
+}
+
 static noinline int get_ae(Edge264Context * restrict ctx, int ctxIdx) {
 	size_t state = ctx->cabac[ctxIdx];
-	size_t idx = (state & -4) + (ctx->t.gb.range >> 6);
-	size_t rangeLPS = (size_t)((uint8_t *)rangeTabLPS - 4)[idx];
+	size_t shift = SIZE_BIT - 3 - clz(ctx->t.gb.range); // [6..SIZE_BIT-3]
+	size_t idx = (state & -4) + (ctx->t.gb.range >> shift);
+	size_t rangeLPS = (size_t)((uint8_t *)rangeTabLPS - 4)[idx] << (shift - 6);
 	ctx->t.gb.range -= rangeLPS;
-	if (ctx->t.gb.offset >= ctx->t.gb.range << (SIZE_BIT - 9)) {
+	if (ctx->t.gb.offset >= ctx->t.gb.range) {
 		state ^= 255;
-		ctx->t.gb.offset -= ctx->t.gb.range << (SIZE_BIT - 9);
+		ctx->t.gb.offset -= ctx->t.gb.range;
 		ctx->t.gb.range = rangeLPS;
 	}
-	int consumed = clz(ctx->t.gb.range) - (SIZE_BIT - 9);
-	ctx->t.gb.range <<= consumed;
-	ctx->t.gb.offset <<= consumed;
 	ctx->cabac[ctxIdx] = transIdx[state];
 	int binVal = state & 1;
-	if (__builtin_expect(!(ctx->t.gb.offset << 9), 0)) {
-		int z = ctz(ctx->t.gb.offset);
-		size_t b = shld(get_bytes(&ctx->t.gb, z >> 3), ctx->t.gb.offset >> z >> 1, z & -8);
-		ctx->t.gb.offset = (b * 2 + 1) << (z & 7);
-	}
+	if (__builtin_expect(ctx->t.gb.range < 256, 0))
+		return refill_ae(ctx, SIZE_BIT / 8 - 1, binVal);
 	return binVal;
 }
 
 static inline int get_bypass(Edge264Context *ctx) {
-	// FIXME move the refill out of get_bypass to the caller
-	if (__builtin_expect(!(ctx->t.gb.offset << 10), 0)) {
-		int z = ctz(ctx->t.gb.offset);
-		size_t b = shld(get_bytes(&ctx->t.gb, z >> 3), ctx->t.gb.offset >> z >> 1, z & -8);
-		ctx->t.gb.offset = (b * 2 + 1) << (z & 7);
-	}
-	size_t binVal = ctx->t.gb.offset >= ctx->t.gb.range << (SIZE_BIT - 10);
-	ctx->t.gb.offset = binVal ? ctx->t.gb.offset - (ctx->t.gb.range << (SIZE_BIT - 10)) : ctx->t.gb.offset;
-	ctx->t.gb.offset <<= 1;
+	if (__builtin_expect(ctx->t.gb.range < 512, 0))
+		refill_ae(ctx, clz(ctx->t.gb.range) >> 3, 0);
+	ctx->t.gb.range >>= 1;
+	size_t binVal = ctx->t.gb.offset >= ctx->t.gb.range;
+	ctx->t.gb.offset = binVal ? ctx->t.gb.offset - ctx->t.gb.range : ctx->t.gb.offset;
 	return binVal;
 }
 
 static int cabac_start(Edge264Context *ctx) {
 	// reclaim bits from cache while realigning with CPB on a byte boundary
-	int cached_bits = SIZE_BIT * 2 - 1 - ctz(ctx->t.gb.lsb_cache);
-	int shift = cached_bits & 7;
-	int ret = shift > 0 && (ssize_t)ctx->t.gb.msb_cache >> (SIZE_BIT - shift) != -1; // return 1 if not all alignment bits are ones
-	ctx->t.gb.offset = ctx->t.gb.msb_cache << shift & -256 | 128;
-	while (cached_bits >= SIZE_BIT) {
+	int extra_bits = SIZE_BIT - 1 - ctz(ctx->t.gb.lsb_cache);
+	while (extra_bits >= 8) {
 		int32_t i = 0;
 		if ((intptr_t)(ctx->t.gb.end - ctx->t.gb.CPB) >= 0)
 			memcpy(&i, ctx->t.gb.CPB - 4, 4);
 		ctx->t.gb.CPB -= 1 + ((big_endian32(i) & 0xffffff) == 3);
-		cached_bits -= 8;
+		extra_bits -= 8;
 	}
-	ctx->t.gb.range = 510;
-	ctx->t.gb.offset = (ctx->t.gb.offset <= ctx->t.gb.range << (SIZE_BIT - 9)) ? ctx->t.gb.offset : ctx->t.gb.range << (SIZE_BIT - 9); // protection against invalid bitstream
+	int shift = extra_bits & 7;
+	int ret = shift > 0 && (ssize_t)ctx->t.gb.msb_cache >> (SIZE_BIT - shift) != -1; // return 1 if not all alignment bits are ones
+	ctx->t.gb.offset = shld(ctx->t.gb.lsb_cache, ctx->t.gb.msb_cache, shift); // offset and msb_cache are the same memory slot
+	ctx->t.gb.range = (size_t)510 << (SIZE_BIT - 9);
+	ctx->t.gb.offset = (ctx->t.gb.offset < ctx->t.gb.range) ? ctx->t.gb.offset : ctx->t.gb.range; // protection against invalid bitstream
 	return ret;
 }
 
 static int cabac_terminate(Edge264Context *ctx) {
-	ctx->t.gb.range -= 2;
-	if (ctx->t.gb.offset >= ctx->t.gb.range << (SIZE_BIT - 9)) {
+	int extra = SIZE_BIT - 9 - clz(ctx->t.gb.range); // [0..SIZE_BIT-9]
+	ctx->t.gb.range -= (size_t)2 << extra;
+	if (ctx->t.gb.offset >= ctx->t.gb.range) {
 		// reclaim the extra bits minus alignment bits, then refill the cache
-		int extra = SIZE_BIT - 10 - ctz(ctx->t.gb.offset); // [0..SIZE_BIT-9]
-		ctx->t.gb.msb_cache = ctx->t.gb.offset << 9 << (extra & 7);
-		return refill(&ctx->t.gb, 1);
+		ctx->t.gb.msb_cache = (ctx->t.gb.offset * 2 + 1) << (SIZE_BIT - 1 - (extra & -8));
+		return refill_bits(&ctx->t.gb, 1);
 	}
-	int consumed = clz(ctx->t.gb.range) - (SIZE_BIT - 9);
-	ctx->t.gb.range <<= consumed;
-	ctx->t.gb.offset <<= consumed;
-	if (__builtin_expect(!(ctx->t.gb.offset << 9), 0)) {
-		int z = ctz(ctx->t.gb.offset);
-		size_t b = shld(get_bytes(&ctx->t.gb, z >> 3), ctx->t.gb.offset >> z >> 1, z & -8);
-		ctx->t.gb.offset = (b * 2 + 1) << (z & 7);
-	}
+	if (__builtin_expect(ctx->t.gb.range < 256, 0))
+		return refill_ae(ctx, SIZE_BIT / 8 - 1, 0);
 	return 0;
 }
 

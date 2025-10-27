@@ -431,7 +431,9 @@ typedef struct Edge264Decoder {
 	#define noinline __attribute__((noinline))
 #endif
 #ifndef always_inline
-#if defined(__GNUC__) || defined(__clang__)
+#if defined(__clang__)
+	#define always_inline __attribute__((always_inline))
+#elif defined(__GNUC__)
 	#define always_inline inline __attribute__((always_inline))
 #elif defined(_MSC_VER)
 	#define always_inline __forceinline
@@ -993,9 +995,9 @@ static always_inline unsigned depended_frames(Edge264Decoder *dec) {
  */
 // edge264_bitstream.c
 static inline size_t get_bytes(Edge264GetBits *gb, int nbytes);
-static noinline int refill_bits(Edge264GetBits *gb, int ret);
+static noinline int refill(Edge264GetBits *gb, int ret);
 static noinline int get_u1(Edge264GetBits *gb);
-static noinline unsigned get_uv(Edge264GetBits *gb, unsigned v);
+static noinline unsigned get_uv(Edge264GetBits *gb, int v);
 static noinline unsigned get_ue16(Edge264GetBits *gb, unsigned upper);
 static noinline int get_se16(Edge264GetBits *gb, int lower, int upper);
 #if SIZE_BIT == 32
@@ -1005,7 +1007,9 @@ static noinline int get_se16(Edge264GetBits *gb, int lower, int upper);
 	#define get_ue32 get_ue16
 	#define get_se32 get_se16
 #endif
-static inline int refill_ae(Edge264Context * restrict ctx, int nbytes, int ret);
+static noinline int renorm_bits(Edge264Context * restrict ctx, int bits);
+static int renorm_fixed(Edge264Context * restrict ctx, int ret);
+static inline int get_ae_inline(Edge264Context * restrict ctx, int ctxIdx);
 static noinline int get_ae(Edge264Context * restrict ctx, int ctxIdx);
 static inline int get_bypass(Edge264Context *ctx);
 static int cabac_start(Edge264Context *ctx);

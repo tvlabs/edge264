@@ -19,8 +19,6 @@
 	#define CAJUMP(f, ...) { f ## _cabac(ctx, ## __VA_ARGS__); return; }
 	#define CACOND(cavlc, cabac) cabac
 	
-	static const i8x16 sig_inc_4x4 =
-		{0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15};
 	static const i8x16 sig_inc_8x8[2][4] = {{
 		{ 0,  1,  2,  3,  4,  5,  5,  4,  4,  3,  3,  4,  4,  4,  5,  5},
 		{ 4,  4,  4,  4,  3,  3,  6,  7,  7,  7,  8,  9, 10,  9,  8,  7},
@@ -38,8 +36,7 @@
 		{3, 3, 3, 3, 3, 3, 3, 3, 4, 4, 4, 4, 4, 4, 4, 4},
 		{5, 5, 5, 5, 6, 6, 6, 6, 7, 7, 7, 7, 8, 8, 8, 8},
 	};
-	static const i8x16 sig_inc_chromaDC[2] =
-		{{0, 1, 2, 0, 0, 1, 2, 0}, {0, 0, 1, 1, 2, 2, 2, 0, 0, 0, 1, 1, 2, 2, 2, 0}};
+	static const i8x8 sig_inc_chromaDC_422 = {0, 0, 1, 1, 2, 2, 2};
 	
 	static const i16x4 ctxIdxOffsets_16x16DC[3][2] = {
 		{{85, 105, 166, 227}, {85, 277, 338, 227}}, // ctxBlockCat==0
@@ -72,9 +69,11 @@
 /**
  * Parse a CAVLC residual block (9.2).
  * 
- * There are 2 entry points here, parse_residual_block_4x4_cavlc and
- * parse_residual_block_2x2_cavlc, which both tail jump to
- * parse_residual_coeffs_cavlc.
+ * There are 2 entry points here:
+ * _ parse_residual_block_4x4_cavlc which mirrors signature of
+ *   parse_residual_coeffs_cavlc to tail jump to it
+ * _ parse_residual_block_2x2_cavlc which is inlined but contains a call to
+ *   parse_residual_coeffs_cavlc
  * 
  * For coeff_token/total_zeros/run_before, while the spec is quite convoluted
  * level_prefix+level_suffix just look like Exp-Golomb codes, so we need only
@@ -122,10 +121,7 @@
 		return code & 15;
 	}
 	
-	static noinline int parse_residual_coeffs_cavlc(Edge264Context *ctx, int startIdx, int endIdx, int token) {
-		int TrailingOnes = token & 3;
-		int TotalCoeff = token >> 2;
-		
+	static noinline int parse_residual_coeffs_cavlc(Edge264Context *ctx, int startIdx, int endIdx, int TrailingOnes, int TotalCoeff) {
 		// parse all level values from end to start
 		int32_t level[16];
 		size_t signs = ~ctx->t.gb.msb_cache;
@@ -153,7 +149,7 @@
 				v -= level_prefix;
 				ctx->t.gb.msb_cache = shld(ctx->t.gb.lsb_cache, ctx->t.gb.msb_cache, level_prefix);
 				if (!(ctx->t.gb.lsb_cache <<= level_prefix))
-					refill_bits(&ctx->t.gb, 0);
+					refill(&ctx->t.gb, 0);
 			#endif
 			int levelCode = get_uv(&ctx->t.gb, v) + offset;
 			levelCode += (i == TrailingOnes && TrailingOnes < 3) * 2;
@@ -198,10 +194,10 @@
 			log_mb(ctx, (i < endIdx) ? "%d," : "%d]}\n", ctx->c[ctx->scan[i]]);
 		
 		// trailing_ones_sign_flags+total_zeros+run_before consumed at most 31 bits, so we can delay refill here
-		return ctx->t.gb.lsb_cache ? 1 : refill_bits(&ctx->t.gb, 1);
+		return ctx->t.gb.lsb_cache ? 1 : refill(&ctx->t.gb, 1);
 	}
 
-	static noinline int parse_residual_block_4x4_cavlc(Edge264Context *ctx, int i4x4, int nA, int nB, int startIdx) {
+	static noinline int parse_residual_block_4x4_cavlc(Edge264Context *ctx, int startIdx, int i4x4, int nA, int nB) {
 		static const uint8_t nC_offset[8] = {184, 184, 80, 80, 0, 0, 0, 0};
 		static const int16_t tokens[38 * 8] = {
 			543, 539, 535, 531, 527, 522, 517, 512, // 4 <= nC < 8
@@ -263,11 +259,11 @@
 		ctx->t.gb.msb_cache = shld(ctx->t.gb.lsb_cache, ctx->t.gb.msb_cache, v);
 		ctx->t.gb.lsb_cache <<= v;
 		if (!ctx->t.gb.lsb_cache)
-			refill_bits(&ctx->t.gb, 0);
+			refill(&ctx->t.gb, 0);
 		if (coeff_token) {
 			mb->nC[i4x4] = coeff_token >> 2;
 			log_mb(ctx, "    - {nC: %u, c: [", nC);
-			return parse_residual_coeffs_cavlc(ctx, startIdx, 15, coeff_token);
+			return parse_residual_coeffs_cavlc(ctx, startIdx, 15, coeff_token & 3, coeff_token >> 2);
 		} else {
 			log_mb(ctx, "    - {nC: %u}\n", nC);
 			return 0;
@@ -293,10 +289,10 @@
 		int v = token >> 7;
 		ctx->t.gb.msb_cache = shld(ctx->t.gb.lsb_cache, ctx->t.gb.msb_cache, v);
 		if (!(ctx->t.gb.lsb_cache <<= v))
-			refill_bits(&ctx->t.gb, 0);
+			refill(&ctx->t.gb, 0);
 		if (coeff_token) {
 			log_mb(ctx, "    - {nC: -1, c: [");
-			parse_residual_coeffs_cavlc(ctx, 0, 3, coeff_token);
+			parse_residual_coeffs_cavlc(ctx, 0, 3, coeff_token & 3, coeff_token >> 2);
 		} else {
 			log_mb(ctx, "    - {nC: -1}\n");
 		}
@@ -308,6 +304,12 @@
 /**
  * Parse a CABAC residual block after coded_block_flag (9.3.2.3).
  * 
+ * There are 2 entry points which tail jump to parse_residual_coeffs_cabac:
+ * _ parse_residual_block_cabac for 4x4 and 2x2 blocks
+ *   (for which ctxIdxInc = LevelListIdx in spec's formula 9-21)
+ * _ parse_residual_block_8x8_cabac for 8x8 and 2x4 blocks
+ *   (with additional array accesses for ctxIdxInc)
+ * 
  * Here, all bypass bits can be extracted using a binary division (!!).
  * coeff_abs_level expects at most 2^(7+14)-14, i.e 41 bits as Exp-Golomb, so
  * we can get all of them on 64 bit machines.
@@ -315,19 +317,7 @@
  * maintain, this function is designed to be simple and compact.
  */
 #if CABAC
-	static noinline void parse_residual_coeffs_cabac(Edge264Context *ctx, int startIdx, int endIdx) {
-		// significant_coeff_flags are stored as a bit mask
-		uint64_t significant_coeff_flags = 0;
-		int i = startIdx;
-		do {
-			if (get_ae(ctx, ctx->ctxIdxOffsets[1] + ctx->sig_inc[i])) {
-				significant_coeff_flags |= (uint64_t)1 << i;
-				if (get_ae(ctx, ctx->ctxIdxOffsets[2] + ctx->last_inc[i]))
-					break;
-			}
-		} while (++i < endIdx);
-		significant_coeff_flags |= (uint64_t)1 << i;
-		
+	static noinline void parse_residual_coeffs_cabac(Edge264Context *ctx, uint64_t significant_coeff_flags) {
 		// Now loop on set bits to parse all non-zero coefficients.
 		int ctxIdx0 = ctx->ctxIdxOffsets[3] + 1;
 		int ctxIdx1 = ctx->ctxIdxOffsets[3] + 5;
@@ -359,10 +349,8 @@
 					if (coeff_level >= 15) {
 						// we need at least 51 bits in offset to get 42 bits with a division by 9 bits
 						int zeros = clz(ctx->t.gb.range);
-						if (zeros > 64 - 51) {
-							refill_ae(ctx, zeros >> 3, 0);
-							zeros &= 7;
-						}
+						if (zeros > 64 - 51)
+							zeros = renorm_bits(ctx, zeros);
 						ctx->t.gb.range >>= 64 - 9 - zeros;
 						size_t quo = ctx->t.gb.offset / ctx->t.gb.range; // requested bits are in lsb and zeros+9 empty bits above
 						size_t rem = ctx->t.gb.offset % ctx->t.gb.range;
@@ -383,6 +371,36 @@
 			ctx->c[ctx->scan[i]] = coeff_level; // beware, scan is transposed already
 			significant_coeff_flags &= ~((uint64_t)1 << i);
 		} while (significant_coeff_flags != 0);
+	}
+	
+	static noinline void parse_residual_block_cabac(Edge264Context * restrict ctx, int startIdx, int endIdx) {
+		// significant_coeff_flags are stored as a bit mask
+		uint64_t significant_coeff_flags = 0;
+		int i = startIdx;
+		do {
+			if (get_ae_inline(ctx, ctx->ctxIdxOffsets[1] + i)) {
+				significant_coeff_flags |= (uint64_t)1 << i;
+				if (get_ae_inline(ctx, ctx->ctxIdxOffsets[2] + i))
+					break;
+			}
+		} while (++i < endIdx);
+		significant_coeff_flags |= (uint64_t)1 << i;
+		parse_residual_coeffs_cabac(ctx, significant_coeff_flags);
+	}
+	
+	static noinline void parse_residual_block_8x8_cabac(Edge264Context * restrict ctx, int startIdx, int endIdx) {
+		// significant_coeff_flags are stored as a bit mask
+		uint64_t significant_coeff_flags = 0;
+		int i = startIdx;
+		do {
+			if (get_ae_inline(ctx, ctx->ctxIdxOffsets[1] + ctx->sig_inc[i])) {
+				significant_coeff_flags |= (uint64_t)1 << i;
+				if (get_ae_inline(ctx, ctx->ctxIdxOffsets[2] + ctx->last_inc[i]))
+					break;
+			}
+		} while (++i < endIdx);
+		significant_coeff_flags |= (uint64_t)1 << i;
+		parse_residual_coeffs_cabac(ctx, significant_coeff_flags);
 	}
 #endif
 
@@ -434,17 +452,16 @@ static noinline void CAFUNC(parse_chroma_residual)
 			parse_residual_block_2x2_cavlc(ctx);
 		#else
 			ctx->ctxIdxOffsets_l = ctxIdxOffsets_chromaDC[0]; // FIXME 4:2:2
-			ctx->sig_inc_v[0] = ctx->last_inc_v[0] = sig_inc_chromaDC[0];
 			ctx->coeff_abs_inc_l = (i8x8){6, 7, 8, 8};
 			if (get_ae(ctx, ctx->ctxIdxOffsets[0] + ctx->inc.coded_block_flags_16x16[1])) {
 				mb->f.coded_block_flags_16x16[1] = 1;
 				ctx->scan_s = (i8x4){0, 4, 2, 6};
-				parse_residual_coeffs_cabac(ctx, 0, 3);
+				parse_residual_block_cabac(ctx, 0, 3);
 			}
 			if (get_ae(ctx, ctx->ctxIdxOffsets[0] + ctx->inc.coded_block_flags_16x16[2])) {
 				mb->f.coded_block_flags_16x16[2] = 1;
 				ctx->scan_s = (i8x4){1, 5, 3, 7};
-				parse_residual_coeffs_cabac(ctx, 0, 3);
+				parse_residual_block_cabac(ctx, 0, 3);
 			}
 		#endif
 		transform_dc2x2(ctx);
@@ -452,7 +469,6 @@ static noinline void CAFUNC(parse_chroma_residual)
 		// Eight or sixteen 4x4 AC blocks for the Cb/Cr components
 		if (mb->f.CodedBlockPatternChromaAC) {
 			#if CABAC
-				ctx->sig_inc_v[0] = ctx->last_inc_v[0] = sig_inc_4x4;
 				ctx->ctxIdxOffsets_l = ctxIdxOffsets_chromaAC[0];
 				ctx->coeff_abs_inc_l = (i8x8){6, 7, 8, 9, 9};
 			#endif
@@ -463,14 +479,14 @@ static noinline void CAFUNC(parse_chroma_residual)
 				int nA = *((int8_t *)mb->nC + 16 + ctx->ACbCr_int8[i4x4]);
 				int nB = *((int8_t *)mb->nC + 16 + ctx->BCbCr_int8[i4x4]);
 				#if !CABAC
-					if (parse_residual_block_4x4_cavlc(ctx, 16 + i4x4, nA, nB, 1))
+					if (parse_residual_block_4x4_cavlc(ctx, 1, 16 + i4x4, nA, nB))
 						add_idct4x4(ctx, iYCbCr, i4x4, samples);
 					else
 						add_dc4x4(ctx, iYCbCr, i4x4, samples);
 				#else
 					if (get_ae(ctx, ctx->ctxIdxOffsets[0] + ctx->nC_inc[1][i4x4] + nA + nB * 2)) {
 						mb->nC[16 + i4x4] = 1;
-						parse_residual_coeffs_cabac(ctx, 1, 15);
+						parse_residual_block_cabac(ctx, 1, 15);
 						add_idct4x4(ctx, iYCbCr, i4x4, samples);
 					} else {
 						add_dc4x4(ctx, iYCbCr, i4x4, samples);
@@ -495,14 +511,11 @@ static noinline void CAFUNC(parse_Intra16x16_residual)
 	
 	// Both AC and DC coefficients are initially parsed to ctx->c[0..15]
 	ctx->scan_v[0] = scan_4x4[0];
-	#if CABAC
-		ctx->sig_inc_v[0] = ctx->last_inc_v[0] = sig_inc_4x4;
-	#endif
 	for (int iYCbCr = 0; iYCbCr < 3; iYCbCr++) {
 		
 		// Parse a DC block, then transform it to ctx->c[16..31]
 		#if !CABAC
-			if (parse_residual_block_4x4_cavlc(ctx, 0, mbA->nC[iYCbCr * 16 + 5], mbB->nC[iYCbCr * 16 + 10], 0)) {
+			if (parse_residual_block_4x4_cavlc(ctx, 0, 0, mbA->nC[iYCbCr * 16 + 5], mbB->nC[iYCbCr * 16 + 10])) {
 				mb->nC[0] = 0;
 				transform_dc4x4(ctx, iYCbCr);
 			}
@@ -511,7 +524,7 @@ static noinline void CAFUNC(parse_Intra16x16_residual)
 			if (get_ae(ctx, ctx->ctxIdxOffsets[0] + ctx->inc.coded_block_flags_16x16[iYCbCr])) {
 				mb->f.coded_block_flags_16x16[iYCbCr] = 1;
 				ctx->coeff_abs_inc_l = (i8x8){6, 7, 8, 9, 9};
-				parse_residual_coeffs_cabac(ctx, 0, 15);
+				parse_residual_block_cabac(ctx, 0, 15);
 				transform_dc4x4(ctx, iYCbCr);
 			}
 		#endif
@@ -527,14 +540,14 @@ static noinline void CAFUNC(parse_Intra16x16_residual)
 				int nA = *((int8_t *)mb->nC + iYCbCr * 16 + ctx->A4x4_int8[i4x4]);
 				int nB = *((int8_t *)mb->nC + iYCbCr * 16 + ctx->B4x4_int8[i4x4]);
 				#if !CABAC
-					if (parse_residual_block_4x4_cavlc(ctx, iYCbCr * 16 + i4x4, nA, nB, 1))
+					if (parse_residual_block_4x4_cavlc(ctx, 1, iYCbCr * 16 + i4x4, nA, nB))
 						add_idct4x4(ctx, iYCbCr, i4x4, samples);
 					else
 						add_dc4x4(ctx, iYCbCr, i4x4, samples);
 				#else
 					if (get_ae(ctx, ctx->ctxIdxOffsets[0] + ctx->nC_inc[iYCbCr][i4x4] + nA + nB * 2)) {
 						mb->nC[iYCbCr * 16 + i4x4] = 1;
-						parse_residual_coeffs_cabac(ctx, 1, 15);
+						parse_residual_block_cabac(ctx, 1, 15);
 						add_idct4x4(ctx, iYCbCr, i4x4, samples);
 					} else {
 						add_dc4x4(ctx, iYCbCr, i4x4, samples);
@@ -596,7 +609,6 @@ static noinline void CAFUNC(parse_NxN_residual)
 			#if CABAC
 				ctx->ctxIdxOffsets_l = ctxIdxOffsets_4x4[iYCbCr][0];
 				ctx->coeff_abs_inc_l = (i8x8){6, 7, 8, 9, 9};
-				ctx->sig_inc_v[0] = ctx->last_inc_v[0] = sig_inc_4x4;
 			#endif
 			ctx->scan_v[0] = scan_4x4[0];
 			
@@ -611,12 +623,12 @@ static noinline void CAFUNC(parse_NxN_residual)
 					int nB = *((int8_t *)mb->nC + iYCbCr * 16 + ctx->B4x4_int8[i4x4]);
 					// DC blocks are marginal here (about 16%) so we do not handle them separately
 					#if !CABAC
-						if (parse_residual_block_4x4_cavlc(ctx, iYCbCr * 16 + i4x4, nA, nB, 0))
+						if (parse_residual_block_4x4_cavlc(ctx, 0, iYCbCr * 16 + i4x4, nA, nB))
 							add_idct4x4(ctx, iYCbCr, -1, samples); // FIXME 4:4:4
 					#else
 						if (get_ae(ctx, ctx->ctxIdxOffsets[0] + ctx->nC_inc[iYCbCr][i4x4] + nA + nB * 2)) {
 							mb->nC[iYCbCr * 16 + i4x4] = 1;
-							parse_residual_coeffs_cabac(ctx, 0, 15);
+							parse_residual_block_cabac(ctx, 0, 15);
 							add_idct4x4(ctx, iYCbCr, -1, samples); // FIXME 4:4:4
 						}
 					#endif
@@ -642,14 +654,14 @@ static noinline void CAFUNC(parse_NxN_residual)
 							ctx->scan_v[0] = scan_8x8_cavlc[0][i4x4];
 							int nA = *((int8_t *)mb->nC + iYCbCr * 16 + ctx->A4x4_int8[i8x8 * 4 + i4x4]);
 							int nB = *((int8_t *)mb->nC + iYCbCr * 16 + ctx->B4x4_int8[i8x8 * 4 + i4x4]);
-							parse_residual_block_4x4_cavlc(ctx, iYCbCr * 16 + i8x8 * 4 + i4x4, nA, nB, 0);
+							parse_residual_block_4x4_cavlc(ctx, 0, iYCbCr * 16 + i8x8 * 4 + i4x4, nA, nB);
 						}
 						add_idct8x8(ctx, iYCbCr, samples);
 					#else
 						if (ctx->t.ChromaArrayType < 3 || get_ae(ctx, ctx->ctxIdxOffsets[0] + (mb->bits[1] >> inc8x8[iYCbCr * 4 + i8x8] & 3))) {
 							mb->bits[1] |= 1 << bit8x8[iYCbCr * 4 + i8x8];
 							mb->nC_s[iYCbCr * 4 + i8x8] = 0x01010101;
-							parse_residual_coeffs_cabac(ctx, 0, 63);
+							parse_residual_block_8x8_cabac(ctx, 0, 63);
 							add_idct8x8(ctx, iYCbCr, samples);
 						}
 					#endif
@@ -979,10 +991,8 @@ static noinline void CAFUNC(parse_inter_residual)
 				// we need at least 35 (or 21) bits in offset to get 26 (or 12) bypass bits
 				// FIXME review max numbers, seem to miss sign bit
 				int zeros = clz(ctx->t.gb.range);
-				if (zeros > (SIZE_BIT == 64 ? 64 - 35 : 32 - 21)) {
-					refill_ae(ctx, zeros >> 3, 0);
-					zeros &= 7;
-				}
+				if (zeros > (SIZE_BIT == 64 ? 64 - 35 : 32 - 21))
+					zeros = renorm_bits(ctx, zeros);
 				// for 64-bit we could shift offset down to 37 bits to help iterative hardware dividers, but that would make the code harder to maintain
 				ctx->t.gb.range >>= SIZE_BIT - 9 - zeros;
 				size_t quo = ctx->t.gb.offset / ctx->t.gb.range; // requested bits are in lsb and zeros+9 empty bits above

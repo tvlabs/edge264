@@ -110,7 +110,7 @@ static inline size_t get_bytes(Edge264GetBits *gb, int nbytes)
  *   The main context then fits in 2 variables, which are easier to store in
  *   Global Register Variables.
  */
-static noinline int refill_bits(Edge264GetBits *gb, int ret) {
+static noinline int refill(Edge264GetBits *gb, int ret) {
 	size_t bytes = get_bytes(gb, SIZE_BIT >> 3);
 	int trailing_bit = ctz(gb->msb_cache); // [0..SIZE_BIT-1]
 	gb->msb_cache = (gb->msb_cache ^ (size_t)1 << trailing_bit) | bytes >> (SIZE_BIT - 1 - trailing_bit);
@@ -123,12 +123,12 @@ static noinline int get_u1(Edge264GetBits *gb) {
 	gb->msb_cache = shld(gb->lsb_cache, gb->msb_cache, 1);
 	if (gb->lsb_cache <<= 1)
 		return ret;
-	return refill_bits(gb, ret);
+	return refill(gb, ret);
 }
 
 // Parses a 1~32-bit fixed size code
-static noinline unsigned get_uv(Edge264GetBits *gb, unsigned v) {
-	unsigned ret = gb->msb_cache >> (SIZE_BIT - v);
+static noinline unsigned get_uv(Edge264GetBits *gb, int v) {
+	int ret = gb->msb_cache >> (SIZE_BIT - v);
 	if (SIZE_BIT == 32 && __builtin_expect(v == 32, 0)) {
 		gb->msb_cache = gb->lsb_cache;
 		gb->lsb_cache = 0;
@@ -138,47 +138,47 @@ static noinline unsigned get_uv(Edge264GetBits *gb, unsigned v) {
 	}
 	if (gb->lsb_cache)
 		return ret;
-	return refill_bits(gb, ret);
+	return refill(gb, ret);
 }
 
 // Parses a Exp-Golomb code in one read, up to 2^16-2 (2^32-2 on 64-bit machines)
 static noinline unsigned get_ue16(Edge264GetBits *gb, unsigned upper) {
-	unsigned v = clz(gb->msb_cache | (size_t)1 << (SIZE_BIT / 2)) * 2 + 1; // [1..SIZE_BIT-1]
-	unsigned ret = minu((gb->msb_cache >> (SIZE_BIT - v)) - 1, upper);
+	int v = clz(gb->msb_cache | (size_t)1 << (SIZE_BIT / 2)) * 2 + 1; // [1..SIZE_BIT-1]
+	int ret = minu((gb->msb_cache >> (SIZE_BIT - v)) - 1, upper);
 	gb->msb_cache = shld(gb->lsb_cache, gb->msb_cache, v);
 	if (gb->lsb_cache <<= v)
 		return ret;
-	return refill_bits(gb, ret);
+	return refill(gb, ret);
 }
 
 // Parses a signed Exp-Golomb code in one read, from -2^15+1 to 2^15-1 (-2^31+1 to 2^31-1 on 64-bit machines)
 static noinline int get_se16(Edge264GetBits *gb, int lower, int upper) {
-	unsigned v = clz(gb->msb_cache | (size_t)1 << (SIZE_BIT / 2)) * 2 + 1; // [1..SIZE_BIT-1]
+	int v = clz(gb->msb_cache | (size_t)1 << (SIZE_BIT / 2)) * 2 + 1; // [1..SIZE_BIT-1]
 	unsigned ue = (gb->msb_cache >> (SIZE_BIT - v)) - 1;
-	int ret = min(max((ue & 1) ? ue / 2 + 1 : -(ue / 2), lower), upper);
+	int ret = min(max((ue & 1) ? (ue >> 1) + 1 : -(ue >> 1), lower), upper);
 	gb->msb_cache = shld(gb->lsb_cache, gb->msb_cache, v);
 	if (gb->lsb_cache <<= v)
 		return ret;
-	return refill_bits(gb, ret);
+	return refill(gb, ret);
 }
 
 // Extensions to [0,2^32-2] and [-2^31+1,2^31-1] for 32-bit machines
 #if SIZE_BIT == 32
 	static noinline unsigned get_ue32(Edge264GetBits *gb, unsigned upper) {
-		unsigned leadingZeroBits = clz(gb->msb_cache | 1); // [0..31]
+		int leadingZeroBits = clz(gb->msb_cache | 1); // [0..31]
 		gb->msb_cache = shld(gb->lsb_cache, gb->msb_cache, leadingZeroBits);
 		if (!(gb->lsb_cache <<= leadingZeroBits))
-			refill_bits(gb, 0);
+			refill(gb, 0);
 		return minu(get_uv(gb, leadingZeroBits + 1) - 1, upper);
 	}
 
 	static noinline int get_se32(Edge264GetBits *gb, int lower, int upper) {
-		unsigned leadingZeroBits = clz(gb->msb_cache | 1); // [0..31]
+		int leadingZeroBits = clz(gb->msb_cache | 1); // [0..31]
 		gb->msb_cache = shld(gb->lsb_cache, gb->msb_cache, leadingZeroBits);
 		if (!(gb->lsb_cache <<= leadingZeroBits))
-			refill_bits(gb, 0);
+			refill(gb, 0);
 		unsigned ue = get_uv(gb, leadingZeroBits + 1) - 1;
-		return min(max(ue & 1 ? ue / 2 + 1 : -(ue / 2), lower), upper);
+		return min(max(ue & 1 ? (ue >> 1) + 1 : -(ue >> 1), lower), upper);
 	}
 #endif
 
@@ -257,14 +257,21 @@ static const uint8_t transIdx[256] = {
 	244, 245,   9,   8, 248, 249,   5,   4, 248, 249,   1,   0, 252, 253,   0,   1,
 };
 
-static inline int refill_ae(Edge264Context * restrict ctx, int nbytes, int ret) {
-	size_t bytes = get_bytes(&ctx->t.gb, nbytes);
-	ctx->t.gb.offset = shld(bytes, ctx->t.gb.offset, nbytes << 3);
-	ctx->t.gb.range <<= nbytes << 3;
+static noinline int renorm_bits(Edge264Context * restrict ctx, int bits) {
+	size_t bytes = get_bytes(&ctx->t.gb, bits >> 3);
+	ctx->t.gb.offset = shld(bytes, ctx->t.gb.offset, bits & -8);
+	ctx->t.gb.range <<= bits & -8;
+	return bits & 7;
+}
+
+static int renorm_fixed(Edge264Context * restrict ctx, int ret) {
+	size_t bytes = get_bytes(&ctx->t.gb, SIZE_BIT / 8 - 1);
+	ctx->t.gb.offset = shld(bytes, ctx->t.gb.offset, SIZE_BIT - 8);
+	ctx->t.gb.range <<= SIZE_BIT - 8;
 	return ret;
 }
 
-static noinline int get_ae(Edge264Context * restrict ctx, int ctxIdx) {
+static inline int get_ae_inline(Edge264Context * restrict ctx, int ctxIdx) {
 	size_t state = ctx->cabac[ctxIdx];
 	size_t shift = SIZE_BIT - 3 - clz(ctx->t.gb.range); // [6..SIZE_BIT-3]
 	size_t idx = (state & -4) + (ctx->t.gb.range >> shift);
@@ -277,14 +284,18 @@ static noinline int get_ae(Edge264Context * restrict ctx, int ctxIdx) {
 	}
 	ctx->cabac[ctxIdx] = transIdx[state];
 	int binVal = state & 1;
-	if (__builtin_expect(ctx->t.gb.range < 256, 0))
-		return refill_ae(ctx, SIZE_BIT / 8 - 1, binVal);
-	return binVal;
+	if (ctx->t.gb.range >= 256)
+		return binVal;
+	return renorm_fixed(ctx, binVal);
+}
+
+static noinline int get_ae(Edge264Context * restrict ctx, int ctxIdx) {
+	return get_ae_inline(ctx, ctxIdx);
 }
 
 static inline int get_bypass(Edge264Context *ctx) {
 	if (__builtin_expect(ctx->t.gb.range < 512, 0))
-		refill_ae(ctx, clz(ctx->t.gb.range) >> 3, 0);
+		renorm_bits(ctx, clz(ctx->t.gb.range));
 	ctx->t.gb.range >>= 1;
 	size_t binVal = ctx->t.gb.offset >= ctx->t.gb.range;
 	ctx->t.gb.offset = binVal ? ctx->t.gb.offset - ctx->t.gb.range : ctx->t.gb.offset;
@@ -315,11 +326,11 @@ static int cabac_terminate(Edge264Context *ctx) {
 	if (ctx->t.gb.offset >= ctx->t.gb.range) {
 		// reclaim the extra bits minus alignment bits, then refill the cache
 		ctx->t.gb.msb_cache = (ctx->t.gb.offset * 2 + 1) << (SIZE_BIT - 1 - (extra & -8));
-		return refill_bits(&ctx->t.gb, 1);
+		return refill(&ctx->t.gb, 1);
 	}
-	if (__builtin_expect(ctx->t.gb.range < 256, 0))
-		return refill_ae(ctx, SIZE_BIT / 8 - 1, 0);
-	return 0;
+	if (ctx->t.gb.range >= 256)
+		return 0;
+	return renorm_fixed(ctx, 0);
 }
 
 

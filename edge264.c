@@ -380,7 +380,7 @@ int edge264_decode_NAL(Edge264Decoder *dec, const uint8_t *buf, const uint8_t *e
 	}
 	dec->gb.lsb_cache = 0;
 	dec->gb.end = end;
-	refill_bits(&dec->gb, 0);
+	refill(&dec->gb, 0);
 	int ret = parser(dec, non_blocking, unref_cb, unref_arg);
 	// printf("nal_unit_type=%d, ret=%d\n\n", dec->nal_unit_type, ret);
 	

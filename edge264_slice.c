@@ -373,23 +373,7 @@
 		} while (significant_coeff_flags != 0);
 	}
 	
-	static noinline void parse_residual_block_cabac(Edge264Context * restrict ctx, int startIdx, int endIdx) {
-		// significant_coeff_flags are stored as a bit mask
-		uint64_t significant_coeff_flags = 0;
-		int i = startIdx;
-		do {
-			if (get_ae_inline(ctx, ctx->ctxIdxOffsets[1] + i)) {
-				significant_coeff_flags |= (uint64_t)1 << i;
-				if (get_ae_inline(ctx, ctx->ctxIdxOffsets[2] + i))
-					break;
-			}
-		} while (++i < endIdx);
-		significant_coeff_flags |= (uint64_t)1 << i;
-		parse_residual_coeffs_cabac(ctx, significant_coeff_flags);
-	}
-	
 	static noinline void parse_residual_block_8x8_cabac(Edge264Context * restrict ctx, int startIdx, int endIdx) {
-		// significant_coeff_flags are stored as a bit mask
 		uint64_t significant_coeff_flags = 0;
 		int i = startIdx;
 		do {
@@ -400,6 +384,21 @@
 			}
 		} while (++i < endIdx);
 		significant_coeff_flags |= (uint64_t)1 << i;
+		parse_residual_coeffs_cabac(ctx, significant_coeff_flags);
+	}
+	
+	static noinline void parse_residual_block_cabac(Edge264Context * restrict ctx, int startIdx, int endIdx) {
+		// we could preload all states in a vector, but cache misses aren't an issue here
+		unsigned significant_coeff_flags = 0;
+		int i = startIdx;
+		do {
+			if (get_ae_inline(ctx, ctx->ctxIdxOffsets[1] + i)) {
+				significant_coeff_flags |= 1 << i;
+				if (get_ae_inline(ctx, ctx->ctxIdxOffsets[2] + i))
+					break;
+			}
+		} while (++i < endIdx);
+		significant_coeff_flags |= 1 << i;
 		parse_residual_coeffs_cabac(ctx, significant_coeff_flags);
 	}
 #endif

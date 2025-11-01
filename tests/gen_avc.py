@@ -7,24 +7,10 @@ from time import process_time
 from types import SimpleNamespace
 import yaml
 
-# make yaml use SimpleNamespace instead of dict
-class SafeConstructor(yaml.loader.SafeConstructor):
-	def construct_yaml_map(self, node):
-		data = SimpleNamespace()
-		yield data
-		value = self.construct_mapping(node)
-		vars(data).update(value)
-SafeConstructor.add_constructor(u'tag:yaml.org,2002:map', SafeConstructor.construct_yaml_map)
-class SafeLoader(yaml.loader.Reader, yaml.loader.Scanner, yaml.loader.Parser, yaml.loader.Composer, SafeConstructor, yaml.loader.Resolver):
-	def __init__(self, stream):
-		yaml.loader.Reader.__init__(self, stream)
-		yaml.loader.Scanner.__init__(self)
-		yaml.loader.Parser.__init__(self)
-		yaml.loader.Composer.__init__(self)
-		SafeConstructor.__init__(self)
-		yaml.loader.Resolver.__init__(self)
 
 
+def map_dicts(list_of_dicts):
+	return map(lambda d: SimpleNamespace(**d), list_of_dicts)
 
 def ctz(v):
 	return (v & -v).bit_length() - 1
@@ -99,7 +85,7 @@ def gen_slice_data_cavlc(bits, f, slice, slice_type):
 	me_intra = [3, 29, 30, 17, 31, 18, 37, 8, 32, 38, 19, 9, 20, 10, 11, 2, 16, 33, 34, 21, 35, 22, 39, 4, 36, 40, 23, 5, 24, 6, 7, 1, 41, 42, 43, 25, 44, 26, 46, 12, 45, 47, 27, 13, 28, 14, 15, 0]
 	me_inter = [0, 2, 3, 7, 4, 8, 17, 13, 5, 18, 9, 14, 10, 15, 16, 11, 1, 32, 33, 36, 34, 37, 44, 40, 35, 45, 38, 41, 39, 42, 43, 19, 6, 24, 25, 20, 26, 21, 46, 28, 27, 47, 22, 29, 23, 30, 31, 12]
 	skip_run = 0
-	for mb in slice.macroblocks_cavlc:
+	for mb in map_dicts(slice.macroblocks_cavlc):
 		# flush the bits buffer to file
 		num = bits.bit_length() - 1
 		bits ^= 1 << num
@@ -123,7 +109,7 @@ def gen_slice_data_cavlc(bits, f, slice, slice_type):
 				bits = bits << mb.pcm_samples.bits_C | sample
 		if mb.mb_type == [5, 23, 0][slice_type] and "transform_size_8x8_flag" in vars(mb): # I_NxN
 			bits = bits << 1 | mb.transform_size_8x8_flag
-		for mode in vars(mb).get("rem_intra4x4_pred_modes", vars(mb).get("rem_intra8x8_pred_modes", [])):
+		for mode in vars(mb).get("rem_intra4x4_pred_modes", vars(mb).get("rem_intra8x8_pred_modes")) or []:
 			bits = bits << 1 | int(mode < 0)
 			if mode >= 0:
 				bits = bits << 3 | mode
@@ -133,8 +119,8 @@ def gen_slice_data_cavlc(bits, f, slice, slice_type):
 			for sub_mb_type in mb.sub_mb_types:
 				bits = gen_ue(bits, sub_mb_type)
 		if mb.mb_type in [range(5), range(1, 23), []][slice_type]: # non-Direct Inter
-			for i, ref_idx in vars(mb.ref_idx).items():
-				if vars(slice.num_ref_idx_active)[f"l{int(i)//4}"] == 2:
+			for i, ref_idx in mb.ref_idx.items():
+				if slice.num_ref_idx_active[f"l{int(i)//4}"] == 2:
 					bits = bits << 1 | ref_idx ^ 1
 				else:
 					bits = gen_ue(bits, ref_idx)
@@ -147,8 +133,8 @@ def gen_slice_data_cavlc(bits, f, slice, slice_type):
 			bits = bits << 1 | mb.transform_size_8x8_flag
 		if "mb_qp_delta" in vars(mb):
 			bits = gen_se(bits, mb.mb_qp_delta)
-			for block in mb.coeffLevels:
-				bits = gen_residual_block_cavlc(bits, block.nC, vars(block).get("c", []))
+			for block in map_dicts(mb.coeffLevels):
+				bits = gen_residual_block_cavlc(bits, block.nC, vars(block).get("c") or [])
 	return bits
 
 def gen_slice_layer_without_partitioning(bits, f, slice):
@@ -158,7 +144,7 @@ def gen_slice_layer_without_partitioning(bits, f, slice):
 	bits = gen_ue(bits, slice.pic_parameter_set_id)
 	if "colour_plane_id" in vars(slice):
 		bits = bits << 2 | slice.colour_plane_id
-	bits = bits << slice.frame_num.bits | (slice.frame_num.absolute & (1 << slice.frame_num.bits) - 1)
+	bits = bits << slice.frame_num["bits"] | (slice.frame_num["absolute"] & (1 << slice.frame_num["bits"]) - 1)
 	if "field_pic_flag" in vars(slice):
 		bits = bits << 1 | slice.field_pic_flag
 		if slice.field_pic_flag:
@@ -166,22 +152,22 @@ def gen_slice_layer_without_partitioning(bits, f, slice):
 	IdrPicFlag = slice.nal_unit_type == 5 or vars(slice).get("idr_flag", 0)
 	if IdrPicFlag:
 		bits = gen_ue(bits, slice.idr_pic_id)
-	if slice.pic_order_cnt.type == 0:
-		bits = bits << slice.pic_order_cnt.bits | (slice.pic_order_cnt.absolute & (1 << slice.pic_order_cnt.bits) - 1)
-		if "bottom" in vars(slice.pic_order_cnt):
-			bits = gen_se(bits, slice.pic_order_cnt.bottom - slice.pic_order_cnt.absolute)
-	if slice.pic_order_cnt.type == 1 and "delta0" in vars(slice.pic_order_cnt):
-		bits = gen_se(bits, slice.pic_order_cnt.delta0)
-		if "delta1" in vars(slice.pic_order_cnt):
-			bits = gen_se(bits, slice.pic_order_cnt.delta1)
+	if slice.pic_order_cnt["type"] == 0:
+		bits = bits << slice.pic_order_cnt["bits"] | (slice.pic_order_cnt["absolute"] & (1 << slice.pic_order_cnt["bits"]) - 1)
+		if "bottom" in slice.pic_order_cnt:
+			bits = gen_se(bits, slice.pic_order_cnt["bottom"] - slice.pic_order_cnt["absolute"])
+	if slice.pic_order_cnt["type"] == 1 and "delta0" in slice.pic_order_cnt:
+		bits = gen_se(bits, slice.pic_order_cnt["delta0"])
+		if "delta1" in slice.pic_order_cnt:
+			bits = gen_se(bits, slice.pic_order_cnt["delta1"])
 	if slice_type == 1:
 		bits = bits << 1 | slice.direct_spatial_mv_pred_flag
 	if slice_type <= 1:
-		bits = bits << 1 | slice.num_ref_idx_active.override_flag
-		if slice.num_ref_idx_active.override_flag:
-			bits = gen_ue(bits, slice.num_ref_idx_active.l0 - 1)
+		bits = bits << 1 | slice.num_ref_idx_active["override_flag"]
+		if slice.num_ref_idx_active["override_flag"]:
+			bits = gen_ue(bits, slice.num_ref_idx_active["l0"] - 1)
 			if slice_type == 1:
-				bits = gen_ue(bits, slice.num_ref_idx_active.l1 - 1)
+				bits = gen_ue(bits, slice.num_ref_idx_active["l1"] - 1)
 		field_to_idc = {"sref": 1, "lref": 2, "view": 5}
 		for i in range(slice_type + 1):
 			bits = bits << 1 | int(f"ref_pic_list_modification_l{i}" in vars(slice))
@@ -194,7 +180,7 @@ def gen_slice_layer_without_partitioning(bits, f, slice):
 			bits = gen_ue(bits, int(re.findall(r"\d+", slice.explicit_weights_l0[0].Y)[1]))
 			bits = gen_ue(bits, int(re.findall(r"\d+", slice.explicit_weights_l0[0].Cb)[1]))
 			for i in range(slice_type + 1):
-				for ref in vars(slice)[f"explicit_weights_l{i}"]:
+				for ref in map_dicts(vars(slice)[f"explicit_weights_l{i}"]):
 					for plane in ("Y", "Cb", "Cr"):
 						weight, denom, offset = map(int, re.findall(r"\-?\d+", vars(ref)[plane]))
 						bits = bits << 1 | int(weight != 2 ** denom or offset != 0)
@@ -208,7 +194,7 @@ def gen_slice_layer_without_partitioning(bits, f, slice):
 		else:
 			bits = bits << 1 | int("memory_management_control_operations" in vars(slice))
 			if "memory_management_control_operations" in vars(slice):
-				for mmco in slice.memory_management_control_operations:
+				for mmco in map_dicts(slice.memory_management_control_operations):
 					bits = gen_ue(bits, mmco.mmco)
 					if "sref" in mmco:
 						bits = gen_ue(bits, -mmco.sref)
@@ -232,16 +218,16 @@ def gen_slice_layer_without_partitioning(bits, f, slice):
 
 
 def gen_sei(bits, f, nal):
-	for sei in nal.sei_messages or []:
+	for sei in map_dicts(nal.sei_messages or []):
 		bits = bits << (sei.payloadType // 255 * 8) | ((1 << (sei.payloadType // 255 * 8)) - 1)
 		bits = bits << 8 | (sei.payloadType % 255)
 		payload = 1
 		if sei.payloadType == 0:
 			payload = payload << 1 | 1 # seq_parameter_set_id
-			for cpb in vars(sei).get("nal_hrd_cpbs", []):
+			for cpb in map_dicts(vars(sei).get("nal_hrd_cpbs") or []):
 				payload = payload << sei.delay_bits | cpb.initial_cpb_removal_delay
 				payload = payload << sei.delay_bits | cpb.initial_cpb_removal_delay_offset
-			for cpb in vars(sei).get("vcl_hrd_cpbs", []):
+			for cpb in map_dicts(vars(sei).get("vcl_hrd_cpbs") or []):
 				payload = payload << sei.delay_bits | cpb.initial_cpb_removal_delay
 				payload = payload << sei.delay_bits | cpb.initial_cpb_removal_delay_offset
 		num = payload.bit_length() - 1
@@ -257,11 +243,11 @@ def gen_sei(bits, f, nal):
 
 def gen_hrd_parameters(bits, hrd):
 	bits = gen_ue(bits, len(hrd.cpbs) - 1)
-	bit_rate_scale = min(ctz(reduce(lambda a, b: a | b, (cpb.bit_rate for cpb in hrd.cpbs))) - 6, 15)
-	cpb_size_scale = min(ctz(reduce(lambda a, b: a | b, (cpb.size for cpb in hrd.cpbs))) - 4, 15)
+	bit_rate_scale = min(ctz(reduce(lambda a, b: a | b, (cpb["bit_rate"] for cpb in hrd.cpbs))) - 6, 15)
+	cpb_size_scale = min(ctz(reduce(lambda a, b: a | b, (cpb["size"] for cpb in hrd.cpbs))) - 4, 15)
 	bits = bits << 4 | bit_rate_scale
 	bits = bits << 4 | cpb_size_scale
-	for cpb in hrd.cpbs:
+	for cpb in map_dicts(hrd.cpbs):
 		bits = gen_ue(bits, (cpb.bit_rate >> 6 >> bit_rate_scale) - 1)
 		bits = gen_ue(bits, (cpb.size >> 4 >> cpb_size_scale) - 1)
 		bits = bits << 1 | cpb.cbr_flag
@@ -274,10 +260,10 @@ def gen_hrd_parameters(bits, hrd):
 def gen_vui_parameters(bits, sps, vui):
 	bits = bits << 1 | int("aspect_ratio" in vars(vui))
 	if "aspect_ratio" in vars(vui):
-		bits = bits << 8 | vui.aspect_ratio.idc
-		if vui.aspect_ratio.idc == 255:
-			bits = bits << 16 | vui.aspect_ratio.width
-			bits = bits << 16 | vui.aspect_ratio.height
+		bits = bits << 8 | vui.aspect_ratio["idc"]
+		if vui.aspect_ratio["idc"] == 255:
+			bits = bits << 16 | vui.aspect_ratio["width"]
+			bits = bits << 16 | vui.aspect_ratio["height"]
 	bits = bits << 1 | min(vui.overscan_appropriate_flag + 1, 1)
 	if vui.overscan_appropriate_flag >= 0:
 		bits = bits << 1 | vui.overscan_appropriate_flag
@@ -292,8 +278,8 @@ def gen_vui_parameters(bits, sps, vui):
 			bits = bits << 8 | vui.matrix_coefficients
 	bits = bits << 1 | int("chroma_sample_loc" in vars(vui))
 	if "chroma_sample_loc" in vars(vui):
-		bits = gen_ue(bits, vui.chroma_sample_loc.top)
-		bits = gen_ue(bits, vui.chroma_sample_loc.bottom)
+		bits = gen_ue(bits, vui.chroma_sample_loc["top"])
+		bits = gen_ue(bits, vui.chroma_sample_loc["bottom"])
 	bits = bits << 1 | int("num_units_in_tick" in vars(vui))
 	if "num_units_in_tick" in vars(vui):
 		bits = bits << 32 | vui.num_units_in_tick
@@ -301,18 +287,18 @@ def gen_vui_parameters(bits, sps, vui):
 		bits = bits << 1 | vui.fixed_frame_rate_flag
 	bits = bits << 1 | int("nal_hrd_parameters" in vars(vui))
 	if "nal_hrd_parameters" in vars(vui):
-		bits = gen_hrd_parameters(bits, vui.nal_hrd_parameters)
+		bits = gen_hrd_parameters(bits, SimpleNamespace(**vui.nal_hrd_parameters))
 	bits = bits << 1 | int("vcl_hrd_parameters" in vars(vui))
 	if "vcl_hrd_parameters" in vars(vui):
-		bits = gen_hrd_parameters(bits, vui.vcl_hrd_parameters)
+		bits = gen_hrd_parameters(bits, SimpleNamespace(**vui.vcl_hrd_parameters))
 	if "nal_hrd_parameters" in vars(vui) or "vcl_hrd_parameters" in vars(vui):
 		bits = bits << 1 | vui.low_delay_hrd_flag
 	bits = bits << 1 | vui.pic_struct_present_flag
 	bits = bits << 1 | int("motion_vectors_over_pic_boundaries_flag" in vars(vui))
 	if "motion_vectors_over_pic_boundaries_flag" in vars(vui):
 		bits = bits << 1 | vui.motion_vectors_over_pic_boundaries_flag
-		PicSizeInMbs = sps.pic_size_in_mbs.width * sps.pic_size_in_mbs.height
-		RawMbBits = 256 * sps.bit_depth.luma + (64 << sps.chroma_format_idc & ~64) * sps.bit_depth.chroma
+		PicSizeInMbs = sps.pic_size_in_mbs["width"] * sps.pic_size_in_mbs["height"]
+		RawMbBits = 256 * sps.bit_depth["luma"] + (64 << sps.chroma_format_idc & ~64) * sps.bit_depth["chroma"]
 		bits = gen_ue(bits, (PicSizeInMbs * RawMbBits) // vui.max_bytes_per_pic // 8 if "max_bytes_per_pic" in vars(vui) else 0)
 		bits = gen_ue(bits, (128 + RawMbBits) // vui.max_bits_per_mb if "max_bits_per_mb" in vars(vui) else 0)
 		bits = gen_ue(bits, vui.log2_max_mv_length_horizontal)
@@ -330,8 +316,8 @@ def gen_seq_parameter_set(bits, f, sps):
 		bits = gen_ue(bits, sps.chroma_format_idc)
 		if sps.chroma_format_idc == 3:
 			bits = bits << 1 | sps.separate_colour_plane_flag
-		bits = gen_ue(bits, sps.bit_depth.luma - 8)
-		bits = gen_ue(bits, sps.bit_depth.chroma - 8)
+		bits = gen_ue(bits, sps.bit_depth["luma"] - 8)
+		bits = gen_ue(bits, sps.bit_depth["chroma"] - 8)
 		bits = bits << 1 | sps.qpprime_y_zero_transform_bypass_flag
 		bits = bits << 1 | int("seq_scaling_matrix" in vars(sps))
 		if "seq_scaling_matrix" in vars(sps):
@@ -352,8 +338,8 @@ def gen_seq_parameter_set(bits, f, sps):
 			bits = gen_se(bits, offset)
 	bits = gen_ue(bits, sps.max_num_ref_frames)
 	bits = bits << 1 | sps.gaps_in_frame_num_value_allowed_flag
-	bits = gen_ue(bits, sps.pic_size_in_mbs.width - 1)
-	bits = gen_ue(bits, (sps.pic_size_in_mbs.height >> (1 - sps.frame_mbs_only_flag)) - 1)
+	bits = gen_ue(bits, sps.pic_size_in_mbs["width"] - 1)
+	bits = gen_ue(bits, (sps.pic_size_in_mbs["height"] >> (1 - sps.frame_mbs_only_flag)) - 1)
 	bits = bits << 1 | sps.frame_mbs_only_flag
 	if not sps.frame_mbs_only_flag:
 		bits = bits << 1 | sps.mb_adaptive_frame_field_flag
@@ -362,13 +348,13 @@ def gen_seq_parameter_set(bits, f, sps):
 	if "frame_crop_offsets" in vars(sps):
 		shiftX = int(sps.chroma_format_idc in (1, 2))
 		shiftY = (sps.chroma_format_idc == 1) + 1 - sps.frame_mbs_only_flag
-		bits = gen_ue(bits, sps.frame_crop_offsets.left >> shiftX)
-		bits = gen_ue(bits, sps.frame_crop_offsets.right >> shiftX)
-		bits = gen_ue(bits, sps.frame_crop_offsets.top >> shiftY)
-		bits = gen_ue(bits, sps.frame_crop_offsets.bottom >> shiftY)
+		bits = gen_ue(bits, sps.frame_crop_offsets["left"] >> shiftX)
+		bits = gen_ue(bits, sps.frame_crop_offsets["right"] >> shiftX)
+		bits = gen_ue(bits, sps.frame_crop_offsets["top"] >> shiftY)
+		bits = gen_ue(bits, sps.frame_crop_offsets["bottom"] >> shiftY)
 	bits = bits << 1 | int("vui_parameters" in vars(sps))
 	if "vui_parameters" in vars(sps):
-		bits = gen_vui_parameters(bits, sps, sps.vui_parameters)
+		bits = gen_vui_parameters(bits, sps, SimpleNamespace(**sps.vui_parameters))
 	return bits
 
 
@@ -379,8 +365,8 @@ def gen_pic_parameter_set(bits, f, pps):
 	bits = bits << 1 | pps.entropy_coding_mode_flag
 	bits = bits << 1 | pps.bottom_field_pic_order_in_frame_present_flag
 	bits = bits << 1 | 1 # num_slice_groups
-	bits = gen_ue(bits, pps.num_ref_idx_default_active.l0 - 1)
-	bits = gen_ue(bits, pps.num_ref_idx_default_active.l1 - 1)
+	bits = gen_ue(bits, pps.num_ref_idx_default_active["l0"] - 1)
+	bits = gen_ue(bits, pps.num_ref_idx_default_active["l1"] - 1)
 	bits = bits << 1 | pps.weighted_pred_flag
 	bits = bits << 2 | pps.weighted_bipred_idc
 	bits = gen_se(bits, pps.pic_init_qp - 26)
@@ -423,7 +409,7 @@ def gen_prefix_nal_unit(bits, f, nal):
 
 def gen_mvc_vui_parameters_extension(bits, ssps, vui):
 	bits = gen_ue(bits, len(vui.vui_mvc_operation_points) - 1)
-	for op in vui.vui_mvc_operation_points:
+	for op in map_dicts(vui.vui_mvc_operation_points):
 		bits = bits << 3 | op.temporal_id
 		bits = gen_ue(bits, len(op.target_views) - 1)
 		for view_id in op.target_views:
@@ -435,10 +421,10 @@ def gen_mvc_vui_parameters_extension(bits, ssps, vui):
 			bits = bits << 1 | vui.fixed_frame_rate_flag
 		bits = bits << 1 | int("nal_hrd_parameters" in vars(vui))
 		if "nal_hrd_parameters" in vars(vui):
-			bits = gen_hrd_parameters(bits, vui.nal_hrd_parameters)
+			bits = gen_hrd_parameters(bits, SimpleNamespace(**vui.nal_hrd_parameters))
 		bits = bits << 1 | int("vcl_hrd_parameters" in vars(vui))
 		if "vcl_hrd_parameters" in vars(vui):
-			bits = gen_hrd_parameters(bits, vui.vcl_hrd_parameters)
+			bits = gen_hrd_parameters(bits, SimpleNamespace(**vui.vcl_hrd_parameters))
 		if "nal_hrd_parameters" in vars(vui) or "vcl_hrd_parameters" in vars(vui):
 			bits = bits << 1 | vui.low_delay_hrd_flag
 		bits = bits << 1 | vui.pic_struct_present_flag
@@ -451,23 +437,23 @@ def gen_subset_seq_parameter_set(bits, f, ssps):
 		bits = gen_ue(bits, 1) # num_views_minus1
 		bits = gen_ue(bits, ssps.view_ids[0])
 		bits = gen_ue(bits, ssps.view_ids[1])
-		bits = gen_ue(bits, ssps.num_anchor_refs.l0)
-		if ssps.num_anchor_refs.l0:
+		bits = gen_ue(bits, ssps.num_anchor_refs["l0"])
+		if ssps.num_anchor_refs["l0"]:
 			bits = gen_ue(bits, ssps.view_ids[0])
-		bits = gen_ue(bits, ssps.num_anchor_refs.l1)
-		if ssps.num_anchor_refs.l1:
+		bits = gen_ue(bits, ssps.num_anchor_refs["l1"])
+		if ssps.num_anchor_refs["l1"]:
 			bits = gen_ue(bits, ssps.view_ids[0])
-		bits = gen_ue(bits, ssps.num_non_anchor_refs.l0)
-		if ssps.num_non_anchor_refs.l0:
+		bits = gen_ue(bits, ssps.num_non_anchor_refs["l0"])
+		if ssps.num_non_anchor_refs["l0"]:
 			bits = gen_ue(bits, ssps.view_ids[0])
-		bits = gen_ue(bits, ssps.num_non_anchor_refs.l1)
-		if ssps.num_non_anchor_refs.l1:
+		bits = gen_ue(bits, ssps.num_non_anchor_refs["l1"])
+		if ssps.num_non_anchor_refs["l1"]:
 			bits = gen_ue(bits, ssps.view_ids[0])
 		bits = gen_ue(bits, len(ssps.level_values_signalled) - 1)
-		for level in ssps.level_values_signalled:
+		for level in map_dicts(ssps.level_values_signalled):
 			bits = bits << 8 | round(level.idc * 10)
 			bits = gen_ue(bits, len(level.operation_points) - 1)
-			for op in level.operation_points:
+			for op in map_dicts(level.operation_points):
 				bits = bits << 3 | op.temporal_id
 				bits = gen_ue(bits, len(op.target_views) - 1)
 				for view_id in op.target_views:
@@ -499,10 +485,10 @@ def main():
 		exit()
 	print(f"Loading {sys.argv[1]}... (estimated {round(1.7437078849318695e-05 * path.getsize(sys.argv[1]))}s)")
 	with open(sys.argv[1], "r") as f:
-		nals = yaml.load(f, Loader=SafeLoader)
+		nals = yaml.load(f, Loader=yaml.CLoader)
 	print(f"Generating {sys.argv[2]}...")
 	with open(sys.argv[2], "wb") as f:
-		for nal in nals:
+		for nal in map_dicts(nals):
 			f.write(b"\x00\x00\x00\x01")
 			bits = 1 # leading set bit
 			bits <<= 1 # forbidden_zero_bit

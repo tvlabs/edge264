@@ -984,9 +984,9 @@ static noinline void CAFUNC(parse_inter_residual)
 			int ctxIdx = ctxBase + (sum >= 3) + (sum > 32);
 			int mvd = 0;
 			ctxBase += 3;
-			while (mvd < 9 && get_ae(ctx, ctxIdx))
+			while (mvd != 9 && get_ae_inline(ctx, ctxIdx))
 				ctxIdx = ctxBase + min(mvd++, 3);
-			if (mvd >= 9) {
+			if (mvd == 9) {
 				// we need at least 35 (or 21) bits in offset to get 26 (or 12) bypass bits
 				// FIXME review max numbers, seem to miss sign bit
 				int zeros = clz(ctx->t.gb.range);

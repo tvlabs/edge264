@@ -418,7 +418,7 @@ void *ADD_VARIANT(worker_loop)(Edge264Decoder *dec) {
 	c.log_arg = dec->log_arg;
 	if (c.n_threads)
 		pthread_mutex_lock(&dec->lock);
-	for (;;) {
+	while (1) {
 		while (c.n_threads && !dec->ready_tasks)
 			pthread_cond_wait(&dec->task_ready, &dec->lock);
 		int task_id = __builtin_ctz(dec->ready_tasks); // FIXME arbitrary selection for now

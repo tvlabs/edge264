@@ -322,19 +322,17 @@
 		int ctxIdx0 = ctx->ctxIdxOffsets[3] + 1;
 		int ctxIdx1 = ctx->ctxIdxOffsets[3] + 5;
 		do {
-			int coeff_level = 1;
-			if (!get_ae(ctx, ctxIdx0)) {
+			int coeff_level;
+			if (!get_ae_inline(ctx, ctxIdx0)) {
 				static const int8_t trans[5] = {0, 2, 3, 4, 4};
 				ctxIdx0 = ctx->ctxIdxOffsets[3] + trans[ctxIdx0 - ctx->ctxIdxOffsets[3]];
-				coeff_level = get_bypass(ctx) ? -coeff_level : coeff_level;
+				coeff_level = get_bypass(ctx) ? -1 : 1;
 			} else {
-				coeff_level++;
-				while (coeff_level < 15 && get_ae(ctx, ctxIdx1))
-					coeff_level++;
-				ctxIdx0 = ctx->ctxIdxOffsets[3];
-				ctxIdx1 = ctxIdx0 + ctx->coeff_abs_inc[ctxIdx1 - ctxIdx0 - 5];
+				coeff_level = 2;
+				while (get_ae_inline(ctx, ctxIdx1) && ++coeff_level != 15)
+					continue;
 				#if SIZE_BIT == 32
-					if (coeff_level >= 15) {
+					if (coeff_level == 15) {
 						// the biggest value to encode is 2^(14+7)-14, for which k=20 (see 9.3.2.3)
 						int k = 0;
 						while (get_bypass(ctx) && k < 20)
@@ -346,7 +344,9 @@
 					}
 					coeff_level = get_bypass(ctx) ? -coeff_level : coeff_level;
 				#elif SIZE_BIT == 64
-					if (coeff_level >= 15) {
+					if (coeff_level != 15) {
+						coeff_level = get_bypass(ctx) ? -coeff_level : coeff_level;
+					} else {
 						// we need at least 51 bits in offset to get 42 bits with a division by 9 bits
 						int zeros = clz(ctx->t.gb.range);
 						if (zeros > 64 - 51)
@@ -360,15 +360,15 @@
 						coeff_level = (quo & (size_t)1 << unused) ? -coeff_level : coeff_level;
 						ctx->t.gb.offset = (quo & (((size_t)1 << unused) - 1)) * ctx->t.gb.range + rem;
 						ctx->t.gb.range <<= unused;
-					} else {
-						coeff_level = get_bypass(ctx) ? -coeff_level : coeff_level;
 					}
 				#endif
+				ctxIdx0 = ctx->ctxIdxOffsets[3];
+				ctxIdx1 = ctxIdx0 + ctx->coeff_abs_inc[ctxIdx1 - ctxIdx0 - 5];
 			}
 		
-			// scale and store
+			// store in transposed scan position
 			int i = 63 - __builtin_clzll(significant_coeff_flags);
-			ctx->c[ctx->scan[i]] = coeff_level; // beware, scan is transposed already
+			ctx->c[ctx->scan[i]] = coeff_level;
 			significant_coeff_flags &= ~((uint64_t)1 << i);
 		} while (significant_coeff_flags != 0);
 	}

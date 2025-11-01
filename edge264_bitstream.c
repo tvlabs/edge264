@@ -273,18 +273,22 @@ static int renorm_fixed(Edge264Context * restrict ctx, int ret) {
 
 static inline int get_ae_inline(Edge264Context * restrict ctx, int ctxIdx) {
 	size_t state = ctx->cabac[ctxIdx];
-	size_t shift = SIZE_BIT - 3 - clz(ctx->t.gb.range); // [6..SIZE_BIT-3]
-	size_t idx = (state & -4) + (ctx->t.gb.range >> shift);
-	size_t rangeLPS = (size_t)((uint8_t *)rangeTabLPS - 4)[idx] << (shift - 6);
-	ctx->t.gb.range -= rangeLPS;
-	if (ctx->t.gb.offset >= ctx->t.gb.range) {
+	size_t range = ctx->t.gb.range;
+	size_t offset = ctx->t.gb.offset;
+	size_t shift = clz(range); // [0..SIZE_BIT-9]
+	size_t idx = (state & -4) + (range << shift >> (SIZE_BIT - 3));
+	size_t rangeLPS = (size_t)((uint8_t *)rangeTabLPS - 4)[idx] << (SIZE_BIT - 9 - shift);
+	range -= rangeLPS;
+	if (offset >= range) {
 		state ^= 255;
-		ctx->t.gb.offset -= ctx->t.gb.range;
-		ctx->t.gb.range = rangeLPS;
+		offset -= range;
+		range = rangeLPS;
 	}
+	ctx->t.gb.range = range;
+	ctx->t.gb.offset = offset;
 	ctx->cabac[ctxIdx] = transIdx[state];
 	int binVal = state & 1;
-	if (ctx->t.gb.range >= 256)
+	if (range >= 256)
 		return binVal;
 	return renorm_fixed(ctx, binVal);
 }

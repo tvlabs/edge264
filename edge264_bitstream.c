@@ -264,7 +264,7 @@ static noinline int renorm_bits(Edge264Context * restrict ctx, int bits) {
 	return bits & 7;
 }
 
-static int renorm_fixed(Edge264Context * restrict ctx, int ret) {
+static noinline int renorm_fixed(Edge264Context * restrict ctx, int ret) {
 	size_t bytes = get_bytes(&ctx->t.gb, SIZE_BIT / 8 - 1);
 	ctx->t.gb.offset = shld(bytes, ctx->t.gb.offset, SIZE_BIT - 8);
 	ctx->t.gb.range <<= SIZE_BIT - 8;
@@ -299,7 +299,7 @@ static noinline int get_ae(Edge264Context * restrict ctx, int ctxIdx) {
 
 static inline int get_bypass(Edge264Context *ctx) {
 	if (__builtin_expect(ctx->t.gb.range < 512, 0))
-		renorm_bits(ctx, clz(ctx->t.gb.range));
+		renorm_bits(ctx, SIZE_BIT - 9);
 	ctx->t.gb.range >>= 1;
 	size_t binVal = ctx->t.gb.offset >= ctx->t.gb.range;
 	ctx->t.gb.offset = binVal ? ctx->t.gb.offset - ctx->t.gb.range : ctx->t.gb.offset;
@@ -327,14 +327,15 @@ static int cabac_start(Edge264Context *ctx) {
 static int cabac_terminate(Edge264Context *ctx) {
 	int extra = SIZE_BIT - 9 - clz(ctx->t.gb.range); // [0..SIZE_BIT-9]
 	ctx->t.gb.range -= (size_t)2 << extra;
-	if (ctx->t.gb.offset >= ctx->t.gb.range) {
+	if (ctx->t.gb.offset < ctx->t.gb.range) {
+		if (ctx->t.gb.range >= 256)
+			return 0;
+		return renorm_fixed(ctx, 0);
+	} else {
 		// reclaim the extra bits minus alignment bits, then refill the cache
 		ctx->t.gb.msb_cache = (ctx->t.gb.offset * 2 + 1) << (SIZE_BIT - 1 - (extra & -8));
 		return refill(&ctx->t.gb, 1);
 	}
-	if (ctx->t.gb.range >= 256)
-		return 0;
-	return renorm_fixed(ctx, 0);
 }
 
 

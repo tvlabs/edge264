@@ -89,8 +89,6 @@
 		i16x8 v0 = sixtapVlo(a, shr128(a, 1), shr128(a, 2), shr128(a, 3), shr128(a, 4), shr128(a, 5));\
 		i16x8 v1 = sixtapVlo(b, shr128(b, 1), shr128(b, 2), shr128(b, 3), shr128(b, 4), shr128(b, 5))
 #endif
-#define load4x4(p0, p1, p2, p3) (i32x4){*(int32_t *)(p0), *(int32_t *)(p1), *(int32_t *)(p2), *(int32_t *)(p3)}
-#define load8x2(p0, p1) (i64x2){*(int64_t *)(p0), *(int64_t *)(p1)}
 static always_inline i16x8 sixtapHV(i16x8 a, i16x8 b, i16x8 c, i16x8 d, i16x8 e, i16x8 f) {
 	i16x8 af = a + f;
 	i16x8 be = b + e;

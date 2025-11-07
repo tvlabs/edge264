@@ -54,29 +54,37 @@
 /**
  * Intra 4x4
  */
-static noinline void decode_intra4x4(int mode, uint8_t * restrict p, size_t stride, i16x8 clip) {
+static cold noinline void decode_intra4x4(int mode, uint8_t * restrict p, size_t stride, i16x8 clip) {
+	static const i8x16 shuf[6] = {
+		{0, 1, 2, 3, 1, 2, 3, 4, 2, 3, 4, 5, 3, 4, 5, 6},
+		{3, 4, 5, 6, 2, 3, 4, 5, 1, 2, 3, 4, 0, 1, 2, 3},
+		{12, 13, 14, 15, 3, 4, 5, 6, 2, 12, 13, 14, 1, 3, 4, 5},
+		{11, 3, 4, 5, 10, 2, 11, 3, 9, 1, 10, 2, 8, 0, 9, 1},
+		{8, 9, 10, 11, 0, 1, 2, 3, 9, 10, 11, 12, 1, 2, 3, 4},
+		{11, 2, 10, 1, 10, 1, 9, 0, 9, 0, 8, 8, 8, 8, 8, 8},
+	};
+	
 	INIT_P();
-	i8x16 v, shuf;
+	int idx;
+	i8x16 v, w, x;
 	i32x4 pred;
 	switch (mode) {
 	default: __builtin_unreachable();
 	
 	case I4x4_V_8:
 		pred = set32(*(int32_t *)P(0, -1));
-		goto store_4x4;
+		break;
 	
 	case I4x4_H_8:
-		*(int32_t *)P(0, 0) = ((i32x4)set8(*P(-1, 0)))[0];
-		*(int32_t *)P(0, 1) = ((i32x4)set8(*P(-1, 1)))[0];
-		*(int32_t *)P(0, 2) = ((i32x4)set8(*P(-1, 2)))[0];
-		*(int32_t *)P(0, 3) = ((i32x4)set8(*P(-1, 3)))[0];
-		return;
+		v = load4x4(P(-4, 0), P(-4, 1), P(-4, 2), P(-4, 3));
+		pred = shuffle(v, (i8x16){3, 3, 3, 3, 7, 7, 7, 7, 11, 11, 11, 11, 15, 15, 15, 15});
+		break;
 	
 	case I4x4_DC_8:
 		v = ziplo32(ldleft4(0, 1, 2, 3), load32(P(0, -1)));
 	dc_4x4:
 		pred = broadcast8(shrru16(sumh8(v), 3), __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__);
-		goto store_4x4;
+		break;
 	case I4x4_DC_A_8: {
 		i8x16 v0 = load32(P(0, -1));
 		v = ziplo32(v0, v0);
@@ -87,50 +95,49 @@ static noinline void decode_intra4x4(int mode, uint8_t * restrict p, size_t stri
 		} goto dc_4x4;
 	case I4x4_DC_AB_8:
 		pred = set8(-128);
-		goto store_4x4;
+		break;
 	
 	case I4x4_DDL_8:
 		v = spreadh8(load64(P(0, -1)));
-		shuf = (i8x16){0, 1, 2, 3, 1, 2, 3, 4, 2, 3, 4, 5, 3, 4, 5, 6};
+		idx = 0;
 		goto lowpass_4x4;
 	case I4x4_DDL_C_8:
 		v = spreadq8(load32(P(0, -1)));
-		shuf = (i8x16){0, 1, 2, 3, 1, 2, 3, 4, 2, 3, 4, 5, 3, 4, 5, 6};
+		idx = 0;
 		goto lowpass_4x4;
 	case I4x4_DDR_8:
-		shuf = (i8x16){3, 4, 5, 6, 2, 3, 4, 5, 1, 2, 3, 4, 0, 1, 2, 3};
+		idx = 1;
 		goto down_right_4x4;
 	case I4x4_VR_8:
-		shuf = (i8x16){12, 13, 14, 15, 3, 4, 5, 6, 2, 12, 13, 14, 1, 3, 4, 5};
+		idx = 2;
 		goto down_right_4x4;
 	case I4x4_HD_8:
-		shuf = (i8x16){11, 3, 4, 5, 10, 2, 11, 3, 9, 1, 10, 2, 8, 0, 9, 1};
+		idx = 3;
 		goto down_right_4x4;
 	case I4x4_VL_8:
 		v = load64(P(0, -1));
-		shuf = (i8x16){8, 9, 10, 11, 0, 1, 2, 3, 9, 10, 11, 12, 1, 2, 3, 4};
+		idx = 4;
 		goto lowpass_4x4;
 	case I4x4_VL_C_8:
 		v = spreadq8(load32(P(0, -1)));
-		shuf = (i8x16){8, 9, 10, 11, 0, 1, 2, 3, 9, 10, 11, 12, 1, 2, 3, 4};
+		idx = 4;
 		goto lowpass_4x4;
 	case I4x4_HU_8:
 		v = shlc128(ldleft4(3, 2, 1, 0), 1);
-		shuf = (i8x16){11, 2, 10, 1, 10, 1, 9, 0, 9, 0, 8, 8, 8, 8, 8, 8};
+		idx = 5;
 		goto lowpass_4x4;
 	down_right_4x4:
 		v = ldedge4x4();
-	lowpass_4x4: {
-		i8x16 w = shr128(v, 1);
-		i8x16 x = shr128(v, 2);
-		pred = shuffle(lowpass8(ziplo64(v, v), ziplo64(w, w), ziplo64(x, v)), shuf);
-	} store_4x4:
-		*(int32_t *)P(0, 0) = pred[0];
-		*(int32_t *)P(0, 1) = pred[1];
-		*(int32_t *)P(0, 2) = pred[2];
-		*(int32_t *)P(0, 3) = pred[3];
-		return;
+	lowpass_4x4:
+		w = shr128(v, 1);
+		x = shr128(v, 2);
+		pred = shuffle(lowpass8(ziplo64(v, v), ziplo64(w, w), ziplo64(x, v)), shuf[idx]);
+		break;
 	}
+	*(int32_t *)P(0, 0) = pred[0];
+	*(int32_t *)P(0, 1) = pred[1];
+	*(int32_t *)P(0, 2) = pred[2];
+	*(int32_t *)P(0, 3) = pred[3];
 }
 
 

@@ -430,16 +430,22 @@ typedef struct Edge264Decoder {
 #ifndef noinline
 	#define noinline __attribute__((noinline))
 #endif
-#ifndef always_inline
 #if defined(__clang__)
 	#define always_inline __attribute__((always_inline))
+	#define cold __attribute__((cold))
 #elif defined(__GNUC__)
 	#define always_inline inline __attribute__((always_inline))
+	#define cold __attribute__((cold))
 #elif defined(_MSC_VER)
 	#define always_inline __forceinline
+	#define cold
 #else
-	#define always_inline inline
-#endif
+	#ifndef always_inline
+		#define always_inline inline
+	#endif
+	#ifndef cold
+		#define cold
+	#endif
 #endif
 
 
@@ -897,6 +903,8 @@ static always_inline const char *unsup_if(int cond) { return cond ? " # unsuppor
 	#define shufflez2 shuffle2
 	#define sumh8 sum8
 #endif
+#define load4x4(p0, p1, p2, p3) (i32x4){*(int32_t *)(p0), *(int32_t *)(p1), *(int32_t *)(p2), *(int32_t *)(p3)}
+#define load8x2(p0, p1) (i64x2){*(int64_t *)(p0), *(int64_t *)(p1)}
 
 
 
@@ -1023,7 +1031,7 @@ static noinline void deblock_mb(Edge264Context *ctx);
 static void noinline decode_inter(Edge264Context *ctx, int i, int w, int h);
 
 // edge264_intra.c
-static noinline void decode_intra4x4(int mode, uint8_t * restrict p, size_t stride, i16x8 clip);
+static cold noinline void decode_intra4x4(int mode, uint8_t * restrict p, size_t stride, i16x8 clip);
 static noinline void decode_intra8x8(int mode, uint8_t * restrict p, size_t stride, i16x8 clip);
 static noinline void decode_intra16x16(int mode, uint8_t * restrict p, size_t stride, i16x8 clip);
 static noinline void decode_intraChroma(int mode, uint8_t * restrict p, size_t stride, i16x8 clip);

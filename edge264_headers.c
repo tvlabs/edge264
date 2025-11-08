@@ -289,17 +289,15 @@ static void recover_slice(Edge264Context *ctx, int currPic) {
 		
 		// recover the macroblock depending on slice_type
 		if (ctx->t.slice_type == 2) { // I slice -> blend with intra DC
-			uint8_t * restrict p = ctx->samples_mb[0];
-			size_t stride = ctx->t.stride[0];
-			INIT_P();
+			INIT_PX(ctx->samples_mb[0], ctx->t.stride[0]);
 			i8x16 l = set8(-128), t = l;
 			if (i == 0 || ctx->mbx == 0) { // A not available
 				if (i >= ctx->t.pic_width_in_mbs) // B available
-					l = t = load128(P(0, -1));
+					l = t = load128(PX(0, -1));
 			} else { // A available
 				l = t = ldleft16(0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15);
 				if (i >= ctx->t.pic_width_in_mbs) // B available
-					t = load128(P(0, -1));
+					t = load128(PX(0, -1));
 			}
 			i8x16 dcY = broadcast8(shrru16(sumd8(t, l), 5), __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__);
 			i8x16 w8 = ziplo8(set8(128 - p128), set8(p128));
@@ -312,55 +310,53 @@ static void recover_slice(Edge264Context *ctx, int currPic) {
 				w16 = (i16x8){0, 1};
 				wd64 = wd16 = o;
 			}
-			*(i8x16 *)P(0, 0) = maddshr8(*(i8x16 *)P(0, 0), dcY, w8, w16, o, wd64, wd16);
-			*(i8x16 *)P(0, 1) = maddshr8(*(i8x16 *)P(0, 1), dcY, w8, w16, o, wd64, wd16);
-			*(i8x16 *)P(0, 2) = maddshr8(*(i8x16 *)P(0, 2), dcY, w8, w16, o, wd64, wd16);
-			*(i8x16 *)P(0, 3) = maddshr8(*(i8x16 *)P(0, 3), dcY, w8, w16, o, wd64, wd16);
-			*(i8x16 *)P(0, 4) = maddshr8(*(i8x16 *)P(0, 4), dcY, w8, w16, o, wd64, wd16);
-			*(i8x16 *)P(0, 5) = maddshr8(*(i8x16 *)P(0, 5), dcY, w8, w16, o, wd64, wd16);
-			*(i8x16 *)P(0, 6) = maddshr8(*(i8x16 *)P(0, 6), dcY, w8, w16, o, wd64, wd16);
-			*(i8x16 *)P(0, 7) = maddshr8(*(i8x16 *)P(0, 7), dcY, w8, w16, o, wd64, wd16);
-			*(i8x16 *)P(0, 8) = maddshr8(*(i8x16 *)P(0, 8), dcY, w8, w16, o, wd64, wd16);
-			*(i8x16 *)P(0, 9) = maddshr8(*(i8x16 *)P(0, 9), dcY, w8, w16, o, wd64, wd16);
-			*(i8x16 *)P(0, 10) = maddshr8(*(i8x16 *)P(0, 10), dcY, w8, w16, o, wd64, wd16);
-			*(i8x16 *)P(0, 11) = maddshr8(*(i8x16 *)P(0, 11), dcY, w8, w16, o, wd64, wd16);
-			*(i8x16 *)P(0, 12) = maddshr8(*(i8x16 *)P(0, 12), dcY, w8, w16, o, wd64, wd16);
-			*(i8x16 *)P(0, 13) = maddshr8(*(i8x16 *)P(0, 13), dcY, w8, w16, o, wd64, wd16);
-			*(i8x16 *)P(0, 14) = maddshr8(*(i8x16 *)P(0, 14), dcY, w8, w16, o, wd64, wd16);
-			*(i8x16 *)P(0, 15) = maddshr8(*(i8x16 *)P(0, 15), dcY, w8, w16, o, wd64, wd16);
+			*(i8x16 *)PX(0, 0) = maddshr8(*(i8x16 *)PX(0, 0), dcY, w8, w16, o, wd64, wd16);
+			*(i8x16 *)PX(0, 1) = maddshr8(*(i8x16 *)PX(0, 1), dcY, w8, w16, o, wd64, wd16);
+			*(i8x16 *)PX(0, 2) = maddshr8(*(i8x16 *)PX(0, 2), dcY, w8, w16, o, wd64, wd16);
+			*(i8x16 *)PX(0, 3) = maddshr8(*(i8x16 *)PX(0, 3), dcY, w8, w16, o, wd64, wd16);
+			*(i8x16 *)PX(0, 4) = maddshr8(*(i8x16 *)PX(0, 4), dcY, w8, w16, o, wd64, wd16);
+			*(i8x16 *)PX(0, 5) = maddshr8(*(i8x16 *)PX(0, 5), dcY, w8, w16, o, wd64, wd16);
+			*(i8x16 *)PX(0, 6) = maddshr8(*(i8x16 *)PX(0, 6), dcY, w8, w16, o, wd64, wd16);
+			*(i8x16 *)PX(0, 7) = maddshr8(*(i8x16 *)PX(0, 7), dcY, w8, w16, o, wd64, wd16);
+			*(i8x16 *)PX(0, 8) = maddshr8(*(i8x16 *)PX(0, 8), dcY, w8, w16, o, wd64, wd16);
+			*(i8x16 *)PX(0, 9) = maddshr8(*(i8x16 *)PX(0, 9), dcY, w8, w16, o, wd64, wd16);
+			*(i8x16 *)PX(0, 10) = maddshr8(*(i8x16 *)PX(0, 10), dcY, w8, w16, o, wd64, wd16);
+			*(i8x16 *)PX(0, 11) = maddshr8(*(i8x16 *)PX(0, 11), dcY, w8, w16, o, wd64, wd16);
+			*(i8x16 *)PX(0, 12) = maddshr8(*(i8x16 *)PX(0, 12), dcY, w8, w16, o, wd64, wd16);
+			*(i8x16 *)PX(0, 13) = maddshr8(*(i8x16 *)PX(0, 13), dcY, w8, w16, o, wd64, wd16);
+			*(i8x16 *)PX(0, 14) = maddshr8(*(i8x16 *)PX(0, 14), dcY, w8, w16, o, wd64, wd16);
+			*(i8x16 *)PX(0, 15) = maddshr8(*(i8x16 *)PX(0, 15), dcY, w8, w16, o, wd64, wd16);
 			{
-				uint8_t * restrict p = ctx->samples_mb[1];
-				size_t stride = ctx->t.stride[1] >> 1;
-				INIT_P();
-				i8x16 b = ziplo64(load64(P(0, -2)), ldleft8(0, 2, 4, 6, 8, 10, 12, 14));
-				i8x16 r = ziplo64(load64(P(0, -1)), ldleft8(1, 3, 5, 7, 9, 11, 13, 15));
+				INIT_PX(ctx->samples_mb[1], ctx->t.stride[1] >> 1);
+				i8x16 b = ziplo64(load64(PX(0, -2)), ldleft8(0, 2, 4, 6, 8, 10, 12, 14));
+				i8x16 r = ziplo64(load64(PX(0, -1)), ldleft8(1, 3, 5, 7, 9, 11, 13, 15));
 				i8x16 dcb = broadcast8(shrru16(sum8(b), 4), __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__);
 				i8x16 dcr = broadcast8(shrru16(sum8(r), 4), __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__);
 				i8x16 dcC = ziplo64(dcb, dcr);
-				i64x2 v0 = maddshr8(load8x2(P(0, 0), P(0, 1)), dcC, w8, w16, o, wd64, wd16);
-				i64x2 v1 = maddshr8(load8x2(P(0, 2), P(0, 3)), dcC, w8, w16, o, wd64, wd16);
-				i64x2 v2 = maddshr8(load8x2(P(0, 4), P(0, 5)), dcC, w8, w16, o, wd64, wd16);
-				i64x2 v3 = maddshr8(load8x2(P(0, 6), P(0, 7)), dcC, w8, w16, o, wd64, wd16);
-				i64x2 v4 = maddshr8(load8x2(P(0, 8), P(0, 9)), dcC, w8, w16, o, wd64, wd16);
-				i64x2 v5 = maddshr8(load8x2(P(0, 10), P(0, 11)), dcC, w8, w16, o, wd64, wd16);
-				i64x2 v6 = maddshr8(load8x2(P(0, 12), P(0, 13)), dcC, w8, w16, o, wd64, wd16);
-				i64x2 v7 = maddshr8(load8x2(P(0, 14), P(0, 15)), dcC, w8, w16, o, wd64, wd16);
-				*(int64_t *)P(0, 0) = v0[0];
-				*(int64_t *)P(0, 1) = v0[1];
-				*(int64_t *)P(0, 2) = v1[0];
-				*(int64_t *)P(0, 3) = v1[1];
-				*(int64_t *)P(0, 4) = v2[0];
-				*(int64_t *)P(0, 5) = v2[1];
-				*(int64_t *)P(0, 6) = v3[0];
-				*(int64_t *)P(0, 7) = v3[1];
-				*(int64_t *)P(0, 8) = v4[0];
-				*(int64_t *)P(0, 9) = v4[1];
-				*(int64_t *)P(0, 10) = v5[0];
-				*(int64_t *)P(0, 11) = v5[1];
-				*(int64_t *)P(0, 12) = v6[0];
-				*(int64_t *)P(0, 13) = v6[1];
-				*(int64_t *)P(0, 14) = v7[0];
-				*(int64_t *)P(0, 15) = v7[1];
+				i64x2 v0 = maddshr8(load8x2(PX(0, 0), PX(0, 1)), dcC, w8, w16, o, wd64, wd16);
+				i64x2 v1 = maddshr8(load8x2(PX(0, 2), PX(0, 3)), dcC, w8, w16, o, wd64, wd16);
+				i64x2 v2 = maddshr8(load8x2(PX(0, 4), PX(0, 5)), dcC, w8, w16, o, wd64, wd16);
+				i64x2 v3 = maddshr8(load8x2(PX(0, 6), PX(0, 7)), dcC, w8, w16, o, wd64, wd16);
+				i64x2 v4 = maddshr8(load8x2(PX(0, 8), PX(0, 9)), dcC, w8, w16, o, wd64, wd16);
+				i64x2 v5 = maddshr8(load8x2(PX(0, 10), PX(0, 11)), dcC, w8, w16, o, wd64, wd16);
+				i64x2 v6 = maddshr8(load8x2(PX(0, 12), PX(0, 13)), dcC, w8, w16, o, wd64, wd16);
+				i64x2 v7 = maddshr8(load8x2(PX(0, 14), PX(0, 15)), dcC, w8, w16, o, wd64, wd16);
+				*(int64_t *)PX(0, 0) = v0[0];
+				*(int64_t *)PX(0, 1) = v0[1];
+				*(int64_t *)PX(0, 2) = v1[0];
+				*(int64_t *)PX(0, 3) = v1[1];
+				*(int64_t *)PX(0, 4) = v2[0];
+				*(int64_t *)PX(0, 5) = v2[1];
+				*(int64_t *)PX(0, 6) = v3[0];
+				*(int64_t *)PX(0, 7) = v3[1];
+				*(int64_t *)PX(0, 8) = v4[0];
+				*(int64_t *)PX(0, 9) = v4[1];
+				*(int64_t *)PX(0, 10) = v5[0];
+				*(int64_t *)PX(0, 11) = v5[1];
+				*(int64_t *)PX(0, 12) = v6[0];
+				*(int64_t *)PX(0, 13) = v6[1];
+				*(int64_t *)PX(0, 14) = v7[0];
+				*(int64_t *)PX(0, 15) = v7[1];
 			}
 		} else if (i > 0 && p128 >= 32) { // recover above 25% error (arbitrary)
 			if (ctx->t.slice_type == 0) { // P slice -> P_Skip

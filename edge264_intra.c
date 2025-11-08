@@ -24,16 +24,29 @@
 #include "edge264_internal.h"
 
 #if defined(__SSE2__)
-	#define ldedge4x4() shrd128(ziplo16(ziplo8(load32(P(-4, 3)), load32(P(-4, 2))), ziplo8(load32(P(-4, 1)), load32(P(-4, 0)))), load64(P(-1, -1)), 12)
-	#define ldedge8x8lo() ({i8x16 _v7 = load64(P(-8, 7)); shuffleps(_v7, ziphi32(ziphi16(ziplo8(_v7, load64(P(-8, 6))), ziplo8(load64(P(-8, 5)), load64(P(-8, 4)))), ziplo16(ziplo8(load32(P(-4, 3)), load32(P(-4, 2))), ziplo8(load32(P(-4, 1)), load32(P(-4, 0))))), 0, 1, 2, 3);})
-	#define ldleft3(v0, y1, y2, y3) shr128(ziplo16(ziplo8((u32x4)(v0) << 24, load32(P(-4, y1))), ziplo8(load32(P(-4, y2)), load32(P(-4, y3)))), 12)
-	#define ldleft4(y0, y1, y2, y3) shr128(ziplo16(ziplo8(load32(P(-4, y0)), load32(P(-4, y1))), ziplo8(load32(P(-4, y2)), load32(P(-4, y3)))), 12)
-	#define ldleft7(v0, y1, y2, y3, y4, y5, y6, y7) shr128(ziphi32(ziplo16(ziplo8((u32x4)(v0) << 24, load32(P(-4, y1))), ziplo8(load32(P(-4, y2)), load32(P(-4, y3)))), ziplo16(ziplo8(load32(P(-4, y4)), load32(P(-4, y5))), ziplo8(load32(P(-4, y6)), load32(P(-4, y7))))), 8)
-	#define ldleft8(y0, y1, y2, y3, y4, y5, y6, y7) shr128(ziphi32(ziplo16(ziplo8(load32(P(-4, y0)), load32(P(-4, y1))), ziplo8(load32(P(-4, y2)), load32(P(-4, y3)))), ziplo16(ziplo8(load32(P(-4, y4)), load32(P(-4, y5))), ziplo8(load32(P(-4, y6)), load32(P(-4, y7))))), 8)
-	#define ldleft16(y0, y1, y2, y3, y4, y5, y6, y7, y8, y9, yA, yB, yC, yD, yE, yF) ziphi64(ziphi32(ziplo16(ziplo8(load32(P(-4, y0)), load32(P(-4, y1))), ziplo8(load32(P(-4, y2)), load32(P(-4, y3)))), ziplo16(ziplo8(load32(P(-4, y4)), load32(P(-4, y5))), ziplo8(load32(P(-4, y6)), load32(P(-4, y7))))), ziphi32(ziplo16(ziplo8(load32(P(-4, y8)), load32(P(-4, y9))), ziplo8(load32(P(-4, yA)), load32(P(-4, yB)))), ziplo16(ziplo8(load32(P(-4, yC)), load32(P(-4, yD))), ziplo8(load32(P(-4, yE)), load32(P(-4, yF))))))
+	#define ldedge8x8lo() ({i8x16 _v7 = load64(PX(-8, 7)); shuffleps(_v7, ziphi32(ziphi16(ziplo8(_v7, load64(PX(-8, 6))), ziplo8(load64(PX(-8, 5)), load64(PX(-8, 4)))), ziplo16(ziplo8(load32(PX(-4, 3)), load32(PX(-4, 2))), ziplo8(load32(PX(-4, 1)), load32(PX(-4, 0))))), 0, 1, 2, 3);})
+	#define ldleft3(v0, y1, y2, y3) shr128(ziplo16(ziplo8((u32x4)(v0) << 24, load32(PX(-4, y1))), ziplo8(load32(PX(-4, y2)), load32(PX(-4, y3)))), 12)
+	#define ldleft7(v0, y1, y2, y3, y4, y5, y6, y7) shr128(ziphi32(ziplo16(ziplo8((u32x4)(v0) << 24, load32(PX(-4, y1))), ziplo8(load32(PX(-4, y2)), load32(PX(-4, y3)))), ziplo16(ziplo8(load32(PX(-4, y4)), load32(PX(-4, y5))), ziplo8(load32(PX(-4, y6)), load32(PX(-4, y7))))), 8)
+	#define ldleft8(y0, y1, y2, y3, y4, y5, y6, y7) shr128(ziphi32(ziplo16(ziplo8(load32(PX(-4, y0)), load32(PX(-4, y1))), ziplo8(load32(PX(-4, y2)), load32(PX(-4, y3)))), ziplo16(ziplo8(load32(PX(-4, y4)), load32(PX(-4, y5))), ziplo8(load32(PX(-4, y6)), load32(PX(-4, y7))))), 8)
+	#define ldleft16(y0, y1, y2, y3, y4, y5, y6, y7, y8, y9, yA, yB, yC, yD, yE, yF) ziphi64(ziphi32(ziplo16(ziplo8(load32(PX(-4, y0)), load32(PX(-4, y1))), ziplo8(load32(PX(-4, y2)), load32(PX(-4, y3)))), ziplo16(ziplo8(load32(PX(-4, y4)), load32(PX(-4, y5))), ziplo8(load32(PX(-4, y6)), load32(PX(-4, y7))))), ziphi32(ziplo16(ziplo8(load32(PX(-4, y8)), load32(PX(-4, y9))), ziplo8(load32(PX(-4, yA)), load32(PX(-4, yB)))), ziplo16(ziplo8(load32(PX(-4, yC)), load32(PX(-4, yD))), ziplo8(load32(PX(-4, yE)), load32(PX(-4, yF))))))
 	#define spreadh8(a) shuffle(a, (i8x16){0, 1, 2, 3, 4, 5, 6, 7, 7, 7, 7, 7, 7, 7, 7, 7})
 	#define spreadq8(a) shuffle(a, (i8x16){0, 1, 2, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3})
 	static always_inline i8x16 lowpass8(i8x16 l, i8x16 m, i8x16 r) {return avgu8(subu8(avgu8(l, r), (l ^ r) & set8(1)), m);}
+	static inline i8x16 ldleft4(const uint8_t *p, size_t stride) {
+		p -= 4;
+		i8x16 v0 = ziplo8(load32(p             ), load32(p + stride    ));
+		i8x16 v1 = ziplo8(load32(p + stride * 2), load32(p + stride * 3));
+		return shr128(ziplo16(v0, v1), 12);
+	}
+	static inline i8x16 ldedge4x4(const uint8_t *p, size_t stride) {
+		i8x16 v0 = load64(p - 1 - stride);
+		p -= 4;
+		i8x16 v1 = load32(p             );
+		i8x16 v2 = load32(p + stride    );
+		i8x16 v3 = load32(p + stride * 2);
+		i8x16 v4 = load32(p + stride * 3);
+		return shrd128(ziplo16(ziplo8(v4, v3), ziplo8(v2, v1)), v0, 12);
+	}
 	static inline i8x16 ldleft7bis(i8x16 v0, const uint8_t *p, size_t stride) {
 		const uint8_t *p0 = p - 1;
 		const uint8_t *p4 = p0 + stride * 4;
@@ -56,17 +69,32 @@
 	}
 #elif defined(__ARM_NEON)
 	#define addlou8(a, b) (i16x8)vaddl_u8(vget_low_s8(a), vget_low_s8(b))
-	#define ldedge4x4() ({i8x16 _v = load128(P(-5, -1)); _v[3] = *P(-1, 0); _v[2] = *P(-1, 1); _v[1] = *P(-1, 2); _v[0] = *P(-1, 3); _v;})
-	#define ldedge8x8lo() ({i8x16 _v = set8(*P(-1, 7)); _v[15] = *P(-1, 0); _v[14] = *P(-1, 1); _v[13] = *P(-1, 2); _v[12] = *P(-1, 3); _v[11] = *P(-1, 4); _v[10] = *P(-1, 5); _v[9] = *P(-1, 6); _v;})
-	#define ldleft3(v0, y1, y2, y3) ({i8x16 _v = v0; _v[1] = *P(-1, y1), _v[2] = *P(-1, y2), _v[3] = *P(-1, y3); _v;})
-	#define ldleft4(y0, y1, y2, y3) (i8x16){*P(-1, y0), *P(-1, y1), *P(-1, y2), *P(-1, y3)}
-	#define ldleft7(v0, y1, y2, y3, y4, y5, y6, y7) ({i8x16 _v = v0; _v[1] = *P(-1, y1), _v[2] = *P(-1, y2), _v[3] = *P(-1, y3), _v[4] = *P(-1, y4), _v[5] = *P(-1, y5), _v[6] = *P(-1, y6), _v[7] = *P(-1, y7); _v;})
-	#define ldleft8(y0, y1, y2, y3, y4, y5, y6, y7) (i8x16){*P(-1, y0), *P(-1, y1), *P(-1, y2), *P(-1, y3), *P(-1, y4), *P(-1, y5), *P(-1, y6), *P(-1, y7)}
-	#define ldleft16(y0, y1, y2, y3, y4, y5, y6, y7, y8, y9, yA, yB, yC, yD, yE, yF) (i8x16){*P(-1, y0), *P(-1, y1), *P(-1, y2), *P(-1, y3), *P(-1, y4), *P(-1, y5), *P(-1, y6), *P(-1, y7), *P(-1, y8), *P(-1, y9), *P(-1, yA), *P(-1, yB), *P(-1, yC), *P(-1, yD), *P(-1, yE), *P(-1, yF)}
+	#define ldedge8x8lo() ({i8x16 _v = set8(*PX(-1, 7)); _v[15] = *PX(-1, 0); _v[14] = *PX(-1, 1); _v[13] = *PX(-1, 2); _v[12] = *PX(-1, 3); _v[11] = *PX(-1, 4); _v[10] = *PX(-1, 5); _v[9] = *PX(-1, 6); _v;})
+	#define ldleft3(v0, y1, y2, y3) ({i8x16 _v = v0; _v[1] = *PX(-1, y1), _v[2] = *PX(-1, y2), _v[3] = *PX(-1, y3); _v;})
+	#define ldleft7(v0, y1, y2, y3, y4, y5, y6, y7) ({i8x16 _v = v0; _v[1] = *PX(-1, y1), _v[2] = *PX(-1, y2), _v[3] = *PX(-1, y3), _v[4] = *PX(-1, y4), _v[5] = *PX(-1, y5), _v[6] = *PX(-1, y6), _v[7] = *PX(-1, y7); _v;})
+	#define ldleft8(y0, y1, y2, y3, y4, y5, y6, y7) (i8x16){*PX(-1, y0), *PX(-1, y1), *PX(-1, y2), *PX(-1, y3), *PX(-1, y4), *PX(-1, y5), *PX(-1, y6), *PX(-1, y7)}
+	#define ldleft16(y0, y1, y2, y3, y4, y5, y6, y7, y8, y9, yA, yB, yC, yD, yE, yF) (i8x16){*PX(-1, y0), *PX(-1, y1), *PX(-1, y2), *PX(-1, y3), *PX(-1, y4), *PX(-1, y5), *PX(-1, y6), *PX(-1, y7), *PX(-1, y8), *PX(-1, y9), *PX(-1, yA), *PX(-1, yB), *PX(-1, yC), *PX(-1, yD), *PX(-1, yE), *PX(-1, yF)}
 	#define lowpass8(l, m, r) (i8x16)vrhaddq_u8(vhaddq_u8(l, r), m)
 	#define sublou8(a, b) (i16x8)vsubl_u8(vget_low_s8(a), vget_low_s8(b))
 	static always_inline i8x16 spreadh8(i8x16 a) {return vzip1q_s64(a, vdupq_laneq_s8(a, 7));}
 	static always_inline i8x16 spreadq8(i8x16 a) {return vextq_s8(vextq_s8(a, a, 4), vdupq_laneq_s8(a, 3), 12);}
+	static i8x16 ldleft4(const uint8_t *p, size_t stride) {
+		p -= 1;
+		i8x16 v = {*p};
+		v[1] = *(p += stride);
+		v[2] = *(p += stride);
+		v[3] = *(p + stride);
+		return v;
+	}
+	static i8x16 ldedge4x4(const uint8_t *p, size_t stride) {
+		i8x16 v = load128(p - 5 - stride);
+		p -= 1;
+		v[3] = *p;
+		v[2] = *(p += stride);
+		v[1] = *(p += stride);
+		v[0] = *(p + stride);
+		return v;
+	}
 	static i8x16 ldleft7bis(i8x16 v0, const uint8_t *p, size_t stride) {
 		p -= 1;
 		v0[1] = *p;
@@ -75,26 +103,24 @@
 		v0[4] = *(p += stride);
 		v0[5] = *(p += stride);
 		v0[6] = *(p += stride);
-		v0[7] = *(p += stride);
+		v0[7] = *(p + stride);
 		return v0;
 	}
 	static i8x16 ldleft8bis(const uint8_t *p, size_t stride) {
 		p -= 1;
-		i8x16 v;
-		v[0] = *p;
+		i8x16 v = {*p};
 		v[1] = *(p += stride);
 		v[2] = *(p += stride);
 		v[3] = *(p += stride);
 		v[4] = *(p += stride);
 		v[5] = *(p += stride);
 		v[6] = *(p += stride);
-		v[7] = *(p += stride);
+		v[7] = *(p + stride);
 		return v;
 	}
 	static i8x16 ldleftC16(const uint8_t *p, size_t stride) {
 		p -= 1;
-		i8x16 v;
-		v[0] = *p;
+		i8x16 v = {*p};
 		v[8] = *(p += stride);
 		v[1] = *(p += stride);
 		v[9] = *(p += stride);
@@ -109,7 +135,7 @@
 		v[6] = *(p += stride);
 		v[14] = *(p += stride);
 		v[7] = *(p += stride);
-		v[15] = *(p += stride);
+		v[15] = *(p + stride);
 		return v;
 	}
 #endif
@@ -129,7 +155,6 @@ static cold noinline void decode_intra4x4(int mode, uint8_t * restrict p, size_t
 		{8, 0, 9, 1, 9, 1, 10, 2, 10, 2, 11, 3, 11, 3, 12, 4},
 	};
 	
-	INIT_P();
 	int idx;
 	i8x16 v;
 	i32x4 pred;
@@ -137,25 +162,25 @@ static cold noinline void decode_intra4x4(int mode, uint8_t * restrict p, size_t
 	default: __builtin_unreachable();
 	
 	case I4x4_V_8:
-		pred = set32(*(int32_t *)P(0, -1));
+		pred = set32(*(int32_t *)(p - stride));
 		break;
 	
 	case I4x4_H_8:
-		v = ldleft4(0, 1, 2, 3);
+		v = ldleft4(p, stride);
 		pred = shuffle(v, (i8x16){0, 0, 0, 0, 1, 1, 1, 1, 2, 2, 2, 2, 3, 3, 3, 3});
 		break;
 	
 	case I4x4_DC_8:
-		v = ziplo32(ldleft4(0, 1, 2, 3), load32(P(0, -1)));
+		v = ziplo32(ldleft4(p, stride), load32(p - stride));
 	dc_4x4:
 		pred = broadcast8(shrru16(sumh8(v), 3), __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__);
 		break;
 	case I4x4_DC_A_8: {
-		i8x16 v0 = load32(P(0, -1));
+		i8x16 v0 = load32(p - stride);
 		v = ziplo32(v0, v0);
 		} goto dc_4x4;
 	case I4x4_DC_B_8: {
-		i8x16 v0 = ldleft4(0, 1, 2, 3);
+		i8x16 v0 = ldleft4(p, stride);
 		v = ziplo32(v0, v0);
 		} goto dc_4x4;
 	case I4x4_DC_AB_8:
@@ -163,11 +188,11 @@ static cold noinline void decode_intra4x4(int mode, uint8_t * restrict p, size_t
 		break;
 	
 	case I4x4_DDL_8:
-		v = spreadh8(load64(P(0, -1)));
+		v = spreadh8(load64(p - stride));
 		idx = 0;
 		goto lowpass_4x4;
 	case I4x4_DDL_C_8:
-		v = spreadq8(load32(P(0, -1)));
+		v = spreadq8(load32(p - stride));
 		idx = 0;
 		goto lowpass_4x4;
 	case I4x4_DDR_8:
@@ -180,29 +205,29 @@ static cold noinline void decode_intra4x4(int mode, uint8_t * restrict p, size_t
 		idx = 3;
 		goto down_right_4x4;
 	case I4x4_VL_8:
-		v = load64(P(0, -1));
+		v = load64(p - stride);
 		idx = 4;
 		goto lowpass_4x4;
 	case I4x4_VL_C_8:
-		v = spreadq8(load32(P(0, -1)));
+		v = spreadq8(load32(p - stride));
 		idx = 4;
 		goto lowpass_4x4;
 	case I4x4_HU_8:
-		v = spreadq8(ldleft4(0, 1, 2, 3));
+		v = spreadq8(ldleft4(p, stride));
 		idx = 5;
 		goto lowpass_4x4;
 	down_right_4x4:
-		v = ldedge4x4();
+		v = ldedge4x4(p, stride);
 	lowpass_4x4: {
 		i8x16 w = shr128(v, 1);
 		i8x16 x = shr128(v, 2);
 		pred = shuffle(lowpass8(ziplo64(v, v), ziplo64(w, w), ziplo64(x, v)), shuf[idx]);
 		} break;
 	}
-	*(int32_t *)P(0, 0) = pred[0];
-	*(int32_t *)P(0, 1) = pred[1];
-	*(int32_t *)P(0, 2) = pred[2];
-	*(int32_t *)P(0, 3) = pred[3];
+	*(int32_t *)(p             ) = pred[0];
+	*(int32_t *)(p + stride    ) = pred[1];
+	*(int32_t *)(p + stride * 2) = pred[2];
+	*(int32_t *)(p + stride * 3) = pred[3];
 }
 
 
@@ -213,50 +238,50 @@ static cold noinline void decode_intra4x4(int mode, uint8_t * restrict p, size_t
  * Neighbouring samples are named a to z from bottom left to top right, with
  * i being p[-1,-1] or p[-1,0] if unavailable, and j being p[-1,-1] or p[0,-1].
  */
-cold noinline void decode_intra8x8(int mode, uint8_t * restrict p, size_t stride, i16x8 clip) {
-	INIT_P();
+static cold noinline void decode_intra8x8(int mode, uint8_t * restrict p, size_t stride, i16x8 clip) {
+	INIT_PX(p, stride);
 	i8x16 i2a, j2s, j2y, k2z, j2q, k2r, l2s;
-	i64x2 pred, p0, p1, p2, p3, p4, p5, p6, p7;
+	i64x2 p0, p1, p2, p3, p4, p5, p6, p7;
 	switch (mode) {
 	default: __builtin_unreachable();
 	
 	case I8x8_V_8:
-		j2q = load128(P(-1, -1));
+		j2q = load128(PX(-1, -1));
 		l2s = shr128(j2q, 2);
 		k2r = shr128(j2q, 1);
 	vertical_8x8_lowpass:
-		pred = lowpass8(j2q, k2r, l2s);
+		p0 = lowpass8(j2q, k2r, l2s);
 	store1_8x8:
-		*(int64_t *)P(0, 0) = pred[0];
-		*(int64_t *)P(0, 1) = pred[0];
-		*(int64_t *)P(0, 2) = pred[0];
-		*(int64_t *)P(0, 3) = pred[0];
-		*(int64_t *)P(0, 4) = pred[0];
-		*(int64_t *)P(0, 5) = pred[0];
-		*(int64_t *)P(0, 6) = pred[0];
-		*(int64_t *)P(0, 7) = pred[0];
+		*(int64_t *)PX(0, 0) = p0[0];
+		*(int64_t *)PX(0, 1) = p0[0];
+		*(int64_t *)PX(0, 2) = p0[0];
+		*(int64_t *)PX(0, 3) = p0[0];
+		*(int64_t *)PX(0, 4) = p0[0];
+		*(int64_t *)PX(0, 5) = p0[0];
+		*(int64_t *)PX(0, 6) = p0[0];
+		*(int64_t *)PX(0, 7) = p0[0];
 		return;
 	case I8x8_V_C_8: {
-		i8x16 v0 = load128(P(-8, -1));
+		i8x16 v0 = load128(PX(-8, -1));
 		l2s = shrc128(v0, 9);
 		j2q = shr128(v0, 7);
 		k2r = shr128(v0, 8);
 		} goto vertical_8x8_lowpass;
 	case I8x8_V_D_8:
-		k2r = load128(P(0, -1));
+		k2r = load128(PX(0, -1));
 		j2q = shlc128(k2r, 1);
 		l2s = shr128(k2r, 1);
 		goto vertical_8x8_lowpass;
 	case I8x8_V_CD_8:
-		k2r = spreadh8(load64(P(0, -1)));
+		k2r = spreadh8(load64(PX(0, -1)));
 		j2q = shlc128(k2r, 1);
 		l2s = shr128(k2r, 1);
 		goto vertical_8x8_lowpass;
 	
 	case I8x8_H_8:
-		i2a = (i8x16){*P(-1, -1)};
+		i2a = (i8x16){*PX(-1, -1)};
 	horizontal_8x8_load_left: {
-		i2a = ziplo64(ldleft7(i2a, 0, 1, 2, 3, 4, 5, 6), set8(*P(-1, 7)));
+		i2a = ziplo64(ldleft7(i2a, 0, 1, 2, 3, 4, 5, 6), set8(*PX(-1, 7)));
 		i8x16 v0 = lowpass8(shr128(i2a, 2), shr128(i2a, 1), i2a);
 		p0 = broadcast8(v0, 0);
 		p1 = broadcast8(v0, 1);
@@ -267,67 +292,67 @@ cold noinline void decode_intra8x8(int mode, uint8_t * restrict p, size_t stride
 		p6 = broadcast8(v0, 6);
 		p7 = broadcast8(v0, 7);
 	} store8_8x8:
-		*(int64_t *)P(0, 0) = p0[0];
-		*(int64_t *)P(0, 1) = p1[0];
-		*(int64_t *)P(0, 2) = p2[0];
-		*(int64_t *)P(0, 3) = p3[0];
-		*(int64_t *)P(0, 4) = p4[0];
-		*(int64_t *)P(0, 5) = p5[0];
-		*(int64_t *)P(0, 6) = p6[0];
-		*(int64_t *)P(0, 7) = p7[0];
+		*(int64_t *)PX(0, 0) = p0[0];
+		*(int64_t *)PX(0, 1) = p1[0];
+		*(int64_t *)PX(0, 2) = p2[0];
+		*(int64_t *)PX(0, 3) = p3[0];
+		*(int64_t *)PX(0, 4) = p4[0];
+		*(int64_t *)PX(0, 5) = p5[0];
+		*(int64_t *)PX(0, 6) = p6[0];
+		*(int64_t *)PX(0, 7) = p7[0];
 		return;
 	case I8x8_H_D_8:
-		i2a = (i8x16){*P(-1, 0)};
+		i2a = (i8x16){*PX(-1, 0)};
 		goto horizontal_8x8_load_left;
 	
 	case I8x8_DC_8:
-		i2a = j2s = load128(P(-1, -1));
+		i2a = j2s = load128(PX(-1, -1));
 	dc_8x8_load_left:
-		i2a = ziplo64(ldleft7(i2a, 0, 1, 2, 3, 4, 5, 6), set8(*P(-1, 7)));
+		i2a = ziplo64(ldleft7(i2a, 0, 1, 2, 3, 4, 5, 6), set8(*PX(-1, 7)));
 	dc_8x8_sum: {
 		i8x16 v0 = ziplo64(j2s, i2a);
 		i8x16 v1 = ziplo64(shr128(j2s, 1), shr128(i2a, 1));
 		i8x16 v2 = ziplo64(shr128(j2s, 2), shr128(i2a, 2));
-		pred = broadcast8(shrru16(sum8(lowpass8(v0, v1, v2)), 4), __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__);
+		p0 = broadcast8(shrru16(sum8(lowpass8(v0, v1, v2)), 4), __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__);
 		} goto store1_8x8;
 	case I8x8_DC_C_8:
-		i2a = j2s = shrc128(load128(P(-8, -1)), 7);
+		i2a = j2s = shrc128(load128(PX(-8, -1)), 7);
 		goto dc_8x8_load_left;
 	case I8x8_DC_D_8:
-		j2s = shlc128(load128(P(0, -1)), 1);
-		i2a = (i8x16){*P(-1, 0)};
+		j2s = shlc128(load128(PX(0, -1)), 1);
+		i2a = (i8x16){*PX(-1, 0)};
 		goto dc_8x8_load_left;
 	case I8x8_DC_CD_8:
-		j2s = shlc128(spreadh8(load64(P(0, -1))), 1);
-		i2a = (i8x16){*P(-1, 0)};
+		j2s = shlc128(spreadh8(load64(PX(0, -1))), 1);
+		i2a = (i8x16){*PX(-1, 0)};
 		goto dc_8x8_load_left;
 	case I8x8_DC_A_8:
-		i2a = j2s = load128(P(-1, -1));
+		i2a = j2s = load128(PX(-1, -1));
 		goto dc_8x8_sum;
 	case I8x8_DC_AC_8:
-		i2a = j2s = shrc128(load128(P(-8, -1)), 7);
+		i2a = j2s = shrc128(load128(PX(-8, -1)), 7);
 		goto dc_8x8_sum;
 	case I8x8_DC_AD_8:
-		i2a = j2s = shlc128(load128(P(0, -1)), 1);
+		i2a = j2s = shlc128(load128(PX(0, -1)), 1);
 		goto dc_8x8_sum;
 	case I8x8_DC_ACD_8:
-		i2a = j2s = shlc128(spreadh8(load64(P(0, -1))), 1);
+		i2a = j2s = shlc128(spreadh8(load64(PX(0, -1))), 1);
 		goto dc_8x8_sum;
 	case I8x8_DC_B_8:
-		i2a = (i8x16){*P(-1, -1)};
+		i2a = (i8x16){*PX(-1, -1)};
 	dc_8x8_dup_left:
-		j2s = i2a = ziplo64(ldleft7(i2a, 0, 1, 2, 3, 4, 5, 6), set8(*P(-1, 7)));
+		j2s = i2a = ziplo64(ldleft7(i2a, 0, 1, 2, 3, 4, 5, 6), set8(*PX(-1, 7)));
 		goto dc_8x8_sum;
 	case I8x8_DC_BD_8:
-		i2a = (i8x16){*P(-1, 0)};
+		i2a = (i8x16){*PX(-1, 0)};
 		goto dc_8x8_dup_left;
 	case I8x8_DC_AB_8:
-		pred = set8(-128);
+		p0 = set8(-128);
 		goto store1_8x8;
 	
 	case I8x8_DDL_8:
-		j2y = load128(P(-1, -1));
-		k2z = load128(P(0, -1));
+		j2y = load128(PX(-1, -1));
+		k2z = load128(PX(0, -1));
 	diagonal_down_left_8x8_lowpass: {
 		i8x16 v0 = lowpass8(j2y, k2z, shrc128(k2z, 1));
 		p0 = lowpass8(v0, shr128(v0, 1), shrc128(v0, 2));
@@ -340,21 +365,21 @@ cold noinline void decode_intra8x8(int mode, uint8_t * restrict p, size_t stride
 		p7 = shr128(p0, 7);
 		} goto store8_8x8;
 	case I8x8_DDL_C_8: {
-		i8x16 j2r = load128(P(-8, -1));
+		i8x16 j2r = load128(PX(-8, -1));
 		j2y = shrc128(j2r, 7);
 		k2z = shrc128(j2r, 8);
 		} goto diagonal_down_left_8x8_lowpass;
 	case I8x8_DDL_D_8:
-		k2z = load128(P(0, -1));
+		k2z = load128(PX(0, -1));
 		j2y = shlc128(k2z, 1);
 		goto diagonal_down_left_8x8_lowpass;
 	case I8x8_DDL_CD_8:
-		k2z = spreadh8(load64(P(0, -1)));
+		k2z = spreadh8(load64(PX(0, -1)));
 		j2y = shlc128(k2z, 1);
 		goto diagonal_down_left_8x8_lowpass;
 	
 	case I8x8_DDR_8:
-		j2s = load128(P(-1, -1));
+		j2s = load128(PX(-1, -1));
 	diagonal_down_right_8x8_load_left: {
 		i8x16 a2h = ldedge8x8lo();
 		i8x16 a2q = shrd128(a2h, j2s, 8);
@@ -371,11 +396,11 @@ cold noinline void decode_intra8x8(int mode, uint8_t * restrict p, size_t stride
 		p0 = shr128(p7, 7);
 		} goto store8_8x8;
 	case I8x8_DDR_C_8:
-		j2s = shrc128(load128(P(-8, -1)), 7);
+		j2s = shrc128(load128(PX(-8, -1)), 7);
 		goto diagonal_down_right_8x8_load_left;
 	
 	case I8x8_VR_8:
-		j2s = load128(P(-1, -1));
+		j2s = load128(PX(-1, -1));
 	vertical_right_8x8_load_left: {
 		i8x16 a2h = ldedge8x8lo();
 		i8x16 a2q = shrd128(a2h, j2s, 8);
@@ -394,11 +419,11 @@ cold noinline void decode_intra8x8(int mode, uint8_t * restrict p, size_t stride
 		p7 = shrd128(shl128(v2, 13), p5, 15);
 		} goto store8_8x8;
 	case I8x8_VR_C_8:
-		j2s = shrc128(load128(P(-8, -1)), 7);
+		j2s = shrc128(load128(PX(-8, -1)), 7);
 		goto vertical_right_8x8_load_left;
 	
 	case I8x8_HD_8: {
-		j2s = load128(P(-1, -1));
+		j2s = load128(PX(-1, -1));
 		i8x16 a2h = ldedge8x8lo();
 		i8x16 a2p = shrd128(a2h, j2s, 7);
 		i8x16 a2q = shrd128(a2h, j2s, 8);
@@ -417,8 +442,8 @@ cold noinline void decode_intra8x8(int mode, uint8_t * restrict p, size_t stride
 		} goto store8_8x8;
 	
 	case I8x8_VL_8:
-		j2y = load128(P(-1, -1));
-		k2z = load128(P(0, -1));
+		j2y = load128(PX(-1, -1));
+		k2z = load128(PX(0, -1));
 	vertical_left_8x8_lowpass: {
 		i8x16 v0 = lowpass8(j2y, k2z, shr128(k2z, 1));
 		i8x16 v1 = shr128(v0, 1);
@@ -432,23 +457,23 @@ cold noinline void decode_intra8x8(int mode, uint8_t * restrict p, size_t stride
 		p7 = shr128(p5, 1);
 		} goto store8_8x8;
 	case I8x8_VL_C_8: {
-		i8x16 j2r = load128(P(-8, -1));
+		i8x16 j2r = load128(PX(-8, -1));
 		j2y = shrc128(j2r, 7);
 		k2z = shrc128(j2r, 8);
 		} goto vertical_left_8x8_lowpass;
 	case I8x8_VL_D_8:
-		k2z = load128(P(0, -1));
+		k2z = load128(PX(0, -1));
 		j2y = shlc128(k2z, 1);
 		goto vertical_left_8x8_lowpass;
 	case I8x8_VL_CD_8:
-		k2z = spreadh8(load64(P(0, -1)));
+		k2z = spreadh8(load64(PX(0, -1)));
 		j2y = shlc128(k2z, 1);
 		goto vertical_left_8x8_lowpass;
 	
 	case I8x8_HU_8:
-		i2a = (i8x16){*P(-1, -1)};
+		i2a = (i8x16){*PX(-1, -1)};
 	horizontal_up_8x8_load_left: {
-		i2a = ziplo64(ldleft7(i2a, 0, 1, 2, 3, 4, 5, 6), set8(*P(-1, 7)));
+		i2a = ziplo64(ldleft7(i2a, 0, 1, 2, 3, 4, 5, 6), set8(*PX(-1, 7)));
 		i8x16 v0 = spreadh8(lowpass8(shr128(i2a, 2), shr128(i2a, 1), i2a));
 		i8x16 v1 = shr128(v0, 1);
 		p0 = ziplo8(avgu8(v0, v1), lowpass8(v0, v1, shr128(v0, 2)));
@@ -461,7 +486,7 @@ cold noinline void decode_intra8x8(int mode, uint8_t * restrict p, size_t stride
 		p7 = shr128(p4, 6);
 		} goto store8_8x8;
 	case I8x8_HU_D_8:
-		i2a = (i8x16){*P(-1, 0)};
+		i2a = (i8x16){*PX(-1, 0)};
 		goto horizontal_up_8x8_load_left;
 	}
 }
@@ -471,7 +496,7 @@ cold noinline void decode_intra8x8(int mode, uint8_t * restrict p, size_t stride
 /**
  * Intra 16x16
  */
-cold noinline void decode_intra16x16(int mode, uint8_t * restrict p, size_t stride, i16x8 clip) {
+static cold noinline void decode_intra16x16(int mode, uint8_t * restrict p, size_t stride, i16x8 clip) {
 	i8x16 pred;
 	switch (mode) {
 	default: __builtin_unreachable();

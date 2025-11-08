@@ -732,6 +732,7 @@ static always_inline const char *unsup_if(int cond) { return cond ? " # unsuppor
 	#define set8(i) (i8x16)_mm_set1_epi8(i)
 	#define set16(i) (i16x8)_mm_set1_epi16(i)
 	#define set32(i) (i32x4)_mm_set1_epi32(i)
+	#define set64(i) (i64x2)_mm_set1_epi64x(i)
 	#define shl16(a, b) (i16x8)_mm_sll_epi16(a, b)
 	#define shr16(a, b) (i16x8)_mm_sra_epi16(a, b)
 	#define shl32(a, b) (i32x4)_mm_sll_epi32(a, b)
@@ -864,6 +865,7 @@ static always_inline const char *unsup_if(int cond) { return cond ? " # unsuppor
 	#define set8(i) (i8x16)vdupq_n_s8(i)
 	#define set16(i) (i16x8)vdupq_n_s16(i)
 	#define set32(i) (i32x4)vdupq_n_s32(i)
+	#define set64(i) (i64x2)vdupq_n_s64(i)
 	#define shl128(a, i) (i8x16)({i8x16 _a = (a); vextq_s8(_a, _a, 16 - (i));})
 	#define shr128(a, i) (i8x16)({i8x16 _a = (a); vextq_s8(_a, _a, i);})
 	#define shlc128(a, i) (i8x16)({i8x16 _a = (a); vextq_s8(vdupq_laneq_s8(_a, 0), _a, 16 - (i));})
@@ -903,8 +905,6 @@ static always_inline const char *unsup_if(int cond) { return cond ? " # unsuppor
 	#define shufflez2 shuffle2
 	#define sumh8 sum8
 #endif
-#define load4x4(p0, p1, p2, p3) (i32x4){*(int32_t *)(p0), *(int32_t *)(p1), *(int32_t *)(p2), *(int32_t *)(p3)}
-#define load8x2(p0, p1) (i64x2){*(int64_t *)(p0), *(int64_t *)(p1)}
 
 
 
@@ -1032,9 +1032,9 @@ static void noinline decode_inter(Edge264Context *ctx, int i, int w, int h);
 
 // edge264_intra.c
 static cold noinline void decode_intra4x4(int mode, uint8_t * restrict p, size_t stride, i16x8 clip);
-static noinline void decode_intra8x8(int mode, uint8_t * restrict p, size_t stride, i16x8 clip);
-static noinline void decode_intra16x16(int mode, uint8_t * restrict p, size_t stride, i16x8 clip);
-static noinline void decode_intraChroma(int mode, uint8_t * restrict p, size_t stride, i16x8 clip);
+cold noinline void decode_intra8x8(int mode, uint8_t * restrict p, size_t stride, i16x8 clip);
+static cold noinline void decode_intra16x16(int mode, uint8_t * restrict p, size_t stride, i16x8 clip);
+static cold noinline void decode_intraChroma(int mode, uint8_t * restrict p, size_t stride, i16x8 clip);
 
 // edge264_mvpred.c
 static inline void decode_inter_16x16(Edge264Context *ctx, i16x8 mvd, int lx);

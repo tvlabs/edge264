@@ -616,7 +616,7 @@ static noinline void CAFUNC(parse_NxN_residual)
 				size_t stride = ctx->t.stride[iYCbCr];
 				uint8_t *samples = ctx->samples_mb[iYCbCr] + y444[i4x4] * stride + x444[i4x4];
 				if (!mb->mbIsInterFlag)
-					decode_intra4x4(Intra4x4Modes[mb->Intra4x4PredMode[i4x4]][ctx->unavail4x4[i4x4]], samples, stride, ctx->t.samples_clip_v[iYCbCr]);
+					decode_intra4x4(samples, stride, Intra4x4Modes[mb->Intra4x4PredMode[i4x4]][ctx->unavail4x4[i4x4]], ctx->t.samples_clip_v[iYCbCr]);
 				if (mb->bits[0] & 1 << bit8x8[i4x4 >> 2]) {
 					int nA = *((int8_t *)mb->nC + iYCbCr * 16 + ctx->A4x4_int8[i4x4]);
 					int nB = *((int8_t *)mb->nC + iYCbCr * 16 + ctx->B4x4_int8[i4x4]);
@@ -646,7 +646,7 @@ static noinline void CAFUNC(parse_NxN_residual)
 				size_t stride = ctx->t.stride[iYCbCr];
 				uint8_t *samples = ctx->samples_mb[iYCbCr] + y444[i8x8 * 4] * stride + x444[i8x8 * 4];
 				if (!mb->mbIsInterFlag)
-					decode_intra8x8(Intra8x8Modes[mb->Intra4x4PredMode[i8x8 * 4 + 1]][ctx->unavail4x4[i8x8 * 5]], samples, stride, ctx->t.samples_clip_v[iYCbCr]);
+					decode_intra8x8(samples, stride, Intra8x8Modes[mb->Intra4x4PredMode[i8x8 * 4 + 1]][ctx->unavail4x4[i8x8 * 5]], ctx->t.samples_clip_v[iYCbCr]);
 				if (mb->bits[0] & 1 << bit8x8[i8x8]) {
 					#if !CABAC
 						for (int i4x4 = 0; i4x4 < 4; i4x4++) {
@@ -737,7 +737,7 @@ static inline void CAFUNC(parse_intra_chroma_pred_mode)
 			mb->f.intra_chroma_pred_mode_non_zero = (mode > 0);
 		#endif
 		log_mb(ctx, "    intra_chroma_pred_mode: %u\n", mode);
-		decode_intraChroma(IntraChromaModes[mode][ctx->unavail4x4[0] & 3], ctx->samples_mb[1], ctx->t.stride[1] >> 1, ctx->t.samples_clip_v[1]);
+		decode_intraChroma(ctx->samples_mb[1], ctx->t.stride[1] >> 1, IntraChromaModes[mode][ctx->unavail4x4[0] & 3], ctx->t.samples_clip_v[1]);
 	}
 }
 
@@ -878,7 +878,7 @@ static noinline void CAFUNC(parse_I_mb, int mb_type_or_ctxIdx)
 			{I16x16_P_8 , I16x16_DC_A_8, I16x16_DC_B_8, I16x16_DC_AB_8},
 		};
 		mb->Intra4x4PredMode_v = (i8x16){2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2};
-		decode_intra16x16(Intra16x16Modes[mode][ctx->unavail4x4[0] & 3], ctx->samples_mb[0], ctx->t.stride[0], ctx->t.samples_clip_v[0]); // FIXME 4:4:4
+		decode_intra16x16(ctx->samples_mb[0], ctx->t.stride[0], Intra16x16Modes[mode][ctx->unavail4x4[0] & 3], ctx->t.samples_clip_v[0]); // FIXME 4:4:4
 		CACALL(parse_intra_chroma_pred_mode);
 		CAJUMP(parse_Intra16x16_residual);
 		

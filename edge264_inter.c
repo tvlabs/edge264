@@ -89,8 +89,6 @@
 		i16x8 v0 = sixtapVlo(a, shr128(a, 1), shr128(a, 2), shr128(a, 3), shr128(a, 4), shr128(a, 5));\
 		i16x8 v1 = sixtapVlo(b, shr128(b, 1), shr128(b, 2), shr128(b, 3), shr128(b, 4), shr128(b, 5))
 #endif
-#define load4x4(p0, p1, p2, p3) (i32x4){*(int32_t *)(p0), *(int32_t *)(p1), *(int32_t *)(p2), *(int32_t *)(p3)}
-#define load8x2(p0, p1) (i64x2){*(int64_t *)(p0), *(int64_t *)(p1)}
 static always_inline i16x8 sixtapHV(i16x8 a, i16x8 b, i16x8 c, i16x8 d, i16x8 e, i16x8 f) {
 	i16x8 af = a + f;
 	i16x8 be = b + e;
@@ -240,8 +238,8 @@ static void decode_inter_luma(int mode, int h, size_t sstride, const uint8_t * r
 	
 	case INTER_4xH_QPEL_00:
 		do {
-			i32x4 p = load4x4(src2, src2 + sstride, src2 + sstride2, src2 + sstride3);
-			i32x4 q = load4x4(dst, dst + dstride, dst + dstride2, dst + dstride3);
+			i32x4 p = loadu32x4(src2, src2 + sstride, src2 + sstride2, src2 + sstride3);
+			i32x4 q = loada32x4(dst, dst + dstride, dst + dstride2, dst + dstride3);
 			i32x4 r = maddshr8(q, p, w8, w16, o, wd64, wd16);
 			*(int32_t *)(dst           ) = r[0];
 			*(int32_t *)(dst + dstride ) = r[1];
@@ -256,10 +254,10 @@ static void decode_inter_luma(int mode, int h, size_t sstride, const uint8_t * r
 	case INTER_4xH_QPEL_20:
 	case INTER_4xH_QPEL_30:
 		do {
-			i8x16 l2 = load128(src0           );
-			i8x16 l3 = load128(src0 + sstride );
-			i8x16 l4 = load128(src0 + sstride2);
-			i8x16 l5 = load128(src0 + sstride3); /* overreads 7 bytes */
+			i8x16 l2 = loadu128(src0           );
+			i8x16 l3 = loadu128(src0 + sstride );
+			i8x16 l4 = loadu128(src0 + sstride2);
+			i8x16 l5 = loadu128(src0 + sstride3); /* overreads 7 bytes */
 			i16x8 h01 = shrrpus16(sixtapH4(l2, l3), sixtapH4(l4, l5), 5);
 			i8x16 s0 = shuffle(ziplo64(l2, l3), shufx);
 			i8x16 s1 = shuffle(ziplo64(l4, l5), shufx);
@@ -268,7 +266,7 @@ static void decode_inter_luma(int mode, int h, size_t sstride, const uint8_t * r
 			#elif defined(__ARM_NEON)
 				i8x16 s = vuzp1q_s32(s0, s1);
 			#endif
-			i32x4 q = load4x4(dst, dst + dstride, dst + dstride2, dst + dstride3);
+			i32x4 q = loada32x4(dst, dst + dstride, dst + dstride2, dst + dstride3);
 			i32x4 r = maddshr8(q, avgu8(ifelse_mask(m1, h01, s), h01), w8, w16, o, wd64, wd16);
 			*(int32_t *)(dst           ) = r[0];
 			*(int32_t *)(dst + dstride ) = r[1];
@@ -282,11 +280,11 @@ static void decode_inter_luma(int mode, int h, size_t sstride, const uint8_t * r
 	case INTER_4xH_QPEL_01:
 	case INTER_4xH_QPEL_02:
 	case INTER_4xH_QPEL_03: {
-		i8x16 m02 = load4x4(src2 + nstride2, src2 + nstride , src2           , src2 + sstride );
-		i8x16 m12 = shrd128(m02, load32(src2 + sstride2), 4);
+		i8x16 m02 = loadu32x4(src2 + nstride2, src2 + nstride , src2           , src2 + sstride );
+		i8x16 m12 = shrd128(m02, loadu32(src2 + sstride2), 4);
 		do {
 			src2 += sstride4;
-			i8x16 m52 = load4x4(src2 + nstride , src2           , src2 + sstride , src2 + sstride2);
+			i8x16 m52 = loadu32x4(src2 + nstride , src2           , src2 + sstride , src2 + sstride2);
 			i8x16 m22 = shrd128(m12, m52, 4);
 			i8x16 m32 = shrd128(m12, m52, 8);
 			i8x16 m42 = shrd128(m12, m52, 12);
@@ -303,7 +301,7 @@ static void decode_inter_luma(int mode, int h, size_t sstride, const uint8_t * r
 			#endif
 			i8x16 v01 = shrrpus16(v0, v1, 5);
 			i8x16 s = ifelse_mask(m1, v01, ifelse_mask(m0, m32, m22));
-			i32x4 q = load4x4(dst, dst + dstride, dst + dstride2, dst + dstride3);
+			i32x4 q = loada32x4(dst, dst + dstride, dst + dstride2, dst + dstride3);
 			i32x4 r = maddshr8(q, avgu8(s, v01), w8, w16, o, wd64, wd16);
 			*(int32_t *)(dst           ) = r[0];
 			*(int32_t *)(dst + dstride ) = r[1];
@@ -318,17 +316,17 @@ static void decode_inter_luma(int mode, int h, size_t sstride, const uint8_t * r
 	case INTER_4xH_QPEL_31:
 	case INTER_4xH_QPEL_13:
 	case INTER_4xH_QPEL_33: {
-		i8x16 l0 = load128(src0 + nstride2);
-		i8x16 l1 = load128(src0 + nstride );
-		i8x16 l2 = load128(src0           );
-		i8x16 l3 = load128(src0 + sstride );
-		i8x16 l4 = load128(src0 + sstride2);
+		i8x16 l0 = loadu128(src0 + nstride2);
+		i8x16 l1 = loadu128(src0 + nstride );
+		i8x16 l2 = loadu128(src0           );
+		i8x16 l3 = loadu128(src0 + sstride );
+		i8x16 l4 = loadu128(src0 + sstride2);
 		do {
 			src0 += sstride4;
-			i8x16 l5 = load128(src0 + nstride );
-			i8x16 l6 = load128(src0           );
-			i8x16 l7 = load128(src0 + sstride );
-			i8x16 l8 = load128(src0 + sstride2);
+			i8x16 l5 = loadu128(src0 + nstride );
+			i8x16 l6 = loadu128(src0           );
+			i8x16 l7 = loadu128(src0 + sstride );
+			i8x16 l8 = loadu128(src0 + sstride2);
 			i8x16 l02 = shuffle(l0, shufx);
 			i8x16 l12 = shuffle(l1, shufx);
 			i8x16 l22 = shuffle(l2, shufx);
@@ -352,7 +350,7 @@ static void decode_inter_luma(int mode, int h, size_t sstride, const uint8_t * r
 			i16x8 h0 = sixtapH4(ifelse_mask(m1, l3, l2), ifelse_mask(m1, l4, l3));
 			i16x8 h1 = sixtapH4(ifelse_mask(m1, l5, l4), ifelse_mask(m1, l6, l5));
 			i8x16 s = avgu8(v01, shrrpus16(h0, h1, 5));
-			i32x4 q = load4x4(dst, dst + dstride, dst + dstride2, dst + dstride3);
+			i32x4 q = loada32x4(dst, dst + dstride, dst + dstride2, dst + dstride3);
 			i32x4 r = maddshr8(q, s, w8, w16, o, wd64, wd16);
 			*(int32_t *)(dst           ) = r[0];
 			*(int32_t *)(dst + dstride ) = r[1];
@@ -365,17 +363,17 @@ static void decode_inter_luma(int mode, int h, size_t sstride, const uint8_t * r
 	
 	case INTER_4xH_QPEL_12:
 	case INTER_4xH_QPEL_32: {
-		i8x16 l0 = load128(src0 + nstride2);
-		i8x16 l1 = load128(src0 + nstride );
-		i8x16 l2 = load128(src0           );
-		i8x16 l3 = load128(src0 + sstride );
-		i8x16 l4 = load128(src0 + sstride2);
+		i8x16 l0 = loadu128(src0 + nstride2);
+		i8x16 l1 = loadu128(src0 + nstride );
+		i8x16 l2 = loadu128(src0           );
+		i8x16 l3 = loadu128(src0 + sstride );
+		i8x16 l4 = loadu128(src0 + sstride2);
 		do {
 			src0 += sstride4;
-			i8x16 l5 = load128(src0 + nstride );
-			i8x16 l6 = load128(src0           );
-			i8x16 l7 = load128(src0 + sstride );
-			i8x16 l8 = load128(src0 + sstride2);
+			i8x16 l5 = loadu128(src0 + nstride );
+			i8x16 l6 = loadu128(src0           );
+			i8x16 l7 = loadu128(src0 + sstride );
+			i8x16 l8 = loadu128(src0 + sstride2);
 			i8x16 r0 = ziplo16(ziphi8(l0, l1), ziphi8(l2, l3));
 			i8x16 r1 = ziplo16(ziphi8(l4, l5), ziphi8(l6, l7));
 			#if defined(__SSE2__)
@@ -433,7 +431,7 @@ static void decode_inter_luma(int mode, int h, size_t sstride, const uint8_t * r
 			i16x8 vh1 = sixtapHV(m20, m21, m22, m23, m24, m25);
 			i8x16 vh = shrrpus16(vh0, vh1, 6);
 			i8x16 s = shrrpus16(ifelse_mask(m0, m03, m02), ifelse_mask(m0, m23, m22), 5);
-			i32x4 q = load4x4(dst, dst + dstride, dst + dstride2, dst + dstride3);
+			i32x4 q = loada32x4(dst, dst + dstride, dst + dstride2, dst + dstride3);
 			i32x4 r = maddshr8(q, avgu8(s, vh), w8, w16, o, wd64, wd16);
 			*(int32_t *)(dst           ) = r[0];
 			*(int32_t *)(dst + dstride ) = r[1];
@@ -447,20 +445,20 @@ static void decode_inter_luma(int mode, int h, size_t sstride, const uint8_t * r
 	case INTER_4xH_QPEL_21:
 	case INTER_4xH_QPEL_22:
 	case INTER_4xH_QPEL_23: {
-		i8x16 l0 = load128(src0 + nstride2);
-		i8x16 l1 = load128(src0 + nstride );
-		i8x16 l2 = load128(src0           );
-		i8x16 l3 = load128(src0 + sstride );
-		i8x16 l4 = load128(src0 + sstride2);
+		i8x16 l0 = loadu128(src0 + nstride2);
+		i8x16 l1 = loadu128(src0 + nstride );
+		i8x16 l2 = loadu128(src0           );
+		i8x16 l3 = loadu128(src0 + sstride );
+		i8x16 l4 = loadu128(src0 + sstride2);
 		i16x8 h0 = sixtapH4(l0, l1);
 		i16x8 h2 = sixtapH4(l2, l3);
 		i16x8 h3 = sixtapH4(l3, l4);
 		do {
 			src0 += sstride4;
-			i8x16 l5 = load128(src0 + nstride );
-			i8x16 l6 = load128(src0           );
-			i8x16 l7 = load128(src0 + sstride );
-			i8x16 l8 = load128(src0 + sstride2);
+			i8x16 l5 = loadu128(src0 + nstride );
+			i8x16 l6 = loadu128(src0           );
+			i8x16 l7 = loadu128(src0 + sstride );
+			i8x16 l8 = loadu128(src0 + sstride2);
 			i16x8 h5 = sixtapH4(l5, l6);
 			i16x8 h7 = sixtapH4(l7, l8);
 			i16x8 h1 = shrd128(h0, h2, 8);
@@ -470,7 +468,7 @@ static void decode_inter_luma(int mode, int h, size_t sstride, const uint8_t * r
 			i16x8 hv1 = sixtapHV(h2, h3, h4, h5, h6, h7);
 			i8x16 hv = shrrpus16(hv0, hv1, 6);
 			i8x16 s = shrrpus16(ifelse_mask(m0, h3, h2), ifelse_mask(m0, h5, h4), 5);
-			i32x4 q = load4x4(dst, dst + dstride, dst + dstride2, dst + dstride3);
+			i32x4 q = loada32x4(dst, dst + dstride, dst + dstride2, dst + dstride3);
 			i32x4 r = maddshr8(q, avgu8(ifelse_mask(m1, hv, s), hv), w8, w16, o, wd64, wd16);
 			*(int32_t *)(dst           ) = r[0];
 			*(int32_t *)(dst + dstride ) = r[1];
@@ -483,10 +481,10 @@ static void decode_inter_luma(int mode, int h, size_t sstride, const uint8_t * r
 	
 	case INTER_8xH_QPEL_00:
 		do {
-			i8x16 p0 = load8x2(src2           ,  src2 + sstride );
-			i8x16 p1 = load8x2(src2 + sstride2,  src2 + sstride3);
-			i8x16 q0 = load8x2(dst           ,  dst + dstride );
-			i8x16 q1 = load8x2(dst + dstride2,  dst + dstride3);
+			i8x16 p0 = loadu64x2(src2           ,  src2 + sstride );
+			i8x16 p1 = loadu64x2(src2 + sstride2,  src2 + sstride3);
+			i8x16 q0 = loadu64x2(dst           ,  dst + dstride );
+			i8x16 q1 = loadu64x2(dst + dstride2,  dst + dstride3);
 			i64x2 r0 = maddshr8(q0, p0, w8, w16, o, wd64, wd16);
 			i64x2 r1 = maddshr8(q1, p1, w8, w16, o, wd64, wd16);
 			*(int64_t *)(dst           ) = r0[0];
@@ -502,11 +500,11 @@ static void decode_inter_luma(int mode, int h, size_t sstride, const uint8_t * r
 	case INTER_8xH_QPEL_20:
 	case INTER_8xH_QPEL_30:
 		do {
-			i8x16 l0 = load128(src0           ); /* overreads 3 bytes */
-			i8x16 l1 = load128(src0 + sstride );
+			i8x16 l0 = loadu128(src0           ); /* overreads 3 bytes */
+			i8x16 l1 = loadu128(src0 + sstride );
 			i8x16 h01 = shrrpus16(sixtapH8(l0), sixtapH8(l1), 5);
 			i8x16 s = ziplo64(shuffle(l0, shufx), shuffle(l1, shufx));
-			i8x16 q = load8x2(dst           , dst + dstride );
+			i8x16 q = loada64x2(dst           , dst + dstride );
 			i64x2 r = maddshr8(q, avgu8(ifelse_mask(m1, h01, s), h01), w8, w16, o, wd64, wd16);
 			*(int64_t *)(dst           ) = r[0];
 			*(int64_t *)(dst + dstride ) = r[1];
@@ -518,20 +516,20 @@ static void decode_inter_luma(int mode, int h, size_t sstride, const uint8_t * r
 	case INTER_8xH_QPEL_01:
 	case INTER_8xH_QPEL_02:
 	case INTER_8xH_QPEL_03: {
-		i16x8 l0 = load64(src2 + nstride2);
-		i16x8 l1 = load64(src2 + nstride );
-		i16x8 l2 = load64(src2           );
-		i16x8 l3 = load64(src2 + sstride );
-		i16x8 l4 = load64(src2 + sstride2);
+		i16x8 l0 = loadu64(src2 + nstride2);
+		i16x8 l1 = loadu64(src2 + nstride );
+		i16x8 l2 = loadu64(src2           );
+		i16x8 l3 = loadu64(src2 + sstride );
+		i16x8 l4 = loadu64(src2 + sstride2);
 		do {
 			src2 += sstride2;
-			i16x8 l5 = load64(src2 + sstride );
-			i16x8 l6 = load64(src2 + sstride2);
+			i16x8 l5 = loadu64(src2 + sstride );
+			i16x8 l6 = loadu64(src2 + sstride2);
 			i16x8 v0 = sixtapVlo(l0, l1, l2, l3, l4, l5);
 			i16x8 v1 = sixtapVlo(l1, l2, l3, l4, l5, l6);
 			i8x16 v01 = shrrpus16(v0, v1, 5);
 			i8x16 s = ifelse_mask(m0, ziplo64(l3, l4), ziplo64(l2, l3));
-			i8x16 q = load8x2(dst           , dst + dstride );
+			i8x16 q = loada64x2(dst           , dst + dstride );
 			i64x2 r = maddshr8(q, avgu8(ifelse_mask(m1, v01, s), v01), w8, w16, o, wd64, wd16);
 			*(int64_t *)(dst           ) = r[0];
 			*(int64_t *)(dst + dstride ) = r[1];
@@ -544,15 +542,15 @@ static void decode_inter_luma(int mode, int h, size_t sstride, const uint8_t * r
 	case INTER_8xH_QPEL_31:
 	case INTER_8xH_QPEL_13:
 	case INTER_8xH_QPEL_33: {
-		i16x8 l02 = shuffle(load128(src0 + nstride2), shufx);
-		i16x8 l12 = shuffle(load128(src0 + nstride ), shufx);
-		i8x16 l2 = load128(src0           );
-		i8x16 l3 = load128(src0 + sstride );
-		i8x16 l4 = load128(src0 + sstride2);
+		i16x8 l02 = shuffle(loadu128(src0 + nstride2), shufx);
+		i16x8 l12 = shuffle(loadu128(src0 + nstride ), shufx);
+		i8x16 l2 = loadu128(src0           );
+		i8x16 l3 = loadu128(src0 + sstride );
+		i8x16 l4 = loadu128(src0 + sstride2);
 		do {
 			src0 += sstride2;
-			i8x16 l5 = load128(src0 + sstride );
-			i8x16 l6 = load128(src0 + sstride2);
+			i8x16 l5 = loadu128(src0 + sstride );
+			i8x16 l6 = loadu128(src0 + sstride2);
 			i16x8 l22 = shuffle(l2, shufx);
 			i16x8 l32 = shuffle(l3, shufx);
 			i16x8 l42 = shuffle(l4, shufx);
@@ -564,7 +562,7 @@ static void decode_inter_luma(int mode, int h, size_t sstride, const uint8_t * r
 			i16x8 h0 = sixtapH8(ifelse_mask(m1, l3, l2));
 			i16x8 h1 = sixtapH8(ifelse_mask(m1, l4, l3));
 			i8x16 s = avgu8(v01, shrrpus16(h0, h1, 5));
-			i8x16 q = load8x2(dst           , dst + dstride );
+			i8x16 q = loada64x2(dst           , dst + dstride );
 			i64x2 r = maddshr8(q, s, w8, w16, o, wd64, wd16);
 			*(int64_t *)(dst           ) = r[0];
 			*(int64_t *)(dst + dstride ) = r[1];
@@ -576,15 +574,15 @@ static void decode_inter_luma(int mode, int h, size_t sstride, const uint8_t * r
 	
 	case INTER_8xH_QPEL_12:
 	case INTER_8xH_QPEL_32: {
-		i8x16 l0 = load128(src0 + nstride2);
-		i8x16 l1 = load128(src0 + nstride );
-		i8x16 l2 = load128(src0           );
-		i8x16 l3 = load128(src0 + sstride );
-		i8x16 l4 = load128(src0 + sstride2);
+		i8x16 l0 = loadu128(src0 + nstride2);
+		i8x16 l1 = loadu128(src0 + nstride );
+		i8x16 l2 = loadu128(src0           );
+		i8x16 l3 = loadu128(src0 + sstride );
+		i8x16 l4 = loadu128(src0 + sstride2);
 		do {
 			src0 += sstride2;
-			i8x16 l5 = load128(src0 + sstride );
-			i8x16 l6 = load128(src0 + sstride2);
+			i8x16 l5 = loadu128(src0 + sstride );
+			i8x16 l6 = loadu128(src0 + sstride2);
 			i16x8 x00 = sixtapVlo(l0, l1, l2, l3, l4, l5);
 			i16x8 x10 = sixtapVlo(l1, l2, l3, l4, l5, l6);
 			i16x8 x08 = sixtapVhi(l0, l1, l2, l3, l4, l5);
@@ -603,7 +601,7 @@ static void decode_inter_luma(int mode, int h, size_t sstride, const uint8_t * r
 			i16x8 vh1 = sixtapHV(x10, x11, x12, x13, x14, x15);
 			i8x16 vh = shrrpus16(vh0, vh1, 6);
 			i8x16 s = shrrpus16(ifelse_mask(m0, x03, x02), ifelse_mask(m0, x13, x12), 5);
-			i8x16 q = load8x2(dst           , dst + dstride );
+			i8x16 q = loada64x2(dst           , dst + dstride );
 			i64x2 r = maddshr8(q, avgu8(vh, s), w8, w16, o, wd64, wd16);
 			*(int64_t *)(dst           ) = r[0];
 			*(int64_t *)(dst + dstride ) = r[1];
@@ -615,20 +613,20 @@ static void decode_inter_luma(int mode, int h, size_t sstride, const uint8_t * r
 	case INTER_8xH_QPEL_21:
 	case INTER_8xH_QPEL_22:
 	case INTER_8xH_QPEL_23: {
-		i16x8 v0 = sixtapH8(load128(src0 + nstride2));
-		i16x8 v1 = sixtapH8(load128(src0 + nstride ));
-		i16x8 v2 = sixtapH8(load128(src0           ));
-		i16x8 v3 = sixtapH8(load128(src0 + sstride ));
-		i16x8 v4 = sixtapH8(load128(src0 + sstride2));
+		i16x8 v0 = sixtapH8(loadu128(src0 + nstride2));
+		i16x8 v1 = sixtapH8(loadu128(src0 + nstride ));
+		i16x8 v2 = sixtapH8(loadu128(src0           ));
+		i16x8 v3 = sixtapH8(loadu128(src0 + sstride ));
+		i16x8 v4 = sixtapH8(loadu128(src0 + sstride2));
 		do {
 			src0 += sstride2;
-			i8x16 v5 = sixtapH8(load128(src0 + sstride ));
-			i8x16 v6 = sixtapH8(load128(src0 + sstride2));
+			i8x16 v5 = sixtapH8(loadu128(src0 + sstride ));
+			i8x16 v6 = sixtapH8(loadu128(src0 + sstride2));
 			i16x8 hv0 = sixtapHV(v0, v1, v2, v3, v4, v5);
 			i16x8 hv1 = sixtapHV(v1, v2, v3, v4, v5, v6);
 			i8x16 hv = shrrpus16(hv0, hv1, 6);
 			i8x16 s = shrrpus16(ifelse_mask(m0, v3, v2), ifelse_mask(m0, v4, v3), 5);
-			i8x16 q = load8x2(dst           , dst + dstride );
+			i8x16 q = loada64x2(dst           , dst + dstride );
 			i64x2 r = maddshr8(q, avgu8(ifelse_mask(m1, hv, s), hv), w8, w16, o, wd64, wd16);
 			*(int64_t *)(dst           ) = r[0];
 			*(int64_t *)(dst + dstride ) = r[1];
@@ -639,10 +637,10 @@ static void decode_inter_luma(int mode, int h, size_t sstride, const uint8_t * r
 	
 	case INTER_16xH_QPEL_00:
 		do {
-			*(i8x16 *)(dst           ) = maddshr8(*(i8x16 *)(dst           ), load128(src2           ), w8, w16, o, wd64, wd16);
-			*(i8x16 *)(dst + dstride ) = maddshr8(*(i8x16 *)(dst + dstride ), load128(src2 + sstride ), w8, w16, o, wd64, wd16);
-			*(i8x16 *)(dst + dstride2) = maddshr8(*(i8x16 *)(dst + dstride2), load128(src2 + sstride2), w8, w16, o, wd64, wd16);
-			*(i8x16 *)(dst + dstride3) = maddshr8(*(i8x16 *)(dst + dstride3), load128(src2 + sstride3), w8, w16, o, wd64, wd16);
+			*(i8x16 *)(dst           ) = maddshr8(*(i8x16 *)(dst           ), loadu128(src2           ), w8, w16, o, wd64, wd16);
+			*(i8x16 *)(dst + dstride ) = maddshr8(*(i8x16 *)(dst + dstride ), loadu128(src2 + sstride ), w8, w16, o, wd64, wd16);
+			*(i8x16 *)(dst + dstride2) = maddshr8(*(i8x16 *)(dst + dstride2), loadu128(src2 + sstride2), w8, w16, o, wd64, wd16);
+			*(i8x16 *)(dst + dstride3) = maddshr8(*(i8x16 *)(dst + dstride3), loadu128(src2 + sstride3), w8, w16, o, wd64, wd16);
 			src2 += sstride4;
 			dst += dstride4;
 		} while (h -= 4);
@@ -652,8 +650,8 @@ static void decode_inter_luma(int mode, int h, size_t sstride, const uint8_t * r
 	case INTER_16xH_QPEL_20:
 	case INTER_16xH_QPEL_30:
 		do {
-			i8x16 l0 = load128(src0    );
-			i8x16 l8 = load128(src0 + 8); /* overreads 3 bytes */
+			i8x16 l0 = loadu128(src0    );
+			i8x16 l8 = loadu128(src0 + 8); /* overreads 3 bytes */
 			SIXTAPH16(h0, h8, l0, l8);
 			i8x16 h01 = shrrpus16(h0, h8, 5);
 			i8x16 s = ifelse_mask(m1, h01, ziplo64(shuffle(l0, shufx), shuffle(l8, shufx)));
@@ -666,14 +664,14 @@ static void decode_inter_luma(int mode, int h, size_t sstride, const uint8_t * r
 	case INTER_16xH_QPEL_01:
 	case INTER_16xH_QPEL_02:
 	case INTER_16xH_QPEL_03: {
-		i8x16 l0 = load128(src2 + nstride2);
-		i8x16 l1 = load128(src2 + nstride );
-		i8x16 l2 = load128(src2           );
-		i8x16 l3 = load128(src2 + sstride );
-		i8x16 l4 = load128(src2 + sstride2);
+		i8x16 l0 = loadu128(src2 + nstride2);
+		i8x16 l1 = loadu128(src2 + nstride );
+		i8x16 l2 = loadu128(src2           );
+		i8x16 l3 = loadu128(src2 + sstride );
+		i8x16 l4 = loadu128(src2 + sstride2);
 		do {
 			src2 += sstride;
-			i8x16 l5 = load128(src2 + sstride2);
+			i8x16 l5 = loadu128(src2 + sstride2);
 			i16x8 v0 = sixtapVlo(l0, l1, l2, l3, l4, l5);
 			i16x8 v8 = sixtapVhi(l0, l1, l2, l3, l4, l5);
 			i8x16 v01 = shrrpus16(v0, v8, 5);
@@ -689,21 +687,21 @@ static void decode_inter_luma(int mode, int h, size_t sstride, const uint8_t * r
 	case INTER_16xH_QPEL_13:
 	case INTER_16xH_QPEL_33: {
 		const uint8_t * restrict src8 = src0 + 8;
-		i8x16 l02 = shuffle(load128(src0 + nstride2), shufx);
-		i8x16 l0A = shuffle(load128(src8 + nstride2), shufx);
-		i8x16 l12 = shuffle(load128(src0 + nstride ), shufx);
-		i8x16 l1A = shuffle(load128(src8 + nstride ), shufx);
-		i8x16 l20 = load128(src0           );
-		i8x16 l28 = load128(src8           );
-		i8x16 l30 = load128(src0 + sstride );
-		i8x16 l38 = load128(src8 + sstride );
-		i8x16 l40 = load128(src0 + sstride2);
-		i8x16 l48 = load128(src8 + sstride2);
+		i8x16 l02 = shuffle(loadu128(src0 + nstride2), shufx);
+		i8x16 l0A = shuffle(loadu128(src8 + nstride2), shufx);
+		i8x16 l12 = shuffle(loadu128(src0 + nstride ), shufx);
+		i8x16 l1A = shuffle(loadu128(src8 + nstride ), shufx);
+		i8x16 l20 = loadu128(src0           );
+		i8x16 l28 = loadu128(src8           );
+		i8x16 l30 = loadu128(src0 + sstride );
+		i8x16 l38 = loadu128(src8 + sstride );
+		i8x16 l40 = loadu128(src0 + sstride2);
+		i8x16 l48 = loadu128(src8 + sstride2);
 		do {
 			src0 += sstride;
 			src8 += sstride;
-			i8x16 l50 = load128(src0 + sstride2);
-			i8x16 l58 = load128(src8 + sstride2);
+			i8x16 l50 = loadu128(src0 + sstride2);
+			i8x16 l58 = loadu128(src8 + sstride2);
 			i8x16 l22 = shuffle(l20, shufx);
 			i8x16 l32 = shuffle(l30, shufx);
 			i8x16 l42 = shuffle(l40, shufx);
@@ -729,21 +727,21 @@ static void decode_inter_luma(int mode, int h, size_t sstride, const uint8_t * r
 	case INTER_16xH_QPEL_12:
 	case INTER_16xH_QPEL_32: {
 		const uint8_t * restrict srcG = src0 + 16;
-		i8x16 l00 = load128(src0 + nstride2);
-		i16x8 l0G = load64(srcG + nstride2);
-		i8x16 l10 = load128(src0 + nstride );
-		i16x8 l1G = load64(srcG + nstride );
-		i8x16 l20 = load128(src0           );
-		i16x8 l2G = load64(srcG           );
-		i8x16 l30 = load128(src0 + sstride );
-		i16x8 l3G = load64(srcG + sstride );
-		i8x16 l40 = load128(src0 + sstride2);
-		i16x8 l4G = load64(srcG + sstride2);
+		i8x16 l00 = loadu128(src0 + nstride2);
+		i16x8 l0G = loadu64(srcG + nstride2);
+		i8x16 l10 = loadu128(src0 + nstride );
+		i16x8 l1G = loadu64(srcG + nstride );
+		i8x16 l20 = loadu128(src0           );
+		i16x8 l2G = loadu64(srcG           );
+		i8x16 l30 = loadu128(src0 + sstride );
+		i16x8 l3G = loadu64(srcG + sstride );
+		i8x16 l40 = loadu128(src0 + sstride2);
+		i16x8 l4G = loadu64(srcG + sstride2);
 		do {
 			src0 += sstride;
 			srcG += sstride;
-			i8x16 l50 = load128(src0 + sstride2);
-			i16x8 l5G = load64(srcG + sstride2);
+			i8x16 l50 = loadu128(src0 + sstride2);
+			i16x8 l5G = loadu64(srcG + sstride2);
 			i16x8 v0 = sixtapVlo(l00, l10, l20, l30, l40, l50);
 			i16x8 v8 = sixtapVhi(l00, l10, l20, l30, l40, l50);
 			i16x8 vG = sixtapVlo(l0G, l1G, l2G, l3G, l4G, l5G);
@@ -772,26 +770,26 @@ static void decode_inter_luma(int mode, int h, size_t sstride, const uint8_t * r
 	case INTER_16xH_QPEL_22:
 	case INTER_16xH_QPEL_23: {
 		const uint8_t * restrict src8 = src0 + 8;
-		i8x16 l00 = load128(src0 + nstride2);
-		i8x16 l08 = load128(src8 + nstride2);
+		i8x16 l00 = loadu128(src0 + nstride2);
+		i8x16 l08 = loadu128(src8 + nstride2);
 		SIXTAPH16(h00, h08, l00, l08);
-		i8x16 l10 = load128(src0 + nstride );
-		i8x16 l18 = load128(src8 + nstride );
+		i8x16 l10 = loadu128(src0 + nstride );
+		i8x16 l18 = loadu128(src8 + nstride );
 		SIXTAPH16(h10, h18, l10, l18);
-		i8x16 l20 = load128(src0           );
-		i8x16 l28 = load128(src8           );
+		i8x16 l20 = loadu128(src0           );
+		i8x16 l28 = loadu128(src8           );
 		SIXTAPH16(h20, h28, l20, l28);
-		i8x16 l30 = load128(src0 + sstride );
-		i8x16 l38 = load128(src8 + sstride );
+		i8x16 l30 = loadu128(src0 + sstride );
+		i8x16 l38 = loadu128(src8 + sstride );
 		SIXTAPH16(h30, h38, l30, l38);
-		i8x16 l40 = load128(src0 + sstride2);
-		i8x16 l48 = load128(src8 + sstride2);
+		i8x16 l40 = loadu128(src0 + sstride2);
+		i8x16 l48 = loadu128(src8 + sstride2);
 		SIXTAPH16(h40, h48, l40, l48);
 		do {
 			src0 += sstride;
 			src8 += sstride;
-			i8x16 l50 = load128(src0 + sstride2);
-			i8x16 l58 = load128(src8 + sstride2);
+			i8x16 l50 = loadu128(src0 + sstride2);
+			i8x16 l58 = loadu128(src8 + sstride2);
 			SIXTAPH16(h50, h58, l50, l58);
 			i16x8 hv0 = sixtapHV(h00, h10, h20, h30, h40, h50);
 			i16x8 hv1 = sixtapHV(h08, h18, h28, h38, h48, h58);
@@ -839,20 +837,20 @@ static void decode_inter_luma(int mode, int h, size_t sstride, const uint8_t * r
 			i8x16 wr = shuffle32(wo32, 1, 1, 1, 1);
 			i16x8 ob = shuffle32(wo32, 2, 2, 2, 2);
 			i16x8 or = shuffle32(wo32, 3, 3, 3, 3);
-			i8x16 l0 = load128(src);
-			i8x16 l1 = load128(src + sstride);
+			i8x16 l0 = loadu128(src);
+			i8x16 l1 = loadu128(src + sstride);
 			i8x16 r0 = ziplo8(l0, shr128(l0, 1));
 			i8x16 r1 = ziplo8(l1, shr128(l1, 1));
 			do {
 				src += sstride * 2;
-				i8x16 l2 = load128(src);
-				i8x16 l3 = load128(src + sstride);
+				i8x16 l2 = loadu128(src);
+				i8x16 l3 = loadu128(src + sstride);
 				i8x16 r2 = ziplo8(l2, shr128(l2, 1));
 				i8x16 r3 = ziplo8(l3, shr128(l3, 1));
 				i16x8 x0 = maddubs(r0, AB) + maddubs(r2, CD);
 				i16x8 x1 = maddubs(r1, AB) + maddubs(r3, CD);
 				i8x16 p = packus16(avg16(x0 >> 5, (i8x16){}), avg16(x1 >> 5, (i8x16){}));
-				i8x16 q = load8x2(dst, dst + dstride);
+				i8x16 q = loada64x2(dst, dst + dstride);
 				i16x8 vb = shr16(adds16(maddubs(ziplo8(q, p), wb), ob), wd64);
 				i16x8 vr = shr16(adds16(maddubs(ziphi8(q, p), wr), or), wd64);
 				i64x2 v = packus16(vb, vr);
@@ -866,15 +864,15 @@ static void decode_inter_luma(int mode, int h, size_t sstride, const uint8_t * r
 			i8x16 wbr = shuffle32(wo32, 0, 0, 1, 1);
 			i16x8 obr = shuffle32(wo32, 2, 2, 3, 3);
 			i8x16 shuf = {0, 1, 1, 2, 2, 3, 3, 4, 8, 9, 9, 10, 10, 11, 11, 12};
-			i8x16 r0 = shuffle(load8x2(src, src + sstride), shuf);
+			i8x16 r0 = shuffle(loadu64x2(src, src + sstride), shuf);
 			src += sstride * 2;
 			do {
-				i8x16 r1 = shuffle(load8x2(src, src + sstride), shuf);
-				i8x16 r2 = shuffle(load8x2(src + sstride * 2, src + sstride3), shuf);
+				i8x16 r1 = shuffle(loadu64x2(src, src + sstride), shuf);
+				i8x16 r2 = shuffle(loadu64x2(src + sstride * 2, src + sstride3), shuf);
 				i16x8 x0 = maddubs(r0, AB) + maddubs(r1, CD);
 				i16x8 x1 = maddubs(r1, AB) + maddubs(r2, CD);
 				i8x16 p = packus16(avg16(x0 >> 5, (i8x16){}), avg16(x1 >> 5, (i8x16){}));
-				i8x16 q = load4x4(dst, dst + dstride, dst + dstride * 2, dst + dstride3);
+				i8x16 q = loada32x4(dst, dst + dstride, dst + dstride * 2, dst + dstride3);
 				i16x8 vb = shr16(adds16(maddubs(ziplo8(q, p), wbr), obr), wd64);
 				i16x8 vr = shr16(adds16(maddubs(ziphi8(q, p), wbr), obr), wd64);
 				i32x4 v = packus16(vb, vr);
@@ -894,7 +892,7 @@ static void decode_inter_luma(int mode, int h, size_t sstride, const uint8_t * r
 			i8x16 r0 = shuffle((i32x4){*(int32_t *)src, *(int32_t *)(src + sstride)}, shuf);
 			src += sstride * 2;
 			do {
-				i8x16 r1 = shuffle(load4x4(src, src + sstride, src + sstride * 2, src + sstride3), shuf);
+				i8x16 r1 = shuffle(loadu32x4(src, src + sstride, src + sstride * 2, src + sstride3), shuf);
 				i16x8 x0 = maddubs(ziplo64(r0, r1), AB) + maddubs(r1, CD);
 				i16x8 q = {*(int16_t *)dst, *(int16_t *)(dst + dstride), *(int16_t *)(dst + dstride * 2), *(int16_t *)(dst + dstride * 3)};
 				i8x16 p = packus16(avg16(x0 >> 5, (i8x16){}), (i8x16){});
@@ -924,18 +922,18 @@ static void decode_inter_luma(int mode, int h, size_t sstride, const uint8_t * r
 			i16x8 ob = broadcast16(wod, 4);
 			i16x8 or = broadcast16(wod, 5);
 			i8x16 shuf = {0, 1, 2, 3, 4, 5, 6, 7, 1, 2, 3, 4, 5, 6, 7, 8};
-			i8x16 r0 = shuffle(load128(src           ), shuf);
-			i8x16 r1 = shuffle(load128(src + sstride ), shuf);
+			i8x16 r0 = shuffle(loadu128(src           ), shuf);
+			i8x16 r1 = shuffle(loadu128(src + sstride ), shuf);
 			do {
 				src += sstride2;
-				i8x16 r2 = shuffle(load128(src           ), shuf);
-				i8x16 r3 = shuffle(load128(src + sstride ), shuf);
+				i8x16 r2 = shuffle(loadu128(src           ), shuf);
+				i8x16 r3 = shuffle(loadu128(src + sstride ), shuf);
 				i16x8 x0 = vmlal_high_u8(vmull_u8(vget_low_u8(r0), vget_low_u8(A)), r0, B);
 				i16x8 x1 = vmlal_high_u8(vmull_u8(vget_low_u8(r1), vget_low_u8(A)), r1, B);
 				i16x8 x2 = vmlal_high_u8(vmull_u8(vget_low_u8(r2), vget_low_u8(C)), r2, D);
 				i16x8 x3 = vmlal_high_u8(vmull_u8(vget_low_u8(r3), vget_low_u8(C)), r3, D);
 				i8x16 p = vqrshrn_high_n_u16(vqrshrn_n_u16(x0 + x2, 6), x1 + x3, 6);
-				i8x16 q = load8x2(dst           , dst + dstride );
+				i8x16 q = loada64x2(dst           , dst + dstride );
 				i16x8 x4 = vmulq_laneq_s16(vmovl_u8(vget_low_u8(q)), w16, 2);
 				i16x8 x5 = vmulq_laneq_s16(vmovl_high_u8(q), w16, 4);
 				i16x8 vb = vshlq_s16(vqaddq_s16(mlai16(x4, vmovl_u8(vget_low_u8(p)), w16, 3), ob), wd16);
@@ -955,17 +953,17 @@ static void decode_inter_luma(int mode, int h, size_t sstride, const uint8_t * r
 			i16x8 wp = vtrn2q_s32(v1, v1); // w16[3], w16[3], w16[3], w16[3], w16[5], w16[5], w16[5], w16[5]
 			i16x8 obr = ziplo32(v2, v2); // wod[4], wod[4], wod[4], wod[4], wod[5], wod[5], wod[5], wod[5]
 			i8x16 shuf = {0, 1, 2, 3, 8, 9, 10, 11, 1, 2, 3, 4, 9, 10, 11, 12};
-			i8x16 r0 = shuffle(load8x2(src           , src + sstride ), shuf);
+			i8x16 r0 = shuffle(loadu64x2(src           , src + sstride ), shuf);
 			src += sstride2;
 			do {
-				i8x16 r1 = shuffle(load8x2(src, src + sstride), shuf);
-				i8x16 r2 = shuffle(load8x2(src + sstride2, src + sstride3), shuf);
+				i8x16 r1 = shuffle(loadu64x2(src, src + sstride), shuf);
+				i8x16 r2 = shuffle(loadu64x2(src + sstride2, src + sstride3), shuf);
 				i16x8 x0 = vmlal_high_u8(vmull_u8(vget_low_u8(r0), vget_low_u8(A)), r0, B);
 				i16x8 x1 = vmlal_high_u8(vmull_u8(vget_low_u8(r1), vget_low_u8(A)), r1, B);
 				i16x8 x2 = vmlal_high_u8(vmull_u8(vget_low_u8(r1), vget_low_u8(C)), r1, D);
 				i16x8 x3 = vmlal_high_u8(vmull_u8(vget_low_u8(r2), vget_low_u8(C)), r2, D);
 				i8x16 p = vqrshrn_high_n_u16(vqrshrn_n_u16(x0 + x2, 6), x1 + x3, 6);
-				i8x16 q = load4x4(dst, dst + dstride, dst + dstride2, dst + dstride3);
+				i8x16 q = loada32x4(dst, dst + dstride, dst + dstride2, dst + dstride3);
 				i16x8 x4 = vmulq_s16(vmovl_u8(vget_low_u8(q)), wq);
 				i16x8 x5 = vmulq_s16(vmovl_high_u8(q), wq);
 				i16x8 vb = vshlq_s16(vqaddq_s16(mla16(x4, vmovl_u8(vget_low_u8(p)), wp), obr), wd16);
@@ -990,7 +988,7 @@ static void decode_inter_luma(int mode, int h, size_t sstride, const uint8_t * r
 			i32x4 l0 = {*(int32_t *)src, *(int32_t *)(src + sstride)};
 			src += sstride2;
 			do {
-				i8x16 l1 = load4x4(src, src + sstride, src + sstride2, src + sstride3);
+				i8x16 l1 = loadu32x4(src, src + sstride, src + sstride2, src + sstride3);
 				i8x16 r0 = shuffle(ziplo64(l0, l1), shuf);
 				i8x16 r1 = shuffle(l1, shuf);
 				i16x8 x0 = vmlal_high_u8(vmull_u8(vget_low_u8(r0), vget_low_u8(A)), r0, B);
@@ -1114,31 +1112,31 @@ static void noinline decode_inter(Edge264Context *ctx, int i, int w, int h) {
 	if (__builtin_expect((unsigned)xInt_Y - xWide * 2 >= width_Y - w + 1 - xWide * 5 ||
 		(unsigned)yInt_Y - yWide * 2 >= ctx->t.pic_height_in_mbs * 16 - h + 1 - yWide * 5, 0))
 	{
-		i8x16 shuf0 = load128(shift_Y_8bit + 15 + clip3(-15, 0, xInt_Y - 2) + clip3(0, 15, xInt_Y + 14 - width_Y));
-		i8x16 shuf1 = load128(shift_Y_8bit + 15 + clip3(-15, 0, xInt_Y + 14) + clip3(0, 15, xInt_Y + 30 - width_Y));
+		i8x16 shuf0 = loadu128(shift_Y_8bit + 15 + clip3(-15, 0, xInt_Y - 2) + clip3(0, 15, xInt_Y + 14 - width_Y));
+		i8x16 shuf1 = loadu128(shift_Y_8bit + 15 + clip3(-15, 0, xInt_Y + 14) + clip3(0, 15, xInt_Y + 30 - width_Y));
 		const uint8_t *src0 = ref + clip3(0, width_Y - 16, xInt_Y - 2);
 		const uint8_t *src1 = ref + clip3(0, width_Y - 16, xInt_Y + 14);
 		yInt_Y -= 2;
 		for (i8x16 *buf = ctx->edge_buf_v; buf < ctx->edge_buf_v + 10 + h * 2; buf += 2, yInt_Y++) {
 			int c = clip3(0, ctx->t.plane_size_Y - sstride_Y, yInt_Y * sstride_Y);
-			buf[0] = shuffle(load128(src0 + c), shuf0);
-			buf[1] = shuffle(load128(src1 + c), shuf1);
+			buf[0] = shuffle(loadu128(src0 + c), shuf0);
+			buf[1] = shuffle(loadu128(src1 + c), shuf1);
 		}
 		src_Y = ctx->edge_buf + 66;
 		sstride_Y = 32;
 		
 		// chroma may read (and ignore) 1 bottom row and 1 right col out of bounds
 		int width_C = width_Y >> 1;
-		i8x16 shuf = load64(shift_C_8bit + 7 + clip3(-7, 0, xInt_C) + clip3(0, 7, xInt_C + 8 - width_C));
+		i8x16 shuf = loadu64(shift_C_8bit + 7 + clip3(-7, 0, xInt_C) + clip3(0, 7, xInt_C + 8 - width_C));
 		src0 = ref + clip3(0, width_C - 8, xInt_C);
 		src1 = ref + clip3(0, width_C - 1, xInt_C + 8);
 		for (int j = 0; j <= h >> 1; j++, yInt_C++) {
 			int cb = ctx->t.plane_size_Y + clip3(0, ctx->t.plane_size_C - sstride_C * 2, yInt_C * sstride_C * 2);
 			int cr = sstride_C + cb;
 			// reads are split in 2 to support 8px-wide frames
-			ctx->edge_buf_l[j * 4 + 84] = ((i64x2)shuffle(load64(src0 + cb), shuf))[0];
+			ctx->edge_buf_l[j * 4 + 84] = ((i64x2)shuffle(loadu64(src0 + cb), shuf))[0];
 			ctx->edge_buf[j * 32 + 680] = *(src1 + cb);
-			ctx->edge_buf_l[j * 4 + 86] = ((i64x2)shuffle(load64(src0 + cr), shuf))[0];
+			ctx->edge_buf_l[j * 4 + 86] = ((i64x2)shuffle(loadu64(src0 + cr), shuf))[0];
 			ctx->edge_buf[j * 32 + 696] = *(src1 + cr);
 		}
 		sstride_C = 16;

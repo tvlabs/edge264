@@ -636,24 +636,6 @@ static always_inline const char *unsup_if(int cond) { return cond ? " # unsuppor
 
 
 /**
- * These macros provide efficient addressing for different architectures.
- * Call INIT_P() to compute anchor addresses (expects variables uint8_t* p and
- * size_t stride), then P(x,y) will return p + x + y * stride.
- */
-#if defined(__SSE2__)
-	#define INIT_P() ssize_t _strideT = -stride; uint8_t * restrict _p7 = p + stride * 8 + _strideT, * restrict _pE = _p7 + stride * 8 + _strideT
-	#define P(x, y) (__builtin_choose_expr(y == -2 || y == -1 || y == 0 || y == 1 || y == 2 || y == 4, p, __builtin_choose_expr(y == 3 || y == 5 || y == 6 || y == 7 || y == 8 || y == 9 || y == 11, _p7, _pE)) +\
-		x + __builtin_choose_expr(y == 0 || y == 7 || y == 14, 0, __builtin_choose_expr(y == 1 || y == 8 || y == 15, stride, __builtin_choose_expr(y == 2 || y == 9, stride * 2, __builtin_choose_expr(y == 3 || y == 10, _strideT * 4, __builtin_choose_expr(y == 4 || y == 11, stride * 4, __builtin_choose_expr(y == -2 || y == 5 || y == 12, _strideT * 2, _strideT)))))))
-#elif defined(__ARM_NEON)
-	#define INIT_P() uint8_t * restrict _p0 = p - 1, * restrict _p2 = _p0 + stride * 2, * restrict _p4 = _p0 + stride * 4, * restrict _p6 = _p2 + stride * 4, * restrict _p8 = _p0 + stride * 8, * restrict _pA = _p2 + stride * 8, * restrict _pC = _p4 + stride * 8, * restrict _pE = _p6 + stride * 8, * restrict _pT = _p0 - stride, * restrict _pU = _p0 - stride * 2;\
-		size_t _stride0 = stride + 1
-	#define P(x, y) (__builtin_choose_expr(y < -1, _pU, __builtin_choose_expr(y < 0, _pT, __builtin_choose_expr(y < 2, _p0, __builtin_choose_expr(y < 4, _p2, __builtin_choose_expr(y < 6, _p4, __builtin_choose_expr(y < 8, _p6, __builtin_choose_expr(y < 10, _p8, __builtin_choose_expr(y < 12, _pA, __builtin_choose_expr(y < 14, _pC, _pE))))))))) +\
-		__builtin_choose_expr(y < 0 || (y & 1) == 0, x + 1, __builtin_choose_expr(x == 0, _stride0, stride + (x + 1))))
-#else
-	#error "Unsupported target architecture"
-#endif
-
-/**
  * Efficient addressing for both Intel and ARM architectures.
  * Call INIT_PX(p, stride) once to compute anchor addresses, then PX(x,y) will
  * return p + x + y * stride.
@@ -684,7 +666,10 @@ static always_inline const char *unsup_if(int cond) { return cond ? " # unsuppor
  * _ cvthiNuM - extend the high unsigned N-bit elements to M bits
  * _ cvtuf32 - convert 32-bit float elements to unsigned integers
  * _ ifelse_mask - select each element from two vectors based on mask elements i a third vector
- * _ loadN - load N low bits given a pointer without alignment, zeroing the rest of the vector
+ * _ loadaN - load N low bits from an aligned pointer, zeroing the rest of the vector
+ * _ loadaNxM - load M aligned pointers of N bits, such that NxM==128
+ * _ loaduN - load N low bits from an unaligned pointer, zeroing the rest of the vector
+ * _ loaduNxM - load M unaligned pointers of N bits, such that NxM==128
  * _ minN - minimum of signed 16-bit elements
  * _ maxN - maximum of signed 16-bit elements
  * _ minu8 - minimum of unsigned 8-bit elements
@@ -720,6 +705,11 @@ static always_inline const char *unsup_if(int cond) { return cond ? " # unsuppor
  * _ ziploN - interleave the low N-bit elements from two vectors
  * _ ziphiN - interleave the high N-bit elements from two vectors
  */
+#define loada32(p) ((i32x4){*(int32_t *)(p)})
+#define loada64(p) ((i64x2){*(int64_t *)(p)})
+#define loada128(p) (*(i8x16*)(p))
+#define loada32x4(p0, p1, p2, p3) (i32x4){*(int32_t *)(p0), *(int32_t *)(p1), *(int32_t *)(p2), *(int32_t *)(p3)}
+#define loada64x2(p0, p1) (i64x2){*(int64_t *)(p0), *(int64_t *)(p1)}
 #if defined(__SSE2__)
 	#include <immintrin.h>
 	#define adds16(a, b) (i16x8)_mm_adds_epi16(a, b)
@@ -731,10 +721,11 @@ static always_inline const char *unsup_if(int cond) { return cond ? " # unsuppor
 	#define broadcast32(a, i) (i32x4)_mm_shuffle_epi32(a, _MM_SHUFFLE(i, i, i, i))
 	#define cvthi16u32(a) (u32x4)_mm_unpackhi_epi16(a, (i8x16){})
 	#define cvtuf32(a) (u32x4)_mm_cvtps_epi32((__m128)a)
-	#define load32(p) ((i32x4){*(int32_t *)(p)}) // GCC < 12 doesn't define _mm_loadu_si32
-	#define load64(p) (i64x2)_mm_loadl_epi64((__m128i*)(p))
-	#define loadh64(a, p) (i64x2)_mm_loadh_pd((__m128d)(a), (double*)(p))
-	#define load128(p) (i8x16)_mm_loadu_si128((__m128i*)(p))
+	#define loadu32(p) ((i32x4){*(int32_t *)(p)}) // GCC < 12 doesn't define _mm_loadu_si32
+	#define loadu64(p) (i64x2)_mm_loadl_epi64((__m128i*)(p))
+	#define loadu128(p) (i8x16)_mm_loadu_si128((__m128i*)(p))
+	#define loadu32x4(p0, p1, p2, p3) (i32x4){*(int32_t *)(p0), *(int32_t *)(p1), *(int32_t *)(p2), *(int32_t *)(p3)}
+	#define loadu64x2(p0, p1) (i64x2){*(int64_t *)(p0), *(int64_t *)(p1)}
 	#define madd16(a, b) (i32x4)_mm_madd_epi16(a, b)
 	#define maxu8(a, b) (i8x16)_mm_max_epu8(a, b)
 	#define minu8(a, b) (i8x16)_mm_min_epu8(a, b)
@@ -787,14 +778,12 @@ static always_inline const char *unsup_if(int cond) { return cond ? " # unsuppor
 		#define cvtlo16u32(a) (i32x4)_mm_cvtepu16_epi32(a)
 		#define ifelse_mask(v, t, f) (i8x16)_mm_blendv_epi8(f, t, v)
 		#define ifelse_msb(v, t, f) (i8x16)_mm_blendv_epi8(f, t, v)
-		#define load8zx16(p) (i16x8)_mm_cvtepu8_epi16(_mm_loadl_epi64((__m128i*)(p)))
 		#define min8(a, b) (i8x16)_mm_min_epi8(a, b)
 		#define max8(a, b) (i8x16)_mm_max_epi8(a, b)
 		static always_inline u32x4 minw32(u32x4 a, u32x4 b) { return (u32x4)_mm_blendv_ps((__m128)b, (__m128)a, (__m128)(a - b)); }
 	#else
 		#define cvtlo8u16(a) (i16x8)ziplo8(a, (i8x16){})
 		#define cvtlo16u32(a) (i32x4)ziplo16(a, (i16x8){})
-		#define load8zx16(p) (i16x8)ziplo8(load64(p), (i8x16){})
 		static always_inline i16x8 cvtlo8s16(i8x16 a) {return (i16x8)ziplo8(a, a) >> 8;}
 		static always_inline i8x16 ifelse_mask(i8x16 v, i8x16 t, i8x16 f) { return t & v | f & ~v; }
 		static always_inline i8x16 ifelse_msb(i8x16 v, i8x16 t, i8x16 f) { v = (0 > v); return t & v | f & ~v; }
@@ -816,10 +805,10 @@ static always_inline const char *unsup_if(int cond) { return cond ? " # unsuppor
 		#define hadd16(a, b) (i16x8)_mm_hadd_epi16(a, b)
 		#define maddubs(a, b) (i16x8)_mm_maddubs_epi16(a, b)
 		#define shrd128(l, h, i) (i8x16)_mm_alignr_epi8(h, l, i)
-		#define shlc128(a, i) (i8x16)shuffle(a, load128(shc_mask + 16 - (i)))
-		#define shrc128(a, i) (i8x16)shuffle(a, load128(shc_mask + 16 + (i)))
-		#define shlv128(a, i) (i8x16)shuffle(a, load128(shz_mask + 16 - (i)))
-		#define shrv128(a, i) (i8x16)shuffle(a, load128(shz_mask + 16 + (i)))
+		#define shlc128(a, i) (i8x16)shuffle(a, loadu128(shc_mask + 16 - (i)))
+		#define shrc128(a, i) (i8x16)shuffle(a, loadu128(shc_mask + 16 + (i)))
+		#define shlv128(a, i) (i8x16)shuffle(a, loadu128(shz_mask + 16 - (i)))
+		#define shrv128(a, i) (i8x16)shuffle(a, loadu128(shz_mask + 16 + (i)))
 		static always_inline i8x16 shuffle(i8x16 a, i8x16 m) { return (i8x16)_mm_shuffle_epi8(a, m); }
 		static always_inline i8x16 shufflen(i8x16 a, i8x16 m) {return shuffle(a, m) | (0 > m);}
 		static always_inline i8x16 shuffle2(const i8x16 *p, i8x16 m) {return ifelse_mask(m > 15, shuffle(p[1], m), shuffle(p[0], m));}
@@ -865,9 +854,11 @@ static always_inline const char *unsup_if(int cond) { return cond ? " # unsuppor
 	#define cvtuf32(a) (u32x4)vcvtq_u32_f32((float32x4_t)a)
 	#define ifelse_mask(v, t, f) (i8x16)vbslq_s8(v, t, f)
 	#define ifelse_msb(v, t, f) (i8x16)vbslq_s8((i8x16)(v) >> 7, t, f)
-	#define load32(p) ((i32x4){*(int32_t *)(p)})
-	#define load64(p) ((i64x2){*(int64_t *)(p)})
-	#define load128(p) (*(i8x16 *)(p))
+	#define loadu32(p) ({i32x4 _v = {}; memcpy(&v, (p), 4); _v;})
+	#define loadu64(p) ({i64x2 _v = {}; memcpy(&v, (p), 8); _v;})
+	#define loadu128(p) ({i8x16 _v = {}; memcpy(&v, (p), 16); _v;})
+	#define loadu32x4(p0, p1, p2, p3) ({i32x4 _v = {}; memcpy(&v, (p0), 4); memcpy(&v[1], (p1), 4); memcpy(&v[2], (p2), 4); memcpy(&v[3], (p3), 4); _v;})
+	#define loadu64x2(p0, p1) ({i64x2 _v = {}; memcpy(&v, (p0), 8); memcpy(&v[1], (p1), 8); _v;})
 	#define min8(a, b) (i8x16)vminq_s8(a, b)
 	#define max8(a, b) (i8x16)vmaxq_s8(a, b)
 	#define min16(a, b) (i16x8)vminq_s16(a, b)
@@ -1046,10 +1037,10 @@ static noinline void deblock_mb(Edge264Context *ctx);
 static void noinline decode_inter(Edge264Context *ctx, int i, int w, int h);
 
 // edge264_intra.c
-static cold noinline void decode_intra4x4(int mode, uint8_t * restrict p, size_t stride, i16x8 clip);
-static cold noinline void decode_intra8x8(int mode, uint8_t * restrict p, size_t stride, i16x8 clip);
-static cold noinline void decode_intra16x16(int mode, uint8_t * restrict p, size_t stride, i16x8 clip);
-static cold noinline void decode_intraChroma(int mode, uint8_t * restrict p, size_t stride, i16x8 clip);
+static cold noinline void decode_intra4x4(uint8_t * restrict p, size_t stride, int mode, i16x8 clip);
+static cold noinline void decode_intra8x8(uint8_t * restrict p, size_t stride, int mode, i16x8 clip);
+static cold noinline void decode_intra16x16(uint8_t * restrict p, size_t stride, int mode, i16x8 clip);
+static cold noinline void decode_intraChroma(uint8_t * restrict p, size_t stride, int mode, i16x8 clip);
 
 // edge264_mvpred.c
 static inline void decode_inter_16x16(Edge264Context *ctx, i16x8 mvd, int lx);

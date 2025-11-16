@@ -262,7 +262,7 @@ Other yet-to-be-presented bits:
 Testing (work in progress)
 --------------------------
 
-With the help of a [custom bitstream writer](tools/gen_avc.py) using the same YAML format edge264 outputs, a set of extensive tests are being created in [tools/raw_tests](tools/raw_tests) to stress the darkest corners of this decoder. Use the following command to compile and run the tests (Python is required here):
+With the help of a [custom bitstream writer](tests/gen_avc.py) using the same YAML format edge264 outputs, a set of extensive tests are being created in [tests](tests) to stress the darkest corners of this decoder. Use the following command to compile and run the tests (Python is required here):
 
 ```
 make test

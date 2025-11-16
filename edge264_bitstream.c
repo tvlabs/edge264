@@ -29,10 +29,10 @@ static inline size_t get_bytes(Edge264GetBits *gb, int nbytes)
 	intptr_t diff = CPB - end;
 	u8x16 v;
 	if (__builtin_expect(diff <= -14, 1)) {
-		v = load128(CPB - 2);
+		v = loadu128(CPB - 2);
 	} else if (diff < 0) {
 		const uint8_t *p = minp(CPB - 2, (uint8_t *)((uintptr_t)(end - 1) & -16));
-		v = shrv128(shlv128(load128(p), p + 16 - end), min(14 + diff, 16));
+		v = shrv128(shlv128(loadu128(p), p + 16 - end), min(14 + diff, 16));
 	} else {
 		gb->CPB = CPB + nbytes;
 		return 0;

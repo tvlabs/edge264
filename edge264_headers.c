@@ -167,14 +167,14 @@ static void initialize_context(Edge264Context *ctx, int currPic)
 		ctx->BCbCr_int8_v[0] = (i32x8){0, 1, 0, 1, 4, 5, 4, 5};
 	}
 	
-	ctx->QP_C_v[0] = load128(QP_Y2C + 12 + ctx->t.pps.chroma_qp_index_offset);
-	ctx->QP_C_v[1] = load128(QP_Y2C + 28 + ctx->t.pps.chroma_qp_index_offset);
-	ctx->QP_C_v[2] = load128(QP_Y2C + 44 + ctx->t.pps.chroma_qp_index_offset);
-	ctx->QP_C_v[3] = load128(QP_Y2C + 60 + ctx->t.pps.chroma_qp_index_offset);
-	ctx->QP_C_v[4] = load128(QP_Y2C + 12 + ctx->t.pps.second_chroma_qp_index_offset);
-	ctx->QP_C_v[5] = load128(QP_Y2C + 28 + ctx->t.pps.second_chroma_qp_index_offset);
-	ctx->QP_C_v[6] = load128(QP_Y2C + 44 + ctx->t.pps.second_chroma_qp_index_offset);
-	ctx->QP_C_v[7] = load128(QP_Y2C + 60 + ctx->t.pps.second_chroma_qp_index_offset);
+	ctx->QP_C_v[0] = loadu128(QP_Y2C + 12 + ctx->t.pps.chroma_qp_index_offset);
+	ctx->QP_C_v[1] = loadu128(QP_Y2C + 28 + ctx->t.pps.chroma_qp_index_offset);
+	ctx->QP_C_v[2] = loadu128(QP_Y2C + 44 + ctx->t.pps.chroma_qp_index_offset);
+	ctx->QP_C_v[3] = loadu128(QP_Y2C + 60 + ctx->t.pps.chroma_qp_index_offset);
+	ctx->QP_C_v[4] = loadu128(QP_Y2C + 12 + ctx->t.pps.second_chroma_qp_index_offset);
+	ctx->QP_C_v[5] = loadu128(QP_Y2C + 28 + ctx->t.pps.second_chroma_qp_index_offset);
+	ctx->QP_C_v[6] = loadu128(QP_Y2C + 44 + ctx->t.pps.second_chroma_qp_index_offset);
+	ctx->QP_C_v[7] = loadu128(QP_Y2C + 60 + ctx->t.pps.second_chroma_qp_index_offset);
 	ctx->t.QP[1] = ctx->QP_C[0][ctx->t.QP[0]];
 	ctx->t.QP[2] = ctx->QP_C[1][ctx->t.QP[0]];
 	for (int i = 1; i < 4; i++) {
@@ -267,7 +267,11 @@ static unsigned ppow(unsigned p65536, unsigned k) {
  * 1-(1-(1-p)^d)/(1-(1-p)^n). Note that p is sampled to 16-bits int to
  * avoid dependency on float and to fit all multiplications on 32 bits
  * with max precision.
+ * 
+ * FIXME remove ldleft macros eventually
 */
+#define ldleft8(y0, y1, y2, y3, y4, y5, y6, y7) (i8x16){*PX(-1, y0), *PX(-1, y1), *PX(-1, y2), *PX(-1, y3), *PX(-1, y4), *PX(-1, y5), *PX(-1, y6), *PX(-1, y7)}
+#define ldleft16(y0, y1, y2, y3, y4, y5, y6, y7, y8, y9, yA, yB, yC, yD, yE, yF) (i8x16){*PX(-1, y0), *PX(-1, y1), *PX(-1, y2), *PX(-1, y3), *PX(-1, y4), *PX(-1, y5), *PX(-1, y6), *PX(-1, y7), *PX(-1, y8), *PX(-1, y9), *PX(-1, yA), *PX(-1, yB), *PX(-1, yC), *PX(-1, yD), *PX(-1, yE), *PX(-1, yF)}
 static void recover_slice(Edge264Context *ctx, int currPic) {
 	// mark all previous mbs as erroneous and assign them an error probability
 	ctx->mby = (unsigned)ctx->t.first_mb_in_slice / (unsigned)ctx->t.pic_width_in_mbs;
@@ -288,16 +292,17 @@ static void recover_slice(Edge264Context *ctx, int currPic) {
 		unsigned p128 = p12800 / 100;
 		
 		// recover the macroblock depending on slice_type
+		// FIXME use Intra function instead
 		if (ctx->t.slice_type == 2) { // I slice -> blend with intra DC
 			INIT_PX(ctx->samples_mb[0], ctx->t.stride[0]);
 			i8x16 l = set8(-128), t = l;
 			if (i == 0 || ctx->mbx == 0) { // A not available
 				if (i >= ctx->t.pic_width_in_mbs) // B available
-					l = t = load128(PX(0, -1));
+					l = t = loada128(PX(0, -1));
 			} else { // A available
 				l = t = ldleft16(0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15);
 				if (i >= ctx->t.pic_width_in_mbs) // B available
-					t = load128(PX(0, -1));
+					t = loada128(PX(0, -1));
 			}
 			i8x16 dcY = broadcast8(shrru16(sumd8(t, l), 5), __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__);
 			i8x16 w8 = ziplo8(set8(128 - p128), set8(p128));
@@ -328,19 +333,19 @@ static void recover_slice(Edge264Context *ctx, int currPic) {
 			*(i8x16 *)PX(0, 15) = maddshr8(*(i8x16 *)PX(0, 15), dcY, w8, w16, o, wd64, wd16);
 			{
 				INIT_PX(ctx->samples_mb[1], ctx->t.stride[1] >> 1);
-				i8x16 b = ziplo64(load64(PX(0, -2)), ldleft8(0, 2, 4, 6, 8, 10, 12, 14));
-				i8x16 r = ziplo64(load64(PX(0, -1)), ldleft8(1, 3, 5, 7, 9, 11, 13, 15));
+				i8x16 b = ziplo64(loada64(PX(0, -2)), ldleft8(0, 2, 4, 6, 8, 10, 12, 14));
+				i8x16 r = ziplo64(loada64(PX(0, -1)), ldleft8(1, 3, 5, 7, 9, 11, 13, 15));
 				i8x16 dcb = broadcast8(shrru16(sum8(b), 4), __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__);
 				i8x16 dcr = broadcast8(shrru16(sum8(r), 4), __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__);
 				i8x16 dcC = ziplo64(dcb, dcr);
-				i64x2 v0 = maddshr8(load8x2(PX(0, 0), PX(0, 1)), dcC, w8, w16, o, wd64, wd16);
-				i64x2 v1 = maddshr8(load8x2(PX(0, 2), PX(0, 3)), dcC, w8, w16, o, wd64, wd16);
-				i64x2 v2 = maddshr8(load8x2(PX(0, 4), PX(0, 5)), dcC, w8, w16, o, wd64, wd16);
-				i64x2 v3 = maddshr8(load8x2(PX(0, 6), PX(0, 7)), dcC, w8, w16, o, wd64, wd16);
-				i64x2 v4 = maddshr8(load8x2(PX(0, 8), PX(0, 9)), dcC, w8, w16, o, wd64, wd16);
-				i64x2 v5 = maddshr8(load8x2(PX(0, 10), PX(0, 11)), dcC, w8, w16, o, wd64, wd16);
-				i64x2 v6 = maddshr8(load8x2(PX(0, 12), PX(0, 13)), dcC, w8, w16, o, wd64, wd16);
-				i64x2 v7 = maddshr8(load8x2(PX(0, 14), PX(0, 15)), dcC, w8, w16, o, wd64, wd16);
+				i64x2 v0 = maddshr8(loada64x2(PX(0, 0), PX(0, 1)), dcC, w8, w16, o, wd64, wd16);
+				i64x2 v1 = maddshr8(loada64x2(PX(0, 2), PX(0, 3)), dcC, w8, w16, o, wd64, wd16);
+				i64x2 v2 = maddshr8(loada64x2(PX(0, 4), PX(0, 5)), dcC, w8, w16, o, wd64, wd16);
+				i64x2 v3 = maddshr8(loada64x2(PX(0, 6), PX(0, 7)), dcC, w8, w16, o, wd64, wd16);
+				i64x2 v4 = maddshr8(loada64x2(PX(0, 8), PX(0, 9)), dcC, w8, w16, o, wd64, wd16);
+				i64x2 v5 = maddshr8(loada64x2(PX(0, 10), PX(0, 11)), dcC, w8, w16, o, wd64, wd16);
+				i64x2 v6 = maddshr8(loada64x2(PX(0, 12), PX(0, 13)), dcC, w8, w16, o, wd64, wd16);
+				i64x2 v7 = maddshr8(loada64x2(PX(0, 14), PX(0, 15)), dcC, w8, w16, o, wd64, wd16);
 				*(int64_t *)PX(0, 0) = v0[0];
 				*(int64_t *)PX(0, 1) = v0[1];
 				*(int64_t *)PX(0, 2) = v1[0];

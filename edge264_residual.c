@@ -20,21 +20,27 @@
 	static always_inline i16x8 scale32(i32x4 c0, i32x4 c1, u16x8 ls, int mul, i32x4 off, i32x4 sh) {return vrshrn_high_n_s32(vrshrn_n_s32((i32x4)vmull_n_s16(vget_low_s16(ls), mul) * c0, 6), (i32x4)vmull_high_n_s16(ls, mul) * c1, 6);}
 #endif
 
-static const i8x4 normAdjust4x4[6] = {
-	{10, 16, 13},
-	{11, 18, 14},
-	{13, 20, 16},
-	{14, 23, 18},
-	{16, 25, 20},
-	{18, 29, 23}
+static const i8x16 normAdjust4x4[6] = {
+	{10, 13, 10, 13, 13, 16, 13, 16, 10, 13, 10, 13, 13, 16, 13, 16},
+	{11, 14, 11, 14, 14, 18, 14, 18, 11, 14, 11, 14, 14, 18, 14, 18},
+	{13, 16, 13, 16, 16, 20, 16, 20, 13, 16, 13, 16, 16, 20, 16, 20},
+	{14, 18, 14, 18, 18, 23, 18, 23, 14, 18, 14, 18, 18, 23, 18, 23},
+	{16, 20, 16, 20, 20, 25, 20, 25, 16, 20, 16, 20, 20, 25, 20, 25},
+	{18, 23, 18, 23, 23, 29, 23, 29, 18, 23, 18, 23, 23, 29, 23, 29},
 };
-static const i8x8 normAdjust8x8[6] = {
-	{20, 18, 32, 19, 25, 24},
-	{22, 19, 35, 21, 28, 26},
-	{26, 23, 42, 24, 33, 31},
-	{28, 25, 45, 26, 35, 33},
-	{32, 28, 51, 30, 40, 38},
-	{36, 32, 58, 34, 46, 43}
+static const i8x16 normAdjust8x8[12] = {
+	{20, 19, 25, 19, 20, 19, 25, 19, 19, 18, 24, 18, 19, 18, 24, 18},
+	{25, 24, 32, 24, 25, 24, 32, 24, 19, 18, 24, 18, 19, 18, 24, 18},
+	{22, 21, 28, 21, 22, 21, 28, 21, 21, 19, 26, 19, 21, 19, 26, 19},
+	{28, 26, 35, 26, 28, 26, 35, 26, 21, 19, 26, 19, 21, 19, 26, 19},
+	{26, 24, 33, 24, 26, 24, 33, 24, 24, 23, 31, 23, 24, 23, 31, 23},
+	{33, 31, 42, 31, 33, 31, 42, 31, 24, 23, 31, 23, 24, 23, 31, 23},
+	{28, 26, 35, 26, 28, 26, 35, 26, 26, 25, 33, 25, 26, 25, 33, 25},
+	{35, 33, 45, 33, 35, 33, 45, 33, 26, 25, 33, 25, 26, 25, 33, 25},
+	{32, 30, 40, 30, 32, 30, 40, 30, 30, 28, 38, 28, 30, 28, 38, 28},
+	{40, 38, 51, 38, 40, 38, 51, 38, 30, 28, 38, 28, 30, 28, 38, 28},
+	{36, 34, 46, 34, 36, 34, 46, 34, 34, 32, 43, 32, 34, 32, 43, 32},
+	{46, 43, 58, 43, 46, 43, 58, 43, 34, 32, 43, 32, 34, 32, 43, 32},
 };
 
 
@@ -50,8 +56,7 @@ static noinline void add_idct4x4(Edge264Context *ctx, int iYCbCr, int DCidx, uin
 	// loading and scaling
 	unsigned qP = ctx->t.QP[iYCbCr];
 	int sh = qP / 6;
-	i8x16 vm = load32(&normAdjust4x4[qP % 6]);
-	i8x16 nA = shuffle(vm, (i8x16){0, 2, 0, 2, 2, 1, 2, 1, 0, 2, 0, 2, 2, 1, 2, 1});
+	i8x16 nA = normAdjust4x4[qP % 6];
 	i8x16 wS = ctx->t.pps.weightScale4x4_v[iYCbCr + mb->mbIsInterFlag * 3];
 	i16x8 LS0 = mullou8(wS, nA);
 	i16x8 LS1 = mulhiu8(wS, nA);
@@ -100,30 +105,30 @@ static noinline void add_idct4x4(Edge264Context *ctx, int iYCbCr, int DCidx, uin
 	
 	// addition to values in place, clipping and storage
 	size_t stride = ctx->t.stride[iYCbCr];
-	INIT_P();
+	INIT_PX(p, stride);
 	if (ctx->t.samples_clip[iYCbCr][0] == 255) {
-		i8x16 p0 = (i32x4){*(int32_t *)P(0, 0), *(int32_t *)P(0, 1)};
-		i8x16 p1 = (i32x4){*(int32_t *)P(0, 2), *(int32_t *)P(0, 3)};
+		i8x16 p0 = (i32x4){*(int32_t *)PX(0, 0), *(int32_t *)PX(0, 1)};
+		i8x16 p1 = (i32x4){*(int32_t *)PX(0, 2), *(int32_t *)PX(0, 3)};
 		i32x4 u = packus16(addlou8s16(p0, r0), addlou8s16(p1, r1));
-		*(int32_t *)P(0, 0) = u[0];
-		*(int32_t *)P(0, 1) = u[1];
-		*(int32_t *)P(0, 2) = u[2];
-		*(int32_t *)P(0, 3) = u[3];
+		*(int32_t *)PX(0, 0) = u[0];
+		*(int32_t *)PX(0, 1) = u[1];
+		*(int32_t *)PX(0, 2) = u[2];
+		*(int32_t *)PX(0, 3) = u[3];
 	}
 }
 
 static void add_dc4x4(Edge264Context *ctx, int iYCbCr, int DCidx, uint8_t *p) {
 	i32x4 r = set16((ctx->c[16 + DCidx] + 32) >> 6);
 	size_t stride = ctx->t.stride[iYCbCr];
-	INIT_P();
+	INIT_PX(p, stride);
 	if (ctx->t.samples_clip[iYCbCr][0] == 255) {
-		i8x16 p0 = (i32x4){*(int32_t *)P(0, 0), *(int32_t *)P(0, 1)};
-		i8x16 p1 = (i32x4){*(int32_t *)P(0, 2), *(int32_t *)P(0, 3)};
+		i8x16 p0 = (i32x4){*(int32_t *)PX(0, 0), *(int32_t *)PX(0, 1)};
+		i8x16 p1 = (i32x4){*(int32_t *)PX(0, 2), *(int32_t *)PX(0, 3)};
 		i32x4 u = packus16(addlou8s16(p0, r), addlou8s16(p1, r));
-		*(int32_t *)P(0, 0) = u[0];
-		*(int32_t *)P(0, 1) = u[1];
-		*(int32_t *)P(0, 2) = u[2];
-		*(int32_t *)P(0, 3) = u[3];
+		*(int32_t *)PX(0, 0) = u[0];
+		*(int32_t *)PX(0, 1) = u[1];
+		*(int32_t *)PX(0, 2) = u[2];
+		*(int32_t *)PX(0, 3) = u[3];
 	}
 }
 
@@ -138,10 +143,10 @@ static void add_idct8x8(Edge264Context *ctx, int iYCbCr, uint8_t *p)
 	unsigned qP = ctx->t.QP[iYCbCr];
 	if (ctx->t.samples_clip[iYCbCr][0] == 255) {
 		int div = qP / 6;
-		i8x16 vm = load64(&normAdjust8x8[qP % 6]);
+		int m = qP % 6;
+		i8x16 nA0 = normAdjust8x8[m * 2];
+		i8x16 nA1 = normAdjust8x8[m * 2 + 1];
 		i8x16 *wS = ctx->t.pps.weightScale8x8_v + (iYCbCr * 2 + mb->mbIsInterFlag) * 4;
-		i8x16 nA0 = shuffle(vm, (i8x16){0, 3, 4, 3, 0, 3, 4, 3, 3, 1, 5, 1, 3, 1, 5, 1});
-		i8x16 nA1 = shuffle(vm, (i8x16){4, 5, 2, 5, 4, 5, 2, 5, 3, 1, 5, 1, 3, 1, 5, 1});
 		i16x8 LS0 = mullou8(wS[0], nA0);
 		i16x8 LS1 = mulhiu8(wS[0], nA0);
 		i16x8 LS2 = mullou8(wS[1], nA1);
@@ -248,27 +253,27 @@ static void add_idct8x8(Edge264Context *ctx, int iYCbCr, uint8_t *p)
 		
 		// addition to values in place, clipping and storage
 		size_t stride = ctx->t.stride[iYCbCr];
-		INIT_P();
-		i8x16 p0 = addlou8s16(load64(P(0, 0)), r0);
-		i8x16 p1 = addlou8s16(load64(P(0, 1)), r1);
-		i8x16 p2 = addlou8s16(load64(P(0, 2)), r2);
-		i8x16 p3 = addlou8s16(load64(P(0, 3)), r3);
-		i8x16 p4 = addlou8s16(load64(P(0, 4)), r4);
-		i8x16 p5 = addlou8s16(load64(P(0, 5)), r5);
-		i8x16 p6 = addlou8s16(load64(P(0, 6)), r6);
-		i8x16 p7 = addlou8s16(load64(P(0, 7)), r7);
+		INIT_PX(p, stride);
+		i8x16 p0 = addlou8s16(loada64(PX(0, 0)), r0);
+		i8x16 p1 = addlou8s16(loada64(PX(0, 1)), r1);
+		i8x16 p2 = addlou8s16(loada64(PX(0, 2)), r2);
+		i8x16 p3 = addlou8s16(loada64(PX(0, 3)), r3);
+		i8x16 p4 = addlou8s16(loada64(PX(0, 4)), r4);
+		i8x16 p5 = addlou8s16(loada64(PX(0, 5)), r5);
+		i8x16 p6 = addlou8s16(loada64(PX(0, 6)), r6);
+		i8x16 p7 = addlou8s16(loada64(PX(0, 7)), r7);
 		i64x2 u0 = packus16(p0, p1);
 		i64x2 u1 = packus16(p2, p3);
 		i64x2 u2 = packus16(p4, p5);
 		i64x2 u3 = packus16(p6, p7);
-		*(int64_t *)P(0, 0) = u0[0];
-		*(int64_t *)P(0, 1) = u0[1];
-		*(int64_t *)P(0, 2) = u1[0];
-		*(int64_t *)P(0, 3) = u1[1];
-		*(int64_t *)P(0, 4) = u2[0];
-		*(int64_t *)P(0, 5) = u2[1];
-		*(int64_t *)P(0, 6) = u3[0];
-		*(int64_t *)P(0, 7) = u3[1];
+		*(int64_t *)PX(0, 0) = u0[0];
+		*(int64_t *)PX(0, 1) = u0[1];
+		*(int64_t *)PX(0, 2) = u1[0];
+		*(int64_t *)PX(0, 3) = u1[1];
+		*(int64_t *)PX(0, 4) = u2[0];
+		*(int64_t *)PX(0, 5) = u2[1];
+		*(int64_t *)PX(0, 6) = u3[0];
+		*(int64_t *)PX(0, 7) = u3[1];
 	} // FIXME else 16bit
 }
 
@@ -447,40 +452,40 @@ static void transform_dc2x2(Edge264Context *ctx)
 		uint8_t *p = ctx->samples_mb[1];
 		size_t stride = ctx->t.stride[1] >> 1;
 		if (ctx->t.samples_clip[1][0] == 255) {
-			i16x8 b0 = addlou8s16(load64(p             ), lob);
-			i16x8 r0 = addlou8s16(load64(p + stride    ), lor);
-			i16x8 b1 = addlou8s16(load64(p + stride * 2), lob);
-			i16x8 r1 = addlou8s16(load64(p + stride * 3), lor);
+			i16x8 b0 = addlou8s16(loada64(p             ), lob);
+			i16x8 r0 = addlou8s16(loada64(p + stride    ), lor);
+			i16x8 b1 = addlou8s16(loada64(p + stride * 2), lob);
+			i16x8 r1 = addlou8s16(loada64(p + stride * 3), lor);
 			i64x2 b8 = packus16(b0, b1);
 			i64x2 r8 = packus16(r0, r1);
 			*(int64_t *)(p             ) = b8[0];
 			*(int64_t *)(p + stride    ) = r8[0];
 			*(int64_t *)(p + stride * 2) = b8[1];
 			*(int64_t *)(p + stride * 3) = r8[1];
-			i16x8 b2 = addlou8s16(load64(p += stride * 4), lob);
-			i16x8 r2 = addlou8s16(load64(p + stride    ), lor);
-			i16x8 b3 = addlou8s16(load64(p + stride * 2), lob);
-			i16x8 r3 = addlou8s16(load64(p + stride * 3), lor);
+			i16x8 b2 = addlou8s16(loada64(p += stride * 4), lob);
+			i16x8 r2 = addlou8s16(loada64(p + stride    ), lor);
+			i16x8 b3 = addlou8s16(loada64(p + stride * 2), lob);
+			i16x8 r3 = addlou8s16(loada64(p + stride * 3), lor);
 			i64x2 b9 = packus16(b2, b3);
 			i64x2 r9 = packus16(r2, r3);
 			*(int64_t *)(p             ) = b9[0];
 			*(int64_t *)(p + stride    ) = r9[0];
 			*(int64_t *)(p + stride * 2) = b9[1];
 			*(int64_t *)(p + stride * 3) = r9[1];
-			i16x8 b4 = addlou8s16(load64(p += stride * 4), hib);
-			i16x8 r4 = addlou8s16(load64(p + stride    ), hir);
-			i16x8 b5 = addlou8s16(load64(p + stride * 2), hib);
-			i16x8 r5 = addlou8s16(load64(p + stride * 3), hir);
+			i16x8 b4 = addlou8s16(loada64(p += stride * 4), hib);
+			i16x8 r4 = addlou8s16(loada64(p + stride    ), hir);
+			i16x8 b5 = addlou8s16(loada64(p + stride * 2), hib);
+			i16x8 r5 = addlou8s16(loada64(p + stride * 3), hir);
 			i64x2 bA = packus16(b4, b5);
 			i64x2 rA = packus16(r4, r5);
 			*(int64_t *)(p             ) = bA[0];
 			*(int64_t *)(p + stride    ) = rA[0];
 			*(int64_t *)(p + stride * 2) = bA[1];
 			*(int64_t *)(p + stride * 3) = rA[1];
-			i16x8 b6 = addlou8s16(load64(p += stride * 4), hib);
-			i16x8 r6 = addlou8s16(load64(p + stride    ), hir);
-			i16x8 b7 = addlou8s16(load64(p + stride * 2), hib);
-			i16x8 r7 = addlou8s16(load64(p + stride * 3), hir);
+			i16x8 b6 = addlou8s16(loada64(p += stride * 4), hib);
+			i16x8 r6 = addlou8s16(loada64(p + stride    ), hir);
+			i16x8 b7 = addlou8s16(loada64(p + stride * 2), hib);
+			i16x8 r7 = addlou8s16(loada64(p + stride * 3), hir);
 			i64x2 bB = packus16(b6, b7);
 			i64x2 rB = packus16(r6, r7);
 			*(int64_t *)(p             ) = bB[0];

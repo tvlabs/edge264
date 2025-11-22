@@ -126,18 +126,18 @@ static void test_page_boundaries() {
 	
 	// Intra boundaries
 	mprotect(page, pagesize, PROT_READ | PROT_WRITE);
-	static const int8_t offI4x4[I4x4_HU_8 + 1] = {16, 4, 20, 16, 4, 0, 16, 16, 20, 20, 20, 16, 16, 4};
+	static const int8_t offI4x4[I4x4_HU_8 + 1] = {16, 4, 20, 16, 4, 0, 16, 16, 24, 24, 24, 16, 16, 4};
 	for (int i = 0; i <= I4x4_HU_8; i++)
-		decode_intra4x4(i, page + offI4x4[i], 16, (i16x8){});
+		decode_intra4x4(page + offI4x4[i], 16, i, (i16x8){});
 	static const int8_t offI8x8[I8x8_HU_D_8 + 1] = {24, 24, 16, 16, 24, 8, 24, 24, 24, 16, 16, 24, 8, 24, 16, 16, 0, 24, 24, 16, 16, 24, 24, 24, 24, 24, 24, 24, 16, 16, 24, 8};
 	for (int i = 0; i <= I8x8_HU_D_8; i++)
-		decode_intra8x8(i, page + offI8x8[i], 16, (i16x8){});
+		decode_intra8x8(page + offI8x8[i], 16, i, (i16x8){});
 	static const int8_t offI16x16[I16x16_P_8 + 1] = {16, 16, 16, 16, 16, 0, 32};
 	for (int i = 0; i <= I16x16_P_8; i++)
-		decode_intra16x16(i, page + offI16x16[i], 16, (i16x8){});
+		decode_intra16x16(page + offI16x16[i], 16, i, (i16x8){});
 	static const int8_t offIC8x8[IC8x8_P_8 + 1] = {16, 16, 8, 0, 8, 16, 24};
 	for (int i = 0; i <= IC8x8_P_8; i++)
-		decode_intraChroma(i, page + offIC8x8[i], 8, (i16x8){});
+		decode_intraChroma(page + offIC8x8[i], 8, i, (i16x8){});
 	
 	// Inter boundaries
 	static const int8_t offInterLo[16] = {0, 2, 2, 2, 64, 66, 66, 66, 64, 66, 66, 66, 64, 66, 66, 66};

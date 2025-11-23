@@ -2,22 +2,22 @@ name: Tests on commit
 on: [push]
 jobs:
   x86_64-apple-darwinXX:
-    runs-on: [macOS, Intel]
+    runs-on: macos-13
     steps:
       - uses: actions/checkout@v5
       - run: make test
   arm64-apple-darwinXX:
-    runs-on: [macOS, arm64]
+    runs-on: macos-latest
     steps:
       - uses: actions/checkout@v5
       - run: make test
   x86_64-linux-gnu:
-    runs-on: [linux, x64]
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
       - run: make test
   arm64-linux-gnu:
-    runs-on: [linux, arm64]
+    runs-on: ubuntu-24.04-arm
     steps:
       - uses: actions/checkout@v5
       - run: make test

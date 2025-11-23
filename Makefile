@@ -5,20 +5,21 @@ VARIANTS ?= logs
 BUILD_TEST ?= yes
 PY ?= python3
 
-VERSION := 1.0.0
 MAJOR := 1
-WARNINGS := -Wno-override-init
-override CFLAGS := -march=native -std=gnu11 -O3 -flax-vector-conversions $(if $(findstring Windows,$(TARGETOS)),,-fpic) $(WARNINGS) $(CFLAGS)
-TCLINUX := -Wl,-soname,libedge264.so.$(MAJOR) -Wl,-rpath,'$$ORIGIN'
-override LDFLAGS := -pthread $(if $(findstring Linux,$(TARGETOS)),$(TCLINUX),) $(LDFLAGS)
+VERSION := 1.0
+OBJNAMES := edge264.o $(if $(findstring x86-64-v2,$(VARIANTS)),edge264_headers_v2.o,) $(if $(findstring x86-64-v3,$(VARIANTS)),edge264_headers_v3.o,) $(if $(findstring logs,$(VARIANTS)),edge264_headers_log.o,)
+LIBNAME := $(if $(findstring Windows,$(TARGETOS)),edge264.$(MAJOR).dll,$(if $(findstring Linux,$(TARGETOS)),libedge264.so.$(MAJOR),libedge264.$(MAJOR).dylib))
+EXENAME := $(if $(findstring Windows,$(TARGETOS)),edge264_test.exe,edge264_test)
+EXELINUX := -Wl,-rpath,'$$ORIGIN'
+override CFLAGS := -march=native -std=gnu11 -O3 -flax-vector-conversions -Wno-override-init -pthread $(CFLAGS)
+override OBJFLAGS := $(if $(findstring Windows,$(TARGETOS)),,-fPIC) $(OBJFLAGS)
+override LIBFLAGS := -shared $(LIBFLAGS)
+override EXEFLAGS := $(LIBNAME) $(if $(findstring Linux,$(TARGETOS)),$(EXELINUX),) $(EXEFLAGS)
 DFORCEINTRIN := $(if $(findstring x86,$(FORCEINTRIN)),-D__SSE2__ -D__SSSE3__ -D__SSE4_1__ -D__AVX2__ -D__BMI2__,$(if $(findstring ARM64,$(FORCEINTRIN)),-D__ARM_NEON,))
 RUNTIME_TESTS := $(if $(findstring x86-64-v2,$(VARIANTS)),-DHAS_X86_64_V2,) $(if $(findstring x86-64-v3,$(VARIANTS)),-DHAS_X86_64_V3,) $(if $(findstring logs,$(VARIANTS)),-DHAS_LOGS,)
-OBJ := edge264.o $(if $(findstring x86-64-v2,$(VARIANTS)),edge264_headers_v2.o,) $(if $(findstring x86-64-v3,$(VARIANTS)),edge264_headers_v3.o,) $(if $(findstring logs,$(VARIANTS)),edge264_headers_log.o,)
-LIB := $(if $(findstring Windows,$(TARGETOS)),edge264.$(MAJOR).dll,$(if $(findstring Linux,$(TARGETOS)),libedge264.so.$(VERSION),libedge264.$(VERSION).dylib))
-EXE := $(if $(findstring Windows,$(TARGETOS)),edge264_test.exe,edge264_test)
 TESTS_YAML = $(wildcard tests/*.yaml)
 TESTS_264 = $(patsubst %.yaml,%.264,$(TESTS_YAML))
-.DEFAULT_GOAL := $(if $(findstring yes,$(BUILD_TEST)),$(EXE),$(LIB))
+.DEFAULT_GOAL := $(if $(findstring yes,$(BUILD_TEST)),$(EXENAME),$(LIBNAME))
 
 
 # check existence of compiler executable
@@ -29,27 +30,27 @@ endif
 
 
 # rules
-$(EXE): edge264_test.c edge264.h $(LIB)
-	$(TARGETCC) edge264_test.c $(LIB) $(LDFLAGS) -o $(EXE)
+$(EXENAME): edge264_test.c edge264.h $(LIBNAME)
+	$(TARGETCC) edge264_test.c $(CFLAGS) $(EXEFLAGS) -o $(EXENAME)
 
-$(LIB): $(OBJ)
-	$(TARGETCC) -shared $(OBJ) $(LDFLAGS) -o $(LIB)
+$(LIBNAME): $(OBJNAMES)
+	$(TARGETCC) $(OBJNAMES) $(LIBFLAGS) -o $(LIBNAME)
 
 edge264.o: edge264.h edge264_internal.h edge264.c edge264_bitstream.c edge264_deblock.c edge264_headers.c edge264_inter.c edge264_intra.c edge264_mvpred.c edge264_residual.c edge264_slice.c
-	$(CC) edge264.c -c $(CFLAGS) $(RUNTIME_TESTS) $(DFORCEINTRIN) -o edge264.o
+	$(CC) edge264.c -c $(CFLAGS) $(OBJFLAGS) $(RUNTIME_TESTS) $(DFORCEINTRIN) -o edge264.o
 
 edge264_headers_v2.o: edge264.h edge264_internal.h edge264_bitstream.c edge264_deblock.c edge264_headers.c edge264_inter.c edge264_intra.c edge264_mvpred.c edge264_residual.c edge264_slice.c
-	$(CC) edge264_headers.c -c $(CFLAGS) -march=x86-64-v2 "-DADD_VARIANT(f)=f##_v2" -o edge264_headers_v2.o
+	$(CC) edge264_headers.c -c $(CFLAGS) $(OBJFLAGS) -march=x86-64-v2 "-DADD_VARIANT(f)=f##_v2" -o edge264_headers_v2.o
 
 edge264_headers_v3.o: edge264.h edge264_internal.h edge264_bitstream.c edge264_deblock.c edge264_headers.c edge264_inter.c edge264_intra.c edge264_mvpred.c edge264_residual.c edge264_slice.c
-	$(CC) edge264_headers.c -c $(CFLAGS) -march=x86-64-v3 "-DADD_VARIANT(f)=f##_v3" -o edge264_headers_v3.o
+	$(CC) edge264_headers.c -c $(CFLAGS) $(OBJFLAGS) -march=x86-64-v3 "-DADD_VARIANT(f)=f##_v3" -o edge264_headers_v3.o
 
 edge264_headers_log.o: edge264.h edge264_internal.h edge264_bitstream.c edge264_deblock.c edge264_headers.c edge264_inter.c edge264_intra.c edge264_mvpred.c edge264_residual.c edge264_sei.c edge264_slice.c
-	$(CC) edge264_headers.c -c $(CFLAGS) -DLOGS $(DFORCEINTRIN) "-DADD_VARIANT(f)=f##_log" -o edge264_headers_log.o
+	$(CC) edge264_headers.c -c $(CFLAGS) $(OBJFLAGS) -DLOGS $(DFORCEINTRIN) "-DADD_VARIANT(f)=f##_log" -o edge264_headers_log.o
 
 .PHONY: clean clear
 clean clear:
-	rm -f release/* $(EXE) edge264*.o libedge264*.dylib libedge264.so.* edge264*.dll tests/*.264
+	rm -f release/* $(EXENAME) edge264*.o $(LIBNAME) tests/*.264 edge264_test2
 
 
 # stress testing (work in progress)
@@ -57,8 +58,8 @@ clean clear:
 test tests: edge264_test2
 	./edge264_test2
 
-edge264_test2: edge264_test2.c edge264.h $(LIB) $(TESTS_264)
-	$(TARGETCC) edge264_test2.c $(LIB) $(LDFLAGS) -o edge264_test2
+edge264_test2: edge264_test2.c edge264.h edge264_internal.h $(LIBNAME) $(TESTS_264)
+	$(TARGETCC) edge264_test2.c $(CFLAGS) $(EXEFLAGS) -o edge264_test2
 
 %.264: %.yaml tests/gen_avc.py
 	$(PY) tests/gen_avc.py $< $@

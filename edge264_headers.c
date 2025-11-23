@@ -1148,8 +1148,9 @@ int ADD_VARIANT(parse_slice_layer_without_partitioning)(Edge264Decoder *dec, int
 		}
 		int lim = 16 << t->field_pic_flag; // MVC limit is not enforced since MVC detection is too cumbersome
 		if (get_u1(&dec->gb)) { // num_ref_idx_active_override_flag
-			for (int l = 0; l <= t->slice_type; l++)
-				t->pps.num_ref_idx_active[l] = get_ue16(&dec->gb, lim - 1) + 1;
+			t->pps.num_ref_idx_active[0] = get_ue16(&dec->gb, lim - 1) + 1;
+			if (t->slice_type)
+				t->pps.num_ref_idx_active[1] = get_ue16(&dec->gb, lim - 1) + 1;
 			log_dec(dec, "  num_ref_idx_active: {override_flag: 1");
 		} else {
 			t->pps.num_ref_idx_active[0] = min(t->pps.num_ref_idx_active[0], lim);

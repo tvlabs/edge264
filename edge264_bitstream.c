@@ -60,7 +60,7 @@ static inline size_t get_bytes(Edge264GetBits *gb, int nbytes)
 		}
 	#elif defined(__ARM_NEON)
 		uint64_t test = (uint64_t)vshrn_n_u16(eq0 & shr128(eq0, 1) & (x <= 3), 4);
-		uint64_t mask = (1ULL << (nbytes << 2)) - 1;
+		uint64_t mask = 0x11111111 >> (32 - (nbytes << 2));
 		if (__builtin_expect(test & mask, 0)) {
 			uint64_t three = (uint64_t)vshrn_n_u16(x == 3, 4);
 			uint64_t stop = test & mask & ~three;
@@ -69,8 +69,8 @@ static inline size_t get_bytes(Edge264GetBits *gb, int nbytes)
 				gb->end = CPB + i - 2;
 				x &= ~shlv128(set8(-1), i);
 			}
-			for (uint64_t esc = test & three & 0x1111111111111111ULL; esc & mask; esc = (esc & (esc - 1)) >> 4) {
-				int i = __builtin_ctzll(esc);
+			for (uint64_t esc = test & three, bits; bits = esc & mask; esc = (esc & (esc - 1)) >> 4) {
+				int i = __builtin_ctzll(bits) >> 2;
 				x = shuffle(x, shuf[i]);
 				CPB++;
 			}

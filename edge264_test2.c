@@ -87,10 +87,8 @@ static void parse_NALs(const char *name, const uint8_t *nal, const uint8_t *end,
 	count_frames = 0;
 	for (int i = 0; res != ENODATA; i++) {
 		res = edge264_decode_NAL(dec, nal, end, 0, NULL, NULL, &nal);
-		if (res != expect[i]) {
-			printf(RED "%s: NAL at index %d returned %s where %s was expected\n" RESET, name, i, errno_str(res), errno_str(expect[i]));
-			exit(1);
-		}
+		if (res != expect[i])
+			ERROR(RED "%s: NAL at index %d returned %s where %s was expected\n" RESET, name, i, errno_str(res), errno_str(expect[i]));
 		while (!edge264_get_frame(dec, &out, 0))
 			count_frames += 1;
 	}
@@ -110,7 +108,7 @@ static void test_page_boundaries() {
 	// CPB boundaries
 	FILE *f = fopen("tests/page-boundaries.264", "r");
 	if (!f)
-		perror("Cannot open file tests/page-boundaries.264");
+		ERROR("Cannot open file tests/page-boundaries.264");
 	fseek(f, 0L, SEEK_END);
 	long filesize = ftell(f);
 	rewind(f);
@@ -172,10 +170,8 @@ static void test(const char *name, void (*log_test)(const char *), void (*post_t
 		void *v = NULL;
 		if ((f = CreateFileA(file_name, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL)) == INVALID_HANDLE_VALUE ||
 			(m = CreateFileMappingA(f, NULL, PAGE_READONLY, 0, 0, NULL)) == NULL ||
-			(v = MapViewOfFile(m, FILE_MAP_READ, 0, 0, 0)) == NULL) {
-			printf("Error opening file %s for input: %lu\n", file_name, GetLastError());
-			exit(1);
-		}
+			(v = MapViewOfFile(m, FILE_MAP_READ, 0, 0, 0)) == NULL)
+			ERROR("Error opening file %s for input: %lu\n", file_name, GetLastError());
 		const uint8_t *nal = v;
 		const uint8_t *end = v + GetFileSize(f, NULL);
 	#else

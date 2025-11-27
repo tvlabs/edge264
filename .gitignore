@@ -4,6 +4,8 @@
 !edge264*.h
 !LICENSE_BSD.txt
 !Makefile
-!*.md
+!README.md
 !CMakeLists.txt
 !*.in
+!tests
+!tests/*.yaml

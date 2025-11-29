@@ -65,7 +65,7 @@ edge264_test2: edge264_test2.c edge264.h edge264_internal.h $(LIBNAME) $(TESTS_2
 	$(PY) tests/gen_avc.py $< $@
 
 
-# hard-coded for my machine (mac-x64), edit to make them work on your own
+# hard-coded for my machine (mac-x64), not systematically tested, may be out of date
 LINUX_GNU_X86_SYSROOT := i686-unknown-linux-gnu/i686-unknown-linux-gnu/sysroot
 LINUX_GNU_X86_GCC := i686-unknown-linux-gnu/bin/i686-linux-gnu-gcc
 LINUX_GNU_X64_SYSROOT := x86_64-unknown-linux-gnu/x86_64-unknown-linux-gnu/sysroot

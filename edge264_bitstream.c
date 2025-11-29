@@ -27,19 +27,22 @@ static inline size_t get_bytes(Edge264GetBits *gb, int nbytes)
 	const uint8_t *CPB = gb->CPB;
 	const uint8_t *end = gb->end;
 	intptr_t diff = CPB - end;
-	u8x16 v;
+	u8x16 v, eq0;
 	if (__builtin_expect(diff <= -14, 1)) {
 		v = loadu128(CPB - 2);
+		eq0 = v == 0;
 	} else if (diff < 0) {
 		const uint8_t *p = minp(CPB - 2, (uint8_t *)((uintptr_t)(end - 1) & -16));
-		v = shrv128(shlv128(loadu128(p), p + 16 - end), min(14 + diff, 16));
+		u8x16 vl = shlv128(loadu128(p), p + 16 - end);
+		int rshift = min(14 + diff, 16);
+		v = shrv128(vl, rshift);
+		eq0 = shrv128(vl == 0, rshift);
 	} else {
 		gb->CPB = CPB + nbytes;
 		return 0;
 	}
 	
-	// make a bitmask for the positions of 00n escape sequences and iterate on it
-	u8x16 eq0 = v == 0;
+	// make a bitmask for the positions of 00n (n<=3) escape sequences and iterate on it
 	u8x16 x = shr128(v, 2);
 	#if defined(__SSE2__)
 		unsigned test = movemask(eq0 & shr128(eq0, 1) & (x <= 3));
@@ -60,8 +63,10 @@ static inline size_t get_bytes(Edge264GetBits *gb, int nbytes)
 		}
 	#elif defined(__ARM_NEON)
 		uint64_t test = (uint64_t)vshrn_n_u16(eq0 & shr128(eq0, 1) & (x <= 3), 4);
-		uint64_t mask = 0x11111111 >> (32 - (nbytes << 2));
+		uint64_t zbits = 64 - (nbytes << 2);
+		uint64_t mask = (size_t)-1 << zbits >> zbits;
 		if (__builtin_expect(test & mask, 0)) {
+			test &= 0x1111111111111111ULL;
 			uint64_t three = (uint64_t)vshrn_n_u16(x == 3, 4);
 			uint64_t stop = test & mask & ~three;
 			if (stop) {

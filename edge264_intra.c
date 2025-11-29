@@ -642,17 +642,17 @@ static cold noinline void decode_intra16x16(uint8_t * restrict p, size_t stride,
 			lt[5] = *(q += stride);
 			lt[6] = *(q += stride);
 			lt[7] = *(q += stride);
-			lb[7] = *(q += stride * 2);
-			lb[6] = *(q += stride);
-			lb[5] = *(q += stride);
-			lb[4] = *(q += stride);
-			lb[3] = *(q += stride);
-			lb[2] = *(q += stride);
+			lb[0] = *(q += stride * 2);
 			lb[1] = *(q += stride);
-			lb[0] = *(q + stride);
+			lb[2] = *(q += stride);
+			lb[3] = *(q += stride);
+			lb[4] = *(q += stride);
+			lb[5] = *(q += stride);
+			lb[6] = *(q += stride);
+			lb[7] = *(q + stride);
 			i16x8 mul = {1, 2, 3, 4, 5, 6, 7, 8};
 			i16x8 v0 = sublou8(tr, vrev64q_s8(tl)) * mul;
-			i16x8 v1 = sublou8(lb, lt) * mul;
+			i16x8 v1 = sublou8(lb, vrev64q_s8(lt)) * mul;
 			i16x8 v2 = vpaddq_s16(v0, v1);
 			i16x8 v3 = vpaddq_s16(v2, v2);
 			i16x8 HV = (i16x8)vtrn1q_s16(v3, v3) + (i16x8)vtrn2q_s16(v3, v3); // {H, H, V, V, 0, 0, 0, 0}, -9180..9180
@@ -773,7 +773,7 @@ static cold noinline void decode_intraChroma(uint8_t * restrict p, size_t stride
 			lt[6] = *(q += stride);
 			lt[3] = *(q += stride);
 			lt[7] = *(q += stride);
-			lb[0] = *(q += stride * 2);
+			lb[0] = *(q += stride * 3);
 			lb[4] = *(q += stride);
 			lb[1] = *(q += stride);
 			lb[5] = *(q += stride);

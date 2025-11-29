@@ -608,30 +608,30 @@ enum IntraChromaModes {
 	#define print_mb(...) (0)
 #endif
 static always_inline const char *unsup_if(int cond) { return cond ? " # unsupported" : ""; }
-#define print_i8x16(dec, a) {\
+#define print_i8x16(a) {\
 	i8x16 _v = a;\
-	log_dec(dec, "  " #a ":");\
+	printf(#a ":");\
 	for (int _i = 0; _i < 16; _i++)\
-		log_dec(dec, " %d", _v[_i]);\
-	log_dec(dec, "\n");}
-#define print_u8x16(dec, a) {\
+		printf(" %d", _v[_i]);\
+	putchar('\n');}
+#define print_u8x16(a) {\
 	u8x16 _v = a;\
-	log_dec(dec, "  " #a ":");\
+	printf(#a ":");\
 	for (int _i = 0; _i < 16; _i++)\
-		log_dec(dec, " %3u", _v[_i]);\
-	log_dec(dec, "\n");}
-#define print_i16x8(dec, a) {\
+		printf(" %3u", _v[_i]);\
+	putchar('\n');}
+#define print_i16x8(a) {\
 	i16x8 _v = a;\
-	log_dec(dec, "  " #a ":");\
+	printf(#a ":");\
 	for (int _i = 0; _i < 8; _i++)\
-		log_dec(dec, " %6d", _v[_i]);\
-	log_dec(dec, "\n");}
-#define print_i32x4(dec, a) {\
+		printf(" %6d", _v[_i]);\
+	putchar('\n');}
+#define print_i32x4(a) {\
 	i32x4 _v = a;\
-	log_dec(dec, "  " #a ":");\
+	printf(#a ":");\
 	for (int _i = 0; _i < 4; _i++)\
-		log_dec(dec, " %6d", _v[_i]);\
-	log_dec(dec, "\n");}
+		printf(" %6d", _v[_i]);\
+	putchar('\n');}
 
 
 

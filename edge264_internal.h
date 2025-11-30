@@ -854,11 +854,11 @@ static always_inline const char *unsup_if(int cond) { return cond ? " # unsuppor
 	#define cvtuf32(a) (u32x4)vcvtq_u32_f32((float32x4_t)a)
 	#define ifelse_mask(v, t, f) (i8x16)vbslq_s8(v, t, f)
 	#define ifelse_msb(v, t, f) (i8x16)vbslq_s8((i8x16)(v) >> 7, t, f)
-	#define loadu32(p) ({i32x4 _v = {}; memcpy(&_v, (p), 4); _v;})
-	#define loadu64(p) ({i64x2 _v = {}; memcpy(&_v, (p), 8); _v;})
-	#define loadu128(p) ({i8x16 _v = {}; memcpy(&_v, (p), 16); _v;})
-	#define loadu32x4(p0, p1, p2, p3) ({i32x4 _v = {}; memcpy(&_v, (p0), 4); memcpy(&_v[1], (p1), 4); memcpy(&_v[2], (p2), 4); memcpy(&_v[3], (p3), 4); _v;})
-	#define loadu64x2(p0, p1) ({i64x2 _v = {}; memcpy(&_v, (p0), 8); memcpy(&_v[1], (p1), 8); _v;})
+	#define loadu32(p) ((i32x4){*(int32_t *)(p)})
+	#define loadu64(p) ((i64x2){*(int64_t *)(p)})
+	#define loadu128(p) (*(i8x16*)(p))
+	#define loadu32x4(p0, p1, p2, p3) (i32x4){*(int32_t *)(p0), *(int32_t *)(p1), *(int32_t *)(p2), *(int32_t *)(p3)}
+	#define loadu64x2(p0, p1) (i64x2){*(int64_t *)(p0), *(int64_t *)(p1)}
 	#define min8(a, b) (i8x16)vminq_s8(a, b)
 	#define max8(a, b) (i8x16)vmaxq_s8(a, b)
 	#define min16(a, b) (i16x8)vminq_s16(a, b)

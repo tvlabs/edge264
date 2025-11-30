@@ -5,11 +5,13 @@ jobs:
     runs-on: macos-13
     steps:
       - uses: actions/checkout@v5
+      - run: pip install -r tests/requirements.txt
       - run: make test
   arm64-apple-darwinXX:
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v5
+      - run: pip install -r tests/requirements.txt
       - run: make test
   x86_64-linux-gnu:
     runs-on: ubuntu-latest

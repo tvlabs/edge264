@@ -78,7 +78,8 @@ static int load_SDL2(void) {
 	#else
 		sdl2 = dlopen(lib = "/Library/Frameworks/SDL2.framework/SDL2", RTLD_NOW | RTLD_GLOBAL) ?:
 			dlopen(lib = "SDL2.so", RTLD_NOW | RTLD_GLOBAL) ?:
-			dlopen(lib = "libSDL2.so", RTLD_NOW | RTLD_GLOBAL);
+			dlopen(lib = "libSDL2.so", RTLD_NOW | RTLD_GLOBAL) ?:
+			dlopen(lib = "libSDL2-2.0.so.0", RTLD_NOW | RTLD_GLOBAL);
 	#endif
 	if (!sdl2) {
 		printf("SDL2 is needed for display but not found, please download the library file at https://www.libsdl.org/ and place it in the current folder\n");

@@ -327,6 +327,7 @@ make test
 | checking that a gap in frame_num with poc_type==0 does not insert refs in B slices |  |  |
 | A SPS changing frame format while currPic>=0 |  |  |
 | A frame allocator putting pic/mb allocs at start/end of a page boundary |  |  |
+| Two escape sequences in a single refill (ex. from a Picture timing SEI message) |  |  |
 
 | Parameter sets tests | Expected | Test files |
 | --- | --- | --- |

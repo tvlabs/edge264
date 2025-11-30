@@ -63,17 +63,17 @@ static const char *errno_str(int e) {
 
 
 
-#define ERROR(msg, ...) { printf(msg, ##__VA_ARGS__); perror(NULL); exit(1); }
-#define ASSERT(cond, msg, ...) { if (cond) { printf(RED msg RESET, ##__VA_ARGS__); exit(1); } }
+#define PASSERT(cond, prefix) { if (!(cond)) { perror(prefix); exit(1); } }
+#define ASSERT(cond, msg, ...) { if (!(cond)) { printf(RED msg RESET, ##__VA_ARGS__); exit(1); } }
 static void log_callback(const char *str, void *_) { if (log_tester) log_tester(str); }
 static void print_logger(const char *str) { fputs(str, stdout); }
 static void max_logs_logger(const char *str) {
-	ASSERT(strlen(str) + 1 != sizeof(dec->log_buf),
+	ASSERT(strlen(str) + 1 == sizeof(dec->log_buf),
 		"max-logs: log length (%zd) differs from log_buf size (%zu)\n",
 		strlen(str) + 1, sizeof(dec->log_buf));
 }
 static void finish_frame_post() {
-	ASSERT(count_frames != 12,
+	ASSERT(count_frames == 12,
 		"finish-frame: number of decoded frames (%d) differs from expected (12)\n",
 		count_frames);
 }
@@ -105,8 +105,9 @@ static void parse_NALs(const char *name, const uint8_t *nal, const uint8_t *end,
 	count_frames = 0;
 	for (int i = 0; res != ENODATA; i++) {
 		res = edge264_decode_NAL(dec, nal, end, 0, NULL, NULL, &nal);
-		if (res != expect[i])
-			ERROR(RED "%s: NAL at index %d returned %s where %s was expected\n" RESET, name, i, errno_str(res), errno_str(expect[i]));
+		ASSERT(res == expect[i],
+			"%s: NAL at index %d returned %s where %s was expected\n",
+			name, i, errno_str(res), errno_str(expect[i]));
 		while (!edge264_get_frame(dec, &out, 0))
 			count_frames += 1;
 	}
@@ -125,23 +126,22 @@ static void test_page_boundaries() {
 	
 	// CPB boundaries
 	FILE *f = fopen("tests/page-boundaries.264", "r");
-	if (!f)
-		ERROR("Cannot open file tests/page-boundaries.264");
-	fseek(f, 0L, SEEK_END);
+	PASSERT(f, "page-boundaries.264");
+	PASSERT(!fseek(f, 0L, SEEK_END), NULL);
 	long filesize = ftell(f);
 	rewind(f);
-	mprotect(page, pagesize, PROT_WRITE);
-	fread(page, filesize, 1, f);
+	PASSERT(!mprotect(page, pagesize, PROT_WRITE), NULL);
+	PASSERT(fread(page, filesize, 1, f) == 1, NULL);
 	rewind(f);
-	fread(page + pagesize - filesize, filesize, 1, f);
-	mprotect(page, pagesize, PROT_READ);
+	PASSERT(fread(page + pagesize - filesize, filesize, 1, f) == 1, NULL);
+	PASSERT(!mprotect(page, pagesize, PROT_READ), NULL);
 	edge264_find_start_code(page, page + filesize, 1);
 	parse_NALs("page-boundaries", page, page + filesize, NULL, (int8_t[]){0, ENODATA});
 	parse_NALs("page-boundaries", page + pagesize - filesize, page + pagesize, NULL, (int8_t[]){0, ENODATA});
 	fclose(f);
 	
 	// Intra boundaries
-	mprotect(page, pagesize, PROT_READ | PROT_WRITE);
+	PASSERT(!mprotect(page, pagesize, PROT_READ | PROT_WRITE), NULL);
 	static const int8_t offI4x4[I4x4_HU_8 + 1] = {16, 4, 20, 16, 4, 0, 16, 16, 24, 24, 24, 16, 16, 4};
 	for (int i = 0; i <= I4x4_HU_8; i++)
 		decode_intra4x4(page + offI4x4[i], 16, i, (i16x8){});
@@ -169,7 +169,7 @@ static void test_page_boundaries() {
 			decode_inter_chroma(4 << w, 4 << h, 32, page + pagesize + offInterHiC[w] - (4 << h) * 32, 32, page + pagesize - (4 << w) - ((4 << h) - 1) * 32, (i8x16){}, (i8x16){});
 		}
 	}
-	munmap(page - pagesize, pagesize * 3);
+	PASSERT(!munmap(page - pagesize, pagesize * 3), NULL);
 	count_pass += 1;
 }
 
@@ -381,17 +381,20 @@ static void test(const char *name, void (*log_test)(const char *), void (*post_t
 		void *v = NULL;
 		if ((f = CreateFileA(file_name, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL)) == INVALID_HANDLE_VALUE ||
 			(m = CreateFileMappingA(f, NULL, PAGE_READONLY, 0, 0, NULL)) == NULL ||
-			(v = MapViewOfFile(m, FILE_MAP_READ, 0, 0, 0)) == NULL)
-			ERROR("Error opening file %s for input: %lu\n", file_name, GetLastError());
+			(v = MapViewOfFile(m, FILE_MAP_READ, 0, 0, 0)) == NULL) {
+			printf("Error opening file %s for input: %lu\n", file_name, GetLastError());
+			exit(1);
+		}
 		const uint8_t *nal = v;
 		const uint8_t *end = v + GetFileSize(f, NULL);
 	#else
 		int fd = -1;
 		struct stat st;
 		uint8_t *mm = MAP_FAILED;
-		if ((fd = open(file_name, O_RDONLY)) < 0 || fstat(fd, &st) < 0 ||
-			(mm = mmap(NULL, st.st_size, PROT_READ, MAP_SHARED, fd, 0)) == MAP_FAILED)
-			ERROR("Error opening file %s for input: ", file_name);
+		PASSERT((fd = open(file_name, O_RDONLY)) >= 0 &&
+			!fstat(fd, &st) &&
+			(mm = mmap(NULL, st.st_size, PROT_READ, MAP_SHARED, fd, 0)) != MAP_FAILED,
+			file_name);
 		const uint8_t *nal = mm;
 		const uint8_t *end = mm + st.st_size;
 	#endif
@@ -404,7 +407,7 @@ static void test(const char *name, void (*log_test)(const char *), void (*post_t
 		CloseHandle(m);
 		CloseHandle(f);
 	#else
-		munmap(mm, st.st_size);
+		PASSERT(!munmap(mm, st.st_size), NULL);
 		close(fd);
 	#endif
 	count_pass += 1;

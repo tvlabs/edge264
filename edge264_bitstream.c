@@ -74,7 +74,7 @@ static inline size_t get_bytes(Edge264GetBits *gb, int nbytes)
 				gb->end = CPB + i - 2;
 				x &= ~shlv128(set8(-1), i);
 			}
-			for (uint64_t esc = test & three, bits; bits = esc & mask; esc = (esc & (esc - 1)) >> 4) {
+			for (uint64_t esc = test & three, bits; (bits = esc & mask); esc = (esc & (esc - 1)) >> 4) {
 				int i = __builtin_ctzll(bits) >> 2;
 				x = shuffle(x, shuf[i]);
 				CPB++;

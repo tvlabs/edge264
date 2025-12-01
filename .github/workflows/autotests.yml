@@ -1,0 +1,35 @@
+name: Automated tests
+on: [push]
+jobs:
+  x86_64-apple-darwinXX:
+    runs-on: macos-13
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.x' }
+      - run: python -m pip install --upgrade pip
+      - run: pip install -r tests/requirements.txt
+      - run: make test
+  arm64-apple-darwinXX:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.x' }
+      - run: python -m pip install --upgrade pip
+      - run: pip install -r tests/requirements.txt
+      - run: make test
+  x86_64-linux-gnu:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.x' }
+      - run: make test
+  arm64-linux-gnu:
+    runs-on: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.x' }
+      - run: make test

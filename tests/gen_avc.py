@@ -6,6 +6,8 @@ import sys
 from time import process_time
 from types import SimpleNamespace
 import yaml
+try: from yaml import CLoader as Loader
+except: from yaml import Loader
 
 
 
@@ -485,7 +487,7 @@ def main():
 		exit()
 	print(f"Loading {sys.argv[1]}... (estimated {round(1.7437078849318695e-05 * path.getsize(sys.argv[1]))}s)")
 	with open(sys.argv[1], "r") as f:
-		nals = yaml.load(f, Loader=yaml.CLoader)
+		nals = yaml.load(f, Loader=Loader)
 	print(f"Generating {sys.argv[2]}...")
 	with open(sys.argv[2], "wb") as f:
 		for nal in map_dicts(nals):

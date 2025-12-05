@@ -539,7 +539,7 @@ void *ADD_VARIANT(worker_loop)(Edge264Decoder *dec) {
 		
 		// in single-thread mode update the buffer pointer and return
 		if (!c.n_threads) {
-			dec->gb = c.t.gb;
+			memcpy(&dec->gb, &c.t.gb, sizeof(c.t.gb)); // GCC-14 crashes on dec->out = format
 			return (void *)ret;
 		}
 	}
@@ -839,7 +839,7 @@ static void parse_ref_pic_list_modification(Edge264Decoder *dec, Edge264SeqParam
 static void initialize_task(Edge264Decoder *dec, Edge264SeqParameterSet *sps, Edge264Task *t)
 {
 	// set task pointer to current pointer and current pointer to next start code
-	t->gb = dec->gb;
+	memcpy(&t->gb, &dec->gb, sizeof(dec->gb)); // GCC-14 crashes on dec->out = format
 	if (dec->n_threads) {
 		t->gb.end = edge264_find_start_code(dec->gb.CPB - 2, dec->gb.end, 0); // works if CPB already crossed end
 		dec->gb.CPB = t->gb.end + 2;
@@ -2035,7 +2035,7 @@ int ADD_VARIANT(parse_seq_parameter_set)(Edge264Decoder *dec, int non_blocking, 
 		if (ret)
 			return ret;
 		clear_decoder(dec);
-		dec->out = format;
+		memcpy(&dec->out, &format, sizeof(format)); // GCC-14 crashes on dec->out = format
 		dec->plane_size_Y = format.stride_Y * height;
 		dec->plane_size_C = format.stride_C * (sps.chroma_format_idc == 1 ? height >> 1 : height);
 		dec->frame_flip_bits = 0;

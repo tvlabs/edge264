@@ -78,7 +78,7 @@ static void finish_frame_post() {
 		count_frames);
 }
 
-static int assert_block(const char *name, size_t pstride, const uint8_t *p, int w, int h, const uint8_t *q) {
+static void assert_block(const char *name, size_t pstride, const uint8_t *p, int w, int h, const uint8_t *q) {
 	int pass = 1;
 	for (int y = 0; y < h; y++)
 		pass &= memcmp(p + pstride * y, q + w * y, w) == 0;

@@ -17,7 +17,6 @@
 	#include <sys/types.h>
 	#include <unistd.h>
 #endif
-#include "edge264.h"
 #include "edge264_internal.h"
 #include "edge264_intra.c"
 #include "edge264_inter.c"
@@ -289,7 +288,7 @@ static void test_intra_decoding() {
 
 
 static void test_inter_decoding() {
-	printf("\e[A\e[K%d " GREEN "PASS" RESET " (intra-decoding)\n", count_pass);
+	printf("\e[A\e[K%d " GREEN "PASS" RESET " (inter-decoding)\n", count_pass);
 	
 	// setup border values
 	uint8_t src[441], dst[256] = {};

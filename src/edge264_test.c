@@ -17,7 +17,6 @@
 	#include <sys/types.h>
 	#include <unistd.h>
 #endif
-#include "edge264.h"
 #include "edge264_internal.h"
 
 

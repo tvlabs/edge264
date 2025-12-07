@@ -19,7 +19,7 @@
 #include <unistd.h>
 #endif
 
-#include "edge264.h"
+#include "../edge264.h"
 
 
 

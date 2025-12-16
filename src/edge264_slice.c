@@ -1776,6 +1776,11 @@ static noinline void CAFUNC(parse_slice_data)
 		if (ctx->t.slice_type == 0) {
 			CACALL(parse_P_mb);
 		} else if (ctx->t.slice_type == 1) {
+			const Edge264Macroblock *mbCol = ctx->mbCol;
+			__builtin_prefetch(&mbCol->f);
+			__builtin_prefetch(&mbCol->mvs_v[0]);
+			__builtin_prefetch(&mbCol->mvs_v[4]);
+			__builtin_prefetch(&mbCol->mvs_v[7]);
 			CACALL(parse_B_mb);
 		} else {
 			int mb_type_or_ctxIdx = CACOND(get_ue16(&ctx->t.gb, 25), 5 - ctx->inc.mb_type_I_NxN);

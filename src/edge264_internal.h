@@ -94,18 +94,19 @@ static const Edge264MbFlags flags_twice = {
 	.coded_block_flags_16x16 = {1, 1, 1},
 };
 typedef struct {
-	int8_t error_probability; // 0..100
+	int8_t error_probability; // 0..100, must be first for outside API
 	int8_t recovery_bits; // bit 0 is flipped for each new frame, bit 1 signals error
 	int8_t mbIsInterFlag;
 	int8_t filter_edges; // bits 0-1 enable deblocking of A/B edges, bit 2 signals that deblocking is pending
 	union { uint8_t QP[3]; i8x4 QP_s; }; // [iYCbCr]
 	union { uint32_t bits[2]; uint64_t bits_l; }; // {cbp/ref_idx_nz, cbf_Y/Cb/Cr 8x8}
-	union { int8_t refIdx[8]; int32_t refIdx_s[2]; int64_t refIdx_l; }; // [LX][i8x8]
-	union { int8_t refPic[8]; int32_t refPic_s[2]; int64_t refPic_l; }; // [LX][i8x8]
-	Edge264MbFlags f;
 	union { int8_t Intra4x4PredMode[16]; i8x16 Intra4x4PredMode_v; }; // [i4x4]
 	union { int8_t nC[48]; int32_t nC_s[12]; int64_t nC_l[6]; i8x16 nC_v[3]; }; // for CAVLC and deblocking, 64 if unavailable
 	union { uint8_t absMvd[64]; uint64_t absMvd_l[8]; i8x16 absMvd_v[4]; }; // [LX][i4x4][compIdx]
+	// fields used by mbCol thus kept together for slice prefetching (do not reorder!)
+	Edge264MbFlags f;
+	union { int8_t refIdx[8]; int32_t refIdx_s[2]; int64_t refIdx_l; }; // [LX][i8x8]
+	union { int8_t refPic[8]; int32_t refPic_s[2]; int64_t refPic_l; }; // [LX][i8x8]
 	union { int16_t mvs[64]; int32_t mvs_s[32]; int64_t mvs_l[16]; i16x8 mvs_v[8]; }; // [LX][i4x4][compIdx]
 } Edge264Macroblock;
 static Edge264Macroblock unavail_mb = {

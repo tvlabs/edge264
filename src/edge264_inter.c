@@ -1028,13 +1028,33 @@ static void noinline decode_inter(Edge264Context *ctx, int i, int w, int h) {
 	static int8_t shift_Y_8bit[46] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15};
 	static int8_t shift_C_8bit[22] = {0, 0, 0, 0, 0, 0, 0, 0, 1, 2, 3, 4, 5, 6, 7, 7, 7, 7, 7, 7, 7, 7};
 	
-	// load motion vector and reference picture
+	// load motion vector and source pointers
 	int x = mb->mvs[i * 2];
 	int y = mb->mvs[i * 2 + 1];
 	int i8x8 = i >> 2;
 	int i4x4 = i & 15;
 	const uint8_t *ref = ctx->t.samples_buffers[mb->refPic[i8x8]];
+	int xInt_Y = ctx->mbx * 16 + x444[i4x4] + (x >> 2);
+	int xInt_C = ctx->mbx * 8 + (x444[i4x4] >> 1) + (x >> 3);
+	int yInt_Y = ctx->mby * 16 + y444[i4x4] + (y >> 2);
+	int yInt_C = ctx->mby * 8 + (y444[i4x4] >> 1) + (y >> 3);
+	const uint8_t *src_Y = ref + xInt_Y + yInt_Y * ctx->t.stride[0];
+	const uint8_t *src_C = ref + xInt_C + yInt_C * ctx->t.stride[1] + ctx->t.plane_size_Y;
+	size_t sstride_Y = ctx->t.stride[0];
+	size_t sstride_C = ctx->t.stride[1] >> 1;
 	// print_header(ctx->d, "<k></k><v>CurrMbAddr=%d, i=%d, w=%d, h=%d, x=%d, y=%d, idx=%d, pic=%d</v>\n", ctx->CurrMbAddr, i, w, h, x, y, mb->refIdx[i8x8], mb->refPic[i8x8]);
+	
+	// prefetch source data into L3 cache
+	const uint8_t *pref_C = src_C;
+	for (int y = h + 1; y-- > 0; pref_C += sstride_C) {
+		__builtin_prefetch(pref_C, 0, 1);
+		__builtin_prefetch(pref_C + 16, 0, 1);
+	}
+	const uint8_t *pref_Y = src_Y - sstride_Y * 2 - 2;
+	for (int y = h + 5; y-- > 0; pref_Y += sstride_Y) {
+		__builtin_prefetch(pref_Y, 0, 1);
+		__builtin_prefetch(pref_Y + 20, 0, 1);
+	}
 	
 	// prediction weights {wY, wCb, wCr, oY, oCb, oCr, logWD_Y, logWD_C}
 	i16x8 wod = {pack_w(0, 1), pack_w(0, 1), pack_w(0, 1), 0, 0, 0, 0, 0}; // no_weight
@@ -1094,16 +1114,6 @@ static void noinline decode_inter(Edge264Context *ctx, int i, int w, int h) {
 			wod[7] = ctx->t.chroma_log2_weight_denom;
 		}
 	}
-	
-	// compute source pointers
-	int xInt_Y = ctx->mbx * 16 + x444[i4x4] + (x >> 2);
-	int xInt_C = ctx->mbx * 8 + (x444[i4x4] >> 1) + (x >> 3);
-	int yInt_Y = ctx->mby * 16 + y444[i4x4] + (y >> 2);
-	int yInt_C = ctx->mby * 8 + (y444[i4x4] >> 1) + (y >> 3);
-	const uint8_t *src_Y = ref + xInt_Y + yInt_Y * ctx->t.stride[0];
-	const uint8_t *src_C = ref + xInt_C + yInt_C * ctx->t.stride[1] + ctx->t.plane_size_Y;
-	size_t sstride_Y = ctx->t.stride[0];
-	size_t sstride_C = ctx->t.stride[1] >> 1;
 	
 	// edge propagation is an annoying but beautiful piece of code
 	int xWide = (x & 7) != 0;

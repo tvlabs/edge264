@@ -36,16 +36,16 @@ $(EXENAME): src/edge264_test.c edge264.h src/edge264_internal.h $(LIBNAME)
 $(LIBNAME): $(OBJNAMES)
 	$(TARGETCC) $(OBJNAMES) $(LIBFLAGS) -o $(LIBNAME)
 
-edge264.o: edge264.h src
+edge264.o: edge264.h src/*
 	$(CC) src/edge264.c -c $(CFLAGS) $(OBJFLAGS) $(RUNTIME_TESTS) $(DFORCEINTRIN) -o edge264.o
 
-edge264_headers_v2.o: edge264.h src
+edge264_headers_v2.o: edge264.h src/*
 	$(CC) src/edge264_headers.c -c $(CFLAGS) $(OBJFLAGS) -march=x86-64-v2 "-DADD_VARIANT(f)=f##_v2" -o edge264_headers_v2.o
 
-edge264_headers_v3.o: edge264.h src
+edge264_headers_v3.o: edge264.h src/*
 	$(CC) src/edge264_headers.c -c $(CFLAGS) $(OBJFLAGS) -march=x86-64-v3 "-DADD_VARIANT(f)=f##_v3" -o edge264_headers_v3.o
 
-edge264_headers_log.o: edge264.h src
+edge264_headers_log.o: edge264.h src/*
 	$(CC) src/edge264_headers.c -c $(CFLAGS) $(OBJFLAGS) -DLOGS $(DFORCEINTRIN) "-DADD_VARIANT(f)=f##_log" -o edge264_headers_log.o
 
 .PHONY: clean clear

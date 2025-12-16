@@ -62,7 +62,7 @@ ffmpeg -i vid.mp4 -vcodec copy -bsf h264_mp4toannexb -an vid.264 # optional, con
 ./edge264_test -d vid.264 # replace -d with -b to benchmark instead of display
 ```
 
-There is also a stub of CMake script that is not kept up-to-date at the moment, feel free to send patches to update it!
+There is also a stub of CMake script that is not kept up-to-date at the moment, any help is welcome!
 
 
 Example code

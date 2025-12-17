@@ -2,7 +2,7 @@ name: Automated tests
 on: [push]
 jobs:
   x86_64-apple-darwinXX:
-    runs-on: macos-13
+    runs-on: macos-15-intel
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-python@v5

@@ -61,7 +61,7 @@ static inline size_t get_bytes(Edge264GetBits *gb, int nbytes)
 		}
 	#elif defined(__ARM_NEON)
 		uint64_t test = (uint64_t)vshrn_n_u16(eq0 & shr128(eq0, 1) & shr128(lt3, 2), 4);
-		if (__builtin_expect(test & mask, 0)) {
+		if (__builtin_expect(test, 0)) {
 			test &= 0x1111111111111111ULL;
 			uint64_t three = (uint64_t)vshrn_n_u16(x == 3, 4);
 			uint64_t stop = test & ~three;

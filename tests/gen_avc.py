@@ -151,7 +151,7 @@ def gen_slice_layer_without_partitioning(bits, f, slice):
 		bits = bits << 1 | slice.field_pic_flag
 		if slice.field_pic_flag:
 			bits = bits << 1 | slice.bottom_field_flag
-	IdrPicFlag = slice.nal_unit_type == 5 or vars(slice).get("idr_flag", 0)
+	IdrPicFlag = slice.nal_unit_type == 5 or not vars(slice).get("non_idr_flag", 1)
 	if IdrPicFlag:
 		bits = gen_ue(bits, slice.idr_pic_id)
 	if slice.pic_order_cnt["type"] == 0:
@@ -398,7 +398,7 @@ def gen_access_unit_delimiter(bits, f, aud):
 
 def gen_prefix_nal_unit(bits, f, nal):
 	bits = bits << 1 # svc_extension_flag
-	bits = bits << 1 | nal.idr_flag ^ 1
+	bits = bits << 1 | nal.non_idr_flag
 	bits = bits << 6 | nal.priority_id
 	bits = bits << 10 | nal.view_id
 	bits = bits << 3 | nal.temporal_id
@@ -498,7 +498,7 @@ def main():
 			bits = bits << 5 | nal.nal_unit_type
 			if nal.nal_unit_type in gen_bits:
 				bits = gen_bits[nal.nal_unit_type](bits, f, nal)
-			if vars(nal).get("rbsp_trailing_bit", 1):
+			if 1 << nal.nal_unit_type & 0b1110011011001111111110:
 				bits = bits << 1 | 1
 			num = bits.bit_length() - 1
 			bits ^= 1 << num

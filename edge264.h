@@ -65,7 +65,7 @@ const uint8_t *edge264_find_start_code(const uint8_t *buf, const uint8_t *end, i
 Edge264Decoder *edge264_alloc(int n_threads, Edge264LogCb log_cb, void *log_arg, int log_mbs, Edge264AllocCb alloc_cb, Edge264FreeCb free_cb, void *alloc_arg);
 void edge264_flush(Edge264Decoder *dec);
 void edge264_free(Edge264Decoder **pdec);
-int edge264_decode_NAL(Edge264Decoder *dec, const uint8_t *buf, const uint8_t *end, int non_blocking, Edge264UnrefCb unref_cb, void *unref_arg, const uint8_t **next_NAL);
+int edge264_decode_NAL(Edge264Decoder *dec, const uint8_t *buf, const uint8_t *end, Edge264UnrefCb unref_cb, void *unref_arg);
 int edge264_get_frame(Edge264Decoder *dec, Edge264Frame *out, int borrow);
 void edge264_return_frame(Edge264Decoder *dec, void *return_arg);
 

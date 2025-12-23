@@ -27,34 +27,32 @@ static inline size_t get_bytes(Edge264GetBits *gb, int nbytes)
 	const uint8_t *CPB = gb->CPB;
 	const uint8_t *end = gb->end;
 	intptr_t diff = CPB - end;
-	u8x16 v, eq0;
+	u8x16 v;
 	if (__builtin_expect(diff <= -14, 1)) {
 		v = loadu128(CPB - 2);
-		eq0 = v == 0;
 	} else if (diff < 0) {
 		const uint8_t *p = minp(CPB - 2, (uint8_t *)((uintptr_t)(end - 1) & -16));
-		u8x16 vl = shlv128(loadu128(p), p + 16 - end);
-		int rshift = min(14 + diff, 16);
-		v = shrv128(vl, rshift);
-		eq0 = shrv128(vl == 0, rshift);
+		v = shrv128(shlv128(loadu128(p), p + 16 - end), min(14 + diff, 16));
 	} else {
 		gb->CPB = CPB + nbytes;
 		return 0;
 	}
 	
 	// make a bitmask for the positions of 00n (n<=3) escape sequences and iterate on it
+	i8x16 eq0 = v == 0;
+	i8x16 lt3 = v <= 3;
 	u8x16 x = shr128(v, 2);
 	#if defined(__SSE2__)
-		unsigned test = movemask(eq0 & shr128(eq0, 1) & (x <= 3));
-		unsigned mask = (1 << nbytes) - 1;
-		if (__builtin_expect(test & mask, 0)) {
+		unsigned test = movemask(eq0 & shr128(eq0, 1) & shr128(lt3, 2));
+		if (__builtin_expect(test, 0)) {
 			unsigned three = movemask(x == 3);
-			unsigned stop = test & mask & ~three;
+			unsigned stop = test & ~three;
 			if (stop) {
 				int i = __builtin_ctz(stop);
 				gb->end = CPB + i - 2;
 				x &= ~shlv128(set8(-1), i);
 			}
+			unsigned mask = (1 << nbytes) - 1;
 			for (unsigned esc = test & three; esc & mask; esc = (esc & (esc - 1)) >> 1) {
 				int i = __builtin_ctz(esc);
 				x = shuffle(x, shuf[i]);
@@ -62,20 +60,20 @@ static inline size_t get_bytes(Edge264GetBits *gb, int nbytes)
 			}
 		}
 	#elif defined(__ARM_NEON)
-		uint64_t test = (uint64_t)vshrn_n_u16(eq0 & shr128(eq0, 1) & (x <= 3), 4);
-		uint64_t zbits = 64 - (nbytes << 2);
-		uint64_t mask = (size_t)-1 << zbits >> zbits;
+		uint64_t test = (uint64_t)vshrn_n_u16(eq0 & shr128(eq0, 1) & shr128(lt3, 2), 4);
 		if (__builtin_expect(test & mask, 0)) {
 			test &= 0x1111111111111111ULL;
 			uint64_t three = (uint64_t)vshrn_n_u16(x == 3, 4);
-			uint64_t stop = test & mask & ~three;
+			uint64_t stop = test & ~three;
 			if (stop) {
 				int i = __builtin_ctzll(stop) >> 2;
 				gb->end = CPB + i - 2;
 				x &= ~shlv128(set8(-1), i);
 			}
-			for (uint64_t esc = test & three, bits; (bits = esc & mask); esc = (esc & (esc - 1)) >> 4) {
-				int i = __builtin_ctzll(bits) >> 2;
+			uint64_t zbits = 64 - (nbytes << 2);
+			uint64_t mask = (size_t)-1 << zbits >> zbits;
+			for (uint64_t esc = test & three; esc & mask; esc = (esc & (esc - 1)) >> 4) {
+				int i = __builtin_ctzll(esc) >> 2;
 				x = shuffle(x, shuf[i]);
 				CPB++;
 			}
@@ -316,7 +314,7 @@ static int cabac_start(Edge264Context *ctx) {
 	int extra_bits = SIZE_BIT - 1 - ctz(ctx->t.gb.lsb_cache);
 	while (extra_bits >= 8) {
 		int32_t i = 0;
-		if ((intptr_t)(ctx->t.gb.end - ctx->t.gb.CPB) >= 0)
+		if (ctx->t.gb.CPB <= ctx->t.gb.end)
 			memcpy(&i, ctx->t.gb.CPB - 4, 4);
 		ctx->t.gb.CPB -= 1 + ((big_endian32(i) & 0xffffff) == 3);
 		extra_bits -= 8;

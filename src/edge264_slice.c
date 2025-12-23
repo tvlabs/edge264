@@ -1834,7 +1834,7 @@ static noinline void CAFUNC(parse_slice_data)
 			if (ctx->mby >= ctx->t.pic_height_in_mbs)
 				return;
 		}
-	} while (CACOND(ctx->mb_skip_run > 0 || ctx->t.gb.msb_cache << 1 || (ctx->t.gb.lsb_cache & (ctx->t.gb.lsb_cache - 1)) || (intptr_t)(ctx->t.gb.end - ctx->t.gb.CPB) > 0, !end_of_slice_flag));
+	} while (CACOND(ctx->mb_skip_run > 0 || !rbsp_end(&ctx->t.gb, 1), !end_of_slice_flag));
 }
 
 #undef CABAC

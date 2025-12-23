@@ -68,7 +68,7 @@ There is also a stub of CMake script that is not kept up-to-date at the moment, 
 Example code
 ------------
 
-Here is a complete example that opens an input file in Annex B format from command line, and dumps its decoded frames in planar YUV order to standard output. See [edge264_test.c](src/edge264_test.c) for a more complete example which can also display frames.
+Here is a complete example that opens an input file in Annex B byte stream format from command line, and dumps its decoded frames in planar YUV order to standard output. See [edge264_test.c](src/edge264_test.c) for a more complete example which can also display frames.
 
 ```c
 #include <fcntl.h>
@@ -91,7 +91,8 @@ int main(int argc, char *argv[]) {
 	Edge264Frame frm;
 	int res;
 	do {
-		res = edge264_decode_NAL(dec, nal, end, 0, NULL, NULL, &nal);
+		const uint8_t *start_code = edge264_find_start_code(nal, end, 0);
+		res = edge264_decode_NAL(dec, nal, start_code, NULL, NULL);
 		while (!edge264_get_frame(dec, &frm, 0)) {
 			for (int y = 0; y < frm.height_Y; y++)
 				write(1, frm.samples[0] + y * frm.stride_Y, frm.width_Y);
@@ -100,6 +101,8 @@ int main(int argc, char *argv[]) {
 			for (int y = 0; y < frm.height_C; y++)
 				write(1, frm.samples[2] + y * frm.stride_C, frm.width_C);
 		}
+		if (res != ENOBUFS)
+			nal = start_code + 3;
 	} while (res == 0 || res == ENOBUFS);
 	edge264_free(&dec);
 	munmap(buf, st.st_size);
@@ -127,37 +130,36 @@ Return a pointer to the next three or four byte (0)001 start code prefix, or `en
 Allocate and initialize a decoding context.
 
 * `int n_threads` - number of background worker threads, with 0 to disable multithreading and -1 to detect the number of logical cores at runtime
-* `void (* log_cb)(const char * str, void * log_arg)` - if not NULL, a `fputs`-compatible function pointer that `edge264_decode_NAL` will call to log every header, SEI or macroblock (requires the `logs` variant otherwise fails at runtime, called from the same thread except macroblocks in multithreaded decoding)
+* `void (* log_cb)(const char * str, void * log_arg)` - if not NULL, a `fputs`-compatible function pointer that `edge264_decode_NAL` will call to log every header, SEI or macroblock, requiring the `logs` variant (otherwise it fails at runtime), and called from the same thread except for macroblocks in multithreaded decoding
 * `void * log_arg` - custom value passed to `log_cb`
-* `int log_mbs` - set to 1 to enable logging of macroblocks
+* `int log_mbs` - set to 1 to enable the logging of macroblocks
 * `void (* alloc_cb)(void ** samples, unsigned samples_size, void ** mbs, unsigned mbs_size, int errno_on_fail, void * alloc_arg)` - if not NULL, a function pointer that `edge264_decode_NAL` will call (on the same thread) instead of malloc to request allocation of samples and macroblock buffers for a frame (`errno_on_fail` is ENOMEM for mandatory allocations, or ENOBUFS for allocations that may be skipped to save memory but reduce playback smoothness)
 * `void (* free_cb)(void * samples, void * mbs, void * alloc_arg)` - if not NULL, a function pointer that `edge264_decode_NAL` and `edge264_free` will call (on the same thread) to free buffers allocated through `alloc_cb`
 * `void * alloc_arg` - custom value passed to `alloc_cb` and `free_cb`
 
 ---
 
-<code>int <b>edge264_decode_NAL(dec, buf, end, non_blocking, free_cb, free_arg, next_NAL)</b></code>
+<code>int <b>edge264_decode_NAL(dec, buf, end, free_cb, free_arg)</b></code>
 
-Decode a single NAL unit containing any parameter set or slice.
+Decode a single NAL unit of any type.
 
 * `Edge264Decoder * dec` - initialized decoding context
 * `const uint8_t * buf` - first byte of NAL unit (containing `nal_unit_type`)
-* `const uint8_t * end` - first byte past the buffer (max buffer size is 2<sup>31</sup>-1 on 32-bit and 2<sup>63</sup>-1 on 64-bit)
-* `int non_blocking` - set to 1 if the current thread has other processing thus cannot block here
-* `void (* free_cb)(void * free_arg, int ret)` - callback that may be called from another thread when multithreaded, to signal the end of parsing and release the NAL buffer
+* `const uint8_t * end` - first byte past the buffer
+* `void (* free_cb)(void * free_arg, int ret)` - function that may be called from another thread to signal the end of parsing and release the NAL buffer (only when returning `0`)
 * `void * free_arg` - custom value that will be passed to `free_cb`
-* `const uint8_t ** next_NAL` - if not NULL and the return code is `0`|`ENOTSUP`|`EBADMSG`, will receive a pointer to the next NAL unit after the next start code in an Annex B stream
 
-Return codes are:
+Passing `buf >= end` will make all buffered frames ready for output with `edge264_get_frame`.
 
-* `0` on success
-* `ENOTSUP` on unsupported stream (decoding may proceed but could return zero frames)
-* `EBADMSG` on invalid stream (decoding may proceed but could show visual artefacts, if you can check with another decoder that the stream is actually flawless, please consider filling a bug report 🙏)
-* `EINVAL` if the function was called with `dec == NULL` or `dec->buf == NULL`
-* `ENODATA` if the function was called while `dec->buf >= dec->end`
-* `ENOMEM` if `malloc` failed to allocate memory
-* `ENOBUFS` if more frames should be consumed with `edge264_get_frame` to release a picture slot
-* `EWOULDBLOCK` if the non-blocking function would have to wait before a picture slot is available
+Return codes:
+
+* `0` - success
+* `ENOBUFS` - more frames should be consumed with `edge264_get_frame` before calling the function again with the same NAL
+* `ENOTSUP` - unsupported stream (decoding may proceed but could return zero frames)
+* `EBADMSG` - invalid stream (decoding may proceed but could show visual artefacts, if you can check with another decoder that the stream is actually flawless, please consider filling a bug report 🙏)
+* `EINVAL` - the function was called with `dec == NULL` or `buf == NULL`
+* `ENODATA` - the function was called with `buf >= end` and there are no frames left to output
+* `ENOMEM` - `malloc` failed to allocate memory
 
 ---
 
@@ -281,7 +283,6 @@ make test
 | Maximal header log-wise | All OK | max-logs |
 | All conditions (incl. ignored) for detecting the start of a new frame | All OK | finish-frame |
 | nal_ref_idc=0 on NAL types 5, 6, 7, 8, 9, 10, 11, 12 and 15 | All OK | nal-ref-idc-0 |
-| Missing rbsp_trailing_bit for all supported NAL types | All OK | no-trailing-bit |
 | Surrounding the CPB/frame buffers with protected memory | All OK | page-boundaries |
 | SEI/slice referencing an uninitialized SPS/PPS | 1 OK, 4 errors | missing-ps |
 | Two non-ref frames with decreasing POC | All OK, any order | non-ref-dec-poc |
@@ -332,6 +333,7 @@ make test
 | A SPS changing frame format while currPic>=0 |  |  |
 | A frame allocator putting pic/mb allocs at start/end of a page boundary |  |  |
 | Two escape sequences in a single refill (ex. from a Picture timing SEI message) |  |  |
+| All supported NAL types with wrong omission or insertion of trailing bit |  |  |
 
 | Parameter sets tests | Expected | Test files |
 | --- | --- | --- |
@@ -342,6 +344,7 @@ make test
 | qpprime_y_zero_transform_bypass_flag=1 |  |  |
 | All scaling lists default/fallback rules and repeated values for all indices, with residual macroblock |  |  |
 | log2_max_frame_num=4 and a frame referencing another with the same frame_num%4 |  |  |
+| Every unsupported feature should return ENOTSUP and make a log containing a `# unsupported` line |  |  |
 
 | CAVLC tests | Expected | Test files |
 | --- | --- | --- |

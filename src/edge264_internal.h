@@ -323,7 +323,7 @@ typedef struct Edge264Context {
  *   retrieval in get_frames_queue have values (1, 1)
  * _ pictures sent to get_frame and waiting to be returned have values (0, 1)
  */
-typedef int (*Parser)(Edge264Decoder *dec, int non_blocking, Edge264UnrefCb unref_cb, void *unref_arg);
+typedef int (*Parser)(Edge264Decoder *dec, Edge264UnrefCb unref_cb, void *unref_arg);
 typedef struct Edge264Decoder {
 	// minimal set of fields preserved across flushes
 	Edge264GetBits gb; // must be first in the struct to use the same pointer for bitstream functions
@@ -395,7 +395,7 @@ typedef struct Edge264Decoder {
 	
 	// Logging context (unused if disabled)
 	int16_t log_pos; // next writing position in log_buf
-	char log_buf[9537];
+	char log_buf[9550];
 } Edge264Decoder;
 
 
@@ -573,66 +573,6 @@ enum IntraChromaModes {
 	IC8x8_V_8,
 	IC8x8_P_8,
 };
-
-
-
-/**
- * Logging functions
- */
-#ifdef LOGS
-	#define log_dec(dec, ...) {\
-		if (dec->log_pos < sizeof(dec->log_buf))\
-			dec->log_pos += snprintf(dec->log_buf + dec->log_pos, sizeof(dec->log_buf) - dec->log_pos, __VA_ARGS__);}
-	static inline int print_dec(Edge264Decoder *dec) {
-		int pos = dec->log_pos;
-		dec->log_pos = 0;
-		if (pos >= sizeof(dec->log_buf))
-			return ENOTSUP;
-		dec->log_cb(dec->log_buf, dec->log_arg);
-		return 0;
-	}
-	#define log_mb(ctx, ...) {\
-		if (ctx->log_pos < sizeof(ctx->log_buf))\
-			ctx->log_pos += snprintf(ctx->log_buf + ctx->log_pos, sizeof(ctx->log_buf) - ctx->log_pos, __VA_ARGS__);}
-	static inline int print_mb(Edge264Context *ctx) {
-		int pos = ctx->log_pos;
-		ctx->log_pos = 0;
-		if (pos >= sizeof(ctx->log_buf))
-			return ENOTSUP;
-		ctx->log_cb(ctx->log_buf, ctx->log_arg);
-		return 0;
-	}
-#else
-	#define log_dec(...)
-	#define print_dec(...) (0)
-	#define log_mb(...)
-	#define print_mb(...) (0)
-#endif
-static always_inline const char *unsup_if(int cond) { return cond ? " # unsupported" : ""; }
-#define print_i8x16(a) {\
-	i8x16 _v = a;\
-	printf(#a ":");\
-	for (int _i = 0; _i < 16; _i++)\
-		printf(" %d", _v[_i]);\
-	putchar('\n');}
-#define print_u8x16(a) {\
-	u8x16 _v = a;\
-	printf(#a ":");\
-	for (int _i = 0; _i < 16; _i++)\
-		printf(" %3u", _v[_i]);\
-	putchar('\n');}
-#define print_i16x8(a) {\
-	i16x8 _v = a;\
-	printf(#a ":");\
-	for (int _i = 0; _i < 8; _i++)\
-		printf(" %6d", _v[_i]);\
-	putchar('\n');}
-#define print_i32x4(a) {\
-	i32x4 _v = a;\
-	printf(#a ":");\
-	for (int _i = 0; _i < 4; _i++)\
-		printf(" %6d", _v[_i]);\
-	putchar('\n');}
 
 
 
@@ -928,7 +868,7 @@ static always_inline unsigned maxu(unsigned a, unsigned b) { return (a > b) ? a 
 static always_inline unsigned minw(unsigned a, unsigned b) { return (int)(a - b) < 0 ? a : b; }
 static always_inline unsigned maxw(unsigned a, unsigned b) { return (int)(a - b) < 0 ? b : a; }
 // compatible with any of the pointers wrapping around
-static always_inline void *minp(const void *a, const void *b) { return (void *)((intptr_t)(a - b) < 0 ? a : b); }
+static always_inline void *minp(const void *a, const void *b) { return (void *)(a < b ? a : b); }
 static always_inline int clip3(int a, int b, int c) { return min(max(c, a), b); }
 static always_inline i16x8 median16(i16x8 a, i16x8 b, i16x8 c) {
 	return max16(min16(max16(a, b), c), min16(a, b));
@@ -937,13 +877,12 @@ static always_inline i8x16 pack_absMvd(i16x8 a) {
 	i16x8 x = broadcast32(a, 0);
 	return abs8(packs16(x, x));
 }
-static always_inline int rbsp_end(Edge264GetBits *gb) {
-	unsigned trailing_bit = gb->msb_cache >> (SIZE_BIT - 1);
-	unsigned rem_bits = SIZE_BIT * 2 - 1 - ctz(gb->lsb_cache) - trailing_bit;
-	// all bits after optional trailing set bit must be zero AND bit position must be 1-7 inside end[-1], 0-7 inside end[0] or 0 inside end[1] (because a single 0x00 as the last byte may not be escaped and pull back end by 1 byte)
-	return gb->msb_cache << trailing_bit == 0 &&
+static always_inline int rbsp_end(Edge264GetBits *gb, int trailing_bit) {
+	int bits_to_end = (int)(gb->end - gb->CPB) * 8 + SIZE_BIT * 2 - 1 - ctz(gb->lsb_cache) - trailing_bit;
+	// all bits after trailing set bit must be zero AND there must be 0-7 bits left before end (0 for no trailing bit)
+	return gb->msb_cache == (size_t)trailing_bit << (SIZE_BIT - 1) &&
 	       (gb->lsb_cache & (gb->lsb_cache - 1)) == 0 &&
-	       (unsigned)((intptr_t)(gb->CPB - gb->end) << 3) - rem_bits + 7 <= 15;
+	       (unsigned)bits_to_end <= 7 * trailing_bit;
 }
 #ifndef __builtin_clzg // works as long as __builtin_clzg is a macro
 	static always_inline int __builtin_clzg(unsigned a, int b) { return a ? __builtin_clz(a) : b; }
@@ -1001,6 +940,72 @@ static always_inline unsigned depended_frames(Edge264Decoder *dec) {
 	u32x4 c = b | (u32x4)shr128(b, 4);
 	return c[0];
 }
+
+
+
+/**
+ * Logging functions
+ */
+static const char *ret_to_str(int ret) {
+	static const char *retnames[] = {"0", "ENOBUFS", "ENOTSUP", "EBADMSG", "EINVAL", "ENODATA", "ENOMEM", "ENOMSG", "Unknown"};
+	i8x16 retcodes = {0, ENOBUFS, ENOTSUP, EBADMSG, EINVAL, ENODATA, ENOMEM, ENOMSG};
+	return retnames[__builtin_ctz(movemask(set8(ret) == retcodes) | 1 << 8)];
+}
+#ifdef LOGS
+	#define log_dec(dec, ...) {\
+		if (dec->log_pos < sizeof(dec->log_buf))\
+			dec->log_pos += snprintf(dec->log_buf + dec->log_pos, sizeof(dec->log_buf) - dec->log_pos, __VA_ARGS__);}
+	static noinline int print_dec(Edge264Decoder *dec, const char *suffix, int ret) {
+		int pos = dec->log_pos + snprintf(dec->log_buf + dec->log_pos, sizeof(dec->log_buf) - dec->log_pos, suffix, ret_to_str(ret));
+		dec->log_pos = 0;
+		if (pos >= sizeof(dec->log_buf))
+			ret = ret ?: ENOTSUP;
+		else
+			dec->log_cb(dec->log_buf, dec->log_arg);
+		return ret;
+	}
+	#define log_mb(ctx, ...) {\
+		if (ctx->log_pos < sizeof(ctx->log_buf))\
+			ctx->log_pos += snprintf(ctx->log_buf + ctx->log_pos, sizeof(ctx->log_buf) - ctx->log_pos, __VA_ARGS__);}
+	static inline int print_mb(Edge264Context *ctx) {
+		int pos = ctx->log_pos;
+		ctx->log_pos = 0;
+		if (pos >= sizeof(ctx->log_buf))
+			return ENOTSUP;
+		ctx->log_cb(ctx->log_buf, ctx->log_arg);
+		return 0;
+	}
+#else
+	#define log_dec(...)
+	#define print_dec(dec, suffix, ret) (ret)
+	#define log_mb(...)
+	#define print_mb(ctx) (0)
+#endif
+static always_inline const char *unsup_if(int cond) { return cond ? " # unsupported" : ""; }
+#define print_i8x16(a) {\
+	i8x16 _v = a;\
+	printf(#a ":");\
+	for (int _i = 0; _i < 16; _i++)\
+		printf(" %d", _v[_i]);\
+	putchar('\n');}
+#define print_u8x16(a) {\
+	u8x16 _v = a;\
+	printf(#a ":");\
+	for (int _i = 0; _i < 16; _i++)\
+		printf(" %3u", _v[_i]);\
+	putchar('\n');}
+#define print_i16x8(a) {\
+	i16x8 _v = a;\
+	printf(#a ":");\
+	for (int _i = 0; _i < 8; _i++)\
+		printf(" %6d", _v[_i]);\
+	putchar('\n');}
+#define print_i32x4(a) {\
+	i32x4 _v = a;\
+	printf(#a ":");\
+	for (int _i = 0; _i < 4; _i++)\
+		printf(" %6d", _v[_i]);\
+	putchar('\n');}
 
 
 
@@ -1070,23 +1075,29 @@ void *worker_loop(Edge264Decoder *d);
 void *worker_loop_v2(Edge264Decoder *d);
 void *worker_loop_v3(Edge264Decoder *d);
 void *worker_loop_log(Edge264Decoder *d);
-int parse_slice_layer_without_partitioning(Edge264Decoder *dec, int non_blocking, Edge264UnrefCb unref_cb, void *unref_arg);
-int parse_slice_layer_without_partitioning_v2(Edge264Decoder *dec, int non_blocking, Edge264UnrefCb unref_cb, void *unref_arg);
-int parse_slice_layer_without_partitioning_v3(Edge264Decoder *dec, int non_blocking, Edge264UnrefCb unref_cb, void *unref_arg);
-int parse_slice_layer_without_partitioning_log(Edge264Decoder *dec, int non_blocking, Edge264UnrefCb unref_cb, void *unref_arg);
-int parse_access_unit_delimiter_log(Edge264Decoder *dec, int non_blocking, Edge264UnrefCb unref_cb, void *unref_arg);
-int parse_sei_log(Edge264Decoder *dec, int non_blocking, Edge264UnrefCb unref_cb, void *unref_arg);
-int parse_nal_unit_header_extension(Edge264Decoder *dec, int non_blocking, Edge264UnrefCb unref_cb, void *unref_arg);
-int parse_nal_unit_header_extension_v2(Edge264Decoder *dec, int non_blocking, Edge264UnrefCb unref_cb, void *unref_arg);
-int parse_nal_unit_header_extension_v3(Edge264Decoder *dec, int non_blocking, Edge264UnrefCb unref_cb, void *unref_arg);
-int parse_nal_unit_header_extension_log(Edge264Decoder *dec, int non_blocking, Edge264UnrefCb unref_cb, void *unref_arg);
-int parse_pic_parameter_set(Edge264Decoder *dec, int non_blocking,  Edge264UnrefCb unref_cb, void *unref_arg);
-int parse_pic_parameter_set_v2(Edge264Decoder *dec, int non_blocking,  Edge264UnrefCb unref_cb, void *unref_arg);
-int parse_pic_parameter_set_v3(Edge264Decoder *dec, int non_blocking,  Edge264UnrefCb unref_cb, void *unref_arg);
-int parse_pic_parameter_set_log(Edge264Decoder *dec, int non_blocking,  Edge264UnrefCb unref_cb, void *unref_arg);
-int parse_seq_parameter_set(Edge264Decoder *dec, int non_blocking, Edge264UnrefCb unref_cb, void *unref_arg);
-int parse_seq_parameter_set_v2(Edge264Decoder *dec, int non_blocking, Edge264UnrefCb unref_cb, void *unref_arg);
-int parse_seq_parameter_set_v3(Edge264Decoder *dec, int non_blocking, Edge264UnrefCb unref_cb, void *unref_arg);
-int parse_seq_parameter_set_log(Edge264Decoder *dec, int non_blocking, Edge264UnrefCb unref_cb, void *unref_arg);
+int ignore_NAL_log(Edge264Decoder *dec, Edge264UnrefCb unref_cb, void *unref_arg);
+int unsup_NAL_log(Edge264Decoder *dec, Edge264UnrefCb unref_cb, void *unref_arg);
+int parse_slice_layer_without_partitioning(Edge264Decoder *dec, Edge264UnrefCb unref_cb, void *unref_arg);
+int parse_slice_layer_without_partitioning_v2(Edge264Decoder *dec, Edge264UnrefCb unref_cb, void *unref_arg);
+int parse_slice_layer_without_partitioning_v3(Edge264Decoder *dec, Edge264UnrefCb unref_cb, void *unref_arg);
+int parse_slice_layer_without_partitioning_log(Edge264Decoder *dec, Edge264UnrefCb unref_cb, void *unref_arg);
+int parse_access_unit_delimiter_log(Edge264Decoder *dec, Edge264UnrefCb unref_cb, void *unref_arg);
+int parse_sei_log(Edge264Decoder *dec, Edge264UnrefCb unref_cb, void *unref_arg);
+int parse_nal_unit_header_extension(Edge264Decoder *dec, Edge264UnrefCb unref_cb, void *unref_arg);
+int parse_nal_unit_header_extension_v2(Edge264Decoder *dec, Edge264UnrefCb unref_cb, void *unref_arg);
+int parse_nal_unit_header_extension_v3(Edge264Decoder *dec, Edge264UnrefCb unref_cb, void *unref_arg);
+int parse_nal_unit_header_extension_log(Edge264Decoder *dec, Edge264UnrefCb unref_cb, void *unref_arg);
+int parse_pic_parameter_set(Edge264Decoder *dec,  Edge264UnrefCb unref_cb, void *unref_arg);
+int parse_pic_parameter_set_v2(Edge264Decoder *dec,  Edge264UnrefCb unref_cb, void *unref_arg);
+int parse_pic_parameter_set_v3(Edge264Decoder *dec,  Edge264UnrefCb unref_cb, void *unref_arg);
+int parse_pic_parameter_set_log(Edge264Decoder *dec,  Edge264UnrefCb unref_cb, void *unref_arg);
+int parse_seq_parameter_set(Edge264Decoder *dec, Edge264UnrefCb unref_cb, void *unref_arg);
+int parse_seq_parameter_set_v2(Edge264Decoder *dec, Edge264UnrefCb unref_cb, void *unref_arg);
+int parse_seq_parameter_set_v3(Edge264Decoder *dec, Edge264UnrefCb unref_cb, void *unref_arg);
+int parse_seq_parameter_set_log(Edge264Decoder *dec, Edge264UnrefCb unref_cb, void *unref_arg);
+int parse_end_of_sequence(Edge264Decoder *dec, Edge264UnrefCb unref_cb, void *unref_arg);
+int parse_end_of_sequence_v2(Edge264Decoder *dec, Edge264UnrefCb unref_cb, void *unref_arg);
+int parse_end_of_sequence_v3(Edge264Decoder *dec, Edge264UnrefCb unref_cb, void *unref_arg);
+int parse_end_of_sequence_log(Edge264Decoder *dec, Edge264UnrefCb unref_cb, void *unref_arg);
 
 #endif

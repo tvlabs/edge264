@@ -109,7 +109,7 @@ static int parse_pan_scan_rect(Edge264Decoder *dec) {
 
 
 typedef int (*SEI_Parser)(Edge264Decoder *dec);
-int ADD_VARIANT(parse_sei)(Edge264Decoder *dec, int non_blocking, Edge264UnrefCb unref_cb, void *unref_arg)
+int ADD_VARIANT(parse_sei)(Edge264Decoder *dec, Edge264UnrefCb unref_cb, void *unref_arg)
 {
 	// FIXME reduce array size to minimum!
 	static const char * const payloadType_names[206] = {
@@ -124,11 +124,14 @@ int ADD_VARIANT(parse_sei)(Edge264Decoder *dec, int non_blocking, Edge264UnrefCb
 		[2] = parse_pan_scan_rect,
 	};
 	
-	log_dec(dec, "  sei_messages:\n");
-	if (print_dec(dec))
+	if (print_dec(dec, "  sei_messages:\n", 0))
 		return ENOTSUP;
-	int ret = 0;
-	while (dec->gb.msb_cache << 1 || (dec->gb.lsb_cache & (dec->gb.lsb_cache - 1)) || (intptr_t)(dec->gb.end - dec->gb.CPB) > 0) {
+	int nal_ret = 0;
+	// not a loop on rbsp_end since must also stop when we cross end
+	while (dec->gb.msb_cache << 1 ||
+		(dec->gb.lsb_cache & (dec->gb.lsb_cache - 1)) ||
+		dec->gb.CPB < dec->gb.end) // if CPB >= end then all future refills will yield 0
+	{
 		int byte, payloadType = 0, payloadSize = 0;
 		do {
 			byte = get_uv(&dec->gb, 8);
@@ -141,11 +144,13 @@ int ADD_VARIANT(parse_sei)(Edge264Decoder *dec, int non_blocking, Edge264UnrefCb
 		log_dec(dec, "  - payloadType: %s (%u)\n",
 			payloadType_names[payloadType], payloadType);
 		Edge264GetBits start = dec->gb;
-		int res = ENOTSUP;
+		int sei_ret = ENOTSUP;
 		if (payloadType <= 205 && parse_sei_message[payloadType])
-			res = parse_sei_message[payloadType](dec);
-		if (res) {
-			//ret = ENOTSUP;
+			sei_ret = parse_sei_message[payloadType](dec);
+		sei_ret = print_dec(dec, "    sei_res: %s\n", sei_ret);
+		if (nal_ret == 0 || sei_ret == EBADMSG)
+			nal_ret = sei_ret;
+		if (sei_ret) {
 			dec->gb = start;
 			while (payloadSize-- > 0)
 				get_uv(&dec->gb, 8);
@@ -154,8 +159,6 @@ int ADD_VARIANT(parse_sei)(Edge264Decoder *dec, int non_blocking, Edge264UnrefCb
 			if (skip)
 				get_uv(&dec->gb, skip);
 		}
-		if (print_dec(dec))
-			return ENOTSUP;
 	}
-	return rbsp_end(&dec->gb) ? ret : EBADMSG;
+	return rbsp_end(&dec->gb, 1) ? nal_ret : EBADMSG;
 }

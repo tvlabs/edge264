@@ -103,7 +103,10 @@ static void parse_NALs(const char *name, const uint8_t *nal, const uint8_t *end,
 	int res = 0;
 	count_frames = 0;
 	for (int i = 0; res != ENODATA; i++) {
-		res = edge264_decode_NAL(dec, nal, end, 0, NULL, NULL, &nal);
+		const uint8_t *start_code = edge264_find_start_code(nal, end, 0);
+		res = edge264_decode_NAL(dec, nal, start_code, NULL, NULL);
+		if (res != ENOBUFS)
+			nal = start_code + 3;
 		ASSERT(res == expect[i],
 			"%s: NAL at index %d returned %s where %s was expected\n",
 			name, i, errno_str(res), errno_str(expect[i]));
@@ -450,7 +453,6 @@ int main(int argc, char *argv[]) {
 	test("max-logs", max_logs_logger, NULL, (int8_t[]){0, ENODATA});
 	test("finish-frame", NULL, finish_frame_post, (int8_t[]){0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, ENOBUFS, ENODATA});
 	test("nal-ref-idc-0", NULL, NULL, (int8_t[]){0, 0, 0, 0, 0, 0, 0, 0, ENOBUFS, 0, 0, ENODATA});
-	test("no-trailing-bit", NULL, NULL, (int8_t[]){0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, ENOBUFS, 0, 0, ENODATA});
 	test_page_boundaries();
 	test_intra_decoding();
 	test_inter_decoding();

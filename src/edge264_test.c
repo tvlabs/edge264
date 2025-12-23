@@ -349,7 +349,8 @@ static int decode_file(const char *name0)
 		nal += 3 + (nal[2] == 0); // skip the [0]001 delimiter
 		int res;
 		do {
-			res = edge264_decode_NAL(d, nal, end0, 0, NULL, NULL, &nal);
+			const uint8_t *end = edge264_find_start_code(nal, end0, 0);
+			res = edge264_decode_NAL(d, nal, end, NULL, NULL);
 			while (!edge264_get_frame(d, &out, 0)) {
 				if (conf[0] != NULL && check_frame()) {
 					res = EBADMSG;
@@ -360,6 +361,8 @@ static int decode_file(const char *name0)
 					break;
 				}
 			}
+			if (res != ENOBUFS)
+				nal = end + 3;
 		} while (res == 0 || res == ENOBUFS);
 		edge264_flush(d);
 		if (res == ENOBUFS || (res == ENODATA && conf[0] != NULL && conf[0] != end1))

@@ -333,7 +333,7 @@
 					continue;
 				#if SIZE_BIT == 32
 					if (coeff_level == 15) {
-						// the biggest value to encode is 2^(14+7)-14, for which k=20 (see 9.3.2.3)
+						// the largest value to encode is -2^(14+7)+14, for which k=20 (see 9.3.2.3)
 						int k = 0;
 						while (get_bypass(ctx) && k < 20)
 							k++;
@@ -351,15 +351,15 @@
 						int zeros = clz(ctx->t.gb.range);
 						if (zeros > 64 - 51)
 							zeros = renorm_bits(ctx, zeros);
-						ctx->t.gb.range >>= 64 - 9 - zeros;
-						size_t quo = ctx->t.gb.offset / ctx->t.gb.range; // requested bits are in lsb and zeros+9 empty bits above
-						size_t rem = ctx->t.gb.offset % ctx->t.gb.range;
-						int k = clz(~quo << (zeros + 9) | (size_t)1 << (SIZE_BIT - 21));
-						int unused = 64 - 9 - zeros - k * 2 - 2;
-						coeff_level = 14 + (1 << k | (quo >> unused >> 1 & (((size_t)1 << k) - 1)));
+						size_t range = ctx->t.gb.range >> 42;
+						size_t quo = ctx->t.gb.offset / range; // contains 42 bypass bits in lsb
+						size_t rem = ctx->t.gb.offset % range;
+						int k = clz(~quo << (64 - 42) | (size_t)1 << (64 - 21));
+						int unused = 42 - k * 2 - 2;
+						coeff_level = 14 + (1 << k) + ((unsigned)(quo >> unused >> 1) & ((1 << k) - 1));
 						coeff_level = (quo & (size_t)1 << unused) ? -coeff_level : coeff_level;
-						ctx->t.gb.offset = (quo & (((size_t)1 << unused) - 1)) * ctx->t.gb.range + rem;
-						ctx->t.gb.range <<= unused;
+						ctx->t.gb.offset = (quo & (((size_t)1 << unused) - 1)) * range + rem;
+						ctx->t.gb.range = range << unused;
 					}
 				#endif
 				ctxIdx0 = ctx->ctxIdxOffsets[3];
@@ -965,7 +965,7 @@ static noinline void CAFUNC(parse_inter_residual)
  * 9.3.3.1.1.7 and tables 9-34 and 9-39).
  * 
  * As with residual coefficients in CABAC, bypass bits can be extracted all at
- * once using a binary division. The maximum mvd value is 2^15, i.e 26 bits as
+ * once using a binary division. The longest mvd value is -2^15, i.e 27 bits as
  * Exp-Golomb, so we need a single division on 64-bit machines and two on
  * 32-bit machines.
  */
@@ -987,30 +987,43 @@ static noinline void CAFUNC(parse_inter_residual)
 			while (mvd != 9 && get_ae_inline(ctx, ctxIdx))
 				ctxIdx = ctxBase + min(mvd++, 3);
 			if (mvd == 9) {
-				// we need at least 35 (or 21) bits in offset to get 26 (or 12) bypass bits
-				// FIXME review max numbers, seem to miss sign bit
-				int zeros = clz(ctx->t.gb.range);
-				if (zeros > (SIZE_BIT == 64 ? 64 - 35 : 32 - 21))
-					zeros = renorm_bits(ctx, zeros);
-				// for 64-bit we could shift offset down to 37 bits to help iterative hardware dividers, but that would make the code harder to maintain
-				ctx->t.gb.range >>= SIZE_BIT - 9 - zeros;
-				size_t quo = ctx->t.gb.offset / ctx->t.gb.range; // requested bits are in lsb and zeros+9 empty bits above
-				size_t rem = ctx->t.gb.offset % ctx->t.gb.range;
-				int k = 3 + clz(~quo << (zeros + 9) | (size_t)1 << (SIZE_BIT - 12));
-				int unused = SIZE_BIT - 9 - zeros - k * 2 + 1;
 				#if SIZE_BIT == 32
-					if (__builtin_expect(unused < 0, 0)) { // FIXME needs testing
-						// refill offset with 16 bits then make a new division
-						ctx->t.gb.offset = shld(get_bytes(&ctx->t.gb, 2), rem, 16);
-						quo = shld((ctx->t.gb.offset / ctx->t.gb.range) << (SIZE_BIT - 16), quo, 16);
-						rem = ctx->t.gb.offset % ctx->t.gb.range;
-						unused += 16;
+					// we need at least 21 bits in offset to get 12 bypass bits (max prefix size)
+					int zeros = clz(ctx->t.gb.range);
+					if (zeros > 32 - 21)
+						zeros = renorm_bits(ctx, zeros);
+					unsigned range = ctx->t.gb.range >> (32 - 9 - zeros); // maximum shift to get as many bypass bits as possible
+					unsigned quo = ctx->t.gb.offset / ctx->t.gb.range; // contains 32-9-zeros bypass bits in lsb
+					unsigned rem = ctx->t.gb.offset % ctx->t.gb.range;
+					int k = 3 + clz(~quo << (zeros + 9) | 1 << (32 - 12));
+					int unused = 32 - 9 - zeros - k * 2 + 1;
+					if (__builtin_expect(unused < 0, 0)) {
+						unsigned ref = get_bytes(&ctx->t.gb, 3);
+						unsigned div = shld(ref, rem, -unused);
+						quo = shld((div / range) << (32 + unused), quo, -unused);
+						rem = shld(ref << -unused, div % range, 24 + unused);
+						range <<= 24 + unused;
+						unused = 0;
 					}
+					mvd = 1 + (1 << k) + (quo >> unused >> 1 & ((1 << k) - 1));
+					mvd = (quo & 1 << unused) ? -mvd : mvd;
+					ctx->t.gb.offset = (quo & ((1 << unused) - 1)) * range + rem;
+					ctx->t.gb.range = range << unused;
+				#else
+					// we need at least 36 bits in offset to get 27 bypass bits (max code size)
+					int zeros = clz(ctx->t.gb.range);
+					if (zeros > 64 - 36)
+						zeros = renorm_bits(ctx, zeros);
+					size_t range = ctx->t.gb.range >> 27; // shift to get exactly 27 bypass bits
+					size_t quo = ctx->t.gb.offset / range; // contains 27 bypass bits in lsb
+					size_t rem = ctx->t.gb.offset % range;
+					int k = 3 + clz(~quo << (64 - 27) | (size_t)1 << (64 - 12));
+					int unused = 27 - k * 2 + 1;
+					mvd = 1 + (1 << k) + ((unsigned)(quo >> unused >> 1) & ((1 << k) - 1));
+					mvd = (quo & (size_t)1 << unused) ? -mvd : mvd;
+					ctx->t.gb.offset = (quo & (((size_t)1 << unused) - 1)) * range + rem;
+					ctx->t.gb.range = range << unused;
 				#endif
-				mvd = 1 + (1 << k | (quo >> unused >> 1 & (((size_t)1 << k) - 1)));
-				mvd = (quo & (size_t)1 << unused) ? -mvd : mvd;
-				ctx->t.gb.offset = (quo & (((size_t)1 << unused) - 1)) * ctx->t.gb.range + rem;
-				ctx->t.gb.range <<= unused;
 			} else if (mvd > 0) {
 				mvd = get_bypass(ctx) ? -mvd : mvd;
 			}

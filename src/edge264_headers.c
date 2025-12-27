@@ -447,6 +447,7 @@ void *ADD_VARIANT(worker_loop)(Edge264Decoder *dec) {
 		dec->ready_tasks &= ~(1 << task_id);
 		if (c.n_threads)
 			pthread_mutex_unlock(&dec->lock);
+		unsigned clock_start = get_thread_time_us();
 		c.t = dec->tasks[task_id];
 		initialize_context(&c, currPic);
 		size_t ret = 0;
@@ -468,6 +469,8 @@ void *ADD_VARIANT(worker_loop)(Edge264Decoder *dec) {
 					ret = EBADMSG; // FIXME error_flag
 			}
 		}
+		if (c.t.unref_cb)
+			c.t.unref_cb((int)ret, c.t.unref_arg);
 		
 		// deblock the rest of mbs in this slice
 		if (c.t.next_deblock_addr >= 0) {
@@ -539,6 +542,17 @@ void *ADD_VARIANT(worker_loop)(Edge264Decoder *dec) {
 			dec->next_deblock_addr[currPic] = INT_MAX; // signals the frame is complete
 		}
 		
+		// print benchmarking information
+		if (c.log_cb) {
+			unsigned clock_end = get_thread_time_us();
+			snprintf(c.log_buf, sizeof(c.log_buf),
+				"\n- slice_decoding_µs: %u\n"
+				"  FrameId: %u\n"
+				"  first_mb_in_slice: %u\n",
+				(unsigned)(clock_end - clock_start), c.t.FrameId, c.t.first_mb_in_slice);
+			c.log_cb(c.log_buf, c.log_arg);
+		}
+		
 		// if multi-threaded, check if we are the last task to touch this frame and ensure it is complete
 		if (c.n_threads) {
 			pthread_mutex_lock(&dec->lock);
@@ -550,17 +564,11 @@ void *ADD_VARIANT(worker_loop)(Edge264Decoder *dec) {
 					pthread_cond_broadcast(&dec->task_ready);
 			}
 		}
-		if (c.t.unref_cb)
-			c.t.unref_cb((int)ret, c.t.unref_arg);
 		dec->busy_tasks &= ~(1 << task_id);
 		dec->task_dependencies[task_id] = 0;
 		dec->taskPics[task_id] = -1;
-		
-		// in single-thread mode update the buffer pointer and return
-		if (!c.n_threads) {
-			memcpy(&dec->gb, &c.t.gb, sizeof(c.t.gb)); // GCC-14 crashes on dec->out = format
+		if (!c.n_threads)
 			return (void *)ret;
-		}
 	}
 	return NULL;
 }
@@ -574,12 +582,12 @@ void *ADD_VARIANT(worker_loop)(Edge264Decoder *dec) {
 static void parse_dec_ref_pic_marking(Edge264Decoder *dec, Edge264SeqParameterSet *sps)
 {
 	static const char * const mmco_names[6] = {
-		"    - {mmco: 1, sref: %u} # dereference\n",
-		"    - {mmco: 2, lref: %2$u} # dereference\n",
-		"    - {mmco: 3, sref: %u, lref: %u} # convert\n",
-		"    - {mmco: 4, lref: %2$d} # dereference on and above\n",
-		"    - {mmco: 5} # dereference all\n",
-		"    - {mmco: 6, lref: %2$u} # convert current\n"};
+		"  - {mmco: 1, sref: %u} # dereference\n",
+		"  - {mmco: 2, lref: %2$u} # dereference\n",
+		"  - {mmco: 3, sref: %u, lref: %u} # convert\n",
+		"  - {mmco: 4, lref: %2$d} # dereference on and above\n",
+		"  - {mmco: 5} # dereference all\n",
+		"  - {mmco: 6, lref: %2$u} # convert current\n"};
 	
 	// no_output_of_prior_pics_flag is easier to support than to signal unsupported
 	if (dec->IdrPicFlag) {
@@ -700,7 +708,7 @@ static void parse_pred_weight_table(Edge264Decoder *dec, Edge264SeqParameterSet 
 					t->explicit_weights[2][i] = 1 << t->chroma_log2_weight_denom;
 					t->explicit_offsets[2][i] = 0;
 				}
-				log_dec(dec, sps->ChromaArrayType ? "    - {Y: \"*%d>>%u+%d\", Cb: \"*%d>>%u+%d\", Cr: \"*%d>>%u+%d\"}\n" : "    - {Y: \"*%d>>%u+%d\"}\n",
+				log_dec(dec, sps->ChromaArrayType ? "  - {Y: \"*%d>>%u+%d\", Cb: \"*%d>>%u+%d\", Cr: \"*%d>>%u+%d\"}\n" : "  - {Y: \"*%d>>%u+%d\"}\n",
 					t->explicit_weights[0][i], t->luma_log2_weight_denom, t->explicit_offsets[0][i],
 					t->explicit_weights[1][i], t->chroma_log2_weight_denom, t->explicit_offsets[1][i],
 					t->explicit_weights[2][i], t->chroma_log2_weight_denom, t->explicit_offsets[2][i]);
@@ -1217,7 +1225,7 @@ int ADD_VARIANT(parse_slice_layer_without_partitioning)(Edge264Decoder *dec, Edg
 			log_dec(dec, "  DecodedPictureBuffer:\n");
 			unsigned reordered_frames = dec->to_get_frames & ~dec->output_frames;
 			for (int i = 0; i < 32 - __builtin_clzg(short_term_frames | long_term_frames | reordered_frames, 32); i++) {
-				log_dec(dec, "    - {id: %u", dec->FrameIds[i]);
+				log_dec(dec, "  - {id: %u", dec->FrameIds[i]);
 				if ((short_term_frames | long_term_frames) & 1 << i)
 					log_dec(dec, ~long_term_frames & 1 << i ? ", sref: %u" : ~short_term_frames & 1 << i ? ", lref: %u" : ", nref: %u", short_term_frames & 1 << i ? dec->FrameNums[i] : dec->LongTermFrameIdx[i]);
 				if (reordered_frames & 1 << i)
@@ -1307,7 +1315,7 @@ static void parse_scaling_lists(Edge264Decoder *dec, i8x16 *w4x4, i8x16 *w8x8, i
 	i8x16 fb4x4 = *w4x4; // fall-back
 	i8x16 d4x4 = Default_4x4_Intra; // for useDefaultScalingMatrixFlag
 	for (int i = 0; i < 6; i++, w4x4++) {
-		log_dec(dec, "    - [");
+		log_dec(dec, "  - [");
 		if (i == 3) {
 			fb4x4 = *w4x4;
 			d4x4 = Default_4x4_Inter;
@@ -1340,7 +1348,7 @@ static void parse_scaling_lists(Edge264Decoder *dec, i8x16 *w4x4, i8x16 *w8x8, i
 	if (!transform_8x8_mode_flag)
 		return;
 	for (int i = 0; i < (chroma_format_idc == 3 ? 6 : 2); i++, w8x8 += 4) {
-		log_dec(dec, "    - [");
+		log_dec(dec, "  - [");
 		if (!get_u1(&dec->gb)) {
 			if (i >= 2) {
 				w8x8[0] = w8x8[-8];
@@ -1478,7 +1486,7 @@ static void parse_hrd_parameters(Edge264Decoder *dec, Edge264SeqParameterSet *sp
 		unsigned long long bit_rate_value = get_ue32(&dec->gb, 4294967294) + 1;
 		unsigned long long cpb_size_value = get_ue32(&dec->gb, 4294967294) + 1;
 		int cbr_flag = get_u1(&dec->gb);
-		log_dec(dec, "%s  - {bit_rate: %llu, size: %llu, cbr_flag: %u}\n",
+		log_dec(dec, "%s- {bit_rate: %llu, size: %llu, cbr_flag: %u}\n",
 			indent, bit_rate_value << (6 + bit_rate_scale), cpb_size_value << (4 + cpb_size_scale), cbr_flag);
 	}
 	unsigned delays = get_uv(&dec->gb, 20);
@@ -1663,8 +1671,8 @@ static void parse_mvc_vui_parameters_extension(Edge264Decoder *dec, Edge264SeqPa
 	log_dec(dec, "  vui_mvc_operation_points:\n");
 	for (int i = get_ue16(&dec->gb, 1023); i-- >= 0;) {
 		int temporal_id = get_uv(&dec->gb, 3);
-		log_dec(dec, "    - temporal_id: %u\n"
-			"      target_views: [", temporal_id);
+		log_dec(dec, "  - temporal_id: %u\n"
+			"    target_views: [", temporal_id);
 		for (int j = get_ue16(&dec->gb, 1023); j >= 0; j--) {
 			int view_id = get_ue16(&dec->gb, 1023);
 			log_dec(dec, j ? "%u," : "%u]\n", view_id);
@@ -1673,27 +1681,27 @@ static void parse_mvc_vui_parameters_extension(Edge264Decoder *dec, Edge264SeqPa
 			unsigned num_units_in_tick = get_uv(&dec->gb, 32);
 			unsigned time_scale = get_uv(&dec->gb, 32);
 			int fixed_frame_rate_flag = get_u1(&dec->gb);
-			log_dec(dec, "      num_units_in_tick: %u\n"
-				"      time_scale: %u\n"
-				"      fixed_frame_rate_flag: %u\n",
+			log_dec(dec, "    num_units_in_tick: %u\n"
+				"    time_scale: %u\n"
+				"    fixed_frame_rate_flag: %u\n",
 				num_units_in_tick, time_scale, fixed_frame_rate_flag);
 		}
 		int vui_mvc_nal_hrd_parameters_present_flag = get_u1(&dec->gb);
 		if (vui_mvc_nal_hrd_parameters_present_flag) {
-			log_dec(dec, "      vui_mvc_nal_hrd_parameters:\n");
-			parse_hrd_parameters(dec, sps, &sps->nal_hrd_cpb_cnt, "        ");
+			log_dec(dec, "    vui_mvc_nal_hrd_parameters:\n");
+			parse_hrd_parameters(dec, sps, &sps->nal_hrd_cpb_cnt, "      ");
 		}
 		int vui_mvc_vcl_hrd_parameters_present_flag = get_u1(&dec->gb);
 		if (vui_mvc_vcl_hrd_parameters_present_flag) {
-			log_dec(dec, "      vui_mvc_vcl_hrd_parameters:\n");
-			parse_hrd_parameters(dec, sps, &sps->vcl_hrd_cpb_cnt, "        ");
+			log_dec(dec, "    vui_mvc_vcl_hrd_parameters:\n");
+			parse_hrd_parameters(dec, sps, &sps->vcl_hrd_cpb_cnt, "      ");
 		}
 		if (vui_mvc_nal_hrd_parameters_present_flag | vui_mvc_vcl_hrd_parameters_present_flag) {
 			int low_delay_hrd_flag = get_u1(&dec->gb);
-			log_dec(dec, "      low_delay_hrd_flag: %u\n", low_delay_hrd_flag);
+			log_dec(dec, "    low_delay_hrd_flag: %u\n", low_delay_hrd_flag);
 		}
 		int pic_struct_present_flag = get_u1(&dec->gb);
-		log_dec(dec, "      pic_struct_present_flag: %u\n", pic_struct_present_flag);
+		log_dec(dec, "    pic_struct_present_flag: %u\n", pic_struct_present_flag);
 	}
 }
 
@@ -1736,8 +1744,8 @@ static int parse_seq_parameter_set_mvc_extension(Edge264Decoder *dec, int profil
 	// level values and operation points are similarly ignored
 	for (int i = get_ue16(&dec->gb, 63); i >= 0; i--) {
 		int level_idc = get_uv(&dec->gb, 8);
-		log_dec(dec, "    - idc: %.1f\n"
-			"      operation_points: [", (float)level_idc / 10);
+		log_dec(dec, "  - idc: %.1f\n"
+			"    operation_points: [", (float)level_idc / 10);
 		for (int j = get_ue16(&dec->gb, 1023); j >= 0; j--) {
 			int applicable_op_temporal_id = get_uv(&dec->gb, 3);
 			log_dec(dec, "{temporal_id: %u, target_views: [", applicable_op_temporal_id);

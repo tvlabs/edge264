@@ -13,10 +13,13 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 #ifdef _WIN32
-#define ssize_t ptrdiff_t
+	#include <processthreadsapi.h>
+	#define ssize_t ptrdiff_t
 #else
-#include <unistd.h>
+	#include <unistd.h>
+	#include <sys/resource.h>
 #endif
 
 #include "../edge264.h"
@@ -395,7 +398,7 @@ typedef struct Edge264Decoder {
 	
 	// Logging context (unused if disabled)
 	int16_t log_pos; // next writing position in log_buf
-	char log_buf[9550];
+	char log_buf[9406];
 } Edge264Decoder;
 
 
@@ -939,6 +942,18 @@ static always_inline unsigned depended_frames(Edge264Decoder *dec) {
 	u32x4 b = a | (u32x4)shr128(a, 8);
 	u32x4 c = b | (u32x4)shr128(b, 4);
 	return c[0];
+}
+// relative time with microsecond unit that wraps about every hour
+static always_inline unsigned get_thread_time_us() {
+	#ifdef _WIN32
+		uint64_t userTime;
+		GetThreadTimes(GetCurrentThread(), NULL, NULL, NULL, &userTime);
+		return userTime;
+	#else
+		struct timespec tp;
+		clock_gettime(CLOCK_THREAD_CPUTIME_ID, &tp);
+		return tp.tv_sec * 1000000 + tp.tv_nsec / 1000;
+	#endif
 }
 
 

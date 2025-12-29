@@ -131,7 +131,7 @@ static int alloc_frame(Edge264Decoder *dec, int id, int errno_on_fail) {
 }
 
 static void clear_decoder(Edge264Decoder *dec) {
-	memset((void *)dec + offsetof(Edge264Decoder, nal_ref_idc), 0, offsetof(Edge264Decoder, log_pos) - offsetof(Edge264Decoder, nal_ref_idc));
+	memset((void *)dec + offsetof(Edge264Decoder, nal_ref_idc), 0, offsetof(Edge264Decoder, log_base_us) - offsetof(Edge264Decoder, nal_ref_idc));
 	dec->currPic = dec->basePic = -1;
 	dec->PrevRefFrameNum[0] = dec->PrevRefFrameNum[1] = -1;
 	dec->taskPics_v = dec->get_frame_queue_v[0] = dec->get_frame_queue_v[1] = set8(-1);
@@ -427,29 +427,35 @@ static void recover_slice(Edge264Context *ctx, int currPic) {
 
 
 /**
- * This function is the entry point for each worker thread, where it consumes
- * tasks continuously until killed by the parent process.
+ * This function is the entry point for worker threads, where they consume
+ * tasks continuously until stopped by the parent process.
  */
-void *ADD_VARIANT(worker_loop)(Edge264Decoder *dec) {
+void *ADD_VARIANT(worker_loop)(void *arg) {
 	Edge264Context c;
-	c.d = dec;
-	c.n_threads = dec->n_threads;
-	c.log_cb = dec->log_cb;
-	c.log_arg = dec->log_arg;
-	if (c.n_threads)
-		pthread_mutex_lock(&dec->lock);
+	c.d = (void *)((uintptr_t)arg & -16);
+	c.thread_id = c.d->n_threads ? (uintptr_t)arg & 15 : -1;
+	c.log_base_us = c.d->log_base_us;
+	c.log_cb = c.d->log_cb;
+	c.log_arg = c.d->log_arg;
+	c.log_indent = c.d->n_threads ? "  " : "    ";
+	c.log_pos = 0;
+	if (c.thread_id >= 0)
+		pthread_mutex_lock(&c.d->lock);
 	while (1) {
-		while (c.n_threads && !dec->ready_tasks)
-			pthread_cond_wait(&dec->task_ready, &dec->lock);
-		int task_id = __builtin_ctz(dec->ready_tasks); // FIXME arbitrary selection for now
-		int currPic = dec->taskPics[task_id];
-		dec->pending_tasks &= ~(1 << task_id);
-		dec->ready_tasks &= ~(1 << task_id);
-		if (c.n_threads)
-			pthread_mutex_unlock(&dec->lock);
-		unsigned clock_start = get_thread_time_us();
-		c.t = dec->tasks[task_id];
+		// wait until a task becomes available and reserve it
+		while (c.thread_id >= 0 && !c.d->ready_tasks)
+			pthread_cond_wait(&c.d->task_ready, &c.d->lock);
+		int task_id = __builtin_ctz(c.d->ready_tasks); // FIXME arbitrary selection for now
+		int currPic = c.d->taskPics[task_id];
+		c.d->pending_tasks &= ~(1 << task_id);
+		c.d->ready_tasks &= ~(1 << task_id);
+		if (c.thread_id >= 0)
+			pthread_mutex_unlock(&c.d->lock);
+		uint64_t clock_start = get_relative_time_us() - c.log_base_us;
+		c.t = c.d->tasks[task_id];
 		initialize_context(&c, currPic);
+		
+		// call the function containing the macroblock decoding loop
 		size_t ret = 0;
 		if (!c.t.pps.entropy_coding_mode_flag) {
 			c.mb_skip_run = -1;
@@ -503,17 +509,17 @@ void *ADD_VARIANT(worker_loop)(Edge264Decoder *dec) {
 		if (__builtin_expect(ret != 0, 0))
 			recover_slice(&c, currPic);
 		
-		// update dec->next_deblock_addr, considering it might have reached first_mb_in_slice since start
-		if (dec->next_deblock_addr[currPic] >= c.t.first_mb_in_slice &&
+		// update c.d->next_deblock_addr, considering it might have reached first_mb_in_slice since start
+		if (c.d->next_deblock_addr[currPic] >= c.t.first_mb_in_slice &&
 		    !(c.t.disable_deblocking_filter_idc == 0 && c.t.next_deblock_addr < 0)) {
-			dec->next_deblock_addr[currPic] = c.CurrMbAddr;
-			pthread_cond_broadcast(&dec->task_progress);
+			c.d->next_deblock_addr[currPic] = c.CurrMbAddr;
+			pthread_cond_broadcast(&c.d->task_progress);
 		}
 		
 		// deblock the rest of the frame if all mbs have been decoded correctly
-		int remaining_mbs = ret ?: __atomic_sub_fetch(&dec->remaining_mbs[currPic], c.CurrMbAddr - c.t.first_mb_in_slice, __ATOMIC_ACQ_REL);
+		int remaining_mbs = ret ?: __atomic_sub_fetch(&c.d->remaining_mbs[currPic], c.CurrMbAddr - c.t.first_mb_in_slice, __ATOMIC_ACQ_REL);
 		if (remaining_mbs == 0) {
-			c.t.next_deblock_addr = dec->next_deblock_addr[currPic];
+			c.t.next_deblock_addr = c.d->next_deblock_addr[currPic];
 			c.CurrMbAddr = c.t.pic_width_in_mbs * c.t.pic_height_in_mbs;
 			if ((unsigned)c.t.next_deblock_addr < c.CurrMbAddr) {
 				c.mby = (unsigned)c.t.next_deblock_addr / (unsigned)c.t.pic_width_in_mbs;
@@ -539,35 +545,37 @@ void *ADD_VARIANT(worker_loop)(Edge264Decoder *dec) {
 					}
 				}
 			}
-			dec->next_deblock_addr[currPic] = INT_MAX; // signals the frame is complete
+			c.d->next_deblock_addr[currPic] = INT_MAX; // signals the frame is complete
 		}
 		
 		// print benchmarking information
 		if (c.log_cb) {
-			unsigned clock_end = get_thread_time_us();
+			uint64_t clock_end = get_relative_time_us() - c.log_base_us;
 			snprintf(c.log_buf, sizeof(c.log_buf),
-				"\n- slice_decoding_µs: %u\n"
+				"\n- thread_id: %d\n"
 				"  FrameId: %u\n"
-				"  first_mb_in_slice: %u\n",
-				(unsigned)(clock_end - clock_start), c.t.FrameId, c.t.first_mb_in_slice);
+				"  first_mb_in_slice: %u\n"
+				"  decoding_start_us: %llu\n"
+				"  decoding_end_us: %llu\n",
+				c.thread_id, c.t.FrameId, c.t.first_mb_in_slice, clock_start, clock_end);
 			c.log_cb(c.log_buf, c.log_arg);
 		}
 		
 		// if multi-threaded, check if we are the last task to touch this frame and ensure it is complete
-		if (c.n_threads) {
-			pthread_mutex_lock(&dec->lock);
-			pthread_cond_signal(&dec->task_complete);
+		if (c.thread_id >= 0) {
+			pthread_mutex_lock(&c.d->lock);
+			pthread_cond_signal(&c.d->task_complete);
 			if (remaining_mbs == 0) {
-				pthread_cond_broadcast(&dec->task_progress);
-				dec->ready_tasks = ready_tasks(dec);
-				if (dec->ready_tasks)
-					pthread_cond_broadcast(&dec->task_ready);
+				pthread_cond_broadcast(&c.d->task_progress);
+				c.d->ready_tasks = ready_tasks(c.d);
+				if (c.d->ready_tasks)
+					pthread_cond_broadcast(&c.d->task_ready);
 			}
 		}
-		dec->busy_tasks &= ~(1 << task_id);
-		dec->task_dependencies[task_id] = 0;
-		dec->taskPics[task_id] = -1;
-		if (!c.n_threads)
+		c.d->busy_tasks &= ~(1 << task_id);
+		c.d->task_dependencies[task_id] = 0;
+		c.d->taskPics[task_id] = -1;
+		if (c.thread_id < 0)
 			return (void *)ret;
 	}
 	return NULL;
@@ -1248,12 +1256,10 @@ int ADD_VARIANT(parse_slice_layer_without_partitioning)(Edge264Decoder *dec, Edg
 	ret = print_dec(dec, dec->n_threads || dec->worker_loop != worker_loop_log ?
 		"  nal_res: %s\n" : t->pps.entropy_coding_mode_flag ?
 		"  macroblocks_cabac:\n" : "  macroblocks_cavlc:\n", 0);
-	if (ret == 0) {
-		if (dec->n_threads)
-			pthread_cond_signal(&dec->task_ready);
-		else
-			ret = (intptr_t)dec->worker_loop(dec);
-	}
+	if (dec->n_threads)
+		pthread_cond_signal(&dec->task_ready);
+	else
+		dec->worker_loop(dec);
 	return ret;
 }
 

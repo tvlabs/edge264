@@ -65,6 +65,7 @@
  * 	_ store Cb & Cr by interleaving rows instead of separate planes (check it does not overflow stride for future 4:2:2)
  * 	_ try combining clang and gcc over decoding and parsing
  * 	_ try reordering cases in intra to gather those that may belong to same active cache lines at any time (ex. all executed when top row is absent)
+ * 	_ reorder CABAC states to regroup I/P/B contexts and reduce cache usage
  * _ Documentation
  * 	_ add an FAQ with (1) how to optimize latency, (2) what can be removed from stream without issue, (3) how to finish a frame with an AUD
  * 	_ Don't assume that stride_Y is multiple of stride_C, and give alignment of pointers
@@ -141,15 +142,16 @@ Edge264Decoder *edge264_alloc(int n_threads, Edge264LogCb log_cb, void *log_arg,
 	Edge264Decoder *dec = calloc(1, sizeof(Edge264Decoder));
 	if (dec == NULL)
 		return NULL;
+	dec->log_base_us = get_relative_time_us();
 	dec->currPic = dec->basePic = -1;
 	dec->PrevRefFrameNum[0] = dec->PrevRefFrameNum[1] = dec->prevFrameId = -1;
 	dec->taskPics_v = dec->get_frame_queue_v[0] = dec->get_frame_queue_v[1] = set8(-1);
 	dec->n_threads = n_threads;
-	dec->log_cb = log_cb;
-	dec->log_arg = log_arg;
 	dec->alloc_cb = alloc_cb && free_cb ? alloc_cb : internal_alloc;
 	dec->free_cb = alloc_cb && free_cb ? free_cb : internal_free;
 	dec->alloc_arg = alloc_arg;
+	dec->log_cb = log_cb;
+	dec->log_arg = log_arg;
 	
 	// select parser functions based on CPU capabilities and logs mode
 	dec->worker_loop = ADD_VARIANT(worker_loop);
@@ -231,7 +233,7 @@ Edge264Decoder *edge264_alloc(int n_threads, Edge264LogCb log_cb, void *log_arg,
 			if (pthread_cond_init(&dec->task_progress, NULL) == 0) {
 				if (pthread_cond_init(&dec->task_complete, NULL) == 0) {
 					int i = 0;
-					while (i < n_threads && pthread_create(&dec->threads[i], NULL, (void*(*)(void*))dec->worker_loop, dec) == 0)
+					while (i < n_threads && pthread_create(&dec->threads[i], NULL, dec->worker_loop, (void *)((uintptr_t)dec + i)) == 0)
 						i++;
 					if (i == n_threads) {
 						return dec;

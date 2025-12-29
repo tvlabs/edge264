@@ -234,7 +234,7 @@ typedef struct {
  */
 typedef struct Edge264Context {
 	Edge264Task t; // must be first in struct to use the same pointer for bitstream functions
-	int8_t n_threads;
+	int8_t thread_id;
 	int8_t mb_qp_delta_nz; // 0..1
 	int8_t col_short_term; // 0..1
 	int16_t mbx;
@@ -290,10 +290,12 @@ typedef struct Edge264Context {
 	union { uint8_t beta[16]; int32_t beta_s[4]; i8x16 beta_v; };
 	union { int32_t tC0_s[16]; int64_t tC0_l[8]; i8x16 tC0_v[4]; i8x32 tC0_V[2]; }; // 4 bytes per edge in deblocking order -> 8 luma edges then 8 alternating Cb/Cr edges
 	
-	// Logging context (unused if disabled)
+	// Logging context
+	uint64_t log_base_us; // timestamp of decoder initialization
 	void (*log_cb)(const char*, void*);
 	void *log_arg;
-	int16_t log_pos; // next writing position in log_buf
+	const char *log_indent;
+	uint16_t log_pos; // next writing position in log_buf
 	char log_buf[4096];
 } Edge264Context;
 #define mb ctx->_mb
@@ -336,12 +338,10 @@ typedef struct Edge264Decoder {
 	int32_t plane_size_C;
 	int32_t prevFrameId;
 	uint32_t frame_flip_bits; // bitfield storing target values of bit 0 in mb->recovery_bits for each frame
-	Edge264LogCb log_cb;
-	void *log_arg;
 	Edge264AllocCb alloc_cb;
 	Edge264FreeCb free_cb;
 	void *alloc_arg;
-	void *(*worker_loop)(Edge264Decoder *);
+	void *(*worker_loop)(void *);
 	uint8_t *samples_buffers[32];
 	Edge264Macroblock *mb_buffers[32];
 	Parser parse_nal_unit[32];
@@ -396,8 +396,11 @@ typedef struct Edge264Decoder {
 	union { int8_t taskPics[16]; i8x16 taskPics_v; }; // values of currPic for each task
 	Edge264Task tasks[16];
 	
-	// Logging context (unused if disabled)
-	int16_t log_pos; // next writing position in log_buf
+	// Logging context
+	uint64_t log_base_us; // timestamp of decoder initialization
+	Edge264LogCb log_cb;
+	void *log_arg;
+	uint16_t log_pos; // next writing position in log_buf
 	char log_buf[9406];
 } Edge264Decoder;
 
@@ -943,16 +946,17 @@ static always_inline unsigned depended_frames(Edge264Decoder *dec) {
 	u32x4 c = b | (u32x4)shr128(b, 4);
 	return c[0];
 }
-// relative time with microsecond unit that wraps about every hour
-static always_inline unsigned get_thread_time_us() {
+// relative time with microsecond precision
+static always_inline uint64_t get_relative_time_us() {
 	#ifdef _WIN32
-		uint64_t userTime;
-		GetThreadTimes(GetCurrentThread(), NULL, NULL, NULL, &userTime);
-		return userTime;
+		uint64_t ticks, frequency;
+		QueryPerformanceFrequency(&frequency);
+		QueryPerformanceCounter(&ticks);
+		return ticks * 1000000 / frequency; // could be optimized with mul+shift but not critical
 	#else
 		struct timespec tp;
-		clock_gettime(CLOCK_THREAD_CPUTIME_ID, &tp);
-		return tp.tv_sec * 1000000 + tp.tv_nsec / 1000;
+		clock_gettime(CLOCK_PROCESS_CPUTIME_ID, &tp);
+		return (uint64_t)tp.tv_sec * 1000000 + tp.tv_nsec / 1000;
 	#endif
 }
 
@@ -1086,10 +1090,10 @@ static noinline void parse_slice_data_cabac(Edge264Context *ctx);
 #ifndef ADD_VARIANT
 	#define ADD_VARIANT(f) f
 #endif
-void *worker_loop(Edge264Decoder *d);
-void *worker_loop_v2(Edge264Decoder *d);
-void *worker_loop_v3(Edge264Decoder *d);
-void *worker_loop_log(Edge264Decoder *d);
+void *worker_loop(void *d);
+void *worker_loop_v2(void *d);
+void *worker_loop_v3(void *d);
+void *worker_loop_log(void *d);
 int ignore_NAL_log(Edge264Decoder *dec, Edge264UnrefCb unref_cb, void *unref_arg);
 int unsup_NAL_log(Edge264Decoder *dec, Edge264UnrefCb unref_cb, void *unref_arg);
 int parse_slice_layer_without_partitioning(Edge264Decoder *dec, Edge264UnrefCb unref_cb, void *unref_arg);

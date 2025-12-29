@@ -45,20 +45,6 @@ static int flt(const struct dirent *a) {
 static int cmp(const struct dirent **a, const struct dirent **b) {
 	return -strcasecmp((*a)->d_name, (*b)->d_name);
 }
-static const char *errno_str(int e) {
-	switch (e) {
-		case 0: return "0";
-		case ENOTSUP: return "ENOTSUP";
-		case EBADMSG: return "EBADMSG";
-		case EINVAL: return "EINVAL";
-		case ENODATA: return "ENODATA";
-		case ENOMEM: return "ENOMEM";
-		case ENOBUFS: return "ENOBUFS";
-		case EWOULDBLOCK: return "EWOULDBLOCK";
-		case ENOMSG: return "ENOMSG";
-		default: return "UNKNOWN";
-	}
-}
 
 
 
@@ -109,7 +95,7 @@ static void parse_NALs(const char *name, const uint8_t *nal, const uint8_t *end,
 			nal = start_code + 3;
 		ASSERT(res == expect[i],
 			"%s: NAL at index %d returned %s where %s was expected\n",
-			name, i, errno_str(res), errno_str(expect[i]));
+			name, i, ret_to_str(res), ret_to_str(expect[i]));
 		while (!edge264_get_frame(dec, &out, 0))
 			count_frames += 1;
 	}

@@ -43,7 +43,7 @@ static inline size_t get_bytes(Edge264GetBits *gb, int nbytes)
 	i8x16 lt3 = v <= 3;
 	u8x16 x = shr128(v, 2);
 	#if defined(__SSE2__)
-		unsigned test = movemask(eq0 & shr128(eq0, 1) & shr128(lt3, 2));
+		unsigned test = movemask(eq0 & shrz128(eq0, 1) & shrz128(lt3, 2));
 		if (__builtin_expect(test, 0)) {
 			unsigned three = movemask(x == 3);
 			unsigned stop = test & ~three;
@@ -60,7 +60,7 @@ static inline size_t get_bytes(Edge264GetBits *gb, int nbytes)
 			}
 		}
 	#elif defined(__ARM_NEON)
-		uint64_t test = (uint64_t)vshrn_n_u16(eq0 & shr128(eq0, 1) & shr128(lt3, 2), 4);
+		uint64_t test = (uint64_t)vshrn_n_u16(eq0 & shrz128(eq0, 1) & shrz128(lt3, 2), 4);
 		if (__builtin_expect(test, 0)) {
 			test &= 0x1111111111111111ULL;
 			uint64_t three = (uint64_t)vshrn_n_u16(x == 3, 4);

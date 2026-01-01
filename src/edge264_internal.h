@@ -634,6 +634,7 @@ enum IntraChromaModes {
  * _ shrd128 - concatenate two vectors and shift positions down then extract a single vector
  * _ shlv128 - shift positions up in byte increments by a variable amount while inserting zeros
  * _ shrv128 - shift positions down in byte increments by a variable amount while inserting zeros
+ * _ shrz128 - shift positions down in byte increments while inserting zeros
  * _ shrrs16 - shift signed 16-bit values right with rounding
  * _ shrru16 - shift unsigned 16-bit values right with rounding
  * _ shrpus16 - shift signed 16-bit values right then pack to 8-bit unsigned values
@@ -692,6 +693,7 @@ enum IntraChromaModes {
 	#define shr32(a, b) (i32x4)_mm_sra_epi32(a, b)
 	#define shl128(a, i) (i8x16)_mm_slli_si128(a, i)
 	#define shr128(a, i) (i8x16)_mm_srli_si128(a, i)
+	#define shrz128(a, i) (i8x16)_mm_srli_si128(a, i)
 	#define shrrs16(a, i) (((i16x8)(a) + (1 << (i - 1))) >> i)
 	#define shrru16(a, i) _mm_avg_epu16((i16x8)(a) >> (i - 1), (i16x8){})
 	#define shrpus16(a, b, i) (u8x16)_mm_packus_epi16((i16x8)(a) >> i, (i16x8)(b) >> i)
@@ -826,6 +828,7 @@ enum IntraChromaModes {
 	#define shrd128(l, h, i) (i8x16)vextq_s8(l, h, i)
 	#define shlv128(a, i) (i8x16)vqtbl1q_s8(a, *(i8x16 *)(shz_mask + 16 - (i)))
 	#define shrv128(a, i) (i8x16)vqtbl1q_s8(a, *(i8x16 *)(shz_mask + 16 + (i)))
+	#define shrz128(a, i) (i8x16)vextq_s8(a, (i8x16){}, i)
 	#define shrrs16(a, i) (i16x8)vrshrq_n_s16(a, i)
 	#define shrru16(a, i) (i16x8)vrshrq_n_u16(a, i)
 	#define shrrpu16(a, b, i) (u8x16)vqrshrn_high_n_u16(vqrshrn_n_u16(a, i), b, i)

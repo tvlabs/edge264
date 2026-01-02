@@ -1689,7 +1689,7 @@ static noinline void CAFUNC(parse_slice_data)
 		
 		// set and reset neighbouring pointers depending on their availability
 		int unavail16x16 = (ctx->mbx == 0 ? 9 : 0) | (ctx->mbx == ctx->t.pic_width_in_mbs - 1) << 2 | (ctx->mby == 0 ? 14 : 0);
-		int filter_edges = ~unavail16x16;
+		int filter_edges = 4 | 3 & ~unavail16x16;
 		mbA = mb - 1;
 		mbB = mbA - ctx->t.pic_width_in_mbs;
 		mbC = mbB + 1;
@@ -1783,8 +1783,7 @@ static noinline void CAFUNC(parse_slice_data)
 		ctx->unavail4x4_v[0] = block_unavailability[unavail16x16];
 		ctx->inc.v = fA + fB + (fB & flags_twice.v);
 		mb->f.v = (i8x16){};
-		if (ctx->t.disable_deblocking_filter_idc != 1)
-			mb->filter_edges = filter_edges;
+		mb->filter_edges = (ctx->t.disable_deblocking_filter_idc != 1) ? filter_edges : 0;
 		mb->QP_s = ctx->t.QP_s;
 		if (ctx->t.ChromaArrayType == 1) { // FIXME 4:2:2
 			ctx->unavail4x4_v[1] = shuffle(ctx->unavail4x4_v[0], (i8x16){0, 4, 8, 12, 0, 4, 8, 12, -1, -1, -1, -1, -1, -1, -1, -1});

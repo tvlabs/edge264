@@ -491,6 +491,7 @@ def main():
 	print(f"Generating {sys.argv[2]}...")
 	with open(sys.argv[2], "wb") as f:
 		for nal in map_dicts(nals):
+			if "nal_ref_idc" not in vars(nal): continue
 			f.write(b"\x00\x00\x00\x01")
 			bits = 1 # leading set bit
 			bits <<= 1 # forbidden_zero_bit

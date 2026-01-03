@@ -148,8 +148,8 @@ int ADD_VARIANT(parse_sei)(Edge264Decoder *dec, Edge264UnrefCb unref_cb, void *u
 		if (payloadType <= 205 && parse_sei_message[payloadType])
 			sei_ret = parse_sei_message[payloadType](dec);
 		sei_ret = print_dec(dec, "    sei_res: %s\n", sei_ret);
-		if (nal_ret == 0 || sei_ret == EBADMSG)
-			nal_ret = sei_ret;
+		if (sei_ret == EBADMSG)
+			nal_ret = EBADMSG;
 		if (sei_ret) {
 			dec->gb = start;
 			while (payloadSize-- > 0)

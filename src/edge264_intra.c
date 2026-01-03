@@ -10,143 +10,38 @@
  * 
  * Choosing between the different possibilities of a same function is tricky,
  * in general I favor in order:
- * _ the fastest code, obviously (http://www.agner.org/optimize/#manual_instr_tab),
+ * _ the fastest code, obviously
  * _ a short dependency chain (more freedom for compilers to reorder),
- * _ smaller code+data (avoid excessive use of pshufb),
+ * _ less instructions (while avoiding excessive use of shuffle for ARM),
  * _ readable code.
  * 
  * My thumb rules:
  * _ Aligned reads are favored if they incur no additional instructions.
- * _ pshufb is used iff doing otherwise would require 3+ instructions.
+ * _ shuffle is used iff doing otherwise would require 3+ instructions.
  * _ Favor vector over scalar code to avoid callee-save conventions.
  */
 
 #include "edge264_internal.h"
 
-#if defined(__SSE2__)
+#if defined(__wasm_simd128__)
+	#define spreadh8(a) (i8x16)__builtin_shufflevector((i8x16)(a), (i8x16){}, 0, 1, 2, 3, 4, 5, 6, 7, 7, 7, 7, 7, 7, 7, 7, 7)
+	#define spreadq8(a) (i8x16)__builtin_shufflevector((i8x16)(a), (i8x16){}, 0, 1, 2, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3)
+	static i8x16 lowpass8(i8x16 l, i8x16 m, i8x16 r) {return avgu8(subu8(avgu8(l, r), (l ^ r) & set8(1)), m);}
+#elif defined(__SSE2__)
 	#define spreadh8(a) shuffle(a, (i8x16){0, 1, 2, 3, 4, 5, 6, 7, 7, 7, 7, 7, 7, 7, 7, 7})
 	#define spreadq8(a) shuffle(a, (i8x16){0, 1, 2, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3})
 	static always_inline i8x16 lowpass8(i8x16 l, i8x16 m, i8x16 r) {return avgu8(subu8(avgu8(l, r), (l ^ r) & set8(1)), m);}
-	#ifdef __SSE4_1__
-		static i8x16 ldleft4x4(const uint8_t *p, size_t stride) {
-			i8x16 v = {};
-			v[0] = p[-1];
-			v[1] = p[stride - 1];
-			v[2] = p[stride * 2 - 1];
-			v[3] = p[stride * 3 - 1];
-			return v;
-		}
-		static i8x16 ldedge4x4(const uint8_t *p, size_t stride) {
-			i8x16 v = loadu128(p - stride - 5);
-			v[3] = p[-1];
-			v[2] = p[stride - 1];
-			v[1] = p[stride * 2 - 1];
-			v[0] = p[stride * 3 - 1];
-			return v;
-		}
-		static i8x16 ldleft8x8(const uint8_t *p, size_t stride, i8x16 v) {
-			const uint8_t *p0 = p - 1;
-			const uint8_t *p4 = p0 + stride * 4;
-			size_t stride3 = stride * 3;
-			v[1] = *p0;
-			v[2] = p0[stride];
-			v[3] = p0[stride * 2];
-			v[4] = p0[stride3];
-			v[5] = *p4;
-			v[6] = p4[stride];
-			v[7] = p4[stride * 2];
-			v[8] = v[9] = p4[stride3];
-			return lowpass8(shr128(v, 2), shr128(v, 1), v);
-		}
-		static i8x16 ldedge8x8(const uint8_t *p, size_t stride) {
-			const uint8_t *p0 = p - 1;
-			const uint8_t *p4 = p + stride * 4 - 1;
-			size_t stride3 = stride * 3;
-			i8x16 a2h = set8(p4[stride3]);
-			a2h[15] = *p0;
-			a2h[14] = p0[stride];
-			a2h[13] = p0[stride * 2];
-			a2h[12] = p0[stride3];
-			a2h[11] = *p4;
-			a2h[10] = p4[stride];
-			a2h[9] = p4[stride * 2];
-			return a2h;
-		}
-		static i8x16 ldleftC(const uint8_t *p, size_t stride) {
-			size_t stride3 = stride * 3;
-			const uint8_t *p0 = p - 1;
-			const uint8_t *p4 = p0 + stride * 4;
-			const uint8_t *p8 = p0 + stride * 8;
-			const uint8_t *pC = p4 + stride * 8;
-			return (i8x16){*p0, p0[stride * 2], *p4, p4[stride * 2], *p8, p8[stride * 2], *pC, pC[stride * 2], p0[stride], p0[stride3], p4[stride], p4[stride3], p8[stride], p8[stride3], pC[stride], pC[stride3]};
-		}
-	#else
-		static i8x16 ldleft4x4(const uint8_t *p, size_t stride) {
-			p -= 4;
-			i8x16 v0 = ziplo8(loada32(p             ), loada32(p + stride    ));
-			i8x16 v1 = ziplo8(loada32(p + stride * 2), loada32(p + stride * 3));
-			return shr128(ziplo16(v0, v1), 12);
-		}
-		static i8x16 ldedge4x4(const uint8_t *p, size_t stride) {
-			i8x16 v0 = loadu64(p - stride     - 1);
-			i8x16 v1 = loada32(p              - 4);
-			i8x16 v2 = loada32(p + stride     - 4);
-			i8x16 v3 = loada32(p + stride * 2 - 4);
-			i8x16 v4 = loada32(p + stride * 3 - 4);
-			return shrd128(ziplo16(ziplo8(v4, v3), ziplo8(v2, v1)), v0, 12);
-		}
-		static i8x16 ldleft8x8(const uint8_t *p, size_t stride, i8x16 v) {
-			const uint8_t *p0 = p - 4;
-			const uint8_t *p4 = p0 + stride * 4;
-			size_t stride3 = stride * 3;
-			i8x16 v0 = ziplo8((u32x4)v << 24, loada32(p0));
-			i8x16 v1 = ziplo8(loada32(p0 + stride), loada32(p0 + stride * 2));
-			i8x16 v2 = ziplo8(loada32(p0 + stride3), loada32(p4));
-			i8x16 v3 = ziplo8(loada32(p4 + stride), loada32(p4 + stride * 2));
-			i8x16 v4 = loada32(p4 + stride3 + 3);
-			i8x16 v5 = ziphi32(ziplo16(v0, v1), ziplo16(v2, v3));
-			i8x16 v6 = ziplo8(v4, v4);
-			return lowpass8(shrd128(v5, v6, 8), shrd128(v5, v6, 9), shrd128(v5, v6, 10));
-		}
-		static i8x16 ldedge8x8(const uint8_t *p, size_t stride) {
-			const uint8_t *p0 = p - 4;
-			const uint8_t *p4 = p + stride * 4 - 8;
-			size_t stride3 = stride * 3;
-			i8x16 gh = ziplo8(loada32(p0 + stride), loada32(p0));
-			i8x16 ef = ziplo8(loada32(p0 + stride3), loada32(p0 + stride * 2));
-			i8x16 cd = ziplo8(loada64(p4 + stride), loada64(p4));
-			i8x16 a = loada64(p4 + stride3);
-			i8x16 ab = ziplo8(a, loada64(p4 + stride * 2));
-			return shuffleps(a, ziphi32(ziphi16(ab, cd), ziplo16(ef, gh)), 0, 1, 2, 3);
-		}
-		static i8x16 ldleftC(const uint8_t *p, size_t stride) {
-			size_t stride3 = stride * 3;
-			const uint8_t *p0 = p - 4;
-			const uint8_t *p4 = p0 + stride * 4;
-			const uint8_t *p8 = p0 + stride * 8;
-			const uint8_t *pC = p4 + stride * 8;
-			i8x16 v0 = ziplo8(loada32(p0), loada32(p0 + stride * 2));
-			i8x16 v1 = ziplo8(loada32(p4), loada32(p4 + stride * 2));
-			i8x16 v2 = ziplo8(loada32(p8), loada32(p8 + stride * 2));
-			i8x16 v3 = ziplo8(loada32(pC), loada32(pC + stride * 2));
-			i8x16 v4 = ziplo8(loada32(p0 + stride), loada32(p0 + stride3));
-			i8x16 v5 = ziplo8(loada32(p4 + stride), loada32(p4 + stride3));
-			i8x16 v6 = ziplo8(loada32(p8 + stride), loada32(p8 + stride3));
-			i8x16 v7 = ziplo8(loada32(pC + stride), loada32(pC + stride3));
-			i8x16 v8 = ziphi32(ziplo16(v0, v1), ziplo16(v2, v3));
-			i8x16 v9 = ziphi32(ziplo16(v4, v5), ziplo16(v6, v7));
-			return ziphi64(v8, v9);
-		}
-	#endif
 #elif defined(__ARM_NEON)
 	#define addlou8(a, b) (i16x8)vaddl_u8(vget_low_s8(a), vget_low_s8(b))
 	#define lowpass8(l, m, r) (i8x16)vrhaddq_u8(vhaddq_u8(l, r), m)
 	#define sublou8(a, b) (i16x8)vsubl_u8(vget_low_s8(a), vget_low_s8(b))
 	static always_inline i8x16 spreadh8(i8x16 a) {return vzip1q_s64(a, vdupq_laneq_s8(a, 7));}
 	static always_inline i8x16 spreadq8(i8x16 a) {return vextq_s8(vextq_s8(a, a, 4), vdupq_laneq_s8(a, 3), 12);}
+#endif
+
+#if defined(__wasm_simd128__) || defined(__ARM_NEON)
 	static i8x16 ldleft4x4(const uint8_t *p, size_t stride) {
-		p -= 1;
-		i8x16 v = {*p};
+		i8x16 v = {*(p -= 1)};
 		v[1] = *(p += stride);
 		v[2] = *(p += stride);
 		v[3] = *(p + stride);
@@ -154,16 +49,14 @@
 	}
 	static i8x16 ldedge4x4(const uint8_t *p, size_t stride) {
 		i8x16 v = loadu128(p - 5 - stride);
-		p -= 1;
-		v[3] = *p;
+		v[3] = *(p -= 1);
 		v[2] = *(p += stride);
 		v[1] = *(p += stride);
 		v[0] = *(p + stride);
 		return v;
 	}
 	static i8x16 ldleft8x8(const uint8_t *p, size_t stride, i8x16 v0) {
-		p -= 1;
-		v0[1] = *p;
+		v0[1] = *(p -= 1);
 		v0[2] = *(p += stride);
 		v0[3] = *(p += stride);
 		v0[4] = *(p += stride);
@@ -174,9 +67,8 @@
 		return lowpass8(shr128(v1, 2), shr128(v1, 1), v1);
 	}
 	static i8x16 ldedge8x8(const uint8_t *p, size_t stride) {
-		p -= 1;
 		i8x16 v = {};
-		v[15] = *p;
+		v[15] = *(p -= 1);
 		v[14] = *(p += stride);
 		v[13] = *(p += stride);
 		v[12] = *(p += stride);
@@ -187,8 +79,7 @@
 		return v;
 	}
 	static i8x16 ldleftC(const uint8_t *p, size_t stride) {
-		p -= 1;
-		i8x16 v = {*p};
+		i8x16 v = {*(p -= 1)};
 		v[8] = *(p += stride);
 		v[1] = *(p += stride);
 		v[9] = *(p += stride);
@@ -205,6 +96,116 @@
 		v[7] = *(p += stride);
 		v[15] = *(p + stride);
 		return v;
+	}
+#elif defined(__SSE4_1__)
+	static i8x16 ldleft4x4(const uint8_t *p, size_t stride) {
+		i8x16 v = {};
+		v[0] = p[-1];
+		v[1] = p[stride - 1];
+		v[2] = p[stride * 2 - 1];
+		v[3] = p[stride * 3 - 1];
+		return v;
+	}
+	static i8x16 ldedge4x4(const uint8_t *p, size_t stride) {
+		i8x16 v = loadu128(p - stride - 5);
+		v[3] = p[-1];
+		v[2] = p[stride - 1];
+		v[1] = p[stride * 2 - 1];
+		v[0] = p[stride * 3 - 1];
+		return v;
+	}
+	static i8x16 ldleft8x8(const uint8_t *p, size_t stride, i8x16 v) {
+		const uint8_t *p0 = p - 1;
+		const uint8_t *p4 = p0 + stride * 4;
+		size_t stride3 = stride * 3;
+		v[1] = *p0;
+		v[2] = p0[stride];
+		v[3] = p0[stride * 2];
+		v[4] = p0[stride3];
+		v[5] = *p4;
+		v[6] = p4[stride];
+		v[7] = p4[stride * 2];
+		v[8] = v[9] = p4[stride3];
+		return lowpass8(shr128(v, 2), shr128(v, 1), v);
+	}
+	static i8x16 ldedge8x8(const uint8_t *p, size_t stride) {
+		const uint8_t *p0 = p - 1;
+		const uint8_t *p4 = p + stride * 4 - 1;
+		size_t stride3 = stride * 3;
+		i8x16 a2h = set8(p4[stride3]);
+		a2h[15] = *p0;
+		a2h[14] = p0[stride];
+		a2h[13] = p0[stride * 2];
+		a2h[12] = p0[stride3];
+		a2h[11] = *p4;
+		a2h[10] = p4[stride];
+		a2h[9] = p4[stride * 2];
+		return a2h;
+	}
+	static i8x16 ldleftC(const uint8_t *p, size_t stride) {
+		size_t stride3 = stride * 3;
+		const uint8_t *p0 = p - 1;
+		const uint8_t *p4 = p0 + stride * 4;
+		const uint8_t *p8 = p0 + stride * 8;
+		const uint8_t *pC = p4 + stride * 8;
+		return (i8x16){*p0, p0[stride * 2], *p4, p4[stride * 2], *p8, p8[stride * 2], *pC, pC[stride * 2], p0[stride], p0[stride3], p4[stride], p4[stride3], p8[stride], p8[stride3], pC[stride], pC[stride3]};
+	}
+#elif defined(__SSE2__)
+	static i8x16 ldleft4x4(const uint8_t *p, size_t stride) {
+		p -= 4;
+		i8x16 v0 = ziplo8(loada32(p             ), loada32(p + stride    ));
+		i8x16 v1 = ziplo8(loada32(p + stride * 2), loada32(p + stride * 3));
+		return shr128(ziplo16(v0, v1), 12);
+	}
+	static i8x16 ldedge4x4(const uint8_t *p, size_t stride) {
+		i8x16 v0 = loadu64(p - stride     - 1);
+		i8x16 v1 = loada32(p              - 4);
+		i8x16 v2 = loada32(p + stride     - 4);
+		i8x16 v3 = loada32(p + stride * 2 - 4);
+		i8x16 v4 = loada32(p + stride * 3 - 4);
+		return shrd128(ziplo16(ziplo8(v4, v3), ziplo8(v2, v1)), v0, 12);
+	}
+	static i8x16 ldleft8x8(const uint8_t *p, size_t stride, i8x16 v) {
+		const uint8_t *p0 = p - 4;
+		const uint8_t *p4 = p0 + stride * 4;
+		size_t stride3 = stride * 3;
+		i8x16 v0 = ziplo8((u32x4)v << 24, loada32(p0));
+		i8x16 v1 = ziplo8(loada32(p0 + stride), loada32(p0 + stride * 2));
+		i8x16 v2 = ziplo8(loada32(p0 + stride3), loada32(p4));
+		i8x16 v3 = ziplo8(loada32(p4 + stride), loada32(p4 + stride * 2));
+		i8x16 v4 = loada32(p4 + stride3 + 3);
+		i8x16 v5 = ziphi32(ziplo16(v0, v1), ziplo16(v2, v3));
+		i8x16 v6 = ziplo8(v4, v4);
+		return lowpass8(shrd128(v5, v6, 8), shrd128(v5, v6, 9), shrd128(v5, v6, 10));
+	}
+	static i8x16 ldedge8x8(const uint8_t *p, size_t stride) {
+		const uint8_t *p0 = p - 4;
+		const uint8_t *p4 = p + stride * 4 - 8;
+		size_t stride3 = stride * 3;
+		i8x16 gh = ziplo8(loada32(p0 + stride), loada32(p0));
+		i8x16 ef = ziplo8(loada32(p0 + stride3), loada32(p0 + stride * 2));
+		i8x16 cd = ziplo8(loada64(p4 + stride), loada64(p4));
+		i8x16 a = loada64(p4 + stride3);
+		i8x16 ab = ziplo8(a, loada64(p4 + stride * 2));
+		return shuffleps(a, ziphi32(ziphi16(ab, cd), ziplo16(ef, gh)), 0, 1, 2, 3);
+	}
+	static i8x16 ldleftC(const uint8_t *p, size_t stride) {
+		size_t stride3 = stride * 3;
+		const uint8_t *p0 = p - 4;
+		const uint8_t *p4 = p0 + stride * 4;
+		const uint8_t *p8 = p0 + stride * 8;
+		const uint8_t *pC = p4 + stride * 8;
+		i8x16 v0 = ziplo8(loada32(p0), loada32(p0 + stride * 2));
+		i8x16 v1 = ziplo8(loada32(p4), loada32(p4 + stride * 2));
+		i8x16 v2 = ziplo8(loada32(p8), loada32(p8 + stride * 2));
+		i8x16 v3 = ziplo8(loada32(pC), loada32(pC + stride * 2));
+		i8x16 v4 = ziplo8(loada32(p0 + stride), loada32(p0 + stride3));
+		i8x16 v5 = ziplo8(loada32(p4 + stride), loada32(p4 + stride3));
+		i8x16 v6 = ziplo8(loada32(p8 + stride), loada32(p8 + stride3));
+		i8x16 v7 = ziplo8(loada32(pC + stride), loada32(pC + stride3));
+		i8x16 v8 = ziphi32(ziplo16(v0, v1), ziplo16(v2, v3));
+		i8x16 v9 = ziphi32(ziplo16(v4, v5), ziplo16(v6, v7));
+		return ziphi64(v8, v9);
 	}
 #endif
 

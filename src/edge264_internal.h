@@ -762,8 +762,7 @@ static const int8_t shz_mask[48] = {
 	#define shr128(a, i) (i8x16)_mm_srli_si128(a, i)
 	#define shrz128(a, i) (i8x16)_mm_srli_si128(a, i)
 	#define shrrs16(a, i) (((i16x8)(a) + (1 << (i - 1))) >> i)
-	// FIXME unsigned shift?
-	#define shrru16(a, i) (u16x8)_mm_avg_epu16((i16x8)(a) >> (i - 1), (i16x8){})
+	#define shrru16(a, i) (u16x8)_mm_avg_epu16((u16x8)(a) >> (i - 1), (i16x8){})
 	#define shrpus16(a, b, i) (u8x16)_mm_packus_epi16((i16x8)(a) >> i, (i16x8)(b) >> i)
 	#define shuffle32(a, i, j, k, l) (i32x4)_mm_shuffle_epi32(a, _MM_SHUFFLE(l, k, j, i))
 	#define shufflehi(a, i, j, k, l) (i16x8)_mm_shufflehi_epi16(a, _MM_SHUFFLE(l, k, j, i))
@@ -771,10 +770,7 @@ static const int8_t shz_mask[48] = {
 	#define shuffleps(a, b, i, j, k, l) (i32x4)_mm_shuffle_ps((__m128)(a), (__m128)(b), _MM_SHUFFLE(l, k, j, i))
 	#define subu8(a, b) (u8x16)_mm_subs_epu8(a, b)
 	#define subs16(a, b) (i16x8)_mm_subs_epi16(a, b)
-	// FIXME functions? unsigned?
-	#define sum8(a) ({i16x8 _v = _mm_sad_epu8(a, (i8x16){}); _v + (i16x8)_mm_srli_si128(_v, 8);})
-	#define sumh8(a) (i16x8)_mm_sad_epu8(a, (u8x16){})
-	#define sumd8(a, b) ({i16x8 zero = {}, _v = (i16x8)_mm_sad_epu8(a, (u8x16){}) + (i16x8)_mm_sad_epu8(b, (u8x16){}); _v + (i16x8)_mm_srli_si128(_v, 8);})
+	#define sumh8(a) (u16x8)_mm_sad_epu8(a, (i8x16){})
 	#define unziplo32(a, b) (i32x4)_mm_shuffle_ps((__m128)(a), (__m128)(b), _MM_SHUFFLE(2, 0, 2, 0))
 	#define unziphi32(a, b) (i32x4)_mm_shuffle_ps((__m128)(a), (__m128)(b), _MM_SHUFFLE(3, 1, 3, 1))
 	#define ziplo8(a, b) (i8x16)_mm_unpacklo_epi8(a, b)
@@ -785,11 +781,9 @@ static const int8_t shz_mask[48] = {
 	#define ziphi16(a, b) (i16x8)_mm_unpackhi_epi16(a, b)
 	#define ziphi32(a, b) (i32x4)_mm_unpackhi_epi32(a, b)
 	#define ziphi64(a, b) (i64x2)_mm_unpackhi_epi64(a, b)
-	#ifndef __wasm__ // does not support inline asm
-		static always_inline size_t shld(size_t l, size_t h, int i) {asm("shld %%cl, %1, %0" : "+rm" (h) : "r" (l), "c" (i)); return h;}
-	#else
-		static always_inline size_t shld(size_t l, size_t h, int i) {return h << i | l >> (SIZE_BIT - i);}
-	#endif
+	static always_inline size_t shld(size_t l, size_t h, int i) {asm("shld %%cl, %1, %0" : "+rm" (h) : "r" (l), "c" (i)); return h;}
+	static always_inline u16x8 sum8(u8x16 a) {u16x8 v = _mm_sad_epu8(a, (i8x16){}); return v + (u16x8)_mm_srli_si128(v, 8);}
+	static always_inline u16x8 sumd8(u8x16 a, u8x16 b) {i16x8 zero = {}, v = (i16x8)_mm_sad_epu8(a, zero) + (i16x8)_mm_sad_epu8(b, zero); return v + (i16x8)_mm_srli_si128(v, 8);}
 	#ifdef __SSE4_1__
 		#define cvtlo8u16(a) (i16x8)_mm_cvtepu8_epi16(a)
 		#define cvtlo8s16(a) (i16x8)_mm_cvtepi8_epi16(a)

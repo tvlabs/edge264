@@ -584,7 +584,70 @@ static cold noinline void decode_intra16x16(uint8_t * restrict p, size_t stride,
 		break;
 	
 	case I16x16_P_8: {
-		#if defined(__SSE2__)
+		#if defined(__wasm_simd128__)
+			i8x16 t = loadu64x2(pT - 1, pT + 8);
+			const uint8_t *q = p - 1;
+			i8x16 l = t;
+			l[1] = *q;
+			l[2] = *(q += stride);
+			l[3] = *(q += stride);
+			l[4] = *(q += stride);
+			l[5] = *(q += stride);
+			l[6] = *(q += stride);
+			l[7] = *(q += stride);
+			l[8] = *(q += stride * 2);
+			l[9] = *(q += stride);
+			l[10] = *(q += stride);
+			l[11] = *(q += stride);
+			l[12] = *(q += stride);
+			l[13] = *(q += stride);
+			l[14] = *(q += stride);
+			l[15] = *(q + stride);
+			i8x16 m = {8, 7, 6, 5, 4, 3, 2, 1, 1, 2, 3, 4, 5, 6, 7, 8};
+			i16x8 v0 = wasm_u16x8_extmul_low_u8x16(t, m);
+			i16x8 v1 = wasm_u16x8_extmul_high_u8x16(t, m);
+			i16x8 v2 = wasm_u16x8_extmul_low_u8x16(l, m);
+			i16x8 v3 = wasm_u16x8_extmul_high_u8x16(l, m);
+			i32x4 v4 = wasm_i32x4_extadd_pairwise_i16x8(v1 - v0);
+			i32x4 v5 = wasm_i32x4_extadd_pairwise_i16x8(v3 - v2);
+			i32x4 v6 = wasm_i32x4_extadd_pairwise_i16x8(packs32(v4, v5));
+			i32x4 HV = v6 + (i32x4)((i64x2)v6 >> 32);
+			i16x8 v7 = shrrs16(HV + (HV >> 2), 4); // (5 * HV + 32) >> 6, -717..717
+			i16x8 mul = wasm_u16x8_extend_high_u8x16(m);
+			i16x8 a = broadcast16((((u16x8)t >> 8) + ((u16x8)l >> 8) + 1) << 4, 7);
+			i16x8 b = broadcast16(v7, 0);
+			i16x8 c = broadcast16(v7, 4);
+		#elif defined(__ARM_NEON)
+			i8x16 tl = loadu64(pT - 1);
+			i8x16 tr = loada64(pT + 8);
+			const uint8_t *q = p - 1;
+			i8x16 lt = tl, lb = {};
+			lt[1] = *q;
+			lt[2] = *(q += stride);
+			lt[3] = *(q += stride);
+			lt[4] = *(q += stride);
+			lt[5] = *(q += stride);
+			lt[6] = *(q += stride);
+			lt[7] = *(q += stride);
+			lb[0] = *(q += stride * 2);
+			lb[1] = *(q += stride);
+			lb[2] = *(q += stride);
+			lb[3] = *(q += stride);
+			lb[4] = *(q += stride);
+			lb[5] = *(q += stride);
+			lb[6] = *(q += stride);
+			lb[7] = *(q + stride);
+			i16x8 mul = {1, 2, 3, 4, 5, 6, 7, 8};
+			i16x8 v0 = sublou8(tr, vrev64q_s8(tl)) * mul;
+			i16x8 v1 = sublou8(lb, vrev64q_s8(lt)) * mul;
+			i16x8 v2 = vpaddq_s16(v0, v1);
+			i16x8 v3 = vpaddq_s16(v2, v2);
+			i16x8 HV = (i16x8)vtrn1q_s16(v3, v3) + (i16x8)vtrn2q_s16(v3, v3); // {H, H, V, V, 0, 0, 0, 0}, -9180..9180
+			i16x8 v4 = shrrs16(HV + (HV >> 2), 4); // (5 * HV + 32) >> 6, -717..717
+			i16x8 a = (broadcast16(addlou8(tr, lb) - -1, 7)) << 4;
+			i16x8 b = broadcast32(v4, 0);
+			i16x8 c = broadcast32(v4, 1);
+		#elif defined(__SSE2__)
 			size_t nstride = -stride;
 			#ifdef __SSE4_1__
 				const uint8_t *p0 = p - 1;
@@ -630,42 +693,15 @@ static cold noinline void decode_intra16x16(uint8_t * restrict p, size_t stride,
 			i16x8 v2 = (i16x8)ziplo32(v0, v1) + (i16x8)ziphi32(v0, v1);
 			i16x8 v3 = v2 + (i16x8)shr128(v2, 8);
 			i16x8 HV = v3 + shufflelo(v3, 1, 0, 3, 2); // H, H, V, V
+			i16x8 v4 = shrrs16(HV + (HV >> 2), 4); // (5 * HV + 32) >> 6, -717..717
 			i16x8 a = (broadcast16((i16x8)shr128(t, 15) + (i16x8)shr128(l, 15), 0) - -1) << 4;
-		#elif defined(__ARM_NEON)
-			i8x16 tl = loadu64(pT - 1);
-			i8x16 tr = loada64(pT + 8);
-			const uint8_t *q = p - 1;
-			i8x16 lt = tl, lb = {};
-			lt[1] = *q;
-			lt[2] = *(q += stride);
-			lt[3] = *(q += stride);
-			lt[4] = *(q += stride);
-			lt[5] = *(q += stride);
-			lt[6] = *(q += stride);
-			lt[7] = *(q += stride);
-			lb[0] = *(q += stride * 2);
-			lb[1] = *(q += stride);
-			lb[2] = *(q += stride);
-			lb[3] = *(q += stride);
-			lb[4] = *(q += stride);
-			lb[5] = *(q += stride);
-			lb[6] = *(q += stride);
-			lb[7] = *(q + stride);
-			i16x8 mul = {1, 2, 3, 4, 5, 6, 7, 8};
-			i16x8 v0 = sublou8(tr, vrev64q_s8(tl)) * mul;
-			i16x8 v1 = sublou8(lb, vrev64q_s8(lt)) * mul;
-			i16x8 v2 = vpaddq_s16(v0, v1);
-			i16x8 v3 = vpaddq_s16(v2, v2);
-			i16x8 HV = (i16x8)vtrn1q_s16(v3, v3) + (i16x8)vtrn2q_s16(v3, v3); // {H, H, V, V, 0, 0, 0, 0}, -9180..9180
-			i16x8 a = (broadcast16(addlou8(tr, lb) - -1, 7)) << 4;
+			i16x8 b = broadcast32(v4, 0);
+			i16x8 c = broadcast32(v4, 1);
 		#endif
-		i16x8 v4 = shrrs16(HV + (HV >> 2), 4); // (5 * HV + 32) >> 6, -717..717
-		i16x8 b = broadcast32(v4, 0);
-		i16x8 c = broadcast32(v4, 1);
-		i16x8 v5 = (a + c) - (c << 3) + (b * mul);
-		i16x8 v6 = v5 - (b << 3);
-		for (int i = 16; i--; v6 += c, v5 += c, p += stride)
-			*(i8x16 *)p = shrpus16(v6, v5, 5);
+		i16x8 w0 = (a + c) - (c << 3) + (b * mul);
+		i16x8 w1 = w0 - (b << 3);
+		for (int i = 16; i--; w1 += c, w0 += c, p += stride)
+			*(i8x16 *)p = shrpus16(w1, w0, 5);
 		} return;
 	}
 	for (int i = 0; i < 16; i++, p += stride)

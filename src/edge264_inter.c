@@ -47,6 +47,7 @@
 		i16x8 v1 = maddubs(_##b##0, mul15) + maddubs(shrd128(_##b##0, _##b##8, 4), mul20) + maddubs(shrd128(_##b##0, _##b##8, 8), mul51)
 #elif defined(__ARM_NEON)
 	static const i16x8 mul205 = {20, -5};
+	#define cvtlo8s16(a) (i16x8)vmovl_s8(vget_low_s8(a))
 	#ifdef __clang__ // reimplement vmlaq_s16 to prevent clang from splitting it
 		#define mla16(a, b, c) ({i8x16 _a = a; asm("mla %0.8h, %1.8h, %2.8h" : "+w" (_a) : "w" (b), "w" (c)); _a;})
 		#define mlai16(a, b, c, i) ({i8x16 _a = a; asm("mla %0.8h, %1.8h, %2.h[%3]" : "+w" (_a) : "w" (b), "x" (c), "i" (i)); _a;})
@@ -213,7 +214,7 @@ enum {
 static void decode_inter_luma(int mode, int h, size_t sstride, const uint8_t * restrict src2, size_t dstride, uint8_t * restrict dst, i8x16 wod) {
 	i16x8 o = broadcast16(wod, 3);
 	i8x16 w8 = broadcast16(wod, 0); // for SSE
-	i8x16 w16 = cvtlo8s16(wod); // for NEON
+	i8x16 w16 = cvtlo8i16(wod); // for NEON
 	i16x8 wd64 = shr128(shl128(wod, 2), 14); // for SSE
 	i16x8 wd16 = -broadcast16(wod, 6); // for NEON
 	i8x16 m0 = set8(-(0xd888 >> (mode & 15) & 1));
@@ -261,11 +262,7 @@ static void decode_inter_luma(int mode, int h, size_t sstride, const uint8_t * r
 			i16x8 h01 = shrrpus16(sixtapH4(l2, l3), sixtapH4(l4, l5), 5);
 			i8x16 s0 = shuffle(ziplo64(l2, l3), shufx);
 			i8x16 s1 = shuffle(ziplo64(l4, l5), shufx);
-			#if defined(__SSE2__)
-				i8x16 s = shuffleps(s0, s1, 0, 2, 0, 2);
-			#elif defined(__ARM_NEON)
-				i8x16 s = vuzp1q_s32(s0, s1);
-			#endif
+			i8x16 s = unziplo32(s0, s1);
 			i32x4 q = loada32x4(dst, dst + dstride, dst + dstride2, dst + dstride3);
 			i32x4 r = maddshr8(q, avgu8(ifelse_mask(m1, h01, s), h01), w8, w16, o, wd64, wd16);
 			*(int32_t *)(dst           ) = r[0];

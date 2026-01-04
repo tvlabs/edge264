@@ -673,7 +673,7 @@ static const int8_t shz_mask[48] = {
 	#define broadcast32(a, i) __builtin_shufflevector((i32x4)(a), (i32x4){}, i, i, i, i)
 	#define cvtlo8u16(a) (u16x8)wasm_u16x8_extend_low_u8x16(a)
 	#define cvthi8u16(a) (u16x8)wasm_u16x8_extend_high_u8x16(a)
-	#define cvtlo8s16(a) (i16x8)wasm_i16x8_extend_low_i8x16(a)
+	#define cvtlo8i16(a) (i16x8)wasm_i16x8_extend_low_i8x16(a)
 	#define cvtlo16u32(a) (u32x4)wasm_u32x4_extend_low_u16x8(a)
 	#define cvthi16u32(a) (u32x4)wasm_u32x4_extend_high_u16x8(a)
 	#define cvtuf32(a) (u32x4)wasm_i32x4_trunc_sat_f32x4(a)
@@ -786,7 +786,7 @@ static const int8_t shz_mask[48] = {
 	static always_inline u16x8 sumd8(u8x16 a, u8x16 b) {i16x8 zero = {}, v = (i16x8)_mm_sad_epu8(a, zero) + (i16x8)_mm_sad_epu8(b, zero); return v + (i16x8)_mm_srli_si128(v, 8);}
 	#ifdef __SSE4_1__
 		#define cvtlo8u16(a) (i16x8)_mm_cvtepu8_epi16(a)
-		#define cvtlo8s16(a) (i16x8)_mm_cvtepi8_epi16(a)
+		#define cvtlo8i16(a) (i16x8)_mm_cvtepi8_epi16(a)
 		#define cvtlo16u32(a) (i32x4)_mm_cvtepu16_epi32(a)
 		#define ifelse_mask(v, t, f) (i8x16)_mm_blendv_epi8(f, t, v)
 		#define ifelse_msb(v, t, f) (i8x16)_mm_blendv_epi8(f, t, v)
@@ -796,9 +796,9 @@ static const int8_t shz_mask[48] = {
 	#else
 		#define cvtlo8u16(a) (i16x8)ziplo8(a, (i8x16){})
 		#define cvtlo16u32(a) (i32x4)ziplo16(a, (i16x8){})
-		static always_inline i16x8 cvtlo8s16(i8x16 a) {return (i16x8)ziplo8(a, a) >> 8;}
+		static always_inline i16x8 cvtlo8i16(i8x16 a) {return (i16x8)ziplo8(a, a) >> 8;}
 		static always_inline i8x16 ifelse_mask(i8x16 v, i8x16 t, i8x16 f) { return t & v | f & ~v; }
-		static always_inline i8x16 ifelse_msb(i8x16 v, i8x16 t, i8x16 f) { v = (0 > v); return t & v | f & ~v; }
+		static always_inline i8x16 ifelse_msb(i8x16 v, i8x16 t, i8x16 f) { i8x16 m = (v < 0); return t & m | f & ~m; }
 		static always_inline i8x16 min8(i8x16 a, i8x16 b) { i8x16 v = b > a; return a & v | b & ~v; }
 		static always_inline i8x16 max8(i8x16 a, i8x16 b) { i8x16 v = a > b; return a & v | b & ~v; }
 		static always_inline u32x4 minw32(u32x4 a, u32x4 b) { i32x4 v = (i32x4)(a - b) < 0; return a & v | b & ~v; }
@@ -852,7 +852,7 @@ static const int8_t shz_mask[48] = {
 	#define broadcast32(a, i) (i32x4)vdupq_laneq_s32(a, i)
 	#define cvtlo8u16(a) (u16x8)vmovl_u8(vget_low_u8(a))
 	#define cvthi8u16(a) (u16x8)vmovl_high_u8(a)
-	#define cvtlo8s16(a) (i16x8)vmovl_s8(vget_low_s8(a))
+	#define cvtlo8i16(a) (i16x8)vmovl_s8(vget_low_s8(a))
 	#define cvtlo16u32(a) (u32x4)vmovl_u16(vget_low_u16(a))
 	#define cvthi16u32(a) (u32x4)vmovl_high_u16(a)
 	#define cvtuf32(a) (u32x4)vcvtq_u32_f32((float32x4_t)a)
@@ -911,6 +911,42 @@ static const int8_t shz_mask[48] = {
 	#define shufflez shuffle
 	#define shufflez2 shuffle2
 	#define sumh8 sum8
+#elif defined(__clang__)
+	#define abs8(a) (u8x16)__builtin_elementwise_abs((i8x16)(a))
+	#define abs16(a) (u16x8)__builtin_elementwise_abs((i16x8)(a))
+	#define broadcast8(a, i) __builtin_shufflevector((i8x16)(a), (i8x16){}, i, i, i, i, i, i, i, i, i, i, i, i, i, i, i, i)
+	#define broadcast16(a, i) __builtin_shufflevector((i16x8)(a), (i16x8){}, i, i, i, i, i, i, i, i)
+	#define broadcast32(a, i) __builtin_shufflevector((i32x4)(a), (i32x4){}, i, i, i, i)
+	#define min8(a, b) __builtin_elementwise_min((i8x16)(a), (i8x16)(b))
+	#define max8(a, b) __builtin_elementwise_max((i8x16)(a), (i8x16)(b))
+	#define min16(a, b) __builtin_elementwise_min((i16x8)(a), (i16x8)(b))
+	#define max16(a, b) __builtin_elementwise_max((i16x8)(a), (i16x8)(b))
+	#define minu8(a, b) __builtin_elementwise_min((u8x16)(a), (u8x16)(b))
+	#define maxu8(a, b) __builtin_elementwise_max((u8x16)(a), (u8x16)(b))
+	
+	static u8x16 avg8(i8x16 a, i8x16 b) {i8x16 ab = a + b + 1, c127 = set8(127); return (u16x8)ab >> 1 & c127 | (ab < a) & ~c127;}
+	static inline u16x8 cvtlo8u16(u8x16 a) {return __builtin_convertvector((u8x8){a[0], a[1], a[2], a[3], a[4], a[5], a[6], a[7]}, u16x8);}
+	static inline u16x8 cvthi8u16(u8x16 a) {return __builtin_convertvector((u8x8){a[8], a[9], a[10], a[11], a[12], a[13], a[14], a[15]}, u16x8);}
+	static inline i16x8 cvtlo8i16(i8x16 a) {return __builtin_convertvector((i8x8){a[0], a[1], a[2], a[3], a[4], a[5], a[6], a[7]}, i16x8);}
+	static inline u32x4 cvtlo16u32(u16x8 a) {return __builtin_convertvector((u16x4){a[0], a[1], a[2], a[3]}, u32x4);}
+	static inline u32x4 cvthi16u32(u16x8 a) {return __builtin_convertvector((u16x4){a[4], a[5], a[6], a[7]}, u32x4);}
+	static i8x16 ifelse_mask(i8x16 v, i8x16 t, i8x16 f) {return t & v | f & ~v;}
+	static i8x16 ifelse_msb(i8x16 v, i8x16 t, i8x16 f) {i8x16 m = (v < 0); return t & m | f & ~m;}
+	static inline i32x4 loadu32(const void *p) {i32x4 v = {}; memcpy(&v, p, 4); return v;}
+	static inline i64x2 loadu64(const void *p) {i64x2 v = {}; memcpy(&v, p, 8); return v;}
+	static inline i8x16 loadu128(const void *p) {i8x16 v = {}; memcpy(&v, p, 16); return v;}
+	static i32x4 loadu32x4(const void *p0, const void *p1, const void *p2, const void *p3) {i32x4 v; memcpy((void *)&v, p0, 4); memcpy((void *)&v + 4, p1, 4); memcpy((void *)&v + 8, p2, 4); memcpy((void *)&v + 12, p3, 4); return v;}
+	static i64x2 loadu64x2(const void *p0, const void *p1) {i64x2 v; memcpy((void *)&v, p0, 8); memcpy((void *)&v + 8, p1, 8); return v;}
+	static i8x16 packs16(i16x8 a, i16x8 b) {i16x8 lo = set16(-128), hi = set16(127); a = __builtin_elementwise_min(__builtin_elementwise_max(a, lo), hi); b = __builtin_elementwise_min(__builtin_elementwise_max(b, lo), hi); return __builtin_convertvector((i16x16){a[0], a[1], a[2], a[3], a[4], a[5], a[6], a[7], b[0], b[1], b[2], b[3], b[4], b[5], b[6], b[7]}, i8x16);}
+	static i16x8 packs32(i32x4 a, i32x4 b) {i32x4 lo = set32(-32768), hi = set32(32767); a = __builtin_elementwise_min(__builtin_elementwise_max(a, lo), hi); b = __builtin_elementwise_min(__builtin_elementwise_max(b, lo), hi); return __builtin_convertvector((i32x8){a[0], a[1], a[2], a[3], b[0], b[1], b[2], b[3]}, i16x8);}
+	static u8x16 packus16(i16x8 a, i16x8 b) {i16x8 lo = set16(0), hi = set16(255); a = __builtin_elementwise_min(__builtin_elementwise_max(a, lo), hi); b = __builtin_elementwise_min(__builtin_elementwise_max(b, lo), hi); return __builtin_convertvector((i16x16){a[0], a[1], a[2], a[3], a[4], a[5], a[6], a[7], b[0], b[1], b[2], b[3], b[4], b[5], b[6], b[7]}, i8x16);}
+	static inline i8x16 set8(int i) {return (i8x16){i, i, i, i, i, i, i, i, i, i, i, i, i, i, i, i};}
+	static inline i16x8 set16(int i) {return (i16x8){i, i, i, i, i, i, i, i};}
+	static inline i32x4 set16(int i) {return (i32x4){i, i, i, i};}
+	static inline i64x2 set64(int64_t i) {return (i64x2){i, i};}
+	
+#else
+	#error "No supported vector intrinsics found (SSE, NEON, WASM, clang)"
 #endif
 
 

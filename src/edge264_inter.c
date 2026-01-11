@@ -48,40 +48,50 @@
 #elif defined(__ARM_NEON)
 	static const i16x8 mul205 = {20, -5};
 	#define cvtlo8s16(a) (i16x8)vmovl_s8(vget_low_s8(a))
-	#ifdef __clang__ // reimplement vmlaq_s16 to prevent clang from splitting it
-		#define mla16(a, b, c) ({i8x16 _a = a; asm("mla %0.8h, %1.8h, %2.8h" : "+w" (_a) : "w" (b), "w" (c)); _a;})
-		#define mlai16(a, b, c, i) ({i8x16 _a = a; asm("mla %0.8h, %1.8h, %2.h[%3]" : "+w" (_a) : "w" (b), "x" (c), "i" (i)); _a;})
+	#ifdef __aarch64__
+		#define shrrpus16(a, b, i) (u8x16)vqrshrun_high_n_s16(vqrshrun_n_s16(a, i), b, i)
+		static always_inline i16x8 sixtapH4(i8x16 l0, i8x16 l1) {
+			int8x16x2_t x = {l0, l1};
+			i8x16 af = vqtbl2q_s8(x, (i8x16){0, 5, 1, 6, 2, 7, 3, 8, 16, 21, 17, 22, 18, 23, 19, 24});
+			i8x16 be = vqtbl2q_s8(x, (i8x16){1, 4, 2, 5, 3, 6, 4, 7, 17, 20, 18, 21, 19, 22, 20, 23});
+			i8x16 cd = vqtbl2q_s8(x, (i8x16){2, 3, 3, 4, 4, 5, 5, 6, 18, 19, 19, 20, 20, 21, 21, 22});
+			return vmlaq_laneq_s16(vmlaq_laneq_s16(vpaddlq_u8(af), vpaddlq_u8(cd), mul205, 0), vpaddlq_u8(be), mul205, 1);
+		}
 	#else
-		#define mla16 vmlaq_s16
-		#define mlai16 vmlaq_laneq_s16
+		#define shrrpus16(a, b, i) (u8x16)vcombine_u8(vqrshrun_n_s16(a, i), vqrshrun_n_s16(b, i))
+		#define vmulq_laneq_s16(a, v, i) vmulq_lane_s16(a, __builtin_choose_expr((i) < 4, vget_low_s16(v), vget_high_s16(v)), (i) & 3)
+		#define vmlaq_laneq_s16(a, b, v, i) vmlaq_lane_s16(a, b, __builtin_choose_expr((i) < 4, vget_low_s16(v), vget_high_s16(v)), (i) & 3)
+		static always_inline i16x8 sixtapH4(i8x16 l0, i8x16 l1) {
+			i8x8 saf = {0, 5, 1, 6, 2, 7, 3, 8};
+			i8x8 sbe = {1, 4, 2, 5, 3, 6, 4, 7};
+			i8x8 scd = {2, 3, 3, 4, 4, 5, 5, 6};
+			int8x8x2_t x0 = {vget_low_s8(l0), vget_high_s8(l0)};
+			int8x8x2_t x1 = {vget_low_s8(l1), vget_high_s8(l1)};
+			i8x16 af = vcombine_s8(vtbl2_s8(x0, saf), vtbl2_s8(x1, saf));
+			i8x16 be = vcombine_s8(vtbl2_s8(x0, sbe), vtbl2_s8(x1, sbe));
+			i8x16 cd = vcombine_s8(vtbl2_s8(x0, scd), vtbl2_s8(x1, scd));
+			return vmlaq_laneq_s16(vmlaq_laneq_s16(vpaddlq_u8(af), vpaddlq_u8(cd), mul205, 0), vpaddlq_u8(be), mul205, 1);
+		}
 	#endif
-	#define shrrpus16(a, b, i) (u8x16)vqrshrun_high_n_s16(vqrshrun_n_s16(a, i), b, i)
-	static always_inline u8x16 maddshr8(u8x16 q, u8x16 p, i8x16 w8, i16x8 w16, i16x8 o, i64x2 wd64, i16x8 wd16) {
-		i16x8 a = vmulq_laneq_s16(vmovl_u8(vget_low_u8(q)), w16, 0);
-		i16x8 b = vmulq_laneq_s16(vmovl_high_u8(q), w16, 0);
+	u8x16 maddshr8(u8x16 q, u8x16 p, i8x16 w8, i16x8 w16, i16x8 o, i64x2 wd64, i16x8 wd16) {
+		i16x8 a = vmulq_laneq_s16(cvtlo8u16(q), w16, 0);
+		i16x8 b = vmulq_laneq_s16(cvthi8u16(q), w16, 0);
 		// accumulating before offset cannot overflow (see formula 8-298 in spec)
-		i16x8 c = vqaddq_s16(mlai16(a, vmovl_u8(vget_low_u8(p)), w16, 1), o);
-		i16x8 d = vqaddq_s16(mlai16(b, vmovl_high_u8(p), w16, 1), o);
+		i16x8 c = vqaddq_s16(vmlaq_laneq_s16(a, cvtlo8u16(p), w16, 1), o);
+		i16x8 d = vqaddq_s16(vmlaq_laneq_s16(b, cvthi8u16(p), w16, 1), o);
 		return packus16(vshlq_s16(c, wd16), vshlq_s16(d, wd16));
 	}
 	static always_inline i16x8 sixtapVlo(i8x16 a, i8x16 b, i8x16 c, i8x16 d, i8x16 e, i8x16 f) {
 		i16x8 af = vaddl_u8(vget_low_u8(a), vget_low_u8(f));
 		i16x8 be = vaddl_u8(vget_low_u8(b), vget_low_u8(e));
 		i16x8 cd = vaddl_u8(vget_low_u8(c), vget_low_u8(d));
-		return mlai16(mlai16(af, cd, mul205, 0), be, mul205, 1);
+		return vmlaq_laneq_s16(vmlaq_laneq_s16(af, cd, mul205, 0), be, mul205, 1);
 	}
 	static always_inline i16x8 sixtapVhi(i8x16 a, i8x16 b, i8x16 c, i8x16 d, i8x16 e, i8x16 f) {
 		i16x8 af = vaddl_high_u8(a, f);
 		i16x8 be = vaddl_high_u8(b, e);
 		i16x8 cd = vaddl_high_u8(c, d);
-		return mlai16(mlai16(af, cd, mul205, 0), be, mul205, 1);
-	}
-	static always_inline i16x8 sixtapH4(i8x16 l0, i8x16 l1) {
-		int8x16x2_t s = {l0, l1};
-		i8x16 af = vqtbl2q_s8(s, (i8x16){0, 5, 1, 6, 2, 7, 3, 8, 16, 21, 17, 22, 18, 23, 19, 24});
-		i8x16 be = vqtbl2q_s8(s, (i8x16){1, 4, 2, 5, 3, 6, 4, 7, 17, 20, 18, 21, 19, 22, 20, 23});
-		i8x16 cd = vqtbl2q_s8(s, (i8x16){2, 3, 3, 4, 4, 5, 5, 6, 18, 19, 19, 20, 20, 21, 21, 22});
-		return mlai16(mlai16(vpaddlq_u8(af), vpaddlq_u8(cd), mul205, 0), vpaddlq_u8(be), mul205, 1);
+		return vmlaq_laneq_s16(vmlaq_laneq_s16(af, cd, mul205, 0), be, mul205, 1);
 	}
 	static always_inline i16x8 sixtapH8(i8x16 a) {
 		return sixtapVlo(a, shr128(a, 1), shr128(a, 2), shr128(a, 3), shr128(a, 4), shr128(a, 5));
@@ -378,6 +388,7 @@ static void decode_inter_luma(int mode, int h, size_t sstride, const uint8_t * r
 				i8x16 r3 = ziplo8(r2, shr128(r2, 1));
 				i8x16 r4 = shuffle32(r3, 1, 2, 0, 0); // only the first two indices matter
 				i8x16 r5 = shuffle32(r3, 2, 3, 0, 0);
+				// FIXME use sixtapVlo if compilers can reliably CSE
 				i8x16 x0 = ziplo8(l0, l1);
 				i8x16 x1 = ziplo8(l1, l2);
 				i8x16 x2 = ziplo8(l2, l3);
@@ -933,8 +944,8 @@ static void decode_inter_luma(int mode, int h, size_t sstride, const uint8_t * r
 				i8x16 q = loada64x2(dst           , dst + dstride );
 				i16x8 x4 = vmulq_laneq_s16(vmovl_u8(vget_low_u8(q)), w16, 2);
 				i16x8 x5 = vmulq_laneq_s16(vmovl_high_u8(q), w16, 4);
-				i16x8 vb = vshlq_s16(vqaddq_s16(mlai16(x4, vmovl_u8(vget_low_u8(p)), w16, 3), ob), wd16);
-				i16x8 vr = vshlq_s16(vqaddq_s16(mlai16(x5, vmovl_high_u8(p), w16, 5), or), wd16);
+				i16x8 vb = vshlq_s16(vqaddq_s16(vmlaq_laneq_s16(x4, vmovl_u8(vget_low_u8(p)), w16, 3), ob), wd16);
+				i16x8 vr = vshlq_s16(vqaddq_s16(vmlaq_laneq_s16(x5, vmovl_high_u8(p), w16, 5), or), wd16);
 				i64x2 v = packus16(vb, vr);
 				*(int64_t *)(dst           ) = v[0];
 				*(int64_t *)(dst + dstride ) = v[1];
@@ -963,8 +974,8 @@ static void decode_inter_luma(int mode, int h, size_t sstride, const uint8_t * r
 				i8x16 q = loada32x4(dst, dst + dstride, dst + dstride2, dst + dstride3);
 				i16x8 x4 = vmulq_s16(vmovl_u8(vget_low_u8(q)), wq);
 				i16x8 x5 = vmulq_s16(vmovl_high_u8(q), wq);
-				i16x8 vb = vshlq_s16(vqaddq_s16(mla16(x4, vmovl_u8(vget_low_u8(p)), wp), obr), wd16);
-				i16x8 vr = vshlq_s16(vqaddq_s16(mla16(x5, vmovl_high_u8(p), wp), obr), wd16);
+				i16x8 vb = vshlq_s16(vqaddq_s16(vmlaq_s16(x4, vmovl_u8(vget_low_u8(p)), wp), obr), wd16);
+				i16x8 vr = vshlq_s16(vqaddq_s16(vmlaq_s16(x5, vmovl_high_u8(p), wp), obr), wd16);
 				i32x4 v = packus16(vb, vr);
 				*(int32_t *)dst = v[0];
 				*(int32_t *)(dst + dstride) = v[1];
@@ -992,7 +1003,7 @@ static void decode_inter_luma(int mode, int h, size_t sstride, const uint8_t * r
 				i16x8 x1 = vmlal_high_u8(vmull_u8(vget_low_u8(r1), vget_low_u8(C)), r1, D);
 				i8x8 p = vqrshrn_n_u16(x0 + x1, 6);
 				i16x4 q = {*(int16_t *)dst, *(int16_t *)(dst + dstride), *(int16_t *)(dst + dstride2), *(int16_t *)(dst + dstride3)};
-				i16x8 x2 = mla16(vmulq_s16(vmovl_u8(q), wq), vmovl_u8(p), wp);
+				i16x8 x2 = vmlaq_s16(vmulq_s16(vmovl_u8(q), wq), vmovl_u8(p), wp);
 				i16x4 v = vqmovun_s16(vshlq_s16(vqaddq_s16(x2, obr), wd16));
 				*(int16_t *)dst = v[0];
 				*(int16_t *)(dst + dstride) = v[1];

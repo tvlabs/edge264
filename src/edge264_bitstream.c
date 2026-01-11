@@ -355,17 +355,8 @@ static void cabac_init(Edge264Context *ctx) {
 	i8x16 c1 = set8(1), c64 = set8(64), c126 = set8(126);
 	const i8x16 *src = (i8x16 *)cabac_context_init[ctx->t.cabac_init_idc];
 	for (i8x16 *dst = ctx->cabac_v; dst < ctx->cabac_v + 64; dst++, src += 2) {
-		#if defined(__SSE2__)
-			i16x8 sum0 = maddubs(mul, src[0]) >> 4;
-			i16x8 sum1 = maddubs(mul, src[1]) >> 4;
-		#elif defined(__ARM_NEON)
-			i16x8 l0 = vmull_s8(vget_low_s8(mul), vget_low_s8(src[0]));
-			i16x8 h0 = vmull_high_s8(mul, src[0]);
-			i16x8 l1 = vmull_s8(vget_low_s8(mul), vget_low_s8(src[1]));
-			i16x8 h1 = vmull_high_s8(mul, src[1]);
-			i16x8 sum0 = (i16x8)vpaddq_s16(l0, h0) >> 4;
-			i16x8 sum1 = (i16x8)vpaddq_s16(l1, h1) >> 4;
-		#endif
+		i16x8 sum0 = maddxbs(mul, src[0]) >> 4;
+		i16x8 sum1 = maddxbs(mul, src[1]) >> 4;
 		i8x16 min = minu8(packus16(sum0, sum1), c126);
 		i8x16 mask = c64 > min;
 		i8x16 preCtxState = maxu8(min, c1);

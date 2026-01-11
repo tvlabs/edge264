@@ -414,11 +414,8 @@ typedef struct Edge264Decoder {
 	#define little_endian64(x) (x)
 	#define big_endian32 __builtin_bswap32
 	#define big_endian64 __builtin_bswap64
-#elif __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
-	#define little_endian32 __builtin_bswap32
-	#define little_endian64 __builtin_bswap64
-	#define big_endian32(x) (x)
-	#define big_endian64(x) (x)
+#else
+	#error "Little-endian CPU required at the moment until requested and testable"
 #endif
 
 #if UINT_MAX != 4294967295U || ULLONG_MAX != 18446744073709551615U
@@ -612,7 +609,7 @@ enum IntraChromaModes {
  * _ avgu8 - unsigned elementwise average
  * _ broadcastN - copy a N-bit element to all elements
  * _ cvtloNuM - extend the low unsigned N-bit elements to M bits
- * _ cvtloNsM - extend the low signed N-bit elements to M bits
+ * _ cvtloNiM - extend the low signed N-bit elements to M bits
  * _ cvthiNuM - extend the high unsigned N-bit elements to M bits
  * _ cvtuf32 - convert 32-bit float elements to unsigned integers
  * _ ifelse_mask - select each element from two vectors based on mask elements i a third vector
@@ -620,6 +617,7 @@ enum IntraChromaModes {
  * _ loadaNxM - load M aligned pointers of N bits, such that NxM==128
  * _ loaduN - load N low bits from an unaligned pointer, zeroing the rest of the vector
  * _ loaduNxM - load M unaligned pointers of N bits, such that NxM==128
+ * _ maddxbs - multiply non-signed (0..127) with signed 8-bit elements then add pairs to 16-bit
  * _ minN - minimum of signed N-bit elements
  * _ maxN - maximum of signed N-bit elements
  * _ minu8 - minimum of unsigned 8-bit elements
@@ -790,6 +788,7 @@ static const int8_t shz_mask[48] = {
 	static always_inline size_t shld(size_t l, size_t h, int i) {asm("shld %%cl, %1, %0" : "+rm" (h) : "r" (l), "c" (i)); return h;}
 	static always_inline u16x8 sum8(u8x16 a) {u16x8 v = _mm_sad_epu8(a, (i8x16){}); return v + (u16x8)_mm_srli_si128(v, 8);}
 	static always_inline u16x8 sumd8(u8x16 a, u8x16 b) {i16x8 zero = {}, v = (i16x8)_mm_sad_epu8(a, zero) + (i16x8)_mm_sad_epu8(b, zero); return v + (i16x8)_mm_srli_si128(v, 8);}
+	#define maddxbs maddubs
 	#ifdef __SSE4_1__
 		#define cvtlo8u16(a) (i16x8)_mm_cvtepu8_epi16(a)
 		#define cvtlo8i16(a) (i16x8)_mm_cvtepi8_epi16(a)
@@ -879,8 +878,8 @@ static const int8_t shz_mask[48] = {
 	#define shlc128(a, i) (i8x16)({i8x16 _a = (a); vextq_s8(vdupq_laneq_s8(_a, 0), _a, 16 - (i));})
 	#define shrc128(a, i) (i8x16)({i8x16 _a = (a); vextq_s8(_a, vdupq_laneq_s8(_a, 15), i);})
 	#define shrd128(l, h, i) (i8x16)vextq_s8(l, h, i)
-	#define shlv128(a, i) (i8x16)vqtbl1q_s8(a, *(i8x16 *)(shz_mask + 16 - (i)))
-	#define shrv128(a, i) (i8x16)vqtbl1q_s8(a, *(i8x16 *)(shz_mask + 16 + (i)))
+	#define shlv128(a, i) shufflez(a, *(i8x16 *)(shz_mask + 16 - (i)))
+	#define shrv128(a, i) shufflez(a, *(i8x16 *)(shz_mask + 16 + (i)))
 	#define shrz128(a, i) (i8x16)vextq_s8(a, (i8x16){}, i)
 	#define shrrs16(a, i) (i16x8)vrshrq_n_s16(a, i)
 	#define shrru16(a, i) (i16x8)vrshrq_n_u16(a, i)
@@ -909,6 +908,7 @@ static const int8_t shz_mask[48] = {
 		#define ziphi32(a, b) (i16x8)vzip2q_s32(a, b)
 		#define ziplo64(a, b) (i64x2)vzip1q_s64(a, b)
 		#define ziphi64(a, b) (i64x2)vzip2q_s64(a, b)
+		static always_inline i16x8 maddxbs(i8x16 a, i8x16 b) {return vpaddq_s16(vmull_s8(vget_low_s8(a), vget_low_s8(b)), vmull_high_s8(a, b));}
 		// FIXME try again to macro it?
 		static always_inline i8x16 shuffle(i8x16 a, i8x16 m) {return vqtbl1q_s8(a, m);}
 		static always_inline i8x16 shufflen(i8x16 a, i8x16 m) {return vqtbx1q_s8(m, a, m);}
@@ -918,9 +918,9 @@ static const int8_t shz_mask[48] = {
 		#define sumh8 sum8
 		#define sumd8(a, b) (sum8(a) + sum8(b))
 	#else
-		#define broadcast8(a, i) (i8x16)__builtin_choose_expr((i) < 8, vdupq_lane_s8(vget_low_s8(a), i), vdupq_lane_s8(vget_high_s8(a), (i) - 8))
-		#define broadcast16(a, i) (i8x16)__builtin_choose_expr((i) < 4, vdupq_lane_s16(vget_low_s16(a), i), vdupq_lane_s16(vget_high_s16(a), (i) - 4))
-		#define broadcast32(a, i) (i8x16)__builtin_choose_expr((i) < 2, vdupq_lane_s32(vget_low_s32(a), i), vdupq_lane_s32(vget_high_s32(a), (i) - 2))
+		#define broadcast8(a, i) (i8x16)vdupq_lane_s8(__builtin_choose_expr((i) < 8, vget_low_s8(a), vget_high_s8(a)), (i) & 7)
+		#define broadcast16(a, i) (i32x4)vdupq_lane_s16(__builtin_choose_expr((i) < 4, vget_low_s16(a), vget_high_s16(a)), (i) & 3)
+		#define broadcast32(a, i) (i32x4)vdupq_lane_s32(__builtin_choose_expr((i) < 2, vget_low_s32(a), vget_high_s32(a)), (i) & 1)
 		#define cvthi8u16(a) (u16x8)vmovl_u8(vget_high_u8(a))
 		#define cvthi16u32(a) (u32x4)vmovl_u16(vget_high_u16(a))
 		#define packs16(a, b) (i16x8)vcombine_s8(vqmovn_s16(a), vqmovn_s16(b))
@@ -938,6 +938,7 @@ static const int8_t shz_mask[48] = {
 		#define ziphi32(a, b) (i16x8)vzipq_s32(a, b).val[1]
 		#define ziplo64(a, b) (i64x2)vcombine_s64(vget_low_s64(a), vget_low_s64(b))
 		#define ziphi64(a, b) (i64x2)vcombine_s64(vget_high_s64(a), vget_high_s64(b))
+		static always_inline i16x8 maddxbs(i8x16 a, i8x16 b) {i16x8 c = vmull_s8(vget_low_s8(a), vget_low_s8(b)); i16x8 d = vmull_s8(vget_high_s8(a), vget_high_s8(b)); return vcombine_s16(vpadd_s16(vget_low_s16(c), vget_high_s16(c)), vpadd_s16(vget_low_s16(d), vget_high_s16(d)));}
 		static always_inline i8x16 shuffle(i8x16 a, i8x16 m) {int8x8x2_t b = {vget_low_s8(a), vget_high_s8(a)}; return vcombine_s8(vtbl2_s8(b, vget_low_s8(m)), vtbl2_s8(b, vget_high_s8(m)));}
 		static always_inline i8x16 shufflen(i8x16 a, i8x16 m) {int8x8x2_t b = {vget_low_s8(a), vget_high_s8(a)}; return vcombine_s8(vtbx2_s8(vget_low_s8(m), b, vget_low_s8(m)), vtbx2_s8(vget_high_s8(m), b, vget_high_s8(m)));}
 		static always_inline i8x16 shuffle2(const i8x16 *p, i8x16 m) {int8x8x4_t a = *(int8x8x4_t *)p; return vcombine_s8(vtbl4_s8(a, vget_low_s8(m)), vtbl4_s8(a, vget_high_s8(m)));}

@@ -1,11 +1,20 @@
 #include "edge264_internal.h"
 
 #if defined(__SSE2__)
-	#define packabd16(a, b, c, d) abs8(packs16(subs16(a, b), subs16(c, d)))
+	#define packabd16(a, b, c, d) (i8x16)abs8(packs16(subs16(a, b), subs16(c, d)))
 	#define trnlo32(a) shuffle32(a, 0, 0, 2, 2)
 #elif defined(__ARM_NEON)
-	#define packabd16(a, b, c, d) vqmovn_high_u16(vqmovn_u16(vabdq_s16(a, b)), vabdq_s16(c, d))
-	static always_inline i32x4 trnlo32(i32x4 a) {return vtrn1q_s32(a, a);}
+	#ifdef __aarch64__
+		#define packabd16(a, b, c, d) vqmovn_high_u16(vqmovn_u16(vabdq_s16(a, b)), vabdq_s16(c, d))
+		#define vsqsubq_u8(a, b) vsqaddq_u8(a, -b) // don't use with b=-128
+		static always_inline i32x4 trnlo32(i32x4 a) {return vtrn1q_s32(a, a);}
+	#else
+		#define packabd16(a, b, c, d) vcombine_u16(vqmovn_u16(vabdq_s16(a, b)), vqmovn_u16(vabdq_s16(c, d)))
+		#define vaddl_high_u8(a, b) vaddl_u8(vget_high_u8(a), vget_high_u8(b))
+		static always_inline i32x4 trnlo32(i32x4 a) {return vtrnq_s32(a, a).val[0];}
+		static always_inline u8x16 vsqaddq_u8(u8x16 a, i8x16 b) {i8x16 zero = {}; return vqsubq_u8(vqaddq_u8(a, vmaxq_s8(b, zero)), vmaxq_s8(-b, zero));}
+		static always_inline u8x16 vsqsubq_u8(u8x16 a, i8x16 b) {i8x16 zero = {}; return vqaddq_u8(vqsubq_u8(a, vmaxq_s8(b, zero)), vmaxq_s8(-b, zero));}
+	#endif
 #endif
 static always_inline i8x16 expand4(int32_t a) {
 	i32x4 x0 = {a};
@@ -118,7 +127,7 @@ static always_inline i8x16 expand2(int64_t a) {
 		i8x16 x0 = vrhaddq_s8(vqsubq_s8(q0 + -128, p0 + -128), pq1 >> 1);\
 		i8x16 delta = vmaxq_s8(vminq_s8(x0, tC), -tC);\
 		p0 = vsqaddq_u8(p0, delta);\
-		q0 = vsqaddq_u8(q0, -delta);}
+		q0 = vsqsubq_u8(q0, delta);}
 	#define DEBLOCK_CHROMA_SOFT(p1, p0, q0, q1, ialpha, ibeta, itC0) {\
 		/* compute all common masks */\
 		i8x16 shufab = {1, 1, 1, 1, 1, 1, 1, 1, 2, 2, 2, 2, 2, 2, 2, 2};\
@@ -135,7 +144,7 @@ static always_inline i8x16 expand2(int64_t a) {
 		i8x16 x0 = vrhaddq_s8(vqsubq_s8(q0 + c128, p0 + c128), pq1 >> 1);\
 		i8x16 delta = vmaxq_s8(vminq_s8(x0, tC), -tC);\
 		p0 = vsqaddq_u8(p0, delta);\
-		q0 = vsqaddq_u8(q0, -delta);}
+		q0 = vsqsubq_u8(q0, delta);}
 #endif
 
 
@@ -942,6 +951,7 @@ static noinline void deblock_mb(Edge264Context *ctx)
 			i16x8 mvsh2 = ziphi64(mb->mvs_v[0], mb->mvs_v[1]);
 			i16x8 mvsh3 = ziplo64(mb->mvs_v[2], mb->mvs_v[3]);
 			i16x8 mvsh4 = ziphi64(mb->mvs_v[2], mb->mvs_v[3]);
+			// FIXME not the same behavior on NEON & SSE
 			i8x16 mvsac = packabd16(mvsv0, mvsv1, mvsv2, mvsv3);
 			i8x16 mvsbd = packabd16(mvsv1, mvsv2, mvsv3, mvsv4);
 			i8x16 mvseg = packabd16(mvsh0, mvsh1, mvsh2, mvsh3);

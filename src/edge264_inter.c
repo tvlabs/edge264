@@ -5,6 +5,7 @@
 	static const i8x16 mul20 = {20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20};
 	static const i8x16 mul51 = {-5, 1, -5, 1, -5, 1, -5, 1, -5, 1, -5, 1, -5, 1, -5, 1};
 	#define shrrpus16(a, b, i) packus16(((i16x8)(a) + (1 << (i - 1))) >> i, ((i16x8)(b) + (1 << (i - 1))) >> i)
+	#define zipmd64(a, b) (i64x2)_mm_shuffle_ps((__m128)(a), (__m128)(b), _MM_SHUFFLE(2, 1, 2, 1))
 	static always_inline u8x16 maddshr8(u8x16 q, u8x16 p, i8x16 w8, i16x8 w16, i16x8 o, i64x2 wd64, i16x8 wd16) {
 		i16x8 x0 = adds16(maddubs(ziplo8(q, p), w8), o);
 		i16x8 x1 = adds16(maddubs(ziphi8(q, p), w8), o);
@@ -47,7 +48,9 @@
 		i16x8 v1 = maddubs(_##b##0, mul15) + maddubs(shrd128(_##b##0, _##b##8, 4), mul20) + maddubs(shrd128(_##b##0, _##b##8, 8), mul51)
 #elif defined(__ARM_NEON)
 	static const i16x8 mul205 = {20, -5};
+	static const i8x16 shuf_zipmd64 = {4, 5, 6, 7, 8, 9, 10, 11, 20, 21, 22, 23, 24, 25, 26, 27};
 	#define cvtlo8s16(a) (i16x8)vmovl_s8(vget_low_s8(a))
+	#define zipmd64(a, b) (i64x2)vqtbl2q_s8((int8x16x2_t){a, b}, shuf_zipmd64)
 	#ifdef __aarch64__
 		#define shrrpus16(a, b, i) (u8x16)vqrshrun_high_n_s16(vqrshrun_n_s16(a, i), b, i)
 		static always_inline i16x8 sixtapH4(i8x16 l0, i8x16 l1) {
@@ -295,17 +298,8 @@ static void decode_inter_luma(int mode, int h, size_t sstride, const uint8_t * r
 			i8x16 m22 = shrd128(m12, m52, 4);
 			i8x16 m32 = shrd128(m12, m52, 8);
 			i8x16 m42 = shrd128(m12, m52, 12);
-			#if defined(__SSE2__)
-				i8x16 x0 = ziplo8(m02, m12);
-				i8x16 x1 = ziplo8(m22, m32);
-				i8x16 x2 = ziplo8(m42, m52);
-				i8x16 x3 = ziphi8(m42, m52);
-				i16x8 v0 = maddubs(x0, mul15) + maddubs(x1, mul20) + maddubs(x2, mul51);
-				i16x8 v1 = maddubs(x1, mul15) + maddubs(x2, mul20) + maddubs(x3, mul51);
-			#elif defined(__ARM_NEON)
-				i16x8 v0 = sixtapVlo(m02, m12, m22, m32, m42, m52);
-				i16x8 v1 = sixtapVhi(m02, m12, m22, m32, m42, m52);
-			#endif
+			i16x8 v0 = sixtapVlo(m02, m12, m22, m32, m42, m52);
+			i16x8 v1 = sixtapVhi(m02, m12, m22, m32, m42, m52);
 			i8x16 v01 = shrrpus16(v0, v1, 5);
 			i8x16 s = ifelse_mask(m1, v01, ifelse_mask(m0, m32, m22));
 			i32x4 q = loada32x4(dst, dst + dstride, dst + dstride2, dst + dstride3);
@@ -383,56 +377,26 @@ static void decode_inter_luma(int mode, int h, size_t sstride, const uint8_t * r
 			i8x16 l8 = loadu128(src0 + sstride2);
 			i8x16 r0 = ziplo16(ziphi8(l0, l1), ziphi8(l2, l3));
 			i8x16 r1 = ziplo16(ziphi8(l4, l5), ziphi8(l6, l7));
-			#if defined(__SSE2__)
-				i8x16 r2 = shuffleps(ziplo32(r0, r1), l8, 0, 1, 2, 3);
-				i8x16 r3 = ziplo8(r2, shr128(r2, 1));
-				i8x16 r4 = shuffle32(r3, 1, 2, 0, 0); // only the first two indices matter
-				i8x16 r5 = shuffle32(r3, 2, 3, 0, 0);
-				// FIXME use sixtapVlo if compilers can reliably CSE
-				i8x16 x0 = ziplo8(l0, l1);
-				i8x16 x1 = ziplo8(l1, l2);
-				i8x16 x2 = ziplo8(l2, l3);
-				i8x16 x3 = ziplo8(l3, l4);
-				i8x16 x4 = ziplo8(l4, l5);
-				i8x16 x5 = ziplo8(l5, l6);
-				i8x16 x6 = ziplo8(l6, l7);
-				i8x16 x7 = ziplo8(l7, l8);
-				i16x8 v08 = maddubs(r3, mul15) + maddubs(r4, mul20) + maddubs(r5, mul51);
-				i16x8 v00 = maddubs(x0, mul15) + maddubs(x2, mul20) + maddubs(x4, mul51);
-				i16x8 v10 = maddubs(x1, mul15) + maddubs(x3, mul20) + maddubs(x5, mul51);
-				i16x8 v20 = maddubs(x2, mul15) + maddubs(x4, mul20) + maddubs(x6, mul51);
-				i16x8 v30 = maddubs(x3, mul15) + maddubs(x5, mul20) + maddubs(x7, mul51);
-				i16x8 v01 = shrd128(v00, v08, 2);
-				i16x8 v11 = shrd128(v10, shufflelo(v08, 1, 1, 1, 1), 2);
-				i16x8 v21 = shrd128(v20, shufflelo(v08, 2, 2, 2, 2), 2);
-				i16x8 v31 = shrd128(v30, shufflelo(v08, 3, 3, 3, 3), 2);
-				i16x8 m02 = shuffleps(v00, v10, 1, 2, 1, 2);
-				i16x8 m03 = shuffleps(v01, v11, 1, 2, 1, 2);
-				i16x8 m22 = shuffleps(v20, v30, 1, 2, 1, 2);
-				i16x8 m23 = shuffleps(v21, v31, 1, 2, 1, 2);
-			#elif defined(__ARM_NEON)
-				i8x16 r2 = vcopyq_laneq_s64(ziplo32(r0, r1), 1, l8, 1);
-				i16x8 v08 = sixtapH8(r2);
-				i16x8 v00 = sixtapVlo(l0, l1, l2, l3, l4, l5);
-				i16x8 v10 = sixtapVlo(l1, l2, l3, l4, l5, l6);
-				i16x8 v20 = sixtapVlo(l2, l3, l4, l5, l6, l7);
-				i16x8 v30 = sixtapVlo(l3, l4, l5, l6, l7, l8);
-				i16x8 v01 = shrd128(v00, v08, 2);
-				i16x8 v11 = shrd128(v10, vdupq_laneq_s16(v08, 1), 2);
-				i16x8 v21 = shrd128(v20, vdupq_laneq_s16(v08, 2), 2);
-				i16x8 v31 = shrd128(v30, vdupq_laneq_s16(v08, 3), 2);
-				i8x16 zipmd = {4, 5, 6, 7, 8, 9, 10, 11, 20, 21, 22, 23, 24, 25, 26, 27};
-				i16x8 m02 = vqtbl2q_s8((int8x16x2_t){v00, v10}, zipmd);
-				i16x8 m03 = vqtbl2q_s8((int8x16x2_t){v01, v11}, zipmd);
-				i16x8 m22 = vqtbl2q_s8((int8x16x2_t){v20, v30}, zipmd);
-				i16x8 m23 = vqtbl2q_s8((int8x16x2_t){v21, v31}, zipmd);
-			#endif
+			i64x2 r2 = {((i64x2)ziplo32(r0, r1))[0], ((i64x2)l8)[1]};
+			i16x8 v08 = sixtapH8(r2);
+			i16x8 v00 = sixtapVlo(l0, l1, l2, l3, l4, l5);
+			i16x8 v10 = sixtapVlo(l1, l2, l3, l4, l5, l6);
+			i16x8 v20 = sixtapVlo(l2, l3, l4, l5, l6, l7);
+			i16x8 v30 = sixtapVlo(l3, l4, l5, l6, l7, l8);
+			i16x8 v01 = shrd128(v00, v08, 2);
+			i16x8 v11 = shrd128(v10, shr128(v08, 2), 2);
+			i16x8 v21 = shrd128(v20, shr128(v08, 4), 2);
+			i16x8 v31 = shrd128(v30, shr128(v08, 6), 2);
 			i16x8 m00 = ziplo64(v00, v10);
 			i16x8 m01 = ziplo64(v01, v11);
+			i16x8 m02 = zipmd64(v00, v10);
+			i16x8 m03 = zipmd64(v01, v11);
 			i16x8 m04 = ziphi64(v00, v10);
 			i16x8 m05 = ziphi64(v01, v11);
 			i16x8 m20 = ziplo64(v20, v30);
 			i16x8 m21 = ziplo64(v21, v31);
+			i16x8 m22 = zipmd64(v20, v30);
+			i16x8 m23 = zipmd64(v21, v31);
 			i16x8 m24 = ziphi64(v20, v30);
 			i16x8 m25 = ziphi64(v21, v31);
 			i16x8 vh0 = sixtapHV(m00, m01, m02, m03, m04, m05);

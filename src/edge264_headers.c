@@ -328,7 +328,7 @@ static void recover_slice(Edge264Context *ctx, int currPic) {
 				i8x16 w = (p128 < 128) ? ziplo8(set8(128 - p128), set8(p128)) : (i8x16){0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1};
 				i64x2 wd = (p128 < 128) ? (i64x2){7} : (i64x2){};
 			#elif defined(__ARM_NEON)
-				i16x8 w = broadcast32((p128 < 128) ? (i16x8){128 - p128, p128} : (i16x8){0, 1}, 0);
+				i16x8 w = broadcast32((p128 < 128 ? (i16x8){128 - p128, p128} : (i16x8){0, 1}), 0);
 				i16x8 wd = (p128 < 128) ? set16(7) : (i16x8){};
 			#endif
 			i16x8 o = {};

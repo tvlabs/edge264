@@ -324,32 +324,30 @@ static void recover_slice(Edge264Context *ctx, int currPic) {
 					t = loada128(PX(0, -1));
 			}
 			i8x16 dcY = broadcast8(shrru16(sumd8(t, l), 5), __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__);
-			i8x16 w8 = ziplo8(set8(128 - p128), set8(p128));
-			i16x8 w16 = {128 - p128, p128};
+			#if defined(__SSE2__)
+				i8x16 w = (p128 < 128) ? ziplo8(set8(128 - p128), set8(p128)) : (i8x16){0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1};
+				i64x2 wd = (p128 < 128) ? (i64x2){7} : (i64x2){};
+			#elif defined(__ARM_NEON)
+				i16x8 w = broadcast32((p128 < 128) ? (i16x8){128 - p128, p128} : (i16x8){0, 1}, 0);
+				i16x8 wd = (p128 < 128) ? set16(7) : (i16x8){};
+			#endif
 			i16x8 o = {};
-			i64x2 wd64 = {7};
-			i16x8 wd16 = set16(7);
-			if (p128 == 128) {
-				w8 = (i8x16){0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1};
-				w16 = (i16x8){0, 1};
-				wd64 = wd16 = o;
-			}
-			*(i8x16 *)PX(0, 0) = maddshr8(*(i8x16 *)PX(0, 0), dcY, w8, w16, o, wd64, wd16);
-			*(i8x16 *)PX(0, 1) = maddshr8(*(i8x16 *)PX(0, 1), dcY, w8, w16, o, wd64, wd16);
-			*(i8x16 *)PX(0, 2) = maddshr8(*(i8x16 *)PX(0, 2), dcY, w8, w16, o, wd64, wd16);
-			*(i8x16 *)PX(0, 3) = maddshr8(*(i8x16 *)PX(0, 3), dcY, w8, w16, o, wd64, wd16);
-			*(i8x16 *)PX(0, 4) = maddshr8(*(i8x16 *)PX(0, 4), dcY, w8, w16, o, wd64, wd16);
-			*(i8x16 *)PX(0, 5) = maddshr8(*(i8x16 *)PX(0, 5), dcY, w8, w16, o, wd64, wd16);
-			*(i8x16 *)PX(0, 6) = maddshr8(*(i8x16 *)PX(0, 6), dcY, w8, w16, o, wd64, wd16);
-			*(i8x16 *)PX(0, 7) = maddshr8(*(i8x16 *)PX(0, 7), dcY, w8, w16, o, wd64, wd16);
-			*(i8x16 *)PX(0, 8) = maddshr8(*(i8x16 *)PX(0, 8), dcY, w8, w16, o, wd64, wd16);
-			*(i8x16 *)PX(0, 9) = maddshr8(*(i8x16 *)PX(0, 9), dcY, w8, w16, o, wd64, wd16);
-			*(i8x16 *)PX(0, 10) = maddshr8(*(i8x16 *)PX(0, 10), dcY, w8, w16, o, wd64, wd16);
-			*(i8x16 *)PX(0, 11) = maddshr8(*(i8x16 *)PX(0, 11), dcY, w8, w16, o, wd64, wd16);
-			*(i8x16 *)PX(0, 12) = maddshr8(*(i8x16 *)PX(0, 12), dcY, w8, w16, o, wd64, wd16);
-			*(i8x16 *)PX(0, 13) = maddshr8(*(i8x16 *)PX(0, 13), dcY, w8, w16, o, wd64, wd16);
-			*(i8x16 *)PX(0, 14) = maddshr8(*(i8x16 *)PX(0, 14), dcY, w8, w16, o, wd64, wd16);
-			*(i8x16 *)PX(0, 15) = maddshr8(*(i8x16 *)PX(0, 15), dcY, w8, w16, o, wd64, wd16);
+			*(i8x16 *)PX(0, 0) = maddshr8(*(i8x16 *)PX(0, 0), dcY, w, w, o, o, wd);
+			*(i8x16 *)PX(0, 1) = maddshr8(*(i8x16 *)PX(0, 1), dcY, w, w, o, o, wd);
+			*(i8x16 *)PX(0, 2) = maddshr8(*(i8x16 *)PX(0, 2), dcY, w, w, o, o, wd);
+			*(i8x16 *)PX(0, 3) = maddshr8(*(i8x16 *)PX(0, 3), dcY, w, w, o, o, wd);
+			*(i8x16 *)PX(0, 4) = maddshr8(*(i8x16 *)PX(0, 4), dcY, w, w, o, o, wd);
+			*(i8x16 *)PX(0, 5) = maddshr8(*(i8x16 *)PX(0, 5), dcY, w, w, o, o, wd);
+			*(i8x16 *)PX(0, 6) = maddshr8(*(i8x16 *)PX(0, 6), dcY, w, w, o, o, wd);
+			*(i8x16 *)PX(0, 7) = maddshr8(*(i8x16 *)PX(0, 7), dcY, w, w, o, o, wd);
+			*(i8x16 *)PX(0, 8) = maddshr8(*(i8x16 *)PX(0, 8), dcY, w, w, o, o, wd);
+			*(i8x16 *)PX(0, 9) = maddshr8(*(i8x16 *)PX(0, 9), dcY, w, w, o, o, wd);
+			*(i8x16 *)PX(0, 10) = maddshr8(*(i8x16 *)PX(0, 10), dcY, w, w, o, o, wd);
+			*(i8x16 *)PX(0, 11) = maddshr8(*(i8x16 *)PX(0, 11), dcY, w, w, o, o, wd);
+			*(i8x16 *)PX(0, 12) = maddshr8(*(i8x16 *)PX(0, 12), dcY, w, w, o, o, wd);
+			*(i8x16 *)PX(0, 13) = maddshr8(*(i8x16 *)PX(0, 13), dcY, w, w, o, o, wd);
+			*(i8x16 *)PX(0, 14) = maddshr8(*(i8x16 *)PX(0, 14), dcY, w, w, o, o, wd);
+			*(i8x16 *)PX(0, 15) = maddshr8(*(i8x16 *)PX(0, 15), dcY, w, w, o, o, wd);
 			{
 				INIT_PX(ctx->samples_mb[1], ctx->t.stride[1] >> 1);
 				i8x16 b = ziplo64(loada64(PX(0, -2)), ldleft8(0, 2, 4, 6, 8, 10, 12, 14));
@@ -357,14 +355,14 @@ static void recover_slice(Edge264Context *ctx, int currPic) {
 				i8x16 dcb = broadcast8(shrru16(sum8(b), 4), __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__);
 				i8x16 dcr = broadcast8(shrru16(sum8(r), 4), __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__);
 				i8x16 dcC = ziplo64(dcb, dcr);
-				i64x2 v0 = maddshr8(loada64x2(PX(0, 0), PX(0, 1)), dcC, w8, w16, o, wd64, wd16);
-				i64x2 v1 = maddshr8(loada64x2(PX(0, 2), PX(0, 3)), dcC, w8, w16, o, wd64, wd16);
-				i64x2 v2 = maddshr8(loada64x2(PX(0, 4), PX(0, 5)), dcC, w8, w16, o, wd64, wd16);
-				i64x2 v3 = maddshr8(loada64x2(PX(0, 6), PX(0, 7)), dcC, w8, w16, o, wd64, wd16);
-				i64x2 v4 = maddshr8(loada64x2(PX(0, 8), PX(0, 9)), dcC, w8, w16, o, wd64, wd16);
-				i64x2 v5 = maddshr8(loada64x2(PX(0, 10), PX(0, 11)), dcC, w8, w16, o, wd64, wd16);
-				i64x2 v6 = maddshr8(loada64x2(PX(0, 12), PX(0, 13)), dcC, w8, w16, o, wd64, wd16);
-				i64x2 v7 = maddshr8(loada64x2(PX(0, 14), PX(0, 15)), dcC, w8, w16, o, wd64, wd16);
+				i64x2 v0 = maddshr8(loada64x2(PX(0, 0), PX(0, 1)), dcC, w, w, o, o, wd);
+				i64x2 v1 = maddshr8(loada64x2(PX(0, 2), PX(0, 3)), dcC, w, w, o, o, wd);
+				i64x2 v2 = maddshr8(loada64x2(PX(0, 4), PX(0, 5)), dcC, w, w, o, o, wd);
+				i64x2 v3 = maddshr8(loada64x2(PX(0, 6), PX(0, 7)), dcC, w, w, o, o, wd);
+				i64x2 v4 = maddshr8(loada64x2(PX(0, 8), PX(0, 9)), dcC, w, w, o, o, wd);
+				i64x2 v5 = maddshr8(loada64x2(PX(0, 10), PX(0, 11)), dcC, w, w, o, o, wd);
+				i64x2 v6 = maddshr8(loada64x2(PX(0, 12), PX(0, 13)), dcC, w, w, o, o, wd);
+				i64x2 v7 = maddshr8(loada64x2(PX(0, 14), PX(0, 15)), dcC, w, w, o, o, wd);
 				*(int64_t *)PX(0, 0) = v0[0];
 				*(int64_t *)PX(0, 1) = v0[1];
 				*(int64_t *)PX(0, 2) = v1[0];

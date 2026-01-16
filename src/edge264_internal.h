@@ -609,7 +609,7 @@ enum IntraChromaModes {
  * _ avgu8 - unsigned elementwise average
  * _ broadcastN - copy a N-bit element to all elements
  * _ cvtloNuM - extend the low unsigned N-bit elements to M bits
- * _ cvtloNiM - extend the low signed N-bit elements to M bits
+ * _ cvtloNsM - extend the low signed N-bit elements to M bits
  * _ cvthiNuM - extend the high unsigned N-bit elements to M bits
  * _ cvtuf32 - convert 32-bit float elements to unsigned integers
  * _ ifelse_mask - select each element from two vectors based on mask elements i a third vector
@@ -649,6 +649,8 @@ enum IntraChromaModes {
  * _ sum8 - sum 16 unsigned 8-bit elements together and return a low 16-bit value, the rest being undefined
  * _ sumh8 - sum the 8 lowest unsigned 8-bit elements, assuming the highest are zeros
  * _ sumd8 - sum 32 unsigned 8-bit elements together from two vectors
+ * _ trnlo32 - zip even elements from a single vector
+ * _ trnhi32 - zip odd elements from a single vector
  * _ unziploN - deinterleave the even N-bit elements from two vectors
  * _ unziphiN - deinterleave the odd N-bit elements from two vectors
  * _ ziploN - interleave the low N-bit elements from two vectors
@@ -674,7 +676,7 @@ static const int8_t shz_mask[48] = {
 	#define broadcast32(a, i) __builtin_shufflevector((i32x4)(a), (i32x4){}, i, i, i, i)
 	#define cvtlo8u16(a) (u16x8)wasm_u16x8_extend_low_u8x16(a)
 	#define cvthi8u16(a) (u16x8)wasm_u16x8_extend_high_u8x16(a)
-	#define cvtlo8i16(a) (i16x8)wasm_i16x8_extend_low_i8x16(a)
+	#define cvtlo8s16(a) (i16x8)wasm_i16x8_extend_low_i8x16(a)
 	#define cvtlo16u32(a) (u32x4)wasm_u32x4_extend_low_u16x8(a)
 	#define cvthi16u32(a) (u32x4)wasm_u32x4_extend_high_u16x8(a)
 	#define cvtuf32(a) (u32x4)wasm_i32x4_trunc_sat_f32x4(a)
@@ -776,6 +778,8 @@ static const int8_t shz_mask[48] = {
 	#define subu8(a, b) (u8x16)_mm_subs_epu8(a, b)
 	#define subs16(a, b) (i16x8)_mm_subs_epi16(a, b)
 	#define sumh8(a) (u16x8)_mm_sad_epu8(a, (i8x16){})
+	#define trnlo32(a) _mm_shuffle_epi32(a, _MM_SHUFFLE(2, 2, 0, 0))
+	#define trnlo32(a) _mm_shuffle_epi32(a, _MM_SHUFFLE(3, 3, 1, 1))
 	#define unziplo32(a, b) (i32x4)_mm_shuffle_ps((__m128)(a), (__m128)(b), _MM_SHUFFLE(2, 0, 2, 0))
 	#define unziphi32(a, b) (i32x4)_mm_shuffle_ps((__m128)(a), (__m128)(b), _MM_SHUFFLE(3, 1, 3, 1))
 	#define ziplo8(a, b) (i8x16)_mm_unpacklo_epi8(a, b)
@@ -792,7 +796,7 @@ static const int8_t shz_mask[48] = {
 	#define maddxbs maddubs
 	#ifdef __SSE4_1__
 		#define cvtlo8u16(a) (i16x8)_mm_cvtepu8_epi16(a)
-		#define cvtlo8i16(a) (i16x8)_mm_cvtepi8_epi16(a)
+		#define cvtlo8s16(a) (i16x8)_mm_cvtepi8_epi16(a)
 		#define cvtlo16u32(a) (i32x4)_mm_cvtepu16_epi32(a)
 		#define ifelse_mask(v, t, f) (i8x16)_mm_blendv_epi8(f, t, v)
 		#define ifelse_msb(v, t, f) (i8x16)_mm_blendv_epi8(f, t, v)
@@ -802,7 +806,7 @@ static const int8_t shz_mask[48] = {
 	#else
 		#define cvtlo8u16(a) (i16x8)ziplo8(a, (i8x16){})
 		#define cvtlo16u32(a) (i32x4)ziplo16(a, (i16x8){})
-		static always_inline i16x8 cvtlo8i16(i8x16 a) {return (i16x8)ziplo8(a, a) >> 8;}
+		static always_inline i16x8 cvtlo8s16(i8x16 a) {return (i16x8)ziplo8(a, a) >> 8;}
 		static always_inline i8x16 ifelse_mask(i8x16 v, i8x16 t, i8x16 f) { return t & v | f & ~v; }
 		static always_inline i8x16 ifelse_msb(i8x16 v, i8x16 t, i8x16 f) { i8x16 m = (v < 0); return t & m | f & ~m; }
 		static always_inline i8x16 min8(i8x16 a, i8x16 b) { i8x16 v = b > a; return a & v | b & ~v; }
@@ -854,7 +858,7 @@ static const int8_t shz_mask[48] = {
 	#define abs16(a) (u16x8)vabsq_s16(a)
 	#define avgu8(a, b) (u8x16)vrhaddq_u8(a, b)
 	#define cvtlo8u16(a) (u16x8)vmovl_u8(vget_low_u8(a))
-	#define cvtlo8i16(a) (i16x8)vmovl_s8(vget_low_s8(a))
+	#define cvtlo8s16(a) (i16x8)vmovl_s8(vget_low_s8(a))
 	#define cvtlo16u32(a) (u32x4)vmovl_u16(vget_low_u16(a))
 	#define cvtuf32(a) (u32x4)vcvtq_u32_f32((float32x4_t)a)
 	#define ifelse_mask(v, t, f) (i8x16)vbslq_s8(v, t, f)
@@ -916,6 +920,8 @@ static const int8_t shz_mask[48] = {
 		static always_inline i8x16 shuffle2(const i8x16 *p, i8x16 m) {return vqtbl2q_s8(*(int8x16x2_t *)p, m);}
 		static always_inline i8x16 shuffle3(const i8x16 *p, i8x16 m) {return vqtbl3q_s8(*(int8x16x3_t *)p, m);}
 		static always_inline u16x8 sum8(u8x16 a) {u16x8 b; asm("uaddlv %h0, %1.16b" : "=w" (b) : "w" (a)); return b;}
+		static always_inline i32x4 trnlo32(i32x4 a) {return vtrn1q_s32(a, a);}
+		static always_inline i32x4 trnhi32(i32x4 a) {return vtrn2q_s32(a, a);}
 		#define sumh8 sum8
 		#define sumd8(a, b) (sum8(a) + sum8(b))
 	#else
@@ -947,6 +953,8 @@ static const int8_t shz_mask[48] = {
 		static inline u16x8 sumh8(u8x16 a) {u16x8 b = vpaddlq_u8(a); u16x8 c = vsraq_n_u32(b, b, 16); return vsraq_n_u64(c, c, 32);}
 		static inline u16x8 sum8(u8x16 a) {u16x8 b = vpaddlq_u8(a); u16x4 c = vadd_u16(vget_low_u16(b), vget_high_u16(b)); u16x4 d = vsra_n_u32(c, c, 16); return vcombine_u16((u16x4)vsra_n_u64((uint64x1_t)d, (uint64x1_t)d, 32), (u16x4){});}
 		static inline u16x8 sumd8(u8x16 a, u8x16 b) {u16x8 c = vaddq_u16(vpaddlq_u8(a), vpaddlq_u8(b)); u16x4 d = vadd_u16(vget_low_u16(c), vget_high_u16(c)); u16x4 e = vsra_n_u32(d, d, 16); return vcombine_u16((u16x4)vsra_n_u64((uint64x1_t)e, (uint64x1_t)e, 32), (u16x4){});}
+		static always_inline i32x4 trnlo32(i32x4 a) {return vtrnq_s32(a, a).val[0];}
+		static always_inline i32x4 trnhi32(i32x4 a) {return vtrnq_s32(a, a).val[1];}
 	#endif
 	#define shufflez shuffle
 	#define shufflez2 shuffle2
@@ -985,7 +993,7 @@ static const int8_t shz_mask[48] = {
 	static u8x16 avg8(i8x16 a, i8x16 b) {i8x16 ab = a + b + 1, c127 = set8(127); return (u16x8)ab >> 1 & c127 | (ab < a) & ~c127;}
 	static u16x8 cvtlo8u16(u8x16 a) {return __builtin_convertvector((u8x8){a[0], a[1], a[2], a[3], a[4], a[5], a[6], a[7]}, u16x8);}
 	static u16x8 cvthi8u16(u8x16 a) {return __builtin_convertvector((u8x8){a[8], a[9], a[10], a[11], a[12], a[13], a[14], a[15]}, u16x8);}
-	static i16x8 cvtlo8i16(i8x16 a) {return __builtin_convertvector((i8x8){a[0], a[1], a[2], a[3], a[4], a[5], a[6], a[7]}, i16x8);}
+	static i16x8 cvtlo8s16(i8x16 a) {return __builtin_convertvector((i8x8){a[0], a[1], a[2], a[3], a[4], a[5], a[6], a[7]}, i16x8);}
 	static u32x4 cvtlo16u32(u16x8 a) {return __builtin_convertvector((u16x4){a[0], a[1], a[2], a[3]}, u32x4);}
 	static u32x4 cvthi16u32(u16x8 a) {return __builtin_convertvector((u16x4){a[4], a[5], a[6], a[7]}, u32x4);}
 	static i8x16 ifelse_mask(i8x16 v, i8x16 t, i8x16 f) {return t & v | f & ~v;}

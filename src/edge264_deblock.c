@@ -2,16 +2,13 @@
 
 #if defined(__SSE2__)
 	#define packabd16(a, b, c, d) (i8x16)abs8(packs16(subs16(a, b), subs16(c, d)))
-	#define trnlo32(a) shuffle32(a, 0, 0, 2, 2)
 #elif defined(__ARM_NEON)
 	#ifdef __aarch64__
 		#define packabd16(a, b, c, d) vqmovn_high_u16(vqmovn_u16(vabdq_s16(a, b)), vabdq_s16(c, d))
 		#define vsqsubq_u8(a, b) vsqaddq_u8(a, -b) // don't use with b=-128
-		static always_inline i32x4 trnlo32(i32x4 a) {return vtrn1q_s32(a, a);}
 	#else
 		#define packabd16(a, b, c, d) vcombine_u16(vqmovn_u16(vabdq_s16(a, b)), vqmovn_u16(vabdq_s16(c, d)))
 		#define vaddl_high_u8(a, b) vaddl_u8(vget_high_u8(a), vget_high_u8(b))
-		static always_inline i32x4 trnlo32(i32x4 a) {return vtrnq_s32(a, a).val[0];}
 		static always_inline u8x16 vsqaddq_u8(u8x16 a, i8x16 b) {i8x16 zero = {}; return vqsubq_u8(vqaddq_u8(a, vmaxq_s8(b, zero)), vmaxq_s8(-b, zero));}
 		static always_inline u8x16 vsqsubq_u8(u8x16 a, i8x16 b) {i8x16 zero = {}; return vqaddq_u8(vqsubq_u8(a, vmaxq_s8(b, zero)), vmaxq_s8(-b, zero));}
 	#endif

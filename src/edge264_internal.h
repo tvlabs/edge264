@@ -779,7 +779,7 @@ static const int8_t shz_mask[48] = {
 	#define subs16(a, b) (i16x8)_mm_subs_epi16(a, b)
 	#define sumh8(a) (u16x8)_mm_sad_epu8(a, (i8x16){})
 	#define trnlo32(a) _mm_shuffle_epi32(a, _MM_SHUFFLE(2, 2, 0, 0))
-	#define trnlo32(a) _mm_shuffle_epi32(a, _MM_SHUFFLE(3, 3, 1, 1))
+	#define trnhi32(a) _mm_shuffle_epi32(a, _MM_SHUFFLE(3, 3, 1, 1))
 	#define unziplo32(a, b) (i32x4)_mm_shuffle_ps((__m128)(a), (__m128)(b), _MM_SHUFFLE(2, 0, 2, 0))
 	#define unziphi32(a, b) (i32x4)_mm_shuffle_ps((__m128)(a), (__m128)(b), _MM_SHUFFLE(3, 1, 3, 1))
 	#define ziplo8(a, b) (i8x16)_mm_unpacklo_epi8(a, b)

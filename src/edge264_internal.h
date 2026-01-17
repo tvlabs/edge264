@@ -880,8 +880,8 @@ static const int8_t shz_mask[48] = {
 	#define set64(i) (i64x2)vdupq_n_s64(i)
 	#define shl128(a, i) (i8x16)({i8x16 _a = (a); vextq_s8(_a, _a, 16 - (i));})
 	#define shr128(a, i) (i8x16)({i8x16 _a = (a); vextq_s8(_a, _a, i);})
-	#define shlc128(a, i) (i8x16)({i8x16 _a = (a); vextq_s8(vdupq_laneq_s8(_a, 0), _a, 16 - (i));})
-	#define shrc128(a, i) (i8x16)({i8x16 _a = (a); vextq_s8(_a, vdupq_laneq_s8(_a, 15), i);})
+	#define shlc128(a, i) (i8x16)({i8x16 _a = (a); vextq_s8(broadcast8(_a, 0), _a, 16 - (i));})
+	#define shrc128(a, i) (i8x16)({i8x16 _a = (a); vextq_s8(_a, broadcast8(_a, 15), i);})
 	#define shrd128(l, h, i) (i8x16)vextq_s8(l, h, i)
 	#define shlv128(a, i) shufflez(a, *(i8x16 *)(shz_mask + 16 - (i)))
 	#define shrv128(a, i) shufflez(a, *(i8x16 *)(shz_mask + 16 + (i)))
@@ -937,6 +937,7 @@ static const int8_t shz_mask[48] = {
 		#define shrpus16(a, b, i) (u8x16)vcombine_u8(vqshrun_n_s16(a, i), vqshrun_n_s16(b, i))
 		#define unziplo32(a, b) (i32x4)vuzpq_s32(a, b).val[0]
 		#define unziphi32(a, b) (i32x4)vuzpq_s32(a, b).val[1]
+		#define vaddl_high_u8(a, b) vaddl_u8(vget_high_u8(a), vget_high_u8(b))
 		#define ziplo8(a, b) (i8x16)vzipq_s8(a, b).val[0]
 		#define ziphi8(a, b) (i8x16)vzipq_s8(a, b).val[1]
 		#define ziplo16(a, b) (i16x8)vzipq_s16(a, b).val[0]

@@ -1,11 +1,11 @@
 #include "edge264_internal.h"
 
 #if defined(__SSE2__)
-	#define shrrpus16(a, b, i) packus16(((i16x8)(a) + (1 << (i - 1))) >> i, ((i16x8)(b) + (1 << (i - 1))) >> i)
-	#define zipmd64(a, b) (i64x2)_mm_shuffle_ps((__m128)(a), (__m128)(b), _MM_SHUFFLE(2, 1, 2, 1))
 	static const i8x16 mul15 = {1, -5, 1, -5, 1, -5, 1, -5, 1, -5, 1, -5, 1, -5, 1, -5};
 	static const i8x16 mul20 = {20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20};
 	static const i8x16 mul51 = {-5, 1, -5, 1, -5, 1, -5, 1, -5, 1, -5, 1, -5, 1, -5, 1};
+	#define shrrpus16(a, b, i) packus16(((i16x8)(a) + (1 << (i - 1))) >> i, ((i16x8)(b) + (1 << (i - 1))) >> i)
+	#define zipmd64(a, b) (i64x2)_mm_shuffle_ps((__m128)(a), (__m128)(b), _MM_SHUFFLE(2, 1, 2, 1))
 	static always_inline i16x8 cvthi8s16(i8x16 a) {return (i16x8)ziphi8(a, a) >> 8;}
 	static always_inline u8x16 maddshrL(u8x16 q, u8x16 p, i8x16 w, i16x8 o, i64x2 wd) {
 		i16x8 x0 = shr16(adds16(maddubs(ziplo8(q, p), w), o), wd);
@@ -66,11 +66,11 @@
 		i16x8 v1 = maddubs(_##b##0, mul15) + maddubs(shrd128(_##b##0, _##b##8, 4), mul20) + maddubs(shrd128(_##b##0, _##b##8, 8), mul51)
 #elif defined(__ARM_NEON)
 	static const i16x8 mul205 = {20, -5};
-	static const i8x16 shuf_zipmd64 = {4, 5, 6, 7, 8, 9, 10, 11, 20, 21, 22, 23, 24, 25, 26, 27};
-	#define zipmd64(a, b) (i64x2)vqtbl2q_s8((int8x16x2_t){a, b}, shuf_zipmd64)
 	#ifdef __aarch64__
+		static const i8x16 shuf_zipmd64 = {4, 5, 6, 7, 8, 9, 10, 11, 20, 21, 22, 23, 24, 25, 26, 27};
 		#define cvthi8s16(a) (u16x8)vmovl_high_s8(a)
 		#define shrrpus16(a, b, i) (u8x16)vqrshrun_high_n_s16(vqrshrun_n_s16(a, i), b, i)
+		#define zipmd64(a, b) (i64x2)vqtbl2q_s8((int8x16x2_t){a, b}, shuf_zipmd64)
 		static always_inline i16x8 sixtapH4(i8x16 l0, i8x16 l1) {
 			int8x16x2_t x = {l0, l1};
 			i8x16 af = vqtbl2q_s8(x, (i8x16){0, 5, 1, 6, 2, 7, 3, 8, 16, 21, 17, 22, 18, 23, 19, 24});
@@ -81,8 +81,10 @@
 	#else
 		#define cvthi8s16(a) (u16x8)vmovl_s8(vget_high_s8(a))
 		#define shrrpus16(a, b, i) (u8x16)vcombine_u8(vqrshrun_n_s16(a, i), vqrshrun_n_s16(b, i))
+		#define vmlal_high_u8(a, b, c) vmlal_u8(a, vget_high_u8(b), vget_high_u8(c))
 		#define vmulq_laneq_s16(a, v, i) vmulq_lane_s16(a, __builtin_choose_expr((i) < 4, vget_low_s16(v), vget_high_s16(v)), (i) & 3)
 		#define vmlaq_laneq_s16(a, b, v, i) vmlaq_lane_s16(a, b, __builtin_choose_expr((i) < 4, vget_low_s16(v), vget_high_s16(v)), (i) & 3)
+		static always_inline i8x16 zipmd64(i8x16 a, i8x16 b) {return vcombine_s8(vext_s8(vget_low_s8(a), vget_high_s8(a), 4), vext_s8(vget_low_s8(b), vget_high_s8(b), 4));}
 		static always_inline i16x8 sixtapH4(i8x16 l0, i8x16 l1) {
 			i8x8 saf = {0, 5, 1, 6, 2, 7, 3, 8};
 			i8x8 sbe = {1, 4, 2, 5, 3, 6, 4, 7};

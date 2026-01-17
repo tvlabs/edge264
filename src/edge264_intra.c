@@ -35,8 +35,8 @@
 	#define addlou8(a, b) (i16x8)vaddl_u8(vget_low_s8(a), vget_low_s8(b))
 	#define lowpass8(l, m, r) (i8x16)vrhaddq_u8(vhaddq_u8(l, r), m)
 	#define sublou8(a, b) (i16x8)vsubl_u8(vget_low_s8(a), vget_low_s8(b))
-	static always_inline i8x16 spreadh8(i8x16 a) {return vzip1q_s64(a, vdupq_laneq_s8(a, 7));}
-	static always_inline i8x16 spreadq8(i8x16 a) {return vextq_s8(vextq_s8(a, a, 4), vdupq_laneq_s8(a, 3), 12);}
+	static always_inline i8x16 spreadh8(i8x16 a) {return vcombine_s8(vget_low_s8(a), vdup_lane_s8(vget_low_s8(a), 7));}
+	static always_inline i8x16 spreadq8(i8x16 a) {return vextq_s8(vextq_s8(a, a, 4), broadcast8(a, 3), 12);}
 #endif
 
 #if defined(__wasm_simd128__) || defined(__ARM_NEON)
@@ -618,6 +618,15 @@ static cold noinline void decode_intra16x16(uint8_t * restrict p, size_t stride,
 			i16x8 b = broadcast16(v7, 0);
 			i16x8 c = broadcast16(v7, 4);
 		#elif defined(__ARM_NEON)
+			/*
+			i8x16 t = loadu64x2(pT - 1, pT + 8);
+			i8x16 l = ldleftP16(p, stride, t);
+			i16x8 HV = planesum(t, l, (i8x16){8, 7, 6, 5, 4, 3, 2, 1, 1, 2, 3, 4, 5, 6, 7, 8});
+			i16x8 v0 = shrrs16(HV + (HV >> 2), 4);
+			i16x8 a = broadcast16((((u16x8)t >> 8) + ((u16x8)l >> 8) + 1) << 4, 7);
+			i16x8 b = broadcast16(v0, 0);
+			i16x8 c = broadcast16(v0, 4);
+			*/
 			i8x16 tl = loadu64(pT - 1);
 			i8x16 tr = loada64(pT + 8);
 			const uint8_t *q = p - 1;

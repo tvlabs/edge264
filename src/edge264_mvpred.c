@@ -446,7 +446,7 @@ static always_inline void decode_direct_temporal_mv_pred(Edge264Context *ctx, un
 	}
 	
 	// conditional memory storage
-	i8x16 refIdx = shufflez2(ctx->MapPicToList0_v, refPicCol);
+	i8x16 refIdx = shuffle2z(ctx->MapPicToList0_v[0], ctx->MapPicToList0_v[1], refPicCol);
 	mb->refPic_s[0] = ((i32x4)shufflen(ctx->t.RefPicList_v[0], refIdx))[0]; // overwritten by parse_ref_idx later if refIdx!=0
 	mb->refPic_s[1] = ((i32x4)broadcast8(ctx->t.RefPicList_v[2], 0))[0]; // refIdxL1 is 0
 	if (direct_flags & 1) {

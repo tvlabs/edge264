@@ -1075,8 +1075,8 @@ static noinline void deblock_mb(Edge264Context *ctx)
 		i8x16 nnzt = shuffle(mbB->nC_v[0], shufH);
 		i8x16 bS2abcd = (nnzv | shrd128(nnzl, nnzv, 12)) > zero;
 		i8x16 bS2efgh = (nnzh | shrd128(nnzt, nnzh, 12)) > zero;
-		i8x16 bS2aacc = trnlo32(bS2abcd);
-		i8x16 bS2eegg = trnlo32(bS2efgh);
+		i8x16 bS2aacc = trnlo32(bS2abcd, bS2abcd);
+		i8x16 bS2eegg = trnlo32(bS2efgh, bS2efgh);
 		
 		// shuffle, blend and store tC0 values (tC00 is -1)
 		static const i8x16 shuf0 = {8, 8, 8, 8, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};

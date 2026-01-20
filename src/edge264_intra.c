@@ -142,13 +142,36 @@
 		a2h[9] = p4[stride * 2];
 		return a2h;
 	}
-	static i8x16 ldleftC(const uint8_t *p, size_t stride) {
+	static i8x16 ldleftC(const uint8_t *p, size_t stride, size_t mstride) {
+		size_t stride3 = stride * 3;
+		const uint8_t *p0 = p - 1;
+		const uint8_t *p4 = p0 + stride * 4;
+		const uint8_t *p8 = p0 + stride * 8 + mstride;
+		const uint8_t *pC = p8 + stride * 4;
+		return (i8x16){*p0, p0[stride * 2], *p4, p4[stride * 2], *p8, p8[stride * 2], *pC, pC[stride * 2], p0[stride], p0[stride3], p4[stride], p4[stride3], p8[stride], p8[stride3], pC[stride], pC[stride3]};
+	}
+	static i8x16 ldleftP16(const uint8_t *p, size_t stride, i8x16 v) {
 		size_t stride3 = stride * 3;
 		const uint8_t *p0 = p - 1;
 		const uint8_t *p4 = p0 + stride * 4;
 		const uint8_t *p8 = p0 + stride * 8;
 		const uint8_t *pC = p4 + stride * 8;
-		return (i8x16){*p0, p0[stride * 2], *p4, p4[stride * 2], *p8, p8[stride * 2], *pC, pC[stride * 2], p0[stride], p0[stride3], p4[stride], p4[stride3], p8[stride], p8[stride3], pC[stride], pC[stride3]};
+		v[1] = *p0;
+		v[2] = p0[stride];
+		v[3] = p0[stride * 2];
+		v[4] = p0[stride3];
+		v[5] = *p4;
+		v[6] = p4[stride];
+		v[7] = p4[stride * 2];
+		v[8] = *p8;
+		v[9] = p8[stride];
+		v[10] = p8[stride * 2];
+		v[11] = p8[stride3];
+		v[12] = *pC;
+		v[13] = pC[stride];
+		v[14] = pC[stride * 2];
+		v[15] = pC[stride3];
+		return v;
 	}
 #elif defined(__SSE2__)
 	static i8x16 ldleft4x4(const uint8_t *p, size_t stride) {
@@ -207,6 +230,24 @@
 		i8x16 v9 = ziphi32(ziplo16(v4, v5), ziplo16(v6, v7));
 		return ziphi64(v8, v9);
 	}
+	static i8x16 ldleftP16(const uint8_t *p, size_t stride, i8x16 v) {
+		size_t stride3 = stride * 3;
+		const uint8_t *p0 = p - 16;
+		const uint8_t *p4 = p0 + stride * 4;
+		const uint8_t *p8 = p0 + stride * 8;
+		const uint8_t *pC = p4 + stride * 8;
+		i8x16 l0 = ziplo8((u64x2)v << 56, loada64(p0 + 8));
+		i8x16 l1 = ziphi8(loada128(p0 + stride), loada128(p0 + stride * 2));
+		i8x16 l2 = ziphi8(loada128(p0 + stride3), loada128(p4));
+		i8x16 l3 = ziphi8(loada128(p4 + stride), loada128(p4 + stride * 2));
+		i8x16 l4 = ziphi8(loada128(p8), loada128(p8 + stride));
+		i8x16 l5 = ziphi8(loada128(p8 + stride * 2), loada128(p8 + stride3));
+		i8x16 l6 = ziphi8(loada128(pC), loada128(pC + stride));
+		i8x16 l7 = ziphi8(loada128(pC + stride * 2), loada128(pC + stride3));
+		i8x16 l8 = ziphi32(ziphi16(l0, l1), ziphi16(l2, l3));
+		i8x16 l9 = ziphi32(ziphi16(l4, l5), ziphi16(l6, l7));
+		return ziphi64(l8, l9);
+	}
 #endif
 
 
@@ -241,7 +282,7 @@ static cold noinline void decode_intra4x4(uint8_t * restrict p, size_t stride, i
 	case I4x4_DC_8:
 		v = ziplo32(ldleft4x4(p, stride), loada32(pT));
 	dc_4x4:
-		v = broadcast8(shrru16(sumh8(v), 3), __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__);
+		v = broadcast8(shrru16(sumh8(v), 3), 0);
 		break;
 	case I4x4_DC_A_8: {
 		i8x16 w = loada32(pT);
@@ -354,7 +395,7 @@ static cold noinline void decode_intra8x8(uint8_t * restrict p, size_t stride, i
 		h2a = ldleft8x8(p, stride, i2a);
 		k2r = lowpass8(shr128(j2s, 2), shr128(j2s, 1), j2s);
 	dc_8x8_sum:
-		p0 = broadcast8(shrru16(sum8(ziplo64(k2r, h2a)), 4), __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__);
+		p0 = broadcast8(shrru16(sum8(ziplo64(k2r, h2a)), 4), 0);
 		goto store1_8x8;
 	case I8x8_DC_C_8:
 		i2a = j2s = shrc128(loadu128(pT - 8), 7);
@@ -562,15 +603,16 @@ static cold noinline void decode_intra16x16(uint8_t * restrict p, size_t stride,
 		return;
 	
 	case I16x16_DC_8: {
+		// FIXME try reverting to function to reduce code size on ARM
 		i8x16 t = loada128(pT);
 		const uint8_t *q = p - 1;
 		int l = 0;
 		for (int i = 0; i < 16; i++, q += stride)
 			l += *q;
-		pred = broadcast8(shrru16(sum8(t) + (i16x8){l}, 5), __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__);
+		pred = broadcast8(shrru16(sum8(t) + (i16x8){l}, 5), 0);
 		} break;
 	case I16x16_DC_A_8:
-		pred = broadcast8(shrru16(sum8(loada128(pT)), 4), __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__);
+		pred = broadcast8(shrru16(sum8(loada128(pT)), 4), 0);
 		break;
 	case I16x16_DC_B_8: {
 		const uint8_t *q = p - 1;
@@ -657,55 +699,19 @@ static cold noinline void decode_intra16x16(uint8_t * restrict p, size_t stride,
 			i16x8 b = broadcast32(v4, 0);
 			i16x8 c = broadcast32(v4, 1);
 		#elif defined(__SSE2__)
+			// The optimal codes differ wildly between ISAs, but this one is not too critical.
 			size_t nstride = -stride;
-			#ifdef __SSE4_1__
-				const uint8_t *p0 = p - 1;
-				const uint8_t *p7 = p0 + stride * 7;
-				const uint8_t *pE = p7 + stride * 7;
-				i64x2 t = loadu64(p0 + nstride);
-				i8x16 l = t;
-				t[1] = *(int64_t*)(p0 + nstride + 9);
-				l[1] = *p0;
-				l[2] = p0[stride];
-				l[3] = p0[stride * 2];
-				l[4] = p7[nstride * 4];
-				l[5] = p0[stride * 4];
-				l[6] = p7[nstride * 2];
-				l[7] = p7[nstride];
-				l[8] = p7[stride];
-				l[9] = p7[stride * 2];
-				l[10] = pE[nstride * 4];
-				l[11] = p7[stride * 4];
-				l[12] = pE[nstride * 2];
-				l[13] = pE[nstride];
-				l[14] = *pE;
-				l[15] = pE[stride];
-			#else
-				const uint8_t *p0 = p - 16;
-				const uint8_t *p7 = p0 + stride * 7;
-				const uint8_t *pE = p7 + stride * 7;
-				i8x16 t = loadu64x2(p0 + nstride + 15, p0 + nstride + 24);
-				i8x16 l0 = ziphi8(shl128(t, 15), loada128(p0));
-				i8x16 l1 = ziphi8(loada128(p0 + stride), loada128(p0 + stride * 2));
-				i8x16 l2 = ziphi8(loada128(p7 + nstride * 4), loada128(p0 + stride * 4));
-				i8x16 l3 = ziphi8(loada128(p7 + nstride * 2), loada128(p7 + nstride));
-				i8x16 l4 = ziphi8(loada128(p7 + stride), loada128(p7 + stride * 2));
-				i8x16 l5 = ziphi8(loada128(pE + nstride * 4), loada128(p7 + stride * 4));
-				i8x16 l6 = ziphi8(loada128(pE + nstride * 2), loada128(pE + nstride));
-				i8x16 l7 = ziphi8(loada128(pE), loada128(pE + stride));
-				i8x16 l = ziphi64(ziphi32(ziphi16(l0, l1), ziphi16(l2, l3)), ziphi32(ziphi16(l4, l5), ziphi16(l6, l7)));
-			#endif
-			i8x16 m = {-8, -7, -6, -5, -4, -3, -2, -1, 1, 2, 3, 4, 5, 6, 7, 8};
-			i16x8 mul = ziphi8(m, (i8x16){});
-			i16x8 v0 = maddubs(t, m);
-			i16x8 v1 = maddubs(l, m);
-			i16x8 v2 = (i16x8)ziplo32(v0, v1) + (i16x8)ziphi32(v0, v1);
-			i16x8 v3 = v2 + (i16x8)shr128(v2, 8);
-			i16x8 HV = v3 + shufflelo(v3, 1, 0, 3, 2); // H, H, V, V
-			i16x8 v4 = shrrs16(HV + (HV >> 2), 4); // (5 * HV + 32) >> 6, -717..717
-			i16x8 a = (broadcast16((i16x8)shr128(t, 15) + (i16x8)shr128(l, 15), 0) - -1) << 4;
-			i16x8 b = broadcast32(v4, 0);
-			i16x8 c = broadcast32(v4, 1);
+			i8x16 t = loadu64x2(pT - 1, pT + 8);
+			i8x16 l = ldleftP16(p, stride, t);
+			i8x16 m = {8, 7, 6, 5, 4, 3, 2, 1, 1, 2, 3, 4, 5, 6, 7, 8};
+			i16x8 mul = cvthi8u16(m);
+			i16x8 v0 = hadd16(maddubx(t, m), maddubx(l, m));
+			i16x8 v1 = (i16x8)((u32x4)v0 >> 16) + v0;
+			i16x8 HV = (i16x8)((u64x2)v1 >> 32) - v1;
+			i16x8 v2 = shrrs16(HV + (HV >> 2), 4);
+			i16x8 a = broadcast16((((u16x8)t >> 8) + ((u16x8)l >> 8) + 1) << 4, 7);
+			i16x8 b = broadcast16(v2, 0);
+			i16x8 c = broadcast16(v2, 4);
 		#endif
 		i16x8 w0 = (a + c) - (c << 3) + (b * mul);
 		i16x8 w1 = w0 - (b << 3);
@@ -723,39 +729,31 @@ static cold noinline void decode_intra16x16(uint8_t * restrict p, size_t stride,
  * Intra Chroma
  */
 static cold noinline void decode_intraChroma(uint8_t * restrict p, size_t stride, int mode, i16x8 clip) {
-	#if __BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__
-		static const i8x16 shufDC = {0, 0, 0, 0, 4, 4, 4, 4, 8, 8, 8, 8, 12, 12, 12, 12};
-		static const i8x16 shufDCA = {0, 0, 0, 0, 12, 12, 12, 12, 0, 0, 0, 0, 12, 12, 12, 12};
-		static const i8x16 shufDCB = {0, 0, 0, 0, 0, 0, 0, 0, 12, 12, 12, 12, 12, 12, 12, 12};
-	#else
-		static const i8x16 shufDC = {1, 1, 1, 1, 5, 5, 5, 5, 9, 9, 9, 9, 13, 13, 13, 13};
-		static const i8x16 shufDCA = {1, 1, 1, 1, 13, 13, 13, 13, 1, 1, 1, 1, 13, 13, 13, 13};
-		static const i8x16 shufDCB = {1, 1, 1, 1, 1, 1, 1, 1, 13, 13, 13, 13, 13, 13, 13, 13};
-	#endif
+	static const i8x16 shufDC = {0, 0, 0, 0, 4, 4, 4, 4, 8, 8, 8, 8, 12, 12, 12, 12};
+	static const i8x16 shufDCA = {0, 0, 0, 0, 12, 12, 12, 12, 0, 0, 0, 0, 12, 12, 12, 12};
+	static const i8x16 shufDCB = {0, 0, 0, 0, 0, 0, 0, 0, 12, 12, 12, 12, 12, 12, 12, 12};
 	const uint8_t *pT = p - stride;
 	const uint8_t *pU = p - stride * 2;
-	i8x16 bt, rt, l, shuf;
+	i8x16 t, l, shuf;
 	i64x2 bpred, rpred;
 	switch (mode) {
 	default: __builtin_unreachable();
 	
 	case IC8x8_DC_8: {
-		bt = loada64(pU);
-		rt = loada64(pT);
-		l = ldleftC(p, stride);
+		t = loada64x2(pU, pT);
+		l = ldleftC(p, stride, 0);
 		shuf = shufDC;
 	} chroma_dc_8x8_sum: {
 		#if defined(__SSE2__)
-			i8x16 b = ziplo64(bt, l);
-			i8x16 r = shrd128(l, rt, 8);
-			i16x8 b01 = sumh8(shuffle32(b, 0, 2, 1, 1));
-			i16x8 r01 = sumh8(shuffle32(r, 2, 0, 3, 3));
-			i16x8 b23 = sumh8(shuffle32(b, 3, 3, 1, 3));
-			i16x8 r23 = sumh8(shuffle32(r, 1, 1, 3, 1));
-			bpred = shuffle(shrru16(packs32(b01, b23), 3), shuf);
-			rpred = shuffle(shrru16(packs32(r01, r23), 3), shuf);
+			i16x8 br0 = sumh8(trnlo32(t, l)); // top-left sums
+			i16x8 br1 = sumh8(trnhi32(t, t)); // top-right sums
+			i16x8 br2 = sumh8(trnhi32(l, l)); // bottom-left sums
+			i16x8 br3 = sumh8(trnhi32(t, l)); // bottom-right sums
+			u32x4 v0 = shrrpu16(packs32(br0, br1), packs32(br2, br3), 3);
+			bpred = shuffle(v0, shuf);
+			rpred = shuffle(v0 >> 16, shuf);
 		#elif defined(__ARM_NEON)
-			i8x16 t = ziplo64(bt, rt);
+			// FIXME merge with SSE
 			i16x8 v0 = vpaddlq_u8(vtrn1q_s32(t, l)); // top-left sums
 			i16x8 v1 = vpaddlq_u8(vtrn2q_s32(t, t)); // top-right sums
 			i16x8 v2 = vpaddlq_u8(vtrn2q_s32(l, l)); // bottom-left sums
@@ -766,14 +764,11 @@ static cold noinline void decode_intraChroma(uint8_t * restrict p, size_t stride
 		#endif
 		} break;
 	case IC8x8_DC_A_8:
-		bt = loada64(pU);
-		rt = loada64(pT);
-		l = ziplo64(bt, rt);
+		l = t = loada64x2(pU, pT);
 		shuf = shufDCA;
 		goto chroma_dc_8x8_sum;
 	case IC8x8_DC_B_8:
-		bt = l = ldleftC(p, stride);
-		rt = shr128(l, 8);
+		t = l = ldleftC(p, stride, 0);
 		shuf = shufDCB;
 		goto chroma_dc_8x8_sum;
 	case IC8x8_DC_AB_8:
@@ -791,26 +786,26 @@ static cold noinline void decode_intraChroma(uint8_t * restrict p, size_t stride
 		} break;
 	
 	case IC8x8_P_8: {
-		i8x16 btl = loadu128(pU - 1);
-		i8x16 rtl = loadu128(pT - 1);
-		i8x16 tl = ziplo32(btl, rtl);
-		i8x16 tr = ziplo32(shr128(btl, 5), shr128(rtl, 5));
 		#if defined(__SSE2__)
-			size_t stride3 = stride * 3;
-			const uint8_t *p0 = p - 1;
-			const uint8_t *p4 = p0 + stride * 4;
-			const uint8_t *p8 = p0 + stride * 8;
-			const uint8_t *pC = p4 + stride * 8;
-			i8x16 lt = {tl[0], *p0, p0[stride * 2], *p4, tl[4], p0[stride], p0[stride3], p4[stride]};
-			i8x16 lb = {*p8, p8[stride * 2], *pC, pC[stride * 2], p8[stride], p8[stride3], pC[stride], pC[stride3]};
-			i8x16 n = {-4, -3, -2, -1, -4, -3, -2, -1, -4, -3, -2, -1, -4, -3, -2, -1};
-			i8x16 m = {1, 2, 3, 4, 1, 2, 3, 4, 1, 2, 3, 4, 1, 2, 3, 4};
-			i16x8 v0 = maddubs(ziplo64(tl, lt), n) + maddubs(ziplo64(tr, lb), m);
-			i16x8 v1 = (((u32x4)tr >> 24) + ((u32x4)lb >> 24) - -1) << 4;
-			i16x8 HV = v0 + shufflelo(shufflehi(v0, 1, 0, 3, 2), 1, 0, 3, 2); // Hb,Hb,Hr,Hr,Vb,Vb,Vr,Vr
-			i16x8 ba = broadcast16(v1, 0); // 16..8176
-			i16x8 ra = broadcast16(v1, 2); // 16..8176
+			i8x16 s = {7, 8, 9, 10, 12, 13, 14, 15};
+			i8x16 t = ziplo64(shuffle(loadu128(pU - 8), s), shuffle(loadu128(pT - 8), s));
+			i8x16 l = ldleftC(pU, stride, stride * 2);
+			i8x16 m = {4, 3, 2, 1, 1, 2, 3, 4, 4, 3, 2, 1, 1, 2, 3, 4};
+			i16x8 v0 = hadd16(maddubx(t, m), maddubx(l, m));
+			i16x8 HV = (i16x8)((u32x4)v0 >> 16) - v0; // Hb, _, Hr, _, Vb, _, Vr, _
+			i16x8 v1 = shrrs16(HV + (HV >> 4), 1); // (17 * HV + 16) >> 5
+			i16x8 v2 = (((u16x8)t >> 8) + ((u16x8)l >> 8) - -1) << 4;
+			i16x8 ba = broadcast16(v2, 3);
+			i16x8 ra = broadcast16(v2, 7);
+			i16x8 bb = broadcast16(v1, 0);
+			i16x8 rb = broadcast16(v1, 2);
+			i16x8 bc = broadcast16(v1, 4);
+			i16x8 rc = broadcast16(v1, 6);
 		#elif defined(__ARM_NEON)
+			i8x16 btl = loadu128(pU - 1);
+			i8x16 rtl = loadu128(pT - 1);
+			i8x16 tl = ziplo32(btl, rtl);
+			i8x16 tr = ziplo32(shr128(btl, 5), shr128(rtl, 5));
 			const uint8_t *q = p - 1;
 			i8x16 lt = tl, lb;
 			lt[1] = *q;
@@ -835,12 +830,12 @@ static cold noinline void decode_intraChroma(uint8_t * restrict p, size_t stride
 			i16x8 v3 = (addlou8(tr, lb) - -1) << 4;
 			i16x8 ba = broadcast16(v3, 3);
 			i16x8 ra = broadcast16(v3, 7);
+			i16x8 hv = shrrs16(HV + (HV >> 4), 1); // (17 * HV + 16) >> 5
+			i16x8 bb = broadcast32(hv, 0);
+			i16x8 rb = broadcast32(hv, 1);
+			i16x8 bc = broadcast32(hv, 2);
+			i16x8 rc = broadcast32(hv, 3);
 		#endif
-		i16x8 hv = shrrs16(HV + (HV >> 4), 1); // (17 * HV + 16) >> 5
-		i16x8 bb = broadcast32(hv, 0);
-		i16x8 rb = broadcast32(hv, 1);
-		i16x8 bc = broadcast32(hv, 2);
-		i16x8 rc = broadcast32(hv, 3);
 		i16x8 bp = ba - bc - bc - bc + bb * (i16x8){-3, -2, -1, 0, 1, 2, 3, 4};
 		i16x8 rp = ra - rc - rc - rc + rb * (i16x8){-3, -2, -1, 0, 1, 2, 3, 4};
 		for (int i = 8; i--; bp += bc, rp += rc, p += stride * 2) {

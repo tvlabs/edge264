@@ -30,7 +30,7 @@
 #elif defined(__SSE2__)
 	#define spreadh8(a) shuffle(a, (i8x16){0, 1, 2, 3, 4, 5, 6, 7, 7, 7, 7, 7, 7, 7, 7, 7})
 	#define spreadq8(a) shuffle(a, (i8x16){0, 1, 2, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3})
-	#define sum8h8(a, b, c, d) (i16x8)packs32(packs32(sum8(a), sum8(b)), packs32(sum8(c), sum8(d)))
+	#define sum8h8(a, b, c, d) (i16x8)packs32(packs32(sumh8(a), sumh8(b)), packs32(sumh8(c), sumh8(d)))
 	static always_inline i8x16 lowpass8(i8x16 l, i8x16 m, i8x16 r) {return avgu8(subu8(avgu8(l, r), (l ^ r) & set8(1)), m);}
 #elif defined(__ARM_NEON)
 	#define addlou8(a, b) (i16x8)vaddl_u8(vget_low_s8(a), vget_low_s8(b))

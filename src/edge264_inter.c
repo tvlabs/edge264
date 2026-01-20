@@ -1,5 +1,13 @@
 #include "edge264_internal.h"
 
+#define pack_w(w0, w1) ((w1) << 8 | (w0) & 255)
+static always_inline i16x8 sixtapHV(i16x8 a, i16x8 b, i16x8 c, i16x8 d, i16x8 e, i16x8 f) {
+	i16x8 af = a + f;
+	i16x8 be = b + e;
+	i16x8 cd = c + d;
+	return ((((af - be) >> 2) + (cd - be)) >> 2) + cd;
+}
+
 #if defined(__SSE2__)
 	static const i8x16 mul15 = {1, -5, 1, -5, 1, -5, 1, -5, 1, -5, 1, -5, 1, -5, 1, -5};
 	static const i8x16 mul20 = {20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20};
@@ -149,19 +157,6 @@
 	#define SIXTAPH16(v0, v1, a, b)\
 		i16x8 v0 = sixtapVlo(a, shr128(a, 1), shr128(a, 2), shr128(a, 3), shr128(a, 4), shr128(a, 5));\
 		i16x8 v1 = sixtapVlo(b, shr128(b, 1), shr128(b, 2), shr128(b, 3), shr128(b, 4), shr128(b, 5))
-#endif
-
-static always_inline i16x8 sixtapHV(i16x8 a, i16x8 b, i16x8 c, i16x8 d, i16x8 e, i16x8 f) {
-	i16x8 af = a + f;
-	i16x8 be = b + e;
-	i16x8 cd = c + d;
-	return ((((af - be) >> 2) + (cd - be)) >> 2) + cd;
-}
-
-#if __BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__
-	#define pack_w(w0, w1) ((w1) << 8 | (w0) & 255)
-#else
-	#define pack_w(w0, w1) ((w0) << 8 | (w1) & 255)
 #endif
 
 // variables only used in this file so far, no need to care about undef until seeing errors
@@ -896,8 +891,8 @@ static void decode_inter_chroma(int w, int h, size_t sstride, const uint8_t *src
 			i8x16 shuf = {0, 1, 1, 2, 2, 3, 3, 4, 8, 9, 9, 10, 10, 11, 11, 12};
 		#elif defined(__ARM_NEON)
 			i16x8 v0 = ziplo16(wo16, wo16);
-			i16x8 w0 = trnlo32(v0);
-			i16x8 w1 = trnhi32(v0);
+			i16x8 w0 = trnlo32(v0, v0);
+			i16x8 w1 = trnhi32(v0, v0);
 			i16x8 o = ziplo64(oCb, oCr);
 			i8x16 shuf = {0, 1, 2, 3, 8, 9, 10, 11, 1, 2, 3, 4, 9, 10, 11, 12};
 		#endif

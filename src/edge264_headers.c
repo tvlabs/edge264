@@ -323,7 +323,7 @@ static void recover_slice(Edge264Context *ctx, int currPic) {
 				if (i >= ctx->t.pic_width_in_mbs) // B available
 					t = loada128(PX(0, -1));
 			}
-			i8x16 dcY = broadcast8(shrru16(sumd8(t, l), 5), __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__);
+			i8x16 dcY = broadcast8(shrru16(sum8(t) + sum8(l), 5), 0);
 			#if defined(__SSE2__)
 				i8x16 w = (p128 < 128) ? ziplo8(set8(128 - p128), set8(p128)) : (i8x16){0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1};
 				i64x2 wd = {p128 < 128 ? 7 : 0};
@@ -352,8 +352,8 @@ static void recover_slice(Edge264Context *ctx, int currPic) {
 				INIT_PX(ctx->samples_mb[1], ctx->t.stride[1] >> 1);
 				i8x16 b = ziplo64(loada64(PX(0, -2)), ldleft8(0, 2, 4, 6, 8, 10, 12, 14));
 				i8x16 r = ziplo64(loada64(PX(0, -1)), ldleft8(1, 3, 5, 7, 9, 11, 13, 15));
-				i8x16 dcb = broadcast8(shrru16(sum8(b), 4), __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__);
-				i8x16 dcr = broadcast8(shrru16(sum8(r), 4), __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__);
+				i8x16 dcb = broadcast8(shrru16(sum8(b), 4), 0);
+				i8x16 dcr = broadcast8(shrru16(sum8(r), 4), 0);
 				i8x16 dcC = ziplo64(dcb, dcr);
 				i64x2 v0 = maddshrL(loada64x2(PX(0, 0), PX(0, 1)), dcC, w, o, wd);
 				i64x2 v1 = maddshrL(loada64x2(PX(0, 2), PX(0, 3)), dcC, w, o, wd);

@@ -918,8 +918,8 @@ static const int8_t shz_mask[48] = {
 		#define ziphi32(a, b) (i16x8)vzip2q_s32(a, b)
 		#define ziplo64(a, b) (i64x2)vzip1q_s64(a, b)
 		#define ziphi64(a, b) (i64x2)vzip2q_s64(a, b)
-		static always_inline i16x8 maddxbs(i8x16 a, i8x16 b) {return vpaddq_s16(vmull_s8(vget_low_s8(a), vget_low_s8(b)), vmull_high_s8(a, b));}
 		static always_inline u16x8 maddubx(u8x16 a, u8x16 b) {return vpaddq_s16(vmull_u8(vget_low_u8(a), vget_low_u8(b)), vmull_high_u8(a, b));}
+		static always_inline i16x8 maddxbs(i8x16 a, i8x16 b) {return vpaddq_s16(vmull_s8(vget_low_s8(a), vget_low_s8(b)), vmull_high_s8(a, b));}
 		// FIXME try again to macro it?
 		static always_inline i8x16 shuffle(i8x16 a, i8x16 m) {return vqtbl1q_s8(a, m);}
 		static always_inline i8x16 shufflen(i8x16 a, i8x16 m) {return vqtbx1q_s8(m, a, m);}
@@ -941,6 +941,8 @@ static const int8_t shz_mask[48] = {
 		#define shrrpu16(a, b, i) (u8x16)vcombine_u8(vqrshrn_n_u16(a, i), vqrshrn_n_u16(b, i))
 		#define shrpus16(a, b, i) (u8x16)vcombine_u8(vqshrun_n_s16(a, i), vqshrun_n_s16(b, i))
 		#define sumh8(a) (u16x8)vpaddlq_u32(vpaddlq_u16(vpaddlq_u8(a)))
+		#define trnlo32(a, b) ((i32x4)vtrnq_s32(a, b).val[0])
+		#define trnhi32(a, b) ((i32x4)vtrnq_s32(a, b).val[1])
 		#define unziplo32(a, b) (i32x4)vuzpq_s32(a, b).val[0]
 		#define unziphi32(a, b) (i32x4)vuzpq_s32(a, b).val[1]
 		#define vaddl_high_u8(a, b) vaddl_u8(vget_high_u8(a), vget_high_u8(b))
@@ -953,14 +955,13 @@ static const int8_t shz_mask[48] = {
 		#define ziplo64(a, b) (i64x2)vcombine_s64(vget_low_s64(a), vget_low_s64(b))
 		#define ziphi64(a, b) (i64x2)vcombine_s64(vget_high_s64(a), vget_high_s64(b))
 		static always_inline i16x8 hadd16(i16x8 a, i16x8 b) {return vcombine_s16(vpadd_s16(vget_low_s16(a), vget_high_s16(a)), vpadd_s16(vget_low_s16(b), vget_high_s16(b)));}
+		static always_inline u16x8 maddubx(u8x16 a, u8x16 b) {u16x8 c = vmull_u8(vget_low_u8(a), vget_low_u8(b)); u16x8 d = vmull_u8(vget_high_u8(a), vget_high_u8(b)); return vcombine_s16(vpadd_s16(vget_low_s16(c), vget_high_s16(c)), vpadd_s16(vget_low_s16(d), vget_high_s16(d)));}
 		static always_inline i16x8 maddxbs(i8x16 a, i8x16 b) {i16x8 c = vmull_s8(vget_low_s8(a), vget_low_s8(b)); i16x8 d = vmull_s8(vget_high_s8(a), vget_high_s8(b)); return vcombine_s16(vpadd_s16(vget_low_s16(c), vget_high_s16(c)), vpadd_s16(vget_low_s16(d), vget_high_s16(d)));}
 		static always_inline i8x16 shuffle(i8x16 a, i8x16 m) {int8x8x2_t b = {vget_low_s8(a), vget_high_s8(a)}; return vcombine_s8(vtbl2_s8(b, vget_low_s8(m)), vtbl2_s8(b, vget_high_s8(m)));}
 		static always_inline i8x16 shufflen(i8x16 a, i8x16 m) {int8x8x2_t b = {vget_low_s8(a), vget_high_s8(a)}; return vcombine_s8(vtbx2_s8(vget_low_s8(m), b, vget_low_s8(m)), vtbx2_s8(vget_high_s8(m), b, vget_high_s8(m)));}
-		static always_inline i8x16 shuffle2(i8x16 a, i8x16 b, i8x16 m) {int8x8x4_t p = {vget_low_s8(a), vget_high_s8(a), vget_low_s8(b), vget_high_s8(b)}; return vcombine_s8(vtbl4_s8(a, vget_low_s8(m)), vtbl4_s8(a, vget_high_s8(m)));}
+		static always_inline i8x16 shuffle2(i8x16 a, i8x16 b, i8x16 m) {int8x8x4_t p = {vget_low_s8(a), vget_high_s8(a), vget_low_s8(b), vget_high_s8(b)}; return vcombine_s8(vtbl4_s8(p, vget_low_s8(m)), vtbl4_s8(p, vget_high_s8(m)));}
 		static inline i8x16 shuffle3(const i8x16 *p, i8x16 m) {i8x16 m16 = m - 16; int8x8x2_t a = *(int8x8x2_t *)p; int8x8x4_t b = *(int8x8x4_t *)(p + 1); return vcombine_s8(vtbx4_s8(vtbl2_s8(a, vget_low_s8(m)), b, vget_low_s8(m16)), vtbx4_s8(vtbl2_s8(a, vget_high_s8(m)), b, vget_high_s8(m16)));}
 		static inline u16x8 sum8(u8x16 a) {u16x8 b = vpaddlq_u8(a); u16x4 c = vadd_u16(vget_low_u16(b), vget_high_u16(b)); u16x4 d = vsra_n_u32(c, c, 16); return vcombine_u16((u16x4)vsra_n_u64((uint64x1_t)d, (uint64x1_t)d, 32), (u16x4){});}
-		static always_inline i32x4 trnlo32(i32x4 a) {return vtrnq_s32(a, a).val[0];}
-		static always_inline i32x4 trnhi32(i32x4 a) {return vtrnq_s32(a, a).val[1];}
 	#endif
 	#define shufflez shuffle
 	#define shuffle2z shuffle2

@@ -33,12 +33,14 @@
 	#define sum8h8(a, b, c, d) (i16x8)packs32(packs32(sumh8(a), sumh8(b)), packs32(sumh8(c), sumh8(d)))
 	static always_inline i8x16 lowpass8(i8x16 l, i8x16 m, i8x16 r) {return avgu8(subu8(avgu8(l, r), (l ^ r) & set8(1)), m);}
 #elif defined(__ARM_NEON)
-	#define addlou8(a, b) (i16x8)vaddl_u8(vget_low_s8(a), vget_low_s8(b))
 	#define lowpass8(l, m, r) (i8x16)vrhaddq_u8(vhaddq_u8(l, r), m)
-	#define sublou8(a, b) (i16x8)vsubl_u8(vget_low_s8(a), vget_low_s8(b))
-	#define sum8h8(a, b, c, d) (i16x8)vpaddq_s16(vpaddq_s16(vpaddlq_u8(a), vpaddlq_u8(b)), vpaddq_s16(vpaddlq_u8(c), vpaddlq_u8(d)))
 	static always_inline i8x16 spreadh8(i8x16 a) {return vcombine_s8(vget_low_s8(a), vdup_lane_s8(vget_low_s8(a), 7));}
 	static always_inline i8x16 spreadq8(i8x16 a) {return vextq_s8(vextq_s8(a, a, 4), broadcast8(a, 3), 12);}
+	#ifdef __aarch64__
+		#define sum8h8(a, b, c, d) (i16x8)vpaddq_s16(vpaddq_s16(vpaddlq_u8(a), vpaddlq_u8(b)), vpaddq_s16(vpaddlq_u8(c), vpaddlq_u8(d)))
+	#else
+		static always_inline i16x8 sum8h8(u8x16 a, u8x16 b, u8x16 c, u8x16 d) {i16x8 e = vpaddlq_u8(a), f = vpaddlq_u8(b), g = vpaddlq_u8(c), h = vpaddlq_u8(d); i16x8 i = vcombine_s16(vpadd_s16(vget_low_s16(e), vget_high_s16(e)), vpadd_s16(vget_low_s16(f), vget_high_s16(f))); i16x8 j = vcombine_s16(vpadd_s16(vget_low_s16(g), vget_high_s16(g)), vpadd_s16(vget_low_s16(h), vget_high_s16(h))); return vcombine_s16(vpadd_s16(vget_low_s16(i), vget_high_s16(i)), vpadd_s16(vget_low_s16(j), vget_high_s16(j)));}
+	#endif
 #endif
 
 #if defined(__wasm_simd128__) || defined(__ARM_NEON)

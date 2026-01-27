@@ -9,11 +9,19 @@
 		return packs32(lo >> 8, hi >> 8);
 	}
 #elif defined(__ARM_NEON)
-	static always_inline i16x8 temporal_scale(i16x8 mvCol, int16_t DistScaleFactor) {
-		i32x4 lo = vmull_n_s16(vget_low_s16(mvCol), DistScaleFactor);
-		i32x4 hi = vmull_high_n_s16(mvCol, DistScaleFactor);
-		return vqrshrn_high_n_s32(vqrshrn_n_s32(lo, 8), hi, 8);
-	}
+	#ifdef __aarch64__
+		static always_inline i16x8 temporal_scale(i16x8 mvCol, int16_t DistScaleFactor) {
+			i32x4 lo = vmull_n_s16(vget_low_s16(mvCol), DistScaleFactor);
+			i32x4 hi = vmull_high_n_s16(mvCol, DistScaleFactor);
+			return vqrshrn_high_n_s32(vqrshrn_n_s32(lo, 8), hi, 8);
+		}
+	#else
+		static always_inline i16x8 temporal_scale(i16x8 mvCol, int16_t DistScaleFactor) {
+			i32x4 lo = vmull_n_s16(vget_low_s16(mvCol), DistScaleFactor);
+			i32x4 hi = vmull_n_s16(vget_high_s16(mvCol), DistScaleFactor);
+			return vcombine_s16(vqrshrn_n_s32(lo, 8), vqrshrn_n_s32(hi, 8));
+		}
+	#endif
 #endif
 static always_inline i16x8 mvs_near_zero(i16x8 mvCol, i32x4 zero) {
 	return (u32x4)(abs16(mvCol) >> 1) == zero;

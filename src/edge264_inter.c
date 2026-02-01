@@ -53,7 +53,7 @@ static always_inline i16x8 sixtapHV(i16x8 a, i16x8 b, i16x8 c, i16x8 d, i16x8 e,
 		i8x16 a = ziplo8(l0, shr128(l0, 1));
 		i8x16 b = ziplo8(l1, shr128(l1, 1));
 		i8x16 c = ziplo64(a, b);
-		i8x16 d = shuffleps(a, b, 1, 2, 1, 2);
+		i8x16 d = zipmd64(a, b);
 		i8x16 e = ziphi64(a, b);
 		return maddubs(c, mul15) + maddubs(d, mul20) + maddubs(e, mul51);
 	}
@@ -997,7 +997,7 @@ static void noinline decode_inter(Edge264Context *ctx, int i, int w, int h) {
 	const uint8_t *pref_Y = src_Y - sstride_Y * 2 - 2;
 	for (int y = h + 5; y-- > 0; pref_Y += sstride_Y) {
 		__builtin_prefetch(pref_Y, 0, 1);
-		__builtin_prefetch(pref_Y + 20, 0, 1);
+		__builtin_prefetch(pref_Y + 23, 0, 1);
 	}
 	
 	// prediction coeffs {wY, oY, logWD_Y, logWD_C, wCb, wCr, oCb, oCr}

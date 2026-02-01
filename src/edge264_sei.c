@@ -147,7 +147,7 @@ int ADD_VARIANT(parse_sei)(Edge264Decoder *dec, Edge264UnrefCb unref_cb, void *u
 		int sei_ret = ENOTSUP;
 		if (payloadType <= 205 && parse_sei_message[payloadType])
 			sei_ret = parse_sei_message[payloadType](dec);
-		sei_ret = print_dec(dec, "    sei_res: %s\n", sei_ret);
+		sei_ret = print_dec(dec, "    parse_SEI_result: %s\n", sei_ret);
 		if (sei_ret == EBADMSG)
 			nal_ret = EBADMSG;
 		if (sei_ret) {

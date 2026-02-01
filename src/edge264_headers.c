@@ -145,15 +145,15 @@ int ADD_VARIANT(parse_end_of_sequence)(Edge264Decoder *dec, Edge264UnrefCb unref
 		clear_decoder(dec);
 		ret = 0;
 	}
-	return print_dec(dec, "  nal_res: %s\n", ret);
+	return print_dec(dec, "  decode_NAL_result: %s\n", ret);
 }
 
 #ifdef LOGS
 	int ignore_NAL_log(Edge264Decoder *dec, Edge264UnrefCb unref_cb, void *unref_arg) {
-		return print_dec(dec, "  nal_res: %s\n", 0);
+		return print_dec(dec, "  decode_NAL_result: %s\n", 0);
 	}
 	int unsup_NAL_log(Edge264Decoder *dec, Edge264UnrefCb unref_cb, void *unref_arg) {
-		return print_dec(dec, "  nal_res: %s\n", ENOTSUP);
+		return print_dec(dec, "  decode_NAL_result: %s\n", ENOTSUP);
 	}
 #endif
 
@@ -969,10 +969,10 @@ int ADD_VARIANT(parse_slice_layer_without_partitioning)(Edge264Decoder *dec, Edg
 		slice_type, slice_type_names[t->slice_type], unsup_if(t->slice_type > 2),
 		pic_parameter_set_id, unsup_if(pic_parameter_set_id >= 4));
 	if (t->slice_type > 2 || pic_parameter_set_id >= 4)
-		return print_dec(dec, "  nal_res: %s\n", ENOTSUP); // exit now if the rest of the slice can't be correctly parsed
+		return print_dec(dec, "  decode_NAL_result: %s\n", ENOTSUP); // exit now if the rest of the slice can't be correctly parsed
 	t->pps = dec->PPS[pic_parameter_set_id];
 	if (!sps->BitDepth_Y || !t->pps.num_ref_idx_active[0])
-		return print_dec(dec, "  nal_res: %s\n", EBADMSG); // exit now if SPS or PPS wasn't initialized
+		return print_dec(dec, "  decode_NAL_result: %s\n", EBADMSG); // exit now if SPS or PPS wasn't initialized
 	
 	// keep frame_num on stack until we can compute FrameNum after all unset_currPic
 	int frame_num = get_uv(&dec->gb, sps->log2_max_frame_num);
@@ -1254,7 +1254,7 @@ int ADD_VARIANT(parse_slice_layer_without_partitioning)(Edge264Decoder *dec, Edg
 	dec->ready_tasks |= ((dec->task_dependencies[task_id] & ~ready_frames(dec)) == 0) << task_id;
 	dec->taskPics[task_id] = dec->currPic;
 	ret = print_dec(dec, dec->n_threads || dec->worker_loop != worker_loop_log ?
-		"  nal_res: %s\n" : t->pps.entropy_coding_mode_flag ?
+		"  decode_NAL_result: %s\n" : t->pps.entropy_coding_mode_flag ?
 		"  macroblocks_cabac:\n" : "  macroblocks_cavlc:\n", 0);
 	if (dec->n_threads)
 		pthread_cond_signal(&dec->task_ready);
@@ -1276,7 +1276,7 @@ int ADD_VARIANT(parse_slice_layer_without_partitioning)(Edge264Decoder *dec, Edg
 		int primary_pic_type = get_uv(&dec->gb, 3);
 		log_dec(dec, "  primary_pic_type: %u # %s\n",
 			primary_pic_type, primary_pic_type_names[primary_pic_type]);
-		return print_dec(dec, "  nal_res: %s\n", rbsp_end(&dec->gb, 1) ? 0 : EBADMSG);
+		return print_dec(dec, "  decode_NAL_result: %s\n", rbsp_end(&dec->gb, 1) ? 0 : EBADMSG);
 	}
 #endif
 
@@ -1304,7 +1304,7 @@ int ADD_VARIANT(parse_nal_unit_header_extension)(Edge264Decoder *dec, Edge264Unr
 			return ADD_VARIANT(parse_slice_layer_without_partitioning)(dec, unref_cb, unref_arg);
 		ret = 0;
 	}
-	return print_dec(dec, "  nal_res: %s\n", rbsp_end(&dec->gb, 0) ? ret : EBADMSG);
+	return print_dec(dec, "  decode_NAL_result: %s\n", rbsp_end(&dec->gb, 0) ? ret : EBADMSG);
 }
 
 
@@ -1474,7 +1474,7 @@ int ADD_VARIANT(parse_pic_parameter_set)(Edge264Decoder *dec,  Edge264UnrefCb un
 		ret = EBADMSG;
 	if (ret == 0)
 		dec->PPS[pic_parameter_set_id] = pps;
-	return print_dec(dec, "  nal_res: %s\n", ret);
+	return print_dec(dec, "  decode_NAL_result: %s\n", ret);
 }
 
 
@@ -1978,7 +1978,7 @@ int ADD_VARIANT(parse_seq_parameter_set)(Edge264Decoder *dec, Edge264UnrefCb unr
 	if (dec->nal_unit_type == 15) {
 		if (profile_idc != 118 && profile_idc != 128 && profile_idc != 134 ||
 			(get_u1(&dec->gb), parse_seq_parameter_set_mvc_extension(dec, profile_idc)))
-			return print_dec(dec, "  nal_res: %s\n", ENOTSUP); // we shouldn't parse any further thus exit now
+			return print_dec(dec, "  decode_NAL_result: %s\n", ENOTSUP); // we shouldn't parse any further thus exit now
 		if (get_u1(&dec->gb))
 			parse_mvc_vui_parameters_extension(dec, &sps);
 		get_u1(&dec->gb);
@@ -2037,5 +2037,5 @@ int ADD_VARIANT(parse_seq_parameter_set)(Edge264Decoder *dec, Edge264UnrefCb unr
 			dec->sps.max_num_reorder_frames = dec->ssps.max_num_reorder_frames;
 		}
 	}
-	return print_dec(dec, "  nal_res: %s\n", ret);
+	return print_dec(dec, "  decode_NAL_result: %s\n", ret);
 }

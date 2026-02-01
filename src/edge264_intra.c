@@ -232,7 +232,7 @@
 		i8x16 cd = ziplo8(loada64(p4 + stride), loada64(p4));
 		i8x16 a = loada64(p4 + stride3);
 		i8x16 ab = ziplo8(a, loada64(p4 + stride * 2));
-		return shuffleps(a, ziphi32(ziphi16(ab, cd), ziplo16(ef, gh)), 0, 1, 2, 3);
+		return combine64(a, ziphi32(ziphi16(ab, cd), ziplo16(ef, gh)));
 	}
 	static i8x16 ldleftC(const uint8_t *p, size_t stride, size_t mstride) {
 		size_t stride3 = stride * 3;

@@ -443,7 +443,7 @@ void *ADD_VARIANT(worker_loop)(void *arg) {
 		// wait until a task becomes available and reserve it
 		while (c.thread_id >= 0 && !c.d->ready_tasks)
 			pthread_cond_wait(&c.d->task_ready, &c.d->lock);
-		assert(c.d->ready_tasks - 1 < 65535); // 0 < ready_tasks < 65536
+		assert((unsigned)c.d->ready_tasks - 1 < 65535); // 0 < ready_tasks < 65536
 		int task_id = __builtin_ctz(c.d->ready_tasks); // FIXME arbitrary selection for now
 		int currPic = c.d->taskPics[task_id];
 		c.d->pending_tasks &= ~(1 << task_id);
@@ -557,8 +557,9 @@ void *ADD_VARIANT(worker_loop)(void *arg) {
 				"  first_mb_in_slice: %u\n"
 				"  slice_byte_size: %u\n"
 				"  decoding_start_us: %llu\n"
-				"  decoding_end_us: %llu\n",
-				c.thread_id, c.t.FrameId, c.t.first_mb_in_slice, slice_byte_size, clock_start, clock_end);
+				"  decoding_end_us: %llu\n"
+				"  slice_result: %s\n",
+				c.thread_id, c.t.FrameId, c.t.first_mb_in_slice, slice_byte_size, clock_start, clock_end, ret_to_str(ret));
 			c.log_cb(c.log_buf, c.log_arg);
 		}
 		

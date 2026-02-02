@@ -5,6 +5,7 @@
  * _ add support for https://gcc.gnu.org/wiki/Visibility ?
  * _ swap numbers and text in header logging (ex: 7 (Sequence Parameter Set)) to facilitate automated extraction
  * _ Try to replace errno_on_fail with a mechanism to manage alloc'ed frames with 2 parameters preferred_num_frames and max_num_frames?
+ * _ Try to reuse Raylib's bindings generation tool
  * _ Plugins
  * 	_ Read https://tldp.org/HOWTO/Program-Library-HOWTO/shared-libraries.html
  * 	_ Make a test target that builds locally and runs edge264_test
@@ -95,17 +96,17 @@ const uint8_t *edge264_find_start_code(const uint8_t *buf, const uint8_t *end, i
 	i8x16 v = *p;
 	i8x16 hi0 = (v == zero) & shlv128(set8(-1), (uintptr_t)buf & 15);
 	while (1) {
-		#if defined(__SSE2__)
-			unsigned m = movemask(shrd128(lo0, hi0, 14) & shrd128(lo0, hi0, 15) & (v == c1));
-			if (m) {
-				const uint8_t *res = (uint8_t *)p - 2 - four_byte + __builtin_ctz(m);
-				if (*res == 0)
-					return minp(res, end);
-			}
-		#elif defined(__ARM_NEON)
+		#if defined(__ARM_NEON)
 			uint64_t m = (uint64_t)vshrn_n_u16(shrd128(lo0, hi0, 14) & shrd128(lo0, hi0, 15) & (v == c1), 4);
 			if (m) {
 				const uint8_t *res = (uint8_t *)p - 2 - four_byte + (__builtin_ctzll(m) >> 2);
+				if (*res == 0)
+					return minp(res, end);
+			}
+		#else
+			unsigned m = movemask(shrd128(lo0, hi0, 14) & shrd128(lo0, hi0, 15) & (v == c1));
+			if (m) {
+				const uint8_t *res = (uint8_t *)p - 2 - four_byte + __builtin_ctz(m);
 				if (*res == 0)
 					return minp(res, end);
 			}

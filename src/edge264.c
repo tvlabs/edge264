@@ -139,9 +139,10 @@ static int unsup_NAL(Edge264Decoder *dec, Edge264UnrefCb unref_cb, void *unref_a
 
 
 Edge264Decoder *edge264_alloc(int n_threads, Edge264LogCb log_cb, void *log_arg, int log_mbs, Edge264AllocCb alloc_cb, Edge264FreeCb free_cb, void *alloc_arg) {
-	Edge264Decoder *dec = calloc(1, sizeof(Edge264Decoder));
+	Edge264Decoder *dec = aligned_alloc(64, sizeof(*dec)); // maximal SIMD type alignment used in edge264
 	if (dec == NULL)
 		return NULL;
+	memset(dec, 0, sizeof(*dec));
 	dec->log_base_us = get_relative_time_us();
 	dec->currPic = dec->basePic = -1;
 	dec->PrevRefFrameNum[0] = dec->PrevRefFrameNum[1] = dec->prevFrameId = -1;

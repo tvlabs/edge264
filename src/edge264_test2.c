@@ -280,7 +280,7 @@ static void test_inter_decoding() {
 	printf("\e[A\e[K%d " GREEN "PASS" RESET " (inter-decoding)\n", count_pass);
 	
 	// setup border values
-	uint8_t src[441], dst[256] = {};
+	uint8_t src[441], dst[256] __attribute__((aligned(16))) = {};
 	for (int i = 0; i < 21; i++) {
 		for (int j = 0; j < 21; j++)
 			src[i * 21 + j] = (i * 21 + j) * 37;

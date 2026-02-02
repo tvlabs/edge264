@@ -930,7 +930,7 @@ static const int8_t shz_mask[48] = {
 		#define sumh8 sum8
 	#else
 		#define broadcast8(a, i) (i8x16)vdupq_lane_s8(__builtin_choose_expr((i) < 8, vget_low_s8(a), vget_high_s8(a)), (i) & 7)
-		#define broadcast16(a, i) (i32x4)vdupq_lane_s16(__builtin_choose_expr((i) < 4, vget_low_s16(a), vget_high_s16(a)), (i) & 3)
+		#define broadcast16(a, i) (i16x8)vdupq_lane_s16(__builtin_choose_expr((i) < 4, vget_low_s16(a), vget_high_s16(a)), (i) & 3)
 		#define broadcast32(a, i) (i32x4)vdupq_lane_s32(__builtin_choose_expr((i) < 2, vget_low_s32(a), vget_high_s32(a)), (i) & 1)
 		#define cvthi8u16(a) (u16x8)vmovl_u8(vget_high_u8(a))
 		#define cvthi16u32(a) (u32x4)vmovl_u16(vget_high_u16(a))

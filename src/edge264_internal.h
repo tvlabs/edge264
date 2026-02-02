@@ -865,18 +865,13 @@ static const int8_t shz_mask[48] = {
 	#define cvtlo16u32(a) (u32x4)vmovl_u16(vget_low_u16(a))
 	#define ifelse_mask(v, t, f) (i8x16)vbslq_s8(v, t, f)
 	#define ifelse_msb(v, t, f) (i8x16)vbslq_s8((i8x16)(v) >> 7, t, f)
-	#define loadu32(p) ((i32x4){*(int32_t *)(p)})
-	#define loadu64(p) ((i64x2){*(int64_t *)(p)})
-	#define loadu128(p) (*(i8x16*)(p))
-	#define loadu32x4(p0, p1, p2, p3) (i32x4){*(int32_t *)(p0), *(int32_t *)(p1), *(int32_t *)(p2), *(int32_t *)(p3)}
-	#define loadu64x2(p0, p1) (i64x2){*(int64_t *)(p0), *(int64_t *)(p1)}
 	#define min8(a, b) (i8x16)vminq_s8(a, b)
 	#define max8(a, b) (i8x16)vmaxq_s8(a, b)
 	#define min16(a, b) (i16x8)vminq_s16(a, b)
 	#define max16(a, b) (i16x8)vmaxq_s16(a, b)
 	#define minu8(a, b) (u8x16)vminq_u8(a, b)
 	#define maxu8(a, b) (u8x16)vmaxq_u8(a, b)
-	#define pow2x4(a) (u32x4)vshlq_u32(vdup_n_u32(1), a)
+	#define pow2x4(a) (u32x4)vshlq_u32(vdupq_n_u32(1), a)
 	#define set8(i) (i8x16)vdupq_n_s8(i)
 	#define set16(i) (i16x8)vdupq_n_s16(i)
 	#define set32(i) (i32x4)vdupq_n_s32(i)
@@ -886,12 +881,17 @@ static const int8_t shz_mask[48] = {
 	#define shlc128(a, i) (i8x16)({i8x16 _a = (a); vextq_s8(broadcast8(_a, 0), _a, 16 - (i));})
 	#define shrc128(a, i) (i8x16)({i8x16 _a = (a); vextq_s8(_a, broadcast8(_a, 15), i);})
 	#define shrd128(l, h, i) (i8x16)vextq_s8(l, h, i)
-	#define shlv128(a, i) shufflez(a, *(i8x16 *)(shz_mask + 16 - (i)))
-	#define shrv128(a, i) shufflez(a, *(i8x16 *)(shz_mask + 16 + (i)))
+	#define shlv128(a, i) shufflez(a, loadu128(shz_mask + 16 - (i)))
+	#define shrv128(a, i) shufflez(a, loadu128(shz_mask + 16 + (i)))
 	#define shrz128(a, i) (i8x16)vextq_s8(a, (i8x16){}, i)
 	#define shrrs16(a, i) (i16x8)vrshrq_n_s16(a, i)
 	#define shrru16(a, i) (i16x8)vrshrq_n_u16(a, i)
 	#define subu8(a, b) (u8x16)vqsubq_u8(a, b)
+	static always_inline i32x4 loadu32(const void *p) {i32x4 a = {}; memcpy(&a, p, 4); return a;}
+	static always_inline i64x2 loadu64(const void *p) {i64x2 a = {}; memcpy(&a, p, 8); return a;}
+	static always_inline i8x16 loadu128(const void *p) {i8x16 a = {}; memcpy(&a, p, 16); return a;}
+	static always_inline i32x4 loadu32x4(const void *p0, const void *p1, const void *p2, const void *p3) {i32x4 a; memcpy((int32_t*)&a, p0, 4); memcpy((int32_t*)&a + 1, p1, 4); memcpy((int32_t*)&a + 2, p2, 4); memcpy((int32_t*)&a + 3, p3, 4); return a;}
+	static always_inline i64x2 loadu64x2(const void *p0, const void *p1) {i64x2 a; memcpy((int64_t*)&a, p0, 8); memcpy((int64_t*)&a + 1, p1, 8); return a;}
 	static always_inline u32x4 minw32(u32x4 a, u32x4 b) {return vbslq_s8((i32x4)(a - b) >> 31, a, b);}
 	static always_inline unsigned movemask(i8x16 a) {u8x16 b = vshrq_n_u8(a, 7), c = vsraq_n_u16(b, b, 7), d = vsraq_n_u32(c, c, 14), e = vsraq_n_u64(d, d, 28); return e[0] | e[8] << 8;}
 	static always_inline size_t shld(size_t l, size_t h, int i) {return h << i | l >> 1 >> (~i & (SIZE_BIT - 1));}
@@ -1006,8 +1006,8 @@ static const int8_t shz_mask[48] = {
 	static i32x4 loadu32(const void *p) {i32x4 v = {}; memcpy(&v, p, 4); return v;}
 	static i64x2 loadu64(const void *p) {i64x2 v = {}; memcpy(&v, p, 8); return v;}
 	static i8x16 loadu128(const void *p) {i8x16 v = {}; memcpy(&v, p, 16); return v;}
-	static i32x4 loadu32x4(const void *p0, const void *p1, const void *p2, const void *p3) {i32x4 v; memcpy((void *)&v, p0, 4); memcpy((void *)&v + 4, p1, 4); memcpy((void *)&v + 8, p2, 4); memcpy((void *)&v + 12, p3, 4); return v;}
-	static i64x2 loadu64x2(const void *p0, const void *p1) {i64x2 v; memcpy((void *)&v, p0, 8); memcpy((void *)&v + 8, p1, 8); return v;}
+	static i32x4 loadu32x4(const void *p0, const void *p1, const void *p2, const void *p3) {i32x4 v; memcpy((int32_t*)&v, p0, 4); memcpy((int32_t*)&v + 1, p1, 4); memcpy((int32_t*)&v + 2, p2, 4); memcpy((int32_t*)&v + 3, p3, 4); return v;}
+	static i64x2 loadu64x2(const void *p0, const void *p1) {i64x2 v; memcpy((int64_t*)&v, p0, 8); memcpy((int64_t*)&v + 1, p1, 8); return v;}
 	static i8x16 packs16(i16x8 a, i16x8 b) {i16x8 lo = set16(-128), hi = set16(127); a = __builtin_elementwise_min(__builtin_elementwise_max(a, lo), hi); b = __builtin_elementwise_min(__builtin_elementwise_max(b, lo), hi); return __builtin_convertvector((i16x16){a[0], a[1], a[2], a[3], a[4], a[5], a[6], a[7], b[0], b[1], b[2], b[3], b[4], b[5], b[6], b[7]}, i8x16);}
 	static i16x8 packs32(i32x4 a, i32x4 b) {i32x4 lo = set32(-32768), hi = set32(32767); a = __builtin_elementwise_min(__builtin_elementwise_max(a, lo), hi); b = __builtin_elementwise_min(__builtin_elementwise_max(b, lo), hi); return __builtin_convertvector((i32x8){a[0], a[1], a[2], a[3], b[0], b[1], b[2], b[3]}, i16x8);}
 	static u8x16 packus16(i16x8 a, i16x8 b) {i16x8 lo = set16(0), hi = set16(255); a = __builtin_elementwise_min(__builtin_elementwise_max(a, lo), hi); b = __builtin_elementwise_min(__builtin_elementwise_max(b, lo), hi); return __builtin_convertvector((i16x16){a[0], a[1], a[2], a[3], a[4], a[5], a[6], a[7], b[0], b[1], b[2], b[3], b[4], b[5], b[6], b[7]}, i8x16);}
@@ -1015,8 +1015,8 @@ static const int8_t shz_mask[48] = {
 	static i16x8 set16(int i) {return (i16x8){i, i, i, i, i, i, i, i};}
 	static i32x4 set16(int i) {return (i32x4){i, i, i, i};}
 	static i64x2 set64(int64_t i) {return (i64x2){i, i};}
-	static i8x16 shlv128(i8x16 a, int i) {return shufflez(a, *(i8x16 *)(shz_mask + 16 - i));}
-	static i8x16 shrv128(i8x16 a, int i) {return shufflez(a, *(i8x16 *)(shz_mask + 16 + i));}
+	static i8x16 shlv128(i8x16 a, int i) {return shufflez(a, loadu128(shz_mask + 16 - i));}
+	static i8x16 shrv128(i8x16 a, int i) {return shufflez(a, loadu128(shz_mask + 16 + i));}
 	static inline i16x8 shrrs16(i16x8 a, int i) {return (a + (1 << (i - 1))) >> i;}
 	static inline u16x8 shrru16(u16x8 a, int i) {return (a + (1 << (i - 1))) >> i;}
 	static inline u8x16 shrpus16(i16x8 a, i16x8 b, int i) {return packus16(a >> i, b >> i);}

@@ -443,6 +443,7 @@ void *ADD_VARIANT(worker_loop)(void *arg) {
 		// wait until a task becomes available and reserve it
 		while (c.thread_id >= 0 && !c.d->ready_tasks)
 			pthread_cond_wait(&c.d->task_ready, &c.d->lock);
+		assert(c.d->ready_tasks - 1 < 65535); // 0 < ready_tasks < 65536
 		int task_id = __builtin_ctz(c.d->ready_tasks); // FIXME arbitrary selection for now
 		int currPic = c.d->taskPics[task_id];
 		c.d->pending_tasks &= ~(1 << task_id);

@@ -319,7 +319,7 @@ static cold noinline void decode_intra4x4(uint8_t * restrict p, size_t stride, i
 		break;
 	
 	case I4x4_DDL_8:
-		v = spreadh8(loada64(pT));
+		v = spreadh8(loadu64(pT));
 		idx = 0;
 		goto lowpass_4x4;
 	case I4x4_DDL_C_8:
@@ -336,7 +336,7 @@ static cold noinline void decode_intra4x4(uint8_t * restrict p, size_t stride, i
 		idx = 3;
 		goto down_right_4x4;
 	case I4x4_VL_8:
-		v = loada64(pT);
+		v = loadu64(pT);
 		idx = 4;
 		goto lowpass_4x4;
 	case I4x4_VL_C_8:

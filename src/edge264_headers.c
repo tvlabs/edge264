@@ -452,7 +452,7 @@ void *ADD_VARIANT(worker_loop)(void *arg) {
 			pthread_mutex_unlock(&c.d->lock);
 		uint64_t clock_start = get_relative_time_us() - c.log_base_us;
 		c.t = c.d->tasks[task_id];
-		unsigned slice_byte_size = c.t.gb.end - c.t.gb.CPB;
+		unsigned approx_byte_size = c.t.gb.end - c.t.gb.CPB;
 		initialize_context(&c, currPic);
 		
 		// call the function containing the macroblock decoding loop
@@ -555,11 +555,11 @@ void *ADD_VARIANT(worker_loop)(void *arg) {
 				"\n- thread_id: %d\n"
 				"  FrameId: %u\n"
 				"  first_mb_in_slice: %u\n"
-				"  slice_byte_size: %u\n"
+				"  approx_byte_size: %u\n"
 				"  decoding_start_us: %llu\n"
 				"  decoding_end_us: %llu\n"
 				"  slice_result: %s\n",
-				c.thread_id, c.t.FrameId, c.t.first_mb_in_slice, slice_byte_size, clock_start, clock_end, ret_to_str(ret));
+				c.thread_id, c.t.FrameId, c.t.first_mb_in_slice, approx_byte_size, clock_start, clock_end, ret_to_str(ret));
 			c.log_cb(c.log_buf, c.log_arg);
 		}
 		

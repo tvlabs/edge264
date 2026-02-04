@@ -18,8 +18,8 @@ def main():
 		x = []
 		y = []
 		for nal in map_dicts(nals):
-			if "slice_byte_size" not in vars(nal): continue
-			x.append(nal.slice_byte_size)
+			if "approx_byte_size" not in vars(nal): continue
+			x.append(nal.approx_byte_size)
 			y.append(nal.decoding_end_us - nal.decoding_start_us)
 		plt.scatter(x, y)
 		plt.xlabel("bytes")

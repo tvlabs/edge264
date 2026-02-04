@@ -22,7 +22,7 @@ Supported platforms
 -------------------
 
 * Windows: x86, x64
-* Linux: x86, x64, ARM64
+* Linux: x86, x64, ARM32, ARM64
 * macOS: x64, ARM64
 
 
@@ -227,11 +227,11 @@ Deallocate the entire decoding context, and unset the pointer.
 Roadmap
 -------
 
+* WebAssembly (in progress)
 * Stress testing (in progress)
 * Multithreading (in progress)
-* Error recovery (in progress)
+* Error recovery
 * Integration in VLC/ffmpeg/GStreamer
-* ARM32
 * PAFF and MBAFF
 * 4:0:0, 4:2:2 and 4:4:4
 * 9-14 bit depths with possibility of different luma/chroma depths

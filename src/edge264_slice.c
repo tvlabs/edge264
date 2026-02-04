@@ -997,8 +997,8 @@ static noinline void CAFUNC(parse_inter_residual)
 					if (zeros > 32 - 21)
 						zeros = renorm_bits(ctx, zeros);
 					unsigned range = ctx->t.gb.range >> (32 - 9 - zeros); // maximum shift to get as many bypass bits as possible
-					unsigned quo = ctx->t.gb.offset / ctx->t.gb.range; // contains 32-9-zeros bypass bits in lsb
-					unsigned rem = ctx->t.gb.offset % ctx->t.gb.range;
+					unsigned quo = ctx->t.gb.offset / range; // contains 32-9-zeros bypass bits in lsb
+					unsigned rem = ctx->t.gb.offset % range;
 					int k = 3 + clz(~quo << (zeros + 9) | 1 << (32 - 12));
 					int unused = 32 - 9 - zeros - k * 2 + 1;
 					if (__builtin_expect(unused < 0, 0)) {

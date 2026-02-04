@@ -646,7 +646,7 @@ static noinline void CAFUNC(parse_NxN_residual)
 				size_t stride = ctx->t.stride[iYCbCr];
 				uint8_t *samples = ctx->samples_mb[iYCbCr] + y444[i8x8 * 4] * stride + x444[i8x8 * 4];
 				if (!mb->mbIsInterFlag)
-					decode_intra8x8(samples, stride, Intra8x8Modes[mb->Intra4x4PredMode[i8x8 * 4 + 1]][ctx->unavail4x4[i8x8 * 5]], ctx->t.samples_clip_v[iYCbCr]);
+					decode_intra8x8(samples, stride, Intra8x8Modes[mb->Intra4x4PredMode[i8x8 * 4]][ctx->unavail4x4[i8x8 * 5]], ctx->t.samples_clip_v[iYCbCr]);
 				if (mb->bits[0] & 1 << bit8x8[i8x8]) {
 					#if !CABAC
 						for (int i4x4 = 0; i4x4 < 4; i4x4++) {
@@ -826,8 +826,8 @@ static noinline void CAFUNC(parse_I_mb, int mb_type_or_ctxIdx)
 		if (transform_size_8x8_flag) {
 			mb->f.transform_size_8x8_flag = transform_size_8x8_flag;
 			log_mb(ctx, "%srem_intra8x8_pred_modes: [", ctx->log_indent);
-			for (int i = 0; i < 16; i += 4)
-				mb->Intra4x4PredMode[i + 1] = mb->Intra4x4PredMode[i + 2] = mb->Intra4x4PredMode[i + 3] = CACALL(parse_intraNxN_pred_mode, i);
+			for (int i = 0; i < 4; i++)
+				mb->Intra4x4PredMode_s[i] = CACALL(parse_intraNxN_pred_mode, i * 4) * 0x01010101;
 			log_mb(ctx, "]\n%sIntra8x8PredModes: [%u,%u,%u,%u]\n", ctx->log_indent,
 				mb->Intra4x4PredMode[0], mb->Intra4x4PredMode[4], mb->Intra4x4PredMode[8], mb->Intra4x4PredMode[12]);
 		} else {

@@ -106,7 +106,7 @@ typedef struct {
 	int8_t filter_edges; // bits 0-1 enable deblocking of A/B edges, bit 2 signals that deblocking is pending
 	union { uint8_t QP[3]; i8x4 QP_s; }; // [iYCbCr]
 	union { uint32_t bits[2]; uint64_t bits_l; }; // {cbp/ref_idx_nz, cbf_Y/Cb/Cr 8x8}
-	union { int8_t Intra4x4PredMode[16]; i8x16 Intra4x4PredMode_v; }; // [i4x4]
+	union { int8_t Intra4x4PredMode[16]; int32_t Intra4x4PredMode_s[4]; i8x16 Intra4x4PredMode_v; }; // [i4x4]
 	union { int8_t nC[48]; int32_t nC_s[12]; int64_t nC_l[6]; i8x16 nC_v[3]; }; // for CAVLC and deblocking, 64 if unavailable
 	union { uint8_t absMvd[64]; uint64_t absMvd_l[8]; i8x16 absMvd_v[4]; }; // [LX][i4x4][compIdx]
 	// fields used by mbCol thus kept together for slice prefetching (do not reorder!)

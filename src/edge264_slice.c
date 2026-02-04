@@ -1034,7 +1034,7 @@ static noinline void CAFUNC(parse_inter_residual)
 			
 			if (++i == 2) {
 				res[1] = mvd;
-				log_mb(ctx, "%s\"%tu\": [%d,%d]\n", ctx->log_indent, absMvd_lx - mb->absMvd + i4x4, res[0], mvd);
+				log_mb(ctx, "[%d,%d],", res[0], res[1]);
 				return res;
 			}
 			ctxBase = 47;

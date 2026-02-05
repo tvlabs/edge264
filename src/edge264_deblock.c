@@ -274,18 +274,22 @@ static always_inline i8x16 expand2(int64_t a) {
  * Deblock both chroma planes of the current macroblock in place.
  */
 static void deblock_CbCr_8bit(Edge264Context *ctx) {
-	INIT_PX(ctx->samples_mb[1], ctx->t.stride[1] >> 1);
+	size_t stride = ctx->t.stride[1] >> 1;
+	DECL_SSTRIDE(stride);
+	uint8_t * restrict p0 = ctx->samples_mb[1] - 8;
+	uint8_t * restrict p7 = p0 + stride * 7;
+	uint8_t * restrict pE = p7 + stride * 7;
 	i8x16 v0, v1, v2, v3, v4, v5, v6, v7;
 	if (mb->filter_edges & 1) {
 		// load and transpose both 12x8 matrices (with left macroblock)
-		i8x16 xa0 = loadu128(PX(-8, 0));
-		i8x16 xa8 = loadu128(PX(-8, 1));
-		i8x16 xa1 = loadu128(PX(-8, 2));
-		i8x16 xa9 = loadu128(PX(-8, 3));
-		i8x16 xa2 = loadu128(PX(-8, 4));
-		i8x16 xaA = loadu128(PX(-8, 5));
-		i8x16 xa3 = loadu128(PX(-8, 6));
-		i8x16 xaB = loadu128(PX(-8, 7));
+		i8x16 xa0 = loadu128(SADDR(p0,  0));
+		i8x16 xa8 = loadu128(SADDR(p0,  1));
+		i8x16 xa1 = loadu128(SADDR(p0,  2));
+		i8x16 xa9 = loadu128(SADDR(p7, -4));
+		i8x16 xa2 = loadu128(SADDR(p0,  4));
+		i8x16 xaA = loadu128(SADDR(p7, -2));
+		i8x16 xa3 = loadu128(SADDR(p7, -1));
+		i8x16 xaB = loadu128(SADDR(p7,  0));
 		i8x16 xb0 = ziplo8(xa0, xa1);
 		i8x16 xb1 = ziphi8(xa0, xa1);
 		i8x16 xb2 = ziplo8(xa2, xa3);
@@ -300,14 +304,14 @@ static void deblock_CbCr_8bit(Edge264Context *ctx) {
 		i8x16 xc6 = ziphi16(xb8, xbA);
 		i8x16 xc7 = ziplo16(xb9, xbB);
 		i8x16 xc8 = ziphi16(xb9, xbB);
-		i8x16 xa4 = loadu128(PX(-8, 8));
-		i8x16 xaC = loadu128(PX(-8, 9));
-		i8x16 xa5 = loadu128(PX(-8, 10));
-		i8x16 xaD = loadu128(PX(-8, 11));
-		i8x16 xa6 = loadu128(PX(-8, 12));
-		i8x16 xaE = loadu128(PX(-8, 13));
-		i8x16 xa7 = loadu128(PX(-8, 14));
-		i8x16 xaF = loadu128(PX(-8, 15));
+		i8x16 xa4 = loadu128(SADDR(p7,  1));
+		i8x16 xaC = loadu128(SADDR(p7,  2));
+		i8x16 xa5 = loadu128(SADDR(pE, -4));
+		i8x16 xaD = loadu128(SADDR(p7,  4));
+		i8x16 xa6 = loadu128(SADDR(pE, -2));
+		i8x16 xaE = loadu128(SADDR(pE, -1));
+		i8x16 xa7 = loadu128(SADDR(pE,  0));
+		i8x16 xaF = loadu128(SADDR(pE,  1));
 		i8x16 xb4 = ziplo8(xa4, xa5);
 		i8x16 xb5 = ziphi8(xa4, xa5);
 		i8x16 xb6 = ziplo8(xa6, xa7);
@@ -342,6 +346,9 @@ static void deblock_CbCr_8bit(Edge264Context *ctx) {
 		v5 = ziphi64(xd3, xd8);
 		v6 = ziplo64(xd4, xd9);
 		v7 = ziphi64(xd4, xd9);
+		p0 += 6;
+		p7 += 6;
+		pE += 6;
 		
 		// first vertical edge
 		if (mbA->mbIsInterFlag & mb->mbIsInterFlag) {
@@ -355,32 +362,38 @@ static void deblock_CbCr_8bit(Edge264Context *ctx) {
 		// store vY/vZ into the left macroblock
 		i16x8 xf0 = ziplo8(vY, vZ);
 		i16x8 xf1 = ziphi8(vY, vZ);
-		*(int16_t *)PX(-2, 0) = xf0[0];
-		*(int16_t *)PX(-2, 1) = xf1[0];
-		*(int16_t *)PX(-2, 2) = xf0[1];
-		*(int16_t *)PX(-2, 3) = xf1[1];
-		*(int16_t *)PX(-2, 4) = xf0[2];
-		*(int16_t *)PX(-2, 5) = xf1[2];
-		*(int16_t *)PX(-2, 6) = xf0[3];
-		*(int16_t *)PX(-2, 7) = xf1[3];
-		*(int16_t *)PX(-2, 8) = xf0[4];
-		*(int16_t *)PX(-2, 9) = xf1[4];
-		*(int16_t *)PX(-2, 10) = xf0[5];
-		*(int16_t *)PX(-2, 11) = xf1[5];
-		*(int16_t *)PX(-2, 12) = xf0[6];
-		*(int16_t *)PX(-2, 13) = xf1[6];
-		*(int16_t *)PX(-2, 14) = xf0[7];
-		*(int16_t *)PX(-2, 15) = xf1[7];
+		*(int16_t *)SADDR(p0,  0) = xf0[0];
+		*(int16_t *)SADDR(p0,  1) = xf1[0];
+		*(int16_t *)SADDR(p0,  2) = xf0[1];
+		*(int16_t *)SADDR(p7, -4) = xf1[1];
+		*(int16_t *)SADDR(p0,  4) = xf0[2];
+		*(int16_t *)SADDR(p7, -2) = xf1[2];
+		*(int16_t *)SADDR(p7, -1) = xf0[3];
+		*(int16_t *)SADDR(p7,  0) = xf1[3];
+		*(int16_t *)SADDR(p7,  1) = xf0[4];
+		*(int16_t *)SADDR(p7,  2) = xf1[4];
+		*(int16_t *)SADDR(pE, -4) = xf0[5];
+		*(int16_t *)SADDR(p7,  4) = xf1[5];
+		*(int16_t *)SADDR(pE, -2) = xf0[6];
+		*(int16_t *)SADDR(pE, -1) = xf1[6];
+		*(int16_t *)SADDR(pE,  0) = xf0[7];
+		*(int16_t *)SADDR(pE,  1) = xf1[7];
+		p0 += 2;
+		p7 += 2;
+		pE += 2;
 	} else {
 		// load and transpose both 8x8 matrices
-		i8x16 xa0 = loada64(PX(0, 0));
-		i8x16 xa8 = loada64(PX(0, 1));
-		i8x16 xa1 = loada64(PX(0, 2));
-		i8x16 xa9 = loada64(PX(0, 3));
-		i8x16 xa2 = loada64(PX(0, 4));
-		i8x16 xaA = loada64(PX(0, 5));
-		i8x16 xa3 = loada64(PX(0, 6));
-		i8x16 xaB = loada64(PX(0, 7));
+		p0 += 8;
+		p7 += 8;
+		pE += 8;
+		i8x16 xa0 = loada64(SADDR(p0,  0));
+		i8x16 xa8 = loada64(SADDR(p0,  1));
+		i8x16 xa1 = loada64(SADDR(p0,  2));
+		i8x16 xa9 = loada64(SADDR(p7, -4));
+		i8x16 xa2 = loada64(SADDR(p0,  4));
+		i8x16 xaA = loada64(SADDR(p7, -2));
+		i8x16 xa3 = loada64(SADDR(p7, -1));
+		i8x16 xaB = loada64(SADDR(p7,  0));
 		i8x16 xb0 = ziplo8(xa0, xa1);
 		i8x16 xb1 = ziplo8(xa2, xa3);
 		i8x16 xb4 = ziplo8(xa8, xa9);
@@ -389,14 +402,14 @@ static void deblock_CbCr_8bit(Edge264Context *ctx) {
 		i8x16 xc1 = ziphi16(xb0, xb1);
 		i8x16 xc4 = ziplo16(xb4, xb5);
 		i8x16 xc5 = ziphi16(xb4, xb5);
-		i8x16 xa4 = loada64(PX(0, 8));
-		i8x16 xaC = loada64(PX(0, 9));
-		i8x16 xa5 = loada64(PX(0, 10));
-		i8x16 xaD = loada64(PX(0, 11));
-		i8x16 xa6 = loada64(PX(0, 12));
-		i8x16 xaE = loada64(PX(0, 13));
-		i8x16 xa7 = loada64(PX(0, 14));
-		i8x16 xaF = loada64(PX(0, 15));
+		i8x16 xa4 = loada64(SADDR(p7,  1));
+		i8x16 xaC = loada64(SADDR(p7,  2));
+		i8x16 xa5 = loada64(SADDR(pE, -4));
+		i8x16 xaD = loada64(SADDR(p7,  4));
+		i8x16 xa6 = loada64(SADDR(pE, -2));
+		i8x16 xaE = loada64(SADDR(pE, -1));
+		i8x16 xa7 = loada64(SADDR(pE,  0));
+		i8x16 xaF = loada64(SADDR(pE,  1));
 		i8x16 xb2 = ziplo8(xa4, xa5);
 		i8x16 xb3 = ziplo8(xa6, xa7);
 		i8x16 xb6 = ziplo8(xaC, xaD);
@@ -464,8 +477,8 @@ static void deblock_CbCr_8bit(Edge264Context *ctx) {
 	
 	// first horizontal edge
 	if (mb->filter_edges & 2) {
-		i8x16 hY = (i64x2){*(int64_t *)(PX(0, -4)), *(int64_t *)(PX(0, -3))};
-		i8x16 hZ = (i64x2){*(int64_t *)(PX(0, -2)), *(int64_t *)(PX(0, -1))};
+		i8x16 hY = (i64x2){*(int64_t *)(SADDR(p0, -4)), *(int64_t *)(SADDR(p0, -3))};
+		i8x16 hZ = (i64x2){*(int64_t *)(SADDR(p0, -2)), *(int64_t *)(SADDR(p0, -1))};
 		if (mbB->mbIsInterFlag & mb->mbIsInterFlag) {
 			int64_t tC0e = ctx->tC0_l[6];
 			if (tC0e != -1)
@@ -473,31 +486,31 @@ static void deblock_CbCr_8bit(Edge264Context *ctx) {
 		} else {
 			DEBLOCK_CHROMA_HARD(hY, hZ, h0, h1, ctx->alpha_s[3], ctx->beta_s[3]);
 		}
-		*(int64_t *)PX(0, -2) = ((i64x2)hZ)[0];
-		*(int64_t *)PX(0, -1) = ((i64x2)hZ)[1];
+		*(int64_t *)SADDR(p0, -2) = ((i64x2)hZ)[0];
+		*(int64_t *)SADDR(p0, -1) = ((i64x2)hZ)[1];
 	}
 	mb->filter_edges = 0; // prevent redundant deblocking with deblock_idc==2 and ASO
-	*(int64_t *)PX(0, 0) = ((i64x2)h0)[0];
-	*(int64_t *)PX(0, 1) = ((i64x2)h0)[1];
-	*(int64_t *)PX(0, 2) = ((i64x2)h1)[0];
-	*(int64_t *)PX(0, 3) = ((i64x2)h1)[1];
+	*(int64_t *)SADDR(p0,  0) = ((i64x2)h0)[0];
+	*(int64_t *)SADDR(p0,  1) = ((i64x2)h0)[1];
+	*(int64_t *)SADDR(p0,  2) = ((i64x2)h1)[0];
+	*(int64_t *)SADDR(p7, -4) = ((i64x2)h1)[1];
 	
 	// second horizontal edge
 	int64_t tC0g = ctx->tC0_l[7];
 	if (tC0g != -1)
 		DEBLOCK_CHROMA_SOFT(h2, h3, h4, h5, ctx->alpha_s[0], ctx->beta_s[0], tC0g);
-	*(int64_t *)PX(0, 4) = ((i64x2)h2)[0];
-	*(int64_t *)PX(0, 5) = ((i64x2)h2)[1];
-	*(int64_t *)PX(0, 6) = ((i64x2)h3)[0];
-	*(int64_t *)PX(0, 7) = ((i64x2)h3)[1];
-	*(int64_t *)PX(0, 8) = ((i64x2)h4)[0];
-	*(int64_t *)PX(0, 9) = ((i64x2)h4)[1];
-	*(int64_t *)PX(0, 10) = ((i64x2)h5)[0];
-	*(int64_t *)PX(0, 11) = ((i64x2)h5)[1];
-	*(int64_t *)PX(0, 12) = ((i64x2)h6)[0];
-	*(int64_t *)PX(0, 13) = ((i64x2)h6)[1];
-	*(int64_t *)PX(0, 14) = ((i64x2)h7)[0];
-	*(int64_t *)PX(0, 15) = ((i64x2)h7)[1];
+	*(int64_t *)SADDR(p0,  4) = ((i64x2)h2)[0];
+	*(int64_t *)SADDR(p7, -2) = ((i64x2)h2)[1];
+	*(int64_t *)SADDR(p7, -1) = ((i64x2)h3)[0];
+	*(int64_t *)SADDR(p7,  0) = ((i64x2)h3)[1];
+	*(int64_t *)SADDR(p7,  1) = ((i64x2)h4)[0];
+	*(int64_t *)SADDR(p7,  2) = ((i64x2)h4)[1];
+	*(int64_t *)SADDR(pE, -4) = ((i64x2)h5)[0];
+	*(int64_t *)SADDR(p7,  4) = ((i64x2)h5)[1];
+	*(int64_t *)SADDR(pE, -2) = ((i64x2)h6)[0];
+	*(int64_t *)SADDR(pE, -1) = ((i64x2)h6)[1];
+	*(int64_t *)SADDR(pE,  0) = ((i64x2)h7)[0];
+	*(int64_t *)SADDR(pE,  1) = ((i64x2)h7)[1];
 }
 
 
@@ -507,18 +520,22 @@ static void deblock_CbCr_8bit(Edge264Context *ctx) {
  * chroma deblocking.
  */
 static void deblock_Y_8bit(Edge264Context *ctx) {
-	INIT_PX(ctx->samples_mb[0], ctx->t.stride[0]);
+	size_t stride = ctx->t.stride[0];
+	DECL_SSTRIDE(stride);
+	uint8_t * restrict p0 = ctx->samples_mb[0] - 8;
+	uint8_t * restrict p7 = p0 + stride * 7;
+	uint8_t * restrict pE = p7 + stride * 7;
 	i8x16 v0, v1, v2, v3, v4, v5, v6, v7;
 	if (mb->filter_edges & 1) {
 		// load and transpose the left 12x16 matrix
-		i8x16 xa0 = loadu128(PX(-8, 0));
-		i8x16 xa1 = loadu128(PX(-8, 1));
-		i8x16 xa2 = loadu128(PX(-8, 2));
-		i8x16 xa3 = loadu128(PX(-8, 3));
-		i8x16 xa4 = loadu128(PX(-8, 4));
-		i8x16 xa5 = loadu128(PX(-8, 5));
-		i8x16 xa6 = loadu128(PX(-8, 6));
-		i8x16 xa7 = loadu128(PX(-8, 7));
+		i8x16 xa0 = loadu128(SADDR(p0,  0));
+		i8x16 xa1 = loadu128(SADDR(p0,  1));
+		i8x16 xa2 = loadu128(SADDR(p0,  2));
+		i8x16 xa3 = loadu128(SADDR(p7, -4));
+		i8x16 xa4 = loadu128(SADDR(p0,  4));
+		i8x16 xa5 = loadu128(SADDR(p7, -2));
+		i8x16 xa6 = loadu128(SADDR(p7, -1));
+		i8x16 xa7 = loadu128(SADDR(p7,  0));
 		i8x16 xb0 = ziplo8(xa0, xa1);
 		i8x16 xb1 = ziphi8(xa0, xa1);
 		i8x16 xb2 = ziplo8(xa2, xa3);
@@ -533,14 +550,14 @@ static void deblock_Y_8bit(Edge264Context *ctx) {
 		i8x16 xc3 = ziphi16(xb4, xb6);
 		i8x16 xc4 = ziplo16(xb5, xb7);
 		i8x16 xc5 = ziphi16(xb5, xb7);
-		i8x16 xa8 = loadu128(PX(-8, 8));
-		i8x16 xa9 = loadu128(PX(-8, 9));
-		i8x16 xaA = loadu128(PX(-8, 10));
-		i8x16 xaB = loadu128(PX(-8, 11));
-		i8x16 xaC = loadu128(PX(-8, 12));
-		i8x16 xaD = loadu128(PX(-8, 13));
-		i8x16 xaE = loadu128(PX(-8, 14));
-		i8x16 xaF = loadu128(PX(-8, 15));
+		i8x16 xa8 = loadu128(SADDR(p7,  1));
+		i8x16 xa9 = loadu128(SADDR(p7,  2));
+		i8x16 xaA = loadu128(SADDR(pE, -4));
+		i8x16 xaB = loadu128(SADDR(p7,  4));
+		i8x16 xaC = loadu128(SADDR(pE, -2));
+		i8x16 xaD = loadu128(SADDR(pE, -1));
+		i8x16 xaE = loadu128(SADDR(pE,  0));
+		i8x16 xaF = loadu128(SADDR(pE,  1));
 		i8x16 xb8 = ziplo8(xa8, xa9);
 		i8x16 xb9 = ziphi8(xa8, xa9);
 		i8x16 xbA = ziplo8(xaA, xaB);
@@ -579,6 +596,9 @@ static void deblock_Y_8bit(Edge264Context *ctx) {
 		v5 = ziphi64(xd4, xdA);
 		v6 = ziplo64(xd5, xdB);
 		v7 = ziphi64(xd5, xdB);
+		p0 += 4;
+		p7 += 4;
+		pE += 4;
 		
 		// first vertical edge
 		if (mbA->mbIsInterFlag & mb->mbIsInterFlag) {
@@ -598,32 +618,38 @@ static void deblock_Y_8bit(Edge264Context *ctx) {
 		i32x4 xe5 = ziphi16(xe0, xe2);
 		i32x4 xe6 = ziplo16(xe1, xe3);
 		i32x4 xe7 = ziphi16(xe1, xe3);
-		*(int32_t *)PX(-4, 0) = xe4[0];
-		*(int32_t *)PX(-4, 1) = xe4[1];
-		*(int32_t *)PX(-4, 2) = xe4[2];
-		*(int32_t *)PX(-4, 3) = xe4[3];
-		*(int32_t *)PX(-4, 4) = xe5[0];
-		*(int32_t *)PX(-4, 5) = xe5[1];
-		*(int32_t *)PX(-4, 6) = xe5[2];
-		*(int32_t *)PX(-4, 7) = xe5[3];
-		*(int32_t *)PX(-4, 8) = xe6[0];
-		*(int32_t *)PX(-4, 9) = xe6[1];
-		*(int32_t *)PX(-4, 10) = xe6[2];
-		*(int32_t *)PX(-4, 11) = xe6[3];
-		*(int32_t *)PX(-4, 12) = xe7[0];
-		*(int32_t *)PX(-4, 13) = xe7[1];
-		*(int32_t *)PX(-4, 14) = xe7[2];
-		*(int32_t *)PX(-4, 15) = xe7[3];
+		*(int32_t *)SADDR(p0,  0) = xe4[0];
+		*(int32_t *)SADDR(p0,  1) = xe4[1];
+		*(int32_t *)SADDR(p0,  2) = xe4[2];
+		*(int32_t *)SADDR(p7, -4) = xe4[3];
+		*(int32_t *)SADDR(p0,  4) = xe5[0];
+		*(int32_t *)SADDR(p7, -2) = xe5[1];
+		*(int32_t *)SADDR(p7, -1) = xe5[2];
+		*(int32_t *)SADDR(p7,  0) = xe5[3];
+		*(int32_t *)SADDR(p7,  1) = xe6[0];
+		*(int32_t *)SADDR(p7,  2) = xe6[1];
+		*(int32_t *)SADDR(pE, -4) = xe6[2];
+		*(int32_t *)SADDR(p7,  4) = xe6[3];
+		*(int32_t *)SADDR(pE, -2) = xe7[0];
+		*(int32_t *)SADDR(pE, -1) = xe7[1];
+		*(int32_t *)SADDR(pE,  0) = xe7[2];
+		*(int32_t *)SADDR(pE,  1) = xe7[3];
+		p0 += 4;
+		p7 += 4;
+		pE += 4;
 	} else {
 		// load and transpose the left 8x16 matrix
-		i8x16 xa0 = loada64(PX(0, 0));
-		i8x16 xa1 = loada64(PX(0, 1));
-		i8x16 xa2 = loada64(PX(0, 2));
-		i8x16 xa3 = loada64(PX(0, 3));
-		i8x16 xa4 = loada64(PX(0, 4));
-		i8x16 xa5 = loada64(PX(0, 5));
-		i8x16 xa6 = loada64(PX(0, 6));
-		i8x16 xa7 = loada64(PX(0, 7));
+		p0 += 8;
+		p7 += 8;
+		pE += 8;
+		i8x16 xa0 = loada64(SADDR(p0,  0));
+		i8x16 xa1 = loada64(SADDR(p0,  1));
+		i8x16 xa2 = loada64(SADDR(p0,  2));
+		i8x16 xa3 = loada64(SADDR(p7, -4));
+		i8x16 xa4 = loada64(SADDR(p0,  4));
+		i8x16 xa5 = loada64(SADDR(p7, -2));
+		i8x16 xa6 = loada64(SADDR(p7, -1));
+		i8x16 xa7 = loada64(SADDR(p7,  0));
 		i8x16 xb0 = ziplo8(xa0, xa1);
 		i8x16 xb1 = ziplo8(xa2, xa3);
 		i8x16 xb2 = ziplo8(xa4, xa5);
@@ -632,14 +658,14 @@ static void deblock_Y_8bit(Edge264Context *ctx) {
 		i8x16 xc1 = ziphi16(xb0, xb1);
 		i8x16 xc2 = ziplo16(xb2, xb3);
 		i8x16 xc3 = ziphi16(xb2, xb3);
-		i8x16 xa8 = loada64(PX(0, 8));
-		i8x16 xa9 = loada64(PX(0, 9));
-		i8x16 xaA = loada64(PX(0, 10));
-		i8x16 xaB = loada64(PX(0, 11));
-		i8x16 xaC = loada64(PX(0, 12));
-		i8x16 xaD = loada64(PX(0, 13));
-		i8x16 xaE = loada64(PX(0, 14));
-		i8x16 xaF = loada64(PX(0, 15));
+		i8x16 xa8 = loada64(SADDR(p7,  1));
+		i8x16 xa9 = loada64(SADDR(p7,  2));
+		i8x16 xaA = loada64(SADDR(pE, -4));
+		i8x16 xaB = loada64(SADDR(p7,  4));
+		i8x16 xaC = loada64(SADDR(pE, -2));
+		i8x16 xaD = loada64(SADDR(pE, -1));
+		i8x16 xaE = loada64(SADDR(pE,  0));
+		i8x16 xaF = loada64(SADDR(pE,  1));
 		i8x16 xb4 = ziplo8(xa8, xa9);
 		i8x16 xb5 = ziplo8(xaA, xaB);
 		i8x16 xb6 = ziplo8(xaC, xaD);
@@ -674,14 +700,14 @@ static void deblock_Y_8bit(Edge264Context *ctx) {
 	}
 	
 	// load and transpose the right 8x16 matrix
-	i8x16 xa0 = *(i8x16 *)PX(0, 0);
-	i8x16 xa1 = *(i8x16 *)PX(0, 1);
-	i8x16 xa2 = *(i8x16 *)PX(0, 2);
-	i8x16 xa3 = *(i8x16 *)PX(0, 3);
-	i8x16 xa4 = *(i8x16 *)PX(0, 4);
-	i8x16 xa5 = *(i8x16 *)PX(0, 5);
-	i8x16 xa6 = *(i8x16 *)PX(0, 6);
-	i8x16 xa7 = *(i8x16 *)PX(0, 7);
+	i8x16 xa0 = *(i8x16 *)SADDR(p0,  0);
+	i8x16 xa1 = *(i8x16 *)SADDR(p0,  1);
+	i8x16 xa2 = *(i8x16 *)SADDR(p0,  2);
+	i8x16 xa3 = *(i8x16 *)SADDR(p7, -4);
+	i8x16 xa4 = *(i8x16 *)SADDR(p0,  4);
+	i8x16 xa5 = *(i8x16 *)SADDR(p7, -2);
+	i8x16 xa6 = *(i8x16 *)SADDR(p7, -1);
+	i8x16 xa7 = *(i8x16 *)SADDR(p7,  0);
 	i8x16 xb0 = ziphi8(xa0, xa1);
 	i8x16 xb1 = ziphi8(xa2, xa3);
 	i8x16 xb2 = ziphi8(xa4, xa5);
@@ -690,14 +716,14 @@ static void deblock_Y_8bit(Edge264Context *ctx) {
 	i8x16 xc1 = ziphi16(xb0, xb1);
 	i8x16 xc2 = ziplo16(xb2, xb3);
 	i8x16 xc3 = ziphi16(xb2, xb3);
-	i8x16 xa8 = *(i8x16 *)PX(0, 8);
-	i8x16 xa9 = *(i8x16 *)PX(0, 9);
-	i8x16 xaA = *(i8x16 *)PX(0, 10);
-	i8x16 xaB = *(i8x16 *)PX(0, 11);
-	i8x16 xaC = *(i8x16 *)PX(0, 12);
-	i8x16 xaD = *(i8x16 *)PX(0, 13);
-	i8x16 xaE = *(i8x16 *)PX(0, 14);
-	i8x16 xaF = *(i8x16 *)PX(0, 15);
+	i8x16 xa8 = *(i8x16 *)SADDR(p7,  1);
+	i8x16 xa9 = *(i8x16 *)SADDR(p7,  2);
+	i8x16 xaA = *(i8x16 *)SADDR(pE, -4);
+	i8x16 xaB = *(i8x16 *)SADDR(p7,  4);
+	i8x16 xaC = *(i8x16 *)SADDR(pE, -2);
+	i8x16 xaD = *(i8x16 *)SADDR(pE, -1);
+	i8x16 xaE = *(i8x16 *)SADDR(pE,  0);
+	i8x16 xaF = *(i8x16 *)SADDR(pE,  1);
 	i8x16 xb4 = ziphi8(xa8, xa9);
 	i8x16 xb5 = ziphi8(xaA, xaB);
 	i8x16 xb6 = ziphi8(xaC, xaD);
@@ -771,23 +797,23 @@ static void deblock_Y_8bit(Edge264Context *ctx) {
 	
 	// first horizontal edge
 	if (mb->filter_edges & 2) {
-		i8x16 hx = *(i8x16 *)PX(0, -3);
-		i8x16 hy = *(i8x16 *)PX(0, -2);
-		i8x16 hz = *(i8x16 *)PX(0, -1);
+		i8x16 hx = *(i8x16 *)SADDR(p0, -3);
+		i8x16 hy = *(i8x16 *)SADDR(p0, -2);
+		i8x16 hz = *(i8x16 *)SADDR(p0, -1);
 		if (mbB->mbIsInterFlag & mb->mbIsInterFlag) {
 			int tC0e = ctx->tC0_s[4];
 			if (tC0e != -1)
 				DEBLOCK_LUMA_SOFT(hx, hy, hz, h0, h1, h2, ctx->alpha[12], ctx->beta[12], tC0e);
 		} else if (ctx->alpha[12] != 0) {
-			i8x16 hw = *(i8x16 *)PX(0, -4);
+			i8x16 hw = *(i8x16 *)SADDR(p0, -4);
 			DEBLOCK_LUMA_HARD(hw, hx, hy, hz, h0, h1, h2, h3, ctx->alpha[12], ctx->beta[12]);
-			*(i8x16 *)PX(0, -3) = hx;
+			*(i8x16 *)SADDR(p0, -3) = hx;
 		}
-		*(i8x16 *)PX(0, -2) = hy;
-		*(i8x16 *)PX(0, -1) = hz;
+		*(i8x16 *)SADDR(p0, -2) = hy;
+		*(i8x16 *)SADDR(p0, -1) = hz;
 	}
-	*(i8x16 *)PX(0, 0) = h0;
-	*(i8x16 *)PX(0, 1) = h1;
+	*(i8x16 *)SADDR(p0,  0) = h0;
+	*(i8x16 *)SADDR(p0,  1) = h1;
 	
 	// second horizontal edge
 	if (!mb->f.transform_size_8x8_flag) {
@@ -795,10 +821,10 @@ static void deblock_Y_8bit(Edge264Context *ctx) {
 		if (tC0f != -1)
 			DEBLOCK_LUMA_SOFT(h1, h2, h3, h4, h5, h6, ctx->alpha[0], ctx->beta[0], tC0f);
 	}
-	*(i8x16 *)PX(0, 2) = h2;
-	*(i8x16 *)PX(0, 3) = h3;
-	*(i8x16 *)PX(0, 4) = h4;
-	*(i8x16 *)PX(0, 5) = h5;
+	*(i8x16 *)SADDR(p0,  2) = h2;
+	*(i8x16 *)SADDR(p7, -4) = h3;
+	*(i8x16 *)SADDR(p0,  4) = h4;
+	*(i8x16 *)SADDR(p7, -2) = h5;
 	
 	// transpose the bottom 16x8 matrix
 	i8x16 xh0 = ziphi8(v0, v1);
@@ -838,10 +864,10 @@ static void deblock_Y_8bit(Edge264Context *ctx) {
 	int tC0g = ctx->tC0_s[6];
 	if (tC0g != -1)
 		DEBLOCK_LUMA_SOFT(h5, h6, h7, h8, h9, hA, ctx->alpha[0], ctx->beta[0], tC0g);
-	*(i8x16 *)PX(0, 6) = h6;
-	*(i8x16 *)PX(0, 7) = h7;
-	*(i8x16 *)PX(0, 8) = h8;
-	*(i8x16 *)PX(0, 9) = h9;
+	*(i8x16 *)SADDR(p7, -1) = h6;
+	*(i8x16 *)SADDR(p7,  0) = h7;
+	*(i8x16 *)SADDR(p7,  1) = h8;
+	*(i8x16 *)SADDR(p7,  2) = h9;
 	
 	// fourth horizontal edge
 	if (!mb->f.transform_size_8x8_flag) {
@@ -849,12 +875,12 @@ static void deblock_Y_8bit(Edge264Context *ctx) {
 		if (tC0h != -1)
 			DEBLOCK_LUMA_SOFT(h9, hA, hB, hC, hD, hE, ctx->alpha[0], ctx->beta[0], tC0h);
 	}
-	*(i8x16 *)PX(0, 10) = hA;
-	*(i8x16 *)PX(0, 11) = hB;
-	*(i8x16 *)PX(0, 12) = hC;
-	*(i8x16 *)PX(0, 13) = hD;
-	*(i8x16 *)PX(0, 14) = hE;
-	*(i8x16 *)PX(0, 15) = hF;
+	*(i8x16 *)SADDR(pE, -4) = hA;
+	*(i8x16 *)SADDR(p7,  4) = hB;
+	*(i8x16 *)SADDR(pE, -2) = hC;
+	*(i8x16 *)SADDR(pE, -1) = hD;
+	*(i8x16 *)SADDR(pE,  0) = hE;
+	*(i8x16 *)SADDR(pE,  1) = hF;
 	
 	// jump to chroma deblocking filter
 	deblock_CbCr_8bit(ctx);

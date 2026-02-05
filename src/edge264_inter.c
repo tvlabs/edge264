@@ -159,18 +159,6 @@ static always_inline i16x8 sixtapHV(i16x8 a, i16x8 b, i16x8 c, i16x8 d, i16x8 e,
 		i16x8 v1 = sixtapVlo(b, shr128(b, 1), shr128(b, 2), shr128(b, 3), shr128(b, 4), shr128(b, 5))
 #endif
 
-// variables only used in this file so far, no need to care about undef until seeing errors
-#if defined(__SSE2__)
-	#define sstride2 (sstride * 2)
-	#define sstride4 (sstride * 4)
-	#define nstride2 (nstride * 2)
-	#define dstride2 (dstride * 2)
-	#define dstride4 (dstride * 4)
-	#define premul_strides(sstride, nstride, dstride)
-#elif defined(__ARM_NEON)
-	#define premul_strides(sstride, nstride, dstride) ssize_t sstride2 = sstride * 2, sstride4 = sstride * 4, nstride2 = nstride * 2, dstride2 = dstride * 2, dstride4 = dstride * 4
-#endif
-
 enum {
 	INTER_4xH_QPEL_00,
 	INTER_4xH_QPEL_10,
@@ -293,24 +281,23 @@ static void decode_inter_luma(int mode, int h, size_t sstride, const uint8_t * r
 	i8x16 m1 = set8(-(0xa504 >> (mode & 15) & 1));
 	i8x16 shufx = (i8x16){2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17} - m0;
 	const uint8_t * restrict src0 = src2 - 2;
-	ssize_t nstride = -sstride, dstride3 = dstride * 3;
-	premul_strides(sstride, nstride, dstride);
-	#define sstride3 (sstride * 3)
+	DECL_SSTRIDE(sstride);
+	DECL_DSTRIDE(dstride);
 	
 	switch (mode) {
 	default: __builtin_unreachable();
 	
 	case INTER_4xH_QPEL_00:
 		do {
-			i32x4 p = loadu32x4(src2, src2 + sstride, src2 + sstride2, src2 + sstride3);
-			i32x4 q = loada32x4(dst, dst + dstride, dst + dstride2, dst + dstride3);
+			i32x4 p = loadu32x4(SADDR(src2, 0), SADDR(src2, 1), SADDR(src2, 2), SADDR(src2, 3));
+			i32x4 q = loada32x4(DADDR(dst,  0), DADDR(dst,  1), DADDR(dst,  2), DADDR(dst,  3));
 			i32x4 r = maddshrL(q, p, w, o, wd);
-			*(int32_t *)(dst           ) = r[0];
-			*(int32_t *)(dst + dstride ) = r[1];
-			*(int32_t *)(dst + dstride2) = r[2];
-			*(int32_t *)(dst + dstride3) = r[3];
-			dst += dstride4;
-			src2 += sstride4;
+			*(int32_t *)DADDR(dst,  0) = r[0];
+			*(int32_t *)DADDR(dst,  1) = r[1];
+			*(int32_t *)DADDR(dst,  2) = r[2];
+			*(int32_t *)DADDR(dst,  3) = r[3];
+			dst = DADDR(dst,  4);
+			src2 = SADDR(src2, 4);
 		} while (h -= 4);
 		return;
 	
@@ -318,33 +305,33 @@ static void decode_inter_luma(int mode, int h, size_t sstride, const uint8_t * r
 	case INTER_4xH_QPEL_20:
 	case INTER_4xH_QPEL_30:
 		do {
-			i8x16 l2 = loadu128(src0           );
-			i8x16 l3 = loadu128(src0 + sstride );
-			i8x16 l4 = loadu128(src0 + sstride2);
-			i8x16 l5 = loadu128(src0 + sstride3); /* overreads 7 bytes */
+			i8x16 l2 = loadu128(SADDR(src0,  0));
+			i8x16 l3 = loadu128(SADDR(src0,  1));
+			i8x16 l4 = loadu128(SADDR(src0,  2));
+			i8x16 l5 = loadu128(SADDR(src0,  3)); /* overreads 7 bytes */
 			i16x8 h01 = shrrpus16(sixtapH4(l2, l3), sixtapH4(l4, l5), 5);
 			i8x16 s0 = shuffle(ziplo64(l2, l3), shufx);
 			i8x16 s1 = shuffle(ziplo64(l4, l5), shufx);
 			i8x16 s = unziplo32(s0, s1);
-			i32x4 q = loada32x4(dst, dst + dstride, dst + dstride2, dst + dstride3);
+			i32x4 q = loada32x4(DADDR(dst,  0), DADDR(dst,  1), DADDR(dst,  2), DADDR(dst,  3));
 			i32x4 r = maddshrL(q, avgu8(ifelse_mask(m1, h01, s), h01), w, o, wd);
-			*(int32_t *)(dst           ) = r[0];
-			*(int32_t *)(dst + dstride ) = r[1];
-			*(int32_t *)(dst + dstride2) = r[2];
-			*(int32_t *)(dst + dstride3) = r[3];
-			dst += dstride4;
-			src0 += sstride4;
+			*(int32_t *)DADDR(dst,  0) = r[0];
+			*(int32_t *)DADDR(dst,  1) = r[1];
+			*(int32_t *)DADDR(dst,  2) = r[2];
+			*(int32_t *)DADDR(dst,  3) = r[3];
+			dst = DADDR(dst,  4);
+			src0 = SADDR(src0, 4);
 		} while (h -= 4);
 		return;
 	
 	case INTER_4xH_QPEL_01:
 	case INTER_4xH_QPEL_02:
 	case INTER_4xH_QPEL_03: {
-		i8x16 m02 = loadu32x4(src2 + nstride2, src2 + nstride , src2           , src2 + sstride );
-		i8x16 m12 = shrd128(m02, loadu32(src2 + sstride2), 4);
+		i8x16 m02 = loadu32x4(SADDR(src2, -2), SADDR(src2, -1), SADDR(src2,  0), SADDR(src2,  1));
+		i8x16 m12 = shrd128(m02, loadu32(SADDR(src2,  2)), 4);
 		do {
-			src2 += sstride4;
-			i8x16 m52 = loadu32x4(src2 + nstride , src2           , src2 + sstride , src2 + sstride2);
+			src2 = SADDR(src2, 4);
+			i8x16 m52 = loadu32x4(SADDR(src2, -1), SADDR(src2,  0), SADDR(src2,  1), SADDR(src2,  2));
 			i8x16 m22 = shrd128(m12, m52, 4);
 			i8x16 m32 = shrd128(m12, m52, 8);
 			i8x16 m42 = shrd128(m12, m52, 12);
@@ -352,14 +339,14 @@ static void decode_inter_luma(int mode, int h, size_t sstride, const uint8_t * r
 			i16x8 v1 = sixtapVhi(m02, m12, m22, m32, m42, m52);
 			i8x16 v01 = shrrpus16(v0, v1, 5);
 			i8x16 s = ifelse_mask(m1, v01, ifelse_mask(m0, m32, m22));
-			i32x4 q = loada32x4(dst, dst + dstride, dst + dstride2, dst + dstride3);
+			i32x4 q = loada32x4(DADDR(dst,  0), DADDR(dst,  1), DADDR(dst,  2), DADDR(dst,  3));
 			i32x4 r = maddshrL(q, avgu8(s, v01), w, o, wd);
-			*(int32_t *)(dst           ) = r[0];
-			*(int32_t *)(dst + dstride ) = r[1];
-			*(int32_t *)(dst + dstride2) = r[2];
-			*(int32_t *)(dst + dstride3) = r[3];
+			*(int32_t *)DADDR(dst,  0) = r[0];
+			*(int32_t *)DADDR(dst,  1) = r[1];
+			*(int32_t *)DADDR(dst,  2) = r[2];
+			*(int32_t *)DADDR(dst,  3) = r[3];
 			m02 = m42, m12 = m52;
-			dst += dstride4;
+			dst = DADDR(dst,  4);
 		} while (h -= 4);
 		} return;
 	
@@ -367,17 +354,17 @@ static void decode_inter_luma(int mode, int h, size_t sstride, const uint8_t * r
 	case INTER_4xH_QPEL_31:
 	case INTER_4xH_QPEL_13:
 	case INTER_4xH_QPEL_33: {
-		i8x16 l0 = loadu128(src0 + nstride2);
-		i8x16 l1 = loadu128(src0 + nstride );
-		i8x16 l2 = loadu128(src0           );
-		i8x16 l3 = loadu128(src0 + sstride );
-		i8x16 l4 = loadu128(src0 + sstride2);
+		i8x16 l0 = loadu128(SADDR(src0, -2));
+		i8x16 l1 = loadu128(SADDR(src0, -1));
+		i8x16 l2 = loadu128(SADDR(src0,  0));
+		i8x16 l3 = loadu128(SADDR(src0,  1));
+		i8x16 l4 = loadu128(SADDR(src0,  2));
 		do {
-			src0 += sstride4;
-			i8x16 l5 = loadu128(src0 + nstride );
-			i8x16 l6 = loadu128(src0           );
-			i8x16 l7 = loadu128(src0 + sstride );
-			i8x16 l8 = loadu128(src0 + sstride2);
+			src0 = SADDR(src0, 4);
+			i8x16 l5 = loadu128(SADDR(src0, -1));
+			i8x16 l6 = loadu128(SADDR(src0,  0));
+			i8x16 l7 = loadu128(SADDR(src0,  1));
+			i8x16 l8 = loadu128(SADDR(src0,  2));
 			i8x16 l02 = shuffle(l0, shufx);
 			i8x16 l12 = shuffle(l1, shufx);
 			i8x16 l22 = shuffle(l2, shufx);
@@ -401,30 +388,30 @@ static void decode_inter_luma(int mode, int h, size_t sstride, const uint8_t * r
 			i16x8 h0 = sixtapH4(ifelse_mask(m1, l3, l2), ifelse_mask(m1, l4, l3));
 			i16x8 h1 = sixtapH4(ifelse_mask(m1, l5, l4), ifelse_mask(m1, l6, l5));
 			i8x16 s = avgu8(v01, shrrpus16(h0, h1, 5));
-			i32x4 q = loada32x4(dst, dst + dstride, dst + dstride2, dst + dstride3);
+			i32x4 q = loada32x4(DADDR(dst,  0), DADDR(dst,  1), DADDR(dst,  2), DADDR(dst,  3));
 			i32x4 r = maddshrL(q, s, w, o, wd);
-			*(int32_t *)(dst           ) = r[0];
-			*(int32_t *)(dst + dstride ) = r[1];
-			*(int32_t *)(dst + dstride2) = r[2];
-			*(int32_t *)(dst + dstride3) = r[3];
+			*(int32_t *)DADDR(dst,  0) = r[0];
+			*(int32_t *)DADDR(dst,  1) = r[1];
+			*(int32_t *)DADDR(dst,  2) = r[2];
+			*(int32_t *)DADDR(dst,  3) = r[3];
 			l0 = l4, l1 = l5, l2 = l6, l3 = l7, l4 = l8;
-			dst += dstride4;
+			dst = DADDR(dst,  4);
 		} while (h -= 4);
 		} return;
 	
 	case INTER_4xH_QPEL_12:
 	case INTER_4xH_QPEL_32: {
-		i8x16 l0 = loadu128(src0 + nstride2);
-		i8x16 l1 = loadu128(src0 + nstride );
-		i8x16 l2 = loadu128(src0           );
-		i8x16 l3 = loadu128(src0 + sstride );
-		i8x16 l4 = loadu128(src0 + sstride2);
+		i8x16 l0 = loadu128(SADDR(src0, -2));
+		i8x16 l1 = loadu128(SADDR(src0, -1));
+		i8x16 l2 = loadu128(SADDR(src0,  0));
+		i8x16 l3 = loadu128(SADDR(src0,  1));
+		i8x16 l4 = loadu128(SADDR(src0,  2));
 		do {
-			src0 += sstride4;
-			i8x16 l5 = loadu128(src0 + nstride );
-			i8x16 l6 = loadu128(src0           );
-			i8x16 l7 = loadu128(src0 + sstride );
-			i8x16 l8 = loadu128(src0 + sstride2);
+			src0 = SADDR(src0, 4);
+			i8x16 l5 = loadu128(SADDR(src0, -1));
+			i8x16 l6 = loadu128(SADDR(src0,  0));
+			i8x16 l7 = loadu128(SADDR(src0,  1));
+			i8x16 l8 = loadu128(SADDR(src0,  2));
 			i8x16 r0 = ziplo16(ziphi8(l0, l1), ziphi8(l2, l3));
 			i8x16 r1 = ziplo16(ziphi8(l4, l5), ziphi8(l6, l7));
 			i64x2 r2 = {((i64x2)ziplo32(r0, r1))[0], ((i64x2)l8)[1]};
@@ -453,34 +440,34 @@ static void decode_inter_luma(int mode, int h, size_t sstride, const uint8_t * r
 			i16x8 vh1 = sixtapHV(m20, m21, m22, m23, m24, m25);
 			i8x16 vh = shrrpus16(vh0, vh1, 6);
 			i8x16 s = shrrpus16(ifelse_mask(m0, m03, m02), ifelse_mask(m0, m23, m22), 5);
-			i32x4 q = loada32x4(dst, dst + dstride, dst + dstride2, dst + dstride3);
+			i32x4 q = loada32x4(DADDR(dst,  0), DADDR(dst,  1), DADDR(dst,  2), DADDR(dst,  3));
 			i32x4 r = maddshrL(q, avgu8(s, vh), w, o, wd);
-			*(int32_t *)(dst           ) = r[0];
-			*(int32_t *)(dst + dstride ) = r[1];
-			*(int32_t *)(dst + dstride2) = r[2];
-			*(int32_t *)(dst + dstride3) = r[3];
+			*(int32_t *)DADDR(dst,  0) = r[0];
+			*(int32_t *)DADDR(dst,  1) = r[1];
+			*(int32_t *)DADDR(dst,  2) = r[2];
+			*(int32_t *)DADDR(dst,  3) = r[3];
 			l0 = l4, l1 = l5, l2 = l6, l3 = l7, l4 = l8;
-			dst += dstride4;
+			dst = DADDR(dst,  4);
 		} while (h -= 4);
 		} return;
 	
 	case INTER_4xH_QPEL_21:
 	case INTER_4xH_QPEL_22:
 	case INTER_4xH_QPEL_23: {
-		i8x16 l0 = loadu128(src0 + nstride2);
-		i8x16 l1 = loadu128(src0 + nstride );
-		i8x16 l2 = loadu128(src0           );
-		i8x16 l3 = loadu128(src0 + sstride );
-		i8x16 l4 = loadu128(src0 + sstride2);
+		i8x16 l0 = loadu128(SADDR(src0, -2));
+		i8x16 l1 = loadu128(SADDR(src0, -1));
+		i8x16 l2 = loadu128(SADDR(src0,  0));
+		i8x16 l3 = loadu128(SADDR(src0,  1));
+		i8x16 l4 = loadu128(SADDR(src0,  2));
 		i16x8 h0 = sixtapH4(l0, l1);
 		i16x8 h2 = sixtapH4(l2, l3);
 		i16x8 h3 = sixtapH4(l3, l4);
 		do {
-			src0 += sstride4;
-			i8x16 l5 = loadu128(src0 + nstride );
-			i8x16 l6 = loadu128(src0           );
-			i8x16 l7 = loadu128(src0 + sstride );
-			i8x16 l8 = loadu128(src0 + sstride2);
+			src0 = SADDR(src0, 4);
+			i8x16 l5 = loadu128(SADDR(src0, -1));
+			i8x16 l6 = loadu128(SADDR(src0,  0));
+			i8x16 l7 = loadu128(SADDR(src0,  1));
+			i8x16 l8 = loadu128(SADDR(src0,  2));
 			i16x8 h5 = sixtapH4(l5, l6);
 			i16x8 h7 = sixtapH4(l7, l8);
 			i16x8 h1 = shrd128(h0, h2, 8);
@@ -490,31 +477,31 @@ static void decode_inter_luma(int mode, int h, size_t sstride, const uint8_t * r
 			i16x8 hv1 = sixtapHV(h2, h3, h4, h5, h6, h7);
 			i8x16 hv = shrrpus16(hv0, hv1, 6);
 			i8x16 s = shrrpus16(ifelse_mask(m0, h3, h2), ifelse_mask(m0, h5, h4), 5);
-			i32x4 q = loada32x4(dst, dst + dstride, dst + dstride2, dst + dstride3);
+			i32x4 q = loada32x4(DADDR(dst,  0), DADDR(dst,  1), DADDR(dst,  2), DADDR(dst,  3));
 			i32x4 r = maddshrL(q, avgu8(ifelse_mask(m1, hv, s), hv), w, o, wd);
-			*(int32_t *)(dst           ) = r[0];
-			*(int32_t *)(dst + dstride ) = r[1];
-			*(int32_t *)(dst + dstride2) = r[2];
-			*(int32_t *)(dst + dstride3) = r[3];
+			*(int32_t *)DADDR(dst,  0) = r[0];
+			*(int32_t *)DADDR(dst,  1) = r[1];
+			*(int32_t *)DADDR(dst,  2) = r[2];
+			*(int32_t *)DADDR(dst,  3) = r[3];
 			h0 = h4, h2 = h6, h3 = h7;
-			dst += dstride4;
+			dst = DADDR(dst,  4);
 		} while (h -= 4);
 		} return;
 	
 	case INTER_8xH_QPEL_00:
 		do {
-			i8x16 p0 = loadu64x2(src2           ,  src2 + sstride );
-			i8x16 p1 = loadu64x2(src2 + sstride2,  src2 + sstride3);
-			i8x16 q0 = loadu64x2(dst           ,  dst + dstride );
-			i8x16 q1 = loadu64x2(dst + dstride2,  dst + dstride3);
+			i8x16 p0 = loadu64x2(SADDR(src2,  0), SADDR(src2,  1));
+			i8x16 p1 = loadu64x2(SADDR(src2,  2), SADDR(src2,  3));
+			i8x16 q0 = loadu64x2(DADDR(dst,  0), DADDR(dst,  1));
+			i8x16 q1 = loadu64x2(DADDR(dst,  2), DADDR(dst,  3));
 			i64x2 r0 = maddshrL(q0, p0, w, o, wd);
 			i64x2 r1 = maddshrL(q1, p1, w, o, wd);
-			*(int64_t *)(dst           ) = r0[0];
-			*(int64_t *)(dst + dstride ) = r0[1];
-			*(int64_t *)(dst + dstride2) = r1[0];
-			*(int64_t *)(dst + dstride3) = r1[1];
-			src2 += sstride4;
-			dst += dstride4;
+			*(int64_t *)DADDR(dst,  0) = r0[0];
+			*(int64_t *)DADDR(dst,  1) = r0[1];
+			*(int64_t *)DADDR(dst,  2) = r1[0];
+			*(int64_t *)DADDR(dst,  3) = r1[1];
+			src2 = SADDR(src2, 4);
+			dst = DADDR(dst,  4);
 		} while (h -= 4);
 		return;
 	
@@ -522,41 +509,41 @@ static void decode_inter_luma(int mode, int h, size_t sstride, const uint8_t * r
 	case INTER_8xH_QPEL_20:
 	case INTER_8xH_QPEL_30:
 		do {
-			i8x16 l0 = loadu128(src0           ); /* overreads 3 bytes */
-			i8x16 l1 = loadu128(src0 + sstride );
+			i8x16 l0 = loadu128(SADDR(src0,  0)); /* overreads 3 bytes */
+			i8x16 l1 = loadu128(SADDR(src0,  1));
 			i8x16 h01 = shrrpus16(sixtapH8(l0), sixtapH8(l1), 5);
 			i8x16 s = ziplo64(shuffle(l0, shufx), shuffle(l1, shufx));
-			i8x16 q = loada64x2(dst           , dst + dstride );
+			i8x16 q = loada64x2(DADDR(dst,  0), DADDR(dst,  1));
 			i64x2 r = maddshrL(q, avgu8(ifelse_mask(m1, h01, s), h01), w, o, wd);
-			*(int64_t *)(dst           ) = r[0];
-			*(int64_t *)(dst + dstride ) = r[1];
-			src0 += sstride2;
-			dst += dstride2;
+			*(int64_t *)DADDR(dst,  0) = r[0];
+			*(int64_t *)DADDR(dst,  1) = r[1];
+			src0 = SADDR(src0,  2);
+			dst = DADDR(dst,  2);
 		} while (h -= 2);
 		return;
 	
 	case INTER_8xH_QPEL_01:
 	case INTER_8xH_QPEL_02:
 	case INTER_8xH_QPEL_03: {
-		i16x8 l0 = loadu64(src2 + nstride2);
-		i16x8 l1 = loadu64(src2 + nstride );
-		i16x8 l2 = loadu64(src2           );
-		i16x8 l3 = loadu64(src2 + sstride );
-		i16x8 l4 = loadu64(src2 + sstride2);
+		i16x8 l0 = loadu64(SADDR(src2, -2));
+		i16x8 l1 = loadu64(SADDR(src2, -1));
+		i16x8 l2 = loadu64(SADDR(src2,  0));
+		i16x8 l3 = loadu64(SADDR(src2,  1));
+		i16x8 l4 = loadu64(SADDR(src2,  2));
 		do {
-			src2 += sstride2;
-			i16x8 l5 = loadu64(src2 + sstride );
-			i16x8 l6 = loadu64(src2 + sstride2);
+			src2 = SADDR(src2, 2);
+			i16x8 l5 = loadu64(SADDR(src2,  1));
+			i16x8 l6 = loadu64(SADDR(src2,  2));
 			i16x8 v0 = sixtapVlo(l0, l1, l2, l3, l4, l5);
 			i16x8 v1 = sixtapVlo(l1, l2, l3, l4, l5, l6);
 			i8x16 v01 = shrrpus16(v0, v1, 5);
 			i8x16 s = ifelse_mask(m0, ziplo64(l3, l4), ziplo64(l2, l3));
-			i8x16 q = loada64x2(dst           , dst + dstride );
+			i8x16 q = loada64x2(DADDR(dst,  0), DADDR(dst,  1));
 			i64x2 r = maddshrL(q, avgu8(ifelse_mask(m1, v01, s), v01), w, o, wd);
-			*(int64_t *)(dst           ) = r[0];
-			*(int64_t *)(dst + dstride ) = r[1];
+			*(int64_t *)DADDR(dst,  0) = r[0];
+			*(int64_t *)DADDR(dst,  1) = r[1];
 			l0 = l2, l1 = l3, l2 = l4, l3 = l5, l4 = l6;
-			dst += dstride2;
+			dst = DADDR(dst,  2);
 		} while (h -= 2);
 		} return;
 	
@@ -564,15 +551,15 @@ static void decode_inter_luma(int mode, int h, size_t sstride, const uint8_t * r
 	case INTER_8xH_QPEL_31:
 	case INTER_8xH_QPEL_13:
 	case INTER_8xH_QPEL_33: {
-		i16x8 l02 = shuffle(loadu128(src0 + nstride2), shufx);
-		i16x8 l12 = shuffle(loadu128(src0 + nstride ), shufx);
-		i8x16 l2 = loadu128(src0           );
-		i8x16 l3 = loadu128(src0 + sstride );
-		i8x16 l4 = loadu128(src0 + sstride2);
+		i16x8 l02 = shuffle(loadu128(SADDR(src0, -2)), shufx);
+		i16x8 l12 = shuffle(loadu128(SADDR(src0, -1)), shufx);
+		i8x16 l2 = loadu128(SADDR(src0,  0));
+		i8x16 l3 = loadu128(SADDR(src0,  1));
+		i8x16 l4 = loadu128(SADDR(src0,  2));
 		do {
-			src0 += sstride2;
-			i8x16 l5 = loadu128(src0 + sstride );
-			i8x16 l6 = loadu128(src0 + sstride2);
+			src0 = SADDR(src0,  2);
+			i8x16 l5 = loadu128(SADDR(src0,  1));
+			i8x16 l6 = loadu128(SADDR(src0,  2));
 			i16x8 l22 = shuffle(l2, shufx);
 			i16x8 l32 = shuffle(l3, shufx);
 			i16x8 l42 = shuffle(l4, shufx);
@@ -584,27 +571,27 @@ static void decode_inter_luma(int mode, int h, size_t sstride, const uint8_t * r
 			i16x8 h0 = sixtapH8(ifelse_mask(m1, l3, l2));
 			i16x8 h1 = sixtapH8(ifelse_mask(m1, l4, l3));
 			i8x16 s = avgu8(v01, shrrpus16(h0, h1, 5));
-			i8x16 q = loada64x2(dst           , dst + dstride );
+			i8x16 q = loada64x2(DADDR(dst,  0), DADDR(dst,  1));
 			i64x2 r = maddshrL(q, s, w, o, wd);
-			*(int64_t *)(dst           ) = r[0];
-			*(int64_t *)(dst + dstride ) = r[1];
+			*(int64_t *)DADDR(dst,  0) = r[0];
+			*(int64_t *)DADDR(dst,  1) = r[1];
 			l02 = l22, l12 = l32, l2 = l4, l3 = l5;
 			l4 = l6;
-			dst += dstride2;
+			dst = DADDR(dst,  2);
 		} while (h -= 2);
 		} return;
 	
 	case INTER_8xH_QPEL_12:
 	case INTER_8xH_QPEL_32: {
-		i8x16 l0 = loadu128(src0 + nstride2);
-		i8x16 l1 = loadu128(src0 + nstride );
-		i8x16 l2 = loadu128(src0           );
-		i8x16 l3 = loadu128(src0 + sstride );
-		i8x16 l4 = loadu128(src0 + sstride2);
+		i8x16 l0 = loadu128(SADDR(src0, -2));
+		i8x16 l1 = loadu128(SADDR(src0, -1));
+		i8x16 l2 = loadu128(SADDR(src0,  0));
+		i8x16 l3 = loadu128(SADDR(src0,  1));
+		i8x16 l4 = loadu128(SADDR(src0,  2));
 		do {
-			src0 += sstride2;
-			i8x16 l5 = loadu128(src0 + sstride );
-			i8x16 l6 = loadu128(src0 + sstride2);
+			src0 = SADDR(src0,  2);
+			i8x16 l5 = loadu128(SADDR(src0,  1));
+			i8x16 l6 = loadu128(SADDR(src0,  2));
 			i16x8 x00 = sixtapVlo(l0, l1, l2, l3, l4, l5);
 			i16x8 x10 = sixtapVlo(l1, l2, l3, l4, l5, l6);
 			i16x8 x08 = sixtapVhi(l0, l1, l2, l3, l4, l5);
@@ -623,48 +610,48 @@ static void decode_inter_luma(int mode, int h, size_t sstride, const uint8_t * r
 			i16x8 vh1 = sixtapHV(x10, x11, x12, x13, x14, x15);
 			i8x16 vh = shrrpus16(vh0, vh1, 6);
 			i8x16 s = shrrpus16(ifelse_mask(m0, x03, x02), ifelse_mask(m0, x13, x12), 5);
-			i8x16 q = loada64x2(dst           , dst + dstride );
+			i8x16 q = loada64x2(DADDR(dst,  0), DADDR(dst,  1));
 			i64x2 r = maddshrL(q, avgu8(vh, s), w, o, wd);
-			*(int64_t *)(dst           ) = r[0];
-			*(int64_t *)(dst + dstride ) = r[1];
+			*(int64_t *)DADDR(dst,  0) = r[0];
+			*(int64_t *)DADDR(dst,  1) = r[1];
 			l0 = l2, l1 = l3, l2 = l4, l3 = l5, l4 = l6;
-			dst += dstride2;
+			dst = DADDR(dst,  2);
 		} while (h -= 2);
 		} return;
 	
 	case INTER_8xH_QPEL_21:
 	case INTER_8xH_QPEL_22:
 	case INTER_8xH_QPEL_23: {
-		i16x8 v0 = sixtapH8(loadu128(src0 + nstride2));
-		i16x8 v1 = sixtapH8(loadu128(src0 + nstride ));
-		i16x8 v2 = sixtapH8(loadu128(src0           ));
-		i16x8 v3 = sixtapH8(loadu128(src0 + sstride ));
-		i16x8 v4 = sixtapH8(loadu128(src0 + sstride2));
+		i16x8 v0 = sixtapH8(loadu128(SADDR(src0, -2)));
+		i16x8 v1 = sixtapH8(loadu128(SADDR(src0, -1)));
+		i16x8 v2 = sixtapH8(loadu128(SADDR(src0,  0)));
+		i16x8 v3 = sixtapH8(loadu128(SADDR(src0,  1)));
+		i16x8 v4 = sixtapH8(loadu128(SADDR(src0,  2)));
 		do {
-			src0 += sstride2;
-			i8x16 v5 = sixtapH8(loadu128(src0 + sstride ));
-			i8x16 v6 = sixtapH8(loadu128(src0 + sstride2));
+			src0 = SADDR(src0,  2);
+			i8x16 v5 = sixtapH8(loadu128(SADDR(src0,  1)));
+			i8x16 v6 = sixtapH8(loadu128(SADDR(src0,  2)));
 			i16x8 hv0 = sixtapHV(v0, v1, v2, v3, v4, v5);
 			i16x8 hv1 = sixtapHV(v1, v2, v3, v4, v5, v6);
 			i8x16 hv = shrrpus16(hv0, hv1, 6);
 			i8x16 s = shrrpus16(ifelse_mask(m0, v3, v2), ifelse_mask(m0, v4, v3), 5);
-			i8x16 q = loada64x2(dst           , dst + dstride );
+			i8x16 q = loada64x2(DADDR(dst,  0), DADDR(dst,  1));
 			i64x2 r = maddshrL(q, avgu8(ifelse_mask(m1, hv, s), hv), w, o, wd);
-			*(int64_t *)(dst           ) = r[0];
-			*(int64_t *)(dst + dstride ) = r[1];
+			*(int64_t *)DADDR(dst,  0) = r[0];
+			*(int64_t *)DADDR(dst,  1) = r[1];
 			v0 = v2, v1 = v3, v2 = v4, v3 = v5, v4 = v6;
-			dst += dstride2;
+			dst = DADDR(dst,  2);
 		} while (h -= 2);
 		} return;
 	
 	case INTER_16xH_QPEL_00:
 		do {
-			*(i8x16 *)(dst           ) = maddshrL(*(i8x16 *)(dst           ), loadu128(src2           ), w, o, wd);
-			*(i8x16 *)(dst + dstride ) = maddshrL(*(i8x16 *)(dst + dstride ), loadu128(src2 + sstride ), w, o, wd);
-			*(i8x16 *)(dst + dstride2) = maddshrL(*(i8x16 *)(dst + dstride2), loadu128(src2 + sstride2), w, o, wd);
-			*(i8x16 *)(dst + dstride3) = maddshrL(*(i8x16 *)(dst + dstride3), loadu128(src2 + sstride3), w, o, wd);
-			src2 += sstride4;
-			dst += dstride4;
+			*(i8x16 *)DADDR(dst,  0) = maddshrL(*(i8x16 *)DADDR(dst,  0), loadu128(SADDR(src2,  0)), w, o, wd);
+			*(i8x16 *)DADDR(dst,  1) = maddshrL(*(i8x16 *)DADDR(dst,  1), loadu128(SADDR(src2,  1)), w, o, wd);
+			*(i8x16 *)DADDR(dst,  2) = maddshrL(*(i8x16 *)DADDR(dst,  2), loadu128(SADDR(src2,  2)), w, o, wd);
+			*(i8x16 *)DADDR(dst,  3) = maddshrL(*(i8x16 *)DADDR(dst,  3), loadu128(SADDR(src2,  3)), w, o, wd);
+			src2 = SADDR(src2, 4);
+			dst = DADDR(dst,  4);
 		} while (h -= 4);
 		return;
 	
@@ -678,29 +665,29 @@ static void decode_inter_luma(int mode, int h, size_t sstride, const uint8_t * r
 			i8x16 h01 = shrrpus16(h0, h8, 5);
 			i8x16 s = ifelse_mask(m1, h01, ziplo64(shuffle(l0, shufx), shuffle(l8, shufx)));
 			*(i8x16 *)dst = maddshrL(*(i8x16 *)dst, avgu8(s, h01), w, o, wd);
-			src0 += sstride;
-			dst += dstride;
+			src0 = SADDR(src0,  1);
+			dst = DADDR(dst,  1);
 		} while (h -= 1);
 		return;
 	
 	case INTER_16xH_QPEL_01:
 	case INTER_16xH_QPEL_02:
 	case INTER_16xH_QPEL_03: {
-		i8x16 l0 = loadu128(src2 + nstride2);
-		i8x16 l1 = loadu128(src2 + nstride );
-		i8x16 l2 = loadu128(src2           );
-		i8x16 l3 = loadu128(src2 + sstride );
-		i8x16 l4 = loadu128(src2 + sstride2);
+		i8x16 l0 = loadu128(SADDR(src2, -2));
+		i8x16 l1 = loadu128(SADDR(src2, -1));
+		i8x16 l2 = loadu128(SADDR(src2,  0));
+		i8x16 l3 = loadu128(SADDR(src2,  1));
+		i8x16 l4 = loadu128(SADDR(src2,  2));
 		do {
-			src2 += sstride;
-			i8x16 l5 = loadu128(src2 + sstride2);
+			src2 = SADDR(src2,  1);
+			i8x16 l5 = loadu128(SADDR(src2,  2));
 			i16x8 v0 = sixtapVlo(l0, l1, l2, l3, l4, l5);
 			i16x8 v8 = sixtapVhi(l0, l1, l2, l3, l4, l5);
 			i8x16 v01 = shrrpus16(v0, v8, 5);
 			i8x16 s = ifelse_mask(m1, v01, ifelse_mask(m0, l3, l2));
 			*(i8x16 *)dst = maddshrL(*(i8x16 *)dst, avgu8(s, v01), w, o, wd);
 			l0 = l1, l1 = l2, l2 = l3, l3 = l4, l4 = l5;
-			dst += dstride;
+			dst = DADDR(dst,  1);
 		} while (h -= 1);
 		} return;
 	
@@ -709,21 +696,21 @@ static void decode_inter_luma(int mode, int h, size_t sstride, const uint8_t * r
 	case INTER_16xH_QPEL_13:
 	case INTER_16xH_QPEL_33: {
 		const uint8_t * restrict src8 = src0 + 8;
-		i8x16 l02 = shuffle(loadu128(src0 + nstride2), shufx);
-		i8x16 l0A = shuffle(loadu128(src8 + nstride2), shufx);
-		i8x16 l12 = shuffle(loadu128(src0 + nstride ), shufx);
-		i8x16 l1A = shuffle(loadu128(src8 + nstride ), shufx);
-		i8x16 l20 = loadu128(src0           );
-		i8x16 l28 = loadu128(src8           );
-		i8x16 l30 = loadu128(src0 + sstride );
-		i8x16 l38 = loadu128(src8 + sstride );
-		i8x16 l40 = loadu128(src0 + sstride2);
-		i8x16 l48 = loadu128(src8 + sstride2);
+		i8x16 l02 = shuffle(loadu128(SADDR(src0, -2)), shufx);
+		i8x16 l0A = shuffle(loadu128(SADDR(src8, -2)), shufx);
+		i8x16 l12 = shuffle(loadu128(SADDR(src0, -1)), shufx);
+		i8x16 l1A = shuffle(loadu128(SADDR(src8, -1)), shufx);
+		i8x16 l20 = loadu128(SADDR(src0,  0));
+		i8x16 l28 = loadu128(SADDR(src8,  0));
+		i8x16 l30 = loadu128(SADDR(src0,  1));
+		i8x16 l38 = loadu128(SADDR(src8,  1));
+		i8x16 l40 = loadu128(SADDR(src0,  2));
+		i8x16 l48 = loadu128(SADDR(src8,  2));
 		do {
-			src0 += sstride;
+			src0 = SADDR(src0,  1);
 			src8 += sstride;
-			i8x16 l50 = loadu128(src0 + sstride2);
-			i8x16 l58 = loadu128(src8 + sstride2);
+			i8x16 l50 = loadu128(SADDR(src0,  2));
+			i8x16 l58 = loadu128(SADDR(src8,  2));
 			i8x16 l22 = shuffle(l20, shufx);
 			i8x16 l32 = shuffle(l30, shufx);
 			i8x16 l42 = shuffle(l40, shufx);
@@ -742,28 +729,28 @@ static void decode_inter_luma(int mode, int h, size_t sstride, const uint8_t * r
 			*(i8x16 *)dst = maddshrL(*(i8x16 *)dst, avgu8(v01, h01), w, o, wd);
 			l02 = l12, l0A = l1A, l12 = l22, l1A = l2A;
 			l20 = l30, l28 = l38, l30 = l40, l38 = l48, l40 = l50, l48 = l58;
-			dst += dstride;
+			dst = DADDR(dst,  1);
 		} while (h -= 1);
 		} return;
 	
 	case INTER_16xH_QPEL_12:
 	case INTER_16xH_QPEL_32: {
 		const uint8_t * restrict srcG = src0 + 16;
-		i8x16 l00 = loadu128(src0 + nstride2);
-		i16x8 l0G = loadu64(srcG + nstride2);
-		i8x16 l10 = loadu128(src0 + nstride );
-		i16x8 l1G = loadu64(srcG + nstride );
-		i8x16 l20 = loadu128(src0           );
-		i16x8 l2G = loadu64(srcG           );
-		i8x16 l30 = loadu128(src0 + sstride );
-		i16x8 l3G = loadu64(srcG + sstride );
-		i8x16 l40 = loadu128(src0 + sstride2);
-		i16x8 l4G = loadu64(srcG + sstride2);
+		i8x16 l00 = loadu128(SADDR(src0, -2));
+		i16x8 l0G = loadu64(SADDR(srcG, -2));
+		i8x16 l10 = loadu128(SADDR(src0, -1));
+		i16x8 l1G = loadu64(SADDR(srcG, -1));
+		i8x16 l20 = loadu128(SADDR(src0,  0));
+		i16x8 l2G = loadu64(SADDR(srcG,  0));
+		i8x16 l30 = loadu128(SADDR(src0,  1));
+		i16x8 l3G = loadu64(SADDR(srcG,  1));
+		i8x16 l40 = loadu128(SADDR(src0,  2));
+		i16x8 l4G = loadu64(SADDR(srcG,  2));
 		do {
-			src0 += sstride;
-			srcG += sstride;
-			i8x16 l50 = loadu128(src0 + sstride2);
-			i16x8 l5G = loadu64(srcG + sstride2);
+			src0 = SADDR(src0,  1);
+			srcG = SADDR(srcG,  1);
+			i8x16 l50 = loadu128(SADDR(src0,  2));
+			i16x8 l5G = loadu64(SADDR(srcG,  2));
 			i16x8 v0 = sixtapVlo(l00, l10, l20, l30, l40, l50);
 			i16x8 v8 = sixtapVhi(l00, l10, l20, l30, l40, l50);
 			i16x8 vG = sixtapVlo(l0G, l1G, l2G, l3G, l4G, l5G);
@@ -784,7 +771,7 @@ static void decode_inter_luma(int mode, int h, size_t sstride, const uint8_t * r
 			*(i8x16 *)dst = maddshrL(*(i8x16 *)dst, avgu8(s, vh), w, o, wd);
 			l00 = l10, l10 = l20, l20 = l30, l30 = l40, l40 = l50;
 			l0G = l1G, l1G = l2G, l2G = l3G, l3G = l4G, l4G = l5G;
-			dst += dstride;
+			dst = DADDR(dst,  1);
 		} while (h -= 1);
 		} return;
 	
@@ -792,26 +779,26 @@ static void decode_inter_luma(int mode, int h, size_t sstride, const uint8_t * r
 	case INTER_16xH_QPEL_22:
 	case INTER_16xH_QPEL_23: {
 		const uint8_t * restrict src8 = src0 + 8;
-		i8x16 l00 = loadu128(src0 + nstride2);
-		i8x16 l08 = loadu128(src8 + nstride2);
+		i8x16 l00 = loadu128(SADDR(src0, -2));
+		i8x16 l08 = loadu128(SADDR(src8, -2));
 		SIXTAPH16(h00, h08, l00, l08);
-		i8x16 l10 = loadu128(src0 + nstride );
-		i8x16 l18 = loadu128(src8 + nstride );
+		i8x16 l10 = loadu128(SADDR(src0, -1));
+		i8x16 l18 = loadu128(SADDR(src8, -1));
 		SIXTAPH16(h10, h18, l10, l18);
-		i8x16 l20 = loadu128(src0           );
-		i8x16 l28 = loadu128(src8           );
+		i8x16 l20 = loadu128(SADDR(src0,  0));
+		i8x16 l28 = loadu128(SADDR(src8,  0));
 		SIXTAPH16(h20, h28, l20, l28);
-		i8x16 l30 = loadu128(src0 + sstride );
-		i8x16 l38 = loadu128(src8 + sstride );
+		i8x16 l30 = loadu128(SADDR(src0,  1));
+		i8x16 l38 = loadu128(SADDR(src8,  1));
 		SIXTAPH16(h30, h38, l30, l38);
-		i8x16 l40 = loadu128(src0 + sstride2);
-		i8x16 l48 = loadu128(src8 + sstride2);
+		i8x16 l40 = loadu128(SADDR(src0,  2));
+		i8x16 l48 = loadu128(SADDR(src8,  2));
 		SIXTAPH16(h40, h48, l40, l48);
 		do {
-			src0 += sstride;
+			src0 = SADDR(src0,  1);
 			src8 += sstride;
-			i8x16 l50 = loadu128(src0 + sstride2);
-			i8x16 l58 = loadu128(src8 + sstride2);
+			i8x16 l50 = loadu128(SADDR(src0,  2));
+			i8x16 l58 = loadu128(SADDR(src8,  2));
 			SIXTAPH16(h50, h58, l50, l58);
 			i16x8 hv0 = sixtapHV(h00, h10, h20, h30, h40, h50);
 			i16x8 hv1 = sixtapHV(h08, h18, h28, h38, h48, h58);
@@ -823,11 +810,10 @@ static void decode_inter_luma(int mode, int h, size_t sstride, const uint8_t * r
 			h20 = h30, h28 = h38;
 			h30 = h40, h38 = h48;
 			h40 = h50, h48 = h58;
-			dst += dstride;
+			dst = DADDR(dst,  1);
 		} while (h -= 1);
 		} return;
 	}
-	#undef sstride3
 }
 
 
@@ -851,8 +837,8 @@ static void decode_inter_chroma(int w, int h, size_t sstride, const uint8_t *src
 		i16x8 oCr = broadcast16(wod, 7);
 		i16x8 wd = -broadcast16(wod, 3);
 	#endif
-	premul_strides(sstride, 0, dstride);
-	size_t sstride3 = sstride * 3, dstride3 = dstride * 3;
+	DECL_SSTRIDE(sstride);
+	DECL_DSTRIDE(dstride);
 	
 	if (w == 16) {
 		#if defined(__SSE2__)
@@ -866,20 +852,20 @@ static void decode_inter_chroma(int w, int h, size_t sstride, const uint8_t *src
 			i16x8 w1 = wo16;
 			i8x16 shuf = {0, 1, 2, 3, 4, 5, 6, 7, 1, 2, 3, 4, 5, 6, 7, 8};
 		#endif
-		i8x16 l0 = loadu128(src);
-		i8x16 l1 = loadu128(src + sstride);
+		i8x16 l0 = loadu128(SADDR(src,  0));
+		i8x16 l1 = loadu128(SADDR(src,  1));
 		do {
-			src += sstride2;
-			i8x16 l2 = loadu128(src);
-			i8x16 l3 = loadu128(src + sstride);
+			src = SADDR(src,  2);
+			i8x16 l2 = loadu128(SADDR(src,  0));
+			i8x16 l3 = loadu128(SADDR(src,  1));
 			i16x8 x0 = maddABCD(l0, l2, shuf, AB, CD);
 			i16x8 x1 = maddABCD(l1, l3, shuf, AB, CD);
 			i8x16 p = shrrpu16(x0, x1, 6);
-			i8x16 q = loada64x2(dst, dst + dstride);
+			i8x16 q = loada64x2(DADDR(dst,  0), DADDR(dst,  1));
 			i64x2 v = maddshrC16(q, p, w0, w1, oCb, oCr, wd);
-			*(int64_t *)dst = v[0];
-			*(int64_t *)(dst + dstride) = v[1];
-			dst += dstride2;
+			*(int64_t *)DADDR(dst,  0) = v[0];
+			*(int64_t *)DADDR(dst,  1) = v[1];
+			dst = DADDR(dst,  2);
 			l0 = l2, l1 = l3;
 		} while (h -= 2);
 		
@@ -896,22 +882,22 @@ static void decode_inter_chroma(int w, int h, size_t sstride, const uint8_t *src
 			i16x8 o = ziplo64(oCb, oCr);
 			i8x16 shuf = {0, 1, 2, 3, 8, 9, 10, 11, 1, 2, 3, 4, 9, 10, 11, 12};
 		#endif
-		i8x16 l0 = loadu64x2(src, src + sstride);
-		src += sstride2;
+		i8x16 l0 = loadu64x2(SADDR(src,  0), SADDR(src,  1));
+		src = SADDR(src,  2);
 		do {
-			i8x16 l1 = loadu64x2(src, src + sstride);
-			i8x16 l2 = loadu64x2(src + sstride2, src + sstride3);
+			i8x16 l1 = loadu64x2(SADDR(src,  0), SADDR(src,  1));
+			i8x16 l2 = loadu64x2(SADDR(src,  2), SADDR(src,  3));
 			i16x8 x0 = maddABCD(l0, l1, shuf, AB, CD);
 			i16x8 x1 = maddABCD(l1, l2, shuf, AB, CD);
 			i8x16 p = shrrpu16(x0, x1, 6);
-			i8x16 q = loada32x4(dst, dst + dstride, dst + dstride2, dst + dstride3);
+			i8x16 q = loada32x4(DADDR(dst,  0), DADDR(dst,  1), DADDR(dst,  2), DADDR(dst,  3));
 			i32x4 v = maddshrC8(q, p, w0, w1, o, wd);
-			*(int32_t *)dst = v[0];
-			*(int32_t *)(dst + dstride) = v[1];
-			*(int32_t *)(dst + dstride2) = v[2];
-			*(int32_t *)(dst + dstride3) = v[3];
-			src += sstride4;
-			dst += dstride4;
+			*(int32_t *)DADDR(dst,  0) = v[0];
+			*(int32_t *)DADDR(dst,  1) = v[1];
+			*(int32_t *)DADDR(dst,  2) = v[2];
+			*(int32_t *)DADDR(dst,  3) = v[3];
+			src = SADDR(src,  4);
+			dst = DADDR(dst,  4);
 			l0 = l2;
 		} while (h -= 4);
 			
@@ -928,29 +914,23 @@ static void decode_inter_chroma(int w, int h, size_t sstride, const uint8_t *src
 			i16x8 o = ziplo32(oCb, oCr);
 			i8x16 shuf = {0, 1, 4, 5, 8, 9, 12, 13, 1, 2, 5, 6, 9, 10, 13, 14};
 		#endif
-		i32x4 l0 = {*(int32_t *)src, *(int32_t *)(src + sstride)};
-		src += sstride2;
+		i32x4 l0 = {*(int32_t *)SADDR(src,  0), *(int32_t *)SADDR(src,  1)};
+		src = SADDR(src,  2);
 		do {
-			i8x16 l1 = loadu32x4(src, src + sstride, src + sstride2, src + sstride3);
+			i8x16 l1 = loadu32x4(SADDR(src,  0), SADDR(src,  1), SADDR(src,  2), SADDR(src,  3));
 			i16x8 x0 = maddABCD(ziplo64(l0, l1), l1, shuf, AB, CD);
 			i8x16 p = shrrpu16(x0, (i16x8){}, 6);
-			i16x8 q = {*(int16_t *)dst, *(int16_t *)(dst + dstride), *(int16_t *)(dst + dstride2), *(int16_t *)(dst + dstride3)};
+			i16x8 q = {*(int16_t *)DADDR(dst,  0), *(int16_t *)DADDR(dst,  1), *(int16_t *)DADDR(dst,  2), *(int16_t *)DADDR(dst,  3)};
 			i16x8 v = maddshrC4(q, p, w0, w1, o, wd);
-			*(int16_t *)dst = v[0];
-			*(int16_t *)(dst + dstride) = v[1];
-			*(int16_t *)(dst + dstride2) = v[2];
-			*(int16_t *)(dst + dstride3) = v[3];
-			src += sstride4;
-			dst += dstride4;
+			*(int16_t *)DADDR(dst,  0) = v[0];
+			*(int16_t *)DADDR(dst,  1) = v[1];
+			*(int16_t *)DADDR(dst,  2) = v[2];
+			*(int16_t *)DADDR(dst,  3) = v[3];
+			src = SADDR(src,  4);
+			dst = DADDR(dst,  4);
 			l0 = shr128(l1, 8);
 		} while (h -= 4);
 	}
-	#ifdef __SSE2__
-		#undef sstride2
-		#undef sstride4
-		#undef dstride2
-		#undef dstride4
-	#endif
 }
 
 

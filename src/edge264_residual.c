@@ -130,30 +130,30 @@ static noinline void add_idct4x4(Edge264Context *ctx, int iYCbCr, int DCidx, uin
 	
 	// addition to values in place, clipping and storage
 	size_t stride = ctx->t.stride[iYCbCr];
-	INIT_PX(p, stride);
+	DECL_SSTRIDE(stride);
 	if (ctx->t.samples_clip[iYCbCr][0] == 255) {
-		i8x16 p0 = (i32x4){*(int32_t *)PX(0, 0), *(int32_t *)PX(0, 1)};
-		i8x16 p1 = (i32x4){*(int32_t *)PX(0, 2), *(int32_t *)PX(0, 3)};
+		i8x16 p0 = (i32x4){*(int32_t *)SADDR(p, 0), *(int32_t *)SADDR(p, 1)};
+		i8x16 p1 = (i32x4){*(int32_t *)SADDR(p, 2), *(int32_t *)SADDR(p, 3)};
 		i32x4 u = packus16(addlou8s16(p0, r0), addlou8s16(p1, r1));
-		*(int32_t *)PX(0, 0) = u[0];
-		*(int32_t *)PX(0, 1) = u[1];
-		*(int32_t *)PX(0, 2) = u[2];
-		*(int32_t *)PX(0, 3) = u[3];
+		*(int32_t *)SADDR(p, 0) = u[0];
+		*(int32_t *)SADDR(p, 1) = u[1];
+		*(int32_t *)SADDR(p, 2) = u[2];
+		*(int32_t *)SADDR(p, 3) = u[3];
 	}
 }
 
 static void add_dc4x4(Edge264Context *ctx, int iYCbCr, int DCidx, uint8_t *p) {
 	i32x4 r = set16((ctx->c[16 + DCidx] + 32) >> 6);
 	size_t stride = ctx->t.stride[iYCbCr];
-	INIT_PX(p, stride);
+	DECL_SSTRIDE(stride);
 	if (ctx->t.samples_clip[iYCbCr][0] == 255) {
-		i8x16 p0 = (i32x4){*(int32_t *)PX(0, 0), *(int32_t *)PX(0, 1)};
-		i8x16 p1 = (i32x4){*(int32_t *)PX(0, 2), *(int32_t *)PX(0, 3)};
+		i8x16 p0 = (i32x4){*(int32_t *)SADDR(p, 0), *(int32_t *)SADDR(p, 1)};
+		i8x16 p1 = (i32x4){*(int32_t *)SADDR(p, 2), *(int32_t *)SADDR(p, 3)};
 		i32x4 u = packus16(addlou8s16(p0, r), addlou8s16(p1, r));
-		*(int32_t *)PX(0, 0) = u[0];
-		*(int32_t *)PX(0, 1) = u[1];
-		*(int32_t *)PX(0, 2) = u[2];
-		*(int32_t *)PX(0, 3) = u[3];
+		*(int32_t *)SADDR(p, 0) = u[0];
+		*(int32_t *)SADDR(p, 1) = u[1];
+		*(int32_t *)SADDR(p, 2) = u[2];
+		*(int32_t *)SADDR(p, 3) = u[3];
 	}
 }
 
@@ -162,7 +162,7 @@ static void add_dc4x4(Edge264Context *ctx, int iYCbCr, int DCidx, uint8_t *p) {
 /**
  * Inverse 8x8 transform
  */
-static void add_idct8x8(Edge264Context *ctx, int iYCbCr, uint8_t *p)
+static void add_idct8x8(Edge264Context *ctx, int iYCbCr, uint8_t *dst0)
 {
 	// loading and scaling
 	unsigned qP = ctx->t.QP[iYCbCr];
@@ -278,27 +278,28 @@ static void add_idct8x8(Edge264Context *ctx, int iYCbCr, uint8_t *p)
 		
 		// addition to values in place, clipping and storage
 		size_t stride = ctx->t.stride[iYCbCr];
-		INIT_PX(p, stride);
-		i8x16 p0 = addlou8s16(loada64(PX(0, 0)), r0);
-		i8x16 p1 = addlou8s16(loada64(PX(0, 1)), r1);
-		i8x16 p2 = addlou8s16(loada64(PX(0, 2)), r2);
-		i8x16 p3 = addlou8s16(loada64(PX(0, 3)), r3);
-		i8x16 p4 = addlou8s16(loada64(PX(0, 4)), r4);
-		i8x16 p5 = addlou8s16(loada64(PX(0, 5)), r5);
-		i8x16 p6 = addlou8s16(loada64(PX(0, 6)), r6);
-		i8x16 p7 = addlou8s16(loada64(PX(0, 7)), r7);
+		DECL_SSTRIDE(stride);
+		uint8_t * restrict dst7 = dst0 + stride * 7;
+		i8x16 p0 = addlou8s16(loada64(SADDR(dst0,  0)), r0);
+		i8x16 p1 = addlou8s16(loada64(SADDR(dst0,  1)), r1);
+		i8x16 p2 = addlou8s16(loada64(SADDR(dst0,  2)), r2);
+		i8x16 p3 = addlou8s16(loada64(SADDR(dst7, -4)), r3);
+		i8x16 p4 = addlou8s16(loada64(SADDR(dst0,  4)), r4);
+		i8x16 p5 = addlou8s16(loada64(SADDR(dst7, -2)), r5);
+		i8x16 p6 = addlou8s16(loada64(SADDR(dst7, -1)), r6);
+		i8x16 p7 = addlou8s16(loada64(SADDR(dst7,  0)), r7);
 		i64x2 u0 = packus16(p0, p1);
 		i64x2 u1 = packus16(p2, p3);
 		i64x2 u2 = packus16(p4, p5);
 		i64x2 u3 = packus16(p6, p7);
-		*(int64_t *)PX(0, 0) = u0[0];
-		*(int64_t *)PX(0, 1) = u0[1];
-		*(int64_t *)PX(0, 2) = u1[0];
-		*(int64_t *)PX(0, 3) = u1[1];
-		*(int64_t *)PX(0, 4) = u2[0];
-		*(int64_t *)PX(0, 5) = u2[1];
-		*(int64_t *)PX(0, 6) = u3[0];
-		*(int64_t *)PX(0, 7) = u3[1];
+		*(int64_t *)SADDR(dst0,  0) = u0[0];
+		*(int64_t *)SADDR(dst0,  1) = u0[1];
+		*(int64_t *)SADDR(dst0,  2) = u1[0];
+		*(int64_t *)SADDR(dst7, -4) = u1[1];
+		*(int64_t *)SADDR(dst0,  4) = u2[0];
+		*(int64_t *)SADDR(dst7, -2) = u2[1];
+		*(int64_t *)SADDR(dst7, -1) = u3[0];
+		*(int64_t *)SADDR(dst7,  0) = u3[1];
 	} // FIXME else 16bit
 }
 

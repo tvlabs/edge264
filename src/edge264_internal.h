@@ -582,18 +582,22 @@ enum IntraChromaModes {
 
 
 /**
- * Efficient addressing for both Intel and ARM architectures.
- * Call INIT_PX(p, stride) once to compute anchor addresses, then PX(x,y) will
- * return p + x + y * stride.
+ * These macros account for the differences in offset addressing between
+ * architectures, whether or not they can add and scale a stride to a pointer
+ * in a single load.
+ * Call DECL_SSTRIDE/DECL_DSTRIDE once to compute scaled source/destination
+ * strides, then SADDR(p, n)/DADDR(p, n) will return p + stride * n
  */
-#if defined(__SSE2__)
-	#define INIT_PX(p, stride) size_t _stride = (stride); ssize_t _nstride = -_stride; uint8_t * restrict _p0 = (p), * restrict _p7 = _p0 + _stride * 8 + _nstride, * restrict _pE = _p7 + _stride * 8 + _nstride
-	#define PX(x, y) (__builtin_choose_expr(y <= 2 || y == 4, _p0, __builtin_choose_expr(y <= 9 || y == 11, _p7, _pE)) +\
-		__builtin_choose_expr(y < 0, x - y * _nstride, __builtin_choose_expr(y == 0 || y == 7 || y == 14, x, __builtin_choose_expr(y == 1 || y == 8 || y == 15, x + _stride, __builtin_choose_expr(y == 2 || y == 9, x + _stride * 2, __builtin_choose_expr(y == 3 || y == 10, x + _nstride * 4, __builtin_choose_expr(y == 4 || y == 11, x + _stride * 4, __builtin_choose_expr(y == 5 || y == 12, x + _nstride * 2, x + _nstride))))))))
-#elif defined(__ARM_NEON)
-	#define INIT_PX(p, stride) size_t _stride = (stride), _stridem2 = _stride - 2, _stridem4 = _stride - 4, _stridem8 = _stride - 8; uint8_t * restrict _p0 = (p), * restrict _p2 = _p0 + _stride * 2, * restrict _p4 = _p0 + _stride * 4, * restrict _p6 = _p2 + _stride * 4, * restrict _p8 = _p0 + _stride * 8, * restrict _pA = _p2 + _stride * 8, * restrict _pC = _p4 + _stride * 8, * restrict _pE = _p6 + _stride * 8
-	#define PX(x, y) (__builtin_choose_expr(y < 2, _p0, __builtin_choose_expr(y < 4, _p2, __builtin_choose_expr(y < 6, _p4, __builtin_choose_expr(y < 8, _p6, __builtin_choose_expr(y < 10, _p8, __builtin_choose_expr(y < 12, _pA, __builtin_choose_expr(y < 14, _pC, _pE))))))) +\
-		__builtin_choose_expr(y < 0 || y > 15, x + y * _stride, __builtin_choose_expr((y & 1) == 0, x, __builtin_choose_expr(x == 0, _stride, __builtin_choose_expr(x == -2, _stridem2, __builtin_choose_expr(x == -4, _stridem4, __builtin_choose_expr(x == -8, _stridem8, x + _stride)))))))
+#if defined(__aarch64__)
+	#define DECL_SSTRIDE(value) ssize_t _sstride1 = (value), _sstride2 = _sstride1 * 2, _sstride3 = _sstride1 * 3, _sstride4 = _sstride1 * 4, _nsstride1 = -_sstride1, _nsstride2 = _nsstride1 * 2, _nsstride3 = _nsstride1 * 3, _nsstride4 = _nsstride1 * 4
+	#define DECL_DSTRIDE(value) ssize_t _dstride1 = (value), _dstride2 = _dstride1 * 2, _dstride3 = _dstride1 * 3, _dstride4 = _dstride1 * 4, _ndstride1 = -_dstride1, _ndstride2 = _ndstride1 * 2, _ndstride3 = _ndstride1 * 3, _ndstride4 = _ndstride1 * 4
+	#define SADDR(p, n) ((p) + __builtin_choose_expr(n == -4, _nsstride4, __builtin_choose_expr(n == -3, _nsstride3, __builtin_choose_expr(n == -2, _nsstride2, __builtin_choose_expr(n == -1, _nsstride1, __builtin_choose_expr(n == 1, _sstride1, __builtin_choose_expr(n == 2, _sstride2, __builtin_choose_expr(n == 3, _sstride3, __builtin_choose_expr(n == 4, _sstride4, 0)))))))))
+	#define DADDR(p, n) ((p) + __builtin_choose_expr(n == -4, _ndstride4, __builtin_choose_expr(n == -3, _ndstride3, __builtin_choose_expr(n == -2, _ndstride2, __builtin_choose_expr(n == -1, _ndstride1, __builtin_choose_expr(n == 1, _dstride1, __builtin_choose_expr(n == 2, _dstride2, __builtin_choose_expr(n == 3, _dstride3, __builtin_choose_expr(n == 4, _dstride4, 0)))))))))
+#else
+	#define DECL_SSTRIDE(value) ssize_t _sstride1 = (value), _sstride3 = _sstride1 * 3, _nsstride1 = -_sstride1, _nsstride3 = _nsstride1 * 3
+	#define DECL_DSTRIDE(value) ssize_t _dstride1 = (value), _dstride3 = _dstride1 * 3, _ndstride1 = -_dstride1, _ndstride3 = _ndstride1 * 3
+	#define SADDR(p, n) ((p) + __builtin_choose_expr(n == -4, _nsstride1 * 4, __builtin_choose_expr(n == -3, _nsstride3, __builtin_choose_expr(n == -2, _nsstride1 * 2, __builtin_choose_expr(n == -1, _nsstride1, __builtin_choose_expr(n == 1, _sstride1, __builtin_choose_expr(n == 2, _sstride1 * 2, __builtin_choose_expr(n == 3, _sstride3, __builtin_choose_expr(n == 4, _sstride1 * 4, 0)))))))))
+	#define DADDR(p, n) ((p) + __builtin_choose_expr(n == -4, _ndstride1 * 4, __builtin_choose_expr(n == -3, _ndstride3, __builtin_choose_expr(n == -2, _ndstride1 * 2, __builtin_choose_expr(n == -1, _ndstride1, __builtin_choose_expr(n == 1, _dstride1, __builtin_choose_expr(n == 2, _dstride1 * 2, __builtin_choose_expr(n == 3, _dstride3, __builtin_choose_expr(n == 4, _dstride1 * 4, 0)))))))))
 #endif
 
 

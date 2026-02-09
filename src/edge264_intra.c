@@ -26,12 +26,12 @@
 #if defined(__wasm_simd128__)
 	#define spreadh8(a) (i8x16)__builtin_shufflevector((i8x16)(a), (i8x16){}, 0, 1, 2, 3, 4, 5, 6, 7, 7, 7, 7, 7, 7, 7, 7, 7)
 	#define spreadq8(a) (i8x16)__builtin_shufflevector((i8x16)(a), (i8x16){}, 0, 1, 2, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3)
-	static i8x16 lowpass8(i8x16 l, i8x16 m, i8x16 r) {return avgu8(subu8(avgu8(l, r), (l ^ r) & set8(1)), m);}
+	static i8x16 lowpass8(i8x16 l, i8x16 m, i8x16 r) {return avgu8(subsu8(avgu8(l, r), (l ^ r) & set8(1)), m);}
 #elif defined(__SSE2__)
 	#define spreadh8(a) shuffle(a, (i8x16){0, 1, 2, 3, 4, 5, 6, 7, 7, 7, 7, 7, 7, 7, 7, 7})
 	#define spreadq8(a) shuffle(a, (i8x16){0, 1, 2, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3})
 	#define sum8h8(a, b, c, d) (i16x8)packs32(packs32(sumh8(a), sumh8(b)), packs32(sumh8(c), sumh8(d)))
-	static always_inline i8x16 lowpass8(i8x16 l, i8x16 m, i8x16 r) {return avgu8(subu8(avgu8(l, r), (l ^ r) & set8(1)), m);}
+	static always_inline i8x16 lowpass8(i8x16 l, i8x16 m, i8x16 r) {return avgu8(subsu8(avgu8(l, r), (l ^ r) & set8(1)), m);}
 #elif defined(__ARM_NEON)
 	#define lowpass8(l, m, r) (i8x16)vrhaddq_u8(vhaddq_u8(l, r), m)
 	static always_inline i8x16 spreadh8(i8x16 a) {return vcombine_s8(vget_low_s8(a), vdup_lane_s8(vget_low_s8(a), 7));}

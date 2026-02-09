@@ -10,9 +10,13 @@ include(CMakePackageConfigHelpers)
 # Options — prefixed with EDGE264_ to avoid collisions with parent projects
 # when consumed via FetchContent / add_subdirectory.
 # ---------------------------------------------------------------------------
+option(BUILD_SHARED_LIBS           "Build shared libraries (matches Makefile default)" ON)
 option(EDGE264_BUILD_VARIANT_LOGS "Build the logs variant" ON)
 option(EDGE264_BUILD_VARIANT_V2   "Build the x86-64-v2 variant" OFF)
 option(EDGE264_BUILD_VARIANT_V3   "Build the x86-64-v3 variant" OFF)
+set(EDGE264_FORCE_INTRINSICS "" CACHE STRING
+	"Force intrinsic ISA defines: x86 (SSE2/SSSE3/SSE4.1/AVX2/BMI2) or ARM64 (NEON). For WebAssembly etc.")
+set_property(CACHE EDGE264_FORCE_INTRINSICS PROPERTY STRINGS "" "x86" "ARM64")
 
 # ---------------------------------------------------------------------------
 # Helper: common compile flags detected once
@@ -21,12 +25,28 @@ check_c_compiler_flag(-flax-vector-conversions EDGE264_HAVE_flax_vector_conversi
 check_c_compiler_flag(-Wno-override-init       EDGE264_HAVE_Wno_override_init)
 
 # Collects the common PRIVATE compile options for every edge264 TU.
-set(_edge264_common_c_flags "")
+# Mirrors Makefile: -march=native -O3 -flax-vector-conversions -Wno-override-init -pthread
+check_c_compiler_flag(-march=native EDGE264_HAVE_march_native)
+
+set(_edge264_common_c_flags -O3)
+if(EDGE264_HAVE_march_native)
+	list(APPEND _edge264_common_c_flags -march=native)
+endif()
 if(EDGE264_HAVE_flax_vector_conversions)
 	list(APPEND _edge264_common_c_flags -flax-vector-conversions)
 endif()
 if(EDGE264_HAVE_Wno_override_init)
 	list(APPEND _edge264_common_c_flags -Wno-override-init)
+endif()
+# Makefile always passes -pthread as a compile flag to every TU
+list(APPEND _edge264_common_c_flags -pthread)
+
+# FORCEINTRIN — force intrinsic ISA defines (mirrors Makefile DFORCEINTRIN)
+set(_edge264_force_intrin_defs "")
+if(EDGE264_FORCE_INTRINSICS STREQUAL "x86")
+	set(_edge264_force_intrin_defs -D__SSE2__ -D__SSSE3__ -D__SSE4_1__ -D__AVX2__ -D__BMI2__)
+elseif(EDGE264_FORCE_INTRINSICS STREQUAL "ARM64")
+	set(_edge264_force_intrin_defs -D__ARM_NEON)
 endif()
 
 # ---------------------------------------------------------------------------
@@ -56,7 +76,7 @@ if(NOT CMAKE_USE_PTHREADS_INIT)
 	message(FATAL_ERROR "edge264 requires pthreads")
 endif()
 target_link_libraries(edge264 PRIVATE Threads::Threads)
-target_compile_options(edge264 PRIVATE ${_edge264_common_c_flags})
+target_compile_options(edge264 PRIVATE ${_edge264_common_c_flags} ${_edge264_force_intrin_defs})
 
 # ---------------------------------------------------------------------------
 # Variant: logs
@@ -72,9 +92,11 @@ if(EDGE264_BUILD_VARIANT_LOGS)
 	)
 	target_compile_options(_edge264_headers_log PRIVATE
 		${_edge264_common_c_flags}
+		${_edge264_force_intrin_defs}
 		"-DADD_VARIANT(f)=f##_log"
 	)
 	target_compile_definitions(_edge264_headers_log PRIVATE LOGS)
+	target_link_libraries(_edge264_headers_log PRIVATE Threads::Threads)
 	target_include_directories(_edge264_headers_log PRIVATE
 		${CMAKE_CURRENT_SOURCE_DIR}
 	)
@@ -108,6 +130,7 @@ if(EDGE264_BUILD_VARIANT_V2)
 		-march=x86-64-v2
 		"-DADD_VARIANT(f)=f##_v2"
 	)
+	target_link_libraries(_edge264_headers_v2 PRIVATE Threads::Threads)
 	target_include_directories(_edge264_headers_v2 PRIVATE
 		${CMAKE_CURRENT_SOURCE_DIR}
 	)
@@ -141,6 +164,7 @@ if(EDGE264_BUILD_VARIANT_V3)
 		-march=x86-64-v3
 		"-DADD_VARIANT(f)=f##_v3"
 	)
+	target_link_libraries(_edge264_headers_v3 PRIVATE Threads::Threads)
 	target_include_directories(_edge264_headers_v3 PRIVATE
 		${CMAKE_CURRENT_SOURCE_DIR}
 	)
@@ -215,30 +239,26 @@ if(PROJECT_IS_TOP_LEVEL)
 	# --- Test executables ---
 	option(EDGE264_BUILD_TESTING "Build edge264 test programs" ON)
 	if(EDGE264_BUILD_TESTING)
-		include(CheckIncludeFile)
-		check_include_file(dirent.h EDGE264_HAVE_DIRENT_H)
-
 		# edge264_test — interactive display / benchmark tool
 		add_executable(edge264_test src/edge264_test.c)
-		target_link_libraries(edge264_test PRIVATE edge264)
+		target_link_libraries(edge264_test PRIVATE edge264 Threads::Threads)
 		target_compile_options(edge264_test PRIVATE ${_edge264_common_c_flags})
 		set_target_properties(edge264_test PROPERTIES
 			C_STANDARD 11
 			C_EXTENSIONS ON
+			BUILD_RPATH "$ORIGIN"
 		)
-		if(EDGE264_HAVE_DIRENT_H)
-			target_compile_definitions(edge264_test PRIVATE HAVE_DIRENT_H)
-		endif()
 
 		# edge264_test2 — automated stress tests from .yaml files
 		# This file #include's edge264_intra.c and edge264_inter.c directly,
 		# making it a unity-style build that needs internal headers.
 		add_executable(edge264_test2 src/edge264_test2.c)
-		target_link_libraries(edge264_test2 PRIVATE edge264)
+		target_link_libraries(edge264_test2 PRIVATE edge264 Threads::Threads)
 		target_compile_options(edge264_test2 PRIVATE ${_edge264_common_c_flags})
 		set_target_properties(edge264_test2 PROPERTIES
 			C_STANDARD 11
 			C_EXTENSIONS ON
+			BUILD_RPATH "$ORIGIN"
 		)
 
 		# --- Generate .264 test files from .yaml via gen_avc.py ---

@@ -615,6 +615,7 @@ enum IntraChromaModes {
  * _ cvtloNuM - extend the low unsigned N-bit elements to M bits
  * _ cvtloNsM - extend the low signed N-bit elements to M bits
  * _ cvthiNuM - extend the high unsigned N-bit elements to M bits
+ * _ cvthiNsM - extend the high signed N-bit elements to M bits
  * _ hadd16 - add pairs of any-signed (0..32767) 16-bit integers from two vectors into a single result
  * _ ifelse_mask - select each element from two vectors based on mask elements i a third vector
  * _ loadaN - load N low bits from an aligned pointer, zeroing the rest of the vector
@@ -683,6 +684,7 @@ static const int8_t shz_mask[48] = {
 	#define cvtlo8u16(a) (u16x8)wasm_u16x8_extend_low_u8x16(a)
 	#define cvthi8u16(a) (u16x8)wasm_u16x8_extend_high_u8x16(a)
 	#define cvtlo8s16(a) (i16x8)wasm_i16x8_extend_low_i8x16(a)
+	#define cvthi8s16(a) (i16x8)wasm_i16x8_extend_high_i8x16(a)
 	#define cvtlo16u32(a) (u32x4)wasm_u32x4_extend_low_u16x8(a)
 	#define cvthi16u32(a) (u32x4)wasm_u32x4_extend_high_u16x8(a)
 	#define hadd16(a, b) (i16x8)wasm_i16x8_narrow_i32x4(wasm_i32x4_extadd_pairwise_i16x8(a), wasm_i32x4_extadd_pairwise_i16x8(b))
@@ -718,6 +720,7 @@ static const int8_t shz_mask[48] = {
 	#define shrrs16(a, i) (((i16x8)(a) + (1 << ((i) - 1))) >> (i))
 	#define shrru16(a, i) (((u16x8)(a) + (1 << ((i) - 1))) >> (i))
 	#define shrpus16(a, b, i) (u8x16)wasm_u8x16_narrow_i16x8((i16x8)(a) >> (i), (i16x8)(b) >> (i))
+	#define shrrpu16(a, b, i) (u8x16)wasm_u8x16_narrow_i16x8(((u16x8)(a) + (1 << ((i) - 1))) >> (i), ((u16x8)(b) + (1 << ((i) - 1))) >> (i))
 	#define subsu8(a, b) (u8x16)wasm_u8x16_sub_sat(a, b)
 	#define trnlo32(a, b) (i16x8)wasm_i32x4_shuffle(a, b, 0, 4, 2, 6)
 	#define trnhi32(a, b) (i16x8)wasm_i32x4_shuffle(a, b, 1, 5, 3, 7)
@@ -812,6 +815,7 @@ static const int8_t shz_mask[48] = {
 	#define ziphi16(a, b) (i16x8)_mm_unpackhi_epi16(a, b)
 	#define ziphi32(a, b) (i32x4)_mm_unpackhi_epi32(a, b)
 	#define ziphi64(a, b) (i64x2)_mm_unpackhi_epi64(a, b)
+	static always_inline i16x8 cvthi8s16(i8x16 a) {return (i16x8)ziphi8(a, a) >> 8;}
 	static always_inline size_t shld(size_t l, size_t h, size_t i) {asm("shld %%cl, %1, %0" : "+rm" (h) : "r" (l), "c" (i)); return h;}
 	static always_inline u16x8 sum8(u8x16 a) {u16x8 v = _mm_sad_epu8(a, (i8x16){}); return v + (u16x8)_mm_srli_si128(v, 8);}
 	#define maddxbs maddubs
@@ -926,6 +930,7 @@ static const int8_t shz_mask[48] = {
 		#define broadcast16(a, i) (i16x8)vdupq_laneq_s16(a, i)
 		#define broadcast32(a, i) (i32x4)vdupq_laneq_s32(a, i)
 		#define cvthi8u16(a) (u16x8)vmovl_high_u8(a)
+		#define cvthi8s16(a) (u16x8)vmovl_high_s8(a)
 		#define cvthi16u32(a) (u32x4)vmovl_high_u16(a)
 		#define hadd16(a, b) (i16x8)vpaddq_s16(a, b)
 		#define packs16(a, b) (i16x8)vqmovn_high_s16(vqmovn_s16(a), b)
@@ -959,6 +964,7 @@ static const int8_t shz_mask[48] = {
 		#define broadcast16(a, i) (i16x8)vdupq_lane_s16(__builtin_choose_expr((i) < 4, vget_low_s16(a), vget_high_s16(a)), (i) & 3)
 		#define broadcast32(a, i) (i32x4)vdupq_lane_s32(__builtin_choose_expr((i) < 2, vget_low_s32(a), vget_high_s32(a)), (i) & 1)
 		#define cvthi8u16(a) (u16x8)vmovl_u8(vget_high_u8(a))
+		#define cvthi8s16(a) (u16x8)vmovl_s8(vget_high_s8(a))
 		#define cvthi16u32(a) (u32x4)vmovl_u16(vget_high_u16(a))
 		#define packs16(a, b) (i16x8)vcombine_s8(vqmovn_s16(a), vqmovn_s16(b))
 		#define packs32(a, b) (i16x8)vcombine_s16(vqmovn_s32(a), vqmovn_s32(b))

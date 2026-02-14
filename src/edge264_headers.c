@@ -327,29 +327,31 @@ static void recover_slice(Edge264Context *ctx, int currPic) {
 			}
 			i8x16 dcY = broadcast8(shrru16(sum8(t) + sum8(l), 5), 0);
 			#if defined(__SSE2__)
-				i8x16 w = (p128 < 128) ? ziplo8(set8(128 - p128), set8(p128)) : (i8x16){0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1};
+				i8x16 w0 = (p128 < 128) ? ziplo8(set8(128 - p128), set8(p128)) : (i8x16){0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1};
+				i8x16 w1 = w0;
 				i64x2 wd = {p128 < 128 ? 7 : 0};
 			#elif defined(__ARM_NEON)
-				i16x8 w = (p128 < 128) ? (i16x8){128 - p128, p128} : (i16x8){0, 1};
+				i16x8 w0 = (p128 < 128) ? (i16x8){128 - p128, p128} : (i16x8){0, 1};
+				i16x8 w1 = w0;
 				i16x8 wd = set16(p128 < 128 ? 7 : 0);
 			#endif
 			i16x8 o = {};
-			*(i8x16 *)SADDR(y0,  0) = maddshrL(*(i8x16 *)SADDR(y0,  0), dcY, w, o, wd);
-			*(i8x16 *)SADDR(y0,  1) = maddshrL(*(i8x16 *)SADDR(y0,  1), dcY, w, o, wd);
-			*(i8x16 *)SADDR(y0,  2) = maddshrL(*(i8x16 *)SADDR(y0,  2), dcY, w, o, wd);
-			*(i8x16 *)SADDR(y7, -4) = maddshrL(*(i8x16 *)SADDR(y7, -4), dcY, w, o, wd);
-			*(i8x16 *)SADDR(y0,  4) = maddshrL(*(i8x16 *)SADDR(y0,  4), dcY, w, o, wd);
-			*(i8x16 *)SADDR(y7, -2) = maddshrL(*(i8x16 *)SADDR(y7, -2), dcY, w, o, wd);
-			*(i8x16 *)SADDR(y7, -1) = maddshrL(*(i8x16 *)SADDR(y7, -1), dcY, w, o, wd);
-			*(i8x16 *)SADDR(y7,  0) = maddshrL(*(i8x16 *)SADDR(y7,  0), dcY, w, o, wd);
-			*(i8x16 *)SADDR(y7,  1) = maddshrL(*(i8x16 *)SADDR(y7,  1), dcY, w, o, wd);
-			*(i8x16 *)SADDR(y7,  2) = maddshrL(*(i8x16 *)SADDR(y7,  2), dcY, w, o, wd);
-			*(i8x16 *)SADDR(yE, -4) = maddshrL(*(i8x16 *)SADDR(yE, -4), dcY, w, o, wd);
-			*(i8x16 *)SADDR(y7,  4) = maddshrL(*(i8x16 *)SADDR(y7,  4), dcY, w, o, wd);
-			*(i8x16 *)SADDR(yE, -2) = maddshrL(*(i8x16 *)SADDR(yE, -2), dcY, w, o, wd);
-			*(i8x16 *)SADDR(yE, -1) = maddshrL(*(i8x16 *)SADDR(yE, -1), dcY, w, o, wd);
-			*(i8x16 *)SADDR(yE,  0) = maddshrL(*(i8x16 *)SADDR(yE,  0), dcY, w, o, wd);
-			*(i8x16 *)SADDR(yE,  1) = maddshrL(*(i8x16 *)SADDR(yE,  1), dcY, w, o, wd);
+			*(i8x16 *)SADDR(y0,  0) = maddshrL(*(i8x16 *)SADDR(y0,  0), dcY, w0, w1, o, wd);
+			*(i8x16 *)SADDR(y0,  1) = maddshrL(*(i8x16 *)SADDR(y0,  1), dcY, w0, w1, o, wd);
+			*(i8x16 *)SADDR(y0,  2) = maddshrL(*(i8x16 *)SADDR(y0,  2), dcY, w0, w1, o, wd);
+			*(i8x16 *)SADDR(y7, -4) = maddshrL(*(i8x16 *)SADDR(y7, -4), dcY, w0, w1, o, wd);
+			*(i8x16 *)SADDR(y0,  4) = maddshrL(*(i8x16 *)SADDR(y0,  4), dcY, w0, w1, o, wd);
+			*(i8x16 *)SADDR(y7, -2) = maddshrL(*(i8x16 *)SADDR(y7, -2), dcY, w0, w1, o, wd);
+			*(i8x16 *)SADDR(y7, -1) = maddshrL(*(i8x16 *)SADDR(y7, -1), dcY, w0, w1, o, wd);
+			*(i8x16 *)SADDR(y7,  0) = maddshrL(*(i8x16 *)SADDR(y7,  0), dcY, w0, w1, o, wd);
+			*(i8x16 *)SADDR(y7,  1) = maddshrL(*(i8x16 *)SADDR(y7,  1), dcY, w0, w1, o, wd);
+			*(i8x16 *)SADDR(y7,  2) = maddshrL(*(i8x16 *)SADDR(y7,  2), dcY, w0, w1, o, wd);
+			*(i8x16 *)SADDR(yE, -4) = maddshrL(*(i8x16 *)SADDR(yE, -4), dcY, w0, w1, o, wd);
+			*(i8x16 *)SADDR(y7,  4) = maddshrL(*(i8x16 *)SADDR(y7,  4), dcY, w0, w1, o, wd);
+			*(i8x16 *)SADDR(yE, -2) = maddshrL(*(i8x16 *)SADDR(yE, -2), dcY, w0, w1, o, wd);
+			*(i8x16 *)SADDR(yE, -1) = maddshrL(*(i8x16 *)SADDR(yE, -1), dcY, w0, w1, o, wd);
+			*(i8x16 *)SADDR(yE,  0) = maddshrL(*(i8x16 *)SADDR(yE,  0), dcY, w0, w1, o, wd);
+			*(i8x16 *)SADDR(yE,  1) = maddshrL(*(i8x16 *)SADDR(yE,  1), dcY, w0, w1, o, wd);
 			
 			size_t stride_C = ctx->t.stride[1] >> 1;
 			DECL_DSTRIDE(stride_C);
@@ -362,14 +364,14 @@ static void recover_slice(Edge264Context *ctx, int currPic) {
 			i8x16 dcb = broadcast8(shrru16(sum8(b), 4), 0);
 			i8x16 dcr = broadcast8(shrru16(sum8(r), 4), 0);
 			i8x16 dcC = ziplo64(dcb, dcr);
-			i64x2 v0 = maddshrL(loada64x2(DADDR(c0,  0), DADDR(c0,  1)), dcC, w, o, wd);
-			i64x2 v1 = maddshrL(loada64x2(DADDR(c0,  2), DADDR(c7, -4)), dcC, w, o, wd);
-			i64x2 v2 = maddshrL(loada64x2(DADDR(c0,  4), DADDR(c7, -2)), dcC, w, o, wd);
-			i64x2 v3 = maddshrL(loada64x2(DADDR(c7, -1), DADDR(c7,  0)), dcC, w, o, wd);
-			i64x2 v4 = maddshrL(loada64x2(DADDR(c7,  1), DADDR(c7,  2)), dcC, w, o, wd);
-			i64x2 v5 = maddshrL(loada64x2(DADDR(cE, -4), DADDR(c7,  4)), dcC, w, o, wd);
-			i64x2 v6 = maddshrL(loada64x2(DADDR(cE, -2), DADDR(cE, -1)), dcC, w, o, wd);
-			i64x2 v7 = maddshrL(loada64x2(DADDR(cE,  0), DADDR(cE,  1)), dcC, w, o, wd);
+			i64x2 v0 = maddshrL(loada64x2(DADDR(c0,  0), DADDR(c0,  1)), dcC, w0, w1, o, wd);
+			i64x2 v1 = maddshrL(loada64x2(DADDR(c0,  2), DADDR(c7, -4)), dcC, w0, w1, o, wd);
+			i64x2 v2 = maddshrL(loada64x2(DADDR(c0,  4), DADDR(c7, -2)), dcC, w0, w1, o, wd);
+			i64x2 v3 = maddshrL(loada64x2(DADDR(c7, -1), DADDR(c7,  0)), dcC, w0, w1, o, wd);
+			i64x2 v4 = maddshrL(loada64x2(DADDR(c7,  1), DADDR(c7,  2)), dcC, w0, w1, o, wd);
+			i64x2 v5 = maddshrL(loada64x2(DADDR(cE, -4), DADDR(c7,  4)), dcC, w0, w1, o, wd);
+			i64x2 v6 = maddshrL(loada64x2(DADDR(cE, -2), DADDR(cE, -1)), dcC, w0, w1, o, wd);
+			i64x2 v7 = maddshrL(loada64x2(DADDR(cE,  0), DADDR(cE,  1)), dcC, w0, w1, o, wd);
 			*(int64_t *)DADDR(c0,  0) = v0[0];
 			*(int64_t *)DADDR(c0,  1) = v0[1];
 			*(int64_t *)DADDR(c0,  2) = v1[0];

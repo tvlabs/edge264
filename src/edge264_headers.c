@@ -326,7 +326,11 @@ static void recover_slice(Edge264Context *ctx, int currPic) {
 					t = loada128(SADDR(y0, -1));
 			}
 			i8x16 dcY = broadcast8(shrru16(sum8(t) + sum8(l), 5), 0);
-			#if defined(__SSE2__)
+			#if defined(__wasm_simd128__)
+				i8x16 w0 = (p128 < 128) ? ziplo8(set8(128 - p128), set8(p128)) : (i8x16){0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1};
+				i8x16 w1 = w0;
+				int wd = p128 < 128 ? 7 : 0;
+			#elif defined(__SSE2__)
 				i8x16 w0 = (p128 < 128) ? ziplo8(set8(128 - p128), set8(p128)) : (i8x16){0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1};
 				i8x16 w1 = w0;
 				i64x2 wd = {p128 < 128 ? 7 : 0};

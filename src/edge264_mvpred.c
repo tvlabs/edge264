@@ -1,6 +1,13 @@
 #include "edge264_internal.h"
 
-#if defined(__SSE2__)
+#if defined(__wasm_simd128__)
+	static always_inline i16x8 temporal_scale(i16x8 mvCol, int16_t DistScaleFactor) {
+		i16x8 mul = set16(DistScaleFactor);
+		i32x4 lo = wasm_i32x4_extmul_low_i16x8(mvCol, mul);
+		i32x4 hi = wasm_i32x4_extmul_high_i16x8(mvCol, mul);
+		return packs32((lo + 128) >> 8, (hi + 128) >> 8);
+	}
+#elif defined(__SSE2__)
 	static always_inline i16x8 temporal_scale(i16x8 mvCol, int16_t DistScaleFactor) {
 		i32x4 neg = set32(-1);
 		i32x4 mul = set32(DistScaleFactor + 0xff800000u);

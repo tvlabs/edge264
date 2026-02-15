@@ -1866,13 +1866,23 @@ int ADD_VARIANT(parse_seq_parameter_set)(Edge264Decoder *dec, Edge264UnrefCb unr
 			"  qpprime_y_zero_transform_bypass_flag: %u%s\n",
 			sps.BitDepth_Y, sps.BitDepth_C, unsup_if(sps.BitDepth_Y + sps.BitDepth_Y != 16),
 			sps.qpprime_y_zero_transform_bypass_flag, unsup_if(sps.qpprime_y_zero_transform_bypass_flag));
+		// H.264 Table 7-2 Fall-Back Rule Set A: set spec-mandated defaults
+		// for High Profile. These apply when seq_scaling_matrix_present_flag
+		// is 0, and serve as fall-back values for absent lists when it is 1.
+		// Without this, all lists default to flat-16 from the struct
+		// initializer, causing incorrect inverse quantization that
+		// accumulates through inter-prediction across the GOP.
+		sps.weightScale4x4_v[0] = Default_4x4_Intra;
+		sps.weightScale4x4_v[1] = Default_4x4_Intra;
+		sps.weightScale4x4_v[2] = Default_4x4_Intra;
+		sps.weightScale4x4_v[3] = Default_4x4_Inter;
+		sps.weightScale4x4_v[4] = Default_4x4_Inter;
+		sps.weightScale4x4_v[5] = Default_4x4_Inter;
+		for (int i = 0; i < 4; i++) {
+			sps.weightScale8x8_v[i] = Default_8x8_Intra[i];
+			sps.weightScale8x8_v[4 + i] = Default_8x8_Inter[i];
+		}
 		if (get_u1(&dec->gb)) { // seq_scaling_matrix_present_flag
-			sps.weightScale4x4_v[0] = Default_4x4_Intra;
-			sps.weightScale4x4_v[3] = Default_4x4_Inter;
-			for (int i = 0; i < 4; i++) {
-				sps.weightScale8x8_v[i] = Default_8x8_Intra[i]; // scaling list 6
-				sps.weightScale8x8_v[4 + i] = Default_8x8_Inter[i]; // scaling list 7
-			}
 			log_dec(dec, "  seq_scaling_matrix:\n");
 			parse_scaling_lists(dec, sps.weightScale4x4_v, sps.weightScale8x8_v, 1, sps.chroma_format_idc);
 		}

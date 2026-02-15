@@ -1135,6 +1135,11 @@ int ADD_VARIANT(parse_slice_layer_without_partitioning)(Edge264Decoder *dec, Edg
 		unsigned unavail;
 		while (__builtin_popcount(unavail = reference_frames | dec->to_get_frames | dec->output_frames | depended_frames(dec)) >= 32)
 			pthread_cond_wait(&dec->task_complete, &dec->lock);
+		// MVC: prevent dependent view from aliasing the base view's DPB slot,
+		// since the dependent view references the base view's pixels for
+		// inter-view prediction and would corrupt them by overwriting.
+		if (non_base_view && dec->basePic >= 0)
+			unavail |= 1u << dec->basePic;
 		int currPic = __builtin_ctz(~unavail);
 		if (dec->samples_buffers[currPic] == NULL &&
 			(ret = alloc_frame(dec, currPic, currPic <= sps->max_dec_frame_buffering ? ENOMEM : ENOBUFS)))

@@ -1258,10 +1258,19 @@ int ADD_VARIANT(parse_slice_layer_without_partitioning)(Edge264Decoder *dec, Edg
 	ret = print_dec(dec, dec->n_threads || dec->worker_loop != worker_loop_log ?
 		"  decode_NAL_result: %s\n" : t->pps.entropy_coding_mode_flag ?
 		"  macroblocks_cabac:\n" : "  macroblocks_cavlc:\n", 0);
-	if (dec->n_threads)
+	if (dec->n_threads) {
 		pthread_cond_signal(&dec->task_ready);
-	else
+	} else if (!dec->ready_tasks) {
+		// Single-threaded safety net: ready_tasks can be 0 when
+		// task_dependencies includes the current frame's own slot in a
+		// transitional state. In multithreaded mode the worker recalculates
+		// ready_tasks after completing each task, but in single-threaded
+		// mode this path is the only chance to run the task.
+		dec->ready_tasks |= 1 << task_id;
 		dec->worker_loop(dec);
+	} else {
+		dec->worker_loop(dec);
+	}
 	return ret;
 }
 

@@ -1222,13 +1222,13 @@ int ADD_VARIANT(parse_slice_layer_without_partitioning)(Edge264Decoder *dec, Edg
 			for (unsigned o = dec->to_get_frames & ~dec->output_frames & same_views; o; o &= o - 1)
 				max_bump += dec->FieldOrderCnt[0][__builtin_ctz(o)] < dec->TopFieldOrderCnt;
 		}
-		while (__builtin_popcount(reference_frames | dec->to_get_frames & ~dec->output_frames) > sps->max_dec_frame_buffering && max_bump--)
+		while (__builtin_popcount((reference_frames | dec->to_get_frames & ~dec->output_frames) & same_views) > sps->max_dec_frame_buffering && max_bump--)
 			bump_frame(dec, non_base_view, 0);
 		dec->to_get_frames |= 1 << dec->currPic;
 		if (max_bump < 0) {
 			dec->output_frames |= 1 << dec->currPic;
 			dec->get_frame_queue_v[non_base_view] = shrd128(set8(dec->currPic), dec->get_frame_queue_v[non_base_view], 15);
-		} else if (__builtin_popcount(dec->to_get_frames & ~dec->output_frames) > sps->max_num_reorder_frames) {
+		} else if (__builtin_popcount(dec->to_get_frames & ~dec->output_frames & same_views) > sps->max_num_reorder_frames) {
 			bump_frame(dec, non_base_view, 0);
 		}
 		#ifdef LOGS

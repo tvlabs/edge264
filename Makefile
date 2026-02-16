@@ -50,7 +50,7 @@ edge264_headers_log.o: edge264.h src/*
 
 .PHONY: clean clear
 clean clear:
-	rm -f release/* $(EXENAME) edge264*.o $(LIBNAME) tests/*.264 edge264_test2
+	rm -f release/* $(EXENAME) edge264*.o $(LIBNAME) edge264_test2
 
 
 # stress testing (work in progress)
@@ -58,9 +58,11 @@ clean clear:
 test tests: edge264_test2
 	./edge264_test2
 
-edge264_test2: src/edge264_test2.c edge264.h src/edge264_internal.h $(LIBNAME) $(TESTS_264)
+edge264_test2: src/edge264_test2.c edge264.h src/edge264_internal.h $(LIBNAME)
 	$(TARGETCC) src/edge264_test2.c $(CFLAGS) $(EXEFLAGS) -o edge264_test2
 
+.PHONY: gentests
+gentests: $(TESTS_264)
 %.264: %.yaml tests/gen_avc.py
 	$(PY) tests/gen_avc.py $< $@
 

@@ -588,16 +588,16 @@ enum IntraChromaModes {
  * Call DECL_SSTRIDE/DECL_DSTRIDE once to compute scaled source/destination
  * strides, then SADDR(p, n)/DADDR(p, n) will return p + stride * n
  */
-#if defined(__aarch64__) || defined(__wasm_simd128__)
-	#define DECL_SSTRIDE(value) ssize_t _sstride1 = (value), _sstride2 = _sstride1 * 2, _sstride3 = _sstride1 * 3, _sstride4 = _sstride1 * 4, _nsstride1 = -_sstride1, _nsstride2 = _nsstride1 * 2, _nsstride3 = _nsstride1 * 3, _nsstride4 = _nsstride1 * 4
-	#define DECL_DSTRIDE(value) ssize_t _dstride1 = (value), _dstride2 = _dstride1 * 2, _dstride3 = _dstride1 * 3, _dstride4 = _dstride1 * 4, _ndstride1 = -_dstride1, _ndstride2 = _ndstride1 * 2, _ndstride3 = _ndstride1 * 3, _ndstride4 = _ndstride1 * 4
-	#define SADDR(p, n) ((p) + __builtin_choose_expr(n == -4, _nsstride4, __builtin_choose_expr(n == -3, _nsstride3, __builtin_choose_expr(n == -2, _nsstride2, __builtin_choose_expr(n == -1, _nsstride1, __builtin_choose_expr(n == 1, _sstride1, __builtin_choose_expr(n == 2, _sstride2, __builtin_choose_expr(n == 3, _sstride3, __builtin_choose_expr(n == 4, _sstride4, 0)))))))))
-	#define DADDR(p, n) ((p) + __builtin_choose_expr(n == -4, _ndstride4, __builtin_choose_expr(n == -3, _ndstride3, __builtin_choose_expr(n == -2, _ndstride2, __builtin_choose_expr(n == -1, _ndstride1, __builtin_choose_expr(n == 1, _dstride1, __builtin_choose_expr(n == 2, _dstride2, __builtin_choose_expr(n == 3, _dstride3, __builtin_choose_expr(n == 4, _dstride4, 0)))))))))
-#else
+#if defined(__SSE2__) || defined(__ARM_NEON) && !defined(__aarch64__)
 	#define DECL_SSTRIDE(value) ssize_t _sstride1 = (value), _sstride3 = _sstride1 * 3, _nsstride1 = -_sstride1, _nsstride3 = _nsstride1 * 3
 	#define DECL_DSTRIDE(value) ssize_t _dstride1 = (value), _dstride3 = _dstride1 * 3, _ndstride1 = -_dstride1, _ndstride3 = _ndstride1 * 3
 	#define SADDR(p, n) ((p) + __builtin_choose_expr(n == -4, _nsstride1 * 4, __builtin_choose_expr(n == -3, _nsstride3, __builtin_choose_expr(n == -2, _nsstride1 * 2, __builtin_choose_expr(n == -1, _nsstride1, __builtin_choose_expr(n == 1, _sstride1, __builtin_choose_expr(n == 2, _sstride1 * 2, __builtin_choose_expr(n == 3, _sstride3, __builtin_choose_expr(n == 4, _sstride1 * 4, 0)))))))))
 	#define DADDR(p, n) ((p) + __builtin_choose_expr(n == -4, _ndstride1 * 4, __builtin_choose_expr(n == -3, _ndstride3, __builtin_choose_expr(n == -2, _ndstride1 * 2, __builtin_choose_expr(n == -1, _ndstride1, __builtin_choose_expr(n == 1, _dstride1, __builtin_choose_expr(n == 2, _dstride1 * 2, __builtin_choose_expr(n == 3, _dstride3, __builtin_choose_expr(n == 4, _dstride1 * 4, 0)))))))))
+#else
+	#define DECL_SSTRIDE(value) ssize_t _sstride1 = (value), _sstride2 = _sstride1 * 2, _sstride3 = _sstride1 * 3, _sstride4 = _sstride1 * 4, _nsstride1 = -_sstride1, _nsstride2 = _nsstride1 * 2, _nsstride3 = _nsstride1 * 3, _nsstride4 = _nsstride1 * 4
+	#define DECL_DSTRIDE(value) ssize_t _dstride1 = (value), _dstride2 = _dstride1 * 2, _dstride3 = _dstride1 * 3, _dstride4 = _dstride1 * 4, _ndstride1 = -_dstride1, _ndstride2 = _ndstride1 * 2, _ndstride3 = _ndstride1 * 3, _ndstride4 = _ndstride1 * 4
+	#define SADDR(p, n) ((p) + __builtin_choose_expr(n == -4, _nsstride4, __builtin_choose_expr(n == -3, _nsstride3, __builtin_choose_expr(n == -2, _nsstride2, __builtin_choose_expr(n == -1, _nsstride1, __builtin_choose_expr(n == 1, _sstride1, __builtin_choose_expr(n == 2, _sstride2, __builtin_choose_expr(n == 3, _sstride3, __builtin_choose_expr(n == 4, _sstride4, 0)))))))))
+	#define DADDR(p, n) ((p) + __builtin_choose_expr(n == -4, _ndstride4, __builtin_choose_expr(n == -3, _ndstride3, __builtin_choose_expr(n == -2, _ndstride2, __builtin_choose_expr(n == -1, _ndstride1, __builtin_choose_expr(n == 1, _dstride1, __builtin_choose_expr(n == 2, _dstride2, __builtin_choose_expr(n == 3, _dstride3, __builtin_choose_expr(n == 4, _dstride4, 0)))))))))
 #endif
 
 
@@ -671,6 +671,7 @@ static const int8_t shz_mask[48] = {
 #define loada128(p) (*(i8x16*)(p))
 #define loada32x4(p0, p1, p2, p3) (i32x4){*(int32_t *)(p0), *(int32_t *)(p1), *(int32_t *)(p2), *(int32_t *)(p3)}
 #define loada64x2(p0, p1) (i64x2){*(int64_t *)(p0), *(int64_t *)(p1)}
+// placed first to prevent inferring WASM from SSE/NEON and getting untested poor performance
 #if defined(__wasm_simd128__)
 	#include <wasm_simd128.h>
 	#define abs8(a) (u8x16)wasm_i8x16_abs(a)
@@ -680,6 +681,7 @@ static const int8_t shz_mask[48] = {
 	#define broadcast8(a, i) __builtin_shufflevector((i8x16)(a), (i8x16){}, i, i, i, i, i, i, i, i, i, i, i, i, i, i, i, i)
 	#define broadcast16(a, i) __builtin_shufflevector((i16x8)(a), (i16x8){}, i, i, i, i, i, i, i, i)
 	#define broadcast32(a, i) __builtin_shufflevector((i32x4)(a), (i32x4){}, i, i, i, i)
+	#define broadcast64(a, i) __builtin_shufflevector((i64x2)(a), (i64x2){}, i, i)
 	#define combine64(a, b) (i64x2)wasm_i64x2_shuffle(a, b, 0, 3)
 	#define cvtlo8u16(a) (u16x8)wasm_u16x8_extend_low_u8x16(a)
 	#define cvthi8u16(a) (u16x8)wasm_u16x8_extend_high_u8x16(a)
@@ -769,6 +771,7 @@ static const int8_t shz_mask[48] = {
 	// FIXME broadcast pairs together based on most frequent patterns (ex. shufflelo(0, 0, 1, 1)) to help CSE
 	#define broadcast16(a, i) (i16x8)__builtin_choose_expr((i) < 4, _mm_shuffle_epi32(_mm_shufflelo_epi16(a, _MM_SHUFFLE(0, 0, i, i)), _MM_SHUFFLE(0, 0, 0, 0)), _mm_shuffle_epi32(_mm_shufflehi_epi16(a, _MM_SHUFFLE(0, 0, i & 3, i & 3)), _MM_SHUFFLE(2, 2, 2, 2)))
 	#define broadcast32(a, i) (i32x4)_mm_shuffle_epi32(a, _MM_SHUFFLE(i, i, i, i))
+	#define broadcast64(a, i) (i64x2)_mm_shuffle_epi32(a, _MM_SHUFFLE(2 * i + 1, 2 * i, 2 * i + 1, 2 * i))
 	#define combine64(a, b) (i64x2)_mm_shuffle_ps((__m128)(a), (__m128)(b), _MM_SHUFFLE(3, 2, 1, 0))
 	#define cvthi8u16(a) (u16x8)_mm_unpackhi_epi8(a, (i8x16){})
 	#define cvthi16u32(a) (u32x4)_mm_unpackhi_epi16(a, (i8x16){})
@@ -929,6 +932,7 @@ static const int8_t shz_mask[48] = {
 		#define broadcast8(a, i) (i8x16)vdupq_laneq_s8(a, i)
 		#define broadcast16(a, i) (i16x8)vdupq_laneq_s16(a, i)
 		#define broadcast32(a, i) (i32x4)vdupq_laneq_s32(a, i)
+		#define broadcast64(a, i) (i64x2)vdupq_laneq_s64(a, i)
 		#define cvthi8u16(a) (u16x8)vmovl_high_u8(a)
 		#define cvthi8s16(a) (u16x8)vmovl_high_s8(a)
 		#define cvthi16u32(a) (u32x4)vmovl_high_u16(a)
@@ -963,6 +967,7 @@ static const int8_t shz_mask[48] = {
 		#define broadcast8(a, i) (i8x16)vdupq_lane_s8(__builtin_choose_expr((i) < 8, vget_low_s8(a), vget_high_s8(a)), (i) & 7)
 		#define broadcast16(a, i) (i16x8)vdupq_lane_s16(__builtin_choose_expr((i) < 4, vget_low_s16(a), vget_high_s16(a)), (i) & 3)
 		#define broadcast32(a, i) (i32x4)vdupq_lane_s32(__builtin_choose_expr((i) < 2, vget_low_s32(a), vget_high_s32(a)), (i) & 1)
+		#define broadcast64(a, i) (i64x2)vdupq_lane_s64(__builtin_choose_expr((i) < 1, vget_low_s64(a), vget_high_s64(a)), 0)
 		#define cvthi8u16(a) (u16x8)vmovl_u8(vget_high_u8(a))
 		#define cvthi8s16(a) (u16x8)vmovl_s8(vget_high_s8(a))
 		#define cvthi16u32(a) (u32x4)vmovl_u16(vget_high_u16(a))
@@ -1002,6 +1007,7 @@ static const int8_t shz_mask[48] = {
 	#define broadcast8(a, i) __builtin_shufflevector((i8x16)(a), (i8x16){}, i, i, i, i, i, i, i, i, i, i, i, i, i, i, i, i)
 	#define broadcast16(a, i) __builtin_shufflevector((i16x8)(a), (i16x8){}, i, i, i, i, i, i, i, i)
 	#define broadcast32(a, i) __builtin_shufflevector((i32x4)(a), (i32x4){}, i, i, i, i)
+	#define broadcast64(a, i) __builtin_shufflevector((i64x2)(a), (i64x2){}, i, i)
 	#define min8(a, b) __builtin_elementwise_min((i8x16)(a), (i8x16)(b))
 	#define max8(a, b) __builtin_elementwise_max((i8x16)(a), (i8x16)(b))
 	#define min16(a, b) __builtin_elementwise_min((i16x8)(a), (i16x8)(b))

@@ -353,7 +353,7 @@ static cold noinline void decode_intra4x4(uint8_t * restrict p, size_t stride, i
 	lowpass_4x4: {
 		i8x16 w = shr128(v, 1);
 		i8x16 x = shr128(v, 2);
-		v = shuffle(lowpass8(ziplo64(v, v), ziplo64(w, w), ziplo64(x, v)), shuf[idx]);
+		v = shuffle(lowpass8(broadcast64(v, 0), broadcast64(w, 0), ziplo64(x, v)), shuf[idx]);
 		} break;
 	}
 	*(int32_t *)(p             ) = v[0];

@@ -980,7 +980,7 @@ static void decode_inter_chroma(int w, int h, size_t sstride, const uint8_t *src
 	} else {
 		#if defined(__SSE2__)
 			i8x16 shuf = {0, 1, 1, 2, 4, 5, 5, 6, 8, 9, 9, 10, 12, 13, 13, 14};
-			i8x16 w0 = ziplo64(wo8, wo8);
+			i8x16 w0 = broadcast64(wo8, 0);
 			i8x16 w1 = w0;
 		#elif defined(__ARM_NEON) || defined(__wasm_simd128__)
 			i8x16 shuf = {0, 1, 4, 5, 8, 9, 12, 13, 1, 2, 5, 6, 9, 10, 13, 14};

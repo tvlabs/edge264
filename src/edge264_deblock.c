@@ -936,8 +936,8 @@ static noinline void deblock_mb(Edge264Context *ctx)
 		return;
 	
 	// compute all values of alpha and beta for each of the color planes first
-	mbA = mb - 1;
-	mbB = mbA - ctx->t.pic_width_in_mbs;
+	mbA = (mb->filter_edges & 1) ? mb - 1 : mb;
+	mbB = (mb->filter_edges & 2) ? mb - 1 - ctx->t.pic_width_in_mbs : mb;
 	i8x16 zero = {};
 	i8x16 qP = set32((int32_t)mb->QP_s);
 	i32x4 qPAB = {(int32_t)mbA->QP_s, (int32_t)mbB->QP_s};

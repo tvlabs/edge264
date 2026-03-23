@@ -184,15 +184,17 @@ ifneq ($(SANITIZE),)
   ifneq (,$(findstring address,$(SANITIZE)))
     # AddressSanitizer: improve stack trace readability
     SANITIZE_FLAGS += -fno-omit-frame-pointer -g
+    ifneq (,$(findstring memory,$(SANITIZE)))
+      $(error SANITIZE: 'address' and 'memory' are mutually exclusive)
+    endif
   endif
   ifneq (,$(findstring memory,$(SANITIZE)))
     # MemorySanitizer: requires -fPIE for reliable interception
     SANITIZE_FLAGS += -fPIE
   endif
-  ifneq (,$(findstring address,$(SANITIZE)))
-    ifneq (,$(findstring memory,$(SANITIZE)))
-      $(error SANITIZE: 'address' and 'memory' are mutually exclusive)
-    endif
+  ifneq (,$(findstring undefined,$(SANITIZE)))
+    # UndefinedBehaviorSanitizer: disable checks for expected compiler behaviors
+    SANITIZE_FLAGS += -fno-sanitize=alignment,shift-base,array-bounds
   endif
 endif
 

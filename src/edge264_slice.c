@@ -1694,10 +1694,6 @@ static noinline void CAFUNC(parse_slice_data)
 		mbB = mbA - ctx->t.pic_width_in_mbs;
 		mbC = mbB + 1;
 		mbD = mbB - 1;
-		i8x16 fA = mbA->f.v;
-		i8x16 fB = mbB->f.v;
-		uint64_t bitsA = mbA->bits_l;
-		uint64_t bitsB = mbB->bits_l;
 		int decoded = ctx->CurrMbAddr - ctx->t.first_mb_in_slice;
 		if (decoded <= ctx->t.pic_width_in_mbs + 1) {
 			if (decoded == 1) { // A becomes available
@@ -1725,8 +1721,6 @@ static noinline void CAFUNC(parse_slice_data)
 			} else if (decoded == 0) { // A is unavailable
 				mbA = &unavail_mb;
 				unavail16x16 |= 1;
-				fA = unavail_mb.f.v;
-				bitsA = unavail_mb.bits_l;
 				filter_edges &= ~(ctx->t.disable_deblocking_filter_idc >> 1); // impacts only bit 0
 			}
 			if (decoded == ctx->t.pic_width_in_mbs + 1) { // D becomes available
@@ -1765,8 +1759,6 @@ static noinline void CAFUNC(parse_slice_data)
 				} else { // B is unavailable
 					mbB = &unavail_mb;
 					unavail16x16 |= 2;
-					fB = unavail_mb.f.v;
-					bitsB = unavail_mb.bits_l;
 					filter_edges &= ~ctx->t.disable_deblocking_filter_idc; // impacts only bit 1
 					if (decoded == ctx->t.pic_width_in_mbs - 1) { // C becomes available
 						int offC_int32 = (ctx->t.pic_width_in_mbs * (int)sizeof(*mb)) >> 2;
@@ -1781,13 +1773,13 @@ static noinline void CAFUNC(parse_slice_data)
 		
 		// initialize common macroblock values
 		ctx->unavail4x4_v[0] = block_unavailability[unavail16x16];
-		ctx->inc.v = fA + fB + (fB & flags_twice.v);
+		ctx->inc.v = mbA->f.v + mbB->f.v + (mbB->f.v & flags_twice.v);
 		mb->f.v = (i8x16){};
 		mb->filter_edges = (ctx->t.disable_deblocking_filter_idc != 1) ? filter_edges : 0;
 		mb->QP_s = ctx->t.QP_s;
 		if (ctx->t.ChromaArrayType == 1) { // FIXME 4:2:2
 			ctx->unavail4x4_v[1] = shuffle(ctx->unavail4x4_v[0], (i8x16){0, 4, 8, 12, 0, 4, 8, 12, -1, -1, -1, -1, -1, -1, -1, -1});
-			mb->bits_l = (bitsA >> 3 & 0x11111100111111) | (bitsB >> 1 & 0x42424200424242);
+			mb->bits_l = (mbA->bits_l >> 3 & 0x11111100111111) | (mbB->bits_l >> 1 & 0x42424200424242);
 		}
 		mb->nC_v[0] = mb->nC_v[1] = mb->nC_v[2] = (i8x16){};
 		

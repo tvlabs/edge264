@@ -1,12 +1,12 @@
 #include "edge264_internal.h"
 
 #if defined(__wasm_simd128__)
-	#define addlou8s16(a, b) (wasm_u16x8_extend_low_u8x16(a) + (i16x8)b)
-	#define addhiu8s16(a, b) (wasm_u16x8_extend_high_u8x16(a) + (i16x8)b)
+	#define addlou8s16(a, b) ((i16x8)wasm_u16x8_extend_low_u8x16(a) + (i16x8)(b))
+	#define addhiu8s16(a, b) ((i16x8)wasm_u16x8_extend_high_u8x16(a) + (i16x8)(b))
 	#define mullou8(a, b) (u16x8)wasm_u16x8_extmul_low_u8x16(a, b)
 	#define mulhiu8(a, b) (u16x8)wasm_u16x8_extmul_high_u8x16(a, b)
 	#define shlrrs32(a, l, r, off) ((((i32x4)(a) << (l)) + (off)) >> (r))
-	#define shrrs32(a, i, off) (((i32x4)a + off) >> i)
+	#define shrrs32(a, i, off) (((i32x4)(a) + (off)) >> (i))
 	#define shrps32(a, b, i) (i16x8)wasm_i16x8_narrow_i32x4((i32x4)(a) >> i, (i32x4)(b) >> i)
 	static always_inline i16x8 broadcastlo32(i16x8 a) {return wasm_i16x8_shuffle(a, a, 0, 0, 0, 0, 2, 2, 2, 2);}
 	static always_inline i16x8 broadcasthi32(i16x8 a) {return wasm_i16x8_shuffle(a, a, 4, 4, 4, 4, 6, 6, 6, 6);}

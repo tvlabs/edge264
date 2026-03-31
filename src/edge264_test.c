@@ -7,7 +7,6 @@
 	#include <windows.h>
 	#include <psapi.h>
 	#define dlsym (void*)GetProcAddress
-	#define dlclose FreeLibrary
 #else
 	#include <dlfcn.h>
 	#include <fcntl.h>
@@ -70,9 +69,13 @@ void (*SDL_DestroyRenderer)(SDL_Renderer *);
 void (*SDL_DestroyWindow)(SDL_Window *);
 void (*SDL_Quit)(void);
 static void *sdl2;
+
 static int load_SDL2(void) {
 	const char *lib, *func;
-	#ifdef _WIN32
+	#if defined(__wasm__)
+		printf("This program does not yet support SDL2 with WASM\n");
+		return 1;
+	#elif defined(_WIN32)
 		sdl2 = LoadLibraryA(lib = "SDL2.dll");
 	#else
 		sdl2 = dlopen(lib = "/Library/Frameworks/SDL2.framework/SDL2", RTLD_NOW | RTLD_GLOBAL) ?:
@@ -106,6 +109,14 @@ static int load_SDL2(void) {
 		return 1;
 	}
 	return 0;
+}
+
+static void unload_SDL2(void) {
+	#if defined(_WIN32)
+		FreeLibrary(sdl2);
+	#elif !defined(__wasm__)
+		dlclose(sdl2);
+	#endif
 }
 
 
@@ -470,7 +481,7 @@ int main(int argc, char *argv[])
 	
 	struct timespec t0, t1;
 	clock_gettime(CLOCK_MONOTONIC, &t0);
-	d = edge264_alloc(n_threads, trace ? (void(*)(const char*, void*))fputs : NULL, trace_file, trace > 1, NULL, NULL, NULL);
+	d = edge264_alloc(n_threads, trace ? (int(*)(const char*, void*))fputs : NULL, trace_file, trace > 1, NULL, NULL, NULL);
 	
 	// check if input is a directory by trying to move into it
 	if (chdir(file_name) < 0) {
@@ -504,26 +515,28 @@ int main(int argc, char *argv[])
 		SDL_DestroyRenderer(renderer);
 		SDL_DestroyWindow(window);
 		SDL_Quit();
-		dlclose(sdl2);
+		unload_SDL2();
 	}
 	
 	// closing information
 	if (benchmark) {
 		clock_gettime(CLOCK_MONOTONIC, &t1);
 		int64_t time_msec = (int64_t)(t1.tv_sec - t0.tv_sec) * 1000 + (t1.tv_nsec - t0.tv_nsec) / 1000000;
-		#ifdef _WIN32
+		int64_t cpu_msec = 0;
+		long mem_kb = 0;
+		#if defined(_WIN32)
 			HANDLE p = GetCurrentProcess();
 			FILETIME c, e, k, u;
 			GetProcessTimes(p, &c, &e, &k, &u);
-			int64_t cpu_msec = ((int64_t)u.dwHighDateTime << 32 | u.dwLowDateTime) / 10000;
+			cpu_msec = ((int64_t)u.dwHighDateTime << 32 | u.dwLowDateTime) / 10000;
 			PROCESS_MEMORY_COUNTERS m;
 			GetProcessMemoryInfo(p, &m, sizeof(m));
-			int mem_kb = m.PeakPagefileUsage / 1000;
-		#else
+			mem_kb = m.PeakPagefileUsage / 1000;
+		#elif !defined(__wasm__)
 			struct rusage rusage;
 			getrusage(RUSAGE_SELF, &rusage);
-			int64_t cpu_msec = (int64_t)rusage.ru_utime.tv_sec * 1000 + rusage.ru_utime.tv_usec / 1000;
-			long mem_kb = rusage.ru_maxrss / 1000;
+			cpu_msec = (int64_t)rusage.ru_utime.tv_sec * 1000 + rusage.ru_utime.tv_usec / 1000;
+			mem_kb = rusage.ru_maxrss / 1000;
 		#endif
 		printf("time: %.3lfs\nCPU: %.3lfs\nmemory: %.3lfMB\n", (double)time_msec / 1000, (double)cpu_msec / 1000, (double)mem_kb / 1000);
 	}

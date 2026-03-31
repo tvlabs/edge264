@@ -37,7 +37,7 @@ extern "C" {
 
 typedef struct Edge264Decoder Edge264Decoder;
 
-typedef void (*Edge264LogCb)(const char *str, void *log_arg);
+typedef int (*Edge264LogCb)(const char *str, void *log_arg);
 typedef void (*Edge264UnrefCb)(int ret, void *unref_arg);
 typedef void (*Edge264AllocCb)(void **samples, unsigned samples_size, void **mbs, unsigned mbs_size, int errno_on_fail, void *alloc_arg);
 typedef void (*Edge264FreeCb)(void *samples, void *mbs, void *alloc_arg);

@@ -295,7 +295,7 @@ typedef struct Edge264Context {
 	
 	// Logging context
 	uint64_t log_base_us; // timestamp of decoder initialization
-	void (*log_cb)(const char*, void*);
+	Edge264LogCb log_cb;
 	void *log_arg;
 	const char *log_indent;
 	uint16_t log_pos; // next writing position in log_buf
@@ -739,7 +739,7 @@ static const int8_t shz_mask[48] = {
 	// relaxed_dot missed an unsigned version! (using signed saturation here for better SSE2 support)
 	static u16x8 maddubx(u8x16 a, u8x16 b) {return wasm_i16x8_narrow_i32x4(wasm_u32x4_extadd_pairwise_u16x8(wasm_u16x8_extmul_low_u8x16(a, b)), wasm_u32x4_extadd_pairwise_u16x8(wasm_u16x8_extmul_high_u8x16(a, b)));}
 	static u32x4 minw32(u32x4 a, u32x4 b) {return wasm_v128_bitselect(a, b, (i32x4)(a - b) >> 31);}
-	static inline size_t shld(size_t l, size_t h, size_t i) {return h << i | l >> 1 >> ~i;}
+	static inline size_t shld(size_t l, size_t h, size_t i) {return h << i | l >> 1 >> (~i & (SIZE_BIT - 1));}
 	static u16x8 sumh8(u8x16 a) {u16x8 b = wasm_u32x4_extadd_pairwise_u16x8(wasm_u16x8_extadd_pairwise_u8x16(a)); return b + (u16x8)((u64x2)b >> 32);}
 	static u16x8 sum8(u8x16 a) {u16x8 b = wasm_u32x4_extadd_pairwise_u16x8(wasm_u16x8_extadd_pairwise_u8x16(a)); u16x8 c = b + (u16x8)((u64x2)b >> 32); return c + (u16x8)shr128(c, 8);}
 	#define shufflez shuffle

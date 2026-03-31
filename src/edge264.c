@@ -121,7 +121,7 @@ const uint8_t *edge264_find_start_code(const uint8_t *buf, const uint8_t *end, i
 
 
 static void internal_alloc(void **samples, unsigned samples_size, void **mbs, unsigned mbs_size, int errno_on_fail, void *alloc_arg) {
-	*samples = malloc(samples_size + mbs_size);
+	*samples = aligned_alloc(16, samples_size + mbs_size);
 	*mbs = *samples + samples_size;
 }
 

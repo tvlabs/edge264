@@ -20,6 +20,9 @@
 #include "edge264_internal.h"
 #include "edge264_intra.c"
 #include "edge264_inter.c"
+#ifdef __wasm__
+	#define mprotect(addr, len, prot) 0
+#endif
 
 
 
@@ -83,7 +86,7 @@ static void assert_block(const char *name, size_t pstride, const uint8_t *p, int
 
 
 
-static void parse_NALs(const char *name, const uint8_t *nal, const uint8_t *end, void (*post_test)(), const int8_t *expect) {
+static void parse_NALs(const char *name, const uint8_t *nal, const uint8_t *end, void (*post_test)(), const uint8_t *expect) {
 	nal += 3 + (nal[2] == 0); // skip the [0]001 delimiter
 	Edge264Frame out;
 	int res = 0;
@@ -124,8 +127,8 @@ static void test_page_boundaries() {
 	PASSERT(fread(page + pagesize - filesize, filesize, 1, f) == 1, NULL);
 	PASSERT(!mprotect(page, pagesize, PROT_READ), NULL);
 	edge264_find_start_code(page, page + filesize, 1);
-	parse_NALs("page-boundaries", page, page + filesize, NULL, (int8_t[]){0, ENODATA});
-	parse_NALs("page-boundaries", page + pagesize - filesize, page + pagesize, NULL, (int8_t[]){0, ENODATA});
+	parse_NALs("page-boundaries", page, page + filesize, NULL, (uint8_t[]){0, ENODATA});
+	parse_NALs("page-boundaries", page + pagesize - filesize, page + pagesize, NULL, (uint8_t[]){0, ENODATA});
 	fclose(f);
 	
 	// Intra boundaries
@@ -357,7 +360,7 @@ static void test_inter_decoding() {
 
 
 
-static void test(const char *name, void (*log_test)(const char *), void (*post_test)(), const int8_t *expect) {
+static void test(const char *name, void (*log_test)(const char *), void (*post_test)(), const uint8_t *expect) {
 	log_tester = log_test;
 	printf("\e[A\e[K%d " GREEN "PASS" RESET " (%s)\n", count_pass, name);
 	
@@ -432,13 +435,13 @@ int main(int argc, char *argv[]) {
 	// run all stress tests
 	putchar('\n');
 	dec = edge264_alloc(0, log_callback, NULL, 0, NULL, NULL, NULL);
-	test("supp-nals", NULL, NULL, (int8_t[]){0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, ENOBUFS, 0, 0, ENODATA});
-	test("unsupp-nals", NULL, NULL, (int8_t[]){ENOTSUP, ENOTSUP, ENOTSUP, ENOTSUP, ENOTSUP, ENOTSUP, ENOTSUP, ENOTSUP, ENOTSUP, ENOTSUP, ENOTSUP, ENOTSUP, ENOTSUP, ENOTSUP, ENOTSUP, ENOTSUP, ENOTSUP, ENOTSUP, ENOTSUP, ENOTSUP, ENOTSUP, ENODATA});
-	test("supp-nals", NULL, NULL, (int8_t[]){0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, ENOBUFS, 0, 0, ENODATA});
-	test("unsupp-nals", NULL, NULL, (int8_t[]){ENOTSUP, ENOTSUP, ENOTSUP, ENOTSUP, ENOTSUP, ENOTSUP, ENOTSUP, ENOTSUP, ENOTSUP, ENOTSUP, ENOTSUP, ENOTSUP, ENOTSUP, ENOTSUP, ENOTSUP, ENOTSUP, ENOTSUP, ENOTSUP, ENOTSUP, ENOTSUP, ENOTSUP, ENODATA});
-	test("max-logs", max_logs_logger, NULL, (int8_t[]){0, ENODATA});
-	test("finish-frame", NULL, finish_frame_post, (int8_t[]){0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, ENOBUFS, ENODATA});
-	test("nal-ref-idc-0", NULL, NULL, (int8_t[]){0, 0, 0, 0, 0, 0, 0, 0, ENOBUFS, 0, 0, ENODATA});
+	test("supp-nals", NULL, NULL, (uint8_t[]){0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, ENOBUFS, 0, 0, ENODATA});
+	test("unsupp-nals", NULL, NULL, (uint8_t[]){ENOTSUP, ENOTSUP, ENOTSUP, ENOTSUP, ENOTSUP, ENOTSUP, ENOTSUP, ENOTSUP, ENOTSUP, ENOTSUP, ENOTSUP, ENOTSUP, ENOTSUP, ENOTSUP, ENOTSUP, ENOTSUP, ENOTSUP, ENOTSUP, ENOTSUP, ENOTSUP, ENOTSUP, ENODATA});
+	test("supp-nals", NULL, NULL, (uint8_t[]){0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, ENOBUFS, 0, 0, ENODATA});
+	test("unsupp-nals", NULL, NULL, (uint8_t[]){ENOTSUP, ENOTSUP, ENOTSUP, ENOTSUP, ENOTSUP, ENOTSUP, ENOTSUP, ENOTSUP, ENOTSUP, ENOTSUP, ENOTSUP, ENOTSUP, ENOTSUP, ENOTSUP, ENOTSUP, ENOTSUP, ENOTSUP, ENOTSUP, ENOTSUP, ENOTSUP, ENOTSUP, ENODATA});
+	test("max-logs", max_logs_logger, NULL, (uint8_t[]){0, ENODATA});
+	test("finish-frame", NULL, finish_frame_post, (uint8_t[]){0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, ENOBUFS, ENODATA});
+	test("nal-ref-idc-0", NULL, NULL, (uint8_t[]){0, 0, 0, 0, 0, 0, 0, 0, ENOBUFS, 0, 0, ENODATA});
 	test_page_boundaries();
 	test_intra_decoding();
 	test_inter_decoding();

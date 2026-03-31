@@ -989,7 +989,7 @@ static void decode_inter_chroma(int w, int h, size_t sstride, const uint8_t *src
 			i16x8 w1 = unziphi32(v0, v0);
 		#endif
 		i16x8 o = ziphi64(wo8, wo8);
-		i32x4 l0 = {*(int32_t *)SADDR(src,  0), *(int32_t *)SADDR(src,  1)};
+		i32x4 l0 = ziplo32(loadu32(SADDR(src,  0)), loadu32(SADDR(src,  1)));
 		src = SADDR(src,  2);
 		do {
 			i8x16 l1 = loadu32x4(SADDR(src,  0), SADDR(src,  1), SADDR(src,  2), SADDR(src,  3));

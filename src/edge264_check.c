@@ -53,7 +53,7 @@ static int cmp(const struct dirent **a, const struct dirent **b) {
 
 #define PASSERT(cond, prefix) { if (!(cond)) { perror(prefix); exit(1); } }
 #define ASSERT(cond, msg, ...) { if (!(cond)) { printf(RED msg RESET, ##__VA_ARGS__); exit(1); } }
-static void log_callback(const char *str, void *_) { if (log_tester) log_tester(str); }
+static int log_callback(const char *str, void *_) { if (log_tester) log_tester(str); return 0; }
 static void print_logger(const char *str) { fputs(str, stdout); }
 static void max_logs_logger(const char *str) {
 	ASSERT(strlen(str) + 1 == sizeof(dec->log_buf),

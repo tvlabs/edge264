@@ -11,8 +11,8 @@
 	static always_inline i16x8 temporal_scale(i16x8 mvCol, int16_t DistScaleFactor) {
 		i32x4 neg = set32(-1);
 		i32x4 mul = set32(DistScaleFactor + 0xff800000u);
-		i32x4 lo = madd16(ziplo16(mvCol, neg), mul);
-		i32x4 hi = madd16(ziphi16(mvCol, neg), mul);
+		i32x4 lo = _mm_madd_epi16(ziplo16(mvCol, neg), mul);
+		i32x4 hi = _mm_madd_epi16(ziphi16(mvCol, neg), mul);
 		return packs32(lo >> 8, hi >> 8);
 	}
 #elif defined(__ARM_NEON)

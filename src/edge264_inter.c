@@ -84,22 +84,22 @@ static always_inline i16x8 sixtapHV(i16x8 a, i16x8 b, i16x8 c, i16x8 d, i16x8 e,
 	#define shrrpus16(a, b, i) packus16(((i16x8)(a) + (1 << (i - 1))) >> i, ((i16x8)(b) + (1 << (i - 1))) >> i)
 	#define zipmd64(a, b) (i64x2)_mm_shuffle_ps((__m128)(a), (__m128)(b), _MM_SHUFFLE(2, 1, 2, 1))
 	static always_inline u8x16 maddshrL(u8x16 q, u8x16 p, i8x16 w, i8x16 _, i16x8 o, i64x2 wd) {
-		i16x8 x0 = shr16(adds16(maddubs(ziplo8(q, p), w), o), wd);
-		i16x8 x1 = shr16(adds16(maddubs(ziphi8(q, p), w), o), wd);
+		i16x8 x0 = _mm_sra_epi16(adds16(maddubs(ziplo8(q, p), w), o), wd);
+		i16x8 x1 = _mm_sra_epi16(adds16(maddubs(ziphi8(q, p), w), o), wd);
 		return packus16(x0, x1);
 	}
 	static always_inline u8x16 maddshrC16(u8x16 q, u8x16 p, i8x16 wCb, i8x16 wCr, i8x16 _, i8x16 __, i16x8 oCb, i16x8 oCr, i64x2 wd) {
-		i16x8 x0 = shr16(adds16(maddubs(ziplo8(q, p), wCb), oCb), wd);
-		i16x8 x1 = shr16(adds16(maddubs(ziphi8(q, p), wCr), oCr), wd);
+		i16x8 x0 = _mm_sra_epi16(adds16(maddubs(ziplo8(q, p), wCb), oCb), wd);
+		i16x8 x1 = _mm_sra_epi16(adds16(maddubs(ziphi8(q, p), wCr), oCr), wd);
 		return packus16(x0, x1);
 	}
 	static always_inline u8x16 maddshrC8(u8x16 q, u8x16 p, i8x16 w, i8x16 _, i16x8 o, i64x2 wd) {
-		i16x8 x0 = shr16(adds16(maddubs(ziplo8(q, p), w), o), wd);
-		i16x8 x1 = shr16(adds16(maddubs(ziphi8(q, p), w), o), wd);
+		i16x8 x0 = _mm_sra_epi16(adds16(maddubs(ziplo8(q, p), w), o), wd);
+		i16x8 x1 = _mm_sra_epi16(adds16(maddubs(ziphi8(q, p), w), o), wd);
 		return packus16(x0, x1);
 	}
 	static always_inline i8x16 maddshrC4(u8x16 q, u8x16 p, i8x16 w, i8x16 _, i16x8 o, i64x2 wd) {
-		i16x8 a = shr16(adds16(maddubs(ziplo8(q, p), w), o), wd);
+		i16x8 a = _mm_sra_epi16(adds16(maddubs(ziplo8(q, p), w), o), wd);
 		return packus16(a, a);
 	}
 	static always_inline u16x8 maddABCD(u8x16 ab, u8x16 cd, i8x16 shuf, u8x16 AB, u8x16 CD) {

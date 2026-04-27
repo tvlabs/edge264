@@ -654,7 +654,6 @@ enum IntraChromaModes {
  * _ shuffle3 - permute an array the size of three vectors without care for out-of-bounds indices
  * _ subsu8 - substract and saturate unsigned 8-bit elements
  * _ sum8 - sum 16 unsigned 8-bit elements together and return a low 16-bit value, the rest being undefined
- * _ sumh8 - sum the low half of unsigned 8-bit elements, assuming the high half is zeros
  * _ trnlo32 - zip even elements from two vectors
  * _ trnhi32 - zip odd elements from two vectors
  * _ unziploN - deinterleave the even N-bit elements from two vectors
@@ -705,7 +704,7 @@ static const int8_t shz_mask[48] = {
 	#define packs16(a, b) (i8x16)wasm_i8x16_narrow_i16x8(a, b)
 	#define packs32(a, b) (i16x8)wasm_i16x8_narrow_i32x4(a, b)
 	#define packus16(a, b) (i8x16)wasm_u8x16_narrow_i16x8(a, b)
-	#define pow2x4(a) (u32x4)wasm_u32x4_trunc_sat_f32x4((a << 23) + (u32x4)wasm_i32x4_splat(0x3f800000))
+	#define pow2x4(a) (u32x4)wasm_u32x4_trunc_sat_f32x4(((u32x4)(a) << 23) + (u32x4)wasm_i32x4_splat(0x3f800000))
 	#define set8(i) (i8x16)wasm_i8x16_splat(i)
 	#define set16(i) (i16x8)wasm_i16x8_splat(i)
 	#define set32(i) (i32x4)wasm_i32x4_splat(i)
@@ -724,8 +723,8 @@ static const int8_t shz_mask[48] = {
 	#define shrpus16(a, b, i) (u8x16)wasm_u8x16_narrow_i16x8((i16x8)(a) >> (i), (i16x8)(b) >> (i))
 	#define shrrpu16(a, b, i) (u8x16)wasm_u8x16_narrow_i16x8(((u16x8)(a) + (1 << ((i) - 1))) >> (i), ((u16x8)(b) + (1 << ((i) - 1))) >> (i))
 	#define subsu8(a, b) (u8x16)wasm_u8x16_sub_sat(a, b)
-	#define trnlo32(a, b) (i16x8)wasm_i32x4_shuffle(a, b, 0, 4, 2, 6)
-	#define trnhi32(a, b) (i16x8)wasm_i32x4_shuffle(a, b, 1, 5, 3, 7)
+	#define trnlo32(a, b) (i32x4)wasm_i32x4_shuffle(a, b, 0, 4, 2, 6)
+	#define trnhi32(a, b) (i32x4)wasm_i32x4_shuffle(a, b, 1, 5, 3, 7)
 	#define unziplo32(a, b) (i32x4)wasm_i32x4_shuffle(a, b, 0, 2, 4, 6)
 	#define unziphi32(a, b) (i32x4)wasm_i32x4_shuffle(a, b, 1, 3, 5, 7)
 	#define ziplo8(a, b) (i8x16)wasm_i8x16_shuffle(a, b, 0, 16, 1, 17, 2, 18, 3, 19, 4, 20, 5, 21, 6, 22, 7, 23)
@@ -740,7 +739,6 @@ static const int8_t shz_mask[48] = {
 	static u16x8 maddubx(u8x16 a, u8x16 b) {return wasm_i16x8_narrow_i32x4(wasm_u32x4_extadd_pairwise_u16x8(wasm_u16x8_extmul_low_u8x16(a, b)), wasm_u32x4_extadd_pairwise_u16x8(wasm_u16x8_extmul_high_u8x16(a, b)));}
 	static u32x4 minw32(u32x4 a, u32x4 b) {return wasm_v128_bitselect(a, b, (i32x4)(a - b) >> 31);}
 	static inline size_t shld(size_t l, size_t h, size_t i) {return h << i | l >> 1 >> (~i & (SIZE_BIT - 1));}
-	static u16x8 sumh8(u8x16 a) {u16x8 b = wasm_u32x4_extadd_pairwise_u16x8(wasm_u16x8_extadd_pairwise_u8x16(a)); return b + (u16x8)((u64x2)b >> 32);}
 	static u16x8 sum8(u8x16 a) {u16x8 b = wasm_u32x4_extadd_pairwise_u16x8(wasm_u16x8_extadd_pairwise_u8x16(a)); u16x8 c = b + (u16x8)((u64x2)b >> 32); return c + (u16x8)shr128(c, 8);}
 	#define shufflez shuffle
 	#define shuffle2z shuffle2
@@ -766,7 +764,6 @@ static const int8_t shz_mask[48] = {
 	#include <immintrin.h>
 	#define adds16(a, b) (i16x8)_mm_adds_epi16(a, b)
 	#define avgu8(a, b) (i8x16)_mm_avg_epu8(a, b)
-	#define avg16(a, b) (i16x8)_mm_avg_epu16(a, b)
 	#define broadcast8(a, i) shuffle(a, _mm_set1_epi8(i))
 	// FIXME broadcast pairs together based on most frequent patterns (ex. shufflelo(0, 0, 1, 1)) to help CSE
 	#define broadcast16(a, i) (i16x8)__builtin_choose_expr((i) < 4, _mm_shuffle_epi32(_mm_shufflelo_epi16(a, _MM_SHUFFLE(0, 0, i, i)), _MM_SHUFFLE(0, 0, 0, 0)), _mm_shuffle_epi32(_mm_shufflehi_epi16(a, _MM_SHUFFLE(0, 0, i & 3, i & 3)), _MM_SHUFFLE(2, 2, 2, 2)))
@@ -780,7 +777,6 @@ static const int8_t shz_mask[48] = {
 	#define loadu128(p) (i8x16)_mm_loadu_si128((__m128i*)(p))
 	#define loadu32x4(p0, p1, p2, p3) (i32x4){*(int32_t *)(p0), *(int32_t *)(p1), *(int32_t *)(p2), *(int32_t *)(p3)}
 	#define loadu64x2(p0, p1) (i64x2){*(int64_t *)(p0), *(int64_t *)(p1)}
-	#define madd16(a, b) (i32x4)_mm_madd_epi16(a, b)
 	#define maxu8(a, b) (i8x16)_mm_max_epu8(a, b)
 	#define minu8(a, b) (i8x16)_mm_min_epu8(a, b)
 	#define max16(a, b) (i16x8)_mm_max_epi16(a, b)
@@ -793,10 +789,6 @@ static const int8_t shz_mask[48] = {
 	#define set16(i) (i16x8)_mm_set1_epi16(i)
 	#define set32(i) (i32x4)_mm_set1_epi32(i)
 	#define set64(i) (i64x2)_mm_set1_epi64x(i)
-	#define shl16(a, b) (i16x8)_mm_sll_epi16(a, b)
-	#define shr16(a, b) (i16x8)_mm_sra_epi16(a, b)
-	#define shl32(a, b) (i32x4)_mm_sll_epi32(a, b)
-	#define shr32(a, b) (i32x4)_mm_sra_epi32(a, b)
 	#define shl128(a, i) (i8x16)_mm_slli_si128(a, i)
 	#define shr128(a, i) (i8x16)_mm_srli_si128(a, i)
 	#define shrz128(a, i) (i8x16)_mm_srli_si128(a, i)
@@ -805,7 +797,6 @@ static const int8_t shz_mask[48] = {
 	#define shrpus16(a, b, i) (u8x16)_mm_packus_epi16((i16x8)(a) >> (i), (i16x8)(b) >> (i))
 	#define shrrpu16(a, b, i) (u8x16)_mm_packus_epi16(_mm_avg_epu16((u16x8)(a) >> ((i) - 1), (i8x16){}), _mm_avg_epu16((u16x8)(b) >> ((i) - 1), (i8x16){}))
 	#define subsu8(a, b) (u8x16)_mm_subs_epu8(a, b)
-	#define sumh8(a) (u16x8)_mm_sad_epu8(a, (i8x16){})
 	#define trnlo32(a, b) (i32x4)_mm_shuffle_epi32((__m128i)_mm_shuffle_ps((__m128)(a), (__m128)(b), _MM_SHUFFLE(2, 0, 2, 0)), _MM_SHUFFLE(3, 1, 2, 0))
 	#define trnhi32(a, b) (i32x4)_mm_shuffle_epi32((__m128i)_mm_shuffle_ps((__m128)(a), (__m128)(b), _MM_SHUFFLE(3, 1, 3, 1)), _MM_SHUFFLE(3, 1, 2, 0))
 	#define unziplo32(a, b) (i32x4)_mm_shuffle_ps((__m128)(a), (__m128)(b), _MM_SHUFFLE(2, 0, 2, 0))
@@ -962,7 +953,6 @@ static const int8_t shz_mask[48] = {
 		static always_inline u16x8 sum8(u8x16 a) {u16x8 b; asm("uaddlv %h0, %1.16b" : "=w" (b) : "w" (a)); return b;}
 		static always_inline i32x4 trnlo32(i32x4 a, i32x4 b) {return vtrn1q_s32(a, b);}
 		static always_inline i32x4 trnhi32(i32x4 a, i32x4 b) {return vtrn2q_s32(a, b);}
-		#define sumh8 sum8
 	#else
 		#define broadcast8(a, i) (i8x16)vdupq_lane_s8(__builtin_choose_expr((i) < 8, vget_low_s8(a), vget_high_s8(a)), (i) & 7)
 		#define broadcast16(a, i) (i16x8)vdupq_lane_s16(__builtin_choose_expr((i) < 4, vget_low_s16(a), vget_high_s16(a)), (i) & 3)
@@ -976,7 +966,6 @@ static const int8_t shz_mask[48] = {
 		#define packus16(a, b) (u8x16)vcombine_u8(vqmovun_s16(a), vqmovun_s16(b))
 		#define shrrpu16(a, b, i) (u8x16)vcombine_u8(vqrshrn_n_u16(a, i), vqrshrn_n_u16(b, i))
 		#define shrpus16(a, b, i) (u8x16)vcombine_u8(vqshrun_n_s16(a, i), vqshrun_n_s16(b, i))
-		#define sumh8(a) (u16x8)vpaddlq_u32(vpaddlq_u16(vpaddlq_u8(a)))
 		#define trnlo32(a, b) ((i32x4)vtrnq_s32(a, b).val[0])
 		#define trnhi32(a, b) ((i32x4)vtrnq_s32(a, b).val[1])
 		#define unziplo32(a, b) (i32x4)vuzpq_s32(a, b).val[0]
@@ -1001,13 +990,17 @@ static const int8_t shz_mask[48] = {
 	#endif
 	#define shufflez shuffle
 	#define shuffle2z shuffle2
-#elif defined(__clang__) // prefer functions for non-trivial macros since may compile on a non-SIMD CPU
+#elif defined(__clang__)
+	// prefer functions for non-trivial macros since may compile on a non-SIMD CPU
+	#include <immintrin.h> // FIXME remove
 	#define abs8(a) __builtin_elementwise_abs((i8x16)(a))
 	#define abs16(a) __builtin_elementwise_abs((i16x8)(a))
+	#define adds16(a, b) __builtin_elementwise_add_sat((i16x8)(a), (i16x8)(b))
 	#define broadcast8(a, i) __builtin_shufflevector((i8x16)(a), (i8x16){}, i, i, i, i, i, i, i, i, i, i, i, i, i, i, i, i)
 	#define broadcast16(a, i) __builtin_shufflevector((i16x8)(a), (i16x8){}, i, i, i, i, i, i, i, i)
 	#define broadcast32(a, i) __builtin_shufflevector((i32x4)(a), (i32x4){}, i, i, i, i)
 	#define broadcast64(a, i) __builtin_shufflevector((i64x2)(a), (i64x2){}, i, i)
+	#define combine64(a, b) __builtin_shufflevector((i64x2)(a), (i64x2)(b), 0, 3)
 	#define min8(a, b) __builtin_elementwise_min((i8x16)(a), (i8x16)(b))
 	#define max8(a, b) __builtin_elementwise_max((i8x16)(a), (i8x16)(b))
 	#define min16(a, b) __builtin_elementwise_min((i16x8)(a), (i16x8)(b))
@@ -1022,6 +1015,8 @@ static const int8_t shz_mask[48] = {
 	#define shrz128(a, i) __builtin_shufflevector((i8x16)(a), (i8x16){}, 0 + (i), 1 + (i), 2 + (i), 3 + (i), 4 + (i), 5 + (i), 6 + (i), 7 + (i), 8 + (i), 9 + (i), 10 + (i), 11 + (i), 12 + (i), 13 + (i), 14 + (i), 15 + (i))
 	#define subsu8(a, b) (u8x16)__builtin_elementwise_sub_sat((u8x16)(a), (u8x16)(b))
 	#define sum8(a) ((u16x8){__builtin_reduce_add(__builtin_convertvector((u8x16)(a), u16x16))})
+	#define trnlo32(a, b) __builtin_shufflevector((i32x4)(a), (i32x4)(b), 0, 4, 2, 6)
+	#define trnhi32(a, b) __builtin_shufflevector((i32x4)(a), (i32x4)(b), 1, 5, 3, 7)
 	#define unziplo32(a, b) __builtin_shufflevector((i32x4)(a), (i32x4)(b), 0, 2, 4, 6)
 	#define unziphi32(a, b) __builtin_shufflevector((i32x4)(a), (i32x4)(b), 1, 3, 5, 7)
 	#define ziplo8(a, b) __builtin_shufflevector((i8x16)(a), (i8x16)(b), 0, 16, 1, 17, 2, 18, 3, 19, 4, 20, 5, 21, 6, 22, 7, 23)
@@ -1032,40 +1027,48 @@ static const int8_t shz_mask[48] = {
 	#define ziphi32(a, b) __builtin_shufflevector((i32x4)(a), (i32x4)(b), 2, 6, 3, 7)
 	#define ziplo64(a, b) __builtin_shufflevector((i64x2)(a), (i64x2)(b), 0, 2)
 	#define ziphi64(a, b) __builtin_shufflevector((i64x2)(a), (i64x2)(b), 1, 3)
-	
-	static u8x16 avg8(i8x16 a, i8x16 b) {i8x16 ab = a + b + 1, c127 = set8(127); return (u16x8)ab >> 1 & c127 | (ab < a) & ~c127;}
+	static inline i8x16 ifelse_mask(i8x16 v, i8x16 t, i8x16 f) {return t & v | f & ~v;}
+	static inline i8x16 set8(int i) {return (i8x16){i, i, i, i, i, i, i, i, i, i, i, i, i, i, i, i};}
+	static inline i16x8 set16(int i) {return (i16x8){i, i, i, i, i, i, i, i};}
+	static inline i32x4 set32(int i) {return (i32x4){i, i, i, i};}
+	static inline i64x2 set64(int64_t i) {return (i64x2){i, i};}
+	// clang lacks a non-const shuffle builtin, but can detect it here fortunately
+	static inline i8x16 shuffle(i8x16 a, i8x16 m) {m &= 15; return (i8x16){a[m[0]], a[m[1]], a[m[2]], a[m[3]], a[m[4]], a[m[5]], a[m[6]], a[m[7]], a[m[8]], a[m[9]], a[m[10]], a[m[11]], a[m[12]], a[m[13]], a[m[14]], a[m[15]]}; }
+	static inline i8x16 shufflen(i8x16 a, i8x16 m) {return shuffle(a, m) | (m < 0);}
+	static inline i8x16 shufflez(i8x16 a, i8x16 m) {return shuffle(a, m) & ~(m < 0);}
+	static u8x16 avgu8(u8x16 a, u8x16 b) {return (a >> 1) + (b >> 1) + ((a | b) & 1);}
 	static u16x8 cvtlo8u16(u8x16 a) {return __builtin_convertvector((u8x8){a[0], a[1], a[2], a[3], a[4], a[5], a[6], a[7]}, u16x8);}
 	static u16x8 cvthi8u16(u8x16 a) {return __builtin_convertvector((u8x8){a[8], a[9], a[10], a[11], a[12], a[13], a[14], a[15]}, u16x8);}
 	static i16x8 cvtlo8s16(i8x16 a) {return __builtin_convertvector((i8x8){a[0], a[1], a[2], a[3], a[4], a[5], a[6], a[7]}, i16x8);}
+	static i16x8 cvthi8s16(i8x16 a) {return __builtin_convertvector((i8x8){a[8], a[9], a[10], a[11], a[12], a[13], a[14], a[15]}, i16x8);}
 	static u32x4 cvtlo16u32(u16x8 a) {return __builtin_convertvector((u16x4){a[0], a[1], a[2], a[3]}, u32x4);}
 	static u32x4 cvthi16u32(u16x8 a) {return __builtin_convertvector((u16x4){a[4], a[5], a[6], a[7]}, u32x4);}
-	static i8x16 ifelse_mask(i8x16 v, i8x16 t, i8x16 f) {return t & v | f & ~v;}
+	static i16x8 hadd16(i16x8 a, i16x8 b) {u32x4 c = ((u32x4)a + ((u32x4)a << 16)) >> 16, d = ((u32x4)b + ((u32x4)b << 16)) >> 16; return __builtin_convertvector((i32x8){c[0], c[1], c[2], c[3], d[0], d[1], d[2], d[3]}, i16x8);}
 	static i8x16 ifelse_msb(i8x16 v, i8x16 t, i8x16 f) {i8x16 m = (v < 0); return t & m | f & ~m;}
 	static i32x4 loadu32(const void *p) {i32x4 v = {}; memcpy(&v, p, 4); return v;}
 	static i64x2 loadu64(const void *p) {i64x2 v = {}; memcpy(&v, p, 8); return v;}
 	static i8x16 loadu128(const void *p) {i8x16 v = {}; memcpy(&v, p, 16); return v;}
 	static i32x4 loadu32x4(const void *p0, const void *p1, const void *p2, const void *p3) {i32x4 v; memcpy((int32_t*)&v, p0, 4); memcpy((int32_t*)&v + 1, p1, 4); memcpy((int32_t*)&v + 2, p2, 4); memcpy((int32_t*)&v + 3, p3, 4); return v;}
 	static i64x2 loadu64x2(const void *p0, const void *p1) {i64x2 v; memcpy((int64_t*)&v, p0, 8); memcpy((int64_t*)&v + 1, p1, 8); return v;}
+	static i16x8 maddubs(u8x16 a, i8x16 b) {return __builtin_elementwise_add_sat((i16x8)((u16x8)a << 8 >> 8) * ((i16x8)b << 8 >> 8), (i16x8)((u16x8)a >> 8) * ((i16x8)b >> 8));}
+	static u32x4 minw32(u32x4 a, u32x4 b) {return ifelse_mask((i32x4)(a - b) >> 31, a, b);}
+	static int movemask(i8x16 a) {return __builtin_reduce_add((u16x16)__builtin_convertvector(a >> 7, i16x16) & (u16x16){1, 2, 4, 8, 16, 32, 64, 128, 256, 512, 1024, 2048, 4096, 8192, 16384, 32768});}
+	static u32x4 pow2x4(i32x4 a) {return (u32x4)set32(1) << a;}
 	static i8x16 packs16(i16x8 a, i16x8 b) {i16x8 lo = set16(-128), hi = set16(127); a = __builtin_elementwise_min(__builtin_elementwise_max(a, lo), hi); b = __builtin_elementwise_min(__builtin_elementwise_max(b, lo), hi); return __builtin_convertvector((i16x16){a[0], a[1], a[2], a[3], a[4], a[5], a[6], a[7], b[0], b[1], b[2], b[3], b[4], b[5], b[6], b[7]}, i8x16);}
 	static i16x8 packs32(i32x4 a, i32x4 b) {i32x4 lo = set32(-32768), hi = set32(32767); a = __builtin_elementwise_min(__builtin_elementwise_max(a, lo), hi); b = __builtin_elementwise_min(__builtin_elementwise_max(b, lo), hi); return __builtin_convertvector((i32x8){a[0], a[1], a[2], a[3], b[0], b[1], b[2], b[3]}, i16x8);}
-	static u8x16 packus16(i16x8 a, i16x8 b) {i16x8 lo = set16(0), hi = set16(255); a = __builtin_elementwise_min(__builtin_elementwise_max(a, lo), hi); b = __builtin_elementwise_min(__builtin_elementwise_max(b, lo), hi); return __builtin_convertvector((i16x16){a[0], a[1], a[2], a[3], a[4], a[5], a[6], a[7], b[0], b[1], b[2], b[3], b[4], b[5], b[6], b[7]}, i8x16);}
-	static i8x16 set8(int i) {return (i8x16){i, i, i, i, i, i, i, i, i, i, i, i, i, i, i, i};}
-	static i16x8 set16(int i) {return (i16x8){i, i, i, i, i, i, i, i};}
-	static i32x4 set16(int i) {return (i32x4){i, i, i, i};}
-	static i64x2 set64(int64_t i) {return (i64x2){i, i};}
+	static u8x16 packus16(i16x8 a, i16x8 b) {i16x8 lo = set16(0), hi = set16(255); a = __builtin_elementwise_min(__builtin_elementwise_max(a, lo), hi); b = __builtin_elementwise_min(__builtin_elementwise_max(b, lo), hi); return __builtin_convertvector((u16x16){a[0], a[1], a[2], a[3], a[4], a[5], a[6], a[7], b[0], b[1], b[2], b[3], b[4], b[5], b[6], b[7]}, u8x16);}
+	static size_t shld(size_t l, size_t h, size_t i) {return h << i | l >> 1 >> (~i & (SIZE_BIT - 1));}
 	static i8x16 shlv128(i8x16 a, int i) {return shufflez(a, loadu128(shz_mask + 16 - i));}
 	static i8x16 shrv128(i8x16 a, int i) {return shufflez(a, loadu128(shz_mask + 16 + i));}
-	static inline i16x8 shrrs16(i16x8 a, int i) {return (a + (1 << (i - 1))) >> i;}
-	static inline u16x8 shrru16(u16x8 a, int i) {return (a + (1 << (i - 1))) >> i;}
-	static inline u8x16 shrpus16(i16x8 a, i16x8 b, int i) {return packus16(a >> i, b >> i);}
-	// clang lacks a non-const shuffle builtin, but can detect it here fortunately
-	static i8x16 shuffle(i8x16 a, i8x16 m) {m &= 15; return (i8x16){a[m[0]], a[m[1]], a[m[2]], a[m[3]], a[m[4]], a[m[5]], a[m[6]], a[m[7]], a[m[8]], a[m[9]], a[m[10]], a[m[11]], a[m[12]], a[m[13]], a[m[14]], a[m[15]]}; }
-	static i8x16 shufflen(i8x16 a, i8x16 m) {return shuffle(a, m) | (m < 0);}
-	static i8x16 shufflez(i8x16 a, i8x16 m) {return shuffle(a, m) & ~(m < 0);}
 	static i8x16 shuffle2(i8x16 a, i8x16 b, i8x16 m) {return ifelse_mask(m < 16, shuffle(a, m), shuffle(b, m - 16));}
 	static i8x16 shuffle2z(i8x16 a, i8x16 b, i8x16 m) { return shuffle2(a, b, m) & ~(m < 0); }
 	static i8x16 shuffle3(const i8x16 *p, i8x16 m) {return ifelse_mask(m > 15, ifelse_mask(m > 31, shuffle(p[2], m), shuffle(p[1], m)), shuffle(p[0], m));}
-	#define sumh8 sum8
+	static i16x8 shrrs16(i16x8 a, int i) {return (a + set16(1 << (i - 1))) >> i;}
+	static u16x8 shrru16(u16x8 a, int i) {return (a + set16(1 << (i - 1))) >> i;}
+	static u8x16 shrpus16(i16x8 a, i16x8 b, int i) {return packus16(a >> i, b >> i);}
+	static u8x16 shrrpu16(u16x8 a, u16x8 b, int i) {u16x8 o = set16(1 << (i - 1)), hi = set16(255), c = __builtin_elementwise_min((a + o) >> i, hi), d = __builtin_elementwise_min((b + o) >> i, hi); return __builtin_convertvector((u16x16){c[0], c[1], c[2], c[3], c[4], c[5], c[6], c[7], d[0], d[1], d[2], d[3], d[4], d[5], d[6], d[7]}, u8x16);}
+	#define maddxbs maddubs
+	#define maddubx (u16x8)maddubs
 #else
 	#error "No supported vector intrinsics found (SSE, NEON, WASM, clang)"
 #endif
@@ -1220,7 +1223,7 @@ static always_inline const char *unsup_if(int cond) { return cond ? " # unsuppor
 	u8x16 _v = a;\
 	printf(#a ":");\
 	for (int _i = 0; _i < 16; _i++)\
-		printf(" %3u", _v[_i]);\
+		printf(" %3d", _v[_i]);\
 	putchar('\n');}
 #define print_i16x8(a) {\
 	i16x8 _v = a;\

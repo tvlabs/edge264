@@ -8,81 +8,12 @@ static always_inline i16x8 sixtapHV(i16x8 a, i16x8 b, i16x8 c, i16x8 d, i16x8 e,
 	return ((((af - be) >> 2) + (cd - be)) >> 2) + cd;
 }
 
-#if defined(__wasm_simd128__)
-	#define shrrpus16(a, b, i) packus16(((i16x8)(a) + (1 << (i - 1))) >> i, ((i16x8)(b) + (1 << (i - 1))) >> i)
-	#define zipmd64(a, b) (i64x2)wasm_i32x4_shuffle(a, b, 1, 2, 5, 6)
-	static always_inline u8x16 maddshrL(u8x16 q, u8x16 p, i16x8 w0, i16x8 w1, i16x8 o, int wd) {
-		i16x8 a = wasm_i16x8_add_sat(cvtlo8u16(q) * w0 + cvtlo8u16(p) * w1, o);
-		i16x8 b = wasm_i16x8_add_sat(cvthi8u16(q) * w0 + cvthi8u16(p) * w1, o);
-		return packus16(a >> wd, b >> wd);
-	}
-	static always_inline u8x16 maddshrC16(u8x16 q, u8x16 p, i16x8 w0, i16x8 w1, i16x8 w2, i16x8 w3, i16x8 oCb, i16x8 oCr, int wd) {
-		i16x8 a = wasm_i16x8_add_sat(cvtlo8u16(q) * w0 + cvtlo8u16(p) * w1, oCb);
-		i16x8 b = wasm_i16x8_add_sat(cvthi8u16(q) * w2 + cvthi8u16(p) * w3, oCr);
-		return packus16(a >> wd, b >> wd);
-	}
-	static always_inline i8x16 maddshrC8(u8x16 q, u8x16 p, i16x8 wq, i16x8 wp, i16x8 o, int wd) {
-		i16x8 a = wasm_i16x8_add_sat(cvtlo8u16(q) * wq + cvtlo8u16(p) * wp, o);
-		i16x8 b = wasm_i16x8_add_sat(cvthi8u16(q) * wq + cvthi8u16(p) * wp, o);
-		return packus16(a >> wd, b >> wd);
-	}
-	static always_inline i8x16 maddshrC4(u8x16 q, u8x16 p, i8x16 wq, i8x16 wp, i16x8 o, int wd) {
-		i16x8 a = (i16x8)wasm_i16x8_add_sat(cvtlo8u16(q) * wq + cvtlo8u16(p) * wp, o) >> wd;
-		return packus16(a, a);
-	}
-	static always_inline u16x8 maddABCD(u8x16 ab, u8x16 cd, i8x16 shuf, u8x16 AB, u8x16 CD) {
-		u8x16 sab = shuffle(ab, shuf);
-		u8x16 scd = shuffle(cd, shuf);
-		u16x8 aA = wasm_u16x8_extmul_low_u8x16(sab, AB);
-		u16x8 bB = wasm_u16x8_extmul_high_u8x16(sab, AB);
-		u16x8 cC = wasm_u16x8_extmul_low_u8x16(scd, CD);
-		u16x8 dD = wasm_u16x8_extmul_high_u8x16(scd, CD);
-		return aA + bB + cC + dD;
-	}
-	static always_inline i16x8 sixtapVlo(u8x16 a, u8x16 b, u8x16 c, u8x16 d, u8x16 e, u8x16 f) {
-		i16x8 af = wasm_u16x8_extadd_pairwise_u8x16(ziplo8(a, f));
-		i16x8 be = wasm_u16x8_extadd_pairwise_u8x16(ziplo8(b, e));
-		i16x8 cd = wasm_u16x8_extadd_pairwise_u8x16(ziplo8(c, d));
-		return af - be * 5 + cd * 20;
-	}
-	static always_inline i16x8 sixtapVhi(u8x16 a, u8x16 b, u8x16 c, u8x16 d, u8x16 e, u8x16 f) {
-		i16x8 af = wasm_u16x8_extadd_pairwise_u8x16(ziphi8(a, f));
-		i16x8 be = wasm_u16x8_extadd_pairwise_u8x16(ziphi8(b, e));
-		i16x8 cd = wasm_u16x8_extadd_pairwise_u8x16(ziphi8(c, d));
-		return af - be * 5 + cd * 20;
-	}
-	static always_inline i16x8 sixtapH4(u8x16 l0, u8x16 l1) {
-		i8x16 af = wasm_i8x16_shuffle(l0, l1, 0, 5, 1, 6, 2, 7, 3, 8, 16, 21, 17, 22, 18, 23, 19, 24);
-		i8x16 be = wasm_i8x16_shuffle(l0, l1, 1, 4, 2, 5, 3, 6, 4, 7, 17, 20, 18, 21, 19, 22, 20, 23);
-		i8x16 cd = wasm_i8x16_shuffle(l0, l1, 2, 3, 3, 4, 4, 5, 5, 6, 18, 19, 19, 20, 20, 21, 21, 22);
-		i16x8 x1 = wasm_u16x8_extadd_pairwise_u8x16(af);
-		i16x8 x5 = wasm_u16x8_extadd_pairwise_u8x16(be);
-		i16x8 x20 = wasm_u16x8_extadd_pairwise_u8x16(cd);
-		return x1 - x5 * 5 + x20 * 20;
-	}
-	static always_inline i16x8 sixtapH8(u8x16 a) {
-		i8x16 af = wasm_i8x16_shuffle(a, a, 0, 5, 1, 6, 2, 7, 3, 8, 4, 9, 5, 10, 6, 11, 7, 12);
-		i8x16 be = wasm_i8x16_shuffle(a, a, 1, 4, 2, 5, 3, 6, 4, 7, 5, 8, 6, 9, 7, 10, 8, 11);
-		i8x16 cd = wasm_i8x16_shuffle(a, a, 2, 3, 3, 4, 4, 5, 5, 6, 6, 7, 7, 8, 8, 9, 9, 10);
-		i16x8 x1 = wasm_u16x8_extadd_pairwise_u8x16(af);
-		i16x8 x5 = wasm_u16x8_extadd_pairwise_u8x16(be);
-		i16x8 x20 = wasm_u16x8_extadd_pairwise_u8x16(cd);
-		return x1 - x5 * 5 + x20 * 20;
-	}
-	#define SIXTAPH16(res0, res1, l0, lG)\
-		i8x16 _##l0##1 = shrd128(l0, lG, 1);\
-		i8x16 _##l0##2 = shrd128(l0, lG, 2);\
-		i8x16 _##l0##3 = shrd128(l0, lG, 3);\
-		i8x16 _##l0##4 = shrd128(l0, lG, 4);\
-		i8x16 _##l0##5 = shrd128(l0, lG, 5);\
-		i16x8 res0 = sixtapVlo(l0, _##l0##1, _##l0##2, _##l0##3, _##l0##4, _##l0##5);\
-		i16x8 res1 = sixtapVhi(l0, _##l0##1, _##l0##2, _##l0##3, _##l0##4, _##l0##5);
-#elif defined(__SSE2__)
+#if SIMD == SSE
 	static const i8x16 mul15 = {1, -5, 1, -5, 1, -5, 1, -5, 1, -5, 1, -5, 1, -5, 1, -5};
 	static const i8x16 mul20 = {20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20};
 	static const i8x16 mul51 = {-5, 1, -5, 1, -5, 1, -5, 1, -5, 1, -5, 1, -5, 1, -5, 1};
 	#define shrrpus16(a, b, i) packus16(((i16x8)(a) + (1 << (i - 1))) >> i, ((i16x8)(b) + (1 << (i - 1))) >> i)
-	#define zipmd64(a, b) (i64x2)_mm_shuffle_ps((__m128)(a), (__m128)(b), _MM_SHUFFLE(2, 1, 2, 1))
+	#define zipmd64(a, b) (i32x4)_mm_shuffle_ps((__m128)(a), (__m128)(b), _MM_SHUFFLE(2, 1, 2, 1))
 	static always_inline u8x16 maddshrL(u8x16 q, u8x16 p, i8x16 w, i8x16 _, i16x8 o, i64x2 wd) {
 		i16x8 x0 = _mm_sra_epi16(adds16(maddubs(ziplo8(q, p), w), o), wd);
 		i16x8 x1 = _mm_sra_epi16(adds16(maddubs(ziphi8(q, p), w), o), wd);
@@ -138,12 +69,12 @@ static always_inline i16x8 sixtapHV(i16x8 a, i16x8 b, i16x8 c, i16x8 d, i16x8 e,
 		i16x8 _##res1 = maddubs(shrd128(l0, lG, 1), mul15) + maddubs(shrd128(l0, lG, 3), mul20) + maddubs(shrd128(l0, lG, 5), mul51);\
 		i16x8 res0 = ziplo16(_##res0, _##res1);\
 		i16x8 res1 = ziphi16(_##res0, _##res1);
-#elif defined(__ARM_NEON)
+#elif SIMD == NEON
 	static const i16x8 mul205 = {20, -5};
 	#ifdef __aarch64__
 		static const i8x16 shuf_zipmd64 = {4, 5, 6, 7, 8, 9, 10, 11, 20, 21, 22, 23, 24, 25, 26, 27};
 		#define shrrpus16(a, b, i) (u8x16)vqrshrun_high_n_s16(vqrshrun_n_s16(a, i), b, i)
-		#define zipmd64(a, b) (i64x2)vqtbl2q_s8((int8x16x2_t){a, b}, shuf_zipmd64)
+		#define zipmd64(a, b) (i32x4)vqtbl2q_s8((int8x16x2_t){a, b}, shuf_zipmd64)
 		static always_inline i16x8 sixtapH4(u8x16 l0, u8x16 l1) {
 			int8x16x2_t x = {l0, l1};
 			i8x16 af = vqtbl2q_s8(x, (i8x16){0, 5, 1, 6, 2, 7, 3, 8, 16, 21, 17, 22, 18, 23, 19, 24});
@@ -226,6 +157,144 @@ static always_inline i16x8 sixtapHV(i16x8 a, i16x8 b, i16x8 c, i16x8 d, i16x8 e,
 		i8x16 _##l0##5 = shrd128(l0, lG, 5);\
 		i16x8 res0 = sixtapVlo(l0, _##l0##1, _##l0##2, _##l0##3, _##l0##4, _##l0##5);\
 		i16x8 res1 = sixtapVhi(l0, _##l0##1, _##l0##2, _##l0##3, _##l0##4, _##l0##5);
+#elif SIMD == WASM
+	#define shrrpus16(a, b, i) packus16(((i16x8)(a) + (1 << (i - 1))) >> i, ((i16x8)(b) + (1 << (i - 1))) >> i)
+	#define zipmd64(a, b) (i32x4)wasm_i32x4_shuffle(a, b, 1, 2, 5, 6)
+	static always_inline u8x16 maddshrL(u8x16 q, u8x16 p, i16x8 w0, i16x8 w1, i16x8 o, int wd) {
+		i16x8 a = wasm_i16x8_add_sat(cvtlo8u16(q) * w0 + cvtlo8u16(p) * w1, o);
+		i16x8 b = wasm_i16x8_add_sat(cvthi8u16(q) * w0 + cvthi8u16(p) * w1, o);
+		return packus16(a >> wd, b >> wd);
+	}
+	static always_inline u8x16 maddshrC16(u8x16 q, u8x16 p, i16x8 w0, i16x8 w1, i16x8 w2, i16x8 w3, i16x8 oCb, i16x8 oCr, int wd) {
+		i16x8 a = wasm_i16x8_add_sat(cvtlo8u16(q) * w0 + cvtlo8u16(p) * w1, oCb);
+		i16x8 b = wasm_i16x8_add_sat(cvthi8u16(q) * w2 + cvthi8u16(p) * w3, oCr);
+		return packus16(a >> wd, b >> wd);
+	}
+	static always_inline i8x16 maddshrC8(u8x16 q, u8x16 p, i16x8 wq, i16x8 wp, i16x8 o, int wd) {
+		i16x8 a = wasm_i16x8_add_sat(cvtlo8u16(q) * wq + cvtlo8u16(p) * wp, o);
+		i16x8 b = wasm_i16x8_add_sat(cvthi8u16(q) * wq + cvthi8u16(p) * wp, o);
+		return packus16(a >> wd, b >> wd);
+	}
+	static always_inline i8x16 maddshrC4(u8x16 q, u8x16 p, i16x8 wq, i16x8 wp, i16x8 o, int wd) {
+		i16x8 a = (i16x8)wasm_i16x8_add_sat(cvtlo8u16(q) * wq + cvtlo8u16(p) * wp, o) >> wd;
+		return packus16(a, a);
+	}
+	static always_inline u16x8 maddABCD(u8x16 ab, u8x16 cd, i8x16 shuf, u8x16 AB, u8x16 CD) {
+		u8x16 sab = shuffle(ab, shuf);
+		u8x16 scd = shuffle(cd, shuf);
+		u16x8 aA = wasm_u16x8_extmul_low_u8x16(sab, AB);
+		u16x8 bB = wasm_u16x8_extmul_high_u8x16(sab, AB);
+		u16x8 cC = wasm_u16x8_extmul_low_u8x16(scd, CD);
+		u16x8 dD = wasm_u16x8_extmul_high_u8x16(scd, CD);
+		return aA + bB + cC + dD;
+	}
+	static always_inline i16x8 sixtapVlo(u8x16 a, u8x16 b, u8x16 c, u8x16 d, u8x16 e, u8x16 f) {
+		i16x8 af = wasm_u16x8_extadd_pairwise_u8x16(ziplo8(a, f));
+		i16x8 be = wasm_u16x8_extadd_pairwise_u8x16(ziplo8(b, e));
+		i16x8 cd = wasm_u16x8_extadd_pairwise_u8x16(ziplo8(c, d));
+		return af - be * 5 + cd * 20;
+	}
+	static always_inline i16x8 sixtapVhi(u8x16 a, u8x16 b, u8x16 c, u8x16 d, u8x16 e, u8x16 f) {
+		i16x8 af = wasm_u16x8_extadd_pairwise_u8x16(ziphi8(a, f));
+		i16x8 be = wasm_u16x8_extadd_pairwise_u8x16(ziphi8(b, e));
+		i16x8 cd = wasm_u16x8_extadd_pairwise_u8x16(ziphi8(c, d));
+		return af - be * 5 + cd * 20;
+	}
+	static always_inline i16x8 sixtapH4(u8x16 l0, u8x16 l1) {
+		i8x16 af = wasm_i8x16_shuffle(l0, l1, 0, 5, 1, 6, 2, 7, 3, 8, 16, 21, 17, 22, 18, 23, 19, 24);
+		i8x16 be = wasm_i8x16_shuffle(l0, l1, 1, 4, 2, 5, 3, 6, 4, 7, 17, 20, 18, 21, 19, 22, 20, 23);
+		i8x16 cd = wasm_i8x16_shuffle(l0, l1, 2, 3, 3, 4, 4, 5, 5, 6, 18, 19, 19, 20, 20, 21, 21, 22);
+		i16x8 x1 = wasm_u16x8_extadd_pairwise_u8x16(af);
+		i16x8 x5 = wasm_u16x8_extadd_pairwise_u8x16(be);
+		i16x8 x20 = wasm_u16x8_extadd_pairwise_u8x16(cd);
+		return x1 - x5 * 5 + x20 * 20;
+	}
+	static always_inline i16x8 sixtapH8(u8x16 a) {
+		i8x16 af = wasm_i8x16_shuffle(a, a, 0, 5, 1, 6, 2, 7, 3, 8, 4, 9, 5, 10, 6, 11, 7, 12);
+		i8x16 be = wasm_i8x16_shuffle(a, a, 1, 4, 2, 5, 3, 6, 4, 7, 5, 8, 6, 9, 7, 10, 8, 11);
+		i8x16 cd = wasm_i8x16_shuffle(a, a, 2, 3, 3, 4, 4, 5, 5, 6, 6, 7, 7, 8, 8, 9, 9, 10);
+		i16x8 x1 = wasm_u16x8_extadd_pairwise_u8x16(af);
+		i16x8 x5 = wasm_u16x8_extadd_pairwise_u8x16(be);
+		i16x8 x20 = wasm_u16x8_extadd_pairwise_u8x16(cd);
+		return x1 - x5 * 5 + x20 * 20;
+	}
+	#define SIXTAPH16(res0, res1, l0, lG)\
+		i8x16 _##l0##1 = shrd128(l0, lG, 1);\
+		i8x16 _##l0##2 = shrd128(l0, lG, 2);\
+		i8x16 _##l0##3 = shrd128(l0, lG, 3);\
+		i8x16 _##l0##4 = shrd128(l0, lG, 4);\
+		i8x16 _##l0##5 = shrd128(l0, lG, 5);\
+		i16x8 res0 = sixtapVlo(l0, _##l0##1, _##l0##2, _##l0##3, _##l0##4, _##l0##5);\
+		i16x8 res1 = sixtapVhi(l0, _##l0##1, _##l0##2, _##l0##3, _##l0##4, _##l0##5);
+#elif SIMD == CLANG
+	#define shrrpus16(a, b, i) packus16(((i16x8)(a) + (1 << (i - 1))) >> i, ((i16x8)(b) + (1 << (i - 1))) >> i)
+	#define zipmd64(a, b) __builtin_shufflevector((i32x4)(a), (i32x4)(b), 1, 2, 5, 6)
+	static inline u8x16 maddshrL(u8x16 q, u8x16 p, i16x8 wq, i16x8 wp, i16x8 o, i16x8 wd) {
+		i16x8 a = cvtlo8u16(q) * wq + cvtlo8u16(p) * wp;
+		i16x8 b = cvthi8u16(q) * wq + cvthi8u16(p) * wp;
+		return packus16(adds16(a, o) >> wd, adds16(b, o) >> wd);
+	}
+	static inline u8x16 maddshrC16(u8x16 q, u8x16 p, i16x8 w0, i16x8 w1, i16x8 w2, i16x8 w3, i16x8 oCb, i16x8 oCr, i16x8 wd) {
+		i16x8 a = cvtlo8u16(q) * w0 + cvtlo8u16(p) * w1;
+		i16x8 b = cvthi8u16(q) * w2 + cvthi8u16(p) * w3;
+		return packus16(adds16(a, oCb) >> wd, adds16(b, oCr) >> wd);
+	}
+	#define maddshrC8 maddshrL
+	static inline i8x16 maddshrC4(u8x16 q, u8x16 p, i16x8 wq, i16x8 wp, i16x8 o, i16x8 wd) {
+		i16x8 a = adds16(cvtlo8u16(q) * wq + cvtlo8u16(p) * wp, o) >> wd;
+		return packus16(a, a);
+	}
+	static inline u16x8 maddABCD(u8x16 ab, u8x16 cd, i8x16 shuf, u8x16 AB, u8x16 CD) {
+		u8x16 sab = shuffle(ab, shuf);
+		u8x16 scd = shuffle(cd, shuf);
+		// we could pre-expand AB/CD ahead of this function, but CLANG backend is not critical
+		u16x8 aA = cvtlo8u16(sab) * cvtlo8u16(AB);
+		u16x8 bB = cvthi8u16(sab) * cvthi8u16(AB);
+		u16x8 cC = cvtlo8u16(scd) * cvtlo8u16(CD);
+		u16x8 dD = cvthi8u16(scd) * cvthi8u16(CD);
+		return aA + bB + cC + dD;
+	}
+	static inline i16x8 sixtapVlo(u8x16 a, u8x16 b, u8x16 c, u8x16 d, u8x16 e, u8x16 f) {
+		i16x8 af = cvtlo8u16(a) + cvtlo8u16(f);
+		i16x8 be = cvtlo8u16(b) + cvtlo8u16(e);
+		i16x8 cd = cvtlo8u16(c) + cvtlo8u16(d);
+		return af - be * 5 + cd * 20;
+	}
+	static inline i16x8 sixtapVhi(u8x16 a, u8x16 b, u8x16 c, u8x16 d, u8x16 e, u8x16 f) {
+		i16x8 af = cvthi8u16(a) + cvthi8u16(f);
+		i16x8 be = cvthi8u16(b) + cvthi8u16(e);
+		i16x8 cd = cvthi8u16(c) + cvthi8u16(d);
+		return af - be * 5 + cd * 20;
+	}
+	static inline i16x8 sixtapH4(u8x16 l0, u8x16 l1) {
+		u8x16 af = __builtin_shufflevector(l0, l1, 0, 1, 2, 3, 16, 17, 18, 19, 5, 6, 7, 8, 21, 22, 23, 24);
+		u8x16 be = __builtin_shufflevector(l0, l1, 1, 2, 3, 4, 17, 18, 19, 20, 4, 5, 6, 7, 20, 21, 22, 23);
+		u8x16 cd = __builtin_shufflevector(l0, l1, 2, 3, 4, 5, 18, 19, 20, 21, 3, 4, 5, 6, 19, 20, 21, 22);
+		i16x8 AF = cvtlo8u16(af) + cvthi8u16(af);
+		i16x8 BE = cvtlo8u16(be) + cvthi8u16(be);
+		i16x8 CD = cvtlo8u16(cd) + cvthi8u16(cd);
+		return AF - BE * 5 + CD * 20;
+	}
+	static inline i16x8 sixtapH8(u8x16 a) {
+		u16x8 lo = cvtlo8u16(a);
+		u16x8 hi = cvthi8u16(a);
+		i16x8 af = lo + (u16x8)shrd128(lo, hi, 10);
+		i16x8 be = (u16x8)shrd128(lo, hi, 2) + (u16x8)shrd128(lo, hi, 8);
+		i16x8 cd = (u16x8)shrd128(lo, hi, 4) + (u16x8)shrd128(lo, hi, 6);
+		return af - be * 5 + cd * 20;
+	}
+	#define SIXTAPH16(res0, res1, l0, lG)\
+		u16x8 l0##lo = cvtlo8u16(l0);\
+		u16x8 l0##md = cvthi8u16(l0);\
+		u16x8 l0##hi = cvtlo8u16(lG);\
+		i16x8 l0##af0 = l0##lo + (u16x8)shrd128(l0##lo, l0##md, 10);\
+		i16x8 l0##be0 = (u16x8)shrd128(l0##lo, l0##md, 2) + (u16x8)shrd128(l0##lo, l0##md, 8);\
+		i16x8 l0##cd0 = (u16x8)shrd128(l0##lo, l0##md, 4) + (u16x8)shrd128(l0##lo, l0##md, 6);\
+		i16x8 l0##af1 = l0##md + (u16x8)shrd128(l0##md, l0##hi, 10);\
+		i16x8 l0##be1 = (u16x8)shrd128(l0##md, l0##hi, 2) + (u16x8)shrd128(l0##md, l0##hi, 8);\
+		i16x8 l0##cd1 = (u16x8)shrd128(l0##md, l0##hi, 4) + (u16x8)shrd128(l0##md, l0##hi, 6);\
+		i16x8 res0 = l0##af0 - l0##be0 * 5 + l0##cd0 * 20;\
+		i16x8 res1 = l0##af1 - l0##be1 * 5 + l0##cd1 * 20;
 #endif
 
 enum {
@@ -338,19 +407,24 @@ enum {
  * force all live vector registers on stack if not inlined.
  */
 static void decode_inter_luma(int mode, int h, size_t sstride, const uint8_t * restrict src2, size_t dstride, uint8_t * restrict dst, i16x8 wod) {
-	#if defined(__wasm_simd128__)
+	#if SIMD == SSE
+		i8x16 w0 = broadcast16(wod, 0);
+		i8x16 w1 = w0;
+		u64x2 wd = (u64x2)wod << 16 >> 48;
+	#elif SIMD == NEON
+		i16x8 w0 = cvtlo8s16(wod);
+		i16x8 w1 = w0;
+		i16x8 wd = -broadcast16(wod, 2);
+	#elif SIMD == WASM
 		i16x8 wod16 = cvtlo8s16(wod);
 		i16x8 w0 = broadcast16(wod16, 0);
 		i16x8 w1 = broadcast16(wod16, 1);
 		int wd = wod[2];
-	#elif defined(__SSE2__)
-		i8x16 w0 = broadcast16(wod, 0);
-		i8x16 w1 = w0;
-		u64x2 wd = (u64x2)wod << 16 >> 48;
-	#elif defined(__ARM_NEON)
-		i16x8 w0 = cvtlo8s16(wod);
-		i16x8 w1 = w0;
-		i16x8 wd = -broadcast16(wod, 2);
+	#elif SIMD == CLANG
+		i16x8 wod16 = cvtlo8s16(wod);
+		i16x8 w0 = broadcast16(wod16, 0);
+		i16x8 w1 = broadcast16(wod16, 1);
+		i16x8 wd = broadcast16(wod, 2);
 	#endif
 	i16x8 o = broadcast16(wod, 1);
 	i8x16 m0 = set8(-(0xd888 >> (mode & 15) & 1));
@@ -894,38 +968,39 @@ static void decode_inter_luma(int mode, int h, size_t sstride, const uint8_t * r
  * dstride and sstride are half the strides of src and dst chroma planes.
  */
 static void decode_inter_chroma(int w, int h, size_t sstride, const uint8_t *src, size_t dstride, uint8_t *dst, i8x16 ABCD, i16x8 wod) {
-	#if defined(__wasm_simd128__)
-		i8x16 AB = shrd128(broadcast8(ABCD, 0), broadcast8(ABCD, 1), 8);
-		i8x16 CD = shrd128(broadcast8(ABCD, 2), broadcast8(ABCD, 3), 8);
-		i16x8 wo16 = cvthi8s16(wod);
-		int wd = wod[3];
-	#elif defined(__SSE2__)
+	#if SIMD == SSE
 		i8x16 AB = broadcast16(ABCD, 0);
 		i8x16 CD = broadcast16(ABCD, 1);
 		u64x2 wd = (u64x2)wod >> 48;
-	#elif defined(__ARM_NEON)
+	#elif SIMD == NEON || SIMD == WASM || SIMD == CLANG
 		i8x16 AB = shrd128(broadcast8(ABCD, 0), broadcast8(ABCD, 1), 8);
 		i8x16 CD = shrd128(broadcast8(ABCD, 2), broadcast8(ABCD, 3), 8);
 		i16x8 wo16 = cvthi8s16(wod);
-		i16x8 wd = -broadcast16(wod, 3);
+		#if SIMD == NEON
+			i16x8 wd = -broadcast16(wod, 3);
+		#elif SIMD == WASM
+			int wd = wod[3];
+		#elif SIMD == CLANG
+			i16x8 wd = broadcast16(wod, 3);
+		#endif
 	#endif
 	i8x16 wo8 = ziphi16(wod, wod);
 	DECL_SSTRIDE(sstride);
 	DECL_DSTRIDE(dstride);
 	
 	if (w == 16) {
-		#if defined(__wasm_simd128__)
+		#if SIMD == SSE
+			i8x16 shuf = {0, 1, 1, 2, 2, 3, 3, 4, 4, 5, 5, 6, 6, 7, 7, 8};
+			i8x16 w0 = broadcast32(wo8, 0), w1 = broadcast32(wo8, 1), w2 = w0, w3 = w0;
+		#elif SIMD == NEON
+			i8x16 shuf = {0, 1, 2, 3, 4, 5, 6, 7, 1, 2, 3, 4, 5, 6, 7, 8};
+			i16x8 w0 = wo16, w1 = wo16, w2 = wo16, w3 = wo16;
+		#elif SIMD == WASM || SIMD == CLANG
 			i8x16 shuf = {0, 1, 2, 3, 4, 5, 6, 7, 1, 2, 3, 4, 5, 6, 7, 8};
 			i16x8 w0 = broadcast16(wo16, 0);
 			i16x8 w1 = broadcast16(wo16, 1);
 			i16x8 w2 = broadcast16(wo16, 2);
 			i16x8 w3 = broadcast16(wo16, 3);
-		#elif defined(__SSE2__)
-			i8x16 shuf = {0, 1, 1, 2, 2, 3, 3, 4, 4, 5, 5, 6, 6, 7, 7, 8};
-			i8x16 w0 = broadcast32(wo8, 0), w1 = broadcast32(wo8, 1), w2 = w0, w3 = w0;
-		#elif defined(__ARM_NEON)
-			i8x16 shuf = {0, 1, 2, 3, 4, 5, 6, 7, 1, 2, 3, 4, 5, 6, 7, 8};
-			i16x8 w0 = wo16, w1 = wo16, w2 = wo16, w3 = wo16;
 		#endif
 		i16x8 oCb = broadcast32(wo8, 2);
 		i16x8 oCr = broadcast32(wo8, 3);
@@ -947,11 +1022,11 @@ static void decode_inter_chroma(int w, int h, size_t sstride, const uint8_t *src
 		} while (h -= 2);
 		
 	} else if (w == 8) {
-		#if defined(__SSE2__)
+		#if SIMD == SSE
 			i8x16 shuf = {0, 1, 1, 2, 2, 3, 3, 4, 8, 9, 9, 10, 10, 11, 11, 12};
 			i8x16 w0 = ziplo32(wo8, wo8);
 			i8x16 w1 = w0;
-		#elif defined(__ARM_NEON) || defined(__wasm_simd128__)
+		#elif SIMD == NEON || SIMD == WASM || SIMD == CLANG
 			i8x16 shuf = {0, 1, 2, 3, 8, 9, 10, 11, 1, 2, 3, 4, 9, 10, 11, 12};
 			i16x8 v0 = ziplo16(wo16, wo16);
 			i16x8 w0 = trnlo32(v0, v0);
@@ -978,11 +1053,11 @@ static void decode_inter_chroma(int w, int h, size_t sstride, const uint8_t *src
 		} while (h -= 4);
 			
 	} else {
-		#if defined(__SSE2__)
+		#if SIMD == SSE
 			i8x16 shuf = {0, 1, 1, 2, 4, 5, 5, 6, 8, 9, 9, 10, 12, 13, 13, 14};
 			i8x16 w0 = broadcast64(wo8, 0);
 			i8x16 w1 = w0;
-		#elif defined(__ARM_NEON) || defined(__wasm_simd128__)
+		#elif SIMD == NEON || SIMD == WASM || SIMD == CLANG
 			i8x16 shuf = {0, 1, 4, 5, 8, 9, 12, 13, 1, 2, 5, 6, 9, 10, 13, 14};
 			i16x8 v0 = ziplo16(wo16, wo16);
 			i16x8 w0 = unziplo32(v0, v0);

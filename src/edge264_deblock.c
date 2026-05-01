@@ -1,13 +1,9 @@
 #include "edge264_internal.h"
 
-#if defined(__wasm_simd128__)
-	#define addsu8(a, b) (u8x16)wasm_u8x16_add_sat(a, b)
-	// absolute differences clamped to 0..128
-	#define packabd16(a, b, c, d) (u8x16)abs8(packs16(wasm_i16x8_sub_sat(a, b), wasm_i16x8_sub_sat(c, d)))
-#elif defined(__SSE2__)
+#if SIMD == SSE
 	#define addsu8(a, b) (u8x16)_mm_adds_epu8(a, b)
 	#define packabd16(a, b, c, d) (u8x16)abs8(packs16(_mm_subs_epi16(a, b), _mm_subs_epi16(c, d)))
-#elif defined(__ARM_NEON)
+#elif SIMD == NEON
 	#ifdef __aarch64__
 		#define packabd16(a, b, c, d) vqmovn_high_u16(vqmovn_u16(vabdq_s16(a, b)), vabdq_s16(c, d))
 		#define vsqsubq_u8(a, b) vsqaddq_u8(a, -b) // don't use with b=-128
@@ -17,6 +13,13 @@
 		static always_inline u8x16 vsqaddq_u8(u8x16 a, i8x16 b) {i8x16 zero = {}; return vqsubq_u8(vqaddq_u8(a, vmaxq_s8(b, zero)), vmaxq_s8(-b, zero));}
 		static always_inline u8x16 vsqsubq_u8(u8x16 a, i8x16 b) {i8x16 zero = {}; return vqaddq_u8(vqsubq_u8(a, vmaxq_s8(b, zero)), vmaxq_s8(-b, zero));}
 	#endif
+#elif SIMD == WASM
+	#define addsu8(a, b) (u8x16)wasm_u8x16_add_sat(a, b)
+	// absolute differences clamped to 0..128
+	#define packabd16(a, b, c, d) (u8x16)abs8(packs16(wasm_i16x8_sub_sat(a, b), wasm_i16x8_sub_sat(c, d)))
+#elif SIMD == CLANG
+	#define addsu8(a, b) __builtin_elementwise_add_sat((u8x16)(a), (u8x16)(b))
+	#define packabd16(a, b, c, d) (u8x16)abs8(packs16(__builtin_elementwise_sub_sat((i16x8)(a), (i16x8)(b)), __builtin_elementwise_sub_sat((i16x8)(c), (i16x8)(d))))
 #endif
 static always_inline i8x16 expand4(int32_t a) {
 	i32x4 x0 = {a};
@@ -42,7 +45,7 @@ static always_inline i8x16 expand2(int64_t a) {
  * of registers. In these cases note that alpha and beta may contain zero and
  * non-zero values, so we cannot use alpha-1 or beta-1.
  */
-#if defined(__ARM_NEON)
+#if SIMD == NEON
 	#define DEBLOCK_LUMA_SOFT(p2, p1, p0, q0, q1, q2, ialpha, ibeta, itC0) {\
 		/* compute all common masks */\
 		u8x16 alpha = set8(ialpha);\
@@ -156,7 +159,7 @@ static always_inline i8x16 expand2(int64_t a) {
  * 
  * The luma filter uses beta-1 thus should not be used with beta=0.
  */
-#if defined(__ARM_NEON)
+#if SIMD == NEON
 	#define DEBLOCK_LUMA_HARD(p3, p2, p1, p0, q0, q1, q2, q3, ialpha, ibeta) {\
 		/* common masks */\
 		u8x16 alpha = set8(ialpha);\

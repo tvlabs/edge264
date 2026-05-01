@@ -582,13 +582,36 @@ enum IntraChromaModes {
 
 
 /**
+ * Automatic selection of SIMD backend if not defined by environment
+ */
+#define SSE 1
+#define NEON 2
+#define WASM 3
+#define CLANG 4
+#ifndef SIMD
+	#if defined(__wasm_simd128__) // placed first to favor explicit WASM by default over SSE/NEON-inferred
+		#define SIMD WASM
+	#elif defined(__SSE2__)
+		#define SIMD SSE
+	#elif defined(__ARM_NEON)
+		#define SIMD NEON
+	#elif defined(__clang__)
+		#define SIMD CLANG
+	#else
+		#error "No supported vector intrinsics found (SSE, NEON, WASM, clang)"
+	#endif
+#endif
+
+
+
+/**
  * These macros account for the differences in offset addressing between
  * architectures, whether or not they can add and scale a stride to a pointer
  * in a single load.
  * Call DECL_SSTRIDE/DECL_DSTRIDE once to compute scaled source/destination
  * strides, then SADDR(p, n)/DADDR(p, n) will return p + stride * n
  */
-#if defined(__SSE2__) || defined(__ARM_NEON) && !defined(__aarch64__)
+#if SIMD == SSE || SIMD == NEON && !defined(__aarch64__)
 	#define DECL_SSTRIDE(value) ssize_t _sstride1 = (value), _sstride3 = _sstride1 * 3, _nsstride1 = -_sstride1, _nsstride3 = _nsstride1 * 3
 	#define DECL_DSTRIDE(value) ssize_t _dstride1 = (value), _dstride3 = _dstride1 * 3, _ndstride1 = -_dstride1, _ndstride3 = _ndstride1 * 3
 	#define SADDR(p, n) ((p) + __builtin_choose_expr(n == -4, _nsstride1 * 4, __builtin_choose_expr(n == -3, _nsstride3, __builtin_choose_expr(n == -2, _nsstride1 * 2, __builtin_choose_expr(n == -1, _nsstride1, __builtin_choose_expr(n == 1, _sstride1, __builtin_choose_expr(n == 2, _sstride1 * 2, __builtin_choose_expr(n == 3, _sstride3, __builtin_choose_expr(n == 4, _sstride1 * 4, 0)))))))))
@@ -670,97 +693,7 @@ static const int8_t shz_mask[48] = {
 #define loada128(p) (*(i8x16*)(p))
 #define loada32x4(p0, p1, p2, p3) (i32x4){*(int32_t *)(p0), *(int32_t *)(p1), *(int32_t *)(p2), *(int32_t *)(p3)}
 #define loada64x2(p0, p1) (i64x2){*(int64_t *)(p0), *(int64_t *)(p1)}
-// placed first to prevent inferring WASM from SSE/NEON and getting untested poor performance
-#if defined(__wasm_simd128__)
-	#include <wasm_simd128.h>
-	#define abs8(a) (u8x16)wasm_i8x16_abs(a)
-	#define abs16(a) (u16x8)wasm_i16x8_abs(a)
-	#define avgu8(a, b) (u8x16)wasm_u8x16_avgr(a, b)
-	// using shufflevector instead of wasm_i8x16_shuffle lets clang eliminate (i8x16){}
-	#define broadcast8(a, i) __builtin_shufflevector((i8x16)(a), (i8x16){}, i, i, i, i, i, i, i, i, i, i, i, i, i, i, i, i)
-	#define broadcast16(a, i) __builtin_shufflevector((i16x8)(a), (i16x8){}, i, i, i, i, i, i, i, i)
-	#define broadcast32(a, i) __builtin_shufflevector((i32x4)(a), (i32x4){}, i, i, i, i)
-	#define broadcast64(a, i) __builtin_shufflevector((i64x2)(a), (i64x2){}, i, i)
-	#define combine64(a, b) (i64x2)wasm_i64x2_shuffle(a, b, 0, 3)
-	#define cvtlo8u16(a) (u16x8)wasm_u16x8_extend_low_u8x16(a)
-	#define cvthi8u16(a) (u16x8)wasm_u16x8_extend_high_u8x16(a)
-	#define cvtlo8s16(a) (i16x8)wasm_i16x8_extend_low_i8x16(a)
-	#define cvthi8s16(a) (i16x8)wasm_i16x8_extend_high_i8x16(a)
-	#define cvtlo16u32(a) (u32x4)wasm_u32x4_extend_low_u16x8(a)
-	#define cvthi16u32(a) (u32x4)wasm_u32x4_extend_high_u16x8(a)
-	#define hadd16(a, b) (i16x8)wasm_i16x8_narrow_i32x4(wasm_i32x4_extadd_pairwise_i16x8(a), wasm_i32x4_extadd_pairwise_i16x8(b))
-	#define loadu32(p) (i32x4)wasm_v128_load32_zero(p)
-	#define loadu64(p) (i64x2)wasm_v128_load64_zero(p)
-	#define loadu128(p) (i8x16)wasm_v128_load(p)
-	#define loadu32x4(p0, p1, p2, p3) (i32x4)wasm_v128_load32_lane(p3, wasm_v128_load32_lane(p2, wasm_v128_load32_lane(p1, wasm_v128_load32_zero(p0), 1), 2), 3)
-	#define loadu64x2(p0, p1) (i64x2)wasm_v128_load64_lane(p1, wasm_v128_load64_zero(p0), 1)
-	#define min8(a, b) (i8x16)wasm_i8x16_min(a, b)
-	#define max8(a, b) (i8x16)wasm_i8x16_max(a, b)
-	#define min16(a, b) (i16x8)wasm_i16x8_min(a, b)
-	#define max16(a, b) (i16x8)wasm_i16x8_max(a, b)
-	#define minu8(a, b) (u8x16)wasm_u8x16_min(a, b)
-	#define maxu8(a, b) (u8x16)wasm_u8x16_max(a, b)
-	#define movemask(a) wasm_i8x16_bitmask(a)
-	#define packs16(a, b) (i8x16)wasm_i8x16_narrow_i16x8(a, b)
-	#define packs32(a, b) (i16x8)wasm_i16x8_narrow_i32x4(a, b)
-	#define packus16(a, b) (i8x16)wasm_u8x16_narrow_i16x8(a, b)
-	#define pow2x4(a) (u32x4)wasm_u32x4_trunc_sat_f32x4(((u32x4)(a) << 23) + (u32x4)wasm_i32x4_splat(0x3f800000))
-	#define set8(i) (i8x16)wasm_i8x16_splat(i)
-	#define set16(i) (i16x8)wasm_i16x8_splat(i)
-	#define set32(i) (i32x4)wasm_i32x4_splat(i)
-	#define set64(i) (i64x2)wasm_i64x2_splat(i)
-	// if we use -1 here clang puts 0 which is much less efficient
-	#define shl128(a, i) __builtin_shufflevector((i8x16)(a), (i8x16){}, (0 - (i)) & 15, (1 - (i)) & 15, (2 - (i)) & 15, (3 - (i)) & 15, (4 - (i)) & 15, (5 - (i)) & 15, (6 - (i)) & 15, (7 - (i)) & 15, (8 - (i)) & 15, (9 - (i)) & 15, (10 - (i)) & 15, (11 - (i)) & 15, (12 - (i)) & 15, (13 - (i)) & 15, (14 - (i)) & 15, (15 - (i)) & 15)
-	#define shr128(a, i) __builtin_shufflevector((i8x16)(a), (i8x16){}, (0 + (i)) & 15, (1 + (i)) & 15, (2 + (i)) & 15, (3 + (i)) & 15, (4 + (i)) & 15, (5 + (i)) & 15, (6 + (i)) & 15, (7 + (i)) & 15, (8 + (i)) & 15, (9 + (i)) & 15, (10 + (i)) & 15, (11 + (i)) & 15, (12 + (i)) & 15, (13 + (i)) & 15, (14 + (i)) & 15, (15 + (i)) & 15)
-	#define shlc128(a, i) __builtin_shufflevector((i8x16)(a), (i8x16){}, (i) > 0 ? 0 : 0 - (i), (i) > 1 ? 0 : 1 - (i), (i) > 2 ? 0 : 2 - (i), (i) > 3 ? 0 : 3 - (i), (i) > 4 ? 0 : 4 - (i), (i) > 5 ? 0 : 5 - (i), (i) > 6 ? 0 : 6 - (i), (i) > 7 ? 0 : 7 - (i), (i) > 8 ? 0 : 8 - (i), (i) > 9 ? 0 : 9 - (i), (i) > 10 ? 0 : 10 - (i), (i) > 11 ? 0 : 11 - (i), (i) > 12 ? 0 : 12 - (i), (i) > 13 ? 0 : 13 - (i), (i) > 14 ? 0 : 14 - (i), (i) > 15 ? 0 : 15 - (i))
-	#define shrc128(a, i) __builtin_shufflevector((i8x16)(a), (i8x16){}, (i) > 15 ? 15 : (i) + 0, (i) > 14 ? 15 : (i) + 1, (i) > 13 ? 15 : (i) + 2, (i) > 12 ? 15 : (i) + 3, (i) > 11 ? 15 : (i) + 4, (i) > 10 ? 15 : (i) + 5, (i) > 9 ? 15 : (i) + 6, (i) > 8 ? 15 : (i) + 7, (i) > 7 ? 15 : (i) + 8, (i) > 6 ? 15 : (i) + 9, (i) > 5 ? 15 : (i) + 10, (i) > 4 ? 15 : (i) + 11, (i) > 3 ? 15 : (i) + 12, (i) > 2 ? 15 : (i) + 13, (i) > 1 ? 15 : (i) + 14, (i) > 0 ? 15 : (i) + 15)
-	#define shrd128(l, h, i) (i8x16)wasm_i8x16_shuffle(l, h, 0 + (i), 1 + (i), 2 + (i), 3 + (i), 4 + (i), 5 + (i), 6 + (i), 7 + (i), 8 + (i), 9 + (i), 10 + (i), 11 + (i), 12 + (i), 13 + (i), 14 + (i), 15 + (i))
-	#define shlv128(a, i) (i8x16)wasm_i8x16_swizzle(a, loadu128(shz_mask + 16 - (i)))
-	#define shrv128(a, i) (i8x16)wasm_i8x16_swizzle(a, loadu128(shz_mask + 16 + (i)))
-	#define shrz128(a, i) (i8x16)wasm_i8x16_shuffle(a, (i8x16){}, 0 + (i), 1 + (i), 2 + (i), 3 + (i), 4 + (i), 5 + (i), 6 + (i), 7 + (i), 8 + (i), 9 + (i), 10 + (i), 11 + (i), 12 + (i), 13 + (i), 14 + (i), 15 + (i))
-	#define shrrs16(a, i) (((i16x8)(a) + (1 << ((i) - 1))) >> (i))
-	#define shrru16(a, i) (((u16x8)(a) + (1 << ((i) - 1))) >> (i))
-	#define shrpus16(a, b, i) (u8x16)wasm_u8x16_narrow_i16x8((i16x8)(a) >> (i), (i16x8)(b) >> (i))
-	#define shrrpu16(a, b, i) (u8x16)wasm_u8x16_narrow_i16x8(((u16x8)(a) + (1 << ((i) - 1))) >> (i), ((u16x8)(b) + (1 << ((i) - 1))) >> (i))
-	#define subsu8(a, b) (u8x16)wasm_u8x16_sub_sat(a, b)
-	#define trnlo32(a, b) (i32x4)wasm_i32x4_shuffle(a, b, 0, 4, 2, 6)
-	#define trnhi32(a, b) (i32x4)wasm_i32x4_shuffle(a, b, 1, 5, 3, 7)
-	#define unziplo32(a, b) (i32x4)wasm_i32x4_shuffle(a, b, 0, 2, 4, 6)
-	#define unziphi32(a, b) (i32x4)wasm_i32x4_shuffle(a, b, 1, 3, 5, 7)
-	#define ziplo8(a, b) (i8x16)wasm_i8x16_shuffle(a, b, 0, 16, 1, 17, 2, 18, 3, 19, 4, 20, 5, 21, 6, 22, 7, 23)
-	#define ziphi8(a, b) (i8x16)wasm_i8x16_shuffle(a, b, 8, 24, 9, 25, 10, 26, 11, 27, 12, 28, 13, 29, 14, 30, 15, 31)
-	#define ziplo16(a, b) (i16x8)wasm_i16x8_shuffle(a, b, 0, 8, 1, 9, 2, 10, 3, 11)
-	#define ziphi16(a, b) (i16x8)wasm_i16x8_shuffle(a, b, 4, 12, 5, 13, 6, 14, 7, 15)
-	#define ziplo32(a, b) (i16x8)wasm_i32x4_shuffle(a, b, 0, 4, 1, 5)
-	#define ziphi32(a, b) (i16x8)wasm_i32x4_shuffle(a, b, 2, 6, 3, 7)
-	#define ziplo64(a, b) (i64x2)wasm_i64x2_shuffle(a, b, 0, 2)
-	#define ziphi64(a, b) (i64x2)wasm_i64x2_shuffle(a, b, 1, 3)
-	// relaxed_dot missed an unsigned version! (using signed saturation here for better SSE2 support)
-	static u16x8 maddubx(u8x16 a, u8x16 b) {return wasm_i16x8_narrow_i32x4(wasm_u32x4_extadd_pairwise_u16x8(wasm_u16x8_extmul_low_u8x16(a, b)), wasm_u32x4_extadd_pairwise_u16x8(wasm_u16x8_extmul_high_u8x16(a, b)));}
-	static u32x4 minw32(u32x4 a, u32x4 b) {return wasm_v128_bitselect(a, b, (i32x4)(a - b) >> 31);}
-	static inline size_t shld(size_t l, size_t h, size_t i) {return h << i | l >> 1 >> (~i & (SIZE_BIT - 1));}
-	static u16x8 sum8(u8x16 a) {u16x8 b = wasm_u32x4_extadd_pairwise_u16x8(wasm_u16x8_extadd_pairwise_u8x16(a)); u16x8 c = b + (u16x8)((u64x2)b >> 32); return c + (u16x8)shr128(c, 8);}
-	#define shufflez shuffle
-	#define shuffle2z shuffle2
-	#ifdef __wasm_relaxed_simd__
-		#define ifelse_mask(v, t, f) (i8x16)wasm_i8x16_relaxed_laneselect(t, f, v)
-		#define ifelse_msb(v, t, f) (i8x16)wasm_i8x16_relaxed_laneselect(t, f, (i8x16)(v) >> 7)
-		#define maddxbs(a, b) (i16x8)wasm_i16x8_relaxed_dot_i8x16_i7x16(b, a)
-		static always_inline i8x16 shuffle(i8x16 a, i8x16 m) {return wasm_i8x16_relaxed_swizzle(a, m);}
-		static i8x16 shufflen(i8x16 a, i8x16 m) {return wasm_i8x16_relaxed_swizzle(a, m) | (0 > m);}
-		static i8x16 shuffle2(i8x16 a, i8x16 b, i8x16 m) {return wasm_i8x16_swizzle(a, m) | wasm_i8x16_relaxed_swizzle(b, m - 16);}
-		static i8x16 shuffle3(const i8x16 *p, i8x16 m) {return wasm_i8x16_swizzle(p[0], m) | wasm_i8x16_swizzle(p[1], m - 16) | wasm_i8x16_relaxed_swizzle(p[2], m - 32);}
-	#else
-		#define ifelse_mask(v, t, f) (i8x16)wasm_v128_bitselect(t, f, v)
-		#define ifelse_msb(v, t, f) (i8x16)wasm_v128_bitselect(t, f, (i8x16)(v) >> 7)
-		// maddubs original polyfill is awful for NEON -> favor the shortest WASM code
-		static i16x8 maddxbs(i8x16 a, i8x16 b) {return wasm_i16x8_narrow_i32x4(wasm_i32x4_extadd_pairwise_i16x8(wasm_i16x8_extmul_low_i8x16(a, b)), wasm_i32x4_extadd_pairwise_i16x8(wasm_i16x8_extmul_high_i8x16(a, b)));}
-		static always_inline i8x16 shuffle(i8x16 a, i8x16 m) {return wasm_i8x16_swizzle(a, m);}
-		static i8x16 shufflen(i8x16 a, i8x16 m) {return wasm_i8x16_swizzle(a, m) | (0 > m);}
-		static i8x16 shuffle2(i8x16 a, i8x16 b, i8x16 m) {return wasm_i8x16_swizzle(a, m) | wasm_i8x16_swizzle(b, m - 16);}
-		static i8x16 shuffle3(const i8x16 *p, i8x16 m) {return wasm_i8x16_swizzle(p[0], m) | wasm_i8x16_swizzle(p[1], m - 16) | wasm_i8x16_swizzle(p[2], m - 32);}
-	#endif
-#elif defined(__SSE2__)
+#if SIMD == SSE
 	#include <immintrin.h>
 	#define adds16(a, b) (i16x8)_mm_adds_epi16(a, b)
 	#define avgu8(a, b) (i8x16)_mm_avg_epu8(a, b)
@@ -877,7 +810,7 @@ static const int8_t shz_mask[48] = {
 		static i8x16 shuffle2z(i8x16 a, i8x16 b, i8x16 m) { return shuffle2(a, b, m) & ~(m < 0); }
 		static i8x16 shuffle3(const i8x16 *p, i8x16 m) {union { int8_t q[16]; i8x16 v; } _m = {.v = _mm_min_epu8(m, _mm_set1_epi8(47))}; for (int i = 0; i < 16; i++) _m.q[i] = ((int8_t *)p)[_m.q[i]]; return _m.v;}
 	#endif
-#elif defined(__ARM_NEON)
+#elif SIMD == NEON
 	#include <arm_neon.h>
 	#define abs8(a) (u8x16)vabsq_s8(a)
 	#define abs16(a) (u16x8)vabsq_s16(a)
@@ -990,9 +923,97 @@ static const int8_t shz_mask[48] = {
 	#endif
 	#define shufflez shuffle
 	#define shuffle2z shuffle2
-#elif defined(__clang__)
-	// prefer functions for non-trivial macros since may compile on a non-SIMD CPU
-	#include <immintrin.h> // FIXME remove
+#elif SIMD == WASM
+	#include <wasm_simd128.h>
+	#define abs8(a) (u8x16)wasm_i8x16_abs(a)
+	#define abs16(a) (u16x8)wasm_i16x8_abs(a)
+	#define avgu8(a, b) (u8x16)wasm_u8x16_avgr(a, b)
+	// using shufflevector instead of wasm_i8x16_shuffle lets clang eliminate (i8x16){}
+	#define broadcast8(a, i) __builtin_shufflevector((i8x16)(a), (i8x16){}, i, i, i, i, i, i, i, i, i, i, i, i, i, i, i, i)
+	#define broadcast16(a, i) __builtin_shufflevector((i16x8)(a), (i16x8){}, i, i, i, i, i, i, i, i)
+	#define broadcast32(a, i) __builtin_shufflevector((i32x4)(a), (i32x4){}, i, i, i, i)
+	#define broadcast64(a, i) __builtin_shufflevector((i64x2)(a), (i64x2){}, i, i)
+	#define combine64(a, b) (i64x2)wasm_i64x2_shuffle(a, b, 0, 3)
+	#define cvtlo8u16(a) (u16x8)wasm_u16x8_extend_low_u8x16(a)
+	#define cvthi8u16(a) (u16x8)wasm_u16x8_extend_high_u8x16(a)
+	#define cvtlo8s16(a) (i16x8)wasm_i16x8_extend_low_i8x16(a)
+	#define cvthi8s16(a) (i16x8)wasm_i16x8_extend_high_i8x16(a)
+	#define cvtlo16u32(a) (u32x4)wasm_u32x4_extend_low_u16x8(a)
+	#define cvthi16u32(a) (u32x4)wasm_u32x4_extend_high_u16x8(a)
+	#define hadd16(a, b) (i16x8)wasm_i16x8_narrow_i32x4(wasm_i32x4_extadd_pairwise_i16x8(a), wasm_i32x4_extadd_pairwise_i16x8(b))
+	#define loadu32(p) (i32x4)wasm_v128_load32_zero(p)
+	#define loadu64(p) (i64x2)wasm_v128_load64_zero(p)
+	#define loadu128(p) (i8x16)wasm_v128_load(p)
+	#define loadu32x4(p0, p1, p2, p3) (i32x4)wasm_v128_load32_lane(p3, wasm_v128_load32_lane(p2, wasm_v128_load32_lane(p1, wasm_v128_load32_zero(p0), 1), 2), 3)
+	#define loadu64x2(p0, p1) (i64x2)wasm_v128_load64_lane(p1, wasm_v128_load64_zero(p0), 1)
+	#define min8(a, b) (i8x16)wasm_i8x16_min(a, b)
+	#define max8(a, b) (i8x16)wasm_i8x16_max(a, b)
+	#define min16(a, b) (i16x8)wasm_i16x8_min(a, b)
+	#define max16(a, b) (i16x8)wasm_i16x8_max(a, b)
+	#define minu8(a, b) (u8x16)wasm_u8x16_min(a, b)
+	#define maxu8(a, b) (u8x16)wasm_u8x16_max(a, b)
+	#define movemask(a) wasm_i8x16_bitmask(a)
+	#define packs16(a, b) (i8x16)wasm_i8x16_narrow_i16x8(a, b)
+	#define packs32(a, b) (i16x8)wasm_i16x8_narrow_i32x4(a, b)
+	#define packus16(a, b) (i8x16)wasm_u8x16_narrow_i16x8(a, b)
+	#define pow2x4(a) (u32x4)wasm_u32x4_trunc_sat_f32x4(((u32x4)(a) << 23) + (u32x4)wasm_i32x4_splat(0x3f800000))
+	#define set8(i) (i8x16)wasm_i8x16_splat(i)
+	#define set16(i) (i16x8)wasm_i16x8_splat(i)
+	#define set32(i) (i32x4)wasm_i32x4_splat(i)
+	#define set64(i) (i64x2)wasm_i64x2_splat(i)
+	// if we use -1 here clang puts 0 which is much less efficient
+	#define shl128(a, i) __builtin_shufflevector((i8x16)(a), (i8x16){}, (0 - (i)) & 15, (1 - (i)) & 15, (2 - (i)) & 15, (3 - (i)) & 15, (4 - (i)) & 15, (5 - (i)) & 15, (6 - (i)) & 15, (7 - (i)) & 15, (8 - (i)) & 15, (9 - (i)) & 15, (10 - (i)) & 15, (11 - (i)) & 15, (12 - (i)) & 15, (13 - (i)) & 15, (14 - (i)) & 15, (15 - (i)) & 15)
+	#define shr128(a, i) __builtin_shufflevector((i8x16)(a), (i8x16){}, (0 + (i)) & 15, (1 + (i)) & 15, (2 + (i)) & 15, (3 + (i)) & 15, (4 + (i)) & 15, (5 + (i)) & 15, (6 + (i)) & 15, (7 + (i)) & 15, (8 + (i)) & 15, (9 + (i)) & 15, (10 + (i)) & 15, (11 + (i)) & 15, (12 + (i)) & 15, (13 + (i)) & 15, (14 + (i)) & 15, (15 + (i)) & 15)
+	#define shlc128(a, i) __builtin_shufflevector((i8x16)(a), (i8x16){}, (i) > 0 ? 0 : 0 - (i), (i) > 1 ? 0 : 1 - (i), (i) > 2 ? 0 : 2 - (i), (i) > 3 ? 0 : 3 - (i), (i) > 4 ? 0 : 4 - (i), (i) > 5 ? 0 : 5 - (i), (i) > 6 ? 0 : 6 - (i), (i) > 7 ? 0 : 7 - (i), (i) > 8 ? 0 : 8 - (i), (i) > 9 ? 0 : 9 - (i), (i) > 10 ? 0 : 10 - (i), (i) > 11 ? 0 : 11 - (i), (i) > 12 ? 0 : 12 - (i), (i) > 13 ? 0 : 13 - (i), (i) > 14 ? 0 : 14 - (i), (i) > 15 ? 0 : 15 - (i))
+	#define shrc128(a, i) __builtin_shufflevector((i8x16)(a), (i8x16){}, (i) > 15 ? 15 : (i) + 0, (i) > 14 ? 15 : (i) + 1, (i) > 13 ? 15 : (i) + 2, (i) > 12 ? 15 : (i) + 3, (i) > 11 ? 15 : (i) + 4, (i) > 10 ? 15 : (i) + 5, (i) > 9 ? 15 : (i) + 6, (i) > 8 ? 15 : (i) + 7, (i) > 7 ? 15 : (i) + 8, (i) > 6 ? 15 : (i) + 9, (i) > 5 ? 15 : (i) + 10, (i) > 4 ? 15 : (i) + 11, (i) > 3 ? 15 : (i) + 12, (i) > 2 ? 15 : (i) + 13, (i) > 1 ? 15 : (i) + 14, (i) > 0 ? 15 : (i) + 15)
+	#define shrd128(l, h, i) (i8x16)wasm_i8x16_shuffle(l, h, 0 + (i), 1 + (i), 2 + (i), 3 + (i), 4 + (i), 5 + (i), 6 + (i), 7 + (i), 8 + (i), 9 + (i), 10 + (i), 11 + (i), 12 + (i), 13 + (i), 14 + (i), 15 + (i))
+	#define shlv128(a, i) (i8x16)wasm_i8x16_swizzle(a, loadu128(shz_mask + 16 - (i)))
+	#define shrv128(a, i) (i8x16)wasm_i8x16_swizzle(a, loadu128(shz_mask + 16 + (i)))
+	#define shrz128(a, i) (i8x16)wasm_i8x16_shuffle(a, (i8x16){}, 0 + (i), 1 + (i), 2 + (i), 3 + (i), 4 + (i), 5 + (i), 6 + (i), 7 + (i), 8 + (i), 9 + (i), 10 + (i), 11 + (i), 12 + (i), 13 + (i), 14 + (i), 15 + (i))
+	#define shrrs16(a, i) (((i16x8)(a) + (1 << ((i) - 1))) >> (i))
+	#define shrru16(a, i) (((u16x8)(a) + (1 << ((i) - 1))) >> (i))
+	#define shrpus16(a, b, i) (u8x16)wasm_u8x16_narrow_i16x8((i16x8)(a) >> (i), (i16x8)(b) >> (i))
+	#define shrrpu16(a, b, i) (u8x16)wasm_u8x16_narrow_i16x8(((u16x8)(a) + (1 << ((i) - 1))) >> (i), ((u16x8)(b) + (1 << ((i) - 1))) >> (i))
+	#define subsu8(a, b) (u8x16)wasm_u8x16_sub_sat(a, b)
+	#define trnlo32(a, b) (i32x4)wasm_i32x4_shuffle(a, b, 0, 4, 2, 6)
+	#define trnhi32(a, b) (i32x4)wasm_i32x4_shuffle(a, b, 1, 5, 3, 7)
+	#define unziplo32(a, b) (i32x4)wasm_i32x4_shuffle(a, b, 0, 2, 4, 6)
+	#define unziphi32(a, b) (i32x4)wasm_i32x4_shuffle(a, b, 1, 3, 5, 7)
+	#define ziplo8(a, b) (i8x16)wasm_i8x16_shuffle(a, b, 0, 16, 1, 17, 2, 18, 3, 19, 4, 20, 5, 21, 6, 22, 7, 23)
+	#define ziphi8(a, b) (i8x16)wasm_i8x16_shuffle(a, b, 8, 24, 9, 25, 10, 26, 11, 27, 12, 28, 13, 29, 14, 30, 15, 31)
+	#define ziplo16(a, b) (i16x8)wasm_i16x8_shuffle(a, b, 0, 8, 1, 9, 2, 10, 3, 11)
+	#define ziphi16(a, b) (i16x8)wasm_i16x8_shuffle(a, b, 4, 12, 5, 13, 6, 14, 7, 15)
+	#define ziplo32(a, b) (i16x8)wasm_i32x4_shuffle(a, b, 0, 4, 1, 5)
+	#define ziphi32(a, b) (i16x8)wasm_i32x4_shuffle(a, b, 2, 6, 3, 7)
+	#define ziplo64(a, b) (i64x2)wasm_i64x2_shuffle(a, b, 0, 2)
+	#define ziphi64(a, b) (i64x2)wasm_i64x2_shuffle(a, b, 1, 3)
+	// relaxed_dot missed an unsigned version! (using signed saturation here for better SSE2 support)
+	static u16x8 maddubx(u8x16 a, u8x16 b) {return wasm_i16x8_narrow_i32x4(wasm_u32x4_extadd_pairwise_u16x8(wasm_u16x8_extmul_low_u8x16(a, b)), wasm_u32x4_extadd_pairwise_u16x8(wasm_u16x8_extmul_high_u8x16(a, b)));}
+	static u32x4 minw32(u32x4 a, u32x4 b) {return wasm_v128_bitselect(a, b, (i32x4)(a - b) >> 31);}
+	static inline size_t shld(size_t l, size_t h, size_t i) {return h << i | l >> 1 >> (~i & (SIZE_BIT - 1));}
+	static u16x8 sum8(u8x16 a) {u16x8 b = wasm_u32x4_extadd_pairwise_u16x8(wasm_u16x8_extadd_pairwise_u8x16(a)); u16x8 c = b + (u16x8)((u64x2)b >> 32); return c + (u16x8)shr128(c, 8);}
+	#define shufflez shuffle
+	#define shuffle2z shuffle2
+	#ifdef __wasm_relaxed_simd__
+		#define ifelse_mask(v, t, f) (i8x16)wasm_i8x16_relaxed_laneselect(t, f, v)
+		#define ifelse_msb(v, t, f) (i8x16)wasm_i8x16_relaxed_laneselect(t, f, (i8x16)(v) >> 7)
+		#define maddxbs(a, b) (i16x8)wasm_i16x8_relaxed_dot_i8x16_i7x16(b, a)
+		static always_inline i8x16 shuffle(i8x16 a, i8x16 m) {return wasm_i8x16_relaxed_swizzle(a, m);}
+		static i8x16 shufflen(i8x16 a, i8x16 m) {return wasm_i8x16_relaxed_swizzle(a, m) | (0 > m);}
+		static i8x16 shuffle2(i8x16 a, i8x16 b, i8x16 m) {return wasm_i8x16_swizzle(a, m) | wasm_i8x16_relaxed_swizzle(b, m - 16);}
+		static i8x16 shuffle3(const i8x16 *p, i8x16 m) {return wasm_i8x16_swizzle(p[0], m) | wasm_i8x16_swizzle(p[1], m - 16) | wasm_i8x16_relaxed_swizzle(p[2], m - 32);}
+	#else
+		#define ifelse_mask(v, t, f) (i8x16)wasm_v128_bitselect(t, f, v)
+		#define ifelse_msb(v, t, f) (i8x16)wasm_v128_bitselect(t, f, (i8x16)(v) >> 7)
+		// maddubs original polyfill is awful for NEON -> favor the shortest WASM code
+		static i16x8 maddxbs(i8x16 a, i8x16 b) {return wasm_i16x8_narrow_i32x4(wasm_i32x4_extadd_pairwise_i16x8(wasm_i16x8_extmul_low_i8x16(a, b)), wasm_i32x4_extadd_pairwise_i16x8(wasm_i16x8_extmul_high_i8x16(a, b)));}
+		static always_inline i8x16 shuffle(i8x16 a, i8x16 m) {return wasm_i8x16_swizzle(a, m);}
+		static i8x16 shufflen(i8x16 a, i8x16 m) {return wasm_i8x16_swizzle(a, m) | (0 > m);}
+		static i8x16 shuffle2(i8x16 a, i8x16 b, i8x16 m) {return wasm_i8x16_swizzle(a, m) | wasm_i8x16_swizzle(b, m - 16);}
+		static i8x16 shuffle3(const i8x16 *p, i8x16 m) {return wasm_i8x16_swizzle(p[0], m) | wasm_i8x16_swizzle(p[1], m - 16) | wasm_i8x16_swizzle(p[2], m - 32);}
+	#endif
+#elif SIMD == CLANG
+	// prefer functions for non-trivial macros since they may compile on a non-SIMD CPU
 	#define abs8(a) __builtin_elementwise_abs((i8x16)(a))
 	#define abs16(a) __builtin_elementwise_abs((i16x8)(a))
 	#define adds16(a, b) __builtin_elementwise_add_sat((i16x8)(a), (i16x8)(b))
@@ -1069,8 +1090,6 @@ static const int8_t shz_mask[48] = {
 	static u8x16 shrrpu16(u16x8 a, u16x8 b, int i) {u16x8 o = set16(1 << (i - 1)), hi = set16(255), c = __builtin_elementwise_min((a + o) >> i, hi), d = __builtin_elementwise_min((b + o) >> i, hi); return __builtin_convertvector((u16x16){c[0], c[1], c[2], c[3], c[4], c[5], c[6], c[7], d[0], d[1], d[2], d[3], d[4], d[5], d[6], d[7]}, u8x16);}
 	#define maddxbs maddubs
 	#define maddubx (u16x8)maddubs
-#else
-	#error "No supported vector intrinsics found (SSE, NEON, WASM, clang)"
 #endif
 
 
@@ -1107,6 +1126,7 @@ static always_inline int rbsp_end(Edge264GetBits *gb, int trailing_bit) {
 	static always_inline int __builtin_clzg(unsigned a, int b) { return a ? __builtin_clz(a) : b; }
 #endif
 #ifdef __BMI2__ // FIXME and not AMD pre-Zen3
+	#include <immintrin.h>
 	static always_inline int extract_neighbours(unsigned f) { return _pext_u32(f, 0x27); }
 	static always_inline int mvd_flags2ref_idx(unsigned f) { return _pext_u32(f, 0x11111111); }
 #else

@@ -23,19 +23,13 @@
 
 #include "edge264_internal.h"
 
-#if defined(__wasm_simd128__)
-	#define spreadh8(a) (i8x16)__builtin_shufflevector((i8x16)(a), (i8x16){}, 0, 1, 2, 3, 4, 5, 6, 7, 7, 7, 7, 7, 7, 7, 7, 7)
-	#define spreadq8(a) (i8x16)__builtin_shufflevector((i8x16)(a), (i8x16){}, 0, 1, 2, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3)
-	#define sum8h8(a, b, c, d) packs32(wasm_u32x4_extadd_pairwise_u16x8(packs32(wasm_u32x4_extadd_pairwise_u16x8(wasm_u16x8_extadd_pairwise_u8x16(a)), wasm_u32x4_extadd_pairwise_u16x8(wasm_u16x8_extadd_pairwise_u8x16(b)))), wasm_u32x4_extadd_pairwise_u16x8(packs32(wasm_u32x4_extadd_pairwise_u16x8(wasm_u16x8_extadd_pairwise_u8x16(c)), wasm_u32x4_extadd_pairwise_u16x8(wasm_u16x8_extadd_pairwise_u8x16(d)))))
-	static i8x16 lowpass8(i8x16 l, i8x16 m, i8x16 r) {return avgu8(subsu8(avgu8(l, r), (l ^ r) & set8(1)), m);}
-	static u16x8 sumh8(u8x16 a) {u16x8 b = wasm_u32x4_extadd_pairwise_u16x8(wasm_u16x8_extadd_pairwise_u8x16(a)); return b + (u16x8)((u64x2)b >> 32);}
-#elif defined(__SSE2__)
+#if SIMD == SSE
 	#define spreadh8(a) shuffle(a, (i8x16){0, 1, 2, 3, 4, 5, 6, 7, 7, 7, 7, 7, 7, 7, 7, 7})
 	#define spreadq8(a) shuffle(a, (i8x16){0, 1, 2, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3})
 	#define sumh8(a) (u16x8)_mm_sad_epu8(a, (i8x16){})
 	#define sum8h8(a, b, c, d) (i16x8)packs32(packs32(sumh8(a), sumh8(b)), packs32(sumh8(c), sumh8(d)))
-	static always_inline i8x16 lowpass8(i8x16 l, i8x16 m, i8x16 r) {return avgu8(subsu8(avgu8(l, r), (l ^ r) & set8(1)), m);}
-#elif defined(__ARM_NEON)
+	static always_inline u8x16 lowpass8(u8x16 l, u8x16 m, u8x16 r) {return avgu8(subsu8(avgu8(l, r), (l ^ r) & set8(1)), m);}
+#elif SIMD == NEON
 	#define lowpass8(l, m, r) (i8x16)vrhaddq_u8(vhaddq_u8(l, r), m)
 	static always_inline i8x16 spreadh8(i8x16 a) {return vcombine_s8(vget_low_s8(a), vdup_lane_s8(vget_low_s8(a), 7));}
 	static always_inline i8x16 spreadq8(i8x16 a) {return vextq_s8(vextq_s8(a, a, 4), broadcast8(a, 3), 12);}
@@ -46,9 +40,21 @@
 		#define sumh8(a) (u16x8)vpaddlq_u32(vpaddlq_u16(vpaddlq_u8(a)))
 		static always_inline i16x8 sum8h8(u8x16 a, u8x16 b, u8x16 c, u8x16 d) {i16x8 e = vpaddlq_u8(a), f = vpaddlq_u8(b), g = vpaddlq_u8(c), h = vpaddlq_u8(d); i16x8 i = vcombine_s16(vpadd_s16(vget_low_s16(e), vget_high_s16(e)), vpadd_s16(vget_low_s16(f), vget_high_s16(f))); i16x8 j = vcombine_s16(vpadd_s16(vget_low_s16(g), vget_high_s16(g)), vpadd_s16(vget_low_s16(h), vget_high_s16(h))); return vcombine_s16(vpadd_s16(vget_low_s16(i), vget_high_s16(i)), vpadd_s16(vget_low_s16(j), vget_high_s16(j)));}
 	#endif
+#elif SIMD == WASM
+	#define spreadh8(a) __builtin_shufflevector((i8x16)(a), (i8x16){}, 0, 1, 2, 3, 4, 5, 6, 7, 7, 7, 7, 7, 7, 7, 7, 7)
+	#define spreadq8(a) __builtin_shufflevector((i8x16)(a), (i8x16){}, 0, 1, 2, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3)
+	#define sum8h8(a, b, c, d) packs32(wasm_u32x4_extadd_pairwise_u16x8(packs32(wasm_u32x4_extadd_pairwise_u16x8(wasm_u16x8_extadd_pairwise_u8x16(a)), wasm_u32x4_extadd_pairwise_u16x8(wasm_u16x8_extadd_pairwise_u8x16(b)))), wasm_u32x4_extadd_pairwise_u16x8(packs32(wasm_u32x4_extadd_pairwise_u16x8(wasm_u16x8_extadd_pairwise_u8x16(c)), wasm_u32x4_extadd_pairwise_u16x8(wasm_u16x8_extadd_pairwise_u8x16(d)))))
+	static u8x16 lowpass8(u8x16 l, u8x16 m, u8x16 r) {return avgu8(subsu8(avgu8(l, r), (l ^ r) & set8(1)), m);}
+	static u16x8 sumh8(u8x16 a) {u16x8 b = wasm_u32x4_extadd_pairwise_u16x8(wasm_u16x8_extadd_pairwise_u8x16(a)); return b + (u16x8)((u64x2)b >> 32);}
+#elif SIMD == CLANG
+	#define spreadh8(a) __builtin_shufflevector((i8x16)(a), (i8x16){}, 0, 1, 2, 3, 4, 5, 6, 7, 7, 7, 7, 7, 7, 7, 7, 7)
+	#define spreadq8(a) __builtin_shufflevector((i8x16)(a), (i8x16){}, 0, 1, 2, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3)
+	#define sumh8(a) (u16x8){__builtin_reduce_add(cvtlo8u16(a))}
+	static inline i16x8 sum8h8(u8x16 a, u8x16 b, u8x16 c, u8x16 d) {return (i16x8){__builtin_reduce_add(cvtlo8u16(a)), __builtin_reduce_add(cvthi8u16(a)), __builtin_reduce_add(cvtlo8u16(b)), __builtin_reduce_add(cvthi8u16(b)), __builtin_reduce_add(cvtlo8u16(c)), __builtin_reduce_add(cvthi8u16(c)), __builtin_reduce_add(cvtlo8u16(d)), __builtin_reduce_add(cvthi8u16(d))};}
+	static inline u8x16 lowpass8(u8x16 l, u8x16 m, u8x16 r) {return __builtin_convertvector((__builtin_convertvector(l, u16x16) + __builtin_convertvector(m, u16x16) * 2 + __builtin_convertvector(r, u16x16) + 2) >> 2, u8x16);}
 #endif
 
-#if defined(__wasm_simd128__) || defined(__ARM_NEON)
+#if SIMD != SSE
 	static i8x16 ldleft4x4(const uint8_t *p, size_t stride) {
 		i8x16 v = {*(p -= 1)};
 		v[1] = *(p += stride);
@@ -200,7 +206,7 @@
 		v[15] = pC[stride3];
 		return v;
 	}
-#elif defined(__SSE2__)
+#else
 	static i8x16 ldleft4x4(const uint8_t *p, size_t stride) {
 		p -= 4;
 		i8x16 v0 = ziplo8(loada32(p             ), loada32(p + stride    ));

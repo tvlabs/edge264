@@ -21,15 +21,20 @@ Features
 Supported platforms
 -------------------
 
-* Windows: x86, x64
-* Linux: x86, x64, ARM32, ARM64
-* macOS: x64, ARM64
+edge264 is entirely developed in C using [GCC vector extensions](https://gcc.gnu.org/onlinedocs/gcc/Vector-Extensions.html) and vector intrinsics, and can be compiled with GNU GCC or LLVM Clang.
+Supported operating systems are currently **macOS**, **Linux** and **Windows**.
 
+There are 4 implemented vector backends, with a last portable one relying on [Clang vector extensions](https://clang.llvm.org/docs/LanguageExtensions.html#vectors-and-extended-vectors).
+
+| | Intel x86/x64 | ARM32/64 with NEON | WASM32/64 v2+ | Other ISAs |
+|-|-|-|-|-|
+| Clang | ✓ | ✓ | ✓ | ✓ (v15+) |
+| GCC | ✓ | ✓ | | |
 
 Compiling and testing
 ---------------------
 
-edge264 is entirely developed in C using 128-bit [vector extensions](https://gcc.gnu.org/onlinedocs/gcc/Vector-Extensions.html) and vector intrinsics, and can be compiled with GNU GCC or LLVM Clang. [SDL2](https://www.libsdl.org/) runtime library may be used (optional) to enable display with `edge264_test`.
+[SDL2](https://www.libsdl.org/) runtime library may be used (optional) to enable display with `edge264_test`.
 
 Here are the `make` options for tuning the compiled library file:
 

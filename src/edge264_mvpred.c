@@ -1,13 +1,6 @@
 #include "edge264_internal.h"
 
-#if defined(__wasm_simd128__)
-	static always_inline i16x8 temporal_scale(i16x8 mvCol, int16_t DistScaleFactor) {
-		i16x8 mul = set16(DistScaleFactor);
-		i32x4 lo = wasm_i32x4_extmul_low_i16x8(mvCol, mul);
-		i32x4 hi = wasm_i32x4_extmul_high_i16x8(mvCol, mul);
-		return packs32((lo + 128) >> 8, (hi + 128) >> 8);
-	}
-#elif defined(__SSE2__)
+#if SIMD == SSE
 	static always_inline i16x8 temporal_scale(i16x8 mvCol, int16_t DistScaleFactor) {
 		i32x4 neg = set32(-1);
 		i32x4 mul = set32(DistScaleFactor + 0xff800000u);
@@ -15,7 +8,7 @@
 		i32x4 hi = _mm_madd_epi16(ziphi16(mvCol, neg), mul);
 		return packs32(lo >> 8, hi >> 8);
 	}
-#elif defined(__ARM_NEON)
+#elif SIMD == NEON
 	#ifdef __aarch64__
 		static always_inline i16x8 temporal_scale(i16x8 mvCol, int16_t DistScaleFactor) {
 			i32x4 lo = vmull_n_s16(vget_low_s16(mvCol), DistScaleFactor);
@@ -29,6 +22,15 @@
 			return vcombine_s16(vqrshrn_n_s32(lo, 8), vqrshrn_n_s32(hi, 8));
 		}
 	#endif
+#elif SIMD == WASM
+	static always_inline i16x8 temporal_scale(i16x8 mvCol, int16_t DistScaleFactor) {
+		i16x8 mul = set16(DistScaleFactor);
+		i32x4 lo = wasm_i32x4_extmul_low_i16x8(mvCol, mul);
+		i32x4 hi = wasm_i32x4_extmul_high_i16x8(mvCol, mul);
+		return packs32((lo + 128) >> 8, (hi + 128) >> 8);
+	}
+#elif SIMD == CLANG
+	static inline i16x8 temporal_scale(i16x8 mvCol, int16_t DistScaleFactor) {return __builtin_convertvector((__builtin_convertvector(mvCol, i32x8) * DistScaleFactor + 128) >> 8, i16x8);}
 #endif
 static always_inline i16x8 mvs_near_zero(i16x8 mvCol, i32x4 zero) {
 	return (u32x4)(abs16(mvCol) >> 1) == zero;

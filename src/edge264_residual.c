@@ -1,21 +1,6 @@
 #include "edge264_internal.h"
 
-#if defined(__wasm_simd128__)
-	#define addlou8s16(a, b) ((i16x8)wasm_u16x8_extend_low_u8x16(a) + (i16x8)(b))
-	#define addhiu8s16(a, b) ((i16x8)wasm_u16x8_extend_high_u8x16(a) + (i16x8)(b))
-	#define mullou8(a, b) (u16x8)wasm_u16x8_extmul_low_u8x16(a, b)
-	#define mulhiu8(a, b) (u16x8)wasm_u16x8_extmul_high_u8x16(a, b)
-	#define shlrrs32(a, l, r, off) ((((i32x4)(a) << (l)) + (off)) >> (r))
-	#define shrrs32(a, i, off) (((i32x4)(a) + (off)) >> (i))
-	#define shrps32(a, b, i) (i16x8)wasm_i16x8_narrow_i32x4((i32x4)(a) >> i, (i32x4)(b) >> i)
-	static always_inline i16x8 broadcastlo32(i16x8 a) {return wasm_i16x8_shuffle(a, a, 0, 0, 0, 0, 2, 2, 2, 2);}
-	static always_inline i16x8 broadcasthi32(i16x8 a) {return wasm_i16x8_shuffle(a, a, 4, 4, 4, 4, 6, 6, 6, 6);}
-	static always_inline i16x8 scale32(i32x4 c0, i32x4 c1, u16x8 ls, int mul, i32x4 off, i32x4 sh, int s) {
-		i32x4 a = wasm_i32x4_dot_i16x8(c0, wasm_u32x4_extend_low_u16x8(ls));
-		i32x4 b = wasm_i32x4_dot_i16x8(c1, wasm_u32x4_extend_high_u16x8(ls));
-		return wasm_i16x8_narrow_i32x4((a + off) >> s, (b + off) >> s);
-	}
-#elif defined(__SSE2__)
+#if SIMD == SSE
 	#define addlou8s16(a, b) (cvtlo8u16(a) + (i16x8)b)
 	#define addhiu8s16(a, b) ((i16x8)ziphi8(a, (i8x16){}) + (i16x8)b)
 	#define broadcastlo32(a) (i16x8)_mm_shuffle_epi32(_mm_shufflelo_epi16(a, _MM_SHUFFLE(2, 2, 0, 0)), _MM_SHUFFLE(1, 1, 0, 0))
@@ -23,14 +8,14 @@
 	#define mullou8(a, b) (cvtlo8u16(a) * cvtlo8u16(b))
 	#define mulhiu8(a, b) ((u16x8)ziphi8(a, (i8x16){}) * (u16x8)ziphi8(b, (i8x16){}))
 	#define shlrrs32(a, l, r, off) ((((i32x4)(a) << (l)) + (off)) >> (r))
-	#define shrrs32(a, i, off) (((i32x4)a + off) >> i)
-	#define shrps32(a, b, i) (i16x8)_mm_packs_epi32((i32x4)(a) >> i, (i32x4)(b) >> i)
-	static always_inline i16x8 scale32(i32x4 c0, i32x4 c1, u16x8 ls, int mul, i32x4 off, i32x4 sh, int s) {
+	#define shrrs32(a, i, off) (((i32x4)(a) + (off)) >> (i))
+	#define shrps32(a, b, i) (i16x8)_mm_packs_epi32((i32x4)(a) >> (i), (i32x4)(b) >> (i))
+	static always_inline i16x8 scale32(i32x4 c0, i32x4 c1, u16x8 ls, i32x4 off, i64x2 sh) {
 		i32x4 a = _mm_madd_epi16(cvtlo16u32(ls), c0);
 		i32x4 b = _mm_madd_epi16(cvthi16u32(ls), c1);
 		return packs32(_mm_sra_epi32(a + off, sh), _mm_sra_epi32(b + off, sh));
 	}
-#elif defined(__ARM_NEON)
+#elif SIMD == NEON
 	#define addlou8s16(a, b) (i16x8)vaddw_u8(b, vget_low_u8(a))
 	#define mullou8(a, b) (u16x8)vmull_u8(vget_low_u8(a), vget_low_u8(b))
 	#define shlrrs32(a, l, r, off) (i32x4)vrshlq_s32(a, vdupq_n_s32((l) - (r)))
@@ -41,9 +26,9 @@
 		#define shrps32(a, b, i) (u8x16)vqshrn_high_n_s32(vqshrn_n_s32(a, i), b, i)
 		static always_inline i16x8 broadcastlo32(i32x4 a) {i16x8 b = vtrn1q_s16(a, a); return vzip1q_s16(b, b);}
 		static always_inline i16x8 broadcasthi32(i32x4 a) {i16x8 b = vtrn1q_s16(a, a); return vzip2q_s16(b, b);}
-		static always_inline i16x8 scale32(i32x4 c0, i32x4 c1, u16x8 ls, int mul, i32x4 off, i32x4 sh, int s) {
-			i32x4 a = vmull_n_s16(vget_low_s16(ls), mul);
-			i32x4 b = vmull_high_n_s16(ls, mul);
+		static always_inline i16x8 scale32(i32x4 c0, i32x4 c1, u16x8 ls, int _, int sh) {
+			i32x4 a = vmull_n_s16(vget_low_s16(ls), sh);
+			i32x4 b = vmull_high_n_s16(ls, sh);
 			return vrshrn_high_n_s32(vrshrn_n_s32(a * c0, 6), b * c1, 6);
 		}
 	#else
@@ -52,12 +37,41 @@
 		#define shrps32(a, b, i) (u8x16)vcombine_u8(vqshrn_n_s32(a, i), vqshrn_n_s32(b, i))
 		static always_inline i16x8 broadcastlo32(i32x4 a) {return vcombine_s16(vdup_lane_s16(vget_low_s16(a), 0), vdup_lane_s16(vget_low_s16(a), 2));}
 		static always_inline i16x8 broadcasthi32(i32x4 a) {return vcombine_s16(vdup_lane_s16(vget_high_s16(a), 0), vdup_lane_s16(vget_high_s16(a), 2));}
-		static always_inline i16x8 scale32(i32x4 c0, i32x4 c1, u16x8 ls, int mul, i32x4 off, i32x4 sh, int s) {
-			i32x4 a = vmull_n_s16(vget_low_s16(ls), mul);
-			i32x4 b = vmull_n_s16(vget_high_s16(ls), mul);
+		static always_inline i16x8 scale32(i32x4 c0, i32x4 c1, u16x8 ls, int _, int sh) {
+			i32x4 a = vmull_n_s16(vget_low_s16(ls), sh);
+			i32x4 b = vmull_n_s16(vget_high_s16(ls), sh);
 			return vcombine_s16(vrshrn_n_s32(a * c0, 6), vrshrn_n_s32(b * c1, 6));
 		}
 	#endif
+#elif SIMD == WASM
+	#define addlou8s16(a, b) ((i16x8)wasm_u16x8_extend_low_u8x16(a) + (i16x8)(b))
+	#define addhiu8s16(a, b) ((i16x8)wasm_u16x8_extend_high_u8x16(a) + (i16x8)(b))
+	#define mullou8(a, b) (u16x8)wasm_u16x8_extmul_low_u8x16(a, b)
+	#define mulhiu8(a, b) (u16x8)wasm_u16x8_extmul_high_u8x16(a, b)
+	#define shlrrs32(a, l, r, off) ((((i32x4)(a) << (l)) + (off)) >> (r))
+	#define shrrs32(a, i, off) (((i32x4)(a) + (off)) >> (i))
+	#define shrps32(a, b, i) (i16x8)wasm_i16x8_narrow_i32x4((i32x4)(a) >> i, (i32x4)(b) >> i)
+	static always_inline i16x8 broadcastlo32(i16x8 a) {return wasm_i16x8_shuffle(a, a, 0, 0, 0, 0, 2, 2, 2, 2);}
+	static always_inline i16x8 broadcasthi32(i16x8 a) {return wasm_i16x8_shuffle(a, a, 4, 4, 4, 4, 6, 6, 6, 6);}
+	static always_inline i16x8 scale32(i32x4 c0, i32x4 c1, u16x8 ls, i32x4 off, int sh) {
+		i32x4 a = wasm_i32x4_dot_i16x8(c0, wasm_u32x4_extend_low_u16x8(ls));
+		i32x4 b = wasm_i32x4_dot_i16x8(c1, wasm_u32x4_extend_high_u16x8(ls));
+		return wasm_i16x8_narrow_i32x4((a + off) >> sh, (b + off) >> sh);
+	}
+#elif SIMD == CLANG
+	#define addlou8s16(a, b) ((i16x8)cvtlo8u16(a) + (i16x8)(b))
+	#define addhiu8s16(a, b) ((i16x8)cvthi8u16(a) + (i16x8)(b))
+	#define broadcastlo32(a) __builtin_shufflevector((i16x8)(a), (i16x8){}, 0, 0, 0, 0, 2, 2, 2, 2)
+	#define broadcasthi32(a) __builtin_shufflevector((i16x8)(a), (i16x8){}, 4, 4, 4, 4, 6, 6, 6, 6)
+	#define mullou8(a, b) (cvtlo8u16(a) * cvtlo8u16(b))
+	#define mulhiu8(a, b) (cvthi8u16(a) * cvthi8u16(b))
+	#define shlrrs32(a, l, r, off) ((((i32x4)(a) << (l)) + (off)) >> (r))
+	#define shrrs32(a, i, off) (((i32x4)(a) + (off)) >> (i))
+	#define shrps32(a, b, i) packs32((i32x4)(a) >> (i), (i32x4)(b) >> (i))
+	static inline i16x8 scale32(i32x4 c0, i32x4 c1, u16x8 ls, i32x4 off, i32x4 sh) {
+		// convertvector is sufficient here but packs should be more common in ISAs
+		return packs32(((i32x4)cvtlo16u32(ls) * c0 + off) >> sh, ((i32x4)cvthi16u32(ls) * c1 + off) >> sh);
+	}
 #endif
 
 static const i8x16 normAdjust4x4[6] = {
@@ -198,18 +212,27 @@ static void add_idct8x8(Edge264Context *ctx, int iYCbCr, uint8_t *dst0)
 		i32x4 *c = ctx->c_v;
 		i16x8 d0, d1, d2, d3, d4, d5, d6, d7;
 		if (__builtin_expect(div < 6, 1)) {
-			int mul = 1 << div; // for NEON
-			int s = 6 - div; // for WASM
-			i32x4 off = set32(1 << (5 - div)); // for SSE
-			i32x4 sh = {s}; // for SSE
-			d0 = scale32(c[0], c[1], LS0, mul, off, sh, s);
-			d1 = scale32(c[2], c[3], LS1, mul, off, sh, s);
-			d2 = scale32(c[4], c[5], LS2, mul, off, sh, s);
-			d3 = scale32(c[6], c[7], LS3, mul, off, sh, s);
-			d4 = scale32(c[8], c[9], LS4, mul, off, sh, s);
-			d5 = scale32(c[10], c[11], LS5, mul, off, sh, s);
-			d6 = scale32(c[12], c[13], LS6, mul, off, sh, s);
-			d7 = scale32(c[14], c[15], LS7, mul, off, sh, s);
+			#if SIMD == SSE
+				i32x4 off = set32(1 << (5 - div));
+				i64x2 sh = {6 - div};
+			#elif SIMD == NEON
+				int off = 0;
+				int sh = 1 << div;
+			#elif SIMD == WASM
+				i32x4 off = set32(1 << (5 - div));
+				int sh = 6 - div;
+			#elif SIMD == CLANG
+				i32x4 off = set32(1 << (5 - div));
+				i32x4 sh = set32(6 - div);
+			#endif
+			d0 = scale32(c[0], c[1], LS0, off, sh);
+			d1 = scale32(c[2], c[3], LS1, off, sh);
+			d2 = scale32(c[4], c[5], LS2, off, sh);
+			d3 = scale32(c[6], c[7], LS3, off, sh);
+			d4 = scale32(c[8], c[9], LS4, off, sh);
+			d5 = scale32(c[10], c[11], LS5, off, sh);
+			d6 = scale32(c[12], c[13], LS6, off, sh);
+			d7 = scale32(c[14], c[15], LS7, off, sh);
 		} else {
 			int sh = div - 6;
 			// FIXME use shift function for SSE

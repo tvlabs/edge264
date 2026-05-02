@@ -837,11 +837,12 @@ static const int8_t shz_mask[48] = {
 	#define shlc128(a, i) (i8x16)({i8x16 _a = (a); vextq_s8(broadcast8(_a, 0), _a, 16 - (i));})
 	#define shrc128(a, i) (i8x16)({i8x16 _a = (a); vextq_s8(_a, broadcast8(_a, 15), i);})
 	#define shrd128(l, h, i) (i8x16)vextq_s8(l, h, i)
+	#define shrlou16(a, i) (uint64_t)vshrn_n_u16(a, i)
+	#define shrrs16(a, i) (i16x8)vrshrq_n_s16(a, i)
+	#define shrru16(a, i) (i16x8)vrshrq_n_u16(a, i)
 	#define shlv128(a, i) shufflez(a, loadu128(shz_mask + 16 - (i)))
 	#define shrv128(a, i) shufflez(a, loadu128(shz_mask + 16 + (i)))
 	#define shrz128(a, i) (i8x16)vextq_s8(a, (i8x16){}, i)
-	#define shrrs16(a, i) (i16x8)vrshrq_n_s16(a, i)
-	#define shrru16(a, i) (i16x8)vrshrq_n_u16(a, i)
 	#define subsu8(a, b) (u8x16)vqsubq_u8(a, b)
 	static always_inline i32x4 loadu32(const void *p) {i32x4 a = {}; memcpy(&a, p, 4); return a;}
 	static always_inline i64x2 loadu64(const void *p) {i64x2 a = {}; memcpy(&a, p, 8); return a;}
@@ -967,13 +968,14 @@ static const int8_t shz_mask[48] = {
 	#define shlc128(a, i) __builtin_shufflevector((i8x16)(a), (i8x16){}, (i) > 0 ? 0 : 0 - (i), (i) > 1 ? 0 : 1 - (i), (i) > 2 ? 0 : 2 - (i), (i) > 3 ? 0 : 3 - (i), (i) > 4 ? 0 : 4 - (i), (i) > 5 ? 0 : 5 - (i), (i) > 6 ? 0 : 6 - (i), (i) > 7 ? 0 : 7 - (i), (i) > 8 ? 0 : 8 - (i), (i) > 9 ? 0 : 9 - (i), (i) > 10 ? 0 : 10 - (i), (i) > 11 ? 0 : 11 - (i), (i) > 12 ? 0 : 12 - (i), (i) > 13 ? 0 : 13 - (i), (i) > 14 ? 0 : 14 - (i), (i) > 15 ? 0 : 15 - (i))
 	#define shrc128(a, i) __builtin_shufflevector((i8x16)(a), (i8x16){}, (i) > 15 ? 15 : (i) + 0, (i) > 14 ? 15 : (i) + 1, (i) > 13 ? 15 : (i) + 2, (i) > 12 ? 15 : (i) + 3, (i) > 11 ? 15 : (i) + 4, (i) > 10 ? 15 : (i) + 5, (i) > 9 ? 15 : (i) + 6, (i) > 8 ? 15 : (i) + 7, (i) > 7 ? 15 : (i) + 8, (i) > 6 ? 15 : (i) + 9, (i) > 5 ? 15 : (i) + 10, (i) > 4 ? 15 : (i) + 11, (i) > 3 ? 15 : (i) + 12, (i) > 2 ? 15 : (i) + 13, (i) > 1 ? 15 : (i) + 14, (i) > 0 ? 15 : (i) + 15)
 	#define shrd128(l, h, i) (i8x16)wasm_i8x16_shuffle(l, h, 0 + (i), 1 + (i), 2 + (i), 3 + (i), 4 + (i), 5 + (i), 6 + (i), 7 + (i), 8 + (i), 9 + (i), 10 + (i), 11 + (i), 12 + (i), 13 + (i), 14 + (i), 15 + (i))
+	#define shrlou16(a, i) (uint64_t)__builtin_convertvector((u16x8)(a) >> (i), u8x8)
+	#define shrpus16(a, b, i) (u8x16)wasm_u8x16_narrow_i16x8((i16x8)(a) >> (i), (i16x8)(b) >> (i))
+	#define shrrpu16(a, b, i) (u8x16)wasm_u8x16_narrow_i16x8(((u16x8)(a) + (1 << ((i) - 1))) >> (i), ((u16x8)(b) + (1 << ((i) - 1))) >> (i))
+	#define shrrs16(a, i) (((i16x8)(a) + (1 << ((i) - 1))) >> (i))
+	#define shrru16(a, i) (((u16x8)(a) + (1 << ((i) - 1))) >> (i))
 	#define shlv128(a, i) (i8x16)wasm_i8x16_swizzle(a, loadu128(shz_mask + 16 - (i)))
 	#define shrv128(a, i) (i8x16)wasm_i8x16_swizzle(a, loadu128(shz_mask + 16 + (i)))
 	#define shrz128(a, i) (i8x16)wasm_i8x16_shuffle(a, (i8x16){}, 0 + (i), 1 + (i), 2 + (i), 3 + (i), 4 + (i), 5 + (i), 6 + (i), 7 + (i), 8 + (i), 9 + (i), 10 + (i), 11 + (i), 12 + (i), 13 + (i), 14 + (i), 15 + (i))
-	#define shrrs16(a, i) (((i16x8)(a) + (1 << ((i) - 1))) >> (i))
-	#define shrru16(a, i) (((u16x8)(a) + (1 << ((i) - 1))) >> (i))
-	#define shrpus16(a, b, i) (u8x16)wasm_u8x16_narrow_i16x8((i16x8)(a) >> (i), (i16x8)(b) >> (i))
-	#define shrrpu16(a, b, i) (u8x16)wasm_u8x16_narrow_i16x8(((u16x8)(a) + (1 << ((i) - 1))) >> (i), ((u16x8)(b) + (1 << ((i) - 1))) >> (i))
 	#define subsu8(a, b) (u8x16)wasm_u8x16_sub_sat(a, b)
 	#define trnlo32(a, b) (i32x4)wasm_i32x4_shuffle(a, b, 0, 4, 2, 6)
 	#define trnhi32(a, b) (i32x4)wasm_i32x4_shuffle(a, b, 1, 5, 3, 7)
@@ -1033,6 +1035,7 @@ static const int8_t shz_mask[48] = {
 	#define shlc128(a, i) __builtin_shufflevector((i8x16)(a), (i8x16){}, (i) > 0 ? 0 : 0 - (i), (i) > 1 ? 0 : 1 - (i), (i) > 2 ? 0 : 2 - (i), (i) > 3 ? 0 : 3 - (i), (i) > 4 ? 0 : 4 - (i), (i) > 5 ? 0 : 5 - (i), (i) > 6 ? 0 : 6 - (i), (i) > 7 ? 0 : 7 - (i), (i) > 8 ? 0 : 8 - (i), (i) > 9 ? 0 : 9 - (i), (i) > 10 ? 0 : 10 - (i), (i) > 11 ? 0 : 11 - (i), (i) > 12 ? 0 : 12 - (i), (i) > 13 ? 0 : 13 - (i), (i) > 14 ? 0 : 14 - (i), (i) > 15 ? 0 : 15 - (i))
 	#define shrc128(a, i) __builtin_shufflevector((i8x16)(a), (i8x16){}, (i) > 15 ? 15 : (i) + 0, (i) > 14 ? 15 : (i) + 1, (i) > 13 ? 15 : (i) + 2, (i) > 12 ? 15 : (i) + 3, (i) > 11 ? 15 : (i) + 4, (i) > 10 ? 15 : (i) + 5, (i) > 9 ? 15 : (i) + 6, (i) > 8 ? 15 : (i) + 7, (i) > 7 ? 15 : (i) + 8, (i) > 6 ? 15 : (i) + 9, (i) > 5 ? 15 : (i) + 10, (i) > 4 ? 15 : (i) + 11, (i) > 3 ? 15 : (i) + 12, (i) > 2 ? 15 : (i) + 13, (i) > 1 ? 15 : (i) + 14, (i) > 0 ? 15 : (i) + 15)
 	#define shrd128(l, h, i) __builtin_shufflevector((i8x16)(l), (i8x16)(h), 0 + (i), 1 + (i), 2 + (i), 3 + (i), 4 + (i), 5 + (i), 6 + (i), 7 + (i), 8 + (i), 9 + (i), 10 + (i), 11 + (i), 12 + (i), 13 + (i), 14 + (i), 15 + (i))
+	#define shrlou16(a, i) (uint64_t)__builtin_convertvector((u16x8)(a) >> (i), u8x8)
 	#define shrz128(a, i) __builtin_shufflevector((i8x16)(a), (i8x16){}, 0 + (i), 1 + (i), 2 + (i), 3 + (i), 4 + (i), 5 + (i), 6 + (i), 7 + (i), 8 + (i), 9 + (i), 10 + (i), 11 + (i), 12 + (i), 13 + (i), 14 + (i), 15 + (i))
 	#define subsu8(a, b) (u8x16)__builtin_elementwise_sub_sat((u8x16)(a), (u8x16)(b))
 	#define sum8(a) ((u16x8){__builtin_reduce_add(__builtin_convertvector((u8x16)(a), u16x16))})
@@ -1064,7 +1067,7 @@ static const int8_t shz_mask[48] = {
 	static i16x8 cvthi8s16(i8x16 a) {return __builtin_convertvector((i8x8){a[8], a[9], a[10], a[11], a[12], a[13], a[14], a[15]}, i16x8);}
 	static u32x4 cvtlo16u32(u16x8 a) {return __builtin_convertvector((u16x4){a[0], a[1], a[2], a[3]}, u32x4);}
 	static u32x4 cvthi16u32(u16x8 a) {return __builtin_convertvector((u16x4){a[4], a[5], a[6], a[7]}, u32x4);}
-	static i16x8 hadd16(i16x8 a, i16x8 b) {u32x4 c = ((u32x4)a + ((u32x4)a << 16)) >> 16, d = ((u32x4)b + ((u32x4)b << 16)) >> 16; return __builtin_convertvector((i32x8){c[0], c[1], c[2], c[3], d[0], d[1], d[2], d[3]}, i16x8);}
+	static i16x8 hadd16(i16x8 a, i16x8 b) {return (i16x8){a[0] + a[1], a[2] + a[3], a[4] + a[5], a[6] + a[7], b[0] + b[1], b[2] + b[3], b[4] + b[5], b[6] + b[7]};}
 	static i8x16 ifelse_msb(i8x16 v, i8x16 t, i8x16 f) {i8x16 m = (v < 0); return t & m | f & ~m;}
 	static i32x4 loadu32(const void *p) {i32x4 v = {}; memcpy(&v, p, 4); return v;}
 	static i64x2 loadu64(const void *p) {i64x2 v = {}; memcpy(&v, p, 8); return v;}

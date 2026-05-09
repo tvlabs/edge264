@@ -1,6 +1,6 @@
 # edge264
 
-edge264 is an H.264/AVC cross-platform open-source decoder, focused on **speed** and **ease-of-use**.
+edge264 is an H.264/AVC cross-platform open-source decoder, focused on **speed**, **size** and **ease-of-use**.
 
 It grew up as a research effort on new software engineering practices, most notably the use of C vector extensions to replace hand-crafted assembly. As such it is slowly but steadily progressing towards production-readiness, with a target release and API-freeze in **2027**.
 
@@ -57,40 +57,38 @@ For WebAssembly builds:
 emmake make OS=wasm
 ```
 
-Here are the `make` options for tuning the compiled library file:
+You can find lists of targets and options and what they do in the [Makefile](Makefile).
 
-* `CC` — compiler used for object file compilation (auto-detected by target OS)
-* `CCLD` — compiler used for the final link step (default `CC`)
-* `OS` — target operating system among `macos`|`linux`|`windows`|`wasm` (default host)
-* `VARIANTS` - comma-separated list of duplicate builds shipped and selected at runtime (default `logs`)
-	* `x86-64-v2` - variant compiled for x86-64 microarchitecture level 2 (SSSE3, SSE4.1 and POPCOUNT)
-	* `x86-64-v3` - variant compiled for x86-64 microarchitecture level 3 (AVX2, BMI, LZCNT, MOVBE)
-	* `logs` - variant compiled with logging support in YAML format (headers and slices)
-* `CPPFLAGS` — extra preprocessor flags for C source files
-* `CFLAGS` — extra compiler flags for C source files
-* `LDFLAGS` — extra linker flags passed to every link invocation
-* `OBJFLAGS` - extra flags passed when generating object files
-* `LIBFLAGS` - extra flags passed when generating library files
-* `EXEFLAGS` - extra flags passed when generating executable files
-* `BUILDTEST` — build the test executable (default `yes`)
-* `STATIC` — produce a static library (.a) instead of shared (default `no`, forced to `yes` for iOS)
-* `AR` — archiver used when STATIC=yes
-* `PREFIX` — Unix installation prefix (default `/usr/local`)
-* `libdir` — library installation directory (default `$(PREFIX)/lib`)
-* `includedir` — header installation directory (default `$(PREFIX)/include`)
-* `DESTDIR` — staging root for package managers (default empty)
-* `SANITIZE` — comma-separated sanitizer list passed directly to `-fsanitize`, among `address`|`memory`|`undefined` (default empty)
-* `V` — enable verbose build output (default `yes`)
-* `PY` — Python interpreter only used for development target `gentests` (default `python3`)
-
-`x86-64-v2` and `x86-64-v3` variants are intended for distribution packages that must run efficiently across a wide range of x86 CPUs: the library detects the host ISA level at runtime and dispatches to the fastest available implementation.  They are *not* needed for a native single-machine build, where `-march=native` already picks the best code path at compile time. For example:
+The `VARIANTS` option allows shipping multiple builds inside a single library file. It is intended for distribution packages that must run efficiently across a wide range of x86 CPUs: the library detects the host ISA level at runtime and dispatches to the fastest available implementation. They are *not* needed for a native single-machine build, where `-march=native` already picks the best code path at compile time. For example:
 
 ```sh
 make CFLAGS="-march=x86-64" VARIANTS=x86-64-v2,x86-64-v3 BUILDTEST=no
 ```
 
+## CMake integration
 
-# Testing (work in progress)
+edge264 ships a `CMakeLists.txt` that wraps its Makefile, so you can
+integrate it into a CMake project without writing any custom build logic.
+It exposes a single imported target `edge264::edge264` for use with
+`target_link_libraries`.
+
+```cmake
+cmake_minimum_required(VERSION 3.14)
+project(my_app C)
+
+include(FetchContent)
+FetchContent_Declare(edge264
+  GIT_REPOSITORY https://github.com/yourname/edge264.git
+  GIT_TAG        v1.0  # always pin to a tag or commit hash
+)
+FetchContent_MakeAvailable(edge264)
+
+add_executable(my_app main.c)
+target_link_libraries(my_app PRIVATE edge264::edge264)
+```
+
+
+# Testing
 
 A custom test suite is included and regularly updated, to run it:
 
@@ -269,7 +267,7 @@ I started edge264 to experiment on new programming techniques to improve perform
 
 Any help is welcome (bug reporting, bug fixing, new tests), although be aware that since it is a solo project, I usually take time to review pull requests!
 
-Bug fixes should preferably provide test streams that can demonstrate fixing said bugs. These streams will be added to the test suite after stripping most image content. Look into the [](tests/) directory for examples of custom bitstreams.
+Bug fixes should preferably provide test streams that can demonstrate fixing said bugs. These streams will be added to the test suite after stripping most image content. Look into the [tests](tests/) directory for examples of custom bitstreams.
 
 Below is a list of tests that I have added and plan to add to the test suite.
 

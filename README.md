@@ -1,64 +1,104 @@
-edge264
-=======
+# edge264
 
-Minimalist software decoder with state-of-the-art performance for the H.264/AVC video format.
+edge264 is an H.264/AVC cross-platform open-source decoder, focused on **speed** and **ease-of-use**.
 
-*Please note this is a work in progress and will be ready for use after making GStreamer/VLC plugins.*
-
-Features
---------
-
-* Supports **Progressive High** and **MVC 3D** profiles, up to level 6.2
-* Any resolution up to 8K UHD
-* 8-bit 4:2:0 planar YUV output
-* Slices and Arbitrary Slice Order
-* Slice and frame multi-threading
-* Per-slice reference picture list
-* Memory Management Control Operations
-* Long-term reference frames
+It grew up as a research effort on new software engineering practices, most notably the use of C vector extensions to replace hand-crafted assembly. As such it is slowly but steadily progressing towards production-readiness, with a target release and API-freeze in **2027**.
 
 
-Supported platforms
--------------------
+# Features
 
-edge264 is entirely developed in C using [GCC vector extensions](https://gcc.gnu.org/onlinedocs/gcc/Vector-Extensions.html) and vector intrinsics, and can be compiled with GNU GCC or LLVM Clang.
-Supported operating systems are currently **macOS**, **Linux** and **Windows**.
+edge264 supports **Progressive High** and **MVC 3D** profiles, up to level 6.2
 
-There are 4 implemented vector backends, with a last portable one relying on [Clang vector extensions](https://clang.llvm.org/docs/LanguageExtensions.html#vectors-and-extended-vectors).
+Below is an overview of optional features versus Baseline (**BP**), Extended (**XP**), Main (**MP**), High (**HP**) and Stereo High (**SHP**) profiles. 💡 marks planned improvements.
 
-| | Intel x86/x64 | ARM32/64 with NEON | WASM32/64 v2+ | Other ISAs |
+| Feature | BP | XP | MP | HP | SHP | edge264 |
+| --- | --- | --- | --- | --- | --- | --- |
+| Bit depth | 8 | 8 | 8 | 8 | 8 | 8 💡 |
+| Chroma formats | 4:2:0 | 4:2:0 | 4:2:0 | 4:0:0<br/>4:2:0 | 4:0:0<br/>4:2:0 | 4:2:0 💡 |
+| Flexible macroblock ordering | ✓ | ✓ | | | | |
+| Arbitrary slice ordering | ✓ | ✓ | | | | ✓ |
+| Redundant slices | ✓ | ✓ | | | | |
+| Data partitioning | | ✓ | | | | |
+| SI/SP slices | | ✓ | | | | |
+| Interlaced coding (PAFF, MBAFF) | | ✓ | ✓ | ✓ | ✓ | 💡 |
+| B slices | | ✓ | ✓ | ✓ | ✓ | ✓ |
+| CABAC entropy coding | | | ✓ | ✓ | ✓ | ✓ |
+| 8x8 IDCT transforms | | | | ✓ | ✓ | ✓ |
+| Quantization matrices | | | | ✓ | ✓ | ✓ |
+| Separate Cb/Cr QP control | | | | ✓ | ✓ | ✓ |
+| Separate color planes | | | | | | 💡 |
+| Lossless coding | | | | | | 💡 |
+| Max. number of views | 1 | 1 | 1 | 1 | 2 | 2 |
+
+
+# Platforms
+
+Target system support currently includes **macOS**, **Linux**, **Windows** and **WebAssembly**.
+
+Processor support depends on the compiler used (GNU GCC or LLVM Clang). edge264 can choose among 4 backends, the last one supporting every other CPU by relying on [Clang vector extensions](https://clang.llvm.org/docs/LanguageExtensions.html#vectors-and-extended-vectors).
+
+| Compiler | Intel x86/x64 | ARM32/64+NEON | WASM32/64 v2+ | Other ISAs |
 |-|-|-|-|-|
 | Clang | ✓ | ✓ | ✓ | ✓ (v15+) |
 | GCC | ✓ | ✓ | | |
 
-Compiling and testing
----------------------
 
-[SDL2](https://www.libsdl.org/) runtime library may be used (optional) to enable display with `edge264_test`.
+# Building
+
+For native builds:
+
+```sh
+make
+```
+
+For WebAssembly builds:
+
+```sh
+emmake make OS=wasm
+```
 
 Here are the `make` options for tuning the compiled library file:
 
-* `CC` - compiler used to produce object files from C library files (default `cc`)
-* `TARGETCC` - compiler used to produce library and executable files from object and C main files (default `CC`)
-* `CFLAGS`- additional flags passed to `CC` and `TARGETCC` when compiling a C file
-* `OBJFLAGS` - additional flags passed to `CC` when producing an object file
-* `LIBFLAGS` - additional flags passed to `TARGETCC` when producing a library file
-* `EXEFLAGS` - additional flags passed to `TARGETCC` when producing an executable file
-* `TARGETOS` - convention for compiling and naming among `Windows`|`Linux`|`Darwin` (default host)
-* `VARIANTS` - comma-separated list of additional variants included in the library and selected at runtime (default `logs`)
+* `CC` — compiler used for object file compilation (auto-detected by target OS)
+* `CCLD` — compiler used for the final link step (default `CC`)
+* `OS` — target operating system among `macos`|`linux`|`windows`|`wasm` (default host)
+* `VARIANTS` - comma-separated list of duplicate builds shipped and selected at runtime (default `logs`)
 	* `x86-64-v2` - variant compiled for x86-64 microarchitecture level 2 (SSSE3, SSE4.1 and POPCOUNT)
 	* `x86-64-v3` - variant compiled for x86-64 microarchitecture level 3 (AVX2, BMI, LZCNT, MOVBE)
 	* `logs` - variant compiled with logging support in YAML format (headers and slices)
-* `BUILDTEST` - toggles compilation of `edge264_test` (default `yes`)
-* `FORCEINTRIN` - enforce the use of intrinsics among `x86`|`ARM64` (for WebAssembly)
+* `CPPFLAGS` — extra preprocessor flags for C source files
+* `CFLAGS` — extra compiler flags for C source files
+* `LDFLAGS` — extra linker flags passed to every link invocation
+* `OBJFLAGS` - extra flags passed when generating object files
+* `LIBFLAGS` - extra flags passed when generating library files
+* `EXEFLAGS` - extra flags passed when generating executable files
+* `BUILDTEST` — build the test executable (default `yes`)
+* `STATIC` — produce a static library (.a) instead of shared (default `no`, forced to `yes` for iOS)
+* `AR` — archiver used when STATIC=yes
+* `PREFIX` — Unix installation prefix (default `/usr/local`)
+* `libdir` — library installation directory (default `$(PREFIX)/lib`)
+* `includedir` — header installation directory (default `$(PREFIX)/include`)
+* `DESTDIR` — staging root for package managers (default empty)
+* `SANITIZE` — comma-separated sanitizer list passed directly to `-fsanitize`, among `address`|`memory`|`undefined` (default empty)
+* `V` — enable verbose build output (default `yes`)
+* `PY` — Python interpreter only used for development target `gentests` (default `python3`)
 
-Example x64 build:
+`x86-64-v2` and `x86-64-v3` variants are intended for distribution packages that must run efficiently across a wide range of x86 CPUs: the library detects the host ISA level at runtime and dispatches to the fastest available implementation.  They are *not* needed for a native single-machine build, where `-march=native` already picks the best code path at compile time. For example:
 
 ```sh
 make CFLAGS="-march=x86-64" VARIANTS=x86-64-v2,x86-64-v3 BUILDTEST=no
 ```
 
-The automated test program `edge264_test` can browse files in a given directory, decoding each `<video>.264` file and comparing its output with each sibling file `<video>.yuv` if found. On the set of AVCv1, FRExt and MVC [conformance bitstreams](https://www.itu.int/wftp3/av-arch/jvt-site/draft_conformance/), 109/224 files are decoded without errors, the rest using yet unsupported features.
+
+# Testing (work in progress)
+
+A custom test suite is included and regularly updated, to run it:
+
+```sh
+make check
+```
+
+For more advanced testing and display, the program `edge264_test` can browse files in a given directory, decoding each `<video>.264` file and comparing its output with each sibling file `<video>.yuv` if found. On the set of AVCv1, FRExt and MVC [conformance bitstreams](https://www.itu.int/wftp3/av-arch/jvt-site/draft_conformance/), 109/224 files are decoded without errors, the rest using yet unsupported features.
 
 ```sh
 make
@@ -67,11 +107,8 @@ ffmpeg -i vid.mp4 -vcodec copy -bsf h264_mp4toannexb -an vid.264 # optional, con
 ./edge264_test -d vid.264 # replace -d with -b to benchmark instead of display
 ```
 
-There is also a stub of CMake script that is not kept up-to-date at the moment, any help is welcome!
 
-
-Example code
-------------
+# Example code
 
 Here is a complete example that opens an input file in Annex B byte stream format from command line, and dumps its decoded frames in planar YUV order to standard output. See [edge264_test.c](src/edge264_test.c) for a more complete example which can also display frames.
 
@@ -117,138 +154,98 @@ int main(int argc, char *argv[]) {
 ```
 
 
-API reference
--------------
+# API reference
 
-<code>const uint8_t * <b>edge264_find_start_code(buf, end, four_byte)</b></code>
+<code>const uint8_t * <b>edge264_find_start_code</b>(buf, end, four_byte)</code>
 
-Return a pointer to the next three or four byte (0)001 start code prefix, or `end` if not found.
+> Return a pointer to the next three or four byte (0)001 start code prefix, or `end` if not found.
+> * `const uint8_t * buf` - first byte of buffer to search into
+> * `const uint8_t * end` - first invalid byte past the buffer that stops the search
+> * `int four_byte` - if 0 seek a 001 prefix, otherwise seek a 0001
 
-* `const uint8_t * buf` - first byte of buffer to search into
-* `const uint8_t * end` - first invalid byte past the buffer that stops the search
-* `int four_byte` - if 0 seek a 001 prefix, otherwise seek a 0001
+<code>Edge264Decoder * <b>edge264_alloc</b>(n_threads, log_cb, log_arg, log_mbs, alloc_cb, free_cb, alloc_arg)</code>
 
----
+> Allocate and initialize a decoding context.
+> * `int n_threads` - number of background worker threads, with 0 to disable multithreading and -1 to detect the number of logical cores at runtime
+> * `void (* log_cb)(const char * str, void * log_arg)` - if not NULL, a `fputs`-compatible function pointer that `edge264_decode_NAL` will call to log every header, SEI or macroblock, requiring the `logs` variant (otherwise it fails at runtime), and called from the same thread except for macroblocks in multithreaded decoding
+> * `void * log_arg` - custom value passed to `log_cb`
+> * `int log_mbs` - set to 1 to enable the logging of macroblocks
+> * `void (* alloc_cb)(void ** samples, unsigned samples_size, void ** mbs, unsigned mbs_size, int errno_on_fail, void * alloc_arg)` - if not NULL, a function pointer that `edge264_decode_NAL` will call (on the same thread) instead of malloc to request allocation of samples and macroblock buffers for a frame (`errno_on_fail` is ENOMEM for mandatory allocations, or ENOBUFS for allocations that may be skipped to save memory but reduce playback smoothness)
+> * `void (* free_cb)(void * samples, void * mbs, void * alloc_arg)` - if not NULL, a function pointer that `edge264_decode_NAL` and `edge264_free` will call (on the same thread) to free buffers allocated through `alloc_cb`
+> * `void * alloc_arg` - custom value passed to `alloc_cb` and `free_cb`
 
-<code>Edge264Decoder * <b>edge264_alloc(n_threads, log_cb, log_arg, log_mbs, alloc_cb, free_cb, alloc_arg)</b></code>
+<code>int <b>edge264_decode_NAL</b>(dec, buf, end, free_cb, free_arg)</code>
 
-Allocate and initialize a decoding context.
+> Decode a single NAL unit of any type.
+> * `Edge264Decoder * dec` - initialized decoding context
+> * `const uint8_t * buf` - first byte of NAL unit (containing `nal_unit_type`)
+> * `const uint8_t * end` - first byte past the buffer
+> * `void (* free_cb)(void * free_arg, int ret)` - function that may be called from another thread to signal the end of parsing and release the NAL buffer (only when returning `0`)
+> * `void * free_arg` - custom value that will be passed to `free_cb`
+> Passing `buf >= end` will make all buffered frames ready for output with `edge264_get_frame`.
 
-* `int n_threads` - number of background worker threads, with 0 to disable multithreading and -1 to detect the number of logical cores at runtime
-* `void (* log_cb)(const char * str, void * log_arg)` - if not NULL, a `fputs`-compatible function pointer that `edge264_decode_NAL` will call to log every header, SEI or macroblock, requiring the `logs` variant (otherwise it fails at runtime), and called from the same thread except for macroblocks in multithreaded decoding
-* `void * log_arg` - custom value passed to `log_cb`
-* `int log_mbs` - set to 1 to enable the logging of macroblocks
-* `void (* alloc_cb)(void ** samples, unsigned samples_size, void ** mbs, unsigned mbs_size, int errno_on_fail, void * alloc_arg)` - if not NULL, a function pointer that `edge264_decode_NAL` will call (on the same thread) instead of malloc to request allocation of samples and macroblock buffers for a frame (`errno_on_fail` is ENOMEM for mandatory allocations, or ENOBUFS for allocations that may be skipped to save memory but reduce playback smoothness)
-* `void (* free_cb)(void * samples, void * mbs, void * alloc_arg)` - if not NULL, a function pointer that `edge264_decode_NAL` and `edge264_free` will call (on the same thread) to free buffers allocated through `alloc_cb`
-* `void * alloc_arg` - custom value passed to `alloc_cb` and `free_cb`
+> Return codes:
+> * `0` - success
+> * `ENOBUFS` - more frames should be consumed with `edge264_get_frame` before calling the function again with the same NAL
+> * `ENOTSUP` - unsupported stream (decoding may proceed but could return zero frames)
+> * `EBADMSG` - invalid stream (decoding may proceed but could show visual artefacts, if you can check with another decoder that the stream is actually flawless, please consider filling a bug report 🙏)
+> * `EINVAL` - the function was called with `dec == NULL` or `buf == NULL`
+> * `ENODATA` - the function was called with `buf >= end` and there are no frames left to output
+> * `ENOMEM` - `malloc` failed to allocate memory
 
----
+<code>int <b>edge264_get_frame</b>(dec, out, borrow)</code>
 
-<code>int <b>edge264_decode_NAL(dec, buf, end, free_cb, free_arg)</b></code>
+> Fetch the next frame ready for output.
+> * `Edge264Decoder * dec` - initialized decoding context
+> * `Edge264Frame *out` - a structure that will be filled with data for the frame returned
+> * `int borrow` - if 0 the frame may be accessed until the next call to `edge264_decode_NAL`, otherwise the frame should be explicitly returned with `edge264_return_frame`. Note that access is not exclusive, it may be used concurrently as reference for other frames.
 
-Decode a single NAL unit of any type.
+> Return codes are:
+> * `0` on success (one frame is returned)
+> * `EINVAL` if the function was called with `dec == NULL` or `out == NULL`
+> * `ENOMSG` if there is no frame to output at the moment
 
-* `Edge264Decoder * dec` - initialized decoding context
-* `const uint8_t * buf` - first byte of NAL unit (containing `nal_unit_type`)
-* `const uint8_t * end` - first byte past the buffer
-* `void (* free_cb)(void * free_arg, int ret)` - function that may be called from another thread to signal the end of parsing and release the NAL buffer (only when returning `0`)
-* `void * free_arg` - custom value that will be passed to `free_cb`
+> ```c
+> typedef struct Edge264Frame {
+> 	const uint8_t *samples[3]; // Y/Cb/Cr planes
+> 	const uint8_t *samples_mvc[3]; // second view
+> 	const uint8_t *mb_errors; // probabilities (0..100) for each macroblock to be erroneous, NULL if there are no errors, values are spaced by stride_mb in memory
+> 	int8_t pixel_depth_Y; // 0 for 8-bit, 1 for 16-bit
+> 	int8_t pixel_depth_C;
+> 	int16_t width_Y;
+> 	int16_t width_C;
+> 	int16_t height_Y;
+> 	int16_t height_C;
+> 	int16_t stride_Y;
+> 	int16_t stride_C;
+> 	int16_t stride_mb;
+> 	uint32_t FrameId;
+> 	uint32_t FrameId_mvc; // second view
+> 	int16_t frame_crop_offsets[4]; // {top,right,bottom,left}, useful to derive the original frame with 16x16 macroblocks
+> 	void *return_arg;
+> } Edge264Frame;
+> ```
 
-Passing `buf >= end` will make all buffered frames ready for output with `edge264_get_frame`.
+<code>void <b>edge264_return_frame</b>(dec, return_arg)</code>
 
-Return codes:
+> Give back ownership of the frame if it was borrowed from a previous call to `edge264_get_frame`.
+> * `Edge264Decoder * dec` - initialized decoding context
+> * `void * return_arg` - the value stored inside the frame to return
 
-* `0` - success
-* `ENOBUFS` - more frames should be consumed with `edge264_get_frame` before calling the function again with the same NAL
-* `ENOTSUP` - unsupported stream (decoding may proceed but could return zero frames)
-* `EBADMSG` - invalid stream (decoding may proceed but could show visual artefacts, if you can check with another decoder that the stream is actually flawless, please consider filling a bug report 🙏)
-* `EINVAL` - the function was called with `dec == NULL` or `buf == NULL`
-* `ENODATA` - the function was called with `buf >= end` and there are no frames left to output
-* `ENOMEM` - `malloc` failed to allocate memory
+<code>void <b>edge264_flush</b>(dec)</code>
 
----
+> For use when seeking, stop all background processing, flush all delayed frames while keeping them allocated, and clear the internal decoder state.
+> * `Edge264Decoder * dec` - initialized decoding context
 
-<code>int <b>edge264_get_frame(dec, out, borrow)</b></code>
+<code>void <b>edge264_free</b>(pdec)</code>
 
-Fetch the next frame ready for output.
-
-* `Edge264Decoder * dec` - initialized decoding context
-* `Edge264Frame *out` - a structure that will be filled with data for the frame returned
-* `int borrow` - if 0 the frame may be accessed until the next call to `edge264_decode_NAL`, otherwise the frame should be explicitly returned with `edge264_return_frame`. Note that access is not exclusive, it may be used concurrently as reference for other frames.
-
-Return codes are:
-
-* `0` on success (one frame is returned)
-* `EINVAL` if the function was called with `dec == NULL` or `out == NULL`
-* `ENOMSG` if there is no frame to output at the moment
-
-```c
-typedef struct Edge264Frame {
-	const uint8_t *samples[3]; // Y/Cb/Cr planes
-	const uint8_t *samples_mvc[3]; // second view
-	const uint8_t *mb_errors; // probabilities (0..100) for each macroblock to be erroneous, NULL if there are no errors, values are spaced by stride_mb in memory
-	int8_t pixel_depth_Y; // 0 for 8-bit, 1 for 16-bit
-	int8_t pixel_depth_C;
-	int16_t width_Y;
-	int16_t width_C;
-	int16_t height_Y;
-	int16_t height_C;
-	int16_t stride_Y;
-	int16_t stride_C;
-	int16_t stride_mb;
-	uint32_t FrameId;
-	uint32_t FrameId_mvc; // second view
-	int16_t frame_crop_offsets[4]; // {top,right,bottom,left}, useful to derive the original frame with 16x16 macroblocks
-	void *return_arg;
-} Edge264Frame;
-```
-
----
-
-<code>void <b>edge264_return_frame(dec, return_arg)</b></code>
-
-Give back ownership of the frame if it was borrowed from a previous call to `edge264_get_frame`.
-
-* `Edge264Decoder * dec` - initialized decoding context
-* `void * return_arg` - the value stored inside the frame to return
-
----
-
-<code>void <b>edge264_flush(dec)</b></code>
-
-For use when seeking, stop all background processing, flush all delayed frames while keeping them allocated, and clear the internal decoder state.
-
-* `Edge264Decoder * dec` - initialized decoding context
-
----
-
-<code>void <b>edge264_free(pdec)</b></code>
-
-Deallocate the entire decoding context, and unset the pointer.
-
-* `Edge264Decoder ** pdec` - pointer to a decoding context, initialized or not
+> Deallocate the entire decoding context, and unset the pointer.
+> * `Edge264Decoder ** pdec` - pointer to a decoding context, initialized or not
 
 
-Roadmap
--------
+# Programming techniques
 
-* WebAssembly (in progress)
-* Stress testing (in progress)
-* Multithreading (in progress)
-* Error recovery
-* Integration in VLC/ffmpeg/GStreamer
-* PAFF and MBAFF
-* 4:0:0, 4:2:2 and 4:4:4
-* 9-14 bit depths with possibility of different luma/chroma depths
-* Transform-bypass for macroblocks with QP==0
-* SEI messages
-* AVX-2 optimizations
-
-
-Programming techniques
-----------------------
-
-I use edge264 to experiment on new programming techniques to improve performance and code size over existing decoders, and presented a few of these techniques at [FOSDEM'24](https://fosdem.org/2024/schedule/event/fosdem-2024-2931-innovations-in-h-264-avc-software-decoding-architecture-and-optimization-of-a-block-based-video-decoder-to-reach-10-faster-speed-and-3x-code-reduction-over-the-state-of-the-art-/) and [FOSDEM'25](https://fosdem.org/2025/schedule/event/fosdem-2025-5455-more-innovations-in-h-264-avc-software-decoding/).
+I started edge264 to experiment on new programming techniques to improve performance and code size over existing decoders, and presented a few of these techniques at [FOSDEM'24](https://fosdem.org/2024/schedule/event/fosdem-2024-2931-innovations-in-h-264-avc-software-decoding-architecture-and-optimization-of-a-block-based-video-decoder-to-reach-10-faster-speed-and-3x-code-reduction-over-the-state-of-the-art-/), [FOSDEM'25](https://fosdem.org/2025/schedule/event/fosdem-2025-5455-more-innovations-in-h-264-avc-software-decoding/) and [FOSDEM'26](https://fosdem.org/2026/schedule/event/ADXJMU-innovations-with-yaml-cabac-simd-in-h264-decoding/).
 
 1. [Single header file](src/edge264_internal.h) - It contains all struct definitions, common constants and enums, SIMD aliases, inline functions and macros, and exported functions for each source file. To understand the code base you should look at this file first.
 2. [Code blocks instead of functions](src/edge264_slice.c) - The main decoding loop is a forward pipeline designed as a DAG loosely resembling hardware decoders, with nodes being non-inlined functions and edges being tail calls. It helps mutualize code branches wherever possible, thus reduces code size to help fit in L1 cache.
@@ -263,23 +260,18 @@ I use edge264 to experiment on new programming techniques to improve performance
 11. [On-the-fly SIMD unescaping](src/edge264_bitstream.c) - The input bitstream is unescaped on the fly using vector code, avoiding a full preprocessing pass to remove escape sequences, and thus reducing memory reads/writes.
 12. [Multiarch SIMD programming](src/edge264_internal.h) - Using vector extensions along with aliased intrinsics allows supporting both Intel SSE and ARM NEON with around 80% common code and few #if #else blocks, while keeping state-of-the-art performance for both architectures.
 13. [The Structure of Arrays pattern](src/edge264_internal.h) - The frame buffer is stored with arrays for each distinct field rather than an array of structures, to express operations on frames with bitwise and vector operators (see [AoS and SoA](https://en.wikipedia.org/wiki/AoS_and_SoA)). The task buffer for multithreading also relies on it partially.
-14. [Deferred error checking](src/edge264_headers.c) - Error detection is performed once in each type of NAL unit (search for `return` statements), by clamping all input values to their expected ranges, then expecting `rbsp_trailing_bit` afterwards (with _very high_ probability of catching an error if the stream is corrupted). This design choice is discussed in [A case about parsing errors](https://traffaillac.github.io/parsing.html).
-
-Other yet-to-be-presented bits:
-
-* [Minimalistic API](src/edge264.h) with FFI-friendly design (7 functions and 1 structure).
-* [The bitstream caches](src/edge264_internal.h) for CAVLC and CABAC (search for `rbsp_reg`) are stored in two size_t variables each, which may be mapped to Global Register Variables in the future.
-* [The decoding of input symbols](src/edge264_slice.c) is interspersed with their parsing (instead of parsing to a `struct` then decoding the data). It deduplicates branches and loops that are present in both parsing and decoding, and even eliminates the need to store some symbols (e.g. mb_type, sub_mb_type, mb_qp_delta).
+14. [Deferred error checking](src/edge264_headers.c) - Error detection is performed once in each type of NAL unit (search for `return` statements), by clamping all input values to their expected ranges, then expecting `rbsp_trailing_bit` afterwards (with _very high_ probability of catching an error if the stream is corrupted). This design choice is detailed in [A case about parsing errors](https://traffaillac.github.io/parsing.html).
+15. [YAML logging output](src/edge264_headers.c) - The YAML format is used for logging, which makes debugging easier, enables reencoding (used for creation of custom bitstreams) and data analysis.
+16. [CABAC decoding](src/edge264_bitstream.c) - The CABAC internal state is extended to use the full bit range of CPU registers, allowing less frequent renormalization trips to memory, and the batch-decoding of *bypass* bits with a hardware division.
 
 
-Testing (work in progress)
---------------------------
+# Contributing
 
-With the help of a [custom bitstream writer](tests/gen_avc.py) using the same YAML format edge264 outputs, a set of extensive tests are being created in [/tests](tests) to stress the darkest corners of this decoder. Use the following command to compile and run the tests (Python is required here):
+Any help is welcome (bug reporting, bug fixing, new tests), although be aware that since it is a solo project, I usually take time to review pull requests!
 
-```
-make check
-```
+Bug fixes should preferably provide test streams that can demonstrate fixing said bugs. These streams will be added to the test suite after stripping most image content. Look into the [](tests/) directory for examples of custom bitstreams.
+
+Below is a list of tests that I have added and plan to add to the test suite.
 
 | General tests | Expected | Test files |
 | --- | --- | --- |

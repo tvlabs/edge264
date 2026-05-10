@@ -18,8 +18,8 @@ jobs:
       - uses: actions/checkout@v5
       - run: make
       - run: |
-        git clone --depth=1 https://github.com/cisco/openh264.git
-        make -C /openh264
+          git clone --depth=1 https://github.com/cisco/openh264.git
+          make -C /openh264
       - run: sudo apt-get install -y ffmpeg
       - id: cache-video
         uses: actions/cache@v4

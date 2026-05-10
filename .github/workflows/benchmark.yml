@@ -6,14 +6,14 @@ jobs:
       matrix:
         arch: [x64, arm64]
         include:
-        	- arch: x64
-        	  os: ubuntu-latest
-        	- arch: arm64
-        	  os: ubuntu-24.04-arm
+          - arch: x64
+            os: ubuntu-latest
+          - arch: arm64
+            os: ubuntu-24.04-arm
     runs-on: ${{ matrix.os }}
     outputs:
-    	x64: ${{ steps.bench.outputs.results_x64 }}
-    	arm64: ${{ steps.bench.outputs.results_arm64 }}
+      x64: ${{ steps.bench.outputs.results_x64 }}
+      arm64: ${{ steps.bench.outputs.results_arm64 }}
     steps:
       - uses: actions/checkout@v5
       - run: make
@@ -29,9 +29,9 @@ jobs:
       - if: steps.cache-video.outputs.cache-hit != 'true'
         run: wget -q -O - "https://test-videos.co.uk/vids/bigbuckbunny/mp4/h264/1080/Big_Buck_Bunny_1080_10s_30MB.mp4" | ffmpeg -i - -vcodec copy -bsf h264_mp4toannexb -an video.264
       - id: bench
-      	run: |
-      		arch="${{ matrix.arch }}"
-      		results=$(PATH="/openh264:$PATH" python3 ./misc-scripts/bench-times.py video.264 2)
+        run: |
+          arch="${{ matrix.arch }}"
+          results=$(PATH="/openh264:$PATH" python3 ./misc-scripts/bench-times.py video.264 2)
           echo "results-${arch}=${results}" >> "$GITHUB_OUTPUT"
   charts:
     runs-on: ubuntu-latest
@@ -43,4 +43,4 @@ jobs:
       - run: pip3 install matplotlib --quiet
       - run: |
           results="{\"x86-64\":${RESULTS_X64},\"arm64\":${RESULTS_ARM64}}"
-      		echo "${results}" | python3 ./misc-scripts/bench-charts.py ${GITHUB_STEP_SUMMARY}
+          echo "${results}" | python3 ./misc-scripts/bench-charts.py ${GITHUB_STEP_SUMMARY}

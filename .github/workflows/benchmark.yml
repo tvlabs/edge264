@@ -13,10 +13,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v5
-      - uses: awalsh128/cache-apt-pkgs-action@v1
-        with:
-          packages: nasm ffmpeg
-          version: 1
+      - run: sudo apt-get update && sudo apt-get install -y nasm ffmpeg
       - id: cache-video
         uses: actions/cache@v4
         with:
@@ -24,9 +21,6 @@ jobs:
           key: video
       - if: steps.cache-video.outputs.cache-hit != 'true'
         run: wget -q -O - "https://test-videos.co.uk/vids/bigbuckbunny/mp4/h264/1080/Big_Buck_Bunny_1080_10s_30MB.mp4" | ffmpeg -i - -vcodec copy -bsf h264_mp4toannexb -an video.264
-      - id: bench
-        run: |
-          make
-          git clone --depth=1 https://github.com/cisco/openh264.git
-          make -C openh264
-          PATH="${PWD}:${PWD}/openh264:$PATH" python3 ./misc-scripts/benchmark.py video.264 2 ${GITHUB_STEP_SUMMARY}
+      - run: make
+      - run: git clone --depth=1 https://github.com/cisco/openh264.git && make -C openh264
+      - run: PATH="${PWD}:${PWD}/openh264:$PATH" python3 ./misc-scripts/benchmark.py video.264 2 ${GITHUB_STEP_SUMMARY}

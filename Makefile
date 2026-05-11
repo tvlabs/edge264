@@ -220,8 +220,9 @@ override CFLAGS := $(_BASE_ARCH) -std=gnu11 -O3 -flax-vector-conversions -Wno-ov
 # ---- Object file flags -------------------------------------------------------
 # -fPIC is required for shared libraries on ELF targets.
 # Not needed for static builds, Windows DLLs, or WASM.
-_PIC_FLAG := $(if $(findstring yes,$(STATIC)),\
-               $(if $(findstring $(OS),macos linux android),-fPIC))
+ifeq ($(STATIC),no)
+  _PIC_FLAG := $(if $(findstring $(OS),macos linux android),-fPIC)
+endif
 override OBJFLAGS := $(_PIC_FLAG) $(OBJFLAGS)
 
 # ---- Common linker flags -----------------------------------------------------

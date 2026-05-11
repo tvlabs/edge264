@@ -386,7 +386,7 @@ clean clear:
 .PHONY: check
 check: edge264_check$(EXE)
 ifeq ($(OS),wasm)
-	$(Q)node edge264_check$(EXE)
+	$(Q)$(shell which node) edge264_check$(EXE)
 else
 	$(Q)./edge264_check$(EXE)
 endif

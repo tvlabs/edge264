@@ -16,11 +16,10 @@ jobs:
       arm64: ${{ steps.bench.outputs.results_arm64 }}
     steps:
       - uses: actions/checkout@v5
-      - run: make
-      - run: |
-          git clone --depth=1 https://github.com/cisco/openh264.git
-          make -C openh264
-      - run: sudo apt-get install -y ffmpeg
+      - uses: awalsh128/cache-apt-pkgs-action@latest
+        with:
+          packages: nasm ffmpeg
+          version: 1
       - id: cache-video
         uses: actions/cache@v4
         with:
@@ -30,6 +29,9 @@ jobs:
         run: wget -q -O - "https://test-videos.co.uk/vids/bigbuckbunny/mp4/h264/1080/Big_Buck_Bunny_1080_10s_30MB.mp4" | ffmpeg -i - -vcodec copy -bsf h264_mp4toannexb -an video.264
       - id: bench
         run: |
+          make
+          git clone --depth=1 https://github.com/cisco/openh264.git
+          make -C openh264
           arch="${{ matrix.arch }}"
           results=$(PATH="/openh264:$PATH" python3 ./misc-scripts/bench-times.py video.264 2)
           echo "results-${arch}=${results}" >> "$GITHUB_OUTPUT"
@@ -40,7 +42,7 @@ jobs:
       RESULTS_X64: ${{ needs.benchmark.outputs.x64 }}
       RESULTS_ARM64: ${{ needs.benchmark.outputs.arm64 }}
     steps:
-      - run: pip3 install matplotlib --quiet
       - run: |
+          pip3 install matplotlib --quiet
           results="{\"x86-64\":${RESULTS_X64},\"arm64\":${RESULTS_ARM64}}"
           echo "${results}" | python3 ./misc-scripts/bench-charts.py ${GITHUB_STEP_SUMMARY}

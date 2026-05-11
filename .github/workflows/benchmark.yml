@@ -1,4 +1,4 @@
-name: Generate benchmark
+name: Generate benchmarks
 on: workflow_dispatch
 jobs:
   benchmark:
@@ -11,9 +11,6 @@ jobs:
           - arch: arm64
             os: ubuntu-24.04-arm
     runs-on: ${{ matrix.os }}
-    outputs:
-      x64: ${{ steps.bench.outputs.results_x64 }}
-      arm64: ${{ steps.bench.outputs.results_arm64 }}
     steps:
       - uses: actions/checkout@v5
       - uses: awalsh128/cache-apt-pkgs-action@v1
@@ -24,7 +21,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: video.264
-          key: Big_Buck_Bunny_1080_10s_30MB
+          key: ${{ hashFiles('video.264') }}
       - if: steps.cache-video.outputs.cache-hit != 'true'
         run: wget -q -O - "https://test-videos.co.uk/vids/bigbuckbunny/mp4/h264/1080/Big_Buck_Bunny_1080_10s_30MB.mp4" | ffmpeg -i - -vcodec copy -bsf h264_mp4toannexb -an video.264
       - id: bench
@@ -32,19 +29,4 @@ jobs:
           make
           git clone --depth=1 https://github.com/cisco/openh264.git
           make -C openh264
-          arch="${{ matrix.arch }}"
-          results=$(PATH="/openh264:$PATH" python3 ./misc-scripts/bench-times.py video.264 2)
-          echo "results-${arch}=${results}" >> "$GITHUB_OUTPUT"
-  charts:
-    runs-on: ubuntu-latest
-    needs: benchmark
-    env:
-      RESULTS_X64: ${{ needs.benchmark.outputs.x64 }}
-      RESULTS_ARM64: ${{ needs.benchmark.outputs.arm64 }}
-    steps:
-      - uses: actions/checkout@v5
-      - run: |
-          pip3 install matplotlib --quiet
-          results="{\"x86-64\":${RESULTS_X64},\"arm64\":${RESULTS_ARM64}}"
-          echo "${results}"
-          echo "${results}" | python3 ./misc-scripts/bench-charts.py ${GITHUB_STEP_SUMMARY}
+          PATH="${PWD}:${PWD}/openh264:$PATH" python3 ./misc-scripts/benchmark.py video.264 2 ${GITHUB_STEP_SUMMARY}

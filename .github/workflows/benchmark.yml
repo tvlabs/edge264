@@ -21,7 +21,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: video.264
-          key: ${{ hashFiles('video.264') }}
+          key: video
       - if: steps.cache-video.outputs.cache-hit != 'true'
         run: wget -q -O - "https://test-videos.co.uk/vids/bigbuckbunny/mp4/h264/1080/Big_Buck_Bunny_1080_10s_30MB.mp4" | ffmpeg -i - -vcodec copy -bsf h264_mp4toannexb -an video.264
       - id: bench

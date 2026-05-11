@@ -26,11 +26,4 @@ jobs:
     steps:
       - uses: actions/checkout@v5
       - uses: mymindstorm/setup-emsdk@v14
-      - uses: actions/setup-node@v6
-      - name: Debug node
-        run: |
-          which node
-          ls -l $(which node)
-          file $(which node)
-          node --version
       - run: emmake make OS=wasm check

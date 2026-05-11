@@ -38,7 +38,11 @@ b64 = base64.b64encode(Path("benchmark.png").read_bytes()).decode()
 summary = f"""
 #### Benchmark times over {nbRuns} single-threaded runs of [video](https://test-videos.co.uk/vids/bigbuckbunny/mp4/h264/1080/Big_Buck_Bunny_1080_10s_30MB.mp4)
 
-<img src="data:image/png;base64,{b64}" width="500"/>
+|  edge264  |  FFmpeg  |  OpenH264  |
+|  -------  |  ------  |  --------  |
+|{edge264} s|{ffmpeg} s|{openh264} s|
+
+<img src="data:image/png;base64,{b64}" alt="Benchmark chart" width="500"/>
 """
 with open(sys.argv[3], "a") as f:
 	f.write(summary)

@@ -1,6 +1,8 @@
 # edge264
 
-edge264 is an H.264/AVC cross-platform open-source decoder, focused on **speed**, **size** and **ease-of-use**.
+edge264 is an H.264/AVC cross-platform open-source decoder, focused on **speed** and **ease-of-use**.
+
+[![Benchmark](https://github.com/tvlabs/edge264/actions/workflows/benchmark.yml/badge.svg)](https://github.com/tvlabs/edge264/actions/workflows/benchmark.yml)
 
 It grew up as a research effort on new software engineering practices, most notably the use of C vector extensions to replace hand-crafted assembly. As such it is slowly but steadily progressing towards production-readiness, with a target release and API-freeze in **2027**.
 

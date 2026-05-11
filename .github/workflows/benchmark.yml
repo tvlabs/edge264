@@ -16,7 +16,7 @@ jobs:
       arm64: ${{ steps.bench.outputs.results_arm64 }}
     steps:
       - uses: actions/checkout@v5
-      - uses: awalsh128/cache-apt-pkgs-action@latest
+      - uses: awalsh128/cache-apt-pkgs-action@v1
         with:
           packages: nasm ffmpeg
           version: 1
@@ -42,7 +42,9 @@ jobs:
       RESULTS_X64: ${{ needs.benchmark.outputs.x64 }}
       RESULTS_ARM64: ${{ needs.benchmark.outputs.arm64 }}
     steps:
+      - uses: actions/checkout@v5
       - run: |
           pip3 install matplotlib --quiet
           results="{\"x86-64\":${RESULTS_X64},\"arm64\":${RESULTS_ARM64}}"
+          echo "${results}"
           echo "${results}" | python3 ./misc-scripts/bench-charts.py ${GITHUB_STEP_SUMMARY}

@@ -466,7 +466,7 @@ void *ADD_VARIANT(worker_loop)(void *arg) {
 		c.d->ready_tasks &= ~(1 << task_id);
 		if (c.thread_id >= 0)
 			pthread_mutex_unlock(&c.d->lock);
-		uint64_t clock_start = get_relative_time_us() - c.log_base_us;
+		unsigned long long clock_start = get_relative_time_us() - c.log_base_us;
 		c.t = c.d->tasks[task_id];
 		unsigned approx_byte_size = c.t.gb.end - c.t.gb.CPB;
 		initialize_context(&c, currPic);
@@ -566,7 +566,7 @@ void *ADD_VARIANT(worker_loop)(void *arg) {
 		
 		// print benchmarking information
 		if (c.log_cb) {
-			uint64_t clock_end = get_relative_time_us() - c.log_base_us;
+			unsigned long long clock_end = get_relative_time_us() - c.log_base_us;
 			snprintf(c.log_buf, sizeof(c.log_buf),
 				"\n- thread_id: %d\n"
 				"  FrameId: %u\n"

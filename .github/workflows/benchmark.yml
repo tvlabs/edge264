@@ -23,4 +23,5 @@ jobs:
         run: wget -q -O - "https://test-videos.co.uk/vids/bigbuckbunny/mp4/h264/1080/Big_Buck_Bunny_1080_10s_30MB.mp4" | ffmpeg -i - -vcodec copy -bsf h264_mp4toannexb -an video.264
       - run: make
       - run: git clone --depth=1 https://github.com/cisco/openh264.git && make -C openh264
+      - run: pip3 install matplotlib --quiet
       - run: PATH="${PWD}:${PWD}/openh264:$PATH" python3 ./misc-scripts/benchmark.py video.264 1 ${GITHUB_STEP_SUMMARY}

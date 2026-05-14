@@ -1,0 +1,55 @@
+name: Benchmarks
+on: workflow_dispatch
+jobs:
+  benchmarks:
+    strategy:
+      matrix:
+        arch: [x64, arm64]
+        include:
+          - arch: x64
+            os: ubuntu-latest
+          - arch: arm64
+            os: ubuntu-24.04-arm
+    runs-on: ${{ matrix.os }}
+    outputs:
+      decoders_x64: ${{ steps.decoders.outputs.decoders_x64 }}
+      decoders_arm64: ${{ steps.decoders.outputs.decoders_arm64 }}
+    steps:
+      - uses: actions/checkout@v5
+      - run: sudo apt-get update && sudo apt-get install -y nasm ffmpeg
+      - id: cache-video
+        uses: actions/cache@v4
+        with:
+          path: video.264
+          key: video
+      - if: steps.cache-video.outputs.cache-hit != 'true'
+        run: wget -q -O - "https://test-videos.co.uk/vids/bigbuckbunny/mp4/h264/1080/Big_Buck_Bunny_1080_10s_30MB.mp4" | ffmpeg -i - -vcodec copy -bsf h264_mp4toannexb -an video.264
+      - run: make
+      - run: git clone --depth=1 https://github.com/cisco/openh264.git && make -C openh264
+      - id: decoders
+        run: |
+          results=$(PATH="/openh264:${PATH}" python3 ./misc-scripts/bench-times.py video.264 1)
+          echo "results_${{matrix.arch}}=${results}" >> "$GITHUB_OUTPUT"
+  charts:
+    needs: benchmarks
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      DECODERS_X64: ${{ needs.benchmark.outputs.decoders_x64 }}
+      DECODERS_ARM64: ${{ needs.benchmark.outputs.decoders_arm64 }}
+    steps:
+      - uses: actions/checkout@v5
+      - run: |
+          pip3 install matplotlib --quiet
+          decoders="{\"x86-64\":${DECODERS_X64},\"arm64\":${DECODERS_ARM64}}"
+          python3 ./misc-scripts/bench-charts.py "${decoders}" README-bench-decoders.svg
+      - uses: actions/upload-artifact@v4
+        with:
+          path: README-bench-decoders.svg
+      # - run: |
+      #     git config user.name  "github-actions[bot]"
+      #     git config user.email "github-actions[bot]@users.noreply.github.com"
+      #     git add README-bench-decoders.svg
+      #     git commit -m "[Benchmarks] Update benchmark figures"
+      #     git push

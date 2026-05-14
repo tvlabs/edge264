@@ -2,9 +2,9 @@
 
 edge264 is an H.264/AVC cross-platform open-source decoder, focused on **speed** and **ease-of-use**.
 
-[![Benchmark](https://github.com/tvlabs/edge264/actions/workflows/benchmark.yml/badge.svg)](https://github.com/tvlabs/edge264/actions/workflows/benchmark.yml)
-
 It grew up as a research effort on new software engineering practices, most notably the use of C vector extensions to replace hand-crafted assembly. As such it is slowly but steadily progressing towards production-readiness, with a target release and API-freeze in **2027**.
+
+![](README-bench-decoders.svg)
 
 
 # Features
@@ -37,7 +37,7 @@ Below is an overview of optional features versus Baseline (**BP**), Extended (**
 
 Target system support currently includes **macOS**, **Linux**, **Windows** and **WebAssembly**.
 
-Processor support depends on the compiler used (GNU GCC or LLVM Clang). edge264 can choose among 4 backends, the last one supporting every other CPU by relying on [Clang vector extensions](https://clang.llvm.org/docs/LanguageExtensions.html#vectors-and-extended-vectors).
+Processor support depends on the compiler used (GNU GCC or LLVM Clang). edge264 can choose among 4 backends, the last one supporting every other little-endian CPU by relying on [Clang vector extensions](https://clang.llvm.org/docs/LanguageExtensions.html#vectors-and-extended-vectors).
 
 | Compiler | Intel x86/x64 | ARM32/64+NEON | WASM32/64 v2+ | Other ISAs |
 |-|-|-|-|-|

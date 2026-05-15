@@ -29,7 +29,10 @@ jobs:
       - id: decoders
         run: |
           results=$(PATH="${PWD}/openh264:${PWD}:${PATH}" python3 ./misc-scripts/bench-decoders.py video.264 1)
-          echo "decoders_${{matrix.arch}}=${results}" >> "$GITHUB_OUTPUT"
+          echo "${results}"
+          echo "decoders_${{ matrix.arch }}=${results}"
+          arch="${{ matrix.arch }}"
+          echo "decoders_${arch}=${results}" >> "$GITHUB_OUTPUT"
   charts:
     needs: benchmarks
     runs-on: ubuntu-latest

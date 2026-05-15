@@ -28,7 +28,7 @@ jobs:
       - run: git clone --depth=1 https://github.com/cisco/openh264.git && make -C openh264
       - id: decoders
         run: |
-          results=$(PATH="/openh264:${PATH}" python3 ./misc-scripts/bench-decoders.py video.264 1)
+          results=$(PATH="${PWD}/openh264:${PWD}:${PATH}" python3 ./misc-scripts/bench-decoders.py video.264 1)
           echo "results_${{matrix.arch}}=${results}" >> "$GITHUB_OUTPUT"
   charts:
     needs: benchmarks

@@ -30,17 +30,15 @@ jobs:
         run: |
           results=$(PATH="${PWD}/openh264:${PWD}:${PATH}" python3 ./misc-scripts/bench-decoders.py video.264 1)
           echo "${results}"
-          echo "decoders_${{ matrix.arch }}=${results}"
-          arch="${{ matrix.arch }}"
-          echo "decoders_${arch}=${results}" >> "$GITHUB_OUTPUT"
+          echo "decoders_${{ matrix.arch }}=${results}" >> "$GITHUB_OUTPUT"
   charts:
     needs: benchmarks
     runs-on: ubuntu-latest
     permissions:
       contents: write
     env:
-      DECODERS_X64: ${{ needs.benchmark.outputs.decoders_x64 }}
-      DECODERS_ARM64: ${{ needs.benchmark.outputs.decoders_arm64 }}
+      DECODERS_X64: ${{ needs.benchmarks.outputs.decoders_x64 }}
+      DECODERS_ARM64: ${{ needs.benchmarks.outputs.decoders_arm64 }}
     steps:
       - uses: actions/checkout@v5
       - run: |

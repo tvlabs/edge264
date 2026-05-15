@@ -17,11 +17,11 @@ cnames = list(tuple(data.values())[0].keys())
 
 # generate output chart
 x = np.arange(len(cnames))
-width = 0.5 / len(cnames)
+width = 0.5 / len(rnames)
 fig, ax = plt.subplots(figsize=(6, 4), layout="constrained")
 for i, (rname, row) in enumerate(data.items()):
 	rects = ax.bar(x + i * width, row.values(), width * 0.9, label=rname, zorder=3)
-	ax.bar_label(rects, padding=3)
+	ax.bar_label(rects, fmt="{:.1f}", padding=3)
 ax.set_xticks(x + 0.25 - width / 2, cnames)
 ax.set_ylabel("Seconds", color="#555", fontsize=10)
 ax.set_title("Decoding time (lower is better)", color="#555")

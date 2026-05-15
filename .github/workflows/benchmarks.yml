@@ -28,7 +28,7 @@ jobs:
       - run: git clone --depth=1 https://github.com/cisco/openh264.git && make -C openh264
       - id: decoders
         run: |
-          results=$(PATH="${PWD}/openh264:${PWD}:${PATH}" python3 ./misc-scripts/bench-decoders.py video.264 1)
+          results=$(PATH="${PWD}/openh264:${PWD}:${PATH}" python3 ./misc-scripts/bench-decoders.py video.264 5)
           echo "${results}"
           echo "decoders_${{ matrix.arch }}=${results}" >> "$GITHUB_OUTPUT"
   charts:
@@ -49,3 +49,9 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           path: README-bench-decoders.svg
+      - run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add README-bench-decoders.svg
+          git commit -m "[Benchmarks] Update figure"
+          git push

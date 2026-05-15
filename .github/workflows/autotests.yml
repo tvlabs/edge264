@@ -1,5 +1,8 @@
 name: Automated tests
-on: push
+on:
+  push:
+    paths-ignore: [".github/workflows/benchmarks.yml", "misc-scripts/**", "tests/gen_avc.py", ".gitignore", "CMakeLists.txt", "LICENSE_BSD.txt", "README.md"]
+      
 jobs:
   x86_64-apple-darwinXX:
     runs-on: macos-15-intel

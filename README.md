@@ -6,6 +6,8 @@ It grew up as a research effort on new software engineering practices, most nota
 
 ![](README-bench-decoders.svg)
 
+*Benchmark computed by a median of 5 runs of [Big Buck Bunny test video](https://test-videos.co.uk/vids/bigbuckbunny/mp4/h264/1080/Big_Buck_Bunny_1080_10s_30MB.mp4).*
+
 
 # Features
 

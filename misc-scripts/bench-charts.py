@@ -1,5 +1,5 @@
 #!python3
-import base64, json, matplotlib, matplotlib.pyplot as plt, numpy as np, sys
+import base64, datetime, json, matplotlib, matplotlib.pyplot as plt, numpy as np, sys
 matplotlib.use("Agg")
 
 # print usage if wrong number of inputs or ill-formed JSON
@@ -14,6 +14,7 @@ if not data:
 	exit(1)
 rnames = list(data.keys())
 cnames = list(tuple(data.values())[0].keys())
+d = datetime.datetime.today()
 
 # generate output chart
 x = np.arange(len(cnames))
@@ -24,7 +25,7 @@ for i, (rname, row) in enumerate(data.items()):
 	ax.bar_label(rects, fmt="{:.1f}", padding=3)
 ax.set_xticks(x + 0.25 - width / 2, cnames)
 ax.set_ylabel("Seconds", color="#555", fontsize=10)
-ax.set_title("Decoding time (lower is better)", color="#555")
+ax.set_title(d.strftime("Decoding time measured on %d/%m/%Y (lower is better)"), color="#555")
 ax.set_ylim(0, 1.1 * max(max(row.values()) for row in data.values()))
 ax.tick_params(colors="#555")
 ax.spines[:].set_color("#555")

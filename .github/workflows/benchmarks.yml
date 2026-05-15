@@ -43,6 +43,7 @@ jobs:
       - run: |
           pip3 install matplotlib --quiet
           decoders="{\"x86-64\":${DECODERS_X64},\"arm64\":${DECODERS_ARM64}}"
+          echo "${decoders}"
           python3 ./misc-scripts/bench-charts.py "${decoders}" README-bench-decoders.svg
       - uses: actions/upload-artifact@v4
         with:

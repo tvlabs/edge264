@@ -17,16 +17,16 @@ cnames = list(tuple(data.values())[0].keys())
 d = datetime.datetime.today()
 
 # generate output chart
-x = np.arange(len(cnames))
-width = 0.5 / len(rnames)
+x = np.arange(len(rnames))
+width = 1 / (len(cnames) + 1)
 fig, ax = plt.subplots(figsize=(6, 4), layout="constrained")
-for i, (rname, row) in enumerate(data.items()):
-	rects = ax.bar(x + i * width, row.values(), width * 0.9, label=rname, zorder=3)
-	ax.bar_label(rects, fmt="{:.1f}", padding=3)
-ax.set_xticks(x + 0.25 - width / 2, cnames)
+for c, cname in enumerate(cnames):
+	rects = ax.bar(x + c * width, [r[cname] for r in data.values()], width * 0.9, label=cname, zorder=3)
+	ax.bar_label(rects, padding=3)
+ax.set_xticks(x + 0.5 - width, rnames)
 ax.set_ylabel("Seconds", color="#555", fontsize=10)
 ax.set_title(d.strftime("Decoding time measured on %d/%m/%Y (lower is better)"), color="#555")
-ax.set_ylim(0, 1.1 * max(max(row.values()) for row in data.values()))
+ax.set_ylim(0, 1.1 * max(max(r.values()) for r in data.values()))
 ax.tick_params(colors="#555")
 ax.spines[:].set_color("#555")
 ax.grid(axis="y", color="#aaa", linestyle="--", linewidth=0.7, zorder=0)

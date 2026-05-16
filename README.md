@@ -4,7 +4,7 @@ edge264 is an H.264/AVC cross-platform open-source decoder, focused on **speed**
 
 It grew up as a research effort on new software engineering practices, most notably the use of C vector extensions to replace hand-crafted assembly. As such it is slowly but steadily progressing towards production-readiness, with a target release and API-freeze in **2027**.
 
-![](README-bench-decoders.svg)
+![](README-benchmark.svg)
 
 *Benchmark computed by a median of 5 runs of [Big Buck Bunny test video](https://test-videos.co.uk/vids/bigbuckbunny/mp4/h264/1080/Big_Buck_Bunny_1080_10s_30MB.mp4).*
 

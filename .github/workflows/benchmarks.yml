@@ -12,11 +12,11 @@ jobs:
             os: ubuntu-24.04-arm
     runs-on: ${{ matrix.os }}
     outputs:
-      decoders_x64: ${{ steps.decoders.outputs.decoders_x64 }}
-      decoders_arm64: ${{ steps.decoders.outputs.decoders_arm64 }}
+      results_x64: ${{ steps.results.outputs.results_x64 }}
+      results_arm64: ${{ steps.results.outputs.results_arm64 }}
     steps:
       - uses: actions/checkout@v5
-      - run: sudo apt-get update && sudo apt-get install -y nasm ffmpeg
+      - run: sudo apt-get update && sudo apt-get install -y nasm ffmpeg clang cmake
       - id: cache-video
         uses: actions/cache@v4
         with:
@@ -24,34 +24,49 @@ jobs:
           key: video
       - if: steps.cache-video.outputs.cache-hit != 'true'
         run: wget -q -O - "https://test-videos.co.uk/vids/bigbuckbunny/mp4/h264/1080/Big_Buck_Bunny_1080_10s_30MB.mp4" | ffmpeg -i - -vcodec copy -bsf h264_mp4toannexb -an video.264
-      - run: make
-      - run: git clone --depth=1 https://github.com/cisco/openh264.git && make -C openh264
-      - id: decoders
+      - run: |
+          make STATIC=yes
+          mv edge264_test edge264_test-gcc
+      - run: |
+          make clear
+          make STATIC=yes CC=clang
+          mv edge264_test edge264_test-clang
+      - run: |
+          git clone --depth=1 https://github.com/cisco/openh264.git
+          make -C openh264
+      - run: |
+          git clone --depth=1 https://github.com/ittiam-systems/libavc.git
+          mkdir libavc/build
+          cd libavc/build
+          cmake ..
+          make
+          cd ../..
+      - id: results
         run: |
-          results=$(PATH="${PWD}/openh264:${PWD}:${PATH}" python3 ./misc-scripts/bench-decoders.py video.264 5)
+          results=$(PATH="${PWD}:${PWD}/openh264:${PWD}/libavc/build:${PATH}" python3 ./misc-scripts/benchmark.py video.264 1)
           echo "${results}"
-          echo "decoders_${{ matrix.arch }}=${results}" >> "$GITHUB_OUTPUT"
+          echo "results_${{ matrix.arch }}=${results}" >> "$GITHUB_OUTPUT"
   charts:
     needs: benchmarks
     runs-on: ubuntu-latest
     permissions:
       contents: write
     env:
-      DECODERS_X64: ${{ needs.benchmarks.outputs.decoders_x64 }}
-      DECODERS_ARM64: ${{ needs.benchmarks.outputs.decoders_arm64 }}
+      RESULTS_X64: ${{ needs.benchmarks.outputs.results_x64 }}
+      RESULTS_ARM64: ${{ needs.benchmarks.outputs.results_arm64 }}
     steps:
       - uses: actions/checkout@v5
       - run: |
           pip3 install matplotlib --quiet
-          decoders="{\"x86-64\":${DECODERS_X64},\"arm64\":${DECODERS_ARM64}}"
-          echo "${decoders}"
-          python3 ./misc-scripts/bench-charts.py "${decoders}" README-bench-decoders.svg
+          results="{\"x86-64\":${RESULTS_X64},\"arm64\":${RESULTS_ARM64}}"
+          echo "${results}"
+          python3 ./misc-scripts/bench-charts.py "${results}" README-benchmark.svg
       - uses: actions/upload-artifact@v4
         with:
-          path: README-bench-decoders.svg
+          path: README-benchmark.svg
       - run: |
           git config user.name  "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add -f README-bench-decoders.svg
+          git add -f README-benchmark.svg
           git commit -m "[Benchmarks] Update figure"
           git push

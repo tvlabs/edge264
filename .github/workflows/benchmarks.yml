@@ -43,7 +43,7 @@ jobs:
           cd ../..
       - id: results
         run: |
-          results=$(PATH="${PWD}:${PWD}/openh264:${PWD}/libavc/build:${PATH}" python3 ./misc-scripts/bench-decoders.py video.264 1)
+          results=$(PATH="${PWD}:${PWD}/openh264:${PWD}/libavc/build:${PATH}" python3 ./misc-scripts/bench-decoders.py video.264 5)
           echo "${results}"
           echo "results_${{ matrix.arch }}=${results}" >> "$GITHUB_OUTPUT"
   charts:

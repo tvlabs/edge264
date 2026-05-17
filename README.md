@@ -28,7 +28,7 @@ Below is an overview of optional features versus Baseline (**BP**), Extended (**
 | B slices | | ✓ | ✓ | ✓ | ✓ | ✓ |
 | CABAC entropy coding | | | ✓ | ✓ | ✓ | ✓ |
 | 8x8 IDCT transforms | | | | ✓ | ✓ | ✓ |
-| Quantization matrices | | | | ✓ | ✓ | ✓ |
+| Custom quantization matrices | | | | ✓ | ✓ | ✓ |
 | Separate Cb/Cr QP control | | | | ✓ | ✓ | ✓ |
 | Separate color planes | | | | | | 💡 |
 | Lossless coding | | | | | | 💡 |

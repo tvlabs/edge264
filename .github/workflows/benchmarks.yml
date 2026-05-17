@@ -38,7 +38,7 @@ jobs:
           git clone --depth=1 https://github.com/ittiam-systems/libavc.git
           mkdir libavc/build
           cd libavc/build
-          cmake ..
+          cmake -DCMAKE_BUILD_TYPE=Release ..
           make
           cd ../..
       - id: results

@@ -73,6 +73,9 @@ static always_inline i16x8 sixtapHV(i16x8 a, i16x8 b, i16x8 c, i16x8 d, i16x8 e,
 	static const i16x8 mul205 = {20, -5};
 	#ifdef __aarch64__
 		static const i8x16 shuf_zipmd64 = {4, 5, 6, 7, 8, 9, 10, 11, 20, 21, 22, 23, 24, 25, 26, 27};
+		#define maddhi8u16(a, b, c) (u16x8)vmlal_high_u8(a, b, c)
+		#define mlalane16(a, b, v, i) (i16x8)vmlaq_laneq_s16(a, b, v, i)
+		#define mullane16(a, v, i) (i16x8)vmulq_laneq_s16(a, v, i)
 		#define shrrpus16(a, b, i) (u8x16)vqrshrun_high_n_s16(vqrshrun_n_s16(a, i), b, i)
 		#define zipmd64(a, b) (i32x4)vqtbl2q_s8((int8x16x2_t){a, b}, shuf_zipmd64)
 		static always_inline i16x8 sixtapH4(u8x16 l0, u8x16 l1) {
@@ -80,13 +83,13 @@ static always_inline i16x8 sixtapHV(i16x8 a, i16x8 b, i16x8 c, i16x8 d, i16x8 e,
 			i8x16 af = vqtbl2q_s8(x, (i8x16){0, 5, 1, 6, 2, 7, 3, 8, 16, 21, 17, 22, 18, 23, 19, 24});
 			i8x16 be = vqtbl2q_s8(x, (i8x16){1, 4, 2, 5, 3, 6, 4, 7, 17, 20, 18, 21, 19, 22, 20, 23});
 			i8x16 cd = vqtbl2q_s8(x, (i8x16){2, 3, 3, 4, 4, 5, 5, 6, 18, 19, 19, 20, 20, 21, 21, 22});
-			return vmlaq_laneq_s16(vmlaq_laneq_s16(vpaddlq_u8(af), vpaddlq_u8(cd), mul205, 0), vpaddlq_u8(be), mul205, 1);
+			return mlalane16(mlalane16(vpaddlq_u8(af), vpaddlq_u8(cd), mul205, 0), vpaddlq_u8(be), mul205, 1);
 		}
 	#else
+		#define maddhi8u16(a, b, c) (u16x8)vmlal_u8(a, vget_high_u8(b), vget_high_u8(c))
+		#define mlalane16(a, b, v, i) (i16x8)vmlaq_lane_s16(a, b, __builtin_choose_expr((i) < 4, vget_low_s16(v), vget_high_s16(v)), (i) & 3)
+		#define mullane16(a, v, i) (i16x8)vmulq_lane_s16(a, __builtin_choose_expr((i) < 4, vget_low_s16(v), vget_high_s16(v)), (i) & 3)
 		#define shrrpus16(a, b, i) (u8x16)vcombine_u8(vqrshrun_n_s16(a, i), vqrshrun_n_s16(b, i))
-		#define vmlal_high_u8(a, b, c) vmlal_u8(a, vget_high_u8(b), vget_high_u8(c))
-		#define vmulq_laneq_s16(a, v, i) vmulq_lane_s16(a, __builtin_choose_expr((i) < 4, vget_low_s16(v), vget_high_s16(v)), (i) & 3)
-		#define vmlaq_laneq_s16(a, b, v, i) vmlaq_lane_s16(a, b, __builtin_choose_expr((i) < 4, vget_low_s16(v), vget_high_s16(v)), (i) & 3)
 		static always_inline i8x16 zipmd64(i8x16 a, i8x16 b) {return vcombine_s8(vext_s8(vget_low_s8(a), vget_high_s8(a), 4), vext_s8(vget_low_s8(b), vget_high_s8(b), 4));}
 		static always_inline i16x8 sixtapH4(u8x16 l0, u8x16 l1) {
 			i8x8 saf = {0, 5, 1, 6, 2, 7, 3, 8};
@@ -97,22 +100,22 @@ static always_inline i16x8 sixtapHV(i16x8 a, i16x8 b, i16x8 c, i16x8 d, i16x8 e,
 			i8x16 af = vcombine_s8(vtbl2_s8(x0, saf), vtbl2_s8(x1, saf));
 			i8x16 be = vcombine_s8(vtbl2_s8(x0, sbe), vtbl2_s8(x1, sbe));
 			i8x16 cd = vcombine_s8(vtbl2_s8(x0, scd), vtbl2_s8(x1, scd));
-			return vmlaq_laneq_s16(vmlaq_laneq_s16(vpaddlq_u8(af), vpaddlq_u8(cd), mul205, 0), vpaddlq_u8(be), mul205, 1);
+			return mlalane16(mlalane16(vpaddlq_u8(af), vpaddlq_u8(cd), mul205, 0), vpaddlq_u8(be), mul205, 1);
 		}
 	#endif
 	static always_inline u8x16 maddshrL(u8x16 q, u8x16 p, i16x8 w, i16x8 _, i16x8 o, i16x8 wd) {
-		i16x8 a = vmulq_laneq_s16(cvtlo8u16(q), w, 0);
-		i16x8 b = vmulq_laneq_s16(cvthi8u16(q), w, 0);
+		i16x8 a = mullane16(cvtlo8u16(q), w, 0);
+		i16x8 b = mullane16(cvthi8u16(q), w, 0);
 		// accumulating before offset cannot overflow (see formula 8-298 in spec)
-		i16x8 c = vqaddq_s16(vmlaq_laneq_s16(a, cvtlo8u16(p), w, 1), o);
-		i16x8 d = vqaddq_s16(vmlaq_laneq_s16(b, cvthi8u16(p), w, 1), o);
+		i16x8 c = vqaddq_s16(mlalane16(a, cvtlo8u16(p), w, 1), o);
+		i16x8 d = vqaddq_s16(mlalane16(b, cvthi8u16(p), w, 1), o);
 		return packus16(vshlq_s16(c, wd), vshlq_s16(d, wd));
 	}
 	static always_inline i8x16 maddshrC16(u8x16 q, u8x16 p, i16x8 w, i16x8 _, i16x8 __, i16x8 ___, i16x8 oCb, i16x8 oCr, i16x8 wd) {
-		i16x8 a = vmulq_laneq_s16(cvtlo8u16(q), w, 0);
-		i16x8 b = vmulq_laneq_s16(cvthi8u16(q), w, 2);
-		i16x8 c = vqaddq_s16(vmlaq_laneq_s16(a, cvtlo8u16(p), w, 1), oCb);
-		i16x8 d = vqaddq_s16(vmlaq_laneq_s16(b, cvthi8u16(p), w, 3), oCr);
+		i16x8 a = mullane16(cvtlo8u16(q), w, 0);
+		i16x8 b = mullane16(cvthi8u16(q), w, 2);
+		i16x8 c = vqaddq_s16(mlalane16(a, cvtlo8u16(p), w, 1), oCb);
+		i16x8 d = vqaddq_s16(mlalane16(b, cvthi8u16(p), w, 3), oCr);
 		return packus16(vshlq_s16(c, wd), vshlq_s16(d, wd));
 	}
 	static always_inline i8x16 maddshrC8(u8x16 q, u8x16 p, i16x8 wq, i16x8 wp, i16x8 o, i16x8 wd) {
@@ -130,21 +133,21 @@ static always_inline i16x8 sixtapHV(i16x8 a, i16x8 b, i16x8 c, i16x8 d, i16x8 e,
 	static always_inline u16x8 maddABCD(u8x16 ab, u8x16 cd, i8x16 shuf, u8x16 AB, u8x16 CD) {
 		i8x16 x0 = shuffle(ab, shuf);
 		i8x16 x1 = shuffle(cd, shuf);
-		i16x8 x2 = vmlal_high_u8(vmull_u8(vget_low_u8(x0), vget_low_u8(AB)), x0, AB);
-		i16x8 x3 = vmlal_high_u8(vmull_u8(vget_low_u8(x1), vget_low_u8(CD)), x1, CD);
+		i16x8 x2 = maddhi8u16(vmull_u8(vget_low_u8(x0), vget_low_u8(AB)), x0, AB);
+		i16x8 x3 = maddhi8u16(vmull_u8(vget_low_u8(x1), vget_low_u8(CD)), x1, CD);
 		return x2 + x3;
 	}
 	static always_inline i16x8 sixtapVlo(u8x16 a, u8x16 b, u8x16 c, u8x16 d, u8x16 e, u8x16 f) {
 		i16x8 af = vaddl_u8(vget_low_u8(a), vget_low_u8(f));
 		i16x8 be = vaddl_u8(vget_low_u8(b), vget_low_u8(e));
 		i16x8 cd = vaddl_u8(vget_low_u8(c), vget_low_u8(d));
-		return vmlaq_laneq_s16(vmlaq_laneq_s16(af, cd, mul205, 0), be, mul205, 1);
+		return mlalane16(mlalane16(af, cd, mul205, 0), be, mul205, 1);
 	}
 	static always_inline i16x8 sixtapVhi(u8x16 a, u8x16 b, u8x16 c, u8x16 d, u8x16 e, u8x16 f) {
-		i16x8 af = vaddl_high_u8(a, f);
-		i16x8 be = vaddl_high_u8(b, e);
-		i16x8 cd = vaddl_high_u8(c, d);
-		return vmlaq_laneq_s16(vmlaq_laneq_s16(af, cd, mul205, 0), be, mul205, 1);
+		i16x8 af = cvtaddhi8u16(a, f);
+		i16x8 be = cvtaddhi8u16(b, e);
+		i16x8 cd = cvtaddhi8u16(c, d);
+		return mlalane16(mlalane16(af, cd, mul205, 0), be, mul205, 1);
 	}
 	static always_inline i16x8 sixtapH8(u8x16 a) {
 		return sixtapVlo(a, shr128(a, 1), shr128(a, 2), shr128(a, 3), shr128(a, 4), shr128(a, 5));

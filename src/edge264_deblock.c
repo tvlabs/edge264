@@ -6,12 +6,12 @@
 #elif SIMD == NEON
 	#ifdef __aarch64__
 		#define packabd16(a, b, c, d) vqmovn_high_u16(vqmovn_u16(vabdq_s16(a, b)), vabdq_s16(c, d))
-		#define vsqsubq_u8(a, b) vsqaddq_u8(a, -b) // don't use with b=-128
+		#define addsui8(a, b) (u8x16)vsqaddq_u8(a, b)
+		#define subsui8(a, b) (u8x16)vsqaddq_u8(a, -b) // don't use with b=-128
 	#else
 		#define packabd16(a, b, c, d) vcombine_u16(vqmovn_u16(vabdq_s16(a, b)), vqmovn_u16(vabdq_s16(c, d)))
-		#define vaddl_high_u8(a, b) vaddl_u8(vget_high_u8(a), vget_high_u8(b))
-		static always_inline u8x16 vsqaddq_u8(u8x16 a, i8x16 b) {i8x16 zero = {}; return vqsubq_u8(vqaddq_u8(a, vmaxq_s8(b, zero)), vmaxq_s8(-b, zero));}
-		static always_inline u8x16 vsqsubq_u8(u8x16 a, i8x16 b) {i8x16 zero = {}; return vqaddq_u8(vqsubq_u8(a, vmaxq_s8(b, zero)), vmaxq_s8(-b, zero));}
+		static always_inline u8x16 addsui8(u8x16 a, i8x16 b) {i8x16 zero = {}; return vqsubq_u8(vqaddq_u8(a, vmaxq_s8(b, zero)), vmaxq_s8(-b, zero));}
+		static always_inline u8x16 subsui8(u8x16 a, i8x16 b) {i8x16 zero = {}; return vqaddq_u8(vqsubq_u8(a, vmaxq_s8(b, zero)), vmaxq_s8(-b, zero));}
 	#endif
 #elif SIMD == WASM
 	#define addsu8(a, b) (u8x16)wasm_u8x16_add_sat(a, b)
@@ -72,8 +72,8 @@ static always_inline i8x16 expand2(int64_t a) {
 		i8x16 tC = (ftC0 - apltb - aqltb) & filterSamplesFlag;\
 		i8x16 x0 = vrhaddq_s8(vqsubq_s8(q0 + -128, p0 + -128), pq1 >> 1);\
 		i8x16 delta = vmaxq_s8(vminq_s8(x0, tC), -tC);\
-		p0 = vsqaddq_u8(p0, delta);\
-		q0 = vsqsubq_u8(q0, delta);}
+		p0 = addsui8(p0, delta);\
+		q0 = subsui8(q0, delta);}
 	#define DEBLOCK_CHROMA_SOFT(p1, p0, q0, q1, ialpha, ibeta, itC0) {\
 		/* compute all common masks */\
 		i8x16 shufab = {1, 1, 1, 1, 1, 1, 1, 1, 2, 2, 2, 2, 2, 2, 2, 2};\
@@ -89,8 +89,8 @@ static always_inline i8x16 expand2(int64_t a) {
 		i8x16 tC = (tC0 - -1) & filterSamplesFlag;\
 		i8x16 x0 = vrhaddq_s8(vqsubq_s8(q0 + c128, p0 + c128), pq1 >> 1);\
 		i8x16 delta = vmaxq_s8(vminq_s8(x0, tC), -tC);\
-		p0 = vsqaddq_u8(p0, delta);\
-		q0 = vsqsubq_u8(q0, delta);}
+		p0 = addsui8(p0, delta);\
+		q0 = subsui8(q0, delta);}
 #else
 	#define DEBLOCK_LUMA_SOFT(p2, p1, p0, q0, q1, q2, ialpha, ibeta, itC0) {\
 		/* compute the opposite of filterSamplesFlags as a mask, and transfer the mask bS=0 from tC0 */\
@@ -172,13 +172,13 @@ static always_inline i8x16 expand2(int64_t a) {
 		i8x16 condq = ((u8x16)vabdq_u8(q2, q0) < beta) & condpq;\
 		/* common wide sums */\
 		u16x8 p10l = vaddl_u8(vget_low_u8(p1), vget_low_u8(p0));\
-		u16x8 p10h = vaddl_high_u8(p1, p0);\
+		u16x8 p10h = cvtaddhi8u16(p1, p0);\
 		u16x8 q01l = vaddl_u8(vget_low_u8(q0), vget_low_u8(q1));\
-		u16x8 q01h = vaddl_high_u8(q0, q1);\
+		u16x8 q01h = cvtaddhi8u16(q0, q1);\
 		u16x8 p210q0l = p10l + (u16x8)vaddl_u8(vget_low_u8(p2), vget_low_u8(q0));\
-		u16x8 p210q0h = p10h + (u16x8)vaddl_high_u8(p2, q0);\
+		u16x8 p210q0h = p10h + (u16x8)cvtaddhi8u16(p2, q0);\
 		u16x8 p0q012l = q01l + (u16x8)vaddl_u8(vget_low_u8(p0), vget_low_u8(q2));\
-		u16x8 p0q012h = q01h + (u16x8)vaddl_high_u8(p0, q2);\
+		u16x8 p0q012h = q01h + (u16x8)cvtaddhi8u16(p0, q2);\
 		u16x8 p10q01l = p10l + q01l;\
 		u16x8 p10q01h = p10h + q01h;\
 		/* compute p'0 and q'0 */\
@@ -195,9 +195,9 @@ static always_inline i8x16 expand2(int64_t a) {
 		q1 = ifelse_mask(fcondq, shrrpu16(p0q012l, p0q012h, 2), q1);\
 		/* compute p'2 and q'2 */\
 		u16x8 p32l = vaddl_u8(vget_low_u8(p3), vget_low_u8(p2));\
-		u16x8 p32h = vaddl_high_u8(p3, p2);\
+		u16x8 p32h = cvtaddhi8u16(p3, p2);\
 		u16x8 q23l = vaddl_u8(vget_low_u8(q2), vget_low_u8(q3));\
-		u16x8 q23h = vaddl_high_u8(q2, q3);\
+		u16x8 q23h = cvtaddhi8u16(q2, q3);\
 		p2 = ifelse_mask(fcondp, shrrpu16((p32l << 1) + p210q0l, (p32h << 1) + p210q0h, 3), p2);\
 		q2 = ifelse_mask(fcondq, shrrpu16((q23l << 1) + p0q012l, (q23h << 1) + p0q012h, 3), q2);}
 	#define DEBLOCK_CHROMA_HARD(p1, p0, q0, q1, ialpha, ibeta) {\

@@ -22,6 +22,32 @@
 	#include <sys/resource.h>
 #endif
 
+// Automatic selection of SIMD backend if not defined by environment
+#define SSE 1
+#define NEON 2
+#define WASM 3
+#define CLANG 4
+#ifndef SIMD
+	#if defined(__wasm_simd128__) // placed first to favor explicit WASM by default over SSE/NEON-inferred
+		#define SIMD WASM
+	#elif defined(__SSE2__)
+		#define SIMD SSE
+	#elif defined(__ARM_NEON)
+		#define SIMD NEON
+	#elif defined(__clang__)
+		#define SIMD CLANG
+	#else
+		#error "No supported vector intrinsics found (SSE, NEON, WASM, clang)"
+	#endif
+#endif
+#if SIMD == SSE
+	#include <immintrin.h>
+#elif SIMD == NEON
+	#include <arm_neon.h>
+#elif SIMD == WASM
+	#include <wasm_simd128.h>
+#endif
+
 #include "../edge264.h"
 
 
@@ -582,29 +608,6 @@ enum IntraChromaModes {
 
 
 /**
- * Automatic selection of SIMD backend if not defined by environment
- */
-#define SSE 1
-#define NEON 2
-#define WASM 3
-#define CLANG 4
-#ifndef SIMD
-	#if defined(__wasm_simd128__) // placed first to favor explicit WASM by default over SSE/NEON-inferred
-		#define SIMD WASM
-	#elif defined(__SSE2__)
-		#define SIMD SSE
-	#elif defined(__ARM_NEON)
-		#define SIMD NEON
-	#elif defined(__clang__)
-		#define SIMD CLANG
-	#else
-		#error "No supported vector intrinsics found (SSE, NEON, WASM, clang)"
-	#endif
-#endif
-
-
-
-/**
  * These macros account for the differences in offset addressing between
  * architectures, whether or not they can add and scale a stride to a pointer
  * in a single load.
@@ -694,7 +697,6 @@ static const int8_t shz_mask[48] = {
 #define loada32x4(p0, p1, p2, p3) (i32x4){*(int32_t *)(p0), *(int32_t *)(p1), *(int32_t *)(p2), *(int32_t *)(p3)}
 #define loada64x2(p0, p1) (i64x2){*(int64_t *)(p0), *(int64_t *)(p1)}
 #if SIMD == SSE
-	#include <immintrin.h>
 	#define adds16(a, b) (i16x8)_mm_adds_epi16(a, b)
 	#define avgu8(a, b) (i8x16)_mm_avg_epu8(a, b)
 	#define broadcast8(a, i) shuffle(a, _mm_set1_epi8(i))
@@ -743,7 +745,11 @@ static const int8_t shz_mask[48] = {
 	#define ziphi32(a, b) (i32x4)_mm_unpackhi_epi32(a, b)
 	#define ziphi64(a, b) (i64x2)_mm_unpackhi_epi64(a, b)
 	static always_inline i16x8 cvthi8s16(i8x16 a) {return (i16x8)ziphi8(a, a) >> 8;}
-	static always_inline size_t shld(size_t l, size_t h, size_t i) {asm("shld %%cl, %1, %0" : "+rm" (h) : "r" (l), "c" (i)); return h;}
+	#ifndef __wasm_simd128__
+		static always_inline size_t shld(size_t l, size_t h, size_t i) {asm("shld %%cl, %1, %0" : "+rm" (h) : "r" (l), "c" (i)); return h;}
+	#else
+		static always_inline size_t shld(size_t l, size_t h, int i) {return h << i | l >> 1 >> (~i & (SIZE_BIT - 1));}
+	#endif
 	static always_inline u16x8 sum8(u8x16 a) {u16x8 v = _mm_sad_epu8(a, (i8x16){}); return v + (u16x8)_mm_srli_si128(v, 8);}
 	#define maddxbs maddubs
 	#define maddubx (u16x8)maddubs
@@ -811,7 +817,6 @@ static const int8_t shz_mask[48] = {
 		static i8x16 shuffle3(const i8x16 *p, i8x16 m) {union { int8_t q[16]; i8x16 v; } _m = {.v = _mm_min_epu8(m, _mm_set1_epi8(47))}; for (int i = 0; i < 16; i++) _m.q[i] = ((int8_t *)p)[_m.q[i]]; return _m.v;}
 	#endif
 #elif SIMD == NEON
-	#include <arm_neon.h>
 	#define abs8(a) (u8x16)vabsq_s8(a)
 	#define abs16(a) (u16x8)vabsq_s16(a)
 	#define avgu8(a, b) (u8x16)vrhaddq_u8(a, b)
@@ -858,6 +863,7 @@ static const int8_t shz_mask[48] = {
 		#define broadcast16(a, i) (i16x8)vdupq_laneq_s16(a, i)
 		#define broadcast32(a, i) (i32x4)vdupq_laneq_s32(a, i)
 		#define broadcast64(a, i) (i64x2)vdupq_laneq_s64(a, i)
+		#define cvtaddhi8u16(a, b) (u16x8)vaddl_high_u8(a, b)
 		#define cvthi8u16(a) (u16x8)vmovl_high_u8(a)
 		#define cvthi8s16(a) (u16x8)vmovl_high_s8(a)
 		#define cvthi16u32(a) (u32x4)vmovl_high_u16(a)
@@ -892,6 +898,7 @@ static const int8_t shz_mask[48] = {
 		#define broadcast16(a, i) (i16x8)vdupq_lane_s16(__builtin_choose_expr((i) < 4, vget_low_s16(a), vget_high_s16(a)), (i) & 3)
 		#define broadcast32(a, i) (i32x4)vdupq_lane_s32(__builtin_choose_expr((i) < 2, vget_low_s32(a), vget_high_s32(a)), (i) & 1)
 		#define broadcast64(a, i) (i64x2)vdupq_lane_s64(__builtin_choose_expr((i) < 1, vget_low_s64(a), vget_high_s64(a)), 0)
+		#define cvtaddhi8u16(a, b) vaddl_u8(vget_high_u8(a), vget_high_u8(b))
 		#define cvthi8u16(a) (u16x8)vmovl_u8(vget_high_u8(a))
 		#define cvthi8s16(a) (u16x8)vmovl_s8(vget_high_s8(a))
 		#define cvthi16u32(a) (u32x4)vmovl_u16(vget_high_u16(a))
@@ -904,7 +911,6 @@ static const int8_t shz_mask[48] = {
 		#define trnhi32(a, b) ((i32x4)vtrnq_s32(a, b).val[1])
 		#define unziplo32(a, b) (i32x4)vuzpq_s32(a, b).val[0]
 		#define unziphi32(a, b) (i32x4)vuzpq_s32(a, b).val[1]
-		#define vaddl_high_u8(a, b) vaddl_u8(vget_high_u8(a), vget_high_u8(b))
 		#define ziplo8(a, b) (i8x16)vzipq_s8(a, b).val[0]
 		#define ziphi8(a, b) (i8x16)vzipq_s8(a, b).val[1]
 		#define ziplo16(a, b) (i16x8)vzipq_s16(a, b).val[0]
@@ -925,7 +931,6 @@ static const int8_t shz_mask[48] = {
 	#define shufflez shuffle
 	#define shuffle2z shuffle2
 #elif SIMD == WASM
-	#include <wasm_simd128.h>
 	#define abs8(a) (u8x16)wasm_i8x16_abs(a)
 	#define abs16(a) (u16x8)wasm_i16x8_abs(a)
 	#define avgu8(a, b) (u8x16)wasm_u8x16_avgr(a, b)

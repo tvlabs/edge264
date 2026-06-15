@@ -58,7 +58,7 @@ make
 For WebAssembly builds:
 
 ```sh
-emmake make OS=wasm
+emmake make OS=wasm # add CFLAGS=-mrelaxed-simd to target WASM v3
 ```
 
 You can find lists of targets and options and what they do in the [Makefile](Makefile).

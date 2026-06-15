@@ -204,18 +204,22 @@ static always_inline i16x8 sixtapHV(i16x8 a, i16x8 b, i16x8 c, i16x8 d, i16x8 e,
 		return af - be * 5 + cd * 20;
 	}
 	static always_inline i16x8 sixtapH4(u8x16 l0, u8x16 l1) {
-		i8x16 af = wasm_i8x16_shuffle(l0, l1, 0, 5, 1, 6, 2, 7, 3, 8, 16, 21, 17, 22, 18, 23, 19, 24);
-		i8x16 be = wasm_i8x16_shuffle(l0, l1, 1, 4, 2, 5, 3, 6, 4, 7, 17, 20, 18, 21, 19, 22, 20, 23);
-		i8x16 cd = wasm_i8x16_shuffle(l0, l1, 2, 3, 3, 4, 4, 5, 5, 6, 18, 19, 19, 20, 20, 21, 21, 22);
+		// Ideal version to restore when TurboFan properly handles the loading of shuffle constants
+		// i8x16 af = wasm_i8x16_shuffle(l0, l1, 0, 5, 1, 6, 2, 7, 3, 8, 16, 21, 17, 22, 18, 23, 19, 24);
+		// i8x16 be = wasm_i8x16_shuffle(l0, l1, 1, 4, 2, 5, 3, 6, 4, 7, 17, 20, 18, 21, 19, 22, 20, 23);
+		// i8x16 cd = wasm_i8x16_shuffle(l0, l1, 2, 3, 3, 4, 4, 5, 5, 6, 18, 19, 19, 20, 20, 21, 21, 22);
+		i8x16 af = ziplo8(ziplo32(l0, l1), ziplo32(shr128(l0, 5), shr128(l1, 5)));
+		i8x16 be = ziplo8(ziplo32(shr128(l0, 1), shr128(l1, 1)), ziplo32(shr128(l0, 4), shr128(l1, 4)));
+		i8x16 cd = ziplo8(ziplo32(shr128(l0, 2), shr128(l1, 2)), ziplo32(shr128(l0, 3), shr128(l1, 3)));
 		i16x8 x1 = wasm_u16x8_extadd_pairwise_u8x16(af);
 		i16x8 x5 = wasm_u16x8_extadd_pairwise_u8x16(be);
 		i16x8 x20 = wasm_u16x8_extadd_pairwise_u8x16(cd);
 		return x1 - x5 * 5 + x20 * 20;
 	}
 	static always_inline i16x8 sixtapH8(u8x16 a) {
-		i8x16 af = wasm_i8x16_shuffle(a, a, 0, 5, 1, 6, 2, 7, 3, 8, 4, 9, 5, 10, 6, 11, 7, 12);
-		i8x16 be = wasm_i8x16_shuffle(a, a, 1, 4, 2, 5, 3, 6, 4, 7, 5, 8, 6, 9, 7, 10, 8, 11);
-		i8x16 cd = wasm_i8x16_shuffle(a, a, 2, 3, 3, 4, 4, 5, 5, 6, 6, 7, 7, 8, 8, 9, 9, 10);
+		i8x16 af = ziplo8(a, shr128(a, 5));
+		i8x16 be = ziplo8(shr128(a, 1), shr128(a, 4));
+		i8x16 cd = ziplo8(shr128(a, 2), shr128(a, 3));
 		i16x8 x1 = wasm_u16x8_extadd_pairwise_u8x16(af);
 		i16x8 x5 = wasm_u16x8_extadd_pairwise_u8x16(be);
 		i16x8 x20 = wasm_u16x8_extadd_pairwise_u8x16(cd);

@@ -208,6 +208,7 @@ else ifeq ($(OS),ios)
   _IOS_SDK   := $(shell xcrun --sdk iphoneos --show-sdk-path 2>/dev/null)
   _BASE_ARCH := -arch arm64 $(if $(_IOS_SDK),-isysroot $(_IOS_SDK))
 else ifeq ($(OS),wasm)
+  # add CFLAGS=-mrelaxed-simd for WASM v3 (requires runtime support)
   _BASE_ARCH := -msimd128
 endif
 

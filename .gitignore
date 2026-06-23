@@ -9,3 +9,6 @@
 !*.in
 !tests
 !tests/*.yaml
+!tests/conformance/
+!tests/conformance/*/
+!tests/conformance/*/*.264

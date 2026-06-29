@@ -1082,7 +1082,7 @@ static const int8_t shz_mask[48] = {
 	static i16x8 maddubs(u8x16 a, i8x16 b) {return __builtin_elementwise_add_sat((i16x8)((u16x8)a << 8 >> 8) * ((i16x8)b << 8 >> 8), (i16x8)((u16x8)a >> 8) * ((i16x8)b >> 8));}
 	static u32x4 minw32(u32x4 a, u32x4 b) {return ifelse_mask((i32x4)(a - b) >> 31, a, b);}
 	static int movemask(i8x16 a) {return __builtin_reduce_add((u16x16)__builtin_convertvector(a >> 7, i16x16) & (u16x16){1, 2, 4, 8, 16, 32, 64, 128, 256, 512, 1024, 2048, 4096, 8192, 16384, 32768});}
-	static u32x4 pow2x4(i32x4 a) {return (u32x4)set32(1) << a;}
+	static u32x4 pow2x4(i32x4 a) {return (a >= 0) & (u32x4)set32(1) << a;}
 	static i8x16 packs16(i16x8 a, i16x8 b) {i16x8 lo = set16(-128), hi = set16(127); a = __builtin_elementwise_min(__builtin_elementwise_max(a, lo), hi); b = __builtin_elementwise_min(__builtin_elementwise_max(b, lo), hi); return __builtin_convertvector((i16x16){a[0], a[1], a[2], a[3], a[4], a[5], a[6], a[7], b[0], b[1], b[2], b[3], b[4], b[5], b[6], b[7]}, i8x16);}
 	static i16x8 packs32(i32x4 a, i32x4 b) {i32x4 lo = set32(-32768), hi = set32(32767); a = __builtin_elementwise_min(__builtin_elementwise_max(a, lo), hi); b = __builtin_elementwise_min(__builtin_elementwise_max(b, lo), hi); return __builtin_convertvector((i32x8){a[0], a[1], a[2], a[3], b[0], b[1], b[2], b[3]}, i16x8);}
 	static u8x16 packus16(i16x8 a, i16x8 b) {i16x8 lo = set16(0), hi = set16(255); a = __builtin_elementwise_min(__builtin_elementwise_max(a, lo), hi); b = __builtin_elementwise_min(__builtin_elementwise_max(b, lo), hi); return __builtin_convertvector((u16x16){a[0], a[1], a[2], a[3], a[4], a[5], a[6], a[7], b[0], b[1], b[2], b[3], b[4], b[5], b[6], b[7]}, u8x16);}

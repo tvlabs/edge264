@@ -1269,6 +1269,7 @@ int ADD_VARIANT(parse_slice_layer_without_partitioning)(Edge264Decoder *dec, Edg
 	dec->busy_tasks |= 1 << task_id;
 	dec->pending_tasks |= 1 << task_id;
 	dec->task_dependencies[task_id] = refs_to_mask(t);
+	// FIXME check against dependencies on non-reference slots
 	dec->ready_tasks |= ((dec->task_dependencies[task_id] & ~ready_frames(dec)) == 0) << task_id;
 	dec->taskPics[task_id] = dec->currPic;
 	ret = print_dec(dec, dec->n_threads || dec->worker_loop != worker_loop_log ?

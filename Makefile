@@ -208,8 +208,7 @@ else ifeq ($(OS),ios)
   _IOS_SDK   := $(shell xcrun --sdk iphoneos --show-sdk-path 2>/dev/null)
   _BASE_ARCH := -arch arm64 $(if $(_IOS_SDK),-isysroot $(_IOS_SDK))
 else ifeq ($(OS),wasm)
-  # emcc does not support -march=native; WASM SIMD is enabled with -msimd128.
-  _BASE_ARCH := -msimd128 -mrelaxed-simd
+  _BASE_ARCH := -msimd128
 endif
 
 # ---- Final CFLAGS ------------------------------------------------------------
@@ -386,7 +385,7 @@ clean clear:
 .PHONY: check
 check: edge264_check$(EXE)
 ifeq ($(OS),wasm)
-	$(Q)$(shell which node) --experimental-wasm-relaxed-simd edge264_check$(EXE)
+	$(Q)$(shell which node) edge264_check$(EXE)
 else
 	$(Q)./edge264_check$(EXE)
 endif

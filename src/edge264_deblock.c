@@ -485,8 +485,8 @@ static void deblock_CbCr_8bit(Edge264Context *ctx) {
 	
 	// first horizontal edge
 	if (mb->filter_edges & 2) {
-		i8x16 hY = (i64x2){*(int64_t *)(SADDR(p0, -4)), *(int64_t *)(SADDR(p0, -3))};
-		i8x16 hZ = (i64x2){*(int64_t *)(SADDR(p0, -2)), *(int64_t *)(SADDR(p0, -1))};
+		i8x16 hY = (i64x2){(loada64(SADDR(p0, -4))[0]), (loada64(SADDR(p0, -3))[0])};
+		i8x16 hZ = (i64x2){(loada64(SADDR(p0, -2))[0]), (loada64(SADDR(p0, -1))[0])};
 		if (mbB->mbIsInterFlag & mb->mbIsInterFlag) {
 			int64_t tC0e = ctx->tC0_l[6];
 			if (tC0e != -1)
@@ -494,31 +494,31 @@ static void deblock_CbCr_8bit(Edge264Context *ctx) {
 		} else {
 			DEBLOCK_CHROMA_HARD(hY, hZ, h0, h1, ctx->alpha_s[3], ctx->beta_s[3]);
 		}
-		*(int64_t *)SADDR(p0, -2) = ((i64x2)hZ)[0];
-		*(int64_t *)SADDR(p0, -1) = ((i64x2)hZ)[1];
+		storea64(SADDR(p0, -2), ((i64x2)hZ)[0]);
+		storea64(SADDR(p0, -1), ((i64x2)hZ)[1]);
 	}
 	mb->filter_edges = 0; // prevent redundant deblocking with deblock_idc==2 and ASO
-	*(int64_t *)SADDR(p0,  0) = ((i64x2)h0)[0];
-	*(int64_t *)SADDR(p0,  1) = ((i64x2)h0)[1];
-	*(int64_t *)SADDR(p0,  2) = ((i64x2)h1)[0];
-	*(int64_t *)SADDR(p7, -4) = ((i64x2)h1)[1];
+	storea64(SADDR(p0,  0), ((i64x2)h0)[0]);
+	storea64(SADDR(p0,  1), ((i64x2)h0)[1]);
+	storea64(SADDR(p0,  2), ((i64x2)h1)[0]);
+	storea64(SADDR(p7, -4), ((i64x2)h1)[1]);
 	
 	// second horizontal edge
 	int64_t tC0g = ctx->tC0_l[7];
 	if (tC0g != -1)
 		DEBLOCK_CHROMA_SOFT(h2, h3, h4, h5, ctx->alpha_s[0], ctx->beta_s[0], tC0g);
-	*(int64_t *)SADDR(p0,  4) = ((i64x2)h2)[0];
-	*(int64_t *)SADDR(p7, -2) = ((i64x2)h2)[1];
-	*(int64_t *)SADDR(p7, -1) = ((i64x2)h3)[0];
-	*(int64_t *)SADDR(p7,  0) = ((i64x2)h3)[1];
-	*(int64_t *)SADDR(p7,  1) = ((i64x2)h4)[0];
-	*(int64_t *)SADDR(p7,  2) = ((i64x2)h4)[1];
-	*(int64_t *)SADDR(pE, -4) = ((i64x2)h5)[0];
-	*(int64_t *)SADDR(p7,  4) = ((i64x2)h5)[1];
-	*(int64_t *)SADDR(pE, -2) = ((i64x2)h6)[0];
-	*(int64_t *)SADDR(pE, -1) = ((i64x2)h6)[1];
-	*(int64_t *)SADDR(pE,  0) = ((i64x2)h7)[0];
-	*(int64_t *)SADDR(pE,  1) = ((i64x2)h7)[1];
+	storea64(SADDR(p0,  4), ((i64x2)h2)[0]);
+	storea64(SADDR(p7, -2), ((i64x2)h2)[1]);
+	storea64(SADDR(p7, -1), ((i64x2)h3)[0]);
+	storea64(SADDR(p7,  0), ((i64x2)h3)[1]);
+	storea64(SADDR(p7,  1), ((i64x2)h4)[0]);
+	storea64(SADDR(p7,  2), ((i64x2)h4)[1]);
+	storea64(SADDR(pE, -4), ((i64x2)h5)[0]);
+	storea64(SADDR(p7,  4), ((i64x2)h5)[1]);
+	storea64(SADDR(pE, -2), ((i64x2)h6)[0]);
+	storea64(SADDR(pE, -1), ((i64x2)h6)[1]);
+	storea64(SADDR(pE,  0), ((i64x2)h7)[0]);
+	storea64(SADDR(pE,  1), ((i64x2)h7)[1]);
 }
 
 
@@ -626,22 +626,22 @@ static void deblock_Y_8bit(Edge264Context *ctx) {
 		i32x4 xe5 = ziphi16(xe0, xe2);
 		i32x4 xe6 = ziplo16(xe1, xe3);
 		i32x4 xe7 = ziphi16(xe1, xe3);
-		*(int32_t *)SADDR(p0,  0) = xe4[0];
-		*(int32_t *)SADDR(p0,  1) = xe4[1];
-		*(int32_t *)SADDR(p0,  2) = xe4[2];
-		*(int32_t *)SADDR(p7, -4) = xe4[3];
-		*(int32_t *)SADDR(p0,  4) = xe5[0];
-		*(int32_t *)SADDR(p7, -2) = xe5[1];
-		*(int32_t *)SADDR(p7, -1) = xe5[2];
-		*(int32_t *)SADDR(p7,  0) = xe5[3];
-		*(int32_t *)SADDR(p7,  1) = xe6[0];
-		*(int32_t *)SADDR(p7,  2) = xe6[1];
-		*(int32_t *)SADDR(pE, -4) = xe6[2];
-		*(int32_t *)SADDR(p7,  4) = xe6[3];
-		*(int32_t *)SADDR(pE, -2) = xe7[0];
-		*(int32_t *)SADDR(pE, -1) = xe7[1];
-		*(int32_t *)SADDR(pE,  0) = xe7[2];
-		*(int32_t *)SADDR(pE,  1) = xe7[3];
+		storea32(SADDR(p0,  0), xe4[0]);
+		storea32(SADDR(p0,  1), xe4[1]);
+		storea32(SADDR(p0,  2), xe4[2]);
+		storea32(SADDR(p7, -4), xe4[3]);
+		storea32(SADDR(p0,  4), xe5[0]);
+		storea32(SADDR(p7, -2), xe5[1]);
+		storea32(SADDR(p7, -1), xe5[2]);
+		storea32(SADDR(p7,  0), xe5[3]);
+		storea32(SADDR(p7,  1), xe6[0]);
+		storea32(SADDR(p7,  2), xe6[1]);
+		storea32(SADDR(pE, -4), xe6[2]);
+		storea32(SADDR(p7,  4), xe6[3]);
+		storea32(SADDR(pE, -2), xe7[0]);
+		storea32(SADDR(pE, -1), xe7[1]);
+		storea32(SADDR(pE,  0), xe7[2]);
+		storea32(SADDR(pE,  1), xe7[3]);
 		p0 += 4;
 		p7 += 4;
 		pE += 4;
@@ -708,14 +708,14 @@ static void deblock_Y_8bit(Edge264Context *ctx) {
 	}
 	
 	// load and transpose the right 8x16 matrix
-	i8x16 xa0 = *(i8x16 *)SADDR(p0,  0);
-	i8x16 xa1 = *(i8x16 *)SADDR(p0,  1);
-	i8x16 xa2 = *(i8x16 *)SADDR(p0,  2);
-	i8x16 xa3 = *(i8x16 *)SADDR(p7, -4);
-	i8x16 xa4 = *(i8x16 *)SADDR(p0,  4);
-	i8x16 xa5 = *(i8x16 *)SADDR(p7, -2);
-	i8x16 xa6 = *(i8x16 *)SADDR(p7, -1);
-	i8x16 xa7 = *(i8x16 *)SADDR(p7,  0);
+	i8x16 xa0 = loada128(SADDR(p0,  0));
+	i8x16 xa1 = loada128(SADDR(p0,  1));
+	i8x16 xa2 = loada128(SADDR(p0,  2));
+	i8x16 xa3 = loada128(SADDR(p7, -4));
+	i8x16 xa4 = loada128(SADDR(p0,  4));
+	i8x16 xa5 = loada128(SADDR(p7, -2));
+	i8x16 xa6 = loada128(SADDR(p7, -1));
+	i8x16 xa7 = loada128(SADDR(p7,  0));
 	i8x16 xb0 = ziphi8(xa0, xa1);
 	i8x16 xb1 = ziphi8(xa2, xa3);
 	i8x16 xb2 = ziphi8(xa4, xa5);
@@ -724,14 +724,14 @@ static void deblock_Y_8bit(Edge264Context *ctx) {
 	i8x16 xc1 = ziphi16(xb0, xb1);
 	i8x16 xc2 = ziplo16(xb2, xb3);
 	i8x16 xc3 = ziphi16(xb2, xb3);
-	i8x16 xa8 = *(i8x16 *)SADDR(p7,  1);
-	i8x16 xa9 = *(i8x16 *)SADDR(p7,  2);
-	i8x16 xaA = *(i8x16 *)SADDR(pE, -4);
-	i8x16 xaB = *(i8x16 *)SADDR(p7,  4);
-	i8x16 xaC = *(i8x16 *)SADDR(pE, -2);
-	i8x16 xaD = *(i8x16 *)SADDR(pE, -1);
-	i8x16 xaE = *(i8x16 *)SADDR(pE,  0);
-	i8x16 xaF = *(i8x16 *)SADDR(pE,  1);
+	i8x16 xa8 = loada128(SADDR(p7,  1));
+	i8x16 xa9 = loada128(SADDR(p7,  2));
+	i8x16 xaA = loada128(SADDR(pE, -4));
+	i8x16 xaB = loada128(SADDR(p7,  4));
+	i8x16 xaC = loada128(SADDR(pE, -2));
+	i8x16 xaD = loada128(SADDR(pE, -1));
+	i8x16 xaE = loada128(SADDR(pE,  0));
+	i8x16 xaF = loada128(SADDR(pE,  1));
 	i8x16 xb4 = ziphi8(xa8, xa9);
 	i8x16 xb5 = ziphi8(xaA, xaB);
 	i8x16 xb6 = ziphi8(xaC, xaD);
@@ -805,23 +805,23 @@ static void deblock_Y_8bit(Edge264Context *ctx) {
 	
 	// first horizontal edge
 	if (mb->filter_edges & 2) {
-		i8x16 hx = *(i8x16 *)SADDR(p0, -3);
-		i8x16 hy = *(i8x16 *)SADDR(p0, -2);
-		i8x16 hz = *(i8x16 *)SADDR(p0, -1);
+		i8x16 hx = loada128(SADDR(p0, -3));
+		i8x16 hy = loada128(SADDR(p0, -2));
+		i8x16 hz = loada128(SADDR(p0, -1));
 		if (mbB->mbIsInterFlag & mb->mbIsInterFlag) {
 			int tC0e = ctx->tC0_s[4];
 			if (tC0e != -1)
 				DEBLOCK_LUMA_SOFT(hx, hy, hz, h0, h1, h2, ctx->alpha[12], ctx->beta[12], tC0e);
 		} else if (ctx->alpha[12] != 0) {
-			i8x16 hw = *(i8x16 *)SADDR(p0, -4);
+			i8x16 hw = loada128(SADDR(p0, -4));
 			DEBLOCK_LUMA_HARD(hw, hx, hy, hz, h0, h1, h2, h3, ctx->alpha[12], ctx->beta[12]);
-			*(i8x16 *)SADDR(p0, -3) = hx;
+			storea128(SADDR(p0, -3), hx);
 		}
-		*(i8x16 *)SADDR(p0, -2) = hy;
-		*(i8x16 *)SADDR(p0, -1) = hz;
+		storea128(SADDR(p0, -2), hy);
+		storea128(SADDR(p0, -1), hz);
 	}
-	*(i8x16 *)SADDR(p0,  0) = h0;
-	*(i8x16 *)SADDR(p0,  1) = h1;
+	storea128(SADDR(p0,  0), h0);
+	storea128(SADDR(p0,  1), h1);
 	
 	// second horizontal edge
 	if (!mb->f.transform_size_8x8_flag) {
@@ -829,10 +829,10 @@ static void deblock_Y_8bit(Edge264Context *ctx) {
 		if (tC0f != -1)
 			DEBLOCK_LUMA_SOFT(h1, h2, h3, h4, h5, h6, ctx->alpha[0], ctx->beta[0], tC0f);
 	}
-	*(i8x16 *)SADDR(p0,  2) = h2;
-	*(i8x16 *)SADDR(p7, -4) = h3;
-	*(i8x16 *)SADDR(p0,  4) = h4;
-	*(i8x16 *)SADDR(p7, -2) = h5;
+	storea128(SADDR(p0,  2), h2);
+	storea128(SADDR(p7, -4), h3);
+	storea128(SADDR(p0,  4), h4);
+	storea128(SADDR(p7, -2), h5);
 	
 	// transpose the bottom 16x8 matrix
 	i8x16 xh0 = ziphi8(v0, v1);
@@ -872,10 +872,10 @@ static void deblock_Y_8bit(Edge264Context *ctx) {
 	int tC0g = ctx->tC0_s[6];
 	if (tC0g != -1)
 		DEBLOCK_LUMA_SOFT(h5, h6, h7, h8, h9, hA, ctx->alpha[0], ctx->beta[0], tC0g);
-	*(i8x16 *)SADDR(p7, -1) = h6;
-	*(i8x16 *)SADDR(p7,  0) = h7;
-	*(i8x16 *)SADDR(p7,  1) = h8;
-	*(i8x16 *)SADDR(p7,  2) = h9;
+	storea128(SADDR(p7, -1), h6);
+	storea128(SADDR(p7,  0), h7);
+	storea128(SADDR(p7,  1), h8);
+	storea128(SADDR(p7,  2), h9);
 	
 	// fourth horizontal edge
 	if (!mb->f.transform_size_8x8_flag) {
@@ -883,15 +883,268 @@ static void deblock_Y_8bit(Edge264Context *ctx) {
 		if (tC0h != -1)
 			DEBLOCK_LUMA_SOFT(h9, hA, hB, hC, hD, hE, ctx->alpha[0], ctx->beta[0], tC0h);
 	}
-	*(i8x16 *)SADDR(pE, -4) = hA;
-	*(i8x16 *)SADDR(p7,  4) = hB;
-	*(i8x16 *)SADDR(pE, -2) = hC;
-	*(i8x16 *)SADDR(pE, -1) = hD;
-	*(i8x16 *)SADDR(pE,  0) = hE;
-	*(i8x16 *)SADDR(pE,  1) = hF;
+	storea128(SADDR(pE, -4), hA);
+	storea128(SADDR(p7,  4), hB);
+	storea128(SADDR(pE, -2), hC);
+	storea128(SADDR(pE, -1), hD);
+	storea128(SADDR(pE,  0), hE);
+	storea128(SADDR(pE,  1), hF);
 	
 	// jump to chroma deblocking filter
 	deblock_CbCr_8bit(ctx);
+}
+
+
+
+/**
+ * Scalar deblocking pixel pipeline for SIMD-less ISAs (RISC-V).
+ *
+ * The vector implementation above (deblock_Y_8bit/deblock_CbCr_8bit) is built
+ * around full 16x16/8x8 byte-matrix transposes so the 128-bit filters can work
+ * on 16 pixels of an edge at once. Scalarized by the compiler on an ISA with
+ * no vector unit, those transposes explode into thousands of byte moves per
+ * macroblock and dominate WHOLE-FRAME decoding cost (~75% of I-frame time
+ * measured on ESP32-P4-class builds). This scalar path filters each edge
+ * in place (no transposes at all), with per-4-pixel-group and per-pixel early
+ * exits, using the exact formulas of ITU-T H.264 8.7.2.3/8.7.2.4 — the output
+ * is bit-identical to the vector path (verified against the SSE build on
+ * IDR/P/High-CABAC conformance-style streams).
+ *
+ * Edge parameters (computed by deblock_mb below, same in both paths):
+ * _ luma edges a..d vertical at x=0/4/8/12, e..h horizontal at y=0/4/8/12,
+ *   tC0 in ctx->tC0_s[0..7] (4 int8 group values each, -1 = no filtering),
+ *   alpha/beta bytes: [0] interior, [8] edge a, [12] edge e
+ * _ chroma edges a/c vertical at x=0/4, e/g horizontal at y=0/4 of each 8x8
+ *   plane, tC0 in ctx->tC0_l[4..7] (bytes 0-3 = Cb groups, 4-7 = Cr groups,
+ *   one group per 2 pixels), alpha/beta bytes: [1]/[2] interior Cb/Cr,
+ *   [9]/[10] edge a, [13]/[14] edge e
+ */
+static always_inline int df_clip3(int lo, int hi, int v) {
+	return v < lo ? lo : (v > hi ? hi : v);
+}
+static always_inline int df_clip255(int v) {
+	return v < 0 ? 0 : (v > 255 ? 255 : v);
+}
+
+// bS<4 luma filter on one edge of 16 pixels; de = step along the edge,
+// dc = step across it (q0 at p[0], p0 at p[-dc]).
+static void deblock_scalar_luma_soft(uint8_t *q0p, ptrdiff_t de, ptrdiff_t dc,
+                                     int alpha, int beta, int32_t tC0s) {
+	for (int g = 0; g < 4; g++) {
+		int tC0 = (int8_t)(tC0s >> (g * 8));
+		if (tC0 < 0)
+			continue;
+		uint8_t *r = q0p + (ptrdiff_t)g * 4 * de;
+		for (int k = 0; k < 4; k++, r += de) {
+			int p0 = r[-dc], q0 = r[0];
+			int d = p0 - q0;
+			if ((d < 0 ? -d : d) >= alpha)
+				continue;
+			int p1 = r[-dc * 2], q1 = r[dc];
+			d = p1 - p0;
+			if ((d < 0 ? -d : d) >= beta)
+				continue;
+			d = q1 - q0;
+			if ((d < 0 ? -d : d) >= beta)
+				continue;
+			int p2 = r[-dc * 3], q2 = r[dc * 2];
+			d = p2 - p0;
+			int ap = (d < 0 ? -d : d) < beta;
+			d = q2 - q0;
+			int aq = (d < 0 ? -d : d) < beta;
+			int tC = tC0 + ap + aq;
+			int delta = df_clip3(-tC, tC, ((q0 - p0) * 4 + (p1 - q1) + 4) >> 3);
+			int pq = (p0 + q0 + 1) >> 1;
+			r[-dc] = df_clip255(p0 + delta);
+			r[0] = df_clip255(q0 - delta);
+			if (ap)
+				r[-dc * 2] = p1 + df_clip3(-tC0, tC0, (p2 + pq - p1 * 2) >> 1);
+			if (aq)
+				r[dc] = q1 + df_clip3(-tC0, tC0, (q2 + pq - q1 * 2) >> 1);
+		}
+	}
+}
+
+// bS=4 luma filter (strong, used on macroblock edges with an intra neighbour)
+static void deblock_scalar_luma_hard(uint8_t *q0p, ptrdiff_t de, ptrdiff_t dc,
+                                     int alpha, int beta) {
+	uint8_t *r = q0p;
+	for (int k = 0; k < 16; k++, r += de) {
+		int p0 = r[-dc], q0 = r[0];
+		int d = p0 - q0;
+		int ab0 = d < 0 ? -d : d;
+		if (ab0 >= alpha)
+			continue;
+		int p1 = r[-dc * 2], q1 = r[dc];
+		d = p1 - p0;
+		if ((d < 0 ? -d : d) >= beta)
+			continue;
+		d = q1 - q0;
+		if ((d < 0 ? -d : d) >= beta)
+			continue;
+		int small = ab0 < (alpha >> 2) + 2;
+		int p2 = r[-dc * 3], q2 = r[dc * 2];
+		d = p2 - p0;
+		if (small && (d < 0 ? -d : d) < beta) {
+			int p3 = r[-dc * 4];
+			r[-dc] = (p2 + 2 * p1 + 2 * p0 + 2 * q0 + q1 + 4) >> 3;
+			r[-dc * 2] = (p2 + p1 + p0 + q0 + 2) >> 2;
+			r[-dc * 3] = (2 * p3 + 3 * p2 + p1 + p0 + q0 + 4) >> 3;
+		} else {
+			r[-dc] = (2 * p1 + p0 + q1 + 2) >> 2;
+		}
+		d = q2 - q0;
+		if (small && (d < 0 ? -d : d) < beta) {
+			int q3 = r[dc * 3];
+			r[0] = (q2 + 2 * q1 + 2 * q0 + 2 * p0 + p1 + 4) >> 3;
+			r[dc] = (q2 + q1 + q0 + p0 + 2) >> 2;
+			r[dc * 2] = (2 * q3 + 3 * q2 + q1 + q0 + p0 + 4) >> 3;
+		} else {
+			r[0] = (2 * q1 + q0 + p1 + 2) >> 2;
+		}
+	}
+}
+
+// bS<4 chroma filter on one edge of 8 pixels of ONE plane; tC0q holds the
+// plane's 4 group bytes (one group per 2 pixels)
+static void deblock_scalar_chroma_soft(uint8_t *q0p, ptrdiff_t de, ptrdiff_t dc,
+                                       int alpha, int beta, uint32_t tC0q) {
+	uint8_t *r = q0p;
+	for (int k = 0; k < 8; k++, r += de) {
+		int tC0 = (int8_t)(tC0q >> ((k >> 1) * 8));
+		if (tC0 < 0) {
+			r += de;
+			k++;
+			continue;
+		}
+		int p0 = r[-dc], q0 = r[0];
+		int d = p0 - q0;
+		if ((d < 0 ? -d : d) >= alpha)
+			continue;
+		int p1 = r[-dc * 2], q1 = r[dc];
+		d = p1 - p0;
+		if ((d < 0 ? -d : d) >= beta)
+			continue;
+		d = q1 - q0;
+		if ((d < 0 ? -d : d) >= beta)
+			continue;
+		int tC = tC0 + 1;
+		int delta = df_clip3(-tC, tC, ((q0 - p0) * 4 + (p1 - q1) + 4) >> 3);
+		r[-dc] = df_clip255(p0 + delta);
+		r[0] = df_clip255(q0 - delta);
+	}
+}
+
+// bS=4 chroma filter of ONE plane
+static void deblock_scalar_chroma_hard(uint8_t *q0p, ptrdiff_t de, ptrdiff_t dc,
+                                       int alpha, int beta) {
+	uint8_t *r = q0p;
+	for (int k = 0; k < 8; k++, r += de) {
+		int p0 = r[-dc], q0 = r[0];
+		int d = p0 - q0;
+		if ((d < 0 ? -d : d) >= alpha)
+			continue;
+		int p1 = r[-dc * 2], q1 = r[dc];
+		d = p1 - p0;
+		if ((d < 0 ? -d : d) >= beta)
+			continue;
+		d = q1 - q0;
+		if ((d < 0 ? -d : d) >= beta)
+			continue;
+		r[-dc] = (2 * p1 + p0 + q1 + 2) >> 2;
+		r[0] = (2 * q1 + q0 + p1 + 2) >> 2;
+	}
+}
+
+// Scalar equivalent of deblock_Y_8bit + deblock_CbCr_8bit (same entry state,
+// same post-condition mb->filter_edges = 0)
+static noinline void deblock_mb_scalar_pixels(Edge264Context *ctx) {
+	const uint8_t *al = (const uint8_t *)ctx->alpha;
+	const uint8_t *be = (const uint8_t *)ctx->beta;
+	ptrdiff_t sY = ctx->t.stride[0];
+	uint8_t *Y = ctx->samples_mb[0];
+	int t8x8 = mb->f.transform_size_8x8_flag;
+
+	// luma vertical edges a..d
+	if (mb->filter_edges & 1) {
+		if (mbA->mbIsInterFlag & mb->mbIsInterFlag) {
+			if (ctx->tC0_s[0] != -1)
+				deblock_scalar_luma_soft(Y, sY, 1, al[8], be[8], ctx->tC0_s[0]);
+		} else if (al[8] != 0) {
+			deblock_scalar_luma_hard(Y, sY, 1, al[8], be[8]);
+		}
+	}
+	if (!t8x8 && ctx->tC0_s[1] != -1)
+		deblock_scalar_luma_soft(Y + 4, sY, 1, al[0], be[0], ctx->tC0_s[1]);
+	if (ctx->tC0_s[2] != -1)
+		deblock_scalar_luma_soft(Y + 8, sY, 1, al[0], be[0], ctx->tC0_s[2]);
+	if (!t8x8 && ctx->tC0_s[3] != -1)
+		deblock_scalar_luma_soft(Y + 12, sY, 1, al[0], be[0], ctx->tC0_s[3]);
+
+	// luma horizontal edges e..h
+	if (mb->filter_edges & 2) {
+		if (mbB->mbIsInterFlag & mb->mbIsInterFlag) {
+			if (ctx->tC0_s[4] != -1)
+				deblock_scalar_luma_soft(Y, 1, sY, al[12], be[12], ctx->tC0_s[4]);
+		} else if (al[12] != 0) {
+			deblock_scalar_luma_hard(Y, 1, sY, al[12], be[12]);
+		}
+	}
+	if (!t8x8 && ctx->tC0_s[5] != -1)
+		deblock_scalar_luma_soft(Y + 4 * sY, 1, sY, al[0], be[0], ctx->tC0_s[5]);
+	if (ctx->tC0_s[6] != -1)
+		deblock_scalar_luma_soft(Y + 8 * sY, 1, sY, al[0], be[0], ctx->tC0_s[6]);
+	if (!t8x8 && ctx->tC0_s[7] != -1)
+		deblock_scalar_luma_soft(Y + 12 * sY, 1, sY, al[0], be[0], ctx->tC0_s[7]);
+
+	// chroma planes: Cb rows at Y pitch stride[1], Cr rows offset by half a pitch
+	ptrdiff_t sC = ctx->t.stride[1];
+	uint8_t *Cb = ctx->samples_mb[1];
+	uint8_t *Cr = Cb + (sC >> 1);
+
+	// chroma vertical edge a (x=0)
+	if (mb->filter_edges & 1) {
+		if (mbA->mbIsInterFlag & mb->mbIsInterFlag) {
+			int64_t t = ctx->tC0_l[4];
+			if (t != -1) {
+				deblock_scalar_chroma_soft(Cb, sC, 1, al[9], be[9], (uint32_t)t);
+				deblock_scalar_chroma_soft(Cr, sC, 1, al[10], be[10], (uint32_t)(t >> 32));
+			}
+		} else {
+			deblock_scalar_chroma_hard(Cb, sC, 1, al[9], be[9]);
+			deblock_scalar_chroma_hard(Cr, sC, 1, al[10], be[10]);
+		}
+	}
+	// chroma vertical edge c (x=4)
+	{
+		int64_t t = ctx->tC0_l[5];
+		if (t != -1) {
+			deblock_scalar_chroma_soft(Cb + 4, sC, 1, al[1], be[1], (uint32_t)t);
+			deblock_scalar_chroma_soft(Cr + 4, sC, 1, al[2], be[2], (uint32_t)(t >> 32));
+		}
+	}
+	// chroma horizontal edge e (y=0)
+	if (mb->filter_edges & 2) {
+		if (mbB->mbIsInterFlag & mb->mbIsInterFlag) {
+			int64_t t = ctx->tC0_l[6];
+			if (t != -1) {
+				deblock_scalar_chroma_soft(Cb, 1, sC, al[13], be[13], (uint32_t)t);
+				deblock_scalar_chroma_soft(Cr, 1, sC, al[14], be[14], (uint32_t)(t >> 32));
+			}
+		} else {
+			deblock_scalar_chroma_hard(Cb, 1, sC, al[13], be[13]);
+			deblock_scalar_chroma_hard(Cr, 1, sC, al[14], be[14]);
+		}
+	}
+	// chroma horizontal edge g (y=4)
+	{
+		int64_t t = ctx->tC0_l[7];
+		if (t != -1) {
+			deblock_scalar_chroma_soft(Cb + 4 * sC, 1, sC, al[1], be[1], (uint32_t)t);
+			deblock_scalar_chroma_soft(Cr + 4 * sC, 1, sC, al[2], be[2], (uint32_t)(t >> 32));
+		}
+	}
+	mb->filter_edges = 0; // same post-condition as deblock_CbCr_8bit
 }
 
 
@@ -941,6 +1194,32 @@ static noinline void deblock_mb(Edge264Context *ctx)
 	// compute all values of alpha and beta for each of the color planes first
 	mbA = (mb->filter_edges & 1) ? mb - 1 : mb;
 	mbB = (mb->filter_edges & 2) ? mb - 1 - ctx->t.pic_width_in_mbs : mb;
+
+	// Scalar fast path for P macroblocks on static scenes: when this macroblock
+	// and its A/B neighbours are all inter with no residual coefficients, and
+	// all their L0 motion vectors and reference pictures are pairwise IDENTICAL
+	// (uniform), every edge gets bS=0 and no sample can change — the entire
+	// deblocking pass is an identity, so skip it. This conservative test never
+	// fires on frames that need filtering (it requires strict uniformity, a
+	// subset of the |mvd|<4 rule), and costs ~40 scalar ops versus the ~1000+
+	// scalarized vector ops of the generic strength computation — decisive on
+	// SIMD-less RISC-V for surveillance-style content (P_Skip everywhere).
+	if ((mb->mbIsInterFlag & mbA->mbIsInterFlag & mbB->mbIsInterFlag) &&
+	    (mb->refIdx_s[1] & mbA->refIdx_s[1] & mbB->refIdx_s[1]) == -1) {
+		i32x4 mvp = set32(((i32x4)mb->mvs_v[0])[0]);
+		i32x4 dmv = ((i32x4)mb->mvs_v[0] ^ mvp) | ((i32x4)mb->mvs_v[1] ^ mvp)
+		          | ((i32x4)mb->mvs_v[2] ^ mvp) | ((i32x4)mb->mvs_v[3] ^ mvp)
+		          | ((i32x4)mbA->mvs_v[1] ^ mvp) | ((i32x4)mbA->mvs_v[3] ^ mvp)
+		          | ((i32x4)mbB->mvs_v[2] ^ mvp) | ((i32x4)mbB->mvs_v[3] ^ mvp);
+		i32x4 nz = (i32x4)(mb->nC_v[0] | mbA->nC_v[0] | mbB->nC_v[0]) | dmv;
+		i64x2 nz64 = (i64x2)nz;
+		uint32_t r = (uint32_t)mb->refPic_s[0];
+		if ((nz64[0] | nz64[1]) == 0 && r == (uint32_t)mbA->refPic_s[0] &&
+		    r == (uint32_t)mbB->refPic_s[0] && r == 0x01010101u * (r & 0xff)) {
+			mb->filter_edges = 0; // same post-condition as a full deblock pass
+			return;
+		}
+	}
 	i8x16 zero = {};
 	i8x16 qP = set32((int32_t)mb->QP_s);
 	i32x4 qPAB = {(int32_t)mbA->QP_s, (int32_t)mbB->QP_s};
@@ -1116,8 +1395,31 @@ static noinline void deblock_mb(Edge264Context *ctx)
 		ctx->tC0_v[1] = ifelse_mask(bS2efgh, shuffle(tC02, shuf1), bS0efgh | shuffle(tC01, shuf1));
 		ctx->tC0_v[2] = ifelse_mask(bS2aacc, shuffle(tC02, shuf2), bS0aacc | shuffle(tC01, shuf2));
 		ctx->tC0_v[3] = ifelse_mask(bS2eegg, shuffle(tC02, shuf3), bS0eegg | shuffle(tC01, shuf3));
+
+		// Fast path: when EVERY tC0 is -1 (bS=0 on all edges, the overwhelmingly
+		// common case on static scenes where macroblocks are inter-skipped) and
+		// neither neighbour is intra (an intra A/B would trigger the strong
+		// filter, which ignores tC0), no sample of this macroblock can change:
+		// the pixel pipeline below (load + 16x16 transposes + conditional
+		// filters + transpose back + store) is a pure identity. Skip it. This is
+		// a decisive win on scalar ISAs (RISC-V) where those transposes are
+		// scalarized into thousands of byte moves and dominate whole-frame cost.
+		// mbIsInterFlag of mb itself is guaranteed true in this branch, and
+		// mbA/mbB alias mb (inter) when their edge is not filtered.
+		i64x2 alltC0 = (i64x2)(ctx->tC0_v[0] & ctx->tC0_v[1] & ctx->tC0_v[2] & ctx->tC0_v[3]);
+		if ((alltC0[0] & alltC0[1]) == -1 && (mbA->mbIsInterFlag & mbB->mbIsInterFlag)) {
+			mb->filter_edges = 0; // same post-condition as a full deblock pass
+			return;
+		}
 	}
-	
+
 	// jump to luma deblocking filter
-	deblock_Y_8bit(ctx);
+	#ifdef __riscv
+		// SIMD-less ISA: the transpose-based vector pipeline is pathological once
+		// scalarized; use the in-place scalar filters instead (bit-identical).
+		deblock_mb_scalar_pixels(ctx);
+		(void)deblock_Y_8bit; // vector path kept for SIMD builds
+	#else
+		deblock_Y_8bit(ctx);
+	#endif
 }

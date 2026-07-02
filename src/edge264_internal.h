@@ -696,6 +696,35 @@ static const int8_t shz_mask[48] = {
 #define loada128(p) (*(i8x16*)(p))
 #define loada32x4(p0, p1, p2, p3) (i32x4){*(int32_t *)(p0), *(int32_t *)(p1), *(int32_t *)(p2), *(int32_t *)(p3)}
 #define loada64x2(p0, p1) (i64x2){*(int64_t *)(p0), *(int64_t *)(p1)}
+// On RISC-V (ESP32-P4) a misaligned wide load TRAPS (unlike x86/ARM, which tolerate
+// it, and unlike qemu-user, which emulates it transparently). edge264's 8x8 High-
+// Profile kernel reads the sample plane with these aligned wide accesses, but the
+// plane is not guaranteed 16-aligned here -> "Fault - Unknown" in add_idct8x8.
+// Route them through memcpy (trap-free narrow accesses, IDENTICAL values) for __riscv.
+#ifdef __riscv
+static inline i32x4 _rv_loada32(const void *p) { int32_t v; __builtin_memcpy(&v, p, sizeof v); return (i32x4){v}; }
+static inline i64x2 _rv_loada64(const void *p) { int64_t v; __builtin_memcpy(&v, p, sizeof v); return (i64x2){v}; }
+static inline i8x16 _rv_loada128(const void *p) { i8x16 v; __builtin_memcpy(&v, p, sizeof v); return v; }
+static inline i32x4 _rv_loada32x4(const void *p0, const void *p1, const void *p2, const void *p3) { int32_t a, b, c, d; __builtin_memcpy(&a, p0, 4); __builtin_memcpy(&b, p1, 4); __builtin_memcpy(&c, p2, 4); __builtin_memcpy(&d, p3, 4); return (i32x4){a, b, c, d}; }
+static inline i64x2 _rv_loada64x2(const void *p0, const void *p1) { int64_t a, b; __builtin_memcpy(&a, p0, 8); __builtin_memcpy(&b, p1, 8); return (i64x2){a, b}; }
+#undef loada32
+#undef loada64
+#undef loada128
+#undef loada32x4
+#undef loada64x2
+#define loada32(p) _rv_loada32(p)
+#define loada64(p) _rv_loada64(p)
+#define loada128(p) _rv_loada128(p)
+#define loada32x4(p0, p1, p2, p3) _rv_loada32x4(p0, p1, p2, p3)
+#define loada64x2(p0, p1) _rv_loada64x2(p0, p1)
+static inline void storea32(void *p, int32_t v) { __builtin_memcpy(p, &v, sizeof v); }
+static inline void storea64(void *p, int64_t v) { __builtin_memcpy(p, &v, sizeof v); }
+static inline void storea128(void *p, i8x16 v) { __builtin_memcpy(p, &v, sizeof v); }
+#else
+static inline void storea32(void *p, int32_t v) { *(int32_t *)p = v; }
+static inline void storea64(void *p, int64_t v) { *(int64_t *)p = v; }
+static inline void storea128(void *p, i8x16 v) { *(i8x16 *)p = v; }
+#endif
 #if SIMD == SSE
 	#define adds16(a, b) (i16x8)_mm_adds_epi16(a, b)
 	#define avgu8(a, b) (i8x16)_mm_avg_epu8(a, b)
@@ -745,7 +774,6 @@ static const int8_t shz_mask[48] = {
 	#define ziphi32(a, b) (i32x4)_mm_unpackhi_epi32(a, b)
 	#define ziphi64(a, b) (i64x2)_mm_unpackhi_epi64(a, b)
 	static always_inline i16x8 cvthi8s16(i8x16 a) {return (i16x8)ziphi8(a, a) >> 8;}
-	static always_inline i32x4 cvthi16s32(i16x8 a) {return (i32x4)ziphi16(a, a) >> 16;}
 	#ifndef __wasm_simd128__
 		static always_inline size_t shld(size_t l, size_t h, size_t i) {asm("shld %%cl, %1, %0" : "+rm" (h) : "r" (l), "c" (i)); return h;}
 	#else
@@ -763,7 +791,6 @@ static const int8_t shz_mask[48] = {
 		#define cvtlo8u16(a) (i16x8)_mm_cvtepu8_epi16(a)
 		#define cvtlo8s16(a) (i16x8)_mm_cvtepi8_epi16(a)
 		#define cvtlo16u32(a) (i32x4)_mm_cvtepu16_epi32(a)
-		#define cvtlo16s32(a) (i32x4)_mm_cvtepi16_epi32(a)
 		#define ifelse_mask(v, t, f) (i8x16)_mm_blendv_epi8(f, t, v)
 		#define ifelse_msb(v, t, f) (i8x16)_mm_blendv_epi8(f, t, v)
 		#define min8(a, b) (i8x16)_mm_min_epi8(a, b)
@@ -773,7 +800,6 @@ static const int8_t shz_mask[48] = {
 		#define cvtlo8u16(a) (i16x8)_mm_unpacklo_epi8(a, (i8x16){})
 		#define cvtlo16u32(a) (i32x4)_mm_unpacklo_epi16(a, (i16x8){})
 		static always_inline i16x8 cvtlo8s16(i8x16 a) {return (i16x8)_mm_unpacklo_epi8(a, a) >> 8;}
-		static always_inline i32x4 cvtlo16s32(i16x8 a) {return (i32x4)_mm_unpacklo_epi16(a, a) >> 16;}
 		static always_inline i8x16 ifelse_mask(i8x16 v, i8x16 t, i8x16 f) { return t & v | f & ~v; }
 		static always_inline i8x16 ifelse_msb(i8x16 v, i8x16 t, i8x16 f) { i8x16 m = (v < 0); return t & m | f & ~m; }
 		static always_inline i8x16 min8(i8x16 a, i8x16 b) { i8x16 v = b > a; return a & v | b & ~v; }
@@ -827,7 +853,6 @@ static const int8_t shz_mask[48] = {
 	#define cvtlo8u16(a) (u16x8)vmovl_u8(vget_low_u8(a))
 	#define cvtlo8s16(a) (i16x8)vmovl_s8(vget_low_s8(a))
 	#define cvtlo16u32(a) (u32x4)vmovl_u16(vget_low_u16(a))
-	#define cvtlo16s32(a) (i32x4)vmovl_s16(vget_low_s16(a))
 	#define ifelse_mask(v, t, f) (i8x16)vbslq_s8(v, t, f)
 	#define ifelse_msb(v, t, f) (i8x16)vbslq_s8((i8x16)(v) >> 7, t, f)
 	#define min8(a, b) (i8x16)vminq_s8(a, b)
@@ -871,7 +896,6 @@ static const int8_t shz_mask[48] = {
 		#define cvthi8u16(a) (u16x8)vmovl_high_u8(a)
 		#define cvthi8s16(a) (u16x8)vmovl_high_s8(a)
 		#define cvthi16u32(a) (u32x4)vmovl_high_u16(a)
-		#define cvthi16s32(a) (i32x4)vmovl_high_s16(a)
 		#define hadd16(a, b) (i16x8)vpaddq_s16(a, b)
 		#define packs16(a, b) (i16x8)vqmovn_high_s16(vqmovn_s16(a), b)
 		#define packs32(a, b) (i16x8)vqmovn_high_s32(vqmovn_s32(a), b)
@@ -907,7 +931,6 @@ static const int8_t shz_mask[48] = {
 		#define cvthi8u16(a) (u16x8)vmovl_u8(vget_high_u8(a))
 		#define cvthi8s16(a) (u16x8)vmovl_s8(vget_high_s8(a))
 		#define cvthi16u32(a) (u32x4)vmovl_u16(vget_high_u16(a))
-		#define cvthi16s32(a) (i32x4)vmovl_s16(vget_high_s16(a))
 		#define packs16(a, b) (i16x8)vcombine_s8(vqmovn_s16(a), vqmovn_s16(b))
 		#define packs32(a, b) (i16x8)vcombine_s16(vqmovn_s32(a), vqmovn_s32(b))
 		#define packus16(a, b) (u8x16)vcombine_u8(vqmovun_s16(a), vqmovun_s16(b))
@@ -952,8 +975,6 @@ static const int8_t shz_mask[48] = {
 	#define cvthi8s16(a) (i16x8)wasm_i16x8_extend_high_i8x16(a)
 	#define cvtlo16u32(a) (u32x4)wasm_u32x4_extend_low_u16x8(a)
 	#define cvthi16u32(a) (u32x4)wasm_u32x4_extend_high_u16x8(a)
-	#define cvtlo16s32(a) (i32x4)wasm_i32x4_extend_low_i16x8(a)
-	#define cvthi16s32(a) (i32x4)wasm_i32x4_extend_high_i16x8(a)
 	#define hadd16(a, b) (i16x8)wasm_i16x8_narrow_i32x4(wasm_i32x4_extadd_pairwise_i16x8(a), wasm_i32x4_extadd_pairwise_i16x8(b))
 	#define loadu32(p) (i32x4)wasm_v128_load32_zero(p)
 	#define loadu64(p) (i64x2)wasm_v128_load64_zero(p)
@@ -1080,8 +1101,6 @@ static const int8_t shz_mask[48] = {
 	static i16x8 cvthi8s16(i8x16 a) {return __builtin_convertvector((i8x8){a[8], a[9], a[10], a[11], a[12], a[13], a[14], a[15]}, i16x8);}
 	static u32x4 cvtlo16u32(u16x8 a) {return __builtin_convertvector((u16x4){a[0], a[1], a[2], a[3]}, u32x4);}
 	static u32x4 cvthi16u32(u16x8 a) {return __builtin_convertvector((u16x4){a[4], a[5], a[6], a[7]}, u32x4);}
-	static i32x4 cvtlo16s32(i16x8 a) {return __builtin_convertvector((i16x4){a[0], a[1], a[2], a[3]}, i32x4);}
-	static i32x4 cvthi16s32(i16x8 a) {return __builtin_convertvector((i16x4){a[4], a[5], a[6], a[7]}, i32x4);}
 	static i16x8 hadd16(i16x8 a, i16x8 b) {return (i16x8){a[0] + a[1], a[2] + a[3], a[4] + a[5], a[6] + a[7], b[0] + b[1], b[2] + b[3], b[4] + b[5], b[6] + b[7]};}
 	static i8x16 ifelse_msb(i8x16 v, i8x16 t, i8x16 f) {i8x16 m = (v < 0); return t & m | f & ~m;}
 	static i32x4 loadu32(const void *p) {i32x4 v = {}; memcpy(&v, p, 4); return v;}
@@ -1092,7 +1111,7 @@ static const int8_t shz_mask[48] = {
 	static i16x8 maddubs(u8x16 a, i8x16 b) {return __builtin_elementwise_add_sat((i16x8)((u16x8)a << 8 >> 8) * ((i16x8)b << 8 >> 8), (i16x8)((u16x8)a >> 8) * ((i16x8)b >> 8));}
 	static u32x4 minw32(u32x4 a, u32x4 b) {return ifelse_mask((i32x4)(a - b) >> 31, a, b);}
 	static int movemask(i8x16 a) {return __builtin_reduce_add((u16x16)__builtin_convertvector(a >> 7, i16x16) & (u16x16){1, 2, 4, 8, 16, 32, 64, 128, 256, 512, 1024, 2048, 4096, 8192, 16384, 32768});}
-	static u32x4 pow2x4(i32x4 a) {return (a >= 0) & (u32x4)set32(1) << a;}
+	static u32x4 pow2x4(i32x4 a) {return ((u32x4)set32(1) << (a & set32(31))) & (u32x4)((u32x4)a < (u32x4)set32(32));}
 	static i8x16 packs16(i16x8 a, i16x8 b) {i16x8 lo = set16(-128), hi = set16(127); a = __builtin_elementwise_min(__builtin_elementwise_max(a, lo), hi); b = __builtin_elementwise_min(__builtin_elementwise_max(b, lo), hi); return __builtin_convertvector((i16x16){a[0], a[1], a[2], a[3], a[4], a[5], a[6], a[7], b[0], b[1], b[2], b[3], b[4], b[5], b[6], b[7]}, i8x16);}
 	static i16x8 packs32(i32x4 a, i32x4 b) {i32x4 lo = set32(-32768), hi = set32(32767); a = __builtin_elementwise_min(__builtin_elementwise_max(a, lo), hi); b = __builtin_elementwise_min(__builtin_elementwise_max(b, lo), hi); return __builtin_convertvector((i32x8){a[0], a[1], a[2], a[3], b[0], b[1], b[2], b[3]}, i16x8);}
 	static u8x16 packus16(i16x8 a, i16x8 b) {i16x8 lo = set16(0), hi = set16(255); a = __builtin_elementwise_min(__builtin_elementwise_max(a, lo), hi); b = __builtin_elementwise_min(__builtin_elementwise_max(b, lo), hi); return __builtin_convertvector((u16x16){a[0], a[1], a[2], a[3], a[4], a[5], a[6], a[7], b[0], b[1], b[2], b[3], b[4], b[5], b[6], b[7]}, u8x16);}
@@ -1161,14 +1180,14 @@ static always_inline int rbsp_end(Edge264GetBits *gb, int trailing_bit) {
 static unsigned refs_to_mask(Edge264Task *t) {
 	i8x16 a = t->RefPicList_v[0];
 	i8x16 b = t->RefPicList_v[2];
-	i16x8 a07 = cvtlo8s16(a);
-	i16x8 a8F = cvthi8s16(a);
-	i16x8 b07 = cvtlo8s16(b);
-	i16x8 b8F = cvthi8s16(b);
-	u32x4 c = pow2x4(cvtlo16s32(a07)) | pow2x4(cvthi16s32(a07)) |
-		pow2x4(cvtlo16s32(a8F)) | pow2x4(cvthi16s32(a8F)) |
-		pow2x4(cvtlo16s32(b07)) | pow2x4(cvthi16s32(b07)) |
-		pow2x4(cvtlo16s32(b8F)) | pow2x4(cvthi16s32(b8F));
+	i16x8 a07 = cvtlo8u16(a);
+	i16x8 a8F = cvthi8u16(a);
+	i16x8 b07 = cvtlo8u16(b);
+	i16x8 b8F = cvthi8u16(b);
+	u32x4 c = pow2x4(cvtlo16u32(a07)) | pow2x4(cvthi16u32(a07)) |
+		pow2x4(cvtlo16u32(a8F)) | pow2x4(cvthi16u32(a8F)) |
+		pow2x4(cvtlo16u32(b07)) | pow2x4(cvthi16u32(b07)) |
+		pow2x4(cvtlo16u32(b8F)) | pow2x4(cvthi16u32(b8F));
 	u32x4 d = c | (u32x4)((u64x2)c >> 32);
 	u32x4 e = d | (u32x4)shr128(d, 8);
 	return e[0];

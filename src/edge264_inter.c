@@ -445,10 +445,10 @@ static void decode_inter_luma(int mode, int h, size_t sstride, const uint8_t * r
 			i32x4 p = loadu32x4(SADDR(src2, 0), SADDR(src2, 1), SADDR(src2, 2), SADDR(src2, 3));
 			i32x4 q = loada32x4(DADDR(dst,  0), DADDR(dst,  1), DADDR(dst,  2), DADDR(dst,  3));
 			i32x4 r = maddshrL(q, p, w0, w1, o, wd);
-			*(int32_t *)DADDR(dst,  0) = r[0];
-			*(int32_t *)DADDR(dst,  1) = r[1];
-			*(int32_t *)DADDR(dst,  2) = r[2];
-			*(int32_t *)DADDR(dst,  3) = r[3];
+			storea32(DADDR(dst,  0), r[0]);
+			storea32(DADDR(dst,  1), r[1]);
+			storea32(DADDR(dst,  2), r[2]);
+			storea32(DADDR(dst,  3), r[3]);
 			dst = DADDR(dst,  4);
 			src2 = SADDR(src2, 4);
 		} while (h -= 4);
@@ -468,10 +468,10 @@ static void decode_inter_luma(int mode, int h, size_t sstride, const uint8_t * r
 			i8x16 s = unziplo32(s0, s1);
 			i32x4 q = loada32x4(DADDR(dst,  0), DADDR(dst,  1), DADDR(dst,  2), DADDR(dst,  3));
 			i32x4 r = maddshrL(q, avgu8(ifelse_mask(m1, h01, s), h01), w0, w1, o, wd);
-			*(int32_t *)DADDR(dst,  0) = r[0];
-			*(int32_t *)DADDR(dst,  1) = r[1];
-			*(int32_t *)DADDR(dst,  2) = r[2];
-			*(int32_t *)DADDR(dst,  3) = r[3];
+			storea32(DADDR(dst,  0), r[0]);
+			storea32(DADDR(dst,  1), r[1]);
+			storea32(DADDR(dst,  2), r[2]);
+			storea32(DADDR(dst,  3), r[3]);
 			dst = DADDR(dst,  4);
 			src0 = SADDR(src0, 4);
 		} while (h -= 4);
@@ -494,10 +494,10 @@ static void decode_inter_luma(int mode, int h, size_t sstride, const uint8_t * r
 			i8x16 s = ifelse_mask(m1, v01, ifelse_mask(m0, m32, m22));
 			i32x4 q = loada32x4(DADDR(dst,  0), DADDR(dst,  1), DADDR(dst,  2), DADDR(dst,  3));
 			i32x4 r = maddshrL(q, avgu8(s, v01), w0, w1, o, wd);
-			*(int32_t *)DADDR(dst,  0) = r[0];
-			*(int32_t *)DADDR(dst,  1) = r[1];
-			*(int32_t *)DADDR(dst,  2) = r[2];
-			*(int32_t *)DADDR(dst,  3) = r[3];
+			storea32(DADDR(dst,  0), r[0]);
+			storea32(DADDR(dst,  1), r[1]);
+			storea32(DADDR(dst,  2), r[2]);
+			storea32(DADDR(dst,  3), r[3]);
 			m02 = m42, m12 = m52;
 			dst = DADDR(dst,  4);
 		} while (h -= 4);
@@ -543,10 +543,10 @@ static void decode_inter_luma(int mode, int h, size_t sstride, const uint8_t * r
 			i8x16 s = avgu8(v01, shrrpus16(h0, h1, 5));
 			i32x4 q = loada32x4(DADDR(dst,  0), DADDR(dst,  1), DADDR(dst,  2), DADDR(dst,  3));
 			i32x4 r = maddshrL(q, s, w0, w1, o, wd);
-			*(int32_t *)DADDR(dst,  0) = r[0];
-			*(int32_t *)DADDR(dst,  1) = r[1];
-			*(int32_t *)DADDR(dst,  2) = r[2];
-			*(int32_t *)DADDR(dst,  3) = r[3];
+			storea32(DADDR(dst,  0), r[0]);
+			storea32(DADDR(dst,  1), r[1]);
+			storea32(DADDR(dst,  2), r[2]);
+			storea32(DADDR(dst,  3), r[3]);
 			l0 = l4, l1 = l5, l2 = l6, l3 = l7, l4 = l8;
 			dst = DADDR(dst,  4);
 		} while (h -= 4);
@@ -595,10 +595,10 @@ static void decode_inter_luma(int mode, int h, size_t sstride, const uint8_t * r
 			i8x16 s = shrrpus16(ifelse_mask(m0, m03, m02), ifelse_mask(m0, m23, m22), 5);
 			i32x4 q = loada32x4(DADDR(dst,  0), DADDR(dst,  1), DADDR(dst,  2), DADDR(dst,  3));
 			i32x4 r = maddshrL(q, avgu8(s, vh), w0, w1, o, wd);
-			*(int32_t *)DADDR(dst,  0) = r[0];
-			*(int32_t *)DADDR(dst,  1) = r[1];
-			*(int32_t *)DADDR(dst,  2) = r[2];
-			*(int32_t *)DADDR(dst,  3) = r[3];
+			storea32(DADDR(dst,  0), r[0]);
+			storea32(DADDR(dst,  1), r[1]);
+			storea32(DADDR(dst,  2), r[2]);
+			storea32(DADDR(dst,  3), r[3]);
 			l0 = l4, l1 = l5, l2 = l6, l3 = l7, l4 = l8;
 			dst = DADDR(dst,  4);
 		} while (h -= 4);
@@ -632,10 +632,10 @@ static void decode_inter_luma(int mode, int h, size_t sstride, const uint8_t * r
 			i8x16 s = shrrpus16(ifelse_mask(m0, h3, h2), ifelse_mask(m0, h5, h4), 5);
 			i32x4 q = loada32x4(DADDR(dst,  0), DADDR(dst,  1), DADDR(dst,  2), DADDR(dst,  3));
 			i32x4 r = maddshrL(q, avgu8(ifelse_mask(m1, hv, s), hv), w0, w1, o, wd);
-			*(int32_t *)DADDR(dst,  0) = r[0];
-			*(int32_t *)DADDR(dst,  1) = r[1];
-			*(int32_t *)DADDR(dst,  2) = r[2];
-			*(int32_t *)DADDR(dst,  3) = r[3];
+			storea32(DADDR(dst,  0), r[0]);
+			storea32(DADDR(dst,  1), r[1]);
+			storea32(DADDR(dst,  2), r[2]);
+			storea32(DADDR(dst,  3), r[3]);
 			h0 = h4, h2 = h6, h3 = h7;
 			dst = DADDR(dst,  4);
 		} while (h -= 4);
@@ -649,10 +649,10 @@ static void decode_inter_luma(int mode, int h, size_t sstride, const uint8_t * r
 			i8x16 q1 = loadu64x2(DADDR(dst,  2), DADDR(dst,  3));
 			i64x2 r0 = maddshrL(q0, p0, w0, w1, o, wd);
 			i64x2 r1 = maddshrL(q1, p1, w0, w1, o, wd);
-			*(int64_t *)DADDR(dst,  0) = r0[0];
-			*(int64_t *)DADDR(dst,  1) = r0[1];
-			*(int64_t *)DADDR(dst,  2) = r1[0];
-			*(int64_t *)DADDR(dst,  3) = r1[1];
+			storea64(DADDR(dst,  0), r0[0]);
+			storea64(DADDR(dst,  1), r0[1]);
+			storea64(DADDR(dst,  2), r1[0]);
+			storea64(DADDR(dst,  3), r1[1]);
 			src2 = SADDR(src2, 4);
 			dst = DADDR(dst,  4);
 		} while (h -= 4);
@@ -668,8 +668,8 @@ static void decode_inter_luma(int mode, int h, size_t sstride, const uint8_t * r
 			i8x16 s = ziplo64(shuffle(l0, shufx), shuffle(l1, shufx));
 			i8x16 q = loada64x2(DADDR(dst,  0), DADDR(dst,  1));
 			i64x2 r = maddshrL(q, avgu8(ifelse_mask(m1, h01, s), h01), w0, w1, o, wd);
-			*(int64_t *)DADDR(dst,  0) = r[0];
-			*(int64_t *)DADDR(dst,  1) = r[1];
+			storea64(DADDR(dst,  0), r[0]);
+			storea64(DADDR(dst,  1), r[1]);
 			src0 = SADDR(src0,  2);
 			dst = DADDR(dst,  2);
 		} while (h -= 2);
@@ -693,8 +693,8 @@ static void decode_inter_luma(int mode, int h, size_t sstride, const uint8_t * r
 			i8x16 s = ifelse_mask(m0, ziplo64(l3, l4), ziplo64(l2, l3));
 			i8x16 q = loada64x2(DADDR(dst,  0), DADDR(dst,  1));
 			i64x2 r = maddshrL(q, avgu8(ifelse_mask(m1, v01, s), v01), w0, w1, o, wd);
-			*(int64_t *)DADDR(dst,  0) = r[0];
-			*(int64_t *)DADDR(dst,  1) = r[1];
+			storea64(DADDR(dst,  0), r[0]);
+			storea64(DADDR(dst,  1), r[1]);
 			l0 = l2, l1 = l3, l2 = l4, l3 = l5, l4 = l6;
 			dst = DADDR(dst,  2);
 		} while (h -= 2);
@@ -726,8 +726,8 @@ static void decode_inter_luma(int mode, int h, size_t sstride, const uint8_t * r
 			i8x16 s = avgu8(v01, shrrpus16(h0, h1, 5));
 			i8x16 q = loada64x2(DADDR(dst,  0), DADDR(dst,  1));
 			i64x2 r = maddshrL(q, s, w0, w1, o, wd);
-			*(int64_t *)DADDR(dst,  0) = r[0];
-			*(int64_t *)DADDR(dst,  1) = r[1];
+			storea64(DADDR(dst,  0), r[0]);
+			storea64(DADDR(dst,  1), r[1]);
 			l02 = l22, l12 = l32, l2 = l4, l3 = l5;
 			l4 = l6;
 			dst = DADDR(dst,  2);
@@ -765,8 +765,8 @@ static void decode_inter_luma(int mode, int h, size_t sstride, const uint8_t * r
 			i8x16 s = shrrpus16(ifelse_mask(m0, x03, x02), ifelse_mask(m0, x13, x12), 5);
 			i8x16 q = loada64x2(DADDR(dst,  0), DADDR(dst,  1));
 			i64x2 r = maddshrL(q, avgu8(vh, s), w0, w1, o, wd);
-			*(int64_t *)DADDR(dst,  0) = r[0];
-			*(int64_t *)DADDR(dst,  1) = r[1];
+			storea64(DADDR(dst,  0), r[0]);
+			storea64(DADDR(dst,  1), r[1]);
 			l0 = l2, l1 = l3, l2 = l4, l3 = l5, l4 = l6;
 			dst = DADDR(dst,  2);
 		} while (h -= 2);
@@ -790,8 +790,8 @@ static void decode_inter_luma(int mode, int h, size_t sstride, const uint8_t * r
 			i8x16 s = shrrpus16(ifelse_mask(m0, v3, v2), ifelse_mask(m0, v4, v3), 5);
 			i8x16 q = loada64x2(DADDR(dst,  0), DADDR(dst,  1));
 			i64x2 r = maddshrL(q, avgu8(ifelse_mask(m1, hv, s), hv), w0, w1, o, wd);
-			*(int64_t *)DADDR(dst,  0) = r[0];
-			*(int64_t *)DADDR(dst,  1) = r[1];
+			storea64(DADDR(dst,  0), r[0]);
+			storea64(DADDR(dst,  1), r[1]);
 			v0 = v2, v1 = v3, v2 = v4, v3 = v5, v4 = v6;
 			dst = DADDR(dst,  2);
 		} while (h -= 2);
@@ -799,10 +799,10 @@ static void decode_inter_luma(int mode, int h, size_t sstride, const uint8_t * r
 	
 	case INTER_16xH_QPEL_00:
 		do {
-			*(i8x16 *)DADDR(dst,  0) = maddshrL(*(i8x16 *)DADDR(dst,  0), loadu128(SADDR(src2,  0)), w0, w1, o, wd);
-			*(i8x16 *)DADDR(dst,  1) = maddshrL(*(i8x16 *)DADDR(dst,  1), loadu128(SADDR(src2,  1)), w0, w1, o, wd);
-			*(i8x16 *)DADDR(dst,  2) = maddshrL(*(i8x16 *)DADDR(dst,  2), loadu128(SADDR(src2,  2)), w0, w1, o, wd);
-			*(i8x16 *)DADDR(dst,  3) = maddshrL(*(i8x16 *)DADDR(dst,  3), loadu128(SADDR(src2,  3)), w0, w1, o, wd);
+			storea128(DADDR(dst,  0), maddshrL(loada128(DADDR(dst,  0)), loadu128(SADDR(src2,  0)), w0, w1, o, wd));
+			storea128(DADDR(dst,  1), maddshrL(loada128(DADDR(dst,  1)), loadu128(SADDR(src2,  1)), w0, w1, o, wd));
+			storea128(DADDR(dst,  2), maddshrL(loada128(DADDR(dst,  2)), loadu128(SADDR(src2,  2)), w0, w1, o, wd));
+			storea128(DADDR(dst,  3), maddshrL(loada128(DADDR(dst,  3)), loadu128(SADDR(src2,  3)), w0, w1, o, wd));
 			src2 = SADDR(src2, 4);
 			dst = DADDR(dst,  4);
 		} while (h -= 4);
@@ -817,7 +817,7 @@ static void decode_inter_luma(int mode, int h, size_t sstride, const uint8_t * r
 			SIXTAPH16(h0, h8, l0, lG);
 			i8x16 h01 = shrrpus16(h0, h8, 5);
 			i8x16 s = ifelse_mask(m1, h01, shuffle2(l0, lG, shufx));
-			*(i8x16 *)dst = maddshrL(*(i8x16 *)dst, avgu8(s, h01), w0, w1, o, wd);
+			storea128(dst, maddshrL(loada128(dst), avgu8(s, h01), w0, w1, o, wd));
 			src0 = SADDR(src0,  1);
 			dst = DADDR(dst,  1);
 		} while (h -= 1);
@@ -838,7 +838,7 @@ static void decode_inter_luma(int mode, int h, size_t sstride, const uint8_t * r
 			i16x8 v8 = sixtapVhi(l0, l1, l2, l3, l4, l5);
 			i8x16 v01 = shrrpus16(v0, v8, 5);
 			i8x16 s = ifelse_mask(m1, v01, ifelse_mask(m0, l3, l2));
-			*(i8x16 *)dst = maddshrL(*(i8x16 *)dst, avgu8(s, v01), w0, w1, o, wd);
+			storea128(dst, maddshrL(loada128(dst), avgu8(s, v01), w0, w1, o, wd));
 			l0 = l1, l1 = l2, l2 = l3, l3 = l4, l4 = l5;
 			dst = DADDR(dst,  1);
 		} while (h -= 1);
@@ -873,7 +873,7 @@ static void decode_inter_luma(int mode, int h, size_t sstride, const uint8_t * r
 			i8x16 s1 = ifelse_mask(m1, l3G, l2G);
 			SIXTAPH16(h0, h1, s0, s1);
 			i8x16 h01 = shrrpus16(h0, h1, 5);
-			*(i8x16 *)dst = maddshrL(*(i8x16 *)dst, avgu8(v01, h01), w0, w1, o, wd);
+			storea128(dst, maddshrL(loada128(dst), avgu8(v01, h01), w0, w1, o, wd));
 			l02 = l12, l12 = l22;
 			l20 = l30, l2G = l3G, l30 = l40, l3G = l4G, l40 = l50, l4G = l5G;
 			dst = DADDR(dst,  1);
@@ -915,7 +915,7 @@ static void decode_inter_luma(int mode, int h, size_t sstride, const uint8_t * r
 			i16x8 vh1 = sixtapHV(v8, v9, vA, vB, vC, vD);
 			i8x16 vh = shrrpus16(vh0, vh1, 6);
 			i8x16 s = shrrpus16(ifelse_mask(m0, v3, v2), ifelse_mask(m0, vB, vA), 5);
-			*(i8x16 *)dst = maddshrL(*(i8x16 *)dst, avgu8(s, vh), w0, w1, o, wd);
+			storea128(dst, maddshrL(loada128(dst), avgu8(s, vh), w0, w1, o, wd));
 			l00 = l10, l10 = l20, l20 = l30, l30 = l40, l40 = l50;
 			l0G = l1G, l1G = l2G, l2G = l3G, l3G = l4G, l4G = l5G;
 			dst = DADDR(dst,  1);
@@ -951,7 +951,7 @@ static void decode_inter_luma(int mode, int h, size_t sstride, const uint8_t * r
 			i16x8 hv1 = sixtapHV(h01, h11, h21, h31, h41, h51);
 			i8x16 hv = shrrpus16(hv0, hv1, 6);
 			i8x16 s = shrrpus16(ifelse_mask(m0, h30, h20), ifelse_mask(m0, h31, h21), 5);
-			*(i8x16 *)dst = maddshrL(*(i8x16 *)dst, avgu8(ifelse_mask(m1, hv, s), hv), w0, w1, o, wd);
+			storea128(dst, maddshrL(loada128(dst), avgu8(ifelse_mask(m1, hv, s), hv), w0, w1, o, wd));
 			h00 = h10, h01 = h11;
 			h10 = h20, h11 = h21;
 			h20 = h30, h21 = h31;
@@ -1018,8 +1018,8 @@ static void decode_inter_chroma(int w, int h, size_t sstride, const uint8_t *src
 			i8x16 p = shrrpu16(x0, x1, 6);
 			i8x16 q = loada64x2(DADDR(dst,  0), DADDR(dst,  1));
 			i64x2 v = maddshrC16(q, p, w0, w1, w2, w3, oCb, oCr, wd);
-			*(int64_t *)DADDR(dst,  0) = v[0];
-			*(int64_t *)DADDR(dst,  1) = v[1];
+			storea64(DADDR(dst,  0), v[0]);
+			storea64(DADDR(dst,  1), v[1]);
 			dst = DADDR(dst,  2);
 			l0 = l2, l1 = l3;
 		} while (h -= 2);
@@ -1046,10 +1046,10 @@ static void decode_inter_chroma(int w, int h, size_t sstride, const uint8_t *src
 			i8x16 p = shrrpu16(x0, x1, 6);
 			i8x16 q = loada32x4(DADDR(dst,  0), DADDR(dst,  1), DADDR(dst,  2), DADDR(dst,  3));
 			i32x4 v = maddshrC8(q, p, w0, w1, o, wd);
-			*(int32_t *)DADDR(dst,  0) = v[0];
-			*(int32_t *)DADDR(dst,  1) = v[1];
-			*(int32_t *)DADDR(dst,  2) = v[2];
-			*(int32_t *)DADDR(dst,  3) = v[3];
+			storea32(DADDR(dst,  0), v[0]);
+			storea32(DADDR(dst,  1), v[1]);
+			storea32(DADDR(dst,  2), v[2]);
+			storea32(DADDR(dst,  3), v[3]);
 			src = SADDR(src,  4);
 			dst = DADDR(dst,  4);
 			l0 = l2;
@@ -1101,6 +1101,114 @@ static void decode_inter_chroma(int w, int h, size_t sstride, const uint8_t *src
  * | bipred=2 | no_weight  | no_weight    | no_weight  | implicit2    |
  * +----------+------------+--------------+------------+--------------+
  */
+#ifdef __riscv
+/**
+ * Scalar unweighted motion compensation for SIMD-less ISAs (RISC-V).
+ *
+ * The vector kernels above (decode_inter_luma/decode_inter_chroma) are 128-bit
+ * SIMD code that the compiler scalarizes into thousands of ops per block on an
+ * ISA without a vector unit; they dominate P-frame cost as soon as the scene
+ * moves (global motion on PTZ pans). These scalar routines implement the exact
+ * H.264 8.4.2.2.1/8.4.2.2.2 interpolation (6-tap luma halves, quarter-pel
+ * averages, bilinear chroma) for the UNWEIGHTED single-prediction case — the
+ * only one surveillance streams use. Weighted/bidirectional prediction falls
+ * back to the vector kernels (their weighting stage reads back dst). Output is
+ * bit-identical to the vector path (verified against the SSE build).
+ */
+static always_inline int mc_clip255(int v) { return v < 0 ? 0 : (v > 255 ? 255 : v); }
+static always_inline int mc_tap6(int a, int b, int c, int d, int e, int f) {
+	return (a + f) - 5 * (b + e) + 20 * (c + d);
+}
+static always_inline int mc_halfH(const uint8_t *r, int x) {
+	return mc_clip255((mc_tap6(r[x - 2], r[x - 1], r[x], r[x + 1], r[x + 2], r[x + 3]) + 16) >> 5);
+}
+static always_inline int mc_halfV(const uint8_t *p, ptrdiff_t s) {
+	return mc_clip255((mc_tap6(p[-2 * s], p[-s], p[0], p[s], p[2 * s], p[3 * s]) + 16) >> 5);
+}
+
+static void decode_inter_luma_scalar(int w, int h, size_t sstride, const uint8_t *src,
+                                     size_t dstride, uint8_t *dst, int xFrac, int yFrac) {
+	ptrdiff_t ss = sstride, ds = dstride;
+	if (yFrac == 0) { // a/b/c: horizontal only (full-pel is handled upstream)
+		int xo = (xFrac == 3);
+		for (int y = 0; y < h; y++, src += ss, dst += ds) {
+			for (int x = 0; x < w; x++) {
+				int b = mc_halfH(src, x);
+				dst[x] = (xFrac == 2) ? (uint8_t) b : (uint8_t) ((src[x + xo] + b + 1) >> 1);
+			}
+		}
+	} else if (xFrac == 0) { // d/h/n: vertical only
+		ptrdiff_t yo = (yFrac == 3) ? ss : 0;
+		for (int y = 0; y < h; y++, src += ss, dst += ds) {
+			for (int x = 0; x < w; x++) {
+				int v = mc_halfV(src + x, ss);
+				dst[x] = (yFrac == 2) ? (uint8_t) v : (uint8_t) ((src[x + yo] + v + 1) >> 1);
+			}
+		}
+	} else if (xFrac == 2 || yFrac == 2) {
+		// center positions involving j: unclipped horizontal taps first (rows
+		// y-2..y+h+2), then vertical taps of those, (+512)>>10
+		int32_t tmp[16 + 5][16];
+		const uint8_t *r = src - 2 * ss;
+		for (int y = 0; y < h + 5; y++, r += ss)
+			for (int x = 0; x < w; x++)
+				tmp[y][x] = mc_tap6(r[x - 2], r[x - 1], r[x], r[x + 1], r[x + 2], r[x + 3]);
+		for (int y = 0; y < h; y++, dst += ds, src += ss) {
+			for (int x = 0; x < w; x++) {
+				int j = mc_clip255((mc_tap6(tmp[y][x], tmp[y + 1][x], tmp[y + 2][x],
+				                            tmp[y + 3][x], tmp[y + 4][x], tmp[y + 5][x]) + 512) >> 10);
+				int out;
+				if (xFrac == 2 && yFrac == 2) { // j
+					out = j;
+				} else if (yFrac == 2) { // i/k: avg with halfV at col +(xFrac==3)
+					out = (j + mc_halfV(src + x + (xFrac == 3), ss) + 1) >> 1;
+				} else { // f/q: avg with halfH at row +(yFrac==3), reuse tmp
+					out = (j + mc_clip255((tmp[y + 2 + (yFrac == 3)][x] + 16) >> 5) + 1) >> 1;
+				}
+				dst[x] = (uint8_t) out;
+			}
+		}
+	} else { // e/g/p/r: diagonal quarter = avg(halfH at row+(yF==3), halfV at col+(xF==3))
+		ptrdiff_t yo = (yFrac == 3) ? ss : 0;
+		int xo = (xFrac == 3);
+		for (int y = 0; y < h; y++, src += ss, dst += ds) {
+			for (int x = 0; x < w; x++) {
+				int b = mc_halfH(src + yo, x);
+				int v = mc_halfV(src + x + xo, ss);
+				dst[x] = (uint8_t) ((b + v + 1) >> 1);
+			}
+		}
+	}
+}
+
+// w/h are the LUMA partition dims: the chroma block is (w/2) wide and h
+// interleaved Cb/Cr rows tall; the same-plane neighbour row lies 2*sstride
+// away (same layout as decode_inter_chroma above).
+static void decode_inter_chroma_scalar(int w, int h, size_t sstride, const uint8_t *src,
+                                       size_t dstride, uint8_t *dst, int xFrac, int yFrac) {
+	int A = (8 - xFrac) * (8 - yFrac), B = xFrac * (8 - yFrac);
+	int C = (8 - xFrac) * yFrac, D = xFrac * yFrac;
+	int cw = w >> 1;
+	if (yFrac == 0) {
+		for (int y = 0; y < h; y++, src += sstride, dst += dstride)
+			for (int x = 0; x < cw; x++)
+				dst[x] = (uint8_t) ((A * src[x] + B * src[x + 1] + 32) >> 6);
+	} else if (xFrac == 0) {
+		for (int y = 0; y < h; y++, src += sstride, dst += dstride) {
+			const uint8_t *s2 = src + 2 * sstride;
+			for (int x = 0; x < cw; x++)
+				dst[x] = (uint8_t) ((A * src[x] + C * s2[x] + 32) >> 6);
+		}
+	} else {
+		for (int y = 0; y < h; y++, src += sstride, dst += dstride) {
+			const uint8_t *s2 = src + 2 * sstride;
+			for (int x = 0; x < cw; x++)
+				dst[x] = (uint8_t) ((A * src[x] + B * src[x + 1] + C * s2[x] + D * s2[x + 1] + 32) >> 6);
+		}
+	}
+}
+#endif // __riscv
+
 static void noinline decode_inter(Edge264Context *ctx, int i, int w, int h) {
 	static int8_t shift_Y_8bit[46] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15};
 	static int8_t shift_C_8bit[22] = {0, 0, 0, 0, 0, 0, 0, 0, 1, 2, 3, 4, 5, 6, 7, 7, 7, 7, 7, 7, 7, 7};
@@ -1134,7 +1242,8 @@ static void noinline decode_inter(Edge264Context *ctx, int i, int w, int h) {
 	}
 	
 	// prediction coeffs {wY, oY, logWD_Y, logWD_C, wCb, wCr, oCb, oCr}
-	i16x8 wod = {pack_w(0, 1), 0, 0, 0, pack_w(0, 1), pack_w(0, 1), 0, 0}; // no_weight
+	const i16x8 no_weight = {pack_w(0, 1), 0, 0, 0, pack_w(0, 1), pack_w(0, 1), 0, 0};
+	i16x8 wod = no_weight;
 	int refIdx = mb->refIdx[i8x8];
 	int refIdxX = mb->refIdx[i8x8 ^ 4];
 	if (ctx->t.pps.weighted_bipred_idc != 1) {
@@ -1230,18 +1339,57 @@ static void noinline decode_inter(Edge264Context *ctx, int i, int w, int h) {
 		src_C = ctx->edge_buf + 672;
 	}
 	
+	// Full-pel unweighted fast paths. With zero motion fractions the
+	// interpolators are identities, and with default weights (w=1, o=0,
+	// logWD=0) the weighting stage is an identity too: the prediction reduces
+	// to plain row copies, bit-exact with the generic kernels below. This is
+	// the dominant case on static surveillance scenes (P_Skip with uniform
+	// integer motion) and a decisive win on SIMD-less ISAs (RISC-V) where the
+	// scalarized bilinear/6-tap machinery costs thousands of ops per block.
+	i64x2 weq = (i64x2)(wod == no_weight);
+	int unweighted = (weq[0] & weq[1]) == -1;
+
 	// chroma prediction comes first since it can be inlined
 	uint8_t *dst_C = ctx->samples_mb[1] + (y444[i4x4] >> 1) * ctx->t.stride[1] + (x444[i4x4] >> 1);
 	size_t dstride_C = ctx->t.stride[1] >> 1;
 	int xFrac_C = x & 7;
 	int yFrac_C = y & 7;
-	i32x4 ABCD = {little_endian32(((8 - xFrac_C) | xFrac_C << 8) * ((8 - yFrac_C) | yFrac_C << 16))};
-	decode_inter_chroma(w, h, sstride_C, src_C, dstride_C, dst_C, ABCD, wod);
-	
+	if (unweighted && (xFrac_C | yFrac_C) == 0) {
+		// h interleaved Cb/Cr rows of w/2 bytes each (same layout as the kernel)
+		const uint8_t *s = src_C;
+		uint8_t *d = dst_C;
+		for (int r = 0; r < h; r++, s += sstride_C, d += dstride_C)
+			memcpy(d, s, (size_t)(w >> 1));
+	}
+#ifdef __riscv
+	else if (unweighted) {
+		// fractional unweighted: scalar bilinear beats the scalarized vector kernel
+		decode_inter_chroma_scalar(w, h, sstride_C, src_C, dstride_C, dst_C, xFrac_C, yFrac_C);
+	}
+#endif
+	else {
+		i32x4 ABCD = {little_endian32(((8 - xFrac_C) | xFrac_C << 8) * ((8 - yFrac_C) | yFrac_C << 16))};
+		decode_inter_chroma(w, h, sstride_C, src_C, dstride_C, dst_C, ABCD, wod);
+	}
+
 	// tail jump to luma prediction
 	int xFrac_Y = x & 3;
 	int yFrac_Y = y & 3;
 	size_t dstride_Y = ctx->t.stride[0];
 	uint8_t *dst_Y = ctx->samples_mb[0] + y444[i4x4] * dstride_Y + x444[i4x4];
+	if (unweighted && (xFrac_Y | yFrac_Y) == 0) {
+		const uint8_t *s = src_Y;
+		uint8_t *d = dst_Y;
+		for (int r = 0; r < h; r++, s += sstride_Y, d += dstride_Y)
+			memcpy(d, s, (size_t)w);
+		return;
+	}
+#ifdef __riscv
+	if (unweighted) {
+		// fractional unweighted: scalar 6-tap beats the scalarized vector kernel
+		decode_inter_luma_scalar(w, h, sstride_Y, src_Y, dstride_Y, dst_Y, xFrac_Y, yFrac_Y);
+		return;
+	}
+#endif
 	decode_inter_luma((w << 1 & 48) + yFrac_Y * 4 + xFrac_Y, h, sstride_Y, src_Y, dstride_Y, dst_Y, wod);
 }

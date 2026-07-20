@@ -166,20 +166,20 @@ static always_inline i16x8 sixtapHV(i16x8 a, i16x8 b, i16x8 c, i16x8 d, i16x8 e,
 	static always_inline u8x16 maddshrL(u8x16 q, u8x16 p, i16x8 w0, i16x8 w1, i16x8 o, int wd) {
 		i16x8 a = wasm_i16x8_add_sat(cvtlo8u16(q) * w0 + cvtlo8u16(p) * w1, o);
 		i16x8 b = wasm_i16x8_add_sat(cvthi8u16(q) * w0 + cvthi8u16(p) * w1, o);
-		return packus16(a >> wd, b >> wd);
+		return packus16(wasm_i16x8_shr(a, wd), wasm_i16x8_shr(b, wd));
 	}
 	static always_inline u8x16 maddshrC16(u8x16 q, u8x16 p, i16x8 w0, i16x8 w1, i16x8 w2, i16x8 w3, i16x8 oCb, i16x8 oCr, int wd) {
 		i16x8 a = wasm_i16x8_add_sat(cvtlo8u16(q) * w0 + cvtlo8u16(p) * w1, oCb);
 		i16x8 b = wasm_i16x8_add_sat(cvthi8u16(q) * w2 + cvthi8u16(p) * w3, oCr);
-		return packus16(a >> wd, b >> wd);
+		return packus16(wasm_i16x8_shr(a, wd), wasm_i16x8_shr(b, wd));
 	}
 	static always_inline i8x16 maddshrC8(u8x16 q, u8x16 p, i16x8 wq, i16x8 wp, i16x8 o, int wd) {
 		i16x8 a = wasm_i16x8_add_sat(cvtlo8u16(q) * wq + cvtlo8u16(p) * wp, o);
 		i16x8 b = wasm_i16x8_add_sat(cvthi8u16(q) * wq + cvthi8u16(p) * wp, o);
-		return packus16(a >> wd, b >> wd);
+		return packus16(wasm_i16x8_shr(a, wd), wasm_i16x8_shr(b, wd));
 	}
 	static always_inline i8x16 maddshrC4(u8x16 q, u8x16 p, i16x8 wq, i16x8 wp, i16x8 o, int wd) {
-		i16x8 a = (i16x8)wasm_i16x8_add_sat(cvtlo8u16(q) * wq + cvtlo8u16(p) * wp, o) >> wd;
+		i16x8 a = wasm_i16x8_shr(wasm_i16x8_add_sat(cvtlo8u16(q) * wq + cvtlo8u16(p) * wp, o), wd);
 		return packus16(a, a);
 	}
 	static always_inline u16x8 maddABCD(u8x16 ab, u8x16 cd, i8x16 shuf, u8x16 AB, u8x16 CD) {

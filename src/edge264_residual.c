@@ -56,7 +56,7 @@
 	static always_inline i16x8 scale32(i32x4 c0, i32x4 c1, u16x8 ls, i32x4 off, int sh) {
 		i32x4 a = wasm_i32x4_dot_i16x8(c0, wasm_u32x4_extend_low_u16x8(ls));
 		i32x4 b = wasm_i32x4_dot_i16x8(c1, wasm_u32x4_extend_high_u16x8(ls));
-		return wasm_i16x8_narrow_i32x4((a + off) >> sh, (b + off) >> sh);
+		return wasm_i16x8_narrow_i32x4(wasm_i32x4_shr(a + off, sh), wasm_i32x4_shr(b + off, sh));
 	}
 #elif SIMD == CLANG
 	#define addlou8s16(a, b) ((i16x8)cvtlo8u16(a) + (i16x8)(b))

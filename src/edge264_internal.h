@@ -1006,9 +1006,13 @@ static const int8_t shz_mask[48] = {
 	static u16x8 maddubx(u8x16 a, u8x16 b) {return wasm_i16x8_narrow_i32x4(wasm_u32x4_extadd_pairwise_u16x8(wasm_u16x8_extmul_low_u8x16(a, b)), wasm_u32x4_extadd_pairwise_u16x8(wasm_u16x8_extmul_high_u8x16(a, b)));}
 	static u32x4 minw32(u32x4 a, u32x4 b) {return wasm_v128_bitselect(a, b, (i32x4)(a - b) >> 31);}
 	static inline size_t shld(size_t l, size_t h, size_t i) {return h << i | l >> 1 >> (~i & (SIZE_BIT - 1));}
-	static u16x8 sum8(u8x16 a) {u16x8 b = wasm_u32x4_extadd_pairwise_u16x8(wasm_u16x8_extadd_pairwise_u8x16(a)); u16x8 c = b + (u16x8)((u64x2)b >> 32); return c + (u16x8)shr128(c, 8);}
 	#define shufflez shuffle
 	#define shuffle2z shuffle2
+	#if defined(__clang__) && __clang_major__ >= 14
+		#define sum8(a) ((u16x8){__builtin_reduce_add(__builtin_convertvector((u8x16)(a), u16x16))})
+	#else
+		static u16x8 sum8(u8x16 a) {u16x8 b = wasm_u32x4_extadd_pairwise_u16x8(wasm_u16x8_extadd_pairwise_u8x16(a)); u16x8 c = b + (u16x8)((u64x2)b >> 32); return c + (u16x8)shr128(c, 8);}
+	#endif
 	#ifdef __wasm_relaxed_simd__
 		#define ifelse_mask(v, t, f) (i8x16)wasm_i8x16_relaxed_laneselect(t, f, v)
 		#define ifelse_msb(v, t, f) (i8x16)wasm_i8x16_relaxed_laneselect(t, f, (i8x16)(v) >> 7)

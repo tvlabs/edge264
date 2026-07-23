@@ -344,22 +344,22 @@ static void recover_slice(Edge264Context *ctx, int currPic) {
 				i16x8 wd = set16(p128 < 128 ? 7 : 0);
 			#endif
 			i16x8 o = {};
-			*(i8x16 *)SADDR(y0,  0) = maddshrL(*(i8x16 *)SADDR(y0,  0), dcY, w0, w1, o, wd);
-			*(i8x16 *)SADDR(y0,  1) = maddshrL(*(i8x16 *)SADDR(y0,  1), dcY, w0, w1, o, wd);
-			*(i8x16 *)SADDR(y0,  2) = maddshrL(*(i8x16 *)SADDR(y0,  2), dcY, w0, w1, o, wd);
-			*(i8x16 *)SADDR(y7, -4) = maddshrL(*(i8x16 *)SADDR(y7, -4), dcY, w0, w1, o, wd);
-			*(i8x16 *)SADDR(y0,  4) = maddshrL(*(i8x16 *)SADDR(y0,  4), dcY, w0, w1, o, wd);
-			*(i8x16 *)SADDR(y7, -2) = maddshrL(*(i8x16 *)SADDR(y7, -2), dcY, w0, w1, o, wd);
-			*(i8x16 *)SADDR(y7, -1) = maddshrL(*(i8x16 *)SADDR(y7, -1), dcY, w0, w1, o, wd);
-			*(i8x16 *)SADDR(y7,  0) = maddshrL(*(i8x16 *)SADDR(y7,  0), dcY, w0, w1, o, wd);
-			*(i8x16 *)SADDR(y7,  1) = maddshrL(*(i8x16 *)SADDR(y7,  1), dcY, w0, w1, o, wd);
-			*(i8x16 *)SADDR(y7,  2) = maddshrL(*(i8x16 *)SADDR(y7,  2), dcY, w0, w1, o, wd);
-			*(i8x16 *)SADDR(yE, -4) = maddshrL(*(i8x16 *)SADDR(yE, -4), dcY, w0, w1, o, wd);
-			*(i8x16 *)SADDR(y7,  4) = maddshrL(*(i8x16 *)SADDR(y7,  4), dcY, w0, w1, o, wd);
-			*(i8x16 *)SADDR(yE, -2) = maddshrL(*(i8x16 *)SADDR(yE, -2), dcY, w0, w1, o, wd);
-			*(i8x16 *)SADDR(yE, -1) = maddshrL(*(i8x16 *)SADDR(yE, -1), dcY, w0, w1, o, wd);
-			*(i8x16 *)SADDR(yE,  0) = maddshrL(*(i8x16 *)SADDR(yE,  0), dcY, w0, w1, o, wd);
-			*(i8x16 *)SADDR(yE,  1) = maddshrL(*(i8x16 *)SADDR(yE,  1), dcY, w0, w1, o, wd);
+			storea128(SADDR(y0,  0), maddshrL(loada128(SADDR(y0,  0)), dcY, w0, w1, o, wd));
+			storea128(SADDR(y0,  1), maddshrL(loada128(SADDR(y0,  1)), dcY, w0, w1, o, wd));
+			storea128(SADDR(y0,  2), maddshrL(loada128(SADDR(y0,  2)), dcY, w0, w1, o, wd));
+			storea128(SADDR(y7, -4), maddshrL(loada128(SADDR(y7, -4)), dcY, w0, w1, o, wd));
+			storea128(SADDR(y0,  4), maddshrL(loada128(SADDR(y0,  4)), dcY, w0, w1, o, wd));
+			storea128(SADDR(y7, -2), maddshrL(loada128(SADDR(y7, -2)), dcY, w0, w1, o, wd));
+			storea128(SADDR(y7, -1), maddshrL(loada128(SADDR(y7, -1)), dcY, w0, w1, o, wd));
+			storea128(SADDR(y7,  0), maddshrL(loada128(SADDR(y7,  0)), dcY, w0, w1, o, wd));
+			storea128(SADDR(y7,  1), maddshrL(loada128(SADDR(y7,  1)), dcY, w0, w1, o, wd));
+			storea128(SADDR(y7,  2), maddshrL(loada128(SADDR(y7,  2)), dcY, w0, w1, o, wd));
+			storea128(SADDR(yE, -4), maddshrL(loada128(SADDR(yE, -4)), dcY, w0, w1, o, wd));
+			storea128(SADDR(y7,  4), maddshrL(loada128(SADDR(y7,  4)), dcY, w0, w1, o, wd));
+			storea128(SADDR(yE, -2), maddshrL(loada128(SADDR(yE, -2)), dcY, w0, w1, o, wd));
+			storea128(SADDR(yE, -1), maddshrL(loada128(SADDR(yE, -1)), dcY, w0, w1, o, wd));
+			storea128(SADDR(yE,  0), maddshrL(loada128(SADDR(yE,  0)), dcY, w0, w1, o, wd));
+			storea128(SADDR(yE,  1), maddshrL(loada128(SADDR(yE,  1)), dcY, w0, w1, o, wd));
 			
 			size_t stride_C = ctx->t.stride[1] >> 1;
 			DECL_DSTRIDE(stride_C);
@@ -380,22 +380,22 @@ static void recover_slice(Edge264Context *ctx, int currPic) {
 			i64x2 v5 = maddshrL(loada64x2(DADDR(cE, -4), DADDR(c7,  4)), dcC, w0, w1, o, wd);
 			i64x2 v6 = maddshrL(loada64x2(DADDR(cE, -2), DADDR(cE, -1)), dcC, w0, w1, o, wd);
 			i64x2 v7 = maddshrL(loada64x2(DADDR(cE,  0), DADDR(cE,  1)), dcC, w0, w1, o, wd);
-			*(int64_t *)DADDR(c0,  0) = v0[0];
-			*(int64_t *)DADDR(c0,  1) = v0[1];
-			*(int64_t *)DADDR(c0,  2) = v1[0];
-			*(int64_t *)DADDR(c7, -4) = v1[1];
-			*(int64_t *)DADDR(c0,  4) = v2[0];
-			*(int64_t *)DADDR(c7, -2) = v2[1];
-			*(int64_t *)DADDR(c7, -1) = v3[0];
-			*(int64_t *)DADDR(c7,  0) = v3[1];
-			*(int64_t *)DADDR(c7,  1) = v4[0];
-			*(int64_t *)DADDR(c7,  2) = v4[1];
-			*(int64_t *)DADDR(cE, -4) = v5[0];
-			*(int64_t *)DADDR(c7,  4) = v5[1];
-			*(int64_t *)DADDR(cE, -2) = v6[0];
-			*(int64_t *)DADDR(cE, -1) = v6[1];
-			*(int64_t *)DADDR(cE,  0) = v7[0];
-			*(int64_t *)DADDR(cE,  1) = v7[1];
+			storea64(DADDR(c0,  0), v0[0]);
+			storea64(DADDR(c0,  1), v0[1]);
+			storea64(DADDR(c0,  2), v1[0]);
+			storea64(DADDR(c7, -4), v1[1]);
+			storea64(DADDR(c0,  4), v2[0]);
+			storea64(DADDR(c7, -2), v2[1]);
+			storea64(DADDR(c7, -1), v3[0]);
+			storea64(DADDR(c7,  0), v3[1]);
+			storea64(DADDR(c7,  1), v4[0]);
+			storea64(DADDR(c7,  2), v4[1]);
+			storea64(DADDR(cE, -4), v5[0]);
+			storea64(DADDR(c7,  4), v5[1]);
+			storea64(DADDR(cE, -2), v6[0]);
+			storea64(DADDR(cE, -1), v6[1]);
+			storea64(DADDR(cE,  0), v7[0]);
+			storea64(DADDR(cE,  1), v7[1]);
 		} else if (i > 0 && p128 >= 32) { // recover above 25% error (arbitrary)
 			if (ctx->t.slice_type == 0) { // P slice -> P_Skip
 				mb->nC_v[0] = (i8x16){};
@@ -459,6 +459,24 @@ void *ADD_VARIANT(worker_loop)(void *arg) {
 		// wait until a task becomes available and reserve it
 		while (c.thread_id >= 0 && !c.d->ready_tasks)
 			pthread_cond_wait(&c.d->task_ready, &c.d->lock);
+		// Guard against ready_tasks == 0 here (ROOT CAUSE of the live-stream collapse).
+		// Line ~1291 only sets a task's "ready" bit when all reference frames it depends
+		// on are already decoded. A slice that references a frame MISSING from the DPB
+		// (e.g. a reference lost to RTP packet loss on a live stream, or a truncated /
+		// corrupt NAL) leaves ready_tasks == 0 — yet single-thread mode (begin(0)) calls
+		// worker_loop unconditionally (line ~1299). __builtin_ctz(0) below is UNDEFINED
+		// and returns a wild task_id, so "c.t = c.d->tasks[task_id]" reads a whole
+		// Edge264Task (~1.6 KB) OUT OF BOUNDS and fills c.t (pic_width_in_mbs,
+		// next_deblock_addr, the bitstream pointers...) with garbage. With asserts off
+		// (-DNDEBUG, the on-device build) this is silent and the decode collapses a few
+		// macroblocks later — exactly the "silent bug earlier, crash later" runaway we
+		// saw in deblock_mb / add_idct8x8. Reproduced on host with ASan by truncating a
+		// slice NAL. Bail out cleanly instead of corrupting decoder state.
+		if (__builtin_expect(!c.d->ready_tasks, 0)) {
+			if (c.thread_id < 0)
+				return (void *)0; // single-thread: nothing runnable (missing ref) — skip this slice
+			continue; // multi-thread: go back and wait for a task to become ready
+		}
 		assert((unsigned)c.d->ready_tasks - 1 < 65535); // 0 < ready_tasks < 65536
 		int task_id = __builtin_ctz(c.d->ready_tasks); // FIXME arbitrary selection for now
 		int currPic = c.d->taskPics[task_id];
@@ -503,7 +521,26 @@ void *ADD_VARIANT(worker_loop)(void *arg) {
 			c.samples_mb[1] = c.t.samples_buffers[currPic] + (c.mbx + c.mby * c.t.stride[1]) * 8 + c.t.plane_size_Y;
 			c.samples_mb[2] = c.samples_mb[1] + (c.t.stride[1] >> 1);
 			c._mb = (Edge264Macroblock *)c.t.mb_buffer + c.mbx + c.mby * (c.t.pic_width_in_mbs + 1);
-			while (c.t.next_deblock_addr < c.CurrMbAddr) {
+			// Safety bound: a valid CurrMbAddr is always < total macroblocks. On some
+			// live streams a corrupted CurrMbAddr made this loop iterate ~millions of
+			// times, deblock_mb walking into wild PSRAM for >30 s -> Task Watchdog
+			// reboot. Cap at the frame size so the loop can never run away (no-op when
+			// CurrMbAddr is valid).
+			//
+			// Capping only _deblock_end (the upper end) is NOT enough: a corrupted
+			// next_deblock_addr (e.g. a large NEGATIVE value from a clobbered ctx->t,
+			// observed as a 25 s loopTask hang with MEPC inside deblock_mb on the live
+			// stream) keeps "next_deblock_addr < _deblock_end" true for ~2 billion
+			// increments. So we ALSO sanitize the frame size and add an incorruptible
+			// iteration guard (_guard): the loop can run at most _total_mbs+1 times no
+			// matter how badly next_deblock_addr is corrupted. This makes a deblock
+			// Task-Watchdog reboot physically impossible.
+			int _total_mbs = (int) c.t.pic_width_in_mbs * (int) c.t.pic_height_in_mbs;
+			if (_total_mbs < 0 || _total_mbs > 65536)
+				_total_mbs = 65536;
+			int _deblock_end = c.CurrMbAddr < _total_mbs ? c.CurrMbAddr : _total_mbs;
+			int _guard = _total_mbs + 1;
+			while (c.t.next_deblock_addr < _deblock_end && --_guard >= 0) {
 				deblock_mb(&c);
 				c.t.next_deblock_addr++;
 				c._mb++;
@@ -1269,7 +1306,6 @@ int ADD_VARIANT(parse_slice_layer_without_partitioning)(Edge264Decoder *dec, Edg
 	dec->busy_tasks |= 1 << task_id;
 	dec->pending_tasks |= 1 << task_id;
 	dec->task_dependencies[task_id] = refs_to_mask(t);
-	// FIXME check against dependencies on non-reference slots
 	dec->ready_tasks |= ((dec->task_dependencies[task_id] & ~ready_frames(dec)) == 0) << task_id;
 	dec->taskPics[task_id] = dec->currPic;
 	ret = print_dec(dec, dec->n_threads || dec->worker_loop != worker_loop_log ?

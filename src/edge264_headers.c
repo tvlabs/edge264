@@ -86,9 +86,9 @@ static int bump_frame(Edge264Decoder *dec, int non_base_view, unsigned ignored) 
 	}
 	if (pic < 0)
 		return 0;
-	assert(movemask(dec->get_frame_queue_v[non_base_view])); // get_frame_queue should never be full
+	assert(movemask(dec->output_queue_v[non_base_view])); // output_queue should never be full
 	dec->output_frames |= 1 << pic;
-	dec->get_frame_queue_v[non_base_view] = shrd128(set8(pic), dec->get_frame_queue_v[non_base_view], 15);
+	dec->output_queue_v[non_base_view] = shrd128(set8(pic), dec->output_queue_v[non_base_view], 15);
 	return 1;
 }
 
@@ -134,7 +134,7 @@ static void clear_decoder(Edge264Decoder *dec) {
 	memset((void *)dec + offsetof(Edge264Decoder, nal_ref_idc), 0, offsetof(Edge264Decoder, log_base_us) - offsetof(Edge264Decoder, nal_ref_idc));
 	dec->currPic = dec->basePic = -1;
 	dec->PrevRefFrameNum[0] = dec->PrevRefFrameNum[1] = -1;
-	dec->taskPics_v = dec->get_frame_queue_v[0] = dec->get_frame_queue_v[1] = set8(-1);
+	dec->taskPics_v = dec->output_queue_v[0] = dec->output_queue_v[1] = set8(-1);
 }
 
 int ADD_VARIANT(parse_end_of_sequence)(Edge264Decoder *dec, Edge264UnrefCb unref_cb, void *unref_arg) {
@@ -1106,15 +1106,14 @@ int ADD_VARIANT(parse_slice_layer_without_partitioning)(Edge264Decoder *dec, Edg
 			dec->prev_long_term_frames &= ~(1 << unref);
 		}
 		// bump frames until there are enough available slots in the DPB
-		unsigned reference_frames = dec->prev_short_term_frames | dec->prev_long_term_frames;
 		assert(dec->currPic < 0);
-		while (non_existing + __builtin_popcount(reference_frames | dec->to_get_frames & ~dec->output_frames) > sps->max_dec_frame_buffering && bump_frame(dec, non_base_view, 0));
-		assert(non_existing + __builtin_popcount(reference_frames | dec->to_get_frames & ~dec->output_frames) <= sps->max_dec_frame_buffering);
-		if (non_existing + __builtin_popcount(reference_frames | dec->to_get_frames | dec->output_frames) > 32)
+		while (non_existing + __builtin_popcount(dpb_frames(dec)) > sps->max_dec_frame_buffering && bump_frame(dec, non_base_view, 0));
+		assert(non_existing + __builtin_popcount(dpb_frames(dec)) <= sps->max_dec_frame_buffering);
+		if (non_existing + __builtin_popcount(unavail_frames(dec)) > 32)
 			return ENOBUFS; // exit here if we must wait for get_frame to consume and return enough frames
 		// wait until enough empty slots are undepended
 		unsigned unavail;
-		while (non_existing + __builtin_popcount(unavail = reference_frames | dec->to_get_frames | dec->output_frames | depended_frames(dec)) > 32)
+		while (non_existing + __builtin_popcount(unavail = unavail_frames(dec) | depended_frames(dec)) > 32)
 			pthread_cond_wait(&dec->task_complete, &dec->lock);
 		// finally insert the last non-existing frames one by one
 		for (unsigned FrameNum = dec->FrameNum - non_existing; FrameNum < dec->FrameNum; FrameNum++) {
@@ -1144,18 +1143,12 @@ int ADD_VARIANT(parse_slice_layer_without_partitioning)(Edge264Decoder *dec, Edg
 	
 	// find and possibly allocate a memory slot for the upcoming frame
 	if (dec->currPic < 0) {
-		unsigned reference_frames = dec->prev_short_term_frames | dec->prev_long_term_frames;
-		if (__builtin_popcount(reference_frames | dec->to_get_frames | dec->output_frames) == 32)
+		if (__builtin_popcount(unavail_frames(dec)) == 32)
 			return ENOBUFS; // exit here if we must wait for get_frame to consume and return a frame slot
 		// wait until at least one empty slot is undepended (or returned in the meantime)
 		unsigned unavail;
-		while (__builtin_popcount(unavail = reference_frames | dec->to_get_frames | dec->output_frames | depended_frames(dec)) >= 32)
+		while (__builtin_popcount(unavail = unavail_frames(dec) | depended_frames(dec)) >= 32)
 			pthread_cond_wait(&dec->task_complete, &dec->lock);
-		// MVC: prevent dependent view from aliasing the base view's DPB slot,
-		// since the dependent view references the base view's pixels for
-		// inter-view prediction and would corrupt them by overwriting.
-		if (non_base_view && dec->basePic >= 0)
-			unavail |= 1u << dec->basePic;
 		int currPic = __builtin_ctz(~unavail);
 		if (dec->samples_buffers[currPic] == NULL &&
 			(ret = alloc_frame(dec, currPic, currPic <= sps->max_dec_frame_buffering ? ENOMEM : ENOBUFS)))
@@ -1234,22 +1227,25 @@ int ADD_VARIANT(parse_slice_layer_without_partitioning)(Edge264Decoder *dec, Edg
 	if (!(dec->to_get_frames & 1 << dec->currPic)) {
 		unsigned short_term_frames = dec->prev_short_term_frames & ~same_views | dec->short_term_frames;
 		unsigned long_term_frames = dec->prev_long_term_frames & ~same_views | dec->long_term_frames;
-		unsigned reference_frames = short_term_frames | long_term_frames;
-		assert(__builtin_popcount(reference_frames & same_views) <= sps->max_num_ref_frames);
-		assert(__builtin_popcount(reference_frames | dec->to_get_frames & ~dec->output_frames & ~same_views) <= sps->max_dec_frame_buffering);
+		assert(__builtin_popcount((short_term_frames | long_term_frames) & same_views) <= sps->max_num_ref_frames);
+		assert(__builtin_popcount(dpb_frames(dec) & ~same_views) <= sps->max_dec_frame_buffering);
+		// for safety, compute the max number of frames that can bump out of DPB
 		int max_bump = sps->max_num_ref_frames;
 		if (!dec->nal_ref_idc) {
 			max_bump = 0;
 			for (unsigned o = dec->to_get_frames & ~dec->output_frames & same_views; o; o &= o - 1)
 				max_bump += dec->FieldOrderCnt[0][__builtin_ctz(o)] < dec->TopFieldOrderCnt;
 		}
-		while (__builtin_popcount(reference_frames | dec->to_get_frames & ~dec->output_frames) > sps->max_dec_frame_buffering && max_bump--)
+		// apply bumping process until there is an empty slot
+		while (__builtin_popcount(dpb_frames(dec) & same_views) > sps->max_dec_frame_buffering && max_bump--)
 			bump_frame(dec, non_base_view, 0);
 		dec->to_get_frames |= 1 << dec->currPic;
+		// if DPB has no outputable frame left then put current frame in output queue,
+		// otherwise bump if number of reordered frames exceeds limit
 		if (max_bump < 0) {
 			dec->output_frames |= 1 << dec->currPic;
-			dec->get_frame_queue_v[non_base_view] = shrd128(set8(dec->currPic), dec->get_frame_queue_v[non_base_view], 15);
-		} else if (__builtin_popcount(dec->to_get_frames & ~dec->output_frames) > sps->max_num_reorder_frames) {
+			dec->output_queue_v[non_base_view] = shrd128(set8(dec->currPic), dec->output_queue_v[non_base_view], 15);
+		} else if (__builtin_popcount(dec->to_get_frames & ~dec->output_frames & same_views) > sps->max_num_reorder_frames) {
 			bump_frame(dec, non_base_view, 0);
 		}
 		#ifdef LOGS
@@ -1945,14 +1941,14 @@ int ADD_VARIANT(parse_seq_parameter_set)(Edge264Decoder *dec, Edge264UnrefCb unr
 	if (!sps.frame_mbs_only_flag)
 		ret = ENOTSUP;
 	sps.pic_height_in_mbs = pic_height_in_map_units << 1 >> sps.frame_mbs_only_flag;
-	int mvc = (dec->nal_unit_type == 15);
-	// contrary to H.10.2.1-f we force MaxDpbFrames a multiple of 2 for MVC
-	int MaxDpbFrames = min((MaxDpbMbs[min(level_idc, 63)] / (unsigned)(sps.pic_width_in_mbs * sps.pic_height_in_mbs)) << mvc, 16);
-	sps.max_num_ref_frames = min(max_num_ref_frames, MaxDpbFrames >> mvc);
+	// My understanding of H.10.2.1-f is that with any given level, the number
+	// of pictures the DPB can store is unaffected by number of views (if <= 2)
+	int MaxDpbFrames = min(MaxDpbMbs[min(level_idc, 63)] / (unsigned)(sps.pic_width_in_mbs * sps.pic_height_in_mbs), 16);
+	sps.max_num_ref_frames = min(max_num_ref_frames, MaxDpbFrames);
 	if (movemask(set8(profile_idc) == ((u8x16){44, 86, 100, 110, 122, 244})) &&
 		(constraint_set_flags & 1 << 4)) {
 		sps.max_num_reorder_frames = 0;
-		sps.max_dec_frame_buffering = sps.max_num_ref_frames << mvc;
+		sps.max_dec_frame_buffering = sps.max_num_ref_frames;
 	} else {
 		sps.max_num_reorder_frames = sps.max_dec_frame_buffering = MaxDpbFrames;
 	}

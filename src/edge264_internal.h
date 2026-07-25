@@ -352,10 +352,10 @@ typedef struct Edge264Context {
  * will replace the previous one when the current frame is complete.
  * 
  * Output status is stored in to_get_frames and output_frames bitfields:
- * _ pictures held for reordering in the DPB have values (1, 0)
- * _ pictures that have been output from the DPB and are stored for future
- *   retrieval in get_frames_queue have values (1, 1)
- * _ pictures sent to get_frame and waiting to be returned have values (0, 1)
+ * _ frames held for reordering in the DPB have values (1, 0)
+ * _ frames that have been bumped from the DPB for output and are stored for
+ *   future retrieval in output_queue have values (1, 1)
+ * _ frames yielded by get_frame and waiting to be returned have values (0, 1)
  */
 typedef int (*Parser)(Edge264Decoder *dec, Edge264UnrefCb unref_cb, void *unref_arg);
 typedef struct Edge264Decoder {
@@ -403,14 +403,14 @@ typedef struct Edge264Decoder {
 	// frame buffer as a Structure Of Arrays
 	uint32_t short_term_frames; // bitfield for indices of short-term or non-existing frame/view references for current view
 	uint32_t long_term_frames; // bitfield for indices of long-term or non-existing frame/view references for current view
-	uint32_t to_get_frames; // bitfield for frames waiting to be output
-	uint32_t output_frames; // bitfield for frames that are owned by the caller after get_frame and not yet returned
+	uint32_t to_get_frames; // bitfield for frames that have not been returned by get_frame yet
+	uint32_t output_frames; // bitfield for frames that have entered output_queue
 	uint32_t non_base_frames; // bitfield for frames that are non-base views in MVC
 	uint32_t prev_short_term_frames; // state of short_term_frames for both views before current frame
 	uint32_t prev_long_term_frames; // state of long_term_frames for both views before current frame
 	int32_t FrameNums[32]; // signed to be used along FieldOrderCnt in initial reference ordering
 	int32_t FrameIds[32]; // unique identifiers for each frame, incremented in decoding order
-	union { int8_t get_frame_queue[2][16]; i8x16 get_frame_queue_v[2]; }; // FIFO with insertion at 0 for both views, and empty slots having value -1
+	union { int8_t output_queue[2][16]; i8x16 output_queue_v[2]; }; // FIFO with insertion at 0 for both views, and empty slots having value -1
 	union { int8_t LongTermFrameIdx[32]; i8x16 LongTermFrameIdx_v[2]; };
 	union { int8_t prev_LongTermFrameIdx[32]; i8x16 prev_LongTermFrameIdx_v[2]; }; // state of LongTermFrameIdx before current frame
 	union { int32_t FieldOrderCnt[2][32]; i32x4 FieldOrderCnt_v[2][8]; }; // lower/higher half for top/bottom fields
@@ -1177,23 +1177,29 @@ static unsigned refs_to_mask(Edge264Task *t) {
 	u32x4 e = d | (u32x4)shr128(d, 8);
 	return e[0];
 }
-static always_inline unsigned ready_frames(Edge264Decoder *c) {
+static always_inline unsigned ready_frames(Edge264Decoder *dec) {
 	i32x4 last = set32(INT_MAX);
-	i16x8 a = packs32(c->next_deblock_addr_v[0] == last, c->next_deblock_addr_v[1] == last);
-	i16x8 b = packs32(c->next_deblock_addr_v[2] == last, c->next_deblock_addr_v[3] == last);
-	i16x8 d = packs32(c->next_deblock_addr_v[4] == last, c->next_deblock_addr_v[5] == last);
-	i16x8 e = packs32(c->next_deblock_addr_v[6] == last, c->next_deblock_addr_v[7] == last);
-	return movemask(packs16(a, b)) | movemask(packs16(d, e)) << 16;
+	i16x8 a = packs32(dec->next_deblock_addr_v[0] == last, dec->next_deblock_addr_v[1] == last);
+	i16x8 b = packs32(dec->next_deblock_addr_v[2] == last, dec->next_deblock_addr_v[3] == last);
+	i16x8 c = packs32(dec->next_deblock_addr_v[4] == last, dec->next_deblock_addr_v[5] == last);
+	i16x8 d = packs32(dec->next_deblock_addr_v[6] == last, dec->next_deblock_addr_v[7] == last);
+	return movemask(packs16(a, b)) | movemask(packs16(c, d)) << 16;
 }
-static always_inline unsigned ready_tasks(Edge264Decoder *c) {
-	i32x4 not_ready = ~set32(ready_frames(c));
-	i32x4 a = (c->task_dependencies_v[0] & not_ready) == 0;
-	i32x4 b = (c->task_dependencies_v[1] & not_ready) == 0;
-	i32x4 d = (c->task_dependencies_v[2] & not_ready) == 0;
-	i32x4 e = (c->task_dependencies_v[3] & not_ready) == 0;
-	return c->pending_tasks & movemask(packs16(packs32(a, b), packs32(d, e)));
+static always_inline unsigned ready_tasks(Edge264Decoder *dec) {
+	i32x4 not_ready = ~set32(ready_frames(dec));
+	i32x4 a = (dec->task_dependencies_v[0] & not_ready) == 0;
+	i32x4 b = (dec->task_dependencies_v[1] & not_ready) == 0;
+	i32x4 c = (dec->task_dependencies_v[2] & not_ready) == 0;
+	i32x4 d = (dec->task_dependencies_v[3] & not_ready) == 0;
+	return dec->pending_tasks & movemask(packs16(packs32(a, b), packs32(c, d)));
 }
-static always_inline unsigned depended_frames(Edge264Decoder *dec) {
+static inline unsigned dpb_frames(Edge264Decoder *dec) {
+	return dec->prev_short_term_frames | dec->prev_long_term_frames | dec->to_get_frames & ~dec->output_frames;
+}
+static inline unsigned unavail_frames(Edge264Decoder *dec) {
+	return dec->prev_short_term_frames | dec->prev_long_term_frames | dec->to_get_frames | dec->output_frames;
+}
+static inline unsigned depended_frames(Edge264Decoder *dec) {
 	u32x4 a = dec->task_dependencies_v[0] | dec->task_dependencies_v[1] |
 	          dec->task_dependencies_v[2] | dec->task_dependencies_v[3];
 	u32x4 b = a | (u32x4)shr128(a, 8);

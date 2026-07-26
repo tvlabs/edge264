@@ -86,9 +86,11 @@ static int bump_frame(Edge264Decoder *dec, int non_base_view, unsigned ignored) 
 	}
 	if (pic < 0)
 		return 0;
-	assert(movemask(dec->output_queue_v[non_base_view])); // output_queue should never be full
 	dec->output_frames |= 1 << pic;
-	dec->output_queue_v[non_base_view] = shrd128(set8(pic), dec->output_queue_v[non_base_view], 15);
+	assert(dec->output_queue[non_base_view][31] < 0); // output_queue should never be full
+	i8x16 *queue = dec->output_queue_v[non_base_view];
+	queue[1] = shrd128(queue[0], queue[1], 15);
+	queue[0] = shrd128(set8(pic), queue[0], 15);
 	return 1;
 }
 
@@ -134,7 +136,8 @@ static void clear_decoder(Edge264Decoder *dec) {
 	memset((void *)dec + offsetof(Edge264Decoder, nal_ref_idc), 0, offsetof(Edge264Decoder, log_base_us) - offsetof(Edge264Decoder, nal_ref_idc));
 	dec->currPic = dec->basePic = -1;
 	dec->PrevRefFrameNum[0] = dec->PrevRefFrameNum[1] = -1;
-	dec->taskPics_v = dec->output_queue_v[0] = dec->output_queue_v[1] = set8(-1);
+	dec->taskPics_v = dec->output_queue_v[0][0] = dec->output_queue_v[0][1] =
+		dec->output_queue_v[1][0] = dec->output_queue_v[1][1] = set8(-1);
 }
 
 int ADD_VARIANT(parse_end_of_sequence)(Edge264Decoder *dec, Edge264UnrefCb unref_cb, void *unref_arg) {
@@ -1244,7 +1247,9 @@ int ADD_VARIANT(parse_slice_layer_without_partitioning)(Edge264Decoder *dec, Edg
 		// otherwise bump if number of reordered frames exceeds limit
 		if (max_bump < 0) {
 			dec->output_frames |= 1 << dec->currPic;
-			dec->output_queue_v[non_base_view] = shrd128(set8(dec->currPic), dec->output_queue_v[non_base_view], 15);
+			i8x16 *queue = dec->output_queue_v[non_base_view];
+			queue[1] = shrd128(queue[0], queue[1], 15);
+			queue[0] = shrd128(set8(dec->currPic), queue[0], 15);
 		} else if (__builtin_popcount(dec->to_get_frames & ~dec->output_frames & same_views) > sps->max_num_reorder_frames) {
 			bump_frame(dec, non_base_view, 0);
 		}

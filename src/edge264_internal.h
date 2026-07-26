@@ -410,7 +410,7 @@ typedef struct Edge264Decoder {
 	uint32_t prev_long_term_frames; // state of long_term_frames for both views before current frame
 	int32_t FrameNums[32]; // signed to be used along FieldOrderCnt in initial reference ordering
 	int32_t FrameIds[32]; // unique identifiers for each frame, incremented in decoding order
-	union { int8_t output_queue[2][16]; i8x16 output_queue_v[2]; }; // FIFO with insertion at 0 for both views, and empty slots having value -1
+	union { int8_t output_queue[2][32]; i8x16 output_queue_v[2][2]; }; // FIFO with insertion at 0 for both views, and empty slots having value -1
 	union { int8_t LongTermFrameIdx[32]; i8x16 LongTermFrameIdx_v[2]; };
 	union { int8_t prev_LongTermFrameIdx[32]; i8x16 prev_LongTermFrameIdx_v[2]; }; // state of LongTermFrameIdx before current frame
 	union { int32_t FieldOrderCnt[2][32]; i32x4 FieldOrderCnt_v[2][8]; }; // lower/higher half for top/bottom fields
@@ -1146,6 +1146,9 @@ static always_inline int rbsp_end(Edge264GetBits *gb, int trailing_bit) {
 }
 #ifndef __builtin_clzg // works as long as __builtin_clzg is a macro
 	static always_inline int __builtin_clzg(unsigned a, int b) { return a ? __builtin_clz(a) : b; }
+#endif
+#ifndef __builtin_ctzg
+	static always_inline int __builtin_ctzg(unsigned a, int b) { return a ? __builtin_ctz(a) : b; }
 #endif
 #ifdef __BMI2__ // FIXME and not AMD pre-Zen3
 	#include <immintrin.h>

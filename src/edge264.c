@@ -147,7 +147,8 @@ Edge264Decoder *edge264_alloc(int n_threads, Edge264LogCb log_cb, void *log_arg,
 	dec->log_base_us = get_relative_time_us();
 	dec->currPic = dec->basePic = -1;
 	dec->PrevRefFrameNum[0] = dec->PrevRefFrameNum[1] = dec->prevFrameId = -1;
-	dec->taskPics_v = dec->output_queue_v[0] = dec->output_queue_v[1] = set8(-1);
+	dec->taskPics_v = dec->output_queue_v[0][0] = dec->output_queue_v[0][1] =
+		dec->output_queue_v[1][0] = dec->output_queue_v[1][1] = set8(-1);
 	dec->n_threads = n_threads;
 	dec->alloc_cb = alloc_cb && free_cb ? alloc_cb : internal_alloc;
 	dec->free_cb = alloc_cb && free_cb ? free_cb : internal_free;
@@ -291,11 +292,6 @@ void edge264_free(Edge264Decoder **pdec) {
 
 
 
-/**
- * Maximum buffer size is 2^(SIZE_BIT-1)-1, and pointer comparisons are coded
- * to allow wrapping around memory, so the buffer may be close to end of memory
- * without risk.
- */
 int edge264_decode_NAL(Edge264Decoder *dec, const uint8_t *buf, const uint8_t *end, Edge264UnrefCb unref_cb, void *unref_arg)
 {
 	static const char * const nal_unit_type_names[32] = {
@@ -326,16 +322,6 @@ int edge264_decode_NAL(Edge264Decoder *dec, const uint8_t *buf, const uint8_t *e
 		return EINVAL;
 	if (dec->n_threads)
 		pthread_mutex_lock(&dec->lock);
-	
-	// there has to be enough buffer space for any NAL to flush the entire DPB
-	int queued0 = __builtin_ctz(movemask(dec->output_queue_v[0]) | 1 << 16);
-	int queued1 = __builtin_ctz(movemask(dec->output_queue_v[1]) | 1 << 16);
-	int bumpable = max(1, __builtin_popcount(dec->to_get_frames & ~dec->output_frames));
-	if (queued0 + queued1 + bumpable > 16) { // FIXME incorrect
-		if (dec->n_threads)
-			pthread_mutex_unlock(&dec->lock);
-		return ENOBUFS;
-	}
 	
 	// bump all frames at the end of buffer
 	if (__builtin_expect(buf >= end, 0)) {
@@ -375,20 +361,13 @@ int edge264_decode_NAL(Edge264Decoder *dec, const uint8_t *buf, const uint8_t *e
 
 
 
-/**
- * By default all frames with POC lower or equal with the last non-reference
- * picture or lower than the last IDR picture are considered for output.
- * This function will consider all frames instead if either:
- * _ there are more frames to output than max_num_reorder_frames
- * _ there is no empty slot for the next frame
- */
 int edge264_get_frame(Edge264Decoder *dec, Edge264Frame *out, int borrow) {
 	if (dec == NULL || out == NULL)
 		return EINVAL;
 	if (dec->n_threads)
 		pthread_mutex_lock(&dec->lock);
-	int idx0 = __builtin_ctz(movemask(dec->output_queue_v[0]) | 1 << 16) - 1;
-	int idx1 = __builtin_ctz(movemask(dec->output_queue_v[1]) | 1 << 16) - 1;
+	int idx0 = __builtin_ctzg(movemask(dec->output_queue_v[0][0]) | movemask(dec->output_queue_v[0][1]) << 16, 32) - 1;
+	int idx1 = __builtin_ctzg(movemask(dec->output_queue_v[1][0]) | movemask(dec->output_queue_v[1][1]) << 16, 32) - 1;
 	int pic0, pic1, res = ENOMSG;
 	if (idx0 >= 0 && dec->next_deblock_addr[pic0 = dec->output_queue[0][idx0]] == INT_MAX &&
 		(dec->ssps.BitDepth_Y == 0 || (idx1 >= 0 && dec->next_deblock_addr[pic1 = dec->output_queue[1][idx1]] == INT_MAX))) {

@@ -150,6 +150,7 @@ Edge264Decoder *edge264_alloc(int n_threads, Edge264LogCb log_cb, void *log_arg,
 	dec->taskPics_v = dec->output_queue_v[0][0] = dec->output_queue_v[0][1] =
 		dec->output_queue_v[1][0] = dec->output_queue_v[1][1] = set8(-1);
 	dec->n_threads = n_threads;
+	dec->max_output_latency = 16;
 	dec->alloc_cb = alloc_cb && free_cb ? alloc_cb : internal_alloc;
 	dec->free_cb = alloc_cb && free_cb ? free_cb : internal_free;
 	dec->alloc_arg = alloc_arg;

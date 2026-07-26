@@ -1146,7 +1146,7 @@ int ADD_VARIANT(parse_slice_layer_without_partitioning)(Edge264Decoder *dec, Edg
 	
 	// find and possibly allocate a memory slot for the upcoming frame
 	if (dec->currPic < 0) {
-		if (__builtin_popcount(unavail_frames(dec)) == 32)
+		if (__builtin_popcount(unavail_frames(dec)) == 32 || dec->output_queue[0][dec->max_output_latency] >= 0)
 			return ENOBUFS; // exit here if we must wait for get_frame to consume and return a frame slot
 		// wait until at least one empty slot is undepended (or returned in the meantime)
 		unsigned unavail;

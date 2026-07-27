@@ -1110,8 +1110,8 @@ int ADD_VARIANT(parse_slice_layer_without_partitioning)(Edge264Decoder *dec, Edg
 		}
 		// bump frames until there are enough available slots in the DPB
 		assert(dec->currPic < 0);
-		while (non_existing + __builtin_popcount(dpb_frames(dec)) > sps->max_dec_frame_buffering && bump_frame(dec, non_base_view, 0));
-		assert(non_existing + __builtin_popcount(dpb_frames(dec)) <= sps->max_dec_frame_buffering);
+		while (non_existing + __builtin_popcount(dpb_frames(dec) & same_views) > sps->max_dec_frame_buffering && bump_frame(dec, non_base_view, 0));
+		assert(non_existing + __builtin_popcount(dpb_frames(dec) & same_views) <= sps->max_dec_frame_buffering);
 		if (non_existing + __builtin_popcount(unavail_frames(dec)) > 32)
 			return ENOBUFS; // exit here if we must wait for get_frame to consume and return enough frames
 		// wait until enough empty slots are undepended

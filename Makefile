@@ -71,11 +71,12 @@ VERSION := $(MAJOR).$(MINOR)
 _UNAME    := $(shell uname -s 2>/dev/null || echo windows)
 _UNAME_LC := $(shell echo $(_UNAME) | tr '[:upper:]' '[:lower:]')
 HOST_OS   := $(strip \
+               $(if $(findstring environment,$(origin EMSCRIPTEN)),wasm,\
                $(if $(findstring mingw,$(_UNAME_LC)),windows,\
                $(if $(findstring msys,$(_UNAME_LC)),windows,\
                $(if $(findstring cygwin,$(_UNAME_LC)),windows,\
                $(if $(findstring darwin,$(_UNAME_LC)),macos,\
-                 $(_UNAME_LC))))))
+                 $(_UNAME_LC)))))))
 
 # ---- Target OS ---------------------------------------------------------------
 # Defaults to the host; can be overridden for cross-compilation.

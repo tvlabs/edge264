@@ -24,13 +24,20 @@ jobs:
           key: video
       - if: steps.cache-video.outputs.cache-hit != 'true'
         run: wget -q -O - "https://test-videos.co.uk/vids/bigbuckbunny/mp4/h264/1080/Big_Buck_Bunny_1080_10s_30MB.mp4" | ffmpeg -i - -vcodec copy -bsf h264_mp4toannexb -an video.264
+      - uses: emscripten-core/setup-emsdk@v15
+      - uses: actions/setup-node@v7
+        with:
+          node-version: latest
       - run: |
-          make STATIC=yes
+          make STATIC=yes CC=gcc
           mv edge264_test edge264_test-gcc
       - run: |
           make clear
           make STATIC=yes CC=clang
           mv edge264_test edge264_test-clang
+      - run: |
+          make clear
+          emmake make OS=wasm VARIANTS= CFLAGS=-mrelaxed-simd
       - run: |
           git clone --depth=1 https://github.com/cisco/openh264.git
           make -C openh264

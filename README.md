@@ -195,6 +195,8 @@ int main(int argc, char *argv[]) {
 > * `ENODATA` - the function was called with `buf >= end` and there are no frames left to output
 > * `ENOMEM` - `malloc` failed to allocate memory
 
+> Note that MVC is enabled after receiving a "Subset sequence parameter set" NAL. Once enabled it can only be reverted to single-frame pictures by passing a "End of sequence" (`"\x6a"`) NAL to `edge264_decode_NAL`.
+
 <code>int <b>edge264_get_frame</b>(dec, out, borrow)</code>
 
 > Fetch the next frame ready for output.
@@ -245,6 +247,13 @@ int main(int argc, char *argv[]) {
 > * `Edge264Decoder ** pdec` - pointer to a decoding context, initialized or not
 
 
+## Planned changes for 1.0
+
+* Rename edge264_get_frame to edge264_get_picture
+* Replace errno_on_fail in alloc_cb with a boolean indicating whether the requested frame is optional
+* Add new parameter max_output_latency to edge264_alloc
+
+
 # Programming techniques
 
 I started edge264 to experiment on new programming techniques to improve performance and code size over existing decoders, and presented a few of these techniques at [FOSDEM'24](https://fosdem.org/2024/schedule/event/fosdem-2024-2931-innovations-in-h-264-avc-software-decoding-architecture-and-optimization-of-a-block-based-video-decoder-to-reach-10-faster-speed-and-3x-code-reduction-over-the-state-of-the-art-/), [FOSDEM'25](https://fosdem.org/2025/schedule/event/fosdem-2025-5455-more-innovations-in-h-264-avc-software-decoding/) and [FOSDEM'26](https://fosdem.org/2026/schedule/event/ADXJMU-innovations-with-yaml-cabac-simd-in-h264-decoding/).
@@ -271,7 +280,7 @@ I started edge264 to experiment on new programming techniques to improve perform
 
 Any help is welcome (bug reporting, bug fixing, new tests), although be aware that since it is a solo project, I usually take time to review pull requests!
 
-Bug fixes should preferably provide test streams that can demonstrate fixing said bugs. These streams will be added to the test suite after stripping most image content. Look into the [tests](tests/) directory for examples of custom bitstreams.
+Bug fixes should preferably provide test streams that can demonstrate fixing said bugs. These streams may be added to the test suite after stripping image content. Look into the [tests](tests/) directory for examples of custom bitstreams.
 
 Below is a list of tests that I have added and plan to add to the test suite.
 

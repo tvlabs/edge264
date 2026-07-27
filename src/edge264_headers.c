@@ -1228,10 +1228,6 @@ int ADD_VARIANT(parse_slice_layer_without_partitioning)(Edge264Decoder *dec, Edg
 	
 	// add the new frame into the DPB if not done already (C.4.5)
 	if (!(dec->to_get_frames & 1 << dec->currPic)) {
-		unsigned short_term_frames = dec->prev_short_term_frames & ~same_views | dec->view_short_term_frames;
-		unsigned long_term_frames = dec->prev_long_term_frames & ~same_views | dec->view_long_term_frames;
-		assert(__builtin_popcount((short_term_frames | long_term_frames) & same_views) <= sps->max_num_ref_frames);
-		assert(__builtin_popcount(dpb_frames(dec) & ~same_views) <= sps->max_dec_frame_buffering);
 		// for safety, compute the max number of frames that can bump out of DPB
 		int max_bump = sps->max_num_ref_frames;
 		if (!dec->nal_ref_idc) {
@@ -1240,7 +1236,7 @@ int ADD_VARIANT(parse_slice_layer_without_partitioning)(Edge264Decoder *dec, Edg
 				max_bump += dec->FieldOrderCnt[0][__builtin_ctz(o)] < dec->TopFieldOrderCnt;
 		}
 		// apply bumping process until there is an empty slot
-		while (__builtin_popcount(dpb_frames(dec) & same_views) > sps->max_dec_frame_buffering && max_bump--)
+		while (__builtin_popcount(dpb_frames(dec) & same_views) >= sps->max_dec_frame_buffering && max_bump--)
 			bump_frame(dec, non_base_view, 0);
 		dec->to_get_frames |= 1 << dec->currPic;
 		// if DPB has no outputable frame left then put current frame in output queue,
@@ -1255,12 +1251,14 @@ int ADD_VARIANT(parse_slice_layer_without_partitioning)(Edge264Decoder *dec, Edg
 		}
 		#ifdef LOGS
 			log_dec(dec, "  DecodedPictureBuffer:\n");
-			unsigned reordered_frames = dec->to_get_frames & ~dec->output_frames;
-			for (int i = 0; i < 32 - __builtin_clzg(short_term_frames | long_term_frames | reordered_frames, 32); i++) {
+			unsigned short_term_frames = dec->prev_short_term_frames & ~same_views | dec->view_short_term_frames;
+			unsigned long_term_frames = dec->prev_long_term_frames & ~same_views | dec->view_long_term_frames;
+			unsigned outputable_frames = dec->to_get_frames & ~dec->output_frames;
+			for (int i = 0; i < 32 - __builtin_clzg(short_term_frames | long_term_frames | outputable_frames, 32); i++) {
 				log_dec(dec, "  - {id: %u", dec->FrameIds[i]);
 				if ((short_term_frames | long_term_frames) & 1 << i)
 					log_dec(dec, ~long_term_frames & 1 << i ? ", sref: %u" : ~short_term_frames & 1 << i ? ", lref: %u" : ", nref: %u", short_term_frames & 1 << i ? dec->FrameNums[i] : dec->view_LongTermFrameIdx[i]);
-				if (reordered_frames & 1 << i)
+				if (outputable_frames & 1 << i)
 					log_dec(dec, ", poc: %d", minw(dec->FieldOrderCnt[0][i], dec->FieldOrderCnt[1][i]));
 				if (dec->ssps.BitDepth_Y)
 					log_dec(dec, ", view: %u", dec->non_base_frames >> i & 1);
@@ -1281,6 +1279,7 @@ int ADD_VARIANT(parse_slice_layer_without_partitioning)(Edge264Decoder *dec, Edg
 	ret = print_dec(dec, dec->n_threads || dec->worker_loop != worker_loop_log ?
 		"  decode_NAL_result: %s\n" : t->pps.entropy_coding_mode_flag ?
 		"  macroblocks_cabac:\n" : "  macroblocks_cavlc:\n", 0);
+	assert(__builtin_popcount(dpb_frames(dec) & same_views) <= sps->max_dec_frame_buffering);
 	if (dec->n_threads)
 		pthread_cond_signal(&dec->task_ready);
 	else

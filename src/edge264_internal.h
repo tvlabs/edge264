@@ -346,21 +346,43 @@ typedef struct Edge264Context {
  * The frame buffer stores empty and used frames with a Structure Of Arrays
  * pattern, while using as few arrays as possible to prevent impossible storage
  * patterns (e.g. a ref being both short and long term).
+ * It keeps a pool of allocated frames for reuse. When decoding a new frame:
+ * _ A frame slot is chosen then immediately inserted in the DPB (a subset of
+ *   the frame buffer).
+ * _ When selected by the "bumping" process for output, it is inserted in the
+ *   output_queue (it may still be in the DPB, though not waiting for output).
+ * _ edge264_get_frame yields the next frame from output_queue. Once returned
+ *   to edge264 the frame slot is kept to be reused for another frame.
  * 
  * Ref flags are stored in prev_short_term_frames and prev_long_term_frames bitfields:
  * _ short-term refs have values (1, 0)
  * _ long-term refs have values (0, 1)
  * _ non-existing refs from gaps in frame_num have values (1, 1)
- * 
- * Memory management control operations are captured by view_short_term_frames
- * and view_long_term_frames which store the future state of references that
- * will replace the previous one when the current frame is complete.
- * 
  * Output status is stored in to_get_frames and output_frames bitfields:
  * _ frames held for reordering in the DPB have values (1, 0)
  * _ frames that have been bumped from the DPB for output and are stored for
  *   future retrieval in output_queue have values (1, 1)
  * _ frames yielded by get_frame and waiting to be returned have values (0, 1)
+ * Memory management control operations are captured by view_short_term_frames
+ * and view_long_term_frames which store the future state of references that
+ * will replace the previous one when the current frame is complete.
+ * 
+ * With MVC, as per spec the bumping process operates independently on
+ * left&right views, so we have 2 output queues. edge264_get_frame simply takes
+ * the next views from both queues.
+ * With multithreading, a frame being in DPB or output queue is independent
+ * from its decoding state. It may enter the output queue even before starting
+ * to decode. However it must be complete to exit the queue.
+ * A frame slot is free for reuse when it is not a reference [anymore], it has
+ * been yielded and reclaimed after edge264_get_frame, and it is not being used
+ * as a reference in the asynchronous decoding of another frame.
+ * 
+ * edge264 applies a number of limits on the sizes of the different structures
+ * storing frames. Hitting any of these limits will trigger ENOBUFS to block
+ * until a frame slot is freed:
+ * _ number of frames in the DPB (max_dec_frame_buffering)
+ * _ number of allocated frames (32)
+ * _ number of frames waiting in the output queue (max_output_latency)
  */
 typedef int (*Parser)(Edge264Decoder *dec, Edge264UnrefCb unref_cb, void *unref_arg);
 typedef struct Edge264Decoder {

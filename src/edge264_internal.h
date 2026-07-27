@@ -158,10 +158,18 @@ static Edge264Macroblock unavail_mb = {
  * trailing_bits are detected.
  */
 typedef struct {
-	int8_t chroma_format_idc; // 0..3
-	int8_t ChromaArrayType; // 0..3
-	int8_t BitDepth_Y; // 8..14
-	int8_t BitDepth_C;
+	union {
+		struct {
+			int8_t chroma_format_idc; // 0..3
+			int8_t ChromaArrayType; // 0..3
+			int8_t BitDepth_Y; // 8..14
+			int8_t BitDepth_C;
+			uint16_t pic_width_in_mbs; // 1..1023
+			int16_t pic_height_in_mbs; // 1..1055
+			int16_t frame_crop_offsets[4]; // {top,right,bottom,left}
+		};
+		i8x16 frame_format;
+	};
 	int8_t qpprime_y_zero_transform_bypass_flag; // 0..1
 	int8_t log2_max_frame_num; // 4..16
 	int8_t pic_order_cnt_type; // 0..2
@@ -181,14 +189,11 @@ typedef struct {
 	int8_t dpb_output_delay_length; // 1..32
 	int8_t time_offset_length; // 0..31
 	int8_t pic_struct_present_flag; // 0..1
-	uint16_t pic_width_in_mbs; // 1..1023
-	int16_t pic_height_in_mbs; // 1..1055
 	int16_t offset_for_non_ref_pic; // -32768..32767, pic_order_cnt_type==1
 	int16_t offset_for_top_to_bottom_field; // -32768..32767, pic_order_cnt_type==1
 	int16_t PicOrderCntDeltas[255]; // -32768..32767, pic_order_cnt_type==1
 	uint32_t num_units_in_tick; // 0..2^32-1
 	uint32_t time_scale; // 0..2^32-1
-	union { int16_t frame_crop_offsets[4]; int64_t frame_crop_offsets_l; }; // {top,right,bottom,left}
 	union { uint8_t weightScale4x4[6][16]; i8x16 weightScale4x4_v[6]; };
 	union { uint8_t weightScale8x8[6][64]; i8x16 weightScale8x8_v[6*4]; };
 } Edge264SeqParameterSet;

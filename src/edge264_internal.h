@@ -352,8 +352,8 @@ typedef struct Edge264Context {
  * _ long-term refs have values (0, 1)
  * _ non-existing refs from gaps in frame_num have values (1, 1)
  * 
- * Memory management control operations are captured by short_term_frames
- * and long_term_frames which store the future state of references that
+ * Memory management control operations are captured by view_short_term_frames
+ * and view_long_term_frames which store the future state of references that
  * will replace the previous one when the current frame is complete.
  * 
  * Output status is stored in to_get_frames and output_frames bitfields:
@@ -407,18 +407,18 @@ typedef struct Edge264Decoder {
 	Edge264PicParameterSet PPS[4];
 	
 	// frame buffer as a Structure Of Arrays
-	uint32_t short_term_frames; // bitfield for indices of short-term or non-existing frame/view references for current view
-	uint32_t long_term_frames; // bitfield for indices of long-term or non-existing frame/view references for current view
+	uint32_t prev_short_term_frames; // bitfield for indices of short-term/non-existing references before decoding current view
+	uint32_t prev_long_term_frames; // bitfield for indices of long-term/non-existing references before decoding current view
+	uint32_t view_short_term_frames; // bitfield for same-view indices of short-term/non-existing references to apply after decoding current view
+	uint32_t view_long_term_frames; // bitfield for same-view indices of long-term/non-existing references to apply after decoding current view
 	uint32_t to_get_frames; // bitfield for frames that have not been returned by get_frame yet
 	uint32_t output_frames; // bitfield for frames that have entered output_queue
 	uint32_t non_base_frames; // bitfield for frames that are non-base views in MVC
-	uint32_t prev_short_term_frames; // state of short_term_frames for both views before current frame
-	uint32_t prev_long_term_frames; // state of long_term_frames for both views before current frame
 	int32_t FrameNums[32]; // signed to be used along FieldOrderCnt in initial reference ordering
 	int32_t FrameIds[32]; // unique identifiers for each frame, incremented in decoding order
 	union { int8_t output_queue[2][32]; i8x16 output_queue_v[2][2]; }; // FIFO with insertion at 0 for both views, and empty slots having value -1
-	union { int8_t LongTermFrameIdx[32]; i8x16 LongTermFrameIdx_v[2]; };
-	union { int8_t prev_LongTermFrameIdx[32]; i8x16 prev_LongTermFrameIdx_v[2]; }; // state of LongTermFrameIdx before current frame
+	union { int8_t prev_LongTermFrameIdx[32]; i8x16 prev_LongTermFrameIdx_v[2]; }; // values before decoding current view
+	union { int8_t view_LongTermFrameIdx[32]; i8x16 view_LongTermFrameIdx_v[2]; }; // values to apply after decoding current view
 	union { int32_t FieldOrderCnt[2][32]; i32x4 FieldOrderCnt_v[2][8]; }; // lower/higher half for top/bottom fields
 	int32_t remaining_mbs[32] __attribute__((aligned(64))); // when 0 all mbs have been decoded yet not deblocked
 	union { int32_t next_deblock_addr[32]; i32x4 next_deblock_addr_v[8]; }; // next CurrMbAddr value for which mbB will be deblocked, when INT_MAX the picture is complete

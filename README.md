@@ -82,7 +82,7 @@ project(my_app C)
 
 include(FetchContent)
 FetchContent_Declare(edge264
-  GIT_REPOSITORY https://github.com/yourname/edge264.git
+  GIT_REPOSITORY https://github.com/tvlabs/edge264.git
   GIT_TAG        v1.0  # always pin to a tag or commit hash
 )
 FetchContent_MakeAvailable(edge264)
@@ -181,10 +181,9 @@ int main(int argc, char *argv[]) {
 > Decode a single NAL unit of any type.
 > * `Edge264Decoder * dec` - initialized decoding context
 > * `const uint8_t * buf` - first byte of NAL unit (containing `nal_unit_type`)
-> * `const uint8_t * end` - first byte past the buffer
+> * `const uint8_t * end` - first byte past the buffer (passing `buf >= end` will make all buffered frames ready for output with `edge264_get_frame`)
 > * `void (* free_cb)(void * free_arg, int ret)` - function that may be called from another thread to signal the end of parsing and release the NAL buffer (only when returning `0`)
 > * `void * free_arg` - custom value that will be passed to `free_cb`
-> Passing `buf >= end` will make all buffered frames ready for output with `edge264_get_frame`.
 
 > Return codes:
 > * `0` - success

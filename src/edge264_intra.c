@@ -393,7 +393,7 @@ static cold noinline void decode_intra8x8(uint8_t * restrict p, size_t stride, i
 		p0 = lowpass8(shr128(j2s, 2), shr128(j2s, 1), j2s);
 	store1_8x8:
 		for (int i = 0; i < 8; i++, p += stride)
-			*(int64_t *)p = p0[0];
+			storea64(p, p0[0]);
 		return;
 	case I8x8_V_C_8:
 		j2s = shrc128(loadu128(pT - 8), 7);
@@ -605,14 +605,14 @@ static cold noinline void decode_intra8x8(uint8_t * restrict p, size_t stride, i
 		i2a = (i8x16){p[-1]};
 		goto horizontal_up_8x8_load_left;
 	}
-	*(int64_t *)p = p0[0];
-	*(int64_t *)(p += stride) = p1[0];
-	*(int64_t *)(p += stride) = p2[0];
-	*(int64_t *)(p += stride) = p3[0];
-	*(int64_t *)(p += stride) = p4[0];
-	*(int64_t *)(p += stride) = p5[0];
-	*(int64_t *)(p += stride) = p6[0];
-	*(int64_t *)(p + stride) = p7[0];
+	storea64(p, p0[0]);
+	storea64((p += stride), p1[0]);
+	storea64((p += stride), p2[0]);
+	storea64((p += stride), p3[0]);
+	storea64((p += stride), p4[0]);
+	storea64((p += stride), p5[0]);
+	storea64((p += stride), p6[0]);
+	storea64((p + stride), p7[0]);
 }
 
 
@@ -632,7 +632,7 @@ static cold noinline void decode_intra16x16(uint8_t * restrict p, size_t stride,
 	
 	case I16x16_H_8:
 		for (int i = 0; i < 16; i++, p += stride)
-			*(i8x16 *)p = set8(p[-1]);
+			storea128(p, set8(p[-1]));
 		return;
 	
 	case I16x16_DC_8: {
@@ -674,11 +674,11 @@ static cold noinline void decode_intra16x16(uint8_t * restrict p, size_t stride,
 		i16x8 w0 = (a + c) - (c << 3) + (b * mul);
 		i16x8 w1 = w0 - (b << 3);
 		for (int i = 16; i--; w1 += c, w0 += c, p += stride)
-			*(i8x16 *)p = shrpus16(w1, w0, 5);
+			storea128(p, shrpus16(w1, w0, 5));
 		} return;
 	}
 	for (int i = 0; i < 16; i++, p += stride)
-		*(i8x16 *)p = pred;
+		storea128(p, pred);
 }
 
 
@@ -724,12 +724,12 @@ static cold noinline void decode_intraChroma(uint8_t * restrict p, size_t stride
 	
 	case IC8x8_H_8:
 		for (int i = 0; i < 16; i++, p += stride)
-			*(int64_t *)p = ((i64x2)set8(p[-1]))[0];
+			storea64(p, ((i64x2)set8(p[-1]))[0]);
 		return;
 	
 	case IC8x8_V_8: {
-		bpred = set64(*(int64_t *)pU);
-		rpred = set64(*(int64_t *)pT);
+		bpred = set64((loada64(pU)[0]));
+		rpred = set64((loada64(pT)[0]));
 		} break;
 	
 	case IC8x8_P_8: {
@@ -751,15 +751,15 @@ static cold noinline void decode_intraChroma(uint8_t * restrict p, size_t stride
 		i16x8 rp = ra - rc - rc - rc + rb * (i16x8){-3, -2, -1, 0, 1, 2, 3, 4};
 		for (int i = 8; i--; bp += bc, rp += rc, p += stride * 2) {
 			i64x2 v6 = shrpus16(bp, rp, 5);
-			*(int64_t *)p = v6[0];
-			*(int64_t *)(p + stride) = v6[1];
+			storea64(p, v6[0]);
+			storea64((p + stride), v6[1]);
 		}
 		} return;
 	}
 	for (int i = 0; i < 4; i++, p += stride * 2) {
-		*(int64_t *)p = bpred[0];
-		*(int64_t *)(p + stride) = rpred[0];
-		*(int64_t *)(p + stride * 8) = bpred[1];
-		*(int64_t *)(p + stride * 9) = rpred[1];
+		storea64(p, bpred[0]);
+		storea64((p + stride), rpred[0]);
+		storea64((p + stride * 8), bpred[1]);
+		storea64((p + stride * 9), rpred[1]);
 	}
 }

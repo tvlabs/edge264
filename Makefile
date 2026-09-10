@@ -3,7 +3,7 @@
 # Generated with AI assistance by Claude Sonnet 4.6 (claude-sonnet-4-6).
 #
 # Supported targets: macOS (macos), Linux (linux), Windows MinGW (windows),
-#                    WebAssembly (wasm), Android NDK (android), iOS (ios)
+#                    WebAssembly (wasm), [Android NDK (android), iOS (ios)]
 #
 # Optional parameters (all can be overridden on the command line):
 #
@@ -17,7 +17,7 @@
 #   AR          — archiver used when STATIC=yes (default: ar; for Android NDK
 #                 cross-compilation use the NDK's llvm-ar to avoid host/target
 #                 mismatch, e.g. AR=$NDK/.../llvm-ar)
-#   OS          — target operating system (default: host OS)
+#   OS          — target operating system (default: detect WASM, or host OS)
 #                 accepted values: macos  linux  windows  wasm  android  ios
 #   VARIANTS    — comma-separated build variants, from:
 #                   x86-64-v2  → build an extra edge264_headers object with
@@ -59,29 +59,46 @@
 # invocation does not mistake it for an up-to-date file.
 .DELETE_ON_ERROR:
 
+# ---- User parameters ---------------------------------------------------------
+VARIANTS   ?= logs
+SANITIZE   ?=
+STATIC     ?= no
+PREFIX     ?= /usr/local
+libdir     ?= $(PREFIX)/lib
+includedir ?= $(PREFIX)/include
+DESTDIR    ?=
+BUILDTEST  ?= yes
+V          ?= yes
+PY         ?= python3
+
 # ---- Version -----------------------------------------------------------------
-MAJOR   := 1
-MINOR   := 0
-VERSION := $(MAJOR).$(MINOR)
+_MAJOR   := 1
+_MINOR   := 0
+_VERSION := $(_MAJOR).$(_MINOR)
 
-# ---- Host OS detection -------------------------------------------------------
-# uname -s returns: Linux, Darwin, MINGW64_NT-*, MSYS_NT-*, CYGWIN_NT-* ...
-# On Windows cmd without uname the fallback is "windows".
-# Everything is lowercased and normalized to the accepted OS values.
-_UNAME    := $(shell uname -s 2>/dev/null || echo windows)
-_UNAME_LC := $(shell echo $(_UNAME) | tr '[:upper:]' '[:lower:]')
-HOST_OS   := $(strip \
-               $(if $(findstring environment,$(origin EMSCRIPTEN)),wasm,\
-               $(if $(findstring mingw,$(_UNAME_LC)),windows,\
-               $(if $(findstring msys,$(_UNAME_LC)),windows,\
-               $(if $(findstring cygwin,$(_UNAME_LC)),windows,\
-               $(if $(findstring darwin,$(_UNAME_LC)),macos,\
-                 $(_UNAME_LC)))))))
+# ---- OS detection -------------------------------------------------------
+# Windows has no uname; other systems return: Linux, Darwin
+# We can't test $(OS)==Windows_NT since we use the variable for the target OS.
+ifneq ($(COMSPEC)$(ComSpec),)
+  _HOSTOS := windows
+  check_cmd = $(if $(shell where $($(1)) 2>nul),,$(error $(1)=$($(1)) not found.))
+  ifneq ($(MSYSTEM),)
+    _RM := rm -f
+  else
+    _RM := cmd /c del /Q /F 2>nul
+  endif
+else
+  _HOSTOS := $(shell uname -s 2>/dev/null | tr '[:upper:]' '[:lower:]' | sed s/darwin/macos/)
+  check_cmd = $(if $(shell command -v $($(1)) 2>/dev/null),,$(error $(1)=$($(1)) not found.))
+  _RM := rm -f
+endif
 
-# ---- Target OS ---------------------------------------------------------------
-# Defaults to the host; can be overridden for cross-compilation.
-OS ?= $(HOST_OS)
-ifeq (,$(findstring $(OS),macos linux windows wasm android ios))
+# Target WASM if present, otherwise choose host OS
+# Can be overridden for cross-compilation
+ifeq ($(origin OS),environment)
+  override OS := $(if $(findstring environment,$(origin EMSCRIPTEN)),wasm,$(_HOSTOS))
+endif
+ifeq ($(findstring $(OS),macos linux windows wasm android ios),)
   $(error OS=$(OS) is invalid. Accepted values: macos  linux  windows  wasm  android  ios)
 endif
 
@@ -90,8 +107,6 @@ endif
 ifeq ($(OS),ios)
   # xcrun selects the right clang from the active Xcode installation
   CC ?= $(shell xcrun --sdk iphoneos --find clang 2>/dev/null || echo clang)
-else ifneq ($(OS),wasm)
-  CC ?= cc
 endif
 
 # CCLD is used for linking (defaults to CC); set it explicitly when the compiler
@@ -106,139 +121,121 @@ ifeq ($(OS),android)
   AR ?= llvm-ar
 endif
 
-# ---- User parameters ---------------------------------------------------------
-VARIANTS   ?= logs
-SANITIZE   ?=
-STATIC     ?= no
-PREFIX     ?= /usr/local
-libdir     ?= $(PREFIX)/lib
-includedir ?= $(PREFIX)/include
-DESTDIR    ?=
-BUILDTEST  ?= yes
-V          ?= yes
-PY         ?= python3
-
 # iOS is always a static build
 ifeq ($(OS),ios)
   override STATIC := yes
 endif
 
 # ---- VARIANTS parsing --------------------------------------------------------
-HAS_V2   := $(findstring x86-64-v2,$(VARIANTS))
-HAS_V3   := $(findstring x86-64-v3,$(VARIANTS))
-HAS_LOGS := $(findstring logs,$(VARIANTS))
+_HAS_V2   := $(findstring x86-64-v2,$(VARIANTS))
+_HAS_V3   := $(findstring x86-64-v3,$(VARIANTS))
+_HAS_LOGS := $(findstring logs,$(VARIANTS))
 
 # x86 variants are meaningless on non-x86 targets
 ifneq (,$(findstring $(OS),wasm android ios))
-  ifneq ($(HAS_V2)$(HAS_V3),)
+  ifneq ($(_HAS_V2)$(_HAS_V3),)
     $(warning WARNING: x86-64-v2/v3 variants are ignored for OS=$(OS))
-    HAS_V2 :=
-    HAS_V3 :=
+    _HAS_V2 :=
+    _HAS_V3 :=
   endif
 endif
 
 # ---- Object file list --------------------------------------------------------
-OBJNAMES := edge264.o \
-  $(if $(HAS_V2),edge264_headers_v2.o) \
-  $(if $(HAS_V3),edge264_headers_v3.o) \
-  $(if $(HAS_LOGS),edge264_headers_log.o)
+_OBJNAMES := edge264.o \
+  $(if $(_HAS_V2),edge264_headers_v2.o) \
+  $(if $(_HAS_V3),edge264_headers_v3.o) \
+  $(if $(_HAS_LOGS),edge264_headers_log.o)
 
 # ---- Output filenames per target ---------------------------------------------
 ifeq ($(OS),macos)
-  LIBNAME := libedge264.$(MAJOR).dylib
+  _LIBNAME := libedge264.$(_MAJOR).dylib
 else ifeq ($(OS),linux)
-  LIBNAME := libedge264.so.$(MAJOR)
+  _LIBNAME := libedge264.so.$(_MAJOR)
 else ifeq ($(OS),windows)
-  LIBNAME := edge264.$(MAJOR).dll
-  EXE := .exe
+  _LIBNAME := edge264.$(_MAJOR).dll
+  _EXE := .exe
 else ifeq ($(OS),android)
   # Android does not support versioned .so filenames
-  LIBNAME := libedge264.so
+  _LIBNAME := libedge264.so
 else ifeq ($(OS),ios)
   # iOS requires static libraries or signed .xcframework bundles
-  LIBNAME := libedge264.a
+  _LIBNAME := libedge264.a
 else ifeq ($(OS),wasm)
   # emcc produces a .js glue file alongside a .wasm binary
-  LIBNAME := edge264.js
-  EXE := .js
+  _LIBNAME := edge264.js
+  _EXE := .js
 endif
 
 # Static builds override the shared library name
 ifeq ($(STATIC),yes)
-  LIBNAME := libedge264.a
+  _LIBNAME := libedge264.a
 endif
 
-# ---- Sanitizer flags ---------------------------------------------------------
+# ---- CFLAGS ------------------------------------------------------------------
 # SANITIZE is passed verbatim to -fsanitize=, e.g. SANITIZE=address,undefined.
 # Extra flags are appended for well-known sanitizers when detected.
 ifneq ($(SANITIZE),)
-  SANITIZE_FLAGS := -fsanitize=$(SANITIZE)
+  _SANITIZEFLAGS := -fsanitize=$(SANITIZE)
   ifneq (,$(findstring address,$(SANITIZE)))
     # AddressSanitizer: improve stack trace readability
-    SANITIZE_FLAGS += -fno-omit-frame-pointer -g
+    _SANITIZEFLAGS += -fno-omit-frame-pointer -g
     ifneq (,$(findstring memory,$(SANITIZE)))
       $(error SANITIZE: 'address' and 'memory' are mutually exclusive)
     endif
   endif
   ifneq (,$(findstring memory,$(SANITIZE)))
     # MemorySanitizer: requires -fPIE for reliable interception
-    SANITIZE_FLAGS += -fPIE
+    _SANITIZEFLAGS += -fPIE
   endif
   ifneq (,$(findstring undefined,$(SANITIZE)))
     # UndefinedBehaviorSanitizer: disable checks for expected compiler behaviors
-    SANITIZE_FLAGS += -fno-sanitize=alignment,shift-base,array-bounds
+    _SANITIZEFLAGS += -fno-sanitize=alignment,shift-base,array-bounds
   endif
 endif
 
-# ---- Base architecture flags -------------------------------------------------
-# -march=native is only injected for native builds (OS == HOST_OS).
+# -march=native is only injected for native builds (CC == CCLD).
 # For cross-compilation the user is responsible for providing an explicit -march
-# (or -arch on Apple clang) via CFLAGS.
-ifeq ($(OS),macos)
-  _BASE_ARCH := $(if $(findstring $(OS),$(HOST_OS)),-march=native)
-else ifeq ($(OS),linux)
-  _BASE_ARCH := $(if $(findstring $(OS),$(HOST_OS)),-march=native)
-else ifeq ($(OS),windows)
-  _BASE_ARCH := $(if $(findstring $(OS),$(HOST_OS)),-march=native)
+ifeq ($(CC),$(CCLD))
+  # CFLAGS="-mtune=generic" may improve performance for GCC
+  _ARCHFLAGS := -march=native
 else ifeq ($(OS),android)
   # The NDK clang already targets the right architecture via its triple;
   # -march=native would describe the host CPU, not the Android device.
-  _BASE_ARCH :=
+  _ARCHFLAGS :=
 else ifeq ($(OS),ios)
   # arm64 is the only live iOS architecture; xcrun resolves the sysroot.
   _IOS_SDK   := $(shell xcrun --sdk iphoneos --show-sdk-path 2>/dev/null)
-  _BASE_ARCH := -arch arm64 $(if $(_IOS_SDK),-isysroot $(_IOS_SDK))
+  _ARCHFLAGS := -arch arm64 $(if $(_IOS_SDK),-isysroot $(_IOS_SDK))
 else ifeq ($(OS),wasm)
-  # add CFLAGS=-mrelaxed-simd for WASM v3 (requires runtime support)
-  _BASE_ARCH := -msimd128
+  # Add CFLAGS=-mrelaxed-simd for WASM v3 (requires runtime support)
+  _ARCHFLAGS := -msimd128
 endif
 
-# ---- Final CFLAGS ------------------------------------------------------------
 # Required flags are prepended; user CFLAGS come last so they can always override.
-_THREAD_FLAG := $(if $(findstring $(OS),macos linux android),-pthread)
-override CFLAGS := $(_BASE_ARCH) -std=gnu11 -O3 -flax-vector-conversions -Wno-override-init $(_THREAD_FLAG) $(SANITIZE_FLAGS) $(CFLAGS)
+_THREADFLAG := $(if $(findstring $(OS),macos linux android),-pthread)
+override CFLAGS := -std=gnu11 -O3 -flax-vector-conversions -Wno-override-init $(_SANITIZEFLAGS) $(_ARCHFLAGS) $(_THREADFLAG) $(CFLAGS)
 
 # ---- Object file flags -------------------------------------------------------
 # -fPIC is required for shared libraries on ELF targets.
 # Not needed for static builds, Windows DLLs, or WASM.
 ifeq ($(STATIC),no)
-  _PIC_FLAG := $(if $(findstring $(OS),macos linux android),-fPIC)
+  _PICFLAG := $(if $(findstring $(OS),macos linux android),-fPIC)
 endif
-override OBJFLAGS := $(_PIC_FLAG) $(OBJFLAGS)
+override OBJFLAGS := $(_PICFLAG) $(OBJFLAGS)
 
 # ---- Common linker flags -----------------------------------------------------
 ifeq ($(OS),wasm)
-  override LDFLAGS := -sSTRICT=1 -sALLOW_MEMORY_GROWTH=1 $(SANITIZE_FLAGS) $(LDFLAGS)
+  override LDFLAGS := -sSTRICT=1 -sALLOW_MEMORY_GROWTH=1 $(_SANITIZEFLAGS) $(LDFLAGS)
 else
-  override LDFLAGS := $(SANITIZE_FLAGS) $(LDFLAGS)
+  override LDFLAGS := $(_SANITIZEFLAGS) $(LDFLAGS)
 endif
 
 # ---- Linker flags for the dynamic library ------------------------------------
 ifeq ($(OS),macos)
   # -install_name @rpath lets the test binary find the dylib without DYLD_LIBRARY_PATH
-  override LIBFLAGS := -shared -dynamiclib -install_name @rpath/$(LIBNAME) $(LDFLAGS) $(LIBFLAGS)
+  override LIBFLAGS := -shared -dynamiclib -install_name @rpath/$(_LIBNAME) $(LDFLAGS) $(LIBFLAGS)
 else ifeq ($(OS),linux)
-  override LIBFLAGS := -shared -Wl,-soname,libedge264.so.$(MAJOR) $(LDFLAGS) $(LIBFLAGS)
+  override LIBFLAGS := -shared -Wl,-soname,libedge264.so.$(_MAJOR) $(LDFLAGS) $(LIBFLAGS)
 else ifeq ($(OS),android)
   override LIBFLAGS := -shared $(LDFLAGS) $(LIBFLAGS)
 else ifeq ($(OS),windows)
@@ -250,48 +247,38 @@ endif
 # ---- Linker flags for the executables ----------------------------------------
 ifeq ($(OS),linux)
   ifeq ($(STATIC),yes)
-    override EXEFLAGS := $(LIBNAME) $(LDFLAGS) $(EXEFLAGS)
+    override EXEFLAGS := $(_LIBNAME) $(LDFLAGS) $(EXEFLAGS)
   else
     # RPATH=. allows the test binary to find the .so from its own directory
-    override EXEFLAGS := -Wl,-rpath,'$$ORIGIN' $(LIBNAME) $(LDFLAGS) $(EXEFLAGS)
+    override EXEFLAGS := -Wl,-rpath,'$$ORIGIN' $(_LIBNAME) $(LDFLAGS) $(EXEFLAGS)
   endif
 else ifeq ($(OS),macos)
   ifeq ($(STATIC),yes)
-    override EXEFLAGS := $(LIBNAME) $(LDFLAGS) $(EXEFLAGS)
+    override EXEFLAGS := $(_LIBNAME) $(LDFLAGS) $(EXEFLAGS)
   else
     # @loader_path resolves relative to the executable's own directory,
     # equivalent to Linux's $ORIGIN; required because the dylib is built with
-    # -install_name @rpath/$(LIBNAME).
-    override EXEFLAGS := -Wl,-rpath,@loader_path $(LIBNAME) $(LDFLAGS) $(EXEFLAGS)
+    # -install_name @rpath/$(_LIBNAME).
+    override EXEFLAGS := -Wl,-rpath,@loader_path $(_LIBNAME) $(LDFLAGS) $(EXEFLAGS)
   endif
 else ifeq ($(OS),wasm)
-  override EXEFLAGS := -sNODERAWFS=1 $(OBJNAMES) $(LDFLAGS) $(EXEFLAGS)
+  override EXEFLAGS := -sNODERAWFS=1 $(_OBJNAMES) $(LDFLAGS) $(EXEFLAGS)
 else
-  override EXEFLAGS := $(LIBNAME) $(LDFLAGS) $(EXEFLAGS)
+  override EXEFLAGS := $(_LIBNAME) $(LDFLAGS) $(EXEFLAGS)
 endif
 
 # ---- Runtime dispatch defines ------------------------------------------------
-RUNTIME_TESTS := \
-  $(if $(HAS_V2),-DHAS_X86_64_V2) \
-  $(if $(HAS_V3),-DHAS_X86_64_V3) \
-  $(if $(HAS_LOGS),-DHAS_LOGS)
+_RUNTIME_TESTS := \
+  $(if $(_HAS_V2),-DHAS_X86_64_V2) \
+  $(if $(_HAS_V3),-DHAS_X86_64_V3) \
+  $(if $(_HAS_LOGS),-DHAS_LOGS)
 
 # ---- Test files --------------------------------------------------------------
-TESTS_YAML := $(wildcard tests/*.yaml)
-TESTS_264  := $(patsubst %.yaml,%.264,$(TESTS_YAML))
+_TESTS_YAML := $(wildcard tests/*.yaml)
+_TESTS_264  := $(patsubst %.yaml,%.264,$(_TESTS_YAML))
 
 # ---- Verbose mode ------------------------------------------------------------
 Q = $(if $(findstring yes,$(V)),,@)
-
-# ---- Compiler existence check ------------------------------------------------
-# Only enforced for native builds; for cross-compilation the compiler binary
-# may live under an absolute path not on the host PATH.
-ifeq ($(OS),$(HOST_OS))
-  _WHICH := $(if $(findstring windows,$(HOST_OS)),where 2>nul,which 2>/dev/null)
-  ifeq (,$(shell $(_WHICH) $(CC) 2>/dev/null))
-    $(error CC=$(CC) not found. Install gcc or clang, or pass CC=<path>)
-  endif
-endif
 
 
 # ==============================================================================
@@ -299,25 +286,27 @@ endif
 # ==============================================================================
 
 .PHONY: all
-all: $(LIBNAME) $(if $(findstring yes,$(BUILDTEST)),edge264_test$(EXE))
+all: $(_LIBNAME) $(if $(findstring yes,$(BUILDTEST)),edge264_test$(_EXE))
 
 # ---- Library -----------------------------------------------------------------
-# FIXME remove test here
+$(_LIBNAME): $(_OBJNAMES)
 ifeq ($(STATIC),yes)
-$(LIBNAME): $(OBJNAMES)
+	$(call check_cmd,AR)
 	$(Q)$(AR) rcs $@ $^
 else
-$(LIBNAME): $(OBJNAMES)
+	$(call check_cmd,CCLD)
 	$(Q)$(CCLD) $^ $(LIBFLAGS) -o $@
 endif
 
 # ---- Test executable ---------------------------------------------------------
-edge264_test$(EXE): src/edge264_test.c edge264.h src/edge264_internal.h $(LIBNAME)
+edge264_test$(_EXE): src/edge264_test.c edge264.h src/edge264_internal.h $(_LIBNAME)
+	$(call check_cmd,CCLD)
 	$(Q)$(CCLD) src/edge264_test.c $(CPPFLAGS) $(CFLAGS) $(EXEFLAGS) -o $@
 
 # ---- Object files ------------------------------------------------------------
 edge264.o: edge264.h src/*
-	$(Q)$(CC) src/edge264.c -c $(CPPFLAGS) $(CFLAGS) $(OBJFLAGS) $(RUNTIME_TESTS) -o $@
+	$(call check_cmd,CC)
+	$(Q)$(CC) src/edge264.c -c $(CPPFLAGS) $(CFLAGS) $(OBJFLAGS) $(_RUNTIME_TESTS) -o $@
 
 edge264_headers_v2.o: edge264.h src/*
 	$(Q)$(CC) src/edge264_headers.c -c $(CPPFLAGS) $(CFLAGS) $(OBJFLAGS) -march=x86-64-v2 "-DADD_VARIANT(f)=f##_v2" -o $@
@@ -335,19 +324,19 @@ edge264_headers_log.o: edge264.h src/*
 # Use DESTDIR for staged installs (e.g. package manager sandboxes).
 # ==============================================================================
 .PHONY: install
-install: $(LIBNAME)
+install: $(_LIBNAME)
 	$(Q)install -d $(DESTDIR)$(libdir) $(DESTDIR)$(includedir) $(DESTDIR)$(libdir)/pkgconfig
-	$(Q)install -m 644 $(LIBNAME) $(DESTDIR)$(libdir)/
+	$(Q)install -m 644 $(_LIBNAME) $(DESTDIR)$(libdir)/
 	$(Q)install -m 644 edge264.h  $(DESTDIR)$(includedir)/
 ifeq ($(OS),linux)
   ifneq ($(STATIC),yes)
-	$(Q)ln -sf $(LIBNAME) $(DESTDIR)$(libdir)/libedge264.so
+	$(Q)ln -sf $(_LIBNAME) $(DESTDIR)$(libdir)/libedge264.so
 	$(Q)ldconfig $(DESTDIR)$(libdir) 2>/dev/null || true
   endif
 endif
 ifeq ($(OS),macos)
   ifneq ($(STATIC),yes)
-	$(Q)ln -sf $(LIBNAME) $(DESTDIR)$(libdir)/libedge264.dylib
+	$(Q)ln -sf $(_LIBNAME) $(DESTDIR)$(libdir)/libedge264.dylib
   endif
 endif
 	$(Q)( \
@@ -358,15 +347,15 @@ endif
 	  echo ''; \
 	  echo 'Name: edge264'; \
 	  echo 'Description: H.264 high/mvc video decoder'; \
-	  echo 'Version: $(VERSION)'; \
+	  echo 'Version: $(_VERSION)'; \
 	  echo 'Libs: -L$${libdir} -ledge264'; \
-	  $(if $(_THREAD_FLAG),echo 'Libs.private: $(_THREAD_FLAG)';) \
+	  $(if $(_THREADFLAG),echo 'Libs.private: $(_THREADFLAG)';) \
 	  echo 'Cflags: -I$${includedir}'; \
 	) > $(DESTDIR)$(libdir)/pkgconfig/edge264.pc
 
 .PHONY: uninstall
 uninstall:
-	$(Q)rm -f $(DESTDIR)$(libdir)/$(LIBNAME) \
+	$(Q)rm -f $(DESTDIR)$(libdir)/$(_LIBNAME) \
 	          $(DESTDIR)$(libdir)/libedge264.so \
 	          $(DESTDIR)$(libdir)/libedge264.dylib \
 	          $(DESTDIR)$(libdir)/pkgconfig/edge264.pc \
@@ -378,38 +367,42 @@ uninstall:
 # ==============================================================================
 .PHONY: clean clear
 clean clear:
-	$(Q)rm -f edge264_test edge264_test.exe edge264_test.js edge264_test.wasm edge264_check edge264_check.exe edge264_check.js edge264_check.wasm edge264*.o libedge264.a edge264.$(MAJOR).dll edge264.js edge264.wasm libedge264.$(MAJOR).dylib libedge264-universal.$(MAJOR).dylib libedge264.so libedge264.so.$(MAJOR)
+	$(Q)$(_RM) edge264_test edge264_test.exe edge264_test.js edge264_test.wasm edge264_check edge264_check.exe edge264_check.js edge264_check.wasm edge264*.o libedge264.a edge264.$(_MAJOR).dll edge264.js edge264.wasm libedge264.$(_MAJOR).dylib libedge264-universal.$(_MAJOR).dylib libedge264.so libedge264.so.$(_MAJOR)
 
 
 # ==============================================================================
 # Automated tests
 # ==============================================================================
 .PHONY: check
-check: edge264_check$(EXE)
+check: edge264_check$(_EXE)
 ifeq ($(OS),wasm)
-	$(Q)$(shell which node) edge264_check$(EXE)
+	$(Q)$(shell which node) edge264_check$(_EXE)
 else
-	$(Q)./edge264_check$(EXE)
+	$(Q)./edge264_check$(_EXE)
 endif
 
-edge264_check$(EXE): src/edge264_check.c edge264.h src/edge264_internal.h $(LIBNAME)
+edge264_check$(_EXE): src/edge264_check.c edge264.h src/edge264_internal.h $(_LIBNAME)
+	$(call check_cmd,CCLD)
 	$(Q)$(CCLD) src/edge264_check.c $(CPPFLAGS) $(CFLAGS) $(EXEFLAGS) -o $@
 
 .PHONY: gentests
-gentests: $(TESTS_264)
+gentests:
+	$(call check_cmd,PY)
+	$(Q)$(MAKE) $(_TESTS_264)
+
 %.264: %.yaml tests/gen_avc.py
 	$(Q)$(PY) tests/gen_avc.py $< $@
 
 
 # ==============================================================================
 # Source archive
-# Produces edge264-$(VERSION).tar.gz from the files tracked at git HEAD.
+# Produces edge264-$(_VERSION).tar.gz from the files tracked at git HEAD.
 # Requires git; aborts with a git error message if not in a repository.
 # ==============================================================================
 .PHONY: dist
 dist:
-	$(Q)git archive --format=tar.gz --prefix=edge264-$(VERSION)/ \
-	    -o edge264-$(VERSION).tar.gz HEAD
+	$(Q)git archive --format=tar.gz --prefix=edge264-$(_VERSION)/ \
+	    -o edge264-$(_VERSION).tar.gz HEAD
 
 
 # ==============================================================================
@@ -427,7 +420,7 @@ help:
 	@echo "  clean       Remove build artifacts"
 	@echo "  check       Run automated tests (edge264_check)"
 	@echo "  gentests    Generate .264 test bitstreams from .yaml files"
-	@echo "  dist        Create edge264-$(VERSION).tar.gz from git HEAD"
+	@echo "  dist        Create edge264-$(_VERSION).tar.gz from git HEAD"
 	@echo "  help        Show this help"
 	@echo ""
 	@echo "Current parameters:"

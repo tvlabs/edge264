@@ -16,10 +16,14 @@
 #include <time.h>
 #ifdef _WIN32
 	#include <processthreadsapi.h>
+	#include <profileapi.h>
 	#define ssize_t ptrdiff_t
+	#define aligned_alloc(alignment, size) _aligned_malloc(size, alignment)
+	#define aligned_free _aligned_free
 #else
 	#include <unistd.h>
 	#include <sys/resource.h>
+	#define aligned_free free
 #endif
 
 // Automatic selection of SIMD backend if not defined by environment
@@ -1240,10 +1244,10 @@ static inline unsigned depended_frames(Edge264Decoder *dec) {
 // relative time with microsecond precision
 static always_inline uint64_t get_relative_time_us() {
 	#ifdef _WIN32
-		uint64_t ticks, frequency;
+		LARGE_INTEGER ticks, frequency;
 		QueryPerformanceFrequency(&frequency);
 		QueryPerformanceCounter(&ticks);
-		return ticks * 1000000 / frequency; // could be optimized with mul+shift but not critical
+		return ticks.QuadPart * 1000000 / frequency.QuadPart; // could be optimized with mul+shift but not critical
 	#else
 		struct timespec tp;
 		clock_gettime(CLOCK_PROCESS_CPUTIME_ID, &tp);

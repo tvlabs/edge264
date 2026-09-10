@@ -126,7 +126,7 @@ static void internal_alloc(void **samples, unsigned samples_size, void **mbs, un
 }
 
 static void internal_free(void *samples, void *mbs, void *alloc_arg) {
-	free(samples);
+	aligned_free(samples);
 }
 
 static int ignore_NAL(Edge264Decoder *dec, Edge264UnrefCb unref_cb, void *unref_arg) {
@@ -216,7 +216,7 @@ Edge264Decoder *edge264_alloc(int n_threads, Edge264LogCb log_cb, void *log_arg,
 		}
 	#else
 		if (log_cb)
-			return free(dec), NULL;
+			return aligned_free(dec), NULL;
 	#endif
 	
 	// get the number of logical cores if requested
@@ -252,7 +252,7 @@ Edge264Decoder *edge264_alloc(int n_threads, Edge264LogCb log_cb, void *log_arg,
 		}
 		pthread_mutex_destroy(&dec->lock);
 	}
-	free(dec);
+	aligned_free(dec);
 	return NULL;
 }
 
@@ -287,7 +287,7 @@ void edge264_free(Edge264Decoder **pdec) {
 			if (dec->samples_buffers[i] != NULL)
 				dec->free_cb(dec->samples_buffers[i], dec->mb_buffers[i], dec->alloc_arg);
 		}
-		free(dec);
+		aligned_free(dec);
 	}
 }
 

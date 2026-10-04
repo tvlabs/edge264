@@ -155,6 +155,37 @@ static int cmp(const struct dirent **a, const struct dirent **b) {
 	return -strcasecmp((*a)->d_name, (*b)->d_name);
 }
 
+#ifdef _WIN32
+	static uint8_t *map_file(const char *path, uint64_t *size_out) {
+		uint8_t *ptr = NULL;
+		HANDLE hFile = CreateFileA(path, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
+		if (hFile != INVALID_HANDLE_VALUE) {
+			HANDLE hMapping = CreateFileMappingA(hFile, NULL, PAGE_READONLY, 0, 0, NULL);
+			if (GetFileSizeEx(hFile, (LARGE_INTEGER *)size_out) && hMapping != NULL)
+				ptr = MapViewOfFile(hMapping, FILE_MAP_READ, 0, 0, 0);
+			CloseHandle(hMapping);
+		}
+		CloseHandle(hFile);
+		return ptr;
+	}
+	#define unmap_file(ptr, size) UnmapViewOfFile(ptr)
+#else
+	static uint8_t *map_file(const char *path, uint64_t *size_out) {
+		uint8_t *ptr = NULL;
+		int fd = open(path, O_RDONLY);
+		if (fd >= 0) {
+			struct stat st;
+			if (!fstat(fd, &st)) {
+				*size_out = st.st_size;
+				ptr = mmap(NULL, st.st_size, PROT_READ, MAP_SHARED, fd, 0);
+			}
+		}
+		close(fd);
+		return ptr;
+	}
+	#define unmap_file(ptr, size) munmap(ptr, size)
+#endif
+
 
 
 static int draw_frame()
@@ -286,67 +317,17 @@ static int decode_file(const char *name0)
 	snprintf(name2, sizeof(name2), "%.*s.1.yuv", len, name0);
 	
 	// open and memory map all input files
-	int quit = 0;
 	conf[0] = conf[1] = NULL;
-	#ifdef _WIN32
-		HANDLE f0 = NULL, f1 = NULL, f2 = NULL, m0 = NULL, m1 = NULL, m2 = NULL;
-		void *v0 = NULL, *v1 = NULL, *v2 = NULL;
-		if ((f0 = CreateFileA(name0, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL)) == INVALID_HANDLE_VALUE ||
-			(m0 = CreateFileMappingA(f0, NULL, PAGE_READONLY, 0, 0, NULL)) == NULL ||
-			(v0 = MapViewOfFile(m0, FILE_MAP_READ, 0, 0, 0)) == NULL) {
-			printf("Error opening file %s: %lu\n", name0, GetLastError());
-			quit = 1;
-		}
-		if (enable_yuv) {
-			if ((f1 = CreateFileA(name1, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL)) == INVALID_HANDLE_VALUE) {
-				printf("%s%s not found\n", moveup, name1);
-				moveup = "";
-			} else if ((m1 = CreateFileMappingA(f1, NULL, PAGE_READONLY, 0, 0, NULL)) == NULL ||
-				(conf[0] = v1 = MapViewOfFile(m1, FILE_MAP_READ, 0, 0, 0)) == NULL) {
-				printf("Error opening file %s: %lu\n", name1, GetLastError());
-				quit = 1;
-			}
-			f2 = CreateFileA(name2, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
-			if (f2 != INVALID_HANDLE_VALUE &&
-				((m2 = CreateFileMappingA(f2, NULL, PAGE_READONLY, 0, 0, NULL)) == NULL ||
-				(conf[1] = v2 = MapViewOfFile(m2, FILE_MAP_READ, 0, 0, 0)) == NULL)) {
-				printf("Error opening file %s: %lu\n", name2, GetLastError());
-				quit = 1;
-			}
-		}
-		const uint8_t *nal = v0;
-		const uint8_t *end0 = v0 + GetFileSize(f0, NULL);
-		const uint8_t *end1 = v1 + GetFileSize(f1, NULL);
-	#else
-		int fd0 = -1, fd1 = -1, fd2 = -1;
-		struct stat st0, st1, st2;
-		uint8_t *mm0 = MAP_FAILED, *mm1 = MAP_FAILED, *mm2 = MAP_FAILED;
-		if ((fd0 = open(name0, O_RDONLY)) < 0 ||
-			fstat(fd0, &st0) < 0 ||
-			(mm0 = mmap(NULL, st0.st_size, PROT_READ, MAP_SHARED, fd0, 0)) == MAP_FAILED) {
-			perror(name0);
-			quit = 1;
-		}
-		if (enable_yuv) {
-			if ((fd1 = open(name1, O_RDONLY)) < 0) {
-				printf("%s%s not found\n", moveup, name1);
-				moveup = "";
-			} else if (fstat(fd1, &st1) < 0 ||
-				(conf[0] = mm1 = mmap(NULL, st1.st_size, PROT_READ, MAP_SHARED, fd1, 0)) == MAP_FAILED) {
-				perror(name1);
-				quit = 1;
-			}
-			fd2 = open(name2, O_RDONLY);
-			if (fd2 >= 0 && (fstat(fd2, &st2) < 0 ||
-				(conf[1] = mm2 = mmap(NULL, st2.st_size, PROT_READ, MAP_SHARED, fd2, 0)) == MAP_FAILED)) {
-				perror(name2);
-				quit = 1;
-			}
-		}
-		const uint8_t *nal = mm0;
-		const uint8_t *end0 = mm0 + st0.st_size;
-		const uint8_t *end1 = mm1 + st1.st_size;
-	#endif
+	uint64_t s0, s1, s2;
+	uint8_t *v0 = map_file(name0, &s0), *v1 = NULL, *v2 = NULL;
+	if (enable_yuv) {
+		v1 = map_file(name1, &s1);
+		v2 = map_file(name2, &s2); // may fail for non-MVC streams
+	}
+	int quit = v0 == NULL || enable_yuv && v1 == NULL;
+	const uint8_t *nal = v0;
+	const uint8_t *end0 = v0 + s0;
+	const uint8_t *end1 = v1 + s1;
 	
 	// print the success counts
 	if (!quit) {
@@ -401,24 +382,9 @@ static int decode_file(const char *name0)
 	}
 	
 	// close everything
-	#ifdef _WIN32
-		UnmapViewOfFile(v0);
-		UnmapViewOfFile(v1);
-		UnmapViewOfFile(v2);
-		CloseHandle(m0);
-		CloseHandle(m1);
-		CloseHandle(m2);
-		CloseHandle(f0);
-		CloseHandle(f1);
-		CloseHandle(f2);
-	#else
-		munmap(mm0, st0.st_size);
-		munmap(mm1, st1.st_size);
-		munmap(mm2, st2.st_size);
-		close(fd0);
-		close(fd1);
-		close(fd2);
-	#endif
+	unmap_file(v0, s0);
+	unmap_file(v1, s1);
+	unmap_file(v2, s2);
 	return quit;
 }
 

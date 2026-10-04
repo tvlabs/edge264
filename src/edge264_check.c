@@ -5,9 +5,6 @@
 #include <time.h>
 #ifdef _WIN32
 	#include <windows.h>
-	#include <psapi.h>
-	#define dlsym (void*)GetProcAddress
-	#define dlclose FreeLibrary
 #else
 	#include <dlfcn.h>
 	#include <fcntl.h>
@@ -49,8 +46,6 @@ static int cmp(const struct dirent **a, const struct dirent **b) {
 	return -strcasecmp((*a)->d_name, (*b)->d_name);
 }
 
-
-
 #define PASSERT(cond, prefix) { if (!(cond)) { perror(prefix); exit(1); } }
 #define ASSERT(cond, msg, ...) { if (!(cond)) { printf(RED msg RESET, ##__VA_ARGS__); exit(1); } }
 static int log_callback(const char *str, void *_) { if (log_tester) log_tester(str); return 0; }
@@ -84,6 +79,37 @@ static void assert_block(const char *name, size_t pstride, const uint8_t *p, int
 	}
 }
 
+#ifdef _WIN32
+	static uint8_t *map_file(const char *path, uint64_t *size_out) {
+		uint8_t *ptr = NULL;
+		HANDLE hFile = CreateFileA(path, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
+		if (hFile != INVALID_HANDLE_VALUE) {
+			HANDLE hMapping = CreateFileMappingA(hFile, NULL, PAGE_READONLY, 0, 0, NULL);
+			if (GetFileSizeEx(hFile, (LARGE_INTEGER *)size_out) && hMapping != NULL)
+				ptr = MapViewOfFile(hMapping, FILE_MAP_READ, 0, 0, 0);
+			CloseHandle(hMapping);
+		}
+		CloseHandle(hFile);
+		return ptr;
+	}
+	#define unmap_file(ptr, size) UnmapViewOfFile(ptr)
+#else
+	static uint8_t *map_file(const char *path, uint64_t *size_out) {
+		uint8_t *ptr = NULL;
+		int fd = open(path, O_RDONLY);
+		if (fd >= 0) {
+			struct stat st;
+			if (!fstat(fd, &st)) {
+				*size_out = st.st_size;
+				ptr = mmap(NULL, st.st_size, PROT_READ, MAP_SHARED, fd, 0);
+			}
+		}
+		close(fd);
+		return ptr;
+	}
+	#define unmap_file(ptr, size) munmap(ptr, size)
+#endif
+
 
 
 static void parse_NALs(const char *name, const uint8_t *nal, const uint8_t *end, void (*post_test)(), const uint8_t *expect) {
@@ -112,8 +138,21 @@ static void parse_NALs(const char *name, const uint8_t *nal, const uint8_t *end,
 static void test_page_boundaries() {
 	printf("\e[A\e[K%d " GREEN "PASS" RESET " (page-boundaries)\n", count_pass);
 	log_tester = NULL;
-	long pagesize = sysconf(_SC_PAGESIZE);
-	uint8_t *page = mmap(0, pagesize * 3, PROT_NONE, MAP_PRIVATE|MAP_ANONYMOUS, -1, 0) + pagesize;
+	
+	// Allocate 3 pages: guard | accessible | guard
+	#ifdef _WIN32
+		SYSTEM_INFO si;
+		GetSystemInfo(&si);
+		long pagesize = si.dwPageSize;
+		uint8_t *base = VirtualAlloc(NULL, pagesize * 3, MEM_RESERVE, PAGE_NOACCESS);
+		PASSERT(base && VirtualAlloc(base + pagesize, pagesize, MEM_COMMIT, PAGE_READWRITE), NULL);
+		static DWORD oldProtect;
+	#else
+		long pagesize = sysconf(_SC_PAGESIZE);
+		uint8_t *base = mmap(0, pagesize * 3, PROT_NONE, MAP_PRIVATE|MAP_ANONYMOUS, -1, 0);
+		PASSERT(base && !mprotect(base + pagesize, pagesize, PROT_WRITE), NULL);
+	#endif
+	uint8_t *page = base + pagesize;
 	
 	// CPB boundaries
 	FILE *f = fopen("tests/page-boundaries.264", "r");
@@ -121,18 +160,25 @@ static void test_page_boundaries() {
 	PASSERT(!fseek(f, 0L, SEEK_END), NULL);
 	long filesize = ftell(f);
 	rewind(f);
-	PASSERT(!mprotect(page, pagesize, PROT_WRITE), NULL);
 	PASSERT(fread(page, filesize, 1, f) == 1, NULL);
 	rewind(f);
 	PASSERT(fread(page + pagesize - filesize, filesize, 1, f) == 1, NULL);
-	PASSERT(!mprotect(page, pagesize, PROT_READ), NULL);
+	#ifdef _WIN32
+		PASSERT(VirtualProtect(page, pagesize, PAGE_READONLY, &oldProtect), NULL);
+	#else
+		PASSERT(!mprotect(page, pagesize, PROT_READ), NULL);
+	#endif
 	edge264_find_start_code(page, page + filesize, 1);
 	parse_NALs("page-boundaries", page, page + filesize, NULL, (uint8_t[]){0, ENODATA});
 	parse_NALs("page-boundaries", page + pagesize - filesize, page + pagesize, NULL, (uint8_t[]){0, ENODATA});
 	fclose(f);
 	
 	// Intra boundaries
-	PASSERT(!mprotect(page, pagesize, PROT_READ | PROT_WRITE), NULL);
+	#ifdef _WIN32
+		PASSERT(VirtualProtect(page, pagesize, PAGE_READWRITE, &oldProtect), NULL);
+	#else
+		PASSERT(!mprotect(page, pagesize, PROT_READ | PROT_WRITE), NULL);
+	#endif
 	static const int8_t offI4x4[I4x4_HU_8 + 1] = {16, 4, 20, 16, 4, 0, 16, 16, 24, 24, 24, 16, 16, 4};
 	for (int i = 0; i <= I4x4_HU_8; i++)
 		decode_intra4x4(page + offI4x4[i], 16, i, (i16x8){});
@@ -160,7 +206,11 @@ static void test_page_boundaries() {
 			decode_inter_chroma(4 << w, 4 << h, 32, page + pagesize + offInterHiC[w] - (4 << h) * 32, 32, page + pagesize - (4 << w) - ((4 << h) - 1) * 32, (i8x16){}, (i8x16){});
 		}
 	}
-	PASSERT(!munmap(page - pagesize, pagesize * 3), NULL);
+	#ifdef _WIN32
+		PASSERT(VirtualFree(base, 0, MEM_RELEASE), NULL);
+	#else
+		PASSERT(!munmap(page - pagesize, pagesize * 3), NULL);
+	#endif
 	count_pass += 1;
 }
 
@@ -367,40 +417,15 @@ static void test(const char *name, void (*log_test)(const char *), void (*post_t
 	// open and memory map the input test file
 	char file_name[strlen(name) + 11];
 	snprintf(file_name, sizeof(file_name), "tests/%s.264", name);
-	#ifdef _WIN32
-		HANDLE f = NULL, m = NULL;
-		void *v = NULL;
-		if ((f = CreateFileA(file_name, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL)) == INVALID_HANDLE_VALUE ||
-			(m = CreateFileMappingA(f, NULL, PAGE_READONLY, 0, 0, NULL)) == NULL ||
-			(v = MapViewOfFile(m, FILE_MAP_READ, 0, 0, 0)) == NULL) {
-			printf("Error opening file %s for input: %lu\n", file_name, GetLastError());
-			exit(1);
-		}
-		const uint8_t *nal = v;
-		const uint8_t *end = v + GetFileSize(f, NULL);
-	#else
-		int fd = -1;
-		struct stat st;
-		uint8_t *mm = MAP_FAILED;
-		PASSERT((fd = open(file_name, O_RDONLY)) >= 0 &&
-			!fstat(fd, &st) &&
-			(mm = mmap(NULL, st.st_size, PROT_READ, MAP_SHARED, fd, 0)) != MAP_FAILED,
-			file_name);
-		const uint8_t *nal = mm;
-		const uint8_t *end = mm + st.st_size;
-	#endif
+	uint64_t file_size;
+	uint8_t *m = map_file(file_name, &file_size);
+	const uint8_t *nal = m;
+	const uint8_t *end = m + file_size;
 	
 	parse_NALs(name, nal, end, post_test, expect);
 	
 	// close everything
-	#ifdef _WIN32
-		UnmapViewOfFile(v);
-		CloseHandle(m);
-		CloseHandle(f);
-	#else
-		PASSERT(!munmap(mm, st.st_size), NULL);
-		close(fd);
-	#endif
+	unmap_file(m, file_size);
 	count_pass += 1;
 }
 

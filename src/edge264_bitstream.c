@@ -137,7 +137,7 @@ static noinline unsigned get_ue16(Edge264GetBits *gb, unsigned upper) {
 static noinline int get_se16(Edge264GetBits *gb, int lower, int upper) {
 	int v = clz(gb->msb_cache | (size_t)1 << (SIZE_BIT / 2)) * 2 + 1; // [1..SIZE_BIT-1]
 	unsigned ue = (gb->msb_cache >> (SIZE_BIT - v)) - 1;
-	int ret = min(max((ue & 1) ? (ue >> 1) + 1 : -(ue >> 1), lower), upper);
+	int ret = min(max((ue & 1) ? (int)(ue >> 1) + 1 : -(int)(ue >> 1), lower), upper);
 	gb->msb_cache = shld(gb->lsb_cache, gb->msb_cache, v);
 	if (gb->lsb_cache <<= v)
 		return ret;

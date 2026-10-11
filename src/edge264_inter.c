@@ -1123,7 +1123,7 @@ static void noinline decode_inter(Edge264Context *ctx, int i, int w, int h) {
 	const uint8_t *src_C = ref + xInt_C + yInt_C * ctx->t.stride[1] + ctx->t.plane_size_Y;
 	size_t sstride_Y = ctx->t.stride[0];
 	size_t sstride_C = ctx->t.stride[1] >> 1;
-	// print_header(ctx->d, "<k></k><v>CurrMbAddr=%d, i=%d, w=%d, h=%d, x=%d, y=%d, idx=%d, pic=%d</v>\n", ctx->CurrMbAddr, i, w, h, x, y, mb->refIdx[i8x8], mb->refPic[i8x8]);
+	// printf("CurrMbAddr=%d, i=%d, w=%d, h=%d, x=%d, y=%d, idx=%d, pic=%d\n", ctx->CurrMbAddr, i, w, h, x, y, mb->refIdx[i8x8], mb->refPic[i8x8]);
 	
 	// prefetch source data into L3 cache
 	const uint8_t *pref_C = src_C;
@@ -1200,8 +1200,9 @@ static void noinline decode_inter(Edge264Context *ctx, int i, int w, int h) {
 	int xWide = (x & 7) != 0;
 	int yWide = (y & 7) != 0;
 	int width_Y = ctx->t.pic_width_in_mbs * 16;
-	if (__builtin_expect((unsigned)xInt_Y - xWide * 2 >= width_Y - w + 1 - xWide * 5 ||
-		(unsigned)yInt_Y - yWide * 2 >= ctx->t.pic_height_in_mbs * 16 - h + 1 - yWide * 5, 0))
+	int height_Y = ctx->t.pic_height_in_mbs * 16;
+	if (__builtin_expect(xInt_Y < xWide * 2 || xInt_Y > width_Y - w - xWide * 10 ||
+		yInt_Y < yWide * 2 || yInt_Y > height_Y - h - yWide * 3, 0))
 	{
 		i8x16 shuf0 = loadu128(shift_Y_8bit + 15 + clip3(-15, 0, xInt_Y - 2) + clip3(0, 15, xInt_Y + 14 - width_Y));
 		i8x16 shuf1 = loadu128(shift_Y_8bit + 15 + clip3(-15, 0, xInt_Y + 14) + clip3(0, 15, xInt_Y + 30 - width_Y));

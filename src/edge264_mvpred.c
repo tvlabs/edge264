@@ -305,11 +305,11 @@ static always_inline void decode_direct_spatial_mv_pred(Edge264Context *ctx, uns
 	
 	// initialize mv along refIdx since it will equal one of refIdxA/B/C
 	i8x16 cmp_AB = (u8x16)refIdxA < (u8x16)refIdxB; // unsigned comparisons
-	i8x16 refIdxm = ifelse_mask(cmp_AB, refIdxA, refIdxB); // umin(refIdxA, refIdxB)
-	i8x16 refIdxM = ifelse_mask(cmp_AB, refIdxB, refIdxA); // umax(refIdxA, refIdxB)
+	i8x16 refIdxm = ifelse_mask(cmp_AB, refIdxA, refIdxB); // minu(refIdxA, refIdxB)
+	i8x16 refIdxM = ifelse_mask(cmp_AB, refIdxB, refIdxA); // maxu(refIdxA, refIdxB)
 	i16x8 mvm = ifelse_mask(cmp_AB, mvA, mvB);
 	i8x16 cmp_mC = (u8x16)refIdxm < (u8x16)refIdxC;
-	i8x16 refIdx = ifelse_mask(cmp_mC, refIdxm, refIdxC); // umin(refIdxm, refIdxC)
+	i8x16 refIdx = ifelse_mask(cmp_mC, refIdxm, refIdxC); // minu(refIdxm, refIdxC)
 	i16x8 mvmm = ifelse_mask(cmp_mC, mvm, mvC);
 	
 	// select median if refIdx equals another of refIdxA/B/C

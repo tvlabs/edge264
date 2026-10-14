@@ -226,7 +226,7 @@ Edge264Decoder *edge264_alloc(int n_threads, Edge264LogCb log_cb, void *log_arg,
 		#else
 			int n_cpus = sysconf(_SC_NPROCESSORS_ONLN);
 		#endif
-		n_threads = min(n_cpus, 16);
+		n_threads = mins(n_cpus, 16);
 	}
 	
 	// if multithreading is disabled we are done, otherwise initialize all

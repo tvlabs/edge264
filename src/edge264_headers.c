@@ -243,7 +243,7 @@ static void initialize_context(Edge264Context *ctx, int currPic)
 						int pic1 = ctx->t.RefPicList[1][refIdxL1];
 						if (td.q[pic1] != 0 && !(ctx->t.prev_long_term_frames & 1 << pic0)) {
 							int tx = (16384 + abs(td.q[pic1] / 2)) / td.q[pic1];
-							DistScaleFactor = min(max((tb.q[pic0] * tx + 32) >> 6, -1024), 1023);
+							DistScaleFactor = mins(maxs((tb.q[pic0] * tx + 32) >> 6, -1024), 1023);
 							implicit_weight = (!(ctx->t.prev_long_term_frames & 1 << pic1) && DistScaleFactor >= -256 && DistScaleFactor <= 515) ? DistScaleFactor >> 2 : 32;
 						} else {
 							DistScaleFactor = 256;
@@ -499,7 +499,7 @@ void *ADD_VARIANT(worker_loop)(void *arg) {
 		
 		// deblock the rest of mbs in this slice
 		if (c.t.next_deblock_addr >= 0) {
-			c.t.next_deblock_addr = max(c.t.next_deblock_addr, c.t.first_mb_in_slice);
+			c.t.next_deblock_addr = maxs(c.t.next_deblock_addr, c.t.first_mb_in_slice);
 			c.mby = (unsigned)c.t.next_deblock_addr / (unsigned)c.t.pic_width_in_mbs;
 			c.mbx = (unsigned)c.t.next_deblock_addr % (unsigned)c.t.pic_width_in_mbs;
 			c.samples_mb[0] = c.t.samples_buffers[currPic] + (c.mbx + c.mby * c.t.stride[0]) * 16;
@@ -1097,7 +1097,7 @@ int ADD_VARIANT(parse_slice_layer_without_partitioning)(Edge264Decoder *dec, Edg
 		// make enough non-reference slots by dereferencing short-term and non-existing frames
 		int sref_slots = sps->max_num_ref_frames - __builtin_popcount(same_views & dec->prev_long_term_frames & ~dec->prev_short_term_frames);
 		assert(sref_slots > 0);
-		int non_existing = min(gap - 1, sref_slots);
+		int non_existing = mins(gap - 1, sref_slots);
 		for (int num_srefs = non_existing + __builtin_popcount(same_views & dec->prev_short_term_frames); num_srefs > sref_slots; num_srefs--) {
 			int unref = 0, lowest = INT_MAX;
 			for (unsigned r = same_views & dec->prev_short_term_frames; r; r &= r - 1) {
@@ -1188,8 +1188,8 @@ int ADD_VARIANT(parse_slice_layer_without_partitioning)(Edge264Decoder *dec, Edg
 				t->pps.num_ref_idx_active[1] = get_ue16(&dec->gb, lim - 1) + 1;
 			log_dec(dec, "  num_ref_idx_active: {override_flag: 1");
 		} else {
-			t->pps.num_ref_idx_active[0] = min(t->pps.num_ref_idx_active[0], lim);
-			t->pps.num_ref_idx_active[1] = min(t->pps.num_ref_idx_active[1], lim);
+			t->pps.num_ref_idx_active[0] = mins(t->pps.num_ref_idx_active[0], lim);
+			t->pps.num_ref_idx_active[1] = mins(t->pps.num_ref_idx_active[1], lim);
 			log_dec(dec, "  num_ref_idx_active: {override_flag: 0");
 		}
 		log_dec(dec, t->slice_type ? ", l0: %u, l1: %u}\n" : ", l0: %u}\n",
@@ -1617,9 +1617,9 @@ static void parse_vui_parameters(Edge264Decoder *dec, Edge264SeqParameterSet *sp
 			log_dec(dec, "    colour_primaries: %u # %s\n"
 				"    transfer_characteristics: %u # %s\n"
 				"    matrix_coefficients: %u # %s\n",
-				colour_primaries, colour_primaries_names[min(colour_primaries, 23)],
-				transfer_characteristics, transfer_characteristics_names[min(transfer_characteristics, 18)],
-				matrix_coefficients, matrix_coefficients_names[min(matrix_coefficients, 12)]);
+				colour_primaries, colour_primaries_names[mins(colour_primaries, 23)],
+				transfer_characteristics, transfer_characteristics_names[mins(transfer_characteristics, 18)],
+				matrix_coefficients, matrix_coefficients_names[mins(matrix_coefficients, 12)]);
 		}
 	}
 	if (get_u1(&dec->gb)) {
@@ -1672,8 +1672,8 @@ static void parse_vui_parameters(Edge264Decoder *dec, Edge264SeqParameterSet *sp
 		int log2_max_mv_length_vertical = get_ue16(&dec->gb, 15);
 		// we don't enforce MaxDpbFrames here since violating the level is harmless
 		int max_num_reorder_frames = get_ue16(&dec->gb, 16);
-		sps->max_dec_frame_buffering = max(get_ue16(&dec->gb, 16), sps->max_num_ref_frames);
-		sps->max_num_reorder_frames = min(max_num_reorder_frames, sps->max_dec_frame_buffering);
+		sps->max_dec_frame_buffering = maxs(get_ue16(&dec->gb, 16), sps->max_num_ref_frames);
+		sps->max_num_reorder_frames = mins(max_num_reorder_frames, sps->max_dec_frame_buffering);
 		log_dec(dec, "    log2_max_mv_length_horizontal: %u\n"
 			"    log2_max_mv_length_vertical: %u\n"
 			"    max_num_reorder_frames: %u\n"
@@ -1947,8 +1947,8 @@ int ADD_VARIANT(parse_seq_parameter_set)(Edge264Decoder *dec, Edge264UnrefCb unr
 	sps.pic_height_in_mbs = pic_height_in_map_units << 1 >> sps.frame_mbs_only_flag;
 	// My understanding of H.10.2.1-f is that with any given level, the number
 	// of pictures the DPB can store is unaffected by number of views (if <= 2)
-	int MaxDpbFrames = min(MaxDpbMbs[min(level_idc, 63)] / (unsigned)(sps.pic_width_in_mbs * sps.pic_height_in_mbs), 16);
-	sps.max_num_ref_frames = min(max_num_ref_frames, MaxDpbFrames);
+	int MaxDpbFrames = mins(MaxDpbMbs[mins(level_idc, 63)] / (unsigned)(sps.pic_width_in_mbs * sps.pic_height_in_mbs), 16);
+	sps.max_num_ref_frames = mins(max_num_ref_frames, MaxDpbFrames);
 	if (movemask(set8(profile_idc) == ((u8x16){44, 86, 100, 110, 122, 244})) &&
 		(constraint_set_flags & 1 << 4)) {
 		sps.max_num_reorder_frames = 0;

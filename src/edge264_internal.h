@@ -1151,17 +1151,15 @@ static const int8_t shz_mask[48] = {
 /**
  * Helper functions
  */
-#ifndef min
-	static always_inline int min(int a, int b) { return (a < b) ? a : b; }
-	static always_inline int max(int a, int b) { return (a > b) ? a : b; }
-#endif
+static always_inline int mins(int a, int b) { return (a < b) ? a : b; }
+static always_inline int maxs(int a, int b) { return (a > b) ? a : b; }
 static always_inline unsigned minu(unsigned a, unsigned b) { return (a < b) ? a : b; }
 static always_inline unsigned maxu(unsigned a, unsigned b) { return (a > b) ? a : b; }
 // min on values that may wrap around (PicOrderCnt)
 static always_inline unsigned minw(unsigned a, unsigned b) { return (int)(a - b) < 0 ? a : b; }
 // compatible with any of the pointers wrapping around
 static always_inline void *minp(const void *a, const void *b) { return (void *)(a < b ? a : b); }
-static always_inline int clip3(int a, int b, int c) { return min(max(c, a), b); }
+static always_inline int clip3(int a, int b, int c) { return mins(maxs(c, a), b); }
 static always_inline i16x8 median16(i16x8 a, i16x8 b, i16x8 c) {
 	return max16(min16(max16(a, b), c), min16(a, b));
 }

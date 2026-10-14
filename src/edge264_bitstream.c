@@ -32,7 +32,7 @@ static inline size_t get_bytes(Edge264GetBits *gb, int nbytes)
 		v = loadu128(CPB - 2);
 	} else if (diff < 2) {
 		const uint8_t *p = minp(CPB - 2, (uint8_t *)((uintptr_t)(end - 1) & -16));
-		v = shrv128(shlv128(loadu128(p), p + 16 - end), min(14 + diff, 16));
+		v = shrv128(shlv128(loadu128(p), p + 16 - end), mins(14 + diff, 16));
 	} else {
 		gb->CPB = CPB + nbytes;
 		return 0;
@@ -137,7 +137,7 @@ static noinline unsigned get_ue16(Edge264GetBits *gb, unsigned upper) {
 static noinline int get_se16(Edge264GetBits *gb, int lower, int upper) {
 	int v = clz(gb->msb_cache | (size_t)1 << (SIZE_BIT / 2)) * 2 + 1; // [1..SIZE_BIT-1]
 	unsigned ue = (gb->msb_cache >> (SIZE_BIT - v)) - 1;
-	int ret = min(max((ue & 1) ? (int)(ue >> 1) + 1 : -(int)(ue >> 1), lower), upper);
+	int ret = mins(maxs((ue & 1) ? (ue >> 1) + 1 : -(ue >> 1), lower), upper);
 	gb->msb_cache = shld(gb->lsb_cache, gb->msb_cache, v);
 	if (gb->lsb_cache <<= v)
 		return ret;
@@ -160,7 +160,7 @@ static noinline int get_se16(Edge264GetBits *gb, int lower, int upper) {
 		if (!(gb->lsb_cache <<= leadingZeroBits))
 			refill(gb, 0);
 		unsigned ue = get_uv(gb, leadingZeroBits + 1) - 1;
-		return min(max(ue & 1 ? (ue >> 1) + 1 : -(ue >> 1), lower), upper);
+		return mins(maxs(ue & 1 ? (ue >> 1) + 1 : -(ue >> 1), lower), upper);
 	}
 #endif
 
@@ -330,7 +330,7 @@ static int cabac_terminate(Edge264Context *ctx) {
  * unoptimised version.
  */
 static void cabac_init(Edge264Context *ctx) {
-	i8x16 mul = set16(max(ctx->t.QP[0], 0) + 4096);
+	i8x16 mul = set16(maxs(ctx->t.QP[0], 0) + 4096);
 	i8x16 c1 = set8(1), c64 = set8(64), c126 = set8(126);
 	const i8x16 *src = (i8x16 *)cabac_context_init[ctx->t.cabac_init_idc];
 	for (i8x16 *dst = ctx->cabac_v; dst < ctx->cabac_v + 64; dst++, src += 2) {

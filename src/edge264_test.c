@@ -264,10 +264,10 @@ static int check_frame()
 					const uint8_t *q = conf[view] +
 						(iYCbCr > 0) * (out.bit_depth_Y == 8 ? out.width_Y : out.width_Y << 1) * out.height_Y +
 						(iYCbCr > 1) * (out.bit_depth_C == 8 ? out.width_C : out.width_C << 1) * out.height_C;
-					int xl = max(col * 16 - cropl, 0) >> sh_width;
-					int xr = min(col * 16 - cropl + 16, out.width_Y) >> sh_width;
+					int xl = maxs(col * 16 - cropl, 0) >> sh_width;
+					int xr = mins(col * 16 - cropl + 16, out.width_Y) >> sh_width;
 					int invalid = 0;
-					for (int y = max(row * 16 - cropt, 0) >> sh_height; xl < xr && y < min(row * 16 - cropt + 16, out.height_Y) >> sh_height; y++)
+					for (int y = maxs(row * 16 - cropt, 0) >> sh_height; xl < xr && y < mins(row * 16 - cropt + 16, out.height_Y) >> sh_height; y++)
 						invalid |= memcmp(p + y * stride + (xl << depth), q + y * (out.width_Y >> sh_width << depth) + (xl << depth), (xr - xl) << depth);
 					if (invalid) {
 						printf("Erroneous macroblock (id %d, row %d, column %d, %s plane):\n",

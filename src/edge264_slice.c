@@ -154,7 +154,7 @@
 			int levelCode = get_uv(&ctx->t.gb, v) + offset;
 			levelCode += (i == TrailingOnes && TrailingOnes < 3) * 2;
 			level[i] = (levelCode % 2) ? (-levelCode - 1) >> 1 : (levelCode + 2) >> 1;
-			suffixLength = min(suffixLength + (levelCode >= (3 << suffixLength)), 6);
+			suffixLength = mins(suffixLength + (levelCode >= (3 << suffixLength)), 6);
 		}
 		
 		// store level values at proper positions in memory
@@ -176,12 +176,12 @@
 						{29, 28, 27, 26, 17, 17, 16, 16},
 						{25, 26, 28, 27, 30, 29, 16, 16},
 						{0, 30, 29, 28, 27, 26, 25, 24}};
-					int code = run_before_codes[min(zerosLeft, 7) - 1][threeBits];
+					int code = run_before_codes[mins(zerosLeft, 7) - 1][threeBits];
 					v = code >> 3;
 					run_before = code & 7;
 				} else {
 					v = clz(ctx->t.gb.msb_cache) + 1;
-					run_before = min(v + 3, zerosLeft);
+					run_before = mins(v + 3, zerosLeft);
 				}
 				scan -= run_before;
 				zerosLeft -= run_before;
@@ -752,7 +752,7 @@ static inline int CAFUNC(parse_intraNxN_pred_mode, int luma4x4BlkIdx)
 	// dcPredModePredictedFlag is enforced by putting -2
 	int intraMxMPredModeA = *((int8_t *)mb->Intra4x4PredMode + ctx->A4x4_int8[luma4x4BlkIdx]);
 	int intraMxMPredModeB = *((int8_t *)mb->Intra4x4PredMode + ctx->B4x4_int8[luma4x4BlkIdx]);
-	int mode = abs(min(intraMxMPredModeA, intraMxMPredModeB));
+	int mode = abs(mins(intraMxMPredModeA, intraMxMPredModeB));
 	int rem_intra_pred_mode = -1;
 	if (CACOND(!get_u1(&ctx->t.gb), !get_ae(ctx, 68))) {
 		#if !CABAC
@@ -855,16 +855,16 @@ static noinline void CAFUNC(parse_I_mb, int mb_type_or_ctxIdx)
 			mb->f.CodedBlockPatternChromaAC = mb_type >> 3;
 			int mode = mb_type & 3;
 		#else
-			int ctxIdx = max(mb_type_or_ctxIdx, 5);
+			int ctxIdx = maxs(mb_type_or_ctxIdx, 5);
 			mb->bits[0] = get_ae(ctx, ctxIdx + 1) ? 0xac : 0; // zeroes ref_idx_nz as byproduct
 			int CodedBlockPatternChromaDC = get_ae(ctx, ctxIdx + 2);
-			ctxIdx = max(ctxIdx, 6);
+			ctxIdx = maxs(ctxIdx, 6);
 			if (CodedBlockPatternChromaDC) {
 				mb->f.CodedBlockPatternChromaDC = 1;
 				mb->f.CodedBlockPatternChromaAC = get_ae(ctx, ctxIdx + 2);
 			}
 			int mode = get_ae(ctx, ctxIdx + 3) << 1;
-			mode += get_ae(ctx, max(ctxIdx + 3, 10));
+			mode += get_ae(ctx, maxs(ctxIdx + 3, 10));
 			log_mb(ctx, "%smb_type: %u\n", ctx->log_indent, (mb->bits[0] & 12) +
 				(mb->f.CodedBlockPatternChromaDC + mb->f.CodedBlockPatternChromaAC) * 4 +
 				mode + (ctxIdx == 17 ? 6 : ctxIdx == 32 ? 24 : 1));
@@ -989,7 +989,7 @@ static noinline void CAFUNC(parse_inter_residual)
 			int mvd = 0;
 			ctxBase += 3;
 			while (mvd != 9 && get_ae_inline(ctx, ctxIdx))
-				ctxIdx = ctxBase + min(mvd++, 3);
+				ctxIdx = ctxBase + mins(mvd++, 3);
 			if (mvd == 9) {
 				#if SIZE_BIT == 32
 					// we need at least 21 bits in offset to get 12 bypass bits (max prefix size)

@@ -95,7 +95,7 @@ endif
 
 # Target WASM if present, otherwise choose host OS
 # Can be overridden for cross-compilation
-ifeq ($(origin OS),environment)
+ifneq (,$(findstring $(origin OS),undefined environment))
   override OS := $(if $(findstring environment,$(origin EMSCRIPTEN)),wasm,$(_HOSTOS))
 endif
 ifeq ($(findstring $(OS),macos linux windows wasm android ios),)

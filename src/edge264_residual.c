@@ -164,10 +164,10 @@ static noinline void add_idct4x4(Edge264Context *ctx, int iYCbCr, int DCidx, uin
 		i8x16 p0 = (i32x4){*(int32_t *)SADDR(p, 0), *(int32_t *)SADDR(p, 1)};
 		i8x16 p1 = (i32x4){*(int32_t *)SADDR(p, 2), *(int32_t *)SADDR(p, 3)};
 		i32x4 u = packus16(addlou8s16(p0, r0), addlou8s16(p1, r1));
-		*(int32_t *)SADDR(p, 0) = u[0];
-		*(int32_t *)SADDR(p, 1) = u[1];
-		*(int32_t *)SADDR(p, 2) = u[2];
-		*(int32_t *)SADDR(p, 3) = u[3];
+		storea32(SADDR(p, 0), u[0]);
+		storea32(SADDR(p, 1), u[1]);
+		storea32(SADDR(p, 2), u[2]);
+		storea32(SADDR(p, 3), u[3]);
 	}
 }
 
@@ -179,10 +179,10 @@ static void add_dc4x4(Edge264Context *ctx, int iYCbCr, int DCidx, uint8_t *p) {
 		i8x16 p0 = (i32x4){*(int32_t *)SADDR(p, 0), *(int32_t *)SADDR(p, 1)};
 		i8x16 p1 = (i32x4){*(int32_t *)SADDR(p, 2), *(int32_t *)SADDR(p, 3)};
 		i32x4 u = packus16(addlou8s16(p0, r), addlou8s16(p1, r));
-		*(int32_t *)SADDR(p, 0) = u[0];
-		*(int32_t *)SADDR(p, 1) = u[1];
-		*(int32_t *)SADDR(p, 2) = u[2];
-		*(int32_t *)SADDR(p, 3) = u[3];
+		storea32(SADDR(p, 0), u[0]);
+		storea32(SADDR(p, 1), u[1]);
+		storea32(SADDR(p, 2), u[2]);
+		storea32(SADDR(p, 3), u[3]);
 	}
 }
 
@@ -331,14 +331,14 @@ static void add_idct8x8(Edge264Context *ctx, int iYCbCr, uint8_t *dst0)
 		i64x2 u1 = packus16(p2, p3);
 		i64x2 u2 = packus16(p4, p5);
 		i64x2 u3 = packus16(p6, p7);
-		*(int64_t *)SADDR(dst0,  0) = u0[0];
-		*(int64_t *)SADDR(dst0,  1) = u0[1];
-		*(int64_t *)SADDR(dst0,  2) = u1[0];
-		*(int64_t *)SADDR(dst7, -4) = u1[1];
-		*(int64_t *)SADDR(dst0,  4) = u2[0];
-		*(int64_t *)SADDR(dst7, -2) = u2[1];
-		*(int64_t *)SADDR(dst7, -1) = u3[0];
-		*(int64_t *)SADDR(dst7,  0) = u3[1];
+		storea64(SADDR(dst0,  0), u0[0]);
+		storea64(SADDR(dst0,  1), u0[1]);
+		storea64(SADDR(dst0,  2), u1[0]);
+		storea64(SADDR(dst7, -4), u1[1]);
+		storea64(SADDR(dst0,  4), u2[0]);
+		storea64(SADDR(dst7, -2), u2[1]);
+		storea64(SADDR(dst7, -1), u3[0]);
+		storea64(SADDR(dst7,  0), u3[1]);
 	} // FIXME else 16bit
 }
 
@@ -417,38 +417,38 @@ static void transform_dc4x4(Edge264Context *ctx, int iYCbCr)
 		size_t stride = ctx->t.stride[iYCbCr];
 		uint8_t *p = ctx->samples_mb[iYCbCr];
 		if (ctx->t.samples_clip[iYCbCr][0] == 255) {
-			i8x16 p0 = *(i8x16 *)(p             );
-			i8x16 p1 = *(i8x16 *)(p + stride    );
-			i8x16 p2 = *(i8x16 *)(p + stride * 2);
-			i8x16 p3 = *(i8x16 *)(p + stride * 3);
-			*(i8x16 *)(p             ) = packus16(addlou8s16(p0, lo0), addhiu8s16(p0, hi0));
-			*(i8x16 *)(p + stride    ) = packus16(addlou8s16(p1, lo0), addhiu8s16(p1, hi0));
-			*(i8x16 *)(p + stride * 2) = packus16(addlou8s16(p2, lo0), addhiu8s16(p2, hi0));
-			*(i8x16 *)(p + stride * 3) = packus16(addlou8s16(p3, lo0), addhiu8s16(p3, hi0));
-			i8x16 p4 = *(i8x16 *)(p += stride * 4);
-			i8x16 p5 = *(i8x16 *)(p + stride    );
-			i8x16 p6 = *(i8x16 *)(p + stride * 2);
-			i8x16 p7 = *(i8x16 *)(p + stride * 3);
-			*(i8x16 *)(p             ) = packus16(addlou8s16(p4, lo1), addhiu8s16(p4, hi1));
-			*(i8x16 *)(p + stride    ) = packus16(addlou8s16(p5, lo1), addhiu8s16(p5, hi1));
-			*(i8x16 *)(p + stride * 2) = packus16(addlou8s16(p6, lo1), addhiu8s16(p6, hi1));
-			*(i8x16 *)(p + stride * 3) = packus16(addlou8s16(p7, lo1), addhiu8s16(p7, hi1));
-			i8x16 p8 = *(i8x16 *)(p += stride * 4);
-			i8x16 p9 = *(i8x16 *)(p + stride    );
-			i8x16 pA = *(i8x16 *)(p + stride * 2);
-			i8x16 pB = *(i8x16 *)(p + stride * 3);
-			*(i8x16 *)(p             ) = packus16(addlou8s16(p8, lo2), addhiu8s16(p8, hi2));
-			*(i8x16 *)(p + stride    ) = packus16(addlou8s16(p9, lo2), addhiu8s16(p9, hi2));
-			*(i8x16 *)(p + stride * 2) = packus16(addlou8s16(pA, lo2), addhiu8s16(pA, hi2));
-			*(i8x16 *)(p + stride * 3) = packus16(addlou8s16(pB, lo2), addhiu8s16(pB, hi2));
-			i8x16 pC = *(i8x16 *)(p += stride * 4);
-			i8x16 pD = *(i8x16 *)(p + stride    );
-			i8x16 pE = *(i8x16 *)(p + stride * 2);
-			i8x16 pF = *(i8x16 *)(p + stride * 3);
-			*(i8x16 *)(p             ) = packus16(addlou8s16(pC, lo3), addhiu8s16(pC, hi3));
-			*(i8x16 *)(p + stride    ) = packus16(addlou8s16(pD, lo3), addhiu8s16(pD, hi3));
-			*(i8x16 *)(p + stride * 2) = packus16(addlou8s16(pE, lo3), addhiu8s16(pE, hi3));
-			*(i8x16 *)(p + stride * 3) = packus16(addlou8s16(pF, lo3), addhiu8s16(pF, hi3));
+			i8x16 p0 = loada128((p             ));
+			i8x16 p1 = loada128((p + stride    ));
+			i8x16 p2 = loada128((p + stride * 2));
+			i8x16 p3 = loada128((p + stride * 3));
+			storea128((p             ), packus16(addlou8s16(p0, lo0), addhiu8s16(p0, hi0)));
+			storea128((p + stride    ), packus16(addlou8s16(p1, lo0), addhiu8s16(p1, hi0)));
+			storea128((p + stride * 2), packus16(addlou8s16(p2, lo0), addhiu8s16(p2, hi0)));
+			storea128((p + stride * 3), packus16(addlou8s16(p3, lo0), addhiu8s16(p3, hi0)));
+			i8x16 p4 = loada128((p += stride * 4));
+			i8x16 p5 = loada128((p + stride    ));
+			i8x16 p6 = loada128((p + stride * 2));
+			i8x16 p7 = loada128((p + stride * 3));
+			storea128((p             ), packus16(addlou8s16(p4, lo1), addhiu8s16(p4, hi1)));
+			storea128((p + stride    ), packus16(addlou8s16(p5, lo1), addhiu8s16(p5, hi1)));
+			storea128((p + stride * 2), packus16(addlou8s16(p6, lo1), addhiu8s16(p6, hi1)));
+			storea128((p + stride * 3), packus16(addlou8s16(p7, lo1), addhiu8s16(p7, hi1)));
+			i8x16 p8 = loada128((p += stride * 4));
+			i8x16 p9 = loada128((p + stride    ));
+			i8x16 pA = loada128((p + stride * 2));
+			i8x16 pB = loada128((p + stride * 3));
+			storea128((p             ), packus16(addlou8s16(p8, lo2), addhiu8s16(p8, hi2)));
+			storea128((p + stride    ), packus16(addlou8s16(p9, lo2), addhiu8s16(p9, hi2)));
+			storea128((p + stride * 2), packus16(addlou8s16(pA, lo2), addhiu8s16(pA, hi2)));
+			storea128((p + stride * 3), packus16(addlou8s16(pB, lo2), addhiu8s16(pB, hi2)));
+			i8x16 pC = loada128((p += stride * 4));
+			i8x16 pD = loada128((p + stride    ));
+			i8x16 pE = loada128((p + stride * 2));
+			i8x16 pF = loada128((p + stride * 3));
+			storea128((p             ), packus16(addlou8s16(pC, lo3), addhiu8s16(pC, hi3)));
+			storea128((p + stride    ), packus16(addlou8s16(pD, lo3), addhiu8s16(pD, hi3)));
+			storea128((p + stride * 2), packus16(addlou8s16(pE, lo3), addhiu8s16(pE, hi3)));
+			storea128((p + stride * 3), packus16(addlou8s16(pF, lo3), addhiu8s16(pF, hi3)));
 		}
 	}
 }
@@ -499,40 +499,40 @@ static void transform_dc2x2(Edge264Context *ctx)
 			i16x8 r1 = addlou8s16(loada64(p + stride * 3), lor);
 			i64x2 b8 = packus16(b0, b1);
 			i64x2 r8 = packus16(r0, r1);
-			*(int64_t *)(p             ) = b8[0];
-			*(int64_t *)(p + stride    ) = r8[0];
-			*(int64_t *)(p + stride * 2) = b8[1];
-			*(int64_t *)(p + stride * 3) = r8[1];
+			storea64((p             ), b8[0]);
+			storea64((p + stride    ), r8[0]);
+			storea64((p + stride * 2), b8[1]);
+			storea64((p + stride * 3), r8[1]);
 			i16x8 b2 = addlou8s16(loada64(p += stride * 4), lob);
 			i16x8 r2 = addlou8s16(loada64(p + stride    ), lor);
 			i16x8 b3 = addlou8s16(loada64(p + stride * 2), lob);
 			i16x8 r3 = addlou8s16(loada64(p + stride * 3), lor);
 			i64x2 b9 = packus16(b2, b3);
 			i64x2 r9 = packus16(r2, r3);
-			*(int64_t *)(p             ) = b9[0];
-			*(int64_t *)(p + stride    ) = r9[0];
-			*(int64_t *)(p + stride * 2) = b9[1];
-			*(int64_t *)(p + stride * 3) = r9[1];
+			storea64((p             ), b9[0]);
+			storea64((p + stride    ), r9[0]);
+			storea64((p + stride * 2), b9[1]);
+			storea64((p + stride * 3), r9[1]);
 			i16x8 b4 = addlou8s16(loada64(p += stride * 4), hib);
 			i16x8 r4 = addlou8s16(loada64(p + stride    ), hir);
 			i16x8 b5 = addlou8s16(loada64(p + stride * 2), hib);
 			i16x8 r5 = addlou8s16(loada64(p + stride * 3), hir);
 			i64x2 bA = packus16(b4, b5);
 			i64x2 rA = packus16(r4, r5);
-			*(int64_t *)(p             ) = bA[0];
-			*(int64_t *)(p + stride    ) = rA[0];
-			*(int64_t *)(p + stride * 2) = bA[1];
-			*(int64_t *)(p + stride * 3) = rA[1];
+			storea64((p             ), bA[0]);
+			storea64((p + stride    ), rA[0]);
+			storea64((p + stride * 2), bA[1]);
+			storea64((p + stride * 3), rA[1]);
 			i16x8 b6 = addlou8s16(loada64(p += stride * 4), hib);
 			i16x8 r6 = addlou8s16(loada64(p + stride    ), hir);
 			i16x8 b7 = addlou8s16(loada64(p + stride * 2), hib);
 			i16x8 r7 = addlou8s16(loada64(p + stride * 3), hir);
 			i64x2 bB = packus16(b6, b7);
 			i64x2 rB = packus16(r6, r7);
-			*(int64_t *)(p             ) = bB[0];
-			*(int64_t *)(p + stride    ) = rB[0];
-			*(int64_t *)(p + stride * 2) = bB[1];
-			*(int64_t *)(p + stride * 3) = rB[1];
+			storea64((p             ), bB[0]);
+			storea64((p + stride    ), rB[0]);
+			storea64((p + stride * 2), bB[1]);
+			storea64((p + stride * 3), rB[1]);
 		}
 	}
 }

@@ -47,6 +47,7 @@
 #   BUILDTEST   — build the test executable: yes|no (default: yes)
 #   V           — verbose build output: yes|no (default: yes)
 #   PY          — Python interpreter (default: python3)
+#   CBMC        - CBMC executable (default: cbmc)
 #
 # Cross-compilation note:
 #   SSE/AVX and NEON intrinsics are enabled automatically by the compiler when
@@ -70,6 +71,7 @@ DESTDIR    ?=
 BUILDTEST  ?= yes
 V          ?= yes
 PY         ?= python3
+CBMC       ?= cbmc
 
 # ---- Version -----------------------------------------------------------------
 _MAJOR   := 1
@@ -93,8 +95,7 @@ else
   _RM := rm -f
 endif
 
-# Target WASM if present, otherwise choose host OS
-# Can be overridden for cross-compilation
+# Target WASM if present, otherwise host OS (can be overridden for cross-compilation)
 ifneq (,$(findstring $(origin OS),undefined environment))
   override OS := $(if $(findstring environment,$(origin EMSCRIPTEN)),wasm,$(_HOSTOS))
 endif
@@ -142,9 +143,9 @@ endif
 
 # ---- Object file list --------------------------------------------------------
 _OBJNAMES := edge264.o \
-  $(if $(_HAS_V2),edge264_headers_v2.o) \
-  $(if $(_HAS_V3),edge264_headers_v3.o) \
-  $(if $(_HAS_LOGS),edge264_headers_log.o)
+  $(if $(_HAS_V2),edge264_v2.o) \
+  $(if $(_HAS_V3),edge264_v3.o) \
+  $(if $(_HAS_LOGS),edge264_log.o)
 
 # ---- Output filenames per target ---------------------------------------------
 ifeq ($(OS),macos)
@@ -195,7 +196,11 @@ endif
 
 # -march=native is only injected for native builds (CC == CCLD).
 # For cross-compilation the user is responsible for providing an explicit -march
-ifeq ($(CC),$(CCLD))
+ifeq ($(OS),wasm)
+  # emcc rejects -march; checked first since CC == CCLD under emmake.
+  # Add CFLAGS=-mrelaxed-simd for WASM v3 (requires runtime support)
+  _ARCHFLAGS := -msimd128
+else ifeq ($(CC),$(CCLD))
   # CFLAGS="-mtune=generic" may improve performance for GCC
   _ARCHFLAGS := -march=native
 else ifeq ($(OS),android)
@@ -206,9 +211,6 @@ else ifeq ($(OS),ios)
   # arm64 is the only live iOS architecture; xcrun resolves the sysroot.
   _IOS_SDK   := $(shell xcrun --sdk iphoneos --show-sdk-path 2>/dev/null)
   _ARCHFLAGS := -arch arm64 $(if $(_IOS_SDK),-isysroot $(_IOS_SDK))
-else ifeq ($(OS),wasm)
-  # Add CFLAGS=-mrelaxed-simd for WASM v3 (requires runtime support)
-  _ARCHFLAGS := -msimd128
 endif
 
 # Required flags are prepended; user CFLAGS come last so they can always override.
@@ -308,14 +310,14 @@ edge264.o: edge264.h src/*
 	$(call check_cmd,CC)
 	$(Q)$(CC) src/edge264.c -c $(CPPFLAGS) $(CFLAGS) $(OBJFLAGS) $(_RUNTIME_TESTS) -o $@
 
-edge264_headers_v2.o: edge264.h src/*
-	$(Q)$(CC) src/edge264_headers.c -c $(CPPFLAGS) $(CFLAGS) $(OBJFLAGS) -march=x86-64-v2 "-DADD_VARIANT(f)=f##_v2" -o $@
+edge264_v2.o: edge264.h src/*
+	$(Q)$(CC) src/edge264.c -c $(CPPFLAGS) $(CFLAGS) $(OBJFLAGS) -DVARIANT=X86_64_V2 -march=x86-64-v2 "-DADD_VARIANT(f)=f##_v2" -o $@
 
-edge264_headers_v3.o: edge264.h src/*
-	$(Q)$(CC) src/edge264_headers.c -c $(CPPFLAGS) $(CFLAGS) $(OBJFLAGS) -march=x86-64-v3 "-DADD_VARIANT(f)=f##_v3" -o $@
+edge264_v3.o: edge264.h src/*
+	$(Q)$(CC) src/edge264.c -c $(CPPFLAGS) $(CFLAGS) $(OBJFLAGS) -DVARIANT=X86_64_V3 -march=x86-64-v3 "-DADD_VARIANT(f)=f##_v3" -o $@
 
-edge264_headers_log.o: edge264.h src/*
-	$(Q)$(CC) src/edge264_headers.c -c $(CPPFLAGS) $(CFLAGS) $(OBJFLAGS) -DLOGS "-DADD_VARIANT(f)=f##_log" -o $@
+edge264_log.o: edge264.h src/*
+	$(Q)$(CC) src/edge264.c -c $(CPPFLAGS) $(CFLAGS) $(OBJFLAGS) -DVARIANT=LOGS "-DADD_VARIANT(f)=f##_log" -o $@
 
 
 # ==============================================================================
@@ -395,6 +397,14 @@ gentests:
 
 
 # ==============================================================================
+# Formal validation
+# ==============================================================================
+.PHONY: validate
+validate: edge264_harnesses.c
+	$(CBMC) src/edge264_harnesses.c --unwind 31 --unwinding-assertions -DEQUIVALENCE_CHECKS --function harness_find_start_code
+
+
+# ==============================================================================
 # Source archive
 # Produces edge264-$(_VERSION).tar.gz from the files tracked at git HEAD.
 # Requires git; aborts with a git error message if not in a repository.
@@ -444,6 +454,7 @@ help:
 	@echo "  BUILDTEST=$(BUILDTEST)"
 	@echo "  V=$(V)"
 	@echo "  PY=$(PY)"
+	@echo "  CBMC=$(CBMC)"
 	@echo ""
 	@echo "Examples:"
 	@echo "  make"

@@ -32,7 +32,9 @@
 #define WASM 3
 #define CLANG 4
 #ifndef SIMD
-	#if defined(__wasm_simd128__) // placed first to favor explicit WASM by default over SSE/NEON-inferred
+	#if defined(__CPROVER__)
+		#define SIMD CBMC
+	#elif defined(__wasm_simd128__) // placed first to favor explicit WASM by default over SSE/NEON-inferred
 		#define SIMD WASM
 	#elif defined(__SSE2__)
 		#define SIMD SSE
@@ -50,6 +52,13 @@
 	#include <arm_neon.h>
 #elif SIMD == WASM
 	#include <wasm_simd128.h>
+#endif
+
+#define LOGS 1
+#define X86_64_V2 2
+#define X86_64_V3 3
+#ifndef ADD_VARIANT
+	#define ADD_VARIANT(f) f
 #endif
 
 #include "../edge264.h"
@@ -511,6 +520,22 @@ typedef struct Edge264Decoder {
 		#define cold
 	#endif
 #endif
+static always_inline int mins(int a, int b) { return (a < b) ? a : b; }
+static always_inline int maxs(int a, int b) { return (a > b) ? a : b; }
+static always_inline unsigned minu(unsigned a, unsigned b) { return (a < b) ? a : b; }
+static always_inline unsigned maxu(unsigned a, unsigned b) { return (a > b) ? a : b; }
+static always_inline ptrdiff_t maxt(ptrdiff_t a, ptrdiff_t b) {return a > b ? a : b;}
+// min on values that may wrap around (PicOrderCnt)
+static always_inline unsigned minw(unsigned a, unsigned b) { return (int)(a - b) < 0 ? a : b; }
+// compatible with any of the pointers wrapping around
+static always_inline void *minp(const void *a, const void *b) { return (void *)(a < b ? a : b); }
+static always_inline int clip3(int a, int b, int c) { return mins(maxs(c, a), b); }
+#ifndef __builtin_clzg // works as long as __builtin_clzg is a macro
+	static always_inline int __builtin_clzg(unsigned a, int b) { return a ? __builtin_clz(a) : b; }
+#endif
+#ifndef __builtin_ctzg
+	static always_inline int __builtin_ctzg(unsigned a, int b) { return a ? __builtin_ctz(a) : b; }
+#endif
 
 
 
@@ -555,6 +580,25 @@ static const int8_t x444[16] = {0, 4, 0, 4, 8, 12, 8, 12, 0, 4, 0, 4, 8, 12, 8, 
 static const int8_t y444[16] = {0, 0, 4, 4, 0, 0, 4, 4, 8, 8, 12, 12, 8, 8, 12, 12};
 static const int8_t x420[8] = {0, 4, 0, 4, 0, 4, 0, 4};
 static const int8_t y420[8] = {0, 0, 4, 4, 0, 0, 4, 4};
+
+static const i8x16 sig_inc_8x8[2][4] = {{
+	{ 0,  1,  2,  3,  4,  5,  5,  4,  4,  3,  3,  4,  4,  4,  5,  5},
+	{ 4,  4,  4,  4,  3,  3,  6,  7,  7,  7,  8,  9, 10,  9,  8,  7},
+	{ 7,  6, 11, 12, 13, 11,  6,  7,  8,  9, 14, 10,  9,  8,  6, 11},
+	{12, 13, 11,  6,  9, 14, 10,  9, 11, 12, 13, 11, 14, 10, 12,  0},
+	}, {
+	{ 0,  1,  1,  2,  2,  3,  3,  4,  5,  6,  7,  7,  7,  8,  4,  5},
+	{ 6,  9, 10, 10,  8, 11, 12, 11,  9,  9, 10, 10,  8, 11, 12, 11},
+	{ 9,  9, 10, 10,  8, 11, 12, 11,  9,  9, 10, 10,  8, 13, 13,  9},
+	{ 9, 10, 10,  8, 13, 13,  9,  9, 10, 10, 14, 14, 14, 14, 14,  0},
+}};
+static const i8x8 sig_inc_chromaDC_422 = {0, 0, 1, 1, 2, 2, 2};
+static const i8x16 last_inc_8x8[4] = {
+	{0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1},
+	{2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2},
+	{3, 3, 3, 3, 3, 3, 3, 3, 4, 4, 4, 4, 4, 4, 4, 4},
+	{5, 5, 5, 5, 6, 6, 6, 6, 7, 7, 7, 7, 8, 8, 8, 8},
+};
 
 // really big, defined in edge264.c
 extern const int8_t cabac_context_init[4][1024][2] __attribute__((aligned(16)));
@@ -1128,22 +1172,100 @@ static const int8_t shz_mask[48] = {
 	static i16x8 maddubs(u8x16 a, i8x16 b) {return __builtin_elementwise_add_sat((i16x8)((u16x8)a << 8 >> 8) * ((i16x8)b << 8 >> 8), (i16x8)((u16x8)a >> 8) * ((i16x8)b >> 8));}
 	static u32x4 minw32(u32x4 a, u32x4 b) {return ifelse_mask((i32x4)(a - b) >> 31, a, b);}
 	static int movemask(i8x16 a) {return __builtin_reduce_add((u16x16)__builtin_convertvector(a >> 7, i16x16) & (u16x16){1, 2, 4, 8, 16, 32, 64, 128, 256, 512, 1024, 2048, 4096, 8192, 16384, 32768});}
-	static u32x4 pow2x4(i32x4 a) {return (a >= 0) & (u32x4)set32(1) << a;}
 	static i8x16 packs16(i16x8 a, i16x8 b) {i16x8 lo = set16(-128), hi = set16(127); a = __builtin_elementwise_min(__builtin_elementwise_max(a, lo), hi); b = __builtin_elementwise_min(__builtin_elementwise_max(b, lo), hi); return __builtin_convertvector((i16x16){a[0], a[1], a[2], a[3], a[4], a[5], a[6], a[7], b[0], b[1], b[2], b[3], b[4], b[5], b[6], b[7]}, i8x16);}
 	static i16x8 packs32(i32x4 a, i32x4 b) {i32x4 lo = set32(-32768), hi = set32(32767); a = __builtin_elementwise_min(__builtin_elementwise_max(a, lo), hi); b = __builtin_elementwise_min(__builtin_elementwise_max(b, lo), hi); return __builtin_convertvector((i32x8){a[0], a[1], a[2], a[3], b[0], b[1], b[2], b[3]}, i16x8);}
 	static u8x16 packus16(i16x8 a, i16x8 b) {i16x8 lo = set16(0), hi = set16(255); a = __builtin_elementwise_min(__builtin_elementwise_max(a, lo), hi); b = __builtin_elementwise_min(__builtin_elementwise_max(b, lo), hi); return __builtin_convertvector((u16x16){a[0], a[1], a[2], a[3], a[4], a[5], a[6], a[7], b[0], b[1], b[2], b[3], b[4], b[5], b[6], b[7]}, u8x16);}
+	static u32x4 pow2x4(i32x4 a) {return (a >= 0) & (u32x4)set32(1) << a;}
 	static size_t shld(size_t l, size_t h, size_t i) {return h << i | l >> 1 >> (~i & (SIZE_BIT - 1));}
 	static i8x16 shlv128(i8x16 a, int i) {return shufflez(a, loadu128(shz_mask + 16 - i));}
 	static i8x16 shrv128(i8x16 a, int i) {return shufflez(a, loadu128(shz_mask + 16 + i));}
-	static i8x16 shuffle2(i8x16 a, i8x16 b, i8x16 m) {return ifelse_mask(m < 16, shuffle(a, m), shuffle(b, m - 16));}
-	static i8x16 shuffle2z(i8x16 a, i8x16 b, i8x16 m) { return shuffle2(a, b, m) & ~(m < 0); }
-	static i8x16 shuffle3(const i8x16 *p, i8x16 m) {return ifelse_mask(m > 15, ifelse_mask(m > 31, shuffle(p[2], m), shuffle(p[1], m)), shuffle(p[0], m));}
 	static i16x8 shrrs16(i16x8 a, int i) {return (a + set16(1 << (i - 1))) >> i;}
 	static u16x8 shrru16(u16x8 a, int i) {return (a + set16(1 << (i - 1))) >> i;}
 	static u8x16 shrpus16(i16x8 a, i16x8 b, int i) {return packus16(a >> i, b >> i);}
 	static u8x16 shrrpu16(u16x8 a, u16x8 b, int i) {u16x8 o = set16(1 << (i - 1)), hi = set16(255), c = __builtin_elementwise_min((a + o) >> i, hi), d = __builtin_elementwise_min((b + o) >> i, hi); return __builtin_convertvector((u16x16){c[0], c[1], c[2], c[3], c[4], c[5], c[6], c[7], d[0], d[1], d[2], d[3], d[4], d[5], d[6], d[7]}, u8x16);}
+	static i8x16 shuffle2(i8x16 a, i8x16 b, i8x16 m) {return ifelse_mask(m < 16, shuffle(a, m), shuffle(b, m - 16));}
+	static i8x16 shuffle2z(i8x16 a, i8x16 b, i8x16 m) { return shuffle2(a, b, m) & ~(m < 0); }
+	static i8x16 shuffle3(const i8x16 *p, i8x16 m) {return ifelse_mask(m > 15, ifelse_mask(m > 31, shuffle(p[2], m), shuffle(p[1], m)), shuffle(p[0], m));}
 	#define maddxbs maddubs
 	#define maddubx (u16x8)maddubs
+#elif SIMD == CBMC
+	#define broadcast8(a, i) __builtin_shufflevector((i8x16)(a), (i8x16){}, i, i, i, i, i, i, i, i, i, i, i, i, i, i, i, i)
+	#define broadcast16(a, i) __builtin_shufflevector((i16x8)(a), (i16x8){}, i, i, i, i, i, i, i, i)
+	#define broadcast32(a, i) __builtin_shufflevector((i32x4)(a), (i32x4){}, i, i, i, i)
+	#define broadcast64(a, i) __builtin_shufflevector((i64x2)(a), (i64x2){}, i, i)
+	#define combine64(a, b) __builtin_shufflevector((i64x2)(a), (i64x2)(b), 0, 3)
+	#define trnlo32(a, b) __builtin_shufflevector((i32x4)(a), (i32x4)(b), 0, 4, 2, 6)
+	#define trnhi32(a, b) __builtin_shufflevector((i32x4)(a), (i32x4)(b), 1, 5, 3, 7)
+	#define unziplo32(a, b) __builtin_shufflevector((i32x4)(a), (i32x4)(b), 0, 2, 4, 6)
+	#define unziphi32(a, b) __builtin_shufflevector((i32x4)(a), (i32x4)(b), 1, 3, 5, 7)
+	#define ziplo8(a, b) __builtin_shufflevector((i8x16)(a), (i8x16)(b), 0, 16, 1, 17, 2, 18, 3, 19, 4, 20, 5, 21, 6, 22, 7, 23)
+	#define ziphi8(a, b) __builtin_shufflevector((i8x16)(a), (i8x16)(b), 8, 24, 9, 25, 10, 26, 11, 27, 12, 28, 13, 29, 14, 30, 15, 31)
+	#define ziplo16(a, b) __builtin_shufflevector((i16x8)(a), (i16x8)(b), 0, 8, 1, 9, 2, 10, 3, 11)
+	#define ziphi16(a, b) __builtin_shufflevector((i16x8)(a), (i16x8)(b), 4, 12, 5, 13, 6, 14, 7, 15)
+	#define ziplo32(a, b) __builtin_shufflevector((i32x4)(a), (i32x4)(b), 0, 4, 1, 5)
+	#define ziphi32(a, b) __builtin_shufflevector((i32x4)(a), (i32x4)(b), 2, 6, 3, 7)
+	#define ziplo64(a, b) __builtin_shufflevector((i64x2)(a), (i64x2)(b), 0, 2)
+	#define ziphi64(a, b) __builtin_shufflevector((i64x2)(a), (i64x2)(b), 1, 3)
+	static i8x16 abs8(i8x16 a) {i8x16 r; for (int k = 0; k < 16; k++) r[k] = (unsigned)abs(a[k]); return r;}
+	static i16x8 abs16(i16x8 a) {i16x8 r; for (int k = 0; k < 8; k++) r[k] = (unsigned)abs(a[k]); return r;}
+	static i16x8 adds16(i16x8 a, i16x8 b) {i16x8 r; for (int k = 0; k < 8; k++) r[k] = mins(maxs(a[k] + b[k], -32768), 32767); return r;}
+	static u8x16 avgu8(u8x16 a, u8x16 b) {u8x16 r; for (int k = 0; k < 16; k++) r[k] = (a[k] + b[k] + 1) >> 1; return r;}
+	static u16x8 cvtlo8u16(u8x16 a) {return __builtin_convertvector((u8x8){a[0], a[1], a[2], a[3], a[4], a[5], a[6], a[7]}, u16x8);}
+	static u16x8 cvthi8u16(u8x16 a) {return __builtin_convertvector((u8x8){a[8], a[9], a[10], a[11], a[12], a[13], a[14], a[15]}, u16x8);}
+	static i16x8 cvtlo8s16(i8x16 a) {return __builtin_convertvector((i8x8){a[0], a[1], a[2], a[3], a[4], a[5], a[6], a[7]}, i16x8);}
+	static i16x8 cvthi8s16(i8x16 a) {return __builtin_convertvector((i8x8){a[8], a[9], a[10], a[11], a[12], a[13], a[14], a[15]}, i16x8);}
+	static u32x4 cvtlo16u32(u16x8 a) {return __builtin_convertvector((u16x4){a[0], a[1], a[2], a[3]}, u32x4);}
+	static u32x4 cvthi16u32(u16x8 a) {return __builtin_convertvector((u16x4){a[4], a[5], a[6], a[7]}, u32x4);}
+	static i32x4 cvtlo16s32(i16x8 a) {return __builtin_convertvector((i16x4){a[0], a[1], a[2], a[3]}, i32x4);}
+	static i32x4 cvthi16s32(i16x8 a) {return __builtin_convertvector((i16x4){a[4], a[5], a[6], a[7]}, i32x4);}
+	static i16x8 hadd16(u16x8 a, u16x8 b) {return (u16x8){a[0] + a[1], a[2] + a[3], a[4] + a[5], a[6] + a[7], b[0] + b[1], b[2] + b[3], b[4] + b[5], b[6] + b[7]};}
+	static i8x16 ifelse_mask(i8x16 v, i8x16 t, i8x16 f) {return t & v | f & ~v;}
+	static i8x16 ifelse_msb(i8x16 v, i8x16 t, i8x16 f) {i8x16 r; for (int k = 0; k < 16; k++) r[k] = v[k] < 0 ? t[k] : f[k]; return r;}
+	static i32x4 loadu32(const void *p) {i32x4 v = {}; memcpy(&v, p, 4); return v;}
+	static i64x2 loadu64(const void *p) {i64x2 v = {}; memcpy(&v, p, 8); return v;}
+	static i8x16 loadu128(const void *p) {i8x16 v = {}; memcpy(&v, p, 16); return v;}
+	static i32x4 loadu32x4(const void *p0, const void *p1, const void *p2, const void *p3) {i32x4 v; memcpy((int32_t*)&v, p0, 4); memcpy((int32_t*)&v + 1, p1, 4); memcpy((int32_t*)&v + 2, p2, 4); memcpy((int32_t*)&v + 3, p3, 4); return v;}
+	static i64x2 loadu64x2(const void *p0, const void *p1) {i64x2 v; memcpy((int64_t*)&v, p0, 8); memcpy((int64_t*)&v + 1, p1, 8); return v;}
+	static i16x8 maddubx(u8x16 a, i8x16 b) {i16x8 r; for (int k = 0; k < 8; k++) {assert(b[k * 2] >= 0 && b[k * 2 + 1] >= 0); r[k] = a[k * 2] * b[k * 2] + a[k * 2 + 1] * b[k * 2 + 1];} return r;}
+	static i16x8 maddxbs(u8x16 a, i8x16 b) {i16x8 r; for (int k = 0; k < 8; k++) {assert(a[k * 2] < 128 && a[k * 2 + 1] < 128); r[k] = a[k * 2] * b[k * 2] + a[k * 2 + 1] * b[k * 2 + 1];} return r;}
+	static i8x16 min8(i8x16 a, i8x16 b) {i8x16 r; for (int k = 0; k < 16; k++) r[k] = a[k] < b[k] ? a[k] : b[k]; return r;}
+	static i8x16 max8(i8x16 a, i8x16 b) {i8x16 r; for (int k = 0; k < 16; k++) r[k] = a[k] > b[k] ? a[k] : b[k]; return r;}
+	static i16x8 min16(i16x8 a, i16x8 b) {i16x8 r; for (int k = 0; k < 8; k++) r[k] = a[k] < b[k] ? a[k] : b[k]; return r;}
+	static i16x8 max16(i16x8 a, i16x8 b) {i16x8 r; for (int k = 0; k < 8; k++) r[k] = a[k] > b[k] ? a[k] : b[k]; return r;}
+	static u8x16 minu8(u8x16 a, u8x16 b) {u8x16 r; for (int k = 0; k < 16; k++) r[k] = a[k] < b[k] ? a[k] : b[k]; return r;}
+	static u8x16 maxu8(u8x16 a, u8x16 b) {u8x16 r; for (int k = 0; k < 16; k++) r[k] = a[k] > b[k] ? a[k] : b[k]; return r;}
+	static u32x4 minw32(u32x4 a, u32x4 b) {i32x4 r; for (int k = 0; k < 4; k++) r[k] = (int)((unsigned)a[k] - (unsigned)b[k]) < 0 ? a[k] : b[k]; return r;}
+	static unsigned movemask(i8x16 a) {unsigned r = 0; for (int k = 0; k < 16; k++) if (a[k] < 0) r |= 1u << k; return r;} // using __CPROVER_assume on m actually slows CBMC down
+	static i8x16 packs16(i16x8 a, i16x8 b) {i8x16 r; for (int k = 0; k < 8; k++) { r[k] = mins(maxs(a[k], -128), 127); r[k + 8] = mins(maxs(b[k], -128), 127);} return r;}
+	static i16x8 packs32(i32x4 a, i32x4 b) {i16x8 r; for (int k = 0; k < 4; k++) { r[k] = mins(maxs(a[k], -32768), 32767); r[k + 4] = mins(maxs(b[k], -32768), 32767);} return r;}
+	static u8x16 packus16(i16x8 a, i16x8 b) {u8x16 r; for (int k = 0; k < 8; k++) { r[k] = mins(maxs(a[k], 0), 255); r[k + 8] = mins(maxs(b[k], 0), 255);} return r;}
+	static u32x4 pow2x4(i32x4 a) {u32x4 r; for (int k = 0; k < 4; k++) {assert(a[k] < 32); r[k] = a[k] < 0 ? 0 : 1 << a[k];} return r;}
+	static i8x16 set8(int i) {return (i8x16){i, i, i, i, i, i, i, i, i, i, i, i, i, i, i, i};}
+	static i16x8 set16(int i) {return (i16x8){i, i, i, i, i, i, i, i};}
+	static i32x4 set32(int i) {return (i32x4){i, i, i, i};}
+	static i64x2 set64(int64_t i) {return (i64x2){i, i};}
+	static size_t shld(size_t l, size_t h, size_t i) {return h << i | l >> 1 >> (~i & (SIZE_BIT - 1));}
+	static i8x16 shl128(i8x16 a, unsigned i) {assert(i < 16); i8x16 r; for (int k = i; k < 16; k++) r[k] = a[k - i]; return r;}
+	static i8x16 shr128(i8x16 a, unsigned i) {assert(i < 16); i8x16 r; for (int k = 0; k < 16 - i; k++) r[k] = a[k + i]; return r;}
+	static i8x16 shlc128(i8x16 a, unsigned i) {assert(i < 16); i8x16 r; for (int k = 0; k < 16; k++) r[k] = a[maxs(k - i, 0)]; return r;}
+	static i8x16 shrc128(i8x16 a, unsigned i) {assert(i < 16); i8x16 r; for (int k = 0; k < 16; k++) r[k] = a[mins(k + i, 15)]; return r;}
+	static i8x16 shlv128(i8x16 a, unsigned i) {assert(i < 16); i8x16 r; for (int k = 0; k < 16; k++) r[k] = (k >= i) ? a[k - i] : 0; return r;}
+	static i8x16 shrv128(i8x16 a, unsigned i) {assert(i < 16); i8x16 r; for (int k = 0; k < 16; k++) r[k] = (k + i < 16) ? a[k + i] : 0; return r;}
+	static i8x16 shrd128(i8x16 l, i8x16 h, unsigned i) {assert(i <= 16); i8x16 r; for (int k = 0; k < 16; k++) r[k] = (i + k < 16) ? l[i + k] : h[i + k - 16]; return r;}
+	static i8x16 shrz128(i8x16 a, unsigned i) {assert(i < 16); i8x16 r; for (int k = 0; k < 16; k++) r[k] = k + i < 16 ? a[k + i] : 0; return r;}
+	static uint64_t shrlou16(u16x8 a, unsigned i) { assert(i < 16); return (uint64_t)__builtin_convertvector(a >> i, u8x8);}
+	static i16x8 shrrs16(i16x8 a, unsigned i) {assert(i < 16); return (a + set16(1 << (i - 1))) >> i;}
+	static u16x8 shrru16(u16x8 a, unsigned i) {assert(i < 16); return (a + set16(1 << (i - 1))) >> i;}
+	static u8x16 shrpus16(i16x8 a, i16x8 b, unsigned i) {assert(i < 16); return packus16(a >> i, b >> i);}
+	static u8x16 shrrpu16(u16x8 a, u16x8 b, int i) {u16x8 o = set16(1 << (i - 1)), hi = set16(255), c = min16((a + o) >> i, hi), d = min16((b + o) >> i, hi); return __builtin_convertvector((u16x16){c[0], c[1], c[2], c[3], c[4], c[5], c[6], c[7], d[0], d[1], d[2], d[3], d[4], d[5], d[6], d[7]}, u8x16);}
+	static i8x16 shuffle(i8x16 a, u8x16 m) {i8x16 r; for (int k = 0; k < 16; k++) {if (m[k] < 16) r[k] = a[m[k]];} return r;}
+	static i8x16 shufflen(i8x16 a, i8x16 m) {i8x16 r; for (int k = 0; k < 16; k++) {if (m[k] < 16) r[k] = m[k] < 0 ? -1 : a[m[k]];} return r;}
+	static i8x16 shufflez(i8x16 a, i8x16 m) {i8x16 r; for (int k = 0; k < 16; k++) {if (m[k] < 16) r[k] = m[k] < 0 ? 0 : a[m[k]];} return r;}
+	static i8x16 shuffle2(i8x16 a, i8x16 b, u8x16 m) {i8x16 r; for (int k = 0; k < 16; k++) {if (m[k] < 32) r[k] = (m[k] < 16) ? a[m[k]] : b[m[k]];} return r;}
+	static i8x16 shuffle2z(i8x16 a, i8x16 b, i8x16 m) {i8x16 r; for (int k = 0; k < 16; k++) {if (m[k] < 32) r[k] = (m[k] < 0) ? 0 : (m[k] < 16) ? a[m[k]] : b[m[k]];} return r;}
+	static i8x16 shuffle3(const i8x16 *p, u8x16 m) {i8x16 r; for (int k = 0; k < 16; k++) {if (m[k] < 48) r[k] = ((const int8_t *)p)[m[k]];} return r;}
+	static u8x16 subsu8(u8x16 a, u8x16 b) {u8x16 r; for (int k = 0; k < 16; k++) r[k] = mins(a[k] + b[k], 255); return r;}
+	static u16x8 sum8(u8x16 a) {u16x8 r; r[0] = a[0] + a[1] + a[2] + a[3] + a[4] + a[5] + a[6] + a[7] + a[8] + a[9] + a[10] + a[11] + a[12] + a[13] + a[14] + a[15]; return r;}
 #endif
 
 
@@ -1151,15 +1273,6 @@ static const int8_t shz_mask[48] = {
 /**
  * Helper functions
  */
-static always_inline int mins(int a, int b) { return (a < b) ? a : b; }
-static always_inline int maxs(int a, int b) { return (a > b) ? a : b; }
-static always_inline unsigned minu(unsigned a, unsigned b) { return (a < b) ? a : b; }
-static always_inline unsigned maxu(unsigned a, unsigned b) { return (a > b) ? a : b; }
-// min on values that may wrap around (PicOrderCnt)
-static always_inline unsigned minw(unsigned a, unsigned b) { return (int)(a - b) < 0 ? a : b; }
-// compatible with any of the pointers wrapping around
-static always_inline void *minp(const void *a, const void *b) { return (void *)(a < b ? a : b); }
-static always_inline int clip3(int a, int b, int c) { return mins(maxs(c, a), b); }
 static always_inline i16x8 median16(i16x8 a, i16x8 b, i16x8 c) {
 	return max16(min16(max16(a, b), c), min16(a, b));
 }
@@ -1174,12 +1287,6 @@ static always_inline int rbsp_end(Edge264GetBits *gb, int trailing_bit) {
 	       (gb->lsb_cache & (gb->lsb_cache - 1)) == 0 &&
 	       (unsigned)bits_to_end <= 7 * trailing_bit;
 }
-#ifndef __builtin_clzg // works as long as __builtin_clzg is a macro
-	static always_inline int __builtin_clzg(unsigned a, int b) { return a ? __builtin_clz(a) : b; }
-#endif
-#ifndef __builtin_ctzg
-	static always_inline int __builtin_ctzg(unsigned a, int b) { return a ? __builtin_ctz(a) : b; }
-#endif
 #ifdef __BMI2__ // FIXME and not AMD pre-Zen3
 	#include <immintrin.h>
 	static always_inline int extract_neighbours(unsigned f) { return _pext_u32(f, 0x27); }
@@ -1220,10 +1327,10 @@ static always_inline unsigned ready_frames(Edge264Decoder *dec) {
 }
 static always_inline unsigned ready_tasks(Edge264Decoder *dec) {
 	i32x4 not_ready = ~set32(ready_frames(dec));
-	i32x4 a = (dec->task_dependencies_v[0] & not_ready) == 0;
-	i32x4 b = (dec->task_dependencies_v[1] & not_ready) == 0;
-	i32x4 c = (dec->task_dependencies_v[2] & not_ready) == 0;
-	i32x4 d = (dec->task_dependencies_v[3] & not_ready) == 0;
+	i32x4 a = (dec->task_dependencies_v[0] & not_ready) == (i32x4){};
+	i32x4 b = (dec->task_dependencies_v[1] & not_ready) == (i32x4){};
+	i32x4 c = (dec->task_dependencies_v[2] & not_ready) == (i32x4){};
+	i32x4 d = (dec->task_dependencies_v[3] & not_ready) == (i32x4){};
 	return dec->pending_tasks & movemask(packs16(packs32(a, b), packs32(c, d)));
 }
 static inline unsigned dpb_frames(Edge264Decoder *dec) {
@@ -1260,10 +1367,10 @@ static always_inline uint64_t get_relative_time_us() {
  */
 static const char *ret_to_str(int ret) {
 	static const char *retnames[] = {"0", "ENOBUFS", "ENOTSUP", "EBADMSG", "EINVAL", "ENODATA", "ENOMEM", "ENOMSG", "Unknown"};
-	i8x16 retcodes = {0, ENOBUFS, ENOTSUP, EBADMSG, EINVAL, ENODATA, ENOMEM, ENOMSG};
-	return retnames[__builtin_ctz(movemask(set8(ret) == retcodes) | 1 << 8)];
+	u8x16 retcodes = {0, ENOBUFS, ENOTSUP, EBADMSG, EINVAL, ENODATA, ENOMEM, ENOMSG};
+	return retnames[__builtin_ctz(movemask((u8x16)set8(ret) == retcodes) | 1 << 8)];
 }
-#ifdef LOGS
+#if VARIANT == LOGS
 	#define log_dec(dec, ...) {\
 		if (dec->log_pos < sizeof(dec->log_buf))\
 			dec->log_pos += snprintf(dec->log_buf + dec->log_pos, sizeof(dec->log_buf) - dec->log_pos, __VA_ARGS__);}
@@ -1380,9 +1487,12 @@ static noinline void parse_slice_data_cavlc(Edge264Context *ctx);
 static noinline void parse_slice_data_cabac(Edge264Context *ctx);
 
 // edge264_headers.c
-#ifndef ADD_VARIANT
-	#define ADD_VARIANT(f) f
-#endif
+static void unset_currPic(Edge264Decoder *dec);
+static int bump_frame(Edge264Decoder *dec, int non_base_view, unsigned ignored);
+static int bump_all_frames(Edge264Decoder *dec);
+static void flush_frames(Edge264Decoder *dec);
+static int alloc_frame(Edge264Decoder *dec, int id, int errno_on_fail);
+static void clear_decoder(Edge264Decoder *dec);
 void *worker_loop(void *d);
 void *worker_loop_v2(void *d);
 void *worker_loop_v3(void *d);

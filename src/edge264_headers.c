@@ -1,19 +1,5 @@
 #include "edge264_internal.h"
 
-#include "edge264_bitstream.c"
-#include "edge264_deblock.c"
-#include "edge264_inter.c"
-#include "edge264_intra.c"
-#include "edge264_mvpred.c"
-#include "edge264_residual.c"
-#ifdef LOGS
-	#include "edge264_sei.c"
-#endif
-#define CABAC 0
-#include "edge264_slice.c"
-#define CABAC 1
-#include "edge264_slice.c"
-
 
 
 /**
@@ -151,7 +137,7 @@ int ADD_VARIANT(parse_end_of_sequence)(Edge264Decoder *dec, Edge264UnrefCb unref
 	return print_dec(dec, "  decode_NAL_result: %s\n", ret);
 }
 
-#ifdef LOGS
+#if VARIANT == LOGS
 	int ignore_NAL_log(Edge264Decoder *dec, Edge264UnrefCb unref_cb, void *unref_arg) {
 		return print_dec(dec, "  decode_NAL_result: %s\n", 0);
 	}
@@ -289,8 +275,6 @@ static unsigned ppow(unsigned p65536, unsigned k) {
  * 1-(1-(1-p)^d)/(1-(1-p)^n). Note that p is sampled to 16-bits int to
  * avoid dependency on float and to fit all multiplications on 32 bits
  * with max precision.
- * 
- * FIXME remove ldleft macros eventually
 */
 static void recover_slice(Edge264Context *ctx, int currPic) {
 	// mark all previous mbs as erroneous and assign them an error probability
@@ -312,102 +296,7 @@ static void recover_slice(Edge264Context *ctx, int currPic) {
 		unsigned p128 = p12800 / 100;
 		
 		// recover the macroblock depending on slice_type
-		// FIXME use Intra function instead
-		if (ctx->t.slice_type == 2) { // I slice -> blend with intra DC
-			size_t stride_Y = ctx->t.stride[0];
-			DECL_SSTRIDE(stride_Y);
-			uint8_t * restrict y0 = ctx->samples_mb[0];
-			uint8_t * restrict y7 = y0 + stride_Y * 7;
-			uint8_t * restrict yE = y7 + stride_Y * 7;
-			i8x16 l = set8(-128), t = l;
-			if (i == 0 || ctx->mbx == 0) { // A not available
-				if (i >= ctx->t.pic_width_in_mbs) // B available
-					l = t = loada128(SADDR(y0, -1));
-			} else { // A available
-				l = t = ldleftC(y0, stride_Y, 0); // from intra.c
-				if (i >= ctx->t.pic_width_in_mbs) // B available
-					t = loada128(SADDR(y0, -1));
-			}
-			i8x16 dcY = broadcast8(shrru16(sum8(t) + sum8(l), 5), 0);
-			#if SIMD == SSE
-				i8x16 w0 = (p128 < 128) ? ziplo8(set8(128 - p128), set8(p128)) : (i8x16){0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1};
-				i8x16 w1 = w0;
-				i64x2 wd = {p128 < 128 ? 7 : 0};
-			#elif SIMD == NEON
-				i16x8 w0 = (p128 < 128) ? (i16x8){128 - p128, p128} : (i16x8){0, 1};
-				i16x8 w1 = w0;
-				i16x8 wd = set16(p128 < 128 ? 7 : 0);
-			#elif SIMD == WASM
-				i16x8 w0 = set16(p128 < 128 ? 128 - p128 : 0);
-				i16x8 w1 = set16(p128 < 128 ? p128 : 1);
-				int wd = p128 < 128 ? 7 : 0;
-			#elif SIMD == CLANG
-				i16x8 w0 = set16(p128 < 128 ? 128 - p128 : 0);
-				i16x8 w1 = set16(p128 < 128 ? p128 : 1);
-				i16x8 wd = set16(p128 < 128 ? 7 : 0);
-			#endif
-			i16x8 o = {};
-			*(i8x16 *)SADDR(y0,  0) = maddshrL(*(i8x16 *)SADDR(y0,  0), dcY, w0, w1, o, wd);
-			*(i8x16 *)SADDR(y0,  1) = maddshrL(*(i8x16 *)SADDR(y0,  1), dcY, w0, w1, o, wd);
-			*(i8x16 *)SADDR(y0,  2) = maddshrL(*(i8x16 *)SADDR(y0,  2), dcY, w0, w1, o, wd);
-			*(i8x16 *)SADDR(y7, -4) = maddshrL(*(i8x16 *)SADDR(y7, -4), dcY, w0, w1, o, wd);
-			*(i8x16 *)SADDR(y0,  4) = maddshrL(*(i8x16 *)SADDR(y0,  4), dcY, w0, w1, o, wd);
-			*(i8x16 *)SADDR(y7, -2) = maddshrL(*(i8x16 *)SADDR(y7, -2), dcY, w0, w1, o, wd);
-			*(i8x16 *)SADDR(y7, -1) = maddshrL(*(i8x16 *)SADDR(y7, -1), dcY, w0, w1, o, wd);
-			*(i8x16 *)SADDR(y7,  0) = maddshrL(*(i8x16 *)SADDR(y7,  0), dcY, w0, w1, o, wd);
-			*(i8x16 *)SADDR(y7,  1) = maddshrL(*(i8x16 *)SADDR(y7,  1), dcY, w0, w1, o, wd);
-			*(i8x16 *)SADDR(y7,  2) = maddshrL(*(i8x16 *)SADDR(y7,  2), dcY, w0, w1, o, wd);
-			*(i8x16 *)SADDR(yE, -4) = maddshrL(*(i8x16 *)SADDR(yE, -4), dcY, w0, w1, o, wd);
-			*(i8x16 *)SADDR(y7,  4) = maddshrL(*(i8x16 *)SADDR(y7,  4), dcY, w0, w1, o, wd);
-			*(i8x16 *)SADDR(yE, -2) = maddshrL(*(i8x16 *)SADDR(yE, -2), dcY, w0, w1, o, wd);
-			*(i8x16 *)SADDR(yE, -1) = maddshrL(*(i8x16 *)SADDR(yE, -1), dcY, w0, w1, o, wd);
-			*(i8x16 *)SADDR(yE,  0) = maddshrL(*(i8x16 *)SADDR(yE,  0), dcY, w0, w1, o, wd);
-			*(i8x16 *)SADDR(yE,  1) = maddshrL(*(i8x16 *)SADDR(yE,  1), dcY, w0, w1, o, wd);
-			
-			size_t stride_C = ctx->t.stride[1] >> 1;
-			DECL_DSTRIDE(stride_C);
-			uint8_t * restrict c0 = ctx->samples_mb[1];
-			uint8_t * restrict c7 = c0 + stride_C * 7;
-			uint8_t * restrict cE = c7 + stride_C * 7;
-			i8x16 lbr = ldleftC(c0, stride_C, 0); // from intra.c
-			i8x16 b = ziplo64(loada64(DADDR(c0, -2)), l);
-			i8x16 r = combine64(loada64(DADDR(c0, -1)), l);
-			i8x16 dcb = broadcast8(shrru16(sum8(b), 4), 0);
-			i8x16 dcr = broadcast8(shrru16(sum8(r), 4), 0);
-			i8x16 dcC = ziplo64(dcb, dcr);
-			i64x2 v0 = maddshrL(loada64x2(DADDR(c0,  0), DADDR(c0,  1)), dcC, w0, w1, o, wd);
-			i64x2 v1 = maddshrL(loada64x2(DADDR(c0,  2), DADDR(c7, -4)), dcC, w0, w1, o, wd);
-			i64x2 v2 = maddshrL(loada64x2(DADDR(c0,  4), DADDR(c7, -2)), dcC, w0, w1, o, wd);
-			i64x2 v3 = maddshrL(loada64x2(DADDR(c7, -1), DADDR(c7,  0)), dcC, w0, w1, o, wd);
-			i64x2 v4 = maddshrL(loada64x2(DADDR(c7,  1), DADDR(c7,  2)), dcC, w0, w1, o, wd);
-			i64x2 v5 = maddshrL(loada64x2(DADDR(cE, -4), DADDR(c7,  4)), dcC, w0, w1, o, wd);
-			i64x2 v6 = maddshrL(loada64x2(DADDR(cE, -2), DADDR(cE, -1)), dcC, w0, w1, o, wd);
-			i64x2 v7 = maddshrL(loada64x2(DADDR(cE,  0), DADDR(cE,  1)), dcC, w0, w1, o, wd);
-			*(int64_t *)DADDR(c0,  0) = v0[0];
-			*(int64_t *)DADDR(c0,  1) = v0[1];
-			*(int64_t *)DADDR(c0,  2) = v1[0];
-			*(int64_t *)DADDR(c7, -4) = v1[1];
-			*(int64_t *)DADDR(c0,  4) = v2[0];
-			*(int64_t *)DADDR(c7, -2) = v2[1];
-			*(int64_t *)DADDR(c7, -1) = v3[0];
-			*(int64_t *)DADDR(c7,  0) = v3[1];
-			*(int64_t *)DADDR(c7,  1) = v4[0];
-			*(int64_t *)DADDR(c7,  2) = v4[1];
-			*(int64_t *)DADDR(cE, -4) = v5[0];
-			*(int64_t *)DADDR(c7,  4) = v5[1];
-			*(int64_t *)DADDR(cE, -2) = v6[0];
-			*(int64_t *)DADDR(cE, -1) = v6[1];
-			*(int64_t *)DADDR(cE,  0) = v7[0];
-			*(int64_t *)DADDR(cE,  1) = v7[1];
-		} else if (i > 0 && p128 >= 32) { // recover above 25% error (arbitrary)
-			if (ctx->t.slice_type == 0) { // P slice -> P_Skip
-				mb->nC_v[0] = (i8x16){};
-				decode_P_skip(ctx);
-			} else { // B slice -> B_Skip
-				mb->nC_v[0] = (i8x16){};
-				decode_direct_mv_pred(ctx, 0xffffffff);
-			}
-		}
+		// FIXME fill macroblocks with wrong flip_bit in grey
 		__atomic_store_n(&ctx->_mb->recovery_bits, ctx->t.frame_flip_bit + 2, __ATOMIC_RELEASE);
 		
 		// point to the next macroblock
@@ -875,7 +764,7 @@ static void parse_ref_pic_list_modification(Edge264Decoder *dec, Edge264SeqParam
 		}
 	}
 	
-	#ifdef LOGS
+	#if VARIANT == LOGS
 		for (int lx = 0; lx <= t->slice_type; lx++) {
 			log_dec(dec, lx == 0 ? "  RefPicLists: [[" : "], [");
 			for (int i = 0; i < t->pps.num_ref_idx_active[lx]; i++) {
@@ -1249,7 +1138,7 @@ int ADD_VARIANT(parse_slice_layer_without_partitioning)(Edge264Decoder *dec, Edg
 		} else if (__builtin_popcount(dec->to_get_frames & ~dec->output_frames & same_views) > sps->max_num_reorder_frames) {
 			bump_frame(dec, non_base_view, 0);
 		}
-		#ifdef LOGS
+		#if VARIANT == LOGS
 			log_dec(dec, "  DecodedPictureBuffer:\n");
 			unsigned short_term_frames = dec->prev_short_term_frames & ~same_views | dec->view_short_term_frames;
 			unsigned long_term_frames = dec->prev_long_term_frames & ~same_views | dec->view_long_term_frames;
@@ -1293,7 +1182,7 @@ int ADD_VARIANT(parse_slice_layer_without_partitioning)(Edge264Decoder *dec, Edg
  * AUDs are ignored outside logging, so that the behavior is equal whether they
  * are included or not, hence a present AUD cannot cover an otherwise bug.
  */
-#ifdef LOGS
+#if VARIANT == LOGS
 	int parse_access_unit_delimiter_log(Edge264Decoder *dec, Edge264UnrefCb unref_cb, void *unref_arg) {
 		const char *primary_pic_type_names[8] =
 			{"I", "I,P", "I,P,B", "SI", "SI,SP", "I,SI", "I,SI,P,SP", "I,SI,P,SP,B"};

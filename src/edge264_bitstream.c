@@ -39,12 +39,12 @@ static inline size_t get_bytes(Edge264GetBits *gb, int nbytes)
 	}
 	
 	// make a bitmask for the positions of 00n (n<=3) escape sequences and iterate on it
-	i8x16 eq0 = v == 0;
+	i8x16 eq0 = v == (u8x16){};
 	u8x16 x = shr128(v, 2);
-	i8x16 to_fix = eq0 & shrz128(eq0, 1) & shrz128(v <= 3, 2);
+	i8x16 to_fix = eq0 & shrz128(eq0, 1) & shrz128(v <= (u8x16)set8(3), 2);
 	if (SIZE_BIT == 32 ? ((i32x4)to_fix)[0] : ((i64x2)to_fix)[0]) {
 		unsigned test = movemask(to_fix);
-		unsigned three = movemask(x == 3);
+		unsigned three = movemask(x == (u8x16)set8(3));
 		unsigned stop = test & ~three;
 		if (stop) {
 			int i = __builtin_ctz(stop);

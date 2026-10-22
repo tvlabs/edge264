@@ -1,7 +1,7 @@
 #include "edge264_internal.h"
 
 
-
+/* Covered by formal proof */
 const uint8_t *edge264_find_start_code(
 		const uint8_t *buf,
 		const uint8_t *end,
@@ -9,43 +9,45 @@ const uint8_t *edge264_find_start_code(
 {
 	if (buf >= end) return end;
 	int nb_zeros = four_byte ? 3 : 2;
-	const uint8_t *base = (const uint8_t *)((uintptr_t)buf & -16);
-	const uint8_t *p = base;
-	i8x16 v = *(const i8x16 *)p;
-	i8x16 zero = {};
-	i8x16 lo0 = zero;
-	i8x16 hi0 = (v == zero) & shlv128(set8(-1), (uintptr_t)buf & 15);
-	i8x16 c1 = set8(1);
-	while (1) {
-		i8x16 mask = shrd128(lo0, hi0, 14) & shrd128(lo0, hi0, 15) & (v == c1);
-		if (four_byte)
-			mask &= shrd128(lo0, hi0, 13);
-		#if SIMD == SSE
-			unsigned m = movemask(mask);
-			if (m) {
-				ptrdiff_t i = p - base + __builtin_ctz(m) - nb_zeros;
-				p = base + maxt(i < end - base - nb_zeros ? i : end - base, buf - base);
+	#if SIMD != NONE
+		const uint8_t *base = (const uint8_t *)((uintptr_t)buf & -16);
+		const uint8_t *p = base;
+		i8x16 v = *(const i8x16 *)p;
+		i8x16 zero = {};
+		i8x16 lo0 = zero;
+		i8x16 hi0 = (v == zero) & shlv128(set8(-1), (uintptr_t)buf & 15);
+		i8x16 c1 = set8(1);
+		while (1) {
+			i8x16 mask = shrd128(lo0, hi0, 14) & shrd128(lo0, hi0, 15) & (v == c1);
+			if (four_byte)
+				mask &= shrd128(lo0, hi0, 13);
+			#if SIMD == SSE
+				unsigned m = movemask(mask);
+				if (m) {
+					ptrdiff_t i = p - base + __builtin_ctz(m) - nb_zeros;
+					p = base + maxt(i < end - base - nb_zeros ? i : end - base, buf - base);
+					break;
+				}
+			#else
+				uint64_t m = shrlou16(mask, 4);
+				if (m) {
+					ptrdiff_t i = p - base + (__builtin_ctzll(m) >> 2) - nb_zeros;
+					p = base + maxt(i < end - base - nb_zeros ? i : end - base, buf - base);
+					break;
+				}
+			#endif
+			p += 16;
+			if (p >= end) {
+				p = end;
 				break;
 			}
-		#else
-			uint64_t m = shrlou16(mask, 4);
-			if (m) {
-				ptrdiff_t i = p - base + (__builtin_ctzll(m) >> 2) - nb_zeros;
-				p = base + maxt(i < end - base - nb_zeros ? i : end - base, buf - base);
-				break;
-			}
-		#endif
-		p += 16;
-		if (p >= end) {
-			p = end;
-			break;
+			v = *(const i8x16 *)p;
+			lo0 = hi0;
+			hi0 = (v == zero);
 		}
-		v = *(const i8x16 *)p;
-		lo0 = hi0;
-		hi0 = (v == zero);
-	}
+	#endif
 	
-	#ifdef EQUIVALENCE_CHECKS
+	#if SIMD == CBMC || SIMD == NONE
 		const uint8_t *ref_p = end;
 		for (ptrdiff_t i = 0; i < end - buf - nb_zeros; i++) {
 			int match = four_byte
@@ -56,7 +58,11 @@ const uint8_t *edge264_find_start_code(
 				break;
 			}
 		}
-		assert(p == ref_p);
+		#if SIMD == CBMC
+			assert(p == ref_p);
+		#else
+			const uint8_t *p = ref_p;
+		#endif
 	#endif
 	return p;
 }

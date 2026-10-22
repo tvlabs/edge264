@@ -27,14 +27,16 @@
 #endif
 
 // Automatic selection of SIMD backend if not defined by environment
+#define NONE 0 // work in progress to allow scalar decoding, not enabled yet
 #define SSE 1
 #define NEON 2
 #define WASM 3
 #define CLANG 4
+#define CBMC 5
 #ifndef SIMD
 	#if defined(__CPROVER__)
 		#define SIMD CBMC
-	#elif defined(__wasm_simd128__) // placed first to favor explicit WASM by default over SSE/NEON-inferred
+	#elif defined(__wasm_simd128__) // placed ahead to favor explicit WASM over SSE/NEON-inferred
 		#define SIMD WASM
 	#elif defined(__SSE2__)
 		#define SIMD SSE
@@ -54,6 +56,7 @@
 	#include <wasm_simd128.h>
 #endif
 
+// Values for the current VARIANT that may be passed during compilation
 #define LOGS 1
 #define X86_64_V2 2
 #define X86_64_V3 3
@@ -524,7 +527,7 @@ static always_inline int mins(int a, int b) { return (a < b) ? a : b; }
 static always_inline int maxs(int a, int b) { return (a > b) ? a : b; }
 static always_inline unsigned minu(unsigned a, unsigned b) { return (a < b) ? a : b; }
 static always_inline unsigned maxu(unsigned a, unsigned b) { return (a > b) ? a : b; }
-static always_inline ptrdiff_t maxt(ptrdiff_t a, ptrdiff_t b) {return a > b ? a : b;}
+static always_inline intptr_t maxt(intptr_t a, intptr_t b) {return a > b ? a : b;}
 // min on values that may wrap around (PicOrderCnt)
 static always_inline unsigned minw(unsigned a, unsigned b) { return (int)(a - b) < 0 ? a : b; }
 // compatible with any of the pointers wrapping around

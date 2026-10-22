@@ -1,6 +1,6 @@
 # ==============================================================================
 # edge264 — Makefile
-# Generated with AI assistance by Claude Sonnet 4.6 (claude-sonnet-4-6).
+# Generated with AI assistance.
 #
 # Supported targets: macOS (macos), Linux (linux), Windows MinGW (windows),
 #                    WebAssembly (wasm), [Android NDK (android), iOS (ios)]
@@ -47,7 +47,8 @@
 #   BUILDTEST   — build the test executable: yes|no (default: yes)
 #   V           — verbose build output: yes|no (default: yes)
 #   PY          — Python interpreter (default: python3)
-#   CBMC        - CBMC executable (default: cbmc)
+#   CBMC        - CBMC executable for the validate target
+#                 (default: cbmc/src/cbmc/cbmc if it exists, otherwise cbmc)
 #
 # Cross-compilation note:
 #   SSE/AVX and NEON intrinsics are enabled automatically by the compiler when
@@ -71,7 +72,8 @@ DESTDIR    ?=
 BUILDTEST  ?= yes
 V          ?= yes
 PY         ?= python3
-CBMC       ?= cbmc
+# Prefer a local CBMC build in ./cbmc if present (upstream releases may mishandle vector code)
+CBMC       ?= $(if $(wildcard cbmc/src/cbmc/cbmc),cbmc/src/cbmc/cbmc,cbmc)
 
 # ---- Version -----------------------------------------------------------------
 _MAJOR   := 1
@@ -399,9 +401,11 @@ gentests:
 # ==============================================================================
 # Formal validation
 # ==============================================================================
+# CBMC selects the scalar SIMD=CBMC backend automatically (via __CPROVER__).
 .PHONY: validate
-validate: edge264_harnesses.c
-	$(CBMC) src/edge264_harnesses.c --unwind 31 --unwinding-assertions -DEQUIVALENCE_CHECKS --function harness_find_start_code
+validate: src/edge264_api_harness.c src/edge264_api.c src/edge264_internal.h edge264.h
+	$(call check_cmd,CBMC)
+	$(Q)$(CBMC) src/edge264_api_harness.c --unwind 31 --unwinding-assertions --function harness_find_start_code
 
 
 # ==============================================================================
@@ -430,6 +434,7 @@ help:
 	@echo "  clean       Remove build artifacts"
 	@echo "  check       Run automated tests (edge264_check)"
 	@echo "  gentests    Generate .264 test bitstreams from .yaml files"
+	@echo "  validate    Run formal proofs with CBMC"
 	@echo "  dist        Create edge264-$(_VERSION).tar.gz from git HEAD"
 	@echo "  help        Show this help"
 	@echo ""

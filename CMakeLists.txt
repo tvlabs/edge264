@@ -1,122 +1,46 @@
-# ==============================================================================
-# edge264 — CMakeLists.txt
-# Generated with AI assistance by Claude Sonnet 4.6 (claude-sonnet-4-6).
-#
-# Thin wrapper that delegates all build logic to the Makefile.
-# It maps standard CMake variables to Makefile parameters and exposes an
-# imported target edge264::edge264 for use with target_link_libraries.
-#
-# The only value to keep in sync with the Makefile when it changes is
-# EDGE264_MAJOR below.
-# ==============================================================================
-
+# Thin wrapper delegating the build to the Makefile, exposing edge264::edge264
 cmake_minimum_required(VERSION 3.14)
-project(edge264 VERSION 1.0 LANGUAGES C)
-
-# Keep in sync with MAJOR in the Makefile.
-set(EDGE264_MAJOR 1)
-
-# Optional: forward a VARIANTS string to the Makefile
-# (e.g. -DEDGE264_VARIANTS=x86-64-v2,x86-64-v3,logs).
-set(EDGE264_VARIANTS "" CACHE STRING
-    "Comma-separated edge264 build variants (x86-64-v2, x86-64-v3, logs)")
-
+project(edge264 LANGUAGES C)
 include(ExternalProject)
+set(EDGE264_VARIANTS logs CACHE STRING "Makefile VARIANTS (x86-64-v2,x86-64-v3,logs)")
+set(_prefix ${CMAKE_CURRENT_BINARY_DIR}/edge264-install)
+file(MAKE_DIRECTORY ${_prefix}/include) # imported include dirs must exist at configure time
+find_program(EDGE264_MAKE NAMES gmake make mingw32-make)
 
-# ---- Map CMAKE_SYSTEM_NAME to Makefile OS values ----------------------------
-if(CMAKE_SYSTEM_NAME STREQUAL "Darwin")
-  set(_os macos)
-elseif(CMAKE_SYSTEM_NAME STREQUAL "iOS")
-  set(_os ios)
-elseif(CMAKE_SYSTEM_NAME STREQUAL "Windows")
-  set(_os windows)
-elseif(CMAKE_SYSTEM_NAME STREQUAL "Android")
-  set(_os android)
-elseif(CMAKE_SYSTEM_NAME STREQUAL "Emscripten")
-  set(_os wasm)
-else()
+# Makefile OS for the target platform
+set(_os_Darwin macos)
+set(_os_iOS ios)
+set(_os_Windows windows)
+set(_os_Android android)
+set(_os_Emscripten wasm)
+set(_os ${_os_${CMAKE_SYSTEM_NAME}})
+if(NOT _os)
   set(_os linux)
 endif()
 
-# ---- Static vs shared -------------------------------------------------------
-# iOS is always static regardless of BUILD_SHARED_LIBS.
-if(_os STREQUAL "ios" OR NOT BUILD_SHARED_LIBS)
-  set(_static yes)
-else()
+# Shared only where the installed library is directly linkable (no Windows import library)
+if(BUILD_SHARED_LIBS AND _os MATCHES "^(macos|linux|android)$")
+  set(_type SHARED)
   set(_static no)
-endif()
-
-# ---- Expected library filename -----------------------------------------------
-# Must match the LIBNAME logic in the Makefile.
-if(_static STREQUAL "yes")
-  set(_libfile libedge264.a)
-elseif(_os STREQUAL "macos")
-  set(_libfile libedge264.${EDGE264_MAJOR}.dylib)
-elseif(_os STREQUAL "linux")
-  set(_libfile libedge264.so.${EDGE264_MAJOR})
-elseif(_os STREQUAL "windows")
-  set(_libfile edge264.${EDGE264_MAJOR}.dll)
-elseif(_os STREQUAL "android")
-  set(_libfile libedge264.so)
-elseif(_os STREQUAL "wasm")
-  set(_libfile edge264.js)
-endif()
-
-# ---- Installation prefix inside the CMake build tree ------------------------
-set(_prefix "${CMAKE_CURRENT_BINARY_DIR}/edge264-install")
-
-# ---- Makefile arguments -----------------------------------------------------
-set(_args
-  OS=${_os}
-  STATIC=${_static}
-  BUILD_TEST=no
-  PREFIX=${_prefix}
-)
-
-if(CMAKE_C_COMPILER)
-  list(APPEND _args CC=${CMAKE_C_COMPILER})
-endif()
-
-# Forward CMAKE_C_FLAGS only when non-empty; an empty CFLAGS= on the command
-# line would override the Makefile's own default flags.
-if(CMAKE_C_FLAGS)
-  list(APPEND _args "CFLAGS=${CMAKE_C_FLAGS}")
-endif()
-
-if(EDGE264_VARIANTS)
-  list(APPEND _args VARIANTS=${EDGE264_VARIANTS})
-endif()
-
-# Android: use the NDK's llvm-ar co-located with the compiler to avoid a
-# host/target mismatch when archiving (see Makefile for details).
-if(_os STREQUAL "android" AND CMAKE_C_COMPILER)
-  get_filename_component(_ndk_bin "${CMAKE_C_COMPILER}" DIRECTORY)
-  list(APPEND _args AR=${_ndk_bin}/llvm-ar)
-endif()
-
-# ---- ExternalProject ---------------------------------------------------------
-ExternalProject_Add(edge264_ext
-  SOURCE_DIR        "${CMAKE_CURRENT_SOURCE_DIR}"
-  CONFIGURE_COMMAND ""
-  BUILD_COMMAND     $(MAKE) ${_args}
-  INSTALL_COMMAND   $(MAKE) ${_args} install
-  # Objects are written next to the sources; do not copy the tree.
-  BUILD_IN_SOURCE   TRUE
-  # Declaring the output lets CMake track the dependency correctly.
-  BUILD_BYPRODUCTS  "${_prefix}/lib/${_libfile}"
-)
-
-# ---- Imported target ---------------------------------------------------------
-if(_static STREQUAL "yes")
-  add_library(edge264 STATIC IMPORTED GLOBAL)
+  set(_rpath -Wl,-rpath,${_prefix}/lib) # the library is referenced through @rpath/soname
 else()
-  add_library(edge264 SHARED IMPORTED GLOBAL)
+  set(_type STATIC)
+  set(_static yes)
 endif()
+set(_lib ${_prefix}/lib/${CMAKE_${_type}_LIBRARY_PREFIX}edge264${CMAKE_${_type}_LIBRARY_SUFFIX})
 
-add_dependencies(edge264 edge264_ext)
-set_target_properties(edge264 PROPERTIES
-  IMPORTED_LOCATION             "${_prefix}/lib/${_libfile}"
-  INTERFACE_INCLUDE_DIRECTORIES "${_prefix}/include")
+ExternalProject_Add(edge264_ext
+  SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}
+  BUILD_IN_SOURCE TRUE
+  CONFIGURE_COMMAND ""
+  BUILD_COMMAND ${EDGE264_MAKE} install OS=${_os} STATIC=${_static} BUILDTEST=no PREFIX=${_prefix}
+    CC=${CMAKE_C_COMPILER} AR=${CMAKE_AR} "CFLAGS=${CMAKE_C_FLAGS}" "VARIANTS=${EDGE264_VARIANTS}"
+  INSTALL_COMMAND ""
+  BUILD_BYPRODUCTS ${_lib})
 
-# Canonical namespaced alias consumed by downstream targets.
-add_library(edge264::edge264 ALIAS edge264)
+add_library(edge264::edge264 ${_type} IMPORTED GLOBAL)
+add_dependencies(edge264::edge264 edge264_ext)
+set_target_properties(edge264::edge264 PROPERTIES
+  IMPORTED_LOCATION ${_lib}
+  INTERFACE_INCLUDE_DIRECTORIES ${_prefix}/include
+  INTERFACE_LINK_OPTIONS "${_rpath}")

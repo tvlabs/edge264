@@ -47,8 +47,8 @@
 #   BUILDTEST   — build the test executable: yes|no (default: yes)
 #   V           — verbose build output: yes|no (default: yes)
 #   PY          — Python interpreter (default: python3)
-#   CBMC        - CBMC executable for the validate target
-#                 (default: cbmc/src/cbmc/cbmc if it exists, otherwise cbmc)
+#   CBMC        - CBMC executable for the validate target (default: cbmc)
+#   HARNESS     - comma-separated harness functions to validate (default: all)
 #
 # Cross-compilation note:
 #   SSE/AVX and NEON intrinsics are enabled automatically by the compiler when
@@ -72,8 +72,7 @@ DESTDIR    ?=
 BUILDTEST  ?= yes
 V          ?= yes
 PY         ?= python3
-# Prefer a local CBMC build in ./cbmc if present (upstream releases may mishandle vector code)
-CBMC       ?= $(if $(wildcard cbmc/src/cbmc/cbmc),cbmc/src/cbmc/cbmc,cbmc)
+CBMC       ?= cbmc
 
 # ---- Version -----------------------------------------------------------------
 _MAJOR   := 1
@@ -401,11 +400,34 @@ gentests:
 # ==============================================================================
 # Formal validation
 # ==============================================================================
-# CBMC selects the scalar SIMD=CBMC backend automatically (via __CPROVER__).
+_HARNESS_FILES := $(wildcard src/*_harness.c)
 .PHONY: validate
-validate: src/edge264_api_harness.c src/edge264_api.c src/edge264_internal.h edge264.h
+validate: $(_HARNESS_FILES) src/edge264_api.c src/edge264_internal.h edge264.h
 	$(call check_cmd,CBMC)
-	$(Q)$(CBMC) src/edge264_api_harness.c --unwind 31 --unwinding-assertions --function harness_find_start_code
+	@verbose='$(findstring yes,$(V))'; failed=0; ran=0; \
+	for file in $(_HARNESS_FILES); do \
+	  opts=; \
+	  while IFS= read -r line; do \
+	    case "$$line" in \
+	    "// cbmc:"*) opts="$${line#// cbmc:}";; \
+	    "void harness_"*"("*) \
+	      fn="$${line#void }"; fn="$${fn%%(*}"; \
+	      case ",$(or $(HARNESS),$$fn)," in *",$$fn,"*) \
+	        ran=1; \
+	        [ -z "$$verbose" ] || echo $(CBMC) "$$file" --function "$$fn" $$opts; \
+	        out=$$($(CBMC) "$$file" --function "$$fn" $$opts 2>&1 </dev/null); ret=$$?; \
+	        if [ $$ret -eq 0 ]; then echo "PASS: $$fn"; else echo "FAIL: $$fn"; fi; \
+	        echo "$$out" | grep '^warning: ignoring'; \
+	        if [ $$ret -eq 10 ]; then echo "$$out" | grep 'FAILURE$$'; \
+	        elif [ $$ret -ne 0 ]; then echo "$$out" | tail -n 20; fi; \
+	        [ $$ret -eq 0 ] || failed=1;; \
+	      esac; \
+	      opts=;; \
+	    esac; \
+	  done < "$$file"; \
+	done; \
+	if [ $$ran -eq 0 ]; then echo "No harness function found matching '$(HARNESS)'"; failed=1; fi; \
+	exit $$failed
 
 
 # ==============================================================================
@@ -468,6 +490,7 @@ help:
 	@echo "  make SANITIZE=address,undefined"
 	@echo "  make STATIC=yes"
 	@echo "  make OS=wasm VARIANTS=logs BUILDTEST=no"
+	@echo "  make validate HARNESS=harness_find_start_code"
 	@echo "  make install PREFIX=\$$HOME/.local"
 	@echo "  make install libdir=/usr/lib64"
 	@echo "  make CPPFLAGS=-DNDEBUG LDFLAGS='-Wl,-z,relro -Wl,-z,now'"

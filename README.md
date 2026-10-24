@@ -169,7 +169,7 @@ int main(int argc, char *argv[]) {
 
 > Allocate and initialize a decoding context.
 > * `int n_threads` - number of background worker threads, with 0 to disable multithreading and -1 to detect the number of logical cores at runtime
-> * `int (* log_cb)(const char * str, void * log_arg)` (`Edge264LogCb`) - if not NULL, a `fputs`-compatible function pointer that `edge264_decode_NAL` will call to log every header, SEI or macroblock (its return value is ignored), called from the same thread except for macroblocks in multithreaded decoding. It requires the library to be built with the `logs` variant, otherwise `edge264_alloc` returns NULL
+> * `int (* log_cb)(const char * str, void * log_arg)` (`Edge264LogCb`) - if not NULL, a `fputs`-compatible function pointer that `edge264_decode_NAL` will call to log every header, SEI or macroblock (its return value is ignored), called from the same thread except for macroblocks in multithreaded decoding. It requires the library to be built with the `logs` variant, otherwise `edge264_alloc` will return NULL
 > * `void * log_arg` - custom value passed to `log_cb`
 > * `int log_mbs` - set to 1 to enable the logging of macroblocks
 > * `void (* alloc_cb)(void ** samples, unsigned samples_size, void ** mbs, unsigned mbs_size, int errno_on_fail, void * alloc_arg)` (`Edge264AllocCb`) - if not NULL, a function pointer that `edge264_decode_NAL` will call (on the same thread) instead of malloc to request allocation of samples and macroblock buffers for a frame (`errno_on_fail` is ENOMEM for mandatory allocations, or ENOBUFS for allocations that may be skipped to save memory but reduce playback smoothness)
@@ -182,7 +182,7 @@ int main(int argc, char *argv[]) {
 > * `Edge264Decoder * dec` - initialized decoding context
 > * `const uint8_t * buf` - first byte of NAL unit (containing `nal_unit_type`)
 > * `const uint8_t * end` - first byte past the buffer (passing `buf >= end` will make all buffered frames ready for output with `edge264_get_frame`)
-> * `void (* unref_cb)(int ret, void * unref_arg)` (`Edge264UnrefCb`) - if not NULL, a function that may be called from another thread to signal the end of parsing and release the NAL buffer (only when returning `0`), with `ret` being the result of parsing (`0`, or `EBADMSG` if a slice turned out to be invalid)
+> * `void (* unref_cb)(int ret, void * unref_arg)` (`Edge264UnrefCb`) - if not NULL, a function that may be called from another thread to signal the end of parsing and release the NAL buffer (a reference to the frame is kept only when `edge264_decode_NAL` returns `0`), with `ret` being the result after parsing the slide (`0`, or `EBADMSG` if it turned out to be invalid)
 > * `void * unref_arg` - custom value that will be passed to `unref_cb`
 
 > Return codes:

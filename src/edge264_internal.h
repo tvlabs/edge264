@@ -437,9 +437,9 @@ typedef struct Edge264Decoder {
 	int32_t PrevRefFrameNum[2]; // one per view
 	int32_t idr_pic_id; // value for the last slice, used for detecting new frames
 	int32_t delta_pic_order_cnt0; // value for the last slice, used for detecting new frames
-	int32_t prevPicOrderCnt[2]; // one per view
-	int32_t TopFieldOrderCnt; // value for the current incomplete frame, unaffected by mmco5
-	int32_t BottomFieldOrderCnt;
+	int64_t prevPicOrderCnt[2]; // one per view
+	int64_t TopFieldOrderCnt; // value for the current incomplete frame, unaffected by mmco5
+	int64_t BottomFieldOrderCnt;
 	Edge264SeqParameterSet sps;
 	Edge264SeqParameterSet ssps;
 	Edge264PicParameterSet PPS[4];
@@ -457,7 +457,7 @@ typedef struct Edge264Decoder {
 	union { int8_t output_queue[2][32]; i8x16 output_queue_v[2][2]; }; // FIFO with insertion at 0 for both views, and empty slots having value -1
 	union { int8_t prev_LongTermFrameIdx[32]; i8x16 prev_LongTermFrameIdx_v[2]; }; // values before decoding current view
 	union { int8_t view_LongTermFrameIdx[32]; i8x16 view_LongTermFrameIdx_v[2]; }; // values to apply after decoding current view
-	union { int32_t FieldOrderCnt[2][32]; i32x4 FieldOrderCnt_v[2][8]; }; // lower/higher half for top/bottom fields
+	int64_t FieldOrderCnt[2][32]; // [top/bottom], upper half increments at each IDR/mmco5 to keep output in increasing order
 	int32_t remaining_mbs[32] __attribute__((aligned(64))); // when 0 all mbs have been decoded yet not deblocked
 	union { int32_t next_deblock_addr[32]; i32x4 next_deblock_addr_v[8]; }; // next CurrMbAddr value for which mbB will be deblocked, when INT_MAX the picture is complete
 	
@@ -525,11 +525,11 @@ typedef struct Edge264Decoder {
 #endif
 static always_inline int mins(int a, int b) { return (a < b) ? a : b; }
 static always_inline int maxs(int a, int b) { return (a > b) ? a : b; }
+static always_inline int64_t minll(int64_t a, int64_t b) { return (a < b) ? a : b; }
+static always_inline int64_t maxll(int64_t a, int64_t b) { return (a > b) ? a : b; }
 static always_inline unsigned minu(unsigned a, unsigned b) { return (a < b) ? a : b; }
 static always_inline unsigned maxu(unsigned a, unsigned b) { return (a > b) ? a : b; }
 static always_inline intptr_t maxt(intptr_t a, intptr_t b) {return a > b ? a : b;}
-// min on values that may wrap around (PicOrderCnt)
-static always_inline unsigned minw(unsigned a, unsigned b) { return (int)(a - b) < 0 ? a : b; }
 // compatible with any of the pointers wrapping around
 static always_inline void *minp(const void *a, const void *b) { return (void *)(a < b ? a : b); }
 static always_inline int clip3(int a, int b, int c) { return mins(maxs(c, a), b); }
@@ -733,7 +733,6 @@ enum IntraChromaModes {
  * _ maxN - maximum of signed N-bit elements
  * _ minu8 - minimum of unsigned 8-bit elements
  * _ maxu8 - maximum of unsigned 8-bit elements
- * _ minw32 - minimum of unsigned 32-bit elements with wrapping allowed
  * _ movemask - extract all sign bits from 8-bit elements into a 16-bit unsigned value
  * _ packsN - saturate signed N-bit elements to half their size
  * _ packus16 - saturate signed 16-bit elements to unsigned 8-bit elements
@@ -847,7 +846,6 @@ static const int8_t shz_mask[48] = {
 		#define ifelse_msb(v, t, f) (i8x16)_mm_blendv_epi8(f, t, v)
 		#define min8(a, b) (i8x16)_mm_min_epi8(a, b)
 		#define max8(a, b) (i8x16)_mm_max_epi8(a, b)
-		static always_inline u32x4 minw32(u32x4 a, u32x4 b) { return (u32x4)_mm_blendv_ps((__m128)b, (__m128)a, (__m128)(a - b)); }
 	#else
 		#define cvtlo8u16(a) (i16x8)_mm_unpacklo_epi8(a, (i8x16){})
 		#define cvtlo16u32(a) (i32x4)_mm_unpacklo_epi16(a, (i16x8){})
@@ -857,7 +855,6 @@ static const int8_t shz_mask[48] = {
 		static always_inline i8x16 ifelse_msb(i8x16 v, i8x16 t, i8x16 f) { i8x16 m = (v < 0); return t & m | f & ~m; }
 		static always_inline i8x16 min8(i8x16 a, i8x16 b) { i8x16 v = b > a; return a & v | b & ~v; }
 		static always_inline i8x16 max8(i8x16 a, i8x16 b) { i8x16 v = a > b; return a & v | b & ~v; }
-		static always_inline u32x4 minw32(u32x4 a, u32x4 b) { i32x4 v = (i32x4)(a - b) < 0; return a & v | b & ~v; }
 	#endif
 	#ifdef __SSSE3__
 		static const int8_t shc_mask[48] = {
@@ -937,7 +934,6 @@ static const int8_t shz_mask[48] = {
 	static always_inline i8x16 loadu128(const void *p) {i8x16 a = {}; memcpy(&a, p, 16); return a;}
 	static always_inline i32x4 loadu32x4(const void *p0, const void *p1, const void *p2, const void *p3) {i32x4 a; memcpy((int32_t*)&a, p0, 4); memcpy((int32_t*)&a + 1, p1, 4); memcpy((int32_t*)&a + 2, p2, 4); memcpy((int32_t*)&a + 3, p3, 4); return a;}
 	static always_inline i64x2 loadu64x2(const void *p0, const void *p1) {i64x2 a; memcpy((int64_t*)&a, p0, 8); memcpy((int64_t*)&a + 1, p1, 8); return a;}
-	static always_inline u32x4 minw32(u32x4 a, u32x4 b) {return vbslq_s8((i32x4)(a - b) >> 31, a, b);}
 	static always_inline unsigned movemask(i8x16 a) {u8x16 b = vshrq_n_u8(a, 7), c = vsraq_n_u16(b, b, 7), d = vsraq_n_u32(c, c, 14), e = vsraq_n_u64(d, d, 28); return e[0] | e[8] << 8;}
 	// FIXME look to optimize (int -> size_t, 63-i trick)
 	static always_inline size_t shld(size_t l, size_t h, int i) {return h << i | l >> 1 >> (~i & (SIZE_BIT - 1));}
@@ -1083,7 +1079,6 @@ static const int8_t shz_mask[48] = {
 	#define ziphi64(a, b) (i64x2)wasm_i64x2_shuffle(a, b, 1, 3)
 	// relaxed_dot missed an unsigned version! (using signed saturation here for better SSE2 support)
 	static u16x8 maddubx(u8x16 a, u8x16 b) {return wasm_i16x8_narrow_i32x4(wasm_u32x4_extadd_pairwise_u16x8(wasm_u16x8_extmul_low_u8x16(a, b)), wasm_u32x4_extadd_pairwise_u16x8(wasm_u16x8_extmul_high_u8x16(a, b)));}
-	static u32x4 minw32(u32x4 a, u32x4 b) {return wasm_v128_bitselect(a, b, (i32x4)(a - b) >> 31);}
 	static inline size_t shld(size_t l, size_t h, size_t i) {return h << i | l >> 1 >> (~i & (SIZE_BIT - 1));}
 	#define shufflez shuffle
 	#if defined(__clang__) && __clang_major__ >= 14
@@ -1174,7 +1169,6 @@ static const int8_t shz_mask[48] = {
 	static i32x4 loadu32x4(const void *p0, const void *p1, const void *p2, const void *p3) {i32x4 v; memcpy((int32_t*)&v, p0, 4); memcpy((int32_t*)&v + 1, p1, 4); memcpy((int32_t*)&v + 2, p2, 4); memcpy((int32_t*)&v + 3, p3, 4); return v;}
 	static i64x2 loadu64x2(const void *p0, const void *p1) {i64x2 v; memcpy((int64_t*)&v, p0, 8); memcpy((int64_t*)&v + 1, p1, 8); return v;}
 	static i16x8 maddubs(u8x16 a, i8x16 b) {return __builtin_elementwise_add_sat((i16x8)((u16x8)a << 8 >> 8) * ((i16x8)b << 8 >> 8), (i16x8)((u16x8)a >> 8) * ((i16x8)b >> 8));}
-	static u32x4 minw32(u32x4 a, u32x4 b) {return ifelse_mask((i32x4)(a - b) >> 31, a, b);}
 	static int movemask(i8x16 a) {return __builtin_reduce_add((u16x16)__builtin_convertvector(a >> 7, i16x16) & (u16x16){1, 2, 4, 8, 16, 32, 64, 128, 256, 512, 1024, 2048, 4096, 8192, 16384, 32768});}
 	static i8x16 packs16(i16x8 a, i16x8 b) {i16x8 lo = set16(-128), hi = set16(127); a = __builtin_elementwise_min(__builtin_elementwise_max(a, lo), hi); b = __builtin_elementwise_min(__builtin_elementwise_max(b, lo), hi); return __builtin_convertvector((i16x16){a[0], a[1], a[2], a[3], a[4], a[5], a[6], a[7], b[0], b[1], b[2], b[3], b[4], b[5], b[6], b[7]}, i8x16);}
 	static i16x8 packs32(i32x4 a, i32x4 b) {i32x4 lo = set32(-32768), hi = set32(32767); a = __builtin_elementwise_min(__builtin_elementwise_max(a, lo), hi); b = __builtin_elementwise_min(__builtin_elementwise_max(b, lo), hi); return __builtin_convertvector((i32x8){a[0], a[1], a[2], a[3], b[0], b[1], b[2], b[3]}, i16x8);}
@@ -1238,7 +1232,6 @@ static const int8_t shz_mask[48] = {
 	static i16x8 max16(i16x8 a, i16x8 b) {i16x8 r; for (int k = 0; k < 8; k++) r[k] = a[k] > b[k] ? a[k] : b[k]; return r;}
 	static u8x16 minu8(u8x16 a, u8x16 b) {u8x16 r; for (int k = 0; k < 16; k++) r[k] = a[k] < b[k] ? a[k] : b[k]; return r;}
 	static u8x16 maxu8(u8x16 a, u8x16 b) {u8x16 r; for (int k = 0; k < 16; k++) r[k] = a[k] > b[k] ? a[k] : b[k]; return r;}
-	static u32x4 minw32(u32x4 a, u32x4 b) {i32x4 r; for (int k = 0; k < 4; k++) r[k] = (int)((unsigned)a[k] - (unsigned)b[k]) < 0 ? a[k] : b[k]; return r;}
 	static unsigned movemask(i8x16 a) {unsigned r = 0; for (int k = 0; k < 16; k++) if (a[k] < 0) r |= 1u << k; return r;} // using __CPROVER_assume on m actually slows CBMC down
 	static i8x16 packs16(i16x8 a, i16x8 b) {i8x16 r; for (int k = 0; k < 8; k++) { r[k] = mins(maxs(a[k], -128), 127); r[k + 8] = mins(maxs(b[k], -128), 127);} return r;}
 	static i16x8 packs32(i32x4 a, i32x4 b) {i16x8 r; for (int k = 0; k < 4; k++) { r[k] = mins(maxs(a[k], -32768), 32767); r[k + 4] = mins(maxs(b[k], -32768), 32767);} return r;}

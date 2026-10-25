@@ -396,6 +396,7 @@ Below is a list of tests that I have added and plan to add to the test suite.
 | Specifying extra_frames=1 |  |  |
 | Receiving a non-base view before its base |  |  |
 | A stream sending non-base views after a few frames have been output |  |  |
+| Two views with differing mmco5 |  |  |
 
 | Error recovery tests | Expected | Test files |
 | --- | --- | --- |

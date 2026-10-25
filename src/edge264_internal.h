@@ -721,7 +721,7 @@ enum IntraChromaModes {
  * _ cvtloNsM - extend the low signed N-bit elements to M bits
  * _ cvthiNuM - extend the high unsigned N-bit elements to M bits
  * _ cvthiNsM - extend the high signed N-bit elements to M bits
- * _ hadd16 - add pairs of any-signed (0..32767) 16-bit integers from two vectors into a single result
+ * _ hadd16 - add pairs of any-signed (0..32767) 16-bit integers from two vectors into a single any-signed result
  * _ ifelse_mask - select each element from two vectors based on mask elements i a third vector
  * _ loadaN - load N low bits from an aligned pointer, zeroing the rest of the vector
  * _ loadaNxM - load M aligned pointers of N bits, such that NxM==128
@@ -1086,7 +1086,6 @@ static const int8_t shz_mask[48] = {
 	static u32x4 minw32(u32x4 a, u32x4 b) {return wasm_v128_bitselect(a, b, (i32x4)(a - b) >> 31);}
 	static inline size_t shld(size_t l, size_t h, size_t i) {return h << i | l >> 1 >> (~i & (SIZE_BIT - 1));}
 	#define shufflez shuffle
-	#define shuffle2z shuffle2
 	#if defined(__clang__) && __clang_major__ >= 14
 		#define sum8(a) ((u16x8){__builtin_reduce_add(__builtin_convertvector((u8x16)(a), u16x16))})
 	#else
@@ -1099,6 +1098,7 @@ static const int8_t shz_mask[48] = {
 		static always_inline i8x16 shuffle(i8x16 a, i8x16 m) {return wasm_i8x16_relaxed_swizzle(a, m);}
 		static i8x16 shufflen(i8x16 a, i8x16 m) {return wasm_i8x16_relaxed_swizzle(a, m) | (0 > m);}
 		static i8x16 shuffle2(i8x16 a, i8x16 b, i8x16 m) {return wasm_i8x16_swizzle(a, m) | wasm_i8x16_relaxed_swizzle(b, m - 16);}
+		static i8x16 shuffle2z(i8x16 a, i8x16 b, i8x16 m) {return wasm_i8x16_swizzle(a, m) | wasm_i8x16_relaxed_swizzle(b, subs8(m, set8(16)));}
 		static i8x16 shuffle3(const i8x16 *p, i8x16 m) {return wasm_i8x16_swizzle(p[0], m) | wasm_i8x16_swizzle(p[1], m - 16) | wasm_i8x16_relaxed_swizzle(p[2], m - 32);}
 	#else
 		#define ifelse_mask(v, t, f) (i8x16)wasm_v128_bitselect(t, f, v)
@@ -1109,11 +1109,12 @@ static const int8_t shz_mask[48] = {
 		static i8x16 shufflen(i8x16 a, i8x16 m) {return wasm_i8x16_swizzle(a, m) | (0 > m);}
 		static i8x16 shuffle2(i8x16 a, i8x16 b, i8x16 m) {return wasm_i8x16_swizzle(a, m) | wasm_i8x16_swizzle(b, m - 16);}
 		static i8x16 shuffle3(const i8x16 *p, i8x16 m) {return wasm_i8x16_swizzle(p[0], m) | wasm_i8x16_swizzle(p[1], m - 16) | wasm_i8x16_swizzle(p[2], m - 32);}
+		#define shuffle2z shuffle2
 	#endif
 #elif SIMD == CLANG
 	// prefer functions for non-trivial macros since they may compile on a non-SIMD CPU
-	#define abs8(a) __builtin_elementwise_abs((i8x16)(a))
-	#define abs16(a) __builtin_elementwise_abs((i16x8)(a))
+	#define abs8(a) (u8x16)__builtin_elementwise_abs((i8x16)(a))
+	#define abs16(a) (u16x8)__builtin_elementwise_abs((i16x8)(a))
 	#define adds16(a, b) __builtin_elementwise_add_sat((i16x8)(a), (i16x8)(b))
 	#define broadcast8(a, i) __builtin_shufflevector((i8x16)(a), (i8x16){}, i, i, i, i, i, i, i, i, i, i, i, i, i, i, i, i)
 	#define broadcast16(a, i) __builtin_shufflevector((i16x8)(a), (i16x8){}, i, i, i, i, i, i, i, i)
@@ -1209,8 +1210,8 @@ static const int8_t shz_mask[48] = {
 	#define ziphi32(a, b) __builtin_shufflevector((i32x4)(a), (i32x4)(b), 2, 6, 3, 7)
 	#define ziplo64(a, b) __builtin_shufflevector((i64x2)(a), (i64x2)(b), 0, 2)
 	#define ziphi64(a, b) __builtin_shufflevector((i64x2)(a), (i64x2)(b), 1, 3)
-	static i8x16 abs8(i8x16 a) {i8x16 r; for (int k = 0; k < 16; k++) r[k] = (unsigned)abs(a[k]); return r;}
-	static i16x8 abs16(i16x8 a) {i16x8 r; for (int k = 0; k < 8; k++) r[k] = (unsigned)abs(a[k]); return r;}
+	static u8x16 abs8(i8x16 a) {u8x16 r; for (int k = 0; k < 16; k++) r[k] = abs(a[k]); return r;}
+	static u16x8 abs16(i16x8 a) {u16x8 r; for (int k = 0; k < 8; k++) r[k] = abs(a[k]); return r;}
 	static i16x8 adds16(i16x8 a, i16x8 b) {i16x8 r; for (int k = 0; k < 8; k++) r[k] = mins(maxs(a[k] + b[k], -32768), 32767); return r;}
 	static u8x16 avgu8(u8x16 a, u8x16 b) {u8x16 r; for (int k = 0; k < 16; k++) r[k] = (a[k] + b[k] + 1) >> 1; return r;}
 	static u16x8 cvtlo8u16(u8x16 a) {return __builtin_convertvector((u8x8){a[0], a[1], a[2], a[3], a[4], a[5], a[6], a[7]}, u16x8);}
@@ -1221,15 +1222,15 @@ static const int8_t shz_mask[48] = {
 	static u32x4 cvthi16u32(u16x8 a) {return __builtin_convertvector((u16x4){a[4], a[5], a[6], a[7]}, u32x4);}
 	static i32x4 cvtlo16s32(i16x8 a) {return __builtin_convertvector((i16x4){a[0], a[1], a[2], a[3]}, i32x4);}
 	static i32x4 cvthi16s32(i16x8 a) {return __builtin_convertvector((i16x4){a[4], a[5], a[6], a[7]}, i32x4);}
-	static i16x8 hadd16(u16x8 a, u16x8 b) {return (u16x8){a[0] + a[1], a[2] + a[3], a[4] + a[5], a[6] + a[7], b[0] + b[1], b[2] + b[3], b[4] + b[5], b[6] + b[7]};}
-	static i8x16 ifelse_mask(i8x16 v, i8x16 t, i8x16 f) {return t & v | f & ~v;}
+	static i16x8 hadd16(i16x8 a, i16x8 b) {i16x8 r; for (int k = 0; k < 4; k++) {assert(a[k * 2] >= 0 && a[k * 2 + 1] >= 0 && b[k * 2] >= 0 && b[k * 2 + 1] >= 0); int s = a[k * 2] + a[k * 2 + 1], t = b[k * 2] + b[k * 2 + 1]; if (s <= 32767) r[k] = s; if (t <= 32767) r[k + 4] = t;} return r;}
+	static i8x16 ifelse_mask(i8x16 v, i8x16 t, i8x16 f) {i8x16 r; for (int k = 0; k < 16; k++) {if (v[k] == -1) r[k] = t[k]; else if (v[k] == 0) r[k] = f[k];} return r;}
 	static i8x16 ifelse_msb(i8x16 v, i8x16 t, i8x16 f) {i8x16 r; for (int k = 0; k < 16; k++) r[k] = v[k] < 0 ? t[k] : f[k]; return r;}
 	static i32x4 loadu32(const void *p) {i32x4 v = {}; memcpy(&v, p, 4); return v;}
 	static i64x2 loadu64(const void *p) {i64x2 v = {}; memcpy(&v, p, 8); return v;}
 	static i8x16 loadu128(const void *p) {i8x16 v = {}; memcpy(&v, p, 16); return v;}
 	static i32x4 loadu32x4(const void *p0, const void *p1, const void *p2, const void *p3) {i32x4 v; memcpy((int32_t*)&v, p0, 4); memcpy((int32_t*)&v + 1, p1, 4); memcpy((int32_t*)&v + 2, p2, 4); memcpy((int32_t*)&v + 3, p3, 4); return v;}
 	static i64x2 loadu64x2(const void *p0, const void *p1) {i64x2 v; memcpy((int64_t*)&v, p0, 8); memcpy((int64_t*)&v + 1, p1, 8); return v;}
-	static i16x8 maddubx(u8x16 a, i8x16 b) {i16x8 r; for (int k = 0; k < 8; k++) {assert(b[k * 2] >= 0 && b[k * 2 + 1] >= 0); r[k] = a[k * 2] * b[k * 2] + a[k * 2 + 1] * b[k * 2 + 1];} return r;}
+	static u16x8 maddubx(u8x16 a, u8x16 b) {u16x8 r; for (int k = 0; k < 8; k++) {assert(b[k * 2] < 128 && b[k * 2 + 1] < 128); int s = a[k * 2] * b[k * 2] + a[k * 2 + 1] * b[k * 2 + 1]; if (s <= 32767) r[k] = s;} return r;}
 	static i16x8 maddxbs(u8x16 a, i8x16 b) {i16x8 r; for (int k = 0; k < 8; k++) {assert(a[k * 2] < 128 && a[k * 2 + 1] < 128); r[k] = a[k * 2] * b[k * 2] + a[k * 2 + 1] * b[k * 2 + 1];} return r;}
 	static i8x16 min8(i8x16 a, i8x16 b) {i8x16 r; for (int k = 0; k < 16; k++) r[k] = a[k] < b[k] ? a[k] : b[k]; return r;}
 	static i8x16 max8(i8x16 a, i8x16 b) {i8x16 r; for (int k = 0; k < 16; k++) r[k] = a[k] > b[k] ? a[k] : b[k]; return r;}
@@ -1242,7 +1243,7 @@ static const int8_t shz_mask[48] = {
 	static i8x16 packs16(i16x8 a, i16x8 b) {i8x16 r; for (int k = 0; k < 8; k++) { r[k] = mins(maxs(a[k], -128), 127); r[k + 8] = mins(maxs(b[k], -128), 127);} return r;}
 	static i16x8 packs32(i32x4 a, i32x4 b) {i16x8 r; for (int k = 0; k < 4; k++) { r[k] = mins(maxs(a[k], -32768), 32767); r[k + 4] = mins(maxs(b[k], -32768), 32767);} return r;}
 	static u8x16 packus16(i16x8 a, i16x8 b) {u8x16 r; for (int k = 0; k < 8; k++) { r[k] = mins(maxs(a[k], 0), 255); r[k + 8] = mins(maxs(b[k], 0), 255);} return r;}
-	static u32x4 pow2x4(i32x4 a) {u32x4 r; for (int k = 0; k < 4; k++) {assert(a[k] < 32); r[k] = a[k] < 0 ? 0 : 1 << a[k];} return r;}
+	static u32x4 pow2x4(i32x4 a) {u32x4 r; for (int k = 0; k < 4; k++) {assert(a[k] >= -1 && a[k] < 32); r[k] = a[k] < 0 ? 0 : 1u << a[k];} return r;}
 	static i8x16 set8(int i) {return (i8x16){i, i, i, i, i, i, i, i, i, i, i, i, i, i, i, i};}
 	static i16x8 set16(int i) {return (i16x8){i, i, i, i, i, i, i, i};}
 	static i32x4 set32(int i) {return (i32x4){i, i, i, i};}
@@ -1258,16 +1259,16 @@ static const int8_t shz_mask[48] = {
 	static i8x16 shrz128(i8x16 a, unsigned i) {assert(i < 16); i8x16 r; for (int k = 0; k < 16; k++) r[k] = k + i < 16 ? a[k + i] : 0; return r;}
 	static uint64_t shrlou16(u16x8 a, unsigned i) { assert(i < 16); return (uint64_t)__builtin_convertvector(a >> i, u8x8);}
 	static i16x8 shrrs16(i16x8 a, unsigned i) {assert(i < 16); return (a + set16(1 << (i - 1))) >> i;}
-	static u16x8 shrru16(u16x8 a, unsigned i) {assert(i < 16); return (a + set16(1 << (i - 1))) >> i;}
+	static u16x8 shrru16(u16x8 a, unsigned i) {assert(i < 16); u16x8 r; for (int k = 0; k < 8; k++) {unsigned s = a[k] + (1u << (i - 1)); if (s <= 65535) r[k] = s >> i;} return r;}
 	static u8x16 shrpus16(i16x8 a, i16x8 b, unsigned i) {assert(i < 16); return packus16(a >> i, b >> i);}
-	static u8x16 shrrpu16(u16x8 a, u16x8 b, int i) {u16x8 o = set16(1 << (i - 1)), hi = set16(255), c = min16((a + o) >> i, hi), d = min16((b + o) >> i, hi); return __builtin_convertvector((u16x16){c[0], c[1], c[2], c[3], c[4], c[5], c[6], c[7], d[0], d[1], d[2], d[3], d[4], d[5], d[6], d[7]}, u8x16);}
+	static u8x16 shrrpu16(u16x8 a, u16x8 b, unsigned i) {assert(i <= 8); u8x16 r; for (int k = 0; k < 8; k++) {unsigned s = a[k] + (1u << (i - 1)), t = b[k] + (1u << (i - 1)); if (s <= 65535) r[k] = minu(s >> i, 255); if (t <= 65535) r[k + 8] = minu(t >> i, 255);} return r;}
 	static i8x16 shuffle(i8x16 a, u8x16 m) {i8x16 r; for (int k = 0; k < 16; k++) {if (m[k] < 16) r[k] = a[m[k]];} return r;}
-	static i8x16 shufflen(i8x16 a, i8x16 m) {i8x16 r; for (int k = 0; k < 16; k++) {if (m[k] < 16) r[k] = m[k] < 0 ? -1 : a[m[k]];} return r;}
+	static i8x16 shufflen(i8x16 a, i8x16 m) {i8x16 r; for (int k = 0; k < 16; k++) {if (m[k] == -1) r[k] = -1; else if (m[k] >= 0 && m[k] < 16) r[k] = a[m[k]];} return r;}
 	static i8x16 shufflez(i8x16 a, i8x16 m) {i8x16 r; for (int k = 0; k < 16; k++) {if (m[k] < 16) r[k] = m[k] < 0 ? 0 : a[m[k]];} return r;}
-	static i8x16 shuffle2(i8x16 a, i8x16 b, u8x16 m) {i8x16 r; for (int k = 0; k < 16; k++) {if (m[k] < 32) r[k] = (m[k] < 16) ? a[m[k]] : b[m[k]];} return r;}
-	static i8x16 shuffle2z(i8x16 a, i8x16 b, i8x16 m) {i8x16 r; for (int k = 0; k < 16; k++) {if (m[k] < 32) r[k] = (m[k] < 0) ? 0 : (m[k] < 16) ? a[m[k]] : b[m[k]];} return r;}
+	static i8x16 shuffle2(i8x16 a, i8x16 b, u8x16 m) {i8x16 r; for (int k = 0; k < 16; k++) {if (m[k] < 32) r[k] = (m[k] < 16) ? a[m[k]] : b[m[k] - 16];} return r;}
+	static i8x16 shuffle2z(i8x16 a, i8x16 b, i8x16 m) {i8x16 r; for (int k = 0; k < 16; k++) {if (m[k] < 32) r[k] = (m[k] < 0) ? 0 : (m[k] < 16) ? a[m[k]] : b[m[k] - 16];} return r;}
 	static i8x16 shuffle3(const i8x16 *p, u8x16 m) {i8x16 r; for (int k = 0; k < 16; k++) {if (m[k] < 48) r[k] = ((const int8_t *)p)[m[k]];} return r;}
-	static u8x16 subsu8(u8x16 a, u8x16 b) {u8x16 r; for (int k = 0; k < 16; k++) r[k] = mins(a[k] + b[k], 255); return r;}
+	static u8x16 subsu8(u8x16 a, u8x16 b) {u8x16 r; for (int k = 0; k < 16; k++) r[k] = maxs(a[k] - b[k], 0); return r;}
 	static u16x8 sum8(u8x16 a) {u16x8 r; r[0] = a[0] + a[1] + a[2] + a[3] + a[4] + a[5] + a[6] + a[7] + a[8] + a[9] + a[10] + a[11] + a[12] + a[13] + a[14] + a[15]; return r;}
 #endif
 

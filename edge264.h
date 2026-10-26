@@ -1,6 +1,6 @@
 /**
  * Copyright (c) 2013-2014, Celticom / TVLabs
- * Copyright (c) 2014-2026 Thibault Raffaillac <traf@kth.se>
+ * Copyright (c) 2014-2026, edge264 authors
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without

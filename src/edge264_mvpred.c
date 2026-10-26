@@ -447,11 +447,11 @@ static always_inline void decode_direct_temporal_mv_pred(Edge264Context *ctx, un
 	// load refPicCol and mvCol
 	const Edge264Macroblock *mbCol = ctx->mbCol;
 	i8x16 refPicColL0 = (i32x4){mbCol->refPic_s[0]};
-	i8x16 offsets = refPicColL0 & 32;
-	i16x8 mvCol0 = *(i16x8*)(mbCol->mvs + offsets[0]);
-	i16x8 mvCol1 = *(i16x8*)(mbCol->mvs + offsets[1] + 8);
-	i16x8 mvCol2 = *(i16x8*)(mbCol->mvs + offsets[2] + 16);
-	i16x8 mvCol3 = *(i16x8*)(mbCol->mvs + offsets[3] + 24);
+	i8x16 offsets = refPicColL0 & 64; // byte offset of L1 mvs if refPicColL0<0, since bit 6 is never set for slots 0..63
+	i16x8 mvCol0 = *(i16x8*)((int8_t *)mbCol->mvs + offsets[0]);
+	i16x8 mvCol1 = *(i16x8*)((int8_t *)mbCol->mvs + offsets[1] + 16);
+	i16x8 mvCol2 = *(i16x8*)((int8_t *)mbCol->mvs + offsets[2] + 32);
+	i16x8 mvCol3 = *(i16x8*)((int8_t *)mbCol->mvs + offsets[3] + 48);
 	i8x16 refPicCol = ifelse_msb(refPicColL0, (i32x4){mbCol->refPic_s[1]}, refPicColL0);
 	unsigned inter_eqs = little_endian32(mbCol->f.inter_eqs_s);
 	if (ctx->t.direct_8x8_inference_flag) {
@@ -463,7 +463,7 @@ static always_inline void decode_direct_temporal_mv_pred(Edge264Context *ctx, un
 	}
 	
 	// conditional memory storage
-	i8x16 refIdx = shuffle2z(ctx->MapPicToList0_v[0], ctx->MapPicToList0_v[1], refPicCol);
+	i8x16 refIdx = shuffle4z(ctx->MapPicToList0_v, refPicCol);
 	mb->refPic_s[0] = ((i32x4)shufflen(ctx->t.RefPicList_v[0], refIdx))[0]; // overwritten by parse_ref_idx later if refIdx!=0
 	mb->refPic_s[1] = ((i32x4)broadcast8(ctx->t.RefPicList_v[2], 0))[0]; // refIdxL1 is 0
 	if (direct_flags & 1) {

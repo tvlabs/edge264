@@ -225,7 +225,7 @@ int main(int argc, char *argv[]) {
 > 	int32_t FrameId;
 > 	int32_t FrameId_mvc; // second view
 > 	int16_t frame_crop_offsets[4]; // {top,right,bottom,left}, useful to derive the original frame with 16x16 macroblocks
-> 	void *return_arg;
+> 	uintptr_t return_arg;
 > } Edge264Frame;
 > ```
 
@@ -233,7 +233,7 @@ int main(int argc, char *argv[]) {
 
 > Give back ownership of the frame if it was borrowed from a previous call to `edge264_get_frame`.
 > * `Edge264Decoder * dec` - initialized decoding context
-> * `void * return_arg` - the value stored inside the frame to return
+> * `uintptr_t return_arg` - the value stored inside the frame to return
 
 <code>void <b>edge264_flush</b>(dec)</code>
 

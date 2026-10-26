@@ -58,7 +58,7 @@ typedef struct Edge264Frame {
 	int32_t FrameId;
 	int32_t FrameId_mvc; // second view
 	int16_t frame_crop_offsets[4]; // {top,right,bottom,left}, useful to derive the original frame with 16x16 macroblocks
-	void *return_arg;
+	uintptr_t return_arg;
 } Edge264Frame;
 
 const uint8_t *edge264_find_start_code(const uint8_t *buf, const uint8_t *end, int four_byte);
@@ -67,7 +67,7 @@ void edge264_flush(Edge264Decoder *dec);
 void edge264_free(Edge264Decoder **pdec);
 int edge264_decode_NAL(Edge264Decoder *dec, const uint8_t *buf, const uint8_t *end, Edge264UnrefCb unref_cb, void *unref_arg);
 int edge264_get_frame(Edge264Decoder *dec, Edge264Frame *out, int borrow);
-void edge264_return_frame(Edge264Decoder *dec, void *return_arg);
+void edge264_return_frame(Edge264Decoder *dec, uintptr_t return_arg);
 
 #ifdef __cplusplus
 }

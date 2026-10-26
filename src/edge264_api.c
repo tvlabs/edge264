@@ -232,7 +232,7 @@ void edge264_free(Edge264Decoder **pdec) {
 			pthread_cond_destroy(&dec->task_progress);
 			pthread_cond_destroy(&dec->task_complete);
 		}
-		for (int i = 0; i < 32; i++) {
+		for (int i = 0; i < 64; i++) {
 			if (dec->samples_buffers[i] != NULL)
 				dec->free_cb(dec->samples_buffers[i], dec->mb_buffers[i], dec->alloc_arg);
 		}
@@ -329,26 +329,27 @@ int edge264_get_frame(Edge264Decoder *dec, Edge264Frame *out, int borrow) {
 		int topC = dec->sps.chroma_format_idc == 3 ? top : top >> 1;
 		int leftC = dec->sps.chroma_format_idc == 1 ? left >> 1 : left;
 		int offC = dec->plane_size_Y + topC * dec->out.stride_C + (dec->out.bit_depth_C == 8 ? leftC : leftC << 1);
-		assert(dec->to_get_frames & dec->output_frames & 1 << pic0);
-		dec->to_get_frames &= ~(1 << pic0);
+		assert(dec->to_get_frames_l & dec->output_frames_l & 1ull << pic0);
+		dec->to_get_frames_l &= ~(1ull << pic0);
 		out->samples[0] = dec->samples_buffers[pic0] + offY;
 		out->samples[1] = dec->samples_buffers[pic0] + offC;
 		out->samples[2] = dec->samples_buffers[pic0] + offC + (dec->out.stride_C >> 1);
 		out->FrameId = dec->FrameIds[pic0];
-		out->return_arg = (void *)((uintptr_t)1 << pic0);
 		if (idx1 >= 0) {
 			dec->output_queue[1][idx1] = -1;
-			assert(dec->to_get_frames & dec->output_frames & 1 << pic1);
-			dec->to_get_frames ^= 1 << pic1;
+			assert(dec->to_get_frames_l & dec->output_frames_l & 1ull << pic1);
+			dec->to_get_frames_l ^= 1ull << pic1;
 			out->samples_mvc[0] = dec->samples_buffers[pic1] + offY;
 			out->samples_mvc[1] = dec->samples_buffers[pic1] + offC;
 			out->samples_mvc[2] = dec->samples_buffers[pic1] + offC + (dec->out.stride_C >> 1);
 			out->FrameId_mvc = dec->FrameIds[pic1];
-			out->return_arg = (void *)((uintptr_t)1 << pic0 | (uintptr_t)1 << pic1);
+		} else {
+			pic1 = pic0;
 		}
+		out->return_arg = pic0 | pic1 << 8; // pic1=pic0 without second view, so that both can always be returned
 		res = 0;
 		if (!borrow)
-			dec->output_frames &= ~(uintptr_t)out->return_arg;
+			dec->output_frames_l &= ~(1ull << pic0 | 1ull << pic1);
 	}
 	if (dec->n_threads)
 		pthread_mutex_unlock(&dec->lock);
@@ -357,7 +358,7 @@ int edge264_get_frame(Edge264Decoder *dec, Edge264Frame *out, int borrow) {
 
 
 
-void edge264_return_frame(Edge264Decoder *dec, void *return_arg) {
+void edge264_return_frame(Edge264Decoder *dec, uintptr_t return_arg) {
 	if (dec != NULL)
-		dec->output_frames &= ~(size_t)return_arg;
+		dec->output_frames_l &= ~(1ull << (return_arg & 63) | 1ull << (return_arg >> 8 & 63));
 }

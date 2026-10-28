@@ -96,10 +96,9 @@ Edge264Decoder *edge264_alloc(int n_threads, Edge264LogCb log_cb, void *log_arg,
 	dec->log_base_us = get_relative_time_us();
 	dec->currPic = dec->basePic = -1;
 	dec->PrevRefFrameNum[0] = dec->PrevRefFrameNum[1] = dec->prevFrameId = -1;
-	dec->taskPics_v = dec->output_queue_v[0][0] = dec->output_queue_v[0][1] =
-		dec->output_queue_v[1][0] = dec->output_queue_v[1][1] = set8(-1);
+	dec->TopFieldOrderCnt = INT64_MIN;
+	dec->taskPics_v = set8(-1);
 	dec->n_threads = n_threads;
-	dec->max_output_latency = 16;
 	dec->alloc_cb = alloc_cb && free_cb ? alloc_cb : internal_alloc;
 	dec->free_cb = alloc_cb && free_cb ? free_cb : internal_free;
 	dec->alloc_arg = alloc_arg;
@@ -316,12 +315,26 @@ int edge264_get_frame(Edge264Decoder *dec, Edge264Frame *out, int borrow) {
 		return EINVAL;
 	if (dec->n_threads)
 		pthread_mutex_lock(&dec->lock);
-	int idx0 = __builtin_ctzg(movemask(dec->output_queue_v[0][0]) | movemask(dec->output_queue_v[0][1]) << 16, 32) - 1;
-	int idx1 = __builtin_ctzg(movemask(dec->output_queue_v[1][0]) | movemask(dec->output_queue_v[1][1]) << 16, 32) - 1;
-	int pic0, pic1, res = ENOMSG;
-	if (idx0 >= 0 && dec->next_deblock_addr[pic0 = dec->output_queue[0][idx0]] == INT_MAX &&
-		(dec->ssps.BitDepth_Y == 0 || (idx1 >= 0 && dec->next_deblock_addr[pic1 = dec->output_queue[1][idx1]] == INT_MAX))) {
-		dec->output_queue[0][idx0] = -1;
+
+	// find (pair of) bumped frame with lowest POC, excluding POC of current incomplete frame
+	int pics[2] = {-1, -1};
+	int64_t lowest_poc = INT64_MAX;
+	for (uint64_t o = dec->to_get_frames_l & dec->output_frames_l; o; o &= o - 1) {
+		int pic = __builtin_ctzll(o);
+		int64_t poc = dec->FieldOrderCnt[pic][0];
+		if (poc != dec->TopFieldOrderCnt && poc <= lowest_poc) {
+			if (poc < lowest_poc)
+				pics[0] = pics[1] = -1, lowest_poc = poc;
+			pics[pic >> 5] = pic;
+		}
+	}
+
+	// output if pic0 or pic1 is set and none of them is still being decoded
+	int pic0 = pics[0], pic1 = pics[1], res = ENOMSG;
+	if ((pic0 >= 0 || pic1 >= 0) &&
+		!(pic0 >= 0 && dec->next_deblock_addr[pic0] != INT_MAX) &&
+		!(pic1 >= 0 && dec->next_deblock_addr[pic1] != INT_MAX))
+	{
 		memcpy(out, &dec->out, sizeof(*out)); // GCC-14 crashes on dec->out = format
 		int top = dec->out.frame_crop_offsets[0];
 		int left = dec->out.frame_crop_offsets[3];
@@ -329,24 +342,25 @@ int edge264_get_frame(Edge264Decoder *dec, Edge264Frame *out, int borrow) {
 		int topC = dec->sps.chroma_format_idc == 3 ? top : top >> 1;
 		int leftC = dec->sps.chroma_format_idc == 1 ? left >> 1 : left;
 		int offC = dec->plane_size_Y + topC * dec->out.stride_C + (dec->out.bit_depth_C == 8 ? leftC : leftC << 1);
-		assert(dec->to_get_frames_l & dec->output_frames_l & 1ull << pic0);
-		dec->to_get_frames_l &= ~(1ull << pic0);
-		out->samples[0] = dec->samples_buffers[pic0] + offY;
-		out->samples[1] = dec->samples_buffers[pic0] + offC;
-		out->samples[2] = dec->samples_buffers[pic0] + offC + (dec->out.stride_C >> 1);
-		out->FrameId = dec->FrameIds[pic0];
-		if (idx1 >= 0) {
-			dec->output_queue[1][idx1] = -1;
+		if (pic0 >= 0) {
+			assert(dec->to_get_frames_l & dec->output_frames_l & 1ull << pic0);
+			dec->to_get_frames_l &= ~(1ull << pic0);
+			out->samples[0] = dec->samples_buffers[pic0] + offY;
+			out->samples[1] = dec->samples_buffers[pic0] + offC;
+			out->samples[2] = dec->samples_buffers[pic0] + offC + (dec->out.stride_C >> 1);
+			out->FrameId = dec->FrameIds[pic0];
+		}
+		if (pic1 >= 0) {
 			assert(dec->to_get_frames_l & dec->output_frames_l & 1ull << pic1);
-			dec->to_get_frames_l ^= 1ull << pic1;
+			dec->to_get_frames_l &= ~(1ull << pic1);
 			out->samples_mvc[0] = dec->samples_buffers[pic1] + offY;
 			out->samples_mvc[1] = dec->samples_buffers[pic1] + offC;
 			out->samples_mvc[2] = dec->samples_buffers[pic1] + offC + (dec->out.stride_C >> 1);
 			out->FrameId_mvc = dec->FrameIds[pic1];
-		} else {
-			pic1 = pic0;
 		}
-		out->return_arg = pic0 | pic1 << 8; // pic1=pic0 without second view, so that both can always be returned
+		pic0 = pic0 < 0 ? pic1 : pic0;
+		pic1 = pic1 < 0 ? pic0 : pic1;
+		out->return_arg = pic0 | pic1 << 8;
 		res = 0;
 		if (!borrow)
 			dec->output_frames_l &= ~(1ull << pic0 | 1ull << pic1);

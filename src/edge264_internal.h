@@ -365,9 +365,9 @@ typedef struct Edge264Context {
  * It keeps a pool of allocated frames for reuse. When decoding a new frame:
  * _ A frame slot is chosen then immediately inserted in the DPB (a subset of
  *   the frame buffer).
- * _ When selected by the "bumping" process for output, it is inserted in the
- *   output_queue (it may still be in the DPB, though not waiting for output).
- * _ edge264_get_frame yields the next frame from output_queue. Once returned
+ * _ When selected by the "bumping" process for output, it is marked in
+ *   output_frames (it may still be in the DPB, though not waiting for output).
+ * _ edge264_get_frame yields the bumped frame with lowest POC. Once returned
  *   to edge264 the frame slot is kept to be reused for another frame.
  * 
  * Ref flags are stored in prev_short_term_frames and prev_long_term_frames bitfields:
@@ -377,19 +377,19 @@ typedef struct Edge264Context {
  * Output status is stored in to_get_frames and output_frames bitfields:
  * _ frames held for reordering in the DPB have values (1, 0)
  * _ frames that have been bumped from the DPB for output and are stored for
- *   future retrieval in output_queue have values (1, 1)
+ *   future retrieval by get_frame have values (1, 1)
  * _ frames yielded by get_frame and waiting to be returned have values (0, 1)
  * Memory management control operations are captured by view_short_term_frames
  * and view_long_term_frames which store the future state of references that
  * will replace the previous one when the current frame is complete.
  * 
  * With MVC, as per spec the bumping process operates independently on
- * left&right views, so we have 2 output queues. edge264_get_frame simply takes
- * the next views from both queues. Base views are allocated in slots 0..31 and
- * non-base views in slots 32..63.
- * With multithreading, a frame being in DPB or output queue is independent
- * from its decoding state. It may enter the output queue even before starting
- * to decode. However it must be complete to exit the queue.
+ * left&right views, so output status is tracked per view. edge264_get_frame
+ * simply takes the next POC from any of both views. Base views are allocated
+ * in slots 0..31 and non-base views in slots 32..63.
+ * With multithreading, a frame being in DPB or bumped is independent from its
+ * decoding state. It may be bumped even before starting to decode. However it
+ * must be complete to be yielded by get_frame.
  * A frame slot is free for reuse when it is not a reference [anymore], it has
  * been yielded and reclaimed after edge264_get_frame, and it is not being used
  * as a reference in the asynchronous decoding of another frame.
@@ -399,14 +399,12 @@ typedef struct Edge264Context {
  * until a frame slot is freed:
  * _ number of frames in the DPB (max_dec_frame_buffering)
  * _ number of allocated frames (32 per view)
- * _ number of frames waiting in the output queue (max_output_latency)
  */
 typedef int (*Parser)(Edge264Decoder *dec, Edge264UnrefCb unref_cb, void *unref_arg);
 typedef struct Edge264Decoder {
 	// minimal set of fields preserved across flushes
 	Edge264GetBits gb; // must be first in the struct to use the same pointer for bitstream functions
 	int8_t n_threads; // 0 to disable multithreading
-	int8_t max_output_latency; // number of frames in output_queue to suspend decoding of new frames, 0..16
 	int8_t nal_unit_type; // 5 significant bits
 	int32_t plane_size_Y;
 	int32_t plane_size_C;
@@ -439,7 +437,7 @@ typedef struct Edge264Decoder {
 	int32_t idr_pic_id; // value for the last slice, used for detecting new frames
 	int32_t delta_pic_order_cnt0; // value for the last slice, used for detecting new frames
 	int64_t prevPicOrderCnt[2]; // one per view, could be merged but code would be more complex
-	int64_t TopFieldOrderCnt; // value for the current incomplete frame, unaffected by mmco5
+	int64_t TopFieldOrderCnt; // value for the current incomplete frame, unaffected by mmco5, INT64_MIN when currPic is -1 so that get_frame waits for MVC siblings
 	int64_t BottomFieldOrderCnt;
 	Edge264SeqParameterSet sps;
 	Edge264SeqParameterSet ssps;
@@ -451,10 +449,9 @@ typedef struct Edge264Decoder {
 	uint32_t view_short_term_frames; // bitfield for indices of short-term/non-existing references of current view to apply after decoding it
 	uint32_t view_long_term_frames; // bitfield for indices of long-term/non-existing references of current view to apply after decoding it
 	union { uint32_t to_get_frames[2]; uint64_t to_get_frames_l; }; // [view], bitfield for frames that have not been returned by get_frame yet
-	union { uint32_t output_frames[2]; uint64_t output_frames_l; }; // [view], bitfield for frames that have entered output_queue
+	union { uint32_t output_frames[2]; uint64_t output_frames_l; }; // [view], bitfield for frames that have been bumped for output and not returned yet
 	int32_t FrameNums[64]; // signed to be used along FieldOrderCnt in initial reference ordering
 	int32_t FrameIds[64]; // unique identifiers for each frame, incremented in decoding order
-	union { int8_t output_queue[2][32]; i8x16 output_queue_v[2][2]; }; // FIFO with insertion at 0 for both views, and empty slots having value -1
 	union { int8_t prev_LongTermFrameIdx[64]; i8x16 prev_LongTermFrameIdx_v[4]; }; // values before decoding current view
 	union { int8_t view_LongTermFrameIdx[32]; i8x16 view_LongTermFrameIdx_v[2]; }; // [idx], values of current view to apply after decoding it
 	int64_t FieldOrderCnt[64][2]; // [pic][top/bottom], upper half increments at each IDR/mmco5 to keep output in increasing order

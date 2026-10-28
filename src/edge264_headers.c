@@ -59,6 +59,7 @@ static void unset_currPic(Edge264Decoder *dec) {
 	if (!non_base_view)
 		dec->basePic = dec->currPic;
 	dec->currPic = -1;
+	dec->TopFieldOrderCnt = INT64_MIN; // so that get_frame does not block any frame
 }
 
 static int bump_frame(Edge264Decoder *dec, int non_base_view, unsigned ignored) {
@@ -72,16 +73,13 @@ static int bump_frame(Edge264Decoder *dec, int non_base_view, unsigned ignored) 
 	if (idx < 0)
 		return 0;
 	dec->output_frames[non_base_view] |= 1u << idx;
-	assert(dec->output_queue[non_base_view][31] < 0); // output_queue should never be full
-	i8x16 *queue = dec->output_queue_v[non_base_view];
-	queue[1] = shrd128(queue[0], queue[1], 15);
-	queue[0] = shrd128(set8(non_base_view * 32 + idx), queue[0], 15);
 	return 1;
 }
 
 static int bump_all_frames(Edge264Decoder *dec) {
 	if (dec->currPic >= 0)
 		unset_currPic(dec);
+	dec->TopFieldOrderCnt = INT64_MIN; // may be set without currPic after ENOBUFS/ENOMEM in slice header
 	while (bump_frame(dec, 0, 0) | bump_frame(dec, 1, 0));
 	while (dec->busy_tasks)
 		pthread_cond_wait(&dec->task_complete, &dec->lock);
@@ -121,8 +119,8 @@ static void clear_decoder(Edge264Decoder *dec) {
 	memset((void *)dec + offsetof(Edge264Decoder, nal_ref_idc), 0, offsetof(Edge264Decoder, log_base_us) - offsetof(Edge264Decoder, nal_ref_idc));
 	dec->currPic = dec->basePic = -1;
 	dec->PrevRefFrameNum[0] = dec->PrevRefFrameNum[1] = -1;
-	dec->taskPics_v = dec->output_queue_v[0][0] = dec->output_queue_v[0][1] =
-		dec->output_queue_v[1][0] = dec->output_queue_v[1][1] = set8(-1);
+	dec->TopFieldOrderCnt = INT64_MIN;
+	dec->taskPics_v = set8(-1);
 }
 
 int ADD_VARIANT(parse_end_of_sequence)(Edge264Decoder *dec, Edge264UnrefCb unref_cb, void *unref_arg) {
@@ -1036,7 +1034,7 @@ int ADD_VARIANT(parse_slice_layer_without_partitioning)(Edge264Decoder *dec, Edg
 	
 	// find and possibly allocate a memory slot for the upcoming frame
 	if (dec->currPic < 0) {
-		if (__builtin_popcount(unavail_frames(dec, non_base_view)) == 32 || dec->output_queue[non_base_view][dec->max_output_latency] >= 0)
+		if (__builtin_popcount(unavail_frames(dec, non_base_view)) == 32)
 			return ENOBUFS; // exit here if we must wait for get_frame to consume and return a frame slot
 		// wait until at least one empty slot is undepended (or returned in the meantime)
 		unsigned unavail;
@@ -1133,9 +1131,6 @@ int ADD_VARIANT(parse_slice_layer_without_partitioning)(Edge264Decoder *dec, Edg
 		// otherwise bump if number of reordered frames exceeds limit
 		if (max_bump < 0) {
 			dec->output_frames_l |= 1ull << dec->currPic;
-			i8x16 *queue = dec->output_queue_v[non_base_view];
-			queue[1] = shrd128(queue[0], queue[1], 15);
-			queue[0] = shrd128(set8(dec->currPic), queue[0], 15);
 		} else if (__builtin_popcount(dec->to_get_frames[non_base_view] & ~dec->output_frames[non_base_view]) > sps->max_num_reorder_frames) {
 			bump_frame(dec, non_base_view, 0);
 		}

@@ -289,7 +289,7 @@ int edge264_decode_NAL(Edge264Decoder *dec, const uint8_t *buf, const uint8_t *e
 	}
 	
 	// prefill the bitstream cache while parsing the NAL byte header
-	dec->gb.CPB = buf;
+	dec->gb.cpb_off = buf - end;
 	dec->gb.end = end;
 	dec->gb.msb_cache = (size_t)1 << (SIZE_BIT - 1);
 	refill(&dec->gb, 0);

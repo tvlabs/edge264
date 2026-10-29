@@ -96,8 +96,8 @@ typedef int32_t i32x16 __attribute__((vector_size(64))); // for initialization o
  * to bitstream functions without offsets.
  */
 typedef struct {
-	const uint8_t *CPB; // memory address of the next byte to load in caches
 	const uint8_t *end; // first byte past end of buffer, capped to 001 or 000 sequence when detected
+	ptrdiff_t cpb_off; // CPB offset relative to end (CPB = end + cpb_off)
 	union { size_t lsb_cache; size_t range; };
 	union { size_t msb_cache; size_t offset; };
 } Edge264GetBits;
@@ -1266,7 +1266,7 @@ static always_inline i8x16 pack_absMvd(i16x8 a) {
 	return abs8(packs16(x, x));
 }
 static always_inline int rbsp_end(Edge264GetBits *gb, int trailing_bit) {
-	int bits_to_end = (int)(gb->end - gb->CPB) * 8 + SIZE_BIT * 2 - 1 - ctz(gb->lsb_cache) - trailing_bit;
+	int bits_to_end = -(int)gb->cpb_off * 8 + SIZE_BIT * 2 - 1 - ctz(gb->lsb_cache) - trailing_bit;
 	// all bits after trailing set bit must be zero AND there must be 0-7 bits left before end (0 for no trailing bit)
 	return gb->msb_cache == (size_t)trailing_bit << (SIZE_BIT - 1) &&
 	       (gb->lsb_cache & (gb->lsb_cache - 1)) == 0 &&

@@ -24,17 +24,16 @@ static inline size_t get_bytes(Edge264GetBits *gb, int nbytes)
 	};
 	
 	// load 16 bytes without reading past aligned buffer boundaries
-	const uint8_t *CPB = gb->CPB;
 	const uint8_t *end = gb->end;
-	intptr_t diff = CPB - end;
+	ptrdiff_t diff = gb->cpb_off;
 	u8x16 v;
 	if (__builtin_expect(diff <= -14, 1)) {
-		v = loadu128(CPB - 2);
+		v = loadu128(end + (diff - 2));
 	} else if (diff < 2) {
-		const uint8_t *p = minp(CPB - 2, (uint8_t *)((uintptr_t)(end - 1) & -16));
+		const uint8_t *p = minp(end + (diff - 2), (uint8_t *)((uintptr_t)(end - 1) & -16));
 		v = shrv128(shlv128(loadu128(p), p + 16 - end), mins(14 + diff, 16));
 	} else {
-		gb->CPB = CPB + nbytes;
+		gb->cpb_off = diff + nbytes;
 		return 0;
 	}
 	
@@ -48,19 +47,20 @@ static inline size_t get_bytes(Edge264GetBits *gb, int nbytes)
 		unsigned stop = test & ~three;
 		if (stop) {
 			int i = __builtin_ctz(stop);
-			gb->end = CPB + i - 2;
+			gb->end = end + (diff + i - 2);
+			diff = 2 - i;
 			x &= ~shlv128(set8(-1), i);
 		}
 		unsigned mask = (1 << nbytes) - 1;
 		for (unsigned esc = test & three; esc & mask; esc = (esc & (esc - 1)) >> 1) {
 			int i = __builtin_ctz(esc);
 			x = shuffle(x, shuf[i]);
-			CPB++;
+			diff++;
 		}
 	}
 	
-	// increment CPB and return the requested bytes in upper part of the result
-	gb->CPB = CPB + nbytes;
+	// increment cpb_off and return the requested bytes in upper part of the result
+	gb->cpb_off = diff + nbytes;
 	#if SIZE_BIT == 32
 		return big_endian32(((i32x4)x)[0]);
 	#elif SIZE_BIT == 64
@@ -289,13 +289,13 @@ static inline int get_bypass(Edge264Context *ctx) {
 }
 
 static int cabac_start(Edge264Context *ctx) {
-	// reclaim bits from cache while realigning with CPB on a byte boundary
+	// reclaim bits from cache while realigning with cpb_off on a byte boundary
 	int extra_bits = SIZE_BIT - 1 - ctz(ctx->t.gb.lsb_cache);
 	while (extra_bits >= 8) {
 		int32_t i = 0;
-		if (ctx->t.gb.CPB <= ctx->t.gb.end)
-			memcpy(&i, ctx->t.gb.CPB - 4, 4);
-		ctx->t.gb.CPB -= 1 + ((big_endian32(i) & 0xffffff) == 3);
+		if (ctx->t.gb.cpb_off <= 0)
+			memcpy(&i, ctx->t.gb.end + (ctx->t.gb.cpb_off - 4), 4);
+		ctx->t.gb.cpb_off -= 1 + ((big_endian32(i) & 0xffffff) == 3);
 		extra_bits -= 8;
 	}
 	int shift = extra_bits & 7;

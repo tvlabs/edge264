@@ -361,7 +361,7 @@ void *ADD_VARIANT(worker_loop)(void *arg) {
 			pthread_mutex_unlock(&c.d->lock);
 		unsigned long long clock_start = get_relative_time_us() - c.log_base_us;
 		c.t = c.d->tasks[task_id];
-		unsigned approx_byte_size = c.t.gb.end - c.t.gb.CPB;
+		unsigned approx_byte_size = -c.t.gb.CPB_off;
 		initialize_context(&c, currPic);
 		
 		// call the function containing the macroblock decoding loop

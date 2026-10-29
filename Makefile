@@ -400,7 +400,7 @@ gentests:
 # ==============================================================================
 # Formal validation
 # ==============================================================================
-_HARNESS_FILES := $(wildcard src/*_harness.c)
+_HARNESS_FILES := $(wildcard src/edge264_harness_*.c)
 .PHONY: validate
 validate: $(_HARNESS_FILES) src/edge264_api.c src/edge264_internal.h edge264.h
 	$(call check_cmd,CBMC)

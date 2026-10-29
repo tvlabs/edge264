@@ -66,6 +66,14 @@ const uint8_t *edge264_find_start_code(
 	#endif
 	return p;
 }
+#if defined(__CPROVER__) && !defined(VALIDATE_edge264_find_start_code)
+	static const uint8_t *stub_edge264_find_start_code(const uint8_t *buf, const uint8_t *end, int four_byte) {
+		ptrdiff_t off;
+		__CPROVER_assume(buf < end ? off >= 0 && off <= end - buf : off == end - buf);
+		return buf + off;
+	}
+	#define edge264_find_start_code(...) stub_edge264_find_start_code(__VA_ARGS__)
+#endif
 
 
 

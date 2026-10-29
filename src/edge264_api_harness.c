@@ -1,7 +1,7 @@
 #include "edge264_api.c"
 
 // cbmc: --unwind 31 --unwinding-assertions
-void harness_find_start_code(void) {
+void harness_edge264_find_start_code(void) {
 	uint8_t backing[32] __attribute__((aligned(16)));
 	size_t buf_off, end_off;
 	__CPROVER_assume(buf_off < sizeof(backing));

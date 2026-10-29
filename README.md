@@ -2,7 +2,7 @@
 
 edge264 is an H.264/AVC cross-platform open-source decoder, focused on **speed** and **ease-of-use**.
 
-It grew up as a research effort on new software engineering practices, most notably the use of C vector extensions to replace hand-crafted assembly. As such it is slowly but steadily progressing towards production-readiness, with a target 1.0 release and API-freeze on **29 January 2027** (see the [roadmap](#roadmap)). It is planned for deployment at Netflix in 2027.
+It grew up as a research effort on new software engineering practices, most notably the use of C vector extensions to replace hand-crafted assembly. As such it is slowly but steadily progressing towards production-readiness, with a target 1.0 release and API-freeze on **29 January 2027** (see the [roadmap](#roadmap)).
 
 ![](README-benchmark.svg)
 
@@ -446,9 +446,11 @@ Bug fixes should preferably provide test streams that can demonstrate fixing sai
 
 # Acknowledgements
 
-Thanks to everyone who reported issues and sent patches, in particular @intrepidsilence, and to Jens Duttke and the contributors of [edge264-mvc](https://github.com/jens-duttke/edge264-mvc), a fork whose fixes and features are being integrated into edge264 with their authorship kept.
+Thanks to everyone who invested time and energy to report issues and send code, and to Jens Duttke and the contributors of [edge264-mvc](https://github.com/jens-duttke/edge264-mvc)!
 
-Thanks to Celticom / TVLabs for hosting initial developments of this work and agreeing to open-source it!
+Thanks to Netflix for supporting development of this work!
+
+Thanks to Celticom / TVLabs for hosting the initial bootstrapping of this work and agreeing to open-source it!
 
 
 # License

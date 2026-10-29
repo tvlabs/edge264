@@ -130,7 +130,7 @@ int ADD_VARIANT(parse_sei)(Edge264Decoder *dec, Edge264UnrefCb unref_cb, void *u
 	// not a loop on rbsp_end since must also stop when we cross end
 	while (dec->gb.msb_cache << 1 ||
 		(dec->gb.lsb_cache & (dec->gb.lsb_cache - 1)) ||
-		dec->gb.CPB_off < 0) // if CPB_off >= 0 then all future refills will yield 0
+		dec->gb.cpb_off < 0) // if cpb_off >= 0 then all future refills will yield 0
 	{
 		int byte, payloadType = 0, payloadSize = 0;
 		do {

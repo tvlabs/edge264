@@ -68,6 +68,13 @@
 
 
 
+/**
+ * Fields declared in structs should not impose wrapping on arithmetic, thus
+ * should preferably promote to signed integers:
+ * - for 8|16 bit scalars, store unsigned if range of values allow it
+ * - for 32|64 bit scalars, store signed if range of values allow it
+ * - for vectors, store signed if range of values allow it
+ */
 typedef int8_t i8x4 __attribute__((vector_size(4)));
 typedef int8_t i8x8 __attribute__((vector_size(8)));
 typedef uint8_t u8x8 __attribute__((vector_size(8)));
@@ -123,15 +130,15 @@ typedef struct {
  */
 typedef union {
 	struct {
-		int8_t mb_field_decoding_flag;
-		int8_t mb_skip_flag;
-		int8_t mb_type_I_NxN;
-		int8_t mb_type_B_Direct;
-		int8_t transform_size_8x8_flag;
-		int8_t intra_chroma_pred_mode_non_zero;
-		int8_t CodedBlockPatternChromaDC;
-		int8_t CodedBlockPatternChromaAC;
-		union { int8_t coded_block_flags_16x16[3]; int32_t coded_block_flags_16x16_s; };
+		uint8_t mb_field_decoding_flag;
+		uint8_t mb_skip_flag;
+		uint8_t mb_type_I_NxN;
+		uint8_t mb_type_B_Direct;
+		uint8_t transform_size_8x8_flag;
+		uint8_t intra_chroma_pred_mode_non_zero;
+		uint8_t CodedBlockPatternChromaDC;
+		uint8_t CodedBlockPatternChromaAC;
+		union { uint8_t coded_block_flags_16x16[3]; int32_t coded_block_flags_16x16_s; };
 		union { uint8_t inter_eqs[4]; uint32_t inter_eqs_s; }; // 2 flags per 4x4 block storing right/bottom equality of mvs&ref, not part of ctxIdxInc but packed here to save space
 	};
 	i8x16 v;
@@ -142,19 +149,19 @@ static const Edge264MbFlags flags_twice = {
 	.coded_block_flags_16x16 = {1, 1, 1},
 };
 typedef struct {
-	int8_t error_probability; // 0..100, must be first for outside API
-	int8_t recovery_bits; // bit 0 is flipped for each new frame, bit 1 signals error
-	int8_t mbIsInterFlag;
-int8_t filter_edges; // bits 0-1 enable deblocking of A/B edges, bit 2 signals that deblocking is pending
-	union { uint8_t QP[3]; i8x4 QP_s; }; // [iYCbCr]
-	union { uint32_t bits[2]; uint64_t bits_l; }; // {cbp/ref_idx_nz, cbf_Y/Cb/Cr 8x8}
+	uint8_t error_probability; // 0..100, must be first for outside API
+	uint8_t recovery_bits; // 0..3, bit 0 is flipped for each new frame, bit 1 signals error
+	uint8_t mbIsInterFlag; // 0..1
+	uint8_t filter_edges; // 0..7, bits 0-1 enable deblocking of A/B edges, bit 2 signals that deblocking is pending
+	union { int8_t QP[3]; i8x4 QP_s; }; // [iYCbCr], -36..51, _36..39, -36..39, QP in the spec (signed version)
+	union { uint32_t bits[2]; uint64_t bits_l; }; // 0..0xffffff {cbp/ref_idx_nz, cbf_Y/Cb/Cr 8x8}
 	union { int8_t Intra4x4PredMode[16]; int32_t Intra4x4PredMode_s[4]; i8x16 Intra4x4PredMode_v; }; // [i4x4]
-	union { int8_t nC[48]; int32_t nC_s[12]; int64_t nC_l[6]; i8x16 nC_v[3]; }; // for CAVLC and deblocking, 64 if unavailable
-	union { uint8_t absMvd[64]; uint64_t absMvd_l[8]; i8x16 absMvd_v[4]; }; // [LX][i4x4][compIdx]
+	union { uint8_t nC[48]; int32_t nC_s[12]; i8x16 nC_v[3]; }; // 0..16 for CAVLC (number of coeffs) and deblocking, 0 if unavailable
+	union { uint8_t absMvd[64]; int64_t absMvd_l[8]; i8x16 absMvd_v[4]; }; // [LX][i4x4][compIdx]
 	// fields used by mbCol thus kept together for slice prefetching (do not reorder!)
 	Edge264MbFlags f;
-	union { int8_t refIdx[8]; int32_t refIdx_s[2]; int64_t refIdx_l; }; // [LX][i8x8]
-	union { int8_t refPic[8]; int32_t refPic_s[2]; int64_t refPic_l; }; // [LX][i8x8]
+	union { int8_t refIdx[8]; int32_t refIdx_s[2]; int64_t refIdx_l; }; // [LX][i8x8], -1..31
+	union { int8_t refPic[8]; int32_t refPic_s[2]; int64_t refPic_l; }; // [LX][i8x8], -1..63
 	union { int16_t mvs[64]; int32_t mvs_s[32]; int64_t mvs_l[16]; i16x8 mvs_v[8]; }; // [LX][i4x4][compIdx]
 } Edge264Macroblock;
 static Edge264Macroblock unavail_mb = {
@@ -1262,7 +1269,7 @@ static const int8_t shz_mask[48] = {
 static always_inline i16x8 median16(i16x8 a, i16x8 b, i16x8 c) {
 	return max16(min16(max16(a, b), c), min16(a, b));
 }
-static always_inline i8x16 pack_absMvd(i16x8 a) {
+static always_inline u8x16 pack_absMvd(i16x8 a) {
 	i16x8 x = broadcast32(a, 0);
 	return abs8(packs16(x, x));
 }

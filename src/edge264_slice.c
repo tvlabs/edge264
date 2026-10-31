@@ -456,8 +456,8 @@ static noinline void CAFUNC(parse_chroma_residual)
 			for (int i4x4 = 0; i4x4 < 8; i4x4++) {
 				int iYCbCr = 1 + (i4x4 >> 2);
 				uint8_t *samples = ctx->samples_mb[iYCbCr] + y420[i4x4] * ctx->t.stride[1] + x420[i4x4];
-				int nA = *((int8_t *)mb->nC + 16 + ctx->ACbCr_int8[i4x4]);
-				int nB = *((int8_t *)mb->nC + 16 + ctx->BCbCr_int8[i4x4]);
+				int nA = *(mb->nC + 16 + ctx->ACbCr_int8[i4x4]);
+				int nB = *(mb->nC + 16 + ctx->BCbCr_int8[i4x4]);
 				#if !CABAC
 					if (parse_residual_block_4x4_cavlc(ctx, 1, 16 + i4x4, nA, nB))
 						add_idct4x4(ctx, iYCbCr, i4x4, samples);
@@ -517,8 +517,8 @@ static noinline void CAFUNC(parse_Intra16x16_residual)
 			#endif
 			for (int i4x4 = 0; i4x4 < 16; i4x4++) {
 				uint8_t *samples = ctx->samples_mb[iYCbCr] + y444[i4x4] * ctx->t.stride[iYCbCr] + x444[i4x4];
-				int nA = *((int8_t *)mb->nC + iYCbCr * 16 + ctx->A4x4_int8[i4x4]);
-				int nB = *((int8_t *)mb->nC + iYCbCr * 16 + ctx->B4x4_int8[i4x4]);
+				int nA = *(mb->nC + iYCbCr * 16 + ctx->A4x4_int8[i4x4]);
+				int nB = *(mb->nC + iYCbCr * 16 + ctx->B4x4_int8[i4x4]);
 				#if !CABAC
 					if (parse_residual_block_4x4_cavlc(ctx, 1, iYCbCr * 16 + i4x4, nA, nB))
 						add_idct4x4(ctx, iYCbCr, i4x4, samples);
@@ -599,8 +599,8 @@ static noinline void CAFUNC(parse_NxN_residual)
 				if (!mb->mbIsInterFlag)
 					decode_intra4x4(samples, stride, Intra4x4Modes[mb->Intra4x4PredMode[i4x4]][ctx->unavail4x4[i4x4]], ctx->t.samples_clip_v[iYCbCr]);
 				if (mb->bits[0] & 1 << bit8x8[i4x4 >> 2]) {
-					int nA = *((int8_t *)mb->nC + iYCbCr * 16 + ctx->A4x4_int8[i4x4]);
-					int nB = *((int8_t *)mb->nC + iYCbCr * 16 + ctx->B4x4_int8[i4x4]);
+					int nA = *(mb->nC + iYCbCr * 16 + ctx->A4x4_int8[i4x4]);
+					int nB = *(mb->nC + iYCbCr * 16 + ctx->B4x4_int8[i4x4]);
 					// DC blocks are marginal here (about 16%) so we do not handle them separately
 					#if !CABAC
 						if (parse_residual_block_4x4_cavlc(ctx, 0, iYCbCr * 16 + i4x4, nA, nB))
@@ -632,8 +632,8 @@ static noinline void CAFUNC(parse_NxN_residual)
 					#if !CABAC
 						for (int i4x4 = 0; i4x4 < 4; i4x4++) {
 							ctx->scan_v[0] = scan_8x8_cavlc[0][i4x4];
-							int nA = *((int8_t *)mb->nC + iYCbCr * 16 + ctx->A4x4_int8[i8x8 * 4 + i4x4]);
-							int nB = *((int8_t *)mb->nC + iYCbCr * 16 + ctx->B4x4_int8[i8x8 * 4 + i4x4]);
+							int nA = *(mb->nC + iYCbCr * 16 + ctx->A4x4_int8[i8x8 * 4 + i4x4]);
+							int nB = *(mb->nC + iYCbCr * 16 + ctx->B4x4_int8[i8x8 * 4 + i4x4]);
 							parse_residual_block_4x4_cavlc(ctx, 0, iYCbCr * 16 + i8x8 * 4 + i4x4, nA, nB);
 						}
 						add_idct8x8(ctx, iYCbCr, samples);
@@ -1284,7 +1284,7 @@ static void CAFUNC(parse_B_mb)
 	mb->mbIsInterFlag = 1;
 	mb->Intra4x4PredMode_v = (i8x16){2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2};
 	#if CABAC
-		mb->absMvd_v[0] = mb->absMvd_v[1] = mb->absMvd_v[2] = mb->absMvd_v[3] = (i8x16){};
+		mb->absMvd_v[0] = mb->absMvd_v[1] = mb->absMvd_v[2] = mb->absMvd_v[3] = (u8x16){};
 	#endif
 	mb->mvs_v[0] = mb->mvs_v[1] = mb->mvs_v[2] = mb->mvs_v[3] = mb->mvs_v[4] = mb->mvs_v[5] = mb->mvs_v[6] = mb->mvs_v[7] = (i16x8){};
 	
@@ -1551,7 +1551,7 @@ static void CAFUNC(parse_P_mb)
 	mb->Intra4x4PredMode_v = (i8x16){2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2};
 	mb->refIdx_l = (int64_t)(i8x8){0, 0, 0, 0, -1, -1, -1, -1};
 	#if CABAC
-		mb->absMvd_v[0] = mb->absMvd_v[1] = (i8x16){};
+		mb->absMvd_v[0] = mb->absMvd_v[1] = (u8x16){};
 	#endif
 	
 	// parse mb_skip_run/flag

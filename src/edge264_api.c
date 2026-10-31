@@ -10,7 +10,7 @@ const uint8_t *edge264_find_start_code(
 	if (buf >= end) return end;
 	int nb_zeros = four_byte ? 3 : 2;
 	#if SIMD != NONE
-		const uint8_t *base = (const uint8_t *)((uintptr_t)buf & -16);
+		const uint8_t *base = (const uint8_t *)((uintptr_t)buf & ~(uintptr_t)15);
 		const uint8_t *p = base;
 		i8x16 v = *(const i8x16 *)p;
 		i8x16 zero = {};
@@ -29,7 +29,7 @@ const uint8_t *edge264_find_start_code(
 					break;
 				}
 			#else
-				uint64_t m = shrlou16(mask, 4);
+				uint64_t m = shrlos16(mask, 4);
 				if (m) {
 					ptrdiff_t i = p - base + (__builtin_ctzll(m) >> 2) - nb_zeros;
 					p = base + maxt(i < end - base - nb_zeros ? i : end - base, buf - base);

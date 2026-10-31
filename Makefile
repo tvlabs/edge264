@@ -401,6 +401,7 @@ gentests:
 # Formal validation
 # ==============================================================================
 _HARNESS_FILES := $(wildcard src/edge264_harness_*.c)
+_CBMC_FLAGS := --conversion-check
 .PHONY: validate
 validate: $(_HARNESS_FILES) src/edge264_api.c src/edge264_internal.h edge264.h
 	$(call check_cmd,CBMC)
@@ -414,8 +415,8 @@ validate: $(_HARNESS_FILES) src/edge264_api.c src/edge264_internal.h edge264.h
 	      fn="$${line#void }"; fn="$${fn%%(*}"; name="$${fn#harness_}"; \
 	      case ",$(or $(FUNCTIONS),$$name)," in *",$$name,"*) \
 	        ran=1; \
-	        [ -z "$$verbose" ] || echo $(CBMC) "$$file" --function "$$fn" -D VALIDATE_$$name $$opts; \
-	        out=$$($(CBMC) "$$file" --function "$$fn" -D VALIDATE_$$name $$opts 2>&1 </dev/null); ret=$$?; \
+	        [ -z "$$verbose" ] || echo $(CBMC) "$$file" --function "$$fn" -D VALIDATE_$$name $(_CBMC_FLAGS) $$opts; \
+	        out=$$($(CBMC) "$$file" --function "$$fn" -D VALIDATE_$$name $(_CBMC_FLAGS) $$opts 2>&1 </dev/null); ret=$$?; \
 	        if [ $$ret -eq 0 ]; then echo "PASS: $$name"; else echo "FAIL: $$name"; fi; \
 	        echo "$$out" | grep '^warning: ignoring'; \
 	        if [ $$ret -eq 10 ]; then echo "$$out" | grep 'FAILURE$$'; \

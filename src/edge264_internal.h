@@ -145,7 +145,7 @@ typedef struct {
 	int8_t error_probability; // 0..100, must be first for outside API
 	int8_t recovery_bits; // bit 0 is flipped for each new frame, bit 1 signals error
 	int8_t mbIsInterFlag;
-	int8_t filter_edges; // bits 0-1 enable deblocking of A/B edges, bit 2 signals that deblocking is pending
+int8_t filter_edges; // bits 0-1 enable deblocking of A/B edges, bit 2 signals that deblocking is pending
 	union { uint8_t QP[3]; i8x4 QP_s; }; // [iYCbCr]
 	union { uint32_t bits[2]; uint64_t bits_l; }; // {cbp/ref_idx_nz, cbf_Y/Cb/Cr 8x8}
 	union { int8_t Intra4x4PredMode[16]; int32_t Intra4x4PredMode_s[4]; i8x16 Intra4x4PredMode_v; }; // [i4x4]
@@ -743,6 +743,7 @@ enum IntraChromaModes {
  * _ shlv128 - shift positions up in byte increments by a variable amount while inserting zeros
  * _ shrv128 - shift positions down in byte increments by a variable amount while inserting zeros
  * _ shrz128 - shift positions down in byte increments while inserting zeros
+ * _ shrlos16 - shift signed 16-bit values right then narrow to their low 8 bits, returned as uint64_t
  * _ shrrs16 - shift signed 16-bit values right with rounding
  * _ shrru16 - shift unsigned 16-bit values right with rounding
  * _ shrpus16 - shift signed 16-bit values right then pack to 8-bit unsigned values
@@ -912,7 +913,7 @@ static const int8_t shz_mask[48] = {
 	#define shlc128(a, i) (i8x16)({i8x16 _a = (a); vextq_s8(broadcast8(_a, 0), _a, 16 - (i));})
 	#define shrc128(a, i) (i8x16)({i8x16 _a = (a); vextq_s8(_a, broadcast8(_a, 15), i);})
 	#define shrd128(l, h, i) (i8x16)vextq_s8(l, h, i)
-	#define shrlou16(a, i) (uint64_t)vshrn_n_u16(a, i)
+	#define shrlos16(a, i) (uint64_t)vshrn_n_s16(a, i)
 	#define shrrs16(a, i) (i16x8)vrshrq_n_s16(a, i)
 	#define shrru16(a, i) (i16x8)vrshrq_n_u16(a, i)
 	#define shlv128(a, i) shufflez(a, loadu128(shz_mask + 16 - (i)))
@@ -1046,7 +1047,7 @@ static const int8_t shz_mask[48] = {
 	#define shlc128(a, i) __builtin_shufflevector((i8x16)(a), (i8x16){}, (i) > 0 ? 0 : 0 - (i), (i) > 1 ? 0 : 1 - (i), (i) > 2 ? 0 : 2 - (i), (i) > 3 ? 0 : 3 - (i), (i) > 4 ? 0 : 4 - (i), (i) > 5 ? 0 : 5 - (i), (i) > 6 ? 0 : 6 - (i), (i) > 7 ? 0 : 7 - (i), (i) > 8 ? 0 : 8 - (i), (i) > 9 ? 0 : 9 - (i), (i) > 10 ? 0 : 10 - (i), (i) > 11 ? 0 : 11 - (i), (i) > 12 ? 0 : 12 - (i), (i) > 13 ? 0 : 13 - (i), (i) > 14 ? 0 : 14 - (i), (i) > 15 ? 0 : 15 - (i))
 	#define shrc128(a, i) __builtin_shufflevector((i8x16)(a), (i8x16){}, (i) > 15 ? 15 : (i) + 0, (i) > 14 ? 15 : (i) + 1, (i) > 13 ? 15 : (i) + 2, (i) > 12 ? 15 : (i) + 3, (i) > 11 ? 15 : (i) + 4, (i) > 10 ? 15 : (i) + 5, (i) > 9 ? 15 : (i) + 6, (i) > 8 ? 15 : (i) + 7, (i) > 7 ? 15 : (i) + 8, (i) > 6 ? 15 : (i) + 9, (i) > 5 ? 15 : (i) + 10, (i) > 4 ? 15 : (i) + 11, (i) > 3 ? 15 : (i) + 12, (i) > 2 ? 15 : (i) + 13, (i) > 1 ? 15 : (i) + 14, (i) > 0 ? 15 : (i) + 15)
 	#define shrd128(l, h, i) (i8x16)wasm_i8x16_shuffle(l, h, 0 + (i), 1 + (i), 2 + (i), 3 + (i), 4 + (i), 5 + (i), 6 + (i), 7 + (i), 8 + (i), 9 + (i), 10 + (i), 11 + (i), 12 + (i), 13 + (i), 14 + (i), 15 + (i))
-	#define shrlou16(a, i) (uint64_t)__builtin_convertvector((u16x8)(a) >> (i), u8x8)
+	#define shrlos16(a, i) (uint64_t)__builtin_convertvector((i16x8)(a) >> (i), i8x8)
 	#define shrpus16(a, b, i) (u8x16)wasm_u8x16_narrow_i16x8((i16x8)(a) >> (i), (i16x8)(b) >> (i))
 	#define shrrpu16(a, b, i) (u8x16)wasm_u8x16_narrow_i16x8(((u16x8)(a) + (1 << ((i) - 1))) >> (i), ((u16x8)(b) + (1 << ((i) - 1))) >> (i))
 	#define shrrs16(a, i) (((i16x8)(a) + (1 << ((i) - 1))) >> (i))
@@ -1117,7 +1118,7 @@ static const int8_t shz_mask[48] = {
 	#define shlc128(a, i) __builtin_shufflevector((i8x16)(a), (i8x16){}, (i) > 0 ? 0 : 0 - (i), (i) > 1 ? 0 : 1 - (i), (i) > 2 ? 0 : 2 - (i), (i) > 3 ? 0 : 3 - (i), (i) > 4 ? 0 : 4 - (i), (i) > 5 ? 0 : 5 - (i), (i) > 6 ? 0 : 6 - (i), (i) > 7 ? 0 : 7 - (i), (i) > 8 ? 0 : 8 - (i), (i) > 9 ? 0 : 9 - (i), (i) > 10 ? 0 : 10 - (i), (i) > 11 ? 0 : 11 - (i), (i) > 12 ? 0 : 12 - (i), (i) > 13 ? 0 : 13 - (i), (i) > 14 ? 0 : 14 - (i), (i) > 15 ? 0 : 15 - (i))
 	#define shrc128(a, i) __builtin_shufflevector((i8x16)(a), (i8x16){}, (i) > 15 ? 15 : (i) + 0, (i) > 14 ? 15 : (i) + 1, (i) > 13 ? 15 : (i) + 2, (i) > 12 ? 15 : (i) + 3, (i) > 11 ? 15 : (i) + 4, (i) > 10 ? 15 : (i) + 5, (i) > 9 ? 15 : (i) + 6, (i) > 8 ? 15 : (i) + 7, (i) > 7 ? 15 : (i) + 8, (i) > 6 ? 15 : (i) + 9, (i) > 5 ? 15 : (i) + 10, (i) > 4 ? 15 : (i) + 11, (i) > 3 ? 15 : (i) + 12, (i) > 2 ? 15 : (i) + 13, (i) > 1 ? 15 : (i) + 14, (i) > 0 ? 15 : (i) + 15)
 	#define shrd128(l, h, i) __builtin_shufflevector((i8x16)(l), (i8x16)(h), 0 + (i), 1 + (i), 2 + (i), 3 + (i), 4 + (i), 5 + (i), 6 + (i), 7 + (i), 8 + (i), 9 + (i), 10 + (i), 11 + (i), 12 + (i), 13 + (i), 14 + (i), 15 + (i))
-	#define shrlou16(a, i) (uint64_t)__builtin_convertvector((u16x8)(a) >> (i), u8x8)
+	#define shrlos16(a, i) (uint64_t)__builtin_convertvector((i16x8)(a) >> (i), i8x8)
 	#define shrz128(a, i) __builtin_shufflevector((i8x16)(a), (i8x16){}, 0 + (i), 1 + (i), 2 + (i), 3 + (i), 4 + (i), 5 + (i), 6 + (i), 7 + (i), 8 + (i), 9 + (i), 10 + (i), 11 + (i), 12 + (i), 13 + (i), 14 + (i), 15 + (i))
 	#define subsu8(a, b) (u8x16)__builtin_elementwise_sub_sat((u8x16)(a), (u8x16)(b))
 	#define sum8(a) ((u16x8){__builtin_reduce_add(__builtin_convertvector((u8x16)(a), u16x16))})
@@ -1238,7 +1239,7 @@ static const int8_t shz_mask[48] = {
 	static i8x16 shrv128(i8x16 a, unsigned i) {assert(i < 16); i8x16 r; for (int k = 0; k < 16; k++) r[k] = (k + i < 16) ? a[k + i] : 0; return r;}
 	static i8x16 shrd128(i8x16 l, i8x16 h, unsigned i) {assert(i <= 16); i8x16 r; for (int k = 0; k < 16; k++) r[k] = (i + k < 16) ? l[i + k] : h[i + k - 16]; return r;}
 	static i8x16 shrz128(i8x16 a, unsigned i) {assert(i < 16); i8x16 r; for (int k = 0; k < 16; k++) r[k] = k + i < 16 ? a[k + i] : 0; return r;}
-	static uint64_t shrlou16(u16x8 a, unsigned i) { assert(i < 16); return (uint64_t)__builtin_convertvector(a >> i, u8x8);}
+	static uint64_t shrlos16(i16x8 a, unsigned i) {assert(i < 16); return (uint64_t)__builtin_convertvector(a >> i, i8x8);}
 	static i16x8 shrrs16(i16x8 a, unsigned i) {assert(i < 16); return (a + set16(1 << (i - 1))) >> i;}
 	static u16x8 shrru16(u16x8 a, unsigned i) {assert(i < 16); u16x8 r; for (int k = 0; k < 8; k++) {unsigned s = a[k] + (1u << (i - 1)); if (s <= 65535) r[k] = s >> i;} return r;}
 	static u8x16 shrpus16(i16x8 a, i16x8 b, unsigned i) {assert(i < 16); return packus16(a >> i, b >> i);}

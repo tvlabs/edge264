@@ -200,7 +200,7 @@ static void add_idct8x8(Edge264Context *ctx, int iYCbCr, uint8_t *dst0)
 		int m = qP % 6;
 		i8x16 nA0 = normAdjust8x8[m * 2];
 		i8x16 nA1 = normAdjust8x8[m * 2 + 1];
-		i8x16 *wS = ctx->t.pps.weightScale8x8_v + (iYCbCr * 2 + mb->mbIsInterFlag) * 4;
+		u8x16 *wS = ctx->t.pps.weightScale8x8_v + (iYCbCr * 2 + mb->mbIsInterFlag) * 4;
 		i16x8 LS0 = mullou8(wS[0], nA0);
 		i16x8 LS1 = mulhiu8(wS[0], nA0);
 		i16x8 LS2 = mullou8(wS[1], nA1);

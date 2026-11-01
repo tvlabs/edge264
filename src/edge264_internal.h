@@ -71,9 +71,10 @@
 /**
  * Fields declared in structs should not impose wrapping on arithmetic, thus
  * should preferably promote to signed integers:
- * - for 8|16 bit scalars, store unsigned if range of values allow it
- * - for 32|64 bit scalars, store signed if range of values allow it
- * - for vectors, store signed if range of values allow it
+ * - for 8|16 bit scalars, prefer unsigned if range of values allow it
+*    (simpler range checks for CBMC)
+ * - for 32|64 bit scalars, prefer signed if range of values allow it
+ * - for vectors, prefer signed if range of values allow it
  */
 typedef int8_t i8x4 __attribute__((vector_size(4)));
 typedef int8_t i8x8 __attribute__((vector_size(8)));
@@ -157,12 +158,12 @@ typedef struct {
 	union { uint32_t bits[2]; uint64_t bits_l; }; // 0..0xffffff {cbp/ref_idx_nz, cbf_Y/Cb/Cr 8x8}
 	union { int8_t Intra4x4PredMode[16]; int32_t Intra4x4PredMode_s[4]; i8x16 Intra4x4PredMode_v; }; // [i4x4]
 	union { uint8_t nC[48]; int32_t nC_s[12]; i8x16 nC_v[3]; }; // 0..16 for CAVLC (number of coeffs) and deblocking, 0 if unavailable
-	union { uint8_t absMvd[64]; int64_t absMvd_l[8]; i8x16 absMvd_v[4]; }; // [LX][i4x4][compIdx]
+	union { uint8_t absMvd[64]; int64_t absMvd_l[8]; i8x16 absMvd_v[4]; }; // [LX][i4x4][compIdx], 0..128
 	// fields used by mbCol thus kept together for slice prefetching (do not reorder!)
 	Edge264MbFlags f;
 	union { int8_t refIdx[8]; int32_t refIdx_s[2]; int64_t refIdx_l; }; // [LX][i8x8], -1..31
 	union { int8_t refPic[8]; int32_t refPic_s[2]; int64_t refPic_l; }; // [LX][i8x8], -1..63
-	union { int16_t mvs[64]; int32_t mvs_s[32]; int64_t mvs_l[16]; i16x8 mvs_v[8]; }; // [LX][i4x4][compIdx]
+	union { int16_t mvs[64]; int32_t mvs_s[32]; int64_t mvs_l[16]; i16x8 mvs_v[8]; }; // [LX][i4x4][compIdx], -32768..32767
 } Edge264Macroblock;
 static Edge264Macroblock unavail_mb = {
 	.f.mb_skip_flag = 1,
@@ -183,58 +184,58 @@ static Edge264Macroblock unavail_mb = {
 typedef struct {
 	union {
 		struct {
-			int8_t chroma_format_idc; // 0..3
-			int8_t ChromaArrayType; // 0..3
-			int8_t BitDepth_Y; // 8..14
-			int8_t BitDepth_C;
+			uint8_t chroma_format_idc; // 0..3
+			uint8_t ChromaArrayType; // 0..3
+			uint8_t BitDepth_Y; // 8..14
+			uint8_t BitDepth_C;
 			uint16_t pic_width_in_mbs; // 1..1023
-			int16_t pic_height_in_mbs; // 1..1055
-			int16_t frame_crop_offsets[4]; // {top,right,bottom,left}
+			uint16_t pic_height_in_mbs; // 1..1055
+			uint16_t frame_crop_offsets[4]; // {top,right,bottom,left}
 		};
 		i8x16 frame_format;
 	};
-	int8_t qpprime_y_zero_transform_bypass_flag; // 0..1
-	int8_t log2_max_frame_num; // 4..16
-	int8_t pic_order_cnt_type; // 0..2
-	int8_t log2_max_pic_order_cnt_lsb; // 4..16, pic_order_cnt_type==0
-	int8_t delta_pic_order_always_zero_flag; // 0..1, pic_order_cnt_type==1
+	uint8_t qpprime_y_zero_transform_bypass_flag; // 0..1
+	uint8_t log2_max_frame_num; // 4..16
+	uint8_t pic_order_cnt_type; // 0..2
+	uint8_t log2_max_pic_order_cnt_lsb; // 4..16, pic_order_cnt_type==0
+	uint8_t delta_pic_order_always_zero_flag; // 0..1, pic_order_cnt_type==1
 	uint8_t num_ref_frames_in_pic_order_cnt_cycle; // 0..255, pic_order_cnt_type==1
-	int8_t max_num_ref_frames; // 0..16
-	int8_t frame_mbs_only_flag; // 0..1
-	int8_t mb_adaptive_frame_field_flag; // 0..1
-	int8_t direct_8x8_inference_flag; // 0..1
-	int8_t max_dec_frame_buffering; // 0..16
-	int8_t max_num_reorder_frames; // 0..16
-	int8_t nal_hrd_cpb_cnt; // 1..32
-	int8_t vcl_hrd_cpb_cnt; // 1..32
-	int8_t initial_cpb_removal_delay_length; // 1..32
-	int8_t cpb_removal_delay_length; // 1..32
-	int8_t dpb_output_delay_length; // 1..32
-	int8_t time_offset_length; // 0..31
-	int8_t pic_struct_present_flag; // 0..1
+	uint8_t max_num_ref_frames; // 0..16
+	uint8_t frame_mbs_only_flag; // 0..1
+	uint8_t mb_adaptive_frame_field_flag; // 0..1
+	uint8_t direct_8x8_inference_flag; // 0..1
+	uint8_t max_dec_frame_buffering; // 0..16
+	uint8_t max_num_reorder_frames; // 0..16
+	uint8_t nal_hrd_cpb_cnt; // 0..32, zero when nal_hrd_parameters_present_flag is zero
+	uint8_t vcl_hrd_cpb_cnt; // 0..32, zero when vcl_hrd_parameters_present_flag is zero
+	uint8_t initial_cpb_removal_delay_length; // 1..32
+	uint8_t cpb_removal_delay_length; // 1..32
+	uint8_t dpb_output_delay_length; // 1..32
+	uint8_t time_offset_length; // 0..31
+	uint8_t pic_struct_present_flag; // 0..1
 	int16_t offset_for_non_ref_pic; // -32768..32767, pic_order_cnt_type==1
 	int16_t offset_for_top_to_bottom_field; // -32768..32767, pic_order_cnt_type==1
 	int16_t PicOrderCntDeltas[255]; // -32768..32767, pic_order_cnt_type==1
 	uint32_t num_units_in_tick; // 0..2^32-1
 	uint32_t time_scale; // 0..2^32-1
-	union { uint8_t weightScale4x4[6][16]; i8x16 weightScale4x4_v[6]; };
-	union { uint8_t weightScale8x8[6][64]; i8x16 weightScale8x8_v[6*4]; };
+	union { uint8_t weightScale4x4[6][16]; u8x16 weightScale4x4_v[6]; };
+	union { uint8_t weightScale8x8[6][64]; u8x16 weightScale8x8_v[6*4]; };
 } Edge264SeqParameterSet;
 typedef struct {
-	int8_t entropy_coding_mode_flag; // 0..1
-	int8_t bottom_field_pic_order_in_frame_present_flag; // 0..1
-	int8_t num_ref_idx_active[2]; // 1..32, non-zero if PPS has been initialized
-	int8_t weighted_pred_flag; // 0..1
-	int8_t weighted_bipred_idc; // 0..2
-	int8_t QPprime_Y; // 0..87
+	uint8_t entropy_coding_mode_flag; // 0..1
+	uint8_t bottom_field_pic_order_in_frame_present_flag; // 0..1
+	uint8_t num_ref_idx_active[2]; // 1..32, non-zero if PPS has been initialized
+	uint8_t weighted_pred_flag; // 0..1
+	uint8_t weighted_bipred_idc; // 0..2
+	uint8_t QPprime_Y; // 0..87
 	int8_t chroma_qp_index_offset; // -12..12
-	int8_t deblocking_filter_control_present_flag; // 0..1
-	int8_t constrained_intra_pred_flag; // 0..1
-	int8_t transform_8x8_mode_flag; // 0..1
-	int8_t pic_scaling_matrix_present_flag; // 0..1
+	uint8_t deblocking_filter_control_present_flag; // 0..1
+	uint8_t constrained_intra_pred_flag; // 0..1
+	uint8_t transform_8x8_mode_flag; // 0..1
+	uint8_t pic_scaling_matrix_present_flag; // 0..1
 	int8_t second_chroma_qp_index_offset; // -12..12
-	union { uint8_t weightScale4x4[6][16]; i8x16 weightScale4x4_v[6]; };
-	union { uint8_t weightScale8x8[6][64]; i8x16 weightScale8x8_v[6*4]; };
+	union { uint8_t weightScale4x4[6][16]; u8x16 weightScale4x4_v[6]; }; // 0 to fall back to SPS
+	union { uint8_t weightScale8x8[6][64]; u8x16 weightScale8x8_v[6*4]; };
 } Edge264PicParameterSet;
 
 

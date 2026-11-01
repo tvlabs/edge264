@@ -1230,7 +1230,7 @@ int ADD_VARIANT(parse_nal_unit_header_extension)(Edge264Decoder *dec, Edge264Unr
  * existing list, so they must be initialised with Default scaling lists at
  * the very first call.
  */
-static void parse_scaling_lists(Edge264Decoder *dec, i8x16 *w4x4, i8x16 *w8x8, int transform_8x8_mode_flag, int chroma_format_idc)
+static void parse_scaling_lists(Edge264Decoder *dec, u8x16 *w4x4, u8x16 *w8x8, int transform_8x8_mode_flag, int chroma_format_idc)
 {
 	i8x16 fb4x4 = *w4x4; // fall-back
 	i8x16 d4x4 = Default_4x4_Intra; // for useDefaultScalingMatrixFlag
@@ -1343,7 +1343,7 @@ int ADD_VARIANT(parse_pic_parameter_set)(Edge264Decoder *dec,  Edge264UnrefCb un
 	pps.num_ref_idx_active[0] = get_ue16(&dec->gb, 31) + 1;
 	pps.num_ref_idx_active[1] = get_ue16(&dec->gb, 31) + 1;
 	pps.weighted_pred_flag = get_u1(&dec->gb);
-	pps.weighted_bipred_idc = get_uv(&dec->gb, 2);
+	pps.weighted_bipred_idc = mins(get_uv(&dec->gb, 2), 2);
 	pps.QPprime_Y = get_se16(&dec->gb, -26, 25) + 26; // FIXME QpBdOffset
 	get_se16(&dec->gb, -26, 25); // pic_init_qs
 	pps.second_chroma_qp_index_offset = pps.chroma_qp_index_offset = get_se16(&dec->gb, -12, 12);
@@ -1397,7 +1397,7 @@ int ADD_VARIANT(parse_pic_parameter_set)(Edge264Decoder *dec,  Edge264UnrefCb un
  * For the sake of implementation simplicity, the responsibility for timing
  * management is left to demuxing libraries, hence any HRD data is ignored.
  */
-static void parse_hrd_parameters(Edge264Decoder *dec, Edge264SeqParameterSet *sps, int8_t *cpb_cnt, const char *indent) {
+static void parse_hrd_parameters(Edge264Decoder *dec, Edge264SeqParameterSet *sps, uint8_t *cpb_cnt, const char *indent) {
 	*cpb_cnt = get_ue16(&dec->gb, 31) + 1;
 	int bit_rate_scale = get_uv(&dec->gb, 4);
 	int cpb_size_scale = get_uv(&dec->gb, 4);
@@ -1708,7 +1708,7 @@ int ADD_VARIANT(parse_seq_parameter_set)(Edge264Decoder *dec, Edge264UnrefCb unr
 		[244] = "High 4:4:4 Predictive",
 	};
 	static const char * const chroma_format_idc_names[4] = {"4:0:0", "4:2:0", "4:2:2", "4:4:4"};
-	static const uint32_t MaxDpbMbs[64] = {
+	static const int32_t MaxDpbMbs[64] = {
 		396, 396, 396, 396, 396, 396, 396, 396, 396, 396, 396, // level 1
 		900, // levels 1b and 1.1
 		2376, 2376, 2376, 2376, 2376, 2376, 2376, 2376, 2376, // levels 1.2, 1.3 and 2
@@ -1721,7 +1721,7 @@ int ADD_VARIANT(parse_seq_parameter_set)(Edge264Decoder *dec, Edge264UnrefCb unr
 		110400, 110400, 110400, 110400, 110400, 110400, 110400, 110400, // level 5
 		184320, 184320, // levels 5.1 and 5.2
 		696320, 696320, 696320, 696320, 696320, 696320, 696320, 696320, 696320, 696320, // levels 6, 6.1 and 6.2
-		UINT_MAX // no limit beyond
+		INT_MAX // no limit beyond
 	};
 	
 	// temp storage, committed if entire NAL is correct
@@ -1760,7 +1760,7 @@ int ADD_VARIANT(parse_seq_parameter_set)(Edge264Decoder *dec, Edge264UnrefCb unr
 			ret = ENOTSUP;
 			if (sps.chroma_format_idc == 3) {
 				int separate_colour_plane_flag = get_u1(&dec->gb);
-				sps.ChromaArrayType = (separate_colour_plane_flag * 3) ^ 3;
+				sps.ChromaArrayType = separate_colour_plane_flag ? 0 : 3;
 				log_dec(dec, "  separate_colour_plane_flag: %u\n",
 					separate_colour_plane_flag);
 			}
@@ -1835,9 +1835,7 @@ int ADD_VARIANT(parse_seq_parameter_set)(Edge264Decoder *dec, Edge264UnrefCb unr
 	if (!sps.frame_mbs_only_flag)
 		ret = ENOTSUP;
 	sps.pic_height_in_mbs = pic_height_in_map_units << 1 >> sps.frame_mbs_only_flag;
-	// My understanding of H.10.2.1-f is that with any given level, the number
-	// of pictures the DPB can store is unaffected by number of views (if <= 2)
-	int MaxDpbFrames = mins(MaxDpbMbs[mins(level_idc, 63)] / (unsigned)(sps.pic_width_in_mbs * sps.pic_height_in_mbs), 16);
+	int MaxDpbFrames = mins((unsigned)MaxDpbMbs[mins(level_idc, 63)] / (sps.pic_width_in_mbs * sps.pic_height_in_mbs), 16);
 	sps.max_num_ref_frames = mins(max_num_ref_frames, MaxDpbFrames);
 	if (movemask(set8(profile_idc) == ((u8x16){44, 86, 100, 110, 122, 244})) &&
 		(constraint_set_flags & 1 << 4)) {

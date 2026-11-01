@@ -246,29 +246,29 @@ typedef struct {
  */
 typedef struct {
 	Edge264GetBits gb; // must be first in struct to use the same pointer for bitstream functions
-	int8_t slice_type; // 0..2
-	int8_t field_pic_flag; // 0..1
-	int8_t bottom_field_flag; // 0..1
-	int8_t MbaffFrameFlag; // 0..1
-	int8_t direct_spatial_mv_pred_flag; // 0..1
-	int8_t luma_log2_weight_denom; // 0..7
-	int8_t chroma_log2_weight_denom; // 0..7
-	int8_t disable_deblocking_filter_idc; // 0..2
+	uint8_t slice_type; // 0..2
+	uint8_t field_pic_flag; // 0..1
+	uint8_t bottom_field_flag; // 0..1
+	uint8_t MbaffFrameFlag; // 0..1
+	uint8_t direct_spatial_mv_pred_flag; // 0..1
+	uint8_t luma_log2_weight_denom; // 0..7
+	uint8_t chroma_log2_weight_denom; // 0..7
+	uint8_t disable_deblocking_filter_idc; // 0..2
 	int8_t FilterOffsetA; // -12..12
-	int8_t FilterOffsetB;
-	int8_t ChromaArrayType; // 0..3
-	int8_t direct_8x8_inference_flag; // 0..1
-	int8_t cabac_init_idc; // 0..3
+	int8_t FilterOffsetB; // -12..12
+	uint8_t ChromaArrayType; // 0..3
+	uint8_t direct_8x8_inference_flag; // 0..1
+	uint8_t cabac_init_idc; // 0..3
 	int8_t next_deblock_idc; // -1..63, -1 if next_deblock_addr is not written back to dec, currPic otherwise
-	int8_t frame_flip_bit; // 0..1
-	int16_t pic_width_in_mbs; // 0..1023
-	int16_t pic_height_in_mbs; // 0..1055
-	uint16_t stride[3]; // 0..65472 (at max width, 16bit & field pic), [iYCbCr]
-	int32_t FrameId;
+	uint8_t frame_flip_bit; // 0..1
+	uint16_t pic_width_in_mbs; // 1..1023
+	uint16_t pic_height_in_mbs; // 1..1055
+	uint16_t stride[3]; // 16..65472 (at max width, 16bit & field pic), [iYCbCr]
+	uint32_t FrameId;
 	int32_t plane_size_Y;
 	int32_t plane_size_C;
 	int32_t next_deblock_addr; // INT_MIN..INT_MAX
-	uint32_t first_mb_in_slice; // 0..139263
+	int32_t first_mb_in_slice; // 0..139263
 	uint64_t prev_long_term_frames;
 	union { int8_t QP[3]; i8x4 QP_s; }; // same as mb
 	Edge264UnrefCb unref_cb; // copy from decode_NAL
@@ -277,11 +277,11 @@ typedef struct {
 	Edge264Macroblock *mbCol_buffer;
 	uint8_t *samples_buffers[64];
 	union { uint16_t samples_clip[3][8]; i16x8 samples_clip_v[3]; }; // [iYCbCr], maximum sample value
-	union { int8_t RefPicList[2][32]; int64_t RefPicList_l[8]; i8x16 RefPicList_v[4]; };
-	union { int16_t diff_poc[64]; i16x8 diff_poc_v[8]; };
+	union { int8_t RefPicList[2][32]; int64_t RefPicList_l[8]; i8x16 RefPicList_v[4]; }; // -1..63
+	union { int16_t diff_poc[64]; i16x8 diff_poc_v[8]; }; // -32768..32767
 	Edge264PicParameterSet pps;
-	int16_t explicit_weights[3][64]; // [iYCbCr][LX][RefIdx]
-	int8_t explicit_offsets[3][64];
+	union { int16_t explicit_weights[3][64]; i16x8 explicit_weights_v[3*8]; }; // [iYCbCr][LX][RefIdx], -128..128
+	int8_t explicit_offsets[3][64]; // -128..127
 } Edge264Task;
 
 
@@ -416,7 +416,7 @@ typedef struct Edge264Decoder {
 	int8_t nal_unit_type; // 5 significant bits
 	int32_t plane_size_Y;
 	int32_t plane_size_C;
-	int32_t prevFrameId;
+	uint32_t prevFrameId; // starts at UINT_MAX to wrap to 0 for the first frame
 	uint64_t frame_flip_bits; // bitfield storing target values of bit 0 in mb->recovery_bits for each frame
 	Edge264AllocCb alloc_cb;
 	Edge264FreeCb free_cb;
@@ -459,7 +459,7 @@ typedef struct Edge264Decoder {
 	union { uint32_t to_get_frames[2]; uint64_t to_get_frames_l; }; // [view], bitfield for frames that have not been returned by get_frame yet
 	union { uint32_t output_frames[2]; uint64_t output_frames_l; }; // [view], bitfield for frames that have been bumped for output and not returned yet
 	int32_t FrameNums[64]; // signed to be used along FieldOrderCnt in initial reference ordering
-	int32_t FrameIds[64]; // unique identifiers for each frame, incremented in decoding order
+	uint32_t FrameIds[64]; // unique identifiers for each frame, incremented in decoding order
 	union { int8_t prev_LongTermFrameIdx[64]; i8x16 prev_LongTermFrameIdx_v[4]; }; // values before decoding current view
 	union { int8_t view_LongTermFrameIdx[32]; i8x16 view_LongTermFrameIdx_v[2]; }; // [idx], values of current view to apply after decoding it
 	int64_t FieldOrderCnt[64][2]; // [pic][top/bottom], upper half increments at each IDR/mmco5 to keep output in increasing order

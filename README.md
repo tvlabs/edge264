@@ -261,8 +261,8 @@ The API may still change before the 1.0 freeze (see the [roadmap](#roadmap)). Ca
 > 	int16_t stride_Y;
 > 	int16_t stride_C;
 > 	int16_t stride_mb;
-> 	int32_t FrameId;
-> 	int32_t FrameId_mvc; // second view
+> 	uint32_t FrameId;
+> 	uint32_t FrameId_mvc; // second view
 > 	int16_t frame_crop_offsets[4]; // {top,right,bottom,left}, useful to derive the original frame with 16x16 macroblocks
 > 	uintptr_t return_arg;
 > } Edge264Frame;

@@ -774,7 +774,7 @@ static void parse_ref_pic_list_modification(Edge264Decoder *dec, Edge264SeqParam
 			log_dec(dec, lx == 0 ? "  RefPicLists: [[" : "], [");
 			for (int i = 0; i < t->pps.num_ref_idx_active[lx]; i++) {
 				int pic = t->RefPicList[lx][i];
-				log_dec(dec, i == 0 ? "%d" : ",%d", dec->FrameIds[pic]);
+				log_dec(dec, i == 0 ? "%u" : ",%u", dec->FrameIds[pic]);
 			}
 		}
 		log_dec(dec, "]]\n");

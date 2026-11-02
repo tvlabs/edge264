@@ -325,6 +325,8 @@ static int decode_file(const char *name0)
 		v2 = map_file(name2, &s2); // may fail for non-MVC streams
 	}
 	int quit = v0 == NULL || enable_yuv && v1 == NULL;
+	conf[0] = v1;
+	conf[1] = v2;
 	const uint8_t *nal = v0;
 	const uint8_t *end0 = v0 + s0;
 	const uint8_t *end1 = v1 + s1;

@@ -302,7 +302,7 @@ static int cabac_start(Edge264Context *ctx) {
 	int ret = shift > 0 && (ssize_t)ctx->t.gb.msb_cache >> (SIZE_BIT - shift) != -1; // return 1 if not all alignment bits are ones
 	ctx->t.gb.offset = shld(ctx->t.gb.lsb_cache, ctx->t.gb.msb_cache, shift); // offset and msb_cache are the same memory slot
 	ctx->t.gb.range = (size_t)510 << (SIZE_BIT - 9);
-	ctx->t.gb.offset = (ctx->t.gb.offset < ctx->t.gb.range) ? ctx->t.gb.offset : ctx->t.gb.range; // protection against invalid bitstream
+	ctx->t.gb.offset = (ctx->t.gb.offset < ctx->t.gb.range) ? ctx->t.gb.offset : ctx->t.gb.range - 1; // protection against invalid bitstream
 	return ret;
 }
 

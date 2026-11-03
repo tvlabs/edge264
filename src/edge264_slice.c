@@ -142,7 +142,7 @@
 		int zerosLeft = 0;
 		if (TotalCoeff <= endIdx - startIdx)
 			zerosLeft = parse_total_zeros(ctx, endIdx, TotalCoeff);
-		int8_t *scan = ctx->scan + startIdx + zerosLeft + TotalCoeff - 1;
+		uint8_t *scan = ctx->scan + startIdx + zerosLeft + TotalCoeff - 1;
 		ctx->c[*scan] = level[0];
 		for (int i = 1, v, run_before; i < TotalCoeff; i++) {
 			scan--;
@@ -1666,7 +1666,7 @@ static noinline void CAFUNC(parse_slice_data)
 		// update flip_bit atomically to signal mb is a priori decoded, otherwise end the slice
 		int prev_recovery_bits = __atomic_exchange_n(&mb->recovery_bits, ctx->t.frame_flip_bit, __ATOMIC_ACQ_REL);
 		if (prev_recovery_bits == ctx->t.frame_flip_bit)
-			return;
+			break;
 		
 		// set and reset neighbouring pointers depending on their availability
 		int unavail16x16 = (ctx->mbx == 0 ? 9 : 0) | (ctx->mbx == ctx->t.pic_width_in_mbs - 1) << 2 | (ctx->mby == 0 ? 14 : 0);
@@ -1791,11 +1791,15 @@ static noinline void CAFUNC(parse_slice_data)
 		if (ctx->CurrMbAddr - ctx->t.pic_width_in_mbs == ctx->t.next_deblock_addr) {
 			ctx->t.next_deblock_addr += 1;
 			mb -= ctx->t.pic_width_in_mbs + 1;
+			ctx->CurrMbAddr -= ctx->t.pic_width_in_mbs;
+			ctx->mby--;
 			ctx->samples_mb[0] -= ctx->t.stride[0] * 16;
 			ctx->samples_mb[1] -= ctx->t.stride[1] * 8;
 			ctx->samples_mb[2] -= ctx->t.stride[1] * 8;
 			deblock_mb(ctx);
 			mb += ctx->t.pic_width_in_mbs + 2;
+			ctx->CurrMbAddr += ctx->t.pic_width_in_mbs;
+			ctx->mby++;
 			ctx->samples_mb[0] += ctx->t.stride[0] * 16 + 16;
 			ctx->samples_mb[1] += ctx->t.stride[1] * 8 + 8;
 			ctx->samples_mb[2] += ctx->t.stride[1] * 8 + 8;
@@ -1824,9 +1828,13 @@ static noinline void CAFUNC(parse_slice_data)
 				pthread_cond_broadcast(&ctx->d->task_progress);
 			}
 			if (ctx->mby >= ctx->t.pic_height_in_mbs)
-				return;
+				break;
 		}
 	} while (CACOND(ctx->mb_skip_run > 0 || !rbsp_end(&ctx->t.gb, 1), !end_of_slice_flag));
+	
+	// no current macroblock past this point
+	ctx->samples_mb[0] = ctx->samples_mb[1] = ctx->samples_mb[2] = NULL;
+	ctx->_mbA = ctx->_mbB = ctx->_mbC = ctx->_mbD = ctx->mbCol = ctx->_mb = NULL;
 }
 
 #undef CABAC

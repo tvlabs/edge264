@@ -165,12 +165,15 @@ static void initialize_context(Edge264Context *ctx, int currPic)
 	ctx->samples_mb[2] = ctx->samples_mb[1] + (ctx->t.stride[1] >> 1);
 	int mb_offset = ctx->mbx + ctx->mby * (ctx->t.pic_width_in_mbs + 1);
 	ctx->mbCol = ctx->_mb = ctx->t.mb_buffer + mb_offset;
+	ctx->_mbA = ctx->_mbB = ctx->_mbC = ctx->_mbD = &unavail_mb;
+	ctx->inc.v = (i8x16){};
+	ctx->unavail4x4_v[0] = ctx->unavail4x4_v[1] = ctx->unavail4x4_v[2] = (i8x16){};
 	ctx->A4x4_int8_v = (i16x16){0, 0, 2, 2, 1, 4, 3, 6, 8, 8, 10, 10, 9, 12, 11, 14};
 	ctx->B4x4_int8_v = (i32x16){0, 1, 0, 1, 4, 5, 4, 5, 2, 3, 8, 9, 6, 7, 12, 13};
-	if (ctx->t.ChromaArrayType == 1) {
-		ctx->ACbCr_int8_v[0] = (i16x8){0, 0, 2, 2, 4, 4, 6, 6};
-		ctx->BCbCr_int8_v[0] = (i32x8){0, 1, 0, 1, 4, 5, 4, 5};
-	}
+	ctx->ACbCr_int8_v[0] = (i16x8){0, 0, 2, 2, 4, 4, 6, 6};
+	ctx->ACbCr_int8_v[1] = (i16x8){};
+	ctx->BCbCr_int8_v[0] = (i32x8){0, 1, 0, 1, 4, 5, 4, 5};
+	ctx->BCbCr_int8_v[1] = (i32x8){};
 	
 	ctx->QP_C_v[0] = loadu128(QP_Y2C + 12 + ctx->t.pps.chroma_qp_index_offset);
 	ctx->QP_C_v[1] = loadu128(QP_Y2C + 28 + ctx->t.pps.chroma_qp_index_offset);
@@ -182,64 +185,69 @@ static void initialize_context(Edge264Context *ctx, int currPic)
 	ctx->QP_C_v[7] = loadu128(QP_Y2C + 60 + ctx->t.pps.second_chroma_qp_index_offset);
 	ctx->t.QP[1] = ctx->QP_C[0][ctx->t.QP[0]];
 	ctx->t.QP[2] = ctx->QP_C[1][ctx->t.QP[0]];
-	for (int i = 1; i < 4; i++) {
+	for (int i = 0; i < 4; i++) {
 		ctx->sig_inc_v[i] = sig_inc_8x8[0][i];
 		ctx->last_inc_v[i] = last_inc_8x8[i];
 		ctx->scan_v[i] = scan_8x8_cabac[0][i];
 	}
 	for (int i = 0; i < 16; i++)
 		ctx->c_v[i] = (i8x16){};
+	ctx->alpha_v = ctx->beta_v = (i8x16){};
+	ctx->tC0_v[0] = ctx->tC0_v[1] = ctx->tC0_v[2] = ctx->tC0_v[3] = set8(-1);
 	
-	// P/B slices
-	if (ctx->t.slice_type < 2) {
-		ctx->refIdx4x4_C_v = (i8x16){2, 3, 12, -1, 3, 6, 13, -1, 12, 13, 14, -1, 13, -1, 15, -1};
-		ctx->absMvd_A_v = (i16x16){0, 0, 4, 4, 2, 8, 6, 12, 16, 16, 20, 20, 18, 24, 22, 28};
-		ctx->absMvd_B_v = (i32x16){0, 2, 0, 2, 8, 10, 8, 10, 4, 6, 16, 18, 12, 14, 24, 26};
-		ctx->mvs_A_v = (i16x16){0, 0, 2, 2, 1, 4, 3, 6, 8, 8, 10, 10, 9, 12, 11, 14};
-		ctx->mvs_B_v = (i32x16){0, 1, 0, 1, 4, 5, 4, 5, 2, 3, 8, 9, 6, 7, 12, 13};
-		ctx->mvs_C_v = (i32x16){0, 1, 1, -1, 4, 5, 5, -1, 3, 6, 9, -1, 7, -1, 13, -1};
-		ctx->mvs_D_v = (i32x16){0, 1, 2, 0, 4, 5, 1, 4, 8, 2, 10, 8, 3, 6, 9, 12};
-		ctx->num_ref_idx_mask = (ctx->t.pps.num_ref_idx_active[0] > 1) * 0x0f + (ctx->t.pps.num_ref_idx_active[1] > 1) * 0xf0;
-		ctx->transform_8x8_mode_flag = ctx->t.pps.transform_8x8_mode_flag; // for P slices this value is constant
-		int max0 = ctx->t.pps.num_ref_idx_active[0] - 1;
-		int max1 = ctx->t.slice_type == 0 ? -1 : ctx->t.pps.num_ref_idx_active[1] - 1;
-		ctx->clip_ref_idx_v = (i8x8){max0, max0, max0, max0, max1, max1, max1, max1};
+	// inter context, initialized for all slice types to keep all fields valid
+	ctx->refIdx4x4_C_v = (i8x16){2, 3, 12, -1, 3, 6, 13, -1, 12, 13, 14, -1, 13, -1, 15, -1};
+	ctx->absMvd_A_v = (i16x16){0, 0, 4, 4, 2, 8, 6, 12, 16, 16, 20, 20, 18, 24, 22, 28};
+	ctx->absMvd_B_v = (i32x16){0, 2, 0, 2, 8, 10, 8, 10, 4, 6, 16, 18, 12, 14, 24, 26};
+	ctx->mvs_A_v = (i16x16){0, 0, 2, 2, 1, 4, 3, 6, 8, 8, 10, 10, 9, 12, 11, 14};
+	ctx->mvs_B_v = (i32x16){0, 1, 0, 1, 4, 5, 4, 5, 2, 3, 8, 9, 6, 7, 12, 13};
+	ctx->mvs_C_v = (i32x16){0, 1, 1, -1, 4, 5, 5, -1, 3, 6, 9, -1, 7, -1, 13, -1};
+	ctx->mvs_D_v = (i32x16){0, 1, 2, 0, 4, 5, 1, 4, 8, 2, 10, 8, 3, 6, 9, 12};
+	ctx->num_ref_idx_mask = (ctx->t.pps.num_ref_idx_active[0] > 1) * 0x0f + (ctx->t.pps.num_ref_idx_active[1] > 1) * 0xf0;
+	ctx->transform_8x8_mode_flag = ctx->t.pps.transform_8x8_mode_flag; // for P slices this value is constant
+	int max0 = ctx->t.pps.num_ref_idx_active[0] - 1;
+	int max1 = ctx->t.slice_type == 0 ? -1 : ctx->t.pps.num_ref_idx_active[1] - 1;
+	ctx->clip_ref_idx_v = (i8x8){max0, max0, max0, max0, max1, max1, max1, max1};
+	ctx->col_short_term = 0;
+	for (int i = 0; i < 32; i++)
+		ctx->DistScaleFactor[i] = 256;
+	ctx->MapPicToList0_v[0] = ctx->MapPicToList0_v[1] = ctx->MapPicToList0_v[2] = ctx->MapPicToList0_v[3] = (i8x16){}; // FIXME pictures not found in RefPicList0 should point to self
+	for (int i = 0; i < 32; i++)
+		ctx->implicit_weights_v[i][0] = ctx->implicit_weights_v[i][1] = set8(32 + 64);
+	
+	// B slices
+	if (ctx->t.slice_type == 1) {
+		ctx->mbCol = ctx->t.mbCol_buffer + mb_offset;
+		ctx->col_short_term = 1 & ~(ctx->t.prev_long_term_frames >> ctx->t.RefPicList[1][0]);
 		
-		// B slides
-		if (ctx->t.slice_type == 1) {
-			ctx->mbCol = ctx->t.mbCol_buffer + mb_offset;
-			ctx->col_short_term = 1 & ~(ctx->t.prev_long_term_frames >> ctx->t.RefPicList[1][0]);
-			
-			// initializations for temporal prediction and implicit weights
-			int rangeL1 = ctx->t.pps.num_ref_idx_active[1];
-			if (ctx->t.pps.weighted_bipred_idc == 2 || (rangeL1 = 1, !ctx->t.direct_spatial_mv_pred_flag)) {
-				tb.v[0] = packs16(ctx->t.diff_poc_v[0], ctx->t.diff_poc_v[1]);
-				tb.v[1] = packs16(ctx->t.diff_poc_v[2], ctx->t.diff_poc_v[3]);
-				tb.v[2] = packs16(ctx->t.diff_poc_v[4], ctx->t.diff_poc_v[5]);
-				tb.v[3] = packs16(ctx->t.diff_poc_v[6], ctx->t.diff_poc_v[7]);
-				ctx->MapPicToList0_v[0] = ctx->MapPicToList0_v[1] = ctx->MapPicToList0_v[2] = ctx->MapPicToList0_v[3] = (i8x16){}; // FIXME pictures not found in RefPicList0 should point to self
-				for (int refIdxL0 = ctx->t.pps.num_ref_idx_active[0], DistScaleFactor = 0; refIdxL0-- > 0; ) {
-					int pic0 = ctx->t.RefPicList[0][refIdxL0];
-					ctx->MapPicToList0[pic0] = refIdxL0;
-					i16x8 diff0 = set16(ctx->t.diff_poc[pic0]);
-					td.v[0] = packs16(diff0 - ctx->t.diff_poc_v[0], diff0 - ctx->t.diff_poc_v[1]);
-					td.v[1] = packs16(diff0 - ctx->t.diff_poc_v[2], diff0 - ctx->t.diff_poc_v[3]);
-					td.v[2] = packs16(diff0 - ctx->t.diff_poc_v[4], diff0 - ctx->t.diff_poc_v[5]);
-					td.v[3] = packs16(diff0 - ctx->t.diff_poc_v[6], diff0 - ctx->t.diff_poc_v[7]);
-					for (int refIdxL1 = rangeL1, implicit_weight; refIdxL1-- > 0; ) {
-						int pic1 = ctx->t.RefPicList[1][refIdxL1];
-						if (td.q[pic1] != 0 && !(ctx->t.prev_long_term_frames & 1ull << pic0)) {
-							int tx = (16384 + abs(td.q[pic1] / 2)) / td.q[pic1];
-							DistScaleFactor = mins(maxs((tb.q[pic0] * tx + 32) >> 6, -1024), 1023);
-							implicit_weight = (!(ctx->t.prev_long_term_frames & 1ull << pic1) && DistScaleFactor >= -256 && DistScaleFactor <= 515) ? DistScaleFactor >> 2 : 32;
-						} else {
-							DistScaleFactor = 256;
-							implicit_weight = 32;
-						}
-						ctx->implicit_weights[refIdxL0][refIdxL1] = implicit_weight + 64;
+		// initializations for temporal prediction and implicit weights
+		int rangeL1 = ctx->t.pps.num_ref_idx_active[1];
+		if (ctx->t.pps.weighted_bipred_idc == 2 || (rangeL1 = 1, !ctx->t.direct_spatial_mv_pred_flag)) {
+			tb.v[0] = packs16(ctx->t.diff_poc_v[0], ctx->t.diff_poc_v[1]);
+			tb.v[1] = packs16(ctx->t.diff_poc_v[2], ctx->t.diff_poc_v[3]);
+			tb.v[2] = packs16(ctx->t.diff_poc_v[4], ctx->t.diff_poc_v[5]);
+			tb.v[3] = packs16(ctx->t.diff_poc_v[6], ctx->t.diff_poc_v[7]);
+			for (int refIdxL0 = ctx->t.pps.num_ref_idx_active[0], DistScaleFactor = 0; refIdxL0-- > 0; ) {
+				int pic0 = ctx->t.RefPicList[0][refIdxL0];
+				ctx->MapPicToList0[pic0] = refIdxL0;
+				i16x8 diff0 = set16(ctx->t.diff_poc[pic0]);
+				td.v[0] = packs16(diff0 - ctx->t.diff_poc_v[0], diff0 - ctx->t.diff_poc_v[1]);
+				td.v[1] = packs16(diff0 - ctx->t.diff_poc_v[2], diff0 - ctx->t.diff_poc_v[3]);
+				td.v[2] = packs16(diff0 - ctx->t.diff_poc_v[4], diff0 - ctx->t.diff_poc_v[5]);
+				td.v[3] = packs16(diff0 - ctx->t.diff_poc_v[6], diff0 - ctx->t.diff_poc_v[7]);
+				for (int refIdxL1 = rangeL1, implicit_weight; refIdxL1-- > 0; ) {
+					int pic1 = ctx->t.RefPicList[1][refIdxL1];
+					if (td.q[pic1] != 0 && !(ctx->t.prev_long_term_frames & 1ull << pic0)) {
+						int tx = (16384 + abs(td.q[pic1] / 2)) / td.q[pic1];
+						DistScaleFactor = mins(maxs((tb.q[pic0] * tx + 32) >> 6, -1024), 1023);
+						implicit_weight = (!(ctx->t.prev_long_term_frames & 1ull << pic1) && DistScaleFactor >= -256 && DistScaleFactor <= 515) ? DistScaleFactor >> 2 : 32;
+					} else {
+						DistScaleFactor = 256;
+						implicit_weight = 32;
 					}
-					ctx->DistScaleFactor[refIdxL0] = DistScaleFactor;
+					ctx->implicit_weights[refIdxL0][refIdxL1] = implicit_weight + 64;
 				}
+				ctx->DistScaleFactor[refIdxL0] = DistScaleFactor;
 			}
 		}
 	}
@@ -317,6 +325,8 @@ static void recover_slice(Edge264Context *ctx, int currPic) {
 			ctx->samples_mb[2] += ctx->t.stride[1] * 8 - ctx->t.pic_width_in_mbs * 8;
 		}
 	}
+	ctx->samples_mb[0] = ctx->samples_mb[1] = ctx->samples_mb[2] = NULL;
+	ctx->_mb = NULL, ctx->mbCol = NULL;
 }
 
 
@@ -346,6 +356,8 @@ void *ADD_VARIANT(worker_loop)(void *arg) {
 	c.log_arg = c.d->log_arg;
 	c.log_indent = c.d->n_threads ? "  " : "    ";
 	c.log_pos = 0;
+	c.samples_mb[0] = c.samples_mb[1] = c.samples_mb[2] = NULL;
+	c._mb = NULL, c._mbA = c._mbB = c._mbC = c._mbD = c.mbCol = NULL;
 	if (c.thread_id >= 0)
 		pthread_mutex_lock(&c.d->lock);
 	while (1) {
@@ -375,9 +387,14 @@ void *ADD_VARIANT(worker_loop)(void *arg) {
 			// cabac_alignment_one_bit gives a good probability to catch random errors.
 			if (cabac_start(&c)) {
 				ret = EBADMSG; // FIXME error_flag
+				c.samples_mb[0] = c.samples_mb[1] = c.samples_mb[2] = NULL;
+				c._mb = NULL, c._mbA = c._mbB = c._mbC = c._mbD = c.mbCol = NULL;
 			} else {
 				cabac_init(&c);
 				c.mb_qp_delta_nz = 0;
+				c.nC_inc_v[0] = c.nC_inc_v[1] = c.nC_inc_v[2] = (i8x16){};
+				c.ctxIdxOffsets_l = (i16x4){};
+				c.coeff_abs_inc_l = (i8x8){};
 				parse_slice_data_cabac(&c);
 				// rbsp_stop_one_bit was consumed in cabac_terminate, and the possibility of cabac_zero_word implies we cannot require reaching end
 				if (c.t.gb.msb_cache || (c.t.gb.lsb_cache & (c.t.gb.lsb_cache - 1)))
@@ -396,9 +413,13 @@ void *ADD_VARIANT(worker_loop)(void *arg) {
 			c.samples_mb[1] = c.t.samples_buffers[currPic] + (c.mbx + c.mby * c.t.stride[1]) * 8 + c.t.plane_size_Y;
 			c.samples_mb[2] = c.samples_mb[1] + (c.t.stride[1] >> 1);
 			c._mb = (Edge264Macroblock *)c.t.mb_buffer + c.mbx + c.mby * (c.t.pic_width_in_mbs + 1);
-			while (c.t.next_deblock_addr < c.CurrMbAddr) {
+			c._mbA = c._mbB = c._mbC = c._mbD = c.mbCol = &unavail_mb;
+			int end = c.CurrMbAddr;
+			c.CurrMbAddr = c.t.next_deblock_addr;
+			while (c.CurrMbAddr < end) {
 				deblock_mb(&c);
 				c.t.next_deblock_addr++;
+				c.CurrMbAddr++;
 				c._mb++;
 				c.mbx++;
 				c.samples_mb[0] += 16;
@@ -407,11 +428,14 @@ void *ADD_VARIANT(worker_loop)(void *arg) {
 				if (c.mbx >= c.t.pic_width_in_mbs) {
 					c._mb++;
 					c.mbx = 0;
+					c.mby++;
 					c.samples_mb[0] += c.t.stride[0] * 16 - c.t.pic_width_in_mbs * 16;
 					c.samples_mb[1] += c.t.stride[1] * 8 - c.t.pic_width_in_mbs * 8;
 					c.samples_mb[2] += c.t.stride[1] * 8 - c.t.pic_width_in_mbs * 8;
 				}
 			}
+			c.samples_mb[0] = c.samples_mb[1] = c.samples_mb[2] = NULL;
+			c._mb = NULL, c._mbA = c._mbB = c._mbC = c._mbD = c.mbCol = NULL;
 		}
 		
 		// on error, recover mbs and signal them as erroneous (allows overwrite by redundant slices)
@@ -429,17 +453,20 @@ void *ADD_VARIANT(worker_loop)(void *arg) {
 		int remaining_mbs = ret ?: __atomic_sub_fetch(&c.d->remaining_mbs[currPic], c.CurrMbAddr - c.t.first_mb_in_slice, __ATOMIC_ACQ_REL);
 		if (remaining_mbs == 0) {
 			c.t.next_deblock_addr = c.d->next_deblock_addr[currPic];
-			c.CurrMbAddr = c.t.pic_width_in_mbs * c.t.pic_height_in_mbs;
-			if ((unsigned)c.t.next_deblock_addr < c.CurrMbAddr) {
+			int end = c.t.pic_width_in_mbs * c.t.pic_height_in_mbs;
+			if ((unsigned)c.t.next_deblock_addr < end) {
+				c.CurrMbAddr = c.t.next_deblock_addr;
 				c.mby = (unsigned)c.t.next_deblock_addr / (unsigned)c.t.pic_width_in_mbs;
 				c.mbx = (unsigned)c.t.next_deblock_addr % (unsigned)c.t.pic_width_in_mbs;
 				c.samples_mb[0] = c.t.samples_buffers[currPic] + (c.mbx + c.mby * c.t.stride[0]) * 16;
 				c.samples_mb[1] = c.t.samples_buffers[currPic] + (c.mbx + c.mby * c.t.stride[1]) * 8 + c.t.plane_size_Y;
 				c.samples_mb[2] = c.samples_mb[1] + (c.t.stride[1] >> 1);
 				c._mb = (Edge264Macroblock *)c.t.mb_buffer + c.mbx + c.mby * (c.t.pic_width_in_mbs + 1);
-				while (c.t.next_deblock_addr < c.CurrMbAddr) {
+				c._mbA = c._mbB = c._mbC = c._mbD = c.mbCol = &unavail_mb; // deblock_mb sets mbA/mbB itself
+				while (c.CurrMbAddr < end) {
 					deblock_mb(&c);
 					c.t.next_deblock_addr++;
+					c.CurrMbAddr++;
 					c._mb++;
 					c.mbx++;
 					c.samples_mb[0] += 16;
@@ -448,11 +475,14 @@ void *ADD_VARIANT(worker_loop)(void *arg) {
 					if (c.mbx >= c.t.pic_width_in_mbs) {
 						c._mb++;
 						c.mbx = 0;
+						c.mby++;
 						c.samples_mb[0] += c.t.stride[0] * 16 - c.t.pic_width_in_mbs * 16;
 						c.samples_mb[1] += c.t.stride[1] * 8 - c.t.pic_width_in_mbs * 8;
 						c.samples_mb[2] += c.t.stride[1] * 8 - c.t.pic_width_in_mbs * 8;
 					}
 				}
+				c.samples_mb[0] = c.samples_mb[1] = c.samples_mb[2] = NULL;
+				c._mb = NULL, c._mbA = c._mbB = c._mbC = c._mbD = c.mbCol = NULL;
 			}
 			c.d->next_deblock_addr[currPic] = INT_MAX; // signals the frame is complete
 		}
@@ -878,8 +908,9 @@ int ADD_VARIANT(parse_slice_layer_without_partitioning)(Edge264Decoder *dec, Edg
 	if (t->slice_type > 2 || pic_parameter_set_id >= 4)
 		return print_dec(dec, "  decode_NAL_result: %s\n", ENOTSUP); // exit now if the rest of the slice can't be correctly parsed
 	t->pps = dec->PPS[pic_parameter_set_id];
-	if (!sps->BitDepth_Y || !t->pps.num_ref_idx_active[0])
-		return print_dec(dec, "  decode_NAL_result: %s\n", EBADMSG); // exit now if SPS or PPS wasn't initialized
+	if (!sps->BitDepth_Y || !t->pps.num_ref_idx_active[0] ||
+		t->first_mb_in_slice >= sps->pic_width_in_mbs * sps->pic_height_in_mbs)
+		return print_dec(dec, "  decode_NAL_result: %s\n", EBADMSG); // exit now if SPS/PPS wasn't initialized or starting mb is wrong
 	
 	// keep frame_num on stack until we can compute FrameNum after all unset_currPic
 	int frame_num = get_uv(&dec->gb, sps->log2_max_frame_num);
@@ -1830,11 +1861,12 @@ int ADD_VARIANT(parse_seq_parameter_set)(Edge264Decoder *dec, Edge264UnrefCb unr
 	int max_num_ref_frames = get_ue16(&dec->gb, 16);
 	int gaps_in_frame_num_value_allowed_flag = get_u1(&dec->gb);
 	sps.pic_width_in_mbs = get_ue16(&dec->gb, 1022) + 1;
-	int pic_height_in_map_units = get_ue16(&dec->gb, 527 << sps.frame_mbs_only_flag) + 1;
+	int pic_height_in_map_units = get_ue16(&dec->gb, 1054) + 1;
 	sps.frame_mbs_only_flag = get_u1(&dec->gb);
 	if (!sps.frame_mbs_only_flag)
 		ret = ENOTSUP;
-	sps.pic_height_in_mbs = pic_height_in_map_units << 1 >> sps.frame_mbs_only_flag;
+	int max_height_in_map_units = (139264 / sps.pic_width_in_mbs) << sps.frame_mbs_only_flag >> 1;
+	sps.pic_height_in_mbs = mins(pic_height_in_map_units, max_height_in_map_units) << 1 >> sps.frame_mbs_only_flag;
 	int MaxDpbFrames = mins((unsigned)MaxDpbMbs[mins(level_idc, 63)] / (sps.pic_width_in_mbs * sps.pic_height_in_mbs), 16);
 	sps.max_num_ref_frames = mins(max_num_ref_frames, MaxDpbFrames);
 	if (movemask(set8(profile_idc) == ((u8x16){44, 86, 100, 110, 122, 244})) &&

@@ -292,11 +292,11 @@ typedef struct {
  */
 typedef struct Edge264Context {
 	Edge264Task t; // must be first in struct to use the same pointer for bitstream functions
-	int8_t thread_id;
-	int8_t mb_qp_delta_nz; // 0..1
-	int8_t col_short_term; // 0..1
-	int16_t mbx;
-	int16_t mby;
+	int8_t thread_id; // -1..15
+	uint8_t mb_qp_delta_nz; // 0..1
+	uint8_t col_short_term; // 0..1
+	uint16_t mbx;
+	uint16_t mby;
 	int32_t CurrMbAddr;
 	int32_t mb_skip_run;
 	uint8_t *samples_mb[3]; // address of top-left byte of each plane in current macroblock
@@ -308,8 +308,8 @@ typedef struct Edge264Context {
 	const Edge264Macroblock *mbCol;
 	Edge264Decoder *d;
 	Edge264MbFlags inc; // increments for CABAC indices of macroblock syntax elements
-	union { int8_t unavail4x4[48]; i8x16 unavail4x4_v[3]; }; // unavailability of neighbouring A/B/C/D blocks
-	union { int8_t nC_inc[3][16]; i8x16 nC_inc_v[3]; }; // stores the intra/inter default increment from unavailable neighbours (9.3.3.1.1.9)
+	union { uint8_t unavail4x4[48]; i8x16 unavail4x4_v[3]; }; // unavailability of neighbouring A/B/C/D blocks
+	union { uint8_t nC_inc[3][16]; i8x16 nC_inc_v[3]; }; // stores the intra/inter default increment from unavailable neighbours (9.3.3.1.1.9)
 	union { uint8_t cabac[1024]; i8x16 cabac_v[64]; };
 	
 	// neighbouring offsets (relative to the start of each array in mb)
@@ -326,26 +326,26 @@ typedef struct Edge264Context {
 	union { int32_t mvs_D[16]; i32x16 mvs_D_v; };
 	
 	// Inter context
-	int8_t transform_8x8_mode_flag; // updated during parsing to account for noSubMbPartSizeLessThan8x8Flag
+	uint8_t transform_8x8_mode_flag; // updated during parsing to account for noSubMbPartSizeLessThan8x8Flag
 	uint8_t num_ref_idx_mask;
 	int16_t DistScaleFactor[32]; // [refIdxL0]
-	union { int8_t clip_ref_idx[8]; i8x8 clip_ref_idx_v; };
-	union { int8_t MapPicToList0[64]; i8x16 MapPicToList0_v[4]; };
+	union { int8_t clip_ref_idx[8]; i8x8 clip_ref_idx_v; }; // -1..31
+	union { uint8_t MapPicToList0[64]; i8x16 MapPicToList0_v[4]; };
 	union { uint8_t implicit_weights[32][32]; i8x16 implicit_weights_v[32][2]; }; // w1 for [ref0][ref1], stored with +64 offset
 	union { uint8_t edge_buf[2016]; int64_t edge_buf_l[252]; i8x16 edge_buf_v[126]; };
 	
 	// Residuals context
-	union { int16_t ctxIdxOffsets[4]; i16x4 ctxIdxOffsets_l; }; // {cbf,sig_flag,last_sig_flag,coeff_abs}
-	union { int8_t coeff_abs_inc[8]; i8x8 coeff_abs_inc_l; };
-	union { int8_t sig_inc[64]; i8x8 sig_inc_l; i8x16 sig_inc_v[4]; };
-	union { int8_t last_inc[64]; i8x8 last_inc_l; i8x16 last_inc_v[4]; };
-	union { int8_t scan[64]; i8x4 scan_s; i8x8 scan_l; i8x16 scan_v[4]; };
+	union { uint16_t ctxIdxOffsets[4]; i16x4 ctxIdxOffsets_l; }; // {cbf,sig_flag,last_sig_flag,coeff_abs}
+	union { uint8_t coeff_abs_inc[8]; i8x8 coeff_abs_inc_l; };
+	union { uint8_t sig_inc[64]; i8x8 sig_inc_l; i8x16 sig_inc_v[4]; };
+	union { uint8_t last_inc[64]; i8x8 last_inc_l; i8x16 last_inc_v[4]; };
+	union { uint8_t scan[64]; i8x4 scan_s; i8x8 scan_l; i8x16 scan_v[4]; };
 	union { int8_t QP_C[2][64]; i8x16 QP_C_v[8]; };
 	union { int32_t c[64]; i32x4 c_v[16]; i32x8 c_V[8]; }; // non-scaled residual coefficients
 	
 	// Deblocking context
 	union { uint8_t alpha[16]; int32_t alpha_s[4]; i8x16 alpha_v; }; // {internal_Y,internal_Cb,internal_Cr,0,0,0,0,0,left_Y,left_Cb,left_Cr,0,top_Y,top_Cb,top_Cr,0}
-	union { uint8_t beta[16]; int32_t beta_s[4]; i8x16 beta_v; };
+	union { uint8_t beta[16]; int32_t beta_s[4]; i8x16 beta_v; }; // 0..18
 	union { int32_t tC0_s[16]; int64_t tC0_l[8]; i8x16 tC0_v[4]; i8x32 tC0_V[2]; }; // 4 bytes per edge in deblocking order -> 8 luma edges then 8 alternating Cb/Cr edges
 	
 	// Logging context

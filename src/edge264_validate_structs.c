@@ -34,7 +34,27 @@ static void ASNAME(Edge264GetBits_cabac)(const Edge264GetBits *gb) {
 }
 
 
+// pass inc=1 when the flags are used as ctxIdxInc, 0 otherwise
+static void ASNAME(Edge264MbFlags)(const Edge264MbFlags *f, int inc) {
+	assert(inc == 0 || inc == 1);
+	ASCHECK(f->mb_field_decoding_flag <= 1 + inc);
+	ASCHECK(f->mb_skip_flag <= 1 + inc);
+	ASCHECK(f->mb_type_I_NxN <= 1 + inc);
+	ASCHECK(f->mb_type_B_Direct <= 1 + inc);
+	ASCHECK(f->transform_size_8x8_flag <= 1 + inc);
+	ASCHECK(f->intra_chroma_pred_mode_non_zero <= 1 + inc);
+	ASCHECK(f->CodedBlockPatternChromaDC <= 1 + inc * 2);
+	ASCHECK(f->CodedBlockPatternChromaAC <= 1 + inc * 2);
+	ASCHECK(f->coded_block_flags_16x16[0] <= 1 + inc * 2);
+	ASCHECK(f->coded_block_flags_16x16[1] <= 1 + inc * 2);
+	ASCHECK(f->coded_block_flags_16x16[2] <= 1 + inc * 2);
+	ASCHECK(f->coded_block_flags_16x16_s >> 24 == 0);
+	// no constraint on inter_eqs
+}
+
+
 static void ASNAME(Edge264Macroblock)(const Edge264Macroblock *m) {
+	ASNAME(Edge264MbFlags)(&m->f, 0);
 	ASCHECK(m->error_probability <= 100);
 	ASCHECK((m->recovery_bits & ~3) == 0);
 	ASCHECK((m->mbIsInterFlag & ~1) == 0);
@@ -42,18 +62,14 @@ static void ASNAME(Edge264Macroblock)(const Edge264Macroblock *m) {
 	ASCHECK(m->QP[0] >= -36 && m->QP[0] <= 51 && m->QP[1] >= -36 && m->QP[1] <= 39 && m->QP[2] >= -36 && m->QP[2] <= 39); // 8.5.8
 	ASCHECK((m->bits_l & ~0x00ffffff00ffffffull) == 0);
 	ASALL((m->Intra4x4PredMode_v >= set8(-2)) & (m->Intra4x4PredMode_v <= set8(8))); // abs(min(A,B)) indexes Intra4x4Modes/Intra8x8Modes[9], with -2 forcing DC
-	ASALL(maxu8(maxu8(m->nC_v[0], m->nC_v[1]), m->nC_v[2]) <= (u8x16)set8(16));
-	ASALL(maxu8(maxu8(maxu8(m->absMvd_v[0], m->absMvd_v[1]), m->absMvd_v[2]), m->absMvd_v[3]) >= (u8x16)set8(128));
-	ASCHECK((m->f.mb_field_decoding_flag & ~1) == 0);
-	ASCHECK((m->f.mb_skip_flag & ~1) == 0);
-	ASCHECK((m->f.mb_type_I_NxN & ~1) == 0);
-	ASCHECK((m->f.mb_type_B_Direct & ~1) == 0);
-	ASCHECK((m->f.transform_size_8x8_flag & ~1) == 0);
-	ASCHECK((m->f.intra_chroma_pred_mode_non_zero & ~1) == 0);
-	ASCHECK((m->f.CodedBlockPatternChromaDC & ~1) == 0);
-	ASCHECK((m->f.CodedBlockPatternChromaAC & ~1) == 0);
-	ASCHECK((m->f.coded_block_flags_16x16_s & ~0x010101) == 0);
-	// no constraint on inter_eqs
+	u8x16 c16 = (u8x16)set8(16), c128 = (u8x16){} + 128;
+	ASALL((u8x16)m->nC_v[0] <= c16);
+	ASALL((u8x16)m->nC_v[1] <= c16);
+	ASALL((u8x16)m->nC_v[2] <= c16);
+	ASALL((u8x16)m->absMvd_v[0] <= c128);
+	ASALL((u8x16)m->absMvd_v[1] <= c128);
+	ASALL((u8x16)m->absMvd_v[2] <= c128);
+	ASALL((u8x16)m->absMvd_v[3] <= c128);
 	i8x16 v = (i64x2){m->refIdx_l, m->refPic_l};
 	ASALL((v >= set8(-1)) & (v <= (i8x16){31, 31, 31, 31, 31, 31, 31, 31, 63, 63, 63, 63, 63, 63, 63, 63}));
 	// no constraint on mvs
@@ -89,9 +105,10 @@ static void ASNAME(Edge264SeqParameterSet)(const Edge264SeqParameterSet *sps) {
 	ASCHECK(sps->time_offset_length <= 31);
 	ASCHECK((sps->pic_struct_present_flag & ~1) == 0);
 	// no constraint on offset_for_non_ref_pic, offset_for_top_to_bottom_field, PicOrderCntDeltas, num_units_in_tick and time_scale
-	u8x16 z = {};
-	ASALL((sps->weightScale4x4_v[0] != z) & (sps->weightScale4x4_v[1] != z) & (sps->weightScale4x4_v[2] != z) & (sps->weightScale4x4_v[3] != z) & (sps->weightScale4x4_v[4] != z) & (sps->weightScale4x4_v[5] != z));
-	ASALL((sps->weightScale8x8_v[0] != z) & (sps->weightScale8x8_v[1] != z) & (sps->weightScale8x8_v[2] != z) & (sps->weightScale8x8_v[3] != z) & (sps->weightScale8x8_v[4] != z) & (sps->weightScale8x8_v[5] != z) & (sps->weightScale8x8_v[6] != z) & (sps->weightScale8x8_v[7] != z) & (sps->weightScale8x8_v[8] != z) & (sps->weightScale8x8_v[9] != z) & (sps->weightScale8x8_v[10] != z) & (sps->weightScale8x8_v[11] != z) & (sps->weightScale8x8_v[12] != z) & (sps->weightScale8x8_v[13] != z) & (sps->weightScale8x8_v[14] != z) & (sps->weightScale8x8_v[15] != z) & (sps->weightScale8x8_v[16] != z) & (sps->weightScale8x8_v[17] != z) & (sps->weightScale8x8_v[18] != z) & (sps->weightScale8x8_v[19] != z) & (sps->weightScale8x8_v[20] != z) & (sps->weightScale8x8_v[21] != z) & (sps->weightScale8x8_v[22] != z) & (sps->weightScale8x8_v[23] != z));
+	for (int i = 0; i < 6; i++)
+		ASALL(sps->weightScale4x4_v[i] != (u8x16){});
+	for (int i = 0; i < 24; i++)
+		ASALL(sps->weightScale8x8_v[i] != (u8x16){});
 }
 
 
@@ -114,13 +131,14 @@ static void ASNAME(Edge264PicParameterSet)(const Edge264PicParameterSet *pps) {
 
 static void ASNAME(Edge264Task_fields)(const Edge264Task *t) {
 	ASNAME(Edge264PicParameterSet)(&t->pps);
-	ASCHECK(t->pps.num_ref_idx_active[0] <= 16 << t->field_pic_flag);
-	ASCHECK(t->pps.num_ref_idx_active[1] <= 16 << t->field_pic_flag);
-	u8x16 z = {};
-	ASALL((t->pps.weightScale4x4_v[0] != z) & (t->pps.weightScale4x4_v[1] != z) & (t->pps.weightScale4x4_v[2] != z) & (t->pps.weightScale4x4_v[3] != z) & (t->pps.weightScale4x4_v[4] != z) & (t->pps.weightScale4x4_v[5] != z));
-	ASALL((t->pps.weightScale8x8_v[0] != z) & (t->pps.weightScale8x8_v[1] != z) & (t->pps.weightScale8x8_v[2] != z) & (t->pps.weightScale8x8_v[3] != z) & (t->pps.weightScale8x8_v[4] != z) & (t->pps.weightScale8x8_v[5] != z) & (t->pps.weightScale8x8_v[6] != z) & (t->pps.weightScale8x8_v[7] != z) & (t->pps.weightScale8x8_v[8] != z) & (t->pps.weightScale8x8_v[9] != z) & (t->pps.weightScale8x8_v[10] != z) & (t->pps.weightScale8x8_v[11] != z) & (t->pps.weightScale8x8_v[12] != z) & (t->pps.weightScale8x8_v[13] != z) & (t->pps.weightScale8x8_v[14] != z) & (t->pps.weightScale8x8_v[15] != z) & (t->pps.weightScale8x8_v[16] != z) & (t->pps.weightScale8x8_v[17] != z) & (t->pps.weightScale8x8_v[18] != z) & (t->pps.weightScale8x8_v[19] != z) & (t->pps.weightScale8x8_v[20] != z) & (t->pps.weightScale8x8_v[21] != z) & (t->pps.weightScale8x8_v[22] != z) & (t->pps.weightScale8x8_v[23] != z));
+	for (int i = 0; i < 6; i++)
+		ASALL(t->pps.weightScale4x4_v[i] != (u8x16){});
+	for (int i = 0; i < 24; i++)
+		ASALL(t->pps.weightScale8x8_v[i] != (u8x16){});
 	ASCHECK(t->slice_type <= 2);
 	ASCHECK((t->field_pic_flag & ~1) == 0);
+	ASCHECK(t->pps.num_ref_idx_active[0] <= 16 << t->field_pic_flag);
+	ASCHECK(t->pps.num_ref_idx_active[1] <= 16 << t->field_pic_flag);
 	ASCHECK((t->bottom_field_flag & ~t->field_pic_flag) == 0);
 	ASCHECK((t->MbaffFrameFlag & ~(t->field_pic_flag ^1)) == 0);
 	ASCHECK((t->direct_spatial_mv_pred_flag & ~1) == 0);
@@ -138,9 +156,9 @@ static void ASNAME(Edge264Task_fields)(const Edge264Task *t) {
 	ASCHECK(t->pic_height_in_mbs >= 1 && t->pic_height_in_mbs <= 1055);
 	int stride_shift_Y = 4 + t->field_pic_flag + (t->samples_clip[0][0] != 255);
 	int stride_shift_C = 3 + t->field_pic_flag + (t->samples_clip[1][0] != 255) + (t->ChromaArrayType == 3);
-	ASCHECK(t->stride[0] >= (t->pic_width_in_mbs << stride_shift_Y) && t->stride[0] <= 65472 && (t->stride[0] & ~(-1 << stride_shift_Y)) == 0);
-	ASCHECK(t->stride[1] >= (t->pic_width_in_mbs << stride_shift_C) && t->stride[1] <= 65472 && (t->stride[1] & ~(-1 << stride_shift_C)) == 0);
-	ASCHECK(t->stride[2] >= (t->pic_width_in_mbs << stride_shift_C) && t->stride[2] <= 65472 && (t->stride[2] & ~(-1 << stride_shift_C)) == 0);
+	ASCHECK(t->stride[0] >= (t->pic_width_in_mbs << stride_shift_Y) && t->stride[0] <= 65472 && (t->stride[0] & ((1 << stride_shift_Y) - 1)) == 0);
+	ASCHECK(t->stride[1] >= (t->pic_width_in_mbs << stride_shift_C) && t->stride[1] <= 65472 && (t->stride[1] & ((1 << stride_shift_C) - 1)) == 0);
+	ASCHECK(t->stride[2] >= (t->pic_width_in_mbs << stride_shift_C) && t->stride[2] <= 65472 && (t->stride[2] & ((1 << stride_shift_C) - 1)) == 0);
 	// no constraint on FrameId
 	ASCHECK(t->plane_size_Y == t->stride[0] * (t->pic_height_in_mbs << 4));
 	ASCHECK(t->plane_size_C == t->stride[1] * (t->pic_height_in_mbs << (3 + (t->ChromaArrayType != 1))));
@@ -153,10 +171,11 @@ static void ASNAME(Edge264Task_fields)(const Edge264Task *t) {
 	ASALL(t->samples_clip_v[0] == set16(t->samples_clip[0][0]));
 	ASALL(t->samples_clip_v[1] == set16(t->samples_clip[1][0]));
 	ASALL(t->samples_clip_v[2] == t->samples_clip_v[1]);
-	ASALL((t->RefPicList_v[0] >= set8(-1)) & (t->RefPicList_v[0] <= set8(63)) & (t->RefPicList_v[1] >= set8(-1)) & (t->RefPicList_v[1] <= set8(63)) & (t->RefPicList_v[2] >= set8(-1)) & (t->RefPicList_v[2] <= set8(63)) & (t->RefPicList_v[3] >= set8(-1)) & (t->RefPicList_v[3] <= set8(63)));
+	for (int i = 0; i < 4; i++)
+		ASALL((t->RefPicList_v[i] >= set8(-1)) & (t->RefPicList_v[i] <= set8(63)));
 	// no constraint on diff_poc
-	i16x8 lo = set16(-128), hi = set16(128);
-	ASALL((t->explicit_weights_v[0] >= lo) & (t->explicit_weights_v[0] <= hi) & (t->explicit_weights_v[1] >= lo) & (t->explicit_weights_v[1] <= hi) & (t->explicit_weights_v[2] >= lo) & (t->explicit_weights_v[2] <= hi) & (t->explicit_weights_v[3] >= lo) & (t->explicit_weights_v[3] <= hi) & (t->explicit_weights_v[4] >= lo) & (t->explicit_weights_v[4] <= hi) & (t->explicit_weights_v[5] >= lo) & (t->explicit_weights_v[5] <= hi) & (t->explicit_weights_v[6] >= lo) & (t->explicit_weights_v[6] <= hi) & (t->explicit_weights_v[7] >= lo) & (t->explicit_weights_v[7] <= hi) & (t->explicit_weights_v[8] >= lo) & (t->explicit_weights_v[8] <= hi) & (t->explicit_weights_v[9] >= lo) & (t->explicit_weights_v[9] <= hi) & (t->explicit_weights_v[10] >= lo) & (t->explicit_weights_v[10] <= hi) & (t->explicit_weights_v[11] >= lo) & (t->explicit_weights_v[11] <= hi) & (t->explicit_weights_v[12] >= lo) & (t->explicit_weights_v[12] <= hi) & (t->explicit_weights_v[13] >= lo) & (t->explicit_weights_v[13] <= hi) & (t->explicit_weights_v[14] >= lo) & (t->explicit_weights_v[14] <= hi) & (t->explicit_weights_v[15] >= lo) & (t->explicit_weights_v[15] <= hi) & (t->explicit_weights_v[16] >= lo) & (t->explicit_weights_v[16] <= hi) & (t->explicit_weights_v[17] >= lo) & (t->explicit_weights_v[17] <= hi) & (t->explicit_weights_v[18] >= lo) & (t->explicit_weights_v[18] <= hi) & (t->explicit_weights_v[19] >= lo) & (t->explicit_weights_v[19] <= hi) & (t->explicit_weights_v[20] >= lo) & (t->explicit_weights_v[20] <= hi) & (t->explicit_weights_v[21] >= lo) & (t->explicit_weights_v[21] <= hi) & (t->explicit_weights_v[22] >= lo) & (t->explicit_weights_v[22] <= hi) & (t->explicit_weights_v[23] >= lo) & (t->explicit_weights_v[23] <= hi));
+	for (int i = 0; i < 24; i++)
+		ASALL((t->explicit_weights_v[i] >= set16(-128)) & (t->explicit_weights_v[i] <= set16(128)));
 	// no constraint on explicit_offsets
 }
 static void ASNAME(Edge264Task_cavlc)(const Edge264Task *t) {
@@ -166,6 +185,123 @@ static void ASNAME(Edge264Task_cavlc)(const Edge264Task *t) {
 static void ASNAME(Edge264Task_cabac)(const Edge264Task *t) {
 	ASNAME(Edge264GetBits_cabac)(&t->gb);
 	ASNAME(Edge264Task_fields)(t);
+}
+
+
+// pass decoding=1 while decoding a slice, 0 when done
+static void ASNAME(Edge264Context_fields)(const Edge264Context *ctx, int decoding) {
+	assert(decoding == 0 || decoding == 1);
+	ASCHECK(decoding ^ (ctx->_mb == NULL));
+	ASCHECK(decoding ^ (ctx->_mbA == NULL));
+	ASCHECK(decoding ^ (ctx->_mbB == NULL));
+	ASCHECK(decoding ^ (ctx->_mbC == NULL));
+	ASCHECK(decoding ^ (ctx->_mbD == NULL));
+	ASCHECK(decoding ^ (ctx->mbCol == NULL));
+	if (decoding) {
+		// no constraint on *_mb, which is not decoded yet and may be uninitialized memory
+		ASNAME(Edge264Macroblock)(ctx->_mbA);
+		ASNAME(Edge264Macroblock)(ctx->_mbB);
+		ASNAME(Edge264Macroblock)(ctx->_mbC);
+		ASNAME(Edge264Macroblock)(ctx->_mbD);
+		if (ctx->t.slice_type == 1) // mbCol follows _mb otherwise
+			ASNAME(Edge264Macroblock)(ctx->mbCol);
+	}
+	ASNAME(Edge264MbFlags)(&ctx->inc, 1);
+	int W = ctx->t.pic_width_in_mbs;
+	int H = ctx->t.pic_height_in_mbs;
+	int S = sizeof(Edge264Macroblock);
+	ASCHECK(ctx->thread_id >= -1 && ctx->thread_id <= 15);
+	// mb_qp_delta_nz is checked in Edge264Context_cabac
+	ASCHECK((ctx->col_short_term & ~1) == 0);
+	ASCHECK(ctx->mbx < W);
+	ASCHECK(ctx->mby < H + !decoding);
+	ASCHECK(ctx->CurrMbAddr == ctx->mbx + ctx->mby * W);
+	// mb_skip_run is checked in Edge264Context_cavlc
+	ASCHECK((decoding ^ (ctx->samples_mb[0] == NULL)) && (decoding ^ (ctx->samples_mb[1] == NULL)) && (decoding ^ (ctx->samples_mb[2] == NULL)));
+	ASCHECK(ctx->d != NULL);
+	u8x16 c15 = (u8x16)set8(15);
+	ASALL((u8x16)ctx->unavail4x4_v[0] <= c15);
+	ASALL((u8x16)ctx->unavail4x4_v[1] <= c15);
+	ASALL((u8x16)ctx->unavail4x4_v[2] <= c15);
+	// nC_inc and cabac are checked in Edge264Context_cabac
+	
+	// neighbouring offsets
+	int loB = -(W + 1) * S, loBC = -(((W + 1) * S) >> 2), loD = -(((W + 2) * S) >> 2);
+	for (int i = 0; i < 16; i++) {
+		ASCHECK(ctx->A4x4_int8[i] >= -S && ctx->A4x4_int8[i] <= 15);
+		ASCHECK(ctx->B4x4_int8[i] >= loB && ctx->B4x4_int8[i] <= 15);
+		ASCHECK(ctx->ACbCr_int8[i] >= -S && ctx->ACbCr_int8[i] <= 7);
+		ASCHECK(ctx->BCbCr_int8[i] >= loB && ctx->BCbCr_int8[i] <= 7);
+		ASCHECK(ctx->refIdx4x4_C[i] >= -1 && ctx->refIdx4x4_C[i] <= 15);
+		ASCHECK(ctx->absMvd_A[i] >= -S && ctx->absMvd_A[i] <= 31);
+		ASCHECK(ctx->absMvd_B[i] >= loB && ctx->absMvd_B[i] <= 31);
+		ASCHECK(ctx->mvs_A[i] >= -(S >> 2) && ctx->mvs_A[i] <= 15);
+		ASCHECK(ctx->mvs_B[i] >= loBC && ctx->mvs_B[i] <= 15);
+		ASCHECK(ctx->mvs_C[i] >= loBC && ctx->mvs_C[i] <= 15);
+		ASCHECK(ctx->mvs_D[i] >= loD && ctx->mvs_D[i] <= 15);
+	}
+	
+	// inter context
+	ASCHECK((ctx->transform_8x8_mode_flag & ~ctx->t.pps.transform_8x8_mode_flag) == 0);
+	ASCHECK(ctx->num_ref_idx_mask == (ctx->t.pps.num_ref_idx_active[0] > 1) * 0x0f + (ctx->t.pps.num_ref_idx_active[1] > 1) * 0xf0);
+	for (int i = 0; i < 32; i++)
+		ASCHECK(ctx->DistScaleFactor[i] >= -1024 && ctx->DistScaleFactor[i] <= 1023);
+	int max0 = ctx->t.pps.num_ref_idx_active[0] - 1;
+	int max1 = ctx->t.slice_type == 0 ? -1 : ctx->t.pps.num_ref_idx_active[1] - 1;
+	ASCHECK((int64_t)ctx->clip_ref_idx_v == (int64_t)((i8x8){max0, max0, max0, max0, max1, max1, max1, max1}));
+	for (int i = 0; i < 4; i++)
+		ASALL((u8x16)ctx->MapPicToList0_v[i] <= (u8x16)set8(31));
+	for (int i = 0; i < 32; i++) {
+		for (int j = 0; j < 32; j++)
+			ASCHECK(ctx->implicit_weights[i][j] <= 192);
+	}
+	// no constraint on edge_buf since local to decode_inter
+	
+	// residuals context
+	// ctxIdxOffsets, coeff_abs_inc, sig_inc and last_inc are checked in Edge264Context_cabac
+	for (int i = 0; i < 4; i++)
+		ASALL((ctx->scan_v[i] & set8(~63)) == (i8x16){});
+	for (int i = 0; i < 8; i++)
+		ASALL((ctx->QP_C_v[i] >= set8(-36)) & (ctx->QP_C_v[i] <= set8(39)));
+	// no constraint on c since parsers do not clamp coefficient levels to -2^(7+bitDepth)..2^(7+bitDepth)-1 of 8.5.12.1
+	
+	// deblocking context
+	// no constraint on alpha
+	ASALL((u8x16)ctx->beta_v <= (u8x16)set8(18));
+	for (int i = 0; i < 4; i++)
+		ASALL((ctx->tC0_v[i] >= set8(-1)) & (ctx->tC0_v[i] <= set8(25)));
+	
+	// logging context
+	// no constraint on log_base_us, log_cb and log_arg
+	ASCHECK(ctx->log_indent != NULL);
+	// no constraint on log_pos (snprintf may push it past sizeof(log_buf) to signal truncation) and log_buf
+}
+static void ASNAME(Edge264Context_cavlc)(const Edge264Context *ctx, int decoding) {
+	ASNAME(Edge264Task_cavlc)(&ctx->t);
+	ASNAME(Edge264Context_fields)(ctx, decoding);
+	ASCHECK(ctx->mb_skip_run >= -1 && ctx->mb_skip_run <= 139264);
+}
+static void ASNAME(Edge264Context_cabac)(const Edge264Context *ctx, int decoding) {
+	ASNAME(Edge264Task_fields)(&ctx->t);
+	ASNAME(Edge264Context_fields)(ctx, decoding);
+	if (!decoding) { // cabac_terminate restored gb to its CAVLC configuration, or cabac_start failed before cabac_init
+		ASNAME(Edge264GetBits_CPB)(&ctx->t.gb);
+		return;
+	}
+	ASNAME(Edge264GetBits_cabac)(&ctx->t.gb);
+	ASCHECK((ctx->mb_qp_delta_nz & ~1) == 0);
+	for (int i = 0; i < 3; i++)
+		ASALL((u8x16)ctx->nC_inc_v[i] <= (u8x16)set8(3));
+	u8x16 c2 = set8(2), z = {}, c252 = (u8x16){} + 252;
+	for (int i = 0; i < 64; i++)
+		ASALL((((u8x16)ctx->cabac_v[i] & c2) == z) & ((u8x16)ctx->cabac_v[i] <= c252));
+	ASCHECK(ctx->ctxIdxOffsets[0] + 3 <= 1023 && ctx->ctxIdxOffsets[1] + 14 <= 1023 && ctx->ctxIdxOffsets[2] + 14 <= 1023 && ctx->ctxIdxOffsets[3] + 9 <= 1023);
+	for (int i = 0; i < 8; i++)
+		ASCHECK(ctx->coeff_abs_inc[i] <= 9);
+	for (int i = 0; i < 4; i++)
+		ASALL((u8x16)ctx->sig_inc_v[i] <= (u8x16)set8(14));
+	for (int i = 0; i < 4; i++)
+		ASALL((u8x16)ctx->last_inc_v[i] <= (u8x16)set8(8));
 }
 
 #undef ASSERT

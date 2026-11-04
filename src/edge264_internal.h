@@ -393,8 +393,8 @@ typedef struct Edge264Context {
  * 
  * With MVC, as per spec the bumping process operates independently on
  * left&right views, so output status is tracked per view. edge264_get_frame
- * simply takes the next POC from any of both views. Base views are allocated
- * in slots 0..31 and non-base views in slots 32..63.
+ * simply takes the next pair of bumped frames with the lowest POC. Base views
+ * are allocated in slots 0..31 and non-base views in slots 32..63.
  * With multithreading, a frame being in DPB or bumped is independent from its
  * decoding state. It may be bumped even before starting to decode. However it
  * must be complete to be yielded by get_frame.

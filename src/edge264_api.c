@@ -325,24 +325,27 @@ int edge264_get_frame(Edge264Decoder *dec, Edge264Frame *out, int borrow) {
 	if (dec->n_threads)
 		pthread_mutex_lock(&dec->lock);
 
-	// find (pair of) bumped frame with lowest POC, excluding POC of current incomplete frame
-	int pics[2] = {-1, -1};
+	// find lowest POC of bumped frames, excluding POC of current incomplete frame
 	int64_t lowest_poc = INT64_MAX;
 	for (uint64_t o = dec->to_get_frames_l & dec->output_frames_l; o; o &= o - 1) {
-		int pic = __builtin_ctzll(o);
-		int64_t poc = dec->FieldOrderCnt[pic][0];
-		if (poc != dec->TopFieldOrderCnt && poc <= lowest_poc) {
-			if (poc < lowest_poc)
-				pics[0] = pics[1] = -1, lowest_poc = poc;
-			pics[pic >> 5] = pic;
-		}
+		int64_t poc = dec->FieldOrderCnt[__builtin_ctzll(o)][0];
+		if (poc != dec->TopFieldOrderCnt && poc < lowest_poc)
+			lowest_poc = poc;
 	}
 
-	// output if pic0 or pic1 is set and none of them is still being decoded
+	// select bumped/non-bumped frames matching this POC
+	int pics[2] = {-1, -1};
+	for (uint64_t o = dec->to_get_frames_l; o; o &= o - 1) {
+		int pic = __builtin_ctzll(o);
+		if (dec->FieldOrderCnt[pic][0] == lowest_poc)
+			pics[pic >> 5] = pic;
+	}
+
+	// output if pic0 or pic1 is set and all of them are bumped and fully decoded
 	int pic0 = pics[0], pic1 = pics[1], res = ENOMSG;
 	if ((pic0 >= 0 || pic1 >= 0) &&
-		!(pic0 >= 0 && dec->next_deblock_addr[pic0] != INT_MAX) &&
-		!(pic1 >= 0 && dec->next_deblock_addr[pic1] != INT_MAX))
+		!(pic0 >= 0 && (~dec->output_frames_l >> pic0 & 1 || dec->next_deblock_addr[pic0] != INT_MAX)) &&
+		!(pic1 >= 0 && (~dec->output_frames_l >> pic1 & 1 || dec->next_deblock_addr[pic1] != INT_MAX)))
 	{
 		memcpy(out, &dec->out, sizeof(*out)); // GCC-14 crashes on dec->out = format
 		int top = dec->out.frame_crop_offsets[0];

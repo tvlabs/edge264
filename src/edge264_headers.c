@@ -5,17 +5,17 @@
 /**
  * Default scaling matrices (tables 7-3 and 7-4).
  */
-static const i8x16 Default_4x4_Intra =
+static const u8x16 Default_4x4_Intra =
 	{6, 13, 20, 28, 13, 20, 28, 32, 20, 28, 32, 37, 28, 32, 37, 42};
-static const i8x16 Default_4x4_Inter =
+static const u8x16 Default_4x4_Inter =
 	{10, 14, 20, 24, 14, 20, 24, 27, 20, 24, 27, 30, 24, 27, 30, 34};
-static const i8x16 Default_8x8_Intra[4] = {
+static const u8x16 Default_8x8_Intra[4] = {
 	{ 6, 10, 13, 16, 18, 23, 25, 27, 10, 11, 16, 18, 23, 25, 27, 29},
 	{13, 16, 18, 23, 25, 27, 29, 31, 16, 18, 23, 25, 27, 29, 31, 33},
 	{18, 23, 25, 27, 29, 31, 33, 36, 23, 25, 27, 29, 31, 33, 36, 38},
 	{25, 27, 29, 31, 33, 36, 38, 40, 27, 29, 31, 33, 36, 38, 40, 42},
 };
-static const i8x16 Default_8x8_Inter[4] = {
+static const u8x16 Default_8x8_Inter[4] = {
 	{ 9, 13, 15, 17, 19, 21, 22, 24, 13, 13, 17, 19, 21, 22, 24, 25},
 	{15, 17, 19, 21, 22, 24, 25, 27, 17, 19, 21, 22, 24, 25, 27, 28},
 	{19, 21, 22, 24, 25, 27, 28, 30, 21, 22, 24, 25, 27, 28, 30, 32},
@@ -825,14 +825,18 @@ static void initialize_task(Edge264Decoder *dec, Edge264SeqParameterSet *sps, Ed
 	t->pic_width_in_mbs = sps->pic_width_in_mbs;
 	t->pic_height_in_mbs = sps->pic_height_in_mbs;
 	if (t->pps.pic_scaling_matrix_present_flag) {
-		t->pps.weightScale4x4_v[0] = ifelse_mask(t->pps.weightScale4x4_v[0] == 0, sps->weightScale4x4_v[0], t->pps.weightScale4x4_v[0]);
-		t->pps.weightScale4x4_v[1] = ifelse_mask(t->pps.weightScale4x4_v[1] == 0, sps->weightScale4x4_v[0], t->pps.weightScale4x4_v[1]);
-		t->pps.weightScale4x4_v[2] = ifelse_mask(t->pps.weightScale4x4_v[2] == 0, sps->weightScale4x4_v[0], t->pps.weightScale4x4_v[2]);
-		t->pps.weightScale4x4_v[3] = ifelse_mask(t->pps.weightScale4x4_v[3] == 0, sps->weightScale4x4_v[3], t->pps.weightScale4x4_v[3]);
-		t->pps.weightScale4x4_v[4] = ifelse_mask(t->pps.weightScale4x4_v[4] == 0, sps->weightScale4x4_v[3], t->pps.weightScale4x4_v[4]);
-		t->pps.weightScale4x4_v[5] = ifelse_mask(t->pps.weightScale4x4_v[5] == 0, sps->weightScale4x4_v[3], t->pps.weightScale4x4_v[5]);
-		for (unsigned i = 0; i < 24; i++)
-			t->pps.weightScale8x8_v[i] = ifelse_mask(t->pps.weightScale8x8_v[i] == 0, sps->weightScale8x8_v[i & 7], t->pps.weightScale8x8_v[i]);
+		u8x16 fb4x4_intra = sps->seq_scaling_matrix_present_flag ? sps->weightScale4x4_v[0] : Default_4x4_Intra;
+		u8x16 fb4x4_inter = sps->seq_scaling_matrix_present_flag ? sps->weightScale4x4_v[3] : Default_4x4_Inter;
+		t->pps.weightScale4x4_v[0] = ifelse_mask(t->pps.weightScale4x4_v[0] == 0, fb4x4_intra, t->pps.weightScale4x4_v[0]);
+		t->pps.weightScale4x4_v[1] = ifelse_mask(t->pps.weightScale4x4_v[1] == 0, fb4x4_intra, t->pps.weightScale4x4_v[1]);
+		t->pps.weightScale4x4_v[2] = ifelse_mask(t->pps.weightScale4x4_v[2] == 0, fb4x4_intra, t->pps.weightScale4x4_v[2]);
+		t->pps.weightScale4x4_v[3] = ifelse_mask(t->pps.weightScale4x4_v[3] == 0, fb4x4_inter, t->pps.weightScale4x4_v[3]);
+		t->pps.weightScale4x4_v[4] = ifelse_mask(t->pps.weightScale4x4_v[4] == 0, fb4x4_inter, t->pps.weightScale4x4_v[4]);
+		t->pps.weightScale4x4_v[5] = ifelse_mask(t->pps.weightScale4x4_v[5] == 0, fb4x4_inter, t->pps.weightScale4x4_v[5]);
+		for (unsigned i = 0; i < 24; i++) {
+			u8x16 fb8x8 = sps->seq_scaling_matrix_present_flag ? sps->weightScale8x8_v[i & 7] : (i & 4 ? Default_8x8_Inter : Default_8x8_Intra)[i & 3];
+			t->pps.weightScale8x8_v[i] = ifelse_mask(t->pps.weightScale8x8_v[i] == 0, fb8x8, t->pps.weightScale8x8_v[i]);
+		}
 	} else {
 		memcpy(t->pps.weightScale4x4_v, sps->weightScale4x4_v, 96);
 		memcpy(t->pps.weightScale8x8_v, sps->weightScale8x8_v, 384);
@@ -1311,7 +1315,7 @@ static void parse_scaling_lists(Edge264Decoder *dec, u8x16 *w4x4, u8x16 *w8x8, i
 			unsigned nextScale = (8 + get_se16(&dec->gb, -128, 127)) & 255;
 			log_dec(dec, "%u", nextScale);
 			if (nextScale == 0) {
-				const i8x16 *d8x8 = (i % 2 == 0) ? Default_8x8_Intra : Default_8x8_Inter;
+				const u8x16 *d8x8 = (i % 2 == 0) ? Default_8x8_Intra : Default_8x8_Inter;
 				w8x8[0] = d8x8[0];
 				w8x8[1] = d8x8[1];
 				w8x8[2] = d8x8[2];
@@ -1809,7 +1813,8 @@ int ADD_VARIANT(parse_seq_parameter_set)(Edge264Decoder *dec, Edge264UnrefCb unr
 			"  qpprime_y_zero_transform_bypass_flag: %u%s\n",
 			sps.BitDepth_Y, sps.BitDepth_C, unsup_if(sps.BitDepth_Y + sps.BitDepth_Y != 16),
 			sps.qpprime_y_zero_transform_bypass_flag, unsup_if(sps.qpprime_y_zero_transform_bypass_flag));
-		if (get_u1(&dec->gb)) { // seq_scaling_matrix_present_flag
+		sps.seq_scaling_matrix_present_flag = get_u1(&dec->gb);
+		if (sps.seq_scaling_matrix_present_flag) {
 			sps.weightScale4x4_v[0] = Default_4x4_Intra;
 			sps.weightScale4x4_v[3] = Default_4x4_Inter;
 			for (int i = 0; i < 4; i++) {

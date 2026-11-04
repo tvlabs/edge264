@@ -104,6 +104,7 @@ static void ASNAME(Edge264SeqParameterSet)(const Edge264SeqParameterSet *sps) {
 	ASCHECK(sps->dpb_output_delay_length >= 1 && sps->dpb_output_delay_length <= 32);
 	ASCHECK(sps->time_offset_length <= 31);
 	ASCHECK((sps->pic_struct_present_flag & ~1) == 0);
+	ASCHECK((sps->seq_scaling_matrix_present_flag & ~1) == 0);
 	// no constraint on offset_for_non_ref_pic, offset_for_top_to_bottom_field, PicOrderCntDeltas, num_units_in_tick and time_scale
 	for (int i = 0; i < 6; i++)
 		ASALL(sps->weightScale4x4_v[i] != (u8x16){});

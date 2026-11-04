@@ -213,6 +213,7 @@ typedef struct {
 	uint8_t dpb_output_delay_length; // 1..32
 	uint8_t time_offset_length; // 0..31
 	uint8_t pic_struct_present_flag; // 0..1
+	uint8_t seq_scaling_matrix_present_flag; // 0..1
 	int16_t offset_for_non_ref_pic; // -32768..32767, pic_order_cnt_type==1
 	int16_t offset_for_top_to_bottom_field; // -32768..32767, pic_order_cnt_type==1
 	int16_t PicOrderCntDeltas[255]; // -32768..32767, pic_order_cnt_type==1

@@ -1353,10 +1353,13 @@ static always_inline uint64_t get_relative_time_us() {
 /**
  * Logging functions
  */
+static int ret_to_idx(int ret) {
+	u8x16 retcodes = {0, ENOBUFS, ENOTSUP, EBADMSG, EINVAL, ENODATA, ENOMEM, ENOMSG};
+	return __builtin_ctz(movemask((u8x16)set8(ret) == retcodes) | 1 << 8);
+}
 static const char *ret_to_str(int ret) {
 	static const char *retnames[] = {"0", "ENOBUFS", "ENOTSUP", "EBADMSG", "EINVAL", "ENODATA", "ENOMEM", "ENOMSG", "Unknown"};
-	u8x16 retcodes = {0, ENOBUFS, ENOTSUP, EBADMSG, EINVAL, ENODATA, ENOMEM, ENOMSG};
-	return retnames[__builtin_ctz(movemask((u8x16)set8(ret) == retcodes) | 1 << 8)];
+	return retnames[ret_to_idx(ret)];
 }
 #if VARIANT == LOGS
 	#define log_dec(dec, ...) {\

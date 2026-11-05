@@ -33,32 +33,17 @@
 #define YELLOW "\e[33m"
 #define BLUE   "\e[34m"
 
-static Edge264Decoder *dec;
 static int count_pass;
-static int count_frames;
-static void (*log_tester)(const char *);
-
-static int flt(const struct dirent *a) {
-	char *ext = strrchr(a->d_name, '.');
-	return ext != NULL && strcmp(ext, ".264") == 0;
-}
-static int cmp(const struct dirent **a, const struct dirent **b) {
-	return -strcasecmp((*a)->d_name, (*b)->d_name);
-}
 
 #define PASSERT(cond, prefix) { if (!(cond)) { perror(prefix); exit(1); } }
 #define ASSERT(cond, msg, ...) { if (!(cond)) { printf(RED msg RESET, ##__VA_ARGS__); exit(1); } }
-static int log_callback(const char *str, void *_) { if (log_tester) log_tester(str); return 0; }
-static void print_logger(const char *str) { fputs(str, stdout); }
-static void max_logs_logger(const char *str) {
-	ASSERT(strlen(str) + 1 == sizeof(dec->log_buf),
+static int log_pass(const char *str, void *_) { return 0; }
+static int log_print(const char *str) { fputs(str, stdout); return 0; }
+static int log_max(const char *str, void *_) {
+	ASSERT(strlen(str) + 1 == sizeof(((Edge264Decoder *)0)->log_buf),
 		"max-logs: log length (%zd) differs from log_buf size (%zu)\n",
-		strlen(str) + 1, sizeof(dec->log_buf));
-}
-static void finish_frame_post() {
-	ASSERT(count_frames == 12,
-		"finish-frame: number of decoded frames (%d) differs from expected (12)\n",
-		count_frames);
+		strlen(str) + 1, sizeof(((Edge264Decoder *)0)->log_buf));
+	return 0;
 }
 
 static void assert_block(const char *name, size_t pstride, const uint8_t *p, int w, int h, const uint8_t *q) {
@@ -110,34 +95,59 @@ static void assert_block(const char *name, size_t pstride, const uint8_t *p, int
 	#define unmap_file(ptr, size) munmap(ptr, size)
 #endif
 
+// CRC32C, initialize with anything except 0
+#if defined(__ARM_FEATURE_CRC32)
+	#include <arm_acle.h>
+	#define crc32c_u32 __crc32cw
+#elif defined(__SSE4_2__)
+	#include <nmmintrin.h>
+	#define crc32c_u32 _mm_crc32_u32
+#else
+	static uint32_t crc32c_u32(uint32_t crc, uint32_t word) {
+		crc ^= word;
+		for (int k = 0; k < 32; k++)
+			crc = (crc >> 1) ^ (0x82f63b78 & -(crc & 1));
+		return crc;
+	}
+#endif
+static uint32_t crc32c(uint32_t crc, const uint32_t *buf, size_t n) {
+	for (size_t i = 0; i < n; i++)
+		crc = crc32c_u32(crc, buf[i]);
+	return crc;
+}
+
+// "32 bytes of incrementing 00..1f" in RFC 3720 (B.4).
+static void test_crc32c() {
+	printf("\e[A\e[K%d " GREEN "PASS" RESET " (crc32c)\n", count_pass);
+	const uint32_t buf[8] = {0x03020100, 0x07060504, 0x0b0a0908, 0x0f0e0d0c, 0x13121110, 0x17161514, 0x1b1a1918, 0x1f1e1d1c};
+	ASSERT(crc32c(0xffffffff, buf, 8) == ~0x46dd794e, "crc32c: wrong value for a whole buffer\n");
+	ASSERT(crc32c(crc32c(0xffffffff, buf, 3), buf + 3, 5) == ~0x46dd794e, "crc32c: wrong value for chained calls\n");
+	count_pass += 1;
+}
 
 
-static void parse_NALs(const char *name, const uint8_t *nal, const uint8_t *end, void (*post_test)(), const uint8_t *expect) {
+
+static void parse_NALs(Edge264Decoder *d, const char *name, const uint8_t *nal, const uint8_t *end, const uint8_t *expect) {
 	nal += 3 + (nal[2] == 0); // skip the [0]001 delimiter
 	Edge264Frame out;
 	int res = 0;
-	count_frames = 0;
 	for (int i = 0; res != ENODATA; i++) {
 		const uint8_t *start_code = edge264_find_start_code(nal, end, 0);
-		res = edge264_decode_NAL(dec, nal, start_code, NULL, NULL);
+		res = edge264_decode_NAL(d, nal, start_code, NULL, NULL);
 		if (res != ENOBUFS)
 			nal = start_code + 3;
 		ASSERT(res == expect[i],
 			"%s: NAL at index %d returned %s where %s was expected\n",
 			name, i, ret_to_str(res), ret_to_str(expect[i]));
-		while (!edge264_get_frame(dec, &out, 0))
-			count_frames += 1;
+		while (!edge264_get_frame(d, &out, 0));
 	}
-	if (post_test)
-		post_test();
-	edge264_flush(dec);
+	edge264_flush(d);
 }
 
 
 
 static void test_page_boundaries() {
 	printf("\e[A\e[K%d " GREEN "PASS" RESET " (page-boundaries)\n", count_pass);
-	log_tester = NULL;
 	
 	// Allocate 3 pages: guard | accessible | guard
 	#ifdef _WIN32
@@ -169,8 +179,11 @@ static void test_page_boundaries() {
 		PASSERT(!mprotect(page, pagesize, PROT_READ), NULL);
 	#endif
 	edge264_find_start_code(page, page + filesize, 1);
-	parse_NALs("page-boundaries", page, page + filesize, NULL, (uint8_t[]){0, ENODATA});
-	parse_NALs("page-boundaries", page + pagesize - filesize, page + pagesize, NULL, (uint8_t[]){0, ENODATA});
+	Edge264Decoder *d = edge264_alloc(0, NULL, NULL, 0, NULL, NULL, NULL);
+	ASSERT(d != NULL, "page-boundaries: cannot allocate decoder\n");
+	parse_NALs(d, "page-boundaries", page, page + filesize, (uint8_t[]){0, ENODATA});
+	parse_NALs(d, "page-boundaries", page + pagesize - filesize, page + pagesize, (uint8_t[]){0, ENODATA});
+	edge264_free(&d);
 	fclose(f);
 	
 	// Intra boundaries
@@ -410,22 +423,85 @@ static void test_inter_decoding() {
 
 
 
-static void test(const char *name, void (*log_test)(const char *), void (*post_test)(), const uint8_t *expect) {
-	log_tester = log_test;
+static uint32_t hash_frame(uint32_t crc, const Edge264Frame *frame) {
+	_Static_assert(offsetof(Edge264Frame, return_arg) - offsetof(Edge264Frame, bit_depth_Y) == 32, "fields must fill 8 words");
+	Edge264Frame f;
+	memcpy(&f, frame, sizeof(f));
+	memset(&f.stride_Y, 0, offsetof(Edge264Frame, FrameId) - offsetof(Edge264Frame, stride_Y));
+	crc = crc32c(crc, (const uint32_t *)&f.bit_depth_Y, 8);
+
+	for (int view = 0; view < 2; view++) {
+		const uint8_t * const *planes = view ? f.samples_mvc : f.samples;
+		if (planes[0] == NULL)
+			continue;
+		for (int iYCbCr = 0; iYCbCr < 3; iYCbCr++) {
+			int row = iYCbCr == 0 ? f.width_Y << (f.bit_depth_Y > 8) : f.width_C << (f.bit_depth_C > 8);
+			int height = iYCbCr == 0 ? f.height_Y : f.height_C;
+			int stride = iYCbCr == 0 ? frame->stride_Y : frame->stride_C;
+			for (int y = 0; y < height; y++) {
+				const uint8_t *p = planes[iYCbCr] + y * stride;
+				// alignment is stable across systems since samples buffer is 16-byte aligned
+				int lead = mins(-(uintptr_t)p & 3, row);
+				int trail = (row - lead) & 3;
+				const uint8_t *aligned = p + lead;
+				int words = (row - lead) >> 2;
+				uint32_t word = 0;
+				if (lead > 0) {
+					memcpy(&word, p, lead);
+					crc = crc32c_u32(crc, word);
+				}
+				crc = crc32c(crc, (const uint32_t *)aligned, words);
+				if (trail > 0) {
+					word = 0;
+					memcpy(&word, aligned + words * 4, trail);
+					crc = crc32c_u32(crc, word);
+				}
+			}
+		}
+	}
+	return crc;
+}
+
+
+
+/**
+ * Decodes the file name.264 until ENODATA, appending all its results to a CRC,
+ * then comparing it with target.
+ */
+static void test(const char *name, Edge264LogCb log_cb, uint32_t target) {
 	printf("\e[A\e[K%d " GREEN "PASS" RESET " (%s)\n", count_pass, name);
-	
-	// open and memory map the input test file
 	char file_name[strlen(name) + 11];
 	snprintf(file_name, sizeof(file_name), "tests/%s.264", name);
 	uint64_t file_size;
 	uint8_t *m = map_file(file_name, &file_size);
-	const uint8_t *nal = m;
+	ASSERT(m != NULL, "%s: cannot map file\n", file_name);
+	const uint8_t *nal = m + 3 + (m[2] == 0); // skip the [0]001 delimiter
 	const uint8_t *end = m + file_size;
-	
-	parse_NALs(name, nal, end, post_test, expect);
-	
-	// close everything
+
+	Edge264Decoder *d = edge264_alloc(0, log_cb, NULL, 0, NULL, NULL, NULL);
+	ASSERT(d != NULL, "%s: cannot allocate decoder\n", name);
+	uint32_t crc = 0xffffffff;
+	Edge264Frame out;
+	int calls = 0;
+	for (int res = 0; res != ENODATA && calls < 2000; calls++) {
+		const uint8_t *start_code = edge264_find_start_code(nal, end, 0);
+		res = edge264_decode_NAL(d, nal, start_code, NULL, NULL);
+		crc = crc32c_u32(crc, ret_to_idx(res));
+		if (res != ENOBUFS)
+			nal = start_code + 3;
+		int got;
+		do {
+			got = edge264_get_frame(d, &out, 0);
+			crc = crc32c_u32(crc, ret_to_idx(got));
+			if (got == 0)
+				crc = hash_frame(crc, &out);
+		} while (got == 0);
+	}
+	edge264_free(&d);
 	unmap_file(m, file_size);
+
+	ASSERT(calls != 2000, "%s: no ENODATA after %d calls\n", name, calls);
+	ASSERT(crc == target, "%s: crc %08x, expected %08x\n", name, crc, target);
 	count_pass += 1;
 }
 
@@ -459,20 +535,17 @@ int main(int argc, char *argv[]) {
 	
 	// run all stress tests
 	putchar('\n');
-	dec = edge264_alloc(0, log_callback, NULL, 0, NULL, NULL, NULL);
-	test("supp-nals", NULL, NULL, (uint8_t[]){0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, ENOBUFS, 0, 0, ENODATA});
-	test("unsupp-nals", NULL, NULL, (uint8_t[]){ENOTSUP, ENOTSUP, ENOTSUP, ENOTSUP, ENOTSUP, ENOTSUP, ENOTSUP, ENOTSUP, ENOTSUP, ENOTSUP, ENOTSUP, ENOTSUP, ENOTSUP, ENOTSUP, ENOTSUP, ENOTSUP, ENOTSUP, ENOTSUP, ENOTSUP, ENOTSUP, ENOTSUP, ENODATA});
-	test("supp-nals", NULL, NULL, (uint8_t[]){0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, ENOBUFS, 0, 0, ENODATA});
-	test("unsupp-nals", NULL, NULL, (uint8_t[]){ENOTSUP, ENOTSUP, ENOTSUP, ENOTSUP, ENOTSUP, ENOTSUP, ENOTSUP, ENOTSUP, ENOTSUP, ENOTSUP, ENOTSUP, ENOTSUP, ENOTSUP, ENOTSUP, ENOTSUP, ENOTSUP, ENOTSUP, ENOTSUP, ENOTSUP, ENOTSUP, ENOTSUP, ENODATA});
-	test("max-logs", max_logs_logger, NULL, (uint8_t[]){0, ENODATA});
-	test("finish-frame", NULL, finish_frame_post, (uint8_t[]){0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, ENOBUFS, ENODATA});
-	test("nal-ref-idc-0", NULL, NULL, (uint8_t[]){0, 0, 0, 0, 0, 0, 0, 0, ENOBUFS, 0, 0, ENODATA});
+	test_crc32c();
 	test_page_boundaries();
 	test_intra_decoding();
 	test_inter_decoding();
+	test("supp-nals", NULL, 0x0388327a);
+	test("unsupp-nals", NULL, 0xbd1da65d);
+	test("supp-nals", NULL, 0x0388327a);
+	test("unsupp-nals", NULL, 0xbd1da65d);
+	test("max-logs", log_max, 0x5afb0e05);
+	test("finish-frame", NULL, 0x2033091f);
+	test("nal-ref-idc-0", NULL, 0x7b59bffd);
 	printf("\e[A\e[K%d " GREEN "PASS" RESET "\n", count_pass);
-	
-	// clear all open stuff
-	edge264_free(&dec);
 	return 0;
 }

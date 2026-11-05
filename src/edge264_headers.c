@@ -1158,8 +1158,9 @@ int ADD_VARIANT(parse_slice_layer_without_partitioning)(Edge264Decoder *dec, Edg
 			for (unsigned o = dec->to_get_frames[non_base_view] & ~dec->output_frames[non_base_view]; o; o &= o - 1)
 				max_bump += dec->FieldOrderCnt[non_base_view * 32 + __builtin_ctz(o)][0] < dec->TopFieldOrderCnt;
 		}
-		// apply bumping process until there is an empty slot
-		while (__builtin_popcount(dpb_frames(dec, non_base_view)) >= sps->max_dec_frame_buffering && max_bump--)
+		// apply bumping process until there is an empty slot, once the frames dereferenced by the current picture are removed (C.4.4)
+		unsigned refs = (dec->view_short_term_frames | dec->view_long_term_frames) & ~(1u << (dec->currPic & 31));
+		while (__builtin_popcount(refs | (dec->to_get_frames[non_base_view] & ~dec->output_frames[non_base_view])) >= sps->max_dec_frame_buffering && max_bump--)
 			bump_frame(dec, non_base_view, 0);
 		dec->to_get_frames_l |= 1ull << dec->currPic;
 		// if DPB has no outputable frame left then put current frame in output queue,
@@ -1204,7 +1205,7 @@ int ADD_VARIANT(parse_slice_layer_without_partitioning)(Edge264Decoder *dec, Edg
 	ret = print_dec(dec, dec->n_threads || dec->worker_loop != worker_loop_log ?
 		"  decode_NAL_result: %s\n" : t->pps.entropy_coding_mode_flag ?
 		"  macroblocks_cabac:\n" : "  macroblocks_cavlc:\n", 0);
-	assert(__builtin_popcount(dpb_frames(dec, non_base_view)) <= sps->max_dec_frame_buffering);
+	assert(__builtin_popcount(dec->view_short_term_frames | dec->view_long_term_frames | (dec->to_get_frames[non_base_view] & ~dec->output_frames[non_base_view])) <= sps->max_dec_frame_buffering);
 	if (dec->n_threads)
 		pthread_cond_signal(&dec->task_ready);
 	else

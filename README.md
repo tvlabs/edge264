@@ -129,7 +129,7 @@ target_link_libraries(my_app PRIVATE edge264::edge264)
 
 # Testing
 
-A custom test suite of hand-written bitstreams and unit tests is included, to run it (takes a few seconds):
+A test suite of conformance streams, non-regression streams and unit tests is included, to run it (takes a few seconds):
 
 ```sh
 make check
@@ -137,7 +137,7 @@ make SANITIZE=address,undefined check # optional, with sanitizers
 make validate CBMC=/path/to/cbmc # optional, formal proofs of selected functions (needs a fixed CBMC build such as https://github.com/traffaillac/cbmc)
 ```
 
-For more advanced testing and display, the program `edge264_test` can browse files in a given directory (`./conformance` by default), decoding each `<video>.264` file and comparing its output with each sibling file `<video>.yuv` if found. To use the AVCv1, FRExt and MVC [conformance bitstreams](https://www.itu.int/wftp3/av-arch/jvt-site/draft_conformance/), download them into that directory along with their `.yuv` files. Currently 109/224 files are decoded without errors, the rest using yet unsupported features.
+For more advanced debugging and display, the program `edge264_test` can browse files in a given directory (`./conformance` by default), decoding each `<video>.264` file and comparing its output with each sibling file `<video>.yuv` if found. To use the AVCv1, FRExt and MVC [conformance bitstreams](https://www.itu.int/wftp3/av-arch/jvt-site/draft_conformance/), download them into that directory along with their `.yuv` files. Currently 110/224 files are decoded without errors, the rest using yet unsupported features.
 
 ```sh
 make

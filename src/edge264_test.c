@@ -253,8 +253,8 @@ static int check_frame()
 	int pic_height_in_mbs = (cropt + out.height_Y + cropb) >> 4;
 	for (int view = 0; view < 2 && conf[view] != NULL; view += 1) {
 		unsigned id = view ? out.FrameId_mvc : out.FrameId;
-		for (int row = 0; row < pic_width_in_mbs; row += 1) {
-			for (int col = 0; col < pic_height_in_mbs; col += 1) {
+		for (int row = 0; row < pic_height_in_mbs; row += 1) {
+			for (int col = 0; col < pic_width_in_mbs; col += 1) {
 				for (int iYCbCr = 0; iYCbCr < 3; iYCbCr++) {
 					int stride = (iYCbCr == 0) ? out.stride_Y : out.stride_C;
 					int depth = (iYCbCr == 0 ? out.bit_depth_Y : out.bit_depth_C) > 8;

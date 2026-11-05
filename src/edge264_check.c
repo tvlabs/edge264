@@ -542,6 +542,7 @@ int main(int argc, char *argv[]) {
 	test("max-logs", log_max, 0x5afb0e05);
 	test("finish-frame", NULL, 0x2033091f);
 	test("nal-ref-idc-0", NULL, 0x7b59bffd);
+	test("scaling-lists", NULL, 0x63c2fe3e);
 	test("AVCv1/BA1_FT_C", NULL, 0x420267fc);
 	test("AVCv1/BA1_Sony_D", NULL, 0x12819dd0);
 	test("AVCv1/BA2_Sony_F", NULL, 0x9d4384ae);

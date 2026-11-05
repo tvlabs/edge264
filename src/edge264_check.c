@@ -510,13 +510,11 @@ static void test(const char *name, Edge264LogCb log_cb, uint32_t target) {
 int main(int argc, char *argv[]) {
 	// read command-line options
 	int help = 0;
-	int compare_yuv = 1;
 	for (int i = 1; i < argc; i++) {
 		if (argv[i][0] != '-') {
 			help = 1;
 		} else for (int j = 1; argv[i][j]; j++) {
 			switch (argv[i][j]) {
-				case 'y': compare_yuv = 0; break;
 				default: help = 1; break;
 			}
 		}
@@ -524,11 +522,9 @@ int main(int argc, char *argv[]) {
 	
 	// print help and exit if requested
 	if (help) {
-		printf("Usage: " BOLD "%s [-hsy]" RESET "\n"
-			"Runs all conformance tests, expecting a 'conformance' directory containing .264\n"
-			"files along with their expected .yuv results (and .1.yuv for MVC)\n"
+		printf("Usage: " BOLD "%s [-h]" RESET "\n"
+			"Runs all conformance, correctness and non-regression tests.\n"
 			"-h\tprint this help and exit\n"
-			"-y\tdisable comparison against YUV pairs\n"
 			, argv[0]);
 		return 0;
 	}
@@ -546,6 +542,78 @@ int main(int argc, char *argv[]) {
 	test("max-logs", log_max, 0x5afb0e05);
 	test("finish-frame", NULL, 0x2033091f);
 	test("nal-ref-idc-0", NULL, 0x7b59bffd);
+	test("AVCv1/BA1_FT_C", NULL, 0x420267fc);
+	test("AVCv1/BA1_Sony_D", NULL, 0x12819dd0);
+	test("AVCv1/BA2_Sony_F", NULL, 0x9d4384ae);
+	test("AVCv1/BA3_SVA_C", NULL, 0xac9215a9);
+	test("AVCv1/BAMQ1_JVC_C", NULL, 0xe1988da9);
+	test("AVCv1/BAMQ2_JVC_C", NULL, 0xc183558d);
+	test("AVCv1/BASQP1_Sony_C", NULL, 0xdf4d037a);
+	test("AVCv1/CABA1_SVA_B", NULL, 0x0ff84b6e);
+	test("AVCv1/CABA1_Sony_D", NULL, 0x4d84bcbc);
+	test("AVCv1/CABA2_SVA_B", NULL, 0xf350cc8d);
+	test("AVCv1/CABA2_Sony_E", NULL, 0x8dbb8098);
+	test("AVCv1/CABA3_SVA_B", NULL, 0xab1fe2c2);
+	test("AVCv1/CABA3_Sony_C", NULL, 0xeeca946a);
+	test("AVCv1/CABA3_TOSHIBA_E", NULL, 0xcc7b60be);
+	test("AVCv1/CABACI3_Sony_B", NULL, 0xbd266c44);
+	test("AVCv1/CABAST3_Sony_E", NULL, 0x5c987d3f);
+	test("AVCv1/CABASTBR3_Sony_B", NULL, 0x50232e52);
+	test("AVCv1/CACQP3_Sony_D", NULL, 0x73347675);
+	test("AVCv1/CANL1_SVA_B", NULL, 0x590a8e56);
+	test("AVCv1/CANL1_Sony_E", NULL, 0xc9c64b72);
+	test("AVCv1/CANL1_TOSHIBA_G", NULL, 0xf21e5155);
+	test("AVCv1/CANL2_Sony_E", NULL, 0xf15ab60a);
+	test("AVCv1/CANL3_SVA_B", NULL, 0xd329166a);
+	test("AVCv1/CANL3_Sony_C", NULL, 0x000ba451);
+	test("AVCv1/CANL4_SVA_B", NULL, 0xaed279c1);
+	test("AVCv1/CAQP1_Sony_B", NULL, 0x4cb030e1);
+	test("AVCv1/CVBS3_Sony_C", NULL, 0x21e027b4);
+	test("AVCv1/CVSE2_Sony_B", NULL, 0x3c373555);
+	test("AVCv1/CVSE3_Sony_H", NULL, 0x1de6999b);
+	test("AVCv1/CVSEFDFT3_Sony_E", NULL, 0xe75bb604);
+	test("AVCv1/HCBP2_HHI_A", NULL, 0xff5315e4);
+	test("AVCv1/HCMP1_HHI_A", NULL, 0x15dc16f6);
+	test("AVCv1/LS_SVA_D", NULL, 0x4a44c828);
+	test("AVCv1/MR1_BT_A", NULL, 0x32021057);
+	test("AVCv1/MR2_TANDBERG_E", NULL, 0x761a3733);
+	test("AVCv1/MR3_TANDBERG_B", NULL, 0x758d7838);
+	test("AVCv1/MR4_TANDBERG_C", NULL, 0xc5078af6);
+	test("AVCv1/NL1_Sony_D", NULL, 0x600ae5d3);
+	test("AVCv1/NL2_Sony_H", NULL, 0xe7d6a108);
+	test("AVCv1/NL3_SVA_E", NULL, 0xde064e28);
+	test("AVCv1/NLMQ1_JVC_C", NULL, 0xb012f70f);
+	test("AVCv1/NLMQ2_JVC_C", NULL, 0x18777714);
+	test("AVCv1/SL1_SVA_B", NULL, 0x1731980d);
+	test("AVCv1/SVA_BA1_B", NULL, 0xaf3bd2f3);
+	test("AVCv1/SVA_BA2_D", NULL, 0x9cf99887);
+	test("AVCv1/SVA_Base_B", NULL, 0x1d00a69e);
+	test("AVCv1/SVA_CL1_E", NULL, 0x29469d96);
+	test("AVCv1/SVA_FM1_E", NULL, 0x7c3d7b45);
+	test("AVCv1/SVA_NL1_B", NULL, 0xb59b4950);
+	test("AVCv1/SVA_NL2_E", NULL, 0xf48cfade);
+	test("AVCv1/cabac_mot_frm0_full", NULL, 0x94de8fa4);
+	test("AVCv1/cavlc_mot_frm0_full_B", NULL, 0xb0d0ae7c);
+	test("FRExt/FRExt1_Panasonic_D", NULL, 0xd13d6214);
+	test("FRExt/FRExt3_Panasonic_E", NULL, 0x01d553b4);
+	test("FRExt/FRExt_MMCO4_Sony_B", NULL, 0x9c926181);
+	test("FRExt/HCAFR1_HHI_C", NULL, 0xed6fc241);
+	test("FRExt/HCAFR2_HHI_A", NULL, 0xa56bf50a);
+	test("FRExt/HCAFR3_HHI_A", NULL, 0x502f4341);
+	test("FRExt/HCAFR4_HHI_A", NULL, 0x81c0cc48);
+	test("FRExt/HCHP2_HHI_A", NULL, 0x989c86f6);
+	test("FRExt/brcm_freh3", NULL, 0xe147da19);
+	test("FRExt/brcm_freh8", NULL, 0x2c147a92);
+	test("FRExt/brcm_freh9", NULL, 0x63fe3e8d);
+	test("FRExt/freh12_b", NULL, 0xe3b4536b);
+	test("FRExt/freh1_b", NULL, 0xe81a6eb7);
+	test("FRExt/freh2_b", NULL, 0xaeb0666c);
+	test("MVC/MVCDS-4", NULL, 0xa9289783);
+	test("MVC/MVCDS-5", NULL, 0x26e0f5fb);
+	test("MVC/MVCDS-6", NULL, 0xb8f6d589);
+	test("MVC/MVCRP_2", NULL, 0xf0256bda);
+	test("MVC/MVCRP_3", NULL, 0xf2e1f999);
+	test("MVC/MVCSPS-1", NULL, 0x1770bbe0);
 	printf("\e[A\e[K%d " GREEN "PASS" RESET "\n", count_pass);
 	return 0;
 }

@@ -9,6 +9,7 @@
 !*.in
 !tests
 !tests/*.yaml
-!tests/conformance/
-!tests/conformance/*/
-!tests/conformance/*/*.264
+!tests/AVCv1/
+!tests/FRExt/
+!tests/MVC/
+!tests/*/*.264

@@ -1,7 +1,8 @@
 --- # All inference cases of scaling lists (Table 7-2)
 
-# templates (ignored by gen_avc.py for having no nal_ref_idc)
-- &sps
+# templates (not encoded by gen_avc.py)
+- !template &sps
+  nal_ref_idc: 3
   nal_unit_type: 7 # Sequence parameter set
   profile_idc: 100 # High
   constraint_set_flags: [0,0,0,0,0,0]
@@ -17,7 +18,7 @@
   frame_mbs_only_flag: 1
   direct_8x8_inference_flag: 1
 
-- &ssps
+- !template &ssps
   <<: *sps
   nal_unit_type: 15 # Subset sequence parameter set
   profile_idc: 128 # Stereo High
@@ -28,7 +29,8 @@
     - idc: 3.0
       operation_points: [{temporal_id: 0, target_views: [0,1], num_views: 2}]
 
-- &pps
+- !template &pps
+  nal_ref_idc: 3
   nal_unit_type: 8 # Picture parameter set
   pic_parameter_set_id: 0
   entropy_coding_mode_flag: 0 # CAVLC
@@ -45,7 +47,8 @@
   transform_8x8_mode_flag: 1
   second_chroma_qp_index_offset: 0
 
-- &idr
+- !template &idr
+  nal_ref_idc: 3
   nal_unit_type: 5 # Coded slice of an IDR picture
   first_mb_in_slice: 0
   slice_type: 7 # I
@@ -62,7 +65,8 @@
   - *i16x16
   - *i16x16
 
-- &p
+- !template &p
+  nal_ref_idc: 3
   nal_unit_type: 1 # Coded slice of a non-IDR picture
   first_mb_in_slice: 0
   slice_type: 5 # P
@@ -119,7 +123,7 @@
     mb_qp_delta: 0
     coeffLevels: *c8x8
 
-- &p_no8x8 # for transform_8x8_mode_flag=0
+- !template &p_no8x8 # for transform_8x8_mode_flag=0
   <<: *p
   macroblocks_cavlc:
   - &i4x4_no8x8
@@ -143,466 +147,466 @@
 
 
 # SPS flag 0, PPS flag 0: flat lists
-- {<<: *sps, nal_ref_idc: 3}
-- {<<: *pps, nal_ref_idc: 3}
-- {<<: *idr, nal_ref_idc: 3, idr_pic_id: 0}
-- {<<: *p, nal_ref_idc: 3, frame_num: {bits: 16, absolute: 1}}
+- {<<: *sps}
+- {<<: *pps}
+- {<<: *idr, idr_pic_id: 0}
+- {<<: *p, frame_num: {bits: 16, absolute: 1}}
 
 # PPS flag 0: SPS pattern 0 (fall-back rule set A in SPS)
-- {<<: *sps, nal_ref_idc: 3, seq_scaling_matrix: [[],[],[],[],[],[],[],[]]}
-- {<<: *pps, nal_ref_idc: 3}
-- {<<: *idr, nal_ref_idc: 3, idr_pic_id: 1}
-- {<<: *p, nal_ref_idc: 3, frame_num: {bits: 16, absolute: 1}}
+- {<<: *sps, seq_scaling_matrix: [[],[],[],[],[],[],[],[]]}
+- {<<: *pps}
+- {<<: *idr, idr_pic_id: 1}
+- {<<: *p, frame_num: {bits: 16, absolute: 1}}
 
 # PPS flag 0: SPS pattern 1 (fall-back rule set A in SPS)
-- {<<: *sps, nal_ref_idc: 3, seq_scaling_matrix: [[0],[],[],[],[0],[],[0],[]]}
-- {<<: *pps, nal_ref_idc: 3}
-- {<<: *idr, nal_ref_idc: 3, idr_pic_id: 0}
-- {<<: *p, nal_ref_idc: 3, frame_num: {bits: 16, absolute: 1}}
+- {<<: *sps, seq_scaling_matrix: [[0],[],[],[],[0],[],[0],[]]}
+- {<<: *pps}
+- {<<: *idr, idr_pic_id: 0}
+- {<<: *p, frame_num: {bits: 16, absolute: 1}}
 
 # PPS flag 0: SPS pattern 2 (fall-back rule set A in SPS)
-- {<<: *sps, nal_ref_idc: 3, seq_scaling_matrix: [[25,0],[],[],[],[65,0],[],[85,0],[]]}
-- {<<: *pps, nal_ref_idc: 3}
-- {<<: *idr, nal_ref_idc: 3, idr_pic_id: 1}
-- {<<: *p, nal_ref_idc: 3, frame_num: {bits: 16, absolute: 1}}
+- {<<: *sps, seq_scaling_matrix: [[25,0],[],[],[],[65,0],[],[85,0],[]]}
+- {<<: *pps}
+- {<<: *idr, idr_pic_id: 1}
+- {<<: *p, frame_num: {bits: 16, absolute: 1}}
 
 # PPS flag 0: SPS pattern 3 (fall-back rule set A in SPS)
-- {<<: *sps, nal_ref_idc: 3, seq_scaling_matrix: [[],[0],[],[],[],[0],[0],[0]]}
-- {<<: *pps, nal_ref_idc: 3}
-- {<<: *idr, nal_ref_idc: 3, idr_pic_id: 0}
-- {<<: *p, nal_ref_idc: 3, frame_num: {bits: 16, absolute: 1}}
+- {<<: *sps, seq_scaling_matrix: [[],[0],[],[],[],[0],[0],[0]]}
+- {<<: *pps}
+- {<<: *idr, idr_pic_id: 0}
+- {<<: *p, frame_num: {bits: 16, absolute: 1}}
 
 # PPS flag 0: SPS pattern 4 (fall-back rule set A in SPS)
-- {<<: *sps, nal_ref_idc: 3, seq_scaling_matrix: [[0],[0],[],[],[0],[0],[85,0],[0]]}
-- {<<: *pps, nal_ref_idc: 3}
-- {<<: *idr, nal_ref_idc: 3, idr_pic_id: 1}
-- {<<: *p, nal_ref_idc: 3, frame_num: {bits: 16, absolute: 1}}
+- {<<: *sps, seq_scaling_matrix: [[0],[0],[],[],[0],[0],[85,0],[0]]}
+- {<<: *pps}
+- {<<: *idr, idr_pic_id: 1}
+- {<<: *p, frame_num: {bits: 16, absolute: 1}}
 
 # PPS flag 0: SPS pattern 5 (fall-back rule set A in SPS)
-- {<<: *sps, nal_ref_idc: 3, seq_scaling_matrix: [[25,0],[0],[],[],[65,0],[0],[],[0]]}
-- {<<: *pps, nal_ref_idc: 3}
-- {<<: *idr, nal_ref_idc: 3, idr_pic_id: 0}
-- {<<: *p, nal_ref_idc: 3, frame_num: {bits: 16, absolute: 1}}
+- {<<: *sps, seq_scaling_matrix: [[25,0],[0],[],[],[65,0],[0],[],[0]]}
+- {<<: *pps}
+- {<<: *idr, idr_pic_id: 0}
+- {<<: *p, frame_num: {bits: 16, absolute: 1}}
 
 # PPS flag 0: SPS pattern 6 (fall-back rule set A in SPS)
-- {<<: *sps, nal_ref_idc: 3, seq_scaling_matrix: [[],[35,0],[],[],[],[75,0],[85,0],[95,0]]}
-- {<<: *pps, nal_ref_idc: 3}
-- {<<: *idr, nal_ref_idc: 3, idr_pic_id: 1}
-- {<<: *p, nal_ref_idc: 3, frame_num: {bits: 16, absolute: 1}}
+- {<<: *sps, seq_scaling_matrix: [[],[35,0],[],[],[],[75,0],[85,0],[95,0]]}
+- {<<: *pps}
+- {<<: *idr, idr_pic_id: 1}
+- {<<: *p, frame_num: {bits: 16, absolute: 1}}
 
 # PPS flag 0: SPS pattern 7 (fall-back rule set A in SPS)
-- {<<: *sps, nal_ref_idc: 3, seq_scaling_matrix: [[0],[35,0],[],[],[0],[75,0],[],[95,0]]}
-- {<<: *pps, nal_ref_idc: 3}
-- {<<: *idr, nal_ref_idc: 3, idr_pic_id: 0}
-- {<<: *p, nal_ref_idc: 3, frame_num: {bits: 16, absolute: 1}}
+- {<<: *sps, seq_scaling_matrix: [[0],[35,0],[],[],[0],[75,0],[],[95,0]]}
+- {<<: *pps}
+- {<<: *idr, idr_pic_id: 0}
+- {<<: *p, frame_num: {bits: 16, absolute: 1}}
 
 # PPS flag 0: SPS pattern 8 (fall-back rule set A in SPS)
-- {<<: *sps, nal_ref_idc: 3, seq_scaling_matrix: [[25,0],[35,0],[],[],[65,0],[75,0],[0],[95,0]]}
-- {<<: *pps, nal_ref_idc: 3}
-- {<<: *idr, nal_ref_idc: 3, idr_pic_id: 1}
-- {<<: *p, nal_ref_idc: 3, frame_num: {bits: 16, absolute: 1}}
+- {<<: *sps, seq_scaling_matrix: [[25,0],[35,0],[],[],[65,0],[75,0],[0],[95,0]]}
+- {<<: *pps}
+- {<<: *idr, idr_pic_id: 1}
+- {<<: *p, frame_num: {bits: 16, absolute: 1}}
 
 # PPS flag 0: SPS pattern 9 (fall-back rule set A in SPS)
-- {<<: *sps, nal_ref_idc: 3, seq_scaling_matrix: [[],[],[0],[0],[],[],[],[0]]}
-- {<<: *pps, nal_ref_idc: 3}
-- {<<: *idr, nal_ref_idc: 3, idr_pic_id: 0}
-- {<<: *p, nal_ref_idc: 3, frame_num: {bits: 16, absolute: 1}}
+- {<<: *sps, seq_scaling_matrix: [[],[],[0],[0],[],[],[],[0]]}
+- {<<: *pps}
+- {<<: *idr, idr_pic_id: 0}
+- {<<: *p, frame_num: {bits: 16, absolute: 1}}
 
 # PPS flag 0: SPS pattern 10 (fall-back rule set A in SPS)
-- {<<: *sps, nal_ref_idc: 3, seq_scaling_matrix: [[0],[],[0],[0],[0],[],[0],[0]]}
-- {<<: *pps, nal_ref_idc: 3}
-- {<<: *idr, nal_ref_idc: 3, idr_pic_id: 1}
-- {<<: *p, nal_ref_idc: 3, frame_num: {bits: 16, absolute: 1}}
+- {<<: *sps, seq_scaling_matrix: [[0],[],[0],[0],[0],[],[0],[0]]}
+- {<<: *pps}
+- {<<: *idr, idr_pic_id: 1}
+- {<<: *p, frame_num: {bits: 16, absolute: 1}}
 
 # PPS flag 0: SPS pattern 11 (fall-back rule set A in SPS)
-- {<<: *sps, nal_ref_idc: 3, seq_scaling_matrix: [[25,0],[],[0],[0],[65,0],[],[85,0],[0]]}
-- {<<: *pps, nal_ref_idc: 3}
-- {<<: *idr, nal_ref_idc: 3, idr_pic_id: 0}
-- {<<: *p, nal_ref_idc: 3, frame_num: {bits: 16, absolute: 1}}
+- {<<: *sps, seq_scaling_matrix: [[25,0],[],[0],[0],[65,0],[],[85,0],[0]]}
+- {<<: *pps}
+- {<<: *idr, idr_pic_id: 0}
+- {<<: *p, frame_num: {bits: 16, absolute: 1}}
 
 # PPS flag 0: SPS pattern 12 (fall-back rule set A in SPS)
-- {<<: *sps, nal_ref_idc: 3, seq_scaling_matrix: [[],[0],[0],[0],[],[0],[0],[95,0]]}
-- {<<: *pps, nal_ref_idc: 3}
-- {<<: *idr, nal_ref_idc: 3, idr_pic_id: 1}
-- {<<: *p, nal_ref_idc: 3, frame_num: {bits: 16, absolute: 1}}
+- {<<: *sps, seq_scaling_matrix: [[],[0],[0],[0],[],[0],[0],[95,0]]}
+- {<<: *pps}
+- {<<: *idr, idr_pic_id: 1}
+- {<<: *p, frame_num: {bits: 16, absolute: 1}}
 
 # PPS flag 0: SPS pattern 13 (fall-back rule set A in SPS)
-- {<<: *sps, nal_ref_idc: 3, seq_scaling_matrix: [[0],[0],[0],[0],[0],[0],[85,0],[95,0]]}
-- {<<: *pps, nal_ref_idc: 3}
-- {<<: *idr, nal_ref_idc: 3, idr_pic_id: 0}
-- {<<: *p, nal_ref_idc: 3, frame_num: {bits: 16, absolute: 1}}
+- {<<: *sps, seq_scaling_matrix: [[0],[0],[0],[0],[0],[0],[85,0],[95,0]]}
+- {<<: *pps}
+- {<<: *idr, idr_pic_id: 0}
+- {<<: *p, frame_num: {bits: 16, absolute: 1}}
 
 # PPS flag 0: SPS pattern 14 (fall-back rule set A in SPS)
-- {<<: *sps, nal_ref_idc: 3, seq_scaling_matrix: [[25,0],[0],[0],[0],[65,0],[0],[],[95,0]]}
-- {<<: *pps, nal_ref_idc: 3}
-- {<<: *idr, nal_ref_idc: 3, idr_pic_id: 1}
-- {<<: *p, nal_ref_idc: 3, frame_num: {bits: 16, absolute: 1}}
+- {<<: *sps, seq_scaling_matrix: [[25,0],[0],[0],[0],[65,0],[0],[],[95,0]]}
+- {<<: *pps}
+- {<<: *idr, idr_pic_id: 1}
+- {<<: *p, frame_num: {bits: 16, absolute: 1}}
 
 # PPS flag 0: SPS pattern 15 (fall-back rule set A in SPS)
-- {<<: *sps, nal_ref_idc: 3, seq_scaling_matrix: [[],[35,0],[0],[0],[],[75,0],[85,0],[]]}
-- {<<: *pps, nal_ref_idc: 3}
-- {<<: *idr, nal_ref_idc: 3, idr_pic_id: 0}
-- {<<: *p, nal_ref_idc: 3, frame_num: {bits: 16, absolute: 1}}
+- {<<: *sps, seq_scaling_matrix: [[],[35,0],[0],[0],[],[75,0],[85,0],[]]}
+- {<<: *pps}
+- {<<: *idr, idr_pic_id: 0}
+- {<<: *p, frame_num: {bits: 16, absolute: 1}}
 
 # PPS flag 0: SPS pattern 16 (fall-back rule set A in SPS)
-- {<<: *sps, nal_ref_idc: 3, seq_scaling_matrix: [[0],[35,0],[0],[0],[0],[75,0],[],[]]}
-- {<<: *pps, nal_ref_idc: 3}
-- {<<: *idr, nal_ref_idc: 3, idr_pic_id: 1}
-- {<<: *p, nal_ref_idc: 3, frame_num: {bits: 16, absolute: 1}}
+- {<<: *sps, seq_scaling_matrix: [[0],[35,0],[0],[0],[0],[75,0],[],[]]}
+- {<<: *pps}
+- {<<: *idr, idr_pic_id: 1}
+- {<<: *p, frame_num: {bits: 16, absolute: 1}}
 
 # PPS flag 0: SPS pattern 17 (fall-back rule set A in SPS)
-- {<<: *sps, nal_ref_idc: 3, seq_scaling_matrix: [[25,0],[35,0],[0],[0],[65,0],[75,0],[0],[]]}
-- {<<: *pps, nal_ref_idc: 3}
-- {<<: *idr, nal_ref_idc: 3, idr_pic_id: 0}
-- {<<: *p, nal_ref_idc: 3, frame_num: {bits: 16, absolute: 1}}
+- {<<: *sps, seq_scaling_matrix: [[25,0],[35,0],[0],[0],[65,0],[75,0],[0],[]]}
+- {<<: *pps}
+- {<<: *idr, idr_pic_id: 0}
+- {<<: *p, frame_num: {bits: 16, absolute: 1}}
 
 # PPS flag 0: SPS pattern 18 (fall-back rule set A in SPS)
-- {<<: *sps, nal_ref_idc: 3, seq_scaling_matrix: [[],[],[45,0],[55,0],[],[],[],[95,0]]}
-- {<<: *pps, nal_ref_idc: 3}
-- {<<: *idr, nal_ref_idc: 3, idr_pic_id: 1}
-- {<<: *p, nal_ref_idc: 3, frame_num: {bits: 16, absolute: 1}}
+- {<<: *sps, seq_scaling_matrix: [[],[],[45,0],[55,0],[],[],[],[95,0]]}
+- {<<: *pps}
+- {<<: *idr, idr_pic_id: 1}
+- {<<: *p, frame_num: {bits: 16, absolute: 1}}
 
 # PPS flag 0: SPS pattern 19 (fall-back rule set A in SPS)
-- {<<: *sps, nal_ref_idc: 3, seq_scaling_matrix: [[0],[],[45,0],[55,0],[0],[],[0],[95,0]]}
-- {<<: *pps, nal_ref_idc: 3}
-- {<<: *idr, nal_ref_idc: 3, idr_pic_id: 0}
-- {<<: *p, nal_ref_idc: 3, frame_num: {bits: 16, absolute: 1}}
+- {<<: *sps, seq_scaling_matrix: [[0],[],[45,0],[55,0],[0],[],[0],[95,0]]}
+- {<<: *pps}
+- {<<: *idr, idr_pic_id: 0}
+- {<<: *p, frame_num: {bits: 16, absolute: 1}}
 
 # PPS flag 0: SPS pattern 20 (fall-back rule set A in SPS)
-- {<<: *sps, nal_ref_idc: 3, seq_scaling_matrix: [[25,0],[],[45,0],[55,0],[65,0],[],[85,0],[95,0]]}
-- {<<: *pps, nal_ref_idc: 3}
-- {<<: *idr, nal_ref_idc: 3, idr_pic_id: 1}
-- {<<: *p, nal_ref_idc: 3, frame_num: {bits: 16, absolute: 1}}
+- {<<: *sps, seq_scaling_matrix: [[25,0],[],[45,0],[55,0],[65,0],[],[85,0],[95,0]]}
+- {<<: *pps}
+- {<<: *idr, idr_pic_id: 1}
+- {<<: *p, frame_num: {bits: 16, absolute: 1}}
 
 # PPS flag 0: SPS pattern 21 (fall-back rule set A in SPS)
-- {<<: *sps, nal_ref_idc: 3, seq_scaling_matrix: [[],[0],[45,0],[55,0],[],[0],[0],[]]}
-- {<<: *pps, nal_ref_idc: 3}
-- {<<: *idr, nal_ref_idc: 3, idr_pic_id: 0}
-- {<<: *p, nal_ref_idc: 3, frame_num: {bits: 16, absolute: 1}}
+- {<<: *sps, seq_scaling_matrix: [[],[0],[45,0],[55,0],[],[0],[0],[]]}
+- {<<: *pps}
+- {<<: *idr, idr_pic_id: 0}
+- {<<: *p, frame_num: {bits: 16, absolute: 1}}
 
 # PPS flag 0: SPS pattern 22 (fall-back rule set A in SPS)
-- {<<: *sps, nal_ref_idc: 3, seq_scaling_matrix: [[0],[0],[45,0],[55,0],[0],[0],[85,0],[]]}
-- {<<: *pps, nal_ref_idc: 3}
-- {<<: *idr, nal_ref_idc: 3, idr_pic_id: 1}
-- {<<: *p, nal_ref_idc: 3, frame_num: {bits: 16, absolute: 1}}
+- {<<: *sps, seq_scaling_matrix: [[0],[0],[45,0],[55,0],[0],[0],[85,0],[]]}
+- {<<: *pps}
+- {<<: *idr, idr_pic_id: 1}
+- {<<: *p, frame_num: {bits: 16, absolute: 1}}
 
 # PPS flag 0: SPS pattern 23 (fall-back rule set A in SPS)
-- {<<: *sps, nal_ref_idc: 3, seq_scaling_matrix: [[25,0],[0],[45,0],[55,0],[65,0],[0],[],[]]}
-- {<<: *pps, nal_ref_idc: 3}
-- {<<: *idr, nal_ref_idc: 3, idr_pic_id: 0}
-- {<<: *p, nal_ref_idc: 3, frame_num: {bits: 16, absolute: 1}}
+- {<<: *sps, seq_scaling_matrix: [[25,0],[0],[45,0],[55,0],[65,0],[0],[],[]]}
+- {<<: *pps}
+- {<<: *idr, idr_pic_id: 0}
+- {<<: *p, frame_num: {bits: 16, absolute: 1}}
 
 # PPS flag 0: SPS pattern 24 (fall-back rule set A in SPS)
-- {<<: *sps, nal_ref_idc: 3, seq_scaling_matrix: [[],[35,0],[45,0],[55,0],[],[75,0],[85,0],[0]]}
-- {<<: *pps, nal_ref_idc: 3}
-- {<<: *idr, nal_ref_idc: 3, idr_pic_id: 1}
-- {<<: *p, nal_ref_idc: 3, frame_num: {bits: 16, absolute: 1}}
+- {<<: *sps, seq_scaling_matrix: [[],[35,0],[45,0],[55,0],[],[75,0],[85,0],[0]]}
+- {<<: *pps}
+- {<<: *idr, idr_pic_id: 1}
+- {<<: *p, frame_num: {bits: 16, absolute: 1}}
 
 # PPS flag 0: SPS pattern 25 (fall-back rule set A in SPS)
-- {<<: *sps, nal_ref_idc: 3, seq_scaling_matrix: [[0],[35,0],[45,0],[55,0],[0],[75,0],[],[0]]}
-- {<<: *pps, nal_ref_idc: 3}
-- {<<: *idr, nal_ref_idc: 3, idr_pic_id: 0}
-- {<<: *p, nal_ref_idc: 3, frame_num: {bits: 16, absolute: 1}}
+- {<<: *sps, seq_scaling_matrix: [[0],[35,0],[45,0],[55,0],[0],[75,0],[],[0]]}
+- {<<: *pps}
+- {<<: *idr, idr_pic_id: 0}
+- {<<: *p, frame_num: {bits: 16, absolute: 1}}
 
 # PPS flag 0: SPS pattern 26 (fall-back rule set A in SPS)
-- {<<: *sps, nal_ref_idc: 3, seq_scaling_matrix: [[25,0],[35,0],[45,0],[55,0],[65,0],[75,0],[0],[0]]}
-- {<<: *pps, nal_ref_idc: 3}
-- {<<: *idr, nal_ref_idc: 3, idr_pic_id: 1}
-- {<<: *p, nal_ref_idc: 3, frame_num: {bits: 16, absolute: 1}}
+- {<<: *sps, seq_scaling_matrix: [[25,0],[35,0],[45,0],[55,0],[65,0],[75,0],[0],[0]]}
+- {<<: *pps}
+- {<<: *idr, idr_pic_id: 1}
+- {<<: *p, frame_num: {bits: 16, absolute: 1}}
 
 # SPS flag 0: fall-back rule set A
-- {<<: *sps, nal_ref_idc: 3}
-- {<<: *pps, nal_ref_idc: 3}
-- {<<: *idr, nal_ref_idc: 3, idr_pic_id: 0}
-- {<<: *pps, nal_ref_idc: 3, pic_scaling_matrix: [[],[],[],[],[],[],[],[]]}
-- {<<: *p, nal_ref_idc: 3, frame_num: {bits: 16, absolute: 1}}
-- {<<: *pps, nal_ref_idc: 3, pic_scaling_matrix: [[0],[],[],[],[0],[],[0],[]]}
-- {<<: *p, nal_ref_idc: 3, frame_num: {bits: 16, absolute: 2}}
-- {<<: *pps, nal_ref_idc: 3, pic_scaling_matrix: [[30,0],[],[],[],[70,0],[],[90,0],[]]}
-- {<<: *p, nal_ref_idc: 3, frame_num: {bits: 16, absolute: 3}}
-- {<<: *pps, nal_ref_idc: 3, pic_scaling_matrix: [[],[0],[],[],[],[0],[0],[0]]}
-- {<<: *p, nal_ref_idc: 3, frame_num: {bits: 16, absolute: 4}}
-- {<<: *pps, nal_ref_idc: 3, pic_scaling_matrix: [[0],[0],[],[],[0],[0],[90,0],[0]]}
-- {<<: *p, nal_ref_idc: 3, frame_num: {bits: 16, absolute: 5}}
-- {<<: *pps, nal_ref_idc: 3, pic_scaling_matrix: [[30,0],[0],[],[],[70,0],[0],[],[0]]}
-- {<<: *p, nal_ref_idc: 3, frame_num: {bits: 16, absolute: 6}}
-- {<<: *pps, nal_ref_idc: 3, pic_scaling_matrix: [[],[40,0],[],[],[],[80,0],[90,0],[100,0]]}
-- {<<: *p, nal_ref_idc: 3, frame_num: {bits: 16, absolute: 7}}
-- {<<: *pps, nal_ref_idc: 3, pic_scaling_matrix: [[0],[40,0],[],[],[0],[80,0],[],[100,0]]}
-- {<<: *p, nal_ref_idc: 3, frame_num: {bits: 16, absolute: 8}}
-- {<<: *pps, nal_ref_idc: 3, pic_scaling_matrix: [[30,0],[40,0],[],[],[70,0],[80,0],[0],[100,0]]}
-- {<<: *p, nal_ref_idc: 3, frame_num: {bits: 16, absolute: 9}}
-- {<<: *pps, nal_ref_idc: 3, pic_scaling_matrix: [[],[],[0],[0],[],[],[],[0]]}
-- {<<: *p, nal_ref_idc: 3, frame_num: {bits: 16, absolute: 10}}
-- {<<: *pps, nal_ref_idc: 3, pic_scaling_matrix: [[0],[],[0],[0],[0],[],[0],[0]]}
-- {<<: *p, nal_ref_idc: 3, frame_num: {bits: 16, absolute: 11}}
-- {<<: *pps, nal_ref_idc: 3, pic_scaling_matrix: [[30,0],[],[0],[0],[70,0],[],[90,0],[0]]}
-- {<<: *p, nal_ref_idc: 3, frame_num: {bits: 16, absolute: 12}}
-- {<<: *pps, nal_ref_idc: 3, pic_scaling_matrix: [[],[0],[0],[0],[],[0],[0],[100,0]]}
-- {<<: *p, nal_ref_idc: 3, frame_num: {bits: 16, absolute: 13}}
-- {<<: *pps, nal_ref_idc: 3, pic_scaling_matrix: [[0],[0],[0],[0],[0],[0],[90,0],[100,0]]}
-- {<<: *p, nal_ref_idc: 3, frame_num: {bits: 16, absolute: 14}}
-- {<<: *pps, nal_ref_idc: 3, pic_scaling_matrix: [[30,0],[0],[0],[0],[70,0],[0],[],[100,0]]}
-- {<<: *p, nal_ref_idc: 3, frame_num: {bits: 16, absolute: 15}}
-- {<<: *pps, nal_ref_idc: 3, pic_scaling_matrix: [[],[40,0],[0],[0],[],[80,0],[90,0],[]]}
-- {<<: *p, nal_ref_idc: 3, frame_num: {bits: 16, absolute: 16}}
-- {<<: *pps, nal_ref_idc: 3, pic_scaling_matrix: [[0],[40,0],[0],[0],[0],[80,0],[],[]]}
-- {<<: *p, nal_ref_idc: 3, frame_num: {bits: 16, absolute: 17}}
-- {<<: *pps, nal_ref_idc: 3, pic_scaling_matrix: [[30,0],[40,0],[0],[0],[70,0],[80,0],[0],[]]}
-- {<<: *p, nal_ref_idc: 3, frame_num: {bits: 16, absolute: 18}}
-- {<<: *pps, nal_ref_idc: 3, pic_scaling_matrix: [[],[],[50,0],[60,0],[],[],[],[100,0]]}
-- {<<: *p, nal_ref_idc: 3, frame_num: {bits: 16, absolute: 19}}
-- {<<: *pps, nal_ref_idc: 3, pic_scaling_matrix: [[0],[],[50,0],[60,0],[0],[],[0],[100,0]]}
-- {<<: *p, nal_ref_idc: 3, frame_num: {bits: 16, absolute: 20}}
-- {<<: *pps, nal_ref_idc: 3, pic_scaling_matrix: [[30,0],[],[50,0],[60,0],[70,0],[],[90,0],[100,0]]}
-- {<<: *p, nal_ref_idc: 3, frame_num: {bits: 16, absolute: 21}}
-- {<<: *pps, nal_ref_idc: 3, pic_scaling_matrix: [[],[0],[50,0],[60,0],[],[0],[0],[]]}
-- {<<: *p, nal_ref_idc: 3, frame_num: {bits: 16, absolute: 22}}
-- {<<: *pps, nal_ref_idc: 3, pic_scaling_matrix: [[0],[0],[50,0],[60,0],[0],[0],[90,0],[]]}
-- {<<: *p, nal_ref_idc: 3, frame_num: {bits: 16, absolute: 23}}
-- {<<: *pps, nal_ref_idc: 3, pic_scaling_matrix: [[30,0],[0],[50,0],[60,0],[70,0],[0],[],[]]}
-- {<<: *p, nal_ref_idc: 3, frame_num: {bits: 16, absolute: 24}}
-- {<<: *pps, nal_ref_idc: 3, pic_scaling_matrix: [[],[40,0],[50,0],[60,0],[],[80,0],[90,0],[0]]}
-- {<<: *p, nal_ref_idc: 3, frame_num: {bits: 16, absolute: 25}}
-- {<<: *pps, nal_ref_idc: 3, pic_scaling_matrix: [[0],[40,0],[50,0],[60,0],[0],[80,0],[],[0]]}
-- {<<: *p, nal_ref_idc: 3, frame_num: {bits: 16, absolute: 26}}
-- {<<: *pps, nal_ref_idc: 3, pic_scaling_matrix: [[30,0],[40,0],[50,0],[60,0],[70,0],[80,0],[0],[0]]}
-- {<<: *p, nal_ref_idc: 3, frame_num: {bits: 16, absolute: 27}}
+- {<<: *sps}
+- {<<: *pps}
+- {<<: *idr, idr_pic_id: 0}
+- {<<: *pps, pic_scaling_matrix: [[],[],[],[],[],[],[],[]]}
+- {<<: *p, frame_num: {bits: 16, absolute: 1}}
+- {<<: *pps, pic_scaling_matrix: [[0],[],[],[],[0],[],[0],[]]}
+- {<<: *p, frame_num: {bits: 16, absolute: 2}}
+- {<<: *pps, pic_scaling_matrix: [[30,0],[],[],[],[70,0],[],[90,0],[]]}
+- {<<: *p, frame_num: {bits: 16, absolute: 3}}
+- {<<: *pps, pic_scaling_matrix: [[],[0],[],[],[],[0],[0],[0]]}
+- {<<: *p, frame_num: {bits: 16, absolute: 4}}
+- {<<: *pps, pic_scaling_matrix: [[0],[0],[],[],[0],[0],[90,0],[0]]}
+- {<<: *p, frame_num: {bits: 16, absolute: 5}}
+- {<<: *pps, pic_scaling_matrix: [[30,0],[0],[],[],[70,0],[0],[],[0]]}
+- {<<: *p, frame_num: {bits: 16, absolute: 6}}
+- {<<: *pps, pic_scaling_matrix: [[],[40,0],[],[],[],[80,0],[90,0],[100,0]]}
+- {<<: *p, frame_num: {bits: 16, absolute: 7}}
+- {<<: *pps, pic_scaling_matrix: [[0],[40,0],[],[],[0],[80,0],[],[100,0]]}
+- {<<: *p, frame_num: {bits: 16, absolute: 8}}
+- {<<: *pps, pic_scaling_matrix: [[30,0],[40,0],[],[],[70,0],[80,0],[0],[100,0]]}
+- {<<: *p, frame_num: {bits: 16, absolute: 9}}
+- {<<: *pps, pic_scaling_matrix: [[],[],[0],[0],[],[],[],[0]]}
+- {<<: *p, frame_num: {bits: 16, absolute: 10}}
+- {<<: *pps, pic_scaling_matrix: [[0],[],[0],[0],[0],[],[0],[0]]}
+- {<<: *p, frame_num: {bits: 16, absolute: 11}}
+- {<<: *pps, pic_scaling_matrix: [[30,0],[],[0],[0],[70,0],[],[90,0],[0]]}
+- {<<: *p, frame_num: {bits: 16, absolute: 12}}
+- {<<: *pps, pic_scaling_matrix: [[],[0],[0],[0],[],[0],[0],[100,0]]}
+- {<<: *p, frame_num: {bits: 16, absolute: 13}}
+- {<<: *pps, pic_scaling_matrix: [[0],[0],[0],[0],[0],[0],[90,0],[100,0]]}
+- {<<: *p, frame_num: {bits: 16, absolute: 14}}
+- {<<: *pps, pic_scaling_matrix: [[30,0],[0],[0],[0],[70,0],[0],[],[100,0]]}
+- {<<: *p, frame_num: {bits: 16, absolute: 15}}
+- {<<: *pps, pic_scaling_matrix: [[],[40,0],[0],[0],[],[80,0],[90,0],[]]}
+- {<<: *p, frame_num: {bits: 16, absolute: 16}}
+- {<<: *pps, pic_scaling_matrix: [[0],[40,0],[0],[0],[0],[80,0],[],[]]}
+- {<<: *p, frame_num: {bits: 16, absolute: 17}}
+- {<<: *pps, pic_scaling_matrix: [[30,0],[40,0],[0],[0],[70,0],[80,0],[0],[]]}
+- {<<: *p, frame_num: {bits: 16, absolute: 18}}
+- {<<: *pps, pic_scaling_matrix: [[],[],[50,0],[60,0],[],[],[],[100,0]]}
+- {<<: *p, frame_num: {bits: 16, absolute: 19}}
+- {<<: *pps, pic_scaling_matrix: [[0],[],[50,0],[60,0],[0],[],[0],[100,0]]}
+- {<<: *p, frame_num: {bits: 16, absolute: 20}}
+- {<<: *pps, pic_scaling_matrix: [[30,0],[],[50,0],[60,0],[70,0],[],[90,0],[100,0]]}
+- {<<: *p, frame_num: {bits: 16, absolute: 21}}
+- {<<: *pps, pic_scaling_matrix: [[],[0],[50,0],[60,0],[],[0],[0],[]]}
+- {<<: *p, frame_num: {bits: 16, absolute: 22}}
+- {<<: *pps, pic_scaling_matrix: [[0],[0],[50,0],[60,0],[0],[0],[90,0],[]]}
+- {<<: *p, frame_num: {bits: 16, absolute: 23}}
+- {<<: *pps, pic_scaling_matrix: [[30,0],[0],[50,0],[60,0],[70,0],[0],[],[]]}
+- {<<: *p, frame_num: {bits: 16, absolute: 24}}
+- {<<: *pps, pic_scaling_matrix: [[],[40,0],[50,0],[60,0],[],[80,0],[90,0],[0]]}
+- {<<: *p, frame_num: {bits: 16, absolute: 25}}
+- {<<: *pps, pic_scaling_matrix: [[0],[40,0],[50,0],[60,0],[0],[80,0],[],[0]]}
+- {<<: *p, frame_num: {bits: 16, absolute: 26}}
+- {<<: *pps, pic_scaling_matrix: [[30,0],[40,0],[50,0],[60,0],[70,0],[80,0],[0],[0]]}
+- {<<: *p, frame_num: {bits: 16, absolute: 27}}
 
 # SPS flag 1, lists 0/3/6/7 absent: fall-back rule set B
-- {<<: *sps, nal_ref_idc: 3, seq_scaling_matrix: [[],[35,0],[45,0],[],[65,0],[75,0],[],[]]}
-- {<<: *pps, nal_ref_idc: 3}
-- {<<: *idr, nal_ref_idc: 3, idr_pic_id: 1}
-- {<<: *p, nal_ref_idc: 3, frame_num: {bits: 16, absolute: 1}}
-- {<<: *pps, nal_ref_idc: 3, pic_scaling_matrix: [[],[],[],[],[],[],[],[]]}
-- {<<: *p, nal_ref_idc: 3, frame_num: {bits: 16, absolute: 2}}
-- {<<: *pps, nal_ref_idc: 3, pic_scaling_matrix: [[0],[],[],[],[0],[],[0],[]]}
-- {<<: *p, nal_ref_idc: 3, frame_num: {bits: 16, absolute: 3}}
-- {<<: *pps, nal_ref_idc: 3, pic_scaling_matrix: [[30,0],[],[],[],[70,0],[],[90,0],[]]}
-- {<<: *p, nal_ref_idc: 3, frame_num: {bits: 16, absolute: 4}}
-- {<<: *pps, nal_ref_idc: 3, pic_scaling_matrix: [[],[0],[],[],[],[0],[0],[0]]}
-- {<<: *p, nal_ref_idc: 3, frame_num: {bits: 16, absolute: 5}}
-- {<<: *pps, nal_ref_idc: 3, pic_scaling_matrix: [[0],[0],[],[],[0],[0],[90,0],[0]]}
-- {<<: *p, nal_ref_idc: 3, frame_num: {bits: 16, absolute: 6}}
-- {<<: *pps, nal_ref_idc: 3, pic_scaling_matrix: [[30,0],[0],[],[],[70,0],[0],[],[0]]}
-- {<<: *p, nal_ref_idc: 3, frame_num: {bits: 16, absolute: 7}}
-- {<<: *pps, nal_ref_idc: 3, pic_scaling_matrix: [[],[40,0],[],[],[],[80,0],[90,0],[100,0]]}
-- {<<: *p, nal_ref_idc: 3, frame_num: {bits: 16, absolute: 8}}
-- {<<: *pps, nal_ref_idc: 3, pic_scaling_matrix: [[0],[40,0],[],[],[0],[80,0],[],[100,0]]}
-- {<<: *p, nal_ref_idc: 3, frame_num: {bits: 16, absolute: 9}}
-- {<<: *pps, nal_ref_idc: 3, pic_scaling_matrix: [[30,0],[40,0],[],[],[70,0],[80,0],[0],[100,0]]}
-- {<<: *p, nal_ref_idc: 3, frame_num: {bits: 16, absolute: 10}}
-- {<<: *pps, nal_ref_idc: 3, pic_scaling_matrix: [[],[],[0],[0],[],[],[],[0]]}
-- {<<: *p, nal_ref_idc: 3, frame_num: {bits: 16, absolute: 11}}
-- {<<: *pps, nal_ref_idc: 3, pic_scaling_matrix: [[0],[],[0],[0],[0],[],[0],[0]]}
-- {<<: *p, nal_ref_idc: 3, frame_num: {bits: 16, absolute: 12}}
-- {<<: *pps, nal_ref_idc: 3, pic_scaling_matrix: [[30,0],[],[0],[0],[70,0],[],[90,0],[0]]}
-- {<<: *p, nal_ref_idc: 3, frame_num: {bits: 16, absolute: 13}}
-- {<<: *pps, nal_ref_idc: 3, pic_scaling_matrix: [[],[0],[0],[0],[],[0],[0],[100,0]]}
-- {<<: *p, nal_ref_idc: 3, frame_num: {bits: 16, absolute: 14}}
-- {<<: *pps, nal_ref_idc: 3, pic_scaling_matrix: [[0],[0],[0],[0],[0],[0],[90,0],[100,0]]}
-- {<<: *p, nal_ref_idc: 3, frame_num: {bits: 16, absolute: 15}}
-- {<<: *pps, nal_ref_idc: 3, pic_scaling_matrix: [[30,0],[0],[0],[0],[70,0],[0],[],[100,0]]}
-- {<<: *p, nal_ref_idc: 3, frame_num: {bits: 16, absolute: 16}}
-- {<<: *pps, nal_ref_idc: 3, pic_scaling_matrix: [[],[40,0],[0],[0],[],[80,0],[90,0],[]]}
-- {<<: *p, nal_ref_idc: 3, frame_num: {bits: 16, absolute: 17}}
-- {<<: *pps, nal_ref_idc: 3, pic_scaling_matrix: [[0],[40,0],[0],[0],[0],[80,0],[],[]]}
-- {<<: *p, nal_ref_idc: 3, frame_num: {bits: 16, absolute: 18}}
-- {<<: *pps, nal_ref_idc: 3, pic_scaling_matrix: [[30,0],[40,0],[0],[0],[70,0],[80,0],[0],[]]}
-- {<<: *p, nal_ref_idc: 3, frame_num: {bits: 16, absolute: 19}}
-- {<<: *pps, nal_ref_idc: 3, pic_scaling_matrix: [[],[],[50,0],[60,0],[],[],[],[100,0]]}
-- {<<: *p, nal_ref_idc: 3, frame_num: {bits: 16, absolute: 20}}
-- {<<: *pps, nal_ref_idc: 3, pic_scaling_matrix: [[0],[],[50,0],[60,0],[0],[],[0],[100,0]]}
-- {<<: *p, nal_ref_idc: 3, frame_num: {bits: 16, absolute: 21}}
-- {<<: *pps, nal_ref_idc: 3, pic_scaling_matrix: [[30,0],[],[50,0],[60,0],[70,0],[],[90,0],[100,0]]}
-- {<<: *p, nal_ref_idc: 3, frame_num: {bits: 16, absolute: 22}}
-- {<<: *pps, nal_ref_idc: 3, pic_scaling_matrix: [[],[0],[50,0],[60,0],[],[0],[0],[]]}
-- {<<: *p, nal_ref_idc: 3, frame_num: {bits: 16, absolute: 23}}
-- {<<: *pps, nal_ref_idc: 3, pic_scaling_matrix: [[0],[0],[50,0],[60,0],[0],[0],[90,0],[]]}
-- {<<: *p, nal_ref_idc: 3, frame_num: {bits: 16, absolute: 24}}
-- {<<: *pps, nal_ref_idc: 3, pic_scaling_matrix: [[30,0],[0],[50,0],[60,0],[70,0],[0],[],[]]}
-- {<<: *p, nal_ref_idc: 3, frame_num: {bits: 16, absolute: 25}}
-- {<<: *pps, nal_ref_idc: 3, pic_scaling_matrix: [[],[40,0],[50,0],[60,0],[],[80,0],[90,0],[0]]}
-- {<<: *p, nal_ref_idc: 3, frame_num: {bits: 16, absolute: 26}}
-- {<<: *pps, nal_ref_idc: 3, pic_scaling_matrix: [[0],[40,0],[50,0],[60,0],[0],[80,0],[],[0]]}
-- {<<: *p, nal_ref_idc: 3, frame_num: {bits: 16, absolute: 27}}
-- {<<: *pps, nal_ref_idc: 3, pic_scaling_matrix: [[30,0],[40,0],[50,0],[60,0],[70,0],[80,0],[0],[0]]}
-- {<<: *p, nal_ref_idc: 3, frame_num: {bits: 16, absolute: 28}}
+- {<<: *sps, seq_scaling_matrix: [[],[35,0],[45,0],[],[65,0],[75,0],[],[]]}
+- {<<: *pps}
+- {<<: *idr, idr_pic_id: 1}
+- {<<: *p, frame_num: {bits: 16, absolute: 1}}
+- {<<: *pps, pic_scaling_matrix: [[],[],[],[],[],[],[],[]]}
+- {<<: *p, frame_num: {bits: 16, absolute: 2}}
+- {<<: *pps, pic_scaling_matrix: [[0],[],[],[],[0],[],[0],[]]}
+- {<<: *p, frame_num: {bits: 16, absolute: 3}}
+- {<<: *pps, pic_scaling_matrix: [[30,0],[],[],[],[70,0],[],[90,0],[]]}
+- {<<: *p, frame_num: {bits: 16, absolute: 4}}
+- {<<: *pps, pic_scaling_matrix: [[],[0],[],[],[],[0],[0],[0]]}
+- {<<: *p, frame_num: {bits: 16, absolute: 5}}
+- {<<: *pps, pic_scaling_matrix: [[0],[0],[],[],[0],[0],[90,0],[0]]}
+- {<<: *p, frame_num: {bits: 16, absolute: 6}}
+- {<<: *pps, pic_scaling_matrix: [[30,0],[0],[],[],[70,0],[0],[],[0]]}
+- {<<: *p, frame_num: {bits: 16, absolute: 7}}
+- {<<: *pps, pic_scaling_matrix: [[],[40,0],[],[],[],[80,0],[90,0],[100,0]]}
+- {<<: *p, frame_num: {bits: 16, absolute: 8}}
+- {<<: *pps, pic_scaling_matrix: [[0],[40,0],[],[],[0],[80,0],[],[100,0]]}
+- {<<: *p, frame_num: {bits: 16, absolute: 9}}
+- {<<: *pps, pic_scaling_matrix: [[30,0],[40,0],[],[],[70,0],[80,0],[0],[100,0]]}
+- {<<: *p, frame_num: {bits: 16, absolute: 10}}
+- {<<: *pps, pic_scaling_matrix: [[],[],[0],[0],[],[],[],[0]]}
+- {<<: *p, frame_num: {bits: 16, absolute: 11}}
+- {<<: *pps, pic_scaling_matrix: [[0],[],[0],[0],[0],[],[0],[0]]}
+- {<<: *p, frame_num: {bits: 16, absolute: 12}}
+- {<<: *pps, pic_scaling_matrix: [[30,0],[],[0],[0],[70,0],[],[90,0],[0]]}
+- {<<: *p, frame_num: {bits: 16, absolute: 13}}
+- {<<: *pps, pic_scaling_matrix: [[],[0],[0],[0],[],[0],[0],[100,0]]}
+- {<<: *p, frame_num: {bits: 16, absolute: 14}}
+- {<<: *pps, pic_scaling_matrix: [[0],[0],[0],[0],[0],[0],[90,0],[100,0]]}
+- {<<: *p, frame_num: {bits: 16, absolute: 15}}
+- {<<: *pps, pic_scaling_matrix: [[30,0],[0],[0],[0],[70,0],[0],[],[100,0]]}
+- {<<: *p, frame_num: {bits: 16, absolute: 16}}
+- {<<: *pps, pic_scaling_matrix: [[],[40,0],[0],[0],[],[80,0],[90,0],[]]}
+- {<<: *p, frame_num: {bits: 16, absolute: 17}}
+- {<<: *pps, pic_scaling_matrix: [[0],[40,0],[0],[0],[0],[80,0],[],[]]}
+- {<<: *p, frame_num: {bits: 16, absolute: 18}}
+- {<<: *pps, pic_scaling_matrix: [[30,0],[40,0],[0],[0],[70,0],[80,0],[0],[]]}
+- {<<: *p, frame_num: {bits: 16, absolute: 19}}
+- {<<: *pps, pic_scaling_matrix: [[],[],[50,0],[60,0],[],[],[],[100,0]]}
+- {<<: *p, frame_num: {bits: 16, absolute: 20}}
+- {<<: *pps, pic_scaling_matrix: [[0],[],[50,0],[60,0],[0],[],[0],[100,0]]}
+- {<<: *p, frame_num: {bits: 16, absolute: 21}}
+- {<<: *pps, pic_scaling_matrix: [[30,0],[],[50,0],[60,0],[70,0],[],[90,0],[100,0]]}
+- {<<: *p, frame_num: {bits: 16, absolute: 22}}
+- {<<: *pps, pic_scaling_matrix: [[],[0],[50,0],[60,0],[],[0],[0],[]]}
+- {<<: *p, frame_num: {bits: 16, absolute: 23}}
+- {<<: *pps, pic_scaling_matrix: [[0],[0],[50,0],[60,0],[0],[0],[90,0],[]]}
+- {<<: *p, frame_num: {bits: 16, absolute: 24}}
+- {<<: *pps, pic_scaling_matrix: [[30,0],[0],[50,0],[60,0],[70,0],[0],[],[]]}
+- {<<: *p, frame_num: {bits: 16, absolute: 25}}
+- {<<: *pps, pic_scaling_matrix: [[],[40,0],[50,0],[60,0],[],[80,0],[90,0],[0]]}
+- {<<: *p, frame_num: {bits: 16, absolute: 26}}
+- {<<: *pps, pic_scaling_matrix: [[0],[40,0],[50,0],[60,0],[0],[80,0],[],[0]]}
+- {<<: *p, frame_num: {bits: 16, absolute: 27}}
+- {<<: *pps, pic_scaling_matrix: [[30,0],[40,0],[50,0],[60,0],[70,0],[80,0],[0],[0]]}
+- {<<: *p, frame_num: {bits: 16, absolute: 28}}
 
 # SPS flag 1, lists 0/3/6/7 default: fall-back rule set B
-- {<<: *sps, nal_ref_idc: 3, seq_scaling_matrix: [[0],[35,0],[45,0],[0],[65,0],[75,0],[0],[0]]}
-- {<<: *pps, nal_ref_idc: 3}
-- {<<: *idr, nal_ref_idc: 3, idr_pic_id: 0}
-- {<<: *p, nal_ref_idc: 3, frame_num: {bits: 16, absolute: 1}}
-- {<<: *pps, nal_ref_idc: 3, pic_scaling_matrix: [[],[],[],[],[],[],[],[]]}
-- {<<: *p, nal_ref_idc: 3, frame_num: {bits: 16, absolute: 2}}
-- {<<: *pps, nal_ref_idc: 3, pic_scaling_matrix: [[0],[],[],[],[0],[],[0],[]]}
-- {<<: *p, nal_ref_idc: 3, frame_num: {bits: 16, absolute: 3}}
-- {<<: *pps, nal_ref_idc: 3, pic_scaling_matrix: [[30,0],[],[],[],[70,0],[],[90,0],[]]}
-- {<<: *p, nal_ref_idc: 3, frame_num: {bits: 16, absolute: 4}}
-- {<<: *pps, nal_ref_idc: 3, pic_scaling_matrix: [[],[0],[],[],[],[0],[0],[0]]}
-- {<<: *p, nal_ref_idc: 3, frame_num: {bits: 16, absolute: 5}}
-- {<<: *pps, nal_ref_idc: 3, pic_scaling_matrix: [[0],[0],[],[],[0],[0],[90,0],[0]]}
-- {<<: *p, nal_ref_idc: 3, frame_num: {bits: 16, absolute: 6}}
-- {<<: *pps, nal_ref_idc: 3, pic_scaling_matrix: [[30,0],[0],[],[],[70,0],[0],[],[0]]}
-- {<<: *p, nal_ref_idc: 3, frame_num: {bits: 16, absolute: 7}}
-- {<<: *pps, nal_ref_idc: 3, pic_scaling_matrix: [[],[40,0],[],[],[],[80,0],[90,0],[100,0]]}
-- {<<: *p, nal_ref_idc: 3, frame_num: {bits: 16, absolute: 8}}
-- {<<: *pps, nal_ref_idc: 3, pic_scaling_matrix: [[0],[40,0],[],[],[0],[80,0],[],[100,0]]}
-- {<<: *p, nal_ref_idc: 3, frame_num: {bits: 16, absolute: 9}}
-- {<<: *pps, nal_ref_idc: 3, pic_scaling_matrix: [[30,0],[40,0],[],[],[70,0],[80,0],[0],[100,0]]}
-- {<<: *p, nal_ref_idc: 3, frame_num: {bits: 16, absolute: 10}}
-- {<<: *pps, nal_ref_idc: 3, pic_scaling_matrix: [[],[],[0],[0],[],[],[],[0]]}
-- {<<: *p, nal_ref_idc: 3, frame_num: {bits: 16, absolute: 11}}
-- {<<: *pps, nal_ref_idc: 3, pic_scaling_matrix: [[0],[],[0],[0],[0],[],[0],[0]]}
-- {<<: *p, nal_ref_idc: 3, frame_num: {bits: 16, absolute: 12}}
-- {<<: *pps, nal_ref_idc: 3, pic_scaling_matrix: [[30,0],[],[0],[0],[70,0],[],[90,0],[0]]}
-- {<<: *p, nal_ref_idc: 3, frame_num: {bits: 16, absolute: 13}}
-- {<<: *pps, nal_ref_idc: 3, pic_scaling_matrix: [[],[0],[0],[0],[],[0],[0],[100,0]]}
-- {<<: *p, nal_ref_idc: 3, frame_num: {bits: 16, absolute: 14}}
-- {<<: *pps, nal_ref_idc: 3, pic_scaling_matrix: [[0],[0],[0],[0],[0],[0],[90,0],[100,0]]}
-- {<<: *p, nal_ref_idc: 3, frame_num: {bits: 16, absolute: 15}}
-- {<<: *pps, nal_ref_idc: 3, pic_scaling_matrix: [[30,0],[0],[0],[0],[70,0],[0],[],[100,0]]}
-- {<<: *p, nal_ref_idc: 3, frame_num: {bits: 16, absolute: 16}}
-- {<<: *pps, nal_ref_idc: 3, pic_scaling_matrix: [[],[40,0],[0],[0],[],[80,0],[90,0],[]]}
-- {<<: *p, nal_ref_idc: 3, frame_num: {bits: 16, absolute: 17}}
-- {<<: *pps, nal_ref_idc: 3, pic_scaling_matrix: [[0],[40,0],[0],[0],[0],[80,0],[],[]]}
-- {<<: *p, nal_ref_idc: 3, frame_num: {bits: 16, absolute: 18}}
-- {<<: *pps, nal_ref_idc: 3, pic_scaling_matrix: [[30,0],[40,0],[0],[0],[70,0],[80,0],[0],[]]}
-- {<<: *p, nal_ref_idc: 3, frame_num: {bits: 16, absolute: 19}}
-- {<<: *pps, nal_ref_idc: 3, pic_scaling_matrix: [[],[],[50,0],[60,0],[],[],[],[100,0]]}
-- {<<: *p, nal_ref_idc: 3, frame_num: {bits: 16, absolute: 20}}
-- {<<: *pps, nal_ref_idc: 3, pic_scaling_matrix: [[0],[],[50,0],[60,0],[0],[],[0],[100,0]]}
-- {<<: *p, nal_ref_idc: 3, frame_num: {bits: 16, absolute: 21}}
-- {<<: *pps, nal_ref_idc: 3, pic_scaling_matrix: [[30,0],[],[50,0],[60,0],[70,0],[],[90,0],[100,0]]}
-- {<<: *p, nal_ref_idc: 3, frame_num: {bits: 16, absolute: 22}}
-- {<<: *pps, nal_ref_idc: 3, pic_scaling_matrix: [[],[0],[50,0],[60,0],[],[0],[0],[]]}
-- {<<: *p, nal_ref_idc: 3, frame_num: {bits: 16, absolute: 23}}
-- {<<: *pps, nal_ref_idc: 3, pic_scaling_matrix: [[0],[0],[50,0],[60,0],[0],[0],[90,0],[]]}
-- {<<: *p, nal_ref_idc: 3, frame_num: {bits: 16, absolute: 24}}
-- {<<: *pps, nal_ref_idc: 3, pic_scaling_matrix: [[30,0],[0],[50,0],[60,0],[70,0],[0],[],[]]}
-- {<<: *p, nal_ref_idc: 3, frame_num: {bits: 16, absolute: 25}}
-- {<<: *pps, nal_ref_idc: 3, pic_scaling_matrix: [[],[40,0],[50,0],[60,0],[],[80,0],[90,0],[0]]}
-- {<<: *p, nal_ref_idc: 3, frame_num: {bits: 16, absolute: 26}}
-- {<<: *pps, nal_ref_idc: 3, pic_scaling_matrix: [[0],[40,0],[50,0],[60,0],[0],[80,0],[],[0]]}
-- {<<: *p, nal_ref_idc: 3, frame_num: {bits: 16, absolute: 27}}
-- {<<: *pps, nal_ref_idc: 3, pic_scaling_matrix: [[30,0],[40,0],[50,0],[60,0],[70,0],[80,0],[0],[0]]}
-- {<<: *p, nal_ref_idc: 3, frame_num: {bits: 16, absolute: 28}}
+- {<<: *sps, seq_scaling_matrix: [[0],[35,0],[45,0],[0],[65,0],[75,0],[0],[0]]}
+- {<<: *pps}
+- {<<: *idr, idr_pic_id: 0}
+- {<<: *p, frame_num: {bits: 16, absolute: 1}}
+- {<<: *pps, pic_scaling_matrix: [[],[],[],[],[],[],[],[]]}
+- {<<: *p, frame_num: {bits: 16, absolute: 2}}
+- {<<: *pps, pic_scaling_matrix: [[0],[],[],[],[0],[],[0],[]]}
+- {<<: *p, frame_num: {bits: 16, absolute: 3}}
+- {<<: *pps, pic_scaling_matrix: [[30,0],[],[],[],[70,0],[],[90,0],[]]}
+- {<<: *p, frame_num: {bits: 16, absolute: 4}}
+- {<<: *pps, pic_scaling_matrix: [[],[0],[],[],[],[0],[0],[0]]}
+- {<<: *p, frame_num: {bits: 16, absolute: 5}}
+- {<<: *pps, pic_scaling_matrix: [[0],[0],[],[],[0],[0],[90,0],[0]]}
+- {<<: *p, frame_num: {bits: 16, absolute: 6}}
+- {<<: *pps, pic_scaling_matrix: [[30,0],[0],[],[],[70,0],[0],[],[0]]}
+- {<<: *p, frame_num: {bits: 16, absolute: 7}}
+- {<<: *pps, pic_scaling_matrix: [[],[40,0],[],[],[],[80,0],[90,0],[100,0]]}
+- {<<: *p, frame_num: {bits: 16, absolute: 8}}
+- {<<: *pps, pic_scaling_matrix: [[0],[40,0],[],[],[0],[80,0],[],[100,0]]}
+- {<<: *p, frame_num: {bits: 16, absolute: 9}}
+- {<<: *pps, pic_scaling_matrix: [[30,0],[40,0],[],[],[70,0],[80,0],[0],[100,0]]}
+- {<<: *p, frame_num: {bits: 16, absolute: 10}}
+- {<<: *pps, pic_scaling_matrix: [[],[],[0],[0],[],[],[],[0]]}
+- {<<: *p, frame_num: {bits: 16, absolute: 11}}
+- {<<: *pps, pic_scaling_matrix: [[0],[],[0],[0],[0],[],[0],[0]]}
+- {<<: *p, frame_num: {bits: 16, absolute: 12}}
+- {<<: *pps, pic_scaling_matrix: [[30,0],[],[0],[0],[70,0],[],[90,0],[0]]}
+- {<<: *p, frame_num: {bits: 16, absolute: 13}}
+- {<<: *pps, pic_scaling_matrix: [[],[0],[0],[0],[],[0],[0],[100,0]]}
+- {<<: *p, frame_num: {bits: 16, absolute: 14}}
+- {<<: *pps, pic_scaling_matrix: [[0],[0],[0],[0],[0],[0],[90,0],[100,0]]}
+- {<<: *p, frame_num: {bits: 16, absolute: 15}}
+- {<<: *pps, pic_scaling_matrix: [[30,0],[0],[0],[0],[70,0],[0],[],[100,0]]}
+- {<<: *p, frame_num: {bits: 16, absolute: 16}}
+- {<<: *pps, pic_scaling_matrix: [[],[40,0],[0],[0],[],[80,0],[90,0],[]]}
+- {<<: *p, frame_num: {bits: 16, absolute: 17}}
+- {<<: *pps, pic_scaling_matrix: [[0],[40,0],[0],[0],[0],[80,0],[],[]]}
+- {<<: *p, frame_num: {bits: 16, absolute: 18}}
+- {<<: *pps, pic_scaling_matrix: [[30,0],[40,0],[0],[0],[70,0],[80,0],[0],[]]}
+- {<<: *p, frame_num: {bits: 16, absolute: 19}}
+- {<<: *pps, pic_scaling_matrix: [[],[],[50,0],[60,0],[],[],[],[100,0]]}
+- {<<: *p, frame_num: {bits: 16, absolute: 20}}
+- {<<: *pps, pic_scaling_matrix: [[0],[],[50,0],[60,0],[0],[],[0],[100,0]]}
+- {<<: *p, frame_num: {bits: 16, absolute: 21}}
+- {<<: *pps, pic_scaling_matrix: [[30,0],[],[50,0],[60,0],[70,0],[],[90,0],[100,0]]}
+- {<<: *p, frame_num: {bits: 16, absolute: 22}}
+- {<<: *pps, pic_scaling_matrix: [[],[0],[50,0],[60,0],[],[0],[0],[]]}
+- {<<: *p, frame_num: {bits: 16, absolute: 23}}
+- {<<: *pps, pic_scaling_matrix: [[0],[0],[50,0],[60,0],[0],[0],[90,0],[]]}
+- {<<: *p, frame_num: {bits: 16, absolute: 24}}
+- {<<: *pps, pic_scaling_matrix: [[30,0],[0],[50,0],[60,0],[70,0],[0],[],[]]}
+- {<<: *p, frame_num: {bits: 16, absolute: 25}}
+- {<<: *pps, pic_scaling_matrix: [[],[40,0],[50,0],[60,0],[],[80,0],[90,0],[0]]}
+- {<<: *p, frame_num: {bits: 16, absolute: 26}}
+- {<<: *pps, pic_scaling_matrix: [[0],[40,0],[50,0],[60,0],[0],[80,0],[],[0]]}
+- {<<: *p, frame_num: {bits: 16, absolute: 27}}
+- {<<: *pps, pic_scaling_matrix: [[30,0],[40,0],[50,0],[60,0],[70,0],[80,0],[0],[0]]}
+- {<<: *p, frame_num: {bits: 16, absolute: 28}}
 
 # SPS flag 1, lists 0/3/6/7 explicit: fall-back rule set B
-- {<<: *sps, nal_ref_idc: 3, seq_scaling_matrix: [[25,0],[35,0],[45,0],[55,0],[65,0],[75,0],[85,0],[95,0]]}
-- {<<: *pps, nal_ref_idc: 3}
-- {<<: *idr, nal_ref_idc: 3, idr_pic_id: 1}
-- {<<: *p, nal_ref_idc: 3, frame_num: {bits: 16, absolute: 1}}
-- {<<: *pps, nal_ref_idc: 3, pic_scaling_matrix: [[],[],[],[],[],[],[],[]]}
-- {<<: *p, nal_ref_idc: 3, frame_num: {bits: 16, absolute: 2}}
-- {<<: *pps, nal_ref_idc: 3, pic_scaling_matrix: [[0],[],[],[],[0],[],[0],[]]}
-- {<<: *p, nal_ref_idc: 3, frame_num: {bits: 16, absolute: 3}}
-- {<<: *pps, nal_ref_idc: 3, pic_scaling_matrix: [[30,0],[],[],[],[70,0],[],[90,0],[]]}
-- {<<: *p, nal_ref_idc: 3, frame_num: {bits: 16, absolute: 4}}
-- {<<: *pps, nal_ref_idc: 3, pic_scaling_matrix: [[],[0],[],[],[],[0],[0],[0]]}
-- {<<: *p, nal_ref_idc: 3, frame_num: {bits: 16, absolute: 5}}
-- {<<: *pps, nal_ref_idc: 3, pic_scaling_matrix: [[0],[0],[],[],[0],[0],[90,0],[0]]}
-- {<<: *p, nal_ref_idc: 3, frame_num: {bits: 16, absolute: 6}}
-- {<<: *pps, nal_ref_idc: 3, pic_scaling_matrix: [[30,0],[0],[],[],[70,0],[0],[],[0]]}
-- {<<: *p, nal_ref_idc: 3, frame_num: {bits: 16, absolute: 7}}
-- {<<: *pps, nal_ref_idc: 3, pic_scaling_matrix: [[],[40,0],[],[],[],[80,0],[90,0],[100,0]]}
-- {<<: *p, nal_ref_idc: 3, frame_num: {bits: 16, absolute: 8}}
-- {<<: *pps, nal_ref_idc: 3, pic_scaling_matrix: [[0],[40,0],[],[],[0],[80,0],[],[100,0]]}
-- {<<: *p, nal_ref_idc: 3, frame_num: {bits: 16, absolute: 9}}
-- {<<: *pps, nal_ref_idc: 3, pic_scaling_matrix: [[30,0],[40,0],[],[],[70,0],[80,0],[0],[100,0]]}
-- {<<: *p, nal_ref_idc: 3, frame_num: {bits: 16, absolute: 10}}
-- {<<: *pps, nal_ref_idc: 3, pic_scaling_matrix: [[],[],[0],[0],[],[],[],[0]]}
-- {<<: *p, nal_ref_idc: 3, frame_num: {bits: 16, absolute: 11}}
-- {<<: *pps, nal_ref_idc: 3, pic_scaling_matrix: [[0],[],[0],[0],[0],[],[0],[0]]}
-- {<<: *p, nal_ref_idc: 3, frame_num: {bits: 16, absolute: 12}}
-- {<<: *pps, nal_ref_idc: 3, pic_scaling_matrix: [[30,0],[],[0],[0],[70,0],[],[90,0],[0]]}
-- {<<: *p, nal_ref_idc: 3, frame_num: {bits: 16, absolute: 13}}
-- {<<: *pps, nal_ref_idc: 3, pic_scaling_matrix: [[],[0],[0],[0],[],[0],[0],[100,0]]}
-- {<<: *p, nal_ref_idc: 3, frame_num: {bits: 16, absolute: 14}}
-- {<<: *pps, nal_ref_idc: 3, pic_scaling_matrix: [[0],[0],[0],[0],[0],[0],[90,0],[100,0]]}
-- {<<: *p, nal_ref_idc: 3, frame_num: {bits: 16, absolute: 15}}
-- {<<: *pps, nal_ref_idc: 3, pic_scaling_matrix: [[30,0],[0],[0],[0],[70,0],[0],[],[100,0]]}
-- {<<: *p, nal_ref_idc: 3, frame_num: {bits: 16, absolute: 16}}
-- {<<: *pps, nal_ref_idc: 3, pic_scaling_matrix: [[],[40,0],[0],[0],[],[80,0],[90,0],[]]}
-- {<<: *p, nal_ref_idc: 3, frame_num: {bits: 16, absolute: 17}}
-- {<<: *pps, nal_ref_idc: 3, pic_scaling_matrix: [[0],[40,0],[0],[0],[0],[80,0],[],[]]}
-- {<<: *p, nal_ref_idc: 3, frame_num: {bits: 16, absolute: 18}}
-- {<<: *pps, nal_ref_idc: 3, pic_scaling_matrix: [[30,0],[40,0],[0],[0],[70,0],[80,0],[0],[]]}
-- {<<: *p, nal_ref_idc: 3, frame_num: {bits: 16, absolute: 19}}
-- {<<: *pps, nal_ref_idc: 3, pic_scaling_matrix: [[],[],[50,0],[60,0],[],[],[],[100,0]]}
-- {<<: *p, nal_ref_idc: 3, frame_num: {bits: 16, absolute: 20}}
-- {<<: *pps, nal_ref_idc: 3, pic_scaling_matrix: [[0],[],[50,0],[60,0],[0],[],[0],[100,0]]}
-- {<<: *p, nal_ref_idc: 3, frame_num: {bits: 16, absolute: 21}}
-- {<<: *pps, nal_ref_idc: 3, pic_scaling_matrix: [[30,0],[],[50,0],[60,0],[70,0],[],[90,0],[100,0]]}
-- {<<: *p, nal_ref_idc: 3, frame_num: {bits: 16, absolute: 22}}
-- {<<: *pps, nal_ref_idc: 3, pic_scaling_matrix: [[],[0],[50,0],[60,0],[],[0],[0],[]]}
-- {<<: *p, nal_ref_idc: 3, frame_num: {bits: 16, absolute: 23}}
-- {<<: *pps, nal_ref_idc: 3, pic_scaling_matrix: [[0],[0],[50,0],[60,0],[0],[0],[90,0],[]]}
-- {<<: *p, nal_ref_idc: 3, frame_num: {bits: 16, absolute: 24}}
-- {<<: *pps, nal_ref_idc: 3, pic_scaling_matrix: [[30,0],[0],[50,0],[60,0],[70,0],[0],[],[]]}
-- {<<: *p, nal_ref_idc: 3, frame_num: {bits: 16, absolute: 25}}
-- {<<: *pps, nal_ref_idc: 3, pic_scaling_matrix: [[],[40,0],[50,0],[60,0],[],[80,0],[90,0],[0]]}
-- {<<: *p, nal_ref_idc: 3, frame_num: {bits: 16, absolute: 26}}
-- {<<: *pps, nal_ref_idc: 3, pic_scaling_matrix: [[0],[40,0],[50,0],[60,0],[0],[80,0],[],[0]]}
-- {<<: *p, nal_ref_idc: 3, frame_num: {bits: 16, absolute: 27}}
-- {<<: *pps, nal_ref_idc: 3, pic_scaling_matrix: [[30,0],[40,0],[50,0],[60,0],[70,0],[80,0],[0],[0]]}
-- {<<: *p, nal_ref_idc: 3, frame_num: {bits: 16, absolute: 28}}
+- {<<: *sps, seq_scaling_matrix: [[25,0],[35,0],[45,0],[55,0],[65,0],[75,0],[85,0],[95,0]]}
+- {<<: *pps}
+- {<<: *idr, idr_pic_id: 1}
+- {<<: *p, frame_num: {bits: 16, absolute: 1}}
+- {<<: *pps, pic_scaling_matrix: [[],[],[],[],[],[],[],[]]}
+- {<<: *p, frame_num: {bits: 16, absolute: 2}}
+- {<<: *pps, pic_scaling_matrix: [[0],[],[],[],[0],[],[0],[]]}
+- {<<: *p, frame_num: {bits: 16, absolute: 3}}
+- {<<: *pps, pic_scaling_matrix: [[30,0],[],[],[],[70,0],[],[90,0],[]]}
+- {<<: *p, frame_num: {bits: 16, absolute: 4}}
+- {<<: *pps, pic_scaling_matrix: [[],[0],[],[],[],[0],[0],[0]]}
+- {<<: *p, frame_num: {bits: 16, absolute: 5}}
+- {<<: *pps, pic_scaling_matrix: [[0],[0],[],[],[0],[0],[90,0],[0]]}
+- {<<: *p, frame_num: {bits: 16, absolute: 6}}
+- {<<: *pps, pic_scaling_matrix: [[30,0],[0],[],[],[70,0],[0],[],[0]]}
+- {<<: *p, frame_num: {bits: 16, absolute: 7}}
+- {<<: *pps, pic_scaling_matrix: [[],[40,0],[],[],[],[80,0],[90,0],[100,0]]}
+- {<<: *p, frame_num: {bits: 16, absolute: 8}}
+- {<<: *pps, pic_scaling_matrix: [[0],[40,0],[],[],[0],[80,0],[],[100,0]]}
+- {<<: *p, frame_num: {bits: 16, absolute: 9}}
+- {<<: *pps, pic_scaling_matrix: [[30,0],[40,0],[],[],[70,0],[80,0],[0],[100,0]]}
+- {<<: *p, frame_num: {bits: 16, absolute: 10}}
+- {<<: *pps, pic_scaling_matrix: [[],[],[0],[0],[],[],[],[0]]}
+- {<<: *p, frame_num: {bits: 16, absolute: 11}}
+- {<<: *pps, pic_scaling_matrix: [[0],[],[0],[0],[0],[],[0],[0]]}
+- {<<: *p, frame_num: {bits: 16, absolute: 12}}
+- {<<: *pps, pic_scaling_matrix: [[30,0],[],[0],[0],[70,0],[],[90,0],[0]]}
+- {<<: *p, frame_num: {bits: 16, absolute: 13}}
+- {<<: *pps, pic_scaling_matrix: [[],[0],[0],[0],[],[0],[0],[100,0]]}
+- {<<: *p, frame_num: {bits: 16, absolute: 14}}
+- {<<: *pps, pic_scaling_matrix: [[0],[0],[0],[0],[0],[0],[90,0],[100,0]]}
+- {<<: *p, frame_num: {bits: 16, absolute: 15}}
+- {<<: *pps, pic_scaling_matrix: [[30,0],[0],[0],[0],[70,0],[0],[],[100,0]]}
+- {<<: *p, frame_num: {bits: 16, absolute: 16}}
+- {<<: *pps, pic_scaling_matrix: [[],[40,0],[0],[0],[],[80,0],[90,0],[]]}
+- {<<: *p, frame_num: {bits: 16, absolute: 17}}
+- {<<: *pps, pic_scaling_matrix: [[0],[40,0],[0],[0],[0],[80,0],[],[]]}
+- {<<: *p, frame_num: {bits: 16, absolute: 18}}
+- {<<: *pps, pic_scaling_matrix: [[30,0],[40,0],[0],[0],[70,0],[80,0],[0],[]]}
+- {<<: *p, frame_num: {bits: 16, absolute: 19}}
+- {<<: *pps, pic_scaling_matrix: [[],[],[50,0],[60,0],[],[],[],[100,0]]}
+- {<<: *p, frame_num: {bits: 16, absolute: 20}}
+- {<<: *pps, pic_scaling_matrix: [[0],[],[50,0],[60,0],[0],[],[0],[100,0]]}
+- {<<: *p, frame_num: {bits: 16, absolute: 21}}
+- {<<: *pps, pic_scaling_matrix: [[30,0],[],[50,0],[60,0],[70,0],[],[90,0],[100,0]]}
+- {<<: *p, frame_num: {bits: 16, absolute: 22}}
+- {<<: *pps, pic_scaling_matrix: [[],[0],[50,0],[60,0],[],[0],[0],[]]}
+- {<<: *p, frame_num: {bits: 16, absolute: 23}}
+- {<<: *pps, pic_scaling_matrix: [[0],[0],[50,0],[60,0],[0],[0],[90,0],[]]}
+- {<<: *p, frame_num: {bits: 16, absolute: 24}}
+- {<<: *pps, pic_scaling_matrix: [[30,0],[0],[50,0],[60,0],[70,0],[0],[],[]]}
+- {<<: *p, frame_num: {bits: 16, absolute: 25}}
+- {<<: *pps, pic_scaling_matrix: [[],[40,0],[50,0],[60,0],[],[80,0],[90,0],[0]]}
+- {<<: *p, frame_num: {bits: 16, absolute: 26}}
+- {<<: *pps, pic_scaling_matrix: [[0],[40,0],[50,0],[60,0],[0],[80,0],[],[0]]}
+- {<<: *p, frame_num: {bits: 16, absolute: 27}}
+- {<<: *pps, pic_scaling_matrix: [[30,0],[40,0],[50,0],[60,0],[70,0],[80,0],[0],[0]]}
+- {<<: *p, frame_num: {bits: 16, absolute: 28}}
 
 # SPS flag 0, PPS flag 1 and transform_8x8_mode_flag=0: 6 lists
-- {<<: *sps, nal_ref_idc: 3}
-- {<<: *pps, nal_ref_idc: 3}
-- {<<: *idr, nal_ref_idc: 3, idr_pic_id: 0}
-- {<<: *pps, nal_ref_idc: 3, transform_8x8_mode_flag: 0, pic_scaling_matrix: [[],[],[],[],[],[]]}
-- {<<: *p_no8x8, nal_ref_idc: 3, frame_num: {bits: 16, absolute: 1}}
-- {<<: *pps, nal_ref_idc: 3, transform_8x8_mode_flag: 0, pic_scaling_matrix: [[],[40,0],[],[0],[],[]]}
-- {<<: *p_no8x8, nal_ref_idc: 3, frame_num: {bits: 16, absolute: 2}}
+- {<<: *sps}
+- {<<: *pps}
+- {<<: *idr, idr_pic_id: 0}
+- {<<: *pps, transform_8x8_mode_flag: 0, pic_scaling_matrix: [[],[],[],[],[],[]]}
+- {<<: *p_no8x8, frame_num: {bits: 16, absolute: 1}}
+- {<<: *pps, transform_8x8_mode_flag: 0, pic_scaling_matrix: [[],[40,0],[],[0],[],[]]}
+- {<<: *p_no8x8, frame_num: {bits: 16, absolute: 2}}
 
 # SPS flag 1, PPS flag 1 and transform_8x8_mode_flag=0: 6 lists
-- {<<: *sps, nal_ref_idc: 3, seq_scaling_matrix: [[25,0],[35,0],[45,0],[55,0],[65,0],[75,0],[85,0],[95,0]]}
-- {<<: *pps, nal_ref_idc: 3}
-- {<<: *idr, nal_ref_idc: 3, idr_pic_id: 1}
-- {<<: *pps, nal_ref_idc: 3, transform_8x8_mode_flag: 0, pic_scaling_matrix: [[],[],[],[],[],[]]}
-- {<<: *p_no8x8, nal_ref_idc: 3, frame_num: {bits: 16, absolute: 1}}
-- {<<: *pps, nal_ref_idc: 3, transform_8x8_mode_flag: 0, pic_scaling_matrix: [[],[40,0],[],[0],[],[]]}
-- {<<: *p_no8x8, nal_ref_idc: 3, frame_num: {bits: 16, absolute: 2}}
+- {<<: *sps, seq_scaling_matrix: [[25,0],[35,0],[45,0],[55,0],[65,0],[75,0],[85,0],[95,0]]}
+- {<<: *pps}
+- {<<: *idr, idr_pic_id: 1}
+- {<<: *pps, transform_8x8_mode_flag: 0, pic_scaling_matrix: [[],[],[],[],[],[]]}
+- {<<: *p_no8x8, frame_num: {bits: 16, absolute: 1}}
+- {<<: *pps, transform_8x8_mode_flag: 0, pic_scaling_matrix: [[],[40,0],[],[0],[],[]]}
+- {<<: *p_no8x8, frame_num: {bits: 16, absolute: 2}}
 
 # PPS with absent lists, then replacing the SPS without resending the PPS
 
 #   with an SPS holding explicit lists
-- {<<: *sps, nal_ref_idc: 3, seq_scaling_matrix: [[25,0],[35,0],[45,0],[55,0],[65,0],[75,0],[85,0],[95,0]]}
-- {<<: *pps, nal_ref_idc: 3}
-- {<<: *idr, nal_ref_idc: 3, idr_pic_id: 0}
-- {<<: *pps, nal_ref_idc: 3, pic_scaling_matrix: [[],[],[],[],[],[],[],[]]}
-- {<<: *p, nal_ref_idc: 3, frame_num: {bits: 16, absolute: 1}}
+- {<<: *sps, seq_scaling_matrix: [[25,0],[35,0],[45,0],[55,0],[65,0],[75,0],[85,0],[95,0]]}
+- {<<: *pps}
+- {<<: *idr, idr_pic_id: 0}
+- {<<: *pps, pic_scaling_matrix: [[],[],[],[],[],[],[],[]]}
+- {<<: *p, frame_num: {bits: 16, absolute: 1}}
 # SPS flag 0 replaces it: rule set B becomes A
-- {<<: *sps, nal_ref_idc: 3}
-- {<<: *idr, nal_ref_idc: 3, idr_pic_id: 1}
-- {<<: *p, nal_ref_idc: 3, frame_num: {bits: 16, absolute: 1}}
+- {<<: *sps}
+- {<<: *idr, idr_pic_id: 1}
+- {<<: *p, frame_num: {bits: 16, absolute: 1}}
 # SPS flag 1 replaces it: rule set A becomes B
-- {<<: *sps, nal_ref_idc: 3, seq_scaling_matrix: [[25,0],[35,0],[45,0],[55,0],[65,0],[75,0],[85,0],[95,0]]}
-- {<<: *idr, nal_ref_idc: 3, idr_pic_id: 0}
-- {<<: *p, nal_ref_idc: 3, frame_num: {bits: 16, absolute: 1}}
+- {<<: *sps, seq_scaling_matrix: [[25,0],[35,0],[45,0],[55,0],[65,0],[75,0],[85,0],[95,0]]}
+- {<<: *idr, idr_pic_id: 0}
+- {<<: *p, frame_num: {bits: 16, absolute: 1}}
 # PPS sent before the SPS it will use
-- {<<: *pps, nal_ref_idc: 3, pic_scaling_matrix: [[],[],[],[],[],[],[],[]]}
-- {<<: *sps, nal_ref_idc: 3}
-- {<<: *idr, nal_ref_idc: 3, idr_pic_id: 1}
-- {<<: *p, nal_ref_idc: 3, frame_num: {bits: 16, absolute: 1}}
+- {<<: *pps, pic_scaling_matrix: [[],[],[],[],[],[],[],[]]}
+- {<<: *sps}
+- {<<: *idr, idr_pic_id: 1}
+- {<<: *p, frame_num: {bits: 16, absolute: 1}}
 
 # MVC: SPS flag 0 (base view uses rule set A), SSPS flag 1 (non-base view uses rule set B)
-- {<<: *sps, nal_ref_idc: 3}
-- {<<: *ssps, nal_ref_idc: 3, seq_scaling_matrix: [[25,0],[35,0],[45,0],[55,0],[65,0],[75,0],[85,0],[95,0]]}
-- {<<: *pps, nal_ref_idc: 3, pic_scaling_matrix: [[],[],[],[],[],[],[],[]]}
-- {<<: *idr, nal_ref_idc: 3, idr_pic_id: 0}
-- {<<: *idr, nal_ref_idc: 3, idr_pic_id: 0, nal_unit_type: 20, non_idr_flag: 0, priority_id: 0, view_id: 1, temporal_id: 0, anchor_pic_flag: 1, inter_view_flag: 0}
-- {<<: *p, nal_ref_idc: 3, frame_num: {bits: 16, absolute: 1}}
-- {<<: *p, nal_ref_idc: 3, frame_num: {bits: 16, absolute: 1}, nal_unit_type: 20, non_idr_flag: 1, priority_id: 0, view_id: 1, temporal_id: 0, anchor_pic_flag: 0, inter_view_flag: 0}
+- {<<: *sps}
+- {<<: *ssps, seq_scaling_matrix: [[25,0],[35,0],[45,0],[55,0],[65,0],[75,0],[85,0],[95,0]]}
+- {<<: *pps, pic_scaling_matrix: [[],[],[],[],[],[],[],[]]}
+- {<<: *idr, idr_pic_id: 0}
+- {<<: *idr, idr_pic_id: 0, nal_unit_type: 20, non_idr_flag: 0, priority_id: 0, view_id: 1, temporal_id: 0, anchor_pic_flag: 1, inter_view_flag: 0}
+- {<<: *p, frame_num: {bits: 16, absolute: 1}}
+- {<<: *p, frame_num: {bits: 16, absolute: 1}, nal_unit_type: 20, non_idr_flag: 1, priority_id: 0, view_id: 1, temporal_id: 0, anchor_pic_flag: 0, inter_view_flag: 0}
 
 # MVC: SPS flag 1 (base view uses rule set B), SSPS flag 0 (non-base view uses rule set A)
-- {<<: *sps, nal_ref_idc: 3, seq_scaling_matrix: [[25,0],[35,0],[45,0],[55,0],[65,0],[75,0],[85,0],[95,0]]}
-- {<<: *ssps, nal_ref_idc: 3}
-- {<<: *pps, nal_ref_idc: 3, pic_scaling_matrix: [[],[],[],[],[],[],[],[]]}
-- {<<: *idr, nal_ref_idc: 3, idr_pic_id: 1}
-- {<<: *idr, nal_ref_idc: 3, idr_pic_id: 1, nal_unit_type: 20, non_idr_flag: 0, priority_id: 0, view_id: 1, temporal_id: 0, anchor_pic_flag: 1, inter_view_flag: 0}
-- {<<: *p, nal_ref_idc: 3, frame_num: {bits: 16, absolute: 1}}
-- {<<: *p, nal_ref_idc: 3, frame_num: {bits: 16, absolute: 1}, nal_unit_type: 20, non_idr_flag: 1, priority_id: 0, view_id: 1, temporal_id: 0, anchor_pic_flag: 0, inter_view_flag: 0}
+- {<<: *sps, seq_scaling_matrix: [[25,0],[35,0],[45,0],[55,0],[65,0],[75,0],[85,0],[95,0]]}
+- {<<: *ssps}
+- {<<: *pps, pic_scaling_matrix: [[],[],[],[],[],[],[],[]]}
+- {<<: *idr, idr_pic_id: 1}
+- {<<: *idr, idr_pic_id: 1, nal_unit_type: 20, non_idr_flag: 0, priority_id: 0, view_id: 1, temporal_id: 0, anchor_pic_flag: 1, inter_view_flag: 0}
+- {<<: *p, frame_num: {bits: 16, absolute: 1}}
+- {<<: *p, frame_num: {bits: 16, absolute: 1}, nal_unit_type: 20, non_idr_flag: 1, priority_id: 0, view_id: 1, temporal_id: 0, anchor_pic_flag: 0, inter_view_flag: 0}

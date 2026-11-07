@@ -11,6 +11,9 @@ except: from yaml import Loader
 
 
 
+class Template(dict): pass # top-level items tagged !template only serve as anchors and are not encoded
+Loader.add_constructor("!template", lambda loader, node: Template(loader.construct_mapping(node)))
+
 def map_dicts(list_of_dicts):
 	return map(lambda d: SimpleNamespace(**d), list_of_dicts)
 
@@ -485,13 +488,12 @@ def main():
 	if len(sys.argv) != 3:
 		print(f"Usage: {sys.argv[0]} input.yaml output.264")
 		exit()
-	print(f"Loading {sys.argv[1]}... (estimated {round(1.7437078849318695e-05 * path.getsize(sys.argv[1]))}s)")
+	print(f"Loading {sys.argv[1]}...")
 	with open(sys.argv[1], "r") as f:
-		nals = yaml.load(f, Loader=Loader)
+		nals = [nal for nal in yaml.load(f, Loader=Loader) if not isinstance(nal, Template)]
 	print(f"Generating {sys.argv[2]}...")
 	with open(sys.argv[2], "wb") as f:
 		for nal in map_dicts(nals):
-			if "nal_ref_idc" not in vars(nal): continue
 			f.write(b"\x00\x00\x00\x01")
 			bits = 1 # leading set bit
 			bits <<= 1 # forbidden_zero_bit

@@ -388,6 +388,15 @@ edge264_check$(_EXE): src/edge264_check.c edge264.h src/edge264_internal.h $(_LI
 	$(call check_cmd,CCLD)
 	$(Q)$(CCLD) src/edge264_check.c $(CPPFLAGS) $(CFLAGS) $(EXEFLAGS) -o $@
 
+.PHONY: conformance
+conformance:
+	$(Q)rm -rf conformance.tmp conformance.tar.gz && \
+	curl -fL -o conformance.tar.gz https://github.com/traffaillac/h264-conformance-bitstreams/archive/refs/heads/main.tar.gz && \
+	mkdir conformance.tmp && \
+	tar -xzf conformance.tar.gz --strip-components=1 -C conformance.tmp && \
+	rm -rf conformance conformance.tar.gz && \
+	mv conformance.tmp conformance
+
 .PHONY: gentests
 gentests:
 	$(call check_cmd,PY)
@@ -456,6 +465,7 @@ help:
 	@echo "  uninstall   Remove installed files"
 	@echo "  clean       Remove build artifacts"
 	@echo "  check       Run automated tests (edge264_check)"
+	@echo "  conformance Download conformance bitstreams for check"
 	@echo "  gentests    Generate .264 test bitstreams from .yaml files"
 	@echo "  validate    Run formal proofs with CBMC"
 	@echo "  dist        Create edge264-$(_VERSION).tar.gz from git HEAD"

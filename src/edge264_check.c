@@ -34,7 +34,9 @@
 #define BLUE   "\e[34m"
 
 static int count_pass;
-static int count_skip;
+static int count_miss;
+static int count_fail;
+static int keep_going;
 
 #define PASSERT(cond, prefix) { if (!(cond)) { perror(prefix); exit(1); } }
 #define ASSERT(cond, msg, ...) { if (!(cond)) { printf(RED msg RESET, ##__VA_ARGS__); exit(1); } }
@@ -468,7 +470,7 @@ static uint32_t hash_frame(uint32_t crc, const Edge264Frame *frame) {
 /**
  * Decodes the file name.264 until ENODATA, appending all its results to a CRC,
  * then comparing it with target. Files that cannot be opened are skipped and
- * counted, since conformance bitstreams are fetched separately.
+ * counted. With -k, CRC failures are not fatal.
  */
 static void test(const char *name, Edge264LogCb log_cb, uint32_t target) {
 	printf("\e[A\e[K%d " GREEN "PASS" RESET " (%s)\n", count_pass, name);
@@ -477,7 +479,7 @@ static void test(const char *name, Edge264LogCb log_cb, uint32_t target) {
 	uint64_t file_size;
 	uint8_t *m = map_file(file_name, &file_size);
 	if (m == NULL) {
-		count_skip += 1;
+		count_miss += 1;
 		return;
 	}
 	const uint8_t *nal = m + 3 + (m[2] == 0); // skip the [0]001 delimiter
@@ -506,7 +508,13 @@ static void test(const char *name, Edge264LogCb log_cb, uint32_t target) {
 	unmap_file(m, file_size);
 
 	ASSERT(calls != 2000, "%s: no ENODATA after %d calls\n", name, calls);
-	ASSERT(crc == target, "%s: crc %08x, expected %08x\n", name, crc, target);
+	if (crc != target) {
+		printf("\e[A\e[K" RED "%s: crc %08x, expected %08x" RESET "\n\n", name, crc, target);
+		if (!keep_going)
+			exit(1);
+		count_fail += 1;
+		return;
+	}
 	count_pass += 1;
 }
 
@@ -520,6 +528,7 @@ int main(int argc, char *argv[]) {
 			help = 1;
 		} else for (int j = 1; argv[i][j]; j++) {
 			switch (argv[i][j]) {
+				case 'k': keep_going = 1; break;
 				default: help = 1; break;
 			}
 		}
@@ -527,9 +536,10 @@ int main(int argc, char *argv[]) {
 	
 	// print help and exit if requested
 	if (help) {
-		printf("Usage: " BOLD "%s [-h]" RESET "\n"
+		printf("Usage: " BOLD "%s [-hk]" RESET "\n"
 			"Runs all conformance, correctness and non-regression tests.\n"
 			"-h\tprint this help and exit\n"
+			"-k\tkeep going after each failed CRC test\n"
 			, argv[0]);
 		return 0;
 	}
@@ -655,8 +665,11 @@ int main(int argc, char *argv[]) {
 	test("conformance/MVC/MVCRP_3", NULL, 0xf2e1f999);
 	test("conformance/MVC/MVCRP_4", NULL, 0x1bbd380a);
 	test("conformance/MVC/MVCSPS-1", NULL, 0x1770bbe0);
-	printf("\e[A\e[K%d " GREEN "PASS" RESET "\n", count_pass);
-	if (count_skip > 0)
-		printf("%d " YELLOW "SKIPPED" RESET " (missing files, run make conformance to download conformance bitstreams)\n", count_skip);
-	return 0;
+	printf("\e[A\e[K%d " GREEN "PASS " RESET, count_pass);
+	if (count_miss > 0)
+		printf("%d " YELLOW "MISS " RESET, count_miss);
+	if (count_fail > 0)
+		printf("%d " RED "FAIL " RESET, count_fail);
+	putchar('\n');
+	return count_fail > 0;
 }

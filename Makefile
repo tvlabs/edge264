@@ -44,10 +44,10 @@
 #   OBJFLAGS    - extra flags passed when generating object files
 #   LIBFLAGS    - extra flags passed when generating library files
 #   EXEFLAGS    - extra flags passed when generating executable files
-#   BUILDTEST   — build the test executable: yes|no (default: yes)
+#   BUILDTOOLS  — build the extra tools (check, test): yes|no (default: yes)
 #   V           — verbose build output: yes|no (default: yes)
 #   PY          — Python interpreter (default: python3)
-#   FILES       — space-separated .264 files for genyuv (default: conformance/ and tests/)
+#   FILES       — space-separated .264 files for genyuv (default: conformance/)
 #   CBMC        - CBMC executable for the validate target (default: cbmc)
 #   FUNCTIONS   - comma-separated functions to validate (default: all)
 #
@@ -70,10 +70,10 @@ PREFIX     ?= /usr/local
 libdir     ?= $(PREFIX)/lib
 includedir ?= $(PREFIX)/include
 DESTDIR    ?=
-BUILDTEST  ?= yes
+BUILDTOOLS  ?= yes
 V          ?= yes
 PY         ?= python3
-FILES      ?= $(wildcard conformance/*/*.264 tests/*.264)
+FILES      ?= $(wildcard conformance/*/*.264)
 CBMC       ?= cbmc
 
 # ---- Version -----------------------------------------------------------------
@@ -287,7 +287,7 @@ Q = $(if $(findstring yes,$(V)),,@)
 # ==============================================================================
 
 .PHONY: all
-all: $(_LIBNAME) $(if $(findstring yes,$(BUILDTEST)),edge264_test$(_EXE))
+all: $(_LIBNAME) $(if $(findstring yes,$(BUILDTOOLS)),edge264_check$(_EXE) edge264_test$(_EXE))
 
 # ---- Library -----------------------------------------------------------------
 $(_LIBNAME): $(_OBJNAMES)
@@ -299,7 +299,11 @@ else
 	$(Q)$(CCLD) $^ $(LIBFLAGS) -o $@
 endif
 
-# ---- Test executable ---------------------------------------------------------
+# ---- Test executables ---------------------------------------------------------
+edge264_check$(_EXE): edge264.h src/* $(_LIBNAME)
+	$(call check_cmd,CCLD)
+	$(Q)$(CCLD) src/edge264_check.c $(CPPFLAGS) $(CFLAGS) $(EXEFLAGS) -o $@
+
 edge264_test$(_EXE): src/edge264_test.c edge264.h src/edge264_internal.h $(_LIBNAME)
 	$(call check_cmd,CCLD)
 	$(Q)$(CCLD) src/edge264_test.c $(CPPFLAGS) $(CFLAGS) $(EXEFLAGS) -o $@
@@ -422,10 +426,6 @@ else
 	$(Q)./edge264_check$(_EXE)
 endif
 
-edge264_check$(_EXE): src/edge264_check.c edge264.h src/edge264_internal.h $(_LIBNAME)
-	$(call check_cmd,CCLD)
-	$(Q)$(CCLD) src/edge264_check.c $(CPPFLAGS) $(CFLAGS) $(EXEFLAGS) -o $@
-
 
 # ==============================================================================
 # Formal validation
@@ -481,7 +481,7 @@ help:
 	@echo "Usage: make [TARGET] [PARAMETERS]"
 	@echo ""
 	@echo "Main targets:"
-	@echo "  all         Build the library (+ test executable if BUILDTEST=yes)"
+	@echo "  all         Build the library (+ executables if BUILDTOOLS=yes)"
 	@echo "  install     Install library, header and pkg-config file"
 	@echo "  uninstall   Remove installed files"
 	@echo "  clean       Remove build artifacts"
@@ -511,7 +511,7 @@ help:
 	@echo "  OBJFLAGS=$(OBJFLAGS)"
 	@echo "  LIBFLAGS=$(LIBFLAGS)"
 	@echo "  EXEFLAGS=$(EXEFLAGS)"
-	@echo "  BUILDTEST=$(BUILDTEST)"
+	@echo "  BUILDTOOLS=$(BUILDTOOLS)"
 	@echo "  V=$(V)"
 	@echo "  PY=$(PY)"
 	@echo "  CBMC=$(CBMC)"
@@ -523,7 +523,7 @@ help:
 	@echo "  make VARIANTS=x86-64-v2,x86-64-v3,logs"
 	@echo "  make SANITIZE=address,undefined"
 	@echo "  make STATIC=yes"
-	@echo "  make OS=wasm VARIANTS=logs BUILDTEST=no"
+	@echo "  make OS=wasm VARIANTS=logs BUILDTOOLS=no"
 	@echo "  make validate FUNCTIONS=edge264_find_start_code"
 	@echo "  make install PREFIX=\$$HOME/.local"
 	@echo "  make install libdir=/usr/lib64"

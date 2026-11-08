@@ -37,6 +37,7 @@ static int count_pass;
 static int count_miss;
 static int count_fail;
 static int keep_going;
+static int check_yuv;
 
 #define PASSERT(cond, prefix) { if (!(cond)) { perror(prefix); exit(1); } }
 #define ASSERT(cond, msg, ...) { if (!(cond)) { printf(RED msg RESET, ##__VA_ARGS__); exit(1); } }
@@ -468,13 +469,52 @@ static uint32_t hash_frame(uint32_t crc, const Edge264Frame *frame) {
 
 
 /**
+ * Compares a returned frame to a YUV reference, advancing both pointers.
+ * Returns 0 on match, otherwise prints an error and returns -1.
+ */
+static int check_frame(const char *name, const Edge264Frame *out, const uint8_t *ref[2], const uint8_t *ref_end[2]) {
+	if ((out->samples_mvc[0] != NULL) != (ref[1] != NULL)) {
+		printf("\e[A\e[K" RED "%s: number of returned views does not match YUV files" RESET "\n\n", name);
+		return -1;
+	}
+	size_t size_Y = (size_t)(out->bit_depth_Y == 8 ? out->width_Y : out->width_Y << 1) * out->height_Y;
+	size_t size_C = (size_t)(out->bit_depth_C == 8 ? out->width_C : out->width_C << 1) * out->height_C;
+	for (int view = 0; view < 2 && ref[view] != NULL; view++) {
+		if ((size_t)(ref_end[view] - ref[view]) < size_Y + 2 * size_C) {
+			printf("\e[A\e[K" RED "%s: YUV file of view %d ends before the returned frame" RESET "\n\n", name, view);
+			return -1;
+		}
+		for (int iYCbCr = 0; iYCbCr < 3; iYCbCr++) {
+			int stride = (iYCbCr == 0) ? out->stride_Y : out->stride_C;
+			int depth = (iYCbCr == 0 ? out->bit_depth_Y : out->bit_depth_C) > 8;
+			int w = (iYCbCr == 0 ? out->width_Y : out->width_C) << depth;
+			int h = iYCbCr == 0 ? out->height_Y : out->height_C;
+			const uint8_t *p = (view ? out->samples_mvc : out->samples)[iYCbCr];
+			const uint8_t *q = ref[view] + (iYCbCr > 0) * size_Y + (iYCbCr > 1) * size_C;
+			for (int y = 0; y < h; y++) {
+				if (memcmp(p + y * stride, q + y * w, w)) {
+					printf("\e[A\e[K" RED "%s: frame (id %u, view %d) differs from YUV reference" RESET "\n\n",
+						name, view ? out->FrameId_mvc : out->FrameId, view);
+					return -1;
+				}
+			}
+		}
+		ref[view] += size_Y + 2 * size_C;
+	}
+	return 0;
+}
+
+
+
+/**
  * Decodes the file name.264 until ENODATA, appending all its results to a CRC,
- * then comparing it with target. Files that cannot be opened are skipped and
- * counted. With -k, CRC failures are not fatal.
+ * then comparing it with target. Missing files are skipped and counted.
+ * With -k, CRC failures are not fatal.
+ * With -y, returned frames are matched against name.yuv/name.1.yuv files.
  */
 static void test(const char *name, Edge264LogCb log_cb, uint32_t target) {
 	printf("\e[A\e[K%d " GREEN "PASS" RESET " (%s)\n", count_pass, name);
-	char file_name[strlen(name) + 5];
+	char file_name[strlen(name) + 7];
 	snprintf(file_name, sizeof(file_name), "%s.264", name);
 	uint64_t file_size;
 	uint8_t *m = map_file(file_name, &file_size);
@@ -482,6 +522,19 @@ static void test(const char *name, Edge264LogCb log_cb, uint32_t target) {
 		count_miss += 1;
 		return;
 	}
+	uint8_t *yuv[2] = {NULL, NULL};
+	uint64_t yuv_size[2] = {0, 0};
+	if (check_yuv) {
+		snprintf(file_name, sizeof(file_name), "%s.yuv", name);
+		yuv[0] = map_file(file_name, &yuv_size[0]);
+		if (yuv[0] != NULL) {
+			snprintf(file_name, sizeof(file_name), "%s.1.yuv", name);
+			yuv[1] = map_file(file_name, &yuv_size[1]);
+		}
+	}
+	const uint8_t *ref[2] = {yuv[0], yuv[1]};
+	const uint8_t *ref_end[2] = {yuv[0] + yuv_size[0], yuv[1] + yuv_size[1]};
+	int yuv_fail = 0;
 	const uint8_t *nal = m + 3 + (m[2] == 0); // skip the [0]001 delimiter
 	const uint8_t *end = m + file_size;
 
@@ -500,22 +553,33 @@ static void test(const char *name, Edge264LogCb log_cb, uint32_t target) {
 		do {
 			got = edge264_get_frame(d, &out, 0);
 			crc = crc32c_u32(crc, ret_to_idx(got));
-			if (got == 0)
+			if (got == 0) {
 				crc = hash_frame(crc, &out);
+				if (ref[0] != NULL && !yuv_fail && check_frame(name, &out, ref, ref_end))
+					yuv_fail = 1;
+			}
 		} while (got == 0);
 	}
 	edge264_free(&d);
 	unmap_file(m, file_size);
-
+	for (int i = 0; i < 2; i++)
+		if (yuv[i] != NULL)
+			unmap_file(yuv[i], yuv_size[i]);
+	
 	ASSERT(calls != 2000, "%s: no ENODATA after %d calls\n", name, calls);
-	if (crc != target) {
+	if (crc != target)
 		printf("\e[A\e[K" RED "%s: crc %08x, expected %08x" RESET "\n\n", name, crc, target);
+	if (!yuv_fail && yuv[0] != NULL && (ref[0] != ref_end[0] || (ref[1] != NULL && ref[1] != ref_end[1]))) {
+		printf("\e[A\e[K" RED "%s: YUV file(s) longer than decoded output" RESET "\n\n", name);
+		yuv_fail = 1;
+	}
+	if (crc != target || yuv_fail) {
 		if (!keep_going)
 			exit(1);
 		count_fail += 1;
-		return;
+	} else {
+		count_pass += 1;
 	}
-	count_pass += 1;
 }
 
 
@@ -529,6 +593,7 @@ int main(int argc, char *argv[]) {
 		} else for (int j = 1; argv[i][j]; j++) {
 			switch (argv[i][j]) {
 				case 'k': keep_going = 1; break;
+				case 'y': check_yuv = 1; break;
 				default: help = 1; break;
 			}
 		}
@@ -536,10 +601,11 @@ int main(int argc, char *argv[]) {
 	
 	// print help and exit if requested
 	if (help) {
-		printf("Usage: " BOLD "%s [-hk]" RESET "\n"
+		printf("Usage: " BOLD "%s [-hky]" RESET "\n"
 			"Runs all conformance, correctness and non-regression tests.\n"
 			"-h\tprint this help and exit\n"
-			"-k\tkeep going after each failed CRC test\n"
+			"-k\tkeep going after each failed test\n"
+			"-y\talso compare frames to sibling .yuv/.1.yuv files when present\n"
 			, argv[0]);
 		return 0;
 	}

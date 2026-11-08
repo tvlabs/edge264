@@ -101,7 +101,7 @@ You can find lists of targets and options and what they do in the [Makefile](Mak
 The `VARIANTS` option allows shipping multiple builds inside a single library file. It is intended for distribution packages that must run efficiently across a wide range of x86 CPUs: the library detects the host ISA level at runtime and dispatches to the fastest available implementation. They are *not* needed for a native single-machine build, where `-march=native` already picks the best code path at compile time. For example:
 
 ```sh
-make CFLAGS="-march=x86-64" VARIANTS=x86-64-v2,x86-64-v3 BUILDTEST=no
+make CFLAGS="-march=x86-64" VARIANTS=x86-64-v2,x86-64-v3 BUILDTOOLS=no
 ```
 
 ## CMake integration
@@ -134,6 +134,7 @@ A test suite of conformance streams, non-regression streams and unit tests is in
 ```sh
 make conformance # optional, download the conformance bitstreams (~270 MB)
 make check
+./edge264_check -ky # optional, also compare frames to sibling .yuv files when present, and keep going after failures
 make SANITIZE=address,undefined check # optional, with sanitizers
 make validate CBMC=/path/to/cbmc # optional, formal proofs of selected functions (needs a fixed CBMC build such as https://github.com/traffaillac/cbmc)
 ```

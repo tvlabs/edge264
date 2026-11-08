@@ -59,6 +59,7 @@ typedef struct Edge264Frame {
 	uint32_t FrameId_mvc; // second view
 	int16_t frame_crop_offsets[4]; // {top,right,bottom,left}, useful to derive the original frame with 16x16 macroblocks
 	uintptr_t return_arg;
+	int64_t display_poc; // monotonic display order (even across flushes), lower half is PicOrderCnt
 } Edge264Frame;
 
 const uint8_t *edge264_find_start_code(const uint8_t *buf, const uint8_t *end, int four_byte);

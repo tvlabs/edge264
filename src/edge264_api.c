@@ -86,6 +86,15 @@ static void internal_free(void *samples, void *mbs, void *alloc_arg) {
 	aligned_free(samples);
 }
 
+static void join_threads(Edge264Decoder *dec, int n_threads) {
+	pthread_mutex_lock(&dec->lock);
+	dec->shutdown = 1;
+	pthread_cond_broadcast(&dec->task_ready);
+	pthread_mutex_unlock(&dec->lock);
+	for (int i = 0; i < n_threads; i++)
+		pthread_join(dec->threads[i], NULL);
+}
+
 static int ignore_NAL(Edge264Decoder *dec, Edge264UnrefCb unref_cb, void *unref_arg) {
 	return 0;
 }
@@ -183,7 +192,7 @@ Edge264Decoder *edge264_alloc(int n_threads, Edge264LogCb log_cb, void *log_arg,
 		#else
 			int n_cpus = sysconf(_SC_NPROCESSORS_ONLN);
 		#endif
-		n_threads = mins(n_cpus, 16);
+		dec->n_threads = n_threads = mins(n_cpus, 16);
 	}
 	
 	// if multithreading is disabled we are done, otherwise initialize all
@@ -199,8 +208,7 @@ Edge264Decoder *edge264_alloc(int n_threads, Edge264LogCb log_cb, void *log_arg,
 					if (i == n_threads) {
 						return dec;
 					}
-					while (i-- > 0)
-						pthread_cancel(dec->threads[i]);
+					join_threads(dec, i);
 					pthread_cond_destroy(&dec->task_complete);
 				}
 				pthread_cond_destroy(&dec->task_progress);
@@ -233,8 +241,7 @@ void edge264_free(Edge264Decoder **pdec) {
 	if (pdec != NULL && (dec = *pdec) != NULL) {
 		*pdec = NULL;
 		if (dec->n_threads) {
-			for (int i = 0; i < dec->n_threads; i++)
-				pthread_cancel(dec->threads[i]);
+			join_threads(dec, dec->n_threads);
 			pthread_mutex_destroy(&dec->lock);
 			pthread_cond_destroy(&dec->task_ready);
 			pthread_cond_destroy(&dec->task_progress);
@@ -373,6 +380,7 @@ int edge264_get_frame(Edge264Decoder *dec, Edge264Frame *out, int borrow) {
 		pic0 = pic0 < 0 ? pic1 : pic0;
 		pic1 = pic1 < 0 ? pic0 : pic1;
 		out->return_arg = pic0 | pic1 << 8;
+		out->display_poc = lowest_poc;
 		res = 0;
 		if (!borrow)
 			dec->output_frames_l &= ~(1ull << pic0 | 1ull << pic1);

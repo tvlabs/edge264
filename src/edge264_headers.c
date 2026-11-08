@@ -117,6 +117,7 @@ static int alloc_frame(Edge264Decoder *dec, int id, int errno_on_fail) {
 
 static void clear_decoder(Edge264Decoder *dec) {
 	memset((void *)dec + offsetof(Edge264Decoder, nal_ref_idc), 0, offsetof(Edge264Decoder, log_base_us) - offsetof(Edge264Decoder, nal_ref_idc));
+	dec->prevPicOrderCnt[0] = dec->prevPicOrderCnt[1] = ((maxll(dec->prevPicOrderCnt[0], dec->prevPicOrderCnt[1]) + (1ll << 31)) & -(1ll << 32)) + (1ll << 32);
 	dec->currPic = dec->basePic = -1;
 	dec->PrevRefFrameNum[0] = dec->PrevRefFrameNum[1] = -1;
 	dec->TopFieldOrderCnt = INT64_MIN;
@@ -362,8 +363,10 @@ void *ADD_VARIANT(worker_loop)(void *arg) {
 		pthread_mutex_lock(&c.d->lock);
 	while (1) {
 		// wait until a task becomes available and reserve it
-		while (c.thread_id >= 0 && !c.d->ready_tasks)
+		while (c.thread_id >= 0 && !c.d->ready_tasks && !c.d->shutdown)
 			pthread_cond_wait(&c.d->task_ready, &c.d->lock);
+		if (c.d->shutdown)
+			break;
 		assert((unsigned)c.d->ready_tasks - 1 < 65535); // 0 < ready_tasks < 65536
 		int task_id = __builtin_ctz(c.d->ready_tasks); // FIXME arbitrary selection for now
 		int currPic = c.d->taskPics[task_id];
@@ -519,6 +522,7 @@ void *ADD_VARIANT(worker_loop)(void *arg) {
 		if (c.thread_id < 0)
 			return (void *)ret;
 	}
+	pthread_mutex_unlock(&c.d->lock);
 	return NULL;
 }
 

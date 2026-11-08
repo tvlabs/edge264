@@ -20,6 +20,12 @@
 	#define ssize_t ptrdiff_t
 	#define aligned_alloc(alignment, size) _aligned_malloc(size, alignment)
 	#define aligned_free _aligned_free
+#elif defined(__ANDROID__) && __ANDROID_API__ < 28
+	#include <malloc.h> // Bionic provides aligned_alloc only since API 28
+	#include <unistd.h>
+	#include <sys/resource.h>
+	#define aligned_alloc(alignment, size) memalign(alignment, size)
+	#define aligned_free free
 #else
 	#include <unistd.h>
 	#include <sys/resource.h>
@@ -414,10 +420,12 @@ typedef struct Edge264Decoder {
 	// minimal set of fields preserved across flushes
 	Edge264GetBits gb; // must be first in the struct to use the same pointer for bitstream functions
 	int8_t n_threads; // 0 to disable multithreading
+	int8_t shutdown; // 0..1, set to order worker threads to exit
 	int8_t nal_unit_type; // 5 significant bits
 	int32_t plane_size_Y;
 	int32_t plane_size_C;
 	uint32_t prevFrameId; // starts at UINT_MAX to wrap to 0 for the first frame
+	int64_t prevPicOrderCnt[2]; // one per view, could be merged but code would be more complex, upper half kept across flushes for display_poc
 	uint64_t frame_flip_bits; // bitfield storing target values of bit 0 in mb->recovery_bits for each frame
 	Edge264AllocCb alloc_cb;
 	Edge264FreeCb free_cb;
@@ -445,7 +453,6 @@ typedef struct Edge264Decoder {
 	int32_t PrevRefFrameNum[2]; // one per view
 	int32_t idr_pic_id; // value for the last slice, used for detecting new frames
 	int32_t delta_pic_order_cnt0; // value for the last slice, used for detecting new frames
-	int64_t prevPicOrderCnt[2]; // one per view, could be merged but code would be more complex
 	int64_t TopFieldOrderCnt; // value for the current incomplete frame, unaffected by mmco5, INT64_MIN when currPic is -1 so that get_frame waits for MVC siblings
 	int64_t BottomFieldOrderCnt;
 	Edge264SeqParameterSet sps;

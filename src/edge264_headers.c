@@ -762,6 +762,7 @@ static void parse_ref_pic_list_modification(Edge264Decoder *dec, Edge264SeqParam
 		t->RefPicList[1][0] = t->RefPicList[0][1];
 		t->RefPicList[1][1] = t->RefPicList[0][0];
 	}
+	i8x16 fallback = set8(size > 0 ? t->RefPicList[0][0] : dec->currPic); // closest reference or current frame
 	
 	// parse the ref_pic_list_modification() header
 	for (int l = 0; l <= t->slice_type; l++) {
@@ -802,6 +803,10 @@ static void parse_ref_pic_list_modification(Edge264Decoder *dec, Edge264SeqParam
 			log_dec(dec, "]\n");
 		}
 	}
+	
+	// conceal missing references so that inter prediction never reads from slot -1
+	for (int i = 0; i < 4; i++)
+		t->RefPicList_v[i] = ifelse_msb(t->RefPicList_v[i], fallback, t->RefPicList_v[i]);
 	
 	#if VARIANT == LOGS
 		for (int lx = 0; lx <= t->slice_type; lx++) {
@@ -1202,7 +1207,7 @@ int ADD_VARIANT(parse_slice_layer_without_partitioning)(Edge264Decoder *dec, Edg
 	int task_id = t - dec->tasks;
 	dec->busy_tasks |= 1 << task_id;
 	dec->pending_tasks |= 1 << task_id;
-	dec->task_dependencies[task_id] = refs_to_mask(t);
+	dec->task_dependencies[task_id] = refs_to_mask(t) & ~(1ull << dec->currPic); // currPic may be referenced in place of missing refs
 	// FIXME check against dependencies on non-reference slots
 	dec->ready_tasks |= ((dec->task_dependencies[task_id] & ~ready_frames(dec)) == 0) << task_id;
 	dec->taskPics[task_id] = dec->currPic;

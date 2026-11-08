@@ -45,7 +45,7 @@ Dates are targets, not guarantees. This is a solo project, so any change to a da
 
 | Target | Milestone |
 | --- | --- |
-| 2026-11-06 | Correct frame output order and MVC view pairing on all conformance streams (issues #16 and #32) |
+| ✓ | Correct frame output order and MVC view pairing on all conformance streams (issues #16 and #32) |
 | 2026-11-20 | Fixes for wrong output on valid streams; constrained intra prediction, PPS ids ≥ 4, tolerance of common encoder defects |
 | 2026-11-27 | Draft 1.0 API published for feedback |
 | 2026-12-11 | GStreamer element and VLC module prototypes running on the draft API |

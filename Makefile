@@ -47,6 +47,7 @@
 #   BUILDTEST   — build the test executable: yes|no (default: yes)
 #   V           — verbose build output: yes|no (default: yes)
 #   PY          — Python interpreter (default: python3)
+#   FILES       — space-separated .264 files for genyuv (default: conformance/ and tests/)
 #   CBMC        - CBMC executable for the validate target (default: cbmc)
 #   FUNCTIONS   - comma-separated functions to validate (default: all)
 #
@@ -72,6 +73,7 @@ DESTDIR    ?=
 BUILDTEST  ?= yes
 V          ?= yes
 PY         ?= python3
+FILES      ?= $(wildcard conformance/*/*.264 tests/*.264)
 CBMC       ?= cbmc
 
 # ---- Version -----------------------------------------------------------------
@@ -276,10 +278,6 @@ _RUNTIME_TESTS := \
   $(if $(_HAS_V3),-DHAS_X86_64_V3) \
   $(if $(_HAS_LOGS),-DHAS_LOGS)
 
-# ---- Test files --------------------------------------------------------------
-_TESTS_YAML := $(wildcard tests/*.yaml)
-_TESTS_264  := $(patsubst %.yaml,%.264,$(_TESTS_YAML))
-
 # ---- Verbose mode ------------------------------------------------------------
 Q = $(if $(findstring yes,$(V)),,@)
 
@@ -376,6 +374,46 @@ clean clear:
 # ==============================================================================
 # Automated tests
 # ==============================================================================
+_TESTS_YAML := $(wildcard tests/*.yaml)
+_TESTS_264  := $(patsubst %.yaml,%.264,$(_TESTS_YAML))
+_FILES_YUV  := $(patsubst %.264,%.yuv,$(FILES))
+
+.PHONY: conformance
+conformance:
+	$(Q)rm -rf conformance.tmp conformance.tar.gz
+	$(Q)curl -fL -o conformance.tar.gz https://github.com/traffaillac/h264-conformance-bitstreams/archive/refs/heads/main.tar.gz
+	$(Q)mkdir conformance.tmp
+	$(Q)tar -xzf conformance.tar.gz --strip-components=1 -C conformance.tmp
+	$(Q)rm -rf conformance conformance.tar.gz
+	$(Q)mv conformance.tmp conformance
+
+.PHONY: gentests
+gentests:
+	$(call check_cmd,PY)
+	$(Q)$(MAKE) $(_TESTS_264)
+
+%.264: %.yaml tests/gen_avc.py
+	$(Q)$(PY) tests/gen_avc.py $< $@
+
+.PHONY: genyuv
+genyuv:
+	$(Q)$(MAKE) $(_FILES_YUV)
+
+JM/Makefile:
+	$(Q)git clone --depth 1 https://vcgit.hhi.fraunhofer.de/jvet/JM.git JM
+
+JM/bin/ldecod.exe: JM/Makefile
+	$(Q)mkdir -p JM/bin
+	$(Q)$(CC) -O2 -w -DTRACE=0 -IJM/source/app/ldecod -IJM/source/lib/lcommon JM/source/app/ldecod/*.c JM/source/lib/lcommon/*.c -lm -o $@
+
+%.yuv: _jm = $(subst /,_,$(@:.yuv=))
+%.yuv: %.264 | JM/bin/ldecod.exe # don't regenerate %.yuv when ldecod.exe is newer
+	$(Q)rm -f JM/bin/$(_jm)_ViewId*.yuv
+	$(Q)-cd JM/bin && ./ldecod.exe -p InputFile=$(abspath $<) -p OutputFile=$(_jm).yuv -p DecodeAllLayers=1 >/dev/null 2>&1
+	$(Q)mv JM/bin/$(_jm)_ViewId0000.yuv $@
+	$(Q)find JM/bin -name '$(_jm)_ViewId*.yuv' -size +0 -exec mv {} $(@:.yuv=.1.yuv) \;
+	$(Q)rm -f JM/bin/$(_jm)_ViewId*.yuv
+
 .PHONY: check
 check: edge264_check$(_EXE)
 ifeq ($(OS),wasm)
@@ -387,23 +425,6 @@ endif
 edge264_check$(_EXE): src/edge264_check.c edge264.h src/edge264_internal.h $(_LIBNAME)
 	$(call check_cmd,CCLD)
 	$(Q)$(CCLD) src/edge264_check.c $(CPPFLAGS) $(CFLAGS) $(EXEFLAGS) -o $@
-
-.PHONY: conformance
-conformance:
-	$(Q)rm -rf conformance.tmp conformance.tar.gz && \
-	curl -fL -o conformance.tar.gz https://github.com/traffaillac/h264-conformance-bitstreams/archive/refs/heads/main.tar.gz && \
-	mkdir conformance.tmp && \
-	tar -xzf conformance.tar.gz --strip-components=1 -C conformance.tmp && \
-	rm -rf conformance conformance.tar.gz && \
-	mv conformance.tmp conformance
-
-.PHONY: gentests
-gentests:
-	$(call check_cmd,PY)
-	$(Q)$(MAKE) $(_TESTS_264)
-
-%.264: %.yaml tests/gen_avc.py
-	$(Q)$(PY) tests/gen_avc.py $< $@
 
 
 # ==============================================================================
@@ -467,6 +488,7 @@ help:
 	@echo "  check       Run automated tests (edge264_check)"
 	@echo "  conformance Download conformance bitstreams for check"
 	@echo "  gentests    Generate .264 test bitstreams from .yaml files"
+	@echo "  genyuv      Generate reference .yuv files with JM (FILES=\"a.264 b.264\")"
 	@echo "  validate    Run formal proofs with CBMC"
 	@echo "  dist        Create edge264-$(_VERSION).tar.gz from git HEAD"
 	@echo "  help        Show this help"

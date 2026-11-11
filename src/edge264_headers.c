@@ -611,7 +611,7 @@ static void parse_dec_ref_pic_marking(Edge264Decoder *dec, Edge264SeqParameterSe
 	}
 	
 	// 8.2.5.3 - Sliding window marking process
-	if (__builtin_popcount(dec->view_short_term_frames | dec->view_long_term_frames) >= sps->max_num_ref_frames) {
+	if (__builtin_popcount(dec->view_short_term_frames | dec->view_long_term_frames) >= maxs(sps->max_num_ref_frames, 1)) {
 		int best = INT_MAX;
 		int next = 0;
 		// iterate on short-term and non-existing frames
@@ -1026,7 +1026,7 @@ int ADD_VARIANT(parse_slice_layer_without_partitioning)(Edge264Decoder *dec, Edg
 	int gap = dec->FrameNum - dec->PrevRefFrameNum[non_base_view];
 	if (__builtin_expect(gap > 1, 0)) {
 		// make enough non-reference slots by dereferencing short-term and non-existing frames
-		int sref_slots = sps->max_num_ref_frames - __builtin_popcount(dec->prev_long_term_frames[non_base_view] & ~dec->prev_short_term_frames[non_base_view]);
+		int sref_slots = maxs(sps->max_num_ref_frames, 1) - __builtin_popcount(dec->prev_long_term_frames[non_base_view] & ~dec->prev_short_term_frames[non_base_view]);
 		assert(sref_slots > 0);
 		int non_existing = mins(gap - 1, sref_slots);
 		for (int num_srefs = non_existing + __builtin_popcount(dec->prev_short_term_frames[non_base_view]); num_srefs > sref_slots; num_srefs--) {
@@ -1161,7 +1161,7 @@ int ADD_VARIANT(parse_slice_layer_without_partitioning)(Edge264Decoder *dec, Edg
 	// add the new frame into the DPB if not done already (C.4.5)
 	if (!(dec->to_get_frames_l & 1ull << dec->currPic)) {
 		// for safety, compute the max number of frames that can bump out of DPB
-		int max_bump = sps->max_num_ref_frames;
+		int max_bump = maxs(sps->max_num_ref_frames, 1);
 		if (!dec->nal_ref_idc) {
 			max_bump = 0;
 			for (unsigned o = dec->to_get_frames[non_base_view] & ~dec->output_frames[non_base_view]; o; o &= o - 1)
@@ -1607,7 +1607,8 @@ static void parse_vui_parameters(Edge264Decoder *dec, Edge264SeqParameterSet *sp
 		int log2_max_mv_length_vertical = get_ue16(&dec->gb, 15);
 		// we don't enforce MaxDpbFrames here since violating the level is harmless
 		int max_num_reorder_frames = get_ue16(&dec->gb, 16);
-		sps->max_dec_frame_buffering = maxs(get_ue16(&dec->gb, 16), sps->max_num_ref_frames);
+		// DPB size is Max(1, max_dec_frame_buffering) (C.1)
+		sps->max_dec_frame_buffering = maxs(maxs(get_ue16(&dec->gb, 16), sps->max_num_ref_frames), 1);
 		sps->max_num_reorder_frames = mins(max_num_reorder_frames, sps->max_dec_frame_buffering);
 		log_dec(dec, "    log2_max_mv_length_horizontal: %u\n"
 			"    log2_max_mv_length_vertical: %u\n"
@@ -1887,9 +1888,10 @@ int ADD_VARIANT(parse_seq_parameter_set)(Edge264Decoder *dec, Edge264UnrefCb unr
 	if (movemask(set8(profile_idc) == ((u8x16){44, 86, 100, 110, 122, 244})) &&
 		(constraint_set_flags & 1 << 4)) {
 		sps.max_num_reorder_frames = 0;
-		sps.max_dec_frame_buffering = sps.max_num_ref_frames;
+		sps.max_dec_frame_buffering = maxs(sps.max_num_ref_frames, 1);
 	} else {
-		sps.max_num_reorder_frames = sps.max_dec_frame_buffering = MaxDpbFrames;
+		sps.max_num_reorder_frames = MaxDpbFrames;
+		sps.max_dec_frame_buffering = maxs(MaxDpbFrames, 1);
 	}
 	log_dec(dec, "  max_num_ref_frames: %u\n"
 		"  gaps_in_frame_num_value_allowed_flag: %u\n"

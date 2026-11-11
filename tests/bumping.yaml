@@ -1,0 +1,2914 @@
+--- # Bumping process (C.4.5.3) and output order in all DPB situations
+# All pictures are identical, the output order is checked through FrameId.
+
+
+
+# S1: output driven by max_num_reorder_frames (E.2.1), with a hierarchical GOP.
+# max_num_reorder_frames=2, max_dec_frame_buffering=4, max_num_ref_frames=3
+# A frame is bumped whenever more than 2 frames wait for output.
+# Expected output: 0 2 4 6 8 10 12 14 16 18 24
+
+- nal_ref_idc: 3
+  nal_unit_type: 7 # Sequence parameter set
+  profile_idc: 100 # High
+  constraint_set_flags: [0,0,0,0,0,0]
+  level_idc: 1.0
+  chroma_format_idc: 1 # 4:2:0
+  bit_depth: {luma: 8, chroma: 8}
+  qpprime_y_zero_transform_bypass_flag: 0
+  log2_max_frame_num: 4
+  pic_order_cnt_type: 0
+  log2_max_pic_order_cnt_lsb: 6
+  max_num_ref_frames: 3
+  gaps_in_frame_num_value_allowed_flag: 0
+  pic_size_in_mbs: {width: 1, height: 1}
+  frame_mbs_only_flag: 1
+  direct_8x8_inference_flag: 0
+  vui_parameters:
+    overscan_appropriate_flag: -1
+    pic_struct_present_flag: 0
+    motion_vectors_over_pic_boundaries_flag: 1
+    log2_max_mv_length_horizontal: 15
+    log2_max_mv_length_vertical: 15
+    max_num_reorder_frames: 2
+    max_dec_frame_buffering: 4
+
+- nal_ref_idc: 3
+  nal_unit_type: 8 # Picture parameter set
+  pic_parameter_set_id: 0
+  entropy_coding_mode_flag: 0 # CAVLC
+  bottom_field_pic_order_in_frame_present_flag: 0
+  num_slice_groups: 1
+  num_ref_idx_default_active: {l0: 1, l1: 1}
+  weighted_pred_flag: 0 # average
+  weighted_bipred_idc: 0 # average
+  pic_init_qp: 0
+  chroma_qp_index_offset: 0
+  deblocking_filter_control_present_flag: 0
+  constrained_intra_pred_flag: 0
+  redundant_pic_cnt_present_flag: 0
+
+# POC 0
+- nal_ref_idc: 1
+  nal_unit_type: 5 # Coded slice of an IDR picture
+  first_mb_in_slice: 0
+  slice_type: 2 # I
+  pic_parameter_set_id: 0
+  frame_num: {bits: 4, absolute: 0}
+  idr_pic_id: 0
+  pic_order_cnt: {type: 0, bits: 6, absolute: 0}
+  no_output_of_prior_pics_flag: 0
+  long_term_reference_flag: 0
+  slice_qp_delta: 0
+  macroblocks_cavlc:
+  - mb_type: 0
+    rem_intra4x4_pred_modes: [-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1]
+    intra_chroma_pred_mode: 0
+    coded_block_pattern: 0
+
+# POC 12
+- nal_ref_idc: 1
+  nal_unit_type: 1 # Coded slice of a non-IDR picture
+  first_mb_in_slice: 0
+  slice_type: 2 # I
+  pic_parameter_set_id: 0
+  frame_num: {bits: 4, absolute: 1}
+  pic_order_cnt: {type: 0, bits: 6, absolute: 12}
+  slice_qp_delta: 0
+  macroblocks_cavlc:
+  - mb_type: 0
+    rem_intra4x4_pred_modes: [-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1]
+    intra_chroma_pred_mode: 0
+    coded_block_pattern: 0
+
+# POC 6, bumps 0
+- nal_ref_idc: 1
+  nal_unit_type: 1 # Coded slice of a non-IDR picture
+  first_mb_in_slice: 0
+  slice_type: 2 # I
+  pic_parameter_set_id: 0
+  frame_num: {bits: 4, absolute: 2}
+  pic_order_cnt: {type: 0, bits: 6, absolute: 6}
+  slice_qp_delta: 0
+  macroblocks_cavlc:
+  - mb_type: 0
+    rem_intra4x4_pred_modes: [-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1]
+    intra_chroma_pred_mode: 0
+    coded_block_pattern: 0
+
+# POC 2, bumps itself (output at next picture)
+- nal_ref_idc: 0
+  nal_unit_type: 1 # Coded slice of a non-IDR picture
+  first_mb_in_slice: 0
+  slice_type: 2 # I
+  pic_parameter_set_id: 0
+  frame_num: {bits: 4, absolute: 3}
+  pic_order_cnt: {type: 0, bits: 6, absolute: 2}
+  slice_qp_delta: 0
+  macroblocks_cavlc:
+  - mb_type: 0
+    rem_intra4x4_pred_modes: [-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1]
+    intra_chroma_pred_mode: 0
+    coded_block_pattern: 0
+
+# POC 4, bumps itself
+- nal_ref_idc: 0
+  nal_unit_type: 1 # Coded slice of a non-IDR picture
+  first_mb_in_slice: 0
+  slice_type: 2 # I
+  pic_parameter_set_id: 0
+  frame_num: {bits: 4, absolute: 3}
+  pic_order_cnt: {type: 0, bits: 6, absolute: 4}
+  slice_qp_delta: 0
+  macroblocks_cavlc:
+  - mb_type: 0
+    rem_intra4x4_pred_modes: [-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1]
+    intra_chroma_pred_mode: 0
+    coded_block_pattern: 0
+
+# POC 8, bumps 6
+- nal_ref_idc: 0
+  nal_unit_type: 1 # Coded slice of a non-IDR picture
+  first_mb_in_slice: 0
+  slice_type: 2 # I
+  pic_parameter_set_id: 0
+  frame_num: {bits: 4, absolute: 3}
+  pic_order_cnt: {type: 0, bits: 6, absolute: 8}
+  slice_qp_delta: 0
+  macroblocks_cavlc:
+  - mb_type: 0
+    rem_intra4x4_pred_modes: [-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1]
+    intra_chroma_pred_mode: 0
+    coded_block_pattern: 0
+
+# POC 10, bumps 8
+- nal_ref_idc: 0
+  nal_unit_type: 1 # Coded slice of a non-IDR picture
+  first_mb_in_slice: 0
+  slice_type: 2 # I
+  pic_parameter_set_id: 0
+  frame_num: {bits: 4, absolute: 3}
+  pic_order_cnt: {type: 0, bits: 6, absolute: 10}
+  slice_qp_delta: 0
+  macroblocks_cavlc:
+  - mb_type: 0
+    rem_intra4x4_pred_modes: [-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1]
+    intra_chroma_pred_mode: 0
+    coded_block_pattern: 0
+
+# POC 24, sliding window drops POC 0, bumps 10
+- nal_ref_idc: 1
+  nal_unit_type: 1 # Coded slice of a non-IDR picture
+  first_mb_in_slice: 0
+  slice_type: 2 # I
+  pic_parameter_set_id: 0
+  frame_num: {bits: 4, absolute: 3}
+  pic_order_cnt: {type: 0, bits: 6, absolute: 24}
+  slice_qp_delta: 0
+  macroblocks_cavlc:
+  - mb_type: 0
+    rem_intra4x4_pred_modes: [-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1]
+    intra_chroma_pred_mode: 0
+    coded_block_pattern: 0
+
+# POC 18, sliding window drops POC 12, bumps 12
+- nal_ref_idc: 1
+  nal_unit_type: 1 # Coded slice of a non-IDR picture
+  first_mb_in_slice: 0
+  slice_type: 2 # I
+  pic_parameter_set_id: 0
+  frame_num: {bits: 4, absolute: 4}
+  pic_order_cnt: {type: 0, bits: 6, absolute: 18}
+  slice_qp_delta: 0
+  macroblocks_cavlc:
+  - mb_type: 0
+    rem_intra4x4_pred_modes: [-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1]
+    intra_chroma_pred_mode: 0
+    coded_block_pattern: 0
+
+# POC 14, bumps itself
+- nal_ref_idc: 0
+  nal_unit_type: 1 # Coded slice of a non-IDR picture
+  first_mb_in_slice: 0
+  slice_type: 2 # I
+  pic_parameter_set_id: 0
+  frame_num: {bits: 4, absolute: 5}
+  pic_order_cnt: {type: 0, bits: 6, absolute: 14}
+  slice_qp_delta: 0
+  macroblocks_cavlc:
+  - mb_type: 0
+    rem_intra4x4_pred_modes: [-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1]
+    intra_chroma_pred_mode: 0
+    coded_block_pattern: 0
+
+# POC 16, bumps itself
+- nal_ref_idc: 0
+  nal_unit_type: 1 # Coded slice of a non-IDR picture
+  first_mb_in_slice: 0
+  slice_type: 2 # I
+  pic_parameter_set_id: 0
+  frame_num: {bits: 4, absolute: 5}
+  pic_order_cnt: {type: 0, bits: 6, absolute: 16}
+  slice_qp_delta: 0
+  macroblocks_cavlc:
+  - mb_type: 0
+    rem_intra4x4_pred_modes: [-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1]
+    intra_chroma_pred_mode: 0
+    coded_block_pattern: 0
+
+# end of sequence bumps 18 24
+- nal_ref_idc: 0
+  nal_unit_type: 10 # End of sequence
+
+
+
+# S2: output driven by a full DPB (C.4.5.1 and C.4.5.2).
+# max_num_reorder_frames=2, max_dec_frame_buffering=2, max_num_ref_frames=1
+# A non-ref picture with a lower POC than all frames waiting in a full DPB is output without being stored.
+# Expected output: 0 2 4 8 10 12 16
+
+- nal_ref_idc: 3
+  nal_unit_type: 7 # Sequence parameter set
+  profile_idc: 100 # High
+  constraint_set_flags: [0,0,0,0,0,0]
+  level_idc: 1.0
+  chroma_format_idc: 1 # 4:2:0
+  bit_depth: {luma: 8, chroma: 8}
+  qpprime_y_zero_transform_bypass_flag: 0
+  log2_max_frame_num: 4
+  pic_order_cnt_type: 0
+  log2_max_pic_order_cnt_lsb: 6
+  max_num_ref_frames: 1
+  gaps_in_frame_num_value_allowed_flag: 0
+  pic_size_in_mbs: {width: 1, height: 1}
+  frame_mbs_only_flag: 1
+  direct_8x8_inference_flag: 0
+  vui_parameters:
+    overscan_appropriate_flag: -1
+    pic_struct_present_flag: 0
+    motion_vectors_over_pic_boundaries_flag: 1
+    log2_max_mv_length_horizontal: 15
+    log2_max_mv_length_vertical: 15
+    max_num_reorder_frames: 2
+    max_dec_frame_buffering: 2
+
+- nal_ref_idc: 3
+  nal_unit_type: 8 # Picture parameter set
+  pic_parameter_set_id: 0
+  entropy_coding_mode_flag: 0 # CAVLC
+  bottom_field_pic_order_in_frame_present_flag: 0
+  num_slice_groups: 1
+  num_ref_idx_default_active: {l0: 1, l1: 1}
+  weighted_pred_flag: 0 # average
+  weighted_bipred_idc: 0 # average
+  pic_init_qp: 0
+  chroma_qp_index_offset: 0
+  deblocking_filter_control_present_flag: 0
+  constrained_intra_pred_flag: 0
+  redundant_pic_cnt_present_flag: 0
+
+# POC 0
+- nal_ref_idc: 1
+  nal_unit_type: 5 # Coded slice of an IDR picture
+  first_mb_in_slice: 0
+  slice_type: 2 # I
+  pic_parameter_set_id: 0
+  frame_num: {bits: 4, absolute: 0}
+  idr_pic_id: 0
+  pic_order_cnt: {type: 0, bits: 6, absolute: 0}
+  no_output_of_prior_pics_flag: 0
+  long_term_reference_flag: 0
+  slice_qp_delta: 0
+  macroblocks_cavlc:
+  - mb_type: 0
+    rem_intra4x4_pred_modes: [-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1]
+    intra_chroma_pred_mode: 0
+    coded_block_pattern: 0
+
+# POC 8, DPB={0,8}
+- nal_ref_idc: 1
+  nal_unit_type: 1 # Coded slice of a non-IDR picture
+  first_mb_in_slice: 0
+  slice_type: 2 # I
+  pic_parameter_set_id: 0
+  frame_num: {bits: 4, absolute: 1}
+  pic_order_cnt: {type: 0, bits: 6, absolute: 8}
+  slice_qp_delta: 0
+  macroblocks_cavlc:
+  - mb_type: 0
+    rem_intra4x4_pred_modes: [-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1]
+    intra_chroma_pred_mode: 0
+    coded_block_pattern: 0
+
+# POC 4, DPB full so bumps 0 and is stored
+- nal_ref_idc: 0
+  nal_unit_type: 1 # Coded slice of a non-IDR picture
+  first_mb_in_slice: 0
+  slice_type: 2 # I
+  pic_parameter_set_id: 0
+  frame_num: {bits: 4, absolute: 2}
+  pic_order_cnt: {type: 0, bits: 6, absolute: 4}
+  slice_qp_delta: 0
+  macroblocks_cavlc:
+  - mb_type: 0
+    rem_intra4x4_pred_modes: [-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1]
+    intra_chroma_pred_mode: 0
+    coded_block_pattern: 0
+
+# POC 2, DPB full and lowest so output directly (released at next picture)
+- nal_ref_idc: 0
+  nal_unit_type: 1 # Coded slice of a non-IDR picture
+  first_mb_in_slice: 0
+  slice_type: 2 # I
+  pic_parameter_set_id: 0
+  frame_num: {bits: 4, absolute: 2}
+  pic_order_cnt: {type: 0, bits: 6, absolute: 2}
+  slice_qp_delta: 0
+  macroblocks_cavlc:
+  - mb_type: 0
+    rem_intra4x4_pred_modes: [-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1]
+    intra_chroma_pred_mode: 0
+    coded_block_pattern: 0
+
+# POC 16, bumps 4
+- nal_ref_idc: 1
+  nal_unit_type: 1 # Coded slice of a non-IDR picture
+  first_mb_in_slice: 0
+  slice_type: 2 # I
+  pic_parameter_set_id: 0
+  frame_num: {bits: 4, absolute: 2}
+  pic_order_cnt: {type: 0, bits: 6, absolute: 16}
+  slice_qp_delta: 0
+  macroblocks_cavlc:
+  - mb_type: 0
+    rem_intra4x4_pred_modes: [-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1]
+    intra_chroma_pred_mode: 0
+    coded_block_pattern: 0
+
+# POC 12, bumps 8
+- nal_ref_idc: 0
+  nal_unit_type: 1 # Coded slice of a non-IDR picture
+  first_mb_in_slice: 0
+  slice_type: 2 # I
+  pic_parameter_set_id: 0
+  frame_num: {bits: 4, absolute: 3}
+  pic_order_cnt: {type: 0, bits: 6, absolute: 12}
+  slice_qp_delta: 0
+  macroblocks_cavlc:
+  - mb_type: 0
+    rem_intra4x4_pred_modes: [-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1]
+    intra_chroma_pred_mode: 0
+    coded_block_pattern: 0
+
+# POC 10, output directly
+- nal_ref_idc: 0
+  nal_unit_type: 1 # Coded slice of a non-IDR picture
+  first_mb_in_slice: 0
+  slice_type: 2 # I
+  pic_parameter_set_id: 0
+  frame_num: {bits: 4, absolute: 3}
+  pic_order_cnt: {type: 0, bits: 6, absolute: 10}
+  slice_qp_delta: 0
+  macroblocks_cavlc:
+  - mb_type: 0
+    rem_intra4x4_pred_modes: [-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1]
+    intra_chroma_pred_mode: 0
+    coded_block_pattern: 0
+
+# end of sequence bumps 12 16
+- nal_ref_idc: 0
+  nal_unit_type: 10 # End of sequence
+
+
+
+# S3: no reordering (max_num_reorder_frames=0), each frame is output as soon as decoded,
+# even with decreasing POCs (violating max_num_reorder_frames).
+# max_num_reorder_frames=0, max_dec_frame_buffering=1, max_num_ref_frames=1
+# Expected output: 0 6 4 2 8
+
+- nal_ref_idc: 3
+  nal_unit_type: 7 # Sequence parameter set
+  profile_idc: 100 # High
+  constraint_set_flags: [0,0,0,0,0,0]
+  level_idc: 1.0
+  chroma_format_idc: 1 # 4:2:0
+  bit_depth: {luma: 8, chroma: 8}
+  qpprime_y_zero_transform_bypass_flag: 0
+  log2_max_frame_num: 4
+  pic_order_cnt_type: 0
+  log2_max_pic_order_cnt_lsb: 6
+  max_num_ref_frames: 1
+  gaps_in_frame_num_value_allowed_flag: 0
+  pic_size_in_mbs: {width: 1, height: 1}
+  frame_mbs_only_flag: 1
+  direct_8x8_inference_flag: 0
+  vui_parameters:
+    overscan_appropriate_flag: -1
+    pic_struct_present_flag: 0
+    motion_vectors_over_pic_boundaries_flag: 1
+    log2_max_mv_length_horizontal: 15
+    log2_max_mv_length_vertical: 15
+    max_num_reorder_frames: 0
+    max_dec_frame_buffering: 1
+
+- nal_ref_idc: 3
+  nal_unit_type: 8 # Picture parameter set
+  pic_parameter_set_id: 0
+  entropy_coding_mode_flag: 0 # CAVLC
+  bottom_field_pic_order_in_frame_present_flag: 0
+  num_slice_groups: 1
+  num_ref_idx_default_active: {l0: 1, l1: 1}
+  weighted_pred_flag: 0 # average
+  weighted_bipred_idc: 0 # average
+  pic_init_qp: 0
+  chroma_qp_index_offset: 0
+  deblocking_filter_control_present_flag: 0
+  constrained_intra_pred_flag: 0
+  redundant_pic_cnt_present_flag: 0
+
+# POC 0
+- nal_ref_idc: 1
+  nal_unit_type: 5 # Coded slice of an IDR picture
+  first_mb_in_slice: 0
+  slice_type: 2 # I
+  pic_parameter_set_id: 0
+  frame_num: {bits: 4, absolute: 0}
+  idr_pic_id: 0
+  pic_order_cnt: {type: 0, bits: 6, absolute: 0}
+  no_output_of_prior_pics_flag: 0
+  long_term_reference_flag: 0
+  slice_qp_delta: 0
+  macroblocks_cavlc:
+  - mb_type: 0
+    rem_intra4x4_pred_modes: [-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1]
+    intra_chroma_pred_mode: 0
+    coded_block_pattern: 0
+
+# POC 6, releases 0
+- nal_ref_idc: 1
+  nal_unit_type: 1 # Coded slice of a non-IDR picture
+  first_mb_in_slice: 0
+  slice_type: 2 # I
+  pic_parameter_set_id: 0
+  frame_num: {bits: 4, absolute: 1}
+  pic_order_cnt: {type: 0, bits: 6, absolute: 6}
+  slice_qp_delta: 0
+  macroblocks_cavlc:
+  - mb_type: 0
+    rem_intra4x4_pred_modes: [-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1]
+    intra_chroma_pred_mode: 0
+    coded_block_pattern: 0
+
+# POC 4, releases 6
+- nal_ref_idc: 0
+  nal_unit_type: 1 # Coded slice of a non-IDR picture
+  first_mb_in_slice: 0
+  slice_type: 2 # I
+  pic_parameter_set_id: 0
+  frame_num: {bits: 4, absolute: 2}
+  pic_order_cnt: {type: 0, bits: 6, absolute: 4}
+  slice_qp_delta: 0
+  macroblocks_cavlc:
+  - mb_type: 0
+    rem_intra4x4_pred_modes: [-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1]
+    intra_chroma_pred_mode: 0
+    coded_block_pattern: 0
+
+# POC 2, releases 4
+- nal_ref_idc: 0
+  nal_unit_type: 1 # Coded slice of a non-IDR picture
+  first_mb_in_slice: 0
+  slice_type: 2 # I
+  pic_parameter_set_id: 0
+  frame_num: {bits: 4, absolute: 2}
+  pic_order_cnt: {type: 0, bits: 6, absolute: 2}
+  slice_qp_delta: 0
+  macroblocks_cavlc:
+  - mb_type: 0
+    rem_intra4x4_pred_modes: [-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1]
+    intra_chroma_pred_mode: 0
+    coded_block_pattern: 0
+
+# POC 8, releases 2
+- nal_ref_idc: 1
+  nal_unit_type: 1 # Coded slice of a non-IDR picture
+  first_mb_in_slice: 0
+  slice_type: 2 # I
+  pic_parameter_set_id: 0
+  frame_num: {bits: 4, absolute: 2}
+  pic_order_cnt: {type: 0, bits: 6, absolute: 8}
+  slice_qp_delta: 0
+  macroblocks_cavlc:
+  - mb_type: 0
+    rem_intra4x4_pred_modes: [-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1]
+    intra_chroma_pred_mode: 0
+    coded_block_pattern: 0
+
+# end of sequence releases 8
+- nal_ref_idc: 0
+  nal_unit_type: 10 # End of sequence
+
+
+
+# S4: IDR pictures flushing the DPB (C.4.4), with inferred max_dec_frame_buffering=16 so
+# nothing is output otherwise. The IDR epoch orders new POCs after the previous ones.
+# no_output_of_prior_pics_flag=1 is currently ignored (prior frames are still output, like
+# FFmpeg), whereas C.4.4 discards them.
+# Expected output: 0 4 8 0 2 4 0 0 2
+
+- nal_ref_idc: 3
+  nal_unit_type: 7 # Sequence parameter set
+  profile_idc: 100 # High
+  constraint_set_flags: [0,0,0,0,0,0]
+  level_idc: 1.0
+  chroma_format_idc: 1 # 4:2:0
+  bit_depth: {luma: 8, chroma: 8}
+  qpprime_y_zero_transform_bypass_flag: 0
+  log2_max_frame_num: 4
+  pic_order_cnt_type: 0
+  log2_max_pic_order_cnt_lsb: 6
+  max_num_ref_frames: 2
+  gaps_in_frame_num_value_allowed_flag: 0
+  pic_size_in_mbs: {width: 1, height: 1}
+  frame_mbs_only_flag: 1
+  direct_8x8_inference_flag: 0
+
+- nal_ref_idc: 3
+  nal_unit_type: 8 # Picture parameter set
+  pic_parameter_set_id: 0
+  entropy_coding_mode_flag: 0 # CAVLC
+  bottom_field_pic_order_in_frame_present_flag: 0
+  num_slice_groups: 1
+  num_ref_idx_default_active: {l0: 1, l1: 1}
+  weighted_pred_flag: 0 # average
+  weighted_bipred_idc: 0 # average
+  pic_init_qp: 0
+  chroma_qp_index_offset: 0
+  deblocking_filter_control_present_flag: 0
+  constrained_intra_pred_flag: 0
+  redundant_pic_cnt_present_flag: 0
+
+# POC 0
+- nal_ref_idc: 1
+  nal_unit_type: 5 # Coded slice of an IDR picture
+  first_mb_in_slice: 0
+  slice_type: 2 # I
+  pic_parameter_set_id: 0
+  frame_num: {bits: 4, absolute: 0}
+  idr_pic_id: 0
+  pic_order_cnt: {type: 0, bits: 6, absolute: 0}
+  no_output_of_prior_pics_flag: 0
+  long_term_reference_flag: 0
+  slice_qp_delta: 0
+  macroblocks_cavlc:
+  - mb_type: 0
+    rem_intra4x4_pred_modes: [-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1]
+    intra_chroma_pred_mode: 0
+    coded_block_pattern: 0
+
+# POC 8
+- nal_ref_idc: 1
+  nal_unit_type: 1 # Coded slice of a non-IDR picture
+  first_mb_in_slice: 0
+  slice_type: 2 # I
+  pic_parameter_set_id: 0
+  frame_num: {bits: 4, absolute: 1}
+  pic_order_cnt: {type: 0, bits: 6, absolute: 8}
+  slice_qp_delta: 0
+  macroblocks_cavlc:
+  - mb_type: 0
+    rem_intra4x4_pred_modes: [-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1]
+    intra_chroma_pred_mode: 0
+    coded_block_pattern: 0
+
+# POC 4
+- nal_ref_idc: 0
+  nal_unit_type: 1 # Coded slice of a non-IDR picture
+  first_mb_in_slice: 0
+  slice_type: 2 # I
+  pic_parameter_set_id: 0
+  frame_num: {bits: 4, absolute: 2}
+  pic_order_cnt: {type: 0, bits: 6, absolute: 4}
+  slice_qp_delta: 0
+  macroblocks_cavlc:
+  - mb_type: 0
+    rem_intra4x4_pred_modes: [-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1]
+    intra_chroma_pred_mode: 0
+    coded_block_pattern: 0
+
+# IDR POC 0, bumps 0 4 8
+- nal_ref_idc: 1
+  nal_unit_type: 5 # Coded slice of an IDR picture
+  first_mb_in_slice: 0
+  slice_type: 2 # I
+  pic_parameter_set_id: 0
+  frame_num: {bits: 4, absolute: 0}
+  idr_pic_id: 1
+  pic_order_cnt: {type: 0, bits: 6, absolute: 0}
+  no_output_of_prior_pics_flag: 0
+  long_term_reference_flag: 0
+  slice_qp_delta: 0
+  macroblocks_cavlc:
+  - mb_type: 0
+    rem_intra4x4_pred_modes: [-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1]
+    intra_chroma_pred_mode: 0
+    coded_block_pattern: 0
+
+# POC 4
+- nal_ref_idc: 1
+  nal_unit_type: 1 # Coded slice of a non-IDR picture
+  first_mb_in_slice: 0
+  slice_type: 2 # I
+  pic_parameter_set_id: 0
+  frame_num: {bits: 4, absolute: 1}
+  pic_order_cnt: {type: 0, bits: 6, absolute: 4}
+  slice_qp_delta: 0
+  macroblocks_cavlc:
+  - mb_type: 0
+    rem_intra4x4_pred_modes: [-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1]
+    intra_chroma_pred_mode: 0
+    coded_block_pattern: 0
+
+# POC 2
+- nal_ref_idc: 0
+  nal_unit_type: 1 # Coded slice of a non-IDR picture
+  first_mb_in_slice: 0
+  slice_type: 2 # I
+  pic_parameter_set_id: 0
+  frame_num: {bits: 4, absolute: 2}
+  pic_order_cnt: {type: 0, bits: 6, absolute: 2}
+  slice_qp_delta: 0
+  macroblocks_cavlc:
+  - mb_type: 0
+    rem_intra4x4_pred_modes: [-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1]
+    intra_chroma_pred_mode: 0
+    coded_block_pattern: 0
+
+# IDR POC 0 with no_output_of_prior_pics_flag=1, bumps 0 2 4
+- nal_ref_idc: 1
+  nal_unit_type: 5 # Coded slice of an IDR picture
+  first_mb_in_slice: 0
+  slice_type: 2 # I
+  pic_parameter_set_id: 0
+  frame_num: {bits: 4, absolute: 0}
+  idr_pic_id: 0
+  pic_order_cnt: {type: 0, bits: 6, absolute: 0}
+  no_output_of_prior_pics_flag: 1
+  long_term_reference_flag: 0
+  slice_qp_delta: 0
+  macroblocks_cavlc:
+  - mb_type: 0
+    rem_intra4x4_pred_modes: [-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1]
+    intra_chroma_pred_mode: 0
+    coded_block_pattern: 0
+
+# IDR POC 0 right after another IDR, bumps 0
+- nal_ref_idc: 1
+  nal_unit_type: 5 # Coded slice of an IDR picture
+  first_mb_in_slice: 0
+  slice_type: 2 # I
+  pic_parameter_set_id: 0
+  frame_num: {bits: 4, absolute: 0}
+  idr_pic_id: 1
+  pic_order_cnt: {type: 0, bits: 6, absolute: 0}
+  no_output_of_prior_pics_flag: 0
+  long_term_reference_flag: 0
+  slice_qp_delta: 0
+  macroblocks_cavlc:
+  - mb_type: 0
+    rem_intra4x4_pred_modes: [-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1]
+    intra_chroma_pred_mode: 0
+    coded_block_pattern: 0
+
+# POC 2
+- nal_ref_idc: 1
+  nal_unit_type: 1 # Coded slice of a non-IDR picture
+  first_mb_in_slice: 0
+  slice_type: 2 # I
+  pic_parameter_set_id: 0
+  frame_num: {bits: 4, absolute: 1}
+  pic_order_cnt: {type: 0, bits: 6, absolute: 2}
+  slice_qp_delta: 0
+  macroblocks_cavlc:
+  - mb_type: 0
+    rem_intra4x4_pred_modes: [-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1]
+    intra_chroma_pred_mode: 0
+    coded_block_pattern: 0
+
+# end of sequence bumps 0 2
+- nal_ref_idc: 0
+  nal_unit_type: 10 # End of sequence
+
+
+
+# S5: memory_management_control_operation 5 flushing the DPB (C.4.4), then the picture is
+# rebased to POC 0 (8.2.1) and later POCs may be negative relative to it.
+# Expected output: 0 4 12 -2 0 4
+
+- nal_ref_idc: 3
+  nal_unit_type: 7 # Sequence parameter set
+  profile_idc: 100 # High
+  constraint_set_flags: [0,0,0,0,0,0]
+  level_idc: 1.0
+  chroma_format_idc: 1 # 4:2:0
+  bit_depth: {luma: 8, chroma: 8}
+  qpprime_y_zero_transform_bypass_flag: 0
+  log2_max_frame_num: 4
+  pic_order_cnt_type: 0
+  log2_max_pic_order_cnt_lsb: 6
+  max_num_ref_frames: 2
+  gaps_in_frame_num_value_allowed_flag: 0
+  pic_size_in_mbs: {width: 1, height: 1}
+  frame_mbs_only_flag: 1
+  direct_8x8_inference_flag: 0
+
+- nal_ref_idc: 3
+  nal_unit_type: 8 # Picture parameter set
+  pic_parameter_set_id: 0
+  entropy_coding_mode_flag: 0 # CAVLC
+  bottom_field_pic_order_in_frame_present_flag: 0
+  num_slice_groups: 1
+  num_ref_idx_default_active: {l0: 1, l1: 1}
+  weighted_pred_flag: 0 # average
+  weighted_bipred_idc: 0 # average
+  pic_init_qp: 0
+  chroma_qp_index_offset: 0
+  deblocking_filter_control_present_flag: 0
+  constrained_intra_pred_flag: 0
+  redundant_pic_cnt_present_flag: 0
+
+# POC 0
+- nal_ref_idc: 1
+  nal_unit_type: 5 # Coded slice of an IDR picture
+  first_mb_in_slice: 0
+  slice_type: 2 # I
+  pic_parameter_set_id: 0
+  frame_num: {bits: 4, absolute: 0}
+  idr_pic_id: 0
+  pic_order_cnt: {type: 0, bits: 6, absolute: 0}
+  no_output_of_prior_pics_flag: 0
+  long_term_reference_flag: 0
+  slice_qp_delta: 0
+  macroblocks_cavlc:
+  - mb_type: 0
+    rem_intra4x4_pred_modes: [-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1]
+    intra_chroma_pred_mode: 0
+    coded_block_pattern: 0
+
+# POC 12
+- nal_ref_idc: 1
+  nal_unit_type: 1 # Coded slice of a non-IDR picture
+  first_mb_in_slice: 0
+  slice_type: 2 # I
+  pic_parameter_set_id: 0
+  frame_num: {bits: 4, absolute: 1}
+  pic_order_cnt: {type: 0, bits: 6, absolute: 12}
+  slice_qp_delta: 0
+  macroblocks_cavlc:
+  - mb_type: 0
+    rem_intra4x4_pred_modes: [-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1]
+    intra_chroma_pred_mode: 0
+    coded_block_pattern: 0
+
+# POC 4
+- nal_ref_idc: 0
+  nal_unit_type: 1 # Coded slice of a non-IDR picture
+  first_mb_in_slice: 0
+  slice_type: 2 # I
+  pic_parameter_set_id: 0
+  frame_num: {bits: 4, absolute: 2}
+  pic_order_cnt: {type: 0, bits: 6, absolute: 4}
+  slice_qp_delta: 0
+  macroblocks_cavlc:
+  - mb_type: 0
+    rem_intra4x4_pred_modes: [-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1]
+    intra_chroma_pred_mode: 0
+    coded_block_pattern: 0
+
+# POC 8 with mmco 5, bumps 0 4 12, becomes POC 0
+- nal_ref_idc: 1
+  nal_unit_type: 1 # Coded slice of a non-IDR picture
+  first_mb_in_slice: 0
+  slice_type: 2 # I
+  pic_parameter_set_id: 0
+  frame_num: {bits: 4, absolute: 2}
+  pic_order_cnt: {type: 0, bits: 6, absolute: 8}
+  memory_management_control_operations:
+  - {mmco: 5}
+  slice_qp_delta: 0
+  macroblocks_cavlc:
+  - mb_type: 0
+    rem_intra4x4_pred_modes: [-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1]
+    intra_chroma_pred_mode: 0
+    coded_block_pattern: 0
+
+# POC -2
+- nal_ref_idc: 0
+  nal_unit_type: 1 # Coded slice of a non-IDR picture
+  first_mb_in_slice: 0
+  slice_type: 2 # I
+  pic_parameter_set_id: 0
+  frame_num: {bits: 4, absolute: 1}
+  pic_order_cnt: {type: 0, bits: 6, absolute: 62}
+  slice_qp_delta: 0
+  macroblocks_cavlc:
+  - mb_type: 0
+    rem_intra4x4_pred_modes: [-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1]
+    intra_chroma_pred_mode: 0
+    coded_block_pattern: 0
+
+# POC 4
+- nal_ref_idc: 1
+  nal_unit_type: 1 # Coded slice of a non-IDR picture
+  first_mb_in_slice: 0
+  slice_type: 2 # I
+  pic_parameter_set_id: 0
+  frame_num: {bits: 4, absolute: 1}
+  pic_order_cnt: {type: 0, bits: 6, absolute: 4}
+  slice_qp_delta: 0
+  macroblocks_cavlc:
+  - mb_type: 0
+    rem_intra4x4_pred_modes: [-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1]
+    intra_chroma_pred_mode: 0
+    coded_block_pattern: 0
+
+# end of sequence bumps -2 0 4
+- nal_ref_idc: 0
+  nal_unit_type: 10 # End of sequence
+
+
+
+# S6: long-term references occupying the DPB, released by mmco 2/1/3/4.
+# max_num_reorder_frames=2, max_dec_frame_buffering=2, max_num_ref_frames=2
+# Expected output: 0 4 8 12 16 20 24 28
+
+- nal_ref_idc: 3
+  nal_unit_type: 7 # Sequence parameter set
+  profile_idc: 100 # High
+  constraint_set_flags: [0,0,0,0,0,0]
+  level_idc: 1.0
+  chroma_format_idc: 1 # 4:2:0
+  bit_depth: {luma: 8, chroma: 8}
+  qpprime_y_zero_transform_bypass_flag: 0
+  log2_max_frame_num: 4
+  pic_order_cnt_type: 0
+  log2_max_pic_order_cnt_lsb: 6
+  max_num_ref_frames: 2
+  gaps_in_frame_num_value_allowed_flag: 0
+  pic_size_in_mbs: {width: 1, height: 1}
+  frame_mbs_only_flag: 1
+  direct_8x8_inference_flag: 0
+  vui_parameters:
+    overscan_appropriate_flag: -1
+    pic_struct_present_flag: 0
+    motion_vectors_over_pic_boundaries_flag: 1
+    log2_max_mv_length_horizontal: 15
+    log2_max_mv_length_vertical: 15
+    max_num_reorder_frames: 2
+    max_dec_frame_buffering: 2
+
+- nal_ref_idc: 3
+  nal_unit_type: 8 # Picture parameter set
+  pic_parameter_set_id: 0
+  entropy_coding_mode_flag: 0 # CAVLC
+  bottom_field_pic_order_in_frame_present_flag: 0
+  num_slice_groups: 1
+  num_ref_idx_default_active: {l0: 1, l1: 1}
+  weighted_pred_flag: 0 # average
+  weighted_bipred_idc: 0 # average
+  pic_init_qp: 0
+  chroma_qp_index_offset: 0
+  deblocking_filter_control_present_flag: 0
+  constrained_intra_pred_flag: 0
+  redundant_pic_cnt_present_flag: 0
+
+# POC 0, long-term
+- nal_ref_idc: 1
+  nal_unit_type: 5 # Coded slice of an IDR picture
+  first_mb_in_slice: 0
+  slice_type: 2 # I
+  pic_parameter_set_id: 0
+  frame_num: {bits: 4, absolute: 0}
+  idr_pic_id: 0
+  pic_order_cnt: {type: 0, bits: 6, absolute: 0}
+  no_output_of_prior_pics_flag: 0
+  long_term_reference_flag: 1
+  slice_qp_delta: 0
+  macroblocks_cavlc:
+  - mb_type: 0
+    rem_intra4x4_pred_modes: [-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1]
+    intra_chroma_pred_mode: 0
+    coded_block_pattern: 0
+
+# POC 8
+- nal_ref_idc: 1
+  nal_unit_type: 1 # Coded slice of a non-IDR picture
+  first_mb_in_slice: 0
+  slice_type: 2 # I
+  pic_parameter_set_id: 0
+  frame_num: {bits: 4, absolute: 1}
+  pic_order_cnt: {type: 0, bits: 6, absolute: 8}
+  slice_qp_delta: 0
+  macroblocks_cavlc:
+  - mb_type: 0
+    rem_intra4x4_pred_modes: [-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1]
+    intra_chroma_pred_mode: 0
+    coded_block_pattern: 0
+
+# POC 4, two refs fill the DPB, bumps 0 then output directly
+- nal_ref_idc: 0
+  nal_unit_type: 1 # Coded slice of a non-IDR picture
+  first_mb_in_slice: 0
+  slice_type: 2 # I
+  pic_parameter_set_id: 0
+  frame_num: {bits: 4, absolute: 2}
+  pic_order_cnt: {type: 0, bits: 6, absolute: 4}
+  slice_qp_delta: 0
+  macroblocks_cavlc:
+  - mb_type: 0
+    rem_intra4x4_pred_modes: [-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1]
+    intra_chroma_pred_mode: 0
+    coded_block_pattern: 0
+
+# POC 16, unmarks long-term POC 0
+- nal_ref_idc: 1
+  nal_unit_type: 1 # Coded slice of a non-IDR picture
+  first_mb_in_slice: 0
+  slice_type: 2 # I
+  pic_parameter_set_id: 0
+  frame_num: {bits: 4, absolute: 2}
+  pic_order_cnt: {type: 0, bits: 6, absolute: 16}
+  memory_management_control_operations:
+  - {mmco: 2, lref: 0}
+  slice_qp_delta: 0
+  macroblocks_cavlc:
+  - mb_type: 0
+    rem_intra4x4_pred_modes: [-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1]
+    intra_chroma_pred_mode: 0
+    coded_block_pattern: 0
+
+# POC 12, bumps 8 then output directly
+- nal_ref_idc: 0
+  nal_unit_type: 1 # Coded slice of a non-IDR picture
+  first_mb_in_slice: 0
+  slice_type: 2 # I
+  pic_parameter_set_id: 0
+  frame_num: {bits: 4, absolute: 3}
+  pic_order_cnt: {type: 0, bits: 6, absolute: 12}
+  slice_qp_delta: 0
+  macroblocks_cavlc:
+  - mb_type: 0
+    rem_intra4x4_pred_modes: [-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1]
+    intra_chroma_pred_mode: 0
+    coded_block_pattern: 0
+
+# POC 24, converts POC 8 to long-term and unmarks POC 16, bumps 16
+- nal_ref_idc: 1
+  nal_unit_type: 1 # Coded slice of a non-IDR picture
+  first_mb_in_slice: 0
+  slice_type: 2 # I
+  pic_parameter_set_id: 0
+  frame_num: {bits: 4, absolute: 3}
+  pic_order_cnt: {type: 0, bits: 6, absolute: 24}
+  memory_management_control_operations:
+  - {mmco: 3, sref: -1, lref: 0}
+  - {mmco: 1, sref: 0}
+  slice_qp_delta: 0
+  macroblocks_cavlc:
+  - mb_type: 0
+    rem_intra4x4_pred_modes: [-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1]
+    intra_chroma_pred_mode: 0
+    coded_block_pattern: 0
+
+# POC 20, output directly
+- nal_ref_idc: 0
+  nal_unit_type: 1 # Coded slice of a non-IDR picture
+  first_mb_in_slice: 0
+  slice_type: 2 # I
+  pic_parameter_set_id: 0
+  frame_num: {bits: 4, absolute: 4}
+  pic_order_cnt: {type: 0, bits: 6, absolute: 20}
+  slice_qp_delta: 0
+  macroblocks_cavlc:
+  - mb_type: 0
+    rem_intra4x4_pred_modes: [-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1]
+    intra_chroma_pred_mode: 0
+    coded_block_pattern: 0
+
+# POC 28, unmarks all long-term frames
+- nal_ref_idc: 1
+  nal_unit_type: 1 # Coded slice of a non-IDR picture
+  first_mb_in_slice: 0
+  slice_type: 2 # I
+  pic_parameter_set_id: 0
+  frame_num: {bits: 4, absolute: 4}
+  pic_order_cnt: {type: 0, bits: 6, absolute: 28}
+  memory_management_control_operations:
+  - {mmco: 4, lref: 0}
+  slice_qp_delta: 0
+  macroblocks_cavlc:
+  - mb_type: 0
+    rem_intra4x4_pred_modes: [-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1]
+    intra_chroma_pred_mode: 0
+    coded_block_pattern: 0
+
+# end of sequence bumps 24 28
+- nal_ref_idc: 0
+  nal_unit_type: 10 # End of sequence
+
+
+
+# S7: gaps in frame_num (C.4.2), "non-existing" frames take DPB slots and force bumping,
+# but are never output. The second gap exceeds max_num_ref_frames.
+# max_num_reorder_frames=2, max_dec_frame_buffering=2, max_num_ref_frames=2
+# Expected output: 0 4 8 12 16 24
+
+- nal_ref_idc: 3
+  nal_unit_type: 7 # Sequence parameter set
+  profile_idc: 100 # High
+  constraint_set_flags: [0,0,0,0,0,0]
+  level_idc: 1.0
+  chroma_format_idc: 1 # 4:2:0
+  bit_depth: {luma: 8, chroma: 8}
+  qpprime_y_zero_transform_bypass_flag: 0
+  log2_max_frame_num: 4
+  pic_order_cnt_type: 0
+  log2_max_pic_order_cnt_lsb: 6
+  max_num_ref_frames: 2
+  gaps_in_frame_num_value_allowed_flag: 1
+  pic_size_in_mbs: {width: 1, height: 1}
+  frame_mbs_only_flag: 1
+  direct_8x8_inference_flag: 0
+  vui_parameters:
+    overscan_appropriate_flag: -1
+    pic_struct_present_flag: 0
+    motion_vectors_over_pic_boundaries_flag: 1
+    log2_max_mv_length_horizontal: 15
+    log2_max_mv_length_vertical: 15
+    max_num_reorder_frames: 2
+    max_dec_frame_buffering: 2
+
+- nal_ref_idc: 3
+  nal_unit_type: 8 # Picture parameter set
+  pic_parameter_set_id: 0
+  entropy_coding_mode_flag: 0 # CAVLC
+  bottom_field_pic_order_in_frame_present_flag: 0
+  num_slice_groups: 1
+  num_ref_idx_default_active: {l0: 1, l1: 1}
+  weighted_pred_flag: 0 # average
+  weighted_bipred_idc: 0 # average
+  pic_init_qp: 0
+  chroma_qp_index_offset: 0
+  deblocking_filter_control_present_flag: 0
+  constrained_intra_pred_flag: 0
+  redundant_pic_cnt_present_flag: 0
+
+# POC 0
+- nal_ref_idc: 1
+  nal_unit_type: 5 # Coded slice of an IDR picture
+  first_mb_in_slice: 0
+  slice_type: 2 # I
+  pic_parameter_set_id: 0
+  frame_num: {bits: 4, absolute: 0}
+  idr_pic_id: 0
+  pic_order_cnt: {type: 0, bits: 6, absolute: 0}
+  no_output_of_prior_pics_flag: 0
+  long_term_reference_flag: 0
+  slice_qp_delta: 0
+  macroblocks_cavlc:
+  - mb_type: 0
+    rem_intra4x4_pred_modes: [-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1]
+    intra_chroma_pred_mode: 0
+    coded_block_pattern: 0
+
+# POC 8
+- nal_ref_idc: 1
+  nal_unit_type: 1 # Coded slice of a non-IDR picture
+  first_mb_in_slice: 0
+  slice_type: 2 # I
+  pic_parameter_set_id: 0
+  frame_num: {bits: 4, absolute: 1}
+  pic_order_cnt: {type: 0, bits: 6, absolute: 8}
+  slice_qp_delta: 0
+  macroblocks_cavlc:
+  - mb_type: 0
+    rem_intra4x4_pred_modes: [-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1]
+    intra_chroma_pred_mode: 0
+    coded_block_pattern: 0
+
+# POC 4, bumps 0 then output directly
+- nal_ref_idc: 0
+  nal_unit_type: 1 # Coded slice of a non-IDR picture
+  first_mb_in_slice: 0
+  slice_type: 2 # I
+  pic_parameter_set_id: 0
+  frame_num: {bits: 4, absolute: 2}
+  pic_order_cnt: {type: 0, bits: 6, absolute: 4}
+  slice_qp_delta: 0
+  macroblocks_cavlc:
+  - mb_type: 0
+    rem_intra4x4_pred_modes: [-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1]
+    intra_chroma_pred_mode: 0
+    coded_block_pattern: 0
+
+# POC 16, after 2 non-existing frames, bumps 8
+- nal_ref_idc: 1
+  nal_unit_type: 1 # Coded slice of a non-IDR picture
+  first_mb_in_slice: 0
+  slice_type: 2 # I
+  pic_parameter_set_id: 0
+  frame_num: {bits: 4, absolute: 4}
+  pic_order_cnt: {type: 0, bits: 6, absolute: 16}
+  slice_qp_delta: 0
+  macroblocks_cavlc:
+  - mb_type: 0
+    rem_intra4x4_pred_modes: [-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1]
+    intra_chroma_pred_mode: 0
+    coded_block_pattern: 0
+
+# POC 12, output directly
+- nal_ref_idc: 0
+  nal_unit_type: 1 # Coded slice of a non-IDR picture
+  first_mb_in_slice: 0
+  slice_type: 2 # I
+  pic_parameter_set_id: 0
+  frame_num: {bits: 4, absolute: 5}
+  pic_order_cnt: {type: 0, bits: 6, absolute: 12}
+  slice_qp_delta: 0
+  macroblocks_cavlc:
+  - mb_type: 0
+    rem_intra4x4_pred_modes: [-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1]
+    intra_chroma_pred_mode: 0
+    coded_block_pattern: 0
+
+# POC 24, after 5 missing frames (2 inserted), bumps 16
+- nal_ref_idc: 1
+  nal_unit_type: 1 # Coded slice of a non-IDR picture
+  first_mb_in_slice: 0
+  slice_type: 2 # I
+  pic_parameter_set_id: 0
+  frame_num: {bits: 4, absolute: 10}
+  pic_order_cnt: {type: 0, bits: 6, absolute: 24}
+  slice_qp_delta: 0
+  macroblocks_cavlc:
+  - mb_type: 0
+    rem_intra4x4_pred_modes: [-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1]
+    intra_chroma_pred_mode: 0
+    coded_block_pattern: 0
+
+# end of sequence bumps 24
+- nal_ref_idc: 0
+  nal_unit_type: 10 # End of sequence
+
+
+
+# S8a: pic_order_cnt_type=2, output order equals decoding order (POC = 2*FrameNum-1 for non-refs).
+# max_num_reorder_frames=1, max_dec_frame_buffering=1, max_num_ref_frames=1
+# Expected output: 0 2 3 4 5 6
+
+- nal_ref_idc: 3
+  nal_unit_type: 7 # Sequence parameter set
+  profile_idc: 100 # High
+  constraint_set_flags: [0,0,0,0,0,0]
+  level_idc: 1.0
+  chroma_format_idc: 1 # 4:2:0
+  bit_depth: {luma: 8, chroma: 8}
+  qpprime_y_zero_transform_bypass_flag: 0
+  log2_max_frame_num: 4
+  pic_order_cnt_type: 2
+  max_num_ref_frames: 1
+  gaps_in_frame_num_value_allowed_flag: 0
+  pic_size_in_mbs: {width: 1, height: 1}
+  frame_mbs_only_flag: 1
+  direct_8x8_inference_flag: 0
+  vui_parameters:
+    overscan_appropriate_flag: -1
+    pic_struct_present_flag: 0
+    motion_vectors_over_pic_boundaries_flag: 1
+    log2_max_mv_length_horizontal: 15
+    log2_max_mv_length_vertical: 15
+    max_num_reorder_frames: 1
+    max_dec_frame_buffering: 1
+
+- nal_ref_idc: 3
+  nal_unit_type: 8 # Picture parameter set
+  pic_parameter_set_id: 0
+  entropy_coding_mode_flag: 0 # CAVLC
+  bottom_field_pic_order_in_frame_present_flag: 0
+  num_slice_groups: 1
+  num_ref_idx_default_active: {l0: 1, l1: 1}
+  weighted_pred_flag: 0 # average
+  weighted_bipred_idc: 0 # average
+  pic_init_qp: 0
+  chroma_qp_index_offset: 0
+  deblocking_filter_control_present_flag: 0
+  constrained_intra_pred_flag: 0
+  redundant_pic_cnt_present_flag: 0
+
+# POC 0
+- nal_ref_idc: 1
+  nal_unit_type: 5 # Coded slice of an IDR picture
+  first_mb_in_slice: 0
+  slice_type: 2 # I
+  pic_parameter_set_id: 0
+  frame_num: {bits: 4, absolute: 0}
+  idr_pic_id: 0
+  pic_order_cnt: {type: 2}
+  no_output_of_prior_pics_flag: 0
+  long_term_reference_flag: 0
+  slice_qp_delta: 0
+  macroblocks_cavlc:
+  - mb_type: 0
+    rem_intra4x4_pred_modes: [-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1]
+    intra_chroma_pred_mode: 0
+    coded_block_pattern: 0
+
+# POC 2, bumps 0
+- nal_ref_idc: 1
+  nal_unit_type: 1 # Coded slice of a non-IDR picture
+  first_mb_in_slice: 0
+  slice_type: 2 # I
+  pic_parameter_set_id: 0
+  frame_num: {bits: 4, absolute: 1}
+  pic_order_cnt: {type: 2}
+  slice_qp_delta: 0
+  macroblocks_cavlc:
+  - mb_type: 0
+    rem_intra4x4_pred_modes: [-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1]
+    intra_chroma_pred_mode: 0
+    coded_block_pattern: 0
+
+# POC 3, bumps 2 then output directly
+- nal_ref_idc: 0
+  nal_unit_type: 1 # Coded slice of a non-IDR picture
+  first_mb_in_slice: 0
+  slice_type: 2 # I
+  pic_parameter_set_id: 0
+  frame_num: {bits: 4, absolute: 2}
+  pic_order_cnt: {type: 2}
+  slice_qp_delta: 0
+  macroblocks_cavlc:
+  - mb_type: 0
+    rem_intra4x4_pred_modes: [-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1]
+    intra_chroma_pred_mode: 0
+    coded_block_pattern: 0
+
+# POC 4
+- nal_ref_idc: 1
+  nal_unit_type: 1 # Coded slice of a non-IDR picture
+  first_mb_in_slice: 0
+  slice_type: 2 # I
+  pic_parameter_set_id: 0
+  frame_num: {bits: 4, absolute: 2}
+  pic_order_cnt: {type: 2}
+  slice_qp_delta: 0
+  macroblocks_cavlc:
+  - mb_type: 0
+    rem_intra4x4_pred_modes: [-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1]
+    intra_chroma_pred_mode: 0
+    coded_block_pattern: 0
+
+# POC 5, bumps 4 then output directly
+- nal_ref_idc: 0
+  nal_unit_type: 1 # Coded slice of a non-IDR picture
+  first_mb_in_slice: 0
+  slice_type: 2 # I
+  pic_parameter_set_id: 0
+  frame_num: {bits: 4, absolute: 3}
+  pic_order_cnt: {type: 2}
+  slice_qp_delta: 0
+  macroblocks_cavlc:
+  - mb_type: 0
+    rem_intra4x4_pred_modes: [-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1]
+    intra_chroma_pred_mode: 0
+    coded_block_pattern: 0
+
+# POC 6
+- nal_ref_idc: 1
+  nal_unit_type: 1 # Coded slice of a non-IDR picture
+  first_mb_in_slice: 0
+  slice_type: 2 # I
+  pic_parameter_set_id: 0
+  frame_num: {bits: 4, absolute: 3}
+  pic_order_cnt: {type: 2}
+  slice_qp_delta: 0
+  macroblocks_cavlc:
+  - mb_type: 0
+    rem_intra4x4_pred_modes: [-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1]
+    intra_chroma_pred_mode: 0
+    coded_block_pattern: 0
+
+# end of sequence bumps 6
+- nal_ref_idc: 0
+  nal_unit_type: 10 # End of sequence
+
+
+
+# S8b: pic_order_cnt_type=1 with negative offset_for_non_ref_pic, so non-refs are reordered.
+# max_num_reorder_frames=1, max_dec_frame_buffering=2, max_num_ref_frames=1
+# Expected output: 0 2 4 6 8
+
+- nal_ref_idc: 3
+  nal_unit_type: 7 # Sequence parameter set
+  profile_idc: 100 # High
+  constraint_set_flags: [0,0,0,0,0,0]
+  level_idc: 1.0
+  chroma_format_idc: 1 # 4:2:0
+  bit_depth: {luma: 8, chroma: 8}
+  qpprime_y_zero_transform_bypass_flag: 0
+  log2_max_frame_num: 4
+  pic_order_cnt_type: 1
+  delta_pic_order_always_zero_flag: 1
+  offset_for_non_ref_pic: -2
+  offset_for_top_to_bottom_field: 0
+  offsets_for_ref_frames: [4]
+  max_num_ref_frames: 1
+  gaps_in_frame_num_value_allowed_flag: 0
+  pic_size_in_mbs: {width: 1, height: 1}
+  frame_mbs_only_flag: 1
+  direct_8x8_inference_flag: 0
+  vui_parameters:
+    overscan_appropriate_flag: -1
+    pic_struct_present_flag: 0
+    motion_vectors_over_pic_boundaries_flag: 1
+    log2_max_mv_length_horizontal: 15
+    log2_max_mv_length_vertical: 15
+    max_num_reorder_frames: 1
+    max_dec_frame_buffering: 2
+
+- nal_ref_idc: 3
+  nal_unit_type: 8 # Picture parameter set
+  pic_parameter_set_id: 0
+  entropy_coding_mode_flag: 0 # CAVLC
+  bottom_field_pic_order_in_frame_present_flag: 0
+  num_slice_groups: 1
+  num_ref_idx_default_active: {l0: 1, l1: 1}
+  weighted_pred_flag: 0 # average
+  weighted_bipred_idc: 0 # average
+  pic_init_qp: 0
+  chroma_qp_index_offset: 0
+  deblocking_filter_control_present_flag: 0
+  constrained_intra_pred_flag: 0
+  redundant_pic_cnt_present_flag: 0
+
+# POC 0 (type 1)
+- nal_ref_idc: 1
+  nal_unit_type: 5 # Coded slice of an IDR picture
+  first_mb_in_slice: 0
+  slice_type: 2 # I
+  pic_parameter_set_id: 0
+  frame_num: {bits: 4, absolute: 0}
+  idr_pic_id: 0
+  pic_order_cnt: {type: 1}
+  no_output_of_prior_pics_flag: 0
+  long_term_reference_flag: 0
+  slice_qp_delta: 0
+  macroblocks_cavlc:
+  - mb_type: 0
+    rem_intra4x4_pred_modes: [-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1]
+    intra_chroma_pred_mode: 0
+    coded_block_pattern: 0
+
+# POC 4, bumps 0 (type 1)
+- nal_ref_idc: 1
+  nal_unit_type: 1 # Coded slice of a non-IDR picture
+  first_mb_in_slice: 0
+  slice_type: 2 # I
+  pic_parameter_set_id: 0
+  frame_num: {bits: 4, absolute: 1}
+  pic_order_cnt: {type: 1}
+  slice_qp_delta: 0
+  macroblocks_cavlc:
+  - mb_type: 0
+    rem_intra4x4_pred_modes: [-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1]
+    intra_chroma_pred_mode: 0
+    coded_block_pattern: 0
+
+# POC 2, bumps itself (type 1)
+- nal_ref_idc: 0
+  nal_unit_type: 1 # Coded slice of a non-IDR picture
+  first_mb_in_slice: 0
+  slice_type: 2 # I
+  pic_parameter_set_id: 0
+  frame_num: {bits: 4, absolute: 2}
+  pic_order_cnt: {type: 1}
+  slice_qp_delta: 0
+  macroblocks_cavlc:
+  - mb_type: 0
+    rem_intra4x4_pred_modes: [-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1]
+    intra_chroma_pred_mode: 0
+    coded_block_pattern: 0
+
+# POC 8, bumps 4 (type 1)
+- nal_ref_idc: 1
+  nal_unit_type: 1 # Coded slice of a non-IDR picture
+  first_mb_in_slice: 0
+  slice_type: 2 # I
+  pic_parameter_set_id: 0
+  frame_num: {bits: 4, absolute: 2}
+  pic_order_cnt: {type: 1}
+  slice_qp_delta: 0
+  macroblocks_cavlc:
+  - mb_type: 0
+    rem_intra4x4_pred_modes: [-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1]
+    intra_chroma_pred_mode: 0
+    coded_block_pattern: 0
+
+# POC 6, bumps itself (type 1)
+- nal_ref_idc: 0
+  nal_unit_type: 1 # Coded slice of a non-IDR picture
+  first_mb_in_slice: 0
+  slice_type: 2 # I
+  pic_parameter_set_id: 0
+  frame_num: {bits: 4, absolute: 3}
+  pic_order_cnt: {type: 1}
+  slice_qp_delta: 0
+  macroblocks_cavlc:
+  - mb_type: 0
+    rem_intra4x4_pred_modes: [-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1]
+    intra_chroma_pred_mode: 0
+    coded_block_pattern: 0
+
+# end of sequence bumps 8
+- nal_ref_idc: 0
+  nal_unit_type: 10 # End of sequence
+
+
+
+# S9a: without VUI, max_num_reorder_frames and max_dec_frame_buffering are inferred as
+# MaxDpbFrames=16 (level 1.0 with 1 macroblock), so output starts with the 17th frame.
+# Expected output: 0 2 4 ... 34
+
+- nal_ref_idc: 3
+  nal_unit_type: 7 # Sequence parameter set
+  profile_idc: 100 # High
+  constraint_set_flags: [0,0,0,0,0,0]
+  level_idc: 1.0
+  chroma_format_idc: 1 # 4:2:0
+  bit_depth: {luma: 8, chroma: 8}
+  qpprime_y_zero_transform_bypass_flag: 0
+  log2_max_frame_num: 4
+  pic_order_cnt_type: 0
+  log2_max_pic_order_cnt_lsb: 6
+  max_num_ref_frames: 1
+  gaps_in_frame_num_value_allowed_flag: 0
+  pic_size_in_mbs: {width: 1, height: 1}
+  frame_mbs_only_flag: 1
+  direct_8x8_inference_flag: 0
+
+- nal_ref_idc: 3
+  nal_unit_type: 8 # Picture parameter set
+  pic_parameter_set_id: 0
+  entropy_coding_mode_flag: 0 # CAVLC
+  bottom_field_pic_order_in_frame_present_flag: 0
+  num_slice_groups: 1
+  num_ref_idx_default_active: {l0: 1, l1: 1}
+  weighted_pred_flag: 0 # average
+  weighted_bipred_idc: 0 # average
+  pic_init_qp: 0
+  chroma_qp_index_offset: 0
+  deblocking_filter_control_present_flag: 0
+  constrained_intra_pred_flag: 0
+  redundant_pic_cnt_present_flag: 0
+
+# POC 0
+- nal_ref_idc: 1
+  nal_unit_type: 5 # Coded slice of an IDR picture
+  first_mb_in_slice: 0
+  slice_type: 2 # I
+  pic_parameter_set_id: 0
+  frame_num: {bits: 4, absolute: 0}
+  idr_pic_id: 0
+  pic_order_cnt: {type: 0, bits: 6, absolute: 0}
+  no_output_of_prior_pics_flag: 0
+  long_term_reference_flag: 0
+  slice_qp_delta: 0
+  macroblocks_cavlc:
+  - mb_type: 0
+    rem_intra4x4_pred_modes: [-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1]
+    intra_chroma_pred_mode: 0
+    coded_block_pattern: 0
+
+# POC 2
+- nal_ref_idc: 1
+  nal_unit_type: 1 # Coded slice of a non-IDR picture
+  first_mb_in_slice: 0
+  slice_type: 2 # I
+  pic_parameter_set_id: 0
+  frame_num: {bits: 4, absolute: 1}
+  pic_order_cnt: {type: 0, bits: 6, absolute: 2}
+  slice_qp_delta: 0
+  macroblocks_cavlc:
+  - mb_type: 0
+    rem_intra4x4_pred_modes: [-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1]
+    intra_chroma_pred_mode: 0
+    coded_block_pattern: 0
+
+# POC 4
+- nal_ref_idc: 1
+  nal_unit_type: 1 # Coded slice of a non-IDR picture
+  first_mb_in_slice: 0
+  slice_type: 2 # I
+  pic_parameter_set_id: 0
+  frame_num: {bits: 4, absolute: 2}
+  pic_order_cnt: {type: 0, bits: 6, absolute: 4}
+  slice_qp_delta: 0
+  macroblocks_cavlc:
+  - mb_type: 0
+    rem_intra4x4_pred_modes: [-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1]
+    intra_chroma_pred_mode: 0
+    coded_block_pattern: 0
+
+# POC 6
+- nal_ref_idc: 1
+  nal_unit_type: 1 # Coded slice of a non-IDR picture
+  first_mb_in_slice: 0
+  slice_type: 2 # I
+  pic_parameter_set_id: 0
+  frame_num: {bits: 4, absolute: 3}
+  pic_order_cnt: {type: 0, bits: 6, absolute: 6}
+  slice_qp_delta: 0
+  macroblocks_cavlc:
+  - mb_type: 0
+    rem_intra4x4_pred_modes: [-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1]
+    intra_chroma_pred_mode: 0
+    coded_block_pattern: 0
+
+# POC 8
+- nal_ref_idc: 1
+  nal_unit_type: 1 # Coded slice of a non-IDR picture
+  first_mb_in_slice: 0
+  slice_type: 2 # I
+  pic_parameter_set_id: 0
+  frame_num: {bits: 4, absolute: 4}
+  pic_order_cnt: {type: 0, bits: 6, absolute: 8}
+  slice_qp_delta: 0
+  macroblocks_cavlc:
+  - mb_type: 0
+    rem_intra4x4_pred_modes: [-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1]
+    intra_chroma_pred_mode: 0
+    coded_block_pattern: 0
+
+# POC 10
+- nal_ref_idc: 1
+  nal_unit_type: 1 # Coded slice of a non-IDR picture
+  first_mb_in_slice: 0
+  slice_type: 2 # I
+  pic_parameter_set_id: 0
+  frame_num: {bits: 4, absolute: 5}
+  pic_order_cnt: {type: 0, bits: 6, absolute: 10}
+  slice_qp_delta: 0
+  macroblocks_cavlc:
+  - mb_type: 0
+    rem_intra4x4_pred_modes: [-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1]
+    intra_chroma_pred_mode: 0
+    coded_block_pattern: 0
+
+# POC 12
+- nal_ref_idc: 1
+  nal_unit_type: 1 # Coded slice of a non-IDR picture
+  first_mb_in_slice: 0
+  slice_type: 2 # I
+  pic_parameter_set_id: 0
+  frame_num: {bits: 4, absolute: 6}
+  pic_order_cnt: {type: 0, bits: 6, absolute: 12}
+  slice_qp_delta: 0
+  macroblocks_cavlc:
+  - mb_type: 0
+    rem_intra4x4_pred_modes: [-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1]
+    intra_chroma_pred_mode: 0
+    coded_block_pattern: 0
+
+# POC 14
+- nal_ref_idc: 1
+  nal_unit_type: 1 # Coded slice of a non-IDR picture
+  first_mb_in_slice: 0
+  slice_type: 2 # I
+  pic_parameter_set_id: 0
+  frame_num: {bits: 4, absolute: 7}
+  pic_order_cnt: {type: 0, bits: 6, absolute: 14}
+  slice_qp_delta: 0
+  macroblocks_cavlc:
+  - mb_type: 0
+    rem_intra4x4_pred_modes: [-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1]
+    intra_chroma_pred_mode: 0
+    coded_block_pattern: 0
+
+# POC 16
+- nal_ref_idc: 1
+  nal_unit_type: 1 # Coded slice of a non-IDR picture
+  first_mb_in_slice: 0
+  slice_type: 2 # I
+  pic_parameter_set_id: 0
+  frame_num: {bits: 4, absolute: 8}
+  pic_order_cnt: {type: 0, bits: 6, absolute: 16}
+  slice_qp_delta: 0
+  macroblocks_cavlc:
+  - mb_type: 0
+    rem_intra4x4_pred_modes: [-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1]
+    intra_chroma_pred_mode: 0
+    coded_block_pattern: 0
+
+# POC 18
+- nal_ref_idc: 1
+  nal_unit_type: 1 # Coded slice of a non-IDR picture
+  first_mb_in_slice: 0
+  slice_type: 2 # I
+  pic_parameter_set_id: 0
+  frame_num: {bits: 4, absolute: 9}
+  pic_order_cnt: {type: 0, bits: 6, absolute: 18}
+  slice_qp_delta: 0
+  macroblocks_cavlc:
+  - mb_type: 0
+    rem_intra4x4_pred_modes: [-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1]
+    intra_chroma_pred_mode: 0
+    coded_block_pattern: 0
+
+# POC 20
+- nal_ref_idc: 1
+  nal_unit_type: 1 # Coded slice of a non-IDR picture
+  first_mb_in_slice: 0
+  slice_type: 2 # I
+  pic_parameter_set_id: 0
+  frame_num: {bits: 4, absolute: 10}
+  pic_order_cnt: {type: 0, bits: 6, absolute: 20}
+  slice_qp_delta: 0
+  macroblocks_cavlc:
+  - mb_type: 0
+    rem_intra4x4_pred_modes: [-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1]
+    intra_chroma_pred_mode: 0
+    coded_block_pattern: 0
+
+# POC 22
+- nal_ref_idc: 1
+  nal_unit_type: 1 # Coded slice of a non-IDR picture
+  first_mb_in_slice: 0
+  slice_type: 2 # I
+  pic_parameter_set_id: 0
+  frame_num: {bits: 4, absolute: 11}
+  pic_order_cnt: {type: 0, bits: 6, absolute: 22}
+  slice_qp_delta: 0
+  macroblocks_cavlc:
+  - mb_type: 0
+    rem_intra4x4_pred_modes: [-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1]
+    intra_chroma_pred_mode: 0
+    coded_block_pattern: 0
+
+# POC 24
+- nal_ref_idc: 1
+  nal_unit_type: 1 # Coded slice of a non-IDR picture
+  first_mb_in_slice: 0
+  slice_type: 2 # I
+  pic_parameter_set_id: 0
+  frame_num: {bits: 4, absolute: 12}
+  pic_order_cnt: {type: 0, bits: 6, absolute: 24}
+  slice_qp_delta: 0
+  macroblocks_cavlc:
+  - mb_type: 0
+    rem_intra4x4_pred_modes: [-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1]
+    intra_chroma_pred_mode: 0
+    coded_block_pattern: 0
+
+# POC 26
+- nal_ref_idc: 1
+  nal_unit_type: 1 # Coded slice of a non-IDR picture
+  first_mb_in_slice: 0
+  slice_type: 2 # I
+  pic_parameter_set_id: 0
+  frame_num: {bits: 4, absolute: 13}
+  pic_order_cnt: {type: 0, bits: 6, absolute: 26}
+  slice_qp_delta: 0
+  macroblocks_cavlc:
+  - mb_type: 0
+    rem_intra4x4_pred_modes: [-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1]
+    intra_chroma_pred_mode: 0
+    coded_block_pattern: 0
+
+# POC 28
+- nal_ref_idc: 1
+  nal_unit_type: 1 # Coded slice of a non-IDR picture
+  first_mb_in_slice: 0
+  slice_type: 2 # I
+  pic_parameter_set_id: 0
+  frame_num: {bits: 4, absolute: 14}
+  pic_order_cnt: {type: 0, bits: 6, absolute: 28}
+  slice_qp_delta: 0
+  macroblocks_cavlc:
+  - mb_type: 0
+    rem_intra4x4_pred_modes: [-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1]
+    intra_chroma_pred_mode: 0
+    coded_block_pattern: 0
+
+# POC 30
+- nal_ref_idc: 1
+  nal_unit_type: 1 # Coded slice of a non-IDR picture
+  first_mb_in_slice: 0
+  slice_type: 2 # I
+  pic_parameter_set_id: 0
+  frame_num: {bits: 4, absolute: 15}
+  pic_order_cnt: {type: 0, bits: 6, absolute: 30}
+  slice_qp_delta: 0
+  macroblocks_cavlc:
+  - mb_type: 0
+    rem_intra4x4_pred_modes: [-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1]
+    intra_chroma_pred_mode: 0
+    coded_block_pattern: 0
+
+# POC 32, DPB full so bumps 0
+- nal_ref_idc: 1
+  nal_unit_type: 1 # Coded slice of a non-IDR picture
+  first_mb_in_slice: 0
+  slice_type: 2 # I
+  pic_parameter_set_id: 0
+  frame_num: {bits: 4, absolute: 0}
+  pic_order_cnt: {type: 0, bits: 6, absolute: 32}
+  slice_qp_delta: 0
+  macroblocks_cavlc:
+  - mb_type: 0
+    rem_intra4x4_pred_modes: [-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1]
+    intra_chroma_pred_mode: 0
+    coded_block_pattern: 0
+
+# POC 34, DPB full so bumps 2
+- nal_ref_idc: 1
+  nal_unit_type: 1 # Coded slice of a non-IDR picture
+  first_mb_in_slice: 0
+  slice_type: 2 # I
+  pic_parameter_set_id: 0
+  frame_num: {bits: 4, absolute: 1}
+  pic_order_cnt: {type: 0, bits: 6, absolute: 34}
+  slice_qp_delta: 0
+  macroblocks_cavlc:
+  - mb_type: 0
+    rem_intra4x4_pred_modes: [-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1]
+    intra_chroma_pred_mode: 0
+    coded_block_pattern: 0
+
+# end of sequence bumps 4 to 34
+- nal_ref_idc: 0
+  nal_unit_type: 10 # End of sequence
+
+
+
+# S9b: max_dec_frame_buffering=1 lower than max_num_ref_frames=2 is raised to 2.
+# Expected output: 0 4 8 16
+
+- nal_ref_idc: 3
+  nal_unit_type: 7 # Sequence parameter set
+  profile_idc: 100 # High
+  constraint_set_flags: [0,0,0,0,0,0]
+  level_idc: 1.0
+  chroma_format_idc: 1 # 4:2:0
+  bit_depth: {luma: 8, chroma: 8}
+  qpprime_y_zero_transform_bypass_flag: 0
+  log2_max_frame_num: 4
+  pic_order_cnt_type: 0
+  log2_max_pic_order_cnt_lsb: 6
+  max_num_ref_frames: 2
+  gaps_in_frame_num_value_allowed_flag: 0
+  pic_size_in_mbs: {width: 1, height: 1}
+  frame_mbs_only_flag: 1
+  direct_8x8_inference_flag: 0
+  vui_parameters:
+    overscan_appropriate_flag: -1
+    pic_struct_present_flag: 0
+    motion_vectors_over_pic_boundaries_flag: 1
+    log2_max_mv_length_horizontal: 15
+    log2_max_mv_length_vertical: 15
+    max_num_reorder_frames: 2
+    max_dec_frame_buffering: 1
+
+- nal_ref_idc: 3
+  nal_unit_type: 8 # Picture parameter set
+  pic_parameter_set_id: 0
+  entropy_coding_mode_flag: 0 # CAVLC
+  bottom_field_pic_order_in_frame_present_flag: 0
+  num_slice_groups: 1
+  num_ref_idx_default_active: {l0: 1, l1: 1}
+  weighted_pred_flag: 0 # average
+  weighted_bipred_idc: 0 # average
+  pic_init_qp: 0
+  chroma_qp_index_offset: 0
+  deblocking_filter_control_present_flag: 0
+  constrained_intra_pred_flag: 0
+  redundant_pic_cnt_present_flag: 0
+
+# POC 0
+- nal_ref_idc: 1
+  nal_unit_type: 5 # Coded slice of an IDR picture
+  first_mb_in_slice: 0
+  slice_type: 2 # I
+  pic_parameter_set_id: 0
+  frame_num: {bits: 4, absolute: 0}
+  idr_pic_id: 0
+  pic_order_cnt: {type: 0, bits: 6, absolute: 0}
+  no_output_of_prior_pics_flag: 0
+  long_term_reference_flag: 0
+  slice_qp_delta: 0
+  macroblocks_cavlc:
+  - mb_type: 0
+    rem_intra4x4_pred_modes: [-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1]
+    intra_chroma_pred_mode: 0
+    coded_block_pattern: 0
+
+# POC 8
+- nal_ref_idc: 1
+  nal_unit_type: 1 # Coded slice of a non-IDR picture
+  first_mb_in_slice: 0
+  slice_type: 2 # I
+  pic_parameter_set_id: 0
+  frame_num: {bits: 4, absolute: 1}
+  pic_order_cnt: {type: 0, bits: 6, absolute: 8}
+  slice_qp_delta: 0
+  macroblocks_cavlc:
+  - mb_type: 0
+    rem_intra4x4_pred_modes: [-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1]
+    intra_chroma_pred_mode: 0
+    coded_block_pattern: 0
+
+# POC 4, DPB of 2 full of refs, bumps 0 then output directly
+- nal_ref_idc: 0
+  nal_unit_type: 1 # Coded slice of a non-IDR picture
+  first_mb_in_slice: 0
+  slice_type: 2 # I
+  pic_parameter_set_id: 0
+  frame_num: {bits: 4, absolute: 2}
+  pic_order_cnt: {type: 0, bits: 6, absolute: 4}
+  slice_qp_delta: 0
+  macroblocks_cavlc:
+  - mb_type: 0
+    rem_intra4x4_pred_modes: [-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1]
+    intra_chroma_pred_mode: 0
+    coded_block_pattern: 0
+
+# POC 16
+- nal_ref_idc: 1
+  nal_unit_type: 1 # Coded slice of a non-IDR picture
+  first_mb_in_slice: 0
+  slice_type: 2 # I
+  pic_parameter_set_id: 0
+  frame_num: {bits: 4, absolute: 2}
+  pic_order_cnt: {type: 0, bits: 6, absolute: 16}
+  slice_qp_delta: 0
+  macroblocks_cavlc:
+  - mb_type: 0
+    rem_intra4x4_pred_modes: [-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1]
+    intra_chroma_pred_mode: 0
+    coded_block_pattern: 0
+
+# end of sequence bumps 8 16
+- nal_ref_idc: 0
+  nal_unit_type: 10 # End of sequence
+
+
+
+# S9c: High 10 Intra profile (constraint_set3_flag=1) without VUI infers max_num_reorder_frames=0
+# and max_dec_frame_buffering=max_num_ref_frames, so every frame is output immediately.
+# Expected output: 0 0 0
+
+- nal_ref_idc: 3
+  nal_unit_type: 7 # Sequence parameter set
+  profile_idc: 110 # High 10
+  constraint_set_flags: [0,0,0,1,0,0]
+  level_idc: 1.0
+  chroma_format_idc: 1 # 4:2:0
+  bit_depth: {luma: 8, chroma: 8}
+  qpprime_y_zero_transform_bypass_flag: 0
+  log2_max_frame_num: 4
+  pic_order_cnt_type: 0
+  log2_max_pic_order_cnt_lsb: 6
+  max_num_ref_frames: 1
+  gaps_in_frame_num_value_allowed_flag: 0
+  pic_size_in_mbs: {width: 1, height: 1}
+  frame_mbs_only_flag: 1
+  direct_8x8_inference_flag: 0
+
+- nal_ref_idc: 3
+  nal_unit_type: 8 # Picture parameter set
+  pic_parameter_set_id: 0
+  entropy_coding_mode_flag: 0 # CAVLC
+  bottom_field_pic_order_in_frame_present_flag: 0
+  num_slice_groups: 1
+  num_ref_idx_default_active: {l0: 1, l1: 1}
+  weighted_pred_flag: 0 # average
+  weighted_bipred_idc: 0 # average
+  pic_init_qp: 0
+  chroma_qp_index_offset: 0
+  deblocking_filter_control_present_flag: 0
+  constrained_intra_pred_flag: 0
+  redundant_pic_cnt_present_flag: 0
+
+# POC 0
+- nal_ref_idc: 1
+  nal_unit_type: 5 # Coded slice of an IDR picture
+  first_mb_in_slice: 0
+  slice_type: 2 # I
+  pic_parameter_set_id: 0
+  frame_num: {bits: 4, absolute: 0}
+  idr_pic_id: 0
+  pic_order_cnt: {type: 0, bits: 6, absolute: 0}
+  no_output_of_prior_pics_flag: 0
+  long_term_reference_flag: 0
+  slice_qp_delta: 0
+  macroblocks_cavlc:
+  - mb_type: 0
+    rem_intra4x4_pred_modes: [-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1]
+    intra_chroma_pred_mode: 0
+    coded_block_pattern: 0
+
+# POC 0, releases previous
+- nal_ref_idc: 1
+  nal_unit_type: 5 # Coded slice of an IDR picture
+  first_mb_in_slice: 0
+  slice_type: 2 # I
+  pic_parameter_set_id: 0
+  frame_num: {bits: 4, absolute: 0}
+  idr_pic_id: 1
+  pic_order_cnt: {type: 0, bits: 6, absolute: 0}
+  no_output_of_prior_pics_flag: 0
+  long_term_reference_flag: 0
+  slice_qp_delta: 0
+  macroblocks_cavlc:
+  - mb_type: 0
+    rem_intra4x4_pred_modes: [-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1]
+    intra_chroma_pred_mode: 0
+    coded_block_pattern: 0
+
+# POC 0, releases previous
+- nal_ref_idc: 1
+  nal_unit_type: 5 # Coded slice of an IDR picture
+  first_mb_in_slice: 0
+  slice_type: 2 # I
+  pic_parameter_set_id: 0
+  frame_num: {bits: 4, absolute: 0}
+  idr_pic_id: 0
+  pic_order_cnt: {type: 0, bits: 6, absolute: 0}
+  no_output_of_prior_pics_flag: 0
+  long_term_reference_flag: 0
+  slice_qp_delta: 0
+  macroblocks_cavlc:
+  - mb_type: 0
+    rem_intra4x4_pred_modes: [-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1]
+    intra_chroma_pred_mode: 0
+    coded_block_pattern: 0
+
+# end of sequence releases the last frame
+- nal_ref_idc: 0
+  nal_unit_type: 10 # End of sequence
+
+
+
+# S10: a repeated identical SPS does not flush the DPB, while a SPS changing the frame format
+# returns ENOBUFS until all frames are output. Then multi-slice frames: a frame output
+# directly is released only once complete and the next picture has started.
+# Expected output: 0 2 4 8, then 0 4 8
+
+- nal_ref_idc: 3
+  nal_unit_type: 7 # Sequence parameter set
+  profile_idc: 100 # High
+  constraint_set_flags: [0,0,0,0,0,0]
+  level_idc: 1.0
+  chroma_format_idc: 1 # 4:2:0
+  bit_depth: {luma: 8, chroma: 8}
+  qpprime_y_zero_transform_bypass_flag: 0
+  log2_max_frame_num: 4
+  pic_order_cnt_type: 0
+  log2_max_pic_order_cnt_lsb: 6
+  max_num_ref_frames: 2
+  gaps_in_frame_num_value_allowed_flag: 0
+  pic_size_in_mbs: {width: 1, height: 1}
+  frame_mbs_only_flag: 1
+  direct_8x8_inference_flag: 0
+
+- nal_ref_idc: 3
+  nal_unit_type: 8 # Picture parameter set
+  pic_parameter_set_id: 0
+  entropy_coding_mode_flag: 0 # CAVLC
+  bottom_field_pic_order_in_frame_present_flag: 0
+  num_slice_groups: 1
+  num_ref_idx_default_active: {l0: 1, l1: 1}
+  weighted_pred_flag: 0 # average
+  weighted_bipred_idc: 0 # average
+  pic_init_qp: 0
+  chroma_qp_index_offset: 0
+  deblocking_filter_control_present_flag: 0
+  constrained_intra_pred_flag: 0
+  redundant_pic_cnt_present_flag: 0
+
+# POC 0
+- nal_ref_idc: 1
+  nal_unit_type: 5 # Coded slice of an IDR picture
+  first_mb_in_slice: 0
+  slice_type: 2 # I
+  pic_parameter_set_id: 0
+  frame_num: {bits: 4, absolute: 0}
+  idr_pic_id: 0
+  pic_order_cnt: {type: 0, bits: 6, absolute: 0}
+  no_output_of_prior_pics_flag: 0
+  long_term_reference_flag: 0
+  slice_qp_delta: 0
+  macroblocks_cavlc:
+  - mb_type: 0
+    rem_intra4x4_pred_modes: [-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1]
+    intra_chroma_pred_mode: 0
+    coded_block_pattern: 0
+
+# POC 8
+- nal_ref_idc: 1
+  nal_unit_type: 1 # Coded slice of a non-IDR picture
+  first_mb_in_slice: 0
+  slice_type: 2 # I
+  pic_parameter_set_id: 0
+  frame_num: {bits: 4, absolute: 1}
+  pic_order_cnt: {type: 0, bits: 6, absolute: 8}
+  slice_qp_delta: 0
+  macroblocks_cavlc:
+  - mb_type: 0
+    rem_intra4x4_pred_modes: [-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1]
+    intra_chroma_pred_mode: 0
+    coded_block_pattern: 0
+
+# POC 4
+- nal_ref_idc: 0
+  nal_unit_type: 1 # Coded slice of a non-IDR picture
+  first_mb_in_slice: 0
+  slice_type: 2 # I
+  pic_parameter_set_id: 0
+  frame_num: {bits: 4, absolute: 2}
+  pic_order_cnt: {type: 0, bits: 6, absolute: 4}
+  slice_qp_delta: 0
+  macroblocks_cavlc:
+  - mb_type: 0
+    rem_intra4x4_pred_modes: [-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1]
+    intra_chroma_pred_mode: 0
+    coded_block_pattern: 0
+
+# identical SPS and PPS, no flush
+- nal_ref_idc: 3
+  nal_unit_type: 7 # Sequence parameter set
+  profile_idc: 100 # High
+  constraint_set_flags: [0,0,0,0,0,0]
+  level_idc: 1.0
+  chroma_format_idc: 1 # 4:2:0
+  bit_depth: {luma: 8, chroma: 8}
+  qpprime_y_zero_transform_bypass_flag: 0
+  log2_max_frame_num: 4
+  pic_order_cnt_type: 0
+  log2_max_pic_order_cnt_lsb: 6
+  max_num_ref_frames: 2
+  gaps_in_frame_num_value_allowed_flag: 0
+  pic_size_in_mbs: {width: 1, height: 1}
+  frame_mbs_only_flag: 1
+  direct_8x8_inference_flag: 0
+
+- nal_ref_idc: 3
+  nal_unit_type: 8 # Picture parameter set
+  pic_parameter_set_id: 0
+  entropy_coding_mode_flag: 0 # CAVLC
+  bottom_field_pic_order_in_frame_present_flag: 0
+  num_slice_groups: 1
+  num_ref_idx_default_active: {l0: 1, l1: 1}
+  weighted_pred_flag: 0 # average
+  weighted_bipred_idc: 0 # average
+  pic_init_qp: 0
+  chroma_qp_index_offset: 0
+  deblocking_filter_control_present_flag: 0
+  constrained_intra_pred_flag: 0
+  redundant_pic_cnt_present_flag: 0
+
+# POC 2
+- nal_ref_idc: 0
+  nal_unit_type: 1 # Coded slice of a non-IDR picture
+  first_mb_in_slice: 0
+  slice_type: 2 # I
+  pic_parameter_set_id: 0
+  frame_num: {bits: 4, absolute: 2}
+  pic_order_cnt: {type: 0, bits: 6, absolute: 2}
+  slice_qp_delta: 0
+  macroblocks_cavlc:
+  - mb_type: 0
+    rem_intra4x4_pred_modes: [-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1]
+    intra_chroma_pred_mode: 0
+    coded_block_pattern: 0
+
+# new frame format, ENOBUFS then bumps 0 2 4 8
+- nal_ref_idc: 3
+  nal_unit_type: 7 # Sequence parameter set
+  profile_idc: 100 # High
+  constraint_set_flags: [0,0,0,0,0,0]
+  level_idc: 1.0
+  chroma_format_idc: 1 # 4:2:0
+  bit_depth: {luma: 8, chroma: 8}
+  qpprime_y_zero_transform_bypass_flag: 0
+  log2_max_frame_num: 4
+  pic_order_cnt_type: 0
+  log2_max_pic_order_cnt_lsb: 6
+  max_num_ref_frames: 1
+  gaps_in_frame_num_value_allowed_flag: 0
+  pic_size_in_mbs: {width: 2, height: 1}
+  frame_mbs_only_flag: 1
+  direct_8x8_inference_flag: 0
+  vui_parameters:
+    overscan_appropriate_flag: -1
+    pic_struct_present_flag: 0
+    motion_vectors_over_pic_boundaries_flag: 1
+    log2_max_mv_length_horizontal: 15
+    log2_max_mv_length_vertical: 15
+    max_num_reorder_frames: 1
+    max_dec_frame_buffering: 1
+
+- nal_ref_idc: 3
+  nal_unit_type: 8 # Picture parameter set
+  pic_parameter_set_id: 0
+  entropy_coding_mode_flag: 0 # CAVLC
+  bottom_field_pic_order_in_frame_present_flag: 0
+  num_slice_groups: 1
+  num_ref_idx_default_active: {l0: 1, l1: 1}
+  weighted_pred_flag: 0 # average
+  weighted_bipred_idc: 0 # average
+  pic_init_qp: 0
+  chroma_qp_index_offset: 0
+  deblocking_filter_control_present_flag: 0
+  constrained_intra_pred_flag: 0
+  redundant_pic_cnt_present_flag: 0
+
+# POC 0, 2 slices
+- nal_ref_idc: 1
+  nal_unit_type: 5 # Coded slice of an IDR picture
+  first_mb_in_slice: 0
+  slice_type: 2 # I
+  pic_parameter_set_id: 0
+  frame_num: {bits: 4, absolute: 0}
+  idr_pic_id: 0
+  pic_order_cnt: {type: 0, bits: 6, absolute: 0}
+  no_output_of_prior_pics_flag: 0
+  long_term_reference_flag: 0
+  slice_qp_delta: 0
+  macroblocks_cavlc:
+  - mb_type: 0
+    rem_intra4x4_pred_modes: [-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1]
+    intra_chroma_pred_mode: 0
+    coded_block_pattern: 0
+
+- nal_ref_idc: 1
+  nal_unit_type: 5 # Coded slice of an IDR picture
+  first_mb_in_slice: 1
+  slice_type: 2 # I
+  pic_parameter_set_id: 0
+  frame_num: {bits: 4, absolute: 0}
+  idr_pic_id: 0
+  pic_order_cnt: {type: 0, bits: 6, absolute: 0}
+  no_output_of_prior_pics_flag: 0
+  long_term_reference_flag: 0
+  slice_qp_delta: 0
+  macroblocks_cavlc:
+  - mb_type: 0
+    rem_intra4x4_pred_modes: [-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1]
+    intra_chroma_pred_mode: 0
+    coded_block_pattern: 0
+
+# POC 8, 2 slices, bumps 0
+- nal_ref_idc: 1
+  nal_unit_type: 1 # Coded slice of a non-IDR picture
+  first_mb_in_slice: 0
+  slice_type: 2 # I
+  pic_parameter_set_id: 0
+  frame_num: {bits: 4, absolute: 1}
+  pic_order_cnt: {type: 0, bits: 6, absolute: 8}
+  slice_qp_delta: 0
+  macroblocks_cavlc:
+  - mb_type: 0
+    rem_intra4x4_pred_modes: [-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1]
+    intra_chroma_pred_mode: 0
+    coded_block_pattern: 0
+
+- nal_ref_idc: 1
+  nal_unit_type: 1 # Coded slice of a non-IDR picture
+  first_mb_in_slice: 1
+  slice_type: 2 # I
+  pic_parameter_set_id: 0
+  frame_num: {bits: 4, absolute: 1}
+  pic_order_cnt: {type: 0, bits: 6, absolute: 8}
+  slice_qp_delta: 0
+  macroblocks_cavlc:
+  - mb_type: 0
+    rem_intra4x4_pred_modes: [-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1]
+    intra_chroma_pred_mode: 0
+    coded_block_pattern: 0
+
+# POC 4, 2 slices, output directly
+- nal_ref_idc: 0
+  nal_unit_type: 1 # Coded slice of a non-IDR picture
+  first_mb_in_slice: 0
+  slice_type: 2 # I
+  pic_parameter_set_id: 0
+  frame_num: {bits: 4, absolute: 2}
+  pic_order_cnt: {type: 0, bits: 6, absolute: 4}
+  slice_qp_delta: 0
+  macroblocks_cavlc:
+  - mb_type: 0
+    rem_intra4x4_pred_modes: [-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1]
+    intra_chroma_pred_mode: 0
+    coded_block_pattern: 0
+
+- nal_ref_idc: 0
+  nal_unit_type: 1 # Coded slice of a non-IDR picture
+  first_mb_in_slice: 1
+  slice_type: 2 # I
+  pic_parameter_set_id: 0
+  frame_num: {bits: 4, absolute: 2}
+  pic_order_cnt: {type: 0, bits: 6, absolute: 4}
+  slice_qp_delta: 0
+  macroblocks_cavlc:
+  - mb_type: 0
+    rem_intra4x4_pred_modes: [-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1]
+    intra_chroma_pred_mode: 0
+    coded_block_pattern: 0
+
+# end of sequence bumps 4 8
+- nal_ref_idc: 0
+  nal_unit_type: 10 # End of sequence
+
+
+
+# S11: duplicate POCs (non-conforming, 8.2.1), all frames must still be output exactly once.
+# max_num_reorder_frames=1, max_dec_frame_buffering=2, max_num_ref_frames=1
+# Expected output: 0, the three POC 8 frames in any order (currently 3rd, 1st then 2nd decoded), 12
+
+- nal_ref_idc: 3
+  nal_unit_type: 7 # Sequence parameter set
+  profile_idc: 100 # High
+  constraint_set_flags: [0,0,0,0,0,0]
+  level_idc: 1.0
+  chroma_format_idc: 1 # 4:2:0
+  bit_depth: {luma: 8, chroma: 8}
+  qpprime_y_zero_transform_bypass_flag: 0
+  log2_max_frame_num: 4
+  pic_order_cnt_type: 0
+  log2_max_pic_order_cnt_lsb: 6
+  max_num_ref_frames: 1
+  gaps_in_frame_num_value_allowed_flag: 0
+  pic_size_in_mbs: {width: 1, height: 1}
+  frame_mbs_only_flag: 1
+  direct_8x8_inference_flag: 0
+  vui_parameters:
+    overscan_appropriate_flag: -1
+    pic_struct_present_flag: 0
+    motion_vectors_over_pic_boundaries_flag: 1
+    log2_max_mv_length_horizontal: 15
+    log2_max_mv_length_vertical: 15
+    max_num_reorder_frames: 1
+    max_dec_frame_buffering: 2
+
+- nal_ref_idc: 3
+  nal_unit_type: 8 # Picture parameter set
+  pic_parameter_set_id: 0
+  entropy_coding_mode_flag: 0 # CAVLC
+  bottom_field_pic_order_in_frame_present_flag: 0
+  num_slice_groups: 1
+  num_ref_idx_default_active: {l0: 1, l1: 1}
+  weighted_pred_flag: 0 # average
+  weighted_bipred_idc: 0 # average
+  pic_init_qp: 0
+  chroma_qp_index_offset: 0
+  deblocking_filter_control_present_flag: 0
+  constrained_intra_pred_flag: 0
+  redundant_pic_cnt_present_flag: 0
+
+# POC 0
+- nal_ref_idc: 1
+  nal_unit_type: 5 # Coded slice of an IDR picture
+  first_mb_in_slice: 0
+  slice_type: 2 # I
+  pic_parameter_set_id: 0
+  frame_num: {bits: 4, absolute: 0}
+  idr_pic_id: 0
+  pic_order_cnt: {type: 0, bits: 6, absolute: 0}
+  no_output_of_prior_pics_flag: 0
+  long_term_reference_flag: 0
+  slice_qp_delta: 0
+  macroblocks_cavlc:
+  - mb_type: 0
+    rem_intra4x4_pred_modes: [-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1]
+    intra_chroma_pred_mode: 0
+    coded_block_pattern: 0
+
+# POC 8, bumps 0
+- nal_ref_idc: 1
+  nal_unit_type: 1 # Coded slice of a non-IDR picture
+  first_mb_in_slice: 0
+  slice_type: 2 # I
+  pic_parameter_set_id: 0
+  frame_num: {bits: 4, absolute: 1}
+  pic_order_cnt: {type: 0, bits: 6, absolute: 8}
+  slice_qp_delta: 0
+  macroblocks_cavlc:
+  - mb_type: 0
+    rem_intra4x4_pred_modes: [-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1]
+    intra_chroma_pred_mode: 0
+    coded_block_pattern: 0
+
+# POC 8 again, bumps the first POC 8 (withheld while current POC is 8)
+- nal_ref_idc: 1
+  nal_unit_type: 1 # Coded slice of a non-IDR picture
+  first_mb_in_slice: 0
+  slice_type: 2 # I
+  pic_parameter_set_id: 0
+  frame_num: {bits: 4, absolute: 2}
+  pic_order_cnt: {type: 0, bits: 6, absolute: 8}
+  slice_qp_delta: 0
+  macroblocks_cavlc:
+  - mb_type: 0
+    rem_intra4x4_pred_modes: [-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1]
+    intra_chroma_pred_mode: 0
+    coded_block_pattern: 0
+
+# POC 8 again as non-ref, bumps itself
+- nal_ref_idc: 0
+  nal_unit_type: 1 # Coded slice of a non-IDR picture
+  first_mb_in_slice: 0
+  slice_type: 2 # I
+  pic_parameter_set_id: 0
+  frame_num: {bits: 4, absolute: 3}
+  pic_order_cnt: {type: 0, bits: 6, absolute: 8}
+  slice_qp_delta: 0
+  macroblocks_cavlc:
+  - mb_type: 0
+    rem_intra4x4_pred_modes: [-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1]
+    intra_chroma_pred_mode: 0
+    coded_block_pattern: 0
+
+# POC 12, bumps the second POC 8, releasing all three
+- nal_ref_idc: 1
+  nal_unit_type: 1 # Coded slice of a non-IDR picture
+  first_mb_in_slice: 0
+  slice_type: 2 # I
+  pic_parameter_set_id: 0
+  frame_num: {bits: 4, absolute: 3}
+  pic_order_cnt: {type: 0, bits: 6, absolute: 12}
+  slice_qp_delta: 0
+  macroblocks_cavlc:
+  - mb_type: 0
+    rem_intra4x4_pred_modes: [-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1]
+    intra_chroma_pred_mode: 0
+    coded_block_pattern: 0
+
+# end of sequence bumps 12
+- nal_ref_idc: 0
+  nal_unit_type: 10 # End of sequence
+
+
+
+# Known issues below, each annotated with the expected behaviour.
+# B0: an IDR right after end of sequence, without SPS/PPS resent. edge264 currently clears the
+# parameter sets on end of sequence and returns EBADMSG, whereas FFmpeg keeps them.
+
+# POC 0, EBADMSG while parameter sets are cleared
+- nal_ref_idc: 1
+  nal_unit_type: 5 # Coded slice of an IDR picture
+  first_mb_in_slice: 0
+  slice_type: 2 # I
+  pic_parameter_set_id: 0
+  frame_num: {bits: 4, absolute: 0}
+  idr_pic_id: 0
+  pic_order_cnt: {type: 0, bits: 6, absolute: 0}
+  no_output_of_prior_pics_flag: 0
+  long_term_reference_flag: 0
+  slice_qp_delta: 0
+  macroblocks_cavlc:
+  - mb_type: 0
+    rem_intra4x4_pred_modes: [-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1]
+    intra_chroma_pred_mode: 0
+    coded_block_pattern: 0
+
+# POC 4, EBADMSG while parameter sets are cleared
+- nal_ref_idc: 1
+  nal_unit_type: 1 # Coded slice of a non-IDR picture
+  first_mb_in_slice: 0
+  slice_type: 2 # I
+  pic_parameter_set_id: 0
+  frame_num: {bits: 4, absolute: 1}
+  pic_order_cnt: {type: 0, bits: 6, absolute: 4}
+  slice_qp_delta: 0
+  macroblocks_cavlc:
+  - mb_type: 0
+    rem_intra4x4_pred_modes: [-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1]
+    intra_chroma_pred_mode: 0
+    coded_block_pattern: 0
+
+# end of sequence bumps 0 4 if decoded
+- nal_ref_idc: 0
+  nal_unit_type: 10 # End of sequence
+
+
+
+# B1: pic_order_cnt_lsb differing by exactly MaxPicOrderCntLsb/2 (8-3). A +32 jump must not wrap
+# (POC 32) while a -32 jump must wrap (POC 64). edge264 currently derives -32 for the former.
+# Expected output: 0 16 32 64
+
+- nal_ref_idc: 3
+  nal_unit_type: 7 # Sequence parameter set
+  profile_idc: 100 # High
+  constraint_set_flags: [0,0,0,0,0,0]
+  level_idc: 1.0
+  chroma_format_idc: 1 # 4:2:0
+  bit_depth: {luma: 8, chroma: 8}
+  qpprime_y_zero_transform_bypass_flag: 0
+  log2_max_frame_num: 4
+  pic_order_cnt_type: 0
+  log2_max_pic_order_cnt_lsb: 6
+  max_num_ref_frames: 2
+  gaps_in_frame_num_value_allowed_flag: 0
+  pic_size_in_mbs: {width: 1, height: 1}
+  frame_mbs_only_flag: 1
+  direct_8x8_inference_flag: 0
+
+- nal_ref_idc: 3
+  nal_unit_type: 8 # Picture parameter set
+  pic_parameter_set_id: 0
+  entropy_coding_mode_flag: 0 # CAVLC
+  bottom_field_pic_order_in_frame_present_flag: 0
+  num_slice_groups: 1
+  num_ref_idx_default_active: {l0: 1, l1: 1}
+  weighted_pred_flag: 0 # average
+  weighted_bipred_idc: 0 # average
+  pic_init_qp: 0
+  chroma_qp_index_offset: 0
+  deblocking_filter_control_present_flag: 0
+  constrained_intra_pred_flag: 0
+  redundant_pic_cnt_present_flag: 0
+
+# POC 0
+- nal_ref_idc: 1
+  nal_unit_type: 5 # Coded slice of an IDR picture
+  first_mb_in_slice: 0
+  slice_type: 2 # I
+  pic_parameter_set_id: 0
+  frame_num: {bits: 4, absolute: 0}
+  idr_pic_id: 0
+  pic_order_cnt: {type: 0, bits: 6, absolute: 0}
+  no_output_of_prior_pics_flag: 0
+  long_term_reference_flag: 0
+  slice_qp_delta: 0
+  macroblocks_cavlc:
+  - mb_type: 0
+    rem_intra4x4_pred_modes: [-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1]
+    intra_chroma_pred_mode: 0
+    coded_block_pattern: 0
+
+# POC 32
+- nal_ref_idc: 1
+  nal_unit_type: 1 # Coded slice of a non-IDR picture
+  first_mb_in_slice: 0
+  slice_type: 2 # I
+  pic_parameter_set_id: 0
+  frame_num: {bits: 4, absolute: 1}
+  pic_order_cnt: {type: 0, bits: 6, absolute: 32}
+  slice_qp_delta: 0
+  macroblocks_cavlc:
+  - mb_type: 0
+    rem_intra4x4_pred_modes: [-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1]
+    intra_chroma_pred_mode: 0
+    coded_block_pattern: 0
+
+# POC 16
+- nal_ref_idc: 0
+  nal_unit_type: 1 # Coded slice of a non-IDR picture
+  first_mb_in_slice: 0
+  slice_type: 2 # I
+  pic_parameter_set_id: 0
+  frame_num: {bits: 4, absolute: 2}
+  pic_order_cnt: {type: 0, bits: 6, absolute: 16}
+  slice_qp_delta: 0
+  macroblocks_cavlc:
+  - mb_type: 0
+    rem_intra4x4_pred_modes: [-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1]
+    intra_chroma_pred_mode: 0
+    coded_block_pattern: 0
+
+# POC 64 (lsb 0)
+- nal_ref_idc: 1
+  nal_unit_type: 1 # Coded slice of a non-IDR picture
+  first_mb_in_slice: 0
+  slice_type: 2 # I
+  pic_parameter_set_id: 0
+  frame_num: {bits: 4, absolute: 2}
+  pic_order_cnt: {type: 0, bits: 6, absolute: 64}
+  slice_qp_delta: 0
+  macroblocks_cavlc:
+  - mb_type: 0
+    rem_intra4x4_pred_modes: [-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1]
+    intra_chroma_pred_mode: 0
+    coded_block_pattern: 0
+
+# end of sequence bumps 0 16 32 64
+- nal_ref_idc: 0
+  nal_unit_type: 10 # End of sequence
+
+
+
+# B2: a ref picture without mmco while the only reference is long-term (non-conforming,
+# 8.2.5.3). The sliding window currently turns it into a short-term ref, failing an assert.
+# max_num_reorder_frames=1, max_dec_frame_buffering=1, max_num_ref_frames=1
+# Expected output: 0 2 4
+
+- nal_ref_idc: 3
+  nal_unit_type: 7 # Sequence parameter set
+  profile_idc: 100 # High
+  constraint_set_flags: [0,0,0,0,0,0]
+  level_idc: 1.0
+  chroma_format_idc: 1 # 4:2:0
+  bit_depth: {luma: 8, chroma: 8}
+  qpprime_y_zero_transform_bypass_flag: 0
+  log2_max_frame_num: 4
+  pic_order_cnt_type: 0
+  log2_max_pic_order_cnt_lsb: 6
+  max_num_ref_frames: 1
+  gaps_in_frame_num_value_allowed_flag: 0
+  pic_size_in_mbs: {width: 1, height: 1}
+  frame_mbs_only_flag: 1
+  direct_8x8_inference_flag: 0
+  vui_parameters:
+    overscan_appropriate_flag: -1
+    pic_struct_present_flag: 0
+    motion_vectors_over_pic_boundaries_flag: 1
+    log2_max_mv_length_horizontal: 15
+    log2_max_mv_length_vertical: 15
+    max_num_reorder_frames: 1
+    max_dec_frame_buffering: 1
+
+- nal_ref_idc: 3
+  nal_unit_type: 8 # Picture parameter set
+  pic_parameter_set_id: 0
+  entropy_coding_mode_flag: 0 # CAVLC
+  bottom_field_pic_order_in_frame_present_flag: 0
+  num_slice_groups: 1
+  num_ref_idx_default_active: {l0: 1, l1: 1}
+  weighted_pred_flag: 0 # average
+  weighted_bipred_idc: 0 # average
+  pic_init_qp: 0
+  chroma_qp_index_offset: 0
+  deblocking_filter_control_present_flag: 0
+  constrained_intra_pred_flag: 0
+  redundant_pic_cnt_present_flag: 0
+
+# POC 0, long-term
+- nal_ref_idc: 1
+  nal_unit_type: 5 # Coded slice of an IDR picture
+  first_mb_in_slice: 0
+  slice_type: 2 # I
+  pic_parameter_set_id: 0
+  frame_num: {bits: 4, absolute: 0}
+  idr_pic_id: 0
+  pic_order_cnt: {type: 0, bits: 6, absolute: 0}
+  no_output_of_prior_pics_flag: 0
+  long_term_reference_flag: 1
+  slice_qp_delta: 0
+  macroblocks_cavlc:
+  - mb_type: 0
+    rem_intra4x4_pred_modes: [-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1]
+    intra_chroma_pred_mode: 0
+    coded_block_pattern: 0
+
+# POC 2
+- nal_ref_idc: 1
+  nal_unit_type: 1 # Coded slice of a non-IDR picture
+  first_mb_in_slice: 0
+  slice_type: 2 # I
+  pic_parameter_set_id: 0
+  frame_num: {bits: 4, absolute: 1}
+  pic_order_cnt: {type: 0, bits: 6, absolute: 2}
+  slice_qp_delta: 0
+  macroblocks_cavlc:
+  - mb_type: 0
+    rem_intra4x4_pred_modes: [-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1]
+    intra_chroma_pred_mode: 0
+    coded_block_pattern: 0
+
+# POC 4
+- nal_ref_idc: 1
+  nal_unit_type: 1 # Coded slice of a non-IDR picture
+  first_mb_in_slice: 0
+  slice_type: 2 # I
+  pic_parameter_set_id: 0
+  frame_num: {bits: 4, absolute: 2}
+  pic_order_cnt: {type: 0, bits: 6, absolute: 4}
+  slice_qp_delta: 0
+  macroblocks_cavlc:
+  - mb_type: 0
+    rem_intra4x4_pred_modes: [-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1]
+    intra_chroma_pred_mode: 0
+    coded_block_pattern: 0
+
+# end of sequence
+- nal_ref_idc: 0
+  nal_unit_type: 10 # End of sequence
+
+
+
+# B3: intra-only streams with max_num_ref_frames=0, where max_dec_frame_buffering=0 (signalled,
+# then inferred for High 10 Intra) must still hold the current IDR (Max(..., 1) in 8.2.5.3).
+# It currently fails an assert.
+# Expected output: 0 0 0, then 0 0
+
+- nal_ref_idc: 3
+  nal_unit_type: 7 # Sequence parameter set
+  profile_idc: 100 # High
+  constraint_set_flags: [0,0,0,0,0,0]
+  level_idc: 1.0
+  chroma_format_idc: 1 # 4:2:0
+  bit_depth: {luma: 8, chroma: 8}
+  qpprime_y_zero_transform_bypass_flag: 0
+  log2_max_frame_num: 4
+  pic_order_cnt_type: 0
+  log2_max_pic_order_cnt_lsb: 6
+  max_num_ref_frames: 0
+  gaps_in_frame_num_value_allowed_flag: 0
+  pic_size_in_mbs: {width: 1, height: 1}
+  frame_mbs_only_flag: 1
+  direct_8x8_inference_flag: 0
+  vui_parameters:
+    overscan_appropriate_flag: -1
+    pic_struct_present_flag: 0
+    motion_vectors_over_pic_boundaries_flag: 1
+    log2_max_mv_length_horizontal: 15
+    log2_max_mv_length_vertical: 15
+    max_num_reorder_frames: 0
+    max_dec_frame_buffering: 0
+
+- nal_ref_idc: 3
+  nal_unit_type: 8 # Picture parameter set
+  pic_parameter_set_id: 0
+  entropy_coding_mode_flag: 0 # CAVLC
+  bottom_field_pic_order_in_frame_present_flag: 0
+  num_slice_groups: 1
+  num_ref_idx_default_active: {l0: 1, l1: 1}
+  weighted_pred_flag: 0 # average
+  weighted_bipred_idc: 0 # average
+  pic_init_qp: 0
+  chroma_qp_index_offset: 0
+  deblocking_filter_control_present_flag: 0
+  constrained_intra_pred_flag: 0
+  redundant_pic_cnt_present_flag: 0
+
+# POC 0
+- nal_ref_idc: 1
+  nal_unit_type: 5 # Coded slice of an IDR picture
+  first_mb_in_slice: 0
+  slice_type: 2 # I
+  pic_parameter_set_id: 0
+  frame_num: {bits: 4, absolute: 0}
+  idr_pic_id: 0
+  pic_order_cnt: {type: 0, bits: 6, absolute: 0}
+  no_output_of_prior_pics_flag: 0
+  long_term_reference_flag: 0
+  slice_qp_delta: 0
+  macroblocks_cavlc:
+  - mb_type: 0
+    rem_intra4x4_pred_modes: [-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1]
+    intra_chroma_pred_mode: 0
+    coded_block_pattern: 0
+
+# POC 0, releases previous
+- nal_ref_idc: 1
+  nal_unit_type: 5 # Coded slice of an IDR picture
+  first_mb_in_slice: 0
+  slice_type: 2 # I
+  pic_parameter_set_id: 0
+  frame_num: {bits: 4, absolute: 0}
+  idr_pic_id: 1
+  pic_order_cnt: {type: 0, bits: 6, absolute: 0}
+  no_output_of_prior_pics_flag: 0
+  long_term_reference_flag: 0
+  slice_qp_delta: 0
+  macroblocks_cavlc:
+  - mb_type: 0
+    rem_intra4x4_pred_modes: [-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1]
+    intra_chroma_pred_mode: 0
+    coded_block_pattern: 0
+
+# POC 0, releases previous
+- nal_ref_idc: 1
+  nal_unit_type: 5 # Coded slice of an IDR picture
+  first_mb_in_slice: 0
+  slice_type: 2 # I
+  pic_parameter_set_id: 0
+  frame_num: {bits: 4, absolute: 0}
+  idr_pic_id: 0
+  pic_order_cnt: {type: 0, bits: 6, absolute: 0}
+  no_output_of_prior_pics_flag: 0
+  long_term_reference_flag: 0
+  slice_qp_delta: 0
+  macroblocks_cavlc:
+  - mb_type: 0
+    rem_intra4x4_pred_modes: [-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1]
+    intra_chroma_pred_mode: 0
+    coded_block_pattern: 0
+
+# end of sequence releases the last frame
+- nal_ref_idc: 0
+  nal_unit_type: 10 # End of sequence
+
+- nal_ref_idc: 3
+  nal_unit_type: 7 # Sequence parameter set
+  profile_idc: 110 # High 10
+  constraint_set_flags: [0,0,0,1,0,0]
+  level_idc: 1.0
+  chroma_format_idc: 1 # 4:2:0
+  bit_depth: {luma: 8, chroma: 8}
+  qpprime_y_zero_transform_bypass_flag: 0
+  log2_max_frame_num: 4
+  pic_order_cnt_type: 0
+  log2_max_pic_order_cnt_lsb: 6
+  max_num_ref_frames: 0
+  gaps_in_frame_num_value_allowed_flag: 0
+  pic_size_in_mbs: {width: 1, height: 1}
+  frame_mbs_only_flag: 1
+  direct_8x8_inference_flag: 0
+
+- nal_ref_idc: 3
+  nal_unit_type: 8 # Picture parameter set
+  pic_parameter_set_id: 0
+  entropy_coding_mode_flag: 0 # CAVLC
+  bottom_field_pic_order_in_frame_present_flag: 0
+  num_slice_groups: 1
+  num_ref_idx_default_active: {l0: 1, l1: 1}
+  weighted_pred_flag: 0 # average
+  weighted_bipred_idc: 0 # average
+  pic_init_qp: 0
+  chroma_qp_index_offset: 0
+  deblocking_filter_control_present_flag: 0
+  constrained_intra_pred_flag: 0
+  redundant_pic_cnt_present_flag: 0
+
+# POC 0
+- nal_ref_idc: 1
+  nal_unit_type: 5 # Coded slice of an IDR picture
+  first_mb_in_slice: 0
+  slice_type: 2 # I
+  pic_parameter_set_id: 0
+  frame_num: {bits: 4, absolute: 0}
+  idr_pic_id: 0
+  pic_order_cnt: {type: 0, bits: 6, absolute: 0}
+  no_output_of_prior_pics_flag: 0
+  long_term_reference_flag: 0
+  slice_qp_delta: 0
+  macroblocks_cavlc:
+  - mb_type: 0
+    rem_intra4x4_pred_modes: [-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1]
+    intra_chroma_pred_mode: 0
+    coded_block_pattern: 0
+
+# POC 0, releases previous
+- nal_ref_idc: 1
+  nal_unit_type: 5 # Coded slice of an IDR picture
+  first_mb_in_slice: 0
+  slice_type: 2 # I
+  pic_parameter_set_id: 0
+  frame_num: {bits: 4, absolute: 0}
+  idr_pic_id: 1
+  pic_order_cnt: {type: 0, bits: 6, absolute: 0}
+  no_output_of_prior_pics_flag: 0
+  long_term_reference_flag: 0
+  slice_qp_delta: 0
+  macroblocks_cavlc:
+  - mb_type: 0
+    rem_intra4x4_pred_modes: [-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1]
+    intra_chroma_pred_mode: 0
+    coded_block_pattern: 0
+
+# end of sequence releases the last frame
+- nal_ref_idc: 0
+  nal_unit_type: 10 # End of sequence
+
+
+
+# B4: pictures with a missing slice. They currently never complete, blocking all output and
+# making the final flush return ENOBUFS forever. They should be concealed and output.
+# Expected output: 0 4 6 8 (no end of sequence, flushed at the end of the stream)
+
+- nal_ref_idc: 3
+  nal_unit_type: 7 # Sequence parameter set
+  profile_idc: 100 # High
+  constraint_set_flags: [0,0,0,0,0,0]
+  level_idc: 1.0
+  chroma_format_idc: 1 # 4:2:0
+  bit_depth: {luma: 8, chroma: 8}
+  qpprime_y_zero_transform_bypass_flag: 0
+  log2_max_frame_num: 4
+  pic_order_cnt_type: 0
+  log2_max_pic_order_cnt_lsb: 6
+  max_num_ref_frames: 2
+  gaps_in_frame_num_value_allowed_flag: 0
+  pic_size_in_mbs: {width: 2, height: 1}
+  frame_mbs_only_flag: 1
+  direct_8x8_inference_flag: 0
+
+- nal_ref_idc: 3
+  nal_unit_type: 8 # Picture parameter set
+  pic_parameter_set_id: 0
+  entropy_coding_mode_flag: 0 # CAVLC
+  bottom_field_pic_order_in_frame_present_flag: 0
+  num_slice_groups: 1
+  num_ref_idx_default_active: {l0: 1, l1: 1}
+  weighted_pred_flag: 0 # average
+  weighted_bipred_idc: 0 # average
+  pic_init_qp: 0
+  chroma_qp_index_offset: 0
+  deblocking_filter_control_present_flag: 0
+  constrained_intra_pred_flag: 0
+  redundant_pic_cnt_present_flag: 0
+
+# POC 0, 2 slices
+- nal_ref_idc: 1
+  nal_unit_type: 5 # Coded slice of an IDR picture
+  first_mb_in_slice: 0
+  slice_type: 2 # I
+  pic_parameter_set_id: 0
+  frame_num: {bits: 4, absolute: 0}
+  idr_pic_id: 0
+  pic_order_cnt: {type: 0, bits: 6, absolute: 0}
+  no_output_of_prior_pics_flag: 0
+  long_term_reference_flag: 0
+  slice_qp_delta: 0
+  macroblocks_cavlc:
+  - mb_type: 0
+    rem_intra4x4_pred_modes: [-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1]
+    intra_chroma_pred_mode: 0
+    coded_block_pattern: 0
+
+- nal_ref_idc: 1
+  nal_unit_type: 5 # Coded slice of an IDR picture
+  first_mb_in_slice: 1
+  slice_type: 2 # I
+  pic_parameter_set_id: 0
+  frame_num: {bits: 4, absolute: 0}
+  idr_pic_id: 0
+  pic_order_cnt: {type: 0, bits: 6, absolute: 0}
+  no_output_of_prior_pics_flag: 0
+  long_term_reference_flag: 0
+  slice_qp_delta: 0
+  macroblocks_cavlc:
+  - mb_type: 0
+    rem_intra4x4_pred_modes: [-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1]
+    intra_chroma_pred_mode: 0
+    coded_block_pattern: 0
+
+# POC 4, second slice missing
+- nal_ref_idc: 1
+  nal_unit_type: 1 # Coded slice of a non-IDR picture
+  first_mb_in_slice: 0
+  slice_type: 2 # I
+  pic_parameter_set_id: 0
+  frame_num: {bits: 4, absolute: 1}
+  pic_order_cnt: {type: 0, bits: 6, absolute: 4}
+  slice_qp_delta: 0
+  macroblocks_cavlc:
+  - mb_type: 0
+    rem_intra4x4_pred_modes: [-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1]
+    intra_chroma_pred_mode: 0
+    coded_block_pattern: 0
+
+# POC 8, 2 slices
+- nal_ref_idc: 1
+  nal_unit_type: 1 # Coded slice of a non-IDR picture
+  first_mb_in_slice: 0
+  slice_type: 2 # I
+  pic_parameter_set_id: 0
+  frame_num: {bits: 4, absolute: 2}
+  pic_order_cnt: {type: 0, bits: 6, absolute: 8}
+  slice_qp_delta: 0
+  macroblocks_cavlc:
+  - mb_type: 0
+    rem_intra4x4_pred_modes: [-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1]
+    intra_chroma_pred_mode: 0
+    coded_block_pattern: 0
+
+- nal_ref_idc: 1
+  nal_unit_type: 1 # Coded slice of a non-IDR picture
+  first_mb_in_slice: 1
+  slice_type: 2 # I
+  pic_parameter_set_id: 0
+  frame_num: {bits: 4, absolute: 2}
+  pic_order_cnt: {type: 0, bits: 6, absolute: 8}
+  slice_qp_delta: 0
+  macroblocks_cavlc:
+  - mb_type: 0
+    rem_intra4x4_pred_modes: [-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1]
+    intra_chroma_pred_mode: 0
+    coded_block_pattern: 0
+
+# POC 6, second slice missing at the end of the stream
+- nal_ref_idc: 0
+  nal_unit_type: 1 # Coded slice of a non-IDR picture
+  first_mb_in_slice: 0
+  slice_type: 2 # I
+  pic_parameter_set_id: 0
+  frame_num: {bits: 4, absolute: 3}
+  pic_order_cnt: {type: 0, bits: 6, absolute: 6}
+  slice_qp_delta: 0
+  macroblocks_cavlc:
+  - mb_type: 0
+    rem_intra4x4_pred_modes: [-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1]
+    intra_chroma_pred_mode: 0
+    coded_block_pattern: 0

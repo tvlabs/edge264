@@ -335,6 +335,7 @@ Bug fixes should preferably provide test streams that can demonstrate fixing sai
 | IDR slice with frame_num>0 | All OK, clamped to 0 | pos-frame-num-idr |
 | A ref that must bump out higher POCs to enter DPB (C.4.5.2) | All OK, check output order | poc-out-of-order |
 | MMCO5 in both views of an MVC stream, keeping views paired | All OK, 3 frame pairs | mvc-mmco5-pairing |
+| Bumping process coverage (C.4) | All OK, check output order | bumping |
 | Two ref frames with the same frame_num but differing POC, then a third frame referencing both |  |  |
 | Gap in frame_num while gaps_in_frame_num_value_allowed_flag=0 |  |  |
 | Stream starting with non-IDR I frame |  |  |

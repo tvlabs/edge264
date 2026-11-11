@@ -732,6 +732,7 @@ int main(int argc, char *argv[]) {
 	test("conformance/MVC/MVCRP_3", NULL, 0xf2e1f999);
 	test("conformance/MVC/MVCRP_4", NULL, 0x1bbd380a);
 	test("conformance/MVC/MVCSPS-1", NULL, 0x1770bbe0);
+	test("tests/bumping", NULL, 0x00000000); // FIXME set the CRC once the known issues at the end of bumping.yaml are fixed
 	printf("\e[A\e[K%d " GREEN "PASS " RESET, count_pass);
 	if (count_miss > 0)
 		printf("%d " YELLOW "MISS " RESET, count_miss);

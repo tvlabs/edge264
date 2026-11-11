@@ -47,8 +47,7 @@ static const u8x16 Default_8x8_Inter[4] = {
 static void unset_currPic(Edge264Decoder *dec) {
 	assert(dec->currPic >= 0);
 	int non_base_view = dec->currPic >> 5;
-	int curr = dec->currPic & 31;
-	if ((dec->view_short_term_frames | dec->view_long_term_frames) & 1u << curr) {
+	if (dec->is_curr_ref) {
 		dec->PrevRefFrameNum[non_base_view] = dec->FrameNums[dec->currPic];
 		dec->prevPicOrderCnt[non_base_view] = dec->FieldOrderCnt[dec->currPic][0];
 		dec->prev_short_term_frames[non_base_view] = dec->view_short_term_frames;
@@ -59,6 +58,7 @@ static void unset_currPic(Edge264Decoder *dec) {
 	if (!non_base_view)
 		dec->basePic = dec->currPic;
 	dec->currPic = -1;
+	dec->is_curr_ref = 0;
 	dec->TopFieldOrderCnt = INT64_MIN; // so that get_frame does not block any frame
 }
 
@@ -610,20 +610,26 @@ static void parse_dec_ref_pic_marking(Edge264Decoder *dec, Edge264SeqParameterSe
 		}
 	}
 	
-	// 8.2.5.3 - Sliding window marking process
-	if (__builtin_popcount(dec->view_short_term_frames | dec->view_long_term_frames) >= maxs(sps->max_num_ref_frames, 1)) {
-		int best = INT_MAX;
-		int next = 0;
-		// iterate on short-term and non-existing frames
-		for (unsigned r = dec->view_short_term_frames; r != 0; r &= r - 1) {
-			int i = __builtin_ctz(r);
-			if (best > dec->FrameNums[non_base_view * 32 + i])
-				best = dec->FrameNums[non_base_view * 32 + (next = i)];
-		}
-		dec->view_short_term_frames ^= 1u << next;
-		dec->view_long_term_frames &= ~(1u << next);
-	}
+	// 8.2.5.3 - Sliding window marking process and fallback on non-conforming streams
 	*(long_term_frame ? &dec->view_long_term_frames : &dec->view_short_term_frames) |= 1u << curr;
+	if (__builtin_popcount(dec->view_short_term_frames | dec->view_long_term_frames) > maxs(sps->max_num_ref_frames, 1)) {
+		// discard oldest short-term/non-existing, or curr if short-term (may have same FrameNum as other), or lowest LongTermFrameIdx including curr
+		int unref = curr, lowest = INT_MAX;
+		for (unsigned r = dec->view_short_term_frames & ~(1u << curr); r != 0; r &= r - 1) {
+			int i = __builtin_ctz(r);
+			if (lowest > dec->FrameNums[non_base_view * 32 + i])
+				lowest = dec->FrameNums[non_base_view * 32 + (unref = i)];
+		}
+		if (long_term_frame && lowest == INT_MAX) {
+			for (unsigned r = dec->view_long_term_frames; r != 0; r &= r - 1) {
+				int i = __builtin_ctz(r);
+				if (lowest > dec->view_LongTermFrameIdx[i])
+					lowest = dec->view_LongTermFrameIdx[unref = i];
+			}
+		}
+		dec->view_short_term_frames &= ~(1u << unref);
+		dec->view_long_term_frames &= ~(1u << unref);
+	}
 }
 
 
@@ -953,7 +959,7 @@ int ADD_VARIANT(parse_slice_layer_without_partitioning)(Edge264Decoder *dec, Edg
 	// detect the start of a new frame (7.4.1.2.4)
 	int FrameNumMask = (1 << sps->log2_max_frame_num) - 1;
 	if (dec->currPic >= 0 && (frame_num != (dec->FrameNum & FrameNumMask) ||
-		(dec->nal_ref_idc > 0) != ((dec->view_short_term_frames | dec->view_long_term_frames) >> (dec->currPic & 31) & 1) ||
+		(dec->nal_ref_idc > 0) != dec->is_curr_ref ||
 		non_base_view != dec->currPic >> 5 ||
 		idr_pic_id != dec->idr_pic_id)) {
 		unset_currPic(dec);
@@ -1090,6 +1096,7 @@ int ADD_VARIANT(parse_slice_layer_without_partitioning)(Edge264Decoder *dec, Edg
 			(ret = alloc_frame(dec, currPic, curr <= sps->max_dec_frame_buffering ? ENOMEM : ENOBUFS)))
 			return ret;
 		dec->currPic = currPic;
+		dec->is_curr_ref = dec->nal_ref_idc != 0;
 		dec->frame_flip_bits ^= 1ull << currPic;
 		dec->FrameIds[currPic] = ++dec->prevFrameId;
 		dec->FrameNums[currPic] = dec->FrameNum;

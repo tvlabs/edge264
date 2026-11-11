@@ -445,6 +445,7 @@ typedef struct Edge264Decoder {
 	int8_t nal_ref_idc; // 2 significant bits
 	int8_t IdrPicFlag; // 1 significant bit
 	int8_t currPic; // index of current incomplete frame, or -1
+	int8_t is_curr_ref; // nal_ref_idc != 0 for currPic, even if its own marking discarded it, 0 when currPic is -1
 	int8_t basePic; // index of last base frame for cross-reference in MVC
 	int8_t hH; // last decoded timestamp hours, 0..23
 	int8_t mM; // last decoded timestamp minutes, 0..59

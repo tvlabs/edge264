@@ -977,7 +977,7 @@ int ADD_VARIANT(parse_slice_layer_without_partitioning)(Edge264Decoder *dec, Edg
 		int PrevRefFrameNum = dec->IdrPicFlag ? 0 : dec->PrevRefFrameNum[non_base_view];
 		dec->FrameNum = dec->IdrPicFlag ? 0 : PrevRefFrameNum + 1 + ((frame_num - PrevRefFrameNum - 1) & FrameNumMask);
 		int prevPicOrderCnt = dec->IdrPicFlag ? 0 : dec->prevPicOrderCnt[non_base_view];
-		int inc = (pic_order_cnt_lsb - prevPicOrderCnt) << shift >> shift;
+		int inc = ((pic_order_cnt_lsb - prevPicOrderCnt - 1) << shift >> shift) + 1;
 		BottomFieldOrderCnt = TopFieldOrderCnt = prevPicOrderCnt + inc;
 		log_dec(dec, "  pic_order_cnt: {type: 0, bits: %u, absolute: %d",
 			sps->log2_max_pic_order_cnt_lsb, TopFieldOrderCnt);

@@ -625,6 +625,7 @@ int main(int argc, char *argv[]) {
 	test("tests/nal-ref-idc-0", NULL, 0x7b59bffd);
 	test("tests/scaling-lists", NULL, 0x63c2fe3e);
 	test("tests/mvc-mmco5-pairing", NULL, 0x868a8be6);
+	test("tests/bumping", NULL, 0xa6e2befb);
 	test("conformance/AVCv1/AUD_MW_E", NULL, 0x7c4f9ffe);
 	test("conformance/AVCv1/BA1_FT_C", NULL, 0x420267fc);
 	test("conformance/AVCv1/BA1_Sony_D", NULL, 0x12819dd0);
@@ -732,7 +733,6 @@ int main(int argc, char *argv[]) {
 	test("conformance/MVC/MVCRP_3", NULL, 0xf2e1f999);
 	test("conformance/MVC/MVCRP_4", NULL, 0x1bbd380a);
 	test("conformance/MVC/MVCSPS-1", NULL, 0x1770bbe0);
-	test("tests/bumping", NULL, 0x00000000); // FIXME set the CRC once the known issues at the end of bumping.yaml are fixed
 	printf("\e[A\e[K%d " GREEN "PASS " RESET, count_pass);
 	if (count_miss > 0)
 		printf("%d " YELLOW "MISS " RESET, count_miss);

@@ -1467,6 +1467,7 @@ static cold noinline void decode_intra16x16(uint8_t * restrict p, size_t stride,
 static cold noinline void decode_intraChroma(uint8_t * restrict p, size_t stride, int mode, i16x8 clip);
 
 // edge264_mvpred.c
+static noinline void decode_P_skip(Edge264Context *ctx);
 static inline void decode_inter_16x16(Edge264Context *ctx, i16x8 mvd, int lx);
 static inline void decode_inter_8x16_left(Edge264Context *ctx, i16x8 mvd, int lx);
 static inline void decode_inter_8x16_right(Edge264Context *ctx, i16x8 mvd, int lx);
@@ -1487,6 +1488,7 @@ static noinline void parse_slice_data_cabac(Edge264Context *ctx);
 
 // edge264_headers.c
 static void unset_currPic(Edge264Decoder *dec);
+static void recover_frame(Edge264Decoder *dec);
 static int bump_frame(Edge264Decoder *dec, int non_base_view, unsigned ignored);
 static int bump_all_frames(Edge264Decoder *dec);
 static void flush_frames(Edge264Decoder *dec);

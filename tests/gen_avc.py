@@ -201,9 +201,9 @@ def gen_slice_layer_without_partitioning(bits, f, slice):
 			if "memory_management_control_operations" in vars(slice):
 				for mmco in map_dicts(slice.memory_management_control_operations):
 					bits = gen_ue(bits, mmco.mmco)
-					if "sref" in mmco:
+					if "sref" in vars(mmco):
 						bits = gen_ue(bits, -mmco.sref)
-					if "lref" in mmco:
+					if "lref" in vars(mmco):
 						bits = gen_ue(bits, mmco.lref)
 				bits = bits << 1 | 1 # memory_management_control_operation == 0
 	if "cabac_init_idc" in vars(slice):

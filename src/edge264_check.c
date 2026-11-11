@@ -624,6 +624,7 @@ int main(int argc, char *argv[]) {
 	test("tests/finish-frame", NULL, 0x2033091f);
 	test("tests/nal-ref-idc-0", NULL, 0x7b59bffd);
 	test("tests/scaling-lists", NULL, 0x63c2fe3e);
+	test("tests/mvc-mmco5-pairing", NULL, 0x868a8be6);
 	test("conformance/AVCv1/AUD_MW_E", NULL, 0x7c4f9ffe);
 	test("conformance/AVCv1/BA1_FT_C", NULL, 0x420267fc);
 	test("conformance/AVCv1/BA1_Sony_D", NULL, 0x12819dd0);

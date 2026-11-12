@@ -289,13 +289,10 @@ static unsigned ppow(unsigned p65536, unsigned k) {
  * avoid dependency on float and to fit all multiplications on 32 bits
  * with max precision.
 */
-static void recover_slice(Edge264Context *ctx, int currPic) {
+static void recover_slice(Edge264Context *ctx) {
 	// mark all previous mbs as erroneous and assign them an error probability
 	ctx->mby = (unsigned)ctx->t.first_mb_in_slice / (unsigned)ctx->t.pic_width_in_mbs;
 	ctx->mbx = (unsigned)ctx->t.first_mb_in_slice % (unsigned)ctx->t.pic_width_in_mbs;
-	ctx->samples_mb[0] = ctx->t.samples_buffers[currPic] + (ctx->mbx + ctx->mby * ctx->t.stride[0]) * 16;
-	ctx->samples_mb[1] = ctx->t.samples_buffers[currPic] + (ctx->mbx + ctx->mby * ctx->t.stride[1]) * 8 + ctx->t.plane_size_Y;
-	ctx->samples_mb[2] = ctx->samples_mb[1] + (ctx->t.stride[1] >> 1);
 	int mb_offset = ctx->mbx + ctx->mby * (ctx->t.pic_width_in_mbs + 1);
 	ctx->_mb = ctx->t.mb_buffer + mb_offset;
 	unsigned num = ctx->CurrMbAddr - ctx->t.first_mb_in_slice;
@@ -306,28 +303,16 @@ static void recover_slice(Edge264Context *ctx, int currPic) {
 			((div - (65536 - ppow(65194, num - 1 - i))) * 12800 + div - 1) / div;
 		ctx->_mb->error_probability = p12800 >> 7;
 		unsigned p128 = p12800 / 100;
-		
-		// recover the macroblock depending on slice_type
-		// FIXME fill macroblocks with wrong flip_bit in grey
 		__atomic_store_n(&ctx->_mb->recovery_bits, ctx->t.frame_flip_bit + 2, __ATOMIC_RELEASE);
 		
 		// point to the next macroblock
 		ctx->_mb++;
 		ctx->mbx++;
-		ctx->samples_mb[0] += 16;
-		ctx->samples_mb[1] += 8;
-		ctx->samples_mb[2] += 8;
 		if (ctx->mbx >= ctx->t.pic_width_in_mbs) {
 			ctx->_mb++;
 			ctx->mbx = 0;
-			ctx->mby++;
-			ctx->samples_mb[0] += ctx->t.stride[0] * 16 - ctx->t.pic_width_in_mbs * 16;
-			ctx->samples_mb[1] += ctx->t.stride[1] * 8 - ctx->t.pic_width_in_mbs * 8;
-			ctx->samples_mb[2] += ctx->t.stride[1] * 8 - ctx->t.pic_width_in_mbs * 8;
 		}
 	}
-	ctx->samples_mb[0] = ctx->samples_mb[1] = ctx->samples_mb[2] = NULL;
-	ctx->_mb = NULL, ctx->mbCol = NULL;
 }
 
 
@@ -572,7 +557,7 @@ void *ADD_VARIANT(worker_loop)(void *arg) {
 		
 		// on error, recover mbs and signal them as erroneous (allows overwrite by redundant slices)
 		if (__builtin_expect(ret != 0, 0))
-			recover_slice(&c, currPic);
+			recover_slice(&c);
 		
 		// update c.d->next_deblock_addr, considering it might have reached first_mb_in_slice since start
 		if (c.d->next_deblock_addr[currPic] >= c.t.first_mb_in_slice &&

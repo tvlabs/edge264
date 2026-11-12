@@ -108,10 +108,10 @@ def gen_slice_data_cavlc(bits, f, slice, slice_type):
 		if mb.mb_type == [30, 48, 25][slice_type]: # I_PCM
 			num = bits.bit_length() - 1
 			bits <<= -num % 8 # pcm_alignment_zero_bit
-			for sample in mb.pcm_samples.Y:
-				bits = bits << mb.pcm_samples.bits_Y | sample
-			for sample in mb.pcm_samples.Cb + mb.pcm_samples.Cr:
-				bits = bits << mb.pcm_samples.bits_C | sample
+			for sample in mb.pcm_samples["Y"]:
+				bits = bits << mb.pcm_samples["bits_Y"] | sample
+			for sample in mb.pcm_samples["Cb"] + mb.pcm_samples["Cr"]:
+				bits = bits << mb.pcm_samples["bits_C"] | sample
 		if mb.mb_type == [5, 23, 0][slice_type] and "transform_size_8x8_flag" in vars(mb): # I_NxN
 			bits = bits << 1 | mb.transform_size_8x8_flag
 		for mode in vars(mb).get("rem_intra4x4_pred_modes", vars(mb).get("rem_intra8x8_pred_modes")) or []:

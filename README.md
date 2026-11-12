@@ -335,7 +335,8 @@ Bug fixes should preferably provide test streams that can demonstrate fixing sai
 | IDR slice with frame_num>0 | All OK, clamped to 0 | pos-frame-num-idr |
 | A ref that must bump out higher POCs to enter DPB (C.4.5.2) | All OK, check output order | poc-out-of-order |
 | MMCO5 in both views of an MVC stream, keeping views paired | All OK, 3 frame pairs | mvc-mmco5-pairing |
-| Bumping process coverage (C.4) | All OK, check output order | bumping |
+| Bumping process coverage | All OK, check output order | bumping |
+| Bumping process coverage for MVC | All OK, check output order and pairing (X1-X5 currently fail) | bumping-mvc |
 | Two ref frames with the same frame_num but differing POC, then a third frame referencing both |  |  |
 | Gap in frame_num while gaps_in_frame_num_value_allowed_flag=0 |  |  |
 | Stream starting with non-IDR I frame |  |  |
@@ -420,22 +421,22 @@ Bug fixes should preferably provide test streams that can demonstrate fixing sai
 | --- | --- | --- |
 | All wrong combinations of non_idr_flag with nal_unit_type=1/5 and nal_ref_idc=0/1 |  |  |
 | nal_unit_type=14 then filler unit then nal_unit_type=1/5 |  |  |
-| An nal_unit_type=5 view paired with a non_idr_flag=0 P view, or a non_idr_flag=1 view |  |  |
-| Missing a base or non-base view |  |  |
+| An nal_unit_type=5 view paired with a non_idr_flag=0 P view, or a non_idr_flag=1 view | All OK, views unpaired until end of sequence (E5) | bumping-mvc |
+| Missing a base or non-base view | All OK, the other view is output alone (E1, E2) | bumping-mvc |
 | Receiving an SSPS yet only base views then |  |  |
 | 16 ref base views while non base are non-refs |  |  |
 | An SSPS with different pic_width_in_mbs/pic_height_in_mbs/chroma_format_idc than its SPS |  |  |
 | An SSPS with num_views=1 |  |  |
 | A non-base view with weighted_bipred_idc=2 |  |  |
-| A non-base view with its base in RefPicList1[0] and direct_spatial_mv_pred_flag=0 (H.7.4.3) |  |  |
+| A non-base view with its base in RefPicList1[0] and direct_spatial_mv_pred_flag=0 (G.7.4.3) |  |  |
 | A slice with num_ref_idx_l0_active>8 |  |  |
 | svc_extension_flag=1 on a MVC stream |  |  |
 | SSPS with additional_extension2_flag=1 and more trailing data |  |  |
 | Gap in frame_num of 16 frames on both views |  |  |
 | Specifying extra_frames=1 |  |  |
-| Receiving a non-base view before its base |  |  |
-| A stream sending non-base views after a few frames have been output |  |  |
-| Two views with differing mmco5 |  |  |
+| Receiving a non-base view before its base | All OK, views paired (E3) | bumping-mvc |
+| A stream sending non-base views after a few frames have been output | Views paired once both are present (X5, currently never paired) | bumping-mvc |
+| Two views with differing mmco5 | All OK, views unpaired until end of sequence (E6) | bumping-mvc |
 
 | Error recovery tests | Expected | Test files |
 | --- | --- | --- |

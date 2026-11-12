@@ -2359,11 +2359,12 @@
 
 
 
-# Known issues below, each annotated with the expected behaviour.
-# B0: an IDR right after end of sequence, without SPS/PPS resent. edge264 currently clears the
-# parameter sets on end of sequence and returns EBADMSG, whereas FFmpeg keeps them.
+# Former bugs below, each annotated with the expected behaviour.
+# B0: an IDR right after end of sequence, without SPS/PPS resent. Parameter sets must be kept on
+# end of sequence (7.4.1.2.1), as FFmpeg does.
+# Expected output: 0 4
 
-# POC 0, EBADMSG while parameter sets are cleared
+# POC 0
 - nal_ref_idc: 1
   nal_unit_type: 5 # Coded slice of an IDR picture
   first_mb_in_slice: 0
@@ -2381,7 +2382,7 @@
     intra_chroma_pred_mode: 0
     coded_block_pattern: 0
 
-# POC 4, EBADMSG while parameter sets are cleared
+# POC 4
 - nal_ref_idc: 1
   nal_unit_type: 1 # Coded slice of a non-IDR picture
   first_mb_in_slice: 0
@@ -2396,14 +2397,14 @@
     intra_chroma_pred_mode: 0
     coded_block_pattern: 0
 
-# end of sequence bumps 0 4 if decoded
+# end of sequence bumps 0 4
 - nal_ref_idc: 0
   nal_unit_type: 10 # End of sequence
 
 
 
 # B1: pic_order_cnt_lsb differing by exactly MaxPicOrderCntLsb/2 (8-3). A +32 jump must not wrap
-# (POC 32) while a -32 jump must wrap (POC 64). edge264 currently derives -32 for the former.
+# (POC 32) while a -32 jump must wrap (POC 64).
 # Expected output: 0 16 32 64
 
 - nal_ref_idc: 3
@@ -2508,7 +2509,7 @@
 
 
 # B2: a ref picture without mmco while the only reference is long-term (non-conforming,
-# 8.2.5.3). The sliding window currently turns it into a short-term ref, failing an assert.
+# 8.2.5.3). The sliding window must drop the long-term ref instead of failing an assert.
 # max_num_reorder_frames=1, max_dec_frame_buffering=1, max_num_ref_frames=1
 # Expected output: 0 2 4
 
@@ -2608,7 +2609,6 @@
 
 # B3: intra-only streams with max_num_ref_frames=0, where max_dec_frame_buffering=0 (signalled,
 # then inferred for High 10 Intra) must still hold the current IDR (Max(..., 1) in 8.2.5.3).
-# It currently fails an assert.
 # Expected output: 0 0 0, then 0 0
 
 - nal_ref_idc: 3
@@ -2783,8 +2783,8 @@
 
 
 
-# B4: pictures with a missing slice. They currently never complete, blocking all output and
-# making the final flush return ENOBUFS forever. They should be concealed and output.
+# B4: pictures with a missing slice. They must be concealed and output, rather than never
+# completing, blocking all output and making the final flush return ENOBUFS forever.
 # Expected output: 0 4 6 8 (no end of sequence, flushed at the end of the stream)
 
 - nal_ref_idc: 3

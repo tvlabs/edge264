@@ -496,6 +496,7 @@ static void recover_frame(Edge264Decoder *dec) {
 		deblock_until(ctx, currPic, total);
 	dec->remaining_mbs[currPic] = 0;
 	dec->next_deblock_addr[currPic] = INT_MAX;
+	dec->erroneous_frames_l |= 1ull << currPic;
 }
 
 
@@ -1190,6 +1191,7 @@ int ADD_VARIANT(parse_slice_layer_without_partitioning)(Edge264Decoder *dec, Edg
 				}
 			}
 			unavail |= 1u << i;
+			dec->erroneous_frames[non_base_view] |= 1u << i;
 			dec->prev_short_term_frames[non_base_view] |= 1u << i;
 			dec->prev_long_term_frames[non_base_view] |= 1u << i;
 			dec->FrameNums[pic] = dec->PrevRefFrameNum[non_base_view] = FrameNum;
@@ -1224,6 +1226,7 @@ int ADD_VARIANT(parse_slice_layer_without_partitioning)(Edge264Decoder *dec, Edg
 			return ret;
 		dec->currPic = currPic;
 		dec->is_curr_ref = dec->nal_ref_idc != 0;
+		dec->erroneous_frames_l &= ~(1ull << currPic);
 		dec->frame_flip_bits ^= 1ull << currPic;
 		dec->FrameIds[currPic] = ++dec->prevFrameId;
 		dec->FrameNums[currPic] = dec->FrameNum;

@@ -440,8 +440,11 @@ typedef struct Edge264Decoder {
 	pthread_cond_t task_progress; // signals next_deblock_addr has been updated
 	pthread_cond_t task_complete;
 	Edge264Frame out;
+	Edge264SeqParameterSet sps;
+	Edge264SeqParameterSet ssps;
+	Edge264PicParameterSet PPS[4];
 	
-	// general contextual fields
+	// general contextual fields (cleared at flushes, from nal_ref_idc to log_base_us)
 	int8_t nal_ref_idc; // 2 significant bits
 	int8_t IdrPicFlag; // 1 significant bit
 	int8_t currPic; // index of current incomplete frame, or -1
@@ -456,9 +459,6 @@ typedef struct Edge264Decoder {
 	int32_t delta_pic_order_cnt0; // value for the last slice, used for detecting new frames
 	int64_t TopFieldOrderCnt; // value for the current incomplete frame, unaffected by mmco5, INT64_MIN when currPic is -1 so that get_frame waits for MVC siblings
 	int64_t BottomFieldOrderCnt;
-	Edge264SeqParameterSet sps;
-	Edge264SeqParameterSet ssps;
-	Edge264PicParameterSet PPS[4];
 	
 	// frame buffer as a Structure Of Arrays
 	union { uint32_t prev_short_term_frames[2]; uint64_t prev_short_term_frames_l; }; // [view], bitfield for indices of short-term/non-existing references before decoding current view
@@ -467,6 +467,7 @@ typedef struct Edge264Decoder {
 	uint32_t view_long_term_frames; // bitfield for indices of long-term/non-existing references of current view to apply after decoding it
 	union { uint32_t to_get_frames[2]; uint64_t to_get_frames_l; }; // [view], bitfield for frames that have not been returned by get_frame yet
 	union { uint32_t output_frames[2]; uint64_t output_frames_l; }; // [view], bitfield for frames that have been bumped for output and not returned yet
+	union { uint32_t erroneous_frames[2]; uint64_t erroneous_frames_l; }; // [view], bitfield for frames with concealed macroblocks or inferred from a frame_num gap
 	int32_t FrameNums[64]; // signed to be used along FieldOrderCnt in initial reference ordering
 	uint32_t FrameIds[64]; // unique identifiers for each frame, incremented in decoding order
 	union { int8_t prev_LongTermFrameIdx[64]; i8x16 prev_LongTermFrameIdx_v[4]; }; // values before decoding current view

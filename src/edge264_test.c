@@ -318,7 +318,7 @@ static int decode_file(const char *name0)
 	
 	// open and memory map all input files
 	conf[0] = conf[1] = NULL;
-	uint64_t s0, s1, s2;
+	uint64_t s0 = 0, s1 = 0, s2 = 0;
 	uint8_t *v0 = map_file(name0, &s0), *v1 = NULL, *v2 = NULL;
 	if (enable_yuv) {
 		v1 = map_file(name1, &s1);
@@ -328,8 +328,8 @@ static int decode_file(const char *name0)
 	conf[0] = v1;
 	conf[1] = v2;
 	const uint8_t *nal = v0;
-	const uint8_t *end0 = v0 + s0;
-	const uint8_t *end1 = v1 + s1;
+	const uint8_t *end0 = v0 ? v0 + s0 : NULL;
+	const uint8_t *end1 = v1 ? v1 + s1 : NULL;
 	
 	// print the success counts
 	if (!quit) {

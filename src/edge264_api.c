@@ -114,7 +114,7 @@ Edge264Decoder *edge264_alloc(int n_threads, Edge264LogCb log_cb, void *log_arg,
 	dec->currPic = dec->basePic = -1;
 	dec->PrevRefFrameNum[0] = dec->PrevRefFrameNum[1] = -1;
 	dec->prevFrameId = UINT_MAX; // wraps to 0 for the first frame
-	dec->TopFieldOrderCnt = INT64_MIN;
+	dec->frame_top_poc = dec->frame_bottom_poc = INT64_MIN;
 	dec->taskPics_v = set8(-1);
 	dec->n_threads = n_threads;
 	dec->alloc_cb = alloc_cb && free_cb ? alloc_cb : internal_alloc;
@@ -228,8 +228,9 @@ void edge264_flush(Edge264Decoder *dec) {
 		return;
 	if (dec->n_threads)
 		pthread_mutex_lock(&dec->lock);
-	flush_frames(dec);
-	clear_decoder(dec);
+	dec->to_get_frames_l = dec->output_frames_l = 0; // discard all frames rather than outputting them
+	dec->currPic = -1; // and skip concealment
+	new_sequence(dec);
 	if (dec->n_threads)
 		pthread_mutex_unlock(&dec->lock);
 }
@@ -288,9 +289,9 @@ int edge264_decode_NAL(Edge264Decoder *dec, const uint8_t *buf, const uint8_t *e
 	if (dec->n_threads)
 		pthread_mutex_lock(&dec->lock);
 	
-	// bump all frames at the end of buffer
+	// reset sequence at the end of buffer
 	if (__builtin_expect(buf >= end, 0)) {
-		int ret = bump_all_frames(dec);
+		int ret = new_sequence(dec);
 		if (dec->n_threads)
 			pthread_mutex_unlock(&dec->lock);
 		return ret ?: ENODATA;
@@ -332,11 +333,11 @@ int edge264_get_frame(Edge264Decoder *dec, Edge264Frame *out, int borrow) {
 	if (dec->n_threads)
 		pthread_mutex_lock(&dec->lock);
 
-	// find lowest POC of bumped frames, excluding POC of current incomplete frame
+	// find lowest POC of bumped frames, excluding POC of current frame
 	int64_t lowest_poc = INT64_MAX;
 	for (uint64_t o = dec->to_get_frames_l & dec->output_frames_l; o; o &= o - 1) {
 		int64_t poc = dec->FieldOrderCnt[__builtin_ctzll(o)][0];
-		if (poc != dec->TopFieldOrderCnt && poc < lowest_poc)
+		if (poc != dec->frame_top_poc && poc < lowest_poc)
 			lowest_poc = poc;
 	}
 

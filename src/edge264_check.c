@@ -623,9 +623,9 @@ int main(int argc, char *argv[]) {
 	test("tests/max-logs", log_max, 0x5afb0e05);
 	test("tests/finish-frame", NULL, 0x2033091f);
 	test("tests/nal-ref-idc-0", NULL, 0x7b59bffd);
-	test("tests/scaling-lists", NULL, 0x63c2fe3e);
-	test("tests/mvc-mmco5-pairing", NULL, 0x868a8be6);
-	test("tests/bumping", NULL, 0x40dd9c7c);
+	test("tests/scaling-lists", NULL, 0x142869cb);
+	test("tests/mvc-mmco5-pairing", NULL, 0x8319506b);
+	test("tests/bumping", NULL, 0x72799755);
 	test("conformance/AVCv1/AUD_MW_E", NULL, 0x7c4f9ffe);
 	test("conformance/AVCv1/BA1_FT_C", NULL, 0x420267fc);
 	test("conformance/AVCv1/BA1_Sony_D", NULL, 0x12819dd0);
@@ -681,10 +681,10 @@ int main(int argc, char *argv[]) {
 	test("conformance/AVCv1/MR1_BT_A", NULL, 0x32021057);
 	test("conformance/AVCv1/MR1_MW_A", NULL, 0x918740c0);
 	test("conformance/AVCv1/MR2_MW_A", NULL, 0xaa2cd541);
-	test("conformance/AVCv1/MR2_TANDBERG_E", NULL, 0x761a3733);
-	test("conformance/AVCv1/MR3_TANDBERG_B", NULL, 0x758d7838);
-	test("conformance/AVCv1/MR4_TANDBERG_C", NULL, 0xc5078af6);
-	test("conformance/AVCv1/MR5_TANDBERG_C", NULL, 0xc5078af6);
+	test("conformance/AVCv1/MR2_TANDBERG_E", NULL, 0x58ca14ac);
+	test("conformance/AVCv1/MR3_TANDBERG_B", NULL, 0x6c60b4e7);
+	test("conformance/AVCv1/MR4_TANDBERG_C", NULL, 0xcb4087de);
+	test("conformance/AVCv1/MR5_TANDBERG_C", NULL, 0xcb4087de);
 	test("conformance/AVCv1/MV1_BRCM_D", NULL, 0x830ab710);
 	test("conformance/AVCv1/NL1_Sony_D", NULL, 0x600ae5d3);
 	test("conformance/AVCv1/NL2_Sony_H", NULL, 0xe7d6a108);

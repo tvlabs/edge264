@@ -374,6 +374,16 @@ typedef struct Edge264Context {
 /**
  * This structure stores all variables scoped to the entire stream.
  * 
+ * These fields are divided in five scopes, from outermost to innermost:
+ * _ decoder: from edge264_alloc to edge264_free, spanning all sequences
+ * _ sequence: from each (re)init (alloc, then new_sequence at flush, end of
+ *   buffer, end of sequence NAL, change of frame format in SPS) to the next one
+ * _ GOP: splits at an IDR frame or after a frame with mmco5
+ * _ frame: one access unit, active while currPic>=0 or basePic>=0, ends only
+ *   when the next one starts or at the end of sequence
+ * _ view: one view component, active while currPic>=0, ends when a slice
+ *   leaves it complete, or another view starts
+ *
  * The frame buffer stores empty and used frames with a Structure Of Arrays
  * pattern, while using as few arrays as possible to prevent impossible storage
  * patterns (e.g. a ref being both short and long term).
@@ -417,79 +427,84 @@ typedef struct Edge264Context {
  */
 typedef int (*Parser)(Edge264Decoder *dec, Edge264UnrefCb unref_cb, void *unref_arg);
 typedef struct Edge264Decoder {
-	// minimal set of fields preserved across flushes
+	// decoder scope (edge264_alloc to edge264_free)
 	Edge264GetBits gb; // must be first in the struct to use the same pointer for bitstream functions
 	int8_t n_threads; // 0 to disable multithreading
 	int8_t shutdown; // 0..1, set to order worker threads to exit
-	int8_t nal_unit_type; // 5 significant bits
+	int8_t nal_ref_idc; // 2 significant bits, value for the last NAL
+	int8_t nal_unit_type; // 5 significant bits, value for the last NAL
+	int8_t IdrPicFlag; // 1 significant bit, value for the last slice NAL
+	uint32_t prevFrameId; // starts at UINT_MAX to wrap to 0 for the first frame
+	int32_t poc_msb; // upper 32 bits of 64-bit POCs, incremented at each GOP
 	int32_t plane_size_Y;
 	int32_t plane_size_C;
-	uint32_t prevFrameId; // starts at UINT_MAX to wrap to 0 for the first frame
-	int64_t prevPicOrderCnt[2]; // one per view, could be merged but code would be more complex, upper half kept across flushes for display_poc
-	uint64_t frame_flip_bits; // bitfield storing target values of bit 0 in mb->recovery_bits for each frame
 	Edge264AllocCb alloc_cb;
 	Edge264FreeCb free_cb;
 	void *alloc_arg;
+	Parser parse_nal_unit[32];
 	void *(*worker_loop)(void *);
 	uint8_t *samples_buffers[64];
 	Edge264Macroblock *mb_buffers[64];
-	Parser parse_nal_unit[32];
+	uint64_t frame_flip_bits; // bitfield storing target values of bit 0 in mb->recovery_bits for each frame
 	pthread_t threads[16];
 	pthread_mutex_t lock;
 	pthread_cond_t task_ready;
 	pthread_cond_t task_progress; // signals next_deblock_addr has been updated
 	pthread_cond_t task_complete;
-	Edge264Frame out;
-	Edge264SeqParameterSet sps;
-	Edge264SeqParameterSet ssps;
-	Edge264PicParameterSet PPS[4];
-	
-	// general contextual fields (cleared at flushes, from nal_ref_idc to log_base_us)
-	int8_t nal_ref_idc; // 2 significant bits
-	int8_t IdrPicFlag; // 1 significant bit
-	int8_t currPic; // index of current incomplete frame, or -1
-	int8_t is_curr_ref; // nal_ref_idc != 0 for currPic, even if its own marking discarded it, 0 when currPic is -1
-	int8_t basePic; // index of last base frame for cross-reference in MVC
-	int8_t hH; // last decoded timestamp hours, 0..23
-	int8_t mM; // last decoded timestamp minutes, 0..59
-	int8_t sS; // last decoded timestamp seconds, 0..59
-	int32_t FrameNum; // value for the current incomplete frame, unaffected by mmco5
-	int32_t PrevRefFrameNum[2]; // one per view
-	int32_t idr_pic_id; // value for the last slice, used for detecting new frames
-	int32_t delta_pic_order_cnt0; // value for the last slice, used for detecting new frames
-	int64_t TopFieldOrderCnt; // value for the current incomplete frame, unaffected by mmco5, INT64_MIN when currPic is -1 so that get_frame waits for MVC siblings
-	int64_t BottomFieldOrderCnt;
-	
-	// frame buffer as a Structure Of Arrays
-	union { uint32_t prev_short_term_frames[2]; uint64_t prev_short_term_frames_l; }; // [view], bitfield for indices of short-term/non-existing references before decoding current view
-	union { uint32_t prev_long_term_frames[2]; uint64_t prev_long_term_frames_l; }; // [view], bitfield for indices of long-term/non-existing references before decoding current view
-	uint32_t view_short_term_frames; // bitfield for indices of short-term/non-existing references of current view to apply after decoding it
-	uint32_t view_long_term_frames; // bitfield for indices of long-term/non-existing references of current view to apply after decoding it
-	union { uint32_t to_get_frames[2]; uint64_t to_get_frames_l; }; // [view], bitfield for frames that have not been returned by get_frame yet
-	union { uint32_t output_frames[2]; uint64_t output_frames_l; }; // [view], bitfield for frames that have been bumped for output and not returned yet
-	union { uint32_t erroneous_frames[2]; uint64_t erroneous_frames_l; }; // [view], bitfield for frames with concealed macroblocks or inferred from a frame_num gap
-	int32_t FrameNums[64]; // signed to be used along FieldOrderCnt in initial reference ordering
-	uint32_t FrameIds[64]; // unique identifiers for each frame, incremented in decoding order
-	union { int8_t prev_LongTermFrameIdx[64]; i8x16 prev_LongTermFrameIdx_v[4]; }; // values before decoding current view
-	union { int8_t view_LongTermFrameIdx[32]; i8x16 view_LongTermFrameIdx_v[2]; }; // [idx], values of current view to apply after decoding it
-	int64_t FieldOrderCnt[64][2]; // [pic][top/bottom], upper half increments at each IDR/mmco5 to keep output in increasing order
-	int32_t remaining_mbs[64] __attribute__((aligned(64))); // when 0 all mbs have been decoded yet not deblocked
-	union { int32_t next_deblock_addr[64]; i32x4 next_deblock_addr_v[16]; }; // next CurrMbAddr value for which mbB will be deblocked, when INT_MAX the picture is complete
-	
-	// fields accessed concurrently from multiple threads
-	uint16_t pending_tasks;
+	uint16_t pending_tasks; // task fields are accessed concurrently from multiple threads, and reset by worker_loop when tasks complete
 	uint16_t busy_tasks; // bitmask for tasks that are either pending or processed in a thread
 	uint16_t ready_tasks;
 	volatile union { uint64_t task_dependencies[16]; u64x2 task_dependencies_v[8]; }; // frames on which each task depends to start
 	union { int8_t taskPics[16]; i8x16 taskPics_v; }; // values of currPic for each task
 	Edge264Task tasks[16];
-	
-	// Logging context
+	Edge264SeqParameterSet sps;
+	Edge264SeqParameterSet ssps;
+	Edge264PicParameterSet PPS[4];
+	Edge264Frame out; // frame format, changed along with the fields below only by set_frame_format
 	uint64_t log_base_us; // timestamp of decoder initialization
 	Edge264LogCb log_cb;
 	void *log_arg;
 	uint16_t log_pos; // next writing position in log_buf
 	char log_buf[9416];
+	
+	// sequence scope (cleared by new_sequence from hH onward, so keep all scopes below)
+	int8_t hH; // last decoded timestamp hours, 0..23
+	int8_t mM; // last decoded timestamp minutes, 0..59
+	int8_t sS; // last decoded timestamp seconds, 0..59
+	int32_t idr_pic_id; // value for the last slice, used for detecting new views
+	int32_t pic_order_cnt_lsb; // value for the last slice, used for detecting new views
+	int32_t delta_pic_order_cnt0; // value for the last slice, used for detecting new views
+	union { uint32_t to_get_frames[2]; uint64_t to_get_frames_l; }; // [view], bitfield for frames that have not been returned by get_frame yet
+	union { uint32_t output_frames[2]; uint64_t output_frames_l; }; // [view], bitfield for frames that have been bumped for output and not returned yet
+	union { uint32_t erroneous_frames[2]; uint64_t erroneous_frames_l; }; // [view], bitfield for frames with concealed macroblocks or inferred from a frame_num gap
+	uint32_t FrameIds[64]; // unique identifiers for each frame, incremented in decoding order
+	int32_t FrameNums[64]; // signed to be used along FieldOrderCnt in initial reference ordering
+	int64_t FieldOrderCnt[64][2]; // [pic][top/bottom], upper half is poc_msb of the GOP to keep output in increasing order
+	int32_t remaining_mbs[64] __attribute__((aligned(64))); // when 0 all mbs have been decoded yet not deblocked
+	union { int32_t next_deblock_addr[64]; i32x4 next_deblock_addr_v[16]; }; // next CurrMbAddr value for which mbB will be deblocked, when INT_MAX the picture is complete
+	
+	// GOP scope
+	int32_t PrevRefFrameNum[2]; // one per view
+	int32_t prevPicOrderCnt[2]; // one per view, could be merged but code would be more complex
+	union { uint32_t prev_short_term_frames[2]; uint64_t prev_short_term_frames_l; }; // [view], bitfield for indices of short-term/non-existing references before decoding current view
+	union { uint32_t prev_long_term_frames[2]; uint64_t prev_long_term_frames_l; }; // [view], bitfield for indices of long-term/non-existing references before decoding current view
+	union { int8_t prev_LongTermFrameIdx[64]; i8x16 prev_LongTermFrameIdx_v[4]; }; // values before decoding current view
+	
+	// frame scope (start_frame to end_frame, active while basePic>=0 || currPic>=0)
+	int8_t basePic; // slot of the base view of the current frame, or -1
+	int8_t is_idr_frame;
+	int8_t is_mmco5_frame; // applied by end_frame to all views
+	int64_t frame_top_poc; // POC of the current frame, withheld by get_frame until the frame ends
+	int64_t frame_bottom_poc;
+	
+	// view scope (start_view to end_view, active while currPic>=0)
+	int8_t currPic; // slot of the current view, or -1 between views
+	int8_t is_curr_ref; // nal_ref_idc != 0 for currPic (kept since nal_ref_idc changes on next NAL)
+	int32_t FrameNum; // value for the current view, unaffected by mmco5
+	uint32_t view_short_term_frames; // bitfield for indices of short-term/non-existing references of current view to apply after decoding it
+	uint32_t view_long_term_frames; // bitfield for indices of long-term/non-existing references of current view to apply after decoding it
+	union { int8_t view_LongTermFrameIdx[32]; i8x16 view_LongTermFrameIdx_v[2]; }; // [idx], values of current view to apply after decoding it
+	
 } Edge264Decoder;
 
 
@@ -1488,13 +1503,11 @@ static noinline void parse_slice_data_cavlc(Edge264Context *ctx);
 static noinline void parse_slice_data_cabac(Edge264Context *ctx);
 
 // edge264_headers.c
-static void unset_currPic(Edge264Decoder *dec);
+static void end_view(Edge264Decoder *dec);
 static void recover_frame(Edge264Decoder *dec);
-static int bump_frame(Edge264Decoder *dec, int non_base_view, unsigned ignored);
-static int bump_all_frames(Edge264Decoder *dec);
-static void flush_frames(Edge264Decoder *dec);
+static int bump_frame(Edge264Decoder *dec, int view_id);
+static int new_sequence(Edge264Decoder *dec);
 static int alloc_frame(Edge264Decoder *dec, int id, int errno_on_fail);
-static void clear_decoder(Edge264Decoder *dec);
 void *worker_loop(void *d);
 void *worker_loop_v2(void *d);
 void *worker_loop_v3(void *d);

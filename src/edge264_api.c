@@ -333,9 +333,9 @@ int edge264_get_frame(Edge264Decoder *dec, Edge264Frame *out, int borrow) {
 	if (dec->n_threads)
 		pthread_mutex_lock(&dec->lock);
 
-	// find lowest POC of bumped frames, excluding POC of current frame
+	// find lowest POC of frames not output yet (bumped or not), excluding POC of current frame
 	int64_t lowest_poc = INT64_MAX;
-	for (uint64_t o = dec->to_get_frames_l & dec->output_frames_l; o; o &= o - 1) {
+	for (uint64_t o = dec->to_get_frames_l; o; o &= o - 1) {
 		int64_t poc = dec->FieldOrderCnt[__builtin_ctzll(o)][0];
 		if (poc != dec->frame_top_poc && poc < lowest_poc)
 			lowest_poc = poc;

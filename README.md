@@ -422,7 +422,7 @@ Bug fixes should preferably provide test streams that can demonstrate fixing sai
 | All wrong combinations of non_idr_flag with nal_unit_type=1/5 and nal_ref_idc=0/1 |  |  |
 | nal_unit_type=14 then filler unit then nal_unit_type=1/5 |  |  |
 | An nal_unit_type=5 view paired with a non_idr_flag=0 P view, or a non_idr_flag=1 view | All OK, views unpaired until end of sequence (E5) | bumping-mvc |
-| Missing a base or non-base view | All OK, the other view is output alone (E1, E2) | bumping-mvc |
+| Missing a base or non-base view | All OK, the other view is output alone (E1, E2), in POC order even when the views bump at different times (E8) | bumping-mvc |
 | Receiving an SSPS yet only base views then |  |  |
 | 16 ref base views while non base are non-refs |  |  |
 | An SSPS with different pic_width_in_mbs/pic_height_in_mbs/chroma_format_idc than its SPS |  |  |

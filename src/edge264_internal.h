@@ -504,7 +504,6 @@ typedef struct Edge264Decoder {
 	uint32_t view_short_term_frames; // bitfield for indices of short-term/non-existing references of current view to apply after decoding it
 	uint32_t view_long_term_frames; // bitfield for indices of long-term/non-existing references of current view to apply after decoding it
 	union { int8_t view_LongTermFrameIdx[32]; i8x16 view_LongTermFrameIdx_v[2]; }; // [idx], values of current view to apply after decoding it
-	
 } Edge264Decoder;
 
 

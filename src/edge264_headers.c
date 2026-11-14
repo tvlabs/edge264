@@ -204,13 +204,16 @@ static int start_view(Edge264Decoder *dec, Edge264SeqParameterSet *sps, int curr
 			dec->basePic = currPic;
 		else if ((ret = insert_non_existing_base(dec)))
 			return ret;
-		dec->is_idr_frame = dec->IdrPicFlag;
-		if (dec->is_idr_frame) {
-			bump_prior_frames(dec);
-			dec->poc_msb++;
-		}
-		dec->frame_top_poc = dec->FieldOrderCnt[dec->basePic][0] = ((int64_t)dec->poc_msb << 32) + TopFieldOrderCnt;
-		dec->frame_bottom_poc = dec->FieldOrderCnt[dec->basePic][1] = ((int64_t)dec->poc_msb << 32) + BottomFieldOrderCnt;
+		int64_t upper = (int64_t)(dec->poc_msb + dec->IdrPicFlag) << 32;
+		dec->frame_top_poc = dec->FieldOrderCnt[dec->basePic][0] = upper + TopFieldOrderCnt;
+		dec->frame_bottom_poc = dec->FieldOrderCnt[dec->basePic][1] = upper + BottomFieldOrderCnt;
+	}
+	
+	// an IDR in any view starts a new GOP
+	if (dec->IdrPicFlag && !dec->is_idr_frame) {
+		dec->is_idr_frame = 1;
+		bump_prior_frames(dec);
+		dec->poc_msb++;
 	}
 	
 	dec->currPic = currPic;

@@ -471,6 +471,9 @@ typedef struct Edge264Decoder {
 	int8_t hH; // last decoded timestamp hours, 0..23
 	int8_t mM; // last decoded timestamp minutes, 0..59
 	int8_t sS; // last decoded timestamp seconds, 0..59
+	int8_t last_view_id; // value for the last slice, used for detecting new views
+	int8_t is_curr_ref; // nal_ref_idc != 0 for the last slice (kept since nal_ref_idc changes on next NAL)
+	int32_t FrameNum; // value for the last view, unaffected by mmco5
 	int32_t idr_pic_id; // value for the last slice, used for detecting new views
 	int32_t pic_order_cnt_lsb; // value for the last slice, used for detecting new views
 	int32_t delta_pic_order_cnt0; // value for the last slice, used for detecting new views
@@ -490,7 +493,7 @@ typedef struct Edge264Decoder {
 	union { uint32_t prev_long_term_frames[2]; uint64_t prev_long_term_frames_l; }; // [view], bitfield for indices of long-term/non-existing references before decoding current view
 	union { int8_t prev_LongTermFrameIdx[64]; i8x16 prev_LongTermFrameIdx_v[4]; }; // values before decoding current view
 	
-	// frame scope (start_frame to end_frame, active while basePic>=0 || currPic>=0)
+	// frame scope (start_view to end_frame, active while basePic>=0 || currPic>=0)
 	int8_t basePic; // slot of the base view of the current frame, or -1
 	int8_t is_idr_frame;
 	int8_t is_mmco5_frame; // applied by end_frame to all views
@@ -499,8 +502,6 @@ typedef struct Edge264Decoder {
 	
 	// view scope (start_view to end_view, active while currPic>=0)
 	int8_t currPic; // slot of the current view, or -1 between views
-	int8_t is_curr_ref; // nal_ref_idc != 0 for currPic (kept since nal_ref_idc changes on next NAL)
-	int32_t FrameNum; // value for the current view, unaffected by mmco5
 	uint32_t view_short_term_frames; // bitfield for indices of short-term/non-existing references of current view to apply after decoding it
 	uint32_t view_long_term_frames; // bitfield for indices of long-term/non-existing references of current view to apply after decoding it
 	union { int8_t view_LongTermFrameIdx[32]; i8x16 view_LongTermFrameIdx_v[2]; }; // [idx], values of current view to apply after decoding it

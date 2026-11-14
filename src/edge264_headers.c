@@ -38,6 +38,14 @@ static int bump_frame(Edge264Decoder *dec, int view_id) {
 	return 1;
 }
 
+static void bump_prior_frames(Edge264Decoder *dec) {
+	for (uint64_t o = dec->to_get_frames_l & ~dec->output_frames_l; o; o &= o - 1) {
+		int pic = __builtin_ctzll(o);
+		if (dec->FieldOrderCnt[pic][0] != dec->frame_top_poc)
+			dec->output_frames_l |= 1ull << pic;
+	}
+}
+
 static int alloc_frame(Edge264Decoder *dec, int id, int errno_on_fail) {
 	int mbs = (dec->sps.pic_width_in_mbs + 1) * dec->sps.pic_height_in_mbs - 1;
 	unsigned samples_size = dec->plane_size_Y + dec->plane_size_C + 16; // plus margin for overreads
@@ -60,37 +68,83 @@ static int alloc_frame(Edge264Decoder *dec, int id, int errno_on_fail) {
 	}
 }
 
-
-
-/**
- * Bumps all frames except the current frame, when an IDR frame starts or
- * mmco5 is parsed, before the current view is inserted in the DPB (C.4.4).
- */
-static void bump_prior_frames(Edge264Decoder *dec) {
-	for (uint64_t o = dec->to_get_frames_l & ~dec->output_frames_l; o; o &= o - 1) {
-		int pic = __builtin_ctzll(o);
-		if (dec->FieldOrderCnt[pic][0] != dec->frame_top_poc)
-			dec->output_frames_l |= 1ull << pic;
+static int insert_non_existing_base(Edge264Decoder *dec) {
+	int ret;
+	if (__builtin_popcount(unavail_frames(dec, 0)) == 32)
+		return ENOBUFS; // exit here if we must wait for get_frame to consume and return a frame slot
+	unsigned unavail;
+	while (__builtin_popcount(unavail = unavail_frames(dec, 0) | depended_frames(dec)) == 32)
+		pthread_cond_wait(&dec->task_complete, &dec->lock);
+	int basePic = __builtin_ctz(~unavail);
+	if (dec->samples_buffers[basePic] == NULL &&
+		(ret = alloc_frame(dec, basePic, basePic <= dec->sps.max_dec_frame_buffering ? ENOMEM : ENOBUFS)))
+		return ret;
+	int src = -1, highest = INT_MIN;
+	for (unsigned r = dec->prev_short_term_frames[0] | dec->prev_long_term_frames[0]; r; r &= r - 1) {
+		int pic = __builtin_ctz(r);
+		if (dec->FrameNums[pic] > highest && dec->next_deblock_addr[pic] == INT_MAX)
+			highest = dec->FrameNums[src = pic];
 	}
+	Edge264Macroblock *m = dec->mb_buffers[basePic];
+	int mbs = (dec->sps.pic_width_in_mbs + 1) * dec->sps.pic_height_in_mbs - 1;
+	if (src >= 0) {
+		memcpy(dec->samples_buffers[basePic], dec->samples_buffers[src], dec->plane_size_Y + dec->plane_size_C);
+		memcpy(m, dec->mb_buffers[src], sizeof(*m) * mbs);
+	} else {
+		memset(dec->samples_buffers[basePic], 128, dec->plane_size_Y + dec->plane_size_C);
+		for (int j = 0; j < mbs; j++)
+			m[j] = unavail_mb;
+	}
+	int flip = src >= 0 ? dec->frame_flip_bits >> src & 1 : 0;
+	dec->frame_flip_bits = (dec->frame_flip_bits & ~(1ull << basePic)) | (uint64_t)flip << basePic;
+	dec->erroneous_frames[0] |= 1u << basePic;
+	dec->FrameIds[basePic] = ++dec->prevFrameId;
+	dec->FrameNums[basePic] = dec->FrameNum;
+	dec->remaining_mbs[basePic] = 0;
+	dec->next_deblock_addr[basePic] = INT_MAX;
+	dec->basePic = basePic;
+	return 0;
 }
 
+
+
 /**
- * A frame starts with its base view and ends when the next base view is
- * detected or at end of sequence, get_frame withholding its POC until then.
- * end_frame applies mmco5 to all views of the frame after decoding (8.2.1),
- * clearing their references and rebasing them to FrameNum=0 and POC=0.
+ * A view ends once a slice leaves it complete, or when it is incomplete and a
+ * new picture is detected as per 7.4.1.2.4:
+ * _ frame_num differs (dec->FrameNum is the previous value unaffected by mmco5)
+ * _ nal_ref_idc differs
+ * _ pic_order_cnt_type=0 and pic_order_cnt_lsb differs
+ * _ pic_order_cnt_type=1 and delta_pic_order_cnt[0] differs (equivalent to
+ *   TopFieldOrderCnt once frame_num and nal_ref_idc are tested)
+ * _ idr_pic_id differs (useful on streams of IDRs), with -1 when IdrPicFlag=0
+ * _ view_id differs
+ * pic_parameter_set_id is ignored as not stored, and POCs must differ anyway.
+ * A new view first finds a free frame slot, then the slice header is parsed
+ * up to dec_ref_pic_marking, after which start_view commits it.
  */
-static void start_frame(Edge264Decoder *dec) {
-	dec->basePic = dec->currPic;
-	dec->is_idr_frame = dec->IdrPicFlag;
-	if (dec->is_idr_frame) {
-		bump_prior_frames(dec);
-		dec->poc_msb++;
+static void end_view(Edge264Decoder *dec) {
+	assert(dec->currPic >= 0);
+	// FIXME conceal with threads
+	if (dec->next_deblock_addr[dec->currPic] != INT_MAX && dec->n_threads == 0)
+		recover_frame(dec);
+	int view_id = dec->currPic >> 5;
+	if (dec->is_curr_ref) {
+		dec->PrevRefFrameNum[view_id] = dec->FrameNums[dec->currPic];
+		dec->prevPicOrderCnt[view_id] = (int32_t)dec->FieldOrderCnt[dec->currPic][0];
+		dec->prev_short_term_frames[view_id] = dec->view_short_term_frames;
+		dec->prev_long_term_frames[view_id] = dec->view_long_term_frames;
+		dec->prev_LongTermFrameIdx_v[view_id * 2] = dec->view_LongTermFrameIdx_v[0];
+		dec->prev_LongTermFrameIdx_v[view_id * 2 + 1] = dec->view_LongTermFrameIdx_v[1];
 	}
+	dec->currPic = -1;
 }
 
 static void end_frame(Edge264Decoder *dec) {
-	if (dec->is_mmco5_frame) { // mmco5 in any view applies to all views, since G.8.1 requires them to keep equal POCs
+	if (dec->currPic >= 0)
+		end_view(dec);
+	
+	// mmco5 in any view applies to all views, since G.8.1 requires them to keep equal POCs
+	if (dec->is_mmco5_frame) {
 		dec->poc_msb++;
 		for (uint64_t o = dec->to_get_frames_l; o; o &= o - 1) {
 			int pic = __builtin_ctzll(o);
@@ -112,49 +166,62 @@ static void end_frame(Edge264Decoder *dec) {
 			dec->prev_long_term_frames[view_id] &= self;
 		}
 	}
+	
+	// bump the non-base views if the second view is missing
+	unsigned waiting_views = dec->to_get_frames[1] & ~dec->output_frames[1];
+	if (dec->frame_top_poc != INT64_MIN && waiting_views) { // FIXME add test that second view is absent
+		unsigned base_views = dec->to_get_frames[0];
+		while (__builtin_popcount(base_views) > dec->ssps.max_num_reorder_frames) {
+			int idx = __builtin_ctz(base_views);
+			for (unsigned o = base_views & (base_views - 1); o; o &= o - 1) {
+				int i = __builtin_ctz(o);
+				if (dec->FieldOrderCnt[i][0] < dec->FieldOrderCnt[idx][0])
+					idx = i;
+			}
+			base_views &= ~(1u << idx);
+			for (unsigned o = waiting_views; o; o &= o - 1) {
+				int i = __builtin_ctz(o);
+				if (dec->FieldOrderCnt[32 + i][0] == dec->FieldOrderCnt[idx][0])
+					dec->output_frames[1] |= 1u << i;
+			}
+		}
+	}
 	dec->basePic = -1;
 	dec->is_idr_frame = dec->is_mmco5_frame = 0;
 	dec->frame_top_poc = dec->frame_bottom_poc = INT64_MIN;
 }
 
-/**
- * A view ends once a slice leaves it complete, or when it is incomplete and a
- * new picture is detected as per 7.4.1.2.4:
- * _ frame_num differs (dec->FrameNum is the previous value unaffected by mmco5)
- * _ nal_ref_idc differs
- * _ pic_order_cnt_type=0 and pic_order_cnt_lsb differs
- * _ pic_order_cnt_type=1 and delta_pic_order_cnt[0] differs (equivalent to
- *   TopFieldOrderCnt once frame_num and nal_ref_idc are tested)
- * _ idr_pic_id differs (useful on streams of IDRs), with -1 when IdrPicFlag=0
- * _ view_id differs
- * pic_parameter_set_id is ignored as not stored, and POCs must differ anyway.
- * end_view conceals missing macroblocks and commits the reference state for
- * the next view.
- * A new view first finds a free frame slot, then the slice header is parsed
- * up to dec_ref_pic_marking, after which start_view commits it.
- */
 static int start_view(Edge264Decoder *dec, Edge264SeqParameterSet *sps, int currPic, int TopFieldOrderCnt, int BottomFieldOrderCnt) {
 	int view_id = currPic >> 5;
 	int ret;
 	if (dec->samples_buffers[currPic] == NULL &&
 		(ret = alloc_frame(dec, currPic, (currPic & 31) <= sps->max_dec_frame_buffering ? ENOMEM : ENOBUFS)))
 		return ret;
+	
+	// start a new frame if none is open
+	if (dec->frame_top_poc == INT64_MIN) {
+		if (!view_id)
+			dec->basePic = currPic;
+		else if ((ret = insert_non_existing_base(dec)))
+			return ret;
+		dec->is_idr_frame = dec->IdrPicFlag;
+		if (dec->is_idr_frame) {
+			bump_prior_frames(dec);
+			dec->poc_msb++;
+		}
+		dec->frame_top_poc = dec->FieldOrderCnt[dec->basePic][0] = ((int64_t)dec->poc_msb << 32) + TopFieldOrderCnt;
+		dec->frame_bottom_poc = dec->FieldOrderCnt[dec->basePic][1] = ((int64_t)dec->poc_msb << 32) + BottomFieldOrderCnt;
+	}
+	
 	dec->currPic = currPic;
-	dec->is_curr_ref = dec->nal_ref_idc != 0;
 	dec->erroneous_frames_l &= ~(1ull << currPic);
 	dec->frame_flip_bits ^= 1ull << currPic;
 	dec->FrameIds[currPic] = ++dec->prevFrameId;
 	dec->FrameNums[currPic] = dec->FrameNum;
 	dec->remaining_mbs[currPic] = sps->pic_width_in_mbs * sps->pic_height_in_mbs;
 	dec->next_deblock_addr[currPic] = 0;
-	if (!view_id)
-		start_frame(dec);
 	dec->FieldOrderCnt[currPic][0] = ((int64_t)dec->poc_msb << 32) + TopFieldOrderCnt;
 	dec->FieldOrderCnt[currPic][1] = ((int64_t)dec->poc_msb << 32) + BottomFieldOrderCnt;
-	if (dec->frame_top_poc == INT64_MIN) {
-		dec->frame_top_poc = dec->FieldOrderCnt[currPic][0];
-		dec->frame_bottom_poc = dec->FieldOrderCnt[currPic][1];
-	}
 	log_dec(dec, "  FrameId: %u\n", dec->FrameIds[currPic]);
 	
 	// for safety, compute the max number of frames that can bump out of DPB
@@ -164,18 +231,20 @@ static int start_view(Edge264Decoder *dec, Edge264SeqParameterSet *sps, int curr
 		for (unsigned o = dec->to_get_frames[view_id] & ~dec->output_frames[view_id]; o; o &= o - 1)
 			max_bump += dec->FieldOrderCnt[view_id * 32 + __builtin_ctz(o)][0] < dec->FieldOrderCnt[currPic][0];
 	}
+	
 	// apply bumping process until there is an empty slot, once the frames dereferenced by the current picture are removed (C.4.4)
 	unsigned refs = (dec->view_short_term_frames | dec->view_long_term_frames) & ~(1u << (currPic & 31));
 	while (__builtin_popcount(refs | (dec->to_get_frames[view_id] & ~dec->output_frames[view_id])) >= sps->max_dec_frame_buffering && max_bump--)
 		bump_frame(dec, view_id);
 	dec->to_get_frames_l |= 1ull << currPic;
-	// if DPB has no outputable frame left then put current frame in output queue,
-	// otherwise bump if number of reordered frames exceeds limit
+	
+	// if DPB has no outputable frame left then bump current frame, otherwise bump if number of reordered frames exceeds limit
 	if (max_bump < 0) {
 		dec->output_frames_l |= 1ull << currPic;
 	} else if (__builtin_popcount(dec->to_get_frames[view_id] & ~dec->output_frames[view_id]) > sps->max_num_reorder_frames) {
 		bump_frame(dec, view_id);
 	}
+	
 	#if VARIANT == LOGS
 		log_dec(dec, "  DecodedPictureBuffer:\n");
 		for (int v = 0; v < 2; v++) {
@@ -200,32 +269,9 @@ static int start_view(Edge264Decoder *dec, Edge264SeqParameterSet *sps, int curr
 	return 0;
 }
 
-static void end_view(Edge264Decoder *dec) {
-	assert(dec->currPic >= 0);
-	// FIXME conceal with threads
-	if (dec->next_deblock_addr[dec->currPic] != INT_MAX && dec->n_threads == 0)
-		recover_frame(dec);
-	int view_id = dec->currPic >> 5;
-	if (dec->is_curr_ref) {
-		dec->PrevRefFrameNum[view_id] = dec->FrameNums[dec->currPic];
-		dec->prevPicOrderCnt[view_id] = (int32_t)dec->FieldOrderCnt[dec->currPic][0];
-		dec->prev_short_term_frames[view_id] = dec->view_short_term_frames;
-		dec->prev_long_term_frames[view_id] = dec->view_long_term_frames;
-		dec->prev_LongTermFrameIdx_v[view_id * 2] = dec->view_LongTermFrameIdx_v[0];
-		dec->prev_LongTermFrameIdx_v[view_id * 2 + 1] = dec->view_LongTermFrameIdx_v[1];
-	}
-	dec->currPic = -1;
-	dec->is_curr_ref = 0;
-}
-
-/**
- * Bumps all frames, returning ENOBUFS until they are consumed, then resets the
- * decoder state with a new range of POCs.
- */
 static int new_sequence(Edge264Decoder *dec) {
-	if (dec->currPic >= 0)
-		end_view(dec);
 	end_frame(dec);
+	// bump all frames, returning ENOBUFS until they are consumed
 	dec->output_frames_l |= dec->to_get_frames_l;
 	// FIXME interrupt all threads then wait until they are back to wait
 	while (dec->busy_tasks)
@@ -1078,11 +1124,8 @@ static int insert_non_existing_frames(Edge264Decoder *dec, Edge264SeqParameterSe
 				for (int j = 0; j < mbs; j++)
 					m[j] = unavail_mb;
 			}
-			// match the flip bit of this slot so that its next frame sees all mbs as undecoded
-			for (int j = 0; j < mbs; j += sps->pic_width_in_mbs + 1) {
-				for (int k = j; k < j + sps->pic_width_in_mbs; k++)
-					m[k].recovery_bits = dec->frame_flip_bits >> pic & 1;
-			}
+			int flip = src >= 0 ? dec->frame_flip_bits >> src & 1 : 0;
+			dec->frame_flip_bits = (dec->frame_flip_bits & ~(1ull << pic)) | (uint64_t)flip << pic;
 		}
 		unavail |= 1u << i;
 		dec->erroneous_frames[view_id] |= 1u << i;
@@ -1239,25 +1282,32 @@ int ADD_VARIANT(parse_slice_layer_without_partitioning)(Edge264Decoder *dec, Edg
 		log_dec(dec, "  idr_pic_id: %u\n", idr_pic_id);
 	}
 	
-	// detect the start of a new view while the current one is incomplete (7.4.1.2.4)
+	// detect the start of a new view (7.4.1.2.4 and G.7.4.1.2.4)
 	int FrameNumMask = (1 << sps->log2_max_frame_num) - 1;
-	if (dec->currPic >= 0 && (frame_num != (dec->FrameNum & FrameNumMask) ||
-		(dec->nal_ref_idc > 0) != dec->is_curr_ref ||
-		view_id != dec->currPic >> 5 ||
-		idr_pic_id != dec->idr_pic_id)) {
+	int same_view = view_id == dec->last_view_id && (dec->currPic >= 0 || view_id);
+	if (same_view) {
+		if (frame_num != (dec->FrameNum & FrameNumMask) ||
+			(dec->nal_ref_idc > 0) != dec->is_curr_ref ||
+			idr_pic_id != dec->idr_pic_id) {
+			end_frame(dec);
+			same_view = 0;
+		}
+	} else if (!view_id) {
+		end_frame(dec);
+	} else if (dec->currPic >= 0) {
 		end_view(dec);
 	}
+	dec->last_view_id = view_id;
+	dec->is_curr_ref = dec->nal_ref_idc != 0;
 	dec->idr_pic_id = idr_pic_id;
 	
 	// compute Top/BottomFieldOrderCnt (8.2.1), don't change the outer 3-branch structure
 	int TopFieldOrderCnt, BottomFieldOrderCnt;
 	if (sps->pic_order_cnt_type == 0) {
 		int pic_order_cnt_lsb = get_uv(&dec->gb, sps->log2_max_pic_order_cnt_lsb);
-		if (dec->currPic >= 0 && pic_order_cnt_lsb != dec->pic_order_cnt_lsb)
-			end_view(dec);
-		dec->pic_order_cnt_lsb = pic_order_cnt_lsb;
-		if (dec->currPic < 0 && !view_id)
+		if (same_view && pic_order_cnt_lsb != dec->pic_order_cnt_lsb)
 			end_frame(dec);
+		dec->pic_order_cnt_lsb = pic_order_cnt_lsb;
 		int PrevRefFrameNum = dec->IdrPicFlag ? 0 : dec->PrevRefFrameNum[view_id];
 		dec->FrameNum = dec->IdrPicFlag ? 0 : PrevRefFrameNum + 1 + ((frame_num - PrevRefFrameNum - 1) & FrameNumMask); // PrevRefFrameNum=frame_num=0 for IDR (7.4.3)
 		int shift = WORD_BIT - sps->log2_max_pic_order_cnt_lsb;
@@ -1283,11 +1333,9 @@ int ADD_VARIANT(parse_slice_layer_without_partitioning)(Edge264Decoder *dec, Edg
 				log_dec(dec, ", delta1: %d", delta_pic_order_cnt1);
 			}
 		}
-		if (dec->currPic >= 0 && delta_pic_order_cnt0 != dec->delta_pic_order_cnt0)
-			end_view(dec);
-		dec->delta_pic_order_cnt0 = delta_pic_order_cnt0;
-		if (dec->currPic < 0 && !view_id)
+		if (same_view && delta_pic_order_cnt0 != dec->delta_pic_order_cnt0)
 			end_frame(dec);
+		dec->delta_pic_order_cnt0 = delta_pic_order_cnt0;
 		int PrevRefFrameNum = dec->IdrPicFlag ? 0 : dec->PrevRefFrameNum[view_id];
 		dec->FrameNum = dec->IdrPicFlag ? 0 : PrevRefFrameNum + 1 + ((frame_num - PrevRefFrameNum - 1) & FrameNumMask); // PrevRefFrameNum=frame_num=0 for IDR (7.4.3)
 		int absFrameNum = (sps->num_ref_frames_in_pic_order_cnt_cycle > 0) ? dec->FrameNum : 0;
@@ -1303,8 +1351,6 @@ int ADD_VARIANT(parse_slice_layer_without_partitioning)(Edge264Decoder *dec, Edg
 			", absolute: %d}\n" : ", absolute: %d, bottom: %d}\n",
 			TopFieldOrderCnt, BottomFieldOrderCnt);
 	} else {
-		if (dec->currPic < 0 && !view_id)
-			end_frame(dec);
 		int PrevRefFrameNum = dec->IdrPicFlag ? 0 : dec->PrevRefFrameNum[view_id];
 		dec->FrameNum = dec->IdrPicFlag ? 0 : PrevRefFrameNum + 1 + ((frame_num - PrevRefFrameNum - 1) & FrameNumMask); // PrevRefFrameNum=frame_num=0 for IDR (7.4.3)
 		TopFieldOrderCnt = BottomFieldOrderCnt = dec->FrameNum * 2 + (dec->nal_ref_idc != 0) - 1;

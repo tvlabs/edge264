@@ -63,16 +63,15 @@ static int alloc_frame(Edge264Decoder *dec, int id, int errno_on_fail) {
 
 
 /**
- * Bumps all frames but the current one and starts a new range of POCs, when an
- * IDR frame starts or a frame with mmco5 ends (C.4.4).
+ * Bumps all frames except the current frame, when an IDR frame starts or
+ * mmco5 is parsed, before the current view is inserted in the DPB (C.4.4).
  */
-static void new_gop(Edge264Decoder *dec) {
+static void bump_prior_frames(Edge264Decoder *dec) {
 	for (uint64_t o = dec->to_get_frames_l & ~dec->output_frames_l; o; o &= o - 1) {
 		int pic = __builtin_ctzll(o);
 		if (dec->FieldOrderCnt[pic][0] != dec->frame_top_poc)
 			dec->output_frames_l |= 1ull << pic;
 	}
-	dec->poc_msb++;
 }
 
 /**
@@ -84,13 +83,15 @@ static void new_gop(Edge264Decoder *dec) {
 static void start_frame(Edge264Decoder *dec) {
 	dec->basePic = dec->currPic;
 	dec->is_idr_frame = dec->IdrPicFlag;
-	if (dec->is_idr_frame)
-		new_gop(dec);
+	if (dec->is_idr_frame) {
+		bump_prior_frames(dec);
+		dec->poc_msb++;
+	}
 }
 
 static void end_frame(Edge264Decoder *dec) {
-	if (dec->is_mmco5_frame) {
-		new_gop(dec);
+	if (dec->is_mmco5_frame) { // mmco5 in any view applies to all views, since G.8.1 requires them to keep equal POCs
+		dec->poc_msb++;
 		for (uint64_t o = dec->to_get_frames_l; o; o &= o - 1) {
 			int pic = __builtin_ctzll(o);
 			if (dec->FieldOrderCnt[pic][0] != dec->frame_top_poc)
@@ -761,6 +762,7 @@ static void parse_dec_ref_pic_marking(Edge264Decoder *dec, Edge264SeqParameterSe
 				dec->view_short_term_frames = dec->view_long_term_frames = 0;
 				dec->view_LongTermFrameIdx_v[0] = dec->view_LongTermFrameIdx_v[1] = (i8x16){};
 				dec->is_mmco5_frame = 1; // will reset FrameNum and POC after decoding
+				bump_prior_frames(dec);
 			}
 			log_dec(dec, mmco_names[memory_management_control_operation - 1],
 				FrameNum, long_term_frame_idx);
@@ -1261,7 +1263,7 @@ int ADD_VARIANT(parse_slice_layer_without_partitioning)(Edge264Decoder *dec, Edg
 	}
 	dec->idr_pic_id = idr_pic_id;
 	
-	// compute Top/BottomFieldOrderCnt (8.2.1)
+	// compute Top/BottomFieldOrderCnt (8.2.1), don't change the outer 3-branch structure
 	int TopFieldOrderCnt, BottomFieldOrderCnt;
 	if (sps->pic_order_cnt_type == 0) {
 		int pic_order_cnt_lsb = get_uv(&dec->gb, sps->log2_max_pic_order_cnt_lsb);

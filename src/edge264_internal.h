@@ -374,15 +374,13 @@ typedef struct Edge264Context {
 /**
  * This structure stores all variables scoped to the entire stream.
  * 
- * These fields are divided in five scopes, from outermost to innermost:
+ * These fields are divided in four scopes, from outermost to innermost:
  * _ decoder: from edge264_alloc to edge264_free, spanning all sequences
- * _ sequence: from each (re)init (alloc, then new_sequence at flush, end of
- *   buffer, end of sequence NAL, change of frame format in SPS) to the next one
+ * _ sequence: reinits at each flush, end of buffer, end of sequence NAL, or
+ *   change of frame format in SPS
  * _ GOP: splits at an IDR frame or after a frame with mmco5
- * _ frame: one access unit, active while currPic>=0 or basePic>=0, ends only
- *   when the next one starts or at the end of sequence
- * _ view: one view component, active while currPic>=0, ends when a slice
- *   leaves it complete, or another view starts
+ * _ frame: one access unit, active while currPic[0]>=0 or currPic[1]>=0,
+ *   ends when the next one starts or at the end of sequence
  *
  * The frame buffer stores empty and used frames with a Structure Of Arrays
  * pattern, while using as few arrays as possible to prevent impossible storage
@@ -405,8 +403,8 @@ typedef struct Edge264Context {
  *   future retrieval by get_frame have values (1, 1)
  * _ frames yielded by get_frame and waiting to be returned have values (0, 1)
  * Memory management control operations are captured by view_short_term_frames
- * and view_long_term_frames which store the future state of references that
- * will replace the previous one when the current frame is complete.
+ * and view_long_term_frames which store the future state of references of each
+ * view that will replace the previous one when the current frame is complete.
  * 
  * With MVC, as per spec the bumping process operates independently on
  * left&right views, so output status is tracked per view. edge264_get_frame
@@ -427,13 +425,14 @@ typedef struct Edge264Context {
  */
 typedef int (*Parser)(Edge264Decoder *dec, Edge264UnrefCb unref_cb, void *unref_arg);
 typedef struct Edge264Decoder {
-	// decoder scope (edge264_alloc to edge264_free)
+	// decoder scope
 	Edge264GetBits gb; // must be first in the struct to use the same pointer for bitstream functions
 	int8_t n_threads; // 0 to disable multithreading
 	int8_t shutdown; // 0..1, set to order worker threads to exit
 	int8_t nal_ref_idc; // 2 significant bits, value for the last NAL
 	int8_t nal_unit_type; // 5 significant bits, value for the last NAL
 	int8_t IdrPicFlag; // 1 significant bit, value for the last slice NAL
+	int8_t inter_view_flag; // 1 significant bit, value of the last prefix NAL
 	uint32_t prevFrameId; // starts at UINT_MAX to wrap to 0 for the first frame
 	int32_t poc_msb; // upper 32 bits of 64-bit POCs, incremented at each GOP
 	int32_t plane_size_Y;
@@ -471,12 +470,8 @@ typedef struct Edge264Decoder {
 	int8_t hH; // last decoded timestamp hours, 0..23
 	int8_t mM; // last decoded timestamp minutes, 0..59
 	int8_t sS; // last decoded timestamp seconds, 0..59
-	int8_t last_view_id; // value for the last slice, used for detecting new views
-	int8_t is_curr_ref; // nal_ref_idc != 0 for the last slice (kept since nal_ref_idc changes on next NAL)
-	int32_t FrameNum; // value for the last view, unaffected by mmco5
-	int32_t idr_pic_id; // value for the last slice, used for detecting new views
-	int32_t pic_order_cnt_lsb; // value for the last slice, used for detecting new views
-	int32_t delta_pic_order_cnt0; // value for the last slice, used for detecting new views
+	int8_t is_mvc; // 0..1, set when any non-base view is received in the current sequence
+	int32_t FrameNum; // value for the last slice, unaffected by mmco5
 	union { uint32_t to_get_frames[2]; uint64_t to_get_frames_l; }; // [view], bitfield for frames that have not been returned by get_frame yet
 	union { uint32_t output_frames[2]; uint64_t output_frames_l; }; // [view], bitfield for frames that have been bumped for output and not returned yet
 	union { uint32_t erroneous_frames[2]; uint64_t erroneous_frames_l; }; // [view], bitfield for frames with concealed macroblocks or inferred from a frame_num gap
@@ -493,18 +488,20 @@ typedef struct Edge264Decoder {
 	union { uint32_t prev_long_term_frames[2]; uint64_t prev_long_term_frames_l; }; // [view], bitfield for indices of long-term/non-existing references before decoding current view
 	union { int8_t prev_LongTermFrameIdx[64]; i8x16 prev_LongTermFrameIdx_v[4]; }; // values before decoding current view
 	
-	// frame scope (start_view to end_frame, active while basePic>=0 || currPic>=0)
-	int8_t basePic; // slot of the base view of the current frame, or -1
+	// frame scope
+	int8_t currPic[2]; // [view], slot of each view of the current frame, or -1 if absent
+	int8_t is_curr_ref[2]; // [view], nal_ref_idc != 0
 	int8_t is_idr_frame;
 	int8_t is_mmco5_frame; // applied by end_frame to all views
+	int8_t inter_view_ref; // 0..1, inter_view_flag of the base view, 0 while it is absent
+	int32_t idr_pic_id[2]; // [view], for detecting new frames
+	int32_t pic_order_cnt_lsb[2]; // [view], for detecting new frames
+	int32_t delta_pic_order_cnt0[2]; // [view], for detecting new frames
 	int64_t frame_top_poc; // POC of the current frame, withheld by get_frame until the frame ends
 	int64_t frame_bottom_poc;
-	
-	// view scope (start_view to end_view, active while currPic>=0)
-	int8_t currPic; // slot of the current view, or -1 between views
-	uint32_t view_short_term_frames; // bitfield for indices of short-term/non-existing references of current view to apply after decoding it
-	uint32_t view_long_term_frames; // bitfield for indices of long-term/non-existing references of current view to apply after decoding it
-	union { int8_t view_LongTermFrameIdx[32]; i8x16 view_LongTermFrameIdx_v[2]; }; // [idx], values of current view to apply after decoding it
+	uint32_t view_short_term_frames[2]; // [view], short-term/non-existing references to apply at end_frame
+	uint32_t view_long_term_frames[2]; // [view], long-term/non-existing references to apply at end_frame
+	union { int8_t view_LongTermFrameIdx[2][32]; i8x16 view_LongTermFrameIdx_v[2][2]; }; // [view][idx], to apply at end_frame
 } Edge264Decoder;
 
 
@@ -1503,8 +1500,7 @@ static noinline void parse_slice_data_cavlc(Edge264Context *ctx);
 static noinline void parse_slice_data_cabac(Edge264Context *ctx);
 
 // edge264_headers.c
-static void end_view(Edge264Decoder *dec);
-static void recover_frame(Edge264Decoder *dec);
+static void recover_frame(Edge264Decoder *dec, int currPic);
 static int bump_frame(Edge264Decoder *dec, int view_id);
 static int new_sequence(Edge264Decoder *dec);
 static int alloc_frame(Edge264Decoder *dec, int id, int errno_on_fail);

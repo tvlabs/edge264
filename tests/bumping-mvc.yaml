@@ -6,6 +6,8 @@
 # the non-base view, both inferred as for a single view when absent (rather than a DPB shared
 # by both views as in C.1 and G.10.2.1 f).
 # Pairs of frames of POC p are written p, frames output alone pb (base view) or pn (non-base).
+# A missing view is replaced by a non-existing view (copy of its last reference, or gray), so
+# the frames of an access unit missing a view are still written p.
 # M scenarios cover the normal behaviour, E scenarios the errors handled today, X scenarios
 # the errors currently failing (X1 and X2 never reach ENODATA).
 
@@ -5947,9 +5949,9 @@
 
 
 
-# E1: the non-base view of one access unit is missing, its base frame is output alone
-# (samples_mvc=NULL).
-# Expected output: 0 2 4b 6 8 10 12 14 16
+# E1: the non-base view of one access unit is missing, its base frame is paired with a
+# non-existing non-base view.
+# Expected output: 0 2 4 6 8 10 12 14 16
 
 - nal_ref_idc: 3
   nal_unit_type: 7 # Sequence parameter set
@@ -6163,7 +6165,7 @@
     intra_chroma_pred_mode: 0
     coded_block_pattern: 0
 
-# AU POC 6, outputs 2 4b
+# AU POC 6, outputs 2 4
 - nal_ref_idc: 0
   nal_unit_type: 1 # Coded slice of a non-IDR picture
   first_mb_in_slice: 0
@@ -6345,9 +6347,9 @@
 
 
 
-# E2: the base view of one access unit is missing, its non-base frame is output alone
-# (samples=NULL).
-# Expected output: 0 2 4n 6 8 10 12 14 16
+# E2: the base view of one access unit is missing, its non-base frame is paired with a
+# non-existing base view.
+# Expected output: 0 2 4 6 8 10 12 14 16
 
 - nal_ref_idc: 3
   nal_unit_type: 7 # Sequence parameter set
@@ -6567,7 +6569,7 @@
     intra_chroma_pred_mode: 0
     coded_block_pattern: 0
 
-# AU POC 6, outputs 2 4n
+# AU POC 6, outputs 2 4
 - nal_ref_idc: 0
   nal_unit_type: 1 # Coded slice of a non-IDR picture
   first_mb_in_slice: 0
@@ -6749,7 +6751,8 @@
 
 
 
-# E3: the non-base view of one access unit precedes its base view, they are still paired.
+# E3: the non-base view of one access unit precedes its base view, they are still paired since
+# they have the same POC.
 # Expected output: 0 2 4 6 8 10 12 14 16
 
 - nal_ref_idc: 3
@@ -7166,9 +7169,10 @@
 
 
 
-# E4: the views of one access unit have different POCs (non-conforming, G.8.1), both frames
-# are output alone.
-# Expected output: 0 2 4b 5n 6 8 10 12 14 16
+# E4: the views of one access unit have different POCs (non-conforming, G.8.1), so they are
+# split into two frames completed with non-existing views. The extra frame in each DPB bumps
+# POC 4 before POC 2 is decoded.
+# Expected output: 0 4 2 5 6 8 10 12 14 16
 
 - nal_ref_idc: 3
   nal_unit_type: 7 # Sequence parameter set
@@ -7367,7 +7371,7 @@
     intra_chroma_pred_mode: 0
     coded_block_pattern: 0
 
-# AU POC 2
+# AU POC 2, outputs 4
 - nal_ref_idc: 0
   nal_unit_type: 1 # Coded slice of a non-IDR picture
   first_mb_in_slice: 0
@@ -7402,7 +7406,7 @@
     intra_chroma_pred_mode: 0
     coded_block_pattern: 0
 
-# AU POC 6, outputs 2 4b 5n
+# AU POC 6, outputs 2 5
 - nal_ref_idc: 0
   nal_unit_type: 1 # Coded slice of a non-IDR picture
   first_mb_in_slice: 0
@@ -7585,8 +7589,9 @@
 
 
 # E5a: an IDR picture in the base view only (non-conforming, non_idr_flag applies to the whole
-# access unit), which starts a new GOP for both views, so they keep pairing.
-# Expected output: 0 2 4 6 8 0b 2 4 20n
+# access unit), which starts a new GOP for both views, so they keep pairing. Its non-IDR
+# non-base view starts another frame, and both are completed with non-existing views.
+# Expected output: 0 2 4 6 8 0 2 4 20
 
 - nal_ref_idc: 3
   nal_unit_type: 7 # Sequence parameter set
@@ -7893,7 +7898,7 @@
     intra_chroma_pred_mode: 0
     coded_block_pattern: 0
 
-# AU POC 4
+# AU POC 4, outputs 0
 - nal_ref_idc: 1
   nal_unit_type: 1 # Coded slice of a non-IDR picture
   first_mb_in_slice: 0
@@ -7928,7 +7933,7 @@
     intra_chroma_pred_mode: 0
     coded_block_pattern: 0
 
-# AU POC 2, outputs 0b
+# AU POC 2
 - nal_ref_idc: 0
   nal_unit_type: 1 # Coded slice of a non-IDR picture
   first_mb_in_slice: 0
@@ -7963,7 +7968,7 @@
     intra_chroma_pred_mode: 0
     coded_block_pattern: 0
 
-# end of sequence, returns ENOBUFS then outputs 2 4 20n
+# end of sequence, returns ENOBUFS then outputs 2 4 20
 - nal_ref_idc: 0
   nal_unit_type: 10 # End of sequence
 
@@ -7971,8 +7976,9 @@
 
 
 # E5b: an IDR picture in the non-base view only, which starts a new GOP for both views, the base
-# frame of its access unit staying in the previous one.
-# Expected output: 0 2 4 6 8 20b 0n 2 4
+# frame of its access unit staying in the previous one. Both start their own frames, completed
+# with non-existing views.
+# Expected output: 0 2 4 6 8 20 0 2 4
 
 - nal_ref_idc: 3
   nal_unit_type: 7 # Sequence parameter set
@@ -8241,7 +8247,7 @@
     intra_chroma_pred_mode: 0
     coded_block_pattern: 0
 
-# AU with a POC 20 non-IDR in the base view and an IDR POC 0 in the non-base view, outputs 6 8
+# AU with a POC 20 non-IDR in the base view and an IDR POC 0 in the non-base view, outputs 6 8 20
 - nal_ref_idc: 1
   nal_unit_type: 1 # Coded slice of a non-IDR picture
   first_mb_in_slice: 0
@@ -8314,7 +8320,7 @@
     intra_chroma_pred_mode: 0
     coded_block_pattern: 0
 
-# AU POC 2, outputs 20b 0n
+# AU POC 2, outputs 0
 - nal_ref_idc: 0
   nal_unit_type: 1 # Coded slice of a non-IDR picture
   first_mb_in_slice: 0
@@ -9126,9 +9132,9 @@
 
 
 
-# E7a: end of sequence while a base frame without non-base pair waits for output, it is output
-# alone among the pairs.
-# Expected output: 0 2b 4 8
+# E7a: end of sequence while a base frame without non-base pair waits for output, it is paired
+# with a non-existing non-base view.
+# Expected output: 0 2 4 8
 
 - nal_ref_idc: 3
   nal_unit_type: 7 # Sequence parameter set
@@ -9342,15 +9348,16 @@
     intra_chroma_pred_mode: 0
     coded_block_pattern: 0
 
-# end of sequence, returns ENOBUFS then outputs 2b 4 8
+# end of sequence, returns ENOBUFS then outputs 2 4 8
 - nal_ref_idc: 0
   nal_unit_type: 10 # End of sequence
 
 
 
 
-# E7b: end of sequence while a non-base frame without base pair waits for output.
-# Expected output: 0 2 4 6n 8
+# E7b: end of sequence while a non-base frame without base pair waits for output, it is paired
+# with a non-existing base view.
+# Expected output: 0 2 4 6 8
 
 - nal_ref_idc: 3
   nal_unit_type: 7 # Sequence parameter set
@@ -9605,7 +9612,7 @@
     intra_chroma_pred_mode: 0
     coded_block_pattern: 0
 
-# end of sequence, returns ENOBUFS then outputs 4 6n 8
+# end of sequence, returns ENOBUFS then outputs 4 6 8
 - nal_ref_idc: 0
   nal_unit_type: 10 # End of sequence
 
@@ -9614,9 +9621,9 @@
 
 # E8: one access unit misses its base view and the next one its non-base view, with a faster
 # base view. The base frame of POC 6 is bumped before the non-base frame of POC 4, but get_frame
-# looks for the lowest POC among all frames not output yet, so 4n is still output before 6b.
+# looks for the lowest POC among all frames not output yet, so 4 is still output before 6.
 # SPS: max_num_reorder_frames=1, max_dec_frame_buffering=4. SSPS: 2, 4.
-# Expected output: 0 4n 6b 8 12 16
+# Expected output: 0 4 6 8 12 16
 
 - nal_ref_idc: 3
   nal_unit_type: 7 # Sequence parameter set
@@ -9816,7 +9823,7 @@
     intra_chroma_pred_mode: 0
     coded_block_pattern: 0
 
-# AU POC 16, outputs 4n 6b
+# AU POC 16, outputs 4 6
 - nal_ref_idc: 1
   nal_unit_type: 1 # Coded slice of a non-IDR picture
   first_mb_in_slice: 0
@@ -9895,10 +9902,10 @@
 
 # X1: the non-base view stops in the middle of a sequence (non-conforming, VOIdxMax is constant
 # in a coded video sequence), for more access units than the 32 base slots. The non-base frame of
-# POC 8 must not hold back base frames forever: base frames of higher POCs are output alone
-# during decoding.
+# POC 8 must not hold back base frames forever: base frames of higher POCs are paired with
+# non-existing non-base views and output during decoding.
 # max_num_reorder_frames=2, max_dec_frame_buffering=4, max_num_ref_frames=2
-# Expected output: 0 2 4 6b 8 16b 18b 20b ... 88b, base frames output during decoding
+# Expected output: 0 2 4 6 8 16 18 20 ... 88, output during decoding
 
 - nal_ref_idc: 3
   nal_unit_type: 7 # Sequence parameter set
@@ -10711,8 +10718,9 @@
 
 # X2: a 2D coded video sequence (base view only, conforming) follows a 3D one, for more access
 # units than the 32 base slots. The non-base frames of the 3D sequence must be output at the
-# base IDR at the latest, and the 2D frames alone during decoding.
-# Expected output: 0 2 4 6 8 0b 2b 4b ... 72b, 2D frames output during decoding
+# base IDR at the latest, and the 2D frames alone during decoding. They are currently paired
+# with non-existing non-base views, since is_mvc stays set until the end of sequence.
+# Expected output: 0 2 4 6 8 0 2 4 ... 72, 2D frames output during decoding
 
 - nal_ref_idc: 3
   nal_unit_type: 7 # Sequence parameter set
@@ -11803,8 +11811,9 @@
 
 
 # X4: 3D, 2D then 3D coded video sequences. Frames of each sequence are output in order and
-# never paired with frames of another sequence.
-# Expected output: 0 2 4 6 8 0b 2b 4b 0 2 4
+# never paired with frames of another sequence. The 2D frames are currently paired with
+# non-existing non-base views, since is_mvc stays set until the end of sequence.
+# Expected output: 0 2 4 6 8 0 2 4 0 2 4
 
 - nal_ref_idc: 3
   nal_unit_type: 7 # Sequence parameter set

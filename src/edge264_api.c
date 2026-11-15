@@ -111,9 +111,10 @@ Edge264Decoder *edge264_alloc(int n_threads, Edge264LogCb log_cb, void *log_arg,
 		return NULL;
 	memset(dec, 0, sizeof(*dec));
 	dec->log_base_us = get_relative_time_us();
-	dec->currPic = dec->basePic = -1;
+	dec->currPic[0] = dec->currPic[1] = -1;
 	dec->PrevRefFrameNum[0] = dec->PrevRefFrameNum[1] = -1;
 	dec->prevFrameId = UINT_MAX; // wraps to 0 for the first frame
+	dec->inter_view_flag = 1;
 	dec->frame_top_poc = dec->frame_bottom_poc = INT64_MIN;
 	dec->taskPics_v = set8(-1);
 	dec->n_threads = n_threads;
@@ -229,7 +230,7 @@ void edge264_flush(Edge264Decoder *dec) {
 	if (dec->n_threads)
 		pthread_mutex_lock(&dec->lock);
 	dec->to_get_frames_l = dec->output_frames_l = 0; // discard all frames rather than outputting them
-	dec->currPic = -1; // and skip concealment
+	dec->frame_top_poc = INT64_MIN; // and skip end_frame
 	new_sequence(dec);
 	if (dec->n_threads)
 		pthread_mutex_unlock(&dec->lock);
@@ -316,6 +317,8 @@ int edge264_decode_NAL(Edge264Decoder *dec, const uint8_t *buf, const uint8_t *e
 	}
 	int ret = parser(dec, unref_cb, unref_arg);
 	// printf("nal_unit_type=%d, ret=%d\n\n", dec->nal_unit_type, ret);
+	if (ret != ENOBUFS && dec->nal_unit_type != 14)
+		dec->inter_view_flag = 1; // inferred without prefix NAL (G.7.4.1.1)
 	
 	// on non-slice successful return we release the NAL buffer
 	if (unref_cb && ret == 0 && !(0x100022 & 1 << dec->nal_unit_type)) // 1, 5 or 20

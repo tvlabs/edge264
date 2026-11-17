@@ -429,10 +429,10 @@ typedef struct Edge264Decoder {
 	Edge264GetBits gb; // must be first in the struct to use the same pointer for bitstream functions
 	int8_t n_threads; // 0 to disable multithreading
 	int8_t shutdown; // 0..1, set to order worker threads to exit
-	int8_t nal_ref_idc; // 2 significant bits, value for the last NAL
-	int8_t nal_unit_type; // 5 significant bits, value for the last NAL
-	int8_t IdrPicFlag; // 1 significant bit, value for the last slice NAL
-	int8_t inter_view_flag; // 1 significant bit, value of the last prefix NAL
+	int8_t nal_ref_idc; // 2 significant bits, value for the current NAL
+	int8_t nal_unit_type; // 5 significant bits, value for the current NAL
+	int8_t IdrPicFlag; // 1 significant bit, value for the current slice NAL
+	int8_t inter_view_flag; // 1 significant bit, value of the current prefix NAL
 	uint32_t prevFrameId; // starts at UINT_MAX to wrap to 0 for the first frame
 	int32_t poc_msb; // upper 32 bits of 64-bit POCs, incremented at each GOP
 	int32_t plane_size_Y;
@@ -471,7 +471,6 @@ typedef struct Edge264Decoder {
 	int8_t mM; // last decoded timestamp minutes, 0..59
 	int8_t sS; // last decoded timestamp seconds, 0..59
 	int8_t is_mvc; // 0..1, set when any non-base view is received in the current sequence
-	int32_t FrameNum; // value for the last slice, unaffected by mmco5
 	union { uint32_t to_get_frames[2]; uint64_t to_get_frames_l; }; // [view], bitfield for frames that have not been returned by get_frame yet
 	union { uint32_t output_frames[2]; uint64_t output_frames_l; }; // [view], bitfield for frames that have been bumped for output and not returned yet
 	union { uint32_t erroneous_frames[2]; uint64_t erroneous_frames_l; }; // [view], bitfield for frames with concealed macroblocks or inferred from a frame_num gap

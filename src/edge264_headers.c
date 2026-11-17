@@ -102,7 +102,7 @@ static int insert_non_existing_view(Edge264Decoder *dec, int view_id, int64_t to
 	dec->erroneous_frames_l |= 1ull << pic;
 	dec->to_get_frames_l |= 1ull << pic;
 	dec->FrameIds[pic] = ++dec->prevFrameId;
-	dec->FrameNums[pic] = dec->FrameNum;
+	dec->FrameNums[pic] = dec->PrevRefFrameNum[view_id];
 	dec->remaining_mbs[pic] = 0;
 	dec->next_deblock_addr[pic] = INT_MAX;
 	dec->FieldOrderCnt[pic][0] = top_poc;
@@ -209,7 +209,6 @@ static void start_view(Edge264Decoder *dec, Edge264SeqParameterSet *sps, int cur
 	dec->erroneous_frames_l &= ~(1ull << currPic);
 	dec->frame_flip_bits ^= 1ull << currPic;
 	dec->FrameIds[currPic] = ++dec->prevFrameId;
-	dec->FrameNums[currPic] = dec->FrameNum;
 	dec->remaining_mbs[currPic] = sps->pic_width_in_mbs * sps->pic_height_in_mbs;
 	dec->next_deblock_addr[currPic] = 0;
 	dec->FieldOrderCnt[currPic][0] = ((int64_t)dec->poc_msb << 32) + TopFieldOrderCnt;
@@ -808,7 +807,7 @@ static void parse_dec_ref_pic_marking(Edge264Decoder *dec, Edge264SeqParameterSe
 			int target = curr, FrameNum = 0, long_term_frame_idx = 0;
 			if (10 & 1 << memory_management_control_operation) { // 1 or 3
 				// target and dereference a given short-term or non-existing frame
-				FrameNum = dec->FrameNum - 1 - get_ue32(&dec->gb, 4294967294);
+				FrameNum = dec->FrameNums[currPic] - 1 - get_ue32(&dec->gb, 4294967294);
 				for (unsigned r = short_term_frames; r; r &= r - 1) {
 					int j = __builtin_ctz(r);
 					if (dec->FrameNums[view_id * 32 + j] == FrameNum) {
@@ -941,7 +940,7 @@ static void parse_ref_pic_list_modification(Edge264Decoder *dec, Edge264SeqParam
 			for (unsigned r = refs; r; r &= r - 1) {
 				int i = __builtin_ctz(r);
 				int64_t diff = (t->slice_type == 0)
-					? dec->FrameNums[view_id * 32 + i] - dec->FrameNum
+					? dec->FrameNums[view_id * 32 + i] - dec->FrameNums[currPic]
 					: dec->FieldOrderCnt[view_id * 32 + i][0] - PicOrderCnt;
 				diff = minll(maxll(diff, -65535), 32767);
 				int ShortTermNum = (diff <= 0) ? -diff : 0x10000 + diff;
@@ -1011,7 +1010,7 @@ static void parse_ref_pic_list_modification(Edge264Decoder *dec, Edge264SeqParam
 	
 	// parse the ref_pic_list_modification() header
 	for (int l = 0; l <= t->slice_type; l++) {
-		unsigned picNumLX = (t->field_pic_flag) ? dec->FrameNum * 2 + 1 : dec->FrameNum;
+		unsigned picNumLX = (t->field_pic_flag) ? dec->FrameNums[currPic] * 2 + 1 : dec->FrameNums[currPic];
 		if (get_u1(&dec->gb)) { // ref_pic_list_modification_flag
 			log_dec(dec, "  ref_pic_list_modifications_l%u: [", l);
 			for (int refIdx = 0, modification_of_pic_nums_idc; (modification_of_pic_nums_idc = get_ue16(&dec->gb, 5)) != 3 && refIdx < 32; refIdx++) {
@@ -1070,12 +1069,12 @@ static void parse_ref_pic_list_modification(Edge264Decoder *dec, Edge264SeqParam
 /**
  * Inserts non-existing frames for a gap in frame_num (8.2.5.2).
  */
-static int insert_non_existing_frames(Edge264Decoder *dec, Edge264SeqParameterSet *sps, int view_id, int gap) {
+static int insert_non_existing_frames(Edge264Decoder *dec, Edge264SeqParameterSet *sps, int view_id, int FrameNum) {
 	int ret;
 	// make enough non-reference slots by dereferencing short-term and non-existing frames
 	int sref_slots = maxs(sps->max_num_ref_frames, 1) - __builtin_popcount(dec->prev_long_term_frames[view_id] & ~dec->prev_short_term_frames[view_id]);
 	assert(sref_slots > 0);
-	int non_existing = mins(gap - 1, sref_slots);
+	int non_existing = mins(FrameNum - dec->PrevRefFrameNum[view_id] - 1, sref_slots);
 	// non-existing frames will copy the last reference frame or be gray
 	int src = -1, highest = INT_MIN;
 	for (unsigned r = dec->prev_short_term_frames[view_id] | dec->prev_long_term_frames[view_id]; r; r &= r - 1) {
@@ -1104,7 +1103,7 @@ static int insert_non_existing_frames(Edge264Decoder *dec, Edge264SeqParameterSe
 	while (non_existing + __builtin_popcount(unavail = unavail_frames(dec, view_id) | depended_frames(dec) >> view_id * 32) > 32)
 		pthread_cond_wait(&dec->task_complete, &dec->lock);
 	// finally insert the last non-existing frames one by one
-	for (unsigned FrameNum = dec->FrameNum - non_existing; FrameNum < dec->FrameNum; FrameNum++) {
+	for (unsigned UnusedShortTermFrameNum = FrameNum - non_existing; UnusedShortTermFrameNum < FrameNum; UnusedShortTermFrameNum++) {
 		int i = __builtin_ctz(~unavail);
 		int pic = view_id * 32 + i;
 		if (dec->samples_buffers[pic] == NULL &&
@@ -1129,15 +1128,15 @@ static int insert_non_existing_frames(Edge264Decoder *dec, Edge264SeqParameterSe
 		dec->erroneous_frames[view_id] |= 1u << i;
 		dec->prev_short_term_frames[view_id] |= 1u << i;
 		dec->prev_long_term_frames[view_id] |= 1u << i;
-		dec->FrameNums[pic] = dec->PrevRefFrameNum[view_id] = FrameNum;
+		dec->FrameNums[pic] = dec->PrevRefFrameNum[view_id] = UnusedShortTermFrameNum;
 		dec->FrameIds[pic] = ++dec->prevFrameId;
 		int PicOrderCnt = 0;
 		if (sps->pic_order_cnt_type == 2) {
-			PicOrderCnt = FrameNum * 2;
-		} else if (sps->num_ref_frames_in_pic_order_cnt_cycle > 0 && FrameNum > 0) {
-			PicOrderCnt = ((FrameNum - 1) / sps->num_ref_frames_in_pic_order_cnt_cycle) *
+			PicOrderCnt = UnusedShortTermFrameNum * 2;
+		} else if (sps->num_ref_frames_in_pic_order_cnt_cycle > 0 && UnusedShortTermFrameNum > 0) {
+			PicOrderCnt = ((UnusedShortTermFrameNum - 1) / sps->num_ref_frames_in_pic_order_cnt_cycle) *
 				sps->PicOrderCntDeltas[sps->num_ref_frames_in_pic_order_cnt_cycle - 1] +
-				sps->PicOrderCntDeltas[(FrameNum - 1) % sps->num_ref_frames_in_pic_order_cnt_cycle];
+				sps->PicOrderCntDeltas[(UnusedShortTermFrameNum - 1) % sps->num_ref_frames_in_pic_order_cnt_cycle];
 		}
 		int64_t upper = (int64_t)dec->poc_msb << 32;
 		dec->FieldOrderCnt[pic][0] = upper + PicOrderCnt;
@@ -1289,14 +1288,14 @@ int ADD_VARIANT(parse_slice_layer_without_partitioning)(Edge264Decoder *dec, Edg
 		return ret;
 	
 	// compute Top/BottomFieldOrderCnt (8.2.1), don't change the outer 3-branch structure
-	int TopFieldOrderCnt, BottomFieldOrderCnt;
+	int FrameNum, TopFieldOrderCnt, BottomFieldOrderCnt;
 	int pic_order_cnt_lsb = 0, delta_pic_order_cnt0 = 0;
 	if (sps->pic_order_cnt_type == 0) {
 		pic_order_cnt_lsb = get_uv(&dec->gb, sps->log2_max_pic_order_cnt_lsb);
 		if (dec->currPic[view_id] >= 0 && pic_order_cnt_lsb != dec->pic_order_cnt_lsb[view_id] && (ret = end_frame(dec)))
 			return ret;
 		int PrevRefFrameNum = dec->IdrPicFlag ? 0 : dec->PrevRefFrameNum[view_id];
-		dec->FrameNum = dec->IdrPicFlag ? 0 : PrevRefFrameNum + 1 + ((frame_num - PrevRefFrameNum - 1) & FrameNumMask); // PrevRefFrameNum=frame_num=0 for IDR (7.4.3)
+		FrameNum = dec->IdrPicFlag ? 0 : PrevRefFrameNum + 1 + ((frame_num - PrevRefFrameNum - 1) & FrameNumMask); // PrevRefFrameNum=frame_num=0 for IDR (7.4.3)
 		int shift = WORD_BIT - sps->log2_max_pic_order_cnt_lsb;
 		int prevPicOrderCnt = dec->IdrPicFlag ? 0 : dec->prevPicOrderCnt[view_id];
 		int inc = ((pic_order_cnt_lsb - prevPicOrderCnt - 1) << shift >> shift) + 1;
@@ -1322,8 +1321,8 @@ int ADD_VARIANT(parse_slice_layer_without_partitioning)(Edge264Decoder *dec, Edg
 		if (dec->currPic[view_id] >= 0 && delta_pic_order_cnt0 != dec->delta_pic_order_cnt0[view_id] && (ret = end_frame(dec)))
 			return ret;
 		int PrevRefFrameNum = dec->IdrPicFlag ? 0 : dec->PrevRefFrameNum[view_id];
-		dec->FrameNum = dec->IdrPicFlag ? 0 : PrevRefFrameNum + 1 + ((frame_num - PrevRefFrameNum - 1) & FrameNumMask); // PrevRefFrameNum=frame_num=0 for IDR (7.4.3)
-		int absFrameNum = (sps->num_ref_frames_in_pic_order_cnt_cycle > 0) ? dec->FrameNum : 0;
+		FrameNum = dec->IdrPicFlag ? 0 : PrevRefFrameNum + 1 + ((frame_num - PrevRefFrameNum - 1) & FrameNumMask); // PrevRefFrameNum=frame_num=0 for IDR (7.4.3)
+		int absFrameNum = (sps->num_ref_frames_in_pic_order_cnt_cycle > 0) ? FrameNum : 0;
 		absFrameNum -= (dec->nal_ref_idc == 0 && absFrameNum > 0);
 		TopFieldOrderCnt = delta_pic_order_cnt0 + (dec->nal_ref_idc ? 0 : sps->offset_for_non_ref_pic);
 		if (absFrameNum > 0) {
@@ -1337,12 +1336,12 @@ int ADD_VARIANT(parse_slice_layer_without_partitioning)(Edge264Decoder *dec, Edg
 			TopFieldOrderCnt, BottomFieldOrderCnt);
 	} else {
 		int PrevRefFrameNum = dec->IdrPicFlag ? 0 : dec->PrevRefFrameNum[view_id];
-		dec->FrameNum = dec->IdrPicFlag ? 0 : PrevRefFrameNum + 1 + ((frame_num - PrevRefFrameNum - 1) & FrameNumMask); // PrevRefFrameNum=frame_num=0 for IDR (7.4.3)
-		TopFieldOrderCnt = BottomFieldOrderCnt = dec->FrameNum * 2 + (dec->nal_ref_idc != 0) - 1;
+		FrameNum = dec->IdrPicFlag ? 0 : PrevRefFrameNum + 1 + ((frame_num - PrevRefFrameNum - 1) & FrameNumMask); // PrevRefFrameNum=frame_num=0 for IDR (7.4.3)
+		TopFieldOrderCnt = BottomFieldOrderCnt = FrameNum * 2 + (dec->nal_ref_idc != 0) - 1;
 		log_dec(dec, "  pic_order_cnt: {type: 2, absolute: %d}\n", TopFieldOrderCnt);
 	}
 	log_dec(dec, "  frame_num: {bits: %u, absolute: %u}\n",
-		sps->log2_max_frame_num, dec->FrameNum);
+		sps->log2_max_frame_num, FrameNum);
 	
 	int currPic = dec->currPic[view_id];
 	int otherPic = dec->currPic[view_id ^ 1];
@@ -1352,8 +1351,8 @@ int ADD_VARIANT(parse_slice_layer_without_partitioning)(Edge264Decoder *dec, Edg
 			(ret = end_frame(dec)))
 			return ret;
 		// insert non-existing frames for gaps in frame_num (8.2.5.2)
-		int gap = dec->FrameNum - dec->PrevRefFrameNum[view_id];
-		if (__builtin_expect(gap > 1, 0) && (ret = insert_non_existing_frames(dec, sps, view_id, gap)))
+		if (__builtin_expect(FrameNum - dec->PrevRefFrameNum[view_id] > 1, 0) &&
+			(ret = insert_non_existing_frames(dec, sps, view_id, FrameNum)))
 			return ret;
 		if (__builtin_popcount(unavail_frames(dec, view_id)) == 32)
 			return ENOBUFS; // exit here if we must wait for get_frame to consume and return a frame slot
@@ -1367,6 +1366,7 @@ int ADD_VARIANT(parse_slice_layer_without_partitioning)(Edge264Decoder *dec, Edg
 			return ret;
 		
 		// nothing fails past this point
+		dec->FrameNums[currPic] = FrameNum;
 		dec->is_curr_ref[view_id] = dec->nal_ref_idc != 0;
 		dec->idr_pic_id[view_id] = idr_pic_id;
 		dec->pic_order_cnt_lsb[view_id] = pic_order_cnt_lsb;

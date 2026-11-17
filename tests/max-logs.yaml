@@ -41,7 +41,7 @@
     num_units_in_tick: 4294967295
     time_scale: 4294967295
     fixed_frame_rate_flag: 0
-    nal_hrd_parameters:
+    nal_hrd_parameters: &hrd
       cpbs:
         - {bit_rate: 9007199250546688, size: 2251799812636672, cbr_flag: 0}
         - {bit_rate: 9007199250546688, size: 2251799812636672, cbr_flag: 0}
@@ -79,44 +79,7 @@
       cpb_removal_delay_length: 31
       dpb_output_delay_length: 31
       time_offset_length: 31
-    vcl_hrd_parameters:
-      cpbs:
-        - {bit_rate: 9007199250546688, size: 2251799812636672, cbr_flag: 0}
-        - {bit_rate: 9007199250546688, size: 2251799812636672, cbr_flag: 0}
-        - {bit_rate: 9007199250546688, size: 2251799812636672, cbr_flag: 0}
-        - {bit_rate: 9007199250546688, size: 2251799812636672, cbr_flag: 0}
-        - {bit_rate: 9007199250546688, size: 2251799812636672, cbr_flag: 0}
-        - {bit_rate: 9007199250546688, size: 2251799812636672, cbr_flag: 0}
-        - {bit_rate: 9007199250546688, size: 2251799812636672, cbr_flag: 0}
-        - {bit_rate: 9007199250546688, size: 2251799812636672, cbr_flag: 0}
-        - {bit_rate: 9007199250546688, size: 2251799812636672, cbr_flag: 0}
-        - {bit_rate: 9007199250546688, size: 2251799812636672, cbr_flag: 0}
-        - {bit_rate: 9007199250546688, size: 2251799812636672, cbr_flag: 0}
-        - {bit_rate: 9007199250546688, size: 2251799812636672, cbr_flag: 0}
-        - {bit_rate: 9007199250546688, size: 2251799812636672, cbr_flag: 0}
-        - {bit_rate: 9007199250546688, size: 2251799812636672, cbr_flag: 0}
-        - {bit_rate: 9007199250546688, size: 2251799812636672, cbr_flag: 0}
-        - {bit_rate: 9007199250546688, size: 2251799812636672, cbr_flag: 0}
-        - {bit_rate: 9007199250546688, size: 2251799812636672, cbr_flag: 0}
-        - {bit_rate: 9007199250546688, size: 2251799812636672, cbr_flag: 0}
-        - {bit_rate: 9007199250546688, size: 2251799812636672, cbr_flag: 0}
-        - {bit_rate: 9007199250546688, size: 2251799812636672, cbr_flag: 0}
-        - {bit_rate: 9007199250546688, size: 2251799812636672, cbr_flag: 0}
-        - {bit_rate: 9007199250546688, size: 2251799812636672, cbr_flag: 0}
-        - {bit_rate: 9007199250546688, size: 2251799812636672, cbr_flag: 0}
-        - {bit_rate: 9007199250546688, size: 2251799812636672, cbr_flag: 0}
-        - {bit_rate: 9007199250546688, size: 2251799812636672, cbr_flag: 0}
-        - {bit_rate: 9007199250546688, size: 2251799812636672, cbr_flag: 0}
-        - {bit_rate: 9007199250546688, size: 2251799812636672, cbr_flag: 0}
-        - {bit_rate: 9007199250546688, size: 2251799812636672, cbr_flag: 0}
-        - {bit_rate: 9007199250546688, size: 2251799812636672, cbr_flag: 0}
-        - {bit_rate: 9007199250546688, size: 2251799812636672, cbr_flag: 0}
-        - {bit_rate: 9007199250546688, size: 2251799812636672, cbr_flag: 0}
-        - {bit_rate: 9007199250546688, size: 2251799812636672, cbr_flag: 0}
-      initial_cpb_removal_delay_length: 31
-      cpb_removal_delay_length: 31
-      dpb_output_delay_length: 31
-      time_offset_length: 31
+    vcl_hrd_parameters: *hrd
     low_delay_hrd_flag: 0
     pic_struct_present_flag: 0
     motion_vectors_over_pic_boundaries_flag: 1

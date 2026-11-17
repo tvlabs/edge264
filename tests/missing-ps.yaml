@@ -1,52 +1,8 @@
 --- # SEI/slice referencing an uninitialized SPS/PPS
 
-- nal_ref_idc: 3
-  nal_unit_type: 6
-  sei_messages:
-  - payloadType: 0
-    delay_bits: 24
-
-- nal_ref_idc: 3
-  nal_unit_type: 5 # Coded slice of an IDR picture
-  first_mb_in_slice: 0
-  slice_type: 2 # I
-  pic_parameter_set_id: 0
-  frame_num: {bits: 4, absolute: 0}
-  idr_pic_id: 0
-  pic_order_cnt: {type: 0, bits: 4, absolute: 0}
-  no_output_of_prior_pics_flag: 0
-  long_term_reference_flag: 0
-  slice_qp_delta: 0
-  macroblocks_cavlc:
-  - mb_type: 0
-    rem_intra4x4_pred_modes: [-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1]
-    intra_chroma_pred_mode: 0
-    coded_block_pattern: 0
-
-- nal_ref_idc: 3
-  nal_unit_type: 20 # Coded slice extension
-  non_idr_flag: 0
-  priority_id: 0
-  view_id: 1
-  temporal_id: 0
-  anchor_pic_flag: 1
-  inter_view_flag: 0
-  first_mb_in_slice: 0
-  slice_type: 2 # I
-  pic_parameter_set_id: 0
-  frame_num: {bits: 4, absolute: 0}
-  idr_pic_id: 0
-  pic_order_cnt: {type: 0, bits: 4, absolute: 0}
-  no_output_of_prior_pics_flag: 0
-  long_term_reference_flag: 0
-  slice_qp_delta: 0
-  macroblocks_cavlc:
-  - mb_type: 0
-    rem_intra4x4_pred_modes: [-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1]
-    intra_chroma_pred_mode: 0
-    coded_block_pattern: 0
-
-- nal_ref_idc: 3
+# templates (not encoded by gen_avc.py)
+- !template &sps
+  nal_ref_idc: 3
   nal_unit_type: 7 # Sequence parameter set
   profile_idc: 66 # Baseline
   constraint_set_flags: [0,0,0,0,0,0]
@@ -60,7 +16,8 @@
   frame_mbs_only_flag: 1
   direct_8x8_inference_flag: 0
 
-- nal_ref_idc: 3
+- !template &idr
+  nal_ref_idc: 3
   nal_unit_type: 5 # Coded slice of an IDR picture
   first_mb_in_slice: 0
   slice_type: 2 # I
@@ -72,7 +29,26 @@
   long_term_reference_flag: 0
   slice_qp_delta: 0
   macroblocks_cavlc:
-  - mb_type: 0
+  - &i4x4
+    mb_type: 0
     rem_intra4x4_pred_modes: [-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1]
     intra_chroma_pred_mode: 0
     coded_block_pattern: 0
+
+- !template &idr1 # non-base view
+  <<: *idr
+  nal_unit_type: 20 # Coded slice extension
+  non_idr_flag: 0
+  priority_id: 0
+  view_id: 1
+  temporal_id: 0
+  anchor_pic_flag: 1
+  inter_view_flag: 0
+  pic_parameter_set_id: 0
+
+
+- {nal_ref_idc: 3, nal_unit_type: 6, sei_messages: [{payloadType: 0, delay_bits: 24}]}
+- {<<: *idr}
+- {<<: *idr1}
+- {<<: *sps}
+- {<<: *idr}

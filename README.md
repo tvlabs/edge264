@@ -437,6 +437,7 @@ Bug fixes should preferably provide test streams that can demonstrate fixing sai
 | Receiving a non-base view before its base | All OK, views paired (E3) | bumping-mvc |
 | A stream sending non-base views after a few frames have been output | All OK, views paired once both are present (X5) | bumping-mvc |
 | Two views with differing mmco5 | All OK, mmco5 applies to both views, which keep pairing (E6) | bumping-mvc |
+| mmco5 in the base view with a non-reference non-base view, then an access unit missing the non-base view | All OK, check output samples | mvc-mmco5-absent-view |
 
 | Error recovery tests | Expected | Test files |
 | --- | --- | --- |

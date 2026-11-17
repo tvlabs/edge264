@@ -499,8 +499,8 @@ typedef struct Edge264Decoder {
 	int32_t delta_pic_order_cnt0[2]; // [view], for detecting new frames
 	int64_t frame_top_poc; // POC of the current frame, withheld by get_frame until the frame ends
 	int64_t frame_bottom_poc;
-	uint32_t view_short_term_frames[2]; // [view], short-term/non-existing references to apply at end_frame
-	uint32_t view_long_term_frames[2]; // [view], long-term/non-existing references to apply at end_frame
+	union { uint32_t view_short_term_frames[2]; uint64_t view_short_term_frames_l; }; // [view], short-term/non-existing references to apply at end_frame
+	union { uint32_t view_long_term_frames[2]; uint64_t view_long_term_frames_l; }; // [view], long-term/non-existing references to apply at end_frame
 	union { int8_t view_LongTermFrameIdx[2][32]; i8x16 view_LongTermFrameIdx_v[2][2]; }; // [view][idx], to apply at end_frame
 } Edge264Decoder;
 

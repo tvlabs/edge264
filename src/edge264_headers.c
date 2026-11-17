@@ -108,6 +108,10 @@ static int insert_non_existing_view(Edge264Decoder *dec, int view_id, int64_t to
 	dec->FieldOrderCnt[pic][0] = top_poc;
 	dec->FieldOrderCnt[pic][1] = bottom_poc;
 	dec->currPic[view_id] = pic;
+	dec->view_short_term_frames[view_id] = dec->prev_short_term_frames[view_id];
+	dec->view_long_term_frames[view_id] = dec->prev_long_term_frames[view_id];
+	dec->view_LongTermFrameIdx_v[view_id][0] = dec->prev_LongTermFrameIdx_v[view_id * 2];
+	dec->view_LongTermFrameIdx_v[view_id][1] = dec->prev_LongTermFrameIdx_v[view_id * 2 + 1];
 	return 0;
 }
 
@@ -129,7 +133,7 @@ static int end_frame(Edge264Decoder *dec) {
 		return 0;
 	
 	// complete both open views
-	for (int view_id = 0; view_id < 1 + dec->is_mvc; view_id++) {
+	for (int view_id = 0; view_id < 2; view_id++) {
 		int pic = dec->currPic[view_id];
 		if (pic < 0) {
 			if ((ret = insert_non_existing_view(dec, view_id, dec->frame_top_poc, dec->frame_bottom_poc)))
@@ -142,21 +146,18 @@ static int end_frame(Edge264Decoder *dec) {
 		if (dec->is_curr_ref[view_id]) {
 			dec->PrevRefFrameNum[view_id] = dec->FrameNums[pic];
 			dec->prevPicOrderCnt[view_id] = (int32_t)dec->FieldOrderCnt[pic][0];
-			dec->prev_short_term_frames[view_id] = dec->view_short_term_frames[view_id];
-			dec->prev_long_term_frames[view_id] = dec->view_long_term_frames[view_id];
-			dec->prev_LongTermFrameIdx_v[view_id * 2] = dec->view_LongTermFrameIdx_v[view_id][0];
-			dec->prev_LongTermFrameIdx_v[view_id * 2 + 1] = dec->view_LongTermFrameIdx_v[view_id][1];
 		}
+		if (!dec->is_mvc) break;
 	}
+	dec->prev_short_term_frames_l = dec->view_short_term_frames_l;
+	dec->prev_long_term_frames_l = dec->view_long_term_frames_l;
+	memcpy(dec->prev_LongTermFrameIdx, dec->view_LongTermFrameIdx, sizeof(dec->prev_LongTermFrameIdx));
 	
 	// mmco5 in any view applies to all views, since G.8.1 requires them to keep equal POCs
 	if (dec->is_mmco5_frame) {
 		dec->poc_msb++;
-		for (uint64_t o = dec->to_get_frames_l; o; o &= o - 1) {
-			int pic = __builtin_ctzll(o);
-			if (dec->FieldOrderCnt[pic][0] != dec->frame_top_poc)
-				continue;
-			int view_id = pic >> 5;
+		for (int view_id = 0; view_id < 2; view_id++) {
+			int pic = dec->currPic[view_id];
 			int TopFieldOrderCnt = dec->FieldOrderCnt[pic][0];
 			int BottomFieldOrderCnt = dec->FieldOrderCnt[pic][1];
 			int tempPicOrderCnt = mins(TopFieldOrderCnt, BottomFieldOrderCnt);
@@ -170,6 +171,7 @@ static int end_frame(Edge264Decoder *dec) {
 			}
 			dec->prev_short_term_frames[view_id] &= self;
 			dec->prev_long_term_frames[view_id] &= self;
+			if (!dec->is_mvc) break;
 		}
 	}
 	

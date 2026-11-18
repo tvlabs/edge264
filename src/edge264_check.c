@@ -621,7 +621,7 @@ int main(int argc, char *argv[]) {
 	test("tests/supp-nals", NULL, 0x0388327a);
 	test("tests/unsupp-nals", NULL, 0xbd1da65d);
 	test("tests/max-logs", log_max, 0x5afb0e05);
-	test("tests/finish-frame", NULL, 0x2033091f);
+	test("tests/frame-detection", NULL, 0xe66e7675);
 	test("tests/nal-ref-idc-0", NULL, 0x7b59bffd);
 	test("tests/scaling-lists", NULL, 0x142869cb);
 	test("tests/mvc-mmco5-pairing", NULL, 0x0cb5c2d6);

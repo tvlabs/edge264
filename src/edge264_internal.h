@@ -493,9 +493,12 @@ typedef struct Edge264Decoder {
 	int8_t is_idr_frame;
 	int8_t is_mmco5_frame; // applied by end_frame to all views
 	int8_t inter_view_ref; // 0..1, inter_view_flag of the base view, 0 while it is absent
+	int8_t pic_parameter_set_id[2]; // [view], for detecting new frames
 	int32_t idr_pic_id[2]; // [view], for detecting new frames
 	int32_t pic_order_cnt_lsb[2]; // [view], for detecting new frames
+	int32_t delta_pic_order_cnt_bottom[2]; // [view], for detecting new frames
 	int32_t delta_pic_order_cnt0[2]; // [view], for detecting new frames
+	int32_t delta_pic_order_cnt1[2]; // [view], for detecting new frames
 	int64_t frame_top_poc; // POC of the current frame, withheld by get_frame until the frame ends
 	int64_t frame_bottom_poc;
 	union { uint32_t view_short_term_frames[2]; uint64_t view_short_term_frames_l; }; // [view], short-term/non-existing references to apply at end_frame

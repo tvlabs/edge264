@@ -120,12 +120,12 @@ static int insert_non_existing_view(Edge264Decoder *dec, int view_id, int64_t to
 /**
  * A frame ends when a slice of the next frame is detected as per 7.4.1.2.4:
  * _ frame_num differs (FrameNums holds the value unaffected by mmco5)
+ * _ pic_parameter_set_id differs
  * _ nal_ref_idc differs
- * _ pic_order_cnt_type=0 and pic_order_cnt_lsb differs
- * _ pic_order_cnt_type=1 and delta_pic_order_cnt[0] differs
+ * _ pic_order_cnt_type=0 and pic_order_cnt_lsb or delta_pic_order_cnt_bottom differs
+ * _ pic_order_cnt_type=1 and delta_pic_order_cnt[0] or [1] differs
  * _ idr_pic_id differs (useful on streams of IDRs), with -1 when IdrPicFlag=0
- * pic_parameter_set_id is ignored as not stored, and POCs must differ anyway.
- * view_id is also ignored since views are decoded out-of-order internally
+ * view_id is ignored since views are decoded out-of-order internally
  */
 static int end_frame(Edge264Decoder *dec) {
 	int ret;
@@ -1283,33 +1283,35 @@ int ADD_VARIANT(parse_slice_layer_without_partitioning)(Edge264Decoder *dec, Edg
 	int FrameNumMask = (1 << sps->log2_max_frame_num) - 1;
 	int pic = dec->currPic[view_id];
 	if (pic >= 0 && (frame_num != (dec->FrameNums[pic] & FrameNumMask) ||
+		pic_parameter_set_id != dec->pic_parameter_set_id[view_id] ||
 		(dec->nal_ref_idc > 0) != dec->is_curr_ref[view_id] ||
 		idr_pic_id != dec->idr_pic_id[view_id]) && (ret = end_frame(dec)))
 		return ret;
-	
+
 	// compute Top/BottomFieldOrderCnt (8.2.1), don't change the outer 3-branch structure
 	int FrameNum, TopFieldOrderCnt, BottomFieldOrderCnt;
-	int pic_order_cnt_lsb = 0, delta_pic_order_cnt0 = 0;
+	int pic_order_cnt_lsb = 0, delta_pic_order_cnt_bottom = 0, delta_pic_order_cnt0 = 0, delta_pic_order_cnt1 = 0;
 	if (sps->pic_order_cnt_type == 0) {
 		pic_order_cnt_lsb = get_uv(&dec->gb, sps->log2_max_pic_order_cnt_lsb);
-		if (dec->currPic[view_id] >= 0 && pic_order_cnt_lsb != dec->pic_order_cnt_lsb[view_id] && (ret = end_frame(dec)))
+		if (t->pps.bottom_field_pic_order_in_frame_present_flag && !t->field_pic_flag)
+			delta_pic_order_cnt_bottom = get_se32(&dec->gb, (-1u << 31) + 1, (1u << 31) - 1);
+		if (dec->currPic[view_id] >= 0 && (pic_order_cnt_lsb != dec->pic_order_cnt_lsb[view_id] ||
+			delta_pic_order_cnt_bottom != dec->delta_pic_order_cnt_bottom[view_id]) && (ret = end_frame(dec)))
 			return ret;
 		int PrevRefFrameNum = dec->IdrPicFlag ? 0 : dec->PrevRefFrameNum[view_id];
 		FrameNum = dec->IdrPicFlag ? 0 : PrevRefFrameNum + 1 + ((frame_num - PrevRefFrameNum - 1) & FrameNumMask); // PrevRefFrameNum=frame_num=0 for IDR (7.4.3)
 		int shift = WORD_BIT - sps->log2_max_pic_order_cnt_lsb;
 		int prevPicOrderCnt = dec->IdrPicFlag ? 0 : dec->prevPicOrderCnt[view_id];
 		int inc = ((pic_order_cnt_lsb - prevPicOrderCnt - 1) << shift >> shift) + 1;
-		BottomFieldOrderCnt = TopFieldOrderCnt = prevPicOrderCnt + inc;
+		TopFieldOrderCnt = prevPicOrderCnt + inc;
+		BottomFieldOrderCnt = TopFieldOrderCnt + delta_pic_order_cnt_bottom;
 		log_dec(dec, "  pic_order_cnt: {type: 0, bits: %u, absolute: %d",
 			sps->log2_max_pic_order_cnt_lsb, TopFieldOrderCnt);
-		if (t->pps.bottom_field_pic_order_in_frame_present_flag && !t->field_pic_flag) {
-			BottomFieldOrderCnt += get_se32(&dec->gb, (-1u << 31) + 1, (1u << 31) - 1);
+		if (t->pps.bottom_field_pic_order_in_frame_present_flag && !t->field_pic_flag)
 			log_dec(dec, ", bottom: %d", BottomFieldOrderCnt);
-		}
 		log_dec(dec, "}\n");
 	} else if (sps->pic_order_cnt_type == 1) {
 		log_dec(dec, "  pic_order_cnt: {type: 1");
-		int delta_pic_order_cnt1 = 0;
 		if (!sps->delta_pic_order_always_zero_flag) {
 			delta_pic_order_cnt0 = get_se32(&dec->gb, (-1u << 31) + 1, (1u << 31) - 1);
 			log_dec(dec, ", delta0: %d", delta_pic_order_cnt0);
@@ -1318,7 +1320,8 @@ int ADD_VARIANT(parse_slice_layer_without_partitioning)(Edge264Decoder *dec, Edg
 				log_dec(dec, ", delta1: %d", delta_pic_order_cnt1);
 			}
 		}
-		if (dec->currPic[view_id] >= 0 && delta_pic_order_cnt0 != dec->delta_pic_order_cnt0[view_id] && (ret = end_frame(dec)))
+		if (dec->currPic[view_id] >= 0 && (delta_pic_order_cnt0 != dec->delta_pic_order_cnt0[view_id] ||
+			delta_pic_order_cnt1 != dec->delta_pic_order_cnt1[view_id]) && (ret = end_frame(dec)))
 			return ret;
 		int PrevRefFrameNum = dec->IdrPicFlag ? 0 : dec->PrevRefFrameNum[view_id];
 		FrameNum = dec->IdrPicFlag ? 0 : PrevRefFrameNum + 1 + ((frame_num - PrevRefFrameNum - 1) & FrameNumMask); // PrevRefFrameNum=frame_num=0 for IDR (7.4.3)
@@ -1367,10 +1370,13 @@ int ADD_VARIANT(parse_slice_layer_without_partitioning)(Edge264Decoder *dec, Edg
 		
 		// nothing fails past this point
 		dec->FrameNums[currPic] = FrameNum;
+		dec->pic_parameter_set_id[view_id] = pic_parameter_set_id;
 		dec->is_curr_ref[view_id] = dec->nal_ref_idc != 0;
 		dec->idr_pic_id[view_id] = idr_pic_id;
 		dec->pic_order_cnt_lsb[view_id] = pic_order_cnt_lsb;
+		dec->delta_pic_order_cnt_bottom[view_id] = delta_pic_order_cnt_bottom;
 		dec->delta_pic_order_cnt0[view_id] = delta_pic_order_cnt0;
+		dec->delta_pic_order_cnt1[view_id] = delta_pic_order_cnt1;
 	}
 	
 	// ignore slices of complete views (e.g. concealed for inter-view prediction)

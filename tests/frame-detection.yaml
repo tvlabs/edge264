@@ -1,0 +1,290 @@
+--- # Detection of the first slice of each new frame (7.4.1.2.4 and G.7.4.1.2.4)
+# A slice starts a new frame when it differs from the first slice of its view in the current
+# frame by frame_num (syntax value, whatever mmco5), pic_parameter_set_id, nal_ref_idc with one
+# of them 0, IdrPicFlag, idr_pic_id, pic_order_cnt_lsb or delta_pic_order_cnt_bottom (type 0),
+# or delta_pic_order_cnt[0] or [1] (type 1). field_pic_flag/bottom_field_flag are unsupported,
+# and non-VCL NAL units never end a frame.
+# Views are compared to themselves only, so they may differ in all of the above. A slice of a
+# view absent from the current frame joins it unless its TopFieldOrderCnt differs from the other
+# view's (G.8.1), so views may come in any order (unlike G.7.4.1.2.4, base after non-base).
+# Each view of a frame is coded as two slices (mb 0 then mb 1), comments tell what makes a slice
+# start a new frame or join the current one. Each condition is isolated with conforming values,
+# hence POC types 1 and 2 for frame_num and nal_ref_idc, gaps in frame_num for IdrPicFlag, and
+# mmco5 pictures with frame_num=1 for pic_parameter_set_id and the bottom deltas (7.4.1.2.4
+# NOTE 1). max_num_reorder_frames=0 so each frame is output as soon as the next one starts.
+# Expected output (POC of each frame, or pair of views in S4), each 0 after the first one of a
+# scenario starting a new GOP (IDR or mmco5):
+# S1: 0 0 0 0 2 0 4 6 8 10, S2: 0 0 4 8 9 10 14, S3: 0 16 32 0, S4: 0 4 10 16 20 22 24 28 0 0 2 4
+# Return values are 0 except an EBADMSG for the resent slice in S1.
+
+# templates (not encoded by gen_avc.py)
+- !template &vui
+  overscan_appropriate_flag: -1
+  pic_struct_present_flag: 0
+  motion_vectors_over_pic_boundaries_flag: 1
+  log2_max_mv_length_horizontal: 15
+  log2_max_mv_length_vertical: 15
+  max_num_reorder_frames: 0
+  max_dec_frame_buffering: 2
+
+- !template &sps
+  nal_ref_idc: 3
+  nal_unit_type: 7 # Sequence parameter set
+  profile_idc: 100 # High
+  constraint_set_flags: [0,0,0,0,0,0]
+  level_idc: 1.0
+  chroma_format_idc: 1 # 4:2:0
+  bit_depth: {luma: 8, chroma: 8}
+  qpprime_y_zero_transform_bypass_flag: 0
+  log2_max_frame_num: 4
+  pic_order_cnt_type: 0
+  log2_max_pic_order_cnt_lsb: 4
+  max_num_ref_frames: 2
+  gaps_in_frame_num_value_allowed_flag: 0
+  pic_size_in_mbs: {width: 2, height: 1}
+  frame_mbs_only_flag: 1
+  direct_8x8_inference_flag: 0
+  vui_parameters: *vui
+
+- !template &ssps
+  <<: *sps
+  nal_unit_type: 15 # Subset sequence parameter set
+  profile_idc: 128 # Stereo High
+  log2_max_pic_order_cnt_lsb: 5
+  view_ids: [0,1]
+  num_anchor_refs: {l0: 0, l1: 0}
+  num_non_anchor_refs: {l0: 0, l1: 0}
+  level_values_signalled:
+  - idc: 1.0
+    operation_points: [{temporal_id: 0, target_views: [0,1], num_views: 2}]
+
+- !template &pps
+  nal_ref_idc: 3
+  nal_unit_type: 8 # Picture parameter set
+  pic_parameter_set_id: 0
+  entropy_coding_mode_flag: 0 # CAVLC
+  bottom_field_pic_order_in_frame_present_flag: 0
+  num_slice_groups: 1
+  num_ref_idx_default_active: {l0: 1, l1: 1}
+  weighted_pred_flag: 0 # average
+  weighted_bipred_idc: 0 # average
+  pic_init_qp: 0
+  chroma_qp_index_offset: 0
+  deblocking_filter_control_present_flag: 0
+  constrained_intra_pred_flag: 0
+  redundant_pic_cnt_present_flag: 0
+
+- !template &prefix
+  nal_ref_idc: 1
+  nal_unit_type: 14 # Prefix NAL unit
+  non_idr_flag: 1
+  priority_id: 0
+  view_id: 0
+  temporal_id: 0
+  anchor_pic_flag: 0
+  inter_view_flag: 1
+
+- !template &idr
+  nal_ref_idc: 1
+  nal_unit_type: 5 # Coded slice of an IDR picture
+  first_mb_in_slice: 0
+  slice_type: 2 # I
+  pic_parameter_set_id: 0
+  frame_num: {bits: 4, absolute: 0}
+  idr_pic_id: 0
+  pic_order_cnt: {type: 0, bits: 4, absolute: 0}
+  no_output_of_prior_pics_flag: 0
+  long_term_reference_flag: 0
+  slice_qp_delta: 0
+  macroblocks_cavlc:
+  - &i4x4
+    mb_type: 0
+    rem_intra4x4_pred_modes: [-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1]
+    intra_chroma_pred_mode: 0
+    coded_block_pattern: 0
+
+- !template &i # I slice of a non-IDR picture
+  nal_ref_idc: 1
+  nal_unit_type: 1 # Coded slice of a non-IDR picture
+  first_mb_in_slice: 0
+  slice_type: 2 # I
+  pic_parameter_set_id: 0
+  slice_qp_delta: 0
+  macroblocks_cavlc: [*i4x4]
+
+- !template &idr1 # non-base view
+  <<: *idr
+  nal_unit_type: 20 # Coded slice extension
+  non_idr_flag: 0
+  priority_id: 0
+  view_id: 1
+  temporal_id: 0
+  anchor_pic_flag: 1
+  inter_view_flag: 0
+  pic_parameter_set_id: 1
+  pic_order_cnt: {type: 0, bits: 5, absolute: 0}
+
+- !template &i1 # non-base view
+  <<: *i
+  nal_unit_type: 20 # Coded slice extension
+  non_idr_flag: 1
+  priority_id: 0
+  view_id: 1
+  temporal_id: 0
+  anchor_pic_flag: 0
+  inter_view_flag: 0
+  pic_parameter_set_id: 1
+
+
+
+# S1: pic_order_cnt_type=0, PPS 1 has delta_pic_order_cnt_bottom
+- {<<: *sps}
+- {<<: *pps}
+- {<<: *pps, pic_parameter_set_id: 1, bottom_field_pic_order_in_frame_present_flag: 1}
+# POC 0: AUD, SEI, SPS and PPS between slices (joins), then a resent slice of the complete frame (EBADMSG)
+- {<<: *idr}
+- {nal_ref_idc: 0, nal_unit_type: 9, primary_pic_type: 0}
+- {nal_ref_idc: 0, nal_unit_type: 6, sei_messages: []}
+- {<<: *sps}
+- {<<: *pps}
+- {<<: *idr, first_mb_in_slice: 1}
+- {<<: *idr, first_mb_in_slice: 1}
+# POC 0: only idr_pic_id differs
+- {<<: *idr, idr_pic_id: 1}
+- {<<: *idr, first_mb_in_slice: 1, idr_pic_id: 1}
+# POC 2: IdrPicFlag, frame_num and pic_order_cnt_lsb differ, with mmco5
+- {<<: *i, frame_num: {bits: 4, absolute: 1}, pic_order_cnt: {type: 0, bits: 4, absolute: 2}, memory_management_control_operations: [{mmco: 5}]}
+- {<<: *i, first_mb_in_slice: 1, frame_num: {bits: 4, absolute: 1}, pic_order_cnt: {type: 0, bits: 4, absolute: 2}, memory_management_control_operations: [{mmco: 5}]}
+# POC 2 after mmco5: only pic_parameter_set_id differs, with mmco5
+- {<<: *i, pic_parameter_set_id: 1, frame_num: {bits: 4, absolute: 1}, pic_order_cnt: {type: 0, bits: 4, absolute: 2, bottom: 2}, memory_management_control_operations: [{mmco: 5}]}
+- {<<: *i, first_mb_in_slice: 1, pic_parameter_set_id: 1, frame_num: {bits: 4, absolute: 1}, pic_order_cnt: {type: 0, bits: 4, absolute: 2, bottom: 2}, memory_management_control_operations: [{mmco: 5}]}
+# POC 2 after mmco5: only delta_pic_order_cnt_bottom differs
+- {<<: *i, pic_parameter_set_id: 1, frame_num: {bits: 4, absolute: 1}, pic_order_cnt: {type: 0, bits: 4, absolute: 2, bottom: 3}}
+- {<<: *i, first_mb_in_slice: 1, pic_parameter_set_id: 1, frame_num: {bits: 4, absolute: 1}, pic_order_cnt: {type: 0, bits: 4, absolute: 2, bottom: 3}}
+# POC 4: frame_num, pic_parameter_set_id, pic_order_cnt_lsb and delta_pic_order_cnt_bottom differ, mmco5 then the second slice is compared with frame_num 2 rather than 0 (joins)
+- {<<: *i, frame_num: {bits: 4, absolute: 2}, pic_order_cnt: {type: 0, bits: 4, absolute: 4}, memory_management_control_operations: [{mmco: 5}]}
+- {<<: *i, first_mb_in_slice: 1, frame_num: {bits: 4, absolute: 2}, pic_order_cnt: {type: 0, bits: 4, absolute: 4}, memory_management_control_operations: [{mmco: 5}]}
+# POC 4 after mmco5: only frame_num differs
+- {<<: *i, frame_num: {bits: 4, absolute: 1}, pic_order_cnt: {type: 0, bits: 4, absolute: 4}}
+- {<<: *i, first_mb_in_slice: 1, frame_num: {bits: 4, absolute: 1}, pic_order_cnt: {type: 0, bits: 4, absolute: 4}}
+# POC 6: nal_ref_idc becomes 0, frame_num and pic_order_cnt_lsb differ
+- {<<: *i, nal_ref_idc: 0, frame_num: {bits: 4, absolute: 2}, pic_order_cnt: {type: 0, bits: 4, absolute: 6}}
+- {<<: *i, nal_ref_idc: 0, first_mb_in_slice: 1, frame_num: {bits: 4, absolute: 2}, pic_order_cnt: {type: 0, bits: 4, absolute: 6}}
+# POC 8: only pic_order_cnt_lsb differs
+- {<<: *i, nal_ref_idc: 0, frame_num: {bits: 4, absolute: 2}, pic_order_cnt: {type: 0, bits: 4, absolute: 8}}
+- {<<: *i, nal_ref_idc: 0, first_mb_in_slice: 1, frame_num: {bits: 4, absolute: 2}, pic_order_cnt: {type: 0, bits: 4, absolute: 8}}
+# POC 10: nal_ref_idc becomes non-zero and pic_order_cnt_lsb differs, then nal_ref_idc differs while non-zero (joins)
+- {<<: *i, frame_num: {bits: 4, absolute: 2}, pic_order_cnt: {type: 0, bits: 4, absolute: 10}}
+- {<<: *i, nal_ref_idc: 3, first_mb_in_slice: 1, frame_num: {bits: 4, absolute: 2}, pic_order_cnt: {type: 0, bits: 4, absolute: 10}}
+- {nal_ref_idc: 0, nal_unit_type: 10}
+
+
+
+# S2: pic_order_cnt_type=1 with an expected POC of 4 per reference frame, PPS 1 has delta_pic_order_cnt[1]
+- {<<: *sps, pic_order_cnt_type: 1, delta_pic_order_always_zero_flag: 0, offset_for_non_ref_pic: 0, offset_for_top_to_bottom_field: 0, offsets_for_ref_frames: [4]}
+# POC 0
+- {<<: *idr, pic_order_cnt: {type: 1, delta0: 0, absolute: 0}}
+- {<<: *idr, first_mb_in_slice: 1, pic_order_cnt: {type: 1, delta0: 0, absolute: 0}}
+# POC 4: IdrPicFlag, frame_num and pic_parameter_set_id differ, with mmco5
+- {<<: *i, pic_parameter_set_id: 1, frame_num: {bits: 4, absolute: 1}, pic_order_cnt: {type: 1, delta0: 0, delta1: 0, absolute: 4}, memory_management_control_operations: [{mmco: 5}]}
+- {<<: *i, first_mb_in_slice: 1, pic_parameter_set_id: 1, frame_num: {bits: 4, absolute: 1}, pic_order_cnt: {type: 1, delta0: 0, delta1: 0, absolute: 4}, memory_management_control_operations: [{mmco: 5}]}
+# POC 4 after mmco5: only delta_pic_order_cnt[1] differs
+- {<<: *i, pic_parameter_set_id: 1, frame_num: {bits: 4, absolute: 1}, pic_order_cnt: {type: 1, delta0: 0, delta1: 1, absolute: 4, bottom: 5}}
+- {<<: *i, first_mb_in_slice: 1, pic_parameter_set_id: 1, frame_num: {bits: 4, absolute: 1}, pic_order_cnt: {type: 1, delta0: 0, delta1: 1, absolute: 4, bottom: 5}}
+# POC 8: only frame_num differs
+- {<<: *i, pic_parameter_set_id: 1, frame_num: {bits: 4, absolute: 2}, pic_order_cnt: {type: 1, delta0: 0, delta1: 1, absolute: 8, bottom: 9}}
+- {<<: *i, first_mb_in_slice: 1, pic_parameter_set_id: 1, frame_num: {bits: 4, absolute: 2}, pic_order_cnt: {type: 1, delta0: 0, delta1: 1, absolute: 8, bottom: 9}}
+# POC 9: nal_ref_idc becomes 0, frame_num, pic_parameter_set_id and delta_pic_order_cnt[0] and [1] differ
+- {<<: *i, nal_ref_idc: 0, frame_num: {bits: 4, absolute: 3}, pic_order_cnt: {type: 1, delta0: 1, absolute: 9}}
+- {<<: *i, nal_ref_idc: 0, first_mb_in_slice: 1, frame_num: {bits: 4, absolute: 3}, pic_order_cnt: {type: 1, delta0: 1, absolute: 9}}
+# POC 10: only delta_pic_order_cnt[0] differs
+- {<<: *i, nal_ref_idc: 0, frame_num: {bits: 4, absolute: 3}, pic_order_cnt: {type: 1, delta0: 2, absolute: 10}}
+- {<<: *i, nal_ref_idc: 0, first_mb_in_slice: 1, frame_num: {bits: 4, absolute: 3}, pic_order_cnt: {type: 1, delta0: 2, absolute: 10}}
+# POC 14: only nal_ref_idc differs
+- {<<: *i, frame_num: {bits: 4, absolute: 3}, pic_order_cnt: {type: 1, delta0: 2, absolute: 14}}
+- {<<: *i, first_mb_in_slice: 1, frame_num: {bits: 4, absolute: 3}, pic_order_cnt: {type: 1, delta0: 2, absolute: 14}}
+- {nal_ref_idc: 0, nal_unit_type: 10}
+
+
+
+# S3: pic_order_cnt_type=2 with gaps in frame_num, inserting 2 non-existing frames (not output) before POC 16 and 32
+- {<<: *sps, pic_order_cnt_type: 2, gaps_in_frame_num_value_allowed_flag: 1}
+# POC 0
+- {<<: *idr, pic_order_cnt: {type: 2, absolute: 0}}
+- {<<: *idr, first_mb_in_slice: 1, pic_order_cnt: {type: 2, absolute: 0}}
+# POC 16: IdrPicFlag and frame_num differ
+- {<<: *i, frame_num: {bits: 4, absolute: 8}, pic_order_cnt: {type: 2, absolute: 16}}
+- {<<: *i, first_mb_in_slice: 1, frame_num: {bits: 4, absolute: 8}, pic_order_cnt: {type: 2, absolute: 16}}
+# POC 32: only frame_num differs, then frame_num 0 equals FrameNum 16 modulo MaxFrameNum (joins)
+- {<<: *i, frame_num: {bits: 4, absolute: 16}, pic_order_cnt: {type: 2, absolute: 32}}
+- {<<: *i, first_mb_in_slice: 1, frame_num: {bits: 4, absolute: 16}, pic_order_cnt: {type: 2, absolute: 32}}
+# POC 0: only IdrPicFlag differs
+- {<<: *idr, pic_order_cnt: {type: 2, absolute: 0}}
+- {<<: *idr, first_mb_in_slice: 1, pic_order_cnt: {type: 2, absolute: 0}}
+- {nal_ref_idc: 0, nal_unit_type: 10}
+
+
+
+# S4: MVC with pic_order_cnt_type=0, log2_max_pic_order_cnt_lsb=4 in SPS and 5 in SSPS,
+# views in decoding order until POC 24, then in reverse order (non-base view first)
+- {<<: *sps}
+- {<<: *pps}
+- {<<: *ssps}
+- {<<: *pps, pic_parameter_set_id: 1}
+# POC 0: slices of both views interleaved, pic_parameter_set_id and idr_pic_id differ between views (joins)
+- {<<: *idr}
+- {<<: *idr1, idr_pic_id: 1}
+- {<<: *idr, first_mb_in_slice: 1}
+- {<<: *idr1, first_mb_in_slice: 1, idr_pic_id: 1}
+# POC 4: nal_ref_idc differs between views (joins)
+- {<<: *i, frame_num: {bits: 4, absolute: 1}, pic_order_cnt: {type: 0, bits: 4, absolute: 4}}
+- {<<: *i, first_mb_in_slice: 1, frame_num: {bits: 4, absolute: 1}, pic_order_cnt: {type: 0, bits: 4, absolute: 4}}
+- {<<: *i1, nal_ref_idc: 0, frame_num: {bits: 4, absolute: 1}, pic_order_cnt: {type: 0, bits: 5, absolute: 4}}
+- {<<: *i1, nal_ref_idc: 0, first_mb_in_slice: 1, frame_num: {bits: 4, absolute: 1}, pic_order_cnt: {type: 0, bits: 5, absolute: 4}}
+# POC 10: frame_num differs between views (joins)
+- {<<: *i, frame_num: {bits: 4, absolute: 2}, pic_order_cnt: {type: 0, bits: 4, absolute: 10}}
+- {<<: *i, first_mb_in_slice: 1, frame_num: {bits: 4, absolute: 2}, pic_order_cnt: {type: 0, bits: 4, absolute: 10}}
+- {<<: *i1, frame_num: {bits: 4, absolute: 1}, pic_order_cnt: {type: 0, bits: 5, absolute: 10}}
+- {<<: *i1, first_mb_in_slice: 1, frame_num: {bits: 4, absolute: 1}, pic_order_cnt: {type: 0, bits: 5, absolute: 10}}
+# POC 16: pic_order_cnt_lsb differs between views (0 and 16, joins)
+- {<<: *i, frame_num: {bits: 4, absolute: 3}, pic_order_cnt: {type: 0, bits: 4, absolute: 16}}
+- {<<: *i, first_mb_in_slice: 1, frame_num: {bits: 4, absolute: 3}, pic_order_cnt: {type: 0, bits: 4, absolute: 16}}
+- {<<: *i1, frame_num: {bits: 4, absolute: 2}, pic_order_cnt: {type: 0, bits: 5, absolute: 16}}
+- {<<: *i1, first_mb_in_slice: 1, frame_num: {bits: 4, absolute: 2}, pic_order_cnt: {type: 0, bits: 5, absolute: 16}}
+# POC 20: base view alone, completed with a non-existing non-base view
+- {<<: *i, frame_num: {bits: 4, absolute: 4}, pic_order_cnt: {type: 0, bits: 4, absolute: 20}}
+- {<<: *i, first_mb_in_slice: 1, frame_num: {bits: 4, absolute: 4}, pic_order_cnt: {type: 0, bits: 4, absolute: 20}}
+# POC 22: non-base view alone with a different TopFieldOrderCnt, completed with a non-existing base view
+- {<<: *i1, frame_num: {bits: 4, absolute: 3}, pic_order_cnt: {type: 0, bits: 5, absolute: 22}}
+- {<<: *i1, first_mb_in_slice: 1, frame_num: {bits: 4, absolute: 3}, pic_order_cnt: {type: 0, bits: 5, absolute: 22}}
+# POC 24: base view with a different TopFieldOrderCnt
+- {<<: *i, frame_num: {bits: 4, absolute: 5}, pic_order_cnt: {type: 0, bits: 4, absolute: 24}}
+- {<<: *i, first_mb_in_slice: 1, frame_num: {bits: 4, absolute: 5}, pic_order_cnt: {type: 0, bits: 4, absolute: 24}}
+- {<<: *i1, frame_num: {bits: 4, absolute: 4}, pic_order_cnt: {type: 0, bits: 5, absolute: 24}}
+- {<<: *i1, first_mb_in_slice: 1, frame_num: {bits: 4, absolute: 4}, pic_order_cnt: {type: 0, bits: 5, absolute: 24}}
+# POC 28: non-base frame_num and pic_order_cnt_lsb differ, then a prefix NAL unit and the base view with equal TopFieldOrderCnt (joins)
+- {<<: *i1, frame_num: {bits: 4, absolute: 5}, pic_order_cnt: {type: 0, bits: 5, absolute: 28}}
+- {<<: *i1, first_mb_in_slice: 1, frame_num: {bits: 4, absolute: 5}, pic_order_cnt: {type: 0, bits: 5, absolute: 28}}
+- {<<: *prefix}
+- {<<: *i, frame_num: {bits: 4, absolute: 6}, pic_order_cnt: {type: 0, bits: 4, absolute: 28}}
+- {<<: *i, first_mb_in_slice: 1, frame_num: {bits: 4, absolute: 6}, pic_order_cnt: {type: 0, bits: 4, absolute: 28}}
+# POC 0: non-base IdrPicFlag, frame_num and pic_order_cnt_lsb differ
+- {<<: *idr1}
+- {<<: *idr1, first_mb_in_slice: 1}
+- {<<: *idr}
+- {<<: *idr, first_mb_in_slice: 1}
+# POC 0: only non-base idr_pic_id differs
+- {<<: *idr1, idr_pic_id: 1}
+- {<<: *idr1, first_mb_in_slice: 1, idr_pic_id: 1}
+- {<<: *idr, idr_pic_id: 1}
+- {<<: *idr, first_mb_in_slice: 1, idr_pic_id: 1}
+# POC 2: non-base nal_ref_idc becomes 0, frame_num and pic_order_cnt_lsb differ
+- {<<: *i1, nal_ref_idc: 0, frame_num: {bits: 4, absolute: 1}, pic_order_cnt: {type: 0, bits: 5, absolute: 2}}
+- {<<: *i1, nal_ref_idc: 0, first_mb_in_slice: 1, frame_num: {bits: 4, absolute: 1}, pic_order_cnt: {type: 0, bits: 5, absolute: 2}}
+- {<<: *i, nal_ref_idc: 0, frame_num: {bits: 4, absolute: 1}, pic_order_cnt: {type: 0, bits: 4, absolute: 2}}
+- {<<: *i, nal_ref_idc: 0, first_mb_in_slice: 1, frame_num: {bits: 4, absolute: 1}, pic_order_cnt: {type: 0, bits: 4, absolute: 2}}
+# POC 4: only non-base pic_order_cnt_lsb differs, then the end of stream ends the frame
+- {<<: *i1, nal_ref_idc: 0, frame_num: {bits: 4, absolute: 1}, pic_order_cnt: {type: 0, bits: 5, absolute: 4}}
+- {<<: *i1, nal_ref_idc: 0, first_mb_in_slice: 1, frame_num: {bits: 4, absolute: 1}, pic_order_cnt: {type: 0, bits: 5, absolute: 4}}
+- {<<: *i, nal_ref_idc: 0, frame_num: {bits: 4, absolute: 1}, pic_order_cnt: {type: 0, bits: 4, absolute: 4}}
+- {<<: *i, nal_ref_idc: 0, first_mb_in_slice: 1, frame_num: {bits: 4, absolute: 1}, pic_order_cnt: {type: 0, bits: 4, absolute: 4}}

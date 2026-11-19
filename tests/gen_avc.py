@@ -28,10 +28,9 @@ def gen_se(bits, v):
 	v = v * 2 if v > 0 else -v * 2 + 1
 	return bits << (v.bit_length() * 2 - 1) | v
 
-esc_pattern = re.compile(b"\x00\x00\x00|\x00\x00\x01|\x00\x00\x02|\x00\x00\x03")
-esc_values = [b"\x00\x00\x03\x00", b"\x00\x00\x03\x01", b"\x00\x00\x03\x02", b"\x00\x00\x03\x03"]
+esc_pattern = re.compile(b"\x00\x00(?=[\x00-\x03])")
 def escape(bytes):
-	return esc_pattern.sub(lambda m: esc_values[m[0][2]], bytes)
+	return esc_pattern.sub(b"\x00\x00\x03", bytes)
 
 
 

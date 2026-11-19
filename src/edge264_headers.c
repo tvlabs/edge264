@@ -1976,7 +1976,6 @@ static void set_frame_format(Edge264Decoder *dec, const Edge264SeqParameterSet *
 	dec->out.width_Y = width - sps->frame_crop_offsets[3] - sps->frame_crop_offsets[1];
 	dec->out.height_Y = height - sps->frame_crop_offsets[0] - sps->frame_crop_offsets[2];
 	dec->out.stride_Y = (sps->BitDepth_Y == 8) ? width : width << 1;
-	dec->out.stride_mb = sps->pic_width_in_mbs * sizeof(Edge264Macroblock);
 	if (!(dec->out.stride_Y & 2047)) // add an offset to stride if it is a multiple of 2048
 		dec->out.stride_Y += (sps->BitDepth_Y == 8) ? 16 : 32;
 	memcpy(dec->out.frame_crop_offsets, sps->frame_crop_offsets, 8);

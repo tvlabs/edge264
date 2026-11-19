@@ -2041,7 +2041,22 @@ int ADD_VARIANT(parse_seq_parameter_set)(Edge264Decoder *dec, Edge264UnrefCb unr
 		110400, 110400, 110400, 110400, 110400, 110400, 110400, 110400, // level 5
 		184320, 184320, // levels 5.1 and 5.2
 		696320, 696320, 696320, 696320, 696320, 696320, 696320, 696320, 696320, 696320, // levels 6, 6.1 and 6.2
-		INT_MAX // no limit beyond
+		INT_MAX // no limit needed beyond
+	};
+	static const int32_t MaxFS[64] = {
+		99, 99, 99, 99, 99, 99, 99, 99, 99, 99, 99, // level 1
+		396, // levels 1b and 1.1
+		396, 396, 396, 396, 396, 396, 396, 396, 396, // levels 1.2, 1.3 and 2
+		792, // level 2.1
+		1620, 1620, 1620, 1620, 1620, 1620, 1620, 1620, 1620, // levels 2.2 and 3
+		3600, // level 3.1
+		5120, // level 3.2
+		8192, 8192, 8192, 8192, 8192, 8192, 8192, 8192, 8192, // levels 4 and 4.1
+		8704, // level 4.2
+		22080, 22080, 22080, 22080, 22080, 22080, 22080, 22080, // level 5
+		36864, 36864, // levels 5.1 and 5.2
+		139264, 139264, 139264, 139264, 139264, 139264, 139264, 139264, 139264, 139264, // levels 6, 6.1 and 6.2
+		139264 // hard limit needed beyond
 	};
 	
 	// temp storage, committed if entire NAL is correct
@@ -2162,7 +2177,12 @@ int ADD_VARIANT(parse_seq_parameter_set)(Edge264Decoder *dec, Edge264UnrefCb unr
 		sps.max_num_reorder_frames = 0;
 		sps.max_dec_frame_buffering = maxs(sps.max_num_ref_frames, 1);
 	} else {
-		int MaxDpbFrames = mins((unsigned)MaxDpbMbs[mins(level_idc, 63)] / (sps.pic_width_in_mbs * sps.pic_height_in_mbs), 16);
+		int PicSizeInMbs = sps.pic_width_in_mbs * sps.pic_height_in_mbs;
+		int side = maxs(sps.pic_width_in_mbs, sps.pic_height_in_mbs);
+		int level = mins(level_idc, 63);
+		// use fallback value if signalled level is wrong
+		int MaxDpbFrames = (PicSizeInMbs <= MaxFS[level] && side * side <= MaxFS[level] * 8) ?
+			mins((unsigned)MaxDpbMbs[level] / PicSizeInMbs, 16) : 16;
 		sps.max_num_reorder_frames = maxs(sps.max_num_ref_frames, MaxDpbFrames);
 		sps.max_dec_frame_buffering = maxs(sps.max_num_reorder_frames, 1);
 	}

@@ -344,7 +344,7 @@ int edge264_get_frame(Edge264Decoder *dec, Edge264Frame *out, int borrow) {
 		int64_t poc = dec->FieldOrderCnt[pic][0];
 		if (poc == dec->frame_top_poc)
 			continue;
-		if (poc < dec->last_output_poc && dec->output_frames_l & 1 << pic && dec->next_deblock_addr[pic] == INT_MAX) {
+		if (poc < dec->last_output_poc && dec->output_frames_l & 1ull << pic && dec->next_deblock_addr[pic] == INT_MAX) {
 			dec->to_get_frames_l &= ~(1ull << pic);
 			dec->output_frames_l &= ~(1ull << pic);
 		} else if (poc < lowest_poc) {

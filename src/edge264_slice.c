@@ -161,8 +161,8 @@
 					v = code >> 3;
 					run_before = code & 7;
 				} else {
-					v = clz(ctx->t.gb.msb_cache) + 1;
-					run_before = mins(v + 3, zerosLeft);
+					v = clz(ctx->t.gb.msb_cache | (size_t)-1 >> (zerosLeft - 4)) + 1;
+					run_before = v + 3;
 				}
 				scan -= run_before;
 				zerosLeft -= run_before;

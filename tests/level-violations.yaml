@@ -3,6 +3,7 @@
 # Expected outputs below are those of a decoder applying C.4 with the DPB size derived from the signalled level,
 # or "ignoring the level" where the level only lowers a limit that the stream relies on.
 # JM refuses most of these streams (undefined level, max_num_ref_frames or max_dec_frame_buffering above MaxDpbFrames).
+# When a picture exceeds the size limits of level_idc (A.3.1 c-e), edge264 sets MaxDpbFrames to 16.
 
 
 
@@ -101,6 +102,7 @@
 # S1: level too low for the picture size, MaxDpbFrames = Min(396 / 400, 16) = 0 (A.3.1 h), with max_num_ref_frames=1.
 # Lowering max_num_ref_frames to MaxDpbFrames would make it 0, so that both P slices are parsed as I slices (7.4.3).
 # Expected (ignoring the level): POC 0 gray, POC 2 gray with MB 0 at DC level 8, POC 4 copying POC 2.
+# edge264 uses MaxDpbFrames 16 since 400 MBs exceed MaxFS = 99.
 - {<<: *sps, pic_size_in_mbs: {width: 20, height: 20}}
 - {<<: *pps}
 - {<<: *idr, macroblocks_cavlc: *mbs100}
@@ -115,7 +117,7 @@
 # S2: max_num_ref_frames=5 above MaxDpbFrames = 396 / 100 = 3, without VUI (A.3.1 h).
 # Four reference frames with MB 0 at DC levels 8, 16, 24, 32, then five non-reference frames copying MB 0 from ref_idx 0 to 4.
 # Expected (ignoring the level): MB 0 of POC 9 to 13 at levels 32, 24, 16, 8, then gray (IDR).
-# Lowering max_num_ref_frames to 3 would make ref_idx 3 and 4 point to missing references.
+# Lowering max_num_ref_frames to 3 would make ref_idx 3 and 4 point to missing references. edge264 uses MaxDpbFrames 16 since 100 MBs exceed MaxFS = 99.
 - {<<: *sps, max_num_ref_frames: 5, pic_size_in_mbs: {width: 10, height: 10}}
 - {<<: *pps}
 - {<<: *idr, macroblocks_cavlc: *mbs100}
@@ -151,7 +153,7 @@
 
 # S4: reordering deeper than MaxDpbFrames = 396 / 200 = 1, without VUI (max_num_reorder_frames inferred to MaxDpbFrames, E.2.1).
 # Expected (ignoring the level): POC order 0 4 8 12 16 20 24, which needs max_num_reorder_frames=2 and a 3-frame DPB.
-# edge264 (like C.4 with a 1-frame DPB) bumps 0 8 4 12 20 16 24, and drops 4 and 16 to output 0 8 12 20 24.
+# C.4 with a 1-frame DPB bumps 0 8 4 12 20 16 24 (4 and 16 dropped). edge264 uses MaxDpbFrames 16 since 200 MBs exceed MaxFS = 99, and outputs in POC order.
 - {<<: *sps, pic_size_in_mbs: {width: 20, height: 10}}
 - {<<: *pps}
 - {<<: *idr, macroblocks_cavlc: *mbs100}
@@ -167,7 +169,7 @@
 
 # S5: level_idc values with special or undefined meanings, on the same 100-MB GOP without VUI.
 # The GOP outputs in POC order (0 2 4 8 12 16 20) only with MaxDpbFrames >= 6, and as 0 8 12 16 20 with MaxDpbFrames = 3 (4 and 2 bumped late and dropped).
-# level_idc=0 (undefined): edge264 uses level 1 (MaxDpbFrames 3).
+# level_idc=0 (undefined): edge264 uses level 1, then MaxDpbFrames 16 since 100 MBs exceed MaxFS = 99.
 - {<<: *sps, level_idc: 0.0, pic_size_in_mbs: {width: 10, height: 10}}
 - {<<: *pps}
 - {<<: *idr, macroblocks_cavlc: *mbs100}
@@ -178,7 +180,7 @@
 - {<<: *p, nal_ref_idc: 0, frame_num: {bits: 4, absolute: 2}, pic_order_cnt: {type: 0, bits: 6, absolute: 4}, macroblocks_cavlc: [{mb_skip_run: 100}]}
 - {<<: *p, nal_ref_idc: 0, frame_num: {bits: 4, absolute: 2}, pic_order_cnt: {type: 0, bits: 6, absolute: 2}, macroblocks_cavlc: [{mb_skip_run: 100}]}
 
-# level_idc=9 in High profile: level 1b (A.3.2), MaxDpbFrames 3.
+# level_idc=9 in High profile: level 1b (A.3.2), MaxDpbFrames 3. edge264 uses MaxDpbFrames 16 since 100 MBs exceed MaxFS = 99.
 - {<<: *high, level_idc: 0.9, pic_size_in_mbs: {width: 10, height: 10}}
 - {<<: *pps}
 - {<<: *idr, macroblocks_cavlc: *mbs100}
@@ -306,6 +308,7 @@
 # S10: max_num_ref_frames=2 above MaxDpbFrames = 396 / 200 = 1, with a long-term IDR then a gap in frame_num.
 # Expected (ignoring the level): frame 1 inserted as non-existing (8.2.5.2), then the P frame copies the IDR through list modification.
 # Lowering max_num_ref_frames to 1 would leave no short-term slot next to the long-term IDR, so no non-existing frame would be inserted.
+# edge264 uses MaxDpbFrames 16 since 200 MBs exceed MaxFS = 99.
 - {<<: *sps, max_num_ref_frames: 2, gaps_in_frame_num_value_allowed_flag: 1, pic_size_in_mbs: {width: 20, height: 10}}
 - {<<: *pps}
 - {<<: *idr, long_term_reference_flag: 1, macroblocks_cavlc: *mbs100}

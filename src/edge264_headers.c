@@ -657,7 +657,7 @@ void *ADD_VARIANT(worker_loop)(void *arg) {
 			pthread_mutex_unlock(&c.d->lock);
 		unsigned long long clock_start = get_relative_time_us() - c.log_base_us;
 		c.t = c.d->tasks[task_id];
-		unsigned approx_byte_size = -c.t.gb.cpb_off;
+		unsigned approx_byte_size = (-(int)c.t.gb.cpb_off * 8 + SIZE_BIT * 2 + 6 - ctz(c.t.gb.lsb_cache)) >> 3;
 		initialize_context(&c, currPic);
 		
 		// call the function containing the macroblock decoding loop
@@ -2029,8 +2029,8 @@ int ADD_VARIANT(parse_seq_parameter_set)(Edge264Decoder *dec, Edge264UnrefCb unr
 	};
 	static const char * const chroma_format_idc_names[4] = {"4:0:0", "4:2:0", "4:2:2", "4:4:4"};
 	static const int32_t MaxDpbMbs[64] = {
-		396, 396, 396, 396, 396, 396, 396, 396, 396, 396, 396, // level 1
-		900, // levels 1b and 1.1
+		396, 396, 396, 396, 396, 396, 396, 396, 396, 396, 396, // levels 1 and 1b
+		900, // level 1.1
 		2376, 2376, 2376, 2376, 2376, 2376, 2376, 2376, 2376, // levels 1.2, 1.3 and 2
 		4752, // level 2.1
 		8100, 8100, 8100, 8100, 8100, 8100, 8100, 8100, 8100, // levels 2.2 and 3
@@ -2044,8 +2044,8 @@ int ADD_VARIANT(parse_seq_parameter_set)(Edge264Decoder *dec, Edge264UnrefCb unr
 		INT_MAX // no limit needed beyond
 	};
 	static const int32_t MaxFS[64] = {
-		99, 99, 99, 99, 99, 99, 99, 99, 99, 99, 99, // level 1
-		396, // levels 1b and 1.1
+		99, 99, 99, 99, 99, 99, 99, 99, 99, 99, 99, // levels 1 and 1b
+		396, // level 1.1
 		396, 396, 396, 396, 396, 396, 396, 396, 396, // levels 1.2, 1.3 and 2
 		792, // level 2.1
 		1620, 1620, 1620, 1620, 1620, 1620, 1620, 1620, 1620, // levels 2.2 and 3
@@ -2162,13 +2162,13 @@ int ADD_VARIANT(parse_seq_parameter_set)(Edge264Decoder *dec, Edge264UnrefCb unr
 		log_dec(dec, "]\n");
 	}
 	
-	// Max width is imposed by some int16 storage, wait for actual needs to push it.
+	// sizes beyond level 6.2 and widths above 1023 are not supported
 	sps.max_num_ref_frames = get_ue16(&dec->gb, 16);
 	int gaps_in_frame_num_value_allowed_flag = get_u1(&dec->gb);
-	sps.pic_width_in_mbs = get_ue16(&dec->gb, 1022) + 1;
+	sps.pic_width_in_mbs = get_ue16(&dec->gb, 1054) + 1;
 	int pic_height_in_map_units = get_ue16(&dec->gb, 1054) + 1;
 	sps.frame_mbs_only_flag = get_u1(&dec->gb);
-	if (!sps.frame_mbs_only_flag)
+	if (!sps.frame_mbs_only_flag || sps.pic_width_in_mbs > 1023)
 		ret = ENOTSUP;
 	int max_height_in_map_units = (139264 / sps.pic_width_in_mbs) << sps.frame_mbs_only_flag >> 1;
 	sps.pic_height_in_mbs = mins(pic_height_in_map_units, max_height_in_map_units) << 1 >> sps.frame_mbs_only_flag;
@@ -2179,12 +2179,13 @@ int ADD_VARIANT(parse_seq_parameter_set)(Edge264Decoder *dec, Edge264UnrefCb unr
 	} else {
 		int PicSizeInMbs = sps.pic_width_in_mbs * sps.pic_height_in_mbs;
 		int side = maxs(sps.pic_width_in_mbs, sps.pic_height_in_mbs);
-		int level = mins(level_idc, 63);
+		int level = (level_idc == 11 && (constraint_set_flags & 1 << 4) &&
+			(profile_idc == 66 || profile_idc == 77 || profile_idc == 88)) ? 9 : mins(level_idc, 63);
+		int MaxDpbFrames = mins((unsigned)MaxDpbMbs[level] / PicSizeInMbs, 16);
 		// use fallback value if signalled level is wrong
-		int MaxDpbFrames = (PicSizeInMbs <= MaxFS[level] && side * side <= MaxFS[level] * 8) ?
-			mins((unsigned)MaxDpbMbs[level] / PicSizeInMbs, 16) : 16;
-		sps.max_num_reorder_frames = maxs(sps.max_num_ref_frames, MaxDpbFrames);
-		sps.max_dec_frame_buffering = maxs(sps.max_num_reorder_frames, 1);
+		if (PicSizeInMbs > MaxFS[level] || side * side > MaxFS[level] * 8 || sps.max_num_ref_frames > MaxDpbFrames)
+			MaxDpbFrames = 16;
+		sps.max_num_reorder_frames = sps.max_dec_frame_buffering = MaxDpbFrames;
 	}
 	log_dec(dec, "  max_num_ref_frames: %u\n"
 		"  gaps_in_frame_num_value_allowed_flag: %u\n"

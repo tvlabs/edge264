@@ -337,6 +337,7 @@ Bug fixes should preferably provide test streams that can demonstrate fixing sai
 | MMCO5 in both views of an MVC stream, keeping views paired | All OK, 3 frame pairs | mvc-mmco5-pairing |
 | Bumping process coverage | All OK, check output order | bumping |
 | Bumping process coverage for MVC | All OK, check output order and pairing | bumping-mvc |
+| Streams violating level limits (picture size, max_num_ref_frames, DPB size, reordering) | 1 unsupp, 2 errors, check output order | level-violations |
 | Two ref frames with the same frame_num but differing POC, then a third frame referencing both |  |  |
 | Gap in frame_num while gaps_in_frame_num_value_allowed_flag=0 |  |  |
 | Stream starting with non-IDR I frame |  |  |

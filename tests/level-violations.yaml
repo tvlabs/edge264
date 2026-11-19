@@ -3,7 +3,7 @@
 # Expected outputs below are those of a decoder applying C.4 with the DPB size derived from the signalled level,
 # or "ignoring the level" where the level only lowers a limit that the stream relies on.
 # JM refuses most of these streams (undefined level, max_num_ref_frames or max_dec_frame_buffering above MaxDpbFrames).
-# When a picture exceeds the size limits of level_idc (A.3.1 c-e), edge264 sets MaxDpbFrames to 16.
+# When a picture exceeds the size limits of level_idc (A.3.1 c-e) or max_num_ref_frames exceeds its MaxDpbFrames (A.3.1 h), edge264 sets MaxDpbFrames to 16.
 
 
 
@@ -22,6 +22,11 @@
     *i16,*i16,*i16,*i16,*i16,*i16,*i16,*i16,*i16,*i16,*i16,*i16,*i16,*i16,*i16,*i16,*i16,*i16,*i16,*i16,
     *i16,*i16,*i16,*i16,*i16,*i16,*i16,*i16,*i16,*i16,*i16,*i16,*i16,*i16,*i16,*i16,*i16,*i16,*i16,*i16,
     *i16,*i16,*i16,*i16,*i16,*i16,*i16,*i16,*i16,*i16,*i16,*i16,*i16,*i16,*i16,*i16,*i16,*i16,*i16,*i16]
+  mbs99: &mbs99 [*i16,*i16,*i16,*i16,*i16,*i16,*i16,*i16,*i16,*i16,*i16,*i16,*i16,*i16,*i16,*i16,*i16,*i16,*i16,*i16,
+    *i16,*i16,*i16,*i16,*i16,*i16,*i16,*i16,*i16,*i16,*i16,*i16,*i16,*i16,*i16,*i16,*i16,*i16,*i16,*i16,
+    *i16,*i16,*i16,*i16,*i16,*i16,*i16,*i16,*i16,*i16,*i16,*i16,*i16,*i16,*i16,*i16,*i16,*i16,*i16,*i16,
+    *i16,*i16,*i16,*i16,*i16,*i16,*i16,*i16,*i16,*i16,*i16,*i16,*i16,*i16,*i16,*i16,*i16,*i16,*i16,*i16,
+    *i16,*i16,*i16,*i16,*i16,*i16,*i16,*i16,*i16,*i16,*i16,*i16,*i16,*i16,*i16,*i16,*i16,*i16,*i16]
 
 - !template &sps
   nal_ref_idc: 3
@@ -191,7 +196,7 @@
 - {<<: *p, nal_ref_idc: 0, frame_num: {bits: 4, absolute: 2}, pic_order_cnt: {type: 0, bits: 6, absolute: 4}, macroblocks_cavlc: [{mb_skip_run: 100}]}
 - {<<: *p, nal_ref_idc: 0, frame_num: {bits: 4, absolute: 2}, pic_order_cnt: {type: 0, bits: 6, absolute: 2}, macroblocks_cavlc: [{mb_skip_run: 100}]}
 
-# level_idc=11 with constraint_set3_flag=1 in Main profile: level 1b (A.3.1), MaxDpbFrames 3. edge264 uses level 1.1 (MaxDpbFrames 9).
+# level_idc=11 with constraint_set3_flag=1 in Main profile: level 1b (A.3.1), MaxDpbFrames 3. edge264 uses MaxDpbFrames 16 since 100 MBs exceed MaxFS = 99.
 - {<<: *sps, constraint_set_flags: [0,0,0,1,0,0], level_idc: 1.1, pic_size_in_mbs: {width: 10, height: 10}}
 - {<<: *pps}
 - {<<: *idr, macroblocks_cavlc: *mbs100}
@@ -293,12 +298,12 @@
 
 # S9: picture sizes beyond the limits of edge264 (width 1023 MBs, PicSizeInMbs 139264).
 # Width 1024 is valid at levels 6 to 6.2 (Sqrt(8 * 139264) = 1055, A.3.2 d). Expected: MB 1023 decoded, the rest concealed (or ENOTSUP).
-# edge264 clamps the width to 1023 and rejects the slice with EBADMSG.
+# edge264 rejects the SPS with ENOTSUP (width above 1023), then the slice with EBADMSG.
 - {<<: *sps, level_idc: 6.2, pic_size_in_mbs: {width: 1024, height: 1}}
 - {<<: *pps}
 - {<<: *idr, first_mb_in_slice: 1023}
 # 1023 x 137 MBs exceeds MaxFS = 139264 at all levels (A.3.2 c). Expected: ENOTSUP or EBADMSG on the SPS.
-# edge264 clamps the height to 136 and rejects the slice of the last row with EBADMSG.
+# edge264 clamps the height to 139264 / 1023 = 136 MBs, then rejects the slice with EBADMSG.
 - {<<: *sps, level_idc: 6.2, pic_size_in_mbs: {width: 1023, height: 137}}
 - {<<: *pps}
 - {<<: *idr, first_mb_in_slice: 139128}
@@ -314,3 +319,35 @@
 - {<<: *idr, long_term_reference_flag: 1, macroblocks_cavlc: *mbs100}
 - {<<: *idr, long_term_reference_flag: 1, first_mb_in_slice: 100, macroblocks_cavlc: *mbs100}
 - {<<: *p, frame_num: {bits: 4, absolute: 2}, pic_order_cnt: {type: 0, bits: 6, absolute: 4}, ref_pic_list_modification_l0: [[lref,0]], macroblocks_cavlc: [{mb_skip_run: 200}]}
+
+
+
+# S11: level_idc=11 with constraint_set3_flag=1 in Main profile is level 1b (A.3.1), on the GOP of S5 at 99 MBs without VUI.
+# Level 1b gives MaxDpbFrames = 396 / 99 = 4, too few for this GOP (6 frames), while level 1.1 would give 900 / 99 = 9.
+# Expected (ignoring the level): POC order 0 2 4 8 12 16 20. C.4 with a 4-frame DPB outputs 0 4 2 8 12 16 20,
+# and edge264 drops 2 to output 0 4 8 12 16 20.
+- {<<: *sps, constraint_set_flags: [0,0,0,1,0,0], level_idc: 1.1, pic_size_in_mbs: {width: 11, height: 9}}
+- {<<: *pps}
+- {<<: *idr, macroblocks_cavlc: *mbs99}
+- {<<: *p, frame_num: {bits: 4, absolute: 1}, pic_order_cnt: {type: 0, bits: 6, absolute: 20}, macroblocks_cavlc: [{mb_skip_run: 99}]}
+- {<<: *p, nal_ref_idc: 0, frame_num: {bits: 4, absolute: 2}, pic_order_cnt: {type: 0, bits: 6, absolute: 16}, macroblocks_cavlc: [{mb_skip_run: 99}]}
+- {<<: *p, nal_ref_idc: 0, frame_num: {bits: 4, absolute: 2}, pic_order_cnt: {type: 0, bits: 6, absolute: 12}, macroblocks_cavlc: [{mb_skip_run: 99}]}
+- {<<: *p, nal_ref_idc: 0, frame_num: {bits: 4, absolute: 2}, pic_order_cnt: {type: 0, bits: 6, absolute: 8}, macroblocks_cavlc: [{mb_skip_run: 99}]}
+- {<<: *p, nal_ref_idc: 0, frame_num: {bits: 4, absolute: 2}, pic_order_cnt: {type: 0, bits: 6, absolute: 4}, macroblocks_cavlc: [{mb_skip_run: 99}]}
+- {<<: *p, nal_ref_idc: 0, frame_num: {bits: 4, absolute: 2}, pic_order_cnt: {type: 0, bits: 6, absolute: 2}, macroblocks_cavlc: [{mb_skip_run: 99}]}
+
+
+
+# S12: max_num_ref_frames=5 above MaxDpbFrames = 396 / 99 = 4 (A.3.1 h), on the GOP of S5 at 99 MBs without VUI.
+# Expected (ignoring the level): POC order 0 2 4 8 12 16 20, which needs a 6-frame DPB. C.4 with a 4-frame DPB outputs
+# 0 8 4 2 12 16 20, and with Max(max_num_ref_frames, MaxDpbFrames) = 5 frames 0 4 2 8 12 16 20.
+# edge264 uses MaxDpbFrames 16 since max_num_ref_frames exceeds MaxDpbFrames, and outputs in POC order.
+- {<<: *sps, max_num_ref_frames: 5, pic_size_in_mbs: {width: 9, height: 11}}
+- {<<: *pps}
+- {<<: *idr, macroblocks_cavlc: *mbs99}
+- {<<: *p, frame_num: {bits: 4, absolute: 1}, pic_order_cnt: {type: 0, bits: 6, absolute: 20}, macroblocks_cavlc: [{mb_skip_run: 99}]}
+- {<<: *p, nal_ref_idc: 0, frame_num: {bits: 4, absolute: 2}, pic_order_cnt: {type: 0, bits: 6, absolute: 16}, macroblocks_cavlc: [{mb_skip_run: 99}]}
+- {<<: *p, nal_ref_idc: 0, frame_num: {bits: 4, absolute: 2}, pic_order_cnt: {type: 0, bits: 6, absolute: 12}, macroblocks_cavlc: [{mb_skip_run: 99}]}
+- {<<: *p, nal_ref_idc: 0, frame_num: {bits: 4, absolute: 2}, pic_order_cnt: {type: 0, bits: 6, absolute: 8}, macroblocks_cavlc: [{mb_skip_run: 99}]}
+- {<<: *p, nal_ref_idc: 0, frame_num: {bits: 4, absolute: 2}, pic_order_cnt: {type: 0, bits: 6, absolute: 4}, macroblocks_cavlc: [{mb_skip_run: 99}]}
+- {<<: *p, nal_ref_idc: 0, frame_num: {bits: 4, absolute: 2}, pic_order_cnt: {type: 0, bits: 6, absolute: 2}, macroblocks_cavlc: [{mb_skip_run: 99}]}

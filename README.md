@@ -372,6 +372,7 @@ Bug fixes should preferably provide test streams that can demonstrate fixing sai
 | Two slices with mmco=5 yet frame_num>0 (to make it look like a new frame) |  |  |
 | POCs spaced by more than half max bits, such that relying on a stale prevPicOrderCnt yields wrong POC |  |  |
 | Filling the DPB with 16 refs then setting max_num_ref_frames=1 and adding a new ref frame |  |  |
+| A mid-GOP SPS lowering max_num_ref_frames below the number of long-term refs, then a gap in frame_num |  |  |
 | Adding a frame cropping after decoding a frame | Crop should not apply retroactively |  |
 | Making a Direct ref_pic be used after it has been unreferenced |  |  |
 | poc_type=2 and non-ref frame followed by non-ref pic, and the opposite (7.4.2.1.1) |  |  |

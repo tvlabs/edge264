@@ -1072,8 +1072,7 @@ static void parse_ref_pic_list_modification(Edge264Decoder *dec, Edge264SeqParam
 static int insert_non_existing_frames(Edge264Decoder *dec, Edge264SeqParameterSet *sps, int view_id, int FrameNum) {
 	int ret;
 	// make enough non-reference slots by dereferencing short-term and non-existing frames
-	int sref_slots = maxs(sps->max_num_ref_frames, 1) - __builtin_popcount(dec->prev_long_term_frames[view_id] & ~dec->prev_short_term_frames[view_id]);
-	assert(sref_slots > 0);
+	int sref_slots = maxs(maxs(sps->max_num_ref_frames, 1) - __builtin_popcount(dec->prev_long_term_frames[view_id] & ~dec->prev_short_term_frames[view_id]), 0);
 	int non_existing = mins(FrameNum - dec->PrevRefFrameNum[view_id] - 1, sref_slots);
 	// non-existing frames will copy the last reference frame or be gray
 	int src = -1, highest = INT_MIN;
@@ -1128,7 +1127,7 @@ static int insert_non_existing_frames(Edge264Decoder *dec, Edge264SeqParameterSe
 		dec->erroneous_frames[view_id] |= 1u << i;
 		dec->prev_short_term_frames[view_id] |= 1u << i;
 		dec->prev_long_term_frames[view_id] |= 1u << i;
-		dec->FrameNums[pic] = dec->PrevRefFrameNum[view_id] = UnusedShortTermFrameNum;
+		dec->FrameNums[pic] = UnusedShortTermFrameNum;
 		dec->FrameIds[pic] = ++dec->prevFrameId;
 		int PicOrderCnt = 0;
 		if (sps->pic_order_cnt_type == 2) {
@@ -1144,6 +1143,7 @@ static int insert_non_existing_frames(Edge264Decoder *dec, Edge264SeqParameterSe
 		dec->remaining_mbs[pic] = 0;
 		dec->next_deblock_addr[pic] = INT_MAX;
 	}
+	dec->PrevRefFrameNum[view_id] = FrameNum - 1; // even if no frame was inserted
 	return 0;
 }
 

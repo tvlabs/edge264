@@ -1,0 +1,313 @@
+--- # Streams violating the level limits of Annex A (A.3.1, A.3.2, A.3.3, Tables A-1 to A-4)
+# Each scenario starts with an SPS of a new size (except S5 and the S7 Baseline part), and is otherwise conforming.
+# Expected outputs below are those of a decoder applying C.4 with the DPB size derived from the signalled level,
+# or "ignoring the level" where the level only lowers a limit that the stream relies on.
+# JM refuses most of these streams (undefined level, max_num_ref_frames or max_dec_frame_buffering above MaxDpbFrames).
+
+
+
+# templates (not encoded by gen_avc.py)
+- !template # macroblocks
+  i16: &i16 {mb_type: 3, intra_chroma_pred_mode: 0, mb_qp_delta: 0, coeffLevels: [{nC: 0}]} # I_16x16 DC pred, no residual
+  i16dc: &i16dc {mb_type: 3, intra_chroma_pred_mode: 0, mb_qp_delta: 0, coeffLevels: [{nC: 0, c: [8,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]}]}
+  i16dcm: &i16dcm {mb_type: 3, intra_chroma_pred_mode: 0, mb_qp_delta: 0, coeffLevels: [{nC: 0, c: [-16,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]}]}
+  dc8: &dc8 {mb_skip_run: 0, mb_type: 8, intra_chroma_pred_mode: 0, mb_qp_delta: 0, coeffLevels: [{nC: 0, c: [8,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]}]} # I_16x16 in P slice
+  dc16: &dc16 {mb_skip_run: 0, mb_type: 8, intra_chroma_pred_mode: 0, mb_qp_delta: 0, coeffLevels: [{nC: 0, c: [16,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]}]}
+  dc24: &dc24 {mb_skip_run: 0, mb_type: 8, intra_chroma_pred_mode: 0, mb_qp_delta: 0, coeffLevels: [{nC: 0, c: [24,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]}]}
+  dc32: &dc32 {mb_skip_run: 0, mb_type: 8, intra_chroma_pred_mode: 0, mb_qp_delta: 0, coeffLevels: [{nC: 0, c: [32,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]}]}
+  mbs10: &mbs10 [*i16,*i16,*i16,*i16,*i16,*i16,*i16,*i16,*i16,*i16]
+  mbs100: &mbs100 [*i16,*i16,*i16,*i16,*i16,*i16,*i16,*i16,*i16,*i16,*i16,*i16,*i16,*i16,*i16,*i16,*i16,*i16,*i16,*i16,
+    *i16,*i16,*i16,*i16,*i16,*i16,*i16,*i16,*i16,*i16,*i16,*i16,*i16,*i16,*i16,*i16,*i16,*i16,*i16,*i16,
+    *i16,*i16,*i16,*i16,*i16,*i16,*i16,*i16,*i16,*i16,*i16,*i16,*i16,*i16,*i16,*i16,*i16,*i16,*i16,*i16,
+    *i16,*i16,*i16,*i16,*i16,*i16,*i16,*i16,*i16,*i16,*i16,*i16,*i16,*i16,*i16,*i16,*i16,*i16,*i16,*i16,
+    *i16,*i16,*i16,*i16,*i16,*i16,*i16,*i16,*i16,*i16,*i16,*i16,*i16,*i16,*i16,*i16,*i16,*i16,*i16,*i16]
+
+- !template &sps
+  nal_ref_idc: 3
+  nal_unit_type: 7 # Sequence parameter set
+  profile_idc: 77 # Main
+  constraint_set_flags: [0,0,0,0,0,0]
+  level_idc: 1.0
+  chroma_format_idc: 1 # 4:2:0 # inferred
+  bit_depth: {luma: 8, chroma: 8} # inferred
+  log2_max_frame_num: 4
+  pic_order_cnt_type: 0
+  log2_max_pic_order_cnt_lsb: 6
+  max_num_ref_frames: 1
+  gaps_in_frame_num_value_allowed_flag: 0
+  pic_size_in_mbs: {width: 1, height: 1}
+  frame_mbs_only_flag: 1
+  direct_8x8_inference_flag: 1
+
+- !template &high
+  <<: *sps
+  profile_idc: 100 # High
+  qpprime_y_zero_transform_bypass_flag: 0
+
+- !template &vui # completed with max_num_reorder_frames and max_dec_frame_buffering
+  overscan_appropriate_flag: -1
+  pic_struct_present_flag: 0
+  motion_vectors_over_pic_boundaries_flag: 1
+  log2_max_mv_length_horizontal: 15
+  log2_max_mv_length_vertical: 15
+
+- !template &pps
+  nal_ref_idc: 3
+  nal_unit_type: 8 # Picture parameter set
+  pic_parameter_set_id: 0
+  entropy_coding_mode_flag: 0 # CAVLC
+  bottom_field_pic_order_in_frame_present_flag: 0
+  num_slice_groups: 1
+  num_ref_idx_default_active: {l0: 1, l1: 1}
+  weighted_pred_flag: 0 # average
+  weighted_bipred_idc: 0 # average
+  pic_init_qp: 26
+  chroma_qp_index_offset: 0
+  deblocking_filter_control_present_flag: 0
+  constrained_intra_pred_flag: 0
+  redundant_pic_cnt_present_flag: 0
+
+- !template &idr
+  nal_ref_idc: 3
+  nal_unit_type: 5 # Coded slice of an IDR picture
+  first_mb_in_slice: 0
+  slice_type: 2 # I
+  pic_parameter_set_id: 0
+  frame_num: {bits: 4, absolute: 0}
+  idr_pic_id: 0
+  pic_order_cnt: {type: 0, bits: 6, absolute: 0}
+  no_output_of_prior_pics_flag: 0
+  long_term_reference_flag: 0
+  slice_qp_delta: 0
+  macroblocks_cavlc: [*i16]
+
+- !template &p
+  nal_ref_idc: 2
+  nal_unit_type: 1 # Coded slice of a non-IDR picture
+  first_mb_in_slice: 0
+  slice_type: 0 # P
+  pic_parameter_set_id: 0
+  num_ref_idx_active: {override_flag: 0}
+  slice_qp_delta: 0
+
+- !template &b
+  <<: *p
+  nal_ref_idc: 0
+  slice_type: 1 # B
+  direct_spatial_mv_pred_flag: 1
+
+
+
+# S1: level too low for the picture size, MaxDpbFrames = Min(396 / 400, 16) = 0 (A.3.1 h), with max_num_ref_frames=1.
+# edge264 clamps max_num_ref_frames to 0, then parses both P slices as I slices (7.4.3).
+# Expected (ignoring the level): POC 0 gray, POC 2 gray with MB 0 at DC level 8, POC 4 copying POC 2.
+- {<<: *sps, pic_size_in_mbs: {width: 20, height: 20}}
+- {<<: *pps}
+- {<<: *idr, macroblocks_cavlc: *mbs100}
+- {<<: *idr, first_mb_in_slice: 100, macroblocks_cavlc: *mbs100}
+- {<<: *idr, first_mb_in_slice: 200, macroblocks_cavlc: *mbs100}
+- {<<: *idr, first_mb_in_slice: 300, macroblocks_cavlc: *mbs100}
+- {<<: *p, frame_num: {bits: 4, absolute: 1}, pic_order_cnt: {type: 0, bits: 6, absolute: 2}, macroblocks_cavlc: [*dc8,{mb_skip_run: 399}]}
+- {<<: *p, nal_ref_idc: 0, frame_num: {bits: 4, absolute: 2}, pic_order_cnt: {type: 0, bits: 6, absolute: 4}, macroblocks_cavlc: [{mb_skip_run: 400}]}
+
+
+
+# S2: max_num_ref_frames=5 above MaxDpbFrames = 396 / 100 = 3, without VUI (A.3.1 h).
+# Four reference frames with MB 0 at DC levels 8, 16, 24, 32, then five non-reference frames copying MB 0 from ref_idx 0 to 4.
+# Expected (ignoring the level): MB 0 of POC 9 to 13 at levels 32, 24, 16, 8, then gray (IDR).
+# edge264 keeps only 3 references, so ref_idx 3 and 4 point to missing references.
+- {<<: *sps, max_num_ref_frames: 5, pic_size_in_mbs: {width: 10, height: 10}}
+- {<<: *pps}
+- {<<: *idr, macroblocks_cavlc: *mbs100}
+- {<<: *p, frame_num: {bits: 4, absolute: 1}, pic_order_cnt: {type: 0, bits: 6, absolute: 2}, macroblocks_cavlc: [*dc8,{mb_skip_run: 99}]}
+- {<<: *p, frame_num: {bits: 4, absolute: 2}, pic_order_cnt: {type: 0, bits: 6, absolute: 4}, macroblocks_cavlc: [*dc16,{mb_skip_run: 99}]}
+- {<<: *p, frame_num: {bits: 4, absolute: 3}, pic_order_cnt: {type: 0, bits: 6, absolute: 6}, macroblocks_cavlc: [*dc24,{mb_skip_run: 99}]}
+- {<<: *p, frame_num: {bits: 4, absolute: 4}, pic_order_cnt: {type: 0, bits: 6, absolute: 8}, macroblocks_cavlc: [*dc32,{mb_skip_run: 99}]}
+- {<<: *p, nal_ref_idc: 0, frame_num: {bits: 4, absolute: 5}, pic_order_cnt: {type: 0, bits: 6, absolute: 9}, num_ref_idx_active: {override_flag: 1, l0: 5}, macroblocks_cavlc: [{mb_skip_run: 0, mb_type: 0, ref_idx: {0: 0}, mvds: [[0,0]], coded_block_pattern: 0},{mb_skip_run: 99}]}
+- {<<: *p, nal_ref_idc: 0, frame_num: {bits: 4, absolute: 5}, pic_order_cnt: {type: 0, bits: 6, absolute: 10}, num_ref_idx_active: {override_flag: 1, l0: 5}, macroblocks_cavlc: [{mb_skip_run: 0, mb_type: 0, ref_idx: {0: 1}, mvds: [[0,0]], coded_block_pattern: 0},{mb_skip_run: 99}]}
+- {<<: *p, nal_ref_idc: 0, frame_num: {bits: 4, absolute: 5}, pic_order_cnt: {type: 0, bits: 6, absolute: 11}, num_ref_idx_active: {override_flag: 1, l0: 5}, macroblocks_cavlc: [{mb_skip_run: 0, mb_type: 0, ref_idx: {0: 2}, mvds: [[0,0]], coded_block_pattern: 0},{mb_skip_run: 99}]}
+- {<<: *p, nal_ref_idc: 0, frame_num: {bits: 4, absolute: 5}, pic_order_cnt: {type: 0, bits: 6, absolute: 12}, num_ref_idx_active: {override_flag: 1, l0: 5}, macroblocks_cavlc: [{mb_skip_run: 0, mb_type: 0, ref_idx: {0: 3}, mvds: [[0,0]], coded_block_pattern: 0},{mb_skip_run: 99}]}
+- {<<: *p, nal_ref_idc: 0, frame_num: {bits: 4, absolute: 5}, pic_order_cnt: {type: 0, bits: 6, absolute: 13}, num_ref_idx_active: {override_flag: 1, l0: 5}, macroblocks_cavlc: [{mb_skip_run: 0, mb_type: 0, ref_idx: {0: 4}, mvds: [[0,0]], coded_block_pattern: 0},{mb_skip_run: 99}]}
+
+
+
+# S3: as S2 with VUI max_dec_frame_buffering=5 above MaxDpbFrames = 396 / 110 = 3 (A.3.1 h).
+# Expected (ignoring the level): as S2. edge264 keeps a 5-frame DPB but has already clamped max_num_ref_frames to 3.
+- {<<: *sps, max_num_ref_frames: 5, pic_size_in_mbs: {width: 11, height: 10}, vui_parameters: {<<: *vui, max_num_reorder_frames: 0, max_dec_frame_buffering: 5}}
+- {<<: *pps}
+- {<<: *idr, macroblocks_cavlc: *mbs100}
+- {<<: *idr, first_mb_in_slice: 100, macroblocks_cavlc: *mbs10}
+- {<<: *p, frame_num: {bits: 4, absolute: 1}, pic_order_cnt: {type: 0, bits: 6, absolute: 2}, macroblocks_cavlc: [*dc8,{mb_skip_run: 109}]}
+- {<<: *p, frame_num: {bits: 4, absolute: 2}, pic_order_cnt: {type: 0, bits: 6, absolute: 4}, macroblocks_cavlc: [*dc16,{mb_skip_run: 109}]}
+- {<<: *p, frame_num: {bits: 4, absolute: 3}, pic_order_cnt: {type: 0, bits: 6, absolute: 6}, macroblocks_cavlc: [*dc24,{mb_skip_run: 109}]}
+- {<<: *p, frame_num: {bits: 4, absolute: 4}, pic_order_cnt: {type: 0, bits: 6, absolute: 8}, macroblocks_cavlc: [*dc32,{mb_skip_run: 109}]}
+- {<<: *p, nal_ref_idc: 0, frame_num: {bits: 4, absolute: 5}, pic_order_cnt: {type: 0, bits: 6, absolute: 9}, num_ref_idx_active: {override_flag: 1, l0: 5}, macroblocks_cavlc: [{mb_skip_run: 0, mb_type: 0, ref_idx: {0: 0}, mvds: [[0,0]], coded_block_pattern: 0},{mb_skip_run: 109}]}
+- {<<: *p, nal_ref_idc: 0, frame_num: {bits: 4, absolute: 5}, pic_order_cnt: {type: 0, bits: 6, absolute: 10}, num_ref_idx_active: {override_flag: 1, l0: 5}, macroblocks_cavlc: [{mb_skip_run: 0, mb_type: 0, ref_idx: {0: 1}, mvds: [[0,0]], coded_block_pattern: 0},{mb_skip_run: 109}]}
+- {<<: *p, nal_ref_idc: 0, frame_num: {bits: 4, absolute: 5}, pic_order_cnt: {type: 0, bits: 6, absolute: 11}, num_ref_idx_active: {override_flag: 1, l0: 5}, macroblocks_cavlc: [{mb_skip_run: 0, mb_type: 0, ref_idx: {0: 2}, mvds: [[0,0]], coded_block_pattern: 0},{mb_skip_run: 109}]}
+- {<<: *p, nal_ref_idc: 0, frame_num: {bits: 4, absolute: 5}, pic_order_cnt: {type: 0, bits: 6, absolute: 12}, num_ref_idx_active: {override_flag: 1, l0: 5}, macroblocks_cavlc: [{mb_skip_run: 0, mb_type: 0, ref_idx: {0: 3}, mvds: [[0,0]], coded_block_pattern: 0},{mb_skip_run: 109}]}
+- {<<: *p, nal_ref_idc: 0, frame_num: {bits: 4, absolute: 5}, pic_order_cnt: {type: 0, bits: 6, absolute: 13}, num_ref_idx_active: {override_flag: 1, l0: 5}, macroblocks_cavlc: [{mb_skip_run: 0, mb_type: 0, ref_idx: {0: 4}, mvds: [[0,0]], coded_block_pattern: 0},{mb_skip_run: 109}]}
+
+
+
+# S4: reordering deeper than MaxDpbFrames = 396 / 200 = 1, without VUI (max_num_reorder_frames inferred to MaxDpbFrames, E.2.1).
+# Expected (ignoring the level): POC order 0 4 8 12 16 20 24, which needs max_num_reorder_frames=2 and a 3-frame DPB.
+# edge264 (like C.4 with a 1-frame DPB) outputs 0 8 4 12 20 16 24.
+- {<<: *sps, pic_size_in_mbs: {width: 20, height: 10}}
+- {<<: *pps}
+- {<<: *idr, macroblocks_cavlc: *mbs100}
+- {<<: *idr, first_mb_in_slice: 100, macroblocks_cavlc: *mbs100}
+- {<<: *p, frame_num: {bits: 4, absolute: 1}, pic_order_cnt: {type: 0, bits: 6, absolute: 12}, macroblocks_cavlc: [{mb_skip_run: 200}]}
+- {<<: *p, nal_ref_idc: 0, frame_num: {bits: 4, absolute: 2}, pic_order_cnt: {type: 0, bits: 6, absolute: 8}, macroblocks_cavlc: [{mb_skip_run: 200}]}
+- {<<: *p, nal_ref_idc: 0, frame_num: {bits: 4, absolute: 2}, pic_order_cnt: {type: 0, bits: 6, absolute: 4}, macroblocks_cavlc: [{mb_skip_run: 200}]}
+- {<<: *p, frame_num: {bits: 4, absolute: 2}, pic_order_cnt: {type: 0, bits: 6, absolute: 24}, macroblocks_cavlc: [{mb_skip_run: 200}]}
+- {<<: *p, nal_ref_idc: 0, frame_num: {bits: 4, absolute: 3}, pic_order_cnt: {type: 0, bits: 6, absolute: 20}, macroblocks_cavlc: [{mb_skip_run: 200}]}
+- {<<: *p, nal_ref_idc: 0, frame_num: {bits: 4, absolute: 3}, pic_order_cnt: {type: 0, bits: 6, absolute: 16}, macroblocks_cavlc: [{mb_skip_run: 200}]}
+
+
+
+# S5: level_idc values with special or undefined meanings, on the same 100-MB GOP without VUI.
+# The GOP outputs in POC order (0 2 4 8 12 16 20) only with MaxDpbFrames >= 6, and as 0 8 4 2 12 16 20 with MaxDpbFrames = 3.
+# level_idc=0 (undefined): edge264 uses level 1 (MaxDpbFrames 3).
+- {<<: *sps, level_idc: 0.0, pic_size_in_mbs: {width: 10, height: 10}}
+- {<<: *pps}
+- {<<: *idr, macroblocks_cavlc: *mbs100}
+- {<<: *p, frame_num: {bits: 4, absolute: 1}, pic_order_cnt: {type: 0, bits: 6, absolute: 20}, macroblocks_cavlc: [{mb_skip_run: 100}]}
+- {<<: *p, nal_ref_idc: 0, frame_num: {bits: 4, absolute: 2}, pic_order_cnt: {type: 0, bits: 6, absolute: 16}, macroblocks_cavlc: [{mb_skip_run: 100}]}
+- {<<: *p, nal_ref_idc: 0, frame_num: {bits: 4, absolute: 2}, pic_order_cnt: {type: 0, bits: 6, absolute: 12}, macroblocks_cavlc: [{mb_skip_run: 100}]}
+- {<<: *p, nal_ref_idc: 0, frame_num: {bits: 4, absolute: 2}, pic_order_cnt: {type: 0, bits: 6, absolute: 8}, macroblocks_cavlc: [{mb_skip_run: 100}]}
+- {<<: *p, nal_ref_idc: 0, frame_num: {bits: 4, absolute: 2}, pic_order_cnt: {type: 0, bits: 6, absolute: 4}, macroblocks_cavlc: [{mb_skip_run: 100}]}
+- {<<: *p, nal_ref_idc: 0, frame_num: {bits: 4, absolute: 2}, pic_order_cnt: {type: 0, bits: 6, absolute: 2}, macroblocks_cavlc: [{mb_skip_run: 100}]}
+
+# level_idc=9 in High profile: level 1b (A.3.2), MaxDpbFrames 3.
+- {<<: *high, level_idc: 0.9, pic_size_in_mbs: {width: 10, height: 10}}
+- {<<: *pps}
+- {<<: *idr, macroblocks_cavlc: *mbs100}
+- {<<: *p, frame_num: {bits: 4, absolute: 1}, pic_order_cnt: {type: 0, bits: 6, absolute: 20}, macroblocks_cavlc: [{mb_skip_run: 100}]}
+- {<<: *p, nal_ref_idc: 0, frame_num: {bits: 4, absolute: 2}, pic_order_cnt: {type: 0, bits: 6, absolute: 16}, macroblocks_cavlc: [{mb_skip_run: 100}]}
+- {<<: *p, nal_ref_idc: 0, frame_num: {bits: 4, absolute: 2}, pic_order_cnt: {type: 0, bits: 6, absolute: 12}, macroblocks_cavlc: [{mb_skip_run: 100}]}
+- {<<: *p, nal_ref_idc: 0, frame_num: {bits: 4, absolute: 2}, pic_order_cnt: {type: 0, bits: 6, absolute: 8}, macroblocks_cavlc: [{mb_skip_run: 100}]}
+- {<<: *p, nal_ref_idc: 0, frame_num: {bits: 4, absolute: 2}, pic_order_cnt: {type: 0, bits: 6, absolute: 4}, macroblocks_cavlc: [{mb_skip_run: 100}]}
+- {<<: *p, nal_ref_idc: 0, frame_num: {bits: 4, absolute: 2}, pic_order_cnt: {type: 0, bits: 6, absolute: 2}, macroblocks_cavlc: [{mb_skip_run: 100}]}
+
+# level_idc=11 with constraint_set3_flag=1 in Main profile: level 1b (A.3.1), MaxDpbFrames 3. edge264 uses level 1.1 (MaxDpbFrames 9).
+- {<<: *sps, constraint_set_flags: [0,0,0,1,0,0], level_idc: 1.1, pic_size_in_mbs: {width: 10, height: 10}}
+- {<<: *pps}
+- {<<: *idr, macroblocks_cavlc: *mbs100}
+- {<<: *p, frame_num: {bits: 4, absolute: 1}, pic_order_cnt: {type: 0, bits: 6, absolute: 20}, macroblocks_cavlc: [{mb_skip_run: 100}]}
+- {<<: *p, nal_ref_idc: 0, frame_num: {bits: 4, absolute: 2}, pic_order_cnt: {type: 0, bits: 6, absolute: 16}, macroblocks_cavlc: [{mb_skip_run: 100}]}
+- {<<: *p, nal_ref_idc: 0, frame_num: {bits: 4, absolute: 2}, pic_order_cnt: {type: 0, bits: 6, absolute: 12}, macroblocks_cavlc: [{mb_skip_run: 100}]}
+- {<<: *p, nal_ref_idc: 0, frame_num: {bits: 4, absolute: 2}, pic_order_cnt: {type: 0, bits: 6, absolute: 8}, macroblocks_cavlc: [{mb_skip_run: 100}]}
+- {<<: *p, nal_ref_idc: 0, frame_num: {bits: 4, absolute: 2}, pic_order_cnt: {type: 0, bits: 6, absolute: 4}, macroblocks_cavlc: [{mb_skip_run: 100}]}
+- {<<: *p, nal_ref_idc: 0, frame_num: {bits: 4, absolute: 2}, pic_order_cnt: {type: 0, bits: 6, absolute: 2}, macroblocks_cavlc: [{mb_skip_run: 100}]}
+
+# level_idc=14 (undefined): edge264 rounds up to level 2 (MaxDpbFrames 16).
+- {<<: *sps, level_idc: 1.4, pic_size_in_mbs: {width: 10, height: 10}}
+- {<<: *pps}
+- {<<: *idr, macroblocks_cavlc: *mbs100}
+- {<<: *p, frame_num: {bits: 4, absolute: 1}, pic_order_cnt: {type: 0, bits: 6, absolute: 20}, macroblocks_cavlc: [{mb_skip_run: 100}]}
+- {<<: *p, nal_ref_idc: 0, frame_num: {bits: 4, absolute: 2}, pic_order_cnt: {type: 0, bits: 6, absolute: 16}, macroblocks_cavlc: [{mb_skip_run: 100}]}
+- {<<: *p, nal_ref_idc: 0, frame_num: {bits: 4, absolute: 2}, pic_order_cnt: {type: 0, bits: 6, absolute: 12}, macroblocks_cavlc: [{mb_skip_run: 100}]}
+- {<<: *p, nal_ref_idc: 0, frame_num: {bits: 4, absolute: 2}, pic_order_cnt: {type: 0, bits: 6, absolute: 8}, macroblocks_cavlc: [{mb_skip_run: 100}]}
+- {<<: *p, nal_ref_idc: 0, frame_num: {bits: 4, absolute: 2}, pic_order_cnt: {type: 0, bits: 6, absolute: 4}, macroblocks_cavlc: [{mb_skip_run: 100}]}
+- {<<: *p, nal_ref_idc: 0, frame_num: {bits: 4, absolute: 2}, pic_order_cnt: {type: 0, bits: 6, absolute: 2}, macroblocks_cavlc: [{mb_skip_run: 100}]}
+
+# level_idc=255 (undefined): edge264 applies no limit (MaxDpbFrames 16).
+- {<<: *sps, level_idc: 25.5, pic_size_in_mbs: {width: 10, height: 10}}
+- {<<: *pps}
+- {<<: *idr, macroblocks_cavlc: *mbs100}
+- {<<: *p, frame_num: {bits: 4, absolute: 1}, pic_order_cnt: {type: 0, bits: 6, absolute: 20}, macroblocks_cavlc: [{mb_skip_run: 100}]}
+- {<<: *p, nal_ref_idc: 0, frame_num: {bits: 4, absolute: 2}, pic_order_cnt: {type: 0, bits: 6, absolute: 16}, macroblocks_cavlc: [{mb_skip_run: 100}]}
+- {<<: *p, nal_ref_idc: 0, frame_num: {bits: 4, absolute: 2}, pic_order_cnt: {type: 0, bits: 6, absolute: 12}, macroblocks_cavlc: [{mb_skip_run: 100}]}
+- {<<: *p, nal_ref_idc: 0, frame_num: {bits: 4, absolute: 2}, pic_order_cnt: {type: 0, bits: 6, absolute: 8}, macroblocks_cavlc: [{mb_skip_run: 100}]}
+- {<<: *p, nal_ref_idc: 0, frame_num: {bits: 4, absolute: 2}, pic_order_cnt: {type: 0, bits: 6, absolute: 4}, macroblocks_cavlc: [{mb_skip_run: 100}]}
+- {<<: *p, nal_ref_idc: 0, frame_num: {bits: 4, absolute: 2}, pic_order_cnt: {type: 0, bits: 6, absolute: 2}, macroblocks_cavlc: [{mb_skip_run: 100}]}
+
+
+
+# S6: motion vectors far beyond the level 1 ranges (MaxVmvR = 64, horizontal -2048..2047.75, A.3.1 k and l).
+# POC 2: MB 0 at mv (32767,-32768), MB 1 with mvp+mvd overflowing int16, MBs 2 and 3 with sub-partitions at extreme mvs.
+# POC 8: temporal direct with DistScaleFactor = 1023 (tb=8, td=2, 8.4.1.2.3), scaling the mvs of POC 2 beyond int16.
+# Expected: decoded without error, with reference reads clamped to the picture edges (8.4.2.2).
+- {<<: *sps, max_num_ref_frames: 2, pic_size_in_mbs: {width: 2, height: 2}}
+- {<<: *pps}
+- {<<: *idr, macroblocks_cavlc: [*i16dc,*i16dcm,*i16dcm,*i16dc]}
+- {<<: *p, frame_num: {bits: 4, absolute: 1}, pic_order_cnt: {type: 0, bits: 6, absolute: 2}, macroblocks_cavlc: [
+    {mb_skip_run: 0, mb_type: 0, ref_idx: {}, mvds: [[32767,-32768]], coded_block_pattern: 0},
+    {mb_skip_run: 0, mb_type: 0, ref_idx: {}, mvds: [[1,-1]], coded_block_pattern: 0},
+    {mb_skip_run: 0, mb_type: 3, sub_mb_types: [3,3,3,3], ref_idx: {}, mvds: [[-32768,-32768],[32767,32767],[-32768,32767],[32767,-32768],[16384,-16384],[-16384,16384],[8192,8192],[-8192,-8192],[32767,0],[0,32767],[-32768,0],[0,-32768],[12345,-23456],[-23456,12345],[32767,32767],[-32768,-32768]], coded_block_pattern: 0},
+    {mb_skip_run: 0, mb_type: 3, sub_mb_types: [1,2,0,3], ref_idx: {}, mvds: [[32767,-32768],[-32768,32767],[20000,20000],[-20000,-20000],[32767,32767],[-1,1],[1,-1],[-32768,-32768],[32767,32767]], coded_block_pattern: 0}]}
+- {<<: *b, frame_num: {bits: 4, absolute: 2}, pic_order_cnt: {type: 0, bits: 6, absolute: 8}, direct_spatial_mv_pred_flag: 0, num_ref_idx_active: {override_flag: 1, l0: 2, l1: 1}, ref_pic_list_modification_l1: [[sref,-1]], macroblocks_cavlc: [{mb_skip_run: 4}]}
+
+
+
+# S7: limits of levels 3 and above that only bound decoder complexity (Table A-1 MaxMvsPer2Mb, A.3.3 c, e and f, Tables A-3 and A-4).
+# Level 5.1 Main: direct_8x8_inference_flag=0, B_8x8 with B_Bi_4x4/8x4/4x8 sub-macroblocks, two consecutive macroblocks with 56 mvs (MaxMvsPer2Mb = 16).
+# Expected: decoded normally.
+- {<<: *sps, level_idc: 5.1, max_num_ref_frames: 2, pic_size_in_mbs: {width: 2, height: 1}, direct_8x8_inference_flag: 0}
+- {<<: *pps}
+- {<<: *idr, macroblocks_cavlc: [*i16dc,*i16dcm]}
+- {<<: *p, frame_num: {bits: 4, absolute: 1}, pic_order_cnt: {type: 0, bits: 6, absolute: 8}, macroblocks_cavlc: [
+    {mb_skip_run: 0, mb_type: 0, ref_idx: {}, mvds: [[5,3]], coded_block_pattern: 0},
+    {mb_skip_run: 0, mb_type: 3, sub_mb_types: [3,3,3,3], ref_idx: {}, mvds: [[4,0],[-4,8],[12,-8],[-12,4],[0,16],[16,0],[-16,-16],[8,8],[3,-5],[-7,9],[11,-13],[-15,17],[2,2],[-2,-2],[6,-6],[-6,6]], coded_block_pattern: 0}]}
+# B_8x8 with sub_mb_types Bi_4x4, Bi_8x4, Bi_4x8, Bi_4x4 (24 mvs), then Bi_4x4 x4 (32 mvs)
+- {<<: *b, frame_num: {bits: 4, absolute: 2}, pic_order_cnt: {type: 0, bits: 6, absolute: 4}, macroblocks_cavlc: [
+    {mb_skip_run: 0, mb_type: 22, sub_mb_types: [12,8,9,12], ref_idx: {}, mvds: [[-3,-4],[-2,1],[-1,-3],[0,2],[1,-2],[2,3],[3,-1],[-3,4],[-2,0],[-1,-4],[0,1],[1,-3],[2,2],[3,-2],[-3,3],[-2,-1],[-1,4],[0,0],[1,-4],[2,1],[3,-3],[-3,2],[-2,-2],[-1,3]], coded_block_pattern: 0},
+    {mb_skip_run: 0, mb_type: 22, sub_mb_types: [12,12,12,12], ref_idx: {}, mvds: [[-5,-6],[-2,1],[1,-5],[4,2],[-4,-4],[-1,3],[2,-3],[5,4],[-3,-2],[0,5],[3,-1],[-5,6],[-2,0],[1,-6],[4,1],[-4,-5],[-1,2],[2,-4],[5,3],[-3,-3],[0,4],[3,-2],[-5,5],[-2,-1],[1,6],[4,0],[-4,-6],[-1,1],[2,-5],[5,2],[-3,-4],[0,3]], coded_block_pattern: 0}]}
+# temporal direct with 4x4 granularity: B_Skip, then B_8x8 with sub_mb_types Direct, Bi_4x4, Direct, Bi_8x8
+- {<<: *b, frame_num: {bits: 4, absolute: 2}, pic_order_cnt: {type: 0, bits: 6, absolute: 2}, direct_spatial_mv_pred_flag: 0, macroblocks_cavlc: [{mb_skip_run: 1},
+    {mb_type: 22, sub_mb_types: [0,12,0,3], ref_idx: {}, mvds: [[-2,-3],[-1,0],[0,3],[1,-1],[2,2],[-2,-2],[-1,1],[0,-3],[1,0],[2,3]], coded_block_pattern: 0}]}
+# spatial direct with 4x4 granularity: B_Direct_16x16, then B_Skip
+- {<<: *b, frame_num: {bits: 4, absolute: 2}, pic_order_cnt: {type: 0, bits: 6, absolute: 6}, macroblocks_cavlc: [{mb_skip_run: 0, mb_type: 0, coded_block_pattern: 0},{mb_skip_run: 1}]}
+
+# Level 3 Baseline: P_8x8 with 4x4 sub-partitions spread far apart, above MaxSubMbRectSize = 576 (A.3.3 f).
+- {<<: *sps, profile_idc: 66, level_idc: 3.0, pic_size_in_mbs: {width: 2, height: 1}, direct_8x8_inference_flag: 0}
+- {<<: *pps}
+- {<<: *idr, macroblocks_cavlc: [*i16dc,*i16dcm]}
+- {<<: *p, frame_num: {bits: 4, absolute: 1}, pic_order_cnt: {type: 0, bits: 6, absolute: 2}, macroblocks_cavlc: [
+    {mb_skip_run: 0, mb_type: 3, sub_mb_types: [3,3,3,3], ref_idx: {}, mvds: [[256,256],[-256,256],[256,-256],[-256,-256],[256,256],[-256,256],[256,-256],[-256,-256],[256,256],[-256,256],[256,-256],[-256,-256],[256,256],[-256,256],[256,-256],[-256,-256]], coded_block_pattern: 0},
+    {mb_skip_run: 1}]}
+
+
+
+# S8: limits without decoder-side state, i.e. bit rate, CPB size, bytes per picture and bits per macroblock (A.3.1 c, d, i, j and n, A.3.3 a and b).
+# Level 1 with HRD at 1048576000 bits/s (MaxBR = 64000), VUI bounds of 96 bytes per picture and 200 bits per macroblock,
+# a 4-MB picture in 4 slices, whose first macroblock is about 4400 bits long at QP 0 (above 3200).
+# Expected: decoded normally.
+- {<<: *sps, pic_size_in_mbs: {width: 4, height: 1}, vui_parameters: {<<: *vui,
+    nal_hrd_parameters: {cpbs: [{bit_rate: 1048576000, size: 1048576000, cbr_flag: 0}], initial_cpb_removal_delay_length: 24, cpb_removal_delay_length: 24, dpb_output_delay_length: 24, time_offset_length: 24},
+    low_delay_hrd_flag: 0, max_bytes_per_pic: 96, max_bits_per_mb: 200, log2_max_mv_length_horizontal: 0, log2_max_mv_length_vertical: 0, max_num_reorder_frames: 0, max_dec_frame_buffering: 1}}
+- {<<: *pps}
+- {<<: *idr, slice_qp_delta: -26, macroblocks_cavlc: [{mb_type: 0, rem_intra4x4_pred_modes: [-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1], intra_chroma_pred_mode: 0, coded_block_pattern: 47, mb_qp_delta: 0, coeffLevels: [
+    {nC: 0, c: &c16 [40,-40,40,-40,40,-40,40,-40,40,-40,40,-40,40,-40,40,-40]}, &l16 {nC: 16, c: *c16}, *l16, *l16, *l16, *l16, *l16, *l16, *l16, *l16, *l16, *l16, *l16, *l16, *l16, *l16,
+    {nC: -1, c: [40,-40,40,-40]}, {nC: -1, c: [40,-40,40,-40]},
+    {nC: 0, c: &c15 [40,-40,40,-40,40,-40,40,-40,40,-40,40,-40,40,-40,40]}, &l15 {nC: 15, c: *c15}, *l15, *l15,
+    {nC: 0, c: *c15}, *l15, *l15, *l15]}]}
+- {<<: *idr, first_mb_in_slice: 1}
+- {<<: *idr, first_mb_in_slice: 2}
+- {<<: *idr, first_mb_in_slice: 3}
+- {<<: *p, frame_num: {bits: 4, absolute: 1}, pic_order_cnt: {type: 0, bits: 6, absolute: 2}, macroblocks_cavlc: [{mb_skip_run: 4}]}
+
+
+
+# S9: picture sizes beyond the limits of edge264 (width 1023 MBs, PicSizeInMbs 139264).
+# Width 1024 is valid at levels 6 to 6.2 (Sqrt(8 * 139264) = 1055, A.3.2 d). Expected: MB 1023 decoded, the rest concealed (or ENOTSUP).
+# edge264 clamps the width to 1023 and rejects the slice with EBADMSG.
+- {<<: *sps, level_idc: 6.2, pic_size_in_mbs: {width: 1024, height: 1}}
+- {<<: *pps}
+- {<<: *idr, first_mb_in_slice: 1023}
+# 1023 x 137 MBs exceeds MaxFS = 139264 at all levels (A.3.2 c). Expected: ENOTSUP or EBADMSG on the SPS.
+# edge264 clamps the height to 136 and rejects the slice of the last row with EBADMSG.
+- {<<: *sps, level_idc: 6.2, pic_size_in_mbs: {width: 1023, height: 137}}
+- {<<: *pps}
+- {<<: *idr, first_mb_in_slice: 139128}
+
+
+
+# S10: max_num_ref_frames=2 above MaxDpbFrames = 396 / 200 = 1, with a long-term IDR then a gap in frame_num.
+# Expected (ignoring the level): frame 1 inserted as non-existing (8.2.5.2), then the P frame copies the IDR through list modification.
+# edge264 clamps max_num_ref_frames to 1, so the long-term IDR leaves no short-term slot and no non-existing frame is inserted.
+- {<<: *sps, max_num_ref_frames: 2, gaps_in_frame_num_value_allowed_flag: 1, pic_size_in_mbs: {width: 20, height: 10}}
+- {<<: *pps}
+- {<<: *idr, long_term_reference_flag: 1, macroblocks_cavlc: *mbs100}
+- {<<: *idr, long_term_reference_flag: 1, first_mb_in_slice: 100, macroblocks_cavlc: *mbs100}
+- {<<: *p, frame_num: {bits: 4, absolute: 2}, pic_order_cnt: {type: 0, bits: 6, absolute: 4}, ref_pic_list_modification_l0: [[lref,0]], macroblocks_cavlc: [{mb_skip_run: 200}]}

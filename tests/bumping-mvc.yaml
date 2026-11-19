@@ -829,8 +829,8 @@
 
 # E4: the views of one access unit have different POCs (non-conforming, G.8.1), so they are
 # split into two frames completed with non-existing views. The extra frame in each DPB bumps
-# POC 4 before POC 2 is decoded.
-# Expected output: 0 4 2 5 6 8 10 12 14 16
+# POC 4 before POC 2 is decoded, so POC 2 is dropped.
+# Expected output: 0 4 5 6 8 10 12 14 16
 
 - {<<: *sps, vui_parameters: {<<: *vui, max_num_reorder_frames: 2, max_dec_frame_buffering: 4}}
 - {<<: *pps}
@@ -848,7 +848,7 @@
 # AU POC 2, outputs 4
 - {<<: *i, nal_ref_idc: 0, frame_num: {bits: 4, absolute: 3}, pic_order_cnt: {type: 0, bits: 6, absolute: 2}}
 - {<<: *i1, nal_ref_idc: 0, frame_num: {bits: 4, absolute: 3}, pic_order_cnt: {type: 0, bits: 6, absolute: 2}}
-# AU POC 6, outputs 2 5
+# AU POC 6, drops 2 then outputs 5
 - {<<: *i, nal_ref_idc: 0, frame_num: {bits: 4, absolute: 3}, pic_order_cnt: {type: 0, bits: 6, absolute: 6}}
 - {<<: *i1, nal_ref_idc: 0, frame_num: {bits: 4, absolute: 3}, pic_order_cnt: {type: 0, bits: 6, absolute: 6}}
 # AU POC 16, outputs 6

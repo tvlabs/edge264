@@ -333,7 +333,7 @@ Bug fixes should preferably provide test streams that can demonstrate fixing sai
 | Horizontal/vertical cropping leaving zero space | All OK, 1x1 frames | zero-cropping |
 | P/B slice with nal_unit_type=5 or max_num_ref_frames=0 | 4 OK, 2 errors | no-refs-P-B-slice |
 | IDR slice with frame_num>0 | All OK, clamped to 0 | pos-frame-num-idr |
-| A ref that must bump out higher POCs to enter DPB (C.4.5.2) | All OK, check output order | poc-out-of-order |
+| A ref that must bump out higher POCs to enter DPB (C.4.5.2) | All OK, the late ref is dropped rather than output out of order | poc-out-of-order |
 | MMCO5 in both views of an MVC stream, keeping views paired | All OK, 3 frame pairs | mvc-mmco5-pairing |
 | Bumping process coverage | All OK, check output order | bumping |
 | Bumping process coverage for MVC | All OK, check output order and pairing | bumping-mvc |

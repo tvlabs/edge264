@@ -135,10 +135,11 @@
 
 
 
-# S3: no reordering (max_num_reorder_frames=0), each frame is output as soon as decoded,
-# even with decreasing POCs (violating max_num_reorder_frames).
+# S3: no reordering (max_num_reorder_frames=0), each frame is bumped as soon as decoded, so
+# frames with decreasing POCs (violating max_num_reorder_frames) are dropped rather than output
+# out of order.
 # max_num_reorder_frames=0, max_dec_frame_buffering=1, max_num_ref_frames=1
-# Expected output: 0 6 4 2 8
+# Expected output: 0 6 8
 
 - {<<: *sps, vui_parameters: {<<: *vui, max_num_reorder_frames: 0, max_dec_frame_buffering: 1}}
 - {<<: *pps}
@@ -148,9 +149,9 @@
 - {<<: *i, frame_num: {bits: 4, absolute: 1}, pic_order_cnt: {type: 0, bits: 6, absolute: 6}}
 # POC 4, releases 6
 - {<<: *i, nal_ref_idc: 0, frame_num: {bits: 4, absolute: 2}, pic_order_cnt: {type: 0, bits: 6, absolute: 4}}
-# POC 2, releases 4
+# POC 2, drops 4
 - {<<: *i, nal_ref_idc: 0, frame_num: {bits: 4, absolute: 2}, pic_order_cnt: {type: 0, bits: 6, absolute: 2}}
-# POC 8, releases 2
+# POC 8, drops 2
 - {<<: *i, frame_num: {bits: 4, absolute: 2}, pic_order_cnt: {type: 0, bits: 6, absolute: 8}}
 # end of sequence releases 8
 - {nal_ref_idc: 0, nal_unit_type: 10}

@@ -116,6 +116,7 @@ Edge264Decoder *edge264_alloc(int n_threads, Edge264LogCb log_cb, void *log_arg,
 	dec->prevFrameId = UINT_MAX; // wraps to 0 for the first frame
 	dec->inter_view_flag = 1;
 	dec->frame_top_poc = dec->frame_bottom_poc = INT64_MIN;
+	dec->last_output_poc = INT64_MIN;
 	dec->taskPics_v = set8(-1);
 	dec->n_threads = n_threads;
 	dec->alloc_cb = alloc_cb && free_cb ? alloc_cb : internal_alloc;
@@ -336,12 +337,19 @@ int edge264_get_frame(Edge264Decoder *dec, Edge264Frame *out, int borrow) {
 	if (dec->n_threads)
 		pthread_mutex_lock(&dec->lock);
 
-	// find lowest POC of frames not output yet (bumped or not), excluding POC of current frame
+	// find lowest to-output POC, excluding current frame, and dropping out-of-order frames
 	int64_t lowest_poc = INT64_MAX;
 	for (uint64_t o = dec->to_get_frames_l; o; o &= o - 1) {
-		int64_t poc = dec->FieldOrderCnt[__builtin_ctzll(o)][0];
-		if (poc != dec->frame_top_poc && poc < lowest_poc)
+		int pic = __builtin_ctzll(o);
+		int64_t poc = dec->FieldOrderCnt[pic][0];
+		if (poc == dec->frame_top_poc)
+			continue;
+		if (poc < dec->last_output_poc && dec->output_frames_l & 1 << pic && dec->next_deblock_addr[pic] == INT_MAX) {
+			dec->to_get_frames_l &= ~(1ull << pic);
+			dec->output_frames_l &= ~(1ull << pic);
+		} else if (poc < lowest_poc) {
 			lowest_poc = poc;
+		}
 	}
 
 	// select bumped/non-bumped frames matching this POC
@@ -358,6 +366,7 @@ int edge264_get_frame(Edge264Decoder *dec, Edge264Frame *out, int borrow) {
 		!(pic0 >= 0 && (~dec->output_frames_l >> pic0 & 1 || dec->next_deblock_addr[pic0] != INT_MAX)) &&
 		!(pic1 >= 0 && (~dec->output_frames_l >> pic1 & 1 || dec->next_deblock_addr[pic1] != INT_MAX)))
 	{
+		dec->last_output_poc = lowest_poc;
 		memcpy(out, &dec->out, sizeof(*out)); // GCC-14 crashes on dec->out = format
 		int top = dec->out.frame_crop_offsets[0];
 		int left = dec->out.frame_crop_offsets[3];

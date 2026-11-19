@@ -626,8 +626,8 @@ int main(int argc, char *argv[]) {
 	test("tests/scaling-lists", NULL, 0x142869cb);
 	test("tests/mvc-mmco5-pairing", NULL, 0x0cb5c2d6);
 	test("tests/mvc-mmco5-absent-view", NULL, 0x55875503);
-	test("tests/bumping", NULL, 0x40dd9c7c);
-	test("tests/bumping-mvc", NULL, 0x0a32b679);
+	test("tests/bumping", NULL, 0x7cc6630a);
+	test("tests/bumping-mvc", NULL, 0x92813ce0);
 	test("conformance/AVCv1/AUD_MW_E", NULL, 0x7c4f9ffe);
 	test("conformance/AVCv1/BA1_FT_C", NULL, 0x420267fc);
 	test("conformance/AVCv1/BA1_Sony_D", NULL, 0x12819dd0);

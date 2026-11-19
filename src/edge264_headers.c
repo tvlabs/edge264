@@ -215,26 +215,12 @@ static void start_view(Edge264Decoder *dec, Edge264SeqParameterSet *sps, int cur
 	dec->FieldOrderCnt[currPic][1] = ((int64_t)dec->poc_msb << 32) + BottomFieldOrderCnt;
 	log_dec(dec, "  FrameId: %u\n", dec->FrameIds[currPic]);
 	
-	// for safety, compute the max number of frames that can bump out of DPB
-	int max_bump = maxs(sps->max_num_ref_frames, 1);
-	if (!dec->nal_ref_idc) {
-		max_bump = 0;
-		for (unsigned o = dec->to_get_frames[view_id] & ~dec->output_frames[view_id]; o; o &= o - 1)
-			max_bump += dec->FieldOrderCnt[view_id * 32 + __builtin_ctz(o)][0] < dec->FieldOrderCnt[currPic][0];
-	}
-	
-	// apply bumping process until there is an empty slot, once the frames dereferenced by the current picture are removed (C.4.4)
-	unsigned refs = (dec->view_short_term_frames[view_id] | dec->view_long_term_frames[view_id]) & ~(1u << (currPic & 31));
-	while (__builtin_popcount(refs | (dec->to_get_frames[view_id] & ~dec->output_frames[view_id])) >= sps->max_dec_frame_buffering && max_bump--)
-		bump_frame(dec, view_id);
+	// bump until currPic fits in DPB, bumping itself if it is next (C.4)
 	dec->to_get_frames_l |= 1ull << currPic;
-	
-	// if DPB has no outputable frame left then bump current frame, otherwise bump if number of reordered frames exceeds limit
-	if (max_bump < 0) {
-		dec->output_frames_l |= 1ull << currPic;
-	} else if (__builtin_popcount(dec->to_get_frames[view_id] & ~dec->output_frames[view_id]) > sps->max_num_reorder_frames) {
+	unsigned refs = dec->view_short_term_frames[view_id] | dec->view_long_term_frames[view_id];
+	while (__builtin_popcount(refs | (dec->to_get_frames[view_id] & ~dec->output_frames[view_id])) > sps->max_dec_frame_buffering && bump_frame(dec, view_id));
+	while (__builtin_popcount(dec->to_get_frames[view_id] & ~dec->output_frames[view_id]) > sps->max_num_reorder_frames)
 		bump_frame(dec, view_id);
-	}
 	
 	#if VARIANT == LOGS
 		log_dec(dec, "  DecodedPictureBuffer:\n");
@@ -276,6 +262,7 @@ static int new_sequence(Edge264Decoder *dec) {
 	dec->currPic[0] = dec->currPic[1] = -1;
 	dec->PrevRefFrameNum[0] = dec->PrevRefFrameNum[1] = -1;
 	dec->frame_top_poc = dec->frame_bottom_poc = INT64_MIN;
+	dec->last_output_poc = INT64_MIN;
 	return 0;
 }
 

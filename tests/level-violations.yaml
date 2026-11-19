@@ -151,7 +151,7 @@
 
 # S4: reordering deeper than MaxDpbFrames = 396 / 200 = 1, without VUI (max_num_reorder_frames inferred to MaxDpbFrames, E.2.1).
 # Expected (ignoring the level): POC order 0 4 8 12 16 20 24, which needs max_num_reorder_frames=2 and a 3-frame DPB.
-# edge264 (like C.4 with a 1-frame DPB) outputs 0 8 4 12 20 16 24.
+# edge264 (like C.4 with a 1-frame DPB) bumps 0 8 4 12 20 16 24, and drops 4 and 16 to output 0 8 12 20 24.
 - {<<: *sps, pic_size_in_mbs: {width: 20, height: 10}}
 - {<<: *pps}
 - {<<: *idr, macroblocks_cavlc: *mbs100}
@@ -166,7 +166,7 @@
 
 
 # S5: level_idc values with special or undefined meanings, on the same 100-MB GOP without VUI.
-# The GOP outputs in POC order (0 2 4 8 12 16 20) only with MaxDpbFrames >= 6, and as 0 8 4 2 12 16 20 with MaxDpbFrames = 3.
+# The GOP outputs in POC order (0 2 4 8 12 16 20) only with MaxDpbFrames >= 6, and as 0 8 12 16 20 with MaxDpbFrames = 3 (4 and 2 bumped late and dropped).
 # level_idc=0 (undefined): edge264 uses level 1 (MaxDpbFrames 3).
 - {<<: *sps, level_idc: 0.0, pic_size_in_mbs: {width: 10, height: 10}}
 - {<<: *pps}

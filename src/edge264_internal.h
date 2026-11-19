@@ -474,6 +474,7 @@ typedef struct Edge264Decoder {
 	union { uint32_t to_get_frames[2]; uint64_t to_get_frames_l; }; // [view], bitfield for frames that have not been returned by get_frame yet
 	union { uint32_t output_frames[2]; uint64_t output_frames_l; }; // [view], bitfield for frames that have been bumped for output and not returned yet
 	union { uint32_t erroneous_frames[2]; uint64_t erroneous_frames_l; }; // [view], bitfield for frames with concealed macroblocks or inferred from a frame_num gap
+	int64_t last_output_poc; // POC of the last frame returned by get_frame, frames below it are dropped
 	uint32_t FrameIds[64]; // unique identifiers for each frame, incremented in decoding order
 	int32_t FrameNums[64]; // signed to be used along FieldOrderCnt in initial reference ordering
 	int64_t FieldOrderCnt[64][2]; // [pic][top/bottom], upper half is poc_msb of the GOP to keep output in increasing order

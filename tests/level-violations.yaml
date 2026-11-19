@@ -99,7 +99,7 @@
 
 
 # S1: level too low for the picture size, MaxDpbFrames = Min(396 / 400, 16) = 0 (A.3.1 h), with max_num_ref_frames=1.
-# edge264 clamps max_num_ref_frames to 0, then parses both P slices as I slices (7.4.3).
+# Lowering max_num_ref_frames to MaxDpbFrames would make it 0, so that both P slices are parsed as I slices (7.4.3).
 # Expected (ignoring the level): POC 0 gray, POC 2 gray with MB 0 at DC level 8, POC 4 copying POC 2.
 - {<<: *sps, pic_size_in_mbs: {width: 20, height: 20}}
 - {<<: *pps}
@@ -115,7 +115,7 @@
 # S2: max_num_ref_frames=5 above MaxDpbFrames = 396 / 100 = 3, without VUI (A.3.1 h).
 # Four reference frames with MB 0 at DC levels 8, 16, 24, 32, then five non-reference frames copying MB 0 from ref_idx 0 to 4.
 # Expected (ignoring the level): MB 0 of POC 9 to 13 at levels 32, 24, 16, 8, then gray (IDR).
-# edge264 keeps only 3 references, so ref_idx 3 and 4 point to missing references.
+# Lowering max_num_ref_frames to 3 would make ref_idx 3 and 4 point to missing references.
 - {<<: *sps, max_num_ref_frames: 5, pic_size_in_mbs: {width: 10, height: 10}}
 - {<<: *pps}
 - {<<: *idr, macroblocks_cavlc: *mbs100}
@@ -132,7 +132,7 @@
 
 
 # S3: as S2 with VUI max_dec_frame_buffering=5 above MaxDpbFrames = 396 / 110 = 3 (A.3.1 h).
-# Expected (ignoring the level): as S2. edge264 keeps a 5-frame DPB but has already clamped max_num_ref_frames to 3.
+# Expected (ignoring the level): as S2, with a 5-frame DPB.
 - {<<: *sps, max_num_ref_frames: 5, pic_size_in_mbs: {width: 11, height: 10}, vui_parameters: {<<: *vui, max_num_reorder_frames: 0, max_dec_frame_buffering: 5}}
 - {<<: *pps}
 - {<<: *idr, macroblocks_cavlc: *mbs100}
@@ -305,7 +305,7 @@
 
 # S10: max_num_ref_frames=2 above MaxDpbFrames = 396 / 200 = 1, with a long-term IDR then a gap in frame_num.
 # Expected (ignoring the level): frame 1 inserted as non-existing (8.2.5.2), then the P frame copies the IDR through list modification.
-# edge264 clamps max_num_ref_frames to 1, so the long-term IDR leaves no short-term slot and no non-existing frame is inserted.
+# Lowering max_num_ref_frames to 1 would leave no short-term slot next to the long-term IDR, so no non-existing frame would be inserted.
 - {<<: *sps, max_num_ref_frames: 2, gaps_in_frame_num_value_allowed_flag: 1, pic_size_in_mbs: {width: 20, height: 10}}
 - {<<: *pps}
 - {<<: *idr, long_term_reference_flag: 1, macroblocks_cavlc: *mbs100}

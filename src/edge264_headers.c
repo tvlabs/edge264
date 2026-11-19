@@ -1857,17 +1857,17 @@ static void parse_vui_parameters(Edge264Decoder *dec, Edge264SeqParameterSet *sp
 		int log2_max_mv_length_vertical = get_ue16(&dec->gb, 15);
 		// we don't enforce MaxDpbFrames here since violating the level is harmless
 		int max_num_reorder_frames = get_ue16(&dec->gb, 16);
-		// DPB size is Max(1, max_dec_frame_buffering) (C.1)
-		sps->max_dec_frame_buffering = maxs(maxs(get_ue16(&dec->gb, 16), sps->max_num_ref_frames), 1);
+		int max_dec_frame_buffering = get_ue16(&dec->gb, 16);
+		sps->max_dec_frame_buffering = maxs(maxs(max_dec_frame_buffering, 1), sps->max_num_ref_frames);
 		sps->max_num_reorder_frames = mins(max_num_reorder_frames, sps->max_dec_frame_buffering);
 		log_dec(dec, "    log2_max_mv_length_horizontal: %u\n"
 			"    log2_max_mv_length_vertical: %u\n"
 			"    max_num_reorder_frames: %u\n"
-			"    max_dec_frame_buffering: %u\n", // in units of view components (Annex C p.311)
+			"    max_dec_frame_buffering: %u\n",
 			log2_max_mv_length_horizontal,
 			log2_max_mv_length_vertical,
-			sps->max_num_reorder_frames,
-			sps->max_dec_frame_buffering);
+			max_num_reorder_frames,
+			max_dec_frame_buffering);
 	} else {
 		log_dec(dec, "    max_num_reorder_frames: %u # inferred\n"
 			"    max_dec_frame_buffering: %u # inferred\n",
@@ -2161,7 +2161,7 @@ int ADD_VARIANT(parse_seq_parameter_set)(Edge264Decoder *dec, Edge264UnrefCb unr
 	}
 	
 	// Max width is imposed by some int16 storage, wait for actual needs to push it.
-	int max_num_ref_frames = get_ue16(&dec->gb, 16);
+	sps.max_num_ref_frames = get_ue16(&dec->gb, 16);
 	int gaps_in_frame_num_value_allowed_flag = get_u1(&dec->gb);
 	sps.pic_width_in_mbs = get_ue16(&dec->gb, 1022) + 1;
 	int pic_height_in_map_units = get_ue16(&dec->gb, 1054) + 1;
@@ -2170,15 +2170,14 @@ int ADD_VARIANT(parse_seq_parameter_set)(Edge264Decoder *dec, Edge264UnrefCb unr
 		ret = ENOTSUP;
 	int max_height_in_map_units = (139264 / sps.pic_width_in_mbs) << sps.frame_mbs_only_flag >> 1;
 	sps.pic_height_in_mbs = mins(pic_height_in_map_units, max_height_in_map_units) << 1 >> sps.frame_mbs_only_flag;
-	int MaxDpbFrames = mins((unsigned)MaxDpbMbs[mins(level_idc, 63)] / (sps.pic_width_in_mbs * sps.pic_height_in_mbs), 16);
-	sps.max_num_ref_frames = mins(max_num_ref_frames, MaxDpbFrames);
 	if (movemask(set8(profile_idc) == ((u8x16){44, 86, 100, 110, 122, 244})) &&
 		(constraint_set_flags & 1 << 4)) {
 		sps.max_num_reorder_frames = 0;
 		sps.max_dec_frame_buffering = maxs(sps.max_num_ref_frames, 1);
 	} else {
-		sps.max_num_reorder_frames = MaxDpbFrames;
-		sps.max_dec_frame_buffering = maxs(MaxDpbFrames, 1);
+		int MaxDpbFrames = mins((unsigned)MaxDpbMbs[mins(level_idc, 63)] / (sps.pic_width_in_mbs * sps.pic_height_in_mbs), 16);
+		sps.max_num_reorder_frames = maxs(sps.max_num_ref_frames, MaxDpbFrames);
+		sps.max_dec_frame_buffering = maxs(sps.max_num_reorder_frames, 1);
 	}
 	log_dec(dec, "  max_num_ref_frames: %u\n"
 		"  gaps_in_frame_num_value_allowed_flag: %u\n"
